@@ -8,7 +8,10 @@
 
 use indexmap::IndexMap;
 
-use super::super::gc::handles::{Entry, alloc_entry, free_handle, with_entry, with_entry_mut};
+use rts_abi::ty::{Bool, Handle, I64, U64};
+use rts_macro::rts_namespace;
+
+use super::super::gc::handles::{alloc_entry, free_handle, with_entry, with_entry_mut, Entry};
 
 /// Reconhece "array index" no sentido do ECMA-262: string que representa
 /// um u32 canônico (sem leading zeros exceto "0"; máximo 2^32 - 2).
@@ -82,9 +85,413 @@ where
     })
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_NEW() -> u64 {
-    alloc_entry(Entry::Map(Box::new(IndexMap::new())))
+/// Membros Map do namespace `collections` (parte; vec.rs declara a outra).
+/// Stage 2c, `docs/specs/rts-core-engine.md`. As fns nao-membro
+/// (`OBJ_*`/`GL_OBJECT_*`/`*_AUTO`/helpers) ficam como free fns abaixo.
+#[rts_namespace(collections, part)]
+impl CollectionsMapNs {
+    /// Creates an empty HashMap<string, number> and returns its handle.
+    #[rts_fn]
+    pub fn map_new() -> Handle {
+        alloc_entry(Entry::Map(Box::new(IndexMap::new())))
+    }
+
+    /// Releases the map handle.
+    #[rts_fn]
+    pub fn map_free(h: U64) {
+        free_handle(h);
+    }
+
+    /// Number of entries; -1 if the handle is invalid.
+    #[rts_fn]
+    pub fn map_len(h: U64) -> I64 {
+        with_map(h, -1, |m| m.len() as i64)
+    }
+
+    /// True when the map contains `key`.
+    #[rts_fn]
+    pub fn map_has(h: U64, key: Str) -> Bool {
+        // (#218) Proxy: trap `has(target, prop)` ou forward.
+        if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(h) {
+            return crate::namespaces::globals::proxy::ops::dispatch_has(target, handler, key);
+        }
+        with_map(h, 0, |m| if m.contains_key(key) { 1 } else { 0 })
+    }
+
+    /// Value for `key`, or 0 when absent. Use map_has to distinguish.
+    #[rts_fn]
+    pub fn map_get(h: U64, key: Str) -> I64 {
+        // (#218) Proxy: dispatch get trap quando handle eh Proxy.
+        if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(h) {
+            return crate::namespaces::globals::proxy::ops::dispatch_get(target, handler, key);
+        }
+        with_map(h, 0, |m| m.get(key).copied().unwrap_or(0))
+    }
+
+    /// Inserts/overwrites `key` with `value`.
+    #[rts_fn]
+    pub fn map_set(h: U64, key: Str, value: I64) {
+        // (#218) Proxy: trap `set(target, prop, value)` ou forward.
+        if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(h) {
+            crate::namespaces::globals::proxy::ops::dispatch_set(target, handler, key, value);
+            return;
+        }
+        // (#479 follow-up) frozen impede mutacao; sealed so' impede add de novas keys.
+        if is_map_frozen(h) {
+            return;
+        }
+        // (#1073) writable=false definido via Object.defineProperty bloqueia
+        // assignment silenciosamente (sloppy mode).
+        if is_non_writable(h, key) {
+            return;
+        }
+        let key_owned = key.to_string();
+        let sealed = is_map_sealed(h);
+        with_map_mut(h, (), |m| {
+            if sealed && !m.contains_key(&key_owned) {
+                return;
+            }
+            m.insert(key_owned, value);
+        });
+    }
+
+    /// Removes `key`. Returns 1 if removed, 0 if absent.
+    #[rts_fn]
+    pub fn map_delete(h: U64, key: Str) -> I64 {
+        // (#218) Proxy: trap `deleteProperty(target, prop)` ou forward.
+        if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(h) {
+            return crate::namespaces::globals::proxy::ops::dispatch_delete(target, handler, key);
+        }
+        // sealed/frozen impedem delete.
+        if is_map_sealed(h) {
+            return 0;
+        }
+        with_map_mut(h, 0, |m| if m.shift_remove(key).is_some() { 1 } else { 0 })
+    }
+
+    /// Removes all entries.
+    #[rts_fn]
+    pub fn map_clear(h: U64) {
+        with_map_mut(h, (), |m| m.clear());
+    }
+
+    /// True when `key_h` is an own property of `obj_h` (Vec or Map). Accepts Symbol keys.
+    #[rts_fn]
+    pub fn obj_has(obj_h: U64, key_h: U64) -> Bool {
+        let key = match key_handle_to_string(key_h) {
+            Some(s) => s,
+            None => return 0,
+        };
+        // (cross-runtime #340) Proxy: dispatch `has` trap quando obj_h eh Proxy.
+        if let Some((target, handler)) =
+            crate::namespaces::globals::proxy::ops::resolve_proxy(obj_h)
+        {
+            return crate::namespaces::globals::proxy::ops::dispatch_has(target, handler, &key);
+        }
+        // Vec: index `i` esta "in" array se 0 <= i < length E slot != hole.
+        let vec_result: Option<i64> = with_entry(obj_h, |e| match e {
+            Some(Entry::Vec(v)) => {
+                if let Some(n) = parse_array_index(&key) {
+                    let slot = v.get(n as usize).copied();
+                    Some(match slot {
+                        Some(s) if s != i64::MIN + 4 => 1,
+                        _ => 0,
+                    })
+                } else if key == "length" {
+                    Some(1)
+                } else {
+                    Some(0)
+                }
+            }
+            _ => None,
+        });
+        if let Some(r) = vec_result {
+            return r;
+        }
+        // (#1091) `in` walking prototype chain + class methods.
+        if with_map(obj_h, 0, |m| if m.contains_key(&key) { 1 } else { 0 }) == 1 {
+            return 1;
+        }
+        // Walk __proto__ chain.
+        let mut visited: HashSet<u64> = HashSet::new();
+        let mut cur = with_map(obj_h, 0i64, |m| m.get("__proto__").copied().unwrap_or(0)) as u64;
+        let mut steps = 0u32;
+        while cur != 0 && steps < 64 {
+            steps += 1;
+            if !visited.insert(cur) {
+                break;
+            }
+            let found = with_map(cur, 0, |m| if m.contains_key(&key) { 1 } else { 0 });
+            if found == 1 {
+                return 1;
+            }
+            cur = with_map(cur, 0i64, |m| m.get("__proto__").copied().unwrap_or(0)) as u64;
+        }
+        // Class method: consulta global class registry pelo __rts_class.
+        let class_name: Option<String> = with_entry(obj_h, |e| match e {
+            Some(Entry::Map(m)) => m.get("__rts_class").and_then(|v| {
+                with_entry(*v as u64, |ce| match ce {
+                    Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
+                    _ => None,
+                })
+            }),
+            _ => None,
+        });
+        if let Some(cls) = class_name.as_ref() {
+            if class_method_registry()
+                .lock()
+                .unwrap()
+                .get(cls)
+                .map(|set| set.contains(&key))
+                .unwrap_or(false)
+            {
+                return 1;
+            }
+            if matches!(
+                key.as_str(),
+                "toString"
+                    | "hasOwnProperty"
+                    | "valueOf"
+                    | "isPrototypeOf"
+                    | "propertyIsEnumerable"
+                    | "toLocaleString"
+                    | "constructor"
+            ) {
+                return 1;
+            }
+        }
+        0
+    }
+
+    /// Inserts/overwrites value for key handle (String or Symbol).
+    #[rts_fn]
+    pub fn map_set_kh(obj_h: U64, key_h: U64, value: I64) {
+        let Some(key) = key_handle_to_string(key_h) else {
+            return;
+        };
+        with_map_mut(obj_h, (), |m| {
+            m.insert(key, value);
+        });
+    }
+
+    /// Sets obj[key]=value, dispatching on Vec vs Map. Accepts Symbol keys.
+    #[rts_fn]
+    pub fn obj_set(obj_h: U64, key_h: U64, value: I64) {
+        // Vec path: tenta parse de array index a partir da key.
+        let is_vec = with_entry(obj_h, |e| matches!(e, Some(Entry::Vec(_))));
+        if is_vec {
+            if let Some(key) = key_handle_to_string(key_h) {
+                if let Some(n) = parse_array_index(&key) {
+                    with_entry_mut(obj_h, |e| {
+                        if let Some(Entry::Vec(v)) = e {
+                            let idx = n as usize;
+                            if idx >= v.len() {
+                                v.resize(idx + 1, i64::MIN + 4);
+                            }
+                            v[idx] = value;
+                        }
+                    });
+                }
+            }
+            return;
+        }
+        // Map path (ou other -> noop).
+        if let Some(key) = key_handle_to_string(key_h) {
+            with_map_mut(obj_h, (), |m| {
+                m.insert(key, value);
+            });
+        }
+    }
+
+    /// Reads obj[key], dispatching on Vec vs Map. Accepts Symbol keys.
+    #[rts_fn]
+    pub fn obj_get(obj_h: U64, key_h: U64) -> I64 {
+        let Some(key) = key_handle_to_string(key_h) else {
+            return 0;
+        };
+        let vec_result: Option<i64> = with_entry(obj_h, |e| match e {
+            Some(Entry::Vec(v)) => {
+                if key == "length" {
+                    Some(v.len() as i64)
+                } else if let Some(n) = parse_array_index(&key) {
+                    Some(v.get(n as usize).copied().unwrap_or(i64::MIN + 2))
+                } else {
+                    Some(0)
+                }
+            }
+            _ => None,
+        });
+        if let Some(r) = vec_result {
+            return r;
+        }
+        with_map(obj_h, 0, |m| m.get(&key).copied().unwrap_or(0))
+    }
+
+    /// Returns value for key handle, or 0 if absent.
+    #[rts_fn]
+    pub fn map_get_kh(obj_h: U64, key_h: U64) -> I64 {
+        let Some(key) = key_handle_to_string(key_h) else {
+            return 0;
+        };
+        // (cross-runtime #340/#53) Proxy: dispatch `get` trap antes do path raw.
+        if let Some((target, handler)) =
+            crate::namespaces::globals::proxy::ops::resolve_proxy(obj_h)
+        {
+            return crate::namespaces::globals::proxy::ops::dispatch_get(target, handler, &key);
+        }
+        // Vec path: parse key como array index.
+        let is_vec = with_entry(obj_h, |e| matches!(e, Some(Entry::Vec(_))));
+        if is_vec {
+            if let Some(n) = parse_array_index(&key) {
+                return super::vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(obj_h, n as i64);
+            }
+            // (#216/299) `arr[Symbol.iterator]` -> handle Function nativo.
+            if key_is_well_known_iterator(&key) {
+                return crate::namespaces::gc::generator::__RTS_FN_GL_ARRAY_ITERATOR_FN() as i64;
+            }
+            return 0;
+        }
+        // Map: valor armazenado vence; fallback iterator nativo.
+        let stored = with_map(obj_h, 0, |m| m.get(&key).copied().unwrap_or(0));
+        if stored == 0 && key_is_well_known_iterator(&key) {
+            return crate::namespaces::gc::generator::__RTS_FN_GL_ARRAY_ITERATOR_FN() as i64;
+        }
+        stored
+    }
+
+    /// Returns a shallow copy of the map (new handle).
+    #[rts_fn]
+    pub fn map_clone(h: U64) -> Handle {
+        let cloned: Option<IndexMap<String, i64>> = with_map(h, None, |m| Some(m.clone()));
+        match cloned {
+            Some(m) => alloc_entry(Entry::Map(Box::new(m))),
+            None => 0,
+        }
+    }
+
+    /// Returns the key at index in deterministic order (sorted). 0 if out of range.
+    #[rts_fn]
+    pub fn map_key_at(h: U64, idx: I64) -> Handle {
+        if idx < 0 {
+            return 0;
+        }
+        let key_opt: Option<String> = with_map(h, None, |m| {
+            let mut int_keys: Vec<(u32, &String)> = Vec::new();
+            let mut str_keys: Vec<&String> = Vec::new();
+            for k in m.keys() {
+                match parse_array_index(k) {
+                    Some(n) => int_keys.push((n, k)),
+                    None => str_keys.push(k),
+                }
+            }
+            int_keys.sort_by_key(|(n, _)| *n);
+            let i = idx as usize;
+            if i < int_keys.len() {
+                Some(int_keys[i].1.clone())
+            } else {
+                str_keys.get(i - int_keys.len()).map(|s| (*s).clone())
+            }
+        });
+        match key_opt {
+            Some(s) => crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(
+                s.as_ptr(),
+                s.len() as i64,
+            ),
+            None => 0,
+        }
+    }
+
+    /// Returns Vec<i64> with key handles (sorted asc). Used by Object.keys.
+    #[rts_fn]
+    pub fn map_keys(h: U64) -> Handle {
+        // (#218 phase2) Proxy: trap `ownKeys(target)` ou forward.
+        if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(h) {
+            return crate::namespaces::globals::proxy::ops::dispatch_own_keys(target, handler);
+        }
+        // (#394) Set.keys() eh alias de Set.values() em JS.
+        if handle_is_set_kind(h) {
+            return __RTS_FN_NS_COLLECTIONS_MAP_VALUES(h);
+        }
+        let keys: Vec<String> = with_map(h, Vec::new(), |m| {
+            let mut int_keys: Vec<(u32, String)> = Vec::new();
+            let mut str_keys: Vec<String> = Vec::new();
+            for k in m.keys() {
+                if k.as_str() == "__proto__" {
+                    continue;
+                }
+                if k.starts_with("__get_") || k.starts_with("__set_") {
+                    continue;
+                }
+                if is_symbol_key(k.as_str()) {
+                    continue;
+                }
+                if is_non_enumerable(h, k.as_str()) {
+                    continue;
+                }
+                match parse_array_index(k) {
+                    Some(n) => int_keys.push((n, k.clone())),
+                    None => str_keys.push(k.clone()),
+                }
+            }
+            int_keys.sort_by_key(|(n, _)| *n);
+            let mut out: Vec<String> = int_keys.into_iter().map(|(_, k)| k).collect();
+            out.extend(str_keys);
+            out
+        });
+        let mut vec: Vec<i64> = Vec::with_capacity(keys.len());
+        for k in keys {
+            let h2 = crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(
+                k.as_ptr(),
+                k.len() as i64,
+            );
+            vec.push(h2 as i64);
+        }
+        crate::namespaces::gc::handles::alloc_entry(crate::namespaces::gc::handles::Entry::Vec(
+            Box::new(vec),
+        ))
+    }
+
+    /// Returns Vec<i64> with values (in key-sorted order). Used by Object.values.
+    #[rts_fn]
+    pub fn map_values(h: U64) -> Handle {
+        if handle_is_set_kind(h) {
+            let elems: Vec<i64> = with_map(h, Vec::new(), |m| {
+                m.iter()
+                    .filter(|(k, _)| k.as_str() != "__proto__")
+                    .map(|(k, &v)| set_element_from_pair(k, v))
+                    .collect()
+            });
+            return crate::namespaces::gc::handles::alloc_entry(
+                crate::namespaces::gc::handles::Entry::Vec(Box::new(elems)),
+            );
+        }
+        let vals: Vec<i64> = with_map(h, Vec::new(), |m| {
+            let mut int_entries: Vec<(u32, i64)> = Vec::new();
+            let mut str_entries: Vec<i64> = Vec::new();
+            for (k, v) in m.iter() {
+                if k.as_str() == "__proto__" {
+                    continue;
+                }
+                if is_symbol_key(k.as_str()) {
+                    continue;
+                }
+                if is_non_enumerable(h, k.as_str()) {
+                    continue;
+                }
+                match parse_array_index(k) {
+                    Some(n) => int_entries.push((n, *v)),
+                    None => str_entries.push(*v),
+                }
+            }
+            int_entries.sort_by_key(|(n, _)| *n);
+            let mut out: Vec<i64> = int_entries.into_iter().map(|(_, v)| v).collect();
+            out.extend(str_entries);
+            out
+        });
+        crate::namespaces::gc::handles::alloc_entry(crate::namespaces::gc::handles::Entry::Vec(
+            Box::new(vals),
+        ))
+    }
 }
 
 /// (cross-runtime #1125) Storage do `globalThis` para escrita/leitura
@@ -95,53 +502,7 @@ static GLOBAL_THIS_HANDLE: std::sync::OnceLock<u64> = std::sync::OnceLock::new()
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_RT_GLOBAL_THIS_MAP() -> u64 {
-    *GLOBAL_THIS_HANDLE.get_or_init(|| {
-        alloc_entry(Entry::Map(Box::new(IndexMap::new())))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FREE(handle: u64) {
-    free_handle(handle);
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_LEN(handle: u64) -> i64 {
-    with_map(handle, -1, |m| m.len() as i64)
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_HAS(
-    handle: u64,
-    key_ptr: *const u8,
-    key_len: i64,
-) -> i64 {
-    let Some(key) = str_from_abi(key_ptr, key_len) else {
-        return 0;
-    };
-    // (#218) Proxy: trap `has(target, prop)` ou forward.
-    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
-        return crate::namespaces::globals::proxy::ops::dispatch_has(target, handler, key);
-    }
-    with_map(handle, 0, |m| if m.contains_key(key) { 1 } else { 0 })
-}
-
-/// Retorna o valor associado a `key`, ou 0 se ausente.
-/// (0 tambem e valor valido — use map_has para distinguir.)
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET(
-    handle: u64,
-    key_ptr: *const u8,
-    key_len: i64,
-) -> i64 {
-    let Some(key) = str_from_abi(key_ptr, key_len) else {
-        return 0;
-    };
-    // (#218) Proxy: dispatch get trap quando handle eh Proxy.
-    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
-        return crate::namespaces::globals::proxy::ops::dispatch_get(target, handler, key);
-    }
-    with_map(handle, 0, |m| m.get(key).copied().unwrap_or(0))
+    *GLOBAL_THIS_HANDLE.get_or_init(|| alloc_entry(Entry::Map(Box::new(IndexMap::new()))))
 }
 
 /// Variante "direto" do map_get: NAO faz dispatch de Proxy. Usado pelos
@@ -200,7 +561,8 @@ pub extern "C" fn __RTS_FN_GL_OBJECT_CREATE(proto: u64) -> u64 {
 }
 
 fn null_proto_set() -> &'static std::sync::Mutex<std::collections::HashSet<u64>> {
-    static S: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<u64>>> = std::sync::OnceLock::new();
+    static S: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<u64>>> =
+        std::sync::OnceLock::new();
     S.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
 }
 
@@ -307,111 +669,12 @@ fn key_handle_to_string(key_h: u64) -> Option<String> {
     })
 }
 
-/// (cross-runtime #753) `key in obj` generico — dispatch baseado em
-/// Entry type do obj. Aceita key como handle (String, Symbol, etc).
-/// Retorna 1/0.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJ_HAS(obj_h: u64, key_h: u64) -> i64 {
-    let key = match key_handle_to_string(key_h) {
-        Some(s) => s,
-        None => return 0,
-    };
-    // (cross-runtime #340) Proxy: dispatch `has` trap quando obj_h eh Proxy.
-    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(obj_h) {
-        return crate::namespaces::globals::proxy::ops::dispatch_has(target, handler, &key);
-    }
-    // Vec: index `i` esta "in" array se 0 <= i < length E slot != hole.
-    let vec_result: Option<i64> = with_entry(obj_h, |e| match e {
-        Some(Entry::Vec(v)) => {
-            if let Some(n) = parse_array_index(&key) {
-                let slot = v.get(n as usize).copied();
-                Some(match slot {
-                    Some(s) if s != i64::MIN + 4 => 1,
-                    _ => 0,
-                })
-            } else if key == "length" {
-                Some(1)
-            } else {
-                Some(0)
-            }
-        }
-        _ => None,
-    });
-    if let Some(r) = vec_result {
-        return r;
-    }
-    // (#1091) `in` walking prototype chain + class methods.
-    // Para instances de classe, methods sao fns globais (nao slots em
-    // instance), entao consultamos class registry via __rts_class tag.
-    if with_map(obj_h, 0, |m| if m.contains_key(&key) { 1 } else { 0 }) == 1 {
-        return 1;
-    }
-    // Walk __proto__ chain.
-    let mut visited: HashSet<u64> = HashSet::new();
-    let mut cur = with_map(obj_h, 0i64, |m| m.get("__proto__").copied().unwrap_or(0)) as u64;
-    let mut steps = 0u32;
-    while cur != 0 && steps < 64 {
-        steps += 1;
-        if !visited.insert(cur) { break; }
-        let found = with_map(cur, 0, |m| if m.contains_key(&key) { 1 } else { 0 });
-        if found == 1 { return 1; }
-        cur = with_map(cur, 0i64, |m| m.get("__proto__").copied().unwrap_or(0)) as u64;
-    }
-    // Class method: consulta global class registry pelo __rts_class.
-    let class_name: Option<String> = with_entry(obj_h, |e| match e {
-        Some(Entry::Map(m)) => m.get("__rts_class").and_then(|v| {
-            with_entry(*v as u64, |ce| match ce {
-                Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
-                _ => None,
-            })
-        }),
-        _ => None,
-    });
-    if let Some(cls) = class_name.as_ref() {
-        // (#1114) Class method registry: emit no init de __RTS_MAIN
-        // registra cada method declarado por classe; consulta por
-        // __rts_class tag da instancia.
-        if class_method_registry()
-            .lock()
-            .unwrap()
-            .get(cls)
-            .map(|set| set.contains(&key))
-            .unwrap_or(false)
-        {
-            return 1;
-        }
-        // Object.prototype tem toString, hasOwnProperty, valueOf, isPrototypeOf,
-        // propertyIsEnumerable, toLocaleString.
-        if matches!(
-            key.as_str(),
-            "toString" | "hasOwnProperty" | "valueOf" | "isPrototypeOf"
-            | "propertyIsEnumerable" | "toLocaleString" | "constructor"
-        ) {
-            return 1;
-        }
-    }
-    0
-}
-
-/// (cross-runtime #753) `MAP_SET` aceitando key como handle (resolve
-/// Symbol via repr canonica `@@sym:<handle>`). Para String key normal,
-/// equivalente a MAP_SET.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SET_KH(obj_h: u64, key_h: u64, value: i64) {
-    let Some(key) = key_handle_to_string(key_h) else {
-        return;
-    };
-    with_map_mut(obj_h, (), |m| {
-        m.insert(key, value);
-    });
-}
-
 /// (#1114) Registry de methods declarados por classe. Populado pelo
 /// codegen via __RTS_FN_NS_COLLECTIONS_REGISTER_CLASS_METHOD no inicio
 /// de __RTS_MAIN; consultado pelo `in` operator (OBJ_HAS).
-fn class_method_registry() -> &'static std::sync::Mutex<
-    std::collections::HashMap<String, std::collections::HashSet<String>>,
-> {
+fn class_method_registry(
+) -> &'static std::sync::Mutex<std::collections::HashMap<String, std::collections::HashSet<String>>>
+{
     static R: std::sync::OnceLock<
         std::sync::Mutex<std::collections::HashMap<String, std::collections::HashSet<String>>>,
     > = std::sync::OnceLock::new();
@@ -425,8 +688,12 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_REGISTER_CLASS_METHOD(
     method_ptr: *const u8,
     method_len: i64,
 ) {
-    let Some(cls) = str_from_abi(class_ptr, class_len) else { return };
-    let Some(method) = str_from_abi(method_ptr, method_len) else { return };
+    let Some(cls) = str_from_abi(class_ptr, class_len) else {
+        return;
+    };
+    let Some(method) = str_from_abi(method_ptr, method_len) else {
+        return;
+    };
     class_method_registry()
         .lock()
         .unwrap()
@@ -435,111 +702,15 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_REGISTER_CLASS_METHOD(
         .insert(method.to_string());
 }
 
-/// (cross-runtime #753) `MAP_GET` aceitando key como handle. Retorna
-/// 0 se ausente (use OBJ_HAS pra distinguir).
-/// (#94) Receiver Vec: tenta parse de key como int e usa VEC_GET. Sem
-/// isso, `arr[k as any]` (k = "0", "1", ...) sempre retornava 0.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_KH(obj_h: u64, key_h: u64) -> i64 {
-    let Some(key) = key_handle_to_string(key_h) else {
-        return 0;
-    };
-    // (cross-runtime #340/#53) Proxy: dispatch `get` trap antes do
-    // path raw — consistente com MAP_HAS/MAP_GET/MAP_SET. Sem isso,
-    // `Reflect.get(proxy, key)` em fn body via codegen MAP_GET_KH
-    // pulava o trap.
-    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(obj_h) {
-        return crate::namespaces::globals::proxy::ops::dispatch_get(target, handler, &key);
-    }
-    // Vec path: parse key como array index.
-    let is_vec = with_entry(obj_h, |e| matches!(e, Some(Entry::Vec(_))));
-    if is_vec {
-        if let Some(n) = parse_array_index(&key) {
-            return super::vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(obj_h, n as i64);
-        }
-        // (#216/299) `arr[Symbol.iterator]` -> handle Function nativo
-        // (ARRAY_VALUES_ITER). typeof === "function", chamavel com this=arr.
-        if key_is_well_known_iterator(&key) {
-            return crate::namespaces::gc::generator::__RTS_FN_GL_ARRAY_ITERATOR_FN() as i64;
-        }
-        return 0;
-    }
-    // Map: valor armazenado vence (ex: custom [Symbol.iterator]); se ausente
-    // e a key for o iterator well-known, devolve o iterator nativo de array
-    // (Map iteravel via entries — fallback minimo).
-    let stored = with_map(obj_h, 0, |m| m.get(&key).copied().unwrap_or(0));
-    if stored == 0 && key_is_well_known_iterator(&key) {
-        return crate::namespaces::gc::generator::__RTS_FN_GL_ARRAY_ITERATOR_FN() as i64;
-    }
-    stored
-}
-
-/// (cross-runtime #753) Dispatcher universal pra `obj[key] = value`:
-/// Vec   -> parse key como uint32 e VEC_SET (extending com holes se preciso).
-/// Map   -> MAP_SET_KH (resolve Symbol via repr canonica).
-/// outros-> noop.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJ_SET(obj_h: u64, key_h: u64, value: i64) {
-    // Vec path: tenta parse de array index a partir da key.
-    let is_vec = with_entry(obj_h, |e| matches!(e, Some(Entry::Vec(_))));
-    if is_vec {
-        if let Some(key) = key_handle_to_string(key_h) {
-            if let Some(n) = parse_array_index(&key) {
-                with_entry_mut(obj_h, |e| {
-                    if let Some(Entry::Vec(v)) = e {
-                        let idx = n as usize;
-                        if idx >= v.len() {
-                            v.resize(idx + 1, i64::MIN + 4);
-                        }
-                        v[idx] = value;
-                    }
-                });
-            }
-        }
-        return;
-    }
-    // Map path (ou other -> noop).
-    if let Some(key) = key_handle_to_string(key_h) {
-        with_map_mut(obj_h, (), |m| {
-            m.insert(key, value);
-        });
-    }
-}
-
-/// (cross-runtime #753) Dispatcher universal pra `obj[key]`:
-/// Vec   -> parse key como uint32 e VEC_GET. "length" retorna len.
-/// Map   -> MAP_GET_KH.
-/// outros-> 0.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJ_GET(obj_h: u64, key_h: u64) -> i64 {
-    let Some(key) = key_handle_to_string(key_h) else {
-        return 0;
-    };
-    let vec_result: Option<i64> = with_entry(obj_h, |e| match e {
-        Some(Entry::Vec(v)) => {
-            if key == "length" {
-                Some(v.len() as i64)
-            } else if let Some(n) = parse_array_index(&key) {
-                Some(v.get(n as usize).copied().unwrap_or(i64::MIN + 2))
-            } else {
-                Some(0)
-            }
-        }
-        _ => None,
-    });
-    if let Some(r) = vec_result {
-        return r;
-    }
-    with_map(obj_h, 0, |m| m.get(&key).copied().unwrap_or(0))
-}
-
 /// (cross-runtime #793) `map.forEach((value, key, map) => ...)`.
 /// JS spec: callback recebe (value, key, map). RTS aceita callback ate 3 args;
 /// se aridade for menor, args extras sao ignorados (transmute pra arity certa).
 /// Para Map, key e' string handle (alocado por iteracao).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH(handle: u64, fn_ptr: u64) {
-    if fn_ptr == 0 { return; }
+    if fn_ptr == 0 {
+        return;
+    }
     // Snapshot pares (key_string, value) — evita lock entre alocacoes.
     let pairs: Vec<(String, i64)> = with_entry(handle, |e| match e {
         Some(Entry::Map(m)) => m
@@ -557,7 +728,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH(handle: u64, fn_ptr: u64)
         for (k, v) in &pairs {
             // (#394) elemento via value preservado (identidade), nao parse da key.
             let key_for_set: i64 = set_element_from_pair(k, *v);
-            let args_vec = alloc_entry(Entry::Vec(Box::new(vec![key_for_set, key_for_set, handle as i64])));
+            let args_vec = alloc_entry(Entry::Vec(Box::new(vec![
+                key_for_set,
+                key_for_set,
+                handle as i64,
+            ])));
             crate::namespaces::globals::function::ops::__RTS_FN_RT_INVOKE_AUTO(
                 fn_ptr as i64,
                 0,
@@ -584,7 +759,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH(handle: u64, fn_ptr: u64)
 /// Reusa Map.forEach passando o value como key tambem.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_FOR_EACH(handle: u64, fn_ptr: u64) {
-    if fn_ptr == 0 { return; }
+    if fn_ptr == 0 {
+        return;
+    }
     let pairs: Vec<String> = with_entry(handle, |e| match e {
         Some(Entry::Map(m)) => m
             .iter()
@@ -607,7 +784,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_FOR_EACH(handle: u64, fn_ptr: u64)
         unsafe {
             use std::mem::transmute;
             transmute::<u64, extern "C" fn(i64, i64, i64) -> i64>(actual_ptr)(
-                h1, h2, handle as i64,
+                h1,
+                h2,
+                handle as i64,
             );
         }
     }
@@ -618,13 +797,17 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_FOR_EACH(handle: u64, fn_ptr: u64)
 /// contrario. Guard contra ciclos: profundidade maxima 64.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_OBJECT_IS_PROTOTYPE_OF(obj: u64, other: u64) -> i64 {
-    if obj == 0 || other == 0 { return 0; }
+    if obj == 0 || other == 0 {
+        return 0;
+    }
     let mut current = with_map(other, 0u64, |m| {
         m.get("__proto__").copied().unwrap_or(0) as u64
     });
     let mut depth = 0u32;
     while current != 0 && depth < 64 {
-        if current == obj { return 1; }
+        if current == obj {
+            return 1;
+        }
         current = with_map(current, 0u64, |m| {
             m.get("__proto__").copied().unwrap_or(0) as u64
         });
@@ -648,19 +831,28 @@ pub extern "C" fn __RTS_FN_GL_OBJECT_PROPERTY_IS_ENUMERABLE(
     let vec_result: Option<i64> = with_entry(handle, |e| match e {
         Some(Entry::Vec(v)) => {
             // "length" eh own mas non-enumerable em arrays.
-            if key == "length" { Some(0) }
-            else if let Some(n) = parse_array_index(key) {
+            if key == "length" {
+                Some(0)
+            } else if let Some(n) = parse_array_index(key) {
                 Some(if (n as usize) < v.len() { 1 } else { 0 })
-            } else { Some(0) }
+            } else {
+                Some(0)
+            }
         }
         _ => None,
     });
-    if let Some(r) = vec_result { return r; }
+    if let Some(r) = vec_result {
+        return r;
+    }
     // Map: own + enumerable. defineProperty com enumerable:false marca via
     // is_non_enumerable.
     let has_own = with_map(handle, false, |m| m.contains_key(key));
-    if !has_own { return 0; }
-    if is_non_enumerable(handle, key) { return 0; }
+    if !has_own {
+        return 0;
+    }
+    if is_non_enumerable(handle, key) {
+        return 0;
+    }
     1
 }
 
@@ -779,67 +971,6 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN(
     0
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SET(
-    handle: u64,
-    key_ptr: *const u8,
-    key_len: i64,
-    value: i64,
-) {
-    let Some(key) = str_from_abi(key_ptr, key_len) else {
-        return;
-    };
-    // (#218) Proxy: trap `set(target, prop, value)` ou forward.
-    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
-        crate::namespaces::globals::proxy::ops::dispatch_set(target, handler, key, value);
-        return;
-    }
-    // (#479 follow-up) frozen impede mutacao; sealed so' impede add de novas keys.
-    if is_map_frozen(handle) {
-        return;
-    }
-    // (#1073) writable=false definido via Object.defineProperty bloqueia
-    // assignment silenciosamente (sloppy mode). Strict mode joga TypeError —
-    // RTS opera em sloppy por default (sem 'use strict').
-    if is_non_writable(handle, key) {
-        return;
-    }
-    let key_owned = key.to_string();
-    let sealed = is_map_sealed(handle);
-    with_map_mut(handle, (), |m| {
-        if sealed && !m.contains_key(&key_owned) {
-            return;
-        }
-        m.insert(key_owned, value);
-    });
-}
-
-/// Remove a chave. Retorna 1 se removida, 0 se ausente.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DELETE(
-    handle: u64,
-    key_ptr: *const u8,
-    key_len: i64,
-) -> i64 {
-    let Some(key) = str_from_abi(key_ptr, key_len) else {
-        return 0;
-    };
-    // (#218) Proxy: trap `deleteProperty(target, prop)` ou forward.
-    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
-        return crate::namespaces::globals::proxy::ops::dispatch_delete(target, handler, key);
-    }
-    // sealed/frozen impedem delete.
-    if is_map_sealed(handle) {
-        return 0;
-    }
-    with_map_mut(handle, 0, |m| if m.shift_remove(key).is_some() { 1 } else { 0 })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_CLEAR(handle: u64) {
-    with_map_mut(handle, (), |m| m.clear());
-}
-
 /// `delete obj.prop` — recebe key como handle de string.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DELETE_AUTO(handle: u64, key_handle: u64) -> i64 {
@@ -855,163 +986,10 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DELETE_AUTO(handle: u64, key_handl
     if is_map_sealed(handle) {
         return 0;
     }
-    with_map_mut(handle, 1, |m| { let _ = m.shift_remove(&key); 1 })
-}
-
-/// Shallow clone do map — aloca novo handle com mesmas (key, value) pairs.
-/// Usado pelo desugar de `const { a, ...rest } = obj` (#312): rest e'
-/// inicializado como clone, e em seguida o codegen emite map_delete para
-/// cada key explicita.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_CLONE(handle: u64) -> u64 {
-    let cloned: Option<IndexMap<String, i64>> =
-        with_map(handle, None, |m| Some(m.clone()));
-    match cloned {
-        Some(m) => alloc_entry(Entry::Map(Box::new(m))),
-        None => 0,
-    }
-}
-
-/// Retorna a key na posição `idx` na ordem de enumeração definida pelo JS:
-/// 1. integer-indexed keys (string que parseia para u32 sem leading zero,
-///    exceto "0") em ordem numérica ascendente;
-/// 2. demais string keys em ordem de inserção (preservada pelo IndexMap).
-///
-/// Usado por for-in. Retorna handle de string ou 0 se idx fora de range.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEY_AT(handle: u64, idx: i64) -> u64 {
-    if idx < 0 {
-        return 0;
-    }
-    let key_opt: Option<String> = with_map(handle, None, |m| {
-        let mut int_keys: Vec<(u32, &String)> = Vec::new();
-        let mut str_keys: Vec<&String> = Vec::new();
-        for k in m.keys() {
-            match parse_array_index(k) {
-                Some(n) => int_keys.push((n, k)),
-                None => str_keys.push(k),
-            }
-        }
-        int_keys.sort_by_key(|(n, _)| *n);
-        let i = idx as usize;
-        if i < int_keys.len() {
-            Some(int_keys[i].1.clone())
-        } else {
-            str_keys.get(i - int_keys.len()).map(|s| (*s).clone())
-        }
-    });
-    match key_opt {
-        Some(s) => crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(
-            s.as_ptr(),
-            s.len() as i64,
-        ),
-        None => 0,
-    }
-}
-
-/// (#266) Object.keys(obj) — retorna Vec<i64> com handles de strings dos
-/// keys. Ordem: sorted asc (mesmo criterio de KEY_AT).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(handle: u64) -> u64 {
-    // (#218 phase2) Proxy: trap `ownKeys(target)` ou forward.
-    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
-        return crate::namespaces::globals::proxy::ops::dispatch_own_keys(target, handler);
-    }
-    // (#394) Set.keys() eh alias de Set.values() em JS — retorna os ELEMENTOS
-    // (com identidade preservada), nao as keys-string internas.
-    if handle_is_set_kind(handle) {
-        return __RTS_FN_NS_COLLECTIONS_MAP_VALUES(handle);
-    }
-    let keys: Vec<String> = with_map(handle, Vec::new(), |m| {
-        // (#208) Filtra `__proto__` e nao-enumeraveis (defineProperty) —
-        // JS spec: Object.keys retorna so own enumeravel.
-        // Ordem JS (ECMA-262): integer-indexed keys ascendentes, depois
-        // string keys em ordem de insercao.
-        let mut int_keys: Vec<(u32, String)> = Vec::new();
-        let mut str_keys: Vec<String> = Vec::new();
-        for k in m.keys() {
-            if k.as_str() == "__proto__" {
-                continue;
-            }
-            // (#110) Slots internos de getter/setter — nao expor.
-            if k.starts_with("__get_") || k.starts_with("__set_") {
-                continue;
-            }
-            // (#798) Symbol keys: separadas via getOwnPropertySymbols.
-            if is_symbol_key(k.as_str()) {
-                continue;
-            }
-            if is_non_enumerable(handle, k.as_str()) {
-                continue;
-            }
-            match parse_array_index(k) {
-                Some(n) => int_keys.push((n, k.clone())),
-                None => str_keys.push(k.clone()),
-            }
-        }
-        int_keys.sort_by_key(|(n, _)| *n);
-        let mut out: Vec<String> = int_keys.into_iter().map(|(_, k)| k).collect();
-        out.extend(str_keys);
-        out
-    });
-    let mut vec: Vec<i64> = Vec::with_capacity(keys.len());
-    for k in keys {
-        let h = crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(
-            k.as_ptr(),
-            k.len() as i64,
-        );
-        vec.push(h as i64);
-    }
-    crate::namespaces::gc::handles::alloc_entry(
-        crate::namespaces::gc::handles::Entry::Vec(Box::new(vec)),
-    )
-}
-
-/// (#266) Object.values(obj) — retorna Vec<i64> com valores em ordem
-/// JS: integer-indexed keys ascendentes, depois string keys em ordem
-/// de insercao (mesmo criterio de Object.keys).
-///
-/// (#316) Para Set (storage interno Map<key_str, 1>), os "values"
-/// sao na verdade as keys (elementos do Set). Detecta via
-/// handle_is_set_kind e retorna parse_array_index(key) ou string handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_VALUES(handle: u64) -> u64 {
-    if handle_is_set_kind(handle) {
-        // Set.values() retorna os elementos. (#394) Recupera a IDENTIDADE do
-        // elemento a partir do value preservado (set_element_from_pair); cai
-        // no parse da key apenas no fallback legado/float.
-        let elems: Vec<i64> = with_map(handle, Vec::new(), |m| {
-            m.iter()
-                .filter(|(k, _)| k.as_str() != "__proto__")
-                .map(|(k, &v)| set_element_from_pair(k, v))
-                .collect()
-        });
-        return crate::namespaces::gc::handles::alloc_entry(
-            crate::namespaces::gc::handles::Entry::Vec(Box::new(elems)),
-        );
-    }
-    let vals: Vec<i64> = with_map(handle, Vec::new(), |m| {
-        let mut int_entries: Vec<(u32, i64)> = Vec::new();
-        let mut str_entries: Vec<i64> = Vec::new();
-        for (k, v) in m.iter() {
-            if k.as_str() == "__proto__" { continue; }
-            // (#798) Symbol keys nao aparecem em Object.keys/values/entries/
-            // getOwnPropertyNames — JS spec.
-            if is_symbol_key(k.as_str()) { continue; }
-            if is_non_enumerable(handle, k.as_str()) { continue; }
-            match parse_array_index(k) {
-                Some(n) => int_entries.push((n, *v)),
-                None => str_entries.push(*v),
-            }
-        }
-        int_entries.sort_by_key(|(n, _)| *n);
-        let mut out: Vec<i64> = int_entries.into_iter().map(|(_, v)| v).collect();
-        out.extend(str_entries);
-        out
-    });
-    crate::namespaces::gc::handles::alloc_entry(
-        crate::namespaces::gc::handles::Entry::Vec(Box::new(vals)),
-    )
+    with_map_mut(handle, 1, |m| {
+        let _ = m.shift_remove(&key);
+        1
+    })
 }
 
 /// (#208 / #479) `Object.entries(obj)` — retorna Vec de Vec [key_handle, value].
@@ -1029,21 +1007,24 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES(handle: u64) -> u64 {
         let mut int_entries: Vec<(u32, String, i64)> = Vec::new();
         let mut str_entries: Vec<(String, i64)> = Vec::new();
         for (k, v) in m.iter() {
-            if k.as_str() == "__proto__" { continue; }
+            if k.as_str() == "__proto__" {
+                continue;
+            }
             // (#798) Symbol keys nao aparecem em Object.keys/values/entries/
             // getOwnPropertyNames — JS spec.
-            if is_symbol_key(k.as_str()) { continue; }
-            if is_non_enumerable(handle, k.as_str()) { continue; }
+            if is_symbol_key(k.as_str()) {
+                continue;
+            }
+            if is_non_enumerable(handle, k.as_str()) {
+                continue;
+            }
             match parse_array_index(k) {
                 Some(n) => int_entries.push((n, k.clone(), *v)),
                 None => str_entries.push((k.clone(), *v)),
             }
         }
         int_entries.sort_by_key(|(n, _, _)| *n);
-        let mut out: Vec<(String, i64)> = int_entries
-            .into_iter()
-            .map(|(_, k, v)| (k, v))
-            .collect();
+        let mut out: Vec<(String, i64)> = int_entries.into_iter().map(|(_, k, v)| (k, v)).collect();
         out.extend(str_entries);
         out
     });
@@ -1058,9 +1039,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES(handle: u64) -> u64 {
         );
         outer.push(inner as i64);
     }
-    crate::namespaces::gc::handles::alloc_entry(
-        crate::namespaces::gc::handles::Entry::Vec(Box::new(outer)),
-    )
+    crate::namespaces::gc::handles::alloc_entry(crate::namespaces::gc::handles::Entry::Vec(
+        Box::new(outer),
+    ))
 }
 
 /// `Map.prototype.entries()` / iterador de Map JS — preserva ordem de
@@ -1108,9 +1089,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION(handle: u64) -> 
         );
         outer.push(inner as i64);
     }
-    crate::namespaces::gc::handles::alloc_entry(
-        crate::namespaces::gc::handles::Entry::Vec(Box::new(outer)),
-    )
+    crate::namespaces::gc::handles::alloc_entry(crate::namespaces::gc::handles::Entry::Vec(
+        Box::new(outer),
+    ))
 }
 
 /// (#771) Set thread-safe de handles marcados como non-extensible via
@@ -1178,11 +1159,17 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_OWN_PROPERTY_NAMES(handle: u64)
             let mut int_keys: Vec<(u32, String)> = Vec::new();
             let mut str_keys: Vec<String> = Vec::new();
             for k in m.keys() {
-                if k.as_str() == "__proto__" { continue; }
+                if k.as_str() == "__proto__" {
+                    continue;
+                }
                 // (#798) Symbol keys: separadas via getOwnPropertySymbols.
-                if is_symbol_key(k.as_str()) { continue; }
+                if is_symbol_key(k.as_str()) {
+                    continue;
+                }
                 // (#110) Slots internos `__get_*`/`__set_*` nao sao expostos.
-                if k.starts_with("__get_") || k.starts_with("__set_") { continue; }
+                if k.starts_with("__get_") || k.starts_with("__set_") {
+                    continue;
+                }
                 match parse_array_index(k) {
                     Some(n) => int_keys.push((n, k.clone())),
                     None => str_keys.push(k.clone()),
@@ -1200,7 +1187,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_OWN_PROPERTY_NAMES(handle: u64)
         }
         Some(Entry::Vec(v)) => {
             // JS spec: arrays incluem "length" como own property name nao-enumerable.
-            let mut out: Vec<i64> = v.iter()
+            let mut out: Vec<i64> = v
+                .iter()
                 .enumerate()
                 .filter(|(_, x)| **x != i64::MIN + 4)
                 .map(|(i, _)| alloc_entry(Entry::String(i.to_string().into_bytes())) as i64)
@@ -1231,7 +1219,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
     // via trap `getOwnPropertyDescriptor` por chave (ECMA-262
     // OrdinaryOwnPropertyKeys). Reflect.ownKeys usa dispatch_own_keys cru.
     if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
-        return crate::namespaces::globals::proxy::ops::dispatch_own_keys_enumerable(target, handler);
+        return crate::namespaces::globals::proxy::ops::dispatch_own_keys_enumerable(
+            target, handler,
+        );
     }
     // (#253) StringBox unwrap antes do dispatch.
     let unwrap: Option<u64> = with_entry(handle, |e| match e {
@@ -1252,17 +1242,27 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
             let mut int_keys: Vec<(u32, String)> = Vec::new();
             let mut str_keys: Vec<String> = Vec::new();
             for k in m.keys() {
-                if k.as_str() == "__proto__" { continue; }
+                if k.as_str() == "__proto__" {
+                    continue;
+                }
                 // (#1097) __rts_class eh tag interno usado pelo dispatch
                 // virtual de metodos de classe; nao aparece em for-in JS.
-                if k.as_str() == "__rts_class" { continue; }
+                if k.as_str() == "__rts_class" {
+                    continue;
+                }
                 // (#798) Symbol keys: separadas via getOwnPropertySymbols.
-                if is_symbol_key(k.as_str()) { continue; }
+                if is_symbol_key(k.as_str()) {
+                    continue;
+                }
                 // (#110) Slots internos `__get_<name>`/`__set_<name>` armazenam
                 // accessor handles. Object.keys/getOwnPropertyNames JS spec nao
                 // expoe estes — RTS os usa como mecanismo interno de getter/setter.
-                if k.starts_with("__get_") || k.starts_with("__set_") { continue; }
-                if is_non_enumerable(handle, k.as_str()) { continue; }
+                if k.starts_with("__get_") || k.starts_with("__set_") {
+                    continue;
+                }
+                if is_non_enumerable(handle, k.as_str()) {
+                    continue;
+                }
                 match parse_array_index(k) {
                     Some(n) => int_keys.push((n, k.clone())),
                     None => str_keys.push(k.clone()),
@@ -1288,9 +1288,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
             v.iter()
                 .enumerate()
                 .filter(|(_, x)| **x != i64::MIN + 4)
-                .map(|(i, _)| {
-                    alloc_entry(Entry::String(i.to_string().into_bytes())) as i64
-                })
+                .map(|(i, _)| alloc_entry(Entry::String(i.to_string().into_bytes())) as i64)
                 .collect()
         }
         Some(Entry::String(b)) => {
@@ -1330,16 +1328,19 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_FOR_IN_KEYS(handle: u64) -> u64 {
     });
     let mut seen: HashSet<String> = keys_str.iter().cloned().collect();
     // Walk __proto__ chain. Limita profundidade para guardar contra ciclos.
-    let mut cur_proto: u64 = with_map(handle, 0i64, |m| {
-        m.get("__proto__").copied().unwrap_or(0)
-    }) as u64;
+    let mut cur_proto: u64 =
+        with_map(handle, 0i64, |m| m.get("__proto__").copied().unwrap_or(0)) as u64;
     let mut visited: HashSet<u64> = HashSet::new();
     let mut steps = 0u32;
     while cur_proto != 0 && steps < 64 {
         steps += 1;
-        if !visited.insert(cur_proto) { break; }
+        if !visited.insert(cur_proto) {
+            break;
+        }
         // Se chain ancestral eh Map/Set JS, parar.
-        if handle_is_map_kind(cur_proto) || handle_is_set_kind(cur_proto) { break; }
+        if handle_is_map_kind(cur_proto) || handle_is_set_kind(cur_proto) {
+            break;
+        }
         let proto_keys: Vec<String> = with_entry(cur_proto, |e| match e {
             Some(Entry::Map(m)) => m
                 .keys()
@@ -1360,7 +1361,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_FOR_IN_KEYS(handle: u64) -> u64 {
                 keys_str.push(k);
             }
         }
-        let next = with_map(cur_proto, 0i64, |m| m.get("__proto__").copied().unwrap_or(0));
+        let next = with_map(cur_proto, 0i64, |m| {
+            m.get("__proto__").copied().unwrap_or(0)
+        });
         cur_proto = next as u64;
     }
     let out: Vec<i64> = keys_str
@@ -1471,12 +1474,20 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SEAL(handle: u64) -> u64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_IS_FROZEN(handle: u64) -> i64 {
-    if is_map_frozen(handle) { 1 } else { 0 }
+    if is_map_frozen(handle) {
+        1
+    } else {
+        0
+    }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_IS_SEALED(handle: u64) -> i64 {
-    if is_map_sealed(handle) { 1 } else { 0 }
+    if is_map_sealed(handle) {
+        1
+    } else {
+        0
+    }
 }
 
 /// (#208) `Object.getPrototypeOf(obj)` — retorna handle de `__proto__` se setado
@@ -1645,21 +1656,22 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY(
     // / i64::MIN+1 (true) pelo codegen. Strict check para evitar false
     // positive de handle nao-zero.
     let bool_from = |v: &i64| -> bool {
-        if *v == i64::MIN { false }
-        else if *v == i64::MIN + 1 { true }
-        else { *v != 0 }
+        if *v == i64::MIN {
+            false
+        } else if *v == i64::MIN + 1 {
+            true
+        } else {
+            *v != 0
+        }
     };
-    let is_enumerable: Option<bool> = with_map(descriptor, None, |m| {
-        m.get("enumerable").map(&bool_from)
-    });
+    let is_enumerable: Option<bool> =
+        with_map(descriptor, None, |m| m.get("enumerable").map(&bool_from));
     // (#749) writable flag — Object.defineProperty(obj, k, { writable: false }).
-    let is_writable: Option<bool> = with_map(descriptor, None, |m| {
-        m.get("writable").map(&bool_from)
-    });
+    let is_writable: Option<bool> =
+        with_map(descriptor, None, |m| m.get("writable").map(&bool_from));
     // (#1073) configurable flag.
-    let is_configurable: Option<bool> = with_map(descriptor, None, |m| {
-        m.get("configurable").map(&bool_from)
-    });
+    let is_configurable: Option<bool> =
+        with_map(descriptor, None, |m| m.get("configurable").map(&bool_from));
     let key_str = match str_from_abi(key_ptr, key_len) {
         Some(s) => s.to_string(),
         None => return obj,
@@ -1701,8 +1713,12 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY(
     // (#1111) Accessor descriptor: { get: fn } / { set: fn }. RTS armazena
     // como slots internos __get_<name>/__set_<name> (handle/fn_ptr) e
     // MAP_GET_CHAIN/MAP_SET detectam e invocam via INVOKE_AUTO.
-    let getter: Option<i64> = with_map(descriptor, None, |m| m.get("get").copied().filter(|v| *v != 0));
-    let setter: Option<i64> = with_map(descriptor, None, |m| m.get("set").copied().filter(|v| *v != 0));
+    let getter: Option<i64> = with_map(descriptor, None, |m| {
+        m.get("get").copied().filter(|v| *v != 0)
+    });
+    let setter: Option<i64> = with_map(descriptor, None, |m| {
+        m.get("set").copied().filter(|v| *v != 0)
+    });
     if getter.is_some() || setter.is_some() {
         let key_owned = key_str.clone();
         with_map_mut(obj, (), |m| {
@@ -1735,7 +1751,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_UNION(self_h: u64, other_h: u64) -
     set_kind_set().lock().unwrap().insert(result);
     for h in [self_h, other_h] {
         let pairs: Vec<(String, i64)> = with_entry(h, |e| match e {
-            Some(Entry::Map(m)) => m.iter()
+            Some(Entry::Map(m)) => m
+                .iter()
                 .filter(|(k, _)| k.as_str() != "__proto__")
                 .map(|(k, v)| (k.clone(), *v))
                 .collect(),
@@ -1754,11 +1771,16 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_UNION(self_h: u64, other_h: u64) -
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_INTERSECTION(self_h: u64, other_h: u64) -> u64 {
     let other_keys: std::collections::HashSet<String> = with_entry(other_h, |e| match e {
-        Some(Entry::Map(m)) => m.keys().filter(|k| k.as_str() != "__proto__").cloned().collect(),
+        Some(Entry::Map(m)) => m
+            .keys()
+            .filter(|k| k.as_str() != "__proto__")
+            .cloned()
+            .collect(),
         _ => std::collections::HashSet::new(),
     });
     let pairs: Vec<(String, i64)> = with_entry(self_h, |e| match e {
-        Some(Entry::Map(m)) => m.iter()
+        Some(Entry::Map(m)) => m
+            .iter()
             .filter(|(k, _)| k.as_str() != "__proto__" && other_keys.contains(k.as_str()))
             .map(|(k, v)| (k.clone(), *v))
             .collect(),
@@ -1778,11 +1800,16 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_INTERSECTION(self_h: u64, other_h:
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_DIFFERENCE(self_h: u64, other_h: u64) -> u64 {
     let other_keys: std::collections::HashSet<String> = with_entry(other_h, |e| match e {
-        Some(Entry::Map(m)) => m.keys().filter(|k| k.as_str() != "__proto__").cloned().collect(),
+        Some(Entry::Map(m)) => m
+            .keys()
+            .filter(|k| k.as_str() != "__proto__")
+            .cloned()
+            .collect(),
         _ => std::collections::HashSet::new(),
     });
     let pairs: Vec<(String, i64)> = with_entry(self_h, |e| match e {
-        Some(Entry::Map(m)) => m.iter()
+        Some(Entry::Map(m)) => m
+            .iter()
             .filter(|(k, _)| k.as_str() != "__proto__" && !other_keys.contains(k.as_str()))
             .map(|(k, v)| (k.clone(), *v))
             .collect(),
@@ -1800,16 +1827,21 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_DIFFERENCE(self_h: u64, other_h: u
 
 /// (#678/302) Set.symmetricDifference(other) — elementos em um Set ou outro mas nao em ambos.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_SYMMETRIC_DIFFERENCE(self_h: u64, other_h: u64) -> u64 {
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_SYMMETRIC_DIFFERENCE(
+    self_h: u64,
+    other_h: u64,
+) -> u64 {
     let self_keys: Vec<(String, i64)> = with_entry(self_h, |e| match e {
-        Some(Entry::Map(m)) => m.iter()
+        Some(Entry::Map(m)) => m
+            .iter()
             .filter(|(k, _)| k.as_str() != "__proto__")
             .map(|(k, v)| (k.clone(), *v))
             .collect(),
         _ => Vec::new(),
     });
     let other_keys: Vec<(String, i64)> = with_entry(other_h, |e| match e {
-        Some(Entry::Map(m)) => m.iter()
+        Some(Entry::Map(m)) => m
+            .iter()
             .filter(|(k, _)| k.as_str() != "__proto__")
             .map(|(k, v)| (k.clone(), *v))
             .collect(),
@@ -1821,10 +1853,14 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_SYMMETRIC_DIFFERENCE(self_h: u64, 
     set_kind_set().lock().unwrap().insert(result);
     with_map_mut(result, (), |m| {
         for (k, v) in &self_keys {
-            if !other_set.contains(k) { m.insert(k.clone(), *v); }
+            if !other_set.contains(k) {
+                m.insert(k.clone(), *v);
+            }
         }
         for (k, v) in &other_keys {
-            if !self_set.contains(k) { m.insert(k.clone(), *v); }
+            if !self_set.contains(k) {
+                m.insert(k.clone(), *v);
+            }
         }
     });
     result
@@ -1834,16 +1870,25 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_SYMMETRIC_DIFFERENCE(self_h: u64, 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_IS_SUBSET(self_h: u64, other_h: u64) -> i64 {
     let other_keys: std::collections::HashSet<String> = with_entry(other_h, |e| match e {
-        Some(Entry::Map(m)) => m.keys().filter(|k| k.as_str() != "__proto__").cloned().collect(),
+        Some(Entry::Map(m)) => m
+            .keys()
+            .filter(|k| k.as_str() != "__proto__")
+            .cloned()
+            .collect(),
         _ => std::collections::HashSet::new(),
     });
     let all_in: bool = with_entry(self_h, |e| match e {
-        Some(Entry::Map(m)) => m.keys()
+        Some(Entry::Map(m)) => m
+            .keys()
             .filter(|k| k.as_str() != "__proto__")
             .all(|k| other_keys.contains(k.as_str())),
         _ => true,
     });
-    if all_in { 1 } else { 0 }
+    if all_in {
+        1
+    } else {
+        0
+    }
 }
 
 /// (#678/302) Set.isSupersetOf(other) — todos elementos de other estao em self.
@@ -1856,16 +1901,25 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_IS_SUPERSET(self_h: u64, other_h: 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_IS_DISJOINT(self_h: u64, other_h: u64) -> i64 {
     let other_keys: std::collections::HashSet<String> = with_entry(other_h, |e| match e {
-        Some(Entry::Map(m)) => m.keys().filter(|k| k.as_str() != "__proto__").cloned().collect(),
+        Some(Entry::Map(m)) => m
+            .keys()
+            .filter(|k| k.as_str() != "__proto__")
+            .cloned()
+            .collect(),
         _ => std::collections::HashSet::new(),
     });
     let any_in: bool = with_entry(self_h, |e| match e {
-        Some(Entry::Map(m)) => m.keys()
+        Some(Entry::Map(m)) => m
+            .keys()
             .filter(|k| k.as_str() != "__proto__")
             .any(|k| other_keys.contains(k.as_str())),
         _ => false,
     });
-    if any_in { 0 } else { 1 }
+    if any_in {
+        0
+    } else {
+        1
+    }
 }
 
 /// (#678/89) Object.groupBy(arr, fn) — ES2024. Itera arr, chama fn(elem, idx)
@@ -1932,7 +1986,7 @@ fn group_by_impl(arr: u64, fn_ptr: u64, mark_as_map: bool) -> u64 {
 /// (#666/265) Map suporte adicionado para `Object.fromEntries(new Map(...))`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FROM_ENTRIES(arr: u64) -> u64 {
-    use crate::namespaces::gc::handles::{Entry, with_entry};
+    use crate::namespaces::gc::handles::{with_entry, Entry};
     // (#666/265) Map -> Map roundtrip: copia todos os pares (k, v) direto.
     let map_pairs: Option<Vec<(String, i64)>> = with_entry(arr, |entry| match entry {
         Some(Entry::Map(m)) => Some(m.iter().map(|(k, v)| (k.clone(), *v)).collect()),
@@ -1961,7 +2015,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FROM_ENTRIES(arr: u64) -> u64 {
             Some(Entry::Vec(pair)) if pair.len() >= 2 => Some((pair[0], pair[1])),
             _ => None,
         });
-        let Some((key_raw, val)) = pair_kv else { continue };
+        let Some((key_raw, val)) = pair_kv else {
+            continue;
+        };
         let key_h = key_raw as u64;
         let key_str: Option<String> = with_entry(key_h, |ke| match ke {
             Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
@@ -1991,7 +2047,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FROM_ENTRIES(arr: u64) -> u64 {
 ///   nao-string = ptr nulo) e colidiam todos numa unica entrada.
 /// - sem Entry valido (numero/bool/sentinel) -> representacao decimal.
 pub(crate) fn set_stable_key(elem_raw: i64) -> String {
-    use crate::namespaces::gc::handles::{Entry, with_entry};
+    use crate::namespaces::gc::handles::{with_entry, Entry};
     with_entry(elem_raw as u64, |e| match e {
         Some(Entry::String(b)) => String::from_utf8_lossy(b).into_owned(),
         Some(_) => format!("\0obj#{elem_raw}"),
@@ -2075,7 +2131,7 @@ pub extern "C" fn __RTS_FN_RT_FOR_OF_NORMALIZE(handle: u64) -> u64 {
     // iterador. Drena ate `done` num Vec (finito). Para generator infinito num
     // for-of sem break o loop nunca termina — igual a JS.
     {
-        use crate::namespaces::gc::handles::{Entry, with_entry};
+        use crate::namespaces::gc::handles::{with_entry, Entry};
         let is_sm = with_entry(handle, |e| matches!(e, Some(Entry::GenState(_))));
         if is_sm {
             return crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_DRAIN(handle);
@@ -2086,7 +2142,7 @@ pub extern "C" fn __RTS_FN_RT_FOR_OF_NORMALIZE(handle: u64) -> u64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_FROM_VEC(src: u64) -> u64 {
-    use crate::namespaces::gc::handles::{Entry, with_entry};
+    use crate::namespaces::gc::handles::{with_entry, Entry};
     let elems: Vec<i64> = with_entry(src, |entry| match entry {
         Some(Entry::Vec(v)) => v.as_ref().clone(),
         _ => Vec::new(),
@@ -2095,7 +2151,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_FROM_VEC(src: u64) -> u64 {
     __RTS_FN_NS_COLLECTIONS_MARK_AS_SET(m);
     for raw in elems {
         // hole sentinel: ignora.
-        if raw == i64::MIN + 4 { continue; }
+        if raw == i64::MIN + 4 {
+            continue;
+        }
         // (#394) key estavel (identidade p/ objetos) + value = elemento cru.
         let key = set_stable_key(raw);
         with_map_mut(m, (), |mm| {
@@ -2108,7 +2166,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_FROM_VEC(src: u64) -> u64 {
 #[cfg(test)]
 mod object_tests {
     use super::*;
-    use crate::namespaces::gc::handles::{Entry, with_entry};
+    use crate::namespaces::gc::handles::{with_entry, Entry};
 
     fn read_str(h: u64) -> Option<String> {
         with_entry(h, |e| match e {
@@ -2172,9 +2230,7 @@ mod object_tests {
     fn frozen_state_is_visible_across_threads() {
         let m = map_with(&[("x", 1)]);
         __RTS_FN_NS_COLLECTIONS_MAP_FREEZE(m);
-        let visible = std::thread::spawn(move || is_map_frozen(m))
-            .join()
-            .unwrap();
+        let visible = std::thread::spawn(move || is_map_frozen(m)).join().unwrap();
         assert!(visible, "frozen flag must be visible from other threads");
     }
 

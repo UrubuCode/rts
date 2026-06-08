@@ -1,6 +1,15 @@
 //! Vec<i64> — lista ordenada de valores i64.
+//!
+//! Os 9 membros do namespace `collections` referentes a Vec vivem no
+//! `#[rts_namespace(collections, part)] impl CollectionsVecNs` abaixo (stage
+//! 2c, `docs/specs/rts-core-engine.md`); o resto sao non-member externs
+//! (`*_AUTO`, `GL_ARRAY_*`, Array.prototype methods) que o codegen chama por
+//! simbolo. `mod.rs` junta os MEMBERS de map+vec via `rts_abi::concat_members`.
 
-use super::super::gc::handles::{Entry, alloc_entry, free_handle, with_entry, with_entry_mut};
+use rts_abi::ty::{Handle, I64, U64};
+use rts_macro::rts_namespace;
+
+use super::super::gc::handles::{alloc_entry, free_handle, with_entry, with_entry_mut, Entry};
 
 fn with_vec<F, R>(handle: u64, default: R, f: F) -> R
 where
@@ -22,19 +31,101 @@ where
     })
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_NEW() -> u64 {
-    alloc_entry(Entry::Vec(Box::new(Vec::new())))
-}
+/// Membros Vec do namespace `collections` (parte; map.rs declara a outra).
+#[rts_namespace(collections, part)]
+impl CollectionsVecNs {
+    /// Creates an empty Vec<number>.
+    #[rts_fn]
+    pub fn vec_new() -> Handle {
+        alloc_entry(Entry::Vec(Box::new(Vec::new())))
+    }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FREE(handle: u64) {
-    free_handle(handle);
-}
+    /// Releases the vec handle.
+    #[rts_fn]
+    pub fn vec_free(h: U64) {
+        free_handle(h);
+    }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_LEN(handle: u64) -> i64 {
-    with_vec(handle, -1, |v| v.len() as i64)
+    /// Number of elements; -1 if the handle is invalid.
+    #[rts_fn]
+    pub fn vec_len(h: U64) -> I64 {
+        with_vec(h, -1, |v| v.len() as i64)
+    }
+
+    /// Appends `value` to the end.
+    #[rts_fn]
+    pub fn vec_push(h: U64, value: I64) {
+        let limit_hit = with_vec_mut(h, false, |v| {
+            if v.len() >= VEC_MAX_LEN {
+                return true;
+            }
+            v.push(value);
+            false
+        });
+        if limit_hit {
+            eprintln!(
+                "RTS runtime: vec push exceeded limit of {VEC_MAX_LEN} elements; aborting (likely infinite generator or unbounded loop)"
+            );
+            std::process::abort();
+        }
+    }
+
+    /// Removes and returns the last element; 0 when empty.
+    #[rts_fn]
+    pub fn vec_pop(h: U64) -> I64 {
+        let popped: Option<i64> = with_vec_mut(h, None, |v| v.pop());
+        match popped {
+            Some(v) => v,
+            None => i64::MIN + 2,
+        }
+    }
+
+    /// Element at `index`, or 0 out of range.
+    #[rts_fn]
+    pub fn vec_get(h: U64, index: I64) -> I64 {
+        if index < 0 {
+            return 0;
+        }
+        with_vec(h, 0, |v| v.get(index as usize).copied().unwrap_or(0))
+    }
+
+    /// Writes `value` at `index`. No-op out of range.
+    #[rts_fn]
+    pub fn vec_set(h: U64, index: I64, value: I64) {
+        if index < 0 {
+            return;
+        }
+        with_vec_mut(h, (), |v| {
+            if let Some(slot) = v.get_mut(index as usize) {
+                *slot = value;
+            }
+        });
+    }
+
+    /// Removes all elements.
+    #[rts_fn]
+    pub fn vec_clear(h: U64) {
+        with_vec_mut(h, (), |v| v.clear());
+    }
+
+    /// Junta os elementos do vec separados por `sep` (string handle). Cada elemento i64 e' tratado como string handle se valido, senao formatado como numero decimal. Retorna handle da string resultante.
+    #[rts_fn]
+    pub fn vec_join(h: U64, sep: Handle) -> Handle {
+        let elems: Option<Vec<i64>> = with_entry(h, |entry| match entry {
+            Some(Entry::Vec(v)) => Some(v.iter().copied().collect()),
+            _ => None,
+        });
+        let Some(elems) = elems else {
+            return 0;
+        };
+        let sep_bytes: Vec<u8> = with_entry(sep, |entry| match entry {
+            Some(Entry::String(b)) => b.clone(),
+            _ => Vec::new(),
+        });
+        let mut out: Vec<u8> = Vec::new();
+        join_into(&mut out, &elems, &sep_bytes, 0);
+        alloc_entry(Entry::String(out))
+    }
 }
 
 /// (cross-runtime #1067) Suporte a spread em indirect call: copia todos
@@ -51,7 +142,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM(dst: u64, src: u64) {
     });
     with_vec_mut(dst, (), |v| {
         for x in items {
-            if v.len() >= 1_000_000 { break; }
+            if v.len() >= 1_000_000 {
+                break;
+            }
             v.push(x);
         }
     });
@@ -72,7 +165,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FILL_TA_ARG(dst: u64, arg: i64) {
     with_vec_mut(dst, (), |v| match from_handle {
         Some(src) => {
             for x in src {
-                if v.len() >= 1_000_000 { break; }
+                if v.len() >= 1_000_000 {
+                    break;
+                }
                 v.push(x);
             }
         }
@@ -97,7 +192,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM_BUFFER(dst: u64, src: 
     });
     with_vec_mut(dst, (), |v| {
         for b in bytes {
-            if v.len() >= 1_000_000 { break; }
+            if v.len() >= 1_000_000 {
+                break;
+            }
             v.push(b as i64);
         }
     });
@@ -109,23 +206,6 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM_BUFFER(dst: u64, src: 
 /// pro caso real e barato comparado aos GBs que um leak descontrolado
 /// produz.
 const VEC_MAX_LEN: usize = 1_000_000;
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle: u64, value: i64) {
-    let limit_hit = with_vec_mut(handle, false, |v| {
-        if v.len() >= VEC_MAX_LEN {
-            return true;
-        }
-        v.push(value);
-        false
-    });
-    if limit_hit {
-        eprintln!(
-            "RTS runtime: vec push exceeded limit of {VEC_MAX_LEN} elements; aborting (likely infinite generator or unbounded loop)"
-        );
-        std::process::abort();
-    }
-}
 
 /// (cross-runtime) `Math.min(...arr)` / `Math.max(...arr)`. Reduz os elementos
 /// do Vec (i64) como f64. Vec vazio -> Infinity (min) / -Infinity (max), JS spec.
@@ -140,20 +220,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_MIN(handle: u64) -> f64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_MAX(handle: u64) -> f64 {
     with_vec(handle, f64::NEG_INFINITY, |v| {
-        v.iter().fold(f64::NEG_INFINITY, |acc, &x| acc.max(x as f64))
+        v.iter()
+            .fold(f64::NEG_INFINITY, |acc, &x| acc.max(x as f64))
     })
-}
-
-/// Remove e retorna o ultimo valor. JS spec: undefined se vazio.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_POP(handle: u64) -> i64 {
-    let popped: Option<i64> = with_vec_mut(handle, None, |v| v.pop());
-    match popped {
-        Some(v) => v,
-        // Vazio: undefined real (sentinel), nao handle-string. Faz `?? -1`
-        // e `=== undefined` funcionarem; template formata via TPL_COERCE_AUTO.
-        None => i64::MIN + 2,
-    }
 }
 
 /// `arr.length = n` — JS spec: trunca se n < length, extende com
@@ -183,22 +252,17 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SET_LENGTH(handle: u64, n: i64) {
     });
 }
 
-/// Valor em `index`, ou 0 fora do range.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_GET(handle: u64, index: i64) -> i64 {
-    if index < 0 {
-        return 0;
-    }
-    with_vec(handle, 0, |v| v.get(index as usize).copied().unwrap_or(0))
-}
-
 /// `delete obj[i]` ou `delete obj[k]` — roteia em runtime para vec/map.
 /// Para Vec: marca slot como hole (i64::MIN+4) preservando length (JS spec).
 /// Para Map: remove key (idx_or_keyh interpretado como handle de string).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_DELETE_AUTO(handle: u64, idx_or_keyh: i64) -> i64 {
     use super::super::gc::handles::with_entry;
-    enum Kind { Vec, Map, Other }
+    enum Kind {
+        Vec,
+        Map,
+        Other,
+    }
     let kind = with_entry(handle, |e| match e {
         Some(Entry::Vec(_)) => Kind::Vec,
         Some(Entry::Map(_)) => Kind::Map,
@@ -207,7 +271,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_DELETE_AUTO(handle: u64, idx_or_
     match kind {
         Kind::Vec => {
             let i = idx_or_keyh;
-            if i < 0 { return 1; }
+            if i < 0 {
+                return 1;
+            }
             with_entry_mut(handle, |e| {
                 if let Some(Entry::Vec(v)) = e {
                     if (i as usize) < v.len() {
@@ -239,7 +305,12 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_DELETE_AUTO(handle: u64, idx_or_
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_GET_AUTO(handle: u64, index: i64) -> i64 {
     use super::super::gc::handles::with_entry;
-    enum Kind { Vec, Str(Vec<u8>), Buf(u8), Other }
+    enum Kind {
+        Vec,
+        Str(Vec<u8>),
+        Buf(u8),
+        Other,
+    }
     let kind = with_entry(handle, |e| match e {
         Some(Entry::Vec(_)) => Kind::Vec,
         Some(Entry::String(b)) => Kind::Str(b.clone()),
@@ -280,9 +351,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_GET_AUTO(handle: u64, index: i64
             //   index.to_string() como key.
             use super::map::{__RTS_FN_NS_COLLECTIONS_MAP_GET, __RTS_FN_NS_COLLECTIONS_MAP_GET_KH};
             // Detecta se index eh handle GC valido String/Symbol — usa MAP_GET_KH.
-            let is_str_handle = with_entry(index as u64, |e| matches!(e,
-                Some(Entry::String(_)) | Some(Entry::Symbol { .. })
-            ));
+            let is_str_handle = with_entry(index as u64, |e| {
+                matches!(e, Some(Entry::String(_)) | Some(Entry::Symbol { .. }))
+            });
             if is_str_handle {
                 return __RTS_FN_NS_COLLECTIONS_MAP_GET_KH(handle, index as u64);
             }
@@ -305,8 +376,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_CONCAT_AUTO(recv: u64, other: i64) -> 
         let copy = __RTS_FN_NS_COLLECTIONS_VEC_CONCAT(recv, 0);
         __RTS_FN_NS_COLLECTIONS_VEC_CONCAT_APPEND(copy, other) as i64
     } else {
-        crate::namespaces::globals::string::rt::__RTS_FN_GL_STRING_CONCAT(recv, other as u64)
-            as i64
+        crate::namespaces::globals::string::rt::__RTS_FN_GL_STRING_CONCAT(recv, other as u64) as i64
     }
 }
 
@@ -336,7 +406,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INCLUDES_AUTO(recv: u64, needle: i64) 
     if is_vec {
         __RTS_FN_NS_COLLECTIONS_VEC_INCLUDES(recv, needle)
     } else {
-        crate::namespaces::globals::string::rt::__RTS_FN_GL_STRING_INCLUDES(recv, needle as u64) as i64
+        crate::namespaces::globals::string::rt::__RTS_FN_GL_STRING_INCLUDES(recv, needle as u64)
+            as i64
     }
 }
 
@@ -360,7 +431,10 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_LAST_INDEX_OF_AUTO(recv: u64, needle: 
     if is_vec {
         __RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF(recv, needle)
     } else {
-        crate::namespaces::globals::string::rt::__RTS_FN_GL_STRING_LAST_INDEX_OF(recv, needle as u64)
+        crate::namespaces::globals::string::rt::__RTS_FN_GL_STRING_LAST_INDEX_OF(
+            recv,
+            needle as u64,
+        )
     }
 }
 
@@ -368,26 +442,13 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_LAST_INDEX_OF_AUTO(recv: u64, needle: 
 /// slot nao eh hole (sentinela i64::MIN+4). JS spec.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_HAS_INDEX(handle: u64, index: i64) -> i64 {
-    if index < 0 { return 0; }
-    with_vec(handle, 0, |v| {
-        match v.get(index as usize).copied() {
-            Some(slot) if slot != i64::MIN + 4 => 1,
-            _ => 0,
-        }
-    })
-}
-
-/// Escreve `value` em `index`. No-op fora do range.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SET(handle: u64, index: i64, value: i64) {
     if index < 0 {
-        return;
+        return 0;
     }
-    with_vec_mut(handle, (), |v| {
-        if let Some(slot) = v.get_mut(index as usize) {
-            *slot = value;
-        }
-    });
+    with_vec(handle, 0, |v| match v.get(index as usize).copied() {
+        Some(slot) if slot != i64::MIN + 4 => 1,
+        _ => 0,
+    })
 }
 
 /// (#93) `typedArray.set(src, offset)`: copia os elementos de `src` (Vec)
@@ -406,36 +467,6 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SET_FROM(dst: u64, src: u64, offse
             }
         }
     });
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_CLEAR(handle: u64) {
-    with_vec_mut(handle, (), |v| v.clear());
-}
-
-/// Junta os elementos do Vec interpretando cada i64 como:
-///   - string handle valido → conteudo da string
-///   - caso contrario → representacao decimal do numero
-/// Retorna handle de string nova com os elementos separados por `sep_h`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_JOIN(handle: u64, sep_h: u64) -> u64 {
-    // Snapshot dos elementos sem segurar o lock — formatar pode tocar
-    // outros shards (resolver string handles).
-    let elems: Option<Vec<i64>> = with_entry(handle, |entry| match entry {
-        Some(Entry::Vec(v)) => Some(v.iter().copied().collect()),
-        _ => None,
-    });
-    let Some(elems) = elems else { return 0; };
-
-    // Resolve separador como bytes; vazio se handle invalido.
-    let sep_bytes: Vec<u8> = with_entry(sep_h, |entry| match entry {
-        Some(Entry::String(b)) => b.clone(),
-        _ => Vec::new(),
-    });
-
-    let mut out: Vec<u8> = Vec::new();
-    join_into(&mut out, &elems, &sep_bytes, 0);
-    alloc_entry(Entry::String(out))
 }
 
 // (cross-runtime #257) Recursa em Vec aninhado arbitrariamente fundo.
@@ -508,7 +539,9 @@ fn join_into(out: &mut Vec<u8>, elems: &[i64], sep_bytes: &[u8], depth: u32) {
 /// quando ambos sao handles String. Sem isso, `["a","b"].indexOf("a")` falha
 /// se "a" foi alocado em handles diferentes em compile time.
 fn slot_eq(a: i64, b: i64) -> bool {
-    if a == b { return true; }
+    if a == b {
+        return true;
+    }
     use super::super::gc::handles::with_entry;
     let a_str: Option<Vec<u8>> = with_entry(a as u64, |e| match e {
         Some(Entry::String(s)) => Some(s.clone()),
@@ -519,7 +552,9 @@ fn slot_eq(a: i64, b: i64) -> bool {
             Some(Entry::String(bb)) => bb.as_slice() == ab.as_slice(),
             _ => false,
         });
-        if b_eq { return true; }
+        if b_eq {
+            return true;
+        }
     }
     false
 }
@@ -530,7 +565,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_INDEX_OF(handle: u64, needle: i64)
     // (cross-runtime #285) Snapshot do vec fora do lock para evitar deadlock
     // quando slot_eq -> with_entry(slot) cai no mesmo shard do vec.
     let snapshot: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
-    snapshot.iter().position(|x| slot_eq(*x, needle)).map(|i| i as i64).unwrap_or(-1)
+    snapshot
+        .iter()
+        .position(|x| slot_eq(*x, needle))
+        .map(|i| i as i64)
+        .unwrap_or(-1)
 }
 
 /// (#208) `arr.indexOf(needle, fromIndex)` — busca a partir de `from`.
@@ -558,7 +597,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_INDEX_OF_FROM(
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF(handle: u64, needle: i64) -> i64 {
     let snapshot: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
-    snapshot.iter().rposition(|x| slot_eq(*x, needle)).map(|i| i as i64).unwrap_or(-1)
+    snapshot
+        .iter()
+        .rposition(|x| slot_eq(*x, needle))
+        .map(|i| i as i64)
+        .unwrap_or(-1)
 }
 
 /// (#208) `arr.lastIndexOf(needle, fromIndex)` — busca de tras pra frente,
@@ -571,7 +614,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF_FROM(
 ) -> i64 {
     let snapshot: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
     let len = snapshot.len() as i64;
-    let end = if from < 0 { (len + from).max(-1) + 1 } else { (from + 1).min(len) } as usize;
+    let end = if from < 0 {
+        (len + from).max(-1) + 1
+    } else {
+        (from + 1).min(len)
+    } as usize;
     if end == 0 {
         return -1;
     }
@@ -589,7 +636,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF_FROM(
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_INCLUDES(handle: u64, needle: i64) -> i64 {
     let snapshot: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
-    if snapshot.iter().any(|x| slot_eq(*x, needle)) { 1 } else { 0 }
+    if snapshot.iter().any(|x| slot_eq(*x, needle)) {
+        1
+    } else {
+        0
+    }
 }
 
 /// (#208) `arr.includes(needle, fromIndex)` — busca a partir de `from`.
@@ -605,7 +656,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_INCLUDES_FROM(
     if start >= snapshot.len() {
         return 0;
     }
-    if snapshot[start..].iter().any(|x| slot_eq(*x, needle)) { 1 } else { 0 }
+    if snapshot[start..].iter().any(|x| slot_eq(*x, needle)) {
+        1
+    } else {
+        0
+    }
 }
 
 /// `arr.reverse()` in-place. Retorna o proprio handle.
@@ -620,7 +675,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_REVERSE(handle: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SHIFT(handle: u64) -> i64 {
     let first: Option<i64> = with_vec_mut(handle, None, |v| {
-        if v.is_empty() { None } else { Some(v.remove(0)) }
+        if v.is_empty() {
+            None
+        } else {
+            Some(v.remove(0))
+        }
     });
     match first {
         Some(v) => v,
@@ -652,8 +711,18 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_UNSHIFT(handle: u64, value: i64) -
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SLICE(handle: u64, start: i64, end: i64) -> u64 {
     let copy: Vec<i64> = with_vec(handle, Vec::new(), |v| {
         let len = v.len() as i64;
-        let s = if start < 0 { (len + start).max(0) } else { start.min(len) } as usize;
-        let e_eff = if end == i64::MIN { len } else if end < 0 { (len + end).max(0) } else { end.min(len) };
+        let s = if start < 0 {
+            (len + start).max(0)
+        } else {
+            start.min(len)
+        } as usize;
+        let e_eff = if end == i64::MIN {
+            len
+        } else if end < 0 {
+            (len + end).max(0)
+        } else {
+            end.min(len)
+        };
         let e = (e_eff as usize).max(s);
         v[s..e].to_vec()
     });
@@ -725,8 +794,18 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FILL(
 ) -> u64 {
     with_vec_mut(handle, (), |v| {
         let len = v.len() as i64;
-        let s = if start < 0 { (len + start).max(0) } else { start.min(len) } as usize;
-        let e_eff = if end == i64::MIN { len } else if end < 0 { (len + end).max(0) } else { end.min(len) };
+        let s = if start < 0 {
+            (len + start).max(0)
+        } else {
+            start.min(len)
+        } as usize;
+        let e_eff = if end == i64::MIN {
+            len
+        } else if end < 0 {
+            (len + end).max(0)
+        } else {
+            end.min(len)
+        };
         let e = (e_eff as usize).max(s);
         for slot in &mut v[s..e] {
             *slot = value;
@@ -796,7 +875,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_REMOVE(
 ) -> u64 {
     let removed: Vec<i64> = with_vec_mut(handle, Vec::new(), |v| {
         let len = v.len() as i64;
-        let s = if start < 0 { (len + start).max(0) } else { start.min(len) } as usize;
+        let s = if start < 0 {
+            (len + start).max(0)
+        } else {
+            start.min(len)
+        } as usize;
         let count = delete_count.max(0).min(len - s as i64) as usize;
         v.drain(s..s + count).collect()
     });
@@ -818,7 +901,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_INSERT(
     });
     let removed: Vec<i64> = with_vec_mut(handle, Vec::new(), |v| {
         let len = v.len() as i64;
-        let s = if start < 0 { (len + start).max(0) } else { start.min(len) } as usize;
+        let s = if start < 0 {
+            (len + start).max(0)
+        } else {
+            start.min(len)
+        } as usize;
         let count = delete_count.max(0).min(len - s as i64) as usize;
         let drained: Vec<i64> = v.drain(s..s + count).collect();
         for (i, item) in items.into_iter().enumerate() {
@@ -859,8 +946,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_LENGTH(n: i64, fn_ptr: u64) -> u64 {
         // Em JS Array.from(arrayLike, mapFn) chama mapFn(undefined, idx)
         // pra cada slot vazio. Aqui passamos (idx, idx) pra simplificar
         // — mapper tipico em RTS recebe `(_, i) => ...` e usa so' i.
-        let f: extern "C" fn(i64, i64) -> i64 =
-            unsafe { std::mem::transmute(fn_ptr as usize) };
+        let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
         for i in 0..n {
             out.push(f(i as i64, i as i64));
         }
@@ -878,7 +964,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_VEC(src: u64, fn_ptr: u64) -> u64 {
     // no 108_generator_functions). Generator finito -> Vec; infinito travaria
     // igual a JS.
     let src = {
-        use crate::namespaces::gc::handles::{Entry, with_entry};
+        use crate::namespaces::gc::handles::{with_entry, Entry};
         let is_sm = with_entry(src, |e| matches!(e, Some(Entry::GenState(_))));
         if is_sm {
             crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_DRAIN(src)
@@ -901,17 +987,17 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_VEC(src: u64, fn_ptr: u64) -> u64 {
                 // (#394) Recupera identidade do elemento via value preservado
                 // (set_element_from_pair) em vez de descartar nao-numericos.
                 m.iter()
-                    .map(|(k, &v)| {
-                        crate::namespaces::collections::map::set_element_from_pair(k, v)
-                    })
+                    .map(|(k, &v)| crate::namespaces::collections::map::set_element_from_pair(k, v))
                     .collect()
             } else if is_map {
                 // JS Map: Array.from(map) retorna pares [key, value].
-                m.iter().map(|(k, &v)| {
-                    let key_h = alloc_entry(Entry::String(k.as_bytes().to_vec())) as i64;
-                    let pair = alloc_entry(Entry::Vec(Box::new(vec![key_h, v]))) as i64;
-                    pair
-                }).collect()
+                m.iter()
+                    .map(|(k, &v)| {
+                        let key_h = alloc_entry(Entry::String(k.as_bytes().to_vec())) as i64;
+                        let pair = alloc_entry(Entry::Vec(Box::new(vec![key_h, v]))) as i64;
+                        pair
+                    })
+                    .collect()
             } else {
                 m.values().copied().collect()
             }
@@ -935,16 +1021,24 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_VEC(src: u64, fn_ptr: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST(handle: u64, fn_ptr: u64) -> i64 {
     let items: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
-    if fn_ptr == 0 { return i64::MIN + 2; }
+    if fn_ptr == 0 {
+        return i64::MIN + 2;
+    }
     let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
-    items.into_iter().rev().find(|&x| f(x) != 0).unwrap_or(i64::MIN + 2)
+    items
+        .into_iter()
+        .rev()
+        .find(|&x| f(x) != 0)
+        .unwrap_or(i64::MIN + 2)
 }
 
 /// (#208) `arr.findLastIndex(fn)` — index do ultimo match, ou -1.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST_INDEX(handle: u64, fn_ptr: u64) -> i64 {
     let items: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
-    if fn_ptr == 0 { return -1; }
+    if fn_ptr == 0 {
+        return -1;
+    }
     let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
     let len = items.len();
     for (i, x) in items.into_iter().enumerate().rev() {
@@ -964,7 +1058,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT(
     fn_ptr: u64,
 ) -> i64 {
     let items: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
-    if fn_ptr == 0 { return init; }
+    if fn_ptr == 0 {
+        return init;
+    }
     // (#345 follow-up) callback liftado de reduce tem 3 params (acc, val,
     // index) — o lift do parallelism gera `__lifted_arr_method_reduce_N` com
     // aridade 3. Sem passar o index como 3o arg, o param `i` lia lixo do
@@ -987,7 +1083,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT_NO_INIT(
     fn_ptr: u64,
 ) -> i64 {
     let items: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
-    if fn_ptr == 0 || items.is_empty() { return 0; }
+    if fn_ptr == 0 || items.is_empty() {
+        return 0;
+    }
     // (#345 follow-up) idem REDUCE_RIGHT: callback de 3 params (acc, val,
     // index). Sem init, o ultimo elemento (items[len-1]) vira acc inicial e o
     // loop comeca em len-2 descendo ate 0 (index = posicao original).
@@ -1037,11 +1135,23 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_COPY_WITHIN(
 ) -> u64 {
     with_vec_mut(handle, (), |v| {
         let len = v.len() as i64;
-        let to = if target < 0 { (len + target).max(0) } else { target.min(len) } as usize;
-        let from_s = if start < 0 { (len + start).max(0) } else { start.min(len) } as usize;
-        let from_e_eff = if end == i64::MIN { len }
-            else if end < 0 { (len + end).max(0) }
-            else { end.min(len) };
+        let to = if target < 0 {
+            (len + target).max(0)
+        } else {
+            target.min(len)
+        } as usize;
+        let from_s = if start < 0 {
+            (len + start).max(0)
+        } else {
+            start.min(len)
+        } as usize;
+        let from_e_eff = if end == i64::MIN {
+            len
+        } else if end < 0 {
+            (len + end).max(0)
+        } else {
+            end.min(len)
+        };
         let from_e = (from_e_eff as usize).max(from_s);
         let count = (from_e - from_s).min(v.len() - to);
         // Snapshot pra evitar aliasing in-place quando ranges se sobrepoem.
@@ -1063,9 +1173,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SORT(handle: u64, fn_ptr: u64) -> 
         // Detecta se elementos sao string handles; se sim, sort lexico-
         // grafico. Senao, sort numerico i64 default.
         let all_strings = with_vec(handle, false, |v| {
-            !v.is_empty() && v.iter().all(|x| {
-                with_entry(*x as u64, |e| matches!(e, Some(Entry::String(_))))
-            })
+            !v.is_empty()
+                && v.iter()
+                    .all(|x| with_entry(*x as u64, |e| matches!(e, Some(Entry::String(_)))))
         });
         if all_strings {
             // Snapshot bytes pra evitar nested locks.
@@ -1096,9 +1206,13 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SORT(handle: u64, fn_ptr: u64) -> 
         with_vec_mut(handle, (), |v| {
             v.sort_by(|a, b| {
                 let r = f(*a, *b);
-                if r < 0 { std::cmp::Ordering::Less }
-                else if r > 0 { std::cmp::Ordering::Greater }
-                else { std::cmp::Ordering::Equal }
+                if r < 0 {
+                    std::cmp::Ordering::Less
+                } else if r > 0 {
+                    std::cmp::Ordering::Greater
+                } else {
+                    std::cmp::Ordering::Equal
+                }
             });
         });
     }
@@ -1117,7 +1231,12 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_VALUES(handle: u64) -> u64 {
     // (#61) Set armazena value=1 marker no Map<String,i64>; values reais
     // sao as keys. Detecta via handle_is_set_kind antes do match Map.
     let is_set = crate::namespaces::collections::map::handle_is_set_kind(handle);
-    enum Kind { Vec(Vec<i64>), MapVals(Vec<i64>), SetPairs(Vec<(String, i64)>), Other }
+    enum Kind {
+        Vec(Vec<i64>),
+        MapVals(Vec<i64>),
+        SetPairs(Vec<(String, i64)>),
+        Other,
+    }
     let kind = with_entry(handle, |e| match e {
         Some(Entry::Vec(v)) => Kind::Vec((**v).clone()),
         Some(Entry::Map(m)) => {
@@ -1134,9 +1253,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_VALUES(handle: u64) -> u64 {
         // (#394) Recupera identidade do elemento via value preservado.
         Kind::SetPairs(pairs) => pairs
             .into_iter()
-            .map(|(k, v)| {
-                crate::namespaces::collections::map::set_element_from_pair(&k, v)
-            })
+            .map(|(k, v)| crate::namespaces::collections::map::set_element_from_pair(&k, v))
             .collect(),
         Kind::Other => Vec::new(),
     };
@@ -1148,7 +1265,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_VALUES(handle: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_KEYS(handle: u64) -> u64 {
     use super::super::gc::handles::with_entry;
-    enum Kind { Vec(usize), Map(Vec<String>), Other }
+    enum Kind {
+        Vec(usize),
+        Map(Vec<String>),
+        Other,
+    }
     let kind = with_entry(handle, |e| match e {
         Some(Entry::Vec(v)) => Kind::Vec(v.len()),
         Some(Entry::Map(m)) => Kind::Map(m.keys().cloned().collect()),
@@ -1172,9 +1293,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SORTED(handle: u64, fn_ptr: u64
     if fn_ptr == 0 {
         // Detecta string handles e ordena lexico (mesma logica do sort).
         let all_strings = !copy.is_empty()
-            && copy.iter().all(|x| {
-                with_entry(*x as u64, |e| matches!(e, Some(Entry::String(_))))
-            });
+            && copy
+                .iter()
+                .all(|x| with_entry(*x as u64, |e| matches!(e, Some(Entry::String(_)))));
         if all_strings {
             let pairs: Vec<(i64, Vec<u8>)> = copy
                 .iter()
@@ -1196,9 +1317,13 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SORTED(handle: u64, fn_ptr: u64
         let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
         copy.sort_by(|a, b| {
             let r = f(*a, *b);
-            if r < 0 { std::cmp::Ordering::Less }
-            else if r > 0 { std::cmp::Ordering::Greater }
-            else { std::cmp::Ordering::Equal }
+            if r < 0 {
+                std::cmp::Ordering::Less
+            } else if r > 0 {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Equal
+            }
         });
     }
     alloc_entry(Entry::Vec(Box::new(copy)))
@@ -1221,7 +1346,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED(
 ) -> u64 {
     let mut copy: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
     let len = copy.len() as i64;
-    let s = if start < 0 { (len + start).max(0) } else { start.min(len) } as usize;
+    let s = if start < 0 {
+        (len + start).max(0)
+    } else {
+        start.min(len)
+    } as usize;
     let count = delete_count.max(0).min(len - s as i64) as usize;
     copy.drain(s..s + count);
     alloc_entry(Entry::Vec(Box::new(copy)))
@@ -1241,7 +1370,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED_INSERT(
     });
     let mut copy: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
     let len = copy.len() as i64;
-    let s = if start < 0 { (len + start).max(0) } else { start.min(len) } as usize;
+    let s = if start < 0 {
+        (len + start).max(0)
+    } else {
+        start.min(len)
+    } as usize;
     let count = delete_count.max(0).min(len - s as i64) as usize;
     copy.drain(s..s + count);
     for (i, item) in items.into_iter().enumerate() {
@@ -1255,7 +1388,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED_INSERT(
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_WITH(handle: u64, idx: i64, value: i64) -> u64 {
     let mut copy: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
     let len = copy.len() as i64;
-    let i = if idx < 0 { (len + idx).max(0) } else { idx.min(len - 1) } as usize;
+    let i = if idx < 0 {
+        (len + idx).max(0)
+    } else {
+        idx.min(len - 1)
+    } as usize;
     if i < copy.len() {
         copy[i] = value;
     }
@@ -1270,7 +1407,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_WITH(handle: u64, idx: i64, value:
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_ENTRIES(handle: u64) -> u64 {
     use super::super::gc::handles::with_entry;
-    enum Kind { Vec(Vec<i64>), Map(Vec<(String, i64)>), Other }
+    enum Kind {
+        Vec(Vec<i64>),
+        Map(Vec<(String, i64)>),
+        Other,
+    }
     let kind = with_entry(handle, |e| match e {
         Some(Entry::Vec(v)) => Kind::Vec((**v).clone()),
         Some(Entry::Map(m)) => Kind::Map(m.iter().map(|(k, v)| (k.clone(), *v)).collect()),
@@ -1466,7 +1607,11 @@ mod tests {
     }
 
     extern "C" fn gt_two(x: i64) -> i64 {
-        if x > 2 { 1 } else { 0 }
+        if x > 2 {
+            1
+        } else {
+            0
+        }
     }
 
     #[test]

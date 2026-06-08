@@ -91,7 +91,7 @@ pub const SPECS: &[&NamespaceSpec] = &[
     &crate::namespaces::promise::SPEC,
     &crate::namespaces::ptr::SPEC,
     &crate::namespaces::os::SPEC,
-    &crate::namespaces::collections::abi::SPEC,
+    &crate::namespaces::collections::SPEC,
     &crate::namespaces::hash::SPEC,
     &crate::namespaces::hint::SPEC,
     &crate::namespaces::http_server::SPEC,
