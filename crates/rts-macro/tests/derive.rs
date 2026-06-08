@@ -43,13 +43,42 @@ impl Toy {
             1
         }
     }
+
+    /// a constant member (no parens in TS), with an unused-param-free body
+    #[rts_const(pure)]
+    pub fn width() -> I64 {
+        64
+    }
+
+    /// unused params keep a leading `_` but the TS name drops it
+    #[rts_fn]
+    pub fn pick_second(_a: I64, b: I64) -> I64 {
+        b
+    }
 }
 
 #[test]
 fn derives_spec() {
     assert_eq!(SPEC.name, "toy");
     assert_eq!(SPEC.doc, "Toy namespace for the derive test.");
-    assert_eq!(SPEC.members.len(), 5);
+    assert_eq!(SPEC.members.len(), 7);
+
+    let width = SPEC.members.iter().find(|m| m.name == "width").unwrap();
+    assert!(matches!(width.kind, rts_abi::MemberKind::Constant));
+    assert_eq!(width.ts_signature, "width: number"); // no parens
+    assert_eq!(__RTS_FN_NS_TOY_WIDTH(), 64);
+
+    let pick = SPEC
+        .members
+        .iter()
+        .find(|m| m.name == "pick_second")
+        .unwrap();
+    // leading `_` stripped in the TS name
+    assert_eq!(
+        pick.ts_signature,
+        "pick_second(a: number, b: number): number"
+    );
+    assert_eq!(__RTS_FN_NS_TOY_PICK_SECOND(1, 2), 2);
 
     let bl = SPEC.members.iter().find(|m| m.name == "byte_len").unwrap();
     assert_eq!(bl.symbol, "__RTS_FN_NS_TOY_BYTE_LEN");

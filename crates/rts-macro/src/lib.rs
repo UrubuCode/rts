@@ -60,17 +60,30 @@ fn doc_of(attrs: &[syn::Attribute]) -> String {
     lines.join("\n")
 }
 
-/// Parses `#[rts_fn(...)]` options: `ts = "..."` (signature override), `pure`.
+/// Parsed `#[rts_fn(...)]` / `#[rts_const(...)]` options.
 struct FnOpts {
     ts: Option<String>,
     pure: bool,
+    /// `true` when declared with `#[rts_const]` — a zero-arg member exposed as
+    /// a `MemberKind::Constant` (accessed without parens, no TS arg list).
+    is_const: bool,
 }
 
-fn parse_rts_fn(attrs: &[syn::Attribute]) -> Option<FnOpts> {
-    let attr = attrs.iter().find(|a| a.path().is_ident("rts_fn"))?;
+fn parse_member(attrs: &[syn::Attribute]) -> Option<FnOpts> {
+    let (attr, is_const) = attrs
+        .iter()
+        .find(|a| a.path().is_ident("rts_fn"))
+        .map(|a| (a, false))
+        .or_else(|| {
+            attrs
+                .iter()
+                .find(|a| a.path().is_ident("rts_const"))
+                .map(|a| (a, true))
+        })?;
     let mut opts = FnOpts {
         ts: None,
         pure: false,
+        is_const,
     };
     // `#[rts_fn]` (no args) → Path meta; `#[rts_fn(...)]` → List.
     if matches!(attr.meta, syn::Meta::Path(_)) {
@@ -120,8 +133,8 @@ pub fn rts_namespace(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     for it in &imp.items {
         let ImplItem::Fn(f) = it else { continue };
-        let Some(opts) = parse_rts_fn(&f.attrs) else {
-            continue; // not an #[rts_fn] — skip (helpers allowed in the impl)
+        let Some(opts) = parse_member(&f.attrs) else {
+            continue; // not an #[rts_fn]/#[rts_const] — skip (helpers allowed)
         };
 
         let span = f.sig.ident.span();
@@ -174,7 +187,9 @@ pub fn rts_namespace(attr: TokenStream, item: TokenStream) -> TokenStream {
             };
             let pname_ident = pi.ident.clone();
             let pname = pname_ident.to_string();
-            ts_params.push(format!("{pname}: {tsty}"));
+            // A leading `_` marks the param unused in the body but is not part
+            // of the public name — strip it for the TS signature.
+            ts_params.push(format!("{}: {tsty}", pname.trim_start_matches('_')));
             let v = Ident::new(abi, span);
             arg_variants.push(quote! { ::rts_abi::AbiType::#v });
 
@@ -193,9 +208,22 @@ pub fn rts_namespace(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
 
-        let ts_sig = opts
-            .ts
-            .unwrap_or_else(|| format!("{name}({}): {ret_ts}", ts_params.join(", ")));
+        // Constant members are zero-arg and rendered without parens in TS.
+        if opts.is_const && !extern_inputs.is_empty() {
+            return err(span, "#[rts_const] members must take no arguments");
+        }
+        let ts_sig = opts.ts.unwrap_or_else(|| {
+            if opts.is_const {
+                format!("{name}: {ret_ts}")
+            } else {
+                format!("{name}({}): {ret_ts}", ts_params.join(", "))
+            }
+        });
+        let kind_ident = if opts.is_const {
+            Ident::new("Constant", span)
+        } else {
+            Ident::new("Function", span)
+        };
         let pure = opts.pure;
 
         // Emit the extern "C" symbol — Str prelude, then the user body verbatim.
@@ -212,7 +240,7 @@ pub fn rts_namespace(attr: TokenStream, item: TokenStream) -> TokenStream {
         members.push(quote! {
             ::rts_abi::NamespaceMember {
                 name: #name,
-                kind: ::rts_abi::MemberKind::Function,
+                kind: ::rts_abi::MemberKind::#kind_ident,
                 symbol: #symbol,
                 args: &[ #(#arg_variants),* ],
                 returns: ::rts_abi::AbiType::#ret_ident,

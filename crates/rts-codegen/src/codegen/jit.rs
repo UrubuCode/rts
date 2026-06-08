@@ -1056,7 +1056,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::mem ───────────────────────────────────────────────
     {
-        use crate::namespaces::mem::ops as m;
+        use crate::namespaces::mem as m;
         add_fn!("__RTS_FN_NS_MEM_SIZE_OF_I64", m::__RTS_FN_NS_MEM_SIZE_OF_I64);
         add_fn!("__RTS_FN_NS_MEM_SIZE_OF_F64", m::__RTS_FN_NS_MEM_SIZE_OF_F64);
         add_fn!("__RTS_FN_NS_MEM_SIZE_OF_I32", m::__RTS_FN_NS_MEM_SIZE_OF_I32);
@@ -1232,7 +1232,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::hash ──────────────────────────────────────────────
     {
-        use crate::namespaces::hash::ops as h;
+        use crate::namespaces::hash as h;
         add_fn!("__RTS_FN_NS_HASH_HASH_STR", h::__RTS_FN_NS_HASH_HASH_STR);
         add_fn!(
             "__RTS_FN_NS_HASH_HASH_BYTES",
