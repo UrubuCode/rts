@@ -29,8 +29,10 @@ pub type I64 = i64;
 pub type I32 = i32;
 /// Native f64.
 pub type F64 = f64;
-/// Boolean at the extern "C" boundary (0/1 in an i8).
-pub type Bool = i8;
+/// Boolean at the extern "C" boundary (0/1). Codegen lowers `AbiType::Bool`
+/// to Cranelift `I64` for both params and returns, so the repr is `i64` — not
+/// `i8` — to match the calling convention exactly.
+pub type Bool = i64;
 
 /// Marker token for a UTF-8 string parameter. `#[rts_fn]` expands a `Str` arg
 /// into two ABI slots `(ptr: *const u8, len: i64)` and reconstructs an `&str`

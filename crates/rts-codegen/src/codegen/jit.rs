@@ -2450,26 +2450,14 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::path ──────────────────────────────────────────────
     use crate::namespaces::path::*;
-    add_fn!("__RTS_FN_NS_PATH_JOIN", join::__RTS_FN_NS_PATH_JOIN);
-    add_fn!(
-        "__RTS_FN_NS_PATH_PARENT",
-        components::__RTS_FN_NS_PATH_PARENT
-    );
-    add_fn!(
-        "__RTS_FN_NS_PATH_FILE_NAME",
-        components::__RTS_FN_NS_PATH_FILE_NAME
-    );
-    add_fn!("__RTS_FN_NS_PATH_STEM", components::__RTS_FN_NS_PATH_STEM);
-    add_fn!("__RTS_FN_NS_PATH_EXT", components::__RTS_FN_NS_PATH_EXT);
-    add_fn!(
-        "__RTS_FN_NS_PATH_IS_ABSOLUTE",
-        join::__RTS_FN_NS_PATH_IS_ABSOLUTE
-    );
-    add_fn!(
-        "__RTS_FN_NS_PATH_NORMALIZE",
-        join::__RTS_FN_NS_PATH_NORMALIZE
-    );
-    add_fn!("__RTS_FN_NS_PATH_WITH_EXT", join::__RTS_FN_NS_PATH_WITH_EXT);
+    add_fn!("__RTS_FN_NS_PATH_JOIN", __RTS_FN_NS_PATH_JOIN);
+    add_fn!("__RTS_FN_NS_PATH_PARENT", __RTS_FN_NS_PATH_PARENT);
+    add_fn!("__RTS_FN_NS_PATH_FILE_NAME", __RTS_FN_NS_PATH_FILE_NAME);
+    add_fn!("__RTS_FN_NS_PATH_STEM", __RTS_FN_NS_PATH_STEM);
+    add_fn!("__RTS_FN_NS_PATH_EXT", __RTS_FN_NS_PATH_EXT);
+    add_fn!("__RTS_FN_NS_PATH_IS_ABSOLUTE", __RTS_FN_NS_PATH_IS_ABSOLUTE);
+    add_fn!("__RTS_FN_NS_PATH_NORMALIZE", __RTS_FN_NS_PATH_NORMALIZE);
+    add_fn!("__RTS_FN_NS_PATH_WITH_EXT", __RTS_FN_NS_PATH_WITH_EXT);
 
     // ── namespaces::env ───────────────────────────────────────────────
     use crate::namespaces::env::*;
