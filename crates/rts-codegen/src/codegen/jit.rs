@@ -1097,7 +1097,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::alloc ─────────────────────────────────────────────
     {
-        use crate::namespaces::alloc::ops as a;
+        use crate::namespaces::alloc as a;
         add_fn!("__RTS_FN_NS_ALLOC_ALLOC", a::__RTS_FN_NS_ALLOC_ALLOC);
         add_fn!(
             "__RTS_FN_NS_ALLOC_ALLOC_ZEROED",
@@ -1109,7 +1109,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::ptr ───────────────────────────────────────────────
     {
-        use crate::namespaces::ptr::ops as p;
+        use crate::namespaces::ptr as p;
         add_fn!("__RTS_FN_NS_PTR_NULL", p::__RTS_FN_NS_PTR_NULL);
         add_fn!("__RTS_FN_NS_PTR_IS_NULL", p::__RTS_FN_NS_PTR_IS_NULL);
         add_fn!("__RTS_FN_NS_PTR_READ_I64", p::__RTS_FN_NS_PTR_READ_I64);
@@ -2477,18 +2477,12 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::time ──────────────────────────────────────────────
     use crate::namespaces::time::*;
-    add_fn!("__RTS_FN_NS_TIME_NOW_MS", instant::__RTS_FN_NS_TIME_NOW_MS);
-    add_fn!("__RTS_FN_NS_TIME_NOW_NS", instant::__RTS_FN_NS_TIME_NOW_NS);
-    add_fn!("__RTS_FN_NS_TIME_UNIX_MS", system::__RTS_FN_NS_TIME_UNIX_MS);
-    add_fn!("__RTS_FN_NS_TIME_UNIX_NS", system::__RTS_FN_NS_TIME_UNIX_NS);
-    add_fn!(
-        "__RTS_FN_NS_TIME_SLEEP_MS",
-        sleep::__RTS_FN_NS_TIME_SLEEP_MS
-    );
-    add_fn!(
-        "__RTS_FN_NS_TIME_SLEEP_NS",
-        sleep::__RTS_FN_NS_TIME_SLEEP_NS
-    );
+    add_fn!("__RTS_FN_NS_TIME_NOW_MS", __RTS_FN_NS_TIME_NOW_MS);
+    add_fn!("__RTS_FN_NS_TIME_NOW_NS", __RTS_FN_NS_TIME_NOW_NS);
+    add_fn!("__RTS_FN_NS_TIME_UNIX_MS", __RTS_FN_NS_TIME_UNIX_MS);
+    add_fn!("__RTS_FN_NS_TIME_UNIX_NS", __RTS_FN_NS_TIME_UNIX_NS);
+    add_fn!("__RTS_FN_NS_TIME_SLEEP_MS", __RTS_FN_NS_TIME_SLEEP_MS);
+    add_fn!("__RTS_FN_NS_TIME_SLEEP_NS", __RTS_FN_NS_TIME_SLEEP_NS);
 
     // ── namespaces::bigfloat ──────────────────────────────────────────
     use crate::namespaces::bigfloat::ops::*;
