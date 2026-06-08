@@ -39,7 +39,7 @@ pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
     &crate::namespaces::globals::dom_exception::DOM_EXCEPTION_CLASS_SPEC,
     &crate::namespaces::globals::blob::abi::BLOB_CLASS_SPEC,
     &crate::namespaces::globals::blob::abi::FILE_CLASS_SPEC,
-    &crate::namespaces::globals::form_data::abi::FORM_DATA_CLASS_SPEC,
+    &crate::namespaces::globals::form_data::FORM_DATA_CLASS_SPEC,
     &crate::namespaces::globals::dataview::abi::ARRAY_BUFFER_CLASS_SPEC,
     &crate::namespaces::globals::dataview::abi::DATA_VIEW_CLASS_SPEC,
     &crate::namespaces::globals::intl::abi::NUMBER_FORMAT_CLASS_SPEC,

@@ -497,7 +497,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::globals::form_data (#72) ──────────────────────────
     {
-        use crate::namespaces::globals::form_data::instance::*;
+        use crate::namespaces::globals::form_data::*;
         add_fn!("__RTS_FN_GL_FORM_DATA_NEW", __RTS_FN_GL_FORM_DATA_NEW);
         add_fn!("__RTS_FN_GL_FORM_DATA_APPEND", __RTS_FN_GL_FORM_DATA_APPEND);
         add_fn!("__RTS_FN_GL_FORM_DATA_SET", __RTS_FN_GL_FORM_DATA_SET);
