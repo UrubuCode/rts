@@ -1010,7 +1010,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::num ───────────────────────────────────────────────
     {
-        use crate::namespaces::num::ops as n;
+        use crate::namespaces::num as n;
         add_fn!("__RTS_FN_NS_NUM_CHECKED_ADD", n::__RTS_FN_NS_NUM_CHECKED_ADD);
         add_fn!("__RTS_FN_NS_NUM_CHECKED_SUB", n::__RTS_FN_NS_NUM_CHECKED_SUB);
         add_fn!("__RTS_FN_NS_NUM_CHECKED_MUL", n::__RTS_FN_NS_NUM_CHECKED_MUL);
@@ -1824,14 +1824,14 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     // ── namespaces::os ────────────────────────────────────────────────
     {
         use crate::namespaces::os::*;
-        add_fn!("__RTS_FN_NS_OS_PLATFORM", info::__RTS_FN_NS_OS_PLATFORM);
-        add_fn!("__RTS_FN_NS_OS_ARCH", info::__RTS_FN_NS_OS_ARCH);
-        add_fn!("__RTS_FN_NS_OS_FAMILY", info::__RTS_FN_NS_OS_FAMILY);
-        add_fn!("__RTS_FN_NS_OS_EOL", info::__RTS_FN_NS_OS_EOL);
-        add_fn!("__RTS_FN_NS_OS_HOME_DIR", dirs::__RTS_FN_NS_OS_HOME_DIR);
-        add_fn!("__RTS_FN_NS_OS_TEMP_DIR", dirs::__RTS_FN_NS_OS_TEMP_DIR);
-        add_fn!("__RTS_FN_NS_OS_CONFIG_DIR", dirs::__RTS_FN_NS_OS_CONFIG_DIR);
-        add_fn!("__RTS_FN_NS_OS_CACHE_DIR", dirs::__RTS_FN_NS_OS_CACHE_DIR);
+        add_fn!("__RTS_FN_NS_OS_PLATFORM", __RTS_FN_NS_OS_PLATFORM);
+        add_fn!("__RTS_FN_NS_OS_ARCH", __RTS_FN_NS_OS_ARCH);
+        add_fn!("__RTS_FN_NS_OS_FAMILY", __RTS_FN_NS_OS_FAMILY);
+        add_fn!("__RTS_FN_NS_OS_EOL", __RTS_FN_NS_OS_EOL);
+        add_fn!("__RTS_FN_NS_OS_HOME_DIR", __RTS_FN_NS_OS_HOME_DIR);
+        add_fn!("__RTS_FN_NS_OS_TEMP_DIR", __RTS_FN_NS_OS_TEMP_DIR);
+        add_fn!("__RTS_FN_NS_OS_CONFIG_DIR", __RTS_FN_NS_OS_CONFIG_DIR);
+        add_fn!("__RTS_FN_NS_OS_CACHE_DIR", __RTS_FN_NS_OS_CACHE_DIR);
     }
 
     // ── namespaces::process ───────────────────────────────────────────
