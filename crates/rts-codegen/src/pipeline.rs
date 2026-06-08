@@ -195,7 +195,7 @@ pub fn run_jit_with_imports(input: &Path, options: CompileOptions) -> Result<(i3
     // (#376) Aguarda async fns fire-and-forget (chamadas sem `await` no
     // top-level) settarem antes de exit. Sem isso `main()` async sem
     // await desaparece e nenhum console.log do body acontece.
-    crate::namespaces::promise::ops::drain_pending_promises();
+    crate::namespaces::promise::drain_pending_promises();
     // Drena microtasks remanescentes geradas durante drains acima
     // (Promise.then de async fns que settarem agora).
     crate::namespaces::globals::text_encoding::instance::drain_microtasks();

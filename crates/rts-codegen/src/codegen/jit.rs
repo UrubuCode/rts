@@ -1294,7 +1294,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── namespaces::promise (issue #412) ──────────────────────────────
     {
-        use crate::namespaces::promise::ops as pr;
+        use crate::namespaces::promise as pr;
         add_fn!("__RTS_FN_NS_PROMISE_NEW_PENDING", pr::__RTS_FN_NS_PROMISE_NEW_PENDING);
         add_fn!("__RTS_FN_NS_PROMISE_NEW_RESOLVED", pr::__RTS_FN_NS_PROMISE_NEW_RESOLVED);
         add_fn!("__RTS_FN_NS_PROMISE_NEW_REJECTED", pr::__RTS_FN_NS_PROMISE_NEW_REJECTED);
@@ -1305,9 +1305,9 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_NS_PROMISE_AWAIT_VALUE", pr::__RTS_FN_NS_PROMISE_AWAIT_VALUE);
         add_fn!("__RTS_FN_NS_PROMISE_TRY_VALUE", pr::__RTS_FN_NS_PROMISE_TRY_VALUE);
         add_fn!("__RTS_FN_NS_PROMISE_TAKE_ERROR", pr::__RTS_FN_NS_PROMISE_TAKE_ERROR);
-        add_fn!("__RTS_FN_NS_PROMISE_THEN_NS", pr::__RTS_FN_NS_PROMISE_THEN_NS);
-        add_fn!("__RTS_FN_NS_PROMISE_CATCH_NS", pr::__RTS_FN_NS_PROMISE_CATCH_NS);
-        add_fn!("__RTS_FN_NS_PROMISE_FINALLY_NS", pr::__RTS_FN_NS_PROMISE_FINALLY_NS);
+        add_fn!("__RTS_FN_NS_PROMISE_THEN", pr::__RTS_FN_NS_PROMISE_THEN);
+        add_fn!("__RTS_FN_NS_PROMISE_CATCH", pr::__RTS_FN_NS_PROMISE_CATCH);
+        add_fn!("__RTS_FN_NS_PROMISE_FINALLY", pr::__RTS_FN_NS_PROMISE_FINALLY);
         add_fn!("__RTS_FN_NS_PROMISE_ALL", pr::__RTS_FN_NS_PROMISE_ALL);
         add_fn!("__RTS_FN_NS_PROMISE_RACE", pr::__RTS_FN_NS_PROMISE_RACE);
         add_fn!("__RTS_FN_NS_PROMISE_ANY", pr::__RTS_FN_NS_PROMISE_ANY);

@@ -526,7 +526,7 @@ pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_DRAIN(h: u64) -> u64 {
                 break;
             }
             let p = __RTS_FN_NS_GC_AGEN_NEXT(h);
-            let result_map = crate::namespaces::promise::ops::__RTS_FN_NS_PROMISE_WAIT(p);
+            let result_map = crate::namespaces::promise::__RTS_FN_NS_PROMISE_WAIT(p);
             // Throw dentro do corpo: AGEN_NEXT rejeitou -> error slot setado.
             if crate::namespaces::gc::error::__RTS_FN_RT_ERROR_GET() != 0 {
                 break;
