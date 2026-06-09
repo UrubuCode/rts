@@ -351,7 +351,8 @@ pub(super) fn lower_switch_stmt(ctx: &mut FnCtx, sw: &swc_ecma_ast::SwitchStmt) 
         }
     }
 
-    ctx.loop_stack.push((exit, exit, ctx.pending_label.take()));
+    ctx.loop_stack
+        .push((exit, exit, ctx.pending_label.take(), ctx.finally_stack.len()));
     for (i, case) in sw.cases.iter().enumerate() {
         ctx.builder.switch_to_block(case_blocks[i]);
         ctx.builder.seal_block(case_blocks[i]);
@@ -391,22 +392,8 @@ pub(super) fn lower_return_stmt(
             Some(arg) => Some(lower_expr(ctx, arg)?),
             None => None,
         };
-        // Clona (topo = mais interno primeiro) e inlina cada finally. NAO
-        // drena: pode haver multiplos `return` no mesmo try (ex: `if (c)
-        // return a; return b;`) — cada um precisa rodar os finally. Para
-        // evitar recursao infinita se um finally tiver `return`, esvazia
-        // temporariamente o stack durante o inline e restaura depois.
-        let pending: Vec<swc_ecma_ast::BlockStmt> =
-            ctx.finally_stack.iter().rev().cloned().collect();
-        let saved = std::mem::take(&mut ctx.finally_stack);
-        for fin in &pending {
-            lower_block(ctx, fin)?;
-            if ctx.builder.is_unreachable() {
-                break;
-            }
-        }
-        ctx.finally_stack = saved;
-        if !ctx.builder.is_unreachable() {
+        let fin_terminated = emit_pending_finallys(ctx, 0)?;
+        if !fin_terminated && !ctx.builder.is_unreachable() {
             match (ctx.return_ty, ret_val) {
                 (None, _) | (_, None) => {
                     ctx.emit_trace_pop()?;
@@ -490,8 +477,32 @@ pub(super) fn lower_return_stmt(
     Ok(true)
 }
 
+/// (#128 fase 2) Inlina os corpos `finally` pendentes acima de `floor`
+/// (mais interno primeiro) — usado por return/break/continue que abandonam
+/// trys com finalizer. Esvazia o finally_stack durante o inline (evita
+/// recursao se o finally tiver return/break) e restaura depois. Retorna
+/// true se algum finally terminou o fluxo (ex: `finally { return x }`),
+/// caso em que o chamador NAO deve emitir seu proprio terminator.
+fn emit_pending_finallys(ctx: &mut FnCtx, floor: usize) -> Result<bool> {
+    if ctx.finally_stack.len() <= floor {
+        return Ok(false);
+    }
+    let pending: Vec<swc_ecma_ast::BlockStmt> =
+        ctx.finally_stack[floor..].iter().rev().cloned().collect();
+    let saved = std::mem::take(&mut ctx.finally_stack);
+    let mut terminated = false;
+    for fin in &pending {
+        if lower_block(ctx, fin)? || ctx.builder.is_unreachable() {
+            terminated = true;
+            break;
+        }
+    }
+    ctx.finally_stack = saved;
+    Ok(terminated)
+}
+
 pub(super) fn lower_break_stmt(ctx: &mut FnCtx, b: &swc_ecma_ast::BreakStmt) -> Result<bool> {
-    let target = if let Some(lbl) = &b.label {
+    let (target, floor) = if let Some(lbl) = &b.label {
         let name = lbl.sym.as_str();
         ctx.break_block_for_label(name)
             .ok_or_else(|| anyhow!("break: label `{name}` nao encontrado em loops envolventes"))?
@@ -499,12 +510,15 @@ pub(super) fn lower_break_stmt(ctx: &mut FnCtx, b: &swc_ecma_ast::BreakStmt) -> 
         ctx.break_block()
             .ok_or_else(|| anyhow!("break outside of loop or switch"))?
     };
-    ctx.builder.ins().jump(target, &[]);
+    let fin_terminated = emit_pending_finallys(ctx, floor)?;
+    if !fin_terminated && !ctx.builder.is_unreachable() {
+        ctx.builder.ins().jump(target, &[]);
+    }
     Ok(true)
 }
 
 pub(super) fn lower_continue_stmt(ctx: &mut FnCtx, c: &swc_ecma_ast::ContinueStmt) -> Result<bool> {
-    let target = if let Some(lbl) = &c.label {
+    let (target, floor) = if let Some(lbl) = &c.label {
         let name = lbl.sym.as_str();
         ctx.continue_block_for_label(name).ok_or_else(|| {
             anyhow!("continue: label `{name}` nao encontrado em loops envolventes")
@@ -513,7 +527,10 @@ pub(super) fn lower_continue_stmt(ctx: &mut FnCtx, c: &swc_ecma_ast::ContinueStm
         ctx.continue_block()
             .ok_or_else(|| anyhow!("continue outside of loop"))?
     };
-    ctx.builder.ins().jump(target, &[]);
+    let fin_terminated = emit_pending_finallys(ctx, floor)?;
+    if !fin_terminated && !ctx.builder.is_unreachable() {
+        ctx.builder.ins().jump(target, &[]);
+    }
     Ok(true)
 }
 
@@ -526,7 +543,8 @@ pub(super) fn lower_labeled_stmt(ctx: &mut FnCtx, lbl: &swc_ecma_ast::LabeledStm
     if let swc_ecma_ast::Stmt::Block(b) = lbl.body.as_ref() {
         use cranelift_codegen::ir::InstBuilder;
         let exit = ctx.builder.create_block();
-        ctx.loop_stack.push((exit, exit, Some(name.clone())));
+        ctx.loop_stack
+            .push((exit, exit, Some(name.clone()), ctx.finally_stack.len()));
         let mut terminated = false;
         for s in &b.stmts {
             let exits = lower_stmt(ctx, s)?;
@@ -675,9 +693,10 @@ pub(super) fn lower_try_stmt(ctx: &mut FnCtx, t: &swc_ecma_ast::TryStmt) -> Resu
     } else {
         false
     };
-    if has_finally {
-        ctx.finally_stack.pop();
-    }
+    // NOTA: o finally_stack NAO eh popado aqui — fica ativo durante o catch
+    // body tambem, pra que `return` dentro do catch inline o finally
+    // (semantica JS: finally roda mesmo quando o catch retorna). Pop nos
+    // dois caminhos de saida abaixo.
 
     let finally_block = if has_finally {
         Some(ctx.builder.create_block())
@@ -706,6 +725,9 @@ pub(super) fn lower_try_stmt(ctx: &mut FnCtx, t: &swc_ecma_ast::TryStmt) -> Resu
     // seguimos pro processamento do catch abaixo (ele tem o predecessor do
     // jump do throw).
     if try_terminated && !catch_was_targeted {
+        if has_finally {
+            ctx.finally_stack.pop();
+        }
         if let Some(cb) = catch_block {
             ctx.builder.seal_block(cb);
         }
@@ -815,12 +837,20 @@ pub(super) fn lower_try_stmt(ctx: &mut FnCtx, t: &swc_ecma_ast::TryStmt) -> Resu
         }
     }
 
+    if has_finally {
+        ctx.finally_stack.pop();
+    }
+
     if let Some(fb) = finally_block {
         ctx.builder.switch_to_block(fb);
         ctx.builder.seal_block(fb);
         let finalizer = t.finalizer.as_ref().unwrap();
-        lower_block(ctx, finalizer)?;
-        if !ctx.builder.is_unreachable() {
+        let fin_terminated = lower_block(ctx, finalizer)?;
+        // `is_unreachable` sozinho nao basta: o finally_block pode ser orfao
+        // (try e catch ambos terminados por return) e mesmo assim ter sido
+        // preenchido — Cranelift exige terminator em todo block preenchido,
+        // alcancavel ou nao.
+        if !fin_terminated {
             ctx.builder.ins().jump(after_block, &[]);
         }
     }

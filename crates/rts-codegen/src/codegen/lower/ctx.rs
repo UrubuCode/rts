@@ -424,7 +424,10 @@ pub struct FnCtx<'m, 'fb> {
     /// Stack of (break_block, continue_block, optional_label) for nested
     /// loops. Label permite \`break LABEL\` saltar para um loop externo
     /// específico em vez do mais interno.
-    pub loop_stack: Vec<(Block, Block, Option<String>)>,
+    /// O 4o campo eh o "finally floor": `finally_stack.len()` no momento do
+    /// push — break/continue inlinam apenas os finally empilhados DENTRO do
+    /// loop alvo (acima do floor) antes de saltar.
+    pub loop_stack: Vec<(Block, Block, Option<String>, usize)>,
     /// (#128 fase 2) Stack de corpos `finally` ativos (do try mais externo
     /// ao mais interno). Um `return` dentro de um `try` com `finally` inlina
     /// estes blocos (mais interno primeiro) antes de emitir `return_` —
@@ -1448,31 +1451,31 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
 
     /// Returns the current loop break target, if any. Sem label,
     /// usa o loop mais interno; com label, busca pelo label.
-    pub fn break_block(&self) -> Option<Block> {
-        self.loop_stack.last().map(|(brk, _, _)| *brk)
+    pub fn break_block(&self) -> Option<(Block, usize)> {
+        self.loop_stack.last().map(|(brk, _, _, floor)| (*brk, *floor))
     }
 
     /// Returns the current loop continue target, if any.
-    pub fn continue_block(&self) -> Option<Block> {
-        self.loop_stack.last().map(|(_, cont, _)| *cont)
+    pub fn continue_block(&self) -> Option<(Block, usize)> {
+        self.loop_stack.last().map(|(_, cont, _, floor)| (*cont, *floor))
     }
 
     /// Resolve break para um label específico — busca no stack do
     /// topo até a base. Returns None se não encontrar.
-    pub fn break_block_for_label(&self, label: &str) -> Option<Block> {
-        for (brk, _, lbl) in self.loop_stack.iter().rev() {
+    pub fn break_block_for_label(&self, label: &str) -> Option<(Block, usize)> {
+        for (brk, _, lbl, floor) in self.loop_stack.iter().rev() {
             if lbl.as_deref() == Some(label) {
-                return Some(*brk);
+                return Some((*brk, *floor));
             }
         }
         None
     }
 
     /// Resolve continue para um label específico.
-    pub fn continue_block_for_label(&self, label: &str) -> Option<Block> {
-        for (_, cont, lbl) in self.loop_stack.iter().rev() {
+    pub fn continue_block_for_label(&self, label: &str) -> Option<(Block, usize)> {
+        for (_, cont, lbl, floor) in self.loop_stack.iter().rev() {
             if lbl.as_deref() == Some(label) {
-                return Some(*cont);
+                return Some((*cont, *floor));
             }
         }
         None

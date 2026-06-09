@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+﻿use anyhow::{Result, anyhow};
 use cranelift_codegen::ir::{InstBuilder, condcodes::IntCC, types as cl};
 use swc_ecma_ast::{Decl, ForHead, Pat, Stmt, VarDeclOrExpr};
 
@@ -21,7 +21,7 @@ pub(super) fn lower_while_stmt(ctx: &mut FnCtx, wh: &swc_ecma_ast::WhileStmt) ->
 
     ctx.builder.switch_to_block(body);
     ctx.loop_stack
-        .push((exit, header, ctx.pending_label.take()));
+        .push((exit, header, ctx.pending_label.take(), ctx.finally_stack.len()));
     lower_stmt(ctx, &wh.body)?;
     ctx.loop_stack.pop();
     if !ctx.builder.is_unreachable() {
@@ -44,7 +44,7 @@ pub(super) fn lower_do_while_stmt(ctx: &mut FnCtx, dw: &swc_ecma_ast::DoWhileStm
     ctx.builder.switch_to_block(body);
 
     ctx.loop_stack
-        .push((exit, cond_block, ctx.pending_label.take()));
+        .push((exit, cond_block, ctx.pending_label.take(), ctx.finally_stack.len()));
     lower_stmt(ctx, &dw.body)?;
     ctx.loop_stack.pop();
     if !ctx.builder.is_unreachable() {
@@ -93,9 +93,9 @@ pub(super) fn lower_for_stmt(ctx: &mut FnCtx, for_stmt: &swc_ecma_ast::ForStmt) 
 
     ctx.builder.switch_to_block(body);
     ctx.loop_stack
-        .push((exit, update_block, ctx.pending_label.take()));
+        .push((exit, update_block, ctx.pending_label.take(), ctx.finally_stack.len()));
     // `body_terminated`: o corpo terminou com return/throw incondicional.
-    // `is_unreachable()` mede ALCANCABILIDADE, nao terminacao — apos um `return`
+    // `is_unreachable()` mede ALCANCABILIDADE, nao terminacao â€” apos um `return`
     // no fim do corpo o bloco continua "alcancavel" mas ja' esta' fechado, e o
     // `jump(update_block)` viraria instrucao APOS o terminador (verifier error:
     // "terminator before end of block"). Usa o bool de lower_stmt.
@@ -108,7 +108,7 @@ pub(super) fn lower_for_stmt(ctx: &mut FnCtx, for_stmt: &swc_ecma_ast::ForStmt) 
 
     ctx.builder.switch_to_block(update_block);
     // Se o corpo sempre termina e nao ha' `continue`, update_block fica sem
-    // predecessores (morto). Nao emite update/jump num bloco morto — Cranelift
+    // predecessores (morto). Nao emite update/jump num bloco morto â€” Cranelift
     // o elimina; emitir deixaria instrucoes sem terminador valido.
     if !ctx.builder.is_unreachable() {
         if let Some(update) = &for_stmt.update {
@@ -129,7 +129,7 @@ pub(super) fn lower_for_stmt(ctx: &mut FnCtx, for_stmt: &swc_ecma_ast::ForStmt) 
 pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) -> Result<bool> {
     // (cross-runtime #109/#379/#392) `for await` sobre um async generator eager:
     // os valores ja' estao num Vec materializado (o body de `async function*`
-    // produz `__gen_buf`), entao iteramos como for-of normal — await de um
+    // produz `__gen_buf`), entao iteramos como for-of normal â€” await de um
     // non-Promise eh no-op. Casos lazy/Promise-yielding ficam pra #207.
 
     // (#210) for-of suporta tanto `for (const x of arr)` quanto
@@ -154,7 +154,7 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
                         .unwrap_or(ValTy::I64);
                     (id.sym.as_str().to_string(), ty, None)
                 }
-                // (cross-runtime) `for (const {a, b} of items)` — object pattern.
+                // (cross-runtime) `for (const {a, b} of items)` â€” object pattern.
                 // Coleta (var_name, key) de cada prop. Suporta shorthand `{a}` e
                 // rename `{a: b}`. Extrai via MAP_GET no body.
                 Pat::Object(obj_pat) => {
@@ -163,7 +163,7 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
                     for prop in &obj_pat.props {
                         match prop {
                             ObjectPatProp::Assign(a) => {
-                                // `{a}` ou `{a = default}` — var e key sao iguais.
+                                // `{a}` ou `{a = default}` â€” var e key sao iguais.
                                 keys.push((a.key.id.sym.to_string(), a.key.id.sym.to_string()));
                             }
                             ObjectPatProp::KeyValue(kv) => {
@@ -210,7 +210,7 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
                                 names.push(Some((id.sym.as_str().to_string(), ty)))
                             }
                             // (cross-runtime) `for (const [a = 0, b = 0] of ...)`
-                            // — default no pattern. Extrai o ident interno; o
+                            // â€” default no pattern. Extrai o ident interno; o
                             // slot ausente ja' vira sentinel (0 p/ number), que
                             // cobre o caso comum `= 0`. Default nao-trivial eh
                             // refinamento. Sem isto, dava erro e nao iterava.
@@ -280,7 +280,7 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
         let inst = ctx.builder.ins().call(entries_fn, &[handle]);
         handle = ctx.builder.inst_results(inst)[0];
     } else if matches!(iter_class.as_deref(), Some("Set")) {
-        // Set internamente eh Map<key, 1> — os ELEMENTOS sao as keys.
+        // Set internamente eh Map<key, 1> â€” os ELEMENTOS sao as keys.
         // (cross-runtime) Usa MAP_VALUES (nao MAP_KEYS): p/ Set, MAP_VALUES
         // reconverte cada key string de volta ao valor (parse int -> number,
         // senao handle string). MAP_KEYS retornava as keys string CRUAS, e
@@ -352,7 +352,7 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
     // (bug #2) for-of over a class-field array (`for (const it of this.items)`
     // where `items: CartItem[]`): infer the element class from the field's
     // declared type and give the bind that class. Without it the bind is
-    // untyped, so `it.method()` mis-dispatches on a corrupted receiver → trap
+    // untyped, so `it.method()` mis-dispatches on a corrupted receiver â†’ trap
     // (ud2). Only the Ident (local var) case was handled above.
     if let swc_ecma_ast::Expr::Member(m) = for_of.right.as_ref() {
         if let swc_ecma_ast::MemberProp::Ident(prop) = &m.prop {
@@ -443,7 +443,7 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
         // user pode anotar o ident: `for (const [k, v]: any of pairs)`
         // nao funciona via parser mas a heuristica cobre 90% do uso.
         // Detecta se o iteravel veio direto de `Object.entries(...)`
-        // OU de `map.entries()` (NAO `arr.entries()` — array.entries
+        // OU de `map.entries()` (NAO `arr.entries()` â€” array.entries
         // tem slot 0 = i64 indice, nao Handle). (#208 + #494)
         fn is_object_entries_expr(e: &swc_ecma_ast::Expr, ctx: &FnCtx) -> bool {
             match e {
@@ -458,11 +458,11 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
                             if !is_entries {
                                 return false;
                             }
-                            // Object.entries(obj) — slot 0 e' string Handle.
-                            // map.entries() — slot 0 e' string Handle.
-                            // arr.entries() — slot 0 e' i64 indice → falso.
+                            // Object.entries(obj) â€” slot 0 e' string Handle.
+                            // map.entries() â€” slot 0 e' string Handle.
+                            // arr.entries() â€” slot 0 e' i64 indice â†’ falso.
                             match m.obj.as_ref() {
-                                // Object.entries — explicito.
+                                // Object.entries â€” explicito.
                                 swc_ecma_ast::Expr::Ident(id) if id.sym.as_str() == "Object" => true,
                                 // var ident: se for marcado como array, falso.
                                 swc_ecma_ast::Expr::Ident(id) => {
@@ -501,7 +501,7 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
             };
             ctx.declare_local(name, resolved_ty, val);
             // (cross-runtime #208/#494) Sem tipo estatico Handle, o slot pode
-            // carregar um handle (string/obj) OU i64 puro — caso `arr.entries()`
+            // carregar um handle (string/obj) OU i64 puro â€” caso `arr.entries()`
             // onde o slot 1 e' o elemento do array (string quando arr eh de
             // strings). Marca o valor como vec-slot ambiguo pra que template
             // (`i + ":" + v`) use TPL_COERCE_VEC_SLOT/INSPECT e detecte string
@@ -535,7 +535,7 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
     }
 
     ctx.loop_stack
-        .push((exit, update_block, ctx.pending_label.take()));
+        .push((exit, update_block, ctx.pending_label.take(), ctx.finally_stack.len()));
     lower_stmt(ctx, &for_of.body)?;
     ctx.loop_stack.pop();
     if !ctx.builder.is_unreachable() {
@@ -636,7 +636,7 @@ pub(super) fn lower_for_in(ctx: &mut FnCtx, for_in: &swc_ecma_ast::ForInStmt) ->
     ctx.write_local(&bind_name, key_handle)?;
 
     ctx.loop_stack
-        .push((exit, update_block, ctx.pending_label.take()));
+        .push((exit, update_block, ctx.pending_label.take(), ctx.finally_stack.len()));
     lower_stmt(ctx, &for_in.body)?;
     ctx.loop_stack.pop();
     if !ctx.builder.is_unreachable() {
@@ -662,7 +662,7 @@ pub(super) fn lower_for_in(ctx: &mut FnCtx, for_in: &swc_ecma_ast::ForInStmt) ->
 
 /// (cross-runtime) `for (const c of <expr>)` itera os chars quando `<expr>`
 /// eh string: literal `"..."`, template, ou var rastreada como string.
-/// Conservador — so' dispara com sinal claro de string (nao afeta
+/// Conservador â€” so' dispara com sinal claro de string (nao afeta
 /// arrays/Map/Set).
 fn for_of_iterates_string(ctx: &FnCtx, e: &swc_ecma_ast::Expr) -> bool {
     use swc_ecma_ast::Expr;
