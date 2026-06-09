@@ -772,7 +772,7 @@
   "status": "bun_node_diverge",
   "bun": "NetworkError\nNot Found\n404\n404\ntrue\ntrue\ntrue\nok\ntry,after throw,finally\ncaught\ntry,catch:fail,finally\nAppError:invalid json: {bad\nTypeError:not a number\n42\nmultiple errors\ne1,e2",
   "node": "__RUNTIME_ERROR__",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "NetworkError\nNot Found\n404\n404\ntrue\ntrue\ntrue\nok\ntry,after throw,finally\ncaught\ntry,catch:fail,finally\nTypeError:not a number\n42\nmultiple errors\ne1,e2"
 }
 ,
 {
@@ -1916,7 +1916,7 @@
   "status": "rts_diverge",
   "bun": "{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number",
   "node": "{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number",
-  "rts": "{\"a\":1,\"child\":{\"toJSON\":94827026580283}}\nrep::object|rep:a:number|rep:child:object|rep:toJSON:number"
+  "rts": "{\"a\":1,\"child\":{\"toJSON\":94702238434107}}\nrep::object|rep:a:number|rep:child:object|rep:toJSON:number"
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -3036,7 +3036,7 @@
   "status": "rts_diverge",
   "bun": "{\"c\":1}\n[null,null,1]\n{\"a\":null,\"b\":null,\"c\":null}\n[null,null]\nundefined\nundefined\nnull\nnull\n{\"a\":null}",
   "node": "{\"c\":1}\n[null,null,1]\n{\"a\":null,\"b\":null,\"c\":null}\n[null,null]\nundefined\nundefined\nnull\nnull\n{\"a\":null}",
-  "rts": "{\"b\":94816665911314,\"c\":1}\n[null,94816665911305,1]\n{\"a\":0,\"b\":null,\"c\":false}\n[0,null]\nundefined\n94816665911296\nnull\nnull\n{\"a\":null}"
+  "rts": "{\"b\":93945622560786,\"c\":1}\n[null,93945622560777,1]\n{\"a\":0,\"b\":null,\"c\":false}\n[0,null]\nundefined\n93945622560768\nnull\nnull\n{\"a\":null}"
 }
 ,
 {
@@ -3044,7 +3044,7 @@
   "status": "rts_diverge",
   "bun": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
   "node": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
-  "rts": "{\"value\":42,\"toJSON\":94501973901360}\n{\"nested\":{\"value\":42,\"toJSON\":94501973901360},\"plain\":1}\n[{\"value\":42,\"toJSON\":94501973901360},{\"value\":42,\"toJSON\":94501973901360}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n{\"toJSON\":94501973901346}\n{\"a\":[1,2,3]}"
+  "rts": "{\"value\":42,\"toJSON\":94540532949040}\n{\"nested\":{\"value\":42,\"toJSON\":94540532949040},\"plain\":1}\n[{\"value\":42,\"toJSON\":94540532949040},{\"value\":42,\"toJSON\":94540532949040}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n{\"toJSON\":94540532949026}\n{\"a\":[1,2,3]}"
 }
 ,
 {
@@ -4633,10 +4633,10 @@
 ,
 {
   "name": "codex_try_finally_control_flow",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "finally\ntry:catch\nfin0\nfin1\ndone",
   "node": "finally\ntry:catch\nfin0\nfin1\ndone",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "finally\ntry:catch\nfin0\nfin1\ndone"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":426,"rts_diverge":126,"bun_node_diverge":17,"errors":40,"rejected":0}}
+],"summary":{"total":609,"pass":426,"rts_diverge":126,"bun_node_diverge":18,"errors":39,"rejected":0}}
