@@ -425,7 +425,8 @@ fn lower_typeof(ctx: &mut FnCtx, operand: &Expr) -> Result<TypedVal> {
     if matches!(operand, Expr::Object(_) | Expr::Array(_)) {
         return ctx.emit_str_handle(b"object");
     }
-    if matches!(operand, Expr::Fn(_) | Expr::Arrow(_)) {
+    // Class expression tambem eh "function" (typeof class {} === 'function').
+    if matches!(operand, Expr::Fn(_) | Expr::Arrow(_) | Expr::Class(_)) {
         return ctx.emit_str_handle(b"function");
     }
     if let Expr::Call(c) = operand {

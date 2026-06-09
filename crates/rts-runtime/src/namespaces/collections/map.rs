@@ -88,6 +88,35 @@ where
 /// Membros Map do namespace `collections` (parte; vec.rs declara a outra).
 /// Stage 2c, `docs/specs/rts-core-engine.md`. As fns nao-membro
 /// (`OBJ_*`/`GL_OBJECT_*`/`*_AUTO`/helpers) ficam como free fns abaixo.
+/// (cross-runtime #1533) Membros herdados de Object.prototype — presentes
+/// via `in` em qualquer objeto/array.
+fn is_object_proto_member(key: &str) -> bool {
+    matches!(
+        key,
+        "toString"
+            | "hasOwnProperty"
+            | "valueOf"
+            | "isPrototypeOf"
+            | "propertyIsEnumerable"
+            | "toLocaleString"
+            | "constructor"
+    )
+}
+
+/// (cross-runtime #1533) Membros herdados de Array.prototype.
+fn is_array_proto_member(key: &str) -> bool {
+    matches!(
+        key,
+        "push" | "pop" | "shift" | "unshift" | "slice" | "splice" | "concat"
+            | "join" | "reverse" | "sort" | "indexOf" | "lastIndexOf"
+            | "includes" | "find" | "findIndex" | "findLast" | "findLastIndex"
+            | "map" | "filter" | "forEach" | "reduce" | "reduceRight"
+            | "every" | "some" | "flat" | "flatMap" | "fill" | "copyWithin"
+            | "keys" | "values" | "entries" | "at" | "with"
+            | "toSorted" | "toReversed" | "toSpliced"
+    )
+}
+
 #[rts_namespace(collections, part)]
 impl CollectionsMapNs {
     /// Creates an empty HashMap<string, number> and returns its handle.
@@ -199,6 +228,10 @@ impl CollectionsMapNs {
                     })
                 } else if key == "length" {
                     Some(1)
+                } else if is_array_proto_member(&key) || is_object_proto_member(&key) {
+                    // (cross-runtime #1533) `"push" in []` / `"toString" in []`
+                    // — membros herdados de Array.prototype/Object.prototype.
+                    Some(1)
                 } else {
                     Some(0)
                 }
@@ -247,18 +280,13 @@ impl CollectionsMapNs {
             {
                 return 1;
             }
-            if matches!(
-                key.as_str(),
-                "toString"
-                    | "hasOwnProperty"
-                    | "valueOf"
-                    | "isPrototypeOf"
-                    | "propertyIsEnumerable"
-                    | "toLocaleString"
-                    | "constructor"
-            ) {
-                return 1;
-            }
+        }
+        // (cross-runtime #1533) Membros universais de Object.prototype: todo
+        // objeto (Map), com ou sem __rts_class, herda toString/valueOf/etc —
+        // `"toString" in obj` eh true mesmo para `Object.create({...})`.
+        let is_map = with_entry(obj_h, |e| matches!(e, Some(Entry::Map(_))));
+        if is_map && is_object_proto_member(&key) {
+            return 1;
         }
         0
     }
