@@ -481,10 +481,10 @@
 ,
 {
   "name": "claude-holes-join-string-indexers",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "1--3\n--2\n1,2,3\n,,\n3\nfalse\n3\n,",
   "node": "1--3\n--2\n1,2,3\n,,\n3\nfalse\n3\n,",
-  "rts": "1--3\n--2\n1,2,3\n,,\n3\ntrue\n3\n,"
+  "rts": "1--3\n--2\n1,2,3\n,,\n3\nfalse\n3\n,"
 }
 ,
 {
@@ -612,7 +612,7 @@
   "status": "rts_diverge",
   "bun": "0:undefined,1:x,2:undefined\n0:undefined,1:x,2:undefined\n0,1,2\n1",
   "node": "0:undefined,1:x,2:undefined\n0:undefined,1:x,2:undefined\n0,1,2\n1",
-  "rts": "0:undefined,1:x,2:undefined\n0:undefined,1:x,2:undefined\n0,1,2\n0,1,2"
+  "rts": ",1:x,\n,1:x,\n1\n1"
 }
 ,
 {
@@ -1916,7 +1916,7 @@
   "status": "rts_diverge",
   "bun": "{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number",
   "node": "{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number",
-  "rts": "{\"a\":1,\"child\":{\"toJSON\":94702238434107}}\nrep::object|rep:a:number|rep:child:object|rep:toJSON:number"
+  "rts": "{\"a\":1,\"child\":{\"toJSON\":94552481272635}}\nrep::object|rep:a:number|rep:child:object|rep:toJSON:number"
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -2897,10 +2897,10 @@
 ,
 {
   "name": "387_object_create_descriptors",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "Rex breathes\nRex\nLab\nname,breed\ntrue\nfalse\na,b\nhello from base1\nhello from base2\nC->B->A->Object\nred shape\n79\ntrue\ntrue",
   "node": "Rex breathes\nRex\nLab\nname,breed\ntrue\nfalse\na,b\nhello from base1\nhello from base2\nC->B->A->Object\nred shape\n79\ntrue\ntrue",
-  "rts": "Rex breathes\nRex\nLab\nname,breed\ntrue\nfalse\na,b\nhello from base1\nhello from base2\nC->B->A->Object\nred shape\n79\ntrue\ntrue"
+  "rts": "Rex breathes\nRex\nLab\nname,breed\ntrue\ntrue\na,b\nhello from base1\nhello from base2\nC->B->A->Object\nred shape\n79\ntrue\ntrue"
 }
 ,
 {
@@ -2913,10 +2913,10 @@
 ,
 {
   "name": "389_proto_accessor",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "hi from child\ntrue\nhello\nworld\ntrue\n2\nnull\nfalse\nnull\ntrue\n1\n2\n2\n0",
   "node": "hi from child\ntrue\nhello\nworld\ntrue\n2\nnull\nfalse\nnull\ntrue\n1\n2\n2\n0",
-  "rts": "hi from child\ntrue\nhello\nworld\ntrue\n2\nnull\nfalse\nnull\ntrue\n1\n2\n2\n0"
+  "rts": "hi from child\ntrue\nhello\nworld\ntrue\n2\nnull\ntrue\nnull\ntrue\n1\n2\n2\n0"
 }
 ,
 {
@@ -3012,15 +3012,15 @@
   "status": "rts_diverge",
   "bun": "true false true\n3\ntrue\ntrue\ntrue\ntrue\ntrue false\ntrue\ntrue\ntrue\ntrue false",
   "node": "true false true\n3\ntrue\ntrue\ntrue\ntrue\ntrue false\ntrue\ntrue\ntrue\ntrue false",
-  "rts": "true false true\n3\ntrue\ntrue\ntrue\nfalse\ntrue false\ntrue\nfalse\nfalse\ntrue false"
+  "rts": "true false true\n3\ntrue\ntrue\ntrue\ntrue\ntrue false\ntrue\ntrue\ntrue\ntrue true"
 }
 ,
 {
   "name": "claude-in-inherited-vs-own",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "true\ntrue\ntrue\nfalse\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue\ntrue\nfalse",
   "node": "true\ntrue\ntrue\nfalse\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue\ntrue\nfalse",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "true\ntrue\ntrue\nfalse\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue\ntrue\nfalse"
 }
 ,
 {
@@ -3036,7 +3036,7 @@
   "status": "rts_diverge",
   "bun": "{\"c\":1}\n[null,null,1]\n{\"a\":null,\"b\":null,\"c\":null}\n[null,null]\nundefined\nundefined\nnull\nnull\n{\"a\":null}",
   "node": "{\"c\":1}\n[null,null,1]\n{\"a\":null,\"b\":null,\"c\":null}\n[null,null]\nundefined\nundefined\nnull\nnull\n{\"a\":null}",
-  "rts": "{\"b\":93945622560786,\"c\":1}\n[null,93945622560777,1]\n{\"a\":0,\"b\":null,\"c\":false}\n[0,null]\nundefined\n93945622560768\nnull\nnull\n{\"a\":null}"
+  "rts": "{\"b\":93994140373010,\"c\":1}\n[null,93994140373001,1]\n{\"a\":0,\"b\":null,\"c\":false}\n[0,null]\nundefined\n93994140372992\nnull\nnull\n{\"a\":null}"
 }
 ,
 {
@@ -3044,7 +3044,7 @@
   "status": "rts_diverge",
   "bun": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
   "node": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
-  "rts": "{\"value\":42,\"toJSON\":94540532949040}\n{\"nested\":{\"value\":42,\"toJSON\":94540532949040},\"plain\":1}\n[{\"value\":42,\"toJSON\":94540532949040},{\"value\":42,\"toJSON\":94540532949040}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n{\"toJSON\":94540532949026}\n{\"a\":[1,2,3]}"
+  "rts": "{\"value\":42,\"toJSON\":94733793595440}\n{\"nested\":{\"value\":42,\"toJSON\":94733793595440},\"plain\":1}\n[{\"value\":42,\"toJSON\":94733793595440},{\"value\":42,\"toJSON\":94733793595440}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n{\"toJSON\":94733793595426}\n{\"a\":[1,2,3]}"
 }
 ,
 {
@@ -3073,10 +3073,10 @@
 ,
 {
   "name": "claude-typeof-edge-cases",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "object\nundefined\nfunction\nsymbol\nsymbol\nnumber\nstring\nboolean\nobject\nobject\nfunction\nnumber\nfunction\nobject\nstring",
   "node": "object\nundefined\nfunction\nsymbol\nsymbol\nnumber\nstring\nboolean\nobject\nobject\nfunction\nnumber\nfunction\nobject\nstring",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "object\nundefined\nfunction\nsymbol\nsymbol\nnumber\nstring\nboolean\nobject\nobject\nfunction\nnumber\nfunction\nobject\nstring"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":426,"rts_diverge":126,"bun_node_diverge":18,"errors":39,"rejected":0}}
+],"summary":{"total":609,"pass":428,"rts_diverge":127,"bun_node_diverge":17,"errors":37,"rejected":0}}
