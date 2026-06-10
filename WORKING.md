@@ -265,7 +265,16 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
 - [x] **Todas as namespaces** migradas: 9 à mão + ~36 via macro-`register()` + gc + collections (owner agrega `part`s via `append_engine_members`). **Const `SPECS` esvaziado (`&[]`).** Suíte 1710/1710. (HEAD)
 - [x] **Classes globais (62)** via builder — `leak_class` + fold de `engine.registry().classes()` + macro `#[rts_class]` auto-emite `register_<spec>_class_spec`. Const `GLOBAL_CLASS_SPECS` esvaziado. 1710/1710. (HEAD)
 - [ ] `#[rts_var]`/`#[rts_global]`/setters consumidos no codegen (A3: VarGetter read `members.rs:1006` + write-path `x.v=5` em `lower_assign_expr` + readonly hard-error).
-- [ ] Quando zero uso de `#[rts_*]`: **deletar `crates/rts-macro`** + remover dos members do workspace. _(macro ainda gera `register()` das ~36 ns + os `#[rts_class]`.)_
+- [ ] **Removendo `rts-macro` (opção b — dev confirmou "continue"/"removido").**
+      Cada ns/classe macro'd vira hand-written (externs `#[no_mangle]` + `register()`
+      via builder; template = pilotos hint/hash/ptr/mem). Quando zero `#[rts_*]`:
+      deletar `crates/rts-macro` + members. Progresso (ns macro'd → hand):
+      - [x] **mem** (10 membros: 6 const + 4 fn). Build+suíte 1710 + smoke. (HEAD)
+      - [ ] faltam ~29 ns (num 23, atomic 22, buffer 20, sync 12, ffi 9, io 8,
+            os 8, json, date, fs, math, net, bigfloat, process, promise,
+            http_server, crypto, regex, audio, runtime, test, thread, parallel,
+            tls, events, globals/*, gc) + 62 classes `#[rts_class]`. Grind
+            mecânico multi-sessão; batches gateados (build+suíte+AOT por batch).
 
 ### GC/collector → rts-engine (decidido — ver "Design GC" + Próximos passos)
 - [x] **Congelada a ABI do GC** no `rts-engine` (`collector.rs`): trait
