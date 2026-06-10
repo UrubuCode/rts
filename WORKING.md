@@ -7,10 +7,19 @@
 > Vivo até **todas** as etapas abaixo fecharem.
 
 - **Issue:** #1536 · **Branch:** `feat/engine-method-dispatch-1536`
-- **Objetivo final:** `rts-engine` = núcleo cru (abi + registry + builder + gc +
-  globals). `rts-macro` e `rts-abi` **deletados**. Camadas (`rts-std`/`rts-node`/
-  `rts-browser`) registram a superfície via builder. Codegen = motor genérico que
-  lê o `Registry`, nada hardcoded.
+- **Objetivo final:** `rts-engine` = núcleo cru (abi + registry + builder +
+  **gc/collector como sistema**, pasta `gc/` → `collector/`). As CAMADAS apenas
+  registram a superfície via builder, em cima do engine:
+  - **`rts-shared`** — `register()` das APIs COMPARTILHADAS backend+frontend
+    (Boolean/String/Number e afins, presentes no navegador também).
+  - **`rts-runtime`** — backend (fs/net/process/os/... + os payloads pesados do
+    GC: tokio/regex/rustls). **Expõe a API do GC.**
+  - **`rts-browser`** — frontend (APIs de navegador). **NÃO expõe a API do GC.**
+  - A API "exposta" do GC não é agradável de mostrar ao público geral → o
+    mecanismo vive no engine, mas o `register()` que a torna chamável fica só na
+    camada backend.
+  `rts-macro` e `rts-abi` **deletados**. Codegen = motor genérico que lê o
+  `Registry`, nada hardcoded.
 
 ---
 
@@ -30,17 +39,35 @@
 > `register_builtins`). Suíte 1710/1710.
 >
 > **Próximos passos (na ordem):**
-> 1. **Mover `gc` + `globals` pra dentro do `rts-engine`** (núcleo cru completo).
->    gc tem símbolos hand-`add_fn!` no `jit.rs` além do SPEC — cuidado ao mover.
-> 2. **Deletar `rts-macro`** — a macro AINDA é a fonte dos `register()`/
->    `register_*_class_spec()`/`append_engine_members()` (gera os builders) +
->    dos externs `#[no_mangle]`. Opções: (a) a macro vira parte do `rts-engine`
->    (gerador oficial do builder), OU (b) inlinar os builders gerados como código
->    hand-written e remover `#[rts_*]`. **Decidir com o dev** — (a) é bem menos
->    trabalho e mantém a ergonomia; "deletar a macro" pode virar "absorver a
->    macro no rts-engine".
-> 3. **Deletar shim `rts-abi`** quando zero `rts_abi::` (hoje runtime+macro usam).
-> 4. **E2-E4 / X1-X5** (dispatch engine + plugins externos `.dll`/`.so`).
+> 1. **GC/collector → `rts-engine` como SISTEMA** (decidido). Pasta `gc/` vira
+>    `collector/`. Resolve o ciclo: rts-engine é o crate BASE (rts-runtime/
+>    rts-browser dependem dele), então mover pra cá é acíclico — ao contrário de
+>    mover pro codegen (codegen→runtime = ciclo). **SPLIT obrigatório:** só o
+>    MECANISMO genérico vai pro engine (HandleTable slab gen|slot|shard via
+>    `abi::handles` que JÁ está no engine; collector mark+sweep; stack_map_registry;
+>    thread_registry; global_roots) — parametrizado por um trait `Traceable`/
+>    `GcPayload` (sem conhecer variants concretas). Os PAYLOADS pesados do `Entry`
+>    (tokio/regex/rustls) FICAM em rts-runtime (backend) e implementam o trait —
+>    senão rts-browser arrastaria tokio/rustls. Símbolos `__RTS_FN_NS_GC_*` ficam
+>    via add_fn!/runtime_jit_symbols (AOT+JIT). **Princípio congele-a-interface:**
+>    fixa a ABI (handle + op-set alloc/retain/release/trace/finalize/roots +
+>    trait `Traceable`); mark+sweep atual fica atrás dela; política pode evoluir
+>    p/ RC+coletor-de-ciclos (determinístico, finalização pronta, sem vazar) sem
+>    tocar o codegen. Ver "Design GC" abaixo.
+> 2. **`undefined`/`null`/`NaN`/`Infinity`/globalThis + global.* base** → o engine
+>    detém a identidade da API base (controlador); codegen consulta o engine em vez
+>    de match hardcoded. NÃO move as classes (String/Date/etc.) — essas viram
+>    `rts-shared`/`rts-runtime` conforme disponíveis no navegador.
+> 3. **Camadas `rts-shared`/`rts-browser`** — extrair os `register()` por alvo:
+>    `rts-shared` (Boolean/String/Number/... universais), backend fica em
+>    `rts-runtime`, frontend em `rts-browser`. A API do GC só é registrada no
+>    backend (rts-browser não a mostra).
+> 4. **Deletar `rts-macro`** — a macro AINDA gera os `register()`/
+>    `register_*_class_spec()`/`append_engine_members()` + externs `#[no_mangle]`.
+>    Opções: (a) absorver no `rts-engine` (gerador oficial do builder), OU
+>    (b) inlinar hand-written. **Decidir com o dev.**
+> 5. **Deletar shim `rts-abi`** quando zero `rts_abi::`.
+> 6. **E2-E4 / X1-X5** (dispatch engine + plugins externos `.dll`/`.so`).
 >
 > **Nota:** o codegen JÁ é genérico — lê tudo (ns + classes) pelo registry; os
 > consts `SPECS`/`GLOBAL_CLASS_SPECS` são só seed (2 ns / 0 classes). O objetivo
@@ -56,6 +83,43 @@
 > `for s in SPECS`/`SPECS.iter()` que decide membership/listagem quebra (vira
 > só gc+collections). Já trocados p/ `registry_specs_ordered()`/`registry_namespace()`:
 > apis, init, jit-diag, `is_global` (mod.rs), `builtin_module_keys`, `build_pure_ns_set`.
+
+## 🧠 DESIGN GC (decidido) — "feito uma vez, sem vazar"
+
+**Princípio: congele a INTERFACE, não a política.** O que obriga a remexer é
+acoplar o codegen à *impl* do GC. Fixa-se o CONTRATO ABI (estável p/ sempre) e a
+política vive atrás dele — troca o coletor sem tocar o codegen.
+
+**Interface congelada (vive no `rts-engine`):**
+- `handle = u64` (gen|slot|shard) — já em `abi::handles`.
+- op-set fixo: `alloc(type)->h`, `retain(h)`, `release(h)`, `trace_children(h,visit)`,
+  `finalize(h)`, `enumerate_roots()`. Codegen emite calls a esses símbolos —
+  **idêntico em AOT e JIT** (é o que já acontece com `__RTS_FN_NS_GC_*`).
+- trait `Traceable { fn trace_children(&self, visit: &mut dyn FnMut(u64)); }` +
+  `finalize` — o domínio (Entry no runtime) implementa; o coletor genérico (engine)
+  anda o grafo sem conhecer variants → zero-dep (não arrasta tokio/regex/rustls).
+
+**Política recomendada (atrás da interface): RC + coletor de ciclos (modelo ORC do
+Nim / CPython), NÃO o GC-de-pausa do V8.**
+- Reference counting primário: libera no ponto exato que a última ref morre —
+  determinístico, zero bloat, sem pausa.
+- Coletor de ciclos backup (trial-deletion nos candidatos) pega o resíduo cíclico
+  → **leak-free** (sem isso, RC vaza ciclos = erro do Swift/ARC).
+- **Finalização PRONTA** = o diferencial: refcount zera → `finalize` roda na hora →
+  socket/JoinHandle/ProcessChild/TLS do `Entry` liberados imediatamente (RAII), não
+  num tick aleatório. É o "limpar a RAM corretamente" que o motor JS não dá.
+- Escape analysis (Fase 4 do MIR) elide retain/release onde prova que não escapa →
+  hot loops (Monte Carlo) não pagam overhead de RC.
+
+**Placement (resolve o ciclo):** ABI + coletor genérico no `rts-engine` (base,
+zero-dep, via trait); heap `Entry` + `trace_children`/`finalize` por-variant no
+`rts-runtime` (backend); codegen emite as ops. rts-engine não conhece runtime →
+sem ciclo de crate. Equivalente Rust do late-binding do JS = ponteiro de função
+(`install_gc_hook` já existe).
+
+**Caminho seguro:** (1) congela a ABI no engine, mark+sweep ATUAL atrás dela —
+zero mudança de comportamento, suíte 1710; (2) troca política p/ RC+ciclos
+incremental, codegen intocado.
 
 ### (próximo passo original abaixo)
 
@@ -172,9 +236,24 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
 - [ ] `#[rts_var]`/`#[rts_global]`/setters consumidos no codegen (A3: VarGetter read `members.rs:1006` + write-path `x.v=5` em `lower_assign_expr` + readonly hard-error).
 - [ ] Quando zero uso de `#[rts_*]`: **deletar `crates/rts-macro`** + remover dos members do workspace. _(macro ainda gera `register()` das ~36 ns + os `#[rts_class]`.)_
 
+### GC/collector → rts-engine (decidido — ver "Design GC" + Próximos passos)
+- [ ] Congelar a ABI do GC no `rts-engine`: trait `Traceable`/`GcPayload` + op-set
+      (alloc/retain/release/trace/finalize/roots). Mark+sweep atual atrás dela.
+- [ ] SPLIT: mover MECANISMO (HandleTable genérica, collector, stack_map_registry,
+      thread_registry, global_roots) pro engine; pasta `gc/` → `collector/`.
+      `Entry` + payloads pesados (tokio/regex/rustls) FICAM em rts-runtime
+      implementando `Traceable`. Fachada `namespaces::gc::handles` p/ não tocar
+      os 68 consumidores. Re-wire jit.rs (mecanismo → `rts_engine::collector::*`).
+- [ ] Gate AOT crítico: staticlib continua exportando os `__RTS_FN_NS_GC_*` que
+      migraram (rts-engine contribui pro archive OU runtime re-exporta `#[no_mangle]`).
+- [ ] (Futuro, atrás da ABI) trocar política mark+sweep → RC + coletor de ciclos.
+
+### Camadas rts-shared / rts-runtime / rts-browser
+- [ ] Extrair `register()` por alvo: `rts-shared` (Boolean/String/Number universais),
+      `rts-runtime` (backend), `rts-browser` (frontend). API do GC só no backend.
+
 ### Limpeza final
 - [ ] Quando zero uso de `rts_abi::`: **deletar shim `crates/rts-abi`** + remover do workspace.
-- [ ] Mover **gc** + **globals** pra dentro do `rts-engine` (núcleo cru completo).
 - [ ] Atualizar `RTS_ENGINE.md` §0.1 + este arquivo a cada marco.
 
 ### Pendências paralelas (do RTS_ENGINE.md, não bloqueiam o acima)
