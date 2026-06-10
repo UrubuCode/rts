@@ -18,13 +18,44 @@
   - A API "exposta" do GC não é agradável de mostrar ao público geral → o
     mecanismo vive no engine, mas o `register()` que a torna chamável fica só na
     camada backend.
-  `rts-macro` e `rts-abi` **deletados**. Codegen = motor genérico que lê o
-  `Registry`, nada hardcoded.
+  `rts-abi` **deletado** ✅; `rts-macro` pendente de decisão (a/b — ver ESTADO).
+  Codegen = motor genérico que lê o `Registry`, nada hardcoded ✅.
 
 ---
 
 ## 🎯 PRÓXIMO PASSO (sempre no topo)
 
+> ## 📌 ESTADO (fim da sessão de 13+ commits)
+>
+> **COMPLETO (gateado suíte 1710 + AOT em cada):**
+> 1. ✅ **Fase 2** — ~36 ns + 62 classes → builder; `SPECS`+`GLOBAL_CLASS_SPECS`
+>    **vazios**; codegen 100% via registry. (+ fix bug alias-null ACCESS_VIOLATION)
+> 2. ✅ **gc+collections** → const vazio
+> 3. ✅ **GC SPLIT** — mecanismo (contrato `Traceable` + 3 registries + debug +
+>    scanner) no `rts-engine`; heap tipado + `finish_cycle` + externs no runtime.
+>    `gc/`→`collector/`. Gateado + stress 50k.
+> 4. ✅ **`rts-abi` DELETADO** — 122 refs → `rts_engine::abi::`, crate removido.
+>
+> **RESTAM — 3, cada uma travada por algo concreto:**
+> - **deletar `rts-macro`** — ⛔ **DECISÃO DO DEV, pendente** (perguntado 3×). (a)
+>   macro fica como gerador do builder (codegen já é genérico → "remover" é só
+>   re-home; pouco trabalho) vs (b) "removido" literal = inlinar ~900 membros à
+>   mão em 73 arquivos. NÃO executável sem a escolha: (b) é volume enorme/risco
+>   que o dev pode não querer; (a) contraria o "removido" explícito → decidir
+>   sozinho viola a regra CLAUDE.md. **Bloqueio real.**
+> - **camadas `rts-shared`/`rts-browser`** — prematura: rts-browser seria crate
+>   vazio (nenhuma API de navegador existe); + os register() de Boolean/String/
+>   Number são gerados pela macro → acoplado à decisão da macro.
+> - **E2-E4 / X1-X5** — E2-E4 = refactor profundo do codegen (os ~182 braços do
+>   `builtins.rs` são lógica que emite IR custom, não dados drenáveis); X1-X5 =
+>   feature nova (dlopen plugins). Sessão fresca rende mais.
+>
+> **O pedido-núcleo ("codegen = motor genérico, nada hardcoded; gc como sistema
+> no engine; abi limpa") está ATINGIDO.** As 3 restantes são 1 decisão (macro),
+> 1 prematura (camadas), 1 grande-nova (E/X). Retomar: responder (a)/(b) da macro.
+>
+> ---
+>
 > **Fase 2 NAMESPACES ✅ (todas exceto gc+collections)** — a macro
 > `#[rts_namespace]` passou a **auto-emitir `register(e: &mut Engine)`** com a
 > MESMA metadata do const SPEC; `register_builtins` folda ~36 ns macro'd via
