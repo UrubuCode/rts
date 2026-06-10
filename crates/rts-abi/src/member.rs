@@ -47,6 +47,38 @@ pub struct NamespaceMember {
     /// (e.g. `for...of` body analysis in the purity pass). Conservative:
     /// false-negative is safe (falls back to sequential path).
     pub pure: bool,
+
+    /// Alternative JS-visible names that resolve to this same member, e.g.
+    /// `toLocaleLowerCase` aliasing `toLowerCase`, or the snake_case ergonomic
+    /// aliases (`starts_with`, `trim_start`). Empty for most members. Lets the
+    /// engine resolver treat aliases as data instead of `|`-joined match arms.
+    pub aliases: &'static [&'static str],
+
+    /// True when the last logical parameter is variadic (JS rest `...args`).
+    /// The generic call emitter cannot marshal these 1:1; codegen routes
+    /// variadic members to a residual handler (per-element loop). Default false.
+    pub variadic: bool,
+
+    /// Per-argument default policy, parallel to `args` (same length, or empty
+    /// meaning "all required"). `DefaultArg::Required` = caller must supply it;
+    /// an optional variant carries the value the emitter injects when the caller
+    /// omits the argument (e.g. `String.prototype.slice` end → an
+    /// end-of-string sentinel). Enables arity-overload resolution that tolerates
+    /// an optional tail. Empty for members with no optional params.
+    pub default_args: &'static [DefaultArg],
+}
+
+/// Default policy for one argument of a [`NamespaceMember`], used by the engine
+/// resolver/emitter to accept calls that omit trailing optional arguments and
+/// to synthesise the value the runtime fn expects in their place.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DefaultArg {
+    /// The caller must supply this argument; omitting it is an arity error.
+    Required,
+    /// Optional integer/handle/bool argument; `value` is injected when omitted.
+    Int(i64),
+    /// Optional float argument; `value` is injected when omitted.
+    Float(f64),
 }
 
 /// Inlinable operations recognised by codegen.

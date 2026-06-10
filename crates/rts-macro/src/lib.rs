@@ -420,6 +420,12 @@ pub fn rts_namespace(attr: TokenStream, item: TokenStream) -> TokenStream {
                 ts_signature: #ts_sig,
                 intrinsic: #intrinsic_tok,
                 pure: #pure,
+                // Namespace functions are plain fixed-arity externs — aliases,
+                // variadic and optional-arg defaults are class/prototype-method
+                // concepts (see #[rts_class]). Always empty here.
+                aliases: &[],
+                variadic: false,
+                default_args: &[],
             }
         });
     }
@@ -474,6 +480,11 @@ struct ClassFnOpts {
     external: bool,
     pure: bool,
     intrinsic: Option<Ident>,
+    /// `aliases = "name1, name2"` — extra JS-visible names resolving to this
+    /// member (e.g. `toLocaleLowerCase`, the snake_case ergonomic aliases).
+    aliases: Vec<String>,
+    /// `variadic` flag — the last logical param is a JS rest `...args`.
+    variadic: bool,
 }
 
 fn parse_class_member(attrs: &[syn::Attribute]) -> Option<ClassFnOpts> {
@@ -503,6 +514,8 @@ fn parse_class_member(attrs: &[syn::Attribute]) -> Option<ClassFnOpts> {
         external: false,
         pure: false,
         intrinsic: None,
+        aliases: Vec::new(),
+        variadic: false,
     };
     if matches!(attr.meta, syn::Meta::Path(_)) {
         return Some(opts);
@@ -514,6 +527,18 @@ fn parse_class_member(attrs: &[syn::Attribute]) -> Option<ClassFnOpts> {
             opts.opt_str = true;
         } else if m.path.is_ident("external") {
             opts.external = true;
+        } else if m.path.is_ident("variadic") {
+            opts.variadic = true;
+        } else if m.path.is_ident("aliases") {
+            // Comma-separated JS names: `aliases = "toLocaleLowerCase, foo"`.
+            let v = m.value()?;
+            let s: syn::LitStr = v.parse()?;
+            opts.aliases = s
+                .value()
+                .split(',')
+                .map(|a| a.trim().to_string())
+                .filter(|a| !a.is_empty())
+                .collect();
         } else if m.path.is_ident("name") {
             let v = m.value()?;
             let s: syn::LitStr = v.parse()?;
@@ -687,6 +712,9 @@ pub fn rts_class(attr: TokenStream, item: TokenStream) -> TokenStream {
             });
         }
 
+        let aliases = &opts.aliases;
+        let variadic = opts.variadic;
+
         members.push(quote! {
             ::rts_abi::NamespaceMember {
                 name: #name,
@@ -698,6 +726,12 @@ pub fn rts_class(attr: TokenStream, item: TokenStream) -> TokenStream {
                 ts_signature: #ts_sig,
                 intrinsic: #intrinsic_tok,
                 pure: #pure,
+                aliases: &[ #(#aliases),* ],
+                variadic: #variadic,
+                // F1: the per-argument default-value macro syntax lands with the
+                // String/Array migration (E3/E4); the field is final now so the
+                // struct never changes again. Empty = all args required.
+                default_args: &[],
             }
         });
     }
