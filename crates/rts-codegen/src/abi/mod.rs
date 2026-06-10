@@ -76,10 +76,7 @@ pub const SPECS: &[&NamespaceSpec] = &[
     &crate::namespaces::net::SPEC,
     &crate::namespaces::num::SPEC,
     &crate::namespaces::mem::SPEC,
-    &crate::namespaces::trace::SPEC,
-    &crate::namespaces::alloc::SPEC,
     &crate::namespaces::bigfloat::SPEC,
-    &crate::namespaces::time::SPEC,
     &crate::namespaces::env::SPEC,
     &crate::namespaces::path::SPEC,
     &crate::namespaces::buffer::SPEC,
@@ -168,6 +165,9 @@ fn register_builtins() -> Registry {
     let mut engine = rts_engine::Engine::new();
     crate::namespaces::hint::register(&mut engine);
     crate::namespaces::hash::register(&mut engine);
+    crate::namespaces::alloc::register(&mut engine);
+    crate::namespaces::time::register(&mut engine);
+    crate::namespaces::trace::register(&mut engine);
     for module in engine.registry().modules() {
         let spec = leak_namespace(module);
         namespaces.insert(spec.name, spec);
