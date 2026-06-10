@@ -599,7 +599,10 @@ fn collect_top_level_mutable_vars(program: &Program) -> HashSet<String> {
 /// Builds the set of (namespace, member) pairs marked `pure: true` in SPECS.
 fn build_pure_ns_set() -> HashSet<(&'static str, &'static str)> {
     let mut s = HashSet::new();
-    for spec in crate::abi::SPECS {
+    // Registry (const seed + builder/Fase 2), não o const `SPECS` — senão os
+    // membros `pure` das ns migradas (math/string/num/fmt/path/hash/mem) não
+    // seriam reconhecidos pela silent-parallelism.
+    for spec in crate::abi::registry_specs_ordered() {
         for member in spec.members {
             if member.pure {
                 s.insert((spec.name, member.name));

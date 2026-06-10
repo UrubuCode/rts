@@ -575,6 +575,9 @@ fn namespace_tokens(
 
     let mut externs = Vec::new();
     let mut members = Vec::new();
+    // Membros no formato do builder do `rts-engine` (owned), para a fn
+    // `register()` derivada (Fase 2 — registra a ns no motor, sem const SPEC).
+    let mut engine_members: Vec<proc_macro2::TokenStream> = Vec::new();
 
     for it in &imp.items {
         let ImplItem::Fn(f) = it else { continue };
@@ -761,6 +764,31 @@ fn namespace_tokens(
                 flags: #flags_tok,
             }
         });
+
+        // Mesmo membro no formato do builder. fn_ptr = o extern próprio; para
+        // membros `alias`/`external` (sem extern próprio) usa null — o símbolo é
+        // resolvido pela ns dona (insert_module ignora ptr null no jit_symbols).
+        let fn_ptr_expr = if is_alias || opts.external {
+            quote! { ::core::ptr::null::<u8>() }
+        } else {
+            quote! { #sym_ident as *const u8 }
+        };
+        engine_members.push(quote! {
+            ::rts_engine::Member {
+                name: #name.to_string(),
+                kind: ::rts_engine::MemberKind::#kind_ident,
+                sig: ::rts_engine::Sig::new(::std::vec![ #(#arg_variants),* ], ::rts_abi::AbiType::#ret_ident),
+                symbol: #symbol.to_string(),
+                fn_ptr: ::rts_engine::FnPtr(#fn_ptr_expr),
+                flags: #flags_tok,
+                aliases: ::std::vec::Vec::new(),
+                variadic: false,
+                ts_signature: #ts_sig.to_string(),
+                doc: #doc.to_string(),
+                pure: #pure,
+                intrinsic: #intrinsic_tok,
+            }
+        });
     }
 
     // A `part` impl emits only externs + MEMBERS; the owning module aggregates
@@ -776,6 +804,17 @@ fn namespace_tokens(
                 doc: #spec_doc,
                 members: MEMBERS,
             };
+
+            /// Derived builder registration (Fase 2) — registra esta namespace
+            /// no motor do `rts-engine`. Substitui o caminho do const SPEC quando
+            /// chamada em `register_builtins`; a macro só é uma ponte até a
+            /// migração manual completa.
+            pub fn register(e: &mut ::rts_engine::Engine) {
+                e.ns(#ns_str)
+                    .doc(#spec_doc)
+                    #( .member(#engine_members) )*
+                    .done();
+            }
         }
     };
 

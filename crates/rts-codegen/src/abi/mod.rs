@@ -66,50 +66,17 @@ pub fn global_class_lookup(name: &str) -> Option<&'static GlobalClassSpec> {
     registry().read().unwrap().classes.get(name).copied()
 }
 
+// Fase 2 — quase todas as namespaces migraram pro caminho do builder do
+// `rts-engine` (registradas em `register_builtins` via `<ns>::register`, geradas
+// pela macro `#[rts_namespace]` ou à mão). Só restam no const `SPECS`:
+//   • `gc`         — GC/string-pool, o ns mais sensível; mantido no caminho
+//                    const provado até uma migração dedicada.
+//   • `collections`— owner hand-written que agrega dois `part` (map/vec) via
+//                    `concat_members`; não é um `#[rts_namespace]` próprio, logo
+//                    a macro não emite `register()` pra ele.
 pub const SPECS: &[&NamespaceSpec] = &[
     &crate::namespaces::gc::SPEC,
-    &crate::namespaces::io::SPEC,
-    &crate::namespaces::json::SPEC,
-    &crate::namespaces::date::SPEC,
-    &crate::namespaces::fs::SPEC,
-    &crate::namespaces::math::SPEC,
-    &crate::namespaces::net::SPEC,
-    &crate::namespaces::num::SPEC,
-    &crate::namespaces::mem::SPEC,
-    &crate::namespaces::bigfloat::SPEC,
-    &crate::namespaces::buffer::SPEC,
-    &crate::namespaces::ffi::SPEC,
-    &crate::namespaces::atomic::SPEC,
-    &crate::namespaces::sync::SPEC,
-    &crate::namespaces::globals::string::SPEC,
-    &crate::namespaces::process::SPEC,
-    &crate::namespaces::promise::SPEC,
-    &crate::namespaces::os::SPEC,
     &crate::namespaces::collections::SPEC,
-    // `hash` migrado pro builder (Fase 2) — ver namespaces::hash::register.
-    // `hint` migrado pro builder do rts-engine (Fase 2) — registrado em
-    // `register_builtins` via `namespaces::hint::register`, não mais aqui.
-    &crate::namespaces::http_server::SPEC,
-    &crate::namespaces::crypto::SPEC,
-    &crate::namespaces::regex::SPEC,
-    &crate::namespaces::audio::SPEC,
-    #[cfg(feature = "asio")]
-    &crate::namespaces::asio_audio::SPEC,
-    &crate::namespaces::runtime::SPEC,
-    &crate::namespaces::test::SPEC,
-    &crate::namespaces::thread::SPEC,
-    &crate::namespaces::parallel::SPEC,
-    &crate::namespaces::tls::SPEC,
-    &crate::namespaces::globals::json::SPEC,
-    &crate::namespaces::globals::json5::SPEC,
-    &crate::namespaces::globals::console::SPEC,
-    &crate::namespaces::globals::timers::SPEC,
-    &crate::namespaces::globals::fetch::SPEC,
-    &crate::namespaces::globals::text_encoding::SPEC,
-    &crate::namespaces::globals::performance::SPEC,
-    &crate::namespaces::globals::url::SPEC,
-    &crate::namespaces::globals::global_this::SPEC,
-    &crate::namespaces::events::SPEC,
 ];
 
 /// Índice O(1) sobre os const arrays — o **registry** que o codegen lê (Track A,
@@ -159,6 +126,7 @@ fn register_builtins() -> Registry {
     // (que usam `registry()`, o mesmo `OnceLock` em init → reentrância/deadlock).
     // `leak_namespace` só toca `jit_symbols` (outro OnceLock), seguro aqui.
     let mut engine = rts_engine::Engine::new();
+    // Migradas à mão (helper `func`/`pure_func` + builder):
     crate::namespaces::hint::register(&mut engine);
     crate::namespaces::hash::register(&mut engine);
     crate::namespaces::alloc::register(&mut engine);
@@ -168,6 +136,47 @@ fn register_builtins() -> Registry {
     crate::namespaces::path::register(&mut engine);
     crate::namespaces::fmt::register(&mut engine);
     crate::namespaces::ptr::register(&mut engine);
+    // Migradas via `register()` auto-gerado pela macro `#[rts_namespace]`
+    // (Fase 2). A macro emite a mesma metadata do const `SPEC`, então
+    // `leak_namespace` produz um `NamespaceMember` byte-equivalente.
+    crate::namespaces::io::register(&mut engine);
+    crate::namespaces::json::register(&mut engine);
+    crate::namespaces::date::register(&mut engine);
+    crate::namespaces::fs::register(&mut engine);
+    crate::namespaces::math::register(&mut engine);
+    crate::namespaces::net::register(&mut engine);
+    crate::namespaces::num::register(&mut engine);
+    crate::namespaces::mem::register(&mut engine);
+    crate::namespaces::bigfloat::register(&mut engine);
+    crate::namespaces::buffer::register(&mut engine);
+    crate::namespaces::ffi::register(&mut engine);
+    crate::namespaces::atomic::register(&mut engine);
+    crate::namespaces::sync::register(&mut engine);
+    crate::namespaces::globals::string::register(&mut engine);
+    crate::namespaces::process::register(&mut engine);
+    crate::namespaces::promise::register(&mut engine);
+    crate::namespaces::os::register(&mut engine);
+    crate::namespaces::http_server::register(&mut engine);
+    crate::namespaces::crypto::register(&mut engine);
+    crate::namespaces::regex::register(&mut engine);
+    crate::namespaces::audio::register(&mut engine);
+    #[cfg(feature = "asio")]
+    crate::namespaces::asio_audio::register(&mut engine);
+    crate::namespaces::runtime::register(&mut engine);
+    crate::namespaces::test::register(&mut engine);
+    crate::namespaces::thread::register(&mut engine);
+    crate::namespaces::parallel::register(&mut engine);
+    crate::namespaces::tls::register(&mut engine);
+    crate::namespaces::globals::json::register(&mut engine);
+    crate::namespaces::globals::json5::register(&mut engine);
+    crate::namespaces::globals::console::register(&mut engine);
+    crate::namespaces::globals::timers::register(&mut engine);
+    crate::namespaces::globals::fetch::register(&mut engine);
+    crate::namespaces::globals::text_encoding::register(&mut engine);
+    crate::namespaces::globals::performance::register(&mut engine);
+    crate::namespaces::globals::url::register(&mut engine);
+    crate::namespaces::globals::global_this::register(&mut engine);
+    crate::namespaces::events::register(&mut engine);
     for module in engine.registry().modules() {
         let spec = leak_namespace(module);
         namespaces.insert(spec.name, spec);
@@ -263,7 +272,13 @@ pub fn leak_namespace(module: &rts_engine::Module) -> &'static NamespaceSpec {
         .iter()
         .map(|m| {
             let symbol = s(&m.symbol);
-            jit.insert(symbol, m.fn_ptr.addr());
+            // Membros `alias`/`external` carregam fn_ptr null e reusam o
+            // `symbol` do membro dono (real). Inserir 0 aqui SOBRESCREVERIA o
+            // endereço real do símbolo → call para 0x0 (ACCESS_VIOLATION). Só
+            // grava quando há ponteiro próprio; o alias resolve pelo dono.
+            if !m.fn_ptr.0.is_null() {
+                jit.insert(symbol, m.fn_ptr.addr());
+            }
             NamespaceMember {
                 name: s(&m.name),
                 kind: m.kind,
@@ -272,7 +287,7 @@ pub fn leak_namespace(module: &rts_engine::Module) -> &'static NamespaceSpec {
                 returns: m.sig.returns,
                 doc: s(&m.doc),
                 ts_signature: s(&m.ts_signature),
-                intrinsic: None,
+                intrinsic: m.intrinsic,
                 pure: m.pure,
                 aliases: Box::leak(
                     m.aliases

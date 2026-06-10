@@ -163,8 +163,12 @@ mod tests {
     #[test]
     fn generate_includes_rts_namespace_modules() {
         let dts = super::generate();
+        // `rts:process` cobre uma ns migrada pro builder (Fase 2); `rts:gc`
+        // cobre o seed const (gc continua no const `SPECS`). Asserir ambos
+        // exercita os dois caminhos do registry. (A assertion antiga era
+        // `rts:ui` — namespace removida há tempo; ficou stale/vermelha.)
         assert!(dts.contains("declare module \"rts:process\""));
-        assert!(dts.contains("declare module \"rts:ui\""));
+        assert!(dts.contains("declare module \"rts:gc\""));
         assert!(dts.contains("export default _default;"));
         assert!(!dts.contains("export const readonly "));
     }

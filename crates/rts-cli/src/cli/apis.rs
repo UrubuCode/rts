@@ -2,8 +2,8 @@
 
 use anyhow::Result;
 
-use crate::abi::SPECS;
 use crate::abi::member::MemberKind;
+use crate::abi::registry_specs_ordered;
 
 pub fn command() -> Result<()> {
     println!("RTS Runtime APIs (builtin module \"rts\"):");
@@ -13,7 +13,9 @@ pub fn command() -> Result<()> {
 
     println!();
     println!("RTS Namespace Catalog (Rust -> Cranelift):");
-    for spec in SPECS {
+    // Itera o registry (const seed + módulos do builder/Fase 2), não o const
+    // `SPECS` — que hoje só guarda gc + collections.
+    for spec in registry_specs_ordered() {
         println!("  - {}: {}", spec.name, spec.doc);
         for member in spec.members {
             let kind = match member.kind {

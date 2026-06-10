@@ -2,7 +2,7 @@
 //! var) — o que o builder insere no [`Registry`](crate::Registry).
 
 use crate::Sig;
-use crate::abi::{MemberFlags, MemberKind};
+use crate::abi::{Intrinsic, MemberFlags, MemberKind};
 
 /// Ponteiro para a implementação nativa de um membro. É o código `extern "C"`
 /// real; dobra como **símbolo do JIT** (o loader injeta `(symbol, fn_ptr)` em
@@ -66,6 +66,9 @@ pub struct Member {
     /// paralelização automática (silent-parallelism). Conservador: false é
     /// sempre seguro. Espelha `NamespaceMember.pure`.
     pub pure: bool,
+    /// Quando `Some`, o codegen emite IR Cranelift inline em vez de `call
+    /// <symbol>` (sqrt, abs, min/max, …). Espelha `NamespaceMember.intrinsic`.
+    pub intrinsic: Option<Intrinsic>,
 }
 
 impl Member {

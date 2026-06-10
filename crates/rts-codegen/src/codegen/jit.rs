@@ -2668,8 +2668,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     #[cfg(debug_assertions)]
     {
         use std::collections::HashSet;
-        use crate::abi::SPECS;
-        let spec_syms: HashSet<&str> = SPECS
+        // Registry (const seed + builder/Fase 2), não o const `SPECS` (só gc +
+        // collections hoje) — senão o diagnóstico ignora as ns migradas.
+        let specs = crate::abi::registry_specs_ordered();
+        let spec_syms: HashSet<&str> = specs
             .iter()
             .flat_map(|s| s.members.iter().map(|m| m.symbol))
             .collect();

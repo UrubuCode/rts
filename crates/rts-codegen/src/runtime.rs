@@ -1,7 +1,5 @@
 use std::collections::BTreeSet;
 
-use crate::abi::SPECS;
-
 #[derive(Debug, Clone)]
 pub struct BuiltinModule {
     pub name: String,
@@ -60,7 +58,10 @@ pub fn builtin_module(name: &str) -> Option<BuiltinModule> {
 
 pub fn builtin_module_keys() -> Vec<&'static str> {
     let mut keys = vec!["rts", "rts:test"];
-    for spec in SPECS {
+    // Registry (const seed + builder/Fase 2), não o const `SPECS` (só gc +
+    // collections hoje) — senão `import … from "rts:<ns>"` das ns migradas
+    // não constaria como key builtin.
+    for spec in crate::abi::registry_specs_ordered() {
         keys.push(spec.name);
     }
     for spec in crate::nodespace::NODE_SPECS {

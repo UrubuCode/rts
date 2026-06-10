@@ -335,7 +335,7 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
     // sentinel de string com o nome. Suficiente para `Promise.try.call(...)`,
     // `const g = console.group`, `typeof console === "object"` etc.
     let is_global = crate::abi::global_class_lookup(name).is_some()
-        || crate::abi::SPECS.iter().any(|s| s.name == name);
+        || crate::abi::registry_namespace(name).is_some();
     if is_global {
         return ctx.emit_str_handle(name.as_bytes());
     }

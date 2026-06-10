@@ -156,6 +156,7 @@ fn pure_func(name: &str, symbol: &str, sig: rts_engine::Sig, ts: &str, doc: &str
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
         pure: true,
+        intrinsic: None,
     }
 }
 

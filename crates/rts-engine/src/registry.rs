@@ -142,7 +142,11 @@ impl Registry {
 
     pub(crate) fn insert_module(&mut self, module: Module) {
         for m in &module.members {
-            self.jit_symbols.insert(m.symbol.clone(), m.fn_ptr);
+            // Membros `alias`/`external` carregam fn_ptr null — o símbolo é
+            // resolvido pela ns dona; não sobrescrever com null.
+            if !m.fn_ptr.0.is_null() {
+                self.jit_symbols.insert(m.symbol.clone(), m.fn_ptr);
+            }
         }
         let key = format!("{}:{}", module.scheme, module.name);
         self.modules.insert(key, module);
@@ -150,7 +154,9 @@ impl Registry {
 
     pub(crate) fn insert_class(&mut self, class: Class) {
         for m in &class.members {
-            self.jit_symbols.insert(m.symbol.clone(), m.fn_ptr);
+            if !m.fn_ptr.0.is_null() {
+                self.jit_symbols.insert(m.symbol.clone(), m.fn_ptr);
+            }
         }
         self.classes.insert(class.name.clone(), class);
     }

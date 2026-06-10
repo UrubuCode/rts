@@ -112,6 +112,7 @@ fn func(name: &str, symbol: &str, sig: rts_engine::Sig, ts: &str, doc: &str, fp:
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
         pure: false,
+        intrinsic: None,
     }
 }
 
