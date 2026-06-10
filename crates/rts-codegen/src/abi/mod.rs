@@ -92,7 +92,7 @@ pub const SPECS: &[&NamespaceSpec] = &[
     &crate::namespaces::ptr::SPEC,
     &crate::namespaces::os::SPEC,
     &crate::namespaces::collections::SPEC,
-    &crate::namespaces::hash::SPEC,
+    // `hash` migrado pro builder (Fase 2) — ver namespaces::hash::register.
     // `hint` migrado pro builder do rts-engine (Fase 2) — registrado em
     // `register_builtins` via `namespaces::hint::register`, não mais aqui.
     &crate::namespaces::http_server::SPEC,
@@ -167,6 +167,7 @@ fn register_builtins() -> Registry {
     // `leak_namespace` só toca `jit_symbols` (outro OnceLock), seguro aqui.
     let mut engine = rts_engine::Engine::new();
     crate::namespaces::hint::register(&mut engine);
+    crate::namespaces::hash::register(&mut engine);
     for module in engine.registry().modules() {
         let spec = leak_namespace(module);
         namespaces.insert(spec.name, spec);
@@ -272,7 +273,7 @@ pub fn leak_namespace(module: &rts_engine::Module) -> &'static NamespaceSpec {
                 doc: s(&m.doc),
                 ts_signature: s(&m.ts_signature),
                 intrinsic: None,
-                pure: false,
+                pure: m.pure,
                 aliases: Box::leak(
                     m.aliases
                         .iter()

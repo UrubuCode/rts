@@ -62,6 +62,10 @@ pub struct Member {
     pub ts_signature: String,
     /// Doc-comment, se houver.
     pub doc: String,
+    /// Membro puro (sem I/O / estado mutável / não-determinismo) — elegível pra
+    /// paralelização automática (silent-parallelism). Conservador: false é
+    /// sempre seguro. Espelha `NamespaceMember.pure`.
+    pub pure: bool,
 }
 
 impl Member {

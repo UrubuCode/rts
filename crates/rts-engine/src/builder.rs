@@ -89,6 +89,7 @@ fn simple_member(stem: &str, name: &str, kind: MemberKind, sig: Sig, ptr: *const
         variadic: false,
         ts_signature: String::new(),
         doc: String::new(),
+        pure: false,
     }
 }
 
@@ -155,6 +156,7 @@ impl ModuleBuilder<'_> {
             variadic: false,
             ts_signature: String::new(),
             doc: String::new(),
+            pure: false,
         };
         getter.ts_signature = format!("{name}: {}", ts_of(ty));
         self.members.push(getter);
@@ -171,6 +173,7 @@ impl ModuleBuilder<'_> {
                     variadic: false,
                     ts_signature: String::new(),
                     doc: String::new(),
+                    pure: false,
                 });
             }
         }

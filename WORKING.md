@@ -30,6 +30,13 @@
 >    `engine.class(...)` (precisa o builder de classe ligar no `GLOBAL_CLASS_SPECS`
 >    — ainda NÃO ligado; ver nota). Quando zero `#[rts_*]`: deletar `rts-macro`.
 >
+> **Migradas:** `hint` (ca2e73e7), `hash` (HEAD). **Gaps do Member descobertos
+> e resolvidos/pendentes:** `pure` ✅ (adicionado). Ainda faltam no `rts_engine::
+> Member` p/ migrar as demais: **`intrinsic`** (math.sqrt/abs/min/max — inline),
+> **`default_args`** (string/array slice etc.), e **constantes** (math.PI/mem.size_of
+> — `.constant()` existe no builder mas leak_namespace põe `intrinsic:None`; ok p/
+> constante simples). Adicionar cada campo ao Member quando a ns que o usa for migrada.
+>
 > **Nota classes:** o fold atual só pega `engine.registry().modules()` (namespaces).
 > Pra migrar classes globais, `register_builtins` precisa também foldar
 > `engine.registry().classes()` (via um `leak_class` análogo + `classes`/
@@ -113,7 +120,8 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
 | `4f261284` | doc | WORKING.md — pega do Q2 (1ª tentativa revertida) |
 | `4609b7c6` | Q2 | symbol-switches de `ns_call.rs` → `MemberFlags` (RAW_BITS_ARG/AMBIGUOUS_RET/UNDEF_RET). 13 membros flagados; entradas mortas `reduce_right*` dropadas. Suíte **1710/1710** |
 | `f7500ebb` | F3d | gerador d.ts itera `registry_specs_ordered()` (Vec ordenado) em vez do const `SPECS`. Byte-idêntico. Desbloqueia Fase 2 |
-| _(HEAD)_ | **Fase 2 piloto** | **`hint` migrado da macro → builder** (1ª ns). hand-externs `#[no_mangle]` + `hint::register(Engine)` via `.member()` (ts/doc exatos); `register_builtins` folda as camadas do builder no registry; hint removido do const SPECS. `rts run` "hint via builder: 42"; suíte **1710/1710** (hint_basic via builder). Prova Fase 2 end-to-end |
+| `ca2e73e7` | **Fase 2 piloto** | **`hint` migrado da macro → builder** (1ª ns). hand-externs + `hint::register(Engine)`; `register_builtins` folda os modules; hint fora do const SPECS. `rts run` ok; suíte 1710/1710. Prova Fase 2 |
+| _(HEAD)_ | Fase 2 #2 | **`hash` migrado** (2ª ns) + `rts_engine::Member += pure` (gap: builder perdia `pure`; `leak_namespace` agora carrega). hash usa Str + 4 fns pure. `rts run` "true true true"; suíte **1710/1710**. Template repetível confirmado |
 
 ---
 
