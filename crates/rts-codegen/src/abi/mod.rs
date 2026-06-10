@@ -170,6 +170,13 @@ pub fn register_namespace(spec: &'static NamespaceSpec) {
     registry().write().unwrap().namespaces.insert(spec.name, spec);
 }
 
+/// Resolve uma namespace pelo nome no registry (builtins seeds + módulos do
+/// builder/externos). Usado pelo resolvedor de import (`builtin_module`) para
+/// que módulos do builder sejam importáveis, não só os do const `SPECS`.
+pub fn registry_namespace(name: &str) -> Option<&'static NamespaceSpec> {
+    registry().read().unwrap().namespaces.get(name).copied()
+}
+
 /// Registra uma classe global no registry em runtime.
 pub fn register_class(spec: &'static GlobalClassSpec) {
     registry().write().unwrap().classes.insert(spec.name, spec);

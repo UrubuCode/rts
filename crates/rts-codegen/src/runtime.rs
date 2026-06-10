@@ -23,7 +23,10 @@ pub fn builtin_module(name: &str) -> Option<BuiltinModule> {
         return Some(BuiltinModule::new("rts", RTS_EXPORTS.iter().copied()));
     }
     if let Some(ns_name) = name.strip_prefix("rts:") {
-        if let Some(spec) = SPECS.iter().copied().find(|s| s.name == ns_name) {
+        // Lê o registry (builtins seeds + módulos do builder/externos), não o
+        // const SPECS — assim um módulo registrado via o builder do rts-engine
+        // é importável igual a um builtin.
+        if let Some(spec) = crate::abi::registry_namespace(ns_name) {
             let exports: Vec<String> = spec
                 .members
                 .iter()

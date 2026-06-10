@@ -34,19 +34,34 @@ execução (símbolo injetado no JIT). A arquitetura builder→registry→codege
 está provada ponta-a-ponta no nível de API (testes); falta exercê-la com uma ns
 real (piloto).
 
-**Agora Fase 2 — PILOTO (1 namespace real via builder):**
-1. Escolher uma ns pequena/pura (ex.: `hint` — black_box/spin_loop/etc.).
-2. Escrever `hint::register(&mut Engine)` que faz `engine.ns("hint").function(...)`
-   apontando pras fns `#[no_mangle]` existentes (`rts_runtime::...::__RTS_FN_NS_HINT_*`).
-3. No startup (`register_runtime_artifacts` em rts-codegen) construir um `Engine`,
-   registrar, e `abi::leak_namespace`+`register_namespace` (alimenta registry+JIT).
-4. **Remover** `hint::SPEC` do const `SPECS` (senão dup).
-5. Manter `#[rts_namespace]` gerando os externs (só o registro vira builder) OU
-   escrever as fns à mão. Decidir: na v1 do piloto, manter a macro só p/ os
-   externs; o builder substitui o SPEC/registro.
-6. **Gate:** TS `import { black_box } from "rts:hint"` roda sob `rts run`; suíte 1710.
-- Piloto OK → repetir mecânico p/ as 50 ns + 27 classes (o grosso). Aí a macro
-  e o shim rts-abi morrem.
+**Bridge COMPLETO:** registry é lido por `lookup` (F3a), JIT (`F4`) e import
+resolver (`F4b`). Um módulo do builder registrado é importável + resolvível +
+executável. Falta só o LUGAR que registra (camadas) + integrar o gerador d.ts.
+
+**Agora Fase 2 — PILOTO (1 namespace real via builder, ex.: `hint`):**
+hint = 5 membros: `spin_loop()→void`, `black_box_i64(I64)→I64`,
+`black_box_f64(F64)→F64`, `unreachable()→void` (ts "never"), `assert_unchecked(Bool)→void`.
+Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
+1. Onde registrar: **dentro de `register_builtins()`** (o seed do registry em
+   `abi/mod.rs`) — construir um `Engine`, registrar as camadas, e foldar os
+   Modules no `Registry` local ANTES de retornar. **NÃO** chamar
+   `register_namespace`/`leak_namespace` (que usam o `registry()` global) de
+   dentro do seed → reentrância no `OnceLock` = deadlock. Fazer um
+   `leak_into(&mut maps, module)` que insere nos maps locais.
+2. `hint::register(&mut Engine)` apontando pros externs
+   (`rts_runtime::namespaces::hint::__RTS_FN_NS_HINT_* as *const u8`), com sigs +
+   `ts_signature` EXATOS (p/ não mudar o d.ts).
+3. **Remover** `&...hint::SPEC` do const `SPECS` (senão dup). `pub const SPEC`
+   fica unused mas é `pub` → sem dead_code. add_fn! do hint pode ficar (dup
+   overwrite no JIT, mesmo ptr).
+4. **⚠️ d.ts:** o gerador (`emit_types.rs`/`apis.rs`/`init.rs`) itera `SPECS`
+   const — hint sumiria do `rts.d.ts` → lint quebra. **Fazer o gerador iterar o
+   registry** (ou manter hint no SPECS só p/ d.ts — feio). Decidir: gerador lê
+   `registry().namespaces`.
+5. **Gate:** TS `import { spin_loop } from "rts:hint"` roda sob `rts run`;
+   `rts.d.ts` byte-idêntico; suíte 1710.
+- Piloto OK → repetir mecânico p/ as 50 ns + 27 classes (o grosso, 933 membros).
+  Aí a macro e o shim rts-abi morrem.
 
 ---
 
@@ -68,7 +83,8 @@ real (piloto).
 | `214fc402` | Fase 1c | flip codegen/mir/cli `rts_abi::`→`rts_engine::abi::` + Cargo deps; hir/linker droparam dep stale. Shim só via runtime/macro |
 | `877b2ebd` | F3a | `lookup`/`global_class_lookup` viram índice `OnceLock<Registry>` (`register_builtins()` semeia dos const arrays). Suíte **1710/1710** |
 | `7962a782` | F3b | registry vira `RwLock` + `register_namespace`/`register_class` + `leak_namespace` (Module do builder → `&'static NamespaceSpec`). Teste-ponte: ns do builder achada pelo `lookup`. Suíte **1710/1710** |
-| _(HEAD)_ | F4 | `leak_namespace` grava `(symbol, fn_ptr)` em `JIT_SYMBOLS`; `runtime_jit_symbols()`; `jit.rs` injeta no `JITBuilder` após o `add_fn!`. Habilita EXECUÇÃO de fn do builder. Suíte **1710/1710** |
+| `c0d75f54` | F4 | `leak_namespace` grava `(symbol, fn_ptr)` em `JIT_SYMBOLS`; `runtime_jit_symbols()`; `jit.rs` injeta no `JITBuilder` após o `add_fn!`. Habilita EXECUÇÃO de fn do builder. Suíte **1710/1710** |
+| _(HEAD)_ | F4b | `builtin_module` (import resolver) lê `registry_namespace()` em vez do const `SPECS` → módulos do builder ficam importáveis. Registry é a fonte de leitura dos 3 consumidores (lookup, JIT, import). Suíte **1710/1710** |
 
 ---
 
@@ -119,6 +135,9 @@ real (piloto).
 - **CRLF warnings** no commit são inócuos (autocrlf).
 - **fn-ptr ABI by-honor:** sig declarada ≠ extern real = corrupção de stack, verifier não pega. Builder só macro-autorado na v1 (ou validar no register).
 - **Bool=i64** (não i8) no boundary — `signature.rs:9`.
+- **d.ts gerador itera `SPECS` const** (`emit_types.rs`/`apis.rs`/`init.rs`): remover uma ns do const SPECS a faz sumir do `rts.d.ts` → lint byte-idêntico quebra. Migrar uma ns pro builder exige o gerador ler o `registry`.
+- **Reentrância OnceLock:** não chamar `register_namespace`/`leak_namespace` (usam `registry()` global) de dentro de `register_builtins()` (o init do mesmo OnceLock) → deadlock. Foldar nos maps locais.
+- **`rts_engine::sig!`** chamável por path: `rts_engine::sig!(StrPtr, I64 => Handle)`. Tipos via `$crate::AbiType::X`.
 
 ---
 
