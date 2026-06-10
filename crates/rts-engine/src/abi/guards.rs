@@ -12,7 +12,7 @@
 //! a namespace is migrated onto the new ABI. That migration wires the enums
 //! into the codegen pipeline without having to redesign the decision logic.
 
-use crate::types::AbiType;
+use super::types::AbiType;
 
 /// Describes what the codegen can infer about an argument at the call site.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

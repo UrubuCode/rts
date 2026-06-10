@@ -11,7 +11,7 @@
 //! Codegen consults `GLOBAL_CLASS_SPECS` in `lower_new` (for constructors)
 //! and after the user-class dispatch path (for instance methods).
 
-use crate::member::NamespaceMember;
+use super::member::NamespaceMember;
 
 /// A globally-scoped JS class backed by RTS runtime symbols.
 #[derive(Debug, Clone, Copy)]
@@ -27,7 +27,7 @@ pub struct GlobalClassSpec {
 impl GlobalClassSpec {
     /// Returns all `Constructor` members, ordered by arity.
     pub fn constructors(&self) -> impl Iterator<Item = &NamespaceMember> {
-        use crate::member::MemberKind;
+        use super::member::MemberKind;
         self.members
             .iter()
             .filter(|m| m.kind == MemberKind::Constructor)
@@ -43,7 +43,7 @@ impl GlobalClassSpec {
     /// [`resolve_instance_method`](Self::resolve_instance_method) when the arity
     /// is known so overloads resolve correctly.
     pub fn instance_method(&self, name: &str) -> Option<&NamespaceMember> {
-        use crate::member::MemberKind;
+        use super::member::MemberKind;
         self.members
             .iter()
             .find(|m| m.kind == MemberKind::InstanceMethod && m.name == name)
@@ -62,7 +62,7 @@ impl GlobalClassSpec {
     /// count is `args.len() - 1`. This replaces the ad-hoc arity `find` that was
     /// duplicated across the codegen call sites (RTS_ENGINE.md §4.3).
     pub fn resolve_instance_method(&self, name: &str, n_args: usize) -> Option<&NamespaceMember> {
-        use crate::member::MemberKind;
+        use super::member::MemberKind;
         let named = |m: &&NamespaceMember| {
             m.kind == MemberKind::InstanceMethod && (m.name == name || m.aliases.contains(&name))
         };
@@ -75,7 +75,7 @@ impl GlobalClassSpec {
 
     /// Returns a static method/constant by name, if any.
     pub fn static_member(&self, name: &str) -> Option<&NamespaceMember> {
-        use crate::member::MemberKind;
+        use super::member::MemberKind;
         self.members.iter().find(|m| {
             matches!(
                 m.kind,
@@ -86,7 +86,7 @@ impl GlobalClassSpec {
 
     /// Returns an instance getter (property, no parens) by name, if any.
     pub fn instance_getter(&self, name: &str) -> Option<&NamespaceMember> {
-        use crate::member::MemberKind;
+        use super::member::MemberKind;
         self.members
             .iter()
             .find(|m| m.kind == MemberKind::InstanceGetter && m.name == name)
@@ -95,7 +95,7 @@ impl GlobalClassSpec {
     /// Returns the instance setter (writable property `inst.prop = v`) by name,
     /// if any. A getter whose name has no matching setter is read-only.
     pub fn instance_setter(&self, name: &str) -> Option<&NamespaceMember> {
-        use crate::member::MemberKind;
+        use super::member::MemberKind;
         self.members
             .iter()
             .find(|m| m.kind == MemberKind::InstanceSetter && m.name == name)
@@ -112,7 +112,7 @@ fn explicit_arity(m: &NamespaceMember) -> usize {
 /// the trailing run of optional `default_args`. With no `default_args` (the
 /// common case) every explicit param is required, so `min == explicit`.
 fn min_arity(m: &NamespaceMember) -> usize {
-    use crate::member::DefaultArg;
+    use super::member::DefaultArg;
     let explicit = explicit_arity(m);
     if m.default_args.is_empty() {
         return explicit;
@@ -140,8 +140,8 @@ fn accepts_arity(m: &NamespaceMember, n_args: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::member::{DefaultArg, MemberFlags, MemberKind};
-    use crate::types::AbiType;
+    use crate::abi::member::{DefaultArg, MemberFlags, MemberKind};
+    use crate::abi::types::AbiType;
 
     /// Builds an `InstanceMethod` row with `args` (incl. the receiver at slot 0),
     /// optional `aliases`/`variadic`/`default_args`.

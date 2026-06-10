@@ -4,7 +4,7 @@
 use crate::member::{FnPtr, Member, VarKind};
 use crate::registry::{Class, Module, Registry};
 use crate::Sig;
-use rts_abi::{AbiType, MemberFlags, MemberKind};
+use crate::abi::{AbiType, MemberFlags, MemberKind};
 
 /// O motor: dono do [`Registry`] em construção. Uma camada recebe `&mut Engine`
 /// e registra os seus módulos/classes/globais; o codegen consome

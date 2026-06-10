@@ -2,7 +2,7 @@
 //! var) — o que o builder insere no [`Registry`](crate::Registry).
 
 use crate::Sig;
-use rts_abi::{MemberFlags, MemberKind};
+use crate::abi::{MemberFlags, MemberKind};
 
 /// Ponteiro para a implementação nativa de um membro. É o código `extern "C"`
 /// real; dobra como **símbolo do JIT** (o loader injeta `(symbol, fn_ptr)` em

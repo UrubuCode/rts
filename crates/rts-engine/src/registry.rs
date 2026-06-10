@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use crate::{FnPtr, Member};
-use rts_abi::MemberKind;
+use crate::abi::MemberKind;
 
 /// Um módulo importável (`import { x } from "<scheme>:<name>"`).
 #[derive(Debug, Clone)]

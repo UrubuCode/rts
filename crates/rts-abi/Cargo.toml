@@ -3,5 +3,7 @@ name = "rts-abi"
 version = "0.1.0"
 edition = "2024"
 
+# Shim: re-exporta `rts_engine::abi`. O conteúdo real vive em `rts-engine`.
+# Será removido quando o último consumidor flipar para `rts_engine`.
 [dependencies]
-# zero cranelift deps
+rts-engine = { path = "../rts-engine" }

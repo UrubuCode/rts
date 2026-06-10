@@ -1,17 +1,11 @@
-pub mod global_class;
-pub mod guards;
-pub mod handles;
-pub mod js_error;
-pub mod member;
-pub mod signature;
-pub mod str_abi;
-pub mod symbols;
-pub mod ty;
-pub mod types;
+//! `rts-abi` — **shim de compatibilidade**. O conteúdo real foi dobrado em
+//! `rts_engine::abi` (o núcleo cru). Este crate apenas re-exporta, mantendo os
+//! consumidores (`rts_abi::ty`, `rts_abi::NamespaceMember`, `rts_abi::signature`,
+//! …) compilando enquanto migram para `rts_engine` crate-por-crate. Será
+//! deletado quando o último consumidor flipar.
+//!
+//! O glob abaixo re-exporta tanto os itens (`AbiType`, `MemberKind`, …) quanto
+//! os submódulos públicos (`ty`, `str_abi`, `signature`, `symbols`, `handles`,
+//! `guards`, `global_class`, `js_error`, `member`, `types`).
 
-pub use global_class::GlobalClassSpec;
-pub use js_error::JsErrorKind;
-pub use member::{
-    concat_members, DefaultArg, Intrinsic, MemberFlags, MemberKind, NamespaceMember, NamespaceSpec,
-};
-pub use types::AbiType;
+pub use rts_engine::abi::*;

@@ -39,6 +39,8 @@
 //! migração de GC, globals, e das namespaces (`rts-std`) para cima deste núcleo
 //! é o roadmap de `RTS_ENGINE.md` (F3/F4 + a virada de autoria).
 
+pub mod abi;
+
 mod builder;
 mod member;
 mod registry;
@@ -49,6 +51,9 @@ pub use member::{FnPtr, Member, VarKind};
 pub use registry::{Class, Module, Registry};
 pub use sig::Sig;
 
-// Re-exporta o vocabulário ABI estável que o builder usa, para os crates de
-// camada não precisarem depender de `rts-abi` diretamente.
-pub use rts_abi::{AbiType, MemberFlags, MemberKind};
+// Vocabulário ABI estável (antes o crate `rts-abi`, agora dobrado em `abi`).
+// Re-exportado na raiz para os crates de camada e o codegen.
+pub use abi::{
+    concat_members, AbiType, DefaultArg, GlobalClassSpec, Intrinsic, JsErrorKind, MemberFlags,
+    MemberKind, NamespaceMember, NamespaceSpec,
+};

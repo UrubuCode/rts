@@ -5,7 +5,7 @@
 //! to produce `rts.d.ts`. The layout intentionally mirrors what both
 //! consumers need so no additional lookup structure is required.
 
-use crate::types::AbiType;
+use super::types::AbiType;
 
 /// One exported entry inside a namespace.
 ///

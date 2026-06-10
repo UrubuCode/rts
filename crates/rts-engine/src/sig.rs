@@ -1,11 +1,11 @@
 //! Assinaturas ABI de um membro registrado.
 
-use rts_abi::AbiType;
+use crate::abi::AbiType;
 
 /// Assinatura de um membro: tipos dos argumentos (na ordem do `extern "C"`,
 /// incluindo o `Handle` do receiver no slot 0 para métodos de instância) + o
 /// tipo de retorno. O codegen deriva a assinatura Cranelift daqui, exatamente
-/// como `rts_abi::signature::lower_member` faz para as rows antigas.
+/// como `crate::abi::signature::lower_member` faz para as rows antigas.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Sig {
     /// Tipos dos argumentos, em ordem. `StrPtr` expande para dois slots

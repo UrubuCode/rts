@@ -5,8 +5,8 @@
 //! Codegen converts these to Cranelift IR types via `scalar_to_cl` in
 //! `src/abi/signature.rs`.
 
-use crate::member::{MemberKind, NamespaceMember};
-use crate::types::AbiType;
+use super::member::{MemberKind, NamespaceMember};
+use super::types::AbiType;
 
 /// Pre-lowered signature pieces in terms of `AbiType`.
 ///

@@ -2595,6 +2595,9 @@ dependencies = [
 [[package]]
 name = "rts-abi"
 version = "0.1.0"
+dependencies = [
+ "rts-engine",
+]
 
 [[package]]
 name = "rts-ast"
@@ -2667,9 +2670,6 @@ dependencies = [
 [[package]]
 name = "rts-engine"
 version = "0.1.0"
-dependencies = [
- "rts-abi",
-]
 
 [[package]]
 name = "rts-hir"
