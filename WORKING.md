@@ -29,7 +29,17 @@ Dois sub-passos:
   runtime registra via builder. Toca todos os call-sites (`member.args` →
   `member.sig.args`, `symbol:&str` → `String`). Fazer junto da Fase 2.
 
-Começar por **F3a**.
+**F3a ✅** (`OnceLock<Registry>` índice sobre os const arrays; suíte 1710/1710).
+
+**Agora F3 (continuação) — bridge builder→codegen (piloto):**
+- Trocar `OnceLock`→`RwLock` no `Registry` do codegen + um `register_member()`
+  que aceita entradas runtime.
+- Converter `rts_engine::Member` (owned) → `&'static NamespaceMember` via
+  `Box::leak` (strings/args/spec). Função em codegen (ou rts-engine).
+- **Piloto:** registrar UMA namespace (ex.: `hint`) via o builder, convertê-la,
+  inserir no registry, provar que `lookup` acha (suíte verde).
+- Isso destrava a Fase 2 (migrar as 50 ns + 27 classes) sem reescrever os
+  call-sites do codegen (a moeda continua `NamespaceMember` leaked).
 
 ---
 
@@ -48,7 +58,8 @@ Começar por **F3a**.
 | `94c5501d` | doc | pivot pro modelo builder (supersede §9.1) |
 | `10eea9a2` | Fase 1a/b | **dobra `rts-abi` em `rts-engine/src/abi/`**; rts-abi vira shim; workspace verde, engine 17+5+1 |
 | `30d2fc2c` | doc | **WORKING.md** (este arquivo) |
-| _(HEAD)_ | Fase 1c | flip codegen/mir/cli `rts_abi::`→`rts_engine::abi::` + Cargo deps; hir/linker droparam dep stale. Shim `rts-abi` agora só via runtime/macro. `cargo check --workspace` verde |
+| `214fc402` | Fase 1c | flip codegen/mir/cli `rts_abi::`→`rts_engine::abi::` + Cargo deps; hir/linker droparam dep stale. Shim só via runtime/macro |
+| _(HEAD)_ | F3a | `lookup`/`global_class_lookup` viram índice `OnceLock<Registry>` (`register_builtins()` semeia dos const arrays). Suíte **1710/1710** |
 
 ---
 
@@ -62,11 +73,10 @@ Começar por **F3a**.
 - [ ] `rts-runtime` fica pro fim — morre junto com a macro na Fase 2.
 
 ### F3 — codegen lê o `Registry` (a ponte, Track A, SEM linkme)
-- [ ] `OnceLock<RwLock<Registry>>` (ou `OnceLock<Registry>`) acessível ao codegen.
-- [ ] `register_builtins()`: drena `SPECS`/`GLOBAL_CLASS_SPECS` (const) → entradas do `Registry` (modules/classes), montando no startup do `rts.exe`.
-- [ ] `abi::lookup` / `global_class_lookup` passam a ler o `Registry` (mantêm a assinatura — consumers não mudam).
-- [ ] Rotear os `for spec in GLOBAL_CLASS_SPECS` (vários sites) → iterar o registry.
-- [ ] **Gate:** parity-count (mesmas N entradas dos arrays); `rts.d.ts` byte-idêntico; `rts.exe test` 1710/1710.
+- [x] **F3a:** `abi::lookup`/`global_class_lookup` leem `OnceLock<Registry>` índice; `register_builtins()` semeia dos const arrays. Suíte 1710/1710. (`214fc402`+HEAD)
+- [ ] **F3b:** `OnceLock`→`RwLock` + `register_member()` runtime; conversão `rts_engine::Member`→`&'static NamespaceMember` (Box::leak); piloto (1 ns via builder achada por `lookup`).
+- [ ] Rotear os `for spec in GLOBAL_CLASS_SPECS` (vários sites) → iterar o registry (p/ plugins aparecerem nas iterações).
+- [ ] **Gate:** suíte 1710 + (futuro) `rts.d.ts` byte-idêntico.
 
 ### Fase 2 — runtime → rts-std via builder (remove `rts-macro`; 933 membros / 73 arquivos)
 - [ ] Decidir: migrar in-place em `rts-runtime` OU criar crate `rts-std`.

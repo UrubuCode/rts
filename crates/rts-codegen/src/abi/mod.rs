@@ -63,7 +63,7 @@ pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
 ];
 
 pub fn global_class_lookup(name: &str) -> Option<&'static GlobalClassSpec> {
-    GLOBAL_CLASS_SPECS.iter().copied().find(|s| s.name == name)
+    registry().classes.get(name).copied()
 }
 
 pub const SPECS: &[&NamespaceSpec] = &[
@@ -118,9 +118,42 @@ pub const SPECS: &[&NamespaceSpec] = &[
     &crate::namespaces::events::SPEC,
 ];
 
+/// Índice O(1) sobre os const arrays — o **registry** que o codegen lê (Track A,
+/// F3a, `RTS_ENGINE.md` §10.2). `register_builtins()` o semeia de `SPECS`/
+/// `GLOBAL_CLASS_SPECS` (a única origem hoje); o codegen consulta `lookup`/
+/// `global_class_lookup` por aqui em vez de varrer os arrays. Mantém
+/// `&'static NamespaceMember` como moeda do codegen. Evolução: trocar `OnceLock`
+/// por `RwLock` + inserção runtime habilita builder/módulos externos (F3b/Fase 2).
+struct Registry {
+    namespaces: std::collections::HashMap<&'static str, &'static NamespaceSpec>,
+    classes: std::collections::HashMap<&'static str, &'static GlobalClassSpec>,
+}
+
+static REGISTRY: std::sync::OnceLock<Registry> = std::sync::OnceLock::new();
+
+fn registry() -> &'static Registry {
+    REGISTRY.get_or_init(register_builtins)
+}
+
+/// Semeia o registry a partir dos const arrays (a única origem de builtins hoje).
+fn register_builtins() -> Registry {
+    let mut namespaces = std::collections::HashMap::with_capacity(SPECS.len());
+    for s in SPECS {
+        namespaces.insert(s.name, *s);
+    }
+    let mut classes = std::collections::HashMap::with_capacity(GLOBAL_CLASS_SPECS.len());
+    for s in GLOBAL_CLASS_SPECS {
+        classes.insert(s.name, *s);
+    }
+    Registry {
+        namespaces,
+        classes,
+    }
+}
+
 pub fn lookup(qualified: &str) -> Option<(&'static NamespaceSpec, &'static NamespaceMember)> {
     let (ns_name, fn_name) = qualified.split_once('.')?;
-    let spec = SPECS.iter().copied().find(|spec| spec.name == ns_name)?;
+    let spec = registry().namespaces.get(ns_name).copied()?;
     let member = spec.members.iter().find(|m| m.name == fn_name)?;
     Some((spec, member))
 }
