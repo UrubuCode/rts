@@ -237,8 +237,10 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
 - [ ] Quando zero uso de `#[rts_*]`: **deletar `crates/rts-macro`** + remover dos members do workspace. _(macro ainda gera `register()` das ~36 ns + os `#[rts_class]`.)_
 
 ### GC/collector → rts-engine (decidido — ver "Design GC" + Próximos passos)
-- [ ] Congelar a ABI do GC no `rts-engine`: trait `Traceable`/`GcPayload` + op-set
-      (alloc/retain/release/trace/finalize/roots). Mark+sweep atual atrás dela.
+- [x] **Congelada a ABI do GC** no `rts-engine` (`collector.rs`): trait
+      `Traceable`/`GcPayload` + op-set documentado (alloc/retain/release/trace/
+      finalize/roots) + decode de handle (shard/gen/slot). Aditivo, mark+sweep
+      atual intocado. engine 5/5, suíte 1710/1710. (HEAD)
 - [ ] SPLIT: mover MECANISMO (HandleTable genérica, collector, stack_map_registry,
       thread_registry, global_roots) pro engine; pasta `gc/` → `collector/`.
       `Entry` + payloads pesados (tokio/regex/rustls) FICAM em rts-runtime

@@ -40,6 +40,7 @@
 //! é o roadmap de `RTS_ENGINE.md` (F3/F4 + a virada de autoria).
 
 pub mod abi;
+pub mod collector;
 
 mod builder;
 mod member;
@@ -47,6 +48,7 @@ mod registry;
 mod sig;
 
 pub use builder::{ClassBuilder, Engine, GlobalBuilder, ModuleBuilder};
+pub use collector::{GcPayload, Traceable};
 pub use member::{FnPtr, Member, VarKind};
 pub use registry::{Class, Module, Registry};
 pub use sig::Sig;
