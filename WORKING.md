@@ -244,10 +244,16 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
 - [x] **SPLIT fatia 1:** `Entry: impl rts_engine::Traceable` (trace_children =
       match de `mark`; finalize = `cleanup_entry`). `HandleTable::mark` chama o
       contrato em vez do match inline. Comportamento idêntico, suíte 1710/1710. (HEAD)
-- [ ] SPLIT fatias 2-4: mover MECANISMO (HandleTable genérica, collector,
-      stack_map_registry, thread_registry, global_roots) pro engine; pasta `gc/` →
-      `collector/`. Fachada `namespaces::gc::handles` p/ não tocar os 68
-      consumidores. Re-wire jit.rs (mecanismo → `rts_engine::collector::*`).
+- [x] **SPLIT fatia 2:** pasta `namespaces/gc/` → `namespaces/collector/`
+      (`git mv`). Alias `pub use collector as gc;` em `namespaces/mod.rs` cobre os
+      68 consumidores + `crate::namespaces::gc::*` do codegen — zero edição neles.
+      Símbolos `__RTS_FN_NS_GC_*` e namespace name "gc" intactos. Gate: suíte
+      1710/1710 (JIT) + **AOT** (compile+run de fixture GC-heavy). (HEAD)
+- [ ] SPLIT fatias 3-4: mover MECANISMO (HandleTable genérica, collector,
+      stack_map_registry, thread_registry, global_roots) pro `rts-engine`; re-wire
+      jit.rs (mecanismo → `rts_engine::collector::*`). Gate AOT crítico: staticlib
+      continua exportando os `__RTS_FN_NS_GC_*` (só mecanismo interno migra, não
+      os externs `#[no_mangle]`).
 - [ ] Gate AOT crítico: staticlib continua exportando os `__RTS_FN_NS_GC_*` que
       migraram (rts-engine contribui pro archive OU runtime re-exporta `#[no_mangle]`).
 - [ ] (Futuro, atrás da ABI) trocar política mark+sweep → RC + coletor de ciclos.

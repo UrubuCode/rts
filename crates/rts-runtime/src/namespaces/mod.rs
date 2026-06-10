@@ -21,7 +21,12 @@ pub mod events;
 pub mod fmt;
 pub mod ffi;
 pub mod fs;
-pub mod gc;
+pub mod collector;
+/// Alias retrocompatível: a pasta `gc/` foi renomeada `collector/` (Fase 2 GC,
+/// rumo ao sistema de coleta no `rts-engine`). Os ~68 consumidores +
+/// `crate::namespaces::gc::*` no codegen continuam resolvendo via este alias até
+/// a migração do mecanismo pro engine concluir.
+pub use collector as gc;
 pub mod hash;
 pub mod hint;
 pub mod http_server;
