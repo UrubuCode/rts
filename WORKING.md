@@ -30,7 +30,7 @@
 >    `engine.class(...)` (precisa o builder de classe ligar no `GLOBAL_CLASS_SPECS`
 >    — ainda NÃO ligado; ver nota). Quando zero `#[rts_*]`: deletar `rts-macro`.
 >
-> **Migradas (7):** `hint`, `hash`, `alloc`, `time`, `trace`, `env`, `path`.
+> **Migradas (8):** hint, hash, alloc, time, trace, env, path, fmt.
 > **Batch funciona** (várias ns por 1 build+suíte). Próximas pequenas: ffi(9),
 > fmt(10), sync(12), ptr(14), atomic(22), num(23). **Gaps do Member descobertos
 > e resolvidos/pendentes:** `pure` ✅ (adicionado). Ainda faltam no `rts_engine::
@@ -125,7 +125,8 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
 | `ca2e73e7` | **Fase 2 piloto** | **`hint` migrado da macro → builder** (1ª ns). hand-externs + `hint::register(Engine)`; `register_builtins` folda os modules; hint fora do const SPECS. `rts run` ok; suíte 1710/1710. Prova Fase 2 |
 | `163c508f` | Fase 2 #2 | **`hash`** migrado + `rts_engine::Member += pure`. Suíte 1710/1710 |
 | `b46de0e5` | Fase 2 #3 | batch **`alloc`+`time`+`trace`** (3 ns). 1710/1710 |
-| _(HEAD)_ | Fase 2 #4 | batch **`env`+`path`** (2 ns, 17 membros; Str/on_null/intern/Bool). `rts run` ok; **1710/1710**. 7 ns migradas no total |
+| `e754f92b` | Fase 2 #4 | batch **`env`+`path`** (2 ns). 1710/1710 |
+| _(HEAD)_ | Fase 2 #5 | **`fmt`** (10 membros pure: parse/fmt, on_null sentinels i64::MIN/NaN/-1, I32; + extern parse_int_radix não-membro + tests). `rts run` "42 0xff 1 3.14"; **1710/1710**. 8 ns migradas |
 
 ---
 

@@ -91,7 +91,6 @@ pub const SPECS: &[&NamespaceSpec] = &[
     // `hint` migrado pro builder do rts-engine (Fase 2) — registrado em
     // `register_builtins` via `namespaces::hint::register`, não mais aqui.
     &crate::namespaces::http_server::SPEC,
-    &crate::namespaces::fmt::SPEC,
     &crate::namespaces::crypto::SPEC,
     &crate::namespaces::regex::SPEC,
     &crate::namespaces::audio::SPEC,
@@ -168,6 +167,7 @@ fn register_builtins() -> Registry {
     crate::namespaces::trace::register(&mut engine);
     crate::namespaces::env::register(&mut engine);
     crate::namespaces::path::register(&mut engine);
+    crate::namespaces::fmt::register(&mut engine);
     for module in engine.registry().modules() {
         let spec = leak_namespace(module);
         namespaces.insert(spec.name, spec);
