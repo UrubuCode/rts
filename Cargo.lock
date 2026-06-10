@@ -2665,6 +2665,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rts-engine"
+version = "0.1.0"
+dependencies = [
+ "rts-abi",
+]
+
+[[package]]
 name = "rts-hir"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,11 @@
+[package]
+name = "rts-engine"
+version = "0.1.0"
+edition = "2024"
+
+# rts-engine — o núcleo cru do RTS: registry + builder que o codegen consome.
+# Camadas (rts-std, rts-node, rts-browser) registram módulos/classes/fns/consts/
+# vars aqui via o builder. Substitui o modelo de const-tables + proc-macro
+# (rts-macro) por um registry programático que guarda ponteiros de fn + sigs.
+[dependencies]
+rts-abi = { path = "../rts-abi" }
