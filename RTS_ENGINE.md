@@ -47,6 +47,7 @@ são detalhe. Branch de trabalho: `feat/engine-method-dispatch-1536` (issue #153
 
 | ID | O quê | Seção | Status |
 |----|-------|-------|--------|
+| **ENG0** | crate **`rts-engine`** (núcleo cru): `Engine` + builder (module/class/global) + `Registry` (modules/classes/globals/jit_symbols, resolução arity-keyed) + `Member`/`FnPtr`/`Sig`/`sig!`. **Modelo builder** escolhido; `rts-macro` será removido (supersede §9.1) | §10.2 | ✅ `fae05975` |
 | **F1** | `NamespaceMember` += `aliases`/`variadic`/`default_args` + `DefaultArg` | §4.4 | ✅ `122e1392` |
 | **A1a** | `MemberFlags` + `MemberKind` += `InstanceSetter`/`VarGetter`/`VarSetter` + `instance_setter` helper + fallout de match exaustivo | §9.2 | ✅ `1af5bea0` |
 | **A2** | macro: `#[rts_module("scheme:name")]` · `#[rts_var(const\|let\|var,T,default)]` (atomic+GET/SET) · `#[rts_setter]` · `readonly`/`static_field` | §9.3/9.4 | ✅ `1af5bea0` |
@@ -544,13 +545,24 @@ camada que materializa as correções da §4.
 
 ### 9.1 Veredito: macro como superfície, linkme como montagem
 
-**Proc-macro é a superfície de autoria** (`#[rts_module]`/`#[rts_class]`/
-`#[rts_fn]`/`#[rts_var]`), **não** um builder runtime. Razão: só a macro funde,
-numa declaração, (a) o `#[no_mangle] extern "C"`, (b) a metadata derivada da
-assinatura (args/returns/ts), (c) o prelúdio StrPtr→ptr+len+UTF-8. Um builder
-runtime ainda exigiria escrever cada extern à mão, moveria erro pra startup, e
-adicionaria heap-registry — resolve módulos-dinâmicos (que RTS não quer) ao custo
-da declaração-única (que RTS quer).
+> **⚠️ Decisão do arquiteto (supersede esta seção para BUILTINS):** o projeto
+> escolheu o **modelo builder** — crate **`rts-engine`** (`fae05975`), um registry
+> programático + builder fluente onde as camadas (`rts-std`/`rts-node`/
+> `rts-browser`) registram a superfície, carregando o **ponteiro de fn nativo**
+> (que dobra como símbolo do JIT) + a sig ABI. **`rts-macro` será removido.** O
+> trade abaixo (a macro funde extern+metadata) é real, mas o builder o aceita em
+> troca de um caminho **uniforme builtin+externo** + a morte dos arrays-à-mão +
+> dos 1104 `add_fn!`. A ergonomia da assinatura volta via o macro **declarativo**
+> `sig!` (não proc-macro). O resto desta §9.1 fica como registro do raciocínio
+> anterior (válido sob o modelo macro+linkme, agora não escolhido).
+
+**[Raciocínio anterior — modelo macro+linkme, NÃO escolhido]** Proc-macro como
+superfície de autoria (`#[rts_module]`/`#[rts_class]`/`#[rts_fn]`/`#[rts_var]`),
+**não** um builder runtime. Razão: só a macro funde, numa declaração, (a) o
+`#[no_mangle] extern "C"`, (b) a metadata derivada da assinatura (args/returns/ts),
+(c) o prelúdio StrPtr→ptr+len+UTF-8. Um builder runtime ainda exigiria escrever
+cada extern à mão, moveria erro pra startup, e adicionaria heap-registry — resolve
+módulos-dinâmicos ao custo da declaração-única.
 
 **`linkme::distributed_slice` é a montagem** (não a superfície). Cada
 `#[rts_module]`/`#[rts_class]` se auto-registra num slice; os arrays à mão
