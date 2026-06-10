@@ -1,13 +1,19 @@
 # RTS_ENGINE.md — Engine de despacho de métodos (resolução única + emissão única)
 
-> Estado: **proposta / design canônico**. Complementa `docs/specs/rts-core-engine.md`
-> (que cobre a metade-*registro* da engine) com a metade-*despacho* que falta:
-> como `recv.method(args)` resolve para um símbolo nativo sem o string-match
-> espalhado de hoje.
+> Estado: **em implementação por estágios** (fundação iniciada — ver §0.1).
+> Documento canônico da metade-*despacho* da engine (como `recv.method(args)`
+> resolve para um símbolo nativo sem o string-match espalhado de hoje) +, na §10,
+> o **novo modo** (motor genérico + módulos externos nativos). Complementa
+> `docs/specs/rts-core-engine.md`, que cobre a metade-*registro*.
 >
 > Princípio inegociável: **100% nativo, zero interpretação.** TS bem-tipado
 > compila para `call <symbol>` direto, idêntico a hoje. Só receiver genuinamente
 > `any` paga 1 tag-check em runtime — custo que já existe.
+>
+> **Esquema de IDs:** `F*` = fundação, `E*` = dispatch (mata `builtins.rs`),
+> `A*` = autoria/variáveis, `X*` = módulos externos (§10), `Q*` = quick-fixes dos
+> críticos. O **roadmap canônico único + status** está em §0.1; as ordens
+> detalhadas por seção (§6, §9.6, §10.8) são vistas-de-detalhe que apontam pra ele.
 
 ---
 
@@ -31,6 +37,49 @@ peças que faltam: (A) um **tipo-de-receiver** que sobrevive até o call-site, e
 estruturais** (§4) que, se a engine for construída em cima sem corrigi-las,
 viram bug silencioso multiplicado. Ordem correta: **corrigir fundação → depois
 engine** (§6).
+
+---
+
+## 0.1 Status & roadmap unificado (canônico)
+
+Esta tabela é a **fonte única** de status. As listas de passos em §6/§9.6/§10.8
+são detalhe. Branch de trabalho: `feat/engine-method-dispatch-1536` (issue #1536).
+
+| ID | O quê | Seção | Status |
+|----|-------|-------|--------|
+| **F1** | `NamespaceMember` += `aliases`/`variadic`/`default_args` + `DefaultArg` | §4.4 | ✅ `122e1392` |
+| **A1a** | `MemberFlags` + `MemberKind` += `InstanceSetter`/`VarGetter`/`VarSetter` + `instance_setter` helper + fallout de match exaustivo | §9.2 | ✅ `1af5bea0` |
+| **A2** | macro: `#[rts_module("scheme:name")]` · `#[rts_var(const\|let\|var,T,default)]` (atomic+GET/SET) · `#[rts_setter]` · `readonly`/`static_field` | §9.3/9.4 | ✅ `1af5bea0` |
+| **F2a** | `GlobalClassSpec::resolve_instance_method(name,n_args)` arity-keyed (overload+alias+variadic+optional-tail) | §4.3 | ✅ `c2e1757f` |
+| **F2b** | rotear os call-sites de dispatch pro `resolve_instance_method` (suíte 1710/1710) | §4.3 | ✅ `fe894ab9` |
+| **A3** | codegen: `VarGetter` read (`members.rs:1006`) + write-path nativo `x.v=5` + `readonly` hard-error + substituir `pathname`/`lastIndex` hardcoded por `InstanceSetter` | §9.4/9.5 | ⬜ |
+| **A4** | `GC_VAR_ROOTS` drain (JIT+AOT, só `Handle`) + fixture var read/write/readonly-reject | §9.4 | ⬜ |
+| **Q1** | pin **Bool=i64** — corrigir doc `ty.rs`/`types.rs` (mente "i8"; `signature.rs:9` lowra `Bool→I64`) | §10.7 | ⬜ |
+| **Q2** | mover symbol-switches `ns_call.rs:272`/`:314` pra `MemberFlags` (`RAW_BITS_ARG`/`AMBIGUOUS_RET`) → emit data-driven | §10.7 | ⬜ |
+| **F0** | spike **linkme** MSVC/COFF (gate de Track B; rlib→bin) | §9.1 | ⬜ |
+| **F3** | Registry unificado Track A (`OnceLock<RwLock>`; `register_builtins()` drena os const arrays; `lookup`/`global_class_lookup` leem o registry; rotear `for spec in GLOBAL_CLASS_SPECS`) | §10.2 | ⬜ |
+| **F4** | jit `symbol_lookup_fn` (GetProcAddress/dlsym + `registry.jit_symbols`); encolher os 1104 `add_fn!` | §4.2 | ⬜ |
+| **F5** | lint: nenhum `__RTS_FN_*` literal fora de row; cross-check spec↔extern; Str-nula = sentinela | §4.5/4.6 | ⬜ |
+| **E0** | `engine/` — `RecvKind`, `MethodTarget` (incl. `UserClassMethod`/`VirtualDispatch`), `MethodIntrinsic`, `resolve_method`, `recv_kind` | §5 | ⬜ |
+| **E1** | rotear classe-usuário + global-class pela engine + oráculo de divergência | §5/§6 | ⬜ |
+| **E2** | `Number` (~27 braços) → rows; deletar `lower_number_builtin` | §6 | ⬜ |
+| **E3** | `String` (~50 braços; aliases/default_args via macro) | §6 | ⬜ |
+| **E4** | `Array`/`Map`/`Set` (specs `external` sobre `COLLECTIONS_*`; Tier-3 → `DISPATCH_AUTO`) | §5.5/§6 | ⬜ |
+| **E5** | ladder qualified-string + bare-globals → registry; `#[rts_global]` (escopo global genérico, §9.7) + resolução genérica de bare-ident | §6/§9.7 | ⬜ |
+| **E6** | (opcional) `ValTy::Handle`→`Handle(HandleKind)`; class-id→vtable; engine compartilhada com MIR | §6 | ⬜ |
+| **X1** | dynamic-loading: wrapper `libloading` (LoadLibrary/dlopen/Mach-O) — **zero hoje** | §10.5 | ⬜ |
+| **X2** | congelar `rts-abi::c_plugin` (repr(C) + `RTS_PLUGIN_ABI_VERSION` + códigos u8 fixos) | §10.3 | ⬜ |
+| **X3** | loader JIT (manifest+SHA256+`LoadLibrary`+`RtsHost`+register+intern) — **milestone JIT-first** | §10.5 | ⬜ |
+| **X4** | `rts_plugin_entry!{}` + arm `cfg(rts_plugin)` na macro + plugin de referência (crc32) | §10.4 | ⬜ |
+| **X5** | AOT externos: import-slot + `call_indirect` + `dlopen` init + namespace `dylib` + trap-stub — **NO-GO até provado** | §10.5 | ⬜ |
+
+**Dependências:** `X3` depende de `F3`+`F4`+`X1`+`X2`. A tese "registry é portão
+único / codegen sem hardcode" (§10.7) só fecha com `E2-E4` + GC root-set + scan
+cross-thread portável. `Q1` é pré-req de qualquer extern de plugin com `Bool`.
+`F2` (✅) é pré-req de overload em `E*` e `X*`.
+
+**Próximo recomendado:** `F3` (inflexão — abre os módulos externos e mata os
+arrays-à-mão) ou os quick-fixes `Q1`/`Q2` (baixo risco, intercaláveis).
 
 ---
 
@@ -227,10 +276,13 @@ seleção-por-aridade que existe está fakeada **em um único call-site**
 > `startsWith`, `splice`…). Migrar `builtins.rs` → rows é impossível enquanto o
 > lookup só vê a primeira row de cada nome.
 
-**Correção:** assinatura nova `resolve_member(name, n_args) -> Option<&Member>`
-com seleção por aridade dentro da primitiva (a lógica de `mod.rs:1117` vira a
-referência), com fallback para a row de maior aridade + default-args. Os 4 sites
-duplicados colapsam nessa única primitiva.
+**Correção — ✅ FEITO (F2a `c2e1757f` + F2b `fe894ab9`):**
+`GlobalClassSpec::resolve_instance_method(name, n_args)` com seleção por aridade
+dentro da primitiva (a lógica de `mod.rs:1117` virou a referência), honrando
+alias/variadic/optional-tail, fallback first-by-name. Os call-sites de dispatch
+(`mod.rs:1117`, `mod.rs:2974`, `indirect.rs:36`) colapsaram nessa primitiva;
+suíte 1710/1710. (Sites de leitura/inferência-de-tipo seguem `instance_method`
+first-by-name — aridade irrelevante.)
 
 ### 4.4 CRÍTICA — `NamespaceMember` é fino demais para semântica de protótipo
 
@@ -247,10 +299,12 @@ como dado**:
 > só cobre o subconjunto fixed-arity-símbolo-único. O resto continua código
 > hardcoded — a engine fica pela metade e os dois resolvedores continuam vivos.
 
-**Correção:** estender `NamespaceMember` com `aliases: &[&str]`, `variadic: bool`,
-`default_args: &[DefaultArg]`; estender o parser da macro (`parse_class_member`
-já lê `name`/`ts`/`symbol`/`intrinsic` — adicionar 3 chaves). **Feito no Step 0,
-não diferido.**
+**Correção — ✅ FEITO (F1 `122e1392` + A1a/A2 `1af5bea0`):** `NamespaceMember`
+ganhou `aliases: &[&str]`, `variadic: bool`, `default_args: &[DefaultArg]` (F1) +
+`flags: MemberFlags` (A1a). Macro: `aliases`/`variadic` parseados em
+`parse_class_member`; `readonly`/`static_field` viram `MemberFlags`. Falta só a
+sintaxe de **valor** de `default_args` na macro (chega em E3/E4 — o campo já é
+final). `resolve_instance_method` (F2a) já consome `aliases`/`variadic`/`default_args`.
 
 ### 4.5 CRÍTICA — símbolo é cola stringly-typed re-digitada (bypassa o registry)
 
@@ -399,15 +453,17 @@ preservadas).
 Cada step entrega sozinho, **build verde + suíte verde**. A regra de ouro: não
 construir `resolve_method` sobre uma fundação com os buracos da §4.
 
+> Status canônico: **§0.1**. As marcações ✅ aqui são vista-de-detalhe.
+
 ```
 FUNDAÇÃO (corrige §4 — pré-requisito da engine)
-  F1  Estender NamespaceMember: aliases, variadic, default_args (§4.4).
-      Estender parser da macro. Suíte intocada (campos default-vazios).
-  F2  resolve_member(name, n_args) com aridade em rts-abi (§4.3).
-      Os 4 sites duplicados passam a chamar essa primitiva. Verde.
-  F3  linkme CLASS_REGISTRY/MEMBER_REGISTRY; SPECS/GLOBAL_CLASS_SPECS
-      derivados do slice (§4.1). Migrar em lote, conferir contagem.
-  F4  jit symbol_lookup_fn; deletar os 1104 add_fn! (§4.2). Testar AOT MSVC.
+  F1  ✅ NamespaceMember += aliases, variadic, default_args (§4.4). (122e1392)
+  F2  ✅ GlobalClassSpec::resolve_instance_method(name,n_args) arity-keyed (§4.3);
+      call-sites de dispatch colapsados. Suíte 1710/1710. (c2e1757f + fe894ab9)
+  F3  Registry unificado — Track A (sem linkme): OnceLock<RwLock>, register_builtins()
+      drena SPECS/GLOBAL_CLASS_SPECS; lookup lê o registry (§10.2). Track B (linkme,
+      gated por F0) deleta os arrays depois (§4.1).
+  F4  jit symbol_lookup_fn; encolher os 1104 add_fn! (§4.2). Testar AOT MSVC.
   F5  Lint: nenhum __RTS_FN_* literal fora de row; cross-check spec↔extern;
       default Str-nula = sentinela explícito, não 0 (§4.5, §4.6).
 
@@ -425,9 +481,10 @@ ENGINE (sobre a fundação sólida)
       Mantém só regex/matchAll/charCodeAt-F64 como residual.
   E4  Array/Map/Set: specs external sobre COLLECTIONS_*. Tier-3 → DISPATCH_AUTO
       (após spike §5.5). Somem os *_AUTO.
-  E5  (POR ÚLTIMO, maior risco) ladder qualified-string + bare-globals. Extrair
-      classificador-de-callee-shape como refactor estrutural puro PRIMEIRO
-      (mesma ordem, só fatorado); dobrar só forwards mecânicos.
+  E5  (POR ÚLTIMO, maior risco) ladder qualified-string + bare-globals → registry.
+      Inclui #[rts_global] (escopo global genérico, §9.7) + resolução genérica de
+      bare-ident. Extrair classificador-de-callee-shape como refactor estrutural
+      puro PRIMEIRO (mesma ordem, só fatorado); dobrar só forwards mecânicos.
   E6  (opcional, perf) ValTy::Handle → Handle(HandleKind) espelhando HIR; deleta
       side-channels; class-id inteiro → vtable (mata gc.string_eq chain). Engine
       vira resolver compartilhado do MIR após HIR ganhar This + tipo-de-classe.
@@ -603,13 +660,16 @@ AtomicBool. Str não pode ser var (vira Handle).
 
 ### 9.6 Trilhas (separáveis — o risco não bloqueia o valor)
 
+> Status canônico: **§0.1**.
+
 ```
 Track A (baixo risco, SEM linkme — faço primeiro)
-  A1  member.rs: MemberFlags + InstanceSetter/VarGetter/VarSetter + NamespaceSpec.scheme
-      + GlobalClassSpec::instance_setter. Tratar fallout de match exaustivo (mecânico).
-  A2  macro: #[rts_module("scheme:name")] (thin) ; #[rts_setter]/#[rts_prop] ;
-      #[rts_var(kind,Type,default)] (atomic + GET/SET + member(s)).
-  A3  codegen: VarGetter read (1 linha) ; braço write-path VarSetter/InstanceSetter
+  A1a ✅ member.rs: MemberFlags + InstanceSetter/VarGetter/VarSetter +
+      GlobalClassSpec::instance_setter; fallout de match exaustivo tratado. (1af5bea0)
+      (NamespaceSpec.scheme fica p/ F3 — não precisou ainda.)
+  A2  ✅ macro: #[rts_module("scheme:name")] ; #[rts_setter] ; readonly/static_field ;
+      #[rts_var(kind,Type,default)] (atomic + GET/SET + member(s)). Teste 6/6. (1af5bea0)
+  A3  codegen: VarGetter read (members.rs:1006) ; braço write-path VarSetter/InstanceSetter
       (+ readonly hard-error) ; substituir pathname/lastIndex hardcoded por InstanceSetter.
   A4  GC_VAR_ROOTS drain (JIT + AOT __RTS_MAIN), só Handle. Fixture: var read+write+readonly-reject.
 
@@ -623,6 +683,49 @@ Redesign  PRIVATE/PROTECTED como não-exportado (não flag enforçada).
 
 Invariantes da §7 valem aqui: nada vira metadata morta (todo modifier tem
 consumidor de codegen ou não existe), 100% nativo, suíte verde por passo.
+
+### 9.7 `#[rts_global]` — escopo global genérico (mata os ladders hardcoded)
+
+Hoje os **globals** (acessíveis sem `import`: `NaN`, `Infinity`, `undefined`,
+`globalThis`, `isNaN`, `parseInt`, `parseFloat`, `isFinite`, `encode/decodeURIComponent`,
+`Array()`/`Number()`/`String()` bare…) **não são genéricos** — são string-match
+hardcoded em **dois** lugares do codegen: leitura de valor em `basics.rs:390`
+(`matches!(name,"NaN"|"Infinity"|"undefined")`) e chamada em `lower_js_global_call`
+(`mod.rs:3208`, ladder de ~25 nomes). `global_this` é um `#[rts_namespace(globalThis)]`
+de fachada. É o mesmo problema da §10.7, no escopo bare.
+
+`#[rts_global]` é a superfície de autoria que torna isso **dado**: declara
+funções/constantes/variáveis em **escopo global** reusando `#[rts_fn]`/`#[rts_const]`/
+`#[rts_var]`, registrando os membros numa tabela `globals` do Registry (§10.2).
+
+```rust
+#[rts_global]                              // escopo bare — sem import
+impl Globals {
+    #[rts_const(F64)] const NaN: f64 = f64::NAN;
+    #[rts_const(F64)] const Infinity: f64 = f64::INFINITY;
+    #[rts_fn(ts = "isNaN(x: number): boolean")] fn is_nan(x: F64) -> Bool { x.is_nan() }
+    #[rts_var(var, I64, default = 0)] static __debug_level;   // var global mutável
+}
+```
+
+**Catch (o trap §4):** a macro é trivial de adicionar; o que torna globals
+genérico é a **consumption** — codegen resolver bare-ident pelo registry em vez
+dos dois ladders. Isso É **E5 + Registry (F3)**. `#[rts_global]` sem essa
+resolução = metadata morta. Logo anda junto com E5.
+
+**Resolução genérica de bare-ident** (a peça que falta):
+- Ordem (= JS, pra shadowing): `local > param > user-fn > import-alias >
+  registry.globals > erro`. Globals **por último** (`let NaN = 5` sombreia).
+  Cuidar de #301 (var hoisting) + globals de usuário.
+- **READ** (`basics.rs`) e **CALL** (`lower_js_global_call`) consultam
+  `registry.globals`. Os ladders encolhem pra **residual** (só os que precisam
+  inline-IR/coerção: `parseInt`-radix, `isNaN`-coerce, `Array()`/`Number()`).
+- **Var global mutável**: `#[rts_global] #[rts_var(var,…)]` → atomic + GET/SET
+  (§9.4) + write-path de bare-ident assignment (`g = x` → `VarSetter` em
+  `registry.globals`).
+
+Resultado: `globals/` (global_this + os ladders) vira entradas de registry,
+indistinguível de namespace/classe pro motor. Faz parte de **E5** no roadmap.
 
 ---
 
@@ -767,10 +870,14 @@ não é data-driven e externo não declara isso.
 
 ### 10.8 Ordem (compõe com F/E/A — não é fork)
 
+> Status canônico: **§0.1** (os `S*` aqui mapeiam pros `F*`/`X*` de lá). `S1`=F1✅+A1a✅,
+> `S2`=F2✅, `S3`=F3, `S4`=F4, `S5`=X1, `S6`=X2, `S7`=X3, `S8`=X4, `S9`=X5.
+
 ```
 JIT-first (real, dias):
-  S1  member.rs frozen surface (A1a feito) + NamespaceSpec.scheme.
-  S2  F2 resolve_member arity-keyed (pré-req de overload).
+  S1  ✅ member.rs frozen surface (F1/A1a feitos) + NamespaceSpec.scheme (fica p/ F3).
+  S2  ✅ F2 resolve_instance_method arity-keyed (pré-req de overload).
+  S3  F3 Track A: Registry unificado; register_builtins() drena os const arrays. lookup lê o registry.
   S3  F3 Track A: Registry unificado; register_builtins() drena os const arrays. lookup lê o registry.
   S4  F4 jit symbol_lookup_fn (builtins via GetProcAddress/dlsym + registry.jit_symbols); encolhe add_fn!.
   S5  dynamic-loading: wrapper libloading (LoadLibrary/dlopen/Mach-O). ~50 LOC. Testado com .dll throwaway.
