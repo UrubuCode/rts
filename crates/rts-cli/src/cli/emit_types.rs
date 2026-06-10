@@ -91,7 +91,16 @@ fn push_namespace(
                     member.ts_signature
                 ));
             }
-            MemberKind::InstanceMethod | MemberKind::StaticMethod | MemberKind::InstanceGetter => {}
+            // Class members + property setters are not surfaced in rts.d.ts
+            // today; var getters/setters will be surfaced (export let/const) in
+            // the d.ts follow-up (RTS_ENGINE.md §9.5) — no-op keeps output
+            // byte-identical until then.
+            MemberKind::InstanceMethod
+            | MemberKind::StaticMethod
+            | MemberKind::InstanceGetter
+            | MemberKind::InstanceSetter
+            | MemberKind::VarGetter
+            | MemberKind::VarSetter => {}
         }
     }
 
@@ -120,7 +129,16 @@ fn push_namespace_module(
             MemberKind::Constant => {
                 out.push_str(&format!("  export const {};\n", member.ts_signature));
             }
-            MemberKind::InstanceMethod | MemberKind::StaticMethod | MemberKind::InstanceGetter => {}
+            // Class members + property setters are not surfaced in rts.d.ts
+            // today; var getters/setters will be surfaced (export let/const) in
+            // the d.ts follow-up (RTS_ENGINE.md §9.5) — no-op keeps output
+            // byte-identical until then.
+            MemberKind::InstanceMethod
+            | MemberKind::StaticMethod
+            | MemberKind::InstanceGetter
+            | MemberKind::InstanceSetter
+            | MemberKind::VarGetter
+            | MemberKind::VarSetter => {}
         }
     }
 

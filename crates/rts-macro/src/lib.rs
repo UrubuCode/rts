@@ -63,6 +63,54 @@ impl Parse for NsAttr {
     }
 }
 
+/// `#[rts_module("scheme:name")]` attribute: a scheme-qualified specifier plus
+/// the same optional `part` / `sym = "..."` knobs as `#[rts_namespace]`.
+struct ModuleAttr {
+    scheme: String,
+    name: String,
+    part: bool,
+    sym: Option<String>,
+    span: proc_macro2::Span,
+}
+
+impl Parse for ModuleAttr {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let lit: syn::LitStr = input.parse()?;
+        let span = lit.span();
+        let spec = lit.value();
+        // "scheme:name" → (scheme, name); a bare "name" defaults to the rts scheme.
+        let (scheme, name) = match spec.split_once(':') {
+            Some((s, n)) => (s.to_string(), n.to_string()),
+            None => ("rts".to_string(), spec.clone()),
+        };
+        if name.is_empty() {
+            return Err(syn::Error::new(span, "module specifier has an empty name"));
+        }
+        let mut part = false;
+        let mut sym = None;
+        while input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+            let key: Ident = input.parse()?;
+            if key == "part" {
+                part = true;
+            } else if key == "sym" {
+                input.parse::<Token![=]>()?;
+                let v: syn::LitStr = input.parse()?;
+                sym = Some(v.value());
+            } else {
+                return Err(syn::Error::new(key.span(), "expected `part` or `sym`"));
+            }
+        }
+        Ok(ModuleAttr {
+            scheme,
+            name,
+            part,
+            sym,
+            span,
+        })
+    }
+}
+
 /// `#[rts_class(<Ident>)]` with optional `name = "..."` (JS class name when it
 /// can't be a bare ident, e.g. `"Intl.NumberFormat"`), `prefix = "..."` (symbol
 /// stem) and `spec = "..."` (aggregated const name) overrides.
@@ -257,6 +305,205 @@ fn default_return(ret_variant: &str) -> proc_macro2::TokenStream {
     }
 }
 
+/// Binding kind of a `#[rts_var]`. `let` and `var` are both mutable (the
+/// distinction is TS binding semantics only); `const` is read-only.
+#[derive(Clone, Copy, PartialEq)]
+enum VarKind {
+    Const,
+    Mutable,
+}
+
+/// Parsed `#[rts_var(const|let|var, Type, default = <expr> [, name = "..."])]`.
+/// A custom parser (not `parse_nested_meta`) because `const`/`let` are Rust
+/// keywords and cannot be read as attribute meta paths.
+struct VarArgs {
+    kind: VarKind,
+    /// Type token as written (`I64`/`U64`/`F64`/`Bool`/`Handle`).
+    ty: Ident,
+    default: syn::Expr,
+    name: Option<String>,
+}
+
+impl Parse for VarArgs {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let kind = if input.peek(Token![const]) {
+            input.parse::<Token![const]>()?;
+            VarKind::Const
+        } else if input.peek(Token![let]) {
+            input.parse::<Token![let]>()?;
+            VarKind::Mutable
+        } else {
+            let id: Ident = input.parse()?;
+            if id == "var" {
+                VarKind::Mutable
+            } else {
+                return Err(syn::Error::new(id.span(), "expected `const`, `let` or `var`"));
+            }
+        };
+        input.parse::<Token![,]>()?;
+        let ty: Ident = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let dkey: Ident = input.parse()?;
+        if dkey != "default" {
+            return Err(syn::Error::new(dkey.span(), "expected `default = <expr>`"));
+        }
+        input.parse::<Token![=]>()?;
+        let default: syn::Expr = input.parse()?;
+        let mut name = None;
+        if input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+            let nkey: Ident = input.parse()?;
+            if nkey != "name" {
+                return Err(syn::Error::new(nkey.span(), "expected `name = \"...\"`"));
+            }
+            input.parse::<Token![=]>()?;
+            let s: syn::LitStr = input.parse()?;
+            name = Some(s.value());
+        }
+        Ok(VarArgs {
+            kind,
+            ty,
+            default,
+            name,
+        })
+    }
+}
+
+/// Emits the storage + GET/SET externs + `VarGetter`(/`VarSetter`) members for a
+/// `#[rts_var]`-tagged item. The fn the attribute sits on is just a name carrier
+/// (its body/signature are ignored). Returns `(externs, members)` token vectors,
+/// or a compile-error `TokenStream` on bad input.
+fn emit_var(
+    f: &syn::ImplItemFn,
+    attr: &syn::Attribute,
+    sym_stem: &str,
+) -> Result<(Vec<proc_macro2::TokenStream>, Vec<proc_macro2::TokenStream>), TokenStream> {
+    let args: VarArgs = match attr.parse_args() {
+        Ok(a) => a,
+        Err(e) => return Err(e.to_compile_error().into()),
+    };
+    let span = f.sig.ident.span();
+    let fn_ident_str = f.sig.ident.to_string();
+    let js_name = args.name.clone().unwrap_or_else(|| fn_ident_str.clone());
+    let name_upper = fn_ident_str.to_uppercase();
+    let get_sym = format!("__RTS_FN_{sym_stem}_{name_upper}_GET");
+    let set_sym = format!("__RTS_FN_{sym_stem}_{name_upper}_SET");
+    let get_ident = Ident::new(&get_sym, span);
+    let set_ident = Ident::new(&set_sym, span);
+    let store_ident = Ident::new(&format!("__RTS_VAR_{sym_stem}_{name_upper}"), span);
+    let default = &args.default;
+    let mutable = args.kind == VarKind::Mutable;
+
+    // Per-type: (AbiType variant, TS type, atomic init, get body, set ret+body).
+    let ty_str = args.ty.to_string();
+    let (abi_variant, ts_ty, atomic_decl, get_ret, get_body, set_arg, set_body): (
+        &str,
+        &str,
+        proc_macro2::TokenStream,
+        proc_macro2::TokenStream,
+        proc_macro2::TokenStream,
+        proc_macro2::TokenStream,
+        proc_macro2::TokenStream,
+    ) = match ty_str.as_str() {
+        "I64" | "i64" => (
+            "I64", "number",
+            quote! { static #store_ident: ::core::sync::atomic::AtomicI64 = ::core::sync::atomic::AtomicI64::new((#default) as i64); },
+            quote! { i64 },
+            quote! { #store_ident.load(::core::sync::atomic::Ordering::SeqCst) },
+            quote! { i64 },
+            quote! { #store_ident.store(v, ::core::sync::atomic::Ordering::SeqCst) },
+        ),
+        "Handle" | "U64" | "u64" => (
+            if ty_str == "Handle" { "Handle" } else { "U64" }, "number",
+            quote! { static #store_ident: ::core::sync::atomic::AtomicU64 = ::core::sync::atomic::AtomicU64::new((#default) as u64); },
+            quote! { u64 },
+            quote! { #store_ident.load(::core::sync::atomic::Ordering::SeqCst) },
+            quote! { u64 },
+            quote! { #store_ident.store(v, ::core::sync::atomic::Ordering::SeqCst) },
+        ),
+        "F64" | "f64" => (
+            "F64", "number",
+            quote! { static #store_ident: ::core::sync::atomic::AtomicU64 = ::core::sync::atomic::AtomicU64::new(((#default) as f64).to_bits()); },
+            quote! { f64 },
+            quote! { f64::from_bits(#store_ident.load(::core::sync::atomic::Ordering::SeqCst)) },
+            quote! { f64 },
+            quote! { #store_ident.store(v.to_bits(), ::core::sync::atomic::Ordering::SeqCst) },
+        ),
+        "Bool" | "bool" => (
+            "Bool", "boolean",
+            quote! { static #store_ident: ::core::sync::atomic::AtomicBool = ::core::sync::atomic::AtomicBool::new(#default); },
+            quote! { i64 },
+            quote! { if #store_ident.load(::core::sync::atomic::Ordering::SeqCst) { 1 } else { 0 } },
+            quote! { i64 },
+            quote! { #store_ident.store(v != 0, ::core::sync::atomic::Ordering::SeqCst) },
+        ),
+        _ => {
+            return Err(err(
+                args.ty.span(),
+                "rts_var type must be one of I64/U64/F64/Bool/Handle (Str is not a valid var — store a Handle)",
+            ));
+        }
+    };
+    let abi_ident = Ident::new(abi_variant, span);
+    let get_ts = format!("{js_name}: {ts_ty}");
+
+    let mut externs = vec![
+        atomic_decl,
+        quote! {
+            #[unsafe(no_mangle)]
+            pub extern "C" fn #get_ident() -> #get_ret { #get_body }
+        },
+    ];
+    let flags = if mutable {
+        quote! { ::rts_abi::MemberFlags::MUTABLE }
+    } else {
+        quote! { ::rts_abi::MemberFlags::READONLY }
+    };
+    let mut members = vec![quote! {
+        ::rts_abi::NamespaceMember {
+            name: #js_name,
+            kind: ::rts_abi::MemberKind::VarGetter,
+            symbol: #get_sym,
+            args: &[],
+            returns: ::rts_abi::AbiType::#abi_ident,
+            doc: "",
+            ts_signature: #get_ts,
+            intrinsic: None,
+            pure: false,
+            aliases: &[],
+            variadic: false,
+            default_args: &[],
+            flags: #flags,
+        }
+    }];
+
+    if mutable {
+        externs.push(quote! {
+            #[unsafe(no_mangle)]
+            pub extern "C" fn #set_ident(v: #set_arg) { #set_body }
+        });
+        members.push(quote! {
+            ::rts_abi::NamespaceMember {
+                name: #js_name,
+                kind: ::rts_abi::MemberKind::VarSetter,
+                symbol: #set_sym,
+                args: &[ ::rts_abi::AbiType::#abi_ident ],
+                returns: ::rts_abi::AbiType::Void,
+                doc: "",
+                ts_signature: #get_ts,
+                intrinsic: None,
+                pure: false,
+                aliases: &[],
+                variadic: false,
+                default_args: &[],
+                flags: ::rts_abi::MemberFlags::MUTABLE,
+            }
+        });
+    }
+
+    Ok((externs, members))
+}
+
 /// `#[rts_namespace(<name>)]` on an `impl` block. See module docs.
 #[proc_macro_attribute]
 pub fn rts_namespace(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -271,6 +518,45 @@ pub fn rts_namespace(attr: TokenStream, item: TokenStream) -> TokenStream {
     let ns_upper = ns_str.to_uppercase();
     // Symbol stem: `NS_<NS>` by default, or the `sym = "..."` override (GL-scoped).
     let sym_stem = sym.unwrap_or_else(|| format!("NS_{ns_upper}"));
+    namespace_tokens(ns_str, sym_stem, part, imp)
+}
+
+/// `#[rts_module("scheme:name")]` on an `impl` block — declares a builtin module
+/// by its full import specifier. Generalises `#[rts_namespace]`: a string can
+/// carry a scheme (`"rts:fs"`, `"node:fs"`) that a bare ident cannot, opening
+/// the door to future families. Optional `, part` and `, sym = "..."` work as in
+/// `#[rts_namespace]`. Today only the `rts` scheme resolves (the `ModuleScheme`
+/// registry that wires `node:`/custom schemes is Track B, see `RTS_ENGINE.md`
+/// §9.3); other schemes parse but are rejected so nothing ships half-wired.
+#[proc_macro_attribute]
+pub fn rts_module(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let ModuleAttr {
+        scheme,
+        name,
+        part,
+        sym,
+        span,
+    } = syn::parse_macro_input!(attr as ModuleAttr);
+    let imp = syn::parse_macro_input!(item as ItemImpl);
+
+    if scheme != "rts" {
+        return err(
+            span,
+            "only the `rts` scheme resolves today — `node:`/custom schemes land with the ModuleScheme registry (RTS_ENGINE.md §9.3)",
+        );
+    }
+    let sym_stem = sym.unwrap_or_else(|| format!("NS_{}", name.to_uppercase()));
+    namespace_tokens(name, sym_stem, part, imp)
+}
+
+/// Shared body of `#[rts_namespace]` / `#[rts_module]`: derives externs +
+/// `NamespaceMember`s (incl. `#[rts_var]` storage/accessors) + the `SPEC`.
+fn namespace_tokens(
+    ns_str: String,
+    sym_stem: String,
+    part: bool,
+    imp: ItemImpl,
+) -> TokenStream {
     let spec_doc = doc_of(&imp.attrs);
 
     let mut externs = Vec::new();
@@ -278,6 +564,19 @@ pub fn rts_namespace(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     for it in &imp.items {
         let ImplItem::Fn(f) = it else { continue };
+        // #[rts_var] — mutable/const module variable: emit atomic storage +
+        // GET/SET externs + VarGetter(/VarSetter) members, then skip the normal
+        // fn-member path (the fn is just a name carrier).
+        if let Some(attr) = f.attrs.iter().find(|a| a.path().is_ident("rts_var")) {
+            match emit_var(f, attr, &sym_stem) {
+                Ok((ex, ms)) => {
+                    externs.extend(ex);
+                    members.extend(ms);
+                }
+                Err(e) => return e,
+            }
+            continue;
+        }
         let Some(opts) = parse_member(&f.attrs) else {
             continue; // not an #[rts_fn]/#[rts_const] — skip (helpers allowed)
         };
@@ -426,6 +725,10 @@ pub fn rts_namespace(attr: TokenStream, item: TokenStream) -> TokenStream {
                 aliases: &[],
                 variadic: false,
                 default_args: &[],
+                // Modifiers (readonly/static/mutable) are class/var concepts;
+                // plain namespace fns carry none. #[rts_var] emits its own
+                // members with the right flags (see rts_var expansion).
+                flags: ::rts_abi::MemberFlags::NONE,
             }
         });
     }
@@ -485,6 +788,11 @@ struct ClassFnOpts {
     aliases: Vec<String>,
     /// `variadic` flag — the last logical param is a JS rest `...args`.
     variadic: bool,
+    /// `readonly` flag — assignment to this property is a hard codegen error
+    /// (enforcement wired in a later step; this only records the intent now).
+    readonly: bool,
+    /// `static_field` flag — a mutable static class field (vs read-once const).
+    static_field: bool,
 }
 
 fn parse_class_member(attrs: &[syn::Attribute]) -> Option<ClassFnOpts> {
@@ -496,6 +804,7 @@ fn parse_class_member(attrs: &[syn::Attribute]) -> Option<ClassFnOpts> {
         ("rts_smethod", "StaticMethod", false),
         ("rts_method", "InstanceMethod", false),
         ("rts_getter", "InstanceGetter", false),
+        ("rts_setter", "InstanceSetter", false),
         ("rts_const", "Constant", false),
     ];
     let (attr, kind, is_ctor) = kinds.iter().find_map(|(id, kind, is_ctor)| {
@@ -516,6 +825,8 @@ fn parse_class_member(attrs: &[syn::Attribute]) -> Option<ClassFnOpts> {
         intrinsic: None,
         aliases: Vec::new(),
         variadic: false,
+        readonly: false,
+        static_field: false,
     };
     if matches!(attr.meta, syn::Meta::Path(_)) {
         return Some(opts);
@@ -529,6 +840,10 @@ fn parse_class_member(attrs: &[syn::Attribute]) -> Option<ClassFnOpts> {
             opts.external = true;
         } else if m.path.is_ident("variadic") {
             opts.variadic = true;
+        } else if m.path.is_ident("readonly") {
+            opts.readonly = true;
+        } else if m.path.is_ident("static_field") {
+            opts.static_field = true;
         } else if m.path.is_ident("aliases") {
             // Comma-separated JS names: `aliases = "toLocaleLowerCase, foo"`.
             let v = m.value()?;
@@ -714,6 +1029,26 @@ pub fn rts_class(attr: TokenStream, item: TokenStream) -> TokenStream {
 
         let aliases = &opts.aliases;
         let variadic = opts.variadic;
+        // Compose the modifier bitset from the parsed flags. READONLY/STATIC are
+        // data the codegen reads to reject writes / pick the static-field path.
+        let flags_tok = {
+            let mut parts: Vec<proc_macro2::TokenStream> = Vec::new();
+            if opts.readonly {
+                parts.push(quote! { ::rts_abi::MemberFlags::READONLY });
+            }
+            if opts.static_field {
+                parts.push(quote! { ::rts_abi::MemberFlags::STATIC });
+            }
+            match parts.len() {
+                0 => quote! { ::rts_abi::MemberFlags::NONE },
+                1 => parts.remove(0),
+                _ => {
+                    let mut it = parts.into_iter();
+                    let first = it.next().unwrap();
+                    it.fold(first, |acc, p| quote! { #acc.or(#p) })
+                }
+            }
+        };
 
         members.push(quote! {
             ::rts_abi::NamespaceMember {
@@ -732,6 +1067,7 @@ pub fn rts_class(attr: TokenStream, item: TokenStream) -> TokenStream {
                 // String/Array migration (E3/E4); the field is final now so the
                 // struct never changes again. Empty = all args required.
                 default_args: &[],
+                flags: #flags_tok,
             }
         });
     }

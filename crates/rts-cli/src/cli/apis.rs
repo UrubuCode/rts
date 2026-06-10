@@ -22,6 +22,9 @@ pub fn command() -> Result<()> {
                 MemberKind::InstanceMethod => "method",
                 MemberKind::StaticMethod => "static",
                 MemberKind::InstanceGetter => "getter",
+                MemberKind::InstanceSetter => "setter",
+                MemberKind::VarGetter => "var-get",
+                MemberKind::VarSetter => "var-set",
             };
             println!(
                 "      * [{kind}] {sig}  -> {symbol}  // {doc}",

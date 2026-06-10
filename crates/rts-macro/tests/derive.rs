@@ -119,3 +119,82 @@ fn str_param_reconstructs_and_guards() {
     assert_eq!(__RTS_FN_NS_TOY_BYTE_LEN(std::ptr::null(), 0), 0);
     assert_eq!(__RTS_FN_NS_TOY_INTERN(std::ptr::null(), 3), 0);
 }
+
+/// `#[rts_module("scheme:name")]` + `#[rts_var]` end-to-end: the module name is
+/// derived from the specifier, and the var emits callable atomic GET/SET externs
+/// plus VarGetter/VarSetter members with the right flags.
+mod modtest {
+    use rts_abi::ty::I64;
+    use rts_macro::rts_module;
+
+    /// Toy module declared by full specifier.
+    #[rts_module("rts:toymod")]
+    impl ToyMod {
+        /// a plain fn member
+        #[rts_fn]
+        pub fn answer() -> I64 {
+            42
+        }
+
+        /// a mutable process-global var (let/var) — getter + setter
+        #[rts_var(var, I64, default = 5)]
+        fn counter() {}
+
+        /// a read-only var (const) — getter only, READONLY flag
+        #[rts_var(const, I64, default = 100)]
+        fn ceiling() {}
+    }
+
+    #[test]
+    fn module_name_from_specifier() {
+        assert_eq!(SPEC.name, "toymod");
+    }
+
+    #[test]
+    fn var_externs_round_trip() {
+        // const getter
+        assert_eq!(__RTS_FN_NS_TOYMOD_CEILING_GET(), 100);
+        // mutable var: read default, write, read back (process-global atomic)
+        assert_eq!(__RTS_FN_NS_TOYMOD_COUNTER_GET(), 5);
+        __RTS_FN_NS_TOYMOD_COUNTER_SET(99);
+        assert_eq!(__RTS_FN_NS_TOYMOD_COUNTER_GET(), 99);
+    }
+
+    #[test]
+    fn var_members_and_flags() {
+        use rts_abi::{MemberFlags, MemberKind};
+        // answer (1) + counter get+set (2) + ceiling get (1) = 4 members
+        assert_eq!(SPEC.members.len(), 4);
+
+        let get = SPEC
+            .members
+            .iter()
+            .find(|m| m.name == "counter" && matches!(m.kind, MemberKind::VarGetter))
+            .unwrap();
+        assert!(get.flags.contains(MemberFlags::MUTABLE));
+        assert_eq!(get.symbol, "__RTS_FN_NS_TOYMOD_COUNTER_GET");
+
+        let set = SPEC
+            .members
+            .iter()
+            .find(|m| matches!(m.kind, MemberKind::VarSetter))
+            .unwrap();
+        assert_eq!(set.name, "counter");
+        assert_eq!(set.symbol, "__RTS_FN_NS_TOYMOD_COUNTER_SET");
+
+        let ceiling = SPEC
+            .members
+            .iter()
+            .find(|m| m.name == "ceiling")
+            .unwrap();
+        assert!(matches!(ceiling.kind, MemberKind::VarGetter));
+        assert!(ceiling.flags.contains(MemberFlags::READONLY));
+        // const var emits no setter
+        assert!(
+            !SPEC
+                .members
+                .iter()
+                .any(|m| m.name == "ceiling" && matches!(m.kind, MemberKind::VarSetter))
+        );
+    }
+}

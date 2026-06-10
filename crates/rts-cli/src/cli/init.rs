@@ -89,7 +89,12 @@ fn emit_rts_dts(path: &Path) -> Result<()> {
                 MemberKind::Constant => {
                     out.push_str(&format!("    export const {};\n", member.ts_signature));
                 }
-                MemberKind::InstanceMethod | MemberKind::StaticMethod | MemberKind::InstanceGetter => {}
+                MemberKind::InstanceMethod
+                | MemberKind::StaticMethod
+                | MemberKind::InstanceGetter
+                | MemberKind::InstanceSetter
+                | MemberKind::VarGetter
+                | MemberKind::VarSetter => {}
             }
         }
         out.push_str("  }\n\n");

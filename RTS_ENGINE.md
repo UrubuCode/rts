@@ -476,3 +476,150 @@ que o usuário teme.
 São o mesmo épico visto de dois ângulos. Este doc cobre a metade que o
 core-engine.md deixou implícita e adiciona a auditoria de fundação (§4) que torna
 a coisa toda mantível em vez de um castelo sobre arrays-à-mão.
+
+---
+
+## 9. API de autoria rica em Rust (módulos / classes / fns / consts / variáveis)
+
+Como declarar TODA a superfície RTS de forma rica e extensível a partir do Rust,
+de modo que adicionar uma família nova (tipo `node:`) seja barato. Esta é a
+camada que materializa as correções da §4.
+
+### 9.1 Veredito: macro como superfície, linkme como montagem
+
+**Proc-macro é a superfície de autoria** (`#[rts_module]`/`#[rts_class]`/
+`#[rts_fn]`/`#[rts_var]`), **não** um builder runtime. Razão: só a macro funde,
+numa declaração, (a) o `#[no_mangle] extern "C"`, (b) a metadata derivada da
+assinatura (args/returns/ts), (c) o prelúdio StrPtr→ptr+len+UTF-8. Um builder
+runtime ainda exigiria escrever cada extern à mão, moveria erro pra startup, e
+adicionaria heap-registry — resolve módulos-dinâmicos (que RTS não quer) ao custo
+da declaração-única (que RTS quer).
+
+**`linkme::distributed_slice` é a montagem** (não a superfície). Cada
+`#[rts_module]`/`#[rts_class]` se auto-registra num slice; os arrays à mão
+(`SPECS`, `GLOBAL_CLASS_SPECS`, `NODE_SPECS`) + os 1104 `add_fn!` morrem.
+Invariante preservado: per-member fica `'static const`; **só o agregado** vira um
+`OnceLock<Registry>` montado no startup do `rts.exe` — e como o codegen lê essas
+tabelas *dentro* do rts.exe em execução (no momento do lowering), o heap é do
+**compilador**, não do binário emitido. Pureza nativa intacta.
+
+> **Correção crítica (review):** o raciocínio de AOT-safety NÃO é sobre o binário
+> AOT do usuário — `SPECS`/`GLOBAL_CLASS_SPECS` vivem no `rts.exe` (rts-codegen).
+> O risco real é **transitividade rlib→bin**: o `rts.exe` retém as entradas
+> linkme registradas no rlib `rts-runtime`? Esse é o caminho frágil do linkme,
+> agravado no **MSVC/COFF** (alvo primário). → **F0 spike obrigatório** (um
+> `#[distributed_slice]` trivial, build AOT MSVC, assertar que a entrada
+> sobrevive) ANTES de F3/F4. Se falhar, Track A (abaixo) sobrevive sem linkme.
+
+### 9.2 Modelo de membro — modifiers como DADO (sem struct novo)
+
+`NamespaceMember` ganha **um** campo bitflag + **três** MemberKinds. Unifica o
+mundo builtin com o de classe-usuário (que já modela readonly/private/static/
+setter no `ClassMeta` do AST — `validate_visibility` members.rs:2216,
+`field_is_readonly_in_hierarchy` :2269).
+
+```rust
+pub struct MemberFlags(u8);   // const-construtível, Copy
+//   READONLY  — escrita = erro de codegen
+//   STATIC    — static field (vs Constant read-once)
+//   MUTABLE   — backing storage é var atômica (rts_var let/var)
+// (PRIVATE/PROTECTED: ver 9.5 — NÃO viram flag enforçada)
+
+pub enum MemberKind {
+    Function, Constant, Constructor, InstanceMethod, StaticMethod, InstanceGetter,
+    InstanceSetter,  // NOVO: fn(handle, value) -> void ; backs `inst.prop = v`
+    VarGetter,       // NOVO: fn() -> T ; backs leitura `ns.v` de var mutável
+    VarSetter,       // NOVO: fn(value) -> void ; backs `ns.v = e` ; ausente => read-only
+}
+```
+
+Property settável de builtin = `InstanceGetter` + `InstanceSetter` mesmo `name`
+(substitui os branches string-keyed `pathname`/`lastIndex` em mod.rs:591-632).
+Var mutável de módulo = `VarGetter` + (opcional) `VarSetter`.
+
+> **Correção (review):** adicionar variantes de `MemberKind` **quebra todo `match`
+> exaustivo** sobre kind (signature.rs etc.) — é a *forcing function* que revela
+> cada site de consumo. Tratar como passo mecânico (F2) antes de dar significado.
+
+### 9.3 `#[rts_module("scheme:name")]` + ModuleScheme
+
+Generaliza `#[rts_namespace]` pra aceitar o specifier completo (com `:`, scheme).
+`NamespaceSpec` ganha `scheme: &'static str`. Um `ModuleScheme` (slice linkme)
+torna "adicionar `node:`/`bun:`" dado, não branch:
+
+```rust
+pub struct ModuleScheme {
+    pub prefix: &'static str,                                 // "rts" | "node" | "bun"
+    pub exports_default: bool,
+    pub resolve: fn(&str) -> Option<&'static NamespaceSpec>,
+}
+```
+`builtin_module(spec)` (runtime.rs:21) vira `split_once(':')` → acha o scheme no
+slice → resolve. O guarda-chuva bare-`rts` (RTS_EXPORTS) passa a ser **derivado**
+dos specs scheme=="rts" (mata o drift hand-list). Node deixa de ter
+`NodespaceSpec` paralelo — vira `NamespaceSpec{scheme:"node", alias_of:Some("fs")}`.
+
+### 9.4 `#[rts_var(const|let|var, Type, default)]` + write-path nativo
+
+Escolha do usuário: **global atômico do processo** + leitura `x.v` e **escrita
+nativa `x.v = 5`**. Macro expande:
+
+```rust
+#[rts_var(var, I64, default = 7)] static SEED;
+// gera:
+static __RTS_VAR_<NS>_SEED: AtomicI64 = AtomicI64::new(7);
+#[no_mangle] extern "C" fn __RTS_FN_NS_<NS>_SEED_GET() -> i64 { …load(SeqCst) }
+#[no_mangle] extern "C" fn __RTS_FN_NS_<NS>_SEED_SET(v: i64)  { …store(v,SeqCst) }
+// + member VarGetter (+ VarSetter se let/var ; const => só GET + flag READONLY)
+```
+Mapa de tipo: I64/Handle→AtomicI64, U64→AtomicU64, F64→AtomicU64(bits), Bool→
+AtomicBool. Str não pode ser var (vira Handle).
+
+- **Read** (`ns.v`): adicionar `VarGetter` ao `matches!(kind, Constant)`
+  (members.rs:1006) — senão reifica como fn-handle. (NÃO é grátis, corrige o
+  design.)
+- **Write** (`ns.v = e`): UM braço novo no topo de `lower_assign_expr`
+  (expressions/mod.rs:446, ANTES do fallback `MAP_SET` em :1193 que hoje corrompe
+  silenciosamente): resolve VarSetter via registry → `call <setter>(coerce(rhs))`;
+  READONLY → erro duro. O mesmo braço cobre `InstanceSetter` de builtin.
+- **GC root** (var Handle): emitir thunk só pra `Type==Handle` num slice
+  `GC_VAR_ROOTS`, drenado em main() **antes do 1º GC tick** em JIT **E** no
+  prólogo `__RTS_MAIN` do AOT (emit.rs hoje tem **zero** global-root — path novo).
+
+### 9.5 Enforcement vs cosmético — readonly sim, private redesenhado
+
+- **readonly**: enforçado no write-site (braço acima erra antes de emitir call).
+  Macro carimba `READONLY` em **todo getter-sem-setter** — senão readonly-by-
+  omission cai no MAP_SET corrompido (correção do review).
+- **`#private`/protected em builtin**: `validate_visibility` chaveia em
+  `ctx.current_class`, que **nunca** é o nome da builtin durante uma chamada de
+  usuário → enforçar é mecanicamente impossível. **Não** vira flag morta que
+  codegen finge ler. Modelado como **"membro não exposto a TS"** (a macro
+  simplesmente não emite o membro público). É a representação honesta: código TS
+  do usuário nunca está "dentro" do corpo Rust da builtin.
+- **d.ts**: o gerador hoje não emite membro de classe (emit_types.rs:94/123).
+  Surfacing de modifiers é follow-up desacoplado do enforcement (lint byte-a-byte
+  do `rts.d.ts` muda em PR separado).
+
+### 9.6 Trilhas (separáveis — o risco não bloqueia o valor)
+
+```
+Track A (baixo risco, SEM linkme — faço primeiro)
+  A1  member.rs: MemberFlags + InstanceSetter/VarGetter/VarSetter + NamespaceSpec.scheme
+      + GlobalClassSpec::instance_setter. Tratar fallout de match exaustivo (mecânico).
+  A2  macro: #[rts_module("scheme:name")] (thin) ; #[rts_setter]/#[rts_prop] ;
+      #[rts_var(kind,Type,default)] (atomic + GET/SET + member(s)).
+  A3  codegen: VarGetter read (1 linha) ; braço write-path VarSetter/InstanceSetter
+      (+ readonly hard-error) ; substituir pathname/lastIndex hardcoded por InstanceSetter.
+  A4  GC_VAR_ROOTS drain (JIT + AOT __RTS_MAIN), só Handle. Fixture: var read+write+readonly-reject.
+
+Track B (gated por F0 spike MSVC/COFF)
+  F0  spike: 1 #[distributed_slice] trivial, build AOT MSVC, assertar sobrevivência rlib→bin.
+  B1..B3  linkme: MODULE_SPECS/CLASS_SPECS/JIT_SYMBOLS + ModuleScheme ; matar os 3 arrays +
+          add_fn! ; promover drift-check pra assert release name-set. Cada array deletado = 1 commit.
+
+Redesign  PRIVATE/PROTECTED como não-exportado (não flag enforçada).
+```
+
+Invariantes da §7 valem aqui: nada vira metadata morta (todo modifier tem
+consumidor de codegen ou não existe), 100% nativo, suíte verde por passo.

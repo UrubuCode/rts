@@ -59,7 +59,13 @@ pub fn lower_member(member: &NamespaceMember) -> LoweredSignature {
         | MemberKind::Constructor
         | MemberKind::InstanceMethod
         | MemberKind::StaticMethod
-        | MemberKind::InstanceGetter => LoweredSignature {
+        | MemberKind::InstanceGetter
+        // Setters/var accessors are ordinary typed extern calls: the signature
+        // comes straight from `args` (InstanceSetter: [handle, value];
+        // VarSetter: [value]; VarGetter: []) + the declared return.
+        | MemberKind::InstanceSetter
+        | MemberKind::VarGetter
+        | MemberKind::VarSetter => LoweredSignature {
             params: lower_params(member.args),
             ret: lower_return(member.returns),
         },

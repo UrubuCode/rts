@@ -64,4 +64,13 @@ impl GlobalClassSpec {
             .iter()
             .find(|m| m.kind == MemberKind::InstanceGetter && m.name == name)
     }
+
+    /// Returns the instance setter (writable property `inst.prop = v`) by name,
+    /// if any. A getter whose name has no matching setter is read-only.
+    pub fn instance_setter(&self, name: &str) -> Option<&NamespaceMember> {
+        use crate::member::MemberKind;
+        self.members
+            .iter()
+            .find(|m| m.kind == MemberKind::InstanceSetter && m.name == name)
+    }
 }

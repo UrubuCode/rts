@@ -66,6 +66,43 @@ pub struct NamespaceMember {
     /// end-of-string sentinel). Enables arity-overload resolution that tolerates
     /// an optional tail. Empty for members with no optional params.
     pub default_args: &'static [DefaultArg],
+
+    /// Modifier bitset (readonly / static-field / mutable). `MemberFlags::NONE`
+    /// for the overwhelming majority. Codegen reads this to enforce write
+    /// rejection on `READONLY` and to pick the atomic-backed getter/setter path
+    /// on `MUTABLE`. Visibility (`#private`/protected) is intentionally NOT a
+    /// flag here — a builtin member that user TS must not reach is simply not
+    /// declared as a public member (see `RTS_ENGINE.md` §9.5).
+    pub flags: MemberFlags,
+}
+
+/// Member modifier bitset. Plain `u8` newtype so it is const-constructible and
+/// `Copy`, keeping `NamespaceMember` allocation-free per the `'static const`
+/// table invariant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MemberFlags(u8);
+
+impl MemberFlags {
+    /// No modifiers — the default for ordinary members.
+    pub const NONE: Self = Self(0);
+    /// Assignment to this member is a hard codegen error. Stamped by the macro
+    /// on every getter that has no paired setter, and on `#[rts_var(const)]`.
+    pub const READONLY: Self = Self(1 << 0);
+    /// A mutable *static field* (vs a read-once `Constant`).
+    pub const STATIC: Self = Self(1 << 1);
+    /// Backing storage is a process-global atomic variable (`#[rts_var]`
+    /// `let`/`var`); read/write lower to the atomic getter/setter externs.
+    pub const MUTABLE: Self = Self(1 << 2);
+
+    /// Union of two flag sets (const, for building composite literals).
+    pub const fn or(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    /// True when every bit in `f` is set in `self`.
+    pub const fn contains(self, f: Self) -> bool {
+        self.0 & f.0 == f.0
+    }
 }
 
 /// Default policy for one argument of a [`NamespaceMember`], used by the engine
@@ -129,6 +166,19 @@ pub enum MemberKind {
     /// Read-only property access on an instance — `instance.prop`.
     /// ABI: `fn(handle: u64) -> T`. No parens in TS.
     InstanceGetter,
+    /// Writable property on an instance — `instance.prop = v`. ABI:
+    /// `fn(handle: u64, value: T)`. Pairs with an `InstanceGetter` of the same
+    /// `name`. A getter with no matching `InstanceSetter` is read-only.
+    InstanceSetter,
+    /// Read of a mutable module-level variable — `ns.v`. ABI: `fn() -> T`.
+    /// Lowered exactly like `Constant` (a zero-arg getter call), but its value
+    /// is not constant. Pairs with a `VarSetter` of the same `name` unless the
+    /// variable was declared `const` (then it carries `MemberFlags::READONLY`).
+    VarGetter,
+    /// Write of a mutable module-level variable — `ns.v = e`. ABI:
+    /// `fn(value: T)`. Absent for `const` variables, making the write a hard
+    /// codegen error.
+    VarSetter,
 }
 
 /// Concatenates two member slices into one fixed-size array at const time.
