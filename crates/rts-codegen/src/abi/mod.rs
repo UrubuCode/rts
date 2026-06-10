@@ -12,18 +12,12 @@ pub fn global_class_lookup(name: &str) -> Option<&'static GlobalClassSpec> {
     registry().read().unwrap().classes.get(name).copied()
 }
 
-// Fase 2 — quase todas as namespaces migraram pro caminho do builder do
-// `rts-engine` (registradas em `register_builtins` via `<ns>::register`, geradas
-// pela macro `#[rts_namespace]` ou à mão). Só restam no const `SPECS`:
-//   • `gc`         — GC/string-pool, o ns mais sensível; mantido no caminho
-//                    const provado até uma migração dedicada.
-//   • `collections`— owner hand-written que agrega dois `part` (map/vec) via
-//                    `concat_members`; não é um `#[rts_namespace]` próprio, logo
-//                    a macro não emite `register()` pra ele.
-pub const SPECS: &[&NamespaceSpec] = &[
-    &crate::namespaces::gc::SPEC,
-    &crate::namespaces::collections::SPEC,
-];
+// Fase 2 — TODAS as namespaces migraram pro caminho do builder do `rts-engine`
+// (registradas em `register_builtins` via `<ns>::register`). O const ficou
+// vazio, igual a `GLOBAL_CLASS_SPECS`; o codegen lê tudo pelo registry. `gc`
+// usa `gc::register()` (macro); `collections` um `register()` hand-written que
+// agrega os dois `part` (map/vec) via `append_engine_members`.
+pub const SPECS: &[&NamespaceSpec] = &[];
 
 /// Índice O(1) sobre os const arrays — o **registry** que o codegen lê (Track A,
 /// F3a, `RTS_ENGINE.md` §10.2). `register_builtins()` o semeia de `SPECS`/
@@ -72,6 +66,9 @@ fn register_builtins() -> Registry {
     // (que usam `registry()`, o mesmo `OnceLock` em init → reentrância/deadlock).
     // `leak_namespace` só toca `jit_symbols` (outro OnceLock), seguro aqui.
     let mut engine = rts_engine::Engine::new();
+    // gc (macro) + collections (owner hand-written agregando map/vec parts):
+    crate::namespaces::gc::register(&mut engine);
+    crate::namespaces::collections::register(&mut engine);
     // Migradas à mão (helper `func`/`pure_func` + builder):
     crate::namespaces::hint::register(&mut engine);
     crate::namespaces::hash::register(&mut engine);

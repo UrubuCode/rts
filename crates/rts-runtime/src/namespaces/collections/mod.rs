@@ -26,3 +26,19 @@ pub const SPEC: rts_abi::NamespaceSpec = rts_abi::NamespaceSpec {
     doc: "Handle-based HashMap and Vec backed by std::collections.",
     members: MEMBERS,
 };
+
+/// Registra o namespace `collections` no motor (Fase 2). Owner hand-written:
+/// agrega os membros (formato builder) dos dois `part` (map + vec) — mesma
+/// ordem do const `MEMBERS` (`concat_members`: map, depois vec).
+pub fn register(e: &mut rts_engine::Engine) {
+    let mut members: Vec<rts_engine::Member> = Vec::new();
+    map::append_engine_members(&mut members);
+    vec::append_engine_members(&mut members);
+    let mut b = e
+        .ns("collections")
+        .doc("Handle-based HashMap and Vec backed by std::collections.");
+    for m in members {
+        b = b.member(m);
+    }
+    b.done();
+}

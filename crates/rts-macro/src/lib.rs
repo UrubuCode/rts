@@ -795,7 +795,17 @@ fn namespace_tokens(
     // the parts into one SPEC via `rts_abi::concat_members`. A non-part impl
     // emits the full triple (externs + MEMBERS + SPEC) as before.
     let spec = if part {
-        quote! {}
+        // `part` impls não publicam SPEC/register próprios (o owner agrega via
+        // `concat_members`). Mas expõem os membros no formato builder p/ o
+        // `register()` hand-written do owner os agregar (Fase 2). Nome fixo
+        // `append_engine_members` — único por módulo (cada part vive no seu).
+        quote! {
+            /// Empurra os membros desta `part` (formato builder do `rts-engine`)
+            /// na lista do owner. Chamado pelo `register()` agregador do owner.
+            pub fn append_engine_members(__v: &mut ::std::vec::Vec<::rts_engine::Member>) {
+                #( __v.push(#engine_members); )*
+            }
+        }
     } else {
         quote! {
             /// Derived namespace spec — replaces the hand-written `SPEC` const.

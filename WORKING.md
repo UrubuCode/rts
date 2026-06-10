@@ -24,22 +24,23 @@
 > seguem no const `SPECS`.** `rts_engine::Member += intrinsic` (math inline
 > preservado). Suíte **1710/1710**, workspace lib verde, macro 6/6.
 >
-> **Classes globais ✅** — todas as 62 classes migraram pro builder via
-> `register_<spec>_class_spec` auto-gerado pela macro `#[rts_class]` + `leak_class`
-> + fold. Const `GLOBAL_CLASS_SPECS` esvaziado. Suíte 1710/1710.
+> **TODAS as ns (incl. gc+collections) + TODAS as 62 classes ✅** — ambos os
+> consts `SPECS` e `GLOBAL_CLASS_SPECS` esvaziados (`&[]`). O codegen lê 100% pelo
+> registry (alimentado pelos `register()`/`register_*_class_spec()` em
+> `register_builtins`). Suíte 1710/1710.
 >
 > **Próximos passos (na ordem):**
-> 1. **gc + collections** — únicas ns ainda no const `SPECS`. Migrar (gc é
->    sensível: tem símbolos hand-`add_fn!` além do SPEC; collections é owner
->    `concat_members` sem `#[rts_namespace]` próprio → precisa hand-`register()`).
->    Quando saírem, esvaziar o const `SPECS` (igual GLOBAL_CLASS_SPECS).
-> 2. **Mover `gc` + `globals` pra dentro do `rts-engine`** (núcleo cru completo).
-> 3. **Deletar `rts-macro`** — hoje a macro AINDA é a fonte do `register()`/
->    `register_*_class_spec()` (gera os builders). Opções: (a) a macro vira parte
->    do `rts-engine` (gerador oficial do builder), OU (b) inlinar os `register()`
->    gerados como código hand-written e remover `#[rts_*]`. Decidir com o dev.
-> 4. **Deletar shim `rts-abi`** quando zero `rts_abi::`.
-> 5. **E2-E4 / X1-X5** (dispatch engine + plugins externos `.dll`/`.so`).
+> 1. **Mover `gc` + `globals` pra dentro do `rts-engine`** (núcleo cru completo).
+>    gc tem símbolos hand-`add_fn!` no `jit.rs` além do SPEC — cuidado ao mover.
+> 2. **Deletar `rts-macro`** — a macro AINDA é a fonte dos `register()`/
+>    `register_*_class_spec()`/`append_engine_members()` (gera os builders) +
+>    dos externs `#[no_mangle]`. Opções: (a) a macro vira parte do `rts-engine`
+>    (gerador oficial do builder), OU (b) inlinar os builders gerados como código
+>    hand-written e remover `#[rts_*]`. **Decidir com o dev** — (a) é bem menos
+>    trabalho e mantém a ergonomia; "deletar a macro" pode virar "absorver a
+>    macro no rts-engine".
+> 3. **Deletar shim `rts-abi`** quando zero `rts_abi::` (hoje runtime+macro usam).
+> 4. **E2-E4 / X1-X5** (dispatch engine + plugins externos `.dll`/`.so`).
 >
 > **Nota:** o codegen JÁ é genérico — lê tudo (ns + classes) pelo registry; os
 > consts `SPECS`/`GLOBAL_CLASS_SPECS` são só seed (2 ns / 0 classes). O objetivo
@@ -141,7 +142,8 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
 | `93ccbc0a` | Fase 2 #5 | **`fmt`** (10 membros pure: parse/fmt, on_null sentinels i64::MIN/NaN/-1, I32; + extern parse_int_radix não-membro + tests). `rts run` "42 0xff 1 3.14"; **1710/1710**. 8 ns migradas |
 | `090df81a` | Fase 2 #6 | **`ptr`** (14 membros, hand-externs). 9 ns migradas à mão. 1710/1710 |
 | `a1aac29a` | **Fase 2 BULK ns** | **macro `#[rts_namespace]` auto-emite `register(e: &mut Engine)`** (mesma metadata do const SPEC → `NamespaceMember` byte-equiv via leak). `register_builtins` folda **~36 ns** via register() (io/json/date/fs/math/net/num/mem/bigfloat/buffer/ffi/atomic/sync/string/process/promise/os/http_server/crypto/regex/audio/runtime/test/thread/parallel/tls/globals*+events). **Só `gc`+`collections` restam no const `SPECS`.** `rts_engine::Member += intrinsic` (math sqrt/abs/min/max inline preservados). **Bug crítico achado+corrigido:** `leak_namespace` gravava `(symbol, 0)` p/ membros alias (fn_ptr null) → sobrescrevia o símbolo real com NULL → call p/ 0x0 (ACCESS_VIOLATION não-determinístico, ordem HashMap). Fix: pular fn_ptr null no jit_symbols. 6 consumidores do const SPECS → registry (apis/init/jit-diag/is_global/builtin_module_keys/pure-ns-set). Teste stale `rts:ui`→`rts:gc`. Workspace lib + macro 6/6 + **suíte 1710/1710** |
-| _(HEAD)_ | **Fase 2 BULK classes** | **macro `#[rts_class]` auto-emite `register_<spec_lower>(e: &mut Engine)`** (nome derivado do `spec_ident`, único por módulo). `leak_class` (espelha `leak_namespace`, default_args `&[]`, mesmo skip de fn_ptr null) + fold de `engine.registry().classes()`. **Todas as 62 classes globais migradas; const `GLOBAL_CLASS_SPECS` esvaziado (`&[]`).** Helper `leak_member` fatorado (DRY entre ns/classe). 3 consumidores do const GLOBAL_CLASS_SPECS → `registry_classes_ordered()` (calls/mod.rs:resolve_instance_method + members.rs:instance_getter/instance_method). Piloto Boolean → bulk. Workspace lib + macro 6/6 + **suíte 1710/1710** |
+| `dbecaad2` | **Fase 2 BULK classes** | **macro `#[rts_class]` auto-emite `register_<spec_lower>(e: &mut Engine)`** (nome derivado do `spec_ident`, único por módulo). `leak_class` (espelha `leak_namespace`, default_args `&[]`, mesmo skip de fn_ptr null) + fold de `engine.registry().classes()`. **Todas as 62 classes globais migradas; const `GLOBAL_CLASS_SPECS` esvaziado (`&[]`).** Helper `leak_member` fatorado (DRY entre ns/classe). 3 consumidores do const GLOBAL_CLASS_SPECS → `registry_classes_ordered()` (calls/mod.rs:resolve_instance_method + members.rs:instance_getter/instance_method). Piloto Boolean → bulk. Workspace lib + macro 6/6 + **suíte 1710/1710** |
+| _(HEAD)_ | **Fase 2 gc+collections** | **últimas 2 ns migradas → const `SPECS` esvaziado (`&[]`).** `gc` via `gc::register()` (macro `#[rts_namespace(gc)]`). `collections`: macro `part` passou a emitir `append_engine_members(&mut Vec<Member>)`; owner `collections::register()` hand-written agrega map+vec (mesma ordem do `concat_members`). **AMBOS os consts (`SPECS`+`GLOBAL_CLASS_SPECS`) vazios — codegen 100% via registry.** Workspace lib + macro 6/6 + **suíte 1710/1710** |
 
 ---
 
@@ -165,7 +167,7 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
 ### Fase 2 — runtime → rts-std via builder (remove `rts-macro`; 933 membros / 73 arquivos)
 - [x] Decidir: migrar **in-place em `rts-runtime`** (não criar rts-std agora).
 - [x] Migrar namespace piloto (`hint`). Provado end-to-end (codegen resolve via Registry). (`ca2e73e7`)
-- [x] **Todas as namespaces** migradas: 9 à mão + ~36 via macro-`register()` auto-emitido. **Só gc+collections no const SPECS.** Suíte 1710/1710 entre cada. (HEAD)
+- [x] **Todas as namespaces** migradas: 9 à mão + ~36 via macro-`register()` + gc + collections (owner agrega `part`s via `append_engine_members`). **Const `SPECS` esvaziado (`&[]`).** Suíte 1710/1710. (HEAD)
 - [x] **Classes globais (62)** via builder — `leak_class` + fold de `engine.registry().classes()` + macro `#[rts_class]` auto-emite `register_<spec>_class_spec`. Const `GLOBAL_CLASS_SPECS` esvaziado. 1710/1710. (HEAD)
 - [ ] `#[rts_var]`/`#[rts_global]`/setters consumidos no codegen (A3: VarGetter read `members.rs:1006` + write-path `x.v=5` em `lower_assign_expr` + readonly hard-error).
 - [ ] Quando zero uso de `#[rts_*]`: **deletar `crates/rts-macro`** + remover dos members do workspace. _(macro ainda gera `register()` das ~36 ns + os `#[rts_class]`.)_
