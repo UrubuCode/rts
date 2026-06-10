@@ -18,16 +18,15 @@ use rts_macro::rts_namespace;
 pub mod class_registry;
 pub mod closure;
 pub mod collector;
-pub mod debug;
 pub mod env;
 pub mod error;
 pub mod generator;
-// `global_roots` e `stack_map_registry` migraram pro `rts-engine` (SPLIT fatia 3a
-// — registries std-puro escritos pelo codegen, lidos pelo scanner). Re-exportados
-// aqui como fachada: `namespaces::collector::{global_roots,stack_map_registry}` +
-// os `super::` internos + `namespaces::gc::*` (alias) resolvem pro MESMO static no
-// engine, sem editar consumidores (jit.rs, collector.rs).
-pub use rts_engine::collector::{global_roots, stack_map_registry, thread_registry};
+// `global_roots`, `stack_map_registry`, `thread_registry`, `debug` e o `scan`
+// (scanner conservativo) migraram pro `rts-engine` (SPLIT fatias 3a-3c —
+// mecanismo std/FFI escrito pelo codegen / usado pelo scanner). Re-exportados
+// aqui como fachada: os `super::` internos + `namespaces::gc::*` (alias) +
+// jit.rs resolvem pro MESMO static no engine, sem editar consumidores.
+pub use rts_engine::collector::{debug, global_roots, scan, stack_map_registry, thread_registry};
 pub mod handles;
 pub mod instance;
 pub mod promise_slot;

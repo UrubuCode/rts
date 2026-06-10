@@ -257,13 +257,21 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
 - [x] **SPLIT fatia 3b:** `thread_registry` → engine (std + FFI `extern "system"`).
       Facade. Os 3 registries (stack_map/global_roots/thread_registry) agora no
       engine. Gate: suíte 1710/1710 + AOT. (HEAD)
-- [ ] SPLIT fatia 3c-4 (a mais sensível): o MECANISMO pesado — collector.rs
-      (scanner asm RSP/SuspendThread + mark_stack_roots + finish_cycle) + a
-      HandleTable. Decisão: mover só o ALGORITMO via vtable `GcHeap` instalada do
-      runtime (tabela tipada com `Entry` FICA no runtime; o engine orquestra
-      mark/sweep chamando via os fn-ptrs) — opção 1. Gate AOT + stress
-      (RTS_GC_DEBUG, alloc>256 em loop). Corrupção = ACCESS_VIOLATION
-      não-determinístico → fazer com cuidado + stress-test, não às pressas.
+- [x] **SPLIT fatia 3c:** scanner conservativo (asm RSP, ranges, SuspendThread,
+      CONTEXT/FFI) + `debug` → `rts-engine/src/collector/scan.rs`. Decomposição
+      mais segura que o vtable: `scan::scan_all_roots(visit: &mut dyn FnMut(u64))`
+      = mecanismo PURO de root-finding; o runtime passa `mark_handle` como visitor
+      (`mark_handle` é transitivo — worklist próprio). `finish_cycle` FICA no
+      runtime (scan + microtask roots de domínio + sweep + os externs
+      `__RTS_FN_NS_GC_COLLECT*` → AOT seguro, símbolos não migram). Comportamento
+      byte-idêntico. Gate: suíte 1710/1710 + AOT + **stress 50k allocs JIT+AOT
+      (STRESS_OK, vivos íntegros)** + multi-thread (suíte http_server/thread). (HEAD)
+- [x] **SPLIT essencialmente COMPLETO.** O `rts-engine` hospeda o MECANISMO do GC:
+      contrato `Traceable` + 3 registries (stack_map/global_roots/thread_registry)
+      + debug + scanner. O `rts-runtime` mantém — POR DESIGN — a `HandleTable`
+      tipada (`Entry` com tokio/regex/rustls), `finish_cycle` (orquestração com
+      roots de domínio), string_pool e os externs `#[no_mangle]`. É exatamente o
+      SPLIT alvo: mecanismo genérico no núcleo, heap tipado + domínio no backend.
 - [ ] Gate AOT crítico: staticlib continua exportando os `__RTS_FN_NS_GC_*` que
       migraram (rts-engine contribui pro archive OU runtime re-exporta `#[no_mangle]`).
 - [ ] (Futuro, atrás da ABI) trocar política mark+sweep → RC + coletor de ciclos.

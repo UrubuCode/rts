@@ -38,6 +38,12 @@ pub mod global_roots;
 /// + varrer a stack/registradores de cada uma. Std + FFI `extern "system"`
 /// (SuspendThread/GetThreadContext, cfg Windows) — sem dep de crate.
 pub mod thread_registry;
+/// Flag de debug do GC (`RTS_GC_DEBUG`). Std puro.
+pub mod debug;
+/// Scanner conservativo de roots (asm RSP, ranges, suspensão de threads) — o
+/// mecanismo de root-finding, parametrizado por um `visit` callback. O runtime
+/// passa `mark_handle`. Ver [`scan::scan_all_roots`].
+pub mod scan;
 
 pub use crate::abi::handles::{
     HANDLE_GEN_SHIFT, HANDLE_N_SHARDS, HANDLE_SHARD_BITS, HANDLE_SHARD_MASK, HANDLE_SLOT_MASK,
