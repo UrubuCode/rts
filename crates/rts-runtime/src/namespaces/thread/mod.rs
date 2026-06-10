@@ -143,7 +143,7 @@ fn next_join_id() -> u64 {
 #[rts_namespace(thread)]
 impl ThreadNs {
     /// Spawns an OS thread running `fn_ptr(arg)`. JoinHandle, 0 on null fn.
-    #[rts_fn]
+    #[rts_fn(raw_bits_arg)]
     pub fn spawn(fn_ptr: U64, arg: U64) -> U64 {
         if fn_ptr == 0 {
             return 0;
@@ -162,7 +162,7 @@ impl ThreadNs {
     }
 
     /// Fire-and-forget `fn_ptr(arg)` on the shared tokio runtime (spawn_blocking).
-    #[rts_fn]
+    #[rts_fn(raw_bits_arg)]
     pub fn spawn_async(fn_ptr: U64, arg: U64) {
         if fn_ptr == 0 {
             return;
@@ -175,7 +175,7 @@ impl ThreadNs {
     }
 
     /// Like spawn_async but returns an id for `join_async`. 0 on null fn.
-    #[rts_fn]
+    #[rts_fn(raw_bits_arg)]
     pub fn spawn_async_join(fn_ptr: U64, arg: U64) -> U64 {
         if fn_ptr == 0 {
             return 0;
@@ -208,13 +208,13 @@ impl ThreadNs {
     }
 
     /// Submits `fn_ptr(arg)` to the global worker pool (fire-and-forget).
-    #[rts_fn]
+    #[rts_fn(raw_bits_arg)]
     pub fn spawn_detached(fn_ptr: U64, arg: U64) {
         pool_submit(fn_ptr, arg);
     }
 
     /// Spawns an OS thread running `fn_ptr(userdata, arg)`. JoinHandle, 0 on null fn.
-    #[rts_fn]
+    #[rts_fn(raw_bits_arg)]
     pub fn spawn_with_ud(fn_ptr: U64, arg: U64, userdata: U64) -> U64 {
         if fn_ptr == 0 {
             return 0;

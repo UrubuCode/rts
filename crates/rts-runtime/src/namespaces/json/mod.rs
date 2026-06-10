@@ -942,7 +942,7 @@ fn promote_slot_to_json_handle(slot: u64) -> u64 {
 #[rts_namespace(json)]
 impl JsonNs {
     /// Parses a JSON string into an opaque JSON value handle. Returns 0 on syntax error.
-    #[rts_fn]
+    #[rts_fn(ambiguous_ret)]
     pub fn parse(text: Str) -> U64 {
         match serde_json::from_str::<Value>(text) {
             Ok(v) => json_value_to_handle(&v),
@@ -951,7 +951,7 @@ impl JsonNs {
     }
 
     /// JSON.parse com reviver(key, value) — transforma cada par durante o walk bottom-up.
-    #[rts_fn]
+    #[rts_fn(ambiguous_ret)]
     pub fn parse_reviver(text: Str, reviver: U64) -> U64 {
         let Ok(parsed) = serde_json::from_str::<Value>(text) else {
             return 0;

@@ -198,7 +198,7 @@ impl PromiseNs {
     }
 
     /// Bloqueia thread chamadora ate Promise settle e retorna o valor. Se rejected, retorna o erro com bit alto setado (F5 vai tratar isso pra integrar try/catch). 0 se handle invalido.
-    #[rts_fn]
+    #[rts_fn(ambiguous_ret)]
     pub fn wait(promise: U64) -> I64 {
         // Clona o Arc fora do `with_entry` pra liberar o lock do shard
         // antes de bloquear em wait_blocking (que pode esperar minutos).

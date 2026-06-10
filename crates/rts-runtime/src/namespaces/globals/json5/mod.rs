@@ -15,6 +15,7 @@ impl Json5Ns {
     #[rts_fn(
         external,
         symbol = "__RTS_FN_NS_JSON_PARSE5",
+        ambiguous_ret,
         ts = "parse(text: string): unknown"
     )]
     pub fn parse(_text: Str) -> U64 {

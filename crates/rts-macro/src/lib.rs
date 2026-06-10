@@ -220,6 +220,11 @@ struct FnOpts {
     /// `__RTS_FN_<STEM>_<FN_IDENT>` doesn't match (e.g. `time_origin` → the
     /// canonical `__RTS_FN_GL_PERF_TIME_ORIGIN`).
     symbol: Option<String>,
+    /// Codegen-emit flags (`MemberFlags`), antes hardcoded por símbolo em
+    /// `ns_call.rs` (Q2): `raw_bits_arg`/`ambiguous_ret`/`undef_ret`.
+    raw_bits_arg: bool,
+    ambiguous_ret: bool,
+    undef_ret: bool,
 }
 
 fn parse_member(attrs: &[syn::Attribute]) -> Option<FnOpts> {
@@ -249,6 +254,9 @@ fn parse_member(attrs: &[syn::Attribute]) -> Option<FnOpts> {
         external: false,
         name: None,
         symbol: None,
+        raw_bits_arg: false,
+        ambiguous_ret: false,
+        undef_ret: false,
     };
     if matches!(attr.meta, syn::Meta::Path(_)) {
         return Some(opts);
@@ -256,6 +264,12 @@ fn parse_member(attrs: &[syn::Attribute]) -> Option<FnOpts> {
     let _ = attr.parse_nested_meta(|m| {
         if m.path.is_ident("pure") {
             opts.pure = true;
+        } else if m.path.is_ident("raw_bits_arg") {
+            opts.raw_bits_arg = true;
+        } else if m.path.is_ident("ambiguous_ret") {
+            opts.ambiguous_ret = true;
+        } else if m.path.is_ident("undef_ret") {
+            opts.undef_ret = true;
         } else if m.path.is_ident("external") {
             opts.external = true;
         } else if m.path.is_ident("name") {
@@ -708,6 +722,27 @@ fn namespace_tokens(
             None => quote! { None },
         };
 
+        // Flags de codegen-emit (Q2): raw_bits_arg / ambiguous_ret / undef_ret.
+        let mut flag_parts: Vec<proc_macro2::TokenStream> = Vec::new();
+        if opts.raw_bits_arg {
+            flag_parts.push(quote! { ::rts_abi::MemberFlags::RAW_BITS_ARG });
+        }
+        if opts.ambiguous_ret {
+            flag_parts.push(quote! { ::rts_abi::MemberFlags::AMBIGUOUS_RET });
+        }
+        if opts.undef_ret {
+            flag_parts.push(quote! { ::rts_abi::MemberFlags::UNDEF_RET });
+        }
+        let flags_tok = match flag_parts.len() {
+            0 => quote! { ::rts_abi::MemberFlags::NONE },
+            1 => flag_parts.remove(0),
+            _ => {
+                let mut it = flag_parts.into_iter();
+                let first = it.next().unwrap();
+                it.fold(first, |acc, p| quote! { #acc.or(#p) })
+            }
+        };
+
         members.push(quote! {
             ::rts_abi::NamespaceMember {
                 name: #name,
@@ -719,16 +754,11 @@ fn namespace_tokens(
                 ts_signature: #ts_sig,
                 intrinsic: #intrinsic_tok,
                 pure: #pure,
-                // Namespace functions are plain fixed-arity externs — aliases,
-                // variadic and optional-arg defaults are class/prototype-method
-                // concepts (see #[rts_class]). Always empty here.
+                // aliases/variadic/default_args são conceitos de classe/protótipo.
                 aliases: &[],
                 variadic: false,
                 default_args: &[],
-                // Modifiers (readonly/static/mutable) are class/var concepts;
-                // plain namespace fns carry none. #[rts_var] emits its own
-                // members with the right flags (see rts_var expansion).
-                flags: ::rts_abi::MemberFlags::NONE,
+                flags: #flags_tok,
             }
         });
     }

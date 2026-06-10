@@ -269,14 +269,8 @@ pub(super) fn lower_ns_call_body(
                 // passar os BITS do f64, nao a conversao numerica.
                 // Detectado pelo simbolo do membro (todas variantes
                 // de spawn que aceitam fn_ptr+arg).
-                let is_spawn_arg = matches!(
-                    member.symbol,
-                    "__RTS_FN_NS_THREAD_SPAWN"
-                    | "__RTS_FN_NS_THREAD_SPAWN_ASYNC"
-                    | "__RTS_FN_NS_THREAD_SPAWN_ASYNC_JOIN"
-                    | "__RTS_FN_NS_THREAD_SPAWN_DETACHED"
-                    | "__RTS_FN_NS_THREAD_SPAWN_WITH_UD"
-                ) && values.len() == 1; // segundo arg = `arg` (apos fn_ptr)
+                let is_spawn_arg = member.flags.contains(crate::abi::MemberFlags::RAW_BITS_ARG)
+                    && values.len() == 1; // segundo arg = `arg` (apos fn_ptr)
                 let tv = lower_expr(ctx, &arg.expr)?;
                 let v = match tv.ty {
                     crate::codegen::lower::ctx::ValTy::F64 if is_spawn_arg => {
@@ -311,24 +305,13 @@ pub(super) fn lower_ns_call_body(
         // `parallel.find/reduce*` retornam I64 mas o slot pode ser handle de
         // string/objeto. Marca como ambiguo para que template literal/console
         // use TPL_COERCE_AUTO. Necessario para reduce de strings (#254).
-        if matches!(
-            member.symbol,
-            "__RTS_FN_NS_PARALLEL_FIND"
-            | "__RTS_FN_NS_PARALLEL_REDUCE"
-            | "__RTS_FN_NS_PARALLEL_REDUCE_NO_INIT"
-            | "__RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT"
-            | "__RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT_NO_INIT"
-            // (#92) promise.wait retorna i64 ambiguo: handle de string OU
-            // valor inteiro. Marca pra TPL_COERCE_AUTO resolver em runtime.
-            | "__RTS_FN_NS_PROMISE_WAIT"
-            // (PR #1207) JSON.parse retorna handle ambiguo — pode ser
-            // Map, Vec, String, scalar i64, ou sentinel JS (true/false/null).
-            // Marca pra `.flags`/`.source`/`.port` em sub-obj NAO colidir
-            // com GLOBAL_CLASS_SPECS getters (RegExp.flags, URL.port, etc).
-            | "__RTS_FN_NS_JSON_PARSE"
-            | "__RTS_FN_NS_JSON_PARSE_REVIVER"
-            | "__RTS_FN_NS_JSON_PARSE5"
-        ) {
+        // Membros marcados AMBIGUOUS_RET (parallel.find/reduce*, promise.wait,
+        // JSON.parse*) retornam I64 que pode ser handle de string/objeto — marca
+        // pra template/console usarem TPL_COERCE_AUTO. (Q2: era match por símbolo;
+        // agora dado em MemberFlags. As variantes collections.vec_reduce_right*
+        // são alcançadas por builtins.rs, não têm membro aqui → entrada morta,
+        // removida.)
+        if member.flags.contains(crate::abi::MemberFlags::AMBIGUOUS_RET) {
             ctx.var_member_call_values.insert(v);
         }
         Ok(TypedVal::new(v, ValTy::from_abi(member.returns)))
@@ -336,7 +319,7 @@ pub(super) fn lower_ns_call_body(
         // (cross-runtime #248) `parallel.for_each` retorna void mas JS
         // \`arr.forEach(...)\` retorna undefined. Emite sentinela MIN+2
         // marcada ambigua para que template/console use TPL_COERCE_AUTO.
-        let is_foreach = member.symbol == "__RTS_FN_NS_PARALLEL_FOR_EACH";
+        let is_foreach = member.flags.contains(crate::abi::MemberFlags::UNDEF_RET);
         let val = if is_foreach { i64::MIN + 2 } else { 0 };
         let v = ctx.builder.ins().iconst(cl::I64, val);
         if is_foreach {

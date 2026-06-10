@@ -85,7 +85,9 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
 | `7962a782` | F3b | registry vira `RwLock` + `register_namespace`/`register_class` + `leak_namespace` (Module do builder → `&'static NamespaceSpec`). Teste-ponte: ns do builder achada pelo `lookup`. Suíte **1710/1710** |
 | `c0d75f54` | F4 | `leak_namespace` grava `(symbol, fn_ptr)` em `JIT_SYMBOLS`; `runtime_jit_symbols()`; `jit.rs` injeta no `JITBuilder` após o `add_fn!`. Habilita EXECUÇÃO de fn do builder. Suíte **1710/1710** |
 | `1b8559a6` | F4b | `builtin_module` (import resolver) lê `registry_namespace()` em vez do const `SPECS` → módulos do builder ficam importáveis. Registry é a fonte de leitura dos 3 consumidores (lookup, JIT, import). Suíte **1710/1710** |
-| _(HEAD)_ | Q1 | fix tabela `ty.rs` Bool `i8`→`i64` (doc-only; `type Bool = i64` já era correto) |
+| `33801868` | Q1 | fix tabela `ty.rs` Bool `i8`→`i64` (doc-only) |
+| `4f261284` | doc | WORKING.md — pega do Q2 (1ª tentativa revertida) |
+| _(HEAD)_ | Q2 | symbol-switches de `ns_call.rs` → `MemberFlags` (RAW_BITS_ARG/AMBIGUOUS_RET/UNDEF_RET). Macro parseia os 3 attrs; 13 membros flagados (thread×5, parallel×4, promise, json×2, json5, globals/json); entradas mortas `reduce_right*` (só builtins.rs, sem membro) dropadas. Suíte **1710/1710** |
 
 ---
 
@@ -120,7 +122,7 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
 
 ### Pendências paralelas (do RTS_ENGINE.md, não bloqueiam o acima)
 - [x] **Q1** pin Bool=i64 — corrigida a tabela de `ty.rs` (dizia `i8`; `type Bool = i64` + doc 32-35 já corretos). Doc-only. (HEAD)
-- [ ] **Q2** mover symbol-switches `ns_call.rs:272/:314/:339` → `MemberFlags` (RAW_BITS_ARG/AMBIGUOUS_RET/UNDEF_RET). **Tentado e revertido** — pega: `__RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT(_NO_INIT)` (vec.rs:1056/1082) e `__RTS_FN_NS_JSON_PARSE5` (json/mod.rs:108) são **externs hand-escritos, não membros de macro** → não dá pra setar flag via attr; e o caminho (builtins.rs vs lower_ns_call_body) precisa ser traçado por-membro p/ não regredir a marcação de ambiguidade (#254). Fazer com tracing cuidadoso, não em lote cego. Não-bloqueante.
+- [x] **Q2** ✅ symbol-switches `ns_call.rs` → `MemberFlags`. Tracing resolveu a pega: `reduce_right*` é só builtins.rs (sem membro) → entrada morta dropada; `JSON_PARSE5` tem membro em globals/json5 (symbol-override) → flagado. 13 membros, suíte 1710/1710. (HEAD)
 - [ ] **E2-E4** drenar `builtins.rs` (~182 braços) pras rows — pré-req da tese "registry é portão único".
 - [ ] **X1-X5** módulos externos `.dll`/`.so` (§10): libloading, `c_plugin` repr(C), loader JIT, AOT gated.
 

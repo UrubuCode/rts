@@ -77,7 +77,7 @@ impl ParallelNs {
     }
 
     /// Runs `fn_ptr(x, i, arr)` for each element. Delegates to Map.forEach for maps.
-    #[rts_fn]
+    #[rts_fn(undef_ret)]
     pub fn for_each(vec_handle: Handle, fn_ptr: U64) {
         if fn_ptr == 0 {
             return;
@@ -101,7 +101,7 @@ impl ParallelNs {
     }
 
     /// `reduce(fn)` without an initial value (items[0] seeds the accumulator).
-    #[rts_fn]
+    #[rts_fn(ambiguous_ret)]
     pub fn reduce_no_init(vec_handle: Handle, fn_ptr: U64) -> I64 {
         let Some(items) = snapshot_vec(vec_handle) else {
             return 0;
@@ -119,7 +119,7 @@ impl ParallelNs {
     }
 
     /// `reduce(fn, identity)` (sequential — passes route any reduce here).
-    #[rts_fn]
+    #[rts_fn(ambiguous_ret)]
     pub fn reduce(vec_handle: Handle, identity: I64, fn_ptr: U64) -> I64 {
         let Some(items) = snapshot_vec(vec_handle) else {
             return identity;
@@ -164,7 +164,7 @@ impl ParallelNs {
     }
 
     /// First element satisfying the predicate, or the `undefined` sentinel.
-    #[rts_fn]
+    #[rts_fn(ambiguous_ret)]
     pub fn find(vec_handle: Handle, fn_ptr: U64) -> I64 {
         let Some(items) = snapshot_vec(vec_handle) else {
             return 0;

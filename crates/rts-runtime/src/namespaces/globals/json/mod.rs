@@ -14,6 +14,7 @@ impl JsonNs {
     #[rts_fn(
         external,
         symbol = "__RTS_FN_NS_JSON_PARSE",
+        ambiguous_ret,
         ts = "parse(text: string): unknown"
     )]
     pub fn parse(_text: Str) -> U64 {

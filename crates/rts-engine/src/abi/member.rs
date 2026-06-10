@@ -93,6 +93,17 @@ impl MemberFlags {
     /// Backing storage is a process-global atomic variable (`#[rts_var]`
     /// `let`/`var`); read/write lower to the atomic getter/setter externs.
     pub const MUTABLE: Self = Self(1 << 2);
+    /// O segundo arg (após o `fn_ptr`) passa os BITS do `f64` (`bitcast i64`),
+    /// não a conversão numérica — trampolins que recebem `arg: number` via param
+    /// f64 (`thread.spawn*`). Substitui o match por símbolo em `ns_call.rs` (Q2).
+    pub const RAW_BITS_ARG: Self = Self(1 << 3);
+    /// O retorno `I64` pode ser handle (string/obj) em vez de inteiro — marca
+    /// como ambíguo p/ template/console usarem `TPL_COERCE_AUTO`
+    /// (`parallel.find/reduce*`, `promise.wait`, `JSON.parse*`). (Q2)
+    pub const AMBIGUOUS_RET: Self = Self(1 << 4);
+    /// Membro `void` que em JS retorna `undefined` — emite sentinela
+    /// `i64::MIN + 2` (ambígua) em vez de `0` (`parallel.for_each`). (Q2)
+    pub const UNDEF_RET: Self = Self(1 << 5);
 
     /// Union of two flag sets (const, for building composite literals).
     pub const fn or(self, other: Self) -> Self {
