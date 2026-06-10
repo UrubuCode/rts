@@ -138,6 +138,13 @@ fn register_runtime_symbols(jit: &mut JITBuilder) {
     for (name, ptr) in runtime_symbol_table() {
         jit.symbol(name, ptr);
     }
+    // F4: símbolos de módulos registrados em runtime (via o builder do
+    // `rts-engine` / módulos externos). Vazio até algo registrar; quando a Fase 2
+    // migrar uma namespace pro builder, suas fns resolvem por aqui em vez do
+    // `add_fn!` acima.
+    for (name, ptr) in crate::abi::runtime_jit_symbols() {
+        jit.symbol(name, ptr);
+    }
 }
 
 /// Returns `(symbol, ptr)` tuples for every runtime symbol the JIT needs.

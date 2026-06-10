@@ -175,39 +175,68 @@ pub fn register_class(spec: &'static GlobalClassSpec) {
     registry().write().unwrap().classes.insert(spec.name, spec);
 }
 
+/// `symbol → endereço da fn` dos membros registrados em runtime (do builder).
+/// Substitui, para módulos do builder/externos, a lista `add_fn!` hardcoded do
+/// JIT: `jit.rs` injeta estes em `JITBuilder::symbol` para que uma chamada a uma
+/// fn do builder resolva em runtime (F4). `usize` (não `*const u8`) p/ Send/Sync.
+static JIT_SYMBOLS: std::sync::OnceLock<std::sync::RwLock<std::collections::HashMap<&'static str, usize>>> =
+    std::sync::OnceLock::new();
+
+fn jit_symbols() -> &'static std::sync::RwLock<std::collections::HashMap<&'static str, usize>> {
+    JIT_SYMBOLS.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()))
+}
+
+/// `(symbol, ptr)` de todo membro registrado em runtime — consumido por `jit.rs`
+/// para injetar no `JITBuilder`. Vazio até algo chamar [`leak_namespace`].
+pub fn runtime_jit_symbols() -> Vec<(&'static str, *const u8)> {
+    jit_symbols()
+        .read()
+        .unwrap()
+        .iter()
+        .map(|(name, addr)| (*name, *addr as *const u8))
+        .collect()
+}
+
 /// Converte um `rts_engine::Module` (builder, dados owned) num
 /// `&'static NamespaceSpec` vazando os campos (vivem o processo todo, como os
-/// const arrays). É a ponte que deixa o builder alimentar o codegen sem
-/// reescrever os call-sites (a moeda continua `NamespaceMember`). F3b.
+/// const arrays) e gravando os `(symbol, fn_ptr)` em [`jit_symbols`] para o JIT.
+/// É a ponte que deixa o builder alimentar o codegen sem reescrever os
+/// call-sites (a moeda continua `NamespaceMember`). F3b + F4.
 pub fn leak_namespace(module: &rts_engine::Module) -> &'static NamespaceSpec {
     fn s(x: &str) -> &'static str {
         Box::leak(x.to_string().into_boxed_str())
     }
+    let mut jit = jit_symbols().write().unwrap();
     let members: Vec<NamespaceMember> = module
         .members
         .iter()
-        .map(|m| NamespaceMember {
-            name: s(&m.name),
-            kind: m.kind,
-            symbol: s(&m.symbol),
-            args: Box::leak(m.sig.args.clone().into_boxed_slice()),
-            returns: m.sig.returns,
-            doc: s(&m.doc),
-            ts_signature: s(&m.ts_signature),
-            intrinsic: None,
-            pure: false,
-            aliases: Box::leak(
-                m.aliases
-                    .iter()
-                    .map(|a| s(a))
-                    .collect::<Vec<_>>()
-                    .into_boxed_slice(),
-            ),
-            variadic: m.variadic,
-            default_args: &[],
-            flags: m.flags,
+        .map(|m| {
+            let symbol = s(&m.symbol);
+            jit.insert(symbol, m.fn_ptr.addr());
+            NamespaceMember {
+                name: s(&m.name),
+                kind: m.kind,
+                symbol,
+                args: Box::leak(m.sig.args.clone().into_boxed_slice()),
+                returns: m.sig.returns,
+                doc: s(&m.doc),
+                ts_signature: s(&m.ts_signature),
+                intrinsic: None,
+                pure: false,
+                aliases: Box::leak(
+                    m.aliases
+                        .iter()
+                        .map(|a| s(a))
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice(),
+                ),
+                variadic: m.variadic,
+                default_args: &[],
+                flags: m.flags,
+            }
         })
         .collect();
+    drop(jit);
     Box::leak(Box::new(NamespaceSpec {
         name: s(&module.name),
         doc: s(&module.doc),
@@ -242,5 +271,12 @@ mod tests {
         assert!(matches!(m.returns, AbiType::I64));
         // builtins continuam resolvíveis (registry não foi sobrescrito)
         assert!(lookup("io.print").is_some());
+        // F4: o símbolo da fn do builder foi gravado pro JIT injetar
+        let syms = runtime_jit_symbols();
+        let entry = syms
+            .iter()
+            .find(|(name, _)| *name == "__RTS_FN_NS_F3BTEST_ANSWER")
+            .expect("símbolo no runtime_jit_symbols");
+        assert_eq!(entry.1 as usize, dummy_answer as *const u8 as usize);
     }
 }
