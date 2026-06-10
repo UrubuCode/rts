@@ -983,6 +983,9 @@ pub fn rts_class(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let mut externs = Vec::new();
     let mut members = Vec::new();
+    // Mesmos membros no formato do builder do `rts-engine` (Fase 2 classes) —
+    // usados pelo `register_class()` auto-gerado abaixo.
+    let mut engine_members: Vec<proc_macro2::TokenStream> = Vec::new();
 
     for it in &imp.items {
         let ImplItem::Fn(f) = it else { continue };
@@ -1139,11 +1142,41 @@ pub fn rts_class(attr: TokenStream, item: TokenStream) -> TokenStream {
                 flags: #flags_tok,
             }
         });
+
+        // Versão builder do mesmo membro. fn_ptr null p/ `external` (símbolo
+        // dono por outra ns/classe — leak_class pula null no jit_symbols).
+        let fn_ptr_expr = if opts.external {
+            quote! { ::core::ptr::null::<u8>() }
+        } else {
+            quote! { #sym_ident as *const u8 }
+        };
+        engine_members.push(quote! {
+            ::rts_engine::Member {
+                name: #name.to_string(),
+                kind: ::rts_engine::MemberKind::#kind_ident,
+                sig: ::rts_engine::Sig::new(::std::vec![ #(#arg_variants),* ], ::rts_abi::AbiType::#ret_ident),
+                symbol: #symbol.to_string(),
+                fn_ptr: ::rts_engine::FnPtr(#fn_ptr_expr),
+                flags: #flags_tok,
+                aliases: ::std::vec![ #(#aliases.to_string()),* ],
+                variadic: #variadic,
+                ts_signature: #ts_sig.to_string(),
+                doc: #doc.to_string(),
+                pure: #pure,
+                intrinsic: #intrinsic_tok,
+            }
+        });
     }
 
     // Members are inlined into the spec (not a named `MEMBERS` const) so that
     // a single file can host SEVERAL `#[rts_class]` impls (e.g. EventTarget +
     // Event, AbortController + AbortSignal) without colliding on the const name.
+    // O `register_class` segue a mesma regra: nome derivado do `spec_ident`
+    // (único por módulo) p/ não colidir entre classes do mesmo arquivo.
+    let reg_ident = Ident::new(
+        &format!("register_{}", spec_ident.to_string().to_lowercase()),
+        class.span(),
+    );
     let out = quote! {
         #(#externs)*
 
@@ -1153,6 +1186,16 @@ pub fn rts_class(attr: TokenStream, item: TokenStream) -> TokenStream {
             doc: #spec_doc,
             members: &[ #(#members),* ],
         };
+
+        /// Derived builder registration (Fase 2 classes) — registra esta classe
+        /// global no motor do `rts-engine`. Substitui o caminho do const
+        /// `*_CLASS_SPEC` quando chamada em `register_builtins`.
+        pub fn #reg_ident(e: &mut ::rts_engine::Engine) {
+            e.class(#class_str)
+                .doc(#spec_doc)
+                #( .member(#engine_members) )*
+                .done();
+        }
     };
     out.into()
 }

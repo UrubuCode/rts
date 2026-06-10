@@ -2965,7 +2965,7 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     )? {
                         return Ok(tv);
                     }
-                    for spec in crate::abi::GLOBAL_CLASS_SPECS {
+                    for spec in crate::abi::registry_classes_ordered() {
                         if let Some(member) = spec.resolve_instance_method(prop_name, call.args.len()) {
                             let sig = crate::abi::signature::lower_member(member);
                             let f = ctx.get_extern_abi(member.symbol, &sig.params, sig.ret)?;

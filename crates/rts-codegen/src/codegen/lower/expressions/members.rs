@@ -1536,7 +1536,7 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                 && !is_universal_method
             {
                 // (#216) Tenta instance_getter primeiro (description, source, flags, etc.)
-                for spec in crate::abi::GLOBAL_CLASS_SPECS {
+                for spec in crate::abi::registry_classes_ordered() {
                     if let Some(member) = spec.instance_getter(key) {
                         let sig = crate::abi::signature::lower_member(member);
                         let f = ctx.get_extern_abi(member.symbol, &sig.params, sig.ret)?;
@@ -1550,7 +1550,7 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                         return Ok(TypedVal::new(v, ret_ty));
                     }
                 }
-                for spec in crate::abi::GLOBAL_CLASS_SPECS {
+                for spec in crate::abi::registry_classes_ordered() {
                     if let Some(member) = spec.instance_method(key) {
                         if member.args.len() == 1 {
                             let sig = crate::abi::signature::lower_member(member);

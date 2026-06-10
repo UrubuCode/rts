@@ -2,65 +2,11 @@ pub use rts_engine::abi::*;
 
 pub mod signature;
 
-pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
-    &crate::namespaces::globals::string::STRING_CLASS_SPEC,
-    &crate::namespaces::globals::number::NUMBER_CLASS_SPEC,
-    &crate::namespaces::globals::date::CLASS_SPEC,
-    &crate::namespaces::globals::regexp::REGEXP_CLASS_SPEC,
-    &crate::namespaces::globals::error::CLASS_SPEC,
-    &crate::namespaces::globals::error::TYPE_ERROR_CLASS_SPEC,
-    &crate::namespaces::globals::error::RANGE_ERROR_CLASS_SPEC,
-    &crate::namespaces::globals::error::REF_ERROR_CLASS_SPEC,
-    &crate::namespaces::globals::error::SYNTAX_ERROR_CLASS_SPEC,
-    &crate::namespaces::globals::error::URI_ERROR_CLASS_SPEC,
-    &crate::namespaces::globals::error::EVAL_ERROR_CLASS_SPEC,
-    &crate::namespaces::globals::error::AGGREGATE_ERROR_CLASS_SPEC,
-    &crate::namespaces::globals::events::CLASS_SPEC,
-    &crate::namespaces::globals::text_encoding::TEXT_ENCODER_CLASS_SPEC,
-    &crate::namespaces::globals::text_encoding::TEXT_DECODER_CLASS_SPEC,
-    &crate::namespaces::globals::fetch::RESPONSE_CLASS_SPEC,
-    &crate::namespaces::globals::fetch::REQUEST_CLASS_SPEC,
-    &crate::namespaces::globals::fetch::PROMISE_CLASS_SPEC,
-    &crate::namespaces::globals::url::URL_CLASS_SPEC,
-    &crate::namespaces::globals::url::URLSP_CLASS_SPEC,
-    &crate::namespaces::globals::function::FUNCTION_CLASS_SPEC,
-    &crate::namespaces::globals::symbol::SYMBOL_CLASS_SPEC,
-    &crate::namespaces::globals::boolean::BOOLEAN_CLASS_SPEC,
-    &crate::namespaces::globals::bigint::BIGINT_CLASS_SPEC,
-    &crate::namespaces::globals::weakmap::WEAKMAP_CLASS_SPEC,
-    &crate::namespaces::globals::weakset::WEAKSET_CLASS_SPEC,
-    &crate::namespaces::globals::weakref::WEAKREF_CLASS_SPEC,
-    &crate::namespaces::globals::finalization_registry::FINALIZATION_REGISTRY_CLASS_SPEC,
-    &crate::namespaces::globals::headers::HEADERS_CLASS_SPEC,
-    &crate::namespaces::globals::abort::ABORT_CONTROLLER_CLASS_SPEC,
-    &crate::namespaces::globals::abort::ABORT_SIGNAL_CLASS_SPEC,
-    &crate::namespaces::globals::event_target::EVENT_TARGET_CLASS_SPEC,
-    &crate::namespaces::globals::event_target::EVENT_CLASS_SPEC,
-    &crate::namespaces::globals::dom_exception::DOM_EXCEPTION_CLASS_SPEC,
-    &crate::namespaces::globals::blob::BLOB_CLASS_SPEC,
-    &crate::namespaces::globals::blob::FILE_CLASS_SPEC,
-    &crate::namespaces::globals::form_data::FORM_DATA_CLASS_SPEC,
-    &crate::namespaces::globals::dataview::ARRAY_BUFFER_CLASS_SPEC,
-    &crate::namespaces::globals::dataview::DATA_VIEW_CLASS_SPEC,
-    &crate::namespaces::globals::intl::NUMBER_FORMAT_CLASS_SPEC,
-    &crate::namespaces::globals::intl::DATE_TIME_FORMAT_CLASS_SPEC,
-    &crate::namespaces::globals::intl::COLLATOR_CLASS_SPEC,
-    &crate::namespaces::globals::intl::SEGMENTER_CLASS_SPEC,
-    &crate::namespaces::globals::intl::PLURAL_RULES_CLASS_SPEC,
-    &crate::namespaces::globals::intl::LIST_FORMAT_CLASS_SPEC,
-    &crate::namespaces::globals::intl::RELATIVE_TIME_FORMAT_CLASS_SPEC,
-    &crate::namespaces::globals::readable_stream::READABLE_STREAM_CLASS_SPEC,
-    &crate::namespaces::globals::readable_stream::READER_CLASS_SPEC,
-    &crate::namespaces::globals::readable_stream::CONTROLLER_CLASS_SPEC,
-    &crate::namespaces::globals::readable_stream::TRANSFORM_STREAM_CLASS_SPEC,
-    &crate::namespaces::globals::readable_stream::WRITABLE_STREAM_CLASS_SPEC,
-    &crate::namespaces::globals::readable_stream::WRITER_CLASS_SPEC,
-    &crate::namespaces::globals::readable_stream::TEXT_ENCODER_STREAM_CLASS_SPEC,
-    &crate::namespaces::globals::readable_stream::TEXT_DECODER_STREAM_CLASS_SPEC,
-    &crate::namespaces::globals::readable_stream::COMPRESSION_STREAM_CLASS_SPEC,
-    &crate::namespaces::globals::message_channel::MESSAGE_CHANNEL_CLASS_SPEC,
-    &crate::namespaces::globals::message_channel::MESSAGE_PORT_CLASS_SPEC,
-];
+// Fase 2 classes — TODAS as classes globais migraram pro caminho do builder
+// (`register_<spec>_class_spec` auto-gerado pela macro `#[rts_class]`, foldado
+// via `leak_class` em `register_builtins`). O const ficou vazio; o codegen lê
+// as classes pelo registry (`global_class_lookup`/`registry_classes_ordered`).
+pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[];
 
 pub fn global_class_lookup(name: &str) -> Option<&'static GlobalClassSpec> {
     registry().read().unwrap().classes.get(name).copied()
@@ -177,10 +123,80 @@ fn register_builtins() -> Registry {
     crate::namespaces::globals::url::register(&mut engine);
     crate::namespaces::globals::global_this::register(&mut engine);
     crate::namespaces::events::register(&mut engine);
+    // Classes globais (Fase 2 classes) — `register_<spec>` auto-gerado pela
+    // macro `#[rts_class]` (nome = `register_<SPEC_IDENT lowercased>`, único por
+    // módulo). Cobrem exatamente as 62 entradas do antigo const GLOBAL_CLASS_SPECS.
+    {
+        use crate::namespaces::globals as g;
+        g::string::register_string_class_spec(&mut engine);
+        g::number::register_number_class_spec(&mut engine);
+        g::date::register_class_spec(&mut engine);
+        g::regexp::register_regexp_class_spec(&mut engine);
+        g::error::register_class_spec(&mut engine);
+        g::error::register_type_error_class_spec(&mut engine);
+        g::error::register_range_error_class_spec(&mut engine);
+        g::error::register_ref_error_class_spec(&mut engine);
+        g::error::register_syntax_error_class_spec(&mut engine);
+        g::error::register_uri_error_class_spec(&mut engine);
+        g::error::register_eval_error_class_spec(&mut engine);
+        g::error::register_aggregate_error_class_spec(&mut engine);
+        g::events::register_class_spec(&mut engine);
+        g::text_encoding::register_text_encoder_class_spec(&mut engine);
+        g::text_encoding::register_text_decoder_class_spec(&mut engine);
+        g::fetch::register_response_class_spec(&mut engine);
+        g::fetch::register_request_class_spec(&mut engine);
+        g::fetch::register_promise_class_spec(&mut engine);
+        g::url::register_url_class_spec(&mut engine);
+        g::url::register_urlsp_class_spec(&mut engine);
+        g::function::register_function_class_spec(&mut engine);
+        g::symbol::register_symbol_class_spec(&mut engine);
+        g::boolean::register_boolean_class_spec(&mut engine);
+        g::bigint::register_bigint_class_spec(&mut engine);
+        g::weakmap::register_weakmap_class_spec(&mut engine);
+        g::weakset::register_weakset_class_spec(&mut engine);
+        g::weakref::register_weakref_class_spec(&mut engine);
+        g::finalization_registry::register_finalization_registry_class_spec(&mut engine);
+        g::headers::register_headers_class_spec(&mut engine);
+        g::abort::register_abort_controller_class_spec(&mut engine);
+        g::abort::register_abort_signal_class_spec(&mut engine);
+        g::event_target::register_event_target_class_spec(&mut engine);
+        g::event_target::register_event_class_spec(&mut engine);
+        g::dom_exception::register_dom_exception_class_spec(&mut engine);
+        g::blob::register_blob_class_spec(&mut engine);
+        g::blob::register_file_class_spec(&mut engine);
+        g::form_data::register_form_data_class_spec(&mut engine);
+        g::dataview::register_array_buffer_class_spec(&mut engine);
+        g::dataview::register_data_view_class_spec(&mut engine);
+        g::intl::register_number_format_class_spec(&mut engine);
+        g::intl::register_date_time_format_class_spec(&mut engine);
+        g::intl::register_collator_class_spec(&mut engine);
+        g::intl::register_segmenter_class_spec(&mut engine);
+        g::intl::register_plural_rules_class_spec(&mut engine);
+        g::intl::register_list_format_class_spec(&mut engine);
+        g::intl::register_relative_time_format_class_spec(&mut engine);
+        g::readable_stream::register_readable_stream_class_spec(&mut engine);
+        g::readable_stream::register_reader_class_spec(&mut engine);
+        g::readable_stream::register_controller_class_spec(&mut engine);
+        g::readable_stream::register_transform_stream_class_spec(&mut engine);
+        g::readable_stream::register_writable_stream_class_spec(&mut engine);
+        g::readable_stream::register_writer_class_spec(&mut engine);
+        g::readable_stream::register_text_encoder_stream_class_spec(&mut engine);
+        g::readable_stream::register_text_decoder_stream_class_spec(&mut engine);
+        g::readable_stream::register_compression_stream_class_spec(&mut engine);
+        g::message_channel::register_message_channel_class_spec(&mut engine);
+        g::message_channel::register_message_port_class_spec(&mut engine);
+    }
     for module in engine.registry().modules() {
         let spec = leak_namespace(module);
         namespaces.insert(spec.name, spec);
         specs_ordered.push(spec);
+    }
+    // Folda as classes do builder (análogo aos módulos). `engine.registry().
+    // classes()` vem do `register_<spec>` acima; vazio se nenhum chamado.
+    for class in engine.registry().classes() {
+        let spec = leak_class(class);
+        classes.insert(spec.name, spec);
+        classes_ordered.push(spec);
     }
 
     Registry {
@@ -257,55 +273,88 @@ pub fn runtime_jit_symbols() -> Vec<(&'static str, *const u8)> {
         .collect()
 }
 
+fn leak_str(x: &str) -> &'static str {
+    Box::leak(x.to_string().into_boxed_str())
+}
+
+/// Converte um `rts_engine::Member` (builder, owned) num `&'static`-friendly
+/// `NamespaceMember`, vazando strings/slices e gravando `(symbol, fn_ptr)` em
+/// [`jit_symbols`]. Compartilhado por [`leak_namespace`] e [`leak_class`].
+///
+/// **Invariante crítica:** membros `alias`/`external` carregam `fn_ptr` null e
+/// REUSAM o `symbol` do membro dono (real). Inserir 0 aqui SOBRESCREVERIA o
+/// endereço real → call para 0x0 (ACCESS_VIOLATION, não-determinístico por
+/// ordem de HashMap). Só grava quando há ponteiro próprio; o alias resolve pelo
+/// dono.
+fn leak_member(
+    jit: &mut std::collections::HashMap<&'static str, usize>,
+    m: &rts_engine::Member,
+) -> NamespaceMember {
+    let symbol = leak_str(&m.symbol);
+    if !m.fn_ptr.0.is_null() {
+        jit.insert(symbol, m.fn_ptr.addr());
+    }
+    NamespaceMember {
+        name: leak_str(&m.name),
+        kind: m.kind,
+        symbol,
+        args: Box::leak(m.sig.args.clone().into_boxed_slice()),
+        returns: m.sig.returns,
+        doc: leak_str(&m.doc),
+        ts_signature: leak_str(&m.ts_signature),
+        intrinsic: m.intrinsic,
+        pure: m.pure,
+        aliases: Box::leak(
+            m.aliases
+                .iter()
+                .map(|a| leak_str(a))
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+        ),
+        variadic: m.variadic,
+        // default_args é sempre vazio nos membros do builder (a macro também
+        // emite `&[]`; ver nota em rts-macro). Vira campo do Member quando a
+        // sintaxe de default-por-arg (E3/E4) for implementada.
+        default_args: &[],
+        flags: m.flags,
+    }
+}
+
 /// Converte um `rts_engine::Module` (builder, dados owned) num
 /// `&'static NamespaceSpec` vazando os campos (vivem o processo todo, como os
 /// const arrays) e gravando os `(symbol, fn_ptr)` em [`jit_symbols`] para o JIT.
 /// É a ponte que deixa o builder alimentar o codegen sem reescrever os
 /// call-sites (a moeda continua `NamespaceMember`). F3b + F4.
 pub fn leak_namespace(module: &rts_engine::Module) -> &'static NamespaceSpec {
-    fn s(x: &str) -> &'static str {
-        Box::leak(x.to_string().into_boxed_str())
-    }
     let mut jit = jit_symbols().write().unwrap();
     let members: Vec<NamespaceMember> = module
         .members
         .iter()
-        .map(|m| {
-            let symbol = s(&m.symbol);
-            // Membros `alias`/`external` carregam fn_ptr null e reusam o
-            // `symbol` do membro dono (real). Inserir 0 aqui SOBRESCREVERIA o
-            // endereço real do símbolo → call para 0x0 (ACCESS_VIOLATION). Só
-            // grava quando há ponteiro próprio; o alias resolve pelo dono.
-            if !m.fn_ptr.0.is_null() {
-                jit.insert(symbol, m.fn_ptr.addr());
-            }
-            NamespaceMember {
-                name: s(&m.name),
-                kind: m.kind,
-                symbol,
-                args: Box::leak(m.sig.args.clone().into_boxed_slice()),
-                returns: m.sig.returns,
-                doc: s(&m.doc),
-                ts_signature: s(&m.ts_signature),
-                intrinsic: m.intrinsic,
-                pure: m.pure,
-                aliases: Box::leak(
-                    m.aliases
-                        .iter()
-                        .map(|a| s(a))
-                        .collect::<Vec<_>>()
-                        .into_boxed_slice(),
-                ),
-                variadic: m.variadic,
-                default_args: &[],
-                flags: m.flags,
-            }
-        })
+        .map(|m| leak_member(&mut jit, m))
         .collect();
     drop(jit);
     Box::leak(Box::new(NamespaceSpec {
-        name: s(&module.name),
-        doc: s(&module.doc),
+        name: leak_str(&module.name),
+        doc: leak_str(&module.doc),
+        members: Box::leak(members.into_boxed_slice()),
+    }))
+}
+
+/// Converte uma `rts_engine::Class` (builder, owned) num
+/// `&'static GlobalClassSpec`, análogo a [`leak_namespace`] (classes globais:
+/// `new Date()`, `d.getFullYear()`). Grava os símbolos no JIT via [`leak_member`]
+/// (que pula fn_ptr null de membros `external`). Fase 2 classes.
+pub fn leak_class(class: &rts_engine::Class) -> &'static GlobalClassSpec {
+    let mut jit = jit_symbols().write().unwrap();
+    let members: Vec<NamespaceMember> = class
+        .members
+        .iter()
+        .map(|m| leak_member(&mut jit, m))
+        .collect();
+    drop(jit);
+    Box::leak(Box::new(GlobalClassSpec {
+        name: leak_str(&class.name),
+        doc: leak_str(&class.doc),
         members: Box::leak(members.into_boxed_slice()),
     }))
 }
