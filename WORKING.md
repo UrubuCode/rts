@@ -120,7 +120,7 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
 
 ### Pendências paralelas (do RTS_ENGINE.md, não bloqueiam o acima)
 - [x] **Q1** pin Bool=i64 — corrigida a tabela de `ty.rs` (dizia `i8`; `type Bool = i64` + doc 32-35 já corretos). Doc-only. (HEAD)
-- [ ] **Q2** mover symbol-switches `ns_call.rs:272`/`:314` → `MemberFlags` (RAW_BITS_ARG/AMBIGUOUS_RET).
+- [ ] **Q2** mover symbol-switches `ns_call.rs:272/:314/:339` → `MemberFlags` (RAW_BITS_ARG/AMBIGUOUS_RET/UNDEF_RET). **Tentado e revertido** — pega: `__RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT(_NO_INIT)` (vec.rs:1056/1082) e `__RTS_FN_NS_JSON_PARSE5` (json/mod.rs:108) são **externs hand-escritos, não membros de macro** → não dá pra setar flag via attr; e o caminho (builtins.rs vs lower_ns_call_body) precisa ser traçado por-membro p/ não regredir a marcação de ambiguidade (#254). Fazer com tracing cuidadoso, não em lote cego. Não-bloqueante.
 - [ ] **E2-E4** drenar `builtins.rs` (~182 braços) pras rows — pré-req da tese "registry é portão único".
 - [ ] **X1-X5** módulos externos `.dll`/`.so` (§10): libloading, `c_plugin` repr(C), loader JIT, AOT gated.
 
@@ -139,6 +139,7 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
 - **d.ts gerador itera `SPECS` const** (`emit_types.rs`/`apis.rs`/`init.rs`): remover uma ns do const SPECS a faz sumir do `rts.d.ts` → lint byte-idêntico quebra. Migrar uma ns pro builder exige o gerador ler o `registry`.
 - **Reentrância OnceLock:** não chamar `register_namespace`/`leak_namespace` (usam `registry()` global) de dentro de `register_builtins()` (o init do mesmo OnceLock) → deadlock. Foldar nos maps locais.
 - **`rts_engine::sig!`** chamável por path: `rts_engine::sig!(StrPtr, I64 => Handle)`. Tipos via `$crate::AbiType::X`.
+- **Nem todo símbolo em `ns_call.rs` tem membro de macro:** vários externs são `pub extern "C"` hand-escritos (ex.: `COLLECTIONS_VEC_REDUCE_RIGHT*`, `JSON_PARSE5`) alcançados por `builtins.rs`/symbol-override, não por `#[rts_fn]`. Mover comportamento por-símbolo pra `MemberFlags` exige achar o MEMBRO certo (pode ser via `symbol=` em outra ns) + verificar o caminho de chamada. Q2 não é find-replace cego.
 
 ---
 
