@@ -30,9 +30,9 @@
 >    `engine.class(...)` (precisa o builder de classe ligar no `GLOBAL_CLASS_SPECS`
 >    — ainda NÃO ligado; ver nota). Quando zero `#[rts_*]`: deletar `rts-macro`.
 >
-> **Migradas (5):** `hint`, `hash`, `alloc`, `time`, `trace`. **Batch funciona**
-> (várias ns por 1 build+suíte). Próximas pequenas: env(7), path(8), ffi(9),
-> fmt(10), sync(12), ptr(14). **Gaps do Member descobertos
+> **Migradas (7):** `hint`, `hash`, `alloc`, `time`, `trace`, `env`, `path`.
+> **Batch funciona** (várias ns por 1 build+suíte). Próximas pequenas: ffi(9),
+> fmt(10), sync(12), ptr(14), atomic(22), num(23). **Gaps do Member descobertos
 > e resolvidos/pendentes:** `pure` ✅ (adicionado). Ainda faltam no `rts_engine::
 > Member` p/ migrar as demais: **`intrinsic`** (math.sqrt/abs/min/max — inline),
 > **`default_args`** (string/array slice etc.), e **constantes** (math.PI/mem.size_of
@@ -124,7 +124,8 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
 | `f7500ebb` | F3d | gerador d.ts itera `registry_specs_ordered()` (Vec ordenado) em vez do const `SPECS`. Byte-idêntico. Desbloqueia Fase 2 |
 | `ca2e73e7` | **Fase 2 piloto** | **`hint` migrado da macro → builder** (1ª ns). hand-externs + `hint::register(Engine)`; `register_builtins` folda os modules; hint fora do const SPECS. `rts run` ok; suíte 1710/1710. Prova Fase 2 |
 | `163c508f` | Fase 2 #2 | **`hash`** migrado + `rts_engine::Member += pure`. Suíte 1710/1710 |
-| _(HEAD)_ | Fase 2 #3 | **batch `alloc`+`time`+`trace`** migradas (3 ns, 16 membros) em 1 ciclo build+suíte. `rts run` "true true true"; **1710/1710**. Batch eficiente confirmado |
+| `b46de0e5` | Fase 2 #3 | batch **`alloc`+`time`+`trace`** (3 ns). 1710/1710 |
+| _(HEAD)_ | Fase 2 #4 | batch **`env`+`path`** (2 ns, 17 membros; Str/on_null/intern/Bool). `rts run` ok; **1710/1710**. 7 ns migradas no total |
 
 ---
 
