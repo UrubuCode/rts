@@ -241,11 +241,13 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
       `Traceable`/`GcPayload` + op-set documentado (alloc/retain/release/trace/
       finalize/roots) + decode de handle (shard/gen/slot). Aditivo, mark+sweep
       atual intocado. engine 5/5, suíte 1710/1710. (HEAD)
-- [ ] SPLIT: mover MECANISMO (HandleTable genérica, collector, stack_map_registry,
-      thread_registry, global_roots) pro engine; pasta `gc/` → `collector/`.
-      `Entry` + payloads pesados (tokio/regex/rustls) FICAM em rts-runtime
-      implementando `Traceable`. Fachada `namespaces::gc::handles` p/ não tocar
-      os 68 consumidores. Re-wire jit.rs (mecanismo → `rts_engine::collector::*`).
+- [x] **SPLIT fatia 1:** `Entry: impl rts_engine::Traceable` (trace_children =
+      match de `mark`; finalize = `cleanup_entry`). `HandleTable::mark` chama o
+      contrato em vez do match inline. Comportamento idêntico, suíte 1710/1710. (HEAD)
+- [ ] SPLIT fatias 2-4: mover MECANISMO (HandleTable genérica, collector,
+      stack_map_registry, thread_registry, global_roots) pro engine; pasta `gc/` →
+      `collector/`. Fachada `namespaces::gc::handles` p/ não tocar os 68
+      consumidores. Re-wire jit.rs (mecanismo → `rts_engine::collector::*`).
 - [ ] Gate AOT crítico: staticlib continua exportando os `__RTS_FN_NS_GC_*` que
       migraram (rts-engine contribui pro archive OU runtime re-exporta `#[no_mangle]`).
 - [ ] (Futuro, atrás da ABI) trocar política mark+sweep → RC + coletor de ciclos.

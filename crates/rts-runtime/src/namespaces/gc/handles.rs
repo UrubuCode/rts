@@ -657,6 +657,75 @@ fn cleanup_entry(entry: &mut Entry) {
     }
 }
 
+/// `Entry` é o payload concreto do collector (Fase 2 GC). Implementa o contrato
+/// `rts_engine::Traceable` — o protocolo que deixa o coletor genérico (a migrar
+/// pro `rts-engine` no SPLIT) andar o grafo SEM conhecer as variants. As variants
+/// pesadas (tokio/regex/rustls) ficam aqui no runtime; o engine fica zero-dep.
+///
+/// `trace_children` espelha exatamente o match de `HandleTable::mark`; `finalize`
+/// reusa `cleanup_entry`. Comportamento idêntico ao mark+sweep atual.
+impl rts_engine::Traceable for Entry {
+    fn trace_children(&self, visit: &mut dyn FnMut(u64)) {
+        match self {
+            // (#264) Function: prototype + bound_this + bound_args.
+            Entry::Function(d) => {
+                if d.prototype_handle != 0 {
+                    visit(d.prototype_handle);
+                }
+                if d.has_bound_this && d.bound_this != 0 {
+                    visit(d.bound_this as u64);
+                }
+                for v in &d.bound_args {
+                    if *v != 0 {
+                        visit(*v as u64);
+                    }
+                }
+            }
+            // (#398) Map values podem ser handles (string/map/vec/etc).
+            Entry::Map(m) => {
+                for v in m.values() {
+                    if *v != 0 {
+                        visit(*v as u64);
+                    }
+                }
+            }
+            // (#398) Vec elements idem.
+            Entry::Vec(v) => {
+                for h in v.iter() {
+                    if *h != 0 {
+                        visit(*h as u64);
+                    }
+                }
+            }
+            // (#218) Proxy: target + handler vivos enquanto proxy estiver vivo.
+            Entry::Proxy { target, handler } => {
+                if *target != 0 {
+                    visit(*target);
+                }
+                if *handler != 0 {
+                    visit(*handler);
+                }
+            }
+            // (#477) Generator frame: slots podem ser handles vivos.
+            Entry::GenState(g) => {
+                for v in &g.frame {
+                    if *v != 0 {
+                        visit(*v as u64);
+                    }
+                }
+                if g.ret != 0 {
+                    visit(g.ret as u64);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn finalize(&mut self) {
+        cleanup_entry(self);
+    }
+}
+
 impl Drop for HandleTable {
     fn drop(&mut self) {
         for slot in &mut self.slots {
@@ -879,60 +948,10 @@ impl HandleTable {
                 eprintln!("[gc] MARK handle={handle:#x} slot={table_slot} kind=Tcp*");
             }
             slot.marked = true;
-            match &slot.entry {
-                // (#264) Function: prototype + bound_this + bound_args.
-                Entry::Function(d) => {
-                    if d.prototype_handle != 0 {
-                        children.push(d.prototype_handle);
-                    }
-                    if d.has_bound_this && d.bound_this != 0 {
-                        children.push(d.bound_this as u64);
-                    }
-                    for v in &d.bound_args {
-                        if *v != 0 {
-                            children.push(*v as u64);
-                        }
-                    }
-                }
-                // (#398) Map values podem ser handles (string/map/vec/etc).
-                Entry::Map(m) => {
-                    for v in m.values() {
-                        if *v != 0 {
-                            children.push(*v as u64);
-                        }
-                    }
-                }
-                // (#398) Vec elements idem.
-                Entry::Vec(v) => {
-                    for h in v.iter() {
-                        if *h != 0 {
-                            children.push(*h as u64);
-                        }
-                    }
-                }
-                // (#218) Proxy: target + handler vivos enquanto proxy
-                // estiver vivo.
-                Entry::Proxy { target, handler } => {
-                    if *target != 0 {
-                        children.push(*target);
-                    }
-                    if *handler != 0 {
-                        children.push(*handler);
-                    }
-                }
-                // (#477) Generator frame: slots podem ser handles vivos.
-                Entry::GenState(g) => {
-                    for v in &g.frame {
-                        if *v != 0 {
-                            children.push(*v as u64);
-                        }
-                    }
-                    if g.ret != 0 {
-                        children.push(g.ret as u64);
-                    }
-                }
-                _ => {}
-            }
+            // Enumera os filhos via o contrato `Traceable` (mesma lógica, agora
+            // atrás da ABI do collector — Fase 2 GC). O coletor genérico do engine
+            // chamará isto sem conhecer as variants concretas.
+            rts_engine::Traceable::trace_children(&slot.entry, &mut |c| children.push(c));
         }
         children
     }
