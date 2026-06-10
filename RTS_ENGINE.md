@@ -623,3 +623,168 @@ Redesign  PRIVATE/PROTECTED como não-exportado (não flag enforçada).
 
 Invariantes da §7 valem aqui: nada vira metadata morta (todo modifier tem
 consumidor de codegen ou não existe), 100% nativo, suíte verde por passo.
+
+---
+
+## 10. O NOVO MODO — motor genérico + módulos externos nativos
+
+A extensibilidade **não é um subsistema "rts-plugin" separado**. É o que o motor
+**é** quando fica genérico: codegen resolve tudo por **um registry** e emite
+`call` nativo, sem saber se o módulo foi compilado-dentro (builtin) ou carregado
+de um `.dll`/`.so` (externo). "Plugin" = só "módulo externo registrado no mesmo
+motor". Esse é o **novo modo**: nada físico exposto dentro do codegen.
+
+### 10.1 O motor já é genérico (a aposta, verificada)
+
+`lower_ns_call_body` (`ns_call.rs:174`) **já** é um motor: dado **qualquer**
+`&NamespaceMember`, deriva a assinatura Cranelift de `member.args`/`member.returns`
+(via `lower_member`/`scalar_to_cl`) e emite
+`module.declare_function(member.symbol, Import) + ins().call(fref)`. **Zero**
+conhecimento de qual módulo/método está hardcoded ali. A fronteira já é `extern
+"C"` típado + handle `u64` opaco (= modelo N-API **sem** a camada de boxing).
+A macro já funde `#[no_mangle] extern "C"` + a row + o SPEC. Logo: um membro de
+módulo externo desce **byte-idêntico** a `io.print`.
+
+### 10.2 Registry unificado (builtin + externo no mesmo lugar)
+
+Os três arrays-à-mão (`SPECS`, `GLOBAL_CLASS_SPECS`, os 1104 `add_fn!`) viram
+**um** `OnceLock<RwLock<Registry>>` em rts-codegen — heap do **compilador**
+(rts.exe), lido no lowering, **não** no binário emitido (pureza nativa intacta).
+
+```rust
+struct Registry {
+    modules: HashMap<&'static str, ModuleEntry>,   // "<scheme>:<name>"
+    classes: HashMap<&'static str, ClassEntry>,
+    jit_symbols: HashMap<&'static str, *const u8>, // symbol -> fn ptr (builtin E externo)
+    _libs: Vec<Arc<PluginLib>>,                    // mantém cada .dll/.so mapeada
+}
+enum SpecOrigin { Builtin, External { lib: LibId } }
+```
+- **Builtin** popula no startup (Track A drena os const arrays; Track B linkme,
+  gated pelo spike F0). `lookup`/`global_class_lookup` passam a ler o registry —
+  **mesmos call-sites**.
+- **Externo** popula no `LoadLibrary`/`dlopen`: o host **copia/interna** os
+  descritores (string → arena `'static`), guarda só o `fn_ptr` + símbolo
+  internado, e `Arc<Library>` em `_libs` mantém a imagem viva.
+- Codegen **não distingue** origem. `SpecOrigin` só decide o caminho AOT
+  (builtin = reloc estático; externo = slot de import) e diagnóstico — **nunca**
+  ramifica o marshalling.
+
+### 10.3 ABI externa CONGELADA (repr(C), versionada) — `rts-abi::c_plugin`
+
+> **Verificado:** `NamespaceMember`/`NamespaceSpec`/`GlobalClassSpec`/`AbiType`/
+> `MemberKind`/`MemberFlags` **não são repr(C)** (só `js_error.rs` tem
+> `#[repr(u8)]`). São layout-Rust com `&'static str`/`&[T]` (fat-pointers) — **UB
+> silencioso** se cruzarem `.dll` compilada por outra versão de rustc. Por isso a
+> fronteira externa é uma camada **separada** repr(C); os tipos internos ficam.
+
+```rust
+// todo .dll/.so externo exporta exatamente isto:
+#[no_mangle] pub extern "C" fn rts_plugin_register(host: *const RtsHost,
+                                                    reg: *const RtsRegistrar) -> i32;
+pub const RTS_PLUGIN_ABI_VERSION: u32 = 1;
+// AbiType/MemberKind/MemberFlags como códigos u8/u32 FIXOS — nunca o discriminante Rust.
+#[repr(C)] struct RtsMemberDesc {
+    name: *const u8, name_len: u64, kind: u8, flags: u32,
+    args: *const u8, args_len: u64, returns: u8, variadic: u8,
+    fn_ptr: *const c_void,                 // o ponteiro extern "C" REAL (load-bearing)
+    symbol: *const u8, symbol_len: u64,    // símbolo canônico (JIT name + AOT)
+    ts_sig: *const u8, ts_sig_len: u64,
+}
+// + RtsHost (callbacks gc::alloc_string/buffer/vec/map, free_handle, gc_root_add/remove,
+//   register_thread), RtsRegistrar (add_module/add_class), RtsModuleDesc, RtsClassDesc.
+```
+- `abi_version` é checado **antes** de ler qualquer descritor → mismatch falha
+  limpo no load (log + skip), **nunca** crash.
+- Diferencial vs N-API: o externo entrega **ponteiros típados nativos** que
+  codegen `call`a direto — zero marshalling além do StrPtr/Handle que builtins já
+  têm. Sem interpretador, sem boxing.
+
+### 10.4 Autoria — a MESMA macro
+
+O autor escreve o **mesmo** `#[rts_module]`/`#[rts_class]` de um builtin, num
+crate `cdylib`, mais **uma** linha `rts_plugin_entry!{ modules=[...], classes=[...] }`
+(gerada por macro). Arm `cfg(rts_plugin)` na macro emite o inventário por-crate +
+os descritores. A macro **deriva o extern E o descritor da mesma assinatura Rust**
+— é o que fecha o buraco do `fn_ptr` (§10.7).
+
+### 10.5 JIT-first (real) vs AOT (greenfield pesado) — escopo honesto
+
+- **JIT** (`rts run`/`test`): **real, dias de trabalho, zero mudança de codegen.**
+  Carrega o `.dll` em rts.exe antes de compilar, injeta os `fn_ptr` em
+  `JITBuilder::symbol`/`symbol_lookup_fn`; `finalize_definitions()` resolve o
+  símbolo externo igual a `io.print`. Precisa: wrapper `libloading` (~50 LOC,
+  **não existe nada de dynamic-loading hoje**) + o registrar + 3 linhas em
+  `build_jit_module`.
+- **AOT** (`rts compile`): **cliff greenfield, a maior parte da engenharia.**
+  `Linkage::Import` estático **falha no link** num símbolo que só existe em
+  runtime. Precisa inventar do zero: slot de import por-callee +
+  **`call_indirect`** (codegen tem **ZERO** `call_indirect` hoje; replicar
+  expansão StrPtr 2-slot + `declare_value_needs_stack_map`) + inicializador
+  `dlopen` antes do `__RTS_MAIN` + namespace `dylib` estático no archive +
+  **trap-stub em slot não-preenchido** (senão ACCESS_VIOLATION — chão de
+  honestidade). MIR não faz indirect (`TailCallIndirect` unimplemented). **NO-GO
+  shippar AOT** até isso existir + provado. JIT-first valida a ABI barato.
+
+### 10.6 GC, threads, segurança — honesto, sem fingir
+
+- **GC root-set NÃO existe hoje** (`gc_root_add`/`remove` são infra **nova** — só
+  há `Entry::Function::keep_alive`). Handle que o externo segura through
+  await/callback/thread sem pin é varrido (GC_TICK_INTERVAL=256). Precisa
+  construir o root-set persistente antes de expor o contrato.
+- **Scan cross-thread é Windows-only** (`thread_registry` — SuspendThread; Linux/
+  macOS = no-op, só main thread). `register_thread` **não** torna handle de thread
+  de externo seguro fora do Windows. Construir o scan portável OU escopar
+  externo-com-thread a Windows + documentar.
+- Externo **nunca** aloca handle próprio — só via `RtsHost.alloc_*` (HandleTable
+  compartilhada). Handle é opaco (layout gen|slot|shard não é estável).
+- **Segurança = honestidade, não sandbox.** Carregar `.dll` nativo = código
+  arbitrário com privilégio total do processo (igual `.node` N-API). Defesas são
+  **integridade**: SHA256-pin no lockfile, verificar antes de `LoadLibrary`,
+  **só carregar do manifest** (`rts.json` `rtsPlugins`, nunca auto-discovery).
+  `import "plugin:foo"` sem entrada no manifest = **erro de compilação duro**
+  (fail closed). Desabilitar/last-priority o fallback dlsym do JIT para externos +
+  namespace de símbolo reservado `__RTS_FN_PLUGIN_*` (anti-shadowing). Documentar:
+  declarar um plugin = autorizar execução de código. Sem alegar contenção.
+
+### 10.7 builtins.rs é PRÉ-REQUISITO da tese, não nota de rodapé
+
+"Registry é o portão único" e "codegen sem hardcode" **só são verdade depois** de
+E2-E4 (§4): hoje String/Array/Map/Set/Number/console/RegExp despacham por
+string-match em `builtins.rs` (2258 linhas, ~182 braços), com símbolos e
+assinaturas re-digitados, **fora do registry**. Array/Map/Set **nem têm spec**.
+Logo um externo **não consegue** estender despacho-de-método-de-receiver do jeito
+que `String.indexOf` faz — porque `String.indexOf` **também** não passa pelo
+registry. Enquanto `builtins.rs` não for drenado pras rows, externos são
+first-class só no caminho **namespace + global-class** (já genérico), não no de
+método-de-tipo. **Must-fixes adicionais** antes de externos shipar: `fn_ptr`
+by-honor → **v1 só macro-autorado** (macro deriva extern+descritor de 1
+assinatura) + validar códigos AbiType no register; **pin Bool=i64** (signature.rs
+lowra Bool→I64; doc de ty.rs mente "i8" → corrigir); F2 arity-keyed **antes** de
+overload de externo; mover os 2 symbol-switches de `ns_call.rs` (:272 spawn-bitcast,
+:314 ambiguous-ret) pra `MemberFlags` (RAW_BITS_ARG/AMBIGUOUS_RET) — senão emit
+não é data-driven e externo não declara isso.
+
+### 10.8 Ordem (compõe com F/E/A — não é fork)
+
+```
+JIT-first (real, dias):
+  S1  member.rs frozen surface (A1a feito) + NamespaceSpec.scheme.
+  S2  F2 resolve_member arity-keyed (pré-req de overload).
+  S3  F3 Track A: Registry unificado; register_builtins() drena os const arrays. lookup lê o registry.
+  S4  F4 jit symbol_lookup_fn (builtins via GetProcAddress/dlsym + registry.jit_symbols); encolhe add_fn!.
+  S5  dynamic-loading: wrapper libloading (LoadLibrary/dlopen/Mach-O). ~50 LOC. Testado com .dll throwaway.
+  S6  congelar rts-abi::c_plugin (repr(C) + RTS_PLUGIN_ABI_VERSION + códigos u8 fixos). Aditivo.
+  S7  loader JIT: manifest + SHA256 + LoadLibrary + RtsHost + register + intern no Registry. Scheme "plugin:".
+      → 1º módulo externo roda sob `rts run`. MILESTONE.
+  S8  rts_plugin_entry!{} + arm cfg(rts_plugin) na macro. Plugin de referência (crc32) + teste.
+AOT (greenfield, gated):
+  S9  fork de call-site por SpecOrigin → import-slot + call_indirect (StrPtr 2-slot + stack map),
+      inicializador dlopen antes do __RTS_MAIN, namespace dylib estático, trap-stub. NO-GO até provado.
+Paralelo (pré-req da tese de genericidade):
+  E2-E4  drenar builtins.rs pras rows + gc_root_set + scan cross-thread portável.
+```
+
+Cada step build+suíte verde. JIT-first reusa o caminho-nomeado já-genérico (sem
+mudar codegen); AOG é subsistema novo inteiro (capacidade de dynamic-loading que
+o projeto tem zero hoje) — não deixar o sucesso do JIT implicar que AOT está perto.
