@@ -878,7 +878,6 @@ JIT-first (real, dias):
   S1  ✅ member.rs frozen surface (F1/A1a feitos) + NamespaceSpec.scheme (fica p/ F3).
   S2  ✅ F2 resolve_instance_method arity-keyed (pré-req de overload).
   S3  F3 Track A: Registry unificado; register_builtins() drena os const arrays. lookup lê o registry.
-  S3  F3 Track A: Registry unificado; register_builtins() drena os const arrays. lookup lê o registry.
   S4  F4 jit symbol_lookup_fn (builtins via GetProcAddress/dlsym + registry.jit_symbols); encolhe add_fn!.
   S5  dynamic-loading: wrapper libloading (LoadLibrary/dlopen/Mach-O). ~50 LOC. Testado com .dll throwaway.
   S6  congelar rts-abi::c_plugin (repr(C) + RTS_PLUGIN_ABI_VERSION + códigos u8 fixos). Aditivo.
@@ -893,5 +892,93 @@ Paralelo (pré-req da tese de genericidade):
 ```
 
 Cada step build+suíte verde. JIT-first reusa o caminho-nomeado já-genérico (sem
-mudar codegen); AOG é subsistema novo inteiro (capacidade de dynamic-loading que
+mudar codegen); AOT é subsistema novo inteiro (capacidade de dynamic-loading que
 o projeto tem zero hoje) — não deixar o sucesso do JIT implicar que AOT está perto.
+
+---
+
+## 11. Verificação & gates de CI (como cada step se prova)
+
+Consolidação dos contratos de verificação espalhados nas seções. **Nenhum step
+merge-a sem o seu gate.** O chão de honestidade (§7) é verificável, não confiança.
+
+| Step | Gate (falha = bloqueia merge) |
+|------|-------------------------------|
+| **F1/A1a/A2** ✅ | aditivo: `cargo test --lib` + macro `derive.rs` (rts_var round-trip atômico + flags); suíte TS intocada (campos default-vazios). |
+| **F2** ✅ | `cargo test -p rts-abi` (overload/alias/variadic/optional-tail) + suíte TS 1710/1710 (mudança de dispatch). |
+| **F3** | **parity-count**: `register_builtins()` produz exatamente as mesmas N entradas dos const arrays (assert no startup). Build o Registry 2× → ordem `(scheme,name)` idêntica. `rts.d.ts` **byte-idêntico** (lint CI existente). |
+| **F4** | **name-set assert (release, permanente)**: todo `member.symbol` que possui extern (não-`alias_of`/`external`/`intrinsic`) ∈ `JIT_SYMBOLS`. **Não deletar** o drift-check antigo — promover. `rts run` + `rts compile` ambos verdes (testar export no MSVC). |
+| **F0** | spike `#[distributed_slice]` trivial em rts-runtime, build **AOT MSVC**, assertar sobrevivência rlib→bin. Falhou → Track A é o piso permanente; não bloqueia plugins. |
+| **E1** | **oráculo de divergência**: roda engine-path E path-antigo lado-a-lado sobre a suíte inteira; **trapa em qualquer divergência**. Pega dependências latentes de ordem (#311/#480, string-before-map SIGILL). |
+| **E2-E4** | por-família, **um por commit**, suíte completa entre cada. **lint**: antes de deletar braço de `builtins.rs`, exigir row equivalente (símbolo + arg-ABI batendo). |
+| **perf (todo step de codegen)** | `rts ir bench/{monte_carlo_pi,pi_machin}.ts` **diff-zero** no hot-loop (sem box/guard/probe novo). CI compara contra IR golden. |
+| **A3/A4** | fixture TS: var read + write (`x.v=5`) + readonly-reject (erro de compilação). Handle-var sobrevive a um GC cycle forçado (GC_TICK_INTERVAL=256). |
+| **X2/X3** | plugin de referência (crc32) carrega + chama sob `rts run`. ABI-version mismatch → falha limpa (log+skip), **nunca crash**. `node:fs`/alias build com **zero símbolo duplicado**. |
+| **X5 (AOT)** | slot não-preenchido → **trap-stub com mensagem** ("plugin X membro Y não carregado"), **nunca** ACCESS_VIOLATION. Programa que roda sob `rts run` e usa plugin → erro **em compile-time** sob `rts compile` se o plugin não casa (fail closed, nunca no link/trap). |
+| **segurança (X*)** | `import "plugin:foo"` sem entrada no manifest = **erro de compilação**. SHA256 verificado **antes** de `LoadLibrary`. Símbolo de plugin fora do namespace `__RTS_FN_PLUGIN_*` → rejeitado no insert. |
+
+---
+
+## 12. Glossário
+
+- **RecvKind** — o tipo-de-receiver resolvido num ponto (`Class`/`UserClass`/
+  `ProtoInstance`/`ObjectLiteral`/`Unknown`), substituindo os ~12 side-channels
+  do `FnCtx`. Chave da resolução. (§5.1)
+- **MethodTarget** — o resultado de `resolve_method`: `SymbolCall` | `InlineIr` |
+  `UserClassMethod` | `VirtualDispatch` | `Residual` | `RuntimeAuto`. O que o
+  emissor consome. (§5.2)
+- **MethodIntrinsic** — enum **local à engine** (≠ `abi::Intrinsic`, que é
+  MIR-shared) para os poucos braços inline-IR que precisam do receiver. (§5.3)
+- **Residual** — método que **não** vira row (variádico, regex-polimórfico,
+  coerção-construção); handler nomeado explícito. (§5.4)
+- **RuntimeAuto / DISPATCH_AUTO** — caminho para receiver `Unknown` (Tier-3): 1
+  tag-check em runtime + `call` nativo. **Não** é interpretação. (§3.3, §5.5)
+- **Tier 1/2/3** — quanto o compilador sabe do receiver: classe estática (1),
+  família via ValTy+sinais (2), `Handle` opaco/`any` (3 → RuntimeAuto). (§5.1)
+- **Track A / Track B** — A = Registry sem linkme (drena os arrays no startup,
+  piso permanente). B = linkme auto-monta + deleta os arrays (gated por F0). (§9.1, §10.2)
+- **SpecOrigin** — `Builtin` | `External{lib}` no Registry. Metadado pro caminho
+  AOT (reloc estático vs import-slot) + diagnóstico, **nunca** ramifica o
+  marshalling. (§10.2)
+- **Registry** — `OnceLock<RwLock<Registry>>` em rts-codegen (heap do compilador,
+  não do binário emitido). Fonte única; builtins + externos. (§10.2)
+- **c_plugin / RtsHost / RtsRegistrar** — a ABI repr(C) **congelada** que um
+  `.dll`/`.so` externo expõe; `RTS_PLUGIN_ABI_VERSION`. (§10.3)
+- **ModuleScheme** — família de import (`rts:`/`node:`/`plugin:`/custom) como
+  **dado** (slice), não branch hardcoded. (§9.3)
+- **`#[rts_global]`** — autoria de escopo bare (sem import): `NaN`/`isNaN`/var
+  global → entradas de registry. (§9.7)
+- **oráculo de divergência** — roda engine-path + path-antigo lado-a-lado,
+  trapa em divergência. Gate de E1. (§11)
+
+---
+
+## 13. Fora de escopo / não-objetivos
+
+O que a engine **NÃO** muda (pra não inflar o blast-radius):
+
+- **Semântica JS não muda.** A engine é refactor de *despacho*, não de
+  comportamento. Toda saída observável fica idêntica (gate: suíte + oráculo).
+- **Modelo de GC não muda** — exceto o **root-set novo** (`gc_root_add/remove`)
+  que A4/X* exigem. Mark+sweep preciso, stack maps, shards: intocados.
+- **MIR fica roteado-pra-AST** em member/class/this até HIR ganhar `This` +
+  tipo-de-classe (E6). A engine é AST-only até lá — não é regressão, é o estado
+  atual mantido.
+- **Sem sandbox de plugin.** Carregar `.dll`/`.so` = código nativo arbitrário,
+  privilégio total (igual `.node`/N-API). Defesa é integridade (SHA256 +
+  manifest-only), não contenção. Sem alegar o contrário. (§10.6)
+- **Sem hot-reload de plugin** na v1 — `Arc<Library>` vive o processo todo; rows
+  `'static` apontam pra strings internadas, lib nunca dropa mid-lowering.
+- **AOT de plugin é gated** (X5) — não shipar até import-slot + call_indirect +
+  trap-stub provados. JIT-first valida a ABI barato.
+- **`default_args` valor-na-macro** chega em E3/E4 — o campo já é final (F1); só
+  a sintaxe de injeção de default no emissor falta.
+- **PRIVATE/PROTECTED de builtin não vira flag enforçada** — modelado como
+  "membro não exposto a TS" (codegen não consegue checar `ctx.current_class`
+  contra o nome da builtin). (§9.5)
+
+---
+
+> **Fim.** Este doc é a spec canônica da metade-despacho + novo modo da
+> rts-engine. Status vivo em §0.1; ordem detalhada em §6/§9.6/§10.8; provas em
+> §11. Mudou o código e a regra mentiu? Atualize o doc no mesmo PR (RULE #0).
