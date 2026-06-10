@@ -84,7 +84,8 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
 | `877b2ebd` | F3a | `lookup`/`global_class_lookup` viram índice `OnceLock<Registry>` (`register_builtins()` semeia dos const arrays). Suíte **1710/1710** |
 | `7962a782` | F3b | registry vira `RwLock` + `register_namespace`/`register_class` + `leak_namespace` (Module do builder → `&'static NamespaceSpec`). Teste-ponte: ns do builder achada pelo `lookup`. Suíte **1710/1710** |
 | `c0d75f54` | F4 | `leak_namespace` grava `(symbol, fn_ptr)` em `JIT_SYMBOLS`; `runtime_jit_symbols()`; `jit.rs` injeta no `JITBuilder` após o `add_fn!`. Habilita EXECUÇÃO de fn do builder. Suíte **1710/1710** |
-| _(HEAD)_ | F4b | `builtin_module` (import resolver) lê `registry_namespace()` em vez do const `SPECS` → módulos do builder ficam importáveis. Registry é a fonte de leitura dos 3 consumidores (lookup, JIT, import). Suíte **1710/1710** |
+| `1b8559a6` | F4b | `builtin_module` (import resolver) lê `registry_namespace()` em vez do const `SPECS` → módulos do builder ficam importáveis. Registry é a fonte de leitura dos 3 consumidores (lookup, JIT, import). Suíte **1710/1710** |
+| _(HEAD)_ | Q1 | fix tabela `ty.rs` Bool `i8`→`i64` (doc-only; `type Bool = i64` já era correto) |
 
 ---
 
@@ -118,7 +119,7 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
 - [ ] Atualizar `RTS_ENGINE.md` §0.1 + este arquivo a cada marco.
 
 ### Pendências paralelas (do RTS_ENGINE.md, não bloqueiam o acima)
-- [ ] **Q1** pin Bool=i64 (corrigir doc `ty.rs`/`types.rs`; `signature.rs:9` lowra Bool→I64).
+- [x] **Q1** pin Bool=i64 — corrigida a tabela de `ty.rs` (dizia `i8`; `type Bool = i64` + doc 32-35 já corretos). Doc-only. (HEAD)
 - [ ] **Q2** mover symbol-switches `ns_call.rs:272`/`:314` → `MemberFlags` (RAW_BITS_ARG/AMBIGUOUS_RET).
 - [ ] **E2-E4** drenar `builtins.rs` (~182 braços) pras rows — pré-req da tese "registry é portão único".
 - [ ] **X1-X5** módulos externos `.dll`/`.so` (§10): libloading, `c_plugin` repr(C), loader JIT, AOT gated.

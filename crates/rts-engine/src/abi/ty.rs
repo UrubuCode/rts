@@ -15,7 +15,7 @@
 //! | `I64` / `i64`    | I64       | number    | i64   |
 //! | `I32` / `i32`    | I32       | number    | i32   |
 //! | `F64` / `f64`    | F64       | number    | f64   |
-//! | `Bool` / `bool`  | Bool      | boolean   | i8    |
+//! | `Bool` / `bool`  | Bool      | boolean   | i64   |
 //! | `Str`            | StrPtr    | string    | ptr+len (expanded by macro) |
 //! | `()` / none      | Void      | void      | —     |
 
