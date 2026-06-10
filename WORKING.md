@@ -16,6 +16,28 @@
 
 ## 🎯 PRÓXIMO PASSO (sempre no topo)
 
+> **Fase 2 PILOTO ✅** — `hint` migrado da macro pro builder, executa via
+> `rts run`, suíte 1710/1710. O caminho builder→registry→codegen→JIT está PROVADO
+> com uma ns real. **Agora é mecânico**: migrar as outras ~49 ns + 27 classes
+> pelo mesmo template (`namespaces/hint/mod.rs` = referência):
+> 1. Trocar `#[rts_namespace(ns)] impl { #[rts_fn] fns }` por `#[no_mangle]
+>    externs à mão + `pub fn register(e: &mut Engine)` com `.member(func(...))`
+>    (ts/doc EXATOS do que a macro derivava — pegar do `rts emit-types`/d.ts).
+> 2. Adicionar `crate::namespaces::<ns>::register(&mut engine)` no
+>    `register_builtins` (codegen abi/mod.rs).
+> 3. Remover `&crate::namespaces::<ns>::SPEC` do const `SPECS`.
+> 4. Gate por ns: `rts run` + suíte 1710. Classes globais: análogo via
+>    `engine.class(...)` (precisa o builder de classe ligar no `GLOBAL_CLASS_SPECS`
+>    — ainda NÃO ligado; ver nota). Quando zero `#[rts_*]`: deletar `rts-macro`.
+>
+> **Nota classes:** o fold atual só pega `engine.registry().modules()` (namespaces).
+> Pra migrar classes globais, `register_builtins` precisa também foldar
+> `engine.registry().classes()` (via um `leak_class` análogo + `classes`/
+> `classes_ordered`). Fazer quando começar as classes.
+
+### (próximo passo original abaixo)
+
+
 **F3 — codegen lê o `Registry`** (a ponte). Decisão de escopo (descoberta):
 `rts_engine::Registry` guarda `Member` (owned, novo); codegen consome
 `&NamespaceMember`/`&GlobalClassSpec` (const, antigo) — **tipos diferentes**.
@@ -90,7 +112,8 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
 | `33801868` | Q1 | fix tabela `ty.rs` Bool `i8`→`i64` (doc-only) |
 | `4f261284` | doc | WORKING.md — pega do Q2 (1ª tentativa revertida) |
 | `4609b7c6` | Q2 | symbol-switches de `ns_call.rs` → `MemberFlags` (RAW_BITS_ARG/AMBIGUOUS_RET/UNDEF_RET). 13 membros flagados; entradas mortas `reduce_right*` dropadas. Suíte **1710/1710** |
-| _(HEAD)_ | F3d | gerador d.ts (`emit_types`) itera `registry_specs_ordered()` (Vec ordenado: seed em ordem const + append runtime) em vez do const `SPECS`. `rts emit-types` → `git diff` **vazio** (byte-idêntico). **Desbloqueia Fase 2** (migrar ns = só regenerar, diff = ns movendo). Suíte 1710/1710 |
+| `f7500ebb` | F3d | gerador d.ts itera `registry_specs_ordered()` (Vec ordenado) em vez do const `SPECS`. Byte-idêntico. Desbloqueia Fase 2 |
+| _(HEAD)_ | **Fase 2 piloto** | **`hint` migrado da macro → builder** (1ª ns). hand-externs `#[no_mangle]` + `hint::register(Engine)` via `.member()` (ts/doc exatos); `register_builtins` folda as camadas do builder no registry; hint removido do const SPECS. `rts run` "hint via builder: 42"; suíte **1710/1710** (hint_basic via builder). Prova Fase 2 end-to-end |
 
 ---
 

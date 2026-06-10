@@ -93,7 +93,8 @@ pub const SPECS: &[&NamespaceSpec] = &[
     &crate::namespaces::os::SPEC,
     &crate::namespaces::collections::SPEC,
     &crate::namespaces::hash::SPEC,
-    &crate::namespaces::hint::SPEC,
+    // `hint` migrado pro builder do rts-engine (Fase 2) — registrado em
+    // `register_builtins` via `namespaces::hint::register`, não mais aqui.
     &crate::namespaces::http_server::SPEC,
     &crate::namespaces::fmt::SPEC,
     &crate::namespaces::crypto::SPEC,
@@ -159,6 +160,19 @@ fn register_builtins() -> Registry {
         classes.insert(s.name, *s);
         classes_ordered.push(*s);
     }
+
+    // Camadas registradas via o builder do `rts-engine` (Fase 2). Foldadas
+    // direto nos maps locais — NÃO via `register_namespace`/`register_class`
+    // (que usam `registry()`, o mesmo `OnceLock` em init → reentrância/deadlock).
+    // `leak_namespace` só toca `jit_symbols` (outro OnceLock), seguro aqui.
+    let mut engine = rts_engine::Engine::new();
+    crate::namespaces::hint::register(&mut engine);
+    for module in engine.registry().modules() {
+        let spec = leak_namespace(module);
+        namespaces.insert(spec.name, spec);
+        specs_ordered.push(spec);
+    }
+
     Registry {
         namespaces,
         classes,

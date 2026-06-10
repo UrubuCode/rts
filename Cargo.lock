@@ -2616,9 +2616,9 @@ dependencies = [
  "console 0.15.11",
  "flate2",
  "indicatif",
- "rts-abi",
  "rts-codegen",
  "rts-diagnostics",
+ "rts-engine",
  "rts-linker",
  "rts-runtime",
  "serde",
@@ -2641,9 +2641,9 @@ dependencies = [
  "cranelift-native",
  "cranelift-object",
  "indexmap",
- "rts-abi",
  "rts-ast",
  "rts-diagnostics",
+ "rts-engine",
  "rts-hir",
  "rts-linker",
  "rts-mir",
@@ -2675,7 +2675,6 @@ version = "0.1.0"
 name = "rts-hir"
 version = "0.1.0"
 dependencies = [
- "rts-abi",
  "rts-ast",
  "swc_ecma_ast",
 ]
@@ -2688,7 +2687,6 @@ dependencies = [
  "flate2",
  "indicatif",
  "object 0.39.0",
- "rts-abi",
  "sha2 0.10.9",
  "tar",
  "target-lexicon",
@@ -2710,7 +2708,7 @@ dependencies = [
 name = "rts-mir"
 version = "0.1.0"
 dependencies = [
- "rts-abi",
+ "rts-engine",
  "rts-hir",
 ]
 
@@ -2744,6 +2742,7 @@ dependencies = [
  "rayon",
  "regex",
  "rts-abi",
+ "rts-engine",
  "rts-macro",
  "rustc-hash 1.1.0",
  "rustls",

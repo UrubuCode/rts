@@ -20,6 +20,7 @@ asio = ["cpal/asio"]
 
 [dependencies]
 rts-abi = { path = "../rts-abi" }
+rts-engine = { path = "../rts-engine" }
 rts-macro = { path = "../rts-macro" }
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
