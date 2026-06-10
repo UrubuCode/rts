@@ -127,6 +127,11 @@ pub const SPECS: &[&NamespaceSpec] = &[
 struct Registry {
     namespaces: std::collections::HashMap<&'static str, &'static NamespaceSpec>,
     classes: std::collections::HashMap<&'static str, &'static GlobalClassSpec>,
+    /// Ordem de iteração (= ordem do const array no seed, + append em runtime).
+    /// Os HashMaps são por-chave (ordem-independente); estes Vecs preservam a
+    /// ordem que o gerador de `rts.d.ts`/`apis` precisa (determinística).
+    specs_ordered: Vec<&'static NamespaceSpec>,
+    classes_ordered: Vec<&'static GlobalClassSpec>,
 }
 
 // `RwLock` (não `OnceLock` puro) porque, além do seed dos const arrays, o
@@ -143,17 +148,35 @@ fn registry() -> &'static std::sync::RwLock<Registry> {
 /// Semeia o registry a partir dos const arrays (a origem dos builtins hoje).
 fn register_builtins() -> Registry {
     let mut namespaces = std::collections::HashMap::with_capacity(SPECS.len());
+    let mut specs_ordered = Vec::with_capacity(SPECS.len());
     for s in SPECS {
         namespaces.insert(s.name, *s);
+        specs_ordered.push(*s);
     }
     let mut classes = std::collections::HashMap::with_capacity(GLOBAL_CLASS_SPECS.len());
+    let mut classes_ordered = Vec::with_capacity(GLOBAL_CLASS_SPECS.len());
     for s in GLOBAL_CLASS_SPECS {
         classes.insert(s.name, *s);
+        classes_ordered.push(*s);
     }
     Registry {
         namespaces,
         classes,
+        specs_ordered,
+        classes_ordered,
     }
+}
+
+/// Namespaces na ordem de iteração (const seed + módulos do builder/externos
+/// appendados). Usado pelo gerador de `rts.d.ts` (`emit_types`) e por `rts apis`
+/// para uma saída determinística que inclui módulos registrados em runtime.
+pub fn registry_specs_ordered() -> Vec<&'static NamespaceSpec> {
+    registry().read().unwrap().specs_ordered.clone()
+}
+
+/// Classes globais na ordem de iteração (const seed + builder/externos).
+pub fn registry_classes_ordered() -> Vec<&'static GlobalClassSpec> {
+    registry().read().unwrap().classes_ordered.clone()
 }
 
 pub fn lookup(qualified: &str) -> Option<(&'static NamespaceSpec, &'static NamespaceMember)> {
@@ -167,7 +190,10 @@ pub fn lookup(qualified: &str) -> Option<(&'static NamespaceSpec, &'static Names
 /// ser `'static` — use [`leak_namespace`] para converter um `rts_engine::Module`
 /// do builder (owned) numa spec vazada.
 pub fn register_namespace(spec: &'static NamespaceSpec) {
-    registry().write().unwrap().namespaces.insert(spec.name, spec);
+    let mut reg = registry().write().unwrap();
+    if reg.namespaces.insert(spec.name, spec).is_none() {
+        reg.specs_ordered.push(spec); // novo nome → entra na ordem de iteração
+    }
 }
 
 /// Resolve uma namespace pelo nome no registry (builtins seeds + módulos do
@@ -179,7 +205,10 @@ pub fn registry_namespace(name: &str) -> Option<&'static NamespaceSpec> {
 
 /// Registra uma classe global no registry em runtime.
 pub fn register_class(spec: &'static GlobalClassSpec) {
-    registry().write().unwrap().classes.insert(spec.name, spec);
+    let mut reg = registry().write().unwrap();
+    if reg.classes.insert(spec.name, spec).is_none() {
+        reg.classes_ordered.push(spec);
+    }
 }
 
 /// `symbol → endereço da fn` dos membros registrados em runtime (do builder).

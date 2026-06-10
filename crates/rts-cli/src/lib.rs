@@ -2,6 +2,7 @@ pub mod abi {
     pub use rts_engine::abi::*;
     pub use rts_codegen::abi::SPECS;
     pub use rts_codegen::abi::GLOBAL_CLASS_SPECS;
+    pub use rts_codegen::abi::registry_specs_ordered;
     pub use rts_codegen::abi::lookup;
     pub use rts_codegen::abi::global_class_lookup;
     pub mod member {

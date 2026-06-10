@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 
 use crate::abi::member::MemberKind;
-use crate::abi::SPECS;
 
 pub fn command(output: Option<String>) -> Result<()> {
     let path = resolve_output(output)?;
@@ -30,17 +29,22 @@ fn resolve_output(arg: Option<String>) -> Result<PathBuf> {
 pub fn generate() -> String {
     let mut out = String::with_capacity(16384);
 
+    // Itera o registry na ordem de iteração (= ordem do const `SPECS` no seed,
+    // + módulos do builder/externos appendados). Mantém o d.ts determinístico e
+    // inclui módulos registrados em runtime (Fase 2). Hoje = ordem do const.
+    let specs = crate::abi::registry_specs_ordered();
+
     out.push_str("declare module \"rts\" {\n");
     push_primitive_aliases(&mut out);
 
-    for spec in SPECS {
+    for spec in &specs {
         push_namespace(&mut out, spec.name, spec.doc, spec.members, "  ");
         out.push('\n');
     }
 
     out.push_str("}\n");
 
-    for spec in SPECS {
+    for spec in &specs {
         out.push('\n');
         push_namespace_module(&mut out, spec.name, spec.doc, spec.members);
     }

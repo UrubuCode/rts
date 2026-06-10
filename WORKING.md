@@ -54,12 +54,14 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
 3. **Remover** `&...hint::SPEC` do const `SPECS` (senão dup). `pub const SPEC`
    fica unused mas é `pub` → sem dead_code. add_fn! do hint pode ficar (dup
    overwrite no JIT, mesmo ptr).
-4. **⚠️ d.ts:** o gerador (`emit_types.rs`/`apis.rs`/`init.rs`) itera `SPECS`
-   const — hint sumiria do `rts.d.ts` → lint quebra. **Fazer o gerador iterar o
-   registry** (ou manter hint no SPECS só p/ d.ts — feio). Decidir: gerador lê
-   `registry().namespaces`.
+4. **✅ d.ts (F3d feito):** `emit_types` já itera `registry_specs_ordered()`.
+   Migrar hint = ele sai do const SPECS, entra no registry via builder (append) →
+   d.ts regenera com o bloco `rts:hint` no FIM. Rodar `rts emit-types` + commitar
+   o `rts.d.ts` (diff = só hint movendo). **`apis.rs`/`init.rs` ainda iteram
+   SPECS** — rotear pra `registry_specs_ordered()` também (ou hint some do `rts
+   apis`; não-lintado, baixa prio).
 5. **Gate:** TS `import { spin_loop } from "rts:hint"` roda sob `rts run`;
-   `rts.d.ts` byte-idêntico; suíte 1710.
+   `rts emit-types` regenerado+commitado; suíte 1710.
 - Piloto OK → repetir mecânico p/ as 50 ns + 27 classes (o grosso, 933 membros).
   Aí a macro e o shim rts-abi morrem.
 
@@ -87,7 +89,8 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
 | `1b8559a6` | F4b | `builtin_module` (import resolver) lê `registry_namespace()` em vez do const `SPECS` → módulos do builder ficam importáveis. Registry é a fonte de leitura dos 3 consumidores (lookup, JIT, import). Suíte **1710/1710** |
 | `33801868` | Q1 | fix tabela `ty.rs` Bool `i8`→`i64` (doc-only) |
 | `4f261284` | doc | WORKING.md — pega do Q2 (1ª tentativa revertida) |
-| _(HEAD)_ | Q2 | symbol-switches de `ns_call.rs` → `MemberFlags` (RAW_BITS_ARG/AMBIGUOUS_RET/UNDEF_RET). Macro parseia os 3 attrs; 13 membros flagados (thread×5, parallel×4, promise, json×2, json5, globals/json); entradas mortas `reduce_right*` (só builtins.rs, sem membro) dropadas. Suíte **1710/1710** |
+| `4609b7c6` | Q2 | symbol-switches de `ns_call.rs` → `MemberFlags` (RAW_BITS_ARG/AMBIGUOUS_RET/UNDEF_RET). 13 membros flagados; entradas mortas `reduce_right*` dropadas. Suíte **1710/1710** |
+| _(HEAD)_ | F3d | gerador d.ts (`emit_types`) itera `registry_specs_ordered()` (Vec ordenado: seed em ordem const + append runtime) em vez do const `SPECS`. `rts emit-types` → `git diff` **vazio** (byte-idêntico). **Desbloqueia Fase 2** (migrar ns = só regenerar, diff = ns movendo). Suíte 1710/1710 |
 
 ---
 
