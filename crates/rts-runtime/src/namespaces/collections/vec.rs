@@ -1,13 +1,14 @@
 //! Vec<i64> — lista ordenada de valores i64.
 //!
-//! Os 9 membros do namespace `collections` referentes a Vec vivem no
-//! `#[rts_namespace(collections, part)] impl CollectionsVecNs` abaixo (stage
-//! 2c, `docs/specs/rts-core-engine.md`); o resto sao non-member externs
-//! (`*_AUTO`, `GL_ARRAY_*`, Array.prototype methods) que o codegen chama por
-//! simbolo. `mod.rs` junta os MEMBERS de map+vec via `rts_engine::abi::concat_members`.
+//! Os 9 membros do namespace `collections` referentes a Vec sao hand-written
+//! (Fase 2, remoção da `rts-macro`): cada um eh um extern "C" + uma entrada em
+//! `append_engine_members`. O resto sao non-member externs (`*_AUTO`,
+//! `GL_ARRAY_*`, Array.prototype methods) que o codegen chama por simbolo. O
+//! `register()` agregador do owner (`collections::mod`) chama
+//! `map::append_engine_members` e depois `vec::append_engine_members`.
 
 use rts_engine::abi::ty::{Handle, I64, U64};
-use rts_macro::rts_namespace;
+use rts_engine::{AbiType, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use super::super::gc::handles::{alloc_entry, free_handle, with_entry, with_entry_mut, Entry};
 
@@ -31,101 +32,199 @@ where
     })
 }
 
-/// Membros Vec do namespace `collections` (parte; map.rs declara a outra).
-#[rts_namespace(collections, part)]
-impl CollectionsVecNs {
-    /// Creates an empty Vec<number>.
-    #[rts_fn]
-    pub fn vec_new() -> Handle {
-        alloc_entry(Entry::Vec(Box::new(Vec::new())))
-    }
+// Membros Vec do namespace `collections` (parte; map.rs declara a outra).
+// Hand-written (Fase 2): externs + `append_engine_members` (abaixo).
 
-    /// Releases the vec handle.
-    #[rts_fn]
-    pub fn vec_free(h: U64) {
-        free_handle(h);
-    }
+/// Creates an empty Vec<number>.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_NEW() -> Handle {
+    alloc_entry(Entry::Vec(Box::new(Vec::new())))
+}
 
-    /// Number of elements; -1 if the handle is invalid.
-    #[rts_fn]
-    pub fn vec_len(h: U64) -> I64 {
-        with_vec(h, -1, |v| v.len() as i64)
-    }
+/// Releases the vec handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FREE(h: U64) {
+    free_handle(h);
+}
 
-    /// Appends `value` to the end.
-    #[rts_fn]
-    pub fn vec_push(h: U64, value: I64) {
-        let limit_hit = with_vec_mut(h, false, |v| {
-            if v.len() >= VEC_MAX_LEN {
-                return true;
-            }
-            v.push(value);
-            false
-        });
-        if limit_hit {
-            eprintln!(
-                "RTS runtime: vec push exceeded limit of {VEC_MAX_LEN} elements; aborting (likely infinite generator or unbounded loop)"
-            );
-            std::process::abort();
+/// Number of elements; -1 if the handle is invalid.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_LEN(h: U64) -> I64 {
+    with_vec(h, -1, |v| v.len() as i64)
+}
+
+/// Appends `value` to the end.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_PUSH(h: U64, value: I64) {
+    let limit_hit = with_vec_mut(h, false, |v| {
+        if v.len() >= VEC_MAX_LEN {
+            return true;
         }
+        v.push(value);
+        false
+    });
+    if limit_hit {
+        eprintln!(
+            "RTS runtime: vec push exceeded limit of {VEC_MAX_LEN} elements; aborting (likely infinite generator or unbounded loop)"
+        );
+        std::process::abort();
     }
+}
 
-    /// Removes and returns the last element; 0 when empty.
-    #[rts_fn]
-    pub fn vec_pop(h: U64) -> I64 {
-        let popped: Option<i64> = with_vec_mut(h, None, |v| v.pop());
-        match popped {
-            Some(v) => v,
-            None => i64::MIN + 2,
+/// Removes and returns the last element; 0 when empty.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_POP(h: U64) -> I64 {
+    let popped: Option<i64> = with_vec_mut(h, None, |v| v.pop());
+    match popped {
+        Some(v) => v,
+        None => i64::MIN + 2,
+    }
+}
+
+/// Element at `index`, or 0 out of range.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_GET(h: U64, index: I64) -> I64 {
+    if index < 0 {
+        return 0;
+    }
+    with_vec(h, 0, |v| v.get(index as usize).copied().unwrap_or(0))
+}
+
+/// Writes `value` at `index`. No-op out of range.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SET(h: U64, index: I64, value: I64) {
+    if index < 0 {
+        return;
+    }
+    with_vec_mut(h, (), |v| {
+        if let Some(slot) = v.get_mut(index as usize) {
+            *slot = value;
         }
-    }
+    });
+}
 
-    /// Element at `index`, or 0 out of range.
-    #[rts_fn]
-    pub fn vec_get(h: U64, index: I64) -> I64 {
-        if index < 0 {
-            return 0;
-        }
-        with_vec(h, 0, |v| v.get(index as usize).copied().unwrap_or(0))
-    }
+/// Removes all elements.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_CLEAR(h: U64) {
+    with_vec_mut(h, (), |v| v.clear());
+}
 
-    /// Writes `value` at `index`. No-op out of range.
-    #[rts_fn]
-    pub fn vec_set(h: U64, index: I64, value: I64) {
-        if index < 0 {
-            return;
-        }
-        with_vec_mut(h, (), |v| {
-            if let Some(slot) = v.get_mut(index as usize) {
-                *slot = value;
-            }
-        });
-    }
+/// Junta os elementos do vec separados por `sep` (string handle). Cada elemento i64 e' tratado como string handle se valido, senao formatado como numero decimal. Retorna handle da string resultante.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_JOIN(h: U64, sep: Handle) -> Handle {
+    let elems: Option<Vec<i64>> = with_entry(h, |entry| match entry {
+        Some(Entry::Vec(v)) => Some(v.iter().copied().collect()),
+        _ => None,
+    });
+    let Some(elems) = elems else {
+        return 0;
+    };
+    let sep_bytes: Vec<u8> = with_entry(sep, |entry| match entry {
+        Some(Entry::String(b)) => b.clone(),
+        _ => Vec::new(),
+    });
+    let mut out: Vec<u8> = Vec::new();
+    join_into(&mut out, &elems, &sep_bytes, 0);
+    alloc_entry(Entry::String(out))
+}
 
-    /// Removes all elements.
-    #[rts_fn]
-    pub fn vec_clear(h: U64) {
-        with_vec_mut(h, (), |v| v.clear());
+/// Constrói um `Member` (formato builder do `rts-engine`) para uma função do
+/// namespace `collections`. Helper local — substitui o que a macro
+/// `#[rts_namespace(part)]` gerava implicitamente.
+fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
+    Member {
+        name: name.to_string(),
+        kind: MemberKind::Function,
+        sig,
+        symbol: symbol.to_string(),
+        fn_ptr: FnPtr(fp),
+        flags: MemberFlags::NONE,
+        aliases: Vec::new(),
+        variadic: false,
+        ts_signature: ts.to_string(),
+        doc: doc.to_string(),
+        pure: false,
+        intrinsic: None,
     }
+}
 
-    /// Junta os elementos do vec separados por `sep` (string handle). Cada elemento i64 e' tratado como string handle se valido, senao formatado como numero decimal. Retorna handle da string resultante.
-    #[rts_fn]
-    pub fn vec_join(h: U64, sep: Handle) -> Handle {
-        let elems: Option<Vec<i64>> = with_entry(h, |entry| match entry {
-            Some(Entry::Vec(v)) => Some(v.iter().copied().collect()),
-            _ => None,
-        });
-        let Some(elems) = elems else {
-            return 0;
-        };
-        let sep_bytes: Vec<u8> = with_entry(sep, |entry| match entry {
-            Some(Entry::String(b)) => b.clone(),
-            _ => Vec::new(),
-        });
-        let mut out: Vec<u8> = Vec::new();
-        join_into(&mut out, &elems, &sep_bytes, 0);
-        alloc_entry(Entry::String(out))
-    }
+/// Empurra os membros Vec desta `part` (formato builder do `rts-engine`) na
+/// lista do owner. Chamado pelo `register()` agregador de `collections::mod`,
+/// DEPOIS de `map::append_engine_members` — preserva a ordem map→vec do antigo
+/// `concat_members`. Hand-written (Fase 2, remoção da `rts-macro`).
+pub fn append_engine_members(v: &mut Vec<Member>) {
+    v.push(func(
+        "vec_new",
+        "__RTS_FN_NS_COLLECTIONS_VEC_NEW",
+        Sig::new(Vec::new(), AbiType::Handle),
+        "vec_new(): number",
+        "Creates an empty Vec<number>.",
+        __RTS_FN_NS_COLLECTIONS_VEC_NEW as *const u8,
+    ));
+    v.push(func(
+        "vec_free",
+        "__RTS_FN_NS_COLLECTIONS_VEC_FREE",
+        Sig::new(vec![AbiType::U64], AbiType::Void),
+        "vec_free(h: number): void",
+        "Releases the vec handle.",
+        __RTS_FN_NS_COLLECTIONS_VEC_FREE as *const u8,
+    ));
+    v.push(func(
+        "vec_len",
+        "__RTS_FN_NS_COLLECTIONS_VEC_LEN",
+        Sig::new(vec![AbiType::U64], AbiType::I64),
+        "vec_len(h: number): number",
+        "Number of elements; -1 if the handle is invalid.",
+        __RTS_FN_NS_COLLECTIONS_VEC_LEN as *const u8,
+    ));
+    v.push(func(
+        "vec_push",
+        "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+        Sig::new(vec![AbiType::U64, AbiType::I64], AbiType::Void),
+        "vec_push(h: number, value: number): void",
+        "Appends `value` to the end.",
+        __RTS_FN_NS_COLLECTIONS_VEC_PUSH as *const u8,
+    ));
+    v.push(func(
+        "vec_pop",
+        "__RTS_FN_NS_COLLECTIONS_VEC_POP",
+        Sig::new(vec![AbiType::U64], AbiType::I64),
+        "vec_pop(h: number): number",
+        "Removes and returns the last element; 0 when empty.",
+        __RTS_FN_NS_COLLECTIONS_VEC_POP as *const u8,
+    ));
+    v.push(func(
+        "vec_get",
+        "__RTS_FN_NS_COLLECTIONS_VEC_GET",
+        Sig::new(vec![AbiType::U64, AbiType::I64], AbiType::I64),
+        "vec_get(h: number, index: number): number",
+        "Element at `index`, or 0 out of range.",
+        __RTS_FN_NS_COLLECTIONS_VEC_GET as *const u8,
+    ));
+    v.push(func(
+        "vec_set",
+        "__RTS_FN_NS_COLLECTIONS_VEC_SET",
+        Sig::new(vec![AbiType::U64, AbiType::I64, AbiType::I64], AbiType::Void),
+        "vec_set(h: number, index: number, value: number): void",
+        "Writes `value` at `index`. No-op out of range.",
+        __RTS_FN_NS_COLLECTIONS_VEC_SET as *const u8,
+    ));
+    v.push(func(
+        "vec_clear",
+        "__RTS_FN_NS_COLLECTIONS_VEC_CLEAR",
+        Sig::new(vec![AbiType::U64], AbiType::Void),
+        "vec_clear(h: number): void",
+        "Removes all elements.",
+        __RTS_FN_NS_COLLECTIONS_VEC_CLEAR as *const u8,
+    ));
+    v.push(func(
+        "vec_join",
+        "__RTS_FN_NS_COLLECTIONS_VEC_JOIN",
+        Sig::new(vec![AbiType::U64, AbiType::Handle], AbiType::Handle),
+        "vec_join(h: number, sep: number): number",
+        "Junta os elementos do vec separados por `sep` (string handle). Cada elemento i64 e' tratado como string handle se valido, senao formatado como numero decimal. Retorna handle da string resultante.",
+        __RTS_FN_NS_COLLECTIONS_VEC_JOIN as *const u8,
+    ));
 }
 
 /// (cross-runtime #1067) Suporte a spread em indirect call: copia todos

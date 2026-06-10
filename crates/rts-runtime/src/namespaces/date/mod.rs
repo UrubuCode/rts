@@ -7,13 +7,13 @@
 //! `date_unpack` e' pub (consumido por globals::date). `DATE_PARSE_F64`
 //! (Date.parse) NAO e' membro do namespace — fica como extern abaixo.
 //!
-//! Migrated to the `#[rts_namespace]` single-declaration model (stage 2c,
-//! `docs/specs/rts-core-engine.md`).
+//! Migrado do `#[rts_namespace]` pro modelo builder hand-written do `rts-engine`
+//! (rumo à remoção da `rts-macro`; ver pilotos hint/hash/ptr/mem/runtime).
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rts_engine::abi::ty::{Handle, I64};
-use rts_macro::rts_namespace;
+use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use crate::namespaces::gc::handles::{Entry, alloc_entry};
 
@@ -150,102 +150,232 @@ pub extern "C" fn __RTS_FN_NS_DATE_PARSE_F64(ptr: u64, len: i64) -> f64 {
     }
 }
 
-/// Date primitives — a Date is an i64 (ms since the Unix epoch, UTC).
-#[rts_namespace(date)]
-impl DateNs {
-    /// Now, in ms since the Unix epoch (UTC).
-    #[rts_fn]
-    pub fn now_ms() -> I64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0)
-    }
+/// Now, in ms since the Unix epoch (UTC).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DATE_NOW_MS() -> I64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
 
-    /// Parse an ISO 8601 string to ms. Returns i64::MIN sentinel on error.
-    #[rts_fn(on_null = i64::MIN)]
-    pub fn from_iso(text: Str) -> I64 {
-        parse_iso(text).unwrap_or(i64::MIN)
-    }
+/// Parse an ISO 8601 string to ms. Returns i64::MIN sentinel on error.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DATE_FROM_ISO(text_ptr: *const u8, text_len: i64) -> I64 {
+    let text = match unsafe { rts_engine::abi::str_abi::from_abi(text_ptr, text_len) } {
+        Some(s) => s,
+        None => return i64::MIN,
+    };
+    parse_iso(text).unwrap_or(i64::MIN)
+}
 
-    /// Build ms from calendar parts. Two-digit years (0..99) map to 1900+y.
-    #[rts_fn(
-        ts = "from_parts(y: number, mo: number, d: number, h: number, mi: number, s: number, ms: number): number"
-    )]
-    pub fn from_parts(
-        year: I64,
-        month: I64,
-        day: I64,
-        hour: I64,
-        min: I64,
-        sec: I64,
-        ms: I64,
-    ) -> I64 {
-        let year = if (0..=99).contains(&year) {
-            year + 1900
-        } else {
-            year
-        };
-        pack(year, month, day, hour, min, sec, ms)
-    }
+/// Build ms from calendar parts. Two-digit years (0..99) map to 1900+y.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DATE_FROM_PARTS(
+    year: I64,
+    month: I64,
+    day: I64,
+    hour: I64,
+    min: I64,
+    sec: I64,
+    ms: I64,
+) -> I64 {
+    let year = if (0..=99).contains(&year) {
+        year + 1900
+    } else {
+        year
+    };
+    pack(year, month, day, hour, min, sec, ms)
+}
 
-    /// Year (UTC).
-    #[rts_fn]
-    pub fn year(ts: I64) -> I64 {
-        unpack(ts).0
-    }
+/// Year (UTC).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DATE_YEAR(ts: I64) -> I64 {
+    unpack(ts).0
+}
 
-    /// Month, 0-indexed (UTC).
-    #[rts_fn]
-    pub fn month(ts: I64) -> I64 {
-        unpack(ts).1
-    }
+/// Month, 0-indexed (UTC).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DATE_MONTH(ts: I64) -> I64 {
+    unpack(ts).1
+}
 
-    /// Day of month (UTC).
-    #[rts_fn]
-    pub fn day(ts: I64) -> I64 {
-        unpack(ts).2
-    }
+/// Day of month (UTC).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DATE_DAY(ts: I64) -> I64 {
+    unpack(ts).2
+}
 
-    /// Weekday, Sunday=0 (UTC).
-    #[rts_fn]
-    pub fn weekday(ts: I64) -> I64 {
-        // 1970-01-01 was Thursday (4); Sunday=0 in JS semantics.
-        let days = ts.div_euclid(MS_PER_DAY);
-        (((days % 7) + 4) % 7 + 7) % 7
-    }
+/// Weekday, Sunday=0 (UTC).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DATE_WEEKDAY(ts: I64) -> I64 {
+    // 1970-01-01 was Thursday (4); Sunday=0 in JS semantics.
+    let days = ts.div_euclid(MS_PER_DAY);
+    (((days % 7) + 4) % 7 + 7) % 7
+}
 
-    /// Hour (UTC).
-    #[rts_fn]
-    pub fn hour(ts: I64) -> I64 {
-        unpack(ts).3
-    }
+/// Hour (UTC).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DATE_HOUR(ts: I64) -> I64 {
+    unpack(ts).3
+}
 
-    /// Minute (UTC).
-    #[rts_fn]
-    pub fn minute(ts: I64) -> I64 {
-        unpack(ts).4
-    }
+/// Minute (UTC).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DATE_MINUTE(ts: I64) -> I64 {
+    unpack(ts).4
+}
 
-    /// Second (UTC).
-    #[rts_fn]
-    pub fn second(ts: I64) -> I64 {
-        unpack(ts).5
-    }
+/// Second (UTC).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DATE_SECOND(ts: I64) -> I64 {
+    unpack(ts).5
+}
 
-    /// Millisecond (UTC).
-    #[rts_fn]
-    pub fn millisecond(ts: I64) -> I64 {
-        unpack(ts).6
-    }
+/// Millisecond (UTC).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DATE_MILLISECOND(ts: I64) -> I64 {
+    unpack(ts).6
+}
 
-    /// ISO 8601 string (UTC). Returns a GC string handle.
-    #[rts_fn(ts = "to_iso(ts: number): string")]
-    pub fn to_iso(ts: I64) -> Handle {
-        let (y, mo, d, h, mi, s, ms) = unpack(ts);
-        let formatted = format!("{y:04}-{:02}-{d:02}T{h:02}:{mi:02}:{s:02}.{ms:03}Z", mo + 1);
-        alloc_entry(Entry::String(formatted.into_bytes()))
+/// ISO 8601 string (UTC). Returns a GC string handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DATE_TO_ISO(ts: I64) -> Handle {
+    let (y, mo, d, h, mi, s, ms) = unpack(ts);
+    let formatted = format!("{y:04}-{:02}-{d:02}T{h:02}:{mi:02}:{s:02}.{ms:03}Z", mo + 1);
+    alloc_entry(Entry::String(formatted.into_bytes()))
+}
+
+/// Função `date.f(args)`.
+fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
+    Member {
+        name: name.to_string(),
+        kind: MemberKind::Function,
+        sig,
+        symbol: symbol.to_string(),
+        fn_ptr: FnPtr(fp),
+        flags: MemberFlags::NONE,
+        aliases: Vec::new(),
+        variadic: false,
+        ts_signature: ts.to_string(),
+        doc: doc.to_string(),
+        pure: false,
+        intrinsic: None,
     }
+}
+
+/// Registra a namespace `date` no motor (Fase 2 — hand-written, sem macro).
+pub fn register(e: &mut Engine) {
+    e.ns("date")
+        .doc("Date primitives — a Date is an i64 (ms since the Unix epoch, UTC).")
+        .member(func(
+            "now_ms",
+            "__RTS_FN_NS_DATE_NOW_MS",
+            Sig::new(Vec::new(), AbiType::I64),
+            "now_ms(): number",
+            "Now, in ms since the Unix epoch (UTC).",
+            __RTS_FN_NS_DATE_NOW_MS as *const u8,
+        ))
+        .member(func(
+            "from_iso",
+            "__RTS_FN_NS_DATE_FROM_ISO",
+            Sig::new(vec![AbiType::StrPtr], AbiType::I64),
+            "from_iso(text: string): number",
+            "Parse an ISO 8601 string to ms. Returns i64::MIN sentinel on error.",
+            __RTS_FN_NS_DATE_FROM_ISO as *const u8,
+        ))
+        .member(func(
+            "from_parts",
+            "__RTS_FN_NS_DATE_FROM_PARTS",
+            Sig::new(
+                vec![
+                    AbiType::I64,
+                    AbiType::I64,
+                    AbiType::I64,
+                    AbiType::I64,
+                    AbiType::I64,
+                    AbiType::I64,
+                    AbiType::I64,
+                ],
+                AbiType::I64,
+            ),
+            "from_parts(y: number, mo: number, d: number, h: number, mi: number, s: number, ms: number): number",
+            "Build ms from calendar parts. Two-digit years (0..99) map to 1900+y.",
+            __RTS_FN_NS_DATE_FROM_PARTS as *const u8,
+        ))
+        .member(func(
+            "year",
+            "__RTS_FN_NS_DATE_YEAR",
+            Sig::new(vec![AbiType::I64], AbiType::I64),
+            "year(ts: number): number",
+            "Year (UTC).",
+            __RTS_FN_NS_DATE_YEAR as *const u8,
+        ))
+        .member(func(
+            "month",
+            "__RTS_FN_NS_DATE_MONTH",
+            Sig::new(vec![AbiType::I64], AbiType::I64),
+            "month(ts: number): number",
+            "Month, 0-indexed (UTC).",
+            __RTS_FN_NS_DATE_MONTH as *const u8,
+        ))
+        .member(func(
+            "day",
+            "__RTS_FN_NS_DATE_DAY",
+            Sig::new(vec![AbiType::I64], AbiType::I64),
+            "day(ts: number): number",
+            "Day of month (UTC).",
+            __RTS_FN_NS_DATE_DAY as *const u8,
+        ))
+        .member(func(
+            "weekday",
+            "__RTS_FN_NS_DATE_WEEKDAY",
+            Sig::new(vec![AbiType::I64], AbiType::I64),
+            "weekday(ts: number): number",
+            "Weekday, Sunday=0 (UTC).",
+            __RTS_FN_NS_DATE_WEEKDAY as *const u8,
+        ))
+        .member(func(
+            "hour",
+            "__RTS_FN_NS_DATE_HOUR",
+            Sig::new(vec![AbiType::I64], AbiType::I64),
+            "hour(ts: number): number",
+            "Hour (UTC).",
+            __RTS_FN_NS_DATE_HOUR as *const u8,
+        ))
+        .member(func(
+            "minute",
+            "__RTS_FN_NS_DATE_MINUTE",
+            Sig::new(vec![AbiType::I64], AbiType::I64),
+            "minute(ts: number): number",
+            "Minute (UTC).",
+            __RTS_FN_NS_DATE_MINUTE as *const u8,
+        ))
+        .member(func(
+            "second",
+            "__RTS_FN_NS_DATE_SECOND",
+            Sig::new(vec![AbiType::I64], AbiType::I64),
+            "second(ts: number): number",
+            "Second (UTC).",
+            __RTS_FN_NS_DATE_SECOND as *const u8,
+        ))
+        .member(func(
+            "millisecond",
+            "__RTS_FN_NS_DATE_MILLISECOND",
+            Sig::new(vec![AbiType::I64], AbiType::I64),
+            "millisecond(ts: number): number",
+            "Millisecond (UTC).",
+            __RTS_FN_NS_DATE_MILLISECOND as *const u8,
+        ))
+        .member(func(
+            "to_iso",
+            "__RTS_FN_NS_DATE_TO_ISO",
+            Sig::new(vec![AbiType::I64], AbiType::Handle),
+            "to_iso(ts: number): string",
+            "ISO 8601 string (UTC). Returns a GC string handle.",
+            __RTS_FN_NS_DATE_TO_ISO as *const u8,
+        ))
+        .done();
 }
 
 #[cfg(test)]

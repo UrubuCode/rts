@@ -74,8 +74,14 @@ impl Class {
 pub struct Registry {
     /// Módulos por chave `"<scheme>:<name>"`.
     modules: HashMap<String, Module>,
+    /// Ordem de inserção das chaves de `modules` — `modules()` itera por aqui
+    /// p/ saída DETERMINÍSTICA (HashMap::values() varia run-a-run → quebra o
+    /// `rts.d.ts` byte-idêntico). Chave reinserida não duplica.
+    module_order: Vec<String>,
     /// Classes globais por nome JS.
     classes: HashMap<String, Class>,
+    /// Ordem de inserção das classes (mesma razão de `module_order`).
+    class_order: Vec<String>,
     /// Membros de escopo global (bare, sem import): `NaN`, `isNaN`, vars globais.
     globals: HashMap<String, Member>,
     /// `symbol -> fn_ptr` de TODO membro com extern — substitui a lista
@@ -121,14 +127,18 @@ impl Registry {
         self.jit_symbols.iter().map(|(s, p)| (s.as_str(), *p))
     }
 
-    /// Itera todos os módulos (para `builtin_module_keys`, geração de `.d.ts`, …).
+    /// Itera todos os módulos em ordem de inserção (determinístico).
     pub fn modules(&self) -> impl Iterator<Item = &Module> {
-        self.modules.values()
+        self.module_order
+            .iter()
+            .filter_map(move |k| self.modules.get(k))
     }
 
-    /// Itera todas as classes.
+    /// Itera todas as classes em ordem de inserção (determinístico).
     pub fn classes(&self) -> impl Iterator<Item = &Class> {
-        self.classes.values()
+        self.class_order
+            .iter()
+            .filter_map(move |k| self.classes.get(k))
     }
 
     pub fn module_count(&self) -> usize {
@@ -149,7 +159,9 @@ impl Registry {
             }
         }
         let key = format!("{}:{}", module.scheme, module.name);
-        self.modules.insert(key, module);
+        if self.modules.insert(key.clone(), module).is_none() {
+            self.module_order.push(key); // 1ª inserção → entra na ordem
+        }
     }
 
     pub(crate) fn insert_class(&mut self, class: Class) {
@@ -158,7 +170,10 @@ impl Registry {
                 self.jit_symbols.insert(m.symbol.clone(), m.fn_ptr);
             }
         }
-        self.classes.insert(class.name.clone(), class);
+        let name = class.name.clone();
+        if self.classes.insert(name.clone(), class).is_none() {
+            self.class_order.push(name);
+        }
     }
 
     pub(crate) fn insert_global(&mut self, member: Member) {

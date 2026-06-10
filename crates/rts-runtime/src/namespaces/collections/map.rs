@@ -9,7 +9,7 @@
 use indexmap::IndexMap;
 
 use rts_engine::abi::ty::{Bool, Handle, I64, U64};
-use rts_macro::rts_namespace;
+use rts_engine::{AbiType, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use super::super::gc::handles::{alloc_entry, free_handle, with_entry, with_entry_mut, Entry};
 
@@ -86,8 +86,10 @@ where
 }
 
 /// Membros Map do namespace `collections` (parte; vec.rs declara a outra).
-/// Stage 2c, `docs/specs/rts-core-engine.md`. As fns nao-membro
-/// (`OBJ_*`/`GL_OBJECT_*`/`*_AUTO`/helpers) ficam como free fns abaixo.
+/// Hand-written (Fase 2, remoção da `rts-macro`): cada membro é um extern "C"
+/// + uma entrada em `append_engine_members`, agregada pelo `register()` do
+/// owner (`collections::mod`). As fns nao-membro (`OBJ_*`/`GL_OBJECT_*`/
+/// `*_AUTO`/helpers) ficam como free fns abaixo.
 /// (cross-runtime #1533) Membros herdados de Object.prototype — presentes
 /// via `in` em qualquer objeto/array.
 fn is_object_proto_member(key: &str) -> bool {
@@ -117,96 +119,119 @@ fn is_array_proto_member(key: &str) -> bool {
     )
 }
 
-#[rts_namespace(collections, part)]
-impl CollectionsMapNs {
-    /// Creates an empty HashMap<string, number> and returns its handle.
-    #[rts_fn]
-    pub fn map_new() -> Handle {
-        alloc_entry(Entry::Map(Box::new(IndexMap::new())))
-    }
+/// Creates an empty HashMap<string, number> and returns its handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_NEW() -> Handle {
+    alloc_entry(Entry::Map(Box::new(IndexMap::new())))
+}
 
-    /// Releases the map handle.
-    #[rts_fn]
-    pub fn map_free(h: U64) {
-        free_handle(h);
-    }
+/// Releases the map handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FREE(h: U64) {
+    free_handle(h);
+}
 
-    /// Number of entries; -1 if the handle is invalid.
-    #[rts_fn]
-    pub fn map_len(h: U64) -> I64 {
-        with_map(h, -1, |m| m.len() as i64)
-    }
+/// Number of entries; -1 if the handle is invalid.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_LEN(h: U64) -> I64 {
+    with_map(h, -1, |m| m.len() as i64)
+}
 
-    /// True when the map contains `key`.
-    #[rts_fn]
-    pub fn map_has(h: U64, key: Str) -> Bool {
-        // (#218) Proxy: trap `has(target, prop)` ou forward.
-        if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(h) {
-            return crate::namespaces::globals::proxy::ops::dispatch_has(target, handler, key);
-        }
-        with_map(h, 0, |m| if m.contains_key(key) { 1 } else { 0 })
+/// True when the map contains `key`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_HAS(h: U64, key_ptr: *const u8, key_len: i64) -> Bool {
+    let key = match unsafe { rts_engine::abi::str_abi::from_abi(key_ptr, key_len) } {
+        Some(s) => s,
+        None => return 0,
+    };
+    // (#218) Proxy: trap `has(target, prop)` ou forward.
+    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(h) {
+        return crate::namespaces::globals::proxy::ops::dispatch_has(target, handler, key);
     }
+    with_map(h, 0, |m| if m.contains_key(key) { 1 } else { 0 })
+}
 
-    /// Value for `key`, or 0 when absent. Use map_has to distinguish.
-    #[rts_fn]
-    pub fn map_get(h: U64, key: Str) -> I64 {
-        // (#218) Proxy: dispatch get trap quando handle eh Proxy.
-        if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(h) {
-            return crate::namespaces::globals::proxy::ops::dispatch_get(target, handler, key);
-        }
-        with_map(h, 0, |m| m.get(key).copied().unwrap_or(0))
+/// Value for `key`, or 0 when absent. Use map_has to distinguish.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET(h: U64, key_ptr: *const u8, key_len: i64) -> I64 {
+    let key = match unsafe { rts_engine::abi::str_abi::from_abi(key_ptr, key_len) } {
+        Some(s) => s,
+        None => return 0,
+    };
+    // (#218) Proxy: dispatch get trap quando handle eh Proxy.
+    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(h) {
+        return crate::namespaces::globals::proxy::ops::dispatch_get(target, handler, key);
     }
+    with_map(h, 0, |m| m.get(key).copied().unwrap_or(0))
+}
 
-    /// Inserts/overwrites `key` with `value`.
-    #[rts_fn]
-    pub fn map_set(h: U64, key: Str, value: I64) {
-        // (#218) Proxy: trap `set(target, prop, value)` ou forward.
-        if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(h) {
-            crate::namespaces::globals::proxy::ops::dispatch_set(target, handler, key, value);
+/// Inserts/overwrites `key` with `value`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SET(
+    h: U64,
+    key_ptr: *const u8,
+    key_len: i64,
+    value: I64,
+) {
+    let key = match unsafe { rts_engine::abi::str_abi::from_abi(key_ptr, key_len) } {
+        Some(s) => s,
+        None => return,
+    };
+    // (#218) Proxy: trap `set(target, prop, value)` ou forward.
+    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(h) {
+        crate::namespaces::globals::proxy::ops::dispatch_set(target, handler, key, value);
+        return;
+    }
+    // (#479 follow-up) frozen impede mutacao; sealed so' impede add de novas keys.
+    if is_map_frozen(h) {
+        return;
+    }
+    // (#1073) writable=false definido via Object.defineProperty bloqueia
+    // assignment silenciosamente (sloppy mode).
+    if is_non_writable(h, key) {
+        return;
+    }
+    let key_owned = key.to_string();
+    let sealed = is_map_sealed(h);
+    with_map_mut(h, (), |m| {
+        if sealed && !m.contains_key(&key_owned) {
             return;
         }
-        // (#479 follow-up) frozen impede mutacao; sealed so' impede add de novas keys.
-        if is_map_frozen(h) {
-            return;
-        }
-        // (#1073) writable=false definido via Object.defineProperty bloqueia
-        // assignment silenciosamente (sloppy mode).
-        if is_non_writable(h, key) {
-            return;
-        }
-        let key_owned = key.to_string();
-        let sealed = is_map_sealed(h);
-        with_map_mut(h, (), |m| {
-            if sealed && !m.contains_key(&key_owned) {
-                return;
-            }
-            m.insert(key_owned, value);
-        });
-    }
+        m.insert(key_owned, value);
+    });
+}
 
-    /// Removes `key`. Returns 1 if removed, 0 if absent.
-    #[rts_fn]
-    pub fn map_delete(h: U64, key: Str) -> I64 {
-        // (#218) Proxy: trap `deleteProperty(target, prop)` ou forward.
-        if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(h) {
-            return crate::namespaces::globals::proxy::ops::dispatch_delete(target, handler, key);
-        }
-        // sealed/frozen impedem delete.
-        if is_map_sealed(h) {
-            return 0;
-        }
-        with_map_mut(h, 0, |m| if m.shift_remove(key).is_some() { 1 } else { 0 })
+/// Removes `key`. Returns 1 if removed, 0 if absent.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DELETE(
+    h: U64,
+    key_ptr: *const u8,
+    key_len: i64,
+) -> I64 {
+    let key = match unsafe { rts_engine::abi::str_abi::from_abi(key_ptr, key_len) } {
+        Some(s) => s,
+        None => return 0,
+    };
+    // (#218) Proxy: trap `deleteProperty(target, prop)` ou forward.
+    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(h) {
+        return crate::namespaces::globals::proxy::ops::dispatch_delete(target, handler, key);
     }
-
-    /// Removes all entries.
-    #[rts_fn]
-    pub fn map_clear(h: U64) {
-        with_map_mut(h, (), |m| m.clear());
+    // sealed/frozen impedem delete.
+    if is_map_sealed(h) {
+        return 0;
     }
+    with_map_mut(h, 0, |m| if m.shift_remove(key).is_some() { 1 } else { 0 })
+}
 
-    /// True when `key_h` is an own property of `obj_h` (Vec or Map). Accepts Symbol keys.
-    #[rts_fn]
-    pub fn obj_has(obj_h: U64, key_h: U64) -> Bool {
+/// Removes all entries.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_CLEAR(h: U64) {
+    with_map_mut(h, (), |m| m.clear());
+}
+
+/// True when `key_h` is an own property of `obj_h` (Vec or Map). Accepts Symbol keys.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJ_HAS(obj_h: U64, key_h: U64) -> Bool {
         let key = match key_handle_to_string(key_h) {
             Some(s) => s,
             None => return 0,
@@ -289,22 +314,22 @@ impl CollectionsMapNs {
             return 1;
         }
         0
-    }
+}
 
-    /// Inserts/overwrites value for key handle (String or Symbol).
-    #[rts_fn]
-    pub fn map_set_kh(obj_h: U64, key_h: U64, value: I64) {
-        let Some(key) = key_handle_to_string(key_h) else {
-            return;
-        };
-        with_map_mut(obj_h, (), |m| {
-            m.insert(key, value);
-        });
-    }
+/// Inserts/overwrites value for key handle (String or Symbol).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SET_KH(obj_h: U64, key_h: U64, value: I64) {
+    let Some(key) = key_handle_to_string(key_h) else {
+        return;
+    };
+    with_map_mut(obj_h, (), |m| {
+        m.insert(key, value);
+    });
+}
 
-    /// Sets obj[key]=value, dispatching on Vec vs Map. Accepts Symbol keys.
-    #[rts_fn]
-    pub fn obj_set(obj_h: U64, key_h: U64, value: I64) {
+/// Sets obj[key]=value, dispatching on Vec vs Map. Accepts Symbol keys.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJ_SET(obj_h: U64, key_h: U64, value: I64) {
         // Vec path: tenta parse de array index a partir da key.
         let is_vec = with_entry(obj_h, |e| matches!(e, Some(Entry::Vec(_))));
         if is_vec {
@@ -329,11 +354,11 @@ impl CollectionsMapNs {
                 m.insert(key, value);
             });
         }
-    }
+}
 
-    /// Reads obj[key], dispatching on Vec vs Map. Accepts Symbol keys.
-    #[rts_fn]
-    pub fn obj_get(obj_h: U64, key_h: U64) -> I64 {
+/// Reads obj[key], dispatching on Vec vs Map. Accepts Symbol keys.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJ_GET(obj_h: U64, key_h: U64) -> I64 {
         let Some(key) = key_handle_to_string(key_h) else {
             return 0;
         };
@@ -353,11 +378,11 @@ impl CollectionsMapNs {
             return r;
         }
         with_map(obj_h, 0, |m| m.get(&key).copied().unwrap_or(0))
-    }
+}
 
-    /// Returns value for key handle, or 0 if absent.
-    #[rts_fn]
-    pub fn map_get_kh(obj_h: U64, key_h: U64) -> I64 {
+/// Returns value for key handle, or 0 if absent.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_KH(obj_h: U64, key_h: U64) -> I64 {
         let Some(key) = key_handle_to_string(key_h) else {
             return 0;
         };
@@ -385,21 +410,21 @@ impl CollectionsMapNs {
             return crate::namespaces::gc::generator::__RTS_FN_GL_ARRAY_ITERATOR_FN() as i64;
         }
         stored
-    }
+}
 
-    /// Returns a shallow copy of the map (new handle).
-    #[rts_fn]
-    pub fn map_clone(h: U64) -> Handle {
+/// Returns a shallow copy of the map (new handle).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_CLONE(h: U64) -> Handle {
         let cloned: Option<IndexMap<String, i64>> = with_map(h, None, |m| Some(m.clone()));
         match cloned {
             Some(m) => alloc_entry(Entry::Map(Box::new(m))),
             None => 0,
         }
-    }
+}
 
-    /// Returns the key at index in deterministic order (sorted). 0 if out of range.
-    #[rts_fn]
-    pub fn map_key_at(h: U64, idx: I64) -> Handle {
+/// Returns the key at index in deterministic order (sorted). 0 if out of range.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEY_AT(h: U64, idx: I64) -> Handle {
         if idx < 0 {
             return 0;
         }
@@ -427,11 +452,11 @@ impl CollectionsMapNs {
             ),
             None => 0,
         }
-    }
+}
 
-    /// Returns Vec<i64> with key handles (sorted asc). Used by Object.keys.
-    #[rts_fn]
-    pub fn map_keys(h: U64) -> Handle {
+/// Returns Vec<i64> with key handles (sorted asc). Used by Object.keys.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(h: U64) -> Handle {
         // (#218 phase2) Proxy: trap `ownKeys(target)` ou forward.
         if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(h) {
             return crate::namespaces::globals::proxy::ops::dispatch_own_keys(target, handler);
@@ -477,11 +502,11 @@ impl CollectionsMapNs {
         crate::namespaces::gc::handles::alloc_entry(crate::namespaces::gc::handles::Entry::Vec(
             Box::new(vec),
         ))
-    }
+}
 
-    /// Returns Vec<i64> with values (in key-sorted order). Used by Object.values.
-    #[rts_fn]
-    pub fn map_values(h: U64) -> Handle {
+/// Returns Vec<i64> with values (in key-sorted order). Used by Object.values.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_VALUES(h: U64) -> Handle {
         if handle_is_set_kind(h) {
             let elems: Vec<i64> = with_map(h, Vec::new(), |m| {
                 m.iter()
@@ -519,7 +544,169 @@ impl CollectionsMapNs {
         crate::namespaces::gc::handles::alloc_entry(crate::namespaces::gc::handles::Entry::Vec(
             Box::new(vals),
         ))
+}
+
+/// Constrói um `Member` (formato builder do `rts-engine`) para uma função do
+/// namespace `collections`. Helper local — substitui o `func` que a macro
+/// `#[rts_namespace(part)]` gerava implicitamente.
+fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
+    Member {
+        name: name.to_string(),
+        kind: MemberKind::Function,
+        sig,
+        symbol: symbol.to_string(),
+        fn_ptr: FnPtr(fp),
+        flags: MemberFlags::NONE,
+        aliases: Vec::new(),
+        variadic: false,
+        ts_signature: ts.to_string(),
+        doc: doc.to_string(),
+        pure: false,
+        intrinsic: None,
     }
+}
+
+/// Empurra os membros Map desta `part` (formato builder do `rts-engine`) na
+/// lista do owner. Chamado pelo `register()` agregador de `collections::mod`,
+/// ANTES de `vec::append_engine_members` — preserva a ordem map→vec do antigo
+/// `concat_members`. Hand-written (Fase 2, remoção da `rts-macro`).
+pub fn append_engine_members(v: &mut Vec<Member>) {
+    v.push(func(
+        "map_new",
+        "__RTS_FN_NS_COLLECTIONS_MAP_NEW",
+        Sig::new(Vec::new(), AbiType::Handle),
+        "map_new(): number",
+        "Creates an empty HashMap<string, number> and returns its handle.",
+        __RTS_FN_NS_COLLECTIONS_MAP_NEW as *const u8,
+    ));
+    v.push(func(
+        "map_free",
+        "__RTS_FN_NS_COLLECTIONS_MAP_FREE",
+        Sig::new(vec![AbiType::U64], AbiType::Void),
+        "map_free(h: number): void",
+        "Releases the map handle.",
+        __RTS_FN_NS_COLLECTIONS_MAP_FREE as *const u8,
+    ));
+    v.push(func(
+        "map_len",
+        "__RTS_FN_NS_COLLECTIONS_MAP_LEN",
+        Sig::new(vec![AbiType::U64], AbiType::I64),
+        "map_len(h: number): number",
+        "Number of entries; -1 if the handle is invalid.",
+        __RTS_FN_NS_COLLECTIONS_MAP_LEN as *const u8,
+    ));
+    v.push(func(
+        "map_has",
+        "__RTS_FN_NS_COLLECTIONS_MAP_HAS",
+        Sig::new(vec![AbiType::U64, AbiType::StrPtr], AbiType::Bool),
+        "map_has(h: number, key: string): boolean",
+        "True when the map contains `key`.",
+        __RTS_FN_NS_COLLECTIONS_MAP_HAS as *const u8,
+    ));
+    v.push(func(
+        "map_get",
+        "__RTS_FN_NS_COLLECTIONS_MAP_GET",
+        Sig::new(vec![AbiType::U64, AbiType::StrPtr], AbiType::I64),
+        "map_get(h: number, key: string): number",
+        "Value for `key`, or 0 when absent. Use map_has to distinguish.",
+        __RTS_FN_NS_COLLECTIONS_MAP_GET as *const u8,
+    ));
+    v.push(func(
+        "map_set",
+        "__RTS_FN_NS_COLLECTIONS_MAP_SET",
+        Sig::new(vec![AbiType::U64, AbiType::StrPtr, AbiType::I64], AbiType::Void),
+        "map_set(h: number, key: string, value: number): void",
+        "Inserts/overwrites `key` with `value`.",
+        __RTS_FN_NS_COLLECTIONS_MAP_SET as *const u8,
+    ));
+    v.push(func(
+        "map_delete",
+        "__RTS_FN_NS_COLLECTIONS_MAP_DELETE",
+        Sig::new(vec![AbiType::U64, AbiType::StrPtr], AbiType::I64),
+        "map_delete(h: number, key: string): number",
+        "Removes `key`. Returns 1 if removed, 0 if absent.",
+        __RTS_FN_NS_COLLECTIONS_MAP_DELETE as *const u8,
+    ));
+    v.push(func(
+        "map_clear",
+        "__RTS_FN_NS_COLLECTIONS_MAP_CLEAR",
+        Sig::new(vec![AbiType::U64], AbiType::Void),
+        "map_clear(h: number): void",
+        "Removes all entries.",
+        __RTS_FN_NS_COLLECTIONS_MAP_CLEAR as *const u8,
+    ));
+    v.push(func(
+        "obj_has",
+        "__RTS_FN_NS_COLLECTIONS_OBJ_HAS",
+        Sig::new(vec![AbiType::U64, AbiType::U64], AbiType::Bool),
+        "obj_has(obj_h: number, key_h: number): boolean",
+        "True when `key_h` is an own property of `obj_h` (Vec or Map). Accepts Symbol keys.",
+        __RTS_FN_NS_COLLECTIONS_OBJ_HAS as *const u8,
+    ));
+    v.push(func(
+        "map_set_kh",
+        "__RTS_FN_NS_COLLECTIONS_MAP_SET_KH",
+        Sig::new(vec![AbiType::U64, AbiType::U64, AbiType::I64], AbiType::Void),
+        "map_set_kh(obj_h: number, key_h: number, value: number): void",
+        "Inserts/overwrites value for key handle (String or Symbol).",
+        __RTS_FN_NS_COLLECTIONS_MAP_SET_KH as *const u8,
+    ));
+    v.push(func(
+        "obj_set",
+        "__RTS_FN_NS_COLLECTIONS_OBJ_SET",
+        Sig::new(vec![AbiType::U64, AbiType::U64, AbiType::I64], AbiType::Void),
+        "obj_set(obj_h: number, key_h: number, value: number): void",
+        "Sets obj[key]=value, dispatching on Vec vs Map. Accepts Symbol keys.",
+        __RTS_FN_NS_COLLECTIONS_OBJ_SET as *const u8,
+    ));
+    v.push(func(
+        "obj_get",
+        "__RTS_FN_NS_COLLECTIONS_OBJ_GET",
+        Sig::new(vec![AbiType::U64, AbiType::U64], AbiType::I64),
+        "obj_get(obj_h: number, key_h: number): number",
+        "Reads obj[key], dispatching on Vec vs Map. Accepts Symbol keys.",
+        __RTS_FN_NS_COLLECTIONS_OBJ_GET as *const u8,
+    ));
+    v.push(func(
+        "map_get_kh",
+        "__RTS_FN_NS_COLLECTIONS_MAP_GET_KH",
+        Sig::new(vec![AbiType::U64, AbiType::U64], AbiType::I64),
+        "map_get_kh(obj_h: number, key_h: number): number",
+        "Returns value for key handle, or 0 if absent.",
+        __RTS_FN_NS_COLLECTIONS_MAP_GET_KH as *const u8,
+    ));
+    v.push(func(
+        "map_clone",
+        "__RTS_FN_NS_COLLECTIONS_MAP_CLONE",
+        Sig::new(vec![AbiType::U64], AbiType::Handle),
+        "map_clone(h: number): number",
+        "Returns a shallow copy of the map (new handle).",
+        __RTS_FN_NS_COLLECTIONS_MAP_CLONE as *const u8,
+    ));
+    v.push(func(
+        "map_key_at",
+        "__RTS_FN_NS_COLLECTIONS_MAP_KEY_AT",
+        Sig::new(vec![AbiType::U64, AbiType::I64], AbiType::Handle),
+        "map_key_at(h: number, idx: number): number",
+        "Returns the key at index in deterministic order (sorted). 0 if out of range.",
+        __RTS_FN_NS_COLLECTIONS_MAP_KEY_AT as *const u8,
+    ));
+    v.push(func(
+        "map_keys",
+        "__RTS_FN_NS_COLLECTIONS_MAP_KEYS",
+        Sig::new(vec![AbiType::U64], AbiType::Handle),
+        "map_keys(h: number): number",
+        "Returns Vec<i64> with key handles (sorted asc). Used by Object.keys.",
+        __RTS_FN_NS_COLLECTIONS_MAP_KEYS as *const u8,
+    ));
+    v.push(func(
+        "map_values",
+        "__RTS_FN_NS_COLLECTIONS_MAP_VALUES",
+        Sig::new(vec![AbiType::U64], AbiType::Handle),
+        "map_values(h: number): number",
+        "Returns Vec<i64> with values (in key-sorted order). Used by Object.values.",
+        __RTS_FN_NS_COLLECTIONS_MAP_VALUES as *const u8,
+    ));
 }
 
 /// (cross-runtime #1125) Storage do `globalThis` para escrita/leitura

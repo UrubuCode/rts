@@ -4,11 +4,11 @@
 //! encode/decode, and an OS CSPRNG. `SHA256_DIGEST` (crypto.subtle.digest) is
 //! NOT a namespace member — it stays a free extern below.
 //!
-//! Migrated to the `#[rts_namespace]` single-declaration model (stage 2c,
-//! `docs/specs/rts-core-engine.md`).
+//! Migrado do `#[rts_namespace]` pro modelo builder hand-written do `rts-engine`
+//! (rumo à remoção da `rts-macro`; ver pilotos hint/hash/ptr/mem/runtime).
 
 use rts_engine::abi::ty::{Handle, I64};
-use rts_macro::rts_namespace;
+use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 use sha2::Digest;
 
 use crate::namespaces::gc::handles::{Entry, HasherState, alloc_entry, with_entry, with_entry_mut};
@@ -249,201 +249,362 @@ pub extern "C" fn __RTS_FN_NS_CRYPTO_SHA256_DIGEST(src: u64) -> u64 {
     alloc_entry(Entry::PromiseAsync(slot))
 }
 
-/// Cryptographic primitives: SHA-256, hex/base64, CSPRNG.
-#[rts_namespace(crypto)]
-impl CryptoNs {
-    /// Fills `len` bytes at `ptr` with CSPRNG data. 0 on success, -1 on error.
-    #[rts_fn]
-    pub fn random_bytes(ptr: I64, len: I64) -> I64 {
-        if ptr == 0 || len <= 0 {
-            return -1;
-        }
-        // SAFETY: caller guarantees `ptr` covers `len` writable bytes.
-        let slice = unsafe { std::slice::from_raw_parts_mut(ptr as *mut u8, len as usize) };
-        if os_random_into(slice) { 0 } else { -1 }
+/// Fills `len` bytes at `ptr` with CSPRNG data. 0 on success, -1 on error.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_CRYPTO_RANDOM_BYTES(ptr: I64, len: I64) -> I64 {
+    if ptr == 0 || len <= 0 {
+        return -1;
     }
+    // SAFETY: caller guarantees `ptr` covers `len` writable bytes.
+    let slice = unsafe { std::slice::from_raw_parts_mut(ptr as *mut u8, len as usize) };
+    if os_random_into(slice) { 0 } else { -1 }
+}
 
-    /// A cryptographically secure i64 (0 is a valid value).
-    #[rts_fn]
-    pub fn random_i64() -> I64 {
-        let mut bytes = [0u8; 8];
-        if os_random_into(&mut bytes) {
-            i64::from_le_bytes(bytes)
-        } else {
-            0
-        }
+/// A cryptographically secure i64 (0 is a valid value).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_CRYPTO_RANDOM_I64() -> I64 {
+    let mut bytes = [0u8; 8];
+    if os_random_into(&mut bytes) {
+        i64::from_le_bytes(bytes)
+    } else {
+        0
     }
+}
 
-    /// Allocates a Buffer of `len` random bytes. Handle, or 0 on error.
-    #[rts_fn]
-    pub fn random_buffer(len: I64) -> Handle {
-        if len < 0 {
+/// Allocates a Buffer of `len` random bytes. Handle, or 0 on error.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_CRYPTO_RANDOM_BUFFER(len: I64) -> Handle {
+    if len < 0 {
+        return 0;
+    }
+    let mut buf = vec![0u8; len as usize];
+    if !os_random_into(&mut buf) {
+        return 0;
+    }
+    alloc_entry(Entry::Buffer(buf))
+}
+
+/// UUID v4 (RFC 4122) — `crypto.randomUUID()`. String handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_CRYPTO_RANDOM_UUID() -> Handle {
+    let mut bytes = [0u8; 16];
+    if !os_random_into(&mut bytes) {
+        return 0;
+    }
+    bytes[6] = (bytes[6] & 0x0F) | 0x40; // version 4
+    bytes[8] = (bytes[8] & 0x3F) | 0x80; // variant 10
+    let s = format!(
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        bytes[0],
+        bytes[1],
+        bytes[2],
+        bytes[3],
+        bytes[4],
+        bytes[5],
+        bytes[6],
+        bytes[7],
+        bytes[8],
+        bytes[9],
+        bytes[10],
+        bytes[11],
+        bytes[12],
+        bytes[13],
+        bytes[14],
+        bytes[15],
+    );
+    alloc_entry(Entry::String(s.into_bytes()))
+}
+
+/// `crypto.createHash("sha256")` — new streaming hasher. 0 if unsupported.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_CRYPTO_HASH_NEW(alg_ptr: *const u8, alg_len: i64) -> Handle {
+    let alg = match unsafe { rts_engine::abi::str_abi::from_abi(alg_ptr, alg_len) } {
+        Some(s) => s,
+        None => return 0,
+    };
+    let state = match alg {
+        "sha256" | "SHA-256" | "SHA256" => HasherState::Sha256(sha2::Sha256::new()),
+        _ => return 0,
+    };
+    alloc_entry(Entry::Hasher(Box::new(state)))
+}
+
+/// `hash.update(data: string)` — feed bytes into the streaming hasher.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_CRYPTO_HASH_UPDATE_STR(h: Handle, data_ptr: *const u8, data_len: i64) -> I64 {
+    let data = match unsafe { rts_engine::abi::str_abi::from_abi(data_ptr, data_len) } {
+        Some(s) => s,
+        None => return 0,
+    };
+    update_hasher(h, data.as_bytes())
+}
+
+/// `hash.update(buf)` — feed raw ptr+len bytes.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_CRYPTO_HASH_UPDATE_BYTES(h: Handle, ptr: I64, len: I64) -> I64 {
+    if ptr == 0 || len < 0 {
+        return 0;
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
+    update_hasher(h, bytes)
+}
+
+/// `hash.digest("hex")` — finalize, return a hex string handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_CRYPTO_HASH_DIGEST_HEX(h: Handle) -> Handle {
+    let d = finalize_hasher(h);
+    if d.is_empty() {
+        return 0;
+    }
+    intern(&to_hex(&d))
+}
+
+/// `hash.digest("base64")` — finalize, return a base64 string handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_CRYPTO_HASH_DIGEST_BASE64(h: Handle) -> Handle {
+    let d = finalize_hasher(h);
+    if d.is_empty() {
+        return 0;
+    }
+    intern(&b64_encode(&d))
+}
+
+/// SHA-256 of a string, lowercase hex. String handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_CRYPTO_SHA256_STR(s_ptr: *const u8, s_len: i64) -> Handle {
+    let s = match unsafe { rts_engine::abi::str_abi::from_abi(s_ptr, s_len) } {
+        Some(s) => s,
+        None => return 0,
+    };
+    intern(&to_hex(&sha256(s.as_bytes())))
+}
+
+/// SHA-256 of raw bytes (ptr+len), lowercase hex. String handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_CRYPTO_SHA256_BYTES(ptr: I64, len: I64) -> Handle {
+    if ptr == 0 || len < 0 {
+        return 0;
+    }
+    let slice = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
+    intern(&to_hex(&sha256(slice)))
+}
+
+/// Hex-encode raw bytes (ptr+len). Lowercase string handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_CRYPTO_HEX_ENCODE(ptr: I64, len: I64) -> Handle {
+    if ptr == 0 || len < 0 {
+        return 0;
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
+    intern(&to_hex(bytes))
+}
+
+/// Hex-decode a string into a Buffer handle. 0 on error.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_CRYPTO_HEX_DECODE(s_ptr: *const u8, s_len: i64) -> Handle {
+    let s = match unsafe { rts_engine::abi::str_abi::from_abi(s_ptr, s_len) } {
+        Some(s) => s,
+        None => return 0,
+    };
+    let bytes = s.as_bytes();
+    if bytes.len() % 2 != 0 {
+        return 0;
+    }
+    let mut out = Vec::with_capacity(bytes.len() / 2);
+    let mut i = 0;
+    while i < bytes.len() {
+        let (Some(hi), Some(lo)) = (hex_digit(bytes[i]), hex_digit(bytes[i + 1])) else {
             return 0;
-        }
-        let mut buf = vec![0u8; len as usize];
-        if !os_random_into(&mut buf) {
-            return 0;
-        }
-        alloc_entry(Entry::Buffer(buf))
-    }
-
-    /// UUID v4 (RFC 4122) — `crypto.randomUUID()`. String handle.
-    #[rts_fn(ts = "random_uuid(): string")]
-    pub fn random_uuid() -> Handle {
-        let mut bytes = [0u8; 16];
-        if !os_random_into(&mut bytes) {
-            return 0;
-        }
-        bytes[6] = (bytes[6] & 0x0F) | 0x40; // version 4
-        bytes[8] = (bytes[8] & 0x3F) | 0x80; // variant 10
-        let s = format!(
-            "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-            bytes[0],
-            bytes[1],
-            bytes[2],
-            bytes[3],
-            bytes[4],
-            bytes[5],
-            bytes[6],
-            bytes[7],
-            bytes[8],
-            bytes[9],
-            bytes[10],
-            bytes[11],
-            bytes[12],
-            bytes[13],
-            bytes[14],
-            bytes[15],
-        );
-        alloc_entry(Entry::String(s.into_bytes()))
-    }
-
-    /// `crypto.createHash("sha256")` — new streaming hasher. 0 if unsupported.
-    #[rts_fn]
-    pub fn hash_new(alg: Str) -> Handle {
-        let state = match alg {
-            "sha256" | "SHA-256" | "SHA256" => HasherState::Sha256(sha2::Sha256::new()),
-            _ => return 0,
         };
-        alloc_entry(Entry::Hasher(Box::new(state)))
+        out.push((hi << 4) | lo);
+        i += 2;
     }
+    alloc_entry(Entry::Buffer(out))
+}
 
-    /// `hash.update(data: string)` — feed bytes into the streaming hasher.
-    #[rts_fn]
-    pub fn hash_update_str(h: Handle, data: Str) -> I64 {
-        update_hasher(h, data.as_bytes())
+/// Base64-encode raw bytes (ptr+len, RFC 4648 padded). String handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_CRYPTO_BASE64_ENCODE(ptr: I64, len: I64) -> Handle {
+    if ptr == 0 || len < 0 {
+        return 0;
     }
+    let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
+    intern(&b64_encode(bytes))
+}
 
-    /// `hash.update(buf)` — feed raw ptr+len bytes.
-    #[rts_fn]
-    pub fn hash_update_bytes(h: Handle, ptr: I64, len: I64) -> I64 {
-        if ptr == 0 || len < 0 {
+/// Base64-decode a string into a Buffer handle. 0 on error.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_CRYPTO_BASE64_DECODE(s_ptr: *const u8, s_len: i64) -> Handle {
+    let s = match unsafe { rts_engine::abi::str_abi::from_abi(s_ptr, s_len) } {
+        Some(s) => s,
+        None => return 0,
+    };
+    let bytes = s.as_bytes();
+    if bytes.len() % 4 != 0 {
+        return 0;
+    }
+    let mut out = Vec::with_capacity(bytes.len() * 3 / 4);
+    let mut i = 0;
+    while i < bytes.len() {
+        let (c0, c1, c2, c3) = (bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]);
+        let (Some(v0), Some(v1)) = (b64_val(c0), b64_val(c1)) else {
             return 0;
-        }
-        let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
-        update_hasher(h, bytes)
-    }
-
-    /// `hash.digest("hex")` — finalize, return a hex string handle.
-    #[rts_fn(ts = "hash_digest_hex(h: number): string")]
-    pub fn hash_digest_hex(h: Handle) -> Handle {
-        let d = finalize_hasher(h);
-        if d.is_empty() {
-            return 0;
-        }
-        intern(&to_hex(&d))
-    }
-
-    /// `hash.digest("base64")` — finalize, return a base64 string handle.
-    #[rts_fn(ts = "hash_digest_base64(h: number): string")]
-    pub fn hash_digest_base64(h: Handle) -> Handle {
-        let d = finalize_hasher(h);
-        if d.is_empty() {
-            return 0;
-        }
-        intern(&b64_encode(&d))
-    }
-
-    /// SHA-256 of a string, lowercase hex. String handle.
-    #[rts_fn(ts = "sha256_str(s: string): string")]
-    pub fn sha256_str(s: Str) -> Handle {
-        intern(&to_hex(&sha256(s.as_bytes())))
-    }
-
-    /// SHA-256 of raw bytes (ptr+len), lowercase hex. String handle.
-    #[rts_fn(ts = "sha256_bytes(ptr: number, len: number): string")]
-    pub fn sha256_bytes(ptr: I64, len: I64) -> Handle {
-        if ptr == 0 || len < 0 {
-            return 0;
-        }
-        let slice = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
-        intern(&to_hex(&sha256(slice)))
-    }
-
-    /// Hex-encode raw bytes (ptr+len). Lowercase string handle.
-    #[rts_fn(ts = "hex_encode(ptr: number, len: number): string")]
-    pub fn hex_encode(ptr: I64, len: I64) -> Handle {
-        if ptr == 0 || len < 0 {
-            return 0;
-        }
-        let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
-        intern(&to_hex(bytes))
-    }
-
-    /// Hex-decode a string into a Buffer handle. 0 on error.
-    #[rts_fn]
-    pub fn hex_decode(s: Str) -> Handle {
-        let bytes = s.as_bytes();
-        if bytes.len() % 2 != 0 {
-            return 0;
-        }
-        let mut out = Vec::with_capacity(bytes.len() / 2);
-        let mut i = 0;
-        while i < bytes.len() {
-            let (Some(hi), Some(lo)) = (hex_digit(bytes[i]), hex_digit(bytes[i + 1])) else {
-                return 0;
-            };
-            out.push((hi << 4) | lo);
-            i += 2;
-        }
-        alloc_entry(Entry::Buffer(out))
-    }
-
-    /// Base64-encode raw bytes (ptr+len, RFC 4648 padded). String handle.
-    #[rts_fn(ts = "base64_encode(ptr: number, len: number): string")]
-    pub fn base64_encode(ptr: I64, len: I64) -> Handle {
-        if ptr == 0 || len < 0 {
-            return 0;
-        }
-        let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
-        intern(&b64_encode(bytes))
-    }
-
-    /// Base64-decode a string into a Buffer handle. 0 on error.
-    #[rts_fn]
-    pub fn base64_decode(s: Str) -> Handle {
-        let bytes = s.as_bytes();
-        if bytes.len() % 4 != 0 {
-            return 0;
-        }
-        let mut out = Vec::with_capacity(bytes.len() * 3 / 4);
-        let mut i = 0;
-        while i < bytes.len() {
-            let (c0, c1, c2, c3) = (bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]);
-            let (Some(v0), Some(v1)) = (b64_val(c0), b64_val(c1)) else {
-                return 0;
-            };
-            out.push((v0 << 2) | (v1 >> 4));
-            if c2 != b'=' {
-                let Some(v2) = b64_val(c2) else { return 0 };
-                out.push(((v1 & 0b1111) << 4) | (v2 >> 2));
-                if c3 != b'=' {
-                    let Some(v3) = b64_val(c3) else { return 0 };
-                    out.push(((v2 & 0b11) << 6) | v3);
-                }
+        };
+        out.push((v0 << 2) | (v1 >> 4));
+        if c2 != b'=' {
+            let Some(v2) = b64_val(c2) else { return 0 };
+            out.push(((v1 & 0b1111) << 4) | (v2 >> 2));
+            if c3 != b'=' {
+                let Some(v3) = b64_val(c3) else { return 0 };
+                out.push(((v2 & 0b11) << 6) | v3);
             }
-            i += 4;
         }
-        alloc_entry(Entry::Buffer(out))
+        i += 4;
     }
+    alloc_entry(Entry::Buffer(out))
+}
+
+/// Função `crypto.f(args)`.
+fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
+    Member {
+        name: name.to_string(),
+        kind: MemberKind::Function,
+        sig,
+        symbol: symbol.to_string(),
+        fn_ptr: FnPtr(fp),
+        flags: MemberFlags::NONE,
+        aliases: Vec::new(),
+        variadic: false,
+        ts_signature: ts.to_string(),
+        doc: doc.to_string(),
+        pure: false,
+        intrinsic: None,
+    }
+}
+
+/// Registra a namespace `crypto` no motor (Fase 2 — hand-written, sem macro).
+pub fn register(e: &mut Engine) {
+    e.ns("crypto")
+        .doc("Cryptographic primitives: SHA-256, hex/base64, CSPRNG.")
+        .member(func(
+            "random_bytes",
+            "__RTS_FN_NS_CRYPTO_RANDOM_BYTES",
+            Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::I64),
+            "random_bytes(ptr: number, len: number): number",
+            "Fills `len` bytes at `ptr` with CSPRNG data. 0 on success, -1 on error.",
+            __RTS_FN_NS_CRYPTO_RANDOM_BYTES as *const u8,
+        ))
+        .member(func(
+            "random_i64",
+            "__RTS_FN_NS_CRYPTO_RANDOM_I64",
+            Sig::new(Vec::new(), AbiType::I64),
+            "random_i64(): number",
+            "A cryptographically secure i64 (0 is a valid value).",
+            __RTS_FN_NS_CRYPTO_RANDOM_I64 as *const u8,
+        ))
+        .member(func(
+            "random_buffer",
+            "__RTS_FN_NS_CRYPTO_RANDOM_BUFFER",
+            Sig::new(vec![AbiType::I64], AbiType::Handle),
+            "random_buffer(len: number): number",
+            "Allocates a Buffer of `len` random bytes. Handle, or 0 on error.",
+            __RTS_FN_NS_CRYPTO_RANDOM_BUFFER as *const u8,
+        ))
+        .member(func(
+            "random_uuid",
+            "__RTS_FN_NS_CRYPTO_RANDOM_UUID",
+            Sig::new(Vec::new(), AbiType::Handle),
+            "random_uuid(): string",
+            "UUID v4 (RFC 4122) — `crypto.randomUUID()`. String handle.",
+            __RTS_FN_NS_CRYPTO_RANDOM_UUID as *const u8,
+        ))
+        .member(func(
+            "hash_new",
+            "__RTS_FN_NS_CRYPTO_HASH_NEW",
+            Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
+            "hash_new(alg: string): number",
+            "`crypto.createHash(\"sha256\")` — new streaming hasher. 0 if unsupported.",
+            __RTS_FN_NS_CRYPTO_HASH_NEW as *const u8,
+        ))
+        .member(func(
+            "hash_update_str",
+            "__RTS_FN_NS_CRYPTO_HASH_UPDATE_STR",
+            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::I64),
+            "hash_update_str(h: number, data: string): number",
+            "`hash.update(data: string)` — feed bytes into the streaming hasher.",
+            __RTS_FN_NS_CRYPTO_HASH_UPDATE_STR as *const u8,
+        ))
+        .member(func(
+            "hash_update_bytes",
+            "__RTS_FN_NS_CRYPTO_HASH_UPDATE_BYTES",
+            Sig::new(vec![AbiType::Handle, AbiType::I64, AbiType::I64], AbiType::I64),
+            "hash_update_bytes(h: number, ptr: number, len: number): number",
+            "`hash.update(buf)` — feed raw ptr+len bytes.",
+            __RTS_FN_NS_CRYPTO_HASH_UPDATE_BYTES as *const u8,
+        ))
+        .member(func(
+            "hash_digest_hex",
+            "__RTS_FN_NS_CRYPTO_HASH_DIGEST_HEX",
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "hash_digest_hex(h: number): string",
+            "`hash.digest(\"hex\")` — finalize, return a hex string handle.",
+            __RTS_FN_NS_CRYPTO_HASH_DIGEST_HEX as *const u8,
+        ))
+        .member(func(
+            "hash_digest_base64",
+            "__RTS_FN_NS_CRYPTO_HASH_DIGEST_BASE64",
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "hash_digest_base64(h: number): string",
+            "`hash.digest(\"base64\")` — finalize, return a base64 string handle.",
+            __RTS_FN_NS_CRYPTO_HASH_DIGEST_BASE64 as *const u8,
+        ))
+        .member(func(
+            "sha256_str",
+            "__RTS_FN_NS_CRYPTO_SHA256_STR",
+            Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
+            "sha256_str(s: string): string",
+            "SHA-256 of a string, lowercase hex. String handle.",
+            __RTS_FN_NS_CRYPTO_SHA256_STR as *const u8,
+        ))
+        .member(func(
+            "sha256_bytes",
+            "__RTS_FN_NS_CRYPTO_SHA256_BYTES",
+            Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::Handle),
+            "sha256_bytes(ptr: number, len: number): string",
+            "SHA-256 of raw bytes (ptr+len), lowercase hex. String handle.",
+            __RTS_FN_NS_CRYPTO_SHA256_BYTES as *const u8,
+        ))
+        .member(func(
+            "hex_encode",
+            "__RTS_FN_NS_CRYPTO_HEX_ENCODE",
+            Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::Handle),
+            "hex_encode(ptr: number, len: number): string",
+            "Hex-encode raw bytes (ptr+len). Lowercase string handle.",
+            __RTS_FN_NS_CRYPTO_HEX_ENCODE as *const u8,
+        ))
+        .member(func(
+            "hex_decode",
+            "__RTS_FN_NS_CRYPTO_HEX_DECODE",
+            Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
+            "hex_decode(s: string): number",
+            "Hex-decode a string into a Buffer handle. 0 on error.",
+            __RTS_FN_NS_CRYPTO_HEX_DECODE as *const u8,
+        ))
+        .member(func(
+            "base64_encode",
+            "__RTS_FN_NS_CRYPTO_BASE64_ENCODE",
+            Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::Handle),
+            "base64_encode(ptr: number, len: number): string",
+            "Base64-encode raw bytes (ptr+len, RFC 4648 padded). String handle.",
+            __RTS_FN_NS_CRYPTO_BASE64_ENCODE as *const u8,
+        ))
+        .member(func(
+            "base64_decode",
+            "__RTS_FN_NS_CRYPTO_BASE64_DECODE",
+            Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
+            "base64_decode(s: string): number",
+            "Base64-decode a string into a Buffer handle. 0 on error.",
+            __RTS_FN_NS_CRYPTO_BASE64_DECODE as *const u8,
+        ))
+        .done();
 }

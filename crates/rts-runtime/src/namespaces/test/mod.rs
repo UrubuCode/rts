@@ -4,12 +4,12 @@
 //! `reset_runner` / `runner_failed` / `runner_passed` are pub (driven by the
 //! `rts test` command); `BUNDLE_TS` is the embedded high-level harness.
 //!
-//! Migrated to the `#[rts_namespace]` single-declaration model (stage 2c,
-//! `docs/specs/rts-core-engine.md`).
+//! Migrado do `#[rts_namespace]` pro modelo builder hand-written do `rts-engine`
+//! (rumo à remoção da `rts-macro`; ver pilotos hint/hash/ptr/mem/runtime).
 
 use std::cell::RefCell;
 
-use rts_macro::rts_namespace;
+use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 pub const BUNDLE_TS: &str = include_str!("bundle.ts");
 
@@ -108,135 +108,239 @@ pub fn runner_passed() -> usize {
     RUNNER.with(|r| r.borrow().passed)
 }
 
-/// Low-level test runner primitives. Use rts:test for the high-level API.
-#[rts_namespace(test_core)]
-impl TestCore {
-    /// Opens a named test suite block. Nested calls increase indent.
-    #[rts_fn]
-    pub fn suite_begin(name: Str) {
-        RUNNER.with(|r| {
-            let r = r.borrow();
-            let indent = "  ".repeat(r.depth() + 1);
-            eprintln!("{indent}{}", yellow(&bold(name)));
-        });
-        RUNNER.with(|r| r.borrow_mut().suite_stack.push(name.to_string()));
-    }
+// ── ABI surface (extern "C" runner primitives) ───────────────────────────────
 
-    /// Closes the innermost test suite block.
-    #[rts_fn]
-    pub fn suite_end() {
-        RUNNER.with(|r| {
-            let mut r = r.borrow_mut();
-            r.suite_stack.pop();
-            if r.suite_stack.is_empty() {
-                eprintln!();
-            }
-        });
-    }
+/// Opens a named test suite block. Nested calls increase indent.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_TEST_CORE_SUITE_BEGIN(name_ptr: *const u8, name_len: i64) {
+    let name = match unsafe { rts_engine::abi::str_abi::from_abi(name_ptr, name_len) } {
+        Some(s) => s,
+        None => return,
+    };
+    RUNNER.with(|r| {
+        let r = r.borrow();
+        let indent = "  ".repeat(r.depth() + 1);
+        eprintln!("{indent}{}", yellow(&bold(name)));
+    });
+    RUNNER.with(|r| r.borrow_mut().suite_stack.push(name.to_string()));
+}
 
-    /// Starts a named test case and resets the failure flag.
-    #[rts_fn]
-    pub fn case_begin(name: Str) {
-        RUNNER.with(|r| {
-            let mut r = r.borrow_mut();
-            r.case_name = Some(name.to_string());
-            r.case_failed = false;
-        });
-    }
+/// Closes the innermost test suite block.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_TEST_CORE_SUITE_END() {
+    RUNNER.with(|r| {
+        let mut r = r.borrow_mut();
+        r.suite_stack.pop();
+        if r.suite_stack.is_empty() {
+            eprintln!();
+        }
+    });
+}
 
-    /// Ends the current case. Prints ✓ if no failures, updates counters.
-    #[rts_fn]
-    pub fn case_end() {
-        RUNNER.with(|r| {
-            let mut r = r.borrow_mut();
-            let indent = r.indent();
-            let name = r.case_name.take().unwrap_or_default();
-            if r.case_failed {
-                r.failed += 1;
-            } else {
-                r.passed += 1;
-                eprintln!("{indent}{} {}", green("✓"), dim(&name));
-            }
-            r.case_failed = false;
-        });
-    }
+/// Starts a named test case and resets the failure flag.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_TEST_CORE_CASE_BEGIN(name_ptr: *const u8, name_len: i64) {
+    let name = match unsafe { rts_engine::abi::str_abi::from_abi(name_ptr, name_len) } {
+        Some(s) => s,
+        None => return,
+    };
+    RUNNER.with(|r| {
+        let mut r = r.borrow_mut();
+        r.case_name = Some(name.to_string());
+        r.case_failed = false;
+    });
+}
 
-    /// Marks current case as failed and emits message in red.
-    #[rts_fn]
-    pub fn case_fail(msg: Str) {
-        RUNNER.with(|r| {
-            let mut r = r.borrow_mut();
-            let indent = r.indent();
-            let name = r.case_name.clone().unwrap_or_default();
-            if !r.case_failed {
-                eprintln!("{indent}{} {}", red("✗"), bold(&name));
-            }
-            r.case_failed = true;
-            eprintln!("{indent}  {msg}");
-        });
-    }
+/// Ends the current case. Prints ✓ if no failures, updates counters.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_TEST_CORE_CASE_END() {
+    RUNNER.with(|r| {
+        let mut r = r.borrow_mut();
+        let indent = r.indent();
+        let name = r.case_name.take().unwrap_or_default();
+        if r.case_failed {
+            r.failed += 1;
+        } else {
+            r.passed += 1;
+            eprintln!("{indent}{} {}", green("✓"), dim(&name));
+        }
+        r.case_failed = false;
+    });
+}
 
-    /// Marks current case as failed and prints an expected/received diff.
-    #[rts_fn]
-    pub fn case_fail_diff(expected: Str, actual: Str) {
-        RUNNER.with(|r| {
-            let mut r = r.borrow_mut();
-            let indent = r.indent();
-            let name = r.case_name.clone().unwrap_or_default();
-            if !r.case_failed {
-                eprintln!("{indent}{} {}", red("✗"), bold(&name));
-            }
-            r.case_failed = true;
+/// Marks current case as failed and emits message in red.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_TEST_CORE_CASE_FAIL(msg_ptr: *const u8, msg_len: i64) {
+    let msg = match unsafe { rts_engine::abi::str_abi::from_abi(msg_ptr, msg_len) } {
+        Some(s) => s,
+        None => return,
+    };
+    RUNNER.with(|r| {
+        let mut r = r.borrow_mut();
+        let indent = r.indent();
+        let name = r.case_name.clone().unwrap_or_default();
+        if !r.case_failed {
+            eprintln!("{indent}{} {}", red("✗"), bold(&name));
+        }
+        r.case_failed = true;
+        eprintln!("{indent}  {msg}");
+    });
+}
 
-            let prefix = format!("{indent}  ");
+/// Marks current case as failed and prints an expected/received diff.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_TEST_CORE_CASE_FAIL_DIFF(
+    expected_ptr: *const u8,
+    expected_len: i64,
+    actual_ptr: *const u8,
+    actual_len: i64,
+) {
+    let expected = match unsafe { rts_engine::abi::str_abi::from_abi(expected_ptr, expected_len) } {
+        Some(s) => s,
+        None => return,
+    };
+    let actual = match unsafe { rts_engine::abi::str_abi::from_abi(actual_ptr, actual_len) } {
+        Some(s) => s,
+        None => return,
+    };
+    RUNNER.with(|r| {
+        let mut r = r.borrow_mut();
+        let indent = r.indent();
+        let name = r.case_name.clone().unwrap_or_default();
+        if !r.case_failed {
+            eprintln!("{indent}{} {}", red("✗"), bold(&name));
+        }
+        r.case_failed = true;
+
+        let prefix = format!("{indent}  ");
+        eprintln!(
+            "{prefix}{} {}",
+            dim("Expected:"),
+            cyan(&format!("{expected:?}"))
+        );
+        eprintln!(
+            "{prefix}{} {}",
+            dim("Received:"),
+            red(&format!("{actual:?}"))
+        );
+        if expected.contains('\n') || actual.contains('\n') {
+            print_line_diff(&prefix, expected, actual);
+        }
+    });
+}
+
+/// Prints pass/fail counts. Call once at the end of the test file.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_TEST_CORE_PRINT_SUMMARY() {
+    RUNNER.with(|r| {
+        let r = r.borrow();
+        let passed = r.passed;
+        let failed = r.failed;
+        let total = passed + failed;
+
+        eprintln!("{}", dim(&"─".repeat(40)));
+        if failed == 0 {
             eprintln!(
-                "{prefix}{} {}",
-                dim("Expected:"),
-                cyan(&format!("{expected:?}"))
+                " {} {}",
+                green("✓"),
+                green(&format!("{total} test{} passed", plural(total)))
             );
+        } else {
             eprintln!(
-                "{prefix}{} {}",
-                dim("Received:"),
-                red(&format!("{actual:?}"))
+                " {} {}",
+                red("✗"),
+                red(&format!("{failed} test{} failed", plural(failed)))
             );
-            if expected.contains('\n') || actual.contains('\n') {
-                print_line_diff(&prefix, expected, actual);
-            }
-        });
-    }
-
-    /// Prints pass/fail counts. Call once at the end of the test file.
-    #[rts_fn]
-    pub fn print_summary() {
-        RUNNER.with(|r| {
-            let r = r.borrow();
-            let passed = r.passed;
-            let failed = r.failed;
-            let total = passed + failed;
-
-            eprintln!("{}", dim(&"─".repeat(40)));
-            if failed == 0 {
+            if passed > 0 {
                 eprintln!(
                     " {} {}",
                     green("✓"),
-                    green(&format!("{total} test{} passed", plural(total)))
+                    green(&format!("{passed} test{} passed", plural(passed)))
                 );
-            } else {
-                eprintln!(
-                    " {} {}",
-                    red("✗"),
-                    red(&format!("{failed} test{} failed", plural(failed)))
-                );
-                if passed > 0 {
-                    eprintln!(
-                        " {} {}",
-                        green("✓"),
-                        green(&format!("{passed} test{} passed", plural(passed)))
-                    );
-                }
-                eprintln!(" {} {total} total", dim("·"));
             }
-            eprintln!();
-        });
+            eprintln!(" {} {total} total", dim("·"));
+        }
+        eprintln!();
+    });
+}
+
+/// Função `test_core.f(args)` — todas as primitivas são void, não-pure.
+fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
+    Member {
+        name: name.to_string(),
+        kind: MemberKind::Function,
+        sig,
+        symbol: symbol.to_string(),
+        fn_ptr: FnPtr(fp),
+        flags: MemberFlags::NONE,
+        aliases: Vec::new(),
+        variadic: false,
+        ts_signature: ts.to_string(),
+        doc: doc.to_string(),
+        pure: false,
+        intrinsic: None,
     }
+}
+
+/// Registra a namespace `test_core` no motor (Fase 2 — hand-written, sem macro).
+pub fn register(e: &mut Engine) {
+    e.ns("test_core")
+        .doc("Low-level test runner primitives. Use rts:test for the high-level API.")
+        .member(func(
+            "suite_begin",
+            "__RTS_FN_NS_TEST_CORE_SUITE_BEGIN",
+            Sig::new(vec![AbiType::StrPtr], AbiType::Void),
+            "suite_begin(name: string): void",
+            "Opens a named test suite block. Nested calls increase indent.",
+            __RTS_FN_NS_TEST_CORE_SUITE_BEGIN as *const u8,
+        ))
+        .member(func(
+            "suite_end",
+            "__RTS_FN_NS_TEST_CORE_SUITE_END",
+            Sig::new(Vec::new(), AbiType::Void),
+            "suite_end(): void",
+            "Closes the innermost test suite block.",
+            __RTS_FN_NS_TEST_CORE_SUITE_END as *const u8,
+        ))
+        .member(func(
+            "case_begin",
+            "__RTS_FN_NS_TEST_CORE_CASE_BEGIN",
+            Sig::new(vec![AbiType::StrPtr], AbiType::Void),
+            "case_begin(name: string): void",
+            "Starts a named test case and resets the failure flag.",
+            __RTS_FN_NS_TEST_CORE_CASE_BEGIN as *const u8,
+        ))
+        .member(func(
+            "case_end",
+            "__RTS_FN_NS_TEST_CORE_CASE_END",
+            Sig::new(Vec::new(), AbiType::Void),
+            "case_end(): void",
+            "Ends the current case. Prints ✓ if no failures, updates counters.",
+            __RTS_FN_NS_TEST_CORE_CASE_END as *const u8,
+        ))
+        .member(func(
+            "case_fail",
+            "__RTS_FN_NS_TEST_CORE_CASE_FAIL",
+            Sig::new(vec![AbiType::StrPtr], AbiType::Void),
+            "case_fail(msg: string): void",
+            "Marks current case as failed and emits message in red.",
+            __RTS_FN_NS_TEST_CORE_CASE_FAIL as *const u8,
+        ))
+        .member(func(
+            "case_fail_diff",
+            "__RTS_FN_NS_TEST_CORE_CASE_FAIL_DIFF",
+            Sig::new(vec![AbiType::StrPtr, AbiType::StrPtr], AbiType::Void),
+            "case_fail_diff(expected: string, actual: string): void",
+            "Marks current case as failed and prints an expected/received diff.",
+            __RTS_FN_NS_TEST_CORE_CASE_FAIL_DIFF as *const u8,
+        ))
+        .member(func(
+            "print_summary",
+            "__RTS_FN_NS_TEST_CORE_PRINT_SUMMARY",
+            Sig::new(Vec::new(), AbiType::Void),
+            "print_summary(): void",
+            "Prints pass/fail counts. Call once at the end of the test file.",
+            __RTS_FN_NS_TEST_CORE_PRINT_SUMMARY as *const u8,
+        ))
+        .done();
 }
