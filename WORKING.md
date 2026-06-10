@@ -254,12 +254,16 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
       collector/`. `collector.rs` do engine virou `collector/mod.rs`. Facade
       `pub use rts_engine::collector::{...}` no runtime → jit.rs + collector.rs
       intocados (mesmo static). Gate: suíte 1710/1710 + AOT. (HEAD)
-- [ ] SPLIT fatias 3b-4: `thread_registry` → engine (escrito por async_rt do
-      runtime, lido pelo scanner). Depois o MECANISMO pesado: collector.rs (scanner
-      asm RSP/SuspendThread + mark/sweep) + HandleTable. Decisão: mover só o
-      ALGORITMO via trait/vtable `GcHeap` (tabela tipada fica no runtime) — opção 1.
-      Gate AOT + stress (RTS_GC_DEBUG, alloc>256). É a parte mais sensível a
-      corrupção — fazer com cuidado.
+- [x] **SPLIT fatia 3b:** `thread_registry` → engine (std + FFI `extern "system"`).
+      Facade. Os 3 registries (stack_map/global_roots/thread_registry) agora no
+      engine. Gate: suíte 1710/1710 + AOT. (HEAD)
+- [ ] SPLIT fatia 3c-4 (a mais sensível): o MECANISMO pesado — collector.rs
+      (scanner asm RSP/SuspendThread + mark_stack_roots + finish_cycle) + a
+      HandleTable. Decisão: mover só o ALGORITMO via vtable `GcHeap` instalada do
+      runtime (tabela tipada com `Entry` FICA no runtime; o engine orquestra
+      mark/sweep chamando via os fn-ptrs) — opção 1. Gate AOT + stress
+      (RTS_GC_DEBUG, alloc>256 em loop). Corrupção = ACCESS_VIOLATION
+      não-determinístico → fazer com cuidado + stress-test, não às pressas.
 - [ ] Gate AOT crítico: staticlib continua exportando os `__RTS_FN_NS_GC_*` que
       migraram (rts-engine contribui pro archive OU runtime re-exporta `#[no_mangle]`).
 - [ ] (Futuro, atrás da ABI) trocar política mark+sweep → RC + coletor de ciclos.

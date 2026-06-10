@@ -27,7 +27,7 @@ pub mod generator;
 // aqui como fachada: `namespaces::collector::{global_roots,stack_map_registry}` +
 // os `super::` internos + `namespaces::gc::*` (alias) resolvem pro MESMO static no
 // engine, sem editar consumidores (jit.rs, collector.rs).
-pub use rts_engine::collector::{global_roots, stack_map_registry};
+pub use rts_engine::collector::{global_roots, stack_map_registry, thread_registry};
 pub mod handles;
 pub mod instance;
 pub mod promise_slot;
@@ -35,7 +35,6 @@ pub mod stack;
 pub mod string_pool;
 pub mod tagged_raw;
 pub mod this_slot;
-pub mod thread_registry;
 
 /// Runtime-managed handle table and string pool. All members are `external` —
 /// the externs are owned by the submodules; the macro emits only the SPEC.

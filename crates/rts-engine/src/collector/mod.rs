@@ -34,6 +34,10 @@ pub mod stack_map_registry;
 /// Registry de globals top-level com handles (data symbols) que o GC marca como
 /// roots — escrito pelo codegen, lido pelo scanner. Std puro. (#407)
 pub mod global_roots;
+/// Registry de threads do RTS (worker tokio + main) p/ o scanner do GC suspender
+/// + varrer a stack/registradores de cada uma. Std + FFI `extern "system"`
+/// (SuspendThread/GetThreadContext, cfg Windows) — sem dep de crate.
+pub mod thread_registry;
 
 pub use crate::abi::handles::{
     HANDLE_GEN_SHIFT, HANDLE_N_SHARDS, HANDLE_SHARD_BITS, HANDLE_SHARD_MASK, HANDLE_SLOT_MASK,
