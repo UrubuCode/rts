@@ -7,7 +7,7 @@
 //! Migrated to the `#[rts_namespace]` single-declaration model (stage 2c,
 //! `docs/specs/rts-core-engine.md`).
 
-use rts_abi::ty::{F64, I64};
+use rts_engine::abi::ty::{F64, I64};
 use rts_macro::rts_namespace;
 
 const OVERFLOW_SENTINEL: i64 = i64::MIN;

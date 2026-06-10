@@ -7,7 +7,7 @@
 pub mod instance;
 
 #[allow(unused_imports)]
-use rts_abi::ty::Handle;
+use rts_engine::abi::ty::Handle;
 use rts_macro::rts_class;
 
 /// ReadableStream.

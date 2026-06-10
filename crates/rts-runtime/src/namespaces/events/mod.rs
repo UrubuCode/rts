@@ -8,7 +8,7 @@
 //! `node:events` (#290) é wrapper TS sobre este namespace. Migrado ao modelo
 //! `#[rts_namespace]` (stage 2c, `docs/specs/rts-core-engine.md`).
 
-use rts_abi::ty::{Handle, I64, U64};
+use rts_engine::abi::ty::{Handle, I64, U64};
 use rts_macro::rts_namespace;
 
 use crate::namespaces::gc::handles::{

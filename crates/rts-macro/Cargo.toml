@@ -12,5 +12,4 @@ quote = "1"
 proc-macro2 = "1"
 
 [dev-dependencies]
-rts-abi = { path = "../rts-abi" }
 rts-engine = { path = "../rts-engine" }

@@ -6,7 +6,7 @@
 pub mod instance;
 
 #[allow(unused_imports)]
-use rts_abi::ty::{Handle, I64, U64};
+use rts_engine::abi::ty::{Handle, I64, U64};
 use rts_macro::rts_namespace;
 
 /// setTimeout / clearTimeout / setInterval / clearInterval / setImmediate / clearImmediate.

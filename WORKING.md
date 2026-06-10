@@ -281,7 +281,12 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
       `rts-runtime` (backend), `rts-browser` (frontend). API do GC só no backend.
 
 ### Limpeza final
-- [ ] Quando zero uso de `rts_abi::`: **deletar shim `crates/rts-abi`** + remover do workspace.
+- [x] **Shim `rts-abi` DELETADO.** Sweep `rts_abi::`→`rts_engine::abi::` (122 refs:
+      runtime 65 arq + macro 35 emits + derive.rs); a macro passou a emitir
+      `::rts_engine::abi::`; deps + workspace member removidos; `crates/rts-abi/`
+      `git rm`. Gate: build limpo + suíte 1710/1710 + macro derive 6/6 + AOT stress.
+      (Corrige a nota antiga: a macro NÃO precisou morrer antes — só emitir o path
+      do engine; ela continua, agora sem o shim.) (HEAD)
 - [ ] Atualizar `RTS_ENGINE.md` §0.1 + este arquivo a cada marco.
 
 ### Pendências paralelas (do RTS_ENGINE.md, não bloqueiam o acima)
@@ -297,7 +302,8 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
 - **Sem cycle:** `rts-engine` depende de **nada**; `rts-abi` (shim) → `rts-engine`. Nunca fazer engine depender de abi/runtime.
 - **`mod tests` aninhado:** dentro de `#[cfg(test)] mod tests`, `super::X` ≠ módulo-irmão. Usar caminho absoluto `crate::abi::X`. (Pegou em `global_class.rs` — `cargo check` passa mas `cargo test` quebra.)
 - **`dead_code` = erro** (CLAUDE.md). Código morto deletado no mesmo commit, nunca comentado.
-- **Macro gera `::rts_abi::...`:** enquanto a macro existir, o shim `rts-abi` deve resolver. Ao deletar o shim, a macro já não pode existir (Fase 2 antes da limpeza).
+- **Macro gera `::rts_engine::abi::...`** (era `::rts_abi::`, flipado ao deletar o
+  shim). A macro PODE existir sem o shim — só emite o path do engine. Shim deletado.
 - **Stray file:** `docs/package-name-request.md` é untracked e NÃO meu — nunca commitar.
 - **CRLF warnings** no commit são inócuos (autocrlf).
 - **fn-ptr ABI by-honor:** sig declarada ≠ extern real = corrupção de stack, verifier não pega. Builder só macro-autorado na v1 (ou validar no register).

@@ -9,7 +9,7 @@
 
 use std::cell::Cell;
 
-use rts_abi::ty::{F64, I64, U64};
+use rts_engine::abi::ty::{F64, I64, U64};
 use rts_macro::rts_namespace;
 
 // ── PRNG state (thread-local xorshift64) ──────────────────────────────────────

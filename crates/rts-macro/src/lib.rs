@@ -5,7 +5,7 @@
 //! annotated `impl` block. From each `#[rts_fn]` the macro derives:
 //!
 //! - the `#[no_mangle] extern "C"` symbol (body kept verbatim),
-//! - a `rts_abi::NamespaceMember` entry (args/returns from the type tokens,
+//! - a `rts_engine::abi::NamespaceMember` entry (args/returns from the type tokens,
 //!   doc from the `///` comment, `ts_signature` derived or overridden),
 //! - a `pub const SPEC: NamespaceSpec` aggregating all members.
 //!
@@ -27,7 +27,7 @@ use syn::{FnArg, Ident, ImplItem, ItemImpl, Pat, ReturnType, Token, Type};
 /// `part` marks an impl block that contributes members to a namespace split
 /// across several files (e.g. `collections` = `map` + `vec`): the block emits
 /// its externs + a `pub const MEMBERS`, but NOT the `SPEC` — a single owning
-/// module aggregates the parts via `rts_abi::concat_members`.
+/// module aggregates the parts via `rts_engine::abi::concat_members`.
 struct NsAttr {
     name: Ident,
     part: bool,
@@ -469,17 +469,17 @@ fn emit_var(
         },
     ];
     let flags = if mutable {
-        quote! { ::rts_abi::MemberFlags::MUTABLE }
+        quote! { ::rts_engine::abi::MemberFlags::MUTABLE }
     } else {
-        quote! { ::rts_abi::MemberFlags::READONLY }
+        quote! { ::rts_engine::abi::MemberFlags::READONLY }
     };
     let mut members = vec![quote! {
-        ::rts_abi::NamespaceMember {
+        ::rts_engine::abi::NamespaceMember {
             name: #js_name,
-            kind: ::rts_abi::MemberKind::VarGetter,
+            kind: ::rts_engine::abi::MemberKind::VarGetter,
             symbol: #get_sym,
             args: &[],
-            returns: ::rts_abi::AbiType::#abi_ident,
+            returns: ::rts_engine::abi::AbiType::#abi_ident,
             doc: "",
             ts_signature: #get_ts,
             intrinsic: None,
@@ -497,12 +497,12 @@ fn emit_var(
             pub extern "C" fn #set_ident(v: #set_arg) { #set_body }
         });
         members.push(quote! {
-            ::rts_abi::NamespaceMember {
+            ::rts_engine::abi::NamespaceMember {
                 name: #js_name,
-                kind: ::rts_abi::MemberKind::VarSetter,
+                kind: ::rts_engine::abi::MemberKind::VarSetter,
                 symbol: #set_sym,
-                args: &[ ::rts_abi::AbiType::#abi_ident ],
-                returns: ::rts_abi::AbiType::Void,
+                args: &[ ::rts_engine::abi::AbiType::#abi_ident ],
+                returns: ::rts_engine::abi::AbiType::Void,
                 doc: "",
                 ts_signature: #get_ts,
                 intrinsic: None,
@@ -510,7 +510,7 @@ fn emit_var(
                 aliases: &[],
                 variadic: false,
                 default_args: &[],
-                flags: ::rts_abi::MemberFlags::MUTABLE,
+                flags: ::rts_engine::abi::MemberFlags::MUTABLE,
             }
         });
     }
@@ -630,7 +630,7 @@ fn namespace_tokens(
                 None => {
                     return err(
                         span,
-                        "unsupported return type — use a token from rts_abi::ty",
+                        "unsupported return type — use a token from rts_engine::abi::ty",
                     );
                 }
             },
@@ -657,7 +657,7 @@ fn namespace_tokens(
             let Some((abi, tsty)) = type_token(&pt.ty) else {
                 return err(
                     span,
-                    "unsupported parameter type — use a token from rts_abi::ty (Handle/U64/I64/I32/F64/Bool/Str)",
+                    "unsupported parameter type — use a token from rts_engine::abi::ty (Handle/U64/I64/I32/F64/Bool/Str)",
                 );
             };
             let Pat::Ident(pi) = &*pt.pat else {
@@ -669,14 +669,14 @@ fn namespace_tokens(
             // of the public name — strip it for the TS signature.
             ts_params.push(format!("{}: {tsty}", pname.trim_start_matches('_')));
             let v = Ident::new(abi, span);
-            arg_variants.push(quote! { ::rts_abi::AbiType::#v });
+            arg_variants.push(quote! { ::rts_engine::abi::AbiType::#v });
 
             if abi == "StrPtr" {
                 let p_ptr = Ident::new(&format!("{pname}_ptr"), pname_ident.span());
                 let p_len = Ident::new(&format!("{pname}_len"), pname_ident.span());
                 extern_inputs.push(quote! { #p_ptr: *const u8, #p_len: i64 });
                 str_prelude.push(quote! {
-                    let #pname_ident = match unsafe { ::rts_abi::str_abi::from_abi(#p_ptr, #p_len) } {
+                    let #pname_ident = match unsafe { ::rts_engine::abi::str_abi::from_abi(#p_ptr, #p_len) } {
                         ::core::option::Option::Some(s) => s,
                         ::core::option::Option::None => #default_ret,
                     };
@@ -721,23 +721,23 @@ fn namespace_tokens(
         }
 
         let intrinsic_tok = match &opts.intrinsic {
-            Some(variant) => quote! { Some(::rts_abi::Intrinsic::#variant) },
+            Some(variant) => quote! { Some(::rts_engine::abi::Intrinsic::#variant) },
             None => quote! { None },
         };
 
         // Flags de codegen-emit (Q2): raw_bits_arg / ambiguous_ret / undef_ret.
         let mut flag_parts: Vec<proc_macro2::TokenStream> = Vec::new();
         if opts.raw_bits_arg {
-            flag_parts.push(quote! { ::rts_abi::MemberFlags::RAW_BITS_ARG });
+            flag_parts.push(quote! { ::rts_engine::abi::MemberFlags::RAW_BITS_ARG });
         }
         if opts.ambiguous_ret {
-            flag_parts.push(quote! { ::rts_abi::MemberFlags::AMBIGUOUS_RET });
+            flag_parts.push(quote! { ::rts_engine::abi::MemberFlags::AMBIGUOUS_RET });
         }
         if opts.undef_ret {
-            flag_parts.push(quote! { ::rts_abi::MemberFlags::UNDEF_RET });
+            flag_parts.push(quote! { ::rts_engine::abi::MemberFlags::UNDEF_RET });
         }
         let flags_tok = match flag_parts.len() {
-            0 => quote! { ::rts_abi::MemberFlags::NONE },
+            0 => quote! { ::rts_engine::abi::MemberFlags::NONE },
             1 => flag_parts.remove(0),
             _ => {
                 let mut it = flag_parts.into_iter();
@@ -747,12 +747,12 @@ fn namespace_tokens(
         };
 
         members.push(quote! {
-            ::rts_abi::NamespaceMember {
+            ::rts_engine::abi::NamespaceMember {
                 name: #name,
-                kind: ::rts_abi::MemberKind::#kind_ident,
+                kind: ::rts_engine::abi::MemberKind::#kind_ident,
                 symbol: #symbol,
                 args: &[ #(#arg_variants),* ],
-                returns: ::rts_abi::AbiType::#ret_ident,
+                returns: ::rts_engine::abi::AbiType::#ret_ident,
                 doc: #doc,
                 ts_signature: #ts_sig,
                 intrinsic: #intrinsic_tok,
@@ -777,7 +777,7 @@ fn namespace_tokens(
             ::rts_engine::Member {
                 name: #name.to_string(),
                 kind: ::rts_engine::MemberKind::#kind_ident,
-                sig: ::rts_engine::Sig::new(::std::vec![ #(#arg_variants),* ], ::rts_abi::AbiType::#ret_ident),
+                sig: ::rts_engine::Sig::new(::std::vec![ #(#arg_variants),* ], ::rts_engine::abi::AbiType::#ret_ident),
                 symbol: #symbol.to_string(),
                 fn_ptr: ::rts_engine::FnPtr(#fn_ptr_expr),
                 flags: #flags_tok,
@@ -792,7 +792,7 @@ fn namespace_tokens(
     }
 
     // A `part` impl emits only externs + MEMBERS; the owning module aggregates
-    // the parts into one SPEC via `rts_abi::concat_members`. A non-part impl
+    // the parts into one SPEC via `rts_engine::abi::concat_members`. A non-part impl
     // emits the full triple (externs + MEMBERS + SPEC) as before.
     let spec = if part {
         // `part` impls não publicam SPEC/register próprios (o owner agrega via
@@ -809,7 +809,7 @@ fn namespace_tokens(
     } else {
         quote! {
             /// Derived namespace spec — replaces the hand-written `SPEC` const.
-            pub const SPEC: ::rts_abi::NamespaceSpec = ::rts_abi::NamespaceSpec {
+            pub const SPEC: ::rts_engine::abi::NamespaceSpec = ::rts_engine::abi::NamespaceSpec {
                 name: #ns_str,
                 doc: #spec_doc,
                 members: MEMBERS,
@@ -832,7 +832,7 @@ fn namespace_tokens(
         #(#externs)*
 
         /// Derived namespace members (`#[rts_namespace]`). Source of truth.
-        pub const MEMBERS: &[::rts_abi::NamespaceMember] = &[ #(#members),* ];
+        pub const MEMBERS: &[::rts_engine::abi::NamespaceMember] = &[ #(#members),* ];
 
         #spec
     };
@@ -1022,7 +1022,7 @@ pub fn rts_class(attr: TokenStream, item: TokenStream) -> TokenStream {
                 None => {
                     return err(
                         span,
-                        "unsupported return type — use a token from rts_abi::ty",
+                        "unsupported return type — use a token from rts_engine::abi::ty",
                     )
                 }
             },
@@ -1043,7 +1043,7 @@ pub fn rts_class(attr: TokenStream, item: TokenStream) -> TokenStream {
             let Some((abi, _tsty)) = type_token(&pt.ty) else {
                 return err(
                     span,
-                    "unsupported parameter type — use a token from rts_abi::ty",
+                    "unsupported parameter type — use a token from rts_engine::abi::ty",
                 );
             };
             let Pat::Ident(pi) = &*pt.pat else {
@@ -1051,7 +1051,7 @@ pub fn rts_class(attr: TokenStream, item: TokenStream) -> TokenStream {
             };
             let pname_ident = pi.ident.clone();
             let v = Ident::new(abi, span);
-            arg_variants.push(quote! { ::rts_abi::AbiType::#v });
+            arg_variants.push(quote! { ::rts_engine::abi::AbiType::#v });
             if abi == "StrPtr" {
                 let pname = pname_ident.to_string();
                 let p_ptr = Ident::new(&format!("{pname}_ptr"), pname_ident.span());
@@ -1061,11 +1061,11 @@ pub fn rts_class(attr: TokenStream, item: TokenStream) -> TokenStream {
                     // Optional string: bind the raw `Option<&str>` (null/invalid
                     // → None), let the body decide.
                     str_prelude.push(quote! {
-                        let #pname_ident = unsafe { ::rts_abi::str_abi::from_abi(#p_ptr, #p_len) };
+                        let #pname_ident = unsafe { ::rts_engine::abi::str_abi::from_abi(#p_ptr, #p_len) };
                     });
                 } else {
                     str_prelude.push(quote! {
-                        let #pname_ident = match unsafe { ::rts_abi::str_abi::from_abi(#p_ptr, #p_len) } {
+                        let #pname_ident = match unsafe { ::rts_engine::abi::str_abi::from_abi(#p_ptr, #p_len) } {
                             ::core::option::Option::Some(s) => s,
                             ::core::option::Option::None => #default_ret,
                         };
@@ -1089,7 +1089,7 @@ pub fn rts_class(attr: TokenStream, item: TokenStream) -> TokenStream {
         let kind_ident = Ident::new(opts.kind, span);
         let pure = opts.pure;
         let intrinsic_tok = match &opts.intrinsic {
-            Some(variant) => quote! { Some(::rts_abi::Intrinsic::#variant) },
+            Some(variant) => quote! { Some(::rts_engine::abi::Intrinsic::#variant) },
             None => quote! { None },
         };
 
@@ -1116,13 +1116,13 @@ pub fn rts_class(attr: TokenStream, item: TokenStream) -> TokenStream {
         let flags_tok = {
             let mut parts: Vec<proc_macro2::TokenStream> = Vec::new();
             if opts.readonly {
-                parts.push(quote! { ::rts_abi::MemberFlags::READONLY });
+                parts.push(quote! { ::rts_engine::abi::MemberFlags::READONLY });
             }
             if opts.static_field {
-                parts.push(quote! { ::rts_abi::MemberFlags::STATIC });
+                parts.push(quote! { ::rts_engine::abi::MemberFlags::STATIC });
             }
             match parts.len() {
-                0 => quote! { ::rts_abi::MemberFlags::NONE },
+                0 => quote! { ::rts_engine::abi::MemberFlags::NONE },
                 1 => parts.remove(0),
                 _ => {
                     let mut it = parts.into_iter();
@@ -1133,12 +1133,12 @@ pub fn rts_class(attr: TokenStream, item: TokenStream) -> TokenStream {
         };
 
         members.push(quote! {
-            ::rts_abi::NamespaceMember {
+            ::rts_engine::abi::NamespaceMember {
                 name: #name,
-                kind: ::rts_abi::MemberKind::#kind_ident,
+                kind: ::rts_engine::abi::MemberKind::#kind_ident,
                 symbol: #symbol,
                 args: &[ #(#arg_variants),* ],
-                returns: ::rts_abi::AbiType::#ret_ident,
+                returns: ::rts_engine::abi::AbiType::#ret_ident,
                 doc: #doc,
                 ts_signature: #ts_sig,
                 intrinsic: #intrinsic_tok,
@@ -1164,7 +1164,7 @@ pub fn rts_class(attr: TokenStream, item: TokenStream) -> TokenStream {
             ::rts_engine::Member {
                 name: #name.to_string(),
                 kind: ::rts_engine::MemberKind::#kind_ident,
-                sig: ::rts_engine::Sig::new(::std::vec![ #(#arg_variants),* ], ::rts_abi::AbiType::#ret_ident),
+                sig: ::rts_engine::Sig::new(::std::vec![ #(#arg_variants),* ], ::rts_engine::abi::AbiType::#ret_ident),
                 symbol: #symbol.to_string(),
                 fn_ptr: ::rts_engine::FnPtr(#fn_ptr_expr),
                 flags: #flags_tok,
@@ -1191,7 +1191,7 @@ pub fn rts_class(attr: TokenStream, item: TokenStream) -> TokenStream {
         #(#externs)*
 
         /// Derived global-class spec — replaces the hand-written `*_CLASS_SPEC`.
-        pub const #spec_ident: ::rts_abi::GlobalClassSpec = ::rts_abi::GlobalClassSpec {
+        pub const #spec_ident: ::rts_engine::abi::GlobalClassSpec = ::rts_engine::abi::GlobalClassSpec {
             name: #class_str,
             doc: #spec_doc,
             members: &[ #(#members),* ],

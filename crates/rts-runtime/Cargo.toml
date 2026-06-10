@@ -19,7 +19,6 @@ crate-type = ["rlib", "staticlib"]
 asio = ["cpal/asio"]
 
 [dependencies]
-rts-abi = { path = "../rts-abi" }
 rts-engine = { path = "../rts-engine" }
 rts-macro = { path = "../rts-macro" }
 anyhow = "1.0"

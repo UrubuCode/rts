@@ -8,7 +8,7 @@
 //! `docs/specs/rts-core-engine.md`). All members return a GC string handle, so
 //! each carries a `ts = "...: string"` override.
 
-use rts_abi::ty::Handle;
+use rts_engine::abi::ty::Handle;
 use rts_macro::rts_namespace;
 
 unsafe extern "C" {

@@ -10,7 +10,7 @@
 pub mod rt;
 
 #[allow(unused_imports)]
-use rts_abi::ty::I64;
+use rts_engine::abi::ty::I64;
 use rts_macro::rts_namespace;
 
 /// Global object aliases — process, global, self, undefined.

@@ -9,7 +9,7 @@
 
 use std::process::{Child, Command, Stdio};
 
-use rts_abi::ty::{Handle, I32, I64, U64};
+use rts_engine::abi::ty::{Handle, I32, I64, U64};
 use rts_macro::rts_namespace;
 
 use crate::namespaces::gc::handles::{Entry, alloc_entry, free_handle, with_entry_mut};

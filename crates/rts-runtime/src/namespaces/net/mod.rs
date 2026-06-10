@@ -9,7 +9,7 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 
-use rts_abi::ty::{Handle, I64, U64};
+use rts_engine::abi::ty::{Handle, I64, U64};
 use rts_macro::rts_namespace;
 
 use crate::namespaces::gc::handles::{

@@ -5,7 +5,7 @@
 //! (parse via crate `json5`; stringify reusa `JSON.stringify`).
 
 #[allow(unused_imports)]
-use rts_abi::ty::{Handle, Str, U64};
+use rts_engine::abi::ty::{Handle, Str, U64};
 use rts_macro::rts_namespace;
 
 /// Global JSON5 object — superset do JSON com comentarios, trailing commas, unquoted keys, single-quote strings, hex, NaN/Infinity.

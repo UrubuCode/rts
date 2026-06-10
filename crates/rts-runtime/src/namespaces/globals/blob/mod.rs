@@ -7,7 +7,7 @@
 
 use indexmap::IndexMap;
 
-use rts_abi::ty::{Handle, I64};
+use rts_engine::abi::ty::{Handle, I64};
 use rts_macro::rts_class;
 
 use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};

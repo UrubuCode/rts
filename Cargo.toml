@@ -3,7 +3,6 @@ members = [
     ".",
     "crates/rts-ast",
     "crates/rts-diagnostics",
-    "crates/rts-abi",
     "crates/rts-engine",
     "crates/rts-macro",
     "crates/rts-parser",
@@ -37,7 +36,6 @@ asio = ["rts-codegen/asio", "rts-runtime/asio"]
 [dependencies]
 rts-ast = { path = "crates/rts-ast" }
 rts-diagnostics = { path = "crates/rts-diagnostics" }
-rts-abi = { path = "crates/rts-abi" }
 rts-parser = { path = "crates/rts-parser" }
 rts-linker = { path = "crates/rts-linker" }
 rts-runtime = { path = "crates/rts-runtime" }

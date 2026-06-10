@@ -12,7 +12,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rts_abi::ty::{Handle, I64};
+use rts_engine::abi::ty::{Handle, I64};
 use rts_macro::rts_namespace;
 
 use crate::namespaces::gc::handles::{Entry, alloc_entry};

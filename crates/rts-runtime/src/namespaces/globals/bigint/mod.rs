@@ -4,7 +4,7 @@
 //! expoe os helpers staticos `asIntN(bits, n)` / `asUintN(bits, n)` usados
 //! em testes cross-runtime. Migrado ao modelo `#[rts_class]` (stage 5).
 
-use rts_abi::ty::I64;
+use rts_engine::abi::ty::I64;
 use rts_macro::rts_class;
 
 /// BigInt namespace (helpers staticos asIntN/asUintN). RTS trata BigInt como i64.

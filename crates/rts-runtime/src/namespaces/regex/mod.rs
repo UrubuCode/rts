@@ -9,7 +9,7 @@
 //! `docs/specs/rts-core-engine.md`).
 
 use regex::RegexBuilder;
-use rts_abi::ty::{Bool, Handle, I64};
+use rts_engine::abi::ty::{Bool, Handle, I64};
 use rts_macro::rts_namespace;
 
 use crate::namespaces::gc::handles::{

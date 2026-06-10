@@ -7,7 +7,7 @@
 //! NAO sao membros da classe (chamadas pelo codegen por simbolo) e ficam como
 //! free fns abaixo, junto dos helpers da side-table.
 
-use rts_abi::ty::{Bool, Handle, I64};
+use rts_engine::abi::ty::{Bool, Handle, I64};
 use rts_macro::rts_class;
 
 use crate::namespaces::gc::handles::{alloc_entry, with_entry, with_entry_mut, Entry};

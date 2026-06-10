@@ -8,7 +8,7 @@ pub mod instance;
 // All members are `external` (externs live in instance.rs); the type tokens
 // live only in the macro-consumed stubs.
 #[allow(unused_imports)]
-use rts_abi::ty::{Handle, F64, I64};
+use rts_engine::abi::ty::{Handle, F64, I64};
 use rts_macro::rts_class;
 
 /// Intl.NumberFormat (en, no ICU).

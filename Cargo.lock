@@ -2566,7 +2566,6 @@ dependencies = [
  "object 0.39.0",
  "rayon",
  "regex",
- "rts-abi",
  "rts-ast",
  "rts-cli",
  "rts-codegen",
@@ -2590,13 +2589,6 @@ dependencies = [
  "webpki-roots 1.0.6",
  "xwin",
  "zstd",
-]
-
-[[package]]
-name = "rts-abi"
-version = "0.1.0"
-dependencies = [
- "rts-engine",
 ]
 
 [[package]]
@@ -2700,7 +2692,6 @@ version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
- "rts-abi",
  "rts-engine",
  "syn",
 ]
@@ -2742,7 +2733,6 @@ dependencies = [
  "notify",
  "rayon",
  "regex",
- "rts-abi",
  "rts-engine",
  "rts-macro",
  "rustc-hash 1.1.0",

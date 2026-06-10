@@ -12,7 +12,7 @@
 //! — it does not re-emit the externs.
 
 #[allow(unused_imports)]
-use rts_abi::ty::{F64, Handle, I32, I64, Str, U64};
+use rts_engine::abi::ty::{F64, Handle, I32, I64, Str, U64};
 use rts_macro::rts_namespace;
 
 pub mod class_registry;

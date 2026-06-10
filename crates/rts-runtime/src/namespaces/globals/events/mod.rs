@@ -8,7 +8,7 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use rts_abi::ty::{Bool, Handle, I64, U64};
+use rts_engine::abi::ty::{Bool, Handle, I64, U64};
 use rts_macro::rts_class;
 
 use crate::namespaces::gc::handles::{alloc_entry, free_handle, with_entry, Entry};

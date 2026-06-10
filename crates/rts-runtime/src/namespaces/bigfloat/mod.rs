@@ -10,7 +10,7 @@
 
 pub mod fixed;
 
-use rts_abi::ty::{F64, Handle, I64, U64};
+use rts_engine::abi::ty::{F64, Handle, I64, U64};
 use rts_macro::rts_namespace;
 
 use fixed::FixedDecimal;

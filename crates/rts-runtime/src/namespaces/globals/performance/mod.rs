@@ -4,7 +4,7 @@
 use std::sync::OnceLock;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use rts_abi::ty::F64;
+use rts_engine::abi::ty::F64;
 use rts_macro::rts_namespace;
 
 static START: OnceLock<(Instant, f64)> = OnceLock::new();

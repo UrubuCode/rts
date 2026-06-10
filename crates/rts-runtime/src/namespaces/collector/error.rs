@@ -8,7 +8,7 @@ use std::cell::RefCell;
 
 use super::handles::{Entry, alloc_entry, free_handle, with_entry};
 use super::string_pool::read_string_handle;
-use rts_abi::JsErrorKind;
+use rts_engine::abi::JsErrorKind;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct ErrorSlot {

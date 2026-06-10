@@ -12,7 +12,7 @@
 
 use serde_json::Value;
 
-use rts_abi::ty::{Bool, Handle, F64, I64, U64};
+use rts_engine::abi::ty::{Bool, Handle, F64, I64, U64};
 use rts_macro::rts_namespace;
 
 use super::gc::handles::{alloc_entry, free_handle, with_entry, Entry};

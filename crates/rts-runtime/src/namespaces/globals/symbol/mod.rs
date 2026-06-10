@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-use rts_abi::ty::Handle;
+use rts_engine::abi::ty::Handle;
 use rts_macro::rts_class;
 
 use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};

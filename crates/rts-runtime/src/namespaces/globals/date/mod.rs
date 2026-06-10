@@ -7,7 +7,7 @@
 pub mod instance;
 
 #[allow(unused_imports)]
-use rts_abi::ty::{Handle, Str, F64, I64};
+use rts_engine::abi::ty::{Handle, Str, F64, I64};
 use rts_macro::rts_class;
 
 /// Built-in Date class. Stores UTC timestamp as ms since Unix epoch.

@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use actix_web::{App, HttpRequest, HttpResponse, HttpServer, web};
-use rts_abi::ty::{Handle, I64, U64};
+use rts_engine::abi::ty::{Handle, I64, U64};
 use rts_macro::rts_namespace;
 use tokio::sync::oneshot;
 

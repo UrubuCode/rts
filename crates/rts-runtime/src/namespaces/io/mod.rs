@@ -9,7 +9,7 @@
 
 use std::io::{self, BufRead, Read, Write};
 
-use rts_abi::ty::{I64, U64};
+use rts_engine::abi::ty::{I64, U64};
 use rts_macro::rts_namespace;
 
 /// Standard input/output primitives backed by std::io.

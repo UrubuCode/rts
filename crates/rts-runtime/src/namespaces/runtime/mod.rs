@@ -11,7 +11,7 @@
 
 use std::path::PathBuf;
 
-use rts_abi::ty::{Handle, I64};
+use rts_engine::abi::ty::{Handle, I64};
 use rts_macro::rts_namespace;
 
 fn spawn_rts_run(path: &std::path::Path) -> i64 {

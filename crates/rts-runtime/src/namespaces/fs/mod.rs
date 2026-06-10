@@ -10,7 +10,7 @@
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 
-use rts_abi::ty::{Handle, I64, U64};
+use rts_engine::abi::ty::{Handle, I64, U64};
 use rts_macro::rts_namespace;
 
 use crate::namespaces::gc::handles::{Entry, alloc_entry};

@@ -20,7 +20,7 @@ pub mod props;
 // spec (no externs), so the `Handle`/`I64` tokens live only inside the consumed
 // stub signatures — the import reads as unused to rustc.
 #[allow(unused_imports)]
-use rts_abi::ty::{Handle, I64};
+use rts_engine::abi::ty::{Handle, I64};
 use rts_macro::rts_class;
 
 /// Built-in Function class (#359). Todos os membros sao `external` — os externs

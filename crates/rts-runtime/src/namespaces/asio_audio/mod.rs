@@ -22,7 +22,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{BufferSize, HostId, SampleFormat, StreamConfig};
-use rts_abi::ty::{Bool, F64, Handle, I64, U64};
+use rts_engine::abi::ty::{Bool, F64, Handle, I64, U64};
 use rts_macro::rts_namespace;
 
 use crate::namespaces::gc::handles::{Entry, with_entry};

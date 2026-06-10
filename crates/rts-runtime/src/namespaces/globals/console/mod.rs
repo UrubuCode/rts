@@ -10,7 +10,7 @@
 pub mod rt;
 
 #[allow(unused_imports)]
-use rts_abi::ty::Str;
+use rts_engine::abi::ty::Str;
 use rts_macro::rts_namespace;
 
 /// Global console object — variadic print to stdout/stderr.

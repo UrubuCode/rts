@@ -10,7 +10,7 @@
 //! `_NS` no simbolo (agora `__RTS_FN_NS_PROMISE_{THEN,CATCH,FINALLY}`) — interno,
 //! distinto do escopo `GL` de `Promise.prototype`, fora de `rts.d.ts`.
 
-use rts_abi::ty::{Handle, I64, U64};
+use rts_engine::abi::ty::{Handle, I64, U64};
 use rts_macro::rts_namespace;
 
 use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};

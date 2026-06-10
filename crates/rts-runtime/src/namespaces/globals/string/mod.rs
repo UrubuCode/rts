@@ -14,7 +14,7 @@ pub mod split;
 pub mod transform;
 
 #[allow(unused_imports)]
-use rts_abi::ty::{Bool, Handle, Str, I64};
+use rts_engine::abi::ty::{Bool, Handle, Str, I64};
 use rts_macro::{rts_class, rts_namespace};
 
 /// Rich string operations beyond the basic gc pool.

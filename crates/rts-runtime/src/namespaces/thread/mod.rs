@@ -16,7 +16,7 @@ use std::sync::{Condvar, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 
-use rts_abi::ty::{I64, U64};
+use rts_engine::abi::ty::{I64, U64};
 use rts_macro::rts_namespace;
 
 use crate::namespaces::gc::handles::{Entry, alloc_entry, free_handle, with_entry_mut};

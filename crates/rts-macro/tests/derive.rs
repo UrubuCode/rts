@@ -1,6 +1,6 @@
 //! End-to-end check: `#[rts_namespace]` derives the spec + callable externs.
 
-use rts_abi::ty::{Handle, F64, I64};
+use rts_engine::abi::ty::{Handle, F64, I64};
 use rts_macro::rts_namespace;
 
 // `Str` is a bare marker token recognised by the macro — it is never emitted
@@ -64,7 +64,7 @@ fn derives_spec() {
     assert_eq!(SPEC.members.len(), 7);
 
     let width = SPEC.members.iter().find(|m| m.name == "width").unwrap();
-    assert!(matches!(width.kind, rts_abi::MemberKind::Constant));
+    assert!(matches!(width.kind, rts_engine::abi::MemberKind::Constant));
     assert_eq!(width.ts_signature, "width: number"); // no parens
     assert_eq!(__RTS_FN_NS_TOY_WIDTH(), 64);
 
@@ -83,15 +83,15 @@ fn derives_spec() {
     let bl = SPEC.members.iter().find(|m| m.name == "byte_len").unwrap();
     assert_eq!(bl.symbol, "__RTS_FN_NS_TOY_BYTE_LEN");
     assert_eq!(bl.ts_signature, "byte_len(s: string): number");
-    assert!(matches!(bl.args[0], rts_abi::AbiType::StrPtr));
-    assert!(matches!(bl.returns, rts_abi::AbiType::I64));
+    assert!(matches!(bl.args[0], rts_engine::abi::AbiType::StrPtr));
+    assert!(matches!(bl.returns, rts_engine::abi::AbiType::I64));
 
     let dbl = SPEC.members.iter().find(|m| m.name == "dbl").unwrap();
     assert_eq!(dbl.symbol, "__RTS_FN_NS_TOY_DBL");
     assert_eq!(dbl.ts_signature, "dbl(value: number): number");
     assert_eq!(dbl.doc, "double it");
-    assert!(matches!(dbl.returns, rts_abi::AbiType::I64));
-    assert!(matches!(dbl.args[0], rts_abi::AbiType::I64));
+    assert!(matches!(dbl.returns, rts_engine::abi::AbiType::I64));
+    assert!(matches!(dbl.args[0], rts_engine::abi::AbiType::I64));
     assert!(!dbl.pure);
 
     let half = SPEC.members.iter().find(|m| m.name == "half").unwrap();
@@ -100,7 +100,7 @@ fn derives_spec() {
 
     let ping = SPEC.members.iter().find(|m| m.name == "ping").unwrap();
     assert_eq!(ping.ts_signature, "ping(): void");
-    assert!(matches!(ping.returns, rts_abi::AbiType::Void));
+    assert!(matches!(ping.returns, rts_engine::abi::AbiType::Void));
 }
 
 #[test]
@@ -124,7 +124,7 @@ fn str_param_reconstructs_and_guards() {
 /// derived from the specifier, and the var emits callable atomic GET/SET externs
 /// plus VarGetter/VarSetter members with the right flags.
 mod modtest {
-    use rts_abi::ty::I64;
+    use rts_engine::abi::ty::I64;
     use rts_macro::rts_module;
 
     /// Toy module declared by full specifier.
@@ -162,7 +162,7 @@ mod modtest {
 
     #[test]
     fn var_members_and_flags() {
-        use rts_abi::{MemberFlags, MemberKind};
+        use rts_engine::abi::{MemberFlags, MemberKind};
         // answer (1) + counter get+set (2) + ceiling get (1) = 4 members
         assert_eq!(SPEC.members.len(), 4);
 

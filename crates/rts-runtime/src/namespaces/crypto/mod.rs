@@ -7,7 +7,7 @@
 //! Migrated to the `#[rts_namespace]` single-declaration model (stage 2c,
 //! `docs/specs/rts-core-engine.md`).
 
-use rts_abi::ty::{Handle, I64};
+use rts_engine::abi::ty::{Handle, I64};
 use rts_macro::rts_namespace;
 use sha2::Digest;
 

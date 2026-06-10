@@ -4,7 +4,7 @@
 //! `docs/specs/rts-core-engine.md`). The `size_of_*` / `align_of_*` members are
 //! `#[rts_const]` — accessed without parens (`mem.size_of_i64`).
 
-use rts_abi::ty::{Handle, I64};
+use rts_engine::abi::ty::{Handle, I64};
 use rts_macro::rts_namespace;
 
 /// std::mem: layout (size_of/align_of), swap, drop, forget.

@@ -4,7 +4,7 @@
 //! um unico `impl` declara construtores, static e instance methods; o macro
 //! deriva os externs `__RTS_FN_GL_BOOLEAN_*` + o `BOOLEAN_CLASS_SPEC`.
 
-use rts_abi::ty::{Bool, Handle, I64};
+use rts_engine::abi::ty::{Bool, Handle, I64};
 use rts_macro::rts_class;
 
 use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};

@@ -9,7 +9,7 @@
 use std::io::{Read, Write};
 use std::sync::Arc;
 
-use rts_abi::ty::{Handle, I64, U64};
+use rts_engine::abi::ty::{Handle, I64, U64};
 use rts_macro::rts_namespace;
 use rustls::{ClientConfig, ClientConnection, RootCertStore, Stream};
 

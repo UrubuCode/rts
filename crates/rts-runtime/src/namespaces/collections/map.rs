@@ -8,7 +8,7 @@
 
 use indexmap::IndexMap;
 
-use rts_abi::ty::{Bool, Handle, I64, U64};
+use rts_engine::abi::ty::{Bool, Handle, I64, U64};
 use rts_macro::rts_namespace;
 
 use super::super::gc::handles::{alloc_entry, free_handle, with_entry, with_entry_mut, Entry};

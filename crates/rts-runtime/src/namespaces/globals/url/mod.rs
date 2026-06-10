@@ -6,7 +6,7 @@
 pub mod instance;
 
 #[allow(unused_imports)]
-use rts_abi::ty::{Bool, Handle, Str};
+use rts_engine::abi::ty::{Bool, Handle, Str};
 use rts_macro::{rts_class, rts_namespace};
 
 /// URL parser: new/href/protocol/host/hostname/port/pathname/search/hash/origin/free.

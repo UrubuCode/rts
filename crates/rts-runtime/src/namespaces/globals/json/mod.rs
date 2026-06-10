@@ -4,7 +4,7 @@
 //! membros `external` apontando para `__RTS_FN_NS_JSON_*`.
 
 #[allow(unused_imports)]
-use rts_abi::ty::{Handle, Str, I64, U64};
+use rts_engine::abi::ty::{Handle, Str, I64, U64};
 use rts_macro::rts_namespace;
 
 /// Global JSON object — parse and stringify via RTS json namespace.

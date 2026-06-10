@@ -4,7 +4,7 @@
 //! enquanto vivo. Coleta automatica fica para PR futura. Migrado ao modelo
 //! `#[rts_class]` (stage 5).
 
-use rts_abi::ty::Handle;
+use rts_engine::abi::ty::Handle;
 use rts_macro::rts_class;
 
 use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};

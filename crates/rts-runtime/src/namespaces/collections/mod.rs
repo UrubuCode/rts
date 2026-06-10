@@ -12,16 +12,16 @@ pub mod vec;
 // (stage 2c) Os 26 membros do namespace vivem em dois `#[rts_namespace(
 // collections, part)]` impls — map.rs (17) e vec.rs (9). Aqui agregamos as
 // duas tabelas `MEMBERS` numa unica `SPEC` via o helper const
-// `rts_abi::concat_members`. Ordem: map primeiro, depois vec (preserva a
+// `rts_engine::abi::concat_members`. Ordem: map primeiro, depois vec (preserva a
 // ordem do antigo abi.rs p/ rts.d.ts byte-identico).
-const COLLECTIONS_MEMBERS: [rts_abi::NamespaceMember; 26] =
-    rts_abi::concat_members(map::MEMBERS, vec::MEMBERS);
+const COLLECTIONS_MEMBERS: [rts_engine::abi::NamespaceMember; 26] =
+    rts_engine::abi::concat_members(map::MEMBERS, vec::MEMBERS);
 
 /// Membros agregados do namespace `collections` (map + vec).
-pub const MEMBERS: &[rts_abi::NamespaceMember] = &COLLECTIONS_MEMBERS;
+pub const MEMBERS: &[rts_engine::abi::NamespaceMember] = &COLLECTIONS_MEMBERS;
 
 /// Spec do namespace `collections`.
-pub const SPEC: rts_abi::NamespaceSpec = rts_abi::NamespaceSpec {
+pub const SPEC: rts_engine::abi::NamespaceSpec = rts_engine::abi::NamespaceSpec {
     name: "collections",
     doc: "Handle-based HashMap and Vec backed by std::collections.",
     members: MEMBERS,

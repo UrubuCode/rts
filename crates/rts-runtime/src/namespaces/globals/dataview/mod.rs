@@ -13,7 +13,7 @@
 //! com o mesmo `name = "..."`, resolvidas por aridade no dispatch de codegen.
 
 #[allow(unused_imports)]
-use rts_abi::ty::{F64, Handle, I32, I64};
+use rts_engine::abi::ty::{F64, Handle, I32, I64};
 use rts_macro::rts_class;
 
 /// Built-in ArrayBuffer class (raw byte buffer). Todos os membros sao

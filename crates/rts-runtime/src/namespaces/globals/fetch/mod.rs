@@ -12,7 +12,7 @@
 pub mod instance;
 
 #[allow(unused_imports)]
-use rts_abi::ty::{Bool, Handle, Str, I64, U64};
+use rts_engine::abi::ty::{Bool, Handle, Str, I64, U64};
 use rts_macro::{rts_class, rts_namespace};
 
 /// Web Fetch API — fetch() + Promise<Response> + Response (text/json/blob/status/ok/url).

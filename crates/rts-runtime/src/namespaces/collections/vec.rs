@@ -4,9 +4,9 @@
 //! `#[rts_namespace(collections, part)] impl CollectionsVecNs` abaixo (stage
 //! 2c, `docs/specs/rts-core-engine.md`); o resto sao non-member externs
 //! (`*_AUTO`, `GL_ARRAY_*`, Array.prototype methods) que o codegen chama por
-//! simbolo. `mod.rs` junta os MEMBERS de map+vec via `rts_abi::concat_members`.
+//! simbolo. `mod.rs` junta os MEMBERS de map+vec via `rts_engine::abi::concat_members`.
 
-use rts_abi::ty::{Handle, I64, U64};
+use rts_engine::abi::ty::{Handle, I64, U64};
 use rts_macro::rts_namespace;
 
 use super::super::gc::handles::{alloc_entry, free_handle, with_entry, with_entry_mut, Entry};

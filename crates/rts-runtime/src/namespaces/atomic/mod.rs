@@ -10,7 +10,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering, fence};
 
-use rts_abi::ty::{Bool, F64, Handle, I64, U64};
+use rts_engine::abi::ty::{Bool, F64, Handle, I64, U64};
 use rts_macro::rts_namespace;
 
 use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry};

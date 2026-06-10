@@ -6,7 +6,7 @@
 //! (NEW_EMPTY/BOX_VALUE_OF/TO_STRING_RADIX), os helpers de arredondamento e
 //! `number_const_value` ficam como free items abaixo.
 
-use rts_abi::ty::{Bool, Handle, F64, I64};
+use rts_engine::abi::ty::{Bool, Handle, F64, I64};
 use rts_macro::rts_class;
 
 unsafe extern "C" {

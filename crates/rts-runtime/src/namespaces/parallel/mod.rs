@@ -12,7 +12,7 @@ pub mod pool;
 
 use rayon::prelude::*;
 
-use rts_abi::ty::{Bool, Handle, I64, U64};
+use rts_engine::abi::ty::{Bool, Handle, I64, U64};
 use rts_macro::rts_namespace;
 
 use self::pool::pool;
