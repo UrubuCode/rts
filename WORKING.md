@@ -16,13 +16,20 @@
 
 ## 🎯 PRÓXIMO PASSO (sempre no topo)
 
-**F3 — codegen lê o `Registry`** (a ponte). Fazer `abi::lookup` /
-`global_class_lookup` consultarem um `Registry` montado pelas camadas (Track A:
-`register_builtins()` drena os const arrays), em vez de varrer os const arrays
-direto. Habilita a Fase 2 (runtime→builder) + módulos externos.
+**F3 — codegen lê o `Registry`** (a ponte). Decisão de escopo (descoberta):
+`rts_engine::Registry` guarda `Member` (owned, novo); codegen consome
+`&NamespaceMember`/`&GlobalClassSpec` (const, antigo) — **tipos diferentes**.
+Dois sub-passos:
+- **F3a (mínimo, seguro):** `lookup`/`global_class_lookup` viram índice
+  `OnceLock<HashMap>` sobre os const arrays (O(1) + extensível p/ registro
+  runtime), **mantendo `&'static NamespaceMember`** — call-sites do codegen
+  intocados. Gate: parity-count + `rts.d.ts` byte-idêntico + suíte 1710.
+- **F3b (grande, = parte da Fase 2):** codegen migra a consumir
+  `rts_engine::Member`; `register_builtins()` converte os const arrays → `Member`;
+  runtime registra via builder. Toca todos os call-sites (`member.args` →
+  `member.sig.args`, `symbol:&str` → `String`). Fazer junto da Fase 2.
 
-Alternativa de baixo risco a qualquer momento: **Fase 1c** (flipar codegen/mir/cli
-off o shim `rts-abi` → `rts_engine`, mecânico).
+Começar por **F3a**.
 
 ---
 
@@ -40,17 +47,19 @@ off o shim `rts-abi` → `rts_engine`, mecânico).
 | `fae05975` | ENG0 | **crate `rts-engine`** criado (registry + builder + sig!); 5+1 verde |
 | `94c5501d` | doc | pivot pro modelo builder (supersede §9.1) |
 | `10eea9a2` | Fase 1a/b | **dobra `rts-abi` em `rts-engine/src/abi/`**; rts-abi vira shim; workspace verde, engine 17+5+1 |
+| `30d2fc2c` | doc | **WORKING.md** (este arquivo) |
+| _(HEAD)_ | Fase 1c | flip codegen/mir/cli `rts_abi::`→`rts_engine::abi::` + Cargo deps; hir/linker droparam dep stale. Shim `rts-abi` agora só via runtime/macro. `cargo check --workspace` verde |
 
 ---
 
 ## ⬜ FALTA (etapas até terminar)
 
-### Fase 1c — flipar consumers off o shim `rts-abi` (mecânico)
-- [ ] `rts-codegen` (4 arquivos + `abi/mod.rs` faz `pub use rts_abi::*`): `rts_abi::`→`rts_engine::`; Cargo dep `rts-abi`→`rts-engine`.
-- [ ] `rts-mir` (1), `rts-cli` (1): idem.
-- [ ] `rts-hir` / `rts-linker`: dep `rts-abi` é stale (0 uso no src) — só remover do Cargo.
-- [ ] Verificar: `cargo check --workspace` verde a cada crate flipado.
-- (runtime fica pro fim — morre junto com a macro na Fase 2.)
+### Fase 1c — flipar consumers off o shim `rts-abi` (mecânico) ✅ (não-runtime)
+- [x] `rts-codegen` (4 arquivos): `rts_abi::`→`rts_engine::abi::`; Cargo `rts-abi`→`rts-engine`. (`pub mod signature` sombreia o glob, sem conflito.)
+- [x] `rts-mir` (1), `rts-cli` (1): idem.
+- [x] `rts-hir` / `rts-linker`: dep stale removida do Cargo.
+- [x] `cargo check --workspace` verde.
+- [ ] `rts-runtime` fica pro fim — morre junto com a macro na Fase 2.
 
 ### F3 — codegen lê o `Registry` (a ponte, Track A, SEM linkme)
 - [ ] `OnceLock<RwLock<Registry>>` (ou `OnceLock<Registry>`) acessível ao codegen.

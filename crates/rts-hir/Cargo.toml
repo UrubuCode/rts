@@ -5,5 +5,4 @@ edition = "2024"
 
 [dependencies]
 rts-ast = { path = "../rts-ast" }
-rts-abi = { path = "../rts-abi" }
 swc_ecma_ast = "23.0.0"

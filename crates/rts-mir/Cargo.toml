@@ -5,4 +5,4 @@ edition = "2024"
 
 [dependencies]
 rts-hir = { path = "../rts-hir" }
-rts-abi = { path = "../rts-abi" }
+rts-engine = { path = "../rts-engine" }

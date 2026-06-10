@@ -1,8 +1,8 @@
-pub use rts_abi::signature::*;
+pub use rts_engine::abi::signature::*;
 
 use cranelift_codegen::ir::Type as ClType;
 use cranelift_codegen::ir::types as cl_types;
-use rts_abi::AbiType;
+use rts_engine::abi::AbiType;
 
 pub fn scalar_to_cl(ty: AbiType) -> ClType {
     match ty {

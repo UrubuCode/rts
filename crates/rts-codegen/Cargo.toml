@@ -8,7 +8,7 @@ edition = "2024"
 asio = ["rts-runtime/asio"]
 
 [dependencies]
-rts-abi = { path = "../rts-abi" }
+rts-engine = { path = "../rts-engine" }
 rts-linker = { path = "../rts-linker" }
 rts-ast = { path = "../rts-ast" }
 rts-parser = { path = "../rts-parser" }
