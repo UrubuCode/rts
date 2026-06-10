@@ -22,12 +22,16 @@ pub mod debug;
 pub mod env;
 pub mod error;
 pub mod generator;
-pub mod global_roots;
+// `global_roots` e `stack_map_registry` migraram pro `rts-engine` (SPLIT fatia 3a
+// — registries std-puro escritos pelo codegen, lidos pelo scanner). Re-exportados
+// aqui como fachada: `namespaces::collector::{global_roots,stack_map_registry}` +
+// os `super::` internos + `namespaces::gc::*` (alias) resolvem pro MESMO static no
+// engine, sem editar consumidores (jit.rs, collector.rs).
+pub use rts_engine::collector::{global_roots, stack_map_registry};
 pub mod handles;
 pub mod instance;
 pub mod promise_slot;
 pub mod stack;
-pub mod stack_map_registry;
 pub mod string_pool;
 pub mod tagged_raw;
 pub mod this_slot;

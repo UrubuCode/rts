@@ -249,11 +249,17 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
       68 consumidores + `crate::namespaces::gc::*` do codegen — zero edição neles.
       Símbolos `__RTS_FN_NS_GC_*` e namespace name "gc" intactos. Gate: suíte
       1710/1710 (JIT) + **AOT** (compile+run de fixture GC-heavy). (HEAD)
-- [ ] SPLIT fatias 3-4: mover MECANISMO (HandleTable genérica, collector,
-      stack_map_registry, thread_registry, global_roots) pro `rts-engine`; re-wire
-      jit.rs (mecanismo → `rts_engine::collector::*`). Gate AOT crítico: staticlib
-      continua exportando os `__RTS_FN_NS_GC_*` (só mecanismo interno migra, não
-      os externs `#[no_mangle]`).
+- [x] **SPLIT fatia 3a:** `stack_map_registry` + `global_roots` (registries
+      std-puro, escritos pelo codegen, lidos pelo scanner) → `rts-engine/src/
+      collector/`. `collector.rs` do engine virou `collector/mod.rs`. Facade
+      `pub use rts_engine::collector::{...}` no runtime → jit.rs + collector.rs
+      intocados (mesmo static). Gate: suíte 1710/1710 + AOT. (HEAD)
+- [ ] SPLIT fatias 3b-4: `thread_registry` → engine (escrito por async_rt do
+      runtime, lido pelo scanner). Depois o MECANISMO pesado: collector.rs (scanner
+      asm RSP/SuspendThread + mark/sweep) + HandleTable. Decisão: mover só o
+      ALGORITMO via trait/vtable `GcHeap` (tabela tipada fica no runtime) — opção 1.
+      Gate AOT + stress (RTS_GC_DEBUG, alloc>256). É a parte mais sensível a
+      corrupção — fazer com cuidado.
 - [ ] Gate AOT crítico: staticlib continua exportando os `__RTS_FN_NS_GC_*` que
       migraram (rts-engine contribui pro archive OU runtime re-exporta `#[no_mangle]`).
 - [ ] (Futuro, atrás da ABI) trocar política mark+sweep → RC + coletor de ciclos.

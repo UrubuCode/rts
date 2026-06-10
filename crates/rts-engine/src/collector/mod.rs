@@ -28,6 +28,13 @@
 //! e `trace` só é usado pelo coletor de ciclos — **sem mudança no codegen**,
 //! porque os símbolos e a forma das ops não mudam.
 
+/// Registry de stack maps do JIT (PCs de safepoint → SP-offsets) — escrito pelo
+/// codegen após `finalize_definitions`, lido pelo scanner do collector. Std puro.
+pub mod stack_map_registry;
+/// Registry de globals top-level com handles (data symbols) que o GC marca como
+/// roots — escrito pelo codegen, lido pelo scanner. Std puro. (#407)
+pub mod global_roots;
+
 pub use crate::abi::handles::{
     HANDLE_GEN_SHIFT, HANDLE_N_SHARDS, HANDLE_SHARD_BITS, HANDLE_SHARD_MASK, HANDLE_SLOT_MASK,
 };
