@@ -63,7 +63,7 @@ pub const GLOBAL_CLASS_SPECS: &[&GlobalClassSpec] = &[
 ];
 
 pub fn global_class_lookup(name: &str) -> Option<&'static GlobalClassSpec> {
-    registry().classes.get(name).copied()
+    registry().read().unwrap().classes.get(name).copied()
 }
 
 pub const SPECS: &[&NamespaceSpec] = &[
@@ -129,13 +129,18 @@ struct Registry {
     classes: std::collections::HashMap<&'static str, &'static GlobalClassSpec>,
 }
 
-static REGISTRY: std::sync::OnceLock<Registry> = std::sync::OnceLock::new();
+// `RwLock` (não `OnceLock` puro) porque, além do seed dos const arrays, o
+// registry aceita inserção em runtime: módulos registrados via o builder do
+// `rts-engine` (camadas `rts-std`/externos) entram por `register_namespace`/
+// `register_class` antes da compilação. Leituras devolvem `&'static` (copiadas
+// pra fora do guard), então o lock não vaza nos call-sites do codegen.
+static REGISTRY: std::sync::OnceLock<std::sync::RwLock<Registry>> = std::sync::OnceLock::new();
 
-fn registry() -> &'static Registry {
-    REGISTRY.get_or_init(register_builtins)
+fn registry() -> &'static std::sync::RwLock<Registry> {
+    REGISTRY.get_or_init(|| std::sync::RwLock::new(register_builtins()))
 }
 
-/// Semeia o registry a partir dos const arrays (a única origem de builtins hoje).
+/// Semeia o registry a partir dos const arrays (a origem dos builtins hoje).
 fn register_builtins() -> Registry {
     let mut namespaces = std::collections::HashMap::with_capacity(SPECS.len());
     for s in SPECS {
@@ -153,7 +158,89 @@ fn register_builtins() -> Registry {
 
 pub fn lookup(qualified: &str) -> Option<(&'static NamespaceSpec, &'static NamespaceMember)> {
     let (ns_name, fn_name) = qualified.split_once('.')?;
-    let spec = registry().namespaces.get(ns_name).copied()?;
+    let spec = registry().read().unwrap().namespaces.get(ns_name).copied()?;
     let member = spec.members.iter().find(|m| m.name == fn_name)?;
     Some((spec, member))
+}
+
+/// Registra um módulo no registry em runtime (camadas/externos). O `spec` deve
+/// ser `'static` — use [`leak_namespace`] para converter um `rts_engine::Module`
+/// do builder (owned) numa spec vazada.
+pub fn register_namespace(spec: &'static NamespaceSpec) {
+    registry().write().unwrap().namespaces.insert(spec.name, spec);
+}
+
+/// Registra uma classe global no registry em runtime.
+pub fn register_class(spec: &'static GlobalClassSpec) {
+    registry().write().unwrap().classes.insert(spec.name, spec);
+}
+
+/// Converte um `rts_engine::Module` (builder, dados owned) num
+/// `&'static NamespaceSpec` vazando os campos (vivem o processo todo, como os
+/// const arrays). É a ponte que deixa o builder alimentar o codegen sem
+/// reescrever os call-sites (a moeda continua `NamespaceMember`). F3b.
+pub fn leak_namespace(module: &rts_engine::Module) -> &'static NamespaceSpec {
+    fn s(x: &str) -> &'static str {
+        Box::leak(x.to_string().into_boxed_str())
+    }
+    let members: Vec<NamespaceMember> = module
+        .members
+        .iter()
+        .map(|m| NamespaceMember {
+            name: s(&m.name),
+            kind: m.kind,
+            symbol: s(&m.symbol),
+            args: Box::leak(m.sig.args.clone().into_boxed_slice()),
+            returns: m.sig.returns,
+            doc: s(&m.doc),
+            ts_signature: s(&m.ts_signature),
+            intrinsic: None,
+            pure: false,
+            aliases: Box::leak(
+                m.aliases
+                    .iter()
+                    .map(|a| s(a))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            ),
+            variadic: m.variadic,
+            default_args: &[],
+            flags: m.flags,
+        })
+        .collect();
+    Box::leak(Box::new(NamespaceSpec {
+        name: s(&module.name),
+        doc: s(&module.doc),
+        members: Box::leak(members.into_boxed_slice()),
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    extern "C" fn dummy_answer() -> i64 {
+        42
+    }
+
+    /// Prova da ponte builder→codegen (F3b): uma namespace registrada via o
+    /// builder do `rts-engine`, convertida com `leak_namespace` + inserida com
+    /// `register_namespace`, é encontrada pelo `lookup` do codegen — sem tocar
+    /// os call-sites (a moeda continua `NamespaceMember`).
+    #[test]
+    fn builder_namespace_resolvable_via_lookup() {
+        let mut e = rts_engine::Engine::new();
+        e.ns("f3btest")
+            .function("answer", dummy_answer as *const u8, rts_engine::sig!(=> I64))
+            .done();
+        let module = e.registry().module("f3btest").expect("module no engine");
+        register_namespace(leak_namespace(module));
+
+        let (ns, m) = lookup("f3btest.answer").expect("lookup acha a ns do builder");
+        assert_eq!(ns.name, "f3btest");
+        assert_eq!(m.symbol, "__RTS_FN_NS_F3BTEST_ANSWER");
+        assert!(matches!(m.returns, AbiType::I64));
+        // builtins continuam resolvíveis (registry não foi sobrescrito)
+        assert!(lookup("io.print").is_some());
+    }
 }

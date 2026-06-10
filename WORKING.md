@@ -29,17 +29,21 @@ Dois sub-passos:
   runtime registra via builder. Toca todos os call-sites (`member.args` →
   `member.sig.args`, `symbol:&str` → `String`). Fazer junto da Fase 2.
 
-**F3a ✅** (`OnceLock<Registry>` índice sobre os const arrays; suíte 1710/1710).
+**F3 ✅** (F3a índice + F3b RwLock/register/leak; resolução builder→codegen
+provada por teste-ponte; suíte 1710/1710).
 
-**Agora F3 (continuação) — bridge builder→codegen (piloto):**
-- Trocar `OnceLock`→`RwLock` no `Registry` do codegen + um `register_member()`
-  que aceita entradas runtime.
-- Converter `rts_engine::Member` (owned) → `&'static NamespaceMember` via
-  `Box::leak` (strings/args/spec). Função em codegen (ou rts-engine).
-- **Piloto:** registrar UMA namespace (ex.: `hint`) via o builder, convertê-la,
-  inserir no registry, provar que `lookup` acha (suíte verde).
-- Isso destrava a Fase 2 (migrar as 50 ns + 27 classes) sem reescrever os
-  call-sites do codegen (a moeda continua `NamespaceMember` leaked).
+**Agora F4 — injeção de símbolo no JIT a partir do registry** (pré-req de
+EXECUÇÃO de módulo do builder; F3 provou só a RESOLUÇÃO). O codegen acha a ns do
+builder via `lookup`, mas o JIT ainda resolve símbolos pela lista `add_fn!`
+hardcoded — uma fn do builder não tem entrada lá → símbolo ausente em runtime.
+- `JITBuilder::symbol_lookup_fn` (jit.rs) que consulta um mapa `symbol→fn_ptr`
+  (o `jit_symbols` do `rts_engine::Registry`, ou um mapa codegen-side preenchido
+  por `register_namespace`).
+- Builtins: resolver via `GetProcAddress(GetModuleHandle(NULL))`/`dlsym` (todos
+  `#[no_mangle]` no rts.exe) → encolher os 1104 `add_fn!`.
+- **Gate:** suíte 1710 + (depois) um piloto: TS importando uma ns registrada via
+  builder roda sob `rts run`.
+- Só ENTÃO a Fase 2 (migrar runtime→builder) executa de verdade.
 
 ---
 
@@ -59,7 +63,8 @@ Dois sub-passos:
 | `10eea9a2` | Fase 1a/b | **dobra `rts-abi` em `rts-engine/src/abi/`**; rts-abi vira shim; workspace verde, engine 17+5+1 |
 | `30d2fc2c` | doc | **WORKING.md** (este arquivo) |
 | `214fc402` | Fase 1c | flip codegen/mir/cli `rts_abi::`→`rts_engine::abi::` + Cargo deps; hir/linker droparam dep stale. Shim só via runtime/macro |
-| _(HEAD)_ | F3a | `lookup`/`global_class_lookup` viram índice `OnceLock<Registry>` (`register_builtins()` semeia dos const arrays). Suíte **1710/1710** |
+| `877b2ebd` | F3a | `lookup`/`global_class_lookup` viram índice `OnceLock<Registry>` (`register_builtins()` semeia dos const arrays). Suíte **1710/1710** |
+| _(HEAD)_ | F3b | registry vira `RwLock` + `register_namespace`/`register_class` + `leak_namespace` (Module do builder → `&'static NamespaceSpec`). Teste-ponte: ns do builder achada pelo `lookup`. Suíte **1710/1710** |
 
 ---
 
@@ -73,10 +78,10 @@ Dois sub-passos:
 - [ ] `rts-runtime` fica pro fim — morre junto com a macro na Fase 2.
 
 ### F3 — codegen lê o `Registry` (a ponte, Track A, SEM linkme)
-- [x] **F3a:** `abi::lookup`/`global_class_lookup` leem `OnceLock<Registry>` índice; `register_builtins()` semeia dos const arrays. Suíte 1710/1710. (`214fc402`+HEAD)
-- [ ] **F3b:** `OnceLock`→`RwLock` + `register_member()` runtime; conversão `rts_engine::Member`→`&'static NamespaceMember` (Box::leak); piloto (1 ns via builder achada por `lookup`).
-- [ ] Rotear os `for spec in GLOBAL_CLASS_SPECS` (vários sites) → iterar o registry (p/ plugins aparecerem nas iterações).
-- [ ] **Gate:** suíte 1710 + (futuro) `rts.d.ts` byte-idêntico.
+- [x] **F3a:** índice `OnceLock<Registry>`; `register_builtins()` semeia. 1710/1710. (`877b2ebd`)
+- [x] **F3b:** `RwLock` + `register_namespace`/`register_class` + `leak_namespace` (Member→`&'static NamespaceMember`); teste-ponte. 1710/1710. (HEAD)
+- [ ] Rotear os `for spec in GLOBAL_CLASS_SPECS` (vários sites) → iterar o registry (p/ módulos do builder/externos aparecerem nas iterações). _(adiar até precisar)_
+- [ ] `rts.d.ts` byte-idêntico (gerador itera `SPECS` direto — ok por ora).
 
 ### Fase 2 — runtime → rts-std via builder (remove `rts-macro`; 933 membros / 73 arquivos)
 - [ ] Decidir: migrar in-place em `rts-runtime` OU criar crate `rts-std`.
