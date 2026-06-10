@@ -84,7 +84,6 @@ pub const SPECS: &[&NamespaceSpec] = &[
     &crate::namespaces::globals::string::SPEC,
     &crate::namespaces::process::SPEC,
     &crate::namespaces::promise::SPEC,
-    &crate::namespaces::ptr::SPEC,
     &crate::namespaces::os::SPEC,
     &crate::namespaces::collections::SPEC,
     // `hash` migrado pro builder (Fase 2) — ver namespaces::hash::register.
@@ -168,6 +167,7 @@ fn register_builtins() -> Registry {
     crate::namespaces::env::register(&mut engine);
     crate::namespaces::path::register(&mut engine);
     crate::namespaces::fmt::register(&mut engine);
+    crate::namespaces::ptr::register(&mut engine);
     for module in engine.registry().modules() {
         let spec = leak_namespace(module);
         namespaces.insert(spec.name, spec);

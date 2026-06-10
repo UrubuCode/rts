@@ -30,7 +30,7 @@
 >    `engine.class(...)` (precisa o builder de classe ligar no `GLOBAL_CLASS_SPECS`
 >    — ainda NÃO ligado; ver nota). Quando zero `#[rts_*]`: deletar `rts-macro`.
 >
-> **Migradas (8):** hint, hash, alloc, time, trace, env, path, fmt.
+> **Migradas (9):** hint, hash, alloc, time, trace, env, path, fmt, ptr.
 > **Batch funciona** (várias ns por 1 build+suíte). Próximas pequenas: ffi(9),
 > fmt(10), sync(12), ptr(14), atomic(22), num(23). **Gaps do Member descobertos
 > e resolvidos/pendentes:** `pure` ✅ (adicionado). Ainda faltam no `rts_engine::
