@@ -1,257 +1,436 @@
-//! `url` — WHATWG URL + URLSearchParams. Migrado ao modelo `#[rts_namespace]`
-//! + `#[rts_class]` (stage 2c) via membros `external`: os externs
-//! `__RTS_FN_GL_URL_*` / `__RTS_FN_GL_USP_*` ficam em `instance.rs` intactos; os
-//! macros derivam só o `SPEC` (namespace url) + os dois `*_CLASS_SPEC`.
+//! `url` — WHATWG URL + URLSearchParams.
+//!
+//! Migrado do `#[rts_namespace]` + `#[rts_class]` (macro) pro modelo builder
+//! hand-written do `rts-engine` (rumo à remoção da `rts-macro`). Todos os
+//! membros são `external`: os externs `__RTS_FN_GL_URL_*` / `__RTS_FN_GL_USP_*`
+//! ficam em `instance.rs` intactos. Aqui só publicamos o `SPEC` (namespace url)
+//! + os dois `*_CLASS_SPEC` (URL + URLSearchParams) — sem reemitir extern, com
+//! `fn_ptr` null.
 
 pub mod instance;
 
-#[allow(unused_imports)]
-use rts_engine::abi::ty::{Bool, Handle, Str};
-use rts_macro::{rts_class, rts_namespace};
+use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-/// URL parser: new/href/protocol/host/hostname/port/pathname/search/hash/origin/free.
-#[rts_namespace(url, sym = "GL_URL")]
-impl UrlNs {
-    /// Parse URL string. Retorna URL handle ou 0 em caso de URL inválida.
-    #[rts_fn(external, ts = "new URL(url: string): URL", pure)]
-    pub fn new(_url: Str) -> Handle {
-        unreachable!()
-    }
-    /// URL completa serializada.
-    #[rts_fn(external, ts = "href(url: URL): string", pure)]
-    pub fn href(_url: Handle) -> Handle {
-        unreachable!()
-    }
-    /// Scheme com dois-pontos: 'https:'.
-    #[rts_fn(external, ts = "protocol(url: URL): string", pure)]
-    pub fn protocol(_url: Handle) -> Handle {
-        unreachable!()
-    }
-    /// host:port (ou só host se porta padrão).
-    #[rts_fn(external, ts = "host(url: URL): string", pure)]
-    pub fn host(_url: Handle) -> Handle {
-        unreachable!()
-    }
-    /// Hostname sem porta.
-    #[rts_fn(external, ts = "hostname(url: URL): string", pure)]
-    pub fn hostname(_url: Handle) -> Handle {
-        unreachable!()
-    }
-    /// Porta como string (vazio se padrão).
-    #[rts_fn(external, ts = "port(url: URL): string", pure)]
-    pub fn port(_url: Handle) -> Handle {
-        unreachable!()
-    }
-    /// Path da URL: '/foo/bar'.
-    #[rts_fn(external, ts = "pathname(url: URL): string", pure)]
-    pub fn pathname(_url: Handle) -> Handle {
-        unreachable!()
-    }
-    /// Query string com '?': '?a=1&b=2' (vazio se ausente).
-    #[rts_fn(external, ts = "search(url: URL): string", pure)]
-    pub fn search(_url: Handle) -> Handle {
-        unreachable!()
-    }
-    /// Fragment com '#': '#section' (vazio se ausente).
-    #[rts_fn(external, ts = "hash(url: URL): string", pure)]
-    pub fn hash(_url: Handle) -> Handle {
-        unreachable!()
-    }
-    /// 'scheme://host:port' — origem da URL.
-    #[rts_fn(external, ts = "origin(url: URL): string", pure)]
-    pub fn origin(_url: Handle) -> Handle {
-        unreachable!()
-    }
-    /// userinfo antes do ':' (vazio se ausente).
-    #[rts_fn(external, ts = "username(url: URL): string", pure)]
-    pub fn username(_url: Handle) -> Handle {
-        unreachable!()
-    }
-    /// userinfo apos ':' (vazio se ausente).
-    #[rts_fn(external, ts = "password(url: URL): string", pure)]
-    pub fn password(_url: Handle) -> Handle {
-        unreachable!()
-    }
-    /// Libera URL handle.
-    #[rts_fn(external, ts = "free(url: URL): void")]
-    pub fn free(_url: Handle) {
-        unreachable!()
+/// Membro `external` (helper hand-written): aponta para um extern já existente
+/// (em `instance.rs`) sem reemitir, `fn_ptr` null.
+#[allow(clippy::too_many_arguments)]
+fn m(
+    name: &str,
+    kind: MemberKind,
+    sig: Sig,
+    symbol: &str,
+    ts: &str,
+    doc: &str,
+    pure: bool,
+) -> Member {
+    Member {
+        name: name.to_string(),
+        kind,
+        sig,
+        symbol: symbol.to_string(),
+        fn_ptr: FnPtr(core::ptr::null::<u8>()),
+        flags: MemberFlags::NONE,
+        aliases: Vec::new(),
+        variadic: false,
+        ts_signature: ts.to_string(),
+        doc: doc.to_string(),
+        pure,
+        intrinsic: None,
     }
 }
 
-/// WHATWG URL API — new URL(href)/href/protocol/host/hostname/port/pathname/search/hash/origin.
-#[rts_class(URL, prefix = "URL", spec = "URL_CLASS_SPEC")]
-impl UrlClass {
-    /// new URL(url) — parse URL. Retorna URL handle ou 0 se inválida.
-    #[rts_ctor(external, ts = "new URL(url: string): URL", pure)]
-    pub fn new(_url: Str) -> Handle {
-        unreachable!()
-    }
-    /// new URL(relative, base) — resolve relativa contra base URL.
-    #[rts_ctor(external, ts = "new URL(url: string, base: string): URL", pure)]
-    pub fn new_with_base(_url: Str, _base: Str) -> Handle {
-        unreachable!()
-    }
-    /// url.href — URL completa serializada.
-    #[rts_method(external, name = "href", ts = "readonly href: string", pure)]
-    pub fn href(_recv: Handle) -> Handle {
-        unreachable!()
-    }
-    /// url.protocol — scheme com dois-pontos.
-    #[rts_method(external, name = "protocol", ts = "readonly protocol: string", pure)]
-    pub fn protocol(_recv: Handle) -> Handle {
-        unreachable!()
-    }
-    /// url.host — host:port.
-    #[rts_method(external, name = "host", ts = "readonly host: string", pure)]
-    pub fn host(_recv: Handle) -> Handle {
-        unreachable!()
-    }
-    /// url.hostname — hostname sem porta.
-    #[rts_method(external, name = "hostname", ts = "readonly hostname: string", pure)]
-    pub fn hostname(_recv: Handle) -> Handle {
-        unreachable!()
-    }
-    /// url.port — porta como string (vazio se padrão).
-    #[rts_method(external, name = "port", ts = "readonly port: string", pure)]
-    pub fn port(_recv: Handle) -> Handle {
-        unreachable!()
-    }
-    /// url.pathname — path: '/foo/bar'.
-    #[rts_method(external, name = "pathname", ts = "readonly pathname: string", pure)]
-    pub fn pathname(_recv: Handle) -> Handle {
-        unreachable!()
-    }
-    /// url.search — query string com '?'.
-    #[rts_method(external, name = "search", ts = "readonly search: string", pure)]
-    pub fn search(_recv: Handle) -> Handle {
-        unreachable!()
-    }
-    /// url.hash — fragment com '#'.
-    #[rts_method(external, name = "hash", ts = "readonly hash: string", pure)]
-    pub fn hash(_recv: Handle) -> Handle {
-        unreachable!()
-    }
-    /// url.origin — 'scheme://host:port'.
-    #[rts_method(external, name = "origin", ts = "readonly origin: string", pure)]
-    pub fn origin(_recv: Handle) -> Handle {
-        unreachable!()
-    }
-    /// url.username — userinfo antes do ':' (vazio se ausente).
-    #[rts_method(external, name = "username", ts = "readonly username: string", pure)]
-    pub fn username(_recv: Handle) -> Handle {
-        unreachable!()
-    }
-    /// url.password — userinfo apos ':' (vazio se ausente).
-    #[rts_method(external, name = "password", ts = "readonly password: string", pure)]
-    pub fn password(_recv: Handle) -> Handle {
-        unreachable!()
-    }
-    /// url.toString() — reconstroi href dinamicamente, considerando setters E mudancas em searchParams (cache).
-    #[rts_method(external, name = "toString", ts = "toString(): string")]
-    pub fn to_string(_recv: Handle) -> Handle {
-        unreachable!()
-    }
-    /// url.searchParams — URLSearchParams parseada do search query.
-    #[rts_method(
-        external,
-        name = "searchParams",
-        ts = "readonly searchParams: URLSearchParams"
-    )]
-    pub fn search_params(_recv: Handle) -> Handle {
-        unreachable!()
-    }
-    /// URL.canParse(href) — true se o URL parsa, false caso contrario.
-    #[rts_fn(
-        external,
-        name = "canParse",
-        ts = "static canParse(href: string): boolean",
-        pure
-    )]
-    pub fn can_parse(_href: Str) -> Bool {
-        unreachable!()
-    }
-    /// URL.canParse(href, base) — true se href resolve em relacao a base.
-    #[rts_fn(
-        external,
-        name = "canParse",
-        ts = "static canParse(href: string, base: string): boolean",
-        pure
-    )]
-    pub fn can_parse_base(_href: Str, _base: Str) -> Bool {
-        unreachable!()
-    }
+/// Registra a namespace `url` no motor (hand-written, sem macro).
+pub fn register(e: &mut Engine) {
+    e.ns("url")
+        .doc("URL parser: new/href/protocol/host/hostname/port/pathname/search/hash/origin/free.")
+        .member(m(
+            "new",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
+            "__RTS_FN_GL_URL_NEW",
+            "new URL(url: string): URL",
+            "Parse URL string. Retorna URL handle ou 0 em caso de URL inválida.",
+            true,
+        ))
+        .member(m(
+            "href",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_HREF",
+            "href(url: URL): string",
+            "URL completa serializada.",
+            true,
+        ))
+        .member(m(
+            "protocol",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_PROTOCOL",
+            "protocol(url: URL): string",
+            "Scheme com dois-pontos: 'https:'.",
+            true,
+        ))
+        .member(m(
+            "host",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_HOST",
+            "host(url: URL): string",
+            "host:port (ou só host se porta padrão).",
+            true,
+        ))
+        .member(m(
+            "hostname",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_HOSTNAME",
+            "hostname(url: URL): string",
+            "Hostname sem porta.",
+            true,
+        ))
+        .member(m(
+            "port",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_PORT",
+            "port(url: URL): string",
+            "Porta como string (vazio se padrão).",
+            true,
+        ))
+        .member(m(
+            "pathname",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_PATHNAME",
+            "pathname(url: URL): string",
+            "Path da URL: '/foo/bar'.",
+            true,
+        ))
+        .member(m(
+            "search",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_SEARCH",
+            "search(url: URL): string",
+            "Query string com '?': '?a=1&b=2' (vazio se ausente).",
+            true,
+        ))
+        .member(m(
+            "hash",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_HASH",
+            "hash(url: URL): string",
+            "Fragment com '#': '#section' (vazio se ausente).",
+            true,
+        ))
+        .member(m(
+            "origin",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_ORIGIN",
+            "origin(url: URL): string",
+            "'scheme://host:port' — origem da URL.",
+            true,
+        ))
+        .member(m(
+            "username",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_USERNAME",
+            "username(url: URL): string",
+            "userinfo antes do ':' (vazio se ausente).",
+            true,
+        ))
+        .member(m(
+            "password",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_PASSWORD",
+            "password(url: URL): string",
+            "userinfo apos ':' (vazio se ausente).",
+            true,
+        ))
+        .member(m(
+            "free",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::Handle], AbiType::Void),
+            "__RTS_FN_GL_URL_FREE",
+            "free(url: URL): void",
+            "Libera URL handle.",
+            false,
+        ))
+        .done();
 }
 
-/// WHATWG URLSearchParams API minimal — get/has/set/delete/toString.
-#[rts_class(URLSearchParams, prefix = "USP", spec = "URLSP_CLASS_SPEC")]
-impl UrlSearchParamsClass {
-    /// new URLSearchParams(init?) — init e' string "a=1&b=2".
-    #[rts_ctor(
-        external,
-        ts = "new URLSearchParams(init?: string): URLSearchParams",
-        pure
-    )]
-    pub fn new(_init: Str) -> Handle {
-        unreachable!()
-    }
-    /// Retorna handle de string com value, ou 0 (undefined) se ausente.
-    #[rts_method(external, name = "get", ts = "get(key: string): string | null", pure)]
-    pub fn get(_recv: Handle, _key: Str) -> Handle {
-        unreachable!()
-    }
-    /// True se key existe.
-    #[rts_method(external, name = "has", ts = "has(key: string): boolean", pure)]
-    pub fn has(_recv: Handle, _key: Str) -> Bool {
-        unreachable!()
-    }
-    /// Substitui ou adiciona pair. Retorna self.
-    #[rts_method(external, name = "set", ts = "set(key: string, value: string): void")]
-    pub fn set(_recv: Handle, _key: Str, _value: Str) -> Handle {
-        unreachable!()
-    }
-    /// Remove pair. Retorna self.
-    #[rts_method(
-        external,
-        name = "delete",
-        symbol = "__RTS_FN_GL_USP_DELETE",
-        ts = "delete(key: string): void"
-    )]
-    pub fn delete_(_recv: Handle, _key: Str) -> Handle {
-        unreachable!()
-    }
-    /// Serializa como 'a=1&b=2'.
-    #[rts_method(external, name = "toString", ts = "toString(): string", pure)]
-    pub fn to_string(_recv: Handle) -> Handle {
-        unreachable!()
-    }
-    /// Append (v0 limitacao: equivalente a set — sem multi-value).
-    #[rts_method(
-        external,
-        name = "append",
-        ts = "append(key: string, value: string): void"
-    )]
-    pub fn append(_recv: Handle, _key: Str, _value: Str) -> Handle {
-        unreachable!()
-    }
-    /// Vec com 0 ou 1 elemento (v0 sem multi-value).
-    #[rts_method(external, name = "getAll", ts = "getAll(key: string): string[]", pure)]
-    pub fn get_all(_recv: Handle, _key: Str) -> Handle {
-        unreachable!()
-    }
-    /// Vec de string handles com as keys.
-    #[rts_method(external, name = "keys", ts = "keys(): string[]", pure)]
-    pub fn keys(_recv: Handle) -> Handle {
-        unreachable!()
-    }
-    /// Vec de string handles com os values.
-    #[rts_method(external, name = "values", ts = "values(): string[]", pure)]
-    pub fn values(_recv: Handle) -> Handle {
-        unreachable!()
-    }
-    /// Sort entries by key name (estavel, JS spec).
-    #[rts_method(external, name = "sort", ts = "sort(): void")]
-    pub fn sort(_recv: Handle) -> Handle {
-        unreachable!()
-    }
+/// Registra a classe global `URL` no motor (hand-written, sem macro).
+pub fn register_url_class_spec(e: &mut Engine) {
+    e.class("URL")
+        .doc("WHATWG URL API — new URL(href)/href/protocol/host/hostname/port/pathname/search/hash/origin.")
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
+            "__RTS_FN_GL_URL_NEW",
+            "new URL(url: string): URL",
+            "new URL(url) — parse URL. Retorna URL handle ou 0 se inválida.",
+            true,
+        ))
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(vec![AbiType::StrPtr, AbiType::StrPtr], AbiType::Handle),
+            "__RTS_FN_GL_URL_NEW_WITH_BASE",
+            "new URL(url: string, base: string): URL",
+            "new URL(relative, base) — resolve relativa contra base URL.",
+            true,
+        ))
+        .member(m(
+            "href",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_HREF",
+            "readonly href: string",
+            "url.href — URL completa serializada.",
+            true,
+        ))
+        .member(m(
+            "protocol",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_PROTOCOL",
+            "readonly protocol: string",
+            "url.protocol — scheme com dois-pontos.",
+            true,
+        ))
+        .member(m(
+            "host",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_HOST",
+            "readonly host: string",
+            "url.host — host:port.",
+            true,
+        ))
+        .member(m(
+            "hostname",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_HOSTNAME",
+            "readonly hostname: string",
+            "url.hostname — hostname sem porta.",
+            true,
+        ))
+        .member(m(
+            "port",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_PORT",
+            "readonly port: string",
+            "url.port — porta como string (vazio se padrão).",
+            true,
+        ))
+        .member(m(
+            "pathname",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_PATHNAME",
+            "readonly pathname: string",
+            "url.pathname — path: '/foo/bar'.",
+            true,
+        ))
+        .member(m(
+            "search",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_SEARCH",
+            "readonly search: string",
+            "url.search — query string com '?'.",
+            true,
+        ))
+        .member(m(
+            "hash",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_HASH",
+            "readonly hash: string",
+            "url.hash — fragment com '#'.",
+            true,
+        ))
+        .member(m(
+            "origin",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_ORIGIN",
+            "readonly origin: string",
+            "url.origin — 'scheme://host:port'.",
+            true,
+        ))
+        .member(m(
+            "username",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_USERNAME",
+            "readonly username: string",
+            "url.username — userinfo antes do ':' (vazio se ausente).",
+            true,
+        ))
+        .member(m(
+            "password",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_PASSWORD",
+            "readonly password: string",
+            "url.password — userinfo apos ':' (vazio se ausente).",
+            true,
+        ))
+        .member(m(
+            "toString",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_TO_STRING",
+            "toString(): string",
+            "url.toString() — reconstroi href dinamicamente, considerando setters E mudancas em searchParams (cache).",
+            false,
+        ))
+        .member(m(
+            "searchParams",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_SEARCH_PARAMS",
+            "readonly searchParams: URLSearchParams",
+            "url.searchParams — URLSearchParams parseada do search query.",
+            false,
+        ))
+        .member(m(
+            "canParse",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::StrPtr], AbiType::Bool),
+            "__RTS_FN_GL_URL_CAN_PARSE",
+            "static canParse(href: string): boolean",
+            "URL.canParse(href) — true se o URL parsa, false caso contrario.",
+            true,
+        ))
+        .member(m(
+            "canParse",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::StrPtr, AbiType::StrPtr], AbiType::Bool),
+            "__RTS_FN_GL_URL_CAN_PARSE_BASE",
+            "static canParse(href: string, base: string): boolean",
+            "URL.canParse(href, base) — true se href resolve em relacao a base.",
+            true,
+        ))
+        .done();
+}
+
+/// Registra a classe global `URLSearchParams` no motor (hand-written, sem macro).
+pub fn register_urlsp_class_spec(e: &mut Engine) {
+    e.class("URLSearchParams")
+        .doc("WHATWG URLSearchParams API minimal — get/has/set/delete/toString.")
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
+            "__RTS_FN_GL_USP_NEW",
+            "new URLSearchParams(init?: string): URLSearchParams",
+            "new URLSearchParams(init?) — init e' string \"a=1&b=2\".",
+            true,
+        ))
+        .member(m(
+            "get",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Handle),
+            "__RTS_FN_GL_USP_GET",
+            "get(key: string): string | null",
+            "Retorna handle de string com value, ou 0 (undefined) se ausente.",
+            true,
+        ))
+        .member(m(
+            "has",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Bool),
+            "__RTS_FN_GL_USP_HAS",
+            "has(key: string): boolean",
+            "True se key existe.",
+            true,
+        ))
+        .member(m(
+            "set",
+            MemberKind::InstanceMethod,
+            Sig::new(
+                vec![AbiType::Handle, AbiType::StrPtr, AbiType::StrPtr],
+                AbiType::Handle,
+            ),
+            "__RTS_FN_GL_USP_SET",
+            "set(key: string, value: string): void",
+            "Substitui ou adiciona pair. Retorna self.",
+            false,
+        ))
+        .member(m(
+            "delete",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Handle),
+            "__RTS_FN_GL_USP_DELETE",
+            "delete(key: string): void",
+            "Remove pair. Retorna self.",
+            false,
+        ))
+        .member(m(
+            "toString",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_USP_TO_STRING",
+            "toString(): string",
+            "Serializa como 'a=1&b=2'.",
+            true,
+        ))
+        .member(m(
+            "append",
+            MemberKind::InstanceMethod,
+            Sig::new(
+                vec![AbiType::Handle, AbiType::StrPtr, AbiType::StrPtr],
+                AbiType::Handle,
+            ),
+            "__RTS_FN_GL_USP_APPEND",
+            "append(key: string, value: string): void",
+            "Append (v0 limitacao: equivalente a set — sem multi-value).",
+            false,
+        ))
+        .member(m(
+            "getAll",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Handle),
+            "__RTS_FN_GL_USP_GET_ALL",
+            "getAll(key: string): string[]",
+            "Vec com 0 ou 1 elemento (v0 sem multi-value).",
+            true,
+        ))
+        .member(m(
+            "keys",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_USP_KEYS",
+            "keys(): string[]",
+            "Vec de string handles com as keys.",
+            true,
+        ))
+        .member(m(
+            "values",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_USP_VALUES",
+            "values(): string[]",
+            "Vec de string handles com os values.",
+            true,
+        ))
+        .member(m(
+            "sort",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_USP_SORT",
+            "sort(): void",
+            "Sort entries by key name (estavel, JS spec).",
+            false,
+        ))
+        .done();
 }

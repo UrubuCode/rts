@@ -1,14 +1,17 @@
 //! `Blob` e `File` global classes (#74/#75).
 //!
 //! Blob concatena partes num buffer imutavel; File estende Blob com
-//! `name`/`lastModified`. Migrado ao modelo `#[rts_class]` (stage 5) — duas
-//! classes no mesmo arquivo. `File.size`/`File.text` reusam os externs do Blob
-//! (membros `external` apontando p/ `__RTS_FN_GL_BLOB_SIZE`/`_TEXT`).
+//! `name`/`lastModified`. Migrado do `#[rts_class]` (macro) pro modelo builder
+//! hand-written do `rts-engine` (rumo à remoção da `rts-macro`). Os externs
+//! `__RTS_FN_GL_BLOB_*`/`__RTS_FN_GL_FILE_*` + `register_blob_class_spec()` /
+//! `register_file_class_spec()` são escritos à mão. `File.size`/`File.text`
+//! reusam os externs do Blob (membros `external` apontando p/
+//! `__RTS_FN_GL_BLOB_SIZE`/`_TEXT`).
 
 use indexmap::IndexMap;
 
 use rts_engine::abi::ty::{Handle, I64};
-use rts_macro::rts_class;
+use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
 
@@ -60,135 +63,256 @@ fn make_blob(bytes: Vec<u8>, name: Option<String>, last_modified: i64, class: &s
     alloc_entry(Entry::Map(Box::new(m)))
 }
 
-/// Blob — concatena partes num buffer imutavel.
-#[rts_class(Blob)]
-impl BlobClass {
-    /// new Blob()
-    #[rts_ctor(symbol = "__RTS_FN_GL_BLOB_NEW_EMPTY", ts = "new Blob()", pure)]
-    pub fn new_empty() -> Handle {
-        make_blob(Vec::new(), None, 0, "Blob")
-    }
+// ── Externs de membros `Blob` (`extern "C"` hand-written, antes via macro) ──────
 
-    /// new Blob(parts)
-    #[rts_ctor(ts = "new Blob(parts: BlobPart[])", pure)]
-    pub fn new(parts: Handle) -> Handle {
-        make_blob(concat_parts(parts), None, 0, "Blob")
-    }
-
-    /// blob.size
-    #[rts_getter(ts = "readonly size: number", pure)]
-    pub fn size(h: Handle) -> I64 {
-        with_entry(h, |e| match e {
-            Some(Entry::Map(m)) => m.get("size").copied().unwrap_or(0),
-            _ => 0,
-        })
-    }
-
-    /// blob.text() — string UTF-8 num Promise resolvido.
-    #[rts_method(ts = "text(): Promise<string>", pure)]
-    pub fn text(h: Handle) -> Handle {
-        let bytes = with_entry(h, |e| match e {
-            Some(Entry::Map(m)) => {
-                let bytes_h = m.get("bytes").copied().unwrap_or(0) as u64;
-                with_entry(bytes_h, |be| match be {
-                    Some(Entry::Buffer(b)) => b.clone(),
-                    _ => Vec::new(),
-                })
-            }
-            _ => Vec::new(),
-        });
-        let s = String::from_utf8_lossy(&bytes).into_owned();
-        let str_h = alloc_entry(Entry::String(s.into_bytes()));
-        let slot = crate::namespaces::gc::promise_slot::new_fulfilled(str_h as i64);
-        alloc_entry(Entry::PromiseAsync(slot))
-    }
-
-    /// blob.stream() — ReadableStream com UM chunk ja' enfileirado e fechado.
-    #[rts_method(ts = "stream(): ReadableStream", pure)]
-    pub fn stream(h: Handle) -> Handle {
-        let bytes = with_entry(h, |e| match e {
-            Some(Entry::Map(m)) => {
-                let bytes_h = m.get("bytes").copied().unwrap_or(0) as u64;
-                with_entry(bytes_h, |be| match be {
-                    Some(Entry::Buffer(b)) => b.clone(),
-                    _ => Vec::new(),
-                })
-            }
-            _ => Vec::new(),
-        });
-        let chunk: Vec<i64> = bytes.iter().map(|&b| b as i64).collect();
-        let chunk_h = alloc_entry(Entry::Vec(Box::new(chunk))) as i64;
-        let buf_h = alloc_entry(Entry::Vec(Box::new(vec![chunk_h]))) as i64;
-        let mut m: IndexMap<String, i64> = IndexMap::new();
-        m.insert("__buf".to_string(), buf_h);
-        m.insert("__closed".to_string(), 1);
-        m.insert(
-            "__rts_class".to_string(),
-            alloc_entry(Entry::String(b"ReadableStream".to_vec())) as i64,
-        );
-        alloc_entry(Entry::Map(Box::new(m)))
-    }
+/// new Blob()
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_BLOB_NEW_EMPTY() -> Handle {
+    make_blob(Vec::new(), None, 0, "Blob")
 }
 
-/// File — Blob com `name` + `lastModified`.
-#[rts_class(File)]
-impl FileClass {
-    /// new File(parts, name, options?)
-    #[rts_ctor(
-        ts = "new File(parts: BlobPart[], name: string, options?: FilePropertyBag)",
-        opt_str,
-        pure
-    )]
-    pub fn new(parts: Handle, name: Str, opts: Handle) -> Handle {
-        let name = name.unwrap_or("").to_string();
-        let last_modified = if opts == 0 {
-            0
-        } else {
-            with_entry(opts, |e| match e {
-                Some(Entry::Map(m)) => m.get("lastModified").copied().unwrap_or(0),
-                _ => 0,
+/// new Blob(parts)
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_BLOB_NEW(parts: Handle) -> Handle {
+    make_blob(concat_parts(parts), None, 0, "Blob")
+}
+
+/// blob.size
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_BLOB_SIZE(h: Handle) -> I64 {
+    with_entry(h, |e| match e {
+        Some(Entry::Map(m)) => m.get("size").copied().unwrap_or(0),
+        _ => 0,
+    })
+}
+
+/// blob.text() — string UTF-8 num Promise resolvido.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_BLOB_TEXT(h: Handle) -> Handle {
+    let bytes = with_entry(h, |e| match e {
+        Some(Entry::Map(m)) => {
+            let bytes_h = m.get("bytes").copied().unwrap_or(0) as u64;
+            with_entry(bytes_h, |be| match be {
+                Some(Entry::Buffer(b)) => b.clone(),
+                _ => Vec::new(),
             })
-        };
-        make_blob(concat_parts(parts), Some(name), last_modified, "File")
-    }
+        }
+        _ => Vec::new(),
+    });
+    let s = String::from_utf8_lossy(&bytes).into_owned();
+    let str_h = alloc_entry(Entry::String(s.into_bytes()));
+    let slot = crate::namespaces::gc::promise_slot::new_fulfilled(str_h as i64);
+    alloc_entry(Entry::PromiseAsync(slot))
+}
 
-    /// file.name
-    #[rts_getter(ts = "readonly name: string", pure)]
-    pub fn name(h: Handle) -> Handle {
-        with_entry(h, |e| match e {
-            Some(Entry::Map(m)) => m.get("name").copied().unwrap_or(0) as u64,
-            _ => 0,
-        })
-    }
+/// blob.stream() — ReadableStream com UM chunk ja' enfileirado e fechado.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_BLOB_STREAM(h: Handle) -> Handle {
+    let bytes = with_entry(h, |e| match e {
+        Some(Entry::Map(m)) => {
+            let bytes_h = m.get("bytes").copied().unwrap_or(0) as u64;
+            with_entry(bytes_h, |be| match be {
+                Some(Entry::Buffer(b)) => b.clone(),
+                _ => Vec::new(),
+            })
+        }
+        _ => Vec::new(),
+    });
+    let chunk: Vec<i64> = bytes.iter().map(|&b| b as i64).collect();
+    let chunk_h = alloc_entry(Entry::Vec(Box::new(chunk))) as i64;
+    let buf_h = alloc_entry(Entry::Vec(Box::new(vec![chunk_h]))) as i64;
+    let mut m: IndexMap<String, i64> = IndexMap::new();
+    m.insert("__buf".to_string(), buf_h);
+    m.insert("__closed".to_string(), 1);
+    m.insert(
+        "__rts_class".to_string(),
+        alloc_entry(Entry::String(b"ReadableStream".to_vec())) as i64,
+    );
+    alloc_entry(Entry::Map(Box::new(m)))
+}
 
-    /// file.lastModified
-    #[rts_getter(name = "lastModified", ts = "readonly lastModified: number", pure)]
-    pub fn last_modified(h: Handle) -> I64 {
-        with_entry(h, |e| match e {
+// ── Externs de membros `File` (`extern "C"` hand-written, antes via macro) ──────
+
+/// new File(parts, name, options?)
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_FILE_NEW(
+    parts: Handle,
+    name_ptr: *const u8,
+    name_len: i64,
+    opts: Handle,
+) -> Handle {
+    let name = unsafe { rts_engine::abi::str_abi::from_abi(name_ptr, name_len) };
+    let name = name.unwrap_or("").to_string();
+    let last_modified = if opts == 0 {
+        0
+    } else {
+        with_entry(opts, |e| match e {
             Some(Entry::Map(m)) => m.get("lastModified").copied().unwrap_or(0),
             _ => 0,
         })
-    }
+    };
+    make_blob(concat_parts(parts), Some(name), last_modified, "File")
+}
 
-    /// file.size — reusa o extern do Blob.
-    #[rts_getter(
-        external,
-        symbol = "__RTS_FN_GL_BLOB_SIZE",
-        ts = "readonly size: number",
-        pure
-    )]
-    pub fn size(_h: Handle) -> I64 {
-        unreachable!()
-    }
+/// file.name
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_FILE_NAME(h: Handle) -> Handle {
+    with_entry(h, |e| match e {
+        Some(Entry::Map(m)) => m.get("name").copied().unwrap_or(0) as u64,
+        _ => 0,
+    })
+}
 
-    /// file.text() — reusa o extern do Blob.
-    #[rts_method(
-        external,
-        symbol = "__RTS_FN_GL_BLOB_TEXT",
-        ts = "text(): Promise<string>",
-        pure
-    )]
-    pub fn text(_h: Handle) -> Handle {
-        unreachable!()
+/// file.lastModified
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_FILE_LAST_MODIFIED(h: Handle) -> I64 {
+    with_entry(h, |e| match e {
+        Some(Entry::Map(m)) => m.get("lastModified").copied().unwrap_or(0),
+        _ => 0,
+    })
+}
+
+// ── Builders hand-written das classes globais `Blob` e `File` ──────────────────
+
+/// Membro de classe global (helper hand-written, espelha `leak_class` da macro).
+#[allow(clippy::too_many_arguments)]
+fn m(
+    name: &str,
+    kind: MemberKind,
+    sig: Sig,
+    symbol: &str,
+    ts: &str,
+    doc: &str,
+    fp: *const u8,
+    pure: bool,
+) -> Member {
+    Member {
+        name: name.to_string(),
+        kind,
+        sig,
+        symbol: symbol.to_string(),
+        fn_ptr: FnPtr(fp),
+        flags: MemberFlags::NONE,
+        aliases: Vec::new(),
+        variadic: false,
+        ts_signature: ts.to_string(),
+        doc: doc.to_string(),
+        pure,
+        intrinsic: None,
     }
+}
+
+/// Registra a classe global `Blob` no motor (hand-written, sem macro).
+pub fn register_blob_class_spec(e: &mut Engine) {
+    e.class("Blob")
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(Vec::new(), AbiType::Handle),
+            "__RTS_FN_GL_BLOB_NEW_EMPTY",
+            "new Blob()",
+            "new Blob()",
+            __RTS_FN_GL_BLOB_NEW_EMPTY as *const u8,
+            true,
+        ))
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_BLOB_NEW",
+            "new Blob(parts: BlobPart[])",
+            "new Blob(parts)",
+            __RTS_FN_GL_BLOB_NEW as *const u8,
+            true,
+        ))
+        .member(m(
+            "size",
+            MemberKind::InstanceGetter,
+            Sig::new(vec![AbiType::Handle], AbiType::I64),
+            "__RTS_FN_GL_BLOB_SIZE",
+            "readonly size: number",
+            "blob.size",
+            __RTS_FN_GL_BLOB_SIZE as *const u8,
+            true,
+        ))
+        .member(m(
+            "text",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_BLOB_TEXT",
+            "text(): Promise<string>",
+            "blob.text() — string UTF-8 num Promise resolvido.",
+            __RTS_FN_GL_BLOB_TEXT as *const u8,
+            true,
+        ))
+        .member(m(
+            "stream",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_BLOB_STREAM",
+            "stream(): ReadableStream",
+            "blob.stream() — ReadableStream com UM chunk ja' enfileirado e fechado.",
+            __RTS_FN_GL_BLOB_STREAM as *const u8,
+            true,
+        ))
+        .done();
+}
+
+/// Registra a classe global `File` no motor (hand-written, sem macro).
+pub fn register_file_class_spec(e: &mut Engine) {
+    e.class("File")
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(
+                vec![AbiType::Handle, AbiType::StrPtr, AbiType::Handle],
+                AbiType::Handle,
+            ),
+            "__RTS_FN_GL_FILE_NEW",
+            "new File(parts: BlobPart[], name: string, options?: FilePropertyBag)",
+            "new File(parts, name, options?)",
+            __RTS_FN_GL_FILE_NEW as *const u8,
+            true,
+        ))
+        .member(m(
+            "name",
+            MemberKind::InstanceGetter,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_FILE_NAME",
+            "readonly name: string",
+            "file.name",
+            __RTS_FN_GL_FILE_NAME as *const u8,
+            true,
+        ))
+        .member(m(
+            "lastModified",
+            MemberKind::InstanceGetter,
+            Sig::new(vec![AbiType::Handle], AbiType::I64),
+            "__RTS_FN_GL_FILE_LAST_MODIFIED",
+            "readonly lastModified: number",
+            "file.lastModified",
+            __RTS_FN_GL_FILE_LAST_MODIFIED as *const u8,
+            true,
+        ))
+        .member(m(
+            "size",
+            MemberKind::InstanceGetter,
+            Sig::new(vec![AbiType::Handle], AbiType::I64),
+            "__RTS_FN_GL_BLOB_SIZE",
+            "readonly size: number",
+            "file.size — reusa o extern do Blob.",
+            __RTS_FN_GL_BLOB_SIZE as *const u8,
+            true,
+        ))
+        .member(m(
+            "text",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_BLOB_TEXT",
+            "text(): Promise<string>",
+            "file.text() — reusa o extern do Blob.",
+            __RTS_FN_GL_BLOB_TEXT as *const u8,
+            true,
+        ))
+        .done();
 }

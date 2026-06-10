@@ -1,240 +1,241 @@
-//! Web Streams — ReadableStream / TransformStream family (9 classes). Migrado ao
-//! modelo `#[rts_class]` (stage 5) via membros `external` — os externs
-//! `__RTS_FN_GL_*STREAM*` ficam em `instance.rs` intactos; o macro deriva apenas
-//! os 9 `*_CLASS_SPEC`. Os getters `writable`/`readable` compartilham os externs
+//! Web Streams — ReadableStream / TransformStream family (9 classes).
+//!
+//! Migrado do `#[rts_class]` (macro) pro modelo builder hand-written do
+//! `rts-engine` (rumo à remoção da `rts-macro`). Todos os membros são
+//! `external` — os externs `__RTS_FN_GL_*STREAM*` vivem em `instance.rs`
+//! intactos; aqui só montamos os 9 `register_*_class_spec`. Os getters
+//! `writable`/`readable` compartilham os externs
 //! `__RTS_FN_GL_TRANSFORM_STREAM_WRITABLE/READABLE` entre 4 classes.
 
 pub mod instance;
 
-#[allow(unused_imports)]
-use rts_engine::abi::ty::Handle;
-use rts_macro::rts_class;
+use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-/// ReadableStream.
-#[rts_class(ReadableStream, spec = "READABLE_STREAM_CLASS_SPEC")]
-impl ReadableStreamClass {
-    #[rts_ctor(
-        external,
-        symbol = "__RTS_FN_GL_READABLE_STREAM_NEW",
-        ts = "new ReadableStream(underlyingSource?: object): ReadableStream"
-    )]
-    pub fn new(_src: Handle) -> Handle {
-        unreachable!()
-    }
-    #[rts_method(
-        external,
-        name = "getReader",
-        symbol = "__RTS_FN_GL_READABLE_STREAM_GET_READER",
-        ts = "getReader(): ReadableStreamDefaultReader"
-    )]
-    pub fn get_reader(_h: Handle) -> Handle {
-        unreachable!()
-    }
-    #[rts_method(
-        external,
-        name = "pipeThrough",
-        symbol = "__RTS_FN_GL_READABLE_STREAM_PIPE_THROUGH",
-        ts = "pipeThrough(t: { writable: WritableStream; readable: ReadableStream }): ReadableStream"
-    )]
-    pub fn pipe_through(_h: Handle, _t: Handle) -> Handle {
-        unreachable!()
+/// Membro de classe global `external` (fn_ptr nulo — o extern vive em
+/// `instance.rs`). Espelha o helper hand-written do `error/mod.rs`.
+fn m(name: &str, kind: MemberKind, sig: Sig, symbol: &str, ts: &str) -> Member {
+    Member {
+        name: name.to_string(),
+        kind,
+        sig,
+        symbol: symbol.to_string(),
+        fn_ptr: FnPtr(core::ptr::null::<u8>()),
+        flags: MemberFlags::NONE,
+        aliases: Vec::new(),
+        variadic: false,
+        ts_signature: ts.to_string(),
+        doc: String::new(),
+        pure: false,
+        intrinsic: None,
     }
 }
 
-/// TextEncoderStream (identity passthrough).
-#[rts_class(TextEncoderStream, spec = "TEXT_ENCODER_STREAM_CLASS_SPEC")]
-impl TextEncoderStreamClass {
-    #[rts_ctor(
-        external,
-        symbol = "__RTS_FN_GL_TEXT_ENCODER_STREAM_NEW",
-        ts = "new TextEncoderStream(): TextEncoderStream"
-    )]
-    pub fn new(_x: Handle) -> Handle {
-        unreachable!()
-    }
-    #[rts_getter(
-        external,
-        name = "writable",
-        symbol = "__RTS_FN_GL_TRANSFORM_STREAM_WRITABLE",
-        ts = "readonly writable: WritableStream"
-    )]
-    pub fn writable(_h: Handle) -> Handle {
-        unreachable!()
-    }
-    #[rts_getter(
-        external,
-        name = "readable",
-        symbol = "__RTS_FN_GL_TRANSFORM_STREAM_READABLE",
-        ts = "readonly readable: ReadableStream"
-    )]
-    pub fn readable(_h: Handle) -> Handle {
-        unreachable!()
-    }
+/// Registra a classe global `ReadableStream` (Fase 2 — hand-written, sem macro).
+pub fn register_readable_stream_class_spec(e: &mut Engine) {
+    e.class("ReadableStream")
+        .doc("ReadableStream.")
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_READABLE_STREAM_NEW",
+            "new ReadableStream(underlyingSource?: object): ReadableStream",
+        ))
+        .member(m(
+            "getReader",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_READABLE_STREAM_GET_READER",
+            "getReader(): ReadableStreamDefaultReader",
+        ))
+        .member(m(
+            "pipeThrough",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_READABLE_STREAM_PIPE_THROUGH",
+            "pipeThrough(t: { writable: WritableStream; readable: ReadableStream }): ReadableStream",
+        ))
+        .done();
 }
 
-/// TextDecoderStream (identity passthrough).
-#[rts_class(TextDecoderStream, spec = "TEXT_DECODER_STREAM_CLASS_SPEC")]
-impl TextDecoderStreamClass {
-    #[rts_ctor(
-        external,
-        symbol = "__RTS_FN_GL_TEXT_DECODER_STREAM_NEW",
-        ts = "new TextDecoderStream(): TextDecoderStream"
-    )]
-    pub fn new(_x: Handle) -> Handle {
-        unreachable!()
-    }
-    #[rts_getter(
-        external,
-        name = "writable",
-        symbol = "__RTS_FN_GL_TRANSFORM_STREAM_WRITABLE",
-        ts = "readonly writable: WritableStream"
-    )]
-    pub fn writable(_h: Handle) -> Handle {
-        unreachable!()
-    }
-    #[rts_getter(
-        external,
-        name = "readable",
-        symbol = "__RTS_FN_GL_TRANSFORM_STREAM_READABLE",
-        ts = "readonly readable: ReadableStream"
-    )]
-    pub fn readable(_h: Handle) -> Handle {
-        unreachable!()
-    }
+/// Registra a classe global `ReadableStreamDefaultReader`.
+pub fn register_reader_class_spec(e: &mut Engine) {
+    e.class("ReadableStreamDefaultReader")
+        .doc("ReadableStreamDefaultReader.")
+        .member(m(
+            "read",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_READABLE_STREAM_READER_READ",
+            "read(): Promise<{value: any; done: boolean}>",
+        ))
+        .done();
 }
 
-/// CompressionStream — gzip/deflate.
-#[rts_class(CompressionStream, spec = "COMPRESSION_STREAM_CLASS_SPEC")]
-impl CompressionStreamClass {
-    #[rts_ctor(
-        external,
-        symbol = "__RTS_FN_GL_COMPRESSION_STREAM_NEW",
-        ts = "new CompressionStream(format: string): CompressionStream"
-    )]
-    pub fn new(_format: Str) -> Handle {
-        unreachable!()
-    }
-    #[rts_getter(
-        external,
-        name = "writable",
-        symbol = "__RTS_FN_GL_TRANSFORM_STREAM_WRITABLE",
-        ts = "readonly writable: WritableStream"
-    )]
-    pub fn writable(_h: Handle) -> Handle {
-        unreachable!()
-    }
-    #[rts_getter(
-        external,
-        name = "readable",
-        symbol = "__RTS_FN_GL_TRANSFORM_STREAM_READABLE",
-        ts = "readonly readable: ReadableStream"
-    )]
-    pub fn readable(_h: Handle) -> Handle {
-        unreachable!()
-    }
+/// Registra a classe global `ReadableStreamDefaultController`.
+pub fn register_controller_class_spec(e: &mut Engine) {
+    e.class("ReadableStreamDefaultController")
+        .doc("ReadableStreamDefaultController.")
+        .member(m(
+            "enqueue",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Void),
+            "__RTS_FN_GL_READABLE_STREAM_CONTROLLER_ENQUEUE",
+            "enqueue(chunk: any): void",
+        ))
+        .member(m(
+            "close",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Void),
+            "__RTS_FN_GL_READABLE_STREAM_CONTROLLER_CLOSE",
+            "close(): void",
+        ))
+        .done();
 }
 
-/// ReadableStreamDefaultReader.
-#[rts_class(ReadableStreamDefaultReader, spec = "READER_CLASS_SPEC")]
-impl ReadableStreamDefaultReaderClass {
-    #[rts_method(
-        external,
-        name = "read",
-        symbol = "__RTS_FN_GL_READABLE_STREAM_READER_READ",
-        ts = "read(): Promise<{value: any; done: boolean}>"
-    )]
-    pub fn read(_h: Handle) -> Handle {
-        unreachable!()
-    }
+/// Registra a classe global `TransformStream`.
+pub fn register_transform_stream_class_spec(e: &mut Engine) {
+    e.class("TransformStream")
+        .doc("TransformStream.")
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_TRANSFORM_STREAM_NEW",
+            "new TransformStream(transformer?: object): TransformStream",
+        ))
+        .member(m(
+            "writable",
+            MemberKind::InstanceGetter,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_TRANSFORM_STREAM_WRITABLE",
+            "readonly writable: WritableStream",
+        ))
+        .member(m(
+            "readable",
+            MemberKind::InstanceGetter,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_TRANSFORM_STREAM_READABLE",
+            "readonly readable: ReadableStream",
+        ))
+        .done();
 }
 
-/// ReadableStreamDefaultController.
-#[rts_class(ReadableStreamDefaultController, spec = "CONTROLLER_CLASS_SPEC")]
-impl ReadableStreamDefaultControllerClass {
-    #[rts_method(
-        external,
-        name = "enqueue",
-        symbol = "__RTS_FN_GL_READABLE_STREAM_CONTROLLER_ENQUEUE",
-        ts = "enqueue(chunk: any): void"
-    )]
-    pub fn enqueue(_h: Handle, _chunk: Handle) {
-        unreachable!()
-    }
-    #[rts_method(
-        external,
-        name = "close",
-        symbol = "__RTS_FN_GL_READABLE_STREAM_CONTROLLER_CLOSE",
-        ts = "close(): void"
-    )]
-    pub fn close(_h: Handle) {
-        unreachable!()
-    }
+/// Registra a classe global `WritableStream`.
+pub fn register_writable_stream_class_spec(e: &mut Engine) {
+    e.class("WritableStream")
+        .doc("WritableStream.")
+        .member(m(
+            "getWriter",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_WRITABLE_STREAM_GET_WRITER",
+            "getWriter(): WritableStreamDefaultWriter",
+        ))
+        .done();
 }
 
-/// TransformStream.
-#[rts_class(TransformStream, spec = "TRANSFORM_STREAM_CLASS_SPEC")]
-impl TransformStreamClass {
-    #[rts_ctor(
-        external,
-        symbol = "__RTS_FN_GL_TRANSFORM_STREAM_NEW",
-        ts = "new TransformStream(transformer?: object): TransformStream"
-    )]
-    pub fn new(_t: Handle) -> Handle {
-        unreachable!()
-    }
-    #[rts_getter(
-        external,
-        name = "writable",
-        symbol = "__RTS_FN_GL_TRANSFORM_STREAM_WRITABLE",
-        ts = "readonly writable: WritableStream"
-    )]
-    pub fn writable(_h: Handle) -> Handle {
-        unreachable!()
-    }
-    #[rts_getter(
-        external,
-        name = "readable",
-        symbol = "__RTS_FN_GL_TRANSFORM_STREAM_READABLE",
-        ts = "readonly readable: ReadableStream"
-    )]
-    pub fn readable(_h: Handle) -> Handle {
-        unreachable!()
-    }
+/// Registra a classe global `WritableStreamDefaultWriter`.
+pub fn register_writer_class_spec(e: &mut Engine) {
+    e.class("WritableStreamDefaultWriter")
+        .doc("WritableStreamDefaultWriter.")
+        .member(m(
+            "write",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_WRITABLE_STREAM_WRITER_WRITE",
+            "write(chunk: any): Promise<void>",
+        ))
+        .member(m(
+            "close",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_WRITABLE_STREAM_WRITER_CLOSE",
+            "close(): Promise<void>",
+        ))
+        .done();
 }
 
-/// WritableStream.
-#[rts_class(WritableStream, spec = "WRITABLE_STREAM_CLASS_SPEC")]
-impl WritableStreamClass {
-    #[rts_method(
-        external,
-        name = "getWriter",
-        symbol = "__RTS_FN_GL_WRITABLE_STREAM_GET_WRITER",
-        ts = "getWriter(): WritableStreamDefaultWriter"
-    )]
-    pub fn get_writer(_h: Handle) -> Handle {
-        unreachable!()
-    }
+/// Registra a classe global `TextEncoderStream` (identity passthrough).
+pub fn register_text_encoder_stream_class_spec(e: &mut Engine) {
+    e.class("TextEncoderStream")
+        .doc("TextEncoderStream (identity passthrough).")
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_TEXT_ENCODER_STREAM_NEW",
+            "new TextEncoderStream(): TextEncoderStream",
+        ))
+        .member(m(
+            "writable",
+            MemberKind::InstanceGetter,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_TRANSFORM_STREAM_WRITABLE",
+            "readonly writable: WritableStream",
+        ))
+        .member(m(
+            "readable",
+            MemberKind::InstanceGetter,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_TRANSFORM_STREAM_READABLE",
+            "readonly readable: ReadableStream",
+        ))
+        .done();
 }
 
-/// WritableStreamDefaultWriter.
-#[rts_class(WritableStreamDefaultWriter, spec = "WRITER_CLASS_SPEC")]
-impl WritableStreamDefaultWriterClass {
-    #[rts_method(
-        external,
-        name = "write",
-        symbol = "__RTS_FN_GL_WRITABLE_STREAM_WRITER_WRITE",
-        ts = "write(chunk: any): Promise<void>"
-    )]
-    pub fn write(_h: Handle, _chunk: Handle) -> Handle {
-        unreachable!()
-    }
-    #[rts_method(
-        external,
-        name = "close",
-        symbol = "__RTS_FN_GL_WRITABLE_STREAM_WRITER_CLOSE",
-        ts = "close(): Promise<void>"
-    )]
-    pub fn close(_h: Handle) -> Handle {
-        unreachable!()
-    }
+/// Registra a classe global `TextDecoderStream` (identity passthrough).
+pub fn register_text_decoder_stream_class_spec(e: &mut Engine) {
+    e.class("TextDecoderStream")
+        .doc("TextDecoderStream (identity passthrough).")
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_TEXT_DECODER_STREAM_NEW",
+            "new TextDecoderStream(): TextDecoderStream",
+        ))
+        .member(m(
+            "writable",
+            MemberKind::InstanceGetter,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_TRANSFORM_STREAM_WRITABLE",
+            "readonly writable: WritableStream",
+        ))
+        .member(m(
+            "readable",
+            MemberKind::InstanceGetter,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_TRANSFORM_STREAM_READABLE",
+            "readonly readable: ReadableStream",
+        ))
+        .done();
+}
+
+/// Registra a classe global `CompressionStream` — gzip/deflate.
+pub fn register_compression_stream_class_spec(e: &mut Engine) {
+    e.class("CompressionStream")
+        .doc("CompressionStream — gzip/deflate.")
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
+            "__RTS_FN_GL_COMPRESSION_STREAM_NEW",
+            "new CompressionStream(format: string): CompressionStream",
+        ))
+        .member(m(
+            "writable",
+            MemberKind::InstanceGetter,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_TRANSFORM_STREAM_WRITABLE",
+            "readonly writable: WritableStream",
+        ))
+        .member(m(
+            "readable",
+            MemberKind::InstanceGetter,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_TRANSFORM_STREAM_READABLE",
+            "readonly readable: ReadableStream",
+        ))
+        .done();
 }

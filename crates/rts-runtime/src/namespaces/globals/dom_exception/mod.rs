@@ -1,13 +1,16 @@
 //! `DOMException` global class (#77).
 //!
 //! new DOMException(message, name) com fields message, name, code (legacy
-//! numeric code mapeado pelo name padrao). Migrado ao modelo `#[rts_class]`
-//! (stage 5); símbolos/spec usam o prefixo `DOM_EXCEPTION`.
+//! numeric code mapeado pelo name padrao). Migrado do `#[rts_class]` (macro)
+//! pro modelo builder hand-written do `rts-engine` (rumo à remoção da
+//! `rts-macro`). Os externs `__RTS_FN_GL_DOM_EXCEPTION_*` +
+//! `register_dom_exception_class_spec()` são escritos à mão. Símbolos/spec
+//! usam o prefixo `DOM_EXCEPTION`.
 
 use indexmap::IndexMap;
 
 use rts_engine::abi::ty::{Handle, I64};
-use rts_macro::rts_class;
+use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
 
@@ -55,55 +58,150 @@ fn build(msg: &str, name: &str) -> u64 {
     alloc_entry(Entry::Map(Box::new(m)))
 }
 
-/// DOMException — WebIDL legacy exception class com name/message/code.
-#[rts_class(
-    DOMException,
-    prefix = "DOM_EXCEPTION",
-    spec = "DOM_EXCEPTION_CLASS_SPEC"
-)]
-impl DomExceptionClass {
-    /// new DOMException()
-    #[rts_ctor(ts = "new DOMException()", pure)]
-    pub fn new_empty() -> Handle {
-        build("", "")
-    }
+/// new DOMException()
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DOM_EXCEPTION_NEW_EMPTY() -> Handle {
+    build("", "")
+}
 
-    /// new DOMException(message)
-    #[rts_ctor(ts = "new DOMException(message: string)", opt_str, pure)]
-    pub fn new_msg(message: Str) -> Handle {
-        build(message.unwrap_or(""), "")
-    }
+/// new DOMException(message)
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DOM_EXCEPTION_NEW_MSG(message_ptr: *const u8, message_len: i64) -> Handle {
+    let message = unsafe { rts_engine::abi::str_abi::from_abi(message_ptr, message_len) };
+    build(message.unwrap_or(""), "")
+}
 
-    /// new DOMException(message, name)
-    #[rts_ctor(ts = "new DOMException(message: string, name: string)", opt_str, pure)]
-    pub fn new(message: Str, name: Str) -> Handle {
-        build(message.unwrap_or(""), name.unwrap_or(""))
-    }
+/// new DOMException(message, name)
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DOM_EXCEPTION_NEW(
+    message_ptr: *const u8,
+    message_len: i64,
+    name_ptr: *const u8,
+    name_len: i64,
+) -> Handle {
+    let message = unsafe { rts_engine::abi::str_abi::from_abi(message_ptr, message_len) };
+    let name = unsafe { rts_engine::abi::str_abi::from_abi(name_ptr, name_len) };
+    build(message.unwrap_or(""), name.unwrap_or(""))
+}
 
-    /// exception.name
-    #[rts_getter(ts = "readonly name: string", pure)]
-    pub fn name(h: Handle) -> Handle {
-        with_entry(h, |e| match e {
-            Some(Entry::Map(m)) => m.get("name").copied().unwrap_or(0) as u64,
-            _ => 0,
-        })
-    }
+/// exception.name
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DOM_EXCEPTION_NAME(h: Handle) -> Handle {
+    with_entry(h, |e| match e {
+        Some(Entry::Map(m)) => m.get("name").copied().unwrap_or(0) as u64,
+        _ => 0,
+    })
+}
 
-    /// exception.message
-    #[rts_getter(ts = "readonly message: string", pure)]
-    pub fn message(h: Handle) -> Handle {
-        with_entry(h, |e| match e {
-            Some(Entry::Map(m)) => m.get("message").copied().unwrap_or(0) as u64,
-            _ => 0,
-        })
-    }
+/// exception.message
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DOM_EXCEPTION_MESSAGE(h: Handle) -> Handle {
+    with_entry(h, |e| match e {
+        Some(Entry::Map(m)) => m.get("message").copied().unwrap_or(0) as u64,
+        _ => 0,
+    })
+}
 
-    /// exception.code — legacy WebIDL numeric code.
-    #[rts_getter(ts = "readonly code: number", pure)]
-    pub fn code(h: Handle) -> I64 {
-        with_entry(h, |e| match e {
-            Some(Entry::Map(m)) => m.get("code").copied().unwrap_or(0),
-            _ => 0,
-        })
+/// exception.code — legacy WebIDL numeric code.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_DOM_EXCEPTION_CODE(h: Handle) -> I64 {
+    with_entry(h, |e| match e {
+        Some(Entry::Map(m)) => m.get("code").copied().unwrap_or(0),
+        _ => 0,
+    })
+}
+
+/// Membro de classe global (helper hand-written, espelha `leak_class` da macro).
+#[allow(clippy::too_many_arguments)]
+fn m(
+    name: &str,
+    kind: MemberKind,
+    sig: Sig,
+    symbol: &str,
+    ts: &str,
+    doc: &str,
+    fp: *const u8,
+    pure: bool,
+) -> Member {
+    Member {
+        name: name.to_string(),
+        kind,
+        sig,
+        symbol: symbol.to_string(),
+        fn_ptr: FnPtr(fp),
+        flags: MemberFlags::NONE,
+        aliases: Vec::new(),
+        variadic: false,
+        ts_signature: ts.to_string(),
+        doc: doc.to_string(),
+        pure,
+        intrinsic: None,
     }
+}
+
+/// Registra a classe global `DOMException` no motor (hand-written, sem macro).
+pub fn register_dom_exception_class_spec(e: &mut Engine) {
+    e.class("DOMException")
+        .doc("DOMException — WebIDL legacy exception class com name/message/code.")
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(Vec::new(), AbiType::Handle),
+            "__RTS_FN_GL_DOM_EXCEPTION_NEW_EMPTY",
+            "new DOMException()",
+            "new DOMException()",
+            __RTS_FN_GL_DOM_EXCEPTION_NEW_EMPTY as *const u8,
+            true,
+        ))
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
+            "__RTS_FN_GL_DOM_EXCEPTION_NEW_MSG",
+            "new DOMException(message: string)",
+            "new DOMException(message)",
+            __RTS_FN_GL_DOM_EXCEPTION_NEW_MSG as *const u8,
+            true,
+        ))
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(vec![AbiType::StrPtr, AbiType::StrPtr], AbiType::Handle),
+            "__RTS_FN_GL_DOM_EXCEPTION_NEW",
+            "new DOMException(message: string, name: string)",
+            "new DOMException(message, name)",
+            __RTS_FN_GL_DOM_EXCEPTION_NEW as *const u8,
+            true,
+        ))
+        .member(m(
+            "name",
+            MemberKind::InstanceGetter,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_DOM_EXCEPTION_NAME",
+            "readonly name: string",
+            "exception.name",
+            __RTS_FN_GL_DOM_EXCEPTION_NAME as *const u8,
+            true,
+        ))
+        .member(m(
+            "message",
+            MemberKind::InstanceGetter,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_DOM_EXCEPTION_MESSAGE",
+            "readonly message: string",
+            "exception.message",
+            __RTS_FN_GL_DOM_EXCEPTION_MESSAGE as *const u8,
+            true,
+        ))
+        .member(m(
+            "code",
+            MemberKind::InstanceGetter,
+            Sig::new(vec![AbiType::Handle], AbiType::I64),
+            "__RTS_FN_GL_DOM_EXCEPTION_CODE",
+            "readonly code: number",
+            "exception.code — legacy WebIDL numeric code.",
+            __RTS_FN_GL_DOM_EXCEPTION_CODE as *const u8,
+            true,
+        ))
+        .done();
 }

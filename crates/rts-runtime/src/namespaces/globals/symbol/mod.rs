@@ -1,6 +1,8 @@
 //! `Symbol` global class (#216) — primitivo unico opaco.
 //!
-//! Migrado ao modelo `#[rts_class]` (stage 5, `docs/specs/rts-core-engine.md`).
+//! Migrado do `#[rts_class]` (macro) pro modelo builder hand-written do
+//! `rts-engine` (rumo à remoção da `rts-macro`). Os externs
+//! `__RTS_FN_GL_SYMBOL_*` + `register_symbol_class_spec()` são escritos à mão.
 //! `__RTS_FN_RT_TO_PRIMITIVE` + os well-known helpers nao sao membros da classe
 //! — ficam como free fns abaixo, chamados pelo codegen por simbolo.
 
@@ -8,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
 use rts_engine::abi::ty::Handle;
-use rts_macro::rts_class;
+use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
 
@@ -53,121 +55,263 @@ fn well_known_handle(name: &str) -> u64 {
     h
 }
 
-/// Built-in Symbol primitive (#216). Each Symbol() call returns a unique handle.
-#[rts_class(Symbol)]
-impl SymbolClass {
-    /// Creates a new unique Symbol with optional description string.
-    #[rts_ctor(ts = "new Symbol(description?: string): symbol", opt_str)]
-    pub fn new(description: Str) -> Handle {
-        let description = description.map(|s| s.to_string());
-        alloc_entry(Entry::Symbol { description })
-    }
+/// Creates a new unique Symbol with optional description string.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_SYMBOL_NEW(description_ptr: *const u8, description_len: i64) -> Handle {
+    let description = unsafe { rts_engine::abi::str_abi::from_abi(description_ptr, description_len) };
+    let description = description.map(|s| s.to_string());
+    alloc_entry(Entry::Symbol { description })
+}
 
-    /// Returns a registered symbol by key — same key always returns same handle.
-    #[rts_fn(
-        name = "for",
-        symbol = "__RTS_FN_GL_SYMBOL_FOR",
-        ts = "for(key: string): symbol"
-    )]
-    pub fn sym_for(key: Str) -> Handle {
-        let key_owned = key.to_string();
-        let reg = registry().lock().unwrap();
-        if let Some(&h) = reg.get(&key_owned) {
-            return h;
-        }
-        drop(reg);
-        let h = alloc_entry(Entry::Symbol {
-            description: Some(key_owned.clone()),
-        });
-        let mut reg = registry().lock().unwrap();
-        reg.insert(key_owned, h);
-        h
+/// Returns a registered symbol by key — same key always returns same handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_SYMBOL_FOR(key_ptr: *const u8, key_len: i64) -> Handle {
+    let key = match unsafe { rts_engine::abi::str_abi::from_abi(key_ptr, key_len) } {
+        ::core::option::Option::Some(s) => s,
+        ::core::option::Option::None => return 0,
+    };
+    let key_owned = key.to_string();
+    let reg = registry().lock().unwrap();
+    if let Some(&h) = reg.get(&key_owned) {
+        return h;
     }
+    drop(reg);
+    let h = alloc_entry(Entry::Symbol {
+        description: Some(key_owned.clone()),
+    });
+    let mut reg = registry().lock().unwrap();
+    reg.insert(key_owned, h);
+    h
+}
 
-    /// Returns the key for a registered symbol, or 0 (undefined) if not registered.
-    #[rts_fn(name = "keyFor", ts = "keyFor(sym: symbol): string | undefined", pure)]
-    pub fn key_for(sym: Handle) -> Handle {
-        let reg = registry().lock().unwrap();
-        for (k, &h) in reg.iter() {
-            if h == sym {
-                let key_clone = k.clone();
-                drop(reg);
-                return crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(
-                    key_clone.as_ptr(),
-                    key_clone.len() as i64,
-                );
-            }
-        }
-        drop(reg);
-        let undef = b"undefined";
-        crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(
-            undef.as_ptr(),
-            undef.len() as i64,
-        )
-    }
-
-    /// Returns the symbol's description string, or 0 if none.
-    #[rts_getter(ts = "description: string | undefined", pure)]
-    pub fn description(sym: Handle) -> Handle {
-        let desc = with_entry(sym, |e| match e {
-            Some(Entry::Symbol { description }) => description.clone(),
-            _ => None,
-        });
-        match desc {
-            Some(s) => crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(
-                s.as_ptr(),
-                s.len() as i64,
-            ),
-            None => 0,
+/// Returns the key for a registered symbol, or 0 (undefined) if not registered.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_SYMBOL_KEY_FOR(sym: Handle) -> Handle {
+    let reg = registry().lock().unwrap();
+    for (k, &h) in reg.iter() {
+        if h == sym {
+            let key_clone = k.clone();
+            drop(reg);
+            return crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(
+                key_clone.as_ptr(),
+                key_clone.len() as i64,
+            );
         }
     }
+    drop(reg);
+    let undef = b"undefined";
+    crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(
+        undef.as_ptr(),
+        undef.len() as i64,
+    )
+}
 
-    /// Returns 'Symbol(description)' string.
-    #[rts_method(name = "toString", ts = "toString(): string", pure)]
-    pub fn to_string(sym: Handle) -> Handle {
-        let s = with_entry(sym, |e| match e {
-            Some(Entry::Symbol {
-                description: Some(d),
-            }) => format!("Symbol({d})"),
-            Some(Entry::Symbol { description: None }) => "Symbol()".to_string(),
-            _ => "[invalid Symbol]".to_string(),
-        });
-        crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64)
+/// Returns the symbol's description string, or 0 if none.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_SYMBOL_DESCRIPTION(sym: Handle) -> Handle {
+    let desc = with_entry(sym, |e| match e {
+        Some(Entry::Symbol { description }) => description.clone(),
+        _ => None,
+    });
+    match desc {
+        Some(s) => crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(
+            s.as_ptr(),
+            s.len() as i64,
+        ),
+        None => 0,
     }
+}
 
-    /// Symbol.iterator — well-known symbol pra iteration protocol.
-    #[rts_const(ts = "readonly iterator: unique symbol", pure)]
-    pub fn iterator() -> Handle {
-        well_known_handle("iterator")
-    }
+/// Returns 'Symbol(description)' string.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_SYMBOL_TO_STRING(sym: Handle) -> Handle {
+    let s = with_entry(sym, |e| match e {
+        Some(Entry::Symbol {
+            description: Some(d),
+        }) => format!("Symbol({d})"),
+        Some(Entry::Symbol { description: None }) => "Symbol()".to_string(),
+        _ => "[invalid Symbol]".to_string(),
+    });
+    crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64)
+}
 
-    /// Symbol.asyncIterator — async iteration protocol.
-    #[rts_const(
-        name = "asyncIterator",
-        ts = "readonly asyncIterator: unique symbol",
-        pure
-    )]
-    pub fn async_iterator() -> Handle {
-        well_known_handle("asyncIterator")
-    }
+/// Symbol.iterator — well-known symbol pra iteration protocol.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_SYMBOL_ITERATOR() -> Handle {
+    well_known_handle("iterator")
+}
 
-    /// Symbol.hasInstance — controla instanceof.
-    #[rts_const(name = "hasInstance", ts = "readonly hasInstance: unique symbol", pure)]
-    pub fn has_instance() -> Handle {
-        well_known_handle("hasInstance")
-    }
+/// Symbol.asyncIterator — async iteration protocol.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_SYMBOL_ASYNC_ITERATOR() -> Handle {
+    well_known_handle("asyncIterator")
+}
 
-    /// Symbol.toPrimitive — controla coercao.
-    #[rts_const(name = "toPrimitive", ts = "readonly toPrimitive: unique symbol", pure)]
-    pub fn to_primitive() -> Handle {
-        well_known_handle("toPrimitive")
-    }
+/// Symbol.hasInstance — controla instanceof.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_SYMBOL_HAS_INSTANCE() -> Handle {
+    well_known_handle("hasInstance")
+}
 
-    /// Symbol.toStringTag — customiza Object.prototype.toString.
-    #[rts_const(name = "toStringTag", ts = "readonly toStringTag: unique symbol", pure)]
-    pub fn to_string_tag() -> Handle {
-        well_known_handle("toStringTag")
-    }
+/// Symbol.toPrimitive — controla coercao.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_SYMBOL_TO_PRIMITIVE() -> Handle {
+    well_known_handle("toPrimitive")
+}
+
+/// Symbol.toStringTag — customiza Object.prototype.toString.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_SYMBOL_TO_STRING_TAG() -> Handle {
+    well_known_handle("toStringTag")
+}
+
+/// Registra a classe global `Symbol` no motor (Fase 2 — hand-written, sem macro).
+pub fn register_symbol_class_spec(e: &mut Engine) {
+    e.class("Symbol")
+        .doc("Built-in Symbol primitive (#216). Each Symbol() call returns a unique handle.")
+        .member(Member {
+            name: "new".to_string(),
+            kind: MemberKind::Constructor,
+            sig: Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
+            symbol: "__RTS_FN_GL_SYMBOL_NEW".to_string(),
+            fn_ptr: FnPtr(__RTS_FN_GL_SYMBOL_NEW as *const u8),
+            flags: MemberFlags::NONE,
+            aliases: Vec::new(),
+            variadic: false,
+            ts_signature: "new Symbol(description?: string): symbol".to_string(),
+            doc: "Creates a new unique Symbol with optional description string.".to_string(),
+            pure: false,
+            intrinsic: None,
+        })
+        .member(Member {
+            name: "for".to_string(),
+            kind: MemberKind::Function,
+            sig: Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
+            symbol: "__RTS_FN_GL_SYMBOL_FOR".to_string(),
+            fn_ptr: FnPtr(__RTS_FN_GL_SYMBOL_FOR as *const u8),
+            flags: MemberFlags::NONE,
+            aliases: Vec::new(),
+            variadic: false,
+            ts_signature: "for(key: string): symbol".to_string(),
+            doc: "Returns a registered symbol by key — same key always returns same handle."
+                .to_string(),
+            pure: false,
+            intrinsic: None,
+        })
+        .member(Member {
+            name: "keyFor".to_string(),
+            kind: MemberKind::Function,
+            sig: Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            symbol: "__RTS_FN_GL_SYMBOL_KEY_FOR".to_string(),
+            fn_ptr: FnPtr(__RTS_FN_GL_SYMBOL_KEY_FOR as *const u8),
+            flags: MemberFlags::NONE,
+            aliases: Vec::new(),
+            variadic: false,
+            ts_signature: "keyFor(sym: symbol): string | undefined".to_string(),
+            doc: "Returns the key for a registered symbol, or 0 (undefined) if not registered."
+                .to_string(),
+            pure: true,
+            intrinsic: None,
+        })
+        .member(Member {
+            name: "description".to_string(),
+            kind: MemberKind::InstanceGetter,
+            sig: Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            symbol: "__RTS_FN_GL_SYMBOL_DESCRIPTION".to_string(),
+            fn_ptr: FnPtr(__RTS_FN_GL_SYMBOL_DESCRIPTION as *const u8),
+            flags: MemberFlags::NONE,
+            aliases: Vec::new(),
+            variadic: false,
+            ts_signature: "description: string | undefined".to_string(),
+            doc: "Returns the symbol's description string, or 0 if none.".to_string(),
+            pure: true,
+            intrinsic: None,
+        })
+        .member(Member {
+            name: "toString".to_string(),
+            kind: MemberKind::InstanceMethod,
+            sig: Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            symbol: "__RTS_FN_GL_SYMBOL_TO_STRING".to_string(),
+            fn_ptr: FnPtr(__RTS_FN_GL_SYMBOL_TO_STRING as *const u8),
+            flags: MemberFlags::NONE,
+            aliases: Vec::new(),
+            variadic: false,
+            ts_signature: "toString(): string".to_string(),
+            doc: "Returns 'Symbol(description)' string.".to_string(),
+            pure: true,
+            intrinsic: None,
+        })
+        .member(Member {
+            name: "iterator".to_string(),
+            kind: MemberKind::Constant,
+            sig: Sig::new(Vec::new(), AbiType::Handle),
+            symbol: "__RTS_FN_GL_SYMBOL_ITERATOR".to_string(),
+            fn_ptr: FnPtr(__RTS_FN_GL_SYMBOL_ITERATOR as *const u8),
+            flags: MemberFlags::NONE,
+            aliases: Vec::new(),
+            variadic: false,
+            ts_signature: "readonly iterator: unique symbol".to_string(),
+            doc: "Symbol.iterator — well-known symbol pra iteration protocol.".to_string(),
+            pure: true,
+            intrinsic: None,
+        })
+        .member(Member {
+            name: "asyncIterator".to_string(),
+            kind: MemberKind::Constant,
+            sig: Sig::new(Vec::new(), AbiType::Handle),
+            symbol: "__RTS_FN_GL_SYMBOL_ASYNC_ITERATOR".to_string(),
+            fn_ptr: FnPtr(__RTS_FN_GL_SYMBOL_ASYNC_ITERATOR as *const u8),
+            flags: MemberFlags::NONE,
+            aliases: Vec::new(),
+            variadic: false,
+            ts_signature: "readonly asyncIterator: unique symbol".to_string(),
+            doc: "Symbol.asyncIterator — async iteration protocol.".to_string(),
+            pure: true,
+            intrinsic: None,
+        })
+        .member(Member {
+            name: "hasInstance".to_string(),
+            kind: MemberKind::Constant,
+            sig: Sig::new(Vec::new(), AbiType::Handle),
+            symbol: "__RTS_FN_GL_SYMBOL_HAS_INSTANCE".to_string(),
+            fn_ptr: FnPtr(__RTS_FN_GL_SYMBOL_HAS_INSTANCE as *const u8),
+            flags: MemberFlags::NONE,
+            aliases: Vec::new(),
+            variadic: false,
+            ts_signature: "readonly hasInstance: unique symbol".to_string(),
+            doc: "Symbol.hasInstance — controla instanceof.".to_string(),
+            pure: true,
+            intrinsic: None,
+        })
+        .member(Member {
+            name: "toPrimitive".to_string(),
+            kind: MemberKind::Constant,
+            sig: Sig::new(Vec::new(), AbiType::Handle),
+            symbol: "__RTS_FN_GL_SYMBOL_TO_PRIMITIVE".to_string(),
+            fn_ptr: FnPtr(__RTS_FN_GL_SYMBOL_TO_PRIMITIVE as *const u8),
+            flags: MemberFlags::NONE,
+            aliases: Vec::new(),
+            variadic: false,
+            ts_signature: "readonly toPrimitive: unique symbol".to_string(),
+            doc: "Symbol.toPrimitive — controla coercao.".to_string(),
+            pure: true,
+            intrinsic: None,
+        })
+        .member(Member {
+            name: "toStringTag".to_string(),
+            kind: MemberKind::Constant,
+            sig: Sig::new(Vec::new(), AbiType::Handle),
+            symbol: "__RTS_FN_GL_SYMBOL_TO_STRING_TAG".to_string(),
+            fn_ptr: FnPtr(__RTS_FN_GL_SYMBOL_TO_STRING_TAG as *const u8),
+            flags: MemberFlags::NONE,
+            aliases: Vec::new(),
+            variadic: false,
+            ts_signature: "readonly toStringTag: unique symbol".to_string(),
+            doc: "Symbol.toStringTag — customiza Object.prototype.toString.".to_string(),
+            pure: true,
+            intrinsic: None,
+        })
+        .done();
 }
 
 // ── Non-member externs (codegen calls by symbol). ────────────────────────────

@@ -1,7 +1,12 @@
-//! Function — GlobalClassSpec para o tipo primitivo JS Function (#359).
+//! Function — classe global do tipo primitivo JS Function (#359).
 //!
-//! Cobre `.call`, `.apply`, `.bind`, `.name`, `.length` e o constructor
-//! `new Function("a", "b", "return a+b")` via runtime.eval.
+//! Migrado do `#[rts_class]` (macro) pro modelo builder hand-written do
+//! `rts-engine` (rumo à remoção da `rts-macro`). Todos os membros sao
+//! `external` — os externs `__RTS_FN_GL_FUNCTION_*` vivem em `ops.rs`/`props.rs`;
+//! aqui só fica o `register_function_class_spec()` escrito à mão.
+//!
+//! Cobre `.call`, `.apply`, `.bind`, `.name`, `.length`, `.prototype` e o
+//! constructor `new Function("a", "b", "return a+b")` via runtime.eval.
 //!
 //! Limitacoes vs Node:
 //! - `.toString()` retorna `"function <name>() { [native code] }"` (RTS nao
@@ -16,105 +21,134 @@
 pub mod ops;
 pub mod props;
 
-// All members are `external`: the macro consumes the impl and emits only the
-// spec (no externs), so the `Handle`/`I64` tokens live only inside the consumed
-// stub signatures — the import reads as unused to rustc.
-#[allow(unused_imports)]
-use rts_engine::abi::ty::{Handle, I64};
-use rts_macro::rts_class;
+use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-/// Built-in Function class (#359). Todos os membros sao `external` — os externs
-/// `__RTS_FN_GL_FUNCTION_*` vivem em `ops.rs`/`props.rs`; aqui o macro só deriva
-/// o `FUNCTION_CLASS_SPEC` (stage 5, substitui o antigo `abi.rs`).
-#[rts_class(Function)]
-impl FunctionClass {
-    /// new Function(...args) — via runtime.eval.
-    #[rts_ctor(
-        external,
-        symbol = "__RTS_FN_GL_FUNCTION_NEW",
-        ts = "constructor(...args: string[]): Function"
-    )]
-    pub fn new(_params: Handle, _body: Handle) -> Handle {
-        unreachable!()
-    }
+// ── Builder hand-written da classe global `Function` ───────────────────────────
 
-    /// fn.call(thisArg, ...args)
-    #[rts_method(
-        external,
-        name = "call",
-        symbol = "__RTS_FN_GL_FUNCTION_CALL",
-        ts = "call(thisArg: any, ...args: any[]): any"
-    )]
-    pub fn call(_h: Handle, _this_arg: I64, _args: Handle) -> I64 {
-        unreachable!()
+/// Membro de classe global (helper hand-written, espelha `leak_class` da macro).
+#[allow(clippy::too_many_arguments)]
+fn m(
+    name: &str,
+    kind: MemberKind,
+    sig: Sig,
+    symbol: &str,
+    ts: &str,
+    doc: &str,
+    fp: *const u8,
+    pure: bool,
+) -> Member {
+    Member {
+        name: name.to_string(),
+        kind,
+        sig,
+        symbol: symbol.to_string(),
+        fn_ptr: FnPtr(fp),
+        flags: MemberFlags::NONE,
+        aliases: Vec::new(),
+        variadic: false,
+        ts_signature: ts.to_string(),
+        doc: doc.to_string(),
+        pure,
+        intrinsic: None,
     }
+}
 
-    /// fn.apply(thisArg, args)
-    #[rts_method(
-        external,
-        name = "apply",
-        symbol = "__RTS_FN_GL_FUNCTION_APPLY",
-        ts = "apply(thisArg: any, args: any[]): any"
-    )]
-    pub fn apply(_h: Handle, _this_arg: I64, _args: Handle) -> I64 {
-        unreachable!()
-    }
-
-    /// fn.bind(thisArg, ...args)
-    #[rts_method(
-        external,
-        name = "bind",
-        symbol = "__RTS_FN_GL_FUNCTION_BIND",
-        ts = "bind(thisArg: any, ...args: any[]): Function"
-    )]
-    pub fn bind(_h: Handle, _this_arg: I64, _args: Handle) -> Handle {
-        unreachable!()
-    }
-
-    /// fn.toString()
-    #[rts_method(
-        external,
-        name = "toString",
-        symbol = "__RTS_FN_GL_FUNCTION_TO_STRING",
-        ts = "toString(): string",
-        pure
-    )]
-    pub fn to_string(_h: Handle) -> Handle {
-        unreachable!()
-    }
-
-    /// fn.name
-    #[rts_getter(
-        external,
-        name = "name",
-        symbol = "__RTS_FN_GL_FUNCTION_NAME",
-        ts = "readonly name: string",
-        pure
-    )]
-    pub fn name(_h: Handle) -> Handle {
-        unreachable!()
-    }
-
-    /// fn.length
-    #[rts_getter(
-        external,
-        name = "length",
-        symbol = "__RTS_FN_GL_FUNCTION_LENGTH",
-        ts = "readonly length: number",
-        pure
-    )]
-    pub fn length(_h: Handle) -> I64 {
-        unreachable!()
-    }
-
-    /// fn.prototype
-    #[rts_getter(
-        external,
-        name = "prototype",
-        symbol = "__RTS_FN_GL_FUNCTION_PROTOTYPE_GET",
-        ts = "prototype: any"
-    )]
-    pub fn prototype(_h: Handle) -> Handle {
-        unreachable!()
-    }
+/// Registra a classe global `Function` no motor (hand-written, sem macro).
+pub fn register_function_class_spec(e: &mut Engine) {
+    e.class("Function")
+        .doc(
+            "Built-in Function class (#359). Todos os membros sao `external` — os externs \
+             `__RTS_FN_GL_FUNCTION_*` vivem em `ops.rs`/`props.rs`; aqui o macro só deriva \
+             o `FUNCTION_CLASS_SPEC` (stage 5, substitui o antigo `abi.rs`).",
+        )
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_FUNCTION_NEW",
+            "constructor(...args: string[]): Function",
+            "new Function(...args) — via runtime.eval.",
+            core::ptr::null::<u8>(),
+            false,
+        ))
+        .member(m(
+            "call",
+            MemberKind::InstanceMethod,
+            Sig::new(
+                vec![AbiType::Handle, AbiType::I64, AbiType::Handle],
+                AbiType::I64,
+            ),
+            "__RTS_FN_GL_FUNCTION_CALL",
+            "call(thisArg: any, ...args: any[]): any",
+            "fn.call(thisArg, ...args)",
+            core::ptr::null::<u8>(),
+            false,
+        ))
+        .member(m(
+            "apply",
+            MemberKind::InstanceMethod,
+            Sig::new(
+                vec![AbiType::Handle, AbiType::I64, AbiType::Handle],
+                AbiType::I64,
+            ),
+            "__RTS_FN_GL_FUNCTION_APPLY",
+            "apply(thisArg: any, args: any[]): any",
+            "fn.apply(thisArg, args)",
+            core::ptr::null::<u8>(),
+            false,
+        ))
+        .member(m(
+            "bind",
+            MemberKind::InstanceMethod,
+            Sig::new(
+                vec![AbiType::Handle, AbiType::I64, AbiType::Handle],
+                AbiType::Handle,
+            ),
+            "__RTS_FN_GL_FUNCTION_BIND",
+            "bind(thisArg: any, ...args: any[]): Function",
+            "fn.bind(thisArg, ...args)",
+            core::ptr::null::<u8>(),
+            false,
+        ))
+        .member(m(
+            "toString",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_FUNCTION_TO_STRING",
+            "toString(): string",
+            "fn.toString()",
+            core::ptr::null::<u8>(),
+            true,
+        ))
+        .member(m(
+            "name",
+            MemberKind::InstanceGetter,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_FUNCTION_NAME",
+            "readonly name: string",
+            "fn.name",
+            core::ptr::null::<u8>(),
+            true,
+        ))
+        .member(m(
+            "length",
+            MemberKind::InstanceGetter,
+            Sig::new(vec![AbiType::Handle], AbiType::I64),
+            "__RTS_FN_GL_FUNCTION_LENGTH",
+            "readonly length: number",
+            "fn.length",
+            core::ptr::null::<u8>(),
+            true,
+        ))
+        .member(m(
+            "prototype",
+            MemberKind::InstanceGetter,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_FUNCTION_PROTOTYPE_GET",
+            "prototype: any",
+            "fn.prototype",
+            core::ptr::null::<u8>(),
+            false,
+        ))
+        .done();
 }
