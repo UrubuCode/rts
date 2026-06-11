@@ -20,3 +20,4 @@ pub mod text_encoding;
 pub mod timers;
 pub mod blob;
 pub mod readable_stream;
+pub mod fetch;

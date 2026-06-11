@@ -2785,8 +2785,10 @@ dependencies = [
  "rts-engine",
  "rts-shared",
  "rustls",
+ "serde_json",
  "sha2 0.10.9",
  "tokio",
+ "ureq 2.12.1",
  "webpki-roots 1.0.6",
 ]
 

@@ -18,6 +18,8 @@ indexmap = "2.14.0"
 rayon = "1.10"
 sha2 = "0.10"
 flate2 = "1.1"
+ureq = { version = "2.12", default-features = true }
+serde_json = { version = "1.0", features = ["preserve_order"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 actix-web = { version = "4", default-features = false, features = ["macros"] }
 actix-rt = "2"

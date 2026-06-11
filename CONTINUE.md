@@ -224,12 +224,16 @@ target/release/rts.exe compile -p f.ts out.exe; ./out.exe # AOT
 ~~6b. crypto + blob + readable_stream → rts-std~~ ✅ FEITO. Só gc::handles→engine + gc::promise_slot
    →crate::promise_slot (já em std). Cargo rts-std += sha2 + flate2. Suite 1710/1710; AOT smoke
    (crypto.random_uuid + Blob.size, JIT==AOT) OK.
-   ⏳ FALTAM: **fetch** (ureq + serde_json + promise_slot[std] + text_encoding[std] + headers/blob —
-   só gc::handles→engine + promise_slot/text_encoding→crate; precisa ureq dep) · **promise**
-   (promise_slot[std] + text_encoding microtasks[std] + gc::generator[runtime] + gc::error + function::
-   ops[shared] + crate::runtime). promise usa generator (pub fns no collector/runtime) → checar se são
-   extern-able ou se precisa wrapper como async_sm_resume. gc::error: ERROR_SET/GET/CLEAR são extern;
-   stack_for_handle já no engine. fetch é o próximo fácil; promise é o último (generator coupling).
+~~6c. fetch → rts-std~~ ✅ FEITO. Criado rts-std/src/gc_surface.rs (extern `safe fn` dos no_mangle do
+   collector: ERROR_GET/GET_STACK/CLEAR/SET + ASYNC_SM_RESUME). fetch: gc::handles→engine; gc::error
+   →crate::gc_surface; gc::promise_slot→crate::promise_slot; text_encoding→crate::globals. Cargo
+   rts-std += ureq + serde_json. Suite 1710/1710; AOT compile linka (run real precisa rede+event loop).
+   ⏳ ÚLTIMO: **promise** (namespaces/promise). Refs: promise_slot[std] + text_encoding microtasks[std]
+   + gc::error[→gc_surface] + function::ops[shared] + crate::runtime[std, async_rt] + **gc::generator
+   (1 ref — collector/runtime)**. Checar o ref de generator: se for pub-fn não-extern, adicionar wrapper
+   extern (como async_sm_resume) OU usar gc_surface. Depois promise→rts-std fecha o grupo async.
+6d. **Dissolver rts-runtime** (step 7): mover collector gc-surface (string_pool/error/generator/
+   collector/stack) → rts-std; runtime vira facade fino. Grande move final.
 6. **promise + parallel + crypto + promise_slot** juntos (globals+promise_slot resolvidos).
    promise_slot sai do collector. Gate + AOT.
 7. **Dissolver rts-runtime; collector/ → rts-std.** Gate final + AOT + atualizar WORKING.md.

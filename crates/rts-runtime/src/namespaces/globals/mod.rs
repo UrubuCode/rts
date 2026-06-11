@@ -15,7 +15,7 @@ pub use rts_shared::globals::date;
 pub use rts_shared::globals::number;
 pub use rts_shared::globals::error;
 pub use rts_std::globals::events;
-pub mod fetch;
+pub use rts_std::globals::fetch;
 pub use rts_shared::globals::function;
 pub use rts_shared::globals::global_this;
 pub use rts_std::globals::headers;

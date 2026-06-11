@@ -1,4 +1,4 @@
-use crate::namespaces::gc::handles::{
+use rts_engine::heap::handles::{
     alloc_entry, free_handle, with_entry, Entry, HttpResponseData,
 };
 
@@ -148,7 +148,7 @@ type CallbackFn = unsafe extern "C" fn(i64) -> i64;
 type CallbackFn0 = unsafe extern "C" fn() -> i64;
 
 enum PromiseKind {
-    Async(std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>),
+    Async(std::sync::Arc<rts_engine::heap::handles::PromiseSlot>),
     Sync(i64),
     NotPromise,
 }
@@ -165,7 +165,7 @@ fn classify(handle: u64) -> PromiseKind {
 /// Variante 1-arg eh `__RTS_FN_GL_PROMISE_THEN` que delega.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_PROMISE_THEN2(promise_h: u64, on_ful: u64, on_rej: u64) -> u64 {
-    use crate::namespaces::gc::promise_slot;
+    use crate::promise_slot;
 
     match classify(promise_h) {
         PromiseKind::Async(arc) => {
@@ -192,7 +192,7 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_THEN2(promise_h: u64, on_ful: u64, on_rej:
                 } else {
                     // Enfileira no microtask queue. Mesmo o caminho on_rej
                     // (catch) recupera: result e' resolved com retorno do cb.
-                    crate::namespaces::globals::text_encoding::instance::enqueue_microtask_settled(
+                    crate::globals::text_encoding::instance::enqueue_microtask_settled(
                         fp,
                         Vec::new(),
                         value,
@@ -212,7 +212,7 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_THEN2(promise_h: u64, on_ful: u64, on_rej:
             let result = promise_slot::new_pending();
             let result_clone = result.clone();
             let result_handle = alloc_entry(Entry::PromiseAsync(result));
-            crate::namespaces::globals::text_encoding::instance::enqueue_microtask_pending_then2(
+            crate::globals::text_encoding::instance::enqueue_microtask_pending_then2(
                 arc,
                 on_ful,
                 on_rej,
@@ -250,7 +250,7 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_CATCH(promise_h: u64, fp: u64) -> u64 {
 /// da original.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_PROMISE_FINALLY(promise_h: u64, fp: u64) -> u64 {
-    use crate::namespaces::gc::promise_slot;
+    use crate::promise_slot;
 
     match classify(promise_h) {
         PromiseKind::Async(arc) => {
@@ -271,7 +271,7 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_FINALLY(promise_h: u64, fp: u64) -> u64 {
                         promise_slot::reject(&result, value);
                     }
                 } else {
-                    crate::namespaces::globals::text_encoding::instance::enqueue_microtask_finally(
+                    crate::globals::text_encoding::instance::enqueue_microtask_finally(
                         fp,
                         value,
                         cur_state == promise_slot::STATE_FULFILLED,
@@ -286,7 +286,7 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_FINALLY(promise_h: u64, fp: u64) -> u64 {
             let result = promise_slot::new_pending();
             let result_clone = result.clone();
             let result_handle = alloc_entry(Entry::PromiseAsync(result));
-            crate::namespaces::globals::text_encoding::instance::enqueue_microtask_pending_finally(
+            crate::globals::text_encoding::instance::enqueue_microtask_pending_finally(
                 arc,
                 fp,
                 result_clone,
@@ -327,7 +327,7 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVE(value: u64) -> i64 {
         Some(v) => v,                   // Entry::Promise legacy — extrai inline
         None => {
             // Valor regular: cria PromiseAsync ja fulfilled.
-            let slot = crate::namespaces::gc::promise_slot::new_fulfilled(value as i64);
+            let slot = crate::promise_slot::new_fulfilled(value as i64);
             alloc_entry(Entry::PromiseAsync(slot)) as i64
         }
     }
@@ -338,7 +338,7 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVE(value: u64) -> i64 {
 /// e `Promise.allSettled` que precisam distinguir state.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_PROMISE_REJECT(reason: u64) -> i64 {
-    let slot = crate::namespaces::gc::promise_slot::new_rejected(reason as i64);
+    let slot = crate::promise_slot::new_rejected(reason as i64);
     alloc_entry(Entry::PromiseAsync(slot)) as i64
 }
 
@@ -348,9 +348,9 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_REJECT(reason: u64) -> i64 {
 /// executada sync em vez de microtask.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_PROMISE_TRY(fp: u64) -> i64 {
-    use crate::namespaces::gc::error;
+    use crate::gc_surface as error;
     if fp == 0 {
-        let slot = crate::namespaces::gc::promise_slot::new_fulfilled(0);
+        let slot = crate::promise_slot::new_fulfilled(0);
         return alloc_entry(Entry::PromiseAsync(slot)) as i64;
     }
     // Limpa qualquer erro pendente antes de invocar (semantica: try
@@ -379,10 +379,10 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_TRY(fp: u64) -> i64 {
     let err_h = error::__RTS_FN_RT_ERROR_GET();
     if err_h != 0 {
         error::__RTS_FN_RT_ERROR_CLEAR();
-        let slot = crate::namespaces::gc::promise_slot::new_rejected(err_h as i64);
+        let slot = crate::promise_slot::new_rejected(err_h as i64);
         return alloc_entry(Entry::PromiseAsync(slot)) as i64;
     }
-    let slot = crate::namespaces::gc::promise_slot::new_fulfilled(retval);
+    let slot = crate::promise_slot::new_fulfilled(retval);
     alloc_entry(Entry::PromiseAsync(slot)) as i64
 }
 
@@ -401,7 +401,7 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_TRY(fp: u64) -> i64 {
 /// e wait_blocking acorda waiters via oneshot::Sender.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_PROMISE_NEW(executor_h: u64) -> u64 {
-    use crate::namespaces::gc::{error, promise_slot};
+    use crate::{gc_surface as error, promise_slot};
     let slot = promise_slot::new_pending();
     let promise_h = alloc_entry(Entry::PromiseAsync(slot.clone()));
     if executor_h == 0 {
@@ -437,7 +437,7 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_NEW(executor_h: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_PROMISE_WITH_RESOLVERS() -> u64 {
     use indexmap::IndexMap;
-    let slot = crate::namespaces::gc::promise_slot::new_pending();
+    let slot = crate::promise_slot::new_pending();
     let promise_h = alloc_entry(Entry::PromiseAsync(slot.clone()));
     // Resolve/reject sao Function handles que armazenam `promise_h` em
     // bound_args[0] — quando invocados, resolvem o slot embutido.
@@ -453,7 +453,7 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_WITH_RESOLVERS() -> u64 {
 /// Helper: cria Function handle que ao ser invocado chama resolve/reject
 /// no slot armazenado em bound_args[0].
 fn make_resolver_fn(promise_h: u64, is_resolve: bool) -> u64 {
-    use crate::namespaces::gc::handles::{alloc_entry, Entry, FunctionData};
+    use rts_engine::heap::handles::{alloc_entry, Entry, FunctionData};
     let fn_ptr = if is_resolve {
         __RTS_FN_GL_PROMISE_RESOLVER_TRAMP_RESOLVE as *const () as usize as u64
     } else {
@@ -483,7 +483,7 @@ fn make_resolver_fn(promise_h: u64, is_resolve: bool) -> u64 {
 /// Trampolim resolve — invocado via FUNCTION_CALL com [promise_h, value].
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVER_TRAMP_RESOLVE(promise_h: i64, value: i64) -> i64 {
-    use crate::namespaces::gc::{handles::with_entry, handles::Entry, promise_slot};
+    use crate::promise_slot; use rts_engine::heap::handles::{with_entry, Entry};
     let slot = with_entry(promise_h as u64, |e| match e {
         Some(Entry::PromiseAsync(s)) => Some(s.clone()),
         _ => None,
@@ -496,7 +496,7 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVER_TRAMP_RESOLVE(promise_h: i64, val
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVER_TRAMP_REJECT(promise_h: i64, value: i64) -> i64 {
-    use crate::namespaces::gc::{handles::with_entry, handles::Entry, promise_slot};
+    use crate::promise_slot; use rts_engine::heap::handles::{with_entry, Entry};
     let slot = with_entry(promise_h as u64, |e| match e {
         Some(Entry::PromiseAsync(s)) => Some(s.clone()),
         _ => None,
@@ -580,7 +580,7 @@ pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_TEXT(h: u64) -> u64 {
         let body = with_response(h, |r| r.body.clone()).unwrap_or_default();
         alloc_entry(Entry::String(body))
     };
-    let slot = crate::namespaces::gc::promise_slot::new_fulfilled(str_h as i64);
+    let slot = crate::promise_slot::new_fulfilled(str_h as i64);
     alloc_entry(Entry::PromiseAsync(slot))
 }
 
@@ -715,7 +715,7 @@ pub extern "C" fn __RTS_FN_GL_REQUEST_TEXT(h: u64) -> u64 {
         Some(Entry::Map(m)) => m.get("body").copied().unwrap_or(0) as u64,
         _ => 0,
     });
-    let slot = crate::namespaces::gc::promise_slot::new_fulfilled(body_h as i64);
+    let slot = crate::promise_slot::new_fulfilled(body_h as i64);
     alloc_entry(Entry::PromiseAsync(slot))
 }
 
@@ -728,7 +728,7 @@ pub extern "C" fn __RTS_FN_GL_REQUEST_TEXT(h: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_THEN(h: u64, fp: u64) -> u64 {
     if fp == 0 {
-        let slot = crate::namespaces::gc::promise_slot::new_fulfilled(h as i64);
+        let slot = crate::promise_slot::new_fulfilled(h as i64);
         return alloc_entry(Entry::PromiseAsync(slot));
     }
     let result = unsafe { (std::mem::transmute::<u64, CallbackFn>(fp))(h as i64) };
@@ -739,7 +739,7 @@ pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_THEN(h: u64, fp: u64) -> u64 {
     if already_promise {
         return result as u64;
     }
-    let slot = crate::namespaces::gc::promise_slot::new_fulfilled(result);
+    let slot = crate::promise_slot::new_fulfilled(result);
     alloc_entry(Entry::PromiseAsync(slot))
 }
 
@@ -805,7 +805,7 @@ mod tests_response_then {
 
     extern "C" fn cb_returns_promise(h: i64) -> i64 {
         // Simula callback que ja retorna Promise: passthrough esperado.
-        let slot = crate::namespaces::gc::promise_slot::new_fulfilled(h);
+        let slot = crate::promise_slot::new_fulfilled(h);
         alloc_entry(Entry::PromiseAsync(slot)) as i64
     }
 
