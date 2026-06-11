@@ -341,7 +341,19 @@ primeiro, split do `Entry` depois; (2) heap fica DENTRO do `rts-engine`.
       payload value-types) pro engine; re-roteia orquestração via HOOKS
       (`install_gc_hook` já existe)/Traceable pra engine não chamar backend;
       generator/deep-trace/finish_cycle ficam no backend e registram hooks.
-      Refactor delicado multi-build — sessão fresca com budget.
+      - [x] **SEED** (commit `eb039fc6`): `rts-engine/src/heap/` criado;
+            `FixedDecimal` (payload puro do `Entry::BigFixed`) movido pro engine;
+            facade `bigfloat::fixed`. Gate build+suíte 1710. Achado: `handles.rs`
+            é AUTO-CONTIDO (zero chamada a siblings, zero externs `#[no_mangle]`)
+            → mover Entry+HandleTable é tratável.
+      - [ ] **Core move** (o grande): `TlsClientStream` (tls→engine, +rustls),
+            `PromiseSlot` (promise_slot→engine, +tokio), depois `handles.rs`
+            (Entry+HandleTable+with_entry/alloc + payloads RtsRegex/HasherState/...
+            +regex/sha2/serde_json/indexmap) → `engine/heap/`. Facade
+            `collector::handles = rts_engine::heap::handles`; rewire consumidores
+            `crate::namespaces::gc::handles::`. **Gate crítico: build+suíte+AOT+
+            stress 50k** (GC = não-determinístico). engine fica temp-pesado
+            (Fase 2 limpa via `Entry::Backend(dyn Traceable)`).
 - [ ] **Fase 1b — `rts-shared`+`rts-std`** (ns pure→shared, backend→std, globais
       universais→shared, platform-divergent→std). Rewire register_builtins +
       lib.rs re-export + jit.rs + ~9 arquivos codegen. Dissolve `rts-runtime`.
