@@ -20,4 +20,6 @@ unsafe extern "C" {
     pub safe fn __RTS_FN_RT_ASYNC_SM_RESUME(h: u64, value: i64, rejected: i64);
     /// Drena a máquina de estados de um generator/async-gen. (`gc::generator`)
     pub safe fn __RTS_FN_NS_GC_GEN_SM_DRAIN(h: u64) -> u64;
+    /// Truthiness JS de um valor i64/handle (0 = falsy). (`gc::string_pool`)
+    pub safe fn __RTS_FN_RT_TRUTHY(value: i64) -> i64;
 }

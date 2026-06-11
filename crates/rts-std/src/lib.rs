@@ -24,5 +24,6 @@ pub mod promise_slot;
 pub mod time;
 pub mod crypto;
 pub mod promise;
+pub mod parallel;
 pub mod gc_surface;
 pub mod globals;

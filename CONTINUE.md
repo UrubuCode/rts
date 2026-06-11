@@ -236,7 +236,17 @@ target/release/rts.exe compile -p f.ts out.exe; ./out.exe # AOT
    Async/tokio timing nondeterminism — move é pura relocação (sem mudança semântica), flake provável
    pré-existente nos testes async. WATCH: se recorrer, isolar o teste async time-sensitive.
    ✅ GRUPO ASYNC COMPLETO em rts-std: text_encoding promise_slot timers time crypto blob
-   readable_stream fetch promise. Falta só dissolver collector (step 7).
+   readable_stream fetch promise.
+~~6e. parallel → rts-std~~ ✅ FEITO. rayon backend. Refs: gc::handles→engine; collections::map +
+   function::ops::invoke_array_callback→rts_shared; gc::string_pool::__RTS_FN_RT_TRUTHY→gc_surface.
+   Suite 1710/1710 (2 runs); AOT smoke (silent arr.map(namedFn), JIT==AOT sum:30) OK.
+   ✅ TODO BACKEND não-gc-surface migrado pro rts-std. Resta SÓ step 7.
+7. **Dissolver rts-runtime (collector gc-surface → rts-std):** mover string_pool/error/generator/
+   collector(mod)/stack do collector/runtime → rts-std. Tudo que tinha extern-decl (gc_surface,
+   __RTS_FN_RT_ASYNC_SM_RESUME wrapper) passa a ser intra-std. rts-runtime vira facade fino
+   (re-exporta engine+shared+std) OU some e codegen aponta namespaces direto. GRANDE move final —
+   sessão dedicada (toca a superfície gc que tudo depende). NB collector usa trace(shared)+handles
+   (engine)+globals/error(shared) — checar ciclos antes.
 6d. **Dissolver rts-runtime** (step 7): mover collector gc-surface (string_pool/error/generator/
    collector/stack) → rts-std; runtime vira facade fino. Grande move final.
 6. **promise + parallel + crypto + promise_slot** juntos (globals+promise_slot resolvidos).

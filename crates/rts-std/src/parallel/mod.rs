@@ -16,8 +16,8 @@ use rts_engine::abi::ty::{Bool, Handle, I64, U64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use self::pool::pool;
-use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
-use crate::namespaces::globals::function::ops::invoke_array_callback;
+use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
+use rts_shared::globals::function::ops::invoke_array_callback;
 
 fn snapshot_vec(handle: u64) -> Option<Vec<i64>> {
     with_entry(handle, |entry| match entry {
@@ -28,7 +28,7 @@ fn snapshot_vec(handle: u64) -> Option<Vec<i64>> {
 
 /// JS-spec truthy for a callback return (0/null/undefined/""/false are falsy).
 fn cb_truthy(v: i64) -> bool {
-    crate::namespaces::gc::string_pool::__RTS_FN_RT_TRUTHY(v) != 0
+    crate::gc_surface::__RTS_FN_RT_TRUTHY(v) != 0
 }
 
 /// Applies `fn_ptr(x, i, arr)` in parallel over the Vec<i64>. New Vec handle.
@@ -81,7 +81,7 @@ pub extern "C" fn __RTS_FN_NS_PARALLEL_FOR_EACH(vec_handle: Handle, fn_ptr: U64)
     }
     let is_map_or_set = with_entry(vec_handle, |e| matches!(e, Some(Entry::Map(_))));
     if is_map_or_set {
-        crate::namespaces::collections::map::__RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH(
+        rts_shared::collections::map::__RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH(
             vec_handle, fn_ptr,
         );
         return;

@@ -45,7 +45,7 @@ pub use rts_std::process;
 pub use rts_std::promise;
 pub use rts_shared::ptr;
 pub use rts_shared::regex;
-pub mod parallel;
+pub use rts_std::parallel;
 pub use rts_std::runtime;
 // string movido para globals/string
 pub use rts_std::sync;
