@@ -1,6 +1,6 @@
 # CONTINUE.md — retomar a partição de crates (Fase 1b)
 
-> Handoff pra sessão nova. Estado em `f417b050` (branch `feat/engine-method-dispatch-1536`).
+> Handoff pra sessão nova. Estado em `86c50b8f` (branch `feat/engine-method-dispatch-1536`).
 > Contexto canônico: `WORKING.md` + `.claude/plans/partitioned-meandering-milner.md`.
 > Tudo abaixo é GATEADO: `cargo build --release` + `target/release/rts.exe test`
 > (1710/1710) por batch; AOT pra fixtures de GC/classe.
@@ -11,13 +11,30 @@ Partição de crates do RTS. **FEITO:** rts-macro deletada; nodespace→`rts-nod
 GC (Entry+HandleTable+trace+alocadores)→`rts-engine`; `rts-std` (backend) com **17 ns**
 (+ runtime/ async); criado `rts-shared` (universal) com **13 ns pure-compute**.
 
-**Progresso desta sessão (commits e8c929c→f417b050):**
+**Progresso desta sessão (commits e8c929c→86c50b8f):**
 - A ✅ `src/runtime/` async (async_rt+tokio_ctx) → rts-std (mesclado no mod `runtime`).
-- B parcial ✅ thread + http_server → rts-std. ⏳ promise/parallel/crypto/time DEFERIDOS
-  (couplam promise_slot + globals pub fns não-movidos).
-- C parcial ✅ criado rts-shared + 13 ns: math num fmt hash mem ptr hint alloc path
+- B parcial ✅ thread + http_server → rts-std. ⏳ promise/parallel/crypto/time DEFERIDOS.
+- C ✅ criado rts-shared + **13 ns** pure-compute: math num fmt hash mem ptr hint alloc path
   bigfloat buffer regex date. AOT smoke OK (regex/toFixed linkam do staticlib).
-  ⏳ json/collections/events/trace + globais universais DEFERIDOS.
+- Globais universais → rts-shared/src/globals/ (**16 globais**, 3 commits):
+  - symbol; boolean bigint number url weakmap weakset weakref finalization_registry;
+    regexp json json5 intl dom_exception global_this date.
+  - Padrão: gc::handles→engine; string_pool/gc-surface no_mangle→`unsafe extern "C"{}`;
+    ns-irmã em shared→`crate::<ns>`; register resolve via facade (codegen sem mudança).
+  - rts-shared Cargo: rts-engine + regex + fancy-regex + indexmap + time(local-offset).
+
+**rts-shared agora = 13 ns + 16 globais. Suite 1710/1710 em cada batch.**
+
+⏳ DEFERIDOS (próxima sessão):
+- **cluster** function+collections+proxy+error+string+reflect: fechado em si mas precisa
+  RELOCAR 2 pure-helpers do collector ANTES — `format_js_number(f64)->String` (collector/
+  string_pool, 3 users) e `stack_for_handle(u64)->Option<String>` (collector/error, só
+  error global). Ambos pub fn c/ tipo Rust → não dá extern-decl. Mover p/ rts-engine (puros)
+  e então o cluster destrava. (error tb usa gc::class_registry→engine + gc::error extern.)
+- **dataview** SKIP por design (nota memória #1378).
+- **platform-divergent globais → rts-std** (step D): console(→io) timers fetch(→net)
+  performance global_this? blob headers form_data readable_stream event_target
+  message_channel abort. (abort/headers usam gc::error/handles; checar.)
 
 **Grafo atual (acíclico):**
 ```
@@ -141,20 +158,24 @@ target/release/rts.exe compile -p f.ts out.exe; ./out.exe # AOT
 ```
 
 ## ORDEM RECOMENDADA p/ sessão nova
-~~1. A~~ ✅ ~~2. B fácil (thread/http_server)~~ ✅ ~~4. rts-shared + pure-compute~~ ✅ (13 ns)
+~~A~~ ✅ ~~B fácil (thread/http_server)~~ ✅ ~~rts-shared + 13 ns~~ ✅ ~~16 globais universais~~ ✅
 
-Reordenado pós-descoberta: promise/parallel/crypto/time couplam globals pub fns → globais
-PRIMEIRO, async-coupled DEPOIS. Nova ordem:
+1. **Relocar pure-helpers do collector → rts-engine** (PRÉ-REQUISITO do cluster):
+   `format_js_number(f64)->String` (collector/string_pool) + `stack_for_handle(u64)->Option<String>`
+   (collector/error). Puros/quase-puros. Mover p/ engine, fixar os ~5 call-sites (collections/vec,
+   error/instance + 2 fora do cluster). Gate.
+2. **Cluster → rts-shared/src/globals/ (+ collections em src/):** function collections proxy error
+   string reflect. Fechado em si + symbol(já shared). gc-surface no_mangle (string_pool/gc-error
+   RT_ERROR/generator) → extern-decl; gc::handles/this_slot/class_registry → engine heap;
+   intra-cluster `crate::namespaces::X`→`crate::X`/`crate::globals::X`. Gate + AOT (usa handles).
+   ⟶ destrava json(ns)/trace.
+3. **json(ns) + trace → shared** (json usa collections/proxy/function/error; trace usa error). Gate.
+4. **Platform-divergent globais → rts-std (step D):** console(→io) timers fetch(→net) performance
+   blob headers form_data readable_stream event_target message_channel abort. Gate.
+   ⟶ destrava time (timers) e promise (text_encoding+timers em std).
+5. **events + time → rts-std.** Gate.
+6. **promise + parallel + crypto + promise_slot** juntos (globals+promise_slot resolvidos).
+   promise_slot sai do collector. Gate + AOT.
+7. **Dissolver rts-runtime; collector/ → rts-std.** Gate final + AOT + atualizar WORKING.md.
 
-1. **Globais universais → rts-shared:** String Number Boolean Array Object Map Set Symbol
-   Error(+subs) JSON JSON5 RegExp Date Function WeakMap/Set/Ref FinalizationRegistry BigInt URL
-   TextEncoder/Decoder. ⚠️ classificar por dep real (grep) — só as que NÃO tocam backend. Symbol
-   e Proxy primeiro (collections/json/trace dependem). Gate cada batch.
-2. **collections + json + trace → shared** (desbloqueados por #1: symbol/proxy/error). Gate.
-3. **Platform-divergent globais → rts-std:** console(→io) timers fetch(→net) performance
-   global_this blob headers form_data readable_stream event_target message_channel intl
-   dom_exception dataview abort. Gate. ⟶ desbloqueia time (timers) e promise (text_encoding+timers).
-4. **events → rts-std** (usa async_rt). **time → rts-std** (timers já em std). Gate.
-5. **promise + parallel + crypto + promise_slot** juntos (agora globals+promise_slot resolvidos).
-   promise_slot sai do collector junto. Gate + AOT.
-6. **Dissolver rts-runtime; collector/ → rts-std.** Gate final + AOT + atualizar WORKING.md.
+NB dataview: SKIP (design, nota memória #1378). NB global_this já está em shared (universal).
