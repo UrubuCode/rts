@@ -261,9 +261,10 @@ só globals/dataview fica local por design + globals/mod.rs agregador). codegen 
 rts-std deps: engine + shared + tokio/actix/rustls/cpal/rayon/sha2/flate2/ureq/serde_json/indexmap.
 
 ⏳ FOLLOW-UPS (opcionais, não-bloqueantes):
-- **Cargo cleanup rts-runtime**: provavelmente não precisa mais de tokio/ureq/sha2/flate2/regex/etc
-  diretos (módulos moveram). Auditar [dependencies] de rts-runtime e remover não-usadas. `cargo build`
-  + suite após.
+- ~~Cargo cleanup rts-runtime~~ ✅ FEITO: rts-runtime [dependencies] reduzido a SÓ rts-engine +
+  rts-shared + rts-std (3 path crates). src do facade (4 arquivos: lib + namespaces/mod + globals/mod
+  + dataview) não usa nenhuma crate externa direto. Staticlib AOT segue completo (closure transitiva
+  via rts-std/shared). Verificado: build limpo + suite 1710/1710 + AOT smoke (cluster+crypto JIT==AOT).
 - **dataview** → SKIP por design (memória #1378).
 - **flake async ~1/5** (project... a investigar se recorrer): isolar teste time-sensitive.
 - Considerar se rts-runtime pode sumir totalmente (codegen `pub mod namespaces { pub use rts_std::*;

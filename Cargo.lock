@@ -2727,33 +2727,9 @@ dependencies = [
 name = "rts-runtime"
 version = "0.1.0"
 dependencies = [
- "actix-rt",
- "actix-web",
- "anyhow",
- "colored",
- "cpal",
- "fancy-regex",
- "flate2",
- "indexmap",
- "json5",
- "notify",
- "rayon",
- "regex",
  "rts-engine",
  "rts-shared",
  "rts-std",
- "rustc-hash 1.1.0",
- "rustls",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "slotmap",
- "tar",
- "time",
- "tokio",
- "unicode-normalization",
- "ureq 2.12.1",
- "webpki-roots 1.0.6",
 ]
 
 [[package]]
