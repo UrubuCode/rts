@@ -52,4 +52,4 @@ pub use rts_std::sync;
 pub use rts_std::test;
 pub use rts_std::thread;
 pub use rts_std::tls;
-pub mod time;
+pub use rts_std::time;

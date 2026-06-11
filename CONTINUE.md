@@ -217,6 +217,14 @@ target/release/rts.exe compile -p f.ts out.exe; ./out.exe # AOT
    Memória project_aot_no_microtask_drain.
    ⟶ AGORA timers/fetch/blob/readable_stream/promise/crypto/time podem mover incrementalmente
    (deps std-direction satisfeitas; generator fica no collector expondo async_sm_resume extern).
+~~6a. timers + time → rts-std~~ ✅ FEITO. timers (globals, usa text_encoding::drain_microtasks já em
+   std + gc::handles→engine) → rts-std/src/globals/timers; time (ns, usa timers::pump_until) →
+   rts-std/src/time. Suite 1710/1710; smoke perf.now JIT==AOT OK (setTimeout macrotask drena só em
+   JIT — AOT sem event loop, ver project_aot_no_microtask_drain).
+   ⏳ FALTAM: fetch (ureq + promise_slot[std] + text_encoding[std] + headers/blob) · crypto (sha2 +
+   promise_slot[std]) · blob+readable_stream (flate2 + promise_slot[std]) · promise (promise_slot[std]
+   + text_encoding microtasks[std] + generator[runtime via extern]). Todos com deps std-direction OK
+   agora; mover incremental. promise pode precisar generator externs.
 6. **promise + parallel + crypto + promise_slot** juntos (globals+promise_slot resolvidos).
    promise_slot sai do collector. Gate + AOT.
 7. **Dissolver rts-runtime; collector/ → rts-std.** Gate final + AOT + atualizar WORKING.md.

@@ -5,7 +5,7 @@ use std::sync::{
 use std::thread;
 use std::time::Duration;
 
-use crate::namespaces::gc::handles::{alloc_entry, free_handle, Entry};
+use rts_engine::heap::handles::{alloc_entry, free_handle, Entry};
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -111,7 +111,7 @@ pub fn pump_due_macrotasks() {
                 invoke_timer_cb(m.fp);
                 free_handle(m.handle);
                 cancel_timer(m.handle);
-                crate::namespaces::globals::text_encoding::instance::drain_microtasks();
+                crate::globals::text_encoding::instance::drain_microtasks();
             }
             None => break,
         }
@@ -145,7 +145,7 @@ pub fn drain_macrotasks() {
 /// `sleep_ms(50)` (set_timeout_interval) mas em ordem deterministica.
 pub fn pump_until(target: std::time::Instant) {
     loop {
-        crate::namespaces::globals::text_encoding::instance::drain_microtasks();
+        crate::globals::text_encoding::instance::drain_microtasks();
         drain_immediates();
         pump_due_macrotasks();
         let now = std::time::Instant::now();
@@ -178,15 +178,15 @@ fn invoke_timer_cb(fp: u64) {
         return;
     }
     // Se for Function handle valido, usa INVOKE_AUTO; senao transmute direto.
-    let is_function_handle = crate::namespaces::gc::handles::with_entry(fp, |e| {
-        matches!(e, Some(crate::namespaces::gc::handles::Entry::Function(_)))
+    let is_function_handle = rts_engine::heap::handles::with_entry(fp, |e| {
+        matches!(e, Some(rts_engine::heap::handles::Entry::Function(_)))
     });
     if is_function_handle {
         unsafe extern "C" {
             fn __RTS_FN_RT_INVOKE_AUTO(callee: i64, this_arg: i64, args_handle: u64) -> i64;
         }
-        let empty_args = crate::namespaces::gc::handles::alloc_entry(
-            crate::namespaces::gc::handles::Entry::Vec(Box::new(Vec::new())),
+        let empty_args = rts_engine::heap::handles::alloc_entry(
+            rts_engine::heap::handles::Entry::Vec(Box::new(Vec::new())),
         );
         unsafe {
             __RTS_FN_RT_INVOKE_AUTO(fp as i64, 0, empty_args);

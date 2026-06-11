@@ -17,3 +17,4 @@ pub mod message_channel;
 pub mod abort;
 pub mod events;
 pub mod text_encoding;
+pub mod timers;

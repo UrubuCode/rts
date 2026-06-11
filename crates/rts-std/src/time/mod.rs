@@ -52,7 +52,7 @@ pub extern "C" fn __RTS_FN_NS_TIME_SLEEP_MS(ms: i64) {
     // (#207 timer ordering / cross-runtime #393) sleep eh ponto de quiescencia
     // do event loop: faz pump dirigido por tempo ate `target`.
     let target = Instant::now() + Duration::from_millis(ms.max(0) as u64);
-    crate::namespaces::globals::timers::instance::pump_until(target);
+    crate::globals::timers::instance::pump_until(target);
 }
 
 /// Sleeps the current thread for `ns` nanoseconds.

@@ -21,4 +21,5 @@ pub mod thread;
 pub mod http_server;
 pub mod events;
 pub mod promise_slot;
+pub mod time;
 pub mod globals;
