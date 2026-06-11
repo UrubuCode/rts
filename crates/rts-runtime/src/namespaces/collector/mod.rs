@@ -14,9 +14,7 @@
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 pub mod class_registry;
-pub mod closure;
 pub mod collector;
-pub mod env;
 pub mod error;
 pub mod generator;
 // `global_roots`, `stack_map_registry`, `thread_registry`, `debug` e o `scan`
@@ -29,6 +27,9 @@ pub use rts_engine::collector::{debug, global_roots, scan, stack_map_registry, t
 /// (`rts_engine::heap::handles`, Fase 1a). Facade → `super::handles` (dos siblings)
 /// + `crate::namespaces::gc::handles::*` (consumidores) seguem resolvendo.
 pub use rts_engine::heap::handles;
+/// `env`/`closure` (alocadores de env-record + closure do heap) migraram pro motor.
+/// Facade → `crate::namespaces::gc::{env,closure}::*` seguem resolvendo.
+pub use rts_engine::heap::{closure, env};
 pub mod instance;
 pub mod promise_slot;
 pub mod stack;
