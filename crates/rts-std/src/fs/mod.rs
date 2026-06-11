@@ -13,8 +13,13 @@ use std::io::{Read, Write};
 use rts_engine::abi::ty::{Handle, I64, U64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use crate::namespaces::gc::handles::{Entry, alloc_entry};
-use crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW;
+use rts_engine::heap::handles::{Entry, alloc_entry};
+
+// `string_pool` (intern de strings GC) fica no backend (rts-runtime collector);
+// referenciado por símbolo (link cross-crate) p/ o `fs` poder viver no rts-std.
+unsafe extern "C" {
+    fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
+}
 
 /// Reads up to `bufLen` bytes from `path` into the buffer. Count, 0 on EOF, -1 on error.
 #[unsafe(no_mangle)]
@@ -324,7 +329,7 @@ pub extern "C" fn __RTS_FN_NS_FS_READDIR(path_ptr: *const u8, path_len: i64) -> 
     for entry in iter.flatten() {
         let name = entry.file_name();
         if let Some(s) = name.to_str() {
-            let h = __RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64);
+            let h = unsafe { __RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64) };
             entries.push(h as i64);
         }
     }

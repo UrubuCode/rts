@@ -2761,6 +2761,8 @@ version = "0.1.0"
 dependencies = [
  "cpal",
  "rts-engine",
+ "rustls",
+ "webpki-roots 1.0.6",
 ]
 
 [[package]]

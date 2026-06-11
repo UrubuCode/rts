@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering, fence};
 use rts_engine::abi::ty::{Bool, F64, Handle, I64, U64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry};
+use rts_engine::heap::handles::{Entry, alloc_entry, with_entry};
 
 fn with_atomic_i64<R>(handle: u64, default: R, f: impl FnOnce(&AtomicI64) -> R) -> R {
     let ptr: *const AtomicI64 = with_entry(handle, |entry| match entry {
