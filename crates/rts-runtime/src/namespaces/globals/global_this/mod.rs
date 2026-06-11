@@ -1,7 +1,7 @@
-//! `globalThis` — JS global object aliases. Migrado ao modelo
-//! `#[rts_namespace]` (stage 2c): o único membro (`undefined`) é `external`,
-//! aliasando o símbolo `__RTS_FN_NS_GC_STRING_NEW`. O runtime (`rt.rs`) fica
-//! intacto.
+//! `globalThis` — JS global object aliases. Migrado do `#[rts_namespace]` pro
+//! modelo builder hand-written do `rts-engine` (rumo à remoção da `rts-macro`):
+//! o único membro (`undefined`) é `external`, aliasando o símbolo
+//! `__RTS_FN_NS_GC_STRING_NEW` (`fn_ptr` null). O runtime (`rt.rs`) fica intacto.
 //!
 //! Em browser `globalThis === window`; em Node.js `globalThis === global`.
 //! RTS não tem objeto global no heap, mas expõe as propriedades de identidade
@@ -9,21 +9,26 @@
 
 pub mod rt;
 
-#[allow(unused_imports)]
-use rts_abi::ty::I64;
-use rts_macro::rts_namespace;
+use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-/// Global object aliases — process, global, self, undefined.
-#[rts_namespace(globalThis, sym = "NS_GC")]
-impl GlobalThisNs {
-    /// The undefined value (0 in RTS).
-    #[rts_const(
-        external,
-        symbol = "__RTS_FN_NS_GC_STRING_NEW",
-        ts = "undefined: undefined",
-        pure
-    )]
-    pub fn undefined() -> I64 {
-        unreachable!()
-    }
+/// Registra a namespace `globalThis` no motor (hand-written, sem macro). O único
+/// membro (`undefined`) é `external` — o extern pertence ao namespace `gc`.
+pub fn register(e: &mut Engine) {
+    e.ns("globalThis")
+        .doc("Global object aliases — process, global, self, undefined.")
+        .member(Member {
+            name: "undefined".to_string(),
+            kind: MemberKind::Constant,
+            sig: Sig::new(Vec::new(), AbiType::I64),
+            symbol: "__RTS_FN_NS_GC_STRING_NEW".to_string(),
+            fn_ptr: FnPtr(core::ptr::null::<u8>()),
+            flags: MemberFlags::NONE,
+            aliases: Vec::new(),
+            variadic: false,
+            ts_signature: "undefined: undefined".to_string(),
+            doc: "The undefined value (0 in RTS).".to_string(),
+            pure: true,
+            intrinsic: None,
+        })
+        .done();
 }

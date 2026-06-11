@@ -26,7 +26,12 @@ pub mod linker {
     pub use rts_linker::system_linker;
     pub use rts_linker::toolchain;
 }
-pub mod nodespace;
+/// Node.js builtin shims (`node:fs`, `node:path`, …) — movido pro crate
+/// `rts-node`. Re-exportado aqui para os consumidores do codegen
+/// (`crate::nodespace::node_lookup`/`ns_prefix_for`) seguirem intocados.
+pub mod nodespace {
+    pub use rts_node::*;
+}
 pub mod runtime;
 pub mod bundle;
 pub mod cache;

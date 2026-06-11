@@ -6,16 +6,16 @@
 //! `respond(...)` returns the response via a oneshot. Keep-alive, pipelining and
 //! header parsing come from actix; workers = `available_parallelism()`.
 //!
-//! Migrated to the `#[rts_namespace]` single-declaration model (stage 2c,
-//! `docs/specs/rts-core-engine.md`).
+//! Migrado do `#[rts_namespace]` pro modelo builder hand-written do `rts-engine`
+//! (rumo à remoção da `rts-macro`; ver pilotos hint/hash/ptr/mem/runtime).
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use actix_web::{App, HttpRequest, HttpResponse, HttpServer, web};
-use rts_abi::ty::{Handle, I64, U64};
-use rts_macro::rts_namespace;
+use rts_engine::abi::ty::{Handle, I64, U64};
+use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 use tokio::sync::oneshot;
 
 use crate::namespaces::gc::handles::{Entry, alloc_entry};
@@ -106,90 +106,173 @@ fn num_cpus_or(default: usize) -> usize {
         .unwrap_or(default)
 }
 
-/// Native HTTP/1.1 server (actix-web over the shared tokio runtime).
-#[rts_namespace(http_server)]
-impl HttpServerNs {
-    /// Blocks serving `addr`, dispatching each request to `handler(req)`.
-    #[rts_fn(ts = "serve(addr: string, handler: (req: number) => void): void")]
-    pub fn serve(addr: Str, handler: U64) {
-        if handler == 0 {
-            return;
-        }
-        let addr = addr.to_string();
-        crate::runtime::async_rt::rt().block_on(async move {
-            let server = match HttpServer::new(move || {
-                App::new()
-                    .app_data(web::Data::new(handler))
-                    .default_service(web::to(handle_request))
-            })
-            .workers(num_cpus_or(4))
-            .bind(&addr)
-            {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("[http_server] bind failed on {addr}: {e}");
-                    return;
-                }
-            };
-            let _ = server.run().await;
-        });
+/// Blocks serving `addr`, dispatching each request to `handler(req)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_HTTP_SERVER_SERVE(addr_ptr: *const u8, addr_len: i64, handler: U64) {
+    let addr = match unsafe { rts_engine::abi::str_abi::from_abi(addr_ptr, addr_len) } {
+        Some(s) => s,
+        None => return,
+    };
+    if handler == 0 {
+        return;
     }
+    let addr = addr.to_string();
+    crate::runtime::async_rt::rt().block_on(async move {
+        let server = match HttpServer::new(move || {
+            App::new()
+                .app_data(web::Data::new(handler))
+                .default_service(web::to(handle_request))
+        })
+        .workers(num_cpus_or(4))
+        .bind(&addr)
+        {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[http_server] bind failed on {addr}: {e}");
+                return;
+            }
+        };
+        let _ = server.run().await;
+    });
+}
 
-    /// Request method (e.g. "GET"). String handle, 0 if the req is gone.
-    #[rts_fn(ts = "req_method(req: number): string")]
-    pub fn req_method(req: U64) -> Handle {
-        let bytes = {
-            let map = shard_for(req).lock().unwrap_or_else(|e| e.into_inner());
-            let Some(slot) = map.get(&req) else { return 0 };
-            slot.method.as_bytes().to_vec()
-        };
-        alloc_entry(Entry::String(bytes))
-    }
+/// Request method (e.g. "GET"). String handle, 0 if the req is gone.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_HTTP_SERVER_REQ_METHOD(req: U64) -> Handle {
+    let bytes = {
+        let map = shard_for(req).lock().unwrap_or_else(|e| e.into_inner());
+        let Some(slot) = map.get(&req) else { return 0 };
+        slot.method.as_bytes().to_vec()
+    };
+    alloc_entry(Entry::String(bytes))
+}
 
-    /// Request path. String handle, 0 if the req is gone.
-    #[rts_fn(ts = "req_path(req: number): string")]
-    pub fn req_path(req: U64) -> Handle {
-        let bytes = {
-            let map = shard_for(req).lock().unwrap_or_else(|e| e.into_inner());
-            let Some(slot) = map.get(&req) else { return 0 };
-            slot.path.as_bytes().to_vec()
-        };
-        alloc_entry(Entry::String(bytes))
-    }
+/// Request path. String handle, 0 if the req is gone.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_HTTP_SERVER_REQ_PATH(req: U64) -> Handle {
+    let bytes = {
+        let map = shard_for(req).lock().unwrap_or_else(|e| e.into_inner());
+        let Some(slot) = map.get(&req) else { return 0 };
+        slot.path.as_bytes().to_vec()
+    };
+    alloc_entry(Entry::String(bytes))
+}
 
-    /// Request body. String handle, 0 if the req is gone.
-    #[rts_fn(ts = "req_body(req: number): string")]
-    pub fn req_body(req: U64) -> Handle {
-        let bytes = {
-            let map = shard_for(req).lock().unwrap_or_else(|e| e.into_inner());
-            let Some(slot) = map.get(&req) else { return 0 };
-            slot.body.clone()
-        };
-        alloc_entry(Entry::String(bytes))
-    }
+/// Request body. String handle, 0 if the req is gone.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_HTTP_SERVER_REQ_BODY(req: U64) -> Handle {
+    let bytes = {
+        let map = shard_for(req).lock().unwrap_or_else(|e| e.into_inner());
+        let Some(slot) = map.get(&req) else { return 0 };
+        slot.body.clone()
+    };
+    alloc_entry(Entry::String(bytes))
+}
 
-    /// Responds to `req` with `status`, `contentType` and `body`.
-    #[rts_fn(ts = "respond(req: number, status: number, contentType: string, body: string): void")]
-    pub fn respond(req: U64, status: I64, content_type: Str, body: Str) {
-        // Empty content-type falls back to text/plain (legacy behaviour).
-        let content_type = if content_type.is_empty() {
-            "text/plain".to_string()
-        } else {
-            content_type.to_string()
+/// Responds to `req` with `status`, `contentType` and `body`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_HTTP_SERVER_RESPOND(
+    req: U64,
+    status: I64,
+    content_type_ptr: *const u8,
+    content_type_len: i64,
+    body_ptr: *const u8,
+    body_len: i64,
+) {
+    let content_type = match unsafe { rts_engine::abi::str_abi::from_abi(content_type_ptr, content_type_len) } {
+        Some(s) => s,
+        None => return,
+    };
+    let body = match unsafe { rts_engine::abi::str_abi::from_abi(body_ptr, body_len) } {
+        Some(s) => s,
+        None => return,
+    };
+    // Empty content-type falls back to text/plain (legacy behaviour).
+    let content_type = if content_type.is_empty() {
+        "text/plain".to_string()
+    } else {
+        content_type.to_string()
+    };
+    let slot = {
+        let mut map = shard_for(req).lock().unwrap_or_else(|e| e.into_inner());
+        map.remove(&req)
+    };
+    let Some(slot) = slot else { return };
+    let tx = slot.tx.lock().unwrap_or_else(|e| e.into_inner()).take();
+    if let Some(tx) = tx {
+        let payload = ResponsePayload {
+            status: status.clamp(100, 599) as u16,
+            content_type,
+            body: body.as_bytes().to_vec(),
         };
-        let slot = {
-            let mut map = shard_for(req).lock().unwrap_or_else(|e| e.into_inner());
-            map.remove(&req)
-        };
-        let Some(slot) = slot else { return };
-        let tx = slot.tx.lock().unwrap_or_else(|e| e.into_inner()).take();
-        if let Some(tx) = tx {
-            let payload = ResponsePayload {
-                status: status.clamp(100, 599) as u16,
-                content_type,
-                body: body.as_bytes().to_vec(),
-            };
-            let _ = tx.send(payload);
-        }
+        let _ = tx.send(payload);
     }
+}
+
+/// Função `http_server.f(args)`.
+fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
+    Member {
+        name: name.to_string(),
+        kind: MemberKind::Function,
+        sig,
+        symbol: symbol.to_string(),
+        fn_ptr: FnPtr(fp),
+        flags: MemberFlags::NONE,
+        aliases: Vec::new(),
+        variadic: false,
+        ts_signature: ts.to_string(),
+        doc: doc.to_string(),
+        pure: false,
+        intrinsic: None,
+    }
+}
+
+/// Registra a namespace `http_server` no motor (Fase 2 — hand-written, sem macro).
+pub fn register(e: &mut Engine) {
+    e.ns("http_server")
+        .doc("Native HTTP/1.1 server (actix-web over the shared tokio runtime).")
+        .member(func(
+            "serve",
+            "__RTS_FN_NS_HTTP_SERVER_SERVE",
+            Sig::new(vec![AbiType::StrPtr, AbiType::U64], AbiType::Void),
+            "serve(addr: string, handler: (req: number) => void): void",
+            "Blocks serving `addr`, dispatching each request to `handler(req)`.",
+            __RTS_FN_NS_HTTP_SERVER_SERVE as *const u8,
+        ))
+        .member(func(
+            "req_method",
+            "__RTS_FN_NS_HTTP_SERVER_REQ_METHOD",
+            Sig::new(vec![AbiType::U64], AbiType::Handle),
+            "req_method(req: number): string",
+            "Request method (e.g. \"GET\"). String handle, 0 if the req is gone.",
+            __RTS_FN_NS_HTTP_SERVER_REQ_METHOD as *const u8,
+        ))
+        .member(func(
+            "req_path",
+            "__RTS_FN_NS_HTTP_SERVER_REQ_PATH",
+            Sig::new(vec![AbiType::U64], AbiType::Handle),
+            "req_path(req: number): string",
+            "Request path. String handle, 0 if the req is gone.",
+            __RTS_FN_NS_HTTP_SERVER_REQ_PATH as *const u8,
+        ))
+        .member(func(
+            "req_body",
+            "__RTS_FN_NS_HTTP_SERVER_REQ_BODY",
+            Sig::new(vec![AbiType::U64], AbiType::Handle),
+            "req_body(req: number): string",
+            "Request body. String handle, 0 if the req is gone.",
+            __RTS_FN_NS_HTTP_SERVER_REQ_BODY as *const u8,
+        ))
+        .member(func(
+            "respond",
+            "__RTS_FN_NS_HTTP_SERVER_RESPOND",
+            Sig::new(
+                vec![AbiType::U64, AbiType::I64, AbiType::StrPtr, AbiType::StrPtr],
+                AbiType::Void,
+            ),
+            "respond(req: number, status: number, contentType: string, body: string): void",
+            "Responds to `req` with `status`, `contentType` and `body`.",
+            __RTS_FN_NS_HTTP_SERVER_RESPOND as *const u8,
+        ))
+        .done();
 }

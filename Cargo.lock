@@ -2566,7 +2566,6 @@ dependencies = [
  "object 0.39.0",
  "rayon",
  "regex",
- "rts-abi",
  "rts-ast",
  "rts-cli",
  "rts-codegen",
@@ -2593,10 +2592,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rts-abi"
-version = "0.1.0"
-
-[[package]]
 name = "rts-ast"
 version = "0.1.0"
 dependencies = [
@@ -2613,9 +2608,9 @@ dependencies = [
  "console 0.15.11",
  "flate2",
  "indicatif",
- "rts-abi",
  "rts-codegen",
  "rts-diagnostics",
+ "rts-engine",
  "rts-linker",
  "rts-runtime",
  "serde",
@@ -2638,12 +2633,13 @@ dependencies = [
  "cranelift-native",
  "cranelift-object",
  "indexmap",
- "rts-abi",
  "rts-ast",
  "rts-diagnostics",
+ "rts-engine",
  "rts-hir",
  "rts-linker",
  "rts-mir",
+ "rts-node",
  "rts-parser",
  "rts-runtime",
  "serde",
@@ -2665,10 +2661,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "rts-engine"
+version = "0.1.0"
+dependencies = [
+ "fancy-regex",
+ "indexmap",
+ "regex",
+ "rustls",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "rts-hir"
 version = "0.1.0"
 dependencies = [
- "rts-abi",
  "rts-ast",
  "swc_ecma_ast",
 ]
@@ -2681,7 +2688,6 @@ dependencies = [
  "flate2",
  "indicatif",
  "object 0.39.0",
- "rts-abi",
  "sha2 0.10.9",
  "tar",
  "target-lexicon",
@@ -2690,21 +2696,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "rts-macro"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "rts-abi",
- "syn",
-]
-
-[[package]]
 name = "rts-mir"
 version = "0.1.0"
 dependencies = [
- "rts-abi",
+ "rts-engine",
  "rts-hir",
+]
+
+[[package]]
+name = "rts-node"
+version = "0.1.0"
+dependencies = [
+ "rts-engine",
 ]
 
 [[package]]
@@ -2736,8 +2739,8 @@ dependencies = [
  "notify",
  "rayon",
  "regex",
- "rts-abi",
- "rts-macro",
+ "rts-engine",
+ "rts-std",
  "rustc-hash 1.1.0",
  "rustls",
  "serde",
@@ -2750,6 +2753,14 @@ dependencies = [
  "unicode-normalization",
  "ureq 2.12.1",
  "webpki-roots 1.0.6",
+]
+
+[[package]]
+name = "rts-std"
+version = "0.1.0"
+dependencies = [
+ "cpal",
+ "rts-engine",
 ]
 
 [[package]]

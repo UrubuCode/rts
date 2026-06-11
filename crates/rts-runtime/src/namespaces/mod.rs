@@ -5,9 +5,12 @@
 //! resolved to a canonical `__RTS_*` extern "C" symbol and called directly.
 
 pub mod alloc;
-pub mod audio;
+/// `audio`/`asio_audio` migraram pro crate backend `rts-std` (Fase 1b, partição
+/// de crates). Facade → `crate::namespaces::audio` (register_builtins, jit.rs)
+/// segue resolvendo.
+pub use rts_std::audio;
 #[cfg(feature = "asio")]
-pub mod asio_audio;
+pub use rts_std::asio_audio;
 pub mod globals;
 pub mod atomic;
 pub mod trace;
@@ -16,32 +19,37 @@ pub mod buffer;
 pub mod collections;
 pub mod crypto;
 pub mod date;
-pub mod env;
+pub use rts_std::env;
 pub mod events;
 pub mod fmt;
 pub mod ffi;
 pub mod fs;
-pub mod gc;
+pub mod collector;
+/// Alias retrocompatível: a pasta `gc/` foi renomeada `collector/` (Fase 2 GC,
+/// rumo ao sistema de coleta no `rts-engine`). Os ~68 consumidores +
+/// `crate::namespaces::gc::*` no codegen continuam resolvendo via este alias até
+/// a migração do mecanismo pro engine concluir.
+pub use collector as gc;
 pub mod hash;
 pub mod hint;
 pub mod http_server;
-pub mod io;
+pub use rts_std::io;
 pub mod json;
 pub mod math;
 pub mod mem;
 pub mod net;
 pub mod num;
-pub mod os;
+pub use rts_std::os;
 pub mod path;
 pub mod process;
 pub mod promise;
 pub mod ptr;
 pub mod regex;
 pub mod parallel;
-pub mod runtime;
+pub use rts_std::runtime;
 // string movido para globals/string
 pub mod sync;
-pub mod test;
+pub use rts_std::test;
 pub mod thread;
 pub mod tls;
 pub mod time;

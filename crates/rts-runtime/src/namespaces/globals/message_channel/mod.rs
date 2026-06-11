@@ -2,14 +2,19 @@
 //!
 //! Both ports are plain `Entry::Map` objects (`port.onmessage = cb` is a
 //! generic property store). `postMessage` entrega ao `onmessage` do port PEER
-//! sincronamente. Migrado ao modelo `#[rts_class]` (stage 5) — duas classes no
-//! mesmo arquivo. `MESSAGE_CHANNEL_PORT1`/`PORT2` (getters) e os helpers ficam
+//! sincronamente. `MESSAGE_CHANNEL_PORT1`/`PORT2` (getters) e os helpers ficam
 //! abaixo; `postMessage`/`close` sao InstanceMethods de MessagePort.
+//!
+//! Migrado do `#[rts_class]` (macro) pro modelo builder hand-written do
+//! `rts-engine` (rumo à remoção da `rts-macro`). Os externs
+//! `__RTS_FN_GL_MESSAGE_CHANNEL_*` / `__RTS_FN_GL_MESSAGE_PORT_*` +
+//! `register_message_channel_class_spec()` / `register_message_port_class_spec()`
+//! são escritos à mão.
 
 use indexmap::IndexMap;
 
-use rts_abi::ty::Handle;
-use rts_macro::rts_class;
+use rts_engine::abi::ty::Handle;
+use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use crate::namespaces::gc::handles::{alloc_entry, with_entry, with_entry_mut, Entry};
 
@@ -72,63 +77,143 @@ fn call_fn(fn_handle: i64, extra: &[i64]) {
     }
 }
 
-/// MessageChannel — par de MessagePort entangled (entrega sincrona).
-#[rts_class(
-    MessageChannel,
-    prefix = "MESSAGE_CHANNEL",
-    spec = "MESSAGE_CHANNEL_CLASS_SPEC"
-)]
-impl MessageChannelClass {
-    /// new MessageChannel() — entangled pair of ports + channel wrapper.
-    #[rts_ctor(ts = "new MessageChannel(): MessageChannel")]
-    pub fn new() -> Handle {
-        let port1 = new_map();
-        let port2 = new_map();
-        map_set(port1, "__peer", port2 as i64);
-        map_set(port2, "__peer", port1 as i64);
-        let ch = new_map();
-        map_set(ch, "port1", port1 as i64);
-        map_set(ch, "port2", port2 as i64);
-        ch
-    }
+// ── MessageChannel externs (hand-written, sem macro). ────────────────────────
 
-    /// channel.port1
-    #[rts_getter(ts = "readonly port1: MessagePort")]
-    pub fn port1(ch: Handle) -> Handle {
-        map_get(ch, "port1") as u64
-    }
+/// new MessageChannel() — entangled pair of ports + channel wrapper.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_MESSAGE_CHANNEL_NEW() -> Handle {
+    let port1 = new_map();
+    let port2 = new_map();
+    map_set(port1, "__peer", port2 as i64);
+    map_set(port2, "__peer", port1 as i64);
+    let ch = new_map();
+    map_set(ch, "port1", port1 as i64);
+    map_set(ch, "port2", port2 as i64);
+    ch
+}
 
-    /// channel.port2
-    #[rts_getter(ts = "readonly port2: MessagePort")]
-    pub fn port2(ch: Handle) -> Handle {
-        map_get(ch, "port2") as u64
+/// channel.port1
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_MESSAGE_CHANNEL_PORT1(ch: Handle) -> Handle {
+    map_get(ch, "port1") as u64
+}
+
+/// channel.port2
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_MESSAGE_CHANNEL_PORT2(ch: Handle) -> Handle {
+    map_get(ch, "port2") as u64
+}
+
+// ── MessagePort externs (hand-written, sem macro). ───────────────────────────
+
+/// port.postMessage(data) — entrega ao `onmessage` do peer sincronamente.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_MESSAGE_PORT_POST_MESSAGE(port: Handle, data: Handle) {
+    let peer = map_get(port, "__peer") as u64;
+    if peer == 0 {
+        return;
+    }
+    let onmsg = map_get(peer, "onmessage");
+    if onmsg == 0 {
+        return;
+    }
+    let ev = new_map();
+    map_set(ev, "data", data as i64);
+    call_fn(onmsg, &[ev as i64]);
+}
+
+/// port.close() — no-op no modelo sincrono.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_MESSAGE_PORT_CLOSE(_port: Handle) {}
+
+/// Membro de classe global (helper hand-written, espelha `leak_class` da macro).
+#[allow(clippy::too_many_arguments)]
+fn m(
+    name: &str,
+    kind: MemberKind,
+    sig: Sig,
+    symbol: &str,
+    ts: &str,
+    doc: &str,
+    fp: *const u8,
+    pure: bool,
+) -> Member {
+    Member {
+        name: name.to_string(),
+        kind,
+        sig,
+        symbol: symbol.to_string(),
+        fn_ptr: FnPtr(fp),
+        flags: MemberFlags::NONE,
+        aliases: Vec::new(),
+        variadic: false,
+        ts_signature: ts.to_string(),
+        doc: doc.to_string(),
+        pure,
+        intrinsic: None,
     }
 }
 
-/// MessagePort — uma ponta de um MessageChannel.
-#[rts_class(MessagePort, prefix = "MESSAGE_PORT", spec = "MESSAGE_PORT_CLASS_SPEC")]
-impl MessagePortClass {
-    /// port.postMessage(data) — entrega ao `onmessage` do peer sincronamente.
-    #[rts_method(
-        name = "postMessage",
-        symbol = "__RTS_FN_GL_MESSAGE_PORT_POST_MESSAGE",
-        ts = "postMessage(data: any): void"
-    )]
-    pub fn post_message(port: Handle, data: Handle) {
-        let peer = map_get(port, "__peer") as u64;
-        if peer == 0 {
-            return;
-        }
-        let onmsg = map_get(peer, "onmessage");
-        if onmsg == 0 {
-            return;
-        }
-        let ev = new_map();
-        map_set(ev, "data", data as i64);
-        call_fn(onmsg, &[ev as i64]);
-    }
+/// Registra a classe global `MessageChannel` no motor (hand-written, sem macro).
+pub fn register_message_channel_class_spec(e: &mut Engine) {
+    e.class("MessageChannel")
+        .doc("MessageChannel — par de MessagePort entangled (entrega sincrona).")
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(Vec::new(), AbiType::Handle),
+            "__RTS_FN_GL_MESSAGE_CHANNEL_NEW",
+            "new MessageChannel(): MessageChannel",
+            "new MessageChannel() — entangled pair of ports + channel wrapper.",
+            __RTS_FN_GL_MESSAGE_CHANNEL_NEW as *const u8,
+            false,
+        ))
+        .member(m(
+            "port1",
+            MemberKind::InstanceGetter,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_MESSAGE_CHANNEL_PORT1",
+            "readonly port1: MessagePort",
+            "channel.port1",
+            __RTS_FN_GL_MESSAGE_CHANNEL_PORT1 as *const u8,
+            false,
+        ))
+        .member(m(
+            "port2",
+            MemberKind::InstanceGetter,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_MESSAGE_CHANNEL_PORT2",
+            "readonly port2: MessagePort",
+            "channel.port2",
+            __RTS_FN_GL_MESSAGE_CHANNEL_PORT2 as *const u8,
+            false,
+        ))
+        .done();
+}
 
-    /// port.close() — no-op no modelo sincrono.
-    #[rts_method(ts = "close(): void")]
-    pub fn close(_port: Handle) {}
+/// Registra a classe global `MessagePort` no motor (hand-written, sem macro).
+pub fn register_message_port_class_spec(e: &mut Engine) {
+    e.class("MessagePort")
+        .doc("MessagePort — uma ponta de um MessageChannel.")
+        .member(m(
+            "postMessage",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Void),
+            "__RTS_FN_GL_MESSAGE_PORT_POST_MESSAGE",
+            "postMessage(data: any): void",
+            "port.postMessage(data) — entrega ao `onmessage` do peer sincronamente.",
+            __RTS_FN_GL_MESSAGE_PORT_POST_MESSAGE as *const u8,
+            false,
+        ))
+        .member(m(
+            "close",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Void),
+            "__RTS_FN_GL_MESSAGE_PORT_CLOSE",
+            "close(): void",
+            "port.close() — no-op no modelo sincrono.",
+            __RTS_FN_GL_MESSAGE_PORT_CLOSE as *const u8,
+            false,
+        ))
+        .done();
 }

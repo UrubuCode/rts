@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 
 use crate::abi::member::MemberKind;
-use crate::abi::SPECS;
 
 pub fn command(output: Option<String>) -> Result<()> {
     let path = resolve_output(output)?;
@@ -30,17 +29,22 @@ fn resolve_output(arg: Option<String>) -> Result<PathBuf> {
 pub fn generate() -> String {
     let mut out = String::with_capacity(16384);
 
+    // Itera o registry na ordem de iteração (= ordem do const `SPECS` no seed,
+    // + módulos do builder/externos appendados). Mantém o d.ts determinístico e
+    // inclui módulos registrados em runtime (Fase 2). Hoje = ordem do const.
+    let specs = crate::abi::registry_specs_ordered();
+
     out.push_str("declare module \"rts\" {\n");
     push_primitive_aliases(&mut out);
 
-    for spec in SPECS {
+    for spec in &specs {
         push_namespace(&mut out, spec.name, spec.doc, spec.members, "  ");
         out.push('\n');
     }
 
     out.push_str("}\n");
 
-    for spec in SPECS {
+    for spec in &specs {
         out.push('\n');
         push_namespace_module(&mut out, spec.name, spec.doc, spec.members);
     }
@@ -91,7 +95,16 @@ fn push_namespace(
                     member.ts_signature
                 ));
             }
-            MemberKind::InstanceMethod | MemberKind::StaticMethod | MemberKind::InstanceGetter => {}
+            // Class members + property setters are not surfaced in rts.d.ts
+            // today; var getters/setters will be surfaced (export let/const) in
+            // the d.ts follow-up (RTS_ENGINE.md §9.5) — no-op keeps output
+            // byte-identical until then.
+            MemberKind::InstanceMethod
+            | MemberKind::StaticMethod
+            | MemberKind::InstanceGetter
+            | MemberKind::InstanceSetter
+            | MemberKind::VarGetter
+            | MemberKind::VarSetter => {}
         }
     }
 
@@ -120,7 +133,16 @@ fn push_namespace_module(
             MemberKind::Constant => {
                 out.push_str(&format!("  export const {};\n", member.ts_signature));
             }
-            MemberKind::InstanceMethod | MemberKind::StaticMethod | MemberKind::InstanceGetter => {}
+            // Class members + property setters are not surfaced in rts.d.ts
+            // today; var getters/setters will be surfaced (export let/const) in
+            // the d.ts follow-up (RTS_ENGINE.md §9.5) — no-op keeps output
+            // byte-identical until then.
+            MemberKind::InstanceMethod
+            | MemberKind::StaticMethod
+            | MemberKind::InstanceGetter
+            | MemberKind::InstanceSetter
+            | MemberKind::VarGetter
+            | MemberKind::VarSetter => {}
         }
     }
 
@@ -141,8 +163,12 @@ mod tests {
     #[test]
     fn generate_includes_rts_namespace_modules() {
         let dts = super::generate();
+        // `rts:process` cobre uma ns migrada pro builder (Fase 2); `rts:gc`
+        // cobre o seed const (gc continua no const `SPECS`). Asserir ambos
+        // exercita os dois caminhos do registry. (A assertion antiga era
+        // `rts:ui` — namespace removida há tempo; ficou stale/vermelha.)
         assert!(dts.contains("declare module \"rts:process\""));
-        assert!(dts.contains("declare module \"rts:ui\""));
+        assert!(dts.contains("declare module \"rts:gc\""));
         assert!(dts.contains("export default _default;"));
         assert!(!dts.contains("export const readonly "));
     }

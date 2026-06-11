@@ -5,15 +5,15 @@
 //! Acesso a campos do JSON (path-based) e conversao pra tipos nativos
 //! sao expostos via membros adicionais.
 //!
-//! Migrado ao modelo `#[rts_namespace]` (stage 2c,
-//! `docs/specs/rts-core-engine.md`). As 5 fns extern nao-membro (PARSE5,
-//! STRINGIFY_REPLACER_FN/KEYS/TYPED/PRETTY_STR) sao chamadas direto pelo
-//! codegen por simbolo e ficam como free fns abaixo.
+//! Migrado do `#[rts_namespace]` pro modelo builder hand-written do `rts-engine`
+//! (rumo à remoção da `rts-macro`; ver pilotos hint/hash/ptr/mem/runtime). As 5
+//! fns extern nao-membro (PARSE5, STRINGIFY_REPLACER_FN/KEYS/TYPED/PRETTY_STR)
+//! sao chamadas direto pelo codegen por simbolo e ficam como free fns abaixo.
 
 use serde_json::Value;
 
-use rts_abi::ty::{Bool, Handle, F64, I64, U64};
-use rts_macro::rts_namespace;
+use rts_engine::abi::ty::{Bool, Handle, F64, I64, U64};
+use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use super::gc::handles::{alloc_entry, free_handle, with_entry, Entry};
 
@@ -938,211 +938,402 @@ fn promote_slot_to_json_handle(slot: u64) -> u64 {
     }
 }
 
-/// JSON parsing and serialization (paridade com JSON.parse/stringify).
-#[rts_namespace(json)]
-impl JsonNs {
-    /// Parses a JSON string into an opaque JSON value handle. Returns 0 on syntax error.
-    #[rts_fn]
-    pub fn parse(text: Str) -> U64 {
-        match serde_json::from_str::<Value>(text) {
-            Ok(v) => json_value_to_handle(&v),
-            Err(_) => 0,
-        }
+/// Parses a JSON string into an opaque JSON value handle. Returns 0 on syntax error.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_JSON_PARSE(text_ptr: *const u8, text_len: i64) -> U64 {
+    let text = match unsafe { rts_engine::abi::str_abi::from_abi(text_ptr, text_len) } {
+        Some(s) => s,
+        None => return 0,
+    };
+    match serde_json::from_str::<Value>(text) {
+        Ok(v) => json_value_to_handle(&v),
+        Err(_) => 0,
     }
+}
 
-    /// JSON.parse com reviver(key, value) — transforma cada par durante o walk bottom-up.
-    #[rts_fn]
-    pub fn parse_reviver(text: Str, reviver: U64) -> U64 {
-        let Ok(parsed) = serde_json::from_str::<Value>(text) else {
-            return 0;
-        };
-        let root_handle = json_value_to_handle(&parsed);
-        if reviver == 0 {
-            return root_handle;
-        }
-        // JS spec InternalizeJSONProperty: cria holder raiz `{ "": root }` e chama
-        // reviver com this=holder, key="", value=root.
-        use indexmap::IndexMap;
-        let mut root_holder: IndexMap<String, i64> = IndexMap::new();
-        root_holder.insert(String::new(), root_handle as i64);
-        let holder_h = alloc_entry(Entry::Map(Box::new(root_holder)));
-        apply_reviver(reviver, holder_h, "")
+/// JSON.parse com reviver(key, value) — transforma cada par durante o walk bottom-up.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_JSON_PARSE_REVIVER(
+    text_ptr: *const u8,
+    text_len: i64,
+    reviver: U64,
+) -> U64 {
+    let text = match unsafe { rts_engine::abi::str_abi::from_abi(text_ptr, text_len) } {
+        Some(s) => s,
+        None => return 0,
+    };
+    let Ok(parsed) = serde_json::from_str::<Value>(text) else {
+        return 0;
+    };
+    let root_handle = json_value_to_handle(&parsed);
+    if reviver == 0 {
+        return root_handle;
     }
+    // JS spec InternalizeJSONProperty: cria holder raiz `{ "": root }` e chama
+    // reviver com this=holder, key="", value=root.
+    use indexmap::IndexMap;
+    let mut root_holder: IndexMap<String, i64> = IndexMap::new();
+    root_holder.insert(String::new(), root_handle as i64);
+    let holder_h = alloc_entry(Entry::Map(Box::new(root_holder)));
+    apply_reviver(reviver, holder_h, "")
+}
 
-    /// Serializes a JSON value handle into its compact string form.
-    #[rts_fn]
-    pub fn stringify(value: U64) -> Handle {
-        // (PR #1206) JS spec: `JSON.stringify(undefined)` retorna `undefined`
-        // (nao string). RTS nao tem como expressar isso na ABI binaria
-        // — retorna o sentinel undefined (i64::MIN+2) para sinalizar.
-        // Callers que esperam string handle (ex: console.log direto) deveriam
-        // dispatcher via TPL_COERCE_AUTO que mapeia sentinel → "undefined".
-        let val_i64 = value as i64;
-        if val_i64 == i64::MIN + 2 || val_i64 == i64::MIN + 4 {
-            return (i64::MIN + 2) as u64;
-        }
-        if let Some(s) = stringify_any_inner(value) {
-            return alloc_entry(Entry::String(s.into_bytes()));
-        }
-        // Fallback: handle 0 ou desconhecido vira "null".
-        if value == 0 {
-            return alloc_entry(Entry::String(b"null".to_vec()));
-        }
-        alloc_entry(Entry::String(value.to_string().into_bytes()))
+/// Serializes a JSON value handle into its compact string form.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY(value: U64) -> Handle {
+    // (PR #1206) JS spec: `JSON.stringify(undefined)` retorna `undefined`
+    // (nao string). RTS nao tem como expressar isso na ABI binaria
+    // — retorna o sentinel undefined (i64::MIN+2) para sinalizar.
+    // Callers que esperam string handle (ex: console.log direto) deveriam
+    // dispatcher via TPL_COERCE_AUTO que mapeia sentinel → "undefined".
+    let val_i64 = value as i64;
+    if val_i64 == i64::MIN + 2 || val_i64 == i64::MIN + 4 {
+        return (i64::MIN + 2) as u64;
     }
-
-    /// Pretty-printed serialization with `indent` spaces (>= 0).
-    #[rts_fn]
-    pub fn stringify_pretty(value: U64, indent: I64) -> Handle {
-        let indent = indent.max(0).min(16) as usize;
-        if indent == 0 {
-            return __RTS_FN_NS_JSON_STRINGIFY(value);
-        }
-        let indent_str = " ".repeat(indent);
-        if let Some(s) = stringify_pretty_inner_str(value, &indent_str, 0) {
-            return alloc_entry(Entry::String(s.into_bytes()));
-        }
-        if value == 0 {
-            return alloc_entry(Entry::String(b"null".to_vec()));
-        }
-        alloc_entry(Entry::String(value.to_string().into_bytes()))
+    if let Some(s) = stringify_any_inner(value) {
+        return alloc_entry(Entry::String(s.into_bytes()));
     }
-
-    /// Releases the JSON value handle.
-    #[rts_fn]
-    pub fn free(handle: U64) {
-        let _ = free_handle(handle);
+    // Fallback: handle 0 ou desconhecido vira "null".
+    if value == 0 {
+        return alloc_entry(Entry::String(b"null".to_vec()));
     }
+    alloc_entry(Entry::String(value.to_string().into_bytes()))
+}
 
-    /// Returns: 0 null, 1 bool, 2 number, 3 string, 4 array, 5 object, -1 invalid.
-    #[rts_fn(pure)]
-    pub fn type_of(value: U64) -> I64 {
-        with_json(value, -1, |v| match v {
-            Value::Null => 0,
-            Value::Bool(_) => 1,
-            Value::Number(_) => 2,
-            Value::String(_) => 3,
-            Value::Array(_) => 4,
-            Value::Object(_) => 5,
-        })
+/// Pretty-printed serialization with `indent` spaces (>= 0).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY_PRETTY(value: U64, indent: I64) -> Handle {
+    let indent = indent.max(0).min(16) as usize;
+    if indent == 0 {
+        return __RTS_FN_NS_JSON_STRINGIFY(value);
     }
-
-    /// Coerces JSON value to bool (true for non-zero/non-null/non-empty).
-    #[rts_fn(pure)]
-    pub fn as_bool(value: U64) -> Bool {
-        with_json(value, 0, |v| match v {
-            Value::Bool(b) => *b as i64,
-            Value::Null => 0,
-            Value::Number(n) => (n.as_f64().unwrap_or(0.0) != 0.0) as i64,
-            Value::String(s) => (!s.is_empty()) as i64,
-            Value::Array(a) => (!a.is_empty()) as i64,
-            Value::Object(o) => (!o.is_empty()) as i64,
-        })
+    let indent_str = " ".repeat(indent);
+    if let Some(s) = stringify_pretty_inner_str(value, &indent_str, 0) {
+        return alloc_entry(Entry::String(s.into_bytes()));
     }
-
-    /// Reads JSON number as i64 (truncates floats). 0 for invalid/non-number.
-    #[rts_fn(pure)]
-    pub fn as_i64(value: U64) -> I64 {
-        with_json(value, 0, |v| match v {
-            Value::Number(n) => n
-                .as_i64()
-                .or_else(|| n.as_f64().map(|f| f as i64))
-                .unwrap_or(0),
-            Value::Bool(b) => *b as i64,
-            Value::String(s) => s.parse::<i64>().unwrap_or(0),
-            _ => 0,
-        })
+    if value == 0 {
+        return alloc_entry(Entry::String(b"null".to_vec()));
     }
+    alloc_entry(Entry::String(value.to_string().into_bytes()))
+}
 
-    /// Reads JSON number as f64. NaN for invalid/non-number.
-    #[rts_fn(pure)]
-    pub fn as_f64(value: U64) -> F64 {
-        with_json(value, f64::NAN, |v| match v {
-            Value::Number(n) => n.as_f64().unwrap_or(f64::NAN),
-            Value::Bool(b) => *b as i64 as f64,
-            Value::String(s) => s.parse::<f64>().unwrap_or(f64::NAN),
-            _ => f64::NAN,
-        })
-    }
+/// Releases the JSON value handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_JSON_FREE(handle: U64) {
+    let _ = free_handle(handle);
+}
 
-    /// Reads JSON string as a string handle. Empty handle (0) for non-string.
-    #[rts_fn(pure)]
-    pub fn as_string(value: U64) -> Handle {
-        with_json(value, 0, |v| match v {
-            Value::String(s) => alloc_entry(Entry::String(s.as_bytes().to_vec())),
-            Value::Bool(b) => alloc_entry(Entry::String(b.to_string().into_bytes())),
-            Value::Number(n) => alloc_entry(Entry::String(n.to_string().into_bytes())),
-            Value::Null => alloc_entry(Entry::String(b"null".to_vec())),
-            _ => 0,
-        })
-    }
+/// Returns: 0 null, 1 bool, 2 number, 3 string, 4 array, 5 object, -1 invalid.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_JSON_TYPE_OF(value: U64) -> I64 {
+    with_json(value, -1, |v| match v {
+        Value::Null => 0,
+        Value::Bool(_) => 1,
+        Value::Number(_) => 2,
+        Value::String(_) => 3,
+        Value::Array(_) => 4,
+        Value::Object(_) => 5,
+    })
+}
 
-    /// Number of elements when value is array; -1 otherwise.
-    #[rts_fn(pure)]
-    pub fn array_len(value: U64) -> I64 {
-        with_entry(value, |entry| match entry {
-            Some(Entry::Vec(slots)) => slots.len() as i64,
-            Some(Entry::Json(v)) => match v.as_ref() {
-                Value::Array(a) => a.len() as i64,
-                _ => -1,
-            },
+/// Coerces JSON value to bool (true for non-zero/non-null/non-empty).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_JSON_AS_BOOL(value: U64) -> Bool {
+    with_json(value, 0, |v| match v {
+        Value::Bool(b) => *b as i64,
+        Value::Null => 0,
+        Value::Number(n) => (n.as_f64().unwrap_or(0.0) != 0.0) as i64,
+        Value::String(s) => (!s.is_empty()) as i64,
+        Value::Array(a) => (!a.is_empty()) as i64,
+        Value::Object(o) => (!o.is_empty()) as i64,
+    })
+}
+
+/// Reads JSON number as i64 (truncates floats). 0 for invalid/non-number.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_JSON_AS_I64(value: U64) -> I64 {
+    with_json(value, 0, |v| match v {
+        Value::Number(n) => n
+            .as_i64()
+            .or_else(|| n.as_f64().map(|f| f as i64))
+            .unwrap_or(0),
+        Value::Bool(b) => *b as i64,
+        Value::String(s) => s.parse::<i64>().unwrap_or(0),
+        _ => 0,
+    })
+}
+
+/// Reads JSON number as f64. NaN for invalid/non-number.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_JSON_AS_F64(value: U64) -> F64 {
+    with_json(value, f64::NAN, |v| match v {
+        Value::Number(n) => n.as_f64().unwrap_or(f64::NAN),
+        Value::Bool(b) => *b as i64 as f64,
+        Value::String(s) => s.parse::<f64>().unwrap_or(f64::NAN),
+        _ => f64::NAN,
+    })
+}
+
+/// Reads JSON string as a string handle. Empty handle (0) for non-string.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_JSON_AS_STRING(value: U64) -> Handle {
+    with_json(value, 0, |v| match v {
+        Value::String(s) => alloc_entry(Entry::String(s.as_bytes().to_vec())),
+        Value::Bool(b) => alloc_entry(Entry::String(b.to_string().into_bytes())),
+        Value::Number(n) => alloc_entry(Entry::String(n.to_string().into_bytes())),
+        Value::Null => alloc_entry(Entry::String(b"null".to_vec())),
+        _ => 0,
+    })
+}
+
+/// Number of elements when value is array; -1 otherwise.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_JSON_ARRAY_LEN(value: U64) -> I64 {
+    with_entry(value, |entry| match entry {
+        Some(Entry::Vec(slots)) => slots.len() as i64,
+        Some(Entry::Json(v)) => match v.as_ref() {
+            Value::Array(a) => a.len() as i64,
             _ => -1,
-        })
-    }
+        },
+        _ => -1,
+    })
+}
 
-    /// Returns a NEW handle to the element at `index`. 0 if out of range.
-    #[rts_fn]
-    pub fn array_get(value: U64, index: I64) -> U64 {
-        if index < 0 {
-            return 0;
-        }
-        let slot = with_entry(value, |entry| match entry {
-            Some(Entry::Vec(slots)) => slots.get(index as usize).copied(),
-            Some(Entry::Json(v)) => match v.as_ref() {
-                Value::Array(a) => a
-                    .get(index as usize)
-                    .map(|child| alloc_entry(Entry::Json(Box::new(child.clone()))) as i64),
-                _ => None,
-            },
+/// Returns a NEW handle to the element at `index`. 0 if out of range.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_JSON_ARRAY_GET(value: U64, index: I64) -> U64 {
+    if index < 0 {
+        return 0;
+    }
+    let slot = with_entry(value, |entry| match entry {
+        Some(Entry::Vec(slots)) => slots.get(index as usize).copied(),
+        Some(Entry::Json(v)) => match v.as_ref() {
+            Value::Array(a) => a
+                .get(index as usize)
+                .map(|child| alloc_entry(Entry::Json(Box::new(child.clone()))) as i64),
             _ => None,
-        });
-        match slot {
-            Some(s) => promote_slot_to_json_handle(s as u64),
-            None => 0,
-        }
+        },
+        _ => None,
+    });
+    match slot {
+        Some(s) => promote_slot_to_json_handle(s as u64),
+        None => 0,
     }
+}
 
-    /// Returns a NEW handle to the property `key`. 0 if missing or non-object.
-    #[rts_fn]
-    pub fn object_get(value: U64, key: Str) -> U64 {
-        let slot = with_entry(value, |entry| match entry {
-            Some(Entry::Map(map)) => map.get(key).copied(),
-            Some(Entry::Json(v)) => match v.as_ref() {
-                Value::Object(o) => o
-                    .get(key)
-                    .map(|child| alloc_entry(Entry::Json(Box::new(child.clone()))) as i64),
-                _ => None,
-            },
+/// Returns a NEW handle to the property `key`. 0 if missing or non-object.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_JSON_OBJECT_GET(value: U64, key_ptr: *const u8, key_len: i64) -> U64 {
+    let key = match unsafe { rts_engine::abi::str_abi::from_abi(key_ptr, key_len) } {
+        Some(s) => s,
+        None => return 0,
+    };
+    let slot = with_entry(value, |entry| match entry {
+        Some(Entry::Map(map)) => map.get(key).copied(),
+        Some(Entry::Json(v)) => match v.as_ref() {
+            Value::Object(o) => o
+                .get(key)
+                .map(|child| alloc_entry(Entry::Json(Box::new(child.clone()))) as i64),
             _ => None,
-        });
-        match slot {
-            Some(s) => promote_slot_to_json_handle(s as u64),
-            None => 0,
-        }
+        },
+        _ => None,
+    });
+    match slot {
+        Some(s) => promote_slot_to_json_handle(s as u64),
+        None => 0,
     }
+}
 
-    /// True when value is an object containing `key`.
-    #[rts_fn(pure)]
-    pub fn object_has(value: U64, key: Str) -> Bool {
-        with_entry(value, |entry| match entry {
-            Some(Entry::Map(map)) => map.contains_key(key) as i64,
-            Some(Entry::Json(v)) => match v.as_ref() {
-                Value::Object(o) => o.contains_key(key) as i64,
-                _ => 0,
-            },
+/// True when value is an object containing `key`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_JSON_OBJECT_HAS(value: U64, key_ptr: *const u8, key_len: i64) -> Bool {
+    let key = match unsafe { rts_engine::abi::str_abi::from_abi(key_ptr, key_len) } {
+        Some(s) => s,
+        None => return 0,
+    };
+    with_entry(value, |entry| match entry {
+        Some(Entry::Map(map)) => map.contains_key(key) as i64,
+        Some(Entry::Json(v)) => match v.as_ref() {
+            Value::Object(o) => o.contains_key(key) as i64,
             _ => 0,
-        })
+        },
+        _ => 0,
+    })
+}
+
+/// Função `json.f(args)`.
+#[allow(clippy::too_many_arguments)]
+fn func(
+    name: &str,
+    symbol: &str,
+    sig: Sig,
+    ts: &str,
+    doc: &str,
+    fp: *const u8,
+    pure: bool,
+    flags: MemberFlags,
+) -> Member {
+    Member {
+        name: name.to_string(),
+        kind: MemberKind::Function,
+        sig,
+        symbol: symbol.to_string(),
+        fn_ptr: FnPtr(fp),
+        flags,
+        aliases: Vec::new(),
+        variadic: false,
+        ts_signature: ts.to_string(),
+        doc: doc.to_string(),
+        pure,
+        intrinsic: None,
     }
+}
+
+/// Registra a namespace `json` no motor (Fase 2 — hand-written, sem macro).
+pub fn register(e: &mut Engine) {
+    e.ns("json")
+        .doc("JSON parsing and serialization (paridade com JSON.parse/stringify).")
+        .member(func(
+            "parse",
+            "__RTS_FN_NS_JSON_PARSE",
+            Sig::new(vec![AbiType::StrPtr], AbiType::U64),
+            "parse(text: string): number",
+            "Parses a JSON string into an opaque JSON value handle. Returns 0 on syntax error.",
+            __RTS_FN_NS_JSON_PARSE as *const u8,
+            false,
+            MemberFlags::AMBIGUOUS_RET,
+        ))
+        .member(func(
+            "parse_reviver",
+            "__RTS_FN_NS_JSON_PARSE_REVIVER",
+            Sig::new(vec![AbiType::StrPtr, AbiType::U64], AbiType::U64),
+            "parse_reviver(text: string, reviver: number): number",
+            "JSON.parse com reviver(key, value) — transforma cada par durante o walk bottom-up.",
+            __RTS_FN_NS_JSON_PARSE_REVIVER as *const u8,
+            false,
+            MemberFlags::AMBIGUOUS_RET,
+        ))
+        .member(func(
+            "stringify",
+            "__RTS_FN_NS_JSON_STRINGIFY",
+            Sig::new(vec![AbiType::U64], AbiType::Handle),
+            "stringify(value: number): number",
+            "Serializes a JSON value handle into its compact string form.",
+            __RTS_FN_NS_JSON_STRINGIFY as *const u8,
+            false,
+            MemberFlags::NONE,
+        ))
+        .member(func(
+            "stringify_pretty",
+            "__RTS_FN_NS_JSON_STRINGIFY_PRETTY",
+            Sig::new(vec![AbiType::U64, AbiType::I64], AbiType::Handle),
+            "stringify_pretty(value: number, indent: number): number",
+            "Pretty-printed serialization with `indent` spaces (>= 0).",
+            __RTS_FN_NS_JSON_STRINGIFY_PRETTY as *const u8,
+            false,
+            MemberFlags::NONE,
+        ))
+        .member(func(
+            "free",
+            "__RTS_FN_NS_JSON_FREE",
+            Sig::new(vec![AbiType::U64], AbiType::Void),
+            "free(handle: number): void",
+            "Releases the JSON value handle.",
+            __RTS_FN_NS_JSON_FREE as *const u8,
+            false,
+            MemberFlags::NONE,
+        ))
+        .member(func(
+            "type_of",
+            "__RTS_FN_NS_JSON_TYPE_OF",
+            Sig::new(vec![AbiType::U64], AbiType::I64),
+            "type_of(value: number): number",
+            "Returns: 0 null, 1 bool, 2 number, 3 string, 4 array, 5 object, -1 invalid.",
+            __RTS_FN_NS_JSON_TYPE_OF as *const u8,
+            true,
+            MemberFlags::NONE,
+        ))
+        .member(func(
+            "as_bool",
+            "__RTS_FN_NS_JSON_AS_BOOL",
+            Sig::new(vec![AbiType::U64], AbiType::Bool),
+            "as_bool(value: number): boolean",
+            "Coerces JSON value to bool (true for non-zero/non-null/non-empty).",
+            __RTS_FN_NS_JSON_AS_BOOL as *const u8,
+            true,
+            MemberFlags::NONE,
+        ))
+        .member(func(
+            "as_i64",
+            "__RTS_FN_NS_JSON_AS_I64",
+            Sig::new(vec![AbiType::U64], AbiType::I64),
+            "as_i64(value: number): number",
+            "Reads JSON number as i64 (truncates floats). 0 for invalid/non-number.",
+            __RTS_FN_NS_JSON_AS_I64 as *const u8,
+            true,
+            MemberFlags::NONE,
+        ))
+        .member(func(
+            "as_f64",
+            "__RTS_FN_NS_JSON_AS_F64",
+            Sig::new(vec![AbiType::U64], AbiType::F64),
+            "as_f64(value: number): number",
+            "Reads JSON number as f64. NaN for invalid/non-number.",
+            __RTS_FN_NS_JSON_AS_F64 as *const u8,
+            true,
+            MemberFlags::NONE,
+        ))
+        .member(func(
+            "as_string",
+            "__RTS_FN_NS_JSON_AS_STRING",
+            Sig::new(vec![AbiType::U64], AbiType::Handle),
+            "as_string(value: number): number",
+            "Reads JSON string as a string handle. Empty handle (0) for non-string.",
+            __RTS_FN_NS_JSON_AS_STRING as *const u8,
+            true,
+            MemberFlags::NONE,
+        ))
+        .member(func(
+            "array_len",
+            "__RTS_FN_NS_JSON_ARRAY_LEN",
+            Sig::new(vec![AbiType::U64], AbiType::I64),
+            "array_len(value: number): number",
+            "Number of elements when value is array; -1 otherwise.",
+            __RTS_FN_NS_JSON_ARRAY_LEN as *const u8,
+            true,
+            MemberFlags::NONE,
+        ))
+        .member(func(
+            "array_get",
+            "__RTS_FN_NS_JSON_ARRAY_GET",
+            Sig::new(vec![AbiType::U64, AbiType::I64], AbiType::U64),
+            "array_get(value: number, index: number): number",
+            "Returns a NEW handle to the element at `index`. 0 if out of range.",
+            __RTS_FN_NS_JSON_ARRAY_GET as *const u8,
+            false,
+            MemberFlags::NONE,
+        ))
+        .member(func(
+            "object_get",
+            "__RTS_FN_NS_JSON_OBJECT_GET",
+            Sig::new(vec![AbiType::U64, AbiType::StrPtr], AbiType::U64),
+            "object_get(value: number, key: string): number",
+            "Returns a NEW handle to the property `key`. 0 if missing or non-object.",
+            __RTS_FN_NS_JSON_OBJECT_GET as *const u8,
+            false,
+            MemberFlags::NONE,
+        ))
+        .member(func(
+            "object_has",
+            "__RTS_FN_NS_JSON_OBJECT_HAS",
+            Sig::new(vec![AbiType::U64, AbiType::StrPtr], AbiType::Bool),
+            "object_has(value: number, key: string): boolean",
+            "True when value is an object containing `key`.",
+            __RTS_FN_NS_JSON_OBJECT_HAS as *const u8,
+            true,
+            MemberFlags::NONE,
+        ))
+        .done();
 }
 
 #[cfg(test)]

@@ -324,7 +324,7 @@ fn format_runtime_error_inner(
     is_cause: bool,
 ) -> String {
     use std::fmt::Write as _;
-    use rts_abi::JsErrorKind;
+    use rts_engine::abi::JsErrorKind;
 
     let red = if use_color { "\x1b[1;31m" } else { "" };
     let yellow = if use_color { "\x1b[1;33m" } else { "" };

@@ -1107,18 +1107,13 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     }
                     // Global class instance methods (e.g. Date.getFullYear())
                     if let Some(spec) = crate::abi::global_class_lookup(&class_name) {
-                        // Overload por aridade: prefere o membro cujo numero de
-                        // params (ABI args menos o Handle implicito) casa com os
-                        // args do call. Sem isso, `view.setUint16(o, v, le)`
-                        // (3 args) pegava o overload big-endian de 2 args
-                        // (cross-runtime 57). Cai no primeiro-por-nome se nenhum
-                        // casar exatamente.
+                        // Overload por aridade (alias/variadic/optional-tail) +
+                        // fallback first-by-name — centralizado em
+                        // resolve_instance_method (RTS_ENGINE.md §4.3 / F2b).
+                        // Ex: `view.setUint16(o, v, le)` (3 args) tem que pegar o
+                        // overload de 3 args, nao o big-endian de 2 (cross-runtime 57).
                         let n_call_args = call.args.len();
-                        let member = spec.members.iter().find(|m| {
-                            matches!(m.kind, crate::abi::member::MemberKind::InstanceMethod)
-                                && m.name == method_name
-                                && m.args.len().saturating_sub(1) == n_call_args
-                        }).or_else(|| spec.instance_method(&method_name));
+                        let member = spec.resolve_instance_method(&method_name, n_call_args);
                         if let Some(member) = member {
                             let recv_tv = lower_expr(ctx, &m.obj)?;
                             // (#245) Quando member.args[0] eh F64 (Number/etc.
@@ -2970,8 +2965,8 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     )? {
                         return Ok(tv);
                     }
-                    for spec in crate::abi::GLOBAL_CLASS_SPECS {
-                        if let Some(member) = spec.instance_method(prop_name) {
+                    for spec in crate::abi::registry_classes_ordered() {
+                        if let Some(member) = spec.resolve_instance_method(prop_name, call.args.len()) {
                             let sig = crate::abi::signature::lower_member(member);
                             let f = ctx.get_extern_abi(member.symbol, &sig.params, sig.ret)?;
                             let mut args: Vec<cranelift_codegen::ir::Value> = vec![obj_h];

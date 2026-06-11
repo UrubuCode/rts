@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-rts-abi = { path = "../rts-abi" }
+rts-engine = { path = "../rts-engine" }
 rts-codegen = { path = "../rts-codegen" }
 rts-linker = { path = "../rts-linker" }
 rts-runtime = { path = "../rts-runtime" }

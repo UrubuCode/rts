@@ -1,208 +1,190 @@
-//! `Intl.*` global classes (en, no ICU). Migrado ao modelo `#[rts_class]`
-//! (stage 5) via membros `external` — os externs `__RTS_FN_GL_INTL_*` ficam em
-//! `instance.rs` intactos; o macro deriva apenas os 7 `*_CLASS_SPEC`. Nomes de
-//! classe compostos ("Intl.NumberFormat") via `name = "..."`.
+//! `Intl.*` global classes (en, no ICU). Migrado do `#[rts_class]` (macro) pro
+//! modelo builder hand-written do `rts-engine` (rumo à remoção da `rts-macro`).
+//! Todos os membros são `external` — os externs `__RTS_FN_GL_INTL_*` vivem em
+//! `instance.rs` intactos; aqui só montamos os 7 `register_*_class_spec`. Nomes
+//! de classe compostos ("Intl.NumberFormat") via `e.class("...")`.
 
 pub mod instance;
 
-// All members are `external` (externs live in instance.rs); the type tokens
-// live only in the macro-consumed stubs.
-#[allow(unused_imports)]
-use rts_abi::ty::{Handle, F64, I64};
-use rts_macro::rts_class;
+use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-/// Intl.NumberFormat (en, no ICU).
-#[rts_class(
-    IntlNumberFormat,
-    name = "Intl.NumberFormat",
-    prefix = "INTL_NUMBER_FORMAT",
-    spec = "NUMBER_FORMAT_CLASS_SPEC"
-)]
-impl IntlNumberFormatClass {
-    #[rts_ctor(
-        external,
-        symbol = "__RTS_FN_GL_INTL_NUMBER_FORMAT_NEW",
-        ts = "new Intl.NumberFormat(locale?: string, options?: object): Intl.NumberFormat"
-    )]
-    pub fn new(_locale: Str, _options: Handle) -> Handle {
-        unreachable!()
-    }
-    #[rts_method(
-        external,
-        name = "format",
-        symbol = "__RTS_FN_GL_INTL_NUMBER_FORMAT_FORMAT",
-        ts = "format(value: number): string",
-        pure
-    )]
-    pub fn format(_h: Handle, _value: F64) -> Handle {
-        unreachable!()
+/// Membro de classe global `external` (fn_ptr nulo — o extern vive em
+/// `instance.rs`). Espelha o helper hand-written do `boolean/mod.rs`, adaptado
+/// pra membros sem `fn_ptr` próprio.
+fn m(name: &str, kind: MemberKind, sig: Sig, symbol: &str, ts: &str, pure: bool) -> Member {
+    Member {
+        name: name.to_string(),
+        kind,
+        sig,
+        symbol: symbol.to_string(),
+        fn_ptr: FnPtr(core::ptr::null::<u8>()),
+        flags: MemberFlags::NONE,
+        aliases: Vec::new(),
+        variadic: false,
+        ts_signature: ts.to_string(),
+        doc: String::new(),
+        pure,
+        intrinsic: None,
     }
 }
 
-/// Intl.DateTimeFormat (en, no ICU).
-#[rts_class(
-    IntlDateTimeFormat,
-    name = "Intl.DateTimeFormat",
-    prefix = "INTL_DATE_TIME_FORMAT",
-    spec = "DATE_TIME_FORMAT_CLASS_SPEC"
-)]
-impl IntlDateTimeFormatClass {
-    #[rts_ctor(
-        external,
-        symbol = "__RTS_FN_GL_INTL_DATE_TIME_FORMAT_NEW",
-        ts = "new Intl.DateTimeFormat(locale?: string, options?: object): Intl.DateTimeFormat"
-    )]
-    pub fn new(_locale: Str, _options: Handle) -> Handle {
-        unreachable!()
-    }
-    #[rts_method(
-        external,
-        name = "format",
-        symbol = "__RTS_FN_GL_INTL_DATE_TIME_FORMAT_FORMAT",
-        ts = "format(date: Date): string",
-        pure
-    )]
-    pub fn format(_h: Handle, _date: Handle) -> Handle {
-        unreachable!()
-    }
+/// Intl.NumberFormat (en, no ICU) — Fase 2, hand-written, sem macro.
+pub fn register_number_format_class_spec(e: &mut Engine) {
+    e.class("Intl.NumberFormat")
+        .doc("Intl.NumberFormat (en, no ICU).")
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(vec![AbiType::StrPtr, AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_INTL_NUMBER_FORMAT_NEW",
+            "new Intl.NumberFormat(locale?: string, options?: object): Intl.NumberFormat",
+            false,
+        ))
+        .member(m(
+            "format",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle, AbiType::F64], AbiType::Handle),
+            "__RTS_FN_GL_INTL_NUMBER_FORMAT_FORMAT",
+            "format(value: number): string",
+            true,
+        ))
+        .done();
 }
 
-/// Intl.Collator (en, no ICU).
-#[rts_class(
-    IntlCollator,
-    name = "Intl.Collator",
-    prefix = "INTL_COLLATOR",
-    spec = "COLLATOR_CLASS_SPEC"
-)]
-impl IntlCollatorClass {
-    #[rts_ctor(
-        external,
-        symbol = "__RTS_FN_GL_INTL_COLLATOR_NEW",
-        ts = "new Intl.Collator(locale?: string, options?: object): Intl.Collator"
-    )]
-    pub fn new(_locale: Str, _options: Handle) -> Handle {
-        unreachable!()
-    }
-    #[rts_method(
-        external,
-        name = "compare",
-        symbol = "__RTS_FN_GL_INTL_COLLATOR_COMPARE",
-        ts = "compare(a: string, b: string): number",
-        pure
-    )]
-    pub fn compare(_h: Handle, _a: Str, _b: Str) -> I64 {
-        unreachable!()
-    }
+/// Intl.DateTimeFormat (en, no ICU) — Fase 2, hand-written, sem macro.
+pub fn register_date_time_format_class_spec(e: &mut Engine) {
+    e.class("Intl.DateTimeFormat")
+        .doc("Intl.DateTimeFormat (en, no ICU).")
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(vec![AbiType::StrPtr, AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_INTL_DATE_TIME_FORMAT_NEW",
+            "new Intl.DateTimeFormat(locale?: string, options?: object): Intl.DateTimeFormat",
+            false,
+        ))
+        .member(m(
+            "format",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_INTL_DATE_TIME_FORMAT_FORMAT",
+            "format(date: Date): string",
+            true,
+        ))
+        .done();
 }
 
-/// Intl.Segmenter (en, no ICU).
-#[rts_class(
-    IntlSegmenter,
-    name = "Intl.Segmenter",
-    prefix = "INTL_SEGMENTER",
-    spec = "SEGMENTER_CLASS_SPEC"
-)]
-impl IntlSegmenterClass {
-    #[rts_ctor(
-        external,
-        symbol = "__RTS_FN_GL_INTL_SEGMENTER_NEW",
-        ts = "new Intl.Segmenter(locale?: string, options?: object): Intl.Segmenter"
-    )]
-    pub fn new(_locale: Str, _options: Handle) -> Handle {
-        unreachable!()
-    }
-    #[rts_method(
-        external,
-        name = "segment",
-        symbol = "__RTS_FN_GL_INTL_SEGMENTER_SEGMENT",
-        ts = "segment(input: string): Iterable<{segment: string; isWordLike: boolean}>",
-        pure
-    )]
-    pub fn segment(_h: Handle, _input: Str) -> Handle {
-        unreachable!()
-    }
+/// Intl.Collator (en, no ICU) — Fase 2, hand-written, sem macro.
+pub fn register_collator_class_spec(e: &mut Engine) {
+    e.class("Intl.Collator")
+        .doc("Intl.Collator (en, no ICU).")
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(vec![AbiType::StrPtr, AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_INTL_COLLATOR_NEW",
+            "new Intl.Collator(locale?: string, options?: object): Intl.Collator",
+            false,
+        ))
+        .member(m(
+            "compare",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle, AbiType::StrPtr, AbiType::StrPtr], AbiType::I64),
+            "__RTS_FN_GL_INTL_COLLATOR_COMPARE",
+            "compare(a: string, b: string): number",
+            true,
+        ))
+        .done();
 }
 
-/// Intl.PluralRules (en, no ICU).
-#[rts_class(
-    IntlPluralRules,
-    name = "Intl.PluralRules",
-    prefix = "INTL_PLURAL_RULES",
-    spec = "PLURAL_RULES_CLASS_SPEC"
-)]
-impl IntlPluralRulesClass {
-    #[rts_ctor(
-        external,
-        symbol = "__RTS_FN_GL_INTL_PLURAL_RULES_NEW",
-        ts = "new Intl.PluralRules(locale?: string, options?: object): Intl.PluralRules"
-    )]
-    pub fn new(_locale: Str, _options: Handle) -> Handle {
-        unreachable!()
-    }
-    #[rts_method(
-        external,
-        name = "select",
-        symbol = "__RTS_FN_GL_INTL_PLURAL_RULES_SELECT",
-        ts = "select(n: number): string",
-        pure
-    )]
-    pub fn select(_h: Handle, _n: F64) -> Handle {
-        unreachable!()
-    }
+/// Intl.Segmenter (en, no ICU) — Fase 2, hand-written, sem macro.
+pub fn register_segmenter_class_spec(e: &mut Engine) {
+    e.class("Intl.Segmenter")
+        .doc("Intl.Segmenter (en, no ICU).")
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(vec![AbiType::StrPtr, AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_INTL_SEGMENTER_NEW",
+            "new Intl.Segmenter(locale?: string, options?: object): Intl.Segmenter",
+            false,
+        ))
+        .member(m(
+            "segment",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Handle),
+            "__RTS_FN_GL_INTL_SEGMENTER_SEGMENT",
+            "segment(input: string): Iterable<{segment: string; isWordLike: boolean}>",
+            true,
+        ))
+        .done();
 }
 
-/// Intl.ListFormat (en, no ICU).
-#[rts_class(
-    IntlListFormat,
-    name = "Intl.ListFormat",
-    prefix = "INTL_LIST_FORMAT",
-    spec = "LIST_FORMAT_CLASS_SPEC"
-)]
-impl IntlListFormatClass {
-    #[rts_ctor(
-        external,
-        symbol = "__RTS_FN_GL_INTL_LIST_FORMAT_NEW",
-        ts = "new Intl.ListFormat(locale?: string, options?: object): Intl.ListFormat"
-    )]
-    pub fn new(_locale: Str, _options: Handle) -> Handle {
-        unreachable!()
-    }
-    #[rts_method(
-        external,
-        name = "format",
-        symbol = "__RTS_FN_GL_INTL_LIST_FORMAT_FORMAT",
-        ts = "format(items: string[]): string",
-        pure
-    )]
-    pub fn format(_h: Handle, _items: Handle) -> Handle {
-        unreachable!()
-    }
+/// Intl.PluralRules (en, no ICU) — Fase 2, hand-written, sem macro.
+pub fn register_plural_rules_class_spec(e: &mut Engine) {
+    e.class("Intl.PluralRules")
+        .doc("Intl.PluralRules (en, no ICU).")
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(vec![AbiType::StrPtr, AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_INTL_PLURAL_RULES_NEW",
+            "new Intl.PluralRules(locale?: string, options?: object): Intl.PluralRules",
+            false,
+        ))
+        .member(m(
+            "select",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle, AbiType::F64], AbiType::Handle),
+            "__RTS_FN_GL_INTL_PLURAL_RULES_SELECT",
+            "select(n: number): string",
+            true,
+        ))
+        .done();
 }
 
-/// Intl.RelativeTimeFormat (en, no ICU).
-#[rts_class(
-    IntlRelativeTimeFormat,
-    name = "Intl.RelativeTimeFormat",
-    prefix = "INTL_RELATIVE_TIME_FORMAT",
-    spec = "RELATIVE_TIME_FORMAT_CLASS_SPEC"
-)]
-impl IntlRelativeTimeFormatClass {
-    #[rts_ctor(
-        external,
-        symbol = "__RTS_FN_GL_INTL_RELATIVE_TIME_FORMAT_NEW",
-        ts = "new Intl.RelativeTimeFormat(locale?: string, options?: object): Intl.RelativeTimeFormat"
-    )]
-    pub fn new(_locale: Str, _options: Handle) -> Handle {
-        unreachable!()
-    }
-    #[rts_method(
-        external,
-        name = "format",
-        symbol = "__RTS_FN_GL_INTL_RELATIVE_TIME_FORMAT_FORMAT",
-        ts = "format(value: number, unit: string): string",
-        pure
-    )]
-    pub fn format(_h: Handle, _value: F64, _unit: Str) -> Handle {
-        unreachable!()
-    }
+/// Intl.ListFormat (en, no ICU) — Fase 2, hand-written, sem macro.
+pub fn register_list_format_class_spec(e: &mut Engine) {
+    e.class("Intl.ListFormat")
+        .doc("Intl.ListFormat (en, no ICU).")
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(vec![AbiType::StrPtr, AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_INTL_LIST_FORMAT_NEW",
+            "new Intl.ListFormat(locale?: string, options?: object): Intl.ListFormat",
+            false,
+        ))
+        .member(m(
+            "format",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_INTL_LIST_FORMAT_FORMAT",
+            "format(items: string[]): string",
+            true,
+        ))
+        .done();
+}
+
+/// Intl.RelativeTimeFormat (en, no ICU) — Fase 2, hand-written, sem macro.
+pub fn register_relative_time_format_class_spec(e: &mut Engine) {
+    e.class("Intl.RelativeTimeFormat")
+        .doc("Intl.RelativeTimeFormat (en, no ICU).")
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(vec![AbiType::StrPtr, AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_INTL_RELATIVE_TIME_FORMAT_NEW",
+            "new Intl.RelativeTimeFormat(locale?: string, options?: object): Intl.RelativeTimeFormat",
+            false,
+        ))
+        .member(m(
+            "format",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle, AbiType::F64, AbiType::StrPtr], AbiType::Handle),
+            "__RTS_FN_GL_INTL_RELATIVE_TIME_FORMAT_FORMAT",
+            "format(value: number, unit: string): string",
+            true,
+        ))
+        .done();
 }

@@ -15,7 +15,7 @@ pub mod lower;
 
 pub use lower::lower_mir_func;
 
-use rts_abi::{AbiType, Intrinsic};
+use rts_engine::abi::{AbiType, Intrinsic};
 use rts_hir::ir::HirType;
 use rts_mir::lower::IntrinsicTag;
 

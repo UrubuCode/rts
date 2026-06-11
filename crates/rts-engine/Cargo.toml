@@ -1,0 +1,19 @@
+[package]
+name = "rts-engine"
+version = "0.1.0"
+edition = "2024"
+
+# rts-engine — o núcleo cru do RTS: o vocabulário ABI (`abi`, antes o crate
+# `rts-abi`) + o registry + o builder que o codegen consome. As camadas
+# (rts-std, rts-node, rts-browser) registram a sua superfície aqui via o builder.
+# Substitui o modelo de const-tables + proc-macro (rts-macro).
+[dependencies]
+# O heap GC tipado (Entry/HandleTable) migrou pro motor (Fase 1a da partição).
+# Os payloads do Entry puxam estas libs — TEMP até a Fase 2 (Entry::Backend(dyn
+# Traceable) devolve os payloads backend pro rts-std e limpa rustls daqui).
+indexmap = "2.14.0"
+regex = "1"
+fancy-regex = "0.13"
+serde_json = { version = "1.0", features = ["preserve_order"] }
+sha2 = "0.10"
+rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }

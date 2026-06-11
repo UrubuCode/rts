@@ -35,7 +35,7 @@ const TRAP_UNSUPPORTED_STMT: u16 = 0x10;
 /// SPECS table.
 pub type ExternResolver<'r> = &'r dyn Fn(&str, &str) -> Option<(String, Vec<HirType>, HirType)>;
 
-/// Tag identifying an inlinable intrinsic operation. Mirrors `rts_abi::Intrinsic`
+/// Tag identifying an inlinable intrinsic operation. Mirrors `rts_engine::abi::Intrinsic`
 /// without depending on it directly so users without rts-abi can still drive
 /// the lowering. The codegen translates each tag into native Cranelift IR
 /// (sqrt, fabs, fmin, fmax, etc.) instead of a `call` instruction.

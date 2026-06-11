@@ -33,7 +33,7 @@ fn lower_stream_method(
     // mas o controller spec ja cobre a aridade 1 (receiver only) corretamente).
     let spec = crate::abi::global_class_lookup("ReadableStreamDefaultController");
     if let Some(spec) = spec {
-        if let Some(member) = spec.instance_method(prop) {
+        if let Some(member) = spec.resolve_instance_method(prop, call.args.len()) {
             let tv = super::ns_call::lower_global_instance_call(ctx, member, obj_h, call)?;
             return Ok(Some(tv));
         }

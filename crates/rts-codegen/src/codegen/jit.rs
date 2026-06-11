@@ -138,6 +138,13 @@ fn register_runtime_symbols(jit: &mut JITBuilder) {
     for (name, ptr) in runtime_symbol_table() {
         jit.symbol(name, ptr);
     }
+    // F4: símbolos de módulos registrados em runtime (via o builder do
+    // `rts-engine` / módulos externos). Vazio até algo registrar; quando a Fase 2
+    // migrar uma namespace pro builder, suas fns resolvem por aqui em vez do
+    // `add_fn!` acima.
+    for (name, ptr) in crate::abi::runtime_jit_symbols() {
+        jit.symbol(name, ptr);
+    }
 }
 
 /// Returns `(symbol, ptr)` tuples for every runtime symbol the JIT needs.
@@ -2661,8 +2668,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     #[cfg(debug_assertions)]
     {
         use std::collections::HashSet;
-        use crate::abi::SPECS;
-        let spec_syms: HashSet<&str> = SPECS
+        // Registry (const seed + builder/Fase 2), não o const `SPECS` (só gc +
+        // collections hoje) — senão o diagnóstico ignora as ns migradas.
+        let specs = crate::abi::registry_specs_ordered();
+        let spec_syms: HashSet<&str> = specs
             .iter()
             .flat_map(|s| s.members.iter().map(|m| m.symbol))
             .collect();

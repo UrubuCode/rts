@@ -69,15 +69,17 @@ pub fn command(project_name_arg: Option<String>) -> Result<()> {
 /// The file is a single `declare module "rts"` with one nested namespace per
 /// registered SPEC plus the primitive type aliases expected by user code.
 fn emit_rts_dts(path: &Path) -> Result<()> {
-    use crate::abi::SPECS;
     use crate::abi::member::MemberKind;
+    use crate::abi::registry_specs_ordered;
 
     let mut out = String::from("declare module \"rts\" {\n");
     out.push_str(
         "  export type i8 = number;\n  export type u8 = number;\n  export type i16 = number;\n  export type u16 = number;\n  export type i32 = number;\n  export type u32 = number;\n  export type i64 = number;\n  export type u64 = number;\n  export type isize = number;\n  export type usize = number;\n  export type f32 = number;\n  export type f64 = number;\n  export type bool = boolean;\n  export type str = string;\n\n",
     );
 
-    for spec in SPECS {
+    // Registry (const seed + builder/Fase 2), não o const `SPECS` (só gc +
+    // collections hoje).
+    for spec in registry_specs_ordered() {
         out.push_str(&format!("  /** {} */\n", spec.doc));
         out.push_str(&format!("  export namespace {} {{\n", spec.name));
         for member in spec.members {
@@ -89,7 +91,12 @@ fn emit_rts_dts(path: &Path) -> Result<()> {
                 MemberKind::Constant => {
                     out.push_str(&format!("    export const {};\n", member.ts_signature));
                 }
-                MemberKind::InstanceMethod | MemberKind::StaticMethod | MemberKind::InstanceGetter => {}
+                MemberKind::InstanceMethod
+                | MemberKind::StaticMethod
+                | MemberKind::InstanceGetter
+                | MemberKind::InstanceSetter
+                | MemberKind::VarGetter
+                | MemberKind::VarSetter => {}
             }
         }
         out.push_str("  }\n\n");

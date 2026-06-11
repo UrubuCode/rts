@@ -1,11 +1,11 @@
 //! `Boolean` global class (#208 #226) — coercao truthy/falsy + toString/valueOf.
 //!
-//! Migrado ao modelo `#[rts_class]` (stage 5, `docs/specs/rts-core-engine.md`):
-//! um unico `impl` declara construtores, static e instance methods; o macro
-//! deriva os externs `__RTS_FN_GL_BOOLEAN_*` + o `BOOLEAN_CLASS_SPEC`.
+//! Migrado do `#[rts_class]` (macro) pro modelo builder hand-written do
+//! `rts-engine` (rumo à remoção da `rts-macro`). Os externs
+//! `__RTS_FN_GL_BOOLEAN_*` + `register_boolean_class_spec()` são escritos à mão.
 
-use rts_abi::ty::{Bool, Handle, I64};
-use rts_macro::rts_class;
+use rts_engine::abi::ty::{Bool, Handle, I64};
+use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
 
@@ -31,65 +31,146 @@ fn unbox_bool(recv: i64) -> bool {
     recv != 0
 }
 
-/// Built-in Boolean primitive (#208 #226). Boolean(x) coerces any value to boolean.
-#[rts_class(Boolean)]
-impl BooleanClass {
-    /// new Boolean(value) — boxed boolean object. typeof === 'object'.
-    #[rts_ctor(ts = "new(value: any): Boolean", pure)]
-    pub fn new(value: I64) -> Handle {
-        let b = value != 0 && value != UNDEFINED_SENTINEL;
-        alloc_entry(Entry::BooleanBox(b))
-    }
+/// new Boolean(value) — boxed boolean object. typeof === 'object'.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_BOOLEAN_NEW(value: I64) -> Handle {
+    let b = value != 0 && value != UNDEFINED_SENTINEL;
+    alloc_entry(Entry::BooleanBox(b))
+}
 
-    /// new Boolean() — boxed Boolean(false).
-    #[rts_ctor(ts = "new(): Boolean", pure)]
-    pub fn new_empty() -> Handle {
-        alloc_entry(Entry::BooleanBox(false))
-    }
+/// new Boolean() — boxed Boolean(false).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_BOOLEAN_NEW_EMPTY() -> Handle {
+    alloc_entry(Entry::BooleanBox(false))
+}
 
-    /// Coerces any value to boolean (truthy/falsy). 0 / NaN bits / undefined sentinel → false.
-    #[rts_fn(ts = "coerce(value: any): boolean", pure)]
-    pub fn coerce(value: I64) -> I64 {
-        // (cross-runtime #1069) Sentinels JS — todos falsy.
-        if value == 0
-            || value == FALSE_SENTINEL
-            || value == UNDEFINED_SENTINEL
-            || value == NULL_SENTINEL
-        {
+/// Coerces any value to boolean (truthy/falsy). 0 / NaN bits / undefined sentinel → false.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_BOOLEAN_COERCE(value: I64) -> I64 {
+    // (cross-runtime #1069) Sentinels JS — todos falsy.
+    if value == 0
+        || value == FALSE_SENTINEL
+        || value == UNDEFINED_SENTINEL
+        || value == NULL_SENTINEL
+    {
+        return 0;
+    }
+    // String handle vazio: detectar Entry::String len==0. NaN check
+    // omitido — f64::from_bits sobre i64 negativo (ex: -1) tambem
+    // produz NaN e classificaria incorretamente i64 puro negativo.
+    if value > 0 {
+        let h = value as u64;
+        let is_empty_str = with_entry(h, |e| match e {
+            Some(Entry::String(b)) => Some(b.is_empty()),
+            _ => None,
+        });
+        if matches!(is_empty_str, Some(true)) {
             return 0;
         }
-        // String handle vazio: detectar Entry::String len==0. NaN check
-        // omitido — f64::from_bits sobre i64 negativo (ex: -1) tambem
-        // produz NaN e classificaria incorretamente i64 puro negativo.
-        if value > 0 {
-            let h = value as u64;
-            let is_empty_str = with_entry(h, |e| match e {
-                Some(Entry::String(b)) => Some(b.is_empty()),
-                _ => None,
-            });
-            if matches!(is_empty_str, Some(true)) {
-                return 0;
-            }
-        }
+    }
+    1
+}
+
+/// Returns 'true' or 'false' string handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_BOOLEAN_TO_STRING(b: I64) -> Handle {
+    let s: &[u8] = if unbox_bool(b) { b"true" } else { b"false" };
+    crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64)
+}
+
+/// Returns the underlying boolean value.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_BOOLEAN_VALUE_OF(b: I64) -> Bool {
+    if unbox_bool(b) {
         1
+    } else {
+        0
     }
+}
 
-    /// Returns 'true' or 'false' string handle.
-    #[rts_method(name = "toString", ts = "toString(): string", pure)]
-    pub fn to_string(b: I64) -> Handle {
-        let s: &[u8] = if unbox_bool(b) { b"true" } else { b"false" };
-        crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64)
+/// Membro de classe global (helper hand-written, espelha `leak_class` da macro).
+#[allow(clippy::too_many_arguments)]
+fn m(
+    name: &str,
+    kind: MemberKind,
+    sig: Sig,
+    symbol: &str,
+    ts: &str,
+    doc: &str,
+    fp: *const u8,
+    pure: bool,
+) -> Member {
+    Member {
+        name: name.to_string(),
+        kind,
+        sig,
+        symbol: symbol.to_string(),
+        fn_ptr: FnPtr(fp),
+        flags: MemberFlags::NONE,
+        aliases: Vec::new(),
+        variadic: false,
+        ts_signature: ts.to_string(),
+        doc: doc.to_string(),
+        pure,
+        intrinsic: None,
     }
+}
 
-    /// Returns the underlying boolean value.
-    #[rts_method(name = "valueOf", ts = "valueOf(): boolean", pure)]
-    pub fn value_of(b: I64) -> Bool {
-        if unbox_bool(b) {
-            1
-        } else {
-            0
-        }
-    }
+/// Registra a classe global `Boolean` no motor (Fase 2 — hand-written, sem macro).
+pub fn register_boolean_class_spec(e: &mut Engine) {
+    e.class("Boolean")
+        .doc("Built-in Boolean primitive (#208 #226). Boolean(x) coerces any value to boolean.")
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(vec![AbiType::I64], AbiType::Handle),
+            "__RTS_FN_GL_BOOLEAN_NEW",
+            "new(value: any): Boolean",
+            "new Boolean(value) — boxed boolean object. typeof === 'object'.",
+            __RTS_FN_GL_BOOLEAN_NEW as *const u8,
+            true,
+        ))
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(Vec::new(), AbiType::Handle),
+            "__RTS_FN_GL_BOOLEAN_NEW_EMPTY",
+            "new(): Boolean",
+            "new Boolean() — boxed Boolean(false).",
+            __RTS_FN_GL_BOOLEAN_NEW_EMPTY as *const u8,
+            true,
+        ))
+        .member(m(
+            "coerce",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::I64], AbiType::I64),
+            "__RTS_FN_GL_BOOLEAN_COERCE",
+            "coerce(value: any): boolean",
+            "Coerces any value to boolean (truthy/falsy). 0 / NaN bits / undefined sentinel → false.",
+            __RTS_FN_GL_BOOLEAN_COERCE as *const u8,
+            true,
+        ))
+        .member(m(
+            "toString",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::I64], AbiType::Handle),
+            "__RTS_FN_GL_BOOLEAN_TO_STRING",
+            "toString(): string",
+            "Returns 'true' or 'false' string handle.",
+            __RTS_FN_GL_BOOLEAN_TO_STRING as *const u8,
+            true,
+        ))
+        .member(m(
+            "valueOf",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::I64], AbiType::Bool),
+            "__RTS_FN_GL_BOOLEAN_VALUE_OF",
+            "valueOf(): boolean",
+            "Returns the underlying boolean value.",
+            __RTS_FN_GL_BOOLEAN_VALUE_OF as *const u8,
+            true,
+        ))
+        .done();
 }
 
 #[cfg(test)]
