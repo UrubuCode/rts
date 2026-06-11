@@ -4,7 +4,7 @@
 
 pub use rts_std::globals::abort;
 pub use rts_shared::globals::bigint;
-pub mod blob;
+pub use rts_std::globals::blob;
 pub mod dataview;
 pub use rts_shared::globals::dom_exception;
 pub use rts_std::globals::event_target;
@@ -25,7 +25,7 @@ pub use rts_shared::globals::json5;
 pub use rts_std::globals::message_channel;
 pub use rts_std::globals::performance;
 pub use rts_shared::globals::proxy;
-pub mod readable_stream;
+pub use rts_std::globals::readable_stream;
 pub use rts_shared::globals::reflect;
 pub use rts_shared::globals::regexp;
 pub use rts_shared::globals::string;

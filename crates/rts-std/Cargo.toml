@@ -16,6 +16,8 @@ rts-engine = { path = "../rts-engine" }
 rts-shared = { path = "../rts-shared" }
 indexmap = "2.14.0"
 rayon = "1.10"
+sha2 = "0.10"
+flate2 = "1.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 actix-web = { version = "4", default-features = false, features = ["macros"] }
 actix-rt = "2"

@@ -13,7 +13,7 @@ use indexmap::IndexMap;
 use rts_engine::abi::ty::{Handle, I64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
+use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
 
 /// Concatena os bytes de cada parte (Vec de handles de elemento).
 fn concat_parts(parts_h: u64) -> Vec<u8> {
@@ -101,7 +101,7 @@ pub extern "C" fn __RTS_FN_GL_BLOB_TEXT(h: Handle) -> Handle {
     });
     let s = String::from_utf8_lossy(&bytes).into_owned();
     let str_h = alloc_entry(Entry::String(s.into_bytes()));
-    let slot = crate::namespaces::gc::promise_slot::new_fulfilled(str_h as i64);
+    let slot = crate::promise_slot::new_fulfilled(str_h as i64);
     alloc_entry(Entry::PromiseAsync(slot))
 }
 

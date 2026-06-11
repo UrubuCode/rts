@@ -4,10 +4,10 @@
 //! (`start` callback / `transform`) enqueues chunks before any `read()` runs,
 //! so `read()` can resolve a Promise immediately with the next buffered chunk.
 
-use crate::namespaces::gc::handles::{
+use rts_engine::heap::handles::{
     alloc_entry, with_entry, with_entry_mut, Entry, FunctionData,
 };
-use crate::namespaces::gc::promise_slot;
+use crate::promise_slot;
 use indexmap::IndexMap;
 
 const UNDEFINED: i64 = i64::MIN + 2;

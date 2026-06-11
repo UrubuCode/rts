@@ -2779,11 +2779,13 @@ dependencies = [
  "actix-rt",
  "actix-web",
  "cpal",
+ "flate2",
  "indexmap",
  "rayon",
  "rts-engine",
  "rts-shared",
  "rustls",
+ "sha2 0.10.9",
  "tokio",
  "webpki-roots 1.0.6",
 ]

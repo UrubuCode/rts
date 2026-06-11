@@ -17,7 +17,7 @@ pub use rts_shared::trace;
 pub use rts_shared::bigfloat;
 pub use rts_shared::buffer;
 pub use rts_shared::collections;
-pub mod crypto;
+pub use rts_std::crypto;
 pub use rts_shared::date;
 pub use rts_std::env;
 pub use rts_std::events;

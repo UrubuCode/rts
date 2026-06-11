@@ -18,3 +18,5 @@ pub mod abort;
 pub mod events;
 pub mod text_encoding;
 pub mod timers;
+pub mod blob;
+pub mod readable_stream;

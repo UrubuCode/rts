@@ -11,7 +11,7 @@ use rts_engine::abi::ty::{Handle, I64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 use sha2::Digest;
 
-use crate::namespaces::gc::handles::{Entry, HasherState, alloc_entry, with_entry, with_entry_mut};
+use rts_engine::heap::handles::{Entry, HasherState, alloc_entry, with_entry, with_entry_mut};
 
 unsafe extern "C" {
     fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
@@ -245,7 +245,7 @@ pub extern "C" fn __RTS_FN_NS_CRYPTO_SHA256_DIGEST(src: u64) -> u64 {
     });
     let digest = sha256(&bytes);
     let buf_h = alloc_entry(Entry::Buffer(digest.to_vec())) as i64;
-    let slot = crate::namespaces::gc::promise_slot::new_fulfilled(buf_h);
+    let slot = crate::promise_slot::new_fulfilled(buf_h);
     alloc_entry(Entry::PromiseAsync(slot))
 }
 

@@ -221,10 +221,15 @@ target/release/rts.exe compile -p f.ts out.exe; ./out.exe # AOT
    std + gc::handles→engine) → rts-std/src/globals/timers; time (ns, usa timers::pump_until) →
    rts-std/src/time. Suite 1710/1710; smoke perf.now JIT==AOT OK (setTimeout macrotask drena só em
    JIT — AOT sem event loop, ver project_aot_no_microtask_drain).
-   ⏳ FALTAM: fetch (ureq + promise_slot[std] + text_encoding[std] + headers/blob) · crypto (sha2 +
-   promise_slot[std]) · blob+readable_stream (flate2 + promise_slot[std]) · promise (promise_slot[std]
-   + text_encoding microtasks[std] + generator[runtime via extern]). Todos com deps std-direction OK
-   agora; mover incremental. promise pode precisar generator externs.
+~~6b. crypto + blob + readable_stream → rts-std~~ ✅ FEITO. Só gc::handles→engine + gc::promise_slot
+   →crate::promise_slot (já em std). Cargo rts-std += sha2 + flate2. Suite 1710/1710; AOT smoke
+   (crypto.random_uuid + Blob.size, JIT==AOT) OK.
+   ⏳ FALTAM: **fetch** (ureq + serde_json + promise_slot[std] + text_encoding[std] + headers/blob —
+   só gc::handles→engine + promise_slot/text_encoding→crate; precisa ureq dep) · **promise**
+   (promise_slot[std] + text_encoding microtasks[std] + gc::generator[runtime] + gc::error + function::
+   ops[shared] + crate::runtime). promise usa generator (pub fns no collector/runtime) → checar se são
+   extern-able ou se precisa wrapper como async_sm_resume. gc::error: ERROR_SET/GET/CLEAR são extern;
+   stack_for_handle já no engine. fetch é o próximo fácil; promise é o último (generator coupling).
 6. **promise + parallel + crypto + promise_slot** juntos (globals+promise_slot resolvidos).
    promise_slot sai do collector. Gate + AOT.
 7. **Dissolver rts-runtime; collector/ → rts-std.** Gate final + AOT + atualizar WORKING.md.
