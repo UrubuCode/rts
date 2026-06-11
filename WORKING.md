@@ -380,11 +380,16 @@ primeiro, split do `Entry` depois; (2) heap fica DENTRO do `rts-engine`.
             Mecanismo provado: facade `rts-runtime::namespaces::<ns>=pub use
             rts_std::<ns>` → register_builtins/jit.rs/codegen INTOCADOS;
             rts-runtime→rts-std→engine acíclico; externs do std exportam no AOT.
-      - [ ] **Backend "needs-fix"**: converter refs de MÓDULO
-            `crate::namespaces::gc::string_pool`/`globals`/`collections` → `extern
-            "C"{}` (symbol-link, como net/crypto/buffer já fazem), depois mover:
-            fs(2)/net(1)/process(1)/time(1)/tls(1)/http_server(1)/thread(2)/
-            crypto(2)/parallel(4)/sync(1)/atomic(1)/ffi(1) → rts-std.
+      - [x] **Backend std-only/extern-decl → rts-std** ✅ (`82d81733` net/process/
+            sync/atomic/ffi; `fc56a9e5` fs[extern-decl STRING_NEW]+tls[rustls]).
+            Fix padrão: `gc::handles`→`rts_engine::heap::handles`; gc-surface em
+            runtime → `extern "C"{}`. **rts-std = 14 ns** (audio/asio_audio/io/os/
+            env/runtime/test/net/process/sync/atomic/ffi/fs/tls).
+      - [ ] **Backend async/globals-coupled** (próximo, mais acoplado): mover
+            `runtime/` (async_rt+tokio_ctx → rts-std/engine) PRIMEIRO — é usado por
+            thread/http_server/promise/parallel/fetch via `crate::runtime::async_rt`.
+            Depois thread(tokio)/http_server(actix+tokio)/crypto(promise_slot)/
+            parallel(globals/collections)/time(globals::timers) → rts-std.
       - [ ] **`rts-shared`** (engine): pure-compute (math/num/fmt/hash/mem/ptr/hint/
             alloc/path/bigfloat/buffer/regex/date/events/collections) + globais
             universais. ⚠️ shared NÃO pode depender de std (verificar antes).
