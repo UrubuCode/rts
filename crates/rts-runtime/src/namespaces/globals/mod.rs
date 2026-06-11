@@ -14,7 +14,7 @@ pub use rts_std::globals::console;
 pub use rts_shared::globals::date;
 pub use rts_shared::globals::number;
 pub use rts_shared::globals::error;
-pub mod events;
+pub use rts_std::globals::events;
 pub mod fetch;
 pub use rts_shared::globals::function;
 pub use rts_shared::globals::global_this;

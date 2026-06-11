@@ -20,7 +20,7 @@ pub use rts_shared::collections;
 pub mod crypto;
 pub use rts_shared::date;
 pub use rts_std::env;
-pub mod events;
+pub use rts_std::events;
 pub use rts_shared::fmt;
 pub use rts_std::ffi;
 pub use rts_std::fs;

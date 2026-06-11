@@ -2780,6 +2780,7 @@ dependencies = [
  "actix-web",
  "cpal",
  "indexmap",
+ "rayon",
  "rts-engine",
  "rustls",
  "tokio",

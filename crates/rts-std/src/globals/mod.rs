@@ -15,3 +15,4 @@ pub mod form_data;
 pub mod event_target;
 pub mod message_channel;
 pub mod abort;
+pub mod events;

@@ -19,4 +19,5 @@ pub mod fs;
 pub mod tls;
 pub mod thread;
 pub mod http_server;
+pub mod events;
 pub mod globals;

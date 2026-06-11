@@ -196,7 +196,23 @@ target/release/rts.exe compile -p f.ts out.exe; ./out.exe # AOT
    **readable_stream** (promise_slot::new_fulfilled + flate2 dep). Movem quando text_encoding +
    promise_slot saírem (steps 5/6). NB: abort() no-arg tem arity strict pré-existente (spec pede
    reason); `abort("x")` ok.
-5. **events + time → rts-std.** Gate.
+5. **events + time → rts-std.** PARCIAL.
+   ~~events (ns + global EventEmitter)~~ ✅ FEITO → rts-std/src/events + globals/events. Só
+   gc::handles→engine; ns events usa crate::runtime::async_rt (já em std); global usa rayon
+   (Cargo rts-std += rayon). Suite 1710/1710; AOT smoke (EE on/emit/listenerCount, JIT==AOT) OK.
+   NB pré-existente: listener com closure CAPTURANTE crasha (EE_EMIT transmuta p/ extern fn(f64);
+   precisa fn nomeada não-capturante — suite usa esse padrão).
+   ⏳ **time** DEFERIDO: usa globals::timers::pump_until (timers ainda no runtime, bloqueado por
+   text_encoding). Move com timers.
+
+   ⚠️ DESCOBERTA (mapeamento step 6): text_encoding + promise_slot NÃO movem isolados nem só com
+   consumers — text_encoding::drain_microtasks chama `gc::generator::async_sm_resume` (pub fn no
+   collector/runtime). rts-std não pode depender de rts-runtime (ciclo). Logo o GRUPO async
+   (text_encoding + promise_slot + promise + generator + crypto + blob + readable_stream + timers +
+   time) tem que mover JUNTO pro rts-std — efetivamente fundir steps 5-tail/6/7. generator/string_pool/
+   error/collector (gc-surface) saem do collector p/ rts-std no mesmo movimento. rts-std += rts-shared
+   dep (collections::map + function::ops::invoke_fn_ptr_with_registry, ambos em shared). Sem ciclo
+   (shared não depende de std). É o grande move final — fazer em sessão dedicada.
 6. **promise + parallel + crypto + promise_slot** juntos (globals+promise_slot resolvidos).
    promise_slot sai do collector. Gate + AOT.
 7. **Dissolver rts-runtime; collector/ → rts-std.** Gate final + AOT + atualizar WORKING.md.
