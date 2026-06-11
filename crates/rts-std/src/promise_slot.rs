@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 use tokio::sync::oneshot;
 
-use super::handles::PromiseSlot;
+use rts_engine::heap::handles::PromiseSlot;
 
 /// State numerico do PromiseSlot.
 pub const STATE_PENDING: u8 = 0;

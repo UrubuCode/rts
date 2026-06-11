@@ -1,4 +1,4 @@
-use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
+use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
 
 fn str_from_parts(ptr: i64, len: i64) -> &'static str {
     if ptr == 0 || len == 0 {
@@ -133,7 +133,7 @@ fn clone_handle_deep(handle: u64, visited: &mut std::collections::HashMap<u64, u
             _ => None,
         });
         if let Some((src, flags)) = rx_info {
-            let new_h = crate::namespaces::regex::__RTS_FN_NS_REGEX_COMPILE(
+            let new_h = rts_shared::regex::__RTS_FN_NS_REGEX_COMPILE(
                 src.as_ptr(),
                 src.len() as i64,
                 flags.as_ptr(),
@@ -161,11 +161,11 @@ fn clone_handle_deep(handle: u64, visited: &mut std::collections::HashMap<u64, u
     let new_h = alloc_entry(entry);
     visited.insert(handle, new_h);
     // Preserva kind flags
-    if crate::namespaces::collections::map::handle_is_set_kind(handle) {
-        crate::namespaces::collections::map::mark_set_kind(new_h);
+    if rts_shared::collections::map::handle_is_set_kind(handle) {
+        rts_shared::collections::map::mark_set_kind(new_h);
     }
     // Deep clone de slots que sao handles a estruturas clonaveis.
-    use crate::namespaces::gc::handles::with_entry_mut;
+    use rts_engine::heap::handles::with_entry_mut;
     let _ = with_entry_mut(new_h, |entry| match entry {
         Some(Entry::Map(m)) => {
             let pairs: Vec<(String, i64)> = m.iter().map(|(k, v)| (k.clone(), *v)).collect();
@@ -243,7 +243,7 @@ pub(crate) enum Microtask {
         bound: Vec<i64>,
         value: i64,
         fulfilled: bool,
-        result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+        result_slot: std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
     },
     /// promise.finally(fp) fast-path: invoca fp() sem args, preserva state/value
     /// original (resolve com value se fulfilled, reject se rejected).
@@ -251,7 +251,7 @@ pub(crate) enum Microtask {
         fn_ptr: u64,
         value: i64,
         fulfilled: bool,
-        result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+        result_slot: std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
     },
     /// (#207) Promise.then sobre promise PENDING — em vez de spawn_blocking
     /// (thread nao-deterministica), faz polling na microtask queue: a cada
@@ -259,11 +259,11 @@ pub(crate) enum Microtask {
     /// invoca o callback e settle o result. Preserva ordem FIFO determinista
     /// (JS spec) entre chains de Promise no mesmo task sync.
     PendingThen {
-        source: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+        source: std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
         fn_ptr: u64,
         bound: Vec<i64>,
         is_catch: bool,
-        result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+        result_slot: std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
     },
     /// (cross-runtime #393/#116) `.then(onFul, onRej)` instance sobre source
     /// PENDING — variante 2-callback do PendingThen. Quando a source settla:
@@ -272,17 +272,17 @@ pub(crate) enum Microtask {
     /// spawn_blocking nao-deterministico do path instance, dando interleaving
     /// FIFO correto entre chains (`.then().then()`).
     PendingThen2 {
-        source: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+        source: std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
         on_ful: u64,
         on_rej: u64,
-        result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+        result_slot: std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
     },
     /// (#207) promise.finally sobre source PENDING — polling determinista.
     /// Quando settle, invoca fp() sem args e PRESERVA state/value original.
     PendingFinally {
-        source: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+        source: std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
         fn_ptr: u64,
-        result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+        result_slot: std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
     },
     /// (#207 async-SM) Retomada de uma `async function` suspensa em `await`.
     /// `source` eh a promise awaited; enquanto pending, re-enfileira; quando
@@ -290,7 +290,7 @@ pub(crate) enum Microtask {
     /// passo da SM. Produz o interleaving cooperativo de 393.
     AsyncResume {
         gen_handle: u64,
-        source: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+        source: std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
     },
 }
 thread_local! {
@@ -323,7 +323,7 @@ pub fn enqueue_microtask_settled(
     bound: Vec<i64>,
     value: i64,
     fulfilled: bool,
-    result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+    result_slot: std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
 ) {
     MICROTASK_QUEUE.with(|q| {
         q.borrow_mut().push(Microtask::SettledThen {
@@ -342,7 +342,7 @@ pub fn enqueue_microtask_finally(
     fn_ptr: u64,
     value: i64,
     fulfilled: bool,
-    result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+    result_slot: std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
 ) {
     MICROTASK_QUEUE.with(|q| {
         q.borrow_mut().push(Microtask::SettledFinally {
@@ -357,11 +357,11 @@ pub fn enqueue_microtask_finally(
 /// (#207) Enfileira `.then`/`.catch` sobre promise PENDING como PendingThen
 /// (polling determinista no drain). Evita spawn_blocking nao-deterministico.
 pub fn enqueue_microtask_pending_then(
-    source: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+    source: std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
     fn_ptr: u64,
     bound: Vec<i64>,
     is_catch: bool,
-    result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+    result_slot: std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
 ) {
     MICROTASK_QUEUE.with(|q| {
         q.borrow_mut().push(Microtask::PendingThen {
@@ -377,10 +377,10 @@ pub fn enqueue_microtask_pending_then(
 /// (cross-runtime #393/#116) Enfileira `.then(onFul, onRej)` instance sobre
 /// source PENDING como PendingThen2 (polling determinista no drain).
 pub fn enqueue_microtask_pending_then2(
-    source: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+    source: std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
     on_ful: u64,
     on_rej: u64,
-    result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+    result_slot: std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
 ) {
     MICROTASK_QUEUE.with(|q| {
         q.borrow_mut().push(Microtask::PendingThen2 {
@@ -394,9 +394,9 @@ pub fn enqueue_microtask_pending_then2(
 
 /// (#207) Enfileira `.finally` sobre promise PENDING (polling determinista).
 pub fn enqueue_microtask_pending_finally(
-    source: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+    source: std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
     fn_ptr: u64,
-    result_slot: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+    result_slot: std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
 ) {
     MICROTASK_QUEUE.with(|q| {
         q.borrow_mut().push(Microtask::PendingFinally {
@@ -412,7 +412,7 @@ pub fn enqueue_microtask_pending_finally(
 /// GenState e roda o proximo passo da SM (interleaving cooperativo do 393).
 pub fn enqueue_microtask_async_resume(
     gen_handle: u64,
-    source: std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>,
+    source: std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
 ) {
     MICROTASK_QUEUE.with(|q| {
         q.borrow_mut()
@@ -432,9 +432,9 @@ pub fn enqueue_microtask_async_resume(
 /// sweeping so everything reachable from a pending microtask survives.
 /// `mark_handle` is transitive, so marking a closure handle covers its captures.
 pub fn mark_microtask_roots() {
-    use crate::namespaces::gc::handles::mark_handle;
-    use crate::namespaces::gc::promise_slot;
-    let mark_slot = |s: &std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>| {
+    use rts_engine::heap::handles::mark_handle;
+    use crate::promise_slot;
+    let mark_slot = |s: &std::sync::Arc<rts_engine::heap::handles::PromiseSlot>| {
         mark_handle(promise_slot::current_value(s) as u64);
     };
     let mark_task = |t: &Microtask| match t {
@@ -515,7 +515,7 @@ pub fn mark_microtask_roots() {
 }
 
 pub fn drain_microtasks() {
-    use crate::namespaces::gc::promise_slot;
+    use crate::promise_slot;
     // (#207) Guard contra loop infinito: se varios ciclos so' contem
     // PendingThen cuja source nunca settla (Promise pending por I/O real que
     // resolveria numa thread tokio), faz fallback p/ spawn_blocking nesses
@@ -795,9 +795,19 @@ pub fn drain_microtasks() {
                         // Injeta valor/erro e roda o proximo passo da SM. Se o
                         // step suspender de novo, ele re-enfileira outro
                         // AsyncResume internamente (interleaving).
-                        crate::namespaces::gc::generator::async_sm_resume(
-                            gen_handle, value, rejected,
-                        );
+                        // generator::async_sm_resume fica no collector do
+                        // rts-runtime; chamamos via wrapper extern (resolve por
+                        // link) p/ não criar ciclo std→runtime.
+                        unsafe extern "C" {
+                            fn __RTS_FN_RT_ASYNC_SM_RESUME(h: u64, value: i64, rejected: i64);
+                        }
+                        unsafe {
+                            __RTS_FN_RT_ASYNC_SM_RESUME(
+                                gen_handle,
+                                value,
+                                if rejected { 1 } else { 0 },
+                            );
+                        }
                     }
                 }
             }
@@ -818,7 +828,7 @@ unsafe fn invoke_microtask_callback(fn_ptr: u64, bound: &[i64], extra: Option<i6
     if let Some(v) = extra {
         args.push(v);
     }
-    crate::namespaces::globals::function::ops::invoke_fn_ptr_with_registry(fn_ptr, &args)
+    rts_shared::globals::function::ops::invoke_fn_ptr_with_registry(fn_ptr, &args)
 }
 
 // TextEncoder / TextDecoder constructors — stateless, token handle.

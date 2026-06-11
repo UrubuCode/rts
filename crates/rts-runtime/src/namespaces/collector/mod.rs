@@ -30,7 +30,7 @@ pub use rts_engine::heap::handles;
 /// de classe, this-slot, tagged-raw, class-registry). Facade →
 /// `crate::namespaces::gc::<X>::*` + `super::<X>` (siblings) seguem resolvendo.
 pub use rts_engine::heap::{class_registry, closure, env, instance, tagged_raw, this_slot};
-pub mod promise_slot;
+pub use rts_std::promise_slot;
 pub mod stack;
 pub mod string_pool;
 

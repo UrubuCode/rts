@@ -860,6 +860,14 @@ pub extern "C" fn __RTS_FN_NS_GC_ASYNC_SM_RESOLVE(h: u64, val: i64) -> i64 {
     val
 }
 
+/// Wrapper `extern "C"` p/ o drain de microtasks (`text_encoding`) que vive no
+/// rts-std chamar este resume sem depender do rts-runtime (quebraria o ciclo
+/// std→runtime). `rejected` passa como i64 (0/1). Resolve por link.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_ASYNC_SM_RESUME(h: u64, value: i64, rejected: i64) {
+    async_sm_resume(h, value, rejected != 0);
+}
+
 /// Chamado pelo drain quando a promise awaited settla: injeta o valor/erro no
 /// GenState e roda o proximo passo da async SM. Publico para `instance.rs`.
 pub fn async_sm_resume(h: u64, value: i64, rejected: bool) {

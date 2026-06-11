@@ -205,14 +205,18 @@ target/release/rts.exe compile -p f.ts out.exe; ./out.exe # AOT
    ⏳ **time** DEFERIDO: usa globals::timers::pump_until (timers ainda no runtime, bloqueado por
    text_encoding). Move com timers.
 
-   ⚠️ DESCOBERTA (mapeamento step 6): text_encoding + promise_slot NÃO movem isolados nem só com
-   consumers — text_encoding::drain_microtasks chama `gc::generator::async_sm_resume` (pub fn no
-   collector/runtime). rts-std não pode depender de rts-runtime (ciclo). Logo o GRUPO async
-   (text_encoding + promise_slot + promise + generator + crypto + blob + readable_stream + timers +
-   time) tem que mover JUNTO pro rts-std — efetivamente fundir steps 5-tail/6/7. generator/string_pool/
-   error/collector (gc-surface) saem do collector p/ rts-std no mesmo movimento. rts-std += rts-shared
-   dep (collections::map + function::ops::invoke_fn_ptr_with_registry, ambos em shared). Sem ciclo
-   (shared não depende de std). É o grande move final — fazer em sessão dedicada.
+~~6-prereq. text_encoding + promise_slot → rts-std~~ ✅ FEITO (sem arrastar o grupo todo!). O ciclo
+   std→runtime (text_encoding::drain_microtasks → generator::async_sm_resume) foi quebrado com um
+   WRAPPER extern: `__RTS_FN_RT_ASYNC_SM_RESUME(h,value,rejected:i64)` no generator (runtime),
+   text_encoding chama via extern-decl. promise_slot → rts-std/src/promise_slot.rs (re-export em
+   collector/mod.rs `pub use rts_std::promise_slot`). text_encoding → rts-std/src/globals/. Refs:
+   gc::handles→engine; collections::map + function::ops::invoke_fn_ptr_with_registry → rts_shared
+   (rts-std += rts-shared dep, SEM ciclo); regex→rts_shared::regex; promise_slot→crate::. Suite
+   1710/1710; AOT smoke (TextEncoder/Decoder sync OK em AOT). ⚠️ PRÉ-EXISTENTE: AOT não drena
+   microtasks (drain só no pipeline JIT) → await/.then/queueMicrotask não disparam em AOT; JIT 100%.
+   Memória project_aot_no_microtask_drain.
+   ⟶ AGORA timers/fetch/blob/readable_stream/promise/crypto/time podem mover incrementalmente
+   (deps std-direction satisfeitas; generator fica no collector expondo async_sm_resume extern).
 6. **promise + parallel + crypto + promise_slot** juntos (globals+promise_slot resolvidos).
    promise_slot sai do collector. Gate + AOT.
 7. **Dissolver rts-runtime; collector/ → rts-std.** Gate final + AOT + atualizar WORKING.md.

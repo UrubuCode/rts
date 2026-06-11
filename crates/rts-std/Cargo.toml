@@ -13,6 +13,7 @@ asio = ["cpal/asio"]
 
 [dependencies]
 rts-engine = { path = "../rts-engine" }
+rts-shared = { path = "../rts-shared" }
 indexmap = "2.14.0"
 rayon = "1.10"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }

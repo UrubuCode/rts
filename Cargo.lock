@@ -2782,6 +2782,7 @@ dependencies = [
  "indexmap",
  "rayon",
  "rts-engine",
+ "rts-shared",
  "rustls",
  "tokio",
  "webpki-roots 1.0.6",

@@ -30,7 +30,7 @@ pub use rts_shared::globals::reflect;
 pub use rts_shared::globals::regexp;
 pub use rts_shared::globals::string;
 pub use rts_shared::globals::symbol;
-pub mod text_encoding;
+pub use rts_std::globals::text_encoding;
 pub mod timers;
 pub use rts_shared::globals::url;
 pub use rts_shared::globals::weakmap;
