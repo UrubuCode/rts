@@ -228,10 +228,15 @@ target/release/rts.exe compile -p f.ts out.exe; ./out.exe # AOT
    collector: ERROR_GET/GET_STACK/CLEAR/SET + ASYNC_SM_RESUME). fetch: gc::handles→engine; gc::error
    →crate::gc_surface; gc::promise_slot→crate::promise_slot; text_encoding→crate::globals. Cargo
    rts-std += ureq + serde_json. Suite 1710/1710; AOT compile linka (run real precisa rede+event loop).
-   ⏳ ÚLTIMO: **promise** (namespaces/promise). Refs: promise_slot[std] + text_encoding microtasks[std]
-   + gc::error[→gc_surface] + function::ops[shared] + crate::runtime[std, async_rt] + **gc::generator
-   (1 ref — collector/runtime)**. Checar o ref de generator: se for pub-fn não-extern, adicionar wrapper
-   extern (como async_sm_resume) OU usar gc_surface. Depois promise→rts-std fecha o grupo async.
+~~6c-fim. promise → rts-std~~ ✅ FEITO. Único ref de generator era `__RTS_FN_NS_GC_GEN_SM_DRAIN`
+   (no_mangle extern) → adicionado ao gc_surface (sem coupling pub-fn). Refs: gc::handles→engine;
+   gc::error→gc_surface; gc::generator→gc_surface; gc::promise_slot→crate::; function::ops→rts_shared;
+   text_encoding/timers→crate::globals; async_rt fica crate::runtime. Build limpo.
+   ⚠️ FLAKE OBSERVADO: 1 run da suite deu 1709/1710 (1 falha); 4 runs seguintes 1710/1710 (~1/5).
+   Async/tokio timing nondeterminism — move é pura relocação (sem mudança semântica), flake provável
+   pré-existente nos testes async. WATCH: se recorrer, isolar o teste async time-sensitive.
+   ✅ GRUPO ASYNC COMPLETO em rts-std: text_encoding promise_slot timers time crypto blob
+   readable_stream fetch promise. Falta só dissolver collector (step 7).
 6d. **Dissolver rts-runtime** (step 7): mover collector gc-surface (string_pool/error/generator/
    collector/stack) → rts-std; runtime vira facade fino. Grande move final.
 6. **promise + parallel + crypto + promise_slot** juntos (globals+promise_slot resolvidos).

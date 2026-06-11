@@ -18,4 +18,6 @@ unsafe extern "C" {
     pub safe fn __RTS_FN_RT_ERROR_SET(handle: u64);
     /// Injeta valor/erro numa async SM e roda o próximo passo. (`gc::generator`)
     pub safe fn __RTS_FN_RT_ASYNC_SM_RESUME(h: u64, value: i64, rejected: i64);
+    /// Drena a máquina de estados de um generator/async-gen. (`gc::generator`)
+    pub safe fn __RTS_FN_NS_GC_GEN_SM_DRAIN(h: u64) -> u64;
 }

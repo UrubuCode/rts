@@ -14,8 +14,8 @@
 use rts_engine::abi::ty::{Handle, I64, U64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
-use crate::namespaces::gc::promise_slot;
+use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
+use crate::promise_slot;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -39,7 +39,7 @@ pub fn drain_pending_promises() {
 
 fn with_slot<F, R>(handle: u64, default: R, f: F) -> R
 where
-    F: FnOnce(&std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>) -> R,
+    F: FnOnce(&std::sync::Arc<rts_engine::heap::handles::PromiseSlot>) -> R,
 {
     with_entry(handle, |entry| match entry {
         Some(Entry::PromiseAsync(arc)) => f(arc),
@@ -85,7 +85,7 @@ fn collect_promise_handles(vec_handle: u64) -> Vec<u64> {
 /// (filtrado depois).
 fn collect_slots(
     handles: &[u64],
-) -> Vec<Option<std::sync::Arc<crate::namespaces::gc::handles::PromiseSlot>>> {
+) -> Vec<Option<std::sync::Arc<rts_engine::heap::handles::PromiseSlot>>> {
     handles
         .iter()
         .map(|h| {
@@ -216,11 +216,11 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_WAIT(promise: U64) -> I64 {
     // resolvidas por threads tokio (async/promise.create/Promise.all) sao
     // detectadas pelo re-check de estado a cada tick curto.
     if promise_slot::current_state(&arc) == promise_slot::STATE_PENDING {
-        use crate::namespaces::globals::timers::instance as timers;
+        use crate::globals::timers::instance as timers;
         use std::time::{Duration, Instant};
         let cap = Instant::now() + Duration::from_secs(5);
         // Bombeia 1x (drena chains de microtask + timers ja' vencidos).
-        crate::namespaces::globals::text_encoding::instance::drain_microtasks();
+        crate::globals::text_encoding::instance::drain_microtasks();
         timers::pump_due_macrotasks();
         // Enquanto a Promise depende de um timer futuro, avanca o tempo ate o
         // proximo deadline e re-bombeia. Quando nao ha mais timers pendentes,
@@ -238,7 +238,7 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_WAIT(promise: U64) -> I64 {
             if wake > now {
                 std::thread::sleep((wake - now).min(Duration::from_millis(50)));
             }
-            crate::namespaces::globals::text_encoding::instance::drain_microtasks();
+            crate::globals::text_encoding::instance::drain_microtasks();
             timers::pump_due_macrotasks();
         }
     }
@@ -247,7 +247,7 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_WAIT(promise: U64) -> I64 {
     // thread-local que `try/catch` ja' le. O slot eh da thread atual
     // (caller do `promise.wait`) — wait_blocking nao migra threads.
     if state == promise_slot::STATE_REJECTED {
-        crate::namespaces::gc::error::__RTS_FN_RT_ERROR_SET(value as u64);
+        crate::gc_surface::__RTS_FN_RT_ERROR_SET(value as u64);
     }
     value
 }
@@ -288,7 +288,7 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_THEN(p_handle: U64, fp: U64) -> Handle {
     if state_now != promise_slot::STATE_PENDING {
         let value = promise_slot::current_value(&arc);
         let fulfilled = state_now == promise_slot::STATE_FULFILLED;
-        crate::namespaces::globals::text_encoding::instance::enqueue_microtask_settled(
+        crate::globals::text_encoding::instance::enqueue_microtask_settled(
             fn_ptr,
             bound,
             value,
@@ -303,7 +303,7 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_THEN(p_handle: U64, fp: U64) -> Handle {
     // deterministica). Preserva ordem FIFO entre chains de Promise no mesmo
     // task sync — `Promise.resolve().then().then()` interleaving correto.
     // O drain re-checa o estado a cada ciclo; quando settle, executa.
-    crate::namespaces::globals::text_encoding::instance::enqueue_microtask_pending_then(
+    crate::globals::text_encoding::instance::enqueue_microtask_pending_then(
         arc,
         fn_ptr,
         bound,
@@ -328,7 +328,7 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_CATCH(p_handle: U64, fp: U64) -> Handle {
     let (fn_ptr, bound, _h, _t) = resolve_callback_ptr(fp);
     // (#207) Determinista via microtask queue (igual ao .then). is_catch=true:
     // o callback so' roda no rejected; fulfilled propaga o valor.
-    crate::namespaces::globals::text_encoding::instance::enqueue_microtask_pending_then(
+    crate::globals::text_encoding::instance::enqueue_microtask_pending_then(
         arc,
         fn_ptr,
         bound,
@@ -352,7 +352,7 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_FINALLY(p_handle: U64, fp: U64) -> Handle 
 
     let (fn_ptr, _bound, _h, _t) = resolve_callback_ptr(fp);
     // (#207) Determinista via microtask queue (igual ao .then/.catch).
-    crate::namespaces::globals::text_encoding::instance::enqueue_microtask_pending_finally(
+    crate::globals::text_encoding::instance::enqueue_microtask_pending_finally(
         arc,
         fn_ptr,
         result_clone,
@@ -363,7 +363,7 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_FINALLY(p_handle: U64, fp: U64) -> Handle 
 /// Le e limpa o slot de erro thread-local. Retorna handle do erro pendente ou 0 se nao houver. Usado internamente pelo codegen de async fn (F5 #416) — apos chamar o body, watcher checa este slot pra decidir entre `resolve` e `reject`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_PROMISE_TAKE_ERROR() -> I64 {
-    use crate::namespaces::gc::error;
+    use crate::gc_surface as error;
     let h = error::__RTS_FN_RT_ERROR_GET();
     if h != 0 {
         error::__RTS_FN_RT_ERROR_CLEAR();
@@ -575,9 +575,9 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_CREATE(fn_handle: U64, args_vec_handle: U6
         // Tudo ja' empacotado em `all`, invocamos diretamente.
         let r = unsafe { invoke_callback_full(fn_ptr, &all) };
         // Checa error slot pra detectar throw dentro do body.
-        let err = crate::namespaces::gc::error::__RTS_FN_RT_ERROR_GET();
+        let err = crate::gc_surface::__RTS_FN_RT_ERROR_GET();
         if err != 0 {
-            crate::namespaces::gc::error::__RTS_FN_RT_ERROR_CLEAR();
+            crate::gc_surface::__RTS_FN_RT_ERROR_CLEAR();
             promise_slot::reject(&result_clone, err as i64);
         } else {
             promise_slot::resolve(&result_clone, r);
@@ -897,7 +897,7 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_AWAIT_VALUE(handle: u64) -> i64 {
 pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_ASYNC(iterable: u64, mapper_handle: u64) -> u64 {
     // Suporte minimo: iterable e' Vec. Aplica mapper sync (se houver),
     // wrap cada valor em Promise.resolve se ja' nao for, faz Promise.all.
-    use crate::namespaces::globals::function::ops::__RTS_FN_GL_FUNCTION_APPLY_TYPED;
+    use rts_shared::globals::function::ops::__RTS_FN_GL_FUNCTION_APPLY_TYPED;
 
     let snapshot: Option<Vec<i64>> = with_entry(iterable, |e| match e {
         Some(Entry::Vec(v)) => Some(v.as_ref().clone()),
@@ -911,7 +911,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_ASYNC(iterable: u64, mapper_handle: u64
         if !is_gen {
             return None;
         }
-        let vec_h = crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_DRAIN(iterable);
+        let vec_h = crate::gc_surface::__RTS_FN_NS_GC_GEN_SM_DRAIN(iterable);
         with_entry(vec_h, |e| match e {
             Some(Entry::Vec(v)) => Some(v.as_ref().clone()),
             _ => None,
