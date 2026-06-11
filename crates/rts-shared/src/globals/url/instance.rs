@@ -1,4 +1,4 @@
-use crate::namespaces::gc::handles::{alloc_entry, free_handle, with_entry, Entry};
+use rts_engine::heap::handles::{alloc_entry, free_handle, with_entry, Entry};
 
 struct ParsedUrl {
     href: String,
@@ -426,7 +426,7 @@ fn url_field_str(handle: u64, idx: usize) -> String {
 
 /// (#67) Atualiza um slot de URL com nova string. Libera o handle antigo.
 fn url_set_field(handle: u64, idx: usize, new_str: &str) {
-    use crate::namespaces::gc::handles::with_entry_mut;
+    use rts_engine::heap::handles::with_entry_mut;
     let new_h = intern_str(new_str) as i64;
     with_entry_mut(handle, |entry| {
         if let Some(Entry::Env(v)) = entry {
@@ -667,7 +667,7 @@ fn with_usp_pairs_mut<F, R>(handle: u64, default: R, f: F) -> R
 where
     F: FnOnce(&mut Vec<i64>) -> R,
 {
-    crate::namespaces::gc::handles::with_entry_mut(handle, |entry| match entry {
+    rts_engine::heap::handles::with_entry_mut(handle, |entry| match entry {
         Some(Entry::Vec(v)) => f(v.as_mut()),
         _ => default,
     })

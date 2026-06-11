@@ -7,7 +7,13 @@
 use rts_engine::abi::ty::{Bool, Handle, I64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
+use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
+
+// `string_pool` (gc-surface) fica no `rts-runtime` collector; símbolo
+// `#[no_mangle]` resolve em link-time (JIT registra; AOT pelo staticlib).
+unsafe extern "C" {
+    fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
+}
 
 /// Sentinels JS (em sync com sentinel_for em codegen):
 /// MIN   = false, MIN+1 = true, MIN+2 = undefined, MIN+3 = null.
@@ -75,7 +81,7 @@ pub extern "C" fn __RTS_FN_GL_BOOLEAN_COERCE(value: I64) -> I64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_BOOLEAN_TO_STRING(b: I64) -> Handle {
     let s: &[u8] = if unbox_bool(b) { b"true" } else { b"false" };
-    crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64)
+    unsafe { __RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64) }
 }
 
 /// Returns the underlying boolean value.
@@ -176,7 +182,7 @@ pub fn register_boolean_class_spec(e: &mut Engine) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::namespaces::gc::handles::{with_entry, Entry};
+    use rts_engine::heap::handles::{with_entry, Entry};
 
     #[test]
     fn coerce_zero_false() {

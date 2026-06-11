@@ -5,3 +5,11 @@
 //! colisão com nomes de namespace flat (ex.: ns `date` vs global `date`).
 
 pub mod symbol;
+pub mod boolean;
+pub mod bigint;
+pub mod number;
+pub mod url;
+pub mod weakmap;
+pub mod weakset;
+pub mod weakref;
+pub mod finalization_registry;

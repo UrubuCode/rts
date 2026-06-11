@@ -3,16 +3,16 @@
 //! TextEncoder/Decoder, atob/btoa, structuredClone, URL, performance.
 
 pub mod abort;
-pub mod bigint;
+pub use rts_shared::globals::bigint;
 pub mod blob;
 pub mod dataview;
 pub mod dom_exception;
 pub mod event_target;
 pub mod form_data;
-pub mod boolean;
+pub use rts_shared::globals::boolean;
 pub mod console;
 pub mod date;
-pub mod number;
+pub use rts_shared::globals::number;
 pub mod error;
 pub mod events;
 pub mod fetch;
@@ -32,8 +32,8 @@ pub mod string;
 pub use rts_shared::globals::symbol;
 pub mod text_encoding;
 pub mod timers;
-pub mod url;
-pub mod weakmap;
-pub mod weakref;
-pub mod weakset;
-pub mod finalization_registry;
+pub use rts_shared::globals::url;
+pub use rts_shared::globals::weakmap;
+pub use rts_shared::globals::weakref;
+pub use rts_shared::globals::weakset;
+pub use rts_shared::globals::finalization_registry;

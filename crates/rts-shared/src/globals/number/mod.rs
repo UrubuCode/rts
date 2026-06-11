@@ -26,13 +26,13 @@ fn alloc_str(s: &str) -> u64 {
 /// new Number(value) — wraps value como NumberBox.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_NUMBER_NEW_BOXED(v: F64) -> Handle {
-    crate::namespaces::gc::handles::alloc_entry(crate::namespaces::gc::handles::Entry::NumberBox(v))
+    rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::NumberBox(v))
 }
 
 /// new Number() — wraps 0 como NumberBox.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_NUMBER_NEW_BOXED_EMPTY() -> Handle {
-    crate::namespaces::gc::handles::alloc_entry(crate::namespaces::gc::handles::Entry::NumberBox(
+    rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::NumberBox(
         0.0,
     ))
 }
@@ -140,8 +140,8 @@ pub extern "C" fn __RTS_FN_GL_NUMBER_TO_FIXED(v: F64, digits: I64) -> Handle {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_NUMBER_VALUE_OF(handle_or_bits: Handle) -> F64 {
     let h = handle_or_bits;
-    let unboxed = crate::namespaces::gc::handles::with_entry(h, |e| match e {
-        Some(crate::namespaces::gc::handles::Entry::NumberBox(inner)) => Some(*inner),
+    let unboxed = rts_engine::heap::handles::with_entry(h, |e| match e {
+        Some(rts_engine::heap::handles::Entry::NumberBox(inner)) => Some(*inner),
         _ => None,
     });
     match unboxed {
@@ -477,8 +477,8 @@ pub extern "C" fn __RTS_FN_GL_NUMBER_NEW_EMPTY() -> f64 {
 /// NumberBox.valueOf()/toString() — recupera o primitive embrulhado. Non-member.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_NUMBER_BOX_VALUE_OF(boxed: u64) -> f64 {
-    crate::namespaces::gc::handles::with_entry(boxed, |e| match e {
-        Some(crate::namespaces::gc::handles::Entry::NumberBox(v)) => *v,
+    rts_engine::heap::handles::with_entry(boxed, |e| match e {
+        Some(rts_engine::heap::handles::Entry::NumberBox(v)) => *v,
         _ => f64::from_bits(boxed),
     })
 }

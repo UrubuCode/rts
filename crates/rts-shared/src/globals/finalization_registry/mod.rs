@@ -9,7 +9,7 @@
 use rts_engine::abi::ty::{Bool, Handle, I64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use crate::namespaces::gc::handles::{alloc_entry, with_entry, with_entry_mut, Entry};
+use rts_engine::heap::handles::{alloc_entry, with_entry, with_entry_mut, Entry};
 
 /// Creates a new FinalizationRegistry with cleanup callback.
 #[unsafe(no_mangle)]
