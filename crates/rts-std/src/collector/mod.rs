@@ -24,13 +24,13 @@ pub mod generator;
 pub use rts_engine::collector::{debug, global_roots, scan, stack_map_registry, thread_registry};
 /// `handles` (Entry + HandleTable + heap GC tipado) migrou pro motor
 /// (`rts_engine::heap::handles`, Fase 1a). Facade → `super::handles` (dos siblings)
-/// + `crate::namespaces::gc::handles::*` (consumidores) seguem resolvendo.
+/// + `rts_engine::heap::handles::*` (consumidores) seguem resolvendo.
 pub use rts_engine::heap::handles;
 /// Alocadores/helpers do heap migrados pro motor (env-record, closure, instance
 /// de classe, this-slot, tagged-raw, class-registry). Facade →
 /// `crate::namespaces::gc::<X>::*` + `super::<X>` (siblings) seguem resolvendo.
 pub use rts_engine::heap::{class_registry, closure, env, instance, tagged_raw, this_slot};
-pub use rts_std::promise_slot;
+pub use crate::promise_slot;
 pub mod stack;
 pub mod string_pool;
 

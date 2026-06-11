@@ -16,7 +16,7 @@ use std::collections::HashMap;
 
 use indexmap::IndexMap;
 
-use crate::namespaces::gc::handles::{Entry, GenStateData, alloc_entry, with_entry, with_entry_mut};
+use rts_engine::heap::handles::{Entry, GenStateData, alloc_entry, with_entry, with_entry_mut};
 
 /// Sentinel `undefined` (i64::MIN+2) — convencao do codegen/INSPECT.
 const UNDEFINED: i64 = i64::MIN + 2;
@@ -68,7 +68,7 @@ pub extern "C" fn __RTS_FN_NS_GC_GENERATOR_NEXT(vec_handle: u64) -> u64 {
         _ => None,
     });
     if let Some(next_fn) = custom_next {
-        return crate::namespaces::globals::function::ops::__RTS_FN_GL_FUNCTION_CALL(
+        return rts_shared::globals::function::ops::__RTS_FN_GL_FUNCTION_CALL(
             next_fn as u64,
             vec_handle as i64,
             0,
@@ -147,7 +147,7 @@ pub extern "C" fn __RTS_FN_NS_GC_GENERATOR_THROW(vec_handle: u64, err: i64) -> u
             c.borrow_mut().insert(vec_handle, len + 1);
         });
     }
-    crate::namespaces::gc::error::__RTS_FN_RT_ERROR_SET(err as u64);
+    crate::collector::error::__RTS_FN_RT_ERROR_SET(err as u64);
     make_result(err, true)
 }
 
@@ -375,7 +375,7 @@ pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_THROW(h: u64, err: i64) -> u64 {
             g.done = true;
         }
     });
-    crate::namespaces::gc::error::__RTS_FN_RT_ERROR_SET(err as u64);
+    crate::collector::error::__RTS_FN_RT_ERROR_SET(err as u64);
     make_result(err, true)
 }
 
@@ -496,7 +496,7 @@ pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_END_FINALLY(h: u64) -> i64 {
                     g.state = -2;
                 }
             });
-            crate::namespaces::gc::error::__RTS_FN_RT_ERROR_SET(val as u64);
+            crate::collector::error::__RTS_FN_RT_ERROR_SET(val as u64);
             val
         }
         _ => UNDEFINED, // sem completion pendente: caller segue p/ estado normal.
@@ -526,9 +526,9 @@ pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_DRAIN(h: u64) -> u64 {
                 break;
             }
             let p = __RTS_FN_NS_GC_AGEN_NEXT(h);
-            let result_map = crate::namespaces::promise::__RTS_FN_NS_PROMISE_WAIT(p);
+            let result_map = crate::promise::__RTS_FN_NS_PROMISE_WAIT(p);
             // Throw dentro do corpo: AGEN_NEXT rejeitou -> error slot setado.
-            if crate::namespaces::gc::error::__RTS_FN_RT_ERROR_GET() != 0 {
+            if crate::collector::error::__RTS_FN_RT_ERROR_GET() != 0 {
                 break;
             }
             let (val, dn) = with_entry(result_map as u64, |e| match e {
@@ -647,7 +647,7 @@ pub extern "C" fn __RTS_FN_NS_GC_AGEN_NEW(fn_ptr: u64, nslots: i64) -> u64 {
 /// drain: aqui o drain roda inline antes de retornar.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_AGEN_NEXT(h: u64) -> u64 {
-    use crate::namespaces::gc::promise_slot;
+    use crate::promise_slot;
     let result = promise_slot::new_pending();
     let result_handle = alloc_entry(Entry::PromiseAsync(result.clone()));
     let already_done = with_entry_mut(h, |e| match e {
@@ -666,10 +666,10 @@ pub extern "C" fn __RTS_FN_NS_GC_AGEN_NEXT(h: u64) -> u64 {
     // Bombeia ate a next_promise settle (gen suspendeu em await interno).
     if promise_slot::current_state(&result) == promise_slot::STATE_PENDING {
         use std::time::{Duration, Instant};
-        use crate::namespaces::globals::timers::instance as timers;
+        use crate::globals::timers::instance as timers;
         let cap = Instant::now() + Duration::from_secs(5);
         while promise_slot::current_state(&result) == promise_slot::STATE_PENDING {
-            crate::namespaces::globals::text_encoding::instance::drain_microtasks();
+            crate::globals::text_encoding::instance::drain_microtasks();
             timers::pump_due_macrotasks();
             if promise_slot::current_state(&result) != promise_slot::STATE_PENDING {
                 break;
@@ -698,7 +698,7 @@ pub extern "C" fn __RTS_FN_NS_GC_AGEN_NEXT(h: u64) -> u64 {
 /// pendente). Alcancou yield/done => resolve a next_promise com {value,done}
 /// (ou rejeita se o corpo lancou).
 fn agen_step(h: u64) {
-    use crate::namespaces::gc::promise_slot;
+    use crate::promise_slot;
     let fn_ptr = with_entry(h, |e| match e {
         Some(Entry::GenState(g)) => g.fn_ptr,
         _ => 0,
@@ -718,13 +718,13 @@ fn agen_step(h: u64) {
         _ => (true, None, None),
     });
     if let Some(src) = pending {
-        crate::namespaces::globals::text_encoding::instance::enqueue_microtask_async_resume(h, src);
+        crate::globals::text_encoding::instance::enqueue_microtask_async_resume(h, src);
         return;
     }
     if let Some(np) = np {
-        let err = crate::namespaces::gc::error::__RTS_FN_RT_ERROR_GET();
+        let err = crate::collector::error::__RTS_FN_RT_ERROR_GET();
         if err != 0 {
-            crate::namespaces::gc::error::__RTS_FN_RT_ERROR_CLEAR();
+            crate::collector::error::__RTS_FN_RT_ERROR_CLEAR();
             promise_slot::reject(&np, err as i64);
         } else {
             let res = make_result(rv, done);
@@ -743,7 +743,7 @@ fn agen_step(h: u64) {
 /// da promise-resultado (preserva ABI `f(args) -> Promise`).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_ASYNC_SM_START(h: u64) -> u64 {
-    use crate::namespaces::gc::promise_slot;
+    use crate::promise_slot;
     let result = promise_slot::new_pending();
     let result_handle = alloc_entry(Entry::PromiseAsync(result.clone()));
     with_entry_mut(h, |e| {
@@ -759,7 +759,7 @@ pub extern "C" fn __RTS_FN_NS_GC_ASYNC_SM_START(h: u64) -> u64 {
 /// ate `return`). Apos retornar: se suspendeu (pending_await setado), enfileira
 /// um AsyncResume sobre a awaited; se terminou (done), settla a result_promise.
 fn async_sm_step(h: u64) {
-    use crate::namespaces::gc::promise_slot;
+    use crate::promise_slot;
     // (cross-runtime #392) async generator: driver proprio (resolve a Promise do
     // .next() corrente a cada yield, nao apenas no done).
     let is_agen = with_entry(h, |e| matches!(e, Some(Entry::GenState(g)) if g.is_async_gen));
@@ -794,9 +794,9 @@ fn async_sm_step(h: u64) {
         // Corpo terminou (RESOLVE chamado). Settla a promise-resultado: se o
         // error slot esta setado (throw), rejeita; senao resolve com ret.
         if let Some(rp) = result {
-            let err = crate::namespaces::gc::error::__RTS_FN_RT_ERROR_GET();
+            let err = crate::collector::error::__RTS_FN_RT_ERROR_GET();
             if err != 0 {
-                crate::namespaces::gc::error::__RTS_FN_RT_ERROR_CLEAR();
+                crate::collector::error::__RTS_FN_RT_ERROR_CLEAR();
                 promise_slot::reject(&rp, err as i64);
             } else {
                 promise_slot::resolve(&rp, ret);
@@ -806,7 +806,7 @@ fn async_sm_step(h: u64) {
     }
     // Suspendeu em await: enfileira AsyncResume sobre a promise awaited.
     if let Some(src) = pending {
-        crate::namespaces::globals::text_encoding::instance::enqueue_microtask_async_resume(h, src);
+        crate::globals::text_encoding::instance::enqueue_microtask_async_resume(h, src);
     }
 }
 
@@ -816,7 +816,7 @@ fn async_sm_step(h: u64) {
 /// valor dummy (a state-fn ja vai retornar logo apos).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_ASYNC_SM_SUSPEND(h: u64, promise_handle: i64) -> i64 {
-    use crate::namespaces::gc::promise_slot;
+    use crate::promise_slot;
     // Extrai o slot da promise awaited. Se o handle nao eh PromiseAsync,
     // trata o valor como ja-resolvido (await de nao-Promise).
     let slot = with_entry(promise_handle as u64, |e| match e {
@@ -841,7 +841,7 @@ pub extern "C" fn __RTS_FN_NS_GC_ASYNC_SM_AWAITED(h: u64) -> i64 {
         _ => (UNDEFINED, false),
     });
     if rejected {
-        crate::namespaces::gc::error::__RTS_FN_RT_ERROR_SET(val as u64);
+        crate::collector::error::__RTS_FN_RT_ERROR_SET(val as u64);
     }
     val
 }
@@ -917,7 +917,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_VALUES_ITER(this_arr: i64) -> i64 {
 /// Vec/array-like; caller decide quando emitir.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_ARRAY_ITERATOR_FN() -> u64 {
-    use crate::namespaces::gc::handles::FunctionData;
+    use rts_engine::heap::handles::FunctionData;
     alloc_entry(Entry::Function(Box::new(FunctionData {
         fn_ptr: __RTS_FN_GL_ARRAY_VALUES_ITER as *const () as u64,
         arity: 1,

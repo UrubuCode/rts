@@ -24,11 +24,11 @@ pub use rts_std::events;
 pub use rts_shared::fmt;
 pub use rts_std::ffi;
 pub use rts_std::fs;
-pub mod collector;
-/// Alias retrocompatível: a pasta `gc/` foi renomeada `collector/` (Fase 2 GC,
-/// rumo ao sistema de coleta no `rts-engine`). Os ~68 consumidores +
-/// `crate::namespaces::gc::*` no codegen continuam resolvendo via este alias até
-/// a migração do mecanismo pro engine concluir.
+pub use rts_std::collector;
+/// Alias retrocompatível: a pasta `gc/` foi renomeada `collector/` (Fase 2 GC).
+/// O collector (gc-surface: string_pool/error/generator/collector/stack) migrou
+/// pro `rts-std` (backend do gc); aqui só a fachada. `crate::namespaces::gc::*`
+/// no codegen + ~68 consumidores seguem resolvendo via este alias.
 pub use collector as gc;
 pub use rts_shared::hash;
 pub use rts_shared::hint;

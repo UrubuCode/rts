@@ -451,8 +451,8 @@ pub extern "C" fn __RTS_FN_RT_SPREAD_INTO_VEC(dst: u64, src: u64) {
     // storage interno sao as KEYS do Map<keyStr,1> — nao os values (dummy 1).
     // Sem isto `[...new Set([1,2,3])]` virava `[1,1,1]`. Reusa a mesma
     // conversao key->valor de MAP_VALUES (parse int, senao handle string).
-    if crate::namespaces::collections::map::handle_is_set_kind(src) {
-        let elems = crate::namespaces::collections::map::__RTS_FN_NS_COLLECTIONS_MAP_VALUES(src);
+    if rts_shared::collections::map::handle_is_set_kind(src) {
+        let elems = rts_shared::collections::map::__RTS_FN_NS_COLLECTIONS_MAP_VALUES(src);
         let items = with_entry(elems, |entry| match entry {
             Some(Entry::Vec(slots)) => slots.as_ref().clone(),
             _ => Vec::new(),
@@ -465,7 +465,7 @@ pub extern "C" fn __RTS_FN_RT_SPREAD_INTO_VEC(dst: u64, src: u64) {
     // (#477) Generator lazy (state-machine): drena ate done num Vec, depois
     // spread normal. Para generator infinito o spread roda pra sempre — igual JS.
     if with_entry(src, |e| matches!(e, Some(Entry::GenState(_)))) {
-        let drained = crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_DRAIN(src);
+        let drained = crate::collector::generator::__RTS_FN_NS_GC_GEN_SM_DRAIN(src);
         let items = with_entry(drained, |entry| match entry {
             Some(Entry::Vec(slots)) => slots.as_ref().clone(),
             _ => Vec::new(),
@@ -915,9 +915,9 @@ pub extern "C" fn __RTS_FN_RT_OBJECT_TO_STRING(value: i64, tag: i64) -> u64 {
                 with_entry(h, |e| match e {
                     Some(Entry::Vec(_)) => "Array",
                     Some(Entry::Map(_)) => {
-                        if crate::namespaces::collections::map::handle_is_set_kind(h) {
+                        if rts_shared::collections::map::handle_is_set_kind(h) {
                             "Set"
-                        } else if crate::namespaces::collections::map::handle_is_map_kind(h) {
+                        } else if rts_shared::collections::map::handle_is_map_kind(h) {
                             "Map"
                         } else {
                             "Object"
@@ -1022,15 +1022,15 @@ fn inspect_handle(h: u64, depth: usize) -> String {
             // (preserva mesmo se user setar __proto__ depois) ou slot
             // __proto__ existe com valor 0. Node/Bun imprimem como
             // `[Object: null prototype] {...}`.
-            let is_null_proto = crate::namespaces::collections::map::is_null_proto_handle(h)
+            let is_null_proto = rts_shared::collections::map::is_null_proto_handle(h)
                 || entries
                     .iter()
                     .any(|(k, v)| k == b"__proto__" && *v == 0);
             // (PR #1214) Map/Set instances — Bun/Node imprimem como `Map(N) { k: v, ... }`
             // e `Set(N) { v1, v2, ... }`. RTS armazena Map JS como Entry::Map
             // tagged em set_kind_set/map_kind_set (separado de obj literal Map).
-            let is_map_kind = crate::namespaces::collections::map::handle_is_map_kind(h);
-            let is_set_kind = crate::namespaces::collections::map::handle_is_set_kind(h);
+            let is_map_kind = rts_shared::collections::map::handle_is_map_kind(h);
+            let is_set_kind = rts_shared::collections::map::handle_is_set_kind(h);
             // Filtra slots internos das entries impressas.
             let visible: Vec<&(Vec<u8>, i64)> = entries
                 .iter()

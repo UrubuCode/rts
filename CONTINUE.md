@@ -241,12 +241,33 @@ target/release/rts.exe compile -p f.ts out.exe; ./out.exe # AOT
    function::ops::invoke_array_callback→rts_shared; gc::string_pool::__RTS_FN_RT_TRUTHY→gc_surface.
    Suite 1710/1710 (2 runs); AOT smoke (silent arr.map(namedFn), JIT==AOT sum:30) OK.
    ✅ TODO BACKEND não-gc-surface migrado pro rts-std. Resta SÓ step 7.
-7. **Dissolver rts-runtime (collector gc-surface → rts-std):** mover string_pool/error/generator/
-   collector(mod)/stack do collector/runtime → rts-std. Tudo que tinha extern-decl (gc_surface,
-   __RTS_FN_RT_ASYNC_SM_RESUME wrapper) passa a ser intra-std. rts-runtime vira facade fino
-   (re-exporta engine+shared+std) OU some e codegen aponta namespaces direto. GRANDE move final —
-   sessão dedicada (toca a superfície gc que tudo depende). NB collector usa trace(shared)+handles
-   (engine)+globals/error(shared) — checar ciclos antes.
+~~7. Dissolver collector → rts-std~~ ✅ FEITO. collector inteiro (string_pool/error/generator/
+   collector[mark+sweep]/stack/mod[register gc]) → rts-std/src/collector. Refs: gc::handles→engine;
+   gc::error/generator→crate::collector (intra); gc::promise_slot/promise/timers/text_encoding→crate
+   (intra-std); collections/globals::error/globals::function/trace→rts_shared; async_rt fica crate::
+   runtime. gc_surface(decl) + collector(def) coexistem no mesmo crate (decl extern resolve por link).
+   SEM ciclo: shared usa só extern-decl link-time (não `use rts_std`); collector não referencia
+   nenhum módulo ainda-no-runtime. rts-runtime namespaces/mod.rs: `pub use rts_std::collector` +
+   `pub use collector as gc` (codegen `gc::register`/`gc::handles` seguem via fachada).
+   Suite 1710/1710 (2 runs); AOT smoke (cluster Map/Set/Proxy/Reflect + class+error.stack + crypto/
+   Blob, JIT==AOT) OK — gc-surface no staticlib AOT linka+roda.
+
+## ESTADO FINAL DA PARTIÇÃO
+Grafo acíclico: **rts-engine** (heap GC + collector-contract + numfmt) ← **rts-shared** (universal:
+13 ns pure-compute + collections/json/trace + ~21 globais) ← **rts-std** (backend: io/os/net/fs/...
++ async group [text_encoding/promise_slot/promise/timers/time/crypto/blob/readable_stream/fetch/
+parallel/events] + collector gc-surface) ← **rts-runtime** (FACADE fino: re-exporta engine+shared+std;
+só globals/dataview fica local por design + globals/mod.rs agregador). codegen lê o Registry via fachada.
+rts-std deps: engine + shared + tokio/actix/rustls/cpal/rayon/sha2/flate2/ureq/serde_json/indexmap.
+
+⏳ FOLLOW-UPS (opcionais, não-bloqueantes):
+- **Cargo cleanup rts-runtime**: provavelmente não precisa mais de tokio/ureq/sha2/flate2/regex/etc
+  diretos (módulos moveram). Auditar [dependencies] de rts-runtime e remover não-usadas. `cargo build`
+  + suite após.
+- **dataview** → SKIP por design (memória #1378).
+- **flake async ~1/5** (project... a investigar se recorrer): isolar teste time-sensitive.
+- Considerar se rts-runtime pode sumir totalmente (codegen `pub mod namespaces { pub use rts_std::*;
+  pub use rts_shared::*; }` + dataview p/ algum lugar). Hoje fica como fachada fina — aceitável.
 6d. **Dissolver rts-runtime** (step 7): mover collector gc-surface (string_pool/error/generator/
    collector/stack) → rts-std; runtime vira facade fino. Grande move final.
 6. **promise + parallel + crypto + promise_slot** juntos (globals+promise_slot resolvidos).

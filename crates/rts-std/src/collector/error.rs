@@ -40,7 +40,7 @@ thread_local! {
 }
 
 fn capture_stack_handle() -> u64 {
-    let text = crate::namespaces::trace::frame_stack::capture_string();
+    let text = rts_shared::trace::frame_stack::capture_string();
     if text.is_empty() {
         return 0;
     }

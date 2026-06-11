@@ -62,7 +62,7 @@ pub fn finish_cycle() {
     // (async/Promise callback closures, generator drives) — they live in the
     // heap microtask queue, not on any scanned stack, so without this a GC tick
     // during synchronous code sweeps live async state.
-    crate::namespaces::globals::text_encoding::instance::mark_microtask_roots();
+    crate::globals::text_encoding::instance::mark_microtask_roots();
 
     sweep_all_shards();
 }
