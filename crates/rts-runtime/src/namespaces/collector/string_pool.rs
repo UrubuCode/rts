@@ -2,13 +2,10 @@
 
 use super::handles::{Entry, alloc_entry, free_handle, with_entry, with_entry_mut, with_two_entries};
 
-/// Reads a string handle into an owned Rust `String`.
-pub fn read_string_handle(handle: u64) -> Option<String> {
-    with_entry(handle, |entry| match entry {
-        Some(Entry::String(bytes)) => Some(String::from_utf8_lossy(bytes).into_owned()),
-        _ => None,
-    })
-}
+/// Lê um string handle num `String` Rust. Impl movida pro motor
+/// (`rts_engine::heap::handles`); re-exportada pros call-sites
+/// (`gc::string_pool::read_string_handle`) seguirem sem mudança.
+pub use rts_engine::heap::handles::read_string_handle;
 
 /// Allocates a new string by copying `len` bytes from `ptr`.
 #[unsafe(no_mangle)]

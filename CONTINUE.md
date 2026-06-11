@@ -177,7 +177,15 @@ target/release/rts.exe compile -p f.ts out.exe; ./out.exe # AOT
    handle_is_map_kind/mark_set_kind — consumidos por parallel/text_encoding/collector que FICAM no
    runtime). Cargo += anyhow + unicode-normalization. Suite 1710/1710; AOT smoke (Map/Set/Proxy/
    Reflect/bind/Error/string, JIT==AOT) OK. ⟶ destrava json(ns)/trace.
-3. **json(ns) + trace → shared** (json usa collections/proxy/function/error; trace usa error). Gate.
+~~3. json(ns) + trace → shared~~ ✅ FEITO: json + trace → rts-shared/src/. read_string_handle
+   (pub fn Option<String>, era collector/string_pool) relocado p/ rts_engine::heap::handles
+   (re-export em string_pool). Cargo rts-shared += serde + serde_json(preserve_order) + json5.
+   Refs: gc::handles→engine; gc::error::ERROR_SET→gc_surface; string_pool::format_js_number/
+   read_string_handle→engine; globals/collections→crate::. Suite 1710/1710; AOT smoke (parse/
+   stringify/array + error-stack via trace, JIT==AOT) OK.
+   ⚠️ BUG PRÉ-EXISTENTE (NÃO regressão — confirmado em worktree do pai 6f3e6c85): `JSON.stringify
+   (obj, null, 2)` (pretty, 3-arg) TRAVA em `rts run`/AOT top-level (MIR on E off). Funciona em
+   `rts test` (suite json_stringify_pretty 3/3 verde). Abrir issue. Não bloqueia o move.
 4. **Platform-divergent globais → rts-std (step D):** console(→io) timers fetch(→net) performance
    blob headers form_data readable_stream event_target message_channel abort. Gate.
    ⟶ destrava time (timers) e promise (text_encoding+timers em std).

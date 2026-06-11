@@ -15,7 +15,7 @@ use serde_json::Value;
 use rts_engine::abi::ty::{Bool, Handle, F64, I64, U64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use super::gc::handles::{alloc_entry, free_handle, with_entry, Entry};
+use rts_engine::heap::handles::{alloc_entry, free_handle, with_entry, Entry};
 
 fn slice_from(ptr: u64, len: i64) -> Option<&'static [u8]> {
     if ptr == 0 || len < 0 {
@@ -31,8 +31,8 @@ fn slice_from(ptr: u64, len: i64) -> Option<&'static [u8]> {
 /// cada child, recursa primeiro com o holder atual como `this`, depois invoca
 /// reviver(key, value) com `this`=holder.
 fn apply_reviver(reviver_h: u64, holder: u64, key: &str) -> u64 {
-    use crate::namespaces::collections::vec as v_ns;
-    use crate::namespaces::globals::function::ops::__RTS_FN_GL_FUNCTION_APPLY_TYPED;
+    use crate::collections::vec as v_ns;
+    use crate::globals::function::ops::__RTS_FN_GL_FUNCTION_APPLY_TYPED;
     // Pega o value (child) do holder.
     let value: u64 = with_entry(holder, |e| match e {
         Some(Entry::Map(m)) => m.get(key).copied().unwrap_or(0) as u64,
@@ -62,7 +62,7 @@ fn apply_reviver(reviver_h: u64, holder: u64, key: &str) -> u64 {
         for (k, _v) in entries {
             let new_v = apply_reviver(reviver_h, value, &k);
             // Atualiza slot.
-            use crate::namespaces::gc::handles::with_entry_mut;
+            use rts_engine::heap::handles::with_entry_mut;
             with_entry_mut(value, |e| match e {
                 Some(Entry::Map(m)) if k_type == "map" => {
                     if is_undefined_handle(new_v) {
@@ -278,7 +278,7 @@ fn stringify_any_inner(handle: u64) -> Option<String> {
             name: "TypeError".to_owned(),
             cause: 0,
         });
-        crate::namespaces::gc::error::__RTS_FN_RT_ERROR_SET(err);
+        crate::gc_surface::__RTS_FN_RT_ERROR_SET(err);
         return None;
     }
     if circular {
@@ -289,7 +289,7 @@ fn stringify_any_inner(handle: u64) -> Option<String> {
             name: "TypeError".to_owned(),
             cause: 0,
         });
-        crate::namespaces::gc::error::__RTS_FN_RT_ERROR_SET(err);
+        crate::gc_surface::__RTS_FN_RT_ERROR_SET(err);
         return None;
     }
     r
@@ -308,13 +308,13 @@ fn stringify_with_visited(
     // `ownKeys` + `getOwnPropertyDescriptor`, e le cada valor via trap
     // `get` (mesmo trace de Bun/Node). Resolvemos pra um objeto plano
     // {key: value} e serializamos recursivamente.
-    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
+    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(handle) {
         if !visited.insert(handle) {
             *circular = true;
             return None;
         }
         let keys_vec =
-            crate::namespaces::globals::proxy::ops::dispatch_own_keys_enumerable(target, handler);
+            crate::globals::proxy::ops::dispatch_own_keys_enumerable(target, handler);
         let key_strs: Vec<String> = with_entry(keys_vec, |e| match e {
             Some(Entry::Vec(v)) => v
                 .iter()
@@ -331,7 +331,7 @@ fn stringify_with_visited(
         out.push('{');
         let mut first = true;
         for k in key_strs {
-            let val = crate::namespaces::globals::proxy::ops::dispatch_get(target, handler, &k);
+            let val = crate::globals::proxy::ops::dispatch_get(target, handler, &k);
             if is_undefined_value(val) {
                 continue;
             }
@@ -589,7 +589,7 @@ pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY_REPLACER_FN(handle: u64, replacer_h
 /// do retorno (se Map/Vec). Cria Map/Vec NOVO em vez de mutar o original
 /// (sem isso, segunda chamada JSON.stringify ve estado mutado).
 fn apply_stringify_replacer(replacer_h: u64, key: &str, value: u64) -> u64 {
-    use crate::namespaces::globals::function::ops::__RTS_FN_GL_FUNCTION_APPLY_TYPED;
+    use crate::globals::function::ops::__RTS_FN_GL_FUNCTION_APPLY_TYPED;
     let key_h = alloc_entry(Entry::String(key.as_bytes().to_vec()));
     let args = alloc_entry(Entry::Vec(Box::new(vec![key_h as i64, value as i64])));
     let result = __RTS_FN_GL_FUNCTION_APPLY_TYPED(replacer_h, 0, args);
@@ -787,7 +787,7 @@ pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY_TYPED(value: i64, kind: i32) -> u64
             if !f.is_finite() {
                 "null".to_string()
             } else {
-                crate::namespaces::gc::string_pool::format_js_number(f)
+                rts_engine::numfmt::format_js_number(f)
             }
         }
         // i64/handle: tenta como handle valido; senao formata como numero.
@@ -897,7 +897,7 @@ fn stringify_pretty_value_i64_str(v: i64, indent: &str, depth: usize) -> String 
 /// 10 chars conforme JS spec). String vazia desativa pretty.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY_PRETTY_STR(handle: u64, indent_h: u64) -> u64 {
-    let indent_str: String = match crate::namespaces::gc::string_pool::read_string_handle(indent_h)
+    let indent_str: String = match rts_engine::heap::handles::read_string_handle(indent_h)
     {
         Some(s) => {
             // JS spec: trunca em 10 caracteres.

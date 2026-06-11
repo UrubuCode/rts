@@ -2763,8 +2763,11 @@ dependencies = [
  "anyhow",
  "fancy-regex",
  "indexmap",
+ "json5",
  "regex",
  "rts-engine",
+ "serde",
+ "serde_json",
  "time",
  "unicode-normalization",
 ]

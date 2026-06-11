@@ -9,7 +9,7 @@ pub mod frame_stack;
 
 use rts_engine::{sig, Engine, FnPtr, Member, MemberFlags, MemberKind};
 
-use crate::namespaces::gc::handles::{Entry, alloc_entry, free_handle};
+use rts_engine::heap::handles::{Entry, alloc_entry, free_handle};
 
 /// Push a TS call frame onto the trace stack.
 #[unsafe(no_mangle)]

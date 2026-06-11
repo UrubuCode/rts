@@ -1153,6 +1153,17 @@ pub fn with_entry<R>(handle: u64, f: impl FnOnce(Option<&Entry>) -> R) -> R {
     f(guard.get(handle))
 }
 
+/// Reads a string handle into an owned Rust `String` (`None` se não for
+/// `Entry::String`). Helper puro sobre a heap — movido do `collector/string_pool`
+/// do runtime pro motor pra que a camada universal (json/error) o use sem o
+/// backend. Re-exportado em `collector/string_pool` pros call-sites antigos.
+pub fn read_string_handle(handle: u64) -> Option<String> {
+    with_entry(handle, |entry| match entry {
+        Some(Entry::String(bytes)) => Some(String::from_utf8_lossy(bytes).into_owned()),
+        _ => None,
+    })
+}
+
 /// Mutable access to an entry. `f` receives `None` for invalid handles.
 pub fn with_entry_mut<R>(handle: u64, f: impl FnOnce(Option<&mut Entry>) -> R) -> R {
     if handle == 0 {
