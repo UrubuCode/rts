@@ -11,7 +11,7 @@ use indexmap::IndexMap;
 use rts_engine::abi::ty::{Bool, Handle, I64, U64};
 use rts_engine::{AbiType, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use super::super::gc::handles::{alloc_entry, free_handle, with_entry, with_entry_mut, Entry};
+use rts_engine::heap::handles::{alloc_entry, free_handle, with_entry, with_entry_mut, Entry};
 
 /// Reconhece "array index" no sentido do ECMA-262: string que representa
 /// um u32 canônico (sem leading zeros exceto "0"; máximo 2^32 - 2).
@@ -51,7 +51,7 @@ fn decode_symbol_key(k: &str) -> Option<u64> {
 /// `Symbol.iterator` (handle sticky cacheado em globals/symbol/rt).
 fn key_is_well_known_iterator(k: &str) -> bool {
     match decode_symbol_key(k) {
-        Some(h) => h == crate::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_ITERATOR(),
+        Some(h) => h == crate::globals::symbol::__RTS_FN_GL_SYMBOL_ITERATOR(),
         None => false,
     }
 }
@@ -145,8 +145,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_HAS(h: U64, key_ptr: *const u8, ke
         None => return 0,
     };
     // (#218) Proxy: trap `has(target, prop)` ou forward.
-    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(h) {
-        return crate::namespaces::globals::proxy::ops::dispatch_has(target, handler, key);
+    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(h) {
+        return crate::globals::proxy::ops::dispatch_has(target, handler, key);
     }
     with_map(h, 0, |m| if m.contains_key(key) { 1 } else { 0 })
 }
@@ -159,8 +159,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET(h: U64, key_ptr: *const u8, ke
         None => return 0,
     };
     // (#218) Proxy: dispatch get trap quando handle eh Proxy.
-    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(h) {
-        return crate::namespaces::globals::proxy::ops::dispatch_get(target, handler, key);
+    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(h) {
+        return crate::globals::proxy::ops::dispatch_get(target, handler, key);
     }
     with_map(h, 0, |m| m.get(key).copied().unwrap_or(0))
 }
@@ -178,8 +178,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SET(
         None => return,
     };
     // (#218) Proxy: trap `set(target, prop, value)` ou forward.
-    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(h) {
-        crate::namespaces::globals::proxy::ops::dispatch_set(target, handler, key, value);
+    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(h) {
+        crate::globals::proxy::ops::dispatch_set(target, handler, key, value);
         return;
     }
     // (#479 follow-up) frozen impede mutacao; sealed so' impede add de novas keys.
@@ -213,8 +213,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DELETE(
         None => return 0,
     };
     // (#218) Proxy: trap `deleteProperty(target, prop)` ou forward.
-    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(h) {
-        return crate::namespaces::globals::proxy::ops::dispatch_delete(target, handler, key);
+    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(h) {
+        return crate::globals::proxy::ops::dispatch_delete(target, handler, key);
     }
     // sealed/frozen impedem delete.
     if is_map_sealed(h) {
@@ -238,9 +238,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJ_HAS(obj_h: U64, key_h: U64) -> Boo
         };
         // (cross-runtime #340) Proxy: dispatch `has` trap quando obj_h eh Proxy.
         if let Some((target, handler)) =
-            crate::namespaces::globals::proxy::ops::resolve_proxy(obj_h)
+            crate::globals::proxy::ops::resolve_proxy(obj_h)
         {
-            return crate::namespaces::globals::proxy::ops::dispatch_has(target, handler, &key);
+            return crate::globals::proxy::ops::dispatch_has(target, handler, &key);
         }
         // Vec: index `i` esta "in" array se 0 <= i < length E slot != hole.
         let vec_result: Option<i64> = with_entry(obj_h, |e| match e {
@@ -388,9 +388,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_KH(obj_h: U64, key_h: U64) -> 
         };
         // (cross-runtime #340/#53) Proxy: dispatch `get` trap antes do path raw.
         if let Some((target, handler)) =
-            crate::namespaces::globals::proxy::ops::resolve_proxy(obj_h)
+            crate::globals::proxy::ops::resolve_proxy(obj_h)
         {
-            return crate::namespaces::globals::proxy::ops::dispatch_get(target, handler, &key);
+            return crate::globals::proxy::ops::dispatch_get(target, handler, &key);
         }
         // Vec path: parse key como array index.
         let is_vec = with_entry(obj_h, |e| matches!(e, Some(Entry::Vec(_))));
@@ -400,14 +400,14 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_KH(obj_h: U64, key_h: U64) -> 
             }
             // (#216/299) `arr[Symbol.iterator]` -> handle Function nativo.
             if key_is_well_known_iterator(&key) {
-                return crate::namespaces::gc::generator::__RTS_FN_GL_ARRAY_ITERATOR_FN() as i64;
+                return crate::gc_surface::__RTS_FN_GL_ARRAY_ITERATOR_FN() as i64;
             }
             return 0;
         }
         // Map: valor armazenado vence; fallback iterator nativo.
         let stored = with_map(obj_h, 0, |m| m.get(&key).copied().unwrap_or(0));
         if stored == 0 && key_is_well_known_iterator(&key) {
-            return crate::namespaces::gc::generator::__RTS_FN_GL_ARRAY_ITERATOR_FN() as i64;
+            return crate::gc_surface::__RTS_FN_GL_ARRAY_ITERATOR_FN() as i64;
         }
         stored
 }
@@ -446,7 +446,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEY_AT(h: U64, idx: I64) -> Handle
             }
         });
         match key_opt {
-            Some(s) => crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(
+            Some(s) => crate::gc_surface::__RTS_FN_NS_GC_STRING_NEW(
                 s.as_ptr(),
                 s.len() as i64,
             ),
@@ -458,8 +458,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEY_AT(h: U64, idx: I64) -> Handle
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(h: U64) -> Handle {
         // (#218 phase2) Proxy: trap `ownKeys(target)` ou forward.
-        if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(h) {
-            return crate::namespaces::globals::proxy::ops::dispatch_own_keys(target, handler);
+        if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(h) {
+            return crate::globals::proxy::ops::dispatch_own_keys(target, handler);
         }
         // (#394) Set.keys() eh alias de Set.values() em JS.
         if handle_is_set_kind(h) {
@@ -493,13 +493,13 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(h: U64) -> Handle {
         });
         let mut vec: Vec<i64> = Vec::with_capacity(keys.len());
         for k in keys {
-            let h2 = crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(
+            let h2 = crate::gc_surface::__RTS_FN_NS_GC_STRING_NEW(
                 k.as_ptr(),
                 k.len() as i64,
             );
             vec.push(h2 as i64);
         }
-        crate::namespaces::gc::handles::alloc_entry(crate::namespaces::gc::handles::Entry::Vec(
+        rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::Vec(
             Box::new(vec),
         ))
 }
@@ -514,8 +514,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_VALUES(h: U64) -> Handle {
                     .map(|(k, &v)| set_element_from_pair(k, v))
                     .collect()
             });
-            return crate::namespaces::gc::handles::alloc_entry(
-                crate::namespaces::gc::handles::Entry::Vec(Box::new(elems)),
+            return rts_engine::heap::handles::alloc_entry(
+                rts_engine::heap::handles::Entry::Vec(Box::new(elems)),
             );
         }
         let vals: Vec<i64> = with_map(h, Vec::new(), |m| {
@@ -541,7 +541,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_VALUES(h: U64) -> Handle {
             out.extend(str_entries);
             out
         });
-        crate::namespaces::gc::handles::alloc_entry(crate::namespaces::gc::handles::Entry::Vec(
+        rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::Vec(
             Box::new(vals),
         ))
 }
@@ -948,7 +948,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH(handle: u64, fn_ptr: u64)
                 key_for_set,
                 handle as i64,
             ])));
-            crate::namespaces::globals::function::ops::__RTS_FN_RT_INVOKE_AUTO(
+            crate::globals::function::ops::__RTS_FN_RT_INVOKE_AUTO(
                 fn_ptr as i64,
                 0,
                 args_vec,
@@ -963,7 +963,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH(handle: u64, fn_ptr: u64)
     // (agora `(f64)->`) -> value lido como bits denormal ≈ 0 (Map.forEach #793).
     for (k, v) in pairs {
         let key_h = alloc_entry(Entry::String(k.into_bytes())) as i64;
-        crate::namespaces::globals::function::ops::invoke_fn_ptr_with_registry(
+        crate::globals::function::ops::invoke_fn_ptr_with_registry(
             fn_ptr,
             &[v, key_h, handle as i64],
         );
@@ -1090,8 +1090,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN(
     };
     // (#218) Proxy: se handle for Entry::Proxy, dispara trap `get` no handler
     // ou faz forward para target. Trap recebe (target, key_handle).
-    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
-        return crate::namespaces::globals::proxy::ops::dispatch_get(target, handler, key);
+    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(handle) {
+        return crate::globals::proxy::ops::dispatch_get(target, handler, key);
     }
     // (cross-runtime #745) Entry::ErrorObj — quando o handle e' Error e
     // a key e' name/message/stack, retorna string handle alocado.
@@ -1155,7 +1155,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN(
     // `cn.length` em handles reificados (ex: ctor stub do prototype map
     // criado em FUNCTION_PROTOTYPE_GET). Sem isso, leitura caia no
     // generic map loop que retorna 0 (Function nao tem slots Map).
-    let fn_field: Option<i64> = crate::namespaces::gc::handles::with_entry(handle, |e| match e {
+    let fn_field: Option<i64> = rts_engine::heap::handles::with_entry(handle, |e| match e {
         Some(Entry::Function(d)) => match key {
             "name" => Some(alloc_entry(Entry::String(d.name.as_bytes().to_vec())) as i64),
             "length" => Some(d.arity as i64),
@@ -1189,14 +1189,14 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN(
 /// `delete obj.prop` — recebe key como handle de string.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DELETE_AUTO(handle: u64, key_handle: u64) -> i64 {
-    use super::super::gc::handles::{with_entry, Entry};
+    use rts_engine::heap::handles::{with_entry, Entry};
     let key_owned: Option<String> = with_entry(key_handle, |e| match e {
         Some(Entry::String(b)) => std::str::from_utf8(b).ok().map(|s| s.to_string()),
         _ => None,
     });
     let Some(key) = key_owned else { return 1 };
-    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
-        return crate::namespaces::globals::proxy::ops::dispatch_delete(target, handler, &key);
+    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(handle) {
+        return crate::globals::proxy::ops::dispatch_delete(target, handler, &key);
     }
     if is_map_sealed(handle) {
         return 0;
@@ -1245,16 +1245,16 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES(handle: u64) -> u64 {
     });
     let mut outer: Vec<i64> = Vec::with_capacity(pairs.len());
     for (k, v) in pairs {
-        let key_h = crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(
+        let key_h = crate::gc_surface::__RTS_FN_NS_GC_STRING_NEW(
             k.as_ptr(),
             k.len() as i64,
         );
-        let inner = crate::namespaces::gc::handles::alloc_entry(
-            crate::namespaces::gc::handles::Entry::Vec(Box::new(vec![key_h as i64, v])),
+        let inner = rts_engine::heap::handles::alloc_entry(
+            rts_engine::heap::handles::Entry::Vec(Box::new(vec![key_h as i64, v])),
         );
         outer.push(inner as i64);
     }
-    crate::namespaces::gc::handles::alloc_entry(crate::namespaces::gc::handles::Entry::Vec(
+    rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::Vec(
         Box::new(outer),
     ))
 }
@@ -1278,13 +1278,13 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION(handle: u64) -> 
         });
         let mut outer: Vec<i64> = Vec::with_capacity(elems.len());
         for e in elems {
-            let inner = crate::namespaces::gc::handles::alloc_entry(
-                crate::namespaces::gc::handles::Entry::Vec(Box::new(vec![e, e])),
+            let inner = rts_engine::heap::handles::alloc_entry(
+                rts_engine::heap::handles::Entry::Vec(Box::new(vec![e, e])),
             );
             outer.push(inner as i64);
         }
-        return crate::namespaces::gc::handles::alloc_entry(
-            crate::namespaces::gc::handles::Entry::Vec(Box::new(outer)),
+        return rts_engine::heap::handles::alloc_entry(
+            rts_engine::heap::handles::Entry::Vec(Box::new(outer)),
         );
     }
     let pairs: Vec<(String, i64)> = with_map(handle, Vec::new(), |m| {
@@ -1295,16 +1295,16 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION(handle: u64) -> 
     });
     let mut outer: Vec<i64> = Vec::with_capacity(pairs.len());
     for (k, v) in pairs {
-        let key_h = crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(
+        let key_h = crate::gc_surface::__RTS_FN_NS_GC_STRING_NEW(
             k.as_ptr(),
             k.len() as i64,
         );
-        let inner = crate::namespaces::gc::handles::alloc_entry(
-            crate::namespaces::gc::handles::Entry::Vec(Box::new(vec![key_h as i64, v])),
+        let inner = rts_engine::heap::handles::alloc_entry(
+            rts_engine::heap::handles::Entry::Vec(Box::new(vec![key_h as i64, v])),
         );
         outer.push(inner as i64);
     }
-    crate::namespaces::gc::handles::alloc_entry(crate::namespaces::gc::handles::Entry::Vec(
+    rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::Vec(
         Box::new(outer),
     ))
 }
@@ -1433,8 +1433,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
     // (#218 phase2 / #98) Proxy: trap `ownKeys` + filtragem por enumeravel
     // via trap `getOwnPropertyDescriptor` por chave (ECMA-262
     // OrdinaryOwnPropertyKeys). Reflect.ownKeys usa dispatch_own_keys cru.
-    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
-        return crate::namespaces::globals::proxy::ops::dispatch_own_keys_enumerable(
+    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(handle) {
+        return crate::globals::proxy::ops::dispatch_own_keys_enumerable(
             target, handler,
         );
     }
@@ -1624,11 +1624,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MARK_AS_SET(handle: u64) {
     set_kind_set().lock().unwrap().insert(handle);
 }
 
-pub(crate) fn handle_is_map_kind(handle: u64) -> bool {
+pub fn handle_is_map_kind(handle: u64) -> bool {
     map_kind_set().lock().unwrap().contains(&handle)
 }
 
-pub(crate) fn handle_is_set_kind(handle: u64) -> bool {
+pub fn handle_is_set_kind(handle: u64) -> bool {
     set_kind_set().lock().unwrap().contains(&handle)
 }
 
@@ -1646,8 +1646,8 @@ pub(crate) fn set_element_from_pair(key: &str, value: i64) -> i64 {
         // value sentinel legado / float: reconstroi da key.
         match key.parse::<i64>() {
             Ok(n) => n,
-            Err(_) => crate::namespaces::gc::handles::alloc_entry(
-                crate::namespaces::gc::handles::Entry::String(key.as_bytes().to_vec()),
+            Err(_) => rts_engine::heap::handles::alloc_entry(
+                rts_engine::heap::handles::Entry::String(key.as_bytes().to_vec()),
             ) as i64,
         }
     } else {
@@ -1657,7 +1657,7 @@ pub(crate) fn set_element_from_pair(key: &str, value: i64) -> i64 {
 
 /// (#316) Helper interno para estruturas que clonam (structuredClone)
 /// preservarem kind=Set do source no novo handle.
-pub(crate) fn mark_set_kind(handle: u64) {
+pub fn mark_set_kind(handle: u64) {
     set_kind_set().lock().unwrap().insert(handle);
 }
 
@@ -1713,8 +1713,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_IS_SEALED(handle: u64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_PROTO(handle: u64) -> u64 {
     // (#218 phase2) Proxy: trap `getPrototypeOf` ou forward.
-    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
-        return crate::namespaces::globals::proxy::ops::dispatch_get_proto(target, handler);
+    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(handle) {
+        return crate::globals::proxy::ops::dispatch_get_proto(target, handler);
     }
     // (#1080-format) Object.create(null) handles tem proto = null mesmo
     // que .__proto__ slot tenha sido sobrescrito pelo user (regular prop).
@@ -1727,7 +1727,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_PROTO(handle: u64) -> u64 {
     // (`while (proto) { ...; proto = getPrototypeOf(proto); }`) dava uma
     // volta extra retornando o sentinel `[Object.prototype]` em vez de
     // terminar, imprimindo lixo (` 0`) apos "Object".
-    if handle == crate::namespaces::globals::function::ops::__RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE() {
+    if handle == crate::globals::function::ops::__RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE() {
         return 0;
     }
     // (#1080) Sentinel proto strings: JS spec:
@@ -1896,12 +1896,12 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY(
     // user em try/catch capture o erro com e.constructor.name === "TypeError".
     if is_non_configurable(obj, &key_str) {
         let msg = format!("Cannot redefine property: {}", key_str);
-        let err_h = crate::namespaces::globals::error::instance::__RTS_FN_GL_TYPE_ERROR_NEW(
+        let err_h = crate::globals::error::instance::__RTS_FN_GL_TYPE_ERROR_NEW(
             msg.as_ptr() as i64,
             msg.len() as i64,
             0,
         );
-        crate::namespaces::gc::error::__RTS_FN_RT_ERROR_SET(err_h);
+        crate::gc_surface::__RTS_FN_RT_ERROR_SET(err_h);
         return obj;
     }
     if matches!(is_enumerable, Some(false)) {
@@ -2201,7 +2201,7 @@ fn group_by_impl(arr: u64, fn_ptr: u64, mark_as_map: bool) -> u64 {
 /// (#666/265) Map suporte adicionado para `Object.fromEntries(new Map(...))`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FROM_ENTRIES(arr: u64) -> u64 {
-    use crate::namespaces::gc::handles::{with_entry, Entry};
+    use rts_engine::heap::handles::{with_entry, Entry};
     // (#666/265) Map -> Map roundtrip: copia todos os pares (k, v) direto.
     let map_pairs: Option<Vec<(String, i64)>> = with_entry(arr, |entry| match entry {
         Some(Entry::Map(m)) => Some(m.iter().map(|(k, v)| (k.clone(), *v)).collect()),
@@ -2262,7 +2262,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FROM_ENTRIES(arr: u64) -> u64 {
 ///   nao-string = ptr nulo) e colidiam todos numa unica entrada.
 /// - sem Entry valido (numero/bool/sentinel) -> representacao decimal.
 pub(crate) fn set_stable_key(elem_raw: i64) -> String {
-    use crate::namespaces::gc::handles::{with_entry, Entry};
+    use rts_engine::heap::handles::{with_entry, Entry};
     with_entry(elem_raw as u64, |e| match e {
         Some(Entry::String(b)) => String::from_utf8_lossy(b).into_owned(),
         Some(_) => format!("\0obj#{elem_raw}"),
@@ -2346,10 +2346,10 @@ pub extern "C" fn __RTS_FN_RT_FOR_OF_NORMALIZE(handle: u64) -> u64 {
     // iterador. Drena ate `done` num Vec (finito). Para generator infinito num
     // for-of sem break o loop nunca termina — igual a JS.
     {
-        use crate::namespaces::gc::handles::{with_entry, Entry};
+        use rts_engine::heap::handles::{with_entry, Entry};
         let is_sm = with_entry(handle, |e| matches!(e, Some(Entry::GenState(_))));
         if is_sm {
-            return crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_DRAIN(handle);
+            return crate::gc_surface::__RTS_FN_NS_GC_GEN_SM_DRAIN(handle);
         }
     }
     handle
@@ -2357,7 +2357,7 @@ pub extern "C" fn __RTS_FN_RT_FOR_OF_NORMALIZE(handle: u64) -> u64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_FROM_VEC(src: u64) -> u64 {
-    use crate::namespaces::gc::handles::{with_entry, Entry};
+    use rts_engine::heap::handles::{with_entry, Entry};
     let elems: Vec<i64> = with_entry(src, |entry| match entry {
         Some(Entry::Vec(v)) => v.as_ref().clone(),
         _ => Vec::new(),
@@ -2381,7 +2381,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_FROM_VEC(src: u64) -> u64 {
 #[cfg(test)]
 mod object_tests {
     use super::*;
-    use crate::namespaces::gc::handles::{with_entry, Entry};
+    use rts_engine::heap::handles::{with_entry, Entry};
 
     fn read_str(h: u64) -> Option<String> {
         with_entry(h, |e| match e {

@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use super::ops::__RTS_FN_RT_INVOKE_AUTO;
-use crate::namespaces::gc::string_pool::__RTS_FN_RT_TO_STRING_HANDLE;
+use crate::gc_surface::__RTS_FN_RT_TO_STRING_HANDLE;
 
 static FN_PROPS: Mutex<Option<HashMap<String, i64>>> = Mutex::new(None);
 

@@ -78,7 +78,7 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH(
     p_ptr: *const u8,
     p_len: i64,
 ) -> u64 {
-    use crate::namespaces::gc::handles::{alloc_entry, Entry};
+    use rts_engine::heap::handles::{alloc_entry, Entry};
     let (Some(s), Some(p)) = (str_from_abi(s_ptr, s_len), str_from_abi(p_ptr, p_len)) else {
         return 0;
     };
@@ -102,7 +102,7 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_REGEX(
     s_len: i64,
     regex_handle: u64,
 ) -> u64 {
-    use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
+    use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
     let Some(s) = str_from_abi(s_ptr, s_len) else {
         return 0;
     };
@@ -217,7 +217,7 @@ pub extern "C" fn __RTS_FN_NS_STRING_SEARCH_REGEX(
     s_len: i64,
     regex_handle: u64,
 ) -> i64 {
-    use crate::namespaces::gc::handles::{with_entry, Entry};
+    use rts_engine::heap::handles::{with_entry, Entry};
     let Some(s) = str_from_abi(s_ptr, s_len) else {
         return -1;
     };
@@ -241,7 +241,7 @@ pub extern "C" fn __RTS_FN_NS_STRING_REPLACE_REGEX(
     regex_handle: u64,
     replacement_h: u64,
 ) -> u64 {
-    use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
+    use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
     let Some(s) = str_from_abi(s_ptr, s_len) else {
         return 0;
     };
@@ -320,7 +320,7 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_ALL(
     p_ptr: *const u8,
     p_len: i64,
 ) -> u64 {
-    use crate::namespaces::gc::handles::{alloc_entry, Entry};
+    use rts_engine::heap::handles::{alloc_entry, Entry};
     let empty_vec = || alloc_entry(Entry::Vec(Box::new(Vec::new())));
     let (Some(s), Some(p)) = (str_from_abi(s_ptr, s_len), str_from_abi(p_ptr, p_len)) else {
         return empty_vec();
@@ -346,7 +346,7 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_ALL_REGEX(
     s_len: i64,
     regex_handle: u64,
 ) -> u64 {
-    use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
+    use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
     use indexmap::IndexMap;
     let empty_vec = || alloc_entry(Entry::Vec(Box::new(Vec::new())));
     let Some(s) = str_from_abi(s_ptr, s_len) else {
@@ -495,7 +495,7 @@ pub extern "C" fn __RTS_FN_NS_STRING_REPLACE_REGEX_FN(
     regex_handle: u64,
     fn_handle: u64,
 ) -> u64 {
-    use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
+    use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
     let Some(s) = str_from_abi(s_ptr, s_len) else {
         return 0;
     };
@@ -538,7 +538,7 @@ pub extern "C" fn __RTS_FN_NS_STRING_REPLACE_REGEX_FN(
     let bytes = s_owned.as_bytes();
 
     // Resolve raw fn_ptr: either a Function handle or a direct function pointer.
-    let raw_fn_ptr: u64 = crate::namespaces::gc::handles::with_entry(fn_handle, |e| match e {
+    let raw_fn_ptr: u64 = rts_engine::heap::handles::with_entry(fn_handle, |e| match e {
         Some(Entry::Function(f)) => f.fn_ptr as u64,
         _ => fn_handle,
     });
@@ -616,8 +616,8 @@ pub extern "C" fn __RTS_FN_GL_STRING_SPLIT_REGEX_LIMIT(
     regex_handle: u64,
     limit: i64,
 ) -> u64 {
-    use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
-    use crate::namespaces::globals::string::rt::alloc_str;
+    use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
+    use crate::globals::string::rt::alloc_str;
     unsafe extern "C" {
         fn __RTS_FN_NS_COLLECTIONS_VEC_NEW() -> u64;
         fn __RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle: u64, value: i64);

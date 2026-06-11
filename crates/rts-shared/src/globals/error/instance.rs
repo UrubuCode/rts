@@ -4,7 +4,7 @@
 //! with `name` set to the appropriate class name. All instance methods are
 //! shared (same symbol `__RTS_FN_GL_ERROR_*`).
 
-use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
+use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
@@ -229,7 +229,7 @@ pub extern "C" fn __RTS_FN_GL_IS_ERROR_NAMED(handle: u64, name_ptr: i64, name_le
                 Ok(s) => s,
                 Err(_) => return 0,
             };
-            if crate::namespaces::gc::class_registry::is_descendant_of(cur, want_s) {
+            if rts_engine::heap::class_registry::is_descendant_of(cur, want_s) {
                 return 1;
             }
             // Tambem checa __rts_class do Map (class name original) — pode
@@ -251,7 +251,7 @@ pub extern "C" fn __RTS_FN_GL_IS_ERROR_NAMED(handle: u64, name_ptr: i64, name_le
                     _ => None,
                 });
                 if let Some(c) = class_str {
-                    if crate::namespaces::gc::class_registry::is_descendant_of(&c, want_s) {
+                    if rts_engine::heap::class_registry::is_descendant_of(&c, want_s) {
                         return 1;
                     }
                 }
@@ -271,7 +271,7 @@ pub extern "C" fn __RTS_FN_GL_IS_ERROR_NAMED(handle: u64, name_ptr: i64, name_le
                     _ => None,
                 });
                 if let Some(c) = class_str {
-                    if crate::namespaces::gc::class_registry::is_descendant_of(&c, want_s) {
+                    if rts_engine::heap::class_registry::is_descendant_of(&c, want_s) {
                         return 1;
                     }
                 }
@@ -306,7 +306,7 @@ pub extern "C" fn __RTS_FN_GL_ERROR_STACK(handle: u64) -> u64 {
     };
     // (#745) Stack salvo pelo ERROR_CLEAR (ver gc/error.rs ERR_STACKS).
     let stack_text: String =
-        crate::namespaces::gc::error::stack_for_handle(handle).unwrap_or_default();
+        rts_engine::collector::err_stack::stack_for_handle(handle).unwrap_or_default();
     let s = if stack_text.is_empty() {
         header
     } else {

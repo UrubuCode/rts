@@ -9,7 +9,7 @@
 //!      INVOKE_AUTO com Vec handle de args.
 //!   3. Se nao existe: forward direto pro target (caminho default JS).
 
-use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry};
+use rts_engine::heap::handles::{Entry, alloc_entry, with_entry};
 
 unsafe extern "C" {
     fn __RTS_FN_RT_INVOKE_AUTO(callee: i64, this_arg: i64, args_handle: u64) -> i64;
@@ -261,7 +261,7 @@ pub extern "C" fn __RTS_FN_GL_REFLECT_CONSTRUCT(target: u64, args_handle: u64) -
     }
     // Forward default: aloca instancia + apply.
     let inst = alloc_entry(Entry::Map(Box::new(indexmap::IndexMap::new())));
-    let _ = crate::namespaces::globals::function::ops::__RTS_FN_GL_FUNCTION_APPLY_TYPED(
+    let _ = crate::globals::function::ops::__RTS_FN_GL_FUNCTION_APPLY_TYPED(
         target, inst as i64, args_handle,
     );
     inst
@@ -386,14 +386,14 @@ fn forward_get_own_property_descriptor(target: u64, key_handle: u64) -> u64 {
     let Some(v) = value else { return alloc_entry(Entry::String(b"undefined".to_vec())) };
     // (cross-runtime #795) consulta flag tracking pra preservar
     // writable/enumerable definidos via defineProperty.
-    let writable_bool = !crate::namespaces::collections::map::is_non_writable(target, &key_str);
-    let enumerable_bool = !crate::namespaces::collections::map::is_non_enumerable(target, &key_str);
+    let writable_bool = !crate::collections::map::is_non_writable(target, &key_str);
+    let enumerable_bool = !crate::collections::map::is_non_enumerable(target, &key_str);
     // (#98/#1073/349) configurable rastreado via Object.defineProperty
     // (is_non_configurable). Antes hardcodava true aqui, regredindo
     // 349_object_descriptors quando getOwnPropertyDescriptor passou a
     // rotear pela versao _PROXY.
     let configurable_bool =
-        !crate::namespaces::collections::map::is_non_configurable(target, &key_str);
+        !crate::collections::map::is_non_configurable(target, &key_str);
     let mut desc: indexmap::IndexMap<String, i64> = indexmap::IndexMap::new();
     desc.insert("value".to_string(), v);
     // Bool sentinels (i64::MIN+1 = true, i64::MIN = false) pra TPL_COERCE_AUTO
@@ -432,7 +432,7 @@ pub extern "C" fn __RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_PROXY(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::namespaces::gc::handles::{Entry, alloc_entry};
+    use rts_engine::heap::handles::{Entry, alloc_entry};
     use indexmap::IndexMap;
 
     #[test]

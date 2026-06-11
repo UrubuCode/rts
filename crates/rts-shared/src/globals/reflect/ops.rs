@@ -11,7 +11,7 @@
 //!   Ignora `writable`/`enumerable`/`configurable` (sempre true) e
 //!   accessor descriptors (`get`/`set`). Retorna 1.
 
-use crate::namespaces::gc::handles::{Entry, alloc_entry, with_entry};
+use rts_engine::heap::handles::{Entry, alloc_entry, with_entry};
 use indexmap::IndexMap;
 
 /// Helper: extrai o conteudo string de um handle (para usar como key
@@ -77,18 +77,18 @@ pub extern "C" fn __RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR(
     // Consulta flags reais setadas via Object.defineProperty; default true.
     let bool_true: i64 = i64::MIN + 1;
     let bool_false: i64 = i64::MIN;
-    let writable = if crate::namespaces::collections::map::is_non_writable(obj, &key_str) {
+    let writable = if crate::collections::map::is_non_writable(obj, &key_str) {
         bool_false
     } else {
         bool_true
     };
-    let enumerable = if crate::namespaces::collections::map::is_non_enumerable(obj, &key_str) {
+    let enumerable = if crate::collections::map::is_non_enumerable(obj, &key_str) {
         bool_false
     } else {
         bool_true
     };
     // (#1073) configurable rastreado via Object.defineProperty
-    let configurable = if crate::namespaces::collections::map::is_non_configurable(obj, &key_str) {
+    let configurable = if crate::collections::map::is_non_configurable(obj, &key_str) {
         bool_false
     } else {
         bool_true
@@ -135,18 +135,18 @@ pub extern "C" fn __RTS_FN_GL_OBJECT_GET_OWN_PROPERTY_DESCRIPTORS(obj: u64) -> u
     let mut out: IndexMap<String, i64> = IndexMap::new();
     for (k, v) in data_pairs {
         // (#749) Consulta flags reais setadas via Object.defineProperty.
-        let writable = if crate::namespaces::collections::map::is_non_writable(obj, &k) {
+        let writable = if crate::collections::map::is_non_writable(obj, &k) {
             bool_false
         } else {
             bool_true
         };
-        let enumerable = if crate::namespaces::collections::map::is_non_enumerable(obj, &k) {
+        let enumerable = if crate::collections::map::is_non_enumerable(obj, &k) {
             bool_false
         } else {
             bool_true
         };
         // (#1073) configurable rastreado.
-        let configurable = if crate::namespaces::collections::map::is_non_configurable(obj, &k) {
+        let configurable = if crate::collections::map::is_non_configurable(obj, &k) {
             bool_false
         } else {
             bool_true
@@ -216,7 +216,7 @@ pub extern "C" fn __RTS_FN_GL_REFLECT_DEFINE_PROPERTY(
     });
 
     // Escreve no obj. Reusa a logica do MAP_SET via with_entry_mut.
-    use crate::namespaces::gc::handles::with_entry_mut;
+    use rts_engine::heap::handles::with_entry_mut;
     let ok = with_entry_mut(obj, |e| match e {
         Some(Entry::Map(m)) => {
             m.insert(key_str, value);
@@ -230,7 +230,7 @@ pub extern "C" fn __RTS_FN_GL_REFLECT_DEFINE_PROPERTY(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::namespaces::gc::handles::{Entry, alloc_entry};
+    use rts_engine::heap::handles::{Entry, alloc_entry};
 
     #[test]
     fn descriptor_synthesizes_default_flags() {

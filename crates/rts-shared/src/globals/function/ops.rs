@@ -4,7 +4,7 @@
 //! por aridade ate 8. Funciona porque user fns com address taken usam
 //! default_call_conv (SystemV/Win64), igual extern "C" Rust.
 
-use crate::namespaces::gc::handles::{
+use rts_engine::heap::handles::{
     alloc_entry, with_entry, with_entry_mut, Entry, FunctionData,
 };
 use std::sync::{Arc, Mutex, OnceLock};
@@ -506,7 +506,7 @@ fn read_args_vec(args_handle: u64) -> Vec<i64> {
 /// return_kind corretos) — semantica de captura por-ativacao. Quando eh
 /// fn_ptr cru (sem captura), chama direto via invoke_all_i64 ignorando o
 /// terceiro slot (array handle) que callbacks 1-2 param descartam.
-pub(crate) fn invoke_array_callback(handle_or_ptr: u64, extra: &[i64]) -> i64 {
+pub fn invoke_array_callback(handle_or_ptr: u64, extra: &[i64]) -> i64 {
     if let Some((fn_ptr, bound, _hbt, _bt, _arrow, _htp, param_kinds, ret_kind)) =
         read_function_data(handle_or_ptr)
     {
@@ -768,8 +768,8 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_NEW(params_handle: u64, body_handle: u64)
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_handle: u64) -> i64 {
     // (#218 phase2) Proxy callable: redireciona pra trap apply ou forward.
-    if let Some((target, handler)) = crate::namespaces::globals::proxy::ops::resolve_proxy(handle) {
-        return crate::namespaces::globals::proxy::ops::dispatch_apply(
+    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(handle) {
+        return crate::globals::proxy::ops::dispatch_apply(
             target,
             handler,
             this_arg,
@@ -820,9 +820,9 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_han
                 return 0;
             }
             let args = read_args_vec(args_handle);
-            crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_PUSH(this_arg);
+            rts_engine::heap::this_slot::__RTS_FN_RT_THIS_PUSH(this_arg);
             let r = unsafe { invoke_n(handle, &args) };
-            crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_POP();
+            rts_engine::heap::this_slot::__RTS_FN_RT_THIS_POP();
             return r;
         }
     };
@@ -850,13 +850,13 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_han
     } else if !is_arrow {
         // Plain fn (nao-classe): empilha thisArg no thread-local slot
         // pra que `Expr::This` no body leia via __RTS_FN_RT_THIS_GET.
-        crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_PUSH(effective_this);
+        rts_engine::heap::this_slot::__RTS_FN_RT_THIS_PUSH(effective_this);
         true
     } else if has_bound_this {
         // Arrow com `this` capturado em criação (REIFY_BOUND). Empurra ao
         // slot para que THIS_GET() no body leia o valor correto mesmo quando
         // a arrow é chamada fora do escopo original.
-        crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_PUSH(bound_this);
+        rts_engine::heap::this_slot::__RTS_FN_RT_THIS_PUSH(bound_this);
         true
     } else {
         false
@@ -896,7 +896,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_han
     };
 
     if pushed_this_slot {
-        crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_POP();
+        rts_engine::heap::this_slot::__RTS_FN_RT_THIS_POP();
     }
 
     result
@@ -1178,7 +1178,7 @@ fn lookup_fn_kinds(fn_ptr: u64) -> Option<(Vec<u8>, u8)> {
 /// number-cru → bits e usa invoke_typed com a ABI correta; senão cai no
 /// invoke_n (todos i64). Usado por callers que têm só o ponteiro resolvido (ex:
 /// promise.then), p/ não chamar uma fn `(f64)->f64` via ABI i64 (segfault).
-pub(crate) fn invoke_fn_ptr_with_registry(fn_ptr: u64, args: &[i64]) -> i64 {
+pub fn invoke_fn_ptr_with_registry(fn_ptr: u64, args: &[i64]) -> i64 {
     // (cross-runtime closures) Se na verdade for um HANDLE Function (escapou sem
     // resolve — ex: callback de `.then` reificado como handle quando passou a
     // ter param `number`/f64), despacha pelo caminho de handle: prepend bound,
@@ -1214,9 +1214,9 @@ pub(crate) fn invoke_fn_ptr_with_registry(fn_ptr: u64, args: &[i64]) -> i64 {
 pub extern "C" fn __RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE() -> u64 {
     static SINGLETON: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
     *SINGLETON.get_or_init(|| {
-        let proto = crate::namespaces::collections::map::__RTS_FN_NS_COLLECTIONS_MAP_NEW();
+        let proto = crate::collections::map::__RTS_FN_NS_COLLECTIONS_MAP_NEW();
         let ctor_stub = alloc_entry(Entry::Function(Box::new(
-            crate::namespaces::gc::handles::FunctionData {
+            rts_engine::heap::handles::FunctionData {
                 fn_ptr: 0,
                 arity: 0,
                 name: "Object".into(),
@@ -1234,11 +1234,11 @@ pub extern "C" fn __RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE() -> u64 {
                 rest_param_idx: -1,
             },
         )));
-        crate::namespaces::collections::map::with_map_mut(proto, (), |m| {
+        crate::collections::map::with_map_mut(proto, (), |m| {
             m.insert("constructor".to_string(), ctor_stub as i64);
         });
         // (cross-runtime #377) constructor eh non-enumerable em Object.prototype.
-        crate::namespaces::collections::map::mark_non_enumerable(proto, "constructor");
+        crate::collections::map::mark_non_enumerable(proto, "constructor");
         proto
     })
 }
@@ -1268,25 +1268,25 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_PROTOTYPE_GET(handle: u64) -> u64 {
         }
     }
     // Aloca novo Map FORA do lock pra evitar reentrant locks com shards.
-    let new_proto = crate::namespaces::collections::map::__RTS_FN_NS_COLLECTIONS_MAP_NEW();
+    let new_proto = crate::collections::map::__RTS_FN_NS_COLLECTIONS_MAP_NEW();
     // (cross-runtime #336) Popula `constructor` slot no prototype Map.
     // JS spec: `C.prototype.constructor === C`. Sem isso,
     // `Object.getPrototypeOf(c).constructor` retorna 0 e iteracao do
     // prototype chain (`while (proto) { chain.push(proto.constructor.name); }`)
     // nao consegue extrair nomes das classes da hierarquia.
-    crate::namespaces::collections::map::with_map_mut(new_proto, (), |m| {
+    crate::collections::map::with_map_mut(new_proto, (), |m| {
         m.insert("constructor".to_string(), handle as i64);
     });
     // (cross-runtime #377) `constructor` slot eh non-enumerable em JS spec
     // — class methods (incluindo constructor sintetico) nao aparecem em
     // `for...in`. Sem isso, fixture 377_for_in_detail reportava
     // `x,constructor` em vez de so' `x`.
-    crate::namespaces::collections::map::mark_non_enumerable(new_proto, "constructor");
+    crate::collections::map::mark_non_enumerable(new_proto, "constructor");
     // Insere; se outra thread venceu a corrida, descarta o nosso.
     let mut registry = proto_registry().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(&existing) = registry.get(&fn_ptr) {
         drop(registry);
-        let _ = crate::namespaces::gc::handles::free_handle(new_proto);
+        let _ = rts_engine::heap::handles::free_handle(new_proto);
         return existing;
     }
     registry.insert(fn_ptr, new_proto);
@@ -1310,7 +1310,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_PROTOTYPE_GET(handle: u64) -> u64 {
 /// tambem casa. Retorna 0/1 (bool sentinel decidido pelo codegen).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_RT_INSTANCEOF_PROTO(instance_h: u64, ctor_h: u64) -> i64 {
-    use crate::namespaces::collections::map::with_map_mut;
+    use crate::collections::map::with_map_mut;
     // Resolve Ctor.prototype (lazy-aloca se preciso — mesma fn que `new` usa).
     let target_proto = __RTS_FN_GL_FUNCTION_PROTOTYPE_GET(ctor_h);
     if target_proto == 0 {
@@ -1424,7 +1424,7 @@ fn convert_f64bits_args_to_i64(args_handle: u64) -> u64 {
             }
         })
         .collect();
-    crate::namespaces::gc::handles::alloc_entry(crate::namespaces::gc::handles::Entry::Vec(
+    rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::Vec(
         Box::new(conv),
     ))
 }
@@ -1438,9 +1438,9 @@ fn invoke_auto_impl(
     // (#218 phase2) Proxy callable: se callee for Entry::Proxy, despacha
     // pra trap `apply` ou faz forward chamando o target via Function.apply.
     if let Some((target, handler)) =
-        crate::namespaces::globals::proxy::ops::resolve_proxy(callee as u64)
+        crate::globals::proxy::ops::resolve_proxy(callee as u64)
     {
-        return crate::namespaces::globals::proxy::ops::dispatch_apply(
+        return crate::globals::proxy::ops::dispatch_apply(
             target,
             handler,
             this_arg,
@@ -1474,13 +1474,13 @@ fn invoke_auto_impl(
             false
         } else if !is_arrow {
             let effective = if has_bound_this { bound_this } else { this_arg };
-            crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_PUSH(effective);
+            rts_engine::heap::this_slot::__RTS_FN_RT_THIS_PUSH(effective);
             true
         } else if has_bound_this {
             // Arrow com `this` capturado em criação (REIFY_BOUND). Empurra ao
             // slot para que THIS_GET() no body leia o valor correto mesmo quando
             // a arrow é chamada fora do escopo original.
-            crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_PUSH(bound_this);
+            rts_engine::heap::this_slot::__RTS_FN_RT_THIS_PUSH(bound_this);
             true
         } else {
             false
@@ -1501,13 +1501,13 @@ fn invoke_auto_impl(
             unsafe { invoke_typed(fn_ptr, &all_args, &param_kinds, effective_rk) }
         };
         if pushed_this {
-            crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_POP();
+            rts_engine::heap::this_slot::__RTS_FN_RT_THIS_POP();
         }
         return r;
     }
     // Fn ptr raw — usa invoke_typed com override (param_kinds vazio).
     let mut args_v = read_args_vec(args_handle);
-    crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_PUSH(this_arg);
+    rts_engine::heap::this_slot::__RTS_FN_RT_THIS_PUSH(this_arg);
     // (cross-runtime closures) Se o codegen registrou a ABI desse fn_ptr cru
     // (user fn address-taken capturada/passada como valor), invoca com os
     // param_kinds/return_kind reais — normalizando args number-cru p/ bits f64.
@@ -1528,7 +1528,7 @@ fn invoke_auto_impl(
             unsafe { invoke_typed(callee as u64, &args_v, &[], rk) }
         }
     };
-    crate::namespaces::gc::this_slot::__RTS_FN_RT_THIS_POP();
+    rts_engine::heap::this_slot::__RTS_FN_RT_THIS_POP();
     r
 }
 

@@ -2760,11 +2760,13 @@ dependencies = [
 name = "rts-shared"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "fancy-regex",
  "indexmap",
  "regex",
  "rts-engine",
  "time",
+ "unicode-normalization",
 ]
 
 [[package]]

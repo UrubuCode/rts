@@ -10,7 +10,7 @@
 use rts_engine::abi::ty::{Handle, I64, U64};
 use rts_engine::{AbiType, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use super::super::gc::handles::{alloc_entry, free_handle, with_entry, with_entry_mut, Entry};
+use rts_engine::heap::handles::{alloc_entry, free_handle, with_entry, with_entry_mut, Entry};
 
 fn with_vec<F, R>(handle: u64, default: R, f: F) -> R
 where
@@ -356,7 +356,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SET_LENGTH(handle: u64, n: i64) {
 /// Para Map: remove key (idx_or_keyh interpretado como handle de string).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_DELETE_AUTO(handle: u64, idx_or_keyh: i64) -> i64 {
-    use super::super::gc::handles::with_entry;
+    use rts_engine::heap::handles::with_entry;
     enum Kind {
         Vec,
         Map,
@@ -403,7 +403,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_DELETE_AUTO(handle: u64, idx_or_
 /// (handle de string single-char ou handle de "undefined" out-of-range — JS spec).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_GET_AUTO(handle: u64, index: i64) -> i64 {
-    use super::super::gc::handles::with_entry;
+    use rts_engine::heap::handles::with_entry;
     enum Kind {
         Vec,
         Str(Vec<u8>),
@@ -469,13 +469,13 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_GET_AUTO(handle: u64, index: i64
 /// arrow lifted em reduceRight/reduce).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_CONCAT_AUTO(recv: u64, other: i64) -> i64 {
-    use super::super::gc::handles::with_entry;
+    use rts_engine::heap::handles::with_entry;
     let is_vec = with_entry(recv, |e| matches!(e, Some(Entry::Vec(_))));
     if is_vec {
         let copy = __RTS_FN_NS_COLLECTIONS_VEC_CONCAT(recv, 0);
         __RTS_FN_NS_COLLECTIONS_VEC_CONCAT_APPEND(copy, other) as i64
     } else {
-        crate::namespaces::globals::string::rt::__RTS_FN_GL_STRING_CONCAT(recv, other as u64) as i64
+        crate::globals::string::rt::__RTS_FN_GL_STRING_CONCAT(recv, other as u64) as i64
     }
 }
 
@@ -485,7 +485,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_CONCAT_AUTO(recv: u64, other: i64) -> 
 /// chama .slice(n) sem end).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SLICE_AUTO(recv: u64, start: i64, end: i64) -> u64 {
-    use super::super::gc::handles::with_entry;
+    use rts_engine::heap::handles::with_entry;
     let is_vec = with_entry(recv, |e| matches!(e, Some(Entry::Vec(_))));
     if is_vec {
         __RTS_FN_NS_COLLECTIONS_VEC_SLICE(recv, start, end)
@@ -493,19 +493,19 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SLICE_AUTO(recv: u64, start: i64, end:
         // STRING_SLICE nao tem sentinel pra "end of string" — passa i64::MAX
         // que o clamp(0, count) trata corretamente.
         let effective_end = if end == i64::MIN { i64::MAX } else { end };
-        crate::namespaces::globals::string::rt::__RTS_FN_GL_STRING_SLICE(recv, start, effective_end)
+        crate::globals::string::rt::__RTS_FN_GL_STRING_SLICE(recv, start, effective_end)
     }
 }
 
 /// (cross-runtime #285) Runtime dispatch para `recv.includes(needle)`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INCLUDES_AUTO(recv: u64, needle: i64) -> i64 {
-    use super::super::gc::handles::with_entry;
+    use rts_engine::heap::handles::with_entry;
     let is_vec = with_entry(recv, |e| matches!(e, Some(Entry::Vec(_))));
     if is_vec {
         __RTS_FN_NS_COLLECTIONS_VEC_INCLUDES(recv, needle)
     } else {
-        crate::namespaces::globals::string::rt::__RTS_FN_GL_STRING_INCLUDES(recv, needle as u64)
+        crate::globals::string::rt::__RTS_FN_GL_STRING_INCLUDES(recv, needle as u64)
             as i64
     }
 }
@@ -513,24 +513,24 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INCLUDES_AUTO(recv: u64, needle: i64) 
 /// (cross-runtime #285) Runtime dispatch para `recv.indexOf(needle)`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_OF_AUTO(recv: u64, needle: i64) -> i64 {
-    use super::super::gc::handles::with_entry;
+    use rts_engine::heap::handles::with_entry;
     let is_vec = with_entry(recv, |e| matches!(e, Some(Entry::Vec(_))));
     if is_vec {
         __RTS_FN_NS_COLLECTIONS_VEC_INDEX_OF(recv, needle)
     } else {
-        crate::namespaces::globals::string::rt::__RTS_FN_GL_STRING_INDEX_OF(recv, needle as u64)
+        crate::globals::string::rt::__RTS_FN_GL_STRING_INDEX_OF(recv, needle as u64)
     }
 }
 
 /// (cross-runtime #285) Runtime dispatch para `recv.lastIndexOf(needle)`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_LAST_INDEX_OF_AUTO(recv: u64, needle: i64) -> i64 {
-    use super::super::gc::handles::with_entry;
+    use rts_engine::heap::handles::with_entry;
     let is_vec = with_entry(recv, |e| matches!(e, Some(Entry::Vec(_))));
     if is_vec {
         __RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF(recv, needle)
     } else {
-        crate::namespaces::globals::string::rt::__RTS_FN_GL_STRING_LAST_INDEX_OF(
+        crate::globals::string::rt::__RTS_FN_GL_STRING_LAST_INDEX_OF(
             recv,
             needle as u64,
         )
@@ -619,7 +619,7 @@ fn join_into(out: &mut Vec<u8>, elems: &[i64], sep_bytes: &[u8], depth: u32) {
             let f = f64::from_bits(*e as u64);
             if f.is_finite() && !f.is_nan() {
                 out.extend_from_slice(
-                    crate::namespaces::gc::string_pool::format_js_number(f).as_bytes(),
+                    rts_engine::numfmt::format_js_number(f).as_bytes(),
                 );
                 continue;
             }
@@ -641,7 +641,7 @@ fn slot_eq(a: i64, b: i64) -> bool {
     if a == b {
         return true;
     }
-    use super::super::gc::handles::with_entry;
+    use rts_engine::heap::handles::with_entry;
     let a_str: Option<Vec<u8>> = with_entry(a as u64, |e| match e {
         Some(Entry::String(s)) => Some(s.clone()),
         _ => None,
@@ -1064,10 +1064,10 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_VEC(src: u64, fn_ptr: u64) -> u64 {
     // no 108_generator_functions). Generator finito -> Vec; infinito travaria
     // igual a JS.
     let src = {
-        use crate::namespaces::gc::handles::{with_entry, Entry};
+        use rts_engine::heap::handles::{with_entry, Entry};
         let is_sm = with_entry(src, |e| matches!(e, Some(Entry::GenState(_))));
         if is_sm {
-            crate::namespaces::gc::generator::__RTS_FN_NS_GC_GEN_SM_DRAIN(src)
+            crate::gc_surface::__RTS_FN_NS_GC_GEN_SM_DRAIN(src)
         } else {
             src
         }
@@ -1075,8 +1075,8 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_VEC(src: u64, fn_ptr: u64) -> u64 {
     // Aceita Entry::Vec OU Entry::Map (Set/Map). Para Set (backing eh
     // Map<key,1>), itera keys parseando como i64. Para Map normal,
     // itera values.
-    let is_set = crate::namespaces::collections::map::handle_is_set_kind(src);
-    let is_map = crate::namespaces::collections::map::handle_is_map_kind(src);
+    let is_set = crate::collections::map::handle_is_set_kind(src);
+    let is_map = crate::collections::map::handle_is_map_kind(src);
     let src_items: Vec<i64> = with_entry(src, |e| match e {
         Some(Entry::Vec(v)) => v.as_ref().clone(),
         // (cross-runtime #58) Array.from(Uint8Array)/Buffer: cada byte
@@ -1087,7 +1087,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_VEC(src: u64, fn_ptr: u64) -> u64 {
                 // (#394) Recupera identidade do elemento via value preservado
                 // (set_element_from_pair) em vez de descartar nao-numericos.
                 m.iter()
-                    .map(|(k, &v)| crate::namespaces::collections::map::set_element_from_pair(k, v))
+                    .map(|(k, &v)| crate::collections::map::set_element_from_pair(k, v))
                     .collect()
             } else if is_map {
                 // JS Map: Array.from(map) retorna pares [key, value].
@@ -1327,10 +1327,10 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SORT(handle: u64, fn_ptr: u64) -> 
 /// RTS eh Map onde key==value (semantica de `new Set([x,y])`).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_VALUES(handle: u64) -> u64 {
-    use super::super::gc::handles::with_entry;
+    use rts_engine::heap::handles::with_entry;
     // (#61) Set armazena value=1 marker no Map<String,i64>; values reais
     // sao as keys. Detecta via handle_is_set_kind antes do match Map.
-    let is_set = crate::namespaces::collections::map::handle_is_set_kind(handle);
+    let is_set = crate::collections::map::handle_is_set_kind(handle);
     enum Kind {
         Vec(Vec<i64>),
         MapVals(Vec<i64>),
@@ -1353,7 +1353,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_VALUES(handle: u64) -> u64 {
         // (#394) Recupera identidade do elemento via value preservado.
         Kind::SetPairs(pairs) => pairs
             .into_iter()
-            .map(|(k, v)| crate::namespaces::collections::map::set_element_from_pair(&k, v))
+            .map(|(k, v)| crate::collections::map::set_element_from_pair(&k, v))
             .collect(),
         Kind::Other => Vec::new(),
     };
@@ -1364,7 +1364,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_VALUES(handle: u64) -> u64 {
 /// (#61) Tambem suporta Map: retorna chaves como string handles.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_KEYS(handle: u64) -> u64 {
-    use super::super::gc::handles::with_entry;
+    use rts_engine::heap::handles::with_entry;
     enum Kind {
         Vec(usize),
         Map(Vec<String>),
@@ -1506,7 +1506,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_WITH(handle: u64, idx: i64, value:
 /// var ambigua), este path generico funciona pra ambos.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_ENTRIES(handle: u64) -> u64 {
-    use super::super::gc::handles::with_entry;
+    use rts_engine::heap::handles::with_entry;
     enum Kind {
         Vec(Vec<i64>),
         Map(Vec<(String, i64)>),

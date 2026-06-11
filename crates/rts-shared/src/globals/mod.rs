@@ -20,3 +20,8 @@ pub mod intl;
 pub mod dom_exception;
 pub mod global_this;
 pub mod date;
+pub mod error;
+pub mod function;
+pub mod proxy;
+pub mod reflect;
+pub mod string;

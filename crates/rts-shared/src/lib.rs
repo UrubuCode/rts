@@ -17,4 +17,6 @@ pub mod bigfloat;
 pub mod buffer;
 pub mod regex;
 pub mod date;
+pub mod collections;
 pub mod globals;
+pub mod gc_surface;

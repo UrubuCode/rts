@@ -16,8 +16,8 @@ pub(crate) fn alloc_str(s: &str) -> u64 {
 
 fn handle_to_str<'a>(h: u64) -> Option<&'a str> {
     // (#1023) Unwrap StringBox antes de tentar STRING_PTR/LEN.
-    let unwrapped: u64 = crate::namespaces::gc::handles::with_entry(h, |e| match e {
-        Some(crate::namespaces::gc::handles::Entry::StringBox(inner)) => *inner,
+    let unwrapped: u64 = rts_engine::heap::handles::with_entry(h, |e| match e {
+        Some(rts_engine::heap::handles::Entry::StringBox(inner)) => *inner,
         _ => h,
     });
     let ptr = unsafe { __RTS_FN_NS_GC_STRING_PTR(unwrapped) };
@@ -41,7 +41,7 @@ pub extern "C" fn __RTS_FN_GL_STRING_NEW_FROM(handle: u64) -> u64 {
 /// string original.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_NEW_BOXED(handle: u64) -> u64 {
-    crate::namespaces::gc::handles::alloc_entry(crate::namespaces::gc::handles::Entry::StringBox(
+    rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::StringBox(
         handle,
     ))
 }
@@ -50,9 +50,9 @@ pub extern "C" fn __RTS_FN_GL_STRING_NEW_BOXED(handle: u64) -> u64 {
 /// handle primitive embrulhado. Se nao for StringBox, retorna 0.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_BOX_VALUE_OF(boxed: u64) -> u64 {
-    crate::namespaces::gc::handles::with_entry(boxed, |e| match e {
-        Some(crate::namespaces::gc::handles::Entry::StringBox(h)) => *h,
-        Some(crate::namespaces::gc::handles::Entry::String(_)) => boxed,
+    rts_engine::heap::handles::with_entry(boxed, |e| match e {
+        Some(rts_engine::heap::handles::Entry::StringBox(h)) => *h,
+        Some(rts_engine::heap::handles::Entry::String(_)) => boxed,
         _ => 0,
     })
 }
@@ -322,7 +322,7 @@ pub extern "C" fn __RTS_FN_GL_STRING_CHAR_CODE_AT_F64(recv: u64, idx: i64) -> f6
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_CODE_POINT_AT(recv: u64, idx: i64) -> i64 {
     let undef = || {
-        crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(b"undefined".as_ptr(), 9)
+        crate::gc_surface::__RTS_FN_NS_GC_STRING_NEW(b"undefined".as_ptr(), 9)
             as i64
     };
     let Some(s) = handle_to_str(recv) else {
@@ -610,7 +610,7 @@ pub extern "C" fn __RTS_FN_GL_STRING_TO_STRING(handle: u64) -> u64 {
     // Para StringBox (#1023), unwrap para o String handle interno.
     // Para Map/Vec/etc, mantem passthrough (handle vai pra coercao
     // em concat/template via TPL_COERCE_AUTO).
-    use crate::namespaces::gc::handles::{with_entry, Entry};
+    use rts_engine::heap::handles::{with_entry, Entry};
     enum Kind {
         NeedsFormat,
         Unwrap(u64),
@@ -623,7 +623,7 @@ pub extern "C" fn __RTS_FN_GL_STRING_TO_STRING(handle: u64) -> u64 {
     });
     match kind {
         Kind::NeedsFormat => {
-            crate::namespaces::gc::string_pool::__RTS_FN_RT_TO_STRING_HANDLE(handle)
+            crate::gc_surface::__RTS_FN_RT_TO_STRING_HANDLE(handle)
         }
         Kind::Unwrap(inner) => inner,
         Kind::Passthrough => handle,
@@ -632,7 +632,7 @@ pub extern "C" fn __RTS_FN_GL_STRING_TO_STRING(handle: u64) -> u64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_IS_WELL_FORMED(handle: u64) -> i64 {
-    use crate::namespaces::gc::handles::{with_entry, Entry};
+    use rts_engine::heap::handles::{with_entry, Entry};
     with_entry(handle, |e| {
         let Some(Entry::String(b)) = e else {
             return 1_i64;
@@ -657,7 +657,7 @@ pub extern "C" fn __RTS_FN_GL_STRING_IS_WELL_FORMED(handle: u64) -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_TO_WELL_FORMED(handle: u64) -> u64 {
-    use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
+    use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
     let replacement = [0xEFu8, 0xBF, 0xBD]; // U+FFFD
     let result = with_entry(handle, |e| {
         let Some(Entry::String(b)) = e else {

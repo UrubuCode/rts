@@ -47,8 +47,12 @@ rts-engine   motor: registry/builder/abi + gc-mechanism(Traceable) + HEAP
              indexmap/regex/fancy-regex/serde_json/sha2/rustls.
 rts-node     shims node:*. dep engine.
 rts-shared   UNIVERSAL (roda em browser/wasm). 13 ns pure-compute: math num fmt hash
-             mem ptr hint alloc path bigfloat buffer regex date. deps engine+regex+
-             fancy-regex. ⚠️ NUNCA depender de rts-std.
+             mem ptr hint alloc path bigfloat buffer regex date + collections (Map/Vec).
+             16 globais universais + cluster (error function proxy reflect string).
+             gc_surface.rs = extern-decl dos no_mangle do collector (STRING_NEW/
+             TO_STRING_HANDLE/ERROR_SET/ARRAY_ITERATOR_FN/GEN_SM_DRAIN), `safe fn`.
+             deps engine+regex+fancy-regex+indexmap+time+anyhow+unicode-normalization.
+             ⚠️ NUNCA depender de rts-std.
 rts-std      backend, 17 ns: audio asio_audio io os env runtime(+async_rt+tokio_ctx)
              test net process sync atomic ffi fs tls thread http_server. deps
              engine+cpal+rustls+webpki-roots+tokio+actix-web+actix-rt.
@@ -165,11 +169,14 @@ target/release/rts.exe compile -p f.ts out.exe; ./out.exe # AOT
 
 ~~1. Relocar pure-helpers do collector → rts-engine~~ ✅ FEITO (format_js_number→numfmt;
    stack_for_handle+ERR_STACKS→collector::err_stack). Cluster destravado.
-2. **Cluster → rts-shared/src/globals/ (+ collections em src/):** function collections proxy error
-   string reflect. Fechado em si + symbol(já shared). gc-surface no_mangle (string_pool/gc-error
-   RT_ERROR/generator) → extern-decl; gc::handles/this_slot/class_registry → engine heap;
-   intra-cluster `crate::namespaces::X`→`crate::X`/`crate::globals::X`. Gate + AOT (usa handles).
-   ⟶ destrava json(ns)/trace.
+~~2. Cluster → rts-shared~~ ✅ FEITO: error function proxy reflect string → globals/; collections
+   → src/. gc_surface.rs (extern-decl `safe fn` dos no_mangle do collector); gc::handles/this_slot/
+   class_registry → engine heap; gc::error::stack_for_handle → engine err_stack; gc::string_pool::
+   format_js_number → engine numfmt; intra-cluster `crate::namespaces::X`→`crate::X`/`crate::globals::X`.
+   5 fns bumped pub(crate)→pub (invoke_array_callback/invoke_fn_ptr_with_registry/handle_is_set_kind/
+   handle_is_map_kind/mark_set_kind — consumidos por parallel/text_encoding/collector que FICAM no
+   runtime). Cargo += anyhow + unicode-normalization. Suite 1710/1710; AOT smoke (Map/Set/Proxy/
+   Reflect/bind/Error/string, JIT==AOT) OK. ⟶ destrava json(ns)/trace.
 3. **json(ns) + trace → shared** (json usa collections/proxy/function/error; trace usa error). Gate.
 4. **Platform-divergent globais → rts-std (step D):** console(→io) timers fetch(→net) performance
    blob headers form_data readable_stream event_target message_channel abort. Gate.

@@ -16,7 +16,7 @@ pub use rts_std::atomic;
 pub mod trace;
 pub use rts_shared::bigfloat;
 pub use rts_shared::buffer;
-pub mod collections;
+pub use rts_shared::collections;
 pub mod crypto;
 pub use rts_shared::date;
 pub use rts_std::env;
