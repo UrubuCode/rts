@@ -289,6 +289,13 @@ rts-std deps: engine + shared + tokio/actix/rustls/cpal/rayon/sha2/flate2/ureq/s
 - **flake async ~1/5** (project... a investigar se recorrer): isolar teste time-sensitive.
 - Considerar se rts-runtime pode sumir totalmente (codegen `pub mod namespaces { pub use rts_std::*;
   pub use rts_shared::*; }` + dataview p/ algum lugar). Hoje fica como fachada fina — aceitável.
+- ~~AOT erro uncaught não impresso~~ ✅ FEITO (parte do "termine"): AOT saía 0 silencioso em throw
+  uncaught (sync E async). Fix: `__RTS_FN_RT_REPORT_UNCAUGHT` (rts-std) no shim main após event loop
+  → imprime + exit != 0. AOT == JIT agora p/ uncaught sync. (Unhandled rejection fire-and-forget
+  segue silenciosa em JIT E AOT — feature separada, não-bloqueante.)
+- **unhandled promise rejection tracking**: fire-and-forget async que rejeita sem catch é silencioso
+  (exit 0) em JIT E AOT — o error slot é thread-local e a rejection acontece num worker tokio, não
+  no main. Feature futura (precisa registry global de rejections + report no fim do event loop).
 6d. **Dissolver rts-runtime** (step 7): mover collector gc-surface (string_pool/error/generator/
    collector/stack) → rts-std; runtime vira facade fino. Grande move final.
 6. **promise + parallel + crypto + promise_slot** juntos (globals+promise_slot resolvidos).

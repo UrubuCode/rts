@@ -161,6 +161,53 @@ pub fn take_runtime_error_report() -> Option<RuntimeErrorReport> {
     Some(RuntimeErrorReport { kind, message, frames, cause })
 }
 
+/// (AOT) Reporta um erro UNCAUGHT pendente (throw sync no top-level OU rejection
+/// async após o event loop) no stderr e retorna 1; retorna 0 se não há erro.
+///
+/// O pipeline JIT formata host-side via o reporter colorido do `rts-codegen`
+/// (`format_runtime_error`), indisponível no binário AOT. Este extern dá ao shim
+/// `main` do AOT a paridade mínima: imprime `Name: message` + frames + cadeia de
+/// cause, e sinaliza exit code != 0. Antes o AOT saía 0 SEM imprimir uncaught.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_REPORT_UNCAUGHT() -> i32 {
+    match take_runtime_error_report() {
+        Some(report) => {
+            eprint!("{}", format_report_plain(&report));
+            1
+        }
+        None => 0,
+    }
+}
+
+fn format_report_plain(r: &RuntimeErrorReport) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    let name = r.kind.as_str();
+    if r.message.is_empty() {
+        let _ = writeln!(out, "{name}");
+    } else {
+        let _ = writeln!(out, "{name}: {}", r.message);
+    }
+    for f in &r.frames {
+        if f.line != 0 {
+            let _ = writeln!(out, "    at {} ({}:{}:{})", f.fn_name, f.file, f.line, f.col);
+        } else {
+            let _ = writeln!(out, "    at {} ({})", f.fn_name, f.file);
+        }
+    }
+    let mut cause = r.cause.as_deref();
+    while let Some(c) = cause {
+        let cn = c.kind.as_str();
+        if c.message.is_empty() {
+            let _ = writeln!(out, "Caused by: {cn}");
+        } else {
+            let _ = writeln!(out, "Caused by: {cn}: {}", c.message);
+        }
+        cause = c.cause.as_deref();
+    }
+    out
+}
+
 fn extract_error_report_from_handle(handle: u64) -> Option<Box<RuntimeErrorReport>> {
     with_entry(handle, |entry| match entry {
         Some(Entry::ErrorObj { name, message, cause }) => Some(Box::new(RuntimeErrorReport {
