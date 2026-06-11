@@ -12,7 +12,13 @@ use std::sync::{Mutex, OnceLock};
 use rts_engine::abi::ty::Handle;
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use crate::namespaces::gc::handles::{alloc_entry, with_entry, Entry};
+use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
+
+// `string_pool` (gc-surface) fica no `rts-runtime` collector; o símbolo
+// `#[no_mangle]` resolve em link-time (JIT registra; AOT pelo staticlib).
+unsafe extern "C" {
+    fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
+}
 
 /// Global registry para Symbol.for / Symbol.keyFor.
 fn registry() -> &'static Mutex<HashMap<String, u64>> {
@@ -92,18 +98,14 @@ pub extern "C" fn __RTS_FN_GL_SYMBOL_KEY_FOR(sym: Handle) -> Handle {
         if h == sym {
             let key_clone = k.clone();
             drop(reg);
-            return crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(
-                key_clone.as_ptr(),
-                key_clone.len() as i64,
-            );
+            return unsafe {
+                __RTS_FN_NS_GC_STRING_NEW(key_clone.as_ptr(), key_clone.len() as i64)
+            };
         }
     }
     drop(reg);
     let undef = b"undefined";
-    crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(
-        undef.as_ptr(),
-        undef.len() as i64,
-    )
+    unsafe { __RTS_FN_NS_GC_STRING_NEW(undef.as_ptr(), undef.len() as i64) }
 }
 
 /// Returns the symbol's description string, or 0 if none.
@@ -114,10 +116,7 @@ pub extern "C" fn __RTS_FN_GL_SYMBOL_DESCRIPTION(sym: Handle) -> Handle {
         _ => None,
     });
     match desc {
-        Some(s) => crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(
-            s.as_ptr(),
-            s.len() as i64,
-        ),
+        Some(s) => unsafe { __RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64) },
         None => 0,
     }
 }
@@ -132,7 +131,7 @@ pub extern "C" fn __RTS_FN_GL_SYMBOL_TO_STRING(sym: Handle) -> Handle {
         Some(Entry::Symbol { description: None }) => "Symbol()".to_string(),
         _ => "[invalid Symbol]".to_string(),
     });
-    crate::namespaces::gc::string_pool::__RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64)
+    unsafe { __RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64) }
 }
 
 /// Symbol.iterator — well-known symbol pra iteration protocol.

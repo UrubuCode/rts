@@ -29,7 +29,7 @@ pub mod readable_stream;
 pub mod reflect;
 pub mod regexp;
 pub mod string;
-pub mod symbol;
+pub use rts_shared::globals::symbol;
 pub mod text_encoding;
 pub mod timers;
 pub mod url;
