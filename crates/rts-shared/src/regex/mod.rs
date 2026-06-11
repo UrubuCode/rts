@@ -12,7 +12,7 @@ use regex::RegexBuilder;
 use rts_engine::abi::ty::{Bool, Handle, I64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use crate::namespaces::gc::handles::{
+use rts_engine::heap::handles::{
     Entry, RegexEngine, RtsRegex, alloc_entry, free_handle, with_entry, with_entry_mut,
 };
 

@@ -20,6 +20,7 @@ asio = ["rts-std/asio"]
 
 [dependencies]
 rts-engine = { path = "../rts-engine" }
+rts-shared = { path = "../rts-shared" }
 rts-std = { path = "../rts-std" }
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }

@@ -4,7 +4,7 @@
 //! [`crate::abi::SPECS`]. No legacy dispatch path remains: every callee is
 //! resolved to a canonical `__RTS_*` extern "C" symbol and called directly.
 
-pub mod alloc;
+pub use rts_shared::alloc;
 /// `audio`/`asio_audio` migraram pro crate backend `rts-std` (Fase 1b, partição
 /// de crates). Facade → `crate::namespaces::audio` (register_builtins, jit.rs)
 /// segue resolvendo.
@@ -14,14 +14,14 @@ pub use rts_std::asio_audio;
 pub mod globals;
 pub use rts_std::atomic;
 pub mod trace;
-pub mod bigfloat;
-pub mod buffer;
+pub use rts_shared::bigfloat;
+pub use rts_shared::buffer;
 pub mod collections;
 pub mod crypto;
-pub mod date;
+pub use rts_shared::date;
 pub use rts_std::env;
 pub mod events;
-pub mod fmt;
+pub use rts_shared::fmt;
 pub use rts_std::ffi;
 pub use rts_std::fs;
 pub mod collector;
@@ -30,21 +30,21 @@ pub mod collector;
 /// `crate::namespaces::gc::*` no codegen continuam resolvendo via este alias até
 /// a migração do mecanismo pro engine concluir.
 pub use collector as gc;
-pub mod hash;
-pub mod hint;
+pub use rts_shared::hash;
+pub use rts_shared::hint;
 pub use rts_std::http_server;
 pub use rts_std::io;
 pub mod json;
-pub mod math;
-pub mod mem;
+pub use rts_shared::math;
+pub use rts_shared::mem;
 pub use rts_std::net;
-pub mod num;
+pub use rts_shared::num;
 pub use rts_std::os;
-pub mod path;
+pub use rts_shared::path;
 pub use rts_std::process;
 pub mod promise;
-pub mod ptr;
-pub mod regex;
+pub use rts_shared::ptr;
+pub use rts_shared::regex;
 pub mod parallel;
 pub use rts_std::runtime;
 // string movido para globals/string

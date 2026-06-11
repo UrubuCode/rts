@@ -1,0 +1,15 @@
+[package]
+name = "rts-shared"
+version = "0.1.0"
+edition = "2024"
+
+# rts-shared — camada UNIVERSAL (roda em qualquer alvo, incl. browser/wasm).
+# Namespaces pure-compute + globais universais que NÃO tocam backend (I/O, OS,
+# rede, async). Depende SÓ do motor (rts-engine) + libs puras.
+# ⚠️ NUNCA depender de rts-std (quebraria o alvo browser).
+# Ver .claude/plans/partitioned-meandering-milner.md.
+
+[dependencies]
+rts-engine = { path = "../rts-engine" }
+regex = "1"
+fancy-regex = "0.13"

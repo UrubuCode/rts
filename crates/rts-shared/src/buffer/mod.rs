@@ -14,7 +14,7 @@
 use rts_engine::abi::ty::{Bool, Handle, F64, I32, I64, U64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use super::gc::handles::{alloc_entry, free_handle, with_entry, with_entry_mut, Entry};
+use rts_engine::heap::handles::{alloc_entry, free_handle, with_entry, with_entry_mut, Entry};
 
 unsafe extern "C" {
     fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;

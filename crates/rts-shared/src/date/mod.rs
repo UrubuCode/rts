@@ -15,7 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rts_engine::abi::ty::{Handle, I64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use crate::namespaces::gc::handles::{Entry, alloc_entry};
+use rts_engine::heap::handles::{Entry, alloc_entry};
 
 const MS_PER_SEC: i64 = 1000;
 const MS_PER_MIN: i64 = 60 * MS_PER_SEC;

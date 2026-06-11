@@ -2740,6 +2740,7 @@ dependencies = [
  "rayon",
  "regex",
  "rts-engine",
+ "rts-shared",
  "rts-std",
  "rustc-hash 1.1.0",
  "rustls",
@@ -2753,6 +2754,15 @@ dependencies = [
  "unicode-normalization",
  "ureq 2.12.1",
  "webpki-roots 1.0.6",
+]
+
+[[package]]
+name = "rts-shared"
+version = "0.1.0"
+dependencies = [
+ "fancy-regex",
+ "regex",
+ "rts-engine",
 ]
 
 [[package]]

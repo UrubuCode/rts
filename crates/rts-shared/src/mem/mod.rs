@@ -54,7 +54,7 @@ pub extern "C" fn __RTS_FN_NS_MEM_SWAP_I64(_a: I64, b: I64) -> I64 {
 /// Forca free de um handle GC. Equivalente a gc.string_free / etc.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_MEM_DROP_HANDLE(h: Handle) {
-    let _ = crate::namespaces::gc::handles::free_handle(h);
+    let _ = rts_engine::heap::handles::free_handle(h);
 }
 
 /// Esquece handle sem rodar drop — vaza memoria intencionalmente.
