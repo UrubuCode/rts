@@ -314,12 +314,8 @@ pub struct RtsRegex {
 pub enum Entry {
     /// UTF-8 string owned on the heap.
     String(Vec<u8>),
-    /// Fixed-point decimal number, see `bigfloat::fixed::FixedDecimal`.
-    ///
-    /// Path uses `super::super` (gc's parent) to stay valid in both the
-    /// main crate (`namespaces::bigfloat`) and the standalone runtime
-    /// staticlib (`crate::bigfloat`).
-    BigFixed(Box<super::super::bigfloat::fixed::FixedDecimal>),
+    /// Fixed-point decimal number — `FixedDecimal` migrou pro heap do motor.
+    BigFixed(Box<rts_engine::heap::fixed::FixedDecimal>),
     /// Raw byte buffer — Vec<u8> com capacidade igual ao size.
     /// Usado pelo namespace `buffer` para dados binarios, FFI, etc.
     Buffer(Vec<u8>),

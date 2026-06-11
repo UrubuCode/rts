@@ -8,7 +8,11 @@
 //! Migrado do `#[rts_namespace]` pro modelo builder hand-written do `rts-engine`
 //! (rumo à remoção da `rts-macro`; ver pilotos hint/hash/ptr/mem/runtime).
 
-pub mod fixed;
+/// `FixedDecimal` migrou pro `rts-engine` (heap GC no motor). Facade pra
+/// `bigfloat::fixed::FixedDecimal` seguir resolvendo nos consumidores.
+pub mod fixed {
+    pub use rts_engine::heap::fixed::*;
+}
 
 use rts_engine::abi::ty::{F64, Handle, I64, U64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};

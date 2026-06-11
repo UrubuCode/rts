@@ -41,6 +41,7 @@
 
 pub mod abi;
 pub mod collector;
+pub mod heap;
 
 mod builder;
 mod member;
