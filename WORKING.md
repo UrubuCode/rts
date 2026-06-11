@@ -357,12 +357,23 @@ primeiro, split do `Entry` depois; (2) heap fica DENTRO do `rts-engine`.
             churn 30k strings. ⚠️ Achado latente PRÉ-EXISTENTE (não regressão):
             array-de-objetos vivo atravessando GC trava (Vec<i64> int/handle
             ambíguo → elementos não-traçados → coletados → UAF). Issue a abrir.
-      - [ ] **Resto do heap → engine** (opcional p/ completar): string_pool/env/
-            closure/instance/tagged_raw/this_slot/class_registry (alloc helpers,
-            têm os externs `__RTS_FN_NS_GC_*` → cuidado AOT) + collections (Map/Vec).
-            Domain-coupled (generator/deep-trace/finish_cycle/error/stack) FICAM no
-            backend via hooks. CORE (Entry+HandleTable) já no engine satisfaz o
-            essencial de "heap no motor".
+      - [x] **Alocadores → engine** ✅: env+closure (`57f1823b`), instance+this_slot+
+            tagged_raw+class_registry (`0be13d3f`). **Descoberta-chave provada:**
+            externs `#[no_mangle]` definidos no engine SOBREVIVEM no staticlib AOT
+            do runtime (closure+instance AOT linka/roda) → não precisa force-link.
+            Cada batch gateado build+suíte 1710+AOT.
+      - [x] **FRONTEIRA NATURAL atingida.** No engine agora: Entry+HandleTable+trace
+            mecanismo + TODOS os alocadores (env/closure/instance/this_slot/tagged_raw/
+            class_registry/fixed) + payload types. Isso É "heap no motor".
+            FICAM no backend (domain-coupled ou namespace surface — referenciam
+            globals/domínio, mover exigiria hook-ification grande):
+            - `string_pool` (deep-trace → collections/generator)
+            - `collections` map/vec (Symbol.iterator + **Proxy traps** → globals)
+            - `collector.rs` finish_cycle (→ microtask roots)
+            - `generator` (→ promise/text_encoding/timers), `error` (→ trace),
+              `stack` (→ globals/error), `promise_slot` (tokio + async_rt)
+      - [ ] (Opcional/futuro) hook-ificar string_pool deep-trace + finish_cycle p/
+            mover o resto pro engine. Esforço próprio; não no caminho crítico.
 - [ ] **Fase 1b — `rts-shared`+`rts-std`** (ns pure→shared, backend→std, globais
       universais→shared, platform-divergent→std). Rewire register_builtins +
       lib.rs re-export + jit.rs + ~9 arquivos codegen. Dissolve `rts-runtime`.
