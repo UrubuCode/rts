@@ -476,12 +476,17 @@ pub(super) fn lower_global_instance_call(
     let mut values = vec![recv];
     let abi_args = &member.args[1..]; // skip Handle slot
     let mut arg_iter = call.args.iter();
-    for &abi_ty in abi_args {
+    for (i, &abi_ty) in abi_args.iter().enumerate() {
         let Some(arg) = arg_iter.next() else {
             // (JS spec) arg trailing omitido = `undefined`. Em vez de erro
-            // "too few arguments", pad com o default do tipo (Handle/I64 = 0 =
-            // undefined; F64 = 0.0; StrPtr = ptr+len 0). Ex.: `abortController
-            // .abort()` (reason opcional) agora seta aborted corretamente.
+            // "too few arguments", injeta o valor de `default_args` do membro
+            // (parâmetro paralelo a `args`; idx no `args` = 1 + posição aqui),
+            // ou o zero do tipo quando não há default declarado. Isso deixa o
+            // registry expressar defaults reais (ex.: `slice(end? = SENTINEL)`,
+            // `toExponential(d? = -1)`) em vez de o codegen hardcodá-los, e
+            // mantém `abortController.abort()` (reason opcional = undefined = 0).
+            use crate::abi::member::DefaultArg;
+            let default = member.default_args.get(i + 1).copied();
             match abi_ty {
                 AbiType::StrPtr => {
                     let z = ctx.builder.ins().iconst(cl::I64, 0);
@@ -489,16 +494,28 @@ pub(super) fn lower_global_instance_call(
                     values.push(z);
                 }
                 AbiType::F64 => {
-                    let z = ctx.builder.ins().f64const(0.0);
-                    values.push(z);
+                    let f = match default {
+                        Some(DefaultArg::Float(f)) => f,
+                        Some(DefaultArg::Int(n)) => n as f64,
+                        _ => 0.0,
+                    };
+                    values.push(ctx.builder.ins().f64const(f));
                 }
                 AbiType::I32 => {
-                    let z = ctx.builder.ins().iconst(cl::I32, 0);
-                    values.push(z);
+                    let n = match default {
+                        Some(DefaultArg::Int(n)) => n,
+                        Some(DefaultArg::Float(f)) => f as i64,
+                        _ => 0,
+                    };
+                    values.push(ctx.builder.ins().iconst(cl::I32, n));
                 }
                 _ => {
-                    let z = ctx.builder.ins().iconst(cl::I64, 0);
-                    values.push(z);
+                    let n = match default {
+                        Some(DefaultArg::Int(n)) => n,
+                        Some(DefaultArg::Float(f)) => f as i64,
+                        _ => 0,
+                    };
+                    values.push(ctx.builder.ins().iconst(cl::I64, n));
                 }
             }
             continue;
