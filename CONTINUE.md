@@ -1,6 +1,6 @@
 # CONTINUE.md — retomar a partição de crates (Fase 1b)
 
-> Handoff pra sessão nova. Estado em `fc56a9e5` (branch `feat/engine-method-dispatch-1536`).
+> Handoff pra sessão nova. Estado em `f417b050` (branch `feat/engine-method-dispatch-1536`).
 > Contexto canônico: `WORKING.md` + `.claude/plans/partitioned-meandering-milner.md`.
 > Tudo abaixo é GATEADO: `cargo build --release` + `target/release/rts.exe test`
 > (1710/1710) por batch; AOT pra fixtures de GC/classe.
@@ -8,8 +8,16 @@
 ## TL;DR — onde estamos
 
 Partição de crates do RTS. **FEITO:** rts-macro deletada; nodespace→`rts-node`; heap
-GC (Entry+HandleTable+trace+alocadores)→`rts-engine`; criado `rts-std` (backend) com
-**14 namespaces** movidos.
+GC (Entry+HandleTable+trace+alocadores)→`rts-engine`; `rts-std` (backend) com **17 ns**
+(+ runtime/ async); criado `rts-shared` (universal) com **13 ns pure-compute**.
+
+**Progresso desta sessão (commits e8c929c→f417b050):**
+- A ✅ `src/runtime/` async (async_rt+tokio_ctx) → rts-std (mesclado no mod `runtime`).
+- B parcial ✅ thread + http_server → rts-std. ⏳ promise/parallel/crypto/time DEFERIDOS
+  (couplam promise_slot + globals pub fns não-movidos).
+- C parcial ✅ criado rts-shared + 13 ns: math num fmt hash mem ptr hint alloc path
+  bigfloat buffer regex date. AOT smoke OK (regex/toFixed linkam do staticlib).
+  ⏳ json/collections/events/trace + globais universais DEFERIDOS.
 
 **Grafo atual (acíclico):**
 ```
@@ -18,16 +26,20 @@ rts-engine   motor: registry/builder/abi + gc-mechanism(Traceable) + HEAP
              tagged_raw/class_registry/fixed + payload types). deps TEMP:
              indexmap/regex/fancy-regex/serde_json/sha2/rustls.
 rts-node     shims node:*. dep engine.
-rts-std      backend, 14 ns: audio asio_audio io os env runtime test net process
-             sync atomic ffi fs tls. deps engine+cpal+rustls+webpki-roots.
-rts-runtime  FACADE + resto (ns não-movidas + globals/ + collector/ gc-surface +
-             src/runtime/ async). re-exporta rts-std via namespaces/mod.rs.
+rts-shared   UNIVERSAL (roda em browser/wasm). 13 ns pure-compute: math num fmt hash
+             mem ptr hint alloc path bigfloat buffer regex date. deps engine+regex+
+             fancy-regex. ⚠️ NUNCA depender de rts-std.
+rts-std      backend, 17 ns: audio asio_audio io os env runtime(+async_rt+tokio_ctx)
+             test net process sync atomic ffi fs tls thread http_server. deps
+             engine+cpal+rustls+webpki-roots+tokio+actix-web+actix-rt.
+rts-runtime  FACADE + resto (ns não-movidas + globals/ + collector/ gc-surface).
+             re-exporta rts-shared/rts-std via namespaces/mod.rs. dep shared+std.
 rts-codegen  lê o Registry. usa crate::namespaces::* (= rts-runtime facade).
 ```
 
 ## FALTA (em ordem)
 
-### A. `src/runtime/` (async_rt + tokio_ctx) → rts-std  [FAZER PRIMEIRO]
+### A. `src/runtime/` (async_rt + tokio_ctx) → rts-std  ✅ FEITO (commit 0a7043ab)
 É `crate::runtime` (NÃO `namespaces`). Consumido por: `collector/generator`,
 `collector/promise_slot`, `events`, `globals/text_encoding/instance`, `http_server`,
 `parallel`, `promise`, `thread`. Move ele antes dos async-coupled.
@@ -43,27 +55,34 @@ rts-codegen  lê o Registry. usa crate::namespaces::* (= rts-runtime facade).
 Depois do A. Cada um: `gc::handles`→`rts_engine::heap::handles`; gc-surface em runtime
 (`string_pool`/`error`/`generator`/`promise_slot`) → `extern "C"{}` decl; `crate::runtime`→ok
 (já em rts-std após A).
-- **thread** (tokio + worker pool). Cargo += rayon? não — só tokio. `gc::thread_registry`→engine.
-- **http_server** (actix-web + tokio + async_rt). Cargo += actix-web/actix-rt/tokio.
-- **promise** (tokio + async_rt + promise_slot). promise_slot FICA no runtime collector (usa
-  async_rt+tokio); promise→promise_slot vira extern-decl OU promise_slot move junto. ⚠️ ver gotcha.
-- **parallel** (rayon + `globals::function::ops::invoke_array_callback` + `collections::map::*`
-  + `gc::string_pool::TRUTHY`). Os refs a globals/collections (Rust pub fns, NÃO externs) são o
-  problema → ou vira extern (se houver símbolo) ou parallel fica no runtime até globals/collections
-  irem pra shared. Cargo += rayon.
-- **crypto** (sha2 + `gc::promise_slot::new_fulfilled`). promise_slot é pub fn → mesmo problema.
-  Cargo += sha2. Mover depois de resolver promise_slot.
-- **time** (`globals::timers::instance::pump_until` — pub fn). Mover depois de timers ir pra std.
+- **thread** ✅ FEITO (commit 999e7056). só tokio. `gc::thread_registry`→engine.
+- **http_server** ✅ FEITO (commit 999e7056). actix-web/actix-rt + async_rt.
+- **promise** ⏳ DEFERIDO. Coupling MAIOR que o gotcha previa: além de promise_slot, usa
+  `globals::text_encoding::instance::{drain_microtasks,enqueue_microtask_*}` (pub fns Rust, NÃO
+  externs) + `globals::timers::instance::pump_until` (pub fn) + `globals::function::ops` +
+  `gc::generator`. Os enqueue_microtask_*/pump_until são pub fns com tipos Rust → não dá extern-decl.
+  **Bloqueado até globals (text_encoding, timers) moverem.** Mover DEPOIS do step D.
+- **parallel** ⏳ DEFERIDO. rayon + `globals::function::ops::invoke_array_callback` +
+  `collections::map::*` + `gc::string_pool::TRUTHY`. Refs a globals/collections (pub fns) → bloqueado
+  até globals/collections irem pra shared.
+- **crypto** ⏳ DEFERIDO. sha2 + `gc::promise_slot::new_fulfilled` (retorna `Arc<PromiseSlot>` → não
+  extern-able). promise_slot está em collector e é usado por 8 módulos (collector+blob/fetch/
+  readable_stream/text_encoding/generator) → mover cedo = muita churn. Mover crypto junto com
+  promise_slot DEPOIS, ou quando promise_slot for pro rts-std no step E.
+- **time** ⏳ DEFERIDO. `globals::timers::instance::pump_until` (pub fn). Mover depois de timers→std.
 
 ### C. Criar `rts-shared` + mover pure-compute + globais universais
 `rts-shared` dep só `rts-engine` (+ libs puras). **⚠️ NUNCA depender de rts-std** (senão não
 roda no browser). Antes de cada move: `grep` que o arquivo não referencia ns/global que está
 no std.
-- **ns pure-compute → shared:** alloc, bigfloat, buffer, fmt, hash, hint, math, mem, num, path,
-  ptr, regex, date, json, events, trace, collections.
-  - regex: usa `regex`/`fancy-regex` (wasm-OK). date: `std::time`. collections: usa
-    `globals::symbol`+`globals::proxy` (universais→shared, OK se ambos shared). trace: usa
-    `globals::error` (universal→shared). events: usa `async_rt`?? checar — se sim, fica no std.
+- **ns pure-compute → shared:** ✅ FEITO 13 (commit f417b050): alloc bigfloat buffer fmt hash
+  hint math mem num path ptr regex date. (regex usa regex/fancy-regex wasm-OK; date std::time;
+  string-returning ns já usam extern-decl p/ `__RTS_FN_NS_GC_STRING_NEW`.)
+  - ⏳ DEFERIDOS deste batch: **json** (collections::vec + globals::function::ops + globals::proxy
+    + gc::error → bloqueado até collections/proxy/error moverem). **collections** (usa
+    globals::symbol+globals::proxy universais → mover quando ambos forem shared). **trace** (usa
+    globals::error universal → shared). **events** (usa `crate::runtime`=async_rt → é BACKEND, vai
+    pro rts-std não shared).
 - **globais universais → shared:** String Number Boolean Array Object Map Set Symbol Error(+subs)
   JSON JSON5 RegExp Date Function WeakMap/Set/Ref FinalizationRegistry BigInt URL TextEncoder/Decoder.
   (As que NÃO tocam backend.)
@@ -122,12 +141,20 @@ target/release/rts.exe compile -p f.ts out.exe; ./out.exe # AOT
 ```
 
 ## ORDEM RECOMENDADA p/ sessão nova
-1. A (runtime/ async_rt → rts-std) — desbloqueia os async.
-2. B parte fácil: thread, http_server (deps tokio/actix). Gate.
-3. promise+promise_slot+crypto juntos (resolve o gotcha). Gate.
-4. Criar rts-shared; mover pure-compute ns em batch (math/num/fmt/hash/mem/ptr/hint/alloc/path/
-   bigfloat/buffer/regex/date/json/trace). Gate.
-5. collections + globais universais → shared (cuidado Proxy/Symbol). Gate.
-6. parallel + time (dependem de globals — depois que globals moverem). Gate.
-7. Platform-divergent globais → std. Gate.
-8. Dissolver rts-runtime; collector/ → rts-std. Gate final + AOT + atualizar WORKING.md.
+~~1. A~~ ✅ ~~2. B fácil (thread/http_server)~~ ✅ ~~4. rts-shared + pure-compute~~ ✅ (13 ns)
+
+Reordenado pós-descoberta: promise/parallel/crypto/time couplam globals pub fns → globais
+PRIMEIRO, async-coupled DEPOIS. Nova ordem:
+
+1. **Globais universais → rts-shared:** String Number Boolean Array Object Map Set Symbol
+   Error(+subs) JSON JSON5 RegExp Date Function WeakMap/Set/Ref FinalizationRegistry BigInt URL
+   TextEncoder/Decoder. ⚠️ classificar por dep real (grep) — só as que NÃO tocam backend. Symbol
+   e Proxy primeiro (collections/json/trace dependem). Gate cada batch.
+2. **collections + json + trace → shared** (desbloqueados por #1: symbol/proxy/error). Gate.
+3. **Platform-divergent globais → rts-std:** console(→io) timers fetch(→net) performance
+   global_this blob headers form_data readable_stream event_target message_channel intl
+   dom_exception dataview abort. Gate. ⟶ desbloqueia time (timers) e promise (text_encoding+timers).
+4. **events → rts-std** (usa async_rt). **time → rts-std** (timers já em std). Gate.
+5. **promise + parallel + crypto + promise_slot** juntos (agora globals+promise_slot resolvidos).
+   promise_slot sai do collector junto. Gate + AOT.
+6. **Dissolver rts-runtime; collector/ → rts-std.** Gate final + AOT + atualizar WORKING.md.
