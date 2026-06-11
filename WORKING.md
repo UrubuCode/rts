@@ -374,9 +374,21 @@ primeiro, split do `Entry` depois; (2) heap fica DENTRO do `rts-engine`.
               `stack` (→ globals/error), `promise_slot` (tokio + async_rt)
       - [ ] (Opcional/futuro) hook-ificar string_pool deep-trace + finish_cycle p/
             mover o resto pro engine. Esforço próprio; não no caminho crítico.
-- [ ] **Fase 1b — `rts-shared`+`rts-std`** (ns pure→shared, backend→std, globais
-      universais→shared, platform-divergent→std). Rewire register_builtins +
-      lib.rs re-export + jit.rs + ~9 arquivos codegen. Dissolve `rts-runtime`.
+- [~] **Fase 1b — `rts-shared`+`rts-std`** (EM ANDAMENTO).
+      - [x] **`rts-std` criado** (engine+cpal) + piloto `audio`/`asio_audio`
+            (`c4935698`) + batch leaf `io/os/env/runtime/test` (`d680bb10`).
+            Mecanismo provado: facade `rts-runtime::namespaces::<ns>=pub use
+            rts_std::<ns>` → register_builtins/jit.rs/codegen INTOCADOS;
+            rts-runtime→rts-std→engine acíclico; externs do std exportam no AOT.
+      - [ ] **Backend "needs-fix"**: converter refs de MÓDULO
+            `crate::namespaces::gc::string_pool`/`globals`/`collections` → `extern
+            "C"{}` (symbol-link, como net/crypto/buffer já fazem), depois mover:
+            fs(2)/net(1)/process(1)/time(1)/tls(1)/http_server(1)/thread(2)/
+            crypto(2)/parallel(4)/sync(1)/atomic(1)/ffi(1) → rts-std.
+      - [ ] **`rts-shared`** (engine): pure-compute (math/num/fmt/hash/mem/ptr/hint/
+            alloc/path/bigfloat/buffer/regex/date/events/collections) + globais
+            universais. ⚠️ shared NÃO pode depender de std (verificar antes).
+      - [ ] Platform-divergent globais → std. Dissolver `rts-runtime`.
 - [ ] **Fase 2 (futuro)** — `Entry::Backend(dyn Traceable)` → rts-shared wasm-pure.
 - [ ] **Fase 3 (futuro)** — rts-browser + target wasm no codegen.
 
