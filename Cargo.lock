@@ -2687,16 +2687,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rts-macro"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "rts-engine",
- "syn",
-]
-
-[[package]]
 name = "rts-mir"
 version = "0.1.0"
 dependencies = [
@@ -2734,7 +2724,6 @@ dependencies = [
  "rayon",
  "regex",
  "rts-engine",
- "rts-macro",
  "rustc-hash 1.1.0",
  "rustls",
  "serde",

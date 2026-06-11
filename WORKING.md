@@ -18,41 +18,45 @@
   - A API "exposta" do GC não é agradável de mostrar ao público geral → o
     mecanismo vive no engine, mas o `register()` que a torna chamável fica só na
     camada backend.
-  `rts-abi` **deletado** ✅; `rts-macro` pendente de decisão (a/b — ver ESTADO).
+  `rts-abi` **deletado** ✅; `rts-macro` **deletado** ✅ (opção b — hand-written builder).
   Codegen = motor genérico que lê o `Registry`, nada hardcoded ✅.
 
 ---
 
 ## 🎯 PRÓXIMO PASSO (sempre no topo)
 
-> ## 📌 ESTADO (fim da sessão de 13+ commits)
+> ## 📌 ESTADO (rts-macro REMOVIDA — opção b concluída)
 >
-> **COMPLETO (gateado suíte 1710 + AOT em cada):**
-> 1. ✅ **Fase 2** — ~36 ns + 62 classes → builder; `SPECS`+`GLOBAL_CLASS_SPECS`
+> **COMPLETO (gateado suíte 1710 + d.ts determinístico/byte-idêntico em cada):**
+> 1. ✅ **Fase 2** — todas ns + 62 classes → builder; `SPECS`+`GLOBAL_CLASS_SPECS`
 >    **vazios**; codegen 100% via registry. (+ fix bug alias-null ACCESS_VIOLATION)
 > 2. ✅ **gc+collections** → const vazio
 > 3. ✅ **GC SPLIT** — mecanismo (contrato `Traceable` + 3 registries + debug +
 >    scanner) no `rts-engine`; heap tipado + `finish_cycle` + externs no runtime.
 >    `gc/`→`collector/`. Gateado + stress 50k.
 > 4. ✅ **`rts-abi` DELETADO** — 122 refs → `rts_engine::abi::`, crate removido.
+> 5. ✅ **`rts-macro` DELETADA (opção b — hand-written)** — TODAS as ~38 ns + 31
+>    arquivos de classe global (62 classes) convertidos do `#[rts_namespace]`/
+>    `#[rts_class]` pro builder hand-written (externs `#[no_mangle]` + `register*()`
+>    espelhando 1:1 a metadata: kind/sig-com-receiver/símbolo/ts/flags/aliases/
+>    variadic/pure/intrinsic/external-null). `crates/rts-macro` `git rm` + dep +
+>    workspace member removidos. ZERO `#[rts_*]` / `use rts_macro` no codebase.
+>    Fix junto: `Registry::modules()`/`classes()` iteravam `HashMap::values()`
+>    (ordem aleatória → `emit-types` não-determinístico desde que o const SPECS foi
+>    esvaziado) → `module_order`/`class_order` (Vec de inserção) = emit-types estável.
 >
-> **RESTAM — 3, cada uma travada por algo concreto:**
-> - **deletar `rts-macro`** — ⛔ **DECISÃO DO DEV, pendente** (perguntado 3×). (a)
->   macro fica como gerador do builder (codegen já é genérico → "remover" é só
->   re-home; pouco trabalho) vs (b) "removido" literal = inlinar ~900 membros à
->   mão em 73 arquivos. NÃO executável sem a escolha: (b) é volume enorme/risco
->   que o dev pode não querer; (a) contraria o "removido" explícito → decidir
->   sozinho viola a regra CLAUDE.md. **Bloqueio real.**
-> - **camadas `rts-shared`/`rts-browser`** — prematura: rts-browser seria crate
->   vazio (nenhuma API de navegador existe); + os register() de Boolean/String/
->   Number são gerados pela macro → acoplado à decisão da macro.
+> **RESTAM — 2 (nenhuma bloqueada por decisão):**
+> - **camadas `rts-shared`/`rts-browser`** — ainda prematura: rts-browser seria
+>   crate vazio (nenhuma API de navegador existe). Agora DESACOPLADA da macro (os
+>   register() são hand-written) → quando houver API de navegador, extrair os
+>   register() universais (Boolean/String/Number) p/ rts-shared é mecânico.
 > - **E2-E4 / X1-X5** — E2-E4 = refactor profundo do codegen (os ~182 braços do
 >   `builtins.rs` são lógica que emite IR custom, não dados drenáveis); X1-X5 =
 >   feature nova (dlopen plugins). Sessão fresca rende mais.
 >
 > **O pedido-núcleo ("codegen = motor genérico, nada hardcoded; gc como sistema
-> no engine; abi limpa") está ATINGIDO.** As 3 restantes são 1 decisão (macro),
-> 1 prematura (camadas), 1 grande-nova (E/X). Retomar: responder (a)/(b) da macro.
+> no engine; abi limpa; macro removida") está ATINGIDO.** Restam 1 prematura
+> (camadas) e 1 grande-nova (E/X) — ambas fora do caminho crítico.
 >
 > ---
 >
@@ -238,7 +242,11 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
 | `090df81a` | Fase 2 #6 | **`ptr`** (14 membros, hand-externs). 9 ns migradas à mão. 1710/1710 |
 | `a1aac29a` | **Fase 2 BULK ns** | **macro `#[rts_namespace]` auto-emite `register(e: &mut Engine)`** (mesma metadata do const SPEC → `NamespaceMember` byte-equiv via leak). `register_builtins` folda **~36 ns** via register() (io/json/date/fs/math/net/num/mem/bigfloat/buffer/ffi/atomic/sync/string/process/promise/os/http_server/crypto/regex/audio/runtime/test/thread/parallel/tls/globals*+events). **Só `gc`+`collections` restam no const `SPECS`.** `rts_engine::Member += intrinsic` (math sqrt/abs/min/max inline preservados). **Bug crítico achado+corrigido:** `leak_namespace` gravava `(symbol, 0)` p/ membros alias (fn_ptr null) → sobrescrevia o símbolo real com NULL → call p/ 0x0 (ACCESS_VIOLATION não-determinístico, ordem HashMap). Fix: pular fn_ptr null no jit_symbols. 6 consumidores do const SPECS → registry (apis/init/jit-diag/is_global/builtin_module_keys/pure-ns-set). Teste stale `rts:ui`→`rts:gc`. Workspace lib + macro 6/6 + **suíte 1710/1710** |
 | `dbecaad2` | **Fase 2 BULK classes** | **macro `#[rts_class]` auto-emite `register_<spec_lower>(e: &mut Engine)`** (nome derivado do `spec_ident`, único por módulo). `leak_class` (espelha `leak_namespace`, default_args `&[]`, mesmo skip de fn_ptr null) + fold de `engine.registry().classes()`. **Todas as 62 classes globais migradas; const `GLOBAL_CLASS_SPECS` esvaziado (`&[]`).** Helper `leak_member` fatorado (DRY entre ns/classe). 3 consumidores do const GLOBAL_CLASS_SPECS → `registry_classes_ordered()` (calls/mod.rs:resolve_instance_method + members.rs:instance_getter/instance_method). Piloto Boolean → bulk. Workspace lib + macro 6/6 + **suíte 1710/1710** |
-| _(HEAD)_ | **Fase 2 gc+collections** | **últimas 2 ns migradas → const `SPECS` esvaziado (`&[]`).** `gc` via `gc::register()` (macro `#[rts_namespace(gc)]`). `collections`: macro `part` passou a emitir `append_engine_members(&mut Vec<Member>)`; owner `collections::register()` hand-written agrega map+vec (mesma ordem do `concat_members`). **AMBOS os consts (`SPECS`+`GLOBAL_CLASS_SPECS`) vazios — codegen 100% via registry.** Workspace lib + macro 6/6 + **suíte 1710/1710** |
+| _(prev)_ | **Fase 2 gc+collections** | **últimas 2 ns migradas → const `SPECS` esvaziado (`&[]`).** `gc` via `gc::register()` (macro `#[rts_namespace(gc)]`). `collections`: macro `part` passou a emitir `append_engine_members(&mut Vec<Member>)`; owner `collections::register()` hand-written agrega map+vec (mesma ordem do `concat_members`). **AMBOS os consts (`SPECS`+`GLOBAL_CLASS_SPECS`) vazios — codegen 100% via registry.** Workspace lib + macro 6/6 + **suíte 1710/1710** |
+| `54f569b0` | macro-rm início | **mem** convertida do `#[rts_namespace]` pro builder hand-written (1ª ns da opção b). Template dos pilotos. Suíte 1710 + smoke |
+| `ebf3abf2` | **macro-rm ns** | **TODAS as ~38 ns** convertidas → hand-written builder (io/os/process/regex/test/ffi/parallel/sync/thread/tls/net/crypto/num/atomic/buffer/json/fs/date/bigfloat/http_server/promise/events/audio/asio_audio/**math** intrinsics+aliases/**collections** parts→append_engine_members/**gc** 30 external). + **fix determinismo**: `Registry::modules()/classes()` HashMap→Vec de inserção (emit-types determinístico). + piloto classe **boolean**. ZERO `#[rts_namespace]`. Suíte 1710 + d.ts byte-idêntico (sorted, 5516 linhas) |
+| `63c6fbf5` | **macro-rm classes** | **TODOS os 31 arquivos de globals/* (62 classes)** convertidos do `#[rts_class]`/`#[rts_namespace(sym=)]` → builder hand-written (register_*_class_spec/register espelhando metadata 1:1; external→fn_ptr null). ZERO `#[rts_*]`/`use rts_macro` no runtime. Suíte 1710 + d.ts byte-idêntico |
+| _(HEAD)_ | **rts-macro DELETADA** | `crates/rts-macro` `git rm` + dep de rts-runtime + workspace member removidos. Build --release limpo SEM a macro + suíte 1710/1710. **rts-macro não existe mais.** |
 
 ---
 
@@ -265,16 +273,18 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
 - [x] **Todas as namespaces** migradas: 9 à mão + ~36 via macro-`register()` + gc + collections (owner agrega `part`s via `append_engine_members`). **Const `SPECS` esvaziado (`&[]`).** Suíte 1710/1710. (HEAD)
 - [x] **Classes globais (62)** via builder — `leak_class` + fold de `engine.registry().classes()` + macro `#[rts_class]` auto-emite `register_<spec>_class_spec`. Const `GLOBAL_CLASS_SPECS` esvaziado. 1710/1710. (HEAD)
 - [ ] `#[rts_var]`/`#[rts_global]`/setters consumidos no codegen (A3: VarGetter read `members.rs:1006` + write-path `x.v=5` em `lower_assign_expr` + readonly hard-error).
-- [ ] **Removendo `rts-macro` (opção b — dev confirmou "continue"/"removido").**
-      Cada ns/classe macro'd vira hand-written (externs `#[no_mangle]` + `register()`
-      via builder; template = pilotos hint/hash/ptr/mem). Quando zero `#[rts_*]`:
-      deletar `crates/rts-macro` + members. Progresso (ns macro'd → hand):
-      - [x] **mem** (10 membros: 6 const + 4 fn). Build+suíte 1710 + smoke. (HEAD)
-      - [ ] faltam ~29 ns (num 23, atomic 22, buffer 20, sync 12, ffi 9, io 8,
-            os 8, json, date, fs, math, net, bigfloat, process, promise,
-            http_server, crypto, regex, audio, runtime, test, thread, parallel,
-            tls, events, globals/*, gc) + 62 classes `#[rts_class]`. Grind
-            mecânico multi-sessão; batches gateados (build+suíte+AOT por batch).
+- [x] **`rts-macro` REMOVIDA (opção b — hand-written) ✅.** Todas as ns
+      (mem/runtime/io/os/process/regex/test/ffi/parallel/sync/thread/tls/net/crypto/
+      num/atomic/buffer/json/fs/date/bigfloat/http_server/promise/events/audio/
+      asio_audio/math/collections/gc) + 62 classes (boolean/number/regexp/symbol/
+      bigint/weak*/headers/function/date/error+7/abort+signal/event_target+event/
+      dom_exception/blob+file/form_data/finalization_registry/eventemitter/
+      arraybuffer+dataview/messagechannel+port/intl×7/readablestream×9/string/url/
+      fetch/text_encoding/console/timers/performance/global_this/json/json5)
+      convertidos pro builder hand-written. `crates/rts-macro` `git rm` + dep +
+      workspace member fora. Gate: build --release + suíte 1710 + emit-types
+      determinístico/byte-idêntico. Commits: ebf3abf2 (ns), 63c6fbf5 (classes),
+      + commit de remoção do crate.
 
 ### GC/collector → rts-engine (decidido — ver "Design GC" + Próximos passos)
 - [x] **Congelada a ABI do GC** no `rts-engine` (`collector.rs`): trait
