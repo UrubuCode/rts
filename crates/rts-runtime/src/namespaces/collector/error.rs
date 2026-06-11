@@ -77,17 +77,10 @@ pub extern "C" fn __RTS_FN_RT_ERROR_GET_STACK() -> u64 {
     ERROR_SLOT.with(|slot| slot.borrow().stack)
 }
 
-// (#745) Mapa thread-local handle->stack_text. Antes de CLEAR liberar
-// o stack handle pendente, copiamos o conteudo aqui para que
-// `e.stack` possa ler dentro do catch body.
-thread_local! {
-    static ERR_STACKS: std::cell::RefCell<std::collections::HashMap<u64, String>>
-        = std::cell::RefCell::new(std::collections::HashMap::new());
-}
-
-pub fn stack_for_handle(handle: u64) -> Option<String> {
-    ERR_STACKS.with(|m| m.borrow().get(&handle).cloned())
-}
+// (#745) Mapa thread-local handle->stack_text movido pro motor
+// (`rts_engine::collector::err_stack`). Re-exportado pros consumidores
+// (globals/error, que migra pra rts-shared) seguirem com a fn Rust.
+pub use rts_engine::collector::err_stack::stack_for_handle;
 
 /// Clears pending runtime error and releases captured stack handle.
 #[unsafe(no_mangle)]
@@ -104,7 +97,7 @@ pub extern "C" fn __RTS_FN_RT_ERROR_CLEAR() {
                 _ => String::new(),
             });
             if !text.is_empty() {
-                ERR_STACKS.with(|m| m.borrow_mut().insert(msg, text));
+                rts_engine::collector::err_stack::record(msg, text);
             }
         }
         free_handle_if_any(slot.stack);

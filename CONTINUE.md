@@ -25,12 +25,15 @@ GC (Entry+HandleTable+trace+alocadores)→`rts-engine`; `rts-std` (backend) com 
 
 **rts-shared agora = 13 ns + 16 globais. Suite 1710/1710 em cada batch.**
 
+✅ FEITO esta sessão (commit pendente): RELOCADOS os 2 pure-helpers do collector → rts-engine:
+- `format_js_number(f64)->String` → `rts_engine::numfmt` (re-export em collector/string_pool).
+- `stack_for_handle(u64)->Option<String>` + thread-local ERR_STACKS → `rts_engine::collector::
+  err_stack` (re-export em collector/error; CLEAR chama `err_stack::record`). Slot de erro
+  pendente (ERROR_SLOT) FICA no runtime. Suite 1710/1710; AOT smoke (error.stack+toString) OK.
+- **Cluster destravado.** Próximo: mover cluster function+collections+proxy+error+string+reflect.
+  (error tb usa gc::class_registry→engine + gc::error extern.)
+
 ⏳ DEFERIDOS (próxima sessão):
-- **cluster** function+collections+proxy+error+string+reflect: fechado em si mas precisa
-  RELOCAR 2 pure-helpers do collector ANTES — `format_js_number(f64)->String` (collector/
-  string_pool, 3 users) e `stack_for_handle(u64)->Option<String>` (collector/error, só
-  error global). Ambos pub fn c/ tipo Rust → não dá extern-decl. Mover p/ rts-engine (puros)
-  e então o cluster destrava. (error tb usa gc::class_registry→engine + gc::error extern.)
 - **dataview** SKIP por design (nota memória #1378).
 - **platform-divergent globais → rts-std** (step D): console(→io) timers fetch(→net)
   performance global_this? blob headers form_data readable_stream event_target
@@ -160,10 +163,8 @@ target/release/rts.exe compile -p f.ts out.exe; ./out.exe # AOT
 ## ORDEM RECOMENDADA p/ sessão nova
 ~~A~~ ✅ ~~B fácil (thread/http_server)~~ ✅ ~~rts-shared + 13 ns~~ ✅ ~~16 globais universais~~ ✅
 
-1. **Relocar pure-helpers do collector → rts-engine** (PRÉ-REQUISITO do cluster):
-   `format_js_number(f64)->String` (collector/string_pool) + `stack_for_handle(u64)->Option<String>`
-   (collector/error). Puros/quase-puros. Mover p/ engine, fixar os ~5 call-sites (collections/vec,
-   error/instance + 2 fora do cluster). Gate.
+~~1. Relocar pure-helpers do collector → rts-engine~~ ✅ FEITO (format_js_number→numfmt;
+   stack_for_handle+ERR_STACKS→collector::err_stack). Cluster destravado.
 2. **Cluster → rts-shared/src/globals/ (+ collections em src/):** function collections proxy error
    string reflect. Fechado em si + symbol(já shared). gc-surface no_mangle (string_pool/gc-error
    RT_ERROR/generator) → extern-decl; gc::handles/this_slot/class_registry → engine heap;
