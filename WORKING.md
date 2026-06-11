@@ -326,9 +326,27 @@ Symbols `__RTS_FN_NS_HINT_*` (#[no_mangle], existem).
       migraram (rts-engine contribui pro archive OU runtime re-exporta `#[no_mangle]`).
 - [ ] (Futuro, atrás da ABI) trocar política mark+sweep → RC + coletor de ciclos.
 
-### Camadas rts-shared / rts-runtime / rts-browser
-- [ ] Extrair `register()` por alvo: `rts-shared` (Boolean/String/Number universais),
-      `rts-runtime` (backend), `rts-browser` (frontend). API do GC só no backend.
+### Camadas → partição de crates (PLANO APROVADO pelo dev)
+Visão do dev: `rts-engine` = motor único (back+front, DONO do heap GC); `rts-shared`
+= tipos básicos + globais universais (rodam nos 2 alvos); `rts-std` = ns backend;
+`rts-browser` = frontend (DEPOIS); `rts-node` = shims node. Plano completo em
+`.claude/plans/partitioned-meandering-milner.md`. Decisões: (1) mover crates
+primeiro, split do `Entry` depois; (2) heap fica DENTRO do `rts-engine`.
+- [x] **Fase 0 — `rts-node`** ✅ (commit 85713faa): nodespace `rts-codegen`→
+      `crates/rts-node`. Gate build+suíte 1710.
+- [ ] **Fase 1a — heap → rts-engine.** ⚠️ NÃO é git-mv: o `collector/` tem
+      orquestração DOMAIN-COUPLED (generator→promise/text_encoding microtasks;
+      string_pool deep-trace→collections; finish_cycle→microtask roots; error→
+      trace stack; stack→globals/error). Move CORE (Entry+HandleTable+alloc+
+      payload value-types) pro engine; re-roteia orquestração via HOOKS
+      (`install_gc_hook` já existe)/Traceable pra engine não chamar backend;
+      generator/deep-trace/finish_cycle ficam no backend e registram hooks.
+      Refactor delicado multi-build — sessão fresca com budget.
+- [ ] **Fase 1b — `rts-shared`+`rts-std`** (ns pure→shared, backend→std, globais
+      universais→shared, platform-divergent→std). Rewire register_builtins +
+      lib.rs re-export + jit.rs + ~9 arquivos codegen. Dissolve `rts-runtime`.
+- [ ] **Fase 2 (futuro)** — `Entry::Backend(dyn Traceable)` → rts-shared wasm-pure.
+- [ ] **Fase 3 (futuro)** — rts-browser + target wasm no codegen.
 
 ### Limpeza final
 - [x] **Shim `rts-abi` DELETADO.** Sweep `rts_abi::`→`rts_engine::abi::` (122 refs:
