@@ -27,7 +27,7 @@ use cpal::{BufferSize, HostId, SampleFormat, StreamConfig};
 use rts_engine::abi::ty::{Bool, F64, Handle, I64, U64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use crate::namespaces::gc::handles::{Entry, with_entry};
+use rts_engine::heap::handles::{Entry, with_entry};
 
 /// Interleaved f32 ring buffer. Producer: TS (`write`); consumer: RT callback.
 pub type Ring = Arc<Mutex<VecDeque<f32>>>;

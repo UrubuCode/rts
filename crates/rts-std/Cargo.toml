@@ -1,0 +1,16 @@
+[package]
+name = "rts-std"
+version = "0.1.0"
+edition = "2024"
+
+# rts-std — camada BACKEND (rts app): namespaces de plataforma (I/O, net, process,
+# áudio, ...). Depende do motor (rts-engine, que detém o heap GC). Ver
+# .claude/plans/partitioned-meandering-milner.md.
+
+[features]
+# Backend ASIO (Windows, baixa latência) no namespace `asio_audio`.
+asio = ["cpal/asio"]
+
+[dependencies]
+rts-engine = { path = "../rts-engine" }
+cpal = "0.18"

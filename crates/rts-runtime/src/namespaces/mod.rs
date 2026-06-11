@@ -5,9 +5,12 @@
 //! resolved to a canonical `__RTS_*` extern "C" symbol and called directly.
 
 pub mod alloc;
-pub mod audio;
+/// `audio`/`asio_audio` migraram pro crate backend `rts-std` (Fase 1b, partição
+/// de crates). Facade → `crate::namespaces::audio` (register_builtins, jit.rs)
+/// segue resolvendo.
+pub use rts_std::audio;
 #[cfg(feature = "asio")]
-pub mod asio_audio;
+pub use rts_std::asio_audio;
 pub mod globals;
 pub mod atomic;
 pub mod trace;
