@@ -25,7 +25,10 @@ pub mod generator;
 // aqui como fachada: os `super::` internos + `namespaces::gc::*` (alias) +
 // jit.rs resolvem pro MESMO static no engine, sem editar consumidores.
 pub use rts_engine::collector::{debug, global_roots, scan, stack_map_registry, thread_registry};
-pub mod handles;
+/// `handles` (Entry + HandleTable + heap GC tipado) migrou pro motor
+/// (`rts_engine::heap::handles`, Fase 1a). Facade → `super::handles` (dos siblings)
+/// + `crate::namespaces::gc::handles::*` (consumidores) seguem resolvendo.
+pub use rts_engine::heap::handles;
 pub mod instance;
 pub mod promise_slot;
 pub mod stack;

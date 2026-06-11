@@ -4,3 +4,4 @@
 //! orquestração migram em fatias gateadas (ver `.claude/plans/`).
 
 pub mod fixed;
+pub mod handles;

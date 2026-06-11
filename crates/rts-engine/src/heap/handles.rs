@@ -25,6 +25,21 @@ use crate::abi::handles::{
     HANDLE_SLOT_MASK as SLOT_MASK,
 };
 
+/// A TLS client stream stored in the HandleTable. Definição movida do namespace
+/// `tls` pro motor (heap no engine); a lógica de I/O do `tls` referencia este
+/// tipo via facade. Carrega `rustls::ClientConnection` → engine puxa rustls (TEMP;
+/// Fase 2 troca por `Entry::Backend(dyn Traceable)` e devolve o payload pro backend).
+pub struct TlsClientStream {
+    pub conn: rustls::ClientConnection,
+    pub tcp: std::net::TcpStream,
+}
+
+impl std::fmt::Debug for TlsClientStream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TlsClientStream").finish_non_exhaustive()
+    }
+}
+
 const SENTINEL_INVALID: u64 = 0;
 
 /// Wrapper que armazena a regex compilada + flags JS canonicas.
@@ -315,7 +330,7 @@ pub enum Entry {
     /// UTF-8 string owned on the heap.
     String(Vec<u8>),
     /// Fixed-point decimal number — `FixedDecimal` migrou pro heap do motor.
-    BigFixed(Box<rts_engine::heap::fixed::FixedDecimal>),
+    BigFixed(Box<crate::heap::fixed::FixedDecimal>),
     /// Raw byte buffer — Vec<u8> com capacidade igual ao size.
     /// Usado pelo namespace `buffer` para dados binarios, FFI, etc.
     Buffer(Vec<u8>),
@@ -369,7 +384,7 @@ pub enum Entry {
     /// TLS client stream — namespace `tls`. Wraps um TcpStream com
     /// rustls::ClientConnection. Criado por `tls.client(tcp_handle, sni)`
     /// que consome o handle do tcp.
-    TlsClient(Box<super::super::tls::TlsClientStream>),
+    TlsClient(Box<TlsClientStream>),
     /// JoinHandle<u64> owned — namespace `thread` (spawn/join/detach).
     /// Box pra estabilizar o endereco. Consumido por `join`/`detach`
     /// (substituido por `Free`).
@@ -654,13 +669,13 @@ fn cleanup_entry(entry: &mut Entry) {
 }
 
 /// `Entry` é o payload concreto do collector (Fase 2 GC). Implementa o contrato
-/// `rts_engine::Traceable` — o protocolo que deixa o coletor genérico (a migrar
+/// `crate::Traceable` — o protocolo que deixa o coletor genérico (a migrar
 /// pro `rts-engine` no SPLIT) andar o grafo SEM conhecer as variants. As variants
 /// pesadas (tokio/regex/rustls) ficam aqui no runtime; o engine fica zero-dep.
 ///
 /// `trace_children` espelha exatamente o match de `HandleTable::mark`; `finalize`
 /// reusa `cleanup_entry`. Comportamento idêntico ao mark+sweep atual.
-impl rts_engine::Traceable for Entry {
+impl crate::Traceable for Entry {
     fn trace_children(&self, visit: &mut dyn FnMut(u64)) {
         match self {
             // (#264) Function: prototype + bound_this + bound_args.
@@ -938,7 +953,7 @@ impl HandleTable {
         let Some((expected_gen, _, table_slot)) = decode(handle) else { return children };
         let Some(slot) = self.slots.get_mut(table_slot as usize) else { return children };
         if slot.generation == expected_gen && !matches!(slot.entry, Entry::Free) {
-            if super::debug::is_enabled()
+            if crate::collector::debug::is_enabled()
                 && matches!(slot.entry, Entry::TcpListener(_) | Entry::TcpStream(_))
             {
                 eprintln!("[gc] MARK handle={handle:#x} slot={table_slot} kind=Tcp*");
@@ -947,7 +962,7 @@ impl HandleTable {
             // Enumera os filhos via o contrato `Traceable` (mesma lógica, agora
             // atrás da ABI do collector — Fase 2 GC). O coletor genérico do engine
             // chamará isto sem conhecer as variants concretas.
-            rts_engine::Traceable::trace_children(&slot.entry, &mut |c| children.push(c));
+            crate::Traceable::trace_children(&slot.entry, &mut |c| children.push(c));
         }
         children
     }
@@ -961,7 +976,7 @@ impl HandleTable {
                 continue;
             }
             if !slot.marked {
-                if super::debug::is_enabled() {
+                if crate::collector::debug::is_enabled() {
                     let kind = match &slot.entry {
                         Entry::String(_) => "String",
                         Entry::Buffer(_) => "Buffer",

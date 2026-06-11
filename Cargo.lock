@@ -2663,6 +2663,14 @@ dependencies = [
 [[package]]
 name = "rts-engine"
 version = "0.1.0"
+dependencies = [
+ "fancy-regex",
+ "indexmap",
+ "regex",
+ "rustls",
+ "serde_json",
+ "sha2 0.10.9",
+]
 
 [[package]]
 name = "rts-hir"

@@ -13,19 +13,11 @@ use rts_engine::abi::ty::{Handle, I64, U64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 use rustls::{ClientConfig, ClientConnection, RootCertStore, Stream};
 
-use crate::namespaces::gc::handles::{Entry, alloc_entry, free_handle, with_entry_mut};
-
-/// A TLS client stream stored in the HandleTable.
-pub struct TlsClientStream {
-    pub conn: ClientConnection,
-    pub tcp: std::net::TcpStream,
-}
-
-impl std::fmt::Debug for TlsClientStream {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TlsClientStream").finish_non_exhaustive()
-    }
-}
+// `TlsClientStream` migrou pro heap do motor (`rts_engine::heap::handles`);
+// o I/O do TLS continua aqui e referencia o tipo via facade.
+use crate::namespaces::gc::handles::{
+    Entry, TlsClientStream, alloc_entry, free_handle, with_entry_mut,
+};
 
 /// Default ClientConfig using webpki-roots (Mozilla CAs), cached.
 fn default_config() -> Arc<ClientConfig> {
