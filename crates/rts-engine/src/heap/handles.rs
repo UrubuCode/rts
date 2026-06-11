@@ -771,6 +771,10 @@ pub struct PromiseSlot {
     /// Aqui guardamos so' como `Box<dyn Any + Send + Sync>` pra
     /// nao puxar tokio. Main crate downcasta no acesso.
     pub waiters: std::sync::Mutex<Box<dyn std::any::Any + Send + Sync>>,
+    /// (unhandled rejection tracking) true quando um handler (.then/.catch/
+    /// .finally/await/combinador) foi anexado a esta promise. Uma rejection com
+    /// `handled == false` no fim do event loop é reportada como unhandled.
+    pub handled: std::sync::atomic::AtomicBool,
 }
 
 impl std::fmt::Debug for PromiseSlot {

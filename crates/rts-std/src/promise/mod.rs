@@ -37,6 +37,34 @@ pub fn drain_pending_promises() {
     }
 }
 
+/// (unhandled rejection) Reporta no stderr toda Promise que rejeitou e nunca
+/// recebeu handler (.then/.catch/.finally/await/combinador). Chamado pelo
+/// `run_event_loop` DEPOIS de todos os drains (quando todo handler que ia anexar
+/// já anexou). Formato Node-like; warning não-fatal (não altera exit code, e o
+/// stderr não quebra a suite que compara stdout).
+pub fn report_unhandled_rejections() {
+    for err_h in crate::promise_slot::take_unhandled() {
+        eprintln!("Unhandled promise rejection: {}", describe_rejection(err_h as u64));
+    }
+}
+
+fn describe_rejection(handle: u64) -> String {
+    if handle == 0 {
+        return "undefined".to_string();
+    }
+    with_entry(handle, |e| match e {
+        Some(Entry::ErrorObj { name, message, .. }) => {
+            if message.is_empty() {
+                name.clone()
+            } else {
+                format!("{name}: {message}")
+            }
+        }
+        Some(Entry::String(b)) => String::from_utf8_lossy(b).into_owned(),
+        _ => format!("{}", handle as i64),
+    })
+}
+
 fn with_slot<F, R>(handle: u64, default: R, f: F) -> R
 where
     F: FnOnce(&std::sync::Arc<rts_engine::heap::handles::PromiseSlot>) -> R,
@@ -272,6 +300,10 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_THEN(p_handle: U64, fp: U64) -> Handle {
         _ => None,
     });
     let Some(arc) = slot_arc else { return p_handle };
+    // (.then anexa handler) source consome/encaminha a rejection — não é
+    // unhandled; a responsabilidade passa pra `result` (que vira a rejection
+    // pendente se não tiver .catch).
+    promise_slot::mark_handled(&arc);
     let result = promise_slot::new_pending();
     let result_clone = result.clone();
     let result_handle = alloc_entry(Entry::PromiseAsync(result));
@@ -321,6 +353,8 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_CATCH(p_handle: U64, fp: U64) -> Handle {
         _ => None,
     });
     let Some(arc) = slot_arc else { return p_handle };
+    // (.catch consome a rejection) marca handled.
+    promise_slot::mark_handled(&arc);
     let result = promise_slot::new_pending();
     let result_clone = result.clone();
     let result_handle = alloc_entry(Entry::PromiseAsync(result));
@@ -346,6 +380,8 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_FINALLY(p_handle: U64, fp: U64) -> Handle 
         _ => None,
     });
     let Some(arc) = slot_arc else { return p_handle };
+    // (.finally anexa handler) marca handled — encaminha o settlement.
+    promise_slot::mark_handled(&arc);
     let result = promise_slot::new_pending();
     let result_clone = result.clone();
     let result_handle = alloc_entry(Entry::PromiseAsync(result));

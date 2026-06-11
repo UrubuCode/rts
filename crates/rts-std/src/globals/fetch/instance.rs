@@ -169,6 +169,9 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_THEN2(promise_h: u64, on_ful: u64, on_rej:
 
     match classify(promise_h) {
         PromiseKind::Async(arc) => {
+            // (unhandled rejection) .then/.catch da CLASSE Promise passam por aqui
+            // (THEN2). Anexar handler = consome/encaminha a rejection do source.
+            promise_slot::mark_handled(&arc);
             // (cross-runtime #56/#285) Fast-path: ja' settled — enfileira
             // como microtask em vez de executar sync. Sem isso, o callback
             // rodava antes do top-level continuar, violando ordem JS spec.
@@ -254,6 +257,9 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_FINALLY(promise_h: u64, fp: u64) -> u64 {
 
     match classify(promise_h) {
         PromiseKind::Async(arc) => {
+            // (unhandled rejection) .finally anexa handler — encaminha o
+            // settlement; marca o source como handled.
+            promise_slot::mark_handled(&arc);
             // Fast-path: ja' settled — enfileira como microtask (consistente
             // com THEN2). Sem isso, callback de finally rodava sync e
             // quebrava ordem JS spec em chains paralelas

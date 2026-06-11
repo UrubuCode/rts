@@ -293,9 +293,13 @@ rts-std deps: engine + shared + tokio/actix/rustls/cpal/rayon/sha2/flate2/ureq/s
   uncaught (sync E async). Fix: `__RTS_FN_RT_REPORT_UNCAUGHT` (rts-std) no shim main após event loop
   → imprime + exit != 0. AOT == JIT agora p/ uncaught sync. (Unhandled rejection fire-and-forget
   segue silenciosa em JIT E AOT — feature separada, não-bloqueante.)
-- **unhandled promise rejection tracking**: fire-and-forget async que rejeita sem catch é silencioso
-  (exit 0) em JIT E AOT — o error slot é thread-local e a rejection acontece num worker tokio, não
-  no main. Feature futura (precisa registry global de rejections + report no fim do event loop).
+- ~~unhandled promise rejection tracking~~ ✅ FEITO: Promise rejeitada sem handler (.then/.catch/
+  .finally/await/combinador) agora reporta `Unhandled promise rejection: <err>` no stderr no fim do
+  event loop (JIT E AOT). Impl: flag `handled: AtomicBool` no PromiseSlot (rts-engine) + registro
+  global `slot_ptr→err` em reject/new_rejected (skip se já handled) + mark_handled nos pontos de
+  attach (wait_blocking; promise/mod THEN/CATCH/FINALLY; fetch/instance GL_PROMISE_THEN2/FINALLY) +
+  report em run_event_loop e pipeline JIT. Warning não-fatal (não muda exit code; stderr não quebra
+  suite). Verificado: unhandled warna, .catch/await NÃO warnam (sem falso-positivo), JIT==AOT.
 6d. **Dissolver rts-runtime** (step 7): mover collector gc-surface (string_pool/error/generator/
    collector/stack) → rts-std; runtime vira facade fino. Grande move final.
 6. **promise + parallel + crypto + promise_slot** juntos (globals+promise_slot resolvidos).

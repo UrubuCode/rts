@@ -199,6 +199,8 @@ pub fn run_jit_with_imports(input: &Path, options: CompileOptions) -> Result<(i3
     // Drena microtasks remanescentes geradas durante drains acima
     // (Promise.then de async fns que settarem agora).
     crate::namespaces::globals::text_encoding::instance::drain_microtasks();
+    // (unhandled rejection) Reporta Promises rejeitadas sem handler no stderr.
+    crate::namespaces::promise::report_unhandled_rejections();
     if let Some(report) = crate::namespaces::gc::error::take_runtime_error_report() {
         let use_color = crate::diagnostics::reporter::stderr_supports_color();
         eprint!("{}", format_runtime_error(&report, use_color));

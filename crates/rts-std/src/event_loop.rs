@@ -18,6 +18,9 @@ pub fn run_event_loop() {
     crate::globals::timers::instance::drain_pending_timers();
     crate::promise::drain_pending_promises();
     crate::globals::text_encoding::instance::drain_microtasks();
+    // (unhandled rejection) Após TODOS os drains — todo handler que ia anexar já
+    // anexou — reporta as Promises rejeitadas que nunca tiveram handler.
+    crate::promise::report_unhandled_rejections();
 }
 
 /// Símbolo `extern "C"` chamado pelo shim `main` do AOT (e disponível ao JIT por

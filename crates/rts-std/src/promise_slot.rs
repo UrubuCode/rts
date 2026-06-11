@@ -10,8 +10,10 @@
 //! - Rejected → handle de string (mensagem) ou Error
 //! - Pending → 0 (irrelevante, checar state primeiro)
 
+use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 use tokio::sync::oneshot;
 
@@ -21,6 +23,52 @@ use rts_engine::heap::handles::PromiseSlot;
 pub const STATE_PENDING: u8 = 0;
 pub const STATE_FULFILLED: u8 = 1;
 pub const STATE_REJECTED: u8 = 2;
+
+/// (unhandled rejection) Registro global `slot_ptr -> error_handle` das
+/// rejections ainda SEM handler. `reject`/`new_rejected` inserem quando o slot
+/// está `handled == false`; `mark_handled` seta o flag + remove; o report no fim
+/// do event loop (`take_unhandled`) drena o que sobrou. Chave = endereço do slot
+/// (estável enquanto o Arc vive — os slots vivem até o fim do programa via
+/// handles PromiseAsync).
+static UNHANDLED: OnceLock<Mutex<HashMap<usize, i64>>> = OnceLock::new();
+
+fn unhandled_map() -> &'static Mutex<HashMap<usize, i64>> {
+    UNHANDLED.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[inline]
+fn slot_key(slot: &PromiseSlot) -> usize {
+    slot as *const PromiseSlot as usize
+}
+
+/// Marca a promise como tendo handler anexado (.then/.catch/.finally/await/
+/// combinador). Idempotente. Remove de UNHANDLED se já estava registrada.
+pub fn mark_handled(slot: &PromiseSlot) {
+    slot.handled.store(true, Ordering::Release);
+    unhandled_map()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&slot_key(slot));
+}
+
+/// Drena os error-handles das rejections que continuam sem handler.
+pub fn take_unhandled() -> Vec<i64> {
+    let mut map = unhandled_map().lock().unwrap_or_else(|e| e.into_inner());
+    std::mem::take(&mut *map).into_values().collect()
+}
+
+/// Registra rejection sem handler (chamado por reject/new_rejected). Só registra
+/// se o slot ainda não foi marcado handled (evita falso-positivo no caso
+/// attach-then-reject: o handler já setou o flag antes da rejection settlar).
+fn register_unhandled(slot: &PromiseSlot, error: i64) {
+    if slot.handled.load(Ordering::Acquire) {
+        return;
+    }
+    unhandled_map()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(slot_key(slot), error);
+}
 
 type WaiterVec = Vec<oneshot::Sender<(u8, i64)>>;
 
@@ -36,6 +84,7 @@ pub fn new_pending() -> Arc<PromiseSlot> {
         state: AtomicU8::new(STATE_PENDING),
         value: std::sync::Mutex::new(0),
         waiters: std::sync::Mutex::new(Box::new(waiters)),
+        handled: AtomicBool::new(false),
     })
 }
 
@@ -46,17 +95,21 @@ pub fn new_fulfilled(value: i64) -> Arc<PromiseSlot> {
         state: AtomicU8::new(STATE_FULFILLED),
         value: std::sync::Mutex::new(value),
         waiters: std::sync::Mutex::new(Box::new(waiters)),
+        handled: AtomicBool::new(false),
     })
 }
 
-/// Cria slot ja' rejected.
+/// Cria slot ja' rejected. Registra como unhandled até um handler anexar.
 pub fn new_rejected(error: i64) -> Arc<PromiseSlot> {
     let waiters: WaiterVec = Vec::new();
-    Arc::new(PromiseSlot {
+    let slot = Arc::new(PromiseSlot {
         state: AtomicU8::new(STATE_REJECTED),
         value: std::sync::Mutex::new(error),
         waiters: std::sync::Mutex::new(Box::new(waiters)),
-    })
+        handled: AtomicBool::new(false),
+    });
+    register_unhandled(&slot, error);
+    slot
 }
 
 /// Tenta transitar pending → settled. Retorna true em sucesso.
@@ -91,7 +144,11 @@ pub fn resolve(slot: &PromiseSlot, value: i64) -> bool {
 }
 
 pub fn reject(slot: &PromiseSlot, error: i64) -> bool {
-    settle(slot, STATE_REJECTED, error)
+    let ok = settle(slot, STATE_REJECTED, error);
+    if ok {
+        register_unhandled(slot, error);
+    }
+    ok
 }
 
 /// Le state atual.
@@ -107,6 +164,8 @@ pub fn current_value(slot: &PromiseSlot) -> i64 {
 /// Bloqueia ate settle. Retorna (state, value).
 /// Caso ja' settled, retorna imediatamente sem alocar waiter.
 pub fn wait_blocking(slot: &Arc<PromiseSlot>) -> (u8, i64) {
+    // await/combinador = handler: consome a rejection, não é unhandled.
+    mark_handled(slot);
     let cur = current_state(slot);
     if cur != STATE_PENDING {
         return (cur, current_value(slot));
