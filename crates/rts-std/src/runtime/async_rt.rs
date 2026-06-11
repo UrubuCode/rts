@@ -61,8 +61,8 @@ pub fn rt() -> &'static tokio::runtime::Runtime {
     static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     RT.get_or_init(|| {
         build_shared_runtime(
-            || crate::namespaces::gc::thread_registry::register_current(),
-            || crate::namespaces::gc::thread_registry::unregister_current(),
+            || rts_engine::collector::thread_registry::register_current(),
+            || rts_engine::collector::thread_registry::unregister_current(),
         )
     })
 }

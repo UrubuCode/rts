@@ -2762,6 +2762,7 @@ dependencies = [
  "cpal",
  "rts-engine",
  "rustls",
+ "tokio",
  "webpki-roots 1.0.6",
 ]
 

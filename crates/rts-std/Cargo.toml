@@ -13,6 +13,7 @@ asio = ["cpal/asio"]
 
 [dependencies]
 rts-engine = { path = "../rts-engine" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 cpal = "0.18"
 rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
 webpki-roots = "1"

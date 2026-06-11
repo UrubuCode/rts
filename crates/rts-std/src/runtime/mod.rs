@@ -8,6 +8,13 @@
 //!
 //! Migrado do `#[rts_namespace]` pro modelo builder hand-written do `rts-engine`
 //! (rumo à remoção da `rts-macro`; ver pilotos hint/hash/ptr/mem).
+//!
+//! Além da namespace `runtime` (eval), este módulo hospeda o suporte async
+//! compartilhado do RTS: `async_rt` (runtime tokio global) e `tokio_ctx`
+//! (ponte sync↔async), movidos do `rts-runtime` na Fase 1b.
+
+pub mod async_rt;
+pub mod tokio_ctx;
 
 use std::path::PathBuf;
 
