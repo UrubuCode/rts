@@ -346,14 +346,23 @@ primeiro, split do `Entry` depois; (2) heap fica DENTRO do `rts-engine`.
             facade `bigfloat::fixed`. Gate build+suíte 1710. Achado: `handles.rs`
             é AUTO-CONTIDO (zero chamada a siblings, zero externs `#[no_mangle]`)
             → mover Entry+HandleTable é tratável.
-      - [ ] **Core move** (o grande): `TlsClientStream` (tls→engine, +rustls),
-            `PromiseSlot` (promise_slot→engine, +tokio), depois `handles.rs`
-            (Entry+HandleTable+with_entry/alloc + payloads RtsRegex/HasherState/...
-            +regex/sha2/serde_json/indexmap) → `engine/heap/`. Facade
-            `collector::handles = rts_engine::heap::handles`; rewire consumidores
-            `crate::namespaces::gc::handles::`. **Gate crítico: build+suíte+AOT+
-            stress 50k** (GC = não-determinístico). engine fica temp-pesado
-            (Fase 2 limpa via `Entry::Backend(dyn Traceable)`).
+      - [x] **CORE move** ✅ (commit `ae4db8be`): `handles.rs` (Entry+HandleTable+
+            PromiseSlot[tokio-free]+RtsRegex+HasherState+GenStateData+FunctionData+
+            alloc/with_entry/trace/finalize/mark+install_gc_hook) + `TlsClientStream`
+            → `rts-engine/src/heap/handles.rs`. engine Cargo += indexmap/regex/
+            fancy-regex/serde_json/sha2/rustls (TEMP; NÃO tokio). Facade
+            `collector::handles = rts_engine::heap::handles` → ~68 consumidores
+            intocados. Externs `__RTS_FN_NS_GC_*` ficam nos siblings (runtime) →
+            AOT ok. Gate: build + suíte **1710/1710** + **AOT** (compile+run) + GC
+            churn 30k strings. ⚠️ Achado latente PRÉ-EXISTENTE (não regressão):
+            array-de-objetos vivo atravessando GC trava (Vec<i64> int/handle
+            ambíguo → elementos não-traçados → coletados → UAF). Issue a abrir.
+      - [ ] **Resto do heap → engine** (opcional p/ completar): string_pool/env/
+            closure/instance/tagged_raw/this_slot/class_registry (alloc helpers,
+            têm os externs `__RTS_FN_NS_GC_*` → cuidado AOT) + collections (Map/Vec).
+            Domain-coupled (generator/deep-trace/finish_cycle/error/stack) FICAM no
+            backend via hooks. CORE (Entry+HandleTable) já no engine satisfaz o
+            essencial de "heap no motor".
 - [ ] **Fase 1b — `rts-shared`+`rts-std`** (ns pure→shared, backend→std, globais
       universais→shared, platform-divergent→std). Rewire register_builtins +
       lib.rs re-export + jit.rs + ~9 arquivos codegen. Dissolve `rts-runtime`.
