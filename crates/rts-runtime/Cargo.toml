@@ -19,37 +19,12 @@ crate-type = ["rlib", "staticlib"]
 asio = ["rts-std/asio"]
 
 [dependencies]
+# rts-runtime virou FACADE fino: re-exporta engine+shared+std (namespaces/mod.rs)
+# e só hospeda globals/dataview localmente (SKIP por design, #1378). Não usa mais
+# nenhuma crate externa diretamente — todas migraram com seus módulos pra rts-std/
+# rts-shared/rts-engine. O staticlib AOT continua completo: cargo bundla TODA a
+# closure transitiva (tokio/ureq/sha2/... via rts-std; regex/serde via rts-shared;
+# heap GC via rts-engine) + os símbolos __RTS_* no archive.
 rts-engine = { path = "../rts-engine" }
+rts-shared = { path = "../rts-shared" }
 rts-std = { path = "../rts-std" }
-anyhow = "1.0"
-serde = { version = "1.0", features = ["derive"] }
-# preserve_order: JS spec ECMA-262 OrdinaryOwnPropertyKeys exige ordem de
-# insercao para string keys. Sem isso, JSON.parse(...) seguido de Object.keys
-# retornava ordem alfabetica em vez da ordem do JSON source.
-serde_json = { version = "1.0", features = ["preserve_order"] }
-json5 = "0.4"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
-rayon = "1.10"
-sha2 = "0.10"
-regex = "1"
-fancy-regex = "0.13"
-unicode-normalization = "0.1"
-rustls = { version = "0.23", default-features = false, features = [
-    "std", "ring", "tls12"
-] }
-webpki-roots = "1"
-actix-web = { version = "4", default-features = false, features = ["macros"] }
-actix-rt = "2"
-indexmap = "2.14.0"
-colored = "2.1"
-notify = "6.1"
-flate2 = "1.1"
-tar = "0.4"
-ureq = { version = "2.12", default-features = true }
-slotmap = "1"
-rustc-hash = "1.1"
-time = { version = "0.3", features = ["local-offset"] }
-# audio namespace — low-level device I/O. Default backend is pure Rust
-# (WASAPI/CoreAudio/ALSA); no system libs to redistribute. ASIO is a separate
-# opt-in path (feature `asio`) and is NOT enabled by default.
-cpal = "0.18"

@@ -40,6 +40,9 @@ pub mod global_roots;
 pub mod thread_registry;
 /// Flag de debug do GC (`RTS_GC_DEBUG`). Std puro.
 pub mod debug;
+/// Mapa thread-local `handle -> stack_text` p/ `Error.prototype.stack` (#745).
+/// Puro (sem GC); o slot de erro pendente fica no runtime. Std puro.
+pub mod err_stack;
 /// Scanner conservativo de roots (asm RSP, ranges, suspensão de threads) — o
 /// mecanismo de root-finding, parametrizado por um `visit` callback. O runtime
 /// passa `mark_handle`. Ver [`scan::scan_all_roots`].

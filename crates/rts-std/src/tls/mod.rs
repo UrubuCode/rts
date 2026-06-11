@@ -15,7 +15,7 @@ use rustls::{ClientConfig, ClientConnection, RootCertStore, Stream};
 
 // `TlsClientStream` migrou pro heap do motor (`rts_engine::heap::handles`);
 // o I/O do TLS continua aqui e referencia o tipo via facade.
-use crate::namespaces::gc::handles::{
+use rts_engine::heap::handles::{
     Entry, TlsClientStream, alloc_entry, free_handle, with_entry_mut,
 };
 

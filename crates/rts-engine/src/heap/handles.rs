@@ -771,6 +771,10 @@ pub struct PromiseSlot {
     /// Aqui guardamos so' como `Box<dyn Any + Send + Sync>` pra
     /// nao puxar tokio. Main crate downcasta no acesso.
     pub waiters: std::sync::Mutex<Box<dyn std::any::Any + Send + Sync>>,
+    /// (unhandled rejection tracking) true quando um handler (.then/.catch/
+    /// .finally/await/combinador) foi anexado a esta promise. Uma rejection com
+    /// `handled == false` no fim do event loop é reportada como unhandled.
+    pub handled: std::sync::atomic::AtomicBool,
 }
 
 impl std::fmt::Debug for PromiseSlot {
@@ -1151,6 +1155,17 @@ pub fn with_entry<R>(handle: u64, f: impl FnOnce(Option<&Entry>) -> R) -> R {
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     f(guard.get(handle))
+}
+
+/// Reads a string handle into an owned Rust `String` (`None` se não for
+/// `Entry::String`). Helper puro sobre a heap — movido do `collector/string_pool`
+/// do runtime pro motor pra que a camada universal (json/error) o use sem o
+/// backend. Re-exportado em `collector/string_pool` pros call-sites antigos.
+pub fn read_string_handle(handle: u64) -> Option<String> {
+    with_entry(handle, |entry| match entry {
+        Some(Entry::String(bytes)) => Some(String::from_utf8_lossy(bytes).into_owned()),
+        _ => None,
+    })
 }
 
 /// Mutable access to an entry. `f` receives `None` for invalid handles.

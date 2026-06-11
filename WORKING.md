@@ -25,7 +25,60 @@
 
 ## 🎯 PRÓXIMO PASSO (sempre no topo)
 
-> ## 📌 ESTADO (rts-macro REMOVIDA — opção b concluída)
+## ✅ PARTIÇÃO DE CRATES COMPLETA (Fase 1b — encerrada)
+
+> **TODO o objetivo deste WORKING.md está ATINGIDO.** O monolito `rts-runtime` foi
+> partido no grafo acíclico final. A seção `📌 ESTADO` abaixo é HISTÓRICA
+> (descrevia a partição como futura) — superseded por este bloco.
+>
+> **Grafo final (acíclico):**
+> ```
+> rts-engine  motor: abi + registry + builder + heap GC (handles/Entry/HandleTable +
+>             env/closure/instance/this_slot/tagged_raw/class_registry/fixed) +
+>             collector-contract (scan/thread_registry/global_roots/stack_map/debug/
+>             err_stack) + numfmt. [núcleo cru, base]
+>    ▲
+> rts-shared  UNIVERSAL (browser/wasm-safe): ns math num fmt hash mem ptr hint alloc
+>             path bigfloat buffer regex date collections json trace + ~21 globais
+>             (symbol boolean bigint number url weak* regexp json json5 intl
+>             dom_exception global_this date + cluster error/function/proxy/reflect/
+>             string). + gc_surface (extern-decl). NUNCA depende de rts-std.
+>    ▲
+> rts-std     BACKEND: ns io os env runtime[async_rt/tokio_ctx] test net process sync
+>             atomic ffi fs tls thread http_server audio crypto parallel promise time
+>             + globais console performance headers form_data event_target
+>             message_channel abort events text_encoding timers blob readable_stream
+>             fetch + promise_slot + collector/ (gc-surface: string_pool/error/
+>             generator/collector[mark+sweep]/stack/register) + gc_surface + event_loop.
+>    ▲
+> rts-runtime FACADE fino: namespaces/mod.rs re-exporta engine+shared+std via pub use;
+>             pub use collector as gc. Só globals/dataview local (SKIP design #1378).
+>             Cargo deps = SÓ os 3 path crates. crate-type rlib+staticlib (AOT).
+> ```
+> codegen lê o Registry via fachada — NUNCA editado na partição.
+>
+> **Técnicas-chave:** ciclo std→runtime quebrado com wrappers `extern "C"` no_mangle
+> (`__RTS_FN_RT_ASYNC_SM_RESUME`) + `gc_surface.rs` (extern-decl `safe fn`); shared
+> usa só extern link-time (sem `use rts_std`); pure-fns cross-layer relocadas pro
+> engine (numfmt/read_string_handle/err_stack). Staticlib AOT completo via closure
+> transitiva. Detalhe/handoff: `CONTINUE.md`; arquitetura: memória
+> `project_crate_partition`.
+>
+> **Gate:** cada batch build release limpo + suite 1710/1710 + AOT JIT==AOT.
+>
+> **Bugs pré-existentes resolvidos (mesma sessão):** JSON pretty deadlock;
+> AOT event loop (await/.then/timers); abort() arity; EventEmitter closure listener;
+> AOT uncaught error (print + exit 1, paridade JIT); unhandled promise rejection
+> tracking (warn stderr, JIT+AOT). Flake async ~1/5 não reproduz (30/30 verde).
+>
+> **Resta (fora do caminho crítico, NÃO da partição):** dataview SKIP por design;
+> rts-browser ainda crate inexistente (nenhuma API de navegador — quando houver,
+> extrair de rts-shared é mecânico); E2-E4/X1-X5 (refactor codegen builtins +
+> plugins dlopen) = features novas grandes, sessão dedicada.
+>
+> ---
+
+> ## 📌 ESTADO (rts-macro REMOVIDA — opção b concluída) — HISTÓRICO (ver bloco acima)
 >
 > **COMPLETO (gateado suíte 1710 + d.ts determinístico/byte-idêntico em cada):**
 > 1. ✅ **Fase 2** — todas ns + 62 classes → builder; `SPECS`+`GLOBAL_CLASS_SPECS`

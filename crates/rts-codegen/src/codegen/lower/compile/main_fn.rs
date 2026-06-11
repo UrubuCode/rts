@@ -329,7 +329,39 @@ fn compile_main_entry_shim(
             .first()
             .copied()
             .unwrap_or_else(|| builder.ins().iconst(cl::I32, 0));
-        builder.ins().return_(&[result]);
+        // (AOT event loop) Drena microtasks/timers/promises pendentes após
+        // __RTS_MAIN — espelha o que o pipeline JIT faz host-side. Sem isto, o
+        // binário AOT saía sem rodar await/.then/queueMicrotask/setTimeout.
+        // `run_event_loop` (rts-std) é `extern "C" fn()`; resolve por link.
+        let drain_sig = module.make_signature();
+        if let Ok(drain_id) =
+            module.declare_function("__RTS_FN_RT_RUN_EVENT_LOOP", Linkage::Import, &drain_sig)
+        {
+            let drain_ref = module.declare_func_in_func(drain_id, builder.func);
+            builder.ins().call(drain_ref, &[]);
+        }
+        // (AOT uncaught) Após o event loop, reporta erro pendente (throw sync
+        // não-capturado no top-level OU rejection async) no stderr e força exit
+        // != 0. Espelha o que o pipeline JIT faz host-side. Sem isto o binário
+        // AOT saía 0 e silencioso num uncaught.
+        let mut rep_sig = module.make_signature();
+        rep_sig.returns.push(AbiParam::new(cl::I32));
+        let exit_code = if let Ok(rep_id) =
+            module.declare_function("__RTS_FN_RT_REPORT_UNCAUGHT", Linkage::Import, &rep_sig)
+        {
+            let rep_ref = module.declare_func_in_func(rep_id, builder.func);
+            let rc = builder.ins().call(rep_ref, &[]);
+            let rep = builder.inst_results(rc)[0];
+            let zero = builder.ins().iconst(cl::I32, 0);
+            let had_err = builder
+                .ins()
+                .icmp(cranelift_codegen::ir::condcodes::IntCC::NotEqual, rep, zero);
+            // erro uncaught → exit code do report (1); senão o code do main.
+            builder.ins().select(had_err, rep, result)
+        } else {
+            result
+        };
+        builder.ins().return_(&[exit_code]);
         builder.finalize();
     }
 

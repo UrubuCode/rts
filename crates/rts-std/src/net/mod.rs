@@ -12,7 +12,7 @@ use std::net::{TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 use rts_engine::abi::ty::{Handle, I64, U64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use crate::namespaces::gc::handles::{
+use rts_engine::heap::handles::{
     Entry, UdpEntry, alloc_entry, free_handle, with_entry, with_entry_mut,
 };
 

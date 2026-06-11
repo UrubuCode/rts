@@ -4,7 +4,7 @@
 //! [`crate::abi::SPECS`]. No legacy dispatch path remains: every callee is
 //! resolved to a canonical `__RTS_*` extern "C" symbol and called directly.
 
-pub mod alloc;
+pub use rts_shared::alloc;
 /// `audio`/`asio_audio` migraram pro crate backend `rts-std` (Fase 1b, partição
 /// de crates). Facade → `crate::namespaces::audio` (register_builtins, jit.rs)
 /// segue resolvendo.
@@ -12,44 +12,45 @@ pub use rts_std::audio;
 #[cfg(feature = "asio")]
 pub use rts_std::asio_audio;
 pub mod globals;
-pub mod atomic;
-pub mod trace;
-pub mod bigfloat;
-pub mod buffer;
-pub mod collections;
-pub mod crypto;
-pub mod date;
+pub use rts_std::atomic;
+pub use rts_shared::trace;
+pub use rts_shared::bigfloat;
+pub use rts_shared::buffer;
+pub use rts_shared::collections;
+pub use rts_std::crypto;
+pub use rts_shared::date;
 pub use rts_std::env;
-pub mod events;
-pub mod fmt;
-pub mod ffi;
-pub mod fs;
-pub mod collector;
-/// Alias retrocompatível: a pasta `gc/` foi renomeada `collector/` (Fase 2 GC,
-/// rumo ao sistema de coleta no `rts-engine`). Os ~68 consumidores +
-/// `crate::namespaces::gc::*` no codegen continuam resolvendo via este alias até
-/// a migração do mecanismo pro engine concluir.
+pub use rts_std::events;
+pub use rts_std::event_loop;
+pub use rts_shared::fmt;
+pub use rts_std::ffi;
+pub use rts_std::fs;
+pub use rts_std::collector;
+/// Alias retrocompatível: a pasta `gc/` foi renomeada `collector/` (Fase 2 GC).
+/// O collector (gc-surface: string_pool/error/generator/collector/stack) migrou
+/// pro `rts-std` (backend do gc); aqui só a fachada. `crate::namespaces::gc::*`
+/// no codegen + ~68 consumidores seguem resolvendo via este alias.
 pub use collector as gc;
-pub mod hash;
-pub mod hint;
-pub mod http_server;
+pub use rts_shared::hash;
+pub use rts_shared::hint;
+pub use rts_std::http_server;
 pub use rts_std::io;
-pub mod json;
-pub mod math;
-pub mod mem;
-pub mod net;
-pub mod num;
+pub use rts_shared::json;
+pub use rts_shared::math;
+pub use rts_shared::mem;
+pub use rts_std::net;
+pub use rts_shared::num;
 pub use rts_std::os;
-pub mod path;
-pub mod process;
-pub mod promise;
-pub mod ptr;
-pub mod regex;
-pub mod parallel;
+pub use rts_shared::path;
+pub use rts_std::process;
+pub use rts_std::promise;
+pub use rts_shared::ptr;
+pub use rts_shared::regex;
+pub use rts_std::parallel;
 pub use rts_std::runtime;
 // string movido para globals/string
-pub mod sync;
+pub use rts_std::sync;
 pub use rts_std::test;
-pub mod thread;
-pub mod tls;
-pub mod time;
+pub use rts_std::thread;
+pub use rts_std::tls;
+pub use rts_std::time;

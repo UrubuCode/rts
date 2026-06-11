@@ -13,7 +13,7 @@ use std::ffi::{CStr, CString, OsString};
 use rts_engine::abi::ty::{Handle, I64, U64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use crate::namespaces::gc::handles::{Entry, alloc_entry, free_handle, with_entry};
+use rts_engine::heap::handles::{Entry, alloc_entry, free_handle, with_entry};
 
 unsafe extern "C" {
     fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
