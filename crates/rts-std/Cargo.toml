@@ -14,6 +14,8 @@ asio = ["cpal/asio"]
 [dependencies]
 rts-engine = { path = "../rts-engine" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+actix-web = { version = "4", default-features = false, features = ["macros"] }
+actix-rt = "2"
 cpal = "0.18"
 rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
 webpki-roots = "1"

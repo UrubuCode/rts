@@ -32,7 +32,7 @@ pub mod collector;
 pub use collector as gc;
 pub mod hash;
 pub mod hint;
-pub mod http_server;
+pub use rts_std::http_server;
 pub use rts_std::io;
 pub mod json;
 pub mod math;
@@ -50,6 +50,6 @@ pub use rts_std::runtime;
 // string movido para globals/string
 pub use rts_std::sync;
 pub use rts_std::test;
-pub mod thread;
+pub use rts_std::thread;
 pub use rts_std::tls;
 pub mod time;

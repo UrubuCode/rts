@@ -21,8 +21,8 @@ use std::time::Duration;
 use rts_engine::abi::ty::{I64, U64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use crate::namespaces::gc::handles::{Entry, alloc_entry, free_handle, with_entry_mut};
-use crate::namespaces::gc::thread_registry;
+use rts_engine::heap::handles::{Entry, alloc_entry, free_handle, with_entry_mut};
+use rts_engine::collector::thread_registry;
 
 // ── scope tracking ────────────────────────────────────────────────────────────
 thread_local! {

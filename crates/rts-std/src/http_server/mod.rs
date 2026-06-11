@@ -18,7 +18,7 @@ use rts_engine::abi::ty::{Handle, I64, U64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 use tokio::sync::oneshot;
 
-use crate::namespaces::gc::handles::{Entry, alloc_entry};
+use rts_engine::heap::handles::{Entry, alloc_entry};
 
 const SLOT_SHARDS: usize = 32;
 
