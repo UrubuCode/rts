@@ -21,6 +21,7 @@ pub use rts_std::crypto;
 pub use rts_shared::date;
 pub use rts_std::env;
 pub use rts_std::events;
+pub use rts_std::event_loop;
 pub use rts_shared::fmt;
 pub use rts_std::ffi;
 pub use rts_std::fs;

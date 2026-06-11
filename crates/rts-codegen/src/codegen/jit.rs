@@ -161,6 +161,13 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
 
     // ── runtime error slot (used by try/catch/throw in codegen) ──────
     {
+        // (AOT event loop) shim `main` chama este símbolo; o JIT compila o shim
+        // (mesmo sem invocá-lo — pipeline chama __RTS_MAIN direto + drena
+        // host-side), então precisa resolvê-lo no finalize.
+        use crate::namespaces::event_loop::__RTS_FN_RT_RUN_EVENT_LOOP;
+        add_fn!("__RTS_FN_RT_RUN_EVENT_LOOP", __RTS_FN_RT_RUN_EVENT_LOOP);
+    }
+    {
         use crate::namespaces::gc::error::*;
         add_fn!("__RTS_FN_RT_ERROR_SET", __RTS_FN_RT_ERROR_SET);
         add_fn!("__RTS_FN_RT_ERROR_GET", __RTS_FN_RT_ERROR_GET);

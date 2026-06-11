@@ -329,6 +329,17 @@ fn compile_main_entry_shim(
             .first()
             .copied()
             .unwrap_or_else(|| builder.ins().iconst(cl::I32, 0));
+        // (AOT event loop) Drena microtasks/timers/promises pendentes após
+        // __RTS_MAIN — espelha o que o pipeline JIT faz host-side. Sem isto, o
+        // binário AOT saía sem rodar await/.then/queueMicrotask/setTimeout.
+        // `run_event_loop` (rts-std) é `extern "C" fn()`; resolve por link.
+        let drain_sig = module.make_signature();
+        if let Ok(drain_id) =
+            module.declare_function("__RTS_FN_RT_RUN_EVENT_LOOP", Linkage::Import, &drain_sig)
+        {
+            let drain_ref = module.declare_func_in_func(drain_id, builder.func);
+            builder.ins().call(drain_ref, &[]);
+        }
         builder.ins().return_(&[result]);
         builder.finalize();
     }

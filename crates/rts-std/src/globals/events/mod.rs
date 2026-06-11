@@ -138,6 +138,29 @@ pub extern "C" fn __RTS_FN_GL_EE_OFF(
 
 /// emitter.emit(event, arg) — listeners recebem `arg` como number (f64).
 #[unsafe(no_mangle)]
+/// Invoca um listener com 1 arg f64. Se `fn_ptr` for um Function handle (closure
+/// CAPTURANTE — arrow `(x) => { ...captura... }` reificada com env), despacha
+/// pelo invoker da registry (bound env + kinds). Antes o EMIT transmutava
+/// SEMPRE pra `extern "C" fn(f64)` cru → handle (0x...) saltava como código →
+/// ACCESS_VIOLATION. Fn nomeada / arrow sem captura = raw ptr → fast path.
+#[inline]
+fn invoke_listener(fn_ptr: u64, arg_f64: f64) {
+    let is_handle = rts_engine::heap::handles::with_entry(fn_ptr, |e| {
+        matches!(e, Some(rts_engine::heap::handles::Entry::Function(_)))
+    });
+    if is_handle {
+        // f64-bits as i64: a registry normaliza p/ params de kind f64 (mesma
+        // convenção do path raw `fn(f64)`).
+        rts_shared::globals::function::ops::invoke_fn_ptr_with_registry(
+            fn_ptr,
+            &[arg_f64.to_bits() as i64],
+        );
+    } else {
+        let f: extern "C" fn(f64) -> f64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+        f(arg_f64);
+    }
+}
+
 pub extern "C" fn __RTS_FN_GL_EE_EMIT(
     handle: Handle,
     event_ptr: *const u8,
@@ -166,17 +189,11 @@ pub extern "C" fn __RTS_FN_GL_EE_EMIT(
     let arg_f64 = arg as f64;
     if async_mode {
         for listener in snapshot {
-            rayon::spawn(move || {
-                let f: extern "C" fn(f64) -> f64 =
-                    unsafe { std::mem::transmute(listener.fn_ptr as usize) };
-                f(arg_f64);
-            });
+            rayon::spawn(move || invoke_listener(listener.fn_ptr, arg_f64));
         }
     } else {
         for listener in &snapshot {
-            let f: extern "C" fn(f64) -> f64 =
-                unsafe { std::mem::transmute(listener.fn_ptr as usize) };
-            f(arg_f64);
+            invoke_listener(listener.fn_ptr, arg_f64);
         }
     }
     1
@@ -212,17 +229,11 @@ pub extern "C" fn __RTS_FN_GL_EE_EMIT_HANDLE(
     let arg_bits = f64::from_bits(arg as u64);
     if async_mode {
         for listener in snapshot {
-            rayon::spawn(move || {
-                let f: extern "C" fn(f64) -> f64 =
-                    unsafe { std::mem::transmute(listener.fn_ptr as usize) };
-                f(arg_bits);
-            });
+            rayon::spawn(move || invoke_listener(listener.fn_ptr, arg_bits));
         }
     } else {
         for listener in &snapshot {
-            let f: extern "C" fn(f64) -> f64 =
-                unsafe { std::mem::transmute(listener.fn_ptr as usize) };
-            f(arg_bits);
+            invoke_listener(listener.fn_ptr, arg_bits);
         }
     }
     1

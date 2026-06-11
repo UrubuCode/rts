@@ -477,9 +477,32 @@ pub(super) fn lower_global_instance_call(
     let abi_args = &member.args[1..]; // skip Handle slot
     let mut arg_iter = call.args.iter();
     for &abi_ty in abi_args {
-        let arg = arg_iter
-            .next()
-            .ok_or_else(|| anyhow!("too few arguments for `{}`", member.name))?;
+        let Some(arg) = arg_iter.next() else {
+            // (JS spec) arg trailing omitido = `undefined`. Em vez de erro
+            // "too few arguments", pad com o default do tipo (Handle/I64 = 0 =
+            // undefined; F64 = 0.0; StrPtr = ptr+len 0). Ex.: `abortController
+            // .abort()` (reason opcional) agora seta aborted corretamente.
+            match abi_ty {
+                AbiType::StrPtr => {
+                    let z = ctx.builder.ins().iconst(cl::I64, 0);
+                    values.push(z);
+                    values.push(z);
+                }
+                AbiType::F64 => {
+                    let z = ctx.builder.ins().f64const(0.0);
+                    values.push(z);
+                }
+                AbiType::I32 => {
+                    let z = ctx.builder.ins().iconst(cl::I32, 0);
+                    values.push(z);
+                }
+                _ => {
+                    let z = ctx.builder.ins().iconst(cl::I64, 0);
+                    values.push(z);
+                }
+            }
+            continue;
+        };
         if arg.spread.is_some() {
             return Err(anyhow!("spread not supported in global class method call"));
         }

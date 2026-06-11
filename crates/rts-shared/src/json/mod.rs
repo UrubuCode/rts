@@ -814,7 +814,29 @@ fn stringify_pretty_inner_str(handle: u64, indent: &str, depth: usize) -> Option
         let v = e?;
         let mut out = String::new();
         match v {
-            Entry::String(_) => stringify_any_inner(handle),
+            // (deadlock fix) String é folha: escapa inline a partir dos bytes
+            // já em mãos. NUNCA chamar stringify_any_inner(handle) aqui — ele
+            // re-entra with_entry(handle) e trava o MESMO shard mutex (Mutex
+            // não-reentrante). Bug aparecia só com valores string em objeto/array
+            // pretty (a suite só cobria valores numéricos).
+            Entry::String(b) => {
+                out.push('"');
+                for &c in b.iter() {
+                    match c {
+                        b'"' => out.push_str("\\\""),
+                        b'\\' => out.push_str("\\\\"),
+                        b'\n' => out.push_str("\\n"),
+                        b'\r' => out.push_str("\\r"),
+                        b'\t' => out.push_str("\\t"),
+                        0x00..=0x1f => {
+                            let _ = write!(out, "\\u{:04x}", c);
+                        }
+                        _ => out.push(c as char),
+                    }
+                }
+                out.push('"');
+                Some(out)
+            }
             Entry::Map(m) => {
                 let entries: Vec<(&String, &i64)> = m
                     .iter()
