@@ -11,7 +11,7 @@
 //! - `parseInt/parseFloat(s)` — tolerante a whitespace e prefix
 
 use super::{NodespaceMember, NodespaceSpec};
-use crate::abi::AbiType;
+use rts_engine::abi::AbiType;
 
 pub const MEMBERS: &[NodespaceMember] = &[
     // Wrappers diretos sobre rts::fmt — convertem inteiros/floats em

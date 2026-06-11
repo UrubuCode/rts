@@ -10,7 +10,7 @@
 //! - `base64Encode/Decode(buf) -> string/buffer`
 
 use super::{NodespaceMember, NodespaceSpec};
-use crate::abi::AbiType;
+use rts_engine::abi::AbiType;
 
 pub const MEMBERS: &[NodespaceMember] = &[
     NodespaceMember {

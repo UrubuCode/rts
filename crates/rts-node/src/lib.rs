@@ -1,4 +1,4 @@
-use crate::abi::AbiType;
+use rts_engine::abi::AbiType;
 
 pub mod crypto;
 pub mod fs;
@@ -30,7 +30,7 @@ pub const NODE_SPECS: &[&NodespaceSpec] = &[
 ];
 
 /// Resolves a codegen-qualified name like `"node_fs.readFileSync"` to its member.
-pub(crate) fn node_lookup(qualified: &str) -> Option<&'static NodespaceMember> {
+pub fn node_lookup(qualified: &str) -> Option<&'static NodespaceMember> {
     let (ns_prefix, fn_name) = qualified.split_once('.')?;
     let module_name = ns_prefix.strip_prefix("node_")?;
     let spec = NODE_SPECS

@@ -15,6 +15,7 @@ rts-parser = { path = "../rts-parser" }
 rts-hir = { path = "../rts-hir" }
 rts-mir = { path = "../rts-mir" }
 rts-runtime = { path = "../rts-runtime" }
+rts-node = { path = "../rts-node" }
 rts-diagnostics = { path = "../rts-diagnostics" }
 anyhow = "1.0"
 sha2 = "0.10"

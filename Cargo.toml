@@ -4,6 +4,7 @@ members = [
     "crates/rts-ast",
     "crates/rts-diagnostics",
     "crates/rts-engine",
+    "crates/rts-node",
     "crates/rts-parser",
     "crates/rts-hir",
     "crates/rts-mir",

@@ -1,4 +1,4 @@
-use crate::abi::AbiType;
+use rts_engine::abi::AbiType;
 use super::{NodespaceMember, NodespaceSpec};
 
 pub const MEMBERS: &[NodespaceMember] = &[
