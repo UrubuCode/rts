@@ -15,7 +15,7 @@ use indexmap::IndexMap;
 use rts_engine::abi::ty::{Bool, Handle, I64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use crate::namespaces::gc::handles::{alloc_entry, with_entry, with_entry_mut, Entry};
+use rts_engine::heap::handles::{alloc_entry, with_entry, with_entry_mut, Entry};
 
 fn new_signal() -> u64 {
     let listeners = alloc_entry(Entry::Vec(Box::new(Vec::new())));
@@ -175,7 +175,12 @@ pub extern "C" fn __RTS_FN_GL_ABORT_SIGNAL_THROW_IF_ABORTED(h: Handle) {
         _ => (0, 0),
     });
     if is_ab != 0 {
-        crate::namespaces::gc::error::__RTS_FN_RT_ERROR_SET(reason);
+        // gc::error::__RTS_FN_RT_ERROR_SET fica no collector do rts-runtime
+        // (no_mangle extern); resolve por link.
+        unsafe extern "C" {
+            fn __RTS_FN_RT_ERROR_SET(handle: u64);
+        }
+        unsafe { __RTS_FN_RT_ERROR_SET(reason) };
     }
 }
 

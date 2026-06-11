@@ -186,9 +186,16 @@ target/release/rts.exe compile -p f.ts out.exe; ./out.exe # AOT
    ⚠️ BUG PRÉ-EXISTENTE (NÃO regressão — confirmado em worktree do pai 6f3e6c85): `JSON.stringify
    (obj, null, 2)` (pretty, 3-arg) TRAVA em `rts run`/AOT top-level (MIR on E off). Funciona em
    `rts test` (suite json_stringify_pretty 3/3 verde). Abrir issue. Não bloqueia o move.
-4. **Platform-divergent globais → rts-std (step D):** console(→io) timers fetch(→net) performance
-   blob headers form_data readable_stream event_target message_channel abort. Gate.
-   ⟶ destrava time (timers) e promise (text_encoding+timers em std).
+4. **Platform-divergent globais → rts-std (step D):** PARCIAL.
+   ~~console performance headers form_data event_target message_channel abort~~ ✅ FEITO →
+   rts-std/src/globals/. Só gc::handles→engine + extern-decl (ERROR_SET no abort; INVOKE_AUTO já
+   era extern p/ rts-shared function/ops). Cargo rts-std += indexmap. Suite 1710/1710; AOT smoke
+   (console/performance/Headers/FormData/EventTarget/AbortController, JIT==AOT) OK.
+   ⏳ DEFERIDOS (blocked por pub-fn não-extern): **timers** (text_encoding::drain_microtasks),
+   **fetch** (text_encoding::enqueue_microtask_* + promise_slot::* + ureq dep), **blob** +
+   **readable_stream** (promise_slot::new_fulfilled + flate2 dep). Movem quando text_encoding +
+   promise_slot saírem (steps 5/6). NB: abort() no-arg tem arity strict pré-existente (spec pede
+   reason); `abort("x")` ok.
 5. **events + time → rts-std.** Gate.
 6. **promise + parallel + crypto + promise_slot** juntos (globals+promise_slot resolvidos).
    promise_slot sai do collector. Gate + AOT.

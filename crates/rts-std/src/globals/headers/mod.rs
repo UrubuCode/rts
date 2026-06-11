@@ -10,7 +10,7 @@ use indexmap::IndexMap;
 use rts_engine::abi::ty::{Bool, Handle};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use crate::namespaces::gc::handles::{alloc_entry, with_entry, with_entry_mut, Entry};
+use rts_engine::heap::handles::{alloc_entry, with_entry, with_entry_mut, Entry};
 
 fn norm_name(name: &str) -> String {
     name.to_ascii_lowercase()
