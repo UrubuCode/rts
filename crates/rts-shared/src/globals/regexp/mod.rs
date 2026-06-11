@@ -11,7 +11,7 @@
 use rts_engine::abi::ty::{Bool, Handle, I64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use crate::namespaces::gc::handles::{alloc_entry, with_entry, with_entry_mut, Entry};
+use rts_engine::heap::handles::{alloc_entry, with_entry, with_entry_mut, Entry};
 
 // ── Helpers (side-table indices_vec_handle -> groups_map_handle) ───────────────
 
@@ -38,7 +38,7 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_NEW(pattern_ptr: *const u8, pattern_len: i6
         Some(s) => s,
         None => return 0,
     };
-    crate::namespaces::regex::__RTS_FN_NS_REGEX_COMPILE(
+    crate::regex::__RTS_FN_NS_REGEX_COMPILE(
         pattern.as_ptr(),
         pattern.len() as i64,
         "".as_ptr(),
@@ -62,7 +62,7 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_NEW_WITH_FLAGS(
         Some(s) => s,
         None => return 0,
     };
-    crate::namespaces::regex::__RTS_FN_NS_REGEX_COMPILE(
+    crate::regex::__RTS_FN_NS_REGEX_COMPILE(
         pattern.as_ptr(),
         pattern.len() as i64,
         flags.as_ptr(),
@@ -77,7 +77,7 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_TEST(handle: Handle, s_ptr: *const u8, s_le
         Some(s) => s,
         None => return 0,
     };
-    crate::namespaces::regex::__RTS_FN_NS_REGEX_TEST(handle, s.as_ptr(), s.len() as i64)
+    crate::regex::__RTS_FN_NS_REGEX_TEST(handle, s.as_ptr(), s.len() as i64)
 }
 
 /// `re.exec(str)` — JS Array-like (Map) com matched + captures + groups.
