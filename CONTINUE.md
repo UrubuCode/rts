@@ -260,6 +260,26 @@ parallel/events] + collector gc-surface) ← **rts-runtime** (FACADE fino: re-ex
 só globals/dataview fica local por design + globals/mod.rs agregador). codegen lê o Registry via fachada.
 rts-std deps: engine + shared + tokio/actix/rustls/cpal/rayon/sha2/flate2/ureq/serde_json/indexmap.
 
+## BUGS PRÉ-EXISTENTES — RESOLVIDOS (commit d5b4fc68)
+4 de 5 corrigidos + verificados (suite 1710/1710 ×2 + JIT smokes + AOT JIT==AOT):
+1. ✅ JSON.stringify pretty hang: era DEADLOCK (stringify_pretty re-lockava o shard do
+   handle via stringify_any_inner dentro de with_entry). Só com valor string (suite só
+   cobria numérico). Fix: escapa string inline. (rts-shared/json)
+2. ✅ AOT sem event loop: await/.then/queueMicrotask/setTimeout não disparavam em AOT.
+   Fix: __RTS_FN_RT_RUN_EVENT_LOOP (rts-std/event_loop) chamado pelo shim main do AOT +
+   registrado no JITBuilder. (rts-codegen/main_fn + jit, rts-std/event_loop)
+3. ✅ abort() sem reason (arity): pad de args trailing omitidos com default do tipo
+   (undefined=0) em vez de erro 'too few arguments'. Geral p/ métodos de classe global.
+   (rts-codegen/ns_call)
+4. ✅ EventEmitter listener closure: EE_EMIT crashava (ACCESS_VIOLATION) com closure
+   capturante (transmute de Function handle → código). Fix: invoke_listener detecta
+   Entry::Function → invoke_fn_ptr_with_registry; raw ptr segue fast path. (rts-std/events)
+5. ⚠️ Flake async ~1/5: NÃO REPRODUZ em 10 runs consecutivos pós-fixes (10/10 verde). A
+   falha única (1×) do move do promise não recorreu — provável transiente (carga) OU
+   incidentalmente resolvida (EE-closure/abort eram crashes/falhas nondeterministas).
+   Sem repro = sem fix dirigido. Se recorrer: loop `rts test` capturando o teste culpado
+   (regex de ✗/expected no stdout sem ANSI), depois isolar o async time-sensitive.
+
 ⏳ FOLLOW-UPS (opcionais, não-bloqueantes):
 - ~~Cargo cleanup rts-runtime~~ ✅ FEITO: rts-runtime [dependencies] reduzido a SÓ rts-engine +
   rts-shared + rts-std (3 path crates). src do facade (4 arquivos: lib + namespaces/mod + globals/mod
