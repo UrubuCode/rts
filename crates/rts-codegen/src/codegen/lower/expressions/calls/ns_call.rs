@@ -624,7 +624,17 @@ pub(crate) fn try_global_class_instance_method(
         for arg in &call.args {
             let tv = lower_expr(ctx, &arg.expr)?;
             let v = ctx.coerce_to_i64(tv).val;
-            ctx.builder.ins().call(vec_push, &[vec_h, v]);
+            if arg.spread.is_some() {
+                // `...x`: espalha os elementos de x no pacote (cada elemento vira
+                // um arg). VEC_CONCAT_APPEND estende o pacote com os elementos de
+                // um handle iterável (array). Mantém o variádico genérico mesmo
+                // com spread, sem braço hardcoded no codegen.
+                let extend =
+                    ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_CONCAT_APPEND", &[cl::I64, cl::I64], Some(cl::I64))?;
+                ctx.builder.ins().call(extend, &[vec_h, v]);
+            } else {
+                ctx.builder.ins().call(vec_push, &[vec_h, v]);
+            }
         }
         let fn_ref = ctx.get_extern(member.symbol, &[cl::I64, cl::I64], Some(cl::I64))?;
         let inst = ctx.builder.ins().call(fn_ref, &[recv, vec_h]);

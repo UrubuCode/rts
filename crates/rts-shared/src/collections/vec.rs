@@ -906,6 +906,64 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_CONCAT_APPEND(handle: u64, arg: i6
     handle
 }
 
+/// `arr.concat(...args)` variádico — recebe o receiver e um Vec empacotado com
+/// os handles dos args (o codegen genérico empacota via member.variadic). Copia
+/// o receiver e aplica, por arg, a mesma semântica do CONCAT_APPEND (array ou
+/// objeto `[Symbol.isConcatSpreadable]` → spread; escalar → push). Move o fold
+/// pro runtime, deixando `concat` genérico no Registry.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_CONCAT_VARIADIC(recv: u64, args_vec: u64) -> u64 {
+    let mut out: Vec<i64> = with_entry(recv, |e| match e {
+        Some(Entry::Vec(v)) => v.iter().copied().collect(),
+        _ => Vec::new(),
+    });
+    let arg_handles: Vec<i64> = with_entry(args_vec, |e| match e {
+        Some(Entry::Vec(v)) => v.iter().copied().collect(),
+        _ => Vec::new(),
+    });
+    for arg in arg_handles {
+        let arg_h = arg as u64;
+        let spread: Option<Vec<i64>> = with_entry(arg_h, |entry| match entry {
+            Some(Entry::Vec(v)) => Some(v.iter().copied().collect()),
+            Some(Entry::Map(m)) => {
+                let spreadable = matches!(
+                    m.get("Symbol.isConcatSpreadable").copied(),
+                    Some(v) if v == i64::MIN + 1
+                );
+                if !spreadable {
+                    return None;
+                }
+                let len = m.get("length").copied().unwrap_or(0).max(0);
+                let mut items = Vec::with_capacity(len as usize);
+                for i in 0..len {
+                    items.push(m.get(&i.to_string()).copied().unwrap_or(0));
+                }
+                Some(items)
+            }
+            _ => None,
+        });
+        match spread {
+            Some(items) => out.extend(items),
+            None => out.push(arg),
+        }
+    }
+    alloc_entry(Entry::Vec(Box::new(out)))
+}
+
+/// `arr.unshift(...items)` variádico — prepend dos itens empacotados (na ordem)
+/// no início do receiver; devolve o novo length. Move o fold (que o codegen
+/// fazia com N chamadas reversas de VEC_UNSHIFT) pro runtime.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_UNSHIFT_VARIADIC(recv: u64, args_vec: u64) -> i64 {
+    let items: Vec<i64> = with_vec(args_vec, Vec::new(), |v| v.clone());
+    with_vec_mut(recv, 0i64, |v| {
+        for (i, &it) in items.iter().enumerate() {
+            v.insert(i, it);
+        }
+        v.len() as i64
+    })
+}
+
 /// `arr.fill(value, start, end)` — preenche range com `value` in-place.
 /// Retorna o proprio handle.
 #[unsafe(no_mangle)]

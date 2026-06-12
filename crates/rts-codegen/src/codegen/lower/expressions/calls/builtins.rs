@@ -735,21 +735,7 @@ pub(super) fn lower_array_builtin(
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
         // pop/shift drenados → classe global "Array" (retorno AMBIGUOUS_RET).
-        "length" | "size" => {
-            // length/size sao property em JS, mas v0 aceita como method call
-            // (`arr.length()`) ate ter property access em handles.
-            if !call.args.is_empty() {
-                return Ok(None);
-            }
-            let len_fn = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_VEC_LEN",
-                &[cl::I64],
-                Some(cl::I64),
-            )?;
-            let inst = ctx.builder.ins().call(len_fn, &[obj_h]);
-            let v = ctx.builder.inst_results(inst)[0];
-            Ok(Some(TypedVal::new(v, ValTy::I64)))
-        }
+        // length/size (method-form) drenado → classe global "Array" (VEC_LEN).
         // at drenado → classe global "Array" (VEC_AT_AUTO: negative-index +
         // OOR→undefined no runtime; AMBIGUOUS_RET).
         // join drenado → classe global "Array" (sep? = "," via VEC_JOIN sep=0).
@@ -808,64 +794,8 @@ pub(super) fn lower_array_builtin(
             Ok(Some(TypedVal::new(v, ty)))
         }
         // reverse drenado → classe global "Array". flat fica (overload de depth).
-        "flat" => {
-            // flat(depth) com 1 arg: usa VEC_FLAT_DEPTH.
-            if call.args.len() == 1 && call.args[0].spread.is_none() {
-                let d_tv = lower_expr(ctx, &call.args[0].expr)?;
-                let depth = ctx.coerce_to_i64(d_tv).val;
-                let fref = ctx.get_extern(
-                    "__RTS_FN_NS_COLLECTIONS_VEC_FLAT_DEPTH",
-                    &[cl::I64, cl::I64],
-                    Some(cl::I64),
-                )?;
-                let inst = ctx.builder.ins().call(fref, &[obj_h, depth]);
-                let v = ctx.builder.inst_results(inst)[0];
-                return Ok(Some(TypedVal::new(v, ValTy::Handle)));
-            }
-            let fref = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_VEC_FLAT",
-                &[cl::I64],
-                Some(cl::I64),
-            )?;
-            let inst = ctx.builder.ins().call(fref, &[obj_h]);
-            let v = ctx.builder.inst_results(inst)[0];
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
-        "unshift" => {
-            // JS spec: \`arr.unshift(a, b, c)\` resulta em \`[a, b, c, ...arr]\`.
-            // Para preservar ordem com chamadas individuais de unshift (que
-            // insere no inicio), aplica em ordem reversa: unshift(c), unshift(b),
-            // unshift(a). Retorna novo length (resultado da ultima chamada).
-            if call.args.iter().any(|a| a.spread.is_some()) {
-                return Ok(None);
-            }
-            if call.args.is_empty() {
-                let len_fref = ctx.get_extern(
-                    "__RTS_FN_NS_COLLECTIONS_VEC_LEN",
-                    &[cl::I64],
-                    Some(cl::I64),
-                )?;
-                let inst = ctx.builder.ins().call(len_fref, &[obj_h]);
-                let v = ctx.builder.inst_results(inst)[0];
-                return Ok(Some(TypedVal::new(v, ValTy::I64)));
-            }
-            let fref = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_VEC_UNSHIFT",
-                &[cl::I64, cl::I64],
-                Some(cl::I64),
-            )?;
-            // Avalia args na ordem (left-to-right) — JS spec exige.
-            let arg_vals: Vec<_> = call.args.iter().map(|a| {
-                let tv = lower_expr(ctx, &a.expr)?;
-                Ok::<_, anyhow::Error>(ctx.coerce_to_i64(tv).val)
-            }).collect::<Result<Vec<_>>>()?;
-            let mut last = ctx.builder.ins().iconst(cl::I64, 0);
-            for v in arg_vals.iter().rev() {
-                let inst = ctx.builder.ins().call(fref, &[obj_h, *v]);
-                last = ctx.builder.inst_results(inst)[0];
-            }
-            Ok(Some(TypedVal::new(last, ValTy::I64)))
-        }
+        // flat drenado → classe global "Array" (VEC_FLAT_DEPTH, depth? = 1).
+        // unshift drenado → classe global "Array" (VEC_UNSHIFT_VARIADIC variádico).
         // (#93) `subarray(start, end)` em TypedArray Vec backing: trata como
         // slice (cópia do range). TypedArray real compartilharia o buffer, mas
         // pra Vec backing a cópia eh suficiente para leitura via Array.from.
@@ -906,36 +836,8 @@ pub(super) fn lower_array_builtin(
             let v = ctx.builder.inst_results(inst)[0];
             Ok(Some(TypedVal::new(v, ValTy::Handle)))
         }
-        "concat" => {
-            if call.args.iter().any(|a| a.spread.is_some()) {
-                return Ok(None);
-            }
-            // (cross-runtime #143) JS spec: copia + variadic. Cada arg
-            // que for array faz spread; escalares viram push.
-            // Copia o receiver primeiro via CONCAT(recv, 0) (other=0 -> vazio).
-            let zero = ctx.builder.ins().iconst(cl::I64, 0);
-            let copy_fref = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_VEC_CONCAT",
-                &[cl::I64, cl::I64],
-                Some(cl::I64),
-            )?;
-            let inst = ctx.builder.ins().call(copy_fref, &[obj_h, zero]);
-            let mut acc = ctx.builder.inst_results(inst)[0];
-            if !call.args.is_empty() {
-                let append_fref = ctx.get_extern(
-                    "__RTS_FN_NS_COLLECTIONS_VEC_CONCAT_APPEND",
-                    &[cl::I64, cl::I64],
-                    Some(cl::I64),
-                )?;
-                for a in &call.args {
-                    let tv = lower_expr(ctx, &a.expr)?;
-                    let arg_i64 = ctx.coerce_to_i64(tv).val;
-                    let inst = ctx.builder.ins().call(append_fref, &[acc, arg_i64]);
-                    acc = ctx.builder.inst_results(inst)[0];
-                }
-            }
-            Ok(Some(TypedVal::new(acc, ValTy::Handle)))
-        }
+        // concat drenado → classe global "Array" (variádico: VEC_CONCAT_VARIADIC;
+        // empacotamento de args + spread via member.variadic no emitter genérico).
         // (#93) `typedArray.set(srcArray, offset?)` — copia elementos de
         // srcArray a partir de offset. Restrito a `set([...], n)` (1o arg
         // array literal) para NAO colidir com Map.set / obj.set(k, v).

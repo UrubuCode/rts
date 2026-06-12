@@ -1733,6 +1733,14 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             vec::__RTS_FN_NS_COLLECTIONS_VEC_CONCAT_APPEND
         );
         add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_CONCAT_VARIADIC",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_CONCAT_VARIADIC
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_UNSHIFT_VARIADIC",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_UNSHIFT_VARIADIC
+        );
+        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_VEC_FILL",
             vec::__RTS_FN_NS_COLLECTIONS_VEC_FILL
         );

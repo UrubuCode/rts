@@ -133,6 +133,29 @@ pub fn register_array_class_spec(e: &mut rts_engine::Engine) {
         MemberFlags::NONE,
     );
     slice_member.aliases = vec!["subarray".to_string()];
+    // concat(...args) variádico: o emitter genérico empacota todos os args num
+    // Vec<i64> de handles e chama VEC_CONCAT_VARIADIC(recv, vec).
+    let mut concat_member = m(
+        "concat",
+        Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle),
+        "__RTS_FN_NS_COLLECTIONS_VEC_CONCAT_VARIADIC",
+        MemberFlags::NONE,
+    );
+    concat_member.variadic = true;
+    let mut unshift_member = m(
+        "unshift",
+        Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::I64),
+        "__RTS_FN_NS_COLLECTIONS_VEC_UNSHIFT_VARIADIC",
+        MemberFlags::NONE,
+    );
+    unshift_member.variadic = true;
+    let mut length_member = m(
+        "length",
+        Sig::new(vec![AbiType::Handle], AbiType::I64),
+        "__RTS_FN_NS_COLLECTIONS_VEC_LEN",
+        MemberFlags::NONE,
+    );
+    length_member.aliases = vec!["size".to_string()];
     e.class("Array")
         .doc("Array — métodos sem callback (pop/shift/reverse/toReversed/values/keys/entries/fill/copyWithin/with).")
         .member(m("at", Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64), "__RTS_FN_NS_COLLECTIONS_VEC_AT_AUTO", MemberFlags::AMBIGUOUS_RET))
@@ -155,6 +178,14 @@ pub fn register_array_class_spec(e: &mut rts_engine::Engine) {
         ))
         .member(m("clear", Sig::new(vec![AbiType::Handle], AbiType::Void), "__RTS_FN_NS_COLLECTIONS_VEC_CLEAR", MemberFlags::NONE))
         .member(slice_member)
+        .member(concat_member)
+        .member(unshift_member)
+        .member(length_member)
+        .member(m("flat", Sig::with_defaults(
+            vec![AbiType::Handle, AbiType::I64],
+            AbiType::Handle,
+            vec![DefaultArg::Required, DefaultArg::Int(1)],
+        ), "__RTS_FN_NS_COLLECTIONS_VEC_FLAT_DEPTH", MemberFlags::NONE))
         .member(m("fill", range3(), "__RTS_FN_NS_COLLECTIONS_VEC_FILL", MemberFlags::NONE))
         .member(m("copyWithin", range3(), "__RTS_FN_NS_COLLECTIONS_VEC_COPY_WITHIN", MemberFlags::NONE))
         .member(m(
