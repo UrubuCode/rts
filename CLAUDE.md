@@ -160,9 +160,19 @@ full Symbol drain (well-known desugar pass), Phase-2 crate extraction.
 ### Phase 2 — `rts-primitives` crate (extraction in progress)
 The primordial classes are migrating from `rts-shared` into a dedicated
 `rts-primitives` crate (depends only on `rts-engine`, wasm-safe), one class per
-build+suite-gated step. Moved so far: **Boolean, Number**. Pending: String,
-Function, Error, Array spec, Promise spec, Object spec (Object has no spec yet —
-to be created), then the `jit.rs` `add_fn!`→registry collapse. The facade
+build+suite-gated step. Moved so far: **Boolean, Number, String, Error(+8),
+Array spec, Promise spec** (the latter two are metadata-only — the `__RTS_FN_*`
+bodies stay in `rts-shared/collections/vec.rs` and `rts-std/globals/fetch`
+respectively; only the spec declaration moved, resolved by symbol). **Pending
+(each needs dedicated work, not a clean metadata move):** Function (entangled —
+`function/ops.rs` calls `crate::globals::proxy::ops` AND `crate::collections::
+map`, both non-primordial in `rts-shared`; moving would cycle primitives↔shared,
+needs an extern/hook indirection first); Object spec (none exists — Object is
+primordial so the engine MAY name it directly, hence creating a spec + rewiring
+~20 hardcoded sites is uniformity churn with regression risk and no doctrine
+gain; lowest priority); `jit.rs` `add_fn!`→registry collapse (only feasible for
+primordials whose impl is co-located in primitives — Boolean/Number/String/
+Error; Array/Promise impls live downstream so their `add_fn!` stays). The facade
 (`rts-runtime`) re-exports `rts_primitives::*`; codegen reads via the facade
 unchanged. `rts-shared` keeps the non-primordial universal surface.
 
