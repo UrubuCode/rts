@@ -139,7 +139,14 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
     }
 
     // Global class constructors: new Date(), new Date(ms), new Date(isoStr)
-    if let Some(spec) = crate::abi::global_class_lookup(&class_name) {
+    // Só trata `new X()` aqui quando a classe global tem construtor. Classes
+    // registradas apenas com métodos de instância (ex: a classe "Map" que cobre
+    // Map/Set para dispatch genérico de `recv.method()`) não constroem por aqui
+    // — caem nos caminhos dedicados abaixo. Guard genérico (presença de ctor),
+    // sem nome de classe hardcoded.
+    if let Some(spec) = crate::abi::global_class_lookup(&class_name)
+        .filter(|s| s.constructors().next().is_some())
+    {
         let n_args = new_expr.args.as_ref().map(|a| a.len()).unwrap_or(0);
         // When multiple constructors share the same arity (e.g. Date: I64 vs StrPtr),
         // prefer the one whose first arg type matches the AST arg expression kind:

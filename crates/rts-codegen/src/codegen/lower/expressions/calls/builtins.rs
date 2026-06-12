@@ -19,37 +19,6 @@ pub(super) fn lower_string_builtin(
     recv_h: cranelift_codegen::ir::Value,
     call: &CallExpr,
 ) -> Result<Option<TypedVal>> {
-    // Helper: lower arg[idx] -> handle i64.
-    fn arg_handle(ctx: &mut FnCtx, call: &CallExpr, idx: usize) -> Result<cranelift_codegen::ir::Value> {
-        let arg = call.args.get(idx).ok_or_else(|| anyhow!("missing arg #{idx}"))?;
-        if arg.spread.is_some() {
-            return Err(anyhow!("spread not supported in string builtin"));
-        }
-        let tv = lower_expr(ctx, &arg.expr)?;
-        Ok(ctx.coerce_to_handle(tv)?.val)
-    }
-
-    // Lower arg[idx] as a raw function pointer (i64). Handles hoisted arrows (Ident in user_fns).
-    fn arg_fn_ptr(ctx: &mut FnCtx, call: &CallExpr, idx: usize) -> Result<cranelift_codegen::ir::Value> {
-        let arg = call.args.get(idx).ok_or_else(|| anyhow!("missing fn arg #{idx}"))?;
-        if let Expr::Ident(id) = arg.expr.as_ref() {
-            if ctx.user_fns.contains_key(id.sym.as_ref()) && ctx.var_ty(id.sym.as_ref()).is_none() {
-                return Ok(emit_user_fn_addr(ctx, id.sym.as_ref())?.val);
-            }
-        }
-        let tv = lower_expr(ctx, &arg.expr)?;
-        Ok(ctx.coerce_to_i64(tv).val)
-    }
-
-    fn arg_i64(ctx: &mut FnCtx, call: &CallExpr, idx: usize) -> Result<cranelift_codegen::ir::Value> {
-        let arg = call.args.get(idx).ok_or_else(|| anyhow!("missing arg #{idx}"))?;
-        if arg.spread.is_some() {
-            return Err(anyhow!("spread not supported in string builtin"));
-        }
-        let tv = lower_expr(ctx, &arg.expr)?;
-        Ok(ctx.coerce_to_i64(tv).val)
-    }
-
     // Macro para chamadas simples: symbol(recv [, args...]) -> ret_ty
     macro_rules! call_h {
         ($sym:expr, $params:expr, $ret:expr, $args:expr) => {{
@@ -280,99 +249,11 @@ pub(super) fn lower_map_set_builtin(
             let v = ctx.builder.inst_results(inst)[0];
             Ok(Some(TypedVal::new(v, ValTy::Bool)))
         }
-        "clear" => {
-            let fref = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_MAP_CLEAR",
-                &[cl::I64],
-                None,
-            )?;
-            ctx.builder.ins().call(fref, &[recv_h]);
-            Ok(Some(TypedVal::new(
-                ctx.builder.ins().iconst(cl::I64, 0),
-                ValTy::I64,
-            )))
-        }
-        "size" => {
-            // Em JS `m.size` eh property; v0 aceita `m.size()` como method
-            // call ate ter property access em handles.
-            if !call.args.is_empty() {
-                return Ok(None);
-            }
-            let fref = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_MAP_LEN",
-                &[cl::I64],
-                Some(cl::I64),
-            )?;
-            let inst = ctx.builder.ins().call(fref, &[recv_h]);
-            let v = ctx.builder.inst_results(inst)[0];
-            Ok(Some(TypedVal::new(v, ValTy::I64)))
-        }
-        // (#222 / cross-runtime #301) Map iteration methods. Para `m.entries()`
-        // em Map JS, usa MAP_ENTRIES_INSERTION que preserva ordem de insercao
-        // (IndexMap order). `Object.entries(obj)` (static) usa MAP_ENTRIES que
-        // ordena por chave conforme spec.
-        "entries" if call.args.is_empty() => {
-            let fref = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION",
-                &[cl::I64],
-                Some(cl::I64),
-            )?;
-            let inst = ctx.builder.ins().call(fref, &[recv_h]);
-            let v = ctx.builder.inst_results(inst)[0];
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
-        "keys" if call.args.is_empty() => {
-            let fref = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_MAP_KEYS",
-                &[cl::I64],
-                Some(cl::I64),
-            )?;
-            let inst = ctx.builder.ins().call(fref, &[recv_h]);
-            let v = ctx.builder.inst_results(inst)[0];
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
-        "values" if call.args.is_empty() => {
-            let fref = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_MAP_VALUES",
-                &[cl::I64],
-                Some(cl::I64),
-            )?;
-            let inst = ctx.builder.ins().call(fref, &[recv_h]);
-            let v = ctx.builder.inst_results(inst)[0];
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
-        // (#678/90) Set ops ES2025: union, intersection, difference.
-        // Recebem outro Set/Map handle e retornam novo Set.
-        "union" | "intersection" | "difference" | "symmetricDifference" if call.args.len() == 1 => {
-            let other_tv = lower_expr(ctx, &call.args[0].expr)?;
-            let other_h = ctx.coerce_to_i64(other_tv).val;
-            let sym = match method {
-                "union" => "__RTS_FN_NS_COLLECTIONS_SET_UNION",
-                "intersection" => "__RTS_FN_NS_COLLECTIONS_SET_INTERSECTION",
-                "difference" => "__RTS_FN_NS_COLLECTIONS_SET_DIFFERENCE",
-                "symmetricDifference" => "__RTS_FN_NS_COLLECTIONS_SET_SYMMETRIC_DIFFERENCE",
-                _ => unreachable!(),
-            };
-            let fref = ctx.get_extern(sym, &[cl::I64, cl::I64], Some(cl::I64))?;
-            let inst = ctx.builder.ins().call(fref, &[recv_h, other_h]);
-            let v = ctx.builder.inst_results(inst)[0];
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
-        // (#678/302) Set predicates ES2025: isSubsetOf, isSupersetOf, isDisjointFrom.
-        "isSubsetOf" | "isSupersetOf" | "isDisjointFrom" if call.args.len() == 1 => {
-            let other_tv = lower_expr(ctx, &call.args[0].expr)?;
-            let other_h = ctx.coerce_to_i64(other_tv).val;
-            let sym = match method {
-                "isSubsetOf" => "__RTS_FN_NS_COLLECTIONS_SET_IS_SUBSET",
-                "isSupersetOf" => "__RTS_FN_NS_COLLECTIONS_SET_IS_SUPERSET",
-                "isDisjointFrom" => "__RTS_FN_NS_COLLECTIONS_SET_IS_DISJOINT",
-                _ => unreachable!(),
-            };
-            let fref = ctx.get_extern(sym, &[cl::I64, cl::I64], Some(cl::I64))?;
-            let inst = ctx.builder.ins().call(fref, &[recv_h, other_h]);
-            let v = ctx.builder.inst_results(inst)[0];
-            Ok(Some(TypedVal::new(v, ValTy::Bool)))
-        }
+        // Métodos LIMPOS (clear/size/keys/values/entries + set-ops ES2025
+        // union/intersection/difference/symmetricDifference/isSubsetOf/
+        // isSupersetOf/isDisjointFrom) resolvem pela classe global "Map" no
+        // Registry (sem braço hardcoded) — ver o `_ =>` fallback abaixo e
+        // `collections::register_mapset_class_spec`.
         // (cross-runtime #793) map.forEach((value, key, map) => ...).
         // Aceita arrow inline ou ident de user fn — passa ptr/handle pra
         // MAP_FOR_EACH no runtime que invoca via transmute.
@@ -425,7 +306,16 @@ pub(super) fn lower_map_set_builtin(
                 ValTy::I64,
             )))
         }
-        _ => Ok(None),
+        // Fallback genérico: métodos limpos (clear/size/keys/values/entries +
+        // set-ops) resolvem pela classe global "Map" no Registry, sem braço
+        // hardcoded. O receiver é o handle do Map/Set.
+        _ => super::ns_call::try_global_class_instance_method(
+            ctx,
+            "Map",
+            method,
+            TypedVal::new(recv_h, ValTy::Handle),
+            call,
+        ),
     }
 }
 

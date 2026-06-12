@@ -30,3 +30,45 @@ pub fn register(e: &mut rts_engine::Engine) {
     }
     b.done();
 }
+
+/// Registra a classe global `Map` (cobre Map E Set — o receiver é o mesmo handle
+/// e os símbolos `__RTS_FN_NS_COLLECTIONS_*` tratam ambos). Só os métodos LIMPOS
+/// (sem decomposição de chave): o codegen resolve `recv.method(args)` pelo
+/// Registry e emite a call genérica, sem braço hardcoded. Os métodos com chave
+/// (set/get/has/delete/add/forEach) seguem no builtin até terem runtime
+/// handle-based. fn_ptr null: os símbolos resolvem via a registração do
+/// namespace `collections` (jit add_fn!).
+pub fn register_mapset_class_spec(e: &mut rts_engine::Engine) {
+    use rts_engine::{AbiType, FnPtr, Member, MemberFlags, MemberKind, Sig};
+    fn m(name: &str, sig: Sig, symbol: &str) -> Member {
+        Member {
+            name: name.to_string(),
+            kind: MemberKind::InstanceMethod,
+            sig,
+            symbol: symbol.to_string(),
+            fn_ptr: FnPtr(core::ptr::null::<u8>()),
+            flags: MemberFlags::NONE,
+            aliases: Vec::new(),
+            variadic: false,
+            ts_signature: String::new(),
+            doc: String::new(),
+            pure: false,
+            intrinsic: None,
+        }
+    }
+    e.class("Map")
+        .doc("Map/Set — métodos sem chave (clear/size/keys/values/entries + set-ops).")
+        .member(m("clear", Sig::new(vec![AbiType::Handle], AbiType::Void), "__RTS_FN_NS_COLLECTIONS_MAP_CLEAR"))
+        .member(m("size", Sig::new(vec![AbiType::Handle], AbiType::I64), "__RTS_FN_NS_COLLECTIONS_MAP_LEN"))
+        .member(m("keys", Sig::new(vec![AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_MAP_KEYS"))
+        .member(m("values", Sig::new(vec![AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_MAP_VALUES"))
+        .member(m("entries", Sig::new(vec![AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION"))
+        .member(m("union", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_SET_UNION"))
+        .member(m("intersection", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_SET_INTERSECTION"))
+        .member(m("difference", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_SET_DIFFERENCE"))
+        .member(m("symmetricDifference", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_SET_SYMMETRIC_DIFFERENCE"))
+        .member(m("isSubsetOf", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool), "__RTS_FN_NS_COLLECTIONS_SET_IS_SUBSET"))
+        .member(m("isSupersetOf", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool), "__RTS_FN_NS_COLLECTIONS_SET_IS_SUPERSET"))
+        .member(m("isDisjointFrom", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool), "__RTS_FN_NS_COLLECTIONS_SET_IS_DISJOINT"))
+        .done();
+}
