@@ -1321,10 +1321,10 @@
 ,
 {
   "name": "393_promise_microtask",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
   "node": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
-  "rts": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C"
+  "rts": "caught:handled\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C"
 }
 ,
 {
@@ -1916,7 +1916,7 @@
   "status": "rts_diverge",
   "bun": "{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number",
   "node": "{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number",
-  "rts": "{\"a\":1,\"child\":{\"toJSON\":94920814940987}}\nrep::object|rep:a:number|rep:child:object|rep:toJSON:number"
+  "rts": "{\"a\":1,\"child\":{\"toJSON\":94687127765819}}\nrep::object|rep:a:number|rep:child:object|rep:toJSON:number"
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -3036,7 +3036,7 @@
   "status": "rts_diverge",
   "bun": "{\"c\":1}\n[null,null,1]\n{\"a\":null,\"b\":null,\"c\":null}\n[null,null]\nundefined\nundefined\nnull\nnull\n{\"a\":null}",
   "node": "{\"c\":1}\n[null,null,1]\n{\"a\":null,\"b\":null,\"c\":null}\n[null,null]\nundefined\nundefined\nnull\nnull\n{\"a\":null}",
-  "rts": "{\"b\":94678460420114,\"c\":1}\n[null,94678460420105,1]\n{\"a\":0,\"b\":null,\"c\":false}\n[0,null]\nundefined\n94678460420096\nnull\nnull\n{\"a\":null}"
+  "rts": "{\"b\":94896451252242,\"c\":1}\n[null,94896451252233,1]\n{\"a\":0,\"b\":null,\"c\":false}\n[0,null]\nundefined\n94896451252224\nnull\nnull\n{\"a\":null}"
 }
 ,
 {
@@ -3044,7 +3044,7 @@
   "status": "rts_diverge",
   "bun": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
   "node": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
-  "rts": "{\"value\":42,\"toJSON\":94306120282160}\n{\"nested\":{\"value\":42,\"toJSON\":94306120282160},\"plain\":1}\n[{\"value\":42,\"toJSON\":94306120282160},{\"value\":42,\"toJSON\":94306120282160}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n{\"toJSON\":94306120282146}\n{\"a\":[1,2,3]}"
+  "rts": "{\"value\":42,\"toJSON\":94434440548400}\n{\"nested\":{\"value\":42,\"toJSON\":94434440548400},\"plain\":1}\n[{\"value\":42,\"toJSON\":94434440548400},{\"value\":42,\"toJSON\":94434440548400}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n{\"toJSON\":94434440548386}\n{\"a\":[1,2,3]}"
 }
 ,
 {
@@ -3945,10 +3945,10 @@
 ,
 {
   "name": "claude-concat-type-coercion",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "a1true\n3x34\n1,2,3\n[object Object]\n,,1\n1,2,3\nnnulluundefined\nbtruefalse\nInfinity,-Infinity,NaN\nxy1truenull",
   "node": "a1true\n3x34\n1,2,3\n[object Object]\n,,1\n1,2,3\nnnulluundefined\nbtruefalse\nInfinity,-Infinity,NaN\nxy1truenull",
-  "rts": "a1true\n3x34\n1,2,3\n[object Object]\n,,1\n1,2,3\nnnulluundefined\nbtruefalse\nInfinity,-Infinity,NaN\nxy1truenull"
+  "rts": "a1true\n3x34\n1,2,3\n[object Object]\n,,1\n1,2,3\nnnulluundefined\nbtruefalse\nInfinity,-Infinity,NaN\nxynull"
 }
 ,
 {
@@ -3993,10 +3993,10 @@
 ,
 {
   "name": "claude-split-regex-limit",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "[\"a\",\"b\",\"c\"]\n[\"a\",\"b\",\"c\",\"\"]\n[\"a\",\"b\"]\n[\"a\",\"b\"]\n[\"h\",\"e\",\"l\",\"l\",\"o\"]\n[\"\"]\n[\"a\",\"b\",\"c\"]\n[\"a\",\"-\",\"b\",\"-\",\"c\"]\n[\"\",\"2023\",\"-\",\"01\",\"-\",\"02\",\"\"]\n[\"\",\"\"]\n[\"abc\"]",
   "node": "[\"a\",\"b\",\"c\"]\n[\"a\",\"b\",\"c\",\"\"]\n[\"a\",\"b\"]\n[\"a\",\"b\"]\n[\"h\",\"e\",\"l\",\"l\",\"o\"]\n[\"\"]\n[\"a\",\"b\",\"c\"]\n[\"a\",\"-\",\"b\",\"-\",\"c\"]\n[\"\",\"2023\",\"-\",\"01\",\"-\",\"02\",\"\"]\n[\"\",\"\"]\n[\"abc\"]",
-  "rts": "[\"a\",\"b\",\"c\"]\n[\"a\",\"b\",\"c\",\"\"]\n[\"a\",\"b\"]\n[\"a\",\"b\"]\n[\"h\",\"e\",\"l\",\"l\",\"o\"]\n[\"\"]\n[\"a\",\"b\",\"c\"]\n[\"a\",\"-\",\"b\",\"-\",\"c\"]\n[\"\",\"2023\",\"-\",\"01\",\"-\",\"02\",\"\"]\n[\"\",\"\"]\n[\"abc\"]"
+  "rts": "[\"a\",\"b\",\"c\"]\n[\"a\",\"b\",\"c\",\"\"]\n[\"a\",\"b\"]\n[\"a\",\"b\"]\n[\"h\",\"e\",\"l\",\"l\",\"o\"]\n[\"\"]\n[\"a\",\"b\",\"c\"]\n[\"a\",\"-\",\"b\",\"-\",\"c\"]\n[\"\",\"2023\",\"-\",\"01\",\"-\",\"02\",\"\"]\n[\"\",\"\"]\n[\"a\",\"b\",\"c\"]"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":427,"rts_diverge":127,"bun_node_diverge":18,"errors":37,"rejected":0}}
+],"summary":{"total":609,"pass":425,"rts_diverge":130,"bun_node_diverge":17,"errors":37,"rejected":0}}
