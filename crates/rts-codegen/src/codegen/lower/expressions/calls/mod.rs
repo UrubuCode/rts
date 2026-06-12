@@ -480,13 +480,14 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
             if let (Expr::Lit(swc_ecma_ast::Lit::Regex(_)), MemberProp::Ident(prop)) =
                 (m.obj.as_ref(), &m.prop)
             {
+                // Receiver é um literal regex → definitivamente RegExp; resolve
+                // o método pelo Registry (sem hardcode de "test"/"exec").
                 let pn = prop.sym.as_str();
-                if matches!(pn, "test" | "exec") {
-                    let recv_tv = lower_expr(ctx, &m.obj)?;
-                    let recv_h = ctx.coerce_to_i64(recv_tv).val;
-                    if let Some(tv) = builtins::lower_regexp_builtin(ctx, pn, recv_h, call)? {
-                        return Ok(tv);
-                    }
+                let recv_tv = lower_expr(ctx, &m.obj)?;
+                if let Some(tv) =
+                    ns_call::try_global_class_instance_method(ctx, "RegExp", pn, recv_tv, call)?
+                {
+                    return Ok(tv);
                 }
             }
         }

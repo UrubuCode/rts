@@ -136,10 +136,16 @@ pub(super) fn lower_var_member_call(
         .get(obj_name)
         .map(|s| s == "RegExp")
         .unwrap_or(false);
-    if matches!(obj_tv.ty, ValTy::Handle) && !is_proto_instance
-        && (is_regexp || matches!(prop, "test" | "exec"))
+    // RegExp.test/exec — GENÉRICO via Registry. O guard usa o Registry pra saber
+    // se `prop` é método de RegExp (em vez do hardcoded matches!(prop,"test"|"exec")).
+    let prop_is_regexp_method = crate::abi::global_class_lookup("RegExp")
+        .and_then(|s| s.resolve_instance_method(prop, call.args.len()))
+        .is_some();
+    if matches!(obj_tv.ty, ValTy::Handle) && !is_proto_instance && (is_regexp || prop_is_regexp_method)
     {
-        if let Some(tv) = super::builtins::lower_regexp_builtin(ctx, prop, obj_h, call)? {
+        if let Some(tv) =
+            super::ns_call::try_global_class_instance_method(ctx, "RegExp", prop, obj_tv, call)?
+        {
             return Ok(tv);
         }
     }
