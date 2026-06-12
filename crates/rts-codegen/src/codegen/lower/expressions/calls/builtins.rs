@@ -81,10 +81,7 @@ pub(super) fn lower_string_builtin(
         // toString (→TO_STRING) e valueOf (→ReceiverIdentity) drenados pro
         // Registry — caem no fallback `_`.
         // toWellFormed drenado pro Registry (TO_WELL_FORMED idêntico) — fallback.
-        "isWellFormed" => {
-            let v = call_h!("__RTS_FN_GL_STRING_IS_WELL_FORMED", &[cl::I64], Some(cl::I64), &[recv_h]);
-            Ok(Some(TypedVal::new(v, ValTy::Bool)))
-        }
+        // isWellFormed drenado pro Registry (IS_WELL_FORMED idêntico) — fallback.
         // GENÉRICO via Registry: métodos de String SEM dispatch por tipo-de-arg
         // (case/trim/normalize/...) resolvem aqui pelo Registry, sem braço
         // hardcoded. Os métodos com overload por tipo de arg (replace str-vs-
