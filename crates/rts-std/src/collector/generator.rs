@@ -68,7 +68,7 @@ pub extern "C" fn __RTS_FN_NS_GC_GENERATOR_NEXT(vec_handle: u64) -> u64 {
         _ => None,
     });
     if let Some(next_fn) = custom_next {
-        return rts_shared::globals::function::ops::__RTS_FN_GL_FUNCTION_CALL(
+        return rts_primitives::function::ops::__RTS_FN_GL_FUNCTION_CALL(
             next_fn as u64,
             vec_handle as i64,
             0,

@@ -17,7 +17,7 @@ use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use self::pool::pool;
 use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
-use rts_shared::globals::function::ops::invoke_array_callback;
+use rts_primitives::function::ops::invoke_array_callback;
 
 fn snapshot_vec(handle: u64) -> Option<Vec<i64>> {
     with_entry(handle, |entry| match entry {

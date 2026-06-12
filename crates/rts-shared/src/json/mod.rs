@@ -32,7 +32,7 @@ fn slice_from(ptr: u64, len: i64) -> Option<&'static [u8]> {
 /// reviver(key, value) com `this`=holder.
 fn apply_reviver(reviver_h: u64, holder: u64, key: &str) -> u64 {
     use crate::collections::vec as v_ns;
-    use crate::globals::function::ops::__RTS_FN_GL_FUNCTION_APPLY_TYPED;
+    use rts_primitives::function::ops::__RTS_FN_GL_FUNCTION_APPLY_TYPED;
     // Pega o value (child) do holder.
     let value: u64 = with_entry(holder, |e| match e {
         Some(Entry::Map(m)) => m.get(key).copied().unwrap_or(0) as u64,
@@ -589,7 +589,7 @@ pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY_REPLACER_FN(handle: u64, replacer_h
 /// do retorno (se Map/Vec). Cria Map/Vec NOVO em vez de mutar o original
 /// (sem isso, segunda chamada JSON.stringify ve estado mutado).
 fn apply_stringify_replacer(replacer_h: u64, key: &str, value: u64) -> u64 {
-    use crate::globals::function::ops::__RTS_FN_GL_FUNCTION_APPLY_TYPED;
+    use rts_primitives::function::ops::__RTS_FN_GL_FUNCTION_APPLY_TYPED;
     let key_h = alloc_entry(Entry::String(key.as_bytes().to_vec()));
     let args = alloc_entry(Entry::Vec(Box::new(vec![key_h as i64, value as i64])));
     let result = __RTS_FN_GL_FUNCTION_APPLY_TYPED(replacer_h, 0, args);

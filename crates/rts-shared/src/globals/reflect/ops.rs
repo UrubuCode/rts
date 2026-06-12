@@ -32,7 +32,7 @@ fn reify_accessor_fn(fn_ptr: u64, name: &str) -> u64 {
         return alloc_entry(Entry::String(b"undefined".to_vec()));
     }
     let name_bytes = name.as_bytes();
-    super::super::function::ops::__RTS_FN_GL_FUNCTION_REIFY(
+    rts_primitives::function::ops::__RTS_FN_GL_FUNCTION_REIFY(
         fn_ptr,
         0,
         name_bytes.as_ptr() as i64,

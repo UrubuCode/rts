@@ -22,7 +22,8 @@ pub mod dom_exception;
 pub mod global_this;
 pub mod date;
 // error → PRIMORDIAL: movido p/ `rts-primitives` (Fase 2).
-pub mod function;
+// function → PRIMORDIAL: movido p/ `rts-primitives` (Fase 2.3). Desacoplado de
+// collections/proxy via shims extern-C; chama-os por símbolo (link-time).
 pub mod proxy;
 pub mod reflect;
 // string → PRIMORDIAL: movido p/ `rts-primitives` (Fase 2). collections/vec.rs

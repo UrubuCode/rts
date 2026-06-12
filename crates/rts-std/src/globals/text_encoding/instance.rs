@@ -828,7 +828,7 @@ unsafe fn invoke_microtask_callback(fn_ptr: u64, bound: &[i64], extra: Option<i6
     if let Some(v) = extra {
         args.push(v);
     }
-    rts_shared::globals::function::ops::invoke_fn_ptr_with_registry(fn_ptr, &args)
+    rts_primitives::function::ops::invoke_fn_ptr_with_registry(fn_ptr, &args)
 }
 
 // TextEncoder / TextDecoder constructors — stateless, token handle.

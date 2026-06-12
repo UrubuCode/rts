@@ -18,7 +18,7 @@ pub use rts_primitives::promise;
 pub use rts_primitives::error;
 pub use rts_std::globals::events;
 pub use rts_std::globals::fetch;
-pub use rts_shared::globals::function;
+pub use rts_primitives::function;
 pub use rts_shared::globals::global_this;
 pub use rts_std::globals::headers;
 pub use rts_shared::globals::intl;

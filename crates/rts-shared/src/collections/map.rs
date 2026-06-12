@@ -957,7 +957,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH(handle: u64, fn_ptr: u64)
                 key_for_set,
                 handle as i64,
             ])));
-            crate::globals::function::ops::__RTS_FN_RT_INVOKE_AUTO(
+            rts_primitives::function::ops::__RTS_FN_RT_INVOKE_AUTO(
                 fn_ptr as i64,
                 0,
                 args_vec,
@@ -972,7 +972,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH(handle: u64, fn_ptr: u64)
     // (agora `(f64)->`) -> value lido como bits denormal ≈ 0 (Map.forEach #793).
     for (k, v) in pairs {
         let key_h = alloc_entry(Entry::String(k.into_bytes())) as i64;
-        crate::globals::function::ops::invoke_fn_ptr_with_registry(
+        rts_primitives::function::ops::invoke_fn_ptr_with_registry(
             fn_ptr,
             &[v, key_h, handle as i64],
         );
@@ -1736,7 +1736,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_PROTO(handle: u64) -> u64 {
     // (`while (proto) { ...; proto = getPrototypeOf(proto); }`) dava uma
     // volta extra retornando o sentinel `[Object.prototype]` em vez de
     // terminar, imprimindo lixo (` 0`) apos "Object".
-    if handle == crate::globals::function::ops::__RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE() {
+    if handle == rts_primitives::function::ops::__RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE() {
         return 0;
     }
     // (#1080) Sentinel proto strings: JS spec:

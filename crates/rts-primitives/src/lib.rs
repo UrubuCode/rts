@@ -13,6 +13,7 @@ pub mod gc_surface;
 pub mod array;
 pub mod boolean;
 pub mod error;
+pub mod function;
 pub mod number;
 pub mod promise;
 pub mod string;

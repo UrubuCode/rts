@@ -151,7 +151,7 @@ fn invoke_listener(fn_ptr: u64, arg_f64: f64) {
     if is_handle {
         // f64-bits as i64: a registry normaliza p/ params de kind f64 (mesma
         // convenção do path raw `fn(f64)`).
-        rts_shared::globals::function::ops::invoke_fn_ptr_with_registry(
+        rts_primitives::function::ops::invoke_fn_ptr_with_registry(
             fn_ptr,
             &[arg_f64.to_bits() as i64],
         );

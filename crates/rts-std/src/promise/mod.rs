@@ -933,7 +933,7 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_AWAIT_VALUE(handle: u64) -> i64 {
 pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_ASYNC(iterable: u64, mapper_handle: u64) -> u64 {
     // Suporte minimo: iterable e' Vec. Aplica mapper sync (se houver),
     // wrap cada valor em Promise.resolve se ja' nao for, faz Promise.all.
-    use rts_shared::globals::function::ops::__RTS_FN_GL_FUNCTION_APPLY_TYPED;
+    use rts_primitives::function::ops::__RTS_FN_GL_FUNCTION_APPLY_TYPED;
 
     let snapshot: Option<Vec<i64>> = with_entry(iterable, |e| match e {
         Some(Entry::Vec(v)) => Some(v.as_ref().clone()),

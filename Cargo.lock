@@ -2727,7 +2727,10 @@ dependencies = [
 name = "rts-primitives"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "fancy-regex",
  "indexmap",
+ "regex",
  "rts-engine",
  "serde_json",
  "unicode-normalization",
@@ -2753,6 +2756,7 @@ dependencies = [
  "json5",
  "regex",
  "rts-engine",
+ "rts-primitives",
  "serde",
  "serde_json",
  "time",
@@ -2770,6 +2774,7 @@ dependencies = [
  "indexmap",
  "rayon",
  "rts-engine",
+ "rts-primitives",
  "rts-shared",
  "rustls",
  "serde_json",
