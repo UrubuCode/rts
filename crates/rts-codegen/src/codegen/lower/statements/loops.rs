@@ -251,54 +251,17 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
     let iter_tv = lower_expr(ctx, &for_of.right)?;
     let mut handle = ctx.coerce_to_i64(iter_tv).val;
 
-    // (#222) Map/Set iteracao via for-of:
-    // - Map: converte para Vec de [k,v] entries preservando insertion order
-    // - Set: usa MAP_VALUES (elementos reconvertidos)
-    // Detecta classe via local_class_ty[var_name] OU `new Map/Set(...)` inline.
-    let iter_class: Option<String> = match for_of.right.as_ref() {
-        swc_ecma_ast::Expr::Ident(id) => ctx.local_class_ty.get(id.sym.as_str()).cloned(),
-        // (cross-runtime) `for (const x of new Set([...]))` inline (sem var).
-        swc_ecma_ast::Expr::New(ne) => {
-            if let swc_ecma_ast::Expr::Ident(cid) = ne.callee.as_ref() {
-                match cid.sym.as_str() {
-                    "Set" => Some("Set".to_string()),
-                    "Map" => Some("Map".to_string()),
-                    _ => None,
-                }
-            } else {
-                None
-            }
-        }
-        _ => None,
-    };
-    if matches!(iter_class.as_deref(), Some("Map")) {
-        let entries_fn = ctx.get_extern(
-            "__RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION",
-            &[cl::I64],
-            Some(cl::I64),
-        )?;
-        let inst = ctx.builder.ins().call(entries_fn, &[handle]);
-        handle = ctx.builder.inst_results(inst)[0];
-    } else if matches!(iter_class.as_deref(), Some("Set")) {
-        // Set internamente eh Map<key, 1> â€” os ELEMENTOS sao as keys.
-        // (cross-runtime) Usa MAP_VALUES (nao MAP_KEYS): p/ Set, MAP_VALUES
-        // reconverte cada key string de volta ao valor (parse int -> number,
-        // senao handle string). MAP_KEYS retornava as keys string CRUAS, e
-        // `for (const x of setNum) sum += x` somava o handle (lixo). Mesma
-        // conversao usada no spread de Set (#1229).
-        let vals_fn = ctx.get_extern(
-            "__RTS_FN_NS_COLLECTIONS_MAP_VALUES",
-            &[cl::I64],
-            Some(cl::I64),
-        )?;
-        let inst = ctx.builder.ins().call(vals_fn, &[handle]);
-        handle = ctx.builder.inst_results(inst)[0];
-    } else if for_of_iterates_string(ctx, &for_of.right) {
-        // (cross-runtime) `for (const c of "abc")` / string var: itera os
-        // CHARS (codepoints). Converte a string num Vec de char-handles via
-        // VEC_NEW + SPREAD_INTO_VEC (mesmo helper do spread `[..."abc"]`).
-        // Sem isso, o for-of tratava a string como Vec (VEC_LEN=-1) e nao
-        // iterava.
+    // (#222/#394) Iteração de for-of normalizada genericamente em RUNTIME:
+    // FOR_OF_NORMALIZE converte Set→elementos (MAP_VALUES, reconvertidos),
+    // Map→entries [k,v] (ENTRIES_INSERTION, insertion order), GenState→drain, e
+    // passa Vec/Buffer/string-handle inalterados. O motor NÃO nomeia Map/Set
+    // aqui — o handle marcado (map-kind/set-kind, gravado na construção via
+    // new_expr/SET_FROM_VEC/MAP_FROM_ENTRIES) é reconhecido em runtime. String é
+    // caso à parte (itera codepoints).
+    if for_of_iterates_string(ctx, &for_of.right) {
+        // `for (const c of "abc")` / string var: itera os CHARS (codepoints)
+        // via VEC_NEW + SPREAD_INTO_VEC (mesmo helper do spread `[..."abc"]`).
+        // Sem isso, o for-of tratava a string como Vec (VEC_LEN=-1) e nao iterava.
         let vec_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
         let inst_v = ctx.builder.ins().call(vec_new, &[]);
         let char_vec = ctx.builder.inst_results(inst_v)[0];
@@ -309,12 +272,7 @@ pub(super) fn lower_for_of(ctx: &mut FnCtx, for_of: &swc_ecma_ast::ForOfStmt) ->
         )?;
         ctx.builder.ins().call(spread_fn, &[char_vec, handle]);
         handle = char_vec;
-    } else if iter_class.is_none() {
-        // (#394) Classe estatica desconhecida (ex: bind de outro for-of, como
-        // `for (const s of setOfSets) for (const n of s)`). Normaliza em
-        // runtime: Set->elementos, Map->entries, resto inalterado. So' altera
-        // handles que seriam mal-iterados (Set/Map sem classe conhecida); Vec
-        // passa direto.
+    } else {
         let norm_fn = ctx.get_extern(
             "__RTS_FN_RT_FOR_OF_NORMALIZE",
             &[cl::I64],
