@@ -1097,6 +1097,46 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_INSERT(
     alloc_entry(Entry::Vec(Box::new(removed)))
 }
 
+/// `arr.splice(start, deleteCount?, ...items)` variádico — args empacotados num
+/// Vec `[start, count?, ...items]` (o emitter genérico empacota tudo). count
+/// omitido = remove até o fim (i64::MAX). Mutaciona o receiver in-place, devolve
+/// os removidos. Move o desempacotamento start/count/items pro runtime.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_AUTO(recv: u64, args_vec: u64) -> u64 {
+    let args: Vec<i64> = with_vec(args_vec, Vec::new(), |v| v.clone());
+    let start = args.first().copied().unwrap_or(0);
+    let delete_count = if args.len() >= 2 { args[1] } else { i64::MAX };
+    let items: Vec<i64> = if args.len() > 2 { args[2..].to_vec() } else { Vec::new() };
+    let removed: Vec<i64> = with_vec_mut(recv, Vec::new(), |v| {
+        let len = v.len() as i64;
+        let s = if start < 0 { (len + start).max(0) } else { start.min(len) } as usize;
+        let count = delete_count.max(0).min(len - s as i64) as usize;
+        let drained: Vec<i64> = v.drain(s..s + count).collect();
+        for (i, item) in items.into_iter().enumerate() {
+            v.insert(s + i, item);
+        }
+        drained
+    });
+    alloc_entry(Entry::Vec(Box::new(removed)))
+}
+
+/// `arr.toSpliced(start, deleteCount?, ...items)` variádico (imutável) — como
+/// SPLICE_AUTO mas NÃO mutaciona o receiver; devolve um array novo com o splice
+/// aplicado.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED_AUTO(recv: u64, args_vec: u64) -> u64 {
+    let args: Vec<i64> = with_vec(args_vec, Vec::new(), |v| v.clone());
+    let start = args.first().copied().unwrap_or(0);
+    let delete_count = if args.len() >= 2 { args[1] } else { i64::MAX };
+    let items: Vec<i64> = if args.len() > 2 { args[2..].to_vec() } else { Vec::new() };
+    let mut out: Vec<i64> = with_vec(recv, Vec::new(), |v| v.clone());
+    let len = out.len() as i64;
+    let s = if start < 0 { (len + start).max(0) } else { start.min(len) } as usize;
+    let count = delete_count.max(0).min(len - s as i64) as usize;
+    out.splice(s..s + count, items);
+    alloc_entry(Entry::Vec(Box::new(out)))
+}
+
 /// (#780/#786) `new Array(len)` — cria Vec preenchido com sentinel de HOLE
 /// `i64::MIN + 4` (cross-runtime #1533): JS spec cria slots vazios (holes),
 /// nao undefined — `0 in new Array(3)` eh false. Leitura `a[0] === undefined`

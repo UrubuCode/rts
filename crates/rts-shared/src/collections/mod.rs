@@ -149,6 +149,23 @@ pub fn register_array_class_spec(e: &mut rts_engine::Engine) {
         MemberFlags::NONE,
     );
     unshift_member.variadic = true;
+    // splice/toSpliced: empacota TODOS os args [start, count?, ...items] num Vec;
+    // o runtime AUTO desempacota. splice mutaciona + devolve removidos;
+    // toSpliced devolve cópia nova.
+    let mut splice_member = m(
+        "splice",
+        Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle),
+        "__RTS_FN_NS_COLLECTIONS_VEC_SPLICE_AUTO",
+        MemberFlags::NONE,
+    );
+    splice_member.variadic = true;
+    let mut tospliced_member = m(
+        "toSpliced",
+        Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle),
+        "__RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED_AUTO",
+        MemberFlags::NONE,
+    );
+    tospliced_member.variadic = true;
     let mut length_member = m(
         "length",
         Sig::new(vec![AbiType::Handle], AbiType::I64),
@@ -205,6 +222,8 @@ pub fn register_array_class_spec(e: &mut rts_engine::Engine) {
             AbiType::Handle,
             vec![DefaultArg::Required, DefaultArg::Int(1)],
         ), "__RTS_FN_NS_COLLECTIONS_VEC_FLAT_DEPTH", MemberFlags::NONE))
+        .member(splice_member)
+        .member(tospliced_member)
         .member(sort_member)
         .member(tosorted_member)
         .member(m("flatMap", Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_VEC_FLAT_MAP", MemberFlags::NONE))
