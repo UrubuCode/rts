@@ -44,6 +44,7 @@ impl Engine {
             name: name.to_string(),
             doc: String::new(),
             members: Vec::new(),
+            instanceof_predicate: None,
         }
     }
 
@@ -207,11 +208,20 @@ pub struct ClassBuilder<'e> {
     name: String,
     doc: String,
     members: Vec<Member>,
+    instanceof_predicate: Option<String>,
 }
 
 impl ClassBuilder<'_> {
     pub fn doc(mut self, doc: &str) -> Self {
         self.doc = doc.to_string();
+        self
+    }
+
+    /// Declara o símbolo runtime do predicado `x instanceof <Class>`
+    /// (`fn(handle) -> i64`). Usado por classes NÃO-primordiais para que o
+    /// codegen resolva instanceof pelo Registry sem nomear a classe.
+    pub fn instanceof_predicate(mut self, symbol: &str) -> Self {
+        self.instanceof_predicate = Some(symbol.to_string());
         self
     }
 
@@ -265,6 +275,7 @@ impl ClassBuilder<'_> {
             name: self.name,
             doc: self.doc,
             members: self.members,
+            instanceof_predicate: self.instanceof_predicate,
         });
     }
 }

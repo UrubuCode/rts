@@ -2237,10 +2237,10 @@ fn lower_instanceof(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     // → Map com __rts_class. String/Number/Boolean → primitives sao falsy.
     if !ctx.classes.contains_key(&class_name) {
         let known_global = crate::abi::global_class_lookup(&class_name).is_some()
-            || matches!(
-                class_name.as_str(),
-                "Array" | "Object" | "Map" | "Set" | "Boolean" | "Function"
-            );
+            // "Object" é primordial sem spec registrada; "Set" é transitório
+            // (classe ainda não registrada — Grupo B). Array/Map/Boolean/Function
+            // resolvem por global_class_lookup (já registradas).
+            || matches!(class_name.as_str(), "Object" | "Set");
         if known_global {
             return lower_global_instanceof(ctx, &class_name, &bin.left);
         }
@@ -2385,6 +2385,19 @@ fn lower_global_instanceof(
     }
     let recv = ctx.coerce_to_i64(lhs).val;
 
+    // GENÉRICO: classes NÃO-primordiais declaram seu predicado runtime no
+    // Registry (`instanceof_predicate`); o motor resolve sem nomear a classe.
+    // Cobre Map/RegExp/Date/WeakMap/WeakSet. As primordiais (Array/Function/
+    // Promise/Object/Error/String/Number/Boolean) seguem nos braços abaixo.
+    if let Some(pred) =
+        crate::abi::global_class_lookup(class_name).and_then(|s| s.instanceof_predicate)
+    {
+        let f = ctx.get_extern(pred, &[cl::I64], Some(cl::I64))?;
+        let inst = ctx.builder.ins().call(f, &[recv]);
+        let v = ctx.builder.inst_results(inst)[0];
+        return Ok(TypedVal::new(v, ValTy::Bool));
+    }
+
     // Error: qualquer Entry::ErrorObj passa.
     if class_name == "Error" {
         let f = ctx.get_extern("__RTS_FN_GL_IS_ERROR", &[cl::I64], Some(cl::I64))?;
@@ -2420,16 +2433,19 @@ fn lower_global_instanceof(
         let or = ctx.builder.ins().bor(m, v);
         return Ok(TypedVal::new(or, ValTy::Bool));
     }
-    // Outros: chama runtime fn por tipo.
+    // Primordiais nomeadas pelo motor (permitido). Não-primordiais NÃO aparecem
+    // aqui — resolvem pelo `instanceof_predicate` acima.
     let sym = match class_name {
         "Array" => "__RTS_FN_NS_GC_IS_VEC",
-        "Date" => "__RTS_FN_NS_GC_IS_DATE",
-        "RegExp" => "__RTS_FN_NS_GC_IS_REGEX",
-        "Map" | "Set" | "WeakMap" | "WeakSet" | "Function" => "__RTS_FN_NS_GC_IS_MAP_LIKE",
+        "Function" => "__RTS_FN_NS_GC_IS_MAP_LIKE",
         "Promise" => "__RTS_FN_NS_GC_IS_PROMISE",
-        // String/Number/Boolean: instances primitivas, sempre false em handle nao-string.
-        // Permite "x" instanceof String === false (string primitive).
-        "String" | "Number" | "Boolean" | "Symbol" => {
+        // TRANSITÓRIO (Grupo B): a classe Set ainda não está registrada no
+        // Registry. Quando a spec Set ganhar `instanceof_predicate`, este braço
+        // cai pelo caminho genérico acima e é removido.
+        "Set" => "__RTS_FN_NS_GC_IS_MAP_LIKE",
+        // String/Number/Boolean (primordiais): instância handle nunca casa um
+        // wrapper primitivo. As demais (Symbol etc.) caem no `_` = false.
+        "String" | "Number" | "Boolean" => {
             let zero = ctx.builder.ins().iconst(cl::I64, 0);
             return Ok(TypedVal::new(zero, ValTy::Bool));
         }

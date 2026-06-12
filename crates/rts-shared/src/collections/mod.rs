@@ -70,6 +70,8 @@ pub fn register_mapset_class_spec(e: &mut rts_engine::Engine) {
         .member(m("isSubsetOf", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool), "__RTS_FN_NS_COLLECTIONS_SET_IS_SUBSET"))
         .member(m("isSupersetOf", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool), "__RTS_FN_NS_COLLECTIONS_SET_IS_SUPERSET"))
         .member(m("isDisjointFrom", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool), "__RTS_FN_NS_COLLECTIONS_SET_IS_DISJOINT"))
+        // `x instanceof Map` resolvido pelo Registry (sem nomear Map no motor).
+        .instanceof_predicate("__RTS_FN_NS_GC_IS_MAP_LIKE")
         .done();
 }
 

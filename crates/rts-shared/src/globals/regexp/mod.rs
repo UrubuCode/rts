@@ -455,6 +455,7 @@ pub fn register_regexp_class_spec(e: &mut Engine) {
             __RTS_FN_GL_REGEXP_MULTILINE as *const u8,
             true,
         ))
+        .instanceof_predicate("__RTS_FN_NS_GC_IS_REGEX")
         .done();
 }
 

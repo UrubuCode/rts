@@ -527,5 +527,6 @@ pub fn register_class_spec(e: &mut Engine) {
             "Time portion (HH:MM:SS.mmmZ) do ISO.",
             true,
         ))
+        .instanceof_predicate("__RTS_FN_NS_GC_IS_DATE")
         .done();
 }

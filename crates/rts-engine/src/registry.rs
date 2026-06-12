@@ -30,6 +30,11 @@ pub struct Class {
     /// Membros: construtores, métodos estáticos/instância, getters/setters,
     /// constantes.
     pub members: Vec<Member>,
+    /// Símbolo runtime do predicado `x instanceof <Class>` (`fn(handle) -> i64`,
+    /// 1/0). Deixa o codegen resolver instanceof de classes NÃO-primordiais pelo
+    /// Registry, sem nomear a classe no motor. `None` = sem predicado próprio
+    /// (primordiais nomeadas pelo motor, ou classes que nunca casam).
+    pub instanceof_predicate: Option<String>,
 }
 
 impl Class {

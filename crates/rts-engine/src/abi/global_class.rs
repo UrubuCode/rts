@@ -22,6 +22,10 @@ pub struct GlobalClassSpec {
     pub doc: &'static str,
     /// All members: static functions, constructors, instance methods.
     pub members: &'static [NamespaceMember],
+    /// Runtime symbol of the `x instanceof <Class>` predicate (`fn(handle) ->
+    /// i64`). Lets codegen resolve instanceof for NON-primordial classes from
+    /// the Registry without naming the class. `None` = no own predicate.
+    pub instanceof_predicate: Option<&'static str>,
 }
 
 impl GlobalClassSpec {
@@ -192,6 +196,7 @@ mod tests {
             name: "Test",
             doc: "",
             members,
+            instanceof_predicate: None,
         }
     }
 

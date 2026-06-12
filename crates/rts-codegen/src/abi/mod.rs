@@ -356,6 +356,7 @@ pub fn leak_class(class: &rts_engine::Class) -> &'static GlobalClassSpec {
         name: leak_str(&class.name),
         doc: leak_str(&class.doc),
         members: Box::leak(members.into_boxed_slice()),
+        instanceof_predicate: class.instanceof_predicate.as_deref().map(leak_str),
     }))
 }
 

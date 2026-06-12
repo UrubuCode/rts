@@ -144,6 +144,7 @@ pub fn register_weakmap_class_spec(e: &mut Engine) {
             __RTS_FN_GL_WEAKMAP_DELETE as *const u8,
             false,
         ))
+        .instanceof_predicate("__RTS_FN_NS_GC_IS_MAP_LIKE")
         .done();
 }
 
