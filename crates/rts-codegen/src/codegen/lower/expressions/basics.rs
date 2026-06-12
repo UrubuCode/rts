@@ -429,15 +429,6 @@ fn lower_typeof(ctx: &mut FnCtx, operand: &Expr) -> Result<TypedVal> {
     if matches!(operand, Expr::Fn(_) | Expr::Arrow(_) | Expr::Class(_)) {
         return ctx.emit_str_handle(b"function");
     }
-    if let Expr::Call(c) = operand {
-        if let swc_ecma_ast::Callee::Expr(callee) = &c.callee {
-            if let Expr::Ident(id) = callee.as_ref() {
-                if id.sym.as_ref() == "Symbol" {
-                    return ctx.emit_str_handle(b"symbol");
-                }
-            }
-        }
-    }
     // (cross-runtime #1079) `typeof globalThis.X` — classifica X como se fosse
     // ident solo. Cobre globalThis.Math/JSON/Promise/Array/parseInt/isNaN/etc.
     if let Expr::Member(m) = operand {
