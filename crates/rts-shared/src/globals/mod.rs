@@ -8,7 +8,7 @@ pub mod symbol;
 // boolean → PRIMORDIAL: movido p/ `rts-primitives` (Fase 2). Re-exportado pela
 // fachada `rts-runtime::namespaces::globals::boolean`.
 pub mod bigint;
-pub mod number;
+// number → PRIMORDIAL: movido p/ `rts-primitives` (Fase 2).
 pub mod url;
 pub mod weakmap;
 pub mod weakset;

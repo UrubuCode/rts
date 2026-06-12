@@ -9,3 +9,4 @@
 //! `rts-engine` (universal/wasm-safe).
 
 pub mod boolean;
+pub mod number;
