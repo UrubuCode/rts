@@ -170,9 +170,16 @@ map`, both non-primordial in `rts-shared`; moving would cycle primitives↔share
 needs an extern/hook indirection first); Object spec (none exists — Object is
 primordial so the engine MAY name it directly, hence creating a spec + rewiring
 ~20 hardcoded sites is uniformity churn with regression risk and no doctrine
-gain; lowest priority); `jit.rs` `add_fn!`→registry collapse (only feasible for
-primordials whose impl is co-located in primitives — Boolean/Number/String/
-Error; Array/Promise impls live downstream so their `add_fn!` stays). The facade
+gain; lowest priority); `jit.rs` `add_fn!`→registry collapse (**attempted +
+reverted** — proven unsafe: `runtime_jit_symbols()` reads `jit_symbols`, which
+is populated lazily by `registry()`/`leak_class`. In `rts test` the registry is
+built before JIT finalize so the symbols resolve, but in `rts run` it is NOT yet
+built → `runtime_jit_symbols()` is empty → `can't resolve symbol __RTS_FN_GL_
+BOOLEAN_COERCE` crash. The suite did NOT catch this — a coverage gap between the
+`test` and `run` JIT paths. The manual `add_fn!` is load-bearing because it runs
+unconditionally at JIT-build time. Prerequisite: force `registry()` init before
+JIT symbol registration in ALL paths; until then the collapse stays. Zero
+functional benefit, so low priority). The facade
 (`rts-runtime`) re-exports `rts_primitives::*`; codegen reads via the facade
 unchanged. `rts-shared` keeps the non-primordial universal surface.
 
