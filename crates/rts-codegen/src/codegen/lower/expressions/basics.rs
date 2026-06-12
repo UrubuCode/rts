@@ -341,7 +341,7 @@ pub(super) fn try_class_to_primitive(
     let has = ctx
         .classes
         .get(&cls)
-        .map(|m| m.methods.iter().any(|x| x == "Symbol.toPrimitive"))
+        .map(|m| m.methods.iter().any(|x| x == "__rts_wk_toPrimitive"))
         .unwrap_or(false);
     if !has {
         return Ok(None);
@@ -364,7 +364,7 @@ pub(super) fn try_class_to_primitive(
         type_args: None,
     };
     let tv = crate::codegen::lower::expressions::calls::lower_class_method_call_with_recv(
-        ctx, &cls, "Symbol.toPrimitive", recv, &synth,
+        ctx, &cls, "__rts_wk_toPrimitive", recv, &synth,
     )?;
     Ok(Some(tv))
 }

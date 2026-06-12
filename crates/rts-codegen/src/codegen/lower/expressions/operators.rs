@@ -2209,12 +2209,12 @@ fn lower_instanceof(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     let has_instance = ctx
         .classes
         .get(&class_name)
-        .map(|meta| meta.static_methods.iter().any(|m| m == "Symbol.hasInstance"))
+        .map(|meta| meta.static_methods.iter().any(|m| m == "__rts_wk_hasInstance"))
         .unwrap_or(false);
     if has_instance {
         let fn_name = crate::codegen::lower::compile::class::class_static_method_name(
             &class_name,
-            "Symbol.hasInstance",
+            "__rts_wk_hasInstance",
         );
         let call = swc_ecma_ast::CallExpr {
             span: bin.span,

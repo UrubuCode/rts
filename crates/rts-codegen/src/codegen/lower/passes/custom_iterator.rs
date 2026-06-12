@@ -42,6 +42,19 @@ use crate::parser::ast::{ClassMember, Item, Program, Statement};
 const SYM_ITER_SRC: &str = "Symbol.iterator";
 const SYM_ITER_DST: &str = "__rts_sym_iterator";
 
+/// Mapeia um nome de membro de classe `[Symbol.<wk>]` (parseado como texto
+/// `"Symbol.<wk>"`) para o nome interno `__rts_wk_<wk>` que o motor usa no lugar
+/// de citar "Symbol.*". Drena os well-known symbols do motor (a classe Symbol em
+/// si segue no Registry). `iterator` tem o seu próprio canal (`__rts_sym_iterator`).
+fn well_known_internal_name(name: &str) -> Option<String> {
+    let wk = name.strip_prefix("Symbol.")?;
+    match wk {
+        "toPrimitive" => Some("__rts_wk_toPrimitive".to_string()),
+        "hasInstance" => Some("__rts_wk_hasInstance".to_string()),
+        _ => None,
+    }
+}
+
 thread_local! {
     /// (#216/#271) Classes com `[Symbol.iterator]` (renomeado p/
     /// `__rts_sym_iterator`). Consultado pelo codegen de `Array.from`/spread.
@@ -234,6 +247,12 @@ pub(crate) fn desugar_custom_iterators(program: &mut Program) {
                                 promote_iter_object(stmt, &method_locals);
                             }
                         }
+                    } else if let Some(internal) = well_known_internal_name(&m.name) {
+                        // Drena well-known symbol do MOTOR: renomeia o membro de
+                        // classe p/ um nome interno `__rts_wk_*` ANTES da síntese,
+                        // então `meta.methods`/`static_methods` carregam o nome
+                        // interno e o engine não precisa citar "Symbol.*".
+                        m.name = internal;
                     }
                 }
             }
