@@ -1231,8 +1231,14 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
     // receiver_class fica como "Map"/"Set" mas o dispatch de .size precisa
     // ir pelo handle_len generico (igual handles sem class). Trata como
     // None para esse fim.
+    // Classes handle-backed (Map/Set/Array) tratam `.size`/`.length` pelo
+    // caminho genérico de handle-length (HANDLE_LEN/UNIVERSAL_LENGTH detecta o
+    // Entry — Map/Vec/String — em runtime). Sem isto, taguear a var como
+    // instância da classe global (`global_class_ty`, ex: `const x = new
+    // Array(n)`) faria `.length` cair no MAP_GET("length")=0. Chaves de classe
+    // primária, sem lógica per-método.
     let rc_for_size = match receiver_class.as_deref() {
-        Some("Map") | Some("Set") => None,
+        Some("Map") | Some("Set") | Some("Array") => None,
         other => other,
     };
     // (#json-bridge) Tambem cobre U64 (handle opaco de extern call,

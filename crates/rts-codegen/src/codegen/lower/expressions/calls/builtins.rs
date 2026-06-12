@@ -734,20 +734,7 @@ pub(super) fn lower_array_builtin(
             let v = ctx.builder.inst_results(inst)[0];
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
-        "pop" => {
-            // JS: retorna ultimo elemento ou `undefined`. Runtime aloca
-            // handle "undefined" em vazio. Marca como ambiguo para que
-            // template literal/console formate corretamente.
-            let pop_fn = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_VEC_POP",
-                &[cl::I64],
-                Some(cl::I64),
-            )?;
-            let inst = ctx.builder.ins().call(pop_fn, &[obj_h]);
-            let v = ctx.builder.inst_results(inst)[0];
-            ctx.var_member_call_values.insert(v);
-            Ok(Some(TypedVal::new(v, ValTy::I64)))
-        }
+        // pop/shift drenados → classe global "Array" (retorno AMBIGUOUS_RET).
         "length" | "size" => {
             // length/size sao property em JS, mas v0 aceita como method call
             // (`arr.length()`) ate ter property access em handles.
@@ -881,9 +868,10 @@ pub(super) fn lower_array_builtin(
             let ty = if method == "includes" { ValTy::Bool } else { ValTy::I64 };
             Ok(Some(TypedVal::new(v, ty)))
         }
-        "reverse" | "flat" => {
+        // reverse drenado → classe global "Array". flat fica (overload de depth).
+        "flat" => {
             // flat(depth) com 1 arg: usa VEC_FLAT_DEPTH.
-            if method == "flat" && call.args.len() == 1 && call.args[0].spread.is_none() {
+            if call.args.len() == 1 && call.args[0].spread.is_none() {
                 let d_tv = lower_expr(ctx, &call.args[0].expr)?;
                 let depth = ctx.coerce_to_i64(d_tv).val;
                 let fref = ctx.get_extern(
@@ -895,29 +883,14 @@ pub(super) fn lower_array_builtin(
                 let v = ctx.builder.inst_results(inst)[0];
                 return Ok(Some(TypedVal::new(v, ValTy::Handle)));
             }
-            if !call.args.is_empty() && method == "reverse" {
-                return Ok(None);
-            }
-            let sym = match method {
-                "reverse" => "__RTS_FN_NS_COLLECTIONS_VEC_REVERSE",
-                _ => "__RTS_FN_NS_COLLECTIONS_VEC_FLAT",
-            };
-            let fref = ctx.get_extern(sym, &[cl::I64], Some(cl::I64))?;
-            let inst = ctx.builder.ins().call(fref, &[obj_h]);
-            let v = ctx.builder.inst_results(inst)[0];
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
-        "shift" => {
             let fref = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_VEC_SHIFT",
+                "__RTS_FN_NS_COLLECTIONS_VEC_FLAT",
                 &[cl::I64],
                 Some(cl::I64),
             )?;
             let inst = ctx.builder.ins().call(fref, &[obj_h]);
             let v = ctx.builder.inst_results(inst)[0];
-            // Mesma marca de POP (handle "undefined" em vazio).
-            ctx.var_member_call_values.insert(v);
-            Ok(Some(TypedVal::new(v, ValTy::I64)))
+            Ok(Some(TypedVal::new(v, ValTy::Handle)))
         }
         "unshift" => {
             // JS spec: \`arr.unshift(a, b, c)\` resulta em \`[a, b, c, ...arr]\`.
@@ -1323,16 +1296,7 @@ pub(super) fn lower_array_builtin(
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
         // (#208 ES2023) Immutable variants.
-        "toReversed" if call.args.is_empty() => {
-            let f = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_VEC_TO_REVERSED",
-                &[cl::I64],
-                Some(cl::I64),
-            )?;
-            let inst = ctx.builder.ins().call(f, &[obj_h]);
-            let v = ctx.builder.inst_results(inst)[0];
-            return Ok(Some(TypedVal::new(v, ValTy::Handle)));
-        }
+        // toReversed drenado → classe global "Array".
         "toSorted" => {
             let fn_ptr = if let Some(arg) = call.args.first() {
                 if arg.spread.is_some() { return Ok(None); }
@@ -1420,36 +1384,7 @@ pub(super) fn lower_array_builtin(
             return Ok(Some(TypedVal::new(v, ValTy::Handle)));
         }
         // (#208) Iterators eager: values()/keys()/entries().
-        "values" if call.args.is_empty() => {
-            let f = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_VEC_VALUES",
-                &[cl::I64],
-                Some(cl::I64),
-            )?;
-            let inst = ctx.builder.ins().call(f, &[obj_h]);
-            let v = ctx.builder.inst_results(inst)[0];
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
-        "keys" if call.args.is_empty() => {
-            let f = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_VEC_KEYS",
-                &[cl::I64],
-                Some(cl::I64),
-            )?;
-            let inst = ctx.builder.ins().call(f, &[obj_h]);
-            let v = ctx.builder.inst_results(inst)[0];
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
-        "entries" if call.args.is_empty() => {
-            let f = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_VEC_ENTRIES",
-                &[cl::I64],
-                Some(cl::I64),
-            )?;
-            let inst = ctx.builder.ins().call(f, &[obj_h]);
-            let v = ctx.builder.inst_results(inst)[0];
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
+        // values/keys/entries drenados → classe global "Array".
         "flatMap" => {
             if call.args.len() != 1 || call.args[0].spread.is_some() {
                 return Ok(None);
@@ -1475,7 +1410,16 @@ pub(super) fn lower_array_builtin(
             let v = ctx.builder.inst_results(inst)[0];
             Ok(Some(TypedVal::new(v, ValTy::Handle)))
         }
-        _ => Ok(None),
+        // Fallback genérico: métodos limpos recv-only (pop/shift/reverse/
+        // toReversed/values/keys/entries) resolvem pela classe global "Array"
+        // no Registry, sem braço hardcoded.
+        _ => super::ns_call::try_global_class_instance_method(
+            ctx,
+            "Array",
+            method,
+            TypedVal::new(obj_h, ValTy::Handle),
+            call,
+        ),
     }
 }
 
