@@ -210,36 +210,6 @@ pub(super) fn lower_string_builtin(
             }
             Ok(Some(TypedVal::new(acc, ValTy::Handle)))
         }
-        "split" => {
-            use swc_ecma_ast::{Expr, Lit};
-            let is_regex_arg = call.args.first()
-                .map(|a| matches!(a.expr.as_ref(), Expr::Lit(Lit::Regex(_))))
-                .unwrap_or(false);
-            if is_regex_arg {
-                let regex_h = arg_handle(ctx, call, 0)?;
-                if call.args.len() >= 2 {
-                    let limit = arg_i64(ctx, call, 1)?;
-                    let v = call_h!("__RTS_FN_GL_STRING_SPLIT_REGEX_LIMIT", &[cl::I64, cl::I64, cl::I64], Some(cl::I64), &[recv_h, regex_h, limit]);
-                    return Ok(Some(TypedVal::new(v, ValTy::Handle)));
-                }
-                let v = call_h!("__RTS_FN_GL_STRING_SPLIT_REGEX", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, regex_h]);
-                return Ok(Some(TypedVal::new(v, ValTy::Handle)));
-            }
-            let sep = arg_handle(ctx, call, 0)?;
-            // (#208) split(sep, limit?) — limit truncamento opcional.
-            if call.args.len() >= 2 {
-                let limit = arg_i64(ctx, call, 1)?;
-                let v = call_h!(
-                    "__RTS_FN_GL_STRING_SPLIT_LIMIT",
-                    &[cl::I64, cl::I64, cl::I64],
-                    Some(cl::I64),
-                    &[recv_h, sep, limit]
-                );
-                return Ok(Some(TypedVal::new(v, ValTy::Handle)));
-            }
-            let v = call_h!("__RTS_FN_GL_STRING_SPLIT", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, sep]);
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
         // (#208) `s.match(pattern)` — primeiro match, retorna string handle ou 0.
         // Detecta se pattern eh regex literal (Expr::Regex) e usa
         // STRING_MATCH_REGEX que aceita Entry::Regex handle direto.

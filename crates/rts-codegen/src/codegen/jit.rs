@@ -1999,6 +1999,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_STRING_PAD_END",          rt::__RTS_FN_GL_STRING_PAD_END);
     add_fn!("__RTS_FN_GL_STRING_SPLIT",            rt::__RTS_FN_GL_STRING_SPLIT);
     add_fn!("__RTS_FN_GL_STRING_SPLIT_LIMIT",      rt::__RTS_FN_GL_STRING_SPLIT_LIMIT);
+    add_fn!("__RTS_FN_GL_STRING_SPLIT_AUTO",       rt::__RTS_FN_GL_STRING_SPLIT_AUTO);
     add_fn!("__RTS_FN_GL_STRING_STARTS_WITH_AT",   rt::__RTS_FN_GL_STRING_STARTS_WITH_AT);
     add_fn!("__RTS_FN_GL_STRING_ENDS_WITH_AT",     rt::__RTS_FN_GL_STRING_ENDS_WITH_AT);
     add_fn!("__RTS_FN_GL_STRING_LOCALE_COMPARE",   rt::__RTS_FN_GL_STRING_LOCALE_COMPARE);

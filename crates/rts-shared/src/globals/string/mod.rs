@@ -559,10 +559,17 @@ pub fn register_string_class_spec(e: &mut Engine) {
         .member(m(
             "split",
             MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle),
-            "__RTS_FN_GL_STRING_SPLIT",
-            "split(sep: string): string[]",
-            "str.split(sep) — Vec handle of string handles.",
+            // sep string OU regex (o runtime SPLIT_AUTO inspeciona o handle);
+            // limit? = i64::MAX (sem limite). Dispatch por tipo-de-arg movido
+            // pro runtime (rts-shared) — codegen chama UM símbolo genérico.
+            Sig::with_defaults(
+                vec![AbiType::Handle, AbiType::Handle, AbiType::I64],
+                AbiType::Handle,
+                vec![DefaultArg::Required, DefaultArg::Required, DefaultArg::Int(i64::MAX)],
+            ),
+            "__RTS_FN_GL_STRING_SPLIT_AUTO",
+            "split(sep: string | RegExp, limit?: number): string[]",
+            "str.split(sep, limit) — sep string ou regex (dispatch no runtime).",
             true,
         ))
         .member(m(

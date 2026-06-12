@@ -570,6 +570,22 @@ pub extern "C" fn __RTS_FN_GL_STRING_SPLIT_LIMIT(recv: u64, sep: u64, limit: i64
     vec_h
 }
 
+/// `str.split(sep, limit)` GENÉRICO — o codegen chama UM símbolo; o dispatch por
+/// TIPO do separador (regex vs string) vive aqui no runtime (rts-shared), não no
+/// codegen. Inspeciona o handle `sep`: `Entry::Regex` → split por regex; senão
+/// → split por string. `limit` default i64::MAX = "sem limite" (take-all). É o
+/// padrão `_AUTO` que substitui o `match` por tipo-de-arg hardcoded no codegen.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_STRING_SPLIT_AUTO(recv: u64, sep: u64, limit: i64) -> u64 {
+    use rts_engine::heap::handles::{with_entry, Entry};
+    let is_regex = with_entry(sep, |e| matches!(e, Some(Entry::Regex(_))));
+    if is_regex {
+        crate::globals::string::search::__RTS_FN_GL_STRING_SPLIT_REGEX_LIMIT(recv, sep, limit)
+    } else {
+        __RTS_FN_GL_STRING_SPLIT_LIMIT(recv, sep, limit)
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_LOCALE_COMPARE(recv: u64, other: u64) -> i64 {
     use std::cmp::Ordering;
