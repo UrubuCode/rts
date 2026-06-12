@@ -170,16 +170,19 @@ map`, both non-primordial in `rts-shared`; moving would cycle primitives↔share
 needs an extern/hook indirection first); Object spec (none exists — Object is
 primordial so the engine MAY name it directly, hence creating a spec + rewiring
 ~20 hardcoded sites is uniformity churn with regression risk and no doctrine
-gain; lowest priority); `jit.rs` `add_fn!`→registry collapse (**attempted +
-reverted** — proven unsafe: `runtime_jit_symbols()` reads `jit_symbols`, which
-is populated lazily by `registry()`/`leak_class`. In `rts test` the registry is
-built before JIT finalize so the symbols resolve, but in `rts run` it is NOT yet
-built → `runtime_jit_symbols()` is empty → `can't resolve symbol __RTS_FN_GL_
-BOOLEAN_COERCE` crash. The suite did NOT catch this — a coverage gap between the
-`test` and `run` JIT paths. The manual `add_fn!` is load-bearing because it runs
-unconditionally at JIT-build time. Prerequisite: force `registry()` init before
-JIT symbol registration in ALL paths; until then the collapse stays. Zero
-functional benefit, so low priority). The facade
+gain; lowest priority). The `jit.rs` `add_fn!`→registry collapse is **partially
+done** (Fase 2.8, commit 2216ba7a): Boolean (5/5) + Number (13/15) manual
+`add_fn!` removed — their primordial specs carry non-null `fn_ptr`, so
+`leak_class` records them in `jit_symbols` and `runtime_jit_symbols()` injects
+them. The enabling fix was `abi::ensure_registry_init()`, called at the top of
+`register_runtime_symbols` (jit.rs): the registry is lazy, and in the `rts run`
+path it was not yet built at JIT finalize, so `runtime_jit_symbols()` came back
+empty and `run` crashed (`can't resolve __RTS_FN_GL_BOOLEAN_COERCE`) while the
+`test` suite passed — a coverage gap. **Lesson: smoke `rts run` AND the suite on
+any JIT-symbol change.** Number's `NEW_EMPTY`/`BOX_VALUE_OF` keep manual
+`add_fn!` (no member with own `fn_ptr`). String stays external (fn_ptr null by
+design); Error is mixed — remaining collapse is per-symbol audit, low priority.
+The facade
 (`rts-runtime`) re-exports `rts_primitives::*`; codegen reads via the facade
 unchanged. `rts-shared` keeps the non-primordial universal surface.
 
