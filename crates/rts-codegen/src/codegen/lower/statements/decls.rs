@@ -758,11 +758,9 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
                         if ctx.classes.contains_key(&cn)
                             || crate::abi::global_class_lookup(&cn).is_some()
                         {
-                            ctx.local_class_ty.insert(name.clone(), cn.clone());
-                        } else if cn == "Map" || cn == "Set" {
-                            // (#222) Map/Set nao estao em GLOBAL_CLASS_SPECS
-                            // (sao codegen-only via collections.map_*) mas
-                            // for-of precisa saber para usar MAP_ENTRIES_INSERTION.
+                            // Map/Set/WeakMap/WeakSet/RegExp/Date/... agora são
+                            // classes registradas → tag genérica pelo Registry,
+                            // sem braço nomeado (Map/Set entraram via B0).
                             ctx.local_class_ty.insert(name.clone(), cn.clone());
                         } else if cn == "ArrayBuffer" || cn == "SharedArrayBuffer" {
                             // (#69) ArrayBuffer/SharedArrayBuffer nao estao em
