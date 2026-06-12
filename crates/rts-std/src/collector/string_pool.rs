@@ -244,6 +244,15 @@ pub extern "C" fn __RTS_FN_RT_TPL_COERCE_NUM_BIAS(value: i64) -> u64 {
 
 fn coerce_auto_inner(value: i64) -> u64 {
     let h = value as u64;
+    // (narrow-storage) float primitivo boxed → string do número (coerção
+    // String()/template/console). Antes de snapshot p/ não cair em
+    // "[object Object]".
+    if let Some(s) = with_entry(h, |e| match e {
+        Some(Entry::FloatPrim(f)) => Some(format_js_number(*f)),
+        _ => None,
+    }) {
+        return alloc_entry(Entry::String(s.into_bytes()));
+    }
     let snap = snapshot_entry(h);
     coerce_auto_inner_with_snap(value, snap)
 }
@@ -599,6 +608,8 @@ pub extern "C" fn __RTS_FN_RT_TYPEOF_HANDLE(handle: u64) -> u64 {
         Some(Entry::BooleanBox(_)) => "object",
         Some(Entry::StringBox(_)) => "object",
         Some(Entry::NumberBox(_)) => "object",
+        // (narrow-storage) float primitivo boxed = número primitivo.
+        Some(Entry::FloatPrim(_)) => "number",
         Some(Entry::Vec(_)) | Some(Entry::Map(_)) | Some(Entry::Buffer(_))
         | Some(Entry::Json(_)) | Some(Entry::DateMs(_))
         | Some(Entry::PromiseAsync(_)) | Some(Entry::Promise(_)) => "object",
@@ -678,6 +689,8 @@ pub extern "C" fn __RTS_FN_RT_TO_STRING_HANDLE(handle: u64) -> u64 {
                     let name = if d.name.is_empty() { "anonymous" } else { &*d.name };
                     Some(format!("function {}() {{ [native code] }}", name))
                 }
+                // (narrow-storage) float primitivo boxed → string do número.
+                Some(Entry::FloatPrim(f)) => Some(format_js_number(*f)),
                 _ => None,
             });
             match special {
@@ -723,6 +736,8 @@ enum EntrySnap {
     Map,
     Buffer,
     Json(String),
+    // (narrow-storage) float primitivo boxed → coage como número.
+    Float(f64),
     Other(&'static str),
     None,
 }
@@ -734,6 +749,7 @@ fn snapshot_entry(h: u64) -> EntrySnap {
         Some(Entry::Map(_)) => EntrySnap::Map,
         Some(Entry::Buffer(_)) => EntrySnap::Buffer,
         Some(Entry::Json(j)) => EntrySnap::Json(j.to_string()),
+        Some(Entry::FloatPrim(f)) => EntrySnap::Float(*f),
         Some(other) => EntrySnap::Other(entry_kind_name(other)),
         None => EntrySnap::None,
     })
@@ -746,6 +762,7 @@ fn snapshot_to_bytes(s: &EntrySnap) -> Vec<u8> {
             let parts: Vec<String> = slots.iter().map(|x| element_to_string(*x)).collect();
             parts.join(",").into_bytes()
         }
+        EntrySnap::Float(f) => format_js_number(*f).into_bytes(),
         EntrySnap::Map => b"[object Object]".to_vec(),
         EntrySnap::Buffer => b"[object Buffer]".to_vec(),
         EntrySnap::Json(j) => j.clone().into_bytes(),
@@ -965,6 +982,13 @@ pub extern "C" fn __RTS_FN_RT_INSPECT(value: i64) -> u64 {
         return alloc_entry(Entry::String(b"null".to_vec()));
     }
     let h = value as u64;
+    // (narrow-storage) float primitivo boxed → formata como número.
+    if let Some(s) = with_entry(h, |e| match e {
+        Some(Entry::FloatPrim(f)) => Some(format_js_number(*f)),
+        _ => None,
+    }) {
+        return alloc_entry(Entry::String(s.into_bytes()));
+    }
     let snap = snapshot_entry(h);
     match snap {
         EntrySnap::Str(_) => h,
@@ -978,11 +1002,44 @@ pub extern "C" fn __RTS_FN_RT_INSPECT(value: i64) -> u64 {
     }
 }
 
+/// (narrow-storage) Boxa um float PRIMITIVO num `Entry::FloatPrim` e devolve o
+/// handle. Usado quando um float entra num container heterogêneo (valor de Map)
+/// onde o i64 inline não distingue bits-f64 de int/handle. O read-back
+/// (INSPECT/typeof/===/arith) desembrulha como número primitivo.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_FLOAT_BOX(value: f64) -> u64 {
+    alloc_entry(Entry::FloatPrim(value))
+}
+
+/// (narrow-storage) Se `handle` é `Entry::FloatPrim`, escreve o f64 em `*out` e
+/// devolve 1; senão devolve 0 (`*out` intocado). Usado por ===/aritmética p/
+/// desembrulhar operandos boxed.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_FLOAT_UNBOX(handle: u64, out: *mut f64) -> i64 {
+    match with_entry(handle, |e| match e {
+        Some(Entry::FloatPrim(f)) => Some(*f),
+        _ => None,
+    }) {
+        Some(f) => {
+            unsafe { *out = f };
+            1
+        }
+        None => 0,
+    }
+}
+
 const INSPECT_MAX_DEPTH: usize = 6;
 
 fn inspect_handle(h: u64, depth: usize) -> String {
     if depth >= INSPECT_MAX_DEPTH {
         return "[Object]".to_string();
+    }
+    // (narrow-storage) float primitivo boxed → formata como número (sem aspas).
+    if let Some(s) = with_entry(h, |e| match e {
+        Some(Entry::FloatPrim(f)) => Some(format_js_number(*f)),
+        _ => None,
+    }) {
+        return s;
     }
     enum R {
         Str(Vec<u8>),

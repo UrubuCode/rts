@@ -127,15 +127,17 @@ pub(super) fn lower_map_set_builtin(
                 .args
                 .get(1)
                 .ok_or_else(|| anyhow!("Map.set requires value"))?;
-            // (#1275) value float fracionario literal -> bits f64.
-            let val_is_frac = super::super::members::expr_is_frac_float_lit(&val_arg.expr);
+            // (narrow-storage) value FLOAT (qualquer, não só literal) → boxa em
+            // Entry::FloatPrim e armazena o handle. O read-back (get + INSPECT/
+            // typeof/===/arith) desembrulha como número primitivo. Ints/handles
+            // seguem inline como i64 (containers heterogêneos: int barato, float
+            // boxed, sem corromper nenhum). Substitui o hack de bits-frac-literal.
             let val_tv = lower_expr(ctx, &val_arg.expr)?;
-            let val_i64 = if matches!(val_tv.ty, ValTy::F64) && val_is_frac {
-                ctx.builder.ins().bitcast(
-                    cl::I64,
-                    cranelift_codegen::ir::MemFlags::new(),
-                    val_tv.val,
-                )
+            let val_i64 = if matches!(val_tv.ty, ValTy::F64) {
+                let box_fn =
+                    ctx.get_extern("__RTS_FN_RT_FLOAT_BOX", &[cl::F64], Some(cl::I64))?;
+                let inst = ctx.builder.ins().call(box_fn, &[val_tv.val]);
+                ctx.builder.inst_results(inst)[0]
             } else {
                 ctx.coerce_to_i64(val_tv).val
             };

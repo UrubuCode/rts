@@ -482,6 +482,14 @@ pub enum Entry {
     /// recovers the underlying number. `Number(x)` (no `new`) keeps
     /// primitive path.
     NumberBox(f64),
+    /// (narrow-storage) Float PRIMITIVO armazenado num container heterogêneo
+    /// (valor de Map, etc.). Diferente de `NumberBox` (que é `new Number(x)`,
+    /// `typeof` "object"): `FloatPrim` é um número primitivo cujo bits f64 não
+    /// cabem no i64 do container sem ambiguidade — então é boxed e o read-back
+    /// (typeof/===/arith/INSPECT) o desembrulha como NÚMERO primitivo. Resolve a
+    /// type-erasure de containers heterogêneos sem corromper ints (que seguem
+    /// armazenados inline como i64).
+    FloatPrim(f64),
     /// (#289) `Headers` instance — multimap case-insensitive key -> list
     /// of values. Headers.get junta com ", "; getSetCookie retorna a lista
     /// raw de "set-cookie" sem juntar.
