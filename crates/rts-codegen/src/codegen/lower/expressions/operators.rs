@@ -2237,10 +2237,9 @@ fn lower_instanceof(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     // → Map com __rts_class. String/Number/Boolean → primitives sao falsy.
     if !ctx.classes.contains_key(&class_name) {
         let known_global = crate::abi::global_class_lookup(&class_name).is_some()
-            // "Object" é primordial sem spec registrada; "Set" é transitório
-            // (classe ainda não registrada — Grupo B). Array/Map/Boolean/Function
-            // resolvem por global_class_lookup (já registradas).
-            || matches!(class_name.as_str(), "Object" | "Set");
+            // "Object" é primordial sem spec registrada. As demais classes
+            // globais (incl. Map/Set/Array) resolvem por global_class_lookup.
+            || class_name.as_str() == "Object";
         if known_global {
             return lower_global_instanceof(ctx, &class_name, &bin.left);
         }
@@ -2439,10 +2438,6 @@ fn lower_global_instanceof(
         "Array" => "__RTS_FN_NS_GC_IS_VEC",
         "Function" => "__RTS_FN_NS_GC_IS_MAP_LIKE",
         "Promise" => "__RTS_FN_NS_GC_IS_PROMISE",
-        // TRANSITÓRIO (Grupo B): a classe Set ainda não está registrada no
-        // Registry. Quando a spec Set ganhar `instanceof_predicate`, este braço
-        // cai pelo caminho genérico acima e é removido.
-        "Set" => "__RTS_FN_NS_GC_IS_MAP_LIKE",
         // String/Number/Boolean (primordiais): instância handle nunca casa um
         // wrapper primitivo. As demais (Symbol etc.) caem no `_` = false.
         "String" | "Number" | "Boolean" => {

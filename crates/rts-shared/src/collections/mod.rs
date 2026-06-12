@@ -56,23 +56,39 @@ pub fn register_mapset_class_spec(e: &mut rts_engine::Engine) {
             intrinsic: None,
         }
     }
-    e.class("Map")
-        .doc("Map/Set — métodos sem chave (clear/size/keys/values/entries + set-ops).")
-        .member(m("clear", Sig::new(vec![AbiType::Handle], AbiType::Void), "__RTS_FN_NS_COLLECTIONS_MAP_CLEAR"))
-        .member(m("size", Sig::new(vec![AbiType::Handle], AbiType::I64), "__RTS_FN_NS_COLLECTIONS_MAP_LEN"))
-        .member(m("keys", Sig::new(vec![AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_MAP_KEYS"))
-        .member(m("values", Sig::new(vec![AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_MAP_VALUES"))
-        .member(m("entries", Sig::new(vec![AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION"))
-        .member(m("union", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_SET_UNION"))
-        .member(m("intersection", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_SET_INTERSECTION"))
-        .member(m("difference", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_SET_DIFFERENCE"))
-        .member(m("symmetricDifference", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_SET_SYMMETRIC_DIFFERENCE"))
-        .member(m("isSubsetOf", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool), "__RTS_FN_NS_COLLECTIONS_SET_IS_SUBSET"))
-        .member(m("isSupersetOf", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool), "__RTS_FN_NS_COLLECTIONS_SET_IS_SUPERSET"))
-        .member(m("isDisjointFrom", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool), "__RTS_FN_NS_COLLECTIONS_SET_IS_DISJOINT"))
-        // `x instanceof Map` resolvido pelo Registry (sem nomear Map no motor).
-        .instanceof_predicate("__RTS_FN_NS_GC_IS_MAP_LIKE")
-        .done();
+    // Membros LIMPOS (sem chave) compartilhados por Map E Set — o receiver é o
+    // mesmo handle e os símbolos __RTS_FN_NS_COLLECTIONS_* tratam ambos.
+    let members = || -> Vec<Member> {
+        vec![
+            m("clear", Sig::new(vec![AbiType::Handle], AbiType::Void), "__RTS_FN_NS_COLLECTIONS_MAP_CLEAR"),
+            m("size", Sig::new(vec![AbiType::Handle], AbiType::I64), "__RTS_FN_NS_COLLECTIONS_MAP_LEN"),
+            m("keys", Sig::new(vec![AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_MAP_KEYS"),
+            m("values", Sig::new(vec![AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_MAP_VALUES"),
+            m("entries", Sig::new(vec![AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION"),
+            m("union", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_SET_UNION"),
+            m("intersection", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_SET_INTERSECTION"),
+            m("difference", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_SET_DIFFERENCE"),
+            m("symmetricDifference", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_SET_SYMMETRIC_DIFFERENCE"),
+            m("isSubsetOf", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool), "__RTS_FN_NS_COLLECTIONS_SET_IS_SUBSET"),
+            m("isSupersetOf", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool), "__RTS_FN_NS_COLLECTIONS_SET_IS_SUPERSET"),
+            m("isDisjointFrom", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool), "__RTS_FN_NS_COLLECTIONS_SET_IS_DISJOINT"),
+        ]
+    };
+    // Map e Set são classes DISTINTAS no Registry (instanceof, dispatch), mas
+    // partilham os símbolos runtime. Métodos com chave (set/get/has/delete/add/
+    // forEach) seguem no builtin até terem runtime handle-based (Grupo B). O
+    // `instanceof_predicate` resolve `x instanceof Map|Set` sem nomear no motor;
+    // registrar "Set" também destrava o dispatch de método via Registry.
+    for class_name in ["Map", "Set"] {
+        let mut b = e
+            .class(class_name)
+            .doc("Map/Set — métodos sem chave (clear/size/keys/values/entries + set-ops).")
+            .instanceof_predicate("__RTS_FN_NS_GC_IS_MAP_LIKE");
+        for mem in members() {
+            b = b.member(mem);
+        }
+        b.done();
+    }
 }
 
 /// Registra a classe global `Array` (receiver = handle de Vec). Só os métodos
