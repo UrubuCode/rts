@@ -750,42 +750,8 @@ pub(super) fn lower_array_builtin(
             let v = ctx.builder.inst_results(inst)[0];
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
-        "at" => {
-            use cranelift_codegen::ir::condcodes::IntCC;
-            let idx_arg = call.args.first().ok_or_else(|| anyhow!("at requires index"))?;
-            let tv = lower_expr(ctx, &idx_arg.expr)?;
-            let idx = ctx.coerce_to_i64(tv).val;
-            // Negative indexing: idx = len + idx quando idx < 0.
-            let len_fn = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_VEC_LEN",
-                &[cl::I64],
-                Some(cl::I64),
-            )?;
-            let len_inst = ctx.builder.ins().call(len_fn, &[obj_h]);
-            let len = ctx.builder.inst_results(len_inst)[0];
-            let zero = ctx.builder.ins().iconst(cl::I64, 0);
-            let is_neg = ctx.builder.ins().icmp(IntCC::SignedLessThan, idx, zero);
-            let adjusted = ctx.builder.ins().iadd(len, idx);
-            let final_idx = ctx.builder.ins().select(is_neg, adjusted, idx);
-            let get_fn = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_VEC_GET",
-                &[cl::I64, cl::I64],
-                Some(cl::I64),
-            )?;
-            let inst = ctx.builder.ins().call(get_fn, &[obj_h, final_idx]);
-            let v = ctx.builder.inst_results(inst)[0];
-            // (cross-runtime #897) OOR (idx<0 ou idx>=len apos ajuste) retorna
-            // undefined; senao retorna o valor cru (i64). Usa o SENTINEL
-            // undefined (i64::MIN+2), nao handle-string, p/ que `?? -1` e
-            // `=== undefined` funcionem. TPL_COERCE_AUTO formata o sentinel.
-            let below = ctx.builder.ins().icmp(IntCC::SignedLessThan, final_idx, zero);
-            let above = ctx.builder.ins().icmp(IntCC::SignedGreaterThanOrEqual, final_idx, len);
-            let oor = ctx.builder.ins().bor(below, above);
-            let undef_s = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
-            let result = ctx.builder.ins().select(oor, undef_s, v);
-            ctx.var_member_call_values.insert(result);
-            Ok(Some(TypedVal::new(result, ValTy::I64)))
-        }
+        // at drenado → classe global "Array" (VEC_AT_AUTO: negative-index +
+        // OOR→undefined no runtime; AMBIGUOUS_RET).
         // join drenado → classe global "Array" (sep? = "," via VEC_JOIN sep=0).
         // clear drenado → classe global "Array" (VEC_CLEAR, retorno void).
         // (#208 / #476) Array methods sem callback — args concretos só.

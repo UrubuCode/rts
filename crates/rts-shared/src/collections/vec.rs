@@ -90,6 +90,23 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_GET(h: U64, index: I64) -> I64 {
     with_vec(h, 0, |v| v.get(index as usize).copied().unwrap_or(0))
 }
 
+/// `arr.at(index)` — index negativo conta do fim (`len + index`); fora de
+/// alcance (após ajuste) devolve o sentinela `undefined` (i64::MIN+2). Move a
+/// lógica de negative-index + OOR do codegen pro runtime, deixando `at`
+/// genérico no Registry (AMBIGUOUS_RET).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_AT_AUTO(h: U64, index: I64) -> I64 {
+    with_vec(h, i64::MIN + 2, |v| {
+        let len = v.len() as i64;
+        let idx = if index < 0 { len + index } else { index };
+        if idx < 0 || idx >= len {
+            i64::MIN + 2
+        } else {
+            v[idx as usize]
+        }
+    })
+}
+
 /// Writes `value` at `index`. No-op out of range.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SET(h: U64, index: I64, value: I64) {

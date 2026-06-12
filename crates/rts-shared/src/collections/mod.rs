@@ -135,6 +135,7 @@ pub fn register_array_class_spec(e: &mut rts_engine::Engine) {
     slice_member.aliases = vec!["subarray".to_string()];
     e.class("Array")
         .doc("Array — métodos sem callback (pop/shift/reverse/toReversed/values/keys/entries/fill/copyWithin/with).")
+        .member(m("at", Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64), "__RTS_FN_NS_COLLECTIONS_VEC_AT_AUTO", MemberFlags::AMBIGUOUS_RET))
         .member(m("pop", amb(), "__RTS_FN_NS_COLLECTIONS_VEC_POP", MemberFlags::AMBIGUOUS_RET))
         .member(m("shift", amb(), "__RTS_FN_NS_COLLECTIONS_VEC_SHIFT", MemberFlags::AMBIGUOUS_RET))
         .member(m("reverse", h(), "__RTS_FN_NS_COLLECTIONS_VEC_REVERSE", MemberFlags::NONE))
