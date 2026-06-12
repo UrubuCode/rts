@@ -218,6 +218,24 @@ fn register_builtins() -> Registry {
         }
         b.done();
     }
+    // `SharedArrayBuffer` = espelho da classe `ArrayBuffer` (single-thread, mesmo
+    // backing store / símbolos). Registrar o espelho deixa o dispatch genérico de
+    // construtor cobrir `new SharedArrayBuffer(n)` — sem o rename hardcoded
+    // `SharedArrayBuffer`→`ArrayBuffer` no codegen (new_expr.rs).
+    let sab_members: Vec<rts_engine::Member> = engine
+        .registry()
+        .class("ArrayBuffer")
+        .map(|c| c.members.clone())
+        .unwrap_or_default();
+    if !sab_members.is_empty() {
+        let mut b = engine
+            .class("SharedArrayBuffer")
+            .doc("SharedArrayBuffer — espelho de ArrayBuffer (single-thread, mesmo backing).");
+        for m in sab_members {
+            b = b.member(m);
+        }
+        b.done();
+    }
     for module in engine.registry().modules() {
         let spec = leak_namespace(module);
         namespaces.insert(spec.name, spec);
