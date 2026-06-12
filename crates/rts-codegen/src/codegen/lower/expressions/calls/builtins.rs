@@ -479,10 +479,8 @@ pub(super) fn lower_string_builtin(
             Ok(Some(TypedVal::new(result, ValTy::Handle)))
         }
         // localeCompare drenado pro Registry (LOCALE_COMPARE idêntico) — fallback.
-        "toString" | "valueOf" => {
-            let v = call_h!("__RTS_FN_GL_STRING_TO_STRING", &[cl::I64], Some(cl::I64), &[recv_h]);
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
+        // toString (→TO_STRING) e valueOf (→ReceiverIdentity) drenados pro
+        // Registry — caem no fallback `_`.
         // toWellFormed drenado pro Registry (TO_WELL_FORMED idêntico) — fallback.
         "normalize" => {
             let form = if call.args.is_empty() {

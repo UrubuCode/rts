@@ -16,7 +16,7 @@ pub mod search;
 pub mod split;
 pub mod transform;
 
-use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+use rts_engine::{AbiType, Engine, FnPtr, Intrinsic, Member, MemberFlags, MemberKind, Sig};
 
 /// Membro de namespace/classe (helper hand-written, espelha a macro). Como
 /// todos os membros aqui são `external`, o `fn_ptr` é sempre null.
@@ -548,15 +548,25 @@ pub fn register_string_class_spec(e: &mut Engine) {
             "str.toString() — identity.",
             true,
         ))
-        .member(m(
-            "valueOf",
-            MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle], AbiType::Handle),
-            "__RTS_FN_GL_STRING_BOX_VALUE_OF",
-            "valueOf(): string",
-            "str.valueOf() — identity para string primitive, unwrap para StringBox.",
-            true,
-        ))
+        .member(Member {
+            name: "valueOf".to_string(),
+            kind: MemberKind::InstanceMethod,
+            // primitivo (string literal/builtin path) → ReceiverIdentity devolve
+            // a própria string; StringBox (var tipada String, Ident path) →
+            // lower_global_instance_call chama BOX_VALUE_OF (unwrap), ignorando o
+            // tag. Mesmo padrão de Number.valueOf.
+            sig: Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            symbol: "__RTS_FN_GL_STRING_BOX_VALUE_OF".to_string(),
+            fn_ptr: FnPtr(core::ptr::null::<u8>()),
+            flags: MemberFlags::NONE,
+            aliases: Vec::new(),
+            variadic: false,
+            ts_signature: "valueOf(): string".to_string(),
+            doc: "str.valueOf() — identity (primitive) / unwrap (StringBox)."
+                .to_string(),
+            pure: true,
+            intrinsic: Some(Intrinsic::ReceiverIdentity),
+        })
         .member(m(
             "isWellFormed",
             MemberKind::InstanceMethod,
