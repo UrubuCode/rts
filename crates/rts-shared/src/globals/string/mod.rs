@@ -277,8 +277,13 @@ pub fn register_string_class_spec(e: &mut Engine) {
         .member(m(
             "lastIndexOf",
             MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::I64),
-            "__RTS_FN_GL_STRING_LAST_INDEX_OF",
+            // from? = i64::MAX (runtime clampa pra length = busca o fim todo).
+            Sig::with_defaults(
+                vec![AbiType::Handle, AbiType::Handle, AbiType::I64],
+                AbiType::I64,
+                vec![DefaultArg::Required, DefaultArg::Required, DefaultArg::Int(i64::MAX)],
+            ),
+            "__RTS_FN_GL_STRING_LAST_INDEX_OF_FROM",
             "lastIndexOf(needle: string): number",
             "str.lastIndexOf(needle) — last occurrence index, or -1.",
             true,
@@ -314,8 +319,13 @@ pub fn register_string_class_spec(e: &mut Engine) {
         .member(m(
             "endsWith",
             MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool),
-            "__RTS_FN_GL_STRING_ENDS_WITH",
+            // endPos? = i64::MAX (runtime clampa pra length = checa o fim).
+            Sig::with_defaults(
+                vec![AbiType::Handle, AbiType::Handle, AbiType::I64],
+                AbiType::Bool,
+                vec![DefaultArg::Required, DefaultArg::Required, DefaultArg::Int(i64::MAX)],
+            ),
+            "__RTS_FN_GL_STRING_ENDS_WITH_AT",
             "endsWith(suffix: string): boolean",
             "str.endsWith(suffix).",
             true,
@@ -659,8 +669,14 @@ pub fn register_string_class_spec(e: &mut Engine) {
         .member(m(
             "normalize",
             MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle], AbiType::Handle),
-            "__RTS_FN_GL_STRING_TO_STRING",
+            // form? = handle 0 (runtime NORMALIZE faz default NFC). Antes o
+            // Registry apontava pro stub TO_STRING (no-op) — divergia do codegen.
+            Sig::with_defaults(
+                vec![AbiType::Handle, AbiType::Handle],
+                AbiType::Handle,
+                vec![DefaultArg::Required, DefaultArg::Int(0)],
+            ),
+            "__RTS_FN_GL_STRING_NORMALIZE",
             "normalize(form?: string): string",
             "str.normalize() — stub: identity (full NFC/NFD is a follow-up).",
             true,

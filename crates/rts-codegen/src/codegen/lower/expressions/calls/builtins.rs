@@ -68,39 +68,8 @@ pub(super) fn lower_string_builtin(
         // ── search ──────────────────────────────────────────────────────
         // indexOf drenado pro Registry (INDEX_OF_FROM + default from=0 cobre as
         // duas aridades) — cai no fallback `_`.
-        "lastIndexOf" => {
-            let needle = arg_handle(ctx, call, 0)?;
-            if call.args.len() >= 2 {
-                let from = arg_i64(ctx, call, 1)?;
-                let v = call_h!(
-                    "__RTS_FN_GL_STRING_LAST_INDEX_OF_FROM",
-                    &[cl::I64, cl::I64, cl::I64],
-                    Some(cl::I64),
-                    &[recv_h, needle, from]
-                );
-                return Ok(Some(TypedVal::new(v, ValTy::I64)));
-            }
-            let v = call_h!("__RTS_FN_GL_STRING_LAST_INDEX_OF", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, needle]);
-            Ok(Some(TypedVal::new(v, ValTy::I64)))
-        }
         // includes/startsWith drenados pro Registry (INCLUDES_AT/STARTS_WITH_AT +
         // default pos=0 cobrem as duas aridades) — caem no fallback `_`.
-        "endsWith" | "ends_with" => {
-            let suffix = arg_handle(ctx, call, 0)?;
-            // (#208) endsWith(suffix, endPosition?).
-            if call.args.len() >= 2 {
-                let end_pos = arg_i64(ctx, call, 1)?;
-                let v = call_h!(
-                    "__RTS_FN_GL_STRING_ENDS_WITH_AT",
-                    &[cl::I64, cl::I64, cl::I64],
-                    Some(cl::I64),
-                    &[recv_h, suffix, end_pos]
-                );
-                return Ok(Some(TypedVal::new(v, ValTy::Bool)));
-            }
-            let v = call_h!("__RTS_FN_GL_STRING_ENDS_WITH", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, suffix]);
-            Ok(Some(TypedVal::new(v, ValTy::Bool)))
-        }
         // ── indexing ─────────────────────────────────────────────────────
         // charAt drenado pro Registry (CHAR_AT idêntico) — cai no fallback `_`.
         "codePointAt" => {
@@ -214,15 +183,6 @@ pub(super) fn lower_string_builtin(
         // toString (→TO_STRING) e valueOf (→ReceiverIdentity) drenados pro
         // Registry — caem no fallback `_`.
         // toWellFormed drenado pro Registry (TO_WELL_FORMED idêntico) — fallback.
-        "normalize" => {
-            let form = if call.args.is_empty() {
-                ctx.emit_str_handle(b"NFC")?.val
-            } else {
-                arg_handle(ctx, call, 0)?
-            };
-            let v = call_h!("__RTS_FN_GL_STRING_NORMALIZE", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, form]);
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
         "isWellFormed" => {
             let v = call_h!("__RTS_FN_GL_STRING_IS_WELL_FORMED", &[cl::I64], Some(cl::I64), &[recv_h]);
             Ok(Some(TypedVal::new(v, ValTy::Bool)))
