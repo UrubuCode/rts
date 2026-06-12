@@ -16,6 +16,7 @@ pub mod search;
 pub mod split;
 pub mod transform;
 
+use rts_engine::abi::member::DefaultArg;
 use rts_engine::{AbiType, Engine, FnPtr, Intrinsic, Member, MemberFlags, MemberKind, Sig};
 
 /// Membro de namespace/classe (helper hand-written, espelha a macro). Como
@@ -260,10 +261,17 @@ pub fn register_string_class_spec(e: &mut Engine) {
         .member(m(
             "indexOf",
             MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::I64),
-            "__RTS_FN_GL_STRING_INDEX_OF",
-            "indexOf(needle: string): number",
-            "str.indexOf(needle) — first occurrence index, or -1.",
+            // indexOf(needle, from? = 0): o símbolo _FROM com from=0 é idêntico
+            // ao indexOf base (busca do início). Default no Registry cobre as
+            // duas aridades — sem braço hardcoded por aridade no codegen.
+            Sig::with_defaults(
+                vec![AbiType::Handle, AbiType::Handle, AbiType::I64],
+                AbiType::I64,
+                vec![DefaultArg::Required, DefaultArg::Required, DefaultArg::Int(0)],
+            ),
+            "__RTS_FN_GL_STRING_INDEX_OF_FROM",
+            "indexOf(needle: string, from?: number): number",
+            "str.indexOf(needle, from) — first occurrence index, or -1.",
             true,
         ))
         .member(m(
@@ -278,19 +286,29 @@ pub fn register_string_class_spec(e: &mut Engine) {
         .member(m(
             "includes",
             MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool),
-            "__RTS_FN_GL_STRING_INCLUDES",
-            "includes(needle: string): boolean",
-            "str.includes(needle) — true when needle is found.",
+            // includes(needle, pos? = 0): _AT com pos=0 == includes base.
+            Sig::with_defaults(
+                vec![AbiType::Handle, AbiType::Handle, AbiType::I64],
+                AbiType::Bool,
+                vec![DefaultArg::Required, DefaultArg::Required, DefaultArg::Int(0)],
+            ),
+            "__RTS_FN_GL_STRING_INCLUDES_AT",
+            "includes(needle: string, pos?: number): boolean",
+            "str.includes(needle, pos) — true when needle is found.",
             true,
         ))
         .member(m(
             "startsWith",
             MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool),
-            "__RTS_FN_GL_STRING_STARTS_WITH",
-            "startsWith(prefix: string): boolean",
-            "str.startsWith(prefix).",
+            // startsWith(prefix, pos? = 0): _AT com pos=0 == startsWith base.
+            Sig::with_defaults(
+                vec![AbiType::Handle, AbiType::Handle, AbiType::I64],
+                AbiType::Bool,
+                vec![DefaultArg::Required, DefaultArg::Required, DefaultArg::Int(0)],
+            ),
+            "__RTS_FN_GL_STRING_STARTS_WITH_AT",
+            "startsWith(prefix: string, pos?: number): boolean",
+            "str.startsWith(prefix, pos).",
             true,
         ))
         .member(m(

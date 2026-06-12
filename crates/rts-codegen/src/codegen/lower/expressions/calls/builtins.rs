@@ -66,21 +66,8 @@ pub(super) fn lower_string_builtin(
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
         // ── search ──────────────────────────────────────────────────────
-        "indexOf" => {
-            let needle = arg_handle(ctx, call, 0)?;
-            if call.args.len() >= 2 {
-                let from = arg_i64(ctx, call, 1)?;
-                let v = call_h!(
-                    "__RTS_FN_GL_STRING_INDEX_OF_FROM",
-                    &[cl::I64, cl::I64, cl::I64],
-                    Some(cl::I64),
-                    &[recv_h, needle, from]
-                );
-                return Ok(Some(TypedVal::new(v, ValTy::I64)));
-            }
-            let v = call_h!("__RTS_FN_GL_STRING_INDEX_OF", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, needle]);
-            Ok(Some(TypedVal::new(v, ValTy::I64)))
-        }
+        // indexOf drenado pro Registry (INDEX_OF_FROM + default from=0 cobre as
+        // duas aridades) — cai no fallback `_`.
         "lastIndexOf" => {
             let needle = arg_handle(ctx, call, 0)?;
             if call.args.len() >= 2 {
@@ -96,32 +83,8 @@ pub(super) fn lower_string_builtin(
             let v = call_h!("__RTS_FN_GL_STRING_LAST_INDEX_OF", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, needle]);
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
-        "includes" | "contains" => {
-            let needle = arg_handle(ctx, call, 0)?;
-            if call.args.len() >= 2 {
-                let pos = arg_i64(ctx, call, 1)?;
-                let v = call_h!("__RTS_FN_GL_STRING_INCLUDES_AT", &[cl::I64, cl::I64, cl::I64], Some(cl::I64), &[recv_h, needle, pos]);
-                return Ok(Some(TypedVal::new(v, ValTy::Bool)));
-            }
-            let v = call_h!("__RTS_FN_GL_STRING_INCLUDES", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, needle]);
-            Ok(Some(TypedVal::new(v, ValTy::Bool)))
-        }
-        "startsWith" | "starts_with" => {
-            let prefix = arg_handle(ctx, call, 0)?;
-            // (#208) startsWith(prefix, position?).
-            if call.args.len() >= 2 {
-                let pos = arg_i64(ctx, call, 1)?;
-                let v = call_h!(
-                    "__RTS_FN_GL_STRING_STARTS_WITH_AT",
-                    &[cl::I64, cl::I64, cl::I64],
-                    Some(cl::I64),
-                    &[recv_h, prefix, pos]
-                );
-                return Ok(Some(TypedVal::new(v, ValTy::Bool)));
-            }
-            let v = call_h!("__RTS_FN_GL_STRING_STARTS_WITH", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, prefix]);
-            Ok(Some(TypedVal::new(v, ValTy::Bool)))
-        }
+        // includes/startsWith drenados pro Registry (INCLUDES_AT/STARTS_WITH_AT +
+        // default pos=0 cobrem as duas aridades) — caem no fallback `_`.
         "endsWith" | "ends_with" => {
             let suffix = arg_handle(ctx, call, 0)?;
             // (#208) endsWith(suffix, endPosition?).
