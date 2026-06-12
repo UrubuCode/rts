@@ -142,6 +142,7 @@ fn register_builtins() -> Registry {
         g::regexp::register_regexp_class_spec(&mut engine);
         crate::namespaces::collections::register_mapset_class_spec(&mut engine);
         g::array::register_array_class_spec(&mut engine);
+        g::object::register_object_class_spec(&mut engine);
         g::error::register_class_spec(&mut engine);
         g::error::register_type_error_class_spec(&mut engine);
         g::error::register_range_error_class_spec(&mut engine);

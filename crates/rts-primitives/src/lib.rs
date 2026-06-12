@@ -15,5 +15,6 @@ pub mod boolean;
 pub mod error;
 pub mod function;
 pub mod number;
+pub mod object;
 pub mod promise;
 pub mod string;

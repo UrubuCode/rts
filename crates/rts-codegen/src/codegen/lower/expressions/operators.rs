@@ -2236,10 +2236,10 @@ fn lower_instanceof(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
     // RegExp → Regex; Map → Map; Set → Map (set usa Map storage); Error*
     // → Map com __rts_class. String/Number/Boolean → primitives sao falsy.
     if !ctx.classes.contains_key(&class_name) {
-        let known_global = crate::abi::global_class_lookup(&class_name).is_some()
-            // "Object" é primordial sem spec registrada. As demais classes
-            // globais (incl. Map/Set/Array) resolvem por global_class_lookup.
-            || class_name.as_str() == "Object";
+        // Todas as classes globais (incl. Object — spec registrada na Fase 2.7,
+        // Map/Set/Array/...) resolvem por global_class_lookup. O composto
+        // `Object = IS_MAP_LIKE OR IS_VEC` fica em lower_global_instanceof.
+        let known_global = crate::abi::global_class_lookup(&class_name).is_some();
         if known_global {
             return lower_global_instanceof(ctx, &class_name, &bin.left);
         }

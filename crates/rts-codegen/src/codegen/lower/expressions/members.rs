@@ -958,11 +958,9 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
         if prop.sym.as_str() == "prototype" {
             if let Expr::Ident(obj_id) = m.obj.as_ref() {
                 let cls = obj_id.sym.as_str();
-                let is_global_cls = matches!(
-                    cls,
-                    "Object" | "Array" | "Function" | "String" | "Number"
-                        | "Boolean" | "Date" | "RegExp" | "Error" | "Map" | "Set"
-                ) || crate::abi::global_class_lookup(cls).is_some();
+                // Todas essas classes globais (Object incl., spec Fase 2.7)
+                // resolvem por global_class_lookup — o literal era redundante.
+                let is_global_cls = crate::abi::global_class_lookup(cls).is_some();
                 if is_global_cls && ctx.read_local(cls).is_none() && !ctx.user_fns.contains_key(cls) {
                     let label = format!("[{cls}.prototype]");
                     return ctx.emit_str_handle(label.as_bytes());
