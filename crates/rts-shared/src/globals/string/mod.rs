@@ -332,10 +332,16 @@ pub fn register_string_class_spec(e: &mut Engine) {
         .member(m(
             "charCodeAt",
             MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64),
-            "__RTS_FN_GL_STRING_CHAR_CODE_AT",
-            "charCodeAt(idx: number): number",
-            "str.charCodeAt(idx) — UTF-16 code unit at index.",
+            // idx? = 0; retorna F64 (NaN p/ fora de range, JS spec) via o extern
+            // _F64. Antes o Registry usava o variant I64 (divergia do codegen).
+            Sig::with_defaults(
+                vec![AbiType::Handle, AbiType::I64],
+                AbiType::F64,
+                vec![DefaultArg::Required, DefaultArg::Int(0)],
+            ),
+            "__RTS_FN_GL_STRING_CHAR_CODE_AT_F64",
+            "charCodeAt(idx?: number): number",
+            "str.charCodeAt(idx) — UTF-16 code unit at index (NaN out of range).",
             true,
         ))
         .member(m(
