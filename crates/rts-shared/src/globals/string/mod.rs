@@ -354,15 +354,26 @@ pub fn register_string_class_spec(e: &mut Engine) {
             "str.charCodeAt(idx) — UTF-16 code unit at index (NaN out of range).",
             true,
         ))
-        .member(m(
-            "codePointAt",
-            MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64),
-            "__RTS_FN_GL_STRING_CODE_POINT_AT",
-            "codePointAt(idx: number): number",
-            "str.codePointAt(idx) — full Unicode code point at index.",
-            true,
-        ))
+        .member(Member {
+            name: "codePointAt".to_string(),
+            kind: MemberKind::InstanceMethod,
+            // idx? = 0; AMBIGUOUS_RET: o I64 pode ser handle "undefined" (fora de
+            // range) — o emissor genérico marca p/ template/console coagirem.
+            sig: Sig::with_defaults(
+                vec![AbiType::Handle, AbiType::I64],
+                AbiType::I64,
+                vec![DefaultArg::Required, DefaultArg::Int(0)],
+            ),
+            symbol: "__RTS_FN_GL_STRING_CODE_POINT_AT".to_string(),
+            fn_ptr: FnPtr(core::ptr::null::<u8>()),
+            flags: MemberFlags::AMBIGUOUS_RET,
+            aliases: Vec::new(),
+            variadic: false,
+            ts_signature: "codePointAt(idx?: number): number".to_string(),
+            doc: "str.codePointAt(idx) — full Unicode code point at index.".to_string(),
+            pure: true,
+            intrinsic: None,
+        })
         .member(m(
             "at",
             MemberKind::InstanceMethod,

@@ -558,6 +558,12 @@ pub(super) fn lower_global_instance_call(
     let inst = ctx.builder.ins().call(fn_ref, &values);
     if sig.ret.is_some() {
         let v = ctx.builder.inst_results(inst)[0];
+        // (AMBIGUOUS_RET) o I64 retornado pode ser um handle (ex.: codePointAt
+        // fora de range = handle "undefined") — marca p/ template/console
+        // coagirem via TPL_COERCE_AUTO. Flag DADO no Registry, não hardcoded.
+        if member.flags.contains(crate::abi::MemberFlags::AMBIGUOUS_RET) {
+            ctx.var_member_call_values.insert(v);
+        }
         Ok(TypedVal::new(v, ValTy::from_abi(member.returns)))
     } else {
         Ok(TypedVal::new(ctx.builder.ins().iconst(cl::I64, 0), ValTy::I64))

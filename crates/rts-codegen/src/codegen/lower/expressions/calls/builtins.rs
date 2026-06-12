@@ -72,24 +72,11 @@ pub(super) fn lower_string_builtin(
         // default pos=0 cobrem as duas aridades) — caem no fallback `_`.
         // ── indexing ─────────────────────────────────────────────────────
         // charAt drenado pro Registry (CHAR_AT idêntico) — cai no fallback `_`.
-        "codePointAt" => {
-            let idx = arg_i64(ctx, call, 0)?;
-            let v = call_h!("__RTS_FN_GL_STRING_CODE_POINT_AT", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, idx]);
-            // Fora de range retorna handle "undefined"; marca como ambiguo
-            // pra template/console formatar corretamente.
-            ctx.var_member_call_values.insert(v);
-            Ok(Some(TypedVal::new(v, ValTy::I64)))
-        }
         // at drenado pro Registry (STRING_AT idêntico) — cai no fallback `_`.
         // ── slicing ───────────────────────────────────────────────────────
         // ── transform ─────────────────────────────────────────────────────
         // case/trim drenados pro Registry (sem overload por tipo de arg) — caem
         // no fallback genérico do `_ =>` no fim. Símbolos GL_STRING_* idênticos.
-        "repeat" => {
-            let n = arg_i64(ctx, call, 0)?;
-            let v = call_h!("__RTS_FN_GL_STRING_REPEAT", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, n]);
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
         "replace" => {
             use swc_ecma_ast::{Expr, Lit};
             let is_regex = call.args.first()
