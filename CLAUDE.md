@@ -117,6 +117,55 @@ output, so there is no "regress X to pass Y" trade to police. The process
 ceremony slows that work without guarding the only real risk (faking the
 metric); the honesty floor guards that directly.
 
+## MANDATORY RULE: PRIMORDIAL-vs-REGISTRY DOCTRINE
+
+The engine (`rts-codegen`, the codegen) is a native motor for a JS/TS language.
+It may reference **directly, by name** ONLY the PRIMORDIAL classes — the minimal
+set that constitutes the language. Everything else (the "extra environment") is
+registered and resolved **dynamically through the Registry** (`global_class_lookup`
+/ `try_global_class_instance_method` / class metadata like `instanceof_predicate`),
+with NO hardcoded mention in codegen.
+
+- **Primordial set** (engine MAY name): `String`, `Object`, `Array`, `Function`,
+  `Promise`, `Boolean`, `Number`, `Error` (+ `TypeError`/`RangeError`/
+  `ReferenceError`/`SyntaxError`/`URIError`/`EvalError`/`AggregateError`).
+- **Everything else = Registry only** (engine MUST NOT name): `Map`, `Set`,
+  `WeakMap`/`WeakSet`/`WeakRef`/`FinalizationRegistry`, `RegExp`, `Date`,
+  `Symbol`, `URL`, `BigInt`, `Intl.*`, `Proxy`, `Reflect`, `DataView`/
+  `ArrayBuffer`, and all backend classes (Console/Fetch/Timers/Performance/Blob/
+  TextEncoder/Decoder/EventTarget/Headers/FormData/ReadableStream*/etc.).
+- **A direct mention of a non-primordial class in codegen = REGRESSION** to drain.
+- **NEVER implement `Symbol` as an engine shortcut.** The Symbol class lives in
+  the Registry as extra-environment; the engine must carry ZERO Symbol mentions.
+  Language features that historically leaned on well-known symbols (iteration,
+  coercion, instanceof) are re-expressed via compile-time desugar to internal
+  `__rts_wk_*` names — never a runtime Symbol hook in the engine.
+- The mechanism to drain a class: declare its metadata on the spec
+  (`ClassBuilder::instanceof_predicate`, member symbols, `default_args`, flags)
+  in rts-primitives/rts-shared/rts-std, and route `recv.method(args)` through
+  `try_global_class_instance_method`. Land the runtime symbol + `jit.rs` `add_fn!`
+  BEFORE deleting the hardcoded codegen arm.
+
+### Status (branch `refactor/rts-codegen-clean`)
+Drained via Registry (suite 1710/1710 throughout): instanceof (`instanceof_predicate`
+metadata), Set registered as a class, global/local class-ty tagging, parallelism
+capture allowlist, for-of (`FOR_OF_NORMALIZE`), Map/Set `add/has/delete/get`.
+**Blocked by missing infra** (F64 non-lossy representation / "real narrow storage",
+a deferred Phase-4 item): Array `indexOf/includes` (NaN needle), `reduce`/
+`reduceRight` (callback capture), Map.set value + `new Map/Set([literal])` (frac-
+float bits). Draining these now = silent float regressions = honesty-floor
+violation; they need the `RAW_BITS_ARG` infra first. **Large dedicated follow-ups**:
+full Symbol drain (well-known desugar pass), Phase-2 crate extraction.
+
+### Phase 2 — `rts-primitives` crate (extraction in progress)
+The primordial classes are migrating from `rts-shared` into a dedicated
+`rts-primitives` crate (depends only on `rts-engine`, wasm-safe), one class per
+build+suite-gated step. Moved so far: **Boolean, Number**. Pending: String,
+Function, Error, Array spec, Promise spec, Object spec (Object has no spec yet —
+to be created), then the `jit.rs` `add_fn!`→registry collapse. The facade
+(`rts-runtime`) re-exports `rts_primitives::*`; codegen reads via the facade
+unchanged. `rts-shared` keeps the non-primordial universal surface.
+
 ## Project
 
 RTS is a TypeScript-to-native compiler/runtime using Cranelift as codegen
@@ -132,9 +181,19 @@ See `RTS_REFACTOR.md` for the current refactor direction (crate workspace).
 
 ## Architecture
 
-Cargo workspace, 10 crates in `crates/`. `src/` is the `rts` bin facade
+Cargo workspace (14 crates in `crates/`). `src/` is the `rts` bin facade
 (re-exports); `src/main.rs` calls `rts_codegen::register_runtime_artifacts` +
 `rts_cli::cli::dispatch`. Real paths live under `crates/<crate>/src/`.
+
+> **Runtime layer partition** (the tree below predates it): the old monolith is
+> split into an acyclic graph `rts-engine` (heap GC + ABI vocab + Registry/
+> builder + collector contract) ← `rts-primitives` (PRIMORDIAL classes — see the
+> Primordial doctrine above; extraction in progress) + `rts-shared` (universal
+> non-primordial: math/num/collections(Map/Set)/json/globals…) ← `rts-std`
+> (backend: io/net/tokio/console/promise impl) ← `rts-runtime` (thin facade,
+> `pub use` of all four; AOT staticlib). `rts-codegen` reads everything via the
+> `rts-runtime` facade (`crate::namespaces::*`). The `rts-abi` entry below is now
+> `rts-engine::abi`.
 
 ```
 crates/

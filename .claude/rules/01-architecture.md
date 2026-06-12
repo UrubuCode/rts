@@ -15,8 +15,18 @@ See `RTS_REFACTOR.md` for the current refactor direction (crate workspace).
 
 ## Architecture
 
-Cargo workspace with 10 crates in `crates/`. `src/` still exists but is the
+Cargo workspace with 14 crates in `crates/`. `src/` still exists but is the
 facade of the `rts` bin (re-exports); real paths live under `crates/<crate>/src/`.
+
+> **PRIMORDIAL-vs-Registry doctrine + crate partition** (see `CLAUDE.md` §
+> "MANDATORY RULE: PRIMORDIAL-vs-REGISTRY DOCTRINE"). The engine may name ONLY
+> the primordial classes (String/Object/Array/Function/Promise/Boolean/Number/
+> Error+subclasses); everything else resolves via the Registry (`global_class_
+> lookup`, `instanceof_predicate`, member metadata), zero hardcoded mention. The
+> runtime layer is partitioned: `rts-engine` ← `rts-primitives` (primordials,
+> extraction in progress: Boolean/Number moved) + `rts-shared` (non-primordial
+> universal) ← `rts-std` ← `rts-runtime` facade. The `rts-abi` row below is now
+> `rts-engine::abi`; the per-crate tree predates the partition.
 
 ```
 crates/
