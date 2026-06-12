@@ -806,15 +806,7 @@ pub(super) fn lower_array_builtin(
             let v = ctx.builder.inst_results(inst)[0];
             return Ok(Some(TypedVal::new(v, ValTy::Handle)));
         }
-        "clear" => {
-            let fref =
-                ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_CLEAR", &[cl::I64], None)?;
-            ctx.builder.ins().call(fref, &[obj_h]);
-            Ok(Some(TypedVal::new(
-                ctx.builder.ins().iconst(cl::I64, 0),
-                ValTy::I64,
-            )))
-        }
+        // clear drenado → classe global "Array" (VEC_CLEAR, retorno void).
         // (#208 / #476) Array methods sem callback — args concretos só.
         "indexOf" | "lastIndexOf" | "includes" => {
             if call.args.is_empty() || call.args.iter().any(|a| a.spread.is_some()) {
@@ -930,31 +922,7 @@ pub(super) fn lower_array_builtin(
         // (#93) `subarray(start, end)` em TypedArray Vec backing: trata como
         // slice (cópia do range). TypedArray real compartilharia o buffer, mas
         // pra Vec backing a cópia eh suficiente para leitura via Array.from.
-        "slice" | "subarray" => {
-            // arr.slice(start?, end?). end omitido = i64::MIN sentinel.
-            let start_tv = if let Some(arg) = call.args.first() {
-                if arg.spread.is_some() { return Ok(None); }
-                lower_expr(ctx, &arg.expr)?
-            } else {
-                TypedVal::new(ctx.builder.ins().iconst(cl::I64, 0), ValTy::I64)
-            };
-            let start = ctx.coerce_to_i64(start_tv).val;
-            let end = if let Some(arg) = call.args.get(1) {
-                if arg.spread.is_some() { return Ok(None); }
-                let tv = lower_expr(ctx, &arg.expr)?;
-                ctx.coerce_to_i64(tv).val
-            } else {
-                ctx.builder.ins().iconst(cl::I64, i64::MIN)
-            };
-            let fref = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_VEC_SLICE",
-                &[cl::I64, cl::I64, cl::I64],
-                Some(cl::I64),
-            )?;
-            let inst = ctx.builder.ins().call(fref, &[obj_h, start, end]);
-            let v = ctx.builder.inst_results(inst)[0];
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
+        // slice/subarray drenados → classe global "Array" (defaults start=0/end=SENTINEL).
         // (#305) Iterator helpers eager sobre array: take(n)=slice(0,n);
         // drop(n)=slice(n); toArray()=copia (slice(0,fim)).
         "take" | "drop" | "toArray" => {

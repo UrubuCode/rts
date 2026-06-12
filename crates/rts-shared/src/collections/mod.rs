@@ -114,6 +114,25 @@ pub fn register_array_class_spec(e: &mut rts_engine::Engine) {
             ],
         )
     };
+    // slice(start? = 0, end? = i64::MIN).
+    let range2 = || {
+        Sig::with_defaults(
+            vec![AbiType::Handle, AbiType::I64, AbiType::I64],
+            AbiType::Handle,
+            vec![
+                DefaultArg::Required,
+                DefaultArg::Int(0),
+                DefaultArg::Int(i64::MIN),
+            ],
+        )
+    };
+    let mut slice_member = m(
+        "slice",
+        range2(),
+        "__RTS_FN_NS_COLLECTIONS_VEC_SLICE",
+        MemberFlags::NONE,
+    );
+    slice_member.aliases = vec!["subarray".to_string()];
     e.class("Array")
         .doc("Array — métodos sem callback (pop/shift/reverse/toReversed/values/keys/entries/fill/copyWithin/with).")
         .member(m("pop", amb(), "__RTS_FN_NS_COLLECTIONS_VEC_POP", MemberFlags::AMBIGUOUS_RET))
@@ -123,6 +142,8 @@ pub fn register_array_class_spec(e: &mut rts_engine::Engine) {
         .member(m("values", h(), "__RTS_FN_NS_COLLECTIONS_VEC_VALUES", MemberFlags::NONE))
         .member(m("keys", h(), "__RTS_FN_NS_COLLECTIONS_VEC_KEYS", MemberFlags::NONE))
         .member(m("entries", h(), "__RTS_FN_NS_COLLECTIONS_VEC_ENTRIES", MemberFlags::NONE))
+        .member(m("clear", Sig::new(vec![AbiType::Handle], AbiType::Void), "__RTS_FN_NS_COLLECTIONS_VEC_CLEAR", MemberFlags::NONE))
+        .member(slice_member)
         .member(m("fill", range3(), "__RTS_FN_NS_COLLECTIONS_VEC_FILL", MemberFlags::NONE))
         .member(m("copyWithin", range3(), "__RTS_FN_NS_COLLECTIONS_VEC_COPY_WITHIN", MemberFlags::NONE))
         .member(m(
