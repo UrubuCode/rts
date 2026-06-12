@@ -1043,33 +1043,7 @@ pub(super) fn lower_array_builtin(
             // set retorna undefined; devolve o proprio handle (no-op p/ chains).
             Ok(Some(TypedVal::new(obj_h, ValTy::Handle)))
         }
-        "fill" => {
-            if call.args.is_empty() || call.args.iter().any(|a| a.spread.is_some()) {
-                return Ok(None);
-            }
-            let val_tv = lower_expr(ctx, &call.args[0].expr)?;
-            let value = ctx.coerce_to_i64(val_tv).val;
-            let start = if let Some(arg) = call.args.get(1) {
-                let tv = lower_expr(ctx, &arg.expr)?;
-                ctx.coerce_to_i64(tv).val
-            } else {
-                ctx.builder.ins().iconst(cl::I64, 0)
-            };
-            let end = if let Some(arg) = call.args.get(2) {
-                let tv = lower_expr(ctx, &arg.expr)?;
-                ctx.coerce_to_i64(tv).val
-            } else {
-                ctx.builder.ins().iconst(cl::I64, i64::MIN)
-            };
-            let fref = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_VEC_FILL",
-                &[cl::I64, cl::I64, cl::I64, cl::I64],
-                Some(cl::I64),
-            )?;
-            let inst = ctx.builder.ins().call(fref, &[obj_h, value, start, end]);
-            let v = ctx.builder.inst_results(inst)[0];
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
+        // fill drenado → classe global "Array" (defaults start=0/end=SENTINEL).
         "splice" => {
             // splice(start, deleteCount, ...items)
             if call.args.is_empty() || call.args.iter().any(|a| a.spread.is_some()) {
@@ -1150,33 +1124,7 @@ pub(super) fn lower_array_builtin(
             Ok(Some(TypedVal::new(v, ValTy::Handle)))
         }
         // (#208) `arr.copyWithin(target, start?, end?)` — args concretos.
-        "copyWithin" => {
-            if call.args.is_empty() || call.args.iter().any(|a| a.spread.is_some()) {
-                return Ok(None);
-            }
-            let target_tv = lower_expr(ctx, &call.args[0].expr)?;
-            let target = ctx.coerce_to_i64(target_tv).val;
-            let start = if let Some(arg) = call.args.get(1) {
-                let tv = lower_expr(ctx, &arg.expr)?;
-                ctx.coerce_to_i64(tv).val
-            } else {
-                ctx.builder.ins().iconst(cl::I64, 0)
-            };
-            let end = if let Some(arg) = call.args.get(2) {
-                let tv = lower_expr(ctx, &arg.expr)?;
-                ctx.coerce_to_i64(tv).val
-            } else {
-                ctx.builder.ins().iconst(cl::I64, i64::MIN)
-            };
-            let f = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_VEC_COPY_WITHIN",
-                &[cl::I64, cl::I64, cl::I64, cl::I64],
-                Some(cl::I64),
-            )?;
-            let inst = ctx.builder.ins().call(f, &[obj_h, target, start, end]);
-            let v = ctx.builder.inst_results(inst)[0];
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
+        // copyWithin drenado → classe global "Array" (defaults start=0/end=SENTINEL).
         // (#208) `arr.findLast/findLastIndex/reduceRight/flatMap` com user fn ident.
         // Lifting de arrow inline pra esses fica pra outra PR — segue padrao
         // do lift_inline_arrows_in_array_methods em func.rs.
@@ -1367,22 +1315,7 @@ pub(super) fn lower_array_builtin(
             let v = ctx.builder.inst_results(inst)[0];
             return Ok(Some(TypedVal::new(v, ValTy::Handle)));
         }
-        "with" if call.args.len() == 2
-            && call.args.iter().all(|a| a.spread.is_none()) =>
-        {
-            let idx_tv = lower_expr(ctx, &call.args[0].expr)?;
-            let idx = ctx.coerce_to_i64(idx_tv).val;
-            let val_tv = lower_expr(ctx, &call.args[1].expr)?;
-            let val = ctx.coerce_to_i64(val_tv).val;
-            let f = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_VEC_WITH",
-                &[cl::I64, cl::I64, cl::I64],
-                Some(cl::I64),
-            )?;
-            let inst = ctx.builder.ins().call(f, &[obj_h, idx, val]);
-            let v = ctx.builder.inst_results(inst)[0];
-            return Ok(Some(TypedVal::new(v, ValTy::Handle)));
-        }
+        // with drenado → classe global "Array".
         // (#208) Iterators eager: values()/keys()/entries().
         // values/keys/entries drenados → classe global "Array".
         "flatMap" => {

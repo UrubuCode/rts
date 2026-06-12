@@ -81,7 +81,7 @@ pub fn register_mapset_class_spec(e: &mut rts_engine::Engine) {
 /// vão pelo handle-length genérico (ver rc_for_size em members.rs). fn_ptr null:
 /// símbolos resolvem via a registração do namespace `collections`.
 pub fn register_array_class_spec(e: &mut rts_engine::Engine) {
-    use rts_engine::{AbiType, FnPtr, Member, MemberFlags, MemberKind, Sig};
+    use rts_engine::{AbiType, DefaultArg, FnPtr, Member, MemberFlags, MemberKind, Sig};
     fn m(name: &str, sig: Sig, symbol: &str, flags: MemberFlags) -> Member {
         Member {
             name: name.to_string(),
@@ -100,8 +100,22 @@ pub fn register_array_class_spec(e: &mut rts_engine::Engine) {
     }
     let h = || Sig::new(vec![AbiType::Handle], AbiType::Handle);
     let amb = || Sig::new(vec![AbiType::Handle], AbiType::I64);
+    // start? = 0, end? = i64::MIN (sentinela "até o fim") — defaults reais no
+    // Registry em vez de hardcoded no codegen.
+    let range3 = || {
+        Sig::with_defaults(
+            vec![AbiType::Handle, AbiType::I64, AbiType::I64, AbiType::I64],
+            AbiType::Handle,
+            vec![
+                DefaultArg::Required,
+                DefaultArg::Required,
+                DefaultArg::Int(0),
+                DefaultArg::Int(i64::MIN),
+            ],
+        )
+    };
     e.class("Array")
-        .doc("Array — métodos recv-only sem callback (pop/shift/reverse/toReversed/values/keys/entries).")
+        .doc("Array — métodos sem callback (pop/shift/reverse/toReversed/values/keys/entries/fill/copyWithin/with).")
         .member(m("pop", amb(), "__RTS_FN_NS_COLLECTIONS_VEC_POP", MemberFlags::AMBIGUOUS_RET))
         .member(m("shift", amb(), "__RTS_FN_NS_COLLECTIONS_VEC_SHIFT", MemberFlags::AMBIGUOUS_RET))
         .member(m("reverse", h(), "__RTS_FN_NS_COLLECTIONS_VEC_REVERSE", MemberFlags::NONE))
@@ -109,5 +123,13 @@ pub fn register_array_class_spec(e: &mut rts_engine::Engine) {
         .member(m("values", h(), "__RTS_FN_NS_COLLECTIONS_VEC_VALUES", MemberFlags::NONE))
         .member(m("keys", h(), "__RTS_FN_NS_COLLECTIONS_VEC_KEYS", MemberFlags::NONE))
         .member(m("entries", h(), "__RTS_FN_NS_COLLECTIONS_VEC_ENTRIES", MemberFlags::NONE))
+        .member(m("fill", range3(), "__RTS_FN_NS_COLLECTIONS_VEC_FILL", MemberFlags::NONE))
+        .member(m("copyWithin", range3(), "__RTS_FN_NS_COLLECTIONS_VEC_COPY_WITHIN", MemberFlags::NONE))
+        .member(m(
+            "with",
+            Sig::new(vec![AbiType::Handle, AbiType::I64, AbiType::I64], AbiType::Handle),
+            "__RTS_FN_NS_COLLECTIONS_VEC_WITH",
+            MemberFlags::NONE,
+        ))
         .done();
 }
