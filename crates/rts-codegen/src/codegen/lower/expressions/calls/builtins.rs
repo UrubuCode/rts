@@ -176,10 +176,14 @@ pub(super) fn lower_map_set_builtin(
     }
 }
 
-/// Console object (#221) — mapeia console.log/info/debug → io.print
-/// e console.error/warn → io.eprint. Args sao concatenados como string
-/// separados por espaco (semantica JS). Implementado em codegen direto
-/// pra que `console.X(...)` funcione sem import explicito.
+
+/// `console.<method>(...)` — console é NÃO-PRIMORDIAL: o motor não carrega
+/// lógica por método. O codegen só faz o marshalling genérico dos args (a
+/// coerção-display per-arg depende de tipo compile-time, então fica aqui) em
+/// dois Vecs — `display_vec` (handles de string p/ exibição) e `raw_vec`
+/// (valores crus p/ override/assert) — e chama UM símbolo runtime
+/// `__RTS_FN_GL_CONSOLE_WRITE_AUTO`. Toda a lógica por método (qual fd, join,
+/// override-dispatch, assert) vive no runtime (rts-std/globals/console/rt.rs).
 pub(super) fn lower_console_call(
     ctx: &mut FnCtx,
     qualified: &str,
@@ -188,246 +192,44 @@ pub(super) fn lower_console_call(
     let Some(method) = qualified.strip_prefix("console.") else {
         return Ok(None);
     };
-
-    // (#310/#311/#312) Override runtime: se `(console as any).<method>` foi
-    // reatribuido, despacha pro handle custom via INVOKE_AUTO. Checa em
-    // runtime (GET_OVERRIDE != 0) e cai no nativo caso contrario. So' para
-    // metodos sem spread nos args (variadic empacotado em Vec).
-    if call.args.iter().all(|a| a.spread.is_none()) {
-        let (mp, ml) = ctx.emit_str_literal(method.as_bytes())?;
-        let get_ov = ctx.get_extern(
-            "__RTS_FN_RT_CONSOLE_GET_OVERRIDE",
-            &[cl::I64, cl::I64],
-            Some(cl::I64),
-        )?;
-        let ov_inst = ctx.builder.ins().call(get_ov, &[mp, ml]);
-        let ov = ctx.builder.inst_results(ov_inst)[0];
-        let zero = ctx.builder.ins().iconst(cl::I64, 0);
-        let has_ov = ctx.builder.ins().icmp(
-            cranelift_codegen::ir::condcodes::IntCC::NotEqual,
-            ov,
-            zero,
-        );
-        let ov_block = ctx.builder.create_block();
-        let native_block = ctx.builder.create_block();
-        let merge = ctx.builder.create_block();
-        ctx.builder.append_block_param(merge, cl::I64);
-        ctx.builder.ins().brif(has_ov, ov_block, &[], native_block, &[]);
-
-        // Override block: empacota args em Vec e INVOKE_AUTO(ov, 0, vec).
-        ctx.builder.switch_to_block(ov_block);
-        ctx.builder.seal_block(ov_block);
-        let vec_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
-        let vn_inst = ctx.builder.ins().call(vec_new, &[]);
-        let args_vec = ctx.builder.inst_results(vn_inst)[0];
-        let push = ctx.get_extern(
-            "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
-            &[cl::I64, cl::I64],
-            None,
-        )?;
-        for arg in &call.args {
-            let tv = lower_expr(ctx, &arg.expr)?;
-            let v = ctx.coerce_to_i64(tv).val;
-            ctx.builder.ins().call(push, &[args_vec, v]);
-        }
-        // (#310) Callback variadic (`...args`): a lifted fn espera UM param
-        // (o array de args, pos expand_rest_args). Empacota args_vec dentro
-        // de outro Vec [args_vec] e passa esse como args. Senao (aridade
-        // fixa) passa os args individuais direto.
-        let is_var_fn = ctx.get_extern(
-            "__RTS_FN_RT_CONSOLE_OVERRIDE_IS_VARIADIC",
-            &[cl::I64, cl::I64],
-            Some(cl::I64),
-        )?;
-        let iv_inst = ctx.builder.ins().call(is_var_fn, &[mp, ml]);
-        let is_var = ctx.builder.inst_results(iv_inst)[0];
-        let is_var_b = ctx.builder.ins().icmp(
-            cranelift_codegen::ir::condcodes::IntCC::NotEqual,
-            is_var,
-            zero,
-        );
-        // wrapped = [args_vec]
-        let vn2 = ctx.builder.ins().call(vec_new, &[]);
-        let wrapped = ctx.builder.inst_results(vn2)[0];
-        ctx.builder.ins().call(push, &[wrapped, args_vec]);
-        let final_args = ctx.builder.ins().select(is_var_b, wrapped, args_vec);
-        let invoke = ctx.get_extern(
-            "__RTS_FN_RT_INVOKE_AUTO",
-            &[cl::I64, cl::I64, cl::I64],
-            Some(cl::I64),
-        )?;
-        let inv_inst = ctx.builder.ins().call(invoke, &[ov, zero, final_args]);
-        let inv_ret = ctx.builder.inst_results(inv_inst)[0];
-        ctx.builder.ins().jump(merge, &[inv_ret.into()]);
-
-        // Native block: dispatch builtin original (recursao com o mesmo
-        // qualified — mas agora ja' dentro do native_block, sem re-checar
-        // override pois a recursao chega aqui de novo... evitamos recursao:
-        // movemos a logica nativa para uma fn separada).
-        ctx.builder.switch_to_block(native_block);
-        ctx.builder.seal_block(native_block);
-        let native_tv = lower_console_call_native(ctx, method, call)?;
-        let native_v = match native_tv {
-            Some(tv) => ctx.coerce_to_i64(tv).val,
-            None => ctx.builder.ins().iconst(cl::I64, i64::MIN + 2),
-        };
-        ctx.builder.ins().jump(merge, &[native_v.into()]);
-
-        ctx.builder.switch_to_block(merge);
-        ctx.builder.seal_block(merge);
-        let result = ctx.builder.block_params(merge)[0];
-        return Ok(Some(TypedVal::new(result, ValTy::I64)));
+    // Cobertura idêntica ao dispatch nativo anterior; métodos desconhecidos →
+    // None (caem no path genérico).
+    let known = matches!(
+        method,
+        "log" | "info" | "debug" | "error" | "warn" | "assert" | "dir"
+            | "table" | "group" | "groupCollapsed" | "groupEnd" | "count"
+            | "countReset" | "trace" | "time" | "timeEnd" | "timeLog" | "clear"
+            | "profile" | "profileEnd" | "timeStamp"
+    );
+    if !known {
+        return Ok(None);
+    }
+    if call.args.iter().any(|a| a.spread.is_some()) {
+        return Err(anyhow!("spread not supported in console.* args"));
     }
 
-    lower_console_call_native(ctx, method, call)
-}
+    let vec_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
+    let push = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_PUSH", &[cl::I64, cl::I64], None)?;
+    let dvn = ctx.builder.ins().call(vec_new, &[]);
+    let display_vec = ctx.builder.inst_results(dvn)[0];
+    let rvn = ctx.builder.ins().call(vec_new, &[]);
+    let raw_vec = ctx.builder.inst_results(rvn)[0];
 
-/// Dispatch nativo dos metodos de console (sem checar override runtime).
-/// Separado de lower_console_call p/ evitar recursao no path de override.
-fn lower_console_call_native(
-    ctx: &mut FnCtx,
-    method: &str,
-    call: &CallExpr,
-) -> Result<Option<TypedVal>> {
-    let target_symbol: &str = match method {
-        "log" | "info" | "debug" => "__RTS_FN_NS_IO_PRINT",
-        "error" | "warn" => "__RTS_FN_NS_IO_EPRINT",
-        // (#686/309) console.assert(cond, ...msg) — se cond eh truthy, noop.
-        // Senao imprime "Assertion failed: <msg>" em stderr. Nao throw.
-        // dir(arg) — imprime arg via INSPECT (= console.log um arg).
-        "assert" => {
-            // Sem args: noop.
-            if call.args.is_empty() {
-                let zero = ctx.builder.ins().iconst(cl::I64, 0);
-                return Ok(Some(TypedVal::new(zero, ValTy::I64)));
-            }
-            // Avalia cond.
-            let cond_tv = lower_expr(ctx, &call.args[0].expr)?;
-            // Truthy via __RTS_FN_RT_TRUTHY (cobre handle/string/0/sentinels).
-            let cond_i64 = ctx.coerce_to_i64(cond_tv).val;
-            let truthy_fn = ctx.get_extern(
-                "__RTS_FN_RT_TRUTHY",
-                &[cl::I64],
-                Some(cl::I64),
-            )?;
-            let inst_t = ctx.builder.ins().call(truthy_fn, &[cond_i64]);
-            let truthy = ctx.builder.inst_results(inst_t)[0];
-            let zero = ctx.builder.ins().iconst(cl::I64, 0);
-            let is_falsy = ctx.builder.ins().icmp(
-                cranelift_codegen::ir::condcodes::IntCC::Equal,
-                truthy,
-                zero,
-            );
-            let print_block = ctx.builder.create_block();
-            let merge = ctx.builder.create_block();
-            ctx.builder.ins().brif(is_falsy, print_block, &[], merge, &[]);
+    let auto_coerce = ctx.get_extern("__RTS_FN_RT_INSPECT", &[cl::I64], Some(cl::I64))?;
+    let num_bias =
+        ctx.get_extern("__RTS_FN_RT_TPL_COERCE_NUM_BIAS", &[cl::I64], Some(cl::I64))?;
 
-            ctx.builder.switch_to_block(print_block);
-            ctx.builder.seal_block(print_block);
-            // Constroi "Assertion failed: <msg>" (msgs concat com " ").
-            let prefix = ctx.emit_str_handle(b"Assertion failed:")?.val;
-            let space = ctx.emit_str_handle(b" ")?.val;
-            let concat = ctx.get_extern(
-                "__RTS_FN_NS_GC_STRING_CONCAT",
-                &[cl::I64, cl::I64],
-                Some(cl::I64),
-            )?;
-            let auto_coerce = ctx.get_extern(
-                "__RTS_FN_RT_INSPECT",
-                &[cl::I64],
-                Some(cl::I64),
-            )?;
-            let mut msg = prefix;
-            for arg in &call.args[1..] {
-                if arg.spread.is_some() {
-                    return Err(anyhow!("spread not supported in console.assert args"));
-                }
-                let tv = lower_expr(ctx, &arg.expr)?;
-                let is_known_str = matches!(
-                    arg.expr.as_ref(),
-                    Expr::Lit(swc_ecma_ast::Lit::Str(_)) | Expr::Tpl(_)
-                );
-                let needs_auto = matches!(tv.ty, ValTy::Handle | ValTy::U64) && !is_known_str;
-                let h = ctx.coerce_to_handle(tv)?.val;
-                let h = if needs_auto {
-                    let inst = ctx.builder.ins().call(auto_coerce, &[h]);
-                    ctx.builder.inst_results(inst)[0]
-                } else {
-                    h
-                };
-                let with_space = ctx.builder.ins().call(concat, &[msg, space]);
-                let prev = ctx.builder.inst_results(with_space)[0];
-                let combined = ctx.builder.ins().call(concat, &[prev, h]);
-                msg = ctx.builder.inst_results(combined)[0];
-            }
-            let ptr_fref =
-                ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
-            let len_fref =
-                ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
-            let pi = ctx.builder.ins().call(ptr_fref, &[msg]);
-            let p = ctx.builder.inst_results(pi)[0];
-            let li = ctx.builder.ins().call(len_fref, &[msg]);
-            let l = ctx.builder.inst_results(li)[0];
-            let eprint = ctx.get_extern("__RTS_FN_NS_IO_EPRINT", &[cl::I64, cl::I64], None)?;
-            ctx.builder.ins().call(eprint, &[p, l]);
-            ctx.builder.ins().jump(merge, &[]);
-
-            ctx.builder.switch_to_block(merge);
-            ctx.builder.seal_block(merge);
-            return Ok(Some(TypedVal::new(zero, ValTy::I64)));
-        }
-        // (#686) dir(obj) — alias de console.log com 1 arg + INSPECT.
-        "dir" => "__RTS_FN_NS_IO_PRINT",
-        // (cross-runtime #311/#310) Console methods nao implementados —
-        // tratados como noop ou alias de log/error pra evitar
-        // 'unknown namespace member'. table/group/groupEnd/groupCollapsed/
-        // count/countReset/trace/time*/clear/profile/profileEnd/timeStamp.
-        "table" | "group" | "groupCollapsed" | "groupEnd" |
-        "count" | "countReset" | "trace" | "time" | "timeEnd" | "timeLog" |
-        "clear" | "profile" | "profileEnd" | "timeStamp" => "__RTS_FN_NS_IO_PRINT",
-        _ => return Ok(None),
-    };
-
-    // Concatena todos os args como string. JS: separador eh " " entre args.
-    // Caso 0 args: imprime linha vazia (io.print/eprint ja adicionam \n).
-    let space = ctx.emit_str_handle(b" ")?.val;
-    let mut acc: Option<cranelift_codegen::ir::Value> = None;
-    let concat = ctx.get_extern(
-        "__RTS_FN_NS_GC_STRING_CONCAT",
-        &[cl::I64, cl::I64],
-        Some(cl::I64),
-    )?;
-
-    // Para console.* usamos INSPECT (pretty-print estilo Node/Bun):
-    // arrays viram `[ 1, 2, 'a' ]`, objetos `{ k: v }`, strings top-level
-    // sem aspas. Literals string/template ja sao Handle conhecido, skip
-    // da coercao via heuristica simples: arg e' Lit::Str ou Tpl.
-    let auto_coerce = ctx.get_extern(
-        "__RTS_FN_RT_INSPECT",
-        &[cl::I64],
-        Some(cl::I64),
-    )?;
-    let num_bias = ctx.get_extern(
-        "__RTS_FN_RT_TPL_COERCE_NUM_BIAS",
-        &[cl::I64],
-        Some(cl::I64),
-    )?;
     for arg in &call.args {
-        if arg.spread.is_some() {
-            return Err(anyhow!("spread not supported in console.* args"));
-        }
         let is_known_str = matches!(
             arg.expr.as_ref(),
             Expr::Lit(swc_ecma_ast::Lit::Str(_)) | Expr::Tpl(_)
         );
         let tv = lower_expr(ctx, &arg.expr)?;
-        // (#573) U64 tambem pode ser handle ambiguo (ex: JSON.parse retorno
-        // de '42' eh i64 raw com tipo U64). Auto-coerce decide em runtime.
+        // raw (override/assert).
+        let raw = ctx.coerce_to_i64(tv).val;
+        ctx.builder.ins().call(push, &[raw_vec, raw]);
+        // display: mesma heurística do dispatch nativo anterior.
         let needs_auto = matches!(tv.ty, ValTy::Handle | ValTy::U64) && !is_known_str;
-        // (cross-runtime #335/#1056) I64 marcado var_member_call_values (ex:
-        // `obj.field`, `getter()`, member call result) — coerce com bias
-        // numerico: value=0 vira "0" em vez de "null" (TPL_COERCE_AUTO).
-        // Casos legitimos de `null` continuam cobertos via sentinel `i64::MIN+3`.
         let needs_num_bias = matches!(tv.ty, ValTy::I64)
             && ctx.var_member_call_values.contains(&tv.val)
             && !is_known_str;
@@ -444,39 +246,18 @@ fn lower_console_call_native(
                 h0
             }
         };
-        acc = Some(match acc {
-            None => h,
-            Some(prev) => {
-                let with_space = ctx.builder.ins().call(concat, &[prev, space]);
-                let prev_sp = ctx.builder.inst_results(with_space)[0];
-                let combined = ctx.builder.ins().call(concat, &[prev_sp, h]);
-                ctx.builder.inst_results(combined)[0]
-            }
-        });
+        ctx.builder.ins().call(push, &[display_vec, h]);
     }
 
-    let msg_handle = match acc {
-        Some(v) => v,
-        None => ctx.emit_str_handle(b"")?.val,
-    };
-
-    // Extrai (ptr, len) do handle e chama io.print/eprint (assinatura StrPtr).
-    let ptr_fref =
-        ctx.get_extern("__RTS_FN_NS_GC_STRING_PTR", &[cl::I64], Some(cl::I64))?;
-    let len_fref =
-        ctx.get_extern("__RTS_FN_NS_GC_STRING_LEN", &[cl::I64], Some(cl::I64))?;
-    let pi = ctx.builder.ins().call(ptr_fref, &[msg_handle]);
-    let p = ctx.builder.inst_results(pi)[0];
-    let li = ctx.builder.ins().call(len_fref, &[msg_handle]);
-    let l = ctx.builder.inst_results(li)[0];
-
-    let print_fref = ctx.get_extern(target_symbol, &[cl::I64, cl::I64], None)?;
-    ctx.builder.ins().call(print_fref, &[p, l]);
-
-    Ok(Some(TypedVal::new(
-        ctx.builder.ins().iconst(cl::I64, 0),
-        ValTy::I64,
-    )))
+    let (mp, ml) = ctx.emit_str_literal(method.as_bytes())?;
+    let write = ctx.get_extern(
+        "__RTS_FN_GL_CONSOLE_WRITE_AUTO",
+        &[cl::I64, cl::I64, cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    let inst = ctx.builder.ins().call(write, &[mp, ml, display_vec, raw_vec]);
+    let r = ctx.builder.inst_results(inst)[0];
+    Ok(Some(TypedVal::new(r, ValTy::I64)))
 }
 
 /// Builtins universais para arrays/maps via handle. Retorna `Some` se

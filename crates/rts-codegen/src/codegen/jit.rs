@@ -720,12 +720,14 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     }
     {
         use crate::namespaces::globals::console::rt::{
-            __RTS_FN_RT_CONSOLE_GET_OVERRIDE, __RTS_FN_RT_CONSOLE_SET_OVERRIDE,
-            __RTS_FN_RT_CONSOLE_OVERRIDE_IS_VARIADIC,
+            __RTS_FN_GL_CONSOLE_WRITE_AUTO, __RTS_FN_RT_CONSOLE_GET_OVERRIDE,
+            __RTS_FN_RT_CONSOLE_OVERRIDE_IS_VARIADIC, __RTS_FN_RT_CONSOLE_SET_OVERRIDE,
         };
         add_fn!("__RTS_FN_RT_CONSOLE_SET_OVERRIDE", __RTS_FN_RT_CONSOLE_SET_OVERRIDE);
         add_fn!("__RTS_FN_RT_CONSOLE_GET_OVERRIDE", __RTS_FN_RT_CONSOLE_GET_OVERRIDE);
         add_fn!("__RTS_FN_RT_CONSOLE_OVERRIDE_IS_VARIADIC", __RTS_FN_RT_CONSOLE_OVERRIDE_IS_VARIADIC);
+        // console drenado p/ runtime (Fase: console não-primordial).
+        add_fn!("__RTS_FN_GL_CONSOLE_WRITE_AUTO", __RTS_FN_GL_CONSOLE_WRITE_AUTO);
     }
     {
         use crate::namespaces::gc::string_pool::{
