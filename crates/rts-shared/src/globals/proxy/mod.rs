@@ -15,3 +15,32 @@
 //! Ver issue #218 (Proxy fase 1).
 
 pub mod ops;
+
+use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+
+/// Registra a classe global `Proxy` (não-primordial) no motor. Só o construtor
+/// `new Proxy(target, handler)` → símbolo `__RTS_FN_GL_PROXY_NEW`. Com isso o
+/// dispatch genérico de construtor (`global_class_lookup("Proxy")` em new_expr)
+/// cobre a construção, sem braço hardcoded `class_name == "Proxy"` no motor.
+/// As traps (get/set/has/delete/apply) seguem resolvidas em runtime via
+/// `resolve_proxy` nos caminhos MAP_*/INVOKE — não há lógica de método de Proxy
+/// no codegen. fn_ptr null: o símbolo resolve via o namespace que o registra.
+pub fn register_proxy_class_spec(e: &mut Engine) {
+    e.class("Proxy")
+        .doc("Proxy(target, handler) — Entry::Proxy; traps resolvidas em runtime.")
+        .member(Member {
+            name: "new".to_string(),
+            kind: MemberKind::Constructor,
+            sig: Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle),
+            symbol: "__RTS_FN_GL_PROXY_NEW".to_string(),
+            fn_ptr: FnPtr(core::ptr::null::<u8>()),
+            flags: MemberFlags::NONE,
+            aliases: Vec::new(),
+            variadic: false,
+            ts_signature: "new (target: object, handler: ProxyHandler<object>): any".to_string(),
+            doc: "new Proxy(target, handler) — cria Entry::Proxy.".to_string(),
+            pure: false,
+            intrinsic: None,
+        })
+        .done();
+}

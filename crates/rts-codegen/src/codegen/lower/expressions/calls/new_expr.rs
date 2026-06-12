@@ -225,33 +225,11 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
         return Ok(TypedVal::new(result_val, result_ty));
     }
 
-    // (#218) `new Proxy(target, handler)` — aloca Entry::Proxy.
-    // MAP_GET_CHAIN/MAP_SET/MAP_HAS/MAP_DELETE detectam o handle e
-    // despacham pra trap correta no handler (ou forward pro target).
-    if class_name == "Proxy" && !ctx.classes.contains_key(&class_name) {
-        let args = new_expr.args.as_deref().unwrap_or(&[]);
-        if args.len() != 2 {
-            anyhow::bail!(
-                "Proxy constructor: esperado 2 argumentos (target, handler), recebido {}",
-                args.len()
-            );
-        }
-        let target_tv = super::super::lower_expr(ctx, &args[0].expr)?;
-        let target_h = ctx.coerce_to_i64(target_tv).val;
-        let handler_tv = super::super::lower_expr(ctx, &args[1].expr)?;
-        let handler_h = ctx.coerce_to_i64(handler_tv).val;
-        let f = ctx.get_extern(
-            "__RTS_FN_GL_PROXY_NEW",
-            &[cl::I64, cl::I64],
-            Some(cl::I64),
-        )?;
-        let inst = ctx.builder.ins().call(f, &[target_h, handler_h]);
-        let h = ctx.builder.inst_results(inst)[0];
-        return Ok(crate::codegen::lower::ctx::TypedVal::new(
-            h,
-            crate::codegen::lower::ctx::ValTy::Handle,
-        ));
-    }
+    // (#218) `new Proxy(target, handler)` DRENADO: a classe "Proxy" é registrada
+    // no Registry com construtor → `__RTS_FN_GL_PROXY_NEW`, então o dispatch
+    // genérico de construtor acima (`global_class_lookup("Proxy")`) constrói o
+    // Entry::Proxy sem braço hardcoded. As traps seguem em runtime via
+    // resolve_proxy nos caminhos MAP_*/INVOKE.
 
     // (#810) TypedArrays — `new Uint8Array([..])`, `new Int32Array(n)`, etc.
     // Backing store eh um Vec<i64> (collections.vec_*), reusando indexacao,
