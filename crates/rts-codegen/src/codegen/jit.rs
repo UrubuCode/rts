@@ -699,8 +699,11 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_RT_FLOAT_UNBOX", __RTS_FN_RT_FLOAT_UNBOX);
     }
     {
-        use crate::namespaces::gc::string_pool::__RTS_FN_RT_STRICT_EQ_AMBIG;
+        use crate::namespaces::gc::string_pool::{
+            __RTS_FN_RT_FLOAT_EQ_AMBIG, __RTS_FN_RT_STRICT_EQ_AMBIG,
+        };
         add_fn!("__RTS_FN_RT_STRICT_EQ_AMBIG", __RTS_FN_RT_STRICT_EQ_AMBIG);
+        add_fn!("__RTS_FN_RT_FLOAT_EQ_AMBIG", __RTS_FN_RT_FLOAT_EQ_AMBIG);
     }
     {
         use crate::namespaces::gc::string_pool::__RTS_FN_RT_OBJECT_TO_STRING;

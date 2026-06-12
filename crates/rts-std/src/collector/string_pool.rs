@@ -887,6 +887,37 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_CMP(a: u64, b: u64) -> i64 {
 /// Usado quando codegen detecta uma das pontas em `var_member_call_values`
 /// e a comparacao seria short-circuit por strict-kind.
 #[unsafe(no_mangle)]
+/// (narrow-storage) `===` entre um operando AMBÍGUO (resultado de map.get/
+/// vec_get — pode ser FloatPrim boxed, int inline, ou handle de string/obj) e um
+/// `other: f64` conhecido. Desembrulha FloatPrim e compara numericamente; int
+/// inline compara como f64 (`2 === 2.0`); handle não-numérico = false (=== é
+/// estrito). Sentinelas (undefined/null/bool) = false vs número.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_FLOAT_EQ_AMBIG(ambig: i64, other: f64) -> i64 {
+    // FloatPrim boxed → desembrulha.
+    let mut unboxed = 0.0f64;
+    if __RTS_FN_RT_FLOAT_UNBOX(ambig as u64, &mut unboxed) != 0 {
+        return (unboxed == other) as i64;
+    }
+    // Sentinelas JS (undefined/null/bool/hole) nunca === número.
+    if ambig == i64::MIN
+        || ambig == i64::MIN + 1
+        || ambig == i64::MIN + 2
+        || ambig == i64::MIN + 3
+        || ambig == i64::MIN + 4
+    {
+        return 0;
+    }
+    // Handle válido (string/array/map/obj/etc) — não-número → false.
+    let is_handle = ambig > 0 && with_entry(ambig as u64, |e| e.is_some());
+    if is_handle {
+        return 0;
+    }
+    // Caso contrário é um int cru inline → compara como f64 (`2 === 2.0`).
+    ((ambig as f64) == other) as i64
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_RT_STRICT_EQ_AMBIG(a: i64, b: i64) -> i64 {
     // Mesmo bit pattern -> sempre igual (cobre handles identicos e
     // numeros iguais).

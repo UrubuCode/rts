@@ -1098,6 +1098,43 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         return Ok(TypedVal::new(result, ValTy::Bool));
     }
 
+    // (narrow-storage) `ambíguo === f64` / `f64 === ambíguo`: o lado ambíguo
+    // (resultado de map.get/vec_get) pode ser um FloatPrim boxed. Desembrulha e
+    // compara numericamente via FLOAT_EQ_AMBIG — sem isto, `coerce_to_f64` do
+    // handle daria lixo. Cobre `m.get(k) === 1.5`.
+    if matches!(bin.op, BinaryOp::EqEqEq | BinaryOp::NotEqEq) {
+        let pair = if matches!(lhs.ty, ValTy::I64 | ValTy::U64)
+            && ctx.var_member_call_values.contains(&lhs.val)
+            && matches!(rhs.ty, ValTy::F64)
+        {
+            Some((lhs, rhs))
+        } else if matches!(rhs.ty, ValTy::I64 | ValTy::U64)
+            && ctx.var_member_call_values.contains(&rhs.val)
+            && matches!(lhs.ty, ValTy::F64)
+        {
+            Some((rhs, lhs))
+        } else {
+            None
+        };
+        if let Some((ambig, fval)) = pair {
+            let av = ctx.coerce_to_i64(ambig).val;
+            let fref = ctx.get_extern(
+                "__RTS_FN_RT_FLOAT_EQ_AMBIG",
+                &[cl::I64, cl::F64],
+                Some(cl::I64),
+            )?;
+            let inst = ctx.builder.ins().call(fref, &[av, fval.val]);
+            let eq = ctx.builder.inst_results(inst)[0];
+            let result = if matches!(bin.op, BinaryOp::NotEqEq) {
+                let one = ctx.builder.ins().iconst(cl::I64, 1);
+                ctx.builder.ins().bxor(eq, one)
+            } else {
+                eq
+            };
+            return Ok(TypedVal::new(result, ValTy::Bool));
+        }
+    }
+
     // === / !== com tipos diferentes em compile-time → const false/true.
     // (#306) JS strict equality nao coerce; `0 === false` deve ser false.
     // Bool e' detectavel separado de I64/F64 em ValTy mesmo backed por
