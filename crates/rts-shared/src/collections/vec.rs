@@ -119,10 +119,17 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_JOIN(h: U64, sep: Handle) -> Handl
     let Some(elems) = elems else {
         return 0;
     };
-    let sep_bytes: Vec<u8> = with_entry(sep, |entry| match entry {
-        Some(Entry::String(b)) => b.clone(),
-        _ => Vec::new(),
-    });
+    // sep handle 0 = argumento omitido → default JS "," (deixa o Registry
+    // expressar `join(sep? = ",")` via DefaultArg::Int(0) sem hardcodar a
+    // vírgula no codegen). Nenhum caller passa 0 para um sep real.
+    let sep_bytes: Vec<u8> = if sep == 0 {
+        b",".to_vec()
+    } else {
+        with_entry(sep, |entry| match entry {
+            Some(Entry::String(b)) => b.clone(),
+            _ => Vec::new(),
+        })
+    };
     let mut out: Vec<u8> = Vec::new();
     join_into(&mut out, &elems, &sep_bytes, 0);
     alloc_entry(Entry::String(out))

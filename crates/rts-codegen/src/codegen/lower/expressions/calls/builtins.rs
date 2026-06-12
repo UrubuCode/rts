@@ -786,26 +786,7 @@ pub(super) fn lower_array_builtin(
             ctx.var_member_call_values.insert(result);
             Ok(Some(TypedVal::new(result, ValTy::I64)))
         }
-        "join" => {
-            // arr.join(sep): converte sep para string handle, chama runtime.
-            let sep_h = if let Some(arg) = call.args.first() {
-                if arg.spread.is_some() {
-                    return Ok(None);
-                }
-                let tv = lower_expr(ctx, &arg.expr)?;
-                ctx.coerce_to_handle(tv)?.val
-            } else {
-                ctx.emit_str_handle(b",")?.val
-            };
-            let join_fn = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_VEC_JOIN",
-                &[cl::I64, cl::I64],
-                Some(cl::I64),
-            )?;
-            let inst = ctx.builder.ins().call(join_fn, &[obj_h, sep_h]);
-            let v = ctx.builder.inst_results(inst)[0];
-            return Ok(Some(TypedVal::new(v, ValTy::Handle)));
-        }
+        // join drenado → classe global "Array" (sep? = "," via VEC_JOIN sep=0).
         // clear drenado → classe global "Array" (VEC_CLEAR, retorno void).
         // (#208 / #476) Array methods sem callback — args concretos só.
         "indexOf" | "lastIndexOf" | "includes" => {

@@ -142,6 +142,16 @@ pub fn register_array_class_spec(e: &mut rts_engine::Engine) {
         .member(m("values", h(), "__RTS_FN_NS_COLLECTIONS_VEC_VALUES", MemberFlags::NONE))
         .member(m("keys", h(), "__RTS_FN_NS_COLLECTIONS_VEC_KEYS", MemberFlags::NONE))
         .member(m("entries", h(), "__RTS_FN_NS_COLLECTIONS_VEC_ENTRIES", MemberFlags::NONE))
+        .member(m(
+            "join",
+            Sig::with_defaults(
+                vec![AbiType::Handle, AbiType::Handle],
+                AbiType::Handle,
+                vec![DefaultArg::Required, DefaultArg::Int(0)],
+            ),
+            "__RTS_FN_NS_COLLECTIONS_VEC_JOIN",
+            MemberFlags::NONE,
+        ))
         .member(m("clear", Sig::new(vec![AbiType::Handle], AbiType::Void), "__RTS_FN_NS_COLLECTIONS_VEC_CLEAR", MemberFlags::NONE))
         .member(slice_member)
         .member(m("fill", range3(), "__RTS_FN_NS_COLLECTIONS_VEC_FILL", MemberFlags::NONE))
