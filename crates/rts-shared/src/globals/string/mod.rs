@@ -572,6 +572,35 @@ pub fn register_string_class_spec(e: &mut Engine) {
             "str.split(sep, limit) — sep string ou regex (dispatch no runtime).",
             true,
         ))
+        // match/search/matchAll — pattern string OU regex; o dispatch por tipo
+        // vive no runtime (_AUTO inspeciona Entry::Regex). Codegen genérico.
+        .member(m(
+            "match",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_STRING_MATCH_AUTO",
+            "match(pattern: string | RegExp): string[] | null",
+            "str.match(pattern) — string ou regex (dispatch no runtime).",
+            true,
+        ))
+        .member(m(
+            "search",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::I64),
+            "__RTS_FN_GL_STRING_SEARCH_AUTO",
+            "search(pattern: string | RegExp): number",
+            "str.search(pattern) — index do 1º match, ou -1 (dispatch no runtime).",
+            true,
+        ))
+        .member(m(
+            "matchAll",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_STRING_MATCH_ALL_AUTO",
+            "matchAll(pattern: string | RegExp): string[][]",
+            "str.matchAll(pattern) — todos os matches (dispatch no runtime).",
+            true,
+        ))
         .member(m(
             "localeCompare",
             MemberKind::InstanceMethod,

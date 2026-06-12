@@ -677,3 +677,55 @@ pub extern "C" fn __RTS_FN_GL_STRING_SPLIT_REGEX_LIMIT(
     }
     vec_h
 }
+
+// ── _AUTO wrappers (dispatch string-vs-regex no RUNTIME, não no codegen) ──────
+// match/search/matchAll aceitam pattern string OU regex. Em vez de o codegen
+// detectar `Expr::Lit::Regex` em compile-time e escolher o símbolo, estes
+// wrappers recebem HANDLES (recv + pattern), extraem ptr/len e inspecionam
+// `Entry::Regex` em runtime. O codegen chama UM símbolo genérico por método.
+// Bônus: cobrem `text.match(r)` onde `r` é var RegExp (handle), não só literal.
+
+unsafe extern "C" {
+    fn __RTS_FN_NS_GC_STRING_PTR(h: u64) -> *const u8;
+    fn __RTS_FN_NS_GC_STRING_LEN(h: u64) -> i64;
+}
+
+#[inline]
+fn handle_is_regex(h: u64) -> bool {
+    rts_engine::heap::handles::with_entry(h, |e| {
+        matches!(e, Some(rts_engine::heap::handles::Entry::Regex(_)))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_STRING_MATCH_AUTO(recv: u64, pattern: u64) -> u64 {
+    let (sp, sl) = unsafe { (__RTS_FN_NS_GC_STRING_PTR(recv), __RTS_FN_NS_GC_STRING_LEN(recv)) };
+    if handle_is_regex(pattern) {
+        __RTS_FN_NS_STRING_MATCH_REGEX(sp, sl, pattern)
+    } else {
+        let (pp, pl) = unsafe { (__RTS_FN_NS_GC_STRING_PTR(pattern), __RTS_FN_NS_GC_STRING_LEN(pattern)) };
+        __RTS_FN_NS_STRING_MATCH(sp, sl, pp, pl)
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_STRING_SEARCH_AUTO(recv: u64, pattern: u64) -> i64 {
+    let (sp, sl) = unsafe { (__RTS_FN_NS_GC_STRING_PTR(recv), __RTS_FN_NS_GC_STRING_LEN(recv)) };
+    if handle_is_regex(pattern) {
+        __RTS_FN_NS_STRING_SEARCH_REGEX(sp, sl, pattern)
+    } else {
+        let (pp, pl) = unsafe { (__RTS_FN_NS_GC_STRING_PTR(pattern), __RTS_FN_NS_GC_STRING_LEN(pattern)) };
+        __RTS_FN_NS_STRING_SEARCH(sp, sl, pp, pl)
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_STRING_MATCH_ALL_AUTO(recv: u64, pattern: u64) -> u64 {
+    let (sp, sl) = unsafe { (__RTS_FN_NS_GC_STRING_PTR(recv), __RTS_FN_NS_GC_STRING_LEN(recv)) };
+    if handle_is_regex(pattern) {
+        __RTS_FN_NS_STRING_MATCH_ALL_REGEX(sp, sl, pattern)
+    } else {
+        let (pp, pl) = unsafe { (__RTS_FN_NS_GC_STRING_PTR(pattern), __RTS_FN_NS_GC_STRING_LEN(pattern)) };
+        __RTS_FN_NS_STRING_MATCH_ALL(sp, sl, pp, pl)
+    }
+}

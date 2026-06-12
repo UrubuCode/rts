@@ -1912,6 +1912,9 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_NS_STRING_SEARCH", search::__RTS_FN_NS_STRING_SEARCH);
     add_fn!("__RTS_FN_NS_STRING_MATCH_ALL", search::__RTS_FN_NS_STRING_MATCH_ALL);
     add_fn!("__RTS_FN_NS_STRING_MATCH_ALL_REGEX", search::__RTS_FN_NS_STRING_MATCH_ALL_REGEX);
+    add_fn!("__RTS_FN_GL_STRING_MATCH_AUTO",     search::__RTS_FN_GL_STRING_MATCH_AUTO);
+    add_fn!("__RTS_FN_GL_STRING_SEARCH_AUTO",    search::__RTS_FN_GL_STRING_SEARCH_AUTO);
+    add_fn!("__RTS_FN_GL_STRING_MATCH_ALL_AUTO", search::__RTS_FN_GL_STRING_MATCH_ALL_AUTO);
     add_fn!("__RTS_FN_NS_STRING_REPLACE_REGEX_FN", search::__RTS_FN_NS_STRING_REPLACE_REGEX_FN);
     add_fn!("__RTS_FN_GL_STRING_SPLIT_REGEX",       search::__RTS_FN_GL_STRING_SPLIT_REGEX);
     add_fn!("__RTS_FN_GL_STRING_SPLIT_REGEX_LIMIT", search::__RTS_FN_GL_STRING_SPLIT_REGEX_LIMIT);
