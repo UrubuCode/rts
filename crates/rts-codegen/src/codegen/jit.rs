@@ -135,6 +135,12 @@ fn build_jit_module() -> Result<JITModule> {
 /// make the JIT fail at finalize time with a clear error, which is what
 /// we want rather than silent mis-linking.
 fn register_runtime_symbols(jit: &mut JITBuilder) {
+    // Garante que `jit_symbols` (populado como efeito colateral de construir a
+    // `registry()`, via `leak_class`/`leak_namespace`) esteja pronto antes de
+    // `runtime_jit_symbols()` abaixo — a registry é lazy e no path `rts run`
+    // ainda não foi acessada aqui. Sem isto, specs primordiais cujos símbolos
+    // dependem só do registro via Registry (sem `add_fn!` manual) não resolvem.
+    crate::abi::ensure_registry_init();
     for (name, ptr) in runtime_symbol_table() {
         jit.symbol(name, ptr);
     }
@@ -750,15 +756,11 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!("__RTS_FN_RT_TO_PRIMITIVE", __RTS_FN_RT_TO_PRIMITIVE);
     }
 
-    // Boolean class
-    {
-        use crate::namespaces::globals::boolean::*;
-        add_fn!("__RTS_FN_GL_BOOLEAN_COERCE", __RTS_FN_GL_BOOLEAN_COERCE);
-        add_fn!("__RTS_FN_GL_BOOLEAN_TO_STRING", __RTS_FN_GL_BOOLEAN_TO_STRING);
-        add_fn!("__RTS_FN_GL_BOOLEAN_VALUE_OF", __RTS_FN_GL_BOOLEAN_VALUE_OF);
-        add_fn!("__RTS_FN_GL_BOOLEAN_NEW", __RTS_FN_GL_BOOLEAN_NEW);
-        add_fn!("__RTS_FN_GL_BOOLEAN_NEW_EMPTY", __RTS_FN_GL_BOOLEAN_NEW_EMPTY);
-    }
+    // Boolean class — colapsado (Fase 2.8): a spec primordial em
+    // `rts-primitives/boolean.rs` carrega fn_ptr não-null em todos os 5 membros,
+    // então `leak_class` os grava em `jit_symbols` e `runtime_jit_symbols()`
+    // (após `ensure_registry_init`) os injeta. As `add_fn!` manuais eram
+    // redundantes — removidas.
 
     // (cross-runtime #742) BigInt.asIntN / asUintN helpers staticos.
     {
@@ -2057,22 +2059,15 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_STRING_LENGTH_UTF16",     rt::__RTS_FN_GL_STRING_LENGTH_UTF16);
 
     // ── namespaces::globals::number ───────────────────────────────────
+    // Colapso (Fase 2.8): 13 dos 15 símbolos têm membro com fn_ptr não-null na
+    // spec primordial (`rts-primitives/number.rs`) → `leak_class` os grava em
+    // `jit_symbols` e `runtime_jit_symbols()` (após `ensure_registry_init`) os
+    // injeta; suas `add_fn!` eram redundantes (removidas). Os 2 abaixo
+    // (NEW_EMPTY, BOX_VALUE_OF) NÃO têm membro com fn_ptr próprio → ainda
+    // precisam do registro manual.
     use crate::namespaces::globals::number as num_rt;
-    add_fn!("__RTS_FN_GL_NUMBER_NEW_FROM",    num_rt::__RTS_FN_GL_NUMBER_NEW_FROM);
     add_fn!("__RTS_FN_GL_NUMBER_NEW_EMPTY",   num_rt::__RTS_FN_GL_NUMBER_NEW_EMPTY);
-    add_fn!("__RTS_FN_GL_NUMBER_NEW_BOXED",   num_rt::__RTS_FN_GL_NUMBER_NEW_BOXED);
-    add_fn!("__RTS_FN_GL_NUMBER_NEW_BOXED_EMPTY", num_rt::__RTS_FN_GL_NUMBER_NEW_BOXED_EMPTY);
     add_fn!("__RTS_FN_GL_NUMBER_BOX_VALUE_OF", num_rt::__RTS_FN_GL_NUMBER_BOX_VALUE_OF);
-    add_fn!("__RTS_FN_GL_NUMBER_IS_NAN",      num_rt::__RTS_FN_GL_NUMBER_IS_NAN);
-    add_fn!("__RTS_FN_GL_NUMBER_IS_FINITE",   num_rt::__RTS_FN_GL_NUMBER_IS_FINITE);
-    add_fn!("__RTS_FN_GL_NUMBER_IS_INTEGER",  num_rt::__RTS_FN_GL_NUMBER_IS_INTEGER);
-    add_fn!("__RTS_FN_GL_NUMBER_IS_SAFE_INT", num_rt::__RTS_FN_GL_NUMBER_IS_SAFE_INT);
-    add_fn!("__RTS_FN_GL_NUMBER_VALUE_OF",    num_rt::__RTS_FN_GL_NUMBER_VALUE_OF);
-    add_fn!("__RTS_FN_GL_NUMBER_TO_FIXED",    num_rt::__RTS_FN_GL_NUMBER_TO_FIXED);
-    add_fn!("__RTS_FN_GL_NUMBER_TO_PRECISION",    num_rt::__RTS_FN_GL_NUMBER_TO_PRECISION);
-    add_fn!("__RTS_FN_GL_NUMBER_TO_EXPONENTIAL",  num_rt::__RTS_FN_GL_NUMBER_TO_EXPONENTIAL);
-    add_fn!("__RTS_FN_GL_NUMBER_FROM_STR",         num_rt::__RTS_FN_GL_NUMBER_FROM_STR);
-    add_fn!("__RTS_FN_GL_NUMBER_TO_STRING_RADIX",  num_rt::__RTS_FN_GL_NUMBER_TO_STRING_RADIX);
 
     // ── namespaces::buffer ────────────────────────────────────────────
     use crate::namespaces::buffer as buf;

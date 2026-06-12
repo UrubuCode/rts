@@ -46,6 +46,17 @@ fn registry() -> &'static std::sync::RwLock<Registry> {
     REGISTRY.get_or_init(|| std::sync::RwLock::new(register_builtins()))
 }
 
+/// Força a construção da `registry()` (e portanto a população de `jit_symbols`
+/// via `leak_class`/`leak_namespace`, que só acontece como efeito colateral de
+/// `register_builtins`). Necessário ANTES de ler [`runtime_jit_symbols`] no
+/// registro de símbolos do JIT: a registry é lazy, e no path `rts run` ela ainda
+/// não foi acessada no finalize do JIT — sem isto `runtime_jit_symbols()` volta
+/// vazia e os símbolos das specs primordiais (fn_ptr não-null, sem `add_fn!`
+/// manual) não resolvem. Idempotente (OnceLock).
+pub fn ensure_registry_init() {
+    let _ = registry();
+}
+
 /// Semeia o registry a partir dos const arrays (a origem dos builtins hoje).
 fn register_builtins() -> Registry {
     let mut namespaces = std::collections::HashMap::with_capacity(SPECS.len());
