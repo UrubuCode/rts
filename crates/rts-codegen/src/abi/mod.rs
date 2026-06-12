@@ -309,10 +309,11 @@ fn leak_member(
                 .into_boxed_slice(),
         ),
         variadic: m.variadic,
-        // default_args é sempre vazio nos membros do builder (a macro também
-        // emite `&[]`; ver nota em rts-macro). Vira campo do Member quando a
-        // sintaxe de default-por-arg (E3/E4) for implementada.
-        default_args: &[],
+        // default_args vem do `Sig` do membro (registry-driven). Vazio na
+        // maioria; populado via `Sig::with_defaults` para os métodos cujo arg
+        // omitido tem default não-trivial (≠ zero-do-tipo). O emissor genérico
+        // `lower_global_instance_call` injeta esse valor em vez de hardcodar.
+        default_args: Box::leak(m.sig.default_args.clone().into_boxed_slice()),
         flags: m.flags,
     }
 }

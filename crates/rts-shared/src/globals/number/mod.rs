@@ -8,8 +8,9 @@
 //! TO_STRING_RADIX), os helpers de arredondamento e `number_const_value` ficam
 //! como free items abaixo.
 
+use rts_engine::abi::member::DefaultArg;
 use rts_engine::abi::ty::{Bool, Handle, F64, I64};
-use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+use rts_engine::{AbiType, Engine, FnPtr, Intrinsic, Member, MemberFlags, MemberKind, Sig};
 
 unsafe extern "C" {
     fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
@@ -426,23 +427,37 @@ pub fn register_number_class_spec(e: &mut Engine) {
         .member(m(
             "toString",
             MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::F64], AbiType::Handle),
-            "__RTS_FN_NS_GC_STRING_FROM_F64",
-            "toString(): string",
-            "n.toString() — delega ao extern de gc (string from f64).",
-            core::ptr::null::<u8>(),
+            // toString(radix? = 10): receiver F64 + radix I64 opcional (default
+            // 10). Usa o extern radix-aware; radix 10 produz o mesmo que o plain
+            // string-from-f64. Default expresso no Registry, não no codegen.
+            Sig::with_defaults(
+                vec![AbiType::F64, AbiType::I64],
+                AbiType::Handle,
+                vec![DefaultArg::Required, DefaultArg::Int(10)],
+            ),
+            "__RTS_FN_GL_NUMBER_TO_STRING_RADIX",
+            "toString(radix?: number): string",
+            "n.toString(radix) — string na base radix (default 10).",
+            __RTS_FN_GL_NUMBER_TO_STRING_RADIX as *const u8,
             true,
         ))
-        .member(m(
-            "valueOf",
-            MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle], AbiType::F64),
-            "__RTS_FN_GL_NUMBER_VALUE_OF",
-            "valueOf(): number",
-            "n.valueOf() — primitive identity ou unbox NumberBox.",
-            __RTS_FN_GL_NUMBER_VALUE_OF as *const u8,
-            true,
-        ))
+        .member(Member {
+            name: "valueOf".to_string(),
+            kind: MemberKind::InstanceMethod,
+            // receiver-Handle (NumberBox) → chama o symbol (unbox); receiver
+            // primitivo (F64) → o tag ReceiverIdentity devolve o próprio número
+            // sem call. Genérico nos dois casos (sem braço hardcoded "valueOf").
+            sig: Sig::new(vec![AbiType::Handle], AbiType::F64),
+            symbol: "__RTS_FN_GL_NUMBER_VALUE_OF".to_string(),
+            fn_ptr: FnPtr(__RTS_FN_GL_NUMBER_VALUE_OF as *const u8),
+            flags: MemberFlags::NONE,
+            aliases: Vec::new(),
+            variadic: false,
+            ts_signature: "valueOf(): number".to_string(),
+            doc: "n.valueOf() — primitive identity ou unbox NumberBox.".to_string(),
+            pure: true,
+            intrinsic: Some(Intrinsic::ReceiverIdentity),
+        })
         .member(m(
             "toPrecision",
             MemberKind::InstanceMethod,
@@ -456,7 +471,13 @@ pub fn register_number_class_spec(e: &mut Engine) {
         .member(m(
             "toExponential",
             MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::F64, AbiType::I64], AbiType::Handle),
+            // digits? omitido = -1 (sentinela "auto" do extern). Default no
+            // Registry em vez de hardcodado no braço do codegen.
+            Sig::with_defaults(
+                vec![AbiType::F64, AbiType::I64],
+                AbiType::Handle,
+                vec![DefaultArg::Required, DefaultArg::Int(-1)],
+            ),
             "__RTS_FN_GL_NUMBER_TO_EXPONENTIAL",
             "toExponential(digits?: number): string",
             "n.toExponential(digits) — exponential notation string.",

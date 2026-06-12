@@ -142,6 +142,10 @@ pub(super) fn lower_intrinsic(
                 ValTy::I64,
             )))
         }
+        // ReceiverIdentity é um tag de método de instância (valueOf primitivo),
+        // tratado em `try_global_class_instance_method` — não é um intrínseco de
+        // call de namespace. Aqui não se aplica: cai pro corpo normal.
+        Intrinsic::ReceiverIdentity => Ok(None),
     }
 }
 
@@ -560,6 +564,50 @@ pub(super) fn lower_global_instance_call(
     }
 }
 
+
+/// GENÉRICO: resolve `recv.method(args)` para uma classe global pelo Registry e
+/// emite a call, sem o codegen conhecer nomes de método JS. Substitui os braços
+/// hardcoded (`lower_number_builtin` etc.): em vez de `match method { "toFixed"
+/// => call SYMBOL, ... }`, consulta `global_class_lookup(class).resolve_instance
+/// _method(method, arity)` e despacha via [`lower_global_instance_call`] (que já
+/// trata receiver, coerção de args, default_args e retorno pelo spec do membro).
+///
+/// `recv_tv` é coerced pro tipo do slot 0 do membro (F64 para Number primitives;
+/// Handle/i64 caso contrário) — espelha o caminho de Ident já existente em
+/// `calls/mod.rs`. Retorna `None` quando a classe/método não está no Registry
+/// (o caller cai no próximo handler).
+pub(crate) fn try_global_class_instance_method(
+    ctx: &mut FnCtx,
+    class_name: &str,
+    method: &str,
+    recv_tv: TypedVal,
+    call: &CallExpr,
+) -> Result<Option<TypedVal>> {
+    let Some(spec) = crate::abi::global_class_lookup(class_name) else {
+        return Ok(None);
+    };
+    let Some(member) = spec.resolve_instance_method(method, call.args.len()) else {
+        return Ok(None);
+    };
+    // (identity) Método marcado ReceiverIdentity num receiver primitivo (ex.:
+    // `(42).valueOf()`): devolve o próprio receiver, sem call. O caminho de
+    // receiver-Handle (objeto boxed) usa lower_global_instance_call direto e
+    // ignora o tag → chama o symbol real (unbox).
+    if matches!(member.intrinsic, Some(crate::abi::Intrinsic::ReceiverIdentity)) {
+        return Ok(Some(recv_tv));
+    }
+    let first_arg_is_f64 = member
+        .args
+        .first()
+        .map(|a| matches!(a, AbiType::F64))
+        .unwrap_or(false);
+    let recv = if first_arg_is_f64 {
+        to_f64(ctx, recv_tv)
+    } else {
+        ctx.coerce_to_i64(recv_tv).val
+    };
+    Ok(Some(lower_global_instance_call(ctx, member, recv, call)?))
+}
 
 pub(crate) fn emit_namespace_constant(
     ctx: &mut FnCtx,

@@ -12,9 +12,8 @@ use swc_ecma_ast::{CallExpr, Expr};
 
 use crate::codegen::lower::ctx::{FnCtx, TypedVal, ValTy};
 use super::super::lower_expr;
-use super::super::operators::to_f64;
 use super::builtins::{
-    lower_array_builtin, lower_map_set_builtin, lower_number_builtin, lower_string_builtin,
+    lower_array_builtin, lower_map_set_builtin, lower_string_builtin,
 };
 
 /// (Web Streams) Despacha `controller.enqueue(x)` / `controller.close()` (e o
@@ -85,10 +84,12 @@ pub(super) fn lower_var_member_call(
         }
     }
 
-    // Builtins de Number (n.toFixed(), n.toString(), etc.) em receiver numeric.
+    // Métodos de Number (n.toFixed(), n.toString(), etc.) em receiver numeric —
+    // GENÉRICO via Registry (sem nomes de método hardcoded no codegen).
     if matches!(obj_tv.ty, ValTy::F64 | ValTy::I64 | ValTy::I32) {
-        let recv_f = to_f64(ctx, obj_tv);
-        if let Some(tv) = lower_number_builtin(ctx, prop, recv_f, call)? {
+        if let Some(tv) =
+            super::ns_call::try_global_class_instance_method(ctx, "Number", prop, obj_tv, call)?
+        {
             return Ok(tv);
         }
     }

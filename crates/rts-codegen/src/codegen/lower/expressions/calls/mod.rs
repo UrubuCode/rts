@@ -15,7 +15,7 @@ pub(super) use self::new_expr::lower_new;
 
 use self::builtins::{
     lower_array_builtin, lower_console_call, lower_map_set_builtin, lower_math_builtin,
-    lower_number_builtin, lower_string_builtin,
+    lower_string_builtin,
 };
 use self::ns_call::{
     lower_global_instance_call, lower_node_ns_call,
@@ -1223,8 +1223,14 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         }
                     }
                     if matches!(recv_tv.ty, ValTy::F64 | ValTy::I64 | ValTy::I32) {
-                        let recv_f = to_f64(ctx, recv_tv);
-                        if let Some(tv) = lower_number_builtin(ctx, &method_name, recv_f, call)? {
+                        // GENÉRICO via Registry — sem nomes de método hardcoded.
+                        if let Some(tv) = ns_call::try_global_class_instance_method(
+                            ctx,
+                            "Number",
+                            &method_name,
+                            recv_tv,
+                            call,
+                        )? {
                             return Ok(tv);
                         }
                     }
@@ -2878,11 +2884,12 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     if matches!(global_name, "NaN" | "Infinity") {
                         if let MemberProp::Ident(prop) = &m.prop {
                             let obj_tv = crate::codegen::lower::expressions::lower_expr(ctx, &m.obj)?;
-                            let recv_f = crate::codegen::lower::expressions::operators::to_f64(ctx, obj_tv);
-                            if let Some(tv) = crate::codegen::lower::expressions::calls::builtins::lower_number_builtin(
+                            // GENÉRICO via Registry — sem nomes de método hardcoded.
+                            if let Some(tv) = ns_call::try_global_class_instance_method(
                                 ctx,
+                                "Number",
                                 prop.sym.as_str(),
-                                recv_f,
+                                obj_tv,
                                 call,
                             )? {
                                 return Ok(tv);

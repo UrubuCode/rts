@@ -77,6 +77,9 @@ pub fn intrinsic_resolver_default() -> impl Fn(&str, &str) -> Option<IntrinsicTa
             Intrinsic::AbsI64 => IntrinsicTag::AbsI64,
             Intrinsic::MinI64 => IntrinsicTag::MinI64,
             Intrinsic::MaxI64 => IntrinsicTag::MaxI64,
+            // Tag de método de instância (valueOf primitivo), não de namespace
+            // call — não há IntrinsicTag MIR correspondente.
+            Intrinsic::ReceiverIdentity => return None,
         })
     }
 }

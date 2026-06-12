@@ -150,6 +150,13 @@ pub enum Intrinsic {
     MinI64,
     /// `i64::max` → signed integer max.
     MaxI64,
+    /// Método de instância que devolve o próprio receiver primitivo, sem call
+    /// (ex.: `(42).valueOf()`/`"x".valueOf()` num primitive). O emissor genérico
+    /// de método de classe global retorna o receiver tal-e-qual em vez de
+    /// invocar o `symbol`. Mantém o codegen genérico (casa neste tag, não na
+    /// string `"valueOf"`); o caminho de receiver-Handle (objeto boxed) ignora o
+    /// tag e chama o `symbol` real (unbox).
+    ReceiverIdentity,
 }
 
 /// Whether a member is a function, constant, constructor, or instance method.
