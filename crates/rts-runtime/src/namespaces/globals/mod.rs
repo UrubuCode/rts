@@ -9,6 +9,7 @@ pub mod dataview;
 pub use rts_shared::globals::dom_exception;
 pub use rts_std::globals::event_target;
 pub use rts_std::globals::form_data;
+pub use rts_primitives::array;
 pub use rts_primitives::boolean;
 pub use rts_std::globals::console;
 pub use rts_shared::globals::date;

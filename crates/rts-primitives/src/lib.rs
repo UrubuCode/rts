@@ -10,6 +10,7 @@
 
 pub mod gc_surface;
 
+pub mod array;
 pub mod boolean;
 pub mod error;
 pub mod number;
