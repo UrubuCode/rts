@@ -549,8 +549,26 @@ pub(super) fn lower_global_instance_call(
                 values.push(ctx.coerce_to_i32(tv).val);
             }
             _ => {
-                let tv = lower_expr(ctx, &arg.expr)?;
-                values.push(ctx.coerce_to_i64(tv).val);
+                // Callback/fn-ref: ident de user fn (não var local) reifica pro
+                // func_addr — espelha emit_user_fn_addr dos antigos braços de
+                // callback. Arrow inline (hoisteada) e var seguem por lower_expr.
+                let user_fn = match arg.expr.as_ref() {
+                    Expr::Ident(id)
+                        if ctx.user_fns.contains_key(id.sym.as_str())
+                            && ctx.var_ty(id.sym.as_str()).is_none() =>
+                    {
+                        Some(id.sym.as_str().to_string())
+                    }
+                    _ => None,
+                };
+                let v = if let Some(name) = user_fn {
+                    let tv = super::emit_user_fn_addr(ctx, &name)?;
+                    ctx.coerce_to_i64(tv).val
+                } else {
+                    let tv = lower_expr(ctx, &arg.expr)?;
+                    ctx.coerce_to_i64(tv).val
+                };
+                values.push(v);
             }
         }
     }

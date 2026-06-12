@@ -156,6 +156,25 @@ pub fn register_array_class_spec(e: &mut rts_engine::Engine) {
         MemberFlags::NONE,
     );
     length_member.aliases = vec!["size".to_string()];
+    // Comparator opcional (sort/toSorted) = default 0 → ordem default no runtime.
+    // O arg fn é coergido pro func_addr pelo emitter genérico (ident de user fn
+    // OU arrow inline hoisteada).
+    let cb_opt = |sym: &str| {
+        m(
+            "x",
+            Sig::with_defaults(
+                vec![AbiType::Handle, AbiType::I64],
+                AbiType::Handle,
+                vec![DefaultArg::Required, DefaultArg::Int(0)],
+            ),
+            sym,
+            MemberFlags::NONE,
+        )
+    };
+    let mut sort_member = cb_opt("__RTS_FN_NS_COLLECTIONS_VEC_SORT");
+    sort_member.name = "sort".to_string();
+    let mut tosorted_member = cb_opt("__RTS_FN_NS_COLLECTIONS_VEC_TO_SORTED");
+    tosorted_member.name = "toSorted".to_string();
     e.class("Array")
         .doc("Array — métodos sem callback (pop/shift/reverse/toReversed/values/keys/entries/fill/copyWithin/with).")
         .member(m("at", Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64), "__RTS_FN_NS_COLLECTIONS_VEC_AT_AUTO", MemberFlags::AMBIGUOUS_RET))
@@ -186,6 +205,11 @@ pub fn register_array_class_spec(e: &mut rts_engine::Engine) {
             AbiType::Handle,
             vec![DefaultArg::Required, DefaultArg::Int(1)],
         ), "__RTS_FN_NS_COLLECTIONS_VEC_FLAT_DEPTH", MemberFlags::NONE))
+        .member(sort_member)
+        .member(tosorted_member)
+        .member(m("flatMap", Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_VEC_FLAT_MAP", MemberFlags::NONE))
+        .member(m("findLast", Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64), "__RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST", MemberFlags::AMBIGUOUS_RET))
+        .member(m("findLastIndex", Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64), "__RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST_INDEX", MemberFlags::NONE))
         .member(m("fill", range3(), "__RTS_FN_NS_COLLECTIONS_VEC_FILL", MemberFlags::NONE))
         .member(m("copyWithin", range3(), "__RTS_FN_NS_COLLECTIONS_VEC_COPY_WITHIN", MemberFlags::NONE))
         .member(m(
