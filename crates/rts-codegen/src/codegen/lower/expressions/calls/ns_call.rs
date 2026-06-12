@@ -23,7 +23,7 @@ use crate::codegen::lower::ctx::{FnCtx, TypedVal, ValTy};
 use super::super::lower_expr;
 use super::super::operators::to_f64;
 
-pub(super) fn emit_constant_load(ctx: &mut FnCtx, member: &crate::abi::NamespaceMember) -> Result<TypedVal> {
+pub(crate) fn emit_constant_load(ctx: &mut FnCtx, member: &crate::abi::NamespaceMember) -> Result<TypedVal> {
     use crate::abi::signature::scalar_to_cl;
     let lowered = lower_member(member);
     let ret_abi = lowered

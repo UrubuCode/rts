@@ -983,7 +983,12 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
         } else {
             false
         };
-        // (#208) `Math.X` (uppercase JS-style) → `math.X` (lowercase RTS namespace).
+        // (#208) `Math.X` em posição de valor (sem call). A emissão de
+        // constante é MECANISMO-ESPECÍFICA por classe (math = data symbol via
+        // emit_namespace_constant; Number = f64const inline em number_const_value;
+        // Symbol = símbolo callable em 1049), então o value-position de Math fica
+        // roteado pelo namespace `math` (que ainda existe). O dispatch de CHAMADA
+        // (`Math.sqrt(x)`) e `typeof` já resolvem pela classe Math no Registry.
         if !root_is_local_var {
             if let Some(prop) = qualified.strip_prefix("Math.") {
                 let target = format!("math.{prop}");
@@ -993,9 +998,8 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                             return Ok(tv);
                         }
                     } else {
-                        // (cross-runtime #799) `Math.max` em posicao de valor
-                        // (sem call) — reifica fn extern como Function handle
-                        // pra suportar `const m = Math.max; Reflect.apply(m, ...)`.
+                        // (cross-runtime #799) `Math.max` em posição de valor
+                        // (sem call) — reifica fn extern como Function handle.
                         return reify_ns_fn_as_handle(ctx, member);
                     }
                 }

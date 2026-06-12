@@ -197,6 +197,26 @@ fn register_builtins() -> Registry {
         g::message_channel::register_message_channel_class_spec(&mut engine);
         g::message_channel::register_message_port_class_spec(&mut engine);
     }
+    // Classe global `Math` = espelho do namespace `math` (JS global Math é
+    // não-primordial → resolve pelo Registry, não por `strip_prefix("Math.")`
+    // no codegen). Reusa os MESMOS membros (símbolos + intrínsecos), então
+    // `Math.sqrt(x)` cai no dispatch genérico `global_class_lookup("Math")` e
+    // ainda inlina o intrínseco. Construída a partir do módulo já registrado
+    // (sem duplicar as ~40 declarações).
+    let math_members: Vec<rts_engine::Member> = engine
+        .registry()
+        .module("math")
+        .map(|m| m.members.clone())
+        .unwrap_or_default();
+    if !math_members.is_empty() {
+        let mut b = engine
+            .class("Math")
+            .doc("JS global Math — espelho do namespace math (mesmos símbolos/intrínsecos).");
+        for m in math_members {
+            b = b.member(m);
+        }
+        b.done();
+    }
     for module in engine.registry().modules() {
         let spec = leak_namespace(module);
         namespaces.insert(spec.name, spec);

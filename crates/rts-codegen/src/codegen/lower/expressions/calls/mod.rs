@@ -3,7 +3,7 @@ mod class_dispatch;
 mod coerce;
 mod indirect;
 mod new_expr;
-mod ns_call;
+pub(crate) mod ns_call;
 mod super_calls;
 
 use self::indirect::{
@@ -1727,15 +1727,11 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                     }
                 }
             }
-            // (#208) `Math.X` → `math.X` (lowercase namespace). RTS usa
-            // `math` namespace pra tudo; expor JS-style `Math.sqrt` etc.
-            // sem duplicar codigo de impl.
-            if let Some(method) = qualified.strip_prefix("Math.") {
-                let target = format!("math.{method}");
-                if lookup(&target).is_some() {
-                    return lower_ns_call(ctx, &target, call);
-                }
-            }
+            // (Drain Math) `Math.X(args)` resolve pelo dispatch genérico
+            // `global_class_lookup("Math")` acima (classe Math = espelho do
+            // namespace math, registrada na abi). Os casos variádicos N≠2 de
+            // hypot/max/min caem nos braços dedicados acima. Sem
+            // `strip_prefix("Math.")` no motor.
             // (#69) Atomics.* sobre TypedArray-view inteiro (backing
             // (Shared)ArrayBuffer). Single-thread: cada op eh RMW nao-
             // concorrente via ATOMICS_RMW/CAS/LOAD/STORE. O 1o arg eh a

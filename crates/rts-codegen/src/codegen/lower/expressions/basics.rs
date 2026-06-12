@@ -476,16 +476,25 @@ fn lower_typeof(ctx: &mut FnCtx, operand: &Expr) -> Result<TypedVal> {
             }
         }
         if let Some(qualified) = crate::codegen::lower::expressions::members::qualified_member_name(operand) {
-            let target: String = if let Some(prop) = qualified.strip_prefix("Math.") {
-                format!("math.{prop}")
-            } else {
-                qualified.clone()
-            };
-            if let Some((_, member)) = crate::abi::lookup(&target) {
+            // `typeof Ns.member` / `typeof Cls.member` → "number" (Constant) ou
+            // "function". Resolve genericamente: namespace member OU método de
+            // classe global (ex.: `Math.PI`→number, `Math.sqrt`/`Date.now`→
+            // function) via Registry — sem `strip_prefix("Math.")` no motor.
+            if let Some((_, member)) = crate::abi::lookup(&qualified) {
                 return match member.kind {
                     crate::abi::MemberKind::Constant => ctx.emit_str_handle(b"number"),
                     _ => ctx.emit_str_handle(b"function"),
                 };
+            }
+            if let Some((cls, method)) = qualified.split_once('.') {
+                if let Some(spec) = crate::abi::global_class_lookup(cls) {
+                    if let Some(member) = spec.members.iter().find(|m| m.name == method) {
+                        return match member.kind {
+                            crate::abi::MemberKind::Constant => ctx.emit_str_handle(b"number"),
+                            _ => ctx.emit_str_handle(b"function"),
+                        };
+                    }
+                }
             }
         }
         // (#685/308) `typeof obj.method` quando obj eh instancia de
