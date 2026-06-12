@@ -29,7 +29,7 @@ fn set_stack_overflow_error() {
     // permite que `catch (e: any) { console.log(e.message, e.name) }` leia
     // `"Maximum call stack size exceeded"` e `"RangeError"` respectivamente.
     let msg = b"Maximum call stack size exceeded";
-    let handle = rts_shared::globals::error::instance::__RTS_FN_GL_RANGE_ERROR_NEW(
+    let handle = rts_primitives::error::instance::__RTS_FN_GL_RANGE_ERROR_NEW(
         msg.as_ptr() as i64,
         msg.len() as i64,
         0,

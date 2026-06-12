@@ -1905,7 +1905,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY(
     // user em try/catch capture o erro com e.constructor.name === "TypeError".
     if is_non_configurable(obj, &key_str) {
         let msg = format!("Cannot redefine property: {}", key_str);
-        let err_h = crate::globals::error::instance::__RTS_FN_GL_TYPE_ERROR_NEW(
+        let err_h = rts_primitives::error::instance::__RTS_FN_GL_TYPE_ERROR_NEW(
             msg.as_ptr() as i64,
             msg.len() as i64,
             0,

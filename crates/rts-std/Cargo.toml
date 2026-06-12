@@ -13,6 +13,8 @@ asio = ["cpal/asio"]
 
 [dependencies]
 rts-engine = { path = "../rts-engine" }
+# Primordiais (Fase 2): collector/stack.rs cria Error via rts_primitives::error.
+rts-primitives = { path = "../rts-primitives" }
 rts-shared = { path = "../rts-shared" }
 indexmap = "2.14.0"
 rayon = "1.10"

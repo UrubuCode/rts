@@ -11,5 +11,6 @@
 pub mod gc_surface;
 
 pub mod boolean;
+pub mod error;
 pub mod number;
 pub mod string;
