@@ -139,11 +139,7 @@ pub(super) fn lower_string_builtin(
             Ok(Some(TypedVal::new(v, ValTy::Bool)))
         }
         // ── indexing ─────────────────────────────────────────────────────
-        "charAt" => {
-            let idx = arg_i64(ctx, call, 0)?;
-            let v = call_h!("__RTS_FN_GL_STRING_CHAR_AT", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, idx]);
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
+        // charAt drenado pro Registry (CHAR_AT idêntico) — cai no fallback `_`.
         "charCodeAt" => {
             let idx = arg_i64(ctx, call, 0)?;
             let v = call_h!("__RTS_FN_GL_STRING_CHAR_CODE_AT_F64", &[cl::I64, cl::I64], Some(cl::F64), &[recv_h, idx]);
@@ -157,11 +153,7 @@ pub(super) fn lower_string_builtin(
             ctx.var_member_call_values.insert(v);
             Ok(Some(TypedVal::new(v, ValTy::I64)))
         }
-        "at" => {
-            let idx = arg_i64(ctx, call, 0)?;
-            let v = call_h!("__RTS_FN_GL_STRING_AT", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, idx]);
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
+        // at drenado pro Registry (STRING_AT idêntico) — cai no fallback `_`.
         // ── slicing ───────────────────────────────────────────────────────
         "slice" => {
             // (cross-runtime followup) slice() sem args = slice(0). Antes
@@ -486,21 +478,12 @@ pub(super) fn lower_string_builtin(
             ctx.builder.seal_block(merge);
             Ok(Some(TypedVal::new(result, ValTy::Handle)))
         }
-        "localeCompare" => {
-            let other = arg_handle(ctx, call, 0)?;
-            let v = call_h!("__RTS_FN_GL_STRING_LOCALE_COMPARE", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, other]);
-            Ok(Some(TypedVal::new(v, ValTy::I64)))
-        }
+        // localeCompare drenado pro Registry (LOCALE_COMPARE idêntico) — fallback.
         "toString" | "valueOf" => {
             let v = call_h!("__RTS_FN_GL_STRING_TO_STRING", &[cl::I64], Some(cl::I64), &[recv_h]);
             Ok(Some(TypedVal::new(v, ValTy::Handle)))
         }
-        "toWellFormed" => {
-            // (#91) Routing correto: substitui lone surrogates por U+FFFD.
-            // Antes ia para STRING_TO_STRING (identity) — bug de routing.
-            let v = call_h!("__RTS_FN_GL_STRING_TO_WELL_FORMED", &[cl::I64], Some(cl::I64), &[recv_h]);
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
+        // toWellFormed drenado pro Registry (TO_WELL_FORMED idêntico) — fallback.
         "normalize" => {
             let form = if call.args.is_empty() {
                 ctx.emit_str_handle(b"NFC")?.val
