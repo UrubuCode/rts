@@ -1581,24 +1581,32 @@ fn try_lift_arrow_arg(
 /// Conjunto conservador de namespace/builtin idents que sao OK
 /// referenciar do body sem caracterizar captura de local.
 fn is_known_global_ident(name: &str) -> bool {
+    // Classes globais registradas (Date/RegExp/Symbol/Map/Set/Weak*/Promise/
+    // BigInt/ArrayBuffer/DataView/URL/TextEncoder/...) resolvem pelo Registry —
+    // o motor não as nomeia. Cobre também os primordiais registrados.
+    if crate::abi::global_class_lookup(name).is_some() {
+        return true;
+    }
     matches!(
         name,
+        // Namespaces builtin (lowercase).
         "math" | "string" | "num" | "fmt" | "path" | "hash" | "mem"
         | "io" | "fs" | "gc" | "buffer" | "time" | "env" | "os"
         | "collections" | "crypto" | "regex" | "json" | "date"
-        | "Math" | "String" | "Number" | "Date" | "JSON" | "RegExp"
+        // Primordiais (motor pode nomear) + Object (sem spec registrada).
+        | "Array" | "Object" | "Boolean" | "Number" | "String" | "Function"
         | "Error" | "TypeError" | "RangeError" | "SyntaxError"
         | "ReferenceError" | "EvalError" | "URIError" | "AggregateError"
-        | "Array" | "Object" | "Boolean" | "Symbol"
-        // (#394) classes globais construtoras usadas em `x instanceof C` /
-        // `new C()` dentro de callbacks — NAO sao capturas de escopo.
-        | "Set" | "Map" | "WeakMap" | "WeakSet" | "Promise" | "Proxy"
-        | "Reflect" | "BigInt" | "ArrayBuffer" | "SharedArrayBuffer"
-        | "DataView" | "Int8Array" | "Uint8Array" | "Uint8ClampedArray"
+        // Globais NÃO registradas no Registry (codegen-special / namespaces-globais):
+        // Math/JSON/Reflect/Proxy, SharedArrayBuffer + TypedArrays (backing Buffer),
+        // console/performance.
+        | "Math" | "JSON" | "Reflect" | "Proxy"
+        | "SharedArrayBuffer"
+        | "Int8Array" | "Uint8Array" | "Uint8ClampedArray"
         | "Int16Array" | "Uint16Array" | "Int32Array" | "Uint32Array"
         | "Float32Array" | "Float64Array" | "BigInt64Array" | "BigUint64Array"
-        | "Function" | "URL" | "URLSearchParams" | "TextEncoder" | "TextDecoder"
         | "console" | "performance" | "globalThis"
+        // Keywords / literais / funções globais.
         | "undefined" | "null" | "NaN" | "Infinity"
         | "true" | "false"
         | "isNaN" | "isFinite" | "parseInt" | "parseFloat"
