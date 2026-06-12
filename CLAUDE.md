@@ -171,10 +171,17 @@ _GET_STR/_MARK_NON_ENUM` in collections/map; `__RTS_FN_RT_PROXY_RESOLVE/
 _DISPATCH_APPLY` in proxy/ops) that Function calls by symbol — `primitives→shared`
 is link-time only, no Cargo cycle. All reverse-deps (`function::ops::*` in shared
 map/proxy/reflect/json + std generator/events/text_encoding/parallel/promise +
-facade) repointed to `rts_primitives::function`. **Pending:** Object spec (none
-exists — Object is primordial so the engine MAY name it directly, hence creating
-a spec + rewiring ~20 hardcoded sites is uniformity churn with regression risk
-and no doctrine gain; lowest priority). The `jit.rs` `add_fn!`→registry collapse is **partially
+facade) repointed to `rts_primitives::function`. **Object spec (Fase 2.7,
+introduced):** `register_object_class_spec` (`rts-primitives/object.rs`, metadata)
+declares `Object.prototype` instance methods (hasOwnProperty/propertyIsEnumerable/
+isPrototypeOf); bodies stay in `rts-shared/collections/map.rs`. Made load-bearing
+by switching the instanceof gate (operators.rs) and `.prototype` gate
+(members.rs) from a literal `"Object"`/literal-class-list to
+`global_class_lookup("Object").is_some()` (behaviour-identical). The bespoke
+Object **static** dispatch (keys via `OBJECT_KEYS_AUTO` over Map+Vec, variadic
+`assign`, descriptor `create`/`freeze`) stays hardcoded — draining it does not
+map cleanly onto the generic path and Object being primordial means no doctrine
+requirement; that drain is a documented dedicated follow-up. The `jit.rs` `add_fn!`→registry collapse is **partially
 done** (Fase 2.8, commit 2216ba7a): Boolean (5/5) + Number (13/15) manual
 `add_fn!` removed — their primordial specs carry non-null `fn_ptr`, so
 `leak_class` records them in `jit_symbols` and `runtime_jit_symbols()` injects
