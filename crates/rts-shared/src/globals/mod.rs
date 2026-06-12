@@ -25,4 +25,5 @@ pub mod error;
 pub mod function;
 pub mod proxy;
 pub mod reflect;
-pub mod string;
+// string → PRIMORDIAL: movido p/ `rts-primitives` (Fase 2). collections/vec.rs
+// chama rts_primitives::string::rt::* por path.

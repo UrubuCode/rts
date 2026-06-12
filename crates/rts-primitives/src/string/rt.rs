@@ -509,9 +509,9 @@ pub extern "C" fn __RTS_FN_GL_STRING_REPLACE_AUTO(recv: u64, search: u64, repl: 
     if h_is_regex(search) {
         let (sp, sl) = unsafe { (__RTS_FN_NS_GC_STRING_PTR(recv), __RTS_FN_NS_GC_STRING_LEN(recv)) };
         if h_is_string(repl) {
-            crate::globals::string::search::__RTS_FN_NS_STRING_REPLACE_REGEX(sp, sl, search, repl)
+            crate::string::search::__RTS_FN_NS_STRING_REPLACE_REGEX(sp, sl, search, repl)
         } else {
-            crate::globals::string::search::__RTS_FN_NS_STRING_REPLACE_REGEX_FN(sp, sl, search, repl)
+            crate::string::search::__RTS_FN_NS_STRING_REPLACE_REGEX_FN(sp, sl, search, repl)
         }
     } else {
         __RTS_FN_GL_STRING_REPLACE(recv, search, repl)
@@ -523,9 +523,9 @@ pub extern "C" fn __RTS_FN_GL_STRING_REPLACE_ALL_AUTO(recv: u64, search: u64, re
     if h_is_regex(search) {
         let (sp, sl) = unsafe { (__RTS_FN_NS_GC_STRING_PTR(recv), __RTS_FN_NS_GC_STRING_LEN(recv)) };
         if h_is_string(repl) {
-            crate::globals::string::search::__RTS_FN_NS_STRING_REPLACE_REGEX(sp, sl, search, repl)
+            crate::string::search::__RTS_FN_NS_STRING_REPLACE_REGEX(sp, sl, search, repl)
         } else {
-            crate::globals::string::search::__RTS_FN_NS_STRING_REPLACE_REGEX_FN(sp, sl, search, repl)
+            crate::string::search::__RTS_FN_NS_STRING_REPLACE_REGEX_FN(sp, sl, search, repl)
         }
     } else {
         __RTS_FN_GL_STRING_REPLACE_ALL(recv, search, repl)
@@ -643,7 +643,7 @@ pub extern "C" fn __RTS_FN_GL_STRING_SPLIT_AUTO(recv: u64, sep: u64, limit: i64)
     use rts_engine::heap::handles::{with_entry, Entry};
     let is_regex = with_entry(sep, |e| matches!(e, Some(Entry::Regex(_))));
     if is_regex {
-        crate::globals::string::search::__RTS_FN_GL_STRING_SPLIT_REGEX_LIMIT(recv, sep, limit)
+        crate::string::search::__RTS_FN_GL_STRING_SPLIT_REGEX_LIMIT(recv, sep, limit)
     } else {
         __RTS_FN_GL_STRING_SPLIT_LIMIT(recv, sep, limit)
     }

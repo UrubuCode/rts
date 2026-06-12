@@ -11,6 +11,9 @@ edition = "2024"
 
 [dependencies]
 rts-engine = { path = "../rts-engine" }
+# Primordiais movidos p/ rts-primitives (Fase 2): collections/vec.rs chama
+# rts_primitives::string::rt::* por símbolo. Aresta acíclica shared → primitives.
+rts-primitives = { path = "../rts-primitives" }
 regex = "1"
 fancy-regex = "0.13"
 indexmap = "2.14.0"

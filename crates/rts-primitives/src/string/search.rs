@@ -617,7 +617,7 @@ pub extern "C" fn __RTS_FN_GL_STRING_SPLIT_REGEX_LIMIT(
     limit: i64,
 ) -> u64 {
     use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
-    use crate::globals::string::rt::alloc_str;
+    use crate::string::rt::alloc_str;
     unsafe extern "C" {
         fn __RTS_FN_NS_COLLECTIONS_VEC_NEW() -> u64;
         fn __RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle: u64, value: i64);

@@ -499,7 +499,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_CONCAT_AUTO(recv: u64, other: i64) -> 
         let copy = __RTS_FN_NS_COLLECTIONS_VEC_CONCAT(recv, 0);
         __RTS_FN_NS_COLLECTIONS_VEC_CONCAT_APPEND(copy, other) as i64
     } else {
-        crate::globals::string::rt::__RTS_FN_GL_STRING_CONCAT(recv, other as u64) as i64
+        rts_primitives::string::rt::__RTS_FN_GL_STRING_CONCAT(recv, other as u64) as i64
     }
 }
 
@@ -517,7 +517,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SLICE_AUTO(recv: u64, start: i64, end:
         // STRING_SLICE nao tem sentinel pra "end of string" — passa i64::MAX
         // que o clamp(0, count) trata corretamente.
         let effective_end = if end == i64::MIN { i64::MAX } else { end };
-        crate::globals::string::rt::__RTS_FN_GL_STRING_SLICE(recv, start, effective_end)
+        rts_primitives::string::rt::__RTS_FN_GL_STRING_SLICE(recv, start, effective_end)
     }
 }
 
@@ -529,7 +529,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INCLUDES_AUTO(recv: u64, needle: i64) 
     if is_vec {
         __RTS_FN_NS_COLLECTIONS_VEC_INCLUDES(recv, needle)
     } else {
-        crate::globals::string::rt::__RTS_FN_GL_STRING_INCLUDES(recv, needle as u64)
+        rts_primitives::string::rt::__RTS_FN_GL_STRING_INCLUDES(recv, needle as u64)
             as i64
     }
 }
@@ -542,7 +542,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_OF_AUTO(recv: u64, needle: i64) 
     if is_vec {
         __RTS_FN_NS_COLLECTIONS_VEC_INDEX_OF(recv, needle)
     } else {
-        crate::globals::string::rt::__RTS_FN_GL_STRING_INDEX_OF(recv, needle as u64)
+        rts_primitives::string::rt::__RTS_FN_GL_STRING_INDEX_OF(recv, needle as u64)
     }
 }
 
@@ -554,7 +554,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_LAST_INDEX_OF_AUTO(recv: u64, needle: 
     if is_vec {
         __RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF(recv, needle)
     } else {
-        crate::globals::string::rt::__RTS_FN_GL_STRING_LAST_INDEX_OF(
+        rts_primitives::string::rt::__RTS_FN_GL_STRING_LAST_INDEX_OF(
             recv,
             needle as u64,
         )

@@ -8,5 +8,8 @@
 //! p/ cá um a um, com gate de build+suíte a cada passo. Crate só depende de
 //! `rts-engine` (universal/wasm-safe).
 
+pub mod gc_surface;
+
 pub mod boolean;
 pub mod number;
+pub mod string;

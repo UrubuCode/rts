@@ -28,7 +28,7 @@ pub use rts_shared::globals::proxy;
 pub use rts_std::globals::readable_stream;
 pub use rts_shared::globals::reflect;
 pub use rts_shared::globals::regexp;
-pub use rts_shared::globals::string;
+pub use rts_primitives::string;
 pub use rts_shared::globals::symbol;
 pub use rts_std::globals::text_encoding;
 pub use rts_std::globals::timers;
