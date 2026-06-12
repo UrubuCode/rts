@@ -144,7 +144,7 @@ fn register_builtins() -> Registry {
         g::text_encoding::register_text_decoder_class_spec(&mut engine);
         g::fetch::register_response_class_spec(&mut engine);
         g::fetch::register_request_class_spec(&mut engine);
-        g::fetch::register_promise_class_spec(&mut engine);
+        g::promise::register_promise_class_spec(&mut engine);
         g::url::register_url_class_spec(&mut engine);
         g::url::register_urlsp_class_spec(&mut engine);
         g::function::register_function_class_spec(&mut engine);

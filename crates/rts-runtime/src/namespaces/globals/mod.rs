@@ -14,6 +14,7 @@ pub use rts_primitives::boolean;
 pub use rts_std::globals::console;
 pub use rts_shared::globals::date;
 pub use rts_primitives::number;
+pub use rts_primitives::promise;
 pub use rts_primitives::error;
 pub use rts_std::globals::events;
 pub use rts_std::globals::fetch;

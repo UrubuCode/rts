@@ -14,4 +14,5 @@ pub mod array;
 pub mod boolean;
 pub mod error;
 pub mod number;
+pub mod promise;
 pub mod string;
