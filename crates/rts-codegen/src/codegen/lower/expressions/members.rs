@@ -1035,24 +1035,28 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
                 return Ok(TypedVal::new(cv, ValTy::F64));
             }
         }
-        // (#216) `Symbol.iterator` etc — well-known symbols. Despacha
-        // pra fns extern que retornam handle cacheado.
-        if let Some(prop) = qualified.strip_prefix("Symbol.") {
-            use cranelift_codegen::ir::InstBuilder;
-            use crate::codegen::lower::ctx::ValTy;
-            let sym = match prop {
-                "iterator" => Some("__RTS_FN_GL_SYMBOL_ITERATOR"),
-                "asyncIterator" => Some("__RTS_FN_GL_SYMBOL_ASYNC_ITERATOR"),
-                "hasInstance" => Some("__RTS_FN_GL_SYMBOL_HAS_INSTANCE"),
-                "toPrimitive" => Some("__RTS_FN_GL_SYMBOL_TO_PRIMITIVE"),
-                "toStringTag" => Some("__RTS_FN_GL_SYMBOL_TO_STRING_TAG"),
-                _ => None,
-            };
-            if let Some(sym) = sym {
-                let f = ctx.get_extern(sym, &[], Some(cranelift_codegen::ir::types::I64))?;
-                let inst = ctx.builder.ins().call(f, &[]);
-                let v = ctx.builder.inst_results(inst)[0];
-                return Ok(TypedVal::new(v, ValTy::Handle));
+        // GENÉRICO (#216): `Classe.constanteEstática` de qualquer classe global
+        // REGISTRADA, resolvida pelo Registry — o motor não nomeia a classe. Os
+        // well-known symbols (`Symbol.iterator`/`asyncIterator`/`hasInstance`/
+        // `toPrimitive`/`toStringTag`) são membros `Constant` da classe "Symbol"
+        // (no Registry) que retornam um handle cacheado via o símbolo extern.
+        // Number.* já foi tratado acima (f64const inline) e não chega aqui.
+        if let Some((cls, prop)) = qualified.split_once('.') {
+            if let Some(spec) = crate::abi::global_class_lookup(cls) {
+                if let Some(member) = spec.static_member(prop) {
+                    if matches!(member.kind, crate::abi::MemberKind::Constant) {
+                        use cranelift_codegen::ir::InstBuilder;
+                        use crate::codegen::lower::ctx::ValTy;
+                        let f = ctx.get_extern(
+                            member.symbol,
+                            &[],
+                            Some(cranelift_codegen::ir::types::I64),
+                        )?;
+                        let inst = ctx.builder.ins().call(f, &[]);
+                        let v = ctx.builder.inst_results(inst)[0];
+                        return Ok(TypedVal::new(v, ValTy::from_abi(member.returns)));
+                    }
+                }
             }
         }
     }
