@@ -394,8 +394,26 @@ pub(super) fn lower_array_builtin(
                     }
                 }
             }
+            // (real-narrow-storage slice 1) Arrays de floats armazenam BITS f64
+            // (elem-type F64, bitcast simétrico em leitura/escrita). Um needle
+            // fracionário literal (ex.: `indexOf(2.5)`) DEVE ir como bits p/
+            // casar — `coerce_to_i64` saturaria a fração (`2.5`→`2`) e nunca
+            // acharia (#135). Fração só existe em array F64, então int-arrays
+            // (que coergem) ficam intactos. Mesmo critério de `lower_map_set_
+            // builtin` (expr_is_frac_float_lit). Variável float não-literal segue
+            // o caminho antigo (limitação conhecida — needle dinâmico).
             let needle_tv = lower_expr(ctx, &call.args[0].expr)?;
-            let needle = ctx.coerce_to_i64(needle_tv).val;
+            let needle = if super::super::members::expr_is_frac_float_lit(&call.args[0].expr)
+                && matches!(needle_tv.ty, ValTy::F64)
+            {
+                ctx.builder.ins().bitcast(
+                    cl::I64,
+                    cranelift_codegen::ir::MemFlags::new(),
+                    needle_tv.val,
+                )
+            } else {
+                ctx.coerce_to_i64(needle_tv).val
+            };
             // (#208) indexOf/lastIndexOf/includes(needle, fromIndex) — 2-arg.
             if matches!(method, "indexOf" | "lastIndexOf" | "includes")
                 && call.args.len() == 2
