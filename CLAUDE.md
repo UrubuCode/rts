@@ -161,16 +161,20 @@ full Symbol drain (well-known desugar pass), Phase-2 crate extraction.
 The primordial classes are migrating from `rts-shared` into a dedicated
 `rts-primitives` crate (depends only on `rts-engine`, wasm-safe), one class per
 build+suite-gated step. Moved so far: **Boolean, Number, String, Error(+8),
-Array spec, Promise spec** (the latter two are metadata-only — the `__RTS_FN_*`
-bodies stay in `rts-shared/collections/vec.rs` and `rts-std/globals/fetch`
-respectively; only the spec declaration moved, resolved by symbol). **Pending
-(each needs dedicated work, not a clean metadata move):** Function (entangled —
-`function/ops.rs` calls `crate::globals::proxy::ops` AND `crate::collections::
-map`, both non-primordial in `rts-shared`; moving would cycle primitives↔shared,
-needs an extern/hook indirection first); Object spec (none exists — Object is
-primordial so the engine MAY name it directly, hence creating a spec + rewiring
-~20 hardcoded sites is uniformity churn with regression risk and no doctrine
-gain; lowest priority). The `jit.rs` `add_fn!`→registry collapse is **partially
+Array spec, Promise spec, Function** (Array/Promise are metadata-only — the
+`__RTS_FN_*` bodies stay in `rts-shared/collections/vec.rs` and `rts-std/globals/
+fetch`; only the spec declaration moved, resolved by symbol). **Function (full
+move, Fase 2.3, commits …3a/3b):** `function/{mod,ops,props}.rs` migrated whole.
+It was entangled with `crate::globals::proxy::ops` + `crate::collections::map`
+(both non-primordial); decoupled via **extern-C shims** (`__RTS_FN_RT_MAP_SET_STR/
+_GET_STR/_MARK_NON_ENUM` in collections/map; `__RTS_FN_RT_PROXY_RESOLVE/
+_DISPATCH_APPLY` in proxy/ops) that Function calls by symbol — `primitives→shared`
+is link-time only, no Cargo cycle. All reverse-deps (`function::ops::*` in shared
+map/proxy/reflect/json + std generator/events/text_encoding/parallel/promise +
+facade) repointed to `rts_primitives::function`. **Pending:** Object spec (none
+exists — Object is primordial so the engine MAY name it directly, hence creating
+a spec + rewiring ~20 hardcoded sites is uniformity churn with regression risk
+and no doctrine gain; lowest priority). The `jit.rs` `add_fn!`→registry collapse is **partially
 done** (Fase 2.8, commit 2216ba7a): Boolean (5/5) + Number (13/15) manual
 `add_fn!` removed — their primordial specs carry non-null `fn_ptr`, so
 `leak_class` records them in `jit_symbols` and `runtime_jit_symbols()` injects
