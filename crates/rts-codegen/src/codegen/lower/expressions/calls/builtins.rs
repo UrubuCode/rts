@@ -118,42 +118,6 @@ pub(super) fn lower_string_builtin(
         }
         // at drenado pro Registry (STRING_AT idêntico) — cai no fallback `_`.
         // ── slicing ───────────────────────────────────────────────────────
-        "slice" => {
-            // (cross-runtime followup) slice() sem args = slice(0). Antes
-            // chamava arg_i64(0) que falhava com "missing arg #0".
-            let start = if !call.args.is_empty() {
-                arg_i64(ctx, call, 0)?
-            } else {
-                ctx.builder.ins().iconst(cl::I64, 0)
-            };
-            let end = if call.args.len() > 1 {
-                arg_i64(ctx, call, 1)?
-            } else {
-                ctx.builder.ins().iconst(cl::I64, i64::MAX)
-            };
-            let v = call_h!("__RTS_FN_GL_STRING_SLICE", &[cl::I64, cl::I64, cl::I64], Some(cl::I64), &[recv_h, start, end]);
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
-        "substring" => {
-            let start = arg_i64(ctx, call, 0)?;
-            let end = if call.args.len() > 1 {
-                arg_i64(ctx, call, 1)?
-            } else {
-                ctx.builder.ins().iconst(cl::I64, i64::MAX)
-            };
-            let v = call_h!("__RTS_FN_GL_STRING_SUBSTRING", &[cl::I64, cl::I64, cl::I64], Some(cl::I64), &[recv_h, start, end]);
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
-        "substr" => {
-            let start = arg_i64(ctx, call, 0)?;
-            let len = if call.args.len() > 1 {
-                arg_i64(ctx, call, 1)?
-            } else {
-                ctx.builder.ins().iconst(cl::I64, i64::MAX)
-            };
-            let v = call_h!("__RTS_FN_GL_STRING_SUBSTR", &[cl::I64, cl::I64, cl::I64], Some(cl::I64), &[recv_h, start, len]);
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
         // ── transform ─────────────────────────────────────────────────────
         // case/trim drenados pro Registry (sem overload por tipo de arg) — caem
         // no fallback genérico do `_ =>` no fim. Símbolos GL_STRING_* idênticos.

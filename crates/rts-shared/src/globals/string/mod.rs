@@ -359,21 +359,26 @@ pub fn register_string_class_spec(e: &mut Engine) {
         .member(m(
             "slice",
             MemberKind::InstanceMethod,
-            Sig::new(
+            // start? = 0, end? = i64::MAX (runtime clampa pra length = "até o
+            // fim"). Defaults no Registry cobrem 0/1/2 args.
+            Sig::with_defaults(
                 vec![AbiType::Handle, AbiType::I64, AbiType::I64],
                 AbiType::Handle,
+                vec![DefaultArg::Required, DefaultArg::Int(0), DefaultArg::Int(i64::MAX)],
             ),
             "__RTS_FN_GL_STRING_SLICE",
-            "slice(start: number, end?: number): string",
+            "slice(start?: number, end?: number): string",
             "str.slice(start, end) — negatives from end.",
             true,
         ))
         .member(m(
             "substring",
             MemberKind::InstanceMethod,
-            Sig::new(
+            // end? = i64::MAX (runtime clampa = "até o fim").
+            Sig::with_defaults(
                 vec![AbiType::Handle, AbiType::I64, AbiType::I64],
                 AbiType::Handle,
+                vec![DefaultArg::Required, DefaultArg::Required, DefaultArg::Int(i64::MAX)],
             ),
             "__RTS_FN_GL_STRING_SUBSTRING",
             "substring(start: number, end?: number): string",
@@ -383,9 +388,11 @@ pub fn register_string_class_spec(e: &mut Engine) {
         .member(m(
             "substr",
             MemberKind::InstanceMethod,
-            Sig::new(
+            // length? = i64::MAX (runtime clampa = "resto da string").
+            Sig::with_defaults(
                 vec![AbiType::Handle, AbiType::I64, AbiType::I64],
                 AbiType::Handle,
+                vec![DefaultArg::Required, DefaultArg::Required, DefaultArg::Int(i64::MAX)],
             ),
             "__RTS_FN_GL_STRING_SUBSTR",
             "substr(start: number, length?: number): string",
