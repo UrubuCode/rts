@@ -604,14 +604,13 @@ pub extern "C" fn __RTS_FN_RT_TYPEOF_HANDLE(handle: u64) -> u64 {
         | Some(Entry::PromiseAsync(_)) | Some(Entry::Promise(_)) => "object",
         Some(_) => "object",
         None => {
-            // (cross-runtime #110) Handle invalido <2^48 eh numero raw
-            // (slot de arr/map int storage); retorna "number". Acima de
-            // 2^48 eh provavelmente handle stale — historic "string" mantido.
-            if handle < (1u64 << 48) {
-                "number"
-            } else {
-                "string"
-            }
+            // (narrow-storage slice 2) Handle inválido = valor numérico raw
+            // (slot de arr/map int/float storage). Antes só `<2^48` virava
+            // "number" e `>=2^48` virava "string" — mas BITS f64 (ex.: 1.5 =
+            // 4.6e18 > 2^48) caem aqui, então `typeof m.get(k)` de um float dava
+            // "string". Agora qualquer valor não-handle = "number" (cobre int
+            // grande E bits f64). Handle stale é UB de qualquer forma.
+            "number"
         }
     });
     alloc_entry(Entry::String(kind.as_bytes().to_vec()))
