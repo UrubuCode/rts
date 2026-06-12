@@ -165,6 +165,15 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET(h: U64, key_ptr: *const u8, ke
     with_map(h, 0, |m| m.get(key).copied().unwrap_or(0))
 }
 
+/// `Map.get(key)` genérico — como MAP_GET mas devolve o sentinela `undefined`
+/// (i64::MIN+2) p/ chave ausente, em vez do raw 0 (que o codegen convertia).
+/// Permite drenar `get` pro Registry (key StrPtr, retorno AMBIGUOUS_RET).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_AUTO(h: U64, key_ptr: *const u8, key_len: i64) -> I64 {
+    let v = __RTS_FN_NS_COLLECTIONS_MAP_GET(h, key_ptr, key_len);
+    if v == 0 { i64::MIN + 2 } else { v }
+}
+
 /// Inserts/overwrites `key` with `value`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SET(
@@ -2324,6 +2333,62 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_OR_MAP_DELETE(
         return with_map_mut(handle, false, |m| m.shift_remove(&key).is_some()) as i64;
     }
     __RTS_FN_NS_COLLECTIONS_MAP_DELETE(handle, key_ptr, key_len)
+}
+
+// ─── Versões de HANDLE ÚNICO (drain de lower_map_set_builtin) ─────────────────
+// A key chega como UM handle (= `coerce_to_handle(arg)` do codegen) em vez de
+// (key_ptr, key_len) + elem_raw. Cada uma DELEGA ao fn 4-arg já testado,
+// derivando o conteúdo-string via `read_string_handle` (ramo Map) e passando o
+// próprio handle como `elem_raw` (ramo Set). Behavior-preserving p/ chaves
+// string/número; objeto = edge degenerado idêntico ao caminho antigo
+// (STRING_PTR de não-string ≈ "" / None). Permite o emissor genérico do Registry
+// passar a key como Handle sem o codegen computar ptr/len.
+
+/// `coll.has(key)` unificado Map/Set — key como handle único.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_HAS_AUTO(handle: u64, key_handle: u64) -> i64 {
+    // A key chega como `coerce_to_i64(arg)` do emissor genérico: string handle
+    // p/ string, NÚMERO CRU p/ number (não string handle). set_stable_key cobre
+    // ambos (conteúdo p/ string handle, decimal p/ número cru, identidade p/
+    // objeto) — idêntico ao antigo STRING_PTR(coerce_to_handle(arg)) p/ int/str.
+    let key = set_stable_key(key_handle as i64);
+    let bytes = key.as_bytes();
+    __RTS_FN_NS_COLLECTIONS_SET_OR_MAP_HAS(
+        handle,
+        bytes.as_ptr(),
+        bytes.len() as i64,
+        key_handle as i64,
+    )
+}
+
+/// `coll.delete(key)` unificado Map/Set — key como handle único.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_DELETE_AUTO(handle: u64, key_handle: u64) -> i64 {
+    // A key chega como `coerce_to_i64(arg)` do emissor genérico: string handle
+    // p/ string, NÚMERO CRU p/ number (não string handle). set_stable_key cobre
+    // ambos (conteúdo p/ string handle, decimal p/ número cru, identidade p/
+    // objeto) — idêntico ao antigo STRING_PTR(coerce_to_handle(arg)) p/ int/str.
+    let key = set_stable_key(key_handle as i64);
+    let bytes = key.as_bytes();
+    __RTS_FN_NS_COLLECTIONS_SET_OR_MAP_DELETE(
+        handle,
+        bytes.as_ptr(),
+        bytes.len() as i64,
+        key_handle as i64,
+    )
+}
+
+/// `Map.get(key)` — key como handle único; devolve o sentinela `undefined`
+/// (i64::MIN+2) p/ chave ausente (igual a MAP_GET_AUTO, que o codegen convertia).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_AUTO_H(handle: u64, key_handle: u64) -> i64 {
+    // A key chega como `coerce_to_i64(arg)` do emissor genérico: string handle
+    // p/ string, NÚMERO CRU p/ number (não string handle). set_stable_key cobre
+    // ambos (conteúdo p/ string handle, decimal p/ número cru, identidade p/
+    // objeto) — idêntico ao antigo STRING_PTR(coerce_to_handle(arg)) p/ int/str.
+    let key = set_stable_key(key_handle as i64);
+    let bytes = key.as_bytes();
+    __RTS_FN_NS_COLLECTIONS_MAP_GET_AUTO(handle, bytes.as_ptr(), bytes.len() as i64)
 }
 
 /// (#394) Normaliza um iteravel de for-of quando o codegen NAO conhece a

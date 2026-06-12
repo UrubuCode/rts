@@ -1386,6 +1386,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             map::__RTS_FN_NS_COLLECTIONS_MAP_GET
         );
         add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_GET_AUTO",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_GET_AUTO
+        );
+        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_MAP_GET_DIRECT",
             map::__RTS_FN_NS_COLLECTIONS_MAP_GET_DIRECT
         );
@@ -1578,6 +1582,19 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         add_fn!(
             "__RTS_FN_NS_COLLECTIONS_SET_OR_MAP_DELETE",
             map::__RTS_FN_NS_COLLECTIONS_SET_OR_MAP_DELETE
+        );
+        // Grupo B-núcleo: versões de handle único (drain de lower_map_set_builtin).
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_HAS_AUTO",
+            map::__RTS_FN_NS_COLLECTIONS_HAS_AUTO
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_DELETE_AUTO",
+            map::__RTS_FN_NS_COLLECTIONS_DELETE_AUTO
+        );
+        add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_MAP_GET_AUTO_H",
+            map::__RTS_FN_NS_COLLECTIONS_MAP_GET_AUTO_H
         );
         add_fn!(
             "__RTS_FN_RT_FOR_OF_NORMALIZE",

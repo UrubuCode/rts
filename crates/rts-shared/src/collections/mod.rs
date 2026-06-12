@@ -72,6 +72,18 @@ pub fn register_mapset_class_spec(e: &mut rts_engine::Engine) {
             m("isSubsetOf", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool), "__RTS_FN_NS_COLLECTIONS_SET_IS_SUBSET"),
             m("isSupersetOf", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool), "__RTS_FN_NS_COLLECTIONS_SET_IS_SUPERSET"),
             m("isDisjointFrom", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool), "__RTS_FN_NS_COLLECTIONS_SET_IS_DISJOINT"),
+            // Métodos com CHAVE drenados (Grupo B-núcleo): key como handle único,
+            // runtime AUTO deriva a key (set_stable_key/string content). set
+            // (value frac-float bitcast) e forEach (callback) seguem no builtin.
+            m("add", Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_SET_ADD"),
+            m("has", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool), "__RTS_FN_NS_COLLECTIONS_HAS_AUTO"),
+            m("delete", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool), "__RTS_FN_NS_COLLECTIONS_DELETE_AUTO"),
+            {
+                // get: retorno ambíguo (valor ou undefined-sentinel) → AMBIGUOUS_RET.
+                let mut g = m("get", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::I64), "__RTS_FN_NS_COLLECTIONS_MAP_GET_AUTO_H");
+                g.flags = MemberFlags::AMBIGUOUS_RET;
+                g
+            },
         ]
     };
     // Map e Set são classes DISTINTAS no Registry (instanceof, dispatch), mas
