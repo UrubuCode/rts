@@ -200,26 +200,8 @@ pub(super) fn lower_string_builtin(
             Ok(Some(TypedVal::new(v, ValTy::Handle)))
         }
         // ── transform ─────────────────────────────────────────────────────
-        "toLowerCase" | "toLocaleLowerCase" => {
-            let v = call_h!("__RTS_FN_GL_STRING_TO_LOWER_CASE", &[cl::I64], Some(cl::I64), &[recv_h]);
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
-        "toUpperCase" | "toLocaleUpperCase" => {
-            let v = call_h!("__RTS_FN_GL_STRING_TO_UPPER_CASE", &[cl::I64], Some(cl::I64), &[recv_h]);
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
-        "trim" => {
-            let v = call_h!("__RTS_FN_GL_STRING_TRIM", &[cl::I64], Some(cl::I64), &[recv_h]);
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
-        "trimStart" | "trimLeft" | "trim_start" => {
-            let v = call_h!("__RTS_FN_GL_STRING_TRIM_START", &[cl::I64], Some(cl::I64), &[recv_h]);
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
-        "trimEnd" | "trimRight" | "trim_end" => {
-            let v = call_h!("__RTS_FN_GL_STRING_TRIM_END", &[cl::I64], Some(cl::I64), &[recv_h]);
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
+        // case/trim drenados pro Registry (sem overload por tipo de arg) — caem
+        // no fallback genérico do `_ =>` no fim. Símbolos GL_STRING_* idênticos.
         "repeat" => {
             let n = arg_i64(ctx, call, 0)?;
             let v = call_h!("__RTS_FN_GL_STRING_REPEAT", &[cl::I64, cl::I64], Some(cl::I64), &[recv_h, n]);
@@ -532,7 +514,19 @@ pub(super) fn lower_string_builtin(
             let v = call_h!("__RTS_FN_GL_STRING_IS_WELL_FORMED", &[cl::I64], Some(cl::I64), &[recv_h]);
             Ok(Some(TypedVal::new(v, ValTy::Bool)))
         }
-        _ => Ok(None),
+        // GENÉRICO via Registry: métodos de String SEM dispatch por tipo-de-arg
+        // (case/trim/normalize/...) resolvem aqui pelo Registry, sem braço
+        // hardcoded. Os métodos com overload por tipo de arg (replace str-vs-
+        // regex-vs-fn, split, match/search, indexOf-from) permanecem como braços
+        // dedicados acima — o Registry resolve por (nome, aridade), não por tipo
+        // de arg, então não pode escolher o símbolo certo deles ainda.
+        _ => super::ns_call::try_global_class_instance_method(
+            ctx,
+            "String",
+            method,
+            TypedVal::new(recv_h, ValTy::Handle),
+            call,
+        ),
     }
 }
 
