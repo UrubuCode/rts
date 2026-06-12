@@ -1861,6 +1861,42 @@ pub(crate) fn mark_non_enumerable(handle: u64, key: &str) {
         .insert((handle, key.to_string()));
 }
 
+// ── Shims extern-C p/ desacoplar `globals::function` (Fase 2.3) ───────────
+// `with_map_mut`/`mark_non_enumerable` são `pub(crate)` (não atravessam crate).
+// A classe primordial Function (migrada p/ `rts-primitives`) precisa dessas
+// operações de prototype-map; estes shims `#[no_mangle]` as expõem por símbolo
+// (resolve por link no AOT; `add_fn!` no JIT). Comportamento idêntico ao
+// código inline que Function usava antes.
+
+/// Insere `map[key] = val` (key como str ABI). Usado p/ o slot `constructor`
+/// dos prototype-maps de funções-construtoras.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_MAP_SET_STR(map: u64, key_ptr: *const u8, key_len: i64, val: i64) {
+    if let Some(key) = str_from_abi(key_ptr, key_len) {
+        let k = key.to_string();
+        with_map_mut(map, (), |m| {
+            m.insert(k, val);
+        });
+    }
+}
+
+/// Lê `map[key]` (0 se ausente). Usado p/ andar a chain `__proto__`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_MAP_GET_STR(map: u64, key_ptr: *const u8, key_len: i64) -> i64 {
+    match str_from_abi(key_ptr, key_len) {
+        Some(key) => with_map_mut(map, 0i64, |m| m.get(key).copied().unwrap_or(0)),
+        None => 0,
+    }
+}
+
+/// Marca `map[key]` como não-enumerável (JS: `constructor` em prototype maps).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_MAP_MARK_NON_ENUM(map: u64, key_ptr: *const u8, key_len: i64) {
+    if let Some(key) = str_from_abi(key_ptr, key_len) {
+        mark_non_enumerable(map, key);
+    }
+}
+
 /// (#208) `Object.defineProperty(obj, key, descriptor)`.
 /// Suporta `{ value: x }` e `{ enumerable: false }`. Demais
 /// (get/set/writable/configurable) caem em PR separada.

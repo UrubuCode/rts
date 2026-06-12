@@ -66,6 +66,42 @@ pub fn resolve_proxy(handle: u64) -> Option<(u64, u64)> {
     })
 }
 
+// ── Shims extern-C p/ desacoplar `globals::function` (Fase 2.3) ───────────
+// A classe primordial Function (migrada p/ `rts-primitives`) redireciona
+// `.call/.apply` p/ traps de Proxy callable. Estes shims `#[no_mangle]` expõem
+// `resolve_proxy`/`dispatch_apply` por símbolo (link no AOT; `add_fn!` no JIT).
+
+/// `resolve_proxy` via ABI: escreve target/handler nos out-params e devolve 1
+/// se `handle` for Proxy; 0 caso contrário (out-params intocados).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_PROXY_RESOLVE(
+    handle: u64,
+    out_target: *mut u64,
+    out_handler: *mut u64,
+) -> i64 {
+    match resolve_proxy(handle) {
+        Some((t, h)) => {
+            unsafe {
+                *out_target = t;
+                *out_handler = h;
+            }
+            1
+        }
+        None => 0,
+    }
+}
+
+/// `dispatch_apply` via símbolo (assinatura já ABI-compatível).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_PROXY_DISPATCH_APPLY(
+    target: u64,
+    handler: u64,
+    this_arg: i64,
+    args_handle: u64,
+) -> i64 {
+    dispatch_apply(target, handler, this_arg, args_handle)
+}
+
 /// Olha o slot `trap_name` no handler Map. Retorna 0 se ausente ou nao
 /// for handle valido — caller deve fazer fallback ao target.
 fn lookup_trap(handler: u64, trap_name: &str) -> i64 {

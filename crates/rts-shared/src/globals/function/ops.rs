@@ -9,6 +9,38 @@ use rts_engine::heap::handles::{
 };
 use std::sync::{Arc, Mutex, OnceLock};
 
+// (Fase 2.3) Function é primordial e migra p/ `rts-primitives`, que NÃO pode
+// depender de `rts-shared` (ciclo). As operações de prototype-map e os traps de
+// Proxy callable que Function precisa ficam em `rts-shared` (collections/map +
+// globals/proxy) e são chamadas por SÍMBOLO via estes shims extern-C — resolvem
+// por link (AOT staticlib) ou `add_fn!` (JIT). Mesmo padrão de `gc_surface`.
+unsafe extern "C" {
+    fn __RTS_FN_NS_COLLECTIONS_MAP_NEW() -> u64;
+    fn __RTS_FN_RT_MAP_SET_STR(map: u64, key_ptr: *const u8, key_len: i64, val: i64);
+    fn __RTS_FN_RT_MAP_GET_STR(map: u64, key_ptr: *const u8, key_len: i64) -> i64;
+    fn __RTS_FN_RT_MAP_MARK_NON_ENUM(map: u64, key_ptr: *const u8, key_len: i64);
+    fn __RTS_FN_RT_PROXY_RESOLVE(handle: u64, out_target: *mut u64, out_handler: *mut u64) -> i64;
+    fn __RTS_FN_RT_PROXY_DISPATCH_APPLY(
+        target: u64,
+        handler: u64,
+        this_arg: i64,
+        args_handle: u64,
+    ) -> i64;
+}
+
+/// Helper: resolve `handle` como Proxy via o shim extern-C (out-params).
+#[inline]
+fn proxy_resolve(handle: u64) -> Option<(u64, u64)> {
+    let mut target: u64 = 0;
+    let mut handler: u64 = 0;
+    let is_proxy = unsafe { __RTS_FN_RT_PROXY_RESOLVE(handle, &mut target, &mut handler) };
+    if is_proxy != 0 {
+        Some((target, handler))
+    } else {
+        None
+    }
+}
+
 pub struct CompiledFn {
     pub fn_ptr: u64,
     pub arity: u8,
@@ -768,13 +800,8 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_NEW(params_handle: u64, body_handle: u64)
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_handle: u64) -> i64 {
     // (#218 phase2) Proxy callable: redireciona pra trap apply ou forward.
-    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(handle) {
-        return crate::globals::proxy::ops::dispatch_apply(
-            target,
-            handler,
-            this_arg,
-            args_handle,
-        );
+    if let Some((target, handler)) = proxy_resolve(handle) {
+        return unsafe { __RTS_FN_RT_PROXY_DISPATCH_APPLY(target, handler, this_arg, args_handle) };
     }
     // (cross-runtime #218/#354) `handle` pode ser um func_addr CRU (arrow/fn
     // passada como VALOR a um param any/function e invocada via .apply/.call —
@@ -1214,7 +1241,7 @@ pub fn invoke_fn_ptr_with_registry(fn_ptr: u64, args: &[i64]) -> i64 {
 pub extern "C" fn __RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE() -> u64 {
     static SINGLETON: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
     *SINGLETON.get_or_init(|| {
-        let proto = crate::collections::map::__RTS_FN_NS_COLLECTIONS_MAP_NEW();
+        let proto = unsafe { __RTS_FN_NS_COLLECTIONS_MAP_NEW() };
         let ctor_stub = alloc_entry(Entry::Function(Box::new(
             rts_engine::heap::handles::FunctionData {
                 fn_ptr: 0,
@@ -1234,11 +1261,11 @@ pub extern "C" fn __RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE() -> u64 {
                 rest_param_idx: -1,
             },
         )));
-        crate::collections::map::with_map_mut(proto, (), |m| {
-            m.insert("constructor".to_string(), ctor_stub as i64);
-        });
-        // (cross-runtime #377) constructor eh non-enumerable em Object.prototype.
-        crate::collections::map::mark_non_enumerable(proto, "constructor");
+        unsafe {
+            __RTS_FN_RT_MAP_SET_STR(proto, b"constructor".as_ptr(), 11, ctor_stub as i64);
+            // (cross-runtime #377) constructor eh non-enumerable em Object.prototype.
+            __RTS_FN_RT_MAP_MARK_NON_ENUM(proto, b"constructor".as_ptr(), 11);
+        }
         proto
     })
 }
@@ -1268,20 +1295,22 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_PROTOTYPE_GET(handle: u64) -> u64 {
         }
     }
     // Aloca novo Map FORA do lock pra evitar reentrant locks com shards.
-    let new_proto = crate::collections::map::__RTS_FN_NS_COLLECTIONS_MAP_NEW();
+    let new_proto = unsafe { __RTS_FN_NS_COLLECTIONS_MAP_NEW() };
     // (cross-runtime #336) Popula `constructor` slot no prototype Map.
     // JS spec: `C.prototype.constructor === C`. Sem isso,
     // `Object.getPrototypeOf(c).constructor` retorna 0 e iteracao do
     // prototype chain (`while (proto) { chain.push(proto.constructor.name); }`)
     // nao consegue extrair nomes das classes da hierarquia.
-    crate::collections::map::with_map_mut(new_proto, (), |m| {
-        m.insert("constructor".to_string(), handle as i64);
-    });
+    unsafe {
+        __RTS_FN_RT_MAP_SET_STR(new_proto, b"constructor".as_ptr(), 11, handle as i64);
+    }
     // (cross-runtime #377) `constructor` slot eh non-enumerable em JS spec
     // — class methods (incluindo constructor sintetico) nao aparecem em
     // `for...in`. Sem isso, fixture 377_for_in_detail reportava
     // `x,constructor` em vez de so' `x`.
-    crate::collections::map::mark_non_enumerable(new_proto, "constructor");
+    unsafe {
+        __RTS_FN_RT_MAP_MARK_NON_ENUM(new_proto, b"constructor".as_ptr(), 11);
+    }
     // Insere; se outra thread venceu a corrida, descarta o nosso.
     let mut registry = proto_registry().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(&existing) = registry.get(&fn_ptr) {
@@ -1310,14 +1339,13 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_PROTOTYPE_GET(handle: u64) -> u64 {
 /// tambem casa. Retorna 0/1 (bool sentinel decidido pelo codegen).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_RT_INSTANCEOF_PROTO(instance_h: u64, ctor_h: u64) -> i64 {
-    use crate::collections::map::with_map_mut;
     // Resolve Ctor.prototype (lazy-aloca se preciso — mesma fn que `new` usa).
     let target_proto = __RTS_FN_GL_FUNCTION_PROTOTYPE_GET(ctor_h);
     if target_proto == 0 {
         return 0;
     }
     let read_proto =
-        |h: u64| -> i64 { with_map_mut(h, 0i64, |m| m.get("__proto__").copied().unwrap_or(0)) };
+        |h: u64| -> i64 { unsafe { __RTS_FN_RT_MAP_GET_STR(h, b"__proto__".as_ptr(), 9) } };
     // Anda a __proto__ chain da instancia.
     let mut current = read_proto(instance_h);
     let mut depth = 0u32;
@@ -1437,15 +1465,8 @@ fn invoke_auto_impl(
 ) -> i64 {
     // (#218 phase2) Proxy callable: se callee for Entry::Proxy, despacha
     // pra trap `apply` ou faz forward chamando o target via Function.apply.
-    if let Some((target, handler)) =
-        crate::globals::proxy::ops::resolve_proxy(callee as u64)
-    {
-        return crate::globals::proxy::ops::dispatch_apply(
-            target,
-            handler,
-            this_arg,
-            args_handle,
-        );
+    if let Some((target, handler)) = proxy_resolve(callee as u64) {
+        return unsafe { __RTS_FN_RT_PROXY_DISPATCH_APPLY(target, handler, this_arg, args_handle) };
     }
     // Tenta como handle Function primeiro.
     if let Some((
