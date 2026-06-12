@@ -523,9 +523,9 @@ pub fn register_string_class_spec(e: &mut Engine) {
                 vec![AbiType::Handle, AbiType::Handle, AbiType::Handle],
                 AbiType::Handle,
             ),
-            "__RTS_FN_GL_STRING_REPLACE",
-            "replace(from: string, to: string): string",
-            "str.replace(from, to) — replace first occurrence.",
+            "__RTS_FN_GL_STRING_REPLACE_AUTO",
+            "replace(search: string | RegExp, repl: string | Function): string",
+            "str.replace(search, repl) — search string/regex, repl string/fn (dispatch no runtime).",
             true,
         ))
         .member(m(
@@ -535,9 +535,9 @@ pub fn register_string_class_spec(e: &mut Engine) {
                 vec![AbiType::Handle, AbiType::Handle, AbiType::Handle],
                 AbiType::Handle,
             ),
-            "__RTS_FN_GL_STRING_REPLACE_ALL",
-            "replaceAll(from: string, to: string): string",
-            "str.replaceAll(from, to) — replace all occurrences.",
+            "__RTS_FN_GL_STRING_REPLACE_ALL_AUTO",
+            "replaceAll(search: string | RegExp, repl: string | Function): string",
+            "str.replaceAll(search, repl) — search string/regex, repl string/fn (dispatch no runtime).",
             true,
         ))
         .member(m(

@@ -486,6 +486,52 @@ pub extern "C" fn __RTS_FN_GL_STRING_REPLACE_ALL(recv: u64, from: u64, to: u64) 
     }
 }
 
+// _AUTO: dispatch (search regex/string) × (repl string/função) NO RUNTIME. O
+// codegen chama UM símbolo; aqui inspecionamos os handles: `search` Entry::Regex
+// → regex; `repl` Entry::String → string, senão é função (handle Function OU
+// fn_ptr cru — REPLACE_REGEX_FN resolve ambos). String-search + função não tem
+// variante runtime (= comportamento JS-aproximado antigo: trata repl como str).
+#[inline]
+fn h_is_regex(h: u64) -> bool {
+    rts_engine::heap::handles::with_entry(h, |e| {
+        matches!(e, Some(rts_engine::heap::handles::Entry::Regex(_)))
+    })
+}
+#[inline]
+fn h_is_string(h: u64) -> bool {
+    rts_engine::heap::handles::with_entry(h, |e| {
+        matches!(e, Some(rts_engine::heap::handles::Entry::String(_)))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_STRING_REPLACE_AUTO(recv: u64, search: u64, repl: u64) -> u64 {
+    if h_is_regex(search) {
+        let (sp, sl) = unsafe { (__RTS_FN_NS_GC_STRING_PTR(recv), __RTS_FN_NS_GC_STRING_LEN(recv)) };
+        if h_is_string(repl) {
+            crate::globals::string::search::__RTS_FN_NS_STRING_REPLACE_REGEX(sp, sl, search, repl)
+        } else {
+            crate::globals::string::search::__RTS_FN_NS_STRING_REPLACE_REGEX_FN(sp, sl, search, repl)
+        }
+    } else {
+        __RTS_FN_GL_STRING_REPLACE(recv, search, repl)
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_STRING_REPLACE_ALL_AUTO(recv: u64, search: u64, repl: u64) -> u64 {
+    if h_is_regex(search) {
+        let (sp, sl) = unsafe { (__RTS_FN_NS_GC_STRING_PTR(recv), __RTS_FN_NS_GC_STRING_LEN(recv)) };
+        if h_is_string(repl) {
+            crate::globals::string::search::__RTS_FN_NS_STRING_REPLACE_REGEX(sp, sl, search, repl)
+        } else {
+            crate::globals::string::search::__RTS_FN_NS_STRING_REPLACE_REGEX_FN(sp, sl, search, repl)
+        }
+    } else {
+        __RTS_FN_GL_STRING_REPLACE_ALL(recv, search, repl)
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_CONCAT(recv: u64, other: u64) -> u64 {
     unsafe { __RTS_FN_NS_GC_STRING_CONCAT(recv, other) }
