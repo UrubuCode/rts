@@ -525,9 +525,12 @@ pub fn register_string_class_spec(e: &mut Engine) {
         .member(m(
             "padStart",
             MemberKind::InstanceMethod,
-            Sig::new(
+            // padString? = handle 0: o runtime PAD_START faz unwrap_or(" "),
+            // então pad omitido (0) vira espaço. Default no Registry.
+            Sig::with_defaults(
                 vec![AbiType::Handle, AbiType::I64, AbiType::Handle],
                 AbiType::Handle,
+                vec![DefaultArg::Required, DefaultArg::Required, DefaultArg::Int(0)],
             ),
             "__RTS_FN_GL_STRING_PAD_START",
             "padStart(targetLength: number, padString?: string): string",
@@ -537,9 +540,10 @@ pub fn register_string_class_spec(e: &mut Engine) {
         .member(m(
             "padEnd",
             MemberKind::InstanceMethod,
-            Sig::new(
+            Sig::with_defaults(
                 vec![AbiType::Handle, AbiType::I64, AbiType::Handle],
                 AbiType::Handle,
+                vec![DefaultArg::Required, DefaultArg::Required, DefaultArg::Int(0)],
             ),
             "__RTS_FN_GL_STRING_PAD_END",
             "padEnd(targetLength: number, padString?: string): string",

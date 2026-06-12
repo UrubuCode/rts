@@ -215,26 +215,6 @@ pub(super) fn lower_string_builtin(
             }
             Ok(Some(TypedVal::new(acc, ValTy::Handle)))
         }
-        "padStart" => {
-            let target = arg_i64(ctx, call, 0)?;
-            let pad = if call.args.len() > 1 {
-                arg_handle(ctx, call, 1)?
-            } else {
-                ctx.emit_str_handle(b" ")?.val
-            };
-            let v = call_h!("__RTS_FN_GL_STRING_PAD_START", &[cl::I64, cl::I64, cl::I64], Some(cl::I64), &[recv_h, target, pad]);
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
-        "padEnd" => {
-            let target = arg_i64(ctx, call, 0)?;
-            let pad = if call.args.len() > 1 {
-                arg_handle(ctx, call, 1)?
-            } else {
-                ctx.emit_str_handle(b" ")?.val
-            };
-            let v = call_h!("__RTS_FN_GL_STRING_PAD_END", &[cl::I64, cl::I64, cl::I64], Some(cl::I64), &[recv_h, target, pad]);
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
         "split" => {
             use swc_ecma_ast::{Expr, Lit};
             let is_regex_arg = call.args.first()
