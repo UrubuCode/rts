@@ -229,6 +229,14 @@ pub fn register_array_class_spec(e: &mut rts_engine::Engine) {
         .member(m("flatMap", Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_VEC_FLAT_MAP", MemberFlags::NONE))
         .member(m("findLast", Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64), "__RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST", MemberFlags::AMBIGUOUS_RET))
         .member(m("findLastIndex", Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64), "__RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST_INDEX", MemberFlags::NONE))
+        // #305 iterator helpers eager: take(n)=slice(0,n) [runtime], drop(n)=
+        // slice(n,fim) e toArray()=slice(0,fim) [VEC_SLICE via defaults].
+        .member(m("take", Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_VEC_TAKE", MemberFlags::NONE))
+        .member(m("drop", Sig::with_defaults(
+            vec![AbiType::Handle, AbiType::I64, AbiType::I64], AbiType::Handle,
+            vec![DefaultArg::Required, DefaultArg::Required, DefaultArg::Int(i64::MIN)],
+        ), "__RTS_FN_NS_COLLECTIONS_VEC_SLICE", MemberFlags::NONE))
+        .member(m("toArray", range2(), "__RTS_FN_NS_COLLECTIONS_VEC_SLICE", MemberFlags::NONE))
         .member(m("fill", range3(), "__RTS_FN_NS_COLLECTIONS_VEC_FILL", MemberFlags::NONE))
         .member(m("copyWithin", range3(), "__RTS_FN_NS_COLLECTIONS_VEC_COPY_WITHIN", MemberFlags::NONE))
         .member(m(

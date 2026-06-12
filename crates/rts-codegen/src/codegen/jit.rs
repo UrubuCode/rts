@@ -1741,6 +1741,10 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             vec::__RTS_FN_NS_COLLECTIONS_VEC_UNSHIFT_VARIADIC
         );
         add_fn!(
+            "__RTS_FN_NS_COLLECTIONS_VEC_TAKE",
+            vec::__RTS_FN_NS_COLLECTIONS_VEC_TAKE
+        );
+        add_fn!(
             "__RTS_FN_NS_COLLECTIONS_VEC_FILL",
             vec::__RTS_FN_NS_COLLECTIONS_VEC_FILL
         );

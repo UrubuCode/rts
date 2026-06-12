@@ -950,6 +950,18 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_CONCAT_VARIADIC(recv: u64, args_ve
     alloc_entry(Entry::Vec(Box::new(out)))
 }
 
+/// `arr.take(n)` (#305 iterator helper, eager) = `slice(0, n)`. O arg `n` é o
+/// END do slice, então não cabe no mapeamento direto pro VEC_SLICE (arg→start);
+/// runtime dedicado.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_TAKE(recv: u64, n: i64) -> u64 {
+    let out: Vec<i64> = with_vec(recv, Vec::new(), |v| {
+        let end = (n.max(0) as usize).min(v.len());
+        v[..end].to_vec()
+    });
+    alloc_entry(Entry::Vec(Box::new(out)))
+}
+
 /// `arr.unshift(...items)` variádico — prepend dos itens empacotados (na ordem)
 /// no início do receiver; devolve o novo length. Move o fold (que o codegen
 /// fazia com N chamadas reversas de VEC_UNSHIFT) pro runtime.

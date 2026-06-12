@@ -802,40 +802,8 @@ pub(super) fn lower_array_builtin(
         // slice/subarray drenados → classe global "Array" (defaults start=0/end=SENTINEL).
         // (#305) Iterator helpers eager sobre array: take(n)=slice(0,n);
         // drop(n)=slice(n); toArray()=copia (slice(0,fim)).
-        "take" | "drop" | "toArray" => {
-            let (start, end) = match method {
-                "take" => {
-                    let n = if let Some(a) = call.args.first() {
-                        let tv = lower_expr(ctx, &a.expr)?;
-                        ctx.coerce_to_i64(tv).val
-                    } else {
-                        ctx.builder.ins().iconst(cl::I64, 0)
-                    };
-                    (ctx.builder.ins().iconst(cl::I64, 0), n)
-                }
-                "drop" => {
-                    let n = if let Some(a) = call.args.first() {
-                        let tv = lower_expr(ctx, &a.expr)?;
-                        ctx.coerce_to_i64(tv).val
-                    } else {
-                        ctx.builder.ins().iconst(cl::I64, 0)
-                    };
-                    (n, ctx.builder.ins().iconst(cl::I64, i64::MIN))
-                }
-                _ => (
-                    ctx.builder.ins().iconst(cl::I64, 0),
-                    ctx.builder.ins().iconst(cl::I64, i64::MIN),
-                ),
-            };
-            let fref = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_VEC_SLICE",
-                &[cl::I64, cl::I64, cl::I64],
-                Some(cl::I64),
-            )?;
-            let inst = ctx.builder.ins().call(fref, &[obj_h, start, end]);
-            let v = ctx.builder.inst_results(inst)[0];
-            Ok(Some(TypedVal::new(v, ValTy::Handle)))
-        }
+        // take/drop/toArray drenados → classe global "Array" (take=VEC_TAKE;
+        // drop/toArray = VEC_SLICE via defaults).
         // concat drenado → classe global "Array" (variádico: VEC_CONCAT_VARIADIC;
         // empacotamento de args + spread via member.variadic no emitter genérico).
         // (#93) `typedArray.set(srcArray, offset?)` — copia elementos de
