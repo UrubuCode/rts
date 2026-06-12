@@ -1206,21 +1206,13 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                         }
                     }
                     // (#550 parte 2) (true).toString() / (false).valueOf() em literal.
-                    if matches!(recv_tv.ty, ValTy::Bool) && call.args.is_empty() {
-                        use cranelift_codegen::ir::condcodes::IntCC;
-                        match method_name.as_str() {
-                            "toString" => {
-                                let true_h = ctx.emit_str_handle(b"true")?.val;
-                                let false_h = ctx.emit_str_handle(b"false")?.val;
-                                let zero = ctx.builder.ins().iconst(cl::I64, 0);
-                                let is_true = ctx.builder.ins().icmp(IntCC::NotEqual, recv_tv.val, zero);
-                                let r = ctx.builder.ins().select(is_true, true_h, false_h);
-                                return Ok(TypedVal::new(r, ValTy::Handle));
-                            }
-                            "valueOf" => {
-                                return Ok(recv_tv);
-                            }
-                            _ => {}
+                    // Boolean.prototype (toString/valueOf) em literal/expr Bool —
+                    // GENÉRICO via Registry (BOOLEAN_TO_STRING/VALUE_OF).
+                    if matches!(recv_tv.ty, ValTy::Bool) {
+                        if let Some(tv) = ns_call::try_global_class_instance_method(
+                            ctx, "Boolean", &method_name, recv_tv, call,
+                        )? {
+                            return Ok(tv);
                         }
                     }
                     if matches!(recv_tv.ty, ValTy::F64 | ValTy::I64 | ValTy::I32) {

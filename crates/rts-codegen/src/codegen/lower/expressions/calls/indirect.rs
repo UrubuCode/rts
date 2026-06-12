@@ -64,23 +64,14 @@ pub(super) fn lower_var_member_call(
         }
     }
 
-    // (#208) Boolean.prototype methods em receiver Bool.
+    // Boolean.prototype methods (toString/valueOf) em receiver Bool — GENÉRICO
+    // via Registry. A classe Boolean tem BOOLEAN_TO_STRING (bool→"true"/"false")
+    // e BOOLEAN_VALUE_OF; codegen não precisa do match em nome de método.
     if matches!(obj_tv.ty, ValTy::Bool) {
-        match prop {
-            "toString" if call.args.is_empty() => {
-                // Emite condicional: bool ? "true" : "false".
-                use cranelift_codegen::ir::condcodes::IntCC;
-                let true_h = ctx.emit_str_handle(b"true")?.val;
-                let false_h = ctx.emit_str_handle(b"false")?.val;
-                let zero = ctx.builder.ins().iconst(cl::I64, 0);
-                let is_true = ctx.builder.ins().icmp(IntCC::NotEqual, obj_h, zero);
-                let result = ctx.builder.ins().select(is_true, true_h, false_h);
-                return Ok(TypedVal::new(result, ValTy::Handle));
-            }
-            "valueOf" if call.args.is_empty() => {
-                return Ok(TypedVal::new(obj_h, ValTy::Bool));
-            }
-            _ => {}
+        if let Some(tv) =
+            super::ns_call::try_global_class_instance_method(ctx, "Boolean", prop, obj_tv, call)?
+        {
+            return Ok(tv);
         }
     }
 
