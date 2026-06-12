@@ -159,58 +159,10 @@ pub(super) fn lower_map_set_builtin(
         // isSupersetOf/isDisjointFrom) resolvem pela classe global "Map" no
         // Registry (sem braço hardcoded) — ver o `_ =>` fallback abaixo e
         // `collections::register_mapset_class_spec`.
-        // (cross-runtime #793) map.forEach((value, key, map) => ...).
-        // Aceita arrow inline ou ident de user fn — passa ptr/handle pra
-        // MAP_FOR_EACH no runtime que invoca via transmute.
-        "forEach" if call.args.len() == 1 && call.args[0].spread.is_none() => {
-            // Se o callback eh Ident de user fn, reify pra Function handle
-            // (com calling conv tail preservada) — INVOKE_AUTO interno do
-            // MAP_FOR_EACH precisa disso pra invocar com a aridade correta.
-            let cb_tv = if let Expr::Ident(id) = call.args[0].expr.as_ref() {
-                let name = id.sym.as_str().to_string();
-                // (#376) Callback liftado COM captura (`__lifted_cap_N` do
-                // parallelism pass, ou `__lifted_arrow_N` do this_arrow): reifica
-                // com bound_args via REIFY_CAPTURED. Sem isso ia por
-                // emit_hoisted_arrow_handle (sem bound_args) e a captura (`value`)
-                // colidia com o item do Set passado pelo MAP_FOR_EACH.
-                let caps_opt = crate::codegen::lower::passes::parallelism::LIFTED_CAPTURES
-                    .with(|c| c.borrow().get(&name).cloned())
-                    .or_else(|| crate::codegen::lower::passes::this_arrow::lifted_arrow_captures(&name));
-                if let Some(caps) = caps_opt {
-                    let cap_vals: Vec<TypedVal> = caps
-                        .iter()
-                        .filter_map(|c| {
-                            if c == "__captured_this" { ctx.read_local("this") }
-                            else { ctx.read_local(c) }
-                        })
-                        .collect();
-                    if cap_vals.len() == caps.len() {
-                        super::emit_lifted_arrow_handle_with_captures(ctx, &name, &cap_vals)?
-                    } else if ctx.user_fns.contains_key(&name) {
-                        super::emit_hoisted_arrow_handle(ctx, &name, None)?
-                    } else {
-                        lower_expr(ctx, &call.args[0].expr)?
-                    }
-                } else if ctx.user_fns.contains_key(&name) {
-                    super::emit_hoisted_arrow_handle(ctx, &name, None)?
-                } else {
-                    lower_expr(ctx, &call.args[0].expr)?
-                }
-            } else {
-                lower_expr(ctx, &call.args[0].expr)?
-            };
-            let cb_ptr = ctx.coerce_to_i64(cb_tv).val;
-            let fref = ctx.get_extern(
-                "__RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH",
-                &[cl::I64, cl::I64],
-                None,
-            )?;
-            ctx.builder.ins().call(fref, &[recv_h, cb_ptr]);
-            Ok(Some(TypedVal::new(
-                ctx.builder.ins().iconst(cl::I64, 0),
-                ValTy::I64,
-            )))
-        }
+        // forEach DRENADO pro Registry (membro forEach→MAP_FOR_EACH na spec
+        // Map/Set). O emissor genérico (ns_call.rs `_ =>`) reifica o callback:
+        // lifted-com-captura → Function handle COM bound_args; user-fn/arrow →
+        // func_addr; MAP_FOR_EACH::INVOKE_AUTO aceita ambos. Cai no `_ =>` abaixo.
         // Fallback genérico: métodos limpos (clear/size/keys/values/entries +
         // set-ops) resolvem pela classe global "Map" no Registry, sem braço
         // hardcoded. O receiver é o handle do Map/Set.

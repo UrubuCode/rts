@@ -78,6 +78,9 @@ pub fn register_mapset_class_spec(e: &mut rts_engine::Engine) {
             m("add", Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_SET_ADD"),
             m("has", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool), "__RTS_FN_NS_COLLECTIONS_HAS_AUTO"),
             m("delete", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool), "__RTS_FN_NS_COLLECTIONS_DELETE_AUTO"),
+            // forEach(cb): callback como I64 (fn-ptr/handle). A reificação COM
+            // captura (lifted arrow) é feita pelo emissor genérico (ns_call.rs).
+            m("forEach", Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::Void), "__RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH"),
             {
                 // get: retorno ambíguo (valor ou undefined-sentinel) → AMBIGUOUS_RET.
                 let mut g = m("get", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::I64), "__RTS_FN_NS_COLLECTIONS_MAP_GET_AUTO_H");

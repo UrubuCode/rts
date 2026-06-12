@@ -549,21 +549,51 @@ pub(super) fn lower_global_instance_call(
                 values.push(ctx.coerce_to_i32(tv).val);
             }
             _ => {
-                // Callback/fn-ref: ident de user fn (não var local) reifica pro
-                // func_addr — espelha emit_user_fn_addr dos antigos braços de
-                // callback. Arrow inline (hoisteada) e var seguem por lower_expr.
-                let user_fn = match arg.expr.as_ref() {
-                    Expr::Ident(id)
-                        if ctx.user_fns.contains_key(id.sym.as_str())
-                            && ctx.var_ty(id.sym.as_str()).is_none() =>
-                    {
-                        Some(id.sym.as_str().to_string())
+                // Callback/fn-ref OU Handle genérico. Para um ident de CALLBACK
+                // LIFTADO com captura (`__lifted_cap_N` do parallelism, ou
+                // `__lifted_arrow_N` do this_arrow), reifica como Function handle
+                // COM bound_args via captures — espelha o forEach do builtin
+                // (#376), necessário p/ drenar forEach/reduce pro Registry sem
+                // perder a captura. Ident de user-fn (não var) → func_addr.
+                // Tudo o mais (arrow hoisteada, var, Handle qualquer) → lower_expr.
+                // Idents NÃO-liftados (ex.: `set.union(other)`) caem no mesmo
+                // caminho de antes (caps None → user_fn/lower_expr) — sem mudança.
+                let v = if let Expr::Ident(id) = arg.expr.as_ref() {
+                    let name = id.sym.as_str().to_string();
+                    let caps_opt = crate::codegen::lower::passes::parallelism::LIFTED_CAPTURES
+                        .with(|c| c.borrow().get(&name).cloned())
+                        .or_else(|| {
+                            crate::codegen::lower::passes::this_arrow::lifted_arrow_captures(&name)
+                        });
+                    if let Some(caps) = caps_opt {
+                        let cap_vals: Vec<TypedVal> = caps
+                            .iter()
+                            .filter_map(|c| {
+                                if c == "__captured_this" {
+                                    ctx.read_local("this")
+                                } else {
+                                    ctx.read_local(c)
+                                }
+                            })
+                            .collect();
+                        if cap_vals.len() == caps.len() {
+                            let tv =
+                                super::emit_lifted_arrow_handle_with_captures(ctx, &name, &cap_vals)?;
+                            ctx.coerce_to_i64(tv).val
+                        } else if ctx.user_fns.contains_key(&name) && ctx.var_ty(&name).is_none() {
+                            let tv = super::emit_user_fn_addr(ctx, &name)?;
+                            ctx.coerce_to_i64(tv).val
+                        } else {
+                            let tv = lower_expr(ctx, &arg.expr)?;
+                            ctx.coerce_to_i64(tv).val
+                        }
+                    } else if ctx.user_fns.contains_key(&name) && ctx.var_ty(&name).is_none() {
+                        let tv = super::emit_user_fn_addr(ctx, &name)?;
+                        ctx.coerce_to_i64(tv).val
+                    } else {
+                        let tv = lower_expr(ctx, &arg.expr)?;
+                        ctx.coerce_to_i64(tv).val
                     }
-                    _ => None,
-                };
-                let v = if let Some(name) = user_fn {
-                    let tv = super::emit_user_fn_addr(ctx, &name)?;
-                    ctx.coerce_to_i64(tv).val
                 } else {
                     let tv = lower_expr(ctx, &arg.expr)?;
                     ctx.coerce_to_i64(tv).val
