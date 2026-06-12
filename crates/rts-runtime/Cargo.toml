@@ -26,5 +26,6 @@ asio = ["rts-std/asio"]
 # closure transitiva (tokio/ureq/sha2/... via rts-std; regex/serde via rts-shared;
 # heap GC via rts-engine) + os símbolos __RTS_* no archive.
 rts-engine = { path = "../rts-engine" }
+rts-primitives = { path = "../rts-primitives" }
 rts-shared = { path = "../rts-shared" }
 rts-std = { path = "../rts-std" }

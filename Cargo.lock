@@ -2724,10 +2724,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "rts-primitives"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "rts-engine",
+ "serde_json",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "rts-runtime"
 version = "0.1.0"
 dependencies = [
  "rts-engine",
+ "rts-primitives",
  "rts-shared",
  "rts-std",
 ]

@@ -5,7 +5,8 @@
 //! colisão com nomes de namespace flat (ex.: ns `date` vs global `date`).
 
 pub mod symbol;
-pub mod boolean;
+// boolean → PRIMORDIAL: movido p/ `rts-primitives` (Fase 2). Re-exportado pela
+// fachada `rts-runtime::namespaces::globals::boolean`.
 pub mod bigint;
 pub mod number;
 pub mod url;

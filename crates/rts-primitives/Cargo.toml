@@ -1,0 +1,14 @@
+[package]
+name = "rts-primitives"
+version = "0.1.0"
+edition = "2024"
+
+# rts-primitives — as classes PRIMORDIAIS que o motor (codegen) pode citar
+# diretamente: String, Object, Array, Function, Promise, Boolean, Number, Error
+# (+ subclasses). Depende SÓ de rts-engine (wasm-safe, não empurra nada p/ baixo).
+# Specs declarativas (fn_ptr/símbolo); impls `#[no_mangle]` resolvem por link.
+[dependencies]
+rts-engine = { path = "../rts-engine" }
+indexmap = "2.14.0"
+serde_json = { version = "1.0", features = ["preserve_order"] }
+unicode-normalization = "0.1"

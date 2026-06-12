@@ -1,8 +1,8 @@
 //! `Boolean` global class (#208 #226) — coercao truthy/falsy + toString/valueOf.
 //!
-//! Migrado do `#[rts_class]` (macro) pro modelo builder hand-written do
-//! `rts-engine` (rumo à remoção da `rts-macro`). Os externs
-//! `__RTS_FN_GL_BOOLEAN_*` + `register_boolean_class_spec()` são escritos à mão.
+//! PRIMORDIAL (Fase 2): movido de `rts-shared/globals/boolean` p/ `rts-primitives`.
+//! Os externs `__RTS_FN_GL_BOOLEAN_*` + `register_boolean_class_spec()` são
+//! escritos à mão. Depende só de `rts-engine`.
 
 use rts_engine::abi::ty::{Bool, Handle, I64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
