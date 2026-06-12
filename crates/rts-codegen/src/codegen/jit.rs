@@ -2000,6 +2000,7 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     add_fn!("__RTS_FN_GL_STRING_REPLACE_AUTO",     rt::__RTS_FN_GL_STRING_REPLACE_AUTO);
     add_fn!("__RTS_FN_GL_STRING_REPLACE_ALL_AUTO", rt::__RTS_FN_GL_STRING_REPLACE_ALL_AUTO);
     add_fn!("__RTS_FN_GL_STRING_CONCAT",           rt::__RTS_FN_GL_STRING_CONCAT);
+    add_fn!("__RTS_FN_GL_STRING_CONCAT_VARIADIC",  rt::__RTS_FN_GL_STRING_CONCAT_VARIADIC);
     add_fn!("__RTS_FN_GL_STRING_PAD_START",        rt::__RTS_FN_GL_STRING_PAD_START);
     add_fn!("__RTS_FN_GL_STRING_PAD_END",          rt::__RTS_FN_GL_STRING_PAD_END);
     add_fn!("__RTS_FN_GL_STRING_SPLIT",            rt::__RTS_FN_GL_STRING_SPLIT);

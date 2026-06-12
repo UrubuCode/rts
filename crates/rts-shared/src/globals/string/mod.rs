@@ -540,15 +540,22 @@ pub fn register_string_class_spec(e: &mut Engine) {
             "str.replaceAll(search, repl) — search string/regex, repl string/fn (dispatch no runtime).",
             true,
         ))
-        .member(m(
-            "concat",
-            MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle),
-            "__RTS_FN_GL_STRING_CONCAT",
-            "concat(other: string): string",
-            "str.concat(other) — concatenate two strings.",
-            true,
-        ))
+        .member(Member {
+            name: "concat".to_string(),
+            kind: MemberKind::InstanceMethod,
+            // variadic: o codegen empacota ...args num Vec e chama
+            // CONCAT_VARIADIC(recv, vec); o fold vive no runtime.
+            sig: Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle),
+            symbol: "__RTS_FN_GL_STRING_CONCAT_VARIADIC".to_string(),
+            fn_ptr: FnPtr(core::ptr::null::<u8>()),
+            flags: MemberFlags::NONE,
+            aliases: Vec::new(),
+            variadic: true,
+            ts_signature: "concat(...args: string[]): string".to_string(),
+            doc: "str.concat(...args) — concatena (fold no runtime).".to_string(),
+            pure: true,
+            intrinsic: None,
+        })
         .member(m(
             "padStart",
             MemberKind::InstanceMethod,

@@ -537,6 +537,23 @@ pub extern "C" fn __RTS_FN_GL_STRING_CONCAT(recv: u64, other: u64) -> u64 {
     unsafe { __RTS_FN_NS_GC_STRING_CONCAT(recv, other) }
 }
 
+/// `str.concat(...args)` VARIÁDICO — o codegen empacota os args num Vec<i64> de
+/// handles (pelo caminho genérico do `variadic` flag) e passa UM handle; o fold
+/// vive aqui no runtime. recv + cada elemento, em ordem.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_STRING_CONCAT_VARIADIC(recv: u64, args_vec: u64) -> u64 {
+    use rts_engine::heap::handles::{with_entry, Entry};
+    let parts: Vec<i64> = with_entry(args_vec, |e| match e {
+        Some(Entry::Vec(v)) => (**v).clone(),
+        _ => Vec::new(),
+    });
+    let mut acc = recv;
+    for p in parts {
+        acc = unsafe { __RTS_FN_NS_GC_STRING_CONCAT(acc, p as u64) };
+    }
+    acc
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_PAD_START(recv: u64, target_len: i64, pad: u64) -> u64 {
     let s = handle_to_str(recv).unwrap_or("");

@@ -612,6 +612,25 @@ pub(crate) fn try_global_class_instance_method(
     } else {
         ctx.coerce_to_i64(recv_tv).val
     };
+    // (variádico) Membro `variadic` (ex.: String.concat(...args)): empacota TODOS
+    // os TS args num Vec<i64> de handles e chama SYMBOL(recv, vec) — o fold vive
+    // no runtime. O `variadic` é DADO no Registry; o codegen não conhece o método.
+    if member.variadic {
+        let vec_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
+        let vn = ctx.builder.ins().call(vec_new, &[]);
+        let vec_h = ctx.builder.inst_results(vn)[0];
+        let vec_push =
+            ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_PUSH", &[cl::I64, cl::I64], None)?;
+        for arg in &call.args {
+            let tv = lower_expr(ctx, &arg.expr)?;
+            let v = ctx.coerce_to_i64(tv).val;
+            ctx.builder.ins().call(vec_push, &[vec_h, v]);
+        }
+        let fn_ref = ctx.get_extern(member.symbol, &[cl::I64, cl::I64], Some(cl::I64))?;
+        let inst = ctx.builder.ins().call(fn_ref, &[recv, vec_h]);
+        let r = ctx.builder.inst_results(inst)[0];
+        return Ok(Some(TypedVal::new(r, ValTy::from_abi(member.returns))));
+    }
     Ok(Some(lower_global_instance_call(ctx, member, recv, call)?))
 }
 

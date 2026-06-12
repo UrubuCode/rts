@@ -77,15 +77,6 @@ pub(super) fn lower_string_builtin(
         // ── transform ─────────────────────────────────────────────────────
         // case/trim drenados pro Registry (sem overload por tipo de arg) — caem
         // no fallback genérico do `_ =>` no fim. Símbolos GL_STRING_* idênticos.
-        "concat" => {
-            // Chain concat over all args: recv.concat(a, b, c) = concat(concat(concat(recv,a),b),c)
-            let mut acc = recv_h;
-            for i in 0..call.args.len() {
-                let other = arg_handle(ctx, call, i)?;
-                acc = call_h!("__RTS_FN_GL_STRING_CONCAT", &[cl::I64, cl::I64], Some(cl::I64), &[acc, other]);
-            }
-            Ok(Some(TypedVal::new(acc, ValTy::Handle)))
-        }
         // localeCompare drenado pro Registry (LOCALE_COMPARE idêntico) — fallback.
         // toString (→TO_STRING) e valueOf (→ReceiverIdentity) drenados pro
         // Registry — caem no fallback `_`.
