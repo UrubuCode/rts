@@ -15,8 +15,15 @@ See `RTS_REFACTOR.md` for the current refactor direction (crate workspace).
 
 ## Architecture
 
-Cargo workspace with 14 crates in `crates/`. `src/` still exists but is the
+Cargo workspace with 15 crates in `crates/`. `src/` still exists but is the
 facade of the `rts` bin (re-exports); real paths live under `crates/<crate>/src/`.
+
+> **`rts-napi`** — Node.js native addon (`.node`) support via N-API. Loads npm
+> addons with Node-parity. `napi_*` are raw `extern "C"` symbols in the `rts`
+> bin export table (build.rs `/EXPORT`), resolved by the OS loader on `dlopen` —
+> not via SPECS (`validate_symbol` would reject the raw names). Codegen hooks:
+> `import_resolver.rs` (.node intercept), `new_expr.rs`/`indirect.rs`
+> (`new addon.X()` / `inst.method()`). See `docs/specs/napi-implementation.md`.
 
 > **PRIMORDIAL-vs-Registry doctrine + crate partition** (see `CLAUDE.md` §
 > "MANDATORY RULE: PRIMORDIAL-vs-REGISTRY DOCTRINE"). The engine may name ONLY

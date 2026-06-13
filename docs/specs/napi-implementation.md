@@ -29,11 +29,71 @@
 Os stubs degradam graciosamente (falha, não crash). Tudo na export table para o
 `napi-sys` `load_all()` completar.
 
-> **Escopo original:** Fase 0 (loader) + Fase 1 (~40 fns N-API síncronas, núcleo 80/20).
+## Mapa dos módulos (`crates/rts-napi/src/`)
+
+| Arquivo | Conteúdo |
+|---|---|
+| `lib.rs` | `napi_get_version`/`node_api_module_get_api_version_v1` + `force_link()` (retenção de todos os símbolos no bin) + `napi_property_descriptor` |
+| `types.rs` | tipos ABI: `napi_value`/`napi_env`/`napi_ref`/... (`repr(transparent)`), `napi_status`/`napi_valuetype` (`repr(C)`, ordem fixa), `napi_callback`/`napi_finalize` |
+| `env.rs` | `RtsNapiEnv` (api_version + pending_exception + scopes + refs); `value_from_handle`/`handle_from_value` |
+| `loader.rs` | `__RTS_FN_NS_NAPI_LOAD_ADDON` (libloading + `napi_register_module_v1` + cache por path) |
+| `values.rs` | escalares (double/int32/uint32/int64/bool) + sentinelas + `napi_typeof` |
+| `strings.rs` | `create/get_value_string_utf8` (protocolo 2 passagens) |
+| `objects.rs` | object/array/props/elementos + `get_global`/`is_array`/`instanceof` |
+| `functions.rs` | `create_function`/`get_cb_info`/`call_function` + trampolim de callback (`__RTS_FN_RT_NAPI_DISPATCH_CALLBACK`) + `invoke_napi_callback` helper |
+| `scopes.rs` | handle scopes (chunks `[u64;32]` em Box como GC roots via `global_roots`) |
+| `references.rs` | `napi_ref` strong (root) / weak |
+| `errors.rs` | throw/create error + exceção pendente no env |
+| `externals.rs` | `napi_create/get_value_external` (`Entry::NapiExternal`) |
+| `classes.rs` | `napi_define_class`/`new_instance` + `__RTS_FN_RT_NAPI_NEW_INSTANCE`/`INVOKE_METHOD` |
+| `phase2.rs` | type checks, property checks, coerce, Buffer, Date, Symbol, BigInt(i64) |
+| `phase2b.rs` | strings latin1/utf16, wrap/unwrap, instance-data, version, property keys |
+| `phase2c.rs` | Promise/deferred, type tags, finalizer, coerce_to_string, syntax errors, cleanup hooks |
+| `phase2d.rs` | external strings, make_callback, is_sharedarraybuffer |
+| `surface.rs` | os 35 stubs restantes (`napi_generic_failure`) — gerados a partir da lista |
+| `napi_symbols.list` | **fonte única** dos nomes exportados (consumida por `symbols.rs` e pelo `build.rs` raiz) |
+
+Pontos de integração no codegen: `import_resolver.rs` (intercepta `.node`),
+`calls/mod.rs` + `indirect.rs` (`addon.method()`, `inst.method()`),
+`new_expr.rs` (`new addon.X()`), `jit.rs` (registra os símbolos internos),
+`build.rs` raiz (export-table), `heap/handles.rs` (`Entry::NapiExternal` + fila
+de finalizers).
+
 > **Como usar este doc:** cada etapa tem checkboxes `[ ]`. Marcar `[x]` ao concluir,
 > sempre com o critério de saída verificado. Atualizar este arquivo no mesmo
 > commit da mudança que ele descreve.
 > **Base de pesquisa:** `docs/specs/node-format/` (estudo de viabilidade, 8 docs).
+
+---
+
+## Como testar com um addon npm REAL (win32)
+
+Validado com `@node-rs/crc32`, `@node-rs/xxhash` (função + **classe**), `@napi-rs/uuid`.
+
+```bash
+# 1. Instala um addon napi-rs prebuilt
+mkdir scratch && cd scratch && npm init -y
+npm install @node-rs/xxhash
+cp node_modules/@node-rs/xxhash-win32-x64-msvc/*.node xxhash.node
+
+# 2. (Windows) addons sem delay-load precisam de import lib do host.
+#    Os prebuilts napi-rs já usam delay-load → resolvem GetModuleHandle(NULL)=rts.exe.
+#    Se um addon falhar no link, gere a import lib:
+dumpbin /EXPORTS rts.exe | grep napi_  > napi_host.def   # + cabeçalho "EXPORTS"
+lib /DEF:napi_host.def /OUT:rts.lib /MACHINE:X64 /NAME:rts.exe
+
+# 3. Roda no RTS e compara com o Node
+echo 'import a from "./xxhash.node"; console.log(a.xxh32("hello world"));' > t.ts
+rts run --allow-native-addons t.ts          # → 3468387874
+node -e 'console.log(require("./xxhash.node").xxh32("hello world"))'  # idem
+```
+
+**Lição-chave (por que TODOS os símbolos são exportados):** o `napi-sys`
+(runtime do napi-rs) resolve a superfície N-API **inteira** de uma vez no
+`load_all()` via `GetProcAddress`. Exportar só os implementados faz addons reais
+panicarem com *"symbol has not been loaded"* mesmo usando só o núcleo. Por isso
+`surface.rs` exporta os 35 não-implementados como stubs — o `load_all()`
+completa e só as fns realmente chamadas precisam funcionar.
 
 ---
 
@@ -51,9 +111,15 @@ DLL/`.so`/`.dylib` comum cujo entry point é `napi_register_module_v1(napi_env, 
 
 ### Decisões canônicas (tomadas; não reabrir sem justificativa)
 
-1. **Escopo:** Fase 0 + Fase 1 (~40 fns síncronas). **Fora:** buffers/typedarray,
-   `napi_wrap`/`define_class`/finalizers-disparados, async/promise/threadsafe.
-2. **Crate novo `crates/rts-napi/`** depende de `rts-engine` + `rts-shared` + `libloading`.
+1. **Escopo entregue:** Fase 0 (loader) + Fase 1 (núcleo síncrono) + Fase 2
+   (Buffer, Date, Symbol, wrap/unwrap, type tags, Promise/deferred, finalizer) +
+   **classes nativas** (`napi_define_class`/`new`/método). **124/159 fns.**
+   **Ainda fora (bloqueado pelo engine, #1548):** arraybuffer/typedarray/dataview
+   com ptr estável, async/threadsafe (event loop #207), BigInt real (#219).
+   *(O escopo original era só Fase 0+1; foi estendido conforme o engine permitiu.)*
+2. **Crate `crates/rts-napi/`** depende de `rts-engine` + `rts-shared` + `libloading`
+   (+ `indexmap`). Símbolos cross-crate (`__RTS_FN_GL_FUNCTION_CALL`,
+   `__RTS_FN_NS_PROMISE_*`) chamados via `extern "C"` resolvido no link do bin.
 3. **AOT (`rts compile`):** proibir `.node` com erro claro. Self-extracting (estilo Deno)
    só projetado, não implementado.
 4. **Só N-API puro.** V8-direto/NAN → erro claro.
@@ -351,13 +417,23 @@ addons sem `win_delay_load_hook`.
 
 ---
 
-## Fases futuras (fora desta entrega)
+## Fases futuras (35 stubs restantes — bloqueadas pelo engine, ver #1548)
 
-- **Fase 2:** buffers/typedarray/arraybuffer; `napi_wrap`/`unwrap`/`define_class`;
-  finalizers disparados no sweep (família #217).
-- **Fase 3:** promises (#437), async work, threadsafe functions, shim `uv_loop`
-  (família #207 — cauda longa, gaps até no Bun).
-- **Fase 4:** distribuição/npm (`process.platform`/`arch`/`versions` coerentes;
-  priorizar napi-rs/prebuildify por plataforma).
+- **✅ Fase 2 (FEITO):** Buffer, Date, Symbol, `napi_wrap`/`unwrap`,
+  `napi_define_class` + classes nativas, type tags, Promise/deferred,
+  `napi_add_finalizer` (via `Entry::NapiExternal`).
+- **arraybuffer/typedarray/dataview (11 fns):** precisa de `Entry::ArrayBuffer`
+  com **ponteiro mutável estável** no engine (#1548 item 1). Eu ploto as fns por
+  cima assim que existir.
+- **async/threadsafe (19 fns):** `napi_create_async_work`/threadsafe functions/
+  `napi_get_uv_event_loop` — dependem do **event loop real** (#207, #1548 item 3).
+  Cauda longa (gaps até no Bun).
+- **BigInt real (4 fns):** `bigint_uint64`/`bigint_words` — dependem de
+  `Entry::BigInt` real (#219). Hoje `bigint_int64` usa `FloatPrim` (perde >2^53).
+- **distribuição/npm:** emitir `rts.lib` na distribuição (como `node.lib`) para
+  `npm`/`node-gyp`/`napi-rs` linkarem addons contra o `rts.exe` sem passos manuais.
 - **AOT self-extracting** (modelo Deno): decisão de produto adiada.
-- **Nunca:** addons V8-diretos/NAN.
+- **Nunca:** addons V8-diretos/NAN (registro legado `module_register` é o único
+  stub fora-de-escopo, não bloqueado por engine).
+
+Rastreamento: tracking geral #1547, APIs de engine #1548.

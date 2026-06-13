@@ -32,12 +32,19 @@ narrow storage real.
 - [Como criar um namespace](namespace-creation-guide.md) — Processo atual
   baseado em `crates/rts-abi/` (SPECS centralizado, simbolos `__RTS_FN_NS_*`,
   `AbiType`). Reflete a branch `feat/remake-namespaces`.
-- [Suporte a `.node` (Node native addons)](node-format/README.md) — Estudo
-  multi-fonte (8 docs) sobre o formato `.node`, a ABI N-API e as divergencias
-  para o RTS dar suporte a addons nativos do npm. Veredito: viavel so via N-API
-  (`napi_value`/`napi_env` opacos -> mapeaveis a HandleTable sem V8),
-  JIT-first, nunca V8-direto/NAN. Verificado por 2 runs adversariais (115
-  afirmacoes, 0 refutadas). Ponto de integracao: `resolve_node_modules_import`.
+- [N-API — Plano de implementacao](napi-implementation.md) — **Doc vivo da
+  implementacao** (IMPLEMENTADO na main, PRs #1545/#1546). 124/159 fns N-API,
+  paridade Node v22 em addons npm reais (crc32, xxhash+classe, uuid). Crate
+  `rts-napi`: loader, valores, strings, objects, functions/callbacks, handle
+  scopes, references, Buffer/Date/Symbol, wrap/unwrap, **classes nativas**. 35
+  stubs restantes bloqueados pelo engine (arraybuffer ptr estavel, event loop
+  #207, bigint #219 — ver #1548). Mapa de modulos + guia de teste com addon npm.
+- [Suporte a `.node` (Node native addons) — estudo](node-format/README.md) —
+  Estudo multi-fonte (8 docs) de VIABILIDADE que precedeu a implementacao acima.
+  Sobre o formato `.node`, a ABI N-API e as divergencias para o RTS. Veredito:
+  viavel so via N-API (`napi_value`/`napi_env` opacos -> mapeaveis a HandleTable
+  sem V8), JIT-first, nunca V8-direto/NAN. Verificado por 2 runs adversariais
+  (115 afirmacoes, 0 refutadas).
 - [Silent parallelism (Level-1)](silent-parallelism.md) — Como o codegen
   detecta padroes `for...of`, reduces, e `arr.map/forEach/reduce` e
   reescreve transparentemente para `parallel.*`. Pipeline dos 3 passes,
