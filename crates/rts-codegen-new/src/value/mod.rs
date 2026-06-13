@@ -97,6 +97,9 @@ pub mod abi_sig;
 // The generic JS operators (`__rtsadp_add`/`_strict_eq`/`_typeof`/…), backed by
 // the real string pool — the ONE tag-dispatched path.
 pub mod genops;
+// Codegen-owned PolyValue-aware Array instance-method trampolines (P4.5),
+// reading the REAL Entry::Vec via the runtime VEC symbols.
+pub mod arrayops;
 // The Cranelift IR that marshals at the real-symbol call boundaries
 // (box/unbox + StrPtr ptr+len).
 pub mod emit_marshal;

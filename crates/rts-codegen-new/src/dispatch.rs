@@ -38,6 +38,11 @@ pub enum RecvClass {
     String,
     /// A `number` primitive (an int32 / double): receiver marshals as `F64`.
     Number,
+    /// An array (a `TAG_OBJECT` PolyValue over a real `Entry::Vec` of PolyValue
+    /// words): the receiver marshals as the Vec's real handle (`POLY_TO_HANDLE`),
+    /// and methods resolve to the codegen-owned `__rtsadp_arr_*` trampolines that
+    /// interpret each slot as a PolyValue (see [`crate::value::arrayops`]).
+    Array,
 }
 
 /// How the receiver value is passed to the real symbol at slot 0.
@@ -47,6 +52,11 @@ pub enum RecvAbi {
     Handle,
     /// Slot 0 is the receiver coerced to `f64` (a Number primitive), one `f64`.
     F64,
+    /// Slot 0 is the array's real `Entry::Vec` handle: the array PolyValue word
+    /// is `POLY_TO_HANDLE`'d (same as `Handle`), one `i64` slot. Distinct from
+    /// `Handle` only so the lowering knows the receiver is an array word, not a
+    /// string word.
+    ArrayVec,
 }
 
 /// A resolved instance-method target: the real runtime symbol + the explicit
@@ -77,6 +87,7 @@ pub fn resolve_method(recv_class: RecvClass, method: &str, argc: usize) -> Optio
     let rows: &[(&'static str, usize, MethodSpec)] = match recv_class {
         RecvClass::String => STRING_ROWS,
         RecvClass::Number => NUMBER_ROWS,
+        RecvClass::Array => ARRAY_ROWS,
     };
     rows.iter()
         .find(|(name, arity, _)| *name == method && *arity == argc)
@@ -92,7 +103,7 @@ pub fn resolve_method(recv_class: RecvClass, method: &str, argc: usize) -> Optio
 // Methods with optional trailing args are listed once per supported arity.
 // ===========================================================================
 
-use AbiType::{Bool, Handle, I64};
+use AbiType::{Bool, Handle, I64, U64};
 
 /// A String instance-method row: `(jsName, explicitArity, spec)`. Receiver is a
 /// real string handle. Listed once per supported arity (an arity a real default
@@ -149,9 +160,43 @@ const NUMBER_ROWS: &[(&str, usize, MethodSpec)] = &[
     ("toString", 1, nm("__RTS_FN_GL_NUMBER_TO_STRING_RADIX", &[I64], Handle)),
 ];
 
+// ===========================================================================
+// Array — instance methods WITHOUT callbacks (receiver = the array's real Vec
+// handle, slot 0). These resolve to the codegen-owned `__rtsadp_arr_*`
+// trampolines (NOT `__RTS_FN_*`): the runtime's own Array methods read raw i64
+// slots, but the new engine stores boxed PolyValue WORDS, so element
+// interpretation is the engine's own (see `crate::value::arrayops`).
+//
+// Arg/return ABI convention (see `crate::value::abi_sig`):
+// - `U64` arg  = a raw PolyValue WORD (the boxed value, passed verbatim) — used
+//   for `indexOf`/`includes`/`push` so element equality matches storage.
+// - `I64` arg  = an index/range bound, unboxed to i64.
+// - `Handle` arg = a real string handle (the `join` separator).
+// - `U64` ret  = a raw PolyValue word (`at`/`pop`) or a TAG_OBJECT array word
+//   (`slice`); `Handle` ret = a string handle (`join`); `I64`/`Bool` as usual.
+// Callback methods (.map/.filter/.reduce/.forEach/.sort-with-cmp) are NOT here —
+// they need function VALUES and BAIL at the lowering.
+// ===========================================================================
+
+/// An Array instance-method row. Receiver is the array's real Vec handle.
+const ARRAY_ROWS: &[(&str, usize, MethodSpec)] = &[
+    ("indexOf", 1, am("__rtsadp_arr_index_of", &[U64], I64)),
+    ("includes", 1, am("__rtsadp_arr_includes", &[U64], Bool)),
+    ("at", 1, am("__rtsadp_arr_at", &[I64], U64)),
+    ("join", 1, am("__rtsadp_arr_join", &[Handle], Handle)),
+    ("push", 1, am("__rtsadp_arr_push", &[U64], I64)),
+    ("pop", 0, am("__rtsadp_arr_pop", &[], U64)),
+    ("slice", 2, am("__rtsadp_arr_slice", &[I64, I64], U64)),
+];
+
 /// Build a String instance-method spec (receiver = real string handle).
 const fn sm(symbol: &'static str, args: &'static [AbiType], ret: AbiType) -> MethodSpec {
     MethodSpec { symbol, recv_abi: RecvAbi::Handle, args, ret }
+}
+
+/// Build an Array instance-method spec (receiver = the array's real Vec handle).
+const fn am(symbol: &'static str, args: &'static [AbiType], ret: AbiType) -> MethodSpec {
+    MethodSpec { symbol, recv_abi: RecvAbi::ArrayVec, args, ret }
 }
 
 /// Build a Number instance-method spec (receiver = the f64 primitive).

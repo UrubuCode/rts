@@ -59,6 +59,11 @@ pub(crate) enum JsKind {
     Str,
     Null,
     Undefined,
+    /// A whole ARRAY value (a `TAG_OBJECT` PolyValue over a real `Entry::Vec`),
+    /// produced by an array-returning method (e.g. `arr.slice(..)`). Lets a `let`
+    /// record [`HeapShape::Array`] so the new local supports `.length`/`[i]`/
+    /// array methods.
+    Array,
     /// Not statically provable (a Tagged value from a variable/call/etc.).
     Unknown,
 }

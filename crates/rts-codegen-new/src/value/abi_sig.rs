@@ -130,6 +130,19 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         // console.log line sink: takes (ptr, len) as a StrPtr (two slots), void.
         "__rtsadp_print_line" => SymSig { params: &[StrPtr], ret: Void },
 
+        // ---- codegen-owned Array trampolines (__rtsadp_arr_*, P4.5) ----
+        // All slots are u64/i64 (no StrPtr): slot 0 is the array's REAL Vec handle
+        // (`POLY_TO_HANDLE` of the array word); needle args are raw PolyValue words
+        // (U64); index/range args are I64; results are PolyValue words (U64) / a
+        // string Handle (join) / an i64 (index_of/push) / a bool (includes).
+        "__rtsadp_arr_index_of" => SymSig { params: &[U64, U64], ret: I64 },
+        "__rtsadp_arr_includes" => SymSig { params: &[U64, U64], ret: Bool },
+        "__rtsadp_arr_at" => SymSig { params: &[U64, I64], ret: U64 },
+        "__rtsadp_arr_join" => SymSig { params: &[U64, Handle], ret: Handle },
+        "__rtsadp_arr_push" => SymSig { params: &[U64, U64], ret: I64 },
+        "__rtsadp_arr_pop" => SymSig { params: &[U64], ret: U64 },
+        "__rtsadp_arr_slice" => SymSig { params: &[U64, I64, I64], ret: U64 },
+
         // ---- REAL global-class instance methods (P4 data-driven dispatch) ----
         // String methods: slot 0 = receiver (real string Handle); string args are
         // Handle, index/count args are I64; returns Handle (string) / I64 / Bool.

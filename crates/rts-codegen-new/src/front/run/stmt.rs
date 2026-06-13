@@ -109,6 +109,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
         let val = self.lower_expr(module, init)?;
 
+        // An array-VALUED expression (e.g. `let b = a.slice(1, 3)`) produces a
+        // TAG_OBJECT array word: bind it as a Tagged local AND record the array
+        // shape, so `b.length` / `b[i]` / `b.method(..)` resolve like a literal.
+        if matches!(val.kind, super::lower::JsKind::Array) {
+            self.bind_tagged_local(name, val);
+            self.local_shapes.insert(name.to_string(), HeapShape::Array);
+            return Ok(());
+        }
+
         let annotated = repr_of(ty);
         let repr = if annotated.is_unboxed() { annotated } else { val.repr };
 
