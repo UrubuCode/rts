@@ -36,6 +36,7 @@ pub mod error;
 pub mod hir_lower;
 pub mod jit;
 pub mod repr_map;
+pub mod run;
 
 #[cfg(test)]
 mod tests;

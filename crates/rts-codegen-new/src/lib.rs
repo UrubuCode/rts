@@ -45,12 +45,27 @@
 //! ## Status
 //!
 //! Increment 1: [`value`] is real and exhaustively tested (pure model + Cranelift
-//! JIT roundtrip). Increment 3 ([`front`]): REAL TypeScript runs end-to-end —
-//! swc parse → [`rts_hir`] typed HIR → [`front::hir_lower`] → Cranelift JIT →
-//! native execution — for the proven-monomorphic NUMERIC subset (number/i32/bool
-//! arithmetic, comparisons, `let`/assignment, `if`/`while`/`return`). Anything
-//! outside that subset is an EXPLICIT `Unsupported` bail, never a silent
-//! miscompile. Objects/strings/closures/64-bit ints are later increments. The
+//! JIT roundtrip). Increment 3 ([`front::hir_lower`]): REAL TypeScript runs
+//! end-to-end — swc parse → [`rts_hir`] typed HIR → Cranelift JIT → native
+//! execution — for the proven-monomorphic NUMERIC subset (number/i32/bool
+//! arithmetic, comparisons, `let`/assignment, `if`/`while`/`return`).
+//!
+//! Increment 4 ([`front::run`]): a REAL `.ts` PROGRAM runs and PRODUCES OUTPUT.
+//! Top-level statements + function defs + cross-function calls + the
+//! Tagged/string/polymorphic path + `console.log` lower through a whole-module
+//! JIT and execute, with stdout captured as a `String`
+//! ([`front::run::run_source`]). The numeric fast path stays unboxed; a value
+//! becomes a [`value::PolyValue`] only at a Tagged boundary (a `console.log`
+//! arg, a string/mixed `+`, a Tagged local/call), boxed via the pure
+//! `value::emit_*` IR + the generic `__rtsn_*` runtime ops. The first honest
+//! measurement on the real cross-runtime fixtures lives in
+//! `front::run::fixture_check` (bun-gated, `#[ignore]`d).
+//!
+//! Anything outside the implemented subset is an EXPLICIT `Unsupported` bail,
+//! never a silent miscompile — including the two HIR-ambiguity cases the engine
+//! REFUSES rather than guess: equality on operands of differing/unknown kind
+//! (swc conflates `==`/`===`) and unary `!`/`+` (swc conflates them). Objects,
+//! string methods, closures, and 128-bit ints are later increments. The
 //! remaining pillars are documented skeletons not yet wired into the pipeline.
 
 // Scaffold phase: stub modules intentionally carry unused items until their

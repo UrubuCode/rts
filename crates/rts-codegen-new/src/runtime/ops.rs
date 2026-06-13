@@ -140,10 +140,40 @@ pub extern "C" fn __rtsn_typeof(a: u64) -> u64 {
     strings::intern_poly(v.typeof_str()).raw()
 }
 
+/// `__rtsn_strict_neq` — JS `!==` on two PolyValues, returning a PolyValue bool.
+/// The boolean complement of [`__rtsn_strict_eq`].
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsn_strict_neq(a: u64, b: u64) -> u64 {
+    let eq = PolyValue::from_raw(__rtsn_strict_eq(a, b));
+    PolyValue::bool(!eq.as_bool()).raw()
+}
+
 /// `__rtsn_to_string` — JS `ToString`, returning a PolyValue string handle.
 /// Used by the tests to read results back as text.
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsn_to_string(a: u64) -> u64 {
     let s = to_string(PolyValue::from_raw(a));
     strings::intern_poly(&s).raw()
+}
+
+/// `__rtsn_to_boolean` — JS `ToBoolean`, returning an UNBOXED i64 0/1 (NOT a
+/// PolyValue). The result feeds a Cranelift `brif`/`select` directly, so this is
+/// the one runtime op whose ABI return is a raw machine boolean, not a tagged
+/// word.
+///
+/// Falsy: `+0`/`-0`/`NaN` numbers, the empty string, `false`, `null`,
+/// `undefined`, the hole/empty singletons. Everything else (non-zero numbers,
+/// non-empty strings, objects, functions, `true`) is truthy. The empty-string
+/// case needs the heap (the length lives in the interner), so it is resolved
+/// here rather than in the pure `PolyValue::is_truthy`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsn_to_boolean(a: u64) -> u64 {
+    let v = PolyValue::from_raw(a);
+    let truthy = if v.is_string() {
+        // A string is truthy iff non-empty — needs the interned bytes.
+        !strings::resolve_poly(v).is_empty()
+    } else {
+        v.is_truthy()
+    };
+    truthy as u64
 }
