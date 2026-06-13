@@ -30,6 +30,8 @@
 use rts_runtime::namespaces::collections::vec as rt_vec;
 use rts_runtime::namespaces::gc::handles as rt_handles;
 use rts_runtime::namespaces::gc::string_pool as rt_str;
+use rts_runtime::namespaces::globals::number as rt_num;
+use rts_runtime::namespaces::globals::string::rt as rt_gl_str;
 use rts_runtime::namespaces::io as rt_io;
 
 use crate::value::{abi_adapter, genops};
@@ -55,7 +57,7 @@ unsafe impl Sync for JitSymbol {}
 /// Every entry has a non-null pointer (the null-skip invariant from the engine's
 /// registry is satisfied by construction — we list only real bodies).
 pub fn jit_symbols() -> Vec<JitSymbol> {
-    vec![
+    let mut syms = vec![
         // ---- REAL string pool (rts-std collector::string_pool) ----
         sym("__RTS_FN_NS_GC_STRING_NEW", rt_str::__RTS_FN_NS_GC_STRING_NEW as *const u8),
         sym("__RTS_FN_NS_GC_STRING_FROM_STATIC", rt_str::__RTS_FN_NS_GC_STRING_FROM_STATIC as *const u8),
@@ -97,6 +99,47 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_to_string", genops::__rtsadp_to_string as *const u8),
         sym("__rtsadp_to_boolean", genops::__rtsadp_to_boolean as *const u8),
         sym("__rtsadp_print_line", abi_adapter::__rtsadp_print_line as *const u8),
+    ];
+    syms.extend(gl_method_symbols());
+    syms
+}
+
+/// The REAL global-class instance-method symbols the P4 data-driven dispatch
+/// ([`crate::dispatch`]) resolves and the method lowering emits — String + Number
+/// instance methods. Each is the ACTUAL `__RTS_FN_GL_*` extern (taken by address
+/// through the facade); the dispatch metadata references these exact names, so
+/// the symbol set is EXACTLY what the lowering can emit (a referenced-but-missing
+/// symbol would be the SIGILL-class bug we avoid).
+fn gl_method_symbols() -> Vec<JitSymbol> {
+    vec![
+        // ---- String instance methods (rts-primitives string::rt) ----
+        sym("__RTS_FN_GL_STRING_TO_UPPER_CASE", rt_gl_str::__RTS_FN_GL_STRING_TO_UPPER_CASE as *const u8),
+        sym("__RTS_FN_GL_STRING_TO_LOWER_CASE", rt_gl_str::__RTS_FN_GL_STRING_TO_LOWER_CASE as *const u8),
+        sym("__RTS_FN_GL_STRING_TRIM", rt_gl_str::__RTS_FN_GL_STRING_TRIM as *const u8),
+        sym("__RTS_FN_GL_STRING_TRIM_START", rt_gl_str::__RTS_FN_GL_STRING_TRIM_START as *const u8),
+        sym("__RTS_FN_GL_STRING_TRIM_END", rt_gl_str::__RTS_FN_GL_STRING_TRIM_END as *const u8),
+        sym("__RTS_FN_GL_STRING_CHAR_AT", rt_gl_str::__RTS_FN_GL_STRING_CHAR_AT as *const u8),
+        sym("__RTS_FN_GL_STRING_AT", rt_gl_str::__RTS_FN_GL_STRING_AT as *const u8),
+        sym("__RTS_FN_GL_STRING_REPEAT", rt_gl_str::__RTS_FN_GL_STRING_REPEAT as *const u8),
+        sym("__RTS_FN_GL_STRING_SLICE", rt_gl_str::__RTS_FN_GL_STRING_SLICE as *const u8),
+        sym("__RTS_FN_GL_STRING_SUBSTRING", rt_gl_str::__RTS_FN_GL_STRING_SUBSTRING as *const u8),
+        sym("__RTS_FN_GL_STRING_SUBSTR", rt_gl_str::__RTS_FN_GL_STRING_SUBSTR as *const u8),
+        sym("__RTS_FN_GL_STRING_INDEX_OF", rt_gl_str::__RTS_FN_GL_STRING_INDEX_OF as *const u8),
+        sym("__RTS_FN_GL_STRING_LAST_INDEX_OF", rt_gl_str::__RTS_FN_GL_STRING_LAST_INDEX_OF as *const u8),
+        sym("__RTS_FN_GL_STRING_INCLUDES", rt_gl_str::__RTS_FN_GL_STRING_INCLUDES as *const u8),
+        sym("__RTS_FN_GL_STRING_STARTS_WITH", rt_gl_str::__RTS_FN_GL_STRING_STARTS_WITH as *const u8),
+        sym("__RTS_FN_GL_STRING_ENDS_WITH", rt_gl_str::__RTS_FN_GL_STRING_ENDS_WITH as *const u8),
+        sym("__RTS_FN_GL_STRING_CHAR_CODE_AT", rt_gl_str::__RTS_FN_GL_STRING_CHAR_CODE_AT as *const u8),
+        sym("__RTS_FN_GL_STRING_REPLACE", rt_gl_str::__RTS_FN_GL_STRING_REPLACE as *const u8),
+        sym("__RTS_FN_GL_STRING_REPLACE_ALL", rt_gl_str::__RTS_FN_GL_STRING_REPLACE_ALL as *const u8),
+        sym("__RTS_FN_GL_STRING_CONCAT", rt_gl_str::__RTS_FN_GL_STRING_CONCAT as *const u8),
+        sym("__RTS_FN_GL_STRING_PAD_START", rt_gl_str::__RTS_FN_GL_STRING_PAD_START as *const u8),
+        sym("__RTS_FN_GL_STRING_PAD_END", rt_gl_str::__RTS_FN_GL_STRING_PAD_END as *const u8),
+        // ---- Number instance methods (rts-primitives number) ----
+        sym("__RTS_FN_GL_NUMBER_TO_FIXED", rt_num::__RTS_FN_GL_NUMBER_TO_FIXED as *const u8),
+        sym("__RTS_FN_GL_NUMBER_TO_PRECISION", rt_num::__RTS_FN_GL_NUMBER_TO_PRECISION as *const u8),
+        sym("__RTS_FN_GL_NUMBER_TO_EXPONENTIAL", rt_num::__RTS_FN_GL_NUMBER_TO_EXPONENTIAL as *const u8),
+        sym("__RTS_FN_GL_NUMBER_TO_STRING_RADIX", rt_num::__RTS_FN_GL_NUMBER_TO_STRING_RADIX as *const u8),
     ]
 }
 

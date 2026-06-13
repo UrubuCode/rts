@@ -188,9 +188,11 @@ fn whole_object_log_bails() {
 }
 
 #[test]
-fn unknown_method_call_bails() {
-    let res = run_source(r#"console.log("a".toUpperCase());"#);
-    assert!(res.is_err(), "unknown method call must bail, got {res:?}");
+fn unknown_method_name_bails() {
+    // A method NOT in the Registry mirror on a string receiver bails explicitly
+    // (P4 covers a fixed surface; an unknown name is never guessed).
+    let res = run_source(r#"console.log("a".notARealMethod());"#);
+    assert!(res.is_err(), "unknown method name must bail, got {res:?}");
 }
 
 #[test]
@@ -255,6 +257,99 @@ fn heterogeneous_array_scalar() {
 #[test]
 fn typeof_object_and_array() {
     assert_stdout("console.log(typeof {}, typeof []);", "object object\n");
+}
+
+// ===========================================================================
+// P4: data-driven instance-method dispatch (String / Number) via the Registry
+// mirror — recv.method(args) → the REAL __RTS_FN_GL_* symbol, no switchboard.
+// ===========================================================================
+
+#[test]
+fn string_to_upper_case() {
+    assert_stdout(r#"console.log("hello".toUpperCase());"#, "HELLO\n");
+}
+
+#[test]
+fn string_to_lower_case() {
+    assert_stdout(r#"console.log("HeLLo".toLowerCase());"#, "hello\n");
+}
+
+#[test]
+fn string_trim() {
+    assert_stdout(r#"console.log("  hi  ".trim());"#, "hi\n");
+}
+
+#[test]
+fn string_index_of() {
+    assert_stdout(r#"console.log("abcabc".indexOf("c"));"#, "2\n");
+}
+
+#[test]
+fn string_repeat() {
+    assert_stdout(r#"console.log("rts".repeat(3));"#, "rtsrtsrts\n");
+}
+
+#[test]
+fn string_includes() {
+    assert_stdout(r#"console.log("hello".includes("ell"));"#, "true\n");
+    assert_stdout(r#"console.log("hello".includes("zzz"));"#, "false\n");
+}
+
+#[test]
+fn string_char_at() {
+    assert_stdout(r#"console.log("hello".charAt(1));"#, "e\n");
+}
+
+#[test]
+fn string_slice() {
+    assert_stdout(r#"console.log("hello".slice(1, 3));"#, "el\n");
+}
+
+#[test]
+fn string_starts_ends_with() {
+    assert_stdout(r#"console.log("hello".startsWith("he"));"#, "true\n");
+    assert_stdout(r#"console.log("hello".endsWith("lo"));"#, "true\n");
+}
+
+#[test]
+fn string_char_code_at() {
+    assert_stdout(r#"console.log("A".charCodeAt(0));"#, "65\n");
+}
+
+#[test]
+fn string_method_in_concat() {
+    // The returned string PolyValue flows through the generic `+` path.
+    assert_stdout(r#"console.log("a" + "b".toUpperCase());"#, "aB\n");
+}
+
+#[test]
+fn number_to_fixed() {
+    assert_stdout("console.log((3.14159).toFixed(2));", "3.14\n");
+}
+
+// ---- Bail tests: callbacks + non-static-receiver + unsupported arity ----
+
+#[test]
+fn array_map_callback_bails() {
+    // `.map` takes a callback (function VALUES) — a later increment. BAIL.
+    let res = run_source("console.log([1, 2, 3].map(x => x));");
+    assert!(res.is_err(), "callback method must bail, got {res:?}");
+}
+
+#[test]
+fn method_on_dynamic_receiver_bails() {
+    // A string method on a VARIABLE (kind Unknown — class not statically proven)
+    // bails: dynamic receiver-kind dispatch is a later increment.
+    let res = run_source(r#"let s = "hi"; console.log(s.toUpperCase());"#);
+    assert!(res.is_err(), "dynamic-receiver method must bail, got {res:?}");
+}
+
+#[test]
+fn one_arg_slice_bails() {
+    // `slice(n)` (1-arg form) relies on a runtime default this table does not
+    // inject — BAIL rather than guess the end index.
+    let res = run_source(r#"console.log("hello".slice(1));"#);
+    assert!(res.is_err(), "1-arg slice must bail, got {res:?}");
 }
 
 #[test]

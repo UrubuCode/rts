@@ -34,7 +34,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if is_console_ident(object) && method == "log" {
             return self.lower_console_log(module, args);
         }
-        unsupported!("method call `.{method}()` (only `console.log` in this increment)")
+        // Data-driven instance-method dispatch (String/Number) via the Registry
+        // mirror. `Ok(None)` ⇒ not a dispatchable receiver; fall through to bail.
+        if let Some(val) = self.try_method_dispatch(module, object, method, args)? {
+            return Ok(val);
+        }
+        unsupported!("method call `.{method}()` (receiver class not statically dispatchable)")
     }
 
     /// A `Call` node: either `console.log(...)` (callee is a `console.log`
@@ -49,7 +54,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             if is_console_ident(object) && prop == "log" {
                 return self.lower_console_log(module, args);
             }
-            return unsupported!("call of member `.{prop}()`");
+            // `recv.method(args)` lowered as `Call(Member)` — route to dispatch.
+            if let Some(val) = self.try_method_dispatch(module, object, prop, args)? {
+                return Ok(val);
+            }
+            return unsupported!("call of member `.{prop}()` (receiver class not statically dispatchable)");
         }
         let name = match &callee.kind {
             HirExprKind::Ident(n) => n.clone(),

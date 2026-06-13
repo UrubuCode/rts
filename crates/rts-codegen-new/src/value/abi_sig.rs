@@ -130,6 +130,42 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         // console.log line sink: takes (ptr, len) as a StrPtr (two slots), void.
         "__rtsadp_print_line" => SymSig { params: &[StrPtr], ret: Void },
 
+        // ---- REAL global-class instance methods (P4 data-driven dispatch) ----
+        // String methods: slot 0 = receiver (real string Handle); string args are
+        // Handle, index/count args are I64; returns Handle (string) / I64 / Bool.
+        // Verified against rts-primitives/src/string/rt.rs.
+        "__RTS_FN_GL_STRING_TO_UPPER_CASE"
+        | "__RTS_FN_GL_STRING_TO_LOWER_CASE"
+        | "__RTS_FN_GL_STRING_TRIM"
+        | "__RTS_FN_GL_STRING_TRIM_START"
+        | "__RTS_FN_GL_STRING_TRIM_END" => SymSig { params: &[Handle], ret: Handle },
+        "__RTS_FN_GL_STRING_CHAR_AT"
+        | "__RTS_FN_GL_STRING_AT"
+        | "__RTS_FN_GL_STRING_REPEAT" => SymSig { params: &[Handle, I64], ret: Handle },
+        "__RTS_FN_GL_STRING_SLICE"
+        | "__RTS_FN_GL_STRING_SUBSTRING"
+        | "__RTS_FN_GL_STRING_SUBSTR" => SymSig { params: &[Handle, I64, I64], ret: Handle },
+        "__RTS_FN_GL_STRING_INDEX_OF" | "__RTS_FN_GL_STRING_LAST_INDEX_OF" => {
+            SymSig { params: &[Handle, Handle], ret: I64 }
+        }
+        "__RTS_FN_GL_STRING_INCLUDES"
+        | "__RTS_FN_GL_STRING_STARTS_WITH"
+        | "__RTS_FN_GL_STRING_ENDS_WITH" => SymSig { params: &[Handle, Handle], ret: Bool },
+        "__RTS_FN_GL_STRING_CHAR_CODE_AT" => SymSig { params: &[Handle, I64], ret: I64 },
+        "__RTS_FN_GL_STRING_REPLACE" | "__RTS_FN_GL_STRING_REPLACE_ALL" => {
+            SymSig { params: &[Handle, Handle, Handle], ret: Handle }
+        }
+        "__RTS_FN_GL_STRING_CONCAT" => SymSig { params: &[Handle, Handle], ret: Handle },
+        "__RTS_FN_GL_STRING_PAD_START" | "__RTS_FN_GL_STRING_PAD_END" => {
+            SymSig { params: &[Handle, I64, Handle], ret: Handle }
+        }
+        // Number methods: slot 0 = receiver (the f64 primitive); digit/radix args
+        // are I64; returns a string Handle.
+        "__RTS_FN_GL_NUMBER_TO_FIXED"
+        | "__RTS_FN_GL_NUMBER_TO_PRECISION"
+        | "__RTS_FN_GL_NUMBER_TO_EXPONENTIAL"
+        | "__RTS_FN_GL_NUMBER_TO_STRING_RADIX" => SymSig { params: &[F64, I64], ret: Handle },
+
         _ => return None,
     })
 }
