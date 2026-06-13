@@ -24,6 +24,7 @@ pub mod externals;
 pub mod functions;
 pub mod loader;
 pub mod objects;
+pub mod phase2;
 pub mod references;
 pub mod scopes;
 pub mod strings;
@@ -162,6 +163,33 @@ pub fn force_link() -> usize {
         // Símbolo interno do loader (chamado pelo codegen, não pelo .node):
         crate::loader::__RTS_FN_NS_NAPI_LOAD_ADDON as *const (),
         crate::functions::__RTS_FN_RT_NAPI_DISPATCH_CALLBACK as *const (),
+        // Fase 2 (phase2.rs)
+        crate::phase2::napi_coerce_to_bool as *const (),
+        crate::phase2::napi_coerce_to_number as *const (),
+        crate::phase2::napi_coerce_to_object as *const (),
+        crate::phase2::napi_create_bigint_int64 as *const (),
+        crate::phase2::napi_create_buffer as *const (),
+        crate::phase2::napi_create_buffer_copy as *const (),
+        crate::phase2::napi_create_date as *const (),
+        crate::phase2::napi_create_symbol as *const (),
+        crate::phase2::napi_delete_element as *const (),
+        crate::phase2::napi_delete_property as *const (),
+        crate::phase2::napi_get_all_property_names as *const (),
+        crate::phase2::napi_get_buffer_info as *const (),
+        crate::phase2::napi_get_date_value as *const (),
+        crate::phase2::napi_get_property_names as *const (),
+        crate::phase2::napi_get_value_bigint_int64 as *const (),
+        crate::phase2::napi_has_element as *const (),
+        crate::phase2::napi_has_named_property as *const (),
+        crate::phase2::napi_has_own_property as *const (),
+        crate::phase2::napi_has_property as *const (),
+        crate::phase2::napi_is_buffer as *const (),
+        crate::phase2::napi_is_date as *const (),
+        crate::phase2::napi_is_error as *const (),
+        crate::phase2::napi_is_promise as *const (),
+        crate::phase2::napi_object_freeze as *const (),
+        crate::phase2::napi_object_seal as *const (),
+        crate::phase2::napi_strict_equals as *const (),
     ];
     // `black_box` evita que o otimizador prove que o resultado é constante e
     // elimine as referências.

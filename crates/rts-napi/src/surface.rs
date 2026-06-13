@@ -1,13 +1,8 @@
-//! Superfície N-API restante (Fases 2/3) — stubs `napi_generic_failure`.
-//!
-//! Estes símbolos existem na export table para que o `load_all()` do
-//! `napi-sys` (que resolve TODA a superfície de uma vez via GetProcAddress)
-//! complete — sem eles, addons napi-rs panicam com "symbol has not been
-//! loaded" mesmo usando só o núcleo 80/20. Um addon que CHAMAR uma destas
-//! recebe `napi_generic_failure` (degradação graciosa, não crash).
-//!
-//! Conforme as Fases 2/3 implementarem cada categoria (buffers, bigint,
-//! async, wrap/class), mover a fn para o módulo de domínio e remover daqui.
+//! Superfície N-API restante (Fases 2/3 não implementadas) — stubs
+//! `napi_generic_failure`. Existem na export table para o `load_all()` do
+//! `napi-sys` completar (que resolve TODA a superfície via GetProcAddress).
+//! Um addon que CHAMAR uma destas recebe falha graciosa, não crash.
+//! Conforme implementadas, movem-se para o módulo de domínio (phase2/etc).
 //! Ver docs/specs/napi-implementation.md.
 
 #![allow(clippy::too_many_arguments)]
@@ -15,7 +10,6 @@
 use crate::types::napi_status;
 use napi_status::napi_generic_failure;
 
-/// Macro: stub com N args usize, retorna napi_generic_failure.
 macro_rules! surface_stub {
     ($name:ident) => {
         #[unsafe(no_mangle)]
@@ -38,70 +32,45 @@ surface_stub!(napi_call_threadsafe_function);
 surface_stub!(napi_cancel_async_work);
 surface_stub!(napi_check_object_type_tag);
 surface_stub!(napi_close_callback_scope);
-surface_stub!(napi_coerce_to_bool);
-surface_stub!(napi_coerce_to_number);
-surface_stub!(napi_coerce_to_object);
 surface_stub!(napi_coerce_to_string);
 surface_stub!(napi_create_arraybuffer);
 surface_stub!(napi_create_async_work);
-surface_stub!(napi_create_bigint_int64);
 surface_stub!(napi_create_bigint_uint64);
 surface_stub!(napi_create_bigint_words);
-surface_stub!(napi_create_buffer);
-surface_stub!(napi_create_buffer_copy);
 surface_stub!(napi_create_dataview);
-surface_stub!(napi_create_date);
 surface_stub!(napi_create_external_arraybuffer);
 surface_stub!(napi_create_external_buffer);
 surface_stub!(napi_create_promise);
 surface_stub!(napi_create_string_latin1);
 surface_stub!(napi_create_string_utf16);
-surface_stub!(napi_create_symbol);
 surface_stub!(napi_create_threadsafe_function);
 surface_stub!(napi_create_typedarray);
 surface_stub!(napi_define_class);
 surface_stub!(napi_delete_async_work);
-surface_stub!(napi_delete_element);
-surface_stub!(napi_delete_property);
 surface_stub!(napi_detach_arraybuffer);
 surface_stub!(napi_fatal_error);
 surface_stub!(napi_fatal_exception);
-surface_stub!(napi_get_all_property_names);
 surface_stub!(napi_get_arraybuffer_info);
-surface_stub!(napi_get_buffer_info);
 surface_stub!(napi_get_dataview_info);
-surface_stub!(napi_get_date_value);
 surface_stub!(napi_get_instance_data);
 surface_stub!(napi_get_last_error_info);
 surface_stub!(napi_get_new_target);
 surface_stub!(napi_get_node_version);
-surface_stub!(napi_get_property_names);
 surface_stub!(napi_get_prototype);
 surface_stub!(napi_get_threadsafe_function_context);
 surface_stub!(napi_get_typedarray_info);
 surface_stub!(napi_get_uv_event_loop);
-surface_stub!(napi_get_value_bigint_int64);
 surface_stub!(napi_get_value_bigint_uint64);
 surface_stub!(napi_get_value_bigint_words);
 surface_stub!(napi_get_value_string_latin1);
 surface_stub!(napi_get_value_string_utf16);
-surface_stub!(napi_has_element);
-surface_stub!(napi_has_named_property);
-surface_stub!(napi_has_own_property);
-surface_stub!(napi_has_property);
 surface_stub!(napi_is_arraybuffer);
-surface_stub!(napi_is_buffer);
 surface_stub!(napi_is_dataview);
-surface_stub!(napi_is_date);
 surface_stub!(napi_is_detached_arraybuffer);
-surface_stub!(napi_is_error);
-surface_stub!(napi_is_promise);
 surface_stub!(napi_is_typedarray);
 surface_stub!(napi_make_callback);
 surface_stub!(napi_module_register);
 surface_stub!(napi_new_instance);
-surface_stub!(napi_object_freeze);
-surface_stub!(napi_object_seal);
 surface_stub!(napi_open_callback_scope);
 surface_stub!(napi_queue_async_work);
 surface_stub!(napi_ref_threadsafe_function);
@@ -113,7 +82,6 @@ surface_stub!(napi_remove_wrap);
 surface_stub!(napi_resolve_deferred);
 surface_stub!(napi_run_script);
 surface_stub!(napi_set_instance_data);
-surface_stub!(napi_strict_equals);
 surface_stub!(napi_type_tag_object);
 surface_stub!(napi_unref_threadsafe_function);
 surface_stub!(napi_unwrap);
@@ -132,7 +100,6 @@ surface_stub!(node_api_post_finalizer);
 surface_stub!(node_api_symbol_for);
 surface_stub!(node_api_throw_syntax_error);
 
-/// Referencia todos os stubs para retenção no bin (force_link).
 pub fn force_link_surface() -> usize {
     let fns: &[*const ()] = &[
         napi_acquire_threadsafe_function as *const (),
@@ -146,70 +113,45 @@ pub fn force_link_surface() -> usize {
         napi_cancel_async_work as *const (),
         napi_check_object_type_tag as *const (),
         napi_close_callback_scope as *const (),
-        napi_coerce_to_bool as *const (),
-        napi_coerce_to_number as *const (),
-        napi_coerce_to_object as *const (),
         napi_coerce_to_string as *const (),
         napi_create_arraybuffer as *const (),
         napi_create_async_work as *const (),
-        napi_create_bigint_int64 as *const (),
         napi_create_bigint_uint64 as *const (),
         napi_create_bigint_words as *const (),
-        napi_create_buffer as *const (),
-        napi_create_buffer_copy as *const (),
         napi_create_dataview as *const (),
-        napi_create_date as *const (),
         napi_create_external_arraybuffer as *const (),
         napi_create_external_buffer as *const (),
         napi_create_promise as *const (),
         napi_create_string_latin1 as *const (),
         napi_create_string_utf16 as *const (),
-        napi_create_symbol as *const (),
         napi_create_threadsafe_function as *const (),
         napi_create_typedarray as *const (),
         napi_define_class as *const (),
         napi_delete_async_work as *const (),
-        napi_delete_element as *const (),
-        napi_delete_property as *const (),
         napi_detach_arraybuffer as *const (),
         napi_fatal_error as *const (),
         napi_fatal_exception as *const (),
-        napi_get_all_property_names as *const (),
         napi_get_arraybuffer_info as *const (),
-        napi_get_buffer_info as *const (),
         napi_get_dataview_info as *const (),
-        napi_get_date_value as *const (),
         napi_get_instance_data as *const (),
         napi_get_last_error_info as *const (),
         napi_get_new_target as *const (),
         napi_get_node_version as *const (),
-        napi_get_property_names as *const (),
         napi_get_prototype as *const (),
         napi_get_threadsafe_function_context as *const (),
         napi_get_typedarray_info as *const (),
         napi_get_uv_event_loop as *const (),
-        napi_get_value_bigint_int64 as *const (),
         napi_get_value_bigint_uint64 as *const (),
         napi_get_value_bigint_words as *const (),
         napi_get_value_string_latin1 as *const (),
         napi_get_value_string_utf16 as *const (),
-        napi_has_element as *const (),
-        napi_has_named_property as *const (),
-        napi_has_own_property as *const (),
-        napi_has_property as *const (),
         napi_is_arraybuffer as *const (),
-        napi_is_buffer as *const (),
         napi_is_dataview as *const (),
-        napi_is_date as *const (),
         napi_is_detached_arraybuffer as *const (),
-        napi_is_error as *const (),
-        napi_is_promise as *const (),
         napi_is_typedarray as *const (),
         napi_make_callback as *const (),
         napi_module_register as *const (),
         napi_new_instance as *const (),
-        napi_object_freeze as *const (),
-        napi_object_seal as *const (),
         napi_open_callback_scope as *const (),
         napi_queue_async_work as *const (),
         napi_ref_threadsafe_function as *const (),
@@ -221,7 +163,6 @@ pub fn force_link_surface() -> usize {
         napi_resolve_deferred as *const (),
         napi_run_script as *const (),
         napi_set_instance_data as *const (),
-        napi_strict_equals as *const (),
         napi_type_tag_object as *const (),
         napi_unref_threadsafe_function as *const (),
         napi_unwrap as *const (),
