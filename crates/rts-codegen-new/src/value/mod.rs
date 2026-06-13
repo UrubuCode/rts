@@ -104,6 +104,10 @@ pub mod arrayops;
 // (its thunk address) into a TAG_FUNCTION PolyValue + invoke it indirectly via
 // the fixed uniform 5-slot ABI.
 pub mod funcops;
+// Codegen-owned Array CALLBACK trampolines (P4.7): map/filter/forEach/find/
+// findIndex/some/every/reduce, invoking the callback function VALUE per element
+// via funcops::__rtsadp_fn_invoke.
+pub mod arraycb;
 // The Cranelift IR that marshals at the real-symbol call boundaries
 // (box/unbox + StrPtr ptr+len).
 pub mod emit_marshal;

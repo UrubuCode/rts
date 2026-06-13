@@ -34,7 +34,7 @@ use rts_runtime::namespaces::globals::number as rt_num;
 use rts_runtime::namespaces::globals::string::rt as rt_gl_str;
 use rts_runtime::namespaces::io as rt_io;
 
-use crate::value::{abi_adapter, arrayops, funcops, genops};
+use crate::value::{abi_adapter, arraycb, arrayops, funcops, genops};
 
 /// One installable JIT symbol: an extern "C" name and its function pointer. The
 /// pointer is to a `#[no_mangle] extern "C"` function with static lifetime.
@@ -110,6 +110,15 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         // ---- codegen-owned FUNCTION-value trampolines (__rtsadp_fn_*, P4.6) ----
         sym("__rtsadp_fn_reify", funcops::__rtsadp_fn_reify as *const u8),
         sym("__rtsadp_fn_invoke", funcops::__rtsadp_fn_invoke as *const u8),
+        // ---- codegen-owned Array CALLBACK trampolines (__rtsadp_arr_*, P4.7) ----
+        sym("__rtsadp_arr_map", arraycb::__rtsadp_arr_map as *const u8),
+        sym("__rtsadp_arr_filter", arraycb::__rtsadp_arr_filter as *const u8),
+        sym("__rtsadp_arr_for_each", arraycb::__rtsadp_arr_for_each as *const u8),
+        sym("__rtsadp_arr_find", arraycb::__rtsadp_arr_find as *const u8),
+        sym("__rtsadp_arr_find_index", arraycb::__rtsadp_arr_find_index as *const u8),
+        sym("__rtsadp_arr_some", arraycb::__rtsadp_arr_some as *const u8),
+        sym("__rtsadp_arr_every", arraycb::__rtsadp_arr_every as *const u8),
+        sym("__rtsadp_arr_reduce", arraycb::__rtsadp_arr_reduce as *const u8),
     ];
     syms.extend(gl_method_symbols());
     syms

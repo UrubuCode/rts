@@ -44,22 +44,25 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         method: &str,
         args: &[HirExpr],
     ) -> FrontResult<Option<Val>> {
-        // Any callback/function-valued argument needs function VALUES — bail.
+        // ARRAY receiver (P4.5 non-callback + P4.7 callback): an identifier bound
+        // to a local of proven array shape. The element convention is the engine's
+        // own (boxed PolyValue words), so these resolve to the codegen-owned
+        // `__rtsadp_arr_*` trampolines. Array CALLBACK methods (`.map`/`.reduce`/…)
+        // reify the callback argument to a function VALUE here. Must be checked
+        // BEFORE the whole-heap-value gate below (an array IS a whole-heap value).
+        if self.is_array_receiver(object) {
+            return self.try_array_dispatch(module, object, method, args).map(Some);
+        }
+
+        // A non-array receiver does NOT take a callback in the implemented surface
+        // (String/Number methods are all non-callback); a callback arg here is a
+        // later increment — bail explicitly.
         for a in args {
             if is_callback_arg(a) {
                 return Err(crate::front::error::Unsupported::new(format!(
-                    "method `.{method}()` with a callback argument (function values are a later increment)"
+                    "method `.{method}()` with a callback argument on a non-array receiver"
                 )));
             }
-        }
-
-        // ARRAY receiver (P4.5): an identifier bound to a local of proven array
-        // shape. The element convention is the engine's own (boxed PolyValue
-        // words), so these resolve to the codegen-owned `__rtsadp_arr_*`
-        // trampolines. Must be checked BEFORE the whole-heap-value gate below
-        // (an array IS a whole-heap value).
-        if self.is_array_receiver(object) {
-            return self.try_array_dispatch(module, object, method, args).map(Some);
         }
 
         // The receiver must lower AND have a statically-proven class. Lower it
@@ -136,15 +139,29 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.marshal_ret(module, spec.ret, ret)
     }
 
-    /// Whether `object` is statically a proven ARRAY: a bare identifier bound to
-    /// a local recorded as [`HeapShape::Array`]. Only such an array is a P4.5
-    /// dispatch receiver; everything else (an object, a param, a call result)
-    /// falls through to the non-array path.
+    /// Whether `object` is statically a proven ARRAY dispatch receiver:
+    /// - a bare identifier bound to a local recorded as [`HeapShape::Array`]
+    ///   (P4.5), or
+    /// - an array LITERAL (`[1,2,3].map(..)`), or
+    /// - a CHAINED array-returning method call (`a.filter(..).map(..)`,
+    ///   `a.slice(..).map(..)`): the inner `MethodCall`/`Call` resolves to an
+    ///   Array method whose return is itself an array (`map`/`filter`/`slice`).
+    ///
+    /// Everything else (an object, a param, a non-array call result) falls through
+    /// to the non-array path.
     fn is_array_receiver(&self, object: &HirExpr) -> bool {
-        matches!(
-            &object.kind,
-            HirExprKind::Ident(name) if matches!(self.local_shapes.get(name), Some(HeapShape::Array))
-        )
+        match &object.kind {
+            HirExprKind::Ident(name) => {
+                matches!(self.local_shapes.get(name), Some(HeapShape::Array))
+            }
+            HirExprKind::Array(_) => true,
+            HirExprKind::MethodCall { method, .. } => is_array_returning_method(method),
+            HirExprKind::Call { callee, .. } => match &callee.kind {
+                HirExprKind::Member { prop, .. } => is_array_returning_method(prop),
+                _ => false,
+            },
+            _ => false,
+        }
     }
 
     /// Lower `arr.method(args)` for a proven-array receiver via the codegen-owned
@@ -168,6 +185,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         };
         debug_assert!(matches!(spec.recv_abi, RecvAbi::ArrayVec));
 
+        // Callback methods (P4.7) take a dedicated marshaling path.
+        if let Some(cb) = spec.cb {
+            return self.try_array_callback(module, object, method, args, &spec, cb);
+        }
+
         let mut call_args: Vec<Value> = Vec::with_capacity(argc + 1);
 
         // ---- receiver (slot 0): the array word → its real Vec handle ----
@@ -185,6 +207,94 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // ---- emit + marshal the result ----
         let ret = emit_marshal::emit_call(module, self.builder, spec.symbol, &call_args);
         self.marshal_array_ret(module, method, spec.ret, ret)
+    }
+
+    /// Lower an Array CALLBACK method (`map`/`filter`/`forEach`/`find`/`findIndex`/
+    /// `some`/`every`/`reduce`) — P4.7. Marshals the receiver as the array's real
+    /// Vec handle and the callback argument as a `TAG_FUNCTION` PolyValue word
+    /// (reified via the P4.6 path), then calls the codegen-owned `__rtsadp_arr_*`
+    /// trampoline that invokes the callback per element.
+    ///
+    /// BAILS explicitly (never a wrong value) when the callback argument is not a
+    /// reifiable function value: a capturing arrow (left as an `Arrow` node by the
+    /// P4.6 extraction), a `thisArg` second positional (find/some/… 2nd arg), or
+    /// anything that is not an arrow/function-ident.
+    fn try_array_callback(
+        &mut self,
+        module: &mut dyn Module,
+        object: &HirExpr,
+        method: &str,
+        args: &[HirExpr],
+        spec: &MethodSpec,
+        cb: crate::dispatch::CbShape,
+    ) -> FrontResult<Val> {
+        use crate::dispatch::CbShape;
+
+        // The callback is always the FIRST argument. A `thisArg` (a SECOND
+        // positional on the predicate family) is a later increment — bail.
+        if matches!(cb, CbShape::Predicate) && args.len() != 1 {
+            return Err(crate::front::error::Unsupported::new(format!(
+                "Array.{method}() with a thisArg / extra argument is a later increment"
+            )));
+        }
+
+        // ---- receiver (slot 0): the array word → its real Vec handle ----
+        let arr = self.lower_expr(module, object)?;
+        let arr_word = self.box_value(arr);
+        let handle = emit_marshal::emit_table_load(module, self.builder, arr_word);
+
+        // ---- callback (slot 1): reify the first arg to a TAG_FUNCTION word ----
+        let cb_word = self.reify_callback_arg(module, &args[0], method)?;
+
+        let mut call_args: Vec<Value> = vec![handle, cb_word];
+
+        // ---- reduce's optional initial accumulator + has_init flag ----
+        if matches!(cb, CbShape::Reduce) {
+            let (init_word, has_init) = if args.len() >= 2 {
+                let v = self.lower_expr(module, &args[1])?;
+                (self.box_value(v), 1i64)
+            } else {
+                let undef = self
+                    .builder
+                    .ins()
+                    .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
+                (undef, 0i64)
+            };
+            let has = self.builder.ins().iconst(types::I64, has_init);
+            call_args.push(init_word);
+            call_args.push(has);
+        }
+
+        // ---- emit + marshal the result ----
+        let ret = emit_marshal::emit_call(module, self.builder, spec.symbol, &call_args);
+        self.marshal_array_ret(module, method, spec.ret, ret)
+    }
+
+    /// Reify the callback argument `a` of an Array callback method to a
+    /// `TAG_FUNCTION` PolyValue word. After the P4.6 arrow-extraction pre-pass a
+    /// non-capturing inline arrow is an `Ident` of a synthesized top-level fn, so
+    /// the callback resolves through [`Self::reify_function`]. A capturing arrow
+    /// stayed an `Arrow` node and BAILS here (a closure — a later increment); any
+    /// other expression (a function value held in a Tagged local, etc.) also bails
+    /// this increment, never a guess.
+    fn reify_callback_arg(
+        &mut self,
+        module: &mut dyn Module,
+        a: &HirExpr,
+        method: &str,
+    ) -> FrontResult<Value> {
+        match &a.kind {
+            HirExprKind::Ident(name) if self.sigs.contains_key(name) => {
+                let f = self.reify_function(module, name)?;
+                Ok(f.v)
+            }
+            HirExprKind::Arrow { .. } => Err(crate::front::error::Unsupported::new(format!(
+                "Array.{method}() with a CAPTURING callback (closures are a later increment)"
+            ))),
+            _ => Err(crate::front::error::Unsupported::new(format!(
+                "Array.{method}() callback is not a reifiable function value"
+            ))),
+        }
     }
 
     /// Marshal one array-method arg to its Array-row `AbiType`.
@@ -231,7 +341,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         match ret {
             AbiType::U64 => {
                 let word = value.expect("U64-returning trampoline yields a value");
-                let kind = if method == "slice" { JsKind::Array } else { JsKind::Unknown };
+                // `slice`/`map`/`filter` return a fresh ARRAY (so a `let` records
+                // HeapShape::Array and chaining `.map(..).filter(..)` works);
+                // `at`/`pop`/`find`/`reduce` return an opaque element/acc word.
+                let kind = match method {
+                    "slice" | "map" | "filter" => JsKind::Array,
+                    _ => JsKind::Unknown,
+                };
                 Ok(Val::tagged_kind(word, kind))
             }
             AbiType::Handle => {
@@ -349,8 +465,15 @@ fn recv_class_of(recv: Val) -> Option<RecvClass> {
     }
 }
 
-/// Whether an argument expression is a callback (a function/arrow value). Such
-/// methods need function VALUES — a later increment — so they bail.
+/// Whether an argument expression is a callback (a function/arrow value). On a
+/// NON-array receiver such methods bail (function-valued args are only handled
+/// for array callback methods). A capturing arrow stays an `Arrow` node here.
 fn is_callback_arg(e: &HirExpr) -> bool {
     matches!(&e.kind, HirExprKind::Arrow { .. })
+}
+
+/// Whether an Array method name returns a fresh ARRAY (so a chained call on its
+/// result is itself an array dispatch receiver): `map`/`filter`/`slice`.
+fn is_array_returning_method(method: &str) -> bool {
+    matches!(method, "map" | "filter" | "slice")
 }

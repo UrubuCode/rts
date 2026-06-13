@@ -58,14 +58,7 @@ fn array_index_of_heterogeneous() {
     assert_stdout(r#"let m = [1, "two", 3]; console.log(m.indexOf("two"));"#, "1\n");
 }
 
-// ---- Bail tests: callbacks + non-array receiver ----
-
-#[test]
-fn array_map_callback_method_bails() {
-    // `.map` takes a callback (function VALUES) — array callback methods are a
-    // later increment. BAIL.
-    assert_bails("let a = [1, 2, 3]; console.log(a.map(x => x));");
-}
+// ---- Bail tests: non-array receiver ----
 
 #[test]
 fn array_method_on_non_array_bails() {
@@ -73,10 +66,4 @@ fn array_method_on_non_array_bails() {
     // a non-array (here a number variable) it is not an array receiver and the
     // number class has no `indexOf` → BAIL.
     assert_bails("let n = 5; console.log(n.indexOf(1));");
-}
-
-#[test]
-fn array_map_callback_literal_bails() {
-    // Same as above but on an array literal receiver.
-    assert_bails("console.log([1, 2, 3].map(x => x));");
 }

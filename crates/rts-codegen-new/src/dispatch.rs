@@ -76,6 +76,24 @@ pub struct MethodSpec {
     /// The return `AbiType` (`Handle` ⇒ a string/object handle the lowering
     /// re-boxes; `I64`/`F64` ⇒ a number; `Bool` ⇒ a boolean singleton).
     pub ret: AbiType,
+    /// The callback shape, for Array methods that take a callback function VALUE
+    /// (`map`/`filter`/`reduce`/…). `None` for every non-callback method — those
+    /// marshal `args` literally. See [`CbShape`].
+    pub cb: Option<CbShape>,
+}
+
+/// The callback marshaling shape of an Array callback method (P4.7). The lowering
+/// reifies the (single) callback argument to a `TAG_FUNCTION` PolyValue word and
+/// passes it after the receiver; `Reduce` additionally appends the optional
+/// initial-accumulator word + a `has_init` flag.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CbShape {
+    /// `cb(element, index, array)` predicate/map family: trampoline takes
+    /// `(vec_handle, cb_word)`. The user call has exactly one (callback) arg.
+    Predicate,
+    /// `reduce(cb, init?)`: trampoline takes `(vec_handle, cb_word, init_word,
+    /// has_init)`. The user call has the callback + an OPTIONAL initial value.
+    Reduce,
 }
 
 /// Resolve `recv_class.method(argc explicit args)` to a real [`MethodSpec`], or
@@ -187,19 +205,40 @@ const ARRAY_ROWS: &[(&str, usize, MethodSpec)] = &[
     ("push", 1, am("__rtsadp_arr_push", &[U64], I64)),
     ("pop", 0, am("__rtsadp_arr_pop", &[], U64)),
     ("slice", 2, am("__rtsadp_arr_slice", &[I64, I64], U64)),
+    // ---- callback methods (P4.7): exactly one callback arg (`cb(elem, i, arr)`)
+    // for the predicate/map family; `reduce` has the callback + an OPTIONAL init.
+    // The lowering reifies the callback to a TAG_FUNCTION word (see CbShape).
+    ("map", 1, cm("__rtsadp_arr_map", U64, CbShape::Predicate)),
+    ("filter", 1, cm("__rtsadp_arr_filter", U64, CbShape::Predicate)),
+    ("forEach", 1, cm("__rtsadp_arr_for_each", U64, CbShape::Predicate)),
+    ("find", 1, cm("__rtsadp_arr_find", U64, CbShape::Predicate)),
+    ("findIndex", 1, cm("__rtsadp_arr_find_index", I64, CbShape::Predicate)),
+    ("some", 1, cm("__rtsadp_arr_some", Bool, CbShape::Predicate)),
+    ("every", 1, cm("__rtsadp_arr_every", Bool, CbShape::Predicate)),
+    // reduce: argc 1 (no init) and argc 2 (with init) both resolve to the same
+    // trampoline; the lowering supplies init_word + has_init.
+    ("reduce", 1, cm("__rtsadp_arr_reduce", U64, CbShape::Reduce)),
+    ("reduce", 2, cm("__rtsadp_arr_reduce", U64, CbShape::Reduce)),
 ];
 
 /// Build a String instance-method spec (receiver = real string handle).
 const fn sm(symbol: &'static str, args: &'static [AbiType], ret: AbiType) -> MethodSpec {
-    MethodSpec { symbol, recv_abi: RecvAbi::Handle, args, ret }
+    MethodSpec { symbol, recv_abi: RecvAbi::Handle, args, ret, cb: None }
 }
 
 /// Build an Array instance-method spec (receiver = the array's real Vec handle).
 const fn am(symbol: &'static str, args: &'static [AbiType], ret: AbiType) -> MethodSpec {
-    MethodSpec { symbol, recv_abi: RecvAbi::ArrayVec, args, ret }
+    MethodSpec { symbol, recv_abi: RecvAbi::ArrayVec, args, ret, cb: None }
+}
+
+/// Build an Array CALLBACK method spec (P4.7): receiver = the array's real Vec
+/// handle, `args` is empty (the callback + reduce's init are synthesized by the
+/// lowering from `cb`), `ret` is the trampoline's return ABI.
+const fn cm(symbol: &'static str, ret: AbiType, cb: CbShape) -> MethodSpec {
+    MethodSpec { symbol, recv_abi: RecvAbi::ArrayVec, args: &[], ret, cb: Some(cb) }
 }
 
 /// Build a Number instance-method spec (receiver = the f64 primitive).
 const fn nm(symbol: &'static str, args: &'static [AbiType], ret: AbiType) -> MethodSpec {
-    MethodSpec { symbol, recv_abi: RecvAbi::F64, args, ret }
+    MethodSpec { symbol, recv_abi: RecvAbi::F64, args, ret, cb: None }
 }

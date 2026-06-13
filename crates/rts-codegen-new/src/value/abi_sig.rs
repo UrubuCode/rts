@@ -150,6 +150,18 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         "__rtsadp_arr_pop" => SymSig { params: &[U64], ret: U64 },
         "__rtsadp_arr_slice" => SymSig { params: &[U64, I64, I64], ret: U64 },
 
+        // ---- codegen-owned Array CALLBACK trampolines (__rtsadp_arr_*, P4.7) ----
+        // Slot 0 = the array's REAL Vec handle; slot 1 = the callback as a
+        // TAG_FUNCTION PolyValue word (U64). map/filter return a fresh TAG_OBJECT
+        // array word (U64); forEach returns undefined (U64); find returns the
+        // element word (U64); findIndex returns an index (I64); some/every return
+        // a bool. reduce takes an extra init word (U64) + a has_init flag (I64).
+        "__rtsadp_arr_map" | "__rtsadp_arr_filter" | "__rtsadp_arr_for_each"
+        | "__rtsadp_arr_find" => SymSig { params: &[U64, U64], ret: U64 },
+        "__rtsadp_arr_find_index" => SymSig { params: &[U64, U64], ret: I64 },
+        "__rtsadp_arr_some" | "__rtsadp_arr_every" => SymSig { params: &[U64, U64], ret: Bool },
+        "__rtsadp_arr_reduce" => SymSig { params: &[U64, U64, U64, I64], ret: U64 },
+
         // ---- REAL global-class instance methods (P4 data-driven dispatch) ----
         // String methods: slot 0 = receiver (real string Handle); string args are
         // Handle, index/count args are I64; returns Handle (string) / I64 / Bool.
