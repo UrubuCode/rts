@@ -20,6 +20,8 @@
 
 pub mod env;
 pub mod loader;
+pub mod objects;
+pub mod strings;
 pub mod symbols;
 pub mod types;
 pub mod values;
@@ -93,26 +95,17 @@ pub unsafe extern "C" fn node_api_module_get_api_version_v1() -> i32 {
 // Implementados em `values.rs`: napi_create_double/int32/uint32/int64,
 // napi_get_boolean/undefined/null, napi_get_value_double/int32/uint32/int64/bool,
 // napi_typeof. Os demais seguem stub até as Etapas 6-7.
-napi_stub!(fn napi_create_string_utf8(env: napi_env, str_: *const c_char, length: usize, result: *mut napi_value) -> napi_status);
-napi_stub!(fn napi_create_object(env: napi_env, result: *mut napi_value) -> napi_status);
-napi_stub!(fn napi_create_array(env: napi_env, result: *mut napi_value) -> napi_status);
-napi_stub!(fn napi_create_array_with_length(env: napi_env, length: usize, result: *mut napi_value) -> napi_status);
+// napi_create_string_utf8 / napi_get_value_string_utf8 implementados em `strings.rs`.
+// napi_create_object/array/array_with_length, napi_get_array_length em `objects.rs`.
 napi_stub!(fn napi_get_global(env: napi_env, result: *mut napi_value) -> napi_status);
-napi_stub!(fn napi_get_value_string_utf8(env: napi_env, value: napi_value, buf: *mut c_char, bufsize: usize, result: *mut usize) -> napi_status);
-napi_stub!(fn napi_get_array_length(env: napi_env, value: napi_value, result: *mut u32) -> napi_status);
 
 // ── propriedades ────────────────────────────────────────────────────────────
-napi_stub!(fn napi_set_named_property(env: napi_env, object: napi_value, utf8name: *const c_char, value: napi_value) -> napi_status);
-napi_stub!(fn napi_get_named_property(env: napi_env, object: napi_value, utf8name: *const c_char, result: *mut napi_value) -> napi_status);
-napi_stub!(fn napi_set_property(env: napi_env, object: napi_value, key: napi_value, value: napi_value) -> napi_status);
-napi_stub!(fn napi_get_property(env: napi_env, object: napi_value, key: napi_value, result: *mut napi_value) -> napi_status);
-napi_stub!(fn napi_set_element(env: napi_env, object: napi_value, index: u32, value: napi_value) -> napi_status);
-napi_stub!(fn napi_get_element(env: napi_env, object: napi_value, index: u32, result: *mut napi_value) -> napi_status);
+// napi_set/get_named_property, napi_set/get_property, napi_set/get_element em
+// `objects.rs`. napi_define_properties segue stub (Etapa 11, com functions).
 napi_stub!(fn napi_define_properties(env: napi_env, object: napi_value, property_count: usize, properties: *const napi_property_descriptor) -> napi_status);
 
 // ── tipos ───────────────────────────────────────────────────────────────────
-// napi_typeof implementado em `values.rs`.
-napi_stub!(fn napi_is_array(env: napi_env, value: napi_value, result: *mut bool) -> napi_status);
+// napi_typeof em `values.rs`; napi_is_array em `objects.rs`.
 napi_stub!(fn napi_instanceof(env: napi_env, object: napi_value, constructor: napi_value, result: *mut bool) -> napi_status);
 
 // ── funções / callbacks ─────────────────────────────────────────────────────
@@ -167,10 +160,10 @@ pub fn force_link() -> usize {
         crate::values::napi_create_int32 as *const (),
         crate::values::napi_create_uint32 as *const (),
         crate::values::napi_create_int64 as *const (),
-        napi_create_string_utf8 as *const (),
-        napi_create_object as *const (),
-        napi_create_array as *const (),
-        napi_create_array_with_length as *const (),
+        crate::strings::napi_create_string_utf8 as *const (),
+        crate::objects::napi_create_object as *const (),
+        crate::objects::napi_create_array as *const (),
+        crate::objects::napi_create_array_with_length as *const (),
         crate::values::napi_get_boolean as *const (),
         crate::values::napi_get_undefined as *const (),
         crate::values::napi_get_null as *const (),
@@ -180,17 +173,17 @@ pub fn force_link() -> usize {
         crate::values::napi_get_value_uint32 as *const (),
         crate::values::napi_get_value_int64 as *const (),
         crate::values::napi_get_value_bool as *const (),
-        napi_get_value_string_utf8 as *const (),
-        napi_get_array_length as *const (),
-        napi_set_named_property as *const (),
-        napi_get_named_property as *const (),
-        napi_set_property as *const (),
-        napi_get_property as *const (),
-        napi_set_element as *const (),
-        napi_get_element as *const (),
+        crate::strings::napi_get_value_string_utf8 as *const (),
+        crate::objects::napi_get_array_length as *const (),
+        crate::objects::napi_set_named_property as *const (),
+        crate::objects::napi_get_named_property as *const (),
+        crate::objects::napi_set_property as *const (),
+        crate::objects::napi_get_property as *const (),
+        crate::objects::napi_set_element as *const (),
+        crate::objects::napi_get_element as *const (),
         napi_define_properties as *const (),
         crate::values::napi_typeof as *const (),
-        napi_is_array as *const (),
+        crate::objects::napi_is_array as *const (),
         napi_instanceof as *const (),
         napi_create_function as *const (),
         napi_get_cb_info as *const (),
