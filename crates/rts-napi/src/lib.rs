@@ -18,6 +18,7 @@
 #![allow(non_camel_case_types)]
 #![allow(clippy::missing_safety_doc)]
 
+pub mod arraybuffer;
 pub mod classes;
 pub mod env;
 pub mod errors;
@@ -181,10 +182,22 @@ pub fn force_link() -> usize {
         crate::phase2c::napi_create_promise as *const (),
         crate::phase2c::napi_fatal_exception as *const (),
         crate::phase2c::napi_get_prototype as *const (),
-        crate::phase2c::napi_is_arraybuffer as *const (),
-        crate::phase2c::napi_is_dataview as *const (),
-        crate::phase2c::napi_is_detached_arraybuffer as *const (),
-        crate::phase2c::napi_is_typedarray as *const (),
+        // ArrayBuffer/TypedArray/DataView (arraybuffer.rs, engine #1548)
+        crate::arraybuffer::napi_create_arraybuffer as *const (),
+        crate::arraybuffer::napi_create_external_arraybuffer as *const (),
+        crate::arraybuffer::napi_get_arraybuffer_info as *const (),
+        crate::arraybuffer::napi_is_arraybuffer as *const (),
+        crate::arraybuffer::napi_detach_arraybuffer as *const (),
+        crate::arraybuffer::napi_is_detached_arraybuffer as *const (),
+        crate::arraybuffer::napi_create_typedarray as *const (),
+        crate::arraybuffer::napi_get_typedarray_info as *const (),
+        crate::arraybuffer::napi_is_typedarray as *const (),
+        crate::arraybuffer::napi_create_dataview as *const (),
+        crate::arraybuffer::napi_get_dataview_info as *const (),
+        crate::arraybuffer::napi_is_dataview as *const (),
+        crate::arraybuffer::napi_create_external_buffer as *const (),
+        crate::arraybuffer::node_api_create_buffer_from_arraybuffer as *const (),
+        crate::arraybuffer::node_api_create_sharedarraybuffer as *const (),
         crate::phase2c::napi_reject_deferred as *const (),
         crate::phase2c::napi_remove_env_cleanup_hook as *const (),
         crate::phase2c::napi_resolve_deferred as *const (),
