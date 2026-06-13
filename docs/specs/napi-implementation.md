@@ -1,7 +1,31 @@
 # N-API — Plano de implementação (doc vivo de acompanhamento)
 
-> **Status:** Fase 0 ✅ + Fase 1 6/8 etapas ✅ — **paridade com Node confirmada**.
-> **Escopo desta entrega:** Fase 0 (loader) + Fase 1 (~40 fns N-API síncronas, núcleo 80/20).
+> **Status:** Fase 0 + 1 + 2 + classes nativas ✅ — **124/159 fns implementadas**,
+> paridade Node v22 em addons npm reais (crc32, xxhash+classe, uuid).
+
+## Cobertura atual (124/159 fns)
+
+| Categoria | Status |
+|---|---|
+| Loader, valores, strings, objects, props, exceções, external | ✅ implementado |
+| functions/callbacks, handle scopes, references | ✅ |
+| type checks, coerce, Buffer, Date, Symbol, BigInt(i64), wrap/unwrap | ✅ Fase 2 |
+| Promise/deferred, type tags, finalizer, syntax errors, make_callback | ✅ Fase 2c/2d |
+| **classes nativas** (`napi_define_class` + `new addon.X()` + `inst.method()`) | ✅ |
+
+### 35 stubs restantes — **bloqueados pelo engine** (retornam `napi_generic_failure`)
+
+| Bloco | Qtd | Depende de |
+|---|---|---|
+| arraybuffer/typedarray/dataview create+info | 11 | `Entry::ArrayBuffer` com **ptr estável** (follow-up Drysius) |
+| async_work/threadsafe_function/uv_event_loop | 19 | **event loop real** (#207) |
+| bigint uint64/words real | 4 | BigInt real (#219) |
+| module_register (registro legado) | 1 | fora de escopo (não-N-API) |
+
+Os stubs degradam graciosamente (falha, não crash). Tudo na export table para o
+`napi-sys` `load_all()` completar.
+
+> **Escopo original:** Fase 0 (loader) + Fase 1 (~40 fns N-API síncronas, núcleo 80/20).
 > **Como usar este doc:** cada etapa tem checkboxes `[ ]`. Marcar `[x]` ao concluir,
 > sempre com o critério de saída verificado. Atualizar este arquivo no mesmo
 > commit da mudança que ele descreve.
