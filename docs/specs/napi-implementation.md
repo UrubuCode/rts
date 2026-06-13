@@ -108,13 +108,15 @@ linkado no bin `rts` aparece na export table em **debug E release** (com
 - [x] Smoke: `rts run` funciona (sem regressão do `force_link`)
 - **Saída:** ✅ `rts.exe` linka; 55 `napi_*` na export table release.
 
-## Etapa 2 — `Entry::NapiExternal` + hooks GC (paraleliza com Etapa 1)
+## Etapa 2 — `Entry::NapiExternal` + hooks GC ✅
 
-- [ ] `Entry::NapiExternal { data: *mut c_void, finalize: Option<napi_finalize>, finalize_hint: *mut c_void }` em `handles.rs` (~329)
-- [ ] `cleanup_entry` (660): **enfileira** `(data, finalize, hint)` — **não** chamar finalize sob lock do shard (deadlock); disparo real = Fase 2
-- [ ] `trace_children` (687): no-op (sem filhos GC)
-- [ ] `sweep_unmarked`/debug-name: cobrir a variante
-- **Saída:** `cargo test -p rts-engine` verde; alloc+free de `NapiExternal` sem chamar finalize sob lock.
+- [x] `Entry::NapiExternal(Box<NapiExternalData>)` em `handles.rs` (antes de `Free`); `NapiExternalData { data, finalize: Option<extern "C" fn(env,data,hint)>, finalize_hint }` (ponteiros crus — engine não depende de `rts-napi`). `Debug` manual + `unsafe impl Send` (ponteiros opacos, nunca dereferenciados pelo engine; finalize só disparado na thread JS)
+- [x] Fila global `PENDING_NAPI_FINALIZERS` (Mutex<Vec>) + `pub fn drain_pending_napi_finalizers()` — o `rts-napi` drena fora do lock e dispara com o `napi_env` certo
+- [x] `cleanup_entry`: arm `NapiExternal` **enfileira** `(data, finalize, hint)` — **não** chama finalize sob o lock do shard (deadlock/reentrância); disparo real = Fase 2
+- [x] `trace_children`: cai no `_ => {}` (sem filhos GC) — correto
+- [x] Sem match exaustivo de debug-name a cobrir
+- [x] Teste `napi_external_finalizer_is_queued_not_called`: round-trip do ptr opaco; free enfileira (0 chamadas sob lock); drain retorna 1 com data/hint corretos; external sem finalizer não enfileira
+- **Saída:** ✅ `cargo test -p rts-engine` 51/51 (+5+1); alloc+free de `NapiExternal` sem chamar finalize sob lock.
 
 ## Etapa 3 — Interceptação de import `.node`
 
