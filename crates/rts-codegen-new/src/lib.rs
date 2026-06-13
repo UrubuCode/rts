@@ -44,9 +44,14 @@
 //!
 //! ## Status
 //!
-//! Increment 1 (this commit): [`value`] is real and exhaustively tested (pure
-//! model + Cranelift JIT roundtrip). Everything else is a documented skeleton
-//! with `todo!()` bodies — buildable, not yet wired into the pipeline.
+//! Increment 1: [`value`] is real and exhaustively tested (pure model + Cranelift
+//! JIT roundtrip). Increment 3 ([`front`]): REAL TypeScript runs end-to-end —
+//! swc parse → [`rts_hir`] typed HIR → [`front::hir_lower`] → Cranelift JIT →
+//! native execution — for the proven-monomorphic NUMERIC subset (number/i32/bool
+//! arithmetic, comparisons, `let`/assignment, `if`/`while`/`return`). Anything
+//! outside that subset is an EXPLICIT `Unsupported` bail, never a silent
+//! miscompile. Objects/strings/closures/64-bit ints are later increments. The
+//! remaining pillars are documented skeletons not yet wired into the pipeline.
 
 // Scaffold phase: stub modules intentionally carry unused items until their
 // implementation lands. Removed module-by-module as each pillar is built out.
@@ -58,6 +63,7 @@ pub mod shape;
 pub mod ic;
 pub mod dispatch;
 pub mod abi_gen;
+pub mod front;
 pub mod lower;
 pub mod pipeline;
 pub mod runtime;

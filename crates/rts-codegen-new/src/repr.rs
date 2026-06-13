@@ -19,6 +19,13 @@
 pub enum Repr {
     /// Unboxed 32-bit integer in an `i64` register (JS small-int fast path).
     Int32,
+    /// Unboxed 64-bit integer in an `i64` register. The proven-monomorphic
+    /// native-integer path for explicit `i64`/`u64` annotations and for
+    /// integer-valued numeric code the front-end types as a 64-bit int (e.g. a
+    /// Fibonacci loop over `0`/`1` literals, which the HIR narrows to `I64`).
+    /// Lossless in a register — it is NOT the 48-bit tagged-int payload (that one
+    /// stays `Int32`); a 64-bit int that must become `Tagged` boxes as a double.
+    Int64,
     /// Unboxed IEEE-754 double in an `f64` register (the winning numeric path).
     Float64,
     /// Unboxed boolean (0/1) in an `i64` register.

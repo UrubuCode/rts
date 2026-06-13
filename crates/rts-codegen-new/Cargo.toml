@@ -15,6 +15,13 @@ cranelift-codegen = "0.131"
 cranelift-frontend = "0.131"
 cranelift-module = "0.131"
 anyhow = "1.0"
+# Increment 3: parse REAL TypeScript and lower its typed HIR straight to
+# Cranelift for the proven-monomorphic numeric subset. rts-parser gives the swc
+# parse + internal AST; rts-hir gives the typed HirFunc we lower. Consumed
+# read-only — the new engine never reaches into the old codegen.
+rts-parser = { path = "../rts-parser" }
+rts-hir = { path = "../rts-hir" }
+rts-ast = { path = "../rts-ast" }
 # The P1 proof harness (lower/jit.rs) builds and finalizes a real JITModule and
 # installs the runtime::__rtsn_* extern symbols into it, so the JIT + host-ISA
 # builders are regular (non-test) dependencies now, not dev-only.

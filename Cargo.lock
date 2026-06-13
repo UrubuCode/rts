@@ -2631,6 +2631,9 @@ dependencies = [
  "cranelift-jit",
  "cranelift-module",
  "cranelift-native",
+ "rts-ast",
+ "rts-hir",
+ "rts-parser",
  "target-lexicon",
 ]
 
