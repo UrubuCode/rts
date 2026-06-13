@@ -1243,6 +1243,46 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                             return Ok(tv);
                         }
                     }
+                    // (N-API #1548) `<expr>.then/catch/finally(cb)` onde <expr>
+                    // é uma Promise napi resultante de uma CallExpr de addon
+                    // (receiver não-Ident). Roteia para GL_PROMISE_THEN* que
+                    // detecta PromiseAsync em runtime via classify() e enfileira
+                    // o microtask. Sem isto, cai no ramo Number abaixo (I64 raw)
+                    // → MAP_GET("then") → callback reificado com convenção errada
+                    // → ILLEGAL_INSTRUCTION.
+                    // O receiver recv_tv já foi obtido acima — NÃO re-lower (senão
+                    // makeP() roda 2x e registra o deferred duas vezes).
+                    // O callback é lowered via lower_expr + coerce_to_i64, IDÊNTICO
+                    // ao fast-path em indirect.rs:839-863 — NÃO lower_callable_target_h.
+                    if matches!(method_name.as_str(), "then" | "catch" | "finally")
+                        && !call.args.is_empty()
+                        && crate::codegen::lower::passes::native_addon::any_native_addon()
+                        && matches!(recv_tv.ty, ValTy::I64 | ValTy::Handle)
+                    {
+                        let recv = ctx.coerce_to_i64(recv_tv).val;
+                        let lower_cb = |ctx: &mut FnCtx, e: &Expr| -> Result<cranelift_codegen::ir::Value> {
+                            let tv = lower_expr(ctx, e)?;
+                            Ok(ctx.coerce_to_i64(tv).val)
+                        };
+                        let cb_h = lower_cb(ctx, &call.args[0].expr)?;
+                        let (sym, arity3) = match method_name.as_str() {
+                            "then" if call.args.len() >= 2 => ("__RTS_FN_GL_PROMISE_THEN2", true),
+                            "then" => ("__RTS_FN_GL_PROMISE_THEN", false),
+                            "catch" => ("__RTS_FN_GL_PROMISE_CATCH", false),
+                            _ => ("__RTS_FN_GL_PROMISE_FINALLY", false),
+                        };
+                        let result = if arity3 {
+                            let cb2 = lower_cb(ctx, &call.args[1].expr)?;
+                            let f = ctx.get_extern(sym, &[cl::I64, cl::I64, cl::I64], Some(cl::I64))?;
+                            let inst = ctx.builder.ins().call(f, &[recv, cb_h, cb2]);
+                            ctx.builder.inst_results(inst)[0]
+                        } else {
+                            let f = ctx.get_extern(sym, &[cl::I64, cl::I64], Some(cl::I64))?;
+                            let inst = ctx.builder.ins().call(f, &[recv, cb_h]);
+                            ctx.builder.inst_results(inst)[0]
+                        };
+                        return Ok(TypedVal::new(result, ValTy::Handle));
+                    }
                     if matches!(recv_tv.ty, ValTy::F64 | ValTy::I64 | ValTy::I32) {
                         // GENÉRICO via Registry — sem nomes de método hardcoded.
                         if let Some(tv) = ns_call::try_global_class_instance_method(
