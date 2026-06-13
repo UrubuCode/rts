@@ -25,6 +25,7 @@ pub mod functions;
 pub mod loader;
 pub mod objects;
 pub mod phase2;
+pub mod phase2b;
 pub mod references;
 pub mod scopes;
 pub mod strings;
@@ -190,6 +191,23 @@ pub fn force_link() -> usize {
         crate::phase2::napi_object_freeze as *const (),
         crate::phase2::napi_object_seal as *const (),
         crate::phase2::napi_strict_equals as *const (),
+        // Fase 2b (phase2b.rs)
+        crate::phase2b::napi_create_string_latin1 as *const (),
+        crate::phase2b::napi_create_string_utf16 as *const (),
+        crate::phase2b::napi_get_instance_data as *const (),
+        crate::phase2b::napi_get_last_error_info as *const (),
+        crate::phase2b::napi_get_new_target as *const (),
+        crate::phase2b::napi_get_node_version as *const (),
+        crate::phase2b::napi_get_value_string_latin1 as *const (),
+        crate::phase2b::napi_get_value_string_utf16 as *const (),
+        crate::phase2b::napi_remove_wrap as *const (),
+        crate::phase2b::napi_set_instance_data as *const (),
+        crate::phase2b::napi_unwrap as *const (),
+        crate::phase2b::napi_wrap as *const (),
+        crate::phase2b::node_api_create_property_key_latin1 as *const (),
+        crate::phase2b::node_api_create_property_key_utf16 as *const (),
+        crate::phase2b::node_api_create_property_key_utf8 as *const (),
+        crate::phase2b::node_api_symbol_for as *const (),
     ];
     // `black_box` evita que o otimizador prove que o resultado é constante e
     // elimine as referências.
