@@ -24,11 +24,13 @@
 
 mod call;
 mod expr;
+mod funcval;
 mod method;
 pub mod module_jit;
 mod obj;
 mod sig;
 mod stmt;
+mod thunk;
 
 pub mod lower;
 
@@ -103,7 +105,7 @@ fn build_program(src: &str) -> FrontResult<(Vec<HirFunc>, HirFunc)> {
     }
     let body = rts_hir::lower::lower_stmts(&top_stmts, &mut scope);
 
-    let main = HirFunc {
+    let mut main = HirFunc {
         name: "__rtsn_main".to_string(),
         params: Vec::new(),
         ret: HirType::Void,
@@ -111,6 +113,12 @@ fn build_program(src: &str) -> FrontResult<(Vec<HirFunc>, HirFunc)> {
         is_async: false,
         is_arrow: false,
     };
+
+    // P4.6: extract every NON-CAPTURING inline arrow used as a value (an arg, a
+    // returned arrow) into a fresh top-level function, rewriting the `Arrow` node
+    // to an `Ident` of the synthesized name. Capturing arrows are left to bail.
+    let synthesized = funcval::extract_arrows(&mut funcs, &mut main);
+    funcs.extend(synthesized);
 
     Ok((funcs, main))
 }

@@ -34,7 +34,7 @@ use rts_runtime::namespaces::globals::number as rt_num;
 use rts_runtime::namespaces::globals::string::rt as rt_gl_str;
 use rts_runtime::namespaces::io as rt_io;
 
-use crate::value::{abi_adapter, arrayops, genops};
+use crate::value::{abi_adapter, arrayops, funcops, genops};
 
 /// One installable JIT symbol: an extern "C" name and its function pointer. The
 /// pointer is to a `#[no_mangle] extern "C"` function with static lifetime.
@@ -107,6 +107,9 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_arr_push", arrayops::__rtsadp_arr_push as *const u8),
         sym("__rtsadp_arr_pop", arrayops::__rtsadp_arr_pop as *const u8),
         sym("__rtsadp_arr_slice", arrayops::__rtsadp_arr_slice as *const u8),
+        // ---- codegen-owned FUNCTION-value trampolines (__rtsadp_fn_*, P4.6) ----
+        sym("__rtsadp_fn_reify", funcops::__rtsadp_fn_reify as *const u8),
+        sym("__rtsadp_fn_invoke", funcops::__rtsadp_fn_invoke as *const u8),
     ];
     syms.extend(gl_method_symbols());
     syms

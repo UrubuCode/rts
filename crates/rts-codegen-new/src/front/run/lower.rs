@@ -64,6 +64,11 @@ pub(crate) enum JsKind {
     /// record [`HeapShape::Array`] so the new local supports `.length`/`[i]`/
     /// array methods.
     Array,
+    /// A FUNCTION value (a `TAG_FUNCTION` PolyValue over a reified `Entry::Function`
+    /// holding the thunk address). Produced by reifying a user-fn ident or an
+    /// extracted arrow (P4.6); makes `f(args)` lower to the indirect invoke path
+    /// and `typeof f` fold to `"function"`.
+    Function,
     /// Not statically provable (a Tagged value from a variable/call/etc.).
     Unknown,
 }
@@ -132,6 +137,9 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// Every user function's frozen ABI signature, for cross-fn calls. Keyed by
     /// name; shared (read-only) across all functions in the module.
     pub sigs: &'c HashMap<String, FnSig>,
+    /// Each user function's uniform-ABI THUNK FuncId, for reifying a function
+    /// referenced as a VALUE (`func_addr` of the thunk → `__rtsadp_fn_reify`).
+    pub thunks: &'c HashMap<String, cranelift_module::FuncId>,
 }
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
@@ -143,6 +151,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         func: &HirFunc,
         sig: &FnSig,
         sigs: &'c HashMap<String, FnSig>,
+        thunks: &'c HashMap<String, cranelift_module::FuncId>,
     ) -> FrontResult<()> {
         let entry = builder.create_block();
         builder.append_block_params_for_function_params(entry);
@@ -157,6 +166,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             ret: sig.ret,
             block_terminated: false,
             sigs,
+            thunks,
         };
 
         // Bind each parameter to a fresh local Variable carrying its ABI repr.

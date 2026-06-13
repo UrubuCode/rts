@@ -130,6 +130,13 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         // console.log line sink: takes (ptr, len) as a StrPtr (two slots), void.
         "__rtsadp_print_line" => SymSig { params: &[StrPtr], ret: Void },
 
+        // ---- codegen-owned FUNCTION-value trampolines (__rtsadp_fn_*, P4.6) ----
+        // reify(addr, nparams, has_rest) -> 48-bit slot+shard payload (U64).
+        "__rtsadp_fn_reify" => SymSig { params: &[U64, U64, U64], ret: U64 },
+        // invoke(fn_word, a0, a1, a2, a3, rest) -> result PolyValue word (U64).
+        // All slots are raw PolyValue words (U64); the fixed uniform call ABI.
+        "__rtsadp_fn_invoke" => SymSig { params: &[U64, U64, U64, U64, U64, U64], ret: U64 },
+
         // ---- codegen-owned Array trampolines (__rtsadp_arr_*, P4.5) ----
         // All slots are u64/i64 (no StrPtr): slot 0 is the array's REAL Vec handle
         // (`POLY_TO_HANDLE` of the array word); needle args are raw PolyValue words

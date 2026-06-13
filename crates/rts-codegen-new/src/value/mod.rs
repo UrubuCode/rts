@@ -100,6 +100,10 @@ pub mod genops;
 // Codegen-owned PolyValue-aware Array instance-method trampolines (P4.5),
 // reading the REAL Entry::Vec via the runtime VEC symbols.
 pub mod arrayops;
+// Codegen-owned first-class FUNCTION-value trampolines (P4.6): reify a user fn
+// (its thunk address) into a TAG_FUNCTION PolyValue + invoke it indirectly via
+// the fixed uniform 5-slot ABI.
+pub mod funcops;
 // The Cranelift IR that marshals at the real-symbol call boundaries
 // (box/unbox + StrPtr ptr+len).
 pub mod emit_marshal;

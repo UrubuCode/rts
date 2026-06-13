@@ -23,6 +23,9 @@ use crate::front::error::{FrontResult, Unsupported};
 
 use super::lower::Lowerer;
 use super::sig::FnSig;
+use super::thunk;
+
+use cranelift_module::FuncId;
 
 /// A finalized module: keeps the `JITModule` mapped and carries the
 /// `__rtsn_main` entry pointer.
@@ -92,13 +95,28 @@ pub fn compile_program(funcs: &[HirFunc], main: &HirFunc) -> FrontResult<Program
         .declare_function(&main_sig.name, Linkage::Local, &main_cl_sig)
         .map_err(|e| Unsupported::new(format!("declare main: {e}")))?;
 
+    // 2b. Declare a uniform-ABI THUNK for every user function (P4.6). A function
+    //     referenced as a VALUE reifies via `func_addr` of its thunk; declaring
+    //     one per function keeps reify a pure address lookup (no second pass to
+    //     decide which are values). `main` is never a value, so it gets none.
+    let mut thunks: HashMap<String, FuncId> = HashMap::new();
+    for f in funcs {
+        let id = thunk::declare_thunk(&mut module, &f.name)?;
+        thunks.insert(f.name.clone(), id);
+    }
+
     // 3. Define each user function body.
     for f in funcs {
         let sig = sigs[&f.name].clone();
-        define_one(&mut module, ids[&f.name], f, &sig, &sigs)?;
+        define_one(&mut module, ids[&f.name], f, &sig, &sigs, &thunks)?;
     }
     // 4. Define main (the top-level body).
-    define_one(&mut module, main_id, main, &main_sig, &sigs)?;
+    define_one(&mut module, main_id, main, &main_sig, &sigs, &thunks)?;
+
+    // 4b. Define every thunk body (bridges the uniform ABI to the real signature).
+    for f in funcs {
+        thunk::define_thunk(&mut module, thunks[&f.name], ids[&f.name], &sigs[&f.name])?;
+    }
 
     module.finalize_definitions().map_err(|e| {
         Unsupported::new(format!("finalize module: {e}"))
@@ -117,6 +135,7 @@ fn define_one(
     func: &HirFunc,
     sig: &FnSig,
     sigs: &HashMap<String, FnSig>,
+    thunks: &HashMap<String, FuncId>,
 ) -> FrontResult<()> {
     let mut ctx = module.make_context();
     ctx.func.signature = sig.to_cranelift(module);
@@ -124,7 +143,7 @@ fn define_one(
     {
         let mut fb_ctx = FunctionBuilderContext::new();
         let mut fb = FunctionBuilder::new(&mut ctx.func, &mut fb_ctx);
-        let res = Lowerer::lower_function(module, &mut fb, func, sig, sigs);
+        let res = Lowerer::lower_function(module, &mut fb, func, sig, sigs, thunks);
         match res {
             Ok(()) => fb.finalize(),
             Err(e) => {

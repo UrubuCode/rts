@@ -64,12 +64,109 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirExprKind::Ident(n) => n.clone(),
             _ => return unsupported!("call of a non-identifier callee"),
         };
+        // A statically-known user function → the native fast path (NOT regressed).
+        if let Some(sig) = self.sigs.get(&name).cloned() {
+            return self.lower_user_call(module, &sig, args);
+        }
+        // A local holding a function VALUE (a Tagged param/let) → the indirect
+        // uniform-ABI invoke path (P4.6).
+        if let Some(local) = self.local(&name) {
+            return self.lower_value_call(module, local, args);
+        }
+        unsupported!("call to unknown function `{name}`")
+    }
+
+    /// Reify a user function `name` (referenced as a VALUE) into a `TAG_FUNCTION`
+    /// PolyValue: `func_addr` of its uniform-ABI THUNK → `__rtsadp_fn_reify(addr,
+    /// nparams, has_rest)` → box the returned 48-bit slot+shard as `TAG_FUNCTION`.
+    /// The GC marks it (a real heap handle behind the tag), so it is GC-safe.
+    pub(super) fn reify_function(
+        &mut self,
+        module: &mut dyn Module,
+        name: &str,
+    ) -> FrontResult<Val> {
         let sig = self
             .sigs
-            .get(&name)
-            .ok_or_else(|| Unsupported::new(format!("call to unknown function `{name}`")))?
-            .clone();
-        self.lower_user_call(module, &sig, args)
+            .get(name)
+            .ok_or_else(|| Unsupported::new(format!("reify of unknown function `{name}`")))?;
+        if sig.is_async {
+            return unsupported!(
+                "async/generator function `{name}` as a VALUE (it returns a Promise / suspends — a later increment)"
+            );
+        }
+        let nparams = sig.params.len() as i64;
+        let thunk_id = *self
+            .thunks
+            .get(name)
+            .ok_or_else(|| Unsupported::new(format!("no thunk for function `{name}`")))?;
+
+        // Relocatable address of the THUNK (available at JIT time). `func_addr`
+        // points at the thunk so every indirect call uses the fixed uniform ABI.
+        let func_ref = module.declare_func_in_func(thunk_id, self.builder.func);
+        let addr = self.builder.ins().func_addr(types::I64, func_ref);
+
+        let nparams_v = self.builder.ins().iconst(types::I64, nparams);
+        // No `...rest` in this increment's reify surface (variadic arrows are
+        // rejected at extraction); has_rest is always 0.
+        let has_rest_v = self.builder.ins().iconst(types::I64, 0);
+        let payload = self
+            .call_runtime(module, "__rtsadp_fn_reify", &[addr, nparams_v, has_rest_v])?
+            .expect("__rtsadp_fn_reify returns a value");
+
+        // Box the bare 48-bit payload as a TAG_FUNCTION PolyValue word:
+        // BOX_BASE | (TAG_FUNCTION<<48) | (payload & PAYLOAD_MASK).
+        let header = value::encode(value::TAG_FUNCTION, 0) as i64;
+        let mask = self.builder.ins().iconst(types::I64, value::PAYLOAD_MASK as i64);
+        let masked = self.builder.ins().band(payload, mask);
+        let header_v = self.builder.ins().iconst(types::I64, header);
+        let word = self.builder.ins().bor(masked, header_v);
+        Ok(Val::tagged_kind(word, JsKind::Function))
+    }
+
+    /// Lower a call through a function VALUE held in a local (`g(args)` where `g`
+    /// is a Tagged param/let bound to a `TAG_FUNCTION` PolyValue): box up to 4
+    /// args into `a0..a3` (undefined for missing), pack `args[4..]` into a rest
+    /// ARRAY (or undefined when ≤4), then `__rtsadp_fn_invoke(fn_word, a0..a3,
+    /// rest)`. The result is an opaque PolyValue word (kind Unknown).
+    fn lower_value_call(
+        &mut self,
+        module: &mut dyn Module,
+        local: super::lower::Local,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        // The function value word (the local's raw Tagged register).
+        let fn_word = self.builder.use_var(local.var);
+
+        // Box the first four positional args; missing slots are `undefined`.
+        let undef = || value::PolyValue::undefined().raw() as i64;
+        let mut slots: [Value; 4] = [self.builder.ins().iconst(types::I64, undef()); 4];
+        for (i, a) in args.iter().take(4).enumerate() {
+            let v = self.lower_expr(module, a)?;
+            slots[i] = self.box_value(v);
+        }
+
+        // Overflow args (5th onward) go into a fresh rest ARRAY; ≤4 args → undefined.
+        let rest = if args.len() > 4 {
+            let arr = emit_marshal::emit_new_vec_object(module, self.builder);
+            for a in &args[4..] {
+                let v = self.lower_expr(module, a)?;
+                let word = self.box_value(v);
+                emit_marshal::emit_vec_push(module, self.builder, arr, word);
+            }
+            arr
+        } else {
+            self.builder.ins().iconst(types::I64, undef())
+        };
+
+        let res = self
+            .call_runtime(
+                module,
+                "__rtsadp_fn_invoke",
+                &[fn_word, slots[0], slots[1], slots[2], slots[3], rest],
+            )?
+            .expect("__rtsadp_fn_invoke returns a value");
+        // The result is a PolyValue word of unknown static kind.
+        Ok(Val::new(res, Repr::Tagged))
     }
 
     /// Lower `console.log(a, b, …)` through the REAL runtime: ToString each arg to

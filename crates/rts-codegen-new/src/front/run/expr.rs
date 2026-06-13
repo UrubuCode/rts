@@ -29,7 +29,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     ) -> FrontResult<Val> {
         match &e.kind {
             HirExprKind::Lit(lit) => self.lower_lit(lit),
-            HirExprKind::Ident(name) => self.lower_ident(name),
+            HirExprKind::Ident(name) => self.lower_ident(module, name),
             HirExprKind::Bin { op, lhs, rhs } => self.lower_bin(module, *op, lhs, rhs),
             HirExprKind::Unary { op, operand } => self.lower_unary(module, *op, operand),
             HirExprKind::Ternary { cond, then, else_ } => {
@@ -104,17 +104,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
     }
 
-    fn lower_ident(&mut self, name: &str) -> FrontResult<Val> {
-        match self.local(name) {
-            Some(local) => {
-                let v = self.builder.use_var(local.var);
-                // A local's static kind is its repr-implied kind; a Tagged local
-                // carries `Unknown` (we do not flow string-ness through vars yet),
-                // which makes strict-eq over it conservatively bail.
-                Ok(Val::new(v, local.repr))
-            }
-            None => unsupported!("unbound identifier `{name}`"),
+    fn lower_ident(&mut self, module: &mut dyn Module, name: &str) -> FrontResult<Val> {
+        if let Some(local) = self.local(name) {
+            let v = self.builder.use_var(local.var);
+            // A local's static kind is its repr-implied kind; a Tagged local
+            // carries `Unknown` (we do not flow string-ness through vars yet),
+            // which makes strict-eq over it conservatively bail.
+            return Ok(Val::new(v, local.repr));
         }
+        // An identifier that is not a local but names a user FUNCTION is a
+        // function VALUE reference (typeof f, `f` stored/passed/returned): reify it
+        // into a TAG_FUNCTION PolyValue (P4.6). `lower_call` intercepts a direct
+        // call `f(x)` before reaching here, so this only fires in value position.
+        if self.sigs.contains_key(name) {
+            return self.reify_function(module, name);
+        }
+        unsupported!("unbound identifier `{name}`")
     }
 
     fn lower_bin(
