@@ -22,12 +22,13 @@ pub mod env;
 pub mod loader;
 pub mod symbols;
 pub mod types;
+pub mod values;
 
 use std::ffi::{c_char, c_void};
 
 use types::{
     napi_callback, napi_callback_info, napi_env, napi_escapable_handle_scope, napi_finalize,
-    napi_handle_scope, napi_ref, napi_status, napi_value, napi_valuetype,
+    napi_handle_scope, napi_ref, napi_status, napi_value,
 };
 
 use napi_status::{napi_generic_failure, napi_ok};
@@ -88,26 +89,15 @@ pub unsafe extern "C" fn node_api_module_get_api_version_v1() -> i32 {
     env::RTS_NAPI_VERSION as i32
 }
 
-// ── criação de valores ──────────────────────────────────────────────────────
-napi_stub!(fn napi_create_double(env: napi_env, value: f64, result: *mut napi_value) -> napi_status);
-napi_stub!(fn napi_create_int32(env: napi_env, value: i32, result: *mut napi_value) -> napi_status);
-napi_stub!(fn napi_create_uint32(env: napi_env, value: u32, result: *mut napi_value) -> napi_status);
-napi_stub!(fn napi_create_int64(env: napi_env, value: i64, result: *mut napi_value) -> napi_status);
+// ── criação/extração de valores escalares + typeof ──────────────────────────
+// Implementados em `values.rs`: napi_create_double/int32/uint32/int64,
+// napi_get_boolean/undefined/null, napi_get_value_double/int32/uint32/int64/bool,
+// napi_typeof. Os demais seguem stub até as Etapas 6-7.
 napi_stub!(fn napi_create_string_utf8(env: napi_env, str_: *const c_char, length: usize, result: *mut napi_value) -> napi_status);
 napi_stub!(fn napi_create_object(env: napi_env, result: *mut napi_value) -> napi_status);
 napi_stub!(fn napi_create_array(env: napi_env, result: *mut napi_value) -> napi_status);
 napi_stub!(fn napi_create_array_with_length(env: napi_env, length: usize, result: *mut napi_value) -> napi_status);
-napi_stub!(fn napi_get_boolean(env: napi_env, value: bool, result: *mut napi_value) -> napi_status);
-napi_stub!(fn napi_get_undefined(env: napi_env, result: *mut napi_value) -> napi_status);
-napi_stub!(fn napi_get_null(env: napi_env, result: *mut napi_value) -> napi_status);
 napi_stub!(fn napi_get_global(env: napi_env, result: *mut napi_value) -> napi_status);
-
-// ── extração de valores ─────────────────────────────────────────────────────
-napi_stub!(fn napi_get_value_double(env: napi_env, value: napi_value, result: *mut f64) -> napi_status);
-napi_stub!(fn napi_get_value_int32(env: napi_env, value: napi_value, result: *mut i32) -> napi_status);
-napi_stub!(fn napi_get_value_uint32(env: napi_env, value: napi_value, result: *mut u32) -> napi_status);
-napi_stub!(fn napi_get_value_int64(env: napi_env, value: napi_value, result: *mut i64) -> napi_status);
-napi_stub!(fn napi_get_value_bool(env: napi_env, value: napi_value, result: *mut bool) -> napi_status);
 napi_stub!(fn napi_get_value_string_utf8(env: napi_env, value: napi_value, buf: *mut c_char, bufsize: usize, result: *mut usize) -> napi_status);
 napi_stub!(fn napi_get_array_length(env: napi_env, value: napi_value, result: *mut u32) -> napi_status);
 
@@ -121,7 +111,7 @@ napi_stub!(fn napi_get_element(env: napi_env, object: napi_value, index: u32, re
 napi_stub!(fn napi_define_properties(env: napi_env, object: napi_value, property_count: usize, properties: *const napi_property_descriptor) -> napi_status);
 
 // ── tipos ───────────────────────────────────────────────────────────────────
-napi_stub!(fn napi_typeof(env: napi_env, value: napi_value, result: *mut napi_valuetype) -> napi_status);
+// napi_typeof implementado em `values.rs`.
 napi_stub!(fn napi_is_array(env: napi_env, value: napi_value, result: *mut bool) -> napi_status);
 napi_stub!(fn napi_instanceof(env: napi_env, object: napi_value, constructor: napi_value, result: *mut bool) -> napi_status);
 
@@ -173,23 +163,23 @@ pub fn force_link() -> usize {
     let fns: &[*const ()] = &[
         napi_get_version as *const (),
         node_api_module_get_api_version_v1 as *const (),
-        napi_create_double as *const (),
-        napi_create_int32 as *const (),
-        napi_create_uint32 as *const (),
-        napi_create_int64 as *const (),
+        crate::values::napi_create_double as *const (),
+        crate::values::napi_create_int32 as *const (),
+        crate::values::napi_create_uint32 as *const (),
+        crate::values::napi_create_int64 as *const (),
         napi_create_string_utf8 as *const (),
         napi_create_object as *const (),
         napi_create_array as *const (),
         napi_create_array_with_length as *const (),
-        napi_get_boolean as *const (),
-        napi_get_undefined as *const (),
-        napi_get_null as *const (),
+        crate::values::napi_get_boolean as *const (),
+        crate::values::napi_get_undefined as *const (),
+        crate::values::napi_get_null as *const (),
         napi_get_global as *const (),
-        napi_get_value_double as *const (),
-        napi_get_value_int32 as *const (),
-        napi_get_value_uint32 as *const (),
-        napi_get_value_int64 as *const (),
-        napi_get_value_bool as *const (),
+        crate::values::napi_get_value_double as *const (),
+        crate::values::napi_get_value_int32 as *const (),
+        crate::values::napi_get_value_uint32 as *const (),
+        crate::values::napi_get_value_int64 as *const (),
+        crate::values::napi_get_value_bool as *const (),
         napi_get_value_string_utf8 as *const (),
         napi_get_array_length as *const (),
         napi_set_named_property as *const (),
@@ -199,7 +189,7 @@ pub fn force_link() -> usize {
         napi_set_element as *const (),
         napi_get_element as *const (),
         napi_define_properties as *const (),
-        napi_typeof as *const (),
+        crate::values::napi_typeof as *const (),
         napi_is_array as *const (),
         napi_instanceof as *const (),
         napi_create_function as *const (),
