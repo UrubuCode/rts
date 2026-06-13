@@ -27,6 +27,7 @@ pub mod objects;
 pub mod references;
 pub mod scopes;
 pub mod strings;
+pub mod surface;
 pub mod symbols;
 pub mod types;
 pub mod values;
@@ -164,7 +165,9 @@ pub fn force_link() -> usize {
     ];
     // `black_box` evita que o otimizador prove que o resultado é constante e
     // elimine as referências.
-    std::hint::black_box(fns.iter().map(|p| *p as usize).fold(0usize, usize::wrapping_add))
+    let core = std::hint::black_box(fns.iter().map(|p| *p as usize).fold(0usize, usize::wrapping_add));
+    // + a superfície restante (stubs das Fases 2/3).
+    core.wrapping_add(crate::surface::force_link_surface())
 }
 
 #[cfg(test)]
@@ -173,10 +176,9 @@ mod tests {
     /// exportado — senão algum `napi_*` pode ser descartado pelo LTO no bin.
     #[test]
     fn force_link_covers_all_symbols() {
-        // Não dá pra contar ponteiros em runtime; este teste casa a intenção:
-        // a lista de símbolos tem 55 entradas e `force_link` tem 55 linhas.
-        // Mantido como lembrete de sincronia + smoke de que `force_link` linka.
+        // Smoke: force_link (core + surface) linka e a lista cobre a superfície
+        // completa (~159 = 55 impl + ~104 stubs). Atualizar ao ampliar.
         let _ = crate::force_link();
-        assert_eq!(crate::symbols::exported_symbols().len(), 55);
+        assert!(crate::symbols::exported_symbols().len() >= 150);
     }
 }

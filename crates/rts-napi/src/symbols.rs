@@ -53,8 +53,11 @@ mod tests {
     }
 
     #[test]
-    fn list_matches_phase1_core() {
-        // Núcleo 80/20 da Fase 1. Atualizar ao crescer o escopo.
-        assert_eq!(exported_symbols().len(), 55);
+    fn list_covers_full_surface() {
+        // 55 do núcleo 80/20 (implementadas) + ~104 stubs da superfície restante
+        // (Fases 2/3) — exportadas para que o `load_all()` do napi-sys complete.
+        // Atualizar ao mover stubs para impls ou ampliar a superfície.
+        let n = exported_symbols().len();
+        assert!(n >= 150, "superfície N-API deve cobrir ~159 símbolos, tem {n}");
     }
 }
