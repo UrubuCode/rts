@@ -19,6 +19,7 @@
 #![allow(clippy::missing_safety_doc)]
 
 pub mod arraybuffer;
+pub mod async_work;
 pub mod classes;
 pub mod env;
 pub mod errors;
@@ -198,6 +199,16 @@ pub fn force_link() -> usize {
         crate::arraybuffer::napi_create_external_buffer as *const (),
         crate::arraybuffer::node_api_create_buffer_from_arraybuffer as *const (),
         crate::arraybuffer::node_api_create_sharedarraybuffer as *const (),
+        // Async work síncrono (async_work.rs, #1548 item 3 parcial)
+        crate::async_work::napi_async_destroy as *const (),
+        crate::async_work::napi_async_init as *const (),
+        crate::async_work::napi_cancel_async_work as *const (),
+        crate::async_work::napi_close_callback_scope as *const (),
+        crate::async_work::napi_create_async_work as *const (),
+        crate::async_work::napi_delete_async_work as *const (),
+        crate::async_work::napi_open_callback_scope as *const (),
+        crate::async_work::napi_queue_async_work as *const (),
+        crate::async_work::node_api_post_finalizer as *const (),
         crate::phase2c::napi_reject_deferred as *const (),
         crate::phase2c::napi_remove_env_cleanup_hook as *const (),
         crate::phase2c::napi_resolve_deferred as *const (),
