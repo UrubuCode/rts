@@ -2571,6 +2571,7 @@ dependencies = [
  "rts-codegen",
  "rts-diagnostics",
  "rts-linker",
+ "rts-napi",
  "rts-parser",
  "rts-runtime",
  "rustc-hash 1.1.0",
@@ -2701,6 +2702,15 @@ version = "0.1.0"
 dependencies = [
  "rts-engine",
  "rts-hir",
+]
+
+[[package]]
+name = "rts-napi"
+version = "0.1.0"
+dependencies = [
+ "libloading",
+ "rts-engine",
+ "rts-shared",
 ]
 
 [[package]]

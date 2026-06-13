@@ -4,6 +4,7 @@ members = [
     "crates/rts-ast",
     "crates/rts-diagnostics",
     "crates/rts-engine",
+    "crates/rts-napi",
     "crates/rts-node",
     "crates/rts-primitives",
     "crates/rts-shared",
@@ -44,6 +45,10 @@ rts-linker = { path = "crates/rts-linker" }
 rts-runtime = { path = "crates/rts-runtime" }
 rts-codegen = { path = "crates/rts-codegen" }
 rts-cli = { path = "crates/rts-cli" }
+# Suporte a Node.js native addons (.node) — dep direta do bin para que os
+# símbolos `napi_*` entrem na export table do `rts.exe` (resolvidos pelo loader
+# do SO quando um `.node` é carregado). Ver docs/specs/napi-implementation.md.
+rts-napi = { path = "crates/rts-napi" }
 anyhow = "1.0"
 backtrace = "0.3"
 object = { version = "0.39", default-features = false, features = ["write", "read", "std", "coff", "elf", "macho", "pe"] }

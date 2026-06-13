@@ -1,0 +1,59 @@
+//! `RtsNapiEnv` — o estado por instância de addon que `napi_env` aponta.
+//!
+//! Esqueleto da Etapa 1: carrega a pilha de handle scopes, a tabela de
+//! referências e o slot de exceção pendente. As estruturas concretas (chunks
+//! de scope com endereço estável, RefTable) entram nas Etapas 8/9; aqui ficam
+//! os campos mínimos para o loader (Etapa 4) fabricar e passar o env.
+
+use crate::types::{napi_env, napi_value};
+
+/// Estado de uma instância de addon. Um por `napi_register_module_v1`.
+///
+/// Vive enquanto o addon estiver carregado; o `napi_env` opaco que cruza para
+/// o `.node` é um `*mut RtsNapiEnv` (cast em `as_raw`/`from_raw`).
+pub struct RtsNapiEnv {
+    /// Versão N-API anunciada por `napi_get_version` (nível implementado).
+    pub api_version: u32,
+    // Etapa 8: pilha de handle scopes (chunks de endereço estável registrados
+    // como GC roots via global_roots::add). Placeholder até lá.
+    // Etapa 9: tabela de referências (strong=root, weak=sem root).
+    // Etapa 10: o slot de exceção reusa o error slot thread-local do runtime
+    // (__RTS_FN_RT_ERROR_*), então não há campo dedicado aqui.
+}
+
+impl RtsNapiEnv {
+    pub fn new(api_version: u32) -> Self {
+        Self { api_version }
+    }
+
+    /// Empacota um `Box<RtsNapiEnv>` num `napi_env` opaco (transfere posse ao
+    /// addon; liberado quando o addon for descarregado).
+    pub fn into_raw(self: Box<Self>) -> napi_env {
+        napi_env(Box::into_raw(self) as *mut std::ffi::c_void)
+    }
+
+    /// Reconstrói uma referência a partir do `napi_env` opaco. `unsafe`: o
+    /// chamador garante que o ponteiro veio de `into_raw` e ainda é válido.
+    ///
+    /// # Safety
+    /// `env.0` deve ser um ponteiro vivo produzido por [`RtsNapiEnv::into_raw`].
+    pub unsafe fn from_raw<'a>(env: napi_env) -> Option<&'a mut RtsNapiEnv> {
+        unsafe { (env.0 as *mut RtsNapiEnv).as_mut() }
+    }
+}
+
+/// Nível N-API que o RTS implementa hoje. N-API 8 = baseline amplo
+/// (Node 12.22+/14.17+/16+). Anunciado por `napi_get_version`.
+pub const RTS_NAPI_VERSION: u32 = 8;
+
+/// Converte um handle `u64` da HandleTable num `napi_value` opaco.
+#[inline]
+pub fn value_from_handle(handle: u64) -> napi_value {
+    napi_value(handle as *mut std::ffi::c_void)
+}
+
+/// Extrai o handle `u64` de um `napi_value` opaco.
+#[inline]
+pub fn handle_from_value(value: napi_value) -> u64 {
+    value.0 as u64
+}

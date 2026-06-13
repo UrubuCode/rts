@@ -1,0 +1,84 @@
+# Fonte única dos símbolos N-API exportados pelo bin `rts`.
+#
+# Consumida por:
+#   - crates/rts-napi/src/symbols.rs  (include_str! → NAPI_EXPORTED_SYMBOLS)
+#   - build.rs (raiz)                 (include_str! → /EXPORT: e --export-dynamic)
+#
+# Uma entrada por linha. Linhas em branco e `#` comentário são ignoradas.
+# Toda entrada DEVE ter uma `#[unsafe(no_mangle)] pub extern "C" fn` de mesmo
+# nome em crates/rts-napi/src/lib.rs. Ver docs/specs/napi-implementation.md.
+
+# registro / ambiente
+napi_get_version
+node_api_module_get_api_version_v1
+
+# criação de valores
+napi_create_double
+napi_create_int32
+napi_create_uint32
+napi_create_int64
+napi_create_string_utf8
+napi_create_object
+napi_create_array
+napi_create_array_with_length
+napi_get_boolean
+napi_get_undefined
+napi_get_null
+napi_get_global
+
+# extração de valores
+napi_get_value_double
+napi_get_value_int32
+napi_get_value_uint32
+napi_get_value_int64
+napi_get_value_bool
+napi_get_value_string_utf8
+napi_get_array_length
+
+# propriedades
+napi_set_named_property
+napi_get_named_property
+napi_set_property
+napi_get_property
+napi_set_element
+napi_get_element
+napi_define_properties
+
+# tipos
+napi_typeof
+napi_is_array
+napi_instanceof
+
+# funções / callbacks
+napi_create_function
+napi_get_cb_info
+napi_call_function
+
+# erros / exceções
+napi_throw
+napi_throw_error
+napi_throw_type_error
+napi_throw_range_error
+napi_create_error
+napi_create_type_error
+napi_create_range_error
+napi_is_exception_pending
+napi_get_and_clear_last_exception
+
+# handle scopes
+napi_open_handle_scope
+napi_close_handle_scope
+napi_open_escapable_handle_scope
+napi_close_escapable_handle_scope
+napi_escape_handle
+
+# referências
+napi_create_reference
+napi_delete_reference
+napi_reference_ref
+napi_reference_unref
+napi_get_reference_value
+
+# external
+napi_create_external
+napi_get_value_external
