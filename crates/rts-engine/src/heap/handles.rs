@@ -512,10 +512,84 @@ pub enum Entry {
     /// finalize (nunca o chama sob o lock do shard — ver `cleanup_entry`). Ver
     /// docs/specs/napi-implementation.md.
     NapiExternal(Box<NapiExternalData>),
+    /// (N-API) ArrayBuffer com **ponteiro de bytes ESTÁVEL** enquanto o handle
+    /// viver — o addon pega `data: *mut u8` via `arraybuffer_ptr` e escreve
+    /// direto na memória (hash/crypto/compressão). Diferente de `Buffer(Vec<u8>)`,
+    /// cujo `Vec` pode realocar e invalidar o ptr; aqui o backing é `Box<[u8]>`
+    /// (owned, nunca realoca) ou um ptr externo emprestado (borrowed). Ver
+    /// docs/specs/napi-implementation.md (#1548).
+    ArrayBuffer(Box<ArrayBufferData>),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,
 }
+
+/// Payload de `Entry::ArrayBuffer`. O backing é owned (Box, ptr estável) ou
+/// borrowed (ptr externo do addon + finalizer chamado na coleta).
+pub enum ArrayBufferBacking {
+    /// Bytes possuídos pelo engine. `Box<[u8]>` nunca realoca → ptr estável.
+    Owned(Box<[u8]>),
+    /// Ptr externo emprestado (`napi_create_external_arraybuffer`). O engine
+    /// NÃO possui os bytes; ao coletar, enfileira o `finalize(data, hint)`.
+    Borrowed {
+        ptr: *mut u8,
+        len: usize,
+        finalize: Option<
+            unsafe extern "C" fn(
+                env: *mut std::ffi::c_void,
+                data: *mut std::ffi::c_void,
+                hint: *mut std::ffi::c_void,
+            ),
+        >,
+        finalize_hint: *mut std::ffi::c_void,
+    },
+}
+
+pub struct ArrayBufferData {
+    pub backing: ArrayBufferBacking,
+    /// `true` após `napi_detach_arraybuffer` — leituras devolvem ptr nulo/len 0.
+    pub detached: bool,
+}
+
+impl ArrayBufferData {
+    /// Ponteiro mutável estável para os bytes (nulo se detached).
+    pub fn data_ptr(&mut self) -> *mut u8 {
+        if self.detached {
+            return std::ptr::null_mut();
+        }
+        match &mut self.backing {
+            ArrayBufferBacking::Owned(b) => b.as_mut_ptr(),
+            ArrayBufferBacking::Borrowed { ptr, .. } => *ptr,
+        }
+    }
+    pub fn byte_len(&self) -> usize {
+        if self.detached {
+            return 0;
+        }
+        match &self.backing {
+            ArrayBufferBacking::Owned(b) => b.len(),
+            ArrayBufferBacking::Borrowed { len, .. } => *len,
+        }
+    }
+}
+
+impl std::fmt::Debug for ArrayBufferData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kind = match &self.backing {
+            ArrayBufferBacking::Owned(b) => format!("Owned({})", b.len()),
+            ArrayBufferBacking::Borrowed { len, .. } => format!("Borrowed({len})"),
+        };
+        f.debug_struct("ArrayBufferData")
+            .field("backing", &kind)
+            .field("detached", &self.detached)
+            .finish()
+    }
+}
+
+// SAFETY: o ptr borrowed é opaco ao engine (nunca dereferenciado por ele); o
+// finalize só roda na thread JS via a fila de finalizers. Owned é Box<[u8]>
+// (Send). Mesmo racional de NapiExternalData.
+unsafe impl Send for ArrayBufferData {}
 
 /// Payload de `Entry::NapiExternal`. Campos opacos ao engine.
 pub struct NapiExternalData {
@@ -759,6 +833,26 @@ fn cleanup_entry(entry: &mut Entry) {
                         data: ext.data,
                         finalize,
                         finalize_hint: ext.finalize_hint,
+                    });
+                }
+            }
+        }
+        // (N-API) ArrayBuffer borrowed: enfileira o finalizer do ptr externo (o
+        // engine não possui os bytes). Owned libera via Drop do Box. NUNCA chama
+        // finalize sob o lock do shard (mesmo racional do NapiExternal).
+        Entry::ArrayBuffer(ab) => {
+            if let ArrayBufferBacking::Borrowed {
+                ptr,
+                finalize: Some(finalize),
+                finalize_hint,
+                ..
+            } = &ab.backing
+            {
+                if let Ok(mut q) = PENDING_NAPI_FINALIZERS.lock() {
+                    q.push(PendingNapiFinalizer {
+                        data: *ptr as *mut std::ffi::c_void,
+                        finalize: *finalize,
+                        finalize_hint: *finalize_hint,
                     });
                 }
             }
@@ -1271,6 +1365,81 @@ pub fn read_string_handle(handle: u64) -> Option<String> {
     })
 }
 
+// ── ArrayBuffer (N-API, #1548) ───────────────────────────────────────────────
+
+/// Aloca um `Entry::ArrayBuffer` owned de `len` bytes (zerados) e devolve o
+/// handle. Os bytes têm endereço estável (não realocam) — use [`arraybuffer_ptr`]
+/// para escrever direto neles.
+pub fn alloc_arraybuffer(len: usize) -> u64 {
+    alloc_entry(Entry::ArrayBuffer(Box::new(ArrayBufferData {
+        backing: ArrayBufferBacking::Owned(vec![0u8; len].into_boxed_slice()),
+        detached: false,
+    })))
+}
+
+/// Aloca um `Entry::ArrayBuffer` borrowed (ptr externo + finalizer). O engine
+/// não copia nem possui os bytes; ao coletar, enfileira o finalizer.
+pub fn alloc_external_arraybuffer(
+    ptr: *mut u8,
+    len: usize,
+    finalize: Option<
+        unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, *mut std::ffi::c_void),
+    >,
+    finalize_hint: *mut std::ffi::c_void,
+) -> u64 {
+    alloc_entry(Entry::ArrayBuffer(Box::new(ArrayBufferData {
+        backing: ArrayBufferBacking::Borrowed {
+            ptr,
+            len,
+            finalize,
+            finalize_hint,
+        },
+        detached: false,
+    })))
+}
+
+/// Ponteiro mutável **estável** para os bytes do ArrayBuffer (nulo se o handle
+/// não for ArrayBuffer ou estiver detached). Válido enquanto o handle viver.
+pub fn arraybuffer_ptr(handle: u64) -> *mut u8 {
+    with_entry_mut(handle, |e| match e {
+        Some(Entry::ArrayBuffer(ab)) => ab.data_ptr(),
+        _ => std::ptr::null_mut(),
+    })
+}
+
+/// Comprimento em bytes (0 se não for ArrayBuffer ou estiver detached).
+pub fn arraybuffer_len(handle: u64) -> usize {
+    with_entry(handle, |e| match e {
+        Some(Entry::ArrayBuffer(ab)) => ab.byte_len(),
+        _ => 0,
+    })
+}
+
+/// `true` se o handle é um `Entry::ArrayBuffer`.
+pub fn is_arraybuffer(handle: u64) -> bool {
+    with_entry(handle, |e| matches!(e, Some(Entry::ArrayBuffer(_))))
+}
+
+/// Marca o ArrayBuffer como detached (`napi_detach_arraybuffer`). Leituras
+/// subsequentes devolvem ptr nulo / len 0. Retorna `true` se era um ArrayBuffer.
+pub fn arraybuffer_detach(handle: u64) -> bool {
+    with_entry_mut(handle, |e| match e {
+        Some(Entry::ArrayBuffer(ab)) => {
+            ab.detached = true;
+            true
+        }
+        _ => false,
+    })
+}
+
+/// `true` se o ArrayBuffer está detached.
+pub fn arraybuffer_is_detached(handle: u64) -> bool {
+    with_entry(handle, |e| match e {
+        Some(Entry::ArrayBuffer(ab)) => ab.detached,
+        _ => false,
+    })
+}
+
 /// Mutable access to an entry. `f` receives `None` for invalid handles.
 pub fn with_entry_mut<R>(handle: u64, f: impl FnOnce(Option<&mut Entry>) -> R) -> R {
     if handle == 0 {
@@ -1418,6 +1587,62 @@ mod tests {
         })));
         assert!(free_handle(h2));
         assert!(drain_pending_napi_finalizers().is_empty());
+    }
+
+    /// (N-API #1548) ArrayBuffer owned: ptr estável + escrita direta + detach.
+    #[test]
+    fn arraybuffer_owned_stable_ptr() {
+        let h = alloc_arraybuffer(8);
+        assert!(is_arraybuffer(h));
+        assert_eq!(arraybuffer_len(h), 8);
+        let p1 = arraybuffer_ptr(h);
+        assert!(!p1.is_null());
+        // Escreve direto nos bytes.
+        unsafe {
+            *p1 = 0xAB;
+            *p1.add(7) = 0xCD;
+        }
+        // Ptr é estável entre chamadas (Box<[u8]> não realoca).
+        let p2 = arraybuffer_ptr(h);
+        assert_eq!(p1, p2);
+        unsafe {
+            assert_eq!(*p2, 0xAB);
+            assert_eq!(*p2.add(7), 0xCD);
+        }
+        // Detach → ptr nulo, len 0.
+        assert!(arraybuffer_detach(h));
+        assert!(arraybuffer_is_detached(h));
+        assert!(arraybuffer_ptr(h).is_null());
+        assert_eq!(arraybuffer_len(h), 0);
+        free_handle(h);
+    }
+
+    /// (N-API #1548) ArrayBuffer borrowed: enfileira o finalizer no free.
+    #[test]
+    fn arraybuffer_borrowed_finalizer_queued() {
+        use std::ffi::c_void;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let _ = drain_pending_napi_finalizers();
+        static CALLS: AtomicUsize = AtomicUsize::new(0);
+        unsafe extern "C" fn fin(_e: *mut c_void, _d: *mut c_void, _h: *mut c_void) {
+            CALLS.fetch_add(1, Ordering::SeqCst);
+        }
+        let mut bytes = [1u8, 2, 3, 4];
+        let h = alloc_external_arraybuffer(
+            bytes.as_mut_ptr(),
+            4,
+            Some(fin),
+            0x99 as *mut c_void,
+        );
+        assert_eq!(arraybuffer_len(h), 4);
+        // O ptr é o externo (não copiado).
+        assert_eq!(arraybuffer_ptr(h), bytes.as_mut_ptr());
+        // Free enfileira (não chama sob lock).
+        assert!(free_handle(h));
+        assert_eq!(CALLS.load(Ordering::SeqCst), 0);
+        let pending = drain_pending_napi_finalizers();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].finalize_hint, 0x99 as *mut c_void);
     }
 
     #[test]

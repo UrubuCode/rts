@@ -1,7 +1,8 @@
 # N-API — Plano de implementação (doc vivo de acompanhamento)
 
-> **Status:** Fase 0 + 1 + 2 + classes nativas ✅ — **124/159 fns implementadas**,
-> paridade Node v22 em addons npm reais (crc32, xxhash+classe, uuid).
+> **Status:** Fase 0 + 1 + 2 + classes + **ArrayBuffer/TypedArray** ✅ —
+> **135/159 fns implementadas**, paridade Node v22 em addons npm reais (crc32,
+> xxhash+classe, uuid) e ArrayBuffer (escrita direta `fill(100)`=22532 idêntico).
 >
 > **Issues de rastreamento:**
 > - [#1547](https://github.com/UrubuCode/rts/issues/1547) — tracking geral do N-API
@@ -16,12 +17,13 @@
 | type checks, coerce, Buffer, Date, Symbol, BigInt(i64), wrap/unwrap | ✅ Fase 2 |
 | Promise/deferred, type tags, finalizer, syntax errors, make_callback | ✅ Fase 2c/2d |
 | **classes nativas** (`napi_define_class` + `new addon.X()` + `inst.method()`) | ✅ |
+| **ArrayBuffer/TypedArray/DataView** (`Entry::ArrayBuffer` ptr estável, #1548) | ✅ |
 
-### 35 stubs restantes — **bloqueados pelo engine** (retornam `napi_generic_failure`)
+### 24 stubs restantes — **bloqueados pelo engine** (retornam `napi_generic_failure`)
 
 | Bloco | Qtd | Depende de |
 |---|---|---|
-| arraybuffer/typedarray/dataview create+info | 11 | `Entry::ArrayBuffer` com **ptr estável** (follow-up Drysius) |
+| ~~arraybuffer/typedarray/dataview~~ | ~~11~~ | ✅ **FEITO** (`Entry::ArrayBuffer` ptr estável, #1548 item 1) |
 | async_work/threadsafe_function/uv_event_loop | 19 | **event loop real** (#207) |
 | bigint uint64/words real | 4 | BigInt real (#219) |
 | module_register (registro legado) | 1 | fora de escopo (não-N-API) |
@@ -50,6 +52,7 @@ Os stubs degradam graciosamente (falha, não crash). Tudo na export table para o
 | `phase2b.rs` | strings latin1/utf16, wrap/unwrap, instance-data, version, property keys |
 | `phase2c.rs` | Promise/deferred, type tags, finalizer, coerce_to_string, syntax errors, cleanup hooks |
 | `phase2d.rs` | external strings, make_callback, is_sharedarraybuffer |
+| `arraybuffer.rs` | ArrayBuffer/TypedArray/DataView sobre `Entry::ArrayBuffer` (engine, #1548) — ptr estável, views via Map |
 | `surface.rs` | os 35 stubs restantes (`napi_generic_failure`) — gerados a partir da lista |
 | `napi_symbols.list` | **fonte única** dos nomes exportados (consumida por `symbols.rs` e pelo `build.rs` raiz) |
 

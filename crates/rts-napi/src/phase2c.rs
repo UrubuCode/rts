@@ -153,30 +153,8 @@ fn fmt_num(f: f64) -> String {
 
 // ── type checks que faltavam (sem suporte real → false) ──────────────────────
 
-macro_rules! always_false_check {
-    ($name:ident) => {
-        #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn $name(
-            _env: napi_env,
-            _value: napi_value,
-            result: *mut bool,
-        ) -> napi_status {
-            if result.is_null() {
-                return napi_invalid_arg;
-            }
-            // RTS não tem ArrayBuffer/TypedArray/DataView distintos ainda
-            // (follow-up engine). Reportar false é seguro: addons checam e usam
-            // o caminho alternativo (ex.: Buffer).
-            unsafe { *result = false };
-            napi_ok
-        }
-    };
-}
-
-always_false_check!(napi_is_arraybuffer);
-always_false_check!(napi_is_typedarray);
-always_false_check!(napi_is_dataview);
-always_false_check!(napi_is_detached_arraybuffer);
+// napi_is_arraybuffer/typedarray/dataview/detached migraram para arraybuffer.rs
+// (impl real sobre Entry::ArrayBuffer, #1548).
 
 // ── type tags (object branding) ──────────────────────────────────────────────
 // Um type tag é um par u64 (lower, upper). Guardamos numa chave reservada do Map.
@@ -452,14 +430,6 @@ mod tests {
         let other = napi_type_tag { lower: 1, upper: 2 };
         unsafe { napi_check_object_type_tag(env(), obj, &other, &mut matches) };
         assert!(!matches);
-    }
-
-    #[test]
-    fn is_arraybuffer_false() {
-        let mut b = true;
-        let buf = value_from_handle(alloc_entry(Entry::Buffer(vec![1, 2])));
-        unsafe { napi_is_arraybuffer(env(), buf, &mut b) };
-        assert!(!b);
     }
 
     #[test]
