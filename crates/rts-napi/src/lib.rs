@@ -27,6 +27,8 @@ pub mod loader;
 pub mod objects;
 pub mod phase2;
 pub mod phase2b;
+pub mod phase2c;
+pub mod phase2d;
 pub mod references;
 pub mod scopes;
 pub mod strings;
@@ -170,6 +172,32 @@ pub fn force_link() -> usize {
         crate::classes::napi_new_instance as *const (),
         crate::classes::__RTS_FN_RT_NAPI_INVOKE_METHOD as *const (),
         crate::classes::__RTS_FN_RT_NAPI_NEW_INSTANCE as *const (),
+        // Fase 2c (phase2c.rs) — fatal_error omitida (retorna !)
+        crate::phase2c::napi_add_env_cleanup_hook as *const (),
+        crate::phase2c::napi_add_finalizer as *const (),
+        crate::phase2c::napi_adjust_external_memory as *const (),
+        crate::phase2c::napi_check_object_type_tag as *const (),
+        crate::phase2c::napi_coerce_to_string as *const (),
+        crate::phase2c::napi_create_promise as *const (),
+        crate::phase2c::napi_fatal_exception as *const (),
+        crate::phase2c::napi_get_prototype as *const (),
+        crate::phase2c::napi_is_arraybuffer as *const (),
+        crate::phase2c::napi_is_dataview as *const (),
+        crate::phase2c::napi_is_detached_arraybuffer as *const (),
+        crate::phase2c::napi_is_typedarray as *const (),
+        crate::phase2c::napi_reject_deferred as *const (),
+        crate::phase2c::napi_remove_env_cleanup_hook as *const (),
+        crate::phase2c::napi_resolve_deferred as *const (),
+        crate::phase2c::napi_run_script as *const (),
+        crate::phase2c::napi_type_tag_object as *const (),
+        crate::phase2c::node_api_create_syntax_error as *const (),
+        crate::phase2c::node_api_get_module_file_name as *const (),
+        crate::phase2c::node_api_throw_syntax_error as *const (),
+        // Fase 2d (phase2d.rs)
+        crate::phase2d::napi_make_callback as *const (),
+        crate::phase2d::node_api_create_external_string_latin1 as *const (),
+        crate::phase2d::node_api_create_external_string_utf16 as *const (),
+        crate::phase2d::node_api_is_sharedarraybuffer as *const (),
         // Fase 2 (phase2.rs)
         crate::phase2::napi_coerce_to_bool as *const (),
         crate::phase2::napi_coerce_to_number as *const (),
