@@ -1,108 +1,94 @@
-# Active features — capabilities, parallelism, async/Promise/Function
+# Engine model + target semantics — value model, async/Promise/Function
 
-## Pipeline HIR → MIR → Cranelift (hybrid routing, default ON)
+> Canonical design: `docs/specs/rts-codegen-new-design.md`. This file describes
+> the NEW engine's value model and the JS/TS **semantics it must cover**. The old
+> HIR→MIR hybrid routing, silent-parallelism passes, and MIR-capability list are
+> **frozen in `crates/rts-codegen-old/`** and are NOT carried into the new engine
+> unless re-justified.
 
-Phase 3 of `RTS_REFACTOR.md` delivered: the `rts-mir` crate is active by default
-(commits f7b924b/23dd4b7). Current pipeline:
+## The new value model (no MIR, no dual codegen)
 
-```
-TS → SWC → AST → HIR (rts-hir) → MIR (rts-mir) → inline (fixed-point) → optimize (fold→fma→cse→dce) → mir_codegen → Cranelift
-                                              ↘ authoritative AST (fallback)
-```
+Single lowering path `HIR → Cranelift IR`; the Cranelift egraph
+(`use_egraphs=true`) is the **sole** optimizer. The four pillars:
 
-Phase 4 in progress (5/8 delivered): atomics in MIR (4.1), inline + integration +
-fixed-point (4.2/4.3/4.7), intra-block CSE (4.5), FMA fusion `a*b+c → Fma` (4.8),
-e2e smoke + arr[i]=v (4.4/4.6). Remaining: escape analysis, SIMD, real narrow
-storage.
+- **PolyValue (`value.rs`, Pilar 1)** — one 64-bit NaN-boxed word. A bit-pattern
+  with `(bits & BOX_BASE) == BOX_BASE` (`BOX_BASE = 0xFFF8_0000_0000_0000`, the
+  negative-qNaN quadrant) is **boxed**; anything else is a genuine inline `f64`.
+  Boxed = 3-bit tag (bits 50..48) + 48-bit payload: `INT32(1)`, `SINGLETON(2)`
+  (undefined/null/false/true/hole/empty), `STR(3)`, `OBJECT(4)`, `FUNCTION(5)`
+  (0/6/7 reserved for symbol/bigint/future). The 48-bit payload of STR/OBJECT/
+  FUNCTION is a **HandleTable slot index** (slot+shard), never a raw pointer —
+  which is what makes NaN-boxing GC-safe. `from_f64` canonicalizes every NaN to
+  the *positive* qNaN so real doubles never collide with the boxed space.
+  `typeof` is a single tag inspection. This **deletes** the 4 compile-time
+  side-tables, `Entry::FloatPrim`, and the `__RTS_FN_RT_FLOAT_BOX/UNBOX/EQ/ARITH`
+  helpers.
+- **Repr lattice (`repr.rs`, Pilar 2)** — every IR value has exactly ONE `Repr`:
+  `Int32` / `Float64` / `Bool` / `Ref(RefKind)` / `Tagged`. A value is kept
+  **unboxed** (in a register — the winning numeric path) only where the front-end
+  PROVES monomorphism (validated TS annotations at untrusted boundaries,
+  literals, local flow). `join(a, b) = if a == b { a } else { Tagged }` — a
+  total, decidable rule. box/unbox are **explicit IR nodes** at proven
+  boundaries, never "tracked elsewhere" in a `HashSet`. Hard points (loop-header
+  phis, catch bindings, destructuring, closure captures, generator state) all
+  default conservatively to `Tagged` — correct, never silently wrong.
+- **Shapes + data ICs (`shape.rs` + `ic.rs`, Pilar 4)** — objects are
+  `{ shape_id, slots: [PolyValue; N] }`. Property access = compare `shape_id` +
+  fixed-offset load (not hash lookup); construction walks a transition tree so
+  same-key-sequence objects share a shape; method dispatch is **shape-keyed, not
+  O(N) `gc.string_eq`**. Inline caches are **data cells** (`PropIcCell`:
+  `{shape, slot, state}`) the emitted code loads and compares — AOT-safe, no
+  self-modifying code; state machine `uninit → mono → poly → mega`. The flat
+  layout is the **default**; `HashMap` dictionary mode only for pathological
+  objects (mass computed keys, frequent `delete`). This deletes the default
+  `HashMap<String,i64>` property-bag and the string-compare vtable.
+- **Soundness rule (Pilar 3)** — *unbox on a representation PROVED at the point;
+  insert runtime tag-checks at untrusted boundaries* (exported-fn params, `any`,
+  `JSON.parse` results, Registry-resolved returns). Inside a proven region: no
+  checks (the fast path). Polymorphic `+`: both-proven-number → native
+  `iadd`/`fadd`; otherwise ONE `ADD_GENERIC` running the real JS `+` algorithm,
+  with an inline tag-check fast path for the secretly-monomorphic case — **never**
+  AST-shape guessing (`is_map_get_call` and friends die here).
 
-Each user fn tries the HIR→MIR→Cranelift path; on an unmodeled construct (member
-on `this`/objects, classes, async/await, address-taken fns, string in user-fn
-params/ret) it falls back automatically to AST codegen. The bail is silent and
-does not break semantics.
+## Target semantics the engine must cover
 
-`RTS_USE_MIR` variable:
+The JS/TS surface the engine must support (same intent under both engines). The
+OLD engine implemented these on the overloaded-`i64` model; the NEW engine must
+reproduce the same **semantics** via PolyValue/shapes/ICs. The per-category list:
 
-| Value | Behavior |
-|---|---|
-| unset / `1` / `on` / `all` | MIR ON (default) |
-| `0` / `off` / `none` | AST only |
-| `fn1,fn2,...` | MIR only for the listed fns |
-
-**MIR capabilities:** literals (int/float/bool/string/null/undefined),
-integer/float arithmetic, bitwise, shifts, comparisons, casts; full control flow
-(if/else, while, do-while, classic for, break/continue with loop_stack,
-ternary→Select, switch via br_table, throw→Trap, try/finally phase 1); SSA
-mutation via block params (`let i = i + 1` in loops); cross-fn calls (CallUser) +
-mutual recursion; self-recursion bail (TCO only on AST); extern calls to RTS
-namespaces via `CallExtern` + resolve via SPECS; intrinsic inlining (math.sqrt,
-abs/min/max f64/i64); string literals (`StrLit` data segment + StrPtr ptr+len);
-namespace constants (math.PI, math.E); simple arrays via `collections.vec_*`;
-automatic GC stack maps via `declare_value_needs_stack_map`.
-
-**Current metrics:** 438 real user fns from the TS suite run through MIR.
-`cargo test --release --lib` 12/12; `rts-hir` 27/27; `rts-mir` **59/59** (+8 vs
-Phase 3 final, covering inline/CSE/FMA); `rts-codegen --lib mir_codegen`
-**61/61** (+8 vs Phase 3); `rts.exe test` 622/632 (same 10 pre-existing AST
-failures).
-
-## Active language capabilities (codegen)
-
-- Object/array literals: `{k: v}` and `[1,2,3]` via `collections.map_*`/`vec_*`.
+- Object/array literals.
 - Classes: constructor, method, this, extends, super(args), super.method(args),
-  static methods, getters/setters. Instance stores `__rts_class` for real virtual
-  dispatch (subclass override routed via string comparison over the runtime tag).
-- Rust-style operator overload: `a + b` becomes `a.add(b)` at compile time when
-  the class defines the method (`add`/`sub`/`mul`/.../`eq`/`lt`/`bit_*`).
-- `for...of` over arrays; bind inherits the class when the array has a `: C[]`
-  annotation.
-- try/catch/finally phase 1: thread-local error slot, no real unwind (#128 tracks
-  phase 2).
-- String equality: `s1 == s2` compares content via `gc.string_eq`.
-- async/await with a Promise-centric pipeline (see section below).
+  static methods, getters/setters. Virtual dispatch must be shape-keyed (the old
+  engine used a `__rts_class` string tag + O(N) string compare — replaced).
+- Rust-style operator overload: `a + b` → `a.add(b)` at compile time when the
+  class defines the method (`add`/`sub`/`mul`/…/`eq`/`lt`/`bit_*`).
+- `for...of`; try/catch/finally phase 1 (thread-local error slot, no real unwind,
+  #128 tracks phase 2); string equality.
+- async/await Promise-centric (see section below).
 - Function class — `.call/.apply/.bind/.toString` + `.name/.length` + `new
   Function("body")` via runtime eval.
 - Destructuring (#210): array/object, defaults, rest, nested, in fn/arrow params,
   in for-of, in catch, alias `{a: b}`.
-- Expanded JS builtins (epic #226 in progress): Array (indexOf/lastIndexOf/
-  includes with fromIndex, reverse, shift/unshift, slice, concat, fill,
-  flat/flatMap, splice, findLast/findLastIndex, reduceRight, copyWithin, sort
-  with strings, values/keys/entries, toSorted/toReversed/toSpliced/with,
-  Array.from(length) and Array.from(arr)); Object (entries, assign, freeze,
-  fromEntries, seal, isFrozen, isSealed, getPrototypeOf, defineProperty); Math
-  (sign, hypot, expm1, log1p, fround, sinh/cosh/tanh/asinh/acosh/atanh, imul,
-  clz32 + SQRT2/SQRT1_2/LN2/LN10/LOG2E/LOG10E); String (split with limit,
-  startsWith/endsWith with offset, match/search/matchAll via regex); Symbol
-  (Symbol/Symbol.for/keyFor/description + well-known iterator/asyncIterator/
-  hasInstance/toPrimitive/toStringTag); full URL/URLSearchParams; Date setters
-  (setFullYear/Month/Date/Hours/Minutes/Seconds + UTC variants),
-  getTimezoneOffset, toUTCString/toDateString/toJSON/toLocaleString/
-  toTimeString; TextEncoder/TextDecoder; encodeURIComponent/decodeURIComponent;
-  WeakMap/WeakSet (strong semantics for now, #217); Boolean class with
-  toString/valueOf; parseInt with radix.
+- Expanded JS builtins (epic #226): Array (indexOf/lastIndexOf/includes with
+  fromIndex, reverse, shift/unshift, slice, concat, fill, flat/flatMap, splice,
+  findLast/findLastIndex, reduceRight, copyWithin, sort, values/keys/entries,
+  toSorted/toReversed/toSpliced/with, Array.from); Object (entries, assign,
+  freeze, fromEntries, seal, isFrozen, isSealed, getPrototypeOf, defineProperty);
+  Math (sign, hypot, expm1, log1p, fround, hyperbolic, imul, clz32 + consts);
+  String (split with limit, startsWith/endsWith offset, match/search/matchAll);
+  Symbol (Symbol/for/keyFor/description + well-known); full URL/URLSearchParams;
+  Date setters + getTimezoneOffset + toUTCString/toDateString/toJSON/…;
+  TextEncoder/TextDecoder; encode/decodeURIComponent; WeakMap/WeakSet (strong
+  semantics for now, #217); Boolean class; parseInt with radix. Every
+  non-primordial method resolves via the Registry/`MethodSpec` (no builtins in
+  the engine).
 
-## Silent parallelism (Level-1)
+## Silent parallelism (Level-1) — OLD ENGINE ONLY (frozen)
 
-Codegen has 3 passes that rewrite common TS patterns to `parallel.*` calls
-automatically. The user does not need to mention threads/workers:
-
-- **`array_methods_pass`** — detects `arr.map(fn)`, `arr.forEach(fn)`,
-  `arr.reduce(fn, init)` when `fn` is the Ident of a user fn → rewrites to
-  `parallel.map/for_each/reduce`. Runs first.
-- **`reduce_pass`** — detects the classic accumulator pattern (`let s = 0; for (x
-  of arr) s = s + EXPR;` or `s += EXPR`) and rewrites to `parallel.reduce`. Only
-  accepts associative ops (+, *).
-- **`purity_pass`** — detects `for...of` whose body only calls `pure: true`
-  namespace members and has no assignments → rewrites to `parallel.for_each`.
-
-The 3 passes cover top-level + the body of each user fn. Shared counters with no
-name collision. 96 fns marked `pure: true` today (math, string, num, fmt, path,
-hash, mem) — the recognition base.
-
-`parallel.*` accepts literal arrays, arrays in a variable, and arrays returned
-from a fn (all become Vec<i64> via array-literal codegen). A bridge for Buffer
-and typed arrays is a follow-up.
-
-Detailed spec: `docs/specs/silent-parallelism.md`.
+`crates/rts-codegen-old` has 3 passes that auto-rewrite common TS to `parallel.*`
+(`array_methods_pass`, `reduce_pass`, `purity_pass`; 96 `pure: true` fns). This is
+**frozen in the old engine and NOT carried into the new engine unless
+re-justified** against the redesign. Spec: `docs/specs/silent-parallelism.md`.
 
 ## async / Promise / Function (Promise-centric, #437)
 

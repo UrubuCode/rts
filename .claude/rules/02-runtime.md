@@ -57,13 +57,32 @@ Details:
   RSP, leaving the scanner marking nothing and the sweep collecting live handles
   (bug PR #400)
 
+### Required change for the new engine — recognize NaN-boxed PolyValue roots
+
+The conservative stack scanner today scans words looking for `u64` handles. The
+redesign's `PolyValue` (NaN-box) value model requires the scanner to also
+**recognize a boxed-handle word** and extract its slot (design doc §5.4, Pilar 1):
+
+- A stack word `w` is a potential root iff `(w & BOX_BASE) == BOX_BASE` (with
+  `BOX_BASE = 0xFFF8_0000_0000_0000`) **and** `tag(w) ∈ {STR, OBJECT, FUNCTION}`;
+  the root is the 48-bit `slot(w)` (slot+shard), which is a HandleTable slot
+  index — never a raw pointer.
+- Inline ints, inline floats, and singletons are **not** roots (they reference no
+  heap). This is *more* precise than today: float words that merely look like
+  handles stop being false positives.
+- The 16-bit handle generation does not fit in the 48-bit payload; generation is
+  validated slab-side, and a live PolyValue keeps its slot reachable (so a stale
+  read cannot happen for live values). Only WeakRef/FinalizationRegistry need the
+  full 64-bit `(slot, generation)` handle (design doc §5.5, ties to #217).
+
 ## Runtime vs Compile
 
 Two execution paths sharing the same Cranelift codegen:
 
 - **`rts run`**: compiles directly to executable memory via `JITModule`. No disk,
   no external linker. All ABI symbols are registered in `JITBuilder::symbol` at
-  JIT module startup (`crates/rts-codegen/src/codegen/jit.rs`).
+  JIT module startup (the JIT emitter; in the new engine the symbol table is
+  derived from `SPECS` via `abi_gen.rs`, not hand-written `add_fn!`).
 - **`rts compile`**: applies use-slicing, generates only the objects of the
   effectively used modules, produces the final binary.
 

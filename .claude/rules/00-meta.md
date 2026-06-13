@@ -30,48 +30,54 @@ Read these files in order (path relative to repo root):
 
 | File | Content |
 |---|---|
-| `.claude/rules/00-meta.md` | This file — meta + local-rules + regress-when-needed + roadmap |
-| `.claude/rules/01-architecture.md` | Project + Architecture + ABI + Namespaces |
-| `.claude/rules/02-runtime.md` | HandleTable + tokio + GC + State |
-| `.claude/rules/03-features.md` | Silent parallelism + async/Promise/Function + capabilities |
+| `.claude/rules/00-meta.md` | This file — meta + local-rules + regress-when-needed + redesign-status |
+| `.claude/rules/01-architecture.md` | Project + Architecture (two codegen crates) + ABI + Namespaces |
+| `.claude/rules/02-runtime.md` | HandleTable + tokio + GC (PolyValue scanner note) + State |
+| `.claude/rules/03-features.md` | New value model (PolyValue/Repr/shapes/ICs) + target semantics |
 | `.claude/rules/04-workflow.md` | Conventions + progress bar + issues + tests + benchmarks |
-| `.claude/rules/05-codegen-notes.md` | Optimizations + backlog + artifact layout |
+| `.claude/rules/05-codegen-notes.md` | New-engine codegen notes + artifact layout |
 
 ### Binding meta-rules (canonical list)
 
 - **RULE #0** (this) — read all files in order
 - **MANDATORY REQUIREMENT: local-rules.md** (below)
 - **MANDATORY RULE: REGRESS WHEN NECESSARY (EXPLICITLY)** (below)
-- **MANDATORY RULE: FOLLOW ROADMAP-CORRECAO.md** (below)
-- **CROSS-RUNTIME PUSH MODE (parity ≥ 90%)** (below) — process constraints
-  suspended toward 100%; honesty + build floor never lift
+- **MANDATORY RULE: PRIMORDIAL-vs-REGISTRY DOCTRINE** (in `CLAUDE.md`; survives
+  the redesign — engine names only primordials, no builtins in the engine)
+- **MANDATORY RULE: FOLLOW THE REDESIGN DESIGN DOC** (below) — work is picked
+  from the migration phases of `docs/specs/rts-codegen-new-design.md`, not from a
+  fixture-grind roadmap
 
-Adding/removing a meta-rule requires updating this list in the same commit.
+The honesty + build floor (parity number stays real; no crash/hang as "pass";
+build must compile) never lifts. Adding/removing a meta-rule requires updating
+this list in the same commit.
 
-## MANDATORY RULE: FOLLOW ROADMAP-CORRECAO.md
+## MANDATORY RULE: FOLLOW THE REDESIGN DESIGN DOC
 
-Before starting any cross-runtime parity bug fix (issues `💥 cross-runtime`,
-tracking categories, TS suite failures), you **MUST** read `ROADMAP-CORRECAO.md`,
-located **one level above the repo root** (`../ROADMAP-CORRECAO.md`, next to the
-`rts1/` folder).
+The project is mid-redesign of its codegen engine (strangler-fig). The canonical
+plan is **`docs/specs/rts-codegen-new-design.md`** — read it before any engine
+work. The frozen old engine is `crates/rts-codegen-old/`; the active redesign is
+`crates/rts-codegen-new/`.
 
-That file defines the **topological order** of fixes, based on the feature
-dependency graph. The order is not arbitrary: fixing out of order causes the
-"fix one, break another" pattern, because several tests share the same
-foundation.
+There is no longer a topological fixture-fix roadmap (the old
+`ROADMAP-CORRECAO.md` and `MAINTENANCE.md` are deleted — that grind was the local
+max of a hardcoded approach on an unsound value model). Instead:
 
 ### How to apply
 
-1. Always pick the next task from the **lowest level not yet completed**. Never
-   jump to a higher level before closing the foundations it depends on.
-2. Respect blocks marked ⚠️ in the roadmap (e.g. 336/387/341 are a single root;
-   the 204→205→206 chain is linear).
-3. On completing an item (PR merged + green suite), mark `[x]` in the roadmap in
-   the same PR.
-4. If the analysis changes (new dependency discovered), update the graph in the
-   roadmap in the same PR — never leave the roadmap stale.
-5. If the user explicitly asks to tackle a case out of order, ask for
-   confirmation pointing out the missing dependency before proceeding.
+1. Pick work from the design doc's **migration phases (P0→P5, §12)**,
+   highest-leverage first. Do not jump ahead of a phase's prerequisites.
+2. Each phase runs the suite incrementally (not only at the end) and keeps an
+   A/B guard against the old engine where the doc specifies one.
+3. The honesty + build floor never lifts: no fixture deleted/disabled/hardcoded
+   to inflate the number; nothing that crashes/hangs committed as "pass"; build
+   must compile. At cutover (P5) parity must be ≥ the `v0.0-202606072107` tag,
+   measured real.
+4. If the design changes (new constraint discovered), update
+   `docs/specs/rts-codegen-new-design.md` in the same PR — never leave the spec
+   stale.
+5. If the user asks to work out of phase order, confirm first, pointing out the
+   missing prerequisite.
 
 ## MANDATORY REQUIREMENT: local-rules.md
 
@@ -126,25 +132,23 @@ discipline here is not "never break a test" — it is "never break a test withou
 knowing and saying so". Explicit, justified regression is acceptable; invisible
 regression rots the project.
 
-## CROSS-RUNTIME PUSH MODE (parity ≥ 90%) — process constraints suspended
+## HONEST CURRENT STATUS — redesign in progress
 
-**Active when** cross-runtime parity ≥ 90% (currently 94.3%, badge in
-`README.md`). The goal flips to reaching **100%**, and the *process* constraints
-in this rule system are SUSPENDED so change can land at any cost — except the
-honesty + build floor, which never lifts. Below 90%, this mode deactivates and
-the suspended rules resume automatically.
+Do not act on stale numbers. The "parity ≥90% push mode" / "94.3%" / "100%"
+framing is **dead**.
 
-### Suspended while active
-- **`FOLLOW ROADMAP-CORRECAO.md` topological order** — pick any fixture /
-  feature / epic in any order.
-- **Ask-before-regression** — regressions may land without per-change
-  confirmation. Still *logged* in the commit/PR body; net parity across a work
-  session must not drop.
-- **Small-PR scope** — large multi-crate refactors and the deferred epics
-  (#195, #207, #216, #218, #219, #222, #223) are now in scope.
-- **Ceremony** — progress-bar / read-everything ritual is optional.
+- The OLD engine reached 100% cross-runtime parity (372/372, tag
+  `v0.0-202606072107`, commit `27e16378`; TS suite 1719/1719). That was the
+  **local maximum of a hardcoded approach** on an unsound value model (a single
+  overloaded `i64` ABI slot + 4 compile-time side-tables), admitted as the wall
+  by the now-deleted `MAINTENANCE.md`.
+- The fixture set then grew 391 → **612** (harder cases) and parity is now
+  **70.7%** — the honest figure to quote.
+- A ground-up engine (`crates/rts-codegen-new/`) is being built **strangler-fig
+  behind the frozen `crates/rts-codegen-old/`**. Canonical plan:
+  `docs/specs/rts-codegen-new-design.md`.
 
-### Never suspended (honesty + build floor)
+### The floor (NEVER lifts, no mode suspends it)
 - **The parity number stays real.** No deleting, disabling, skipping,
   hardcoding, or input-special-casing a fixture to inflate parity. A fixture
   passes only when the runtime genuinely produces the correct output through the
@@ -152,10 +156,13 @@ the suspended rules resume automatically.
 - **No crashing / hanging code committed as "pass".** ACCESS_VIOLATION /
   verifier error / stack overflow / infinite loop = not passed.
 - **Build must compile.** A broken build still blocks merge.
+- **At cutover (design doc P5) parity must be ≥ the `v0.0-202606072107` tag,
+  measured real.** The redesign exists to clear the wall, not to trade the number
+  away.
 
-### Rationale
-Per `MAINTENANCE.md`, the remaining fixtures need full feature completion, not
-bounded patches — a half-feature crashes rather than producing wrong-but-closer
-output, so there is no "regress X to pass Y" trade to police. The ceremony slows
-the work without guarding the only real risk (faking the metric); the honesty
-floor guards that directly.
+### Why the old fixture-grind ceremony is gone
+The remaining fixtures need **full feature completion on a sound value model**,
+not bounded patches against a hardcoded switchboard — a half-feature crashes
+rather than producing wrong-but-closer output, so there is no "regress X to pass
+Y" trade to police. The work is now organized by the design doc's phases; the
+honesty floor guards the only real risk (faking the metric) directly.

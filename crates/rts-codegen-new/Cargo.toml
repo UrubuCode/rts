@@ -1,0 +1,24 @@
+[package]
+name = "rts-codegen-new"
+version = "0.1.0"
+edition = "2024"
+
+# rts-codegen-new — the lean redesign. See docs/specs/rts-codegen-new-design.md.
+# Thesis: prove-monomorphic-and-unbox where the type system can; fall to ONE
+# honest in-value tagged representation (PolyValue, NaN-box) + hidden-class
+# shapes + AOT-safe data inline-caches where it can't. No second optimizer tier
+# (Cranelift's egraph is the sole optimizer). No builtins in the engine — only
+# PRIMORDIAL classes are named; everything else resolves via the Registry.
+
+[dependencies]
+cranelift-codegen = "0.131"
+cranelift-frontend = "0.131"
+cranelift-module = "0.131"
+anyhow = "1.0"
+
+[dev-dependencies]
+# Roundtrip tests JIT-compile the PolyValue encode/decode emitters and execute
+# them, proving the Cranelift IR matches the pure-Rust reference model.
+cranelift-jit = "0.131"
+cranelift-native = "0.131"
+target-lexicon = "0.13"

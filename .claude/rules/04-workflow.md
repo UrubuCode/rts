@@ -10,9 +10,9 @@
   from there)
 - `rts.d.ts` contains only `declare module "rts"` — generated from `abi::SPECS`,
   CI lints the committed file against the generator
-- Build is via `cargo` directly — `xtask` was removed. The project is a workspace
-  of 10 crates in `crates/`; running `cargo test --workspace` covers all crates
-  in one run
+- Build is via `cargo` directly — `xtask` was removed. The project is a crate
+  workspace in `crates/` (incl. the frozen `rts-codegen-old` and the active
+  `rts-codegen-new`); `cargo test --workspace` covers all crates in one run
 
 ## General design rules
 
@@ -127,7 +127,7 @@ target/release/rts.exe ir tests/foo.test.ts 2>&1 | head -60
 - **"access violation"** — load/store with a null ptr. Check that handles were
   initialized before use.
 - **Wrong result (no crash)** — compare IR with expected behavior. Look for
-  iconst 0 where it shouldn't be (MIR placeholder), or a wrong cast.
+  iconst 0 where it shouldn't be (a placeholder), or a wrong cast.
 
 **Typical workflow:**
 
@@ -237,14 +237,17 @@ Full suite:
 powershell.exe -ExecutionPolicy Bypass -File bench/benchmark.ps1
 ```
 
-## Status — epic #226 (JS/TS parity)
+## Status
 
-TS suite (`target/release/rts.exe test`): **457/464** (98.5% on 2026-05-03). A
-recent batch of PRs (#483-#547) closed ~10 child issues (#208, #210, #220, #221,
-#371-#375, #434) covering ~60 missing JS APIs — see `03-features.md` for the
-per-category list.
+The OLD engine hit 100% cross-runtime parity (372/372, tag `v0.0-202606072107`)
+and TS suite 1719/1719 — the local max of a hardcoded approach. The fixture set
+then grew to 612 (harder cases) and parity is now **70.7%**; the new engine
+(`crates/rts-codegen-new/`) is being built strangler-fig to clear the real wall.
+See `00-meta.md` "HONEST CURRENT STATUS" and
+`docs/specs/rts-codegen-new-design.md`. Do not quote the old 94.3%/100%/push-mode
+framing.
 
-Heavy issues still open and out of small-PR scope (keep open, require refactor):
+Heavy issues still open (some now in-scope for redesign phases):
 
 - **#195** mutable closures — env-record refactor; blocked by #90 (block params).
 - **#207** real async/await event loop — Promise refactor.

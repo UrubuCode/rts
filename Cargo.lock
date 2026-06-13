@@ -2568,7 +2568,7 @@ dependencies = [
  "regex",
  "rts-ast",
  "rts-cli",
- "rts-codegen",
+ "rts-codegen-old",
  "rts-diagnostics",
  "rts-linker",
  "rts-parser",
@@ -2608,7 +2608,7 @@ dependencies = [
  "console 0.15.11",
  "flate2",
  "indicatif",
- "rts-codegen",
+ "rts-codegen-old",
  "rts-diagnostics",
  "rts-engine",
  "rts-linker",
@@ -2622,7 +2622,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "rts-codegen"
+name = "rts-codegen-new"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cranelift-codegen",
+ "cranelift-frontend",
+ "cranelift-jit",
+ "cranelift-module",
+ "cranelift-native",
+ "target-lexicon",
+]
+
+[[package]]
+name = "rts-codegen-old"
 version = "0.1.0"
 dependencies = [
  "anyhow",

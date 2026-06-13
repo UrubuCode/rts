@@ -1,77 +1,60 @@
-# Codegen optimizations + artifact layout + docs
+# Codegen notes (new engine) + artifact layout + docs
 
-> Note: the codegen paths below live in
-> `crates/rts-codegen/src/codegen/lower/` (authoritative AST path) and
-> `crates/rts-codegen/src/codegen/mir_codegen/` (MIR layer, default ON). HIR +
-> MIR are in production since Phase 3 of `RTS_REFACTOR.md` (commits
-> f7b924b/23dd4b7).
+> Canonical design: `docs/specs/rts-codegen-new-design.md`. The new engine's
+> codegen lives in `crates/rts-codegen-new/src/lower/` (single HIR → Cranelift
+> path). The old `mir_codegen/` + dual AST path is **frozen in
+> `crates/rts-codegen-old/`** and is deleted at cutover.
 
-## MIR layer (`mir_codegen/`) — parallel to AST codegen
+## One optimizer tier — the Cranelift egraph
 
-`crates/rts-codegen/src/codegen/mir_codegen/` consumes `MirFunc` from the
-`rts-mir` crate and emits Cranelift IR via `FunctionBuilder` 1:1. `hint_bridge`
-converts `CraneliftTypeHint` to `cl::Type`; `lower.rs` translates
-`Inst`/`Terminator`; `extern_resolver_default()` resolves RTS namespaces via
-`crate::abi::SPECS`.
+The new engine has **no second optimizer tier**. The single lowering path
+`HIR → Cranelift IR` feeds the Cranelift egraph (`use_egraphs=true`), which is the
+**sole** optimizer: const-fold, CSE, DCE, FMA, strength reduction, intraprocedural
+inlining. The old `rts-mir` passes (`fold`/`fma`/`cse`/`dce`/`narrow`/`inline`)
+**re-did exactly what the egraph already does** — the old `fold.rs` even said so
+about float folding — and are deleted with the MIR tier (design doc §2.5/§9).
 
-Hybrid routing in `compile_user_fn`: each user fn tries MIR; silent bail to AST
-when it hits an unmodeled construct (member on this/objects, classes,
-async/await, address-taken fns, string in user-fn params/ret). Default ON;
-`RTS_USE_MIR=0` disables, `RTS_USE_MIR=fn1,fn2,...` restricts.
+The front-end's only job is what Cranelift genuinely cannot do (JS semantics):
+`ToNumber`/`ToString`/`ToBoolean` coercions, the polymorphic `+` resolution,
+box/unbox insertion, shape/IC site emission, narrow-int (i8/u8/i16/u16) wrap
+semantics (what `narrow.rs` did), and exception edges. Everything else is the
+egraph's.
 
-MIR-level optimizations. `optimize()` runs in order: **fold → fma → cse → dce**.
-Plus `inline` in fixed-point (max 4 iterations with `optimize` between passes)
-between lower and optimize in `try_compile_via_mir`.
+### box/unbox as pure Cranelift IR (the key coupling)
 
-- `passes/fold.rs` — constant folding (IAdd/ISub/IMul/SDiv/SRem/BAnd/BOr/BXor of
-  IConst→IConst) + strength reduction (mul→shl, urem→band, sdiv→sshr, ops with
-  const→`*Imm`)
-- `passes/fma.rs` — FMA fusion `a*b+c → Fma`, conservative (only fuses when the
-  `FMul` has 1 use, avoiding duplicated work) (step 4.8)
-- `passes/cse.rs` — intra-block Common Subexpression Elimination (step 4.5)
-- `passes/dce.rs` — dead-code elimination with fixed-point (preserves
-  side-effecting: Store, CallExtern, AtomicStore/Rmw/Cas, Fence, DeclareGcValue)
-- `passes/inline.rs` — inlining of small fns, `INLINE_BUDGET=16`, conservative
-  eligibility (no recursion); run in fixed-point up to 4 iters via thread-local
-  `MIR_CACHE` + pre-registration of HIR signatures (steps 4.2/4.3/4.7)
-- `passes/narrow.rs` — I8/U8 (mask 0xFF) and I16/U16 (mask 0xFFFF)
-  canonicalization after IAdd/ISub/IMul/INeg/IShl
-- `passes/verify.rs` — invariants (block ids match position, ValueIds in range,
-  consistent params count)
-- Intrinsic inlining: the `Intrinsic` tag on the namespace spec generates a
-  specialized Inst (Sqrt, FAbs, FMin/FMax, IAbs, IMin/IMax) instead of
-  `CallExtern`; `mir_codegen` lowers directly to native Cranelift IR.
-- Atomics in `mir_codegen` (step 4.1): `Inst::AtomicLoad`/`AtomicStore`/
-  `AtomicRmw`/`AtomicCas`/`Fence` lower directly to Cranelift's `atomic_*` with
-  `MemOrder`/`RmwOp` mapping.
+PolyValue box/unbox are `bitcast` / `band` / `bor` / `icmp` / `select` —
+**pure IR, never extern calls**. Because they are pure, the egraph **folds a
+redundant `box(unbox(x))` pair**, so the PolyValue cost vanishes exactly where
+the representation was already monomorphic. This is the technical reason Pilar 1
+(PolyValue) and Pilar 5 (single lowering) are coupled (design doc §9.3): if
+box/unbox were extern calls the egraph could not see through them and the cost
+would survive.
 
-## Notable codegen optimizations
+## Notable codegen optimizations (preserved / new)
 
 - **Inline intrinsics** (`abi::Intrinsic`): `sqrt`, `abs_f64`, `min/max_f64`,
-  `abs_i64`, `min/max_i64`, `random_f64` — emitted as direct Cranelift IR in
-  `lower_intrinsic`
+  `abs_i64`, `min/max_i64`, `random_f64` — emitted as direct Cranelift IR.
+  **Preserved**; the intrinsic spec tag still inlines to native IR (design doc
+  §3.1 / §10.1).
+- **Polymorphic `+` fast path**: both-proven-number → native `iadd`/`fadd` (zero
+  cost); otherwise ONE `ADD_GENERIC` with an inline tag-check fast path for the
+  secretly-monomorphic case. No AST-shape guessing.
+- **Shapes + data ICs**: property access = shape-id compare + fixed-offset load;
+  method dispatch = shape-keyed (not O(N) `gc.string_eq`). `PropIcCell` data cell,
+  `uninit → mono → poly → mega` (design doc §8).
 - **Tail call optimization**: user functions in `CallConv::Tail`; `return f(x)`
   in tail position emits `return_call` (requires `preserve_frame_pointers=true`
-  on x86-64)
-- **First-class function pointers** (#97 phase 1): `Expr::Ident` resolving to a
-  user fn materializes `func_addr` as i64; call via local/param ident does
-  `call_indirect` with a provisional Tail signature
-- **Jump table switch**: when all non-default cases are integer literals, uses
-  `cranelift_frontend::Switch` (the backend decides `br_table` vs binary search)
-- **Imm forms**: `x + N` / `x & MASK` / `x << K` emit `iadd_imm` / `band_imm` /
-  `ishl_imm` without an intermediate iconst
-- **MemFlags::trusted** on global and RNG-state loads/stores
-- **f64 modulo** via libc `fmod` (previously truncated via i64, losing the
-  fractional part)
-- **Constants as properties** (`math.PI` without parens) via
-  `MemberKind::Constant` + `emit_constant_load`
-- **Function class (#359)**: the `invoke_n` trampoline dispatches by arity up to
-  8 via transmute to `extern "C" fn(i64...) -> i64`. Reify of a user-fn ident
-  into a Function handle only on member access (direct calls still use the fast
-  `call_indirect`).
-- **expand_async_functions (#437)**: a simplified post-refactor pass emits `f =
-  (args) => promise.create(__async_inner_f, args)` instead of the old synthetic
-  wrapper (~110 LOC less per async fn).
+  on x86-64).
+- **First-class function pointers**: an ident resolving to a user fn materializes
+  `func_addr`; call via local/param ident does `call_indirect`.
+- **Imm forms / MemFlags::trusted / f64 mod via libc fmod / constants as
+  properties** — the front-end emits these; the egraph cleans up. (In the old
+  engine some were hand-rolled MIR passes; in the new engine they fall out of the
+  egraph.)
+- **Data-driven dispatch + generated ABI**: every non-primordial method is a
+  `MethodSpec` resolved by one `resolve_method` path; the JIT symbol table is
+  derived from `SPECS` (`abi_gen.rs`) with a build-time coverage assert — killing
+  the link-OK/runtime-SIGILL class of bug (design doc §10).
 
 ## Inline assembly (`std::arch::asm!`) — available technique
 
@@ -112,8 +95,6 @@ iter via V8 autovec.
 
 ## User artifact layout
 
-Phase 1 roadmap target (in progress):
-
 ```
 <project>/
   src/main.ts
@@ -133,12 +114,15 @@ Phase 1 roadmap target (in progress):
 ## Docs and specs
 
 The `docs/specs/` folder holds feature specs, design decisions, and technical
-notes. See the index at `docs/specs/INDEX.md`. High-level direction lives in
-`RTS_REFACTOR.md` at the root (canonical plan for the crate-workspace refactor).
+notes. See the index at `docs/specs/INDEX.md`. **The canonical engine direction
+is `docs/specs/rts-codegen-new-design.md`** (the ground-up redesign plan; read it
+before any engine work).
 
 Relevant active specs:
-- `docs/specs/namespace-creation-guide.md` — current process based on
-  `crates/rts-abi/`
-- `docs/specs/silent-parallelism.md` — pipeline of the 3 passes
-- `docs/specs/async-promise-function.md` — unified async/Promise/Function system
+- `docs/specs/rts-codegen-new-design.md` — canonical engine redesign (PolyValue,
+  Repr lattice, shapes + data ICs, single lowering, data-driven dispatch)
+- `docs/specs/namespace-creation-guide.md` — namespace process based on
+  `rts-engine::abi`
+- `docs/specs/silent-parallelism.md` — the OLD engine's 3 passes (frozen)
+- `docs/specs/async-promise-function.md` — async/Promise/Function system
   (#359 + #437)

@@ -1,5 +1,5 @@
 [package]
-name = "rts-codegen"
+name = "rts-codegen-old"
 version = "0.1.0"
 edition = "2024"
 

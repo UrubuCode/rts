@@ -26,13 +26,16 @@ This is the first and most important rule. It governs all others.
 - **RULE #0** (this) — read and follow everything
 - **MANDATORY REQUIREMENT: local-rules.md** (check and read if it exists)
 - **MANDATORY RULE: REGRESS WHEN NECESSARY (EXPLICITLY)**
-- **MANDATORY RULE: FOLLOW `../ROADMAP-CORRECAO.md`** (topological order for
-  cross-runtime bug fixes; detailed in `.claude/rules/00-meta.md`)
-- **CROSS-RUNTIME PUSH MODE (parity ≥ 90%)** — while active, the process
-  constraints above are suspended to push parity to 100%; the honesty + build
-  floor never lift
+- **MANDATORY RULE: PRIMORDIAL-vs-REGISTRY DOCTRINE** (engine names only
+  primordials; everything else via the Registry/SPECS; NO builtins in the engine)
+- **MANDATORY RULE: FOLLOW THE REDESIGN DESIGN DOC** — the canonical plan is
+  `docs/specs/rts-codegen-new-design.md`; pick work from its migration phases
+  (P0→P5), not from a fixture-grind roadmap (see "HONEST CURRENT STATUS" below
+  and `.claude/rules/00-meta.md`)
 
-Keep this list in sync with the sections below.
+Keep this list in sync with the sections below. The honesty + build floor
+(parity number stays real, no crash/hang committed as "pass", build must
+compile) never lifts under any mode.
 
 ## MANDATORY REQUIREMENT: local-rules.md
 
@@ -81,26 +84,41 @@ The discipline here is not "never break a test" — it is "never break a test
 without knowing and saying so". Explicit, justified regression is fine;
 invisible regression rots the project.
 
-## CROSS-RUNTIME PUSH MODE (parity ≥ 90%) — process constraints suspended
+## HONEST CURRENT STATUS — engine redesign in progress (strangler-fig)
 
-**Active when** cross-runtime parity ≥ 90% (currently 94.3%, badge in
-`README.md`). The goal flips to reaching **100%**, and the *process* constraints
-below are SUSPENDED so change can land at any cost — except the honesty + build
-floor, which never lifts. When parity drops back below 90%, this mode
-deactivates and the suspended rules resume automatically.
+The project is mid-redesign of its codegen engine. Read this so you do not act on
+stale numbers or a stale architecture.
 
-### Suspended while active
-- **Roadmap topological order** (`FOLLOW ../ROADMAP-CORRECAO.md`) — pick any
-  fixture / feature / epic in any order.
-- **Ask-before-regression** — regressions may land without per-change
-  confirmation. Still *logged* in the commit/PR body; net parity across a work
-  session must not drop.
-- **Small-PR scope** — large multi-crate refactors and the deferred epics
-  (#195 mutable closures, #207 async event loop, #216/#222 Symbol, #218 Proxy,
-  #219 BigInt, #223 dynamic import) are now in scope.
-- **Ceremony** — progress-bar / read-everything ritual is optional.
+**The truth about the 100%.** On 2026-06-06/07 RTS reached **100% cross-runtime
+parity** (372/372, 0 divergences; TS suite 1719/1719), tag `v0.0-202606072107`,
+commit `27e16378`. Factual and git-verifiable — **but** it was the *local maximum
+of a hardcoded approach* on the OLD engine, not validation of its design. That
+engine's value model (a single `i64` ABI slot overloaded to mean
+int/handle/boxed-float/string/sentinel, with the type tag smeared across four
+compile-time side-tables) was admitted to be the wall by the old engine's own
+(now-deleted) `MAINTENANCE.md`. It is **unsound by construction** and does not
+scale.
 
-### Never suspended (honesty + build floor)
+**The current number.** After the 100% the fixture set grew 391 → 612 (harder
+cases) and parity is now **70.7%**. That is the honest figure to quote. Do not
+cite "94.3%" or "100%/push mode" — those framings are dead.
+
+**The redesign.** A ground-up engine is being built **strangler-fig style behind
+the frozen old one**. Frozen old engine: `crates/rts-codegen-old/` (still plugged
+into the bin/cli). Active redesign: `crates/rts-codegen-new/`. The canonical plan
+is `docs/specs/rts-codegen-new-design.md` — **read it before any engine work**.
+Its thesis: *prove-monomorphic-and-unbox where the type system can (keep the
+winning numeric path); fall to ONE honest in-value tagged representation
+(`PolyValue`, a 64-bit NaN-box) + hidden-class shapes + AOT-safe data inline-
+caches where it can't.*
+
+### How work is picked now
+Follow the design doc's **migration phases (P0→P5)**, highest-leverage first, not
+a fixture-by-fixture grind. Large multi-crate work and the deferred epics (#195
+mutable closures, #207 async event loop, #216/#222 Symbol, #218 Proxy, #219
+BigInt, #223 dynamic import) are in scope where a phase calls for them.
+
+### The honesty + build floor (NEVER lifts, no mode suspends it)
 - **The parity number stays real.** No deleting, disabling, skipping,
   hardcoding, or input-special-casing a fixture to inflate parity. A fixture
   counts as passing only when the runtime genuinely produces the correct output
@@ -109,22 +127,23 @@ deactivates and the suspended rules resume automatically.
   Cranelift verifier error / stack overflow / infinite loop on a fixture means
   it did **not** pass.
 - **Build must compile.** A broken build still blocks merge.
-
-### Rationale
-Per `MAINTENANCE.md`, the remaining fixtures need full feature completion, not
-bounded patches — a half-feature crashes rather than producing a wrong-but-closer
-output, so there is no "regress X to pass Y" trade to police. The process
-ceremony slows that work without guarding the only real risk (faking the
-metric); the honesty floor guards that directly.
+- **At cutover (design doc P5), parity must be ≥ the `v0.0-202606072107` tag,
+  measured real** — the redesign exists so the next plateau is not another local
+  max of hacks, not to trade the number away.
 
 ## MANDATORY RULE: PRIMORDIAL-vs-REGISTRY DOCTRINE
 
-The engine (`rts-codegen`, the codegen) is a native motor for a JS/TS language.
-It may reference **directly, by name** ONLY the PRIMORDIAL classes — the minimal
-set that constitutes the language. Everything else (the "extra environment") is
-registered and resolved **dynamically through the Registry** (`global_class_lookup`
-/ `try_global_class_instance_method` / class metadata like `instanceof_predicate`),
-with NO hardcoded mention in codegen.
+This doctrine **survives the redesign and is central to the new engine too**
+(`docs/specs/rts-codegen-new-design.md` §3.2 / §10): the new engine *extends* it
+to swallow the hardcoded minority via data-driven dispatch.
+
+The engine (the codegen) is a native motor for a JS/TS language. It may reference
+**directly, by name** ONLY the PRIMORDIAL classes — the minimal set that
+constitutes the language. Everything else (the "extra environment") is registered
+and resolved **dynamically through the Registry** (`global_class_lookup` /
+`try_global_class_instance_method` / class metadata like `instanceof_predicate`),
+with NO hardcoded mention in codegen, and **NO builtins implemented in the
+engine** — only metadata in the Registry.
 
 - **Primordial set** (engine MAY name): `String`, `Object`, `Array`, `Function`,
   `Promise`, `Boolean`, `Number`, `Error` (+ `TypeError`/`RangeError`/
@@ -140,62 +159,29 @@ with NO hardcoded mention in codegen.
   Language features that historically leaned on well-known symbols (iteration,
   coercion, instanceof) are re-expressed via compile-time desugar to internal
   `__rts_wk_*` names — never a runtime Symbol hook in the engine.
-- The mechanism to drain a class: declare its metadata on the spec
+- The mechanism in the runtime layer: declare a class's metadata on the spec
   (`ClassBuilder::instanceof_predicate`, member symbols, `default_args`, flags)
   in rts-primitives/rts-shared/rts-std, and route `recv.method(args)` through
-  `try_global_class_instance_method`. Land the runtime symbol + `jit.rs` `add_fn!`
-  BEFORE deleting the hardcoded codegen arm.
+  `try_global_class_instance_method`.
 
-### Status (branch `refactor/rts-codegen-clean`)
-Drained via Registry (suite 1710/1710 throughout): instanceof (`instanceof_predicate`
-metadata), Set registered as a class, global/local class-ty tagging, parallelism
-capture allowlist, for-of (`FOR_OF_NORMALIZE`), Map/Set `add/has/delete/get`.
-**Blocked by missing infra** (F64 non-lossy representation / "real narrow storage",
-a deferred Phase-4 item): Array `indexOf/includes` (NaN needle), `reduce`/
-`reduceRight` (callback capture), Map.set value + `new Map/Set([literal])` (frac-
-float bits). Draining these now = silent float regressions = honesty-floor
-violation; they need the `RAW_BITS_ARG` infra first. **Large dedicated follow-ups**:
-full Symbol drain (well-known desugar pass), Phase-2 crate extraction.
+### How the redesign enforces this
+In the new engine the doctrine is no longer maintained by *draining* hardcoded
+arms one at a time (the old-engine grind). It is the default: every non-primordial
+method is a `MethodSpec` metadata entry resolved through ONE generic path
+(`crates/rts-codegen-new/src/dispatch.rs`, `resolve_method`), and the JIT symbol
+table is **derived from `SPECS`** (`abi_gen.rs`) with a build-time coverage assert
+— so a direct mention of a non-primordial class in the new engine is simply not
+how dispatch is written. See design doc §10. The old engine
+(`rts-codegen-old/`) still carries the hardcoded switchboard (`calls/mod.rs`
+~4.6k LOC) and 1113 manual `add_fn!`; those are frozen and deleted at cutover,
+not patched further.
 
-### Phase 2 — `rts-primitives` crate (extraction in progress)
-The primordial classes are migrating from `rts-shared` into a dedicated
-`rts-primitives` crate (depends only on `rts-engine`, wasm-safe), one class per
-build+suite-gated step. Moved so far: **Boolean, Number, String, Error(+8),
-Array spec, Promise spec, Function** (Array/Promise are metadata-only — the
-`__RTS_FN_*` bodies stay in `rts-shared/collections/vec.rs` and `rts-std/globals/
-fetch`; only the spec declaration moved, resolved by symbol). **Function (full
-move, Fase 2.3, commits …3a/3b):** `function/{mod,ops,props}.rs` migrated whole.
-It was entangled with `crate::globals::proxy::ops` + `crate::collections::map`
-(both non-primordial); decoupled via **extern-C shims** (`__RTS_FN_RT_MAP_SET_STR/
-_GET_STR/_MARK_NON_ENUM` in collections/map; `__RTS_FN_RT_PROXY_RESOLVE/
-_DISPATCH_APPLY` in proxy/ops) that Function calls by symbol — `primitives→shared`
-is link-time only, no Cargo cycle. All reverse-deps (`function::ops::*` in shared
-map/proxy/reflect/json + std generator/events/text_encoding/parallel/promise +
-facade) repointed to `rts_primitives::function`. **Object spec (Fase 2.7,
-introduced):** `register_object_class_spec` (`rts-primitives/object.rs`, metadata)
-declares `Object.prototype` instance methods (hasOwnProperty/propertyIsEnumerable/
-isPrototypeOf); bodies stay in `rts-shared/collections/map.rs`. Made load-bearing
-by switching the instanceof gate (operators.rs) and `.prototype` gate
-(members.rs) from a literal `"Object"`/literal-class-list to
-`global_class_lookup("Object").is_some()` (behaviour-identical). The bespoke
-Object **static** dispatch (keys via `OBJECT_KEYS_AUTO` over Map+Vec, variadic
-`assign`, descriptor `create`/`freeze`) stays hardcoded — draining it does not
-map cleanly onto the generic path and Object being primordial means no doctrine
-requirement; that drain is a documented dedicated follow-up. The `jit.rs` `add_fn!`→registry collapse is **partially
-done** (Fase 2.8, commit 2216ba7a): Boolean (5/5) + Number (13/15) manual
-`add_fn!` removed — their primordial specs carry non-null `fn_ptr`, so
-`leak_class` records them in `jit_symbols` and `runtime_jit_symbols()` injects
-them. The enabling fix was `abi::ensure_registry_init()`, called at the top of
-`register_runtime_symbols` (jit.rs): the registry is lazy, and in the `rts run`
-path it was not yet built at JIT finalize, so `runtime_jit_symbols()` came back
-empty and `run` crashed (`can't resolve __RTS_FN_GL_BOOLEAN_COERCE`) while the
-`test` suite passed — a coverage gap. **Lesson: smoke `rts run` AND the suite on
-any JIT-symbol change.** Number's `NEW_EMPTY`/`BOX_VALUE_OF` keep manual
-`add_fn!` (no member with own `fn_ptr`). String stays external (fn_ptr null by
-design); Error is mixed — remaining collapse is per-symbol audit, low priority.
-The facade
-(`rts-runtime`) re-exports `rts_primitives::*`; codegen reads via the facade
-unchanged. `rts-shared` keeps the non-primordial universal surface.
+### Runtime layer (still valid for both engines)
+The primordial classes live in the `rts-primitives` crate (depends only on
+`rts-engine`, wasm-safe); non-primordial universal surface in `rts-shared`;
+backend in `rts-std`; `rts-runtime` is the thin facade (`pub use` of all four).
+This partition is unchanged by the engine redesign — both `rts-codegen-old` and
+`rts-codegen-new` read the runtime through the facade.
 
 ## Project
 
@@ -203,87 +189,92 @@ RTS is a TypeScript-to-native compiler/runtime using Cranelift as codegen
 backend. Goal: compile TS/JS to native binaries with a minimal Rust runtime,
 shipped as a standalone toolchain (no external runtime support library).
 
-Runtime is organized around the `crates/rts-abi/` + `SPECS` contract, with a
-module-graph pipeline + incremental cache. Two execution paths: JIT via
+Runtime is organized around the ABI `SPECS` contract (in `rts-engine::abi`), with
+a module-graph pipeline + incremental cache. Two execution paths: JIT via
 `cranelift_jit::JITModule` (`rts run`, direct executable memory) and AOT via
 `cranelift_object::ObjectModule` (`rts compile`, external linker).
 
-See `RTS_REFACTOR.md` for the current refactor direction (crate workspace).
+The canonical direction for the engine is `docs/specs/rts-codegen-new-design.md`.
 
 ## Architecture
 
-Cargo workspace (14 crates in `crates/`). `src/` is the `rts` bin facade
-(re-exports); `src/main.rs` calls `rts_codegen::register_runtime_artifacts` +
-`rts_cli::cli::dispatch`. Real paths live under `crates/<crate>/src/`.
+Cargo workspace in `crates/`. `src/` is the `rts` bin facade (re-exports);
+`src/main.rs` calls into the codegen + `rts_cli::cli::dispatch`. Real paths live
+under `crates/<crate>/src/`.
 
-> **Runtime layer partition** (the tree below predates it): the old monolith is
-> split into an acyclic graph `rts-engine` (heap GC + ABI vocab + Registry/
-> builder + collector contract) ← `rts-primitives` (PRIMORDIAL classes — see the
-> Primordial doctrine above; extraction in progress) + `rts-shared` (universal
-> non-primordial: math/num/collections(Map/Set)/json/globals…) ← `rts-std`
-> (backend: io/net/tokio/console/promise impl) ← `rts-runtime` (thin facade,
-> `pub use` of all four; AOT staticlib). `rts-codegen` reads everything via the
-> `rts-runtime` facade (`crate::namespaces::*`). The `rts-abi` entry below is now
-> `rts-engine::abi`.
+> **Two codegen crates during the strangler-fig migration.**
+> `crates/rts-codegen-old/` is the **frozen** old engine (HIR→MIR→Cranelift dual
+> path + AST fallback, the overloaded-`i64` value model, the 4.6k-LOC
+> switchboard, 1113 manual `add_fn!`) — still plugged into the bin/cli until
+> cutover. `crates/rts-codegen-new/` is the **active redesign** (single
+> HIR→Cranelift lowering, `PolyValue` NaN-box value model, shapes + data ICs,
+> data-driven dispatch + generated ABI). Canonical design:
+> `docs/specs/rts-codegen-new-design.md`.
+
+> **Runtime layer partition:** the old monolith is split into an acyclic graph
+> `rts-engine` (heap GC + ABI vocab/SPECS + Registry/builder + collector
+> contract) ← `rts-primitives` (PRIMORDIAL classes — see the Primordial doctrine
+> above) + `rts-shared` (universal non-primordial: math/num/collections(Map/Set)/
+> json/globals…) ← `rts-std` (backend: io/net/tokio/console/promise impl) ←
+> `rts-runtime` (thin facade, `pub use` of all four; AOT staticlib). The codegen
+> reads everything via the `rts-runtime` facade. This partition is shared by both
+> codegen crates and is **not** changed by the engine redesign.
 
 ```
 crates/
-  rts-ast/         — internal AST
-  rts-parser/      — SWC parse; arrow/fn expressions → top-level Item::Function
-  rts-diagnostics/ — structured errors
-  rts-abi/         — single ABI contract (SPECS, types, symbols, guards,
-                     signatures, Intrinsic, global_class.rs, handles.rs)
-  rts-hir/         — typed HIR (I8..I128/F32/F64/Bool/Str/Handle/Array/Function/
-                     Class/Object/Any/Unknown)
-  rts-mir/         — SSA MIR (60+ Insts; Terminators Return/Jump/Brif/Switch/
-                     TailCall/Trap; passes fold/fma/cse/dce/narrow/verify/inline)
-  rts-codegen/     — Cranelift codegen + type_system + module/ + pipeline + cache
-    src/codegen/
-      emit.rs      — ObjectModule emitter (AOT)
-      object.rs    — ObjectArtifact wrapper (use-slicing, AOT)
-      jit.rs       — JITModule emitter (rts run)
-      lower/       — AST authoritative lowering over &mut dyn Module
-        expressions/ statements/
-      mir_codegen/ — MIR → Cranelift IR (default; auto-fallback to AST on bail)
-    src/type_system/ — type checker, registry, resolver
-    src/module/      — module resolver + dependency graph
-    src/nodespace/   — Node.js builtin shims (fs, os, path, process, crypto, util)
-    src/pipeline.rs  — orchestrates build/run (incl. run_jit)
-  rts-runtime/     — builtin module "rts" + "rts:<ns>" submodules + 40+ namespaces
-    src/namespaces/  — runtime namespace impls
-      globals/       — global JS classes (number, string, date, regexp, ...)
-    src/runtime/     — async_rt.rs (global tokio), tokio_ctx.rs (sync/async bridge)
-  rts-linker/      — native link (system linker + object backend fallback)
-  rts-cli/         — CLI (run, compile, apis, init, repl, eval, ir)
+  rts-ast/          — internal AST
+  rts-parser/       — SWC parse; arrow/fn expressions → top-level Item::Function
+  rts-diagnostics/  — structured errors
+  rts-engine/       — heap GC, ABI contract (abi:: SPECS, types, symbols,
+                      signatures, Intrinsic, global_class, handles), Registry
+  rts-hir/          — typed HIR (I8..I128/F32/F64/Bool/Str/Handle/Array/Function/
+                      Class/Object/Any/Unknown)
+  rts-mir/          — SSA MIR — used ONLY by rts-codegen-old (frozen); the
+                      redesign deletes the MIR tier
+  rts-codegen-old/  — FROZEN old engine (dual HIR→MIR / AST path, switchboard)
+  rts-codegen-new/  — ACTIVE redesign; see module map below + design doc
+    src/value.rs    — PolyValue (64-bit NaN-box; the one in-value tagged repr)
+    src/repr.rs     — Repr lattice (Int32/Float64/Bool/Ref/Tagged) + join — soundness core
+    src/shape.rs    — hidden classes (Shape / transition tree / slot layout)
+    src/ic.rs       — AOT-safe data inline caches (PropIcCell, uninit→mono→poly→mega)
+    src/dispatch.rs — data-driven method resolution (Target / resolve_method via SPECS)
+    src/abi_gen.rs  — JIT symbol table DERIVED from SPECS (kills manual add_fn!)
+    src/lower/      — single HIR → Cranelift lowering path (no MIR)
+    src/pipeline.rs — shared JIT (run_jit) + AOT (compile_aot)
+  rts-primitives/   — PRIMORDIAL classes (String/Object/Array/Function/Promise/
+                      Boolean/Number/Error+subclasses)
+  rts-shared/       — non-primordial universal (math/num/collections/json/globals)
+  rts-std/          — backend (io/net/tokio/console/promise impl)
+  rts-runtime/      — thin facade ("rts" + "rts:<ns>" submodules); AOT staticlib
+  rts-node/         — Node.js builtin shims (fs, os, path, process, crypto, util)
+  rts-linker/       — native link (system linker + object backend fallback)
+  rts-cli/          — CLI (run, compile, apis, init, repl, eval, ir)
 
 src/                — bin facade (re-exports), runtime_objects.rs, main.rs
 ```
 
-> `rts-codegen` became a catch-all (pipeline, type_system, module, cache,
-> eval_jit), diverging from `RTS_REFACTOR.md`. Phase 3 (MIR) delivered — MIR
-> default since f7b924b/23dd4b7. Phase 4 in progress, 5/8 done: atomics (4.1),
-> inline+integration+fixed-point (4.2/4.3/4.7), CSE (4.5), FMA (4.8), arr[i]=v +
-> e2e smoke (4.4/4.6). Remaining: escape analysis, SIMD, real narrow storage.
-
-Pipeline (default, MIR ON):
+### New-engine pipeline (the redesign, single path)
 
 ```
-TS → SWC → AST → HIR → MIR → inline (fixed-point, ≤4 iters)
-                          → optimize (fold → fma → cse → dce)
-                          → mir_codegen → Cranelift → JIT/AOT
-                          ↘ AST authoritative (auto-fallback)
+TS → SWC → AST → HIR → lower/ (HIR → Cranelift IR, one path) → Cranelift egraph → JIT/AOT
 ```
 
-Hybrid routing via `RTS_USE_MIR`: unset/`1`/`on`/`all` = MIR ON (default);
-`0`/`off`/`none` = AST only; `fn1,fn2,...` = MIR only for listed fns. Each user
-fn tries HIR→MIR→Cranelift; on an unmodeled construct (member on `this`/objects,
-classes, async/await, address-taken fns, string in user-fn params/ret) it falls
-back to AST codegen silently, no semantics lost. Both AOT/JIT share
-`compile_program`; `FnCtx.module` is `&mut dyn Module`.
+There is **no MIR tier and no dual AST/MIR codegen** in the new engine. The
+Cranelift egraph (`use_egraphs=true`) is the **sole** optimizer (const-fold, CSE,
+DCE, FMA, strength reduction, intraprocedural inlining). The front-end only does
+what Cranelift genuinely cannot (JS semantics): `ToNumber`/`ToString`/`ToBoolean`
+coercions, the polymorphic `+`, box/unbox insertion (as pure IR the egraph
+folds), shape/IC site emission, narrow-int wrap semantics, exception edges. Both
+AOT/JIT share `compile_program`/`pipeline.rs`; `FnCtx.module` is
+`&mut dyn Module`. See design doc §9 (Pilar 5) and the per-pillar sections.
 
-## ABI (`crates/rts-abi/`) — single contract
+> The frozen `rts-codegen-old/` still runs the old hybrid `HIR→MIR→Cranelift`
+> (default) with silent AST fallback, gated by `RTS_USE_MIR`. That machinery is
+> NOT carried into the new engine.
 
-All surface between codegen and runtime goes through `crates/rts-abi/`. No
+## ABI (`rts-engine::abi`) — single contract
+
+All surface between codegen and runtime goes through `rts-engine::abi`. No
 per-namespace `SPEC/MEMBERS/dispatch()`, no `__rts_call_dispatch`.
 
 - `abi::SPECS` (`mod.rs`) — static slice of every registered namespace (40+).
@@ -306,8 +297,12 @@ per-namespace `SPEC/MEMBERS/dispatch()`, no `__rts_call_dispatch`.
 - `symbols.rs` — convention `__RTS_<KIND>_<SCOPE>_<NS>_<NAME>` (e.g.
   `__RTS_FN_NS_IO_PRINT`, `__RTS_FN_GL_NUMBER_IS_NAN`). Macro `rts_sym!`;
   `validate_symbol()` enforces uppercase ASCII.
-- `guards.rs` — `guard_for(expected, caller)` decides passthrough/coerce/trap at
-  call sites with `any` args.
+- `guards.rs` — `guard_for(expected, caller)`. NOTE: in the old engine this is
+  **dead code** (zero production call sites; coercion is ad-hoc `TPL_COERCE_AUTO`
+  scattered across files). The redesign makes coercion ONE real authority (design
+  doc §7, Pilar 3) — `guard_for` is either promoted to the real path or replaced
+  by an equivalent in `rts-codegen-new`; the scattered ad-hoc coercion does not
+  survive.
 
 ### Machine ABI — typed extern "C", no dispatch
 
@@ -397,25 +392,41 @@ shard map keyed by that id, or in GC handles with a lifetime guard.
 ### GC — mark+sweep with Cranelift stack maps
 GC is precise mark+sweep using Cranelift `UserStackMap`, with conservative scan via
 `SuspendThread + GetThreadContext` for all registered threads. Codegen calls
-`declare_value_needs_stack_map(val)`; `jit.rs` registers return-PCs in
+`declare_value_needs_stack_map(val)`; the JIT emitter registers return-PCs in
 `stack_map_registry`. Every `GC_TICK_INTERVAL = 256` allocs, `finish_cycle()`
 runs `mark_stack_roots()` + `sweep_all_shards()`. `mark_stack_roots()` on Windows
 uses `GetCurrentThreadStackLimits` (Win32) — **not** `gs:[0x10]` (TIB.StackBase
 sometimes < RSP → scanner marks nothing → live handles collected; bug PR #400).
 
+**Required change for the new engine (design doc §5.4, Pilar 1):** the
+conservative stack scanner must learn to recognize **NaN-boxed `PolyValue` handle
+words**. A stack word `w` is a potential root iff `(w & BOX_BASE) == BOX_BASE`
+AND `tag(w) ∈ {STR, OBJECT, FUNCTION}`; the root is the 48-bit `slot(w)`. Inline
+ints, inline floats, and singletons are NOT roots. This is *more* precise than
+today (float words that merely look like handles stop being false positives). GC
+safety holds because the payload is a HandleTable **slot index**, not a raw
+pointer.
+
 ### State
 No central state system — each namespace owns its own via `Arc<Mutex<T>>`
 (`OnceLock` init) or `thread_local!` caches.
 
-## Language capabilities (codegen)
+## Language capabilities (target semantics the engine must cover)
 
-- Object/array literals via `collections.map_*`/`vec_*`.
+This is the JS/TS surface the engine must support — the same intent under both
+engines. The OLD engine implemented these on the overloaded-`i64` value model
+(per-feature notes in parentheses describe its mechanism, frozen). The NEW engine
+must reproduce the same **semantics** through the `PolyValue`/shapes/IC model;
+see the design doc's coverage plan and `.claude/rules/03-features.md`.
+
+- Object/array literals (old: `collections.map_*`/`vec_*`; new: shapes + slots).
 - Classes: constructor, method, this, extends, super(args), super.method,
-  static, getters/setters. `__rts_class` tag → real virtual dispatch.
+  static, getters/setters (old: `__rts_class` string tag + O(N) `gc.string_eq`
+  vtable; new: shape-id + data IC dispatch).
 - Rust-style operator overload: `a + b` → `a.add(b)` at compile time when the
   class defines the method.
 - `for...of` over arrays; try/catch/finally phase 1 (thread-local error slot, no
-  real unwind — #128 phase 2). String equality via `gc.string_eq`.
+  real unwind — #128 phase 2). String equality.
 - async/await Promise-centric (#437). Function class: call/apply/bind/toString +
   name/length + `new Function("body")` via runtime eval.
 - Destructuring (#210): array/object, defaults, rest, nested, in params/for-of/
@@ -436,29 +447,35 @@ source, keep_alive }`. `invoke_n` trampoline transmutes to
 no `fn.prototype`/`arguments`, no async in `new Function`. Spec:
 `docs/specs/async-promise-function.md`.
 
-### Silent parallelism (Level-1)
+### Silent parallelism (Level-1) — OLD ENGINE ONLY
 
-3 codegen passes rewrite common TS to `parallel.*` automatically (user never
-mentions threads): `array_methods_pass` (`arr.map/forEach/reduce(userFn)`),
-`reduce_pass` (accumulator loop, associative ops only), `purity_pass`
-(`for...of` calling only `pure: true` members, no assignments). 96 fns marked
-`pure: true`. Spec: `docs/specs/silent-parallelism.md`.
+3 codegen passes in `rts-codegen-old` rewrite common TS to `parallel.*`
+automatically (`array_methods_pass`, `reduce_pass`, `purity_pass`). This
+machinery is **frozen in the old engine and is NOT carried into the new engine
+unless re-justified** against the redesign. Spec:
+`docs/specs/silent-parallelism.md`.
 
-## Codegen optimizations
+## Codegen optimizations (new engine)
 
+- **The Cranelift egraph is the sole optimizer** (`use_egraphs=true`): const-fold,
+  CSE, DCE, FMA, strength reduction, intraprocedural inlining. There is **no
+  second optimizer tier** — the old MIR passes (fold/fma/cse/dce/narrow/inline)
+  re-did exactly what the egraph already does and are deleted with the MIR tier.
+- **box/unbox as pure Cranelift IR** (`bitcast`/`band`/`bor`/`icmp`/`select`): a
+  redundant `box(unbox(x))` is folded by the egraph, so the `PolyValue` cost
+  vanishes exactly where the representation was already monomorphic (design doc
+  §9.3). This is why box/unbox must NOT be extern calls.
 - **Intrinsics inline** (`abi::Intrinsic`): sqrt, abs_f64, min/max_f64, abs_i64,
-  min/max_i64, random_f64 → direct Cranelift IR.
+  min/max_i64, random_f64 → direct Cranelift IR. Preserved (intrinsic spec tag).
 - **TCO**: user fns in `CallConv::Tail`; `return f(x)` → `return_call`
   (needs `preserve_frame_pointers=true` on x86-64).
-- **First-class fn pointers** (#97 ph1): `Expr::Ident` → `func_addr` i64;
-  `call_indirect` with provisional Tail sig.
-- **Jump table switch**, **imm forms** (`iadd_imm`/`band_imm`/`ishl_imm`),
-  **MemFlags::trusted** on global/RNG loads, **f64 mod via libc fmod**,
-  **constants as properties** (`math.PI`).
-- **MIR passes** (`mir_codegen/passes/`): fold (const fold + strength
-  reduction), fma (`a*b+c`, conservative), cse (intra-block), dce (fixed-point,
-  preserves side-effects), inline (`INLINE_BUDGET=16`, fixed-point ≤4 iters),
-  narrow (I8/U8/I16/U16 canonicalization), verify.
+- **First-class fn pointers**, **imm forms**, **MemFlags::trusted** on
+  global/RNG loads, **f64 mod via libc fmod**, **constants as properties** — the
+  front-end emits these; the egraph cleans up.
+- **Shapes + data ICs** (design doc §8): property access is shape-id compare +
+  fixed-offset load (not hash lookup); method dispatch is shape-keyed, not O(N)
+  string compare. Narrow-int (i8/u8/i16/u16) wrap semantics are a front-end
+  responsibility on the IR.
 
 ### Inline asm (`std::arch::asm!`) — legitimate, in use
 
@@ -612,7 +629,7 @@ in `JITBuilder::symbol` (`jit.rs`). `rts compile` → use-slicing, only needed
 module objects, final binary. Object naming: `<module>.o` (`.m` for cache
 metadata).
 
-## Artifact layout (roadmap phase 1, in progress)
+## Artifact layout
 
 ```
 <project>/
@@ -621,17 +638,22 @@ metadata).
   release/<project_name>   — only on rts compile
 ```
 
-## Status — epic #226 (JS/TS parity)
+## Status
 
-TS suite: **1015/1015 (100%)**. Heavy child issues still open (need refactor,
-out of small-PR scope): #195 mutable closures, #207 real async event loop, #216
-Symbol computed key, #217 weak WeakMap/Set + FinalizationRegistry, #222 Map/Set
-Symbol.iterator, #223 dynamic import, #301 var hoisting in user fn, #304
-toString/valueOf coercion, #305 integer overflow (>~9e18 saturates), #477
-infinite generator, #211/#219/#225 generators/BigInt/Intl (candidate-discard).
+On the OLD engine the TS suite hit 1719/1719 and cross-runtime parity hit 100%
+(372/372) at tag `v0.0-202606072107` — a local max of a hardcoded approach (see
+"HONEST CURRENT STATUS" above). The fixture set then grew to **612** and parity
+is now **70.7%**; the `rts-codegen-new` redesign is being built strangler-fig to
+clear the real wall (the unsound value model), not to chase the next plateau of
+hacks. Heavy items still open (some now in-scope for redesign phases): #195
+mutable closures, #207 real async event loop, #216/#222 Symbol, #217 weak
+WeakMap/Set + FinalizationRegistry, #218 Proxy, #219 BigInt, #223 dynamic import,
+#301 var hoisting, #304 toString/valueOf coercion.
 
 ## Docs
 
 `docs/specs/` holds feature specs, design decisions, technical notes — index at
-`docs/specs/INDEX.md`. High-level direction in `RTS_REFACTOR.md`. Detailed rules
-in `.claude/rules/` (00-meta → 05-codegen-notes), each binding.
+`docs/specs/INDEX.md`. **Canonical engine direction:
+`docs/specs/rts-codegen-new-design.md`** (the redesign plan; read before engine
+work). Detailed rules in `.claude/rules/` (00-meta → 05-codegen-notes), each
+binding.
