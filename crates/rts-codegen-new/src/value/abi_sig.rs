@@ -140,6 +140,10 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         }
         // console.log line sink: takes (ptr, len) as a StrPtr (two slots), void.
         "__rtsadp_print_line" => SymSig { params: &[StrPtr], ret: Void },
+        // inspect(value_word, top_level) -> string PolyValue word. value is a raw
+        // PolyValue word (U64); top_level is an I64 flag (1 = direct arg / bare
+        // string, 0 = nested / quoted string); the result is a string PolyValue.
+        "__rtsadp_inspect" => SymSig { params: &[U64, I64], ret: U64 },
 
         // ---- codegen-owned FUNCTION-value trampolines (__rtsadp_fn_*, P4.6) ----
         // reify(addr, nparams, has_rest) -> 48-bit slot+shard payload (U64).

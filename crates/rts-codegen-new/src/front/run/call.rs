@@ -18,7 +18,7 @@ use crate::value::{abi_adapter, emit_marshal};
 
 use crate::front::error::{unsupported, FrontResult, Unsupported};
 
-use super::lower::{JsKind, Lowerer, Val};
+use super::lower::{HeapShape, JsKind, Lowerer, Val};
 use super::sig::FnSig;
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
@@ -192,23 +192,42 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         };
         let mut line: Option<Value> = None;
         for a in args {
-            // A WHOLE object/array value has no faithful codegen-side rendering in
-            // this increment: Bun/Node pretty-print `{ a: 1 }` / `[ 1, 2, 3 ]`,
-            // while the runtime's ToString yields `[object Object]` / a join. We
-            // BAIL rather than print the wrong thing (the honesty floor). A SCALAR
-            // pulled from an object/array (`o.a`, `arr[0]`, `arr.length`) is a
-            // normal PolyValue and lowers fine.
-            if self.is_whole_heap_value(a) {
+            // A WHOLE OBJECT value still has no faithful codegen-side rendering
+            // (Bun/Node print `{ a: 1 }` but a runtime object is a bare slot Vec
+            // with NO recoverable keys — see `value/inspect.rs`). BAIL rather than
+            // emit a near-miss. A whole ARRAY is now rendered via `__rtsadp_inspect`
+            // (`[ 1, 2, 3 ]`); a SCALAR pulled from a collection (`o.a`, `arr[0]`,
+            // `arr.length`) is a normal PolyValue and lowers via ToString.
+            if self.is_whole_object_value(a) {
                 return unsupported!(
-                    "console.log of a whole object/array value (pretty-print rendering is a later increment)"
+                    "console.log of a whole OBJECT value (key recovery needs a runtime shape-id — a later increment)"
                 );
             }
-            let v = self.lower_expr(module, a)?;
-            let boxed = self.box_value(v);
-            // ToString this arg (real pool) → a string PolyValue word.
-            let s = self
-                .call_runtime(module, "__rtsadp_to_string", &[boxed])?
-                .expect("__rtsadp_to_string returns a value");
+            // An array literal carrying an OBJECT element (`[{a:1}]`) would render
+            // the nested object as a keyless array (`[ 1 ]`) — a near-miss vs bun's
+            // `[ { a: 1 } ]`. BAIL it (honesty floor) until object inspect lands.
+            if self.array_arg_has_object_element(a) {
+                return unsupported!(
+                    "console.log of an array containing an OBJECT element (object inspect is a later increment)"
+                );
+            }
+            // A whole ARRAY arg renders with the Bun/Node inspect form: box the
+            // array word, then `__rtsadp_inspect(word, top_level=1)` → a string
+            // PolyValue (a top-level string stays bare; nested strings are quoted
+            // inside the trampoline). This replaces the ToString path for arrays.
+            let s = if self.is_whole_array_value(a) {
+                let v = self.lower_expr(module, a)?;
+                let boxed = self.box_value(v);
+                let top = self.builder.ins().iconst(types::I64, 1);
+                self.call_runtime(module, "__rtsadp_inspect", &[boxed, top])?
+                    .expect("__rtsadp_inspect returns a value")
+            } else {
+                let v = self.lower_expr(module, a)?;
+                let boxed = self.box_value(v);
+                // ToString this arg (real pool) → a string PolyValue word.
+                self.call_runtime(module, "__rtsadp_to_string", &[boxed])?
+                    .expect("__rtsadp_to_string returns a value")
+            };
             line = Some(match line {
                 None => s,
                 Some(prev) => {
@@ -320,14 +339,61 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 }
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
-    /// Whether `e` evaluates to a WHOLE object/array value (which has no faithful
-    /// rendering / ToPrimitive yet): an object/array literal, or an identifier
-    /// bound to a local of proven object/array shape. A scalar member/index
-    /// access is NOT one.
-    pub(super) fn is_whole_heap_value(&self, e: &HirExpr) -> bool {
+    /// Whether `e` evaluates to a WHOLE OBJECT value (object literal, or an
+    /// identifier bound to a local of proven OBJECT shape). Object inspect needs
+    /// runtime key recovery (a later increment) — these BAIL.
+    pub(super) fn is_whole_object_value(&self, e: &HirExpr) -> bool {
         match &e.kind {
-            HirExprKind::Object(_) | HirExprKind::Array(_) => true,
-            HirExprKind::Ident(name) => self.local_shapes.contains_key(name),
+            HirExprKind::Object(_) => true,
+            HirExprKind::Ident(name) => {
+                matches!(self.local_shapes.get(name), Some(HeapShape::Object(_)))
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether `e` evaluates to a WHOLE object OR array value. Used where BOTH
+    /// kinds must bail (binary `+`/`==` ToPrimitive, method dispatch on a literal).
+    pub(super) fn is_whole_heap_value(&self, e: &HirExpr) -> bool {
+        self.is_whole_object_value(e) || self.is_whole_array_value(e)
+    }
+
+    /// Whether `e` is an array literal that (transitively) contains an OBJECT
+    /// element — which would render as a keyless array (`[ 1 ]` for `{a:1}`), a
+    /// near-miss vs bun's `{ a: 1 }`. Such logs BAIL until object inspect lands.
+    /// Conservative: only array LITERALS are inspected statically (an array local's
+    /// elements are opaque, but they can only become objects via paths that already
+    /// bail), so this static walk covers the reachable near-miss.
+    pub(super) fn array_arg_has_object_element(&self, e: &HirExpr) -> bool {
+        match &e.kind {
+            HirExprKind::Array(elems) => elems.iter().any(|el| self.is_object_producing(el)),
+            _ => false,
+        }
+    }
+
+    /// Whether `e` (an array element) statically produces an OBJECT value: an
+    /// object literal, an array literal that itself contains an object, or an
+    /// identifier bound to an object-shaped local.
+    fn is_object_producing(&self, e: &HirExpr) -> bool {
+        match &e.kind {
+            HirExprKind::Object(_) => true,
+            HirExprKind::Array(_) => self.array_arg_has_object_element(e),
+            HirExprKind::Ident(name) => {
+                matches!(self.local_shapes.get(name), Some(HeapShape::Object(_)))
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether `e` evaluates to a WHOLE ARRAY value (array literal, or an
+    /// identifier bound to a local of proven ARRAY shape). These render via
+    /// `__rtsadp_inspect` (`[ … ]`). A scalar member/index access is NOT one.
+    pub(super) fn is_whole_array_value(&self, e: &HirExpr) -> bool {
+        match &e.kind {
+            HirExprKind::Array(_) => true,
+            HirExprKind::Ident(name) => {
+                matches!(self.local_shapes.get(name), Some(HeapShape::Array))
+            }
             _ => false,
         }
     }

@@ -34,7 +34,7 @@ use rts_runtime::namespaces::globals::number as rt_num;
 use rts_runtime::namespaces::globals::string::rt as rt_gl_str;
 use rts_runtime::namespaces::io as rt_io;
 
-use crate::value::{abi_adapter, arraycb, arrayops, funcops, genops, genops_arith};
+use crate::value::{abi_adapter, arraycb, arrayops, funcops, genops, genops_arith, inspect};
 
 /// One installable JIT symbol: an extern "C" name and its function pointer. The
 /// pointer is to a `#[no_mangle] extern "C"` function with static lifetime.
@@ -99,6 +99,7 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_to_string", genops::__rtsadp_to_string as *const u8),
         sym("__rtsadp_to_boolean", genops::__rtsadp_to_boolean as *const u8),
         sym("__rtsadp_print_line", abi_adapter::__rtsadp_print_line as *const u8),
+        sym("__rtsadp_inspect", inspect::__rtsadp_inspect as *const u8),
         // ---- generic arithmetic / comparison / unary / bitwise (P4.8) ----
         sym("__rtsadp_sub", genops_arith::__rtsadp_sub as *const u8),
         sym("__rtsadp_mul", genops_arith::__rtsadp_mul as *const u8),

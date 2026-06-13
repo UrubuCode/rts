@@ -172,9 +172,11 @@ fn whole_object_log_bails() {
 }
 
 #[test]
-fn whole_array_log_bails() {
-    // Same: printing a whole array value bails (Bun prints `[ 1, 2, 3 ]`).
-    assert_bails("let a = [1, 2, 3]; console.log(a);");
+fn whole_array_log_now_inspects() {
+    // P3.5 (intentional, justified change from the prior bail): printing a whole
+    // array value now renders Bun/Node's `util.inspect` form `[ 1, 2, 3 ]`
+    // (see `value/inspect.rs` + the `inspect` test module). Objects still bail.
+    assert_stdout("let a = [1, 2, 3]; console.log(a);", "[ 1, 2, 3 ]\n");
 }
 
 // ---------------------------------------------------------------------------

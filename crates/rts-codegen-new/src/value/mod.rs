@@ -114,6 +114,9 @@ pub mod arraycb;
 // The Cranelift IR that marshals at the real-symbol call boundaries
 // (box/unbox + StrPtr ptr+len).
 pub mod emit_marshal;
+// console.log PRETTY-PRINT of whole ARRAYS (Bun/Node util.inspect format, P3.5):
+// `__rtsadp_inspect(value_word, top_level)` → a string PolyValue word.
+pub mod inspect;
 
 // Re-export the Cranelift emit helpers so existing call sites
 // (`crate::value::emit_box_int32`, …) keep resolving unchanged.
