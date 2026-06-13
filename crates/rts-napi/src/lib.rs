@@ -228,6 +228,7 @@ pub fn force_link() -> usize {
         crate::async_work::node_api_post_finalizer as *const (),
         crate::async_work::napi_add_async_cleanup_hook as *const (),
         crate::async_work::napi_remove_async_cleanup_hook as *const (),
+        crate::async_work::napi_get_uv_event_loop as *const (),
         crate::phase2c::napi_reject_deferred as *const (),
         crate::phase2c::napi_remove_env_cleanup_hook as *const (),
         crate::phase2c::napi_resolve_deferred as *const (),
