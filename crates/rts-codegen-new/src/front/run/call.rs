@@ -192,30 +192,32 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         };
         let mut line: Option<Value> = None;
         for a in args {
-            // A WHOLE OBJECT value still has no faithful codegen-side rendering
-            // (Bun/Node print `{ a: 1 }` but a runtime object is a bare slot Vec
-            // with NO recoverable keys — see `value/inspect.rs`). BAIL rather than
-            // emit a near-miss. A whole ARRAY is now rendered via `__rtsadp_inspect`
-            // (`[ 1, 2, 3 ]`); a SCALAR pulled from a collection (`o.a`, `arr[0]`,
-            // `arr.length`) is a normal PolyValue and lowers via ToString.
-            if self.is_whole_object_value(a) {
-                return unsupported!(
-                    "console.log of a whole OBJECT value (key recovery needs a runtime shape-id — a later increment)"
-                );
-            }
-            // An array literal carrying an OBJECT element (`[{a:1}]`) would render
-            // the nested object as a keyless array (`[ 1 ]`) — a near-miss vs bun's
-            // `[ { a: 1 } ]`. BAIL it (honesty floor) until object inspect lands.
+            // A WHOLE OBJECT value (object literal / object-shaped local) now
+            // renders via `__rtsadp_inspect_object` (P3.6): box the object word,
+            // then the trampoline reads the slot-0 global shape-id, recovers the
+            // keys, and renders `{ k: v }`. A whole ARRAY renders via
+            // `__rtsadp_inspect` (`[ 1, 2, 3 ]`); a SCALAR pulled from a collection
+            // (`o.a`, `arr[0]`, `arr.length`) is a normal PolyValue → ToString.
+            // An array literal carrying an OBJECT element (`[{a:1}]`) still bails:
+            // bun prints it MULTI-LINE while our object inspect is single-line, a
+            // near-miss vs bun — kept bailed (honesty floor) until the formats
+            // reconcile.
             if self.array_arg_has_object_element(a) {
                 return unsupported!(
-                    "console.log of an array containing an OBJECT element (object inspect is a later increment)"
+                    "console.log of an array containing an OBJECT element (object inspect format differs from bun's multi-line — a later increment)"
                 );
             }
-            // A whole ARRAY arg renders with the Bun/Node inspect form: box the
-            // array word, then `__rtsadp_inspect(word, top_level=1)` → a string
-            // PolyValue (a top-level string stays bare; nested strings are quoted
-            // inside the trampoline). This replaces the ToString path for arrays.
-            let s = if self.is_whole_array_value(a) {
+            // A whole ARRAY arg renders with the Bun/Node inspect form; a whole
+            // OBJECT arg renders with the object form. Both box the heap word and
+            // call the matching trampoline (top_level=1 — a top-level string stays
+            // bare, nested strings are quoted inside the trampoline).
+            let s = if self.is_whole_object_value(a) {
+                let v = self.lower_expr(module, a)?;
+                let boxed = self.box_value(v);
+                let top = self.builder.ins().iconst(types::I64, 1);
+                self.call_runtime(module, "__rtsadp_inspect_object", &[boxed, top])?
+                    .expect("__rtsadp_inspect_object returns a value")
+            } else if self.is_whole_array_value(a) {
                 let v = self.lower_expr(module, a)?;
                 let boxed = self.box_value(v);
                 let top = self.builder.ins().iconst(types::I64, 1);

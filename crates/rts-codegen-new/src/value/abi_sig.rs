@@ -144,6 +144,11 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         // PolyValue word (U64); top_level is an I64 flag (1 = direct arg / bare
         // string, 0 = nested / quoted string); the result is a string PolyValue.
         "__rtsadp_inspect" => SymSig { params: &[U64, I64], ret: U64 },
+        // inspect_object(value_word, top_level) -> string PolyValue word. Same ABI
+        // as `__rtsadp_inspect` but renders the `TAG_OBJECT` word as an OBJECT
+        // (`{ k: v }`), recovering keys from the slot-0 global shape-id. The
+        // lowering calls this for a statically-OBJECT console.log arg (P3.6).
+        "__rtsadp_inspect_object" => SymSig { params: &[U64, I64], ret: U64 },
 
         // ---- codegen-owned FUNCTION-value trampolines (__rtsadp_fn_*, P4.6) ----
         // reify(addr, nparams, has_rest) -> 48-bit slot+shard payload (U64).

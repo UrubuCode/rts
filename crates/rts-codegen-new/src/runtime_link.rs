@@ -100,6 +100,7 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_to_boolean", genops::__rtsadp_to_boolean as *const u8),
         sym("__rtsadp_print_line", abi_adapter::__rtsadp_print_line as *const u8),
         sym("__rtsadp_inspect", inspect::__rtsadp_inspect as *const u8),
+        sym("__rtsadp_inspect_object", inspect::__rtsadp_inspect_object as *const u8),
         // ---- generic arithmetic / comparison / unary / bitwise (P4.8) ----
         sym("__rtsadp_sub", genops_arith::__rtsadp_sub as *const u8),
         sym("__rtsadp_mul", genops_arith::__rtsadp_mul as *const u8),

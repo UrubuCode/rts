@@ -164,18 +164,18 @@ fn run_source_real_stdout_smoke() {
 // ===========================================================================
 
 #[test]
-fn whole_object_log_bails() {
-    // P3: object literals now WORK for scalar access, but printing a WHOLE object
-    // value has no faithful rendering yet — it must bail, not print `[object
-    // Object]` (which diverges from Bun's `{ a: 1 }`).
-    assert_bails("let o = { a: 1 }; console.log(o);");
+fn whole_object_log_now_inspects() {
+    // P3.6 (intentional, justified change from the prior bail): printing a WHOLE
+    // object value now renders `{ a: 1 }` (Node/util.inspect single-line) via the
+    // slot-0 global shape-id key recovery (see `value/inspect.rs`).
+    assert_stdout("let o = { a: 1 }; console.log(o);", "{ a: 1 }\n");
 }
 
 #[test]
 fn whole_array_log_now_inspects() {
     // P3.5 (intentional, justified change from the prior bail): printing a whole
     // array value now renders Bun/Node's `util.inspect` form `[ 1, 2, 3 ]`
-    // (see `value/inspect.rs` + the `inspect` test module). Objects still bail.
+    // (see `value/inspect.rs` + the `inspect` test module). Objects render too.
     assert_stdout("let a = [1, 2, 3]; console.log(a);", "[ 1, 2, 3 ]\n");
 }
 

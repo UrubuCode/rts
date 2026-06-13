@@ -55,9 +55,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
         }
         let shape = self.shapes.intern(&keys);
+        // Reserve a GLOBALLY-UNIQUE shape id (indexes the process-global registry
+        // the inspect trampoline reads) and bake it into slot 0 of the object so
+        // console.log can recover the keys at runtime. Property values live at
+        // slot 1 + slot_index (see `lower_member`/`lower_member_assign`).
+        let global_id = crate::shape::intern_global_shape(&keys);
 
         let obj_word = emit_marshal::emit_new_vec_object(module, self.builder);
-        // Fill slots in key order; each slot holds a boxed PolyValue word.
+        // ---- slot 0: the global shape-id, boxed as a tagged int PolyValue ----
+        let id_word = self
+            .builder
+            .ins()
+            .iconst(types::I64, value::PolyValue::from_i32(global_id as i32).raw() as i64);
+        emit_marshal::emit_vec_push(module, self.builder, obj_word, id_word);
+        // ---- slots 1.. : property values in key order, each a boxed PolyValue ----
         for (_, value_expr) in fields {
             let v = self.lower_expr(module, value_expr)?;
             let word = self.box_value(v);
@@ -109,8 +120,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HeapShape::Object(shape_id) => {
                 match self.shapes.slot_of(shape_id, prop) {
                     Some(slot) => {
+                        // Property values live at slot 1 + slot_index (slot 0 is the
+                        // shape-id header). Arrays are NOT shifted (handled below).
                         let obj_word = self.load_local_word(&name);
-                        let idx = self.builder.ins().iconst(types::I64, slot as i64);
+                        let idx = self.builder.ins().iconst(types::I64, 1 + slot as i64);
                         let word = emit_marshal::emit_vec_get(module, self.builder, obj_word, idx);
                         Ok(Val::new(word, Repr::Tagged))
                     }
@@ -170,7 +183,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let v = self.lower_expr(module, value)?;
         let word = self.box_value(v);
         let obj_word = self.load_local_word(&name);
-        let idx = self.builder.ins().iconst(types::I64, slot as i64);
+        // Property values live at slot 1 + slot_index (slot 0 is the shape-id).
+        let idx = self.builder.ins().iconst(types::I64, 1 + slot as i64);
         emit_marshal::emit_vec_set(module, self.builder, obj_word, idx, word);
         Ok(Val::new(word, Repr::Tagged))
     }

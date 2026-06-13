@@ -88,32 +88,75 @@ fn array_length_still_works() {
 }
 
 // ===========================================================================
-// Object inspect — BAILED this increment (no runtime shape-id → no key recovery).
+// Object inspect (P3.6) — slot-0 global shape-id → recover keys → `{ k: v }`
+// (Node/util.inspect single-line format). Object slot values live at slot 1+.
 // ===========================================================================
 
 #[test]
-fn whole_object_log_bails() {
-    assert_bails("console.log({a: 1, b: 2});");
+fn object_two_numbers() {
+    assert_stdout("console.log({a:1, b:2});", "{ a: 1, b: 2 }\n");
 }
 
 #[test]
-fn empty_object_log_bails() {
-    assert_bails("console.log({});");
+fn empty_object() {
+    assert_stdout("console.log({});", "{}\n");
 }
 
 #[test]
-fn object_local_log_bails() {
-    assert_bails("let o = {a: 1}; console.log(o);");
+fn object_string_value_quoted() {
+    assert_stdout(r#"console.log({s:"x"});"#, "{ s: 'x' }\n");
+}
+
+#[test]
+fn object_mixed_values() {
+    assert_stdout(
+        r#"console.log({n:1, m:"two", t:true});"#,
+        "{ n: 1, m: 'two', t: true }\n",
+    );
+}
+
+#[test]
+fn object_nested_object() {
+    assert_stdout("console.log({a:1, b:{c:2}});", "{ a: 1, b: { c: 2 } }\n");
+}
+
+#[test]
+fn object_with_array_value() {
+    assert_stdout("console.log({xs:[1,2]});", "{ xs: [ 1, 2 ] }\n");
+}
+
+#[test]
+fn object_local_inspected() {
+    assert_stdout("let o = {a: 1, b: 2}; console.log(o);", "{ a: 1, b: 2 }\n");
+}
+
+#[test]
+fn object_then_scalar_log() {
+    // Object inspect AND a later scalar property read of the same shape coexist.
+    assert_stdout(
+        "let o = {a: 1}; console.log(o); console.log(o.a);",
+        "{ a: 1 }\n1\n",
+    );
+}
+
+#[test]
+fn nested_array_first_elem_small_int_still_array() {
+    // Soundness of the runtime object-vs-array discriminator: an ARRAY whose first
+    // element is a small int (a potential shape-id collision) must still render as
+    // an array in NESTED context. `[[0], [1]]` recurses into the inner `[0]`/`[1]`
+    // whose slot0 is int 0/1; the registry/length check rejects them as objects.
+    assert_stdout("console.log([[0], [1]]);", "[ [ 0 ], [ 1 ] ]\n");
 }
 
 #[test]
 fn array_with_object_element_bails() {
-    // Would render the object element as a keyless array — a near-miss. BAIL.
+    // bun prints `[ { a: 1 } ]` MULTI-LINE; our object inspect is single-line — a
+    // near-miss vs the installed bun. BAIL (honesty floor) until formats reconcile.
     assert_bails("console.log([{a: 1}]);");
 }
 
 #[test]
 fn object_scalar_still_works_after_inspect() {
-    // Property access still resolves (no slot shift was introduced for objects).
+    // Property access still resolves (slot 0 = shape-id, values at slot 1+).
     assert_stdout("let o = {a: 1}; console.log(o.a);", "1\n");
 }

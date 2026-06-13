@@ -24,9 +24,58 @@
 //! proven, BAILS (`Unsupported`) rather than guess.
 
 use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 
 pub type ShapeId = u32;
 pub type SlotIdx = u32;
+
+/// A process-global, GLOBALLY-UNIQUE shape id stored INSIDE a runtime object
+/// (slot 0) so the inspect trampoline can recover its ordered keys. Distinct from
+/// the per-compilation [`ShapeId`] (which is only valid for slot resolution within
+/// one `ShapeTable`): two different compilations / functions may both mint local
+/// `ShapeId(0)`, but their global ids differ.
+pub type GlobalShapeId = u32;
+
+/// The process-global registry mapping a [`GlobalShapeId`] → its ordered key list.
+/// Populated at lowering time when an object literal interns its shape (so the id
+/// baked into the emitted object is a real index here), and read at runtime by the
+/// inspect host fn [`global_shape_keys`]. A `Vec` indexed by id (ids are dense,
+/// assigned sequentially); the `by_keys` map de-duplicates identical key-sequences
+/// so `{a,b}` from two literals share ONE global id (smaller registry, stable ids).
+struct GlobalShapeRegistry {
+    keys: Vec<Vec<String>>,
+    by_keys: HashMap<Vec<String>, GlobalShapeId>,
+}
+
+fn registry() -> &'static Mutex<GlobalShapeRegistry> {
+    static REG: OnceLock<Mutex<GlobalShapeRegistry>> = OnceLock::new();
+    REG.get_or_init(|| {
+        Mutex::new(GlobalShapeRegistry { keys: Vec::new(), by_keys: HashMap::new() })
+    })
+}
+
+/// Intern `keys` in the PROCESS-GLOBAL registry, returning a stable
+/// [`GlobalShapeId`] that indexes [`global_shape_keys`]. Called at lowering time
+/// (the id is baked into the object's slot 0 as a tagged int). Idempotent for an
+/// identical key-sequence.
+pub fn intern_global_shape(keys: &[String]) -> GlobalShapeId {
+    let mut reg = registry().lock().expect("global shape registry poisoned");
+    if let Some(&id) = reg.by_keys.get(keys) {
+        return id;
+    }
+    let id = reg.keys.len() as GlobalShapeId;
+    reg.keys.push(keys.to_vec());
+    reg.by_keys.insert(keys.to_vec(), id);
+    id
+}
+
+/// The ordered keys of a [`GlobalShapeId`], or `None` if the id was never
+/// interned (a codegen bug — the runtime stored an id this process did not mint).
+/// The inspect trampoline calls this to render `{ k0: v0, … }`.
+pub fn global_shape_keys(id: GlobalShapeId) -> Option<Vec<String>> {
+    let reg = registry().lock().expect("global shape registry poisoned");
+    reg.keys.get(id as usize).cloned()
+}
 
 /// A hidden class: the layout shared by all objects built the same way. In this
 /// (compile-time) increment a shape is fully described by its ordered key list;
