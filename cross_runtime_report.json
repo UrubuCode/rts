@@ -441,10 +441,10 @@
 ,
 {
   "name": "94_sparse_array_enumeration",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]",
   "node": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]",
-  "rts": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -684,7 +684,7 @@
   "status": "rts_diverge",
   "bun": "truthy:object:boolean:false\ntruthy:object:number:0\ntruthy:object:string:\nextra:false",
   "node": "truthy:object:boolean:false\ntruthy:object:number:0\ntruthy:object:string:\nextra:false",
-  "rts": "truthy:number:number:281474976710657\ntruthy:number:number:281474976710658\ntruthy:number:number:281474976710660\n:562949953421364"
+  "rts": "truthy:number:number:281474976710657\ntruthy:number:number:281474976710658\ntruthy:number:number:281474976710660\n:844424930131994"
 }
 ,
 {
@@ -937,10 +937,10 @@
 ,
 {
   "name": "codex_class_computed_private_static_order",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "5\n4:6\nkey:a|key:m|key:b|static-a|private-static|static-b",
   "node": "5\n4:6\nkey:a|key:m|key:b|static-a|private-static|static-b",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "0:0\nstatic-a|private-static|static-b"
 }
 ,
 {
@@ -980,7 +980,7 @@
   "status": "rts_diverge",
   "bun": "x:base-set:base-get\nx:base-set",
   "node": "x:base-set:base-get\nx:base-set",
-  "rts": "281474976710677\nx:base-set"
+  "rts": "281474976710678\nx:base-set"
 }
 ,
 {
@@ -1068,7 +1068,7 @@
   "status": "rts_diverge",
   "bun": "4\nnan2\nzero:zero\no1:o2\n4:true:true",
   "node": "4\nnan2\nzero:zero\no1:o2\n4:true:true",
-  "rts": "2\nnan2\nzero:zero\nundefined:undefined\n4:true:true"
+  "rts": "2\nzero\nzero:zero\nundefined:undefined\n4:true:true"
 }
 ,
 {
@@ -1281,10 +1281,10 @@
 ,
 {
   "name": "codex_textdecoder_fatal_ignorebom",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "A\n65279\nTypeError",
   "node": "A\n65279\nTypeError",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "null"
 }
 ,
 {
@@ -1321,10 +1321,10 @@
 ,
 {
   "name": "393_promise_microtask",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
   "node": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
-  "rts": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C"
+  "rts": "caught:handled\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C"
 }
 ,
 {
@@ -1556,7 +1556,7 @@
   "status": "rts_diverge",
   "bun": "0 1 10 11 20 21",
   "node": "0 1 10 11 20 21",
-  "rts": ""
+  "rts": "32 32 32 32 32 32"
 }
 ,
 {
@@ -1593,10 +1593,10 @@
 ,
 {
   "name": "codex_bound_constructor_new_target",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "2:5:7\ntrue\ntrue",
   "node": "2:5:7\ntrue\ntrue",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "0:0:0\ntrue"
 }
 ,
 {
@@ -1892,7 +1892,7 @@
   "status": "rts_diverge",
   "bun": "{\"x\":\"5n\",\"arr\":[\"1n\",\"2n\"]}\nTypeError",
   "node": "{\"x\":\"5n\",\"arr\":[\"1n\",\"2n\"]}\nTypeError",
-  "rts": "281474976710658"
+  "rts": "281474976710659"
 }
 ,
 {
@@ -1916,7 +1916,7 @@
   "status": "rts_diverge",
   "bun": "{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number",
   "node": "{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number",
-  "rts": "{\"a\":1,\"child\":{\"toJSON\":94677900538683}}\nrep::object|rep:a:number|rep:child:object|rep:toJSON:number"
+  "rts": "{\"a\":1,\"child\":{\"toJSON\":94548592370491}}\nrep::object|rep:a:number|rep:child:object|rep:toJSON:number"
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -2369,10 +2369,10 @@
 ,
 {
   "name": "95_nan_negative_zero",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=nan\nmap_zero=neg\nset_size=2",
   "node": "is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=nan\nmap_zero=neg\nset_size=2",
-  "rts": "is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=nan\nmap_zero=neg\nset_size=2"
+  "rts": "is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=neg\nmap_zero=neg\nset_size=2"
 }
 ,
 {
@@ -2905,10 +2905,10 @@
 ,
 {
   "name": "388_globalThis",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "object\ntrue\nobject\nobject\nfunction\nfunction\nfunction\nfunction\nfunction\nobject\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\n1.0\ntrue\n1.0\ntrue\ntrue\ntrue",
   "node": "object\ntrue\nobject\nobject\nfunction\nfunction\nfunction\nfunction\nfunction\nobject\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\n1.0\ntrue\n1.0\ntrue\ntrue\ntrue",
-  "rts": "object\ntrue\nobject\nobject\nfunction\nfunction\nfunction\nfunction\nfunction\nobject\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\n1.0\ntrue\n1.0\ntrue\ntrue\ntrue"
+  "rts": "object\ntrue\nfunction\nobject\nfunction\nfunction\nfunction\nfunction\nfunction\nobject\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\n1.0\ntrue\n1.0\ntrue\ntrue\ntrue"
 }
 ,
 {
@@ -3036,7 +3036,7 @@
   "status": "rts_diverge",
   "bun": "{\"c\":1}\n[null,null,1]\n{\"a\":null,\"b\":null,\"c\":null}\n[null,null]\nundefined\nundefined\nnull\nnull\n{\"a\":null}",
   "node": "{\"c\":1}\n[null,null,1]\n{\"a\":null,\"b\":null,\"c\":null}\n[null,null]\nundefined\nundefined\nnull\nnull\n{\"a\":null}",
-  "rts": "{\"b\":94602060365842,\"c\":1}\n[null,94602060365833,1]\n{\"a\":0,\"b\":null,\"c\":false}\n[0,null]\nundefined\n94602060365824\nnull\nnull\n{\"a\":null}"
+  "rts": "{\"b\":94675905789970,\"c\":1}\n[null,94675905789961,1]\n{\"a\":0,\"b\":null,\"c\":false}\n[0,null]\nundefined\n94675905789952\nnull\nnull\n{\"a\":null}"
 }
 ,
 {
@@ -3044,7 +3044,7 @@
   "status": "rts_diverge",
   "bun": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
   "node": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
-  "rts": "{\"value\":42,\"toJSON\":93843488694320}\n{\"nested\":{\"value\":42,\"toJSON\":93843488694320},\"plain\":1}\n[{\"value\":42,\"toJSON\":93843488694320},{\"value\":42,\"toJSON\":93843488694320}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n{\"toJSON\":93843488694306}\n{\"a\":[1,2,3]}"
+  "rts": "{\"value\":42,\"toJSON\":94084750684208}\n{\"nested\":{\"value\":42,\"toJSON\":94084750684208},\"plain\":1}\n[{\"value\":42,\"toJSON\":94084750684208},{\"value\":42,\"toJSON\":94084750684208}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n{\"toJSON\":94084750684194}\n{\"a\":[1,2,3]}"
 }
 ,
 {
@@ -3073,10 +3073,10 @@
 ,
 {
   "name": "claude-typeof-edge-cases",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "object\nundefined\nfunction\nsymbol\nsymbol\nnumber\nstring\nboolean\nobject\nobject\nfunction\nnumber\nfunction\nobject\nstring",
   "node": "object\nundefined\nfunction\nsymbol\nsymbol\nnumber\nstring\nboolean\nobject\nobject\nfunction\nnumber\nfunction\nobject\nstring",
-  "rts": "object\nundefined\nfunction\nsymbol\nsymbol\nnumber\nstring\nboolean\nobject\nobject\nfunction\nnumber\nfunction\nobject\nstring"
+  "rts": "object\nundefined\nfunction\nsymbol\nnumber\nnumber\nstring\nboolean\nobject\nobject\nfunction\nnumber\nfunction\nfunction\nstring"
 }
 ,
 {
@@ -3153,10 +3153,10 @@
 ,
 {
   "name": "codex_proxy_construct_apply_newtarget",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "13\n5:proxy:true:true",
   "node": "13\n5:proxy:true:true",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "3.0000000000000044"
 }
 ,
 {
@@ -4020,7 +4020,7 @@
   "status": "rts_diverge",
   "bun": "7\nSTR\nSTR\n7\n8\nSTR\nSTR,STR\n99\n[object Object]\n[object Object]\n[object Object]",
   "node": "7\nSTR\nSTR\n7\n8\nSTR\nSTR,STR\n99\n[object Object]\n[object Object]\n[object Object]",
-  "rts": "[object Object]\n[object Object]\n[object Object]\n[object Object]\n[object Object]1\n281474976710656\n[object Object],[object Object]\n[object Object]\n[object Object]\n[object Object]\n281474976710687"
+  "rts": "[object Object]\n[object Object]\n[object Object]\n[object Object]\n[object Object]1\n281474976710656\n[object Object],[object Object]\n[object Object]\n[object Object]\n[object Object]\n281474976710701"
 }
 ,
 {
@@ -4057,10 +4057,10 @@
 ,
 {
   "name": "184_symbol_for_keyfor",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "same=true\nkey=test\nkey2=another\nkey_regular=undefined\niterator=symbol\ntoStringTag=symbol",
   "node": "same=true\nkey=test\nkey2=another\nkey_regular=undefined\niterator=symbol\ntoStringTag=symbol",
-  "rts": "same=true\nkey=test\nkey2=another\nkey_regular=undefined\niterator=symbol\ntoStringTag=symbol"
+  "rts": "same=true\nkey=test\nkey2=another\nkey_regular=undefined\niterator=number\ntoStringTag=number"
 }
 ,
 {
@@ -4100,15 +4100,15 @@
   "status": "bun_node_diverge",
   "bun": "9.99\n9.99 USD\n10\n1\n2\ncount:3\n5\n(3,4)\ntrue",
   "node": "__RUNTIME_ERROR__",
-  "rts": "9.99\n9.99 USD\n[object Object]0.01\n1\n2\n[object Object]\nNaN\n(3,4)\nfalse"
+  "rts": "4621813488089437000\n9.99 USD\n[object Object]0.01\n1\n2\n[object Object]\nNaN\n(3,4)\nfalse"
 }
 ,
 {
   "name": "378_symbol_species_hasinstance",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "true\nfalse\ntrue\nfalse\n0,1,2,3\n0,4,5\n0,6,7\ntrue\nfalse\n2,4,6,8\n5\n5m\ntrue",
   "node": "true\nfalse\ntrue\nfalse\n0,1,2,3\n0,4,5\n0,6,7\ntrue\nfalse\n2,4,6,8\n5\n5m\ntrue",
-  "rts": "true\nfalse\ntrue\nfalse\n0,1,2,3\n0,4,5\n0,6,7\ntrue\nfalse\n2,4,6,8\n5\n5m\ntrue"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":426,"rts_diverge":129,"bun_node_diverge":17,"errors":37,"rejected":0}}
+],"summary":{"total":609,"pass":418,"rts_diverge":138,"bun_node_diverge":18,"errors":35,"rejected":0}}
