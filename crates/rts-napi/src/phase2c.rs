@@ -85,8 +85,24 @@ pub unsafe extern "C" fn napi_resolve_deferred(
     let Some(p) = (unsafe { deferred_promise(deferred) }) else {
         return napi_invalid_arg;
     };
-    unsafe { __RTS_FN_NS_PROMISE_RESOLVE(p, handle_from_value(resolution) as i64) };
+    unsafe { __RTS_FN_NS_PROMISE_RESOLVE(p, napi_value_to_ts(resolution)) };
     napi_ok
+}
+
+/// Converte um `napi_value` para o "valor TS" que o runtime de Promise/callbacks
+/// espera: números (FloatPrim) viram BITS f64 (como o codegen empacota literais);
+/// sentinelas e outros handles passam como o i64 do handle. Sem isto, o callback
+/// do `.then` recebe o HANDLE do FloatPrim em vez do número.
+fn napi_value_to_ts(v: napi_value) -> i64 {
+    let h = handle_from_value(v);
+    let unboxed = with_entry(h, |e| match e {
+        Some(Entry::FloatPrim(f)) | Some(Entry::NumberBox(f)) => Some(*f),
+        _ => None,
+    });
+    match unboxed {
+        Some(f) => f.to_bits() as i64, // número → bits f64 (formato TS)
+        None => h as i64,              // handle/sentinela passa cru
+    }
 }
 
 #[unsafe(no_mangle)]

@@ -205,6 +205,29 @@ pub unsafe extern "C" fn node_api_post_finalizer(
     napi_ok
 }
 
+/// `add_async_cleanup_hook(env, hook, arg, &remove_handle)` — registra um hook
+/// de teardown. RTS não tem env teardown ainda; aceita e devolve um handle
+/// dummy (o hook não dispara, mas o addon não quebra ao registrar).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn napi_add_async_cleanup_hook(
+    _env: napi_env,
+    _hook: *mut c_void,
+    _arg: *mut c_void,
+    remove_handle: *mut *mut c_void,
+) -> napi_status {
+    if !remove_handle.is_null() {
+        unsafe { *remove_handle = 1 as *mut c_void };
+    }
+    napi_ok
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn napi_remove_async_cleanup_hook(
+    _remove_handle: *mut c_void,
+) -> napi_status {
+    napi_ok
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

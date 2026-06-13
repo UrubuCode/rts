@@ -822,6 +822,32 @@ pub(super) fn lower_napi_instance_method_call(
     };
     let recv = ctx.coerce_to_i64(obj_tv).val;
 
+    // (N-API) `p.then/catch/finally(cb)` onde `p` pode ser uma Promise criada
+    // por `napi_create_promise`. Roteia para as fns globais de Promise (que
+    // detectam PromiseAsync em runtime e enfileiram o microtask). Sem isto, o
+    // `.then` cairia no INVOKE_METHOD e o callback nunca rodaria.
+    if matches!(method, "then" | "catch" | "finally") && !call.args.is_empty() {
+        let cb_h = super::lower_callable_target_h(ctx, &call.args[0].expr)?;
+        let (sym, arity3) = match method {
+            // then pode ter 2 callbacks (onFulfilled, onRejected).
+            "then" if call.args.len() >= 2 => ("__RTS_FN_GL_PROMISE_THEN2", true),
+            "then" => ("__RTS_FN_GL_PROMISE_THEN", false),
+            "catch" => ("__RTS_FN_GL_PROMISE_CATCH", false),
+            _ => ("__RTS_FN_GL_PROMISE_FINALLY", false),
+        };
+        let result = if arity3 {
+            let cb2 = super::lower_callable_target_h(ctx, &call.args[1].expr)?;
+            let f = ctx.get_extern(sym, &[cl::I64, cl::I64, cl::I64], Some(cl::I64))?;
+            let inst = ctx.builder.ins().call(f, &[recv, cb_h, cb2]);
+            ctx.builder.inst_results(inst)[0]
+        } else {
+            let f = ctx.get_extern(sym, &[cl::I64, cl::I64], Some(cl::I64))?;
+            let inst = ctx.builder.ins().call(f, &[recv, cb_h]);
+            ctx.builder.inst_results(inst)[0]
+        };
+        return Ok(Some(TypedVal::new(result, ValTy::Handle)));
+    }
+
     // Empacota args como napi_value (números boxados em FloatPrim).
     let vec_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
     let inst_v = ctx.builder.ins().call(vec_new, &[]);
