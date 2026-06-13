@@ -104,6 +104,10 @@ pub struct CompileOptions {
     /// Link all namespace symbols regardless of usage (disables linker DCE on
     /// the runtime archive). Required when the binary uses `import(variable)`.
     pub all_namespaces: bool,
+    /// (N-API) Permite carregar addons nativos `.node`. Gate de segurança: sem
+    /// ele, importar um `.node` é erro (código nativo roda fora do sandbox).
+    /// Espelha o `--allow-ffi` do Deno. Ver docs/specs/napi-implementation.md.
+    pub allow_native_addons: bool,
 }
 
 impl CompileOptions {
@@ -124,6 +128,7 @@ impl Default for CompileOptions {
             frontend_mode: FrontendMode::Native,
             emit_module_progress: false,
             all_namespaces: false,
+            allow_native_addons: false,
         }
     }
 }

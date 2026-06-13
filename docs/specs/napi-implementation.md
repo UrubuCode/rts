@@ -118,17 +118,20 @@ linkado no bin `rts` aparece na export table em **debug E release** (com
 - [x] Teste `napi_external_finalizer_is_queued_not_called`: round-trip do ptr opaco; free enfileira (0 chamadas sob lock); drain retorna 1 com data/hint corretos; external sem finalizer não enfileira
 - **Saída:** ✅ `cargo test -p rts-engine` 51/51 (+5+1); alloc+free de `NapiExternal` sem chamar finalize sob lock.
 
-## Etapa 3 — Interceptação de import `.node`
+## Etapa 3 — Interceptação de import `.node` ✅
 
-- [ ] `ModuleKind::NativeAddon` em `module/mod.rs` (~25) + `as_str()="native-addon"`
-- [ ] Espelhar trato `Builtin` nos **5 sites**: `detect_cycle` (221/225), `transitive_deps_hash` (368), `flatten_for_jit` (395), `disk_paths` (477) — esquecer um = parse de binário como TS
-- [ ] Loop `ModuleGraph::load` (92): se `kind == NativeAddon`, **não** `read_to_string` (98); inserir `SourceModule` sintético (program default, exports vazio) + `continue`
-- [ ] `validate_source_extension(path, allow_native: bool)` aceita `node` quando `allow_native`; atualizar call sites; mapear ext→kind em `resolve_import_target`
-- [ ] Flag `--allow-native-addons`: `CliFlags` (20) + `parse_flags` (~127) + `CompileOptions.allow_native_addons`
-- [ ] `native_addon_imports: Vec<(String local, String abs_path)>` em `flatten_for_jit` (~405, análogo a `node_import_map`)
-- [ ] AOT (`compile_file`): grafo com `NativeAddon` → erro claro ("`.node` não suportado em `rts compile`; use `rts run --allow-native-addons`")
-- [ ] Sem flag → erro claro com suggestion
-- **Saída:** `rts run --allow-native-addons app.ts` com `import x from "./x.node"` carrega o grafo sem parsear binário; sem flag → erro; `rts compile` com `.node` → erro.
+- [x] `ModuleKind::NativeAddon` + `as_str()="native-addon"` + helper `is_synthetic_leaf()` (agrupa `Builtin`+`NativeAddon` p/ não esquecer sites)
+- [x] Sites de folha sintética via `is_synthetic_leaf()`: `detect_cycle` (2×), `transitive_deps_hash`, `flatten_for_jit`. `disk_paths` **inclui** `NativeAddon` de propósito (é arquivo real em disco — só `Builtin` sintético excluído)
+- [x] Loop `ModuleGraph::load`: se `kind == NativeAddon`, **não** `read_to_string`; insere `SourceModule::from_native_addon` (program default, exports vazio) + `continue`
+- [x] `validate_source_extension(path, allow_native)` aceita `node` quando `allow_native`; `resolve_source_candidate` passa `true` (deixa o path passar), `resolve_entry_path` passa `false` (entry `.node` = erro). Helper `is_native_addon`
+- [x] `classify_resolved()` — ponto único que mapeia ext→kind + aplica o gate `--allow-native-addons`; usado nos 3 caminhos (relativo, node_modules, dependência de manifest)
+- [x] Flag `--allow-native-addons`: `CliFlags` + `parse_flags` + `CompileOptions.allow_native_addons`
+- [x] `native_addon_imports: HashMap<String, String>` (local→abs path) no `Program`; capturado em `flatten_for_jit` quando um `Item::Import` resolve para módulo `NativeAddon` (default + named)
+- [x] AOT (`compile_file`): `graph.first_native_addon()` → erro claro proibindo `.node` em `rts compile`
+- [x] Sem flag → erro `E005` claro com suggestion
+- [x] **Validado e2e:** (1) sem flag → `E005`; (2) com flag → grafo carrega (`.node` vira folha, não parseado como TS), programa roda; (3) `rts compile` → erro AOT
+- [x] **Suite TS 1710/1710** (630 arquivos), zero regressão
+- **Saída:** ✅ interceptação completa; gate de segurança; AOT proibido.
 
 ## Etapa 4 — Loader + handshake + bind no codegen
 

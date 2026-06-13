@@ -33,10 +33,7 @@ pub(crate) fn resolve_import_target(
         })?;
         match resolve_source_module(base_dir, specifier) {
             Ok(path) => {
-                return Ok(ImportTarget {
-                    path,
-                    kind: ModuleKind::Source,
-                });
+                return classify_resolved(path, ModuleKind::Source, specifier, import_span, options);
             }
             Err(err) => {
                 reporter::emit(
@@ -88,34 +85,38 @@ pub(crate) fn resolve_import_target(
 
     if let Some(owner_manifest) = owner_manifest {
         if let Some(dependency) = owner_manifest.dependencies.get(specifier) {
-            return resolve_dependency_target(specifier, dependency, owner_manifest, module_cache)
-                .with_context(|| {
-                    attach_trace(
-                        format!(
-                            "failed to resolve dependency '{}' declared in {}@{} ({})",
-                            specifier,
-                            owner_manifest.name,
-                            owner_manifest.version,
-                            owner_manifest.manifest_path.display()
-                        ),
-                        trace_route,
-                        options,
-                    )
-                })
-                .map_err(|err| {
-                    reporter::emit(
-                        RichDiagnostic::error(
-                            "E003",
+            let target =
+                resolve_dependency_target(specifier, dependency, owner_manifest, module_cache)
+                    .with_context(|| {
+                        attach_trace(
                             format!(
-                                "falha ao resolver dependencia '{specifier}' declarada em {}",
-                                owner_manifest.name
+                                "failed to resolve dependency '{}' declared in {}@{} ({})",
+                                specifier,
+                                owner_manifest.name,
+                                owner_manifest.version,
+                                owner_manifest.manifest_path.display()
                             ),
+                            trace_route,
+                            options,
                         )
-                        .with_span(import_span)
-                        .with_note(err.to_string()),
-                    );
-                    err
-                });
+                    })
+                    .map_err(|err| {
+                        reporter::emit(
+                            RichDiagnostic::error(
+                                "E003",
+                                format!(
+                                    "falha ao resolver dependencia '{specifier}' declarada em {}",
+                                    owner_manifest.name
+                                ),
+                            )
+                            .with_span(import_span)
+                            .with_note(err.to_string()),
+                        );
+                        err
+                    })?;
+            // Reclassifica caso a dependência resolva para um `.node` (aplica o
+            // gate --allow-native-addons de forma uniforme).
+            return classify_resolved(target.path, target.kind, specifier, import_span, options);
         }
     }
 
@@ -129,10 +130,13 @@ pub(crate) fn resolve_import_target(
 
     // node_modules/<specifier> installed by rts i / npm / bun / yarn
     if let Some(path) = resolve_node_modules_import(workspace_root, specifier, manifest_cache)? {
-        return Ok(ImportTarget {
+        return classify_resolved(
             path,
-            kind: ModuleKind::CachedDependency,
-        });
+            ModuleKind::CachedDependency,
+            specifier,
+            import_span,
+            options,
+        );
     }
 
     // Embedded TypeScript builtins served under the "rts:<name>" scheme but
@@ -253,7 +257,11 @@ pub(crate) fn resolve_source_candidate(candidate: &Path) -> Result<PathBuf> {
 
     for path in attempts {
         if path.exists() {
-            validate_source_extension(&path)?;
+            // `.node` é deixado passar como path resolvido; o gate
+            // `--allow-native-addons` é aplicado uma única vez no caller
+            // (`resolve_import_target`/`resolve_entry_path`), que conhece as
+            // `CompileOptions`. Aqui só validamos extensões de source.
+            validate_source_extension(&path, true)?;
             return path.canonicalize().with_context(|| {
                 format!("failed to canonicalize import module {}", path.display())
             });
@@ -401,7 +409,9 @@ fn resolve_dependency_target(
 
 pub(crate) fn resolve_entry_path(input: &Path) -> Result<PathBuf> {
     if input.exists() {
-        validate_source_extension(input)?;
+        // O entry point é sempre TS/JS — um `.node` como entry não faz sentido
+        // (não tem `main`). `allow_native = false` rejeita com erro claro.
+        validate_source_extension(input, false)?;
         return input
             .canonicalize()
             .with_context(|| format!("failed to canonicalize entry path {}", input.display()));
@@ -432,13 +442,27 @@ pub(crate) fn resolve_entry_path(input: &Path) -> Result<PathBuf> {
     )
 }
 
-pub(crate) fn validate_source_extension(path: &Path) -> Result<()> {
+/// Valida a extensão de um módulo. `.node` (addon nativo N-API) é aceito apenas
+/// quando `allow_native` — ver `is_native_addon` e a flag `allow_native_addons`.
+pub(crate) fn validate_source_extension(path: &Path, allow_native: bool) -> Result<()> {
     let Some(ext) = path.extension().and_then(|value| value.to_str()) else {
         bail!(
             "source file must have .rts, .ts or .js extension: {}",
             path.display()
         );
     };
+
+    if ext == "node" {
+        if allow_native {
+            return Ok(());
+        }
+        bail!(
+            "native addon '{}' requires --allow-native-addons (N-API addons run \
+             native code outside the sandbox; only pure N-API is supported, not \
+             V8-direct/NAN)",
+            path.display()
+        );
+    }
 
     if ext != "rts" && ext != "ts" && ext != "js" {
         bail!(
@@ -449,6 +473,53 @@ pub(crate) fn validate_source_extension(path: &Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// `true` se o path tem extensão `.node` (addon nativo).
+pub(crate) fn is_native_addon(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()) == Some("node")
+}
+
+/// Decide o `ModuleKind` de um path já resolvido e aplica o gate
+/// `--allow-native-addons`. Um `.node` vira `ModuleKind::NativeAddon` (e exige a
+/// flag); qualquer outra extensão mantém o `default_kind` que o resolvedor
+/// determinou. Ponto único onde a política de addon nativo é aplicada nos
+/// caminhos de import (relativo, node_modules, dependência de manifest).
+fn classify_resolved(
+    path: PathBuf,
+    default_kind: ModuleKind,
+    specifier: &str,
+    import_span: Span,
+    options: CompileOptions,
+) -> Result<ImportTarget> {
+    if is_native_addon(&path) {
+        if !options.allow_native_addons {
+            reporter::emit(
+                RichDiagnostic::error(
+                    "E005",
+                    format!("addon nativo '.node' requer --allow-native-addons: '{specifier}'"),
+                )
+                .with_span(import_span)
+                .with_note(
+                    "addons N-API rodam código nativo fora do sandbox; só N-API \
+                     puro é suportado (não V8-direto/NAN)",
+                )
+                .with_suggestion("rode com: rts run --allow-native-addons <entry>"),
+            );
+            bail!(
+                "native addon '{}' requires --allow-native-addons",
+                path.display()
+            );
+        }
+        return Ok(ImportTarget {
+            path,
+            kind: ModuleKind::NativeAddon,
+        });
+    }
+    Ok(ImportTarget {
+        path,
+        kind: default_kind,
+    })
 }
 
 pub(crate) fn is_remote_url(specifier: &str) -> bool {

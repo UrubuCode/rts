@@ -26,6 +26,14 @@ pub struct Program {
     /// Populated by `ModuleGraph::flatten_for_jit` and by single-file
     /// AOT scan in `compile_program`.
     pub local_alias_map: HashMap<String, String>,
+    /// (N-API) Maps local import name → absolute path of a `.node` native
+    /// addon. `import addon from "./x.node"` → `"addon"` → `"/abs/x.node"`.
+    ///
+    /// Populated by `ModuleGraph::flatten_for_jit` when an import resolves to a
+    /// `ModuleKind::NativeAddon` module. The init codegen emits, per entry, a
+    /// `napi.load_addon(path)` call and binds the returned exports handle to the
+    /// local name. See docs/specs/napi-implementation.md.
+    pub native_addon_imports: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
