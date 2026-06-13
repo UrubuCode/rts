@@ -9,6 +9,14 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+// O rlib do rts-napi referencia `__RTS_FN_GL_FUNCTION_CALL` (de rts-primitives,
+// só presente no bin). Fornecemos um stub aqui para o teste de integração
+// linkar; ele não é exercitado (este teste não chama napi_call_function).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(_h: u64, _t: i64, _a: u64) -> i64 {
+    0
+}
+
 /// Fonte do addon dummy: devolve o `exports` recebido (objeto vazio populável).
 const DUMMY_ADDON_SRC: &str = r#"
 use std::ffi::c_void;

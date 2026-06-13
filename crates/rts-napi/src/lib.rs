@@ -21,6 +21,7 @@
 pub mod env;
 pub mod errors;
 pub mod externals;
+pub mod functions;
 pub mod loader;
 pub mod objects;
 pub mod strings;
@@ -31,8 +32,8 @@ pub mod values;
 use std::ffi::{c_char, c_void};
 
 use types::{
-    napi_callback, napi_callback_info, napi_env, napi_escapable_handle_scope,
-    napi_handle_scope, napi_ref, napi_status, napi_value,
+    napi_callback, napi_env, napi_escapable_handle_scope, napi_handle_scope, napi_ref,
+    napi_status, napi_value,
 };
 
 use napi_status::{napi_generic_failure, napi_ok};
@@ -111,9 +112,7 @@ napi_stub!(fn napi_define_properties(env: napi_env, object: napi_value, property
 napi_stub!(fn napi_instanceof(env: napi_env, object: napi_value, constructor: napi_value, result: *mut bool) -> napi_status);
 
 // ── funções / callbacks ─────────────────────────────────────────────────────
-napi_stub!(fn napi_create_function(env: napi_env, utf8name: *const c_char, length: usize, cb: napi_callback, data: *mut c_void, result: *mut napi_value) -> napi_status);
-napi_stub!(fn napi_get_cb_info(env: napi_env, cbinfo: napi_callback_info, argc: *mut usize, argv: *mut napi_value, this_arg: *mut napi_value, data: *mut *mut c_void) -> napi_status);
-napi_stub!(fn napi_call_function(env: napi_env, recv: napi_value, func: napi_value, argc: usize, argv: *const napi_value, result: *mut napi_value) -> napi_status);
+// napi_create_function / napi_get_cb_info / napi_call_function em `functions.rs`.
 
 // ── erros / exceções ────────────────────────────────────────────────────────
 // Todas implementadas em `errors.rs`.
@@ -178,9 +177,9 @@ pub fn force_link() -> usize {
         crate::values::napi_typeof as *const (),
         crate::objects::napi_is_array as *const (),
         napi_instanceof as *const (),
-        napi_create_function as *const (),
-        napi_get_cb_info as *const (),
-        napi_call_function as *const (),
+        crate::functions::napi_create_function as *const (),
+        crate::functions::napi_get_cb_info as *const (),
+        crate::functions::napi_call_function as *const (),
         crate::errors::napi_throw as *const (),
         crate::errors::napi_throw_error as *const (),
         crate::errors::napi_throw_type_error as *const (),
@@ -204,6 +203,7 @@ pub fn force_link() -> usize {
         crate::externals::napi_get_value_external as *const (),
         // Símbolo interno do loader (chamado pelo codegen, não pelo .node):
         crate::loader::__RTS_FN_NS_NAPI_LOAD_ADDON as *const (),
+        crate::functions::__RTS_FN_RT_NAPI_DISPATCH_CALLBACK as *const (),
     ];
     // `black_box` evita que o otimizador prove que o resultado é constante e
     // elimine as referências.

@@ -1,6 +1,6 @@
 # N-API — Plano de implementação (doc vivo de acompanhamento)
 
-> **Status:** planejamento concluído, implementação não iniciada.
+> **Status:** Fase 0 ✅ + Fase 1 6/8 etapas ✅ — **paridade com Node confirmada**.
 > **Escopo desta entrega:** Fase 0 (loader) + Fase 1 (~40 fns N-API síncronas, núcleo 80/20).
 > **Como usar este doc:** cada etapa tem checkboxes `[ ]`. Marcar `[x]` ao concluir,
 > sempre com o critério de saída verificado. Atualizar este arquivo no mesmo
@@ -161,10 +161,15 @@ até a Fase 1 dar corpo a elas.
 
 # FASE 1 — ~40 fns síncronas (addon real)
 
-> **Progresso Fase 1:** Etapas 5, 6, 7, 10, 12 ✅ (marshalling escalar, strings,
-> objects/arrays/props, exceções, external). Pendentes: 8 (handle scopes), 9
-> (references), 11 (functions/callbacks) — as mais complexas. `rts-napi` 24
-> testes unit + 1 integração; 55 símbolos na export table; suite TS 1710/1710.
+> **Progresso Fase 1:** Etapas 5, 6, 7, 10, 11, 12 ✅ (marshalling escalar,
+> strings, objects/arrays/props, exceções, **functions/callbacks**, external).
+> Pendentes: 8 (handle scopes), 9 (references). `rts-napi` 24 unit + 2 integração
+> (loader + paridade-vs-Node); 55 símbolos na export table; suite TS 1710/1710.
+>
+> **🎯 PARIDADE COM NODE CONFIRMADA:** o mesmo addon N-API (`add(a,b)` via
+> `napi_create_function`/`get_cb_info`/`get_value_double`/`create_double`)
+> produz saída **idêntica** no Node v22 e no RTS — `add(2,3)=5`, `add(10,7)=17`,
+> `add(-1,1)=0`. Validado por comparação diferencial direta.
 
 ## Etapa 5 — Marshalling escalar + typeof
 
@@ -225,6 +230,35 @@ até a Fase 1 dar corpo a elas.
 - **Saída (Fase 1):** addon síncrono real (hashing ou compressão síncrona) roda.
 
 ---
+
+## Etapa 11 — Functions / callbacks (trampolim bidirecional) ✅
+
+- [x] `crates/rts-napi/src/functions.rs`:
+  - [x] `napi_create_function`: aloca um `Entry::Function` marcador (`fn_ptr=0`) e registra `(cb, env, data)` num `NAPI_CALLBACKS: Mutex<HashMap<handle, NapiFn>>` indexado pelo handle
+  - [x] `__RTS_FN_RT_NAPI_DISPATCH_CALLBACK(handle, this, args_handle, out_result) -> i64`: shim chamado no início de `__RTS_FN_GL_FUNCTION_CALL` (rts-primitives, via `extern "C"` resolvido por link/JIT). Se o handle está no registry, monta um `CallbackInfo`, chama `cb(env, info)`, escreve o handle do resultado em `out_result` e devolve 1; senão devolve 0 (dispatch normal segue)
+  - [x] `napi_get_cb_info`: lê o `CallbackInfo`; `argc` in/out (capacidade→real, resto preenchido com undefined); `this_arg`/`data`
+  - [x] `napi_call_function`: empacota argv num `Entry::Vec` e chama `__RTS_FN_GL_FUNCTION_CALL` (sentido inverso: addon chama fn TS)
+- [x] **Codegen:** `addon.method(args)` interceptado em `calls/mod.rs` (antes do lookup de namespace, senão vira "unknown namespace member") → `lower_native_addon_method_call` (`indirect.rs`): `LOAD_ADDON` → `MAP_GET_STR(method)` → empacota args como `napi_value` (números via `FLOAT_BOX`) → `FUNCTION_CALL` → handle do resultado (ambíguo, desembrulhado pela concat)
+- [x] **JIT:** `__RTS_FN_RT_NAPI_DISPATCH_CALLBACK` + `__RTS_FN_RT_MAP_GET_STR` registrados; `force_link` retém o dispatch
+- [x] **e2e validado:** addon real `add(a,b)` (`napi_create_function`+`get_cb_info`+`get_value_double`+`create_double`+`set_named_property`) → `addon.add(2,3)===5` no RTS
+- [x] **Paridade vs Node v22:** mesma saída (5/17/0) — `tests/parity_vs_node.rs` (skip gracioso sem MSVC/Node)
+- **Saída:** ✅ addon que expõe funções chamáveis do TS roda, com paridade Node.
+
+### ⚠️ Import lib do host (necessário para addons reais no Windows)
+
+Um `.node` deixa os símbolos `napi_*` undefined, resolvidos contra o host em
+runtime. No Windows o linker exige uma **import library** na hora de compilar o
+addon. Hoje gera-se manualmente:
+```
+dumpbin /EXPORTS rts.exe | grep napi_  → napi_host.def
+lib /DEF:napi_host.def /OUT:rts.lib /MACHINE:X64 /NAME:rts.exe
+# compila o addon com  -L <dir> -l rts
+```
+**Follow-up:** o `rts` deveria emitir um `rts.lib`/`.def` no diretório de
+distribuição (como o Node faz com `node.lib`) para que `npm`/`node-gyp`/`napi-rs`
+linkem addons contra ele sem passos manuais. Prebuilts N-API (napi-rs/
+prebuildify) usam delay-load e resolvem por `GetModuleHandle(NULL)` →
+funcionam sem relink (o `win_delay_load_hook` cai no rts.exe).
 
 ## Riscos / unknowns (spike antes da etapa correspondente)
 
