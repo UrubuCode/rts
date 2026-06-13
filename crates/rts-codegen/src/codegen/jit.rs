@@ -693,10 +693,11 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
     {
         // (narrow-storage) box/unbox de float primitivo em container heterogêneo.
         use crate::namespaces::gc::string_pool::{
-            __RTS_FN_RT_FLOAT_BOX, __RTS_FN_RT_FLOAT_UNBOX,
+            __RTS_FN_RT_FLOAT_BOX, __RTS_FN_RT_FLOAT_UNBOX, __RTS_FN_RT_NUM_ARITH,
         };
         add_fn!("__RTS_FN_RT_FLOAT_BOX", __RTS_FN_RT_FLOAT_BOX);
         add_fn!("__RTS_FN_RT_FLOAT_UNBOX", __RTS_FN_RT_FLOAT_UNBOX);
+        add_fn!("__RTS_FN_RT_NUM_ARITH", __RTS_FN_RT_NUM_ARITH);
     }
     {
         use crate::namespaces::gc::string_pool::{

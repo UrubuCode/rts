@@ -1059,6 +1059,33 @@ pub extern "C" fn __RTS_FN_RT_FLOAT_UNBOX(handle: u64, out: *mut f64) -> i64 {
     }
 }
 
+/// (narrow-storage) Aritmética tag-preservante p/ operando que pode ser FloatPrim
+/// boxed (resultado de `Map.get`). op: 0=Sub, 1=Mul, 2=Div. FloatPrim→unbox+f64+
+/// rebox; senão int (Sub/Mul) — Div sempre f64 (JS `/`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_NUM_ARITH(a: i64, b: i64, op: i64) -> i64 {
+    let mut fa = 0.0f64;
+    let af = __RTS_FN_RT_FLOAT_UNBOX(a as u64, &mut fa) != 0;
+    let mut fb = 0.0f64;
+    let bf = __RTS_FN_RT_FLOAT_UNBOX(b as u64, &mut fb) != 0;
+    if af || bf || op == 2 {
+        let av = if af { fa } else { a as f64 };
+        let bv = if bf { fb } else { b as f64 };
+        let r = match op {
+            0 => av - bv,
+            1 => av * bv,
+            2 => av / bv,
+            _ => 0.0,
+        };
+        return __RTS_FN_RT_FLOAT_BOX(r) as i64;
+    }
+    match op {
+        0 => a.wrapping_sub(b),
+        1 => a.wrapping_mul(b),
+        _ => 0,
+    }
+}
+
 const INSPECT_MAX_DEPTH: usize = 6;
 
 fn inspect_handle(h: u64, depth: usize) -> String {

@@ -85,6 +85,33 @@ fn as_int_literal(expr: &Expr) -> Option<i64> {
     }
 }
 
+/// (narrow-storage) `expr` é uma chamada `recv.get(...)` (ex: `m.get(k)`)? Usado
+/// p/ restringir a aritmética tag-preservante (NUM_ARITH) a valores de Map.get —
+/// que podem ser FloatPrim boxed — SEM tocar aritmética de campo-de-objeto
+/// (`x.p - y.p`), que é int e usada em comparadores de sort (a abordagem larga
+/// quebrava esses → hang).
+fn is_map_get_call(expr: &Expr) -> bool {
+    let mut x = expr;
+    loop {
+        match x {
+            Expr::Paren(p) => x = &p.expr,
+            Expr::TsAs(a) => x = &a.expr,
+            Expr::TsNonNull(n) => x = &n.expr,
+            _ => break,
+        }
+    }
+    if let Expr::Call(c) = x {
+        if let swc_ecma_ast::Callee::Expr(ce) = &c.callee {
+            if let Expr::Member(m) = ce.as_ref() {
+                if let MemberProp::Ident(p) = &m.prop {
+                    return p.sym.as_str() == "get";
+                }
+            }
+        }
+    }
+    false
+}
+
 fn try_bin_imm(ctx: &mut FnCtx, bin: &BinExpr) -> Result<Option<TypedVal>> {
     // Checa op antes de qualquer lower — sem isso, ops fora desta lista
     // pagavam lower duplicado da subexpr (uma aqui, outra no fluxo
@@ -122,6 +149,16 @@ fn try_bin_imm(ctx: &mut FnCtx, bin: &BinExpr) -> Result<Option<TypedVal>> {
     };
 
     let lhs = lower_expr(ctx, var_side)?;
+
+    // (narrow-storage) `Map.get(k) <Sub/Mul/Div> imm`: o get pode ser FloatPrim
+    // boxed → pula peephole int-imm, cai no fluxo principal (NUM_ARITH). GUARDA
+    // restrita a `.get()` (não campo-de-obj `x.p`) p/ não tocar comparadores de
+    // sort (evita o hang da abordagem larga anterior).
+    if matches!(bin.op, BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div)
+        && is_map_get_call(var_side)
+    {
+        return Ok(None);
+    }
 
     // (#299) Peephole de Add inverteu lhs/rhs quando literal estava na
     // esquerda. Pra Number e' OK (3+5=5+3) mas Add com Handle vira
@@ -1133,6 +1170,42 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
             };
             return Ok(TypedVal::new(result, ValTy::Bool));
         }
+    }
+
+    // (narrow-storage) `Map.get(k) <Sub/Mul/Div> x`: o get pode ser FloatPrim
+    // boxed → aritmética tag-preservante via NUM_ARITH. GUARDA por AST `.get()`
+    // (não campo-de-obj) p/ não tocar comparadores de sort. Operando F64 conhecido
+    // (literal) é boxed p/ NUM_ARITH desembrulhar.
+    if matches!(bin.op, BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div)
+        && (is_map_get_call(&bin.left) || is_map_get_call(&bin.right))
+    {
+        fn operand_i64(ctx: &mut FnCtx, tv: TypedVal) -> Result<cranelift_codegen::ir::Value> {
+            if matches!(tv.ty, ValTy::F64) {
+                let box_fn = ctx.get_extern("__RTS_FN_RT_FLOAT_BOX", &[cl::F64], Some(cl::I64))?;
+                let inst = ctx.builder.ins().call(box_fn, &[tv.val]);
+                Ok(ctx.builder.inst_results(inst)[0])
+            } else {
+                Ok(ctx.coerce_to_i64(tv).val)
+            }
+        }
+        let lv = operand_i64(ctx, lhs)?;
+        let rv = operand_i64(ctx, rhs)?;
+        let op_code: i64 = match bin.op {
+            BinaryOp::Sub => 0,
+            BinaryOp::Mul => 1,
+            BinaryOp::Div => 2,
+            _ => unreachable!(),
+        };
+        let op_v = ctx.builder.ins().iconst(cl::I64, op_code);
+        let fref = ctx.get_extern(
+            "__RTS_FN_RT_NUM_ARITH",
+            &[cl::I64, cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(fref, &[lv, rv, op_v]);
+        let res = ctx.builder.inst_results(inst)[0];
+        ctx.var_member_call_values.insert(res);
+        return Ok(TypedVal::new(res, ValTy::I64));
     }
 
     // === / !== com tipos diferentes em compile-time → const false/true.
