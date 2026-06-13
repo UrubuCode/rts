@@ -499,49 +499,7 @@ pub unsafe extern "C" fn napi_create_buffer_copy(
     napi_ok
 }
 
-// ── BigInt read (Entry::BigFixed — aproximação via i64) ──────────────────────
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn napi_create_bigint_int64(
-    _env: napi_env,
-    value: i64,
-    result: *mut napi_value,
-) -> napi_status {
-    if result.is_null() {
-        return napi_invalid_arg;
-    }
-    // Fase 2: BigInt como FloatPrim (perde precisão >2^53; suficiente p/ muitos
-    // addons). BigInt real é follow-up (#219).
-    let h = alloc_entry(Entry::FloatPrim(value as f64));
-    unsafe { *result = value_from_handle(h) };
-    napi_ok
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn napi_get_value_bigint_int64(
-    _env: napi_env,
-    value: napi_value,
-    result: *mut i64,
-    lossless: *mut bool,
-) -> napi_status {
-    if result.is_null() {
-        return napi_invalid_arg;
-    }
-    let n = with_entry(handle_from_value(value), |e| match e {
-        Some(Entry::FloatPrim(f)) | Some(Entry::NumberBox(f)) => Some(*f),
-        _ => None,
-    });
-    match n {
-        Some(f) => {
-            unsafe { *result = f as i64 };
-            if !lossless.is_null() {
-                unsafe { *lossless = f.fract() == 0.0 };
-            }
-            napi_ok
-        }
-        None => napi_invalid_arg,
-    }
-}
+// BigInt migrou para bigint.rs (Entry::BigInt real, #219).
 
 #[cfg(test)]
 mod tests {

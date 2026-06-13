@@ -20,6 +20,7 @@
 
 pub mod arraybuffer;
 pub mod async_work;
+pub mod bigint;
 pub mod classes;
 pub mod env;
 pub mod errors;
@@ -199,6 +200,13 @@ pub fn force_link() -> usize {
         crate::arraybuffer::napi_create_external_buffer as *const (),
         crate::arraybuffer::node_api_create_buffer_from_arraybuffer as *const (),
         crate::arraybuffer::node_api_create_sharedarraybuffer as *const (),
+        // BigInt real (bigint.rs, #219)
+        crate::bigint::napi_create_bigint_int64 as *const (),
+        crate::bigint::napi_create_bigint_uint64 as *const (),
+        crate::bigint::napi_create_bigint_words as *const (),
+        crate::bigint::napi_get_value_bigint_int64 as *const (),
+        crate::bigint::napi_get_value_bigint_uint64 as *const (),
+        crate::bigint::napi_get_value_bigint_words as *const (),
         // Async work síncrono (async_work.rs, #1548 item 3 parcial)
         crate::async_work::napi_async_destroy as *const (),
         crate::async_work::napi_async_init as *const (),
@@ -226,7 +234,6 @@ pub fn force_link() -> usize {
         crate::phase2::napi_coerce_to_bool as *const (),
         crate::phase2::napi_coerce_to_number as *const (),
         crate::phase2::napi_coerce_to_object as *const (),
-        crate::phase2::napi_create_bigint_int64 as *const (),
         crate::phase2::napi_create_buffer as *const (),
         crate::phase2::napi_create_buffer_copy as *const (),
         crate::phase2::napi_create_date as *const (),
@@ -237,7 +244,6 @@ pub fn force_link() -> usize {
         crate::phase2::napi_get_buffer_info as *const (),
         crate::phase2::napi_get_date_value as *const (),
         crate::phase2::napi_get_property_names as *const (),
-        crate::phase2::napi_get_value_bigint_int64 as *const (),
         crate::phase2::napi_has_element as *const (),
         crate::phase2::napi_has_named_property as *const (),
         crate::phase2::napi_has_own_property as *const (),

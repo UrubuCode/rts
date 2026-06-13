@@ -512,6 +512,10 @@ pub enum Entry {
     /// finalize (nunca o chama sob o lock do shard — ver `cleanup_entry`). Ver
     /// docs/specs/napi-implementation.md.
     NapiExternal(Box<NapiExternalData>),
+    /// (N-API #219) BigInt arbitrário: `negative` + `words` little-endian
+    /// (cada word é u64). Fiel ao `napi_create_bigint_words`/`get_value_*`.
+    /// Helpers em `arraybuffer.rs`-adjacentes; ver `bigint_*` fns abaixo.
+    BigInt(Box<BigIntData>),
     /// (N-API) ArrayBuffer com **ponteiro de bytes ESTÁVEL** enquanto o handle
     /// viver — o addon pega `data: *mut u8` via `arraybuffer_ptr` e escreve
     /// direto na memória (hash/crypto/compressão). Diferente de `Buffer(Vec<u8>)`,
@@ -522,6 +526,58 @@ pub enum Entry {
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,
+}
+
+/// Payload de `Entry::BigInt` (#219). `words` little-endian (word 0 = bits
+/// baixos); `negative` é o sinal. Magnitude zero com `negative=false` = 0n.
+#[derive(Debug, Clone)]
+pub struct BigIntData {
+    pub negative: bool,
+    pub words: Vec<u64>,
+}
+
+impl BigIntData {
+    /// Constrói de um i64.
+    pub fn from_i64(v: i64) -> Self {
+        let negative = v < 0;
+        let mag = v.unsigned_abs();
+        Self {
+            negative,
+            words: if mag == 0 { vec![] } else { vec![mag] },
+        }
+    }
+    /// Constrói de um u64.
+    pub fn from_u64(v: u64) -> Self {
+        Self {
+            negative: false,
+            words: if v == 0 { vec![] } else { vec![v] },
+        }
+    }
+    /// Lê como i64 (`lossless=false` se não couber). Trunca aos 64 bits baixos.
+    pub fn to_i64(&self) -> (i64, bool) {
+        let low = self.words.first().copied().unwrap_or(0);
+        let extra = self.words.len() > 1;
+        let mag = low;
+        let val = if self.negative {
+            (mag as i64).wrapping_neg()
+        } else {
+            mag as i64
+        };
+        // lossless se cabe em i64: 1 word e sem overflow de sinal.
+        let lossless = !extra
+            && if self.negative {
+                mag <= (i64::MAX as u64) + 1
+            } else {
+                mag <= i64::MAX as u64
+            };
+        (val, lossless)
+    }
+    /// Lê como u64 (`lossless=false` se negativo ou > 1 word).
+    pub fn to_u64(&self) -> (u64, bool) {
+        let low = self.words.first().copied().unwrap_or(0);
+        let lossless = !self.negative && self.words.len() <= 1;
+        (low, lossless)
+    }
 }
 
 /// Payload de `Entry::ArrayBuffer`. O backing é owned (Box, ptr estável) ou
@@ -1437,6 +1493,50 @@ pub fn arraybuffer_is_detached(handle: u64) -> bool {
     with_entry(handle, |e| match e {
         Some(Entry::ArrayBuffer(ab)) => ab.detached,
         _ => false,
+    })
+}
+
+// ── BigInt (N-API #219) ──────────────────────────────────────────────────────
+
+pub fn alloc_bigint_i64(v: i64) -> u64 {
+    alloc_entry(Entry::BigInt(Box::new(BigIntData::from_i64(v))))
+}
+pub fn alloc_bigint_u64(v: u64) -> u64 {
+    alloc_entry(Entry::BigInt(Box::new(BigIntData::from_u64(v))))
+}
+pub fn alloc_bigint_words(negative: bool, words: &[u64]) -> u64 {
+    // Normaliza: remove words altas zeradas.
+    let mut w = words.to_vec();
+    while w.last() == Some(&0) {
+        w.pop();
+    }
+    alloc_entry(Entry::BigInt(Box::new(BigIntData {
+        negative: if w.is_empty() { false } else { negative },
+        words: w,
+    })))
+}
+pub fn is_bigint(handle: u64) -> bool {
+    with_entry(handle, |e| matches!(e, Some(Entry::BigInt(_))))
+}
+/// `(value, lossless)` como i64.
+pub fn bigint_to_i64(handle: u64) -> Option<(i64, bool)> {
+    with_entry(handle, |e| match e {
+        Some(Entry::BigInt(b)) => Some(b.to_i64()),
+        _ => None,
+    })
+}
+/// `(value, lossless)` como u64.
+pub fn bigint_to_u64(handle: u64) -> Option<(u64, bool)> {
+    with_entry(handle, |e| match e {
+        Some(Entry::BigInt(b)) => Some(b.to_u64()),
+        _ => None,
+    })
+}
+/// `(negative, words)` — copia as words.
+pub fn bigint_words(handle: u64) -> Option<(bool, Vec<u64>)> {
+    with_entry(handle, |e| match e {
+        Some(Entry::BigInt(b)) => Some((b.negative, b.words.clone())),
+        _ => None,
     })
 }
 
