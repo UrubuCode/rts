@@ -503,10 +503,56 @@ pub enum Entry {
     /// avanca ate o proximo yield a cada `.next()` (lazy real, suporta
     /// generators infinitos).
     GenState(Box<GenStateData>),
+    /// (N-API) Ponteiro nativo opaco embrulhado por `napi_create_external` — um
+    /// `void*` que o JS só vê como handle (`napi_external`). O `finalize` (se
+    /// presente) é chamado quando o handle é coletado/liberado, recebendo
+    /// `(data, hint)` mais o `napi_env` (provido pelo runtime N-API no momento
+    /// do disparo). Os ponteiros são tratados como opacos pelo engine: ele
+    /// **não** os dereferencia, só guarda e, no cleanup, **enfileira** o
+    /// finalize (nunca o chama sob o lock do shard — ver `cleanup_entry`). Ver
+    /// docs/specs/napi-implementation.md.
+    NapiExternal(Box<NapiExternalData>),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,
 }
+
+/// Payload de `Entry::NapiExternal`. Campos opacos ao engine.
+pub struct NapiExternalData {
+    /// O `void* data` registrado por `napi_create_external`.
+    pub data: *mut std::ffi::c_void,
+    /// O finalizer N-API, ou `None`. Assinatura crua
+    /// `extern "C" fn(env, data, hint)` — o `rts-napi` faz o cast a partir de
+    /// `napi_finalize` (o engine não depende do crate `rts-napi`, então o tipo
+    /// vive aqui como ponteiro cru).
+    pub finalize: Option<
+        unsafe extern "C" fn(
+            env: *mut std::ffi::c_void,
+            data: *mut std::ffi::c_void,
+            hint: *mut std::ffi::c_void,
+        ),
+    >,
+    /// O `void* finalize_hint` passado ao finalizer.
+    pub finalize_hint: *mut std::ffi::c_void,
+}
+
+impl std::fmt::Debug for NapiExternalData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NapiExternalData")
+            .field("data", &self.data)
+            .field("has_finalize", &self.finalize.is_some())
+            .field("finalize_hint", &self.finalize_hint)
+            .finish()
+    }
+}
+
+// SAFETY: `Entry` precisa ser `Send` (a HandleTable é compartilhada entre os 32
+// shards/threads). Os `*mut c_void` aqui são **opacos** ao engine — ele nunca os
+// dereferencia, só os guarda e, no cleanup, enfileira o finalize. O finalize só
+// é invocado pelo `rts-napi` na thread JS (via `drain_pending_napi_finalizers`),
+// então o ponteiro não é tocado fora dela. Mesmo padrão das demais variantes
+// que cruzam threads carregando recursos não-Send-por-tipo.
+unsafe impl Send for NapiExternalData {}
 
 /// Estado de um generator lazy (`Entry::GenState`). Ver issue #477.
 #[derive(Debug)]
@@ -657,6 +703,39 @@ pub struct FunctionData {
 /// Demais tipos (Buffer, Map, Regex, Mutex, etc) liberam memoria
 /// corretamente via Drop padrao do Box/Vec — nao precisam de logica
 /// extra aqui.
+/// Um finalizer N-API pendente de disparo: `(env_placeholder, data, finalize,
+/// hint)`. Enfileirado por `cleanup_entry` ao liberar um `Entry::NapiExternal`
+/// com finalizer; drenado por [`drain_pending_napi_finalizers`] **fora** do lock
+/// do shard (chamar código do addon sob o lock arrisca deadlock/reentrância).
+/// O `rts-napi` fornece o `napi_env` correto no momento do disparo.
+pub struct PendingNapiFinalizer {
+    pub data: *mut std::ffi::c_void,
+    pub finalize: unsafe extern "C" fn(
+        env: *mut std::ffi::c_void,
+        data: *mut std::ffi::c_void,
+        hint: *mut std::ffi::c_void,
+    ),
+    pub finalize_hint: *mut std::ffi::c_void,
+}
+
+// SAFETY: os ponteiros são opacos ao engine e só voltam a ser tocados pelo
+// `rts-napi` na thread JS que drena a fila; o `Send` é necessário porque a fila
+// é uma estática global protegida por Mutex.
+unsafe impl Send for PendingNapiFinalizer {}
+
+static PENDING_NAPI_FINALIZERS: std::sync::Mutex<Vec<PendingNapiFinalizer>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Drena os finalizers N-API enfileirados pelo sweep/free. O `rts-napi` chama
+/// isto fora de qualquer lock de GC, num ponto seguro, e invoca cada `finalize`
+/// com o `napi_env` apropriado. Retorna `Vec` vazio se nada pendente.
+pub fn drain_pending_napi_finalizers() -> Vec<PendingNapiFinalizer> {
+    match PENDING_NAPI_FINALIZERS.lock() {
+        Ok(mut q) => std::mem::take(&mut *q),
+        Err(poisoned) => std::mem::take(&mut *poisoned.into_inner()),
+    }
+}
+
 fn cleanup_entry(entry: &mut Entry) {
     match entry {
         Entry::ProcessChild(child) => {
@@ -667,6 +746,22 @@ fn cleanup_entry(entry: &mut Entry) {
         }
         Entry::TlsClient(tls) => {
             let _ = tls.tcp.shutdown(std::net::Shutdown::Both);
+        }
+        // (N-API) Enfileira o finalizer — NUNCA o chama aqui: `cleanup_entry`
+        // roda sob o lock do shard durante free/sweep, e chamar código do addon
+        // (que pode realocar handles / reentrar no GC) sob o lock é deadlock.
+        // O `rts-napi` drena via `drain_pending_napi_finalizers` num ponto
+        // seguro. Os ponteiros são deixados intactos (o addon assume posse).
+        Entry::NapiExternal(ext) => {
+            if let Some(finalize) = ext.finalize {
+                if let Ok(mut q) = PENDING_NAPI_FINALIZERS.lock() {
+                    q.push(PendingNapiFinalizer {
+                        data: ext.data,
+                        finalize,
+                        finalize_hint: ext.finalize_hint,
+                    });
+                }
+            }
         }
         // Nota (#264): Entry::Function.prototype_handle nao precisa de
         // cleanup explicito aqui — o GC scanner via mark_handle propaga
@@ -1271,6 +1366,58 @@ mod tests {
         assert!(free_handle(h));
         let guard2 = shard_for_handle(h).lock().unwrap();
         assert!(guard2.get(h).is_none());
+    }
+
+    /// (N-API Etapa 2) `Entry::NapiExternal`: round-trip + o finalizer é
+    /// ENFILEIRADO no free (não chamado sob o lock do shard), e drenável fora
+    /// dele. Um external sem finalizer não enfileira nada.
+    #[test]
+    fn napi_external_finalizer_is_queued_not_called() {
+        use std::ffi::c_void;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        // Drena qualquer pendência de testes anteriores (a fila é global).
+        let _ = drain_pending_napi_finalizers();
+
+        static CALLS: AtomicUsize = AtomicUsize::new(0);
+        unsafe extern "C" fn fin(_env: *mut c_void, _data: *mut c_void, _hint: *mut c_void) {
+            CALLS.fetch_add(1, Ordering::SeqCst);
+        }
+
+        let data = 0xABCD_usize as *mut c_void;
+        let hint = 0x1234_usize as *mut c_void;
+        let h = alloc_entry(Entry::NapiExternal(Box::new(NapiExternalData {
+            data,
+            finalize: Some(fin),
+            finalize_hint: hint,
+        })));
+
+        // Round-trip: o ponteiro opaco é preservado.
+        with_entry(h, |e| {
+            assert!(matches!(e, Some(Entry::NapiExternal(ext)) if ext.data == data));
+        });
+
+        // Free: finalize NÃO chamado sob o lock — só enfileirado.
+        assert!(free_handle(h));
+        assert_eq!(CALLS.load(Ordering::SeqCst), 0, "finalize não pode rodar sob o lock do shard");
+
+        let pending = drain_pending_napi_finalizers();
+        assert_eq!(pending.len(), 1, "exatamente um finalizer pendente");
+        assert_eq!(pending[0].data, data);
+        assert_eq!(pending[0].finalize_hint, hint);
+
+        // O `rts-napi` dispararia assim (aqui só validamos que é o callback certo).
+        unsafe { (pending[0].finalize)(std::ptr::null_mut(), pending[0].data, pending[0].finalize_hint) };
+        assert_eq!(CALLS.load(Ordering::SeqCst), 1);
+
+        // External sem finalizer: nada enfileirado.
+        let h2 = alloc_entry(Entry::NapiExternal(Box::new(NapiExternalData {
+            data: std::ptr::null_mut(),
+            finalize: None,
+            finalize_hint: std::ptr::null_mut(),
+        })));
+        assert!(free_handle(h2));
+        assert!(drain_pending_napi_finalizers().is_empty());
     }
 
     #[test]

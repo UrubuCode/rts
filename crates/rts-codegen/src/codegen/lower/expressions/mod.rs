@@ -176,6 +176,26 @@ fn lower_ident_expr(ctx: &mut FnCtx, name: &str) -> Result<TypedVal> {
         }
         return Ok(tv);
     }
+    // (N-API) Ident é um import `.node`: emite LOAD_ADDON(path) -> handle do
+    // exports. O loader runtime é idempotente por path (carrega uma vez), então
+    // emitir a cada referência é correto. Só quando não há local sombreando.
+    if let Some(path) =
+        crate::codegen::lower::passes::native_addon::native_addon_path(name)
+    {
+        use cranelift_codegen::ir::types as cl;
+        let (pp, pl) = ctx.emit_str_literal(path.as_bytes())?;
+        let load_fn = ctx.get_extern(
+            "__RTS_FN_NS_NAPI_LOAD_ADDON",
+            &[cl::I64, cl::I64],
+            Some(cl::I64),
+        )?;
+        let inst = ctx.builder.ins().call(load_fn, &[pp, pl]);
+        let handle = ctx.builder.inst_results(inst)[0];
+        return Ok(crate::codegen::lower::ctx::TypedVal::new(
+            handle,
+            crate::codegen::lower::ctx::ValTy::Handle,
+        ));
+    }
     if ctx.user_fns.contains_key(name) {
         // Arrows hoisted via hoist_fn_expressions têm prefixo __hoisted_arrow_.
         // Quando aparecem em posição de valor (não call), reificamos como

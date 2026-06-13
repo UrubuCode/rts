@@ -90,6 +90,64 @@ fn main() {
 
     println!("cargo:rerun-if-changed=crates/rts-runtime/src/");
     println!("cargo:rerun-if-changed=build.rs");
+
+    emit_napi_export_args();
+}
+
+/// Força os símbolos `napi_*` na export table do bin `rts` para que um `.node`
+/// (carregado via dlopen/LoadLibrary) resolva seus undefined `napi_*` contra o
+/// processo. Validado na Etapa 0 (SPIKE): `/EXPORT` sobrevive a
+/// `strip="symbols"`+`lto`+`opt-level="z"` no Windows.
+///
+/// A lista vem da fonte única `crates/rts-napi/napi_symbols.list` (mesma que o
+/// `rts_napi::symbols` consome), via `include_str!` — sem criar dep de build no
+/// crate. No Windows o `/EXPORT:<sym>` tem efeito duplo: entra na export
+/// directory do PE **e** força o linker a puxar o objeto do rlib `rts-napi`
+/// (que de outro modo seria descartado por não ser referenciado no código Rust
+/// do bin). Ver docs/specs/napi-implementation.md.
+///
+/// - Windows/MSVC: `/EXPORT:<sym>` → export directory + retenção; sobrevive a
+///   `/OPT:REF`+`strip`. `link-arg-bin=rts=` aplica só ao link do bin.
+/// - Linux/GNU: `--export-dynamic` mantém os símbolos na `.dynsym`; `-u <sym>`
+///   força a retenção de cada um (equivalente ao efeito do `/EXPORT`).
+/// - macOS: `-exported_symbol _<sym>` (preserva o two-level namespace) + `-u`.
+fn emit_napi_export_args() {
+    const SYMBOL_LIST: &str = include_str!("crates/rts-napi/napi_symbols.list");
+    println!("cargo:rerun-if-changed=crates/rts-napi/napi_symbols.list");
+
+    let symbols: Vec<&str> = SYMBOL_LIST
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect();
+
+    if symbols.is_empty() {
+        return;
+    }
+
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+
+    match target_os.as_str() {
+        "windows" if target_env == "msvc" => {
+            for sym in &symbols {
+                println!("cargo:rustc-link-arg-bin=rts=/EXPORT:{sym}");
+            }
+        }
+        "linux" | "android" => {
+            println!("cargo:rustc-link-arg-bin=rts=-Wl,--export-dynamic");
+            for sym in &symbols {
+                println!("cargo:rustc-link-arg-bin=rts=-Wl,-u,{sym}");
+            }
+        }
+        "macos" | "ios" => {
+            for sym in &symbols {
+                println!("cargo:rustc-link-arg-bin=rts=-Wl,-u,_{sym}");
+                println!("cargo:rustc-link-arg-bin=rts=-Wl,-exported_symbol,_{sym}");
+            }
+        }
+        _ => {}
+    }
 }
 
 /// `OUT_DIR` is `target/<profile>/build/<pkg>-<hash>/out`; the profile dir

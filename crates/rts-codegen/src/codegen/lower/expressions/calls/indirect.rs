@@ -721,3 +721,154 @@ pub(super) fn emit_function_handle_indirect_call(
     ctx.var_member_call_values.insert(v_i64);
     Ok(TypedVal::new(v_i64, ValTy::I64))
 }
+
+/// (N-API) `addon.method(args)` onde `addon` é um import `.node`. Carrega o
+/// addon (idempotente), faz `MAP_GET(method)` no objeto exports → handle
+/// Function nativa, empacota os args como `napi_value` (handles — números
+/// boxados em FloatPrim), e despacha via `FUNCTION_CALL` (que cai no
+/// `__RTS_FN_RT_NAPI_DISPATCH_CALLBACK`). O resultado é um `napi_value` handle
+/// (FloatPrim p/ números) marcado como ambíguo p/ a concat/coerção
+/// desembrulhar. Ver docs/specs/napi-implementation.md (Etapa 11).
+pub(super) fn lower_native_addon_method_call(
+    ctx: &mut FnCtx,
+    addon_path: &str,
+    method: &str,
+    call: &CallExpr,
+) -> Result<TypedVal> {
+    // 1. Carrega o addon → handle do exports (Map).
+    let (pp, pl) = ctx.emit_str_literal(addon_path.as_bytes())?;
+    let load_fn = ctx.get_extern(
+        "__RTS_FN_NS_NAPI_LOAD_ADDON",
+        &[cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    let inst = ctx.builder.ins().call(load_fn, &[pp, pl]);
+    let exports_h = ctx.builder.inst_results(inst)[0];
+
+    // 2. MAP_GET(exports, method) → handle da fn nativa.
+    let (mp, ml) = ctx.emit_str_literal(method.as_bytes())?;
+    let map_get = ctx.get_extern(
+        "__RTS_FN_RT_MAP_GET_STR",
+        &[cl::I64, cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    let inst = ctx.builder.ins().call(map_get, &[exports_h, mp, ml]);
+    let fn_h = ctx.builder.inst_results(inst)[0];
+
+    // 3. Empacota args como napi_value handles (números → FloatPrim box).
+    let vec_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
+    let inst_v = ctx.builder.ins().call(vec_new, &[]);
+    let args_handle = ctx.builder.inst_results(inst_v)[0];
+    let vec_push = ctx.get_extern(
+        "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+        &[cl::I64, cl::I64],
+        None,
+    )?;
+    let float_box = ctx.get_extern("__RTS_FN_RT_FLOAT_BOX", &[cl::F64], Some(cl::I64))?;
+    for a in &call.args {
+        let tv = lower_expr(ctx, &a.expr)?;
+        let handle = match tv.ty {
+            // Número → boxa em FloatPrim (napi_value de número).
+            ValTy::F64 | ValTy::I32 | ValTy::I64
+            | ValTy::I8 | ValTy::I16 | ValTy::U8 | ValTy::U16 => {
+                let f = ctx.coerce_to_f64(tv).val;
+                let inst = ctx.builder.ins().call(float_box, &[f]);
+                ctx.builder.inst_results(inst)[0]
+            }
+            // Handle (string/obj/array/...) → já é um napi_value.
+            ValTy::Handle | ValTy::U64 => ctx.coerce_to_i64(tv).val,
+            // Bool → sentinela.
+            ValTy::Bool => {
+                let raw = ctx.coerce_to_i64(tv).val;
+                let t = ctx.builder.ins().iconst(cl::I64, i64::MIN + 1);
+                let f = ctx.builder.ins().iconst(cl::I64, i64::MIN);
+                ctx.builder.ins().select(raw, t, f)
+            }
+        };
+        ctx.builder.ins().call(vec_push, &[args_handle, handle]);
+    }
+
+    // 4. FUNCTION_CALL(fn_h, this=0, args) → handle napi_value do resultado.
+    let this_zero = ctx.builder.ins().iconst(cl::I64, 0);
+    let call_fn = ctx.get_extern(
+        "__RTS_FN_GL_FUNCTION_CALL",
+        &[cl::I64, cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    let inst_c = ctx.builder.ins().call(call_fn, &[fn_h, this_zero, args_handle]);
+    let result = ctx.builder.inst_results(inst_c)[0];
+    // O resultado é um handle napi_value (FloatPrim p/ números); marca como
+    // ambíguo para a concat/coerção (TPL_COERCE_AUTO/INSPECT) desembrulhar.
+    ctx.var_member_call_values.insert(result);
+    Ok(TypedVal::new(result, ValTy::I64))
+}
+
+/// (N-API) `inst.method(args)` onde `inst` é um local handle que PODE ser uma
+/// instância de classe nativa. Emite `__RTS_FN_RT_NAPI_INVOKE_METHOD(recv,
+/// method, args_vec, &out)`; o runtime resolve a classe pela tag no Map. Args
+/// numéricos são boxados como napi_value (FloatPrim). Retorna `Some` com o
+/// resultado (handle napi_value, marcado ambíguo p/ coerção). O runtime devolve
+/// undefined-ish se o handle não for instância nativa — aceitável aqui porque o
+/// ramo só dispara quando há addon nativo e o receiver é Handle.
+pub(super) fn lower_napi_instance_method_call(
+    ctx: &mut FnCtx,
+    obj_name: &str,
+    method: &str,
+    call: &CallExpr,
+) -> Result<Option<TypedVal>> {
+    let obj_tv = match ctx.read_local(obj_name) {
+        Some(tv) => tv,
+        None => return Ok(None),
+    };
+    let recv = ctx.coerce_to_i64(obj_tv).val;
+
+    // Empacota args como napi_value (números boxados em FloatPrim).
+    let vec_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
+    let inst_v = ctx.builder.ins().call(vec_new, &[]);
+    let args_vec = ctx.builder.inst_results(inst_v)[0];
+    let vec_push = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_PUSH", &[cl::I64, cl::I64], None)?;
+    let float_box = ctx.get_extern("__RTS_FN_RT_FLOAT_BOX", &[cl::F64], Some(cl::I64))?;
+    for a in &call.args {
+        let tv = lower_expr(ctx, &a.expr)?;
+        let h = match tv.ty {
+            ValTy::F64 | ValTy::I32 | ValTy::I64
+            | ValTy::I8 | ValTy::I16 | ValTy::U8 | ValTy::U16 => {
+                let f = ctx.coerce_to_f64(tv).val;
+                let inst = ctx.builder.ins().call(float_box, &[f]);
+                ctx.builder.inst_results(inst)[0]
+            }
+            ValTy::Handle | ValTy::U64 => ctx.coerce_to_i64(tv).val,
+            ValTy::Bool => {
+                let raw = ctx.coerce_to_i64(tv).val;
+                let t = ctx.builder.ins().iconst(cl::I64, i64::MIN + 1);
+                let f = ctx.builder.ins().iconst(cl::I64, i64::MIN);
+                ctx.builder.ins().select(raw, t, f)
+            }
+        };
+        ctx.builder.ins().call(vec_push, &[args_vec, h]);
+    }
+
+    // out slot (stack).
+    let out_slot = ctx.builder.create_sized_stack_slot(
+        cranelift_codegen::ir::StackSlotData::new(
+            cranelift_codegen::ir::StackSlotKind::ExplicitSlot, 8, 3,
+        ),
+    );
+    let out_addr = ctx.builder.ins().stack_addr(cl::I64, out_slot, 0);
+    // Inicializa out com undefined (i64::MIN+2) p/ o caso de não-nativo.
+    let undef = ctx.builder.ins().iconst(cl::I64, i64::MIN + 2);
+    ctx.builder.ins().store(cranelift_codegen::ir::MemFlags::new(), undef, out_addr, 0);
+
+    let (mp, ml) = ctx.emit_str_literal(method.as_bytes())?;
+    let invoke = ctx.get_extern(
+        "__RTS_FN_RT_NAPI_INVOKE_METHOD",
+        &[cl::I64, cl::I64, cl::I64, cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    ctx.builder.ins().call(invoke, &[recv, mp, ml, args_vec, out_addr]);
+    let result = ctx.builder.ins().load(
+        cl::I64, cranelift_codegen::ir::MemFlags::new(), out_addr, 0,
+    );
+    ctx.var_member_call_values.insert(result);
+    Ok(Some(TypedVal::new(result, ValTy::I64)))
+}

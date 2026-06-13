@@ -793,6 +793,34 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                 }
             }
             if let Some(qualified) = qualified_member_name(callee) {
+                // (N-API) `addon.method(args)` onde `addon` é um import `.node`.
+                // Precede o lookup de namespace (senão `addon.add` vira "unknown
+                // namespace member"). Ver docs/specs/napi-implementation.md.
+                if let Some((obj_name, meth)) = qualified.split_once('.') {
+                    if ctx.read_local(obj_name).is_none() {
+                        if let Some(path) =
+                            crate::codegen::lower::passes::native_addon::native_addon_path(obj_name)
+                        {
+                            return self::indirect::lower_native_addon_method_call(
+                                ctx, &path, meth, call,
+                            );
+                        }
+                    } else if matches!(
+                        ctx.read_local(obj_name).map(|tv| tv.ty),
+                        Some(crate::codegen::lower::ctx::ValTy::Handle)
+                            | Some(crate::codegen::lower::ctx::ValTy::I64)
+                    ) && crate::codegen::lower::passes::native_addon::any_native_addon()
+                    {
+                        // (N-API) `inst.method(args)` onde `inst` é um local handle e
+                        // há addon nativo no programa: pode ser método de classe
+                        // nativa. Tenta o dispatch N-API (com fallback se não for).
+                        if let Some(tv) =
+                            self::indirect::lower_napi_instance_method_call(ctx, obj_name, meth, call)?
+                        {
+                            return Ok(tv);
+                        }
+                    }
+                }
                 // (cross-runtime #218/#354) `t.apply(...)` / `.call` / `.bind`
                 // onde `t` eh um LOCAL/param (valor de fn — handle Function,
                 // Proxy, ou func_addr cru) e NAO um namespace/classe/global/

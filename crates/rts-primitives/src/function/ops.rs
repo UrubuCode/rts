@@ -26,6 +26,28 @@ unsafe extern "C" {
         this_arg: i64,
         args_handle: u64,
     ) -> i64;
+    // (N-API) Despacha uma fn nativa de addon. Impl em rts-napi, resolvida por
+    // link (AOT) / add_fn! (JIT). Devolve 1 + escreve o resultado em out_result
+    // se `handle` é uma fn N-API; 0 se não (segue o caminho normal). Símbolo
+    // fraco: se rts-napi não está linkado (não deveria acontecer no bin), o
+    // wrapper `napi_dispatch` trata via #[cfg]. Ver docs/specs/napi-implementation.md.
+    fn __RTS_FN_RT_NAPI_DISPATCH_CALLBACK(
+        handle: u64,
+        this_arg: i64,
+        args_handle: u64,
+        out_result: *mut i64,
+    ) -> i64;
+}
+
+/// Helper: tenta despachar `handle` como fn nativa N-API. `Some(result)` se for;
+/// `None` se não (o caller segue o dispatch normal).
+#[inline]
+fn napi_dispatch(handle: u64, this_arg: i64, args_handle: u64) -> Option<i64> {
+    let mut out: i64 = 0;
+    let is_napi = unsafe {
+        __RTS_FN_RT_NAPI_DISPATCH_CALLBACK(handle, this_arg, args_handle, &mut out)
+    };
+    if is_napi != 0 { Some(out) } else { None }
 }
 
 /// Helper: resolve `handle` como Proxy via o shim extern-C (out-params).
@@ -799,6 +821,13 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_NEW(params_handle: u64, body_handle: u64)
 /// `fn.call(thisArg, argsVec)`. Args vem como Vec handle (codegen empacota).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_handle: u64) -> i64 {
+    // (N-API) Fn nativa de addon: o handle não é executável via invoke (fn_ptr=0)
+    // — o dispatch é feito pelo registry em rts-napi, que monta o callback_info
+    // e chama o `cb` do addon. Checado primeiro (handles N-API nunca colidem com
+    // proxies/user-fns). Ver docs/specs/napi-implementation.md.
+    if let Some(result) = napi_dispatch(handle, this_arg, args_handle) {
+        return result;
+    }
     // (#218 phase2) Proxy callable: redireciona pra trap apply ou forward.
     if let Some((target, handler)) = proxy_resolve(handle) {
         return unsafe { __RTS_FN_RT_PROXY_DISPATCH_APPLY(target, handler, this_arg, args_handle) };

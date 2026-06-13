@@ -1,0 +1,14 @@
+[package]
+name = "rts-napi"
+version = "0.1.0"
+edition = "2024"
+
+# Suporte a Node.js native addons (.node) pela porta N-API. Ver
+# docs/specs/napi-implementation.md. Só N-API puro (sem V8-direto/NAN).
+# Carregamento dinâmico via libloading; valores mapeados à HandleTable do engine.
+
+[dependencies]
+rts-engine = { path = "../rts-engine" }
+rts-shared = { path = "../rts-shared" }
+libloading = "0.8"
+indexmap = "2.14.0"

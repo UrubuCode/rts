@@ -28,6 +28,11 @@ pub enum ModuleKind {
     WorkspacePackage,
     CachedDependency,
     Builtin,
+    /// (N-API) Um addon nativo `.node` — DLL/.so/.dylib carregada em runtime via
+    /// dlopen. NÃO tem `Program` (é binário); o grafo o trata como folha (igual
+    /// `Builtin`): não é lido como TS, não é flattenado como source. O loader
+    /// roda em runtime (codegen de init). Ver docs/specs/napi-implementation.md.
+    NativeAddon,
 }
 
 impl ModuleKind {
@@ -38,7 +43,15 @@ impl ModuleKind {
             Self::WorkspacePackage => "workspace-package",
             Self::CachedDependency => "cached-dependency",
             Self::Builtin => "builtin",
+            Self::NativeAddon => "native-addon",
         }
+    }
+
+    /// Módulos-folha sem `Program` próprio (não lidos como TS, não flattenados
+    /// como source). `Builtin` e `NativeAddon` compartilham esse tratamento no
+    /// grafo — agrupados aqui para que novos call sites não esqueçam um deles.
+    pub fn is_synthetic_leaf(self) -> bool {
+        matches!(self, Self::Builtin | Self::NativeAddon)
     }
 }
 
@@ -63,6 +76,21 @@ impl SourceModule {
             imports: Vec::new(),
             exports: module.exports,
             kind: ModuleKind::Builtin,
+        }
+    }
+
+    /// (N-API) Módulo-folha sintético para um `.node`. Sem `Program`/`source`
+    /// (é binário); os exports são dinâmicos (populados em runtime pelo
+    /// `napi_register_module_v1`), então `exports` fica vazio aqui.
+    fn from_native_addon(key: String, path: PathBuf) -> Self {
+        Self {
+            key,
+            path,
+            source: String::new(),
+            program: Program::default(),
+            imports: Vec::new(),
+            exports: BTreeSet::new(),
+            kind: ModuleKind::NativeAddon,
         }
     }
 }
@@ -92,6 +120,17 @@ impl ModuleGraph {
         while let Some(current) = pending.pop_front() {
             let module_key = canonical_module_key(&current.path)?;
             if modules.contains_key(&module_key) {
+                continue;
+            }
+
+            // (N-API) Um `.node` é binário — NÃO ler como TS nem parsear. Insere
+            // um módulo-folha sintético (sem Program, sem imports); o loader roda
+            // em runtime via o codegen de init. Ver docs/specs/napi-implementation.md.
+            if current.kind == ModuleKind::NativeAddon {
+                modules.insert(
+                    module_key.clone(),
+                    SourceModule::from_native_addon(module_key, current.path),
+                );
                 continue;
             }
 
@@ -218,11 +257,11 @@ impl ModuleGraph {
             on_stack.insert(key);
 
             if let Some(module) = graph.modules.get(key) {
-                if !matches!(module.kind, ModuleKind::Builtin) {
+                if !module.kind.is_synthetic_leaf() {
                     for import in &module.imports {
                         let next = import.resolved_key.as_str();
                         let Some(target) = graph.modules.get(next) else { continue };
-                        if matches!(target.kind, ModuleKind::Builtin) {
+                        if target.kind.is_synthetic_leaf() {
                             continue;
                         }
                         let next_static: &'a str = graph
@@ -365,7 +404,7 @@ impl ModuleGraph {
         let mut hasher = Sha256::new();
         for dep_key in &deps {
             if let Some(dep) = self.modules.get(dep_key) {
-                if matches!(dep.kind, ModuleKind::Builtin) {
+                if dep.kind.is_synthetic_leaf() {
                     continue;
                 }
                 hasher.update(dep_key.as_bytes());
@@ -392,11 +431,35 @@ impl ModuleGraph {
         let mut merged = Program::default();
         for key in &order {
             let Some(module) = self.modules.get(key) else { continue };
-            if module.kind == ModuleKind::Builtin {
+            if module.kind.is_synthetic_leaf() {
                 continue;
             }
             for item in &module.program.items {
                 if let Item::Import(decl) = item {
+                    // (N-API) Import que resolve para um `.node`: registra o
+                    // binding local -> path absoluto, para o init codegen emitir
+                    // o `napi.load_addon`. Checa antes dos demais ramos porque um
+                    // `.node` nunca é um nodespace nem um user-module TS.
+                    if let Some(addon_path) = module
+                        .imports
+                        .iter()
+                        .find(|i| i.specifier == decl.from)
+                        .and_then(|i| self.modules.get(i.resolved_key.as_str()))
+                        .filter(|m| m.kind == ModuleKind::NativeAddon)
+                        .map(|m| m.path.to_string_lossy().to_string())
+                    {
+                        for spec in &decl.names {
+                            merged
+                                .native_addon_imports
+                                .insert(spec.local.clone(), addon_path.clone());
+                        }
+                        if let Some(default_name) = &decl.default_name {
+                            merged
+                                .native_addon_imports
+                                .insert(default_name.clone(), addon_path.clone());
+                        }
+                        continue;
+                    }
                     // Collect node: import bindings before stripping.
                     if let Some(prefix) = crate::nodespace::ns_prefix_for(&decl.from) {
                         for spec in &decl.names {
@@ -469,8 +532,24 @@ impl ModuleGraph {
         order.push(key.to_string());
     }
 
+    /// (N-API) Path do primeiro módulo `.node` no grafo, se houver. Usado pelo
+    /// caminho AOT (`compile_file`) para proibir addons nativos em `rts compile`
+    /// (preserva o binário self-contained do `.rtslib`; self-extracting é etapa
+    /// futura). Ver docs/specs/napi-implementation.md.
+    pub fn first_native_addon(&self) -> Option<&Path> {
+        self.modules
+            .values()
+            .find(|m| m.kind == ModuleKind::NativeAddon)
+            .map(|m| m.path.as_path())
+    }
+
     /// Retorna todos os paths (absolutos) dos modulos do grafo que sao
     /// arquivos em disco — util para registrar watchers e para `rts clean`.
+    ///
+    /// (N-API) `NativeAddon` é INCLUÍDO de propósito (diferente dos outros sites
+    /// que o agrupam com `Builtin` via `is_synthetic_leaf`): um `.node` é um
+    /// arquivo real em disco que faz sentido observar; só `Builtin` (path
+    /// sintético `rts:*`) é excluído.
     pub fn disk_paths(&self) -> Vec<PathBuf> {
         self.modules
             .values()

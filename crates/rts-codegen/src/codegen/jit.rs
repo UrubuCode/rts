@@ -165,6 +165,27 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         };
     }
 
+    // ── N-API loader (.node addons) ──────────────────────────────────
+    {
+        // Símbolo interno chamado pelo codegen de init para carregar um `.node`
+        // importado. Os símbolos `napi_*` que o addon resolve por dlsym estão na
+        // export table do bin (build.rs), NÃO aqui. Ver docs/specs/napi-implementation.md.
+        use crate::napi::loader::__RTS_FN_NS_NAPI_LOAD_ADDON;
+        add_fn!("__RTS_FN_NS_NAPI_LOAD_ADDON", __RTS_FN_NS_NAPI_LOAD_ADDON);
+        // Despacho de fn nativa de addon, chamado por __RTS_FN_GL_FUNCTION_CALL.
+        use crate::napi::functions::__RTS_FN_RT_NAPI_DISPATCH_CALLBACK;
+        add_fn!(
+            "__RTS_FN_RT_NAPI_DISPATCH_CALLBACK",
+            __RTS_FN_RT_NAPI_DISPATCH_CALLBACK
+        );
+        // Classes nativas: new addon.X() e x.method().
+        use crate::napi::classes::{
+            __RTS_FN_RT_NAPI_INVOKE_METHOD, __RTS_FN_RT_NAPI_NEW_INSTANCE,
+        };
+        add_fn!("__RTS_FN_RT_NAPI_NEW_INSTANCE", __RTS_FN_RT_NAPI_NEW_INSTANCE);
+        add_fn!("__RTS_FN_RT_NAPI_INVOKE_METHOD", __RTS_FN_RT_NAPI_INVOKE_METHOD);
+    }
+
     // ── runtime error slot (used by try/catch/throw in codegen) ──────
     {
         // (AOT event loop) shim `main` chama este símbolo; o JIT compila o shim
@@ -714,9 +735,13 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         use crate::namespaces::collections::map::{
             __RTS_FN_NS_COLLECTIONS_MARK_AS_MAP,
             __RTS_FN_NS_COLLECTIONS_MARK_AS_SET,
+            __RTS_FN_RT_MAP_GET_STR,
         };
         add_fn!("__RTS_FN_NS_COLLECTIONS_MARK_AS_MAP", __RTS_FN_NS_COLLECTIONS_MARK_AS_MAP);
         add_fn!("__RTS_FN_NS_COLLECTIONS_MARK_AS_SET", __RTS_FN_NS_COLLECTIONS_MARK_AS_SET);
+        // (N-API) usado por lower_native_addon_method_call p/ resolver o método
+        // no objeto exports do addon.
+        add_fn!("__RTS_FN_RT_MAP_GET_STR", __RTS_FN_RT_MAP_GET_STR);
     }
     {
         use crate::namespaces::gc::string_pool::__RTS_FN_RT_UNIVERSAL_LENGTH;

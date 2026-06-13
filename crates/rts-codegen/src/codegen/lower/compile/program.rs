@@ -180,6 +180,12 @@ pub fn compile_program(
     }
     let node_import_map = std::mem::take(&mut program.node_import_map);
     let local_alias_map = std::mem::take(&mut program.local_alias_map);
+    // (N-API) Bindings de import `.node` (local -> path) para o thread-local que
+    // `lower_ident_expr` consulta. Populado no flatten (JIT). Ver
+    // docs/specs/napi-implementation.md.
+    crate::codegen::lower::passes::native_addon::set_native_addon_imports(
+        &program.native_addon_imports,
+    );
 
     let mut warnings = Vec::new();
 

@@ -47,6 +47,24 @@ pub(crate) fn lower_new(ctx: &mut FnCtx, new_expr: &swc_ecma_ast::NewExpr) -> Re
             _ => break,
         }
     }
+
+    // (N-API) `new addon.Class(args)` onde `addon` é um import `.node`: cria a
+    // instância via o construtor nativo registrado por napi_define_class. Ver
+    // docs/specs/napi-implementation.md.
+    if let Expr::Member(m) = callee_expr {
+        if let (Expr::Ident(obj), swc_ecma_ast::MemberProp::Ident(cls)) =
+            (m.obj.as_ref(), &m.prop)
+        {
+            if ctx.read_local(obj.sym.as_str()).is_none() {
+                if let Some(path) = crate::codegen::lower::passes::native_addon::native_addon_path(
+                    obj.sym.as_str(),
+                ) {
+                    return lower_napi_new_instance(ctx, &path, cls.sym.as_str(), new_expr);
+                }
+            }
+        }
+    }
+
     let class_name = match callee_expr {
         Expr::Ident(id) => id.sym.as_str().to_string(),
         // (Intl) `new Intl.NumberFormat(...)` — callee eh Member com obj=Ident.
@@ -1381,4 +1399,75 @@ fn emit_proto_for_class(
         ctx.builder.ins().call(map_set, &[proto_h, proto_kp, proto_kl, obj_proto]);
     }
     Ok(Some(proto_h))
+}
+
+/// (N-API) `new addon.Class(args)`: carrega o addon, resolve o construtor
+/// (MAP_GET pelo nome da classe no exports), empacota os args como napi_value
+/// (números via FLOAT_BOX) e chama `napi_new_instance`. Devolve o handle da
+/// instância (Map marcado). Ver docs/specs/napi-implementation.md.
+fn lower_napi_new_instance(
+    ctx: &mut FnCtx,
+    addon_path: &str,
+    class_name: &str,
+    new_expr: &swc_ecma_ast::NewExpr,
+) -> Result<TypedVal> {
+    // 1. LOAD_ADDON(path) -> exports Map.
+    let (pp, pl) = ctx.emit_str_literal(addon_path.as_bytes())?;
+    let load_fn = ctx.get_extern(
+        "__RTS_FN_NS_NAPI_LOAD_ADDON",
+        &[cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    let inst = ctx.builder.ins().call(load_fn, &[pp, pl]);
+    let exports_h = ctx.builder.inst_results(inst)[0];
+
+    // 2. MAP_GET(exports, class_name) -> ctor handle.
+    let (cp, clen) = ctx.emit_str_literal(class_name.as_bytes())?;
+    let map_get = ctx.get_extern(
+        "__RTS_FN_RT_MAP_GET_STR",
+        &[cl::I64, cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    let inst = ctx.builder.ins().call(map_get, &[exports_h, cp, clen]);
+    let ctor_h = ctx.builder.inst_results(inst)[0];
+
+    // 3. Empacota args como napi_value (Entry::Vec de handles; números boxados).
+    let vec_new = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[], Some(cl::I64))?;
+    let inst_v = ctx.builder.ins().call(vec_new, &[]);
+    let args_vec = ctx.builder.inst_results(inst_v)[0];
+    let vec_push = ctx.get_extern("__RTS_FN_NS_COLLECTIONS_VEC_PUSH", &[cl::I64, cl::I64], None)?;
+    let float_box = ctx.get_extern("__RTS_FN_RT_FLOAT_BOX", &[cl::F64], Some(cl::I64))?;
+    if let Some(args) = new_expr.args.as_ref() {
+        for a in args {
+            let tv = lower_expr(ctx, &a.expr)?;
+            let h = match tv.ty {
+                ValTy::F64 | ValTy::I32 | ValTy::I64
+                | ValTy::I8 | ValTy::I16 | ValTy::U8 | ValTy::U16 => {
+                    let f = ctx.coerce_to_f64(tv).val;
+                    let inst = ctx.builder.ins().call(float_box, &[f]);
+                    ctx.builder.inst_results(inst)[0]
+                }
+                ValTy::Handle | ValTy::U64 => ctx.coerce_to_i64(tv).val,
+                ValTy::Bool => {
+                    let raw = ctx.coerce_to_i64(tv).val;
+                    let t = ctx.builder.ins().iconst(cl::I64, i64::MIN + 1);
+                    let f = ctx.builder.ins().iconst(cl::I64, i64::MIN);
+                    ctx.builder.ins().select(raw, t, f)
+                }
+            };
+            ctx.builder.ins().call(vec_push, &[args_vec, h]);
+        }
+    }
+
+    // 4. napi_new_instance(env=0, ctor, argc, argv_ptr, &result). Usamos uma
+    // versão runtime-friendly: __RTS_FN_RT_NAPI_NEW_INSTANCE(ctor, args_vec) -> inst.
+    let new_inst = ctx.get_extern(
+        "__RTS_FN_RT_NAPI_NEW_INSTANCE",
+        &[cl::I64, cl::I64],
+        Some(cl::I64),
+    )?;
+    let inst = ctx.builder.ins().call(new_inst, &[ctor_h, args_vec]);
+    let result = ctx.builder.inst_results(inst)[0];
+    ctx.var_member_call_values.insert(result);
+    Ok(TypedVal::new(result, ValTy::Handle))
 }

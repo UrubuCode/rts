@@ -23,6 +23,7 @@ struct CliFlags {
     frontend_mode: FrontendMode,
     windows_subsystem: Option<WindowsSubsystem>,
     all_namespaces: bool,
+    allow_native_addons: bool,
 }
 
 impl Default for CliFlags {
@@ -33,6 +34,7 @@ impl Default for CliFlags {
             frontend_mode: FrontendMode::Native,
             windows_subsystem: None,
             all_namespaces: false,
+            allow_native_addons: false,
         }
     }
 }
@@ -45,6 +47,7 @@ impl CliFlags {
             frontend_mode: self.frontend_mode,
             emit_module_progress: false,
             all_namespaces: self.all_namespaces,
+            allow_native_addons: self.allow_native_addons,
         }
     }
 }
@@ -125,6 +128,7 @@ fn parse_flags(raw: Vec<String>) -> Result<(CliFlags, Vec<String>)> {
             "--native" => flags.frontend_mode = FrontendMode::Native,
             "--compat" => flags.frontend_mode = FrontendMode::Compat,
             "--all-namespaces" => flags.all_namespaces = true,
+            "--allow-native-addons" => flags.allow_native_addons = true,
             "--windows-subsystem" => {
                 let value = raw
                     .get(idx + 1)

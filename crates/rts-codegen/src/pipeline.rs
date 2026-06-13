@@ -34,6 +34,20 @@ pub fn compile_file(
 ) -> Result<CompileOutcome> {
     let graph = crate::module::ModuleGraph::load(input, options)
         .with_context(|| format!("failed to load module graph for {}", input.display()))?;
+
+    // (N-API) Addons `.node` não são suportados em AOT: o binário AOT é
+    // self-contained (promessa do .rtslib) e um `.node` é uma shared lib
+    // carregada por dlopen em runtime. Use `rts run` (JIT). Self-extracting
+    // (modelo Deno) é etapa futura. Ver docs/specs/napi-implementation.md.
+    if let Some(addon) = graph.first_native_addon() {
+        anyhow::bail!(
+            "native addon '{}' não é suportado em `rts compile` (AOT): o binário \
+             AOT é self-contained e o `.node` precisa de dlopen em runtime. Use \
+             `rts run --allow-native-addons`.",
+            addon.display()
+        );
+    }
+
     let mut program = graph.flatten_for_jit();
 
     let (object, warnings) =
