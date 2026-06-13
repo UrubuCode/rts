@@ -25,6 +25,7 @@
 mod call;
 mod expr;
 pub mod module_jit;
+mod obj;
 mod sig;
 mod stmt;
 

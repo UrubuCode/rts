@@ -96,6 +96,88 @@ pub fn emit_string_ptr_len(
     (ptr, len)
 }
 
+/// `__RTS_FN_NS_COLLECTIONS_VEC_NEW()` → a fresh real Vec handle, then box it as
+/// a `TAG_OBJECT` PolyValue word (the new engine's object/array representation:
+/// an `Entry::Vec` of PolyValue words reached through a NaN-boxed object handle —
+/// exactly the strings/handles bridge, with `TAG_OBJECT` instead of `TAG_STR`).
+/// Returns the raw object-PolyValue word.
+pub fn emit_new_vec_object(module: &mut dyn Module, builder: &mut FunctionBuilder) -> Value {
+    let handle = emit_call(module, builder, "__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[])
+        .expect("VEC_NEW returns a value");
+    box_handle_as(module, builder, handle, super::TAG_OBJECT)
+}
+
+/// Box a real runtime handle as a PolyValue of `tag` (`TAG_OBJECT`/`TAG_STR`/…):
+/// `POLY_FROM_HANDLE` drops the generation to the bare 48-bit slot+shard, then
+/// `BOX_BASE | (tag<<48) | (payload & PAYLOAD_MASK)` assembles the word.
+fn box_handle_as(
+    module: &mut dyn Module,
+    builder: &mut FunctionBuilder,
+    real_handle: Value,
+    tag: u64,
+) -> Value {
+    let payload48 = emit_call(module, builder, "__RTS_FN_NS_GC_POLY_FROM_HANDLE", &[real_handle])
+        .expect("POLY_FROM_HANDLE returns a value");
+    let header = super::encode(tag, 0) as i64; // BOX_BASE | tag<<48
+    let mask = builder.ins().iconst(types::I64, PAYLOAD_MASK as i64);
+    let payload = builder.ins().band(payload48, mask);
+    let header_v = builder.ins().iconst(types::I64, header);
+    builder.ins().bor(payload, header_v)
+}
+
+/// `VEC_PUSH(realHandleOf(obj_word), value_word)` — append one PolyValue slot
+/// word to the inline slot array behind `obj_word`.
+pub fn emit_vec_push(
+    module: &mut dyn Module,
+    builder: &mut FunctionBuilder,
+    obj_word: Value,
+    value_word: Value,
+) {
+    let handle = emit_table_load(module, builder, obj_word);
+    emit_call(module, builder, "__RTS_FN_NS_COLLECTIONS_VEC_PUSH", &[handle, value_word]);
+}
+
+/// `VEC_GET(realHandleOf(obj_word), index)` → the i64 slot word (a PolyValue
+/// word, or `0` out of range — the caller maps that to `undefined`).
+pub fn emit_vec_get(
+    module: &mut dyn Module,
+    builder: &mut FunctionBuilder,
+    obj_word: Value,
+    index: Value,
+) -> Value {
+    let handle = emit_table_load(module, builder, obj_word);
+    emit_call(module, builder, "__RTS_FN_NS_COLLECTIONS_VEC_GET", &[handle, index])
+        .expect("VEC_GET returns a value")
+}
+
+/// `VEC_SET(realHandleOf(obj_word), index, value_word)` — overwrite one slot.
+pub fn emit_vec_set(
+    module: &mut dyn Module,
+    builder: &mut FunctionBuilder,
+    obj_word: Value,
+    index: Value,
+    value_word: Value,
+) {
+    let handle = emit_table_load(module, builder, obj_word);
+    emit_call(
+        module,
+        builder,
+        "__RTS_FN_NS_COLLECTIONS_VEC_SET",
+        &[handle, index, value_word],
+    );
+}
+
+/// `VEC_LEN(realHandleOf(obj_word))` → element count (i64).
+pub fn emit_vec_len(
+    module: &mut dyn Module,
+    builder: &mut FunctionBuilder,
+    obj_word: Value,
+) -> Value {
+    let handle = emit_table_load(module, builder, obj_word);
+    emit_call(module, builder, "__RTS_FN_NS_COLLECTIONS_VEC_LEN", &[handle])
+        .expect("VEC_LEN returns a value")
+}
+
 /// Emit a `console.log`-style line print of one string PolyValue: table-load to
 /// the real handle, STRING_PTR + STRING_LEN (the real pool), then
 /// `__rtsadp_print_line(ptr, len)` — the marshaling trampoline that forwards to

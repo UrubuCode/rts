@@ -47,6 +47,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirExprKind::MethodCall { object, method, args } => {
                 self.lower_method_call(module, object, method, args)
             }
+            HirExprKind::Member { object, prop } => self.lower_member(module, object, prop),
+            HirExprKind::Index { object, index } => self.lower_index(module, object, index),
+            HirExprKind::Array(elems) => self.lower_array_literal(module, elems),
+            HirExprKind::Object(fields) => {
+                // An object literal used as a bare expression (not bound to a local
+                // whose shape we record) has no addressable shape afterward; we
+                // still build it (its value is a valid `TAG_OBJECT` PolyValue, so
+                // `typeof`/`console.log` work), discarding the shape id.
+                let (val, _shape) = self.lower_object_literal(module, fields)?;
+                Ok(val)
+            }
             other => unsupported!("expression {}", super::stmt::expr_variant_name(other)),
         }
     }
@@ -115,6 +126,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     ) -> FrontResult<Val> {
         if matches!(op, HirBinOp::LogAnd | HirBinOp::LogOr) {
             return self.lower_logical(module, op, lhs, rhs);
+        }
+
+        // A WHOLE object/array operand needs JS ToPrimitive (`[1]+[2]` → `"12"`,
+        // `[]+{}` → `"[object Object]"`, with array `.join(",")` coercion) — a
+        // later increment. Bail rather than emit the runtime ToString, which
+        // diverges from Bun/Node for these.
+        if self.is_whole_heap_value(lhs) || self.is_whole_heap_value(rhs) {
+            return unsupported!(
+                "binary `{op:?}` on a whole object/array operand (ToPrimitive coercion is a later increment)"
+            );
         }
 
         let l = self.lower_expr(module, lhs)?;

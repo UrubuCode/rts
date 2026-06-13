@@ -179,10 +179,12 @@ fn run_source_real_stdout_smoke() {
 // ===========================================================================
 
 #[test]
-fn object_literal_bails() {
-    // Object literals are a later increment — must bail, not miscompile.
+fn whole_object_log_bails() {
+    // P3: object literals now WORK for scalar access, but printing a WHOLE object
+    // value has no faithful rendering yet — it must bail, not print `[object
+    // Object]` (which diverges from Bun's `{ a: 1 }`).
     let res = run_source("let o = { a: 1 }; console.log(o);");
-    assert!(res.is_err(), "object literal must bail, got {res:?}");
+    assert!(res.is_err(), "whole-object log must bail, got {res:?}");
 }
 
 #[test]
@@ -192,9 +194,131 @@ fn unknown_method_call_bails() {
 }
 
 #[test]
-fn array_literal_bails() {
+fn whole_array_log_bails() {
+    // Same: printing a whole array value bails (Bun prints `[ 1, 2, 3 ]`).
     let res = run_source("let a = [1, 2, 3]; console.log(a);");
-    assert!(res.is_err(), "array literal must bail, got {res:?}");
+    assert!(res.is_err(), "whole-array log must bail, got {res:?}");
+}
+
+// ===========================================================================
+// P3: object/array literals + property/index access (scalar pulls).
+// ===========================================================================
+
+#[test]
+fn object_property_read() {
+    assert_stdout("let o = {a: 1, b: 2}; console.log(o.a + o.b);", "3\n");
+}
+
+#[test]
+fn object_property_write() {
+    assert_stdout("let o = {x: 10}; o.x = o.x + 5; console.log(o.x);", "15\n");
+}
+
+#[test]
+fn object_string_property() {
+    assert_stdout(r#"let p = {name: "rts"}; console.log(p.name);"#, "rts\n");
+}
+
+#[test]
+fn object_nested_scalar_through_function() {
+    assert_stdout(
+        "let c = {n: 7}; function dbl(v: number){return v*2;} console.log(dbl(c.n));",
+        "14\n",
+    );
+}
+
+#[test]
+fn object_missing_key_is_undefined() {
+    assert_stdout("let o = {a: 1}; console.log(o.b);", "undefined\n");
+}
+
+#[test]
+fn array_index_read() {
+    assert_stdout("let a = [10, 20, 30]; console.log(a[0] + a[2]);", "40\n");
+}
+
+#[test]
+fn array_length() {
+    assert_stdout("let a = [10, 20, 30]; console.log(a.length);", "3\n");
+}
+
+#[test]
+fn array_index_write() {
+    assert_stdout("let a = [1, 2, 3]; a[1] = 9; console.log(a[1]);", "9\n");
+}
+
+#[test]
+fn heterogeneous_array_scalar() {
+    assert_stdout(r#"let m = [1, "two", 3]; console.log(m[1]);"#, "two\n");
+}
+
+#[test]
+fn typeof_object_and_array() {
+    assert_stdout("console.log(typeof {}, typeof []);", "object object\n");
+}
+
+#[test]
+fn const_array_and_object_shapes() {
+    // `const` initializers record shapes the same as `let` (the fixture corpus
+    // overwhelmingly uses `const a = [...]`).
+    assert_stdout("const a = [4, 5]; console.log(a[1], a.length);", "5 2\n");
+    assert_stdout("const o = {a: 1}; console.log(o.a);", "1\n");
+}
+
+#[test]
+fn array_index_in_loop() {
+    // Read array slots across loop iterations (exercises VEC_GET with a varying
+    // index and the Tagged element path).
+    assert_stdout(
+        r#"
+        let a = [5, 6, 7];
+        let i = 0;
+        while (i < a.length) {
+            console.log(a[i]);
+            i = i + 1;
+        }
+        "#,
+        "5\n6\n7\n",
+    );
+}
+
+#[test]
+fn object_two_fields_string_and_number() {
+    assert_stdout(
+        r#"let o = {name: "x", count: 3}; console.log(o.name, o.count);"#,
+        "x 3\n",
+    );
+}
+
+// ===========================================================================
+// P3 negative: shape must be statically proven; dynamic access bails.
+// ===========================================================================
+
+#[test]
+fn member_on_unknown_shape_param_bails() {
+    // `o` is a param of unknown shape — a property access on it needs the dynamic
+    // inline cache (later increment). Must bail, not guess a slot.
+    let res = run_source(
+        "function f(o: any){ return o.a; } let r = {a: 1}; console.log(f(r));",
+    );
+    assert!(res.is_err(), "member on unknown-shape param must bail, got {res:?}");
+}
+
+#[test]
+fn computed_object_key_bails() {
+    // `o[k]` with a dynamic key on a non-array object needs the dynamic property
+    // path — must bail.
+    let res = run_source(
+        r#"let o = {a: 1}; let k = "a"; console.log(o[k]);"#,
+    );
+    assert!(res.is_err(), "computed dynamic object key must bail, got {res:?}");
+}
+
+#[test]
+fn adding_new_object_key_bails() {
+    // Adding a key not in the literal's shape needs the transition tree — bail.
+    let res = run_source("let o = {a: 1}; o.b = 2; console.log(o.b);");
+    assert!(res.is_err(), "adding a new object key must bail, got {res:?}");
 }
 
 // ---------------------------------------------------------------------------

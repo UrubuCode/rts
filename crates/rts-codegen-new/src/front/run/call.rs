@@ -86,6 +86,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         };
         let mut line: Option<Value> = None;
         for a in args {
+            // A WHOLE object/array value has no faithful codegen-side rendering in
+            // this increment: Bun/Node pretty-print `{ a: 1 }` / `[ 1, 2, 3 ]`,
+            // while the runtime's ToString yields `[object Object]` / a join. We
+            // BAIL rather than print the wrong thing (the honesty floor). A SCALAR
+            // pulled from an object/array (`o.a`, `arr[0]`, `arr.length`) is a
+            // normal PolyValue and lowers fine.
+            if self.is_whole_heap_value(a) {
+                return unsupported!(
+                    "console.log of a whole object/array value (pretty-print rendering is a later increment)"
+                );
+            }
             let v = self.lower_expr(module, a)?;
             let boxed = self.box_value(v);
             // ToString this arg (real pool) → a string PolyValue word.
@@ -198,6 +209,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 Ok(res)
             }
             other => unsupported!("condition of repr {other:?}"),
+        }
+    }
+}
+
+impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
+    /// Whether `e` evaluates to a WHOLE object/array value (which has no faithful
+    /// rendering / ToPrimitive yet): an object/array literal, or an identifier
+    /// bound to a local of proven object/array shape. A scalar member/index
+    /// access is NOT one.
+    pub(super) fn is_whole_heap_value(&self, e: &HirExpr) -> bool {
+        match &e.kind {
+            HirExprKind::Object(_) | HirExprKind::Array(_) => true,
+            HirExprKind::Ident(name) => self.local_shapes.contains_key(name),
+            _ => false,
         }
     }
 }

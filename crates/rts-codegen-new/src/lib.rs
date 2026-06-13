@@ -66,12 +66,29 @@
 //! first honest measurement on the real cross-runtime fixtures lives in
 //! `front::run::fixture_check` (bun-gated, `#[ignore]`d).
 //!
+//! Increment P3 ([`shape`] + [`front::run::obj`]): OBJECTS and ARRAYS via
+//! COMPILE-TIME shapes. [`shape::ShapeTable`] interns object-literal key-sequences
+//! to a `ShapeId` (the compile-time key→slot map). An object/array value is a REAL
+//! `Entry::Vec` of `PolyValue` words (the inline slot array), boxed as a
+//! `TAG_OBJECT` [`value::PolyValue`] — exactly the strings/handles bridge with the
+//! object tag. A property read `obj.a` lowers to `VEC_GET(obj, const slot)` (the
+//! slot resolved at compile time from the literal's shape), `obj.a = v` to
+//! `VEC_SET`; an array index `arr[i]` to `VEC_GET(obj, i)`, `arr[i] = v` to
+//! `VEC_SET`, `arr.length` to `VEC_LEN`; a missing static key reads `undefined`;
+//! `typeof {}`/`typeof []` is `"object"` (one tag inspection). What BAILS (no
+//! guess): a property/index access on an object whose shape is not statically
+//! proven (param/return/reassigned — the dynamic inline cache is later), a
+//! computed/dynamic object key, adding a NEW key (the transition tree is later),
+//! and a console.log / `+` of a WHOLE object/array value (faithful pretty-print /
+//! ToPrimitive is later — the runtime's `[object Object]` would diverge from Bun).
+//!
 //! Anything outside the implemented subset is an EXPLICIT `Unsupported` bail,
 //! never a silent miscompile — including the two HIR-ambiguity cases the engine
 //! REFUSES rather than guess: equality on operands of differing/unknown kind
-//! (swc conflates `==`/`===`) and unary `!`/`+` (swc conflates them). Objects,
-//! string methods, closures, and 128-bit ints are later increments. The
-//! remaining pillars are documented skeletons not yet wired into the pipeline.
+//! (swc conflates `==`/`===`) and unary `!`/`+` (swc conflates them). Whole-value
+//! object/array printing, string methods, classes, closures, dynamic property
+//! ICs, and 128-bit ints are later increments. The remaining pillars are
+//! documented skeletons not yet wired into the pipeline.
 
 // Scaffold phase: stub modules intentionally carry unused items until their
 // implementation lands. Removed module-by-module as each pillar is built out.

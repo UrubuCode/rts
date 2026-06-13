@@ -27,6 +27,7 @@ use cranelift_module::Module;
 use rts_hir::{HirFunc, HirStmt};
 
 use crate::repr::Repr;
+use crate::shape::{ShapeId, ShapeTable};
 use crate::value;
 
 use crate::front::error::{unsupported, FrontResult, Unsupported};
@@ -97,11 +98,28 @@ pub(crate) struct Local {
     pub repr: Repr,
 }
 
+/// The statically-proven heap shape of a local that holds an object or array
+/// literal — what makes `obj.key` / `arr[i]` / `arr.length` lowerable to a
+/// constant-slot `VEC_GET`/`VEC_SET`. A local without an entry here holds an
+/// opaque value (param, call return, reassigned); an access on it BAILS.
+#[derive(Clone, Copy)]
+pub(crate) enum HeapShape {
+    /// An object literal with a known compile-time [`ShapeId`] (key→slot map).
+    Object(ShapeId),
+    /// An array literal: indices are dense `0..len`; `.length` is `VEC_LEN`.
+    Array,
+}
+
 /// The per-function lowering context.
 pub(crate) struct Lowerer<'a, 'b, 'c> {
     pub builder: &'a mut FunctionBuilder<'b>,
     /// Name → local binding (flat; re-`let` reuses the slot).
     pub locals: HashMap<String, Local>,
+    /// Name → the proven heap shape of a local holding an object/array literal.
+    /// Absent ⇒ the local's value is opaque; a property/index access on it bails.
+    pub local_shapes: HashMap<String, HeapShape>,
+    /// Interns object-literal shapes (compile-time key→slot maps) for this fn.
+    pub shapes: ShapeTable,
     /// The function's return repr, or `None` for a `void` body (`__rtsn_main`).
     pub ret: Option<Repr>,
     /// True once the current block has emitted a terminator.
@@ -129,6 +147,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let mut ctx = Lowerer {
             builder,
             locals: HashMap::new(),
+            local_shapes: HashMap::new(),
+            shapes: ShapeTable::new(),
             ret: sig.ret,
             block_terminated: false,
             sigs,

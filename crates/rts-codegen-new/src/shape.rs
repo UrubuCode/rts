@@ -6,46 +6,100 @@
 //! is a shape-id compare + a fixed-offset slot load; method dispatch is keyed on
 //! the shape's class, not a chain of `gc.string_eq`.
 //!
-//! Simplicity line vs V8 (held deliberately): shapes + monomorphic/polymorphic
-//! data ICs, a transition tree, and a fall-to-dictionary mode for pathological
-//! objects. NO speculative deopt, NO on-stack-replacement, NO dependent-code
-//! invalidation graph. See `docs/specs/rts-codegen-new-design.md`.
+//! ## What this increment (P3) implements
+//!
+//! The COMPILE-TIME slice: a [`Shape`] is the static key→slot-index map for an
+//! object literal whose keys are all known at compile time. [`ShapeTable`]
+//! **interns** distinct key-sequences to a [`ShapeId`]; an object literal
+//! `{a, b, c}` reuses the same shape as any other literal built with the same
+//! ordered key list. A property access `obj.a` lowers to a `VEC_GET(obj, slot)`
+//! with `slot` the COMPILE-TIME constant from the shape; `obj.a = v` to
+//! `VEC_SET`. The runtime object value is an `Entry::Vec` of PolyValue words (the
+//! inline slot array), boxed as a `TAG_OBJECT` PolyValue.
+//!
+//! The DYNAMIC runtime machinery — a transition tree for incremental
+//! property-adds, data inline caches ([`crate::ic`]), shape-keyed method
+//! dispatch, dictionary fallback — is a LATER increment. Adding a key not in the
+//! shape, or accessing a property on an object whose shape is not statically
+//! proven, BAILS (`Unsupported`) rather than guess.
 
 use std::collections::HashMap;
 
 pub type ShapeId = u32;
 pub type SlotIdx = u32;
 
-/// A hidden class: the layout shared by all objects built the same way.
-#[derive(Default)]
+/// A hidden class: the layout shared by all objects built the same way. In this
+/// (compile-time) increment a shape is fully described by its ordered key list;
+/// slot `i` holds the value for `keys[i]`.
+#[derive(Default, Clone)]
 pub struct Shape {
     pub id: ShapeId,
-    /// property name -> inline slot index.
+    /// The ordered property names; the slot index of a key is its position here.
+    pub keys: Vec<String>,
+    /// property name → inline slot index (the cached inverse of `keys`).
     pub slots: HashMap<String, SlotIdx>,
-    /// add-property transitions: key -> resulting shape (the transition tree).
-    pub transitions: HashMap<String, ShapeId>,
-    /// prototype object's shape, for chain walking + proto ICs.
-    pub proto: Option<ShapeId>,
 }
 
-/// Interns shapes and owns the transition tree.
+impl Shape {
+    /// Slot index of `key` in this shape, if present.
+    pub fn slot_of(&self, key: &str) -> Option<SlotIdx> {
+        self.slots.get(key).copied()
+    }
+
+    /// Number of inline slots (= number of keys).
+    pub fn slot_count(&self) -> usize {
+        self.keys.len()
+    }
+}
+
+/// Interns shapes by their ordered key-sequence. Two object literals built with
+/// the same ordered keys share one [`ShapeId`].
 #[derive(Default)]
 pub struct ShapeTable {
     shapes: Vec<Shape>,
+    /// ordered-key-sequence → ShapeId (the interning index).
+    by_keys: HashMap<Vec<String>, ShapeId>,
 }
 
 impl ShapeTable {
+    pub fn new() -> ShapeTable {
+        ShapeTable::default()
+    }
+
+    /// The root (no-property) shape — `{}`. Interned like any other.
     pub fn empty_shape(&mut self) -> ShapeId {
-        todo!("phase: object-model — intern the root (no-property) shape")
+        self.intern(&[])
     }
 
-    /// Return the shape reached by adding `key` to `from`, creating it if needed.
-    pub fn transition(&mut self, _from: ShapeId, _key: &str) -> ShapeId {
-        todo!("phase: object-model — transition-tree insert/lookup")
+    /// Intern the shape for an object literal with the given ordered `keys`,
+    /// creating it on first sight and reusing it thereafter. Returns its
+    /// [`ShapeId`]. Duplicate keys in a literal (`{a:1, a:2}`) keep the LAST
+    /// (JS semantics): the caller is responsible for de-duplicating to the last
+    /// occurrence before interning; this table treats the key vector verbatim.
+    pub fn intern(&mut self, keys: &[String]) -> ShapeId {
+        if let Some(&id) = self.by_keys.get(keys) {
+            return id;
+        }
+        let id = self.shapes.len() as ShapeId;
+        let slots = keys
+            .iter()
+            .enumerate()
+            .map(|(i, k)| (k.clone(), i as SlotIdx))
+            .collect();
+        self.shapes.push(Shape { id, keys: keys.to_vec(), slots });
+        self.by_keys.insert(keys.to_vec(), id);
+        id
     }
 
-    /// Slot index of `key` in `shape`, if present (the IC fast-path resolves this).
-    pub fn slot_of(&self, _shape: ShapeId, _key: &str) -> Option<SlotIdx> {
-        todo!("phase: object-model")
+    /// The interned [`Shape`] for an id (panics on an id this table did not mint —
+    /// a codegen bug, never a user error).
+    pub fn get(&self, id: ShapeId) -> &Shape {
+        &self.shapes[id as usize]
+    }
+
+    /// Slot index of `key` in `shape`, if present (the access fast-path resolves
+    /// this at compile time).
+    pub fn slot_of(&self, shape: ShapeId, key: &str) -> Option<SlotIdx> {
+        self.get(shape).slot_of(key)
     }
 }

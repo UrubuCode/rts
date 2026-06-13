@@ -17,7 +17,7 @@ use crate::repr::Repr;
 use crate::front::error::{unsupported, FrontResult, Unsupported};
 use crate::front::repr_map::repr_of;
 
-use super::lower::{cl_type, Local, Lowerer, Val};
+use super::lower::{cl_type, HeapShape, Local, Lowerer, Val};
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Lower a single statement.
@@ -84,6 +84,29 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let Some(init) = init else {
             return unsupported!("`let {name}` without an initializer");
         };
+
+        // Object/array literal initializers: lower specially and RECORD the
+        // local's proven heap shape, so later `obj.key` / `arr[i]` / `arr.length`
+        // resolve to constant-slot `VEC_GET`/`VEC_SET`. The local rides `Tagged`
+        // (an i64 register holding the boxed object/array handle word).
+        let shape = match &init.kind {
+            HirExprKind::Object(fields) => {
+                let (val, shape_id) = self.lower_object_literal(module, fields)?;
+                self.bind_tagged_local(name, val);
+                Some(HeapShape::Object(shape_id))
+            }
+            HirExprKind::Array(elems) => {
+                let val = self.lower_array_literal(module, elems)?;
+                self.bind_tagged_local(name, val);
+                Some(HeapShape::Array)
+            }
+            _ => None,
+        };
+        if let Some(shape) = shape {
+            self.local_shapes.insert(name.to_string(), shape);
+            return Ok(());
+        }
+
         let val = self.lower_expr(module, init)?;
 
         let annotated = repr_of(ty);
@@ -93,7 +116,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let var = self.builder.declare_var(cl_type(repr));
         self.builder.def_var(var, coerced);
         self.locals.insert(name.to_string(), Local { var, repr });
+        // A non-literal initializer leaves no proven shape; if `name` was a shaped
+        // local being re-`let`, drop the stale shape (its value is now opaque).
+        self.local_shapes.remove(name);
         Ok(())
+    }
+
+    /// Bind `name` to a fresh `Tagged` local holding `val.v` (used for
+    /// object/array literal locals, whose value is a boxed handle word). The
+    /// caller records the heap shape separately.
+    fn bind_tagged_local(&mut self, name: &str, val: Val) {
+        let var = self.builder.declare_var(cl_type(Repr::Tagged));
+        self.builder.def_var(var, val.v);
+        self.locals.insert(name.to_string(), Local { var, repr: Repr::Tagged });
     }
 
     /// Plain assignment `x = e`. Only to an existing local; the value coerces to
@@ -104,6 +139,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         target: &HirExpr,
         value: &HirExpr,
     ) -> FrontResult<Val> {
+        // Property/index writes (`obj.k = v`, `arr[i] = v`) on a proven shape.
+        match &target.kind {
+            HirExprKind::Member { object, prop } => {
+                return self.lower_member_assign(module, object, prop, value);
+            }
+            HirExprKind::Index { object, index } => {
+                return self.lower_index_assign(module, object, index, value);
+            }
+            _ => {}
+        }
         let name = ident_target(target)?;
         let local = self
             .local(&name)
@@ -111,6 +156,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let val = self.lower_expr(module, value)?;
         let coerced = self.coerce(val, local.repr)?;
         self.builder.def_var(local.var, coerced);
+        // The local now holds an opaque value: drop any stale proven shape so a
+        // later `name.key` does NOT resolve against the old layout.
+        self.local_shapes.remove(&name);
         Ok(Val::new(coerced, local.repr))
     }
 
