@@ -826,8 +826,22 @@ pub(super) fn lower_napi_instance_method_call(
     // por `napi_create_promise`. Roteia para as fns globais de Promise (que
     // detectam PromiseAsync em runtime e enfileiram o microtask). Sem isto, o
     // `.then` cairia no INVOKE_METHOD e o callback nunca rodaria.
+    //
+    // O callback é preparado EXATAMENTE como o `.then` NATIVO faz (`lower_expr`
+    // + `coerce_to_i64`, espelhando `ns_call::lower_global_instance_call`), NÃO
+    // via `lower_callable_target_h`. A diferença é crítica: `lower_callable_
+    // target_h` SEMPRE reifica um handle Function (com is_arrow=0/rk=void),
+    // enquanto `lower_expr` deixa o codegen de `__hoisted_arrow_` escolher entre
+    // handle-typed (arrow com param number) e func_addr cru (arrow 0-arg/string).
+    // O func_addr cru é o caminho seguro no microtask drain; o handle reificado
+    // crashava (0-arg sempre, 1-arg-string) por mismatch de convenção. Ver
+    // diagnóstico em docs/specs/napi-implementation.md (#1548).
     if matches!(method, "then" | "catch" | "finally") && !call.args.is_empty() {
-        let cb_h = super::lower_callable_target_h(ctx, &call.args[0].expr)?;
+        let lower_cb = |ctx: &mut FnCtx, e: &Expr| -> Result<cranelift_codegen::ir::Value> {
+            let tv = lower_expr(ctx, e)?;
+            Ok(ctx.coerce_to_i64(tv).val)
+        };
+        let cb_h = lower_cb(ctx, &call.args[0].expr)?;
         let (sym, arity3) = match method {
             // then pode ter 2 callbacks (onFulfilled, onRejected).
             "then" if call.args.len() >= 2 => ("__RTS_FN_GL_PROMISE_THEN2", true),
@@ -836,7 +850,7 @@ pub(super) fn lower_napi_instance_method_call(
             _ => ("__RTS_FN_GL_PROMISE_FINALLY", false),
         };
         let result = if arity3 {
-            let cb2 = super::lower_callable_target_h(ctx, &call.args[1].expr)?;
+            let cb2 = lower_cb(ctx, &call.args[1].expr)?;
             let f = ctx.get_extern(sym, &[cl::I64, cl::I64, cl::I64], Some(cl::I64))?;
             let inst = ctx.builder.ins().call(f, &[recv, cb_h, cb2]);
             ctx.builder.inst_results(inst)[0]

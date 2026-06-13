@@ -981,6 +981,19 @@ impl crate::Traceable for Entry {
                     visit(g.ret as u64);
                 }
             }
+            // (N-API/#207) O valor de resolução/rejeição de uma Promise é um
+            // handle (string/objeto) que deve sobreviver até o `.then` consumir.
+            // Sem isto, uma Promise resolvida com string via napi_resolve_deferred
+            // tinha a string coletada antes do microtask drenar → crash no `.then`.
+            // `try_lock` evita deadlock se o slot já estiver travado no momento do
+            // mark (nesse caso o value está vivo no frame de quem travou).
+            Entry::PromiseAsync(slot) => {
+                if let Ok(v) = slot.value.try_lock() {
+                    if *v != 0 {
+                        visit(*v as u64);
+                    }
+                }
+            }
             _ => {}
         }
     }
