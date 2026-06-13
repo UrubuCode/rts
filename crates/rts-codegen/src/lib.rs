@@ -20,6 +20,12 @@ pub mod namespaces {
     }
 }
 
+/// N-API (.node native addons) — re-export via facade. Ver
+/// docs/specs/napi-implementation.md.
+pub mod napi {
+    pub use rts_runtime::napi::*;
+}
+
 pub mod linker {
     pub use rts_linker::*;
     pub use rts_linker::object_linker;

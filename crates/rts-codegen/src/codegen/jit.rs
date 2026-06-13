@@ -165,6 +165,15 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
         };
     }
 
+    // ── N-API loader (.node addons) ──────────────────────────────────
+    {
+        // Símbolo interno chamado pelo codegen de init para carregar um `.node`
+        // importado. Os símbolos `napi_*` que o addon resolve por dlsym estão na
+        // export table do bin (build.rs), NÃO aqui. Ver docs/specs/napi-implementation.md.
+        use crate::napi::loader::__RTS_FN_NS_NAPI_LOAD_ADDON;
+        add_fn!("__RTS_FN_NS_NAPI_LOAD_ADDON", __RTS_FN_NS_NAPI_LOAD_ADDON);
+    }
+
     // ── runtime error slot (used by try/catch/throw in codegen) ──────
     {
         // (AOT event loop) shim `main` chama este símbolo; o JIT compila o shim

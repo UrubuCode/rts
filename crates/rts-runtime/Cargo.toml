@@ -29,3 +29,6 @@ rts-engine = { path = "../rts-engine" }
 rts-primitives = { path = "../rts-primitives" }
 rts-shared = { path = "../rts-shared" }
 rts-std = { path = "../rts-std" }
+# N-API (.node addons): re-exportado pela facade para o codegen registrar o
+# símbolo do loader no JIT e o staticlib AOT incluir os símbolos napi_*.
+rts-napi = { path = "../rts-napi" }

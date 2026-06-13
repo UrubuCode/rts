@@ -133,16 +133,29 @@ linkado no bin `rts` aparece na export table em **debug E release** (com
 - [x] **Suite TS 1710/1710** (630 arquivos), zero regressão
 - **Saída:** ✅ interceptação completa; gate de segurança; AOT proibido.
 
-## Etapa 4 — Loader + handshake + bind no codegen
+## Etapa 4 — Loader + handshake + bind no codegen ✅
 
-- [ ] `__RTS_FN_NS_NAPI_LOAD_ADDON(path_ptr, path_len) -> u64` (símbolo interno, segue convenção `__RTS_`):
-  - [ ] `libloading::Library::new(path)` + registry estático/`mem::forget` (lib viva — fn_ptrs do addon não podem dangle)
-  - [ ] resolver opcional `node_api_module_get_api_version_v1`; versão > implementada → erro claro
-  - [ ] resolver `napi_register_module_v1` (assinatura **2-args** `(napi_env, napi_value)` — o "5 args" do `node_binding.cc` é interno, não cruza o boundary); ausente → erro claro (registro legado por construtor estático = fora de escopo)
-  - [ ] criar `exports = alloc_entry(Entry::Map(...))`; fabricar `RtsNapiEnv` com **handle scope implícito aberto**
-  - [ ] chamar `register(env, exports)`; devolver handle do `exports`
-- [ ] Codegen de init (onde `node_import_map` é consumido, `main_fn.rs`/`program.rs`): p/ cada `native_addon_imports`, emitir `LOAD_ADDON` + bind do retorno na global do nome local
-- **Saída (Fase 0):** addon dummy cujo `napi_register_module_v1` retorna `{}` → `typeof x === "object"` em TS via `rts run`.
+- [x] `crates/rts-napi/src/loader.rs` — `__RTS_FN_NS_NAPI_LOAD_ADDON(path_ptr, path_len) -> u64`:
+  - [x] `libloading::Library::new(path)` + cache global por path (`LOADED_ADDONS: Mutex<HashMap>`) que mantém a `Library` viva pelo processo (fn_ptrs do addon não podem dangle) e dá **idempotência** (mesmo `.node` → mesmo handle)
+  - [x] resolve `napi_register_module_v1` (**2-args** `(napi_env, napi_value)`); ausente → erro claro (registro legado = fora de escopo)
+  - [x] cria `exports = alloc_entry(Entry::Map)`; fabrica `RtsNapiEnv`; chama `register(env, exports)`; usa o retorno se não-nulo, senão o exports criado
+  - [x] path inválido/nulo → handle 0 (sem panic)
+- [x] **Fiação:** `rts-runtime` re-exporta `rts-napi as napi`; `rts-codegen::napi`; loader registrado no JIT (`jit.rs` `add_fn!`). `force_link` retém o símbolo
+- [x] **Bind no codegen:** `Program.native_addon_imports` → thread-local (`passes::native_addon`) populado em `compile_program`; `lower_ident_expr` emite `LOAD_ADDON(path)` quando o ident é um addon; `lower_typeof` classifica addon como `"object"` (antes do fallback "undefined")
+- [x] **Testes:** loader unit (path inválido/nulo) + **teste de integração** (`tests/loader_integration.rs`) que compila um addon dummy real via `rustc` cdylib→`.node`, carrega, valida `Entry::Map` vivo, e idempotência
+- [x] **e2e validado:** addon `.node` real (cdylib Rust com `napi_register_module_v1`) → `import addon from "./real.node"` → `typeof addon === "object"` via `rts run --allow-native-addons`
+- [x] **Suite TS 1710/1710**, `rts-napi` 7/7, `rts-engine` 56/56 — zero regressão
+- **Saída (Fase 0):** ✅ **um `.node` real carrega e roda em `rts run`.**
+
+---
+
+## ✅ FASE 0 COMPLETA
+
+O ciclo de carga de um addon `.node` funciona ponta a ponta no JIT:
+interceptação do import → gate de segurança → loader dinâmico → handshake N-API
+→ exports vinculado ao TS. As ~40 fns `napi_*` da Fase 1 ainda são stubs
+(`napi_generic_failure`); o addon carrega mas ainda não pode **fazer** nada útil
+até a Fase 1 dar corpo a elas.
 
 ---
 

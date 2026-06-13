@@ -11,3 +11,4 @@ edition = "2024"
 rts-engine = { path = "../rts-engine" }
 rts-shared = { path = "../rts-shared" }
 libloading = "0.8"
+indexmap = "2.14.0"

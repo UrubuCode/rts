@@ -11,6 +11,7 @@ pub mod box_captures;
 pub mod custom_iterator;
 pub mod destructuring;
 pub mod hoist_fn;
+pub mod native_addon;
 pub mod object_methods;
 pub mod parallelism;
 pub mod static_fields;

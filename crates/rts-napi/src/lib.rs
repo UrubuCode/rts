@@ -19,6 +19,7 @@
 #![allow(clippy::missing_safety_doc)]
 
 pub mod env;
+pub mod loader;
 pub mod symbols;
 pub mod types;
 
@@ -225,6 +226,8 @@ pub fn force_link() -> usize {
         napi_get_reference_value as *const (),
         napi_create_external as *const (),
         napi_get_value_external as *const (),
+        // Símbolo interno do loader (chamado pelo codegen, não pelo .node):
+        crate::loader::__RTS_FN_NS_NAPI_LOAD_ADDON as *const (),
     ];
     // `black_box` evita que o otimizador prove que o resultado é constante e
     // elimine as referências.

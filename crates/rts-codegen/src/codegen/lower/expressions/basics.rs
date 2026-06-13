@@ -405,6 +405,11 @@ fn lower_typeof(ctx: &mut FnCtx, operand: &Expr) -> Result<TypedVal> {
         if matches!(name, "Math" | "JSON" | "Reflect" | "Atomics" | "Intl") {
             return ctx.emit_str_handle(b"object");
         }
+        // (N-API) `typeof addon` onde `addon` é um import `.node`: é o handle do
+        // `exports` (um Map) → "object". Checado antes do fallback "undefined".
+        if crate::codegen::lower::passes::native_addon::native_addon_path(name).is_some() {
+            return ctx.emit_str_handle(b"object");
+        }
         if !is_js_global && ctx.read_local(name).is_none() {
             return ctx.emit_str_handle(b"undefined");
         }
