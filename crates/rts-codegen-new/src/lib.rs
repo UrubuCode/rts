@@ -60,3 +60,11 @@ pub mod dispatch;
 pub mod abi_gen;
 pub mod lower;
 pub mod pipeline;
+pub mod runtime;
+
+/// End-to-end proof suite (P1): reproduces the EXACT old-engine value-model
+/// failures and shows the new `PolyValue` representation solving each one
+/// through real Cranelift JIT execution. See the module for the per-proof
+/// citations of the old-engine bug each refutes.
+#[cfg(test)]
+mod proof_tests;

@@ -15,10 +15,11 @@ cranelift-codegen = "0.131"
 cranelift-frontend = "0.131"
 cranelift-module = "0.131"
 anyhow = "1.0"
-
-[dev-dependencies]
-# Roundtrip tests JIT-compile the PolyValue encode/decode emitters and execute
-# them, proving the Cranelift IR matches the pure-Rust reference model.
+# The P1 proof harness (lower/jit.rs) builds and finalizes a real JITModule and
+# installs the runtime::__rtsn_* extern symbols into it, so the JIT + host-ISA
+# builders are regular (non-test) dependencies now, not dev-only.
 cranelift-jit = "0.131"
 cranelift-native = "0.131"
+
+[dev-dependencies]
 target-lexicon = "0.13"
