@@ -27,6 +27,7 @@ pub mod errors;
 pub mod externals;
 pub mod functions;
 pub mod loader;
+pub mod module_register;
 pub mod objects;
 pub mod phase2;
 pub mod phase2b;
@@ -36,7 +37,6 @@ pub mod references;
 pub mod scopes;
 pub mod strings;
 pub mod threadsafe;
-pub mod surface;
 pub mod symbols;
 pub mod types;
 pub mod values;
@@ -284,12 +284,12 @@ pub fn force_link() -> usize {
         crate::phase2b::node_api_create_property_key_utf16 as *const (),
         crate::phase2b::node_api_create_property_key_utf8 as *const (),
         crate::phase2b::node_api_symbol_for as *const (),
+        // Registro de módulo legado (impl real — não mais stub).
+        crate::module_register::napi_module_register as *const (),
     ];
     // `black_box` evita que o otimizador prove que o resultado é constante e
     // elimine as referências.
-    let core = std::hint::black_box(fns.iter().map(|p| *p as usize).fold(0usize, usize::wrapping_add));
-    // + a superfície restante (stubs das Fases 2/3).
-    core.wrapping_add(crate::surface::force_link_surface())
+    std::hint::black_box(fns.iter().map(|p| *p as usize).fold(0usize, usize::wrapping_add))
 }
 
 #[cfg(test)]
@@ -298,8 +298,8 @@ mod tests {
     /// exportado — senão algum `napi_*` pode ser descartado pelo LTO no bin.
     #[test]
     fn force_link_covers_all_symbols() {
-        // Smoke: force_link (core + surface) linka e a lista cobre a superfície
-        // completa (~159 = 55 impl + ~104 stubs). Atualizar ao ampliar.
+        // Smoke: force_link linka e a lista cobre a superfície completa (159
+        // símbolos, todos com impl real — sem stubs). Atualizar ao ampliar.
         let _ = crate::force_link();
         assert!(crate::symbols::exported_symbols().len() >= 150);
     }
