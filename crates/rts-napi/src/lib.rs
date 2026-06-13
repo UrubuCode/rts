@@ -28,6 +28,7 @@ pub mod objects;
 pub mod phase2;
 pub mod phase2b;
 pub mod phase2c;
+pub mod phase2d;
 pub mod references;
 pub mod scopes;
 pub mod strings;
@@ -192,6 +193,11 @@ pub fn force_link() -> usize {
         crate::phase2c::node_api_create_syntax_error as *const (),
         crate::phase2c::node_api_get_module_file_name as *const (),
         crate::phase2c::node_api_throw_syntax_error as *const (),
+        // Fase 2d (phase2d.rs)
+        crate::phase2d::napi_make_callback as *const (),
+        crate::phase2d::node_api_create_external_string_latin1 as *const (),
+        crate::phase2d::node_api_create_external_string_utf16 as *const (),
+        crate::phase2d::node_api_is_sharedarraybuffer as *const (),
         // Fase 2 (phase2.rs)
         crate::phase2::napi_coerce_to_bool as *const (),
         crate::phase2::napi_coerce_to_number as *const (),

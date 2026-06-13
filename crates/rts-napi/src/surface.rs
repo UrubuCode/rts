@@ -1,7 +1,7 @@
-//! Superfície N-API restante (não implementada — dependem do engine:
-//! arraybuffer/typedarray ptr estável, async/threadsafe event loop,
-//! bigint real) — stubs `napi_generic_failure`. Existem na export table
-//! para o `load_all()` do napi-sys completar. Ver docs/specs/napi-implementation.md.
+//! Superfície N-API restante — dependem do engine (arraybuffer/typedarray
+//! ptr estável; async/threadsafe event loop #207; bigint real #219;
+//! registro legado). Stubs `napi_generic_failure` p/ o load_all() do
+//! napi-sys completar. Ver docs/specs/napi-implementation.md.
 
 #![allow(clippy::too_many_arguments)]
 use crate::types::napi_status;
@@ -41,7 +41,6 @@ surface_stub!(napi_get_typedarray_info);
 surface_stub!(napi_get_uv_event_loop);
 surface_stub!(napi_get_value_bigint_uint64);
 surface_stub!(napi_get_value_bigint_words);
-surface_stub!(napi_make_callback);
 surface_stub!(napi_module_register);
 surface_stub!(napi_open_callback_scope);
 surface_stub!(napi_queue_async_work);
@@ -50,10 +49,7 @@ surface_stub!(napi_release_threadsafe_function);
 surface_stub!(napi_remove_async_cleanup_hook);
 surface_stub!(napi_unref_threadsafe_function);
 surface_stub!(node_api_create_buffer_from_arraybuffer);
-surface_stub!(node_api_create_external_string_latin1);
-surface_stub!(node_api_create_external_string_utf16);
 surface_stub!(node_api_create_sharedarraybuffer);
-surface_stub!(node_api_is_sharedarraybuffer);
 surface_stub!(node_api_post_finalizer);
 
 pub fn force_link_surface() -> usize {
@@ -83,7 +79,6 @@ pub fn force_link_surface() -> usize {
         napi_get_uv_event_loop as *const (),
         napi_get_value_bigint_uint64 as *const (),
         napi_get_value_bigint_words as *const (),
-        napi_make_callback as *const (),
         napi_module_register as *const (),
         napi_open_callback_scope as *const (),
         napi_queue_async_work as *const (),
@@ -92,10 +87,7 @@ pub fn force_link_surface() -> usize {
         napi_remove_async_cleanup_hook as *const (),
         napi_unref_threadsafe_function as *const (),
         node_api_create_buffer_from_arraybuffer as *const (),
-        node_api_create_external_string_latin1 as *const (),
-        node_api_create_external_string_utf16 as *const (),
         node_api_create_sharedarraybuffer as *const (),
-        node_api_is_sharedarraybuffer as *const (),
         node_api_post_finalizer as *const (),
     ];
     std::hint::black_box(fns.iter().map(|p| *p as usize).fold(0usize, usize::wrapping_add))
