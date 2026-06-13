@@ -161,6 +161,11 @@ até a Fase 1 dar corpo a elas.
 
 # FASE 1 — ~40 fns síncronas (addon real)
 
+> **Progresso Fase 1:** Etapas 5, 6, 7, 10, 12 ✅ (marshalling escalar, strings,
+> objects/arrays/props, exceções, external). Pendentes: 8 (handle scopes), 9
+> (references), 11 (functions/callbacks) — as mais complexas. `rts-napi` 24
+> testes unit + 1 integração; 55 símbolos na export table; suite TS 1710/1710.
+
 ## Etapa 5 — Marshalling escalar + typeof
 
 - [ ] `napi_create_double/int32/uint32/int64` (sempre `FLOAT_BOX` → `Entry::FloatPrim`)

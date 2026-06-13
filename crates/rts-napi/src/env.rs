@@ -14,16 +14,22 @@ use crate::types::{napi_env, napi_value};
 pub struct RtsNapiEnv {
     /// Versão N-API anunciada por `napi_get_version` (nível implementado).
     pub api_version: u32,
+    /// Exceção pendente (handle de um `Entry::ErrorObj`), ou `0` se nenhuma.
+    /// `napi_throw*` seta; `napi_is_exception_pending` consulta;
+    /// `napi_get_and_clear_last_exception` lê e limpa. Per-instância (síncrono,
+    /// Fase 1) — não interage com o error slot do try/catch do RTS.
+    pub pending_exception: u64,
     // Etapa 8: pilha de handle scopes (chunks de endereço estável registrados
     // como GC roots via global_roots::add). Placeholder até lá.
     // Etapa 9: tabela de referências (strong=root, weak=sem root).
-    // Etapa 10: o slot de exceção reusa o error slot thread-local do runtime
-    // (__RTS_FN_RT_ERROR_*), então não há campo dedicado aqui.
 }
 
 impl RtsNapiEnv {
     pub fn new(api_version: u32) -> Self {
-        Self { api_version }
+        Self {
+            api_version,
+            pending_exception: 0,
+        }
     }
 
     /// Empacota um `Box<RtsNapiEnv>` num `napi_env` opaco (transfere posse ao

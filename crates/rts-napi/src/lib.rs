@@ -19,6 +19,8 @@
 #![allow(clippy::missing_safety_doc)]
 
 pub mod env;
+pub mod errors;
+pub mod externals;
 pub mod loader;
 pub mod objects;
 pub mod strings;
@@ -29,7 +31,7 @@ pub mod values;
 use std::ffi::{c_char, c_void};
 
 use types::{
-    napi_callback, napi_callback_info, napi_env, napi_escapable_handle_scope, napi_finalize,
+    napi_callback, napi_callback_info, napi_env, napi_escapable_handle_scope,
     napi_handle_scope, napi_ref, napi_status, napi_value,
 };
 
@@ -114,15 +116,7 @@ napi_stub!(fn napi_get_cb_info(env: napi_env, cbinfo: napi_callback_info, argc: 
 napi_stub!(fn napi_call_function(env: napi_env, recv: napi_value, func: napi_value, argc: usize, argv: *const napi_value, result: *mut napi_value) -> napi_status);
 
 // ── erros / exceções ────────────────────────────────────────────────────────
-napi_stub!(fn napi_throw(env: napi_env, error: napi_value) -> napi_status);
-napi_stub!(fn napi_throw_error(env: napi_env, code: *const c_char, msg: *const c_char) -> napi_status);
-napi_stub!(fn napi_throw_type_error(env: napi_env, code: *const c_char, msg: *const c_char) -> napi_status);
-napi_stub!(fn napi_throw_range_error(env: napi_env, code: *const c_char, msg: *const c_char) -> napi_status);
-napi_stub!(fn napi_create_error(env: napi_env, code: napi_value, msg: napi_value, result: *mut napi_value) -> napi_status);
-napi_stub!(fn napi_create_type_error(env: napi_env, code: napi_value, msg: napi_value, result: *mut napi_value) -> napi_status);
-napi_stub!(fn napi_create_range_error(env: napi_env, code: napi_value, msg: napi_value, result: *mut napi_value) -> napi_status);
-napi_stub!(fn napi_is_exception_pending(env: napi_env, result: *mut bool) -> napi_status);
-napi_stub!(fn napi_get_and_clear_last_exception(env: napi_env, result: *mut napi_value) -> napi_status);
+// Todas implementadas em `errors.rs`.
 
 // ── handle scopes ───────────────────────────────────────────────────────────
 napi_stub!(fn napi_open_handle_scope(env: napi_env, result: *mut napi_handle_scope) -> napi_status);
@@ -139,8 +133,7 @@ napi_stub!(fn napi_reference_unref(env: napi_env, ref_: napi_ref, result: *mut u
 napi_stub!(fn napi_get_reference_value(env: napi_env, ref_: napi_ref, result: *mut napi_value) -> napi_status);
 
 // ── external ────────────────────────────────────────────────────────────────
-napi_stub!(fn napi_create_external(env: napi_env, data: *mut c_void, finalize_cb: napi_finalize, finalize_hint: *mut c_void, result: *mut napi_value) -> napi_status);
-napi_stub!(fn napi_get_value_external(env: napi_env, value: napi_value, result: *mut *mut c_void) -> napi_status);
+// napi_create_external / napi_get_value_external implementados em `externals.rs`.
 
 /// Soma "negra" dos endereços de toda fn `napi_*` exportada. Referenciada pelo
 /// bin `rts` (`force_link`) para impedir que o LTO/linker descarte o objeto do
@@ -188,15 +181,15 @@ pub fn force_link() -> usize {
         napi_create_function as *const (),
         napi_get_cb_info as *const (),
         napi_call_function as *const (),
-        napi_throw as *const (),
-        napi_throw_error as *const (),
-        napi_throw_type_error as *const (),
-        napi_throw_range_error as *const (),
-        napi_create_error as *const (),
-        napi_create_type_error as *const (),
-        napi_create_range_error as *const (),
-        napi_is_exception_pending as *const (),
-        napi_get_and_clear_last_exception as *const (),
+        crate::errors::napi_throw as *const (),
+        crate::errors::napi_throw_error as *const (),
+        crate::errors::napi_throw_type_error as *const (),
+        crate::errors::napi_throw_range_error as *const (),
+        crate::errors::napi_create_error as *const (),
+        crate::errors::napi_create_type_error as *const (),
+        crate::errors::napi_create_range_error as *const (),
+        crate::errors::napi_is_exception_pending as *const (),
+        crate::errors::napi_get_and_clear_last_exception as *const (),
         napi_open_handle_scope as *const (),
         napi_close_handle_scope as *const (),
         napi_open_escapable_handle_scope as *const (),
@@ -207,8 +200,8 @@ pub fn force_link() -> usize {
         napi_reference_ref as *const (),
         napi_reference_unref as *const (),
         napi_get_reference_value as *const (),
-        napi_create_external as *const (),
-        napi_get_value_external as *const (),
+        crate::externals::napi_create_external as *const (),
+        crate::externals::napi_get_value_external as *const (),
         // Símbolo interno do loader (chamado pelo codegen, não pelo .node):
         crate::loader::__RTS_FN_NS_NAPI_LOAD_ADDON as *const (),
     ];
