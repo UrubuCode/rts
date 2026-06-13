@@ -2,6 +2,10 @@
 
 > **Status:** Fase 0 + 1 + 2 + classes nativas ✅ — **124/159 fns implementadas**,
 > paridade Node v22 em addons npm reais (crc32, xxhash+classe, uuid).
+>
+> **Issues de rastreamento:**
+> - [#1547](https://github.com/UrubuCode/rts/issues/1547) — tracking geral do N-API
+> - [#1548](https://github.com/UrubuCode/rts/issues/1548) — APIs do **engine** necessárias (para @drysius): `Entry::ArrayBuffer` ptr estável, slot escondido p/ `wrap`, ganchos do event loop (#207), BigInt real (#219)
 
 ## Cobertura atual (124/159 fns)
 
