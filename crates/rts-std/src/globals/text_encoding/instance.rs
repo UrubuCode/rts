@@ -796,18 +796,16 @@ pub fn drain_microtasks() {
                         // step suspender de novo, ele re-enfileira outro
                         // AsyncResume internamente (interleaving).
                         // generator::async_sm_resume fica no collector do
-                        // rts-runtime; chamamos via wrapper extern (resolve por
-                        // link) p/ não criar ciclo std→runtime.
-                        unsafe extern "C" {
-                            fn __RTS_FN_RT_ASYNC_SM_RESUME(h: u64, value: i64, rejected: i64);
-                        }
-                        unsafe {
-                            __RTS_FN_RT_ASYNC_SM_RESUME(
-                                gen_handle,
-                                value,
-                                if rejected { 1 } else { 0 },
-                            );
-                        }
+                        // rts-runtime; chamamos via a declaração canônica (`safe
+                        // fn`) em `crate::gc_surface` (resolve por link) p/ não
+                        // criar ciclo std→runtime. Usá-la em vez de re-declarar
+                        // localmente evita o warning `clashing_extern_declarations`
+                        // (safe vs unsafe) sem mudar o símbolo nem o link.
+                        crate::gc_surface::__RTS_FN_RT_ASYNC_SM_RESUME(
+                            gen_handle,
+                            value,
+                            if rejected { 1 } else { 0 },
+                        );
                     }
                 }
             }

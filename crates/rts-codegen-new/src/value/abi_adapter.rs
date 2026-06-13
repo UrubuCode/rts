@@ -5,113 +5,70 @@
 //! `rts-runtime` facade). It defines **no** `__RTS_FN_*` symbol — those belong to
 //! the runtime and are consumed as-is. It owns only:
 //!
-//! 1. **The handle indirection table** (the crux). A real runtime handle is a
-//!    `u64 = [63..48]generation(16) | [47..5]slot(43) | [4..0]shard(5)`, and the
-//!    engine's `with_entry`/`free_handle`/`get` VALIDATE the 16-bit generation. A
-//!    [`PolyValue`] payload is only 48 bits (slot+shard) and CANNOT carry the
-//!    generation — so a real handle cannot be boxed directly into a PolyValue and
-//!    handed back. Instead we keep a process-global append-only table mapping a
-//!    small `idx` (the 48-bit PolyValue payload) → the full real `u64` handle.
-//!    The string/object BYTES live in the REAL pool; the PolyValue carries the
-//!    `idx`. Unbox = `table[idx]` → real handle → pass to `__RTS_FN_*`.
+//! 1. **The PolyValue ↔ handle bridge.** A real runtime handle is a `u64 =
+//!    [63..48]generation(16) | [47..5]slot(43) | [4..0]shard(5)`, and the engine's
+//!    `with_entry`/`free_handle`/`get` VALIDATE the 16-bit generation. A
+//!    [`PolyValue`] payload is only 48 bits (slot+shard) and cannot carry the
+//!    generation. Rather than a side table, the payload stores the bare 48-bit
+//!    slot+shard and the generation is reconstructed on demand from the slot's own
+//!    live generation by the REAL engine symbols
+//!    `__RTS_FN_NS_GC_POLY_FROM_HANDLE` (box: drop the gen) /
+//!    `__RTS_FN_NS_GC_POLY_TO_HANDLE` (unbox: reconstruct the gen). The
+//!    string/object BYTES live in the REAL pool; the PolyValue carries the slot.
 //!
-//! 2. **The adapter trampolines** (`__rtsadp_*`, codegen-owned, NOT `__RTS_FN_*`).
-//!    These allocate no JS heap; they only index the table or run a generic JS
-//!    operator whose heap-touching parts call the REAL string pool. The JIT
-//!    installs them by symbol just like the real runtime symbols.
+//! 2. **The generic-operator trampolines** (`__rtsadp_*`, codegen-owned, NOT
+//!    `__RTS_FN_*`): `add`/`strict_eq`/`typeof`/`to_string`/`to_boolean` +
+//!    `print_line`. These allocate no JS heap of their own; their heap-touching
+//!    parts call the REAL string pool. The JIT installs them by symbol just like
+//!    the real runtime symbols. (The old `__rtsadp_store`/`__rtsadp_load` table
+//!    trampolines are gone — replaced by the engine POLY bridge above.)
 //!
 //! 3. **Host helpers** ([`intern_poly`], [`resolve_poly`]) so the host (tests,
 //!    `console.log` lowering, the P1 proofs) can box/read strings through the
 //!    SAME real pool the JIT code uses.
 //!
-//! ## GC NOTE — known limitation (P1)
+//! ## GC — no side table, no GC-root hole
 //!
-//! TODO(gc-root): register the adapter handle table as a GC root or free each
-//! real handle on PolyValue death. The table currently holds the only strong ref
-//! to those runtime handles, but it is NOT a registered GC root, so the runtime
-//! GC (256-alloc tick mark+sweep) could sweep a handle whose only owner is this
-//! table. For P1 this is acceptable ONLY because the programs the new engine runs
-//! are tiny (well under the GC tick); it is NOT a silent omission — it is a loud,
-//! documented follow-up.
+//! The PolyValue payload is the bare HandleTable slot+shard, so a boxed handle is
+//! a normal GC reference: the conservative scanner finds the NaN-boxed word on the
+//! stack / in `Entry::Vec`/`Map` children and `mark_handle` normalizes it
+//! (`crate::heap::poly::poly_handle_normalize` in `rts-engine`) to the underlying
+//! slot before marking. There is no process-global table holding the only strong
+//! ref, hence no GC-root hole to document.
 
 use std::cell::RefCell;
-use std::sync::{Mutex, OnceLock};
 
+use rts_runtime::namespaces::gc::handles as rt_handles;
 use rts_runtime::namespaces::gc::string_pool as rt_str;
 use rts_runtime::namespaces::io as rt_io;
 
 use super::PolyValue;
 
 // ===========================================================================
-// (1) Handle indirection table: PolyValue 48-bit idx  →  real u64 handle.
-// ===========================================================================
-
-/// The append-only `idx → real_handle` table. Append-only for P1 (no reuse / no
-/// free), so an `idx` once handed out stays valid for the process lifetime.
-fn table() -> &'static Mutex<Vec<u64>> {
-    static TABLE: OnceLock<Mutex<Vec<u64>>> = OnceLock::new();
-    TABLE.get_or_init(|| Mutex::new(Vec::new()))
-}
-
-/// Store a full real runtime handle, returning the small `idx` that a PolyValue
-/// payload can carry (≤ 48 bits). Host-callable; the JIT reaches the same logic
-/// via [`__rtsadp_store`].
-pub fn store(full_handle: u64) -> u64 {
-    let mut guard = table().lock().expect("adapter table poisoned");
-    let idx = guard.len() as u64;
-    debug_assert!(idx <= super::PAYLOAD_MASK, "adapter table idx exceeds 48 bits");
-    guard.push(full_handle);
-    idx
-}
-
-/// Resolve an `idx` back to the full real runtime handle. Panics on an
-/// out-of-range idx (a bug: a heap PolyValue must always point at a live slot).
-pub fn load(idx: u64) -> u64 {
-    let guard = table().lock().expect("adapter table poisoned");
-    *guard
-        .get(idx as usize)
-        .unwrap_or_else(|| panic!("adapter table idx {idx} out of range (len {})", guard.len()))
-}
-
-// ---------------------------------------------------------------------------
-// Extern "C" trampolines the JIT calls for the table ops. Codegen-owned
-// (`__rtsadp_*`), allocate no JS heap, only index the Vec.
-// ---------------------------------------------------------------------------
-
-/// JIT entry for [`store`]: full real handle → PolyValue idx.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_store(full_handle: u64) -> u64 {
-    store(full_handle)
-}
-
-/// JIT entry for [`load`]: PolyValue idx → full real handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_load(idx: u64) -> u64 {
-    load(idx)
-}
-
-// ===========================================================================
 // Host helpers — box/read a string through the REAL string pool.
 // ===========================================================================
 
 /// Intern `s` in the REAL runtime string pool and box the result as a string
-/// `PolyValue` whose payload is the table idx of the real handle.
+/// `PolyValue` whose payload is the real handle's 48-bit slot+shard (the
+/// generation is reconstructed on demand by `POLY_TO_HANDLE`).
 pub fn intern_poly(s: &str) -> PolyValue {
     // STRING_NEW reads `len` bytes from `ptr` internally; the extern is a safe
     // `extern "C" fn`, and we pass a live &str's ptr+len.
     let handle = rt_str::__RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64);
-    PolyValue::from_str_handle(store(handle))
+    poly_from_real_handle(handle)
 }
 
-/// Box an already-allocated real string handle as a string `PolyValue`.
+/// Box an already-allocated real string handle as a string `PolyValue`, storing
+/// its bare 48-bit slot+shard payload (no side table).
 pub fn poly_from_real_handle(handle: u64) -> PolyValue {
-    PolyValue::from_str_handle(store(handle))
+    PolyValue::from_str_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(handle))
 }
 
-/// The real runtime string handle behind a string `PolyValue`.
+/// The real runtime string handle behind a string `PolyValue`, reconstructing
+/// the generation from the live slot.
 pub fn real_handle_of(v: PolyValue) -> u64 {
     debug_assert!(v.is_string(), "real_handle_of on a non-string PolyValue");
-    load(v.as_handle())
+    rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle())
 }
 
 /// Read a string `PolyValue` back to its UTF-8 text, via the REAL pool

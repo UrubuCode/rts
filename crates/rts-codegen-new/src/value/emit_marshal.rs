@@ -49,33 +49,35 @@ pub fn emit_call(
     }
 }
 
-/// `__rtsadp_load(idx)` — table idx (the 48-bit PolyValue payload) → full real
-/// runtime handle. `idx_word` is the raw string-PolyValue word; we mask off the
-/// tag/header to isolate the 48-bit payload first.
+/// `__RTS_FN_NS_GC_POLY_TO_HANDLE(payload)` — the 48-bit PolyValue payload
+/// (slot+shard) → full real runtime handle, with the 16-bit generation
+/// reconstructed from the live slot. `poly_word` is the raw heap-PolyValue word;
+/// we mask off the tag/header to isolate the 48-bit payload first.
 pub fn emit_table_load(
     module: &mut dyn Module,
     builder: &mut FunctionBuilder,
     poly_word: Value,
 ) -> Value {
     let mask = builder.ins().iconst(types::I64, PAYLOAD_MASK as i64);
-    let idx = builder.ins().band(poly_word, mask);
-    emit_call(module, builder, "__rtsadp_load", &[idx])
-        .expect("__rtsadp_load returns a value")
+    let payload = builder.ins().band(poly_word, mask);
+    emit_call(module, builder, "__RTS_FN_NS_GC_POLY_TO_HANDLE", &[payload])
+        .expect("POLY_TO_HANDLE returns a value")
 }
 
-/// `__rtsadp_store(real_handle)` → idx, then box that idx as a string PolyValue.
-/// Returns the raw string-PolyValue word.
+/// `__RTS_FN_NS_GC_POLY_FROM_HANDLE(real_handle)` → bare 48-bit slot+shard
+/// payload, then box that payload as a string PolyValue. Returns the raw
+/// string-PolyValue word.
 pub fn emit_box_real_string(
     module: &mut dyn Module,
     builder: &mut FunctionBuilder,
     real_handle: Value,
 ) -> Value {
-    let idx = emit_call(module, builder, "__rtsadp_store", &[real_handle])
-        .expect("__rtsadp_store returns a value");
-    // box: BOX_BASE | (TAG_STR<<48) | (idx & PAYLOAD_MASK).
+    let payload48 = emit_call(module, builder, "__RTS_FN_NS_GC_POLY_FROM_HANDLE", &[real_handle])
+        .expect("POLY_FROM_HANDLE returns a value");
+    // box: BOX_BASE | (TAG_STR<<48) | (payload & PAYLOAD_MASK).
     let header = super::encode(super::TAG_STR, 0) as i64; // BOX_BASE | TAG_STR<<48
     let mask = builder.ins().iconst(types::I64, PAYLOAD_MASK as i64);
-    let payload = builder.ins().band(idx, mask);
+    let payload = builder.ins().band(payload48, mask);
     let header_v = builder.ins().iconst(types::I64, header);
     builder.ins().bor(payload, header_v)
 }

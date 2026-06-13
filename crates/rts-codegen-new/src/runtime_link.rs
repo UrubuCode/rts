@@ -28,6 +28,7 @@
 //! entry is the actual runtime function the lowering calls.
 
 use rts_runtime::namespaces::collections::vec as rt_vec;
+use rts_runtime::namespaces::gc::handles as rt_handles;
 use rts_runtime::namespaces::gc::string_pool as rt_str;
 use rts_runtime::namespaces::io as rt_io;
 
@@ -76,9 +77,19 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         sym("__RTS_FN_NS_COLLECTIONS_VEC_LEN", rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN as *const u8),
         sym("__RTS_FN_NS_COLLECTIONS_VEC_SET", rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET as *const u8),
         sym("__RTS_FN_NS_COLLECTIONS_VEC_POP", rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_POP as *const u8),
+        // ---- REAL PolyValue <-> handle bridge (rts-engine heap::handles) ----
+        // Replaces the old `__rtsadp_store/_load` indirection table: the payload
+        // carries the bare 48-bit slot+shard and the generation is reconstructed
+        // on demand from the live slot, so there is no side table to GC-root.
+        sym(
+            "__RTS_FN_NS_GC_POLY_FROM_HANDLE",
+            rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_POLY_TO_HANDLE",
+            rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE as *const u8,
+        ),
         // ---- codegen-owned adapter trampolines (__rtsadp_*) ----
-        sym("__rtsadp_store", abi_adapter::__rtsadp_store as *const u8),
-        sym("__rtsadp_load", abi_adapter::__rtsadp_load as *const u8),
         sym("__rtsadp_add", genops::__rtsadp_add as *const u8),
         sym("__rtsadp_strict_eq", genops::__rtsadp_strict_eq as *const u8),
         sym("__rtsadp_strict_neq", genops::__rtsadp_strict_neq as *const u8),

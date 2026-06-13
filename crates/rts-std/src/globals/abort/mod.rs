@@ -176,11 +176,11 @@ pub extern "C" fn __RTS_FN_GL_ABORT_SIGNAL_THROW_IF_ABORTED(h: Handle) {
     });
     if is_ab != 0 {
         // gc::error::__RTS_FN_RT_ERROR_SET fica no collector do rts-runtime
-        // (no_mangle extern); resolve por link.
-        unsafe extern "C" {
-            fn __RTS_FN_RT_ERROR_SET(handle: u64);
-        }
-        unsafe { __RTS_FN_RT_ERROR_SET(reason) };
+        // (no_mangle extern); resolve por link. Declaração canônica (`safe fn`)
+        // em `crate::gc_surface` — usá-la em vez de re-declarar localmente evita
+        // o warning `clashing_extern_declarations` (safe vs unsafe) sem mudar o
+        // símbolo nem o link.
+        crate::gc_surface::__RTS_FN_RT_ERROR_SET(reason);
     }
 }
 

@@ -68,10 +68,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirLit::Str(s) => {
                 // Intern the literal in the REAL string pool at lowering time and
                 // splice the boxed string PolyValue word (whose 48-bit payload is
-                // the adapter-table idx of the real handle) in as a constant
-                // (Tagged, kind Str). At run time `__rtsadp_load(idx)` resolves it
-                // back to the real handle; the table is append-only so the idx
-                // stays valid for the process.
+                // the real handle's slot+shard) in as a constant (Tagged, kind
+                // Str). At run time `__RTS_FN_NS_GC_POLY_TO_HANDLE(payload)`
+                // reconstructs the full handle (generation read from the live
+                // slot); the slot is a normal GC reference, no side table.
                 let pv = abi_adapter::intern_poly(s);
                 let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
                 Ok(Val::tagged_kind(v, JsKind::Str))

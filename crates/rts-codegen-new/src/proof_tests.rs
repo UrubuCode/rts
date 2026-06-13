@@ -11,6 +11,7 @@
 //! The old-engine bug each proof refutes is cited inline.
 
 use rts_runtime::namespaces::collections::vec as rt_vec;
+use rts_runtime::namespaces::gc::handles as rt_handles;
 
 use crate::lower::ir::{Func, Node};
 use crate::lower::jit;
@@ -152,6 +153,95 @@ fn float_in_heterogeneous_container() {
     assert!(e2.is_string(), "stored string must read back as a string");
     assert_eq!(abi_adapter::resolve_poly(e2), "hi");
     assert_eq!(e2.typeof_str(), "string");
+}
+
+// ===========================================================================
+// Proof 3b — gc_marks_through_nanboxed_container (the indirection-table killer)
+// ===========================================================================
+//
+// The OLD adapter kept a process-global `Vec<u64>` mapping a small idx → the full
+// real handle, and held the ONLY strong ref to those handles WITHOUT being a GC
+// root (a documented GC-root hole). We deleted that table: a heap PolyValue now
+// carries the bare 48-bit slot+shard and the generation is reconstructed on
+// demand (`__RTS_FN_NS_GC_POLY_TO_HANDLE`). For that to be safe, the GC must mark
+// THROUGH a NaN-boxed handle word: when a boxed string lives only inside a real
+// `Entry::Vec`, marking the Vec must keep the string alive.
+//
+// This test would FAIL without the `mark_handle` normalization (engine STEP 2):
+// the string is reachable ONLY via the Vec's NaN-boxed child, so marking the Vec
+// would NOT reach the string and a subsequent sweep would collect it.
+//
+// NB: we do NOT call the process-global `sweep_all_shards()` here. The whole test
+// suite runs multi-threaded over ONE shared global HandleTable, and a global
+// sweep frees every *unmarked* slot — including handles other concurrent tests
+// hold in Rust locals (invisible to this thread's mark phase). That would corrupt
+// sibling tests (observed: `typeof` separator / `float_in_heterogeneous_container`
+// Vec collected mid-flight). Instead we prove the mark-through directly with the
+// read-only `handle_is_marked`: mark the Vec, then assert the underlying string
+// slot's mark bit is set. Sweep *behaviour* (an unmarked slot is freed, a marked
+// one survives) is covered isolation-safely by the engine-side unit tests.
+
+#[test]
+fn gc_marks_through_nanboxed_container() {
+    // Intern a string into a PolyValue and stash its 48-bit payload. We drop every
+    // other reference to the string handle; the only surviving reference is the
+    // boxed word pushed into the REAL Vec below — so the slot is reachable ONLY
+    // transitively through the Vec's NaN-boxed child.
+    let s = abi_adapter::intern_poly("survive-the-gc");
+    let boxed_word = s.raw();
+    let payload = s.as_handle(); // 48-bit slot+shard
+
+    // Push the boxed string word into a REAL Entry::Vec (the container is the root).
+    let vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, boxed_word as i64);
+
+    // The full real handle of the boxed string (gen reconstructed from the live
+    // slot). BEFORE marking, its mark bit must be clear.
+    let str_handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(payload);
+    assert_ne!(str_handle, 0, "interned string must be live before the mark");
+    assert_eq!(
+        rt_handles::handle_is_marked(str_handle),
+        Some(false),
+        "string slot must start unmarked"
+    );
+
+    // Mark the container root (simulating the conservative scanner finding the Vec
+    // handle live on the stack). `mark_handle` walks the Vec's children; each child
+    // word is normalized through `poly_handle_normalize`, so the NaN-boxed string
+    // word resolves to `str_handle` and is marked transitively.
+    rt_handles::mark_handle(vec);
+
+    // THE PROOF: the string slot — reachable ONLY via the Vec's NaN-boxed child —
+    // is now marked. Without engine STEP 2 (normalize in `mark_handle`) the raw
+    // boxed word would not decode to a live slot and this would be `Some(false)`,
+    // i.e. the string would be swept => the GC-root hole the deleted table hid.
+    assert_eq!(
+        rt_handles::handle_is_marked(str_handle),
+        Some(true),
+        "string reachable only via a NaN-boxed Vec child must be marked (GC hole otherwise)"
+    );
+
+    // The Vec root itself is marked too, and still resolves to length 1.
+    assert_eq!(rt_handles::handle_is_marked(vec), Some(true), "Vec root must be marked");
+    assert_eq!(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(vec), 1, "Vec must resolve, len 1");
+
+    // The stored word still round-trips: reconstruct the handle and read the bytes
+    // back through the REAL pool, proving the bridge + storage are intact.
+    let stored = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(vec, 0) as u64;
+    let stored_pv = PolyValue::from_raw(stored);
+    assert!(stored_pv.is_string(), "stored word must still be a string PolyValue");
+    let real = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(stored_pv.as_handle());
+    assert_eq!(real, str_handle, "stored payload reconstructs the same live handle");
+    assert_eq!(
+        abi_adapter::real_handle_to_string(real),
+        "survive-the-gc",
+        "the NaN-boxed string reads back intact"
+    );
+
+    // Clean up: the mark bit lingers until a sweep, but we do not run one (see the
+    // module note). Freeing our own handles keeps the shared table tidy.
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_FREE(vec);
+    rt_handles::free_handle(str_handle);
 }
 
 // ===========================================================================

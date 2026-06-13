@@ -25,6 +25,18 @@ use crate::abi::handles::{
     HANDLE_SLOT_MASK as SLOT_MASK,
 };
 
+/// Re-export the 48-bit slot+shard mask under the `handles` path so the PolyValue
+/// bridge ([`crate::heap::poly`]) and its tests can name it without reaching into
+/// `crate::abi::handles`. Byte-identical to the canonical constant — pure alias.
+pub use crate::abi::handles::HANDLE_SLOT_MASK;
+/// Re-export the PolyValue ↔ handle bridge symbols + helper through the `handles`
+/// module so the runtime facade path (`rts_runtime::namespaces::gc::handles::*`)
+/// reaches them. Purely additive; touches no encoding.
+pub use crate::heap::poly::{
+    POLY_BOX_BASE, POLY_PAYLOAD_MASK, POLY_TAG_FUNCTION, POLY_TAG_MASK, POLY_TAG_OBJECT,
+    POLY_TAG_SHIFT, POLY_TAG_STR, poly_handle_normalize,
+};
+
 /// A TLS client stream stored in the HandleTable. Definição movida do namespace
 /// `tls` pro motor (heap no engine); a lógica de I/O do `tls` referencia este
 /// tipo via facade. Carrega `rustls::ClientConnection` → engine puxa rustls (TEMP;
@@ -41,6 +53,31 @@ impl std::fmt::Debug for TlsClientStream {
 }
 
 const SENTINEL_INVALID: u64 = 0;
+
+/// First reserved generation value. Generations `0xFFF8..=0xFFFF` are NEVER
+/// emitted for a live slot. Reserving the top 8 values guarantees that a real
+/// handle's top 13 bits (sign + exponent + qNaN bit, i.e. the
+/// [`crate::heap::poly::POLY_BOX_BASE`] discriminator) are never *all* set:
+/// the generation occupies bits 63..=48, and the box discriminator needs bits
+/// 63..=51 all set, which requires `generation >= 0xFFF8`. Keeping every live
+/// generation in `1..=0xFFF7` makes [`crate::heap::poly::poly_handle_normalize`]
+/// UNAMBIGUOUS — a real runtime handle can never be misread as a NaN-boxed
+/// PolyValue word.
+///
+/// This does NOT change field widths/positions and keeps every existing
+/// heuristic TRUE: a live generation is still in `1..=0xFFF7` → nonzero → every
+/// live handle is still `>= 2^48`, so the `< 2^48` int-vs-handle heuristic in
+/// `string_pool` and the conservative scanner's `(c >> 48) & 0xFFFF != 0` filter
+/// are unchanged.
+const GEN_RESERVED_LO: u16 = 0xFFF8;
+
+/// Bump a slot generation on reuse, skipping the sentinel `0` and the reserved
+/// `0xFFF8..=0xFFFF` range (see [`GEN_RESERVED_LO`]). Wraps back to `1`.
+#[inline]
+fn next_generation(current: u16) -> u16 {
+    let g = current.wrapping_add(1);
+    if g == 0 || g >= GEN_RESERVED_LO { 1 } else { g }
+}
 
 /// Wrapper que armazena a regex compilada + flags JS canonicas.
 /// O crate `regex` nao expoe flags pos-compile de forma uniforme; RTS
@@ -865,7 +902,9 @@ impl HandleTable {
         }
         if let Some(table_slot) = self.free_list.pop() {
             let slot = &mut self.slots[table_slot as usize];
-            slot.generation = slot.generation.wrapping_add(1);
+            // Skip the sentinel 0 and the reserved 0xFFF8..=0xFFFF range so a real
+            // handle is never misread as a NaN-boxed PolyValue (see GEN_RESERVED_LO).
+            slot.generation = next_generation(slot.generation);
             slot.entry = entry;
             return encode(slot.generation, shard_idx, table_slot);
         }
@@ -930,6 +969,54 @@ impl HandleTable {
             return None;
         }
         Some(&mut slot.entry)
+    }
+
+    /// Force the generation of an already-live slot to `gen` (test-only). Lets a
+    /// test put a slot into a chosen generation (e.g. the high `0xFFF8..` range
+    /// for the collision test) WITHOUT churning the global `LIVE_HANDLES` counter
+    /// via thousands of free/realloc cycles — which would race the counter-based
+    /// tests running in parallel. Does not touch encoding; only the slot's own
+    /// generation field. Returns the freshly re-encoded handle, or `None` for an
+    /// out-of-range / `Free` slot.
+    #[cfg(test)]
+    pub(crate) fn force_slot_generation(
+        &mut self,
+        shard_idx: usize,
+        table_slot: usize,
+        new_gen: u16,
+    ) -> Option<u64> {
+        let slot = self.slots.get_mut(table_slot)?;
+        if matches!(slot.entry, Entry::Free) {
+            return None;
+        }
+        slot.generation = new_gen;
+        Some(encode(new_gen, shard_idx, table_slot as u32))
+    }
+
+    /// Whether the live slot for `handle` currently has its GC mark bit set, or
+    /// `None` for an invalid/stale/freed handle. Read-only introspection of the
+    /// mark phase — used by the public [`handle_is_marked`] to assert mark-through
+    /// without a global sweep (which would race a shared table). No behavioural
+    /// effect on the runtime.
+    pub(crate) fn is_marked_pub(&self, handle: u64) -> Option<bool> {
+        let (expected_gen, _, table_slot) = decode(handle)?;
+        let slot = self.slots.get(table_slot as usize)?;
+        if slot.generation != expected_gen || matches!(slot.entry, Entry::Free) {
+            return None;
+        }
+        Some(slot.marked)
+    }
+
+    /// Current generation of a live slot by its per-shard index, or `None` when
+    /// the index is out of range or the slot is `Free`. Used by
+    /// [`__RTS_FN_NS_GC_POLY_TO_HANDLE`] to reconstruct the generation that a
+    /// NaN-boxed PolyValue payload dropped. Read-only; no allocation.
+    pub(crate) fn slot_generation(&self, table_slot: usize) -> Option<u16> {
+        let slot = self.slots.get(table_slot)?;
+        if matches!(slot.entry, Entry::Free) {
+            return None;
+        }
+        Some(slot.generation)
     }
 
     /// Retorna handles de todos os slots vivos deste shard. Caller
@@ -1123,14 +1210,81 @@ pub fn mark_handle(handle: u64) {
         if steps > 1_000_000 {
             break;
         }
-        let children = shard_for_handle(h)
+        // (#poly) The conservative scanner and `Entry::Vec`/`Map` children feed
+        // RAW words here; a word may be a NaN-boxed PolyValue handle from the new
+        // engine (`rts-codegen-new`). Normalize it to the underlying real handle
+        // (reconstructing the generation from the live slot) so we mark through
+        // the box. Plain real handles (`None`) pass through unchanged.
+        let real = poly_handle_normalize(h).unwrap_or(h);
+        let children = shard_for_handle(real)
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .mark(h);
+            .mark(real);
         for child in children {
             worklist.push(child);
         }
     }
+}
+
+// ── PolyValue ↔ real-handle bridge (new engine, `rts-codegen-new`) ─────────────
+//
+// The new engine boxes heap references as NaN-boxed `PolyValue` words carrying
+// only the 48-bit slot+shard payload — the 16-bit generation does not fit. These
+// two `extern "C"` symbols let the new engine (a) drop the generation when boxing
+// and (b) reconstruct it on demand from the slot's *current* live generation,
+// replacing the old process-global indirection table. The bit-layout constants +
+// `poly_handle_normalize` live in `crate::heap::poly` (re-exported above).
+
+/// Drop the 16-bit generation from a full runtime handle, returning the bare
+/// 48-bit slot+shard payload a `PolyValue` can carry. The inverse of
+/// [`__RTS_FN_NS_GC_POLY_TO_HANDLE`] for a live slot.
+///
+/// `HANDLE_SLOT_MASK` is exactly the low 48 bits (`(1<<48)-1`) — verified against
+/// the canonical constant in `crate::abi::handles`, so the returned payload is
+/// the slot+shard field with the generation cleared.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_POLY_FROM_HANDLE(full: u64) -> u64 {
+    full & SLOT_MASK
+}
+
+/// Reconstruct a full runtime handle from a 48-bit slot+shard payload by reading
+/// the slot's CURRENT generation. Returns 0 if the slot index is out of range or
+/// the slot is `Free` (the payload no longer refers to a live value).
+///
+/// Routes `poly48` to its shard via the same low-bit shard math as
+/// [`shard_for_handle`], takes the shard lock read-only (like [`with_entry`]),
+/// reads the slot's generation, and re-encodes
+/// `((gen as u64) << HANDLE_GEN_SHIFT) | (poly48 & 0x0000_FFFF_FFFF_FFFF)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_POLY_TO_HANDLE(poly48: u64) -> u64 {
+    // NB: do NOT short-circuit on `payload == 0`. A payload of 0 is the perfectly
+    // valid (slot 0, shard 0) live slot — the FIRST handle allocated in shard 0.
+    // The all-zero *handle* is the sentinel, but a live slot always has
+    // `generation >= 1`, so the reconstructed handle `gen<<48 | 0` is never 0.
+    // Treating payload 0 as invalid here silently broke any value whose handle
+    // landed in slot 0 of shard 0.
+    let payload = poly48 & SLOT_MASK;
+    let shard_idx = (payload & SHARD_MASK) as usize;
+    let table_slot = (payload >> SHARD_BITS) as usize;
+    let guard = shards()[shard_idx]
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    match guard.slot_generation(table_slot) {
+        Some(generation) => ((generation as u64) << GEN_SHIFT) | (payload & SLOT_MASK),
+        None => 0,
+    }
+}
+
+/// Whether the live slot for `handle` currently has its GC mark bit set, or
+/// `None` for an invalid/stale/freed handle. Read-only GC introspection — sets
+/// nothing, frees nothing. Lets a caller assert that [`mark_handle`] reached a
+/// given slot (e.g. proving mark-through a NaN-boxed container child) WITHOUT a
+/// process-global sweep, which would race other work sharing the global table.
+pub fn handle_is_marked(handle: u64) -> Option<bool> {
+    shard_for_handle(handle)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_marked_pub(handle)
 }
 
 /// Sweep all shards: free unmarked entries and reset mark bits.
@@ -1454,5 +1608,115 @@ mod tests {
         assert_eq!(LIVE_HANDLES.load(Ordering::SeqCst), before + 1);
         free_handle(h);
         assert_eq!(LIVE_HANDLES.load(Ordering::SeqCst), before);
+    }
+
+    /// (#poly STEP 2) `mark_handle` marks THROUGH a NaN-boxed PolyValue word
+    /// living as an `Entry::Vec` child. Build a Vec holding the boxed-STR word of
+    /// a live string slot, mark the Vec, and assert the underlying string slot's
+    /// mark bit is set — proving the GC will not collect a NaN-boxed reference.
+    #[test]
+    fn mark_through_nanboxed_vec_child() {
+        use crate::heap::poly::{POLY_BOX_BASE, POLY_PAYLOAD_MASK, POLY_TAG_SHIFT, POLY_TAG_STR};
+
+        let str_h = alloc_entry(Entry::String(b"reachable-via-box".to_vec()));
+        let poly48 = __RTS_FN_NS_GC_POLY_FROM_HANDLE(str_h);
+        let boxed = POLY_BOX_BASE | (POLY_TAG_STR << POLY_TAG_SHIFT) | (poly48 & POLY_PAYLOAD_MASK);
+
+        // Vec stores raw i64 words; the boxed PolyValue word is one such word.
+        let vec_h = alloc_entry(Entry::Vec(Box::new(vec![boxed as i64])));
+
+        // Mark from the Vec root: its child (the boxed word) is normalized in
+        // mark_handle to str_h and marked.
+        mark_handle(vec_h);
+
+        let marked = with_entry(str_h, |_| ()); // ensure shard exists
+        let _ = marked;
+        let is_marked = shard_for_handle(str_h)
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_marked_pub(str_h);
+        assert_eq!(
+            is_marked,
+            Some(true),
+            "string slot reachable only via a NaN-boxed Vec child must be marked"
+        );
+
+        // Clear our own mark bits and free to keep the global table tidy for
+        // other parallel tests (sweep would also clear, but we avoid a global
+        // sweep here to not race other tests' unmarked entries).
+        free_handle(vec_h);
+        free_handle(str_h);
+    }
+
+    /// (#poly STEP 3) `next_generation` skips the sentinel 0 and the reserved
+    /// `0xFFF8..=0xFFFF` band, wrapping to 1. This is what keeps a real handle's
+    /// top-13 bits from ever being all-1 (the PolyValue box discriminator), so
+    /// `poly_handle_normalize` cannot misread a real handle as NaN-boxed.
+    #[test]
+    fn next_generation_skips_reserved_band_and_zero() {
+        // Normal increments stay put.
+        assert_eq!(next_generation(1), 2);
+        assert_eq!(next_generation(0x1234), 0x1235);
+        // The last usable generation wraps straight to 1, never entering 0xFFF8.
+        assert_eq!(next_generation(0xFFF7), 1, "0xFFF7 must wrap to 1, not 0xFFF8");
+        // Every value in the reserved band (defensive: should not occur on a live
+        // slot, but the helper must still escape it) and u16::MAX wrap to 1.
+        for g in 0xFFF8u16..=0xFFFF {
+            assert_eq!(next_generation(g), 1, "reserved gen {g:#x} must wrap to 1");
+        }
+        // The 0 input (sentinel) also wraps to 1.
+        assert_eq!(next_generation(0xFFFF), 1);
+        // No reachable generation lands in the reserved band.
+        for g in 0u16..=0xFFFF {
+            let n = next_generation(g);
+            assert!(n != 0 && n < GEN_RESERVED_LO, "next_generation({g:#x})={n:#x} is invalid");
+        }
+    }
+
+    /// (#poly STEP 3) Repeated free/realloc of the SAME slot drives its generation
+    /// forward; it must NEVER surface a generation in `0xFFF8..=0xFFFF` and must
+    /// round-trip through encode/decode the whole way. We pin one shard/slot and
+    /// force generations near the wrap boundary (forcing avoids ~65k real cycles
+    /// that would race the global counter), then realloc to confirm the bump skips
+    /// the reserved band.
+    #[test]
+    fn realloc_generation_never_enters_reserved_band() {
+        let shard_idx = 11usize;
+        // Allocate then free so the slot is on the free_list for reuse.
+        let h0 = shards()[shard_idx]
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .alloc_in_shard(Entry::String(b"gen-wrap".to_vec()), shard_idx);
+        let (_, _, table_slot) = decode(h0).expect("decodes");
+
+        // Drive the live slot to gen 0xFFF7 (the last usable value), then free it
+        // so the next alloc reuses the slot and bumps the generation.
+        let _ = shards()[shard_idx]
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .force_slot_generation(shard_idx, table_slot as usize, 0xFFF7);
+        // encode/decode round-trips at the reserved-adjacent generation.
+        let h_edge = encode(0xFFF7, shard_idx, table_slot);
+        assert_eq!(decode(h_edge), Some((0xFFF7, shard_idx, table_slot)));
+
+        free_handle(h_edge);
+        // Realloc the same slot: the bump from 0xFFF7 must wrap to 1, NOT 0xFFF8.
+        let h_reused = shards()[shard_idx]
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .alloc_in_shard(Entry::String(b"reused".to_vec()), shard_idx);
+        let (gen_reused, sh, ts) = decode(h_reused).expect("reused decodes");
+        assert_eq!((sh, ts), (shard_idx, table_slot), "must reuse the same slot");
+        assert_eq!(gen_reused, 1, "bump past 0xFFF7 must wrap to 1");
+        assert!(
+            gen_reused != 0 && gen_reused < GEN_RESERVED_LO,
+            "reused gen {gen_reused:#x} must be outside the reserved band"
+        );
+        // The reused handle's top-13 bits are NOT all set → not NaN-box-confusable.
+        assert!(
+            (h_reused & POLY_BOX_BASE) != POLY_BOX_BASE,
+            "a live handle must never satisfy the PolyValue box discriminator"
+        );
+        free_handle(h_reused);
     }
 }

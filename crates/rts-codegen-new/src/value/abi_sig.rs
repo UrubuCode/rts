@@ -112,9 +112,14 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         "__RTS_FN_NS_COLLECTIONS_VEC_SET" => SymSig { params: &[U64, I64, I64], ret: Void },
         "__RTS_FN_NS_COLLECTIONS_VEC_POP" => SymSig { params: &[U64], ret: I64 },
 
+        // ---- REAL PolyValue <-> handle bridge (rts-engine heap::handles) ----
+        // FROM_HANDLE: full real handle -> bare 48-bit slot+shard payload.
+        // TO_HANDLE: 48-bit payload -> full real handle (gen reconstructed from
+        // the live slot). These REPLACE the old `__rtsadp_store/_load` table.
+        "__RTS_FN_NS_GC_POLY_FROM_HANDLE" | "__RTS_FN_NS_GC_POLY_TO_HANDLE" => {
+            SymSig { params: &[U64], ret: U64 }
+        }
         // ---- codegen-owned adapter trampolines (__rtsadp_*) ----
-        // Indirection table: full real handle <-> PolyValue idx.
-        "__rtsadp_store" | "__rtsadp_load" => SymSig { params: &[U64], ret: U64 },
         // Generic JS operators on PolyValue words (tagged-in/tagged-out).
         "__rtsadp_add" | "__rtsadp_strict_eq" | "__rtsadp_strict_neq" => {
             SymSig { params: &[U64, U64], ret: U64 }
