@@ -39,26 +39,35 @@ use rts_hir::ir::{HirFunc, HirType};
 
 use super::error::{FrontResult, Unsupported};
 
-/// Parse, lower, JIT, and run `src`, returning everything `console.log` printed
-/// (each line terminated by `"\n"`, matching Node/Bun).
+/// Parse, lower, JIT, and RUN `src` against the REAL runtime. `console.log`
+/// output goes to the process's real stdout via `__RTS_FN_NS_IO_PRINT`. Returns
+/// `Ok(())` once `__rtsn_main` finishes (the bun fixture harness validates true
+/// end-to-end stdout against `bun`).
 ///
 /// Errors:
 /// - a parse error (returned as an `Unsupported` wrapping the message), or
 /// - any construct outside the implemented subset (an explicit `Unsupported`).
-pub fn run_source(src: &str) -> FrontResult<String> {
+pub fn run_source(src: &str) -> FrontResult<()> {
     let (funcs, main) = build_program(src)?;
     let program = module_jit::compile_program(&funcs, &main)?;
-
-    // Hold the run-lock so reset → run → take is atomic: the console capture
-    // buffer is process-global, so concurrent runs (parallel tests) would
-    // otherwise interleave. Compilation above touches no shared state, so only
-    // the execution window is serialized.
-    let _guard = crate::runtime::console::run_lock()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
-    crate::runtime::console::reset_output();
     program.run_main();
-    Ok(crate::runtime::console::take_output())
+    Ok(())
+}
+
+/// Parse, lower, JIT, and run `src` with `console.log` output CAPTURED into a
+/// `String` instead of stdout — returning everything it printed (each line
+/// terminated by `"\n"`, matching Node/Bun).
+///
+/// rts-std's io layer has no stdout-redirect hook, so the capture is done at the
+/// adapter's `__rtsadp_print_line` trampoline (thread-local), which STILL runs
+/// the real string pool (NEW/CONCAT/PTR/LEN) that produced the line — only the
+/// final write target differs. Used by the in-process unit tests; for true
+/// end-to-end stdout use [`run_source`] + the bun fixture harness.
+pub fn render_source(src: &str) -> FrontResult<String> {
+    let (funcs, main) = build_program(src)?;
+    let program = module_jit::compile_program(&funcs, &main)?;
+    let ((), out) = crate::value::abi_adapter::with_capture(|| program.run_main());
+    Ok(out)
 }
 
 /// Parse `src` and lower it to (user functions, synthesized `__rtsn_main`).

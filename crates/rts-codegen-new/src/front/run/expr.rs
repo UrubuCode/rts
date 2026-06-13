@@ -13,8 +13,8 @@ use rts_hir::ir::HirExprKind;
 use rts_hir::{HirBinOp, HirExpr, HirLit, HirUnOp};
 
 use crate::repr::Repr;
-use crate::runtime::strings;
 use crate::value;
+use crate::value::abi_adapter;
 
 use crate::front::error::{unsupported, FrontResult};
 
@@ -66,9 +66,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 Ok(Val::new(v, Repr::Bool))
             }
             HirLit::Str(s) => {
-                // Intern the literal in the host interner and splice the boxed
-                // string PolyValue word in as a constant (Tagged, kind Str).
-                let pv = strings::intern_poly(s);
+                // Intern the literal in the REAL string pool at lowering time and
+                // splice the boxed string PolyValue word (whose 48-bit payload is
+                // the adapter-table idx of the real handle) in as a constant
+                // (Tagged, kind Str). At run time `__rtsadp_load(idx)` resolves it
+                // back to the real handle; the table is append-only so the idx
+                // stays valid for the process.
+                let pv = abi_adapter::intern_poly(s);
                 let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
                 Ok(Val::tagged_kind(v, JsKind::Str))
             }
@@ -149,7 +153,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     }
 
     /// Arithmetic. Both-numeric uses the native fast path; a Tagged/string/mixed
-    /// `+` boxes both and calls the generic `__rtsn_add` (the ONE `+` path). The
+    /// `+` boxes both and calls the generic `__rtsadp_add` (the ONE `+` path). The
     /// other arithmetic ops require proven-numeric operands (Tagged `-`/`*`/`/`/
     /// `%` are a later increment — bail, never a wrong value).
     pub(super) fn lower_arith(
@@ -165,8 +169,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let ba = self.box_value(l);
                 let bb = self.box_value(r);
                 let res = self
-                    .call_runtime(module, "__rtsn_add", &[ba, bb])?
-                    .expect("__rtsn_add returns a value");
+                    .call_runtime(module, "__rtsadp_add", &[ba, bb])?
+                    .expect("__rtsadp_add returns a value");
                 // The result is a string when concatenating, a number when both
                 // sides coerced numeric — not statically known, so kind Unknown.
                 return Ok(Val::new(res, Repr::Tagged));
@@ -221,8 +225,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let ba = self.box_value(l);
         let bb = self.box_value(r);
         let sym = match op {
-            HirBinOp::Eq => "__rtsn_strict_eq",
-            HirBinOp::Ne => "__rtsn_strict_neq",
+            HirBinOp::Eq => "__rtsadp_strict_eq",
+            HirBinOp::Ne => "__rtsadp_strict_neq",
             _ => return unsupported!("strict-eq op {op:?}"),
         };
         let res = self
@@ -288,18 +292,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         operand: &HirExpr,
     ) -> FrontResult<Val> {
         // `typeof e`: if the operand is a literal we know statically, fold to a
-        // constant string; else box + `__rtsn_typeof`. The result is a string.
+        // constant string; else box + `__rtsadp_typeof`. The result is a string.
         if matches!(op, HirUnOp::TypeOf) {
             if let Some(s) = static_typeof(operand) {
-                let pv = strings::intern_poly(s);
+                let pv = abi_adapter::intern_poly(s);
                 let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
                 return Ok(Val::tagged_kind(v, JsKind::Str));
             }
             let val = self.lower_expr(module, operand)?;
             let boxed = self.box_value(val);
             let res = self
-                .call_runtime(module, "__rtsn_typeof", &[boxed])?
-                .expect("__rtsn_typeof returns a value");
+                .call_runtime(module, "__rtsadp_typeof", &[boxed])?
+                .expect("__rtsadp_typeof returns a value");
             return Ok(Val::tagged_kind(res, JsKind::Str));
         }
 

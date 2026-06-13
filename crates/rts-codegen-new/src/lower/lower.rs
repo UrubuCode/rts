@@ -7,17 +7,18 @@
 //!   `PolyValue` word.
 //! - `Add`/`Mul` are repr-aware: matching native reprs use `fadd`/`iadd` (the
 //!   winning numeric fast path); anything else BOXes both operands and calls the
-//!   generic `__rtsn_add` — ONE path, never AST-shape guessing.
+//!   generic `__rtsadp_add` — ONE path, never AST-shape guessing.
 //! - `Box`/`Unbox` are PURE Cranelift IR (via [`crate::value`] emit helpers), so
 //!   Cranelift's egraph can fold a redundant `unbox(box(x))` to nothing.
 
 use cranelift_codegen::ir::{types, AbiParam, InstBuilder, Signature, Value};
 use cranelift_frontend::FunctionBuilder;
-use cranelift_module::{Linkage, Module};
+use cranelift_module::Module;
 
 use crate::repr::Repr;
-use crate::runtime;
 use crate::value;
+use crate::value::abi_sig::sig_of;
+use crate::value::emit_marshal;
 
 use super::ir::{Func, Node};
 
@@ -148,7 +149,7 @@ enum ArithOp {
 }
 
 /// Lower `a <op> b`. Native fast path when both operands share `Float64` or
-/// `Int32`; otherwise (Add only) BOX both and call the generic `__rtsn_add`.
+/// `Int32`; otherwise (Add only) BOX both and call the generic `__rtsadp_add`.
 fn lower_arith(
     module: &mut dyn Module,
     builder: &mut FunctionBuilder,
@@ -176,12 +177,12 @@ fn lower_arith(
             Val { v, repr: Repr::Int32 }
         }
         _ => {
-            // Generic path: BOX both, CallExtern __rtsn_add. (Mul has no generic
+            // Generic path: BOX both, CallExtern __rtsadp_add. (Mul has no generic
             // P1 path; it is only used on proven-numeric operands.)
             debug_assert!(matches!(op, ArithOp::Add), "generic path only for Add in P1");
             let boxed_a = box_value(builder, av);
             let boxed_b = box_value(builder, bv);
-            let ret = call_extern(module, builder, "__rtsn_add", &[boxed_a, boxed_b]);
+            let ret = call_extern(module, builder, "__rtsadp_add", &[boxed_a, boxed_b]);
             Val { v: ret, repr: Repr::Tagged }
         }
     }
@@ -227,9 +228,10 @@ fn unbox_value(builder: &mut FunctionBuilder, tagged: Value, to: Repr) -> Value 
     }
 }
 
-/// Declare-import a runtime extern into the current function and emit the call.
-/// All params + the return are i64 (the PolyValue ABI). For void externs (e.g.
-/// `__rtsn_vec_push`) returns a placeholder `undefined` PolyValue so the caller
+/// Declare-import a REAL runtime symbol (or a `__rtsadp_*` adapter trampoline)
+/// into the current function and emit the call, with the Cranelift signature
+/// derived EXACTLY from the real-symbol descriptor ([`crate::value::abi_sig`]).
+/// For void symbols returns a placeholder `undefined` PolyValue so the caller
 /// always has a value (it is never used for void calls).
 fn call_extern(
     module: &mut dyn Module,
@@ -237,30 +239,15 @@ fn call_extern(
     name: &'static str,
     args: &[Value],
 ) -> Value {
-    let sig_info = runtime::signature_of(name)
-        .unwrap_or_else(|| panic!("unknown runtime extern {name}"));
-    debug_assert_eq!(sig_info.params, args.len(), "extern {name} arity mismatch");
-
-    let mut sig = Signature::new(module.isa().default_call_conv());
-    for _ in 0..sig_info.params {
-        sig.params.push(AbiParam::new(types::I64));
-    }
-    if sig_info.returns {
-        sig.returns.push(AbiParam::new(types::I64));
-    }
-
-    let callee = module
-        .declare_function(name, Linkage::Import, &sig)
-        .unwrap_or_else(|e| panic!("declare extern {name}: {e}"));
-    let func_ref = module.declare_func_in_func(callee, builder.func);
-
-    let call = builder.ins().call(func_ref, args);
-    if sig_info.returns {
-        builder.inst_results(call)[0]
-    } else {
-        // void: synthesize an undefined PolyValue word as the (unused) result.
-        builder
-            .ins()
-            .iconst(types::I64, value::PolyValue::undefined().raw() as i64)
+    let sig = sig_of(name).unwrap_or_else(|| panic!("unknown runtime symbol {name}"));
+    debug_assert_eq!(sig.param_slot_count(), args.len(), "symbol {name} arity mismatch");
+    match emit_marshal::emit_call(module, builder, name, args) {
+        Some(v) => v,
+        None => {
+            // void: synthesize an undefined PolyValue word as the (unused) result.
+            builder
+                .ins()
+                .iconst(types::I64, value::PolyValue::undefined().raw() as i64)
+        }
     }
 }

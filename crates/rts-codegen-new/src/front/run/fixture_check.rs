@@ -2,7 +2,8 @@
 //! actual fixtures.
 //!
 //! Honest and subset-only: it walks `tests/cross-runtime/**/*.ts`, runs each
-//! through [`super::run_source`], and — for the ones the new engine actually
+//! through [`super::render_source`] (console.log captured to a `String` via the
+//! adapter's real-pool-backed sink), and — for the ones the new engine actually
 //! runs — compares the captured stdout to `bun <file>`. Most fixtures are
 //! Unsupported today (objects, strings methods, classes, regex, …); the harness
 //! reports the REAL count it runs and matches, never inflates it.
@@ -17,7 +18,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::run_source;
+use super::render_source;
 
 /// Root of the committed cross-runtime fixtures, resolved from this crate.
 fn fixtures_root() -> PathBuf {
@@ -106,7 +107,7 @@ fn fixture_harness() {
         // genuinely infinite program would hang. We accept that risk for the
         // ignored harness (the subset the engine runs is loop-bounded in
         // practice); a timeout wrapper is a follow-up.
-        match run_source(&src) {
+        match render_source(&src) {
             Ok(out) => {
                 t.ran += 1;
                 match bun_stdout(path) {

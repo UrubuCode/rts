@@ -14,6 +14,7 @@ use rts_hir::HirExpr;
 
 use crate::repr::Repr;
 use crate::value;
+use crate::value::{abi_adapter, emit_marshal};
 
 use crate::front::error::{unsupported, FrontResult, Unsupported};
 
@@ -62,22 +63,58 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.lower_user_call(module, &sig, args)
     }
 
-    /// Lower `console.log(a, b, …)`: box each arg to a PolyValue and call the
-    /// fixed-arity entry. Returns `undefined` (console.log's JS result).
+    /// Lower `console.log(a, b, …)` through the REAL runtime: ToString each arg to
+    /// a string PolyValue (`__rtsadp_to_string`, interning in the real pool), join
+    /// them with a single space via `__rtsadp_add` (real `STRING_CONCAT`), then
+    /// print the joined line via [`emit_marshal::emit_print_string_poly`]
+    /// (table-load → `STRING_PTR`/`STRING_LEN` → `__rtsadp_print_line`, which
+    /// forwards to the REAL `__RTS_FN_NS_IO_PRINT(ptr, len)` — the newline is the
+    /// runtime's). Returns `undefined` (console.log's JS result).
+    ///
+    /// No arity cap (the old fixed-arity `console_logN` family is gone): the line
+    /// is folded left-to-right with space separators, so any number of args works.
     fn lower_console_log(
         &mut self,
         module: &mut dyn Module,
         args: &[HirExpr],
     ) -> FrontResult<Val> {
-        let sym = crate::runtime::console::console_log_symbol(args.len()).ok_or_else(|| {
-            Unsupported::new(format!("console.log with {} args (max 6 supported)", args.len()))
-        })?;
-        let mut boxed = Vec::with_capacity(args.len());
+        // Build the joined-line string PolyValue. Empty `console.log()` prints a
+        // blank line: start from the empty string.
+        let space = {
+            let pv = abi_adapter::intern_poly(" ");
+            self.builder.ins().iconst(types::I64, pv.raw() as i64)
+        };
+        let mut line: Option<Value> = None;
         for a in args {
             let v = self.lower_expr(module, a)?;
-            boxed.push(self.box_value(v));
+            let boxed = self.box_value(v);
+            // ToString this arg (real pool) → a string PolyValue word.
+            let s = self
+                .call_runtime(module, "__rtsadp_to_string", &[boxed])?
+                .expect("__rtsadp_to_string returns a value");
+            line = Some(match line {
+                None => s,
+                Some(prev) => {
+                    // prev + " " + s, both joins through the generic `+` (real
+                    // STRING_CONCAT for string operands).
+                    let with_space = self
+                        .call_runtime(module, "__rtsadp_add", &[prev, space])?
+                        .expect("__rtsadp_add returns a value");
+                    self.call_runtime(module, "__rtsadp_add", &[with_space, s])?
+                        .expect("__rtsadp_add returns a value")
+                }
+            });
         }
-        self.call_runtime(module, sym, &boxed)?;
+        let line = match line {
+            Some(v) => v,
+            None => {
+                // console.log() with no args → print an empty line.
+                let pv = abi_adapter::intern_poly("");
+                self.builder.ins().iconst(types::I64, pv.raw() as i64)
+            }
+        };
+        emit_marshal::emit_print_string_poly(module, self.builder, line);
+
         let v = self
             .builder
             .ins()
@@ -133,7 +170,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Reduce `val` to an i64 0/1 condition usable by `brif`/`select`, applying
     /// JS `ToBoolean`. A `Bool` is already 0/1. A proven number folds inline
     /// (non-zero & non-NaN is truthy). A Tagged value goes through the runtime
-    /// `__rtsn_to_boolean` (which resolves the empty-string case on the heap).
+    /// `__rtsadp_to_boolean` (which resolves the empty-string case on the heap).
     pub(super) fn as_bool_value(
         &mut self,
         module: &mut dyn Module,
@@ -156,8 +193,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
             Repr::Tagged => {
                 let res = self
-                    .call_runtime(module, "__rtsn_to_boolean", &[val.v])?
-                    .expect("__rtsn_to_boolean returns a value");
+                    .call_runtime(module, "__rtsadp_to_boolean", &[val.v])?
+                    .expect("__rtsadp_to_boolean returns a value");
                 Ok(res)
             }
             other => unsupported!("condition of repr {other:?}"),

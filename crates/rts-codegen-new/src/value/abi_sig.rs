@@ -1,0 +1,130 @@
+//! Real-symbol signature descriptors — the fix for the StrPtr=2-slots bug.
+//!
+//! The fake mini-runtime treated EVERY slot as `i64` (correct only for the
+//! PolyValue-in/out `__rtsn_*` symbols). The REAL symbols use the runtime's
+//! `AbiType` (`Void`/`Bool`/`I32`/`I64`/`U64`/`F64`/`StrPtr`/`Handle`), and
+//! `StrPtr` lowers to **two** Cranelift slots (`ptr` + `len`). Mis-marshaling a
+//! single-slot string where the ABI expects two → SIGILL.
+//!
+//! This module hand-writes a small static table covering EXACTLY the symbols the
+//! new lowering calls, each as `&[AbiType]` params + an `AbiType` return, and
+//! lowers each to a Cranelift `Signature` (expanding `StrPtr` per the runtime's
+//! own [`rts_runtime::abi::signature::lower_params`] rule). It deliberately does
+//! NOT iterate the whole `SPECS`/registry — the new engine emits a tiny, known
+//! surface, and an explicit table is the smallest honest source of truth.
+
+use cranelift_codegen::ir::{types, AbiParam, Signature};
+use cranelift_module::Module;
+
+use rts_runtime::abi::AbiType;
+
+/// The ABI shape of one callable symbol: its param `AbiType`s (pre-expansion,
+/// `StrPtr` still one entry) and its return `AbiType`.
+#[derive(Clone, Copy)]
+pub struct SymSig {
+    pub params: &'static [AbiType],
+    pub ret: AbiType,
+}
+
+/// The Cranelift IR type a scalar `AbiType` lowers to. `StrPtr` is NEVER passed
+/// here (it is expanded into two `I64` entries before this is reached); `Void` is
+/// only legal as a return and contributes no slot.
+fn scalar_to_cl(ty: AbiType) -> types::Type {
+    match ty {
+        AbiType::F64 => types::F64,
+        AbiType::I32 => types::I32,
+        // Bool/I64/U64/Handle all ride an i64 register at the boundary.
+        AbiType::Bool | AbiType::I64 | AbiType::U64 | AbiType::Handle => types::I64,
+        AbiType::StrPtr => unreachable!("StrPtr must be expanded before scalar_to_cl"),
+        AbiType::Void => unreachable!("Void has no Cranelift slot"),
+    }
+}
+
+impl SymSig {
+    /// Build the Cranelift `Signature` for this symbol under the module's default
+    /// call convention, expanding each `StrPtr` param into `(ptr: i64, len: i64)`.
+    pub fn to_cranelift(&self, module: &dyn Module) -> Signature {
+        let mut sig = Signature::new(module.isa().default_call_conv());
+        for &p in self.params {
+            match p {
+                AbiType::StrPtr => {
+                    // ptr + len, two slots (matches the runtime's lower_params).
+                    sig.params.push(AbiParam::new(types::I64));
+                    sig.params.push(AbiParam::new(types::I64));
+                }
+                AbiType::Void => panic!("Void is not a valid parameter type"),
+                other => sig.params.push(AbiParam::new(scalar_to_cl(other))),
+            }
+        }
+        if !matches!(self.ret, AbiType::Void) {
+            sig.returns.push(AbiParam::new(scalar_to_cl(self.ret)));
+        }
+        sig
+    }
+
+    /// Number of Cranelift param slots (StrPtr counts as 2). The lowering uses
+    /// this to assert it passes the right number of marshaled values.
+    pub fn param_slot_count(&self) -> usize {
+        self.params
+            .iter()
+            .map(|p| if matches!(p, AbiType::StrPtr) { 2 } else { 1 })
+            .sum()
+    }
+
+    /// Whether this symbol returns a value.
+    pub fn returns(&self) -> bool {
+        !matches!(self.ret, AbiType::Void)
+    }
+}
+
+/// Resolve a symbol name to its [`SymSig`]. Covers exactly the symbols the new
+/// lowering calls: the REAL runtime symbols (`__RTS_FN_*`) + the codegen-owned
+/// adapter trampolines (`__rtsadp_*`). `None` for an unknown symbol (the lowering
+/// turns that into an explicit `Unsupported` bail, never a guess).
+pub fn sig_of(name: &str) -> Option<SymSig> {
+    use AbiType::*;
+    Some(match name {
+        // ---- REAL string pool (rts-std collector::string_pool) ----
+        // STRING_NEW(ptr,len) -> handle  — StrPtr = two slots.
+        "__RTS_FN_NS_GC_STRING_NEW" | "__RTS_FN_NS_GC_STRING_FROM_STATIC" => {
+            SymSig { params: &[StrPtr], ret: Handle }
+        }
+        "__RTS_FN_NS_GC_STRING_PTR" => SymSig { params: &[Handle], ret: U64 },
+        "__RTS_FN_NS_GC_STRING_LEN" => SymSig { params: &[Handle], ret: I64 },
+        "__RTS_FN_NS_GC_STRING_FREE" => SymSig { params: &[Handle], ret: I64 },
+        "__RTS_FN_NS_GC_STRING_CONCAT" => SymSig { params: &[Handle, Handle], ret: Handle },
+        "__RTS_FN_NS_GC_STRING_EQ" => SymSig { params: &[Handle, Handle], ret: I64 },
+        "__RTS_FN_NS_GC_STRING_CMP" => SymSig { params: &[Handle, Handle], ret: I64 },
+        "__RTS_FN_NS_GC_STRING_FROM_I64" => SymSig { params: &[I64], ret: Handle },
+        "__RTS_FN_NS_GC_STRING_FROM_F64" => SymSig { params: &[F64], ret: Handle },
+
+        // ---- REAL io (rts-std io) ----
+        // IO_PRINT(ptr,len) -> void  — StrPtr = two slots, appends a newline.
+        "__RTS_FN_NS_IO_PRINT" | "__RTS_FN_NS_IO_EPRINT" => {
+            SymSig { params: &[StrPtr], ret: Void }
+        }
+
+        // ---- REAL collections Vec (rts-shared collections::vec) ----
+        "__RTS_FN_NS_COLLECTIONS_VEC_NEW" => SymSig { params: &[], ret: Handle },
+        "__RTS_FN_NS_COLLECTIONS_VEC_PUSH" => SymSig { params: &[U64, I64], ret: Void },
+        "__RTS_FN_NS_COLLECTIONS_VEC_GET" => SymSig { params: &[U64, I64], ret: I64 },
+        "__RTS_FN_NS_COLLECTIONS_VEC_LEN" => SymSig { params: &[U64], ret: I64 },
+        "__RTS_FN_NS_COLLECTIONS_VEC_SET" => SymSig { params: &[U64, I64, I64], ret: Void },
+        "__RTS_FN_NS_COLLECTIONS_VEC_POP" => SymSig { params: &[U64], ret: I64 },
+
+        // ---- codegen-owned adapter trampolines (__rtsadp_*) ----
+        // Indirection table: full real handle <-> PolyValue idx.
+        "__rtsadp_store" | "__rtsadp_load" => SymSig { params: &[U64], ret: U64 },
+        // Generic JS operators on PolyValue words (tagged-in/tagged-out).
+        "__rtsadp_add" | "__rtsadp_strict_eq" | "__rtsadp_strict_neq" => {
+            SymSig { params: &[U64, U64], ret: U64 }
+        }
+        "__rtsadp_typeof" | "__rtsadp_to_string" | "__rtsadp_to_boolean" => {
+            SymSig { params: &[U64], ret: U64 }
+        }
+        // console.log line sink: takes (ptr, len) as a StrPtr (two slots), void.
+        "__rtsadp_print_line" => SymSig { params: &[StrPtr], ret: Void },
+
+        _ => return None,
+    })
+}

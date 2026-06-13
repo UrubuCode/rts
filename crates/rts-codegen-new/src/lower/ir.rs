@@ -25,7 +25,7 @@ pub enum Node {
     /// `a + b`, representation-aware:
     /// - both `Float64` → native `fadd`,
     /// - both `Int32` → native `iadd`,
-    /// - otherwise → BOX both operands and `CallExtern("__rtsn_add", ..)`
+    /// - otherwise → BOX both operands and `CallExtern("__rtsadp_add", ..)`
     ///   (the generic JS `+`), yielding a `Tagged` result.
     Add(Box<Node>, Box<Node>),
 

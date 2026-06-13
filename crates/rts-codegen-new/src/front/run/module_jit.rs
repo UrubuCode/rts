@@ -18,8 +18,8 @@ use cranelift_module::{Linkage, Module};
 
 use rts_hir::HirFunc;
 
+use crate::abi_gen;
 use crate::front::error::{FrontResult, Unsupported};
-use crate::runtime;
 
 use super::lower::Lowerer;
 use super::sig::FnSig;
@@ -43,7 +43,10 @@ impl Program {
 }
 
 /// Build a host `JITModule` with the egraph optimizer and every runtime symbol
-/// installed (so `console.log` / `__rtsn_add` / … resolve at link time).
+/// installed (so `__RTS_FN_NS_IO_PRINT` / `__RTS_FN_NS_GC_STRING_*` /
+/// `__rtsadp_*` / … resolve at link time). The symbol set is the REAL runtime
+/// surface the lowering calls plus the codegen-owned adapter trampolines, sourced
+/// from [`crate::runtime_link`] via [`abi_gen::jit_symbols`].
 fn make_module() -> JITModule {
     let mut flags = settings::builder();
     flags.set("opt_level", "speed").unwrap();
@@ -52,7 +55,7 @@ fn make_module() -> JITModule {
         .finish(settings::Flags::new(flags))
         .expect("finish host isa");
     let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
-    for sym in runtime::symbols() {
+    for sym in abi_gen::jit_symbols() {
         builder.symbol(sym.name, sym.ptr);
     }
     JITModule::new(builder)

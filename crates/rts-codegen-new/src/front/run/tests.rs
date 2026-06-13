@@ -8,13 +8,14 @@
 //! Out-of-subset constructs bail with an explicit `Unsupported` (the negative
 //! tests at the bottom), never a silent wrong value.
 
-use super::run_source;
+use super::{render_source, run_source};
 
-/// Run `src` and assert its captured stdout equals `expected`.
+/// Run `src` (console.log captured via the real-pool-backed sink) and assert its
+/// rendered stdout equals `expected`.
 fn assert_stdout(src: &str, expected: &str) {
-    match run_source(src) {
+    match render_source(src) {
         Ok(out) => assert_eq!(out, expected, "stdout mismatch for source:\n{src}"),
-        Err(e) => panic!("run_source failed for:\n{src}\n  -> {e}"),
+        Err(e) => panic!("render_source failed for:\n{src}\n  -> {e}"),
     }
 }
 
@@ -161,6 +162,16 @@ fn multiple_log_lines() {
 #[test]
 fn negative_number_formatting() {
     assert_stdout("console.log(-0.0, -5, -2.5);", "0 -5 -2.5\n");
+}
+
+/// Smoke the REAL-stdout path (`run_source`, NOT the capture path): it must run
+/// to completion without SIGILL/crash, proving `__rtsadp_print_line` forwards to
+/// the REAL `__RTS_FN_NS_IO_PRINT(ptr, len)` correctly (the line lands on the
+/// test's stdout; this asserts only that the real IO_PRINT branch executes).
+#[test]
+fn run_source_real_stdout_smoke() {
+    let res = run_source(r#"console.log("real-stdout-path", 1 + 2);"#);
+    assert!(res.is_ok(), "run_source (real IO_PRINT path) failed: {res:?}");
 }
 
 // ===========================================================================

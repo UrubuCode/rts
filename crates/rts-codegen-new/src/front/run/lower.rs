@@ -22,7 +22,7 @@ use std::collections::HashMap;
 
 use cranelift_codegen::ir::{types, InstBuilder, Value};
 use cranelift_frontend::{FunctionBuilder, Variable};
-use cranelift_module::{Linkage, Module};
+use cranelift_module::Module;
 
 use rts_hir::{HirFunc, HirStmt};
 
@@ -255,44 +255,31 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
     // ---- extern calls (runtime ops) ----
 
-    /// Declare-import a runtime extern by name and emit the call. All params and
-    /// the return (if any) are i64 PolyValue words. Returns the result value for
-    /// returning externs, or `None` for void ones.
+    /// Declare-import a runtime symbol by name and emit the call, with each call's
+    /// Cranelift signature derived EXACTLY from the real-symbol descriptor
+    /// ([`crate::value::abi_sig`]) so `StrPtr` splits into ptr+len and f64/i64
+    /// slots are right (mis-marshaling → SIGILL). `args` are the already-marshaled
+    /// Cranelift values, one per Cranelift slot. Returns the result for returning
+    /// symbols, or `None` for void ones.
+    ///
+    /// This serves the codegen-owned `__rtsadp_*` generic operators (all `U64`
+    /// slots — PolyValue words in/out); the StrPtr-bearing real symbols are called
+    /// through the dedicated [`crate::value::emit_marshal`] helpers.
     pub(super) fn call_runtime(
         &mut self,
         module: &mut dyn Module,
         name: &str,
         args: &[Value],
     ) -> FrontResult<Option<Value>> {
-        let sig_info = crate::runtime::signature_of(name)
-            .ok_or_else(|| Unsupported::new(format!("unknown runtime extern `{name}`")))?;
-        if sig_info.params != args.len() {
+        let sig = crate::value::abi_sig::sig_of(name)
+            .ok_or_else(|| Unsupported::new(format!("unknown runtime symbol `{name}`")))?;
+        if sig.param_slot_count() != args.len() {
             return unsupported!(
-                "runtime extern `{name}` arity {} but {} args",
-                sig_info.params,
+                "runtime symbol `{name}` expects {} slots but {} args",
+                sig.param_slot_count(),
                 args.len()
             );
         }
-
-        let mut sig = cranelift_codegen::ir::Signature::new(module.isa().default_call_conv());
-        for _ in 0..sig_info.params {
-            sig.params
-                .push(cranelift_codegen::ir::AbiParam::new(types::I64));
-        }
-        if sig_info.returns {
-            sig.returns
-                .push(cranelift_codegen::ir::AbiParam::new(types::I64));
-        }
-
-        let callee = module
-            .declare_function(name, Linkage::Import, &sig)
-            .map_err(|e| Unsupported::new(format!("declare runtime extern `{name}`: {e}")))?;
-        let func_ref = module.declare_func_in_func(callee, self.builder.func);
-        let call = self.builder.ins().call(func_ref, args);
-        Ok(if sig_info.returns {
-            Some(self.builder.inst_results(call)[0])
-        } else {
-            None
-        })
+        Ok(crate::value::emit_marshal::emit_call(module, self.builder, name, args))
     }
 }

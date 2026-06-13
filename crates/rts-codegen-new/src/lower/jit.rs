@@ -1,20 +1,20 @@
 //! The P1 JIT harness: compile one [`Func`] to executable memory, with all the
-//! `runtime::__rtsn_*` extern symbols installed, and hand back a callable
+//! REAL runtime `__RTS_FN_*` (+ `__rtsadp_*`) symbols installed, and hand back a callable
 //! pointer.
 //!
 //! This is the smallest honest slice of `pipeline::run_jit`: build a host ISA,
-//! make a `JITModule` whose `JITBuilder` has every runtime symbol registered
-//! (the hand-rolled P1 analogue of the SPECS-derived `abi_gen` table), lower the
-//! function with [`super::lower::lower_func`], define + finalize, and return the
-//! finalized code pointer. The caller `transmute`s it to the right `extern "C"`
-//! shape.
+//! make a `JITModule` whose `JITBuilder` has the REAL runtime symbols (+ the
+//! codegen-owned `__rtsadp_*` adapter trampolines) registered via
+//! [`crate::abi_gen::jit_symbols`], lower the function with
+//! [`super::lower::lower_func`], define + finalize, and return the finalized code
+//! pointer. The caller `transmute`s it to the right `extern "C"` shape.
 
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{Linkage, Module};
 
-use crate::runtime;
+use crate::abi_gen;
 
 use super::ir::Func;
 use super::lower::{lower_func, signature_for};
@@ -51,7 +51,7 @@ fn make_module() -> JITModule {
         .expect("finish host isa");
 
     let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
-    for sym in runtime::symbols() {
+    for sym in abi_gen::jit_symbols() {
         builder.symbol(sym.name, sym.ptr);
     }
     JITModule::new(builder)
@@ -140,7 +140,7 @@ pub fn jit_run_i64_i64(func: &Func) -> impl Fn(i64) -> i64 {
 
 /// Compile a `Func` of shape `fn(i64, i64) -> u64` and return a closure. Used by
 /// the polymorphic-`+` proof: the two params are native `Int32` (i64 register),
-/// boxed inside the lowered function, then `CallExtern("__rtsn_add", ..)`; the
+/// boxed inside the lowered function, then `CallExtern("__rtsadp_add", ..)`; the
 /// result is a raw Tagged PolyValue word.
 pub fn jit_run_ii_u64(func: &Func) -> impl Fn(i64, i64) -> u64 {
     let jf = compile(func);

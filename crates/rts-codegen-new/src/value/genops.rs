@@ -1,0 +1,192 @@
+//! The generic JS operators on [`PolyValue`] — the ONE tag-dispatched path that
+//! replaces the old engine's AST-shape guessing.
+//!
+//! There is NO single real runtime symbol for "JS `+` with tag dispatch" — the
+//! real runtime exposes lower-level primitives (`STRING_CONCAT`, `STRING_FROM_*`,
+//! `STRING_EQ`). So these generic operators are legitimately codegen-owned
+//! (`__rtsadp_*`, NOT `__RTS_FN_*`); whenever they touch string BYTES they go
+//! through the REAL string pool via [`super::abi_adapter`], never a fake interner.
+//!
+//! Each takes raw `u64` PolyValue words in and returns a raw `u64` PolyValue word
+//! out (the tagged-in/tagged-out convention), except [`__rtsadp_to_boolean`]
+//! which returns an UNBOXED i64 0/1 for direct `brif`/`select` consumption. The
+//! discriminant is always the tag inside the value — never the source shape.
+
+use rts_runtime::namespaces::gc::string_pool as rt_str;
+
+use super::abi_adapter;
+use super::PolyValue;
+
+/// JS `ToString` for any [`PolyValue`], resolving heap strings through the REAL
+/// pool. Numbers use the runtime's own JS `Number→String` (STRING_FROM_F64), so
+/// formatting matches the rest of the runtime exactly.
+fn to_string(v: PolyValue) -> String {
+    if v.is_double() {
+        return number_to_string(v.as_f64());
+    }
+    if v.is_int32() {
+        return v.as_i32().to_string();
+    }
+    if v.is_string() {
+        return abi_adapter::resolve_poly(v);
+    }
+    if v.is_undefined() {
+        return "undefined".to_string();
+    }
+    if v.is_null() {
+        return "null".to_string();
+    }
+    if v.is_bool() {
+        return if v.as_bool() { "true" } else { "false" }.to_string();
+    }
+    if v.is_function() {
+        return "function".to_string();
+    }
+    // objects (and any reserved/leaked singleton)
+    "[object Object]".to_string()
+}
+
+/// JS `Number→String` for an `f64`, delegating to the REAL runtime
+/// (`STRING_FROM_F64`) so the new engine's number formatting is byte-identical to
+/// the rest of RTS (integer-valued doubles drop the `.0`, the non-finite
+/// spellings, exponential thresholds — all the runtime's, not a reimplementation).
+fn number_to_string(f: f64) -> String {
+    let handle = rt_str::__RTS_FN_NS_GC_STRING_FROM_F64(f);
+    abi_adapter::real_handle_to_string(handle)
+}
+
+/// Is this PolyValue a JS number (either an inline double or a tagged int32)?
+fn is_number(v: PolyValue) -> bool {
+    v.is_double() || v.is_int32()
+}
+
+/// `__rtsadp_add` — the JS binary `+` on two PolyValues.
+///
+/// - both numbers → numeric add (int32 when both int32 and the sum fits, else
+///   double).
+/// - either operand a string → ToString both, concatenate in the REAL pool, box
+///   the result handle as a string PolyValue.
+///
+/// The refutation of the old `arr[0] + 5 → "05"` bug: the decision is made on the
+/// runtime tags of the ACTUAL values, never on the shape of the source expr.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_add(a: u64, b: u64) -> u64 {
+    let av = PolyValue::from_raw(a);
+    let bv = PolyValue::from_raw(b);
+
+    // String path: if either side is a string, ToString both and concat through
+    // the REAL pool.
+    if av.is_string() || bv.is_string() {
+        return concat_via_real_pool(av, bv).raw();
+    }
+
+    // Numeric path: both numbers.
+    if is_number(av) && is_number(bv) {
+        if av.is_int32() && bv.is_int32() {
+            let lhs = av.as_i32();
+            let rhs = bv.as_i32();
+            if let Some(sum) = lhs.checked_add(rhs) {
+                return PolyValue::from_i32(sum).raw();
+            }
+            return PolyValue::from_f64(lhs as f64 + rhs as f64).raw();
+        }
+        let sum = av.number_as_f64() + bv.number_as_f64();
+        return PolyValue::from_f64(sum).raw();
+    }
+
+    // Mixed/other: JS would ToPrimitive; stringify both (never panics).
+    concat_via_real_pool(av, bv).raw()
+}
+
+/// ToString both operands and concatenate through the REAL string pool. Each side
+/// is interned (STRING_NEW), then STRING_CONCAT joins the two real handles; the
+/// result handle is boxed as a string PolyValue via the indirection table.
+fn concat_via_real_pool(av: PolyValue, bv: PolyValue) -> PolyValue {
+    let ah = real_handle_for_concat(av);
+    let bh = real_handle_for_concat(bv);
+    let joined = rt_str::__RTS_FN_NS_GC_STRING_CONCAT(ah, bh);
+    abi_adapter::poly_from_real_handle(joined)
+}
+
+/// The real string handle to feed STRING_CONCAT for one operand: a string's own
+/// handle, or a fresh interned ToString of a non-string.
+fn real_handle_for_concat(v: PolyValue) -> u64 {
+    if v.is_string() {
+        abi_adapter::real_handle_of(v)
+    } else {
+        let s = to_string(v);
+        // STRING_NEW (safe extern) reads `len` bytes from a live &str's ptr+len.
+        rt_str::__RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64)
+    }
+}
+
+/// `__rtsadp_strict_eq` — JS `===` on two PolyValues, returning a PolyValue bool.
+///
+/// Numbers compare cross-representation by value (int32 `7` `===` double `7.0`),
+/// NaN is never `===` itself. Strings compare by CONTENT via the REAL pool
+/// (`STRING_EQ`) — the indirection table means two equal strings may sit at
+/// different idxs, so a raw-word compare is NOT sufficient. Everything else
+/// compares by identical representation.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_strict_eq(a: u64, b: u64) -> u64 {
+    let av = PolyValue::from_raw(a);
+    let bv = PolyValue::from_raw(b);
+
+    let eq = if is_number(av) && is_number(bv) {
+        // NaN !== NaN, +0 === -0 — both fall out of IEEE `==` on f64.
+        av.number_as_f64() == bv.number_as_f64()
+    } else if av.is_string() && bv.is_string() {
+        let ah = abi_adapter::real_handle_of(av);
+        let bh = abi_adapter::real_handle_of(bv);
+        rt_str::__RTS_FN_NS_GC_STRING_EQ(ah, bh) != 0
+    } else {
+        // Non-number, non-both-string: identical representation ⇒ ===.
+        av.raw() == bv.raw()
+    };
+
+    PolyValue::bool(eq).raw()
+}
+
+/// `__rtsadp_strict_neq` — JS `!==`, the boolean complement of strict-eq.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_strict_neq(a: u64, b: u64) -> u64 {
+    let eq = PolyValue::from_raw(__rtsadp_strict_eq(a, b));
+    PolyValue::bool(!eq.as_bool()).raw()
+}
+
+/// `__rtsadp_typeof` — JS `typeof`, returning a PolyValue **string** handle of the
+/// `typeof_str` (interned in the REAL pool). A single tag inspection.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_typeof(a: u64) -> u64 {
+    let v = PolyValue::from_raw(a);
+    abi_adapter::intern_poly(v.typeof_str()).raw()
+}
+
+/// `__rtsadp_to_string` — JS `ToString`, returning a PolyValue string handle
+/// (interned in the REAL pool). Used by the tests to read results back as text.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_to_string(a: u64) -> u64 {
+    // A string already is its own ToString — keep its idx (avoid re-interning).
+    let v = PolyValue::from_raw(a);
+    if v.is_string() {
+        return a;
+    }
+    let s = to_string(v);
+    abi_adapter::intern_poly(&s).raw()
+}
+
+/// `__rtsadp_to_boolean` — JS `ToBoolean`, returning an UNBOXED i64 0/1 (NOT a
+/// PolyValue) to feed a Cranelift `brif`/`select` directly. The empty-string case
+/// needs the heap (length lives in the real pool), so it is resolved here.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_to_boolean(a: u64) -> u64 {
+    let v = PolyValue::from_raw(a);
+    let truthy = if v.is_string() {
+        // A string is truthy iff non-empty — STRING_LEN over the real handle.
+        let h = abi_adapter::real_handle_of(v);
+        rt_str::__RTS_FN_NS_GC_STRING_LEN(h) > 0
+    } else {
+        v.is_truthy()
+    };
+    truthy as u64
+}

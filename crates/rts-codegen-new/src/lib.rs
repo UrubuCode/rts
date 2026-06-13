@@ -53,12 +53,17 @@
 //! Increment 4 ([`front::run`]): a REAL `.ts` PROGRAM runs and PRODUCES OUTPUT.
 //! Top-level statements + function defs + cross-function calls + the
 //! Tagged/string/polymorphic path + `console.log` lower through a whole-module
-//! JIT and execute, with stdout captured as a `String`
-//! ([`front::run::run_source`]). The numeric fast path stays unboxed; a value
-//! becomes a [`value::PolyValue`] only at a Tagged boundary (a `console.log`
-//! arg, a string/mixed `+`, a Tagged local/call), boxed via the pure
-//! `value::emit_*` IR + the generic `__rtsn_*` runtime ops. The first honest
-//! measurement on the real cross-runtime fixtures lives in
+//! JIT and execute against the REAL runtime ([`front::run::run_source`]). The
+//! numeric fast path stays unboxed; a value becomes a [`value::PolyValue`] only
+//! at a Tagged boundary (a `console.log` arg, a string/mixed `+`, a Tagged
+//! local/call), boxed via the pure `value::emit_*` IR. String BYTES live in the
+//! REAL string pool (`__RTS_FN_NS_GC_STRING_*`), reached through the
+//! [`value::abi_adapter`] handle indirection table; `console.log` prints via the
+//! REAL `__RTS_FN_NS_IO_PRINT`. The generic JS operators are codegen-owned
+//! `__rtsadp_*` trampolines (no real symbol exists for tag-dispatched `+`) that
+//! call the real pool for the heap parts. The JIT symbol set comes from
+//! [`runtime_link`] (the real runtime surface + the adapter trampolines). The
+//! first honest measurement on the real cross-runtime fixtures lives in
 //! `front::run::fixture_check` (bun-gated, `#[ignore]`d).
 //!
 //! Anything outside the implemented subset is an EXPLICIT `Unsupported` bail,
@@ -78,10 +83,10 @@ pub mod shape;
 pub mod ic;
 pub mod dispatch;
 pub mod abi_gen;
+pub mod runtime_link;
 pub mod front;
 pub mod lower;
 pub mod pipeline;
-pub mod runtime;
 
 /// End-to-end proof suite (P1): reproduces the EXACT old-engine value-model
 /// failures and shows the new `PolyValue` representation solving each one

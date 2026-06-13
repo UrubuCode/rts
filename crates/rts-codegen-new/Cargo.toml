@@ -23,10 +23,18 @@ rts-parser = { path = "../rts-parser" }
 rts-hir = { path = "../rts-hir" }
 rts-ast = { path = "../rts-ast" }
 # The P1 proof harness (lower/jit.rs) builds and finalizes a real JITModule and
-# installs the runtime::__rtsn_* extern symbols into it, so the JIT + host-ISA
-# builders are regular (non-test) dependencies now, not dev-only.
+# installs the REAL runtime __RTS_FN_* extern symbols into it, so the JIT +
+# host-ISA builders are regular (non-test) dependencies now, not dev-only.
 cranelift-jit = "0.131"
 cranelift-native = "0.131"
+# The REAL runtime. This is the layering fix: codegen no longer ships a fake
+# in-crate mini-runtime — it calls the real rts-engine/rts-primitives/rts-shared/
+# rts-std surface through this thin facade. The facade transitively pulls those
+# four crates and re-exports the `__RTS_FN_*` extern "C" impls under
+# `rts_runtime::namespaces::*` (io, collections::vec, gc::string_pool); we consume
+# them strictly as-is. Do NOT depend on rts-engine/rts-primitives directly — they
+# come via this facade — and never on rts-codegen-old (the old engine is frozen).
+rts-runtime = { path = "../rts-runtime" }
 
 [dev-dependencies]
 target-lexicon = "0.13"

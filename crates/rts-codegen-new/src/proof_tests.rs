@@ -4,15 +4,18 @@
 //! (`rts-codegen-old`) and shows the new `PolyValue` representation handling it
 //! correctly, through **real Cranelift JIT execution** — not just a pure-Rust
 //! unit test. Every proof JIT-compiles a function via `lower/` + `lower/jit` and
-//! runs the resulting native code, calling into the `runtime/` externs across
-//! the PolyValue ABI boundary.
+//! runs the resulting native code, calling into the REAL runtime symbols
+//! (`__RTS_FN_NS_COLLECTIONS_VEC_*`, the string pool via the adapter, the generic
+//! `__rtsadp_*` operators) across the PolyValue ABI boundary.
 //!
 //! The old-engine bug each proof refutes is cited inline.
+
+use rts_runtime::namespaces::collections::vec as rt_vec;
 
 use crate::lower::ir::{Func, Node};
 use crate::lower::jit;
 use crate::repr::Repr;
-use crate::runtime::{container, ops, strings};
+use crate::value::{abi_adapter, genops};
 use crate::value::PolyValue;
 
 // ===========================================================================
@@ -97,18 +100,23 @@ fn bool_survives_fn_boundary() {
 
 #[test]
 fn float_in_heterogeneous_container() {
-    // Build the vec via the extern op directly.
-    let vec = container::__rtsn_vec_new();
+    // Build the vec via the REAL collections extern. The handle is a real runtime
+    // u64 (gen+slot+shard), carried verbatim across the JIT boundary as the raw
+    // i64 param word.
+    let vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
 
     // Push the FLOAT through a JIT'd function: push_float(vec) pushes 1.5 and
-    // returns the vec handle. Body = [ CallExtern(vec_push, vec, 1.5); Return vec ]
+    // returns the vec handle. The element slot of the REAL Vec is a raw i64; we
+    // store the PolyValue raw word there — heterogeneous storage falls out for
+    // free, now in the REAL Entry::Vec. Body =
+    // [ CallExtern(VEC_PUSH, vec, polyword(1.5)); Return vec ].
     let float_bits = PolyValue::from_f64(1.5).raw();
     let push_float = Func {
-        params: vec![Repr::Tagged], // the vec handle
+        params: vec![Repr::Tagged], // the real vec handle (raw i64 word)
         ret: Repr::Tagged,
         body: vec![
             Node::CallExtern(
-                "__rtsn_vec_push",
+                "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
                 vec![Node::Param(0), Node::ConstPoly(float_bits)],
             ),
             Node::Return(Box::new(Node::Param(0))),
@@ -118,31 +126,31 @@ fn float_in_heterogeneous_container() {
     let returned = jit_push(vec);
     assert_eq!(returned, vec, "JIT'd push returned the vec handle unchanged");
 
-    // Push the int32 and the string via the externs directly from Rust.
-    container::__rtsn_vec_push(vec, PolyValue::from_i32(7).raw());
-    let hi = strings::intern_poly("hi");
-    container::__rtsn_vec_push(vec, hi.raw());
+    // Push the int32 and the string via the REAL extern directly from Rust. The
+    // i64 element is the PolyValue raw word.
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, PolyValue::from_i32(7).raw() as i64);
+    let hi = abi_adapter::intern_poly("hi");
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, hi.raw() as i64);
 
     // length is 3.
-    let len = PolyValue::from_raw(container::__rtsn_vec_len(vec));
-    assert!(len.is_int32() && len.as_i32() == 3);
+    assert_eq!(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(vec), 3);
 
-    // [0] is the float 1.5, a "number".
-    let e0 = PolyValue::from_raw(container::__rtsn_vec_get(vec, 0));
+    // [0] is the float 1.5, a "number" — read the raw i64 element back as a Poly.
+    let e0 = PolyValue::from_raw(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(vec, 0) as u64);
     assert!(e0.is_double(), "stored float must read back as a double");
     assert_eq!(e0.as_f64(), 1.5);
     assert_eq!(e0.typeof_str(), "number");
 
     // [1] is the int32 7, a "number".
-    let e1 = PolyValue::from_raw(container::__rtsn_vec_get(vec, 1));
+    let e1 = PolyValue::from_raw(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(vec, 1) as u64);
     assert!(e1.is_int32(), "stored int must read back as an int32");
     assert_eq!(e1.as_i32(), 7);
     assert_eq!(e1.typeof_str(), "number");
 
     // [2] is the string "hi", a "string".
-    let e2 = PolyValue::from_raw(container::__rtsn_vec_get(vec, 2));
+    let e2 = PolyValue::from_raw(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(vec, 2) as u64);
     assert!(e2.is_string(), "stored string must read back as a string");
-    assert_eq!(strings::resolve_poly(e2), "hi");
+    assert_eq!(abi_adapter::resolve_poly(e2), "hi");
     assert_eq!(e2.typeof_str(), "string");
 }
 
@@ -152,21 +160,22 @@ fn float_in_heterogeneous_container() {
 //
 // The old engine guessed `+` semantics from the AST shape, producing the famous
 // `arr[0] + 5 → "05"` bug (design §2.1/§7.3): a value loaded from a container
-// was mis-classified as a string by shape heuristics. Here `__rtsn_add` is ONE
+// was mis-classified as a string by shape heuristics. Here `__rtsadp_add` is ONE
 // tag-dispatched path — it inspects the runtime tags of the ACTUAL values, never
-// the source shape. add(1,2)=3 (number); add("a","b")="ab"; add(1,"x")="1x".
+// the source shape; the string side concatenates through the REAL pool. add(1,2)=3
+// (number); add("a","b")="ab"; add(1,"x")="1x".
 //
 // The numeric case is driven from a JIT'd function that BOXES its two native
-// Int32 inputs and CallExterns `__rtsn_add`; the string cases feed Tagged
+// Int32 inputs and CallExterns `__rtsadp_add`; the string cases feed Tagged
 // PolyValue literals through the same JIT'd `CallExtern` path.
 
 #[test]
 fn polymorphic_add_one_path() {
-    // add_ii(a: Int32, b: Int32) -> Tagged : boxes both params, calls __rtsn_add.
+    // add_ii(a: Int32, b: Int32) -> Tagged : boxes both params, calls __rtsadp_add.
     let add_ii = Func::single(
         vec![Repr::Int32, Repr::Int32],
         Repr::Tagged,
-        Node::CallExtern("__rtsn_add", vec![Node::Param(0), Node::Param(1)]),
+        Node::CallExtern("__rtsadp_add", vec![Node::Param(0), Node::Param(1)]),
     );
     let jit_add_ii = jit::jit_run_ii_u64(&add_ii);
 
@@ -175,14 +184,14 @@ fn polymorphic_add_one_path() {
     assert!(r.is_int32() && r.as_i32() == 3, "1+2 should be int32 3, got {r:?}");
     assert_eq!(r.typeof_str(), "number");
 
-    // Helper: a zero-param JIT'd fn that CallExterns __rtsn_add on two Tagged
+    // Helper: a zero-param JIT'd fn that CallExterns __rtsadp_add on two Tagged
     // literals — same single path, fed string/mixed operands.
     let add_consts = |a: PolyValue, b: PolyValue| -> PolyValue {
         let func = Func::single(
             vec![],
             Repr::Tagged,
             Node::CallExtern(
-                "__rtsn_add",
+                "__rtsadp_add",
                 vec![Node::ConstPoly(a.raw()), Node::ConstPoly(b.raw())],
             ),
         );
@@ -190,25 +199,25 @@ fn polymorphic_add_one_path() {
         PolyValue::from_raw(f())
     };
 
-    // add("a", "b") → string "ab".
-    let sa = strings::intern_poly("a");
-    let sb = strings::intern_poly("b");
+    // add("a", "b") → string "ab" (concatenated in the REAL string pool).
+    let sa = abi_adapter::intern_poly("a");
+    let sb = abi_adapter::intern_poly("b");
     let ab = add_consts(sa, sb);
     assert!(ab.is_string(), r#""a"+"b" should be a string, got {ab:?}"#);
-    assert_eq!(strings::resolve_poly(ab), "ab");
+    assert_eq!(abi_adapter::resolve_poly(ab), "ab");
     assert_eq!(ab.typeof_str(), "string");
 
     // add(1, "x") → string "1x"  (NOT "0x", NOT 1 — the old AST-shape bug class).
     let one = PolyValue::from_i32(1);
-    let sx = strings::intern_poly("x");
+    let sx = abi_adapter::intern_poly("x");
     let onex = add_consts(one, sx);
     assert!(onex.is_string(), r#"1+"x" should be a string, got {onex:?}"#);
-    assert_eq!(strings::resolve_poly(onex), "1x");
+    assert_eq!(abi_adapter::resolve_poly(onex), "1x");
     assert_eq!(onex.typeof_str(), "string");
 
-    // And the SAME extern, called directly, agrees (one path, no shape input):
-    let direct = PolyValue::from_raw(ops::__rtsn_add(one.raw(), sx.raw()));
-    assert_eq!(strings::resolve_poly(direct), "1x");
+    // And the SAME generic op, called directly, agrees (one path, no shape input):
+    let direct = PolyValue::from_raw(genops::__rtsadp_add(one.raw(), sx.raw()));
+    assert_eq!(abi_adapter::resolve_poly(direct), "1x");
 }
 
 // ===========================================================================
@@ -217,7 +226,8 @@ fn polymorphic_add_one_path() {
 //
 // `typeof` is a SINGLE tag inspection — no side-table, no per-value tracking
 // (design §5.3). Covers every kind. Checked both on the pure model (`typeof_str`)
-// and through the runtime extern `__rtsn_typeof` (which returns a string handle).
+// and through the generic op `__rtsadp_typeof` (which returns a string handle
+// interned in the REAL pool).
 
 #[test]
 fn typeof_single_tag() {
@@ -225,7 +235,7 @@ fn typeof_single_tag() {
         (PolyValue::from_i32(42), "number"),
         (PolyValue::from_f64(1.5), "number"),
         (PolyValue::from_f64(f64::NAN), "number"),
-        (strings::intern_poly("hello"), "string"),
+        (abi_adapter::intern_poly("hello"), "string"),
         (PolyValue::from_object_handle(3), "object"),
         (PolyValue::from_function_handle(4), "function"),
         (PolyValue::undefined(), "undefined"),
@@ -236,10 +246,10 @@ fn typeof_single_tag() {
     for &(v, want) in cases {
         // pure model
         assert_eq!(v.typeof_str(), want, "typeof_str wrong for {v:?}");
-        // runtime extern: returns a string-handle PolyValue.
-        let result = PolyValue::from_raw(ops::__rtsn_typeof(v.raw()));
+        // generic op: returns a string-handle PolyValue (interned in the real pool).
+        let result = PolyValue::from_raw(genops::__rtsadp_typeof(v.raw()));
         assert!(result.is_string());
-        assert_eq!(strings::resolve_poly(result), want, "__rtsn_typeof wrong for {v:?}");
+        assert_eq!(abi_adapter::resolve_poly(result), want, "__rtsadp_typeof wrong for {v:?}");
     }
 }
 
