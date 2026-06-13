@@ -35,3 +35,10 @@ pub fn clear_native_addon_imports() {
 pub fn native_addon_path(local_name: &str) -> Option<String> {
     NATIVE_ADDON_IMPORTS.with(|cell| cell.borrow().get(local_name).cloned())
 }
+
+/// `true` se o programa importa ao menos um addon `.node`. Usado para só tentar
+/// o dispatch de método de instância nativa quando faz sentido (evita overhead
+/// e regressão em programas sem addons).
+pub fn any_native_addon() -> bool {
+    NATIVE_ADDON_IMPORTS.with(|cell| !cell.borrow().is_empty())
+}

@@ -805,6 +805,20 @@ pub(super) fn lower_call(ctx: &mut FnCtx, call: &CallExpr) -> Result<TypedVal> {
                                 ctx, &path, meth, call,
                             );
                         }
+                    } else if matches!(
+                        ctx.read_local(obj_name).map(|tv| tv.ty),
+                        Some(crate::codegen::lower::ctx::ValTy::Handle)
+                            | Some(crate::codegen::lower::ctx::ValTy::I64)
+                    ) && crate::codegen::lower::passes::native_addon::any_native_addon()
+                    {
+                        // (N-API) `inst.method(args)` onde `inst` é um local handle e
+                        // há addon nativo no programa: pode ser método de classe
+                        // nativa. Tenta o dispatch N-API (com fallback se não for).
+                        if let Some(tv) =
+                            self::indirect::lower_napi_instance_method_call(ctx, obj_name, meth, call)?
+                        {
+                            return Ok(tv);
+                        }
                     }
                 }
                 // (cross-runtime #218/#354) `t.apply(...)` / `.call` / `.bind`

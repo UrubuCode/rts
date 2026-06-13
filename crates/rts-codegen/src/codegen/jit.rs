@@ -178,6 +178,12 @@ fn runtime_symbol_table() -> Vec<(&'static str, *const u8)> {
             "__RTS_FN_RT_NAPI_DISPATCH_CALLBACK",
             __RTS_FN_RT_NAPI_DISPATCH_CALLBACK
         );
+        // Classes nativas: new addon.X() e x.method().
+        use crate::napi::classes::{
+            __RTS_FN_RT_NAPI_INVOKE_METHOD, __RTS_FN_RT_NAPI_NEW_INSTANCE,
+        };
+        add_fn!("__RTS_FN_RT_NAPI_NEW_INSTANCE", __RTS_FN_RT_NAPI_NEW_INSTANCE);
+        add_fn!("__RTS_FN_RT_NAPI_INVOKE_METHOD", __RTS_FN_RT_NAPI_INVOKE_METHOD);
     }
 
     // ── runtime error slot (used by try/catch/throw in codegen) ──────

@@ -1,7 +1,6 @@
 //! Superfície N-API restante (não implementada) — stubs `napi_generic_failure`.
 //! Existem na export table para o `load_all()` do `napi-sys` completar.
-//! Um addon que CHAMAR uma destas recebe falha graciosa. Ver
-//! docs/specs/napi-implementation.md.
+//! Ver docs/specs/napi-implementation.md.
 
 #![allow(clippy::too_many_arguments)]
 use crate::types::napi_status;
@@ -38,7 +37,6 @@ surface_stub!(napi_create_external_buffer);
 surface_stub!(napi_create_promise);
 surface_stub!(napi_create_threadsafe_function);
 surface_stub!(napi_create_typedarray);
-surface_stub!(napi_define_class);
 surface_stub!(napi_delete_async_work);
 surface_stub!(napi_detach_arraybuffer);
 surface_stub!(napi_fatal_error);
@@ -57,7 +55,6 @@ surface_stub!(napi_is_detached_arraybuffer);
 surface_stub!(napi_is_typedarray);
 surface_stub!(napi_make_callback);
 surface_stub!(napi_module_register);
-surface_stub!(napi_new_instance);
 surface_stub!(napi_open_callback_scope);
 surface_stub!(napi_queue_async_work);
 surface_stub!(napi_ref_threadsafe_function);
@@ -103,7 +100,6 @@ pub fn force_link_surface() -> usize {
         napi_create_promise as *const (),
         napi_create_threadsafe_function as *const (),
         napi_create_typedarray as *const (),
-        napi_define_class as *const (),
         napi_delete_async_work as *const (),
         napi_detach_arraybuffer as *const (),
         napi_fatal_error as *const (),
@@ -122,7 +118,6 @@ pub fn force_link_surface() -> usize {
         napi_is_typedarray as *const (),
         napi_make_callback as *const (),
         napi_module_register as *const (),
-        napi_new_instance as *const (),
         napi_open_callback_scope as *const (),
         napi_queue_async_work as *const (),
         napi_ref_threadsafe_function as *const (),

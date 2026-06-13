@@ -145,23 +145,34 @@ pub unsafe extern "C" fn __RTS_FN_RT_NAPI_DISPATCH_CALLBACK(
         .map(|h| value_from_handle(h as u64))
         .collect();
 
-    let info = Box::new(CallbackInfo {
-        argv,
-        this_arg: value_from_handle(this_arg as u64),
-        data,
-    });
-    let info_ptr = Box::into_raw(info);
-
     let env = napi_env(env_ptr as *mut c_void);
-    let ret = unsafe { cb(env, napi_callback_info(info_ptr as *mut c_void)) };
-
-    // Libera o CallbackInfo.
-    drop(unsafe { Box::from_raw(info_ptr) });
+    let ret = invoke_napi_callback(env, cb, data, value_from_handle(this_arg as u64), &argv);
 
     if !out_result.is_null() {
         unsafe { *out_result = handle_from_value(ret) as i64 };
     }
     1
+}
+
+/// Monta um `napi_callback_info` (argv/this/data), invoca `cb`, libera o info e
+/// devolve o `napi_value` retornado. Helper compartilhado por dispatch, classes
+/// (construtor + métodos), etc.
+pub fn invoke_napi_callback(
+    env: napi_env,
+    cb: unsafe extern "C" fn(napi_env, napi_callback_info) -> napi_value,
+    data: *mut c_void,
+    this_arg: napi_value,
+    argv: &[napi_value],
+) -> napi_value {
+    let info = Box::new(CallbackInfo {
+        argv: argv.to_vec(),
+        this_arg,
+        data,
+    });
+    let info_ptr = Box::into_raw(info);
+    let ret = unsafe { cb(env, napi_callback_info(info_ptr as *mut c_void)) };
+    drop(unsafe { Box::from_raw(info_ptr) });
+    ret
 }
 
 fn read_args(args_handle: u64) -> Vec<i64> {

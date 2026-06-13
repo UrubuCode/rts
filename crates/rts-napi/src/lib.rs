@@ -18,6 +18,7 @@
 #![allow(non_camel_case_types)]
 #![allow(clippy::missing_safety_doc)]
 
+pub mod classes;
 pub mod env;
 pub mod errors;
 pub mod externals;
@@ -164,6 +165,11 @@ pub fn force_link() -> usize {
         // Símbolo interno do loader (chamado pelo codegen, não pelo .node):
         crate::loader::__RTS_FN_NS_NAPI_LOAD_ADDON as *const (),
         crate::functions::__RTS_FN_RT_NAPI_DISPATCH_CALLBACK as *const (),
+        // Classes nativas (classes.rs)
+        crate::classes::napi_define_class as *const (),
+        crate::classes::napi_new_instance as *const (),
+        crate::classes::__RTS_FN_RT_NAPI_INVOKE_METHOD as *const (),
+        crate::classes::__RTS_FN_RT_NAPI_NEW_INSTANCE as *const (),
         // Fase 2 (phase2.rs)
         crate::phase2::napi_coerce_to_bool as *const (),
         crate::phase2::napi_coerce_to_number as *const (),
