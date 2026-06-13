@@ -99,25 +99,8 @@ fn instance_in_loop() {
 // P4.9 negative: out-of-subset class features BAIL (never a wrong value).
 // ===========================================================================
 
-#[test]
-fn extends_bails() {
-    assert_bails("class B { a: number; constructor(){this.a=1;} } class D extends B {} let d = new D(); console.log(d.a);");
-}
-
-#[test]
-fn static_member_bails() {
-    assert_bails("class C { static n: number = 5; } console.log(C.n);");
-}
-
-#[test]
-fn static_method_bails() {
-    assert_bails("class C { static make(){ return 1; } } console.log(C.make());");
-}
-
-#[test]
-fn getter_bails() {
-    assert_bails("class C { x: number; constructor(){this.x=1;} get val(){ return this.x; } } let c = new C(); console.log(c.val);");
-}
+// NOTE: P5.1 promoted `extends` / static / getter from BAIL to WORKING; those
+// cases now live as positive tests in `class_inherit.rs`.
 
 #[test]
 fn method_on_unknown_class_param_bails() {

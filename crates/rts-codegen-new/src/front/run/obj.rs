@@ -115,6 +115,21 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         object: &HirExpr,
         prop: &str,
     ) -> FrontResult<Val> {
+        // ---- static member read `C.f` (C is a class name, not a local) ----
+        if let Some(class) = self.class_name_receiver(object) {
+            return self.try_static_field_read(module, &class, prop);
+        }
+        // ---- accessor GET `obj.x` where x is a getter on the receiver class ----
+        if let Some(class) = self.instance_class_of(object) {
+            if self
+                .classes
+                .get(&class)
+                .and_then(|d| d.accessor(prop))
+                .is_some()
+            {
+                return self.lower_accessor_get(module, object, &class, prop);
+            }
+        }
         let (name, shape) = self.shaped_object(object)?;
         match shape {
             HeapShape::Object(shape_id) => {
@@ -173,6 +188,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         prop: &str,
         value: &HirExpr,
     ) -> FrontResult<Val> {
+        // ---- accessor SET `obj.x = v` where x is a setter on the receiver class ----
+        if let Some(class) = self.instance_class_of(object) {
+            if self
+                .classes
+                .get(&class)
+                .and_then(|d| d.accessor(prop))
+                .is_some()
+            {
+                return self.lower_accessor_set(module, object, &class, prop, value);
+            }
+        }
         let (name, shape) = self.shaped_object(object)?;
         let HeapShape::Object(shape_id) = shape else {
             return unsupported!("write to array member `.{prop}` (later increment)");
@@ -210,6 +236,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     }
 
     // ---- helpers ----
+
+    /// The statically-known CLASS of an instance-valued `object` (a `new C()` or a
+    /// local recorded in `local_classes`), for accessor resolution. A plain
+    /// object literal (no class) yields `None`.
+    fn instance_class_of(&self, object: &HirExpr) -> Option<String> {
+        self.static_instance_class(object)
+    }
 
     /// Resolve `object` to `(local_name, proven_heap_shape)`. Only a bare
     /// identifier bound to a local of proven shape qualifies; everything else

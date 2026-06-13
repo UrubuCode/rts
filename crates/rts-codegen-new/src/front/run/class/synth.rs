@@ -1,367 +1,453 @@
-//! Synthesize a class's [`ClassDesc`] + its constructor/method `HirFunc`s from
-//! the AST `ClassDecl` (P4.9).
+//! Synthesize a class's [`ClassDesc`] + its constructor/method/accessor/static
+//! `HirFunc`s from the AST `ClassDecl` (P4.9 single classes, P5.1 inheritance /
+//! accessors / statics).
 //!
-//! The constructor and every method become ordinary top-level `HirFunc`s whose
-//! FIRST parameter is the implicit receiver `this`:
+//! The constructor and every method/accessor become ordinary top-level
+//! `HirFunc`s whose FIRST parameter is the implicit receiver `this`; a static
+//! method becomes a top-level fn with NO `this`. After lowering each body we
+//! rewrite swc's `Raw("This(…)")` to `Ident("this")` and the two `super` shapes
+//! to direct parent calls ([`super::inherit`]).
 //!
-//! ```text
-//! class C { x: number; constructor(a: number){ this.x = a; } get2(){ return this.x*2; } }
-//!   =>  fn __rtsn_ctor_C(this, a: number) { this.x = a; }   // returns void
-//!       fn __rtsn_method_C_get2(this)     { return this.x*2; }
-//! ```
-//!
-//! `new C(args)` (lowered in `front/run/new.rs`) allocates the instance Vec (slot
-//! 0 = the class's global shape-id, one `undefined` slot per field), calls the
-//! constructor with the instance as `this`, and yields the instance.
-//!
-//! The field ORDER is `declared properties ∪ first-assigned this.x in the
-//! constructor`, in first-seen order; the global shape-id is interned from that
-//! list so every instance shares one shape (and the inspect trampoline recovers
-//! the keys). swc lowers `this` to a `Raw("This(...)")` node, so after lowering
-//! each body we rewrite those to `Ident("this")` (the lowerer binds `this` to a0).
+//! Field ORDER (flattened): the parent's flattened fields first, then this class's
+//! own declared props ∪ first-assigned `this.x` in the constructor, in first-seen
+//! order. The global shape-id is interned from that flattened list so every
+//! instance shares one flat shape (no prototype walk for fields).
 
-use rts_ast::ast::{ClassDecl, ClassMember, ConstructorDecl, MethodDecl, PropertyDecl};
+use std::collections::HashMap;
+
+use rts_ast::ast::{ClassDecl, ClassMember, ConstructorDecl, MethodDecl, MethodRole, PropertyDecl};
 use rts_hir::ir::{HirExpr, HirExprKind, HirFunc, HirParam, HirStmt, HirType};
 use rts_hir::scope::Scope;
 
 use crate::front::error::{FrontResult, Unsupported};
 
-use super::{this_param, ClassDesc, THIS};
+use super::inherit::rewrite_super_block;
+use super::walk::{
+    body_uses_this, collect_this_assign_fields, push_unique, rewrite_this_block, this_field_assign,
+};
+use super::{this_param, Accessor, ClassDesc};
 
 /// The synthesized constructor function name for class `name`.
-pub(super) fn ctor_name(name: &str) -> String {
+pub(crate) fn ctor_name(name: &str) -> String {
     format!("__rtsn_ctor_{name}")
 }
 
 /// The synthesized method function name for `class.method`.
-pub(super) fn method_name(class: &str, method: &str) -> String {
+pub(crate) fn method_name(class: &str, method: &str) -> String {
     format!("__rtsn_method_{class}_{method}")
 }
 
-/// Build the [`ClassDesc`] + the constructor/method `HirFunc`s for one class.
-pub(super) fn build_class(decl: &ClassDecl) -> FrontResult<(ClassDesc, Vec<HirFunc>)> {
-    let mut scope = Scope::new();
+/// The synthesized getter / setter fn name for `class.prop`.
+fn getter_name(class: &str, prop: &str) -> String {
+    format!("__rtsn_get_{class}_{prop}")
+}
+fn setter_name(class: &str, prop: &str) -> String {
+    format!("__rtsn_set_{class}_{prop}")
+}
 
-    // --- gather the constructor (if any) and the method/property members ---
-    let mut ctor: Option<&ConstructorDecl> = None;
-    let mut methods: Vec<&MethodDecl> = Vec::new();
-    let mut props: Vec<&PropertyDecl> = Vec::new();
-    for m in &decl.members {
-        match m {
+/// The synthesized static-method fn name for `class.method`.
+pub(crate) fn static_method_name(class: &str, method: &str) -> String {
+    format!("__rtsn_static_{class}_{method}")
+}
+
+/// The synthesized static-field-getter fn name for `class.field`.
+pub(crate) fn static_field_getter_name(class: &str, field: &str) -> String {
+    format!("__rtsn_sfield_{class}_{field}")
+}
+
+/// Categorized members of one class decl.
+struct Members<'a> {
+    ctor: Option<&'a ConstructorDecl>,
+    methods: Vec<&'a MethodDecl>,
+    getters: Vec<&'a MethodDecl>,
+    setters: Vec<&'a MethodDecl>,
+    static_methods: Vec<&'a MethodDecl>,
+    props: Vec<&'a PropertyDecl>,
+    static_props: Vec<&'a PropertyDecl>,
+}
+
+/// Build the [`ClassDesc`] + the synthesized `HirFunc`s for one class. `parent`
+/// is the already-built descriptor of the superclass (parent-first order), or
+/// `None` for a root class.
+pub(super) fn build_class(
+    decl: &ClassDecl,
+    parent: Option<&ClassDesc>,
+) -> FrontResult<(ClassDesc, Vec<HirFunc>)> {
+    let m = categorize(decl)?;
+    let mut out: Vec<HirFunc> = Vec::new();
+
+    // --- constructor (forwarding super if the subclass omits one) ---
+    let (ctor_fn, ctor_arity, own_fields) = build_ctor(decl, &m, parent, &mut out)?;
+
+    // --- FLATTENED field list: parent fields first, then own fields ---
+    let mut fields: Vec<String> = parent.map(|p| p.fields.clone()).unwrap_or_default();
+    for f in &own_fields {
+        if !fields.iter().any(|x| x == f) {
+            fields.push(f.clone());
+        }
+    }
+    let global_shape = crate::shape::intern_global_shape(&fields);
+
+    // --- instance methods (own) flattened over inherited ---
+    let mut methods: HashMap<String, String> =
+        parent.map(|p| p.methods.clone()).unwrap_or_default();
+    for md in &m.methods {
+        let fn_name = method_name(&decl.name, &md.name);
+        out.push(synth_method(decl, md, parent, /*this*/ true)?);
+        methods.insert(md.name.clone(), fn_name);
+    }
+
+    // --- accessors (own) flattened over inherited ---
+    let mut accessors: HashMap<String, Accessor> =
+        parent.map(|p| p.accessors.clone()).unwrap_or_default();
+    for g in &m.getters {
+        out.push(synth_method_named(decl, g, parent, true, getter_name(&decl.name, &g.name))?);
+        accessors.entry(g.name.clone()).or_default().getter = Some(getter_name(&decl.name, &g.name));
+    }
+    for s in &m.setters {
+        out.push(synth_method_named(decl, s, parent, true, setter_name(&decl.name, &s.name))?);
+        accessors.entry(s.name.clone()).or_default().setter = Some(setter_name(&decl.name, &s.name));
+    }
+
+    // --- a field and an accessor of the same name is ambiguous: bail ---
+    for f in &fields {
+        if accessors.contains_key(f) {
+            return Err(Unsupported::new(format!(
+                "class `{}` declares both a field and an accessor named `{f}`",
+                decl.name
+            )));
+        }
+    }
+
+    // --- statics ---
+    let mut statics: HashMap<String, String> = HashMap::new();
+    for sm in &m.static_methods {
+        out.push(synth_static_method(decl, sm)?);
+        statics.insert(sm.name.clone(), static_method_name(&decl.name, &sm.name));
+    }
+    let mut static_fields: HashMap<String, String> = HashMap::new();
+    for sp in &m.static_props {
+        out.push(synth_static_field_getter(decl, sp)?);
+        static_fields.insert(sp.name.clone(), static_field_getter_name(&decl.name, &sp.name));
+    }
+
+    let desc = ClassDesc {
+        name: decl.name.clone(),
+        parent: decl.super_class.clone(),
+        fields,
+        global_shape,
+        ctor: ctor_fn,
+        ctor_arity,
+        methods,
+        accessors,
+        statics,
+        static_fields,
+    };
+    Ok((desc, out))
+}
+
+/// Split a class's members into the categories the synthesizer handles. A second
+/// constructor / variadic-defaulted accessor and the like bail.
+fn categorize(decl: &ClassDecl) -> FrontResult<Members<'_>> {
+    let mut m = Members {
+        ctor: None,
+        methods: Vec::new(),
+        getters: Vec::new(),
+        setters: Vec::new(),
+        static_methods: Vec::new(),
+        props: Vec::new(),
+        static_props: Vec::new(),
+    };
+    for mem in &decl.members {
+        match mem {
             ClassMember::Constructor(c) => {
-                if ctor.is_some() {
+                if m.ctor.is_some() {
                     return Err(Unsupported::new(format!(
                         "class `{}` has more than one constructor",
                         decl.name
                     )));
                 }
-                ctor = Some(c);
+                m.ctor = Some(c);
             }
-            ClassMember::Method(md) => methods.push(md),
-            ClassMember::Property(pd) => props.push(pd),
+            ClassMember::Method(md) if md.modifiers.is_static => {
+                if !matches!(md.role, MethodRole::Method) {
+                    return Err(Unsupported::new(format!(
+                        "static getter/setter `{}.{}`",
+                        decl.name, md.name
+                    )));
+                }
+                m.static_methods.push(md);
+            }
+            ClassMember::Method(md) => match md.role {
+                MethodRole::Method => m.methods.push(md),
+                MethodRole::Getter => m.getters.push(md),
+                MethodRole::Setter => m.setters.push(md),
+            },
+            ClassMember::Property(pd) if pd.modifiers.is_static => m.static_props.push(pd),
+            ClassMember::Property(pd) => m.props.push(pd),
         }
     }
+    Ok(m)
+}
 
-    // --- constructor params (after the implicit `this`) ---
-    let ctor_params = ctor.map(|c| &c.parameters[..]).unwrap_or(&[]);
-    let mut params: Vec<HirParam> = vec![this_param()];
-    for p in ctor_params {
-        let ty = p
-            .type_annotation
-            .as_deref()
-            .map(rts_hir::lower::parse_type_annotation)
-            .unwrap_or(HirType::Unknown);
-        scope.define(&p.name, ty.clone());
-        if p.variadic || p.default.is_some() {
-            return Err(Unsupported::new(format!(
-                "constructor of `{}` uses a variadic / defaulted parameter",
-                decl.name
-            )));
+/// Build the constructor `HirFunc`, returning `(fn_name, arity, own_field_names)`.
+/// When the subclass omits a ctor but HAS a parent, a forwarding ctor is
+/// synthesized (`__rtsn_ctor_C(this, ...parentParams){ super(...parentParams) }`).
+fn build_ctor(
+    decl: &ClassDecl,
+    m: &Members,
+    parent: Option<&ClassDesc>,
+    out: &mut Vec<HirFunc>,
+) -> FrontResult<(String, usize, Vec<String>)> {
+    let mut scope = Scope::new();
+
+    // The ctor's user params: the declared ones, OR (no ctor + a parent) the
+    // parent's ctor arity forwarded under synthetic names `__a0..`.
+    let (param_decls, forward): (Vec<HirParam>, Option<Vec<HirExpr>>) = match m.ctor {
+        Some(c) => {
+            let mut ps = Vec::new();
+            for p in &c.parameters {
+                if p.variadic || p.default.is_some() {
+                    return Err(Unsupported::new(format!(
+                        "constructor of `{}` uses a variadic / defaulted parameter",
+                        decl.name
+                    )));
+                }
+                let ty = p
+                    .type_annotation
+                    .as_deref()
+                    .map(rts_hir::lower::parse_type_annotation)
+                    .unwrap_or(HirType::Unknown);
+                scope.define(&p.name, ty.clone());
+                ps.push(HirParam { name: p.name.clone(), ty, variadic: false, has_default: false });
+            }
+            (ps, None)
         }
-        params.push(HirParam { name: p.name.clone(), ty, variadic: false, has_default: false });
-    }
-    let ctor_arity = ctor_params.len();
+        None => match parent {
+            Some(p) => {
+                // Forward the parent's ctor params positionally.
+                let mut ps = Vec::new();
+                let mut fwd = Vec::new();
+                for i in 0..p.ctor_arity {
+                    let name = format!("__a{i}");
+                    scope.define(&name, HirType::Unknown);
+                    ps.push(HirParam { name: name.clone(), ty: HirType::Unknown, variadic: false, has_default: false });
+                    fwd.push(HirExpr::new(HirExprKind::Ident(name), HirType::Unknown));
+                }
+                (ps, Some(fwd))
+            }
+            None => (Vec::new(), None),
+        },
+    };
+    let arity = param_decls.len();
+    let mut params = vec![this_param()];
+    params.extend(param_decls);
 
-    // --- field-init prologue from declared property initializers ---
-    // `x: T = init;` becomes `this.x = init;` at the top of the constructor body.
+    // Field-init prologue from OWN declared property initializers (after super()).
     let mut prologue: Vec<HirStmt> = Vec::new();
-    for pd in &props {
+    for pd in &m.props {
         if let Some(init_expr) = &pd.initializer {
             let value = rts_hir::lower::lower_swc_expr(init_expr, &scope);
             prologue.push(this_field_assign(&pd.name, value));
         }
     }
 
-    // --- lower the constructor body, rewrite `this`, prepend the prologue ---
-    let mut ctor_body: Vec<HirStmt> = prologue;
-    if let Some(c) = ctor {
-        let mut body = rts_hir::lower::lower_stmts(&c.body, &mut scope);
-        rewrite_this_block(&mut body);
-        ctor_body.extend(body);
+    // The body: either the user ctor body (super() already inside it) or the
+    // synthesized `super(...forwarded)`. The property-init prologue runs after the
+    // first statement IF that statement is a super() call (TS semantics); for
+    // simplicity (and matching the field cases tested) we place initializers
+    // after the implicit/explicit super.
+    let mut body: Vec<HirStmt> = Vec::new();
+    if let Some(fwd) = forward {
+        // synthesized forwarding super(...).
+        body.push(HirStmt::Expr(super_call_placeholder(fwd)));
     }
-
-    // --- field ORDER: declared props, then any extra this.x assigned in ctor ---
-    let mut fields: Vec<String> = Vec::new();
-    for pd in &props {
-        push_unique(&mut fields, &pd.name);
+    if let Some(c) = m.ctor {
+        let mut user = rts_hir::lower::lower_stmts(&c.body, &mut scope);
+        rewrite_this_block(&mut user);
+        rewrite_super_block(&mut user, parent)?;
+        // Property initializers run AFTER super() but before the rest of the user
+        // body. We approximate by appending the prologue right after a leading
+        // super() statement if present, else at the front.
+        splice_prologue(&mut user, prologue);
+        body.extend(user);
+    } else {
+        body.extend(prologue);
     }
-    collect_this_assign_fields(&ctor_body, &mut fields);
+    // Rewrite the synthesized forwarding `super(...)` (and a no-op for an already
+    // user-rewritten body). Idempotent: no `Raw("callee")` survives a first pass.
+    rewrite_super_block(&mut body, parent)?;
 
-    // --- intern the global shape-id from the field list ---
-    let global_shape = crate::shape::intern_global_shape(&fields);
+    // OWN field order: declared props, then any extra `this.x` assigned in body.
+    let mut own_fields: Vec<String> = Vec::new();
+    for pd in &m.props {
+        push_unique(&mut own_fields, &pd.name);
+    }
+    collect_this_assign_fields(&body, &mut own_fields);
 
-    // --- synthesize the constructor HirFunc (void return) ---
     let ctor_fn_name = ctor_name(&decl.name);
-    let mut out: Vec<HirFunc> = Vec::new();
     out.push(HirFunc {
         name: ctor_fn_name.clone(),
         params,
         ret: HirType::Void,
-        body: ctor_body,
+        body,
         is_async: false,
         is_arrow: false,
     });
+    Ok((ctor_fn_name, arity, own_fields))
+}
 
-    // --- synthesize each method HirFunc (`this` + the method's own params) ---
-    let mut method_map = std::collections::HashMap::new();
-    for md in &methods {
-        let fn_name = method_name(&decl.name, &md.name);
-        let mut mscope = Scope::new();
-        let mut mparams: Vec<HirParam> = vec![this_param()];
-        for p in &md.parameters {
-            if p.variadic || p.default.is_some() {
-                return Err(Unsupported::new(format!(
-                    "method `{}.{}` uses a variadic / defaulted parameter",
-                    decl.name, md.name
-                )));
-            }
-            let ty = p
-                .type_annotation
-                .as_deref()
-                .map(rts_hir::lower::parse_type_annotation)
-                .unwrap_or(HirType::Unknown);
-            mscope.define(&p.name, ty.clone());
-            mparams.push(HirParam { name: p.name.clone(), ty, variadic: false, has_default: false });
-        }
-        let ret = md
-            .return_type
-            .as_deref()
-            .map(rts_hir::lower::parse_type_annotation)
-            .unwrap_or(HirType::Unknown);
-        let mut body = rts_hir::lower::lower_stmts(&md.body, &mut mscope);
-        rewrite_this_block(&mut body);
-        out.push(HirFunc {
-            name: fn_name.clone(),
-            params: mparams,
-            ret,
-            body,
-            is_async: false,
-            is_arrow: false,
-        });
-        if method_map.insert(md.name.clone(), fn_name).is_some() {
+/// Build a `Raw("callee")`-callee Call so the synthesized forwarding `super(...)`
+/// goes through the same [`super::inherit`] rewrite path as a user-written one.
+fn super_call_placeholder(args: Vec<HirExpr>) -> HirExpr {
+    HirExpr::new(
+        HirExprKind::Call {
+            callee: Box::new(HirExpr::new(HirExprKind::Raw("callee".to_string()), HirType::Unknown)),
+            args,
+        },
+        HirType::Unknown,
+    )
+}
+
+/// Place the property-init prologue right after a leading super() call (a Call to
+/// a `__rtsn_ctor_*`), else at the front of the body.
+fn splice_prologue(body: &mut Vec<HirStmt>, prologue: Vec<HirStmt>) {
+    if prologue.is_empty() {
+        return;
+    }
+    let after = matches!(body.first(), Some(HirStmt::Expr(e)) if is_super_ctor_call(e));
+    let at = if after { 1 } else { 0 };
+    for (i, s) in prologue.into_iter().enumerate() {
+        body.insert(at + i, s);
+    }
+}
+
+/// Whether a lowered expr is a synthesized super-ctor call (`__rtsn_ctor_*(...)`).
+fn is_super_ctor_call(e: &HirExpr) -> bool {
+    matches!(&e.kind, HirExprKind::Call { callee, .. }
+        if matches!(&callee.kind, HirExprKind::Ident(n) if n.starts_with("__rtsn_ctor_")))
+}
+
+/// Synthesize an instance method `HirFunc` (name = `__rtsn_method_C_m`).
+fn synth_method(
+    decl: &ClassDecl,
+    md: &MethodDecl,
+    parent: Option<&ClassDesc>,
+    with_this: bool,
+) -> FrontResult<HirFunc> {
+    synth_method_named(decl, md, parent, with_this, method_name(&decl.name, &md.name))
+}
+
+/// Synthesize a method-shaped fn under an explicit `fn_name` (used for methods,
+/// getters, setters — all `this`-first instance functions).
+fn synth_method_named(
+    decl: &ClassDecl,
+    md: &MethodDecl,
+    parent: Option<&ClassDesc>,
+    with_this: bool,
+    fn_name: String,
+) -> FrontResult<HirFunc> {
+    let mut scope = Scope::new();
+    let mut params: Vec<HirParam> = if with_this { vec![this_param()] } else { Vec::new() };
+    for p in &md.parameters {
+        if p.variadic || p.default.is_some() {
             return Err(Unsupported::new(format!(
-                "class `{}` declares method `{}` twice",
+                "method `{}.{}` uses a variadic / defaulted parameter",
                 decl.name, md.name
             )));
         }
+        let ty = p
+            .type_annotation
+            .as_deref()
+            .map(rts_hir::lower::parse_type_annotation)
+            .unwrap_or(HirType::Unknown);
+        scope.define(&p.name, ty.clone());
+        params.push(HirParam { name: p.name.clone(), ty, variadic: false, has_default: false });
     }
-
-    let desc = ClassDesc {
-        name: decl.name.clone(),
-        fields,
-        global_shape,
-        ctor: ctor_fn_name,
-        ctor_arity,
-        methods: method_map,
+    // A setter returns nothing (its call is a statement); model it `Void` so the
+    // sig is value-less and a fall-through body is well-formed.
+    let ret = if matches!(md.role, MethodRole::Setter) {
+        HirType::Void
+    } else {
+        md.return_type
+            .as_deref()
+            .map(rts_hir::lower::parse_type_annotation)
+            .unwrap_or(HirType::Unknown)
     };
-    Ok((desc, out))
+    let mut body = rts_hir::lower::lower_stmts(&md.body, &mut scope);
+    rewrite_this_block(&mut body);
+    rewrite_super_block(&mut body, parent)?;
+    Ok(HirFunc { name: fn_name, params, ret, body, is_async: false, is_arrow: false })
 }
 
-/// `this.<field> = <value>` as an HIR statement (an `Assign` to a `Member` on the
-/// `this` identifier). Used for property initializers in the constructor prologue.
-fn this_field_assign(field: &str, value: HirExpr) -> HirStmt {
-    let this = HirExpr::new(HirExprKind::Ident(THIS.to_string()), HirType::Unknown);
-    let member = HirExpr::new(
-        HirExprKind::Member { object: Box::new(this), prop: field.to_string() },
-        HirType::Unknown,
-    );
-    HirStmt::Expr(HirExpr::new(
-        HirExprKind::Assign { target: Box::new(member), value: Box::new(value) },
-        HirType::Unknown,
-    ))
+/// Synthesize a static method `HirFunc` (NO `this`; name = `__rtsn_static_C_m`).
+/// A `this` reference inside a static method bails (no instance receiver).
+fn synth_static_method(decl: &ClassDecl, md: &MethodDecl) -> FrontResult<HirFunc> {
+    let mut scope = Scope::new();
+    let mut params: Vec<HirParam> = Vec::new();
+    for p in &md.parameters {
+        if p.variadic || p.default.is_some() {
+            return Err(Unsupported::new(format!(
+                "static method `{}.{}` uses a variadic / defaulted parameter",
+                decl.name, md.name
+            )));
+        }
+        let ty = p
+            .type_annotation
+            .as_deref()
+            .map(rts_hir::lower::parse_type_annotation)
+            .unwrap_or(HirType::Unknown);
+        scope.define(&p.name, ty.clone());
+        params.push(HirParam { name: p.name.clone(), ty, variadic: false, has_default: false });
+    }
+    let ret = md
+        .return_type
+        .as_deref()
+        .map(rts_hir::lower::parse_type_annotation)
+        .unwrap_or(HirType::Unknown);
+    let body = rts_hir::lower::lower_stmts(&md.body, &mut scope);
+    // A `this` in a static method has no instance receiver — refuse it (sound).
+    if body_uses_this(&body) {
+        return Err(Unsupported::new(format!(
+            "`this` inside static method `{}.{}` (no instance receiver)",
+            decl.name, md.name
+        )));
+    }
+    Ok(HirFunc {
+        name: static_method_name(&decl.name, &md.name),
+        params,
+        ret,
+        body,
+        is_async: false,
+        is_arrow: false,
+    })
 }
 
-/// Append `name` to `fields` if not already present (first-seen-order union).
-fn push_unique(fields: &mut Vec<String>, name: &str) {
-    if !fields.iter().any(|f| f == name) {
-        fields.push(name.to_string());
+/// Synthesize a zero-arg getter fn returning a static field's initializer
+/// (`__rtsn_sfield_C_f() { return <init>; }`). A static field with no initializer,
+/// or an initializer referencing `this`/other statics, bails.
+fn synth_static_field_getter(decl: &ClassDecl, pd: &PropertyDecl) -> FrontResult<HirFunc> {
+    let scope = Scope::new();
+    let Some(init_expr) = &pd.initializer else {
+        return Err(Unsupported::new(format!(
+            "static field `{}.{}` without an initializer",
+            decl.name, pd.name
+        )));
+    };
+    let value = rts_hir::lower::lower_swc_expr(init_expr, &scope);
+    let body = vec![HirStmt::Return(Some(value))];
+    if body_uses_this(&body) {
+        return Err(Unsupported::new(format!(
+            "static field `{}.{}` initializer references `this`",
+            decl.name, pd.name
+        )));
     }
-}
-
-/// Walk a (constructor) HIR body collecting every `this.<field> = …` target field
-/// not already in `fields`, in first-seen order (a field assigned but not
-/// declared as a property still becomes an instance slot).
-fn collect_this_assign_fields(stmts: &[HirStmt], fields: &mut Vec<String>) {
-    for s in stmts {
-        walk_stmt_fields(s, fields);
-    }
-}
-
-fn walk_stmt_fields(s: &HirStmt, fields: &mut Vec<String>) {
-    match s {
-        HirStmt::Expr(e) | HirStmt::Throw(e) => walk_expr_fields(e, fields),
-        HirStmt::Return(Some(e)) => walk_expr_fields(e, fields),
-        HirStmt::Let { init: Some(e), .. } => walk_expr_fields(e, fields),
-        HirStmt::Const { init, .. } => walk_expr_fields(init, fields),
-        HirStmt::If { cond, then, else_ } => {
-            walk_expr_fields(cond, fields);
-            then.iter().for_each(|s| walk_stmt_fields(s, fields));
-            if let Some(e) = else_ {
-                e.iter().for_each(|s| walk_stmt_fields(s, fields));
-            }
-        }
-        HirStmt::While { cond, body } | HirStmt::DoWhile { cond, body } => {
-            walk_expr_fields(cond, fields);
-            body.iter().for_each(|s| walk_stmt_fields(s, fields));
-        }
-        HirStmt::Block(b) => b.iter().for_each(|s| walk_stmt_fields(s, fields)),
-        HirStmt::For { body, .. } | HirStmt::ForOf { body, .. } | HirStmt::ForIn { body, .. } => {
-            body.iter().for_each(|s| walk_stmt_fields(s, fields));
-        }
-        _ => {}
-    }
-}
-
-fn walk_expr_fields(e: &HirExpr, fields: &mut Vec<String>) {
-    if let HirExprKind::Assign { target, value } = &e.kind {
-        if let HirExprKind::Member { object, prop } = &target.kind {
-            if matches!(&object.kind, HirExprKind::Ident(n) if n == THIS) {
-                push_unique(fields, prop);
-            }
-        }
-        walk_expr_fields(value, fields);
-        return;
-    }
-    // Descend into common compound expressions so a `this.x = …` nested in an
-    // initializer / ternary is still discovered.
-    match &e.kind {
-        HirExprKind::Bin { lhs, rhs, .. } => {
-            walk_expr_fields(lhs, fields);
-            walk_expr_fields(rhs, fields);
-        }
-        HirExprKind::AssignOp { value, .. } => walk_expr_fields(value, fields),
-        HirExprKind::Call { args, .. } | HirExprKind::MethodCall { args, .. } => {
-            args.iter().for_each(|a| walk_expr_fields(a, fields));
-        }
-        HirExprKind::Ternary { then, else_, .. } => {
-            walk_expr_fields(then, fields);
-            walk_expr_fields(else_, fields);
-        }
-        _ => {}
-    }
-}
-
-// ---------------------------------------------------------------------------
-// `this` rewriting: swc lowers `this` to a Raw node; turn each into Ident("this").
-// ---------------------------------------------------------------------------
-
-fn rewrite_this_block(stmts: &mut [HirStmt]) {
-    for s in stmts {
-        rewrite_this_stmt(s);
-    }
-}
-
-fn rewrite_this_stmt(s: &mut HirStmt) {
-    match s {
-        HirStmt::Expr(e) | HirStmt::Throw(e) => rewrite_this_expr(e),
-        HirStmt::Return(opt) => {
-            if let Some(e) = opt {
-                rewrite_this_expr(e);
-            }
-        }
-        HirStmt::Let { init, .. } => {
-            if let Some(e) = init {
-                rewrite_this_expr(e);
-            }
-        }
-        HirStmt::Const { init, .. } => rewrite_this_expr(init),
-        HirStmt::If { cond, then, else_ } => {
-            rewrite_this_expr(cond);
-            rewrite_this_block(then);
-            if let Some(e) = else_ {
-                rewrite_this_block(e);
-            }
-        }
-        HirStmt::While { cond, body } | HirStmt::DoWhile { cond, body } => {
-            rewrite_this_expr(cond);
-            rewrite_this_block(body);
-        }
-        HirStmt::For { cond, update, body, .. } => {
-            if let Some(c) = cond {
-                rewrite_this_expr(c);
-            }
-            if let Some(u) = update {
-                rewrite_this_expr(u);
-            }
-            rewrite_this_block(body);
-        }
-        HirStmt::ForOf { iterable, body, .. } => {
-            rewrite_this_expr(iterable);
-            rewrite_this_block(body);
-        }
-        HirStmt::ForIn { object, body, .. } => {
-            rewrite_this_expr(object);
-            rewrite_this_block(body);
-        }
-        HirStmt::Block(b) => rewrite_this_block(b),
-        _ => {}
-    }
-}
-
-fn rewrite_this_expr(e: &mut HirExpr) {
-    if super::is_raw_this(e) {
-        e.kind = HirExprKind::Ident(THIS.to_string());
-        e.ty = HirType::Unknown;
-        return;
-    }
-    match &mut e.kind {
-        HirExprKind::Bin { lhs, rhs, .. } => {
-            rewrite_this_expr(lhs);
-            rewrite_this_expr(rhs);
-        }
-        HirExprKind::Unary { operand, .. } => rewrite_this_expr(operand),
-        HirExprKind::Assign { target, value } | HirExprKind::AssignOp { target, value, .. } => {
-            rewrite_this_expr(target);
-            rewrite_this_expr(value);
-        }
-        HirExprKind::Call { callee, args } => {
-            rewrite_this_expr(callee);
-            args.iter_mut().for_each(rewrite_this_expr);
-        }
-        HirExprKind::MethodCall { object, args, .. } => {
-            rewrite_this_expr(object);
-            args.iter_mut().for_each(rewrite_this_expr);
-        }
-        HirExprKind::Member { object, .. } => rewrite_this_expr(object),
-        HirExprKind::Index { object, index } => {
-            rewrite_this_expr(object);
-            rewrite_this_expr(index);
-        }
-        HirExprKind::Ternary { cond, then, else_ } => {
-            rewrite_this_expr(cond);
-            rewrite_this_expr(then);
-            rewrite_this_expr(else_);
-        }
-        HirExprKind::Array(elems) => elems.iter_mut().for_each(rewrite_this_expr),
-        HirExprKind::Object(fields) => fields.iter_mut().for_each(|(_, v)| rewrite_this_expr(v)),
-        HirExprKind::Await(inner) | HirExprKind::Spread(inner) | HirExprKind::Cast { expr: inner, .. } => {
-            rewrite_this_expr(inner)
-        }
-        HirExprKind::PreInc(t) | HirExprKind::PreDec(t) | HirExprKind::PostInc(t) | HirExprKind::PostDec(t) => {
-            rewrite_this_expr(t)
-        }
-        HirExprKind::Seq(items) => items.iter_mut().for_each(rewrite_this_expr),
-        HirExprKind::New { args, .. } => args.iter_mut().for_each(rewrite_this_expr),
-        _ => {}
-    }
+    Ok(HirFunc {
+        name: static_field_getter_name(&decl.name, &pd.name),
+        params: Vec::new(),
+        ret: HirType::Unknown,
+        body,
+        is_async: false,
+        is_arrow: false,
+    })
 }

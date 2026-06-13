@@ -44,6 +44,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         method: &str,
         args: &[HirExpr],
     ) -> FrontResult<Option<Val>> {
+        // STATIC method call `C.m(args)` (P5.1): the receiver is a bare class NAME
+        // (not a local/instance). Resolve the static method on that class and emit
+        // a direct call (no `this`). An unknown static on a known class BAILS.
+        if let Some(class) = self.class_name_receiver(object) {
+            return self.try_static_method(module, &class, method, args).map(Some);
+        }
+
         // CLASS-INSTANCE receiver (P4.9): a receiver whose class is statically
         // known (`new C()`, a local recorded in `local_classes`, or `this`).
         // Resolve the method on that class at COMPILE TIME and emit a direct call
