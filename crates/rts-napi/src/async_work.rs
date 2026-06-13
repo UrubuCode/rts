@@ -205,6 +205,49 @@ pub unsafe extern "C" fn node_api_post_finalizer(
     napi_ok
 }
 
+/// `add_async_cleanup_hook(env, hook, arg, &remove_handle)` — registra um hook
+/// de teardown. RTS não tem env teardown ainda; aceita e devolve um handle
+/// dummy (o hook não dispara, mas o addon não quebra ao registrar).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn napi_add_async_cleanup_hook(
+    _env: napi_env,
+    _hook: *mut c_void,
+    _arg: *mut c_void,
+    remove_handle: *mut *mut c_void,
+) -> napi_status {
+    if !remove_handle.is_null() {
+        unsafe { *remove_handle = 1 as *mut c_void };
+    }
+    napi_ok
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn napi_remove_async_cleanup_hook(
+    _remove_handle: *mut c_void,
+) -> napi_status {
+    napi_ok
+}
+
+/// `napi_get_uv_event_loop` — o RTS usa tokio, não libuv. Devolve um ponteiro
+/// **estável não-nulo** para um `uv_loop_t` opaco fake. Addons que só checam
+/// `!= NULL` e repassam o loop a `napi_create_async_work` funcionam (esse
+/// caminho é tratado pela versão síncrona). Addons que chamam `uv_*` direto
+/// sobre o loop NÃO funcionam (precisam do shim libuv real, #207) — mas isso é
+/// melhor que falhar para os que só repassam. O ponteiro é estável (estático).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn napi_get_uv_event_loop(
+    _env: napi_env,
+    result: *mut *mut c_void,
+) -> napi_status {
+    if result.is_null() {
+        return napi_invalid_arg;
+    }
+    // Bloco estático opaco — endereço estável, nunca dereferenciado pelo RTS.
+    static FAKE_LOOP: [u8; 64] = [0u8; 64];
+    unsafe { *result = FAKE_LOOP.as_ptr() as *mut c_void };
+    napi_ok
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

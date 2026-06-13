@@ -1,9 +1,11 @@
 # N-API — Plano de implementação (doc vivo de acompanhamento)
 
-> **Status:** Fase 0+1+2 + classes + ArrayBuffer/TypedArray + **async-work
-> síncrono** ✅ — **144/159 fns implementadas**. Paridade Node v22 em addons npm
-> reais: crc32, xxhash (+classe), uuid, **bcrypt hashSync** (60 chars),
-> ArrayBuffer (`fill(100)`=22532), async-work com callback (`compute(7)`=49).
+> **Status:** Fase 0+1+2 + classes + ArrayBuffer + async-work + threadsafe +
+> **BigInt real** + **Promise↔async** ✅ — **158/159 fns implementadas** (só
+> `napi_module_register` legado resta). Paridade Node v22: crc32, xxhash
+> (+classe), uuid, **bcrypt hashSync** (60), ArrayBuffer (`fill(100)`=22532),
+> async-work callback (`compute(7)`=49), BigInt (round-trip exato >2^53),
+> Promise napi (`resolve(42)`→`.then`→42).
 >
 > **Issues de rastreamento:**
 > - [#1547](https://github.com/UrubuCode/rts/issues/1547) — tracking geral do N-API
@@ -20,22 +22,30 @@
 | **classes nativas** (`napi_define_class` + `new addon.X()` + `inst.method()`) | ✅ |
 | **ArrayBuffer/TypedArray/DataView** (`Entry::ArrayBuffer` ptr estável, #1548) | ✅ |
 
-### 15 stubs restantes — **bloqueados pelo engine** (retornam `napi_generic_failure`)
+### 1 stub restante — fora de escopo
 
-| Bloco | Qtd | Depende de |
+| Fn | Qtd | Razão |
 |---|---|---|
-| ~~arraybuffer/typedarray/dataview~~ | ~~11~~ | ✅ **FEITO** (`Entry::ArrayBuffer` ptr estável) |
-| ~~async_work + callback scopes~~ | ~~9~~ | ✅ **FEITO síncrono** (callback funciona; Promise depende de #437/#207) |
-| threadsafe functions (acquire/call/create/ref/unref/release/get_context) | 8 | fila MPSC + thread JS (#207) |
-| bigint uint64/words real | 4 | BigInt real (#219) |
-| uv_event_loop + add/remove_async_cleanup_hook | 2 | shim libuv / env teardown (#207) |
-| module_register (registro legado) | 1 | fora de escopo (não-N-API) |
+| ~~arraybuffer/typedarray/dataview~~ | ~~11~~ | ✅ FEITO (`Entry::ArrayBuffer` ptr estável) |
+| ~~async_work + callback scopes~~ | ~~9~~ | ✅ FEITO síncrono |
+| ~~threadsafe functions~~ | ~~8~~ | ✅ FEITO **inline** (limitação cross-thread, ver abaixo) |
+| ~~bigint uint64/words~~ | ~~4~~ | ✅ FEITO (`Entry::BigInt` real, #219) |
+| ~~uv_event_loop + cleanup hooks~~ | ~~3~~ | ✅ FEITO (uv_loop ptr fake; hooks no-op) |
+| **`napi_module_register`** | **1** | registro **legado** acoplado a V8 — fora de escopo (addons N-API usam `napi_register_module_v1`) |
 
-**Nota async:** `napi_queue_async_work` roda `execute`+`complete` **síncrono**
-(sem event loop real). Addons que usam async-work com **callback** funcionam
-(ex.: `compute(7)`=49). Addons que devolvem **Promise** via `resolve_deferred`
-+ `.then()` (ex.: `bcrypt.hash()`) ainda crasham no `.then()` — depende da
-integração Promise↔async (#437/#207). `bcrypt.hashSync()` funciona.
+**Limitações conhecidas (dependem do event loop real, #207):**
+- **threadsafe function** roda `call_js_cb` **inline** (na thread que chamou),
+  não posta na thread JS. Addons que chamam a TSFN de **outra thread**
+  (ex.: `bcrypt.hash()` async, que usa threadpool interno do napi-rs) crasham —
+  o callback precisa rodar na thread JS via fila drenada pelo loop.
+  `bcrypt.hashSync()` funciona.
+- **`napi_get_uv_event_loop`** devolve um `uv_loop_t` opaco **fake** (não-nulo
+  estável). Addons que só repassam o loop funcionam; os que chamam `uv_*` direto
+  precisam do **shim libuv sobre tokio**.
+- **Promise↔async** funciona para resolução **na mesma thread**: `napi_create_
+  promise` + `resolve_deferred` + `.then()` do TS (validado `resolve(42)`→42).
+  O `.then` é roteado p/ `__RTS_FN_GL_PROMISE_THEN`; o valor é desempacotado
+  (FloatPrim→bits f64) antes do resolve.
 
 Os stubs degradam graciosamente (falha, não crash). Tudo na export table para o
 `napi-sys` `load_all()` completar.
@@ -62,7 +72,9 @@ Os stubs degradam graciosamente (falha, não crash). Tudo na export table para o
 | `phase2c.rs` | Promise/deferred, type tags, finalizer, coerce_to_string, syntax errors, cleanup hooks |
 | `phase2d.rs` | external strings, make_callback, is_sharedarraybuffer |
 | `arraybuffer.rs` | ArrayBuffer/TypedArray/DataView sobre `Entry::ArrayBuffer` (engine, #1548) — ptr estável, views via Map |
-| `async_work.rs` | async work **síncrono** (queue roda execute+complete), async_init/destroy, callback scopes, post_finalizer (#1548 item 3 parcial) |
+| `async_work.rs` | async work **síncrono** (queue roda execute+complete), async_init/destroy, callback scopes, post_finalizer, cleanup hooks, uv_event_loop fake (#1548) |
+| `threadsafe.rs` | threadsafe functions **inline** (call_js_cb na thread chamadora) — limitação cross-thread (#207) |
+| `bigint.rs` | BigInt real sobre `Entry::BigInt` (negative+words u64, arbitrário, #219) |
 | `surface.rs` | os 35 stubs restantes (`napi_generic_failure`) — gerados a partir da lista |
 | `napi_symbols.list` | **fonte única** dos nomes exportados (consumida por `symbols.rs` e pelo `build.rs` raiz) |
 

@@ -20,6 +20,7 @@
 
 pub mod arraybuffer;
 pub mod async_work;
+pub mod bigint;
 pub mod classes;
 pub mod env;
 pub mod errors;
@@ -34,6 +35,7 @@ pub mod phase2d;
 pub mod references;
 pub mod scopes;
 pub mod strings;
+pub mod threadsafe;
 pub mod surface;
 pub mod symbols;
 pub mod types;
@@ -199,6 +201,21 @@ pub fn force_link() -> usize {
         crate::arraybuffer::napi_create_external_buffer as *const (),
         crate::arraybuffer::node_api_create_buffer_from_arraybuffer as *const (),
         crate::arraybuffer::node_api_create_sharedarraybuffer as *const (),
+        // BigInt real (bigint.rs, #219)
+        crate::bigint::napi_create_bigint_int64 as *const (),
+        crate::bigint::napi_create_bigint_uint64 as *const (),
+        crate::bigint::napi_create_bigint_words as *const (),
+        crate::bigint::napi_get_value_bigint_int64 as *const (),
+        crate::bigint::napi_get_value_bigint_uint64 as *const (),
+        crate::bigint::napi_get_value_bigint_words as *const (),
+        // Threadsafe functions inline (threadsafe.rs, #1548 item 3 parcial)
+        crate::threadsafe::napi_create_threadsafe_function as *const (),
+        crate::threadsafe::napi_call_threadsafe_function as *const (),
+        crate::threadsafe::napi_acquire_threadsafe_function as *const (),
+        crate::threadsafe::napi_release_threadsafe_function as *const (),
+        crate::threadsafe::napi_get_threadsafe_function_context as *const (),
+        crate::threadsafe::napi_ref_threadsafe_function as *const (),
+        crate::threadsafe::napi_unref_threadsafe_function as *const (),
         // Async work síncrono (async_work.rs, #1548 item 3 parcial)
         crate::async_work::napi_async_destroy as *const (),
         crate::async_work::napi_async_init as *const (),
@@ -209,6 +226,9 @@ pub fn force_link() -> usize {
         crate::async_work::napi_open_callback_scope as *const (),
         crate::async_work::napi_queue_async_work as *const (),
         crate::async_work::node_api_post_finalizer as *const (),
+        crate::async_work::napi_add_async_cleanup_hook as *const (),
+        crate::async_work::napi_remove_async_cleanup_hook as *const (),
+        crate::async_work::napi_get_uv_event_loop as *const (),
         crate::phase2c::napi_reject_deferred as *const (),
         crate::phase2c::napi_remove_env_cleanup_hook as *const (),
         crate::phase2c::napi_resolve_deferred as *const (),
@@ -226,7 +246,6 @@ pub fn force_link() -> usize {
         crate::phase2::napi_coerce_to_bool as *const (),
         crate::phase2::napi_coerce_to_number as *const (),
         crate::phase2::napi_coerce_to_object as *const (),
-        crate::phase2::napi_create_bigint_int64 as *const (),
         crate::phase2::napi_create_buffer as *const (),
         crate::phase2::napi_create_buffer_copy as *const (),
         crate::phase2::napi_create_date as *const (),
@@ -237,7 +256,6 @@ pub fn force_link() -> usize {
         crate::phase2::napi_get_buffer_info as *const (),
         crate::phase2::napi_get_date_value as *const (),
         crate::phase2::napi_get_property_names as *const (),
-        crate::phase2::napi_get_value_bigint_int64 as *const (),
         crate::phase2::napi_has_element as *const (),
         crate::phase2::napi_has_named_property as *const (),
         crate::phase2::napi_has_own_property as *const (),
