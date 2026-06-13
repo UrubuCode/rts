@@ -1,11 +1,12 @@
 # N-API — Plano de implementação (doc vivo de acompanhamento)
 
 > **Status:** Fase 0+1+2 + classes + ArrayBuffer + async-work + threadsafe +
-> **BigInt real** + **Promise↔async** ✅ — **158/159 fns implementadas** (só
-> `napi_module_register` legado resta). Paridade Node v22: crc32, xxhash
-> (+classe), uuid, **bcrypt hashSync** (60), ArrayBuffer (`fill(100)`=22532),
-> async-work callback (`compute(7)`=49), BigInt (round-trip exato >2^53),
-> Promise napi (`resolve(42)`→`.then`→42).
+> **BigInt real** + **Promise↔async** + **registro legado** ✅ — **159/159 fns
+> implementadas (0 stubs)**. Paridade Node v22: crc32, xxhash (+classe), uuid,
+> **bcrypt** sync (60) **e async** (`hash(...).then`→60), ArrayBuffer
+> (`fill(100)`=22532), async-work callback (`compute(7)`=49), BigInt (round-trip
+> exato >2^53), Promise napi encadeada (`makeP().then`→string/número),
+> **addon legado** via `napi_module_register` (`legacyMsg`).
 >
 > **Issues de rastreamento:**
 > - [#1547](https://github.com/UrubuCode/rts/issues/1547) — tracking geral do N-API
@@ -22,7 +23,7 @@
 | **classes nativas** (`napi_define_class` + `new addon.X()` + `inst.method()`) | ✅ |
 | **ArrayBuffer/TypedArray/DataView** (`Entry::ArrayBuffer` ptr estável, #1548) | ✅ |
 
-### 1 stub restante — fora de escopo
+### 0 stubs restantes — superfície completa (159/159)
 
 | Fn | Qtd | Razão |
 |---|---|---|
@@ -31,7 +32,17 @@
 | ~~threadsafe functions~~ | ~~8~~ | ✅ FEITO **inline** (limitação cross-thread, ver abaixo) |
 | ~~bigint uint64/words~~ | ~~4~~ | ✅ FEITO (`Entry::BigInt` real, #219) |
 | ~~uv_event_loop + cleanup hooks~~ | ~~3~~ | ✅ FEITO (uv_loop ptr fake; hooks no-op) |
-| **`napi_module_register`** | **1** | registro **legado** acoplado a V8 — fora de escopo (addons N-API usam `napi_register_module_v1`) |
+| ~~`napi_module_register`~~ | ~~1~~ | ✅ FEITO (registro **legado** real — `module_register.rs`) |
+
+**Registro legado (`napi_module_register`) — IMPLEMENTADO.** Não é V8-acoplado: a
+struct `napi_module` é ABI-C pura e o `nm_register_func` tem a assinatura
+`(env, exports)→exports`, idêntica ao `napi_register_module_v1`. O addon legado
+chama `napi_module_register(&mod)` de um **constructor estático** no `dlopen`;
+isso enfileira o `nm_register_func` em `module_register.rs`. O loader
+(`loader.rs`) drena a fila antes de carregar, carrega a `Library` (constructor
+roda), e — se `napi_register_module_v1` não existir — usa o módulo legado
+enfileirado. Validado E2E com um addon C que só usa o caminho legado
+(`legacyMsg = from_legacy_register`).
 
 **Limitações conhecidas (dependem do event loop real, #207):**
 - **threadsafe function** roda `call_js_cb` **inline** (na thread que chamou),

@@ -92,18 +92,43 @@ pub unsafe extern "C" fn __RTS_FN_NS_NAPI_LOAD_ADDON(path_ptr: *const u8, path_l
 /// # Safety
 /// `path` deve apontar para um arquivo `.node` (shared lib N-API) válido.
 unsafe fn load_addon_uncached(path: &str) -> Result<(Library, u64), String> {
-    // SAFETY: carregar uma shared lib roda o seu código de init. Confiamos que
-    // o usuário passou --allow-native-addons (gate no resolver).
+    // (registro legado) Esvazia a fila de módulos pendentes ANTES de carregar,
+    // para que só o módulo deste `.node` (enfileirado pelo seu constructor
+    // estático durante o `Library::new`) fique nela. Sem isso, um módulo de um
+    // load anterior poderia ser confundido com o atual.
+    let _ = crate::module_register::drain_pending_modules();
+
+    // SAFETY: carregar uma shared lib roda o seu código de init — incluindo o
+    // constructor que chama `napi_module_register` no caminho legado. Confiamos
+    // que o usuário passou --allow-native-addons (gate no resolver).
     let lib = unsafe { Library::new(path) }
         .map_err(|e| format!("falha ao carregar addon '{path}': {e}"))?;
 
-    let register: libloading::Symbol<NapiRegisterFn> =
-        unsafe { lib.get(b"napi_register_module_v1\0") }.map_err(|_| {
-            format!(
-                "addon '{path}' não exporta napi_register_module_v1 — não é um \
-                 módulo N-API (registro legado/V8-direto não é suportado)"
-            )
-        })?;
+    // Resolve a função de init: caminho MODERNO (símbolo
+    // `napi_register_module_v1`) tem prioridade; se ausente, caminho LEGADO
+    // (o constructor já chamou `napi_module_register`, deixando o
+    // `nm_register_func` na fila pendente). Um dos dois precisa existir.
+    enum InitFn {
+        Symbol(NapiRegisterFn),
+        Legacy(crate::module_register::NapiAddonRegisterFunc),
+    }
+    let init = match unsafe { lib.get::<NapiRegisterFn>(b"napi_register_module_v1\0") } {
+        Ok(sym) => InitFn::Symbol(*sym),
+        Err(_) => {
+            // Sem símbolo moderno: tenta o módulo legado enfileirado no load.
+            let mut pending = crate::module_register::drain_pending_modules();
+            match pending.pop() {
+                Some(m) => InitFn::Legacy(m.register_func),
+                None => {
+                    return Err(format!(
+                        "addon '{path}' não exporta napi_register_module_v1 nem \
+                         chamou napi_module_register no load — não é um módulo \
+                         N-API (V8-direto não é suportado)"
+                    ))
+                }
+            }
+        }
+    };
 
     // Fabrica o env (uma instância por addon) e o objeto exports.
     let env_box = Box::new(RtsNapiEnv::new(crate::env::RTS_NAPI_VERSION));
@@ -113,7 +138,15 @@ unsafe fn load_addon_uncached(path: &str) -> Result<(Library, u64), String> {
     let exports = napi_value(exports_handle as *mut c_void);
 
     // Chama o entry point. O addon popula `exports` (ou devolve outro objeto).
-    let returned = unsafe { register(env, exports) };
+    // Ambos os caminhos têm a mesma assinatura `(env, exports) -> exports`.
+    let returned = match init {
+        InitFn::Symbol(register) => unsafe { register(env, exports) },
+        InitFn::Legacy(register) => {
+            // O tipo legado usa `*mut c_void` para env/exports (forma C crua);
+            // são ABI-idênticos a napi_env/napi_value (newtypes de ptr).
+            unsafe { register(env.0, exports.0) }
+        }
+    };
 
     // O register pode devolver um exports diferente do passado (padrão raro mas
     // legal). Usa o retornado se for um handle não-nulo; senão o que criamos.
