@@ -14,7 +14,7 @@ use napi_status::{napi_invalid_arg, napi_ok, napi_string_expected};
 /// (= `(size_t)-1`) → mede via `strlen`. A string é copiada para o heap GC.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn napi_create_string_utf8(
-    _env: napi_env,
+    env: napi_env,
     str_: *const c_char,
     length: usize,
     result: *mut napi_value,
@@ -25,6 +25,7 @@ pub unsafe extern "C" fn napi_create_string_utf8(
     if str_.is_null() {
         // String vazia para ptr nulo (N-API aceita com length 0).
         let h = alloc_entry(Entry::String(Vec::new()));
+        unsafe { crate::scopes::track_in_env(env, h) };
         unsafe { *result = value_from_handle(h) };
         return napi_ok;
     }
@@ -43,6 +44,7 @@ pub unsafe extern "C" fn napi_create_string_utf8(
     };
 
     let h = alloc_entry(Entry::String(bytes));
+    unsafe { crate::scopes::track_in_env(env, h) };
     unsafe { *result = value_from_handle(h) };
     napi_ok
 }

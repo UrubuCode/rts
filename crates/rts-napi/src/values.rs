@@ -30,10 +30,13 @@ pub fn is_sentinel(h: u64) -> bool {
     h == SENTINEL_FALSE || h == SENTINEL_TRUE || h == SENTINEL_UNDEFINED || h == SENTINEL_NULL
 }
 
-/// Boxa um f64 num `Entry::FloatPrim` e devolve o `napi_value`.
+/// Boxa um f64 num `Entry::FloatPrim`, registra no handle scope do `env`
+/// (anti-UAF) e devolve o `napi_value`.
 #[inline]
-fn box_number(value: f64) -> napi_value {
-    value_from_handle(alloc_entry(Entry::FloatPrim(value)))
+unsafe fn box_number(env: napi_env, value: f64) -> napi_value {
+    let h = alloc_entry(Entry::FloatPrim(value));
+    unsafe { crate::scopes::track_in_env(env, h) };
+    value_from_handle(h)
 }
 
 /// Escreve `value` em `*result` (helper comum de out-param), tratando ptr nulo.
@@ -50,39 +53,39 @@ unsafe fn write_result(result: *mut napi_value, value: napi_value) -> napi_statu
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn napi_create_double(
-    _env: napi_env,
+    env: napi_env,
     value: f64,
     result: *mut napi_value,
 ) -> napi_status {
-    unsafe { write_result(result, box_number(value)) }
+    unsafe { write_result(result, box_number(env, value)) }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn napi_create_int32(
-    _env: napi_env,
+    env: napi_env,
     value: i32,
     result: *mut napi_value,
 ) -> napi_status {
-    unsafe { write_result(result, box_number(value as f64)) }
+    unsafe { write_result(result, box_number(env, value as f64)) }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn napi_create_uint32(
-    _env: napi_env,
+    env: napi_env,
     value: u32,
     result: *mut napi_value,
 ) -> napi_status {
-    unsafe { write_result(result, box_number(value as f64)) }
+    unsafe { write_result(result, box_number(env, value as f64)) }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn napi_create_int64(
-    _env: napi_env,
+    env: napi_env,
     value: i64,
     result: *mut napi_value,
 ) -> napi_status {
     // JS number é f64; int64 fora de ±2^53 perde precisão (comportamento N-API).
-    unsafe { write_result(result, box_number(value as f64)) }
+    unsafe { write_result(result, box_number(env, value as f64)) }
 }
 
 #[unsafe(no_mangle)]

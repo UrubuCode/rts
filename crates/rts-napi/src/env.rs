@@ -19,9 +19,11 @@ pub struct RtsNapiEnv {
     /// `napi_get_and_clear_last_exception` lê e limpa. Per-instância (síncrono,
     /// Fase 1) — não interage com o error slot do try/catch do RTS.
     pub pending_exception: u64,
-    // Etapa 8: pilha de handle scopes (chunks de endereço estável registrados
-    // como GC roots via global_roots::add). Placeholder até lá.
-    // Etapa 9: tabela de referências (strong=root, weak=sem root).
+    /// Pilha de handle scopes (Etapa 8). Cada scope mantém seus `napi_value`
+    /// vivos como GC roots enquanto aberto. Ver `crate::scopes`.
+    pub scopes: crate::scopes::ScopeStack,
+    /// Tabela de referências persistentes (Etapa 9). Ver `crate::references`.
+    pub refs: crate::references::RefTable,
 }
 
 impl RtsNapiEnv {
@@ -29,6 +31,8 @@ impl RtsNapiEnv {
         Self {
             api_version,
             pending_exception: 0,
+            scopes: crate::scopes::ScopeStack::new(),
+            refs: crate::references::RefTable::new(),
         }
     }
 

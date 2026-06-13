@@ -246,6 +246,69 @@ pub unsafe extern "C" fn napi_call_function(
     napi_ok
 }
 
+/// Define propriedades num objeto a partir de descriptors. Fase 1: honra
+/// `utf8name` + (`value` OU `method`); ignora `getter`/`setter`/`attributes`
+/// (sem accessors dinâmicos). Cobre o padrão comum de addons que populam o
+/// `exports` via `napi_define_properties`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn napi_define_properties(
+    env: napi_env,
+    object: napi_value,
+    property_count: usize,
+    properties: *const crate::napi_property_descriptor,
+) -> napi_status {
+    if properties.is_null() && property_count > 0 {
+        return napi_invalid_arg;
+    }
+    for i in 0..property_count {
+        let desc = unsafe { &*properties.add(i) };
+        // Resolve a chave: utf8name (C string) tem prioridade; senão name (napi_value String).
+        let key = if !desc.utf8name.is_null() {
+            unsafe { cstr_key(desc.utf8name) }
+        } else {
+            crate::objects::objects_key_of(desc.name)
+        };
+        let Some(key) = key else { continue };
+
+        // Valor: method → cria a fn; senão value direto.
+        let value_handle = if desc.method.is_some() {
+            let mut f = napi_value(value_from_handle(0).0);
+            unsafe {
+                napi_create_function(env, std::ptr::null(), 0, desc.method, desc.data, &mut f)
+            };
+            handle_from_value(f)
+        } else {
+            handle_from_value(desc.value)
+        };
+
+        // set_named_property(object, key, value_handle).
+        let key_c = std::ffi::CString::new(key).unwrap_or_default();
+        unsafe {
+            crate::objects::napi_set_named_property(
+                env,
+                object,
+                key_c.as_ptr(),
+                value_from_handle(value_handle),
+            );
+        }
+    }
+    napi_ok
+}
+
+unsafe fn cstr_key(p: *const c_char) -> Option<String> {
+    if p.is_null() {
+        return None;
+    }
+    let mut len = 0usize;
+    unsafe {
+        while *p.add(len) != 0 {
+            len += 1;
+        }
+        let slice = std::slice::from_raw_parts(p as *const u8, len);
+        std::str::from_utf8(slice).ok().map(|s| s.to_string())
+    }
+}
+
 /// Limpa o registro de uma fn N-API quando o handle é liberado. (Chamado por um
 /// hook de cleanup futuro; por ora as fns vivem pelo processo, o que é seguro.)
 #[allow(dead_code)]

@@ -47,37 +47,44 @@ fn key_from_value(v: napi_value) -> Option<String> {
     })
 }
 
+/// Versão pública de `key_from_value` (usada por `napi_define_properties`).
+pub fn objects_key_of(v: napi_value) -> Option<String> {
+    key_from_value(v)
+}
+
 // ── criação ──────────────────────────────────────────────────────────────────
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn napi_create_object(
-    _env: napi_env,
+    env: napi_env,
     result: *mut napi_value,
 ) -> napi_status {
     if result.is_null() {
         return napi_invalid_arg;
     }
     let h = alloc_entry(Entry::Map(Box::new(IndexMap::new())));
+    unsafe { crate::scopes::track_in_env(env, h) };
     unsafe { *result = value_from_handle(h) };
     napi_ok
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn napi_create_array(
-    _env: napi_env,
+    env: napi_env,
     result: *mut napi_value,
 ) -> napi_status {
     if result.is_null() {
         return napi_invalid_arg;
     }
     let h = alloc_entry(Entry::Vec(Box::new(Vec::new())));
+    unsafe { crate::scopes::track_in_env(env, h) };
     unsafe { *result = value_from_handle(h) };
     napi_ok
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn napi_create_array_with_length(
-    _env: napi_env,
+    env: napi_env,
     length: usize,
     result: *mut napi_value,
 ) -> napi_status {
@@ -87,6 +94,7 @@ pub unsafe extern "C" fn napi_create_array_with_length(
     // Preenche com a sentinela `undefined` (i64::MIN+2) — holes JS.
     let hole = (i64::MIN + 2) as i64;
     let h = alloc_entry(Entry::Vec(Box::new(vec![hole; length])));
+    unsafe { crate::scopes::track_in_env(env, h) };
     unsafe { *result = value_from_handle(h) };
     napi_ok
 }
@@ -284,6 +292,70 @@ pub unsafe extern "C" fn napi_is_array(
     }
     let is_arr = with_entry(handle_from_value(value), |e| matches!(e, Some(Entry::Vec(_))));
     unsafe { *result = is_arr };
+    napi_ok
+}
+
+/// Objeto global (`globalThis`). Singleton lazy — um `Entry::Map` por processo.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn napi_get_global(
+    env: napi_env,
+    result: *mut napi_value,
+) -> napi_status {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static GLOBAL: AtomicU64 = AtomicU64::new(0);
+    if result.is_null() {
+        return napi_invalid_arg;
+    }
+    let mut h = GLOBAL.load(Ordering::Relaxed);
+    if h == 0 {
+        let new_h = alloc_entry(Entry::Map(Box::new(IndexMap::new())));
+        match GLOBAL.compare_exchange(0, new_h, Ordering::SeqCst, Ordering::Relaxed) {
+            Ok(_) => h = new_h,
+            Err(existing) => h = existing, // outro thread criou primeiro
+        }
+    }
+    let _ = env;
+    unsafe { *result = value_from_handle(h) };
+    napi_ok
+}
+
+/// `instanceof`. Fase 1: heurística sobre o tag `__rts_class` do Map da
+/// instância vs o nome do constructor (Function). Cobre o caso comum de addons
+/// que checam `value instanceof SomeClass`. Sem hierarquia completa.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn napi_instanceof(
+    _env: napi_env,
+    object: napi_value,
+    constructor: napi_value,
+    result: *mut bool,
+) -> napi_status {
+    if result.is_null() {
+        return napi_invalid_arg;
+    }
+    // Nome do constructor (Function.name).
+    let ctor_name = with_entry(handle_from_value(constructor), |e| match e {
+        Some(Entry::Function(d)) => Some(d.name.to_string()),
+        _ => None,
+    });
+    // Tag de classe da instância (Map["__rts_class"] como string handle).
+    let is_inst = match ctor_name {
+        Some(name) if !name.is_empty() => with_entry(handle_from_value(object), |e| match e {
+            Some(Entry::Map(m)) => m
+                .get("__rts_class")
+                .and_then(|&slot| {
+                    with_entry(slot as u64, |c| match c {
+                        Some(Entry::String(b)) => {
+                            Some(std::str::from_utf8(b).ok() == Some(name.as_str()))
+                        }
+                        _ => None,
+                    })
+                })
+                .unwrap_or(false),
+            _ => false,
+        }),
+        _ => false,
+    };
+    unsafe { *result = is_inst };
     napi_ok
 }
 

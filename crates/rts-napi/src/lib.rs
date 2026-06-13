@@ -24,6 +24,8 @@ pub mod externals;
 pub mod functions;
 pub mod loader;
 pub mod objects;
+pub mod references;
+pub mod scopes;
 pub mod strings;
 pub mod symbols;
 pub mod types;
@@ -31,12 +33,9 @@ pub mod values;
 
 use std::ffi::{c_char, c_void};
 
-use types::{
-    napi_callback, napi_env, napi_escapable_handle_scope, napi_handle_scope, napi_ref,
-    napi_status, napi_value,
-};
+use types::{napi_callback, napi_env, napi_status, napi_value};
 
-use napi_status::{napi_generic_failure, napi_ok};
+use napi_status::napi_ok;
 
 /// Descritor de propriedade passado a `napi_define_properties`. Layout C fixo
 /// (espelha `napi_property_descriptor`). Na Fase 1 só `utf8name`/`value`/
@@ -54,25 +53,9 @@ pub struct napi_property_descriptor {
     pub data: *mut c_void,
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Macro de stub: declara uma fn `extern "C"` com a assinatura dada, corpo
-// retornando `napi_generic_failure`. Substituída pela impl real nas Etapas
-// 5-12 (mover a fn para o módulo de domínio e remover daqui).
-// ─────────────────────────────────────────────────────────────────────────────
-macro_rules! napi_stub {
-    (
-        $( #[$meta:meta] )*
-        fn $name:ident ( $( $arg:ident : $ty:ty ),* $(,)? ) $(-> $ret:ty)?
-    ) => {
-        $( #[$meta] )*
-        #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn $name ( $( $arg : $ty ),* ) $(-> $ret)? {
-            // Suprime "unused variable" sem nomear cada arg.
-            $( let _ = &$arg; )*
-            napi_generic_failure
-        }
-    };
-}
+// Todas as ~55 fns N-API estão implementadas nos módulos de domínio (values,
+// strings, objects, errors, externals, functions, scopes, references, loader);
+// `lib.rs` mantém só as duas de registro/versão abaixo + a tabela `force_link`.
 
 // ── registro / ambiente ─────────────────────────────────────────────────────
 
@@ -94,45 +77,19 @@ pub unsafe extern "C" fn node_api_module_get_api_version_v1() -> i32 {
     env::RTS_NAPI_VERSION as i32
 }
 
-// ── criação/extração de valores escalares + typeof ──────────────────────────
-// Implementados em `values.rs`: napi_create_double/int32/uint32/int64,
-// napi_get_boolean/undefined/null, napi_get_value_double/int32/uint32/int64/bool,
-// napi_typeof. Os demais seguem stub até as Etapas 6-7.
-// napi_create_string_utf8 / napi_get_value_string_utf8 implementados em `strings.rs`.
-// napi_create_object/array/array_with_length, napi_get_array_length em `objects.rs`.
-napi_stub!(fn napi_get_global(env: napi_env, result: *mut napi_value) -> napi_status);
-
-// ── propriedades ────────────────────────────────────────────────────────────
-// napi_set/get_named_property, napi_set/get_property, napi_set/get_element em
-// `objects.rs`. napi_define_properties segue stub (Etapa 11, com functions).
-napi_stub!(fn napi_define_properties(env: napi_env, object: napi_value, property_count: usize, properties: *const napi_property_descriptor) -> napi_status);
-
-// ── tipos ───────────────────────────────────────────────────────────────────
-// napi_typeof em `values.rs`; napi_is_array em `objects.rs`.
-napi_stub!(fn napi_instanceof(env: napi_env, object: napi_value, constructor: napi_value, result: *mut bool) -> napi_status);
-
-// ── funções / callbacks ─────────────────────────────────────────────────────
-// napi_create_function / napi_get_cb_info / napi_call_function em `functions.rs`.
-
-// ── erros / exceções ────────────────────────────────────────────────────────
-// Todas implementadas em `errors.rs`.
-
-// ── handle scopes ───────────────────────────────────────────────────────────
-napi_stub!(fn napi_open_handle_scope(env: napi_env, result: *mut napi_handle_scope) -> napi_status);
-napi_stub!(fn napi_close_handle_scope(env: napi_env, scope: napi_handle_scope) -> napi_status);
-napi_stub!(fn napi_open_escapable_handle_scope(env: napi_env, result: *mut napi_escapable_handle_scope) -> napi_status);
-napi_stub!(fn napi_close_escapable_handle_scope(env: napi_env, scope: napi_escapable_handle_scope) -> napi_status);
-napi_stub!(fn napi_escape_handle(env: napi_env, scope: napi_escapable_handle_scope, escapee: napi_value, result: *mut napi_value) -> napi_status);
-
-// ── referências ─────────────────────────────────────────────────────────────
-napi_stub!(fn napi_create_reference(env: napi_env, value: napi_value, initial_refcount: u32, result: *mut napi_ref) -> napi_status);
-napi_stub!(fn napi_delete_reference(env: napi_env, ref_: napi_ref) -> napi_status);
-napi_stub!(fn napi_reference_ref(env: napi_env, ref_: napi_ref, result: *mut u32) -> napi_status);
-napi_stub!(fn napi_reference_unref(env: napi_env, ref_: napi_ref, result: *mut u32) -> napi_status);
-napi_stub!(fn napi_get_reference_value(env: napi_env, ref_: napi_ref, result: *mut napi_value) -> napi_status);
-
-// ── external ────────────────────────────────────────────────────────────────
-// napi_create_external / napi_get_value_external implementados em `externals.rs`.
+// Mapa de onde cada fn N-API vive:
+//   values.rs     — create/get_value escalar (double/int32/uint32/int64/bool),
+//                    get_boolean/undefined/null, typeof
+//   strings.rs    — create_string_utf8, get_value_string_utf8
+//   objects.rs    — create_object/array(+length), set/get_named/property/element,
+//                    get_array_length, is_array, get_global, instanceof
+//   functions.rs  — create_function, get_cb_info, call_function, define_properties
+//   errors.rs     — throw(+error/type/range), create_*error, is_exception_pending,
+//                    get_and_clear_last_exception
+//   scopes.rs     — open/close(+escapable) handle_scope, escape_handle
+//   references.rs — create/delete_reference, reference_ref/unref, get_reference_value
+//   externals.rs  — create_external, get_value_external
+//   loader.rs     — __RTS_FN_NS_NAPI_LOAD_ADDON (interno, não exportado)
 
 /// Soma "negra" dos endereços de toda fn `napi_*` exportada. Referenciada pelo
 /// bin `rts` (`force_link`) para impedir que o LTO/linker descarte o objeto do
@@ -159,7 +116,7 @@ pub fn force_link() -> usize {
         crate::values::napi_get_boolean as *const (),
         crate::values::napi_get_undefined as *const (),
         crate::values::napi_get_null as *const (),
-        napi_get_global as *const (),
+        crate::objects::napi_get_global as *const (),
         crate::values::napi_get_value_double as *const (),
         crate::values::napi_get_value_int32 as *const (),
         crate::values::napi_get_value_uint32 as *const (),
@@ -173,10 +130,10 @@ pub fn force_link() -> usize {
         crate::objects::napi_get_property as *const (),
         crate::objects::napi_set_element as *const (),
         crate::objects::napi_get_element as *const (),
-        napi_define_properties as *const (),
+        crate::functions::napi_define_properties as *const (),
         crate::values::napi_typeof as *const (),
         crate::objects::napi_is_array as *const (),
-        napi_instanceof as *const (),
+        crate::objects::napi_instanceof as *const (),
         crate::functions::napi_create_function as *const (),
         crate::functions::napi_get_cb_info as *const (),
         crate::functions::napi_call_function as *const (),
@@ -189,16 +146,16 @@ pub fn force_link() -> usize {
         crate::errors::napi_create_range_error as *const (),
         crate::errors::napi_is_exception_pending as *const (),
         crate::errors::napi_get_and_clear_last_exception as *const (),
-        napi_open_handle_scope as *const (),
-        napi_close_handle_scope as *const (),
-        napi_open_escapable_handle_scope as *const (),
-        napi_close_escapable_handle_scope as *const (),
-        napi_escape_handle as *const (),
-        napi_create_reference as *const (),
-        napi_delete_reference as *const (),
-        napi_reference_ref as *const (),
-        napi_reference_unref as *const (),
-        napi_get_reference_value as *const (),
+        crate::scopes::napi_open_handle_scope as *const (),
+        crate::scopes::napi_close_handle_scope as *const (),
+        crate::scopes::napi_open_escapable_handle_scope as *const (),
+        crate::scopes::napi_close_escapable_handle_scope as *const (),
+        crate::scopes::napi_escape_handle as *const (),
+        crate::references::napi_create_reference as *const (),
+        crate::references::napi_delete_reference as *const (),
+        crate::references::napi_reference_ref as *const (),
+        crate::references::napi_reference_unref as *const (),
+        crate::references::napi_get_reference_value as *const (),
         crate::externals::napi_create_external as *const (),
         crate::externals::napi_get_value_external as *const (),
         // Símbolo interno do loader (chamado pelo codegen, não pelo .node):

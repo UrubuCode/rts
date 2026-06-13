@@ -161,9 +161,8 @@ até a Fase 1 dar corpo a elas.
 
 # FASE 1 — ~40 fns síncronas (addon real)
 
-> **Progresso Fase 1:** Etapas 5, 6, 7, 10, 11, 12 ✅ (marshalling escalar,
-> strings, objects/arrays/props, exceções, **functions/callbacks**, external).
-> Pendentes: 8 (handle scopes), 9 (references). `rts-napi` 24 unit + 2 integração
+> **✅ FASE 1 COMPLETA** — todas as 8 etapas (5-12) implementadas; **0 stubs
+> restantes** (as ~55 fns têm corpo real). `rts-napi` 30 unit + 2 integração
 > (loader + paridade-vs-Node); 55 símbolos na export table; suite TS 1710/1710.
 >
 > **🎯 PARIDADE COM NODE CONFIRMADA:** o mesmo addon N-API (`add(a,b)` via
@@ -230,6 +229,30 @@ até a Fase 1 dar corpo a elas.
 - **Saída (Fase 1):** addon síncrono real (hashing ou compressão síncrona) roda.
 
 ---
+
+## Etapa 8 — Handle scopes ✅
+
+- [x] `crates/rts-napi/src/scopes.rs`: `ScopeChunk { slots: [u64; 32], used, next }` em `Box` (endereço **estável** — `Vec` realocaria e quebraria os roots). `Scope` = lista encadeada de chunks; `ScopeStack` no `RtsNapiEnv`
+- [x] Cada slot usado é registrado individualmente em `global_roots::add(&slots[i])`; fechar o scope desregistra todos (via `Drop`)
+- [x] `napi_open/close_handle_scope`, `napi_open/close_escapable_handle_scope`, `napi_escape_handle` (promove ao pai 1×; 2ª vez → `napi_escape_called_twice`)
+- [x] `track_in_env` integrado nas fns de criação (`box_number`, `create_string_utf8`, `create_object/array/array_with_length`) — grava o handle no scope topo **antes** de retornar (anti-UAF)
+- [x] Testes: open+track(35 handles, >1 chunk)+close registra/desregistra N roots; escape promove ao pai e sobrevive ao close; 2º escape falha
+- **Saída:** ✅ handles vivos dentro do frame nativo do addon são GC roots; coletados ao fechar o scope.
+
+## Etapa 9 — References ✅
+
+- [x] `crates/rts-napi/src/references.rs`: `RefTable` (slab Vec+free-list) no `RtsNapiEnv`; `RefEntry { target: Box<u64>, refcount, rooted }`
+- [x] strong (refcount>0) = `Box<u64>` registrado em `global_roots`; weak (0) = sem root. `set_strong` re-registra/desregistra na transição
+- [x] `napi_create_reference` (refcount inicial), `napi_delete_reference`, `napi_reference_ref/unref`, `napi_get_reference_value` (weak coletado → undefined via `with_entry(...).is_none()`)
+- [x] Testes: strong↔weak alterna o root; unref→0 remove root, ref→1 re-adiciona, delete remove; weak coletado (free_handle) → `get_reference_value` undefined; refcount inicial 0 = weak
+- **Saída:** ✅ refs strong mantêm o valor vivo entre chamadas; weak refletem coleta.
+
+## Etapas restantes (get_global / instanceof / define_properties) ✅
+
+- [x] `napi_get_global` (objects.rs): Map singleton lazy por processo (`globalThis`)
+- [x] `napi_instanceof` (objects.rs): heurística sobre `__rts_class` da instância vs `Function.name` do constructor (caso comum; sem hierarquia)
+- [x] `napi_define_properties` (functions.rs): honra `utf8name`/`value`/`method`/`data` (method → `create_function`+`set_named`); ignora getter/setter/attributes na Fase 1
+- **0 stubs restantes** — `napi_stub!` macro removida.
 
 ## Etapa 11 — Functions / callbacks (trampolim bidirecional) ✅
 
