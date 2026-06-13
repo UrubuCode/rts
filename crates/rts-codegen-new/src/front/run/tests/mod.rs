@@ -39,5 +39,6 @@ mod funcval;
 mod method;
 mod number;
 mod object;
+mod poly;
 mod run;
 mod string;

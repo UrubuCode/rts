@@ -127,6 +127,17 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         "__rtsadp_typeof" | "__rtsadp_to_string" | "__rtsadp_to_boolean" => {
             SymSig { params: &[U64], ret: U64 }
         }
+        // ---- generic arithmetic/comparison/bitwise (P4.8): two PolyValue words ----
+        "__rtsadp_sub" | "__rtsadp_mul" | "__rtsadp_div" | "__rtsadp_mod"
+        | "__rtsadp_pow" | "__rtsadp_lt" | "__rtsadp_le" | "__rtsadp_gt"
+        | "__rtsadp_ge" | "__rtsadp_band" | "__rtsadp_bor" | "__rtsadp_bxor"
+        | "__rtsadp_shl" | "__rtsadp_shr" | "__rtsadp_ushr" => {
+            SymSig { params: &[U64, U64], ret: U64 }
+        }
+        // ---- generic unary (P4.8): one PolyValue word ----
+        "__rtsadp_neg" | "__rtsadp_bnot" | "__rtsadp_not" => {
+            SymSig { params: &[U64], ret: U64 }
+        }
         // console.log line sink: takes (ptr, len) as a StrPtr (two slots), void.
         "__rtsadp_print_line" => SymSig { params: &[StrPtr], ret: Void },
 

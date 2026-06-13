@@ -97,6 +97,9 @@ pub mod abi_sig;
 // The generic JS operators (`__rtsadp_add`/`_strict_eq`/`_typeof`/…), backed by
 // the real string pool — the ONE tag-dispatched path.
 pub mod genops;
+// The generic JS arithmetic / comparison / unary / bitwise operators (P4.8):
+// `__rtsadp_sub`/`_mul`/`_div`/`_mod`/`_pow`/`_lt`/…/`_band`/… on Tagged operands.
+pub mod genops_arith;
 // Codegen-owned PolyValue-aware Array instance-method trampolines (P4.5),
 // reading the REAL Entry::Vec via the runtime VEC symbols.
 pub mod arrayops;

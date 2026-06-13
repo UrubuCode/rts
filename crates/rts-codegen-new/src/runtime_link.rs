@@ -34,7 +34,7 @@ use rts_runtime::namespaces::globals::number as rt_num;
 use rts_runtime::namespaces::globals::string::rt as rt_gl_str;
 use rts_runtime::namespaces::io as rt_io;
 
-use crate::value::{abi_adapter, arraycb, arrayops, funcops, genops};
+use crate::value::{abi_adapter, arraycb, arrayops, funcops, genops, genops_arith};
 
 /// One installable JIT symbol: an extern "C" name and its function pointer. The
 /// pointer is to a `#[no_mangle] extern "C"` function with static lifetime.
@@ -99,6 +99,25 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_to_string", genops::__rtsadp_to_string as *const u8),
         sym("__rtsadp_to_boolean", genops::__rtsadp_to_boolean as *const u8),
         sym("__rtsadp_print_line", abi_adapter::__rtsadp_print_line as *const u8),
+        // ---- generic arithmetic / comparison / unary / bitwise (P4.8) ----
+        sym("__rtsadp_sub", genops_arith::__rtsadp_sub as *const u8),
+        sym("__rtsadp_mul", genops_arith::__rtsadp_mul as *const u8),
+        sym("__rtsadp_div", genops_arith::__rtsadp_div as *const u8),
+        sym("__rtsadp_mod", genops_arith::__rtsadp_mod as *const u8),
+        sym("__rtsadp_pow", genops_arith::__rtsadp_pow as *const u8),
+        sym("__rtsadp_lt", genops_arith::__rtsadp_lt as *const u8),
+        sym("__rtsadp_le", genops_arith::__rtsadp_le as *const u8),
+        sym("__rtsadp_gt", genops_arith::__rtsadp_gt as *const u8),
+        sym("__rtsadp_ge", genops_arith::__rtsadp_ge as *const u8),
+        sym("__rtsadp_neg", genops_arith::__rtsadp_neg as *const u8),
+        sym("__rtsadp_bnot", genops_arith::__rtsadp_bnot as *const u8),
+        sym("__rtsadp_not", genops_arith::__rtsadp_not as *const u8),
+        sym("__rtsadp_band", genops_arith::__rtsadp_band as *const u8),
+        sym("__rtsadp_bor", genops_arith::__rtsadp_bor as *const u8),
+        sym("__rtsadp_bxor", genops_arith::__rtsadp_bxor as *const u8),
+        sym("__rtsadp_shl", genops_arith::__rtsadp_shl as *const u8),
+        sym("__rtsadp_shr", genops_arith::__rtsadp_shr as *const u8),
+        sym("__rtsadp_ushr", genops_arith::__rtsadp_ushr as *const u8),
         // ---- codegen-owned Array trampolines (__rtsadp_arr_*, P4.5) ----
         sym("__rtsadp_arr_index_of", arrayops::__rtsadp_arr_index_of as *const u8),
         sym("__rtsadp_arr_includes", arrayops::__rtsadp_arr_includes as *const u8),

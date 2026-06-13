@@ -20,7 +20,10 @@ use super::PolyValue;
 /// JS `ToString` for any [`PolyValue`], resolving heap strings through the REAL
 /// pool. Numbers use the runtime's own JS `Number→String` (STRING_FROM_F64), so
 /// formatting matches the rest of the runtime exactly.
-fn to_string(v: PolyValue) -> String {
+///
+/// `pub(super)` so the sibling generic-arithmetic trampolines
+/// ([`super::genops_arith`]) reuse the SAME path (no divergent formatting).
+pub(super) fn to_string(v: PolyValue) -> String {
     if v.is_double() {
         return number_to_string(v.as_f64());
     }
@@ -56,8 +59,79 @@ fn number_to_string(f: f64) -> String {
 }
 
 /// Is this PolyValue a JS number (either an inline double or a tagged int32)?
-fn is_number(v: PolyValue) -> bool {
+pub(super) fn is_number(v: PolyValue) -> bool {
     v.is_double() || v.is_int32()
+}
+
+/// JS `ToNumber` for any [`PolyValue`]. Shared by the generic-arithmetic
+/// trampolines so numeric coercion is ONE rule, not re-derived per op.
+///
+/// - number → itself; `true`→1, `false`→0; `null`→0; `undefined`→`NaN`.
+/// - string → JS `StringToNumber` (`""`/all-whitespace → 0, else `f64` parse,
+///   `NaN` on a non-numeric string).
+/// - object/function/hole/empty → `NaN` (basic ToPrimitive; the faithful
+///   valueOf/toString chain is a later increment).
+pub(super) fn to_number(v: PolyValue) -> f64 {
+    if v.is_double() {
+        return v.as_f64();
+    }
+    if v.is_int32() {
+        return v.as_i32() as f64;
+    }
+    if v.is_bool() {
+        return if v.as_bool() { 1.0 } else { 0.0 };
+    }
+    if v.is_null() {
+        return 0.0;
+    }
+    if v.is_string() {
+        return string_to_number(&abi_adapter::resolve_poly(v));
+    }
+    // undefined, object, function, hole, empty → NaN.
+    f64::NAN
+}
+
+/// JS `StringToNumber`: trim ASCII whitespace; empty → 0; otherwise parse as an
+/// `f64` (accepting the `Infinity` spellings), `NaN` on failure. Hex/octal/binary
+/// literal prefixes and the full grammar are a later increment.
+fn string_to_number(s: &str) -> f64 {
+    let t = s.trim();
+    if t.is_empty() {
+        return 0.0;
+    }
+    match t {
+        "Infinity" | "+Infinity" => f64::INFINITY,
+        "-Infinity" => f64::NEG_INFINITY,
+        _ => t.parse::<f64>().unwrap_or(f64::NAN),
+    }
+}
+
+/// JS `ToBoolean` for any [`PolyValue`], resolving the empty-string case on the
+/// heap (a non-empty string is truthy). Shared by the generic `!` would-be path
+/// and the relational helpers where a boolean is produced.
+pub(super) fn to_boolean(v: PolyValue) -> bool {
+    if v.is_string() {
+        let h = abi_adapter::real_handle_of(v);
+        return rt_str::__RTS_FN_NS_GC_STRING_LEN(h) > 0;
+    }
+    v.is_truthy()
+}
+
+/// Box an `f64` numeric RESULT as the tightest PolyValue: a tagged `int32` when
+/// the value is an exact integer in `i32` range (so `2*3` stays `6` int32, the
+/// JS small-int fast path), otherwise an inline double. This mirrors the int/
+/// double choice [`__rtsadp_add`] makes for `+`.
+pub(super) fn number_result(f: f64) -> PolyValue {
+    if f.is_finite() && f.fract() == 0.0 && f >= i32::MIN as f64 && f <= i32::MAX as f64 {
+        PolyValue::from_i32(f as i32)
+    } else {
+        PolyValue::from_f64(f)
+    }
+}
+
+/// Read a string PolyValue's UTF-8 content (for the relational string compare).
+pub(super) fn string_content(v: PolyValue) -> String {
+    abi_adapter::resolve_poly(v)
 }
 
 /// `__rtsadp_add` — the JS binary `+` on two PolyValues.
