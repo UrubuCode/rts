@@ -44,6 +44,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         method: &str,
         args: &[HirExpr],
     ) -> FrontResult<Option<Val>> {
+        // CLASS-INSTANCE receiver (P4.9): a receiver whose class is statically
+        // known (`new C()`, a local recorded in `local_classes`, or `this`).
+        // Resolve the method on that class at COMPILE TIME and emit a direct call
+        // passing the instance as `this`. An unknown method on a known class BAILS.
+        if let Some(class) = self.static_instance_class(object) {
+            return self.try_class_method(module, object, &class, method, args).map(Some);
+        }
+
         // ARRAY receiver (P4.5 non-callback + P4.7 callback): an identifier bound
         // to a local of proven array shape. The element convention is the engine's
         // own (boxed PolyValue words), so these resolve to the codegen-owned

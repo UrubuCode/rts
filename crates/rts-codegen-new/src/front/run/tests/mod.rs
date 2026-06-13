@@ -35,6 +35,7 @@ pub(crate) fn assert_bails(src: &str) {
 
 mod array;
 mod arraycb;
+mod class;
 mod funcval;
 mod inspect;
 mod method;

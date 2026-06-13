@@ -24,10 +24,12 @@
 
 mod binop;
 mod call;
+mod class;
 mod expr;
 mod funcval;
 mod method;
 pub mod module_jit;
+mod newexpr;
 mod obj;
 mod sig;
 mod stmt;
@@ -53,8 +55,8 @@ use super::error::{FrontResult, Unsupported};
 /// - a parse error (returned as an `Unsupported` wrapping the message), or
 /// - any construct outside the implemented subset (an explicit `Unsupported`).
 pub fn run_source(src: &str) -> FrontResult<()> {
-    let (funcs, main) = build_program(src)?;
-    let program = module_jit::compile_program(&funcs, &main)?;
+    let prog = build_program(src)?;
+    let program = module_jit::compile_program(&prog)?;
     program.run_main();
     Ok(())
 }
@@ -69,10 +71,22 @@ pub fn run_source(src: &str) -> FrontResult<()> {
 /// final write target differs. Used by the in-process unit tests; for true
 /// end-to-end stdout use [`run_source`] + the bun fixture harness.
 pub fn render_source(src: &str) -> FrontResult<String> {
-    let (funcs, main) = build_program(src)?;
-    let program = module_jit::compile_program(&funcs, &main)?;
+    let prog = build_program(src)?;
+    let program = module_jit::compile_program(&prog)?;
     let ((), out) = crate::value::abi_adapter::with_capture(|| program.run_main());
     Ok(out)
+}
+
+/// A lowered program ready to JIT: the user functions (incl. synthesized class
+/// constructors/methods + extracted arrows), the synthesized `__rtsn_main`, the
+/// class table, and the synthesized-fn → owning-class map (for binding `this`).
+pub(crate) struct LoweredProgram {
+    pub funcs: Vec<HirFunc>,
+    pub main: HirFunc,
+    pub classes: class::ClassTable,
+    /// synthesized constructor/method fn name → its class name (so the lowerer
+    /// binds `this` to that class). Absent for ordinary user functions.
+    pub fn_this_class: std::collections::HashMap<String, String>,
 }
 
 /// Parse `src` and lower it to (user functions, synthesized `__rtsn_main`).
@@ -82,14 +96,43 @@ pub fn render_source(src: &str) -> FrontResult<String> {
 /// body — to resolve cross-calls and return types), then the top-level
 /// statements are lowered against that same scope and wrapped as the body of a
 /// synthetic void function named `__rtsn_main`.
-fn build_program(src: &str) -> FrontResult<(Vec<HirFunc>, HirFunc)> {
+fn build_program(src: &str) -> FrontResult<LoweredProgram> {
     let program = rts_parser::parse_source(src)
         .map_err(|e| Unsupported::new(format!("parse error: {e}")))?;
 
     let mut scope = rts_hir::scope::Scope::new();
 
+    // 0. Collect every `class` declaration into descriptors + synthesized
+    //    constructor/method HirFuncs (each with `this` as the implicit first
+    //    param). Register each class name in `scope` so `new C(..)` resolves its
+    //    type. A class outside the no-inheritance subset bails the whole program.
+    let class_decls: Vec<&rts_ast::ast::ClassDecl> = program
+        .items
+        .iter()
+        .filter_map(|it| match it {
+            rts_ast::ast::Item::Class(c) => Some(c),
+            _ => None,
+        })
+        .collect();
+    for c in &class_decls {
+        scope.register_class(c.name.clone());
+    }
+    let (classes, class_funcs) = class::collect_classes(&class_decls)?;
+
+    // Map each synthesized constructor/method fn name → its class (for `this`).
+    let mut fn_this_class: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for c in &class_decls {
+        if let Some(desc) = classes.get(&c.name) {
+            fn_this_class.insert(desc.ctor.clone(), desc.name.clone());
+            for fn_name in desc.methods.values() {
+                fn_this_class.insert(fn_name.clone(), desc.name.clone());
+            }
+        }
+    }
+
     // 1. Lower all top-level functions (registers their signatures in `scope`).
-    let mut funcs: Vec<HirFunc> = Vec::new();
+    let mut funcs: Vec<HirFunc> = class_funcs;
     for item in &program.items {
         if let rts_ast::ast::Item::Function(fdecl) = item {
             funcs.push(rts_hir::lower::lower_func(fdecl, &mut scope));
@@ -121,5 +164,5 @@ fn build_program(src: &str) -> FrontResult<(Vec<HirFunc>, HirFunc)> {
     let synthesized = funcval::extract_arrows(&mut funcs, &mut main);
     funcs.extend(synthesized);
 
-    Ok((funcs, main))
+    Ok(LoweredProgram { funcs, main, classes, fn_this_class })
 }

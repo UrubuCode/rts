@@ -100,6 +100,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.bind_tagged_local(name, val);
                 Some(HeapShape::Array)
             }
+            // `let c = new C(args)`: build the instance, record the local's CLASS
+            // (for static `c.method()` dispatch) and OBJECT shape (for `c.field`).
+            HirExprKind::New { class, args } => {
+                let (val, class_name, shape_id) = self.lower_new(module, class, args)?;
+                self.bind_tagged_local(name, val);
+                self.local_classes.insert(name.to_string(), class_name);
+                Some(HeapShape::Object(shape_id))
+            }
             _ => None,
         };
         if let Some(shape) = shape {
@@ -126,8 +134,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.builder.def_var(var, coerced);
         self.locals.insert(name.to_string(), Local { var, repr });
         // A non-literal initializer leaves no proven shape; if `name` was a shaped
-        // local being re-`let`, drop the stale shape (its value is now opaque).
+        // local being re-`let`, drop the stale shape/class (its value is now opaque).
         self.local_shapes.remove(name);
+        self.local_classes.remove(name);
         Ok(())
     }
 
@@ -165,9 +174,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let val = self.lower_expr(module, value)?;
         let coerced = self.coerce(val, local.repr)?;
         self.builder.def_var(local.var, coerced);
-        // The local now holds an opaque value: drop any stale proven shape so a
-        // later `name.key` does NOT resolve against the old layout.
+        // The local now holds an opaque value: drop any stale proven shape/class so
+        // a later `name.key`/`name.method()` does NOT resolve against the old layout.
         self.local_shapes.remove(&name);
+        self.local_classes.remove(&name);
         Ok(Val::new(coerced, local.repr))
     }
 

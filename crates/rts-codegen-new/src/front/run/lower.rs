@@ -69,6 +69,10 @@ pub(crate) enum JsKind {
     /// extracted arrow (P4.6); makes `f(args)` lower to the indirect invoke path
     /// and `typeof f` fold to `"function"`.
     Function,
+    /// A class-instance OBJECT value (a `TAG_OBJECT` PolyValue over the instance
+    /// Vec). Produced by `new C(args)` (P4.9); makes a `let` record the local's
+    /// class + OBJECT shape and routes `console.log` through the object inspect.
+    Object,
     /// Not statically provable (a Tagged value from a variable/call/etc.).
     Unknown,
 }
@@ -128,6 +132,10 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// Name → the proven heap shape of a local holding an object/array literal.
     /// Absent ⇒ the local's value is opaque; a property/index access on it bails.
     pub local_shapes: HashMap<String, HeapShape>,
+    /// Name → the statically-known CLASS of a local/param holding a class instance
+    /// (a `new C()` result, a `: C`-annotated param, or `this` inside a method).
+    /// Drives static `instance.method(args)` dispatch; absent ⇒ method calls bail.
+    pub local_classes: HashMap<String, String>,
     /// Interns object-literal shapes (compile-time key→slot maps) for this fn.
     pub shapes: ShapeTable,
     /// The function's return repr, or `None` for a `void` body (`__rtsn_main`).
@@ -140,11 +148,16 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// Each user function's uniform-ABI THUNK FuncId, for reifying a function
     /// referenced as a VALUE (`func_addr` of the thunk → `__rtsadp_fn_reify`).
     pub thunks: &'c HashMap<String, cranelift_module::FuncId>,
+    /// The program's user classes (descriptors: fields → shape slots, methods →
+    /// functions). Read-only, shared across all functions. Drives `new C(args)`,
+    /// `this.field`, and static `instance.method(args)`.
+    pub classes: &'c super::class::ClassTable,
 }
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Lower one user function (or the synthesized main) into `builder`, whose
     /// `Function` already carries the signature from [`FnSig::to_cranelift`].
+    #[allow(clippy::too_many_arguments)]
     pub fn lower_function(
         module: &mut dyn Module,
         builder: &'a mut FunctionBuilder<'b>,
@@ -152,6 +165,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         sig: &FnSig,
         sigs: &'c HashMap<String, FnSig>,
         thunks: &'c HashMap<String, cranelift_module::FuncId>,
+        classes: &'c super::class::ClassTable,
+        this_class: Option<&str>,
     ) -> FrontResult<()> {
         let entry = builder.create_block();
         builder.append_block_params_for_function_params(entry);
@@ -162,11 +177,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             builder,
             locals: HashMap::new(),
             local_shapes: HashMap::new(),
+            local_classes: HashMap::new(),
             shapes: ShapeTable::new(),
             ret: sig.ret,
             block_terminated: false,
             sigs,
             thunks,
+            classes,
         };
 
         // Bind each parameter to a fresh local Variable carrying its ABI repr.
@@ -175,6 +192,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             let var = ctx.builder.declare_var(cl_type(repr));
             ctx.builder.def_var(var, block_val);
             ctx.locals.insert(p.name.clone(), Local { var, repr });
+        }
+
+        // The implicit receiver `this` of a constructor/method: bind its class so
+        // `this.field` resolves against the class shape and `this.method()`
+        // dispatches statically.
+        if let Some(class) = this_class {
+            if let Some(desc) = classes.get(class) {
+                let shape_id = ctx.shapes.intern(&desc.fields);
+                ctx.local_shapes.insert(super::class::THIS.to_string(), HeapShape::Object(shape_id));
+                ctx.local_classes.insert(super::class::THIS.to_string(), class.to_string());
+            }
         }
 
         ctx.lower_block(module, &func.body)?;

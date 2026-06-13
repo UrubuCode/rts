@@ -70,7 +70,11 @@ fn make_module() -> JITModule {
 ///
 /// On ANY function (or main) hitting an unsupported construct, returns the
 /// `Unsupported` — the module is dropped and nothing runs (no partial program).
-pub fn compile_program(funcs: &[HirFunc], main: &HirFunc) -> FrontResult<Program> {
+pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Program> {
+    let funcs = &prog.funcs;
+    let main = &prog.main;
+    let classes = &prog.classes;
+    let fn_this_class = &prog.fn_this_class;
     let mut module = make_module();
 
     // 1. Freeze every signature (user funcs by their HIR types; main is void).
@@ -108,10 +112,11 @@ pub fn compile_program(funcs: &[HirFunc], main: &HirFunc) -> FrontResult<Program
     // 3. Define each user function body.
     for f in funcs {
         let sig = sigs[&f.name].clone();
-        define_one(&mut module, ids[&f.name], f, &sig, &sigs, &thunks)?;
+        let this_class = fn_this_class.get(&f.name).map(String::as_str);
+        define_one(&mut module, ids[&f.name], f, &sig, &sigs, &thunks, classes, this_class)?;
     }
     // 4. Define main (the top-level body).
-    define_one(&mut module, main_id, main, &main_sig, &sigs, &thunks)?;
+    define_one(&mut module, main_id, main, &main_sig, &sigs, &thunks, classes, None)?;
 
     // 4b. Define every thunk body (bridges the uniform ABI to the real signature).
     for f in funcs {
@@ -129,6 +134,7 @@ pub fn compile_program(funcs: &[HirFunc], main: &HirFunc) -> FrontResult<Program
 /// Lower + define one function into the module. On an `Unsupported` bail the
 /// half-built `ctx` is discarded WITHOUT finalizing (an incomplete Cranelift
 /// function must never be defined), and the error propagates.
+#[allow(clippy::too_many_arguments)]
 fn define_one(
     module: &mut JITModule,
     id: cranelift_module::FuncId,
@@ -136,6 +142,8 @@ fn define_one(
     sig: &FnSig,
     sigs: &HashMap<String, FnSig>,
     thunks: &HashMap<String, FuncId>,
+    classes: &super::class::ClassTable,
+    this_class: Option<&str>,
 ) -> FrontResult<()> {
     let mut ctx = module.make_context();
     ctx.func.signature = sig.to_cranelift(module);
@@ -143,7 +151,8 @@ fn define_one(
     {
         let mut fb_ctx = FunctionBuilderContext::new();
         let mut fb = FunctionBuilder::new(&mut ctx.func, &mut fb_ctx);
-        let res = Lowerer::lower_function(module, &mut fb, func, sig, sigs, thunks);
+        let res =
+            Lowerer::lower_function(module, &mut fb, func, sig, sigs, thunks, classes, this_class);
         match res {
             Ok(()) => fb.finalize(),
             Err(e) => {

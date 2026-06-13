@@ -347,6 +347,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     pub(super) fn is_whole_object_value(&self, e: &HirExpr) -> bool {
         match &e.kind {
             HirExprKind::Object(_) => true,
+            // A class instance (`new C()`) is an OBJECT — its slot-0 global shape-id
+            // lets the inspect trampoline render `{ field: value }` (P4.9).
+            HirExprKind::New { class, .. } => self.classes.get(class).is_some(),
             HirExprKind::Ident(name) => {
                 matches!(self.local_shapes.get(name), Some(HeapShape::Object(_)))
             }

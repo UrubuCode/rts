@@ -48,6 +48,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
             HirExprKind::Member { object, prop } => self.lower_member(module, object, prop),
             HirExprKind::Index { object, index } => self.lower_index(module, object, index),
+            HirExprKind::New { class, args } => {
+                // A `new C(args)` used as a bare expression (not bound to a local
+                // whose class/shape we record) still builds the instance (a valid
+                // TAG_OBJECT PolyValue, so `console.log(new C())` / method chaining
+                // work); the shape id is discarded.
+                let (val, _class, _shape) = self.lower_new(module, class, args)?;
+                Ok(val)
+            }
             HirExprKind::Array(elems) => self.lower_array_literal(module, elems),
             HirExprKind::Object(fields) => {
                 // An object literal used as a bare expression (not bound to a local

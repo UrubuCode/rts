@@ -45,6 +45,18 @@ impl FnSig {
             .iter()
             .map(|p| repr_for_param(&p.ty))
             .collect();
+        // A `void`-returning function (e.g. a synthesized class constructor)
+        // returns NO value: its ABI return is `None`, and the lowerer emits the
+        // trailing `return` on fall-through (a value-returning fn that falls
+        // through is ill-formed and bails).
+        if matches!(func.ret, rts_hir::HirType::Void) {
+            return FnSig {
+                name: func.name.clone(),
+                params,
+                ret: None,
+                is_async: func.is_async,
+            };
+        }
         // The declared return repr — trusted in general (an explicit `boolean` /
         // `i64` annotation, or a `function`-decl's body-inferred type, is correct).
         let declared = repr_or_tagged(repr_of(&func.ret));
