@@ -212,9 +212,16 @@ See `RTS_REFACTOR.md` for the current refactor direction (crate workspace).
 
 ## Architecture
 
-Cargo workspace (14 crates in `crates/`). `src/` is the `rts` bin facade
+Cargo workspace (15 crates in `crates/`). `src/` is the `rts` bin facade
 (re-exports); `src/main.rs` calls `rts_codegen::register_runtime_artifacts` +
 `rts_cli::cli::dispatch`. Real paths live under `crates/<crate>/src/`.
+
+> **`rts-napi`** (15th crate): Node.js native addon (`.node`) support via N-API
+> — loads npm addons with Node-parity (crc32/xxhash/uuid validated). 124/159
+> fns; the rest are engine-blocked stubs (#1548). The `napi_*` symbols are raw
+> `extern "C"` exported in the `rts` bin's export table (build.rs), resolved by
+> the OS loader when a `.node` is `dlopen`ed — NOT via SPECS. See
+> `docs/specs/napi-implementation.md`.
 
 > **Runtime layer partition** (the tree below predates it): the old monolith is
 > split into an acyclic graph `rts-engine` (heap GC + ABI vocab + Registry/
