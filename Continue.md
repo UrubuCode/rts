@@ -80,30 +80,34 @@ Tudo `rts-codegen-new` (fora do bin) → sem gate, EXCETO onde marcado. Testes e
    `marshal_call_args` (em `call.rs`) + `FnSig.rest_param`. Spread-into-CALL ainda baila.
 5. **F3d ✅** (`fdfdb712`) — `??` (short-circuit, testa nullish não-falsy).
 
-**FALTA (próximos):**
-- **F3c-opt** (sem gate) — omitir param OPCIONAL `x?` no call → passar `undefined`
-  (em `marshal_call_args`; achar se HirParam marca `optional` separado de
-  `has_default`). `Array.ts` usa `deleteCount?`.
-- **F3c-default** (⚠️ GATE — toca rts-hir) — default params `= expr`: a EXPRESSÃO é
-  descartada no `rts-hir/lower.rs:608` (só `has_default` sobrevive). Threading do
-  expr no HIR + `FnSig.defaults` + preencher em `marshal_call_args`. rts-hir é
-  compartilhado c/ motor velho → gate.
-- **spread-into-call** — `f(x, ...arr)` / `this.#v.push(...items)` (packing/append
-  no rest; `__rtsadp_arr_spread_append` existe).
-- **BUG repr null-local** — `let a = null` guarda Float64 → ler de volta vira NaN/0
-  (`console.log(a)` imprime `0`, devia `null`). Correção de solidez.
-- **(menor)** index OOB de array devolve `0`, não `undefined`.
+**A (sem gate) ✅** — `7b155118` A3 (bug repr `let a=null`→Tagged) + `571b48f9` A2
+(spread no rest param). A1-optional dobrado em C.
 
-6. **infra `include()` + ns privada/load-order** (arquitetura, API do owner):
-   - `engine.include(include_bytes!("map.ts"))` → classes ambientes.
-   - `engine.ns(name, true)` → ns privada (símbolos só no ambiente interno do TS
-     embarcado; não expostos no run final).
-   - `engine.ns(name, number>1)` → preferência de ordem de carga (usar Maps/Objects
-     dentro do ambiente engine). ⚠️ muda assinatura `.ns()` em rts-engine (builder
-     compartilhado) → GATE. Adicionar SÓ junto do consumidor (senão dead-code).
-7. escrever `rts-primitives/*.ts` + `rts-shared/*.ts` (Array/Map/Set wrappers, etc.)
-   + Date via ns privada; **deletar** o Rust correspondente (`value/mapset.rs`,
-   `class_meta` Map/Set, `__rtsadp_map_*/set_*`, `register_mapset_class_spec`). GATE.
+**C (params completos) ✅** — `8d0a4ffe` C1 (plumbing AST/HIR `optional`+`default_expr`,
+GATE verde 1710 / 419·137·36) + `b0ae3a54` C2 (consumo: `FnSig.fillable`, repr Tagged
+p/ fillable, callee-side default-fill `if undefined → default`, optional→undefined).
+Params agora: fixed/rest/optional/default.
+
+**B1 (prelude) ✅** — `91336f53`: `render_source_with_prelude(prelude, user)` +
+`merge_programs` em `front/run/mod.rs`. Classe TS no prelude SOMBREIA a nativa
+(shadowing automático). Teste `tests/prelude.rs`: `class Map` em TS puro substitui
+o Map nativo (`9 2 true false 2`), instanceof/typeof. 524 unit verdes.
+
+**FALTA — B2/B3 (as peças finais):**
+- **B2 (⚠️ GATE — builder rts-engine)** — API do owner: `engine.include(bytes)`
+  (embarcar `.ts` no motor, carregado como prelude no pipeline REAL `run_source`/
+  `compile`, não só nos testes) + `engine.ns(name, true)` (ns privada: símbolos só
+  no ambiente TS embarcado, filtrados no run final) + `engine.ns(name, number>1)`
+  (preferência de ordem de carga). Muda assinatura `.ns()` (compartilhada) → gate.
+  ns privada é a base p/ imports nativos (Date precisa de epoch/tz).
+- **B3 (⚠️ GATE)** — escrever `rts-primitives/*.ts` + `rts-shared/*.ts` (Array/Map/Set
+  wrappers s/ native `[]`; Date via ns privada) e **deletar** o Rust correspondente
+  (`value/mapset.rs`, `class_meta` Map/Set, `__rtsadp_map_*/set_*`,
+  `register_mapset_class_spec`). Precisa antes: `Array.splice` (+ outros métodos que
+  os wrappers usem) no motor; e o prelude wired no pipeline real (B2).
+
+**Gaps menores pendentes (sem gate):** `Array.splice`; index OOB→`undefined` (hoje 0);
+default que referencia param anterior (hoje lower no callee-scope já cobre o comum).
 
 ## 4. Cauda longa de paridade (independente da direção stdlib-TS)
 
