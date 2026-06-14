@@ -39,6 +39,7 @@ mod class;
 mod globals;
 mod class_inherit;
 mod funcval;
+mod globalclass;
 mod inspect;
 mod method;
 mod number;

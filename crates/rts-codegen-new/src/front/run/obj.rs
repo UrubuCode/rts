@@ -119,6 +119,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if let Some(class) = self.class_name_receiver(object) {
             return self.try_static_field_read(module, &class, prop);
         }
+        // ---- runtime/Registry-class instance PROPERTY (`m.size`, `e.message`) ----
+        if let Some(val) = self.try_global_class_member(module, object, prop)? {
+            return Ok(val);
+        }
         // ---- accessor GET `obj.x` where x is a getter on the receiver class ----
         if let Some(class) = self.instance_class_of(object) {
             if self

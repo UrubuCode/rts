@@ -189,6 +189,32 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         // str.split(recvHandle, sepHandle, limit) -> a TAG_OBJECT array word.
         "__rtsadp_str_split" => SymSig { params: &[Handle, Handle, I64], ret: U64 },
 
+        // ---- codegen-owned Map / Set instance trampolines (P5.3) ----
+        // All PolyValue words (U64): slot 0 is the instance word, args are key/value/
+        // element words, results are PolyValue words (instance / value / bool / size).
+        "__rtsadp_map_new" | "__rtsadp_set_new" => SymSig { params: &[], ret: U64 },
+        "__rtsadp_map_set" => SymSig { params: &[U64, U64, U64], ret: U64 },
+        "__rtsadp_map_get" | "__rtsadp_map_has" | "__rtsadp_map_delete"
+        | "__rtsadp_set_add" | "__rtsadp_set_has" | "__rtsadp_set_delete" => {
+            SymSig { params: &[U64, U64], ret: U64 }
+        }
+        "__rtsadp_map_clear" | "__rtsadp_map_size" | "__rtsadp_set_clear"
+        | "__rtsadp_set_size" => SymSig { params: &[U64], ret: U64 },
+
+        // ---- codegen-owned Error-family + wrapper ctors / props / instanceof (P5.3) ----
+        // Error ctors: one string-message PolyValue word in, a TAG_OBJECT error word
+        // out. Error props/toString + wrapper ctors + instanceof tags: one PolyValue
+        // word in, one PolyValue word out.
+        "__rtsadp_err_new" | "__rtsadp_err_new_type" | "__rtsadp_err_new_range"
+        | "__rtsadp_err_new_reference" | "__rtsadp_err_new_syntax"
+        | "__rtsadp_err_new_uri" | "__rtsadp_err_new_eval"
+        | "__rtsadp_err_message" | "__rtsadp_err_name" | "__rtsadp_err_stack"
+        | "__rtsadp_err_to_string"
+        | "__rtsadp_w_boolean_new" | "__rtsadp_w_number_new" | "__rtsadp_w_string_new"
+        | "__rtsadp_is_map" | "__rtsadp_is_set" | "__rtsadp_is_error" => {
+            SymSig { params: &[U64], ret: U64 }
+        }
+
         // ---- codegen-owned Array CALLBACK trampolines (__rtsadp_arr_*, P4.7) ----
         // Slot 0 = the array's REAL Vec handle; slot 1 = the callback as a
         // TAG_FUNCTION PolyValue word (U64). map/filter return a fresh TAG_OBJECT

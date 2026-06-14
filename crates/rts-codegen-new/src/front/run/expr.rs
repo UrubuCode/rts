@@ -54,6 +54,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 if self.is_builtin_array_ctor(class) {
                     return self.lower_new_array(module, args);
                 }
+                // `new Map()` / `new Set()` / `new Error(..)` / wrapper used as a
+                // bare expression (P5.3): build the runtime-class instance (a valid
+                // TAG_OBJECT word, so `console.log(new Error("x"))` / chaining work).
+                if self.is_global_class_ctor(class) {
+                    let (val, _class) = self.lower_new_global_class(module, class, args)?;
+                    return Ok(val);
+                }
                 // A `new C(args)` used as a bare expression (not bound to a local
                 // whose class/shape we record) still builds the instance (a valid
                 // TAG_OBJECT PolyValue, so `console.log(new C())` / method chaining

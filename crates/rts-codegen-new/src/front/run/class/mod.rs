@@ -48,6 +48,7 @@ use rts_hir::ir::{HirExpr, HirExprKind, HirFunc, HirParam, HirType};
 
 use crate::front::error::{FrontResult, Unsupported};
 
+mod builtin;
 mod dispatch;
 mod inherit;
 mod synth;
@@ -122,6 +123,12 @@ impl ClassTable {
     pub fn get(&self, name: &str) -> Option<&ClassDesc> {
         self.by_name.get(name)
     }
+
+    /// Every collected class descriptor (user-declared AND synthesized virtual
+    /// builtin parents). Used to bind `this` for every synthesized ctor/method.
+    pub fn iter(&self) -> impl Iterator<Item = &ClassDesc> {
+        self.by_name.values()
+    }
 }
 
 /// Collect every `class` declaration into a [`ClassTable`] plus the synthesized
@@ -135,6 +142,42 @@ impl ClassTable {
 pub(crate) fn collect_classes(classes: &[&ClassDecl]) -> FrontResult<(ClassTable, Vec<HirFunc>)> {
     let mut table = ClassTable::default();
     let mut funcs: Vec<HirFunc> = Vec::new();
+
+    // P5.3: `class X extends <BuiltinError>` — when a user class extends a
+    // built-in error (Error/TypeError/…) that is NOT itself a user class in this
+    // program, synthesize a VIRTUAL parent ClassDesc (fields message/name/stack +
+    // a ctor + toString) and register it so the EXISTING inheritance machinery
+    // (super(), field flattening, method resolution) handles the subclass. Only
+    // the Error family is synthesizable; any other builtin parent stays refused
+    // at the `extends unknown class` bail below.
+    let user_names: std::collections::HashSet<&str> =
+        classes.iter().map(|c| c.name.as_str()).collect();
+    let mut want_builtin: Vec<&str> = Vec::new();
+    for c in classes {
+        if let Some(parent) = &c.super_class {
+            if !user_names.contains(parent.as_str())
+                && builtin::is_builtin_error(parent)
+                && !want_builtin.contains(&parent.as_str())
+            {
+                want_builtin.push(parent.as_str());
+            }
+        }
+    }
+    // Any error SUBTYPE chains to a virtual `Error` base (so `x instanceof Error`
+    // holds for every error subclass) — ensure `Error` is synthesized too.
+    if want_builtin.iter().any(|n| *n != "Error") && !want_builtin.contains(&"Error") {
+        want_builtin.push("Error");
+    }
+    for parent in want_builtin {
+        // A builtin parent could also be a user class name shadow — already
+        // filtered above. Skip if somehow already inserted (idempotent).
+        if table.by_name.contains_key(parent) {
+            continue;
+        }
+        let (desc, fns) = builtin::synth_builtin_error(parent);
+        table.by_name.insert(desc.name.clone(), desc);
+        funcs.extend(fns);
+    }
 
     // Resolve a parent-first processing order (so a child sees its parent's
     // already-built descriptor). An `extends` of a class not in this program, or

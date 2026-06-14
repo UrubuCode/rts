@@ -44,6 +44,23 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return self.lower_logical(module, op, lhs, rhs);
         }
 
+        // `x instanceof C` (P5.3). swc collapses `instanceof`/`in`/etc onto
+        // `HirBinOp::Unsupported`; we only treat it as instanceof when the RHS is a
+        // bare identifier naming a class the engine can check (a user class, or a
+        // runtime/Registry class Map/Set/Error-family/Array). That keeps `"k" in o`
+        // (rhs not a class ident) safely bailed — never a wrong instanceof.
+        if matches!(op, HirBinOp::Unsupported) {
+            if let rts_hir::ir::HirExprKind::Ident(class) = &rhs.kind {
+                if let Some(val) = self.try_instanceof(module, lhs, class)? {
+                    return Ok(val);
+                }
+            }
+            return unsupported!(
+                "binary operator (other) — `instanceof`/`in`/unmapped op (rhs is not an \
+                 engine-checkable class)"
+            );
+        }
+
         // A WHOLE object/array operand needs JS ToPrimitive (`[1]+[2]` → `"12"`,
         // `[]+{}` → `"[object Object]"`, with array `.join(",")` coercion) — a
         // later increment. Bail rather than emit the runtime ToString, which

@@ -107,6 +107,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.bind_tagged_local(name, val);
                 Some(HeapShape::Array)
             }
+            // `let m = new Map()` / `new Set()` / `new Error(..)` / wrapper (P5.3):
+            // a RUNTIME/Registry class instance. Record its static class in
+            // `global_instance_classes` so `m.method()` / `m instanceof C` dispatch.
+            HirExprKind::New { class, args } if self.is_global_class_ctor(class) => {
+                let (val, class_name) = self.lower_new_global_class(module, class, args)?;
+                self.bind_tagged_local(name, val);
+                self.global_instance_classes.insert(name.to_string(), class_name);
+                // No object FIELD shape (the instance is an opaque runtime handle);
+                // return early so the generic `let` tail does not run.
+                return Ok(());
+            }
             // `let c = new C(args)`: build the instance, record the local's CLASS
             // (for static `c.method()` dispatch) and OBJECT shape (for `c.field`).
             HirExprKind::New { class, args } => {
@@ -144,6 +155,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // local being re-`let`, drop the stale shape/class (its value is now opaque).
         self.local_shapes.remove(name);
         self.local_classes.remove(name);
+        self.global_instance_classes.remove(name);
         Ok(())
     }
 
@@ -185,6 +197,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // a later `name.key`/`name.method()` does NOT resolve against the old layout.
         self.local_shapes.remove(&name);
         self.local_classes.remove(&name);
+        self.global_instance_classes.remove(&name);
         Ok(Val::new(coerced, local.repr))
     }
 

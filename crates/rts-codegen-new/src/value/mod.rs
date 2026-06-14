@@ -115,6 +115,12 @@ pub mod arraycb;
 // Number/String/Boolean/parseInt/parseFloat/isNaN/isFinite + Array.isArray/of/from
 // + Array(n) + String.fromCharCode/fromCodePoint + str.split (PolyValue-native).
 pub mod globalops;
+// Codegen-owned Map/Set instance trampolines (P5.3): PolyValue-native new/get/set/
+// has/delete/clear/size + add, over the REAL collections MAP_*/SET_* symbols.
+pub mod mapset;
+// Codegen-owned Error-family + Boolean/Number/String wrapper constructors, Error
+// instance props, and `instanceof` runtime tags (P5.3).
+pub mod wrappers;
 // The Cranelift IR that marshals at the real-symbol call boundaries
 // (box/unbox + StrPtr ptr+len).
 pub mod emit_marshal;

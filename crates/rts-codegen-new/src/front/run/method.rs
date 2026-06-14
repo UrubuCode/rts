@@ -51,6 +51,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return self.try_static_method(module, &class, method, args).map(Some);
         }
 
+        // RUNTIME/Registry-class instance receiver (P5.3): a `new Map()`/`Set()`/
+        // `Error(..)` instance (direct or a recorded local). Dispatch through the
+        // global-class metadata table. `Ok(None)` ⇒ not such an instance.
+        if let Some(val) = self.try_global_class_method(module, object, method, args)? {
+            return Ok(Some(val));
+        }
+
         // CLASS-INSTANCE receiver (P4.9): a receiver whose class is statically
         // known (`new C()`, a local recorded in `local_classes`, or `this`).
         // Resolve the method on that class at COMPILE TIME and emit a direct call

@@ -27,6 +27,7 @@ mod call;
 mod class;
 mod expr;
 mod funcval;
+mod globalclass;
 mod globals;
 mod method;
 mod method_array;
@@ -124,22 +125,21 @@ fn build_program(src: &str) -> FrontResult<LoweredProgram> {
     // Map each synthesized constructor/method fn name → its class (for `this`).
     let mut fn_this_class: std::collections::HashMap<String, String> =
         std::collections::HashMap::new();
-    for c in &class_decls {
-        if let Some(desc) = classes.get(&c.name) {
-            fn_this_class.insert(desc.ctor.clone(), desc.name.clone());
-            // Bind `this` for every instance method + accessor to the class on
-            // which it is SYNTHESIZED (the function names encode that class). A
-            // method/accessor inherited unchanged keeps its declaring class's
-            // `this` (its body references its OWN class's fields — which sit at the
-            // same flattened slots in the child, so the binding is sound either
-            // way). We register own fns by reconstructing their names from `c`.
-            for fn_name in desc.methods.values() {
+    // Iterate every collected descriptor — user-declared AND synthesized virtual
+    // builtin-error parents (P5.3), whose ctor/toString also bind `this`.
+    for desc in classes.iter() {
+        fn_this_class.insert(desc.ctor.clone(), desc.name.clone());
+        // Bind `this` for every instance method + accessor to the class on
+        // which it is SYNTHESIZED (the function names encode that class). A
+        // method/accessor inherited unchanged keeps its declaring class's
+        // `this` (its body references its OWN class's fields — which sit at the
+        // same flattened slots in the child, so the binding is sound either way).
+        for fn_name in desc.methods.values() {
+            fn_this_class.entry(fn_name.clone()).or_insert(desc.name.clone());
+        }
+        for acc in desc.accessors.values() {
+            for fn_name in [acc.getter.as_ref(), acc.setter.as_ref()].into_iter().flatten() {
                 fn_this_class.entry(fn_name.clone()).or_insert(desc.name.clone());
-            }
-            for acc in desc.accessors.values() {
-                for fn_name in [acc.getter.as_ref(), acc.setter.as_ref()].into_iter().flatten() {
-                    fn_this_class.entry(fn_name.clone()).or_insert(desc.name.clone());
-                }
             }
         }
     }

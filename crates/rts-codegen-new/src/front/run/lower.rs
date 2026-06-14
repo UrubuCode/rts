@@ -101,6 +101,13 @@ impl Val {
     pub(crate) fn tagged_kind(v: Value, kind: JsKind) -> Val {
         Val { v, repr: Repr::Tagged, kind }
     }
+
+    /// A value carrying an explicit repr AND an explicit proven kind (used where a
+    /// runtime trampoline returns a Tagged word whose JS kind the lowering knows —
+    /// e.g. a Map `.size` is a number, an Error `.message` is a string).
+    pub(crate) fn new_with_kind(v: Value, repr: Repr, kind: JsKind) -> Val {
+        Val { v, repr, kind }
+    }
 }
 
 /// A local binding: its Cranelift variable + the repr it holds. A local has a
@@ -136,6 +143,11 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// (a `new C()` result, a `: C`-annotated param, or `this` inside a method).
     /// Drives static `instance.method(args)` dispatch; absent ⇒ method calls bail.
     pub local_classes: HashMap<String, String>,
+    /// Name → the statically-known RUNTIME/Registry class of a local holding a
+    /// `new Map()`/`new Set()`/`new Error()`/… instance (P5.3). Distinct from
+    /// `local_classes` (user classes): these dispatch through the global-class
+    /// metadata table, not the user `ClassTable`.
+    pub global_instance_classes: HashMap<String, String>,
     /// Interns object-literal shapes (compile-time key→slot maps) for this fn.
     pub shapes: ShapeTable,
     /// The function's return repr, or `None` for a `void` body (`__rtsn_main`).
@@ -178,6 +190,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             locals: HashMap::new(),
             local_shapes: HashMap::new(),
             local_classes: HashMap::new(),
+            global_instance_classes: HashMap::new(),
             shapes: ShapeTable::new(),
             ret: sig.ret,
             block_terminated: false,
