@@ -163,6 +163,49 @@ error slot).
 
 Detailed spec: `docs/specs/async-promise-function.md`.
 
+### Async é PARALELO de verdade (e o que isso implica) — #1556
+
+`promise.create` faz `rt.spawn_blocking(corpo + settle)`: o corpo da `async
+function` roda numa **worker thread tokio**, não no thread principal. Disparar N
+async fns antes de `await` = N corpos rodando em **paralelo real** (4 tarefas
+CPU-bound isoladas ≈ tempo de 1; ~4× o Node, que serializa async no event loop
+single-thread). `await` = `promise.wait` **bloqueia** a thread chamadora.
+
+**Consequência (trade-off do modelo atual):** dois corpos async que mutam o
+MESMO estado do heap em paralelo dão **data race** — é o mesmo motivo pelo qual
+V8/libuv escolheram event loop single-thread (heap JS sem lock por objeto). No
+RTS o lock do shard da `HandleTable` já serializa o acesso a cada `Entry`, mas
+**não** torna atômica uma sequência composta: `shared[0] = shared[0] + 1`
+compilava para `VEC_GET` + `VEC_SET` (duas chamadas extern, lock do shard SOLTO
+entre elas) → read-modify-write não-atômico → incrementos perdidos, resultado
+errado e não-determinístico (não crasha — pior tipo de bug).
+
+**Fix entregue: atomic-rmw-intrinsic.** O codegen reconhece `arr[i] OP= expr` e
+`arr[i] = arr[i] OP expr` (índice trivial; operando não relê o slot) e emite UMA
+chamada `__RTS_FN_NS_COLLECTIONS_VEC_RMW` (read+op+write dentro de uma só closure
+`with_vec_mut` — um lock, sem janela). Idem `MAP_RMW_KH`. Corrige o race E é ~6×
+mais rápido no caso afetado (colapsa 2 locks+2 calls em 1); Monte Carlo intocado.
+
+**ARMADILHA crítica para quem for mexer nisto (não repita):** NÃO conserte o race
+segurando um `MutexGuard` de shard através de DUAS calls (lock-por-objeto,
+reentrant lock, shard-lock amplification). O GC scanner faz
+`SuspendThread(worker)` e SÓ DEPOIS trava shards
+(`gc/collector/scan.rs:120-159` → `handles.rs` `mark_handle`/`sweep`). Se o GC
+suspende uma worker que segura o guard e depois tenta travar o mesmo shard →
+**deadlock permanente**. Qualquer abordagem de sincronismo que segure lock de
+heap por uma janela arbitrária colide com isso. A regra: o lock do shard só pode
+viver dentro de UMA closure `with_entry`/`with_entry_mut`, nunca atravessar duas
+chamadas nem uma user-fn.
+
+**Cobertura honesta do fix:** cobre `OP=` e `= self OP expr` com operador
+primitivo e índice trivial (int+float, Vec+Map string-key). NÃO cobre
+`arr[i]=f(arr[i])` (user-fn sob lock = deadlock — fora de escopo por design),
+`m[a]+=m[b]` (2 slots), `arr[idx()]` (índice com efeito) — caem no fall-through e
+seguem racy, sem fingir resolver. A correção geral (event loop serializando
+callbacks, paralelismo só explícito no pool) é #207.
+
+Detailed spec: `docs/specs/async-rmw-atomic.md`.
+
 ## Regression discipline
 
 Review `MANDATORY RULE: REGRESS WHEN NECESSARY (EXPLICITLY)` in `00-meta.md`.
