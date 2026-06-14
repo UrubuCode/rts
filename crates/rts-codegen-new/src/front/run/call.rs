@@ -408,7 +408,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // The rest-param index relative to the USER params (after dropping `this`).
         match sig.rest_param.map(|r| r - pi) {
             None => {
-                if args.len() != user_params.len() {
+                // Too many positional args (no rest to absorb them) → bail.
+                if args.len() > user_params.len() {
                     return unsupported!(
                         "call to `{}` expects {} args, got {}",
                         sig.name,
@@ -416,38 +417,60 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                         args.len()
                     );
                 }
-                for (a, &want) in args.iter().zip(user_params) {
-                    if matches!(a.kind, HirExprKind::Spread(_)) {
-                        return unsupported!("spread arg into `{}` (later increment)", sig.name);
+                for (i, &want) in user_params.iter().enumerate() {
+                    if i < args.len() {
+                        let a = &args[i];
+                        if matches!(a.kind, HirExprKind::Spread(_)) {
+                            return unsupported!("spread arg into `{}` (later increment)", sig.name);
+                        }
+                        let v = self.lower_expr(module, a)?;
+                        out.push(self.coerce(v, want)?);
+                    } else if sig.fillable[pi + i] {
+                        // An omitted FILLABLE trailing param (optional or defaulted):
+                        // pass `undefined`. For a defaulted param, the callee prologue
+                        // replaces this `undefined` with the default (correct scoping);
+                        // for an optional param the body sees `undefined` directly.
+                        out.push(self.undefined_coerced(want)?);
+                    } else {
+                        return unsupported!(
+                            "call to `{}` missing required arg {}",
+                            sig.name,
+                            i
+                        );
                     }
-                    let v = self.lower_expr(module, a)?;
-                    out.push(self.coerce(v, want)?);
                 }
             }
             Some(ru) => {
-                // `ru` = number of FIXED user params before the rest param; the call
-                // must supply at least that many positional args.
-                if args.len() < ru {
-                    return unsupported!(
-                        "call to `{}` expects at least {} args, got {}",
-                        sig.name,
-                        ru,
-                        args.len()
-                    );
-                }
+                // `ru` = number of FIXED user params before the rest param. A FIXED
+                // param may be fillable (optional/defaulted) and omitted; a required
+                // one omitted bails.
                 for i in 0..ru {
-                    if matches!(args[i].kind, HirExprKind::Spread(_)) {
-                        return unsupported!("spread arg into `{}` (later increment)", sig.name);
+                    if i < args.len() {
+                        if matches!(args[i].kind, HirExprKind::Spread(_)) {
+                            return unsupported!("spread arg into `{}` (later increment)", sig.name);
+                        }
+                        let v = self.lower_expr(module, &args[i])?;
+                        out.push(self.coerce(v, user_params[i])?);
+                    } else if sig.fillable[pi + i] {
+                        out.push(self.undefined_coerced(user_params[i])?);
+                    } else {
+                        return unsupported!(
+                            "call to `{}` expects at least {} args, got {}",
+                            sig.name,
+                            ru,
+                            args.len()
+                        );
                     }
-                    let v = self.lower_expr(module, &args[i])?;
-                    out.push(self.coerce(v, user_params[i])?);
                 }
                 // Pack the remaining args into a fresh REST array (a `TAG_OBJECT`
                 // word over an `Entry::Vec` — the array param's `xs[i]`/`xs.length`
                 // lower against it via the F3a array-shape path). Empty tail → an
                 // empty array (`xs.length === 0`).
                 let arr = emit_marshal::emit_new_vec_object(module, self.builder);
-                for a in &args[ru..] {
+                // When some fixed params were filled (args.len() < ru) the rest tail
+                // is empty; clamp the slice start so `&args[ru..]` cannot panic.
+                let tail_start = ru.min(args.len());
+                for a in &args[tail_start..] {
                     // A spread of a PROVEN array contributes all its elements to the
                     // rest array (reusing the array-literal `[...src]` append path:
                     // `__rtsadp_arr_spread_append(dst, src)` walks the src Vec and
@@ -477,6 +500,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
         }
         Ok(out)
+    }
+
+    /// An `undefined` PolyValue word coerced to `target` (for an omitted fillable
+    /// arg). `target` is `Tagged` for any fillable param (set in [`FnSig::of_func`]),
+    /// so the coerce is a no-op; the helper stays general for safety.
+    fn undefined_coerced(&mut self, target: Repr) -> FrontResult<Value> {
+        let w = self
+            .builder
+            .ins()
+            .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
+        self.coerce(Val::tagged_kind(w, JsKind::Undefined), target)
     }
 
     /// Lower a cross-function call: coerce each argument to the callee's param

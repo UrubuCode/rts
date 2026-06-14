@@ -261,21 +261,27 @@ fn build_ctor(
         Some(c) => {
             let mut ps = Vec::new();
             for p in &c.parameters {
-                // A REST param (`...xs`) is allowed (F3b); only a DEFAULTED param is
-                // a later increment (needs rts-hir default threading).
-                if p.default.is_some() {
-                    return Err(Unsupported::new(format!(
-                        "constructor of `{}` uses a defaulted parameter",
-                        decl.name
-                    )));
-                }
+                // REST (`...xs`, F3b) and DEFAULTED (`y = expr`, F3c) params are both
+                // allowed. The default initializer is lowered in the param scope
+                // (earlier params already defined) so the callee prologue can fill it.
                 let ty = p
                     .type_annotation
                     .as_deref()
                     .map(rts_hir::lower::parse_type_annotation)
                     .unwrap_or(HirType::Unknown);
                 scope.define(&p.name, ty.clone());
-                ps.push(HirParam { name: p.name.clone(), ty, variadic: p.variadic, has_default: false, optional: false, default_expr: None });
+                let default_expr = p
+                    .default
+                    .as_ref()
+                    .map(|e| Box::new(rts_hir::lower::lower_swc_expr(e, &scope)));
+                ps.push(HirParam {
+                    name: p.name.clone(),
+                    ty,
+                    variadic: p.variadic,
+                    has_default: p.default.is_some(),
+                    optional: p.optional,
+                    default_expr,
+                });
             }
             (ps, None)
         }
@@ -397,7 +403,9 @@ fn synth_method(
 /// Synthesize a method-shaped fn under an explicit `fn_name` (used for methods,
 /// getters, setters — all `this`-first instance functions).
 fn synth_method_named(
-    decl: &ClassDecl,
+    // `decl` is no longer read inside (the defaulted-param bail that used `decl.name`
+    // is gone — defaults are now threaded); `fn_name` already carries the class name.
+    _decl: &ClassDecl,
     md: &MethodDecl,
     parent: Option<&ClassDesc>,
     with_this: bool,
@@ -406,20 +414,25 @@ fn synth_method_named(
     let mut scope = Scope::new();
     let mut params: Vec<HirParam> = if with_this { vec![this_param()] } else { Vec::new() };
     for p in &md.parameters {
-        // A REST param (`...xs`) is allowed (F3b); only a DEFAULTED param bails.
-        if p.default.is_some() {
-            return Err(Unsupported::new(format!(
-                "method `{}.{}` uses a defaulted parameter",
-                decl.name, md.name
-            )));
-        }
+        // REST (`...xs`, F3b) and DEFAULTED (`y = expr`, F3c) params both allowed.
         let ty = p
             .type_annotation
             .as_deref()
             .map(rts_hir::lower::parse_type_annotation)
             .unwrap_or(HirType::Unknown);
         scope.define(&p.name, ty.clone());
-        params.push(HirParam { name: p.name.clone(), ty, variadic: p.variadic, has_default: false, optional: false, default_expr: None });
+        let default_expr = p
+            .default
+            .as_ref()
+            .map(|e| Box::new(rts_hir::lower::lower_swc_expr(e, &scope)));
+        params.push(HirParam {
+            name: p.name.clone(),
+            ty,
+            variadic: p.variadic,
+            has_default: p.default.is_some(),
+            optional: p.optional,
+            default_expr,
+        });
     }
     // A setter returns nothing (its call is a statement); model it `Void` so the
     // sig is value-less and a fall-through body is well-formed.
@@ -443,20 +456,25 @@ fn synth_static_method(decl: &ClassDecl, md: &MethodDecl) -> FrontResult<HirFunc
     let mut scope = Scope::new();
     let mut params: Vec<HirParam> = Vec::new();
     for p in &md.parameters {
-        // A REST param (`...xs`) is allowed (F3b); only a DEFAULTED param bails.
-        if p.default.is_some() {
-            return Err(Unsupported::new(format!(
-                "static method `{}.{}` uses a defaulted parameter",
-                decl.name, md.name
-            )));
-        }
+        // REST (`...xs`, F3b) and DEFAULTED (`y = expr`, F3c) params both allowed.
         let ty = p
             .type_annotation
             .as_deref()
             .map(rts_hir::lower::parse_type_annotation)
             .unwrap_or(HirType::Unknown);
         scope.define(&p.name, ty.clone());
-        params.push(HirParam { name: p.name.clone(), ty, variadic: p.variadic, has_default: false, optional: false, default_expr: None });
+        let default_expr = p
+            .default
+            .as_ref()
+            .map(|e| Box::new(rts_hir::lower::lower_swc_expr(e, &scope)));
+        params.push(HirParam {
+            name: p.name.clone(),
+            ty,
+            variadic: p.variadic,
+            has_default: p.default.is_some(),
+            optional: p.optional,
+            default_expr,
+        });
     }
     let ret = md
         .return_type

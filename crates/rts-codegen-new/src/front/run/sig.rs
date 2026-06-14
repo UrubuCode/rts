@@ -39,6 +39,14 @@ pub struct FnSig {
     /// when the function has a fixed arity. Call sites consult this to pack a call's
     /// trailing args into a fresh array (F3b).
     pub rest_param: Option<usize>,
+    /// Per-param FILLABILITY, parallel to [`Self::params`] (FULL index, including a
+    /// leading `this` for methods/constructors). `fillable[i]` is `true` iff that
+    /// param is OMITTABLE — optional (`x?`) OR has a default (`y = expr`). A
+    /// fillable trailing arg may be left out at the call site (`marshal_call_args`
+    /// pushes `undefined`); `this` and the rest param are never fillable. A fillable
+    /// param is always carried `Tagged` (it can hold `undefined` / a default of any
+    /// type), set in [`Self::of_func`].
+    pub fillable: Vec<bool>,
 }
 
 impl FnSig {
@@ -47,10 +55,26 @@ impl FnSig {
     /// The return follows the same rule (a non-numeric / `Unknown` return — which
     /// is what an inferred-from-`console.log` body produces — becomes `Tagged`).
     pub fn of_func(func: &HirFunc) -> FnSig {
+        // A param that is OPTIONAL or has a DEFAULT is omittable → fillable, and is
+        // carried `Tagged` (it can hold `undefined` or a default of any type — the
+        // `??`/undefined-fill machinery needs the boxed word). The `this`/rest params
+        // are never marked fillable here (the rest param is detected below, and a
+        // `this` synthesized param carries no `optional`/`has_default`).
+        let fillable: Vec<bool> = func
+            .params
+            .iter()
+            .map(|p| p.optional || p.has_default)
+            .collect();
         let params: Vec<Repr> = func
             .params
             .iter()
-            .map(|p| repr_for_param(&p.ty))
+            .map(|p| {
+                if p.optional || p.has_default {
+                    Repr::Tagged
+                } else {
+                    repr_for_param(&p.ty)
+                }
+            })
             .collect();
         // A trailing REST parameter (`...items`). TS requires the rest param to be
         // LAST; a valid program never has a non-last variadic. We detect ONLY the
@@ -78,6 +102,7 @@ impl FnSig {
                 ret: None,
                 is_async: func.is_async,
                 rest_param,
+                fillable,
             };
         }
         // The declared return repr — trusted in general (an explicit `boolean` /
@@ -114,12 +139,12 @@ impl FnSig {
         if ret != Repr::Tagged && func.params.iter().any(|p| repr_for_param(&p.ty) == Repr::Tagged) {
             ret = Repr::Tagged;
         }
-        FnSig { name: func.name.clone(), params, ret: Some(ret), is_async: func.is_async, rest_param }
+        FnSig { name: func.name.clone(), params, ret: Some(ret), is_async: func.is_async, rest_param, fillable }
     }
 
     /// The synthesized top-level `__rtsn_main`: no params, no return.
     pub fn main_sig() -> FnSig {
-        FnSig { name: "__rtsn_main".to_string(), params: Vec::new(), ret: None, is_async: false, rest_param: None }
+        FnSig { name: "__rtsn_main".to_string(), params: Vec::new(), ret: None, is_async: false, rest_param: None, fillable: Vec::new() }
     }
 
     /// Build the Cranelift `Signature` for this function under the host call conv.

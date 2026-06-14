@@ -302,3 +302,46 @@ fn spread_into_rest_method() {
         "9\n",
     );
 }
+
+#[test]
+fn default_param_function() {
+    assert_stdout(
+        r#"function f(x: number, y: number = 10): number { return x + y; }
+           console.log(f(5), f(5, 1), f(5, undefined));"#,
+        "15 6 15\n",
+    );
+}
+
+#[test]
+fn optional_param_omitted() {
+    assert_stdout(
+        r#"function g(x?: number): number { return x ?? -1; }
+           console.log(g(5), g());"#,
+        "5 -1\n",
+    );
+}
+
+#[test]
+fn default_param_constructor() {
+    assert_stdout(
+        r#"class Box {
+              #v: number[] = [];
+              constructor(n: number = 3) { for (let i = 0; i < n; i++) this.#v.push(i); }
+              size(): number { return this.#v.length; }
+           }
+           console.log(new Box().size(), new Box(5).size());"#,
+        "3 5\n",
+    );
+}
+
+#[test]
+fn default_param_method() {
+    assert_stdout(
+        r#"class Greeter {
+              greet(times: number = 2): number { return times * 10; }
+           }
+           let g = new Greeter();
+           console.log(g.greet(), g.greet(5));"#,
+        "20 50\n",
+    );
+}

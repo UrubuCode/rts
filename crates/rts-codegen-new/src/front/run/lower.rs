@@ -285,6 +285,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
         }
 
+        // DEFAULT-PARAM PROLOGUE (callee-side): for each user param with a default
+        // initializer, replace an `undefined` argument with the default. Runs in the
+        // CALLEE scope (earlier params are already bound — correct JS semantics) and
+        // for plain functions, methods, AND constructors (all reach here).
+        ctx.fill_default_params(module, func)?;
+
         ctx.lower_block(module, &func.body)?;
 
         // A void main may fall off the end — emit the trailing `return`. A
@@ -301,6 +307,70 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     );
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Emit the default-param prologue: for each user param with a DEFAULT
+    /// initializer, replace an `undefined` value with the lowered default. JS fires a
+    /// default ONLY on `undefined` (NOT `null`), so we test the param word against the
+    /// `undefined` singleton only. Uses the same block structure as
+    /// [`Self::lower_nullish_coalesce`]: a guarded merge where the param Variable is
+    /// `def_var`'d to the default on the undefined branch and kept otherwise; both
+    /// paths jump to a fresh open block so body lowering resumes normally.
+    ///
+    /// The default is lowered in the CALLEE scope (earlier params bound), coerced to
+    /// the param's repr (`Tagged` for any fillable param), and stored back into the
+    /// param's Variable, so the body reads the resolved value on every path.
+    fn fill_default_params(
+        &mut self,
+        module: &mut dyn Module,
+        func: &HirFunc,
+    ) -> FrontResult<()> {
+        for p in &func.params {
+            let default = match &p.default_expr {
+                Some(e) => e,
+                None => continue,
+            };
+            let local = match self.local(&p.name) {
+                Some(l) => l,
+                None => continue,
+            };
+            // Current param value as a PolyValue word (a fillable param is Tagged, so
+            // this is already the boxed word — `box_value` is a no-op on Tagged).
+            let cur = self.builder.use_var(local.var);
+            let cur_word = self.box_value(Val::new(cur, local.repr));
+
+            let undef_w = self
+                .builder
+                .ins()
+                .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
+            let is_undef = self.builder.ins().icmp(
+                cranelift_codegen::ir::condcodes::IntCC::Equal,
+                cur_word,
+                undef_w,
+            );
+
+            let fill_blk = self.builder.create_block();
+            let join_blk = self.builder.create_block();
+            self.builder.ins().brif(is_undef, fill_blk, &[], join_blk, &[]);
+
+            // undefined → lower the default, coerce to the param repr, store it.
+            self.builder.switch_to_block(fill_blk);
+            self.builder.seal_block(fill_blk);
+            let dv = self.lower_expr(module, default)?;
+            let coerced = self.coerce(dv, local.repr)?;
+            self.builder.def_var(local.var, coerced);
+            // The default lowering may itself branch (e.g. `??` in the initializer);
+            // only jump from the CURRENT block if it is still open.
+            if !self.block_terminated {
+                self.builder.ins().jump(join_blk, &[]);
+            }
+            self.block_terminated = false;
+
+            // present → keep the param value (already in the Variable); continue.
+            self.builder.switch_to_block(join_blk);
+            self.builder.seal_block(join_blk);
         }
         Ok(())
     }
