@@ -10,6 +10,7 @@ pub mod async_expand;
 pub mod box_captures;
 pub mod custom_iterator;
 pub mod destructuring;
+pub mod escape;
 pub mod hoist_fn;
 pub mod native_addon;
 pub mod object_methods;

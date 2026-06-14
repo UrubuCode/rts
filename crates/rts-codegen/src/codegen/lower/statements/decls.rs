@@ -1000,6 +1000,43 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
             }
         }
 
+        // (RTS_ARRAY_INLINE) Array nativo: a escape analysis qualificou esta
+        // var como array local nao-escapante de tamanho fixo. Em vez de
+        // VEC_NEW + declare_local(Handle), aloca um StackSlot e inicializa os
+        // slots direto. `arr[i]` (read/write/RMW) e' interceptado pelos fast
+        // paths em members.rs/mod.rs via `ctx.native_arrays`. So' fora de
+        // module_scope (top-level e' follow-up) e quando o init e' EXATAMENTE
+        // a alocacao candidata (re-checa aqui — defensivo).
+        if !ctx.module_scope {
+            if let Some(&(len, elem_is_float)) =
+                ctx.native_array_candidates.get(name.as_str())
+            {
+                if let Some(init) = decl.init.as_ref() {
+                    if try_lower_native_array_decl(ctx, &name, init, len, elem_is_float)? {
+                        // Registra um local sentinela (I64) com o nome do array
+                        // pra que `var_ty`/`find_local` nao retornem None caso
+                        // algo consulte o nome fora do fast-path (a escape
+                        // analysis garante que nao ha leitura-de-valor, mas
+                        // mantemos a invariante de que vars declaradas existem).
+                        let sentinel = ctx.builder.ins().iconst(
+                            cranelift_codegen::ir::types::I64,
+                            0,
+                        );
+                        let is_const = matches!(var_decl.kind, VarDeclKind::Const);
+                        let function_scope = matches!(var_decl.kind, VarDeclKind::Var);
+                        ctx.declare_local_kind(
+                            &name,
+                            ValTy::I64,
+                            sentinel,
+                            is_const,
+                            function_scope,
+                        );
+                        continue;
+                    }
+                }
+            }
+        }
+
         let (init_val, inferred_ty) = if let Some(init) = &decl.init {
             let tv = lower_expr(ctx, init)?;
             (tv.val, tv.ty)
@@ -1136,6 +1173,83 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
         }
     }
     Ok(false)
+}
+
+/// (RTS_ARRAY_INLINE) Aloca o StackSlot do array nativo `name` e inicializa.
+/// Retorna `Ok(true)` quando tratou (init era literal/new Array reconhecido);
+/// `Ok(false)` quando o init nao casou (fall-through ao caminho atual — nao
+/// deveria acontecer pois `candidate_info` ja validou, mas defensivo).
+fn try_lower_native_array_decl(
+    ctx: &mut FnCtx,
+    name: &str,
+    init: &swc_ecma_ast::Expr,
+    len: usize,
+    elem_is_float: bool,
+) -> Result<bool> {
+    use cranelift_codegen::ir::MemFlags;
+    fn peel(e: &swc_ecma_ast::Expr) -> &swc_ecma_ast::Expr {
+        match e {
+            swc_ecma_ast::Expr::Paren(p) => peel(&p.expr),
+            swc_ecma_ast::Expr::TsAs(a) => peel(&a.expr),
+            swc_ecma_ast::Expr::TsConstAssertion(a) => peel(&a.expr),
+            swc_ecma_ast::Expr::TsNonNull(a) => peel(&a.expr),
+            swc_ecma_ast::Expr::TsTypeAssertion(a) => peel(&a.expr),
+            swc_ecma_ast::Expr::TsSatisfies(a) => peel(&a.expr),
+            _ => e,
+        }
+    }
+    let elem_ty = if elem_is_float { ValTy::F64 } else { ValTy::I64 };
+    let _slot = ctx.alloc_native_array(name, len as i64, elem_ty);
+    let storage = *ctx
+        .native_arrays
+        .get(name)
+        .ok_or_else(|| anyhow!("native array `{name}` nao registrado"))?;
+    let ptr_ty = ctx.module.isa().pointer_type();
+
+    match peel(init) {
+        swc_ecma_ast::Expr::Array(arr) => {
+            // Store cada elemento literal. Float => bits-f64. O conjunto de
+            // elementos foi validado por `candidate_info` (sem holes/spread).
+            for (i, el) in arr.elems.iter().enumerate() {
+                let Some(el) = el else { return Ok(false) };
+                let tv = lower_expr(ctx, &el.expr)?;
+                let store_val = if elem_is_float {
+                    let f = ctx.coerce_to_f64(tv).val;
+                    ctx.builder
+                        .ins()
+                        .bitcast(cl::I64, MemFlags::new(), f)
+                } else {
+                    ctx.coerce_to_i64(tv).val
+                };
+                let base = ctx.builder.ins().stack_addr(ptr_ty, storage.slot, 0);
+                let off_v = ctx.builder.ins().iconst(ptr_ty, (i * 8) as i64);
+                let addr = ctx.builder.ins().iadd(base, off_v);
+                ctx.builder
+                    .ins()
+                    .store(MemFlags::trusted(), store_val, addr, 0);
+            }
+            Ok(true)
+        }
+        swc_ecma_ast::Expr::New(_) => {
+            // `new Array(N)` — JS deixa holes (=undefined). Para a fatia
+            // numerica, zeramos os slots (0 = default lido pelo read fast path).
+            let zero = ctx.builder.ins().iconst(cl::I64, 0);
+            for i in 0..len {
+                let base = ctx.builder.ins().stack_addr(ptr_ty, storage.slot, 0);
+                let off_v = ctx.builder.ins().iconst(ptr_ty, (i * 8) as i64);
+                let addr = ctx.builder.ins().iadd(base, off_v);
+                ctx.builder
+                    .ins()
+                    .store(MemFlags::trusted(), zero, addr, 0);
+            }
+            Ok(true)
+        }
+        _ => {
+            // Init nao reconhecido — remove o registro (volta ao caminho atual).
+            ctx.native_arrays.remove(name);
+            Ok(false)
+        }
+    }
 }
 
 pub(super) fn ts_type_to_val_ty(ty: &swc_ecma_ast::TsType) -> Option<ValTy> {

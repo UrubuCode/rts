@@ -514,6 +514,126 @@ fn rmw_expr_reads_slot(e: &Expr, arr: &Expr, idx: &Expr) -> bool {
     }
 }
 
+/// (RTS_ARRAY_INLINE) Emite `arr[idx] OP= operand` num array nativo: load do
+/// slot; aplica `binop` em Cranelift IR (sem call apply_rmw); store; devolve o
+/// NOVO valor. Suporta as ops i64 (add/sub/mul/sdiv/srem/and/or/xor/shl/shr/
+/// ushr) e f64 (add/sub/mul/div) quando o array eh float. Retorna `Ok(None)`
+/// quando a op nao eh suportada (fall-through ao caminho atual).
+fn try_emit_native_array_rmw(
+    ctx: &mut FnCtx,
+    storage: crate::codegen::lower::ctx::NativeArrayStorage,
+    idx_expr: &Expr,
+    operand_expr: &Expr,
+    binop: BinaryOp,
+) -> Result<Option<TypedVal>> {
+    use cranelift_codegen::ir::condcodes::IntCC;
+    use cranelift_codegen::ir::{MemFlags, types as cl};
+
+    let float_mode = matches!(storage.elem_ty, ValTy::F64);
+    // Confirma op suportada (reusa o gate do VEC_RMW: codes 0..=10 int, 16..=19 float).
+    if rmw_op_code(binop, float_mode).is_none() {
+        return Ok(None);
+    }
+
+    let idx_tv = lower_expr(ctx, idx_expr)?;
+    let idx = ctx.coerce_to_i64(idx_tv).val;
+
+    let ptr_ty = ctx.module.isa().pointer_type();
+    let len_v = ctx.builder.ins().iconst(cl::I64, storage.len);
+    let zero = ctx.builder.ins().iconst(cl::I64, 0);
+    let in_bounds = ctx
+        .builder
+        .ins()
+        .icmp(IntCC::UnsignedLessThan, idx, len_v);
+    let safe_idx = ctx.builder.ins().select(in_bounds, idx, zero);
+    let base = ctx.builder.ins().stack_addr(ptr_ty, storage.slot, 0);
+    let off = ctx.builder.ins().imul_imm(safe_idx, 8);
+    let off = if ptr_ty == cl::I32 {
+        ctx.builder.ins().ireduce(cl::I32, off)
+    } else {
+        off
+    };
+    let addr = ctx.builder.ins().iadd(base, off);
+    let cur_raw = ctx
+        .builder
+        .ins()
+        .load(cl::I64, MemFlags::trusted(), addr, 0);
+
+    // operand.
+    let operand_tv = lower_expr(ctx, operand_expr)?;
+
+    let new_i64 = if float_mode {
+        // cur_raw guarda bits de f64.
+        let cur_f = ctx
+            .builder
+            .ins()
+            .bitcast(cl::F64, MemFlags::new(), cur_raw);
+        let op_f = to_f64(ctx, operand_tv);
+        let res_f = match binop {
+            BinaryOp::Add => ctx.builder.ins().fadd(cur_f, op_f),
+            BinaryOp::Sub => ctx.builder.ins().fsub(cur_f, op_f),
+            BinaryOp::Mul => ctx.builder.ins().fmul(cur_f, op_f),
+            BinaryOp::Div => ctx.builder.ins().fdiv(cur_f, op_f),
+            _ => return Ok(None),
+        };
+        ctx.builder.ins().bitcast(cl::I64, MemFlags::new(), res_f)
+    } else {
+        let op_i = ctx.coerce_to_i64(operand_tv).val;
+        match binop {
+            BinaryOp::Add => ctx.builder.ins().iadd(cur_raw, op_i),
+            BinaryOp::Sub => ctx.builder.ins().isub(cur_raw, op_i),
+            BinaryOp::Mul => ctx.builder.ins().imul(cur_raw, op_i),
+            BinaryOp::Div => {
+                // Divisao por zero em JS = Infinity/NaN; em RTS o slot eh i64.
+                // Guarda contra trap: divisor 0 -> resultado 0 (mantem caminho
+                // sem crash). Raro em arrays de inteiros.
+                let dz = ctx.builder.ins().icmp_imm(IntCC::Equal, op_i, 0);
+                let safe_div = ctx.builder.ins().select(dz, len_v, op_i); // !=0
+                let q = ctx.builder.ins().sdiv(cur_raw, safe_div);
+                ctx.builder.ins().select(dz, zero, q)
+            }
+            BinaryOp::Mod => {
+                let dz = ctx.builder.ins().icmp_imm(IntCC::Equal, op_i, 0);
+                let safe_div = ctx.builder.ins().select(dz, len_v, op_i);
+                let r = ctx.builder.ins().srem(cur_raw, safe_div);
+                ctx.builder.ins().select(dz, zero, r)
+            }
+            BinaryOp::BitAnd => ctx.builder.ins().band(cur_raw, op_i),
+            BinaryOp::BitOr => ctx.builder.ins().bor(cur_raw, op_i),
+            BinaryOp::BitXor => ctx.builder.ins().bxor(cur_raw, op_i),
+            BinaryOp::LShift => {
+                let sh = ctx.builder.ins().band_imm(op_i, 63);
+                ctx.builder.ins().ishl(cur_raw, sh)
+            }
+            BinaryOp::RShift => {
+                let sh = ctx.builder.ins().band_imm(op_i, 63);
+                ctx.builder.ins().sshr(cur_raw, sh)
+            }
+            BinaryOp::ZeroFillRShift => {
+                let sh = ctx.builder.ins().band_imm(op_i, 63);
+                ctx.builder.ins().ushr(cur_raw, sh)
+            }
+            _ => return Ok(None),
+        }
+    };
+
+    // Store de volta — so' quando in_bounds (preserva slot 0 fora de range).
+    let to_store = ctx.builder.ins().select(in_bounds, new_i64, cur_raw);
+    ctx.builder
+        .ins()
+        .store(MemFlags::trusted(), to_store, addr, 0);
+
+    if float_mode {
+        let f = ctx
+            .builder
+            .ins()
+            .bitcast(cl::F64, MemFlags::new(), new_i64);
+        Ok(Some(TypedVal::new(f, ValTy::F64)))
+    } else {
+        Ok(Some(TypedVal::new(new_i64, ValTy::I64)))
+    }
+}
+
 fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<TypedVal> {
     use swc_ecma_ast::{AssignOp, AssignTarget};
 
@@ -1059,6 +1179,68 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
         };
 
         // ─────────────────────────────────────────────────────────────────
+        // (RTS_ARRAY_INLINE) RMW nativo `arr[i] OP= x` / `arr[i] = arr[i] OP x`
+        // num array nativo (StackSlot). load; op em Cranelift IR; store. Zero
+        // call extern, zero lock. ANTES do colapso VEC_RMW (que chama extern).
+        // So' quando `arr` e' Ident registrado em native_arrays. Reusa as
+        // formas A/B e os op-codes do caminho VEC_RMW. Ver spec.
+        if let MemberProp::Computed(idx_cp) = &m.prop {
+            if let Expr::Ident(arr_id) = rmw_peel(m.obj.as_ref()) {
+                if let Some(&storage) = ctx.native_arrays.get(arr_id.sym.as_str()) {
+                    // Detecta (operand, binop) nas duas formas (igual VEC_RMW).
+                    let rmw_match: Option<(&Expr, BinaryOp)> =
+                        if !matches!(a.op, AssignOp::Assign) {
+                            if let Expr::Bin(b) = final_rhs_expr.as_ref() {
+                                Some((b.right.as_ref(), b.op))
+                            } else {
+                                None
+                            }
+                        } else if let Expr::Bin(b) = rmw_peel(a.right.as_ref()) {
+                            if let Expr::Member(lm) = rmw_peel(&b.left) {
+                                if let MemberProp::Computed(lc) = &lm.prop {
+                                    if rmw_same_array(&lm.obj, &m.obj)
+                                        && rmw_same_index(&lc.expr, &idx_cp.expr)
+                                    {
+                                        Some((b.right.as_ref(), b.op))
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+                    if let Some((operand_expr, binop)) = rmw_match {
+                        let idx_trivial = rmw_index_is_trivial(&idx_cp.expr);
+                        let operand_safe = !rmw_expr_reads_slot(
+                            operand_expr,
+                            m.obj.as_ref(),
+                            &idx_cp.expr,
+                        );
+                        if idx_trivial && operand_safe {
+                            if let Some(tv) = try_emit_native_array_rmw(
+                                ctx,
+                                storage,
+                                &idx_cp.expr,
+                                operand_expr,
+                                binop,
+                            )? {
+                                return Ok(tv);
+                            }
+                        }
+                    }
+                    // Qualquer outra forma de assign a `arr[i]` num array nativo
+                    // (incl. `arr[i] = expr` simples) cai no write fast-path
+                    // abaixo (nao no VEC_SET). Fall-through.
+                }
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────
         // (data-race fix) Atomic RMW de slot de array/objeto. Reconhece DUAS
         // formas e colapsa GET+OP+SET num único VEC_RMW/MAP_RMW_KH (um só lock
         // do shard, sem janela entre read e write) — fecha o race com
@@ -1402,6 +1584,35 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
                     )?;
                     return Ok(TypedVal::new(rhs_i64, ValTy::I64));
                 }
+            }
+        }
+
+        // (RTS_ARRAY_INLINE) `arr[i] = v` num array nativo (StackSlot): store
+        // direto com bounds-check, zero call extern. Para array float, guarda
+        // os BITS de f64 (simetrico com a leitura). ANTES do VEC_SET/MAP_SET.
+        if let (Expr::Ident(obj_id), MemberProp::Computed(c)) = (m.obj.as_ref(), &m.prop) {
+            if let Some(&storage) = ctx.native_arrays.get(obj_id.sym.as_str()) {
+                use cranelift_codegen::ir::types as cl;
+                let idx_tv = lower_expr(ctx, &c.expr)?;
+                let idx = ctx.coerce_to_i64(idx_tv).val;
+                let store_val = if matches!(storage.elem_ty, ValTy::F64) {
+                    if rhs_i64_is_f64_bits {
+                        // ja' carrega bits de f64 (literal float ou destino f64).
+                        rhs_i64
+                    } else {
+                        // RHS inteiro/ambiguo: converte pra f64 e guarda os bits.
+                        let f = to_f64(ctx, TypedVal::new(rhs_i64, ValTy::I64));
+                        ctx.builder.ins().bitcast(
+                            cl::I64,
+                            cranelift_codegen::ir::MemFlags::new(),
+                            f,
+                        )
+                    }
+                } else {
+                    rhs_i64
+                };
+                ctx.emit_native_array_write(storage, idx, store_val);
+                return Ok(TypedVal::new(rhs_i64, ValTy::I64));
             }
         }
 
