@@ -1367,28 +1367,55 @@ pub(super) fn lower_bin(ctx: &mut FnCtx, bin: &BinExpr) -> Result<TypedVal> {
         BinaryOp::GtEq => Ok(lower_icmp(ctx, IntCC::SignedGreaterThanOrEqual, lhs_p, rhs_p)),
         BinaryOp::BitOr | BinaryOp::BitXor | BinaryOp::BitAnd
         | BinaryOp::LShift | BinaryOp::RShift => {
-            // (#1066) JS bitops aplicam ToInt32 nos operandos. Quando
-            // promote_numeric resultou em F64 (operando >= 2^31, ex:
-            // 0xDEADBEEF), Cranelift bitops nao aceitam F64 — converte
-            // via fcvt_to_sint para I64 (ToInt32 semantics aprox.).
+            // (#1066) JS spec para &, |, ^, <<, >>: ToInt32 em cada operando,
+            // executa a op sobre int32 com sinal, e re-interpreta o resultado
+            // como int32 (wrap de 32 bits, podendo virar negativo). O RTS
+            // carrega numbers inteiros em i64, entao o caminho correto e':
+            //   1. normalizar cada operando para i64 (F64 via fcvt, I32 via
+            //      sextend, I64 passthrough);
+            //   2. ireduce I32 = ToInt32 (low 32 bits, com sinal ao operar/
+            //      sextend de volta);
+            //   3. operar em I32 nativo (ishl/sshr/band/bor/bxor);
+            //   4. sextend I64 do resultado I32 → wrap de 32 bits correto.
+            // Shifts: o count usa apenas os 5 low bits (band_imm 0x1F).
             use cranelift_codegen::ir::types as cl;
-            let (lv_i, rv_i) = if matches!(ty, ValTy::F64) {
-                let l = ctx.builder.ins().fcvt_to_sint_sat(cl::I64, lv);
-                let r = ctx.builder.ins().fcvt_to_sint_sat(cl::I64, rv);
-                (l, r)
-            } else {
-                (lv, rv)
+            // Passo 1: normaliza ambos os operandos para um Value i64.
+            let to_i64 = |ctx: &mut FnCtx, v: cranelift_codegen::ir::Value| {
+                let vt = ctx.builder.func.dfg.value_type(v);
+                if matches!(ty, ValTy::F64) {
+                    ctx.builder.ins().fcvt_to_sint_sat(cl::I64, v)
+                } else if vt == cl::I32 {
+                    ctx.builder.ins().sextend(cl::I64, v)
+                } else if vt == cl::I64 {
+                    v
+                } else {
+                    // qualquer outro tipo inteiro estreito: estende com sinal.
+                    ctx.builder.ins().sextend(cl::I64, v)
+                }
             };
-            let res_ty = if matches!(ty, ValTy::F64) { ValTy::I64 } else { ty };
-            let v = match bin.op {
-                BinaryOp::BitOr => ctx.builder.ins().bor(lv_i, rv_i),
-                BinaryOp::BitXor => ctx.builder.ins().bxor(lv_i, rv_i),
-                BinaryOp::BitAnd => ctx.builder.ins().band(lv_i, rv_i),
-                BinaryOp::LShift => ctx.builder.ins().ishl(lv_i, rv_i),
-                BinaryOp::RShift => ctx.builder.ins().sshr(lv_i, rv_i),
+            let lv64 = to_i64(ctx, lv);
+            let rv64 = to_i64(ctx, rv);
+            // Passo 2: ToInt32 = low 32 bits com sinal.
+            let l32 = ctx.builder.ins().ireduce(cl::I32, lv64);
+            let r32 = ctx.builder.ins().ireduce(cl::I32, rv64);
+            // Passo 3: opera em I32 nativo. Shifts mascaram o count com 0x1F.
+            let res32 = match bin.op {
+                BinaryOp::BitOr => ctx.builder.ins().bor(l32, r32),
+                BinaryOp::BitXor => ctx.builder.ins().bxor(l32, r32),
+                BinaryOp::BitAnd => ctx.builder.ins().band(l32, r32),
+                BinaryOp::LShift => {
+                    let cnt = ctx.builder.ins().band_imm(r32, 0x1F);
+                    ctx.builder.ins().ishl(l32, cnt)
+                }
+                BinaryOp::RShift => {
+                    let cnt = ctx.builder.ins().band_imm(r32, 0x1F);
+                    ctx.builder.ins().sshr(l32, cnt)
+                }
                 _ => unreachable!(),
             };
-            Ok(TypedVal::new(v, res_ty))
+            // Passo 4: sextend de volta para i64 (wrap de 32 bits + sinal).
+            let v = ctx.builder.ins().sextend(cl::I64, res32);
+            Ok(TypedVal::new(v, ValTy::I64))
         }
         BinaryOp::ZeroFillRShift => {
             // JS spec: ToUint32(lhs) >>> (rhs & 0x1F). Promove para i64,
