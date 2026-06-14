@@ -254,12 +254,55 @@ impl BodyChecker<'_> {
                     }
                 }
             }
-            // Statement de expressao puro: so' permitido se a expr for segura
-            // (sem side-effect proibido). Conservador: deny por padrao, pois
-            // expr-stmt sem efeito e' raro num corpo "single-return + const".
-            // Permite no maximo quando a expr passa o checker (ex: chamada a
-            // outra fn pura inline-avel nao deveria ser descartada — deny).
-            Stmt::Expr(_) => self.deny(),
+            // Statement de expressao: o UNICO caso aceito e' uma atribuicao
+            // simples a um IDENT (local OU global), com `=` ou compound
+            // aritmetico/bitwise (`+=`,`-=`,…,`>>>=`), cujo RHS passe no
+            // `check_expr`. Esse e' o padrao quente `seed = (seed*16807)%N` que
+            // antes barrava a fn inteira do inline. Seguro porque o assign
+            // inlinado roda na MESMA ordem (lower_stmt copia os stmts em
+            // sequencia) — vira o mesmo store que a fn faria, sem novo race
+            // (preserva ordem de loads/stores). Conservador: SO' Ident simples
+            // — member (`this.x=`, `o.f=`) e index (`a[i]=`) e destructuring
+            // continuam deny (complexidade de handle/array fora do modelo). Toda
+            // outra forma de Stmt::Expr (call descartada, etc) => deny.
+            Stmt::Expr(e) => match e.expr.as_ref() {
+                Expr::Assign(a) => {
+                    use swc_ecma_ast::{AssignOp, AssignTarget, SimpleAssignTarget};
+                    // Target precisa ser Ident simples (nao member/index/destruct).
+                    if !matches!(
+                        &a.left,
+                        AssignTarget::Simple(SimpleAssignTarget::Ident(_))
+                    ) {
+                        self.deny();
+                        return;
+                    }
+                    // Operador `=` ou compound aritmetico/bitwise. Logicos
+                    // (`&&=`,`||=`,`??=`) ficam de fora (short-circuit muda
+                    // ordem de avaliacao do RHS — conservador).
+                    let op_ok = matches!(
+                        a.op,
+                        AssignOp::Assign
+                            | AssignOp::AddAssign
+                            | AssignOp::SubAssign
+                            | AssignOp::MulAssign
+                            | AssignOp::DivAssign
+                            | AssignOp::ModAssign
+                            | AssignOp::BitAndAssign
+                            | AssignOp::BitOrAssign
+                            | AssignOp::BitXorAssign
+                            | AssignOp::LShiftAssign
+                            | AssignOp::RShiftAssign
+                            | AssignOp::ZeroFillRShiftAssign
+                    );
+                    if !op_ok {
+                        self.deny();
+                        return;
+                    }
+                    // RHS DEVE ser uma expr segura (reusa a validacao existente).
+                    self.check_expr(&a.right);
+                }
+                _ => self.deny(),
+            },
             // Empty/Debugger — inofensivos, custo zero adicional.
             Stmt::Empty(_) => {
                 self.cost -= 1;

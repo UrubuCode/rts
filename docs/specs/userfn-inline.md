@@ -79,6 +79,27 @@ roteia pelo inline frame; (3) tracking de `terminated` no loop de stmts +
 guarda dupla `!terminated && !is_unreachable()` no jump de fall-through (panic do
 verifier Cranelift "terminator before end of block").
 
+## v2: assign no prelude (2026-06-14)
+
+A elegibilidade aceita `Stmt::Expr(AssignExpr)` com target Ident simples (local
+OU global, `=` ou compound aritmético/bitwise) no prelude — não só `const`. Isso
+cobre o padrão MAIS comum de fn quente: `function rnd(){ seed = (seed*16807)%N;
+return seed%M }`. Sem isso `rnd()` não inlinava (assign a `seed` é Stmt::Expr).
+
+Medido: `mu_real.ts` (top-level, `rnd()` user-fn, arrays const-size):
+- OFF: 3477ms → **ON: 312ms (11×)**. Node: 505ms — **RTS bate o Node**.
+
+**LIMITE CONHECIDO (trade-off aceito — issue de seguimento):** inlinar fn que faz
+assign a uma GLOBAL e é chamada de **async paralelo** torna um race PRÉ-EXISTENTE
+mais visível. `let g=0; function tick(){ g=g+1; return g }` chamada em 4 async
+tasks: OFF ~2.81M, ON ~1.17M (esperado 4M). A race NÃO é causada pelo inline — é
+a mesma classe do #1556 (escalar global compartilhado por async paralelo = RMW
+não-atômico), que o #1556 só cobriu para `arr[i]`, não para escalar global. O
+inline só alarga a janela (RMW mais rápido → mais colisões). O caso síncrono (o
+do bench, `rnd()` num loop) é 100% correto. Decisão: aceitar — o ganho de 11× no
+padrão comum compensa um bug raro e já-quebrado. O fix real (RMW atômico para
+escalar global em async, ou serializar async) é a issue de seguimento.
+
 ## Não-regressão (honesty floor)
 - Suite 1724/1724 (ON e OFF). Monte Carlo (toFloat() inlina — single-return f64).
 - Smoke `rts run` E suite (gap de cobertura JIT-symbol).
