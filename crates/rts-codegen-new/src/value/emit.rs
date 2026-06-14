@@ -9,11 +9,11 @@
 //! (b) keeps the Cranelift dependency surface of the value layer isolated to the
 //! one place that actually emits IR.
 
-use cranelift_codegen::ir::condcodes::IntCC;
+use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::{types, InstBuilder, MemFlags, Value};
 use cranelift_frontend::FunctionBuilder;
 
-use super::{encode, BOX_BASE, TAG_INT32};
+use super::{encode, BOX_BASE, CANONICAL_NAN, TAG_INT32};
 
 /// Emit `(v & BOX_BASE) == BOX_BASE`, producing an `i8` boolean (1 = boxed).
 ///
@@ -59,21 +59,34 @@ pub fn emit_unbox_int32(builder: &mut FunctionBuilder, v: Value) -> Value {
     builder.ins().sshr_imm(shifted_up, 32)
 }
 
-/// Box an `f64` SSA value into its inline-double PolyValue word: a plain
-/// `bitcast` f64→i64.
+/// Box an `f64` SSA value into its inline-double PolyValue word, mirroring the
+/// pure-Rust [`PolyValue::from_f64`](super::PolyValue::from_f64): a `bitcast`
+/// f64→i64 **with NaN canonicalization**.
 ///
-/// NOTE: the pure-Rust model canonicalizes NaN in [`PolyValue::from_f64`](super::PolyValue::from_f64).
-/// That requires a compare+select (control-flow-free, but two extra ops) and is
-/// left out of this straight-line helper on purpose — the box-double fast path
-/// is for values the front-end already proved are not NaN, or where the boxed
-/// word is immediately unboxed again. A NaN-canonicalizing variant would be:
-/// `select(is_nan(f), iconst(CANONICAL_NAN), bitcast(f))`. Callers that may box
-/// an arbitrary NaN-bearing double must insert that select (TODO when the lower
-/// pass needs it).
+/// A runtime-computed NaN on x86 is a *negative* qNaN (`Math.sqrt(-4)`, `0.0/0.0`,
+/// `0*Infinity` → `0xFFF8…`), whose top 13 bits are all-ones — i.e. it lands in
+/// the negative-qNaN BOXED space. A bare `bitcast` would store that word as-is,
+/// and the decode (`is_boxed`) would then MISREAD it as a boxed `TAG_OBJECT`/etc.
+/// (rendering "[object Object]" and giving a wrong `typeof`). So we fold every
+/// NaN to the single positive [`CANONICAL_NAN`](super::CANONICAL_NAN) (sign bit 0
+/// → NOT in the boxed space, still `is_nan`), exactly as the Rust model does.
+///
+/// Pure straight-line IR (`bitcast` + `fcmp uno` + `iconst` + `select`), so the
+/// egraph CONST-FOLDS the whole thing away for any `f64_val` it can prove is not
+/// NaN: `fcmp uno x, x` becomes `false`, the `select` collapses to the plain
+/// `bitcast`, and the proven-numeric fast path pays nothing.
+///
+/// INVARIANT: `f64_val` must be a GENUINE double (an arithmetic / `Math` / const
+/// result), never a PolyValue word merely `bitcast` to `f64` as an ABI carrier —
+/// such a word is itself a NaN pattern and canonicalization would corrupt it. The
+/// signature layer ([`crate::front::run::sig`]) enforces this by never typing a
+/// `Tagged`-param function's return as `Float64` (which is what created that
+/// carrier), so this helper only ever sees real doubles.
 pub fn emit_box_double(builder: &mut FunctionBuilder, f64_val: Value) -> Value {
-    builder
-        .ins()
-        .bitcast(types::I64, MemFlags::new(), f64_val)
+    let bits = builder.ins().bitcast(types::I64, MemFlags::new(), f64_val);
+    let is_nan = builder.ins().fcmp(FloatCC::Unordered, f64_val, f64_val);
+    let canon = builder.ins().iconst(types::I64, CANONICAL_NAN as i64);
+    builder.ins().select(is_nan, canon, bits)
 }
 
 /// Unbox an inline-double PolyValue word (i64) back to an `f64`: a plain

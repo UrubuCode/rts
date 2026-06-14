@@ -84,6 +84,52 @@ fn number_is_nan_and_safe_integer() {
     );
 }
 
+// ===========================================================================
+// Computed-NaN canonicalization. A runtime-computed NaN on x86 is a NEGATIVE
+// qNaN (`0xFFF8…`), which lands in the PolyValue boxed space — `emit_box_double`
+// must canonicalize it to the POSITIVE `CANONICAL_NAN` so it reads back as a
+// number (not a boxed TAG_OBJECT → "[object Object]" / a wrong `typeof`).
+// ===========================================================================
+
+#[test]
+fn computed_nan_sqrt_negative() {
+    assert_stdout("console.log(Math.sqrt(-4));", "NaN\n");
+}
+
+#[test]
+fn computed_nan_div_zero_by_zero() {
+    assert_stdout("console.log(0/0);", "NaN\n");
+}
+
+#[test]
+fn computed_nan_typeof_is_number() {
+    assert_stdout("console.log(typeof (0/0));", "number\n");
+}
+
+#[test]
+fn computed_nan_zero_times_infinity() {
+    // 0 * Infinity = NaN (another negative-qNaN producer).
+    assert_stdout("console.log(0 * (1/0) * 1);", "NaN\n");
+}
+
+#[test]
+fn nan_max_propagates() {
+    // Math.max(NaN, 1) is NaN in JS (NaN-propagating).
+    assert_stdout("console.log(Math.max(0/0, 1));", "NaN\n");
+}
+
+#[test]
+fn non_nan_double_unaffected() {
+    // sqrt(16) is a clean integer-valued double; must NOT be touched.
+    assert_stdout("console.log(Math.sqrt(16));", "4\n");
+}
+
+#[test]
+fn negative_zero_still_prints_zero() {
+    // -0.0 is NOT a NaN; canonicalization must leave it alone (JS prints "0").
+    assert_stdout("console.log(Math.sqrt(0) * -1);", "0\n");
+}
+
 #[test]
 fn number_epsilon_constant() {
     assert_stdout(

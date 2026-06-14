@@ -68,11 +68,29 @@ impl FnSig {
         // functions whose returns are cross-fn calls / unknown (where the body
         // type is unreliable and the declared annotation must win, e.g. a mutually
         // recursive `boolean` predicate returning the peer's call).
-        let ret = if declared == Repr::Int64 && all_returns_are_float64(func) {
+        let mut ret = if declared == Repr::Int64 && all_returns_are_float64(func) {
             Repr::Float64
         } else {
             declared
         };
+        // SOUNDNESS GUARD against the disguised-double carrier. The HIR types an
+        // arithmetic body (`a - b`, `a * b`, …) as `number` (→ `Float64`) REGARDLESS
+        // of operand reprs, but when a parameter is `Tagged` (untyped) the body
+        // actually LOWERS to a `Tagged` PolyValue word (the generic `__rtsadp_*`
+        // path), not a native `f64`. Typing such a function as `Float64`/`Int*`
+        // -returning would force an UNSOUND carrier: the return coercion
+        // `Tagged → Float64` `bitcast`s a tagged-int/string word (a value already in
+        // the NaN-box space) through `f64`. That round-trip used to survive only by
+        // a paired no-op `bitcast` at the call site — but `emit_box_double`'s NaN
+        // canonicalization (needed so a genuine computed `NaN` does not read back as
+        // a boxed tag — `Math.sqrt(-4)`, `0/0`) would clobber the disguised word to
+        // `NaN`. Keeping a Tagged-param function's return `Tagged` (its honest body
+        // repr) removes the carrier entirely, so canonicalization only ever sees
+        // genuine doubles. A numeric-param function (the legitimate arrow-default
+        // case `(x: number) => x*2`) is unaffected — its body really is native f64.
+        if ret != Repr::Tagged && func.params.iter().any(|p| repr_for_param(&p.ty) == Repr::Tagged) {
+            ret = Repr::Tagged;
+        }
         FnSig { name: func.name.clone(), params, ret: Some(ret), is_async: func.is_async }
     }
 
