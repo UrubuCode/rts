@@ -8,6 +8,7 @@ pub mod init;
 pub mod install;
 pub mod ir;
 pub mod run;
+pub mod run_new;
 pub mod test_cmd;
 
 use anyhow::{Result, anyhow, bail};
@@ -84,6 +85,7 @@ where
             flags.windows_subsystem,
         ),
         "run" => run::command(positional.get(1).cloned(), flags.as_compile_options()),
+        "run-new" => run_new::command(positional.get(1).cloned()),
         "eval" | "-e" | "--eval" => run::eval_command(
             positional.get(1).cloned(),
             flags.as_compile_options(),

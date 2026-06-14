@@ -106,7 +106,7 @@ process_fixture() {
     local bun_pid=$!
     timeout "$TO" node "$fixture" >"$TMP/${name}.node" 2>/dev/null &
     local node_pid=$!
-    timeout "$TO" "$RTS_BIN" run "$fixture" >"$TMP/${name}.rts" 2>/dev/null &
+    timeout "$TO" "$RTS_BIN" run-new "$fixture" >"$TMP/${name}.rts" 2>/dev/null &
     local rts_pid=$!
 
     wait $bun_pid; local bun_rc=$?

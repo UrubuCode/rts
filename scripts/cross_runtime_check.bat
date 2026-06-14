@@ -52,7 +52,7 @@ for %%f in (%FIXTURES_DIR%\*.ts) do (
     node "%%f" 2>nul > node_out.tmp
     set node_exit=!errorlevel!
     
-    "%RTS_BIN%" run "%%f" 2>nul > rts_out.tmp
+    "%RTS_BIN%" run-new "%%f" 2>nul > rts_out.tmp
     set rts_exit=!errorlevel!
     
     REM Compare outputs

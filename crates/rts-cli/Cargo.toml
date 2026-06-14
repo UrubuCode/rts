@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 rts-engine = { path = "../rts-engine" }
 rts-codegen-old = { path = "../rts-codegen-old" }
+rts-codegen-new = { path = "../rts-codegen-new" }
 rts-linker = { path = "../rts-linker" }
 rts-runtime = { path = "../rts-runtime" }
 rts-diagnostics = { path = "../rts-diagnostics" }
