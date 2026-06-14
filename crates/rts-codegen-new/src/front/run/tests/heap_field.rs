@@ -113,3 +113,42 @@ fn private_field_with_public_getter() {
         "3\n",
     );
 }
+
+#[test]
+fn array_param_index_and_length() {
+    assert_stdout(
+        r#"function third(xs: number[]): number { return xs[2]; }
+           function sumArr(xs: number[]): number {
+             let t = 0;
+             for (let i = 0; i < xs.length; i++) t = t + xs[i];
+             return t;
+           }
+           console.log(third([10, 20, 30, 40]), sumArr([1, 2, 3, 4]));"#,
+        "30 10\n",
+    );
+}
+
+#[test]
+fn array_param_on_method() {
+    assert_stdout(
+        r#"class Summer {
+              total(xs: number[]): number {
+                let t = 0;
+                for (let i = 0; i < xs.length; i++) t = t + xs[i];
+                return t;
+              }
+           }
+           console.log(new Summer().total([5, 5, 5]));"#,
+        "15\n",
+    );
+}
+
+#[test]
+fn let_from_array_returning_method() {
+    assert_stdout(
+        r#"let a = [1, 2, 3, 4];
+           let s = a.slice(1, 3);
+           console.log(s.length, s[0], s[1]);"#,
+        "2 2 3\n",
+    );
+}

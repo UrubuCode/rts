@@ -265,6 +265,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             if matches!(p.ty, rts_hir::HirType::Object) {
                 ctx.object_locals.insert(p.name.clone());
             }
+            // An array-typed param (`xs: number[]`) is a PROVEN array. Record its
+            // heap shape so `xs[i]` / `xs.length` / `xs.method(..)` lower through
+            // the array access path (F1). The param keeps its Tagged ABI/repr (the
+            // i64 register holds the boxed array word); only the shape is recorded.
+            if matches!(p.ty, rts_hir::HirType::Array(_)) {
+                ctx.local_shapes.insert(p.name.clone(), HeapShape::Array);
+            }
         }
 
         // The implicit receiver `this` of a constructor/method: bind its class so
