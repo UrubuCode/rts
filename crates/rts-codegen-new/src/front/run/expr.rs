@@ -75,7 +75,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // whose shape we record) has no addressable shape afterward; we
                 // still build it (its value is a valid `TAG_OBJECT` PolyValue, so
                 // `typeof`/`console.log` work), discarding the shape id.
-                let (val, _shape) = self.lower_object_literal(module, fields)?;
+                let (val, _shape, _lit_class) = self.lower_object_literal(module, fields)?;
                 Ok(val)
             }
             // A regex literal `/pat/flags` reaches the HIR as `Raw("regex\0..")`

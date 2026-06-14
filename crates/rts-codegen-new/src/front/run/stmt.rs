@@ -106,8 +106,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // (an i64 register holding the boxed object/array handle word).
         let shape = match &init.kind {
             HirExprKind::Object(fields) => {
-                let (val, shape_id) = self.lower_object_literal(module, fields)?;
+                let (val, shape_id, lit_class) = self.lower_object_literal(module, fields)?;
                 self.bind_tagged_local(name, val);
+                // P5.15: a method-bearing literal recorded a synthesized literal-class;
+                // record it on the local so `obj.method()` static-dispatches and
+                // `${obj}`/`obj + 1`/`String(obj)` run the toString/valueOf chain.
+                if let Some(class) = lit_class {
+                    self.local_classes.insert(name.to_string(), class);
+                }
                 Some(HeapShape::Object(shape_id))
             }
             HirExprKind::Array(elems) => {
@@ -226,12 +232,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             if let HirExprKind::Object(fields) = &value.kind {
                 let local = self.local(&name).expect("checked above");
                 if matches!(local.repr, Repr::Tagged) {
-                    let (val, _shape) = self.lower_object_literal(module, fields)?;
+                    let (val, _shape, lit_class) = self.lower_object_literal(module, fields)?;
                     self.builder.def_var(local.var, val.v);
                     self.local_shapes.remove(&name);
-                    self.local_classes.remove(&name);
                     self.global_instance_classes.remove(&name);
                     self.object_locals.insert(name.clone());
+                    // P5.15: re-assigning to a method-bearing literal records its
+                    // literal-class (so a later `obj.method()` dispatches); a plain
+                    // literal clears any stale class.
+                    match lit_class {
+                        Some(class) => {
+                            self.local_classes.insert(name.clone(), class);
+                        }
+                        None => {
+                            self.local_classes.remove(&name);
+                        }
+                    }
                     return Ok(Val::new(val.v, Repr::Tagged));
                 }
             }

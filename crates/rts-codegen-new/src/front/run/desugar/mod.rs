@@ -27,11 +27,13 @@
 //! as before — never a miscompile.
 
 mod destructure;
+mod objmethod;
 mod optchain;
 mod tpl;
 
 pub(super) use optchain::{OPT_CALL, OPT_GET};
 pub(crate) use destructure::desugar_destructure;
+pub(crate) use objmethod::{desugar_obj_methods, LIT_CLASS_MARKER, LIT_UNSUPPORTED};
 
 use std::collections::HashMap;
 

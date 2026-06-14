@@ -43,7 +43,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         &mut self,
         module: &mut dyn Module,
         fields: &[(String, HirExpr)],
-    ) -> FrontResult<(Val, ShapeId)> {
+    ) -> FrontResult<(Val, ShapeId, Option<String>)> {
+        // P5.15: a leading `__rtsl_class__` marker field carries the recovered
+        // literal-class name (the object-literal method recovery prepended it). Strip
+        // it BEFORE shape interning / slot fill — it is never a real property — and
+        // surface the class so the caller records the local in `local_classes`. A
+        // sentinel marker (an UNSUPPORTED member: getter/setter/computed/generator/
+        // async/spread) bails the literal rather than degrade to a partial object.
+        let (lit_class, fields) = strip_lit_class_marker(fields);
+        if lit_class.as_deref() == Some(crate::front::run::desugar::LIT_UNSUPPORTED) {
+            return unsupported!(
+                "object literal with an unsupported member (getter/setter/computed/generator/async method or spread)"
+            );
+        }
+
         // A duplicate key keeps the LAST value (JS); de-dup to the last occurrence
         // while preserving first-seen slot order — but if a literal repeats a key
         // we conservatively bail (rare, and the shape/value alignment is subtle).
@@ -74,7 +87,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             let word = self.box_value(v);
             emit_marshal::emit_vec_push(module, self.builder, obj_word, word);
         }
-        Ok((Val::tagged_kind(obj_word, JsKind::Unknown), shape))
+        Ok((Val::tagged_kind(obj_word, JsKind::Unknown), shape, lit_class))
     }
 
     /// Lower an array literal `[e0, e1, …]` to a fresh `Entry::Vec` filled in
@@ -458,4 +471,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             _ => Ok(Some(self.box_value(v))),
         }
     }
+}
+
+/// Split off a leading `__rtsl_class__` marker field (P5.15), returning the
+/// recovered literal-class name (if present) and the REAL field list (the marker
+/// removed). The marker is always the first field and its value is a string literal
+/// (the object-literal method recovery prepended it); a literal without methods has
+/// no marker and the fields pass through unchanged.
+fn strip_lit_class_marker(
+    fields: &[(String, HirExpr)],
+) -> (Option<String>, &[(String, HirExpr)]) {
+    if let Some((key, value)) = fields.first() {
+        if key == crate::front::run::desugar::LIT_CLASS_MARKER {
+            if let HirExprKind::Lit(rts_hir::ir::HirLit::Str(name)) = &value.kind {
+                return (Some(name.clone()), &fields[1..]);
+            }
+        }
+    }
+    (None, fields)
 }

@@ -99,6 +99,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         method: &str,
         args: &[HirExpr],
     ) -> FrontResult<Val> {
+        // `[obj].join(..)` ToStrings each element in the runtime trampoline, which
+        // renders a method-bearing OBJECT element as the default `[object Object]`
+        // (it cannot call the JIT'd `toString`) — a wrong value vs bun's element
+        // ToPrimitive. Bail rather than diverge (array-of-object ToPrimitive is a
+        // later increment). Only the array-LITERAL-with-object case is statically
+        // detectable here; an opaque array's elements can only become objects via
+        // paths that already bail.
+        if method == "join" && self.array_arg_has_object_element(object) {
+            return Err(crate::front::error::Unsupported::new(
+                "Array.join on an array containing an object element \
+                 (element ToPrimitive is a later increment)".to_string(),
+            ));
+        }
+
         let argc = args.len();
         let Some(spec) = resolve_method(RecvClass::Array, method, argc) else {
             return Err(crate::front::error::Unsupported::new(format!(

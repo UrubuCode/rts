@@ -133,9 +133,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             Hint::String => {
                 if has_to_string {
                     "toString"
-                } else if has_value_of {
-                    "valueOf"
                 } else {
+                    // STRING hint with NO own `toString`: JS uses the INHERITED
+                    // `Object.prototype.toString` (`"[object Object]"`), NOT `valueOf`
+                    // (whose result the string-hint `OrdinaryToPrimitive` never reaches
+                    // when `toString` exists on the prototype). The engine does not
+                    // model the inherited method, so it resolves NO own primitive
+                    // method here → `None`, and the caller falls to its default/bail
+                    // (never the WRONG `valueOf` string). A faithful `[object Object]`
+                    // for this case is a later increment.
                     return None;
                 }
             }

@@ -72,8 +72,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // Inline object literal: lower it (records the global shape-id in slot 0)
             // and read its keys from the just-interned compile-time shape.
             HirExprKind::Object(fields) => {
-                let keys: Vec<String> = fields.iter().map(|(k, _)| k.clone()).collect();
-                let (val, _shape_id) = self.lower_object_literal(module, fields)?;
+                // Exclude the P5.15 `__rtsl_class__` marker (a synthetic field that is
+                // never a real own-enumerable key) from the recovered key list.
+                let keys: Vec<String> = fields
+                    .iter()
+                    .map(|(k, _)| k.clone())
+                    .filter(|k| k != crate::front::run::desugar::LIT_CLASS_MARKER)
+                    .collect();
+                let (val, _shape_id, _lit_class) = self.lower_object_literal(module, fields)?;
                 let word = self.box_value(val);
                 Ok((word, keys))
             }

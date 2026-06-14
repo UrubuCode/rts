@@ -86,8 +86,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
         let obj_operand = self.is_whole_object_value(lhs) || self.is_whole_object_value(rhs);
         if self.is_whole_heap_value(lhs) || self.is_whole_heap_value(rhs) {
+            // An array OPERAND containing a method-bearing OBJECT element would
+            // string-concat each element via the runtime join, rendering the object
+            // as the default `[object Object]` (the JIT'd `toString` is unreachable
+            // from the trampoline) — a wrong value vs bun's element ToPrimitive. Bail
+            // (array-of-object element ToPrimitive is a later increment).
+            let array_has_object_element =
+                self.array_arg_has_object_element(lhs) || self.array_arg_has_object_element(rhs);
             let array_string_concat = matches!(op, HirBinOp::Add)
                 && !obj_operand
+                && !array_has_object_element
                 && (is_proven_string_expr(lhs) || is_proven_string_expr(rhs));
             if !array_string_concat {
                 return unsupported!(

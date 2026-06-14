@@ -37,6 +37,13 @@ pub(crate) fn method_name(class: &str, method: &str) -> String {
     format!("__rtsn_method_{class}_{method}")
 }
 
+/// The synthesized method function name for an OBJECT-LITERAL method `class.method`
+/// (P5.15). A distinct prefix from [`method_name`] keeps literal-class methods from
+/// ever colliding with a user class's synthesized methods.
+pub(crate) fn method_name_lit(class: &str, method: &str) -> String {
+    format!("__rtsl_method_{class}_{method}")
+}
+
 /// The synthesized getter / setter fn name for `class.prop`.
 fn getter_name(class: &str, prop: &str) -> String {
     format!("__rtsn_get_{class}_{prop}")

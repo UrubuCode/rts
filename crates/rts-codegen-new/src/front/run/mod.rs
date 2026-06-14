@@ -135,29 +135,7 @@ fn build_program(src: &str) -> FrontResult<LoweredProgram> {
     for c in &class_decls {
         scope.register_class(c.name.clone());
     }
-    let (classes, class_funcs) = class::collect_classes(&class_decls)?;
-
-    // Map each synthesized constructor/method fn name → its class (for `this`).
-    let mut fn_this_class: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
-    // Iterate every collected descriptor — user-declared AND synthesized virtual
-    // builtin-error parents (P5.3), whose ctor/toString also bind `this`.
-    for desc in classes.iter() {
-        fn_this_class.insert(desc.ctor.clone(), desc.name.clone());
-        // Bind `this` for every instance method + accessor to the class on
-        // which it is SYNTHESIZED (the function names encode that class). A
-        // method/accessor inherited unchanged keeps its declaring class's
-        // `this` (its body references its OWN class's fields — which sit at the
-        // same flattened slots in the child, so the binding is sound either way).
-        for fn_name in desc.methods.values() {
-            fn_this_class.entry(fn_name.clone()).or_insert(desc.name.clone());
-        }
-        for acc in desc.accessors.values() {
-            for fn_name in [acc.getter.as_ref(), acc.setter.as_ref()].into_iter().flatten() {
-                fn_this_class.entry(fn_name.clone()).or_insert(desc.name.clone());
-            }
-        }
-    }
+    let (mut classes, class_funcs) = class::collect_classes(&class_decls)?;
 
     // 1. Lower all top-level functions (registers their signatures in `scope`).
     let mut funcs: Vec<HirFunc> = class_funcs;
@@ -185,6 +163,33 @@ fn build_program(src: &str) -> FrontResult<LoweredProgram> {
         is_async: false,
         is_arrow: false,
     };
+
+    // P5.15: recover OBJECT-LITERAL METHODS. rts-hir drops every method prop from an
+    // object literal; this pass re-reads the swc AST PAIRED with the HIR, synthesizes
+    // a "literal class" (fields + `this`-first method funcs) per method-bearing
+    // literal, registers it, and prepends a `__rtsl_class__` marker field to the HIR
+    // object so `lower_object_literal` records the local's class. Run FIRST (before
+    // the template/destructure rewrites touch the object's field VALUES, and before
+    // arrow extraction) so the swc/HIR positional pairing is on the clean lowering.
+    desugar::desugar_obj_methods(&program, &mut main.body, &mut funcs, &mut classes);
+
+    // Map each synthesized constructor/method fn name → its class (for `this`). Built
+    // AFTER object-literal recovery so the synthesized literal-class methods are
+    // included. Iterates every collected descriptor — user classes, virtual
+    // builtin-error parents (P5.3), AND literal classes (P5.15).
+    let mut fn_this_class: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for desc in classes.iter() {
+        fn_this_class.insert(desc.ctor.clone(), desc.name.clone());
+        for fn_name in desc.methods.values() {
+            fn_this_class.entry(fn_name.clone()).or_insert(desc.name.clone());
+        }
+        for acc in desc.accessors.values() {
+            for fn_name in [acc.getter.as_ref(), acc.setter.as_ref()].into_iter().flatten() {
+                fn_this_class.entry(fn_name.clone()).or_insert(desc.name.clone());
+            }
+        }
+    }
 
     // P5.8: recover template literals + optional chaining. rts-hir lowered both to
     // structureless `Raw` placeholders (it cannot model them and we must not modify

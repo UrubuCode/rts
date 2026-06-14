@@ -51,8 +51,11 @@ use crate::front::error::{FrontResult, Unsupported};
 mod builtin;
 mod dispatch;
 mod inherit;
+mod litshape;
 mod synth;
 mod walk;
+
+pub(crate) use litshape::{build_literal_class, ident_param_name, LitMethod};
 
 /// The implicit receiver parameter name bound to a0 in every constructor/method.
 pub(crate) const THIS: &str = "this";
@@ -122,6 +125,18 @@ impl ClassTable {
     /// The descriptor for class `name`, if collected.
     pub fn get(&self, name: &str) -> Option<&ClassDesc> {
         self.by_name.get(name)
+    }
+
+    /// Whether class `name` is already collected (used by the literal-class
+    /// recovery pass to share one descriptor across identical literals).
+    pub fn contains(&self, name: &str) -> bool {
+        self.by_name.contains_key(name)
+    }
+
+    /// Register a descriptor (the literal-class recovery pass adds synthesized
+    /// object-literal classes here after `collect_classes`).
+    pub fn insert(&mut self, desc: ClassDesc) {
+        self.by_name.insert(desc.name.clone(), desc);
     }
 
     /// Every collected class descriptor (user-declared AND synthesized virtual

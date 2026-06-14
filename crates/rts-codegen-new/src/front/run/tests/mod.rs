@@ -48,6 +48,7 @@ mod loops;
 mod mathobj;
 mod method;
 mod number;
+mod objmethod;
 mod object;
 mod objdyn;
 mod objstatic;

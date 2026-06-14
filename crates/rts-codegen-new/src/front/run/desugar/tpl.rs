@@ -92,6 +92,14 @@ pub(super) fn build_template(tpl: &swc_ecma_ast::Tpl) -> HirExpr {
 /// Lower an interpolation expression to HIR. A nested `Tpl` / `OptChainExpr` is
 /// rebuilt directly (rts-hir would only give a `Raw` placeholder); everything else
 /// goes through rts-hir's real lowering.
+///
+/// A template interpolation uses the JS STRING hint for `ToPrimitive` — which DIFFERS
+/// from the `+` operator's DEFAULT hint for an object with a `valueOf` (`` `${o}` ``
+/// runs `toString`, `"" + o` runs `valueOf`). The string-seeded `+` chain this
+/// builder produces would otherwise apply the default hint to an OBJECT interpolation.
+/// So an object-producing interpolation (an object literal or a `new C()`) is wrapped
+/// in `String(<expr>)`, which the lowerer resolves with the correct STRING hint
+/// (P5.15). Primitive interpolations keep the `+`-ToString path (byte-identical).
 fn rebuild_interp(expr: &swc_ecma_ast::Expr, scope: &Scope) -> HirExpr {
     match expr {
         swc_ecma_ast::Expr::Tpl(t) => build_template(t),
@@ -99,8 +107,27 @@ fn rebuild_interp(expr: &swc_ecma_ast::Expr, scope: &Scope) -> HirExpr {
             super::optchain::build_opt_chain(oc).unwrap_or_else(|| rts_hir::lower::lower_swc_expr(expr, scope))
         }
         swc_ecma_ast::Expr::Paren(p) => rebuild_interp(&p.expr, scope),
+        // An OBJECT interpolation (object literal, `new C()`, or a bare identifier
+        // that may be bound to a ToPrimitive object) needs the STRING hint → route
+        // through `String(...)`. For a primitive bound to the identifier `String()`
+        // ToStrings byte-identically to the `+` path, so this is safe for all idents.
+        swc_ecma_ast::Expr::Object(_)
+        | swc_ecma_ast::Expr::New(_)
+        | swc_ecma_ast::Expr::Ident(_) => {
+            wrap_string_call(rts_hir::lower::lower_swc_expr(expr, scope))
+        }
         _ => rts_hir::lower::lower_swc_expr(expr, scope),
     }
+}
+
+/// Wrap `arg` in a `String(arg)` HIR call (the global `String` conversion), so a
+/// template interpolation of an object runs the STRING-hint `ToPrimitive`.
+fn wrap_string_call(arg: HirExpr) -> HirExpr {
+    let callee = HirExpr::new(HirExprKind::Ident("String".to_string()), HirType::Unknown);
+    HirExpr::new(
+        HirExprKind::Call { callee: Box::new(callee), args: vec![arg] },
+        HirType::Str,
+    )
 }
 
 /// The cooked text of a quasi (the literal segment), with the standard CR
