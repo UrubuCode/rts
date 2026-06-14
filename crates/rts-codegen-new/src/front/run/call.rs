@@ -448,11 +448,26 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // empty array (`xs.length === 0`).
                 let arr = emit_marshal::emit_new_vec_object(module, self.builder);
                 for a in &args[ru..] {
-                    if matches!(a.kind, HirExprKind::Spread(_)) {
-                        return unsupported!(
-                            "spread arg into a rest parameter of `{}` (later increment)",
-                            sig.name
-                        );
+                    // A spread of a PROVEN array contributes all its elements to the
+                    // rest array (reusing the array-literal `[...src]` append path:
+                    // `__rtsadp_arr_spread_append(dst, src)` walks the src Vec and
+                    // pushes each raw element word onto `dst`). A spread of a
+                    // non-array is a later increment → bail.
+                    if let HirExprKind::Spread(inner) = &a.kind {
+                        if !self.is_array_valued(inner) {
+                            return unsupported!(
+                                "spread of a non-array into rest of `{}` (later increment)",
+                                sig.name
+                            );
+                        }
+                        let src = self.lower_expr(module, inner)?;
+                        let src_word = self.box_value(src);
+                        self.call_runtime(
+                            module,
+                            "__rtsadp_arr_spread_append",
+                            &[arr, src_word],
+                        )?;
+                        continue;
                     }
                     let v = self.lower_expr(module, a)?;
                     let w = self.box_value(v);
@@ -478,18 +493,25 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // supply exactly the arity at runtime (a shorter array reads `undefined`
         // into a missing slot, which an unbox of a numeric param would mis-handle —
         // so we only support the common exact-arity `f(...arr)` shape here).
-        if args.len() == 1 {
-            if let HirExprKind::Spread(inner) = &args[0].kind {
-                return self.lower_user_call_spread(module, sig, inner);
+        // The sole-`...arr` fast path (unpack first `params.len()` elements into
+        // native params) is ONLY for NON-rest fns. For a rest fn, `...arr` means
+        // "all of arr into the rest array" — route it to `marshal_call_args`, which
+        // packs every spread element into the fresh rest array (F3b spread tail).
+        if sig.rest_param.is_none() {
+            if args.len() == 1 {
+                if let HirExprKind::Spread(inner) = &args[0].kind {
+                    return self.lower_user_call_spread(module, sig, inner);
+                }
             }
-        }
-        // A spread mixed with other args, or a spread anywhere but the sole arg, is
-        // a later increment → bail rather than mis-marshal.
-        if args.iter().any(|a| matches!(a.kind, HirExprKind::Spread(_))) {
-            return unsupported!(
-                "call to `{}` with a spread mixed with positional args (later increment)",
-                sig.name
-            );
+            // For a non-rest fn, a spread mixed with other args (or anywhere but the
+            // sole arg) is a later increment → bail rather than mis-marshal. A rest
+            // fn handles mixed spread via `marshal_call_args`, so it skips this bail.
+            if args.iter().any(|a| matches!(a.kind, HirExprKind::Spread(_))) {
+                return unsupported!(
+                    "call to `{}` with a spread mixed with positional args (later increment)",
+                    sig.name
+                );
+            }
         }
         let lowered = self.marshal_call_args(module, sig, None, args)?;
         self.emit_user_call(module, sig, &lowered)

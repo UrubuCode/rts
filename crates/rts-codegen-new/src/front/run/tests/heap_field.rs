@@ -257,3 +257,48 @@ fn null_local_is_nullish() {
 fn numeric_local_unaffected() {
     assert_stdout(r#"let n = 5; let m = n + 3; console.log(m);"#, "8\n");
 }
+
+#[test]
+fn spread_into_rest_function() {
+    assert_stdout(
+        r#"function sum(...xs: number[]): number {
+             let t = 0;
+             for (let i = 0; i < xs.length; i++) t = t + xs[i];
+             return t;
+           }
+           let a = [1, 2, 3];
+           console.log(sum(...a), sum(10, ...a), sum(...a, 10));"#,
+        "6 16 16\n",
+    );
+}
+
+#[test]
+fn spread_two_arrays_into_rest() {
+    assert_stdout(
+        r#"function sum(...xs: number[]): number {
+             let t = 0;
+             for (let i = 0; i < xs.length; i++) t = t + xs[i];
+             return t;
+           }
+           let a = [1, 2]; let b = [3, 4];
+           console.log(sum(...a, ...b), sum(...a, 5, ...b));"#,
+        "10 15\n",
+    );
+}
+
+#[test]
+fn spread_into_rest_method() {
+    assert_stdout(
+        r#"class Bag {
+              #v: number[] = [];
+              addAll(...xs: number[]): void {
+                for (let i = 0; i < xs.length; i++) this.#v.push(xs[i]);
+              }
+              size(): number { return this.#v.length; }
+           }
+           let b = new Bag(); let a = [1, 2, 3, 4];
+           b.addAll(...a); b.addAll(5, ...a);
+           console.log(b.size());"#,
+        "9\n",
+    );
+}
