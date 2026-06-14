@@ -8,7 +8,9 @@
 
 ## 1. Onde estamos
 
-- **Cross-runtime (motor NOVO):** `73 batem / 7 divergem / 511 bail` de 609 (18 bun≠node).
+- **Cross-runtime (motor NOVO):** `78 batem / 9 divergem / 505 bail` de 609 (17 bun≠node).
+  Subiu de 73→78 com os gaps desta sessão (instanceof-din/`++--`/Math-Tagged/declare/
+  free-this/type-erasure/G1). Métrica honesta do redesign.
   - Harness interno: `cargo test -p rts-codegen-new -- --ignored fixture_harness --nocapture`.
   - **Script agora dirige o motor NOVO** via `rts run-new` (commit `ac2b1635`):
     `bash scripts/cross_runtime_check.sh` → 73/7/511. (Baseline do motor VELHO,
