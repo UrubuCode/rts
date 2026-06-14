@@ -124,7 +124,7 @@ fn render(v: PolyValue, top_level: bool, depth: u32) -> String {
 /// (the header + one slot per key). Arrays carry no header, so their slot 0 is an
 /// arbitrary element and this check fails for all but a pathological coincidence
 /// not reachable from the literal-only object surface.
-fn looks_like_object(v: PolyValue) -> bool {
+pub(crate) fn looks_like_object(v: PolyValue) -> bool {
     let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
     let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(handle);
     if len < 1 {

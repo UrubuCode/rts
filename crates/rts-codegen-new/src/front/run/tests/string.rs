@@ -60,3 +60,41 @@ fn string_method_in_concat() {
     // The returned string PolyValue flows through the generic `+` path.
     assert_stdout(r#"console.log("a" + "b".toUpperCase());"#, "aB\n");
 }
+
+// ---- P5.2: split + 1-arg slice defaults + codePointAt ----
+
+#[test]
+fn string_split_length() {
+    // `.length` needs an identifier receiver, so bind the split result first.
+    assert_stdout(r#"let p = "a,b,c".split(","); console.log(p.length);"#, "3\n");
+}
+
+#[test]
+fn string_split_join() {
+    assert_stdout(r#"console.log("a,b,c".split(",").join("|"));"#, "a|b|c\n");
+}
+
+#[test]
+fn string_split_empty_sep() {
+    assert_stdout(r#"console.log("abc".split("").join("-"));"#, "a-b-c\n");
+}
+
+#[test]
+fn string_split_limit() {
+    assert_stdout(r#"console.log("a,b,c,d".split(",", 2).join("|"));"#, "a|b\n");
+}
+
+#[test]
+fn string_slice_one_arg() {
+    assert_stdout(r#"console.log("hello".slice(1));"#, "ello\n");
+}
+
+#[test]
+fn string_substring_one_arg() {
+    assert_stdout(r#"console.log("hello".substring(2));"#, "llo\n");
+}
+
+#[test]
+fn string_code_point_at() {
+    assert_stdout(r#"console.log("A".codePointAt(0));"#, "65\n");
+}

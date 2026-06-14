@@ -169,6 +169,25 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         "__rtsadp_arr_push" => SymSig { params: &[U64, U64], ret: I64 },
         "__rtsadp_arr_pop" => SymSig { params: &[U64], ret: U64 },
         "__rtsadp_arr_slice" => SymSig { params: &[U64, I64, I64], ret: U64 },
+        "__rtsadp_arr_last_index_of" => SymSig { params: &[U64, U64], ret: I64 },
+        "__rtsadp_arr_reverse" | "__rtsadp_arr_flat" | "__rtsadp_arr_shift" => {
+            SymSig { params: &[U64], ret: U64 }
+        }
+        "__rtsadp_arr_fill" | "__rtsadp_arr_concat" => SymSig { params: &[U64, U64], ret: U64 },
+        "__rtsadp_arr_unshift" => SymSig { params: &[U64, U64], ret: I64 },
+
+        // ---- codegen-owned GLOBAL / static trampolines (P5.2) ----
+        // Coercions + predicates: one PolyValue word in, one PolyValue word out.
+        "__rtsadp_g_number" | "__rtsadp_g_string" | "__rtsadp_g_boolean"
+        | "__rtsadp_g_parse_float" | "__rtsadp_g_is_nan" | "__rtsadp_g_is_finite"
+        | "__rtsadp_arr_is_array" | "__rtsadp_arr_new_sized" | "__rtsadp_arr_from"
+        | "__rtsadp_str_from_char_code" | "__rtsadp_str_from_code_point" => {
+            SymSig { params: &[U64], ret: U64 }
+        }
+        // parseInt(value_word, radix): radix is an I64 (0 = auto).
+        "__rtsadp_g_parse_int" => SymSig { params: &[U64, U64], ret: U64 },
+        // str.split(recvHandle, sepHandle, limit) -> a TAG_OBJECT array word.
+        "__rtsadp_str_split" => SymSig { params: &[Handle, Handle, I64], ret: U64 },
 
         // ---- codegen-owned Array CALLBACK trampolines (__rtsadp_arr_*, P4.7) ----
         // Slot 0 = the array's REAL Vec handle; slot 1 = the callback as a
@@ -203,7 +222,10 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         "__RTS_FN_GL_STRING_INCLUDES"
         | "__RTS_FN_GL_STRING_STARTS_WITH"
         | "__RTS_FN_GL_STRING_ENDS_WITH" => SymSig { params: &[Handle, Handle], ret: Bool },
-        "__RTS_FN_GL_STRING_CHAR_CODE_AT" => SymSig { params: &[Handle, I64], ret: I64 },
+        "__RTS_FN_GL_STRING_CHAR_CODE_AT" | "__RTS_FN_GL_STRING_CODE_POINT_AT" => {
+            SymSig { params: &[Handle, I64], ret: I64 }
+        }
+        "__RTS_FN_GL_STRING_LOCALE_COMPARE" => SymSig { params: &[Handle, Handle], ret: I64 },
         "__RTS_FN_GL_STRING_REPLACE" | "__RTS_FN_GL_STRING_REPLACE_ALL" => {
             SymSig { params: &[Handle, Handle, Handle], ret: Handle }
         }

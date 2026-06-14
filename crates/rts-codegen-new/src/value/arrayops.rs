@@ -139,6 +139,139 @@ fn clamp_index(i: i64, len: i64) -> i64 {
     idx.clamp(0, len)
 }
 
+/// `arr.lastIndexOf(needle)` — last index whose element `=== needle`, or `-1`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_last_index_of(vec_handle: u64, needle_word: u64) -> i64 {
+    let len = vec_len(vec_handle);
+    for i in (0..len).rev() {
+        if words_strict_eq(vec_word(vec_handle, i), needle_word) {
+            return i;
+        }
+    }
+    -1
+}
+
+/// `arr.reverse()` — reverse the array IN PLACE (JS mutates the receiver) and
+/// return its TAG_OBJECT word so chaining (`a.reverse().join(",")`) works. Swaps
+/// the boxed slot words via the REAL `VEC_GET`/`VEC_SET`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_reverse(vec_handle: u64) -> u64 {
+    let len = vec_len(vec_handle);
+    let mut lo = 0i64;
+    let mut hi = len - 1;
+    while lo < hi {
+        let a = vec_word(vec_handle, lo);
+        let b = vec_word(vec_handle, hi);
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(vec_handle, lo, b as i64);
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(vec_handle, hi, a as i64);
+        lo += 1;
+        hi -= 1;
+    }
+    box_self(vec_handle)
+}
+
+/// `arr.fill(value)` — overwrite every slot with the raw PolyValue word `value`
+/// (the whole-array form; the start/end range form is a later increment, bailed at
+/// the lowering by arity). Mutates in place; returns the receiver's word.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_fill(vec_handle: u64, value_word: u64) -> u64 {
+    let len = vec_len(vec_handle);
+    for i in 0..len {
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(vec_handle, i, value_word as i64);
+    }
+    box_self(vec_handle)
+}
+
+/// `arr.concat(other)` — a NEW array (fresh `Entry::Vec`) with this array's
+/// elements followed by `other`'s, as boxed PolyValue words. `other_word` is the
+/// raw PolyValue word of the second array; if it is NOT an array word, it is
+/// appended as a single element (JS `[1].concat(2)` → `[1, 2]`). Returns the new
+/// array word.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_concat(vec_handle: u64, other_word: u64) -> u64 {
+    let new_vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    let len = vec_len(vec_handle);
+    for i in 0..len {
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(new_vec, vec_word(vec_handle, i) as i64);
+    }
+    let other = PolyValue::from_raw(other_word);
+    if other.is_object() && !super::inspect::looks_like_object(other) {
+        let oh = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(other.as_handle());
+        let olen = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(oh).max(0);
+        for i in 0..olen {
+            let w = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(oh, i);
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(new_vec, w);
+        }
+    } else {
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(new_vec, other_word as i64);
+    }
+    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(new_vec)).raw()
+}
+
+/// `arr.flat()` — flatten ONE level (the JS default depth 1): a NEW array with each
+/// element that is itself an array spliced in, non-array elements copied verbatim.
+/// Deeper flattening (`flat(2)`) is a later increment (bailed by arity).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_flat(vec_handle: u64) -> u64 {
+    let new_vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    let len = vec_len(vec_handle);
+    for i in 0..len {
+        let w = vec_word(vec_handle, i);
+        let ev = PolyValue::from_raw(w);
+        if ev.is_object() && !super::inspect::looks_like_object(ev) {
+            let inner = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(ev.as_handle());
+            let ilen = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(inner).max(0);
+            for j in 0..ilen {
+                let iw = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(inner, j);
+                rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(new_vec, iw);
+            }
+        } else {
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(new_vec, w as i64);
+        }
+    }
+    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(new_vec)).raw()
+}
+
+/// `arr.shift()` — remove and return the FIRST element word (`undefined` when
+/// empty), shifting the rest down one slot. Mutates in place.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_shift(vec_handle: u64) -> u64 {
+    let len = vec_len(vec_handle);
+    if len == 0 {
+        return PolyValue::undefined().raw();
+    }
+    let first = vec_word(vec_handle, 0);
+    for i in 1..len {
+        let w = vec_word(vec_handle, i);
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(vec_handle, i - 1, w as i64);
+    }
+    // Drop the now-duplicated last slot via POP (its value moved down already).
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_POP(vec_handle);
+    first
+}
+
+/// `arr.unshift(value)` — prepend the raw PolyValue word `value` (the single-arg
+/// form), shifting existing elements up one slot; return the new length. Mutates
+/// in place.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_unshift(vec_handle: u64, value_word: u64) -> i64 {
+    let len = vec_len(vec_handle);
+    // Grow by one (append a placeholder), then shift everything up.
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec_handle, PolyValue::undefined().raw() as i64);
+    for i in (0..len).rev() {
+        let w = vec_word(vec_handle, i);
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(vec_handle, i + 1, w as i64);
+    }
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(vec_handle, 0, value_word as i64);
+    len + 1
+}
+
+/// The receiver array's own TAG_OBJECT word (reconstructed from its Vec handle),
+/// returned by the in-place mutating methods so chaining works.
+fn box_self(vec_handle: u64) -> u64 {
+    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(vec_handle)).raw()
+}
+
 impl PolyValue {
     /// The REAL runtime string handle behind a string PolyValue (generation
     /// reconstructed from the live slot) — used to return a real handle from the

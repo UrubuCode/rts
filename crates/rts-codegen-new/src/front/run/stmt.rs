@@ -100,6 +100,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.bind_tagged_local(name, val);
                 Some(HeapShape::Array)
             }
+            // `let a = new Array(n)`: the built-in Array constructor → an array
+            // local (HeapShape::Array), NOT a class instance.
+            HirExprKind::New { class, args } if self.is_builtin_array_ctor(class) => {
+                let val = self.lower_new_array(module, args)?;
+                self.bind_tagged_local(name, val);
+                Some(HeapShape::Array)
+            }
             // `let c = new C(args)`: build the instance, record the local's CLASS
             // (for static `c.method()` dispatch) and OBJECT shape (for `c.field`).
             HirExprKind::New { class, args } => {

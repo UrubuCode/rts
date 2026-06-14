@@ -34,7 +34,9 @@ use rts_runtime::namespaces::globals::number as rt_num;
 use rts_runtime::namespaces::globals::string::rt as rt_gl_str;
 use rts_runtime::namespaces::io as rt_io;
 
-use crate::value::{abi_adapter, arraycb, arrayops, funcops, genops, genops_arith, inspect};
+use crate::value::{
+    abi_adapter, arraycb, arrayops, funcops, genops, genops_arith, globalops, inspect,
+};
 
 /// One installable JIT symbol: an extern "C" name and its function pointer. The
 /// pointer is to a `#[no_mangle] extern "C"` function with static lifetime.
@@ -128,6 +130,28 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_arr_push", arrayops::__rtsadp_arr_push as *const u8),
         sym("__rtsadp_arr_pop", arrayops::__rtsadp_arr_pop as *const u8),
         sym("__rtsadp_arr_slice", arrayops::__rtsadp_arr_slice as *const u8),
+        sym("__rtsadp_arr_last_index_of", arrayops::__rtsadp_arr_last_index_of as *const u8),
+        sym("__rtsadp_arr_reverse", arrayops::__rtsadp_arr_reverse as *const u8),
+        sym("__rtsadp_arr_fill", arrayops::__rtsadp_arr_fill as *const u8),
+        sym("__rtsadp_arr_concat", arrayops::__rtsadp_arr_concat as *const u8),
+        sym("__rtsadp_arr_flat", arrayops::__rtsadp_arr_flat as *const u8),
+        sym("__rtsadp_arr_shift", arrayops::__rtsadp_arr_shift as *const u8),
+        sym("__rtsadp_arr_unshift", arrayops::__rtsadp_arr_unshift as *const u8),
+        // ---- codegen-owned GLOBAL constant/function + Array/String STATIC
+        //      trampolines (__rtsadp_g_* / __rtsadp_arr_* / __rtsadp_str_*, P5.2) ----
+        sym("__rtsadp_g_number", globalops::__rtsadp_g_number as *const u8),
+        sym("__rtsadp_g_string", globalops::__rtsadp_g_string as *const u8),
+        sym("__rtsadp_g_boolean", globalops::__rtsadp_g_boolean as *const u8),
+        sym("__rtsadp_g_parse_int", globalops::__rtsadp_g_parse_int as *const u8),
+        sym("__rtsadp_g_parse_float", globalops::__rtsadp_g_parse_float as *const u8),
+        sym("__rtsadp_g_is_nan", globalops::__rtsadp_g_is_nan as *const u8),
+        sym("__rtsadp_g_is_finite", globalops::__rtsadp_g_is_finite as *const u8),
+        sym("__rtsadp_arr_is_array", globalops::__rtsadp_arr_is_array as *const u8),
+        sym("__rtsadp_arr_new_sized", globalops::__rtsadp_arr_new_sized as *const u8),
+        sym("__rtsadp_arr_from", globalops::__rtsadp_arr_from as *const u8),
+        sym("__rtsadp_str_from_char_code", globalops::__rtsadp_str_from_char_code as *const u8),
+        sym("__rtsadp_str_from_code_point", globalops::__rtsadp_str_from_code_point as *const u8),
+        sym("__rtsadp_str_split", globalops::__rtsadp_str_split as *const u8),
         // ---- codegen-owned FUNCTION-value trampolines (__rtsadp_fn_*, P4.6) ----
         sym("__rtsadp_fn_reify", funcops::__rtsadp_fn_reify as *const u8),
         sym("__rtsadp_fn_invoke", funcops::__rtsadp_fn_invoke as *const u8),
@@ -171,6 +195,8 @@ fn gl_method_symbols() -> Vec<JitSymbol> {
         sym("__RTS_FN_GL_STRING_STARTS_WITH", rt_gl_str::__RTS_FN_GL_STRING_STARTS_WITH as *const u8),
         sym("__RTS_FN_GL_STRING_ENDS_WITH", rt_gl_str::__RTS_FN_GL_STRING_ENDS_WITH as *const u8),
         sym("__RTS_FN_GL_STRING_CHAR_CODE_AT", rt_gl_str::__RTS_FN_GL_STRING_CHAR_CODE_AT as *const u8),
+        sym("__RTS_FN_GL_STRING_CODE_POINT_AT", rt_gl_str::__RTS_FN_GL_STRING_CODE_POINT_AT as *const u8),
+        sym("__RTS_FN_GL_STRING_LOCALE_COMPARE", rt_gl_str::__RTS_FN_GL_STRING_LOCALE_COMPARE as *const u8),
         sym("__RTS_FN_GL_STRING_REPLACE", rt_gl_str::__RTS_FN_GL_STRING_REPLACE as *const u8),
         sym("__RTS_FN_GL_STRING_REPLACE_ALL", rt_gl_str::__RTS_FN_GL_STRING_REPLACE_ALL as *const u8),
         sym("__RTS_FN_GL_STRING_CONCAT", rt_gl_str::__RTS_FN_GL_STRING_CONCAT as *const u8),

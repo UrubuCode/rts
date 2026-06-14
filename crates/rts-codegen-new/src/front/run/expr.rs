@@ -49,6 +49,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirExprKind::Member { object, prop } => self.lower_member(module, object, prop),
             HirExprKind::Index { object, index } => self.lower_index(module, object, index),
             HirExprKind::New { class, args } => {
+                // `new Array(n)` is the built-in Array constructor (not a user
+                // class) → a sized array value (P5.2).
+                if self.is_builtin_array_ctor(class) {
+                    return self.lower_new_array(module, args);
+                }
                 // A `new C(args)` used as a bare expression (not bound to a local
                 // whose class/shape we record) still builds the instance (a valid
                 // TAG_OBJECT PolyValue, so `console.log(new C())` / method chaining
@@ -118,6 +123,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // carries `Unknown` (we do not flow string-ness through vars yet),
             // which makes strict-eq over it conservatively bail.
             return Ok(Val::new(v, local.repr));
+        }
+        // GLOBAL value constants (P5.2): `NaN`/`Infinity`/`undefined` resolve to
+        // their PolyValue when a local of that name does not shadow them. These are
+        // the #1 "unbound identifier" bail in the histogram. `NaN`/`Infinity` are
+        // genuine doubles (the fast numeric path); `undefined` is the singleton.
+        if let Some(g) = global_constant(name) {
+            return Ok(g.lower(self));
         }
         // An identifier that is not a local but names a user FUNCTION is a
         // function VALUE reference (typeof f, `f` stored/passed/returned): reify it
@@ -240,6 +252,52 @@ fn ternary_target(t: Repr, e: Repr) -> FrontResult<Repr> {
         return Ok(Repr::Float64);
     }
     unsupported!("ternary arms have incompatible reprs {t:?} / {e:?}")
+}
+
+/// A GLOBAL value constant resolvable as a bare identifier (P5.2). `globalThis`
+/// is deliberately NOT here: it has no useful value representation in this engine
+/// (no global object), so referencing it stays an unbound-identifier bail.
+enum GlobalConst {
+    /// `NaN` — a genuine double (the numeric fast path), so `n + NaN` etc. stay
+    /// native f64 arithmetic.
+    NaN,
+    /// `Infinity` — `+∞` as a double.
+    Infinity,
+    /// `undefined` — the singleton PolyValue (kind Undefined).
+    Undefined,
+}
+
+impl GlobalConst {
+    /// Emit the constant's value into `ctx`.
+    fn lower(self, ctx: &mut Lowerer) -> Val {
+        match self {
+            GlobalConst::NaN => {
+                let v = ctx.builder.ins().f64const(f64::NAN);
+                Val::new(v, Repr::Float64)
+            }
+            GlobalConst::Infinity => {
+                let v = ctx.builder.ins().f64const(f64::INFINITY);
+                Val::new(v, Repr::Float64)
+            }
+            GlobalConst::Undefined => {
+                let v = ctx
+                    .builder
+                    .ins()
+                    .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
+                Val::tagged_kind(v, JsKind::Undefined)
+            }
+        }
+    }
+}
+
+/// Resolve a bare identifier to a [`GlobalConst`], if it names one.
+fn global_constant(name: &str) -> Option<GlobalConst> {
+    match name {
+        "NaN" => Some(GlobalConst::NaN),
+        "Infinity" => Some(GlobalConst::Infinity),
+        "undefined" => Some(GlobalConst::Undefined),
+        _ => None,
+    }
 }
 
 /// The compile-time `typeof` string for a literal operand, when statically known.

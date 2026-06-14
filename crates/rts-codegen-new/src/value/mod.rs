@@ -111,6 +111,10 @@ pub mod funcops;
 // findIndex/some/every/reduce, invoking the callback function VALUE per element
 // via funcops::__rtsadp_fn_invoke.
 pub mod arraycb;
+// Codegen-owned GLOBAL constant/function + Array/String STATIC trampolines (P5.2):
+// Number/String/Boolean/parseInt/parseFloat/isNaN/isFinite + Array.isArray/of/from
+// + Array(n) + String.fromCharCode/fromCodePoint + str.split (PolyValue-native).
+pub mod globalops;
 // The Cranelift IR that marshals at the real-symbol call boundaries
 // (box/unbox + StrPtr ptr+len).
 pub mod emit_marshal;

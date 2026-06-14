@@ -45,8 +45,39 @@ pub(super) fn to_string(v: PolyValue) -> String {
     if v.is_function() {
         return "function".to_string();
     }
+    // An ARRAY (TAG_OBJECT that is NOT a keyed object) ToStrings as its elements
+    // joined by "," (JS `String([1,2,3])` = "1,2,3", `String([])` = ""), with
+    // `null`/`undefined` elements rendering as the empty string. A keyed OBJECT
+    // stays `[object Object]`.
+    if v.is_object() && !crate::value::inspect::looks_like_object(v) {
+        return array_to_string(v);
+    }
     // objects (and any reserved/leaked singleton)
     "[object Object]".to_string()
+}
+
+/// JS `Array.prototype.toString` = `join(",")` with `null`/`undefined` elements
+/// rendered as the empty string. Reads the REAL Vec behind the array word and
+/// recurses through [`to_string`] for each element (so nested arrays flatten the
+/// same way JS does).
+fn array_to_string(v: PolyValue) -> String {
+    use rts_runtime::namespaces::collections::vec as rt_vec;
+    use rts_runtime::namespaces::gc::handles as rt_handles;
+    let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+    let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(handle).max(0);
+    let mut out = String::new();
+    for i in 0..len {
+        if i > 0 {
+            out.push(',');
+        }
+        let w = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, i) as u64;
+        let ev = PolyValue::from_raw(w);
+        if ev.is_null() || ev.is_undefined() {
+            continue; // JS renders null/undefined elements as empty.
+        }
+        out.push_str(&to_string(ev));
+    }
+    out
 }
 
 /// JS `Number→String` for an `f64`, delegating to the REAL runtime
@@ -99,11 +130,39 @@ fn string_to_number(s: &str) -> f64 {
     if t.is_empty() {
         return 0.0;
     }
+    // Non-decimal integer literals (`ToNumber("0b101")` = 5, `0o17` = 15,
+    // `0xFF` = 255) — JS recognizes these prefixes in `Number()`/numeric coercion
+    // (NOT in `parseInt`/`parseFloat`, which stop at the prefix).
+    if let Some(rest) = t.strip_prefix("0b").or_else(|| t.strip_prefix("0B")) {
+        return radix_int(rest, 2);
+    }
+    if let Some(rest) = t.strip_prefix("0o").or_else(|| t.strip_prefix("0O")) {
+        return radix_int(rest, 8);
+    }
+    if let Some(rest) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
+        return radix_int(rest, 16);
+    }
     match t {
         "Infinity" | "+Infinity" => f64::INFINITY,
         "-Infinity" => f64::NEG_INFINITY,
         _ => t.parse::<f64>().unwrap_or(f64::NAN),
     }
+}
+
+/// Parse `digits` as a non-decimal integer in `radix`, returning the value as an
+/// `f64` (`NaN` on an empty / invalid run — JS `Number("0x")` is `NaN`).
+fn radix_int(digits: &str, radix: u32) -> f64 {
+    if digits.is_empty() {
+        return f64::NAN;
+    }
+    let mut acc = 0.0f64;
+    for c in digits.chars() {
+        match c.to_digit(radix) {
+            Some(d) => acc = acc * radix as f64 + d as f64,
+            None => return f64::NAN,
+        }
+    }
+    acc
 }
 
 /// JS `ToBoolean` for any [`PolyValue`], resolving the empty-string case on the

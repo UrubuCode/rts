@@ -155,6 +155,9 @@ const STRING_ROWS: &[(&str, usize, MethodSpec)] = &[
     ("endsWith", 1, sm("__RTS_FN_GL_STRING_ENDS_WITH", &[Handle], Bool)),
     // ---- char code: index arg, return number ----
     ("charCodeAt", 1, sm("__RTS_FN_GL_STRING_CHAR_CODE_AT", &[I64], I64)),
+    ("codePointAt", 1, sm("__RTS_FN_GL_STRING_CODE_POINT_AT", &[I64], I64)),
+    // ---- locale compare: one string arg, return number (-1/0/1) ----
+    ("localeCompare", 1, sm("__RTS_FN_GL_STRING_LOCALE_COMPARE", &[Handle], I64)),
     // ---- two string args, return string ----
     ("replace", 2, sm("__RTS_FN_GL_STRING_REPLACE", &[Handle, Handle], Handle)),
     ("replaceAll", 2, sm("__RTS_FN_GL_STRING_REPLACE_ALL", &[Handle, Handle], Handle)),
@@ -205,6 +208,14 @@ const ARRAY_ROWS: &[(&str, usize, MethodSpec)] = &[
     ("push", 1, am("__rtsadp_arr_push", &[U64], I64)),
     ("pop", 0, am("__rtsadp_arr_pop", &[], U64)),
     ("slice", 2, am("__rtsadp_arr_slice", &[I64, I64], U64)),
+    // ---- P5.2 non-callback methods over boxed PolyValue words ----
+    ("lastIndexOf", 1, am("__rtsadp_arr_last_index_of", &[U64], I64)),
+    ("reverse", 0, am("__rtsadp_arr_reverse", &[], U64)),
+    ("fill", 1, am("__rtsadp_arr_fill", &[U64], U64)),
+    ("concat", 1, am("__rtsadp_arr_concat", &[U64], U64)),
+    ("flat", 0, am("__rtsadp_arr_flat", &[], U64)),
+    ("shift", 0, am("__rtsadp_arr_shift", &[], U64)),
+    ("unshift", 1, am("__rtsadp_arr_unshift", &[U64], I64)),
     // ---- callback methods (P4.7): exactly one callback arg (`cb(elem, i, arr)`)
     // for the predicate/map family; `reduce` has the callback + an OPTIONAL init.
     // The lowering reifies the callback to a TAG_FUNCTION word (see CbShape).

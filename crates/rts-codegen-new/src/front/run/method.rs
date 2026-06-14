@@ -30,7 +30,7 @@ use crate::value::{self, emit_marshal};
 
 use crate::front::error::{unsupported, FrontResult};
 
-use super::lower::{HeapShape, JsKind, Lowerer, Val};
+use super::lower::{JsKind, Lowerer, Val};
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Try to lower `recv.method(args)` via data-driven dispatch. Returns
@@ -92,6 +92,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(None);
         };
 
+        // STRING methods that don't fit the generic typed-row path (P5.2): `split`
+        // (returns an ARRAY of boxed string words + a defaulted limit) and the
+        // 1-arg `slice`/`substring`/`substr` (a defaulted "to end" bound). Handled
+        // here over the proven-string receiver; everything else falls to the row.
+        if matches!(class, RecvClass::String) {
+            if let Some(val) = self.try_string_special(module, recv, method, args)? {
+                return Ok(Some(val));
+            }
+        }
+
         let argc = args.len();
         let Some(spec) = resolve_method(class, method, argc) else {
             return Err(crate::front::error::Unsupported::new(format!(
@@ -108,6 +118,78 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
         let val = self.emit_dispatch_call(module, recv, &spec, args)?;
         Ok(Some(val))
+    }
+
+    /// Lower the STRING methods that need special arg/return handling beyond the
+    /// generic typed-row path (P5.2):
+    /// - `split(sep[, limit])` → `__rtsadp_str_split(recvHandle, sepHandle, limit)`,
+    ///   returning an ARRAY of boxed string words (a regex separator BAILS — the
+    ///   sep must be a proven string);
+    /// - 1-arg `slice(n)`/`substring(n)`/`substr(n)` → the real 2-arg symbol with a
+    ///   defaulted "to end" bound (`i64::MAX`, which the runtime clamps to length).
+    ///
+    /// Returns `Ok(None)` when `method` is not one of these specials (the caller
+    /// falls through to the generic row).
+    fn try_string_special(
+        &mut self,
+        module: &mut dyn Module,
+        recv: Val,
+        method: &str,
+        args: &[HirExpr],
+    ) -> FrontResult<Option<Val>> {
+        match (method, args.len()) {
+            ("split", 1) | ("split", 2) => {
+                // sep must be a proven string (a regex separator is a later
+                // increment). Lower + marshal it to a real string handle.
+                let sep = self.lower_expr(module, &args[0])?;
+                if !matches!(sep.kind, JsKind::Str) {
+                    return unsupported!(
+                        "String.split with a non-string (regex?) separator is a later increment"
+                    );
+                }
+                let sep_word = self.box_value(sep);
+                let sep_handle = emit_marshal::emit_table_load(module, self.builder, sep_word);
+                let limit = if args.len() == 2 {
+                    let l = self.lower_expr(module, &args[1])?;
+                    self.numeric_to_i64(l)?
+                } else {
+                    self.builder.ins().iconst(types::I64, -1)
+                };
+                let rh = {
+                    let word = self.box_value(recv);
+                    emit_marshal::emit_table_load(module, self.builder, word)
+                };
+                let ret = emit_marshal::emit_call(
+                    module,
+                    self.builder,
+                    "__rtsadp_str_split",
+                    &[rh, sep_handle, limit],
+                );
+                let word = ret.expect("__rtsadp_str_split returns a value");
+                Ok(Some(Val::tagged_kind(word, JsKind::Array)))
+            }
+            ("slice", 1) | ("substring", 1) | ("substr", 1) => {
+                let start = self.lower_expr(module, &args[0])?;
+                let start_i = self.numeric_to_i64(start)?;
+                // The "to end" default bound: i64::MAX clamps to length in the
+                // runtime (slice/substring) or means "rest" for substr's length.
+                let end = self.builder.ins().iconst(types::I64, i64::MAX);
+                let symbol = match method {
+                    "slice" => "__RTS_FN_GL_STRING_SLICE",
+                    "substring" => "__RTS_FN_GL_STRING_SUBSTRING",
+                    _ => "__RTS_FN_GL_STRING_SUBSTR",
+                };
+                let rh = {
+                    let word = self.box_value(recv);
+                    emit_marshal::emit_table_load(module, self.builder, word)
+                };
+                let ret = emit_marshal::emit_call(module, self.builder, symbol, &[rh, start_i, end]);
+                let h = ret.expect("string slice returns a handle");
+                let word = emit_marshal::emit_box_real_string(module, self.builder, h);
+                Ok(Some(Val::tagged_kind(word, JsKind::Str)))
+            }
+            _ => Ok(None),
+        }
     }
 
     /// Marshal the receiver + each arg per `spec`, emit the `call`, marshal the
@@ -154,228 +236,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.marshal_ret(module, spec.ret, ret)
     }
 
-    /// Whether `object` is statically a proven ARRAY dispatch receiver:
-    /// - a bare identifier bound to a local recorded as [`HeapShape::Array`]
-    ///   (P4.5), or
-    /// - an array LITERAL (`[1,2,3].map(..)`), or
-    /// - a CHAINED array-returning method call (`a.filter(..).map(..)`,
-    ///   `a.slice(..).map(..)`): the inner `MethodCall`/`Call` resolves to an
-    ///   Array method whose return is itself an array (`map`/`filter`/`slice`).
-    ///
-    /// Everything else (an object, a param, a non-array call result) falls through
-    /// to the non-array path.
-    fn is_array_receiver(&self, object: &HirExpr) -> bool {
-        match &object.kind {
-            HirExprKind::Ident(name) => {
-                matches!(self.local_shapes.get(name), Some(HeapShape::Array))
-            }
-            HirExprKind::Array(_) => true,
-            HirExprKind::MethodCall { method, .. } => is_array_returning_method(method),
-            HirExprKind::Call { callee, .. } => match &callee.kind {
-                HirExprKind::Member { prop, .. } => is_array_returning_method(prop),
-                _ => false,
-            },
-            _ => false,
-        }
-    }
-
-    /// Lower `arr.method(args)` for a proven-array receiver via the codegen-owned
-    /// `__rtsadp_arr_*` trampolines. The receiver marshals as the array's REAL Vec
-    /// handle (`POLY_TO_HANDLE`); args/return follow the Array row's `AbiType`s
-    /// (`U64` = raw PolyValue word, `I64` = index, `Handle` = string sep). An
-    /// unknown `(method, arity)` BAILS explicitly (never a guess).
-    fn try_array_dispatch(
-        &mut self,
-        module: &mut dyn Module,
-        object: &HirExpr,
-        method: &str,
-        args: &[HirExpr],
-    ) -> FrontResult<Val> {
-        let argc = args.len();
-        let Some(spec) = resolve_method(RecvClass::Array, method, argc) else {
-            return Err(crate::front::error::Unsupported::new(format!(
-                "no Registry entry for `Array.{method}({argc} args)` \
-                 (callback methods like .map/.filter/.reduce bail by design)"
-            )));
-        };
-        debug_assert!(matches!(spec.recv_abi, RecvAbi::ArrayVec));
-
-        // Callback methods (P4.7) take a dedicated marshaling path.
-        if let Some(cb) = spec.cb {
-            return self.try_array_callback(module, object, method, args, &spec, cb);
-        }
-
-        let mut call_args: Vec<Value> = Vec::with_capacity(argc + 1);
-
-        // ---- receiver (slot 0): the array word → its real Vec handle ----
-        let arr = self.lower_expr(module, object)?;
-        let arr_word = self.box_value(arr);
-        let handle = emit_marshal::emit_table_load(module, self.builder, arr_word);
-        call_args.push(handle);
-
-        // ---- explicit args ----
-        for (a, &want) in args.iter().zip(spec.args) {
-            let v = self.lower_expr(module, a)?;
-            call_args.push(self.marshal_array_arg(module, v, want)?);
-        }
-
-        // ---- emit + marshal the result ----
-        let ret = emit_marshal::emit_call(module, self.builder, spec.symbol, &call_args);
-        self.marshal_array_ret(module, method, spec.ret, ret)
-    }
-
-    /// Lower an Array CALLBACK method (`map`/`filter`/`forEach`/`find`/`findIndex`/
-    /// `some`/`every`/`reduce`) — P4.7. Marshals the receiver as the array's real
-    /// Vec handle and the callback argument as a `TAG_FUNCTION` PolyValue word
-    /// (reified via the P4.6 path), then calls the codegen-owned `__rtsadp_arr_*`
-    /// trampoline that invokes the callback per element.
-    ///
-    /// BAILS explicitly (never a wrong value) when the callback argument is not a
-    /// reifiable function value: a capturing arrow (left as an `Arrow` node by the
-    /// P4.6 extraction), a `thisArg` second positional (find/some/… 2nd arg), or
-    /// anything that is not an arrow/function-ident.
-    fn try_array_callback(
-        &mut self,
-        module: &mut dyn Module,
-        object: &HirExpr,
-        method: &str,
-        args: &[HirExpr],
-        spec: &MethodSpec,
-        cb: crate::dispatch::CbShape,
-    ) -> FrontResult<Val> {
-        use crate::dispatch::CbShape;
-
-        // The callback is always the FIRST argument. A `thisArg` (a SECOND
-        // positional on the predicate family) is a later increment — bail.
-        if matches!(cb, CbShape::Predicate) && args.len() != 1 {
-            return Err(crate::front::error::Unsupported::new(format!(
-                "Array.{method}() with a thisArg / extra argument is a later increment"
-            )));
-        }
-
-        // ---- receiver (slot 0): the array word → its real Vec handle ----
-        let arr = self.lower_expr(module, object)?;
-        let arr_word = self.box_value(arr);
-        let handle = emit_marshal::emit_table_load(module, self.builder, arr_word);
-
-        // ---- callback (slot 1): reify the first arg to a TAG_FUNCTION word ----
-        let cb_word = self.reify_callback_arg(module, &args[0], method)?;
-
-        let mut call_args: Vec<Value> = vec![handle, cb_word];
-
-        // ---- reduce's optional initial accumulator + has_init flag ----
-        if matches!(cb, CbShape::Reduce) {
-            let (init_word, has_init) = if args.len() >= 2 {
-                let v = self.lower_expr(module, &args[1])?;
-                (self.box_value(v), 1i64)
-            } else {
-                let undef = self
-                    .builder
-                    .ins()
-                    .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
-                (undef, 0i64)
-            };
-            let has = self.builder.ins().iconst(types::I64, has_init);
-            call_args.push(init_word);
-            call_args.push(has);
-        }
-
-        // ---- emit + marshal the result ----
-        let ret = emit_marshal::emit_call(module, self.builder, spec.symbol, &call_args);
-        self.marshal_array_ret(module, method, spec.ret, ret)
-    }
-
-    /// Reify the callback argument `a` of an Array callback method to a
-    /// `TAG_FUNCTION` PolyValue word. After the P4.6 arrow-extraction pre-pass a
-    /// non-capturing inline arrow is an `Ident` of a synthesized top-level fn, so
-    /// the callback resolves through [`Self::reify_function`]. A capturing arrow
-    /// stayed an `Arrow` node and BAILS here (a closure — a later increment); any
-    /// other expression (a function value held in a Tagged local, etc.) also bails
-    /// this increment, never a guess.
-    fn reify_callback_arg(
-        &mut self,
-        module: &mut dyn Module,
-        a: &HirExpr,
-        method: &str,
-    ) -> FrontResult<Value> {
-        match &a.kind {
-            HirExprKind::Ident(name) if self.sigs.contains_key(name) => {
-                let f = self.reify_function(module, name)?;
-                Ok(f.v)
-            }
-            HirExprKind::Arrow { .. } => Err(crate::front::error::Unsupported::new(format!(
-                "Array.{method}() with a CAPTURING callback (closures are a later increment)"
-            ))),
-            _ => Err(crate::front::error::Unsupported::new(format!(
-                "Array.{method}() callback is not a reifiable function value"
-            ))),
-        }
-    }
-
-    /// Marshal one array-method arg to its Array-row `AbiType`.
-    /// - `U64`: a raw PolyValue WORD (box the value verbatim — element equality
-    ///   must match the stored boxed word).
-    /// - `I64`: a proven-numeric index, truncated to i64.
-    /// - `Handle`: a proven-string separator → its real string handle.
-    fn marshal_array_arg(
-        &mut self,
-        module: &mut dyn Module,
-        v: Val,
-        want: AbiType,
-    ) -> FrontResult<Value> {
-        match want {
-            AbiType::U64 => Ok(self.box_value(v)),
-            AbiType::I64 => self.numeric_to_i64(v),
-            AbiType::Handle => {
-                if !matches!(v.kind, JsKind::Str) {
-                    return unsupported!(
-                        "array method arg wants a string but its kind is not statically a string ({:?})",
-                        v.repr
-                    );
-                }
-                let word = self.box_value(v);
-                Ok(emit_marshal::emit_table_load(module, self.builder, word))
-            }
-            other => unsupported!("cannot marshal an array-method arg of ABI {other:?}"),
-        }
-    }
-
-    /// Marshal an array-method result back to a `Val`.
-    /// - `U64`: a raw PolyValue word. For `slice` it is a fresh TAG_OBJECT ARRAY
-    ///   word (kind `Array`, so the `let` records `HeapShape::Array`); for
-    ///   `at`/`pop` it is an opaque element word (kind `Unknown`).
-    /// - `Handle` (`join`): a real string handle → re-boxed as a TAG_STR PolyValue.
-    /// - `I64`/`Bool`: a proven number / boolean.
-    fn marshal_array_ret(
-        &mut self,
-        module: &mut dyn Module,
-        method: &str,
-        ret: AbiType,
-        value: Option<Value>,
-    ) -> FrontResult<Val> {
-        match ret {
-            AbiType::U64 => {
-                let word = value.expect("U64-returning trampoline yields a value");
-                // `slice`/`map`/`filter` return a fresh ARRAY (so a `let` records
-                // HeapShape::Array and chaining `.map(..).filter(..)` works);
-                // `at`/`pop`/`find`/`reduce` return an opaque element/acc word.
-                let kind = match method {
-                    "slice" | "map" | "filter" => JsKind::Array,
-                    _ => JsKind::Unknown,
-                };
-                Ok(Val::tagged_kind(word, kind))
-            }
-            AbiType::Handle => {
-                let h = value.expect("Handle-returning trampoline yields a value");
-                let word = emit_marshal::emit_box_real_string(module, self.builder, h);
-                Ok(Val::tagged_kind(word, JsKind::Str))
-            }
-            AbiType::I64 => Ok(Val::new(value.expect("int result"), Repr::Int64)),
-            AbiType::Bool => Ok(Val::new(value.expect("bool result"), Repr::Bool)),
-            other => unsupported!("array method result of ABI {other:?} not marshaled"),
-        }
-    }
-
     /// Marshal one lowered arg `v` to the slot `AbiType` the real symbol wants.
     /// A mismatch (a number where a string handle is wanted, etc.) is an explicit
     /// bail — never a wrong coercion.
@@ -413,7 +273,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
     /// Coerce a proven-numeric `Val` to an i64 (index/count). A Tagged value is
     /// not accepted here (we cannot prove it numeric) — bail.
-    fn numeric_to_i64(&mut self, v: Val) -> FrontResult<Value> {
+    pub(super) fn numeric_to_i64(&mut self, v: Val) -> FrontResult<Value> {
         match v.repr {
             Repr::Int32 | Repr::Int64 => Ok(v.v),
             Repr::Float64 => Ok(self.builder.ins().fcvt_to_sint(types::I64, v.v)),
@@ -485,10 +345,4 @@ fn recv_class_of(recv: Val) -> Option<RecvClass> {
 /// for array callback methods). A capturing arrow stays an `Arrow` node here.
 fn is_callback_arg(e: &HirExpr) -> bool {
     matches!(&e.kind, HirExprKind::Arrow { .. })
-}
-
-/// Whether an Array method name returns a fresh ARRAY (so a chained call on its
-/// result is itself an array dispatch receiver): `map`/`filter`/`slice`.
-fn is_array_returning_method(method: &str) -> bool {
-    matches!(method, "map" | "filter" | "slice")
 }

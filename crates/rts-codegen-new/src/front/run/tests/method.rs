@@ -1,7 +1,7 @@
 //! Method-dispatch bail cases: callbacks, dynamic receiver, unsupported arity —
 //! the explicit `Unsupported` bails that keep dispatch from guessing.
 
-use super::{assert_bails, run_source};
+use super::{assert_bails, assert_stdout, run_source};
 
 #[test]
 fn unknown_method_name_bails() {
@@ -19,8 +19,8 @@ fn method_on_dynamic_receiver_bails() {
 }
 
 #[test]
-fn one_arg_slice_bails() {
-    // `slice(n)` (1-arg form) relies on a runtime default this table does not
-    // inject — BAIL rather than guess the end index.
-    assert_bails(r#"console.log("hello".slice(1));"#);
+fn one_arg_slice_now_works() {
+    // P5.2: `slice(n)` (1-arg form) now injects the "to end" default bound at the
+    // lowering (previously a bail). `"hello".slice(1)` → `"ello"`.
+    assert_stdout(r#"console.log("hello".slice(1));"#, "ello\n");
 }

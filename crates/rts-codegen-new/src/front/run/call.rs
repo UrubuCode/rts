@@ -34,6 +34,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if is_console_ident(object) && method == "log" {
             return self.lower_console_log(module, args);
         }
+        // GLOBAL static `Array.m(..)` / `String.m(..)` (P5.2).
+        if let Some(val) = self.try_global_static_call(module, object, method, args)? {
+            return Ok(val);
+        }
         // Data-driven instance-method dispatch (String/Number) via the Registry
         // mirror. `Ok(None)` ⇒ not a dispatchable receiver; fall through to bail.
         if let Some(val) = self.try_method_dispatch(module, object, method, args)? {
@@ -54,6 +58,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             if is_console_ident(object) && prop == "log" {
                 return self.lower_console_log(module, args);
             }
+            // GLOBAL static `Array.m(..)` / `String.m(..)` (P5.2) — before the
+            // class-instance/primordial dispatch, since `Array`/`String` are not
+            // user classes.
+            if let Some(val) = self.try_global_static_call(module, object, prop, args)? {
+                return Ok(val);
+            }
             // `recv.method(args)` lowered as `Call(Member)` — route to dispatch.
             if let Some(val) = self.try_method_dispatch(module, object, prop, args)? {
                 return Ok(val);
@@ -72,6 +82,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // uniform-ABI invoke path (P4.6).
         if let Some(local) = self.local(&name) {
             return self.lower_value_call(module, local, args);
+        }
+        // A GLOBAL coercion/predicate function (`Number`/`parseInt`/`isNaN`/…) or
+        // `Array(n)` (P5.2) — resolved last, so a same-named user fn/local wins.
+        if let Some(val) = self.try_global_fn_call(module, &name, args)? {
+            return Ok(val);
         }
         unsupported!("call to unknown function `{name}`")
     }
