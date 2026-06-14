@@ -15,7 +15,7 @@
 //! - [`method`] — method-dispatch bail cases (callbacks, dynamic receiver, …).
 //! - [`funcval`] — first-class FUNCTION values (P4.6): reify + indirect invoke.
 
-use super::{render_source, run_source};
+use super::{render_source, render_source_with_prelude, run_source};
 
 /// Run `src` (console.log captured via the real-pool-backed sink) and assert its
 /// rendered stdout equals `expected`.
@@ -23,6 +23,16 @@ pub(crate) fn assert_stdout(src: &str, expected: &str) {
     match render_source(src) {
         Ok(out) => assert_eq!(out, expected, "stdout mismatch for source:\n{src}"),
         Err(e) => panic!("render_source failed for:\n{src}\n  -> {e}"),
+    }
+}
+
+/// Like [`assert_stdout`], but compiles `prelude` (a declarations-only TS stdlib)
+/// ahead of `src`, merged into one module, so the prelude's classes/functions are
+/// ambient in `src` (a prelude `class Map` shadows the native Map).
+pub(super) fn assert_stdout_with_prelude(prelude: &str, src: &str, expected: &str) {
+    match render_source_with_prelude(prelude, src) {
+        Ok(out) => assert_eq!(out, expected, "stdout mismatch for source:\n{src}"),
+        Err(e) => panic!("render_source_with_prelude failed for:\n{src}\n  -> {e}"),
     }
 }
 
@@ -57,6 +67,7 @@ mod objstatic;
 mod optchain;
 mod poly;
 mod precision;
+mod prelude;
 mod regex;
 mod run;
 mod string;

@@ -95,6 +95,62 @@ pub fn render_source(src: &str) -> FrontResult<String> {
     Ok(out)
 }
 
+/// Compile `prelude_src` (a declarations-only TS stdlib) ahead of `user_src`,
+/// merged into one module so the prelude's classes/functions are ambient in the
+/// user program (a prelude `class Map` shadows the native Map). Returns captured
+/// stdout. The prelude must contain only declarations (no top-level statements).
+pub fn render_source_with_prelude(prelude_src: &str, user_src: &str) -> FrontResult<String> {
+    let prelude = build_program(prelude_src)?;
+    let user = build_program(user_src)?;
+    let merged = merge_programs(prelude, user)?;
+    let program = module_jit::compile_program(&merged)?;
+    let ((), out) = crate::value::abi_adapter::with_capture(|| program.run_main());
+    Ok(out)
+}
+
+/// Merge a declarations-only `prelude` program ahead of the `user` program into a
+/// single `LoweredProgram`. The prelude's top-level classes/functions become
+/// ambient in the user program; on name collision the user wins (last-wins),
+/// which is exactly the shadow case (a user `class Map` overriding a prelude one).
+///
+/// The prelude must carry NO top-level statements (its `__rtsn_main` body must be
+/// empty) — only class/function declarations. Top-level code in the prelude is
+/// unsupported (there is one `__rtsn_main`, which belongs to the user program).
+fn merge_programs(
+    prelude: LoweredProgram,
+    user: LoweredProgram,
+) -> FrontResult<LoweredProgram> {
+    if !prelude.main.body.is_empty() {
+        return Err(Unsupported::new(
+            "prelude must be declarations-only (no top-level statements)".to_string(),
+        ));
+    }
+
+    // ClassTable: prelude first, then user (user can override).
+    let mut classes = prelude.classes;
+    for desc in user.classes.iter() {
+        classes.insert(desc.clone());
+    }
+
+    // funcs: prelude first, then user (user appended; last-wins on name collision).
+    let mut funcs = prelude.funcs;
+    funcs.extend(user.funcs);
+
+    // fn_this_class + captures: prelude then user.
+    let mut fn_this_class = prelude.fn_this_class;
+    fn_this_class.extend(user.fn_this_class);
+    let mut captures = prelude.captures;
+    captures.extend(user.captures);
+
+    Ok(LoweredProgram {
+        funcs,
+        main: user.main,
+        classes,
+        fn_this_class,
+        captures,
+    })
+}
+
 /// A lowered program ready to JIT: the user functions (incl. synthesized class
 /// constructors/methods + extracted arrows), the synthesized `__rtsn_main`, the
 /// class table, and the synthesized-fn → owning-class map (for binding `this`).
