@@ -33,6 +33,7 @@ use rts_runtime::namespaces::gc::string_pool as rt_str;
 use rts_runtime::namespaces::globals::number as rt_num;
 use rts_runtime::namespaces::globals::string::rt as rt_gl_str;
 use rts_runtime::namespaces::io as rt_io;
+use rts_runtime::namespaces::math as rt_math;
 
 use crate::value::{
     abi_adapter, arraycb, arrayops, funcops, genops, genops_arith, globalops, inspect, mapset,
@@ -199,7 +200,52 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_is_error", wrappers::__rtsadp_is_error as *const u8),
     ];
     syms.extend(gl_method_symbols());
+    syms.extend(math_number_symbols());
     syms
+}
+
+/// The REAL Math namespace + Number static-predicate symbols the P5.4 `Math.*` /
+/// `Number.*` lowering ([`crate::front::run::mathobj`]) emits. Each is the ACTUAL
+/// `__RTS_FN_NS_MATH_*` / `__RTS_FN_GL_NUMBER_IS_*` extern (taken by address
+/// through the facade). The `Math.sqrt`/`abs`/`min`/`max` intrinsics inline to
+/// Cranelift IR and need NO symbol; only the genuine `call` ops appear here.
+fn math_number_symbols() -> Vec<JitSymbol> {
+    vec![
+        // ---- Math 1-arg f64→f64 ----
+        sym("__RTS_FN_NS_MATH_FLOOR", rt_math::__RTS_FN_NS_MATH_FLOOR as *const u8),
+        sym("__RTS_FN_NS_MATH_CEIL", rt_math::__RTS_FN_NS_MATH_CEIL as *const u8),
+        sym("__RTS_FN_NS_MATH_ROUND", rt_math::__RTS_FN_NS_MATH_ROUND as *const u8),
+        sym("__RTS_FN_NS_MATH_TRUNC", rt_math::__RTS_FN_NS_MATH_TRUNC as *const u8),
+        sym("__RTS_FN_NS_MATH_SIGN", rt_math::__RTS_FN_NS_MATH_SIGN as *const u8),
+        sym("__RTS_FN_NS_MATH_CBRT", rt_math::__RTS_FN_NS_MATH_CBRT as *const u8),
+        sym("__RTS_FN_NS_MATH_EXP", rt_math::__RTS_FN_NS_MATH_EXP as *const u8),
+        sym("__RTS_FN_NS_MATH_EXPM1", rt_math::__RTS_FN_NS_MATH_EXPM1 as *const u8),
+        sym("__RTS_FN_NS_MATH_LN", rt_math::__RTS_FN_NS_MATH_LN as *const u8),
+        sym("__RTS_FN_NS_MATH_LOG2", rt_math::__RTS_FN_NS_MATH_LOG2 as *const u8),
+        sym("__RTS_FN_NS_MATH_LOG10", rt_math::__RTS_FN_NS_MATH_LOG10 as *const u8),
+        sym("__RTS_FN_NS_MATH_LOG1P", rt_math::__RTS_FN_NS_MATH_LOG1P as *const u8),
+        sym("__RTS_FN_NS_MATH_SIN", rt_math::__RTS_FN_NS_MATH_SIN as *const u8),
+        sym("__RTS_FN_NS_MATH_COS", rt_math::__RTS_FN_NS_MATH_COS as *const u8),
+        sym("__RTS_FN_NS_MATH_TAN", rt_math::__RTS_FN_NS_MATH_TAN as *const u8),
+        sym("__RTS_FN_NS_MATH_ASIN", rt_math::__RTS_FN_NS_MATH_ASIN as *const u8),
+        sym("__RTS_FN_NS_MATH_ACOS", rt_math::__RTS_FN_NS_MATH_ACOS as *const u8),
+        sym("__RTS_FN_NS_MATH_ATAN", rt_math::__RTS_FN_NS_MATH_ATAN as *const u8),
+        sym("__RTS_FN_NS_MATH_SINH", rt_math::__RTS_FN_NS_MATH_SINH as *const u8),
+        sym("__RTS_FN_NS_MATH_COSH", rt_math::__RTS_FN_NS_MATH_COSH as *const u8),
+        sym("__RTS_FN_NS_MATH_TANH", rt_math::__RTS_FN_NS_MATH_TANH as *const u8),
+        sym("__RTS_FN_NS_MATH_FROUND", rt_math::__RTS_FN_NS_MATH_FROUND as *const u8),
+        // ---- Math 2-arg f64,f64→f64 ----
+        sym("__RTS_FN_NS_MATH_POW", rt_math::__RTS_FN_NS_MATH_POW as *const u8),
+        sym("__RTS_FN_NS_MATH_ATAN2", rt_math::__RTS_FN_NS_MATH_ATAN2 as *const u8),
+        sym("__RTS_FN_NS_MATH_HYPOT", rt_math::__RTS_FN_NS_MATH_HYPOT as *const u8),
+        // ---- Math no-arg (PRNG) ----
+        sym("__RTS_FN_NS_MATH_RANDOM_F64", rt_math::__RTS_FN_NS_MATH_RANDOM_F64 as *const u8),
+        // ---- Number static predicates (f64→Bool) ----
+        sym("__RTS_FN_GL_NUMBER_IS_INTEGER", rt_num::__RTS_FN_GL_NUMBER_IS_INTEGER as *const u8),
+        sym("__RTS_FN_GL_NUMBER_IS_FINITE", rt_num::__RTS_FN_GL_NUMBER_IS_FINITE as *const u8),
+        sym("__RTS_FN_GL_NUMBER_IS_NAN", rt_num::__RTS_FN_GL_NUMBER_IS_NAN as *const u8),
+        sym("__RTS_FN_GL_NUMBER_IS_SAFE_INT", rt_num::__RTS_FN_GL_NUMBER_IS_SAFE_INT as *const u8),
+    ]
 }
 
 /// The REAL global-class instance-method symbols the P4 data-driven dispatch

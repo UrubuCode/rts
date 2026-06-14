@@ -34,6 +34,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if is_console_ident(object) && method == "log" {
             return self.lower_console_log(module, args);
         }
+        // GLOBAL static `Math.m(..)` / `Number.m(..)` / `Object.m(..)` (P5.4).
+        if let Some(val) = self.try_math_number_call(module, object, method, args)? {
+            return Ok(val);
+        }
+        if let Some(val) = self.try_object_static_call(module, object, method, args)? {
+            return Ok(val);
+        }
         // GLOBAL static `Array.m(..)` / `String.m(..)` (P5.2).
         if let Some(val) = self.try_global_static_call(module, object, method, args)? {
             return Ok(val);
@@ -57,6 +64,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if let HirExprKind::Member { object, prop } = &callee.kind {
             if is_console_ident(object) && prop == "log" {
                 return self.lower_console_log(module, args);
+            }
+            // GLOBAL static `Math.m(..)` / `Number.m(..)` / `Object.m(..)` (P5.4)
+            // — before user/instance dispatch (these are not user classes/locals).
+            if let Some(val) = self.try_math_number_call(module, object, prop, args)? {
+                return Ok(val);
+            }
+            if let Some(val) = self.try_object_static_call(module, object, prop, args)? {
+                return Ok(val);
             }
             // GLOBAL static `Array.m(..)` / `String.m(..)` (P5.2) — before the
             // class-instance/primordial dispatch, since `Array`/`String` are not

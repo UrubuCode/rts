@@ -73,9 +73,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if method == "split" {
             return true;
         }
-        matches!(method, "of" | "from")
+        if matches!(method, "of" | "from")
             && matches!(&inner.kind, HirExprKind::Ident(n)
                 if n == "Array" && self.classes.get(n).is_none())
+        {
+            return true;
+        }
+        // `Object.keys/values/entries/getOwnPropertyNames(o)` produce an engine
+        // array word (P5.4), so a chained `.join`/`.length`/`[i]`/array method on
+        // the result dispatches as an array.
+        matches!(method, "keys" | "values" | "entries" | "getOwnPropertyNames")
+            && matches!(&inner.kind, HirExprKind::Ident(n)
+                if n == "Object" && self.local(n).is_none() && self.classes.get(n).is_none())
     }
 
     /// Lower `arr.method(args)` for a proven-array receiver via the codegen-owned

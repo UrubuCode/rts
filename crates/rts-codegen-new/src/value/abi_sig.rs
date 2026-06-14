@@ -266,6 +266,30 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         | "__RTS_FN_GL_NUMBER_TO_EXPONENTIAL"
         | "__RTS_FN_GL_NUMBER_TO_STRING_RADIX" => SymSig { params: &[F64, I64], ret: Handle },
 
+        // ---- REAL Math namespace symbols (P5.4, rts-shared math) ----
+        // 1-arg f64 → f64.
+        "__RTS_FN_NS_MATH_FLOOR" | "__RTS_FN_NS_MATH_CEIL" | "__RTS_FN_NS_MATH_ROUND"
+        | "__RTS_FN_NS_MATH_TRUNC" | "__RTS_FN_NS_MATH_SIGN" | "__RTS_FN_NS_MATH_CBRT"
+        | "__RTS_FN_NS_MATH_EXP" | "__RTS_FN_NS_MATH_EXPM1" | "__RTS_FN_NS_MATH_LN"
+        | "__RTS_FN_NS_MATH_LOG2" | "__RTS_FN_NS_MATH_LOG10" | "__RTS_FN_NS_MATH_LOG1P"
+        | "__RTS_FN_NS_MATH_SIN" | "__RTS_FN_NS_MATH_COS" | "__RTS_FN_NS_MATH_TAN"
+        | "__RTS_FN_NS_MATH_ASIN" | "__RTS_FN_NS_MATH_ACOS" | "__RTS_FN_NS_MATH_ATAN"
+        | "__RTS_FN_NS_MATH_SINH" | "__RTS_FN_NS_MATH_COSH" | "__RTS_FN_NS_MATH_TANH"
+        | "__RTS_FN_NS_MATH_FROUND" => SymSig { params: &[F64], ret: F64 },
+        // 2-arg f64 → f64.
+        "__RTS_FN_NS_MATH_POW" | "__RTS_FN_NS_MATH_ATAN2" | "__RTS_FN_NS_MATH_HYPOT" => {
+            SymSig { params: &[F64, F64], ret: F64 }
+        }
+        // no-arg f64 (the seeded PRNG).
+        "__RTS_FN_NS_MATH_RANDOM_F64" => SymSig { params: &[], ret: F64 },
+
+        // ---- REAL Number static predicates (P5.4, rts-primitives number) ----
+        // f64 → Bool (extern "C" i64 0/1).
+        "__RTS_FN_GL_NUMBER_IS_INTEGER" | "__RTS_FN_GL_NUMBER_IS_FINITE"
+        | "__RTS_FN_GL_NUMBER_IS_NAN" | "__RTS_FN_GL_NUMBER_IS_SAFE_INT" => {
+            SymSig { params: &[F64], ret: Bool }
+        }
+
         _ => return None,
     })
 }

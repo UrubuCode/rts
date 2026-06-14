@@ -132,7 +132,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// `parseInt(s[, radix])` — box the value; the radix is a SECOND optional arg
     /// boxed as a PolyValue word too (the trampoline ToNumbers it). Missing radix →
     /// `0` (auto). Result kind Number (Tagged).
-    fn parse_int_call(
+    pub(super) fn parse_int_call(
         &mut self,
         module: &mut dyn Module,
         args: &[HirExpr],

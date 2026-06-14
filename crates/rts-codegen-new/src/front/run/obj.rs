@@ -115,6 +115,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         object: &HirExpr,
         prop: &str,
     ) -> FrontResult<Val> {
+        // ---- `Math.CONST` / `Number.CONST` (P5.4): a namespace-constant read ----
+        if let Some(val) = self.try_math_number_const(object, prop)? {
+            return Ok(val);
+        }
         // ---- static member read `C.f` (C is a class name, not a local) ----
         if let Some(class) = self.class_name_receiver(object) {
             return self.try_static_field_read(module, &class, prop);
@@ -133,6 +137,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             {
                 return self.lower_accessor_get(module, object, &class, prop);
             }
+        }
+        // ---- `.length` on an `Object.keys/values/entries(o)` result expression
+        // (a Call(Member) that always yields a freshly-built engine array): lower
+        // the array word directly and read `VEC_LEN`. Restricted to the Object
+        // statics (never `Array.from`, whose result may be an unsupported-source
+        // sentinel that must bail at use, not silently read length 0).
+        if prop == "length" && self.is_object_static_array_expr(object) {
+            let arr = self.lower_expr(module, object)?;
+            let arr_word = self.box_value(arr);
+            let len = emit_marshal::emit_vec_len(module, self.builder, arr_word);
+            return Ok(Val::new(len, Repr::Int64));
         }
         let (name, shape) = self.shaped_object(object)?;
         match shape {
