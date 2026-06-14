@@ -75,6 +75,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
     let main = &prog.main;
     let classes = &prog.classes;
     let fn_this_class = &prog.fn_this_class;
+    let captures = &prog.captures;
     let mut module = make_module();
 
     // 1. Freeze every signature (user funcs by their HIR types; main is void).
@@ -113,14 +114,27 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
     for f in funcs {
         let sig = sigs[&f.name].clone();
         let this_class = fn_this_class.get(&f.name).map(String::as_str);
-        define_one(&mut module, ids[&f.name], f, &sig, &sigs, &thunks, classes, this_class)?;
+        define_one(
+            &mut module, ids[&f.name], f, &sig, &sigs, &thunks, classes, captures, this_class,
+        )?;
     }
     // 4. Define main (the top-level body).
-    define_one(&mut module, main_id, main, &main_sig, &sigs, &thunks, classes, None)?;
+    define_one(
+        &mut module, main_id, main, &main_sig, &sigs, &thunks, classes, captures, None,
+    )?;
 
     // 4b. Define every thunk body (bridges the uniform ABI to the real signature).
+    //     A CLOSURE thunk reads its leading `capture_count` real params from the
+    //     env array; a non-capturing thunk has `capture_count = 0`.
     for f in funcs {
-        thunk::define_thunk(&mut module, thunks[&f.name], ids[&f.name], &sigs[&f.name])?;
+        let capture_count = captures.get(&f.name).map(Vec::len).unwrap_or(0);
+        thunk::define_thunk(
+            &mut module,
+            thunks[&f.name],
+            ids[&f.name],
+            &sigs[&f.name],
+            capture_count,
+        )?;
     }
 
     module.finalize_definitions().map_err(|e| {
@@ -143,6 +157,7 @@ fn define_one(
     sigs: &HashMap<String, FnSig>,
     thunks: &HashMap<String, FuncId>,
     classes: &super::class::ClassTable,
+    captures: &HashMap<String, Vec<String>>,
     this_class: Option<&str>,
 ) -> FrontResult<()> {
     let mut ctx = module.make_context();
@@ -151,8 +166,9 @@ fn define_one(
     {
         let mut fb_ctx = FunctionBuilderContext::new();
         let mut fb = FunctionBuilder::new(&mut ctx.func, &mut fb_ctx);
-        let res =
-            Lowerer::lower_function(module, &mut fb, func, sig, sigs, thunks, classes, this_class);
+        let res = Lowerer::lower_function(
+            module, &mut fb, func, sig, sigs, thunks, classes, captures, this_class,
+        );
         match res {
             Ok(()) => fb.finalize(),
             Err(e) => {

@@ -4,15 +4,26 @@
 //! signature (the owner's mandated calling convention):
 //!
 //! ```text
-//! extern "C" fn(a0: u64, a1: u64, a2: u64, a3: u64, rest: u64) -> u64
+//! extern "C" fn(env: u64, a0: u64, a1: u64, a2: u64, a3: u64, rest: u64) -> u64
 //! ```
 //!
-//! 4 positional PolyValue words + a `rest` PolyValue (an array word of overflow
-//! args, or `undefined`), returning one PolyValue word. The REAL function body
-//! keeps its native typed signature ([`FnSig`]); a per-function THUNK bridges the
-//! two: it unpacks `a0..a3` (and, for a `>4`-param / `...rest` callee, the
-//! overflow from the `rest` array) into the body's real param reprs, `call`s the
-//! body, and boxes the result back to a PolyValue word.
+//! A leading `env` PolyValue word (P5.7 — a closure's captured-value array word,
+//! or `undefined` for a non-capturing function), then 4 positional PolyValue words
+//! + a `rest` PolyValue (an array word of overflow args, or `undefined`),
+//! returning one PolyValue word. The REAL function body keeps its native typed
+//! signature ([`FnSig`]); a per-function THUNK bridges the two: it unpacks `a0..a3`
+//! (and, for a `>4`-param / `...rest` callee, the overflow from the `rest` array)
+//! into the body's real param reprs, `call`s the body, and boxes the result back
+//! to a PolyValue word.
+//!
+//! ## Closures (P5.7)
+//!
+//! A CLOSURE's synthesized function has its captured free vars PREPENDED as leading
+//! params (Tagged). For such a thunk the leading `capture_count` real params are
+//! filled from `env[i]` (`VEC_GET`) instead of from `a0..a3`; the remaining real
+//! params (the arrow's own declared params) come from `a0..a3`/`rest` at position
+//! `i - capture_count`. A non-capturing thunk has `capture_count = 0` and ignores
+//! `env`.
 //!
 //! `func_addr` (the reify step) points at the THUNK, never at the raw body — so
 //! every indirect call goes through this fixed shape. The common ≤4-arg case
@@ -33,11 +44,14 @@ use super::sig::FnSig;
 /// The number of fixed positional slots in the uniform ABI (`a0..a3`).
 const POSITIONAL: usize = 4;
 
-/// The Cranelift `Signature` of the uniform indirect-call ABI: five `i64`
-/// (PolyValue word) params, one `i64` return.
+/// Total uniform-ABI param count: leading `env` + `a0..a3` + `rest`.
+const UNIFORM_PARAMS: usize = 1 + POSITIONAL + 1;
+
+/// The Cranelift `Signature` of the uniform indirect-call ABI: six `i64`
+/// (PolyValue word) params (`env, a0..a3, rest`), one `i64` return.
 pub fn uniform_signature(module: &dyn Module) -> Signature {
     let mut sig = Signature::new(module.isa().default_call_conv());
-    for _ in 0..POSITIONAL + 1 {
+    for _ in 0..UNIFORM_PARAMS {
         sig.params.push(AbiParam::new(types::I64));
     }
     sig.returns.push(AbiParam::new(types::I64));
@@ -61,13 +75,16 @@ pub fn thunk_name(base: &str) -> String {
 }
 
 /// Define the body of the thunk `thunk_id` that bridges the uniform ABI to the
-/// real function `real_id` with signature `sig`. Bails explicitly for the cases
-/// outside this increment (a `...rest` param, a non-coercible param repr).
+/// real function `real_id` with signature `sig`. `capture_count` is the number of
+/// LEADING real params filled from the closure `env` (`0` for a non-capturing
+/// function). Bails explicitly for the cases outside this increment (a `...rest`
+/// param, a non-coercible param repr).
 pub fn define_thunk(
     module: &mut JITModule,
     thunk_id: FuncId,
     real_id: FuncId,
     sig: &FnSig,
+    capture_count: usize,
 ) -> FrontResult<()> {
     // A function with up to 4 declared params reads them from a0..a3; a function
     // with >4 params reads positional args 5.. from the `rest` ARRAY (see
@@ -82,7 +99,7 @@ pub fn define_thunk(
         let mut fb_ctx = FunctionBuilderContext::new();
         let mut fb = FunctionBuilder::new(&mut ctx.func, &mut fb_ctx);
 
-        let res = build_thunk_body(module, &mut fb, real_id, sig);
+        let res = build_thunk_body(module, &mut fb, real_id, sig, capture_count);
         match res {
             Ok(()) => fb.finalize(),
             Err(e) => {
@@ -99,35 +116,46 @@ pub fn define_thunk(
     Ok(())
 }
 
-/// Emit the thunk body: unpack `a0..a3` (+ overflow from the rest array) into the
-/// real params, `call` the body, box the result.
+/// Emit the thunk body: read the `capture_count` leading real params from the
+/// closure `env`, unpack `a0..a3` (+ overflow from the rest array) into the
+/// remaining real params, `call` the body, box the result.
 fn build_thunk_body(
     module: &mut JITModule,
     fb: &mut FunctionBuilder,
     real_id: FuncId,
     sig: &FnSig,
+    capture_count: usize,
 ) -> FrontResult<()> {
     let entry = fb.create_block();
     fb.append_block_params_for_function_params(entry);
     fb.switch_to_block(entry);
     fb.seal_block(entry);
 
-    // The five uniform params: a0..a3, rest.
+    // The six uniform params: env, a0..a3, rest.
     let block_params: Vec<Value> = fb.block_params(entry).to_vec();
-    let positional = &block_params[..POSITIONAL];
-    let rest_word = block_params[POSITIONAL];
+    let env_word = block_params[0];
+    let positional = &block_params[1..1 + POSITIONAL];
+    let rest_word = block_params[1 + POSITIONAL];
 
-    // For each real param, fetch its incoming PolyValue word (from a0..a3 or the
-    // rest array) and coerce it to the param's native repr.
+    // A closure's leading `capture_count` real params come from `env[i]`; the rest
+    // are the arrow's own declared params, riding a0..a3 / rest at the SHIFTED
+    // position `i - capture_count` (the env params do not consume positional slots).
     let mut call_args: Vec<Value> = Vec::with_capacity(sig.params.len());
     for (i, &repr) in sig.params.iter().enumerate() {
-        let word = if i < POSITIONAL {
-            positional[i]
+        let word = if i < capture_count {
+            // Captured var: read the snapshot from the env array.
+            let idx = fb.ins().iconst(types::I64, i as i64);
+            emit_marshal::emit_vec_get(module, fb, env_word, idx)
         } else {
-            // Overflow arg: `rest[i - POSITIONAL]` via the array VEC_GET (the rest
-            // word is a TAG_OBJECT array PolyValue).
-            let idx = fb.ins().iconst(types::I64, (i - POSITIONAL) as i64);
-            emit_marshal::emit_vec_get(module, fb, rest_word, idx)
+            let pos = i - capture_count;
+            if pos < POSITIONAL {
+                positional[pos]
+            } else {
+                // Overflow arg: `rest[pos - POSITIONAL]` via the array VEC_GET (the
+                // rest word is a TAG_OBJECT array PolyValue).
+                let idx = fb.ins().iconst(types::I64, (pos - POSITIONAL) as i64);
+                emit_marshal::emit_vec_get(module, fb, rest_word, idx)
+            }
         };
         let arg = unbox_word_to_repr(fb, word, repr)?;
         call_args.push(arg);

@@ -105,13 +105,13 @@ fn map_on_array_literal() {
     assert_stdout("console.log([1,2,3].map((x:number)=>x+1).join(\",\"));", "2,3,4\n");
 }
 
-// ---- Bail tests: capturing callback + comparator sort (soundness floor) ----
+// ---- capturing callback now works (P5.7); comparator sort still bails ----
 
 #[test]
-fn capturing_callback_bails() {
-    // The callback captures the outer local `k` — a closure, a later increment.
-    // The arrow stays an `Arrow` node (extraction rejected it) → BAIL.
-    assert_bails("let k=2; let a=[1,2]; console.log(a.map((x:number)=>x*k).join(\",\"));");
+fn capturing_callback_now_works() {
+    // The callback captures the outer local `k` by value (P5.7): the env snapshots
+    // `k` at the `.map(..)` site. `1*2`, `2*2`. (Was a P4.7 bail.)
+    assert_stdout("let k=2; let a=[1,2]; console.log(a.map((x:number)=>x*k).join(\",\"));", "2,4\n");
 }
 
 #[test]

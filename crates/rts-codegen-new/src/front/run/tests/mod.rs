@@ -38,6 +38,7 @@ mod arraycb;
 mod class;
 mod globals;
 mod class_inherit;
+mod closure;
 mod funcval;
 mod globalclass;
 mod inspect;

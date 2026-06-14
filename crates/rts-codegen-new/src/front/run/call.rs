@@ -18,7 +18,7 @@ use crate::value::{abi_adapter, emit_marshal};
 
 use crate::front::error::{unsupported, FrontResult, Unsupported};
 
-use super::lower::{HeapShape, JsKind, Lowerer, Val};
+use super::lower::{JsKind, Lowerer, Val};
 use super::sig::FnSig;
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
@@ -89,6 +89,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirExprKind::Ident(n) => n.clone(),
             _ => return unsupported!("call of a non-identifier callee"),
         };
+        // A direct call to a CLOSURE (a hoisted `let g = (x) => x*k`, P5.7): `g`'s
+        // captures must be snapshotted from the CALL-SITE locals, so it cannot take
+        // the native fast path. Reify it (builds the env from current locals), then
+        // invoke through the uniform-ABI indirect path. Checked before the native
+        // fast path so a capturing `g` never calls its raw body (which expects the
+        // prepended capture params it would never receive).
+        if self.captures.contains_key(&name) {
+            let f = self.reify_function(module, &name)?;
+            return self.lower_value_call_word(module, f.v, args);
+        }
         // A statically-known user function → the native fast path (NOT regressed).
         if let Some(sig) = self.sigs.get(&name).cloned() {
             return self.lower_user_call(module, &sig, args);
@@ -108,8 +118,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
     /// Reify a user function `name` (referenced as a VALUE) into a `TAG_FUNCTION`
     /// PolyValue: `func_addr` of its uniform-ABI THUNK → `__rtsadp_fn_reify(addr,
-    /// nparams, has_rest)` → box the returned 48-bit slot+shard as `TAG_FUNCTION`.
-    /// The GC marks it (a real heap handle behind the tag), so it is GC-safe.
+    /// nparams, has_rest, env)` → box the returned 48-bit slot+shard as
+    /// `TAG_FUNCTION`. The GC marks it (a real heap handle behind the tag), so it
+    /// is GC-safe.
+    ///
+    /// For a CLOSURE (a synthesized fn recorded in `captures`), `env` is a fresh
+    /// `Entry::Vec` snapshotting each captured outer-local's CURRENT value (boxed),
+    /// in the recorded capture order — capture-BY-VALUE. `nparams` is the closure's
+    /// REAL arity (its own declared params, excluding the prepended captures), so
+    /// the invoke marshals a0..a3 to the right params.
     pub(super) fn reify_function(
         &mut self,
         module: &mut dyn Module,
@@ -124,11 +141,23 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 "async/generator function `{name}` as a VALUE (it returns a Promise / suspends — a later increment)"
             );
         }
-        let nparams = sig.params.len() as i64;
+        // The captured-var list (if `name` is a closure) — clone to drop the borrow
+        // on `self` before lowering the env snapshot.
+        let capture_names: Vec<String> = self.captures.get(name).cloned().unwrap_or_default();
+        // The closure's REAL arity excludes the prepended captures.
+        let nparams = (sig.params.len() - capture_names.len()) as i64;
         let thunk_id = *self
             .thunks
             .get(name)
             .ok_or_else(|| Unsupported::new(format!("no thunk for function `{name}`")))?;
+
+        // Build the env: a fresh array snapshotting each captured local's CURRENT
+        // value (capture-by-value). A non-capturing fn passes env = 0 (undefined).
+        let env_word = if capture_names.is_empty() {
+            self.builder.ins().iconst(types::I64, 0)
+        } else {
+            self.build_closure_env(module, &capture_names)?
+        };
 
         // Relocatable address of the THUNK (available at JIT time). `func_addr`
         // points at the thunk so every indirect call uses the fixed uniform ABI.
@@ -140,7 +169,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // rejected at extraction); has_rest is always 0.
         let has_rest_v = self.builder.ins().iconst(types::I64, 0);
         let payload = self
-            .call_runtime(module, "__rtsadp_fn_reify", &[addr, nparams_v, has_rest_v])?
+            .call_runtime(
+                module,
+                "__rtsadp_fn_reify",
+                &[addr, nparams_v, has_rest_v, env_word],
+            )?
             .expect("__rtsadp_fn_reify returns a value");
 
         // Box the bare 48-bit payload as a TAG_FUNCTION PolyValue word:
@@ -151,6 +184,32 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let header_v = self.builder.ins().iconst(types::I64, header);
         let word = self.builder.ins().bor(masked, header_v);
         Ok(Val::tagged_kind(word, JsKind::Function))
+    }
+
+    /// Build a closure's env array (P5.7): a fresh `Entry::Vec` (a `TAG_OBJECT`
+    /// PolyValue) holding a SNAPSHOT of each captured outer-local's CURRENT value
+    /// (boxed), in the recorded capture order. Returns the env's `TAG_OBJECT` word.
+    ///
+    /// Each captured name MUST be a local in the current scope — the capture
+    /// analysis only accepted simple outer locals, so a name not found here is a
+    /// codegen invariant break, surfaced as an explicit bail rather than a guess.
+    fn build_closure_env(
+        &mut self,
+        module: &mut dyn Module,
+        capture_names: &[String],
+    ) -> FrontResult<cranelift_codegen::ir::Value> {
+        let arr = emit_marshal::emit_new_vec_object(module, self.builder);
+        for cap in capture_names {
+            let local = self.local(cap).ok_or_else(|| {
+                Unsupported::new(format!(
+                    "closure captures `{cap}` which is not a simple local in scope"
+                ))
+            })?;
+            let v = self.builder.use_var(local.var);
+            let word = self.box_value(Val::new(v, local.repr));
+            emit_marshal::emit_vec_push(module, self.builder, arr, word);
+        }
+        Ok(arr)
     }
 
     /// Lower a call through a function VALUE held in a local (`g(args)` where `g`
@@ -166,7 +225,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     ) -> FrontResult<Val> {
         // The function value word (the local's raw Tagged register).
         let fn_word = self.builder.use_var(local.var);
+        self.lower_value_call_word(module, fn_word, args)
+    }
 
+    /// Invoke a function VALUE held in the Cranelift word `fn_word` (a
+    /// `TAG_FUNCTION` PolyValue) through the uniform-ABI indirect path. Shared by
+    /// the value-local call ([`Self::lower_value_call`]) and the direct closure
+    /// call (P5.7, where `fn_word` is a freshly reified closure with its env).
+    fn lower_value_call_word(
+        &mut self,
+        module: &mut dyn Module,
+        fn_word: Value,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
         // Box the first four positional args; missing slots are `undefined`.
         let undef = || value::PolyValue::undefined().raw() as i64;
         let mut slots: [Value; 4] = [self.builder.ins().iconst(types::I64, undef()); 4];
@@ -364,71 +435,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 Ok(res)
             }
             other => unsupported!("condition of repr {other:?}"),
-        }
-    }
-}
-
-impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
-    /// Whether `e` evaluates to a WHOLE OBJECT value (object literal, or an
-    /// identifier bound to a local of proven OBJECT shape). Object inspect needs
-    /// runtime key recovery (a later increment) — these BAIL.
-    pub(super) fn is_whole_object_value(&self, e: &HirExpr) -> bool {
-        match &e.kind {
-            HirExprKind::Object(_) => true,
-            // A class instance (`new C()`) is an OBJECT — its slot-0 global shape-id
-            // lets the inspect trampoline render `{ field: value }` (P4.9).
-            HirExprKind::New { class, .. } => self.classes.get(class).is_some(),
-            HirExprKind::Ident(name) => {
-                matches!(self.local_shapes.get(name), Some(HeapShape::Object(_)))
-                    || self.object_locals.contains(name)
-            }
-            _ => false,
-        }
-    }
-
-    /// Whether `e` evaluates to a WHOLE object OR array value. Used where BOTH
-    /// kinds must bail (binary `+`/`==` ToPrimitive, method dispatch on a literal).
-    pub(super) fn is_whole_heap_value(&self, e: &HirExpr) -> bool {
-        self.is_whole_object_value(e) || self.is_whole_array_value(e)
-    }
-
-    /// Whether `e` is an array literal that (transitively) contains an OBJECT
-    /// element — which would render as a keyless array (`[ 1 ]` for `{a:1}`), a
-    /// near-miss vs bun's `{ a: 1 }`. Such logs BAIL until object inspect lands.
-    /// Conservative: only array LITERALS are inspected statically (an array local's
-    /// elements are opaque, but they can only become objects via paths that already
-    /// bail), so this static walk covers the reachable near-miss.
-    pub(super) fn array_arg_has_object_element(&self, e: &HirExpr) -> bool {
-        match &e.kind {
-            HirExprKind::Array(elems) => elems.iter().any(|el| self.is_object_producing(el)),
-            _ => false,
-        }
-    }
-
-    /// Whether `e` (an array element) statically produces an OBJECT value: an
-    /// object literal, an array literal that itself contains an object, or an
-    /// identifier bound to an object-shaped local.
-    fn is_object_producing(&self, e: &HirExpr) -> bool {
-        match &e.kind {
-            HirExprKind::Object(_) => true,
-            HirExprKind::Array(_) => self.array_arg_has_object_element(e),
-            HirExprKind::Ident(name) => {
-                matches!(self.local_shapes.get(name), Some(HeapShape::Object(_)))
-            }
-            _ => false,
-        }
-    }
-
-    /// Whether `e` evaluates to a WHOLE ARRAY value (array literal, or an
-    /// identifier bound to a local of proven ARRAY shape). These render via
-    /// `__rtsadp_inspect` (`[ … ]`). A scalar member/index access is NOT one.
-    pub(super) fn is_whole_array_value(&self, e: &HirExpr) -> bool {
-        match &e.kind {
-            HirExprKind::Array(_) => true,
-            HirExprKind::Ident(name) => {
-                matches!(self.local_shapes.get(name), Some(HeapShape::Array))
-            }
-            _ => false,
         }
     }
 }

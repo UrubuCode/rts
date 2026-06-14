@@ -101,13 +101,16 @@ fn invoke_with_five_args_uses_rest_array() {
 }
 
 // ===========================================================================
-// Bails: closures + async function values (the soundness floor).
+// Closures (P5.7): capture-by-value is now SUPPORTED (was a P4.6 bail). The
+// dedicated coverage lives in `tests::closure`; these two assert the cases that
+// USED to bail here now produce the correct value (an intentional, justified
+// behavior change — see the closure module for the soundness boundary).
 // ===========================================================================
 
 #[test]
-fn closure_capturing_local_bails() {
-    // `g` captures the outer local `k` — a closure, a later increment. BAIL.
-    assert_bails("let k = 3; const g = (x: number) => x + k; console.log(g(1));");
+fn closure_capturing_local_now_works() {
+    // `g` captures the outer local `k` by value (P5.7). `1 + 3`.
+    assert_stdout("let k = 3; const g = (x: number) => x + k; console.log(g(1));", "4\n");
 }
 
 #[test]
@@ -117,10 +120,11 @@ fn async_function_value_bails() {
 }
 
 #[test]
-fn closure_passed_as_arg_bails() {
-    // An inline arrow that captures an outer local, passed as an arg, also bails
-    // (arrow extraction rejects it; the lowering reports `expression arrow`).
-    assert_bails(
+fn closure_passed_as_arg_now_works() {
+    // An inline arrow that captures an outer local, passed as an arg (P5.7): the
+    // env snapshots `bonus` at the closure-creation site. `1 + 10`.
+    assert_stdout(
         "function apply(g, v: number){ return g(v); } let bonus = 10; console.log(apply((x:number)=>x+bonus, 1));",
+        "11\n",
     );
 }

@@ -25,6 +25,7 @@
 mod assign;
 mod binop;
 mod call;
+mod call_shape;
 mod call_spread;
 mod class;
 mod expr;
@@ -94,6 +95,9 @@ pub(crate) struct LoweredProgram {
     /// synthesized constructor/method fn name → its class name (so the lowerer
     /// binds `this` to that class). Absent for ordinary user functions.
     pub fn_this_class: std::collections::HashMap<String, String>,
+    /// synthesized CLOSURE fn name → ordered captured outer-local names (P5.7).
+    /// Drives env construction at reify and the env-read split in the thunk.
+    pub captures: std::collections::HashMap<String, Vec<String>>,
 }
 
 /// Parse `src` and lower it to (user functions, synthesized `__rtsn_main`).
@@ -175,11 +179,13 @@ fn build_program(src: &str) -> FrontResult<LoweredProgram> {
         is_arrow: false,
     };
 
-    // P4.6: extract every NON-CAPTURING inline arrow used as a value (an arg, a
-    // returned arrow) into a fresh top-level function, rewriting the `Arrow` node
-    // to an `Ident` of the synthesized name. Capturing arrows are left to bail.
-    let synthesized = funcval::extract_arrows(&mut funcs, &mut main);
-    funcs.extend(synthesized);
+    // P4.6/P5.7: extract every inline arrow used as a value (an arg, a returned
+    // arrow) into a fresh top-level function, rewriting the `Arrow` node to an
+    // `Ident` of the synthesized name. A non-capturing arrow becomes a plain
+    // function; a capturing arrow becomes a CLOSURE (captures prepended as leading
+    // params + recorded in `captures`). Unsound captures are left to bail.
+    let extracted = funcval::extract_arrows(&mut funcs, &mut main);
+    funcs.extend(extracted.funcs);
 
-    Ok(LoweredProgram { funcs, main, classes, fn_this_class })
+    Ok(LoweredProgram { funcs, main, classes, fn_this_class, captures: extracted.captures })
 }

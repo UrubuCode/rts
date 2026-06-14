@@ -1,0 +1,421 @@
+//! First-class function VALUES — arrow extraction + capture analysis (P4.6).
+//!
+//! Top-level `const f = (x) => …` is ALREADY hoisted by the parser into a named
+//! top-level `HirFunc` (`f`), so `f` lives in `sigs` and a direct call `f(x)`
+//! takes the native fast path unchanged. What is NOT hoisted is an INLINE arrow
+//! used as a value — an argument (`apply((x) => x + 1, 9)`) or a returned arrow
+//! (`return (x) => x * x`). Those stay `HirExprKind::Arrow` nodes.
+//!
+//! This module runs ONE pre-pass over the program (every top-level function body
+//! + the synthesized main body) that, for each NON-CAPTURING inline arrow,
+//! synthesizes a fresh top-level `HirFunc` (`__rtsn_arrow_N`) and rewrites the
+//! `Arrow` node in place to an `Ident("__rtsn_arrow_N")`. The expr lowering then
+//! sees an identifier that resolves to a user function and REIFIES it into a
+//! `TAG_FUNCTION` PolyValue (see [`super::expr`] / [`super::call`]).
+//!
+//! ## Capture rule (P5.7 — capture BY VALUE, sound or bail)
+//!
+//! An arrow is NON-CAPTURING iff every free identifier in its body is one of its
+//! own params, a global (`console`), or the name of a top-level function. Such an
+//! arrow is lifted to a plain top-level function (no env).
+//!
+//! A CAPTURING arrow (a free ident that is an outer LOCAL) is lifted to a CLOSURE
+//! (P5.7): its captured free vars are PREPENDED as leading params and the ordered
+//! capture list is recorded so the reify site snapshots each captured local's
+//! CURRENT value into a fresh env array and the closure thunk reads them back.
+//! This is capture-BY-VALUE (a snapshot at closure-creation), which matches JS
+//! only when the captured value does not change between capture and call. To stay
+//! SOUND we BAIL (leave the arrow → the lowering reports `expression arrow`) when:
+//!
+//! - a free ident is not a simple capturable local (a `this`, an unknown name);
+//! - the closure ASSIGNS a captured var (mutable capture — the write must be
+//!   visible to the outer scope, which by-value cannot do);
+//! - a captured var is REASSIGNED anywhere in the enclosing function (conservative:
+//!   a `let` mutated after capture would make the by-value snapshot observably
+//!   stale). A capture that is never reassigned in its enclosing function is
+//!   effectively const for the closure's lifetime → by-value is correct.
+//!
+//! `this`/async/generator arrows are likewise left to bail.
+
+mod scan;
+
+use std::collections::{HashMap, HashSet};
+
+use rts_hir::ir::{HirArrowBody, HirExprKind};
+use rts_hir::{HirExpr, HirFunc, HirParam, HirStmt, HirType};
+
+use scan::{arrow_assigned_names, collect_free_stmt, mutated_names};
+
+/// Names always considered "not a capture" (engine globals the lowering knows).
+const GLOBALS: &[&str] = &["console", "undefined", "Infinity", "NaN"];
+
+/// The result of the arrow-extraction pre-pass: the synthesized top-level
+/// functions to append, plus the ordered capture list of each CLOSURE (synthesized
+/// fn name → captured outer-local names, in the order they were prepended as
+/// leading params). A non-capturing synthesized fn has no entry here.
+pub struct ExtractResult {
+    pub funcs: Vec<HirFunc>,
+    pub captures: HashMap<String, Vec<String>>,
+}
+
+/// Extract every inline arrow used as a value from `funcs` + `main` into fresh
+/// top-level `HirFunc`s, rewriting each in place to an `Ident` of the synthesized
+/// name. A non-capturing arrow becomes a plain function; a capturing arrow becomes
+/// a CLOSURE (captured vars prepended as leading params + recorded in `captures`).
+/// Returns the synthesized functions + the per-closure capture lists.
+pub fn extract_arrows(funcs: &mut Vec<HirFunc>, main: &mut HirFunc) -> ExtractResult {
+    let mut top_level: HashSet<String> = funcs.iter().map(|f| f.name.clone()).collect();
+    top_level.insert(main.name.clone());
+
+    let mut ctx = Ctx {
+        top_level,
+        synthesized: Vec::new(),
+        captures: HashMap::new(),
+        counter: 0,
+    };
+
+    // Rewrite arrows inside every existing function body and the main body. Each
+    // function's params are in-scope for its body; the set of names REASSIGNED
+    // anywhere in that body decides which captures are sound (by-value) vs bail.
+    for f in funcs.iter_mut() {
+        let params: HashSet<String> = f.params.iter().map(|p| p.name.clone()).collect();
+        let mutated = mutated_names(&f.body);
+        ctx.rewrite_block(&mut f.body, &params, &mutated);
+    }
+    let main_params: HashSet<String> = main.params.iter().map(|p| p.name.clone()).collect();
+    let main_mutated = mutated_names(&main.body);
+    ctx.rewrite_block(&mut main.body, &main_params, &main_mutated);
+
+    // The synthesized arrow bodies may THEMSELVES contain arrows; rewrite those
+    // too (a fixpoint over a growing list — each new function's own params are in
+    // scope for its body).
+    let mut i = 0;
+    while i < ctx.synthesized.len() {
+        let mut f = ctx.synthesized[i].clone();
+        let params: HashSet<String> = f.params.iter().map(|p| p.name.clone()).collect();
+        let mutated = mutated_names(&f.body);
+        ctx.rewrite_block(&mut f.body, &params, &mutated);
+        ctx.synthesized[i] = f;
+        i += 1;
+    }
+
+    // P5.7: a `let g = (x) => x*k` at MAIN scope is hoisted by the PARSER into a
+    // top-level `HirFunc g` (not an inline `Arrow` node), so the rewrite above
+    // never sees it — `k` would be an unbound free var. Detect such hoisted
+    // ARROW-functions that capture a main-scope local and convert them to closures
+    // (captures prepended as leading params + recorded), so a direct call `g(4)`
+    // builds the env from the call-site locals (handled in `lower_call`).
+    hoist_captures(funcs, main, &mut ctx);
+
+    ExtractResult { funcs: ctx.synthesized, captures: ctx.captures }
+}
+
+/// Convert hoisted top-level functions that capture a main-scope local into
+/// closures.
+///
+/// The PARSER hoists `let g = (x) => …` (and a `function g(){…}`) to a top-level
+/// `HirFunc g`; its body's free idents that are main-scope locals (not its params,
+/// not globals, not other top-level fns) are lexical CAPTURES — correct JS
+/// semantics for both forms. We prepend them as leading params and record the
+/// ordered list, applying the SAME by-value soundness rule (no body-assign of a
+/// capture, no main-scope reassignment of a captured var). A function whose only
+/// free non-globals are NOT main-scope locals is left untouched (a genuine
+/// unbound-identifier bail at lowering).
+fn hoist_captures(funcs: &mut [HirFunc], main: &HirFunc, ctx: &mut Ctx) {
+    // Main-scope locals = the `let`/`const` names declared directly in main's body
+    // (the only outer scope a hoisted function can capture).
+    let main_locals = declared_locals(&main.body);
+    let main_mutated = mutated_names(&main.body);
+
+    for f in funcs.iter_mut() {
+        // Already-prepended closures (a synthesized arrow handled above) are skipped
+        // via the captures map; a fresh hoisted function has no entry yet.
+        if ctx.captures.contains_key(&f.name) {
+            continue;
+        }
+        let param_names: HashSet<String> = f.params.iter().map(|p| p.name.clone()).collect();
+        let mut free = HashSet::new();
+        let mut bound = param_names.clone();
+        for s in &f.body {
+            collect_free_stmt(s, &mut bound, &mut free);
+        }
+        let body_assigns = mutated_names(&f.body);
+
+        let mut captures: Vec<String> = Vec::new();
+        let mut sound = true;
+        for id in &free {
+            if param_names.contains(id)
+                || GLOBALS.contains(&id.as_str())
+                || ctx.top_level.contains(id)
+            {
+                continue;
+            }
+            // A free ident outside those sets must be a capturable main-scope local.
+            if !main_locals.contains(id)
+                || body_assigns.contains(id)
+                || main_mutated.contains(id)
+            {
+                sound = false; // unknown name / mutable / aliased — leave to bail.
+                break;
+            }
+            captures.push(id.clone());
+        }
+        if !sound || captures.is_empty() {
+            continue;
+        }
+        captures.sort();
+
+        // Prepend each capture as a leading Tagged param; record the list.
+        let mut new_params: Vec<HirParam> = captures
+            .iter()
+            .map(|n| HirParam {
+                name: n.clone(),
+                ty: HirType::Any,
+                variadic: false,
+                has_default: false,
+            })
+            .collect();
+        new_params.extend(f.params.iter().cloned());
+        f.params = new_params;
+        ctx.captures.insert(f.name.clone(), captures);
+    }
+}
+
+/// The `let`/`const` names declared directly in `stmts` (one level — the names a
+/// hoisted function at this scope could capture). Does not descend into nested
+/// blocks/control flow (a capture across those is not in the accepted subset).
+fn declared_locals(stmts: &[HirStmt]) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for s in stmts {
+        match s {
+            HirStmt::Let { name, .. } | HirStmt::Const { name, .. } => {
+                out.insert(name.clone());
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+struct Ctx {
+    /// Names resolving to a top-level function (free refs to these are not captures).
+    top_level: HashSet<String>,
+    /// Functions synthesized from extracted arrows.
+    synthesized: Vec<HirFunc>,
+    /// synthesized closure fn name → ordered captured outer-local names.
+    captures: HashMap<String, Vec<String>>,
+    /// Fresh-name counter.
+    counter: usize,
+}
+
+impl Ctx {
+    fn rewrite_block(
+        &mut self,
+        stmts: &mut [HirStmt],
+        scope: &HashSet<String>,
+        mutated: &HashSet<String>,
+    ) {
+        // A statement list introduces locals (let/const); accumulate them so a
+        // later arrow referencing an earlier local is correctly seen as a capture.
+        let mut scope = scope.clone();
+        for s in stmts.iter_mut() {
+            self.rewrite_stmt(s, &mut scope, mutated);
+        }
+    }
+
+    fn rewrite_stmt(
+        &mut self,
+        s: &mut HirStmt,
+        scope: &mut HashSet<String>,
+        mutated: &HashSet<String>,
+    ) {
+        match s {
+            HirStmt::Expr(e) => self.rewrite_expr(e, scope, mutated),
+            HirStmt::Return(Some(e)) => self.rewrite_expr(e, scope, mutated),
+            HirStmt::Return(None) => {}
+            HirStmt::Let { name, init, .. } => {
+                if let Some(e) = init {
+                    self.rewrite_expr(e, scope, mutated);
+                }
+                scope.insert(name.clone());
+            }
+            HirStmt::Const { name, init, .. } => {
+                self.rewrite_expr(init, scope, mutated);
+                scope.insert(name.clone());
+            }
+            HirStmt::If { cond, then, else_ } => {
+                self.rewrite_expr(cond, scope, mutated);
+                self.rewrite_block(then, scope, mutated);
+                if let Some(e) = else_ {
+                    self.rewrite_block(e, scope, mutated);
+                }
+            }
+            HirStmt::While { cond, body } => {
+                self.rewrite_expr(cond, scope, mutated);
+                self.rewrite_block(body, scope, mutated);
+            }
+            HirStmt::Block(b) => self.rewrite_block(b, scope, mutated),
+            // Other statement kinds are outside the lowering subset; any arrow in
+            // them will reach the lowering and bail. Leave untouched.
+            _ => {}
+        }
+    }
+
+    fn rewrite_expr(
+        &mut self,
+        e: &mut HirExpr,
+        scope: &HashSet<String>,
+        mutated: &HashSet<String>,
+    ) {
+        // Depth-first: rewrite children first, then this node.
+        match &mut e.kind {
+            HirExprKind::Bin { lhs, rhs, .. } => {
+                self.rewrite_expr(lhs, scope, mutated);
+                self.rewrite_expr(rhs, scope, mutated);
+            }
+            HirExprKind::Unary { operand, .. } => self.rewrite_expr(operand, scope, mutated),
+            HirExprKind::Assign { target, value } | HirExprKind::AssignOp { target, value, .. } => {
+                self.rewrite_expr(target, scope, mutated);
+                self.rewrite_expr(value, scope, mutated);
+            }
+            HirExprKind::Call { callee, args } => {
+                self.rewrite_expr(callee, scope, mutated);
+                for a in args.iter_mut() {
+                    self.rewrite_expr(a, scope, mutated);
+                }
+            }
+            HirExprKind::MethodCall { object, args, .. } => {
+                self.rewrite_expr(object, scope, mutated);
+                for a in args.iter_mut() {
+                    self.rewrite_expr(a, scope, mutated);
+                }
+            }
+            HirExprKind::Member { object, .. } => self.rewrite_expr(object, scope, mutated),
+            HirExprKind::Index { object, index } => {
+                self.rewrite_expr(object, scope, mutated);
+                self.rewrite_expr(index, scope, mutated);
+            }
+            HirExprKind::Ternary { cond, then, else_ } => {
+                self.rewrite_expr(cond, scope, mutated);
+                self.rewrite_expr(then, scope, mutated);
+                self.rewrite_expr(else_, scope, mutated);
+            }
+            HirExprKind::Array(elems) => {
+                for el in elems.iter_mut() {
+                    self.rewrite_expr(el, scope, mutated);
+                }
+            }
+            HirExprKind::Object(fields) => {
+                for (_, v) in fields.iter_mut() {
+                    self.rewrite_expr(v, scope, mutated);
+                }
+            }
+            HirExprKind::Arrow { .. } => {
+                // Try to extract this arrow into a top-level function or closure. On
+                // success, replace the node with an Ident of the synthesized name.
+                // `scope` is the OUTER scope (which names are captures), `mutated`
+                // the names reassigned in the enclosing function (which captures are
+                // unsound by-value).
+                if let Some(name) = self.try_extract(e, scope, mutated) {
+                    e.kind = HirExprKind::Ident(name);
+                    e.ty = HirType::Function { params: Vec::new(), ret: Box::new(HirType::Any) };
+                }
+                // On failure (unsound capture/unsupported) leave the Arrow → the
+                // lowering bails explicitly.
+            }
+            _ => {}
+        }
+    }
+
+    /// Try to turn `e` (an `Arrow`) into a synthesized top-level function (no
+    /// captures) or CLOSURE (captures prepended as leading params). Returns its
+    /// name on success, `None` when it cannot be soundly lifted this increment
+    /// (an unsound capture, async/generator/`this`, a variadic/defaulted param) —
+    /// the arrow is then left for the lowering to bail.
+    fn try_extract(
+        &mut self,
+        e: &mut HirExpr,
+        scope: &HashSet<String>,
+        mutated: &HashSet<String>,
+    ) -> Option<String> {
+        let HirExprKind::Arrow { params, ret, body } = &e.kind else {
+            return None;
+        };
+        // A variadic / defaulted param is out of this increment's arrow subset.
+        if params.iter().any(|p| p.variadic || p.has_default) {
+            return None;
+        }
+        let param_names: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
+
+        // Build the function body and gather its free identifiers + the names it
+        // ASSIGNS to (mutable-capture detection).
+        let body_stmts: Vec<HirStmt> = match body {
+            HirArrowBody::Expr(inner) => vec![HirStmt::Return(Some((**inner).clone()))],
+            HirArrowBody::Block(stmts) => stmts.clone(),
+        };
+        let mut free = HashSet::new();
+        let mut bound = param_names.clone();
+        for s in &body_stmts {
+            collect_free_stmt(s, &mut bound, &mut free);
+        }
+        let body_assigns = arrow_assigned_names(&body_stmts);
+
+        // Partition the free idents: a param / global / top-level fn is NOT a
+        // capture; anything else must be a CAPTURABLE outer local to be sound.
+        let mut captures: Vec<String> = Vec::new();
+        for id in &free {
+            if param_names.contains(id)
+                || GLOBALS.contains(&id.as_str())
+                || self.top_level.contains(id)
+            {
+                continue;
+            }
+            // A free ident outside those sets is a CAPTURE. It must be:
+            //   (1) a real outer local in scope (not an unknown name / `this`);
+            //   (2) NOT assigned by the closure body (mutable capture is unsound
+            //       by-value);
+            //   (3) NOT reassigned in the enclosing function (a stale snapshot).
+            if !scope.contains(id) {
+                return None; // unknown name / `this` — not a capturable local.
+            }
+            if body_assigns.contains(id) || mutated.contains(id) {
+                return None; // mutable / aliased capture — bail (sound floor).
+            }
+            captures.push(id.clone());
+        }
+        // Stable order: the env layout (and the leading param order) is the sorted
+        // capture list, so reify and thunk agree deterministically.
+        captures.sort();
+
+        let name = format!("__rtsn_arrow_{}", self.counter);
+        self.counter += 1;
+        self.top_level.insert(name.clone());
+
+        // Prepend each captured var as a leading Tagged param (the thunk fills these
+        // from the env array; the arrow's own params follow, filled from a0..a3).
+        let mut all_params: Vec<HirParam> = captures
+            .iter()
+            .map(|n| HirParam {
+                name: n.clone(),
+                ty: HirType::Any,
+                variadic: false,
+                has_default: false,
+            })
+            .collect();
+        all_params.extend(params.iter().cloned());
+
+        if !captures.is_empty() {
+            self.captures.insert(name.clone(), captures);
+        }
+        self.synthesized.push(HirFunc {
+            name: name.clone(),
+            params: all_params,
+            ret: ret.clone(),
+            body: body_stmts,
+            is_async: false,
+            is_arrow: true,
+        });
+        Some(name)
+    }
+}
+

@@ -167,6 +167,11 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// Each user function's uniform-ABI THUNK FuncId, for reifying a function
     /// referenced as a VALUE (`func_addr` of the thunk → `__rtsadp_fn_reify`).
     pub thunks: &'c HashMap<String, cranelift_module::FuncId>,
+    /// synthesized CLOSURE fn name → ordered captured outer-local names (P5.7).
+    /// When reifying such a name as a function VALUE, the lowerer snapshots each
+    /// captured local's current value into a fresh env array (`__rtsadp_fn_reify`
+    /// stores the env on the function entry).
+    pub captures: &'c HashMap<String, Vec<String>>,
     /// The program's user classes (descriptors: fields → shape slots, methods →
     /// functions). Read-only, shared across all functions. Drives `new C(args)`,
     /// `this.field`, and static `instance.method(args)`.
@@ -185,6 +190,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         sigs: &'c HashMap<String, FnSig>,
         thunks: &'c HashMap<String, cranelift_module::FuncId>,
         classes: &'c super::class::ClassTable,
+        captures: &'c HashMap<String, Vec<String>>,
         this_class: Option<&str>,
     ) -> FrontResult<()> {
         let entry = builder.create_block();
@@ -204,6 +210,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             block_terminated: false,
             sigs,
             thunks,
+            captures,
             classes,
         };
 
