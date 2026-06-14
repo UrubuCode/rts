@@ -336,6 +336,33 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SET_KH(obj_h: U64, key_h: U64, val
     });
 }
 
+/// (data-race fix) Read-modify-write ATÔMICO de `obj[key]` (key não-numérica /
+/// handle de String/Symbol). Lê o valor atual, aplica `op`/`operand` (mesmos
+/// op-codes de `vec::apply_rmw`) e reescreve, tudo dentro de UM ÚNICO
+/// `with_entry_mut` (um só lock do shard, sem janela read→write). Substitui o
+/// par MAP_GET_KH+MAP_SET_KH para `obj[key] = obj[key] + x` / `obj[key] += x`.
+/// Devolve o NOVO valor (0 se handle inválido / não é Map).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_RMW_KH(
+    obj_h: U64,
+    key_h: U64,
+    op: I64,
+    operand: I64,
+) -> I64 {
+    let Some(key) = key_handle_to_string(key_h) else {
+        return 0;
+    };
+    with_entry_mut(obj_h, |e| match e {
+        Some(Entry::Map(m)) => {
+            let cur = m.get(&key).copied().unwrap_or(0);
+            let new = crate::collections::vec::apply_rmw(op, cur, operand);
+            m.insert(key, new);
+            new
+        }
+        _ => 0,
+    })
+}
+
 /// Sets obj[key]=value, dispatching on Vec vs Map. Accepts Symbol keys.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJ_SET(obj_h: U64, key_h: U64, value: I64) {

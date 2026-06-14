@@ -414,6 +414,106 @@ pub(super) fn rhs_is_non_integer_float_lit(e: &Expr) -> bool {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// (data-race fix) Reconhecimento de read-modify-write em slot de array/objeto:
+// `arr[i] = arr[i] OP x` / `arr[i] OP= x`. Colapsa GET+OP+SET num único extern
+// VEC_RMW/MAP_RMW_KH (um só lock do shard) — sem janela entre read e write,
+// fechando o race com `spawn_blocking`. Helpers abaixo.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Mapeia um `BinaryOp` para o op-code de `apply_rmw`, ou `None` se a operação
+/// não é suportada pelo RMW (deve cair no caminho normal GET+OP+SET).
+/// `float_mode` escolhe os op-codes float (16..=19) para add/sub/mul/div.
+fn rmw_op_code(op: BinaryOp, float_mode: bool) -> Option<i64> {
+    Some(match (op, float_mode) {
+        (BinaryOp::Add, false) => 0,
+        (BinaryOp::Sub, false) => 1,
+        (BinaryOp::Mul, false) => 2,
+        (BinaryOp::Div, false) => 3,
+        (BinaryOp::Mod, false) => 4,
+        (BinaryOp::BitAnd, _) => 5,
+        (BinaryOp::BitOr, _) => 6,
+        (BinaryOp::BitXor, _) => 7,
+        (BinaryOp::LShift, _) => 8,
+        (BinaryOp::RShift, _) => 9,
+        (BinaryOp::ZeroFillRShift, _) => 10,
+        (BinaryOp::Add, true) => 16,
+        (BinaryOp::Sub, true) => 17,
+        (BinaryOp::Mul, true) => 18,
+        (BinaryOp::Div, true) => 19,
+        _ => return None,
+    })
+}
+
+/// Peel TsAs/Paren/NonNull para comparar o núcleo de uma expr.
+fn rmw_peel(e: &Expr) -> &Expr {
+    match e {
+        Expr::Paren(p) => rmw_peel(&p.expr),
+        Expr::TsAs(a) => rmw_peel(&a.expr),
+        Expr::TsTypeAssertion(a) => rmw_peel(&a.expr),
+        Expr::TsConstAssertion(a) => rmw_peel(&a.expr),
+        Expr::TsNonNull(a) => rmw_peel(&a.expr),
+        _ => e,
+    }
+}
+
+/// Índice "trivial" (literal Num inteiro OU ident simples) cujo valor não muda
+/// entre a leitura e a escrita do mesmo slot. Retorna `Some(())` se trivial.
+fn rmw_index_is_trivial(e: &Expr) -> bool {
+    match rmw_peel(e) {
+        Expr::Lit(Lit::Num(n)) => n.value.fract() == 0.0,
+        Expr::Ident(_) => true,
+        _ => false,
+    }
+}
+
+/// Mesmo índice em ambos os lados: mesmo literal Num OU mesmo ident.
+fn rmw_same_index(a: &Expr, b: &Expr) -> bool {
+    match (rmw_peel(a), rmw_peel(b)) {
+        (Expr::Lit(Lit::Num(x)), Expr::Lit(Lit::Num(y))) => x.value == y.value,
+        (Expr::Ident(x), Expr::Ident(y)) => x.sym == y.sym,
+        _ => false,
+    }
+}
+
+/// Mesmo array (objeto receptor): mesmo ident.
+fn rmw_same_array(a: &Expr, b: &Expr) -> bool {
+    matches!((rmw_peel(a), rmw_peel(b)), (Expr::Ident(x), Expr::Ident(y)) if x.sym == y.sym)
+}
+
+/// Walk barato: o operand RE-LÊ `arr[idx]`? Se sim, NÃO podemos colapsar em RMW
+/// (o segundo read precisa do valor pré-update, que o RMW não materializa).
+/// Cobre Member/Bin/Unary/Paren/Cond; conservador (na dúvida, retorna true).
+fn rmw_expr_reads_slot(e: &Expr, arr: &Expr, idx: &Expr) -> bool {
+    match rmw_peel(e) {
+        Expr::Member(m) => {
+            if let MemberProp::Computed(c) = &m.prop {
+                if rmw_same_array(&m.obj, arr) && rmw_same_index(&c.expr, idx) {
+                    return true;
+                }
+                // recursa no índice e no objeto
+                return rmw_expr_reads_slot(&m.obj, arr, idx)
+                    || rmw_expr_reads_slot(&c.expr, arr, idx);
+            }
+            rmw_expr_reads_slot(&m.obj, arr, idx)
+        }
+        Expr::Bin(b) => {
+            rmw_expr_reads_slot(&b.left, arr, idx) || rmw_expr_reads_slot(&b.right, arr, idx)
+        }
+        Expr::Unary(u) => rmw_expr_reads_slot(&u.arg, arr, idx),
+        Expr::Cond(c) => {
+            rmw_expr_reads_slot(&c.test, arr, idx)
+                || rmw_expr_reads_slot(&c.cons, arr, idx)
+                || rmw_expr_reads_slot(&c.alt, arr, idx)
+        }
+        // Folhas seguras (não leem slot). Idents/Lits são valores; Call/outros
+        // são raros como operand de RMW e tratados como seguros (o slot já foi
+        // travado pelo RMW; um efeito colateral que mexa no mesmo array é
+        // exatamente o caso que queremos serializar).
+        _ => false,
+    }
+}
+
 fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<TypedVal> {
     use swc_ecma_ast::{AssignOp, AssignTarget};
 
@@ -957,6 +1057,132 @@ fn lower_assign_expr(ctx: &mut FnCtx, a: &swc_ecma_ast::AssignExpr) -> Result<Ty
                 right: a.right.clone(),
             }))
         };
+
+        // ─────────────────────────────────────────────────────────────────
+        // (data-race fix) Atomic RMW de slot de array/objeto. Reconhece DUAS
+        // formas e colapsa GET+OP+SET num único VEC_RMW/MAP_RMW_KH (um só lock
+        // do shard, sem janela entre read e write) — fecha o race com
+        // `spawn_blocking`. ANTES de avaliar o RHS (que releria o slot).
+        //   Forma A (compound):  `arr[i] += x`   (a.op != Assign, LHS Computed)
+        //   Forma B (explícito): `arr[i] = arr[i] + x` (a.op == Assign, RHS Bin
+        //                        com LHS-member == mesmo arr & mesmo índice)
+        // Qualquer condição que falhe → FALL-THROUGH ao comportamento atual.
+        if let MemberProp::Computed(idx_cp) = &m.prop {
+            // (operand_expr, binop) por forma.
+            let rmw_match: Option<(&Expr, BinaryOp)> = if !matches!(a.op, AssignOp::Assign) {
+                // Forma A: compound. binop derivado em `final_rhs_expr` (Bin).
+                if let Expr::Bin(b) = final_rhs_expr.as_ref() {
+                    Some((b.right.as_ref(), b.op))
+                } else {
+                    None
+                }
+            } else {
+                // Forma B: assign explícito com RHS = Bin(left=member, op, right).
+                if let Expr::Bin(b) = rmw_peel(a.right.as_ref()) {
+                    if let Expr::Member(lm) = rmw_peel(&b.left) {
+                        if let MemberProp::Computed(lc) = &lm.prop {
+                            if rmw_same_array(&lm.obj, &m.obj)
+                                && rmw_same_index(&lc.expr, &idx_cp.expr)
+                            {
+                                Some((b.right.as_ref(), b.op))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            };
+
+            if let Some((operand_expr, binop)) = rmw_match {
+                // Gate: array é ident, índice trivial, operand não relê o slot.
+                let arr_is_ident = matches!(rmw_peel(m.obj.as_ref()), Expr::Ident(_));
+                let idx_trivial = rmw_index_is_trivial(&idx_cp.expr);
+                let operand_safe =
+                    !rmw_expr_reads_slot(operand_expr, m.obj.as_ref(), &idx_cp.expr);
+                // `arr` é comprovadamente um Vec local? (literal array / elem F64)
+                // Sem essa certeza, um índice ident é ambíguo (Vec vs Map/String,
+                // igual ao read que cai em INDEX_GET_AUTO) — então só roteamos
+                // VEC_RMW por ident-index quando `arr` é Vec conhecido.
+                let arr_is_known_vec = matches!(rmw_peel(m.obj.as_ref()), Expr::Ident(id)
+                    if ctx.local_array_vars.contains(id.sym.as_str())
+                        || ctx.local_array_elem_ty.contains_key(id.sym.as_str()));
+                // float_mode: array local registrado com elem-type F64.
+                let float_mode = matches!(rmw_peel(m.obj.as_ref()), Expr::Ident(id)
+                    if matches!(ctx.local_array_elem_ty.get(id.sym.as_str()), Some(ValTy::F64)));
+                // Índice numérico → Vec. Literal Num é sempre numérico; ident só
+                // quando `arr` é Vec conhecido (senão ambíguo → fall-through).
+                let idx_is_num = matches!(rmw_peel(&idx_cp.expr), Expr::Lit(Lit::Num(_)))
+                    || (matches!(rmw_peel(&idx_cp.expr), Expr::Ident(_)) && arr_is_known_vec);
+                let idx_is_str_lit = matches!(rmw_peel(&idx_cp.expr), Expr::Lit(Lit::Str(_)));
+
+                if arr_is_ident && idx_trivial && operand_safe {
+                    if let Some(op_v) = rmw_op_code(binop, float_mode) {
+                        if idx_is_num {
+                            use cranelift_codegen::ir::types as cl;
+                            let obj_tv = lower_expr(ctx, &m.obj)?;
+                            let obj_h = ctx.coerce_to_i64(obj_tv).val;
+                            let idx_tv = lower_expr(ctx, &idx_cp.expr)?;
+                            let idx = ctx.coerce_to_i64(idx_tv).val;
+                            // operand: para float_mode, passa BITS de f64.
+                            let operand_tv = lower_expr(ctx, operand_expr)?;
+                            let operand = if float_mode {
+                                let f = to_f64(ctx, operand_tv);
+                                ctx.builder.ins().bitcast(
+                                    cl::I64,
+                                    cranelift_codegen::ir::MemFlags::new(),
+                                    f,
+                                )
+                            } else {
+                                ctx.coerce_to_i64(operand_tv).val
+                            };
+                            let op_c = ctx.builder.ins().iconst(cl::I64, op_v);
+                            let rmw = ctx.get_extern(
+                                "__RTS_FN_NS_COLLECTIONS_VEC_RMW",
+                                &[cl::I64, cl::I64, cl::I64, cl::I64],
+                                Some(cl::I64),
+                            )?;
+                            let inst = ctx.builder.ins().call(rmw, &[obj_h, idx, op_c, operand]);
+                            let new_i64 = ctx.builder.inst_results(inst)[0];
+                            // Devolve o novo valor (bitcast de volta a F64 quando float).
+                            if float_mode {
+                                let f = ctx.builder.ins().bitcast(
+                                    cl::F64,
+                                    cranelift_codegen::ir::MemFlags::new(),
+                                    new_i64,
+                                );
+                                return Ok(TypedVal::new(f, ValTy::F64));
+                            }
+                            return Ok(TypedVal::new(new_i64, ValTy::I64));
+                        } else if idx_is_str_lit && !float_mode {
+                            // Map (key string-literal não-numérica) → MAP_RMW_KH.
+                            use cranelift_codegen::ir::types as cl;
+                            let obj_tv = lower_expr(ctx, &m.obj)?;
+                            let obj_h = ctx.coerce_to_i64(obj_tv).val;
+                            let key_tv = lower_expr(ctx, &idx_cp.expr)?;
+                            let key_h = ctx.coerce_to_handle(key_tv)?.val;
+                            let operand_tv = lower_expr(ctx, operand_expr)?;
+                            let operand = ctx.coerce_to_i64(operand_tv).val;
+                            let op_c = ctx.builder.ins().iconst(cl::I64, op_v);
+                            let rmw = ctx.get_extern(
+                                "__RTS_FN_NS_COLLECTIONS_MAP_RMW_KH",
+                                &[cl::I64, cl::I64, cl::I64, cl::I64],
+                                Some(cl::I64),
+                            )?;
+                            let inst = ctx.builder.ins().call(rmw, &[obj_h, key_h, op_c, operand]);
+                            let new_i64 = ctx.builder.inst_results(inst)[0];
+                            return Ok(TypedVal::new(new_i64, ValTy::I64));
+                        }
+                        // Caso contrário: fall-through ao caminho normal.
+                    }
+                }
+            }
+        }
 
         if let MemberProp::Ident(id) = &m.prop {
             if let Some(cls) = lhs_static_class(ctx, &m.obj) {
