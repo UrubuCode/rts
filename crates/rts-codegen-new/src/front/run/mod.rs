@@ -22,8 +22,10 @@
 //! (driver + locals + coercions), [`expr`] (expressions, incl. the Tagged path),
 //! [`stmt`] (statements + control flow), [`module_jit`] (N-function JIT).
 
+mod assign;
 mod binop;
 mod call;
+mod call_spread;
 mod class;
 mod expr;
 mod funcval;

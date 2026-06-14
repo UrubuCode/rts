@@ -143,10 +143,11 @@ fn number_epsilon_constant() {
 // ===========================================================================
 
 #[test]
-fn math_min_with_spread_bails() {
-    // A spread arg is flattened to an array word by the HIR — coercing it to a
-    // bogus scalar is forbidden; must bail.
-    assert_bails("let xs = [1, 2, 3]; console.log(Math.min(...xs));");
+fn math_min_with_spread_now_works() {
+    // P5.6 (intentional, justified change from the prior bail): rts-hir now
+    // PRESERVES the spread flag, so `Math.min(...xs)` folds `min` over the array
+    // elements at runtime via `__rtsadp_math_reduce` → 1.
+    assert_stdout("let xs = [1, 2, 3]; console.log(Math.min(...xs));", "1\n");
 }
 
 #[test]

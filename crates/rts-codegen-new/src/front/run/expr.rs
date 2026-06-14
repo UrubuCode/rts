@@ -5,6 +5,7 @@
 //! `+`/`===`/`!==`/`typeof` on Tagged/mixed operands (the ONE generic runtime
 //! path), `console.log(...)`, and cross-function calls with per-param box/unbox.
 
+use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::ir::{types, InstBuilder};
 use cranelift_module::Module;
 
@@ -207,14 +208,45 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 }
                 other => unsupported!("unary `~` on repr {other:?}"),
             },
-            // CRITICAL soundness bail: swc lowers BOTH unary `!` and unary `+` to
-            // `HirUnOp::Not`, so the engine cannot tell them apart from the HIR —
-            // and they disagree (`!5` is `false`, `+5` is `5`). Emitting either
-            // would silently miscompile the other, so we REFUSE the whole `Not`
-            // family. (This is the exact honesty-floor case the redesign exists to
-            // hold: refuse, never guess.)
-            HirUnOp::Not => unsupported!(
-                "unary `!`/`+` (HIR conflates them; cannot lower soundly without the AST)"
+            // Unary `+` (ToNumber). swc now lowers `+` to a DISTINCT `HirUnOp::Plus`
+            // (no longer conflated with `!`), so the engine lowers it soundly. A
+            // proven number is the identity (`+5` is `5`); a Tagged operand goes
+            // through `__rtsadp_pos` (ToNumber, returns a number PolyValue).
+            HirUnOp::Plus => match val.repr {
+                Repr::Int32 | Repr::Int64 | Repr::Float64 => Ok(val),
+                Repr::Bool => {
+                    // `+true` is `1`, `+false` is `0` — widen the i64 0/1 to int.
+                    Ok(Val::new(val.v, Repr::Int64))
+                }
+                Repr::Tagged => {
+                    let boxed = self.box_value(val);
+                    let res = self
+                        .call_runtime(module, "__rtsadp_pos", &[boxed])?
+                        .expect("__rtsadp_pos returns a value");
+                    Ok(Val::new_with_kind(res, Repr::Tagged, JsKind::Number))
+                }
+                other => unsupported!("unary `+` on repr {other:?}"),
+            },
+            // Logical `!` (ToBoolean then invert). swc now lowers `!` to a DISTINCT
+            // `HirUnOp::Not`. A proven bool/number folds inline (native ToBoolean +
+            // invert); a Tagged operand goes through `__rtsadp_not`.
+            HirUnOp::Not => {
+                let cond = self.as_bool_value(module, val)?;
+                // cond is i64 0/1; invert via `cond == 0`.
+                let zero = self.builder.ins().iconst(types::I64, 0);
+                let inverted = self.builder.ins().icmp(IntCC::Equal, cond, zero);
+                let widened = self.builder.ins().uextend(types::I64, inverted);
+                Ok(Val::new(widened, Repr::Bool))
+            }
+            // `delete obj.key`: a sound minimal behavior. The engine's object model
+            // has no slot-removal (the transition tree is a later increment), so a
+            // genuine remove BAILS; but `delete` always EVALUATES to `true` in JS
+            // for a configurable/missing property, and the common fixture use is
+            // `delete o.absent` / discarding the result. We bail on a member/index
+            // target (cannot actually remove) and only return `true` for the
+            // never-removes cases is unsound — so bail uniformly rather than guess.
+            HirUnOp::Delete => unsupported!(
+                "`delete` (slot removal needs the transition tree — a later increment)"
             ),
             other => unsupported!("unary operator {other:?}"),
         }

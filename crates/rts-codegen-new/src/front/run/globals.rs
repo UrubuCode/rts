@@ -276,6 +276,24 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
             return Ok(Val::tagged_kind(v, JsKind::Str));
         }
+        // `String.fromCharCode(...codes)` (P5.6): a SINGLE spread of a proven array
+        // → fold `fromCharCode` over the array at runtime via the `_arr` trampoline.
+        // (fromCodePoint spread is a later increment — `_arr` is char-code only.)
+        if method == "fromCharCode" && args.len() == 1 {
+            if let HirExprKind::Spread(inner) = &args[0].kind {
+                if !self.is_array_valued(inner) {
+                    return unsupported!(
+                        "String.fromCharCode(...spread) of a non-array value (later increment)"
+                    );
+                }
+                let src = self.lower_expr(module, inner)?;
+                let arr_word = self.box_value(src);
+                let res = self
+                    .call_runtime(module, "__rtsadp_str_from_char_code_arr", &[arr_word])?
+                    .expect("__rtsadp_str_from_char_code_arr returns a value");
+                return Ok(Val::tagged_kind(res, JsKind::Str));
+            }
+        }
         // Each code → a one-char string; concatenate via the generic `+`
         // (real STRING_CONCAT), so the variadic form falls out of the monadic
         // primitive — exactly the documented `globalops` design. A SPREAD arg
@@ -311,7 +329,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// spread argument the HIR has flattened to a bare array (call args lose their
     /// spread flag) where a scalar is required — never coerce an array to a bogus
     /// scalar (the honesty floor).
-    fn is_array_valued(&self, e: &HirExpr) -> bool {
+    pub(super) fn is_array_valued(&self, e: &HirExpr) -> bool {
         match &e.kind {
             HirExprKind::Array(_) => true,
             HirExprKind::Ident(name) => {

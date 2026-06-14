@@ -299,6 +299,24 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         sig: &FnSig,
         args: &[HirExpr],
     ) -> FrontResult<Val> {
+        // `f(...arr)` (P5.6): a SINGLE spread of a proven array unpacks the array's
+        // first `params.len()` elements into the native params. The array must
+        // supply exactly the arity at runtime (a shorter array reads `undefined`
+        // into a missing slot, which an unbox of a numeric param would mis-handle —
+        // so we only support the common exact-arity `f(...arr)` shape here).
+        if args.len() == 1 {
+            if let HirExprKind::Spread(inner) = &args[0].kind {
+                return self.lower_user_call_spread(module, sig, inner);
+            }
+        }
+        // A spread mixed with other args, or a spread anywhere but the sole arg, is
+        // a later increment → bail rather than mis-marshal.
+        if args.iter().any(|a| matches!(a.kind, HirExprKind::Spread(_))) {
+            return unsupported!(
+                "call to `{}` with a spread mixed with positional args (later increment)",
+                sig.name
+            );
+        }
         if args.len() != sig.params.len() {
             return unsupported!(
                 "call to `{}` expects {} args, got {}",
@@ -312,27 +330,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             let v = self.lower_expr(module, a)?;
             lowered.push(self.coerce(v, want)?);
         }
-
-        let cl_sig = sig.to_cranelift(module);
-        let callee = module
-            .declare_function(&sig.name, cranelift_module::Linkage::Local, &cl_sig)
-            .map_err(|e| Unsupported::new(format!("declare callee `{}`: {e}", sig.name)))?;
-        let func_ref = module.declare_func_in_func(callee, self.builder.func);
-        let call = self.builder.ins().call(func_ref, &lowered);
-
-        match sig.ret {
-            Some(ret) => {
-                let v = self.builder.inst_results(call)[0];
-                Ok(Val::new(v, ret))
-            }
-            None => {
-                let v = self
-                    .builder
-                    .ins()
-                    .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
-                Ok(Val::tagged_kind(v, JsKind::Undefined))
-            }
-        }
+        self.emit_user_call(module, sig, &lowered)
     }
 
     /// Reduce `val` to an i64 0/1 condition usable by `brif`/`select`, applying

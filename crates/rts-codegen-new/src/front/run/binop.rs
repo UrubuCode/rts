@@ -84,26 +84,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
             return self.lower_compare(op, l, r);
         }
-        // Loose equality `==`/`!=`. `==` and `===` AGREE iff the operands are the
-        // same JS kind (both numbers, both strings, …) — cross-kind is exactly
-        // where loose coercion diverges (`0 == ""` is `true` loose, `false`
-        // strict). So: lower loose equality only when both operand kinds are the
-        // SAME proven kind; a different/unknown kind pairing BAILS (never a wrong
-        // value — full ToPrimitive coercion is a later increment).
+        // Loose equality `==`/`!=`. swc now lowers these to DISTINCT `Eq`/`Ne` ops
+        // (no longer conflated with `===`/`!==`), so the engine can run the REAL JS
+        // Abstract Equality algorithm (`__rtsadp_loose_eq`). The proven-same-kind
+        // native path stays the fast `iadd`/`fcmp`-style compare (`0 == ""` etc.
+        // need coercion, but two proven numbers don't); everything else routes to
+        // the generic loose-eq, which ToPrimitive/ToNumber-coerces per spec.
         if matches!(op, HirBinOp::Eq | HirBinOp::Ne) {
-            if !same_proven_kind(l, r) {
-                return unsupported!(
-                    "loose equality on operands of differing/unknown kind ({:?} vs {:?}) — \
-                     coercion diverges here (a later increment)",
-                    l.kind,
-                    r.kind
-                );
+            if !is_tagged(l) && !is_tagged(r) && same_proven_kind(l, r) {
+                // Both proven, same kind (number==number, bool==bool): native.
+                return self.lower_compare(op, l, r);
             }
-            if is_tagged(l) || is_tagged(r) {
-                return self.lower_strict_eq(module, op, l, r);
-            }
-            // Same-kind native numeric/bool: native compare.
-            return self.lower_compare(op, l, r);
+            return self.lower_loose_eq(module, op, l, r);
         }
         // Relational `< <= > >=`: native when both proven numeric; else the
         // generic PolyValue path (mixed/string operands compared per JS rules).
@@ -285,6 +277,28 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(Val { v: res, repr: Repr::Tagged, kind })
     }
 
+    /// `==` / `!=` over the JS Abstract Equality algorithm (`__rtsadp_loose_eq`),
+    /// → a `Bool` (i64 0/1). Used when an operand is Tagged or the kinds differ.
+    fn lower_loose_eq(
+        &mut self,
+        module: &mut dyn Module,
+        op: HirBinOp,
+        l: Val,
+        r: Val,
+    ) -> FrontResult<Val> {
+        let ba = self.box_value(l);
+        let bb = self.box_value(r);
+        let sym = match op {
+            HirBinOp::Eq => "__rtsadp_loose_eq",
+            HirBinOp::Ne => "__rtsadp_loose_neq",
+            _ => return unsupported!("loose-eq op {op:?}"),
+        };
+        let res = self
+            .call_runtime(module, sym, &[ba, bb])?
+            .expect("loose-eq returns a value");
+        Ok(self.poly_bool_to_bool(res))
+    }
+
     /// `===` / `!==` over a tag-dispatched runtime compare → a `Bool` (i64 0/1).
     fn lower_strict_eq(
         &mut self,
@@ -296,10 +310,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let ba = self.box_value(l);
         let bb = self.box_value(r);
         let sym = match op {
-            // Same-kind loose `==`/`!=` (the secretly-strict case) reuse the
-            // strict trampoline; `===`/`!==` map directly.
-            HirBinOp::Eq | HirBinOp::StrictEq => "__rtsadp_strict_eq",
-            HirBinOp::Ne | HirBinOp::StrictNe => "__rtsadp_strict_neq",
+            HirBinOp::StrictEq => "__rtsadp_strict_eq",
+            HirBinOp::StrictNe => "__rtsadp_strict_neq",
             _ => return unsupported!("strict-eq op {op:?}"),
         };
         let res = self

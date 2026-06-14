@@ -48,5 +48,6 @@ mod object;
 mod objdyn;
 mod objstatic;
 mod poly;
+mod precision;
 mod run;
 mod string;

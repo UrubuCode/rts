@@ -108,11 +108,14 @@ fn array_from_map_bails_on_use() {
 }
 
 #[test]
-fn from_char_code_spread_bails() {
-    // The HIR drops the spread flag on call args, so `fromCharCode(...codes)`
-    // surfaces as a single ARRAY arg — we BAIL (never coerce the array to a bogus
-    // char code). The honesty floor.
-    assert_bails("let codes = [72, 105]; console.log(String.fromCharCode(...codes));");
+fn from_char_code_spread_now_works() {
+    // P5.6 (intentional, justified change from the prior bail): rts-hir now
+    // PRESERVES the spread flag (`HirExprKind::Spread`), so `fromCharCode(...codes)`
+    // folds `fromCharCode` over the array elements at runtime → "Hi".
+    assert_stdout(
+        "let codes = [72, 105]; console.log(String.fromCharCode(...codes));",
+        "Hi\n",
+    );
 }
 
 #[test]

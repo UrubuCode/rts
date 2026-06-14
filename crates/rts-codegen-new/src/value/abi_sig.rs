@@ -121,7 +121,8 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         }
         // ---- codegen-owned adapter trampolines (__rtsadp_*) ----
         // Generic JS operators on PolyValue words (tagged-in/tagged-out).
-        "__rtsadp_add" | "__rtsadp_strict_eq" | "__rtsadp_strict_neq" => {
+        "__rtsadp_add" | "__rtsadp_strict_eq" | "__rtsadp_strict_neq"
+        | "__rtsadp_loose_eq" | "__rtsadp_loose_neq" => {
             SymSig { params: &[U64, U64], ret: U64 }
         }
         "__rtsadp_typeof" | "__rtsadp_to_string" | "__rtsadp_to_boolean" => {
@@ -134,8 +135,8 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         | "__rtsadp_shl" | "__rtsadp_shr" | "__rtsadp_ushr" => {
             SymSig { params: &[U64, U64], ret: U64 }
         }
-        // ---- generic unary (P4.8): one PolyValue word ----
-        "__rtsadp_neg" | "__rtsadp_bnot" | "__rtsadp_not" => {
+        // ---- generic unary (P4.8 + P5.6): one PolyValue word ----
+        "__rtsadp_neg" | "__rtsadp_bnot" | "__rtsadp_not" | "__rtsadp_pos" => {
             SymSig { params: &[U64], ret: U64 }
         }
         // console.log line sink: takes (ptr, len) as a StrPtr (two slots), void.
@@ -181,13 +182,20 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         "__rtsadp_g_number" | "__rtsadp_g_string" | "__rtsadp_g_boolean"
         | "__rtsadp_g_parse_float" | "__rtsadp_g_is_nan" | "__rtsadp_g_is_finite"
         | "__rtsadp_arr_is_array" | "__rtsadp_arr_new_sized" | "__rtsadp_arr_from"
-        | "__rtsadp_str_from_char_code" | "__rtsadp_str_from_code_point" => {
+        | "__rtsadp_str_from_char_code" | "__rtsadp_str_from_code_point"
+        | "__rtsadp_str_from_char_code_arr" => {
             SymSig { params: &[U64], ret: U64 }
         }
         // parseInt(value_word, radix): radix is an I64 (0 = auto).
         "__rtsadp_g_parse_int" => SymSig { params: &[U64, U64], ret: U64 },
         // str.split(recvHandle, sepHandle, limit) -> a TAG_OBJECT array word.
         "__rtsadp_str_split" => SymSig { params: &[Handle, Handle, I64], ret: U64 },
+        // math_reduce(arr_word, op) -> f64 (op: 0=min, 1=max, 2=hypot).
+        "__rtsadp_math_reduce" => SymSig { params: &[U64, I64], ret: F64 },
+        // canon_double(word) -> a guaranteed inline-double PolyValue word.
+        "__rtsadp_canon_double" => SymSig { params: &[U64], ret: U64 },
+        // arr_spread_append(dst_word, src_word) -> void (push all src elements).
+        "__rtsadp_arr_spread_append" => SymSig { params: &[U64, U64], ret: Void },
 
         // ---- codegen-owned Map / Set instance trampolines (P5.3) ----
         // All PolyValue words (U64): slot 0 is the instance word, args are key/value/

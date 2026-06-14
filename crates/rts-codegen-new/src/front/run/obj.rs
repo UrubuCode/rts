@@ -86,14 +86,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         module: &mut dyn Module,
         elems: &[HirExpr],
     ) -> FrontResult<Val> {
-        // A spread element needs runtime expansion (a later increment) — bail.
-        for e in elems {
-            if matches!(e.kind, HirExprKind::Spread(_)) {
-                return unsupported!("spread in an array literal");
-            }
-        }
         let arr_word = emit_marshal::emit_new_vec_object(module, self.builder);
         for e in elems {
+            // A spread element `[...src]` (P5.6): `src` must be a proven ARRAY, whose
+            // elements are appended onto the new array via `__rtsadp_arr_spread_append`.
+            // A non-array spread (object/iterable/string) is a later increment → bail.
+            if let HirExprKind::Spread(inner) = &e.kind {
+                if !self.is_array_valued(inner) {
+                    return unsupported!(
+                        "spread of a non-array value in an array literal (only `[...array]` is supported)"
+                    );
+                }
+                let src = self.lower_expr(module, inner)?;
+                let src_word = self.box_value(src);
+                self.call_runtime(module, "__rtsadp_arr_spread_append", &[arr_word, src_word])?;
+                continue;
+            }
             let v = self.lower_expr(module, e)?;
             let word = self.box_value(v);
             emit_marshal::emit_vec_push(module, self.builder, arr_word, word);

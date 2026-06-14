@@ -10,7 +10,7 @@ use cranelift_codegen::ir::{types, InstBuilder};
 use cranelift_module::Module;
 
 use rts_hir::ir::HirExprKind;
-use rts_hir::{HirBinOp, HirExpr, HirStmt, HirType};
+use rts_hir::{HirExpr, HirStmt, HirType};
 
 use crate::repr::Repr;
 
@@ -224,31 +224,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(Val::new(coerced, local.repr))
     }
 
-    /// Compound assignment `x += e` etc. → `x = x <op> e`.
-    pub(super) fn lower_assign_op(
-        &mut self,
-        module: &mut dyn Module,
-        op: HirBinOp,
-        target: &HirExpr,
-        value: &HirExpr,
-    ) -> FrontResult<Val> {
-        let name = ident_target(target)?;
-        let local = self
-            .local(&name)
-            .ok_or_else(|| Unsupported::new(format!("compound-assign to unbound `{name}`")))?;
-        let cur = self.builder.use_var(local.var);
-        let cur_val = Val::new(cur, local.repr);
-        let rhs = self.lower_expr(module, value)?;
-        let result = if op.is_arithmetic() {
-            self.lower_arith(module, op, cur_val, rhs)?
-        } else {
-            return unsupported!("compound-assign operator {op:?}");
-        };
-        let coerced = self.coerce(result, local.repr)?;
-        self.builder.def_var(local.var, coerced);
-        Ok(Val::new(coerced, local.repr))
-    }
-
     /// `++x` / `x++` / `--x` / `x--` on a numeric local.
     pub(super) fn lower_incdec(
         &mut self,
@@ -368,7 +343,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 }
 
 /// Require an assignment/increment target to be a bare identifier.
-fn ident_target(target: &HirExpr) -> FrontResult<String> {
+pub(super) fn ident_target(target: &HirExpr) -> FrontResult<String> {
     match &target.kind {
         HirExprKind::Ident(name) => Ok(name.clone()),
         _ => unsupported!("assignment target must be a simple identifier"),

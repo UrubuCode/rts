@@ -6,7 +6,7 @@
 //! captured stdout) against EXACT Node/Bun output — the proven-numeric fast path
 //! stays native, only Tagged operands use the trampolines.
 
-use super::{assert_bails, assert_stdout};
+use super::assert_stdout;
 
 // ===========================================================================
 // Untyped arrow callbacks in Array methods (the headline real-world unlock).
@@ -165,17 +165,20 @@ fn exponentiation() {
 }
 
 // ===========================================================================
-// Negative: still-bailing cases (the honesty floor — HIR ambiguity).
+// P5.6: the HIR-ambiguity bails are LIFTED — rts-hir now distinguishes the ops.
+// (Intentional, justified change from the prior `assert_bails`.)
 // ===========================================================================
 
 #[test]
-fn loose_eq_cross_kind_still_bails() {
-    // swc collapses `==`/`===`; cross-kind `1 == "1"` cannot be told from strict.
-    assert_bails(r#"function f(a,b){ return a==b; } console.log(f(1,"1"));"#);
+fn loose_eq_cross_kind_now_works() {
+    // rts-hir now lowers `==` to a DISTINCT `Eq` op (not conflated with `===`), so
+    // cross-kind `1 == "1"` runs the real JS Abstract Equality (→ `true`).
+    assert_stdout(r#"console.log(1 == "1");"#, "true\n");
 }
 
 #[test]
-fn unary_not_still_bails() {
-    // swc collapses `!`/unary-`+`; `!0` cannot be told from `+0`.
-    assert_bails("console.log(!0);");
+fn unary_not_now_works() {
+    // rts-hir now lowers `!` to a DISTINCT `Not` op (not conflated with unary-`+`),
+    // so `!0` is `true`.
+    assert_stdout("console.log(!0);", "true\n");
 }

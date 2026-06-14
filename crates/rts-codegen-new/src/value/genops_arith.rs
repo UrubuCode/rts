@@ -156,6 +156,15 @@ pub extern "C" fn __rtsadp_neg(a: u64) -> u64 {
     number_result(-x).raw()
 }
 
+/// `__rtsadp_pos` — JS unary `+` (ToNumber, returns a number PolyValue). `+"42"`
+/// → 42, `+true` → 1, `+null` → 0, `+"x"` → NaN. Re-tightens to int32 when an
+/// exact small integer (so `+"3"` is an int32, the JS small-int fast path).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_pos(a: u64) -> u64 {
+    let x = to_number(PolyValue::from_raw(a));
+    number_result(x).raw()
+}
+
 /// `__rtsadp_bnot` — JS `~` (`ToInt32` then bitwise NOT). The result is always a
 /// small integer, so it boxes as int32.
 #[unsafe(no_mangle)]

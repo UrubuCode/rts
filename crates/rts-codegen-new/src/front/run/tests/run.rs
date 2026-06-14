@@ -2,7 +2,7 @@
 //! cross-function calls, control flow, equality — plus the negative HIR-ambiguity
 //! bails the engine REFUSES rather than guess.
 
-use super::{assert_bails, assert_stdout, run_source};
+use super::{assert_stdout, run_source};
 
 // ===========================================================================
 // Numeric + string `+` through the generic path.
@@ -184,17 +184,19 @@ fn whole_array_log_now_inspects() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn cross_kind_equality_bails() {
-    // `0 == ""` is `true` loose / `false` strict; swc collapses `==`/`===` onto
-    // one HIR op, so the engine cannot tell them apart for cross-kind operands.
-    // It must bail, not emit a (possibly wrong) boolean.
-    assert_bails(r#"console.log(0 == "");"#);
+fn cross_kind_loose_equality_now_works() {
+    // P5.6 (intentional, justified change from the prior bail): rts-hir now lowers
+    // `==`/`!=` to DISTINCT `Eq`/`Ne` ops (no longer conflated with `===`/`!==`),
+    // so the engine runs the real JS Abstract Equality algorithm. `0 == ""` is
+    // `true` (both coerce to 0); `0 === ""` stays `false`.
+    assert_stdout(r#"console.log(0 == "", 0 === "");"#, "true false\n");
 }
 
 #[test]
-fn unary_plus_or_not_bails() {
-    // swc lowers BOTH unary `+` and `!` to `HirUnOp::Not`; `+"42"` is `42` while
-    // `!"42"` is `false`. Indistinguishable in HIR → bail.
-    assert_bails(r#"console.log(+"42");"#);
-    assert_bails("console.log(!0);");
+fn unary_plus_and_not_now_work() {
+    // P5.6 (intentional, justified change from the prior bail): rts-hir now lowers
+    // `+` to `HirUnOp::Plus` and `!` to `HirUnOp::Not` (distinct), so the engine
+    // lowers each soundly: `+"42"` is `42`, `!0` is `true`.
+    assert_stdout(r#"console.log(+"42");"#, "42\n");
+    assert_stdout("console.log(!0);", "true\n");
 }

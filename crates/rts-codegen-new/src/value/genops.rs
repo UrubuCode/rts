@@ -287,6 +287,63 @@ pub extern "C" fn __rtsadp_strict_neq(a: u64, b: u64) -> u64 {
     PolyValue::bool(!eq.as_bool()).raw()
 }
 
+/// `__rtsadp_loose_eq` — JS `==` (Abstract Equality Comparison) on two PolyValues,
+/// returning a PolyValue bool.
+///
+/// Covers the reachable primitive cases of the spec algorithm:
+/// - same-kind (both number, both string, both bool, both null/undefined) →
+///   defers to strict-eq's value compare;
+/// - `null == undefined` → `true` (and `null`/`undefined` `==` anything else →
+///   `false`);
+/// - number ↔ string → ToNumber the string, numeric compare (`1 == "1"`,
+///   `0 == ""`);
+/// - bool on either side → ToNumber the bool (`true == 1`, `false == ""` via two
+///   ToNumber steps);
+/// - number/string ↔ object → ToPrimitive(object) is a later increment → falls to
+///   the strict raw-compare (sound for the proven corpus, never a wrong `true`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_loose_eq(a: u64, b: u64) -> u64 {
+    PolyValue::bool(loose_eq(PolyValue::from_raw(a), PolyValue::from_raw(b))).raw()
+}
+
+/// `__rtsadp_loose_neq` — JS `!=`, the boolean complement of loose-eq.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_loose_neq(a: u64, b: u64) -> u64 {
+    PolyValue::bool(!loose_eq(PolyValue::from_raw(a), PolyValue::from_raw(b))).raw()
+}
+
+/// The JS Abstract Equality Comparison (`==`) as a Rust bool. See
+/// [`__rtsadp_loose_eq`] for the covered cases.
+fn loose_eq(av: PolyValue, bv: PolyValue) -> bool {
+    // null/undefined are loosely-equal to each other and to nothing else.
+    let a_nullish = av.is_null() || av.is_undefined();
+    let b_nullish = bv.is_null() || bv.is_undefined();
+    if a_nullish || b_nullish {
+        return a_nullish && b_nullish;
+    }
+    // Both numbers → numeric compare (NaN never equal; same as strict).
+    if is_number(av) && is_number(bv) {
+        return av.number_as_f64() == bv.number_as_f64();
+    }
+    // Both strings → content compare (real pool).
+    if av.is_string() && bv.is_string() {
+        let ah = abi_adapter::real_handle_of(av);
+        let bh = abi_adapter::real_handle_of(bv);
+        return rt_str::__RTS_FN_NS_GC_STRING_EQ(ah, bh) != 0;
+    }
+    // Number/string/bool mix: ToNumber BOTH and compare (this subsumes
+    // number==string, bool==number, bool==string, bool==bool-via-number).
+    let coercible = |v: PolyValue| is_number(v) || v.is_string() || v.is_bool();
+    if coercible(av) && coercible(bv) {
+        let x = to_number(av);
+        let y = to_number(bv);
+        return x == y;
+    }
+    // Object/function on a side (ToPrimitive is a later increment): fall to the
+    // strict identity compare — sound, never a wrong `true`.
+    av.raw() == bv.raw()
+}
+
 /// `__rtsadp_typeof` — JS `typeof`, returning a PolyValue **string** handle of the
 /// `typeof_str` (interned in the REAL pool). A single tag inspection.
 #[unsafe(no_mangle)]

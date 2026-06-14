@@ -213,6 +213,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             let var = ctx.builder.declare_var(cl_type(repr));
             ctx.builder.def_var(var, block_val);
             ctx.locals.insert(p.name.clone(), Local { var, repr });
+            // An object-typed param (`o: {x: number}`) is a PROVEN keyed OBJECT
+            // whose exact compile-time shape is not known to the callee — route
+            // `o.key` / `o[k]` through the DYNAMIC property access (P5.5) instead of
+            // bailing on an unknown shape. (P5.6: rts-hir now distinguishes the
+            // anonymous-object type `HirType::Object` from `any`/`Unknown`.)
+            if matches!(p.ty, rts_hir::HirType::Object) {
+                ctx.object_locals.insert(p.name.clone());
+            }
         }
 
         // The implicit receiver `this` of a constructor/method: bind its class so

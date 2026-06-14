@@ -195,6 +195,25 @@ pub extern "C" fn __rtsadp_str_from_char_code(code: u64) -> u64 {
     abi_adapter::poly_from_real_handle(handle).raw()
 }
 
+/// `String.fromCharCode(...codes)` over a spread ARRAY (`fromCharCode(...arr)`):
+/// concatenate `fromCharCode` of each element. `arr_word` is a proven array; each
+/// element is `ToNumber`'d to a code unit. Returns a string PolyValue WORD (real
+/// pool). The bytes go through the runtime's own `FROM_CHAR_CODE` per element, so
+/// surrogate handling matches the scalar path.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_str_from_char_code_arr(arr_word: u64) -> u64 {
+    let v = PolyValue::from_raw(arr_word);
+    let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+    let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(handle).max(0);
+    let mut out = String::new();
+    for i in 0..len {
+        let w = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, i) as u64;
+        let code_word = __rtsadp_str_from_char_code(w);
+        out.push_str(&abi_adapter::resolve_poly(PolyValue::from_raw(code_word)));
+    }
+    abi_adapter::intern_poly(&out).raw()
+}
+
 /// `String.fromCodePoint(code)` for ONE code point. Same shape as
 /// [`__rtsadp_str_from_char_code`] but full Unicode code points.
 #[unsafe(no_mangle)]
@@ -237,6 +256,73 @@ pub extern "C" fn __rtsadp_str_split(recv: u64, sep: u64, limit: i64) -> u64 {
         }
     }
     box_vec_as_array(vec)
+}
+
+// ===========================================================================
+// Spread support — fold a variadic numeric op over a spread array; append one
+// array's elements into another (array-literal spread `[...a, ...b]`).
+// ===========================================================================
+
+/// `__rtsadp_math_reduce(arr_word, op)` — fold `Math.min/max/hypot` over the
+/// elements of the array `arr_word` (spread `Math.max(...xs)`), returning an f64.
+/// `op`: `0` = min, `1` = max, `2` = hypot. Each element is `ToNumber`'d (the same
+/// coercion the scalar path uses). An empty array yields the JS identity:
+/// `Math.min()` = `+Infinity`, `Math.max()` = `-Infinity`, `Math.hypot()` = `0`.
+/// A `NaN` element makes min/max `NaN` (JS NaN-propagation).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_math_reduce(arr_word: u64, op: i64) -> f64 {
+    let v = PolyValue::from_raw(arr_word);
+    let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+    let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(handle).max(0);
+    let mut acc = match op {
+        0 => f64::INFINITY,
+        1 => f64::NEG_INFINITY,
+        _ => 0.0,
+    };
+    for i in 0..len {
+        let w = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, i) as u64;
+        let x = to_number(PolyValue::from_raw(w));
+        acc = match op {
+            0 => acc.min(x),
+            1 => acc.max(x),
+            _ => acc.hypot(x),
+        };
+        // JS min/max propagate NaN (Rust's f64::min/max do NOT — guard).
+        if x.is_nan() && op != 2 {
+            return f64::NAN;
+        }
+    }
+    acc
+}
+
+/// `__rtsadp_canon_double(word)` — `ToNumber` the PolyValue `word` and return it
+/// as a GUARANTEED inline-double PolyValue word (never a tagged int32). The
+/// front-end uses this to normalize a spread array element to a word the pure
+/// `emit_unbox_double` bitcast handles, before coercing to a native numeric param
+/// (a boxed-int32 element would otherwise bitcast to a bogus f64). NaN-canonical.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_canon_double(word: u64) -> u64 {
+    PolyValue::from_f64(to_number(PolyValue::from_raw(word))).raw()
+}
+
+/// `__rtsadp_arr_spread_append(dst_word, src_word)` — push every element of the
+/// array `src_word` onto the array `dst_word` (array-literal spread `[...src]`).
+/// Reads the raw element WORDS through the real Vec (preserving each boxed
+/// PolyValue), so the spread copy is shallow and representation-faithful. A
+/// non-array `src` is a no-op (the lowering only routes proven arrays here).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_spread_append(dst_word: u64, src_word: u64) {
+    let src = PolyValue::from_raw(src_word);
+    if !(src.is_object() && !super::inspect::looks_like_object(src)) {
+        return;
+    }
+    let dst = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(PolyValue::from_raw(dst_word).as_handle());
+    let s = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(src.as_handle());
+    let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(s).max(0);
+    for i in 0..len {
+        let w = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(s, i);
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(dst, w);
+    }
 }
 
 // ===========================================================================

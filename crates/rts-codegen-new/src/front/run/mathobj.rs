@@ -119,6 +119,35 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     .expect("MATH_RANDOM_F64 returns a value");
             return Ok(Val::new(v, Repr::Float64));
         }
+        // `Math.min/max/hypot(...xs)` (P5.6): a SINGLE spread of a proven array →
+        // fold the op over the array's elements at runtime via `__rtsadp_math_reduce`
+        // (op: 0=min, 1=max, 2=hypot). A mixed `Math.max(a, ...xs)` or a non-array
+        // spread is a later increment → bail.
+        if let Some(reduce_op) = math_reduce_op(method) {
+            if args.len() == 1 {
+                if let HirExprKind::Spread(inner) = &args[0].kind {
+                    if !self.is_array_valued(inner) {
+                        return unsupported!(
+                            "Math.{method}(...spread) of a non-array value (later increment)"
+                        );
+                    }
+                    let src = self.lower_expr(module, inner)?;
+                    let arr_word = self.box_value(src);
+                    let op_v = self.builder.ins().iconst(
+                        cranelift_codegen::ir::types::I64,
+                        reduce_op,
+                    );
+                    let v = emit_marshal::emit_call(
+                        module,
+                        self.builder,
+                        "__rtsadp_math_reduce",
+                        &[arr_word, op_v],
+                    )
+                    .expect("__rtsadp_math_reduce returns a value");
+                    return Ok(Val::new(v, Repr::Float64));
+                }
+            }
+        }
         let Some(op) = math_op(method) else {
             return unsupported!("Math.{method}(...) (unsupported Math method)");
         };
@@ -274,6 +303,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .call_runtime(module, symbol, &[boxed])?
             .expect("global coercion returns a value");
         Ok(Val::tagged_kind(res, JsKind::Number))
+    }
+}
+
+/// The `__rtsadp_math_reduce` op code for a variadic-foldable `Math` method
+/// (`min`=0, `max`=1, `hypot`=2), used for the `Math.m(...array)` spread fold.
+fn math_reduce_op(method: &str) -> Option<i64> {
+    match method {
+        "min" => Some(0),
+        "max" => Some(1),
+        "hypot" => Some(2),
+        _ => None,
     }
 }
 
