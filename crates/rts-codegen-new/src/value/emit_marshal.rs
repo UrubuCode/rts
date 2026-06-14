@@ -49,6 +49,33 @@ pub fn emit_call(
     }
 }
 
+/// Declare-import `name` with a Cranelift signature built DIRECTLY from the
+/// supplied parameter `AbiType`s + return `AbiType` (the Registry-driven path —
+/// [`super::abi_sig::cranelift_sig_from_abis`]), then emit the `call` with the
+/// already-marshaled `args` (one Cranelift value per slot). Returns the single
+/// result, or `None` for a void return. Used where the symbol's signature comes
+/// from the real `Member.sig`, NOT the hand-written `sig_of` table.
+pub fn emit_call_sig(
+    module: &mut dyn Module,
+    builder: &mut FunctionBuilder,
+    name: &str,
+    args: &[Value],
+    params: &[rts_runtime::abi::AbiType],
+    ret: rts_runtime::abi::AbiType,
+) -> Option<Value> {
+    let cl_sig = super::abi_sig::cranelift_sig_from_abis(module, params, ret);
+    let callee = module
+        .declare_function(name, Linkage::Import, &cl_sig)
+        .unwrap_or_else(|e| panic!("declare runtime symbol `{name}`: {e}"));
+    let func_ref = module.declare_func_in_func(callee, builder.func);
+    let call = builder.ins().call(func_ref, args);
+    if matches!(ret, rts_runtime::abi::AbiType::Void) {
+        None
+    } else {
+        Some(builder.inst_results(call)[0])
+    }
+}
+
 /// `__RTS_FN_NS_GC_POLY_TO_HANDLE(payload)` — the 48-bit PolyValue payload
 /// (slot+shard) → full real runtime handle, with the 16-bit generation
 /// reconstructed from the live slot. `poly_word` is the raw heap-PolyValue word;

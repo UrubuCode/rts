@@ -1,0 +1,188 @@
+//! The REAL runtime Registry, built once and consulted for RUNTIME/Registry
+//! class dispatch (Pilar 6 — data-driven dispatch, NO per-class metadata table).
+//!
+//! Per the PRIMORDIAL-vs-Registry doctrine the engine names ONLY the primordial
+//! classes directly; everything else (Date/Map/Set/RegExp/Error family/the
+//! Boolean/Number/String wrappers) lives in `rts-shared`/`rts-primitives`/
+//! `rts-std` and publishes its surface — `(jsName, symbol, AbiType signature,
+//! instanceof predicate)` — into an [`rts_engine::Registry`]. This module builds
+//! that Registry once (the SAME `register`/`register_class_spec` fns the real
+//! runtime uses, reached through the `rts-runtime` facade) and answers two
+//! questions the lowering needs:
+//!
+//! - [`class_member`] — resolve `class.method(argc)` (or a static / getter) to a
+//!   [`ResolvedCall`] (the real `__RTS_FN_*` symbol + its `AbiType` signature);
+//! - [`class_ctor`] — resolve `new class(argc)` to the constructor's
+//!   [`ResolvedCall`];
+//! - [`instanceof_predicate`] — the real `fn(handle)->i64` tag symbol for
+//!   `x instanceof class`, when the Registry declares one.
+//!
+//! The Registry is leaked to `'static` (built once at first use, never freed —
+//! a compiler process lives and dies; this is the same lifetime model as the old
+//! engine's `OnceLock<Registry>`). That lets a [`ResolvedCall`] borrow the real
+//! `&'static str` symbol with no copy; the `AbiType`s are `Copy` so the small
+//! `arg_abis` vec is the only allocation per resolution.
+
+use std::sync::OnceLock;
+
+use rts_engine::abi::{AbiType, MemberKind};
+use rts_engine::{Engine, Member, Registry};
+
+/// One resolved runtime call: the REAL `__RTS_FN_*` symbol + the exact `AbiType`
+/// signature the generic marshal lowers against. For an INSTANCE method the
+/// Registry's `Member.sig.args[0]` is the receiver `Handle`; we split it out as
+/// [`recv_abi`](Self::recv_abi) so the generic emitter marshals the receiver
+/// word + the explicit args uniformly.
+#[derive(Clone)]
+pub struct ResolvedCall {
+    /// The canonical runtime symbol (`__RTS_FN_GL_DATE_GET_TIME`, …). `'static`
+    /// because it borrows the leaked Registry's `Member.symbol`.
+    pub symbol: &'static str,
+    /// The receiver's `AbiType` for an instance method/getter (`args[0]`), or
+    /// `None` for a constructor / static method (no implicit `this`).
+    pub recv_abi: Option<AbiType>,
+    /// The explicit (TS-visible) argument `AbiType`s, in order.
+    pub arg_abis: Vec<AbiType>,
+    /// The return `AbiType` (`Void` = no value).
+    pub ret: AbiType,
+}
+
+/// Build the real runtime Registry once. Only the classes the new engine
+/// dispatches are registered (cheap — each `register*` just pushes metadata);
+/// the externs themselves live in the linked runtime, reached by symbol.
+fn build_registry() -> Registry {
+    use rts_runtime::namespaces as ns;
+    let mut e = Engine::new();
+    // Namespaces backing the class statics/ctors (Date.now/UTC/parse use the
+    // `date` namespace; the collections map/vec back Map/Set).
+    ns::date::register(&mut e);
+    ns::collections::register(&mut e);
+    ns::regex::register(&mut e);
+    // The RUNTIME/Registry global classes the engine constructs + dispatches.
+    ns::globals::date::register_class_spec(&mut e);
+    ns::collections::register_mapset_class_spec(&mut e);
+    ns::globals::regexp::register_regexp_class_spec(&mut e);
+    ns::globals::error::register_class_spec(&mut e);
+    ns::globals::error::register_type_error_class_spec(&mut e);
+    ns::globals::error::register_range_error_class_spec(&mut e);
+    ns::globals::error::register_ref_error_class_spec(&mut e);
+    ns::globals::error::register_syntax_error_class_spec(&mut e);
+    ns::globals::error::register_uri_error_class_spec(&mut e);
+    ns::globals::error::register_eval_error_class_spec(&mut e);
+    ns::globals::boolean::register_boolean_class_spec(&mut e);
+    // Number/String classes also exist as primordials; we register them so the
+    // wrapper-ctor (`new Number(x)`) path can resolve through the Registry too.
+    ns::globals::number::register_number_class_spec(&mut e);
+    ns::globals::string::register_string_class_spec(&mut e);
+    e.into_registry()
+}
+
+/// The leaked, process-lifetime Registry. Built on first use.
+fn registry() -> &'static Registry {
+    static REG: OnceLock<&'static Registry> = OnceLock::new();
+    REG.get_or_init(|| Box::leak(Box::new(build_registry())))
+}
+
+/// Build a [`ResolvedCall`] from a resolved [`Member`], treating it as an
+/// instance method (the receiver is `args[0]`).
+fn instance_call(m: &'static Member) -> ResolvedCall {
+    let mut args = m.sig.args.iter().copied();
+    let recv_abi = args.next();
+    ResolvedCall {
+        symbol: m.symbol.as_str(),
+        recv_abi,
+        arg_abis: args.collect(),
+        ret: m.sig.returns,
+    }
+}
+
+/// Build a [`ResolvedCall`] for a constructor / static method (no implicit
+/// receiver — every `args` entry is an explicit parameter).
+fn flat_call(m: &'static Member) -> ResolvedCall {
+    ResolvedCall {
+        symbol: m.symbol.as_str(),
+        recv_abi: None,
+        arg_abis: m.sig.args.clone(),
+        ret: m.sig.returns,
+    }
+}
+
+/// Whether the Registry knows `class` as a RUNTIME/Registry class the engine can
+/// construct + dispatch through here.
+pub fn has_class(class: &str) -> bool {
+    registry().class(class).is_some()
+}
+
+/// Resolve `class.method(argc)` as an INSTANCE method to its [`ResolvedCall`].
+/// `argc` is the EXPLICIT (TS-visible) arg count; the Registry's resolver honours
+/// overload-by-arity + variadics. `None` when the class/method is unknown.
+pub fn class_member(class: &str, method: &str, argc: usize) -> Option<ResolvedCall> {
+    let c = registry().class(class)?;
+    let m = c.resolve_instance_method(method, argc)?;
+    Some(instance_call(m))
+}
+
+/// Resolve an INSTANCE getter `class.prop` (no parens) to its [`ResolvedCall`].
+pub fn class_getter(class: &str, prop: &str) -> Option<ResolvedCall> {
+    let c = registry().class(class)?;
+    let m = c.instance_getter(prop)?;
+    Some(instance_call(m))
+}
+
+/// Resolve a STATIC method `Class.method(argc)` to its [`ResolvedCall`]. The
+/// Registry stores statics as `MemberKind::StaticMethod` (or, for Date's
+/// now/parse/UTC, as `Function`); accept either, distinguishing by name + the
+/// explicit `argc` honouring variadic tails.
+pub fn class_static(class: &str, method: &str, argc: usize) -> Option<ResolvedCall> {
+    let c = registry().class(class)?;
+    let is_static = |m: &&Member| {
+        matches!(m.kind, MemberKind::StaticMethod | MemberKind::Function) && m.matches_name(method)
+    };
+    let m = c
+        .members
+        .iter()
+        .find(|m| is_static(m) && m.sig.args.len() == argc)
+        .or_else(|| {
+            c.members
+                .iter()
+                .find(|m| is_static(m) && m.variadic && argc >= m.sig.args.len().saturating_sub(1))
+        })
+        .or_else(|| c.members.iter().find(is_static))?;
+    Some(flat_call(m))
+}
+
+/// Resolve `new class(argc)` to the matching constructor's [`ResolvedCall`],
+/// distinguishing overloads by the EXPLICIT arg count (Date has 0/1-num/1-str/
+/// 7-field forms). `None` when no constructor matches that arity.
+pub fn class_ctor(class: &str, argc: usize) -> Option<ResolvedCall> {
+    let c = registry().class(class)?;
+    let m = c
+        .members
+        .iter()
+        .find(|m| matches!(m.kind, MemberKind::Constructor) && m.sig.args.len() == argc)?;
+    Some(flat_call(m))
+}
+
+/// Every constructor's argument-`AbiType` slice for `class`, in declaration
+/// order — lets the ctor lowering pick the overload by arg TYPE (Date's 1-arg
+/// ms-vs-ISO split: a `[I64]` ctor vs a `[StrPtr]` ctor of the same arity).
+pub fn class_ctors(class: &str) -> Vec<ResolvedCall> {
+    let Some(c) = registry().class(class) else {
+        return Vec::new();
+    };
+    c.members
+        .iter()
+        .filter(|m| matches!(m.kind, MemberKind::Constructor))
+        .map(|m| flat_call(m))
+        .collect()
+}
+
+/// The real `instanceof` predicate symbol (`fn(handle)->i64`) the Registry
+/// declares for `class`, or `None` (then the engine has no Registry-driven
+/// instanceof for it and falls back to its tag check / bail).
+pub fn instanceof_predicate(class: &str) -> Option<&'static str> {
+    // `registry()` returns `&'static Registry`, so every borrow off it is itself
+    // `'static` — no unsafe needed.
+    let c: &'static rts_engine::Class = registry().class(class)?;
+    c.instanceof_predicate.as_deref()
+}

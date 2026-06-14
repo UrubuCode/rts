@@ -101,6 +101,7 @@ pub mod ic;
 pub mod dispatch;
 pub mod abi_gen;
 pub mod runtime_link;
+pub mod registry_link;
 pub mod front;
 pub mod lower;
 pub mod pipeline;

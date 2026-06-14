@@ -123,6 +123,10 @@ pub mod mapset;
 // and `s.match`/`.replace`/`.replaceAll`/`.split`/`.search`, over the REAL
 // `__RTS_FN_NS_REGEX_*` symbols (array results built codegen-side).
 pub mod regexops;
+// Codegen-owned Date trampolines (P5.16): `new Date(ms|iso|fields|now)`, the
+// `Date.now`/`Date.UTC`/`Date.parse` statics, and the instance getters/string
+// methods, over the REAL `__RTS_FN_GL_DATE_*` / `__RTS_FN_NS_DATE_*` symbols
+// (PolyValue-native; ms stored in UTC, so UTC/epoch forms are deterministic).
 // Codegen-owned DYNAMIC property-access trampolines (P5.5): `__rtsadp_obj_get`/
 // `_set`/`_has` for `obj.key`/`obj[k]` whose shape is known only at RUNTIME,
 // reading the slot-0 global shape-id + the global shape registry.

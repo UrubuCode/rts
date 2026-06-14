@@ -2632,6 +2632,7 @@ dependencies = [
  "cranelift-module",
  "cranelift-native",
  "rts-ast",
+ "rts-engine",
  "rts-hir",
  "rts-parser",
  "rts-runtime",

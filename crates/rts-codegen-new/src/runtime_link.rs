@@ -36,8 +36,8 @@ use rts_runtime::namespaces::io as rt_io;
 use rts_runtime::namespaces::math as rt_math;
 
 use crate::value::{
-    abi_adapter, arraycb, arrayops, dyndispatch, errslot, funcops, genops, genops_arith, globalops,
-    inspect, iterops, mapset, objops, regexops, wrappers,
+    abi_adapter, arraycb, arrayops, dyndispatch, errslot, funcops, genops, genops_arith,
+    globalops, inspect, iterops, mapset, objops, regexops, wrappers,
 };
 
 /// One installable JIT symbol: an extern "C" name and its function pointer. The
@@ -254,6 +254,11 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
     ];
     syms.extend(gl_method_symbols());
     syms.extend(math_number_symbols());
+    // Pilar 6: the REAL `__RTS_FN_GL_DATE_*` / `__RTS_FN_NS_DATE_*` symbols the
+    // Registry-driven Date dispatch ([`crate::front::run::registry_call`]) emits
+    // directly — replacing the `__rtsadp_date_*` trampolines that used to forward
+    // to them.
+    syms.extend(crate::registry_link::date_symbols());
     syms
 }
 

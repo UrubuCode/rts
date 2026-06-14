@@ -45,6 +45,16 @@ cranelift-native = "0.131"
 # them strictly as-is. Do NOT depend on rts-engine/rts-primitives directly — they
 # come via this facade — and never on rts-codegen-old (the old engine is frozen).
 rts-runtime = { path = "../rts-runtime" }
+# Pilar 6 (data-driven dispatch via the Registry). The owner LIFTED the
+# "no second direct dep" rule: the architecture REQUIRES the real
+# `rts_engine::Engine`/`Registry` so RUNTIME/Registry classes (Date/Map/Set/
+# RegExp/Error/wrappers) resolve their `(symbol, AbiTypes)` from the SAME
+# Registry the real runtime publishes, instead of a hand-written per-class
+# metadata table in codegen. `rts-codegen-new` is NOT linked into the bin, so
+# this adds no dependency to the old engine or `rts.exe`. The `register*` fns
+# are reached through the `rts-runtime` facade; only the `Engine`/`Registry`/
+# `Member` types come from here directly.
+rts-engine = { path = "../rts-engine" }
 
 [dev-dependencies]
 target-lexicon = "0.13"

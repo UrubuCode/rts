@@ -36,6 +36,7 @@ pub(crate) fn assert_bails(src: &str) {
 mod array;
 mod arraycb;
 mod class;
+mod date;
 mod dyndispatch;
 mod globals;
 mod class_inherit;

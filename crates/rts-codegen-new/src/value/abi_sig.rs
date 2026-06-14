@@ -77,6 +77,34 @@ impl SymSig {
     }
 }
 
+/// Build a Cranelift `Signature` directly from a parameter `AbiType` slice + a
+/// return `AbiType`, under the module's default call convention, expanding each
+/// `StrPtr` into `(ptr: i64, len: i64)`. This is the Registry-driven path (Pilar
+/// 6): the signature comes from the real `Member.sig` (`AbiType`s), NOT from the
+/// hand-written [`sig_of`] table — so a runtime/Registry class method is called
+/// with the EXACT ABI the runtime published, with no codegen-side metadata.
+pub fn cranelift_sig_from_abis(
+    module: &dyn Module,
+    params: &[AbiType],
+    ret: AbiType,
+) -> Signature {
+    let mut sig = Signature::new(module.isa().default_call_conv());
+    for &p in params {
+        match p {
+            AbiType::StrPtr => {
+                sig.params.push(AbiParam::new(types::I64));
+                sig.params.push(AbiParam::new(types::I64));
+            }
+            AbiType::Void => panic!("Void is not a valid parameter type"),
+            other => sig.params.push(AbiParam::new(scalar_to_cl(other))),
+        }
+    }
+    if !matches!(ret, AbiType::Void) {
+        sig.returns.push(AbiParam::new(scalar_to_cl(ret)));
+    }
+    sig
+}
+
 /// Resolve a symbol name to its [`SymSig`]. Covers exactly the symbols the new
 /// lowering calls: the REAL runtime symbols (`__RTS_FN_*`) + the codegen-owned
 /// adapter trampolines (`__rtsadp_*`). `None` for an unknown symbol (the lowering

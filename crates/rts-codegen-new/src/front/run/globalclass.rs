@@ -1,20 +1,16 @@
 //! `new <RuntimeClass>(args)` + their instance methods + `instanceof` (P5.3).
 //!
-//! The PRIMORDIAL-vs-Registry doctrine: the engine NAMES only primordial classes
-//! directly; a RUNTIME/Registry class (`Map`, `Set`, …) and the wrapper/error
-//! primordials (`Error`, `Boolean`, `Number`, `String`) resolve through a
-//! data-driven metadata table here — ONE generic path keyed by class NAME, never a
-//! per-method switchboard. A constructed instance is a real runtime handle boxed
-//! as a `TAG_OBJECT` PolyValue; the local records its static class
-//! ([`crate::front::run::lower::Lowerer::global_instance_classes`]) so a later
-//! `inst.method(args)` / `inst instanceof C` dispatches at compile time.
-//!
-//! Each constructor + method references the ACTUAL `__rtsadp_*` trampoline (which
-//! wraps the REAL `__RTS_FN_*` runtime symbol — see [`crate::value::mapset`] /
-//! the `globals::{error,boolean,number,string}` facade re-exports) with its real
-//! ABI; the lowering marshals PolyValue<->ABI through the SAME helpers the rest of
-//! the engine uses. Anything not in a metadata row BAILS explicitly — never a
-//! guess (the honesty floor).
+//! PRIMORDIAL-vs-Registry doctrine. `Date` dispatches through the REAL Registry
+//! (Pilar 6 — see [`super::dateclass`] / [`super::registry`]): no row here. The
+//! remaining RUNTIME/Registry classes (`Map`/`Set`/`RegExp`) and the wrapper/error
+//! primordials (`Error`/`Boolean`/`Number`/`String`) still resolve through the
+//! small [`class_meta`] table → a `__rtsadp_*` trampoline that OWNS a
+//! representation the raw runtime ABI can't express (Map/Set string-key
+//! marshaling; the wrapper ctors' ToBoolean/ToNumber/ToString coercion; RegExp
+//! array-result building). A constructed instance is a real runtime handle boxed
+//! `TAG_OBJECT`; the local records its static class so a later `inst.method(args)`
+//! / `inst instanceof C` dispatches at compile time. Anything unmodeled BAILS —
+//! never a guess (the honesty floor).
 
 use cranelift_codegen::ir::{types, InstBuilder, Value};
 use cranelift_module::Module;
@@ -138,7 +134,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Whether `class` names a runtime/Registry class the engine constructs (and
     /// is NOT shadowed by a user class of the same name).
     pub(super) fn is_global_class_ctor(&self, class: &str) -> bool {
-        self.classes.get(class).is_none() && class_meta(class).is_some()
+        self.classes.get(class).is_none()
+            && (class_meta(class).is_some() || super::registry::has_class(class))
     }
 
     /// Lower `new <RuntimeClass>(args)` to its constructor trampoline, returning the
@@ -150,6 +147,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         class: &str,
         args: &[HirExpr],
     ) -> FrontResult<(Val, String)> {
+        // Date constructs through the REAL Registry (Pilar 6 — the ctor overloads
+        // come from the registered `Date` class, no codegen ctor table).
+        if class == "Date" {
+            let word = self.emit_date_ctor(module, args)?;
+            return Ok((Val::tagged_kind(word, JsKind::Object), class.to_string()));
+        }
         let meta = class_meta(class).expect("caller proved a global class");
         let word = match meta.kind {
             CtorKind::Collection => {
@@ -264,6 +267,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let Some(class) = self.global_instance_class(object) else {
             return Ok(None);
         };
+        // Date dispatches its instance methods through the REAL Registry (Pilar 6
+        // — data-driven, no hand-written method table): resolve the method's real
+        // `__RTS_FN_GL_DATE_*` symbol + `AbiType` signature and marshal generically.
+        if class == "Date" {
+            return self.try_date_method(module, object, method, args).map(Some);
+        }
         let meta = class_meta(&class).expect("recorded global class must resolve");
         // `.size` is a PROPERTY in JS, not a method — but the corpus reaches it as
         // both `m.size` (member) and is routed here only for calls. The member form
@@ -403,6 +412,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // lhs has a statically-known class.
         if self.classes.get(class).is_some() {
             return self.user_instanceof(lhs, class).map(Some);
+        }
+        // Date resolves instanceof through the REAL Registry predicate symbol
+        // (`__RTS_FN_NS_GC_IS_DATE`) — no codegen `__rtsadp_is_date` trampoline.
+        if class == "Date" {
+            if let Some(pred) = super::registry::instanceof_predicate("Date") {
+                let v = self.lower_expr(module, lhs)?;
+                let word = self.box_value(v);
+                return self.emit_registry_instanceof(module, word, pred).map(Some);
+            }
         }
         let symbol = match class {
             "Map" => "__rtsadp_is_map",
