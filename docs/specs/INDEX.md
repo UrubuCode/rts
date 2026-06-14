@@ -68,6 +68,11 @@ narrow storage real.
   trampolim invoke_n, `new Function` via eval em runtime, integracao
   Promise+Function (`resolve_callback_ptr`). PRs #428-#437, design
   Promise-centric @drysius.
+- [Atomicidade de RMW sob async paralelo](async-rmw-atomic.md) — `async fn`
+  roda em `spawn_blocking` (paralelo real); `shared[0]=shared[0]+1` em N
+  threads = data race (GET+SET 2 calls, lock solto entre elas). Fix
+  `VEC_RMW`/`MAP_RMW_KH` (1 call atômica). **Armadilha documentada:** lock de
+  shard segurado entre 2 calls = deadlock com o GC SuspendThread. PR #1556.
 
 ## Subsistemas recentes (2026-05)
 

@@ -443,6 +443,18 @@ source, keep_alive }`. `invoke_n` trampoline transmutes to
 no `fn.prototype`/`arguments`, no async in `new Function`. Spec:
 `docs/specs/async-promise-function.md`.
 
+**`spawn_blocking` ⇒ async é PARALELO de verdade.** N async fns antes de `await`
+= N corpos em threads tokio paralelas (4× o Node em CPU-bound isolado). Custo:
+estado de heap compartilhado mutado em paralelo = **data race** (mesmo motivo do
+event loop single-thread do V8). `shared[0]=shared[0]+1` racy = `VEC_GET`+`VEC_SET`
+com lock do shard solto entre as duas calls. Fix `atomic-rmw-intrinsic` (#1556):
+codegen emite UM `__RTS_FN_NS_COLLECTIONS_VEC_RMW`/`MAP_RMW_KH` (read+op+write sob
+um lock). **ARMADILHA — não repita:** NUNCA segure um `MutexGuard` de shard
+através de 2 calls para "consertar" o race — o GC faz `SuspendThread(worker)` e
+depois trava shards (`collector/scan.rs`), então suspender quem segura o guard =
+deadlock permanente. Lock de shard só vive dentro de UMA closure `with_entry*`.
+Spec: `docs/specs/async-rmw-atomic.md`.
+
 ### Silent parallelism (Level-1)
 
 3 codegen passes rewrite common TS to `parallel.*` automatically (user never
