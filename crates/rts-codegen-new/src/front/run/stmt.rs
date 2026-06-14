@@ -177,8 +177,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(());
         }
 
+        // The local's repr is the numeric annotation when the INITIALIZER ITSELF is
+        // unboxed-numeric; a Tagged initializer keeps its `Tagged` repr even under a
+        // numeric annotation. This is the soundness seam: `let a: number = null`
+        // (or a bare `let a = null`/`= undefined`) evaluates to a Tagged singleton
+        // PolyValue word, and forcing it into a `Float64`/`Int` slot would reinterpret
+        // the singleton bits as a number (reading back NaN/0 instead of `null`/
+        // `undefined`). Only widen to the annotation when the value can actually live
+        // there unboxed.
         let annotated = repr_of(ty);
-        let repr = if annotated.is_unboxed() { annotated } else { val.repr };
+        let repr = if annotated.is_unboxed() && val.repr.is_unboxed() {
+            annotated
+        } else {
+            val.repr
+        };
 
         let coerced = self.coerce(val, repr)?;
         let var = self.builder.declare_var(cl_type(repr));

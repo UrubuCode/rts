@@ -232,3 +232,28 @@ fn nullish_coalescing_not_falsy() {
         "0\nfallback\n",
     );
 }
+
+#[test]
+fn null_local_prints_null() {
+    assert_stdout(r#"let a = null; console.log(a);"#, "null\n");
+}
+
+#[test]
+fn undefined_local_prints_undefined() {
+    assert_stdout(r#"let a = undefined; console.log(a);"#, "undefined\n");
+}
+
+#[test]
+fn null_local_is_nullish() {
+    assert_stdout(
+        r#"let a = null;
+           let b = a ?? "x";
+           console.log(b);"#,
+        "x\n",
+    );
+}
+
+#[test]
+fn numeric_local_unaffected() {
+    assert_stdout(r#"let n = 5; let m = n + 3; console.log(m);"#, "8\n");
+}
