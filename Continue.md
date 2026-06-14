@@ -14,7 +14,19 @@
     `bash scripts/cross_runtime_check.sh` → 73/7/511. (Baseline do motor VELHO,
     congelado, era 419/137/36 — agora só alcançável trocando `run-new`→`run` no script.)
   - `rts run-new <file>` = motor novo (1 arquivo, sem imports); `rts run` = velho.
-- **Unit tests:** `495 passam` (`cargo test -p rts-codegen-new`).
+- **Unit tests:** `541 passam` (`cargo test -p rts-codegen-new`).
+- **Direção stdlib-em-TS (refinada pelo owner 2026-06-14):** os TIPOS-BASE
+  (`string`/`number`/`boolean`/`bigint`/`[]`/`object`) ficam NATIVOS no motor (syms
+  diretos: literais, ops, `.length`, indexação, métodos). CLASSES/FUNÇÕES (String/
+  Number/Boolean/Array wrappers, etc.) o motor gerencia compilando **TS que EMBRULHA
+  o nativo** — ex.: `class String { #value: string; get length() { return
+  this.#value.length } }`. NÃO chamar `__rtsadp_*` direto no TS (preferir ops nativas);
+  `__rtsadp_*` direto só onde irredutível, via ns-privada. **Remover `globals.rs`** +
+  switchboards hardcoded não-nativos, substituídos pelas classes TS.
+- **G1 ✅** (`ad5bd6ad`) — campo/valor-string usável com ops nativas em QUALQUER
+  posição (campo `#value:string`, literal, param, retorno): `.length`, `s[i]`→char,
+  métodos. `ClassDesc.field_strings` (da anotação `:string`) + fast-path proven-string
+  em `obj.rs` (reusa `__rtsadp_dyn_length/char_at`). Desbloqueia String-wrapper em TS.
 - **Motor velho: ZERO regressão** em toda a construção — provado em cada mudança de
   crate compartilhado pelo gate: TS suite `1710/1710` + cross-runtime baseline
   (`419 pass / 137 diverge / 36 errors`).
