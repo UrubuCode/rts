@@ -27,6 +27,24 @@
   posição (campo `#value:string`, literal, param, retorno): `.length`, `s[i]`→char,
   métodos. `ClassDesc.field_strings` (da anotação `:string`) + fast-path proven-string
   em `obj.rs` (reusa `__rtsadp_dyn_length/char_at`). Desbloqueia String-wrapper em TS.
+
+### Decisão do owner: dual-natureza FULL em TS (não modelo simples)
+`String`/`Number`/`Boolean`/`Array` são chamáveis (`String(x)` coerção) E construíveis
+(`new String(x)`). O owner quer o padrão JS convencional que roda em Bun (function-as-
+constructor com `if (this instanceof F)`), NÃO um modelo capado. Doc de referência: o
+`array.ts` na raiz (um wrapper String dual-natureza completo). Estratégia: **dirigir o
+`array.ts` a compilar via `rts run-new array.ts`, consertando gap-a-gap.** Gaps já
+resolvidos nessa caça:
+- **instanceof dinâmico** (`f2529b0d`) — `x instanceof C` com x opaco (runtime shape-id
+  check; corrigiu bug de `global_shape` não-único → `intern_class_shape`).
+- **`++`/`--` em Tagged** (`a1efb180`).
+- **`Math.*` com arg Tagged** (`76c8df22`).
+- **ambient `declare`** ignorado (`6e1cd255`, rts-parser, gate TS 1710 ok).
+- **PRÓXIMO gap do array.ts:** `expression raw/unrecognized` — o bloco function-as-
+  constructor (array.ts:282-304): `const F = function(){ if (this instanceof F) }`,
+  `F.prototype = X.prototype`, `F.static = function(...rest){}`, `new F()` sobre
+  function-value. **CAUDA PESADA** (function-as-constructor + `this` em função livre +
+  prototype-assign + static em function + spread-in-call). 553 unit verdes.
 - **Motor velho: ZERO regressão** em toda a construção — provado em cada mudança de
   crate compartilhado pelo gate: TS suite `1710/1710` + cross-runtime baseline
   (`419 pass / 137 diverge / 36 errors`).
