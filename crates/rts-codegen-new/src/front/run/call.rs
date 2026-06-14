@@ -31,6 +31,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         method: &str,
         args: &[HirExpr],
     ) -> FrontResult<Val> {
+        // P5.8: reserved optional-chaining ops the desugar emits (never
+        // user-reachable — `__rts_*` is not valid TS source).
+        if method == super::desugar::OPT_GET && args.len() == 1 {
+            return self.lower_opt_get(module, object, &args[0]);
+        }
+        if method == super::desugar::OPT_CALL {
+            return self.lower_opt_call(module, object, args);
+        }
         if is_console_ident(object) && method == "log" {
             return self.lower_console_log(module, args);
         }
@@ -232,7 +240,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// `TAG_FUNCTION` PolyValue) through the uniform-ABI indirect path. Shared by
     /// the value-local call ([`Self::lower_value_call`]) and the direct closure
     /// call (P5.7, where `fn_word` is a freshly reified closure with its env).
-    fn lower_value_call_word(
+    pub(super) fn lower_value_call_word(
         &mut self,
         module: &mut dyn Module,
         fn_word: Value,

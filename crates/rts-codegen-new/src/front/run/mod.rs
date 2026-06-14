@@ -28,6 +28,7 @@ mod call;
 mod call_shape;
 mod call_spread;
 mod class;
+mod desugar;
 mod expr;
 mod funcval;
 mod globalclass;
@@ -38,6 +39,7 @@ mod method_array;
 pub mod module_jit;
 mod newexpr;
 mod obj;
+mod optchain_lower;
 mod objstatic;
 mod sig;
 mod stmt;
@@ -178,6 +180,14 @@ fn build_program(src: &str) -> FrontResult<LoweredProgram> {
         is_async: false,
         is_arrow: false,
     };
+
+    // P5.8: recover template literals + optional chaining. rts-hir lowered both to
+    // structureless `Raw` placeholders (it cannot model them and we must not modify
+    // that crate); this pass re-walks the parsed swc AST PAIRED with the HIR and
+    // rewrites each placeholder into ordinary HIR (a string `+` chain / a guarded
+    // ternary). Run BEFORE arrow extraction so a template/chain inside a top-level
+    // arrow is rewritten while still in the `main` body it was parsed from.
+    desugar::desugar(&program, &mut main.body, &mut funcs);
 
     // P4.6/P5.7: extract every inline arrow used as a value (an arg, a returned
     // arrow) into a fresh top-level function, rewriting the `Arrow` node to an

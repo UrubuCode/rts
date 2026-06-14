@@ -2635,6 +2635,8 @@ dependencies = [
  "rts-hir",
  "rts-parser",
  "rts-runtime",
+ "swc_ecma_ast",
+ "swc_ecma_visit",
  "target-lexicon",
 ]
 

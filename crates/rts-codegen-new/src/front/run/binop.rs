@@ -65,10 +65,24 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // `[]+{}` → `"[object Object]"`, with array `.join(",")` coercion) — a
         // later increment. Bail rather than emit the runtime ToString, which
         // diverges from Bun/Node for these.
+        //
+        // EXCEPTION (P5.8): a `+` where the OTHER operand is a PROVEN STRING and the
+        // heap operand is an ARRAY is pure string concatenation — `"x" + [1,2,3]` is
+        // `"x1,2,3"`, well-defined by `String(array)` = `.join(",")`, which
+        // `__rtsadp_add`'s string path does exactly (and identically for
+        // `${[1,2,3]}` in a template). A whole OBJECT operand is NOT relaxed: an
+        // object may override `toString`/`valueOf`/`Symbol.toPrimitive` (the engine
+        // would render `[object Object]` and diverge), so it keeps bailing.
+        let obj_operand = self.is_whole_object_value(lhs) || self.is_whole_object_value(rhs);
         if self.is_whole_heap_value(lhs) || self.is_whole_heap_value(rhs) {
-            return unsupported!(
-                "binary `{op:?}` on a whole object/array operand (ToPrimitive coercion is a later increment)"
-            );
+            let array_string_concat = matches!(op, HirBinOp::Add)
+                && !obj_operand
+                && (is_proven_string_expr(lhs) || is_proven_string_expr(rhs));
+            if !array_string_concat {
+                return unsupported!(
+                    "binary `{op:?}` on a whole object/array operand (ToPrimitive coercion is a later increment)"
+                );
+            }
         }
 
         let l = self.lower_expr(module, lhs)?;
@@ -385,6 +399,26 @@ fn same_proven_kind(l: Val, r: Val) -> bool {
 
 pub(super) fn is_int_repr(r: Repr) -> bool {
     matches!(r, Repr::Int32 | Repr::Int64)
+}
+
+/// Whether `e` is a STATICALLY-PROVEN string expression (P5.8): a string literal,
+/// or a `+` chain whose HIR result type is `Str` (what the template desugar emits —
+/// the seed quasi is a string literal, forcing the whole chain to string
+/// concatenation). Used to allow `string + array/object` (pure concatenation via
+/// `String(...)`), which is well-defined, while still bailing the true ToPrimitive
+/// `array + array` case.
+fn is_proven_string_expr(e: &HirExpr) -> bool {
+    use rts_hir::ir::{HirExprKind, HirLit};
+    if matches!(e.ty, rts_hir::HirType::Str) {
+        return true;
+    }
+    match &e.kind {
+        HirExprKind::Lit(HirLit::Str(_)) => true,
+        HirExprKind::Bin { op: HirBinOp::Add, lhs, rhs } => {
+            is_proven_string_expr(lhs) || is_proven_string_expr(rhs)
+        }
+        _ => false,
+    }
 }
 
 pub(super) fn wider_int(a: Repr, b: Repr) -> Repr {

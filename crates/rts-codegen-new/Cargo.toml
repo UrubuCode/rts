@@ -22,6 +22,16 @@ anyhow = "1.0"
 rts-parser = { path = "../rts-parser" }
 rts-hir = { path = "../rts-hir" }
 rts-ast = { path = "../rts-ast" }
+# Template literals + optional chaining (P5.8): rts-hir lowers swc `Tpl` and
+# `OptChainExpr` to a structureless `HirExprKind::Raw` (it cannot model them yet
+# and we must not modify that crate). The P5.8 desugar pass re-walks the REAL swc
+# AST (re-parsed via rts-parser) to recover their structure, so it needs the swc
+# AST node types directly. Consumed read-only, same version rts-hir pins.
+# `swc_ecma_visit` gives a canonical depth-first walk so the P5.8 collector visits
+# `Tpl`/`OptChainExpr` nodes in source order without a hand-rolled (drift-prone)
+# Expr visitor.
+swc_ecma_ast = "23.0.0"
+swc_ecma_visit = "23.0.0"
 # The P1 proof harness (lower/jit.rs) builds and finalizes a real JITModule and
 # installs the REAL runtime __RTS_FN_* extern symbols into it, so the JIT +
 # host-ISA builders are regular (non-test) dependencies now, not dev-only.
