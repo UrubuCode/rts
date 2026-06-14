@@ -6,6 +6,7 @@
 // top-level code): its top-level classes become ambient and shadow the native
 // Map/Set entirely. Parity with the former native dispatch is proven by
 // `stdlib_parity.rs`.
+
 class Map<K, V> {
   #keys: K[] = [];
   #vals: V[] = [];

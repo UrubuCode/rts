@@ -57,6 +57,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if let Some(val) = self.try_global_static_call(module, object, method, args)? {
             return Ok(val);
         }
+        // CALL of a function VALUE stored as a property of a FUNCTION value
+        // (`F.make(args)`, Phase 4): the receiver `F` is itself a function value and
+        // `F.make` holds a function value (recorded via `__rtsadp_fn_set_prop`). Read
+        // the stored property (`lower_member` → `__rtsadp_fn_get_prop`, a TAG_FUNCTION
+        // word for a stored function), then invoke it through the uniform-ABI
+        // function-value path. Routed BEFORE the Registry instance-method dispatch so
+        // a function receiver is not misrouted. No `this` is passed (a stdlib-style
+        // static does not use `this`; receiver-as-`this` is a later increment).
+        if self.fn_value_word(module, object)?.is_some() {
+            let prop_val = self.lower_member(module, object, method)?;
+            let prop_word = self.box_value(prop_val);
+            return self.lower_value_call_word(module, prop_word, args);
+        }
         // Data-driven instance-method dispatch (String/Number) via the Registry
         // mirror. `Ok(None)` ⇒ not a dispatchable receiver; fall through to bail.
         if let Some(val) = self.try_method_dispatch(module, object, method, args)? {
@@ -94,6 +107,21 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // user classes.
             if let Some(val) = self.try_global_static_call(module, object, prop, args)? {
                 return Ok(val);
+            }
+            // CALL of a function VALUE stored as a property of a FUNCTION value
+            // (`F.make(args)`, Phase 4): the receiver `F` is itself a function value
+            // and `F.make` holds a function value (recorded via `__rtsadp_fn_set_prop`).
+            // Read the stored property (`lower_member` → `__rtsadp_fn_get_prop`, a
+            // TAG_FUNCTION word for a stored function), then invoke it through the
+            // existing uniform-ABI function-value path. Routed BEFORE the class/global/
+            // string method dispatch so a function receiver is not misrouted (those
+            // paths key on class-name / proven receiver kinds a function value lacks).
+            // No `this` is passed: a stdlib-style static does not use `this`; binding
+            // the receiver as `this` is a later increment (Phase-1 limitation).
+            if self.fn_value_word(module, object)?.is_some() {
+                let prop_val = self.lower_member(module, object, prop)?;
+                let prop_word = self.box_value(prop_val);
+                return self.lower_value_call_word(module, prop_word, args);
             }
             // `recv.method(args)` lowered as `Call(Member)` — route to dispatch.
             if let Some(val) = self.try_method_dispatch(module, object, prop, args)? {

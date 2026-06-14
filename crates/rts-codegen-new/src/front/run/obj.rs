@@ -518,7 +518,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     ///
     /// A name shadowed by a local is NOT a function-value receiver (the local wins),
     /// so the existing object/string local paths handle it.
-    fn fn_value_word(
+    pub(super) fn fn_value_word(
         &mut self,
         module: &mut dyn Module,
         object: &HirExpr,

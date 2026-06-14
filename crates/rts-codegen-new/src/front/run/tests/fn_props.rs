@@ -44,3 +44,36 @@ fn function_prop_absent_is_undefined() {
         "undefined\n",
     );
 }
+
+#[test]
+fn call_function_valued_property() {
+    assert_stdout(
+        r#"function F(): number { return 1; }
+           F.make = function(x: number): number { return x * 2; };
+           console.log(F.make(21));"#,
+        "42\n",
+    );
+}
+
+#[test]
+fn static_method_on_dual_callable() {
+    assert_stdout(
+        r#"const S = function(this: any, v: any): any {
+             if (this instanceof S) { return v; }
+             return v;
+           };
+           S.fromCharCode = function(code: number): number { return code + 1; };
+           console.log(S.fromCharCode(64));"#,
+        "65\n",
+    );
+}
+
+#[test]
+fn function_property_function_with_args() {
+    assert_stdout(
+        r#"function F(): number { return 0; }
+           F.add = function(a: number, b: number): number { return a + b; };
+           console.log(F.add(20, 22));"#,
+        "42\n",
+    );
+}

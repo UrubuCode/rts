@@ -42,6 +42,77 @@ impl swc_ecma_visit::VisitMut for GenExprHoister {
     }
 }
 
+/// Hoists a NON-generator function/arrow expression used as the RHS *value* of a
+/// top-level member-assignment (`F.make = function(x){ … }` / `F.make = (x) => …`)
+/// into a named top-level function declaration (`__fnprop_N`), rewriting the
+/// assignment value to an identifier reference. This lets the assignment lower
+/// through the function-property side-table (`F.make = __fnprop_N`, recorded via
+/// `__rtsadp_fn_set_prop` with the reified function VALUE) and a later
+/// `F.make(args)` invoke that stored function value.
+///
+/// `visit_mut_function` is a no-op so we never descend into a function body —
+/// only true top-level member-assignment RHS fn-exprs are hoisted, avoiding
+/// broken captures (a fn-expr that captures outer locals is left in place and
+/// still bails downstream, the honesty floor).
+#[derive(Default)]
+struct MemberAssignFnHoister {
+    hoisted: Vec<swc_ecma_ast::FnDecl>,
+    counter: usize,
+}
+
+impl MemberAssignFnHoister {
+    /// Build a fresh `__fnprop_N` ident and hoist `function`/`is_generator=false`
+    /// expr into a named top-level decl; returns the ident to replace the site.
+    fn hoist(&mut self, function: SwcFunction) -> swc_ecma_ast::Ident {
+        let name = format!("__fnprop_{}", self.counter);
+        self.counter += 1;
+        let ident = swc_ecma_ast::Ident {
+            span: Default::default(),
+            ctxt: Default::default(),
+            sym: name.as_str().into(),
+            optional: false,
+        };
+        self.hoisted.push(swc_ecma_ast::FnDecl {
+            ident: ident.clone(),
+            declare: false,
+            function: Box::new(function),
+        });
+        ident
+    }
+}
+
+impl swc_ecma_visit::VisitMut for MemberAssignFnHoister {
+    fn visit_mut_function(&mut self, _f: &mut SwcFunction) {
+        // no-op: do not descend into function bodies (avoid capturing hoists).
+    }
+
+    fn visit_mut_expr(&mut self, e: &mut Expr) {
+        use swc_ecma_visit::VisitMutWith;
+        e.visit_mut_children_with(self);
+        // Target only `<member> = <fn-expr/arrow>` (a Member assign target with a
+        // function VALUE) — the dual-callable static pattern (`F.make = function`).
+        let Expr::Assign(assign) = e else { return };
+        if !matches!(
+            assign.left,
+            swc_ecma_ast::AssignTarget::Simple(swc_ecma_ast::SimpleAssignTarget::Member(_))
+        ) {
+            return;
+        }
+        match assign.right.as_mut() {
+            Expr::Fn(fe) if !fe.function.is_generator && !fe.function.is_async => {
+                let ident = self.hoist((*fe.function).clone());
+                assign.right = Box::new(Expr::Ident(ident));
+            }
+            Expr::Arrow(arrow) if !arrow.is_generator && !arrow.is_async => {
+                let function = arrow_to_function(arrow);
+                let ident = self.hoist(function);
+                assign.right = Box::new(Expr::Ident(ident));
+            }
+            _ => {}
+        }
+    }
+}
+
 fn lower_program(cm: &Lrc<SourceMap>, source: &SwcProgram) -> Program {
     let mut program = Program::default();
 
@@ -51,6 +122,28 @@ fn lower_program(cm: &Lrc<SourceMap>, source: &SwcProgram) -> Program {
     {
         use swc_ecma_visit::VisitMutWith;
         let mut hoister = GenExprHoister::default();
+        owned.visit_mut_with(&mut hoister);
+        if !hoister.hoisted.is_empty() {
+            match &mut owned {
+                SwcProgram::Module(m) => {
+                    for (i, fd) in hoister.hoisted.into_iter().enumerate() {
+                        m.body
+                            .insert(i, ModuleItem::Stmt(Stmt::Decl(Decl::Fn(fd))));
+                    }
+                }
+                SwcProgram::Script(s) => {
+                    for (i, fd) in hoister.hoisted.into_iter().enumerate() {
+                        s.body.insert(i, Stmt::Decl(Decl::Fn(fd)));
+                    }
+                }
+            }
+        }
+    }
+    // Hoist a function/arrow expression assigned to a member (`F.make = function`)
+    // into a named top-level decl so the assignment stores a function VALUE.
+    {
+        use swc_ecma_visit::VisitMutWith;
+        let mut hoister = MemberAssignFnHoister::default();
         owned.visit_mut_with(&mut hoister);
         if !hoister.hoisted.is_empty() {
             match &mut owned {
