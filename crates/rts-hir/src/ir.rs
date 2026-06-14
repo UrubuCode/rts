@@ -221,6 +221,12 @@ pub struct HirParam {
     pub ty: HirType,
     pub variadic: bool,
     pub has_default: bool,
+    /// `true` for an optional param (`x?`) — omittable at the call site (value is
+    /// `undefined` when not supplied). Distinct from `has_default`.
+    pub optional: bool,
+    /// The lowered DEFAULT initializer expr (`y = expr`), if any. The call site
+    /// lowers this for an omitted trailing arg. `None` when the param has no default.
+    pub default_expr: Option<Box<HirExpr>>,
 }
 
 /// HIR expression — every variant carries its resolved `HirType`.

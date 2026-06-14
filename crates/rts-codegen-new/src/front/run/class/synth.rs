@@ -275,7 +275,7 @@ fn build_ctor(
                     .map(rts_hir::lower::parse_type_annotation)
                     .unwrap_or(HirType::Unknown);
                 scope.define(&p.name, ty.clone());
-                ps.push(HirParam { name: p.name.clone(), ty, variadic: p.variadic, has_default: false });
+                ps.push(HirParam { name: p.name.clone(), ty, variadic: p.variadic, has_default: false, optional: false, default_expr: None });
             }
             (ps, None)
         }
@@ -287,7 +287,7 @@ fn build_ctor(
                 for i in 0..p.ctor_arity {
                     let name = format!("__a{i}");
                     scope.define(&name, HirType::Unknown);
-                    ps.push(HirParam { name: name.clone(), ty: HirType::Unknown, variadic: false, has_default: false });
+                    ps.push(HirParam { name: name.clone(), ty: HirType::Unknown, variadic: false, has_default: false, optional: false, default_expr: None });
                     fwd.push(HirExpr::new(HirExprKind::Ident(name), HirType::Unknown));
                 }
                 (ps, Some(fwd))
@@ -419,7 +419,7 @@ fn synth_method_named(
             .map(rts_hir::lower::parse_type_annotation)
             .unwrap_or(HirType::Unknown);
         scope.define(&p.name, ty.clone());
-        params.push(HirParam { name: p.name.clone(), ty, variadic: p.variadic, has_default: false });
+        params.push(HirParam { name: p.name.clone(), ty, variadic: p.variadic, has_default: false, optional: false, default_expr: None });
     }
     // A setter returns nothing (its call is a statement); model it `Void` so the
     // sig is value-less and a fall-through body is well-formed.
@@ -456,7 +456,7 @@ fn synth_static_method(decl: &ClassDecl, md: &MethodDecl) -> FrontResult<HirFunc
             .map(rts_hir::lower::parse_type_annotation)
             .unwrap_or(HirType::Unknown);
         scope.define(&p.name, ty.clone());
-        params.push(HirParam { name: p.name.clone(), ty, variadic: p.variadic, has_default: false });
+        params.push(HirParam { name: p.name.clone(), ty, variadic: p.variadic, has_default: false, optional: false, default_expr: None });
     }
     let ret = md
         .return_type

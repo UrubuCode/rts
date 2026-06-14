@@ -997,6 +997,7 @@ impl LiftAcc {
                     type_annotation: None,
                     modifiers: MemberModifiers::default(),
                     variadic: false,
+                    optional: false,
                     default: None,
                     span: Span::default(),
                 });
@@ -1007,6 +1008,7 @@ impl LiftAcc {
                         type_annotation: None,
                         modifiers: MemberModifiers::default(),
                         variadic: true,
+                        optional: false,
                         default: None,
                         span: Span::default(),
                     });
@@ -1028,6 +1030,7 @@ impl LiftAcc {
                     type_annotation: ann,
                     modifiers: MemberModifiers::default(),
                     variadic: false,
+                    optional: false,
                     default: None,
                     span: Span::default(),
                 });
@@ -1047,6 +1050,7 @@ impl LiftAcc {
                         type_annotation: ann,
                         modifiers: MemberModifiers::default(),
                         variadic: false,
+                        optional: false,
                         default: Some(a.right.clone()),
                         span: Span::default(),
                     });
@@ -1138,6 +1142,7 @@ impl LiftAcc {
                 type_annotation: cap_ty,
                 modifiers: MemberModifiers::default(),
                 variadic: false,
+                optional: false,
                 default: None,
                 span: Span::default(),
             });
@@ -1573,6 +1578,7 @@ impl LiftAcc {
                                     .flatten(),
                                 modifiers: MemberModifiers::default(),
                                 variadic: false,
+                                optional: false,
                                 default: None,
                                 span: Span::default(),
                             });
@@ -1893,6 +1899,7 @@ impl LiftAcc {
                         type_annotation: Some("i64".to_string()),
                         modifiers: MemberModifiers::default(),
                         variadic: false,
+                        optional: false,
                         default: None,
                         span: Span::default(),
                     }
@@ -1905,6 +1912,7 @@ impl LiftAcc {
                                 type_annotation: Some(class_name.to_string()),
                                 modifiers: MemberModifiers::default(),
                                 variadic: false,
+                                optional: false,
                                 default: None,
                                 span: Span::default(),
                             }],
@@ -1952,6 +1960,7 @@ impl LiftAcc {
                                 type_annotation: Some("i64".to_string()),
                                 modifiers: MemberModifiers::default(),
                                 variadic: false,
+                                optional: false,
                                 default: None,
                                 span: Span::default(),
                             }],

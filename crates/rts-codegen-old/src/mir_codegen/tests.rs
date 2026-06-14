@@ -434,6 +434,8 @@ fn build_hir_func(
                 ty: t,
                 variadic: false,
                 has_default: false,
+                optional: false,
+                default_expr: None,
             })
             .collect(),
         ret,

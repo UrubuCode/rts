@@ -271,6 +271,7 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
                     type_annotation: None,
                     modifiers: MemberModifiers::default(),
                     variadic: false,
+                    optional: false,
                     default: None,
                     span: Span::default(),
                 });
@@ -284,6 +285,7 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
                         type_annotation: None,
                         modifiers: MemberModifiers::default(),
                         variadic: true,
+                        optional: false,
                         default: None,
                         span: Span::default(),
                     });
@@ -308,6 +310,7 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
                     type_annotation: param_keyword_type_str(&p.pat),
                     modifiers: MemberModifiers::default(),
                     variadic: false,
+                    optional: false,
                     default: None,
                     span: Span::default(),
                 });
@@ -324,6 +327,7 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
                             type_annotation: None,
                             modifiers: MemberModifiers::default(),
                             variadic: false,
+                            optional: false,
                             default: Some(a.right.clone()),
                             span: Span::default(),
                         });
@@ -570,6 +574,7 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
                         type_annotation: None,
                         modifiers: MemberModifiers::default(),
                         variadic: false,
+                        optional: false,
                         default: None,
                         span: Span::default(),
                     })

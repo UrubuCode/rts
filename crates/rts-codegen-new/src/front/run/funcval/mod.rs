@@ -173,6 +173,8 @@ fn hoist_captures(funcs: &mut [HirFunc], main: &HirFunc, ctx: &mut Ctx) {
                 ty: HirType::Any,
                 variadic: false,
                 has_default: false,
+                optional: false,
+                default_expr: None,
             })
             .collect();
         new_params.extend(f.params.iter().cloned());
@@ -400,6 +402,8 @@ impl Ctx {
                 ty: HirType::Any,
                 variadic: false,
                 has_default: false,
+                optional: false,
+                default_expr: None,
             })
             .collect();
         all_params.extend(params.iter().cloned());

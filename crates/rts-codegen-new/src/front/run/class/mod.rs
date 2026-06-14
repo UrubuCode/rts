@@ -293,6 +293,8 @@ pub(crate) fn this_param() -> HirParam {
         ty: HirType::Unknown,
         variadic: false,
         has_default: false,
+        optional: false,
+        default_expr: None,
     }
 }
 

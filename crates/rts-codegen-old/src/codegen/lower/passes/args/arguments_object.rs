@@ -56,6 +56,7 @@ pub(crate) fn expand_arguments_object(program: &mut Program) {
                     type_annotation: None,
                     modifiers: Default::default(),
                     variadic: true,
+                    optional: false,
                     default: None,
                     span: Default::default(),
                 });

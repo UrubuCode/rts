@@ -393,6 +393,7 @@ fn lower_params_with_destructure(
                 type_annotation,
                 modifiers: MemberModifiers::default(),
                 variadic: false,
+                optional: false,
                 default: None,
                 span: convert_span(cm, param.span),
             });

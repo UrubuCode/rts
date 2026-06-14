@@ -107,6 +107,8 @@ fn synth_ctor(name: &str, ctor: &str) -> HirFunc {
             ty: HirType::Unknown,
             variadic: false,
             has_default: false,
+            optional: false,
+            default_expr: None,
         },
     ];
     let body = vec![

@@ -818,6 +818,7 @@ fn this_param(span: crate::parser::span::Span) -> Parameter {
         type_annotation: None,
         modifiers: MemberModifiers::default(),
         variadic: false,
+        optional: false,
         default: None,
         span,
     }

@@ -347,6 +347,7 @@ fn lower_ts_param_prop(cm: &Lrc<SourceMap>, param_prop: &TsParamProp) -> Option<
                 .map(|annotation| normalize_type_annotation(cm, annotation)),
             modifiers,
             variadic: false,
+            optional: binding.optional,
             default: None,
             span: convert_span(cm, param_prop.span),
         }),
@@ -355,6 +356,7 @@ fn lower_ts_param_prop(cm: &Lrc<SourceMap>, param_prop: &TsParamProp) -> Option<
             type_annotation: pat_type_annotation(cm, &assign.left),
             modifiers,
             variadic: false,
+            optional: false,
             default: Some(assign.right.clone()),
             span: convert_span(cm, param_prop.span),
         }),
@@ -369,17 +371,21 @@ fn lower_param(
     let name = pat_name(&param.pat, cm)?;
     let variadic = matches!(param.pat, Pat::Rest(_));
     let type_annotation = pat_type_annotation(cm, &param.pat);
-    // Default param `(x = expr)` — SWC representa como Pat::Assign.
+    // Default param `(x = expr)` — SWC encodes it as Pat::Assign.
     let default = match &param.pat {
         Pat::Assign(assign) => Some(assign.right.clone()),
         _ => None,
     };
+    // Optional param `(x?)` — SWC encodes the marker on the binding ident
+    // (`BindingIdent.optional`). It does not apply to rest/assign/other pats.
+    let optional = matches!(&param.pat, Pat::Ident(ident) if ident.optional);
 
     Some(Parameter {
         name,
         type_annotation,
         modifiers,
         variadic,
+        optional,
         default,
         span: convert_span(cm, param.span),
     })

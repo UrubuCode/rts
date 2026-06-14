@@ -422,6 +422,7 @@ pub(crate) fn expand_async_functions(program: &mut Program) {
                     type_annotation: None, // i64-only ABI
                     modifiers: p.modifiers.clone(),
                     variadic: false,
+                    optional: false,
                     default: None,
                     span: p.span,
                 })

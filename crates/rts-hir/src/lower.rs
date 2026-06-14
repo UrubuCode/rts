@@ -470,7 +470,7 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
                 let name = extract_swc_pat_name(p);
                 let annotation = extract_ts_type_annotation(p);
                 let ty = annotation.as_deref().map(parse_type_annotation).unwrap_or(HirType::Unknown);
-                HirParam { name, ty, variadic: false, has_default: false }
+                HirParam { name, ty, variadic: false, has_default: false, optional: false, default_expr: None }
             }).collect();
             let ret = HirType::Unknown;
             let body = match &*arrow.body {
@@ -601,11 +601,17 @@ fn lower_param(p: &Parameter, scope: &mut Scope) -> HirParam {
         .map(parse_type_annotation)
         .unwrap_or(HirType::Unknown);
     scope.define(&p.name, ty.clone());
+    // Lower the default initializer expr (`y = expr`) so the call site can lower
+    // it for an omitted trailing arg. If it references a not-yet-defined name it
+    // degrades to Unknown, which is fine.
+    let default_expr = p.default.as_ref().map(|e| Box::new(lower_swc_expr(e, scope)));
     HirParam {
         name: p.name.clone(),
         ty,
         variadic: p.variadic,
         has_default: p.default.is_some(),
+        optional: p.optional,
+        default_expr,
     }
 }
 

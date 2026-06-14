@@ -199,6 +199,8 @@ pub struct Parameter {
     pub type_annotation: Option<String>,
     pub modifiers: MemberModifiers,
     pub variadic: bool,
+    /// True when the param is optional (`x?`) — omittable at the call site.
+    pub optional: bool,
     /// Expressão de default (`(x = 42)`). Quando presente, callsites
     /// que omitem este argumento são expandidos com o valor default
     /// num pass do compilador.
