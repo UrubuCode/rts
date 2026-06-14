@@ -8,8 +8,12 @@
 
 ## 1. Onde estamos
 
-- **Harness cross-runtime (motor NOVO):** `77 rodam / 71 batem / 6 divergem` de 609.
-  Medir: `cargo test -p rts-codegen-new -- --ignored fixture_harness --nocapture`.
+- **Cross-runtime (motor NOVO):** `73 batem / 7 divergem / 511 bail` de 609 (18 bun≠node).
+  - Harness interno: `cargo test -p rts-codegen-new -- --ignored fixture_harness --nocapture`.
+  - **Script agora dirige o motor NOVO** via `rts run-new` (commit `ac2b1635`):
+    `bash scripts/cross_runtime_check.sh` → 73/7/511. (Baseline do motor VELHO,
+    congelado, era 419/137/36 — agora só alcançável trocando `run-new`→`run` no script.)
+  - `rts run-new <file>` = motor novo (1 arquivo, sem imports); `rts run` = velho.
 - **Unit tests:** `495 passam` (`cargo test -p rts-codegen-new`).
 - **Motor velho: ZERO regressão** em toda a construção — provado em cada mudança de
   crate compartilhado pelo gate: TS suite `1710/1710` + cross-runtime baseline
