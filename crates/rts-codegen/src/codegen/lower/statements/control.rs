@@ -107,8 +107,15 @@ fn try_lower_if_else_return_to_select(
     let cons_tv = lower_expr(ctx, cons_expr)?;
     let alt_tv = lower_expr(ctx, alt_expr)?;
 
-    // Coerce ambos pro mesmo tipo (igual ao caminho de return normal).
-    let ret_ty = ctx.return_ty.unwrap_or(crate::codegen::lower::ctx::ValTy::I64);
+    // (RTS_INLINE_AST) Dentro de um corpo inlinado, o "return" deste atalho de
+    // select tambem precisa virar `def_var(result_var) + jump(join)` em vez de
+    // `return_` (que sairia da fn do CALLER). Usa o tipo de retorno do CALLEE
+    // (frame.ret_ty), nao o do caller.
+    let inline_frame = ctx.inline_stack.last().copied();
+    let ret_ty = match inline_frame {
+        Some(f) => f.ret_ty,
+        None => ctx.return_ty.unwrap_or(crate::codegen::lower::ctx::ValTy::I64),
+    };
     let cons_v = match ret_ty {
         crate::codegen::lower::ctx::ValTy::I32 => ctx.coerce_to_i32(cons_tv).val,
         crate::codegen::lower::ctx::ValTy::F64 => ctx.coerce_to_f64(cons_tv).val,
@@ -121,7 +128,15 @@ fn try_lower_if_else_return_to_select(
     };
 
     let result = ctx.builder.ins().select(cond_val, cons_v, alt_v);
-    ctx.builder.ins().return_(&[result]);
+    match inline_frame {
+        Some(frame) => {
+            ctx.builder.def_var(frame.result_var, result);
+            ctx.builder.ins().jump(frame.join_block, &[]);
+        }
+        None => {
+            ctx.builder.ins().return_(&[result]);
+        }
+    }
     // Sinaliza que o block esta terminated (caller nao precisa emitir
     // jump pro merge nem fallthrough).
     Ok(Some(true))
@@ -384,6 +399,32 @@ pub(super) fn lower_return_stmt(
     ctx: &mut FnCtx,
     ret_stmt: &swc_ecma_ast::ReturnStmt,
 ) -> Result<bool> {
+    // (RTS_INLINE_AST) `return` DENTRO de um corpo inlinado: nao emite `return_`
+    // (que sairia da fn do CALLER). Em vez disso, avalia o arg, coerce pro tipo
+    // de retorno do callee, escreve em `result_var` e salta pro `join_block`.
+    // Tem prioridade sobre o caminho de finally/tail abaixo — o inline so'
+    // qualifica fns sem try/finally/throw (ver elegibilidade), entao nao ha
+    // interacao com finally_stack aqui. O jump e' guardado por is_unreachable()
+    // por seguranca (um return em ramo ja' terminado nao re-emite).
+    if let Some(frame) = ctx.inline_stack.last().copied() {
+        if let Some(arg) = &ret_stmt.arg {
+            let tv = lower_expr(ctx, arg)?;
+            let coerced = match frame.ret_ty {
+                ValTy::I32 => ctx.coerce_to_i32(tv).val,
+                ValTy::F64 => ctx.coerce_to_f64(tv).val,
+                // I64/Bool/I8/I16/U8/U16 — Variable backed por i64.
+                _ => ctx.coerce_to_i64(tv).val,
+            };
+            ctx.builder.def_var(frame.result_var, coerced);
+        }
+        // `return;` sem arg deixa o result_var no default (ja' setado no
+        // try_inline_user_call). Salta pro join, fechando este caminho.
+        if !ctx.builder.is_unreachable() {
+            ctx.builder.ins().jump(frame.join_block, &[]);
+        }
+        return Ok(true);
+    }
+
     // (#128 fase 2) `return` dentro de try-com-finally: avalia o valor de
     // retorno, roda os finally pendentes (mais interno primeiro) e so' entao
     // emite `return_`. Sem tail-call (o return nao eh mais o ultimo ato).

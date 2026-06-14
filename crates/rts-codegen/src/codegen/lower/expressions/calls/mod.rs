@@ -4458,6 +4458,23 @@ pub(crate) fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> R
         return Ok(TypedVal::new(placeholder, ty));
     }
 
+    // (RTS_INLINE_AST) Inline no call-site de user fns pequenas e numericas.
+    // Toma prioridade sobre a call normal (mas NAO sobre o tail-call acima —
+    // tail mantem a semantica de loop). So' inlina quando:
+    //   - a fn esta no mapa de candidatos (passou em `inline_eligible`);
+    //   - a profundidade transitiva (a()->b()->c()) cabe em MAX_INLINE_DEPTH;
+    //   - a aridade do call-site bate com a do corpo (`values.len()` == params).
+    // `values` ja' foi lowered 1× (args avaliados exatamente uma vez, com a
+    // coercao por param da ABI), entao o inline preserva a ordem/efeitos dos
+    // argumentos. Falha em qualquer condicao => call normal (zero regressao).
+    if ctx.inline_depth < crate::codegen::lower::passes::userfn_inline::MAX_INLINE_DEPTH {
+        if let Some(cand) = ctx.inline_bodies.get(name).cloned() {
+            if values.len() == cand.params.len() {
+                return try_inline_user_call(ctx, &cand, &values);
+            }
+        }
+    }
+
     let ret_ty = abi.ret.unwrap_or(ValTy::I64);
 
     // Stack depth guard: push → brif → call → pop.
@@ -4510,6 +4527,118 @@ pub(crate) fn lower_user_call(ctx: &mut FnCtx, name: &str, call: &CallExpr) -> R
     ctx.builder.switch_to_block(after_block);
     ctx.builder.seal_block(after_block);
     let result = ctx.builder.block_params(after_block)[0];
+    Ok(TypedVal::new(result, ret_ty))
+}
+
+/// (RTS_INLINE_AST) Inlina o corpo de uma user fn pequena no call-site, em vez
+/// de emitir `call`. `values` sao os args ja' lowered (1×, na ordem/tipo da
+/// ABI). Liga cada param a seu arg, empilha um `InlineFrame` para que os
+/// `return` do callee virem `def_var(result_var) + jump(join_block)`, lower o
+/// corpo clonado e devolve o `use_var(result_var)` apos o join.
+///
+/// **Control-flow (ponto fragil — ver `docs/specs/userfn-inline.md`):**
+/// - `result_var` recebe um DEFAULT antes do corpo, de modo que callee sem
+///   `return` explicito (ou caminho de fall-through) ainda deixa um valor
+///   valido em `use_var`.
+/// - `join_block` e' selado SO' no fim, apos TODOS os jumps (returns +
+///   fall-through). Selar cedo => panic do Cranelift.
+/// - O jump de fall-through e' guardado por `is_unreachable()`: quando o corpo
+///   termina por return em todos os ramos (ex: `if(c) return a; else return b`),
+///   o bloco apos o corpo fica unreachable e NAO deve emitir jump (panica).
+fn try_inline_user_call(
+    ctx: &mut FnCtx,
+    cand: &crate::codegen::lower::ctx::InlineCandidate,
+    values: &[cranelift_codegen::ir::Value],
+) -> Result<TypedVal> {
+    use crate::codegen::lower::ctx::InlineFrame;
+
+    let ret_ty = cand.ret;
+    let ret_clty = ret_ty.cl_type();
+
+    // result_var inicializado com default (0 / 0.0) — cobre callee sem return
+    // explicito e o caminho fall-through unreachable.
+    let result_var = ctx.new_var(ret_ty);
+    let default_val = match ret_ty {
+        ValTy::F64 => ctx.builder.ins().f64const(0.0),
+        ValTy::I32 => ctx.builder.ins().iconst(cl::I32, 0),
+        _ => ctx.builder.ins().iconst(ret_clty, 0),
+    };
+    ctx.builder.def_var(result_var, default_val);
+
+    let join_block = ctx.builder.create_block();
+
+    // Escopo proprio para os params/locals do callee (nao vazam pro caller).
+    ctx.push_scope();
+    for ((pname, pty), &argval) in cand.params.iter().zip(values.iter()) {
+        // declare_local normaliza o valor pro cl_type da Variable (ex: Bool i8
+        // -> i64). `argval` ja' veio coerced pela ABI do call-site.
+        ctx.declare_local(pname, *pty, argval);
+    }
+
+    // O caller deve preservar seu proprio `return_ty`/tail-state — o frame do
+    // inline redireciona `return` para o join. Empilha o frame e marca que
+    // estamos 1 nivel mais fundo (limita inline transitivo).
+    ctx.inline_stack.push(InlineFrame {
+        result_var,
+        ret_ty,
+        join_block,
+    });
+    ctx.inline_depth += 1;
+
+    // `in_tail_position` dentro do corpo inlinado nao faz sentido (o return e'
+    // interceptado, nao e' tail do CALLER). Desliga durante o lower do corpo.
+    let saved_tail = ctx.in_tail_position;
+    ctx.in_tail_position = false;
+
+    // Lower o corpo clonado statement a statement; para no primeiro terminator.
+    // `terminated` rastreia se o ULTIMO statement lowered fechou o bloco
+    // corrente (return/throw/jump) — espelha o loop de `compile_user_fn`. NAO
+    // basta `is_unreachable()`: apos um `return` interceptado o bloco corrente
+    // ja' tem terminator (jump pro join) mas nao e' "unreachable" no sentido do
+    // builder (tem predecessor), entao um jump de fall-through aqui violaria o
+    // verifier ("terminator before end of block").
+    let mut lower_err: Option<anyhow::Error> = None;
+    let mut terminated = false;
+    for stmt_raw in &cand.body {
+        if terminated || ctx.builder.is_unreachable() {
+            break;
+        }
+        let crate::parser::ast::Statement::Raw(raw) = stmt_raw;
+        if let Some(swc_stmt) = raw.stmt.as_ref() {
+            match crate::codegen::lower::statements::lower_stmt(ctx, swc_stmt) {
+                Ok(t) => {
+                    terminated = t;
+                }
+                Err(e) => {
+                    lower_err = Some(e);
+                    break;
+                }
+            }
+        }
+    }
+
+    ctx.in_tail_position = saved_tail;
+    ctx.inline_depth -= 1;
+    ctx.inline_stack.pop();
+    ctx.pop_scope();
+
+    if let Some(e) = lower_err {
+        return Err(e);
+    }
+
+    // Fall-through: se o corpo NAO terminou por return/terminator e o ponto
+    // corrente ainda e' alcancavel (callee sem return no final, ou um ramo que
+    // cai fora do `if`), salta pro join. Guardado por `terminated` E
+    // `is_unreachable()` — quando todo caminho ja' retornou, emitir um jump aqui
+    // faria o Cranelift panicar ("terminator before end of block").
+    if !terminated && !ctx.builder.is_unreachable() {
+        ctx.builder.ins().jump(join_block, &[]);
+    }
+
+    // Sela o join SO' agora (todos os predecessores ja' emitiram seus jumps).
+    ctx.builder.switch_to_block(join_block);
+    ctx.builder.seal_block(join_block);
+    let result = ctx.builder.use_var(result_var);
     Ok(TypedVal::new(result, ret_ty))
 }
 

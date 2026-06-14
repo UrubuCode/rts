@@ -468,6 +468,30 @@ pub fn compile_program(
         }
     }
 
+    // (RTS_INLINE_AST) Coleta os corpos de user fns pequenas elegiveis a inline
+    // no call-site (so' fns numericas, prelude de const + return, conservador —
+    // ver `passes::userfn_inline`). Gate por env: `RTS_INLINE_AST=0` desliga
+    // (kill-switch) deixando o mapa vazio -> nenhum call-site inlina. Mesma
+    // fonte (`fn_decls` + `user_fn_abis`) que o codegen usa para a call normal,
+    // entao tipos e nomes batem 1:1.
+    let inline_enabled = std::env::var("RTS_INLINE_AST").as_deref() != Ok("0");
+    let mut inline_bodies: HashMap<String, crate::codegen::lower::ctx::InlineCandidate> =
+        HashMap::new();
+    if inline_enabled {
+        for fn_decl in &fn_decls {
+            let Some(abi) = user_fn_abis.get(&fn_decl.name) else {
+                continue;
+            };
+            if let Some(cand) = crate::codegen::lower::passes::userfn_inline::inline_eligible(
+                fn_decl,
+                &abi.params,
+                abi.ret,
+            ) {
+                inline_bodies.insert(fn_decl.name.clone(), cand);
+            }
+        }
+    }
+
     // Mapeia globais module-scope cuja anotacao bate com classe
     // registrada. Permite funcoes top-level acessarem globais como
     // instancias e participarem de overload.
@@ -638,6 +662,7 @@ pub fn compile_program(
             &fn_class_returns,
             &node_import_map,
             &local_alias_map,
+            &inline_bodies,
             fn_decl,
             info,
             owner_class,
@@ -685,6 +710,7 @@ pub fn compile_program(
         &fn_class_returns,
         &node_import_map,
         &local_alias_map,
+        &inline_bodies,
         &top_stmts,
         &mut warnings,
     )
