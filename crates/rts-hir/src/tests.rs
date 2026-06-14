@@ -229,6 +229,34 @@ fn scope_inner_shadows_outer() {
 }
 
 #[test]
+fn parse_type_annotation_object_keyword_and_literal() {
+    use crate::lower::parse_type_annotation;
+    // Both the `object` keyword and the `{object}` sentinel emitted for an
+    // object-type-literal map to the distinct `HirType::Object` (not `any`).
+    assert_eq!(parse_type_annotation("object"), HirType::Object);
+    assert_eq!(parse_type_annotation("{object}"), HirType::Object);
+    assert_eq!(parse_type_annotation("any"), HirType::Any);
+    assert_eq!(parse_type_annotation("number"), HirType::Number);
+}
+
+#[test]
+fn binop_strict_and_loose_eq_are_distinct_comparisons() {
+    // The new strict ops are distinct variants but still classify as comparisons
+    // (so their result type refines to Bool), and remain != the loose ops.
+    assert!(HirBinOp::StrictEq.is_comparison());
+    assert!(HirBinOp::StrictNe.is_comparison());
+    assert!(HirBinOp::Eq.is_comparison());
+    assert_ne!(HirBinOp::Eq, HirBinOp::StrictEq);
+    assert_ne!(HirBinOp::Ne, HirBinOp::StrictNe);
+}
+
+#[test]
+fn unop_plus_distinct_from_not() {
+    // Unary `+` (ToNumber) is no longer conflated with `!`.
+    assert_ne!(HirUnOp::Plus, HirUnOp::Not);
+}
+
+#[test]
 fn refine_ret_all_int_returns_to_i64() {
     let s = Scope::new();
     let body = vec![

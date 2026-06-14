@@ -1559,15 +1559,21 @@ fn lower_unary(
             Inst::BXor { dst, lhs: src, rhs: one }
         }
         HirUnOp::BitNot => Inst::BNot { dst, src },
+        // Unary ops the MIR path does not model (`+`/`typeof`/`void`/`delete`).
+        // Mark a placeholder so routing bails this fn to the AST path (which
+        // handles them) instead of emitting a silent wrong-valued zero.
         _ => {
-            ctx.push_inst(
-                mir,
+            mark_placeholder(ctx, std::file!(), std::line!());
+            let const_inst = if res_ty.is_float() {
+                Inst::F64Const { dst, val: 0.0 }
+            } else {
                 Inst::IConst {
                     dst,
                     ty: res_ty.clone(),
                     val: 0,
-                },
-            );
+                }
+            };
+            ctx.push_inst(mir, const_inst);
             return dst;
         }
     };

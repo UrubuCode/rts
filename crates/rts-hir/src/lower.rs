@@ -319,10 +319,12 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
             let operand = Box::new(lower_swc_expr(&u.arg, scope));
             let ty = match op {
                 HirUnOp::Not => HirType::Bool,
+                HirUnOp::Plus => HirType::Number,
                 HirUnOp::Neg => operand.ty.clone(),
                 HirUnOp::BitNot => {
                     if operand.ty.is_integer() { operand.ty.clone() } else { HirType::I64 }
                 }
+                HirUnOp::TypeOf => HirType::Str,
                 _ => HirType::Any,
             };
             HirExpr::new(HirExprKind::Unary { op, operand }, ty)
@@ -345,7 +347,14 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
         swc::Expr::New(n) => {
             let class = expr_to_ident_name(&n.callee).unwrap_or_default();
             let args = n.args.as_deref().unwrap_or(&[]).iter()
-                .map(|a| lower_swc_expr(&a.expr, scope))
+                .map(|a| {
+                    let inner = lower_swc_expr(&a.expr, scope);
+                    if a.spread.is_some() {
+                        HirExpr::new(HirExprKind::Spread(Box::new(inner)), HirType::Any)
+                    } else {
+                        inner
+                    }
+                })
                 .collect();
             let ty = scope.resolve_class(&class)
                 .map(HirType::Class)
@@ -496,7 +505,18 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
 // ---------------------------------------------------------------------------
 
 fn lower_call(call: &swc::CallExpr, scope: &Scope) -> HirExpr {
-    let args: Vec<HirExpr> = call.args.iter().map(|a| lower_swc_expr(&a.expr, scope)).collect();
+    // Preserve the spread flag on each argument: `f(...xs)` must be
+    // distinguishable from `f(xs)`. A spread arg is wrapped in
+    // `HirExprKind::Spread` (the same marker array literals use) so consumers
+    // that don't yet model argument spread BAIL instead of miscompiling.
+    let args: Vec<HirExpr> = call.args.iter().map(|a| {
+        let inner = lower_swc_expr(&a.expr, scope);
+        if a.spread.is_some() {
+            HirExpr::new(HirExprKind::Spread(Box::new(inner)), HirType::Any)
+        } else {
+            inner
+        }
+    }).collect();
 
     match &call.callee {
         swc::Callee::Expr(callee_expr) => {
@@ -658,6 +678,11 @@ fn ts_type_to_str(ty: &swc::TsType) -> String {
         swc::TsType::TsArrayType(arr) => {
             format!("{}[]", ts_type_to_str(&arr.elem_type))
         }
+        // An object-type-literal `{ x: T; ... }` — a distinct keyed object type.
+        // Encoded as the sentinel `{object}` that `parse_type_annotation` maps to
+        // `HirType::Object`, so the new engine can tell an object param from a
+        // primitive/`any`. (Field names/types are not captured here yet.)
+        swc::TsType::TsTypeLit(_) => "{object}".into(),
         _ => "any".into(),
     }
 }
@@ -670,6 +695,8 @@ pub fn parse_type_annotation(s: &str) -> HirType {
         "string" => HirType::Str,
         "void" => HirType::Void,
         "any" => HirType::Any,
+        // A keyed object type — `{ ... }` literal or the `object` keyword.
+        "object" | "{object}" => HirType::Object,
         "never" => HirType::Unknown,
         "i8"  => HirType::I8,
         "i16" => HirType::I16,
@@ -705,8 +732,10 @@ fn swc_bin_op_to_hir(op: swc::BinaryOp) -> HirBinOp {
         swc::BinaryOp::LShift => HirBinOp::Shl,
         swc::BinaryOp::RShift => HirBinOp::Shr,
         swc::BinaryOp::ZeroFillRShift => HirBinOp::UShr,
-        swc::BinaryOp::EqEq | swc::BinaryOp::EqEqEq => HirBinOp::Eq,
-        swc::BinaryOp::NotEq | swc::BinaryOp::NotEqEq => HirBinOp::Ne,
+        swc::BinaryOp::EqEq => HirBinOp::Eq,
+        swc::BinaryOp::NotEq => HirBinOp::Ne,
+        swc::BinaryOp::EqEqEq => HirBinOp::StrictEq,
+        swc::BinaryOp::NotEqEq => HirBinOp::StrictNe,
         swc::BinaryOp::Lt => HirBinOp::Lt,
         swc::BinaryOp::LtEq => HirBinOp::Le,
         swc::BinaryOp::Gt => HirBinOp::Gt,
@@ -723,11 +752,12 @@ fn swc_bin_op_to_hir(op: swc::BinaryOp) -> HirBinOp {
 fn swc_unary_op_to_hir(op: swc::UnaryOp) -> HirUnOp {
     match op {
         swc::UnaryOp::Minus => HirUnOp::Neg,
+        swc::UnaryOp::Plus => HirUnOp::Plus,
         swc::UnaryOp::Bang => HirUnOp::Not,
         swc::UnaryOp::Tilde => HirUnOp::BitNot,
         swc::UnaryOp::TypeOf => HirUnOp::TypeOf,
         swc::UnaryOp::Void => HirUnOp::Void,
-        _ => HirUnOp::Not,
+        swc::UnaryOp::Delete => HirUnOp::Delete,
     }
 }
 
@@ -744,7 +774,14 @@ fn swc_assign_op_to_hir(op: swc::AssignOp) -> HirBinOp {
         swc::AssignOp::LShiftAssign => HirBinOp::Shl,
         swc::AssignOp::RShiftAssign => HirBinOp::Shr,
         swc::AssignOp::ZeroFillRShiftAssign => HirBinOp::UShr,
-        _ => HirBinOp::Add,
+        swc::AssignOp::ExpAssign => HirBinOp::Exp,
+        swc::AssignOp::AndAssign => HirBinOp::LogAnd,
+        swc::AssignOp::OrAssign => HirBinOp::LogOr,
+        swc::AssignOp::NullishAssign => HirBinOp::NullCoalesce,
+        // `=` (plain Assign) never reaches here (handled separately); any other
+        // compound op we don't model maps to `Unsupported` so consumers BAIL —
+        // never silently to `Add` (the old bug: `**=`/`&&=` miscompiled as `+=`).
+        _ => HirBinOp::Unsupported,
     }
 }
 

@@ -74,19 +74,27 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let l = self.lower_expr(module, lhs)?;
         let r = self.lower_expr(module, rhs)?;
 
-        // Equality. swc collapses BOTH `==` and `===` onto `HirBinOp::Eq` (and
-        // `!=`/`!==` onto `Ne`), so the engine cannot tell loose from strict at
-        // the HIR. `==` and `===` AGREE iff the operands are the same JS kind
-        // (both numbers, both strings, both booleans, …) — cross-kind is exactly
+        // Strict equality `===`/`!==`. swc now lowers these to distinct
+        // `StrictEq`/`StrictNe` ops, so the engine knows it is strict and can
+        // lower soundly for ANY operand kinds (no coercion). Tagged → the runtime
+        // `strict_eq`; native (proven-numeric/bool) → the native compare.
+        if matches!(op, HirBinOp::StrictEq | HirBinOp::StrictNe) {
+            if is_tagged(l) || is_tagged(r) {
+                return self.lower_strict_eq(module, op, l, r);
+            }
+            return self.lower_compare(op, l, r);
+        }
+        // Loose equality `==`/`!=`. `==` and `===` AGREE iff the operands are the
+        // same JS kind (both numbers, both strings, …) — cross-kind is exactly
         // where loose coercion diverges (`0 == ""` is `true` loose, `false`
-        // strict). So: lower equality only when both operand kinds are the SAME
-        // proven kind; a different/unknown kind pairing BAILS (never a wrong
-        // value).
+        // strict). So: lower loose equality only when both operand kinds are the
+        // SAME proven kind; a different/unknown kind pairing BAILS (never a wrong
+        // value — full ToPrimitive coercion is a later increment).
         if matches!(op, HirBinOp::Eq | HirBinOp::Ne) {
             if !same_proven_kind(l, r) {
                 return unsupported!(
-                    "equality on operands of differing/unknown kind ({:?} vs {:?}) — \
-                     `==`/`===` are indistinguishable in HIR and diverge here",
+                    "loose equality on operands of differing/unknown kind ({:?} vs {:?}) — \
+                     coercion diverges here (a later increment)",
                     l.kind,
                     r.kind
                 );
@@ -288,8 +296,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let ba = self.box_value(l);
         let bb = self.box_value(r);
         let sym = match op {
-            HirBinOp::Eq => "__rtsadp_strict_eq",
-            HirBinOp::Ne => "__rtsadp_strict_neq",
+            // Same-kind loose `==`/`!=` (the secretly-strict case) reuse the
+            // strict trampoline; `===`/`!==` map directly.
+            HirBinOp::Eq | HirBinOp::StrictEq => "__rtsadp_strict_eq",
+            HirBinOp::Ne | HirBinOp::StrictNe => "__rtsadp_strict_neq",
             _ => return unsupported!("strict-eq op {op:?}"),
         };
         let res = self
@@ -303,7 +313,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     fn lower_compare(&mut self, op: HirBinOp, l: Val, r: Val) -> FrontResult<Val> {
         let use_float = matches!(l.repr, Repr::Float64) || matches!(r.repr, Repr::Float64);
         let bool_cmp = matches!(l.repr, Repr::Bool) || matches!(r.repr, Repr::Bool);
-        if bool_cmp && !matches!(op, HirBinOp::Eq | HirBinOp::Ne) {
+        if bool_cmp
+            && !matches!(
+                op,
+                HirBinOp::Eq | HirBinOp::Ne | HirBinOp::StrictEq | HirBinOp::StrictNe
+            )
+        {
             return unsupported!("ordering comparison on a boolean");
         }
         let cmp = if use_float {
@@ -370,8 +385,8 @@ pub(super) fn wider_int(a: Repr, b: Repr) -> Repr {
 
 fn float_cc(op: HirBinOp) -> FrontResult<FloatCC> {
     Ok(match op {
-        HirBinOp::Eq => FloatCC::Equal,
-        HirBinOp::Ne => FloatCC::NotEqual,
+        HirBinOp::Eq | HirBinOp::StrictEq => FloatCC::Equal,
+        HirBinOp::Ne | HirBinOp::StrictNe => FloatCC::NotEqual,
         HirBinOp::Lt => FloatCC::LessThan,
         HirBinOp::Le => FloatCC::LessThanOrEqual,
         HirBinOp::Gt => FloatCC::GreaterThan,
@@ -382,8 +397,8 @@ fn float_cc(op: HirBinOp) -> FrontResult<FloatCC> {
 
 fn int_cc(op: HirBinOp) -> FrontResult<IntCC> {
     Ok(match op {
-        HirBinOp::Eq => IntCC::Equal,
-        HirBinOp::Ne => IntCC::NotEqual,
+        HirBinOp::Eq | HirBinOp::StrictEq => IntCC::Equal,
+        HirBinOp::Ne | HirBinOp::StrictNe => IntCC::NotEqual,
         HirBinOp::Lt => IntCC::SignedLessThan,
         HirBinOp::Le => IntCC::SignedLessThanOrEqual,
         HirBinOp::Gt => IntCC::SignedGreaterThan,

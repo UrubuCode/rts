@@ -151,7 +151,13 @@ pub enum HirBinOp {
     Add, Sub, Mul, Div, Rem, Exp,
     BitAnd, BitOr, BitXor,
     Shl, Shr, UShr,
-    Eq, Ne, Lt, Le, Gt, Ge,
+    /// Loose equality (`==` / `!=`). Distinct from `StrictEq`/`StrictNe`: the new
+    /// engine needs the distinction (loose `0 == ""` is `true`, strict `false`).
+    Eq, Ne,
+    /// Strict equality (`===` / `!==`). swc no longer collapses these onto
+    /// `Eq`/`Ne`.
+    StrictEq, StrictNe,
+    Lt, Le, Gt, Ge,
     LogAnd, LogOr,
     NullCoalesce,
     /// Sentinel for an op we couldn't map (e.g. `In`, `InstanceOf`). The MIR
@@ -164,18 +170,36 @@ impl HirBinOp {
         matches!(self, HirBinOp::Add | HirBinOp::Sub | HirBinOp::Mul | HirBinOp::Div | HirBinOp::Rem)
     }
     pub fn is_comparison(self) -> bool {
-        matches!(self, HirBinOp::Eq | HirBinOp::Ne | HirBinOp::Lt | HirBinOp::Le | HirBinOp::Gt | HirBinOp::Ge)
+        matches!(
+            self,
+            HirBinOp::Eq
+                | HirBinOp::Ne
+                | HirBinOp::StrictEq
+                | HirBinOp::StrictNe
+                | HirBinOp::Lt
+                | HirBinOp::Le
+                | HirBinOp::Gt
+                | HirBinOp::Ge
+        )
     }
 }
 
 /// Unary operators in HIR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HirUnOp {
+    /// Unary `-`.
     Neg,
+    /// Unary `+` (ToNumber). Distinct from `Not`: swc no longer collapses `+`
+    /// onto `!` — `!5` is `false`, `+5` is `5`.
+    Plus,
+    /// Logical `!`.
     Not,
+    /// Bitwise `~`.
     BitNot,
     TypeOf,
     Void,
+    /// `delete obj.prop`.
+    Delete,
 }
 
 /// Literal value in HIR.

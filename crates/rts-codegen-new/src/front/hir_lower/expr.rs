@@ -156,7 +156,12 @@ impl<'a, 'b> Lowerer<'a, 'b> {
         let use_float = matches!(l.repr, Repr::Float64) || matches!(r.repr, Repr::Float64);
         // Booleans only compare with == / != against each other.
         let bool_cmp = matches!(l.repr, Repr::Bool) || matches!(r.repr, Repr::Bool);
-        if bool_cmp && !matches!(op, HirBinOp::Eq | HirBinOp::Ne) {
+        if bool_cmp
+            && !matches!(
+                op,
+                HirBinOp::Eq | HirBinOp::Ne | HirBinOp::StrictEq | HirBinOp::StrictNe
+            )
+        {
             return unsupported!("ordering comparison on a boolean");
         }
 
@@ -164,8 +169,9 @@ impl<'a, 'b> Lowerer<'a, 'b> {
             let lv = self.coerce(l, Repr::Float64)?;
             let rv = self.coerce(r, Repr::Float64)?;
             let cc = match op {
-                HirBinOp::Eq => FloatCC::Equal,
-                HirBinOp::Ne => FloatCC::NotEqual,
+                // Operands are proven numeric here, so `==`/`===` agree.
+                HirBinOp::Eq | HirBinOp::StrictEq => FloatCC::Equal,
+                HirBinOp::Ne | HirBinOp::StrictNe => FloatCC::NotEqual,
                 HirBinOp::Lt => FloatCC::LessThan,
                 HirBinOp::Le => FloatCC::LessThanOrEqual,
                 HirBinOp::Gt => FloatCC::GreaterThan,
@@ -176,8 +182,8 @@ impl<'a, 'b> Lowerer<'a, 'b> {
         } else {
             // Both i64-carried (Int32 or Bool); signed comparison.
             let cc = match op {
-                HirBinOp::Eq => IntCC::Equal,
-                HirBinOp::Ne => IntCC::NotEqual,
+                HirBinOp::Eq | HirBinOp::StrictEq => IntCC::Equal,
+                HirBinOp::Ne | HirBinOp::StrictNe => IntCC::NotEqual,
                 HirBinOp::Lt => IntCC::SignedLessThan,
                 HirBinOp::Le => IntCC::SignedLessThanOrEqual,
                 HirBinOp::Gt => IntCC::SignedGreaterThan,
