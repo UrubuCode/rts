@@ -104,20 +104,24 @@ fn computed_key_two_props() {
 // ===========================================================================
 
 #[test]
-fn object_param_member_bails() {
-    // `o` is a bare param of unknown repr — could be an object OR a primitive at
-    // the call boundary; the engine refuses to route a `.name` read to the object
-    // trampoline (a string param's `.name` would WRONGLY read undefined). Bails.
-    assert_bails(
+fn object_param_member_now_dynamic() {
+    // INTENTIONAL change (was `object_param_member_bails`): a `.prop` read on a bare
+    // param of unproven shape now falls back to the runtime `__rtsadp_obj_get`
+    // trampoline instead of bailing. For an object arg it reads the slot; for a
+    // primitive arg the trampoline reads `undefined` (JS: `("x").name` is `undefined`
+    // too), so the fallback is JS-correct for any receiver.
+    assert_stdout(
         "function getName(o){ return o.name; } console.log(getName({name: 1}));",
+        "1\n",
     );
 }
 
 #[test]
-fn numeric_index_into_object_bails() {
-    // A NUMERIC index into an object (`o[0]`) is out of scope — number-key-into-
-    // object semantics differ; bail rather than treat it as a string key.
-    assert_bails("let o = {a: 1}; let i = 0; console.log(o[i]);");
+fn numeric_index_into_object_now_dynamic() {
+    // INTENTIONAL change (was `numeric_index_into_object_bails`): a NUMERIC index into
+    // an object now coerces the key ToString (`o[0]` keys on "0", JS-correct) and reads
+    // it dynamically; "0" is absent from `{a:1}`, so the result is `undefined`.
+    assert_stdout("let o = {a: 1}; let i = 0; console.log(o[i]);", "undefined\n");
 }
 
 #[test]

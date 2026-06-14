@@ -94,10 +94,12 @@ fn object_two_fields_string_and_number() {
 // ===========================================================================
 
 #[test]
-fn member_on_unknown_shape_param_bails() {
-    // `o` is a param of unknown shape — a property access on it needs the dynamic
-    // inline cache (later increment). Must bail, not guess a slot.
-    assert_bails("function f(o: any){ return o.a; } let r = {a: 1}; console.log(f(r));");
+fn member_on_unknown_shape_param_now_dynamic() {
+    // INTENTIONAL change (was `member_on_unknown_shape_param_bails`): a `.prop` read on
+    // a param of unproven shape now falls back to the runtime `__rtsadp_obj_get`
+    // trampoline (resolves the slot from the object's slot-0 shape-id) instead of
+    // bailing — never guessing a static slot, resolving at runtime.
+    assert_stdout("function f(o: any){ return o.a; } let r = {a: 1}; console.log(f(r));", "1\n");
 }
 
 #[test]

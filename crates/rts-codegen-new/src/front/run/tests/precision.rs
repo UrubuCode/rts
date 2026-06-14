@@ -131,16 +131,14 @@ fn object_typed_param() {
 }
 
 #[test]
-fn object_typed_param_literal_annotation_bails() {
-    // A `{name: string}` object-LITERAL type annotation is captured by rts-parser
-    // as the raw source string "{name: string}", which rts-hir's
-    // `parse_type_annotation` maps to `HirType::Unknown` (NOT `Object`) — so the
-    // param's shape is unproven and `o.name` bails. This is an rts-parser/rts-hir
-    // string-mapping gap (those crates are consumed read-only); the engine routes
-    // `HirType::Object` correctly (see `object_typed_param`). Documented as a sound
-    // bail, never a wrong value.
-    assert_bails(
+fn object_typed_param_literal_annotation_now_dynamic() {
+    // A `{name: string}` object-LITERAL type annotation maps to `HirType::Unknown`
+    // (rts-hir's `parse_type_annotation` gap), so the param's shape is unproven.
+    // INTENTIONAL change (was `..._bails`): `o.name` now falls back to the runtime
+    // `__rtsadp_obj_get` trampoline instead of bailing — JS-correct for any receiver.
+    assert_stdout(
         r#"function getName(o: {name: string}){ return o.name; } console.log(getName({name:"rts"}));"#,
+        "rts\n",
     );
 }
 

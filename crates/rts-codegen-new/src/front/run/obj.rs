@@ -240,9 +240,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 .expect("__rtsadp_dyn_length returns a value");
             return Ok(Val::new_with_kind(word, Repr::Tagged, JsKind::Number));
         }
-        let (recv_word, shape) = self.resolve_heap_receiver(module, object)?;
-        match shape {
-            HeapShape::Object(shape_id) => {
+        match self.resolve_heap_receiver(module, object) {
+            Ok((recv_word, HeapShape::Object(shape_id))) => {
                 match self.shapes.slot_of(shape_id, prop) {
                     Some(slot) => {
                         // Property values live at slot 1 + slot_index (slot 0 is the
@@ -255,14 +254,36 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     None => Ok(self.undefined_val()),
                 }
             }
-            HeapShape::Array => {
+            Ok((recv_word, HeapShape::Array)) => {
                 if prop == "length" {
                     let len = emit_marshal::emit_vec_len(module, self.builder, recv_word);
                     Ok(Val::new(len, Repr::Int64))
                 } else {
-                    unsupported!("array member `.{prop}` (only `.length` in this increment)")
+                    // A non-`.length` member on a PROVEN array (e.g. `arr.foo`) has no
+                    // own property — read it dynamically (JS-correct `undefined` for an
+                    // absent key) rather than bail.
+                    self.lower_dynamic_get_expr(module, object, prop)
                 }
             }
+            // ---- DYNAMIC FALLBACK: the receiver's shape is NOT statically proven (a
+            // param, a call return, a reassigned local, a non-identifier object). Read
+            // the property by key AT RUNTIME via `__rtsadp_obj_get`, which returns the
+            // stored slot for a keyed object and `undefined` for an absent key OR a
+            // non-object receiver (JS: `(5).foo` is `undefined`). Correct for any
+            // receiver; the proven-shape fast paths above kept their constant-slot
+            // load and took priority.
+            //
+            // EXCEPTION: `.length` is NOT a stored slot — on an array it is the element
+            // count, on a string the code-unit count — and `__rtsadp_obj_get` would
+            // wrongly read `undefined` for it. The proven-receiver `.length` paths ran
+            // above; an UNPROVEN `.length` is the dynamic-length feature (the existing
+            // `__rtsadp_dyn_length` path, gated by `is_dynamic_length_receiver`) and is
+            // intentionally left to bail here rather than read a wrong `undefined`. ----
+            Err(_) if prop == "length" => unsupported!(
+                "`.length` on a receiver of unproven shape (param/return/reassigned) \
+                 — dynamic-length is a separate path, not a property slot"
+            ),
+            Err(_) => self.lower_dynamic_get_expr(module, object, prop),
         }
     }
 
@@ -303,12 +324,26 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 .expect("__rtsadp_dyn_char_at returns a value");
             return Ok(Val::tagged_kind(word, JsKind::Str));
         }
-        let (recv_word, shape) = self.resolve_heap_receiver(module, object)?;
-        if !matches!(shape, HeapShape::Array) {
-            return unsupported!("computed index on a non-array (dynamic object key is a later increment)");
+        if let Ok((recv_word, HeapShape::Array)) = self.resolve_heap_receiver(module, object) {
+            // A PROVEN array with a numeric index → fast-path `VEC_GET`. A non-numeric
+            // index on a proven array falls through to the dynamic path below.
+            if let Ok(idx) = self.lower_index_value(module, index) {
+                let word = emit_marshal::emit_vec_get(module, self.builder, recv_word, idx);
+                return Ok(Val::new(word, Repr::Tagged));
+            }
         }
-        let idx = self.lower_index_value(module, index)?;
-        let word = emit_marshal::emit_vec_get(module, self.builder, recv_word, idx);
+        // ---- DYNAMIC FALLBACK: an unproven receiver, or a proven object with a
+        // computed key. Coerce the key ToString (JS: `o[0]` keys on "0") and read at
+        // runtime via `__rtsadp_obj_get` (absent / non-object → `undefined`). ----
+        if self.receiver_is_unbound_this(object) {
+            return unsupported!("indexed read on a captured `this` (arrow at top level — #195)");
+        }
+        let recv = self.lower_expr(module, object)?;
+        let recv_word = self.box_value(recv);
+        let key_word = self.index_key_word(module, index)?;
+        let word = self
+            .call_runtime(module, "__rtsadp_obj_get", &[recv_word, key_word])?
+            .expect("__rtsadp_obj_get returns a value");
         Ok(Val::new(word, Repr::Tagged))
     }
 
@@ -356,19 +391,26 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 return self.lower_dynamic_set(module, name, prop, value);
             }
         }
-        let (recv_word, shape) = self.resolve_heap_receiver(module, object)?;
-        let HeapShape::Object(shape_id) = shape else {
-            return unsupported!("write to array member `.{prop}` (later increment)");
-        };
-        let Some(slot) = self.shapes.slot_of(shape_id, prop) else {
-            return unsupported!("adding a new key `{prop}` to an object (transition tree is a later increment)");
-        };
-        let v = self.lower_expr(module, value)?;
-        let word = self.box_value(v);
-        // Property values live at slot 1 + slot_index (slot 0 is the shape-id).
-        let idx = self.builder.ins().iconst(types::I64, 1 + slot as i64);
-        emit_marshal::emit_vec_set(module, self.builder, recv_word, idx, word);
-        Ok(Val::new(word, Repr::Tagged))
+        if let Ok((recv_word, HeapShape::Object(shape_id))) = self.resolve_heap_receiver(module, object) {
+            // A PROVEN-shape object: a key already in the shape writes its constant
+            // slot directly. A provably-NEW key still bails (the transition tree is a
+            // later increment) — the dynamic fallback below cannot add a key either.
+            if let Some(slot) = self.shapes.slot_of(shape_id, prop) {
+                let v = self.lower_expr(module, value)?;
+                let word = self.box_value(v);
+                // Property values live at slot 1 + slot_index (slot 0 is the shape-id).
+                let idx = self.builder.ins().iconst(types::I64, 1 + slot as i64);
+                emit_marshal::emit_vec_set(module, self.builder, recv_word, idx, word);
+                return Ok(Val::new(word, Repr::Tagged));
+            }
+            return unsupported!("adding a new key `{prop}` to a known-shape object (transition tree is a later increment)");
+        }
+        // ---- DYNAMIC FALLBACK: an unproven receiver (param / return / reassigned /
+        // non-identifier object). Write the EXISTING property by key AT RUNTIME via
+        // `__rtsadp_obj_set` (a key absent from the runtime shape, or a non-object
+        // receiver, is a no-op returning the value — adding a brand-new key is the
+        // transition tree, still out of scope). ----
+        self.lower_dynamic_set_expr(module, object, prop, value)
     }
 
     /// Lower `arr[index] = value` (index-write) to `VEC_SET`.
@@ -392,14 +434,27 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 return Ok(Val::new(word, Repr::Tagged));
             }
         }
-        let (recv_word, shape) = self.resolve_heap_receiver(module, object)?;
-        if !matches!(shape, HeapShape::Array) {
-            return unsupported!("indexed write on a non-array (dynamic object key is a later increment)");
+        if let Ok((recv_word, HeapShape::Array)) = self.resolve_heap_receiver(module, object) {
+            // A PROVEN array with a numeric index → fast-path `VEC_SET`.
+            if let Ok(idx) = self.lower_index_value(module, index) {
+                let v = self.lower_expr(module, value)?;
+                let word = self.box_value(v);
+                emit_marshal::emit_vec_set(module, self.builder, recv_word, idx, word);
+                return Ok(Val::new(word, Repr::Tagged));
+            }
         }
-        let idx = self.lower_index_value(module, index)?;
+        // ---- DYNAMIC FALLBACK: an unproven receiver, or a proven object with a
+        // computed key. Coerce the key ToString and write the EXISTING slot at runtime
+        // via `__rtsadp_obj_set` (absent key / non-object → no-op). ----
+        if self.receiver_is_unbound_this(object) {
+            return unsupported!("indexed write on a captured `this` (arrow at top level — #195)");
+        }
+        let recv = self.lower_expr(module, object)?;
+        let recv_word = self.box_value(recv);
+        let key_word = self.index_key_word(module, index)?;
         let v = self.lower_expr(module, value)?;
         let word = self.box_value(v);
-        emit_marshal::emit_vec_set(module, self.builder, recv_word, idx, word);
+        self.call_runtime(module, "__rtsadp_obj_set", &[recv_word, key_word, word])?;
         Ok(Val::new(word, Repr::Tagged))
     }
 
@@ -574,6 +629,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
     // ---- DYNAMIC property access (P5.5) ----
 
+    /// Whether `object` is a `this` reference that has reached the DYNAMIC fallback.
+    /// A real method/ctor `this` is always shape-proven (`local_shapes`/`local_classes`
+    /// carry its class — see [`Lowerer::lower_function`]) and takes the constant-slot
+    /// path, never reaching here; so a `this` arriving at the dynamic fallback is a
+    /// CAPTURED arrow `this` (a top-level/free arrow synthesizing `this` to a0 —
+    /// env-record, #195). Its value is not an honest receiver, so the dynamic property
+    /// fallback declines it (bails) rather than read a property off a bogus word.
+    fn receiver_is_unbound_this(&self, object: &HirExpr) -> bool {
+        matches!(&object.kind, HirExprKind::Ident(name)
+            if name == crate::front::run::class::THIS)
+    }
+
     /// The local NAME of a receiver PROVEN to be a keyed OBJECT (a known-shape
     /// object literal local OR a reassigned-object `object_local`), for the dynamic
     /// computed-key path. `None` for an array / opaque / non-identifier receiver —
@@ -619,6 +686,73 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let obj_word = self.load_local_word(name);
         self.call_runtime(module, "__rtsadp_obj_set", &[obj_word, key_word, word])?;
         Ok(Val::new(word, Repr::Tagged))
+    }
+
+    /// Generalized DYNAMIC READ `recv.prop` for ANY receiver EXPRESSION whose shape
+    /// is not statically proven (a param, a call return, a non-identifier object).
+    /// Lower the receiver to a Val, box it to a PolyValue word, and read the property
+    /// by interned static key AT RUNTIME via `__rtsadp_obj_get` — which returns the
+    /// stored slot for a keyed object and `undefined` for an absent key OR a
+    /// non-object receiver (the trampoline never faults; see `value/objops.rs`).
+    /// The result is a Tagged `Val` of kind `Unknown`.
+    fn lower_dynamic_get_expr(
+        &mut self,
+        module: &mut dyn Module,
+        object: &HirExpr,
+        prop: &str,
+    ) -> FrontResult<Val> {
+        if self.receiver_is_unbound_this(object) {
+            return unsupported!(
+                "property access on a captured `this` (arrow at top level — env-record, #195)"
+            );
+        }
+        let recv = self.lower_expr(module, object)?;
+        let recv_word = self.box_value(recv);
+        let key_word = self.intern_key_word(prop);
+        let word = self
+            .call_runtime(module, "__rtsadp_obj_get", &[recv_word, key_word])?
+            .expect("__rtsadp_obj_get returns a value");
+        Ok(Val::new_with_kind(word, Repr::Tagged, JsKind::Unknown))
+    }
+
+    /// Generalized DYNAMIC WRITE `recv.prop = value` for ANY receiver EXPRESSION of
+    /// unproven shape. Box the receiver + the value, intern the static key, and write
+    /// the EXISTING slot at runtime via `__rtsadp_obj_set` (an absent key or a
+    /// non-object receiver is a no-op returning the value — adding a brand-new key is
+    /// the transition tree, still out of scope). Returns the assigned value.
+    fn lower_dynamic_set_expr(
+        &mut self,
+        module: &mut dyn Module,
+        object: &HirExpr,
+        prop: &str,
+        value: &HirExpr,
+    ) -> FrontResult<Val> {
+        if self.receiver_is_unbound_this(object) {
+            return unsupported!(
+                "property write on a captured `this` (arrow at top level — env-record, #195)"
+            );
+        }
+        let recv = self.lower_expr(module, object)?;
+        let recv_word = self.box_value(recv);
+        let key_word = self.intern_key_word(prop);
+        let v = self.lower_expr(module, value)?;
+        let word = self.box_value(v);
+        self.call_runtime(module, "__rtsadp_obj_set", &[recv_word, key_word, word])?;
+        Ok(Val::new(word, Repr::Tagged))
+    }
+
+    /// Lower a COMPUTED index expression `obj[index]` to a key PolyValue word for the
+    /// dynamic object path. Any index (string, number, bool, Tagged) is boxed and
+    /// passed through; the `__rtsadp_obj_get`/`_set` trampoline's `key_text` reads a
+    /// string directly or ToStrings a non-string (JS: `o[0]` keys on "0"), so a
+    /// numeric index is coerced identically to JS property-key stringification.
+    fn index_key_word(
+        &mut self,
+        module: &mut dyn Module,
+        index: &HirExpr,
+    ) -> FrontResult<Value> {
+        let v = self.lower_expr(module, index)?;
+        Ok(self.box_value(v))
     }
 
     /// Intern a STATIC property name as a string-PolyValue key word (an i64
