@@ -56,6 +56,7 @@ mod funcval;
 mod globalclass;
 mod heap_field;
 mod inspect;
+mod instanceof_dyn;
 mod loops;
 mod mathobj;
 mod method;

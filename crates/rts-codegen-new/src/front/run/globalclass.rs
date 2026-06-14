@@ -352,7 +352,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // recorded class equals `class` or a descendant). Only resolvable when the
         // lhs has a statically-known class.
         if self.classes.get(class).is_some() {
-            return self.user_instanceof(lhs, class).map(Some);
+            return self.user_instanceof(module, lhs, class).map(Some);
         }
         // Date resolves instanceof through the REAL Registry predicate symbol
         // (`__RTS_FN_NS_GC_IS_DATE`) — no codegen `__rtsadp_is_date` trampoline.
@@ -388,21 +388,105 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(Some(Val::tagged_kind(res, JsKind::Bool)))
     }
 
-    /// `lhs instanceof <UserClass>` — a compile-time class-name match. The lhs must
-    /// have a statically-known class (`new C()` / a recorded local); the result is
-    /// `true` iff that class IS `class` or a descendant of it. An unprovable lhs
-    /// BAILS (we never guess instanceof for an opaque value against a user class).
-    fn user_instanceof(&mut self, lhs: &HirExpr, class: &str) -> FrontResult<Val> {
-        let Some(lhs_class) = self.static_instance_class(lhs) else {
-            return unsupported!(
-                "`x instanceof {class}` where x has no statically-known class \
-                 (dynamic-receiver instanceof on a user class is a later increment)"
+    /// `lhs instanceof <UserClass>`. When the lhs has a statically-known class the
+    /// result is the compile-time bool `class_is_a(lhsClass, class)` (the cheap
+    /// fast path). When the lhs is OPAQUE (a param / return / any value with no
+    /// statically-recorded class) we emit a REAL runtime check: the result is
+    /// `true` iff the value is a `TAG_OBJECT` instance whose shape-id (slot 0)
+    /// equals the `global_shape` of `class` OR of any descendant of `class`.
+    fn user_instanceof(
+        &mut self,
+        module: &mut dyn Module,
+        lhs: &HirExpr,
+        class: &str,
+    ) -> FrontResult<Val> {
+        // Fast path: the lhs's class is known at compile time → a constant bool.
+        if let Some(lhs_class) = self.static_instance_class(lhs) {
+            let is = self.class_is_a(&lhs_class, class);
+            let word = value::PolyValue::bool(is).raw() as i64;
+            let v = self.builder.ins().iconst(types::I64, word);
+            return Ok(Val::tagged_kind(v, JsKind::Bool));
+        }
+        self.dynamic_user_instanceof(module, lhs, class)
+    }
+
+    /// Runtime `opaqueValue instanceof <UserClass>` (the None case of
+    /// [`Self::user_instanceof`]).
+    ///
+    /// Each user class is allocated a UNIQUE `global_shape` (slot 0 of every
+    /// instance, written by [`Self::lower_new`] as a boxed INT32 PolyValue). So
+    /// `x instanceof C` ≡ `is_object(x) && shapeId(x) ∈ { global_shape of every
+    /// class K where K IS-A C }`. The accepting set is computed entirely at
+    /// compile time (C plus all its transitive descendants), so the emitted code
+    /// is just an is-object tag check ANDed with a small OR-chain of `icmp eq`.
+    ///
+    /// SAFETY of the slot-0 read on a non-object word: `emit_vec_get` → a slab
+    /// handle-table lookup (`with_vec`), never a raw-pointer dereference. A
+    /// non-object word reconstructs a bogus/non-Vec handle, which the runtime
+    /// tolerates by returning `0` — it CANNOT fault. We therefore read slot 0
+    /// unconditionally and discard the result for a non-object via the final
+    /// `band` with `is_object` (the same shape as `emit_registry_instanceof`),
+    /// rather than branching.
+    fn dynamic_user_instanceof(
+        &mut self,
+        module: &mut dyn Module,
+        lhs: &HirExpr,
+        class: &str,
+    ) -> FrontResult<Val> {
+        // Accepting shape-id set: every collected class K with `K IS-A class`.
+        // Snapshot (name, shape) first so the `class_is_a` borrow does not overlap
+        // the `self.classes.iter()` borrow.
+        let all: Vec<(String, u32)> =
+            self.classes.iter().map(|d| (d.name.clone(), d.global_shape)).collect();
+        let accepting: Vec<u32> = all
+            .into_iter()
+            .filter(|(name, _)| self.class_is_a(name, class))
+            .map(|(_, shape)| shape)
+            .collect();
+        debug_assert!(
+            self.classes.get(class).is_some_and(|d| accepting.contains(&d.global_shape)),
+            "the class itself must be in its own accepting set"
+        );
+
+        // Lower the operand to a single PolyValue word.
+        let v = self.lower_expr(module, lhs)?;
+        let word = self.box_value(v);
+
+        // is_object = boxed(word) && tag(word) == TAG_OBJECT.
+        let boxed = value::emit_is_boxed(self.builder, word);
+        let shifted = self.builder.ins().ushr_imm(word, value::TAG_SHIFT as i64);
+        let tag = self.builder.ins().band_imm(shifted, value::TAG_MASK as i64);
+        let want = self.builder.ins().iconst(types::I64, value::TAG_OBJECT as i64);
+        let is_obj_tag = self.builder.ins().icmp(
+            cranelift_codegen::ir::condcodes::IntCC::Equal,
+            tag,
+            want,
+        );
+        let is_object = self.builder.ins().band(boxed, is_obj_tag);
+
+        // slot0 = shape-id word of the instance (a boxed INT32 PolyValue). Safe on
+        // a non-object (returns 0 — see the doc comment above).
+        let zero_idx = self.builder.ins().iconst(types::I64, 0);
+        let slot0 =
+            value::emit_marshal::emit_vec_get(module, self.builder, word, zero_idx);
+
+        // shapeId(word) ∈ accepting : OR-chain of `icmp eq slot0, <boxedInt(shape)>`
+        // (each `icmp` yields an i8 bool, matching `is_object`'s type).
+        let mut matches = self.builder.ins().iconst(types::I8, 0);
+        for shape in accepting {
+            let shape_word = value::PolyValue::from_i32(shape as i32).raw() as i64;
+            let shape_v = self.builder.ins().iconst(types::I64, shape_word);
+            let eq = self.builder.ins().icmp(
+                cranelift_codegen::ir::condcodes::IntCC::Equal,
+                slot0,
+                shape_v,
             );
-        };
-        let is = self.class_is_a(&lhs_class, class);
-        let word = value::PolyValue::bool(is).raw() as i64;
-        let v = self.builder.ins().iconst(types::I64, word);
-        Ok(Val::tagged_kind(v, JsKind::Bool))
+            matches = self.builder.ins().bor(matches, eq);
+        }
+
+        // result = is_object && shapeId ∈ accepting (i8 0/1, Repr::Bool).
+        let result = self.builder.ins().band(is_object, matches);
+        Ok(Val::new(result, crate::repr::Repr::Bool))
     }
 
     /// Whether `derived` IS `base` or transitively extends it (walking `parent`),

@@ -69,6 +69,24 @@ pub fn intern_global_shape(keys: &[String]) -> GlobalShapeId {
     id
 }
 
+/// Mint a GLOBALLY-UNIQUE shape id for ONE user `class` declaration, registering
+/// its ordered `keys` for [`global_shape_keys`] (inspect). Unlike
+/// [`intern_global_shape`], this NEVER de-duplicates by keys: two distinct
+/// classes with the SAME field layout (`class A {}` / `class B {}`) get
+/// DIFFERENT ids, so the id stored in slot 0 is a sound per-class runtime
+/// identity (used by `x instanceof C` on an opaque value). The key list is still
+/// recorded — identical key lists simply map to multiple ids in `keys`, which is
+/// fine for inspect (id → keys stays a function).
+pub fn intern_class_shape(keys: &[String]) -> GlobalShapeId {
+    let mut reg = registry().lock().expect("global shape registry poisoned");
+    let id = reg.keys.len() as GlobalShapeId;
+    reg.keys.push(keys.to_vec());
+    // Seed `by_keys` only if this key-sequence has no id yet, so object literals
+    // interning the same keys later still find a stable (first) id.
+    reg.by_keys.entry(keys.to_vec()).or_insert(id);
+    id
+}
+
 /// The ordered keys of a [`GlobalShapeId`], or `None` if the id was never
 /// interned (a codegen bug — the runtime stored an id this process did not mint).
 /// The inspect trampoline calls this to render `{ k0: v0, … }`.

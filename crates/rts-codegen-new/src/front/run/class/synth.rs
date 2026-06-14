@@ -121,7 +121,9 @@ pub(super) fn build_class(
             fields.push(f.clone());
         }
     }
-    let global_shape = crate::shape::intern_global_shape(&fields);
+    // A UNIQUE per-class id (not key-deduped): two distinct classes with the same
+    // fields must be distinguishable at runtime for `opaque instanceof C`.
+    let global_shape = crate::shape::intern_class_shape(&fields);
 
     // --- FLATTENED array-typed fields: parent's set, then own array fields ---
     // A field is PROVEN to hold an array when its declaration initializer is an
