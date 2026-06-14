@@ -12,6 +12,8 @@ use crate::abi::{AbiType, MemberFlags, MemberKind};
 #[derive(Debug, Default)]
 pub struct Engine {
     registry: Registry,
+    /// Embedded TypeScript stdlib sources (see [`Engine::include`]).
+    includes: Vec<String>,
 }
 
 impl Engine {
@@ -29,6 +31,8 @@ impl Engine {
             name: name.to_string(),
             doc: String::new(),
             members: Vec::new(),
+            private: false,
+            load_order: 0,
         }
     }
 
@@ -53,13 +57,21 @@ impl Engine {
         GlobalBuilder { engine: self }
     }
 
+    /// Embed a TypeScript stdlib source compiled as a PRELUDE ahead of the user
+    /// program by the new engine (its top-level classes/functions become ambient,
+    /// shadowing natives). Declarations-only.
+    pub fn include(&mut self, src: &str) {
+        self.includes.push(src.to_string());
+    }
+
     /// O registry montado — o que o codegen lê.
     pub fn registry(&self) -> &Registry {
         &self.registry
     }
 
     /// Consome o motor, devolvendo o registry (para mover para um `OnceLock`).
-    pub fn into_registry(self) -> Registry {
+    pub fn into_registry(mut self) -> Registry {
+        self.registry.includes = self.includes;
         self.registry
     }
 }
@@ -102,12 +114,30 @@ pub struct ModuleBuilder<'e> {
     name: String,
     doc: String,
     members: Vec<Member>,
+    private: bool,
+    load_order: i32,
 }
 
 impl ModuleBuilder<'_> {
     /// Resumo do módulo.
     pub fn doc(mut self, doc: &str) -> Self {
         self.doc = doc.to_string();
+        self
+    }
+
+    /// Mark this namespace PRIVATE: its symbols are usable by embedded stdlib TS
+    /// (engine includes) but are NOT exposed to the final user program. (Visibility
+    /// enforcement is applied by the import resolver — a later increment; the flag
+    /// is recorded here.)
+    pub fn private(mut self) -> Self {
+        self.private = true;
+        self
+    }
+
+    /// Load-order preference for this namespace (higher loads earlier). Lets
+    /// embedded stdlib that depends on another namespace order its load. Default 0.
+    pub fn order(mut self, n: i32) -> Self {
+        self.load_order = n;
         self
     }
 
@@ -198,6 +228,8 @@ impl ModuleBuilder<'_> {
             name: self.name,
             doc: self.doc,
             members: self.members,
+            private: self.private,
+            load_order: self.load_order,
         });
     }
 }
@@ -309,5 +341,26 @@ fn ts_of(ty: AbiType) -> &'static str {
         AbiType::StrPtr => "string",
         AbiType::Void => "void",
         _ => "number",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn engine_include_and_ns_flags_roundtrip() {
+        let mut e = Engine::new();
+        e.include("class Foo {}");
+        e.ns("secret").private().order(5).done();
+        e.ns("pub_ns").done();
+        let reg = e.into_registry();
+        assert_eq!(reg.includes(), &["class Foo {}".to_string()]);
+        let secret = reg.module("rts:secret").expect("secret ns");
+        assert!(secret.private);
+        assert_eq!(secret.load_order, 5);
+        let pubm = reg.module("rts:pub_ns").expect("pub ns");
+        assert!(!pubm.private);
+        assert_eq!(pubm.load_order, 0);
     }
 }

@@ -73,10 +73,24 @@ use super::error::{FrontResult, Unsupported};
 /// - a parse error (returned as an `Unsupported` wrapping the message), or
 /// - any construct outside the implemented subset (an explicit `Unsupported`).
 pub fn run_source(src: &str) -> FrontResult<()> {
-    let prog = build_program(src)?;
+    let prog = build_with_includes(src)?;
     let program = module_jit::compile_program(&prog)?;
     program.run_main();
     Ok(())
+}
+
+/// Build `src` with the embedded stdlib `include`s (if any) prepended as a
+/// declarations-only prelude via [`merge_programs`]. With NO includes registered
+/// this is exactly [`build_program`] — zero behavior change.
+fn build_with_includes(src: &str) -> FrontResult<LoweredProgram> {
+    let inc = registry::includes_prelude();
+    if inc.is_empty() {
+        build_program(src)
+    } else {
+        let prelude = build_program(&inc)?;
+        let user = build_program(src)?;
+        merge_programs(prelude, user)
+    }
 }
 
 /// Parse, lower, JIT, and run `src` with `console.log` output CAPTURED into a
@@ -89,7 +103,7 @@ pub fn run_source(src: &str) -> FrontResult<()> {
 /// final write target differs. Used by the in-process unit tests; for true
 /// end-to-end stdout use [`run_source`] + the bun fixture harness.
 pub fn render_source(src: &str) -> FrontResult<String> {
-    let prog = build_program(src)?;
+    let prog = build_with_includes(src)?;
     let program = module_jit::compile_program(&prog)?;
     let ((), out) = crate::value::abi_adapter::with_capture(|| program.run_main());
     Ok(out)

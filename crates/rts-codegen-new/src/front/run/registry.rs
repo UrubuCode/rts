@@ -83,6 +83,12 @@ fn registry() -> &'static Registry {
     REG.get_or_init(|| Box::leak(Box::new(build_registry())))
 }
 
+/// The embedded stdlib TS sources (engine `include`s), concatenated as one
+/// declarations-only prelude string. Empty when nothing is embedded.
+pub fn includes_prelude() -> String {
+    registry().includes().join("\n")
+}
+
 /// Build a [`ResolvedCall`] from a resolved [`Member`], treating it as an
 /// instance method (the receiver is `args[0]`).
 fn instance_call(m: &'static Member) -> ResolvedCall {

@@ -18,6 +18,14 @@ pub struct Module {
     pub doc: String,
     /// Membros: funções, constantes, variáveis.
     pub members: Vec<Member>,
+    /// PRIVATE namespace: its symbols are usable by embedded stdlib TS (engine
+    /// includes) but are NOT exposed to the final user program. Visibility
+    /// enforcement is applied by the import resolver (a later increment); the
+    /// flag is recorded here.
+    pub private: bool,
+    /// Load-order preference (higher loads earlier). Lets embedded stdlib that
+    /// depends on another namespace order its load. Default 0.
+    pub load_order: i32,
 }
 
 /// Uma classe global (`new Date()`, `d.getFullYear()`) — sem import.
@@ -92,6 +100,9 @@ pub struct Registry {
     /// `symbol -> fn_ptr` de TODO membro com extern — substitui a lista
     /// `add_fn!` do JIT. O loader injeta isto em `JITBuilder::symbol`.
     jit_symbols: HashMap<String, FnPtr>,
+    /// Embedded TypeScript stdlib sources (engine `include`s), compiled as a
+    /// PRELUDE ahead of the user program by the new engine.
+    pub(crate) includes: Vec<String>,
 }
 
 impl Registry {
@@ -120,6 +131,11 @@ impl Registry {
     /// Resolve um membro de escopo global (bare ident).
     pub fn global(&self, name: &str) -> Option<&Member> {
         self.globals.get(name)
+    }
+
+    /// The embedded TS stdlib sources (engine `include`s), in registration order.
+    pub fn includes(&self) -> &[String] {
+        &self.includes
     }
 
     /// Resolve o ponteiro nativo de um símbolo (para registrar no JIT).
