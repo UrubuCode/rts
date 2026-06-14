@@ -13,7 +13,7 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_module::{Linkage, Module};
 use swc_ecma_ast::Stmt;
 
-use super::super::ctx::{ClassMeta, FnCtx, GlobalVar, UserFnAbi, ValTy};
+use super::super::ctx::{ClassMeta, FnCtx, GlobalVar, InlineCandidate, UserFnAbi, ValTy};
 use super::super::statements::lower_stmt;
 use super::util::collect_var_decls;
 
@@ -32,6 +32,7 @@ pub(crate) fn compile_main(
     fn_class_returns: &HashMap<String, String>,
     node_import_map: &HashMap<String, String>,
     local_alias_map: &HashMap<String, String>,
+    inline_bodies: &HashMap<String, InlineCandidate>,
     stmts: &[&Stmt],
     warnings: &mut Vec<String>,
 ) -> Result<()> {
@@ -66,6 +67,7 @@ pub(crate) fn compile_main(
             fn_class_returns,
             node_import_map,
             local_alias_map,
+            inline_bodies,
             true,
         );
 

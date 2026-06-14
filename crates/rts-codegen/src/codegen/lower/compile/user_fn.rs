@@ -15,7 +15,7 @@ use cranelift_module::Module;
 
 use crate::parser::ast::{FunctionDecl, Statement};
 
-use super::super::ctx::{ClassMeta, FnCtx, GlobalVar, UserFnAbi, ValTy};
+use super::super::ctx::{ClassMeta, FnCtx, GlobalVar, InlineCandidate, UserFnAbi, ValTy};
 use super::super::statements::lower_stmt;
 use super::class::class_init_name;
 use super::mir_route::try_compile_via_mir;
@@ -47,6 +47,7 @@ pub(crate) fn compile_user_fn(
     fn_class_returns: &HashMap<String, String>,
     node_import_map: &HashMap<String, String>,
     local_alias_map: &HashMap<String, String>,
+    inline_bodies: &HashMap<String, InlineCandidate>,
     fn_decl: &FunctionDecl,
     info: &UserFn,
     current_class: Option<String>,
@@ -132,6 +133,7 @@ pub(crate) fn compile_user_fn(
             fn_class_returns,
             node_import_map,
             local_alias_map,
+            inline_bodies,
             false,
         );
         fn_ctx.return_ty = info.ret;

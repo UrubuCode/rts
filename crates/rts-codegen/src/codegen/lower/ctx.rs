@@ -159,6 +159,36 @@ impl ValTy {
     }
 }
 
+/// (RTS_INLINE_AST) Corpo elegivel de uma user fn pequena, pre-coletado em
+/// `compile_program` para inline no call-site. O `body` e' CLONADO do
+/// `FunctionDecl` (Statement e' Clone) para nao prender o emprestimo do AST
+/// no FnCtx. So' fns que passam em `inline_eligible` aparecem aqui.
+#[derive(Debug, Clone)]
+pub struct InlineCandidate {
+    /// (nome_param, tipo) na ordem declarada. Aridade <= MAX_INLINE_ARITY.
+    pub params: Vec<(String, ValTy)>,
+    /// Tipo de retorno (numerico) — usado pra criar a result_var.
+    pub ret: ValTy,
+    /// Corpo clonado da fn (statements). Re-lowered no call-site.
+    pub body: Vec<crate::parser::ast::Statement>,
+    /// Custo aproximado (nos AST) — usado no gate de budget (diagnostico).
+    pub cost: usize,
+}
+
+/// (RTS_INLINE_AST) Frame de um inline em andamento. Empilhado em
+/// `inline_stack` antes de lower o corpo clonado; `lower_return_stmt`
+/// consulta o topo para redirecionar `return` para um `def_var`+`jump` ao
+/// `join_block` em vez de emitir `return_`. Copy (tudo handle leve).
+#[derive(Debug, Clone, Copy)]
+pub struct InlineFrame {
+    /// Variable que recebe o valor de retorno do callee inlinado.
+    pub result_var: Variable,
+    /// Tipo de retorno do callee (coerce do `return <expr>` para ele).
+    pub ret_ty: ValTy,
+    /// Bloco de juncao para onde todos os `return` do callee saltam.
+    pub join_block: Block,
+}
+
 /// A typed Cranelift value.
 #[derive(Debug, Clone, Copy)]
 pub struct TypedVal {
@@ -630,6 +660,17 @@ pub struct FnCtx<'m, 'fb> {
     /// True quando codegen emitiu push_frame no entry — pop_frame deve ser
     /// emitido antes de cada `return_` nesta função.
     pub trace_instrumented: bool,
+
+    /// (RTS_INLINE_AST) Corpos de user fns pequenas elegiveis a inline no
+    /// call-site. Pre-coletado em `compile_program` (mesma fonte que
+    /// `user_fns`). Vazio quando o inline esta desligado (`RTS_INLINE_AST=0`).
+    pub inline_bodies: &'fb HashMap<String, InlineCandidate>,
+    /// (RTS_INLINE_AST) Pilha de frames de inline em andamento. `lower_return_
+    /// stmt` olha o topo para redirecionar `return` ao join_block do inline.
+    pub inline_stack: Vec<InlineFrame>,
+    /// (RTS_INLINE_AST) Profundidade de inline transitiva (a()->b()->c()).
+    /// Limitada por MAX_INLINE_DEPTH para conter code bloat / recursao mutua.
+    pub inline_depth: usize,
 }
 
 impl<'m, 'fb> FnCtx<'m, 'fb> {
@@ -650,6 +691,7 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         fn_class_returns: &'fb HashMap<String, String>,
         node_import_map: &'fb HashMap<String, String>,
         local_alias_map: &'fb HashMap<String, String>,
+        inline_bodies: &'fb HashMap<String, InlineCandidate>,
         module_scope: bool,
     ) -> Self {
         Self {
@@ -715,6 +757,9 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             current_fn_name: String::new(),
             current_file: String::new(),
             trace_instrumented: false,
+            inline_bodies,
+            inline_stack: Vec::new(),
+            inline_depth: 0,
         }
     }
 
