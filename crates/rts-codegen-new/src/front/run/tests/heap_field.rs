@@ -210,3 +210,25 @@ fn rest_param_constructor() {
         "10\n",
     );
 }
+
+#[test]
+fn nullish_coalescing() {
+    // `??` short-circuits on nullish, NOT falsy: `undefined ?? 7` → 7, but
+    // `3 ?? 7` → 3 (a present value wins, and `0` below also wins — `0` is falsy
+    // but NOT nullish). Literal operands keep their Tagged repr through `box_value`.
+    assert_stdout(
+        r#"let u = undefined;
+           console.log(u ?? 7, 3 ?? 7);"#,
+        "7 3\n",
+    );
+}
+
+#[test]
+fn nullish_coalescing_not_falsy() {
+    // `0 ?? 99` must yield `0` — `??` tests nullish, not truthiness.
+    assert_stdout(
+        r#"console.log(0 ?? 99);
+           console.log(undefined ?? "fallback");"#,
+        "0\nfallback\n",
+    );
+}

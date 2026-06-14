@@ -44,6 +44,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return self.lower_logical(module, op, lhs, rhs);
         }
 
+        // `a ?? b` (nullish coalescing): short-circuit — evaluate `a`; if it is
+        // `null`/`undefined` evaluate and yield `b`, otherwise yield `a` (and `b`
+        // is NEVER evaluated). Mirrors the optional-chain block structure.
+        if matches!(op, HirBinOp::NullCoalesce) {
+            return self.lower_nullish_coalesce(module, lhs, rhs);
+        }
+
         // `x instanceof C` (P5.3). swc collapses `instanceof`/`in`/etc onto
         // `HirBinOp::Unsupported`; we only treat it as instanceof when the RHS is a
         // bare identifier naming a class the engine can check (a user class, or a
@@ -398,6 +405,62 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             _ => return unsupported!("logical op {op:?}"),
         };
         Ok(Val::new(v, Repr::Bool))
+    }
+
+    /// Nullish coalescing `a ?? b` — short-circuit: lower `a`; if its boxed word
+    /// is the `null` OR `undefined` singleton, lower and yield `b`, otherwise
+    /// carry `a`. `b` is evaluated ONLY on the nullish branch (true JS
+    /// short-circuit). Mirrors the optional-chain block structure
+    /// ([`super::optchain_lower`]): a `brif` to a `b`-block vs an `a`-carry block,
+    /// merged through a continuation block param holding the result word. The
+    /// result is `Tagged`/`Unknown` since `a` and `b` may differ in type.
+    fn lower_nullish_coalesce(
+        &mut self,
+        module: &mut dyn Module,
+        lhs: &HirExpr,
+        rhs: &HirExpr,
+    ) -> FrontResult<Val> {
+        let a = self.lower_expr(module, lhs)?;
+        let a_word = self.box_value(a);
+
+        // `a` is nullish iff its word equals the `null` OR `undefined` singleton.
+        let null_w = self
+            .builder
+            .ins()
+            .iconst(types::I64, value::PolyValue::null().raw() as i64);
+        let undef_w = self
+            .builder
+            .ins()
+            .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
+        let is_null = self.builder.ins().icmp(IntCC::Equal, a_word, null_w);
+        let is_undef = self.builder.ins().icmp(IntCC::Equal, a_word, undef_w);
+        let nullish = self.builder.ins().bor(is_null, is_undef);
+
+        let rhs_blk = self.builder.create_block();
+        let carry_blk = self.builder.create_block();
+        let join_blk = self.builder.create_block();
+        self.builder.append_block_param(join_blk, types::I64);
+
+        self.builder
+            .ins()
+            .brif(nullish, rhs_blk, &[], carry_blk, &[]);
+
+        // nullish → evaluate `b` and yield it.
+        self.builder.switch_to_block(rhs_blk);
+        self.builder.seal_block(rhs_blk);
+        let b = self.lower_expr(module, rhs)?;
+        let b_word = self.box_value(b);
+        self.builder.ins().jump(join_blk, &[b_word.into()]);
+
+        // present → carry `a` (`a_word` dominates this block; `b` is never reached).
+        self.builder.switch_to_block(carry_blk);
+        self.builder.seal_block(carry_blk);
+        self.builder.ins().jump(join_blk, &[a_word.into()]);
+
+        self.builder.switch_to_block(join_blk);
+        self.builder.seal_block(join_blk);
+        let result = self.builder.block_params(join_blk)[0];
+        Ok(Val { v: result, repr: Repr::Tagged, kind: JsKind::Unknown })
     }
 }
 
