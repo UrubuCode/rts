@@ -56,6 +56,7 @@ mod synth;
 mod walk;
 
 pub(crate) use litshape::{build_literal_class, ident_param_name, LitMethod};
+pub(crate) use walk::{body_uses_raw_this, rewrite_this_block};
 
 /// The implicit receiver parameter name bound to a0 in every constructor/method.
 pub(crate) const THIS: &str = "this";

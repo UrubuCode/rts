@@ -149,10 +149,89 @@ fn expr_uses_this(e: &HirExpr) -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// PRE-rewrite `this` detection: scan a NOT-yet-rewritten body for swc's
+// `Raw("This(…)")` node. Used by the free-function `this`-transform (Phase 1) to
+// decide whether a top-level `function`/function-expression references `this`
+// and so needs a synthesized leading `this` param. Mirrors the `rewrite_this_*`
+// traversal exactly so it sees `this` everywhere the rewrite would change it.
+// ---------------------------------------------------------------------------
+
+/// Whether `stmts` (a NOT-yet-`this`-rewritten body) references `this` via swc's
+/// `Raw("This(…)")` node anywhere the [`rewrite_this_block`] traversal reaches.
+pub(crate) fn body_uses_raw_this(stmts: &[HirStmt]) -> bool {
+    stmts.iter().any(raw_this_stmt)
+}
+
+fn raw_this_stmt(s: &HirStmt) -> bool {
+    match s {
+        HirStmt::Expr(e) | HirStmt::Throw(e) => raw_this_expr(e),
+        HirStmt::Return(opt) => opt.as_ref().is_some_and(raw_this_expr),
+        HirStmt::Let { init, .. } => init.as_ref().is_some_and(raw_this_expr),
+        HirStmt::Const { init, .. } => raw_this_expr(init),
+        HirStmt::If { cond, then, else_ } => {
+            raw_this_expr(cond)
+                || then.iter().any(raw_this_stmt)
+                || else_.as_ref().is_some_and(|e| e.iter().any(raw_this_stmt))
+        }
+        HirStmt::While { cond, body } | HirStmt::DoWhile { cond, body } => {
+            raw_this_expr(cond) || body.iter().any(raw_this_stmt)
+        }
+        HirStmt::For { cond, update, body, .. } => {
+            cond.as_ref().is_some_and(raw_this_expr)
+                || update.as_ref().is_some_and(raw_this_expr)
+                || body.iter().any(raw_this_stmt)
+        }
+        HirStmt::ForOf { iterable, body, .. } => {
+            raw_this_expr(iterable) || body.iter().any(raw_this_stmt)
+        }
+        HirStmt::ForIn { object, body, .. } => {
+            raw_this_expr(object) || body.iter().any(raw_this_stmt)
+        }
+        HirStmt::Block(b) => b.iter().any(raw_this_stmt),
+        _ => false,
+    }
+}
+
+fn raw_this_expr(e: &HirExpr) -> bool {
+    if super::is_raw_this(e) {
+        return true;
+    }
+    match &e.kind {
+        HirExprKind::Bin { lhs, rhs, .. } => raw_this_expr(lhs) || raw_this_expr(rhs),
+        HirExprKind::Unary { operand, .. } => raw_this_expr(operand),
+        HirExprKind::Assign { target, value } | HirExprKind::AssignOp { target, value, .. } => {
+            raw_this_expr(target) || raw_this_expr(value)
+        }
+        HirExprKind::Call { callee, args } => {
+            raw_this_expr(callee) || args.iter().any(raw_this_expr)
+        }
+        HirExprKind::MethodCall { object, args, .. } => {
+            raw_this_expr(object) || args.iter().any(raw_this_expr)
+        }
+        HirExprKind::Member { object, .. } => raw_this_expr(object),
+        HirExprKind::Index { object, index } => raw_this_expr(object) || raw_this_expr(index),
+        HirExprKind::Ternary { cond, then, else_ } => {
+            raw_this_expr(cond) || raw_this_expr(then) || raw_this_expr(else_)
+        }
+        HirExprKind::Array(elems) => elems.iter().any(raw_this_expr),
+        HirExprKind::Object(fields) => fields.iter().any(|(_, v)| raw_this_expr(v)),
+        HirExprKind::Await(inner) | HirExprKind::Spread(inner) | HirExprKind::Cast { expr: inner, .. } => {
+            raw_this_expr(inner)
+        }
+        HirExprKind::PreInc(t) | HirExprKind::PreDec(t) | HirExprKind::PostInc(t) | HirExprKind::PostDec(t) => {
+            raw_this_expr(t)
+        }
+        HirExprKind::Seq(items) => items.iter().any(raw_this_expr),
+        HirExprKind::New { args, .. } => args.iter().any(raw_this_expr),
+        _ => false,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // `this` rewriting: swc lowers `this` to a Raw node; turn each into Ident("this").
 // ---------------------------------------------------------------------------
 
-pub(super) fn rewrite_this_block(stmts: &mut [HirStmt]) {
+pub(crate) fn rewrite_this_block(stmts: &mut [HirStmt]) {
     for s in stmts {
         rewrite_this_stmt(s);
     }

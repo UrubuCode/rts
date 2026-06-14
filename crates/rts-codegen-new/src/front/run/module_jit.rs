@@ -81,7 +81,17 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
     // 1. Freeze every signature (user funcs by their HIR types; main is void).
     let mut sigs: HashMap<String, FnSig> = HashMap::new();
     for f in funcs {
-        sigs.insert(f.name.clone(), FnSig::of_func(f));
+        let mut sig = FnSig::of_func(f);
+        // `has_this` (set by `of_func` for any `this`-first fn) drives the PLAIN-call
+        // `F(args)` undefined-receiver prepend — which is a FREE-function Phase 1
+        // behavior. A CLASS ctor/method (in `fn_this_class`) ALSO has a `this`-first
+        // param but binds/receives `this` through the class machinery (`new`, method
+        // dispatch, and the explicit `this` arg of a forwarding `super(...)` call),
+        // so it must NOT also get an undefined receiver. Clear the flag for class fns.
+        if fn_this_class.contains_key(&f.name) {
+            sig.has_this = false;
+        }
+        sigs.insert(f.name.clone(), sig);
     }
     let main_sig = FnSig::main_sig();
 

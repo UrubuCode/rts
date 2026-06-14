@@ -157,6 +157,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 "async/generator function `{name}` as a VALUE (it returns a Promise / suspends — a later increment)"
             );
         }
+        // Phase 1: a free function with a synthesized `this` (`params[0]`) is not yet
+        // reifiable as a VALUE — the uniform-ABI thunk fills `params[0]` from `a0`
+        // (the first user arg), shifting every arg by one. The DIRECT call path
+        // (`F(args)`) handles the implicit receiver; the value path is a later
+        // increment. Bail explicitly rather than mis-bind the receiver.
+        if sig.has_this {
+            return unsupported!(
+                "free function `{name}` that uses `this` as a VALUE (direct calls work; value-invoke is a later increment)"
+            );
+        }
         // The captured-var list (if `name` is a closure) — clone to drop the borrow
         // on `self` before lowering the env snapshot.
         let capture_names: Vec<String> = self.captures.get(name).cloned().unwrap_or_default();
@@ -534,6 +544,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if sig.rest_param.is_none() {
             if args.len() == 1 {
                 if let HirExprKind::Spread(inner) = &args[0].kind {
+                    // The `f(...arr)` fast path unpacks into NATIVE params and does not
+                    // model the implicit `this` slot of a Phase-1 free-`this` function.
+                    // Bail that rare combo rather than mis-marshal (the receiver slot).
+                    if sig.has_this {
+                        return unsupported!(
+                            "spread call `{}(...)` to a `this`-using free function (later increment)",
+                            sig.name
+                        );
+                    }
                     return self.lower_user_call_spread(module, sig, inner);
                 }
             }
@@ -547,7 +566,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 );
             }
         }
-        let lowered = self.marshal_call_args(module, sig, None, args)?;
+        // A free function with a synthesized `this` (Phase 1): a PLAIN call passes
+        // `undefined` as the receiver (`params[0]`); the user args fill `params[1..]`.
+        // `marshal_call_args` already routes a `Some(this_word)` into `params[0]` and
+        // checks arity against the remaining user params.
+        let this_word = if sig.has_this {
+            Some(
+                self.builder
+                    .ins()
+                    .iconst(types::I64, value::PolyValue::undefined().raw() as i64),
+            )
+        } else {
+            None
+        };
+        let lowered = self.marshal_call_args(module, sig, this_word, args)?;
         self.emit_user_call(module, sig, &lowered)
     }
 

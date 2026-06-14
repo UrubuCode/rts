@@ -47,6 +47,13 @@ pub struct FnSig {
     /// param is always carried `Tagged` (it can hold `undefined` / a default of any
     /// type), set in [`Self::of_func`].
     pub fillable: Vec<bool>,
+    /// True when the function carries a synthesized leading `this` parameter
+    /// (`params[0]`) that is NOT a class receiver — a FREE function (top-level
+    /// `function F(){…}` or a `function` expression) whose body references `this`.
+    /// A class method/constructor binds `this` via `this_class` and is NOT marked
+    /// here. A PLAIN call `F(args)` to a `has_this` function prepends `undefined`
+    /// as the receiver (Phase 1; `new F()` passing a real instance is Phase 2).
+    pub has_this: bool,
 }
 
 impl FnSig {
@@ -86,6 +93,15 @@ impl FnSig {
             Some(p) if p.variadic => Some(func.params.len() - 1),
             _ => None,
         };
+        // `has_this`: the function carries a synthesized leading `this` param
+        // (`params[0].name == "this"`). This is true for class methods/constructors
+        // AND for a FREE function whose body referenced `this` (the Phase 1 transform
+        // prepends the same param). `of_func` cannot tell the two apart by the param
+        // alone, so it sets the flag for BOTH; `compile_program` then CLEARS it for
+        // class fns (those in `fn_this_class`), because the flag's consumer — the
+        // plain direct-call `F(args)` undefined-receiver prepend — is a free-function
+        // behavior (a class super-ctor call passes `this` explicitly in its args).
+        let has_this = func.params.first().is_some_and(|p| p.name == "this");
         debug_assert!(
             func.params.iter().rev().skip(1).all(|p| !p.variadic),
             "non-last variadic parameter in `{}` (invalid TS)",
@@ -103,6 +119,7 @@ impl FnSig {
                 is_async: func.is_async,
                 rest_param,
                 fillable,
+                has_this,
             };
         }
         // The declared return repr — trusted in general (an explicit `boolean` /
@@ -139,12 +156,12 @@ impl FnSig {
         if ret != Repr::Tagged && func.params.iter().any(|p| repr_for_param(&p.ty) == Repr::Tagged) {
             ret = Repr::Tagged;
         }
-        FnSig { name: func.name.clone(), params, ret: Some(ret), is_async: func.is_async, rest_param, fillable }
+        FnSig { name: func.name.clone(), params, ret: Some(ret), is_async: func.is_async, rest_param, fillable, has_this }
     }
 
     /// The synthesized top-level `__rtsn_main`: no params, no return.
     pub fn main_sig() -> FnSig {
-        FnSig { name: "__rtsn_main".to_string(), params: Vec::new(), ret: None, is_async: false, rest_param: None, fillable: Vec::new() }
+        FnSig { name: "__rtsn_main".to_string(), params: Vec::new(), ret: None, is_async: false, rest_param: None, fillable: Vec::new(), has_this: false }
     }
 
     /// Build the Cranelift `Signature` for this function under the host call conv.

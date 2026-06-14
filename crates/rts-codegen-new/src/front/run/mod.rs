@@ -283,6 +283,18 @@ fn build_program(src: &str) -> FrontResult<LoweredProgram> {
     // while still in the main body).
     desugar::desugar_destructure(src, &program, &mut main.body, &mut funcs);
 
+    // Phase 1 — FREE function `this`. A top-level `function F(){…}` (or a hoisted
+    // `const F = function(){…}` — both reach `funcs` as `HirFunc`s) whose body
+    // references `this` gets a synthesized leading `this` param (param 0) and its
+    // `Raw("This")` nodes rewritten to `Ident("this")` (reusing the class
+    // `this`-rewrite). A PLAIN call `F(args)` then passes `undefined` as the
+    // receiver (see `lower_user_call`). Skips: class-synthesized ctors/methods
+    // (already in `fn_this_class`, already `this`-first and rewritten), any fn whose
+    // first param is already `this` (idempotent), and `async` fns (`this` in an
+    // async free fn is out of this increment — left to bail). `new F()` passing a
+    // real instance is PHASE 2.
+    transform_free_this(&mut funcs, &fn_this_class);
+
     // P4.6/P5.7: extract every inline arrow used as a value (an arg, a returned
     // arrow) into a fresh top-level function, rewriting the `Arrow` node to an
     // `Ident` of the synthesized name. A non-capturing arrow becomes a plain
@@ -292,4 +304,46 @@ fn build_program(src: &str) -> FrontResult<LoweredProgram> {
     funcs.extend(extracted.funcs);
 
     Ok(LoweredProgram { funcs, main, classes, fn_this_class, captures: extracted.captures })
+}
+
+/// Phase 1 free-function `this` transform: give every FREE function (a top-level
+/// `function`/function-expression) whose body references `this` a synthesized
+/// leading `this` parameter and rewrite its `Raw("This")` nodes to `Ident("this")`.
+///
+/// A function is SKIPPED when it is a class-synthesized ctor/method (its name is in
+/// `fn_this_class` — it already binds `this` via the class machinery), when its
+/// first param is already named `this` (idempotent / already transformed), or when
+/// it is `async` (a free `this` in an async fn is out of this increment and is left
+/// to bail at lowering). The rewrite REUSES the class `this`-rewrite so both paths
+/// share one traversal.
+///
+/// (Hoisted top-level arrows reach `funcs` as `HirFunc`s indistinguishable from
+/// real `function`s here; an arrow's `this` is lexically the enclosing scope's,
+/// which at top level is `undefined` — exactly the receiver a plain call passes —
+/// so the Phase 1 transform is observably correct for the top-level case. Nested
+/// arrows capturing a non-top-level `this` are a later increment.)
+fn transform_free_this(
+    funcs: &mut [HirFunc],
+    fn_this_class: &std::collections::HashMap<String, String>,
+) {
+    for f in funcs.iter_mut() {
+        if fn_this_class.contains_key(&f.name) {
+            continue; // class ctor/method — `this` bound via the class machinery.
+        }
+        if f.is_async {
+            continue; // async free `this` — out of this increment (bails at lowering).
+        }
+        if f.params.first().is_some_and(|p| p.name == class::THIS) {
+            continue; // already `this`-first (a class fn or already transformed).
+        }
+        if !class::body_uses_raw_this(&f.body) {
+            continue; // no `this` reference — unchanged (no `this` param).
+        }
+        // Prepend the synthesized `this` param (Tagged/opaque) and rewrite the body.
+        let mut params = Vec::with_capacity(f.params.len() + 1);
+        params.push(class::this_param());
+        params.extend(f.params.drain(..));
+        f.params = params;
+        class::rewrite_this_block(&mut f.body);
+    }
 }
