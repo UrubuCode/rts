@@ -36,8 +36,8 @@ use rts_runtime::namespaces::io as rt_io;
 use rts_runtime::namespaces::math as rt_math;
 
 use crate::value::{
-    abi_adapter, arraycb, arrayops, funcops, genops, genops_arith, globalops, inspect, mapset,
-    objops, wrappers,
+    abi_adapter, arraycb, arrayops, dyndispatch, funcops, genops, genops_arith, globalops, inspect,
+    mapset, objops, wrappers,
 };
 
 /// One installable JIT symbol: an extern "C" name and its function pointer. The
@@ -209,6 +209,26 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_is_map", wrappers::__rtsadp_is_map as *const u8),
         sym("__rtsadp_is_set", wrappers::__rtsadp_is_set as *const u8),
         sym("__rtsadp_is_error", wrappers::__rtsadp_is_error as *const u8),
+        // ---- codegen-owned DYNAMIC method dispatch (dyndispatch, P5.9) ----
+        sym("__rtsadp_dyn_to_string", dyndispatch::__rtsadp_dyn_to_string as *const u8),
+        sym("__rtsadp_dyn_length", dyndispatch::__rtsadp_dyn_length as *const u8),
+        sym("__rtsadp_dyn_index_of", dyndispatch::__rtsadp_dyn_index_of as *const u8),
+        sym("__rtsadp_dyn_includes", dyndispatch::__rtsadp_dyn_includes as *const u8),
+        sym("__rtsadp_dyn_at", dyndispatch::__rtsadp_dyn_at as *const u8),
+        sym("__rtsadp_dyn_slice", dyndispatch::__rtsadp_dyn_slice as *const u8),
+        sym("__rtsadp_dyn_concat", dyndispatch::__rtsadp_dyn_concat as *const u8),
+        sym("__rtsadp_dyn_join", dyndispatch::__rtsadp_dyn_join as *const u8),
+        sym("__rtsadp_dyn_push", dyndispatch::__rtsadp_dyn_push as *const u8),
+        sym("__rtsadp_dyn_pop", dyndispatch::__rtsadp_dyn_pop as *const u8),
+        sym("__rtsadp_dyn_char_at", dyndispatch::__rtsadp_dyn_char_at as *const u8),
+        sym("__rtsadp_dyn_char_code_at", dyndispatch::__rtsadp_dyn_char_code_at as *const u8),
+        sym("__rtsadp_dyn_to_upper_case", dyndispatch::__rtsadp_dyn_to_upper_case as *const u8),
+        sym("__rtsadp_dyn_to_lower_case", dyndispatch::__rtsadp_dyn_to_lower_case as *const u8),
+        sym("__rtsadp_dyn_trim", dyndispatch::__rtsadp_dyn_trim as *const u8),
+        sym("__rtsadp_dyn_split", dyndispatch::__rtsadp_dyn_split as *const u8),
+        sym("__rtsadp_dyn_starts_with", dyndispatch::__rtsadp_dyn_starts_with as *const u8),
+        sym("__rtsadp_dyn_ends_with", dyndispatch::__rtsadp_dyn_ends_with as *const u8),
+        sym("__rtsadp_dyn_repeat", dyndispatch::__rtsadp_dyn_repeat as *const u8),
     ];
     syms.extend(gl_method_symbols());
     syms.extend(math_number_symbols());

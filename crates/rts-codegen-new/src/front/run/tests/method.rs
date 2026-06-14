@@ -1,7 +1,8 @@
 //! Method-dispatch bail cases: callbacks, dynamic receiver, unsupported arity —
 //! the explicit `Unsupported` bails that keep dispatch from guessing.
 
-use super::{assert_bails, assert_stdout, run_source};
+use super::assert_bails;
+use super::assert_stdout;
 
 #[test]
 fn unknown_method_name_bails() {
@@ -11,11 +12,11 @@ fn unknown_method_name_bails() {
 }
 
 #[test]
-fn method_on_dynamic_receiver_bails() {
-    // A string method on a VARIABLE (kind Unknown — class not statically proven)
-    // bails: dynamic receiver-kind dispatch is a later increment.
-    let res = run_source(r#"let s = "hi"; console.log(s.toUpperCase());"#);
-    assert!(res.is_err(), "dynamic-receiver method must bail, got {res:?}");
+fn method_on_dynamic_receiver_now_dispatches() {
+    // P5.9: a string method on a VARIABLE (kind Unknown — class not statically
+    // proven) now dispatches on the receiver's PolyValue tag AT RUNTIME, instead
+    // of bailing. `s.toUpperCase()` with `s = "hi"` → "HI".
+    assert_stdout(r#"let s = "hi"; console.log(s.toUpperCase());"#, "HI\n");
 }
 
 #[test]

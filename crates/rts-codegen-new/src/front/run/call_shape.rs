@@ -6,9 +6,57 @@
 use rts_hir::ir::HirExprKind;
 use rts_hir::HirExpr;
 
+use crate::repr::Repr;
+
 use super::lower::{HeapShape, Lowerer};
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
+    /// Whether `object.length` should dispatch DYNAMICALLY (P5.9): the receiver is
+    /// a Tagged value of UNPROVEN heap shape (a param, a call/method-call return),
+    /// for which `.length` is read at runtime via `__rtsadp_dyn_length`. A receiver
+    /// with a PROVEN shape (an array literal local, an object local) is excluded —
+    /// it keeps the faster static `VEC_LEN` / shape path above. A non-Tagged
+    /// (proven-numeric/bool) receiver is excluded too (`.length` on a number reads
+    /// `undefined` in JS, but the corpus does not need it and the static path bails
+    /// it, so we do not perturb that).
+    pub(super) fn is_dynamic_length_receiver(&self, object: &HirExpr) -> bool {
+        match &object.kind {
+            // An identifier bound to a Tagged local WITHOUT a proven heap shape
+            // (a param, a re-`let` opaque local). A shaped local / object local is
+            // handled by the static path; a numeric/bool local is not Tagged.
+            HirExprKind::Ident(name) => {
+                self.local(name).is_some_and(|l| matches!(l.repr, Repr::Tagged))
+                    && self.local_shapes.get(name).is_none()
+                    && !self.object_locals.contains(name)
+            }
+            // A USER-FUNCTION call result (`mk().length`) is an opaque value →
+            // dispatch its `.length` at runtime. Restricted to a bare-identifier
+            // callee: a `Member` callee (`Array.from(..)`/`String.x(..)`) may return
+            // an unsupported-source SENTINEL whose `.length` must BAIL, not read
+            // `undefined` — so those keep the static path's bail.
+            HirExprKind::Call { callee, .. } => matches!(callee.kind, HirExprKind::Ident(_)),
+            // A real INSTANCE method-call result (`s.split(",").length`,
+            // `a.map(..).length`) is a genuine array/string value → dispatch its
+            // `.length` at runtime. A GLOBAL-CLASS STATIC (`Array.from(..)`,
+            // `Array.of(..)`, `String.x(..)`, `Object.x(..)`) is EXCLUDED — it may
+            // return an unsupported-source sentinel whose `.length` must bail.
+            HirExprKind::MethodCall { object, .. } => !self.is_global_class_static_recv(object),
+            _ => false,
+        }
+    }
+
+    /// Whether `recv` is a bare GLOBAL-CLASS identifier used as a STATIC receiver
+    /// (`Array`/`String`/`Object`/`Number`/`Math`), not shadowed by a local or a
+    /// user class. A method call on such a receiver is a static (`Array.from`,
+    /// `String.fromCharCode`, …) whose result may be an unsupported-source sentinel
+    /// — so its `.length` must keep the static path's bail, not read `undefined`.
+    fn is_global_class_static_recv(&self, recv: &HirExpr) -> bool {
+        matches!(&recv.kind, HirExprKind::Ident(n)
+            if matches!(n.as_str(), "Array" | "String" | "Object" | "Number" | "Math")
+                && self.local(n).is_none()
+                && self.classes.get(n).is_none())
+    }
+
     /// Whether `e` evaluates to a WHOLE OBJECT value (object literal, or an
     /// identifier bound to a local of proven OBJECT shape). Object inspect needs
     /// runtime key recovery (a later increment) — these BAIL.

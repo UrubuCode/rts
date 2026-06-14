@@ -165,6 +165,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 return self.lower_dynamic_get(module, name, prop);
             }
         }
+        // ---- DYNAMIC `.length` (P5.9): the receiver is a Tagged value of unproven
+        // shape (a param / call return / re-`let` local). `.length` is defined on
+        // strings (length) and arrays (element count); dispatch on the receiver's
+        // PolyValue tag AT RUNTIME via `__rtsadp_dyn_length` (any other tag reads
+        // `undefined`, the JS-correct missing-property result). Only `.length` is
+        // routed here — other dynamic property reads keep their existing bail. ----
+        if prop == "length" && self.is_dynamic_length_receiver(object) {
+            let recv = self.lower_expr(module, object)?;
+            let recv_word = self.box_value(recv);
+            let word = self
+                .call_runtime(module, "__rtsadp_dyn_length", &[recv_word])?
+                .expect("__rtsadp_dyn_length returns a value");
+            // The result is a number PolyValue word (or undefined); kind Number so
+            // it ToStrings / arithmetics as a number.
+            return Ok(Val::new_with_kind(word, Repr::Tagged, JsKind::Number));
+        }
         let (name, shape) = self.shaped_object(object)?;
         match shape {
             HeapShape::Object(shape_id) => {

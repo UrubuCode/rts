@@ -125,6 +125,11 @@ pub mod objops;
 // Codegen-owned Error-family + Boolean/Number/String wrapper constructors, Error
 // instance props, and `instanceof` runtime tags (P5.3).
 pub mod wrappers;
+// Codegen-owned DYNAMIC (runtime) method-dispatch trampolines (P5.9):
+// `__rtsadp_dyn_*(recv_word, args)` branch on the receiver's PolyValue tag at
+// runtime and delegate to the per-class op — for `recv.method(args)` whose
+// receiver class is NOT statically proven (a Tagged param/return/local).
+pub mod dyndispatch;
 // The Cranelift IR that marshals at the real-symbol call boundaries
 // (box/unbox + StrPtr ptr+len).
 pub mod emit_marshal;

@@ -210,6 +210,25 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         "__rtsadp_map_clear" | "__rtsadp_map_size" | "__rtsadp_set_clear"
         | "__rtsadp_set_size" => SymSig { params: &[U64], ret: U64 },
 
+        // ---- codegen-owned DYNAMIC method dispatch (P5.9) ----
+        // Uniform PolyValue-word ABI: the receiver word + 0..2 PolyValue-word args,
+        // one PolyValue-word result. The trampoline branches on the receiver's tag
+        // at runtime and delegates to the per-class op; an unexpected tag returns
+        // the `undefined` word (sound — never a wrong value).
+        // 1-word (receiver only): toString/length/pop/toUpper/toLower/trim.
+        "__rtsadp_dyn_to_string" | "__rtsadp_dyn_length" | "__rtsadp_dyn_pop"
+        | "__rtsadp_dyn_to_upper_case" | "__rtsadp_dyn_to_lower_case"
+        | "__rtsadp_dyn_trim" => SymSig { params: &[U64], ret: U64 },
+        // 2-word (receiver + 1 arg): indexOf/includes/at/concat/join/push/charAt/
+        // charCodeAt/split/startsWith/endsWith/repeat.
+        "__rtsadp_dyn_index_of" | "__rtsadp_dyn_includes" | "__rtsadp_dyn_at"
+        | "__rtsadp_dyn_concat" | "__rtsadp_dyn_join" | "__rtsadp_dyn_push"
+        | "__rtsadp_dyn_char_at" | "__rtsadp_dyn_char_code_at" | "__rtsadp_dyn_split"
+        | "__rtsadp_dyn_starts_with" | "__rtsadp_dyn_ends_with"
+        | "__rtsadp_dyn_repeat" => SymSig { params: &[U64, U64], ret: U64 },
+        // 3-word (receiver + 2 args): slice(start, end).
+        "__rtsadp_dyn_slice" => SymSig { params: &[U64, U64, U64], ret: U64 },
+
         // ---- codegen-owned DYNAMIC property access (P5.5) ----
         // obj_get(obj_word, key_str_handle) -> PolyValue word; obj_set adds a
         // value-word param and returns the value word; obj_has returns a Bool

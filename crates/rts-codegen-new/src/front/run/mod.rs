@@ -36,6 +36,7 @@ mod globals;
 mod mathobj;
 mod method;
 mod method_array;
+mod method_dyn;
 pub mod module_jit;
 mod newexpr;
 mod obj;

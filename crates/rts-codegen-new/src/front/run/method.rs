@@ -96,6 +96,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
         let recv = self.lower_expr(module, object)?;
         let Some(class) = recv_class_of(recv) else {
+            // The receiver is a TAGGED value of unproven class (a param, a call
+            // return, a re-`let` local). When the METHOD NAME is known (P5.9),
+            // dispatch on the receiver's PolyValue tag AT RUNTIME via a
+            // `__rtsadp_dyn_*` trampoline. `Ok(None)` ⇒ the method is not
+            // dynamically dispatchable (the caller bails — never a guess).
+            if recv.repr == Repr::Tagged {
+                return self.try_method_dispatch_dynamic(module, recv, method, args);
+            }
             return Ok(None);
         };
 

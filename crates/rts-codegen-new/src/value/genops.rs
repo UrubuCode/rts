@@ -89,6 +89,13 @@ fn number_to_string(f: f64) -> String {
     abi_adapter::real_handle_to_string(handle)
 }
 
+/// JS `ToNumber` for a raw PolyValue word — re-exposed to the `value` siblings
+/// (the dynamic-dispatch trampolines) so numeric arg coercion is the SAME rule as
+/// `+`/`<`/…, not re-derived per call site.
+pub(crate) fn dyn_to_number(word: u64) -> f64 {
+    to_number(PolyValue::from_raw(word))
+}
+
 /// Is this PolyValue a JS number (either an inline double or a tagged int32)?
 pub(super) fn is_number(v: PolyValue) -> bool {
     v.is_double() || v.is_int32()
