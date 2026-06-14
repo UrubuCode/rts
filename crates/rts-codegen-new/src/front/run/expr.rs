@@ -39,10 +39,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirExprKind::AssignOp { op, target, value } => {
                 self.lower_assign_op(module, *op, target, value)
             }
-            HirExprKind::PreInc(t) => self.lower_incdec(t, true, true),
-            HirExprKind::PreDec(t) => self.lower_incdec(t, false, true),
-            HirExprKind::PostInc(t) => self.lower_incdec(t, true, false),
-            HirExprKind::PostDec(t) => self.lower_incdec(t, false, false),
+            HirExprKind::PreInc(t) => self.lower_incdec(module, t, true, true),
+            HirExprKind::PreDec(t) => self.lower_incdec(module, t, false, true),
+            HirExprKind::PostInc(t) => self.lower_incdec(module, t, true, false),
+            HirExprKind::PostDec(t) => self.lower_incdec(module, t, false, false),
             HirExprKind::Call { callee, args } => self.lower_call(module, callee, args),
             HirExprKind::MethodCall { object, method, args } => {
                 self.lower_method_call(module, object, method, args)

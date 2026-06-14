@@ -77,3 +77,4 @@ mod string_class;
 mod template;
 mod toprimitive;
 mod trycatch;
+mod update_tagged;

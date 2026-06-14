@@ -279,9 +279,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(Val::new(coerced, local.repr))
     }
 
-    /// `++x` / `x++` / `--x` / `x--` on a numeric local.
+    /// `++x` / `x++` / `--x` / `x--` on a local.
+    ///
+    /// For a proven numeric repr (`Int*`/`Float64`) this is a native add/sub.
+    /// For a `Tagged` local (e.g. a counter assigned from an `any` value) JS
+    /// semantics apply: `ToNumber(old)`, then `± 1`, store back, and produce
+    /// the OLD number (postfix) or the NEW number (prefix). The ToNumber and the
+    /// arithmetic reuse the same generic `__rtsadp_*` trampolines as `+`/`-`.
     pub(super) fn lower_incdec(
         &mut self,
+        module: &mut dyn Module,
         target: &HirExpr,
         inc: bool,
         prefix: bool,
@@ -291,6 +298,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .local(&name)
             .ok_or_else(|| Unsupported::new(format!("`++`/`--` on unbound `{name}`")))?;
         let old = self.builder.use_var(local.var);
+        if matches!(local.repr, Repr::Tagged) {
+            // ToNumber(old): a number PolyValue (boxed int32 or inline double).
+            let old_num = self
+                .call_runtime(module, "__rtsadp_pos", &[old])?
+                .expect("__rtsadp_pos returns a value");
+            // Box the literal `1` as a double PolyValue and add/sub generically.
+            let one_f64 = self.builder.ins().f64const(1.0);
+            let one_word = self.box_value(Val::new(one_f64, Repr::Float64));
+            let sym = if inc { "__rtsadp_add" } else { "__rtsadp_sub" };
+            let new_num = self
+                .call_runtime(module, sym, &[old_num, one_word])?
+                .expect("generic arithmetic returns a value");
+            self.builder.def_var(local.var, new_num);
+            let produced = if prefix { new_num } else { old_num };
+            return Ok(Val::new(produced, Repr::Tagged));
+        }
         let new = match local.repr {
             Repr::Int32 | Repr::Int64 => {
                 let one = self.builder.ins().iconst(types::I64, 1);
