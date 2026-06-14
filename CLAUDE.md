@@ -164,6 +164,34 @@ engine** — only metadata in the Registry.
   in rts-primitives/rts-shared/rts-std, and route `recv.method(args)` through
   `try_global_class_instance_method`.
 
+### The dividing line is NATIVE SYNTAX (new-engine clarification — binding)
+
+The practical rule for the new engine: **does the thing have a native literal /
+syntactic form?**
+
+- **Native syntax ⇒ PRIMITIVE ⇒ codegen-direct (rts-primitives).** Anything written
+  with native syntax is a primitive the engine handles directly (the impl lives in
+  `rts-primitives`, but the engine NAMES it and lowers its syntax): string literals
+  `""` (`String`), numbers `123` (`Number`), `true`/`false` (`Boolean`), array
+  literals `[]` (`Array`), object literals `{}` (`Object`), `function`/arrows
+  (`Function`), **regex literals `/re/` (`RegExp` — it HAS native syntax, so it is
+  native/primitive, NOT Registry)**, template literals, and `Error`+subclasses
+  (primordial). These interact directly with codegen.
+- **No native syntax ⇒ rts-shared UTILITY LIB ⇒ Registry, indirect.** The JS
+  utility libraries you reach via `new X()`/static calls with NO literal form:
+  `Date`, `Map`, `Set`, `WeakMap`/`WeakSet`, `JSON`, `URL`, `Math` (methods),
+  `Promise`, `Intl.*`, `Proxy`/`Reflect`, typed arrays, and all backend classes.
+  These resolve through the real `Registry` (`crates/rts-codegen-new/src/front/run/
+  registry.rs` builds it from `Engine::new()` + the `register`/`register_class_spec`
+  fns; `registry_call.rs` is the generic marshal-from-`AbiType` path) — the engine
+  NEVER reimplements them as codegen `__rtsadp_*` tables. `Date` is the reference
+  migration (done); `Map`/`Set` are the next to migrate.
+- **Reclassification vs the bullet above:** `RegExp` moves to the native/primitive
+  side (it has `/re/` syntax). The "Registry only" list still holds for the
+  no-native-syntax utilities. This refines, not contradicts, "no builtins in the
+  engine": a primitive's *implementation* still lives in `rts-primitives`; the
+  engine just has a more-direct lowering for its native syntax.
+
 ### How the redesign enforces this
 In the new engine the doctrine is no longer maintained by *draining* hardcoded
 arms one at a time (the old-engine grind). It is the default: every non-primordial

@@ -176,10 +176,21 @@ Monte Carlo ~5× Bun, AOT 16.9 ms. **NÃO TOCAR.** Este caminho é o produto.
 
 O motor nomeia *diretamente* APENAS as classes primordiais (`String`, `Object`,
 `Array`, `Function`, `Promise`, `Boolean`, `Number`, `Error` + subclasses).
-Todo o resto (`Map`/`Set`/`Date`/`RegExp`/`console`/`JSON`/`Math`/…) resolve via
-`try_global_class_instance_method` consultando os `SPECS` da ABI em tempo de
-compilação → **um único INVOKE genérico**. Correto e escalável. O redesenho
-**estende** isto para engolir a minoria hardcoded.
+Todo o resto resolve via a **Registry real** (`registry.rs` constrói de
+`Engine::new()` + as `register`/`register_class_spec` fns; `registry_call.rs` é o
+marshal genérico a partir dos `AbiType` do `Member`) → **um único INVOKE
+genérico**. Correto e escalável.
+
+**A linha divisória é SINTAXE NATIVA (clarificação binding do owner):**
+- **Sintaxe nativa ⇒ PRIMITIVO ⇒ codegen-direto (rts-primitives):** literais
+  `""`/`123`/`true`/`[]`/`{}`/função/**`/re/` (RegExp tem sintaxe nativa → é
+  primitivo, NÃO Registry)**/template, + `Error` (primordial). O motor nomeia +
+  lowera a sintaxe direto; impl em `rts-primitives`.
+- **Sem sintaxe nativa ⇒ lib utilitária rts-shared ⇒ Registry, indireto:**
+  `Date`/`Map`/`Set`/`WeakMap`/`JSON`/`URL`/`Math`/`Promise`/`Proxy`/typed-arrays/
+  backend — acessadas via `new X()`/estáticos, despachadas pela Registry, **nunca
+  reimplementadas como tabelas codegen `__rtsadp_*`**. `Date` é a migração
+  referência (feita); `Map`/`Set` são os próximos.
 
 ### 3.3 O instinto `ValTy`
 
