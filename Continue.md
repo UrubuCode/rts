@@ -65,23 +65,45 @@ Ver memória `project_ts_stdlib_direction`. Resumo da decisão:
   classes ambientes) + `engine.ns("engine", true)` (ns privada p/ imports nativos).
 
 ### Roadmap faseado (derisk: classe Map-like pura-TS bailava na FUNDAÇÃO, não em Map)
-1. **F1 ✅ FEITO** — acesso encadeado sobre campo-array (`this.field[i]` r/w,
-   `.length`, `.push/.pop`). `ClassDesc.field_arrays` (infere de initializer/ctor
-   array-literal) + `resolve_heap_receiver` (Ident + `Member(this, campo-array)`)
-   em `front/run/obj.rs`; `is_array_receiver` estendido em `method_array.rs`.
-   Testes: `front/run/tests/heap_field.rs` (MyMap puro-TS passa). 500 unit verdes,
-   harness 71/6 (sem regressão; F1 é infra, não fix de fixture).
-2. **F2 (PRÓXIMO)** — private fields `#`: parar de rejeitar em `class/mod.rs:261`
-   (+ método `:247`), tratar `#name` como slot normal de campo.
-3. **F3** — resto que `Array.ts` usa: spread `[...]`, default params, rest
-   `...items`, getters, `??`, union return, generics `<K,V>`.
-4. infra `include()` + ns privada.
-5. escrever `rts-primitives/src/*.ts` (Array/Map/Set wrappers) + Date via ns
-   privada; **deletar** `value/mapset.rs` + `class_meta` Map/Set + os trampolines
-   `__rtsadp_map_*/set_*` + `register_mapset_class_spec`.
+Tudo `rts-codegen-new` (fora do bin) → sem gate, EXCETO onde marcado. Testes em
+`front/run/tests/heap_field.rs`. 510 unit verdes ao fim do que está ✅.
 
-F1–F3 tocam SÓ `rts-codegen-new` (fora do bin) → sem gate. Só a fase 5 (deletar em
-rts-shared) precisa do gate.
+1. **F1 ✅** (`5b2137aa`) — acesso encadeado sobre campo-array (`this.field[i]`
+   r/w, `.length`, `.push/.pop`). `ClassDesc.field_arrays` + `resolve_heap_receiver`
+   (Ident + `Member(this, campo-array)`) em `obj.rs`; `is_array_receiver` em
+   `method_array.rs`.
+2. **F2 ✅** (`83d5a715`) — private fields `#name` como slot normal (decl + acesso
+   já carregam `#`; só remover o bail em `class/mod.rs`). Private MÉTODOS ainda bailam.
+3. **F3a ✅** (`85da50b6`) — param array-tipado (`xs: number[]`) → `HeapShape::Array`
+   (indexar/`.length`/`.push` em param). `let`-from-array-method já vinha de graça.
+4. **F3b ✅** (`e257dcef`) — rest params `...items` (function/method/ctor) via helper
+   `marshal_call_args` (em `call.rs`) + `FnSig.rest_param`. Spread-into-CALL ainda baila.
+5. **F3d ✅** (`fdfdb712`) — `??` (short-circuit, testa nullish não-falsy).
+
+**FALTA (próximos):**
+- **F3c-opt** (sem gate) — omitir param OPCIONAL `x?` no call → passar `undefined`
+  (em `marshal_call_args`; achar se HirParam marca `optional` separado de
+  `has_default`). `Array.ts` usa `deleteCount?`.
+- **F3c-default** (⚠️ GATE — toca rts-hir) — default params `= expr`: a EXPRESSÃO é
+  descartada no `rts-hir/lower.rs:608` (só `has_default` sobrevive). Threading do
+  expr no HIR + `FnSig.defaults` + preencher em `marshal_call_args`. rts-hir é
+  compartilhado c/ motor velho → gate.
+- **spread-into-call** — `f(x, ...arr)` / `this.#v.push(...items)` (packing/append
+  no rest; `__rtsadp_arr_spread_append` existe).
+- **BUG repr null-local** — `let a = null` guarda Float64 → ler de volta vira NaN/0
+  (`console.log(a)` imprime `0`, devia `null`). Correção de solidez.
+- **(menor)** index OOB de array devolve `0`, não `undefined`.
+
+6. **infra `include()` + ns privada/load-order** (arquitetura, API do owner):
+   - `engine.include(include_bytes!("map.ts"))` → classes ambientes.
+   - `engine.ns(name, true)` → ns privada (símbolos só no ambiente interno do TS
+     embarcado; não expostos no run final).
+   - `engine.ns(name, number>1)` → preferência de ordem de carga (usar Maps/Objects
+     dentro do ambiente engine). ⚠️ muda assinatura `.ns()` em rts-engine (builder
+     compartilhado) → GATE. Adicionar SÓ junto do consumidor (senão dead-code).
+7. escrever `rts-primitives/*.ts` + `rts-shared/*.ts` (Array/Map/Set wrappers, etc.)
+   + Date via ns privada; **deletar** o Rust correspondente (`value/mapset.rs`,
+   `class_meta` Map/Set, `__rtsadp_map_*/set_*`, `register_mapset_class_spec`). GATE.
 
 ## 4. Cauda longa de paridade (independente da direção stdlib-TS)
 
