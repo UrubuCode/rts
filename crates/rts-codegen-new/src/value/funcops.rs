@@ -108,6 +108,93 @@ pub extern "C" fn __rtsadp_instanceof_fn(obj_word: u64, fn_ptr: u64) -> u64 {
     PolyValue::bool(matched).raw()
 }
 
+// ---- function-VALUE data properties (`F.foo = v` / `F.foo`) (Phase 4) ----
+
+/// Side-table mapping `(fn identity, property name) → PolyValue word`, recording a
+/// data property assigned on a FUNCTION value (`F.foo = v`) and read back by
+/// `F.foo`. The `String` is OWNED (a copy of the compile-time-known property name
+/// the lowering passes as a `(ptr,len)` slice). This is the analogue of the
+/// `ctor_table` above — a small global table keyed by the function's STABLE
+/// identity, so statics on a dual-callable function (`String.fromCharCode = …`)
+/// and the array.ts pattern resolve through one path.
+fn fn_prop_table() -> &'static Mutex<HashMap<(u64, String), u64>> {
+    static T: OnceLock<Mutex<HashMap<(u64, String), u64>>> = OnceLock::new();
+    T.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Resolve a FUNCTION value's STABLE identity from the word the lowering passed.
+/// The identity is the uniform-ABI THUNK address (`FunctionData.fn_ptr`) — the
+/// SAME value `new F()` records and `x instanceof F` compares.
+///
+/// Two reach paths converge here: a reified function VALUE (a `TAG_FUNCTION`
+/// PolyValue, e.g. a non-`this` free function or arrow stored in a `let`) resolves
+/// to its stored `fn_ptr`; a raw thunk-address word (what the lowering hands for a
+/// `this`-using fn-ctor like `const F = function(this){…}`, which cannot reify as
+/// a value) IS the `fn_ptr` already and passes straight through. Either way the
+/// identity is the thunk address, so `F.foo` and `F.foo = v` agree across both.
+fn fn_identity(fn_word: u64) -> u64 {
+    let pv = PolyValue::from_raw(fn_word);
+    if pv.is_function() {
+        let real =
+            rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(pv.as_handle());
+        return with_entry(real, |e| match e {
+            Some(Entry::Function(d)) => d.fn_ptr,
+            _ => 0,
+        });
+    }
+    // Not a function PolyValue: the lowering passed the raw thunk address directly
+    // (a `this`-using fn-ctor's identity). Use it as-is.
+    fn_word
+}
+
+/// Read the `key`-named property recorded on the function `fn_word`, or the
+/// `undefined` singleton word when absent. `key_word` is the property NAME as an
+/// interned string PolyValue word (the same convention `__rtsadp_obj_get` uses for
+/// a static key). A non-function / unrecorded key reads `undefined` — the
+/// JS-correct missing-property result, never a crash.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_fn_get_prop(fn_word: u64, key_word: u64) -> u64 {
+    let id = fn_identity(fn_word);
+    if id == 0 {
+        return PolyValue::undefined().raw();
+    }
+    let key = key_text(key_word);
+    fn_prop_table()
+        .lock()
+        .ok()
+        .and_then(|t| t.get(&(id, key)).copied())
+        .unwrap_or_else(|| PolyValue::undefined().raw())
+}
+
+/// Record `fn_word.<key> = value_word` in the function-property side-table,
+/// returning `value_word` (JS assignment evaluates to the assigned value). A
+/// non-function `fn_word` (identity 0) records nothing but still returns the value.
+/// `key_word` is the property NAME as an interned string PolyValue word.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_fn_set_prop(fn_word: u64, key_word: u64, value_word: u64) -> u64 {
+    let id = fn_identity(fn_word);
+    if id != 0 {
+        let key = key_text(key_word);
+        if let Ok(mut t) = fn_prop_table().lock() {
+            t.insert((id, key), value_word);
+        }
+    }
+    value_word
+}
+
+/// The UTF-8 text of a property-key PolyValue: a string PolyValue is read from the
+/// real pool; a non-string defensively coerces through the engine ToString (the
+/// lowering always interns a static string name, so the string path is the norm).
+fn key_text(key_word: u64) -> String {
+    let k = PolyValue::from_raw(key_word);
+    if k.is_string() {
+        super::abi_adapter::resolve_poly(k)
+    } else {
+        let s_word = super::genops::__rtsadp_to_string(key_word);
+        super::abi_adapter::resolve_poly(PolyValue::from_raw(s_word))
+    }
+}
+
 /// The fixed uniform indirect-call signature every function VALUE is invoked
 /// through: a leading `env` word + 4 positional PolyValue words + a `rest`
 /// PolyValue (an array word or `undefined`), returning one PolyValue word.

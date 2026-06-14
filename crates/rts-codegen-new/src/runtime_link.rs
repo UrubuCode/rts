@@ -171,6 +171,9 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_fn_ptr", funcops::__rtsadp_fn_ptr as *const u8),
         sym("__rtsadp_ctor_mark", funcops::__rtsadp_ctor_mark as *const u8),
         sym("__rtsadp_instanceof_fn", funcops::__rtsadp_instanceof_fn as *const u8),
+        // ---- function-VALUE data properties (`F.foo = v` / `F.foo`) (Phase 4) ----
+        sym("__rtsadp_fn_get_prop", funcops::__rtsadp_fn_get_prop as *const u8),
+        sym("__rtsadp_fn_set_prop", funcops::__rtsadp_fn_set_prop as *const u8),
         // ---- codegen-owned Array CALLBACK trampolines (__rtsadp_arr_*, P4.7) ----
         sym("__rtsadp_arr_map", arraycb::__rtsadp_arr_map as *const u8),
         sym("__rtsadp_arr_filter", arraycb::__rtsadp_arr_filter as *const u8),

@@ -170,6 +170,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             let len = emit_marshal::emit_vec_len(module, self.builder, arr_word);
             return Ok(Val::new(len, Repr::Int64));
         }
+        // ---- DATA PROPERTY on a FUNCTION value `F.foo` (Phase 4): the receiver is
+        // a function value (a top-level/hoisted fn, incl. a `this`-using fn-ctor).
+        // Read the recorded property from the function-property side-table at
+        // RUNTIME via `__rtsadp_fn_get_prop` (absent → undefined). Routed BEFORE the
+        // shape/array paths, which a function receiver has no static shape for. ----
+        if let Some(fn_word) = self.fn_value_word(module, object)? {
+            let key_word = self.intern_key_word(prop);
+            let word = self
+                .call_runtime(module, "__rtsadp_fn_get_prop", &[fn_word, key_word])?
+                .expect("__rtsadp_fn_get_prop returns a value");
+            return Ok(Val::new_with_kind(word, Repr::Tagged, JsKind::Unknown));
+        }
         // ---- DYNAMIC object property read (P5.5): the receiver is a proven keyed
         // OBJECT whose exact shape is NOT statically known (a reassigned object
         // local). Resolve the key index at RUNTIME via `__rtsadp_obj_get`. ----
@@ -320,6 +332,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             {
                 return self.lower_accessor_set(module, object, &class, prop, value);
             }
+        }
+        // ---- DATA PROPERTY on a FUNCTION value `F.foo = v` (Phase 4): record the
+        // value in the function-property side-table at RUNTIME via
+        // `__rtsadp_fn_set_prop` (returns the assigned value). Routed BEFORE the
+        // shape paths — a function receiver has no static object shape. ----
+        if let Some(fn_word) = self.fn_value_word(module, object)? {
+            let key_word = self.intern_key_word(prop);
+            let v = self.lower_expr(module, value)?;
+            let word = self.box_value(v);
+            let ret = self
+                .call_runtime(module, "__rtsadp_fn_set_prop", &[fn_word, key_word, word])?
+                .expect("__rtsadp_fn_set_prop returns a value");
+            return Ok(Val::new(ret, Repr::Tagged));
         }
         // ---- DYNAMIC object property write (P5.5): a proven keyed OBJECT of
         // unknown shape. `__rtsadp_obj_set` writes an EXISTING key (a key not in the
@@ -476,6 +501,43 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
             _ => unsupported!("property/index access on a non-identifier object (unknown shape)"),
         }
+    }
+
+    /// If `object` resolves to a FUNCTION VALUE (a top-level/hoisted user function
+    /// referenced by name, NOT shadowed by a local), produce a word identifying it
+    /// for the function-property side-table; otherwise `None` (the caller falls
+    /// through to the object/array/string paths UNCHANGED).
+    ///
+    /// Two reach paths, both keyed by the SAME thunk identity in the runtime
+    /// (`funcops::fn_identity`):
+    /// - a reifiable function (no synthesized `this`) → a real `TAG_FUNCTION`
+    ///   PolyValue word via [`Self::reify_function`];
+    /// - a `this`-using fn-ctor (`const F = function(this){…}`), which cannot reify
+    ///   as a value → its raw THUNK-address word via [`Self::fn_ctor_identity`]
+    ///   (the runtime treats a non-function word as the identity directly).
+    ///
+    /// A name shadowed by a local is NOT a function-value receiver (the local wins),
+    /// so the existing object/string local paths handle it.
+    fn fn_value_word(
+        &mut self,
+        module: &mut dyn Module,
+        object: &HirExpr,
+    ) -> FrontResult<Option<Value>> {
+        let HirExprKind::Ident(name) = &object.kind else {
+            return Ok(None);
+        };
+        // A local of this name shadows the function — not a function-value receiver.
+        if self.local(name).is_some() || !self.sigs.contains_key(name) {
+            return Ok(None);
+        }
+        let name = name.clone();
+        // A `this`-using fn-ctor cannot reify (its thunk fills param[0] from a0); use
+        // its raw thunk identity word instead. Reifiable functions get a real value.
+        if self.is_fn_ctor(&name) {
+            return Ok(Some(self.fn_ctor_identity(module, &name)?));
+        }
+        let v = self.reify_function(module, &name)?;
+        Ok(Some(self.box_value(v)))
     }
 
     /// Load the raw object/array PolyValue word held by a local (the local's repr

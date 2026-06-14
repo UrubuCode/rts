@@ -193,6 +193,12 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         "__rtsadp_ctor_mark" => SymSig { params: &[U64, U64], ret: Void },
         // instanceof_fn(obj_word, fn_ptr) -> bool PolyValue word (U64).
         "__rtsadp_instanceof_fn" => SymSig { params: &[U64, U64], ret: U64 },
+        // ---- function-VALUE data properties (`F.foo = v` / `F.foo`) (Phase 4) ----
+        // get_prop(fn_word, key_word) -> stored value PolyValue word, or undefined.
+        // set_prop(fn_word, key_word, value_word) -> value_word. key_word is an
+        // interned string PolyValue (the static property name), like __rtsadp_obj_get.
+        "__rtsadp_fn_get_prop" => SymSig { params: &[U64, U64], ret: U64 },
+        "__rtsadp_fn_set_prop" => SymSig { params: &[U64, U64, U64], ret: U64 },
 
         // ---- codegen-owned Array trampolines (__rtsadp_arr_*, P4.5) ----
         // All slots are u64/i64 (no StrPtr): slot 0 is the array's REAL Vec handle
