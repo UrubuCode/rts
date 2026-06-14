@@ -382,6 +382,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirExprKind::New { class, .. } => self.classes.get(class).is_some(),
             HirExprKind::Ident(name) => {
                 matches!(self.local_shapes.get(name), Some(HeapShape::Object(_)))
+                    || self.object_locals.contains(name)
             }
             _ => false,
         }

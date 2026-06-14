@@ -101,10 +101,11 @@ fn member_on_unknown_shape_param_bails() {
 }
 
 #[test]
-fn computed_object_key_bails() {
-    // `o[k]` with a dynamic key on a non-array object needs the dynamic property
-    // path — must bail.
-    assert_bails(r#"let o = {a: 1}; let k = "a"; console.log(o[k]);"#);
+fn computed_object_key_now_dynamic() {
+    // P5.5 REGRESSION (intentional): `o[k]` with a dynamic string key on a
+    // known-shape object NO LONGER bails — it routes through the dynamic
+    // `__rtsadp_obj_get` (runtime slot-0 shape-id lookup). See `tests::objdyn`.
+    assert_stdout(r#"let o = {a: 1}; let k = "a"; console.log(o[k]);"#, "1\n");
 }
 
 #[test]

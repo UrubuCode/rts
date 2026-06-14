@@ -156,6 +156,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.local_shapes.remove(name);
         self.local_classes.remove(name);
         self.global_instance_classes.remove(name);
+        self.object_locals.remove(name);
         Ok(())
     }
 
@@ -187,6 +188,27 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             _ => {}
         }
         let name = ident_target(target)?;
+        // Re-`x = {…}` to a DIFFERENT object literal: the local stays a proven
+        // keyed OBJECT, but its exact shape may now differ from the old one. Lower
+        // the new literal (recording its global shape-id in slot 0), bind it, and
+        // mark `name` an `object_local` (dynamic-access) — so `x.k` after the
+        // reassignment resolves the key at RUNTIME instead of bailing. If the new
+        // literal happens to share the prior shape, the dynamic path still reads
+        // correctly; we conservatively use the dynamic path rather than prove it.
+        if matches!(&value.kind, HirExprKind::Object(_)) && self.local(&name).is_some() {
+            if let HirExprKind::Object(fields) = &value.kind {
+                let local = self.local(&name).expect("checked above");
+                if matches!(local.repr, Repr::Tagged) {
+                    let (val, _shape) = self.lower_object_literal(module, fields)?;
+                    self.builder.def_var(local.var, val.v);
+                    self.local_shapes.remove(&name);
+                    self.local_classes.remove(&name);
+                    self.global_instance_classes.remove(&name);
+                    self.object_locals.insert(name.clone());
+                    return Ok(Val::new(val.v, Repr::Tagged));
+                }
+            }
+        }
         let local = self
             .local(&name)
             .ok_or_else(|| Unsupported::new(format!("assignment to unbound `{name}`")))?;
@@ -198,6 +220,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.local_shapes.remove(&name);
         self.local_classes.remove(&name);
         self.global_instance_classes.remove(&name);
+        self.object_locals.remove(&name);
         Ok(Val::new(coerced, local.repr))
     }
 

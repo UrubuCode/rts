@@ -37,7 +37,7 @@ use rts_runtime::namespaces::math as rt_math;
 
 use crate::value::{
     abi_adapter, arraycb, arrayops, funcops, genops, genops_arith, globalops, inspect, mapset,
-    wrappers,
+    objops, wrappers,
 };
 
 /// One installable JIT symbol: an extern "C" name and its function pointer. The
@@ -180,6 +180,10 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_set_delete", mapset::__rtsadp_set_delete as *const u8),
         sym("__rtsadp_set_clear", mapset::__rtsadp_set_clear as *const u8),
         sym("__rtsadp_set_size", mapset::__rtsadp_set_size as *const u8),
+        // ---- codegen-owned DYNAMIC property access (objops, P5.5) ----
+        sym("__rtsadp_obj_get", objops::__rtsadp_obj_get as *const u8),
+        sym("__rtsadp_obj_set", objops::__rtsadp_obj_set as *const u8),
+        sym("__rtsadp_obj_has", objops::__rtsadp_obj_has as *const u8),
         // ---- codegen-owned Error-family + wrapper ctors / props / instanceof (P5.3) ----
         sym("__rtsadp_err_new", wrappers::__rtsadp_err_new as *const u8),
         sym("__rtsadp_err_new_type", wrappers::__rtsadp_err_new_type as *const u8),

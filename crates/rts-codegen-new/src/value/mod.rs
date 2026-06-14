@@ -118,6 +118,10 @@ pub mod globalops;
 // Codegen-owned Map/Set instance trampolines (P5.3): PolyValue-native new/get/set/
 // has/delete/clear/size + add, over the REAL collections MAP_*/SET_* symbols.
 pub mod mapset;
+// Codegen-owned DYNAMIC property-access trampolines (P5.5): `__rtsadp_obj_get`/
+// `_set`/`_has` for `obj.key`/`obj[k]` whose shape is known only at RUNTIME,
+// reading the slot-0 global shape-id + the global shape registry.
+pub mod objops;
 // Codegen-owned Error-family + Boolean/Number/String wrapper constructors, Error
 // instance props, and `instanceof` runtime tags (P5.3).
 pub mod wrappers;

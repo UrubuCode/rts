@@ -139,6 +139,13 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// Name → the proven heap shape of a local holding an object/array literal.
     /// Absent ⇒ the local's value is opaque; a property/index access on it bails.
     pub local_shapes: HashMap<String, HeapShape>,
+    /// Names PROVEN to hold a keyed OBJECT value but whose exact compile-time
+    /// shape (key→slot map) is not known — e.g. an object local reassigned to a
+    /// DIFFERENT object literal. A property/index access on such a local routes
+    /// through the DYNAMIC trampolines (`__rtsadp_obj_get`/`_set`), which read the
+    /// shape-id at runtime, instead of bailing. Distinct from `local_shapes`: a
+    /// name in `local_shapes` (a known shape) uses the faster constant-slot path.
+    pub object_locals: std::collections::HashSet<String>,
     /// Name → the statically-known CLASS of a local/param holding a class instance
     /// (a `new C()` result, a `: C`-annotated param, or `this` inside a method).
     /// Drives static `instance.method(args)` dispatch; absent ⇒ method calls bail.
@@ -189,6 +196,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             builder,
             locals: HashMap::new(),
             local_shapes: HashMap::new(),
+            object_locals: std::collections::HashSet::new(),
             local_classes: HashMap::new(),
             global_instance_classes: HashMap::new(),
             shapes: ShapeTable::new(),

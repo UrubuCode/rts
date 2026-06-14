@@ -45,6 +45,7 @@ mod mathobj;
 mod method;
 mod number;
 mod object;
+mod objdyn;
 mod objstatic;
 mod poly;
 mod run;

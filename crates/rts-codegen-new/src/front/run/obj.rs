@@ -28,7 +28,7 @@ use rts_hir::HirExpr;
 
 use crate::repr::Repr;
 use crate::shape::ShapeId;
-use crate::value::{self, emit_marshal};
+use crate::value::{self, abi_adapter, emit_marshal};
 
 use crate::front::error::{unsupported, FrontResult};
 
@@ -149,6 +149,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             let len = emit_marshal::emit_vec_len(module, self.builder, arr_word);
             return Ok(Val::new(len, Repr::Int64));
         }
+        // ---- DYNAMIC object property read (P5.5): the receiver is a proven keyed
+        // OBJECT whose exact shape is NOT statically known (a reassigned object
+        // local). Resolve the key index at RUNTIME via `__rtsadp_obj_get`. ----
+        if let HirExprKind::Ident(name) = &object.kind {
+            if self.object_locals.contains(name) {
+                return self.lower_dynamic_get(module, name, prop);
+            }
+        }
         let (name, shape) = self.shaped_object(object)?;
         match shape {
             HeapShape::Object(shape_id) => {
@@ -187,6 +195,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         object: &HirExpr,
         index: &HirExpr,
     ) -> FrontResult<Val> {
+        // ---- DYNAMIC computed object key `obj[k]` (P5.5): a STRING-keyed index on
+        // a proven keyed OBJECT (known OR unknown shape). ToString the key and
+        // resolve at runtime via `__rtsadp_obj_get`. A NUMERIC index on an object
+        // bails (number-index-into-object is out of scope). ----
+        if let Some(name) = self.object_receiver_name(object) {
+            if let Some(key_word) = self.dynamic_key_word(module, index)? {
+                let obj_word = self.load_local_word(&name);
+                let word = self
+                    .call_runtime(module, "__rtsadp_obj_get", &[obj_word, key_word])?
+                    .expect("__rtsadp_obj_get returns a value");
+                return Ok(Val::new(word, Repr::Tagged));
+            }
+        }
         let (name, shape) = self.shaped_object(object)?;
         if !matches!(shape, HeapShape::Array) {
             return unsupported!("computed index on a non-array (dynamic object key is a later increment)");
@@ -218,6 +239,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 return self.lower_accessor_set(module, object, &class, prop, value);
             }
         }
+        // ---- DYNAMIC object property write (P5.5): a proven keyed OBJECT of
+        // unknown shape. `__rtsadp_obj_set` writes an EXISTING key (a key not in the
+        // shape is a runtime no-op; adding a brand-new key is the transition tree,
+        // still a compile-time bail on a KNOWN shape — an unknown-shape local cannot
+        // prove the key is new, so we route it and the trampoline writes iff present).
+        if let HirExprKind::Ident(name) = &object.kind {
+            if self.object_locals.contains(name) {
+                return self.lower_dynamic_set(module, name, prop, value);
+            }
+        }
         let (name, shape) = self.shaped_object(object)?;
         let HeapShape::Object(shape_id) = shape else {
             return unsupported!("write to array member `.{prop}` (later increment)");
@@ -242,6 +273,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         index: &HirExpr,
         value: &HirExpr,
     ) -> FrontResult<Val> {
+        // ---- DYNAMIC computed object key write `obj[k] = v` (P5.5): a STRING key
+        // on a proven keyed OBJECT. ToString the key, box the value, write the
+        // existing slot at runtime via `__rtsadp_obj_set`. A NUMERIC index on an
+        // object bails. ----
+        if let Some(name) = self.object_receiver_name(object) {
+            if let Some(key_word) = self.dynamic_key_word(module, index)? {
+                let v = self.lower_expr(module, value)?;
+                let word = self.box_value(v);
+                let obj_word = self.load_local_word(&name);
+                self.call_runtime(module, "__rtsadp_obj_set", &[obj_word, key_word, word])?;
+                return Ok(Val::new(word, Repr::Tagged));
+            }
+        }
         let (name, shape) = self.shaped_object(object)?;
         if !matches!(shape, HeapShape::Array) {
             return unsupported!("indexed write on a non-array (dynamic object key is a later increment)");
@@ -310,5 +354,84 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .ins()
             .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
         Val::tagged_kind(v, JsKind::Undefined)
+    }
+
+    // ---- DYNAMIC property access (P5.5) ----
+
+    /// The local NAME of a receiver PROVEN to be a keyed OBJECT (a known-shape
+    /// object literal local OR a reassigned-object `object_local`), for the dynamic
+    /// computed-key path. `None` for an array / opaque / non-identifier receiver —
+    /// the caller then falls to the array/static path or bails.
+    fn object_receiver_name(&self, object: &HirExpr) -> Option<String> {
+        let HirExprKind::Ident(name) = &object.kind else {
+            return None;
+        };
+        let is_object = self.object_locals.contains(name)
+            || matches!(self.local_shapes.get(name), Some(HeapShape::Object(_)));
+        is_object.then(|| name.clone())
+    }
+
+    /// Lower `obj.prop` on an unknown-shape object local to `__rtsadp_obj_get`:
+    /// intern `prop` as a string PolyValue key, then resolve at runtime.
+    fn lower_dynamic_get(
+        &mut self,
+        module: &mut dyn Module,
+        name: &str,
+        prop: &str,
+    ) -> FrontResult<Val> {
+        let key_word = self.intern_key_word(prop);
+        let obj_word = self.load_local_word(name);
+        let word = self
+            .call_runtime(module, "__rtsadp_obj_get", &[obj_word, key_word])?
+            .expect("__rtsadp_obj_get returns a value");
+        Ok(Val::new(word, Repr::Tagged))
+    }
+
+    /// Lower `obj.prop = value` on an unknown-shape object local to
+    /// `__rtsadp_obj_set` (writes the slot iff `prop` is present; a new key is a
+    /// runtime no-op — see the trampoline's soundness notes).
+    fn lower_dynamic_set(
+        &mut self,
+        module: &mut dyn Module,
+        name: &str,
+        prop: &str,
+        value: &HirExpr,
+    ) -> FrontResult<Val> {
+        let key_word = self.intern_key_word(prop);
+        let v = self.lower_expr(module, value)?;
+        let word = self.box_value(v);
+        let obj_word = self.load_local_word(name);
+        self.call_runtime(module, "__rtsadp_obj_set", &[obj_word, key_word, word])?;
+        Ok(Val::new(word, Repr::Tagged))
+    }
+
+    /// Intern a STATIC property name as a string-PolyValue key word (an i64
+    /// constant — the literal is interned in the real pool at lowering time, like
+    /// every string literal).
+    fn intern_key_word(&mut self, prop: &str) -> Value {
+        let pv = abi_adapter::intern_poly(prop);
+        self.builder.ins().iconst(types::I64, pv.raw() as i64)
+    }
+
+    /// Lower a COMPUTED index expression to a string-PolyValue key WORD for the
+    /// dynamic object path, or `None` when the index is a proven NUMBER (a numeric
+    /// index into an object is out of scope — the caller bails). A string-kinded /
+    /// Tagged index is ToString'd via the box + the lowering's key coercion: a
+    /// proven-string value passes its word straight through; a Tagged index is
+    /// boxed and ToString happens inside the trampoline's `key_text`.
+    fn dynamic_key_word(
+        &mut self,
+        module: &mut dyn Module,
+        index: &HirExpr,
+    ) -> FrontResult<Option<Value>> {
+        let v = self.lower_expr(module, index)?;
+        match v.repr {
+            // A numeric index is NOT an object key in this increment — bail (the
+            // caller's array path handles a numeric index on an array).
+            Repr::Int32 | Repr::Int64 | Repr::Float64 => Ok(None),
+            // A string / Tagged index: box to a PolyValue word; the trampoline's
+            // `key_text` reads a string directly or ToStrings a non-string.
+            _ => Ok(Some(self.box_value(v))),
+        }
     }
 }

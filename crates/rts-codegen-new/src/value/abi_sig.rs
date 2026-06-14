@@ -201,6 +201,15 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         "__rtsadp_map_clear" | "__rtsadp_map_size" | "__rtsadp_set_clear"
         | "__rtsadp_set_size" => SymSig { params: &[U64], ret: U64 },
 
+        // ---- codegen-owned DYNAMIC property access (P5.5) ----
+        // obj_get(obj_word, key_str_handle) -> PolyValue word; obj_set adds a
+        // value-word param and returns the value word; obj_has returns a Bool
+        // (i64 0/1). The key is a string PolyValue word (U64) — a literal interned
+        // at lowering or a computed key's ToString.
+        "__rtsadp_obj_get" => SymSig { params: &[U64, U64], ret: U64 },
+        "__rtsadp_obj_set" => SymSig { params: &[U64, U64, U64], ret: U64 },
+        "__rtsadp_obj_has" => SymSig { params: &[U64, U64], ret: Bool },
+
         // ---- codegen-owned Error-family + wrapper ctors / props / instanceof (P5.3) ----
         // Error ctors: one string-message PolyValue word in, a TAG_OBJECT error word
         // out. Error props/toString + wrapper ctors + instanceof tags: one PolyValue
