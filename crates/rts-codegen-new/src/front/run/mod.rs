@@ -191,6 +191,17 @@ fn build_program(src: &str) -> FrontResult<LoweredProgram> {
     // arrow is rewritten while still in the `main` body it was parsed from.
     desugar::desugar(&program, &mut main.body, &mut funcs);
 
+    // P5.11: destructuring — array `[a, b, ...rest]` / object `{x, y: z, w = 5}`
+    // patterns in let/const, for-of bindings, and function parameters. rts-hir
+    // flattened every pattern to a single `"_"` name (keeping the initializer);
+    // this pass re-reads the swc AST (incl. a fresh swc re-parse for the param
+    // patterns rts-ast does not carry) and expands each into element/property reads
+    // the existing lowerer runs. Run AFTER the template/optchain desugar (so a
+    // template inside a destructured initializer is already real HIR) and BEFORE
+    // arrow extraction (so a destructuring let inside a top-level arrow is expanded
+    // while still in the main body).
+    desugar::desugar_destructure(src, &program, &mut main.body, &mut funcs);
+
     // P4.6/P5.7: extract every inline arrow used as a value (an arg, a returned
     // arrow) into a fresh top-level function, rewriting the `Arrow` node to an
     // `Ident` of the synthesized name. A non-capturing arrow becomes a plain

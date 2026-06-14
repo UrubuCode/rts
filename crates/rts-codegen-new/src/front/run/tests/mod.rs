@@ -40,6 +40,7 @@ mod dyndispatch;
 mod globals;
 mod class_inherit;
 mod closure;
+mod destructure;
 mod funcval;
 mod globalclass;
 mod inspect;

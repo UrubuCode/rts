@@ -54,6 +54,23 @@ pub fn parse_source_with_file(
     parse_with_rich_errors(source, primary, file)
 }
 
+/// Parse `source` to a raw swc `Module`, WITHOUT lowering to the internal AST and
+/// without emitting diagnostics. Returns `None` on a parse error or a script-mode
+/// program. Additive helper (P5.11): the new engine's destructuring desugar needs
+/// the swc binding `Pat` of function parameters, which the lowered `rts-ast` does
+/// not carry. TS syntax first, ES fallback (matching `parse_source`'s default).
+pub fn parse_swc_module(source: &str) -> Option<swc_ecma_ast::Module> {
+    let stripped = strip_shebang(source);
+    for syntax in [ts_syntax(), es_syntax()] {
+        if let Ok((parsed, _cm)) = try_parse_syntax(stripped, syntax) {
+            if let swc_ecma_ast::Program::Module(m) = parsed {
+                return Some(m);
+            }
+        }
+    }
+    None
+}
+
 /// Parse sem emitir diagnósticos — retorna `(SwcProgram, SourceMap)` para reuso.
 fn try_parse_syntax(
     source: &str,

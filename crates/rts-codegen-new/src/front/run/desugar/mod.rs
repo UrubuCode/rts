@@ -26,10 +26,12 @@
 //! extracted arrows) keep their `Raw` placeholders and bail at lowering, exactly
 //! as before — never a miscompile.
 
+mod destructure;
 mod optchain;
 mod tpl;
 
 pub(super) use optchain::{OPT_CALL, OPT_GET};
+pub(crate) use destructure::desugar_destructure;
 
 use std::collections::HashMap;
 
