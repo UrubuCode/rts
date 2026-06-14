@@ -274,6 +274,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 &[fn_word, slots[0], slots[1], slots[2], slots[3], rest],
             )?
             .expect("__rtsadp_fn_invoke returns a value");
+        // P5.13: a function-value invoke may have thrown (its body's manual-unwind
+        // sentinel return left the pending-error slot set). Route the unwind before
+        // the result is used.
+        self.emit_post_call_error_check(module)?;
         // The result is a PolyValue word of unknown static kind.
         Ok(Val::new(res, Repr::Tagged))
     }

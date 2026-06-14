@@ -216,6 +216,14 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         "__rtsadp_map_clear" | "__rtsadp_map_size" | "__rtsadp_set_clear"
         | "__rtsadp_set_size" => SymSig { params: &[U64], ret: U64 },
 
+        // ---- codegen-owned pending-error slot for throw / try-catch (P5.13) ----
+        // throw_set(word) -> void; err_pending() -> i64 (0/1); err_take() -> U64
+        // (the thrown PolyValue word); err_clear() -> void.
+        "__rtsadp_throw_set" => SymSig { params: &[U64], ret: Void },
+        "__rtsadp_err_pending" => SymSig { params: &[], ret: I64 },
+        "__rtsadp_err_take" => SymSig { params: &[], ret: U64 },
+        "__rtsadp_err_clear" => SymSig { params: &[], ret: Void },
+
         // ---- codegen-owned DYNAMIC method dispatch (P5.9) ----
         // Uniform PolyValue-word ABI: the receiver word + 0..2 PolyValue-word args,
         // one PolyValue-word result. The trampoline branches on the receiver's tag

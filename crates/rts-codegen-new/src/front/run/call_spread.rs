@@ -93,18 +93,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let func_ref = module.declare_func_in_func(callee, self.builder.func);
         let call = self.builder.ins().call(func_ref, lowered);
 
-        match sig.ret {
+        let result = match sig.ret {
             Some(ret) => {
                 let v = self.builder.inst_results(call)[0];
-                Ok(Val::new(v, ret))
+                Val::new(v, ret)
             }
             None => {
                 let v = self
                     .builder
                     .ins()
                     .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
-                Ok(Val::tagged_kind(v, JsKind::Undefined))
+                Val::tagged_kind(v, JsKind::Undefined)
             }
-        }
+        };
+        // P5.13: a user call may have thrown (its manual-unwind sentinel return left
+        // the pending-error slot set). Route the unwind before the result is used.
+        self.emit_post_call_error_check(module)?;
+        Ok(result)
     }
 }

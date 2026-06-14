@@ -136,19 +136,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let func_ref = module.declare_func_in_func(callee, self.builder.func);
         let call = self.builder.ins().call(func_ref, &call_args);
 
-        match sig.ret {
+        let result = match sig.ret {
             Some(ret) => {
                 let v = self.builder.inst_results(call)[0];
-                Ok(Val::new(v, ret))
+                Val::new(v, ret)
             }
             None => {
                 let v = self
                     .builder
                     .ins()
                     .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
-                Ok(Val::tagged_kind(v, JsKind::Undefined))
+                Val::tagged_kind(v, JsKind::Undefined)
             }
-        }
+        };
+        // P5.13: a `throw` inside the called method/getter/setter must propagate.
+        self.emit_post_call_error_check(module)?;
+        Ok(result)
     }
 
     /// Lower `instance.method(args)` for a statically-known class via a DIRECT call

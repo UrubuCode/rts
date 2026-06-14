@@ -50,6 +50,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirStmt::Break(label) => self.lower_break(label.as_deref()),
             HirStmt::Continue(label) => self.lower_continue(label.as_deref()),
             HirStmt::Block(stmts) => self.lower_block(module, stmts),
+            HirStmt::Throw(arg) => self.lower_throw(module, arg),
+            HirStmt::Try { body, catch, finally } => {
+                self.lower_try(module, body, catch.as_ref(), finally.as_deref())
+            }
             HirStmt::Raw(text) => unsupported!("unrecognized statement `{}`", text.trim()),
             other => unsupported!("statement {}", stmt_name(other)),
         }

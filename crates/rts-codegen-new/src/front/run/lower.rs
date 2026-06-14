@@ -121,6 +121,17 @@ pub(crate) struct LoopCtx {
     pub continue_target: cranelift_codegen::ir::Block,
 }
 
+/// One active enclosing `try` (P5.13): the block a pending error routes to. For a
+/// `try`/`catch` it is the `catch` handler block; for a `try`/`finally` with no
+/// `catch` it is the `finally` block (which re-checks the pending flag and lets a
+/// still-pending error propagate after running the finalizer).
+#[derive(Clone, Copy)]
+pub(crate) struct TryCtx {
+    /// The block a pending error jumps to (innermost `catch`, or `finally` when
+    /// there is no `catch`).
+    pub on_error: cranelift_codegen::ir::Block,
+}
+
 /// A local binding: its Cranelift variable + the repr it holds. A local has a
 /// single stable repr for the whole function; a `let` that would need two reprs
 /// on different paths uses `Tagged` (decided at declaration).
@@ -178,6 +189,13 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// the per-iteration advance for for-of/for-in). A `break`/`continue` with no
     /// active loop, or with a label, BAILS.
     pub loop_stack: Vec<LoopCtx>,
+    /// Active enclosing `try` blocks (innermost last) for the manual-unwind
+    /// exception model (P5.13). Each entry is the Cranelift block a pending error
+    /// routes to — the innermost `catch` handler (or, for a `try`/`finally` with no
+    /// `catch`, the `finally` block). A `throw` or a post-call error-check while
+    /// this stack is non-empty branches to `.last()`; while empty it RETURNS a
+    /// sentinel from the current function (propagation to the caller).
+    pub try_stack: Vec<TryCtx>,
     /// Every user function's frozen ABI signature, for cross-fn calls. Keyed by
     /// name; shared (read-only) across all functions in the module.
     pub sigs: &'c HashMap<String, FnSig>,
@@ -226,6 +244,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             ret: sig.ret,
             block_terminated: false,
             loop_stack: Vec::new(),
+            try_stack: Vec::new(),
             sigs,
             thunks,
             captures,
@@ -288,7 +307,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     ) -> FrontResult<()> {
         for s in stmts {
             if self.block_terminated {
-                return unsupported!("unreachable statement after a terminator");
+                // The block already emitted a terminator (`return`/`throw`/`break`/
+                // `continue`). Remaining statements are genuinely UNREACHABLE in JS
+                // (dead code after `throw e; ...` / `return x; ...` is legal source);
+                // skipping them is sound — they can never run. Emitting them would
+                // append instructions to an already-terminated Cranelift block.
+                break;
             }
             self.lower_stmt(module, s)?;
         }

@@ -130,6 +130,10 @@ pub mod objops;
 // Codegen-owned Error-family + Boolean/Number/String wrapper constructors, Error
 // instance props, and `instanceof` runtime tags (P5.3).
 pub mod wrappers;
+// Codegen-owned thread-local pending-error slot for `throw` / `try-catch` (P5.13):
+// `__rtsadp_throw_set` / `__rtsadp_err_pending` / `__rtsadp_err_take` /
+// `__rtsadp_err_clear` — the manual-unwind exception model.
+pub mod errslot;
 // Codegen-owned DYNAMIC (runtime) method-dispatch trampolines (P5.9):
 // `__rtsadp_dyn_*(recv_word, args)` branch on the receiver's PolyValue tag at
 // runtime and delegate to the per-class op — for `recv.method(args)` whose

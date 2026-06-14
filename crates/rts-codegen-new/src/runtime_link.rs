@@ -36,8 +36,8 @@ use rts_runtime::namespaces::io as rt_io;
 use rts_runtime::namespaces::math as rt_math;
 
 use crate::value::{
-    abi_adapter, arraycb, arrayops, dyndispatch, funcops, genops, genops_arith, globalops, inspect,
-    iterops, mapset, objops, regexops, wrappers,
+    abi_adapter, arraycb, arrayops, dyndispatch, errslot, funcops, genops, genops_arith, globalops,
+    inspect, iterops, mapset, objops, regexops, wrappers,
 };
 
 /// One installable JIT symbol: an extern "C" name and its function pointer. The
@@ -226,6 +226,11 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_is_map", wrappers::__rtsadp_is_map as *const u8),
         sym("__rtsadp_is_set", wrappers::__rtsadp_is_set as *const u8),
         sym("__rtsadp_is_error", wrappers::__rtsadp_is_error as *const u8),
+        // ---- codegen-owned pending-error slot for throw / try-catch (P5.13) ----
+        sym("__rtsadp_throw_set", errslot::__rtsadp_throw_set as *const u8),
+        sym("__rtsadp_err_pending", errslot::__rtsadp_err_pending as *const u8),
+        sym("__rtsadp_err_take", errslot::__rtsadp_err_take as *const u8),
+        sym("__rtsadp_err_clear", errslot::__rtsadp_err_clear as *const u8),
         // ---- codegen-owned DYNAMIC method dispatch (dyndispatch, P5.9) ----
         sym("__rtsadp_dyn_to_string", dyndispatch::__rtsadp_dyn_to_string as *const u8),
         sym("__rtsadp_dyn_length", dyndispatch::__rtsadp_dyn_length as *const u8),

@@ -91,6 +91,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             })?;
         let func_ref = module.declare_func_in_func(callee, self.builder.func);
         self.builder.ins().call(func_ref, &call_args);
+        // P5.13: a `throw` inside the constructor must propagate (the ctor's sentinel
+        // return left the pending-error slot set) — route the unwind here.
+        self.emit_post_call_error_check(module)?;
 
         // ---- 3. intern this fn's OBJECT shape (key list = the class fields) and
         //         yield the instance word as a TAG_OBJECT PolyValue ----
