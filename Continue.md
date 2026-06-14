@@ -40,11 +40,25 @@ resolvidos nessa caça:
 - **`++`/`--` em Tagged** (`a1efb180`).
 - **`Math.*` com arg Tagged** (`76c8df22`).
 - **ambient `declare`** ignorado (`6e1cd255`, rts-parser, gate TS 1710 ok).
-- **PRÓXIMO gap do array.ts:** `expression raw/unrecognized` — o bloco function-as-
-  constructor (array.ts:282-304): `const F = function(){ if (this instanceof F) }`,
-  `F.prototype = X.prototype`, `F.static = function(...rest){}`, `new F()` sobre
-  function-value. **CAUDA PESADA** (function-as-constructor + `this` em função livre +
-  prototype-assign + static em function + spread-in-call). 553 unit verdes.
+- **function-as-constructor — épico faseado (owner escolheu encarar):**
+  - **Fase 1 ✅** (`004ed7aa`) — `this` em função livre/expressão (param sintetizado +
+    rewrite `Raw("This")`; chamada plana → `this=undefined`; `FnSig.has_this`; reify de
+    fn has_this BAILA por ora).
+  - **`as`/`!`/`satisfies` erasure ✅** (`90c3f2ab`, rts-hir, gate TS 1710) — type-casts
+    viram a expr interna.
+  - **PRÓXIMO = Fase 2+3 (núcleo, acoplado, DECISÃO DE DESIGN):** array.ts agora trava
+    em **`this instanceof MeuString`** (rhs é function-VALUE, não classe). Precisa:
+    (F2) `new F()` sobre function-value → alocar instância + invoke-com-`this` (a invoke
+    uniform-ABI `__rtsadp_fn_invoke` não passa `this` → variante nova OU ABI-com-this);
+    (F3) **identidade de função** — instância criada por F precisa carregar a id de F no
+    slot-0 (hoje slot-0 = shape-id de classe conhecida; função não tem). DECISÃO: como dar
+    shape/identidade a instância-de-função (descriptor runtime por function-value? id no
+    `Entry::Function`?). Sem isso, `x instanceof F` não distingue.
+  - **Fase 4** (depois) — `F.prototype = ...` + `F.static = fn` (tabela de props em
+    function-value).
+  - Gaps já consertados na caça (todos commitados, ver `git log`): instanceof-dinâmico,
+    `++`/`--` Tagged, `Math.*` Tagged, `declare` ambient, free-`this`, type-erasure.
+    562 unit verdes.
 - **Motor velho: ZERO regressão** em toda a construção — provado em cada mudança de
   crate compartilhado pelo gate: TS suite `1710/1710` + cross-runtime baseline
   (`419 pass / 137 diverge / 36 errors`).
