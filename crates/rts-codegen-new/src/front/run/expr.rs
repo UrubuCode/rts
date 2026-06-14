@@ -78,6 +78,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let (val, _shape) = self.lower_object_literal(module, fields)?;
                 Ok(val)
             }
+            // A regex literal `/pat/flags` reaches the HIR as `Raw("regex\0..")`
+            // (P5.12): compile it to a RegExp instance word.
+            HirExprKind::Raw(_) if super::regex::is_regex_literal(e) => {
+                let (pattern, flags) =
+                    super::regex::regex_literal_parts(e).expect("is_regex_literal proved parts");
+                self.lower_regex_literal(module, &pattern, &flags)
+            }
             other => unsupported!("expression {}", super::stmt::expr_variant_name(other)),
         }
     }

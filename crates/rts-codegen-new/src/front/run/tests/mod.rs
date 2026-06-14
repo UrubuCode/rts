@@ -54,6 +54,7 @@ mod objstatic;
 mod optchain;
 mod poly;
 mod precision;
+mod regex;
 mod run;
 mod string;
 mod template;

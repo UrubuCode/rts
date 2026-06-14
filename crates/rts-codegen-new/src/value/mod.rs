@@ -118,6 +118,11 @@ pub mod globalops;
 // Codegen-owned Map/Set instance trampolines (P5.3): PolyValue-native new/get/set/
 // has/delete/clear/size + add, over the REAL collections MAP_*/SET_* symbols.
 pub mod mapset;
+// Codegen-owned RegExp + string-regex-method trampolines (P5.12): compile a
+// `/pat/flags` literal / `new RegExp(..)`, `.test`/`.source`/`.flags`/`.global`,
+// and `s.match`/`.replace`/`.replaceAll`/`.split`/`.search`, over the REAL
+// `__RTS_FN_NS_REGEX_*` symbols (array results built codegen-side).
+pub mod regexops;
 // Codegen-owned DYNAMIC property-access trampolines (P5.5): `__rtsadp_obj_get`/
 // `_set`/`_has` for `obj.key`/`obj[k]` whose shape is known only at RUNTIME,
 // reading the slot-0 global shape-id + the global shape registry.

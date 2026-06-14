@@ -274,6 +274,76 @@ pub extern "C" fn __RTS_FN_NS_REGEX_MATCH_COUNT(
     with_engine(handle, 0i64, |eng| eng.find_all(s).len() as i64)
 }
 
+/// (P5.12 / rts-codegen-new) Split `s` on every (non-overlapping) match of the
+/// regex, returning a `Vec` handle whose i64 slots are the REAL string handles of
+/// the parts — JS `String.prototype.split(regexp)` semantics (the runtime `regex`
+/// crate decides the matches). The new engine reboxes each slot into a PolyValue
+/// word codegen-side (the slots are RAW string handles, not PolyValue words). 0 on
+/// a bad regex/subject handle. Empty pattern ⇒ a single part (the whole string),
+/// matching the conservative JS-vs-Rust note (Rust's empty match would split per
+/// char; we keep the whole string to avoid a silent divergence here).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_REGEX_SPLIT(handle: Handle, s_ptr: *const u8, s_len: i64) -> Handle {
+    let s = match unsafe { rts_engine::abi::str_abi::from_abi(s_ptr, s_len) } {
+        Some(s) => s,
+        None => return 0,
+    };
+    let parts: Vec<String> = with_engine(handle, vec![s.to_string()], |eng| {
+        let matches = eng.find_all(s);
+        if matches.is_empty() {
+            return vec![s.to_string()];
+        }
+        let mut out = Vec::with_capacity(matches.len() + 1);
+        let mut last = 0usize;
+        for m in &matches {
+            // A zero-width match would loop / split per char (Rust semantics);
+            // skip zero-width matches so behavior stays predictable (JS-vs-Rust).
+            if m.end == m.start {
+                continue;
+            }
+            out.push(s[last..m.start].to_string());
+            last = m.end;
+        }
+        out.push(s[last..].to_string());
+        out
+    });
+    let vec = alloc_entry(Entry::Vec(Box::new(
+        parts
+            .into_iter()
+            .map(|p| alloc_string(p.into_bytes()) as i64)
+            .collect::<Vec<i64>>(),
+    )));
+    vec
+}
+
+/// (P5.12 / rts-codegen-new) Every match of the regex in `s` (whole-match text,
+/// group 0) as a `Vec` handle of REAL string handles — JS `String.prototype.match`
+/// for a GLOBAL regex (returns all matches). 0 on a bad handle. An EMPTY result
+/// (no match) returns 0 (the lowering maps it to `null`, matching JS). The new
+/// engine reboxes each slot into a PolyValue word codegen-side.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_REGEX_MATCH_ALL(
+    handle: Handle,
+    s_ptr: *const u8,
+    s_len: i64,
+) -> Handle {
+    let s = match unsafe { rts_engine::abi::str_abi::from_abi(s_ptr, s_len) } {
+        Some(s) => s,
+        None => return 0,
+    };
+    let texts: Vec<String> =
+        with_engine(handle, Vec::new(), |eng| eng.find_all(s).into_iter().map(|m| m.text).collect());
+    if texts.is_empty() {
+        return 0;
+    }
+    alloc_entry(Entry::Vec(Box::new(
+        texts
+            .into_iter()
+            .map(|t| alloc_string(t.into_bytes()) as i64)
+            .collect::<Vec<i64>>(),
+    )))
+}
+
 /// Função `regex.f(args)`.
 fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
     Member {
@@ -365,6 +435,22 @@ pub fn register(e: &mut Engine) {
             "match_count(handle: number, s: string): number",
             "Numero de matches de `s`.",
             __RTS_FN_NS_REGEX_MATCH_COUNT as *const u8,
+        ))
+        .member(func(
+            "split",
+            "__RTS_FN_NS_REGEX_SPLIT",
+            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Handle),
+            "split(handle: number, s: string): number",
+            "Divide `s` em cada match do regex; Vec handle de string handles.",
+            __RTS_FN_NS_REGEX_SPLIT as *const u8,
+        ))
+        .member(func(
+            "match_all",
+            "__RTS_FN_NS_REGEX_MATCH_ALL",
+            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Handle),
+            "match_all(handle: number, s: string): number",
+            "Todos os matches (group 0) de `s`; Vec handle de string handles, ou 0.",
+            __RTS_FN_NS_REGEX_MATCH_ALL as *const u8,
         ))
         .done();
 }

@@ -42,6 +42,7 @@ pub mod module_jit;
 mod newexpr;
 mod obj;
 mod optchain_lower;
+mod regex;
 mod objstatic;
 mod sig;
 mod stmt;

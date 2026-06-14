@@ -112,6 +112,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // 1-arg `slice`/`substring`/`substr` (a defaulted "to end" bound). Handled
         // here over the proven-string receiver; everything else falls to the row.
         if matches!(class, RecvClass::String) {
+            // P5.12: a string-with-regex method (`s.match`/`.replace`/`.split`/
+            // `.search` whose first arg is a regex literal or recorded RegExp). This
+            // must run BEFORE `try_string_special` (whose `split` bails on a regex
+            // separator) and before the generic row (whose `replace` wants a string
+            // first arg). `Ok(None)` ⇒ not a regex-first method (falls through).
+            if let Some(val) = self.try_string_regex_method(module, recv, method, args)? {
+                return Ok(Some(val));
+            }
             if let Some(val) = self.try_string_special(module, recv, method, args)? {
                 return Ok(Some(val));
             }

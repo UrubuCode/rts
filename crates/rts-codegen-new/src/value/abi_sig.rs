@@ -235,6 +235,25 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         // 3-word (receiver + 2 args): slice(start, end).
         "__rtsadp_dyn_slice" => SymSig { params: &[U64, U64, U64], ret: U64 },
 
+        // ---- codegen-owned RegExp + string-regex-method trampolines (P5.12) ----
+        // All slots are raw PolyValue words (U64): compile takes (pattern, flags)
+        // string words → a RegExp instance word; test takes (re, subject) → a bool
+        // word; source/flags/global take the re word → a string/bool word; the
+        // string-regex methods take (subject, re[, repl]) words → string/array/
+        // number/null words. The trampolines do the string-handle marshaling.
+        "__rtsadp_re_compile" => SymSig { params: &[U64, U64], ret: U64 },
+        "__rtsadp_re_test" => SymSig { params: &[U64, U64], ret: U64 },
+        "__rtsadp_re_source" | "__rtsadp_re_flags" | "__rtsadp_re_global"
+        | "__rtsadp_re_ignore_case" | "__rtsadp_re_multiline" | "__rtsadp_re_last_index" => {
+            SymSig { params: &[U64], ret: U64 }
+        }
+        "__rtsadp_re_str_match" | "__rtsadp_re_str_split" | "__rtsadp_re_str_search" => {
+            SymSig { params: &[U64, U64], ret: U64 }
+        }
+        "__rtsadp_re_str_replace" | "__rtsadp_re_str_replace_all" => {
+            SymSig { params: &[U64, U64, U64], ret: U64 }
+        }
+
         // ---- codegen-owned DYNAMIC property access (P5.5) ----
         // obj_get(obj_word, key_str_handle) -> PolyValue word; obj_set adds a
         // value-word param and returns the value word; obj_has returns a Bool

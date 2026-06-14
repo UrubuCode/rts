@@ -41,6 +41,9 @@ enum CtorKind {
     /// `new Boolean(x)` / `new Number(x)` / `new String(x)` — one value arg; the
     /// wrapper boxes a primitive (typeof === "object").
     Wrapper,
+    /// `new RegExp(pattern[, flags])` — one or two string args; compiles via the
+    /// regex compile trampoline (P5.12).
+    Regex,
 }
 
 /// One runtime/Registry class the engine can construct + dispatch on.
@@ -91,6 +94,14 @@ fn class_meta(name: &str) -> Option<ClassMeta> {
             kind: CtorKind::Wrapper,
             methods: &[],
         },
+        "RegExp" => ClassMeta {
+            // The ctor compiles via `__rtsadp_re_compile`, but the args need
+            // string-handle marshaling (pattern + optional flags), so the Regex
+            // kind drives a dedicated emit path (not the generic ctor_symbol call).
+            ctor_symbol: "__rtsadp_re_compile",
+            kind: CtorKind::Regex,
+            methods: REGEX_METHODS,
+        },
         _ => return None,
     };
     Some(m)
@@ -116,6 +127,12 @@ const SET_METHODS: &[(&str, usize, &str)] = &[
 ];
 
 const ERROR_METHODS: &[(&str, usize, &str)] = &[("toString", 0, "__rtsadp_err_to_string")];
+
+/// RegExp instance methods (P5.12). `.test(s)` is the high-value one: receiver
+/// word + subject word → a bool word, the SAME generic shape as Map/Set methods.
+/// `.exec` BAILS (capture-group array extraction is a later increment — not a row
+/// here, so it is rejected as "no such method").
+const REGEX_METHODS: &[(&str, usize, &str)] = &[("test", 1, "__rtsadp_re_test")];
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Whether `class` names a runtime/Registry class the engine constructs (and
@@ -146,6 +163,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     .expect("collection ctor returns a value")
             }
             CtorKind::Error => self.emit_error_ctor(module, meta.ctor_symbol, class, args)?,
+            CtorKind::Regex => self.emit_regex_ctor(module, args)?,
             CtorKind::Wrapper => {
                 if args.len() != 1 {
                     return unsupported!(
@@ -195,6 +213,41 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(self
             .call_runtime(module, symbol, &[msg_word])?
             .expect("error ctor returns a value"))
+    }
+
+    /// `new RegExp(pattern[, flags])` — both args must be proven strings (a regex
+    /// from a non-string pattern is a later increment). Interns nothing extra: the
+    /// pattern/flags string PolyValue words go straight to `__rtsadp_re_compile`.
+    /// Returns the boxed `TAG_OBJECT` RegExp instance word.
+    fn emit_regex_ctor(
+        &mut self,
+        module: &mut dyn Module,
+        args: &[HirExpr],
+    ) -> FrontResult<Value> {
+        if args.is_empty() || args.len() > 2 {
+            return unsupported!("`new RegExp(..)` expects 1 or 2 args, got {}", args.len());
+        }
+        let pat = self.lower_expr(module, &args[0])?;
+        if !matches!(pat.kind, JsKind::Str) {
+            return unsupported!(
+                "`new RegExp(pattern)` with a non-string pattern (a regex-from-regex \
+                 copy / coercion is a later increment)"
+            );
+        }
+        let pat_word = self.box_value(pat);
+        let flags_word = if args.len() == 2 {
+            let f = self.lower_expr(module, &args[1])?;
+            if !matches!(f.kind, JsKind::Str) {
+                return unsupported!("`new RegExp(pattern, flags)` with a non-string flags arg");
+            }
+            self.box_value(f)
+        } else {
+            let pv = value::abi_adapter::intern_poly("");
+            self.builder.ins().iconst(types::I64, pv.raw() as i64)
+        };
+        Ok(self
+            .call_runtime(module, "__rtsadp_re_compile", &[pat_word, flags_word])?
+            .expect("regex compile returns a value"))
     }
 
     /// Try to lower `inst.method(args)` where `inst`'s static class is a recorded
@@ -277,6 +330,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     "`{class}.{prop}` — only `.size` is a property on a runtime {class}"
                 )))
             }
+            ("RegExp", "source") => "__rtsadp_re_source",
+            ("RegExp", "flags") => "__rtsadp_re_flags",
+            ("RegExp", "global") => "__rtsadp_re_global",
+            ("RegExp", "ignoreCase") => "__rtsadp_re_ignore_case",
+            ("RegExp", "multiline") => "__rtsadp_re_multiline",
+            ("RegExp", "lastIndex") => "__rtsadp_re_last_index",
+            ("RegExp", other) => {
+                return Err(crate::front::error::Unsupported::new(format!(
+                    "`RegExp.{other}` — only source/flags/global/ignoreCase/multiline/\
+                     lastIndex are properties on a runtime RegExp"
+                )))
+            }
             _ if is_error_class(&class) => match prop {
                 "message" => "__rtsadp_err_message",
                 "name" => "__rtsadp_err_name",
@@ -294,9 +359,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let res = self
             .call_runtime(module, symbol, &[recv_word])?
             .expect("global-class member returns a value");
-        // `.size` is a number; the error props are strings. Tag accordingly so a
-        // later `console.log` formats them correctly (a string prints bare).
-        let kind = if prop == "size" { JsKind::Number } else { JsKind::Str };
+        // `.size` is a number; `RegExp.global` is a bool; the error props +
+        // `RegExp.source`/`.flags` are strings. Tag accordingly so a later
+        // `console.log` / coercion formats them correctly.
+        let kind = match prop {
+            "size" | "lastIndex" => JsKind::Number,
+            "global" | "ignoreCase" | "multiline" => JsKind::Bool,
+            _ => JsKind::Str,
+        };
         Ok(Some(Val::new_with_kind(res, crate::repr::Repr::Tagged, kind)))
     }
 
@@ -304,6 +374,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// - `new C(args)` directly (chained `new Map().set(..)`);
     /// - a bare identifier recorded in `global_instance_classes`.
     fn global_instance_class(&self, object: &HirExpr) -> Option<String> {
+        // A bare regex LITERAL receiver `/pat/.test(s)` (P5.12): a RegExp instance.
+        if super::regex::is_regex_literal(object) {
+            return Some(super::regex::REGEX_CLASS.to_string());
+        }
         match &object.kind {
             HirExprKind::New { class, .. } if self.is_global_class_ctor(class) => {
                 Some(class.clone())
@@ -335,6 +409,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             "Set" => "__rtsadp_is_set",
             "Error" => "__rtsadp_is_error",
             "Array" => "__rtsadp_arr_is_array",
+            // RegExp instanceof: no dedicated runtime tag trampoline yet, so only a
+            // STATICALLY-recorded RegExp local/literal can be decided here (compile-
+            // time class-name compare). A dynamic operand BAILS (never a guess).
+            "RegExp" => {
+                if self.global_instance_class(lhs).as_deref() == Some("RegExp") {
+                    let word = value::PolyValue::bool(true).raw() as i64;
+                    let v = self.builder.ins().iconst(types::I64, word);
+                    return Ok(Some(Val::tagged_kind(v, JsKind::Bool)));
+                }
+                return Ok(None);
+            }
             _ if is_error_class(class) => "__rtsadp_is_error",
             _ => return Ok(None),
         };

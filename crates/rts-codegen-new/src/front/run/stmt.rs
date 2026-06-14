@@ -111,6 +111,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.bind_tagged_local(name, val);
                 Some(HeapShape::Array)
             }
+            // `let re = /pat/flags`: a regex LITERAL initializer (P5.12). Compile to
+            // a RegExp instance word and record the local's static class so
+            // `re.test(s)` / `re.source` / `re instanceof RegExp` dispatch.
+            HirExprKind::Raw(_) if super::regex::is_regex_literal(init) => {
+                let (pattern, flags) =
+                    super::regex::regex_literal_parts(init).expect("is_regex_literal proved parts");
+                let val = self.lower_regex_literal(module, &pattern, &flags)?;
+                self.bind_tagged_local(name, val);
+                self.global_instance_classes
+                    .insert(name.to_string(), super::regex::REGEX_CLASS.to_string());
+                return Ok(());
+            }
             // `let a = new Array(n)`: the built-in Array constructor → an array
             // local (HeapShape::Array), NOT a class instance.
             HirExprKind::New { class, args } if self.is_builtin_array_ctor(class) => {

@@ -37,7 +37,7 @@ use rts_runtime::namespaces::math as rt_math;
 
 use crate::value::{
     abi_adapter, arraycb, arrayops, dyndispatch, funcops, genops, genops_arith, globalops, inspect,
-    iterops, mapset, objops, wrappers,
+    iterops, mapset, objops, regexops, wrappers,
 };
 
 /// One installable JIT symbol: an extern "C" name and its function pointer. The
@@ -190,6 +190,20 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_set_delete", mapset::__rtsadp_set_delete as *const u8),
         sym("__rtsadp_set_clear", mapset::__rtsadp_set_clear as *const u8),
         sym("__rtsadp_set_size", mapset::__rtsadp_set_size as *const u8),
+        // ---- codegen-owned RegExp + string-regex-method trampolines (regexops, P5.12) ----
+        sym("__rtsadp_re_compile", regexops::__rtsadp_re_compile as *const u8),
+        sym("__rtsadp_re_test", regexops::__rtsadp_re_test as *const u8),
+        sym("__rtsadp_re_source", regexops::__rtsadp_re_source as *const u8),
+        sym("__rtsadp_re_flags", regexops::__rtsadp_re_flags as *const u8),
+        sym("__rtsadp_re_global", regexops::__rtsadp_re_global as *const u8),
+        sym("__rtsadp_re_ignore_case", regexops::__rtsadp_re_ignore_case as *const u8),
+        sym("__rtsadp_re_multiline", regexops::__rtsadp_re_multiline as *const u8),
+        sym("__rtsadp_re_last_index", regexops::__rtsadp_re_last_index as *const u8),
+        sym("__rtsadp_re_str_match", regexops::__rtsadp_re_str_match as *const u8),
+        sym("__rtsadp_re_str_replace", regexops::__rtsadp_re_str_replace as *const u8),
+        sym("__rtsadp_re_str_replace_all", regexops::__rtsadp_re_str_replace_all as *const u8),
+        sym("__rtsadp_re_str_split", regexops::__rtsadp_re_str_split as *const u8),
+        sym("__rtsadp_re_str_search", regexops::__rtsadp_re_str_search as *const u8),
         // ---- codegen-owned DYNAMIC property access (objops, P5.5) ----
         sym("__rtsadp_obj_get", objops::__rtsadp_obj_get as *const u8),
         sym("__rtsadp_obj_set", objops::__rtsadp_obj_set as *const u8),

@@ -624,7 +624,14 @@ fn lower_lit(lit: &swc::Lit) -> HirExpr {
         swc::Lit::Str(s) => HirExpr::new(HirExprKind::Lit(HirLit::Str(s.value.to_string_lossy().into_owned())), HirType::Str),
         swc::Lit::Null(_) => HirExpr::new(HirExprKind::Lit(HirLit::Null), HirType::Any),
         swc::Lit::BigInt(_) => HirExpr::new(HirExprKind::Raw("bigint".into()), HirType::I64),
-        swc::Lit::Regex(_) => HirExpr::new(HirExprKind::Raw("regex".into()), HirType::Handle(HandleKind::Regex)),
+        swc::Lit::Regex(r) => {
+            // Carry the pattern + flags in the Raw payload so the new engine can
+            // recover them (the old engine / MIR match `Raw(_)` and ignore the
+            // content, so this is backward-compatible). Encoding: NUL-separated
+            // `regex\0<pattern>\0<flags>` — NUL never appears in a JS regex source.
+            let payload = format!("regex\0{}\0{}", r.exp, r.flags);
+            HirExpr::new(HirExprKind::Raw(payload), HirType::Handle(HandleKind::Regex))
+        }
         swc::Lit::JSXText(_) => HirExpr::new(HirExprKind::Raw("jsx".into()), HirType::Str),
     }
 }
