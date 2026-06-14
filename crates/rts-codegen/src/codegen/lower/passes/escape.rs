@@ -27,6 +27,13 @@ use swc_ecma_ast::{Expr, Lit, MemberProp, Pat, Stmt};
 
 use crate::parser::ast::Statement;
 
+/// Limite de elementos para um array ir pro stack slot. Cada elemento ocupa 8
+/// bytes; o slot vive na stack da fn. Arrays grandes (ou varios arrays grandes
+/// na mesma fn) estouram a stack -> SEGFAULT. 1024 elems = 8 KiB por array, com
+/// margem confortavel para multiplos arrays + as outras stack vars da fn.
+/// Acima disso o array fica no HandleTable (caminho atual, heap, sem limite).
+pub(crate) const MAX_NATIVE_ARRAY_LEN: usize = 1024;
+
 /// Metadata de um array local qualificado para storage nativo (stack slot).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct NativeArrayInfo {
@@ -321,7 +328,19 @@ fn peel<'a>(e: &'a Expr) -> &'a Expr {
 ///   - `new Array(N)` — N literal inteiro >= 0, OU `new Array(NAME)` onde NAME
 ///     e' uma const-int conhecida (`consts`).
 /// Caso contrario `None` (cai no caminho atual).
+///
+/// Aplica o limite [`MAX_NATIVE_ARRAY_LEN`]: arrays maiores ficam no HandleTable
+/// (heap) em vez de virar um stack slot — senao varios/grandes arrays estouram a
+/// stack da fn (SEGFAULT, visto em bench/company_sim.ts com 5 arrays de 10000).
 fn candidate_info(init: &Expr, consts: &HashMap<String, usize>) -> Option<NativeArrayInfo> {
+    let info = candidate_info_inner(init, consts)?;
+    if info.len > MAX_NATIVE_ARRAY_LEN {
+        return None;
+    }
+    Some(info)
+}
+
+fn candidate_info_inner(init: &Expr, consts: &HashMap<String, usize>) -> Option<NativeArrayInfo> {
     match peel(init) {
         Expr::Array(arr) => {
             // Array literal VAZIO (`[]`) NAO qualifica: e' o padrao "cria e
