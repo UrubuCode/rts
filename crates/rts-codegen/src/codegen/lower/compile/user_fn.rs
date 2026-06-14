@@ -426,6 +426,22 @@ pub(crate) fn compile_user_fn(
             fn_ctx.emit_trace_push(fn_line, fn_col)?;
         }
 
+        // (RTS_ARRAY_INLINE) Escape analysis: arrays locais nao-escapantes de
+        // tamanho fixo (`new Array(N)` / `[lit,...]`, sem push) qualificam pra
+        // storage nativo em StackSlot. Gate por env var; OFF = caminho atual
+        // bit-identico. O decl-site (decls.rs) consulta `native_array_candidates`
+        // e aloca o slot + inicializa, em vez de VEC_NEW. So' user fns (top-level
+        // / __RTS_MAIN sao follow-up — ver docs/specs/native-array-storage.md).
+        if std::env::var("RTS_ARRAY_INLINE").as_deref() == Ok("1") {
+            let cands =
+                crate::codegen::lower::passes::escape::non_escaping_fixed_arrays(&fn_decl.body);
+            for (name, info) in cands {
+                fn_ctx
+                    .native_array_candidates
+                    .insert(name, (info.len, info.elem_is_float));
+            }
+        }
+
         // (#301) Var hoisting: coletar todos os nomes `var x` no body
         // (incluindo nested em if/for/while/try mas ignorando function/
         // arrow/class boundaries) e pre-declarar como I64=0. Isso

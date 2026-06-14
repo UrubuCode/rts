@@ -807,6 +807,18 @@ pub(super) fn lower_member_expr(ctx: &mut FnCtx, m: &swc_ecma_ast::MemberExpr) -
             }
         }
     }
+    // (RTS_ARRAY_INLINE) `arr[idx]` (read) onde `arr` e' um array nativo
+    // (escape analysis qualificou -> StackSlot). Load direto com bounds-check,
+    // zero call extern. Interceptado ANTES de `lower_expr(m.obj)` porque o
+    // array nativo nao tem handle valido pra ler como Ident. Devolve TypedVal
+    // com elem_ty exato (I64 ou F64). Ver docs/specs/native-array-storage.md.
+    if let (Expr::Ident(obj_id), MemberProp::Computed(c)) = (m.obj.as_ref(), &m.prop) {
+        if let Some(&storage) = ctx.native_arrays.get(obj_id.sym.as_str()) {
+            let idx_tv = lower_expr(ctx, &c.expr)?;
+            let idx = ctx.coerce_to_i64(idx_tv).val;
+            return Ok(ctx.emit_native_array_read(storage, idx));
+        }
+    }
     // (cross-runtime #1052) `obj[<StringLit>]` ou `obj[k[N]]` (k const array
     // de strings) quando key resolve estaticamente para "length"/"name"
     // (propriedade comum) — reescreve como `obj.<prop>` para usar path direto

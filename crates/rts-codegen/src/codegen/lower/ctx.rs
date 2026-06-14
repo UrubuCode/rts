@@ -181,6 +181,26 @@ pub struct LocalVar {
     pub is_const: bool,
 }
 
+/// (RTS_ARRAY_INLINE) Storage nativo de um array local nao-escapante de
+/// tamanho fixo. Em vez de um handle do HandleTable, o array vive num
+/// `StackSlot` Cranelift de `len * 8` bytes; `arr[i]` vira load/store direto
+/// (`[stack_addr + i*8]`), sem call extern nem lock. GC-safe porque o scanner
+/// de GC e' conservador e varre toda a stack (handles num slot sao marcados
+/// como qualquer local). Ver `docs/specs/native-array-storage.md`.
+#[derive(Debug, Clone, Copy)]
+pub struct NativeArrayStorage {
+    /// StackSlot Cranelift de `len * 8` bytes.
+    pub slot: StackSlot,
+    /// Numero de elementos (tamanho fixo).
+    pub len: i64,
+    /// Tipo Cranelift de cada elemento (I64 hoje; I64 com bits-f64 quando
+    /// `elem_ty == F64`).
+    pub elem_clty: cranelift_codegen::ir::Type,
+    /// Tipo logico do elemento. F64 => o slot guarda BITS de um f64 (bitcast
+    /// na leitura/escrita), espelhando `local_array_elem_ty`/`local_ta_view`.
+    pub elem_ty: ValTy,
+}
+
 /// Module-scope global lowered to a data symbol.
 #[derive(Debug, Clone)]
 pub struct GlobalVar {
@@ -554,6 +574,19 @@ pub struct FnCtx<'m, 'fb> {
     /// Sem isso, `arr.indexOf(x)` em `let arr: number[] = [...]` cai em
     /// string builtin (`__RTS_FN_GL_STRING_INDEX_OF`) e retorna lixo.
     pub local_array_vars: std::collections::HashSet<String>,
+    /// (RTS_ARRAY_INLINE) Arrays locais nao-escapantes de tamanho fixo que
+    /// vivem num StackSlot Cranelift em vez do HandleTable. `arr[i]` vira
+    /// load/store direto (zero call extern). Populado em `compile_user_fn`
+    /// quando a env `RTS_ARRAY_INLINE=1` esta ativa e a escape analysis
+    /// (`passes::escape`) qualifica o array. Vazio por padrao (flag OFF =
+    /// caminho atual bit-identico).
+    pub native_arrays: std::collections::HashMap<String, NativeArrayStorage>,
+    /// (RTS_ARRAY_INLINE) Nomes de arrays que a escape analysis qualificou
+    /// como nativos (nao-escapantes, tamanho fixo), com (len, elem_is_float).
+    /// Populado UMA vez no inicio de `compile_user_fn`. O decl-site (decls.rs)
+    /// consulta este set: se o nome esta aqui, aloca o StackSlot + registra em
+    /// `native_arrays` + inicializa, em vez de VEC_NEW. Vazio com flag OFF.
+    pub native_array_candidates: std::collections::HashMap<String, (usize, bool)>,
     /// (cross-runtime) Vars cujo valor eh Map/Set/WeakMap/WeakSet (anotacao
     /// `: Map<...>`, init `new Map/Set`, ou retorno de fn que devolve Map/Set).
     /// Usado por `.size` para rotear ao UNIVERSAL_LENGTH (detecta Entry::Map em
@@ -670,6 +703,8 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
             str_handle_cache: HashMap::new(),
             num_val_cache: HashMap::new(),
             local_array_vars: std::collections::HashSet::new(),
+            native_arrays: std::collections::HashMap::new(),
+            native_array_candidates: std::collections::HashMap::new(),
             local_map_vars: std::collections::HashSet::new(),
             local_string_vars: std::collections::HashSet::new(),
             generator_vars: std::collections::HashSet::new(),
@@ -752,6 +787,114 @@ impl<'m, 'fb> FnCtx<'m, 'fb> {
         let ptr_ty = self.module.isa().pointer_type();
         let addr = self.builder.ins().stack_addr(ptr_ty, slot, 0);
         (slot, addr)
+    }
+
+    /// (RTS_ARRAY_INLINE) Aloca o StackSlot de um array nativo de `len`
+    /// elementos (8 bytes cada, align 8) e registra em `native_arrays`.
+    /// Os slots NAO sao inicializados aqui — o chamador (decl site) emite os
+    /// stores iniciais (literal) ou zera (`new Array(N)`).
+    pub fn alloc_native_array(&mut self, name: &str, len: i64, elem_ty: ValTy) -> StackSlot {
+        use cranelift_codegen::ir::types as cl;
+        let bytes = (len.max(0) as u32).saturating_mul(8).max(8);
+        let slot = self.builder.create_sized_stack_slot(StackSlotData::new(
+            StackSlotKind::ExplicitSlot,
+            bytes,
+            3, // log2(8) = align 8
+        ));
+        self.native_arrays.insert(
+            name.to_string(),
+            NativeArrayStorage { slot, len, elem_clty: cl::I64, elem_ty },
+        );
+        slot
+    }
+
+    /// (RTS_ARRAY_INLINE) Emite leitura `arr[idx]` de um array nativo com
+    /// bounds-check JS-correto: fora de `[0, len)` devolve `default` (0 /
+    /// undefined-ish), nunca trap. Devolve o valor ja tipado conforme
+    /// `elem_ty` (bitcast pra F64 quando o slot guarda bits de f64).
+    pub fn emit_native_array_read(
+        &mut self,
+        store: NativeArrayStorage,
+        idx: Value,
+    ) -> TypedVal {
+        use cranelift_codegen::ir::condcodes::IntCC;
+        let ptr_ty = self.module.isa().pointer_type();
+        // idx em i64 (ja coerced pelo chamador).
+        let len_v = self.builder.ins().iconst(cl::I64, store.len);
+        let zero = self.builder.ins().iconst(cl::I64, 0);
+        // in_bounds = idx >= 0 && idx < len  (unsigned compare cobre ambos:
+        // idx < len como unsigned trata negativos como enormes => false).
+        let in_bounds = self
+            .builder
+            .ins()
+            .icmp(IntCC::UnsignedLessThan, idx, len_v);
+        // Endereco do slot: base + idx*8. Clamp idx a 0 quando fora de bounds
+        // pra que o `load` nunca toque memoria invalida (mesmo que descartemos
+        // o valor via select). Endereco sempre dentro do slot.
+        let safe_idx = self.builder.ins().select(in_bounds, idx, zero);
+        let base = self.builder.ins().stack_addr(ptr_ty, store.slot, 0);
+        let off = self.builder.ins().imul_imm(safe_idx, 8);
+        let off = if ptr_ty == cl::I32 {
+            self.builder.ins().ireduce(cl::I32, off)
+        } else {
+            off
+        };
+        let addr = self.builder.ins().iadd(base, off);
+        let raw = self
+            .builder
+            .ins()
+            .load(store.elem_clty, MemFlags::trusted(), addr, 0);
+        // Fora de bounds => 0 (default). JS daria undefined; 0 e' o sentinel
+        // numerico usado no resto do codegen para slots ausentes.
+        let val = self.builder.ins().select(in_bounds, raw, zero);
+        if matches!(store.elem_ty, ValTy::F64) {
+            let f = self
+                .builder
+                .ins()
+                .bitcast(cl::F64, MemFlags::new(), val);
+            TypedVal::new(f, ValTy::F64)
+        } else {
+            TypedVal::new(val, ValTy::I64)
+        }
+    }
+
+    /// (RTS_ARRAY_INLINE) Emite escrita `arr[idx] = val_i64` num array nativo.
+    /// `val_i64` ja deve carregar a representacao final (bits-f64 quando
+    /// `elem_ty == F64`). Bounds-check: fora de range NAO escreve (no-op via
+    /// endereco clamped + guard) — JS expandiria o array, mas para a fatia
+    /// segura (tamanho fixo) escritas fora de range sao descartadas.
+    pub fn emit_native_array_write(&mut self, store: NativeArrayStorage, idx: Value, val_i64: Value) {
+        use cranelift_codegen::ir::condcodes::IntCC;
+        let ptr_ty = self.module.isa().pointer_type();
+        let len_v = self.builder.ins().iconst(cl::I64, store.len);
+        let zero = self.builder.ins().iconst(cl::I64, 0);
+        let in_bounds = self
+            .builder
+            .ins()
+            .icmp(IntCC::UnsignedLessThan, idx, len_v);
+        // Clamp idx a 0 quando fora de bounds — o store sempre toca o slot 0
+        // (dentro do array), mas so' grava o valor real quando in_bounds; fora
+        // de bounds re-grava o valor atual do slot 0 (no-op observavel).
+        let safe_idx = self.builder.ins().select(in_bounds, idx, zero);
+        let base = self.builder.ins().stack_addr(ptr_ty, store.slot, 0);
+        let off = self.builder.ins().imul_imm(safe_idx, 8);
+        let off = if ptr_ty == cl::I32 {
+            self.builder.ins().ireduce(cl::I32, off)
+        } else {
+            off
+        };
+        let addr = self.builder.ins().iadd(base, off);
+        // Quando fora de bounds, preserva o conteudo atual do slot-0: carrega
+        // o valor existente e usa-o no lugar de `val_i64`. Assim o store nunca
+        // corrompe um slot valido com escrita fora de range.
+        let cur = self
+            .builder
+            .ins()
+            .load(store.elem_clty, MemFlags::trusted(), addr, 0);
+        let to_store = self.builder.ins().select(in_bounds, val_i64, cur);
+        self.builder
+            .ins()
+            .store(MemFlags::trusted(), to_store, addr, 0);
     }
 
     /// Pushes a new block scope. Variables declared with `let`/`const` go here.
