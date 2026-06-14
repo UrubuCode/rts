@@ -73,6 +73,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // `${[1,2,3]}` in a template). A whole OBJECT operand is NOT relaxed: an
         // object may override `toString`/`valueOf`/`Symbol.toPrimitive` (the engine
         // would render `[object Object]` and diverge), so it keeps bailing.
+        // ToPrimitive (issue #304): a `+` where an operand is a STATICALLY-KNOWN-
+        // CLASS object that defines `toString`/`valueOf` coerces that object via its
+        // method AT LOWERING TIME (where the class is in scope), then concatenates/
+        // adds the resulting primitives — never the default `[object Object]`. Plain
+        // objects, arrays, and dynamic-class objects keep the gate below.
+        if matches!(op, HirBinOp::Add)
+            && (self.has_object_toprimitive(lhs) || self.has_object_toprimitive(rhs))
+        {
+            return self.lower_add_with_toprimitive(module, lhs, rhs);
+        }
+
         let obj_operand = self.is_whole_object_value(lhs) || self.is_whole_object_value(rhs);
         if self.is_whole_heap_value(lhs) || self.is_whole_heap_value(rhs) {
             let array_string_concat = matches!(op, HirBinOp::Add)

@@ -47,6 +47,7 @@ mod objstatic;
 mod sig;
 mod stmt;
 mod thunk;
+mod toprimitive;
 mod trycatch;
 
 pub mod lower;

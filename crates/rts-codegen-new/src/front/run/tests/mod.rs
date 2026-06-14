@@ -58,4 +58,5 @@ mod regex;
 mod run;
 mod string;
 mod template;
+mod toprimitive;
 mod trycatch;

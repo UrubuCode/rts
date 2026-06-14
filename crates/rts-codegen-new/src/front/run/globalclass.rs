@@ -373,7 +373,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// The recorded runtime/Registry class of a receiver, if statically known:
     /// - `new C(args)` directly (chained `new Map().set(..)`);
     /// - a bare identifier recorded in `global_instance_classes`.
-    fn global_instance_class(&self, object: &HirExpr) -> Option<String> {
+    pub(super) fn global_instance_class(&self, object: &HirExpr) -> Option<String> {
         // A bare regex LITERAL receiver `/pat/.test(s)` (P5.12): a RegExp instance.
         if super::regex::is_regex_literal(object) {
             return Some(super::regex::REGEX_CLASS.to_string());

@@ -50,7 +50,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
         match name {
             "Number" => self.coerce_call(module, "__rtsadp_g_number", args, JsKind::Number).map(Some),
-            "String" => self.coerce_call(module, "__rtsadp_g_string", args, JsKind::Str).map(Some),
+            "String" => {
+                // ToPrimitive (issue #304): `String(obj)` of a STATICALLY-KNOWN-CLASS
+                // object calls its `toString`/`valueOf` (string hint), not the default
+                // `[object Object]`. A plain object / array / dynamic receiver falls
+                // through to the runtime `__rtsadp_g_string` (array-join / default).
+                if args.len() == 1 {
+                    if let Some(word) = self.coerce_object_to_string_word(
+                        module,
+                        &args[0],
+                        super::toprimitive::Hint::String,
+                    )? {
+                        return Ok(Some(Val::tagged_kind(word, JsKind::Str)));
+                    }
+                }
+                self.coerce_call(module, "__rtsadp_g_string", args, JsKind::Str).map(Some)
+            }
             "Boolean" => self
                 .bool_returning_call(module, "__rtsadp_g_boolean", args)
                 .map(Some),
