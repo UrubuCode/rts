@@ -151,6 +151,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // return early so the generic `let` tail does not run.
                 return Ok(());
             }
+            // `let x = new F(args)` where `F` is a FUNCTION used as a constructor
+            // (Phase 2/3): the result is opaque (F's object-return or the fresh
+            // instance), so bind a plain Tagged local with no proven shape/class.
+            HirExprKind::New { class, args } if self.is_fn_ctor(class) => {
+                let val = self.lower_new_fn_ctor(module, class, args)?;
+                self.bind_tagged_local(name, val);
+                return Ok(());
+            }
             // `let c = new C(args)`: build the instance, record the local's CLASS
             // (for static `c.method()` dispatch) and OBJECT shape (for `c.field`).
             HirExprKind::New { class, args } => {

@@ -167,6 +167,10 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         // ---- codegen-owned FUNCTION-value trampolines (__rtsadp_fn_*, P4.6) ----
         sym("__rtsadp_fn_reify", funcops::__rtsadp_fn_reify as *const u8),
         sym("__rtsadp_fn_invoke", funcops::__rtsadp_fn_invoke as *const u8),
+        // ---- function-as-constructor side-table (new F() / x instanceof F) ----
+        sym("__rtsadp_fn_ptr", funcops::__rtsadp_fn_ptr as *const u8),
+        sym("__rtsadp_ctor_mark", funcops::__rtsadp_ctor_mark as *const u8),
+        sym("__rtsadp_instanceof_fn", funcops::__rtsadp_instanceof_fn as *const u8),
         // ---- codegen-owned Array CALLBACK trampolines (__rtsadp_arr_*, P4.7) ----
         sym("__rtsadp_arr_map", arraycb::__rtsadp_arr_map as *const u8),
         sym("__rtsadp_arr_filter", arraycb::__rtsadp_arr_filter as *const u8),

@@ -36,9 +36,77 @@
 //! so the call sites of `__rtsadp_fn_invoke` are unchanged — the env travels with
 //! the function value itself.
 
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::sync::OnceLock;
+
 use rts_runtime::namespaces::gc::handles::{alloc_entry, with_entry, Entry, FunctionData};
 
 use super::PolyValue;
+
+/// Side-table mapping an INSTANCE object word → the CONSTRUCTOR function's
+/// identity (its `FunctionData.fn_ptr`, i.e. the THUNK address), recorded by
+/// `new F()` and read by `x instanceof F`. This is the codegen-owned analogue of
+/// the Map/Set kind-set: a small global table keyed by the boxed `TAG_OBJECT`
+/// PolyValue word (stable + unique per instance, since it encodes slot+shard).
+///
+/// Function identity (the value compared) is `FunctionData.fn_ptr`, which is the
+/// SAME whether `F` is reached as a direct call (`new F()` marks with the thunk
+/// address) or as a function VALUE (`__rtsadp_fn_ptr` reads the same field) — so
+/// `instanceof` agrees across both reach paths.
+fn ctor_table() -> &'static Mutex<HashMap<u64, u64>> {
+    static T: OnceLock<Mutex<HashMap<u64, u64>>> = OnceLock::new();
+    T.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// `__rtsadp_fn_ptr(fn_word)` — the CONSTRUCTOR identity of a function VALUE: the
+/// stored `FunctionData.fn_ptr` (the uniform thunk address). Returns `0` when the
+/// word is not a live function value (so a `new <non-fn>()` / `x instanceof
+/// <non-fn>` decides `false`, never crashes).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_fn_ptr(fn_word: u64) -> u64 {
+    let pv = PolyValue::from_raw(fn_word);
+    if !pv.is_function() {
+        return 0;
+    }
+    let real = rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(pv.as_handle());
+    with_entry(real, |e| match e {
+        Some(Entry::Function(d)) => d.fn_ptr,
+        _ => 0,
+    })
+}
+
+/// `__rtsadp_ctor_mark(obj_word, fn_ptr)` — record that the instance `obj_word`
+/// was constructed by the function whose identity is `fn_ptr`. A non-object word
+/// or a `0` fn_ptr is ignored (no entry recorded). The key is the full boxed
+/// `TAG_OBJECT` PolyValue word.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_ctor_mark(obj_word: u64, fn_ptr: u64) {
+    let pv = PolyValue::from_raw(obj_word);
+    if !pv.is_object() || fn_ptr == 0 {
+        return;
+    }
+    if let Ok(mut t) = ctor_table().lock() {
+        t.insert(obj_word, fn_ptr);
+    }
+}
+
+/// `__rtsadp_instanceof_fn(obj_word, fn_ptr)` — PolyValue bool: `true` iff
+/// `obj_word` is an object whose RECORDED constructor identity equals `fn_ptr`.
+/// (Future: walk a prototype chain; exact match for now.) A non-object word or an
+/// unrecorded instance yields `false`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_instanceof_fn(obj_word: u64, fn_ptr: u64) -> u64 {
+    let pv = PolyValue::from_raw(obj_word);
+    if !pv.is_object() || fn_ptr == 0 {
+        return PolyValue::bool(false).raw();
+    }
+    let matched = ctor_table()
+        .lock()
+        .map(|t| t.get(&obj_word).copied() == Some(fn_ptr))
+        .unwrap_or(false);
+    PolyValue::bool(matched).raw()
+}
 
 /// The fixed uniform indirect-call signature every function VALUE is invoked
 /// through: a leading `env` word + 4 positional PolyValue words + a `rest`

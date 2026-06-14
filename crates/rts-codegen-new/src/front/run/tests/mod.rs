@@ -53,6 +53,7 @@ mod globals;
 mod class_inherit;
 mod closure;
 mod destructure;
+mod fn_ctor;
 mod free_this;
 mod funcval;
 mod globalclass;

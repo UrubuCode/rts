@@ -16,11 +16,13 @@
 //! collected — e.g. a Registry/global class, or an `extends` class refused up
 //! front) BAILS explicitly.
 
-use cranelift_codegen::ir::{types, InstBuilder};
+use cranelift_codegen::ir::condcodes::IntCC;
+use cranelift_codegen::ir::{types, InstBuilder, Value};
 use cranelift_module::Module;
 
 use rts_hir::HirExpr;
 
+use crate::repr::Repr;
 use crate::shape::ShapeId;
 use crate::value::{self, emit_marshal};
 
@@ -93,5 +95,101 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         //         yield the instance word as a TAG_OBJECT PolyValue ----
         let shape_id = self.shapes.intern(&desc.fields);
         Ok((Val::tagged_kind(obj_word, JsKind::Object), class.to_string(), shape_id))
+    }
+
+    /// Whether `name` is a FUNCTION usable as a constructor via `new name()` —
+    /// a top-level free function (a `function F(){…}` decl or a hoisted `const F =
+    /// function(){…}`) that carries a synthesized leading `this` (`has_this`) and
+    /// is NOT a class fn (those have `has_this` cleared in `compile_program`) nor a
+    /// closure (an env-capturing fn is a later increment). The DIRECT-call path
+    /// then runs `F` with `this` = the fresh instance (Phase 2/3).
+    pub(super) fn is_fn_ctor(&self, name: &str) -> bool {
+        self.sigs
+            .get(name)
+            .is_some_and(|s| s.has_this && !s.is_async)
+            && !self.captures.contains_key(name)
+    }
+
+    /// The runtime CONSTRUCTOR IDENTITY of fn-ctor `name`: its uniform-ABI THUNK
+    /// address (a Cranelift `Value`). This is the SAME `fn_ptr` `new F()` records
+    /// via `__rtsadp_ctor_mark` and `__rtsadp_fn_ptr` reads for a function VALUE,
+    /// so `x instanceof F` compares the right identity.
+    pub(super) fn fn_ctor_identity(
+        &mut self,
+        module: &mut dyn Module,
+        name: &str,
+    ) -> FrontResult<Value> {
+        let thunk_id = *self
+            .thunks
+            .get(name)
+            .ok_or_else(|| crate::front::error::Unsupported::new(format!("no thunk for `{name}`")))?;
+        let func_ref = module.declare_func_in_func(thunk_id, self.builder.func);
+        Ok(self.builder.ins().func_addr(types::I64, func_ref))
+    }
+
+    /// Lower `new F(args)` where `F` is a function-as-constructor (Phase 2/3):
+    ///
+    /// 1. allocate a fresh `Entry::Vec` instance (no class fields — a bare object);
+    /// 2. record `instance → F.fn_ptr` in the ctor side-table (so `this instanceof
+    ///    F` inside the body, and a later `x instanceof F`, resolve true);
+    /// 3. DIRECT-call `F` with `this` = the instance (reusing the Phase-1 has_this
+    ///    marshaling, but with the instance instead of `undefined`);
+    /// 4. JS `new` result: F's return value if it is an OBJECT, else the instance.
+    ///
+    /// Returns the result `Val` (kind Unknown — it could be the instance or F's
+    /// object return). The DIRECT path requires `F`'s real signature, which is in
+    /// `self.sigs`; the truly-opaque function-VALUE ctor (a `let g = ...; new g()`)
+    /// is NOT handled here (it would need `__rtsadp_fn_invoke` to route a receiver
+    /// — a later increment) and the caller bails for it.
+    pub(super) fn lower_new_fn_ctor(
+        &mut self,
+        module: &mut dyn Module,
+        name: &str,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        let sig = self
+            .sigs
+            .get(name)
+            .cloned()
+            .expect("caller proved `name` is a fn-ctor in `sigs`");
+
+        // ---- 1. fresh instance (a bare TAG_OBJECT, no field slots) ----
+        let obj_word = emit_marshal::emit_new_vec_object(module, self.builder);
+
+        // ---- 2. record instance → ctor identity (F's thunk address) ----
+        // The identity is F's uniform-ABI THUNK address — the SAME `fn_ptr`
+        // `__rtsadp_fn_ptr` reads for a function VALUE of `F` — so a later
+        // `x instanceof F` (value form) agrees with the body's `this instanceof F`.
+        let thunk_id = *self
+            .thunks
+            .get(name)
+            .ok_or_else(|| crate::front::error::Unsupported::new(format!("no thunk for `{name}`")))?;
+        let func_ref = module.declare_func_in_func(thunk_id, self.builder.func);
+        let fn_ptr = self.builder.ins().func_addr(types::I64, func_ref);
+        self.call_runtime(module, "__rtsadp_ctor_mark", &[obj_word, fn_ptr])?;
+
+        // ---- 3. DIRECT-call F with `this` = the instance ----
+        let call_args = self.marshal_call_args(module, &sig, Some(obj_word), args)?;
+        let ret = self.emit_user_call(module, &sig, &call_args)?;
+
+        // ---- 4. new-result: F's return if it is an OBJECT, else the instance ----
+        let ret_word = self.box_value(ret);
+        let result = self.emit_new_result(obj_word, ret_word);
+        Ok(Val::new(result, Repr::Tagged))
+    }
+
+    /// JS `new` result selection: `ret_word` if it is a boxed `TAG_OBJECT`,
+    /// otherwise `instance`. Inline IR (an is-object tag check + `select`), no
+    /// runtime call — `box(unbox(x))` folds in the egraph where it is monomorphic.
+    fn emit_new_result(&mut self, instance: Value, ret_word: Value) -> Value {
+        // is_object(ret) = boxed(ret) && tag(ret) == TAG_OBJECT.
+        let boxed = value::emit_is_boxed(self.builder, ret_word);
+        let shifted = self.builder.ins().ushr_imm(ret_word, value::TAG_SHIFT as i64);
+        let tag = self.builder.ins().band_imm(shifted, value::TAG_MASK as i64);
+        let want = self.builder.ins().iconst(types::I64, value::TAG_OBJECT as i64);
+        let is_obj_tag = self.builder.ins().icmp(IntCC::Equal, tag, want);
+        let is_object = self.builder.ins().band(boxed, is_obj_tag);
+        // select(is_object, ret, instance).
+        self.builder.ins().select(is_object, ret_word, instance)
     }
 }

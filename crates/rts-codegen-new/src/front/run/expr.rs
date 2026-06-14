@@ -62,6 +62,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     let (val, _class) = self.lower_new_global_class(module, class, args)?;
                     return Ok(val);
                 }
+                // `new F(args)` where `F` is a FUNCTION (not a class) — a free
+                // function used as a constructor (Phase 2/3): run F with a fresh
+                // `this`, return F's object-return-or-the-instance.
+                if self.is_fn_ctor(class) {
+                    return self.lower_new_fn_ctor(module, class, args);
+                }
                 // A `new C(args)` used as a bare expression (not bound to a local
                 // whose class/shape we record) still builds the instance (a valid
                 // TAG_OBJECT PolyValue, so `console.log(new C())` / method chaining

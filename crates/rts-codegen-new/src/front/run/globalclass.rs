@@ -348,6 +348,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         lhs: &HirExpr,
         class: &str,
     ) -> FrontResult<Option<Val>> {
+        // `x instanceof F` where `F` is a FUNCTION used as a constructor (Phase 3):
+        // a REAL runtime check against the ctor side-table. `F`'s identity is its
+        // THUNK address (the same `fn_ptr` `new F()` recorded via `__rtsadp_ctor_mark`).
+        if self.is_fn_ctor(class) {
+            let v = self.lower_expr(module, lhs)?;
+            let word = self.box_value(v);
+            let fn_ptr = self.fn_ctor_identity(module, class)?;
+            let res = self
+                .call_runtime(module, "__rtsadp_instanceof_fn", &[word, fn_ptr])?
+                .expect("__rtsadp_instanceof_fn returns a value");
+            return Ok(Some(Val::tagged_kind(res, JsKind::Bool)));
+        }
         // A user class instanceof: a compile-time class-name compare (the local's
         // recorded class equals `class` or a descendant). Only resolvable when the
         // lhs has a statically-known class.

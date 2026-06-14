@@ -186,6 +186,13 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         // invoke(fn_word, a0, a1, a2, a3, rest) -> result PolyValue word (U64).
         // All slots are raw PolyValue words (U64); the fixed uniform call ABI.
         "__rtsadp_fn_invoke" => SymSig { params: &[U64, U64, U64, U64, U64, U64], ret: U64 },
+        // ---- function-as-constructor side-table (new F() / x instanceof F) ----
+        // fn_ptr(fn_word) -> ctor identity (U64, 0 = not a fn).
+        "__rtsadp_fn_ptr" => SymSig { params: &[U64], ret: U64 },
+        // ctor_mark(obj_word, fn_ptr) -> void (record instance→ctor identity).
+        "__rtsadp_ctor_mark" => SymSig { params: &[U64, U64], ret: Void },
+        // instanceof_fn(obj_word, fn_ptr) -> bool PolyValue word (U64).
+        "__rtsadp_instanceof_fn" => SymSig { params: &[U64, U64], ret: U64 },
 
         // ---- codegen-owned Array trampolines (__rtsadp_arr_*, P4.5) ----
         // All slots are u64/i64 (no StrPtr): slot 0 is the array's REAL Vec handle
