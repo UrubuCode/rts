@@ -32,6 +32,13 @@ pub struct FnSig {
     /// first-class VALUE this increment (its call returns a Promise / it suspends);
     /// reifying it BAILS. Direct calls in the numeric subset are unaffected.
     pub is_async: bool,
+    /// Index INTO [`Self::params`] of a trailing REST parameter (`...items`), if
+    /// the function declares one. The index spans the FULL param list (including a
+    /// leading `this` for methods/constructors). A rest param contributes exactly
+    /// ONE `Repr` (always `Tagged` — the slot holds the packed rest array). `None`
+    /// when the function has a fixed arity. Call sites consult this to pack a call's
+    /// trailing args into a fresh array (F3b).
+    pub rest_param: Option<usize>,
 }
 
 impl FnSig {
@@ -40,11 +47,26 @@ impl FnSig {
     /// The return follows the same rule (a non-numeric / `Unknown` return — which
     /// is what an inferred-from-`console.log` body produces — becomes `Tagged`).
     pub fn of_func(func: &HirFunc) -> FnSig {
-        let params = func
+        let params: Vec<Repr> = func
             .params
             .iter()
             .map(|p| repr_for_param(&p.ty))
             .collect();
+        // A trailing REST parameter (`...items`). TS requires the rest param to be
+        // LAST; a valid program never has a non-last variadic. We detect ONLY the
+        // last-variadic shape (ignore any earlier `variadic` flag, which valid TS
+        // cannot produce) and record its index. The rest param's own repr is kept
+        // as computed above (an annotated `...xs: number[]` is `HirType::Array` →
+        // `Tagged`), which is the array word it carries.
+        let rest_param = match func.params.last() {
+            Some(p) if p.variadic => Some(func.params.len() - 1),
+            _ => None,
+        };
+        debug_assert!(
+            func.params.iter().rev().skip(1).all(|p| !p.variadic),
+            "non-last variadic parameter in `{}` (invalid TS)",
+            func.name
+        );
         // A `void`-returning function (e.g. a synthesized class constructor)
         // returns NO value: its ABI return is `None`, and the lowerer emits the
         // trailing `return` on fall-through (a value-returning fn that falls
@@ -55,6 +77,7 @@ impl FnSig {
                 params,
                 ret: None,
                 is_async: func.is_async,
+                rest_param,
             };
         }
         // The declared return repr — trusted in general (an explicit `boolean` /
@@ -91,12 +114,12 @@ impl FnSig {
         if ret != Repr::Tagged && func.params.iter().any(|p| repr_for_param(&p.ty) == Repr::Tagged) {
             ret = Repr::Tagged;
         }
-        FnSig { name: func.name.clone(), params, ret: Some(ret), is_async: func.is_async }
+        FnSig { name: func.name.clone(), params, ret: Some(ret), is_async: func.is_async, rest_param }
     }
 
     /// The synthesized top-level `__rtsn_main`: no params, no return.
     pub fn main_sig() -> FnSig {
-        FnSig { name: "__rtsn_main".to_string(), params: Vec::new(), ret: None, is_async: false }
+        FnSig { name: "__rtsn_main".to_string(), params: Vec::new(), ret: None, is_async: false, rest_param: None }
     }
 
     /// Build the Cranelift `Signature` for this function under the host call conv.

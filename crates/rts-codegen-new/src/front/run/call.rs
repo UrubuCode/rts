@@ -381,6 +381,89 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(Val::tagged_kind(v, JsKind::Undefined))
     }
 
+    /// Marshal a call's arguments to the callee's params, honoring a trailing REST
+    /// param (`...items`): the args beyond the fixed params are packed into a fresh
+    /// array passed as the single rest slot (F3b). `this_word` is the receiver of a
+    /// method/constructor, pushed as `params[0]`; `None` for a free function.
+    /// Returns the Cranelift values in param order, each already coerced to its
+    /// param repr.
+    ///
+    /// Scope: PLAIN trailing args only. A `Spread` arg anywhere (fixed slot or the
+    /// rest tail) is a later increment and BAILS here, leaving the existing
+    /// dedicated `f(...arr)` fast path / spread bails to own that case.
+    pub(super) fn marshal_call_args(
+        &mut self,
+        module: &mut dyn Module,
+        sig: &FnSig,
+        this_word: Option<Value>,
+        args: &[HirExpr],
+    ) -> FrontResult<Vec<Value>> {
+        let mut out = Vec::with_capacity(sig.params.len());
+        let mut pi = 0usize;
+        if let Some(w) = this_word {
+            out.push(self.coerce(Val::tagged_kind(w, JsKind::Object), sig.params[0])?);
+            pi = 1;
+        }
+        let user_params = &sig.params[pi..];
+        // The rest-param index relative to the USER params (after dropping `this`).
+        match sig.rest_param.map(|r| r - pi) {
+            None => {
+                if args.len() != user_params.len() {
+                    return unsupported!(
+                        "call to `{}` expects {} args, got {}",
+                        sig.name,
+                        user_params.len(),
+                        args.len()
+                    );
+                }
+                for (a, &want) in args.iter().zip(user_params) {
+                    if matches!(a.kind, HirExprKind::Spread(_)) {
+                        return unsupported!("spread arg into `{}` (later increment)", sig.name);
+                    }
+                    let v = self.lower_expr(module, a)?;
+                    out.push(self.coerce(v, want)?);
+                }
+            }
+            Some(ru) => {
+                // `ru` = number of FIXED user params before the rest param; the call
+                // must supply at least that many positional args.
+                if args.len() < ru {
+                    return unsupported!(
+                        "call to `{}` expects at least {} args, got {}",
+                        sig.name,
+                        ru,
+                        args.len()
+                    );
+                }
+                for i in 0..ru {
+                    if matches!(args[i].kind, HirExprKind::Spread(_)) {
+                        return unsupported!("spread arg into `{}` (later increment)", sig.name);
+                    }
+                    let v = self.lower_expr(module, &args[i])?;
+                    out.push(self.coerce(v, user_params[i])?);
+                }
+                // Pack the remaining args into a fresh REST array (a `TAG_OBJECT`
+                // word over an `Entry::Vec` — the array param's `xs[i]`/`xs.length`
+                // lower against it via the F3a array-shape path). Empty tail → an
+                // empty array (`xs.length === 0`).
+                let arr = emit_marshal::emit_new_vec_object(module, self.builder);
+                for a in &args[ru..] {
+                    if matches!(a.kind, HirExprKind::Spread(_)) {
+                        return unsupported!(
+                            "spread arg into a rest parameter of `{}` (later increment)",
+                            sig.name
+                        );
+                    }
+                    let v = self.lower_expr(module, a)?;
+                    let w = self.box_value(v);
+                    emit_marshal::emit_vec_push(module, self.builder, arr, w);
+                }
+                out.push(self.coerce(Val::tagged_kind(arr, JsKind::Array), user_params[ru])?);
+            }
+        }
+        Ok(out)
+    }
+
     /// Lower a cross-function call: coerce each argument to the callee's param
     /// repr (box/unbox/widen per `FnSig`), emit the Cranelift `call`, and tag the
     /// result with the callee's return repr.
@@ -408,19 +491,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 sig.name
             );
         }
-        if args.len() != sig.params.len() {
-            return unsupported!(
-                "call to `{}` expects {} args, got {}",
-                sig.name,
-                sig.params.len(),
-                args.len()
-            );
-        }
-        let mut lowered = Vec::with_capacity(args.len());
-        for (a, &want) in args.iter().zip(&sig.params) {
-            let v = self.lower_expr(module, a)?;
-            lowered.push(self.coerce(v, want)?);
-        }
+        let lowered = self.marshal_call_args(module, sig, None, args)?;
         self.emit_user_call(module, sig, &lowered)
     }
 

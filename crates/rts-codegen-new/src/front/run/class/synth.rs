@@ -261,9 +261,11 @@ fn build_ctor(
         Some(c) => {
             let mut ps = Vec::new();
             for p in &c.parameters {
-                if p.variadic || p.default.is_some() {
+                // A REST param (`...xs`) is allowed (F3b); only a DEFAULTED param is
+                // a later increment (needs rts-hir default threading).
+                if p.default.is_some() {
                     return Err(Unsupported::new(format!(
-                        "constructor of `{}` uses a variadic / defaulted parameter",
+                        "constructor of `{}` uses a defaulted parameter",
                         decl.name
                     )));
                 }
@@ -273,7 +275,7 @@ fn build_ctor(
                     .map(rts_hir::lower::parse_type_annotation)
                     .unwrap_or(HirType::Unknown);
                 scope.define(&p.name, ty.clone());
-                ps.push(HirParam { name: p.name.clone(), ty, variadic: false, has_default: false });
+                ps.push(HirParam { name: p.name.clone(), ty, variadic: p.variadic, has_default: false });
             }
             (ps, None)
         }
@@ -404,9 +406,10 @@ fn synth_method_named(
     let mut scope = Scope::new();
     let mut params: Vec<HirParam> = if with_this { vec![this_param()] } else { Vec::new() };
     for p in &md.parameters {
-        if p.variadic || p.default.is_some() {
+        // A REST param (`...xs`) is allowed (F3b); only a DEFAULTED param bails.
+        if p.default.is_some() {
             return Err(Unsupported::new(format!(
-                "method `{}.{}` uses a variadic / defaulted parameter",
+                "method `{}.{}` uses a defaulted parameter",
                 decl.name, md.name
             )));
         }
@@ -416,7 +419,7 @@ fn synth_method_named(
             .map(rts_hir::lower::parse_type_annotation)
             .unwrap_or(HirType::Unknown);
         scope.define(&p.name, ty.clone());
-        params.push(HirParam { name: p.name.clone(), ty, variadic: false, has_default: false });
+        params.push(HirParam { name: p.name.clone(), ty, variadic: p.variadic, has_default: false });
     }
     // A setter returns nothing (its call is a statement); model it `Void` so the
     // sig is value-less and a fall-through body is well-formed.
@@ -440,9 +443,10 @@ fn synth_static_method(decl: &ClassDecl, md: &MethodDecl) -> FrontResult<HirFunc
     let mut scope = Scope::new();
     let mut params: Vec<HirParam> = Vec::new();
     for p in &md.parameters {
-        if p.variadic || p.default.is_some() {
+        // A REST param (`...xs`) is allowed (F3b); only a DEFAULTED param bails.
+        if p.default.is_some() {
             return Err(Unsupported::new(format!(
-                "static method `{}.{}` uses a variadic / defaulted parameter",
+                "static method `{}.{}` uses a defaulted parameter",
                 decl.name, md.name
             )));
         }
@@ -452,7 +456,7 @@ fn synth_static_method(decl: &ClassDecl, md: &MethodDecl) -> FrontResult<HirFunc
             .map(rts_hir::lower::parse_type_annotation)
             .unwrap_or(HirType::Unknown);
         scope.define(&p.name, ty.clone());
-        params.push(HirParam { name: p.name.clone(), ty, variadic: false, has_default: false });
+        params.push(HirParam { name: p.name.clone(), ty, variadic: p.variadic, has_default: false });
     }
     let ret = md
         .return_type

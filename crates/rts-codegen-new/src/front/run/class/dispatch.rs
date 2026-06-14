@@ -109,23 +109,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .get(fn_name)
             .cloned()
             .expect("synthesized class fn must be a registered user function");
-        let want_args = sig.params.len().saturating_sub(this_word.is_some() as usize);
-        if args.len() != want_args {
-            return unsupported!(
-                "`{fn_name}` expects {want_args} args, got {}",
-                args.len()
-            );
-        }
-        let mut call_args: Vec<Value> = Vec::with_capacity(sig.params.len());
-        let mut next = 0usize;
-        if let Some(w) = this_word {
-            call_args.push(self.coerce(Val::tagged_kind(w, JsKind::Object), sig.params[0])?);
-            next = 1;
-        }
-        for (a, &want) in args.iter().zip(&sig.params[next..]) {
-            let v = self.lower_expr(module, a)?;
-            call_args.push(self.coerce(v, want)?);
-        }
+        let call_args = self.marshal_call_args(module, &sig, this_word, args)?;
 
         let cl_sig = sig.to_cranelift(module);
         let callee = module

@@ -16,7 +16,7 @@
 //! collected — e.g. a Registry/global class, or an `extends` class refused up
 //! front) BAILS explicitly.
 
-use cranelift_codegen::ir::{types, InstBuilder, Value};
+use cranelift_codegen::ir::{types, InstBuilder};
 use cranelift_module::Module;
 
 use rts_hir::HirExpr;
@@ -44,13 +44,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                  (a global/Registry class or `extends` class is a later increment)"
             );
         };
-        if args.len() != desc.ctor_arity {
-            return unsupported!(
-                "`new {class}(..)` expects {} constructor args, got {}",
-                desc.ctor_arity,
-                args.len()
-            );
-        }
+        // NOTE: arity is validated by `marshal_call_args` against the ctor's
+        // `FnSig` (which knows the rest param), not against `desc.ctor_arity` — a
+        // variadic ctor accepts a variable count, so the exact `ctor_arity` gate is
+        // wrong here.
 
         // ---- 1. allocate the instance Vec + slot 0 = global shape-id ----
         let obj_word = emit_marshal::emit_new_vec_object(module, self.builder);
@@ -75,13 +72,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .get(&desc.ctor)
             .cloned()
             .expect("class constructor must be a registered user function");
-        let mut call_args: Vec<Value> = Vec::with_capacity(args.len() + 1);
-        // `this` is the constructor's first param (Tagged): pass the instance word.
-        call_args.push(self.coerce(Val::tagged_kind(obj_word, JsKind::Unknown), sig.params[0])?);
-        for (a, &want) in args.iter().zip(&sig.params[1..]) {
-            let v = self.lower_expr(module, a)?;
-            call_args.push(self.coerce(v, want)?);
-        }
+        // `this` is the constructor's first param: pass the instance word; the
+        // explicit args are marshaled to the remaining params (packing a trailing
+        // rest param's tail into a fresh array, F3b).
+        let call_args = self.marshal_call_args(module, &sig, Some(obj_word), args)?;
 
         let cl_sig = sig.to_cranelift(module);
         let callee = module

@@ -152,3 +152,61 @@ fn let_from_array_returning_method() {
         "2 2 3\n",
     );
 }
+
+// ---- F3b: REST parameters (`...items`) ----
+
+#[test]
+fn rest_param_function() {
+    assert_stdout(
+        r#"function sum(...xs: number[]): number {
+             let t = 0;
+             for (let i = 0; i < xs.length; i++) t = t + xs[i];
+             return t;
+           }
+           console.log(sum(1, 2, 3, 4), sum());"#,
+        "10 0\n",
+    );
+}
+
+#[test]
+fn rest_param_after_fixed() {
+    assert_stdout(
+        r#"function tagged(tag: string, ...xs: number[]): number {
+             let t = 0;
+             for (let i = 0; i < xs.length; i++) t = t + xs[i];
+             return t;
+           }
+           console.log(tagged("a", 5, 5, 5));"#,
+        "15\n",
+    );
+}
+
+#[test]
+fn rest_param_method() {
+    assert_stdout(
+        r#"class Bag {
+              #v: number[] = [];
+              addAll(...xs: number[]): void {
+                for (let i = 0; i < xs.length; i++) this.#v.push(xs[i]);
+              }
+              size(): number { return this.#v.length; }
+           }
+           let b = new Bag(); b.addAll(1, 2, 3, 4); console.log(b.size());"#,
+        "4\n",
+    );
+}
+
+#[test]
+fn rest_param_constructor() {
+    assert_stdout(
+        r#"class Pt {
+              #total: number = 0;
+              constructor(...xs: number[]) {
+                for (let i = 0; i < xs.length; i++) this.#total = this.#total + xs[i];
+              }
+              sum(): number { return this.#total; }
+           }
+           let p = new Pt(1, 2, 3, 4); console.log(p.sum());"#,
+        "10\n",
+    );
+}
