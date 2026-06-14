@@ -58,6 +58,7 @@ mod heap_field;
 mod inspect;
 mod instanceof_dyn;
 mod loops;
+mod math_tagged;
 mod mathobj;
 mod method;
 mod number;

@@ -184,11 +184,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let mut out = Vec::with_capacity(args.len());
         for a in args {
             let v = self.lower_expr(module, a)?;
-            // Only a PROVEN number coerces to f64; a Tagged/array/string arg bails.
-            if !matches!(v.repr, Repr::Int32 | Repr::Int64 | Repr::Float64) {
-                return unsupported!("Math.{method} arg is not a proven number ({:?})", v.repr);
+            // A PROVEN number (Int32/Int64/Float64) coerces straight to f64 via the
+            // fast widen path. A Tagged value (an `any`, a string-length result, a
+            // polymorphic expression) is coerced ToNumber: `coerce(Tagged→Float64)`
+            // decodes a tagged int32 / inline double to its f64 (JS ToNumber). Only
+            // a Ref repr (array/object word) has no numeric meaning and still bails.
+            match v.repr {
+                Repr::Int32 | Repr::Int64 | Repr::Float64 | Repr::Tagged => {
+                    out.push(self.coerce(v, Repr::Float64)?);
+                }
+                other => {
+                    return unsupported!("Math.{method} arg is not numeric ({other:?})");
+                }
             }
-            out.push(self.coerce(v, Repr::Float64)?);
         }
         Ok(out)
     }
