@@ -267,14 +267,14 @@ fn check_supported(decl: &ClassDecl) -> FrontResult<()> {
                     )));
                 }
             }
-            ClassMember::Property(pd) => {
-                if pd.name.starts_with('#') {
-                    return Err(Unsupported::new(format!(
-                        "private field `{}.{}`",
-                        decl.name, pd.name
-                    )));
-                }
-            }
+            // (F2) Private INSTANCE fields (`#name`) are ordinary field slots.
+            // The decl name (`"#name"`) and a `this.#name` access prop (also
+            // `"#name"`, per rts-hir `lower.rs` MemberProp::PrivateName) are the
+            // SAME interned string, so the shape slot lookup matches with no
+            // normalization. Reads/writes/chained access go through the same
+            // slot machinery as public fields. Private METHODS stay unsupported
+            // (rejected in the `ClassMember::Method` arm above).
+            ClassMember::Property(_) => {}
         }
     }
     Ok(())

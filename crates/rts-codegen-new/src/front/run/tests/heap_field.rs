@@ -68,3 +68,48 @@ fn field_array_map_like() {
         "9 2 true false 2\n",
     );
 }
+
+// --- F2: private instance fields (`#name`) as ordinary field slots ---
+
+#[test]
+fn private_scalar_field() {
+    assert_stdout(
+        r#"class Counter {
+              #n: number = 0;
+              bump(): void { this.#n = this.#n + 1; }
+              val(): number { return this.#n; }
+           }
+           let c = new Counter(); c.bump(); c.bump(); c.bump();
+           console.log(c.val());"#,
+        "3\n",
+    );
+}
+
+#[test]
+fn private_array_field_chained() {
+    assert_stdout(
+        r#"class Box {
+              #items: number[] = [];
+              add(v: number): void { this.#items.push(v); }
+              at(i: number): number { return this.#items[i]; }
+              size(): number { return this.#items.length; }
+           }
+           let b = new Box(); b.add(5); b.add(7);
+           console.log(b.size(), b.at(0), b.at(1));"#,
+        "2 5 7\n",
+    );
+}
+
+#[test]
+fn private_field_with_public_getter() {
+    assert_stdout(
+        r#"class Box {
+              #items: number[] = [];
+              push(v: number): void { this.#items.push(v); }
+              get length(): number { return this.#items.length; }
+           }
+           let b = new Box(); b.push(1); b.push(2); b.push(3);
+           console.log(b.length);"#,
+        "3\n",
+    );
+}

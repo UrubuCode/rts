@@ -163,8 +163,12 @@ fn abstract_class_bails() {
 }
 
 #[test]
-fn private_field_bails() {
-    assert_bails("class C { #secret:number; constructor(){this.#secret=1;} } let c = new C(); console.log(c);");
+fn private_method_bails() {
+    // (F2) Private FIELDS now work (covered in `heap_field.rs`). Private
+    // METHODS remain out of subset — assert they still bail. (This test
+    // replaced the obsolete `private_field_bails`, which asserted the
+    // now-supported feature.)
+    assert_bails("class C { #step(){ return 1; } go(){ return this.#step(); } } console.log(new C().go());");
 }
 
 #[test]
