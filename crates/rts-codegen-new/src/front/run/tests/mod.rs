@@ -70,6 +70,7 @@ mod precision;
 mod prelude;
 mod regex;
 mod run;
+mod stdlib_parity;
 mod string;
 mod template;
 mod toprimitive;
