@@ -90,8 +90,35 @@ IR confirma: com ON, o loop tem 0 calls de coleção (só `stack_addr`/`load`/
 `store`); com OFF, tem `VEC_GET`/`VEC_SET`/`VEC_RMW`.
 
 **Cobertura da v1:** só arrays LOCAIS a uma fn, tamanho literal (`new Array(N)`/
-`[...]`), não-escapantes, sem push. O `bench/multiuser_sim.ts` tem ganho mínimo
-(5085→4898ms) porque seus arrays são **top-level** — coberto no follow-up.
+`[...]`), não-escapantes, sem push.
+
+## v2 (2026-06-13): const-size + top-level
+
+Duas restrições da v1 removidas:
+- **Tamanho via const:** `const N = 5000; new Array(N)` agora qualifica
+  (const-propagation de `const NAME = <int literal>` no mesmo body). Antes só
+  literal cru `new Array(5000)`.
+- **Arrays top-level (`__RTS_MAIN`):** a escape analysis agora roda no top-level
+  também, filtrando `has_global` (array referenciado de dentro de qualquer user
+  fn vira global → não inlina, fica no caminho atual).
+
+Medições v2:
+- `mu_local` (const-size, array local): OFF 998ms → ON 439ms (**2.3×**).
+- `mu_real2` (top-level pré-dimensionado, sem user-fn no loop): OFF 392ms → ON
+  173ms (**2.3×**), 5004 stack_addr no `__RTS_MAIN`.
+
+**3 bugs de corretude corrigidos** (a expansão os expôs; a análise ficou MAIS
+conservadora): (A) literal vazio `[]` (padrão grow) não qualifica — inliná-lo
+corrompia escritas além do tamanho; (B) literal só qualifica se TODOS os
+elementos forem literais NUMÉRICOS (string/handle perdia a tag ambígua); (C)
+índice não-inteiro (`a[Symbol.iterator]`) força escape.
+
+**Limite descoberto (v2):** arrays `const x = []` + grow (`x[i]=v` além do
+tamanho — o padrão do `bench/multiuser_sim.ts` original) corretamente NÃO inlinam
+(precisaria de tamanho conhecido). E quando o loop chama uma user-fn por
+iteração (ex. `rnd()`), o gargalo migra do array para o **overhead de call de
+user-fn + acesso a global** — outro eixo, fora deste fix (ver issue de
+seguimento).
 
 **Segurança validada:** o race-test do #1556 com flag ON dá 4000000
 determinístico (arrays async-compartilhados escapam → caminho atom-RMW, não
