@@ -37,7 +37,7 @@ use rts_runtime::namespaces::math as rt_math;
 
 use crate::value::{
     abi_adapter, arraycb, arrayops, dyndispatch, funcops, genops, genops_arith, globalops, inspect,
-    mapset, objops, wrappers,
+    iterops, mapset, objops, wrappers,
 };
 
 /// One installable JIT symbol: an extern "C" name and its function pointer. The
@@ -161,6 +161,9 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_math_reduce", globalops::__rtsadp_math_reduce as *const u8),
         sym("__rtsadp_canon_double", globalops::__rtsadp_canon_double as *const u8),
         sym("__rtsadp_arr_spread_append", globalops::__rtsadp_arr_spread_append as *const u8),
+        // ---- codegen-owned ITERATION-source trampolines (iterops, P5.10) ----
+        sym("__rtsadp_str_chars", iterops::__rtsadp_str_chars as *const u8),
+        sym("__rtsadp_obj_keys", iterops::__rtsadp_obj_keys as *const u8),
         // ---- codegen-owned FUNCTION-value trampolines (__rtsadp_fn_*, P4.6) ----
         sym("__rtsadp_fn_reify", funcops::__rtsadp_fn_reify as *const u8),
         sym("__rtsadp_fn_invoke", funcops::__rtsadp_fn_invoke as *const u8),

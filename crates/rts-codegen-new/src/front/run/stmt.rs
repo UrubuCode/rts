@@ -38,6 +38,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.lower_if(module, cond, then, else_.as_deref())
             }
             HirStmt::While { cond, body } => self.lower_while(module, cond, body),
+            HirStmt::For { init, cond, update, body } => {
+                self.lower_for(module, init.as_deref(), cond.as_ref(), update.as_ref(), body)
+            }
+            HirStmt::ForOf { binding, binding_ty, iterable, body } => {
+                self.lower_for_of(module, binding, binding_ty, iterable, body)
+            }
+            HirStmt::ForIn { binding, object, body } => {
+                self.lower_for_in(module, binding, object, body)
+            }
+            HirStmt::Break(label) => self.lower_break(label.as_deref()),
+            HirStmt::Continue(label) => self.lower_continue(label.as_deref()),
             HirStmt::Block(stmts) => self.lower_block(module, stmts),
             HirStmt::Raw(text) => unsupported!("unrecognized statement `{}`", text.trim()),
             other => unsupported!("statement {}", stmt_name(other)),
@@ -328,7 +339,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.builder.switch_to_block(body_block);
         self.builder.seal_block(body_block);
         self.block_terminated = false;
+        // `continue` re-tests (jump to header); `break` exits.
+        self.loop_stack.push(super::lower::LoopCtx { exit: exit_block, continue_target: header });
         self.lower_block(module, body)?;
+        self.loop_stack.pop();
         if !self.block_terminated {
             self.builder.ins().jump(header, &[]);
         }

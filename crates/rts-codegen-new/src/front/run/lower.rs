@@ -110,6 +110,17 @@ impl Val {
     }
 }
 
+/// One active enclosing loop's break/continue jump targets (P5.10). Pushed on the
+/// [`Lowerer::loop_stack`] when a loop body is lowered, popped after; a `break`
+/// jumps to `exit`, a `continue` to `continue_target`.
+#[derive(Clone, Copy)]
+pub(crate) struct LoopCtx {
+    /// The block a `break` jumps to (the loop's exit / continuation).
+    pub exit: cranelift_codegen::ir::Block,
+    /// The block a `continue` jumps to (header / update / advance step).
+    pub continue_target: cranelift_codegen::ir::Block,
+}
+
 /// A local binding: its Cranelift variable + the repr it holds. A local has a
 /// single stable repr for the whole function; a `let` that would need two reprs
 /// on different paths uses `Tagged` (decided at declaration).
@@ -161,6 +172,12 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     pub ret: Option<Repr>,
     /// True once the current block has emitted a terminator.
     pub block_terminated: bool,
+    /// Active enclosing loops (innermost last) for `break`/`continue` (P5.10). Each
+    /// entry names the block `break` jumps to (the loop exit) and the block
+    /// `continue` jumps to (the header for a `while`, the update step for a C-`for`,
+    /// the per-iteration advance for for-of/for-in). A `break`/`continue` with no
+    /// active loop, or with a label, BAILS.
+    pub loop_stack: Vec<LoopCtx>,
     /// Every user function's frozen ABI signature, for cross-fn calls. Keyed by
     /// name; shared (read-only) across all functions in the module.
     pub sigs: &'c HashMap<String, FnSig>,
@@ -208,6 +225,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             shapes: ShapeTable::new(),
             ret: sig.ret,
             block_terminated: false,
+            loop_stack: Vec::new(),
             sigs,
             thunks,
             captures,
@@ -305,12 +323,21 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             (Repr::Int32, Repr::Int64) | (Repr::Int64, Repr::Int32) => Ok(val.v),
             // native → Tagged (box)
             (_, Repr::Tagged) => Ok(self.box_value(val)),
-            // Tagged → native number (unbox)
+            // Tagged → native double: SOUND decode that accepts EITHER number
+            // representation (a tagged int32 OR an inline double). A boxed double
+            // (e.g. the `__rtsadp_add` result of `0 + arr[i]`) must not be read by
+            // the int32-only unbox, and vice-versa — `emit_tagged_number_to_f64`
+            // selects on the tag (pure IR the egraph folds when the repr is proven).
             (Repr::Tagged, Repr::Float64) => {
-                Ok(value::emit_unbox_double(self.builder, val.v))
+                Ok(value::emit_tagged_number_to_f64(self.builder, val.v))
             }
+            // Tagged → native int: decode to a double (handling both number tags),
+            // then truncate toward zero (JS `ToInt`/array-index/`| 0`-style). This
+            // replaces the old `emit_unbox_int32`, which silently read 0 from a
+            // boxed-double word (e.g. `let s = 0; s = s + arr[i]`).
             (Repr::Tagged, Repr::Int32) | (Repr::Tagged, Repr::Int64) => {
-                Ok(value::emit_unbox_int32(self.builder, val.v))
+                let f = value::emit_tagged_number_to_f64(self.builder, val.v);
+                Ok(self.builder.ins().fcvt_to_sint(types::I64, f))
             }
             (from, to) => unsupported!("cannot coerce {from:?} to {to:?}"),
         }

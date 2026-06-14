@@ -198,6 +198,12 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         // arr_spread_append(dst_word, src_word) -> void (push all src elements).
         "__rtsadp_arr_spread_append" => SymSig { params: &[U64, U64], ret: Void },
 
+        // ---- codegen-owned ITERATION-source trampolines (P5.10) ----
+        // str_chars(str_word) -> TAG_OBJECT array word of one-char strings;
+        // obj_keys(obj_word) -> TAG_OBJECT array word of key strings. Both take one
+        // PolyValue word and return a fresh array PolyValue word.
+        "__rtsadp_str_chars" | "__rtsadp_obj_keys" => SymSig { params: &[U64], ret: U64 },
+
         // ---- codegen-owned Map / Set instance trampolines (P5.3) ----
         // All PolyValue words (U64): slot 0 is the instance word, args are key/value/
         // element words, results are PolyValue words (instance / value / bool / size).

@@ -94,3 +94,31 @@ pub fn emit_box_double(builder: &mut FunctionBuilder, f64_val: Value) -> Value {
 pub fn emit_unbox_double(builder: &mut FunctionBuilder, v: Value) -> Value {
     builder.ins().bitcast(types::F64, MemFlags::new(), v)
 }
+
+/// Read a NUMBER-tagged PolyValue word (i64) as an `f64`, handling BOTH number
+/// representations: a tagged `int32` (`fcvt_from_sint(unbox_int32)`) and an inline
+/// double (`bitcast`). The two candidates are computed unconditionally and a
+/// `select` on the int32-tag picks the right one — pure straight-line IR the
+/// egraph collapses to the surviving branch when the source repr is proven.
+///
+/// This is the SOUND `Tagged → number` decode: the bare [`emit_unbox_double`]
+/// (bitcast) misreads a tagged-int32 word as a NaN double, and [`emit_unbox_int32`]
+/// misreads a boxed double's low 32 bits — each is correct only for its own tag.
+/// Both number tags reach a numeric coercion (`__rtsadp_add` returns a boxed
+/// double for non-int sums, a tagged int32 for exact small ones), so the decode
+/// must accept either. A non-number word (string/object) must never reach here —
+/// the coercion layer routes only proven numbers to a native numeric target.
+pub fn emit_tagged_number_to_f64(builder: &mut FunctionBuilder, v: Value) -> Value {
+    // int32 candidate: sign-extend the low 32 payload bits, then int→float.
+    let as_int = emit_unbox_int32(builder, v);
+    let from_int = builder.ins().fcvt_from_sint(types::F64, as_int);
+    // double candidate: bitcast the word directly.
+    let from_double = builder.ins().bitcast(types::F64, MemFlags::new(), v);
+    // is this word a tagged int32?  (v & BOX_BASE)==BOX_BASE && tag==INT32.
+    let boxed = emit_is_boxed(builder, v);
+    let tag_shifted = builder.ins().ushr_imm(v, super::TAG_SHIFT as i64);
+    let tag = builder.ins().band_imm(tag_shifted, super::TAG_MASK as i64);
+    let is_int_tag = builder.ins().icmp_imm(IntCC::Equal, tag, TAG_INT32 as i64);
+    let is_int32 = builder.ins().band(boxed, is_int_tag);
+    builder.ins().select(is_int32, from_int, from_double)
+}

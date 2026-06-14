@@ -43,6 +43,7 @@ mod closure;
 mod funcval;
 mod globalclass;
 mod inspect;
+mod loops;
 mod mathobj;
 mod method;
 mod number;

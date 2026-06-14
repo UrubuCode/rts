@@ -136,12 +136,15 @@ pub mod emit_marshal;
 // console.log PRETTY-PRINT of whole ARRAYS (Bun/Node util.inspect format, P3.5):
 // `__rtsadp_inspect(value_word, top_level)` → a string PolyValue word.
 pub mod inspect;
+// Codegen-owned ITERATION-source trampolines (P5.10): materialize a string's code
+// points / an object's keys into a fresh array, so for-of/for-in share ONE walk.
+pub mod iterops;
 
 // Re-export the Cranelift emit helpers so existing call sites
 // (`crate::value::emit_box_int32`, …) keep resolving unchanged.
 pub use emit::{
-    emit_box_double, emit_box_int32, emit_is_boxed, emit_is_double, emit_unbox_double,
-    emit_unbox_int32,
+    emit_box_double, emit_box_int32, emit_is_boxed, emit_is_double, emit_tagged_number_to_f64,
+    emit_unbox_double, emit_unbox_int32,
 };
 
 // ===========================================================================

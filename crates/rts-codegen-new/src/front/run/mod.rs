@@ -33,6 +33,7 @@ mod expr;
 mod funcval;
 mod globalclass;
 mod globals;
+mod loops;
 mod mathobj;
 mod method;
 mod method_array;
