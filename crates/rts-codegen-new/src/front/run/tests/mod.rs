@@ -43,6 +43,7 @@ pub(crate) fn assert_bails(src: &str) {
     assert!(res.is_err(), "expected an Unsupported bail, got {res:?} for:\n{src}");
 }
 
+mod ambient_declare;
 mod array;
 mod arraycb;
 mod class;

@@ -239,7 +239,35 @@ fn async_sm_enabled() -> bool {
     )
 }
 
+/// True when `decl` is a TypeScript AMBIENT declaration (`declare ...`) — a
+/// type-only construct that carries NO implementation and must generate NO code.
+/// Covers `declare function f(): T;`, `declare var/let/const x: T;`,
+/// `declare class C {}`, `declare enum E {}`, and `declare module`/
+/// `declare namespace`/`declare global { ... }`. An ambient `declare function`
+/// has no body at all (a real, empty `function f() {}` is NOT ambient). Dropping
+/// these avoids synthesizing bodyless functions (e.g. `__ns_global_String`) that
+/// would later bail in codegen with "may fall through without returning".
+fn is_ambient_decl(decl: &Decl) -> bool {
+    match decl {
+        Decl::Fn(d) => d.declare,
+        Decl::Class(d) => d.declare,
+        Decl::Var(d) => d.declare,
+        Decl::TsEnum(d) => d.declare,
+        // `declare module`, `declare namespace`, and `declare global { ... }`
+        // are all `TsModuleDecl` with `declare: true`. `declare global` also sets
+        // `global: true`; either way it is ambient and emits no code.
+        Decl::TsModule(d) => d.declare || d.global,
+        // Interfaces are always type-only (no runtime form) — handled as no-op
+        // below regardless; not treated as "ambient" here.
+        Decl::TsInterface(_) | Decl::TsTypeAlias(_) | Decl::Using(_) => false,
+    }
+}
+
 fn lower_decl(cm: &Lrc<SourceMap>, decl: &Decl, out: &mut Vec<Item>) {
+    // Drop TS ambient declarations (`declare ...`) entirely — type-only, no code.
+    if is_ambient_decl(decl) {
+        return;
+    }
     match decl {
         Decl::Class(class_decl) => {
             out.push(Item::Class(lower_class_decl(cm, class_decl)));
