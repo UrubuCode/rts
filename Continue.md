@@ -48,26 +48,42 @@ receiver=args[0], rebox por `ret`). **`Date` é a migração-referência** (`fro
 dateclass.rs`, sem nenhum codegen Date-específico — `value/dateops.rs` foi DELETADO).
 `rts-engine` é dep direto do crate novo (o owner liberou; sem impacto no motor velho).
 
-## 3. PRÓXIMO PASSO IMEDIATO (a sessão deve começar por aqui)
+## 3. DIREÇÃO NOVA (2026-06-14) — stdlib em TS, NÃO migração-Registry
 
-**Migrar `Map` e `Set` do codegen-native para o caminho Registry** (são rts-shared,
-sem sintaxe nativa). Hoje estão em `value/mapset.rs` + a tabela `class_meta` em
-`front/run/globalclass.rs`. Espelhe o que `dateclass.rs` faz:
-- `new Map()`/`new Set()` → `registry.class_ctor("Map"/"Set", argc)` (mantenha o
-  `MARK_AS_MAP`/`MARK_AS_SET` se o runtime precisar da tag de kind).
-- `.get/.set/.has/.delete/.size` → `class_member` → `emit_registry_call`. Chaves
-  STRING marsham como StrPtr (já suportado); VALORES são a palavra PolyValue crua
-  (i64 opaco pro runtime). **Mantenha native só** chaves não-string (ToString/glue) e
-  iteração de elementos.
-- `instanceof` → `instanceof_predicate` (já existe `emit_registry_instanceof`).
-- DELETE as rows migradas de `class_meta` + os trampolines `__rtsadp_map_*/set_*`
-  redundantes + suas entradas em `runtime_link.rs`/`abi_sig.rs` (`dead_code` é erro).
-- **Não regredir** os 31 testes Map/Set/RegExp/Error nem o harness (≥77/71).
+**O plano antigo "migrar Map/Set p/ caminho Registry" foi SUPERADO pelo owner.**
+Ver memória `project_ts_stdlib_direction`. Resumo da decisão:
 
-**NÃO migrar** (estão certos como native/primitivo, conforme a regra):
-RegExp (sintaxe `/re/`), Error+subclasses (primordial), wrappers Boolean/Number/String.
+- Só PRIMITIVOS com sintaxe nativa ficam codegen-direto (String/Number/Boolean/
+  `[]`/`{}`/Function/`/re/`/Error/template) — seus `__rtsadp_*` são nativos-
+  legítimos, FICAM. Tudo SEM sintaxe nativa (`Map`/`Set`/`Date`/wrappers) deve ser
+  **escrito em `.ts` com class** (campo privado `#value` guarda o nativo) e
+  compilado a Cranelift pela MESMA máquina de classes do código de usuário.
+- **NÃO** criar arquivo de lowering por-classe (mapsetclass/dateclass), **NÃO**
+  inventar marshal PolyValue-verbatim/flag/`AbiType::Poly`, **NÃO** mover PolyValue
+  pro runtime. Comentários em **inglês**.
+- Infra-alvo: `engine.include(include_bytes!("map.ts"))` (fontes TS embarcadas →
+  classes ambientes) + `engine.ns("engine", true)` (ns privada p/ imports nativos).
 
-## 4. Depois disso — a cauda longa até P5 (paridade ~430 batem)
+### Roadmap faseado (derisk: classe Map-like pura-TS bailava na FUNDAÇÃO, não em Map)
+1. **F1 ✅ FEITO** — acesso encadeado sobre campo-array (`this.field[i]` r/w,
+   `.length`, `.push/.pop`). `ClassDesc.field_arrays` (infere de initializer/ctor
+   array-literal) + `resolve_heap_receiver` (Ident + `Member(this, campo-array)`)
+   em `front/run/obj.rs`; `is_array_receiver` estendido em `method_array.rs`.
+   Testes: `front/run/tests/heap_field.rs` (MyMap puro-TS passa). 500 unit verdes,
+   harness 71/6 (sem regressão; F1 é infra, não fix de fixture).
+2. **F2 (PRÓXIMO)** — private fields `#`: parar de rejeitar em `class/mod.rs:261`
+   (+ método `:247`), tratar `#name` como slot normal de campo.
+3. **F3** — resto que `Array.ts` usa: spread `[...]`, default params, rest
+   `...items`, getters, `??`, union return, generics `<K,V>`.
+4. infra `include()` + ns privada.
+5. escrever `rts-primitives/src/*.ts` (Array/Map/Set wrappers) + Date via ns
+   privada; **deletar** `value/mapset.rs` + `class_meta` Map/Set + os trampolines
+   `__rtsadp_map_*/set_*` + `register_mapset_class_spec`.
+
+F1–F3 tocam SÓ `rts-codegen-new` (fora do bin) → sem gate. Só a fase 5 (deletar em
+rts-shared) precisa do gate.
+
+## 4. Cauda longa de paridade (independente da direção stdlib-TS)
 
 Por ROI (use o `bail_histogram` pra confirmar a cada passo — ver §6):
 1. **static-member access** (`Class.staticField` em formas que ainda bailam — ~41 no

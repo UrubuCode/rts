@@ -194,16 +194,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // it ToStrings / arithmetics as a number.
             return Ok(Val::new_with_kind(word, Repr::Tagged, JsKind::Number));
         }
-        let (name, shape) = self.shaped_object(object)?;
+        let (recv_word, shape) = self.resolve_heap_receiver(module, object)?;
         match shape {
             HeapShape::Object(shape_id) => {
                 match self.shapes.slot_of(shape_id, prop) {
                     Some(slot) => {
                         // Property values live at slot 1 + slot_index (slot 0 is the
                         // shape-id header). Arrays are NOT shifted (handled below).
-                        let obj_word = self.load_local_word(&name);
                         let idx = self.builder.ins().iconst(types::I64, 1 + slot as i64);
-                        let word = emit_marshal::emit_vec_get(module, self.builder, obj_word, idx);
+                        let word = emit_marshal::emit_vec_get(module, self.builder, recv_word, idx);
                         Ok(Val::new(word, Repr::Tagged))
                     }
                     // Missing key → `undefined` (statically proven by the shape).
@@ -212,8 +211,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
             HeapShape::Array => {
                 if prop == "length" {
-                    let arr_word = self.load_local_word(&name);
-                    let len = emit_marshal::emit_vec_len(module, self.builder, arr_word);
+                    let len = emit_marshal::emit_vec_len(module, self.builder, recv_word);
                     Ok(Val::new(len, Repr::Int64))
                 } else {
                     unsupported!("array member `.{prop}` (only `.length` in this increment)")
@@ -245,13 +243,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 return Ok(Val::new(word, Repr::Tagged));
             }
         }
-        let (name, shape) = self.shaped_object(object)?;
+        let (recv_word, shape) = self.resolve_heap_receiver(module, object)?;
         if !matches!(shape, HeapShape::Array) {
             return unsupported!("computed index on a non-array (dynamic object key is a later increment)");
         }
         let idx = self.lower_index_value(module, index)?;
-        let arr_word = self.load_local_word(&name);
-        let word = emit_marshal::emit_vec_get(module, self.builder, arr_word, idx);
+        let word = emit_marshal::emit_vec_get(module, self.builder, recv_word, idx);
         Ok(Val::new(word, Repr::Tagged))
     }
 
@@ -286,7 +283,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 return self.lower_dynamic_set(module, name, prop, value);
             }
         }
-        let (name, shape) = self.shaped_object(object)?;
+        let (recv_word, shape) = self.resolve_heap_receiver(module, object)?;
         let HeapShape::Object(shape_id) = shape else {
             return unsupported!("write to array member `.{prop}` (later increment)");
         };
@@ -295,10 +292,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         };
         let v = self.lower_expr(module, value)?;
         let word = self.box_value(v);
-        let obj_word = self.load_local_word(&name);
         // Property values live at slot 1 + slot_index (slot 0 is the shape-id).
         let idx = self.builder.ins().iconst(types::I64, 1 + slot as i64);
-        emit_marshal::emit_vec_set(module, self.builder, obj_word, idx, word);
+        emit_marshal::emit_vec_set(module, self.builder, recv_word, idx, word);
         Ok(Val::new(word, Repr::Tagged))
     }
 
@@ -323,15 +319,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 return Ok(Val::new(word, Repr::Tagged));
             }
         }
-        let (name, shape) = self.shaped_object(object)?;
+        let (recv_word, shape) = self.resolve_heap_receiver(module, object)?;
         if !matches!(shape, HeapShape::Array) {
             return unsupported!("indexed write on a non-array (dynamic object key is a later increment)");
         }
         let idx = self.lower_index_value(module, index)?;
         let v = self.lower_expr(module, value)?;
         let word = self.box_value(v);
-        let arr_word = self.load_local_word(&name);
-        emit_marshal::emit_vec_set(module, self.builder, arr_word, idx, word);
+        emit_marshal::emit_vec_set(module, self.builder, recv_word, idx, word);
         Ok(Val::new(word, Repr::Tagged))
     }
 
@@ -344,20 +339,57 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.static_instance_class(object)
     }
 
-    /// Resolve `object` to `(local_name, proven_heap_shape)`. Only a bare
-    /// identifier bound to a local of proven shape qualifies; everything else
-    /// (a param, a call result, a nested expression) bails — the engine refuses
-    /// to guess an object's layout.
-    fn shaped_object(&self, object: &HirExpr) -> FrontResult<(String, HeapShape)> {
-        let HirExprKind::Ident(name) = &object.kind else {
-            return unsupported!("property/index access on a non-identifier object (unknown shape)");
-        };
-        match self.local_shapes.get(name) {
-            Some(&shape) => Ok((name.clone(), shape)),
-            None => unsupported!(
-                "property/index access on `{name}` whose shape is not statically proven \
-                 (param/return/reassigned — the dynamic inline cache is a later increment)"
-            ),
+    /// Resolve a property/index/method receiver to its heap WORD + proven shape.
+    /// - `Ident(name)` with a proven shape → `(load_local_word(name), shape)`;
+    /// - `Member { object: inner, prop }` where `inner`'s class proves `prop` is an
+    ///   Array field → `(VEC_GET(inner_word, 1 + slot), HeapShape::Array)`.
+    /// Anything else (unknown shape) BAILS — never a guess.
+    fn resolve_heap_receiver(
+        &mut self,
+        module: &mut dyn Module,
+        object: &HirExpr,
+    ) -> FrontResult<(Value, HeapShape)> {
+        match &object.kind {
+            HirExprKind::Ident(name) => {
+                let Some(&shape) = self.local_shapes.get(name) else {
+                    return unsupported!(
+                        "property/index access on `{name}` whose shape is not statically \
+                         proven (param/return/reassigned — a later increment)"
+                    );
+                };
+                Ok((self.load_local_word(name), shape))
+            }
+            HirExprKind::Member { object: inner, prop } => {
+                // Only a field PROVEN (via its class) to hold an Array is chainable
+                // in this increment; everything else bails (the honesty floor).
+                let Some(class) = self.static_instance_class(inner) else {
+                    return unsupported!(
+                        "chained access on `.{prop}` of a receiver with no statically-known class"
+                    );
+                };
+                let is_array = self
+                    .classes
+                    .get(&class)
+                    .map(|d| d.field_is_array(prop))
+                    .unwrap_or(false);
+                if !is_array {
+                    return unsupported!(
+                        "chained access on non-array field `.{prop}` (only array-typed \
+                         fields are chainable in this increment)"
+                    );
+                }
+                let (inner_word, inner_shape) = self.resolve_heap_receiver(module, inner)?;
+                let HeapShape::Object(shape_id) = inner_shape else {
+                    return unsupported!("field `.{prop}` on a non-object receiver");
+                };
+                let Some(slot) = self.shapes.slot_of(shape_id, prop) else {
+                    return unsupported!("field `.{prop}` not in the receiver's shape");
+                };
+                let idx = self.builder.ins().iconst(types::I64, 1 + slot as i64);
+                let word = emit_marshal::emit_vec_get(module, self.builder, inner_word, idx);
+                Ok((word, HeapShape::Array))
+            }
+            _ => unsupported!("property/index access on a non-identifier object (unknown shape)"),
         }
     }
 

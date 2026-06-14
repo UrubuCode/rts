@@ -40,6 +40,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirExprKind::Ident(name) => {
                 matches!(self.local_shapes.get(name), Some(HeapShape::Array))
             }
+            // A class FIELD proven to hold an array (`this.items.push(x)`): the
+            // receiver's class proves the field is array-typed.
+            HirExprKind::Member { object: inner, prop } => self
+                .static_instance_class(inner)
+                .and_then(|c| self.classes.get(&c).map(|d| d.field_is_array(prop)))
+                .unwrap_or(false),
             HirExprKind::Array(_) => true,
             // `new Array(n)` chained (`new Array(3).fill(0)`).
             HirExprKind::New { class, .. } => self.is_builtin_array_ctor(class),

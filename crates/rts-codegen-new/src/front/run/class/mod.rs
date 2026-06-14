@@ -99,6 +99,11 @@ pub(crate) struct ClassDesc {
     pub statics: HashMap<String, String>,
     /// Static field name → synthesized zero-arg getter fn (`__rtsn_sfield_C_f`).
     pub static_fields: HashMap<String, String>,
+    /// FLATTENED names of fields PROVEN to hold an Array (declaration initializer
+    /// or a constructor assignment is an array literal `[...]`). Absent ⇒
+    /// scalar/opaque. Drives chained access on `this.<field>` (`this.field[i]`,
+    /// `this.field.length`, `this.field.push(x)`).
+    pub field_arrays: std::collections::HashSet<String>,
 }
 
 impl ClassDesc {
@@ -112,6 +117,11 @@ impl ClassDesc {
     /// declares a getter/setter for it.
     pub fn accessor(&self, name: &str) -> Option<&Accessor> {
         self.accessors.get(name)
+    }
+
+    /// Whether `field` is statically proven to hold an Array.
+    pub fn field_is_array(&self, field: &str) -> bool {
+        self.field_arrays.contains(field)
     }
 }
 

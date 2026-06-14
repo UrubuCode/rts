@@ -73,6 +73,34 @@ struct Members<'a> {
     static_props: Vec<&'a PropertyDecl>,
 }
 
+/// Scan the synthesized constructor in `funcs` (the only `__rtsn_ctor_*` fn) for
+/// top-level `this.<field> = [...]` assignments whose RHS is an array literal, and
+/// record those field names as array-typed. Only the ctor body's own statements
+/// are inspected (initializer prologue assignments are already covered by the
+/// PropertyDecl pass — this catches `this.x = []` written explicitly in the ctor).
+fn collect_ctor_array_fields(
+    funcs: &[HirFunc],
+    field_arrays: &mut std::collections::HashSet<String>,
+) {
+    use super::THIS;
+    let Some(ctor) = funcs.iter().find(|f| f.name.starts_with("__rtsn_ctor_")) else {
+        return;
+    };
+    for stmt in &ctor.body {
+        if let HirStmt::Expr(e) = stmt {
+            if let HirExprKind::Assign { target, value } = &e.kind {
+                if let HirExprKind::Member { object, prop } = &target.kind {
+                    if matches!(&object.kind, HirExprKind::Ident(n) if n == THIS)
+                        && matches!(value.kind, HirExprKind::Array(_))
+                    {
+                        field_arrays.insert(prop.clone());
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Build the [`ClassDesc`] + the synthesized `HirFunc`s for one class. `parent`
 /// is the already-built descriptor of the superclass (parent-first order), or
 /// `None` for a root class.
@@ -94,6 +122,24 @@ pub(super) fn build_class(
         }
     }
     let global_shape = crate::shape::intern_global_shape(&fields);
+
+    // --- FLATTENED array-typed fields: parent's set, then own array fields ---
+    // A field is PROVEN to hold an array when its declaration initializer is an
+    // array literal `[...]`, or a top-level `this.<field> = [...]` in the ctor.
+    let mut field_arrays: std::collections::HashSet<String> =
+        parent.map(|p| p.field_arrays.clone()).unwrap_or_default();
+    for pd in &m.props {
+        if let Some(init_expr) = &pd.initializer {
+            let scope = Scope::new();
+            let lowered = rts_hir::lower::lower_swc_expr(init_expr, &scope);
+            if matches!(lowered.kind, HirExprKind::Array(_)) {
+                field_arrays.insert(pd.name.clone());
+            }
+        }
+    }
+    // Ctor-assignment form: scan the OWN fields for a `this.<f> = [...]` whose RHS
+    // is an array literal in the (already-lowered) constructor body.
+    collect_ctor_array_fields(&out, &mut field_arrays);
 
     // --- instance methods (own) flattened over inherited ---
     let mut methods: HashMap<String, String> =
@@ -149,6 +195,7 @@ pub(super) fn build_class(
         accessors,
         statics,
         static_fields,
+        field_arrays,
     };
     Ok((desc, out))
 }

@@ -91,6 +91,8 @@ pub(super) fn synth_builtin_error(name: &str) -> (ClassDesc, Vec<HirFunc>) {
         accessors: HashMap::new(),
         statics: HashMap::new(),
         static_fields: HashMap::new(),
+        // The virtual Error parent has no array-typed fields.
+        field_arrays: std::collections::HashSet::new(),
     };
     (desc, funcs)
 }

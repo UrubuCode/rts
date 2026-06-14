@@ -44,6 +44,7 @@ mod closure;
 mod destructure;
 mod funcval;
 mod globalclass;
+mod heap_field;
 mod inspect;
 mod loops;
 mod mathobj;

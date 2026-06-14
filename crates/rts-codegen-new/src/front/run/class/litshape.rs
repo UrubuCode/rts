@@ -74,6 +74,9 @@ pub(crate) fn build_literal_class(
         accessors: HashMap::new(),
         statics: HashMap::new(),
         static_fields: HashMap::new(),
+        // Object-literal classes do not track array-typed fields (no `this.x[i]`
+        // chaining target in the literal-recovery path yet).
+        field_arrays: std::collections::HashSet::new(),
     };
     (desc, out)
 }
