@@ -93,21 +93,34 @@ Params agora: fixed/rest/optional/default.
 (shadowing automático). Teste `tests/prelude.rs`: `class Map` em TS puro substitui
 o Map nativo (`9 2 true false 2`), instanceof/typeof. 524 unit verdes.
 
-**FALTA — B2/B3 (as peças finais):**
-- **B2 (⚠️ GATE — builder rts-engine)** — API do owner: `engine.include(bytes)`
-  (embarcar `.ts` no motor, carregado como prelude no pipeline REAL `run_source`/
-  `compile`, não só nos testes) + `engine.ns(name, true)` (ns privada: símbolos só
-  no ambiente TS embarcado, filtrados no run final) + `engine.ns(name, number>1)`
-  (preferência de ordem de carga). Muda assinatura `.ns()` (compartilhada) → gate.
-  ns privada é a base p/ imports nativos (Date precisa de epoch/tz).
-- **B3 (⚠️ GATE)** — escrever `rts-primitives/*.ts` + `rts-shared/*.ts` (Array/Map/Set
-  wrappers s/ native `[]`; Date via ns privada) e **deletar** o Rust correspondente
-  (`value/mapset.rs`, `class_meta` Map/Set, `__rtsadp_map_*/set_*`,
-  `register_mapset_class_spec`). Precisa antes: `Array.splice` (+ outros métodos que
-  os wrappers usem) no motor; e o prelude wired no pipeline real (B2).
+**B2 ✅** — `e6acc62c`: builder `ModuleBuilder.private()/.order(n)` + `Engine.include(src)`
++ campos `Module.private/load_order` + `Registry.includes`. `run_source`/`render_source`
+mergeiam `registry::includes_prelude()` como prelude. Gate verde (1710 / 419·137·36).
+Enforcement de ns-privada/ordem ainda plumbed-mas-deferido.
 
-**Gaps menores pendentes (sem gate):** `Array.splice`; index OOB→`undefined` (hoje 0);
-default que referencia param anterior (hoje lower no callee-scope já cobre o comum).
+**B3 ✅ — Map/Set AGORA EM TYPESCRIPT** — `af57ce28` (paridade provada) + `58d3dd16`
+(migração): `crates/rts-shared/src/stdlib/map_set.ts` (generic `Map<K,V>`/`Set<T>`,
+campos-array privados, `===`, delete via shift+pop, `get size()`), embarcado via
+`e.include(rts_runtime::stdlib::MAP_SET_TS)` em `build_registry`, compilado a Cranelift,
+SOMBREIA+SUBSTITUI o nativo. DELETADO: `value/mapset.rs`, entries `__rtsadp_map_*/set_*`
++ `is_map/is_set` em runtime_link/wrappers, rows Map/Set em `class_meta`/globalclass,
+chamada de `register_mapset_class_spec` (a fn FICA em rts-shared p/ motor velho).
+Object-keys passaram a funcionar (melhoria). Harness **73/7** (matches +2). 537 unit.
+
+### O TEMPLATE ESTÁ PRONTO (replicar p/ outras classes não-primitivas)
+Para migrar mais (Date, futuros): escrever `.ts` em rts-shared/stdlib/, `e.include(...)`
+em build_registry, deletar o nativo new-engine. Para classes que precisam de PRIMITIVOS
+que TS não expressa (Date: epoch/tz), usar a ns PRIVADA (`engine.ns("engine", true)` —
+flag já existe, falta o ENFORCEMENT de visibilidade no import resolver).
+
+**Gaps p/ stdlib mais rica (sem gate, incrementais):**
+- `Array.splice` (+ métodos que wrappers ergonômicos usem) — hoje os wrappers Map/Set
+  evitam splice (delete via shift+pop).
+- index OOB de array → `undefined` (hoje `0`).
+- iterable-init (`new Map([[k,v]])`), `forEach`/iteração, Symbol.iterator — o nativo
+  também bailava; precisam de suporte real (iteradores).
+- enforcement ns-privada (filtrar símbolos no run final) + aplicação de load-order.
+- default-param que referencia param anterior (callee-scope já cobre o caso comum).
 
 ## 4. Cauda longa de paridade (independente da direção stdlib-TS)
 
