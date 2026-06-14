@@ -120,6 +120,70 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SET(h: U64, index: I64, value: I64
     });
 }
 
+/// (data-race fix) Aplica `op` entre `cur` e `operand`, devolvendo o novo valor.
+/// Op-codes inteiros: 0=add 1=sub 2=mul 3=div 4=rem 5=and 6=or 7=xor 8=shl
+/// 9=shr(arith) 10=ushr(logical). Bitwise/shift seguem a semântica JS ToInt32
+/// (operam em i32, shift count `& 31`). Op-codes float (bits f64 nos i64):
+/// 16=fadd 17=fsub 18=fmul 19=fdiv. Qualquer outro op-code devolve `cur`
+/// (no-op defensivo). Divisão/resto inteiro por zero devolvem 0 (o codegen
+/// só emite RMW para ops associativas/seguras; o guard evita panic em casos
+/// patológicos que escapem o gate).
+pub fn apply_rmw(op: i64, cur: i64, operand: i64) -> i64 {
+    match op {
+        0 => cur.wrapping_add(operand),
+        1 => cur.wrapping_sub(operand),
+        2 => cur.wrapping_mul(operand),
+        3 => {
+            if operand == 0 {
+                0
+            } else {
+                cur.wrapping_div(operand)
+            }
+        }
+        4 => {
+            if operand == 0 {
+                0
+            } else {
+                cur.wrapping_rem(operand)
+            }
+        }
+        5 => ((cur as i32) & (operand as i32)) as i64,
+        6 => ((cur as i32) | (operand as i32)) as i64,
+        7 => ((cur as i32) ^ (operand as i32)) as i64,
+        8 => ((cur as i32).wrapping_shl((operand as u32) & 31)) as i64,
+        9 => ((cur as i32).wrapping_shr((operand as u32) & 31)) as i64,
+        10 => ((cur as u32).wrapping_shr((operand as u32) & 31)) as i64,
+        16 => (f64::from_bits(cur as u64) + f64::from_bits(operand as u64)).to_bits() as i64,
+        17 => (f64::from_bits(cur as u64) - f64::from_bits(operand as u64)).to_bits() as i64,
+        18 => (f64::from_bits(cur as u64) * f64::from_bits(operand as u64)).to_bits() as i64,
+        19 => (f64::from_bits(cur as u64) / f64::from_bits(operand as u64)).to_bits() as i64,
+        _ => cur,
+    }
+}
+
+/// (data-race fix) Read-modify-write ATÔMICO de um slot do Vec: lê, aplica
+/// `op`/`operand` e escreve, tudo dentro de UM ÚNICO `with_vec_mut` (um só lock
+/// do shard, sem janela entre read e write). Substitui o par VEC_GET+VEC_SET
+/// que o codegen emitia para `arr[i] = arr[i] + x` / `arr[i] += x` — esse par
+/// soltava o lock entre as duas calls, abrindo um race com `spawn_blocking`.
+/// NÃO segura o lock entre duas calls externas (isso causaria deadlock com o
+/// scanner do GC via SuspendThread). Devolve o NOVO valor do slot (0 fora de
+/// alcance / handle inválido).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_RMW(h: U64, index: I64, op: I64, operand: I64) -> I64 {
+    if index < 0 {
+        return 0;
+    }
+    with_vec_mut(h, 0, |v| {
+        let Some(slot) = v.get_mut(index as usize) else {
+            return 0;
+        };
+        let new = apply_rmw(op, *slot, operand);
+        *slot = new;
+        new
+    })
+}
+
 /// Removes all elements.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_CLEAR(h: U64) {
