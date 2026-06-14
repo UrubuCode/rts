@@ -222,9 +222,16 @@ fn bail_map_init_from_array() {
 }
 
 #[test]
-fn bail_map_object_key() {
-    // An object key cannot be marshaled to the runtime's string-key ABI soundly.
-    assert_bails(r#"let m = new Map(); let k = {x: 1}; m.set(k, 1); console.log(m.size);"#);
+fn map_object_key_supported() {
+    // The TS Map keys by identity (===), so distinct object keys are distinct
+    // entries — a capability the native engine bailed (now provided by the TS
+    // stdlib that shadows the native Map).
+    assert_stdout(
+        r#"let m = new Map(); let a = {x:1}; let b = {x:1};
+           m.set(a, 1); m.set(b, 2);
+           console.log(m.size, m.get(a), m.get(b));"#,
+        "2 1 2\n",
+    );
 }
 
 #[test]

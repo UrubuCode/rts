@@ -1,13 +1,15 @@
 //! `new <RuntimeClass>(args)` + their instance methods + `instanceof` (P5.3).
 //!
 //! PRIMORDIAL-vs-Registry doctrine. `Date` dispatches through the REAL Registry
-//! (Pilar 6 — see [`super::dateclass`] / [`super::registry`]): no row here. The
-//! remaining RUNTIME/Registry classes (`Map`/`Set`/`RegExp`) and the wrapper/error
-//! primordials (`Error`/`Boolean`/`Number`/`String`) still resolve through the
-//! small [`class_meta`] table → a `__rtsadp_*` trampoline that OWNS a
-//! representation the raw runtime ABI can't express (Map/Set string-key
-//! marshaling; the wrapper ctors' ToBoolean/ToNumber/ToString coercion; RegExp
-//! array-result building). A constructed instance is a real runtime handle boxed
+//! (Pilar 6 — see [`super::dateclass`] / [`super::registry`]): no row here.
+//! `Map`/`Set` are now the faithful TS stdlib (embedded as an engine include in
+//! [`super::registry`]); their ambient `class Map`/`class Set` shadow any native
+//! dispatch, so there is NO Map/Set row here either. The remaining RUNTIME/
+//! Registry class (`RegExp`) and the wrapper/error primordials (`Error`/
+//! `Boolean`/`Number`/`String`) still resolve through the small [`class_meta`]
+//! table → a `__rtsadp_*` trampoline that OWNS a representation the raw runtime
+//! ABI can't express (the wrapper ctors' ToBoolean/ToNumber/ToString coercion;
+//! RegExp array-result building). A constructed instance is a real runtime handle boxed
 //! `TAG_OBJECT`; the local records its static class so a later `inst.method(args)`
 //! / `inst instanceof C` dispatches at compile time. Anything unmodeled BAILS —
 //! never a guess (the honesty floor).
@@ -27,10 +29,6 @@ use super::lower::{JsKind, Lowerer, Val};
 /// How a runtime/Registry class's CONSTRUCTOR marshals its arguments.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CtorKind {
-    /// `new Map()` / `new Set()` — zero args, a fresh collection word
-    /// (`__rtsadp_map_new` / `__rtsadp_set_new`). A 1-arg init form
-    /// (`new Map([[k,v]])`) is a later increment: BAIL.
-    Collection,
     /// `new Error(msg?)` family — one optional string-message arg; the trampoline
     /// is the error-NEW wrapper, the instance a boxed error handle.
     Error,
@@ -58,16 +56,6 @@ struct ClassMeta {
 /// instance with its own `.name`).
 fn class_meta(name: &str) -> Option<ClassMeta> {
     let m = match name {
-        "Map" => ClassMeta {
-            ctor_symbol: "__rtsadp_map_new",
-            kind: CtorKind::Collection,
-            methods: MAP_METHODS,
-        },
-        "Set" => ClassMeta {
-            ctor_symbol: "__rtsadp_set_new",
-            kind: CtorKind::Collection,
-            methods: SET_METHODS,
-        },
         "Error" => err_meta("__rtsadp_err_new"),
         "TypeError" => err_meta("__rtsadp_err_new_type"),
         "RangeError" => err_meta("__rtsadp_err_new_range"),
@@ -107,21 +95,6 @@ fn err_meta(ctor_symbol: &'static str) -> ClassMeta {
     ClassMeta { ctor_symbol, kind: CtorKind::Error, methods: ERROR_METHODS }
 }
 
-const MAP_METHODS: &[(&str, usize, &str)] = &[
-    ("set", 2, "__rtsadp_map_set"),
-    ("get", 1, "__rtsadp_map_get"),
-    ("has", 1, "__rtsadp_map_has"),
-    ("delete", 1, "__rtsadp_map_delete"),
-    ("clear", 0, "__rtsadp_map_clear"),
-];
-
-const SET_METHODS: &[(&str, usize, &str)] = &[
-    ("add", 1, "__rtsadp_set_add"),
-    ("has", 1, "__rtsadp_set_has"),
-    ("delete", 1, "__rtsadp_set_delete"),
-    ("clear", 0, "__rtsadp_set_clear"),
-];
-
 const ERROR_METHODS: &[(&str, usize, &str)] = &[("toString", 0, "__rtsadp_err_to_string")];
 
 /// RegExp instance methods (P5.12). `.test(s)` is the high-value one: receiver
@@ -155,16 +128,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
         let meta = class_meta(class).expect("caller proved a global class");
         let word = match meta.kind {
-            CtorKind::Collection => {
-                if !args.is_empty() {
-                    return unsupported!(
-                        "`new {class}(<init>)` with constructor arguments \
-                         (init from an iterable is a later increment)"
-                    );
-                }
-                self.call_runtime(module, meta.ctor_symbol, &[])?
-                    .expect("collection ctor returns a value")
-            }
             CtorKind::Error => self.emit_error_ctor(module, meta.ctor_symbol, class, args)?,
             CtorKind::Regex => self.emit_regex_ctor(module, args)?,
             CtorKind::Wrapper => {
@@ -274,9 +237,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return self.try_date_method(module, object, method, args).map(Some);
         }
         let meta = class_meta(&class).expect("recorded global class must resolve");
-        // `.size` is a PROPERTY in JS, not a method — but the corpus reaches it as
-        // both `m.size` (member) and is routed here only for calls. The member form
-        // is handled in `lower_member`. A method named `size` does not exist.
         let Some(&(_, arity, symbol)) =
             meta.methods.iter().find(|(n, a, _)| *n == method && *a == args.len())
         else {
@@ -286,19 +246,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             )));
         };
         debug_assert_eq!(arity, args.len());
-
-        // A Map KEY / Set ELEMENT (the first arg of set/get/has/delete/add) that is
-        // a whole OBJECT/ARRAY value cannot be marshaled to the runtime's string-key
-        // / stable-key ABI soundly (it would key on `[object Object]` or a handle id,
-        // diverging from JS SameValueZero) — BAIL (the honesty floor). Methods whose
-        // first arg is a key/element: every Map/Set method here except `clear`.
-        let key_is_first = matches!(class.as_str(), "Map" | "Set") && !args.is_empty();
-        if key_is_first && self.is_whole_heap_value(&args[0]) {
-            return Err(crate::front::error::Unsupported::new(format!(
-                "`{class}.{method}()` with a non-primitive (object/array) key/element \
-                 (object-keyed collections are a later increment)"
-            )));
-        }
 
         // Receiver word (slot 0) — the instance is a Tagged local; use its raw word.
         let recv = self.lower_expr(module, object)?;
@@ -318,8 +265,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(Some(Val::new(res, crate::repr::Repr::Tagged)))
     }
 
-    /// `inst.size` — the `.size` PROPERTY of a recorded Map/Set instance. Returns
-    /// `Ok(Some(val))` when `object` is such an instance and `prop == "size"`; else
+    /// An instance PROPERTY of a recorded runtime/Registry instance (RegExp
+    /// source/flags/…, or an Error's message/name/stack). Returns `Ok(Some(val))`
+    /// when `object` is such an instance and `prop` is a known property; else
     /// `Ok(None)` (caller falls through to its normal member handling).
     pub(super) fn try_global_class_member(
         &mut self,
@@ -331,14 +279,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(None);
         };
         let symbol = match (class.as_str(), prop) {
-            ("Map", "size") => "__rtsadp_map_size",
-            ("Set", "size") => "__rtsadp_set_size",
             // `e.message` / `e.name` / `e.stack` on a runtime Error instance.
-            ("Map" | "Set", _) => {
-                return Err(crate::front::error::Unsupported::new(format!(
-                    "`{class}.{prop}` — only `.size` is a property on a runtime {class}"
-                )))
-            }
             ("RegExp", "source") => "__rtsadp_re_source",
             ("RegExp", "flags") => "__rtsadp_re_flags",
             ("RegExp", "global") => "__rtsadp_re_global",
@@ -372,7 +313,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // `RegExp.source`/`.flags` are strings. Tag accordingly so a later
         // `console.log` / coercion formats them correctly.
         let kind = match prop {
-            "size" | "lastIndex" => JsKind::Number,
+            "lastIndex" => JsKind::Number,
             "global" | "ignoreCase" | "multiline" => JsKind::Bool,
             _ => JsKind::Str,
         };
@@ -380,7 +321,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     }
 
     /// The recorded runtime/Registry class of a receiver, if statically known:
-    /// - `new C(args)` directly (chained `new Map().set(..)`);
+    /// - `new C(args)` directly (e.g. a chained `new RegExp(..).test(..)`);
     /// - a bare identifier recorded in `global_instance_classes`.
     pub(super) fn global_instance_class(&self, object: &HirExpr) -> Option<String> {
         // A bare regex LITERAL receiver `/pat/.test(s)` (P5.12): a RegExp instance.
@@ -423,8 +364,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
         }
         let symbol = match class {
-            "Map" => "__rtsadp_is_map",
-            "Set" => "__rtsadp_is_set",
             "Error" => "__rtsadp_is_error",
             "Array" => "__rtsadp_arr_is_array",
             // RegExp instanceof: no dedicated runtime tag trampoline yet, so only a

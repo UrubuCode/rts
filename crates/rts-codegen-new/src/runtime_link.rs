@@ -37,7 +37,7 @@ use rts_runtime::namespaces::math as rt_math;
 
 use crate::value::{
     abi_adapter, arraycb, arrayops, dyndispatch, errslot, funcops, genops, genops_arith,
-    globalops, inspect, iterops, mapset, objops, regexops, wrappers,
+    globalops, inspect, iterops, objops, regexops, wrappers,
 };
 
 /// One installable JIT symbol: an extern "C" name and its function pointer. The
@@ -176,20 +176,6 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_arr_some", arraycb::__rtsadp_arr_some as *const u8),
         sym("__rtsadp_arr_every", arraycb::__rtsadp_arr_every as *const u8),
         sym("__rtsadp_arr_reduce", arraycb::__rtsadp_arr_reduce as *const u8),
-        // ---- codegen-owned Map / Set instance trampolines (mapset, P5.3) ----
-        sym("__rtsadp_map_new", mapset::__rtsadp_map_new as *const u8),
-        sym("__rtsadp_map_set", mapset::__rtsadp_map_set as *const u8),
-        sym("__rtsadp_map_get", mapset::__rtsadp_map_get as *const u8),
-        sym("__rtsadp_map_has", mapset::__rtsadp_map_has as *const u8),
-        sym("__rtsadp_map_delete", mapset::__rtsadp_map_delete as *const u8),
-        sym("__rtsadp_map_clear", mapset::__rtsadp_map_clear as *const u8),
-        sym("__rtsadp_map_size", mapset::__rtsadp_map_size as *const u8),
-        sym("__rtsadp_set_new", mapset::__rtsadp_set_new as *const u8),
-        sym("__rtsadp_set_add", mapset::__rtsadp_set_add as *const u8),
-        sym("__rtsadp_set_has", mapset::__rtsadp_set_has as *const u8),
-        sym("__rtsadp_set_delete", mapset::__rtsadp_set_delete as *const u8),
-        sym("__rtsadp_set_clear", mapset::__rtsadp_set_clear as *const u8),
-        sym("__rtsadp_set_size", mapset::__rtsadp_set_size as *const u8),
         // ---- codegen-owned RegExp + string-regex-method trampolines (regexops, P5.12) ----
         sym("__rtsadp_re_compile", regexops::__rtsadp_re_compile as *const u8),
         sym("__rtsadp_re_test", regexops::__rtsadp_re_test as *const u8),
@@ -223,8 +209,6 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_w_boolean_new", wrappers::__rtsadp_w_boolean_new as *const u8),
         sym("__rtsadp_w_number_new", wrappers::__rtsadp_w_number_new as *const u8),
         sym("__rtsadp_w_string_new", wrappers::__rtsadp_w_string_new as *const u8),
-        sym("__rtsadp_is_map", wrappers::__rtsadp_is_map as *const u8),
-        sym("__rtsadp_is_set", wrappers::__rtsadp_is_set as *const u8),
         sym("__rtsadp_is_error", wrappers::__rtsadp_is_error as *const u8),
         // ---- codegen-owned pending-error slot for throw / try-catch (P5.13) ----
         sym("__rtsadp_throw_set", errslot::__rtsadp_throw_set as *const u8),

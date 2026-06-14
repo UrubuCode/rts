@@ -11,7 +11,6 @@
 //! - `instanceof` is a real runtime tag inspection (the `Entry` kind / error
 //!   name) — correct for ANY operand, not an AST guess.
 
-use rts_runtime::namespaces::collections::map as rt_map;
 use rts_runtime::namespaces::gc::handles as rt_handles;
 use rts_runtime::namespaces::gc::string_pool as rt_str;
 use rts_runtime::namespaces::globals::boolean as rt_bool;
@@ -127,28 +126,6 @@ pub extern "C" fn __rtsadp_w_string_new(value_word: u64) -> u64 {
 // `instanceof` runtime tags — inspect the instance's real `Entry` kind / error
 // name. A non-object / wrong-kind operand yields `false` (never a wrong true).
 // ===========================================================================
-
-/// `x instanceof Map` — true iff `x` is a `TAG_OBJECT` over a Map-kind handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_is_map(word: u64) -> u64 {
-    let v = PolyValue::from_raw(word);
-    let yes = v.is_object() && {
-        let h = unbox_object(word);
-        rt_map::handle_is_map_kind(h)
-    };
-    PolyValue::bool(yes).raw()
-}
-
-/// `x instanceof Set` — true iff `x` is a `TAG_OBJECT` over a Set-kind handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_is_set(word: u64) -> u64 {
-    let v = PolyValue::from_raw(word);
-    let yes = v.is_object() && {
-        let h = unbox_object(word);
-        rt_map::handle_is_set_kind(h)
-    };
-    PolyValue::bool(yes).raw()
-}
 
 /// `x instanceof Error` (any error subtype) — true iff `x` is a `TAG_OBJECT` over
 /// a runtime `Entry::ErrorObj` (or a user Map carrying name+message — a subclass

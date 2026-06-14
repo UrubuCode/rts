@@ -115,9 +115,6 @@ pub mod arraycb;
 // Number/String/Boolean/parseInt/parseFloat/isNaN/isFinite + Array.isArray/of/from
 // + Array(n) + String.fromCharCode/fromCodePoint + str.split (PolyValue-native).
 pub mod globalops;
-// Codegen-owned Map/Set instance trampolines (P5.3): PolyValue-native new/get/set/
-// has/delete/clear/size + add, over the REAL collections MAP_*/SET_* symbols.
-pub mod mapset;
 // Codegen-owned RegExp + string-regex-method trampolines (P5.12): compile a
 // `/pat/flags` literal / `new RegExp(..)`, `.test`/`.source`/`.flags`/`.global`,
 // and `s.match`/`.replace`/`.replaceAll`/`.split`/`.search`, over the REAL

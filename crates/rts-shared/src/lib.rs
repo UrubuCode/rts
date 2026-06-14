@@ -22,3 +22,4 @@ pub mod json;
 pub mod trace;
 pub mod globals;
 pub mod gc_surface;
+pub mod stdlib;

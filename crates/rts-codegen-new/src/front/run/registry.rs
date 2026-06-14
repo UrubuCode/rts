@@ -60,7 +60,6 @@ fn build_registry() -> Registry {
     ns::regex::register(&mut e);
     // The RUNTIME/Registry global classes the engine constructs + dispatches.
     ns::globals::date::register_class_spec(&mut e);
-    ns::collections::register_mapset_class_spec(&mut e);
     ns::globals::regexp::register_regexp_class_spec(&mut e);
     ns::globals::error::register_class_spec(&mut e);
     ns::globals::error::register_type_error_class_spec(&mut e);
@@ -74,6 +73,10 @@ fn build_registry() -> Registry {
     // wrapper-ctor (`new Number(x)`) path can resolve through the Registry too.
     ns::globals::number::register_number_class_spec(&mut e);
     ns::globals::string::register_string_class_spec(&mut e);
+    // The faithful TS Map/Set stdlib (embedded include): its ambient `class Map`/
+    // `class Set` shadow the native dispatch in every program — making the native
+    // Map/Set code dead (deleted in B3).
+    e.include(rts_runtime::stdlib::MAP_SET_TS);
     e.into_registry()
 }
 
