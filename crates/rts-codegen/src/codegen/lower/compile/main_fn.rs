@@ -217,6 +217,34 @@ pub(crate) fn compile_main(
             }
         }
 
+        // (RTS_ARRAY_INLINE — top-level) Escape analysis sobre os statements
+        // TOP-LEVEL (__RTS_MAIN). Arrays locais ao modulo, nao-escapantes, de
+        // tamanho fixo (`new Array(N)` / `new Array(CONST)` / `[lit,...]`)
+        // qualificam pra StackSlot nativo — IGUAL a user fns, agora cobrindo o
+        // escopo do modulo. Gate por env; OFF = caminho atual bit-identico.
+        //
+        // SEGURANCA (impede o race do #1556): so' inlina arrays que NAO sao
+        // globais. Um array top-level referenciado de DENTRO de qualquer user
+        // fn / class method foi promovido a GLOBAL (data segment) por
+        // `collect_module_globals` — `fn_ctx.has_global(name)` e' true. Esses
+        // sao filtrados aqui e NUNCA viram nativo (continuam no caminho VEC/
+        // global com atom-RMW). Arrays compartilhados entre async fns sempre
+        // caem nesse caso (sao referenciados de dentro da fn => globais). O
+        // decl-site (decls.rs) re-checa `!has_global` antes de alocar o slot.
+        if std::env::var("RTS_ARRAY_INLINE").as_deref() == Ok("1") {
+            let cands =
+                crate::codegen::lower::passes::escape::non_escaping_fixed_arrays_from_stmts(stmts);
+            for (name, info) in cands {
+                // Default-DENY: array compartilhado cross-fn (global) escapa.
+                if fn_ctx.has_global(&name) {
+                    continue;
+                }
+                fn_ctx
+                    .native_array_candidates
+                    .insert(name, (info.len, info.elem_is_float));
+            }
+        }
+
         for stmt in stmts {
             match lower_stmt(&mut fn_ctx, stmt) {
                 Ok(_) => {}

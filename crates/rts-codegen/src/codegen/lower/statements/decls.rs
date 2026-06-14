@@ -1004,10 +1004,16 @@ pub(super) fn lower_var_decl(ctx: &mut FnCtx, var_decl: &VarDecl) -> Result<bool
         // var como array local nao-escapante de tamanho fixo. Em vez de
         // VEC_NEW + declare_local(Handle), aloca um StackSlot e inicializa os
         // slots direto. `arr[i]` (read/write/RMW) e' interceptado pelos fast
-        // paths em members.rs/mod.rs via `ctx.native_arrays`. So' fora de
-        // module_scope (top-level e' follow-up) e quando o init e' EXATAMENTE
-        // a alocacao candidata (re-checa aqui — defensivo).
-        if !ctx.module_scope {
+        // paths em members.rs/mod.rs via `ctx.native_arrays`. Cobre tanto user
+        // fns quanto top-level (__RTS_MAIN, module_scope) — mas em module_scope
+        // SO' quando a var NAO e' global: um array top-level referenciado por
+        // qualquer user fn vira global (data segment) e DEVE permanecer no
+        // caminho VEC/global (atom-RMW), nunca num StackSlot local a __RTS_MAIN
+        // (invisivel a outras fns + reintroduziria o race do #1556). O
+        // `compile_main` ja' filtra globais antes de popular os candidatos;
+        // re-checamos `has_global` aqui defensivamente.
+        let native_ok = !ctx.module_scope || !ctx.has_global(name.as_str());
+        if native_ok {
             if let Some(&(len, elem_is_float)) =
                 ctx.native_array_candidates.get(name.as_str())
             {
