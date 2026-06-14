@@ -496,6 +496,16 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
             HirExpr::new(HirExprKind::Raw(format!("template_literal")), HirType::Str)
         }
 
+        // TypeScript type-only expression wrappers carry ZERO runtime effect:
+        // the value is just the inner expression. Erase the type and lower the
+        // inner expr directly, instead of falling through to a `Raw` node that
+        // the new engine cannot recognize.
+        swc::Expr::TsAs(e) => lower_swc_expr(&e.expr, scope),
+        swc::Expr::TsNonNull(e) => lower_swc_expr(&e.expr, scope),
+        swc::Expr::TsConstAssertion(e) => lower_swc_expr(&e.expr, scope),
+        swc::Expr::TsSatisfies(e) => lower_swc_expr(&e.expr, scope),
+        swc::Expr::TsTypeAssertion(e) => lower_swc_expr(&e.expr, scope),
+
         _ => HirExpr::new(HirExprKind::Raw(format!("{:?}", e)), HirType::Unknown),
     }
 }
