@@ -104,6 +104,13 @@ pub(crate) struct ClassDesc {
     /// scalar/opaque. Drives chained access on `this.<field>` (`this.field[i]`,
     /// `this.field.length`, `this.field.push(x)`).
     pub field_arrays: std::collections::HashSet<String>,
+    /// FLATTENED names of fields PROVEN to hold a native STRING — the field's
+    /// declared type annotation is `string` (the canonical `#value: string`).
+    /// Absent ⇒ scalar/opaque. Drives native string ops on `this.<field>`
+    /// (`this.value.length`, `this.value[i]`, `this.value.charCodeAt(i)`) — a
+    /// field of this kind reads as a `JsKind::Str` value so it reaches the same
+    /// native string member/index/method paths a string literal or param does.
+    pub field_strings: std::collections::HashSet<String>,
 }
 
 impl ClassDesc {
@@ -122,6 +129,11 @@ impl ClassDesc {
     /// Whether `field` is statically proven to hold an Array.
     pub fn field_is_array(&self, field: &str) -> bool {
         self.field_arrays.contains(field)
+    }
+
+    /// Whether `field` is statically proven to hold a native `string`.
+    pub fn field_is_string(&self, field: &str) -> bool {
+        self.field_strings.contains(field)
     }
 }
 

@@ -194,6 +194,40 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // it ToStrings / arithmetics as a number.
             return Ok(Val::new_with_kind(word, Repr::Tagged, JsKind::Number));
         }
+        // ---- string FIELD read (CHANGE 2): `obj.<field>` where the receiver's
+        // class proves `<field>` is string-typed. Read the slot word (VEC_GET, as
+        // for any field) but tag the resulting `Val` `JsKind::Str` so downstream
+        // `.length`/`[i]`/string methods (e.g. `this.#value.charCodeAt(i)`) see a
+        // string. Distinct from the `prop == "length"` fast-path below, which reads
+        // the LENGTH of a string field/literal. ----
+        if let Some(class) = self.static_instance_class(object) {
+            if self.classes.get(&class).map(|d| d.field_is_string(prop)).unwrap_or(false) {
+                let (recv_word, shape) = self.resolve_heap_receiver(module, object)?;
+                let HeapShape::Object(shape_id) = shape else {
+                    return unsupported!("string field `.{prop}` on a non-object receiver");
+                };
+                let Some(slot) = self.shapes.slot_of(shape_id, prop) else {
+                    return unsupported!("string field `.{prop}` not in the receiver's shape");
+                };
+                let idx = self.builder.ins().iconst(types::I64, 1 + slot as i64);
+                let word = emit_marshal::emit_vec_get(module, self.builder, recv_word, idx);
+                return Ok(Val::tagged_kind(word, JsKind::Str));
+            }
+        }
+        // ---- native STRING receiver fast-path (CHANGE 3): `s.length` on a proven
+        // string — a literal, a string-typed field (CHANGE 2), or a string param.
+        // `.length` reuses the existing `__rtsadp_dyn_length` op (which reads the
+        // string's UTF-16 code-unit count from its tag); a string method call
+        // (`s.charCodeAt(i)`) is handled by the dispatch path once the receiver is a
+        // Str `Val`. Any other string member read keeps the existing bail. ----
+        if prop == "length" && self.receiver_is_proven_string(object) {
+            let recv = self.lower_string_receiver(module, object)?;
+            let recv_word = self.box_value(recv);
+            let word = self
+                .call_runtime(module, "__rtsadp_dyn_length", &[recv_word])?
+                .expect("__rtsadp_dyn_length returns a value");
+            return Ok(Val::new_with_kind(word, Repr::Tagged, JsKind::Number));
+        }
         let (recv_word, shape) = self.resolve_heap_receiver(module, object)?;
         match shape {
             HeapShape::Object(shape_id) => {
@@ -242,6 +276,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     .expect("__rtsadp_obj_get returns a value");
                 return Ok(Val::new(word, Repr::Tagged));
             }
+        }
+        // ---- native STRING receiver fast-path (CHANGE 3): `s[i]` on a proven
+        // string yields a 1-char string. Reuses the existing `__rtsadp_dyn_char_at`
+        // op (PolyValue-native: takes the string word + a boxed index word, returns
+        // a 1-char string word) — the same primitive `s.charAt(i)` resolves to. ----
+        if self.receiver_is_proven_string(object) {
+            let recv = self.lower_string_receiver(module, object)?;
+            let recv_word = self.box_value(recv);
+            let idx_val = self.lower_expr(module, index)?;
+            let idx_word = self.box_value(idx_val);
+            let word = self
+                .call_runtime(module, "__rtsadp_dyn_char_at", &[recv_word, idx_word])?
+                .expect("__rtsadp_dyn_char_at returns a value");
+            return Ok(Val::tagged_kind(word, JsKind::Str));
         }
         let (recv_word, shape) = self.resolve_heap_receiver(module, object)?;
         if !matches!(shape, HeapShape::Array) {
@@ -328,6 +376,43 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let word = self.box_value(v);
         emit_marshal::emit_vec_set(module, self.builder, recv_word, idx, word);
         Ok(Val::new(word, Repr::Tagged))
+    }
+
+    // ---- native-string receivers (member / index fast-path) ----
+
+    /// Whether `object` is PROVEN to evaluate to a native `string` value, decidable
+    /// statically (no IR emitted). Covers the canonical native-string receivers:
+    /// - a string LITERAL (`"abc"`);
+    /// - a `Member { inner, prop }` where `inner`'s class proves `prop` is a
+    ///   string-typed field (the `this.#value` wrap pattern — CHANGE 2);
+    /// - an identifier bound to a string-typed param/local (`string_locals`).
+    ///
+    /// A `true` here lets `lower_member`/`lower_index` take the native string
+    /// fast-path; everything else falls through to the heap-shape path UNCHANGED.
+    fn receiver_is_proven_string(&self, object: &HirExpr) -> bool {
+        match &object.kind {
+            HirExprKind::Lit(rts_hir::ir::HirLit::Str(_)) => true,
+            HirExprKind::Ident(name) => self.string_locals.contains(name),
+            HirExprKind::Member { object: inner, prop } => self
+                .static_instance_class(inner)
+                .and_then(|c| self.classes.get(&c).map(|d| d.field_is_string(prop)))
+                .unwrap_or(false),
+            _ => false,
+        }
+    }
+
+    /// Lower a PROVEN-string receiver to a PolyValue `Val` tagged `JsKind::Str`.
+    /// A string LITERAL / param lowers directly (already `Str`-kinded); a string
+    /// FIELD (`this.#value`) routes through [`Self::lower_member`]'s CHANGE-2 branch
+    /// (a `VEC_GET` of the slot re-tagged `Str`). Re-tags `Str` defensively so the
+    /// caller's fast-path always sees a string `Val`.
+    fn lower_string_receiver(
+        &mut self,
+        module: &mut dyn Module,
+        object: &HirExpr,
+    ) -> FrontResult<Val> {
+        let v = self.lower_expr(module, object)?;
+        Ok(Val::tagged_kind(self.box_value(v), JsKind::Str))
     }
 
     // ---- helpers ----

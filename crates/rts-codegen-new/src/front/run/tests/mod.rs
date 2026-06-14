@@ -72,6 +72,7 @@ mod regex;
 mod run;
 mod stdlib_parity;
 mod string;
+mod string_class;
 mod template;
 mod toprimitive;
 mod trycatch;

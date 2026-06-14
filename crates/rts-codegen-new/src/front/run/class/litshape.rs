@@ -77,6 +77,8 @@ pub(crate) fn build_literal_class(
         // Object-literal classes do not track array-typed fields (no `this.x[i]`
         // chaining target in the literal-recovery path yet).
         field_arrays: std::collections::HashSet::new(),
+        // Object-literal fields have no declared type annotation to prove `string`.
+        field_strings: std::collections::HashSet::new(),
     };
     (desc, out)
 }

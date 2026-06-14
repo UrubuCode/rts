@@ -80,6 +80,8 @@ pub(super) fn synth_builtin_error(name: &str) -> (ClassDesc, Vec<HirFunc>) {
     methods.insert("toString".to_string(), to_string_fn);
 
     let parent = if name == "Error" { None } else { Some("Error".to_string()) };
+    // The virtual Error parent's fields (message/name/stack) are all strings.
+    let field_strings: std::collections::HashSet<String> = fields.iter().cloned().collect();
     let desc = ClassDesc {
         name: name.to_string(),
         parent,
@@ -93,6 +95,7 @@ pub(super) fn synth_builtin_error(name: &str) -> (ClassDesc, Vec<HirFunc>) {
         static_fields: HashMap::new(),
         // The virtual Error parent has no array-typed fields.
         field_arrays: std::collections::HashSet::new(),
+        field_strings,
     };
     (desc, funcs)
 }

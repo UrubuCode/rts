@@ -168,6 +168,13 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// shape-id at runtime, instead of bailing. Distinct from `local_shapes`: a
     /// name in `local_shapes` (a known shape) uses the faster constant-slot path.
     pub object_locals: std::collections::HashSet<String>,
+    /// Names PROVEN to hold a native `string` value — a param declared `: string`
+    /// (mirrors how an array param records [`HeapShape::Array`] in `local_shapes`).
+    /// A member/index/method access on such a name takes the native string
+    /// fast-path (`.length` / `s[i]` / string methods) instead of bailing on an
+    /// unknown shape. The local keeps its Tagged ABI/repr (the i64 register holds
+    /// the boxed string word); only the proven-string fact is recorded here.
+    pub string_locals: std::collections::HashSet<String>,
     /// Name → the statically-known CLASS of a local/param holding a class instance
     /// (a `new C()` result, a `: C`-annotated param, or `this` inside a method).
     /// Drives static `instance.method(args)` dispatch; absent ⇒ method calls bail.
@@ -238,6 +245,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             locals: HashMap::new(),
             local_shapes: HashMap::new(),
             object_locals: std::collections::HashSet::new(),
+            string_locals: std::collections::HashSet::new(),
             local_classes: HashMap::new(),
             global_instance_classes: HashMap::new(),
             shapes: ShapeTable::new(),
@@ -271,6 +279,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // i64 register holds the boxed array word); only the shape is recorded.
             if matches!(p.ty, rts_hir::HirType::Array(_)) {
                 ctx.local_shapes.insert(p.name.clone(), HeapShape::Array);
+            }
+            // A string-typed param (`sub: string`) is a PROVEN native string.
+            // Record it so `sub[j]` / `sub.length` / `sub.charCodeAt(i)` take the
+            // native string fast-path (`Self::receiver_is_proven_string`). The param
+            // keeps its Tagged ABI/repr (the i64 register holds the boxed string
+            // word); only the proven-string fact is recorded.
+            if matches!(p.ty, rts_hir::HirType::Str) {
+                ctx.string_locals.insert(p.name.clone());
             }
         }
 

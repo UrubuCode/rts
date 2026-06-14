@@ -141,6 +141,26 @@ pub(super) fn build_class(
     // is an array literal in the (already-lowered) constructor body.
     collect_ctor_array_fields(&out, &mut field_arrays);
 
+    // --- FLATTENED string-typed fields: parent's set, then own string fields ---
+    // A field is PROVEN to hold a native `string` when its DECLARED TYPE annotation
+    // is `string` (the canonical `#value: string`). The annotation is reachable
+    // here via `pd.type_annotation` (an `Option<String>` carried on the AST
+    // PropertyDecl), parsed through the same `parse_type_annotation` every param
+    // uses — so no swc re-read is needed.
+    let mut field_strings: std::collections::HashSet<String> =
+        parent.map(|p| p.field_strings.clone()).unwrap_or_default();
+    for pd in &m.props {
+        let is_string = pd
+            .type_annotation
+            .as_deref()
+            .map(rts_hir::lower::parse_type_annotation)
+            .map(|t| matches!(t, HirType::Str))
+            .unwrap_or(false);
+        if is_string {
+            field_strings.insert(pd.name.clone());
+        }
+    }
+
     // --- instance methods (own) flattened over inherited ---
     let mut methods: HashMap<String, String> =
         parent.map(|p| p.methods.clone()).unwrap_or_default();
@@ -196,6 +216,7 @@ pub(super) fn build_class(
         statics,
         static_fields,
         field_arrays,
+        field_strings,
     };
     Ok((desc, out))
 }
