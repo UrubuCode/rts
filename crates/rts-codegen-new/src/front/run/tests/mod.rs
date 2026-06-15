@@ -58,6 +58,7 @@ mod date;
 mod destructure;
 mod dyn_prop;
 mod dyndispatch;
+mod error_class;
 mod fn_ctor;
 mod fn_props;
 mod free_this;

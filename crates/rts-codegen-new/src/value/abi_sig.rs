@@ -539,27 +539,15 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             ret: Bool,
         },
 
-        // ---- codegen-owned Error-family + wrapper ctors / props / instanceof (P5.3) ----
-        // Error ctors: one string-message PolyValue word in, a TAG_OBJECT error word
-        // out. Error props/toString + wrapper ctors + instanceof tags: one PolyValue
-        // word in, one PolyValue word out.
-        "__rtsadp_err_new"
-        | "__rtsadp_err_new_type"
-        | "__rtsadp_err_new_range"
-        | "__rtsadp_err_new_reference"
-        | "__rtsadp_err_new_syntax"
-        | "__rtsadp_err_new_uri"
-        | "__rtsadp_err_new_eval"
-        | "__rtsadp_err_message"
-        | "__rtsadp_err_name"
-        | "__rtsadp_err_stack"
-        | "__rtsadp_err_to_string"
-        | "__rtsadp_w_boolean_new"
+        // ---- codegen-owned wrapper ctors + Map/Set instanceof tags (P5.3). One
+        // PolyValue word in, one PolyValue word out. (The Error family moved to a
+        // `.ts` prelude class; its `__rtsadp_err_*`/`__rtsadp_is_error` symbols are
+        // gone — `new Error("x")` goes through the user-class ctor path now.) ----
+        "__rtsadp_w_boolean_new"
         | "__rtsadp_w_number_new"
         | "__rtsadp_w_string_new"
         | "__rtsadp_is_map"
-        | "__rtsadp_is_set"
-        | "__rtsadp_is_error" => SymSig {
+        | "__rtsadp_is_set" => SymSig {
             params: &[U64],
             ret: U64,
         },

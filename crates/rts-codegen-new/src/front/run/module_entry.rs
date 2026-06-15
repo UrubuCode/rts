@@ -83,23 +83,38 @@ fn build_path(entry: &Path) -> FrontResult<super::LoweredProgram> {
 
     let builtins = apply_bindings(&mut program, &bindings)?;
 
+    // Build the engine prelude FIRST (if any) so its classes are AMBIENT for the
+    // user program's `extends` resolution (`class X extends Error`/`Map`).
+    let inc = registry::includes_prelude();
+    let prelude = if inc.is_empty() {
+        None
+    } else {
+        Some(super::build_program_for_prelude(&inc)?)
+    };
+    let ambient = prelude
+        .as_ref()
+        .map(|p| &p.classes)
+        .unwrap_or(&EMPTY_AMBIENT);
+
     // The flattened multi-file USER program has no single source string, so the
     // PARAMETER-destructuring recovery (which re-parses a source) gets `""` — a
     // destructured param stays `"_"` and bails at lowering (sound). Every other
     // destructuring site recovers from the swc `Stmt` nodes in `program`.
-    let mut user = build_from_program(program, "")?;
+    let mut user = build_from_program(program, "", ambient)?;
     // Carry the BUILTIN-IMPORT bindings into the lowering so a call to an imported
     // `rts:<ns>` member resolves to its real `__RTS_FN_NS_*` symbol (M1b).
     user.builtins = builtins;
 
-    let inc = registry::includes_prelude();
-    if inc.is_empty() {
-        Ok(user)
-    } else {
-        let prelude = super::build_program_for_prelude(&inc)?;
-        merge_programs(prelude, user)
+    match prelude {
+        None => Ok(user),
+        Some(prelude) => merge_programs(prelude, user),
     }
 }
+
+/// An empty ambient class table for the no-prelude path (a shared default so
+/// [`build_path`] borrows a stable reference).
+static EMPTY_AMBIENT: std::sync::LazyLock<super::class::ClassTable> =
+    std::sync::LazyLock::new(super::class::ClassTable::default);
 
 /// Apply the import binding map to the flattened `program` IN PLACE, returning the
 /// BUILTIN-IMPORT map (local name → `(ns, member)`) the lowering consults.

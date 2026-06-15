@@ -186,12 +186,65 @@ genérico**. Correto e escalável.
 - **Sintaxe nativa ⇒ PRIMITIVO ⇒ codegen-direto (rts-primitives):** literais
   `""`/`123`/`true`/`[]`/`{}`/função/**`/re/` (RegExp tem sintaxe nativa → é
   primitivo, NÃO Registry)**/template, + `Error` (primordial). O motor nomeia +
-  lowera a sintaxe direto; impl em `rts-primitives`.
+  lowera a sintaxe direto; impl em `rts-primitives`. **`Error` migrou para `.ts`**
+  (prelude include, §3.2.1): a impl de campos/métodos está em
+  `rts-primitives/src/error.ts`, não mais hardcoded no codegen.
 - **Sem sintaxe nativa ⇒ lib utilitária rts-shared ⇒ Registry, indireto:**
   `Date`/`Map`/`Set`/`WeakMap`/`JSON`/`URL`/`Math`/`Promise`/`Proxy`/typed-arrays/
   backend — acessadas via `new X()`/estáticos, despachadas pela Registry, **nunca
   reimplementadas como tabelas codegen `__rtsadp_*`**. `Date` é a migração
   referência (feita); `Map`/`Set` são os próximos.
+
+### 3.2.1 `Error` migrado para `.ts` (prelude include) — FEITO
+
+`Error` é PRIMORDIAL (o motor pode NOMEÁ-LO p/ throw/catch), mas a sua
+IMPLEMENTAÇÃO de campos/métodos **deixou de ser hardcoded no codegen** e vive
+agora em `.ts`: `crates/rts-primitives/src/error.ts` (exposto como
+`rts_primitives::ERROR_TS`, re-exportado pela fachada `rts_runtime::ERROR_TS`).
+É incluído como prelude declarations-only via `e.include(rts_runtime::ERROR_TS)`
+em `registry.rs build_registry()`, **ANTES** do `MAP_SET_TS` (os subtipos
+`extends Error` precisam ver a base `Error` primeiro — o prelude é um programa
+mesclado; a ordem de `include` é a ordem de declaração).
+
+- `class Error { message; name; stack; constructor(message?){ this.message =
+  message ?? ""; this.name = "Error"; this.stack = engine.trace_capture(); }
+  toString(){ ... } }` + `TypeError`/`RangeError`/`ReferenceError`/`SyntaxError`/
+  `URIError`/`EvalError`/`AggregateError` como `class X extends Error`. `.stack`
+  é um trace REAL via o global PRIVADO `engine.trace_capture()` (Error.ts é
+  prelude-origin, então o gate de privacidade permite).
+- `new Error("x")` constrói pelo path de classe de USUÁRIO normal (Vec
+  shape-id + slots `message/name/stack`); `.message`/`.name`/`.stack` são slots
+  ordinários; `toString()` é o método `.ts`; `instanceof` anda pela cadeia de
+  herança user-class (shape-id + descendentes).
+- **`extends Error` (user class):** o prelude é construído PRIMEIRO e a sua
+  `ClassTable` é passada como classes AMBIENT à `collect_classes` do programa do
+  usuário (`build_from_program(.., ambient)`), então `class X extends Error`
+  resolve o pai contra a Error real do prelude — o motor **não sintetiza mais um
+  pai virtual de Error no codegen** (`class/builtin.rs` foi DELETADO).
+- **Interop throw/catch:** um `throw new Error("x")` põe o WORD `TAG_OBJECT` no
+  slot de erro; o `catch (e)` liga `e` como local Tagged opaco SEM classe
+  estática. `e.message`/`.name`/`.stack` caem no fallback dinâmico
+  `__rtsadp_obj_get` (lê os slots por chave a partir do shape-id header do objeto
+  lançado), e `e instanceof Error` usa o `dynamic_user_instanceof` (compara o
+  shape-id contra Error+descendentes). Ambos JS-corretos.
+- **Hardcode DELETADO** (só do motor novo): `class/builtin.rs` (synth do pai
+  virtual) + seu call-site; em `globalclass.rs` as linhas `class_meta` da família
+  Error, `err_meta`/`ERROR_METHODS`, `is_error_class`, os props
+  `__rtsadp_err_message/name/stack`, e o `__rtsadp_is_error` do `instanceof`; em
+  `wrappers.rs` os ctors `__rtsadp_err_new*` + props + `__rtsadp_is_error`; em
+  `toprimitive.rs` o path `is_error_instance`/`__rtsadp_err_to_string`; as
+  `register_*_error_class_spec` da `registry.rs` do motor novo; e os symbols JIT
+  correspondentes em `runtime_link.rs`/`abi_sig.rs`.
+- **Mantido de propósito:** o runtime Rust `globals::error` + os externs
+  `__RTS_FN_GL_ERROR_*`/`__RTS_FN_GL_IS_ERROR` e as `register_*_error_class_spec`
+  — o motor ANTIGO FROZEN (`rts-codegen-old`) ainda os usa (members.rs,
+  operators.rs, jit.rs). Não deletados (path vivo do old engine).
+- **Limitação conhecida (não regressão de path testado):** chamar um MÉTODO num
+  erro CAPTURADO opaco (`catch (e) { e.toString() }`) precisa de dispatch de
+  método shape-keyed (IC) — incremento futuro; hoje o `toString` dinâmico devolve
+  o default genérico de objeto. A superfície de DADOS (`e.message`/`.name`/
+  `instanceof`) funciona. `e.toString()` é correto quando `e` tem classe ESTÁTICA
+  (`new Error("x").toString()`).
 
 ### 3.3 O instinto `ValTy`
 

@@ -29,9 +29,6 @@ use super::lower::{JsKind, Lowerer, Val};
 /// How a runtime/Registry class's CONSTRUCTOR marshals its arguments.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CtorKind {
-    /// `new Error(msg?)` family — one optional string-message arg; the trampoline
-    /// is the error-NEW wrapper, the instance a boxed error handle.
-    Error,
     /// `new Boolean(x)` / `new Number(x)` / `new String(x)` — one value arg; the
     /// wrapper boxes a primitive (typeof === "object").
     Wrapper,
@@ -51,18 +48,16 @@ struct ClassMeta {
 }
 
 /// Resolve a runtime/Registry class NAME to its [`ClassMeta`], or `None` when the
-/// engine does not model it (so the caller bails / falls through). Error subtypes
-/// share the Error method set but a distinct constructor symbol (each tags the
-/// instance with its own `.name`).
+/// engine does not model it (so the caller bails / falls through).
+///
+/// NOTE: the `Error` family is NO LONGER here — it is a PRIMORDIAL `.ts` class
+/// (`rts-primitives/src/error.ts`, included as an engine prelude). A user
+/// `new Error("x")` constructs that shape-based class via the normal user-class
+/// path; `.message`/`.name`/`.stack`/`toString()`/`instanceof` all ride the
+/// user-class machinery. The former `err_meta` rows + `__rtsadp_err_*`
+/// trampolines were deleted with this migration.
 fn class_meta(name: &str) -> Option<ClassMeta> {
     let m = match name {
-        "Error" => err_meta("__rtsadp_err_new"),
-        "TypeError" => err_meta("__rtsadp_err_new_type"),
-        "RangeError" => err_meta("__rtsadp_err_new_range"),
-        "ReferenceError" => err_meta("__rtsadp_err_new_reference"),
-        "SyntaxError" => err_meta("__rtsadp_err_new_syntax"),
-        "URIError" => err_meta("__rtsadp_err_new_uri"),
-        "EvalError" => err_meta("__rtsadp_err_new_eval"),
         "Boolean" => ClassMeta {
             ctor_symbol: "__rtsadp_w_boolean_new",
             kind: CtorKind::Wrapper,
@@ -90,16 +85,6 @@ fn class_meta(name: &str) -> Option<ClassMeta> {
     };
     Some(m)
 }
-
-fn err_meta(ctor_symbol: &'static str) -> ClassMeta {
-    ClassMeta {
-        ctor_symbol,
-        kind: CtorKind::Error,
-        methods: ERROR_METHODS,
-    }
-}
-
-const ERROR_METHODS: &[(&str, usize, &str)] = &[("toString", 0, "__rtsadp_err_to_string")];
 
 /// RegExp instance methods (P5.12). `.test(s)` is the high-value one: receiver
 /// word + subject word → a bool word, the SAME generic shape as Map/Set methods.
@@ -132,7 +117,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
         let meta = class_meta(class).expect("caller proved a global class");
         let word = match meta.kind {
-            CtorKind::Error => self.emit_error_ctor(module, meta.ctor_symbol, class, args)?,
             CtorKind::Regex => self.emit_regex_ctor(module, args)?,
             CtorKind::Wrapper => {
                 if args.len() != 1 {
@@ -148,41 +132,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
         };
         Ok((Val::tagged_kind(word, JsKind::Object), class.to_string()))
-    }
-
-    /// `new Error(msg?)` — the message is an optional string arg. A 0-arg form uses
-    /// the empty string; a non-string message BAILS (the runtime ctor takes a
-    /// string `(ptr,len)`; coercing an arbitrary value would diverge — refuse).
-    /// Returns the boxed `TAG_OBJECT` error instance word.
-    fn emit_error_ctor(
-        &mut self,
-        module: &mut dyn Module,
-        symbol: &str,
-        class: &str,
-        args: &[HirExpr],
-    ) -> FrontResult<Value> {
-        let msg_word = match args.len() {
-            0 => {
-                let pv = value::abi_adapter::intern_poly("");
-                self.builder.ins().iconst(types::I64, pv.raw() as i64)
-            }
-            1 => {
-                let v = self.lower_expr(module, &args[0])?;
-                if !matches!(v.kind, JsKind::Str) {
-                    return unsupported!(
-                        "`new {class}(msg)` with a non-string message \
-                         (string coercion of the message is a later increment)"
-                    );
-                }
-                self.box_value(v)
-            }
-            n => {
-                return unsupported!("`new {class}(..)` expects 0 or 1 args, got {n}");
-            }
-        };
-        Ok(self
-            .call_runtime(module, symbol, &[msg_word])?
-            .expect("error ctor returns a value"))
     }
 
     /// `new RegExp(pattern[, flags])` — both args must be proven strings (a regex
@@ -267,10 +216,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(Some(Val::new(res, crate::repr::Repr::Tagged)))
     }
 
-    /// An instance PROPERTY of a recorded runtime/Registry instance (RegExp
-    /// source/flags/…, or an Error's message/name/stack). Returns `Ok(Some(val))`
-    /// when `object` is such an instance and `prop` is a known property; else
-    /// `Ok(None)` (caller falls through to its normal member handling).
+    /// An instance PROPERTY of a recorded runtime/Registry instance (a RegExp's
+    /// source/flags/…). Returns `Ok(Some(val))` when `object` is such an instance
+    /// and `prop` is a known property; else `Ok(None)` (caller falls through to its
+    /// normal member handling).
+    ///
+    /// NOTE: the Error family is gone from here — an `.ts` Error's
+    /// `.message`/`.name`/`.stack` are ordinary shape slots read by the normal
+    /// object-member path (or, for a thrown-then-caught error, the dynamic
+    /// `__rtsadp_obj_get` fallback). No `__rtsadp_err_*` property trampolines.
     pub(super) fn try_global_class_member(
         &mut self,
         module: &mut dyn Module,
@@ -281,7 +235,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(None);
         };
         let symbol = match (class.as_str(), prop) {
-            // `e.message` / `e.name` / `e.stack` on a runtime Error instance.
             ("RegExp", "source") => "__rtsadp_re_source",
             ("RegExp", "flags") => "__rtsadp_re_flags",
             ("RegExp", "global") => "__rtsadp_re_global",
@@ -294,16 +247,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                      lastIndex are properties on a runtime RegExp"
                 )));
             }
-            _ if is_error_class(&class) => match prop {
-                "message" => "__rtsadp_err_message",
-                "name" => "__rtsadp_err_name",
-                "stack" => "__rtsadp_err_stack",
-                other => {
-                    return Err(crate::front::error::Unsupported::new(format!(
-                        "`{class}.{other}` — only message/name/stack are properties on a runtime {class}"
-                    )));
-                }
-            },
             _ => return Ok(None),
         };
         let recv = self.lower_expr(module, object)?;
@@ -381,8 +324,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 return self.emit_registry_instanceof(module, word, pred).map(Some);
             }
         }
+        // NOTE: `x instanceof Error` (and any error subtype) is handled by the
+        // user-class branch above — the Error family is a PRIMORDIAL `.ts` class
+        // (prelude), so its `instanceof` rides the shape-id/descendant check in
+        // `user_instanceof`/`dynamic_user_instanceof`. No `__rtsadp_is_error`.
         let symbol = match class {
-            "Error" => "__rtsadp_is_error",
             "Array" => "__rtsadp_arr_is_array",
             // RegExp instanceof: no dedicated runtime tag trampoline yet, so only a
             // STATICALLY-recorded RegExp local/literal can be decided here (compile-
@@ -395,7 +341,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 }
                 return Ok(None);
             }
-            _ if is_error_class(class) => "__rtsadp_is_error",
             _ => return Ok(None),
         };
         let v = self.lower_expr(module, lhs)?;
@@ -530,18 +475,4 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
         false
     }
-}
-
-/// Whether `name` is one of the runtime Error family the engine models.
-fn is_error_class(name: &str) -> bool {
-    matches!(
-        name,
-        "Error"
-            | "TypeError"
-            | "RangeError"
-            | "ReferenceError"
-            | "SyntaxError"
-            | "URIError"
-            | "EvalError"
-    )
 }

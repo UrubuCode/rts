@@ -215,22 +215,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .call_runtime(module, "__rtsadp_err_take", &[])?
             .expect("__rtsadp_err_take returns a value");
         if let Some(name) = &handler.binding {
-            // Bind `e` to a fresh Tagged local holding the thrown word.
+            // Bind `e` to a fresh Tagged local holding the thrown word. The thrown
+            // value is opaque w.r.t. shape (it may be a `.ts` Error object, a
+            // string, a number, …), so `e` carries NO static class/shape. A later
+            // `e.message`/`e.name`/`e.stack` read falls through to the DYNAMIC
+            // property path (`__rtsadp_obj_get`), which reads the thrown object's
+            // shape slots by key for a `.ts` Error and reads `undefined` for a
+            // non-object throw — both JS-correct. `e instanceof Error` resolves via
+            // the normal user-class dynamic-instanceof (Error is a prelude class).
             self.bind_catch_local(name, word);
-            // Record `e` as an `Error` instance so `e.message`/`e.name`/`e.stack`
-            // resolve through the global-class error props. A thrown non-Error
-            // (string/number) ignores this — those props are only read in code that
-            // knows `e` is an Error, and the runtime props no-op a non-Error handle.
-            self.global_instance_classes
-                .insert(name.clone(), "Error".to_string());
         }
         self.lower_block(module, &handler.body)?;
         if !self.block_terminated {
             self.builder.ins().jump(next, &[]);
-        }
-        // Drop the catch binding's recorded class so it does not leak past the block.
-        if let Some(name) = &handler.binding {
-            self.global_instance_classes.remove(name);
         }
         Ok(())
     }

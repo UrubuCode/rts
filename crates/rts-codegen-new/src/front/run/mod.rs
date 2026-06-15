@@ -86,13 +86,18 @@ pub fn run_source(src: &str) -> FrontResult<()> {
 /// Build `src` with the embedded stdlib `include`s (if any) prepended as a
 /// declarations-only prelude via [`merge_programs`]. With NO includes registered
 /// this is exactly [`build_program`] — zero behavior change.
+///
+/// The prelude is built FIRST; its [`class::ClassTable`] is passed as AMBIENT
+/// classes to the user build so a user `class X extends Error` (or `extends Map`)
+/// resolves its parent against the real prelude class (the engine no longer
+/// synthesizes a virtual builtin-error parent in codegen).
 fn build_with_includes(src: &str) -> FrontResult<LoweredProgram> {
     let inc = registry::includes_prelude();
     if inc.is_empty() {
         build_program(src)
     } else {
         let prelude = build_program(&inc)?;
-        let user = build_program(src)?;
+        let user = build_program_with_ambient(src, &prelude.classes)?;
         merge_programs(prelude, user)
     }
 }
@@ -127,13 +132,25 @@ fn build_program_for_prelude(src: &str) -> FrontResult<LoweredProgram> {
     build_program(src)
 }
 
+/// [`build_program`] with AMBIENT (prelude) classes available for `extends`
+/// resolution: a user `class X extends Error`/`Map` resolves its parent against
+/// `ambient`. Used by the user side of every prelude+user build.
+fn build_program_with_ambient(
+    src: &str,
+    ambient: &class::ClassTable,
+) -> FrontResult<LoweredProgram> {
+    let program =
+        rts_parser::parse_source(src).map_err(|e| Unsupported::new(format!("parse error: {e}")))?;
+    build_from_program(program, src, ambient)
+}
+
 /// Compile `prelude_src` (a declarations-only TS stdlib) ahead of `user_src`,
 /// merged into one module so the prelude's classes/functions are ambient in the
 /// user program (a prelude `class Map` shadows the native Map). Returns captured
 /// stdout. The prelude must contain only declarations (no top-level statements).
 pub fn render_source_with_prelude(prelude_src: &str, user_src: &str) -> FrontResult<String> {
     let prelude = build_program(prelude_src)?;
-    let user = build_program(user_src)?;
+    let user = build_program_with_ambient(user_src, &prelude.classes)?;
     let merged = merge_programs(prelude, user)?;
     let program = module_jit::compile_program(&merged)?;
     let ((), out) = crate::value::abi_adapter::with_capture(|| program.run_main());
@@ -234,7 +251,7 @@ pub(crate) struct LoweredProgram {
 fn build_program(src: &str) -> FrontResult<LoweredProgram> {
     let program =
         rts_parser::parse_source(src).map_err(|e| Unsupported::new(format!("parse error: {e}")))?;
-    build_from_program(program, src)
+    build_from_program(program, src, &class::ClassTable::default())
 }
 
 /// Lower an ALREADY-PARSED `rts_ast::Program` to a [`LoweredProgram`]. This is the
@@ -251,6 +268,7 @@ fn build_program(src: &str) -> FrontResult<LoweredProgram> {
 fn build_from_program(
     program: rts_ast::ast::Program,
     destructure_src: &str,
+    ambient: &class::ClassTable,
 ) -> FrontResult<LoweredProgram> {
     let src = destructure_src;
     let mut scope = rts_hir::scope::Scope::new();
@@ -270,7 +288,7 @@ fn build_from_program(
     for c in &class_decls {
         scope.register_class(c.name.clone());
     }
-    let (mut classes, class_funcs) = class::collect_classes(&class_decls)?;
+    let (mut classes, class_funcs) = class::collect_classes(&class_decls, ambient)?;
 
     // 1. Lower all top-level functions (registers their signatures in `scope`).
     let mut funcs: Vec<HirFunc> = class_funcs;

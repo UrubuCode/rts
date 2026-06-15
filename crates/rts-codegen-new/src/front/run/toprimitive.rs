@@ -103,17 +103,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(None);
         }
 
-        // ---- runtime Error instance → `Error.prototype.toString` ----
-        // A bare `new Error("x")` or an `Error`-recorded local has a real runtime
-        // `toString` (`"name: message"`); route it through the dedicated trampoline.
-        if self.is_error_instance(expr) {
-            let v = self.lower_expr(module, expr)?;
-            let boxed = self.box_value(v);
-            let word = self
-                .call_runtime(module, "__rtsadp_err_to_string", &[boxed])?
-                .expect("__rtsadp_err_to_string returns a value");
-            return Ok(Some(word));
-        }
+        // NOTE: an `.ts` Error instance is a USER class (prelude `Error.ts`), so its
+        // `toString()` (`"name: message"`) is resolved by the user-class branch
+        // above — no `__rtsadp_err_to_string` trampoline. A thrown-then-caught error
+        // (opaque `e`) has no static class here, so `${e}`/`String(e)` on it falls to
+        // the caller's default; the common `e.message`/`e.toString()` forms read the
+        // shape slots / call the `.ts` method directly.
 
         // Everything else (plain object, array, Map/Set, dynamic receiver) → the
         // caller's default. NOT a guess: arrays join via the runtime `js_to_string`,
@@ -159,14 +154,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     }
 
     /// Whether `expr` is a known-class object for which the engine can run a
-    /// lowering-time `ToPrimitive` (a user class with `toString`/`valueOf`, or a
-    /// runtime Error instance). Used by the `+` operator to decide whether to take
-    /// the ToPrimitive path instead of the whole-object bail.
+    /// lowering-time `ToPrimitive` (a user class with `toString`/`valueOf` — incl.
+    /// the prelude `.ts` Error family). Used by the `+` operator to decide whether
+    /// to take the ToPrimitive path instead of the whole-object bail.
     pub(super) fn has_object_toprimitive(&self, expr: &HirExpr) -> bool {
         if let Some(class) = self.static_instance_class(expr) {
             return self.primitive_method_of(&class, Hint::Default).is_some();
         }
-        self.is_error_instance(expr)
+        false
     }
 
     /// Lower a `+` where at least one operand is a known-class object with a usable
@@ -199,27 +194,4 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let v = self.lower_expr(module, expr)?;
         Ok(self.box_value(v))
     }
-
-    /// Whether `expr` is a statically-recorded runtime `Error`-family instance (a
-    /// direct `new Error(..)` or an `Error`-recorded local) — the one runtime class
-    /// with a meaningful `toString` the engine can route to a trampoline.
-    fn is_error_instance(&self, expr: &HirExpr) -> bool {
-        self.global_instance_class(expr)
-            .is_some_and(|c| is_error_class(&c))
-    }
-}
-
-/// Whether `name` is a runtime Error-family class the engine models a `toString`
-/// for. Kept in sync with the same list in `globalclass.rs`.
-fn is_error_class(name: &str) -> bool {
-    matches!(
-        name,
-        "Error"
-            | "TypeError"
-            | "RangeError"
-            | "ReferenceError"
-            | "SyntaxError"
-            | "URIError"
-            | "EvalError"
-    )
 }

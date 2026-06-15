@@ -48,7 +48,6 @@ use rts_hir::ir::{HirExpr, HirExprKind, HirFunc, HirParam, HirType};
 
 use crate::front::error::{FrontResult, Unsupported};
 
-mod builtin;
 mod dispatch;
 mod inherit;
 mod litshape;
@@ -177,59 +176,44 @@ impl ClassTable {
 /// and methods). Each class either fully models or makes the whole program
 /// `Unsupported`. The out-of-subset bails (abstract, private, computed names,
 /// unknown parent, field/accessor clash) are detected here, before any lowering.
-pub(crate) fn collect_classes(classes: &[&ClassDecl]) -> FrontResult<(ClassTable, Vec<HirFunc>)> {
+///
+/// `ambient` carries the AMBIENT (engine-prelude) classes — `Error` (+ its
+/// subclasses) and `Map`/`Set` — already built from the embedded `.ts` includes.
+/// A user `class X extends Error` resolves its parent against `ambient` (the
+/// `Error` descriptor is the real prelude class, not a synthesized stub). This is
+/// how the PRIMORDIAL `Error` family (now a `.ts` class) participates in user
+/// inheritance: the engine no longer synthesizes a virtual Error parent in codegen.
+pub(crate) fn collect_classes(
+    classes: &[&ClassDecl],
+    ambient: &ClassTable,
+) -> FrontResult<(ClassTable, Vec<HirFunc>)> {
     let mut table = ClassTable::default();
     let mut funcs: Vec<HirFunc> = Vec::new();
 
-    // P5.3: `class X extends <BuiltinError>` — when a user class extends a
-    // built-in error (Error/TypeError/…) that is NOT itself a user class in this
-    // program, synthesize a VIRTUAL parent ClassDesc (fields message/name/stack +
-    // a ctor + toString) and register it so the EXISTING inheritance machinery
-    // (super(), field flattening, method resolution) handles the subclass. Only
-    // the Error family is synthesizable; any other builtin parent stays refused
-    // at the `extends unknown class` bail below.
-    let user_names: std::collections::HashSet<&str> =
-        classes.iter().map(|c| c.name.as_str()).collect();
-    let mut want_builtin: Vec<&str> = Vec::new();
-    for c in classes {
-        if let Some(parent) = &c.super_class {
-            if !user_names.contains(parent.as_str())
-                && builtin::is_builtin_error(parent)
-                && !want_builtin.contains(&parent.as_str())
-            {
-                want_builtin.push(parent.as_str());
-            }
-        }
-    }
-    // Any error SUBTYPE chains to a virtual `Error` base (so `x instanceof Error`
-    // holds for every error subclass) — ensure `Error` is synthesized too.
-    if want_builtin.iter().any(|n| *n != "Error") && !want_builtin.contains(&"Error") {
-        want_builtin.push("Error");
-    }
-    for parent in want_builtin {
-        // A builtin parent could also be a user class name shadow — already
-        // filtered above. Skip if somehow already inserted (idempotent).
-        if table.by_name.contains_key(parent) {
-            continue;
-        }
-        let (desc, fns) = builtin::synth_builtin_error(parent);
-        table.by_name.insert(desc.name.clone(), desc);
-        funcs.extend(fns);
-    }
-
     // Resolve a parent-first processing order (so a child sees its parent's
-    // already-built descriptor). An `extends` of a class not in this program, or
-    // a cycle, bails.
+    // already-built descriptor). An `extends` of a class not in this program (and
+    // not an ambient prelude class), or a cycle, bails.
     let order = inherit::topo_order(classes)?;
     for decl in order {
         check_supported(decl)?;
         let parent_desc = match &decl.super_class {
-            Some(p) => Some(table.by_name.get(p).cloned().ok_or_else(|| {
-                Unsupported::new(format!(
-                    "class `{}` extends unknown class `{p}` (not a user class in this program)",
-                    decl.name
-                ))
-            })?),
+            // Resolve the parent: a class earlier in THIS program first, else an
+            // AMBIENT prelude class (`Error`/`Map`/`Set`). An `extends` of anything
+            // else (an unmodeled builtin like `Array`) bails with a precise message.
+            Some(p) => Some(
+                table
+                    .by_name
+                    .get(p)
+                    .or_else(|| ambient.get(p))
+                    .cloned()
+                    .ok_or_else(|| {
+                        Unsupported::new(format!(
+                            "class `{}` extends unknown class `{p}` (not a user class \
+                             in this program nor an engine-prelude class)",
+                            decl.name
+                        ))
+                    })?,
+            ),
             None => None,
         };
         let (desc, fns) = synth::build_class(decl, parent_desc.as_ref())?;

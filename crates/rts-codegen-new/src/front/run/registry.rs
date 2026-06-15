@@ -73,18 +73,24 @@ fn build_registry() -> Registry {
     // The RUNTIME/Registry global classes the engine constructs + dispatches.
     ns::globals::date::register_class_spec(&mut e);
     ns::globals::regexp::register_regexp_class_spec(&mut e);
-    ns::globals::error::register_class_spec(&mut e);
-    ns::globals::error::register_type_error_class_spec(&mut e);
-    ns::globals::error::register_range_error_class_spec(&mut e);
-    ns::globals::error::register_ref_error_class_spec(&mut e);
-    ns::globals::error::register_syntax_error_class_spec(&mut e);
-    ns::globals::error::register_uri_error_class_spec(&mut e);
-    ns::globals::error::register_eval_error_class_spec(&mut e);
+    // The Error family is NOT registered here: it is a PRIMORDIAL `.ts` prelude
+    // class (`ERROR_TS`, included below). A `new Error("x")` constructs that
+    // user-class shape; nothing in the new engine consults a Registry `Error`
+    // class. (The Rust `globals::error` runtime stays — the FROZEN old engine
+    // `rts-codegen-old` still registers + uses it.)
     ns::globals::boolean::register_boolean_class_spec(&mut e);
     // Number/String classes also exist as primordials; we register them so the
     // wrapper-ctor (`new Number(x)`) path can resolve through the Registry too.
     ns::globals::number::register_number_class_spec(&mut e);
     ns::globals::string::register_string_class_spec(&mut e);
+    // The PRIMORDIAL `Error` family as faithful TS (embedded include): its ambient
+    // `class Error` (+ TypeError/RangeError/… subclasses) construct as shape-based
+    // objects exactly like a user class — replacing the former hardcoded codegen
+    // synth + `__rtsadp_err_*` trampolines. Real `.stack` via `engine.trace_capture()`.
+    // Included BEFORE Map/Set so the error subclasses (`extends Error`) see the
+    // `Error` base first (the prelude is one merged program; `includes()` joins them
+    // in registration order, so order here is declaration order).
+    e.include(rts_runtime::ERROR_TS);
     // The faithful TS Map/Set stdlib (embedded include): its ambient `class Map`/
     // `class Set` shadow the native dispatch in every program — making the native
     // Map/Set code dead (deleted in B3).

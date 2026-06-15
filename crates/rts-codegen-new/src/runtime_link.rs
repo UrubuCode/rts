@@ -433,48 +433,9 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_obj_get", objops::__rtsadp_obj_get as *const u8),
         sym("__rtsadp_obj_set", objops::__rtsadp_obj_set as *const u8),
         sym("__rtsadp_obj_has", objops::__rtsadp_obj_has as *const u8),
-        // ---- codegen-owned Error-family + wrapper ctors / props / instanceof (P5.3) ----
-        sym("__rtsadp_err_new", wrappers::__rtsadp_err_new as *const u8),
-        sym(
-            "__rtsadp_err_new_type",
-            wrappers::__rtsadp_err_new_type as *const u8,
-        ),
-        sym(
-            "__rtsadp_err_new_range",
-            wrappers::__rtsadp_err_new_range as *const u8,
-        ),
-        sym(
-            "__rtsadp_err_new_reference",
-            wrappers::__rtsadp_err_new_reference as *const u8,
-        ),
-        sym(
-            "__rtsadp_err_new_syntax",
-            wrappers::__rtsadp_err_new_syntax as *const u8,
-        ),
-        sym(
-            "__rtsadp_err_new_uri",
-            wrappers::__rtsadp_err_new_uri as *const u8,
-        ),
-        sym(
-            "__rtsadp_err_new_eval",
-            wrappers::__rtsadp_err_new_eval as *const u8,
-        ),
-        sym(
-            "__rtsadp_err_message",
-            wrappers::__rtsadp_err_message as *const u8,
-        ),
-        sym(
-            "__rtsadp_err_name",
-            wrappers::__rtsadp_err_name as *const u8,
-        ),
-        sym(
-            "__rtsadp_err_stack",
-            wrappers::__rtsadp_err_stack as *const u8,
-        ),
-        sym(
-            "__rtsadp_err_to_string",
-            wrappers::__rtsadp_err_to_string as *const u8,
-        ),
+        // ---- codegen-owned wrapper ctors (Boolean/Number/String, P5.3). The Error
+        // family is now a `.ts` prelude class (constructed via the user-class path);
+        // its former `__rtsadp_err_*`/`__rtsadp_is_error` trampolines are gone. ----
         sym(
             "__rtsadp_w_boolean_new",
             wrappers::__rtsadp_w_boolean_new as *const u8,
@@ -486,10 +447,6 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         sym(
             "__rtsadp_w_string_new",
             wrappers::__rtsadp_w_string_new as *const u8,
-        ),
-        sym(
-            "__rtsadp_is_error",
-            wrappers::__rtsadp_is_error as *const u8,
         ),
         // ---- codegen-owned pending-error slot for throw / try-catch (P5.13) ----
         sym(

@@ -573,6 +573,24 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let word = emit_marshal::emit_vec_get(module, self.builder, inner_word, idx);
                 Ok((word, HeapShape::Array))
             }
+            // A statically-classed receiver EXPRESSION that is not a bare ident
+            // (e.g. `new TypeError("x")`): lower it to its instance word and intern
+            // the class field shape, so a field read (`new C(..).f`) resolves a
+            // constant slot just like a bare-ident local of known class.
+            _ if self.static_instance_class(object).is_some() => {
+                let class = self
+                    .static_instance_class(object)
+                    .expect("guard proved Some");
+                let desc = self
+                    .classes
+                    .get(&class)
+                    .expect("static_instance_class implies a collected class")
+                    .clone();
+                let recv = self.lower_expr(module, object)?;
+                let recv_word = self.box_value(recv);
+                let shape_id = self.shapes.intern(&desc.fields);
+                Ok((recv_word, HeapShape::Object(shape_id)))
+            }
             _ => unsupported!("property/index access on a non-identifier object (unknown shape)"),
         }
     }

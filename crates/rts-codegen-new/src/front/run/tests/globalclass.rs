@@ -256,9 +256,14 @@ fn map_object_key_supported() {
 }
 
 #[test]
-fn bail_error_non_string_message() {
-    // A non-string message would need ToString coercion (a later increment).
-    assert_bails(r#"let e = new Error(42); console.log(e.message);"#);
+fn error_non_string_message_stored() {
+    // With the `.ts` Error class, `new Error(42)` stores the message in a normal
+    // slot (`this.message = message ?? ""`). `console.log(e.message)` renders the
+    // stored value — `42` — matching Node/Bun (which ToString the message). The
+    // former hardcoded ctor BAILED on a non-string message (it took a string ABI);
+    // the `.ts` class lifts that limitation. (Intentional improvement, not a
+    // regression: the output is correct, never wrong.)
+    assert_stdout(r#"let e = new Error(42); console.log(e.message);"#, "42\n");
 }
 
 #[test]
