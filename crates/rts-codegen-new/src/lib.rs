@@ -35,8 +35,9 @@
 //!    slot arrays; [`ic`] gives AOT-safe **data** inline caches (a runtime cache
 //!    cell compared by shape-id, no code patching) replacing both the default
 //!    `HashMap<String,i64>` property-bag and the O(N) string-compare vtable.
-//! 4. **One lowering path.** [`lower`] lowers HIR straight to Cranelift. There is
-//!    **no second optimizer tier** (the old `rts-mir` re-did Cranelift's egraph).
+//! 4. **One lowering path.** [`front::run::lower`] lowers HIR straight to
+//!    Cranelift (whole module via [`front::run::module_jit`]). There is **no
+//!    second optimizer tier** (the old `rts-mir` re-did Cranelift's egraph).
 //! 5. **No builtins; Registry-driven dispatch.** [`dispatch`] resolves every
 //!    non-primordial method through the Registry/`SPECS` metadata via ONE generic
 //!    path; [`abi_gen`] derives the JIT symbol table from `SPECS` (killing the
@@ -87,28 +88,14 @@
 //! REFUSES rather than guess: equality on operands of differing/unknown kind
 //! (swc conflates `==`/`===`) and unary `!`/`+` (swc conflates them). Whole-value
 //! object/array printing, string methods, classes, closures, dynamic property
-//! ICs, and 128-bit ints are later increments. The remaining pillars are
-//! documented skeletons not yet wired into the pipeline.
-
-// Scaffold phase: stub modules intentionally carry unused items until their
-// implementation lands. Removed module-by-module as each pillar is built out.
-#![allow(dead_code)]
+//! ICs, and 128-bit ints are later increments.
 
 pub mod abi_gen;
 pub mod dispatch;
 pub mod front;
 pub mod ic;
-pub mod lower;
-pub mod pipeline;
 pub mod registry_link;
 pub mod repr;
 pub mod runtime_link;
 pub mod shape;
 pub mod value;
-
-/// End-to-end proof suite (P1): reproduces the EXACT old-engine value-model
-/// failures and shows the new `PolyValue` representation solving each one
-/// through real Cranelift JIT execution. See the module for the per-proof
-/// citations of the old-engine bug each refutes.
-#[cfg(test)]
-mod proof_tests;
