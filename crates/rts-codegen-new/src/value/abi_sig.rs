@@ -186,6 +186,63 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[F64, I64],
             ret: Handle,
         },
+        // engine.str_* — the irreducible Unicode string-logic bridge: the receiver
+        // `s` + string args are GC string `Handle`s, indices/counts are `I64`. Each
+        // wraps a `__RTS_FN_GL_STRING_*` impl; the `.ts` `class String` methods call
+        // these. Grouped by `(params, ret)` shape.
+        // (s) -> string.
+        "__RTS_FN_NS_ENGINE_STR_TO_UPPER"
+        | "__RTS_FN_NS_ENGINE_STR_TO_LOWER"
+        | "__RTS_FN_NS_ENGINE_STR_TRIM"
+        | "__RTS_FN_NS_ENGINE_STR_TRIM_START"
+        | "__RTS_FN_NS_ENGINE_STR_TRIM_END" => SymSig {
+            params: &[Handle],
+            ret: Handle,
+        },
+        // (s, i: number) -> string.
+        "__RTS_FN_NS_ENGINE_STR_CHAR_AT"
+        | "__RTS_FN_NS_ENGINE_STR_AT"
+        | "__RTS_FN_NS_ENGINE_STR_REPEAT" => SymSig {
+            params: &[Handle, I64],
+            ret: Handle,
+        },
+        // (s, i: number) -> number.
+        "__RTS_FN_NS_ENGINE_STR_CHAR_CODE_AT" => SymSig {
+            params: &[Handle, I64],
+            ret: I64,
+        },
+        // (s, start: number, end: number) -> string.
+        "__RTS_FN_NS_ENGINE_STR_SLICE" | "__RTS_FN_NS_ENGINE_STR_SUBSTRING" => SymSig {
+            params: &[Handle, I64, I64],
+            ret: Handle,
+        },
+        // (s, needle: string) -> number.
+        "__RTS_FN_NS_ENGINE_STR_INDEX_OF" | "__RTS_FN_NS_ENGINE_STR_LAST_INDEX_OF" => SymSig {
+            params: &[Handle, Handle],
+            ret: I64,
+        },
+        // (s, needle: string) -> boolean.
+        "__RTS_FN_NS_ENGINE_STR_INCLUDES"
+        | "__RTS_FN_NS_ENGINE_STR_STARTS_WITH"
+        | "__RTS_FN_NS_ENGINE_STR_ENDS_WITH" => SymSig {
+            params: &[Handle, Handle],
+            ret: Bool,
+        },
+        // (s, targetLen: number, pad: string) -> string.
+        "__RTS_FN_NS_ENGINE_STR_PAD_START" | "__RTS_FN_NS_ENGINE_STR_PAD_END" => SymSig {
+            params: &[Handle, I64, Handle],
+            ret: Handle,
+        },
+        // (s, other: string) -> string.
+        "__RTS_FN_NS_ENGINE_STR_CONCAT" => SymSig {
+            params: &[Handle, Handle],
+            ret: Handle,
+        },
+        // (s, from: string, to: string) -> string.
+        "__RTS_FN_NS_ENGINE_STR_REPLACE" | "__RTS_FN_NS_ENGINE_STR_REPLACE_ALL" => SymSig {
+            params: &[Handle, Handle, Handle],
+            ret: Handle,
+        },
 
         // ---- REAL collections Vec (rts-shared collections::vec) ----
         "__RTS_FN_NS_COLLECTIONS_VEC_NEW" => SymSig {

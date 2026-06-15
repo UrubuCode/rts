@@ -101,6 +101,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if let Some(symbol) = engine_num_member(method) {
             return self.lower_engine_num(module, symbol, args);
         }
+        // The string-method bridge (`str_to_upper`/`str_trim`/`str_char_at`/
+        // `str_slice`/`str_index_of`/`str_includes`/`str_pad_start`/`str_concat`/
+        // `str_replace`/…): the `.ts` `class String` methods call these with `this`
+        // (the boxed primitive string) + 0..2 string/number args. Each wraps the
+        // irreducible Rust `__RTS_FN_GL_STRING_*` impl (one source of truth). The
+        // arg/return marshaling is uniform (a small descriptor table), so adding a
+        // member is a data row, never new Cranelift code.
+        if let Some(spec) = engine_str_member(method) {
+            return self.lower_engine_str(module, spec, args);
+        }
         let Some((symbol, ret)) = engine_member(method) else {
             return unsupported!("engine.{method}(...) (unknown engine member)");
         };
@@ -172,6 +182,72 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(Val::tagged_kind(w, JsKind::Str))
     }
 
+    /// Lower an `engine.str_*(s, ...args)` string-method call: marshal the string
+    /// receiver `s` (a boxed primitive-string word) to its real GC handle, marshal
+    /// each declared arg (a string → real handle, a number → i64), call the
+    /// wrapping `__RTS_FN_GL_STRING_*` extern, and rebox the result per its return
+    /// kind (string handle → `TAG_STR` PolyValue; number → `Int64`; bool → `Bool`).
+    /// The first `.ts` arg is always `this` (the primitive string); the rest are the
+    /// method's own params (already defaulted by the `.ts` prologue).
+    fn lower_engine_str(
+        &mut self,
+        module: &mut dyn Module,
+        spec: EngineStr,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        let want = 1 + spec.args.len();
+        if args.len() != want {
+            return unsupported!(
+                "{} expects {} args (s, ...), got {}",
+                spec.symbol,
+                want,
+                args.len()
+            );
+        }
+        let mut call_args = Vec::with_capacity(want);
+        // ---- receiver string `s` → real GC handle ----
+        let s = self.lower_expr(module, &args[0])?;
+        let s_word = self.box_value(s);
+        let s_handle = emit_marshal::emit_table_load(module, self.builder, s_word);
+        call_args.push(s_handle);
+        // ---- explicit args per the descriptor ----
+        for (a, &kind) in args[1..].iter().zip(spec.args) {
+            let v = self.lower_expr(module, a)?;
+            match kind {
+                StrArg::Str => {
+                    let w = self.box_value(v);
+                    let h = emit_marshal::emit_table_load(module, self.builder, w);
+                    call_args.push(h);
+                }
+                StrArg::Num => {
+                    // A number index/count → i64. `numeric_to_i64` accepts a proven
+                    // Int32/Int64/Float64 (a `number` param / default like the
+                    // `slice` "to end" sentinel arrives as Float64) and truncates
+                    // toward zero; a Tagged number is decoded via `coerce`.
+                    let i = match v.repr {
+                        Repr::Int32 | Repr::Int64 | Repr::Float64 => self.numeric_to_i64(v)?,
+                        _ => self.coerce(v, Repr::Int64)?,
+                    };
+                    call_args.push(i);
+                }
+            }
+        }
+        let res = self.call_runtime(module, spec.symbol, &call_args)?;
+        Ok(match spec.ret {
+            StrRet::Str => {
+                let h = res.expect("engine.str_* string member returns a handle");
+                let w = emit_marshal::emit_box_real_string(module, self.builder, h);
+                Val::tagged_kind(w, JsKind::Str)
+            }
+            StrRet::Num => {
+                Val::new(res.expect("engine.str_* number member returns a value"), Repr::Int64)
+            }
+            StrRet::Bool => {
+                Val::new(res.expect("engine.str_* bool member returns a value"), Repr::Bool)
+            }
+        })
+    }
+
     /// Rebox a 0-arg `engine.*` call's result per its declared return kind.
     fn rebox_engine_ret(
         &mut self,
@@ -222,6 +298,68 @@ fn engine_num_member(method: &str) -> Option<&'static str> {
         "num_to_fixed" => "__RTS_FN_NS_ENGINE_NUM_TO_FIXED",
         "num_to_precision" => "__RTS_FN_NS_ENGINE_NUM_TO_PRECISION",
         "num_to_exponential" => "__RTS_FN_NS_ENGINE_NUM_TO_EXPONENTIAL",
+        _ => return None,
+    })
+}
+
+/// How an `engine.str_*` arg (after the receiver `s`) is marshaled.
+#[derive(Clone, Copy)]
+enum StrArg {
+    /// A string arg → boxed to a string word, table-loaded to a real GC handle.
+    Str,
+    /// A number arg → coerced to i64 (index/count/length).
+    Num,
+}
+
+/// How an `engine.str_*` result is reboxed.
+#[derive(Clone, Copy)]
+enum StrRet {
+    /// A GC string handle → `TAG_STR` PolyValue.
+    Str,
+    /// A native i64 number (index/code unit).
+    Num,
+    /// A boolean (extern "C" i64 0/1).
+    Bool,
+}
+
+/// The marshaling descriptor of an `engine.str_*` member: the real
+/// `__RTS_FN_GL_STRING_*` symbol it wraps + how its (post-receiver) args and its
+/// result marshal. The receiver `s` is always the first arg (a string handle).
+#[derive(Clone, Copy)]
+struct EngineStr {
+    symbol: &'static str,
+    args: &'static [StrArg],
+    ret: StrRet,
+}
+
+/// Resolve an `engine.str_*` string-method member name to its marshaling
+/// descriptor. Each wraps a `__RTS_FN_GL_STRING_*` Rust impl (the irreducible
+/// Unicode-aware logic — one source of truth) the `.ts` `class String` bodies call.
+fn engine_str_member(method: &str) -> Option<EngineStr> {
+    use StrArg::{Num, Str};
+    let row = |symbol, args: &'static [StrArg], ret| EngineStr { symbol, args, ret };
+    Some(match method {
+        "str_to_upper" => row("__RTS_FN_NS_ENGINE_STR_TO_UPPER", &[], StrRet::Str),
+        "str_to_lower" => row("__RTS_FN_NS_ENGINE_STR_TO_LOWER", &[], StrRet::Str),
+        "str_trim" => row("__RTS_FN_NS_ENGINE_STR_TRIM", &[], StrRet::Str),
+        "str_trim_start" => row("__RTS_FN_NS_ENGINE_STR_TRIM_START", &[], StrRet::Str),
+        "str_trim_end" => row("__RTS_FN_NS_ENGINE_STR_TRIM_END", &[], StrRet::Str),
+        "str_char_at" => row("__RTS_FN_NS_ENGINE_STR_CHAR_AT", &[Num], StrRet::Str),
+        "str_char_code_at" => row("__RTS_FN_NS_ENGINE_STR_CHAR_CODE_AT", &[Num], StrRet::Num),
+        "str_at" => row("__RTS_FN_NS_ENGINE_STR_AT", &[Num], StrRet::Str),
+        "str_repeat" => row("__RTS_FN_NS_ENGINE_STR_REPEAT", &[Num], StrRet::Str),
+        "str_slice" => row("__RTS_FN_NS_ENGINE_STR_SLICE", &[Num, Num], StrRet::Str),
+        "str_substring" => row("__RTS_FN_NS_ENGINE_STR_SUBSTRING", &[Num, Num], StrRet::Str),
+        "str_index_of" => row("__RTS_FN_NS_ENGINE_STR_INDEX_OF", &[Str], StrRet::Num),
+        "str_last_index_of" => row("__RTS_FN_NS_ENGINE_STR_LAST_INDEX_OF", &[Str], StrRet::Num),
+        "str_includes" => row("__RTS_FN_NS_ENGINE_STR_INCLUDES", &[Str], StrRet::Bool),
+        "str_starts_with" => row("__RTS_FN_NS_ENGINE_STR_STARTS_WITH", &[Str], StrRet::Bool),
+        "str_ends_with" => row("__RTS_FN_NS_ENGINE_STR_ENDS_WITH", &[Str], StrRet::Bool),
+        "str_pad_start" => row("__RTS_FN_NS_ENGINE_STR_PAD_START", &[Num, Str], StrRet::Str),
+        "str_pad_end" => row("__RTS_FN_NS_ENGINE_STR_PAD_END", &[Num, Str], StrRet::Str),
+        "str_concat" => row("__RTS_FN_NS_ENGINE_STR_CONCAT", &[Str], StrRet::Str),
+        "str_replace" => row("__RTS_FN_NS_ENGINE_STR_REPLACE", &[Str, Str], StrRet::Str),
+        "str_replace_all" => row("__RTS_FN_NS_ENGINE_STR_REPLACE_ALL", &[Str, Str], StrRet::Str),
         _ => return None,
     })
 }

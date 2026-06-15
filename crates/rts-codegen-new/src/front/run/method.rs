@@ -152,6 +152,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             if let Some(val) = self.try_string_special(module, recv, method, args)? {
                 return Ok(Some(val));
             }
+            // PROVEN-STRING receiver (`"abc".toUpperCase()`, `s.trim()`): route to
+            // the ambient prelude `class String` (the `.ts` primitive-method
+            // library), passing the primitive string BOXED as `this`. Same
+            // mechanism as the primitive-bool/number paths. The `.ts` method bodies
+            // call the private `engine.str_*` helpers (the irreducible Unicode-logic
+            // bridge), so the engine no longer hardcodes the migrated String method
+            // surface here. Runs AFTER the regex-first + `split`/1-arg-`slice`
+            // specials (which the `.ts` class does NOT cover) and BEFORE the
+            // (now-narrowed) `STRING_ROWS` table. `Ok(None)` ⇒ no such method on
+            // `String` (the prelude class lacks this `(method, arity)`) — falls
+            // through to the dispatch table / bail, never a guess.
+            if let Some(val) =
+                self.try_primitive_class_method(module, recv, "String", method, args)?
+            {
+                return Ok(Some(val));
+            }
         }
 
         // PROVEN-NUMERIC receiver (`(5).toFixed(2)`, `(255).toString(16)`,

@@ -46,6 +46,14 @@ unsafe extern "C" {
     fn __RTS_FN_GL_NUMBER_TO_EXPONENTIAL(v: f64, digits: i64) -> u64;
 }
 
+// The String-method bridge (`engine.str_*`) lives in its own submodule — it wraps
+// the 21 `__RTS_FN_GL_STRING_*` Rust impls so the `.ts` `class String` is one
+// source of truth. Split out to keep this file under the size budget. Re-exported
+// so the `__RTS_FN_NS_ENGINE_STR_*` externs stay reachable by path (the JIT symbol
+// table in `rts-codegen-new::runtime_link` takes their address through the facade).
+mod string;
+pub use string::*;
+
 /// `n.toString(radix)` — number→string in base `radix` (2..36; 10 is plain
 /// decimal). Wraps the Rust radix formatter. The `.ts` `Number.toString` body
 /// calls this; default radix (10) is applied by the `.ts` default-param.
@@ -157,7 +165,14 @@ fn str_func(name: &str, symbol: &str, ts: &str, doc: &str, fp: *const u8) -> Mem
 }
 
 /// A generic member with an explicit signature.
-fn func(name: &str, symbol: &str, sig: rts_engine::Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
+pub(super) fn func(
+    name: &str,
+    symbol: &str,
+    sig: rts_engine::Sig,
+    ts: &str,
+    doc: &str,
+    fp: *const u8,
+) -> Member {
     Member {
         name: name.to_string(),
         kind: MemberKind::Function,
@@ -178,7 +193,8 @@ fn func(name: &str, symbol: &str, sig: rts_engine::Sig, ts: &str, doc: &str, fp:
 /// prelude embutido do motor; marcada `.private()` para não vazar pro código do
 /// usuário.
 pub fn register(e: &mut Engine) {
-    e.ns("engine")
+    let b = e
+        .ns("engine")
         .doc("PRIVATE engine-internal surface: arch + timestamps + trace, for the embedded TS prelude only.")
         .private()
         .member(str_func(
@@ -286,6 +302,9 @@ pub fn register(e: &mut Engine) {
             "num_to_exponential(n: number, digits: number): string",
             "n.toExponential(digits) — exponential-notation string. Wraps GL_NUMBER_TO_EXPONENTIAL.",
             __RTS_FN_NS_ENGINE_NUM_TO_EXPONENTIAL as *const u8,
-        ))
-        .done();
+        ));
+    // ── String method bridge (the irreducible Unicode-aware string logic). The
+    // 21 `engine.str_*` members live in the `string` submodule (each wraps a
+    // `__RTS_FN_GL_STRING_*` impl — one source of truth); add them to the builder.
+    string::register_members(b).done();
 }

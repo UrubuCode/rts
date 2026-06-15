@@ -346,11 +346,75 @@ exatamente como `engine.trace_capture()`/`engine.arch()`.
   `is_wrapper_primordial`; os formatadores Rust `__RTS_FN_GL_NUMBER_*` +
   `register_number_class_spec` (motor ANTIGO frozen no CLI + path wrapper). Coerções
   (`${n}`/`"x" + n`/`String(n)`) seguem nos trampolins runtime, inalteradas.
-- **String segue o MESMO padrão:** mover `class String` só-protótipo p/
-  `rts-primitives/src/string.ts`, incluir no `build_registry()`, rotear o receptor
-  `JsKind::Str` provado via `try_primitive_class_method(.., "String", ..)` antes de
-  `STRING_ROWS`, e expor por `rts:engine` qualquer op de baixo nível que o corpo
-  `.ts` precise e ainda não exista (preferindo reusar os `__RTS_FN_GL_STRING_*`).
+- **String segue o MESMO padrão (FEITO — ver 3.2.2).**
+
+#### 3.2.2 String migrado p/ `.ts` (mesmo padrão de Number)
+
+`string` é um PRIMITIVO (sintaxe literal `""`), então o VALOR continua um
+`TAG_STR` PolyValue (handle do string-pool) — só a BIBLIOTECA DE MÉTODOS migrou. A
+lógica de string Unicode irredutível (case folding, trim, indexação por code unit
+UTF-16, slice/substring por char, pad, replace) já existe UMA vez em Rust
+(`rts-primitives/src/string/`, os externs `__RTS_FN_GL_STRING_*`); os corpos `.ts`
+NÃO a reimplementam — chamam helpers PRIVADOS `engine.str_*` que embrulham esses
+impls (uma fonte de verdade), exatamente como `engine.num_*`.
+
+- **Arquivo:** `crates/rts-primitives/src/string.ts` (`rts_primitives::STRING_TS`,
+  re-exportado pela fachada `rts_runtime::STRING_TS`). Incluído via
+  `e.include(rts_runtime::STRING_TS)` em `registry.rs build_registry()` (depois de
+  `NUMBER_TS`). `class String` só com métodos de protótipo (SEM ctor/campos):
+  `toUpperCase`/`toLowerCase` (+ `toLocale*` que deferem ao plain fold),
+  `trim`/`trimStart`/`trimEnd` (+ aliases `trimLeft`/`trimRight`), `charAt`,
+  `charCodeAt`, `at`, `repeat`, `slice(start, end=2147483647)`,
+  `substring(start, end=2147483647)` (o default grande clampa ao length = "to end"),
+  `indexOf`, `lastIndexOf`, `includes`, `startsWith`, `endsWith`,
+  `padStart(len, pad=" ")`/`padEnd(len, pad=" ")`, `concat` (fold de até 4 args com
+  defaults `""`), `replace`/`replaceAll` (busca STRING). Os corpos leem `this` COMO
+  O PRIMITIVO string (word boxed → `engine.str_*` faz table-load p/ o handle real).
+- **Ponte de string irredutível (`rts:engine`):** 21 membros privados novos em
+  `crates/rts-std/src/engine/mod.rs`, cada um embrulhando o `__RTS_FN_GL_STRING_*`
+  correspondente (handle in/out p/ strings, `I64` p/ índices): `str_to_upper`,
+  `str_to_lower`, `str_trim`, `str_trim_start`, `str_trim_end`, `str_char_at`,
+  `str_char_code_at`, `str_at`, `str_repeat`, `str_slice`, `str_substring`,
+  `str_index_of`, `str_last_index_of`, `str_includes`, `str_starts_with`,
+  `str_ends_with`, `str_pad_start`, `str_pad_end`, `str_concat`, `str_replace`,
+  `str_replace_all` (símbolos `__RTS_FN_NS_ENGINE_STR_*`). Lowering em
+  `front/run/engineobj.rs`: o map bespoke `engine.*` foi GENERALIZADO p/ esta
+  família via uma pequena tabela-descritor (`EngineStr`/`StrArg`/`StrRet` +
+  `engine_str_member`) — `lower_engine_str` marshala receptor→handle, cada arg
+  string→handle / número→i64, e rebox do retorno (string→`TAG_STR`, número→`Int64`,
+  bool→`Bool`); adicionar um membro é uma linha de dados, sem novo código Cranelift.
+  Sigs em `value/abi_sig.rs`; símbolos JIT em `runtime_link.rs::engine_symbols()`.
+  (Decisão de design: NÃO se fez o refactor total p/ resolver `engine.*` via
+  Registry + `registry_call`, porque o caminho sem-receptor com handle de string +
+  o gate de privacidade adicionariam superfície/risco a uma namespace privada; a
+  tabela-descritor entrega o mesmo "adicionar membro é dado, não código" com risco
+  baixo.)
+- **Roteamento + linhas drenadas:** em `try_method_dispatch`, quando o receptor é
+  `RecvClass::String`, roda `try_string_regex_method` + `try_string_special` (regex
+  e `split`/`slice`-1-arg, que a classe `.ts` NÃO cobre) e ENTÃO
+  `try_primitive_class_method(.., "String", ..)` ANTES de `STRING_ROWS`. As linhas
+  migradas foram DRENADAS de `STRING_ROWS`; ficaram só `codePointAt` (compõe
+  surrogate pair), `localeCompare` (ordem locale) e o `substr` 2-arg depreciado — a
+  classe `.ts` não os cobre, então ainda resolvem pelo path de tabela genérico.
+- **`split` MANTIDO no path do motor (não drenado):** `split` retorna um ARRAY;
+  fica em `try_string_special` (marshal de array por um único helper string→string
+  do `engine` não é limpo). `.length` num string provado NÃO está na `.ts` (o motor
+  lê direto via `obj.rs` → `__rtsadp_dyn_length`; o sistema de classes não tem hook
+  de getter `length` p/ primitivo, então um getter `.ts` seria morto).
+- **Mantido de propósito:** `new String(x)` (WRAPPER, typeof === "object") segue o
+  trampolim wrapper do motor (`__rtsadp_w_string_new`), coberto por
+  `is_wrapper_primordial`; `String.fromCharCode`/`fromCodePoint` + statics seguem no
+  path global (`try_global_static_call` — agora com gate `is_global_static_class`
+  que NÃO baila quando a classe `.ts` `String` existe, pois ela só tem métodos de
+  instância); os impls Rust `__RTS_FN_GL_STRING_*` + `register_string_class_spec`
+  ficam (motor ANTIGO frozen no CLI + path wrapper). Os `__RTS_FN_GL_STRING_*`
+  migrados agora são chamados Rust→Rust de dentro de `rts-std` (linkados lá, não via
+  JIT); `runtime_link.rs` só registra os que o lowering do motor ainda emite direto.
+- **Harness de teste:** `render_source_with_prelude` passou a compor os includes
+  embutidos do motor (`includes_prelude()`) ANTES do prelude do teste — espelhando
+  um compile real (o prelude embutido está SEMPRE presente), p/ que dispatch
+  primitivo→prelude (ex.: `s.charCodeAt(i)` num campo string nativo) fique disponível
+  às classes do prelude do usuário.
 
 ### 3.3 O instinto `ValTy`
 

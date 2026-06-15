@@ -8,7 +8,7 @@
 //! `class String { #value: string; get length() { return this.#value.length } }`)
 //! in TypeScript over the native string primitive.
 
-use super::assert_stdout_with_prelude;
+use super::{assert_stdout, assert_stdout_with_prelude};
 
 /// The canonical native-string wrap class + a couple of pure-TS methods written
 /// over native string ops (length / indexing / charCodeAt).
@@ -70,4 +70,177 @@ fn string_param_index_and_length() {
 #[test]
 fn string_literal_receiver_length_and_index() {
     assert_stdout_with_prelude(PRELUDE, r#"console.log("abc".length, "abc"[1]);"#, "3 b\n");
+}
+
+// ===========================================================================
+// PRIMORDIAL `String.prototype` methods migrated to the prelude `.ts`
+// `class String` (`rts-primitives/src/string.ts`). A method called on a
+// PRIMITIVE string receiver is routed into the ambient class with the primitive
+// BOXED as `this` (the boolean/number primitive→prelude mechanism). The `.ts`
+// bodies call the PRIVATE `engine.str_*` helpers (the irreducible Unicode-aware
+// Rust impls — one source of truth). Each test runs a REAL program end to end
+// and asserts EXACT captured stdout (the honesty floor).
+// ===========================================================================
+
+#[test]
+fn upper_case() {
+    assert_stdout(r#"console.log("abc".toUpperCase());"#, "ABC\n");
+}
+
+#[test]
+fn lower_case() {
+    assert_stdout(r#"console.log("AbC".toLowerCase());"#, "abc\n");
+}
+
+#[test]
+fn trim() {
+    assert_stdout(r#"console.log("[" + "  x ".trim() + "]");"#, "[x]\n");
+}
+
+#[test]
+fn trim_start_end() {
+    assert_stdout(
+        r#"console.log("[" + "  x  ".trimStart() + "]", "[" + "  x  ".trimEnd() + "]");"#,
+        "[x  ] [  x]\n",
+    );
+}
+
+#[test]
+fn slice_two_args() {
+    assert_stdout(r#"console.log("abcdef".slice(1, 3));"#, "bc\n");
+}
+
+#[test]
+fn slice_one_arg_to_end() {
+    // The `.ts` default-param `end = 2147483647` clamps to length ("to end").
+    assert_stdout(r#"console.log("abcdef".slice(2));"#, "cdef\n");
+}
+
+#[test]
+fn substring_two_args() {
+    assert_stdout(r#"console.log("abcdef".substring(1, 4));"#, "bcd\n");
+}
+
+#[test]
+fn char_at() {
+    assert_stdout(r#"console.log("abc".charAt(1));"#, "b\n");
+}
+
+#[test]
+fn char_code_at() {
+    assert_stdout(r#"console.log("abc".charCodeAt(0));"#, "97\n");
+}
+
+#[test]
+fn at_negative() {
+    assert_stdout(r#"console.log("abc".at(-1));"#, "c\n");
+}
+
+#[test]
+fn index_of() {
+    assert_stdout(r#"console.log("abcabc".indexOf("c"));"#, "2\n");
+}
+
+#[test]
+fn last_index_of() {
+    assert_stdout(r#"console.log("abcabc".lastIndexOf("a"));"#, "3\n");
+}
+
+#[test]
+fn includes() {
+    assert_stdout(r#"console.log("abc".includes("b"));"#, "true\n");
+}
+
+#[test]
+fn starts_with() {
+    assert_stdout(r#"console.log("abc".startsWith("ab"));"#, "true\n");
+}
+
+#[test]
+fn ends_with() {
+    assert_stdout(r#"console.log("abc".endsWith("bc"));"#, "true\n");
+}
+
+#[test]
+fn repeat() {
+    assert_stdout(r#"console.log("ab".repeat(3));"#, "ababab\n");
+}
+
+#[test]
+fn pad_start() {
+    assert_stdout(r#"console.log("5".padStart(3, "0"));"#, "005\n");
+}
+
+#[test]
+fn pad_start_default_space() {
+    // The `.ts` default-param `pad = " "` (JS spec).
+    assert_stdout(r#"console.log("[" + "5".padStart(3) + "]");"#, "[  5]\n");
+}
+
+#[test]
+fn pad_end() {
+    assert_stdout(r#"console.log("5".padEnd(3, "0"));"#, "500\n");
+}
+
+#[test]
+fn concat() {
+    assert_stdout(r#"console.log("a".concat("b", "c"));"#, "abc\n");
+}
+
+#[test]
+fn replace_string() {
+    assert_stdout(r#"console.log("a-b".replace("-", "_"));"#, "a_b\n");
+}
+
+#[test]
+fn replace_all_string() {
+    assert_stdout(r#"console.log("a-b-c".replaceAll("-", "_"));"#, "a_b_c\n");
+}
+
+#[test]
+fn method_chaining() {
+    assert_stdout(r#"console.log("  AbC ".trim().toLowerCase());"#, "abc\n");
+}
+
+#[test]
+fn method_on_string_variable() {
+    assert_stdout(r#"let s = "hello"; console.log(s.toUpperCase());"#, "HELLO\n");
+}
+
+#[test]
+fn method_on_computed_string() {
+    // The receiver is a proven-string `+` result, routed like a literal.
+    assert_stdout(r#"console.log(("a" + "b").toUpperCase());"#, "AB\n");
+}
+
+// ---------------------------------------------------------------------------
+// KEPT on the engine's own paths (NOT migrated to `.ts`): `split` (returns an
+// ARRAY, stays on `try_string_special`) + the deprecated `substr`. Regression
+// guards that they still work after the migration narrowed `STRING_ROWS`.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn split_still_works() {
+    // `split` stays on `try_string_special` (returns an ARRAY, not migrated to the
+    // `.ts` class). Bind the result first (indexing a fresh call-result array is a
+    // separate, pre-existing limitation — see `string::string_split_*`).
+    assert_stdout(
+        r#"let p = "a,b,c".split(","); console.log(p[1], p.length);"#,
+        "b 3\n",
+    );
+}
+
+#[test]
+fn substr_still_works() {
+    assert_stdout(r#"console.log("abcdef".substr(1, 3));"#, "bcd\n");
+}
+
+// ---------------------------------------------------------------------------
+// `new String(x)` WRAPPER — stays the engine's wrapper trampoline (typeof ===
+// "object"), NOT the prototype-only prelude class. Regression guard.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn new_string_is_object() {
+    assert_stdout(r#"console.log(typeof new String("x"));"#, "object\n");
 }

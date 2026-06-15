@@ -101,7 +101,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let HirExprKind::Ident(obj) = &object.kind else {
             return Ok(None);
         };
-        if self.local(obj).is_some() || self.classes.get(obj).is_some() {
+        // A user LOCAL named `Array`/`String` shadows the global. A prelude
+        // wrapper-primordial CLASS (`class String`) does NOT: its `.ts` carries
+        // INSTANCE methods only — the STATIC surface (`String.fromCharCode`, …)
+        // stays on this global path (mirrors `is_wrapper_primordial_static` /
+        // `globalclass::is_wrapper_primordial`). So only a non-wrapper class shadow
+        // bails here.
+        if self.local(obj).is_some()
+            || (self.classes.get(obj).is_some() && !is_global_static_class(obj))
+        {
             return Ok(None);
         }
         match obj.as_str() {
@@ -376,4 +384,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let v = self.lower_expr(module, &args[0])?;
         Ok(self.box_value(v))
     }
+}
+
+/// Whether `name` is a wrapper-primordial whose STATIC surface stays on the global
+/// path even though a prelude `.ts` class of the same name exists (it carries
+/// instance methods only). Mirrors `mathobj::is_wrapper_primordial_static` and
+/// `globalclass::is_wrapper_primordial`. Only `String` (and `Array`, which has no
+/// prelude class today) reaches `try_global_static_call`'s class-shadow gate.
+fn is_global_static_class(name: &str) -> bool {
+    matches!(name, "String" | "Array")
 }

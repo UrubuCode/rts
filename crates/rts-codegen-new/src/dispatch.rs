@@ -126,103 +126,26 @@ use AbiType::{Bool, Handle, I64, U64};
 /// A String instance-method row: `(jsName, explicitArity, spec)`. Receiver is a
 /// real string handle. Listed once per supported arity (an arity a real default
 /// covers is listed explicitly so `argc` matches without default injection).
+///
+/// DRAINED: the bulk of the String method surface (`toUpperCase`/`toLowerCase`/
+/// `trim*`/`charAt`/`charCodeAt`/`at`/`repeat`/`slice`/`substring`/`indexOf`/
+/// `lastIndexOf`/`includes`/`startsWith`/`endsWith`/`padStart`/`padEnd`/`concat`/
+/// `replace`/`replaceAll`) now lives in the prelude `.ts` `class String`
+/// (`rts-primitives/src/string.ts`), routed via
+/// `method::try_primitive_class_method(.., "String", ..)` BEFORE this table. The
+/// `.ts` bodies call the irreducible Rust string impls through the private
+/// `engine.str_*` bridge (one source of truth). The `__RTS_FN_GL_STRING_*` impls +
+/// `register_string_class_spec` stay for the frozen old engine + the `new String(x)`
+/// wrapper path.
+///
+/// KEPT here (the `.ts` class does NOT cover them, so a proven-string receiver
+/// with one of these still resolves through the generic typed-row path, never a
+/// guess): `codePointAt` (surrogate-pair compose), `localeCompare` (locale order),
+/// and the deprecated 2-arg `substr`. `split` (returns an ARRAY) + the regex-first
+/// methods stay on `method::try_string_special`/`try_string_regex_method` (run
+/// before the prelude class).
 const STRING_ROWS: &[(&str, usize, MethodSpec)] = &[
-    // ---- 0-arg, return string ----
-    (
-        "toUpperCase",
-        0,
-        sm("__RTS_FN_GL_STRING_TO_UPPER_CASE", &[], Handle),
-    ),
-    (
-        "toLowerCase",
-        0,
-        sm("__RTS_FN_GL_STRING_TO_LOWER_CASE", &[], Handle),
-    ),
-    (
-        "toLocaleUpperCase",
-        0,
-        sm("__RTS_FN_GL_STRING_TO_UPPER_CASE", &[], Handle),
-    ),
-    (
-        "toLocaleLowerCase",
-        0,
-        sm("__RTS_FN_GL_STRING_TO_LOWER_CASE", &[], Handle),
-    ),
-    ("trim", 0, sm("__RTS_FN_GL_STRING_TRIM", &[], Handle)),
-    (
-        "trimStart",
-        0,
-        sm("__RTS_FN_GL_STRING_TRIM_START", &[], Handle),
-    ),
-    ("trimEnd", 0, sm("__RTS_FN_GL_STRING_TRIM_END", &[], Handle)),
-    (
-        "trimLeft",
-        0,
-        sm("__RTS_FN_GL_STRING_TRIM_START", &[], Handle),
-    ),
-    (
-        "trimRight",
-        0,
-        sm("__RTS_FN_GL_STRING_TRIM_END", &[], Handle),
-    ),
-    // ---- index/count args (I64), return string ----
-    (
-        "charAt",
-        1,
-        sm("__RTS_FN_GL_STRING_CHAR_AT", &[I64], Handle),
-    ),
-    ("at", 1, sm("__RTS_FN_GL_STRING_AT", &[I64], Handle)),
-    ("repeat", 1, sm("__RTS_FN_GL_STRING_REPEAT", &[I64], Handle)),
-    // slice/substring/substr: only the 2-arg form (both indices explicit) is
-    // registered. The 1-arg form relies on a runtime "to end" default that this
-    // table does not inject, so `s.slice(n)` BAILS (a later increment).
-    (
-        "slice",
-        2,
-        sm("__RTS_FN_GL_STRING_SLICE", &[I64, I64], Handle),
-    ),
-    (
-        "substring",
-        2,
-        sm("__RTS_FN_GL_STRING_SUBSTRING", &[I64, I64], Handle),
-    ),
-    (
-        "substr",
-        2,
-        sm("__RTS_FN_GL_STRING_SUBSTR", &[I64, I64], Handle),
-    ),
-    // ---- string args (Handle), return number/bool ----
-    (
-        "indexOf",
-        1,
-        sm("__RTS_FN_GL_STRING_INDEX_OF", &[Handle], I64),
-    ),
-    (
-        "lastIndexOf",
-        1,
-        sm("__RTS_FN_GL_STRING_LAST_INDEX_OF", &[Handle], I64),
-    ),
-    (
-        "includes",
-        1,
-        sm("__RTS_FN_GL_STRING_INCLUDES", &[Handle], Bool),
-    ),
-    (
-        "startsWith",
-        1,
-        sm("__RTS_FN_GL_STRING_STARTS_WITH", &[Handle], Bool),
-    ),
-    (
-        "endsWith",
-        1,
-        sm("__RTS_FN_GL_STRING_ENDS_WITH", &[Handle], Bool),
-    ),
-    // ---- char code: index arg, return number ----
-    (
-        "charCodeAt",
-        1,
-        sm("__RTS_FN_GL_STRING_CHAR_CODE_AT", &[I64], I64),
-    ),
+    // ---- char code point: index arg, return number ----
     (
         "codePointAt",
         1,
@@ -234,32 +157,11 @@ const STRING_ROWS: &[(&str, usize, MethodSpec)] = &[
         1,
         sm("__RTS_FN_GL_STRING_LOCALE_COMPARE", &[Handle], I64),
     ),
-    // ---- two string args, return string ----
+    // ---- deprecated start+count slice (2-arg form) ----
     (
-        "replace",
+        "substr",
         2,
-        sm("__RTS_FN_GL_STRING_REPLACE", &[Handle, Handle], Handle),
-    ),
-    (
-        "replaceAll",
-        2,
-        sm("__RTS_FN_GL_STRING_REPLACE_ALL", &[Handle, Handle], Handle),
-    ),
-    (
-        "concat",
-        1,
-        sm("__RTS_FN_GL_STRING_CONCAT", &[Handle], Handle),
-    ),
-    // ---- pad: target length + pad string ----
-    (
-        "padStart",
-        2,
-        sm("__RTS_FN_GL_STRING_PAD_START", &[I64, Handle], Handle),
-    ),
-    (
-        "padEnd",
-        2,
-        sm("__RTS_FN_GL_STRING_PAD_END", &[I64, Handle], Handle),
+        sm("__RTS_FN_GL_STRING_SUBSTR", &[I64, I64], Handle),
     ),
 ];
 

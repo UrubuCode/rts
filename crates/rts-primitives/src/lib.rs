@@ -48,6 +48,21 @@ pub const BOOLEAN_TS: &str = include_str!("boolean.ts");
 /// wrapper trampoline.
 pub const NUMBER_TS: &str = include_str!("number.ts");
 
+/// Embedded TypeScript source of the PRIMORDIAL `String.prototype` methods
+/// (case/trim/charAt/charCodeAt/at/repeat/slice/substring/indexOf/lastIndexOf/
+/// includes/startsWith/endsWith/padStart/padEnd/concat/replace/replaceAll).
+/// `string` is a PRIMITIVE (native literal syntax `""`), so the VALUE stays a
+/// `TAG_STR` PolyValue — only the METHOD library moves here. A method called on a
+/// PRIMITIVE string receiver (`"abc".toUpperCase()`) is routed into this ambient
+/// `class String`'s method with the primitive BOXED as `this` (shape-based
+/// dispatch, NOT JS prototypes). The irreducible Unicode-aware string logic stays
+/// in Rust (`string/`, `__RTS_FN_GL_STRING_*`) and is re-exposed PRIVATELY via the
+/// `engine.str_*` helpers the bodies call — one source of truth. Same pattern as
+/// `NUMBER_TS`. `.length` stays an engine direct read; `split` (array) + the
+/// regex-first methods stay on the engine's dispatch paths. The wrapper object
+/// `new String(x)` stays the engine's wrapper trampoline.
+pub const STRING_TS: &str = include_str!("string.ts");
+
 pub mod array;
 pub mod boolean;
 pub mod error;

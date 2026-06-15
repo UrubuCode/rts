@@ -109,6 +109,19 @@ fn build_registry() -> Registry {
     // WRAPPER (typeof === "object") stays the engine's wrapper trampoline (see
     // `is_global_class_ctor` / `is_wrapper_primordial`).
     e.include(rts_runtime::NUMBER_TS);
+    // The PRIMORDIAL `String.prototype` methods as faithful TS (embedded include):
+    // its ambient `class String` supplies case/trim/charAt/charCodeAt/at/repeat/
+    // slice/substring/indexOf/lastIndexOf/includes/startsWith/endsWith/padStart/
+    // padEnd/concat/replace/replaceAll. A method called on a PRIMITIVE string
+    // receiver (`"abc".toUpperCase()`) routes into this class with the primitive
+    // boxed as `this` (see `method::try_primitive_class_method`). The irreducible
+    // Unicode string logic stays in Rust and is bridged via the private
+    // `engine.str_*` helpers the `.ts` bodies call (one source of truth). `.length`
+    // stays an engine direct read; `split` (array) + the regex-first methods stay
+    // on the engine's dispatch paths. The `new String(x)` WRAPPER (typeof ===
+    // "object") stays the engine's wrapper trampoline (see `is_global_class_ctor` /
+    // `is_wrapper_primordial`).
+    e.include(rts_runtime::STRING_TS);
     // The faithful TS Map/Set stdlib (embedded include): its ambient `class Map`/
     // `class Set` shadow the native dispatch in every program — making the native
     // Map/Set code dead (deleted in B3).

@@ -149,7 +149,19 @@ fn build_program_with_ambient(
 /// user program (a prelude `class Map` shadows the native Map). Returns captured
 /// stdout. The prelude must contain only declarations (no top-level statements).
 pub fn render_source_with_prelude(prelude_src: &str, user_src: &str) -> FrontResult<String> {
-    let prelude = build_program(prelude_src)?;
+    // The engine's embedded includes (the `.ts` `class String`/`Number`/`Error`/…)
+    // are ALWAYS present in a real compile (`build_with_includes`), so the test
+    // prelude is composed AHEAD-OF the user prelude — both are declarations-only.
+    // This keeps the primitive→prelude method dispatch (e.g. `s.charCodeAt(i)` on a
+    // native-string field) available to the user prelude's classes, exactly as in
+    // a real program.
+    let engine_inc = registry::includes_prelude();
+    let merged_prelude_src = if engine_inc.is_empty() {
+        prelude_src.to_string()
+    } else {
+        format!("{engine_inc}\n{prelude_src}")
+    };
+    let prelude = build_program(&merged_prelude_src)?;
     let user = build_program_with_ambient(user_src, &prelude.classes)?;
     let merged = merge_programs(prelude, user)?;
     let program = module_jit::compile_program(&merged)?;

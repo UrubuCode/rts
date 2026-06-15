@@ -703,39 +703,14 @@ fn math_number_symbols() -> Vec<JitSymbol> {
 /// symbol would be the SIGILL-class bug we avoid).
 fn gl_method_symbols() -> Vec<JitSymbol> {
     vec![
-        // ---- String instance methods (rts-primitives string::rt) ----
-        sym(
-            "__RTS_FN_GL_STRING_TO_UPPER_CASE",
-            rt_gl_str::__RTS_FN_GL_STRING_TO_UPPER_CASE as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_STRING_TO_LOWER_CASE",
-            rt_gl_str::__RTS_FN_GL_STRING_TO_LOWER_CASE as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_STRING_TRIM",
-            rt_gl_str::__RTS_FN_GL_STRING_TRIM as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_STRING_TRIM_START",
-            rt_gl_str::__RTS_FN_GL_STRING_TRIM_START as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_STRING_TRIM_END",
-            rt_gl_str::__RTS_FN_GL_STRING_TRIM_END as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_STRING_CHAR_AT",
-            rt_gl_str::__RTS_FN_GL_STRING_CHAR_AT as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_STRING_AT",
-            rt_gl_str::__RTS_FN_GL_STRING_AT as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_STRING_REPEAT",
-            rt_gl_str::__RTS_FN_GL_STRING_REPEAT as *const u8,
-        ),
+        // ---- String instance methods STILL emitted by JIT-lowered code ----
+        // The bulk of the String surface migrated to the `.ts` `class String`
+        // (routed via `try_primitive_class_method`); its bodies call `engine.str_*`,
+        // which call the `__RTS_FN_GL_STRING_*` impls as a normal Rust→Rust call
+        // inside rts-std (linked there, NOT via JIT). The symbols below are the ones
+        // the engine's OWN lowering still emits directly: the KEPT `STRING_ROWS`
+        // (`codePointAt`/`localeCompare`/2-arg `substr`) and the `try_string_special`
+        // 1-arg `slice`/`substring`/`substr` specials.
         sym(
             "__RTS_FN_GL_STRING_SLICE",
             rt_gl_str::__RTS_FN_GL_STRING_SLICE as *const u8,
@@ -749,56 +724,12 @@ fn gl_method_symbols() -> Vec<JitSymbol> {
             rt_gl_str::__RTS_FN_GL_STRING_SUBSTR as *const u8,
         ),
         sym(
-            "__RTS_FN_GL_STRING_INDEX_OF",
-            rt_gl_str::__RTS_FN_GL_STRING_INDEX_OF as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_STRING_LAST_INDEX_OF",
-            rt_gl_str::__RTS_FN_GL_STRING_LAST_INDEX_OF as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_STRING_INCLUDES",
-            rt_gl_str::__RTS_FN_GL_STRING_INCLUDES as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_STRING_STARTS_WITH",
-            rt_gl_str::__RTS_FN_GL_STRING_STARTS_WITH as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_STRING_ENDS_WITH",
-            rt_gl_str::__RTS_FN_GL_STRING_ENDS_WITH as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_STRING_CHAR_CODE_AT",
-            rt_gl_str::__RTS_FN_GL_STRING_CHAR_CODE_AT as *const u8,
-        ),
-        sym(
             "__RTS_FN_GL_STRING_CODE_POINT_AT",
             rt_gl_str::__RTS_FN_GL_STRING_CODE_POINT_AT as *const u8,
         ),
         sym(
             "__RTS_FN_GL_STRING_LOCALE_COMPARE",
             rt_gl_str::__RTS_FN_GL_STRING_LOCALE_COMPARE as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_STRING_REPLACE",
-            rt_gl_str::__RTS_FN_GL_STRING_REPLACE as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_STRING_REPLACE_ALL",
-            rt_gl_str::__RTS_FN_GL_STRING_REPLACE_ALL as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_STRING_CONCAT",
-            rt_gl_str::__RTS_FN_GL_STRING_CONCAT as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_STRING_PAD_START",
-            rt_gl_str::__RTS_FN_GL_STRING_PAD_START as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_STRING_PAD_END",
-            rt_gl_str::__RTS_FN_GL_STRING_PAD_END as *const u8,
         ),
         // ---- Number instance methods (rts-primitives number) ----
         sym(
@@ -880,6 +811,92 @@ fn engine_symbols() -> Vec<JitSymbol> {
         sym(
             "__RTS_FN_NS_ENGINE_NUM_TO_EXPONENTIAL",
             rt_engine::__RTS_FN_NS_ENGINE_NUM_TO_EXPONENTIAL as *const u8,
+        ),
+        // engine.str_* — the irreducible Unicode string-logic bridge the `.ts`
+        // `class String` methods call (each wraps a `__RTS_FN_GL_STRING_*`).
+        sym(
+            "__RTS_FN_NS_ENGINE_STR_TO_UPPER",
+            rt_engine::__RTS_FN_NS_ENGINE_STR_TO_UPPER as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_STR_TO_LOWER",
+            rt_engine::__RTS_FN_NS_ENGINE_STR_TO_LOWER as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_STR_TRIM",
+            rt_engine::__RTS_FN_NS_ENGINE_STR_TRIM as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_STR_TRIM_START",
+            rt_engine::__RTS_FN_NS_ENGINE_STR_TRIM_START as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_STR_TRIM_END",
+            rt_engine::__RTS_FN_NS_ENGINE_STR_TRIM_END as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_STR_CHAR_AT",
+            rt_engine::__RTS_FN_NS_ENGINE_STR_CHAR_AT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_STR_CHAR_CODE_AT",
+            rt_engine::__RTS_FN_NS_ENGINE_STR_CHAR_CODE_AT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_STR_AT",
+            rt_engine::__RTS_FN_NS_ENGINE_STR_AT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_STR_REPEAT",
+            rt_engine::__RTS_FN_NS_ENGINE_STR_REPEAT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_STR_SLICE",
+            rt_engine::__RTS_FN_NS_ENGINE_STR_SLICE as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_STR_SUBSTRING",
+            rt_engine::__RTS_FN_NS_ENGINE_STR_SUBSTRING as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_STR_INDEX_OF",
+            rt_engine::__RTS_FN_NS_ENGINE_STR_INDEX_OF as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_STR_LAST_INDEX_OF",
+            rt_engine::__RTS_FN_NS_ENGINE_STR_LAST_INDEX_OF as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_STR_INCLUDES",
+            rt_engine::__RTS_FN_NS_ENGINE_STR_INCLUDES as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_STR_STARTS_WITH",
+            rt_engine::__RTS_FN_NS_ENGINE_STR_STARTS_WITH as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_STR_ENDS_WITH",
+            rt_engine::__RTS_FN_NS_ENGINE_STR_ENDS_WITH as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_STR_PAD_START",
+            rt_engine::__RTS_FN_NS_ENGINE_STR_PAD_START as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_STR_PAD_END",
+            rt_engine::__RTS_FN_NS_ENGINE_STR_PAD_END as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_STR_CONCAT",
+            rt_engine::__RTS_FN_NS_ENGINE_STR_CONCAT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_STR_REPLACE",
+            rt_engine::__RTS_FN_NS_ENGINE_STR_REPLACE as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_STR_REPLACE_ALL",
+            rt_engine::__RTS_FN_NS_ENGINE_STR_REPLACE_ALL as *const u8,
         ),
     ]
 }

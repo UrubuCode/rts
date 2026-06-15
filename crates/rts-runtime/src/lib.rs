@@ -23,4 +23,11 @@ pub use rts_primitives::BOOLEAN_TS;
 /// irreducible numeric formatting stays in Rust and is bridged via the private
 /// `engine.num_*` helpers the `.ts` bodies call.
 pub use rts_primitives::NUMBER_TS;
+/// Embedded TS source of the PRIMORDIAL `String.prototype` methods, re-exported
+/// from `rts-primitives` so the new engine reaches it through the facade
+/// (`rts_runtime::STRING_TS`). Included as a declarations-only prelude; a
+/// primitive-string method call routes into its ambient `class String`. The
+/// irreducible Unicode string logic stays in Rust and is bridged via the private
+/// `engine.str_*` helpers the `.ts` bodies call.
+pub use rts_primitives::STRING_TS;
 pub mod namespaces;
