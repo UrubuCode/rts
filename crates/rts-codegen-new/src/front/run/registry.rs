@@ -58,6 +58,14 @@ fn build_registry() -> Registry {
     ns::date::register(&mut e);
     ns::collections::register(&mut e);
     ns::regex::register(&mut e);
+    // BUILTIN-IMPORT namespaces (`import { print } from "rts:io"`): the public
+    // std surface the new engine resolves through [`namespace_member`]. Each
+    // `register` pushes the namespace's member metadata (name + symbol + ABI Sig)
+    // into the Registry; the call lowering resolves a `Binding::Builtin{ns,member}`
+    // to the real `__RTS_FN_NS_*` symbol from here. The JIT addresses are installed
+    // by `runtime_link::jit_symbols` (io/math symbols already linked there).
+    ns::io::register(&mut e);
+    ns::math::register(&mut e);
     // The PRIVATE `engine` namespace (arch/time/trace) the embedded TS prelude
     // calls. Marked `.private()`; the lowering's `engineobj` gate enforces that
     // only prelude-origin code names the `engine` global.
@@ -181,6 +189,38 @@ pub fn class_ctors(class: &str) -> Vec<ResolvedCall> {
         .filter(|m| matches!(m.kind, MemberKind::Constructor))
         .map(|m| flat_call(m))
         .collect()
+}
+
+/// Resolve a BUILTIN-IMPORT namespace member (`import { member } from "rts:<ns>"`)
+/// to its [`ResolvedCall`] — the real `__RTS_FN_NS_*` symbol + its `AbiType`
+/// signature, marshaled through the SAME generic path as a class method
+/// ([`super::registry_call`]), only with NO receiver (`recv_abi: None`: a namespace
+/// function has no implicit `this`; every `Sig::args` entry is an explicit param).
+///
+/// `argc` is the EXPLICIT (TS-visible) arg count; a member whose `Sig::args.len()`
+/// does not match it is rejected (`None`) so the call lowering bails honestly
+/// rather than mis-marshaling. Only `MemberKind::Function`/`StaticMethod` members
+/// are resolvable (a namespace exposes plain functions); constants/getters are not
+/// callable and return `None`. Bare `"rts"` (`ns == ""`) is NOT handled here — it
+/// imports a namespace OBJECT, a different shape the caller bails on.
+pub fn namespace_member(ns: &str, member: &str, argc: usize) -> Option<ResolvedCall> {
+    if ns.is_empty() {
+        return None;
+    }
+    let m = registry().module(&format!("rts:{ns}"))?;
+    let is_callable = |m: &&Member| {
+        matches!(m.kind, MemberKind::Function | MemberKind::StaticMethod) && m.matches_name(member)
+    };
+    let found = m
+        .members
+        .iter()
+        .find(|m| is_callable(m) && m.sig.args.len() == argc)
+        .or_else(|| {
+            m.members
+                .iter()
+                .find(|m| is_callable(m) && m.variadic && argc >= m.sig.args.len().saturating_sub(1))
+        })?;
+    Some(flat_call(found))
 }
 
 /// The real `instanceof` predicate symbol (`fn(handle)->i64`) the Registry

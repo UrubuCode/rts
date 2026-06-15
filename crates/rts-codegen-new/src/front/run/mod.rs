@@ -180,6 +180,11 @@ fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<
     let mut captures = prelude.captures;
     captures.extend(user.captures);
 
+    // builtins: prelude then user (the prelude does not import `rts:<ns>` today, but
+    // merging keeps the type total and user wins on a name clash).
+    let mut builtins = prelude.builtins;
+    builtins.extend(user.builtins);
+
     Ok(LoweredProgram {
         funcs,
         main: user.main,
@@ -187,6 +192,7 @@ fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<
         fn_this_class,
         captures,
         prelude_fns,
+        builtins,
     })
 }
 
@@ -209,6 +215,13 @@ pub(crate) struct LoweredProgram {
     /// references it bails explicitly. Empty for a user-only program (no prelude),
     /// so the gate denies `engine.*` everywhere unless a prelude is present.
     pub prelude_fns: std::collections::HashSet<String>,
+    /// BUILTIN-IMPORT bindings (M1b): a LOCAL name imported from `rts:<ns>` →
+    /// `(ns, member)`. A call to such a name lowers to the real `__RTS_FN_NS_*`
+    /// symbol via the generic Registry marshal ([`module_entry`] populates this
+    /// from the flattened module's binding map; the single-source path leaves it
+    /// empty — no imports there). Bare `"rts"` imports a namespace OBJECT, not a
+    /// member, so they are NOT recorded here (the call lowering bails on them).
+    pub builtins: std::collections::HashMap<String, (String, String)>,
 }
 
 /// Parse `src` and lower it to (user functions, synthesized `__rtsn_main`).
@@ -370,6 +383,9 @@ fn build_from_program(
         // the real prelude-origin set; this empty default denies `engine.*` for a
         // user-only program (the gate's safe default).
         prelude_fns: std::collections::HashSet::new(),
+        // No imports on the single-source / parse-from-string path. The disk
+        // multi-file path ([`module_entry`]) fills this from the binding map.
+        builtins: std::collections::HashMap::new(),
     })
 }
 

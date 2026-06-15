@@ -599,6 +599,19 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
 fn math_number_symbols() -> Vec<JitSymbol> {
     vec![
         // ---- Math 1-arg f64→f64 ----
+        // sqrt/abs are also exposed as Cranelift INTRINSICS for the `Math.*` static
+        // path (inlined, no symbol). But the BUILTIN-IMPORT path
+        // (`import { sqrt } from "rts:math"`) marshals through the generic Registry
+        // emitter, which always emits a real `call <symbol>` — so the actual extern
+        // address must be installed here too.
+        sym(
+            "__RTS_FN_NS_MATH_SQRT",
+            rt_math::__RTS_FN_NS_MATH_SQRT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_MATH_ABS_F64",
+            rt_math::__RTS_FN_NS_MATH_ABS_F64 as *const u8,
+        ),
         sym(
             "__RTS_FN_NS_MATH_FLOOR",
             rt_math::__RTS_FN_NS_MATH_FLOOR as *const u8,

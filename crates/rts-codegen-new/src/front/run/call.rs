@@ -144,6 +144,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirExprKind::Ident(n) => n.clone(),
             _ => return unsupported!("call of a non-identifier callee"),
         };
+        // A BUILTIN-IMPORT name (`import { print } from "rts:io"`): resolve the real
+        // `__RTS_FN_NS_*` symbol + ABI signature through the Registry and marshal the
+        // call via the SAME generic path as a class method (recv = None — a namespace
+        // function has no `this`). Checked FIRST: an imported builtin name is the
+        // authoritative binding for that local (the module resolver guarantees it is
+        // not also a user declaration). Bare `"rts"` (ns == "") imports a namespace
+        // OBJECT, not a member — `namespace_member` returns None and we bail honestly.
+        if let Some((ns, member)) = self.builtins.get(&name).cloned() {
+            return self.lower_builtin_call(module, &ns, &member, args);
+        }
         // A direct call to a CLOSURE (a hoisted `let g = (x) => x*k`, P5.7): `g`'s
         // captures must be snapshotted from the CALL-SITE locals, so it cannot take
         // the native fast path. Reify it (builds the env from current locals), then
@@ -169,6 +179,45 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(val);
         }
         unsupported!("call to unknown function `{name}`")
+    }
+
+    /// Lower a BUILTIN-IMPORT call `member(args)` where `member` was imported from
+    /// `rts:<ns>` (`Binding::Builtin`). Resolves the real `__RTS_FN_NS_*` symbol +
+    /// its `AbiType` signature through the Registry ([`registry::namespace_member`])
+    /// and emits the call through the generic marshal ([`Self::emit_registry_call`])
+    /// with NO receiver — a namespace function has no implicit `this`, every arg is
+    /// explicit. An unknown member, an arity mismatch, or a bare-`"rts"` namespace
+    /// object (`ns == ""`) → explicit `Unsupported` (honest bail, never a guess).
+    ///
+    /// A `Handle` return is treated as a STRING (`JsKind::Str`): the namespace fns
+    /// that return a `Handle` (e.g. a dynamic-string result) hand back a gc string
+    /// handle; the generic rebox interns it as a `TAG_STR` PolyValue.
+    fn lower_builtin_call(
+        &mut self,
+        module: &mut dyn Module,
+        ns: &str,
+        member: &str,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        let resolved = super::registry::namespace_member(ns, member, args.len()).ok_or_else(|| {
+            let spec = if ns.is_empty() {
+                "rts".to_string()
+            } else {
+                format!("rts:{ns}")
+            };
+            Unsupported::new(format!(
+                "builtin import `{member}` from `{spec}` (arity {}): no matching namespace function \
+                 (bare `rts` namespace-object imports + unknown members are not wired)",
+                args.len()
+            ))
+        })?;
+        // Lower each explicit arg to a Val; the generic marshal coerces it to the
+        // parameter's AbiType (StrPtr → ptr+len via the pool, numeric → scalar).
+        let mut argvals: Vec<Val> = Vec::with_capacity(args.len());
+        for a in args {
+            argvals.push(self.lower_expr(module, a)?);
+        }
+        self.emit_registry_call(module, &resolved, None, &argvals, JsKind::Str)
     }
 
     /// Reify a user function `name` (referenced as a VALUE) into a `TAG_FUNCTION`

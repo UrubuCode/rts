@@ -27,12 +27,13 @@
 //!   A plain `import { add }` (local == orig) needs no rename (the name already
 //!   matches the declaration); the rewrite is a no-op for it.
 //!
-//! - **`Binding::Builtin { ns, member }`** (`import … from "rts:<ns>"`): the new
-//!   engine has NO namespace-member dispatch path yet (that is a separate layer,
-//!   out of scope for M1b). When a builtin-bound name is present, [`run_path`]
-//!   bails EXPLICITLY (the honesty floor) rather than silently dropping the
-//!   import or guessing a symbol. Wiring builtin imports through a generic
-//!   `abi::lookup` marshal is the documented follow-up.
+//! - **`Binding::Builtin { ns, member }`** (`import … from "rts:<ns>"`): the
+//!   binding is recorded in the [`super::LoweredProgram::builtins`] map (local name
+//!   → `(ns, member)`). A CALL to that name lowers to the real `__RTS_FN_NS_*`
+//!   symbol resolved through the Registry ([`super::registry::namespace_member`])
+//!   and marshaled via the generic class-method path (`recv = None`). The `rts:<ns>`
+//!   form is fully wired (e.g. `io`, `math`); bare `"rts"` (a namespace OBJECT
+//!   import) and any unknown member bail honestly at the call site.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -41,7 +42,7 @@ use swc_ecma_visit::VisitMutWith;
 
 use rts_ast::ast::{Item, Statement};
 
-use crate::front::error::{FrontResult, Unsupported};
+use crate::front::error::FrontResult;
 use crate::front::modules::{self, Binding};
 
 use super::{build_from_program, merge_programs, module_jit, registry, render_source_core};
@@ -52,8 +53,10 @@ use super::{build_from_program, merge_programs, module_jit, registry, render_sou
 /// directory.
 ///
 /// Errors: a resolver failure (missing file, cycle, missing export, name
-/// collision), a parse error, any construct outside the implemented subset, or
-/// an UNWIRED builtin import (`rts:<ns>`) — all explicit `Unsupported`.
+/// collision), a parse error, any construct outside the implemented subset, or a
+/// builtin import that does not resolve to a real namespace function (bare `"rts"`
+/// namespace object, unknown member, builtin used as a value) — all explicit
+/// `Unsupported`.
 pub fn run_path(entry: &Path) -> FrontResult<()> {
     let prog = build_path(entry)?;
     let program = module_jit::compile_program(&prog)?;
@@ -78,13 +81,16 @@ fn build_path(entry: &Path) -> FrontResult<super::LoweredProgram> {
         bindings,
     } = resolved;
 
-    apply_bindings(&mut program, &bindings)?;
+    let builtins = apply_bindings(&mut program, &bindings)?;
 
     // The flattened multi-file USER program has no single source string, so the
     // PARAMETER-destructuring recovery (which re-parses a source) gets `""` — a
     // destructured param stays `"_"` and bails at lowering (sound). Every other
     // destructuring site recovers from the swc `Stmt` nodes in `program`.
-    let user = build_from_program(program, "")?;
+    let mut user = build_from_program(program, "")?;
+    // Carry the BUILTIN-IMPORT bindings into the lowering so a call to an imported
+    // `rts:<ns>` member resolves to its real `__RTS_FN_NS_*` symbol (M1b).
+    user.builtins = builtins;
 
     let inc = registry::includes_prelude();
     if inc.is_empty() {
@@ -95,18 +101,26 @@ fn build_path(entry: &Path) -> FrontResult<super::LoweredProgram> {
     }
 }
 
-/// Apply the import binding map to the flattened `program` IN PLACE.
+/// Apply the import binding map to the flattened `program` IN PLACE, returning the
+/// BUILTIN-IMPORT map (local name → `(ns, member)`) the lowering consults.
 ///
-/// For each `Binding::Local { name }` whose LOCAL key differs from the exported
-/// `name` (an `as`-alias), rename every identifier reference of the local key to
-/// `name` across the whole program so it resolves to the flattened declaration.
-/// A `Binding::Builtin` is unwired in this increment → explicit bail.
+/// - For each `Binding::Local { name }` whose LOCAL key differs from the exported
+///   `name` (an `as`-alias), rename every identifier reference of the local key to
+///   `name` across the whole program so it resolves to the flattened declaration.
+/// - Each `Binding::Builtin { ns, member }` is recorded in the returned map under
+///   its LOCAL name. A CALL to that local resolves the real `__RTS_FN_NS_*` symbol
+///   via [`super::registry::namespace_member`] (M1b). The `rts:<ns>` form is fully
+///   wired; a bare-`"rts"` (`ns == ""`) entry — which imports a namespace OBJECT,
+///   not a member — is still recorded, but the call lowering bails on it honestly
+///   (no `namespace_member` match), as does any unknown member. A builtin name used
+///   as a VALUE (not called) is unmodeled and bails at lowering, not here.
 fn apply_bindings(
     program: &mut rts_ast::ast::Program,
     bindings: &HashMap<String, Binding>,
-) -> FrontResult<()> {
-    // 1. Collect alias renames (local → orig) and reject unwired builtins.
+) -> FrontResult<HashMap<String, (String, String)>> {
+    // 1. Split the bindings into alias renames (local → orig) and builtins.
     let mut renames: HashMap<String, String> = HashMap::new();
+    let mut builtins: HashMap<String, (String, String)> = HashMap::new();
     for (local, binding) in bindings {
         match binding {
             Binding::Local { name } => {
@@ -115,30 +129,20 @@ fn apply_bindings(
                 }
             }
             Binding::Builtin { ns, member } => {
-                let spec = if ns.is_empty() {
-                    "rts".to_string()
-                } else {
-                    format!("rts:{ns}")
-                };
-                return Err(Unsupported::new(format!(
-                    "builtin import `{{ {member} }}` from `{spec}` (bound as `{local}`) — \
-                     namespace-member dispatch is not wired in the new engine yet \
-                     (M1b builtin-import follow-up); user (relative) imports run"
-                )));
+                builtins.insert(local.clone(), (ns.clone(), member.clone()));
             }
         }
     }
 
-    if renames.is_empty() {
-        return Ok(());
+    // 2. Rewrite every identifier reference across the flattened program (only if
+    //    there is an alias to rewrite).
+    if !renames.is_empty() {
+        let mut renamer = Renamer { renames: &renames };
+        for item in &mut program.items {
+            rename_item(item, &mut renamer);
+        }
     }
-
-    // 2. Rewrite every identifier reference across the flattened program.
-    let mut renamer = Renamer { renames: &renames };
-    for item in &mut program.items {
-        rename_item(item, &mut renamer);
-    }
-    Ok(())
+    Ok(builtins)
 }
 
 /// Apply the [`Renamer`] to one flattened top-level item (statement body, function

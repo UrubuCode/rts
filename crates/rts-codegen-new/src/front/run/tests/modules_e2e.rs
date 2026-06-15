@@ -138,19 +138,18 @@ fn cross_file_class_import() {
 }
 
 #[test]
-fn builtin_import_bails_explicitly() {
+fn builtin_import_runs() {
     let t = TempDir::new();
-    // `rts:io` namespace-member dispatch is not wired in the new engine yet; the
-    // import must bail EXPLICITLY (the honesty floor), not silently drop.
+    // `rts:io` namespace-member dispatch IS now wired (M1b builtin-import): the
+    // imported `print` calls the real `__RTS_FN_NS_IO_PRINT`. Detailed coverage
+    // (math, aliases, the honest bails) lives in `builtin_import.rs`.
     t.write(
         "main.ts",
         "import { print } from \"rts:io\";\nprint(\"hi\");\n",
     );
 
-    let err = render_path(&t.path("main.ts")).expect_err("builtin import must bail");
-    let msg = err.to_string();
-    assert!(
-        msg.contains("builtin import") && msg.contains("io"),
-        "unexpected bail message: {msg}"
-    );
+    // `io.print` writes to the REAL stdout (uncaptured); the run succeeding proves
+    // the import resolved to the real symbol. See `builtin_import.rs` for the
+    // captured-output (math) coverage.
+    render_path(&t.path("main.ts")).expect("builtin import runs");
 }

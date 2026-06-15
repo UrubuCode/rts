@@ -904,13 +904,27 @@ não uma cópia.
       Um `import { a }` simples (local == orig) é no-op. Limitação conhecida: o
       binding map é global/achatado, então um local homônimo de um alias é
       renomeado também (ok no caso comum de nomes distintos).
-    - **`Binding::Builtin` (`rts:<ns>`) — BAIL EXPLÍCITO (não wired).** O motor
-      novo ainda não tem path de dispatch de membro de namespace (camada
-      separada, fora do escopo M1b). Um import builtin presente faz `run_path`
-      bailar com `Unsupported` claro (piso de honestidade) em vez de dropar
-      silenciosamente ou adivinhar símbolo. **Follow-up:** wirar import builtin
-      por um marshal genérico `abi::lookup` + `emit_call_sig` (o mesmo path
-      genérico que as classes Registry usam, mas para funções de namespace).
+    - **`Binding::Builtin` (`rts:<ns>`) — FEITO (dispatch wirado).** Um import
+      `import { member } from "rts:<ns>"` agora CHAMA a função de namespace real.
+      Mecanismo (escolha: **Registry-register**, não `abi::lookup` — não existe
+      `abi::SPECS`/`abi::lookup` alcançável pela fachada; o `abi` só re-exporta o
+      vocabulário de tipos): `front/run/registry.rs::build_registry` registra os
+      namespaces públicos (`ns::io::register`, `ns::math::register`) no mesmo
+      `Engine` que já constrói as classes Registry; `namespace_member(ns, member,
+      argc) -> Option<ResolvedCall>` resolve o `__RTS_FN_NS_*` real + sua `Sig`
+      (`AbiType`s) via `registry().module("rts:<ns>")`. O binding `local → (ns,
+      member)` é threaded `LoweredProgram.builtins → Lowerer.builtins`; a glue de
+      chamada está em `front/run/call.rs` (`lower_call`, ramo `Ident` →
+      `lower_builtin_call`), marshalando pelo MESMO `emit_registry_call` das
+      classes (`recv = None` — função de namespace não tem `this`). Símbolos JIT
+      instalados em `runtime_link::jit_symbols` (io print/eprint já lá; sqrt/abs/
+      floor de math adicionados). **Namespaces wirados:** `rts:io`, `rts:math`.
+      **Bare `"rts"` (`ns == ""`):** importa um OBJETO de namespace (`io`), não um
+      membro — `namespace_member` devolve `None` e a chamada baila honestamente
+      (gap: import de namespace-objeto + acesso `io.print` é trabalho futuro). Um
+      membro desconhecido ou um builtin usado como VALOR (não chamado) também
+      bailam explícito. **`import * as ns` continua gap** (dropado no parser — M1a;
+      sem binding chega ao resolver). Cobertura: `front/run/tests/builtin_import.rs`.
 - **M2 — CommonJS.** `module.exports` / `exports.name` / `require(...)` exige
   trabalho no parser (hoje não lowera essas formas); próximo passo.
 - **M3 — cache incremental `.ometa`.** Hash transitivo de dependências para

@@ -227,6 +227,11 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// PRIVATE `engine.*` ambient global; in a user function (incl. `__rtsn_main`)
     /// any `engine.*` reference bails explicitly (see [`super::engineobj`]).
     pub is_prelude: bool,
+    /// BUILTIN-IMPORT bindings (M1b): a LOCAL name imported from `rts:<ns>` →
+    /// `(ns, member)`. A `name(args)` call whose `name` is here lowers to the real
+    /// `__RTS_FN_NS_*` symbol via the generic Registry marshal (see [`super::call`]).
+    /// Shared (read-only) across all functions; empty for a single-source program.
+    pub builtins: &'c HashMap<String, (String, String)>,
 }
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
@@ -244,6 +249,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         captures: &'c HashMap<String, Vec<String>>,
         this_class: Option<&str>,
         is_prelude: bool,
+        builtins: &'c HashMap<String, (String, String)>,
     ) -> FrontResult<()> {
         let entry = builder.create_block();
         builder.append_block_params_for_function_params(entry);
@@ -268,6 +274,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             captures,
             classes,
             is_prelude,
+            builtins,
         };
 
         // Bind each parameter to a fresh local Variable carrying its ABI repr.

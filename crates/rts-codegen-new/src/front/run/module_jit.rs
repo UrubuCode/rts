@@ -77,6 +77,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
     let fn_this_class = &prog.fn_this_class;
     let captures = &prog.captures;
     let prelude_fns = &prog.prelude_fns;
+    let builtins = &prog.builtins;
     let mut module = make_module();
 
     // 1. Freeze every signature (user funcs by their HIR types; main is void).
@@ -139,6 +140,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
             captures,
             this_class,
             is_prelude,
+            builtins,
         )?;
     }
     // 4. Define main (the top-level body). `__rtsn_main` is USER code — never
@@ -154,6 +156,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
         captures,
         None,
         false,
+        builtins,
     )?;
 
     // 4b. Define every thunk body (bridges the uniform ABI to the real signature).
@@ -196,6 +199,7 @@ fn define_one(
     captures: &HashMap<String, Vec<String>>,
     this_class: Option<&str>,
     is_prelude: bool,
+    builtins: &HashMap<String, (String, String)>,
 ) -> FrontResult<()> {
     let mut ctx = module.make_context();
     ctx.func.signature = sig.to_cranelift(module);
@@ -205,7 +209,7 @@ fn define_one(
         let mut fb = FunctionBuilder::new(&mut ctx.func, &mut fb_ctx);
         let res = Lowerer::lower_function(
             module, &mut fb, func, sig, sigs, thunks, classes, captures, this_class,
-            is_prelude,
+            is_prelude, builtins,
         );
         match res {
             Ok(()) => fb.finalize(),
