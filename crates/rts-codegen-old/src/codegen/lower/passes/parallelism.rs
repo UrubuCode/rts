@@ -1574,7 +1574,7 @@ fn try_lift_arrow_arg(
         body: body_stmts,
         span: Span::default(),
         is_async: false,
-    }));
+        exported: false,    }));
     user_fn_names.insert(fn_name.clone());
     Some(fn_name)
 }
@@ -2436,7 +2436,7 @@ fn apply_reduce_pass_to_top_level(
             body: body_stmts,
             span: Span::default(),
             is_async: false,
-        }));
+            exported: false,        }));
         par_fn_names.insert(m.fn_name.clone());
     }
 
@@ -2606,7 +2606,7 @@ fn apply_reduce_pass_to_body(
             body: fn_body_stmts,
             span: Span::default(),
             is_async: false,
-        }));
+            exported: false,        }));
         par_fn_names.insert(m.fn_name.clone());
     }
     for m in &matches {
@@ -2774,7 +2774,7 @@ fn apply_purity_pass_to_top_level(
             return_type: Some("void".to_string()),
             body: body_stmts, span: Span::default(),
             is_async: false,
-        }));
+            exported: false,        }));
         par_fn_names.insert(t.fn_name.clone());
     }
     for t in &transforms {
@@ -2839,7 +2839,7 @@ fn apply_purity_pass_to_body(
             return_type: Some("void".to_string()),
             body: body_stmts, span: Span::default(),
             is_async: false,
-        }));
+            exported: false,        }));
         par_fn_names.insert(t.fn_name.clone());
     }
     for t in &transforms {

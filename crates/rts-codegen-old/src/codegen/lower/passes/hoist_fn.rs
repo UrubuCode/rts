@@ -369,6 +369,7 @@ pub(crate) fn hoist_fn_expressions(program: &mut Program) {
             body,
             span: Span::default(),
             is_async,
+            exported: false,
         }
     }
 

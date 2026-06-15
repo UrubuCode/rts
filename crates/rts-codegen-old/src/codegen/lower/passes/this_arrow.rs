@@ -1261,7 +1261,7 @@ impl LiftAcc {
             body: body_stmts,
             span: Span::default(),
             is_async: false,
-        }));
+            exported: false,        }));
 
         swc_ecma_ast::Ident {
             span: Default::default(),
@@ -1594,7 +1594,7 @@ impl LiftAcc {
                             body: body_stmts,
                             span: Span::default(),
                             is_async: false,
-                        }));
+                            exported: false,                        }));
                         *arg.expr = Expr::Ident(swc_ecma_ast::Ident {
                             span: Default::default(),
                             ctxt: Default::default(),
@@ -1977,7 +1977,7 @@ impl LiftAcc {
                     body: body_stmts,
                     span: Span::default(),
                     is_async: false,
-                }));
+                    exported: false,                }));
 
                 if let Some(slot_name) = needs_this_slot {
                     self.new_globals.push(slot_name.clone());

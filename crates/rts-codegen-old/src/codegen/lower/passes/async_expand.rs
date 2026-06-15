@@ -449,7 +449,7 @@ pub(crate) fn expand_async_functions(program: &mut Program) {
                 body: inner_body,
                 span: f.span,
                 is_async: false,
-            }));
+                exported: false,            }));
 
             // 2. Substitui o body de `f` por:
             //   const __args = collections.vec_new();

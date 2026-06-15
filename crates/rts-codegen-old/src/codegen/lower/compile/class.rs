@@ -335,7 +335,7 @@ pub(crate) fn synthesize_class_fns(
                     body,
                     span: ctor.span,
                     is_async: false,
-                });
+                    exported: false,                });
             }
             ClassMember::Method(method) => {
                 // Visibility — registra apenas private/protected (public é default).
@@ -375,7 +375,7 @@ pub(crate) fn synthesize_class_fns(
                         body,
                         span: method.span,
                         is_async: false,
-                    });
+                        exported: false,                    });
                     continue;
                 }
                 if method.modifiers.is_static {
@@ -387,7 +387,7 @@ pub(crate) fn synthesize_class_fns(
                         body: method.body.clone(),
                         span: method.span,
                         is_async: false,
-                    });
+                        exported: false,                    });
                 } else {
                     let synth_name = match method.role {
                         MethodRole::Getter => {
@@ -426,7 +426,7 @@ pub(crate) fn synthesize_class_fns(
                         body: method.body.clone(),
                         span: method.span,
                         is_async: false,
-                    });
+                        exported: false,                    });
                 }
             }
             ClassMember::Property(prop) => {
@@ -582,7 +582,7 @@ pub(crate) fn synthesize_class_fns(
             body: full_body,
             span: class.span,
             is_async: false,
-        });
+            exported: false,        });
         has_constructor = true;
     }
 
