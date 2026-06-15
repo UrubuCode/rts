@@ -66,7 +66,10 @@ fn string_method_in_concat() {
 #[test]
 fn string_split_length() {
     // `.length` needs an identifier receiver, so bind the split result first.
-    assert_stdout(r#"let p = "a,b,c".split(","); console.log(p.length);"#, "3\n");
+    assert_stdout(
+        r#"let p = "a,b,c".split(","); console.log(p.length);"#,
+        "3\n",
+    );
 }
 
 #[test]
@@ -81,7 +84,10 @@ fn string_split_empty_sep() {
 
 #[test]
 fn string_split_limit() {
-    assert_stdout(r#"console.log("a,b,c,d".split(",", 2).join("|"));"#, "a|b\n");
+    assert_stdout(
+        r#"console.log("a,b,c,d".split(",", 2).join("|"));"#,
+        "a|b\n",
+    );
 }
 
 #[test]

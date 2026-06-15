@@ -17,16 +17,16 @@
 //! these globals (so the caller falls through to user-fn / method dispatch), or an
 //! `Err(Unsupported)` for an explicit bail of a recognized-but-unsupported form.
 
-use cranelift_codegen::ir::{types, InstBuilder, Value};
+use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_module::Module;
 
-use rts_hir::ir::HirExprKind;
 use rts_hir::HirExpr;
+use rts_hir::ir::HirExprKind;
 
 use crate::repr::Repr;
 use crate::value::{self, emit_marshal};
 
-use crate::front::error::{unsupported, FrontResult, Unsupported};
+use crate::front::error::{FrontResult, Unsupported, unsupported};
 
 use super::lower::{JsKind, Lowerer, Val};
 
@@ -49,7 +49,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(None);
         }
         match name {
-            "Number" => self.coerce_call(module, "__rtsadp_g_number", args, JsKind::Number).map(Some),
+            "Number" => self
+                .coerce_call(module, "__rtsadp_g_number", args, JsKind::Number)
+                .map(Some),
             "String" => {
                 // ToPrimitive (issue #304): `String(obj)` of a STATICALLY-KNOWN-CLASS
                 // object calls its `toString`/`valueOf` (string hint), not the default
@@ -64,7 +66,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                         return Ok(Some(Val::tagged_kind(word, JsKind::Str)));
                     }
                 }
-                self.coerce_call(module, "__rtsadp_g_string", args, JsKind::Str).map(Some)
+                self.coerce_call(module, "__rtsadp_g_string", args, JsKind::Str)
+                    .map(Some)
             }
             "Boolean" => self
                 .bool_returning_call(module, "__rtsadp_g_boolean", args)
@@ -72,7 +75,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             "parseFloat" => self
                 .coerce_call(module, "__rtsadp_g_parse_float", args, JsKind::Number)
                 .map(Some),
-            "isNaN" => self.bool_returning_call(module, "__rtsadp_g_is_nan", args).map(Some),
+            "isNaN" => self
+                .bool_returning_call(module, "__rtsadp_g_is_nan", args)
+                .map(Some),
             "isFinite" => self
                 .bool_returning_call(module, "__rtsadp_g_is_finite", args)
                 .map(Some),
@@ -174,11 +179,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// `Array(n)` — a fresh array of length `n` (holes → `undefined`). Only the
     /// single-numeric-arg form is supported; `Array(a, b, …)` (an element list) is
     /// `Array.of`-shaped and BAILS here (a later increment). Result kind Array.
-    fn array_ctor_call(
-        &mut self,
-        module: &mut dyn Module,
-        args: &[HirExpr],
-    ) -> FrontResult<Val> {
+    fn array_ctor_call(&mut self, module: &mut dyn Module, args: &[HirExpr]) -> FrontResult<Val> {
         if args.len() != 1 {
             return unsupported!(
                 "Array(...) with {} args (only `Array(n)` sized form is supported)",
@@ -348,7 +349,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         match &e.kind {
             HirExprKind::Array(_) => true,
             HirExprKind::Ident(name) => {
-                matches!(self.local_shapes.get(name), Some(super::lower::HeapShape::Array))
+                matches!(
+                    self.local_shapes.get(name),
+                    Some(super::lower::HeapShape::Array)
+                )
             }
             _ => self.is_array_receiver(e),
         }

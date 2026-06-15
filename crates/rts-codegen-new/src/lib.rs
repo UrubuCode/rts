@@ -94,17 +94,17 @@
 // implementation lands. Removed module-by-module as each pillar is built out.
 #![allow(dead_code)]
 
-pub mod value;
-pub mod repr;
-pub mod shape;
-pub mod ic;
-pub mod dispatch;
 pub mod abi_gen;
-pub mod runtime_link;
-pub mod registry_link;
+pub mod dispatch;
 pub mod front;
+pub mod ic;
 pub mod lower;
 pub mod pipeline;
+pub mod registry_link;
+pub mod repr;
+pub mod runtime_link;
+pub mod shape;
+pub mod value;
 
 /// End-to-end proof suite (P1): reproduces the EXACT old-engine value-model
 /// failures and shows the new `PolyValue` representation solving each one

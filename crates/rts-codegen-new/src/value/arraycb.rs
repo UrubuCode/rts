@@ -36,7 +36,7 @@
 use rts_runtime::namespaces::collections::vec as rt_vec;
 use rts_runtime::namespaces::gc::handles as rt_handles;
 
-use super::{funcops, genops, PolyValue};
+use super::{PolyValue, funcops, genops};
 
 /// Element count of the real Vec behind `vec_handle` (clamped to `>= 0`).
 fn vec_len(vec_handle: u64) -> i64 {

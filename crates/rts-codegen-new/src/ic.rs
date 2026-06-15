@@ -32,5 +32,9 @@ pub struct PropIcCell {
 }
 
 impl PropIcCell {
-    pub const UNINIT: PropIcCell = PropIcCell { shape: 0, slot: 0, state: 0 };
+    pub const UNINIT: PropIcCell = PropIcCell {
+        shape: 0,
+        slot: 0,
+        state: 0,
+    };
 }

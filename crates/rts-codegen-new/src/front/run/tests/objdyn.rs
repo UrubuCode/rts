@@ -40,7 +40,10 @@ fn reassigned_string_value_read() {
 #[test]
 fn reassigned_missing_key_is_undefined() {
     // A key absent from the (reassigned) shape reads `undefined` at runtime.
-    assert_stdout("let o = {a: 1}; o = {a: 5}; console.log(o.z);", "undefined\n");
+    assert_stdout(
+        "let o = {a: 1}; o = {a: 5}; console.log(o.z);",
+        "undefined\n",
+    );
 }
 
 #[test]
@@ -55,7 +58,10 @@ fn reassigned_dynamic_write_then_read() {
 #[test]
 fn reassigned_object_console_log() {
     // console.log of a reassigned (unknown-shape) object still renders `{ k: v }`.
-    assert_stdout("let o = {a: 1}; o = {a: 2, b: 3}; console.log(o);", "{ a: 2, b: 3 }\n");
+    assert_stdout(
+        "let o = {a: 1}; o = {a: 2, b: 3}; console.log(o);",
+        "{ a: 2, b: 3 }\n",
+    );
 }
 
 // ===========================================================================
@@ -64,7 +70,10 @@ fn reassigned_object_console_log() {
 
 #[test]
 fn computed_key_read() {
-    assert_stdout(r#"let o = {foo: 7}; let k = "foo"; console.log(o[k]);"#, "7\n");
+    assert_stdout(
+        r#"let o = {foo: 7}; let k = "foo"; console.log(o[k]);"#,
+        "7\n",
+    );
 }
 
 #[test]
@@ -77,7 +86,10 @@ fn computed_key_read_string_value() {
 
 #[test]
 fn computed_key_write_then_read() {
-    assert_stdout(r#"let o = {n: 0}; let k = "n"; o[k] = 9; console.log(o.n);"#, "9\n");
+    assert_stdout(
+        r#"let o = {n: 0}; let k = "n"; o[k] = 9; console.log(o.n);"#,
+        "9\n",
+    );
 }
 
 #[test]
@@ -88,7 +100,10 @@ fn computed_key_literal_string() {
 
 #[test]
 fn computed_key_missing_is_undefined() {
-    assert_stdout(r#"let o = {a: 1}; let k = "zzz"; console.log(o[k]);"#, "undefined\n");
+    assert_stdout(
+        r#"let o = {a: 1}; let k = "zzz"; console.log(o[k]);"#,
+        "undefined\n",
+    );
 }
 
 #[test]
@@ -121,7 +136,10 @@ fn numeric_index_into_object_now_dynamic() {
     // INTENTIONAL change (was `numeric_index_into_object_bails`): a NUMERIC index into
     // an object now coerces the key ToString (`o[0]` keys on "0", JS-correct) and reads
     // it dynamically; "0" is absent from `{a:1}`, so the result is `undefined`.
-    assert_stdout("let o = {a: 1}; let i = 0; console.log(o[i]);", "undefined\n");
+    assert_stdout(
+        "let o = {a: 1}; let i = 0; console.log(o[i]);",
+        "undefined\n",
+    );
 }
 
 #[test]

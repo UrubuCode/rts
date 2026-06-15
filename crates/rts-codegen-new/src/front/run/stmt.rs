@@ -6,7 +6,7 @@
 //! condition is reduced through JS `ToBoolean` ([`Lowerer::as_bool_value`]), so
 //! `if (x)` / `while (i)` over numbers or Tagged values work, not just booleans.
 
-use cranelift_codegen::ir::{types, InstBuilder};
+use cranelift_codegen::ir::{InstBuilder, types};
 use cranelift_module::Module;
 
 use rts_hir::ir::HirExprKind;
@@ -14,18 +14,14 @@ use rts_hir::{HirExpr, HirStmt, HirType};
 
 use crate::repr::Repr;
 
-use crate::front::error::{unsupported, FrontResult, Unsupported};
+use crate::front::error::{FrontResult, Unsupported, unsupported};
 use crate::front::repr_map::repr_of;
 
-use super::lower::{cl_type, HeapShape, Local, Lowerer, Val};
+use super::lower::{HeapShape, Local, Lowerer, Val, cl_type};
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Lower a single statement.
-    pub(super) fn lower_stmt(
-        &mut self,
-        module: &mut dyn Module,
-        s: &HirStmt,
-    ) -> FrontResult<()> {
+    pub(super) fn lower_stmt(&mut self, module: &mut dyn Module, s: &HirStmt) -> FrontResult<()> {
         match s {
             HirStmt::Return(arg) => self.lower_return(module, arg.as_ref()),
             HirStmt::Let { name, ty, init } => self.lower_let(module, name, ty, init.as_ref()),
@@ -38,32 +34,44 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.lower_if(module, cond, then, else_.as_deref())
             }
             HirStmt::While { cond, body } => self.lower_while(module, cond, body),
-            HirStmt::For { init, cond, update, body } => {
-                self.lower_for(module, init.as_deref(), cond.as_ref(), update.as_ref(), body)
-            }
-            HirStmt::ForOf { binding, binding_ty, iterable, body } => {
-                self.lower_for_of(module, binding, binding_ty, iterable, body)
-            }
-            HirStmt::ForIn { binding, object, body } => {
-                self.lower_for_in(module, binding, object, body)
-            }
+            HirStmt::For {
+                init,
+                cond,
+                update,
+                body,
+            } => self.lower_for(
+                module,
+                init.as_deref(),
+                cond.as_ref(),
+                update.as_ref(),
+                body,
+            ),
+            HirStmt::ForOf {
+                binding,
+                binding_ty,
+                iterable,
+                body,
+            } => self.lower_for_of(module, binding, binding_ty, iterable, body),
+            HirStmt::ForIn {
+                binding,
+                object,
+                body,
+            } => self.lower_for_in(module, binding, object, body),
             HirStmt::Break(label) => self.lower_break(label.as_deref()),
             HirStmt::Continue(label) => self.lower_continue(label.as_deref()),
             HirStmt::Block(stmts) => self.lower_block(module, stmts),
             HirStmt::Throw(arg) => self.lower_throw(module, arg),
-            HirStmt::Try { body, catch, finally } => {
-                self.lower_try(module, body, catch.as_ref(), finally.as_deref())
-            }
+            HirStmt::Try {
+                body,
+                catch,
+                finally,
+            } => self.lower_try(module, body, catch.as_ref(), finally.as_deref()),
             HirStmt::Raw(text) => unsupported!("unrecognized statement `{}`", text.trim()),
             other => unsupported!("statement {}", stmt_name(other)),
         }
     }
 
-    fn lower_return(
-        &mut self,
-        module: &mut dyn Module,
-        arg: Option<&HirExpr>,
-    ) -> FrontResult<()> {
+    fn lower_return(&mut self, module: &mut dyn Module, arg: Option<&HirExpr>) -> FrontResult<()> {
         match (self.ret, arg) {
             (None, None) => {
                 // void `return;` inside main.
@@ -146,7 +154,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirExprKind::New { class, args } if self.is_global_class_ctor(class) => {
                 let (val, class_name) = self.lower_new_global_class(module, class, args)?;
                 self.bind_tagged_local(name, val);
-                self.global_instance_classes.insert(name.to_string(), class_name);
+                self.global_instance_classes
+                    .insert(name.to_string(), class_name);
                 // No object FIELD shape (the instance is an opaque runtime handle);
                 // return early so the generic `let` tail does not run.
                 return Ok(());
@@ -219,7 +228,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     fn bind_tagged_local(&mut self, name: &str, val: Val) {
         let var = self.builder.declare_var(cl_type(Repr::Tagged));
         self.builder.def_var(var, val.v);
-        self.locals.insert(name.to_string(), Local { var, repr: Repr::Tagged });
+        self.locals.insert(
+            name.to_string(),
+            Local {
+                var,
+                repr: Repr::Tagged,
+            },
+        );
     }
 
     /// Plain assignment `x = e`. Only to an existing local; the value coerces to
@@ -415,7 +430,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.builder.seal_block(body_block);
         self.block_terminated = false;
         // `continue` re-tests (jump to header); `break` exits.
-        self.loop_stack.push(super::lower::LoopCtx { exit: exit_block, continue_target: header });
+        self.loop_stack.push(super::lower::LoopCtx {
+            exit: exit_block,
+            continue_target: header,
+        });
         self.lower_block(module, body)?;
         self.loop_stack.pop();
         if !self.block_terminated {

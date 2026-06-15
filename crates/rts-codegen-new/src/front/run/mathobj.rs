@@ -133,10 +133,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     }
                     let src = self.lower_expr(module, inner)?;
                     let arr_word = self.box_value(src);
-                    let op_v = self.builder.ins().iconst(
-                        cranelift_codegen::ir::types::I64,
-                        reduce_op,
-                    );
+                    let op_v = self
+                        .builder
+                        .ins()
+                        .iconst(cranelift_codegen::ir::types::I64, reduce_op);
                     let v = emit_marshal::emit_call(
                         module,
                         self.builder,

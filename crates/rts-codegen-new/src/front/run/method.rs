@@ -16,19 +16,19 @@
 //! - an argument whose proven kind does not match the slot's `AbiType` (a string
 //!   slot wants a string arg, a number slot wants a numeric arg).
 
-use cranelift_codegen::ir::{types, InstBuilder, Value};
+use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_module::Module;
 
-use rts_hir::ir::HirExprKind;
 use rts_hir::HirExpr;
+use rts_hir::ir::HirExprKind;
 
 use rts_runtime::abi::AbiType;
 
-use crate::dispatch::{resolve_method, MethodSpec, RecvAbi, RecvClass};
+use crate::dispatch::{MethodSpec, RecvAbi, RecvClass, resolve_method};
 use crate::repr::Repr;
 use crate::value::{self, emit_marshal};
 
-use crate::front::error::{unsupported, FrontResult};
+use crate::front::error::{FrontResult, unsupported};
 
 use super::lower::{JsKind, Lowerer, Val};
 
@@ -48,7 +48,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // (not a local/instance). Resolve the static method on that class and emit
         // a direct call (no `this`). An unknown static on a known class BAILS.
         if let Some(class) = self.class_name_receiver(object) {
-            return self.try_static_method(module, &class, method, args).map(Some);
+            return self
+                .try_static_method(module, &class, method, args)
+                .map(Some);
         }
 
         // RUNTIME/Registry-class instance receiver (P5.3): a `new Map()`/`Set()`/
@@ -63,7 +65,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // Resolve the method on that class at COMPILE TIME and emit a direct call
         // passing the instance as `this`. An unknown method on a known class BAILS.
         if let Some(class) = self.static_instance_class(object) {
-            return self.try_class_method(module, object, &class, method, args).map(Some);
+            return self
+                .try_class_method(module, object, &class, method, args)
+                .map(Some);
         }
 
         // ARRAY receiver (P4.5 non-callback + P4.7 callback): an identifier bound
@@ -73,7 +77,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // reify the callback argument to a function VALUE here. Must be checked
         // BEFORE the whole-heap-value gate below (an array IS a whole-heap value).
         if self.is_array_receiver(object) {
-            return self.try_array_dispatch(module, object, method, args).map(Some);
+            return self
+                .try_array_dispatch(module, object, method, args)
+                .map(Some);
         }
 
         // A non-array receiver does NOT take a callback in the implemented surface
@@ -102,6 +108,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // `__rtsadp_dyn_*` trampoline. `Ok(None)` ⇒ the method is not
             // dynamically dispatchable (the caller bails — never a guess).
             if recv.repr == Repr::Tagged {
+                // An ARRAY CALLBACK method (`map`/`filter`/`reduce`/…) on an
+                // unproven receiver with a reifiable (non-capturing) callback:
+                // dispatch through the same `__rtsadp_arr_*` trampolines as the
+                // proven path (SAFE on a non-array word — the trampolines do a
+                // HandleTable lookup and see length 0 for a non-Vec entry). Tried
+                // BEFORE the non-callback dyn path. `Ok(None)` ⇒ not an array
+                // callback method / a capturing callback — falls through.
+                if let Some(val) = self.try_array_callback_dynamic(module, recv, method, args)? {
+                    return Ok(Some(val));
+                }
                 return self.try_method_dispatch_dynamic(module, recv, method, args);
             }
             return Ok(None);
@@ -206,7 +222,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     let word = self.box_value(recv);
                     emit_marshal::emit_table_load(module, self.builder, word)
                 };
-                let ret = emit_marshal::emit_call(module, self.builder, symbol, &[rh, start_i, end]);
+                let ret =
+                    emit_marshal::emit_call(module, self.builder, symbol, &[rh, start_i, end]);
                 let h = ret.expect("string slice returns a handle");
                 let word = emit_marshal::emit_box_real_string(module, self.builder, h);
                 Ok(Some(Val::tagged_kind(word, JsKind::Str)))

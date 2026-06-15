@@ -8,15 +8,15 @@
 //! descriptor at compile time. A receiver of unknown class, or an unknown method
 //! on a known class, BAILS (never a guess).
 
-use cranelift_codegen::ir::{types, InstBuilder, Value};
+use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_module::Module;
 
-use rts_hir::ir::HirExprKind;
 use rts_hir::HirExpr;
+use rts_hir::ir::HirExprKind;
 
 use crate::value;
 
-use crate::front::error::{unsupported, FrontResult};
+use crate::front::error::{FrontResult, unsupported};
 
 use super::super::lower::{JsKind, Lowerer, Val};
 
@@ -67,9 +67,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .expect("static receiver must be a known class")
             .clone();
         let Some(fn_name) = desc.statics.get(method).cloned() else {
-            return unsupported!(
-                "`{class}.{method}()` — no such static method on class `{class}`"
-            );
+            return unsupported!("`{class}.{method}()` — no such static method on class `{class}`");
         };
         self.call_synth_fn(module, &fn_name, None, args)
     }
@@ -213,6 +211,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         };
         let recv = self.lower_expr(module, object)?;
         let this_word = self.box_value(recv);
-        self.call_synth_fn(module, &fn_name, Some(this_word), std::slice::from_ref(value))
+        self.call_synth_fn(
+            module,
+            &fn_name,
+            Some(this_word),
+            std::slice::from_ref(value),
+        )
     }
 }

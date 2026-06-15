@@ -50,12 +50,18 @@ fn string_replace_regex_first() {
 #[test]
 fn string_replace_regex_global() {
     // The `g` flag routes `.replace` to the replace-all trampoline.
-    assert_stdout(r##"console.log("a1b2c3".replace(/\d/g, "#"));"##, "a#b#c#\n");
+    assert_stdout(
+        r##"console.log("a1b2c3".replace(/\d/g, "#"));"##,
+        "a#b#c#\n",
+    );
 }
 
 #[test]
 fn string_replace_all_regex() {
-    assert_stdout(r##"console.log("a1b2c3".replaceAll(/\d/, "#"));"##, "a#b#c#\n");
+    assert_stdout(
+        r##"console.log("a1b2c3".replaceAll(/\d/, "#"));"##,
+        "a#b#c#\n",
+    );
 }
 
 #[test]
@@ -84,7 +90,10 @@ fn string_search_regex_no_match() {
 #[test]
 fn string_match_regex() {
     // `.match` returns an array; `[0]` is the first match.
-    assert_stdout(r#"let m = "abc123".match(/\d+/); console.log(m[0]);"#, "123\n");
+    assert_stdout(
+        r#"let m = "abc123".match(/\d+/); console.log(m[0]);"#,
+        "123\n",
+    );
 }
 
 #[test]

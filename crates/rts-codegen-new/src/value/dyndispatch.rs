@@ -51,7 +51,7 @@
 
 use rts_runtime::namespaces::globals::string::rt as rt_gl_str;
 
-use super::{abi_adapter, arrayops, genops, PolyValue};
+use super::{PolyValue, abi_adapter, arrayops, genops};
 
 /// The real runtime string handle behind a string PolyValue word (generation
 /// reconstructed from the live slot). Caller guarantees the word is a string.
@@ -243,7 +243,10 @@ pub extern "C" fn __rtsadp_dyn_concat(recv: u64, other: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
         let other_h = str_arg_handle(other);
-        return box_str(rt_gl_str::__RTS_FN_GL_STRING_CONCAT(str_handle(recv), other_h));
+        return box_str(rt_gl_str::__RTS_FN_GL_STRING_CONCAT(
+            str_handle(recv),
+            other_h,
+        ));
     }
     if is_array_word(recv) {
         return arrayops::__rtsadp_arr_concat(arr_handle(recv), other);
@@ -335,7 +338,9 @@ pub extern "C" fn __rtsadp_dyn_char_code_at(recv: u64, idx: u64) -> u64 {
 pub extern "C" fn __rtsadp_dyn_to_upper_case(recv: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
-        return box_str(rt_gl_str::__RTS_FN_GL_STRING_TO_UPPER_CASE(str_handle(recv)));
+        return box_str(rt_gl_str::__RTS_FN_GL_STRING_TO_UPPER_CASE(str_handle(
+            recv,
+        )));
     }
     undef()
 }
@@ -345,7 +350,9 @@ pub extern "C" fn __rtsadp_dyn_to_upper_case(recv: u64) -> u64 {
 pub extern "C" fn __rtsadp_dyn_to_lower_case(recv: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
-        return box_str(rt_gl_str::__RTS_FN_GL_STRING_TO_LOWER_CASE(str_handle(recv)));
+        return box_str(rt_gl_str::__RTS_FN_GL_STRING_TO_LOWER_CASE(str_handle(
+            recv,
+        )));
     }
     undef()
 }
@@ -382,8 +389,10 @@ pub extern "C" fn __rtsadp_dyn_starts_with(recv: u64, needle: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
         let h = str_arg_handle(needle);
-        return PolyValue::bool(rt_gl_str::__RTS_FN_GL_STRING_STARTS_WITH(str_handle(recv), h) != 0)
-            .raw();
+        return PolyValue::bool(
+            rt_gl_str::__RTS_FN_GL_STRING_STARTS_WITH(str_handle(recv), h) != 0,
+        )
+        .raw();
     }
     undef()
 }
@@ -406,7 +415,10 @@ pub extern "C" fn __rtsadp_dyn_repeat(recv: u64, n: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
         let count = genops_to_i64(n);
-        return box_str(rt_gl_str::__RTS_FN_GL_STRING_REPEAT(str_handle(recv), count));
+        return box_str(rt_gl_str::__RTS_FN_GL_STRING_REPEAT(
+            str_handle(recv),
+            count,
+        ));
     }
     undef()
 }
@@ -431,11 +443,7 @@ fn str_arg_handle(word: u64) -> u64 {
 /// reusing the engine's ONE `ToNumber` ([`genops`]).
 fn genops_to_i64(word: u64) -> i64 {
     let n = genops_to_number(word);
-    if n.is_finite() {
-        n as i64
-    } else {
-        0
-    }
+    if n.is_finite() { n as i64 } else { 0 }
 }
 
 /// ToNumber via the engine's ONE `ToNumber` rule (`genops`), re-exposed publicly

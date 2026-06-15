@@ -7,7 +7,7 @@
 //! the spread flag (`HirExprKind::Spread`) on call args, so the engine can model
 //! argument spread instead of bailing.
 
-use cranelift_codegen::ir::{types, InstBuilder, Value};
+use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_module::Module;
 
 use rts_hir::HirExpr;
@@ -16,7 +16,7 @@ use crate::repr::Repr;
 use crate::value;
 use crate::value::emit_marshal;
 
-use crate::front::error::{unsupported, FrontResult, Unsupported};
+use crate::front::error::{FrontResult, Unsupported, unsupported};
 
 use super::lower::{JsKind, Lowerer, Val};
 use super::sig::FnSig;
@@ -70,7 +70,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                         "`...spread` into a `{:?}` param of `{}` (later increment)",
                         other,
                         sig.name
-                    )
+                    );
                 }
             };
             lowered.push(arg);

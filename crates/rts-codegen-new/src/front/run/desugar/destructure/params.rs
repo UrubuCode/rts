@@ -18,7 +18,7 @@ use std::collections::HashMap;
 
 use rts_hir::{HirFunc, HirStmt};
 
-use super::{expand_pat, Gen};
+use super::{Gen, expand_pat};
 
 /// Rewrite destructuring function parameters in every plain (non-arrow) `HirFunc`.
 pub(super) fn rewrite_params(src: &str, funcs: &mut Vec<HirFunc>, g: &mut Gen) {
@@ -76,9 +76,9 @@ fn parse_param_patterns(src: &str) -> Option<HashMap<String, Vec<swc_ecma_ast::P
     let mut out: HashMap<String, Vec<swc_ecma_ast::Pat>> = HashMap::new();
     for item in &module.body {
         let fdecl = match item {
-            swc_ecma_ast::ModuleItem::Stmt(swc_ecma_ast::Stmt::Decl(
-                swc_ecma_ast::Decl::Fn(f),
-            )) => f,
+            swc_ecma_ast::ModuleItem::Stmt(swc_ecma_ast::Stmt::Decl(swc_ecma_ast::Decl::Fn(f))) => {
+                f
+            }
             swc_ecma_ast::ModuleItem::ModuleDecl(swc_ecma_ast::ModuleDecl::ExportDecl(e)) => {
                 match &e.decl {
                     swc_ecma_ast::Decl::Fn(f) => f,
@@ -88,8 +88,12 @@ fn parse_param_patterns(src: &str) -> Option<HashMap<String, Vec<swc_ecma_ast::P
             _ => continue,
         };
         let name = fdecl.ident.sym.to_string();
-        let pats: Vec<swc_ecma_ast::Pat> =
-            fdecl.function.params.iter().map(|p| p.pat.clone()).collect();
+        let pats: Vec<swc_ecma_ast::Pat> = fdecl
+            .function
+            .params
+            .iter()
+            .map(|p| p.pat.clone())
+            .collect();
         out.insert(name, pats);
     }
     Some(out)

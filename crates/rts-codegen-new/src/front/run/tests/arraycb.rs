@@ -32,10 +32,7 @@ fn for_each_prints() {
     // discards. (A block-bodied arrow with no `return` currently bails at arrow
     // extraction — "may fall through without returning a value" — a pre-existing
     // P4.6 limitation, not specific to callbacks.)
-    assert_stdout(
-        "[1,2,3].forEach((x:number)=>console.log(x));",
-        "1\n2\n3\n",
-    );
+    assert_stdout("[1,2,3].forEach((x:number)=>console.log(x));", "1\n2\n3\n");
 }
 
 #[test]
@@ -102,7 +99,10 @@ fn chained_filter_map() {
 #[test]
 fn map_on_array_literal() {
     // An array literal is a proven array receiver (no intermediate `let`).
-    assert_stdout("console.log([1,2,3].map((x:number)=>x+1).join(\",\"));", "2,3,4\n");
+    assert_stdout(
+        "console.log([1,2,3].map((x:number)=>x+1).join(\",\"));",
+        "2,3,4\n",
+    );
 }
 
 // ---- capturing callback now works (P5.7); comparator sort still bails ----
@@ -111,7 +111,10 @@ fn map_on_array_literal() {
 fn capturing_callback_now_works() {
     // The callback captures the outer local `k` by value (P5.7): the env snapshots
     // `k` at the `.map(..)` site. `1*2`, `2*2`. (Was a P4.7 bail.)
-    assert_stdout("let k=2; let a=[1,2]; console.log(a.map((x:number)=>x*k).join(\",\"));", "2,4\n");
+    assert_stdout(
+        "let k=2; let a=[1,2]; console.log(a.map((x:number)=>x*k).join(\",\"));",
+        "2,4\n",
+    );
 }
 
 #[test]

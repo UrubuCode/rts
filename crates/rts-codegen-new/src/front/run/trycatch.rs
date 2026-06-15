@@ -18,7 +18,7 @@
 //!   `try`/`finally` with no `catch` re-checks the flag in `F` and lets a still-
 //!   pending error propagate.
 
-use cranelift_codegen::ir::{types, Block, InstBuilder, Value};
+use cranelift_codegen::ir::{Block, InstBuilder, Value, types};
 use cranelift_module::Module;
 
 use rts_hir::ir::HirCatch;
@@ -135,7 +135,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let finally_block = finally.map(|_| self.builder.create_block());
         let catch_block = catch.map(|_| self.builder.create_block());
         // The block a pending error routes to: the catch if present, else finally.
-        let on_error = catch_block.or(finally_block).expect("catch or finally exists");
+        let on_error = catch_block
+            .or(finally_block)
+            .expect("catch or finally exists");
         let ok_after_body = finally_block.unwrap_or(after_block);
 
         // Belt-and-braces: clear any stale pending error so the body's fall-through
@@ -237,18 +239,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// pending flag and route a still-pending error (the body threw and nothing
     /// caught it) — to the enclosing catch, or a sentinel-return — else fall to
     /// `after`.
-    fn emit_finally_propagate(
-        &mut self,
-        module: &mut dyn Module,
-        after: Block,
-    ) -> FrontResult<()> {
+    fn emit_finally_propagate(&mut self, module: &mut dyn Module, after: Block) -> FrontResult<()> {
         let pending = self
             .call_runtime(module, "__rtsadp_err_pending", &[])?
             .expect("__rtsadp_err_pending returns a value");
         let err_block = self.builder.create_block();
-        self.builder
-            .ins()
-            .brif(pending, err_block, &[], after, &[]);
+        self.builder.ins().brif(pending, err_block, &[], after, &[]);
         self.builder.switch_to_block(err_block);
         self.builder.seal_block(err_block);
         self.block_terminated = false;
@@ -261,8 +257,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     fn bind_catch_local(&mut self, name: &str, word: Value) {
         let var = self.builder.declare_var(types::I64);
         self.builder.def_var(var, word);
-        self.locals
-            .insert(name.to_string(), super::lower::Local { var, repr: Repr::Tagged });
+        self.locals.insert(
+            name.to_string(),
+            super::lower::Local {
+                var,
+                repr: Repr::Tagged,
+            },
+        );
         // The thrown value is opaque w.r.t. object/array shape — drop any stale
         // shape/class so an access on the bound name does not use a wrong layout.
         self.local_shapes.remove(name);

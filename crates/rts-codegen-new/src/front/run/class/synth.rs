@@ -25,7 +25,7 @@ use super::inherit::rewrite_super_block;
 use super::walk::{
     body_uses_this, collect_this_assign_fields, push_unique, rewrite_this_block, this_field_assign,
 };
-use super::{this_param, Accessor, ClassDesc};
+use super::{Accessor, ClassDesc, this_param};
 
 /// The synthesized constructor function name for class `name`.
 pub(crate) fn ctor_name(name: &str) -> String {
@@ -176,12 +176,26 @@ pub(super) fn build_class(
     let mut accessors: HashMap<String, Accessor> =
         parent.map(|p| p.accessors.clone()).unwrap_or_default();
     for g in &m.getters {
-        out.push(synth_method_named(decl, g, parent, true, getter_name(&decl.name, &g.name))?);
-        accessors.entry(g.name.clone()).or_default().getter = Some(getter_name(&decl.name, &g.name));
+        out.push(synth_method_named(
+            decl,
+            g,
+            parent,
+            true,
+            getter_name(&decl.name, &g.name),
+        )?);
+        accessors.entry(g.name.clone()).or_default().getter =
+            Some(getter_name(&decl.name, &g.name));
     }
     for s in &m.setters {
-        out.push(synth_method_named(decl, s, parent, true, setter_name(&decl.name, &s.name))?);
-        accessors.entry(s.name.clone()).or_default().setter = Some(setter_name(&decl.name, &s.name));
+        out.push(synth_method_named(
+            decl,
+            s,
+            parent,
+            true,
+            setter_name(&decl.name, &s.name),
+        )?);
+        accessors.entry(s.name.clone()).or_default().setter =
+            Some(setter_name(&decl.name, &s.name));
     }
 
     // --- a field and an accessor of the same name is ambiguous: bail ---
@@ -203,7 +217,10 @@ pub(super) fn build_class(
     let mut static_fields: HashMap<String, String> = HashMap::new();
     for sp in &m.static_props {
         out.push(synth_static_field_getter(decl, sp)?);
-        static_fields.insert(sp.name.clone(), static_field_getter_name(&decl.name, &sp.name));
+        static_fields.insert(
+            sp.name.clone(),
+            static_field_getter_name(&decl.name, &sp.name),
+        );
     }
 
     let desc = ClassDesc {
@@ -316,7 +333,14 @@ fn build_ctor(
                 for i in 0..p.ctor_arity {
                     let name = format!("__a{i}");
                     scope.define(&name, HirType::Unknown);
-                    ps.push(HirParam { name: name.clone(), ty: HirType::Unknown, variadic: false, has_default: false, optional: false, default_expr: None });
+                    ps.push(HirParam {
+                        name: name.clone(),
+                        ty: HirType::Unknown,
+                        variadic: false,
+                        has_default: false,
+                        optional: false,
+                        default_expr: None,
+                    });
                     fwd.push(HirExpr::new(HirExprKind::Ident(name), HirType::Unknown));
                 }
                 (ps, Some(fwd))
@@ -387,7 +411,10 @@ fn build_ctor(
 fn super_call_placeholder(args: Vec<HirExpr>) -> HirExpr {
     HirExpr::new(
         HirExprKind::Call {
-            callee: Box::new(HirExpr::new(HirExprKind::Raw("callee".to_string()), HirType::Unknown)),
+            callee: Box::new(HirExpr::new(
+                HirExprKind::Raw("callee".to_string()),
+                HirType::Unknown,
+            )),
             args,
         },
         HirType::Unknown,
@@ -420,7 +447,13 @@ fn synth_method(
     parent: Option<&ClassDesc>,
     with_this: bool,
 ) -> FrontResult<HirFunc> {
-    synth_method_named(decl, md, parent, with_this, method_name(&decl.name, &md.name))
+    synth_method_named(
+        decl,
+        md,
+        parent,
+        with_this,
+        method_name(&decl.name, &md.name),
+    )
 }
 
 /// Synthesize a method-shaped fn under an explicit `fn_name` (used for methods,
@@ -435,7 +468,11 @@ fn synth_method_named(
     fn_name: String,
 ) -> FrontResult<HirFunc> {
     let mut scope = Scope::new();
-    let mut params: Vec<HirParam> = if with_this { vec![this_param()] } else { Vec::new() };
+    let mut params: Vec<HirParam> = if with_this {
+        vec![this_param()]
+    } else {
+        Vec::new()
+    };
     for p in &md.parameters {
         // REST (`...xs`, F3b) and DEFAULTED (`y = expr`, F3c) params both allowed.
         let ty = p
@@ -470,7 +507,14 @@ fn synth_method_named(
     let mut body = rts_hir::lower::lower_stmts(&md.body, &mut scope);
     rewrite_this_block(&mut body);
     rewrite_super_block(&mut body, parent)?;
-    Ok(HirFunc { name: fn_name, params, ret, body, is_async: false, is_arrow: false })
+    Ok(HirFunc {
+        name: fn_name,
+        params,
+        ret,
+        body,
+        is_async: false,
+        is_arrow: false,
+    })
 }
 
 /// Synthesize a static method `HirFunc` (NO `this`; name = `__rtsn_static_C_m`).

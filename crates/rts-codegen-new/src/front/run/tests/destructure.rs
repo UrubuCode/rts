@@ -9,7 +9,10 @@ use super::{assert_bails, assert_stdout};
 
 #[test]
 fn array_basic() {
-    assert_stdout("const [a, b, c] = [1, 2, 3]; console.log(a + b + c);", "6\n");
+    assert_stdout(
+        "const [a, b, c] = [1, 2, 3]; console.log(a + b + c);",
+        "6\n",
+    );
 }
 
 #[test]

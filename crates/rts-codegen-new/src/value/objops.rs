@@ -42,7 +42,7 @@ use rts_runtime::namespaces::gc::handles as rt_handles;
 use crate::shape::global_shape_keys;
 
 use super::inspect::looks_like_object;
-use super::{abi_adapter, PolyValue};
+use super::{PolyValue, abi_adapter};
 
 /// Resolve `(real_vec_handle, key_index)` for `obj_word`.`key`: `Some((handle, i))`
 /// when `obj_word` is a keyed object whose shape contains `key` (value lives at
@@ -88,9 +88,7 @@ fn key_text(key_str_handle: u64) -> String {
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
     match resolve_slot(obj_word, key_str_handle) {
-        Some((handle, idx)) => {
-            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 1 + idx) as u64
-        }
+        Some((handle, idx)) => rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 1 + idx) as u64,
         None => PolyValue::undefined().raw(),
     }
 }

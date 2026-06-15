@@ -11,7 +11,7 @@
 //! - `Box`/`Unbox` are PURE Cranelift IR (via [`crate::value`] emit helpers), so
 //!   Cranelift's egraph can fold a redundant `unbox(box(x))` to nothing.
 
-use cranelift_codegen::ir::{types, AbiParam, InstBuilder, Signature, Value};
+use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature, Value, types};
 use cranelift_frontend::FunctionBuilder;
 use cranelift_module::Module;
 
@@ -64,7 +64,10 @@ pub fn lower_func(module: &mut dyn Module, builder: &mut FunctionBuilder, func: 
         .params
         .iter()
         .enumerate()
-        .map(|(i, &repr)| Val { v: builder.block_params(entry)[i], repr })
+        .map(|(i, &repr)| Val {
+            v: builder.block_params(entry)[i],
+            repr,
+        })
         .collect();
 
     for node in &func.body {
@@ -93,16 +96,25 @@ fn lower_node(
     match node {
         Node::ConstF64(f) => {
             let v = builder.ins().f64const(*f);
-            Val { v, repr: Repr::Float64 }
+            Val {
+                v,
+                repr: Repr::Float64,
+            }
         }
         Node::ConstI32(i) => {
             // carry the int sign-extended in an i64 register.
             let v = builder.ins().iconst(types::I64, *i as i64);
-            Val { v, repr: Repr::Int32 }
+            Val {
+                v,
+                repr: Repr::Int32,
+            }
         }
         Node::ConstPoly(bits) => {
             let v = builder.ins().iconst(types::I64, *bits as i64);
-            Val { v, repr: Repr::Tagged }
+            Val {
+                v,
+                repr: Repr::Tagged,
+            }
         }
         Node::Param(n) => params[*n],
 
@@ -112,7 +124,10 @@ fn lower_node(
         Node::Box(inner) => {
             let iv = lower_node(module, builder, params, inner);
             let boxed = box_value(builder, iv);
-            Val { v: boxed, repr: Repr::Tagged }
+            Val {
+                v: boxed,
+                repr: Repr::Tagged,
+            }
         }
         Node::Unbox(inner, to) => {
             let iv = lower_node(module, builder, params, inner);
@@ -131,7 +146,10 @@ fn lower_node(
                 })
                 .collect();
             let ret = call_extern(module, builder, name, &lowered_args);
-            Val { v: ret, repr: Repr::Tagged }
+            Val {
+                v: ret,
+                repr: Repr::Tagged,
+            }
         }
 
         Node::Return(inner) => {
@@ -167,23 +185,35 @@ fn lower_arith(
                 ArithOp::Add => builder.ins().fadd(av.v, bv.v),
                 ArithOp::Mul => builder.ins().fmul(av.v, bv.v),
             };
-            Val { v, repr: Repr::Float64 }
+            Val {
+                v,
+                repr: Repr::Float64,
+            }
         }
         (Repr::Int32, Repr::Int32) => {
             let v = match op {
                 ArithOp::Add => builder.ins().iadd(av.v, bv.v),
                 ArithOp::Mul => builder.ins().imul(av.v, bv.v),
             };
-            Val { v, repr: Repr::Int32 }
+            Val {
+                v,
+                repr: Repr::Int32,
+            }
         }
         _ => {
             // Generic path: BOX both, CallExtern __rtsadp_add. (Mul has no generic
             // P1 path; it is only used on proven-numeric operands.)
-            debug_assert!(matches!(op, ArithOp::Add), "generic path only for Add in P1");
+            debug_assert!(
+                matches!(op, ArithOp::Add),
+                "generic path only for Add in P1"
+            );
             let boxed_a = box_value(builder, av);
             let boxed_b = box_value(builder, bv);
             let ret = call_extern(module, builder, "__rtsadp_add", &[boxed_a, boxed_b]);
-            Val { v: ret, repr: Repr::Tagged }
+            Val {
+                v: ret,
+                repr: Repr::Tagged,
+            }
         }
     }
 }
@@ -240,7 +270,11 @@ fn call_extern(
     args: &[Value],
 ) -> Value {
     let sig = sig_of(name).unwrap_or_else(|| panic!("unknown runtime symbol {name}"));
-    debug_assert_eq!(sig.param_slot_count(), args.len(), "symbol {name} arity mismatch");
+    debug_assert_eq!(
+        sig.param_slot_count(),
+        args.len(),
+        "symbol {name} arity mismatch"
+    );
     match emit_marshal::emit_call(module, builder, name, args) {
         Some(v) => v,
         None => {

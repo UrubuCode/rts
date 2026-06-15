@@ -14,12 +14,18 @@ use super::assert_stdout;
 
 #[test]
 fn untyped_arrow_map() {
-    assert_stdout("let a=[1,2,3]; console.log(a.map(x=>x*2).join(\",\"));", "2,4,6\n");
+    assert_stdout(
+        "let a=[1,2,3]; console.log(a.map(x=>x*2).join(\",\"));",
+        "2,4,6\n",
+    );
 }
 
 #[test]
 fn untyped_arrow_filter() {
-    assert_stdout("let a=[1,2,3,4]; console.log(a.filter(x=>x>2).join(\",\"));", "3,4\n");
+    assert_stdout(
+        "let a=[1,2,3,4]; console.log(a.filter(x=>x>2).join(\",\"));",
+        "3,4\n",
+    );
 }
 
 #[test]
@@ -49,7 +55,10 @@ fn untyped_function_add_number_and_string() {
 
 #[test]
 fn untyped_function_subtract() {
-    assert_stdout("function sub(a,b){ return a-b; } console.log(sub(10,3));", "7\n");
+    assert_stdout(
+        "function sub(a,b){ return a-b; } console.log(sub(10,3));",
+        "7\n",
+    );
 }
 
 #[test]
@@ -83,7 +92,10 @@ fn modulo_int_and_float() {
 
 #[test]
 fn modulo_untyped() {
-    assert_stdout("function m(a,b){ return a%b; } console.log(m(17,5));", "2\n");
+    assert_stdout(
+        "function m(a,b){ return a%b; } console.log(m(17,5));",
+        "2\n",
+    );
 }
 
 // ===========================================================================
@@ -118,7 +130,10 @@ fn untyped_unary_neg() {
 #[test]
 fn unary_bitnot_native_and_untyped() {
     // ~5 = -6, native int; through an untyped param too.
-    assert_stdout("console.log(~5); function bn(n){ return ~n; } console.log(bn(0));", "-6\n-1\n");
+    assert_stdout(
+        "console.log(~5); function bn(n){ return ~n; } console.log(bn(0));",
+        "-6\n-1\n",
+    );
 }
 
 // ===========================================================================

@@ -41,7 +41,7 @@ pub mod run;
 #[cfg(test)]
 mod tests;
 
-pub use error::{Unsupported, FrontResult};
+pub use error::{FrontResult, Unsupported};
 
 use rts_hir::HirFunc;
 

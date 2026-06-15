@@ -9,14 +9,14 @@
 //!   `LogAnd`/`LogOr`/`NullCoalesce` ops on the compound-assign node.
 
 use cranelift_codegen::ir::condcodes::IntCC;
-use cranelift_codegen::ir::{types, InstBuilder, Value};
+use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_module::Module;
 
 use rts_hir::{HirBinOp, HirExpr};
 
 use crate::repr::Repr;
 
-use crate::front::error::{unsupported, FrontResult, Unsupported};
+use crate::front::error::{FrontResult, Unsupported, unsupported};
 
 use super::lower::{Local, Lowerer, Val};
 use super::stmt::ident_target;
@@ -35,7 +35,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // Logical-assign ops short-circuit: `a &&= b` only evaluates/assigns `b`
         // when `a` is truthy (resp. `||=` when falsy, `??=` when nullish). Handled
         // by a dedicated path that builds the conditional store.
-        if matches!(op, HirBinOp::LogAnd | HirBinOp::LogOr | HirBinOp::NullCoalesce) {
+        if matches!(
+            op,
+            HirBinOp::LogAnd | HirBinOp::LogOr | HirBinOp::NullCoalesce
+        ) {
             return self.lower_logical_assign(module, op, &name, value);
         }
         let local = self
@@ -116,10 +119,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .builder
             .ins()
             .iconst(types::I64, crate::value::PolyValue::null().raw() as i64);
-        let undef_w = self
-            .builder
-            .ins()
-            .iconst(types::I64, crate::value::PolyValue::undefined().raw() as i64);
+        let undef_w = self.builder.ins().iconst(
+            types::I64,
+            crate::value::PolyValue::undefined().raw() as i64,
+        );
         let is_null = self.builder.ins().icmp(IntCC::Equal, cur, null_w);
         let is_undef = self.builder.ins().icmp(IntCC::Equal, cur, undef_w);
         let either = self.builder.ins().bor(is_null, is_undef);

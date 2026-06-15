@@ -42,11 +42,11 @@ mod method_dyn;
 pub mod module_jit;
 mod newexpr;
 mod obj;
+mod objstatic;
 mod optchain_lower;
 mod regex;
 mod registry;
 mod registry_call;
-mod objstatic;
 mod sig;
 mod stmt;
 mod thunk;
@@ -130,10 +130,7 @@ pub fn render_source_with_prelude(prelude_src: &str, user_src: &str) -> FrontRes
 /// The prelude must carry NO top-level statements (its `__rtsn_main` body must be
 /// empty) — only class/function declarations. Top-level code in the prelude is
 /// unsupported (there is one `__rtsn_main`, which belongs to the user program).
-fn merge_programs(
-    prelude: LoweredProgram,
-    user: LoweredProgram,
-) -> FrontResult<LoweredProgram> {
+fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<LoweredProgram> {
     if !prelude.main.body.is_empty() {
         return Err(Unsupported::new(
             "prelude must be declarations-only (no top-level statements)".to_string(),
@@ -188,8 +185,8 @@ pub(crate) struct LoweredProgram {
 /// statements are lowered against that same scope and wrapped as the body of a
 /// synthetic void function named `__rtsn_main`.
 fn build_program(src: &str) -> FrontResult<LoweredProgram> {
-    let program = rts_parser::parse_source(src)
-        .map_err(|e| Unsupported::new(format!("parse error: {e}")))?;
+    let program =
+        rts_parser::parse_source(src).map_err(|e| Unsupported::new(format!("parse error: {e}")))?;
 
     let mut scope = rts_hir::scope::Scope::new();
 
@@ -255,11 +252,18 @@ fn build_program(src: &str) -> FrontResult<LoweredProgram> {
     for desc in classes.iter() {
         fn_this_class.insert(desc.ctor.clone(), desc.name.clone());
         for fn_name in desc.methods.values() {
-            fn_this_class.entry(fn_name.clone()).or_insert(desc.name.clone());
+            fn_this_class
+                .entry(fn_name.clone())
+                .or_insert(desc.name.clone());
         }
         for acc in desc.accessors.values() {
-            for fn_name in [acc.getter.as_ref(), acc.setter.as_ref()].into_iter().flatten() {
-                fn_this_class.entry(fn_name.clone()).or_insert(desc.name.clone());
+            for fn_name in [acc.getter.as_ref(), acc.setter.as_ref()]
+                .into_iter()
+                .flatten()
+            {
+                fn_this_class
+                    .entry(fn_name.clone())
+                    .or_insert(desc.name.clone());
             }
         }
     }
@@ -303,7 +307,13 @@ fn build_program(src: &str) -> FrontResult<LoweredProgram> {
     let extracted = funcval::extract_arrows(&mut funcs, &mut main);
     funcs.extend(extracted.funcs);
 
-    Ok(LoweredProgram { funcs, main, classes, fn_this_class, captures: extracted.captures })
+    Ok(LoweredProgram {
+        funcs,
+        main,
+        classes,
+        fn_this_class,
+        captures: extracted.captures,
+    })
 }
 
 /// Phase 1 free-function `this` transform: give every FREE function (a top-level

@@ -29,7 +29,7 @@
 //!   dispatched here (array callbacks need a proven array receiver + reification) —
 //!   such a call BAILS at the caller, never guesses.
 
-use cranelift_codegen::ir::{types, InstBuilder, Value};
+use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_module::Module;
 
 use rts_hir::HirExpr;
@@ -70,25 +70,110 @@ struct DynMethod {
 ///   statically (it could be anything stored in the array).
 const DYN_METHODS: &[DynMethod] = &[
     // ---- defined on every value / both string+array ----
-    DynMethod { name: "toString", argc: 0, symbol: "__rtsadp_dyn_to_string", ret_kind: JsKind::Str },
-    DynMethod { name: "indexOf", argc: 1, symbol: "__rtsadp_dyn_index_of", ret_kind: JsKind::Number },
-    DynMethod { name: "includes", argc: 1, symbol: "__rtsadp_dyn_includes", ret_kind: JsKind::Bool },
-    DynMethod { name: "at", argc: 1, symbol: "__rtsadp_dyn_at", ret_kind: JsKind::Unknown },
-    DynMethod { name: "concat", argc: 1, symbol: "__rtsadp_dyn_concat", ret_kind: JsKind::Unknown },
+    DynMethod {
+        name: "toString",
+        argc: 0,
+        symbol: "__rtsadp_dyn_to_string",
+        ret_kind: JsKind::Str,
+    },
+    DynMethod {
+        name: "indexOf",
+        argc: 1,
+        symbol: "__rtsadp_dyn_index_of",
+        ret_kind: JsKind::Number,
+    },
+    DynMethod {
+        name: "includes",
+        argc: 1,
+        symbol: "__rtsadp_dyn_includes",
+        ret_kind: JsKind::Bool,
+    },
+    DynMethod {
+        name: "at",
+        argc: 1,
+        symbol: "__rtsadp_dyn_at",
+        ret_kind: JsKind::Unknown,
+    },
+    DynMethod {
+        name: "concat",
+        argc: 1,
+        symbol: "__rtsadp_dyn_concat",
+        ret_kind: JsKind::Unknown,
+    },
     // ---- array-only ----
-    DynMethod { name: "join", argc: 1, symbol: "__rtsadp_dyn_join", ret_kind: JsKind::Str },
-    DynMethod { name: "push", argc: 1, symbol: "__rtsadp_dyn_push", ret_kind: JsKind::Number },
-    DynMethod { name: "pop", argc: 0, symbol: "__rtsadp_dyn_pop", ret_kind: JsKind::Unknown },
+    DynMethod {
+        name: "join",
+        argc: 1,
+        symbol: "__rtsadp_dyn_join",
+        ret_kind: JsKind::Str,
+    },
+    DynMethod {
+        name: "push",
+        argc: 1,
+        symbol: "__rtsadp_dyn_push",
+        ret_kind: JsKind::Number,
+    },
+    DynMethod {
+        name: "pop",
+        argc: 0,
+        symbol: "__rtsadp_dyn_pop",
+        ret_kind: JsKind::Unknown,
+    },
     // ---- string-only ----
-    DynMethod { name: "toUpperCase", argc: 0, symbol: "__rtsadp_dyn_to_upper_case", ret_kind: JsKind::Str },
-    DynMethod { name: "toLowerCase", argc: 0, symbol: "__rtsadp_dyn_to_lower_case", ret_kind: JsKind::Str },
-    DynMethod { name: "trim", argc: 0, symbol: "__rtsadp_dyn_trim", ret_kind: JsKind::Str },
-    DynMethod { name: "charAt", argc: 1, symbol: "__rtsadp_dyn_char_at", ret_kind: JsKind::Str },
-    DynMethod { name: "charCodeAt", argc: 1, symbol: "__rtsadp_dyn_char_code_at", ret_kind: JsKind::Number },
-    DynMethod { name: "split", argc: 1, symbol: "__rtsadp_dyn_split", ret_kind: JsKind::Array },
-    DynMethod { name: "startsWith", argc: 1, symbol: "__rtsadp_dyn_starts_with", ret_kind: JsKind::Bool },
-    DynMethod { name: "endsWith", argc: 1, symbol: "__rtsadp_dyn_ends_with", ret_kind: JsKind::Bool },
-    DynMethod { name: "repeat", argc: 1, symbol: "__rtsadp_dyn_repeat", ret_kind: JsKind::Str },
+    DynMethod {
+        name: "toUpperCase",
+        argc: 0,
+        symbol: "__rtsadp_dyn_to_upper_case",
+        ret_kind: JsKind::Str,
+    },
+    DynMethod {
+        name: "toLowerCase",
+        argc: 0,
+        symbol: "__rtsadp_dyn_to_lower_case",
+        ret_kind: JsKind::Str,
+    },
+    DynMethod {
+        name: "trim",
+        argc: 0,
+        symbol: "__rtsadp_dyn_trim",
+        ret_kind: JsKind::Str,
+    },
+    DynMethod {
+        name: "charAt",
+        argc: 1,
+        symbol: "__rtsadp_dyn_char_at",
+        ret_kind: JsKind::Str,
+    },
+    DynMethod {
+        name: "charCodeAt",
+        argc: 1,
+        symbol: "__rtsadp_dyn_char_code_at",
+        ret_kind: JsKind::Number,
+    },
+    DynMethod {
+        name: "split",
+        argc: 1,
+        symbol: "__rtsadp_dyn_split",
+        ret_kind: JsKind::Array,
+    },
+    DynMethod {
+        name: "startsWith",
+        argc: 1,
+        symbol: "__rtsadp_dyn_starts_with",
+        ret_kind: JsKind::Bool,
+    },
+    DynMethod {
+        name: "endsWith",
+        argc: 1,
+        symbol: "__rtsadp_dyn_ends_with",
+        ret_kind: JsKind::Bool,
+    },
+    DynMethod {
+        name: "repeat",
+        argc: 1,
+        symbol: "__rtsadp_dyn_repeat",
+        ret_kind: JsKind::Str,
+    },
 ];
 
 /// `.slice` is special: it has BOTH a 1-arg ("to end") and a 2-arg form, and its
@@ -128,7 +213,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return self.emit_dyn_slice(module, recv, args).map(Some);
         }
 
-        let Some(m) = DYN_METHODS.iter().find(|m| m.name == method && m.argc == args.len()) else {
+        let Some(m) = DYN_METHODS
+            .iter()
+            .find(|m| m.name == method && m.argc == args.len())
+        else {
             return Ok(None);
         };
 

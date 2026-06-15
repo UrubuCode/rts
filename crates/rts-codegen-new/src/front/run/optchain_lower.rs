@@ -8,7 +8,7 @@
 //! - `recv.__rts_opt_call(args)` → `nullish(recv) ? undefined : invoke(recv,args)`.
 
 use cranelift_codegen::ir::condcodes::IntCC;
-use cranelift_codegen::ir::{types, InstBuilder};
+use cranelift_codegen::ir::{InstBuilder, types};
 use cranelift_module::Module;
 
 use rts_hir::HirExpr;
@@ -77,7 +77,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let join_blk = self.builder.create_block();
         self.builder.append_block_param(join_blk, types::I64);
 
-        self.builder.ins().brif(nullish, then_blk, &[], else_blk, &[]);
+        self.builder
+            .ins()
+            .brif(nullish, then_blk, &[], else_blk, &[]);
 
         // nullish → undefined.
         self.builder.switch_to_block(then_blk);

@@ -153,15 +153,36 @@ impl FnSig {
         // repr) removes the carrier entirely, so canonicalization only ever sees
         // genuine doubles. A numeric-param function (the legitimate arrow-default
         // case `(x: number) => x*2`) is unaffected — its body really is native f64.
-        if ret != Repr::Tagged && func.params.iter().any(|p| repr_for_param(&p.ty) == Repr::Tagged) {
+        if ret != Repr::Tagged
+            && func
+                .params
+                .iter()
+                .any(|p| repr_for_param(&p.ty) == Repr::Tagged)
+        {
             ret = Repr::Tagged;
         }
-        FnSig { name: func.name.clone(), params, ret: Some(ret), is_async: func.is_async, rest_param, fillable, has_this }
+        FnSig {
+            name: func.name.clone(),
+            params,
+            ret: Some(ret),
+            is_async: func.is_async,
+            rest_param,
+            fillable,
+            has_this,
+        }
     }
 
     /// The synthesized top-level `__rtsn_main`: no params, no return.
     pub fn main_sig() -> FnSig {
-        FnSig { name: "__rtsn_main".to_string(), params: Vec::new(), ret: None, is_async: false, rest_param: None, fillable: Vec::new(), has_this: false }
+        FnSig {
+            name: "__rtsn_main".to_string(),
+            params: Vec::new(),
+            ret: None,
+            is_async: false,
+            rest_param: None,
+            fillable: Vec::new(),
+            has_this: false,
+        }
     }
 
     /// Build the Cranelift `Signature` for this function under the host call conv.
@@ -227,9 +248,5 @@ fn walk_returns(stmts: &[HirStmt], any: &mut bool, all_float: &mut bool) {
 /// carrier, which `cl_type` already handles — `Tagged` vs `Bool` only differ in
 /// the value layer's interpretation, both are i64 registers).
 fn repr_or_tagged(r: Repr) -> Repr {
-    if r.is_unboxed() {
-        r
-    } else {
-        Repr::Tagged
-    }
+    if r.is_unboxed() { r } else { Repr::Tagged }
 }

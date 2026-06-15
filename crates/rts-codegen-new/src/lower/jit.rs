@@ -78,12 +78,17 @@ pub fn compile(func: &Func) -> JitFunc {
         fb.finalize();
     }
 
-    module.define_function(func_id, &mut ctx).expect("define entry");
+    module
+        .define_function(func_id, &mut ctx)
+        .expect("define entry");
     module.clear_context(&mut ctx);
     module.finalize_definitions().expect("finalize");
 
     let code = module.get_finalized_function(func_id);
-    JitFunc { _module: module, code }
+    JitFunc {
+        _module: module,
+        code,
+    }
 }
 
 // ---------------------------------------------------------------------------

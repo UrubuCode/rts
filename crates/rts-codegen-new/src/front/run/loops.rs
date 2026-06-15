@@ -22,7 +22,7 @@
 //! floor — never a silently-wrong iteration.
 
 use cranelift_codegen::ir::condcodes::IntCC;
-use cranelift_codegen::ir::{types, InstBuilder, Value};
+use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_module::Module;
 
 use rts_hir::ir::HirExprKind;
@@ -30,9 +30,9 @@ use rts_hir::{HirExpr, HirStmt, HirType};
 
 use crate::repr::Repr;
 
-use crate::front::error::{unsupported, FrontResult};
+use crate::front::error::{FrontResult, unsupported};
 
-use super::lower::{cl_type, JsKind, Local, LoopCtx, Lowerer};
+use super::lower::{JsKind, Local, LoopCtx, Lowerer, cl_type};
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// C-style `for (init; test; update) body`.
@@ -72,14 +72,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
             None => self.builder.ins().iconst(types::I64, 1),
         };
-        self.builder.ins().brif(cond_v, body_block, &[], exit_block, &[]);
+        self.builder
+            .ins()
+            .brif(cond_v, body_block, &[], exit_block, &[]);
 
         // ---- body: `continue` → update_block, `break` → exit_block ----
         self.builder.switch_to_block(body_block);
         self.builder.seal_block(body_block);
         self.block_terminated = false;
-        self.loop_stack
-            .push(LoopCtx { exit: exit_block, continue_target: update_block });
+        self.loop_stack.push(LoopCtx {
+            exit: exit_block,
+            continue_target: update_block,
+        });
         self.lower_block(module, body)?;
         self.loop_stack.pop();
         if !self.block_terminated {
@@ -225,8 +229,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // The per-iteration binding local (fresh Tagged var). Record its shape/class
         // bookkeeping as cleared — it holds an opaque element word.
         let bind_var = self.builder.declare_var(cl_type(Repr::Tagged));
-        self.locals
-            .insert(binding.to_string(), Local { var: bind_var, repr: Repr::Tagged });
+        self.locals.insert(
+            binding.to_string(),
+            Local {
+                var: bind_var,
+                repr: Repr::Tagged,
+            },
+        );
         self.local_shapes.remove(binding);
         self.local_classes.remove(binding);
         self.global_instance_classes.remove(binding);
@@ -245,7 +254,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let n = self.builder.use_var(len_var);
         let lt = self.builder.ins().icmp(IntCC::SignedLessThan, i, n);
         let cond_v = self.builder.ins().uextend(types::I64, lt);
-        self.builder.ins().brif(cond_v, body_block, &[], exit_block, &[]);
+        self.builder
+            .ins()
+            .brif(cond_v, body_block, &[], exit_block, &[]);
 
         // ---- body: bind `x = arr[i]`, then run the body ----
         self.builder.switch_to_block(body_block);
@@ -255,8 +266,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let i = self.builder.use_var(idx_var);
         let elem = crate::value::emit_marshal::emit_vec_get(module, self.builder, arr, i);
         self.builder.def_var(bind_var, elem);
-        self.loop_stack
-            .push(LoopCtx { exit: exit_block, continue_target: advance_block });
+        self.loop_stack.push(LoopCtx {
+            exit: exit_block,
+            continue_target: advance_block,
+        });
         self.lower_block(module, body)?;
         self.loop_stack.pop();
         if !self.block_terminated {
@@ -303,11 +316,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if label.is_some() {
             return unsupported!("labeled `continue` (labeled control flow is a later increment)");
         }
-        let ctx = self
-            .loop_stack
-            .last()
-            .copied()
-            .ok_or_else(|| crate::front::error::Unsupported::new("`continue` outside a loop"))?;
+        let ctx =
+            self.loop_stack.last().copied().ok_or_else(|| {
+                crate::front::error::Unsupported::new("`continue` outside a loop")
+            })?;
         self.builder.ins().jump(ctx.continue_target, &[]);
         self.block_terminated = true;
         Ok(())

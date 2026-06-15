@@ -16,8 +16,8 @@ use rts_runtime::namespaces::gc::handles as rt_handles;
 use crate::lower::ir::{Func, Node};
 use crate::lower::jit;
 use crate::repr::Repr;
-use crate::value::{abi_adapter, genops};
 use crate::value::PolyValue;
+use crate::value::{abi_adapter, genops};
 
 // ===========================================================================
 // Proof 1 — numeric_unboxed
@@ -72,9 +72,16 @@ fn bool_survives_fn_boundary() {
     let out = PolyValue::from_raw(id(input.raw()));
 
     // The old engine would have round-tripped this as the integer 1 ("1").
-    assert!(out.is_bool(), "boolean lost its tag crossing the fn boundary");
+    assert!(
+        out.is_bool(),
+        "boolean lost its tag crossing the fn boundary"
+    );
     assert!(out.as_bool(), "true did not survive as true");
-    assert_eq!(out.typeof_str(), "boolean", "typeof must be boolean, not number");
+    assert_eq!(
+        out.typeof_str(),
+        "boolean",
+        "typeof must be boolean, not number"
+    );
     assert_eq!(out.raw(), input.raw(), "exact bit round-trip");
 
     // false too, and a negative control: an int32 1 stays a number, not a bool.
@@ -125,7 +132,10 @@ fn float_in_heterogeneous_container() {
     };
     let jit_push = jit::jit_run_u64_u64(&push_float);
     let returned = jit_push(vec);
-    assert_eq!(returned, vec, "JIT'd push returned the vec handle unchanged");
+    assert_eq!(
+        returned, vec,
+        "JIT'd push returned the vec handle unchanged"
+    );
 
     // Push the int32 and the string via the REAL extern directly from Rust. The
     // i64 element is the PolyValue raw word.
@@ -198,7 +208,10 @@ fn gc_marks_through_nanboxed_container() {
     // The full real handle of the boxed string (gen reconstructed from the live
     // slot). BEFORE marking, its mark bit must be clear.
     let str_handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(payload);
-    assert_ne!(str_handle, 0, "interned string must be live before the mark");
+    assert_ne!(
+        str_handle, 0,
+        "interned string must be live before the mark"
+    );
     assert_eq!(
         rt_handles::handle_is_marked(str_handle),
         Some(false),
@@ -222,16 +235,30 @@ fn gc_marks_through_nanboxed_container() {
     );
 
     // The Vec root itself is marked too, and still resolves to length 1.
-    assert_eq!(rt_handles::handle_is_marked(vec), Some(true), "Vec root must be marked");
-    assert_eq!(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(vec), 1, "Vec must resolve, len 1");
+    assert_eq!(
+        rt_handles::handle_is_marked(vec),
+        Some(true),
+        "Vec root must be marked"
+    );
+    assert_eq!(
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(vec),
+        1,
+        "Vec must resolve, len 1"
+    );
 
     // The stored word still round-trips: reconstruct the handle and read the bytes
     // back through the REAL pool, proving the bridge + storage are intact.
     let stored = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(vec, 0) as u64;
     let stored_pv = PolyValue::from_raw(stored);
-    assert!(stored_pv.is_string(), "stored word must still be a string PolyValue");
+    assert!(
+        stored_pv.is_string(),
+        "stored word must still be a string PolyValue"
+    );
     let real = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(stored_pv.as_handle());
-    assert_eq!(real, str_handle, "stored payload reconstructs the same live handle");
+    assert_eq!(
+        real, str_handle,
+        "stored payload reconstructs the same live handle"
+    );
     assert_eq!(
         abi_adapter::real_handle_to_string(real),
         "survive-the-gc",
@@ -271,7 +298,10 @@ fn polymorphic_add_one_path() {
 
     // add(1, 2) → int32 3, typeof "number".
     let r = PolyValue::from_raw(jit_add_ii(1, 2));
-    assert!(r.is_int32() && r.as_i32() == 3, "1+2 should be int32 3, got {r:?}");
+    assert!(
+        r.is_int32() && r.as_i32() == 3,
+        "1+2 should be int32 3, got {r:?}"
+    );
     assert_eq!(r.typeof_str(), "number");
 
     // Helper: a zero-param JIT'd fn that CallExterns __rtsadp_add on two Tagged
@@ -301,7 +331,10 @@ fn polymorphic_add_one_path() {
     let one = PolyValue::from_i32(1);
     let sx = abi_adapter::intern_poly("x");
     let onex = add_consts(one, sx);
-    assert!(onex.is_string(), r#"1+"x" should be a string, got {onex:?}"#);
+    assert!(
+        onex.is_string(),
+        r#"1+"x" should be a string, got {onex:?}"#
+    );
     assert_eq!(abi_adapter::resolve_poly(onex), "1x");
     assert_eq!(onex.typeof_str(), "string");
 
@@ -339,7 +372,11 @@ fn typeof_single_tag() {
         // generic op: returns a string-handle PolyValue (interned in the real pool).
         let result = PolyValue::from_raw(genops::__rtsadp_typeof(v.raw()));
         assert!(result.is_string());
-        assert_eq!(abi_adapter::resolve_poly(result), want, "__rtsadp_typeof wrong for {v:?}");
+        assert_eq!(
+            abi_adapter::resolve_poly(result),
+            want,
+            "__rtsadp_typeof wrong for {v:?}"
+        );
     }
 }
 
@@ -381,7 +418,17 @@ fn box_unbox_is_folded_pair() {
         Node::unbox(Node::boxed(Node::Param(0)), Repr::Int32),
     );
     let idf = jit::jit_run_i64_i64(&id_box);
-    for x in [0_i64, 1, -1, 42, -42, 123456, -987654, i32::MAX as i64, i32::MIN as i64] {
+    for x in [
+        0_i64,
+        1,
+        -1,
+        42,
+        -42,
+        123456,
+        -987654,
+        i32::MAX as i64,
+        i32::MIN as i64,
+    ] {
         assert_eq!(idf(x), x, "box/unbox identity failed for {x}");
     }
 }

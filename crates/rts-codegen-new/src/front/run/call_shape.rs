@@ -3,8 +3,8 @@
 //! object/array value (vs a scalar pulled from one), which routes it to the inspect
 //! trampolines or BAILS (object inspect near-misses).
 
-use rts_hir::ir::HirExprKind;
 use rts_hir::HirExpr;
+use rts_hir::ir::HirExprKind;
 
 use crate::repr::Repr;
 
@@ -25,7 +25,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // (a param, a re-`let` opaque local). A shaped local / object local is
             // handled by the static path; a numeric/bool local is not Tagged.
             HirExprKind::Ident(name) => {
-                self.local(name).is_some_and(|l| matches!(l.repr, Repr::Tagged))
+                self.local(name)
+                    .is_some_and(|l| matches!(l.repr, Repr::Tagged))
                     && self.local_shapes.get(name).is_none()
                     && !self.object_locals.contains(name)
             }

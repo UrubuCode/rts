@@ -204,7 +204,10 @@ fn object_return_bails() {
 fn unknown_function_name_errors() {
     let src = "function present(x: number): number { return x; }";
     let res = parse_function(src, "absent");
-    assert!(res.is_err(), "asking for a missing function name must error");
+    assert!(
+        res.is_err(),
+        "asking for a missing function name must error"
+    );
 }
 
 #[test]

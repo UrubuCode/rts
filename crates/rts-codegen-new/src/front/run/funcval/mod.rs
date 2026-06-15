@@ -107,7 +107,10 @@ pub fn extract_arrows(funcs: &mut Vec<HirFunc>, main: &mut HirFunc) -> ExtractRe
     // builds the env from the call-site locals (handled in `lower_call`).
     hoist_captures(funcs, main, &mut ctx);
 
-    ExtractResult { funcs: ctx.synthesized, captures: ctx.captures }
+    ExtractResult {
+        funcs: ctx.synthesized,
+        captures: ctx.captures,
+    }
 }
 
 /// Convert hoisted top-level functions that capture a main-scope local into
@@ -151,10 +154,7 @@ fn hoist_captures(funcs: &mut [HirFunc], main: &HirFunc, ctx: &mut Ctx) {
                 continue;
             }
             // A free ident outside those sets must be a capturable main-scope local.
-            if !main_locals.contains(id)
-                || body_assigns.contains(id)
-                || main_mutated.contains(id)
-            {
+            if !main_locals.contains(id) || body_assigns.contains(id) || main_mutated.contains(id) {
                 sound = false; // unknown name / mutable / aliased — leave to bail.
                 break;
             }
@@ -320,7 +320,10 @@ impl Ctx {
                 // unsound by-value).
                 if let Some(name) = self.try_extract(e, scope, mutated) {
                     e.kind = HirExprKind::Ident(name);
-                    e.ty = HirType::Function { params: Vec::new(), ret: Box::new(HirType::Any) };
+                    e.ty = HirType::Function {
+                        params: Vec::new(),
+                        ret: Box::new(HirType::Any),
+                    };
                 }
                 // On failure (unsound capture/unsupported) leave the Arrow → the
                 // lowering bails explicitly.
@@ -422,4 +425,3 @@ impl Ctx {
         Some(name)
     }
 }
-

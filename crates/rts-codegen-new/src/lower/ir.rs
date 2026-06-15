@@ -62,7 +62,11 @@ pub struct Func {
 impl Func {
     /// Helper: a single-`Return` function over `params`/`ret`.
     pub fn single(params: Vec<Repr>, ret: Repr, expr: Node) -> Func {
-        Func { params, ret, body: vec![Node::Return(Box::new(expr))] }
+        Func {
+            params,
+            ret,
+            body: vec![Node::Return(Box::new(expr))],
+        }
     }
 }
 

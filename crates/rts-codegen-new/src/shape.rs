@@ -50,7 +50,10 @@ struct GlobalShapeRegistry {
 fn registry() -> &'static Mutex<GlobalShapeRegistry> {
     static REG: OnceLock<Mutex<GlobalShapeRegistry>> = OnceLock::new();
     REG.get_or_init(|| {
-        Mutex::new(GlobalShapeRegistry { keys: Vec::new(), by_keys: HashMap::new() })
+        Mutex::new(GlobalShapeRegistry {
+            keys: Vec::new(),
+            by_keys: HashMap::new(),
+        })
     })
 }
 
@@ -153,7 +156,11 @@ impl ShapeTable {
             .enumerate()
             .map(|(i, k)| (k.clone(), i as SlotIdx))
             .collect();
-        self.shapes.push(Shape { id, keys: keys.to_vec(), slots });
+        self.shapes.push(Shape {
+            id,
+            keys: keys.to_vec(),
+            slots,
+        });
         self.by_keys.insert(keys.to_vec(), id);
         id
     }

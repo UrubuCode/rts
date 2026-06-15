@@ -29,7 +29,7 @@
 //! every indirect call goes through this fixed shape. The common ≤4-arg case
 //! reads only `a0..a3` and never touches the rest array.
 
-use cranelift_codegen::ir::{types, AbiParam, InstBuilder, Signature, Value};
+use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature, Value, types};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_jit::JITModule;
 use cranelift_module::{FuncId, Linkage, Module};
@@ -37,7 +37,7 @@ use cranelift_module::{FuncId, Linkage, Module};
 use crate::repr::Repr;
 use crate::value::{self, emit_marshal};
 
-use crate::front::error::{unsupported, FrontResult, Unsupported};
+use crate::front::error::{FrontResult, Unsupported, unsupported};
 
 use super::sig::FnSig;
 
@@ -194,9 +194,11 @@ fn unbox_word_to_repr(fb: &mut FunctionBuilder, word: Value, repr: Repr) -> Fron
             let true_word = fb
                 .ins()
                 .iconst(types::I64, value::PolyValue::bool(true).raw() as i64);
-            let b = fb
-                .ins()
-                .icmp(cranelift_codegen::ir::condcodes::IntCC::Equal, word, true_word);
+            let b = fb.ins().icmp(
+                cranelift_codegen::ir::condcodes::IntCC::Equal,
+                word,
+                true_word,
+            );
             fb.ins().uextend(types::I64, b)
         }
         other => return unsupported!("thunk cannot unbox a param of repr {other:?}"),

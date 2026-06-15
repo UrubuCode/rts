@@ -365,5 +365,8 @@ fn bail_histogram() {
     }
 
     eprintln!("\n--- totals ---");
-    eprintln!("run / bail = {ran} / {bailed}  (of {} scanned)", fixtures.len());
+    eprintln!(
+        "run / bail = {ran} / {bailed}  (of {} scanned)",
+        fixtures.len()
+    );
 }

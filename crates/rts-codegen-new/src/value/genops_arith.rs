@@ -17,8 +17,8 @@
 //! to lower generically. `__rtsadp_strict_eq`/`_neq` already live in
 //! [`super::genops`]; equality is not re-added here.
 
-use super::genops::{number_result, string_content, to_boolean, to_number};
 use super::PolyValue;
+use super::genops::{number_result, string_content, to_boolean, to_number};
 
 // ===========================================================================
 // Arithmetic — both operands ToNumber, result a PolyValue number.

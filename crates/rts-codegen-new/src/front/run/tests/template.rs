@@ -15,7 +15,10 @@ fn interp_number_var() {
 
 #[test]
 fn two_string_vars() {
-    assert_stdout(r#"let a = "x"; let b = "y"; console.log(`${a}-${b}!`);"#, "x-y!\n");
+    assert_stdout(
+        r#"let a = "x"; let b = "y"; console.log(`${a}-${b}!`);"#,
+        "x-y!\n",
+    );
 }
 
 #[test]
@@ -33,7 +36,10 @@ fn bool_and_array_coercion() {
 
 #[test]
 fn null_and_undefined_coercion() {
-    assert_stdout(r#"let a = null; let b = undefined; console.log(`${a},${b}`);"#, "null,undefined\n");
+    assert_stdout(
+        r#"let a = null; let b = undefined; console.log(`${a},${b}`);"#,
+        "null,undefined\n",
+    );
 }
 
 #[test]
@@ -65,7 +71,10 @@ fn template_in_user_function() {
 #[test]
 fn nested_template() {
     // A template interpolated inside another template's interpolation.
-    assert_stdout(r#"let n = 2; console.log(`outer ${`in${n}`} done`);"#, "outer in2 done\n");
+    assert_stdout(
+        r#"let n = 2; console.log(`outer ${`in${n}`} done`);"#,
+        "outer in2 done\n",
+    );
 }
 
 #[test]

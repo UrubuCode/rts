@@ -19,7 +19,7 @@ use rts_runtime::namespaces::globals::number as rt_num;
 use rts_runtime::namespaces::globals::string::rt as rt_gl_str;
 
 use super::abi_adapter;
-use super::{genops, PolyValue};
+use super::{PolyValue, genops};
 
 /// Box a real runtime handle as a `TAG_OBJECT` PolyValue word (a wrapper / error
 /// instance is an object: `typeof === "object"`).
@@ -65,8 +65,14 @@ macro_rules! err_ctor {
 err_ctor!(__rtsadp_err_new, rt_err::__RTS_FN_GL_ERROR_NEW);
 err_ctor!(__rtsadp_err_new_type, rt_err::__RTS_FN_GL_TYPE_ERROR_NEW);
 err_ctor!(__rtsadp_err_new_range, rt_err::__RTS_FN_GL_RANGE_ERROR_NEW);
-err_ctor!(__rtsadp_err_new_reference, rt_err::__RTS_FN_GL_REF_ERROR_NEW);
-err_ctor!(__rtsadp_err_new_syntax, rt_err::__RTS_FN_GL_SYNTAX_ERROR_NEW);
+err_ctor!(
+    __rtsadp_err_new_reference,
+    rt_err::__RTS_FN_GL_REF_ERROR_NEW
+);
+err_ctor!(
+    __rtsadp_err_new_syntax,
+    rt_err::__RTS_FN_GL_SYNTAX_ERROR_NEW
+);
 err_ctor!(__rtsadp_err_new_uri, rt_err::__RTS_FN_GL_URI_ERROR_NEW);
 err_ctor!(__rtsadp_err_new_eval, rt_err::__RTS_FN_GL_EVAL_ERROR_NEW);
 

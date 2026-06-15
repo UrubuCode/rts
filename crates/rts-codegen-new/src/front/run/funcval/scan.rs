@@ -104,9 +104,9 @@ fn collect_mutated_expr(e: &HirExpr, out: &mut HashSet<String>) {
             collect_mutated_expr(else_, out);
         }
         HirExprKind::Array(elems) => elems.iter().for_each(|el| collect_mutated_expr(el, out)),
-        HirExprKind::Object(fields) => {
-            fields.iter().for_each(|(_, v)| collect_mutated_expr(v, out))
-        }
+        HirExprKind::Object(fields) => fields
+            .iter()
+            .for_each(|(_, v)| collect_mutated_expr(v, out)),
         // A nested arrow's assignments to its OWN params/locals are irrelevant to
         // the outer scope; conservatively descend (over-approximating mutation is
         // sound — it only makes us bail more). Its captures are handled when it is

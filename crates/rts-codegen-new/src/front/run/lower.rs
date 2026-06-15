@@ -20,7 +20,7 @@
 
 use std::collections::HashMap;
 
-use cranelift_codegen::ir::{types, InstBuilder, Value};
+use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_frontend::{FunctionBuilder, Variable};
 use cranelift_module::Module;
 
@@ -30,7 +30,7 @@ use crate::repr::Repr;
 use crate::shape::{ShapeId, ShapeTable};
 use crate::value;
 
-use crate::front::error::{unsupported, FrontResult, Unsupported};
+use crate::front::error::{FrontResult, Unsupported, unsupported};
 
 use super::sig::FnSig;
 
@@ -99,7 +99,11 @@ impl Val {
 
     /// A Tagged value with an explicit proven kind (string/null/undefined literal).
     pub(crate) fn tagged_kind(v: Value, kind: JsKind) -> Val {
-        Val { v, repr: Repr::Tagged, kind }
+        Val {
+            v,
+            repr: Repr::Tagged,
+            kind,
+        }
     }
 
     /// A value carrying an explicit repr AND an explicit proven kind (used where a
@@ -296,8 +300,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if let Some(class) = this_class {
             if let Some(desc) = classes.get(class) {
                 let shape_id = ctx.shapes.intern(&desc.fields);
-                ctx.local_shapes.insert(super::class::THIS.to_string(), HeapShape::Object(shape_id));
-                ctx.local_classes.insert(super::class::THIS.to_string(), class.to_string());
+                ctx.local_shapes
+                    .insert(super::class::THIS.to_string(), HeapShape::Object(shape_id));
+                ctx.local_classes
+                    .insert(super::class::THIS.to_string(), class.to_string());
             }
         }
 
@@ -338,11 +344,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// The default is lowered in the CALLEE scope (earlier params bound), coerced to
     /// the param's repr (`Tagged` for any fillable param), and stored back into the
     /// param's Variable, so the body reads the resolved value on every path.
-    fn fill_default_params(
-        &mut self,
-        module: &mut dyn Module,
-        func: &HirFunc,
-    ) -> FrontResult<()> {
+    fn fill_default_params(&mut self, module: &mut dyn Module, func: &HirFunc) -> FrontResult<()> {
         for p in &func.params {
             let default = match &p.default_expr {
                 Some(e) => e,
@@ -369,7 +371,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
             let fill_blk = self.builder.create_block();
             let join_blk = self.builder.create_block();
-            self.builder.ins().brif(is_undef, fill_blk, &[], join_blk, &[]);
+            self.builder
+                .ins()
+                .brif(is_undef, fill_blk, &[], join_blk, &[]);
 
             // undefined → lower the default, coerce to the param repr, store it.
             self.builder.switch_to_block(fill_blk);
@@ -523,6 +527,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 args.len()
             );
         }
-        Ok(crate::value::emit_marshal::emit_call(module, self.builder, name, args))
+        Ok(crate::value::emit_marshal::emit_call(
+            module,
+            self.builder,
+            name,
+            args,
+        ))
     }
 }

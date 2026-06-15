@@ -44,7 +44,11 @@ fn doubles_roundtrip_and_classify() {
         assert!(!v.is_function());
         // exact round-trip
         let back = v.as_f64();
-        assert_eq!(back.to_bits(), d.to_bits(), "{d} did not round-trip exactly");
+        assert_eq!(
+            back.to_bits(),
+            d.to_bits(),
+            "{d} did not round-trip exactly"
+        );
         assert_eq!(v.typeof_str(), "number");
     }
 }
@@ -104,7 +108,17 @@ fn nan_is_canonicalized_and_classifies_as_double() {
 
 #[test]
 fn int32_roundtrip() {
-    for &i in &[0i32, 1, -1, 42, -42, i32::MIN, i32::MAX, 0x7FFF_FFFF, -0x8000_0000] {
+    for &i in &[
+        0i32,
+        1,
+        -1,
+        42,
+        -42,
+        i32::MIN,
+        i32::MAX,
+        0x7FFF_FFFF,
+        -0x8000_0000,
+    ] {
         let v = PolyValue::from_i32(i);
         assert!(v.is_int32(), "{i} should be int32");
         assert!(v.is_boxed());

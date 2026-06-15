@@ -20,12 +20,18 @@ fn array_includes() {
 
 #[test]
 fn array_at() {
-    assert_stdout("let a = [5, 6, 7]; console.log(a.at(0), a.at(-1));", "5 7\n");
+    assert_stdout(
+        "let a = [5, 6, 7]; console.log(a.at(0), a.at(-1));",
+        "5 7\n",
+    );
 }
 
 #[test]
 fn array_join() {
-    assert_stdout(r#"let a = ["x", "y", "z"]; console.log(a.join("-"));"#, "x-y-z\n");
+    assert_stdout(
+        r#"let a = ["x", "y", "z"]; console.log(a.join("-"));"#,
+        "x-y-z\n",
+    );
     assert_stdout(r#"let a = [1, 2, 3]; console.log(a.join(""));"#, "123\n");
 }
 
@@ -55,14 +61,20 @@ fn array_slice() {
 
 #[test]
 fn array_index_of_heterogeneous() {
-    assert_stdout(r#"let m = [1, "two", 3]; console.log(m.indexOf("two"));"#, "1\n");
+    assert_stdout(
+        r#"let m = [1, "two", 3]; console.log(m.indexOf("two"));"#,
+        "1\n",
+    );
 }
 
 // ---- P5.2 non-callback methods ----
 
 #[test]
 fn array_reverse() {
-    assert_stdout("let a = [1, 2, 3]; console.log(a.reverse().join(\",\"));", "3,2,1\n");
+    assert_stdout(
+        "let a = [1, 2, 3]; console.log(a.reverse().join(\",\"));",
+        "3,2,1\n",
+    );
 }
 
 #[test]
@@ -72,12 +84,18 @@ fn array_concat() {
 
 #[test]
 fn array_last_index_of() {
-    assert_stdout("let a = [1, 2, 1, 3]; console.log(a.lastIndexOf(1));", "2\n");
+    assert_stdout(
+        "let a = [1, 2, 1, 3]; console.log(a.lastIndexOf(1));",
+        "2\n",
+    );
 }
 
 #[test]
 fn array_fill() {
-    assert_stdout("let a = [1, 2, 3]; console.log(a.fill(0).join(\",\"));", "0,0,0\n");
+    assert_stdout(
+        "let a = [1, 2, 3]; console.log(a.fill(0).join(\",\"));",
+        "0,0,0\n",
+    );
 }
 
 #[test]

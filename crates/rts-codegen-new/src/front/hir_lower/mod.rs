@@ -23,7 +23,7 @@ mod stmt;
 
 use std::collections::HashMap;
 
-use cranelift_codegen::ir::{types, AbiParam, InstBuilder, Signature, Value};
+use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature, Value, types};
 use cranelift_frontend::{FunctionBuilder, Variable};
 use cranelift_module::Module;
 
@@ -31,7 +31,7 @@ use rts_hir::{HirFunc, HirType};
 
 use crate::repr::Repr;
 
-use super::error::{unsupported, FrontResult, Unsupported};
+use super::error::{FrontResult, Unsupported, unsupported};
 use super::repr_map::repr_of;
 
 /// The Cranelift type a value of `repr` is carried in (mirrors the P1
@@ -84,7 +84,10 @@ pub fn signature_for(func: &HirFunc, module: &dyn Module) -> FrontResult<Signatu
             return unsupported!("parameter `{}` is variadic/defaulted", p.name);
         }
         let r = numeric_repr(&p.ty).ok_or_else(|| {
-            Unsupported::new(format!("parameter `{}` has non-numeric type {:?}", p.name, p.ty))
+            Unsupported::new(format!(
+                "parameter `{}` has non-numeric type {:?}",
+                p.name, p.ty
+            ))
         })?;
         sig.params.push(AbiParam::new(cl_type(r)));
     }
@@ -128,7 +131,10 @@ pub fn lower_func(
     // so control flow sees it as a normal SSA-managed binding.
     for (i, p) in func.params.iter().enumerate() {
         let repr = numeric_repr(&p.ty).ok_or_else(|| {
-            Unsupported::new(format!("parameter `{}` has non-numeric type {:?}", p.name, p.ty))
+            Unsupported::new(format!(
+                "parameter `{}` has non-numeric type {:?}",
+                p.name, p.ty
+            ))
         })?;
         let block_val = ctx.builder.block_params(entry)[i];
         let var = ctx.builder.declare_var(cl_type(repr));
@@ -143,7 +149,10 @@ pub fn lower_func(
     // on every path; we surface a missing tail return as a bail rather than
     // emit a bogus default.
     if !ctx.block_terminated {
-        return unsupported!("function `{}` may fall through without returning", func.name);
+        return unsupported!(
+            "function `{}` may fall through without returning",
+            func.name
+        );
     }
     Ok(())
 }

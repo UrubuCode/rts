@@ -60,7 +60,7 @@ use rts_runtime::namespaces::gc::handles as rt_handles;
 use crate::shape::global_shape_keys;
 
 use super::abi_adapter;
-use super::{genops, PolyValue};
+use super::{PolyValue, genops};
 
 /// Recursion-depth guard: a pathological deeply-nested / cyclic structure renders
 /// `[Array]` past this depth rather than recurse forever (Node uses a default

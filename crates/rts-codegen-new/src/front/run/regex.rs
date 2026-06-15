@@ -23,11 +23,11 @@
 //! Bails (the honesty floor): a function replacer; capture-group `.exec`
 //! extraction; a dynamic (non-literal, non-recorded) regex receiver.
 
-use cranelift_codegen::ir::{types, InstBuilder};
+use cranelift_codegen::ir::{InstBuilder, types};
 use cranelift_module::Module;
 
-use rts_hir::ir::HirExprKind;
 use rts_hir::HirExpr;
+use rts_hir::ir::HirExprKind;
 
 use crate::value::abi_adapter;
 

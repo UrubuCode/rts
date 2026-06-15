@@ -6,17 +6,17 @@
 //! ([`Lowerer::as_bool_value`]) used by `if`/`while`/ternary conditions.
 
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
-use cranelift_codegen::ir::{types, InstBuilder, Value};
+use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_module::Module;
 
-use rts_hir::ir::HirExprKind;
 use rts_hir::HirExpr;
+use rts_hir::ir::HirExprKind;
 
 use crate::repr::Repr;
 use crate::value;
 use crate::value::{abi_adapter, emit_marshal};
 
-use crate::front::error::{unsupported, FrontResult, Unsupported};
+use crate::front::error::{FrontResult, Unsupported, unsupported};
 
 use super::lower::{JsKind, Lowerer, Val};
 use super::sig::FnSig;
@@ -127,7 +127,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             if let Some(val) = self.try_method_dispatch(module, object, prop, args)? {
                 return Ok(val);
             }
-            return unsupported!("call of member `.{prop}()` (receiver class not statically dispatchable)");
+            return unsupported!(
+                "call of member `.{prop}()` (receiver class not statically dispatchable)"
+            );
         }
         let name = match &callee.kind {
             HirExprKind::Ident(n) => n.clone(),
@@ -233,7 +235,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // Box the bare 48-bit payload as a TAG_FUNCTION PolyValue word:
         // BOX_BASE | (TAG_FUNCTION<<48) | (payload & PAYLOAD_MASK).
         let header = value::encode(value::TAG_FUNCTION, 0) as i64;
-        let mask = self.builder.ins().iconst(types::I64, value::PAYLOAD_MASK as i64);
+        let mask = self
+            .builder
+            .ins()
+            .iconst(types::I64, value::PAYLOAD_MASK as i64);
         let masked = self.builder.ins().band(payload, mask);
         let header_v = self.builder.ins().iconst(types::I64, header);
         let word = self.builder.ins().bor(masked, header_v);
@@ -338,11 +343,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     ///
     /// No arity cap (the old fixed-arity `console_logN` family is gone): the line
     /// is folded left-to-right with space separators, so any number of args works.
-    fn lower_console_log(
-        &mut self,
-        module: &mut dyn Module,
-        args: &[HirExpr],
-    ) -> FrontResult<Val> {
+    fn lower_console_log(&mut self, module: &mut dyn Module, args: &[HirExpr]) -> FrontResult<Val> {
         // Build the joined-line string PolyValue. Empty `console.log()` prints a
         // blank line: start from the empty string.
         let space = {
@@ -459,7 +460,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     if i < args.len() {
                         let a = &args[i];
                         if matches!(a.kind, HirExprKind::Spread(_)) {
-                            return unsupported!("spread arg into `{}` (later increment)", sig.name);
+                            return unsupported!(
+                                "spread arg into `{}` (later increment)",
+                                sig.name
+                            );
                         }
                         let v = self.lower_expr(module, a)?;
                         out.push(self.coerce(v, want)?);
@@ -470,11 +474,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                         // for an optional param the body sees `undefined` directly.
                         out.push(self.undefined_coerced(want)?);
                     } else {
-                        return unsupported!(
-                            "call to `{}` missing required arg {}",
-                            sig.name,
-                            i
-                        );
+                        return unsupported!("call to `{}` missing required arg {}", sig.name, i);
                     }
                 }
             }
@@ -485,7 +485,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 for i in 0..ru {
                     if i < args.len() {
                         if matches!(args[i].kind, HirExprKind::Spread(_)) {
-                            return unsupported!("spread arg into `{}` (later increment)", sig.name);
+                            return unsupported!(
+                                "spread arg into `{}` (later increment)",
+                                sig.name
+                            );
                         }
                         let v = self.lower_expr(module, &args[i])?;
                         out.push(self.coerce(v, user_params[i])?);
@@ -523,11 +526,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                         }
                         let src = self.lower_expr(module, inner)?;
                         let src_word = self.box_value(src);
-                        self.call_runtime(
-                            module,
-                            "__rtsadp_arr_spread_append",
-                            &[arr, src_word],
-                        )?;
+                        self.call_runtime(module, "__rtsadp_arr_spread_append", &[arr, src_word])?;
                         continue;
                     }
                     let v = self.lower_expr(module, a)?;
@@ -587,7 +586,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // For a non-rest fn, a spread mixed with other args (or anywhere but the
             // sole arg) is a later increment → bail rather than mis-marshal. A rest
             // fn handles mixed spread via `marshal_call_args`, so it skips this bail.
-            if args.iter().any(|a| matches!(a.kind, HirExprKind::Spread(_))) {
+            if args
+                .iter()
+                .any(|a| matches!(a.kind, HirExprKind::Spread(_)))
+            {
                 return unsupported!(
                     "call to `{}` with a spread mixed with positional args (later increment)",
                     sig.name

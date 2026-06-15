@@ -39,7 +39,7 @@ use rts_hir::{HirExpr, HirFunc, HirStmt, HirType};
 
 use rts_ast::ast::{Item, Statement};
 
-use super::super::class::{build_literal_class, ClassTable, LitMethod};
+use super::super::class::{ClassTable, LitMethod, build_literal_class};
 
 /// The marker field key prepended to an HIR `Object` node to carry its recovered
 /// literal-class name to `lower_object_literal` (which strips it). Chosen so it can
@@ -64,7 +64,11 @@ pub(crate) fn desugar_obj_methods(
     funcs: &mut Vec<HirFunc>,
     classes: &mut ClassTable,
 ) {
-    let mut rec = Recovery { classes, new_funcs: Vec::new(), names: HashMap::new() };
+    let mut rec = Recovery {
+        classes,
+        new_funcs: Vec::new(),
+        names: HashMap::new(),
+    };
 
     let top_stmts: Vec<&swc_ecma_ast::Stmt> = program
         .items
@@ -87,7 +91,10 @@ pub(crate) fn desugar_obj_methods(
                 .collect();
             // Find the lowered HirFunc by name (skip extracted arrows — none exist
             // yet at this stage). A by-name match is exact: user fn names are unique.
-            if let Some(f) = funcs.iter_mut().find(|f| f.name == fdecl.name && !f.is_arrow) {
+            if let Some(f) = funcs
+                .iter_mut()
+                .find(|f| f.name == fdecl.name && !f.is_arrow)
+            {
                 rec.rewrite_unit(&swc_stmts, &mut f.body);
             }
         }
@@ -111,7 +118,10 @@ impl Recovery<'_> {
     /// then pre-order-walk the HIR consuming one per HIR `Object` node.
     fn rewrite_unit(&mut self, swc_stmts: &[&swc_ecma_ast::Stmt], hir_stmts: &mut [HirStmt]) {
         let objs = collect::collect_object_lits(swc_stmts);
-        let mut cur = Cursor { objs: &objs, next: 0 };
+        let mut cur = Cursor {
+            objs: &objs,
+            next: 0,
+        };
         for s in hir_stmts.iter_mut() {
             self.rewrite_stmt(s, &mut cur);
         }
@@ -138,7 +148,12 @@ impl Recovery<'_> {
                 self.rewrite_expr(cond, cur);
                 self.rewrite_stmts(body, cur);
             }
-            HirStmt::For { init, cond, update, body } => {
+            HirStmt::For {
+                init,
+                cond,
+                update,
+                body,
+            } => {
                 if let Some(i) = init {
                     self.rewrite_stmt(i, cur);
                 }
@@ -158,7 +173,11 @@ impl Recovery<'_> {
                 self.rewrite_expr(object, cur);
                 self.rewrite_stmts(body, cur);
             }
-            HirStmt::Try { body, catch, finally } => {
+            HirStmt::Try {
+                body,
+                catch,
+                finally,
+            } => {
                 self.rewrite_stmts(body, cur);
                 if let Some(c) = catch {
                     self.rewrite_stmts(&mut c.body, cur);
@@ -167,7 +186,10 @@ impl Recovery<'_> {
                     self.rewrite_stmts(f, cur);
                 }
             }
-            HirStmt::Switch { discriminant, cases } => {
+            HirStmt::Switch {
+                discriminant,
+                cases,
+            } => {
                 self.rewrite_expr(discriminant, cur);
                 for case in cases {
                     if let Some(t) = &mut case.test {
@@ -230,10 +252,12 @@ impl Recovery<'_> {
             let global_shape = crate::shape::intern_global_shape(&field_keys);
             let lit_methods: Vec<LitMethod> = methods
                 .iter()
-                .map(|m| LitMethod { name: m.name.clone(), function: m.function })
+                .map(|m| LitMethod {
+                    name: m.name.clone(),
+                    function: m.function,
+                })
                 .collect();
-            let (desc, fns) =
-                build_literal_class(&name, &field_keys, global_shape, &lit_methods);
+            let (desc, fns) = build_literal_class(&name, &field_keys, global_shape, &lit_methods);
             if !self.classes.contains(&name) {
                 self.classes.insert(desc);
                 self.new_funcs.extend(fns);
@@ -331,7 +355,10 @@ impl<'a> Cursor<'a> {
 fn marker(class_name: &str) -> (String, HirExpr) {
     (
         LIT_CLASS_MARKER.to_string(),
-        HirExpr::new(HirExprKind::Lit(HirLit::Str(class_name.to_string())), HirType::Str),
+        HirExpr::new(
+            HirExprKind::Lit(HirLit::Str(class_name.to_string())),
+            HirType::Str,
+        ),
     )
 }
 

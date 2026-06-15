@@ -31,9 +31,9 @@ mod objmethod;
 mod optchain;
 mod tpl;
 
-pub(super) use optchain::{OPT_CALL, OPT_GET};
 pub(crate) use destructure::desugar_destructure;
-pub(crate) use objmethod::{desugar_obj_methods, LIT_CLASS_MARKER, LIT_UNSUPPORTED};
+pub(crate) use objmethod::{LIT_CLASS_MARKER, LIT_UNSUPPORTED, desugar_obj_methods};
+pub(super) use optchain::{OPT_CALL, OPT_GET};
 
 use std::collections::HashMap;
 
@@ -76,7 +76,10 @@ pub(crate) fn desugar(
                     Statement::Raw(raw) => raw.stmt.as_ref(),
                 })
                 .collect();
-            if let Some(f) = funcs.iter_mut().find(|f| f.name == fdecl.name && !f.is_arrow) {
+            if let Some(f) = funcs
+                .iter_mut()
+                .find(|f| f.name == fdecl.name && !f.is_arrow)
+            {
                 rewrite_unit(&swc_stmts, &mut f.body);
             }
         }
@@ -90,7 +93,10 @@ fn rewrite_unit(swc_stmts: &[&swc_ecma_ast::Stmt], hir_stmts: &mut [HirStmt]) {
     for s in swc_stmts {
         tpl::walk_stmt(s, &mut acc);
     }
-    let mut cx = Cursor { recovered: acc, next_template: 0 };
+    let mut cx = Cursor {
+        recovered: acc,
+        next_template: 0,
+    };
     cx.rewrite_stmts(hir_stmts);
 }
 
@@ -134,7 +140,12 @@ impl Cursor {
                 self.rewrite_expr(cond);
                 self.rewrite_stmts(body);
             }
-            HirStmt::For { init, cond, update, body } => {
+            HirStmt::For {
+                init,
+                cond,
+                update,
+                body,
+            } => {
                 if let Some(i) = init {
                     self.rewrite_stmt(i);
                 }
@@ -154,7 +165,11 @@ impl Cursor {
                 self.rewrite_expr(object);
                 self.rewrite_stmts(body);
             }
-            HirStmt::Try { body, catch, finally } => {
+            HirStmt::Try {
+                body,
+                catch,
+                finally,
+            } => {
                 self.rewrite_stmts(body);
                 if let Some(c) = catch {
                     self.rewrite_stmts(&mut c.body);
@@ -163,7 +178,10 @@ impl Cursor {
                     self.rewrite_stmts(f);
                 }
             }
-            HirStmt::Switch { discriminant, cases } => {
+            HirStmt::Switch {
+                discriminant,
+                cases,
+            } => {
                 self.rewrite_expr(discriminant);
                 for case in cases {
                     if let Some(t) = &mut case.test {

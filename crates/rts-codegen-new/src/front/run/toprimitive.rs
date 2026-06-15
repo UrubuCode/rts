@@ -192,11 +192,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
     /// Reduce one `+` operand to a PolyValue word, applying `ToPrimitive` (default
     /// hint) when the operand is a known-class object; otherwise ordinary lower+box.
-    fn add_operand_word(
-        &mut self,
-        module: &mut dyn Module,
-        expr: &HirExpr,
-    ) -> FrontResult<Value> {
+    fn add_operand_word(&mut self, module: &mut dyn Module, expr: &HirExpr) -> FrontResult<Value> {
         if let Some(word) = self.coerce_object_to_primitive_word(module, expr, Hint::Default)? {
             return Ok(word);
         }
@@ -218,7 +214,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 fn is_error_class(name: &str) -> bool {
     matches!(
         name,
-        "Error" | "TypeError" | "RangeError" | "ReferenceError" | "SyntaxError" | "URIError"
+        "Error"
+            | "TypeError"
+            | "RangeError"
+            | "ReferenceError"
+            | "SyntaxError"
+            | "URIError"
             | "EvalError"
     )
 }

@@ -41,7 +41,10 @@ pub(super) fn elem_at(obj: HirExpr, i: i64) -> HirExpr {
 /// Tagged object word (no proven shape required) and yields `undefined` for a
 /// missing key — exactly the JS property-read semantics destructuring needs.
 pub(super) fn prop_get(obj: HirExpr, prop: &str) -> HirExpr {
-    let key = HirExpr::new(HirExprKind::Lit(HirLit::Str(prop.to_string())), HirType::Str);
+    let key = HirExpr::new(
+        HirExprKind::Lit(HirLit::Str(prop.to_string())),
+        HirType::Str,
+    );
     HirExpr::new(
         HirExprKind::MethodCall {
             object: Box::new(obj),
@@ -96,5 +99,9 @@ pub(super) fn default_ternary(access: HirExpr, default: HirExpr) -> HirExpr {
 
 /// `const name = init;` — a binding statement (the destructuring leaf).
 pub(super) fn const_bind(name: &str, init: HirExpr) -> HirStmt {
-    HirStmt::Const { name: name.to_string(), ty: HirType::Any, init }
+    HirStmt::Const {
+        name: name.to_string(),
+        ty: HirType::Any,
+        init,
+    }
 }

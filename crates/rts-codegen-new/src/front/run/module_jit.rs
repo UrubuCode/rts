@@ -125,12 +125,28 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
         let sig = sigs[&f.name].clone();
         let this_class = fn_this_class.get(&f.name).map(String::as_str);
         define_one(
-            &mut module, ids[&f.name], f, &sig, &sigs, &thunks, classes, captures, this_class,
+            &mut module,
+            ids[&f.name],
+            f,
+            &sig,
+            &sigs,
+            &thunks,
+            classes,
+            captures,
+            this_class,
         )?;
     }
     // 4. Define main (the top-level body).
     define_one(
-        &mut module, main_id, main, &main_sig, &sigs, &thunks, classes, captures, None,
+        &mut module,
+        main_id,
+        main,
+        &main_sig,
+        &sigs,
+        &thunks,
+        classes,
+        captures,
+        None,
     )?;
 
     // 4b. Define every thunk body (bridges the uniform ABI to the real signature).
@@ -147,12 +163,15 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
         )?;
     }
 
-    module.finalize_definitions().map_err(|e| {
-        Unsupported::new(format!("finalize module: {e}"))
-    })?;
+    module
+        .finalize_definitions()
+        .map_err(|e| Unsupported::new(format!("finalize module: {e}")))?;
 
     let main = module.get_finalized_function(main_id);
-    Ok(Program { _module: module, main })
+    Ok(Program {
+        _module: module,
+        main,
+    })
 }
 
 /// Lower + define one function into the module. On an `Unsupported` bail the

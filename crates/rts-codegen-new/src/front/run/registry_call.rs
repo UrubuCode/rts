@@ -21,7 +21,7 @@
 //! that genuinely OWN a representation the runtime ABI can't express (Map/Set
 //! string-key marshaling, array-result building) keep their codegen-native path.
 
-use cranelift_codegen::ir::{types, InstBuilder, Value};
+use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_module::Module;
 
 use rts_engine::abi::AbiType;
@@ -29,7 +29,7 @@ use rts_engine::abi::AbiType;
 use crate::repr::Repr;
 use crate::value;
 
-use crate::front::error::{unsupported, FrontResult};
+use crate::front::error::{FrontResult, unsupported};
 
 use super::lower::{JsKind, Lowerer, Val};
 use super::registry::ResolvedCall;
@@ -50,7 +50,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             AbiType::Handle => {
                 // The arg is a heap value (string/object); pass its real handle.
                 let word = self.box_value(val);
-                out.push(value::emit_marshal::emit_table_load(module, self.builder, word));
+                out.push(value::emit_marshal::emit_table_load(
+                    module,
+                    self.builder,
+                    word,
+                ));
             }
             AbiType::StrPtr => {
                 if !matches!(val.kind, JsKind::Str) {
@@ -117,7 +121,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             AbiType::F64 => Val::new(res.expect("F64 return"), Repr::Float64),
             AbiType::I64 | AbiType::U64 => Val::new(res.expect("int return"), Repr::Int64),
             AbiType::I32 => {
-                let v = self.builder.ins().sextend(types::I64, res.expect("i32 return"));
+                let v = self
+                    .builder
+                    .ins()
+                    .sextend(types::I64, res.expect("i32 return"));
                 Val::new(v, Repr::Int64)
             }
             AbiType::Bool => Val::new(res.expect("bool return"), Repr::Bool),
@@ -142,7 +149,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         )
         .expect("POLY_FROM_HANDLE returns a value");
         let header = value::encode(value::TAG_OBJECT, 0) as i64;
-        let mask = self.builder.ins().iconst(types::I64, value::PAYLOAD_MASK as i64);
+        let mask = self
+            .builder
+            .ins()
+            .iconst(types::I64, value::PAYLOAD_MASK as i64);
         let payload = self.builder.ins().band(payload48, mask);
         let header_v = self.builder.ins().iconst(types::I64, header);
         self.builder.ins().bor(payload, header_v)
@@ -164,12 +174,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let tag_mask = value::TAG_MASK as i64;
         let shifted = self.builder.ins().ushr_imm(word, tag_shift);
         let tag = self.builder.ins().band_imm(shifted, tag_mask);
-        let want = self.builder.ins().iconst(types::I64, value::TAG_OBJECT as i64);
-        let is_obj_tag = self.builder.ins().icmp(
-            cranelift_codegen::ir::condcodes::IntCC::Equal,
-            tag,
-            want,
-        );
+        let want = self
+            .builder
+            .ins()
+            .iconst(types::I64, value::TAG_OBJECT as i64);
+        let is_obj_tag =
+            self.builder
+                .ins()
+                .icmp(cranelift_codegen::ir::condcodes::IntCC::Equal, tag, want);
         let is_object = self.builder.ins().band(boxed, is_obj_tag);
 
         // handle = POLY_TO_HANDLE(word & PAYLOAD_MASK). Computing this for a

@@ -101,7 +101,10 @@ fn strict_eq_booleans() {
 
 #[test]
 fn string_eq() {
-    assert_stdout(r#"console.log("ab" === "ab", "a" === "b");"#, "true false\n");
+    assert_stdout(
+        r#"console.log("ab" === "ab", "a" === "b");"#,
+        "true false\n",
+    );
 }
 
 #[test]
@@ -156,7 +159,10 @@ fn negative_number_formatting() {
 #[test]
 fn run_source_real_stdout_smoke() {
     let res = run_source(r#"console.log("real-stdout-path", 1 + 2);"#);
-    assert!(res.is_ok(), "run_source (real IO_PRINT path) failed: {res:?}");
+    assert!(
+        res.is_ok(),
+        "run_source (real IO_PRINT path) failed: {res:?}"
+    );
 }
 
 // ===========================================================================

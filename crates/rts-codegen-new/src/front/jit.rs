@@ -72,12 +72,17 @@ pub fn compile(func: &HirFunc) -> FrontResult<JitFunc> {
         }
     }
 
-    module.define_function(func_id, &mut ctx).expect("define entry");
+    module
+        .define_function(func_id, &mut ctx)
+        .expect("define entry");
     module.clear_context(&mut ctx);
     module.finalize_definitions().expect("finalize");
 
     let code = module.get_finalized_function(func_id);
-    Ok(JitFunc { _module: module, code })
+    Ok(JitFunc {
+        _module: module,
+        code,
+    })
 }
 
 // ---------------------------------------------------------------------------

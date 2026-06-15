@@ -31,7 +31,7 @@ use std::collections::HashMap;
 
 use super::synth::method_name_lit;
 use super::walk::rewrite_this_block;
-use super::{this_param, ClassDesc};
+use super::{ClassDesc, this_param};
 
 /// One recovered plain method of an object literal: its name + the swc function.
 pub(crate) struct LitMethod<'a> {
@@ -95,7 +95,14 @@ fn synth_lit_method(fn_name: &str, function: &swc_ecma_ast::Function) -> HirFunc
         // any non-ident / defaulted / rest param before building this method.
         let name = ident_param_name(&p.pat).expect("recovery proved a simple ident param");
         scope.define(&name, HirType::Unknown);
-        params.push(HirParam { name, ty: HirType::Unknown, variadic: false, has_default: false, optional: false, default_expr: None });
+        params.push(HirParam {
+            name,
+            ty: HirType::Unknown,
+            variadic: false,
+            has_default: false,
+            optional: false,
+            default_expr: None,
+        });
     }
 
     // Lower the swc body by wrapping each statement as an rts-ast `Raw` (the same

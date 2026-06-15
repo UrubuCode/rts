@@ -42,12 +42,9 @@ pub fn repr_of(t: &HirType) -> Repr {
         HirType::Number | HirType::F64 | HirType::F32 => Repr::Float64,
 
         // Integer annotations that fit losslessly in an i32 register.
-        HirType::I8
-        | HirType::I16
-        | HirType::I32
-        | HirType::U8
-        | HirType::U16
-        | HirType::U32 => Repr::Int32,
+        HirType::I8 | HirType::I16 | HirType::I32 | HirType::U8 | HirType::U16 | HirType::U32 => {
+            Repr::Int32
+        }
 
         // 64-bit integers: a proven monomorphic native i64 register (lossless).
         HirType::I64 | HirType::U64 => Repr::Int64,

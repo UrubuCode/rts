@@ -402,7 +402,10 @@ impl PolyValue {
     /// double). Debug-asserts the value is a number.
     #[inline(always)]
     pub fn number_as_f64(&self) -> f64 {
-        debug_assert!(self.is_double() || self.is_int32(), "number_as_f64 on a non-number");
+        debug_assert!(
+            self.is_double() || self.is_int32(),
+            "number_as_f64 on a non-number"
+        );
         if self.is_int32() {
             self.as_i32() as f64
         } else {

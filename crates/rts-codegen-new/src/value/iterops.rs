@@ -25,7 +25,7 @@ use rts_runtime::namespaces::gc::handles as rt_handles;
 use crate::shape::global_shape_keys;
 
 use super::inspect::looks_like_object;
-use super::{abi_adapter, PolyValue};
+use super::{PolyValue, abi_adapter};
 
 /// Box a fresh real Vec handle as a `TAG_OBJECT` array PolyValue word (the engine's
 /// array representation), matching [`super::globalops`]'s array-producing helpers.

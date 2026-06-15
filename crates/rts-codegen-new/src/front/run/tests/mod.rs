@@ -40,25 +40,29 @@ pub(super) fn assert_stdout_with_prelude(prelude: &str, src: &str, expected: &st
 /// value). Used by every negative test.
 pub(crate) fn assert_bails(src: &str) {
     let res = run_source(src);
-    assert!(res.is_err(), "expected an Unsupported bail, got {res:?} for:\n{src}");
+    assert!(
+        res.is_err(),
+        "expected an Unsupported bail, got {res:?} for:\n{src}"
+    );
 }
 
 mod ambient_declare;
+mod arr_cb_dyn;
 mod array;
 mod arraycb;
 mod class;
-mod date;
-mod dyndispatch;
-mod globals;
 mod class_inherit;
 mod closure;
+mod date;
 mod destructure;
 mod dyn_prop;
+mod dyndispatch;
 mod fn_ctor;
 mod fn_props;
 mod free_this;
 mod funcval;
 mod globalclass;
+mod globals;
 mod heap_field;
 mod inspect;
 mod instanceof_dyn;
@@ -67,9 +71,9 @@ mod math_tagged;
 mod mathobj;
 mod method;
 mod number;
-mod objmethod;
-mod object;
 mod objdyn;
+mod object;
+mod objmethod;
 mod objstatic;
 mod optchain;
 mod poly;

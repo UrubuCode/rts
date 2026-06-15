@@ -40,7 +40,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 
-use rts_runtime::namespaces::gc::handles::{alloc_entry, with_entry, Entry, FunctionData};
+use rts_runtime::namespaces::gc::handles::{Entry, FunctionData, alloc_entry, with_entry};
 
 use super::PolyValue;
 
@@ -237,7 +237,11 @@ pub extern "C" fn __rtsadp_fn_reify(addr: u64, nparams: u64, has_rest: u64, env_
         // Reuse the existing rest marker: >= 0 means "has a rest param at this
         // declared index"; the thunk is the only invoker, so the exact index is
         // not read back here — we only need the live/non-live distinction.
-        rest_param_idx: if has_rest != 0 { (nparams.max(1) as i32) - 1 } else { -1 },
+        rest_param_idx: if has_rest != 0 {
+            (nparams.max(1) as i32) - 1
+        } else {
+            -1
+        },
     };
     let handle = alloc_entry(Entry::Function(Box::new(data)));
     // Drop the 16-bit generation → bare 48-bit slot+shard payload.
@@ -277,7 +281,11 @@ pub extern "C" fn __rtsadp_fn_invoke(
     }
     // A non-capturing function stored env = 0; normalize that to the `undefined`
     // singleton word the thunk's env-read path expects (it never reads it anyway).
-    let env_word = if env == 0 { PolyValue::undefined().raw() } else { env };
+    let env_word = if env == 0 {
+        PolyValue::undefined().raw()
+    } else {
+        env
+    };
     // SAFETY: `addr` is the address of a THUNK the new engine emitted with EXACTLY
     // the uniform `extern "C" fn(env,u64,u64,u64,u64,u64) -> u64` signature (see
     // `front::run::thunk`). The JIT module that defined it is kept mapped for the

@@ -140,10 +140,7 @@ console.log("after");"#,
 
 #[test]
 fn throw_number_caught() {
-    assert_stdout(
-        r#"try { throw 42; } catch (e) { console.log(e); }"#,
-        "42\n",
-    );
+    assert_stdout(r#"try { throw 42; } catch (e) { console.log(e); }"#, "42\n");
 }
 
 #[test]

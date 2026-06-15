@@ -43,7 +43,14 @@ pub(super) fn topo_order<'a>(classes: &[&'a ClassDecl]) -> FrontResult<Vec<&'a C
     // Visit each class, emitting its (in-program) parent chain first. `visiting`
     // detects a cycle.
     for &decl in classes {
-        emit_class(decl, &by_name, &names, &mut order, &mut done, &mut HashSet::new())?;
+        emit_class(
+            decl,
+            &by_name,
+            &names,
+            &mut order,
+            &mut done,
+            &mut HashSet::new(),
+        )?;
     }
     Ok(order)
 }
@@ -155,7 +162,9 @@ fn rewrite_super_ctor(e: &mut HirExpr, parent: Option<&ClassDesc>) -> FrontResul
     let parent = parent.ok_or_else(|| {
         Unsupported::new("`super(...)` in a class with no superclass".to_string())
     })?;
-    let HirExprKind::Call { args, .. } = &e.kind else { unreachable!() };
+    let HirExprKind::Call { args, .. } = &e.kind else {
+        unreachable!()
+    };
     let mut new_args = vec![this_ident()];
     for a in args {
         let mut a = a.clone();
@@ -177,15 +186,22 @@ fn rewrite_super_method(
     parent: Option<&ClassDesc>,
 ) -> FrontResult<()> {
     let parent = parent.ok_or_else(|| {
-        Unsupported::new(format!("`super.{method}(...)` in a class with no superclass"))
-    })?;
-    let fn_name = parent.method_fn(method).map(str::to_string).ok_or_else(|| {
         Unsupported::new(format!(
-            "`super.{method}()` — no method `{method}` on `{}` or its ancestors",
-            parent.name
+            "`super.{method}(...)` in a class with no superclass"
         ))
     })?;
-    let HirExprKind::Call { args, .. } = &e.kind else { unreachable!() };
+    let fn_name = parent
+        .method_fn(method)
+        .map(str::to_string)
+        .ok_or_else(|| {
+            Unsupported::new(format!(
+                "`super.{method}()` — no method `{method}` on `{}` or its ancestors",
+                parent.name
+            ))
+        })?;
+    let HirExprKind::Call { args, .. } = &e.kind else {
+        unreachable!()
+    };
     let mut new_args = vec![this_ident()];
     for a in args {
         let mut a = a.clone();

@@ -86,7 +86,10 @@ fn set_string_elements() {
 
 #[test]
 fn error_message() {
-    assert_stdout(r#"let e = new Error("boom"); console.log(e.message);"#, "boom\n");
+    assert_stdout(
+        r#"let e = new Error("boom"); console.log(e.message);"#,
+        "boom\n",
+    );
 }
 
 #[test]
@@ -101,12 +104,18 @@ fn type_error_name() {
 
 #[test]
 fn range_error_name() {
-    assert_stdout(r#"let e = new RangeError("oops"); console.log(e.name, e.message);"#, "RangeError oops\n");
+    assert_stdout(
+        r#"let e = new RangeError("oops"); console.log(e.name, e.message);"#,
+        "RangeError oops\n",
+    );
 }
 
 #[test]
 fn error_to_string() {
-    assert_stdout(r#"let e = new Error("boom"); console.log(e.toString());"#, "Error: boom\n");
+    assert_stdout(
+        r#"let e = new Error("boom"); console.log(e.toString());"#,
+        "Error: boom\n",
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -179,22 +188,34 @@ fn typeof_string_wrapper() {
 
 #[test]
 fn instanceof_error() {
-    assert_stdout(r#"let e = new Error("x"); console.log(e instanceof Error);"#, "true\n");
+    assert_stdout(
+        r#"let e = new Error("x"); console.log(e instanceof Error);"#,
+        "true\n",
+    );
 }
 
 #[test]
 fn instanceof_map() {
-    assert_stdout(r#"let m = new Map(); console.log(m instanceof Map);"#, "true\n");
+    assert_stdout(
+        r#"let m = new Map(); console.log(m instanceof Map);"#,
+        "true\n",
+    );
 }
 
 #[test]
 fn instanceof_set() {
-    assert_stdout(r#"let s = new Set(); console.log(s instanceof Set);"#, "true\n");
+    assert_stdout(
+        r#"let s = new Set(); console.log(s instanceof Set);"#,
+        "true\n",
+    );
 }
 
 #[test]
 fn instanceof_map_not_set() {
-    assert_stdout(r#"let m = new Map(); console.log(m instanceof Set);"#, "false\n");
+    assert_stdout(
+        r#"let m = new Map(); console.log(m instanceof Set);"#,
+        "false\n",
+    );
 }
 
 #[test]

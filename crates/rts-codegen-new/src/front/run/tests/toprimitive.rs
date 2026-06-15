@@ -106,7 +106,10 @@ fn to_string_using_field() {
 #[test]
 fn default_object_is_object_object() {
     // A plain object literal (no class / no toString) → `[object Object]`.
-    assert_stdout(r#"let o = { a: 1 }; console.log(String(o));"#, "[object Object]\n");
+    assert_stdout(
+        r#"let o = { a: 1 }; console.log(String(o));"#,
+        "[object Object]\n",
+    );
 }
 
 #[test]
@@ -118,7 +121,10 @@ fn array_string_join() {
 #[test]
 fn error_to_string() {
     // A runtime Error instance → `Error.prototype.toString` = `"name: message"`.
-    assert_stdout(r#"console.log(String(new Error("boom")));"#, "Error: boom\n");
+    assert_stdout(
+        r#"console.log(String(new Error("boom")));"#,
+        "Error: boom\n",
+    );
 }
 
 #[test]
@@ -128,7 +134,10 @@ fn console_log_does_not_call_to_string() {
     // so the engine BAILS console.log of a bare instance (honesty floor) rather
     // than print the `toString` result. This asserts we did NOT wire toString into
     // console.log (which would print "S" — wrong).
-    assert_stdout(r#"class C { toString() { return "S"; } } console.log(new C());"#, "{}\n");
+    assert_stdout(
+        r#"class C { toString() { return "S"; } } console.log(new C());"#,
+        "{}\n",
+    );
 }
 
 #[test]

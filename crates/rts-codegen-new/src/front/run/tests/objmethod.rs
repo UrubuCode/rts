@@ -49,7 +49,10 @@ fn method_calling_method() {
 #[test]
 fn console_log_shows_fields_not_methods() {
     // bun: `{ a: 1 }` — methods are not own-enumerable in the inspect output.
-    assert_stdout("let o = { a: 1, f() { return 2; } }; console.log(o);", "{ a: 1 }\n");
+    assert_stdout(
+        "let o = { a: 1, f() { return 2; } }; console.log(o);",
+        "{ a: 1 }\n",
+    );
 }
 
 #[test]
@@ -63,7 +66,10 @@ fn string_of_obj_literal() {
 #[test]
 fn value_of_only_no_fields() {
     // A valueOf-only literal with no fields: `+` uses the default hint → valueOf.
-    assert_stdout("let o = { valueOf() { return 42; } }; console.log(o + 1);", "43\n");
+    assert_stdout(
+        "let o = { valueOf() { return 42; } }; console.log(o + 1);",
+        "43\n",
+    );
 }
 
 #[test]
@@ -90,9 +96,7 @@ fn method_no_args_returns_string_literal() {
 
 #[test]
 fn bail_computed_method_name() {
-    assert_bails(
-        r#"let k = "m"; let o = { a: 1, [k]() { return 2; } }; console.log(o.m());"#,
-    );
+    assert_bails(r#"let k = "m"; let o = { a: 1, [k]() { return 2; } }; console.log(o.m());"#);
 }
 
 #[test]

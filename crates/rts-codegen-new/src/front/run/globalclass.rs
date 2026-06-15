@@ -14,15 +14,15 @@
 //! / `inst instanceof C` dispatches at compile time. Anything unmodeled BAILS —
 //! never a guess (the honesty floor).
 
-use cranelift_codegen::ir::{types, InstBuilder, Value};
+use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_module::Module;
 
-use rts_hir::ir::HirExprKind;
 use rts_hir::HirExpr;
+use rts_hir::ir::HirExprKind;
 
 use crate::value;
 
-use crate::front::error::{unsupported, FrontResult};
+use crate::front::error::{FrontResult, unsupported};
 
 use super::lower::{JsKind, Lowerer, Val};
 
@@ -92,7 +92,11 @@ fn class_meta(name: &str) -> Option<ClassMeta> {
 }
 
 fn err_meta(ctor_symbol: &'static str) -> ClassMeta {
-    ClassMeta { ctor_symbol, kind: CtorKind::Error, methods: ERROR_METHODS }
+    ClassMeta {
+        ctor_symbol,
+        kind: CtorKind::Error,
+        methods: ERROR_METHODS,
+    }
 }
 
 const ERROR_METHODS: &[(&str, usize, &str)] = &[("toString", 0, "__rtsadp_err_to_string")];
@@ -185,11 +189,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// from a non-string pattern is a later increment). Interns nothing extra: the
     /// pattern/flags string PolyValue words go straight to `__rtsadp_re_compile`.
     /// Returns the boxed `TAG_OBJECT` RegExp instance word.
-    fn emit_regex_ctor(
-        &mut self,
-        module: &mut dyn Module,
-        args: &[HirExpr],
-    ) -> FrontResult<Value> {
+    fn emit_regex_ctor(&mut self, module: &mut dyn Module, args: &[HirExpr]) -> FrontResult<Value> {
         if args.is_empty() || args.len() > 2 {
             return unsupported!("`new RegExp(..)` expects 1 or 2 args, got {}", args.len());
         }
@@ -237,8 +237,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return self.try_date_method(module, object, method, args).map(Some);
         }
         let meta = class_meta(&class).expect("recorded global class must resolve");
-        let Some(&(_, arity, symbol)) =
-            meta.methods.iter().find(|(n, a, _)| *n == method && *a == args.len())
+        let Some(&(_, arity, symbol)) = meta
+            .methods
+            .iter()
+            .find(|(n, a, _)| *n == method && *a == args.len())
         else {
             return Err(crate::front::error::Unsupported::new(format!(
                 "`{class}.{method}({} args)` — no such method on runtime class `{class}`",
@@ -290,7 +292,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 return Err(crate::front::error::Unsupported::new(format!(
                     "`RegExp.{other}` — only source/flags/global/ignoreCase/multiline/\
                      lastIndex are properties on a runtime RegExp"
-                )))
+                )));
             }
             _ if is_error_class(&class) => match prop {
                 "message" => "__rtsadp_err_message",
@@ -299,7 +301,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 other => {
                     return Err(crate::front::error::Unsupported::new(format!(
                         "`{class}.{other}` — only message/name/stack are properties on a runtime {class}"
-                    )))
+                    )));
                 }
             },
             _ => return Ok(None),
@@ -317,7 +319,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             "global" | "ignoreCase" | "multiline" => JsKind::Bool,
             _ => JsKind::Str,
         };
-        Ok(Some(Val::new_with_kind(res, crate::repr::Repr::Tagged, kind)))
+        Ok(Some(Val::new_with_kind(
+            res,
+            crate::repr::Repr::Tagged,
+            kind,
+        )))
     }
 
     /// The recorded runtime/Registry class of a receiver, if statically known:
@@ -448,15 +454,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // Accepting shape-id set: every collected class K with `K IS-A class`.
         // Snapshot (name, shape) first so the `class_is_a` borrow does not overlap
         // the `self.classes.iter()` borrow.
-        let all: Vec<(String, u32)> =
-            self.classes.iter().map(|d| (d.name.clone(), d.global_shape)).collect();
+        let all: Vec<(String, u32)> = self
+            .classes
+            .iter()
+            .map(|d| (d.name.clone(), d.global_shape))
+            .collect();
         let accepting: Vec<u32> = all
             .into_iter()
             .filter(|(name, _)| self.class_is_a(name, class))
             .map(|(_, shape)| shape)
             .collect();
         debug_assert!(
-            self.classes.get(class).is_some_and(|d| accepting.contains(&d.global_shape)),
+            self.classes
+                .get(class)
+                .is_some_and(|d| accepting.contains(&d.global_shape)),
             "the class itself must be in its own accepting set"
         );
 
@@ -468,19 +479,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let boxed = value::emit_is_boxed(self.builder, word);
         let shifted = self.builder.ins().ushr_imm(word, value::TAG_SHIFT as i64);
         let tag = self.builder.ins().band_imm(shifted, value::TAG_MASK as i64);
-        let want = self.builder.ins().iconst(types::I64, value::TAG_OBJECT as i64);
-        let is_obj_tag = self.builder.ins().icmp(
-            cranelift_codegen::ir::condcodes::IntCC::Equal,
-            tag,
-            want,
-        );
+        let want = self
+            .builder
+            .ins()
+            .iconst(types::I64, value::TAG_OBJECT as i64);
+        let is_obj_tag =
+            self.builder
+                .ins()
+                .icmp(cranelift_codegen::ir::condcodes::IntCC::Equal, tag, want);
         let is_object = self.builder.ins().band(boxed, is_obj_tag);
 
         // slot0 = shape-id word of the instance (a boxed INT32 PolyValue). Safe on
         // a non-object (returns 0 — see the doc comment above).
         let zero_idx = self.builder.ins().iconst(types::I64, 0);
-        let slot0 =
-            value::emit_marshal::emit_vec_get(module, self.builder, word, zero_idx);
+        let slot0 = value::emit_marshal::emit_vec_get(module, self.builder, word, zero_idx);
 
         // shapeId(word) ∈ accepting : OR-chain of `icmp eq slot0, <boxedInt(shape)>`
         // (each `icmp` yields an i8 bool, matching `is_object`'s type).
@@ -524,7 +536,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 fn is_error_class(name: &str) -> bool {
     matches!(
         name,
-        "Error" | "TypeError" | "RangeError" | "ReferenceError" | "SyntaxError" | "URIError"
+        "Error"
+            | "TypeError"
+            | "RangeError"
+            | "ReferenceError"
+            | "SyntaxError"
+            | "URIError"
             | "EvalError"
     )
 }

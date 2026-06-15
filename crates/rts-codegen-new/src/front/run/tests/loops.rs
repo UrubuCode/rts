@@ -84,7 +84,10 @@ fn tagged_element_into_int_local() {
     // Regression: accumulating a boxed array element into an `int` local —
     // `s = s + arr[i]` — must decode the Tagged number soundly (a boxed double or
     // a tagged int32), not read 0 from a tag-blind unbox (the pre-P5.10 bug).
-    assert_stdout("let a = [5]; let s = 0; s = s + a[0]; console.log(s);", "5\n");
+    assert_stdout(
+        "let a = [5]; let s = 0; s = s + a[0]; console.log(s);",
+        "5\n",
+    );
 }
 
 #[test]

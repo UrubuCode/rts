@@ -14,8 +14,8 @@
 
 use rts_runtime::namespaces::gc::string_pool as rt_str;
 
-use super::abi_adapter;
 use super::PolyValue;
+use super::abi_adapter;
 
 /// JS `ToString` for any [`PolyValue`], resolving heap strings through the REAL
 /// pool. Numbers use the runtime's own JS `Number→String` (STRING_FROM_F64), so

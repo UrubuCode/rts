@@ -33,9 +33,9 @@ fn bun_stdout(path: &Path) -> Option<String> {
 #[derive(Default)]
 struct Tally {
     total: usize,
-    ran: usize,        // run_source returned Ok
-    matched: usize,    // ran AND equals bun
-    diverged: usize,   // ran but != bun
+    ran: usize,         // run_source returned Ok
+    matched: usize,     // ran AND equals bun
+    diverged: usize,    // ran but != bun
     unsupported: usize, // run_source bailed
     bun_unavailable: usize,
 }

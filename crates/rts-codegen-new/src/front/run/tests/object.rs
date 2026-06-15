@@ -99,7 +99,10 @@ fn member_on_unknown_shape_param_now_dynamic() {
     // a param of unproven shape now falls back to the runtime `__rtsadp_obj_get`
     // trampoline (resolves the slot from the object's slot-0 shape-id) instead of
     // bailing — never guessing a static slot, resolving at runtime.
-    assert_stdout("function f(o: any){ return o.a; } let r = {a: 1}; console.log(f(r));", "1\n");
+    assert_stdout(
+        "function f(o: any){ return o.a; } let r = {a: 1}; console.log(f(r));",
+        "1\n",
+    );
 }
 
 #[test]

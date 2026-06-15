@@ -28,7 +28,10 @@ fn null_receiver_short_circuits() {
 fn undefined_receiver_chain_short_circuits() {
     // A nullish at the FIRST link makes the WHOLE chain undefined — the later
     // `?.bar` is never a real access (opt_get sees undefined and yields undefined).
-    assert_stdout(r#"let u = undefined; console.log(u?.foo?.bar);"#, "undefined\n");
+    assert_stdout(
+        r#"let u = undefined; console.log(u?.foo?.bar);"#,
+        "undefined\n",
+    );
 }
 
 #[test]

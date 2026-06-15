@@ -36,8 +36,8 @@ use rts_runtime::namespaces::io as rt_io;
 use rts_runtime::namespaces::math as rt_math;
 
 use crate::value::{
-    abi_adapter, arraycb, arrayops, dyndispatch, errslot, funcops, genops, genops_arith,
-    globalops, inspect, iterops, objops, regexops, wrappers,
+    abi_adapter, arraycb, arrayops, dyndispatch, errslot, funcops, genops, genops_arith, globalops,
+    inspect, iterops, objops, regexops, wrappers,
 };
 
 /// One installable JIT symbol: an extern "C" name and its function pointer. The
@@ -63,26 +63,80 @@ unsafe impl Sync for JitSymbol {}
 pub fn jit_symbols() -> Vec<JitSymbol> {
     let mut syms = vec![
         // ---- REAL string pool (rts-std collector::string_pool) ----
-        sym("__RTS_FN_NS_GC_STRING_NEW", rt_str::__RTS_FN_NS_GC_STRING_NEW as *const u8),
-        sym("__RTS_FN_NS_GC_STRING_FROM_STATIC", rt_str::__RTS_FN_NS_GC_STRING_FROM_STATIC as *const u8),
-        sym("__RTS_FN_NS_GC_STRING_PTR", rt_str::__RTS_FN_NS_GC_STRING_PTR as *const u8),
-        sym("__RTS_FN_NS_GC_STRING_LEN", rt_str::__RTS_FN_NS_GC_STRING_LEN as *const u8),
-        sym("__RTS_FN_NS_GC_STRING_FREE", rt_str::__RTS_FN_NS_GC_STRING_FREE as *const u8),
-        sym("__RTS_FN_NS_GC_STRING_CONCAT", rt_str::__RTS_FN_NS_GC_STRING_CONCAT as *const u8),
-        sym("__RTS_FN_NS_GC_STRING_EQ", rt_str::__RTS_FN_NS_GC_STRING_EQ as *const u8),
-        sym("__RTS_FN_NS_GC_STRING_CMP", rt_str::__RTS_FN_NS_GC_STRING_CMP as *const u8),
-        sym("__RTS_FN_NS_GC_STRING_FROM_I64", rt_str::__RTS_FN_NS_GC_STRING_FROM_I64 as *const u8),
-        sym("__RTS_FN_NS_GC_STRING_FROM_F64", rt_str::__RTS_FN_NS_GC_STRING_FROM_F64 as *const u8),
+        sym(
+            "__RTS_FN_NS_GC_STRING_NEW",
+            rt_str::__RTS_FN_NS_GC_STRING_NEW as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_STRING_FROM_STATIC",
+            rt_str::__RTS_FN_NS_GC_STRING_FROM_STATIC as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_STRING_PTR",
+            rt_str::__RTS_FN_NS_GC_STRING_PTR as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_STRING_LEN",
+            rt_str::__RTS_FN_NS_GC_STRING_LEN as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_STRING_FREE",
+            rt_str::__RTS_FN_NS_GC_STRING_FREE as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_STRING_CONCAT",
+            rt_str::__RTS_FN_NS_GC_STRING_CONCAT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_STRING_EQ",
+            rt_str::__RTS_FN_NS_GC_STRING_EQ as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_STRING_CMP",
+            rt_str::__RTS_FN_NS_GC_STRING_CMP as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_STRING_FROM_I64",
+            rt_str::__RTS_FN_NS_GC_STRING_FROM_I64 as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_STRING_FROM_F64",
+            rt_str::__RTS_FN_NS_GC_STRING_FROM_F64 as *const u8,
+        ),
         // ---- REAL io (rts-std io) ----
-        sym("__RTS_FN_NS_IO_PRINT", rt_io::__RTS_FN_NS_IO_PRINT as *const u8),
-        sym("__RTS_FN_NS_IO_EPRINT", rt_io::__RTS_FN_NS_IO_EPRINT as *const u8),
+        sym(
+            "__RTS_FN_NS_IO_PRINT",
+            rt_io::__RTS_FN_NS_IO_PRINT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_IO_EPRINT",
+            rt_io::__RTS_FN_NS_IO_EPRINT as *const u8,
+        ),
         // ---- REAL collections Vec (rts-shared collections::vec) ----
-        sym("__RTS_FN_NS_COLLECTIONS_VEC_NEW", rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW as *const u8),
-        sym("__RTS_FN_NS_COLLECTIONS_VEC_PUSH", rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH as *const u8),
-        sym("__RTS_FN_NS_COLLECTIONS_VEC_GET", rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET as *const u8),
-        sym("__RTS_FN_NS_COLLECTIONS_VEC_LEN", rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN as *const u8),
-        sym("__RTS_FN_NS_COLLECTIONS_VEC_SET", rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET as *const u8),
-        sym("__RTS_FN_NS_COLLECTIONS_VEC_POP", rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_POP as *const u8),
+        sym(
+            "__RTS_FN_NS_COLLECTIONS_VEC_NEW",
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_COLLECTIONS_VEC_GET",
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_COLLECTIONS_VEC_LEN",
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_COLLECTIONS_VEC_SET",
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_COLLECTIONS_VEC_POP",
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_POP as *const u8,
+        ),
         // ---- REAL PolyValue <-> handle bridge (rts-engine heap::handles) ----
         // Replaces the old `__rtsadp_store/_load` indirection table: the payload
         // carries the bare 48-bit slot+shard and the generation is reconstructed
@@ -97,16 +151,37 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         ),
         // ---- codegen-owned adapter trampolines (__rtsadp_*) ----
         sym("__rtsadp_add", genops::__rtsadp_add as *const u8),
-        sym("__rtsadp_strict_eq", genops::__rtsadp_strict_eq as *const u8),
-        sym("__rtsadp_strict_neq", genops::__rtsadp_strict_neq as *const u8),
+        sym(
+            "__rtsadp_strict_eq",
+            genops::__rtsadp_strict_eq as *const u8,
+        ),
+        sym(
+            "__rtsadp_strict_neq",
+            genops::__rtsadp_strict_neq as *const u8,
+        ),
         sym("__rtsadp_loose_eq", genops::__rtsadp_loose_eq as *const u8),
-        sym("__rtsadp_loose_neq", genops::__rtsadp_loose_neq as *const u8),
+        sym(
+            "__rtsadp_loose_neq",
+            genops::__rtsadp_loose_neq as *const u8,
+        ),
         sym("__rtsadp_typeof", genops::__rtsadp_typeof as *const u8),
-        sym("__rtsadp_to_string", genops::__rtsadp_to_string as *const u8),
-        sym("__rtsadp_to_boolean", genops::__rtsadp_to_boolean as *const u8),
-        sym("__rtsadp_print_line", abi_adapter::__rtsadp_print_line as *const u8),
+        sym(
+            "__rtsadp_to_string",
+            genops::__rtsadp_to_string as *const u8,
+        ),
+        sym(
+            "__rtsadp_to_boolean",
+            genops::__rtsadp_to_boolean as *const u8,
+        ),
+        sym(
+            "__rtsadp_print_line",
+            abi_adapter::__rtsadp_print_line as *const u8,
+        ),
         sym("__rtsadp_inspect", inspect::__rtsadp_inspect as *const u8),
-        sym("__rtsadp_inspect_object", inspect::__rtsadp_inspect_object as *const u8),
+        sym(
+            "__rtsadp_inspect_object",
+            inspect::__rtsadp_inspect_object as *const u8,
+        ),
         // ---- generic arithmetic / comparison / unary / bitwise (P4.8) ----
         sym("__rtsadp_sub", genops_arith::__rtsadp_sub as *const u8),
         sym("__rtsadp_mul", genops_arith::__rtsadp_mul as *const u8),
@@ -128,120 +203,381 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_shr", genops_arith::__rtsadp_shr as *const u8),
         sym("__rtsadp_ushr", genops_arith::__rtsadp_ushr as *const u8),
         // ---- codegen-owned Array trampolines (__rtsadp_arr_*, P4.5) ----
-        sym("__rtsadp_arr_index_of", arrayops::__rtsadp_arr_index_of as *const u8),
-        sym("__rtsadp_arr_includes", arrayops::__rtsadp_arr_includes as *const u8),
+        sym(
+            "__rtsadp_arr_index_of",
+            arrayops::__rtsadp_arr_index_of as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_includes",
+            arrayops::__rtsadp_arr_includes as *const u8,
+        ),
         sym("__rtsadp_arr_at", arrayops::__rtsadp_arr_at as *const u8),
-        sym("__rtsadp_arr_join", arrayops::__rtsadp_arr_join as *const u8),
-        sym("__rtsadp_arr_push", arrayops::__rtsadp_arr_push as *const u8),
+        sym(
+            "__rtsadp_arr_join",
+            arrayops::__rtsadp_arr_join as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_push",
+            arrayops::__rtsadp_arr_push as *const u8,
+        ),
         sym("__rtsadp_arr_pop", arrayops::__rtsadp_arr_pop as *const u8),
-        sym("__rtsadp_arr_slice", arrayops::__rtsadp_arr_slice as *const u8),
-        sym("__rtsadp_arr_last_index_of", arrayops::__rtsadp_arr_last_index_of as *const u8),
-        sym("__rtsadp_arr_reverse", arrayops::__rtsadp_arr_reverse as *const u8),
-        sym("__rtsadp_arr_fill", arrayops::__rtsadp_arr_fill as *const u8),
-        sym("__rtsadp_arr_concat", arrayops::__rtsadp_arr_concat as *const u8),
-        sym("__rtsadp_arr_flat", arrayops::__rtsadp_arr_flat as *const u8),
-        sym("__rtsadp_arr_shift", arrayops::__rtsadp_arr_shift as *const u8),
-        sym("__rtsadp_arr_unshift", arrayops::__rtsadp_arr_unshift as *const u8),
+        sym(
+            "__rtsadp_arr_slice",
+            arrayops::__rtsadp_arr_slice as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_last_index_of",
+            arrayops::__rtsadp_arr_last_index_of as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_reverse",
+            arrayops::__rtsadp_arr_reverse as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_fill",
+            arrayops::__rtsadp_arr_fill as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_concat",
+            arrayops::__rtsadp_arr_concat as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_flat",
+            arrayops::__rtsadp_arr_flat as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_shift",
+            arrayops::__rtsadp_arr_shift as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_unshift",
+            arrayops::__rtsadp_arr_unshift as *const u8,
+        ),
         // ---- codegen-owned GLOBAL constant/function + Array/String STATIC
         //      trampolines (__rtsadp_g_* / __rtsadp_arr_* / __rtsadp_str_*, P5.2) ----
-        sym("__rtsadp_g_number", globalops::__rtsadp_g_number as *const u8),
-        sym("__rtsadp_g_string", globalops::__rtsadp_g_string as *const u8),
-        sym("__rtsadp_g_boolean", globalops::__rtsadp_g_boolean as *const u8),
-        sym("__rtsadp_g_parse_int", globalops::__rtsadp_g_parse_int as *const u8),
-        sym("__rtsadp_g_parse_float", globalops::__rtsadp_g_parse_float as *const u8),
-        sym("__rtsadp_g_is_nan", globalops::__rtsadp_g_is_nan as *const u8),
-        sym("__rtsadp_g_is_finite", globalops::__rtsadp_g_is_finite as *const u8),
-        sym("__rtsadp_arr_is_array", globalops::__rtsadp_arr_is_array as *const u8),
-        sym("__rtsadp_arr_new_sized", globalops::__rtsadp_arr_new_sized as *const u8),
-        sym("__rtsadp_arr_from", globalops::__rtsadp_arr_from as *const u8),
-        sym("__rtsadp_str_from_char_code", globalops::__rtsadp_str_from_char_code as *const u8),
-        sym("__rtsadp_str_from_char_code_arr", globalops::__rtsadp_str_from_char_code_arr as *const u8),
-        sym("__rtsadp_str_from_code_point", globalops::__rtsadp_str_from_code_point as *const u8),
-        sym("__rtsadp_str_split", globalops::__rtsadp_str_split as *const u8),
-        sym("__rtsadp_math_reduce", globalops::__rtsadp_math_reduce as *const u8),
-        sym("__rtsadp_canon_double", globalops::__rtsadp_canon_double as *const u8),
-        sym("__rtsadp_arr_spread_append", globalops::__rtsadp_arr_spread_append as *const u8),
+        sym(
+            "__rtsadp_g_number",
+            globalops::__rtsadp_g_number as *const u8,
+        ),
+        sym(
+            "__rtsadp_g_string",
+            globalops::__rtsadp_g_string as *const u8,
+        ),
+        sym(
+            "__rtsadp_g_boolean",
+            globalops::__rtsadp_g_boolean as *const u8,
+        ),
+        sym(
+            "__rtsadp_g_parse_int",
+            globalops::__rtsadp_g_parse_int as *const u8,
+        ),
+        sym(
+            "__rtsadp_g_parse_float",
+            globalops::__rtsadp_g_parse_float as *const u8,
+        ),
+        sym(
+            "__rtsadp_g_is_nan",
+            globalops::__rtsadp_g_is_nan as *const u8,
+        ),
+        sym(
+            "__rtsadp_g_is_finite",
+            globalops::__rtsadp_g_is_finite as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_is_array",
+            globalops::__rtsadp_arr_is_array as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_new_sized",
+            globalops::__rtsadp_arr_new_sized as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_from",
+            globalops::__rtsadp_arr_from as *const u8,
+        ),
+        sym(
+            "__rtsadp_str_from_char_code",
+            globalops::__rtsadp_str_from_char_code as *const u8,
+        ),
+        sym(
+            "__rtsadp_str_from_char_code_arr",
+            globalops::__rtsadp_str_from_char_code_arr as *const u8,
+        ),
+        sym(
+            "__rtsadp_str_from_code_point",
+            globalops::__rtsadp_str_from_code_point as *const u8,
+        ),
+        sym(
+            "__rtsadp_str_split",
+            globalops::__rtsadp_str_split as *const u8,
+        ),
+        sym(
+            "__rtsadp_math_reduce",
+            globalops::__rtsadp_math_reduce as *const u8,
+        ),
+        sym(
+            "__rtsadp_canon_double",
+            globalops::__rtsadp_canon_double as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_spread_append",
+            globalops::__rtsadp_arr_spread_append as *const u8,
+        ),
         // ---- codegen-owned ITERATION-source trampolines (iterops, P5.10) ----
-        sym("__rtsadp_str_chars", iterops::__rtsadp_str_chars as *const u8),
+        sym(
+            "__rtsadp_str_chars",
+            iterops::__rtsadp_str_chars as *const u8,
+        ),
         sym("__rtsadp_obj_keys", iterops::__rtsadp_obj_keys as *const u8),
         // ---- codegen-owned FUNCTION-value trampolines (__rtsadp_fn_*, P4.6) ----
         sym("__rtsadp_fn_reify", funcops::__rtsadp_fn_reify as *const u8),
-        sym("__rtsadp_fn_invoke", funcops::__rtsadp_fn_invoke as *const u8),
+        sym(
+            "__rtsadp_fn_invoke",
+            funcops::__rtsadp_fn_invoke as *const u8,
+        ),
         // ---- function-as-constructor side-table (new F() / x instanceof F) ----
         sym("__rtsadp_fn_ptr", funcops::__rtsadp_fn_ptr as *const u8),
-        sym("__rtsadp_ctor_mark", funcops::__rtsadp_ctor_mark as *const u8),
-        sym("__rtsadp_instanceof_fn", funcops::__rtsadp_instanceof_fn as *const u8),
+        sym(
+            "__rtsadp_ctor_mark",
+            funcops::__rtsadp_ctor_mark as *const u8,
+        ),
+        sym(
+            "__rtsadp_instanceof_fn",
+            funcops::__rtsadp_instanceof_fn as *const u8,
+        ),
         // ---- function-VALUE data properties (`F.foo = v` / `F.foo`) (Phase 4) ----
-        sym("__rtsadp_fn_get_prop", funcops::__rtsadp_fn_get_prop as *const u8),
-        sym("__rtsadp_fn_set_prop", funcops::__rtsadp_fn_set_prop as *const u8),
+        sym(
+            "__rtsadp_fn_get_prop",
+            funcops::__rtsadp_fn_get_prop as *const u8,
+        ),
+        sym(
+            "__rtsadp_fn_set_prop",
+            funcops::__rtsadp_fn_set_prop as *const u8,
+        ),
         // ---- codegen-owned Array CALLBACK trampolines (__rtsadp_arr_*, P4.7) ----
         sym("__rtsadp_arr_map", arraycb::__rtsadp_arr_map as *const u8),
-        sym("__rtsadp_arr_filter", arraycb::__rtsadp_arr_filter as *const u8),
-        sym("__rtsadp_arr_for_each", arraycb::__rtsadp_arr_for_each as *const u8),
+        sym(
+            "__rtsadp_arr_filter",
+            arraycb::__rtsadp_arr_filter as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_for_each",
+            arraycb::__rtsadp_arr_for_each as *const u8,
+        ),
         sym("__rtsadp_arr_find", arraycb::__rtsadp_arr_find as *const u8),
-        sym("__rtsadp_arr_find_index", arraycb::__rtsadp_arr_find_index as *const u8),
+        sym(
+            "__rtsadp_arr_find_index",
+            arraycb::__rtsadp_arr_find_index as *const u8,
+        ),
         sym("__rtsadp_arr_some", arraycb::__rtsadp_arr_some as *const u8),
-        sym("__rtsadp_arr_every", arraycb::__rtsadp_arr_every as *const u8),
-        sym("__rtsadp_arr_reduce", arraycb::__rtsadp_arr_reduce as *const u8),
+        sym(
+            "__rtsadp_arr_every",
+            arraycb::__rtsadp_arr_every as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_reduce",
+            arraycb::__rtsadp_arr_reduce as *const u8,
+        ),
         // ---- codegen-owned RegExp + string-regex-method trampolines (regexops, P5.12) ----
-        sym("__rtsadp_re_compile", regexops::__rtsadp_re_compile as *const u8),
+        sym(
+            "__rtsadp_re_compile",
+            regexops::__rtsadp_re_compile as *const u8,
+        ),
         sym("__rtsadp_re_test", regexops::__rtsadp_re_test as *const u8),
-        sym("__rtsadp_re_source", regexops::__rtsadp_re_source as *const u8),
-        sym("__rtsadp_re_flags", regexops::__rtsadp_re_flags as *const u8),
-        sym("__rtsadp_re_global", regexops::__rtsadp_re_global as *const u8),
-        sym("__rtsadp_re_ignore_case", regexops::__rtsadp_re_ignore_case as *const u8),
-        sym("__rtsadp_re_multiline", regexops::__rtsadp_re_multiline as *const u8),
-        sym("__rtsadp_re_last_index", regexops::__rtsadp_re_last_index as *const u8),
-        sym("__rtsadp_re_str_match", regexops::__rtsadp_re_str_match as *const u8),
-        sym("__rtsadp_re_str_replace", regexops::__rtsadp_re_str_replace as *const u8),
-        sym("__rtsadp_re_str_replace_all", regexops::__rtsadp_re_str_replace_all as *const u8),
-        sym("__rtsadp_re_str_split", regexops::__rtsadp_re_str_split as *const u8),
-        sym("__rtsadp_re_str_search", regexops::__rtsadp_re_str_search as *const u8),
+        sym(
+            "__rtsadp_re_source",
+            regexops::__rtsadp_re_source as *const u8,
+        ),
+        sym(
+            "__rtsadp_re_flags",
+            regexops::__rtsadp_re_flags as *const u8,
+        ),
+        sym(
+            "__rtsadp_re_global",
+            regexops::__rtsadp_re_global as *const u8,
+        ),
+        sym(
+            "__rtsadp_re_ignore_case",
+            regexops::__rtsadp_re_ignore_case as *const u8,
+        ),
+        sym(
+            "__rtsadp_re_multiline",
+            regexops::__rtsadp_re_multiline as *const u8,
+        ),
+        sym(
+            "__rtsadp_re_last_index",
+            regexops::__rtsadp_re_last_index as *const u8,
+        ),
+        sym(
+            "__rtsadp_re_str_match",
+            regexops::__rtsadp_re_str_match as *const u8,
+        ),
+        sym(
+            "__rtsadp_re_str_replace",
+            regexops::__rtsadp_re_str_replace as *const u8,
+        ),
+        sym(
+            "__rtsadp_re_str_replace_all",
+            regexops::__rtsadp_re_str_replace_all as *const u8,
+        ),
+        sym(
+            "__rtsadp_re_str_split",
+            regexops::__rtsadp_re_str_split as *const u8,
+        ),
+        sym(
+            "__rtsadp_re_str_search",
+            regexops::__rtsadp_re_str_search as *const u8,
+        ),
         // ---- codegen-owned DYNAMIC property access (objops, P5.5) ----
         sym("__rtsadp_obj_get", objops::__rtsadp_obj_get as *const u8),
         sym("__rtsadp_obj_set", objops::__rtsadp_obj_set as *const u8),
         sym("__rtsadp_obj_has", objops::__rtsadp_obj_has as *const u8),
         // ---- codegen-owned Error-family + wrapper ctors / props / instanceof (P5.3) ----
         sym("__rtsadp_err_new", wrappers::__rtsadp_err_new as *const u8),
-        sym("__rtsadp_err_new_type", wrappers::__rtsadp_err_new_type as *const u8),
-        sym("__rtsadp_err_new_range", wrappers::__rtsadp_err_new_range as *const u8),
-        sym("__rtsadp_err_new_reference", wrappers::__rtsadp_err_new_reference as *const u8),
-        sym("__rtsadp_err_new_syntax", wrappers::__rtsadp_err_new_syntax as *const u8),
-        sym("__rtsadp_err_new_uri", wrappers::__rtsadp_err_new_uri as *const u8),
-        sym("__rtsadp_err_new_eval", wrappers::__rtsadp_err_new_eval as *const u8),
-        sym("__rtsadp_err_message", wrappers::__rtsadp_err_message as *const u8),
-        sym("__rtsadp_err_name", wrappers::__rtsadp_err_name as *const u8),
-        sym("__rtsadp_err_stack", wrappers::__rtsadp_err_stack as *const u8),
-        sym("__rtsadp_err_to_string", wrappers::__rtsadp_err_to_string as *const u8),
-        sym("__rtsadp_w_boolean_new", wrappers::__rtsadp_w_boolean_new as *const u8),
-        sym("__rtsadp_w_number_new", wrappers::__rtsadp_w_number_new as *const u8),
-        sym("__rtsadp_w_string_new", wrappers::__rtsadp_w_string_new as *const u8),
-        sym("__rtsadp_is_error", wrappers::__rtsadp_is_error as *const u8),
+        sym(
+            "__rtsadp_err_new_type",
+            wrappers::__rtsadp_err_new_type as *const u8,
+        ),
+        sym(
+            "__rtsadp_err_new_range",
+            wrappers::__rtsadp_err_new_range as *const u8,
+        ),
+        sym(
+            "__rtsadp_err_new_reference",
+            wrappers::__rtsadp_err_new_reference as *const u8,
+        ),
+        sym(
+            "__rtsadp_err_new_syntax",
+            wrappers::__rtsadp_err_new_syntax as *const u8,
+        ),
+        sym(
+            "__rtsadp_err_new_uri",
+            wrappers::__rtsadp_err_new_uri as *const u8,
+        ),
+        sym(
+            "__rtsadp_err_new_eval",
+            wrappers::__rtsadp_err_new_eval as *const u8,
+        ),
+        sym(
+            "__rtsadp_err_message",
+            wrappers::__rtsadp_err_message as *const u8,
+        ),
+        sym(
+            "__rtsadp_err_name",
+            wrappers::__rtsadp_err_name as *const u8,
+        ),
+        sym(
+            "__rtsadp_err_stack",
+            wrappers::__rtsadp_err_stack as *const u8,
+        ),
+        sym(
+            "__rtsadp_err_to_string",
+            wrappers::__rtsadp_err_to_string as *const u8,
+        ),
+        sym(
+            "__rtsadp_w_boolean_new",
+            wrappers::__rtsadp_w_boolean_new as *const u8,
+        ),
+        sym(
+            "__rtsadp_w_number_new",
+            wrappers::__rtsadp_w_number_new as *const u8,
+        ),
+        sym(
+            "__rtsadp_w_string_new",
+            wrappers::__rtsadp_w_string_new as *const u8,
+        ),
+        sym(
+            "__rtsadp_is_error",
+            wrappers::__rtsadp_is_error as *const u8,
+        ),
         // ---- codegen-owned pending-error slot for throw / try-catch (P5.13) ----
-        sym("__rtsadp_throw_set", errslot::__rtsadp_throw_set as *const u8),
-        sym("__rtsadp_err_pending", errslot::__rtsadp_err_pending as *const u8),
+        sym(
+            "__rtsadp_throw_set",
+            errslot::__rtsadp_throw_set as *const u8,
+        ),
+        sym(
+            "__rtsadp_err_pending",
+            errslot::__rtsadp_err_pending as *const u8,
+        ),
         sym("__rtsadp_err_take", errslot::__rtsadp_err_take as *const u8),
-        sym("__rtsadp_err_clear", errslot::__rtsadp_err_clear as *const u8),
+        sym(
+            "__rtsadp_err_clear",
+            errslot::__rtsadp_err_clear as *const u8,
+        ),
         // ---- codegen-owned DYNAMIC method dispatch (dyndispatch, P5.9) ----
-        sym("__rtsadp_dyn_to_string", dyndispatch::__rtsadp_dyn_to_string as *const u8),
-        sym("__rtsadp_dyn_length", dyndispatch::__rtsadp_dyn_length as *const u8),
-        sym("__rtsadp_dyn_index_of", dyndispatch::__rtsadp_dyn_index_of as *const u8),
-        sym("__rtsadp_dyn_includes", dyndispatch::__rtsadp_dyn_includes as *const u8),
+        sym(
+            "__rtsadp_dyn_to_string",
+            dyndispatch::__rtsadp_dyn_to_string as *const u8,
+        ),
+        sym(
+            "__rtsadp_dyn_length",
+            dyndispatch::__rtsadp_dyn_length as *const u8,
+        ),
+        sym(
+            "__rtsadp_dyn_index_of",
+            dyndispatch::__rtsadp_dyn_index_of as *const u8,
+        ),
+        sym(
+            "__rtsadp_dyn_includes",
+            dyndispatch::__rtsadp_dyn_includes as *const u8,
+        ),
         sym("__rtsadp_dyn_at", dyndispatch::__rtsadp_dyn_at as *const u8),
-        sym("__rtsadp_dyn_slice", dyndispatch::__rtsadp_dyn_slice as *const u8),
-        sym("__rtsadp_dyn_concat", dyndispatch::__rtsadp_dyn_concat as *const u8),
-        sym("__rtsadp_dyn_join", dyndispatch::__rtsadp_dyn_join as *const u8),
-        sym("__rtsadp_dyn_push", dyndispatch::__rtsadp_dyn_push as *const u8),
-        sym("__rtsadp_dyn_pop", dyndispatch::__rtsadp_dyn_pop as *const u8),
-        sym("__rtsadp_dyn_char_at", dyndispatch::__rtsadp_dyn_char_at as *const u8),
-        sym("__rtsadp_dyn_char_code_at", dyndispatch::__rtsadp_dyn_char_code_at as *const u8),
-        sym("__rtsadp_dyn_to_upper_case", dyndispatch::__rtsadp_dyn_to_upper_case as *const u8),
-        sym("__rtsadp_dyn_to_lower_case", dyndispatch::__rtsadp_dyn_to_lower_case as *const u8),
-        sym("__rtsadp_dyn_trim", dyndispatch::__rtsadp_dyn_trim as *const u8),
-        sym("__rtsadp_dyn_split", dyndispatch::__rtsadp_dyn_split as *const u8),
-        sym("__rtsadp_dyn_starts_with", dyndispatch::__rtsadp_dyn_starts_with as *const u8),
-        sym("__rtsadp_dyn_ends_with", dyndispatch::__rtsadp_dyn_ends_with as *const u8),
-        sym("__rtsadp_dyn_repeat", dyndispatch::__rtsadp_dyn_repeat as *const u8),
+        sym(
+            "__rtsadp_dyn_slice",
+            dyndispatch::__rtsadp_dyn_slice as *const u8,
+        ),
+        sym(
+            "__rtsadp_dyn_concat",
+            dyndispatch::__rtsadp_dyn_concat as *const u8,
+        ),
+        sym(
+            "__rtsadp_dyn_join",
+            dyndispatch::__rtsadp_dyn_join as *const u8,
+        ),
+        sym(
+            "__rtsadp_dyn_push",
+            dyndispatch::__rtsadp_dyn_push as *const u8,
+        ),
+        sym(
+            "__rtsadp_dyn_pop",
+            dyndispatch::__rtsadp_dyn_pop as *const u8,
+        ),
+        sym(
+            "__rtsadp_dyn_char_at",
+            dyndispatch::__rtsadp_dyn_char_at as *const u8,
+        ),
+        sym(
+            "__rtsadp_dyn_char_code_at",
+            dyndispatch::__rtsadp_dyn_char_code_at as *const u8,
+        ),
+        sym(
+            "__rtsadp_dyn_to_upper_case",
+            dyndispatch::__rtsadp_dyn_to_upper_case as *const u8,
+        ),
+        sym(
+            "__rtsadp_dyn_to_lower_case",
+            dyndispatch::__rtsadp_dyn_to_lower_case as *const u8,
+        ),
+        sym(
+            "__rtsadp_dyn_trim",
+            dyndispatch::__rtsadp_dyn_trim as *const u8,
+        ),
+        sym(
+            "__rtsadp_dyn_split",
+            dyndispatch::__rtsadp_dyn_split as *const u8,
+        ),
+        sym(
+            "__rtsadp_dyn_starts_with",
+            dyndispatch::__rtsadp_dyn_starts_with as *const u8,
+        ),
+        sym(
+            "__rtsadp_dyn_ends_with",
+            dyndispatch::__rtsadp_dyn_ends_with as *const u8,
+        ),
+        sym(
+            "__rtsadp_dyn_repeat",
+            dyndispatch::__rtsadp_dyn_repeat as *const u8,
+        ),
     ];
     syms.extend(gl_method_symbols());
     syms.extend(math_number_symbols());
@@ -261,39 +597,129 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
 fn math_number_symbols() -> Vec<JitSymbol> {
     vec![
         // ---- Math 1-arg f64→f64 ----
-        sym("__RTS_FN_NS_MATH_FLOOR", rt_math::__RTS_FN_NS_MATH_FLOOR as *const u8),
-        sym("__RTS_FN_NS_MATH_CEIL", rt_math::__RTS_FN_NS_MATH_CEIL as *const u8),
-        sym("__RTS_FN_NS_MATH_ROUND", rt_math::__RTS_FN_NS_MATH_ROUND as *const u8),
-        sym("__RTS_FN_NS_MATH_TRUNC", rt_math::__RTS_FN_NS_MATH_TRUNC as *const u8),
-        sym("__RTS_FN_NS_MATH_SIGN", rt_math::__RTS_FN_NS_MATH_SIGN as *const u8),
-        sym("__RTS_FN_NS_MATH_CBRT", rt_math::__RTS_FN_NS_MATH_CBRT as *const u8),
-        sym("__RTS_FN_NS_MATH_EXP", rt_math::__RTS_FN_NS_MATH_EXP as *const u8),
-        sym("__RTS_FN_NS_MATH_EXPM1", rt_math::__RTS_FN_NS_MATH_EXPM1 as *const u8),
-        sym("__RTS_FN_NS_MATH_LN", rt_math::__RTS_FN_NS_MATH_LN as *const u8),
-        sym("__RTS_FN_NS_MATH_LOG2", rt_math::__RTS_FN_NS_MATH_LOG2 as *const u8),
-        sym("__RTS_FN_NS_MATH_LOG10", rt_math::__RTS_FN_NS_MATH_LOG10 as *const u8),
-        sym("__RTS_FN_NS_MATH_LOG1P", rt_math::__RTS_FN_NS_MATH_LOG1P as *const u8),
-        sym("__RTS_FN_NS_MATH_SIN", rt_math::__RTS_FN_NS_MATH_SIN as *const u8),
-        sym("__RTS_FN_NS_MATH_COS", rt_math::__RTS_FN_NS_MATH_COS as *const u8),
-        sym("__RTS_FN_NS_MATH_TAN", rt_math::__RTS_FN_NS_MATH_TAN as *const u8),
-        sym("__RTS_FN_NS_MATH_ASIN", rt_math::__RTS_FN_NS_MATH_ASIN as *const u8),
-        sym("__RTS_FN_NS_MATH_ACOS", rt_math::__RTS_FN_NS_MATH_ACOS as *const u8),
-        sym("__RTS_FN_NS_MATH_ATAN", rt_math::__RTS_FN_NS_MATH_ATAN as *const u8),
-        sym("__RTS_FN_NS_MATH_SINH", rt_math::__RTS_FN_NS_MATH_SINH as *const u8),
-        sym("__RTS_FN_NS_MATH_COSH", rt_math::__RTS_FN_NS_MATH_COSH as *const u8),
-        sym("__RTS_FN_NS_MATH_TANH", rt_math::__RTS_FN_NS_MATH_TANH as *const u8),
-        sym("__RTS_FN_NS_MATH_FROUND", rt_math::__RTS_FN_NS_MATH_FROUND as *const u8),
+        sym(
+            "__RTS_FN_NS_MATH_FLOOR",
+            rt_math::__RTS_FN_NS_MATH_FLOOR as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_MATH_CEIL",
+            rt_math::__RTS_FN_NS_MATH_CEIL as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_MATH_ROUND",
+            rt_math::__RTS_FN_NS_MATH_ROUND as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_MATH_TRUNC",
+            rt_math::__RTS_FN_NS_MATH_TRUNC as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_MATH_SIGN",
+            rt_math::__RTS_FN_NS_MATH_SIGN as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_MATH_CBRT",
+            rt_math::__RTS_FN_NS_MATH_CBRT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_MATH_EXP",
+            rt_math::__RTS_FN_NS_MATH_EXP as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_MATH_EXPM1",
+            rt_math::__RTS_FN_NS_MATH_EXPM1 as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_MATH_LN",
+            rt_math::__RTS_FN_NS_MATH_LN as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_MATH_LOG2",
+            rt_math::__RTS_FN_NS_MATH_LOG2 as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_MATH_LOG10",
+            rt_math::__RTS_FN_NS_MATH_LOG10 as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_MATH_LOG1P",
+            rt_math::__RTS_FN_NS_MATH_LOG1P as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_MATH_SIN",
+            rt_math::__RTS_FN_NS_MATH_SIN as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_MATH_COS",
+            rt_math::__RTS_FN_NS_MATH_COS as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_MATH_TAN",
+            rt_math::__RTS_FN_NS_MATH_TAN as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_MATH_ASIN",
+            rt_math::__RTS_FN_NS_MATH_ASIN as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_MATH_ACOS",
+            rt_math::__RTS_FN_NS_MATH_ACOS as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_MATH_ATAN",
+            rt_math::__RTS_FN_NS_MATH_ATAN as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_MATH_SINH",
+            rt_math::__RTS_FN_NS_MATH_SINH as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_MATH_COSH",
+            rt_math::__RTS_FN_NS_MATH_COSH as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_MATH_TANH",
+            rt_math::__RTS_FN_NS_MATH_TANH as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_MATH_FROUND",
+            rt_math::__RTS_FN_NS_MATH_FROUND as *const u8,
+        ),
         // ---- Math 2-arg f64,f64→f64 ----
-        sym("__RTS_FN_NS_MATH_POW", rt_math::__RTS_FN_NS_MATH_POW as *const u8),
-        sym("__RTS_FN_NS_MATH_ATAN2", rt_math::__RTS_FN_NS_MATH_ATAN2 as *const u8),
-        sym("__RTS_FN_NS_MATH_HYPOT", rt_math::__RTS_FN_NS_MATH_HYPOT as *const u8),
+        sym(
+            "__RTS_FN_NS_MATH_POW",
+            rt_math::__RTS_FN_NS_MATH_POW as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_MATH_ATAN2",
+            rt_math::__RTS_FN_NS_MATH_ATAN2 as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_MATH_HYPOT",
+            rt_math::__RTS_FN_NS_MATH_HYPOT as *const u8,
+        ),
         // ---- Math no-arg (PRNG) ----
-        sym("__RTS_FN_NS_MATH_RANDOM_F64", rt_math::__RTS_FN_NS_MATH_RANDOM_F64 as *const u8),
+        sym(
+            "__RTS_FN_NS_MATH_RANDOM_F64",
+            rt_math::__RTS_FN_NS_MATH_RANDOM_F64 as *const u8,
+        ),
         // ---- Number static predicates (f64→Bool) ----
-        sym("__RTS_FN_GL_NUMBER_IS_INTEGER", rt_num::__RTS_FN_GL_NUMBER_IS_INTEGER as *const u8),
-        sym("__RTS_FN_GL_NUMBER_IS_FINITE", rt_num::__RTS_FN_GL_NUMBER_IS_FINITE as *const u8),
-        sym("__RTS_FN_GL_NUMBER_IS_NAN", rt_num::__RTS_FN_GL_NUMBER_IS_NAN as *const u8),
-        sym("__RTS_FN_GL_NUMBER_IS_SAFE_INT", rt_num::__RTS_FN_GL_NUMBER_IS_SAFE_INT as *const u8),
+        sym(
+            "__RTS_FN_GL_NUMBER_IS_INTEGER",
+            rt_num::__RTS_FN_GL_NUMBER_IS_INTEGER as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_NUMBER_IS_FINITE",
+            rt_num::__RTS_FN_GL_NUMBER_IS_FINITE as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_NUMBER_IS_NAN",
+            rt_num::__RTS_FN_GL_NUMBER_IS_NAN as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_NUMBER_IS_SAFE_INT",
+            rt_num::__RTS_FN_GL_NUMBER_IS_SAFE_INT as *const u8,
+        ),
     ]
 }
 
@@ -306,35 +732,119 @@ fn math_number_symbols() -> Vec<JitSymbol> {
 fn gl_method_symbols() -> Vec<JitSymbol> {
     vec![
         // ---- String instance methods (rts-primitives string::rt) ----
-        sym("__RTS_FN_GL_STRING_TO_UPPER_CASE", rt_gl_str::__RTS_FN_GL_STRING_TO_UPPER_CASE as *const u8),
-        sym("__RTS_FN_GL_STRING_TO_LOWER_CASE", rt_gl_str::__RTS_FN_GL_STRING_TO_LOWER_CASE as *const u8),
-        sym("__RTS_FN_GL_STRING_TRIM", rt_gl_str::__RTS_FN_GL_STRING_TRIM as *const u8),
-        sym("__RTS_FN_GL_STRING_TRIM_START", rt_gl_str::__RTS_FN_GL_STRING_TRIM_START as *const u8),
-        sym("__RTS_FN_GL_STRING_TRIM_END", rt_gl_str::__RTS_FN_GL_STRING_TRIM_END as *const u8),
-        sym("__RTS_FN_GL_STRING_CHAR_AT", rt_gl_str::__RTS_FN_GL_STRING_CHAR_AT as *const u8),
-        sym("__RTS_FN_GL_STRING_AT", rt_gl_str::__RTS_FN_GL_STRING_AT as *const u8),
-        sym("__RTS_FN_GL_STRING_REPEAT", rt_gl_str::__RTS_FN_GL_STRING_REPEAT as *const u8),
-        sym("__RTS_FN_GL_STRING_SLICE", rt_gl_str::__RTS_FN_GL_STRING_SLICE as *const u8),
-        sym("__RTS_FN_GL_STRING_SUBSTRING", rt_gl_str::__RTS_FN_GL_STRING_SUBSTRING as *const u8),
-        sym("__RTS_FN_GL_STRING_SUBSTR", rt_gl_str::__RTS_FN_GL_STRING_SUBSTR as *const u8),
-        sym("__RTS_FN_GL_STRING_INDEX_OF", rt_gl_str::__RTS_FN_GL_STRING_INDEX_OF as *const u8),
-        sym("__RTS_FN_GL_STRING_LAST_INDEX_OF", rt_gl_str::__RTS_FN_GL_STRING_LAST_INDEX_OF as *const u8),
-        sym("__RTS_FN_GL_STRING_INCLUDES", rt_gl_str::__RTS_FN_GL_STRING_INCLUDES as *const u8),
-        sym("__RTS_FN_GL_STRING_STARTS_WITH", rt_gl_str::__RTS_FN_GL_STRING_STARTS_WITH as *const u8),
-        sym("__RTS_FN_GL_STRING_ENDS_WITH", rt_gl_str::__RTS_FN_GL_STRING_ENDS_WITH as *const u8),
-        sym("__RTS_FN_GL_STRING_CHAR_CODE_AT", rt_gl_str::__RTS_FN_GL_STRING_CHAR_CODE_AT as *const u8),
-        sym("__RTS_FN_GL_STRING_CODE_POINT_AT", rt_gl_str::__RTS_FN_GL_STRING_CODE_POINT_AT as *const u8),
-        sym("__RTS_FN_GL_STRING_LOCALE_COMPARE", rt_gl_str::__RTS_FN_GL_STRING_LOCALE_COMPARE as *const u8),
-        sym("__RTS_FN_GL_STRING_REPLACE", rt_gl_str::__RTS_FN_GL_STRING_REPLACE as *const u8),
-        sym("__RTS_FN_GL_STRING_REPLACE_ALL", rt_gl_str::__RTS_FN_GL_STRING_REPLACE_ALL as *const u8),
-        sym("__RTS_FN_GL_STRING_CONCAT", rt_gl_str::__RTS_FN_GL_STRING_CONCAT as *const u8),
-        sym("__RTS_FN_GL_STRING_PAD_START", rt_gl_str::__RTS_FN_GL_STRING_PAD_START as *const u8),
-        sym("__RTS_FN_GL_STRING_PAD_END", rt_gl_str::__RTS_FN_GL_STRING_PAD_END as *const u8),
+        sym(
+            "__RTS_FN_GL_STRING_TO_UPPER_CASE",
+            rt_gl_str::__RTS_FN_GL_STRING_TO_UPPER_CASE as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_TO_LOWER_CASE",
+            rt_gl_str::__RTS_FN_GL_STRING_TO_LOWER_CASE as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_TRIM",
+            rt_gl_str::__RTS_FN_GL_STRING_TRIM as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_TRIM_START",
+            rt_gl_str::__RTS_FN_GL_STRING_TRIM_START as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_TRIM_END",
+            rt_gl_str::__RTS_FN_GL_STRING_TRIM_END as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_CHAR_AT",
+            rt_gl_str::__RTS_FN_GL_STRING_CHAR_AT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_AT",
+            rt_gl_str::__RTS_FN_GL_STRING_AT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_REPEAT",
+            rt_gl_str::__RTS_FN_GL_STRING_REPEAT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_SLICE",
+            rt_gl_str::__RTS_FN_GL_STRING_SLICE as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_SUBSTRING",
+            rt_gl_str::__RTS_FN_GL_STRING_SUBSTRING as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_SUBSTR",
+            rt_gl_str::__RTS_FN_GL_STRING_SUBSTR as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_INDEX_OF",
+            rt_gl_str::__RTS_FN_GL_STRING_INDEX_OF as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_LAST_INDEX_OF",
+            rt_gl_str::__RTS_FN_GL_STRING_LAST_INDEX_OF as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_INCLUDES",
+            rt_gl_str::__RTS_FN_GL_STRING_INCLUDES as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_STARTS_WITH",
+            rt_gl_str::__RTS_FN_GL_STRING_STARTS_WITH as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_ENDS_WITH",
+            rt_gl_str::__RTS_FN_GL_STRING_ENDS_WITH as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_CHAR_CODE_AT",
+            rt_gl_str::__RTS_FN_GL_STRING_CHAR_CODE_AT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_CODE_POINT_AT",
+            rt_gl_str::__RTS_FN_GL_STRING_CODE_POINT_AT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_LOCALE_COMPARE",
+            rt_gl_str::__RTS_FN_GL_STRING_LOCALE_COMPARE as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_REPLACE",
+            rt_gl_str::__RTS_FN_GL_STRING_REPLACE as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_REPLACE_ALL",
+            rt_gl_str::__RTS_FN_GL_STRING_REPLACE_ALL as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_CONCAT",
+            rt_gl_str::__RTS_FN_GL_STRING_CONCAT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_PAD_START",
+            rt_gl_str::__RTS_FN_GL_STRING_PAD_START as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_PAD_END",
+            rt_gl_str::__RTS_FN_GL_STRING_PAD_END as *const u8,
+        ),
         // ---- Number instance methods (rts-primitives number) ----
-        sym("__RTS_FN_GL_NUMBER_TO_FIXED", rt_num::__RTS_FN_GL_NUMBER_TO_FIXED as *const u8),
-        sym("__RTS_FN_GL_NUMBER_TO_PRECISION", rt_num::__RTS_FN_GL_NUMBER_TO_PRECISION as *const u8),
-        sym("__RTS_FN_GL_NUMBER_TO_EXPONENTIAL", rt_num::__RTS_FN_GL_NUMBER_TO_EXPONENTIAL as *const u8),
-        sym("__RTS_FN_GL_NUMBER_TO_STRING_RADIX", rt_num::__RTS_FN_GL_NUMBER_TO_STRING_RADIX as *const u8),
+        sym(
+            "__RTS_FN_GL_NUMBER_TO_FIXED",
+            rt_num::__RTS_FN_GL_NUMBER_TO_FIXED as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_NUMBER_TO_PRECISION",
+            rt_num::__RTS_FN_GL_NUMBER_TO_PRECISION as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_NUMBER_TO_EXPONENTIAL",
+            rt_num::__RTS_FN_GL_NUMBER_TO_EXPONENTIAL as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_NUMBER_TO_STRING_RADIX",
+            rt_num::__RTS_FN_GL_NUMBER_TO_STRING_RADIX as *const u8,
+        ),
     ]
 }
 

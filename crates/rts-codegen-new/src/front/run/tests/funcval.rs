@@ -24,7 +24,10 @@ fn store_and_call() {
 
 #[test]
 fn store_two_args() {
-    assert_stdout("const add = (a:number,b:number)=>a+b; console.log(add(3,4));", "7\n");
+    assert_stdout(
+        "const add = (a:number,b:number)=>a+b; console.log(add(3,4));",
+        "7\n",
+    );
 }
 
 // ===========================================================================
@@ -63,7 +66,10 @@ fn typeof_function_value() {
 #[test]
 fn typeof_named_function_value() {
     // A named top-level function referenced as a value (not called) also reifies.
-    assert_stdout("function g(x: number){ return x; } console.log(typeof g);", "function\n");
+    assert_stdout(
+        "function g(x: number){ return x; } console.log(typeof g);",
+        "function\n",
+    );
 }
 
 // ===========================================================================
@@ -110,7 +116,10 @@ fn invoke_with_five_args_uses_rest_array() {
 #[test]
 fn closure_capturing_local_now_works() {
     // `g` captures the outer local `k` by value (P5.7). `1 + 3`.
-    assert_stdout("let k = 3; const g = (x: number) => x + k; console.log(g(1));", "4\n");
+    assert_stdout(
+        "let k = 3; const g = (x: number) => x + k; console.log(g(1));",
+        "4\n",
+    );
 }
 
 #[test]

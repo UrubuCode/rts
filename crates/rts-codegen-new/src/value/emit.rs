@@ -10,10 +10,10 @@
 //! one place that actually emits IR.
 
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
-use cranelift_codegen::ir::{types, InstBuilder, MemFlags, Value};
+use cranelift_codegen::ir::{InstBuilder, MemFlags, Value, types};
 use cranelift_frontend::FunctionBuilder;
 
-use super::{encode, BOX_BASE, CANONICAL_NAN, TAG_INT32};
+use super::{BOX_BASE, CANONICAL_NAN, TAG_INT32, encode};
 
 /// Emit `(v & BOX_BASE) == BOX_BASE`, producing an `i8` boolean (1 = boxed).
 ///

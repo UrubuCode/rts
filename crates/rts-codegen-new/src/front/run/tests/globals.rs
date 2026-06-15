@@ -9,7 +9,10 @@ use super::{assert_bails, assert_stdout};
 
 #[test]
 fn global_nan_infinity() {
-    assert_stdout("console.log(NaN, Infinity, -Infinity);", "NaN Infinity -Infinity\n");
+    assert_stdout(
+        "console.log(NaN, Infinity, -Infinity);",
+        "NaN Infinity -Infinity\n",
+    );
 }
 
 #[test]
@@ -21,31 +24,46 @@ fn global_undefined() {
 
 #[test]
 fn is_nan_is_finite() {
-    assert_stdout("console.log(isNaN(NaN), isFinite(1), isNaN(5));", "true true false\n");
+    assert_stdout(
+        "console.log(isNaN(NaN), isFinite(1), isNaN(5));",
+        "true true false\n",
+    );
 }
 
 // ---- Number / String / Boolean coercions ----
 
 #[test]
 fn number_string_boolean() {
-    assert_stdout(r#"console.log(Number("42"), String(7), Boolean(0));"#, "42 7 false\n");
+    assert_stdout(
+        r#"console.log(Number("42"), String(7), Boolean(0));"#,
+        "42 7 false\n",
+    );
 }
 
 #[test]
 fn boolean_truthy() {
-    assert_stdout(r#"console.log(Boolean(1), Boolean(""), Boolean("x"));"#, "true false true\n");
+    assert_stdout(
+        r#"console.log(Boolean(1), Boolean(""), Boolean("x"));"#,
+        "true false true\n",
+    );
 }
 
 // ---- parseInt / parseFloat ----
 
 #[test]
 fn parse_int_radix() {
-    assert_stdout(r#"console.log(parseInt("1010", 2), parseFloat("3.14x"));"#, "10 3.14\n");
+    assert_stdout(
+        r#"console.log(parseInt("1010", 2), parseFloat("3.14x"));"#,
+        "10 3.14\n",
+    );
 }
 
 #[test]
 fn parse_int_default_decimal() {
-    assert_stdout(r#"console.log(parseInt("42abc"), parseInt("0xFF", 16));"#, "42 255\n");
+    assert_stdout(
+        r#"console.log(parseInt("42abc"), parseInt("0xFF", 16));"#,
+        "42 255\n",
+    );
 }
 
 #[test]
@@ -57,7 +75,10 @@ fn parse_float_plain() {
 
 #[test]
 fn array_is_array() {
-    assert_stdout(r#"console.log(Array.isArray([1,2]), Array.isArray("x"));"#, "true false\n");
+    assert_stdout(
+        r#"console.log(Array.isArray([1,2]), Array.isArray("x"));"#,
+        "true false\n",
+    );
 }
 
 #[test]

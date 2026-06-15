@@ -20,7 +20,7 @@ use rts_runtime::namespaces::collections::vec as rt_vec;
 use rts_runtime::namespaces::gc::handles as rt_handles;
 
 use super::genops::{to_boolean, to_number};
-use super::{abi_adapter, genops, PolyValue};
+use super::{PolyValue, abi_adapter, genops};
 
 /// Box a fresh real Vec handle as a `TAG_OBJECT` array PolyValue word (the engine's
 /// array representation), matching [`super::arrayops`]'s `slice` result.
@@ -219,7 +219,8 @@ pub extern "C" fn __rtsadp_str_from_char_code_arr(arr_word: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_str_from_code_point(code: u64) -> u64 {
     let n = to_number(PolyValue::from_raw(code)) as i64;
-    let handle = rts_runtime::namespaces::globals::string::rt::__RTS_FN_GL_STRING_FROM_CODE_POINT(n);
+    let handle =
+        rts_runtime::namespaces::globals::string::rt::__RTS_FN_GL_STRING_FROM_CODE_POINT(n);
     abi_adapter::poly_from_real_handle(handle).raw()
 }
 
@@ -240,7 +241,11 @@ pub extern "C" fn __rtsadp_str_split(recv: u64, sep: u64, limit: i64) -> u64 {
     let s = abi_adapter::real_handle_to_string(recv);
     let delim = abi_adapter::real_handle_to_string(sep);
     let vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
-    let take = if limit < 0 { usize::MAX } else { limit as usize };
+    let take = if limit < 0 {
+        usize::MAX
+    } else {
+        limit as usize
+    };
     let push = |part: &str| {
         let word = abi_adapter::intern_poly(part).raw() as i64;
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, word);
@@ -355,7 +360,10 @@ fn parse_int_str(s: &str, radix: i64) -> f64 {
     let mut base = radix;
     let mut digits = rest;
     if base == 16 || base == 0 {
-        if let Some(r) = digits.strip_prefix("0x").or_else(|| digits.strip_prefix("0X")) {
+        if let Some(r) = digits
+            .strip_prefix("0x")
+            .or_else(|| digits.strip_prefix("0X"))
+        {
             digits = r;
             base = 16;
         }
@@ -379,11 +387,7 @@ fn parse_int_str(s: &str, radix: i64) -> f64 {
     for c in valid.chars() {
         acc = acc * base as f64 + c.to_digit(radix_u).unwrap() as f64;
     }
-    if neg {
-        -acc
-    } else {
-        acc
-    }
+    if neg { -acc } else { acc }
 }
 
 /// JS `parseFloat(s)` returning the parsed `f64` (`NaN` on no leading float). The

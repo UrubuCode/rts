@@ -75,7 +75,10 @@ pub(crate) fn desugar_destructure(
                     Statement::Raw(raw) => raw.stmt.as_ref(),
                 })
                 .collect();
-            if let Some(f) = funcs.iter_mut().find(|f| f.name == fdecl.name && !f.is_arrow) {
+            if let Some(f) = funcs
+                .iter_mut()
+                .find(|f| f.name == fdecl.name && !f.is_arrow)
+            {
                 rewrite_stmts(&swc_stmts, &mut f.body, &mut g);
             }
         }
@@ -175,7 +178,11 @@ fn recurse_nested(stmt: &mut HirStmt, swc: Option<&swc_ecma_ast::Stmt>, g: &mut 
             let inner = block_stmts(swc);
             rewrite_stmts(&inner, b, g);
         }
-        HirStmt::Try { body, catch, finally } => {
+        HirStmt::Try {
+            body,
+            catch,
+            finally,
+        } => {
             let (try_swc, catch_swc, fin_swc) = try_stmts(swc);
             rewrite_stmts(&try_swc, body, g);
             if let Some(c) = catch {
@@ -253,7 +260,11 @@ fn source_local(init: &HirExpr, g: &mut Gen) -> (String, Vec<HirStmt>) {
 /// `const tmp = init;` carrying the init's own type (so an array/object-literal init
 /// keeps its shape-recording path in the lowerer's `let`).
 fn const_bind_init(name: &str, init: HirExpr) -> HirStmt {
-    HirStmt::Const { name: name.to_string(), ty: HirType::Any, init }
+    HirStmt::Const {
+        name: name.to_string(),
+        ty: HirType::Any,
+        init,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -276,7 +287,9 @@ fn var_decl_pat(stmt: &swc_ecma_ast::Stmt) -> Option<&swc_ecma_ast::Pat> {
 /// The for-of head binding `Pat` (array/object), or `None` (a plain-ident binding or
 /// a non-for-of statement).
 fn for_of_pat(stmt: &swc_ecma_ast::Stmt) -> Option<&swc_ecma_ast::Pat> {
-    let swc_ecma_ast::Stmt::ForOf(fo) = stmt else { return None };
+    let swc_ecma_ast::Stmt::ForOf(fo) = stmt else {
+        return None;
+    };
     let pat = match &fo.left {
         swc_ecma_ast::ForHead::VarDecl(vd) => &vd.decls.first()?.name,
         swc_ecma_ast::ForHead::Pat(p) => p.as_ref(),

@@ -128,43 +128,139 @@ use AbiType::{Bool, Handle, I64, U64};
 /// covers is listed explicitly so `argc` matches without default injection).
 const STRING_ROWS: &[(&str, usize, MethodSpec)] = &[
     // ---- 0-arg, return string ----
-    ("toUpperCase", 0, sm("__RTS_FN_GL_STRING_TO_UPPER_CASE", &[], Handle)),
-    ("toLowerCase", 0, sm("__RTS_FN_GL_STRING_TO_LOWER_CASE", &[], Handle)),
-    ("toLocaleUpperCase", 0, sm("__RTS_FN_GL_STRING_TO_UPPER_CASE", &[], Handle)),
-    ("toLocaleLowerCase", 0, sm("__RTS_FN_GL_STRING_TO_LOWER_CASE", &[], Handle)),
+    (
+        "toUpperCase",
+        0,
+        sm("__RTS_FN_GL_STRING_TO_UPPER_CASE", &[], Handle),
+    ),
+    (
+        "toLowerCase",
+        0,
+        sm("__RTS_FN_GL_STRING_TO_LOWER_CASE", &[], Handle),
+    ),
+    (
+        "toLocaleUpperCase",
+        0,
+        sm("__RTS_FN_GL_STRING_TO_UPPER_CASE", &[], Handle),
+    ),
+    (
+        "toLocaleLowerCase",
+        0,
+        sm("__RTS_FN_GL_STRING_TO_LOWER_CASE", &[], Handle),
+    ),
     ("trim", 0, sm("__RTS_FN_GL_STRING_TRIM", &[], Handle)),
-    ("trimStart", 0, sm("__RTS_FN_GL_STRING_TRIM_START", &[], Handle)),
+    (
+        "trimStart",
+        0,
+        sm("__RTS_FN_GL_STRING_TRIM_START", &[], Handle),
+    ),
     ("trimEnd", 0, sm("__RTS_FN_GL_STRING_TRIM_END", &[], Handle)),
-    ("trimLeft", 0, sm("__RTS_FN_GL_STRING_TRIM_START", &[], Handle)),
-    ("trimRight", 0, sm("__RTS_FN_GL_STRING_TRIM_END", &[], Handle)),
+    (
+        "trimLeft",
+        0,
+        sm("__RTS_FN_GL_STRING_TRIM_START", &[], Handle),
+    ),
+    (
+        "trimRight",
+        0,
+        sm("__RTS_FN_GL_STRING_TRIM_END", &[], Handle),
+    ),
     // ---- index/count args (I64), return string ----
-    ("charAt", 1, sm("__RTS_FN_GL_STRING_CHAR_AT", &[I64], Handle)),
+    (
+        "charAt",
+        1,
+        sm("__RTS_FN_GL_STRING_CHAR_AT", &[I64], Handle),
+    ),
     ("at", 1, sm("__RTS_FN_GL_STRING_AT", &[I64], Handle)),
     ("repeat", 1, sm("__RTS_FN_GL_STRING_REPEAT", &[I64], Handle)),
     // slice/substring/substr: only the 2-arg form (both indices explicit) is
     // registered. The 1-arg form relies on a runtime "to end" default that this
     // table does not inject, so `s.slice(n)` BAILS (a later increment).
-    ("slice", 2, sm("__RTS_FN_GL_STRING_SLICE", &[I64, I64], Handle)),
-    ("substring", 2, sm("__RTS_FN_GL_STRING_SUBSTRING", &[I64, I64], Handle)),
-    ("substr", 2, sm("__RTS_FN_GL_STRING_SUBSTR", &[I64, I64], Handle)),
+    (
+        "slice",
+        2,
+        sm("__RTS_FN_GL_STRING_SLICE", &[I64, I64], Handle),
+    ),
+    (
+        "substring",
+        2,
+        sm("__RTS_FN_GL_STRING_SUBSTRING", &[I64, I64], Handle),
+    ),
+    (
+        "substr",
+        2,
+        sm("__RTS_FN_GL_STRING_SUBSTR", &[I64, I64], Handle),
+    ),
     // ---- string args (Handle), return number/bool ----
-    ("indexOf", 1, sm("__RTS_FN_GL_STRING_INDEX_OF", &[Handle], I64)),
-    ("lastIndexOf", 1, sm("__RTS_FN_GL_STRING_LAST_INDEX_OF", &[Handle], I64)),
-    ("includes", 1, sm("__RTS_FN_GL_STRING_INCLUDES", &[Handle], Bool)),
-    ("startsWith", 1, sm("__RTS_FN_GL_STRING_STARTS_WITH", &[Handle], Bool)),
-    ("endsWith", 1, sm("__RTS_FN_GL_STRING_ENDS_WITH", &[Handle], Bool)),
+    (
+        "indexOf",
+        1,
+        sm("__RTS_FN_GL_STRING_INDEX_OF", &[Handle], I64),
+    ),
+    (
+        "lastIndexOf",
+        1,
+        sm("__RTS_FN_GL_STRING_LAST_INDEX_OF", &[Handle], I64),
+    ),
+    (
+        "includes",
+        1,
+        sm("__RTS_FN_GL_STRING_INCLUDES", &[Handle], Bool),
+    ),
+    (
+        "startsWith",
+        1,
+        sm("__RTS_FN_GL_STRING_STARTS_WITH", &[Handle], Bool),
+    ),
+    (
+        "endsWith",
+        1,
+        sm("__RTS_FN_GL_STRING_ENDS_WITH", &[Handle], Bool),
+    ),
     // ---- char code: index arg, return number ----
-    ("charCodeAt", 1, sm("__RTS_FN_GL_STRING_CHAR_CODE_AT", &[I64], I64)),
-    ("codePointAt", 1, sm("__RTS_FN_GL_STRING_CODE_POINT_AT", &[I64], I64)),
+    (
+        "charCodeAt",
+        1,
+        sm("__RTS_FN_GL_STRING_CHAR_CODE_AT", &[I64], I64),
+    ),
+    (
+        "codePointAt",
+        1,
+        sm("__RTS_FN_GL_STRING_CODE_POINT_AT", &[I64], I64),
+    ),
     // ---- locale compare: one string arg, return number (-1/0/1) ----
-    ("localeCompare", 1, sm("__RTS_FN_GL_STRING_LOCALE_COMPARE", &[Handle], I64)),
+    (
+        "localeCompare",
+        1,
+        sm("__RTS_FN_GL_STRING_LOCALE_COMPARE", &[Handle], I64),
+    ),
     // ---- two string args, return string ----
-    ("replace", 2, sm("__RTS_FN_GL_STRING_REPLACE", &[Handle, Handle], Handle)),
-    ("replaceAll", 2, sm("__RTS_FN_GL_STRING_REPLACE_ALL", &[Handle, Handle], Handle)),
-    ("concat", 1, sm("__RTS_FN_GL_STRING_CONCAT", &[Handle], Handle)),
+    (
+        "replace",
+        2,
+        sm("__RTS_FN_GL_STRING_REPLACE", &[Handle, Handle], Handle),
+    ),
+    (
+        "replaceAll",
+        2,
+        sm("__RTS_FN_GL_STRING_REPLACE_ALL", &[Handle, Handle], Handle),
+    ),
+    (
+        "concat",
+        1,
+        sm("__RTS_FN_GL_STRING_CONCAT", &[Handle], Handle),
+    ),
     // ---- pad: target length + pad string ----
-    ("padStart", 2, sm("__RTS_FN_GL_STRING_PAD_START", &[I64, Handle], Handle)),
-    ("padEnd", 2, sm("__RTS_FN_GL_STRING_PAD_END", &[I64, Handle], Handle)),
+    (
+        "padStart",
+        2,
+        sm("__RTS_FN_GL_STRING_PAD_START", &[I64, Handle], Handle),
+    ),
+    (
+        "padEnd",
+        2,
+        sm("__RTS_FN_GL_STRING_PAD_END", &[I64, Handle], Handle),
+    ),
 ];
 
 // ===========================================================================
@@ -175,10 +271,26 @@ const STRING_ROWS: &[(&str, usize, MethodSpec)] = &[
 
 /// A Number instance-method row. Receiver is the `f64` primitive (`RecvAbi::F64`).
 const NUMBER_ROWS: &[(&str, usize, MethodSpec)] = &[
-    ("toFixed", 1, nm("__RTS_FN_GL_NUMBER_TO_FIXED", &[I64], Handle)),
-    ("toPrecision", 1, nm("__RTS_FN_GL_NUMBER_TO_PRECISION", &[I64], Handle)),
-    ("toExponential", 1, nm("__RTS_FN_GL_NUMBER_TO_EXPONENTIAL", &[I64], Handle)),
-    ("toString", 1, nm("__RTS_FN_GL_NUMBER_TO_STRING_RADIX", &[I64], Handle)),
+    (
+        "toFixed",
+        1,
+        nm("__RTS_FN_GL_NUMBER_TO_FIXED", &[I64], Handle),
+    ),
+    (
+        "toPrecision",
+        1,
+        nm("__RTS_FN_GL_NUMBER_TO_PRECISION", &[I64], Handle),
+    ),
+    (
+        "toExponential",
+        1,
+        nm("__RTS_FN_GL_NUMBER_TO_EXPONENTIAL", &[I64], Handle),
+    ),
+    (
+        "toString",
+        1,
+        nm("__RTS_FN_GL_NUMBER_TO_STRING_RADIX", &[I64], Handle),
+    ),
 ];
 
 // ===========================================================================
@@ -209,7 +321,11 @@ const ARRAY_ROWS: &[(&str, usize, MethodSpec)] = &[
     ("pop", 0, am("__rtsadp_arr_pop", &[], U64)),
     ("slice", 2, am("__rtsadp_arr_slice", &[I64, I64], U64)),
     // ---- P5.2 non-callback methods over boxed PolyValue words ----
-    ("lastIndexOf", 1, am("__rtsadp_arr_last_index_of", &[U64], I64)),
+    (
+        "lastIndexOf",
+        1,
+        am("__rtsadp_arr_last_index_of", &[U64], I64),
+    ),
     ("reverse", 0, am("__rtsadp_arr_reverse", &[], U64)),
     ("fill", 1, am("__rtsadp_arr_fill", &[U64], U64)),
     ("concat", 1, am("__rtsadp_arr_concat", &[U64], U64)),
@@ -220,12 +336,28 @@ const ARRAY_ROWS: &[(&str, usize, MethodSpec)] = &[
     // for the predicate/map family; `reduce` has the callback + an OPTIONAL init.
     // The lowering reifies the callback to a TAG_FUNCTION word (see CbShape).
     ("map", 1, cm("__rtsadp_arr_map", U64, CbShape::Predicate)),
-    ("filter", 1, cm("__rtsadp_arr_filter", U64, CbShape::Predicate)),
-    ("forEach", 1, cm("__rtsadp_arr_for_each", U64, CbShape::Predicate)),
+    (
+        "filter",
+        1,
+        cm("__rtsadp_arr_filter", U64, CbShape::Predicate),
+    ),
+    (
+        "forEach",
+        1,
+        cm("__rtsadp_arr_for_each", U64, CbShape::Predicate),
+    ),
     ("find", 1, cm("__rtsadp_arr_find", U64, CbShape::Predicate)),
-    ("findIndex", 1, cm("__rtsadp_arr_find_index", I64, CbShape::Predicate)),
+    (
+        "findIndex",
+        1,
+        cm("__rtsadp_arr_find_index", I64, CbShape::Predicate),
+    ),
     ("some", 1, cm("__rtsadp_arr_some", Bool, CbShape::Predicate)),
-    ("every", 1, cm("__rtsadp_arr_every", Bool, CbShape::Predicate)),
+    (
+        "every",
+        1,
+        cm("__rtsadp_arr_every", Bool, CbShape::Predicate),
+    ),
     // reduce: argc 1 (no init) and argc 2 (with init) both resolve to the same
     // trampoline; the lowering supplies init_word + has_init.
     ("reduce", 1, cm("__rtsadp_arr_reduce", U64, CbShape::Reduce)),
@@ -234,22 +366,46 @@ const ARRAY_ROWS: &[(&str, usize, MethodSpec)] = &[
 
 /// Build a String instance-method spec (receiver = real string handle).
 const fn sm(symbol: &'static str, args: &'static [AbiType], ret: AbiType) -> MethodSpec {
-    MethodSpec { symbol, recv_abi: RecvAbi::Handle, args, ret, cb: None }
+    MethodSpec {
+        symbol,
+        recv_abi: RecvAbi::Handle,
+        args,
+        ret,
+        cb: None,
+    }
 }
 
 /// Build an Array instance-method spec (receiver = the array's real Vec handle).
 const fn am(symbol: &'static str, args: &'static [AbiType], ret: AbiType) -> MethodSpec {
-    MethodSpec { symbol, recv_abi: RecvAbi::ArrayVec, args, ret, cb: None }
+    MethodSpec {
+        symbol,
+        recv_abi: RecvAbi::ArrayVec,
+        args,
+        ret,
+        cb: None,
+    }
 }
 
 /// Build an Array CALLBACK method spec (P4.7): receiver = the array's real Vec
 /// handle, `args` is empty (the callback + reduce's init are synthesized by the
 /// lowering from `cb`), `ret` is the trampoline's return ABI.
 const fn cm(symbol: &'static str, ret: AbiType, cb: CbShape) -> MethodSpec {
-    MethodSpec { symbol, recv_abi: RecvAbi::ArrayVec, args: &[], ret, cb: Some(cb) }
+    MethodSpec {
+        symbol,
+        recv_abi: RecvAbi::ArrayVec,
+        args: &[],
+        ret,
+        cb: Some(cb),
+    }
 }
 
 /// Build a Number instance-method spec (receiver = the f64 primitive).
 const fn nm(symbol: &'static str, args: &'static [AbiType], ret: AbiType) -> MethodSpec {
-    MethodSpec { symbol, recv_abi: RecvAbi::F64, args, ret, cb: None }
+    MethodSpec {
+        symbol,
+        recv_abi: RecvAbi::F64,
+        args,
+        ret,
+        cb: None,
+    }
 }

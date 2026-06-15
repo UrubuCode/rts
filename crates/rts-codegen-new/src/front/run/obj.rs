@@ -20,17 +20,17 @@
 //! - adding a NEW key not already in the object's shape (the transition tree is a
 //!   later increment).
 
-use cranelift_codegen::ir::{types, InstBuilder, Value};
+use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_module::Module;
 
-use rts_hir::ir::HirExprKind;
 use rts_hir::HirExpr;
+use rts_hir::ir::HirExprKind;
 
 use crate::repr::Repr;
 use crate::shape::ShapeId;
 use crate::value::{self, abi_adapter, emit_marshal};
 
-use crate::front::error::{unsupported, FrontResult};
+use crate::front::error::{FrontResult, unsupported};
 
 use super::lower::{HeapShape, JsKind, Lowerer, Val};
 
@@ -76,10 +76,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
         let obj_word = emit_marshal::emit_new_vec_object(module, self.builder);
         // ---- slot 0: the global shape-id, boxed as a tagged int PolyValue ----
-        let id_word = self
-            .builder
-            .ins()
-            .iconst(types::I64, value::PolyValue::from_i32(global_id as i32).raw() as i64);
+        let id_word = self.builder.ins().iconst(
+            types::I64,
+            value::PolyValue::from_i32(global_id as i32).raw() as i64,
+        );
         emit_marshal::emit_vec_push(module, self.builder, obj_word, id_word);
         // ---- slots 1.. : property values in key order, each a boxed PolyValue ----
         for (_, value_expr) in fields {
@@ -87,7 +87,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             let word = self.box_value(v);
             emit_marshal::emit_vec_push(module, self.builder, obj_word, word);
         }
-        Ok((Val::tagged_kind(obj_word, JsKind::Unknown), shape, lit_class))
+        Ok((
+            Val::tagged_kind(obj_word, JsKind::Unknown),
+            shape,
+            lit_class,
+        ))
     }
 
     /// Lower an array literal `[e0, e1, …]` to a fresh `Entry::Vec` filled in
@@ -213,7 +217,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // string. Distinct from the `prop == "length"` fast-path below, which reads
         // the LENGTH of a string field/literal. ----
         if let Some(class) = self.static_instance_class(object) {
-            if self.classes.get(&class).map(|d| d.field_is_string(prop)).unwrap_or(false) {
+            if self
+                .classes
+                .get(&class)
+                .map(|d| d.field_is_string(prop))
+                .unwrap_or(false)
+            {
                 let (recv_word, shape) = self.resolve_heap_receiver(module, object)?;
                 let HeapShape::Object(shape_id) = shape else {
                     return unsupported!("string field `.{prop}` on a non-object receiver");
@@ -391,7 +400,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 return self.lower_dynamic_set(module, name, prop, value);
             }
         }
-        if let Ok((recv_word, HeapShape::Object(shape_id))) = self.resolve_heap_receiver(module, object) {
+        if let Ok((recv_word, HeapShape::Object(shape_id))) =
+            self.resolve_heap_receiver(module, object)
+        {
             // A PROVEN-shape object: a key already in the shape writes its constant
             // slot directly. A provably-NEW key still bails (the transition tree is a
             // later increment) — the dynamic fallback below cannot add a key either.
@@ -403,7 +414,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 emit_marshal::emit_vec_set(module, self.builder, recv_word, idx, word);
                 return Ok(Val::new(word, Repr::Tagged));
             }
-            return unsupported!("adding a new key `{prop}` to a known-shape object (transition tree is a later increment)");
+            return unsupported!(
+                "adding a new key `{prop}` to a known-shape object (transition tree is a later increment)"
+            );
         }
         // ---- DYNAMIC FALLBACK: an unproven receiver (param / return / reassigned /
         // non-identifier object). Write the EXISTING property by key AT RUNTIME via
@@ -473,7 +486,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         match &object.kind {
             HirExprKind::Lit(rts_hir::ir::HirLit::Str(_)) => true,
             HirExprKind::Ident(name) => self.string_locals.contains(name),
-            HirExprKind::Member { object: inner, prop } => self
+            HirExprKind::Member {
+                object: inner,
+                prop,
+            } => self
                 .static_instance_class(inner)
                 .and_then(|c| self.classes.get(&c).map(|d| d.field_is_string(prop)))
                 .unwrap_or(false),
@@ -524,7 +540,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 };
                 Ok((self.load_local_word(name), shape))
             }
-            HirExprKind::Member { object: inner, prop } => {
+            HirExprKind::Member {
+                object: inner,
+                prop,
+            } => {
                 // Only a field PROVEN (via its class) to hold an Array is chainable
                 // in this increment; everything else bails (the honesty floor).
                 let Some(class) = self.static_instance_class(inner) else {
@@ -746,11 +765,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// passed through; the `__rtsadp_obj_get`/`_set` trampoline's `key_text` reads a
     /// string directly or ToStrings a non-string (JS: `o[0]` keys on "0"), so a
     /// numeric index is coerced identically to JS property-key stringification.
-    fn index_key_word(
-        &mut self,
-        module: &mut dyn Module,
-        index: &HirExpr,
-    ) -> FrontResult<Value> {
+    fn index_key_word(&mut self, module: &mut dyn Module, index: &HirExpr) -> FrontResult<Value> {
         let v = self.lower_expr(module, index)?;
         Ok(self.box_value(v))
     }
@@ -791,9 +806,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 /// removed). The marker is always the first field and its value is a string literal
 /// (the object-literal method recovery prepended it); a literal without methods has
 /// no marker and the fields pass through unchanged.
-fn strip_lit_class_marker(
-    fields: &[(String, HirExpr)],
-) -> (Option<String>, &[(String, HirExpr)]) {
+fn strip_lit_class_marker(fields: &[(String, HirExpr)]) -> (Option<String>, &[(String, HirExpr)]) {
     if let Some((key, value)) = fields.first() {
         if key == crate::front::run::desugar::LIT_CLASS_MARKER {
             if let HirExprKind::Lit(rts_hir::ir::HirLit::Str(name)) = &value.kind {

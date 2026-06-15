@@ -35,7 +35,7 @@ use rts_hir::ir::{HirExpr, HirExprKind, HirFunc, HirLit, HirParam, HirStmt, HirT
 
 use super::synth::{ctor_name, method_name};
 use super::walk::this_field_assign;
-use super::{this_param, ClassDesc};
+use super::{ClassDesc, this_param};
 use std::collections::HashMap;
 
 /// The built-in error class names the engine may name + synthesize a virtual
@@ -66,7 +66,11 @@ pub(super) fn is_builtin_error(name: &str) -> bool {
 /// walks the class chain to `Error`). `Error` itself is the root (`parent: None`).
 /// The caller ensures the `Error` base is also synthesized when any subtype is.
 pub(super) fn synth_builtin_error(name: &str) -> (ClassDesc, Vec<HirFunc>) {
-    let fields = vec!["message".to_string(), "name".to_string(), "stack".to_string()];
+    let fields = vec![
+        "message".to_string(),
+        "name".to_string(),
+        "stack".to_string(),
+    ];
     let global_shape = crate::shape::intern_global_shape(&fields);
 
     let ctor = ctor_name(name);
@@ -79,7 +83,11 @@ pub(super) fn synth_builtin_error(name: &str) -> (ClassDesc, Vec<HirFunc>) {
     let mut methods: HashMap<String, String> = HashMap::new();
     methods.insert("toString".to_string(), to_string_fn);
 
-    let parent = if name == "Error" { None } else { Some("Error".to_string()) };
+    let parent = if name == "Error" {
+        None
+    } else {
+        Some("Error".to_string())
+    };
     // The virtual Error parent's fields (message/name/stack) are all strings.
     let field_strings: std::collections::HashSet<String> = fields.iter().cloned().collect();
     let desc = ClassDesc {

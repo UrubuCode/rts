@@ -24,58 +24,187 @@ use crate::runtime_link::JitSymbol;
 pub fn date_symbols() -> Vec<JitSymbol> {
     macro_rules! s {
         ($name:literal, $f:path) => {
-            JitSymbol { name: $name, ptr: $f as *const u8 }
+            JitSymbol {
+                name: $name,
+                ptr: $f as *const u8,
+            }
         };
     }
     vec![
         // ── constructors ───────────────────────────────────────────────────
-        s!("__RTS_FN_GL_DATE_NEW_NOW", rt_gl_date::__RTS_FN_GL_DATE_NEW_NOW),
-        s!("__RTS_FN_GL_DATE_NEW_FROM_MS", rt_gl_date::__RTS_FN_GL_DATE_NEW_FROM_MS),
-        s!("__RTS_FN_GL_DATE_NEW_FROM_ISO", rt_gl_date::__RTS_FN_GL_DATE_NEW_FROM_ISO),
-        s!("__RTS_FN_GL_DATE_NEW_FROM_FIELDS", rt_gl_date::__RTS_FN_GL_DATE_NEW_FROM_FIELDS),
+        s!(
+            "__RTS_FN_GL_DATE_NEW_NOW",
+            rt_gl_date::__RTS_FN_GL_DATE_NEW_NOW
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_NEW_FROM_MS",
+            rt_gl_date::__RTS_FN_GL_DATE_NEW_FROM_MS
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_NEW_FROM_ISO",
+            rt_gl_date::__RTS_FN_GL_DATE_NEW_FROM_ISO
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_NEW_FROM_FIELDS",
+            rt_gl_date::__RTS_FN_GL_DATE_NEW_FROM_FIELDS
+        ),
         // ── numeric getters ────────────────────────────────────────────────
-        s!("__RTS_FN_GL_DATE_GET_TIME", rt_gl_date::__RTS_FN_GL_DATE_GET_TIME),
-        s!("__RTS_FN_GL_DATE_VALUE_OF", rt_gl_date::__RTS_FN_GL_DATE_VALUE_OF),
-        s!("__RTS_FN_GL_DATE_GET_FULL_YEAR", rt_gl_date::__RTS_FN_GL_DATE_GET_FULL_YEAR),
-        s!("__RTS_FN_GL_DATE_GET_MONTH", rt_gl_date::__RTS_FN_GL_DATE_GET_MONTH),
-        s!("__RTS_FN_GL_DATE_GET_DATE", rt_gl_date::__RTS_FN_GL_DATE_GET_DATE),
-        s!("__RTS_FN_GL_DATE_GET_DAY", rt_gl_date::__RTS_FN_GL_DATE_GET_DAY),
-        s!("__RTS_FN_GL_DATE_GET_HOURS", rt_gl_date::__RTS_FN_GL_DATE_GET_HOURS),
-        s!("__RTS_FN_GL_DATE_GET_MINUTES", rt_gl_date::__RTS_FN_GL_DATE_GET_MINUTES),
-        s!("__RTS_FN_GL_DATE_GET_SECONDS", rt_gl_date::__RTS_FN_GL_DATE_GET_SECONDS),
-        s!("__RTS_FN_GL_DATE_GET_MILLISECONDS", rt_gl_date::__RTS_FN_GL_DATE_GET_MILLISECONDS),
-        s!("__RTS_FN_GL_DATE_GET_UTC_FULL_YEAR", rt_gl_date::__RTS_FN_GL_DATE_GET_UTC_FULL_YEAR),
-        s!("__RTS_FN_GL_DATE_GET_UTC_MONTH", rt_gl_date::__RTS_FN_GL_DATE_GET_UTC_MONTH),
-        s!("__RTS_FN_GL_DATE_GET_UTC_DATE", rt_gl_date::__RTS_FN_GL_DATE_GET_UTC_DATE),
-        s!("__RTS_FN_GL_DATE_GET_UTC_DAY", rt_gl_date::__RTS_FN_GL_DATE_GET_UTC_DAY),
-        s!("__RTS_FN_GL_DATE_GET_UTC_HOURS", rt_gl_date::__RTS_FN_GL_DATE_GET_UTC_HOURS),
-        s!("__RTS_FN_GL_DATE_GET_UTC_MINUTES", rt_gl_date::__RTS_FN_GL_DATE_GET_UTC_MINUTES),
-        s!("__RTS_FN_GL_DATE_GET_UTC_SECONDS", rt_gl_date::__RTS_FN_GL_DATE_GET_UTC_SECONDS),
-        s!("__RTS_FN_GL_DATE_GET_UTC_MILLISECONDS", rt_gl_date::__RTS_FN_GL_DATE_GET_UTC_MILLISECONDS),
-        s!("__RTS_FN_GL_DATE_GET_TIMEZONE_OFFSET", rt_gl_date::__RTS_FN_GL_DATE_GET_TIMEZONE_OFFSET),
+        s!(
+            "__RTS_FN_GL_DATE_GET_TIME",
+            rt_gl_date::__RTS_FN_GL_DATE_GET_TIME
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_VALUE_OF",
+            rt_gl_date::__RTS_FN_GL_DATE_VALUE_OF
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_GET_FULL_YEAR",
+            rt_gl_date::__RTS_FN_GL_DATE_GET_FULL_YEAR
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_GET_MONTH",
+            rt_gl_date::__RTS_FN_GL_DATE_GET_MONTH
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_GET_DATE",
+            rt_gl_date::__RTS_FN_GL_DATE_GET_DATE
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_GET_DAY",
+            rt_gl_date::__RTS_FN_GL_DATE_GET_DAY
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_GET_HOURS",
+            rt_gl_date::__RTS_FN_GL_DATE_GET_HOURS
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_GET_MINUTES",
+            rt_gl_date::__RTS_FN_GL_DATE_GET_MINUTES
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_GET_SECONDS",
+            rt_gl_date::__RTS_FN_GL_DATE_GET_SECONDS
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_GET_MILLISECONDS",
+            rt_gl_date::__RTS_FN_GL_DATE_GET_MILLISECONDS
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_GET_UTC_FULL_YEAR",
+            rt_gl_date::__RTS_FN_GL_DATE_GET_UTC_FULL_YEAR
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_GET_UTC_MONTH",
+            rt_gl_date::__RTS_FN_GL_DATE_GET_UTC_MONTH
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_GET_UTC_DATE",
+            rt_gl_date::__RTS_FN_GL_DATE_GET_UTC_DATE
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_GET_UTC_DAY",
+            rt_gl_date::__RTS_FN_GL_DATE_GET_UTC_DAY
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_GET_UTC_HOURS",
+            rt_gl_date::__RTS_FN_GL_DATE_GET_UTC_HOURS
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_GET_UTC_MINUTES",
+            rt_gl_date::__RTS_FN_GL_DATE_GET_UTC_MINUTES
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_GET_UTC_SECONDS",
+            rt_gl_date::__RTS_FN_GL_DATE_GET_UTC_SECONDS
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_GET_UTC_MILLISECONDS",
+            rt_gl_date::__RTS_FN_GL_DATE_GET_UTC_MILLISECONDS
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_GET_TIMEZONE_OFFSET",
+            rt_gl_date::__RTS_FN_GL_DATE_GET_TIMEZONE_OFFSET
+        ),
         // ── setters (registered methods; resolvable, fixtures avoid them) ───
-        s!("__RTS_FN_GL_DATE_SET_FULL_YEAR", rt_gl_date::__RTS_FN_GL_DATE_SET_FULL_YEAR),
-        s!("__RTS_FN_GL_DATE_SET_MONTH", rt_gl_date::__RTS_FN_GL_DATE_SET_MONTH),
-        s!("__RTS_FN_GL_DATE_SET_DATE", rt_gl_date::__RTS_FN_GL_DATE_SET_DATE),
-        s!("__RTS_FN_GL_DATE_SET_HOURS", rt_gl_date::__RTS_FN_GL_DATE_SET_HOURS),
-        s!("__RTS_FN_GL_DATE_SET_MINUTES", rt_gl_date::__RTS_FN_GL_DATE_SET_MINUTES),
-        s!("__RTS_FN_GL_DATE_SET_SECONDS", rt_gl_date::__RTS_FN_GL_DATE_SET_SECONDS),
-        s!("__RTS_FN_GL_DATE_SET_MILLISECONDS", rt_gl_date::__RTS_FN_GL_DATE_SET_MILLISECONDS),
-        s!("__RTS_FN_GL_DATE_SET_TIME", rt_gl_date::__RTS_FN_GL_DATE_SET_TIME),
+        s!(
+            "__RTS_FN_GL_DATE_SET_FULL_YEAR",
+            rt_gl_date::__RTS_FN_GL_DATE_SET_FULL_YEAR
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_SET_MONTH",
+            rt_gl_date::__RTS_FN_GL_DATE_SET_MONTH
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_SET_DATE",
+            rt_gl_date::__RTS_FN_GL_DATE_SET_DATE
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_SET_HOURS",
+            rt_gl_date::__RTS_FN_GL_DATE_SET_HOURS
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_SET_MINUTES",
+            rt_gl_date::__RTS_FN_GL_DATE_SET_MINUTES
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_SET_SECONDS",
+            rt_gl_date::__RTS_FN_GL_DATE_SET_SECONDS
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_SET_MILLISECONDS",
+            rt_gl_date::__RTS_FN_GL_DATE_SET_MILLISECONDS
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_SET_TIME",
+            rt_gl_date::__RTS_FN_GL_DATE_SET_TIME
+        ),
         // ── string conversions ─────────────────────────────────────────────
-        s!("__RTS_FN_GL_DATE_TO_ISO_STRING", rt_gl_date::__RTS_FN_GL_DATE_TO_ISO_STRING),
-        s!("__RTS_FN_GL_DATE_TO_JSON", rt_gl_date::__RTS_FN_GL_DATE_TO_JSON),
-        s!("__RTS_FN_GL_DATE_TO_STRING", rt_gl_date::__RTS_FN_GL_DATE_TO_STRING),
-        s!("__RTS_FN_GL_DATE_TO_UTC_STRING", rt_gl_date::__RTS_FN_GL_DATE_TO_UTC_STRING),
-        s!("__RTS_FN_GL_DATE_TO_DATE_STRING", rt_gl_date::__RTS_FN_GL_DATE_TO_DATE_STRING),
-        s!("__RTS_FN_GL_DATE_TO_TIME_STRING", rt_gl_date::__RTS_FN_GL_DATE_TO_TIME_STRING),
-        s!("__RTS_FN_GL_DATE_TO_LOCALE_STRING", rt_gl_date::__RTS_FN_GL_DATE_TO_LOCALE_STRING),
-        s!("__RTS_FN_GL_DATE_TO_LOCALE_DATE_STRING", rt_gl_date::__RTS_FN_GL_DATE_TO_LOCALE_DATE_STRING),
-        s!("__RTS_FN_GL_DATE_TO_LOCALE_TIME_STRING", rt_gl_date::__RTS_FN_GL_DATE_TO_LOCALE_TIME_STRING),
+        s!(
+            "__RTS_FN_GL_DATE_TO_ISO_STRING",
+            rt_gl_date::__RTS_FN_GL_DATE_TO_ISO_STRING
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_TO_JSON",
+            rt_gl_date::__RTS_FN_GL_DATE_TO_JSON
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_TO_STRING",
+            rt_gl_date::__RTS_FN_GL_DATE_TO_STRING
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_TO_UTC_STRING",
+            rt_gl_date::__RTS_FN_GL_DATE_TO_UTC_STRING
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_TO_DATE_STRING",
+            rt_gl_date::__RTS_FN_GL_DATE_TO_DATE_STRING
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_TO_TIME_STRING",
+            rt_gl_date::__RTS_FN_GL_DATE_TO_TIME_STRING
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_TO_LOCALE_STRING",
+            rt_gl_date::__RTS_FN_GL_DATE_TO_LOCALE_STRING
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_TO_LOCALE_DATE_STRING",
+            rt_gl_date::__RTS_FN_GL_DATE_TO_LOCALE_DATE_STRING
+        ),
+        s!(
+            "__RTS_FN_GL_DATE_TO_LOCALE_TIME_STRING",
+            rt_gl_date::__RTS_FN_GL_DATE_TO_LOCALE_TIME_STRING
+        ),
         // ── the `date` namespace statics backing Date.now/UTC/parse ─────────
         s!("__RTS_FN_NS_DATE_NOW_MS", rt_date::__RTS_FN_NS_DATE_NOW_MS),
-        s!("__RTS_FN_NS_DATE_FROM_PARTS", rt_date::__RTS_FN_NS_DATE_FROM_PARTS),
-        s!("__RTS_FN_NS_DATE_PARSE_F64", rt_date::__RTS_FN_NS_DATE_PARSE_F64),
+        s!(
+            "__RTS_FN_NS_DATE_FROM_PARTS",
+            rt_date::__RTS_FN_NS_DATE_FROM_PARTS
+        ),
+        s!(
+            "__RTS_FN_NS_DATE_PARSE_F64",
+            rt_date::__RTS_FN_NS_DATE_PARSE_F64
+        ),
         // The `IS_DATE` tag predicate (Registry `instanceof_predicate`).
         s!(
             "__RTS_FN_NS_GC_IS_DATE",

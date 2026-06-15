@@ -30,7 +30,7 @@ use rts_runtime::namespaces::gc::handles as rt_handles;
 use rts_runtime::namespaces::globals::regexp as rt_regexp;
 use rts_runtime::namespaces::regex as rt_re;
 
-use super::{abi_adapter, genops, PolyValue};
+use super::{PolyValue, abi_adapter, genops};
 
 // ── handle <-> PolyValue helpers ────────────────────────────────────────────
 
@@ -166,8 +166,7 @@ pub extern "C" fn __rtsadp_re_last_index(re_word: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_re_str_match(subj_word: u64, re_word: u64) -> u64 {
     let s = handle_str(str_handle(subj_word));
-    let raw_vec =
-        rt_re::__RTS_FN_NS_REGEX_MATCH_ALL(unbox_re(re_word), s.as_ptr(), s.len() as i64);
+    let raw_vec = rt_re::__RTS_FN_NS_REGEX_MATCH_ALL(unbox_re(re_word), s.as_ptr(), s.len() as i64);
     if raw_vec == 0 {
         return PolyValue::null().raw();
     }
@@ -217,7 +216,8 @@ pub extern "C" fn __rtsadp_re_str_split(subj_word: u64, re_word: u64) -> u64 {
         // Bad handle: JS `split` of a string with no match yields `[s]`. Build it.
         let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, subj_word as i64);
-        return PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(out)).raw();
+        return PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(out))
+            .raw();
     }
     rebox_string_vec_as_array(raw_vec)
 }

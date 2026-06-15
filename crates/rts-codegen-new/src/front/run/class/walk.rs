@@ -18,11 +18,17 @@ use super::THIS;
 pub(super) fn this_field_assign(field: &str, value: HirExpr) -> HirStmt {
     let this = HirExpr::new(HirExprKind::Ident(THIS.to_string()), HirType::Unknown);
     let member = HirExpr::new(
-        HirExprKind::Member { object: Box::new(this), prop: field.to_string() },
+        HirExprKind::Member {
+            object: Box::new(this),
+            prop: field.to_string(),
+        },
         HirType::Unknown,
     );
     HirStmt::Expr(HirExpr::new(
-        HirExprKind::Assign { target: Box::new(member), value: Box::new(value) },
+        HirExprKind::Assign {
+            target: Box::new(member),
+            value: Box::new(value),
+        },
         HirType::Unknown,
     ))
 }
@@ -176,7 +182,9 @@ fn raw_this_stmt(s: &HirStmt) -> bool {
         HirStmt::While { cond, body } | HirStmt::DoWhile { cond, body } => {
             raw_this_expr(cond) || body.iter().any(raw_this_stmt)
         }
-        HirStmt::For { cond, update, body, .. } => {
+        HirStmt::For {
+            cond, update, body, ..
+        } => {
             cond.as_ref().is_some_and(raw_this_expr)
                 || update.as_ref().is_some_and(raw_this_expr)
                 || body.iter().any(raw_this_stmt)
@@ -215,12 +223,13 @@ fn raw_this_expr(e: &HirExpr) -> bool {
         }
         HirExprKind::Array(elems) => elems.iter().any(raw_this_expr),
         HirExprKind::Object(fields) => fields.iter().any(|(_, v)| raw_this_expr(v)),
-        HirExprKind::Await(inner) | HirExprKind::Spread(inner) | HirExprKind::Cast { expr: inner, .. } => {
-            raw_this_expr(inner)
-        }
-        HirExprKind::PreInc(t) | HirExprKind::PreDec(t) | HirExprKind::PostInc(t) | HirExprKind::PostDec(t) => {
-            raw_this_expr(t)
-        }
+        HirExprKind::Await(inner)
+        | HirExprKind::Spread(inner)
+        | HirExprKind::Cast { expr: inner, .. } => raw_this_expr(inner),
+        HirExprKind::PreInc(t)
+        | HirExprKind::PreDec(t)
+        | HirExprKind::PostInc(t)
+        | HirExprKind::PostDec(t) => raw_this_expr(t),
         HirExprKind::Seq(items) => items.iter().any(raw_this_expr),
         HirExprKind::New { args, .. } => args.iter().any(raw_this_expr),
         _ => false,
@@ -262,7 +271,9 @@ fn rewrite_this_stmt(s: &mut HirStmt) {
             rewrite_this_expr(cond);
             rewrite_this_block(body);
         }
-        HirStmt::For { cond, update, body, .. } => {
+        HirStmt::For {
+            cond, update, body, ..
+        } => {
             if let Some(c) = cond {
                 rewrite_this_expr(c);
             }
@@ -320,12 +331,13 @@ fn rewrite_this_expr(e: &mut HirExpr) {
         }
         HirExprKind::Array(elems) => elems.iter_mut().for_each(rewrite_this_expr),
         HirExprKind::Object(fields) => fields.iter_mut().for_each(|(_, v)| rewrite_this_expr(v)),
-        HirExprKind::Await(inner) | HirExprKind::Spread(inner) | HirExprKind::Cast { expr: inner, .. } => {
-            rewrite_this_expr(inner)
-        }
-        HirExprKind::PreInc(t) | HirExprKind::PreDec(t) | HirExprKind::PostInc(t) | HirExprKind::PostDec(t) => {
-            rewrite_this_expr(t)
-        }
+        HirExprKind::Await(inner)
+        | HirExprKind::Spread(inner)
+        | HirExprKind::Cast { expr: inner, .. } => rewrite_this_expr(inner),
+        HirExprKind::PreInc(t)
+        | HirExprKind::PreDec(t)
+        | HirExprKind::PostInc(t)
+        | HirExprKind::PostDec(t) => rewrite_this_expr(t),
         HirExprKind::Seq(items) => items.iter_mut().for_each(rewrite_this_expr),
         HirExprKind::New { args, .. } => args.iter_mut().for_each(rewrite_this_expr),
         _ => {}

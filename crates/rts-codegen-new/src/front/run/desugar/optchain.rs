@@ -40,7 +40,9 @@ pub(super) fn parse_span(payload: &str) -> Option<(u32, u32)> {
     let dotdot = after.find("..")?;
     let lo: u32 = after[..dotdot].trim().parse().ok()?;
     let tail = &after[dotdot + 2..];
-    let end = tail.find(|c: char| !c.is_ascii_digit()).unwrap_or(tail.len());
+    let end = tail
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(tail.len());
     let hi: u32 = tail[..end].parse().ok()?;
     Some((lo, hi))
 }

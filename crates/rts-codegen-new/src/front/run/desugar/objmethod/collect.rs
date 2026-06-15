@@ -84,11 +84,14 @@ pub(super) fn recover_methods(obj: &swc_ecma_ast::ObjectLit) -> Recovered<'_> {
                             return Recovered::Unsupported;
                         }
                     }
-                    methods.push(RecoveredMethod { name, function: &m.function });
+                    methods.push(RecoveredMethod {
+                        name,
+                        function: &m.function,
+                    });
                 }
                 // Getter / setter / assign-shorthand → the literal must bail.
                 Prop::Getter(_) | Prop::Setter(_) | Prop::Assign(_) => {
-                    return Recovered::Unsupported
+                    return Recovered::Unsupported;
                 }
                 // Defensive: any future variant bails rather than silently drop.
                 #[allow(unreachable_patterns)]

@@ -17,7 +17,7 @@
 //! front) BAILS explicitly.
 
 use cranelift_codegen::ir::condcodes::IntCC;
-use cranelift_codegen::ir::{types, InstBuilder, Value};
+use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_module::Module;
 
 use rts_hir::HirExpr;
@@ -26,7 +26,7 @@ use crate::repr::Repr;
 use crate::shape::ShapeId;
 use crate::value::{self, emit_marshal};
 
-use crate::front::error::{unsupported, FrontResult};
+use crate::front::error::{FrontResult, unsupported};
 
 use super::lower::{JsKind, Lowerer, Val};
 
@@ -94,7 +94,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // ---- 3. intern this fn's OBJECT shape (key list = the class fields) and
         //         yield the instance word as a TAG_OBJECT PolyValue ----
         let shape_id = self.shapes.intern(&desc.fields);
-        Ok((Val::tagged_kind(obj_word, JsKind::Object), class.to_string(), shape_id))
+        Ok((
+            Val::tagged_kind(obj_word, JsKind::Object),
+            class.to_string(),
+            shape_id,
+        ))
     }
 
     /// Whether `name` is a FUNCTION usable as a constructor via `new name()` —
@@ -119,10 +123,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         module: &mut dyn Module,
         name: &str,
     ) -> FrontResult<Value> {
-        let thunk_id = *self
-            .thunks
-            .get(name)
-            .ok_or_else(|| crate::front::error::Unsupported::new(format!("no thunk for `{name}`")))?;
+        let thunk_id = *self.thunks.get(name).ok_or_else(|| {
+            crate::front::error::Unsupported::new(format!("no thunk for `{name}`"))
+        })?;
         let func_ref = module.declare_func_in_func(thunk_id, self.builder.func);
         Ok(self.builder.ins().func_addr(types::I64, func_ref))
     }
@@ -160,10 +163,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // The identity is F's uniform-ABI THUNK address — the SAME `fn_ptr`
         // `__rtsadp_fn_ptr` reads for a function VALUE of `F` — so a later
         // `x instanceof F` (value form) agrees with the body's `this instanceof F`.
-        let thunk_id = *self
-            .thunks
-            .get(name)
-            .ok_or_else(|| crate::front::error::Unsupported::new(format!("no thunk for `{name}`")))?;
+        let thunk_id = *self.thunks.get(name).ok_or_else(|| {
+            crate::front::error::Unsupported::new(format!("no thunk for `{name}`"))
+        })?;
         let func_ref = module.declare_func_in_func(thunk_id, self.builder.func);
         let fn_ptr = self.builder.ins().func_addr(types::I64, func_ref);
         self.call_runtime(module, "__rtsadp_ctor_mark", &[obj_word, fn_ptr])?;
@@ -184,9 +186,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     fn emit_new_result(&mut self, instance: Value, ret_word: Value) -> Value {
         // is_object(ret) = boxed(ret) && tag(ret) == TAG_OBJECT.
         let boxed = value::emit_is_boxed(self.builder, ret_word);
-        let shifted = self.builder.ins().ushr_imm(ret_word, value::TAG_SHIFT as i64);
+        let shifted = self
+            .builder
+            .ins()
+            .ushr_imm(ret_word, value::TAG_SHIFT as i64);
         let tag = self.builder.ins().band_imm(shifted, value::TAG_MASK as i64);
-        let want = self.builder.ins().iconst(types::I64, value::TAG_OBJECT as i64);
+        let want = self
+            .builder
+            .ins()
+            .iconst(types::I64, value::TAG_OBJECT as i64);
         let is_obj_tag = self.builder.ins().icmp(IntCC::Equal, tag, want);
         let is_object = self.builder.ins().band(boxed, is_obj_tag);
         // select(is_object, ret, instance).

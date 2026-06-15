@@ -18,16 +18,16 @@
 //! the `setX` mutators resolve in the Registry but BAIL here (the honesty floor —
 //! see [`is_divergent_date_method`]).
 
-use cranelift_codegen::ir::{types, InstBuilder, Value};
+use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_module::Module;
 
 use rts_engine::abi::AbiType;
-use rts_hir::ir::HirExprKind;
 use rts_hir::HirExpr;
+use rts_hir::ir::HirExprKind;
 
 use crate::value;
 
-use crate::front::error::{unsupported, FrontResult};
+use crate::front::error::{FrontResult, unsupported};
 
 use super::lower::{JsKind, Lowerer, Val};
 
@@ -51,8 +51,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         use super::registry;
         match args.len() {
             0 => {
-                let call = registry::class_ctor("Date", 0)
-                    .expect("Date 0-arg ctor is registered");
+                let call = registry::class_ctor("Date", 0).expect("Date 0-arg ctor is registered");
                 let v = self.emit_registry_call(module, &call, None, &[], JsKind::Object)?;
                 Ok(v.v)
             }
@@ -69,7 +68,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                             "`new Date(x)` with a non-number / non-string argument \
                              (the ms-vs-ISO-vs-Date dispatch depends on the runtime \
                              type — a later increment)"
-                        )
+                        );
                     }
                 };
                 let call = registry::class_ctors("Date")
@@ -83,8 +82,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // Calendar components: the registered 7-arg `[F64;7] -> Handle`
                 // constructor (month 0-indexed); pad the missing tail with
                 // `undefined` (ToNumber → NaN → the runtime default day=1/rest=0).
-                let call = registry::class_ctor("Date", 7)
-                    .expect("Date 7-field ctor is registered");
+                let call =
+                    registry::class_ctor("Date", 7).expect("Date 7-field ctor is registered");
                 let undef = value::PolyValue::undefined().raw() as i64;
                 let mut vals: Vec<Val> = Vec::with_capacity(7);
                 for a in args {
@@ -168,8 +167,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         match (method, args.len()) {
             // `Date.now()` — registered as a 0-arg `Function` returning I64 ms.
             ("now", 0) => {
-                let call = registry::class_static("Date", "now", 0)
-                    .expect("Date.now is registered");
+                let call =
+                    registry::class_static("Date", "now", 0).expect("Date.now is registered");
                 let v = self.emit_registry_call(module, &call, None, &[], JsKind::Number)?;
                 Ok(Some(Val::new_with_kind(v.v, v.repr, JsKind::Number)))
             }
@@ -177,8 +176,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // static takes 7 `I64`s (ms since epoch). At least year+month is
             // required (JS treats fewer as NaN — a divergent edge we refuse).
             ("UTC", 2..=7) => {
-                let call = registry::class_static("Date", "UTC", 7)
-                    .expect("Date.UTC is registered");
+                let call =
+                    registry::class_static("Date", "UTC", 7).expect("Date.UTC is registered");
                 let mut vals = self.lower_date_part_args(module, args, true)?;
                 // Pad the missing tail with the JS defaults (day=1, rest=0) so the
                 // `FROM_PARTS` extern (which does not itself default) is correct.
@@ -200,12 +199,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                          is a later increment)"
                     );
                 }
-                let call = registry::class_static("Date", "parse", 1)
-                    .expect("Date.parse is registered");
+                let call =
+                    registry::class_static("Date", "parse", 1).expect("Date.parse is registered");
                 let res = self.emit_registry_call(module, &call, None, &[v], JsKind::Number)?;
                 Ok(Some(Val::new_with_kind(res.v, res.repr, JsKind::Number)))
             }
-            _ => unsupported!("`Date.{method}({} args)` — no such static on Date", args.len()),
+            _ => unsupported!(
+                "`Date.{method}({} args)` — no such static on Date",
+                args.len()
+            ),
         }
     }
 

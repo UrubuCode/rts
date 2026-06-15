@@ -23,12 +23,18 @@ fn get_time_epoch() {
 
 #[test]
 fn get_time_1000() {
-    assert_stdout(r#"let d = new Date(1000); console.log(d.getTime());"#, "1000\n");
+    assert_stdout(
+        r#"let d = new Date(1000); console.log(d.getTime());"#,
+        "1000\n",
+    );
 }
 
 #[test]
 fn value_of() {
-    assert_stdout(r#"let d = new Date(500); console.log(d.valueOf());"#, "500\n");
+    assert_stdout(
+        r#"let d = new Date(500); console.log(d.valueOf());"#,
+        "500\n",
+    );
 }
 
 #[test]
@@ -92,12 +98,18 @@ fn date_utc_round_trips_through_new() {
 
 #[test]
 fn get_utc_full_year_epoch() {
-    assert_stdout(r#"let d = new Date(0); console.log(d.getUTCFullYear());"#, "1970\n");
+    assert_stdout(
+        r#"let d = new Date(0); console.log(d.getUTCFullYear());"#,
+        "1970\n",
+    );
 }
 
 #[test]
 fn get_utc_date_one_day_after_epoch() {
-    assert_stdout(r#"let d = new Date(86400000); console.log(d.getUTCDate());"#, "2\n");
+    assert_stdout(
+        r#"let d = new Date(86400000); console.log(d.getUTCDate());"#,
+        "2\n",
+    );
 }
 
 #[test]
@@ -159,7 +171,10 @@ fn instanceof_date_true() {
 
 #[test]
 fn non_date_not_instanceof_date() {
-    assert_stdout(r#"let d = new Date(0); console.log((5) instanceof Date);"#, "false\n");
+    assert_stdout(
+        r#"let d = new Date(0); console.log((5) instanceof Date);"#,
+        "false\n",
+    );
 }
 
 // ---------------------------------------------------------------------------

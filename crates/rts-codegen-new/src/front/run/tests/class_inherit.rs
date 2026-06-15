@@ -136,7 +136,10 @@ fn static_method() {
 
 #[test]
 fn static_field_read() {
-    assert_stdout("class K { static count:number = 5; } console.log(K.count);", "5\n");
+    assert_stdout(
+        "class K { static count:number = 5; } console.log(K.count);",
+        "5\n",
+    );
 }
 
 #[test]
@@ -159,7 +162,9 @@ fn unknown_parent_bails() {
 
 #[test]
 fn abstract_class_bails() {
-    assert_bails("abstract class A { foo(){ return 1; } } class B extends A {} console.log(new B().foo());");
+    assert_bails(
+        "abstract class A { foo(){ return 1; } } class B extends A {} console.log(new B().foo());",
+    );
 }
 
 #[test]
@@ -168,7 +173,9 @@ fn private_method_bails() {
     // METHODS remain out of subset — assert they still bail. (This test
     // replaced the obsolete `private_field_bails`, which asserted the
     // now-supported feature.)
-    assert_bails("class C { #step(){ return 1; } go(){ return this.#step(); } } console.log(new C().go());");
+    assert_bails(
+        "class C { #step(){ return 1; } go(){ return this.#step(); } } console.log(new C().go());",
+    );
 }
 
 #[test]

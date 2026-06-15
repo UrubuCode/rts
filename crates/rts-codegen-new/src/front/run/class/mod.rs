@@ -55,7 +55,7 @@ mod litshape;
 mod synth;
 mod walk;
 
-pub(crate) use litshape::{build_literal_class, ident_param_name, LitMethod};
+pub(crate) use litshape::{LitMethod, build_literal_class, ident_param_name};
 pub(crate) use walk::{body_uses_raw_this, rewrite_this_block};
 
 /// The implicit receiver parameter name bound to a0 in every constructor/method.
@@ -224,16 +224,12 @@ pub(crate) fn collect_classes(classes: &[&ClassDecl]) -> FrontResult<(ClassTable
     for decl in order {
         check_supported(decl)?;
         let parent_desc = match &decl.super_class {
-            Some(p) => Some(
-                table
-                    .by_name
-                    .get(p)
-                    .cloned()
-                    .ok_or_else(|| Unsupported::new(format!(
-                        "class `{}` extends unknown class `{p}` (not a user class in this program)",
-                        decl.name
-                    )))?,
-            ),
+            Some(p) => Some(table.by_name.get(p).cloned().ok_or_else(|| {
+                Unsupported::new(format!(
+                    "class `{}` extends unknown class `{p}` (not a user class in this program)",
+                    decl.name
+                ))
+            })?),
             None => None,
         };
         let (desc, fns) = synth::build_class(decl, parent_desc.as_ref())?;
@@ -273,7 +269,10 @@ fn check_supported(decl: &ClassDecl) -> FrontResult<()> {
                         decl.name, md.name
                     )));
                 }
-                if !matches!(md.role, MethodRole::Method | MethodRole::Getter | MethodRole::Setter) {
+                if !matches!(
+                    md.role,
+                    MethodRole::Method | MethodRole::Getter | MethodRole::Setter
+                ) {
                     return Err(Unsupported::new(format!(
                         "unsupported method role `{}.{}`",
                         decl.name, md.name

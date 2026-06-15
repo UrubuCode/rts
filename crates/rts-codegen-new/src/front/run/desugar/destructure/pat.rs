@@ -160,12 +160,16 @@ fn is_pure(e: &rts_hir::HirExpr) -> bool {
         | HirExprKind::Arrow { .. }
         | HirExprKind::Spread(_) => false,
         HirExprKind::Lit(_) | HirExprKind::Ident(_) => true,
-        HirExprKind::Bin { lhs, rhs, .. } | HirExprKind::Index { object: lhs, index: rhs } => {
-            is_pure(lhs) && is_pure(rhs)
-        }
+        HirExprKind::Bin { lhs, rhs, .. }
+        | HirExprKind::Index {
+            object: lhs,
+            index: rhs,
+        } => is_pure(lhs) && is_pure(rhs),
         HirExprKind::Unary { operand, .. }
         | HirExprKind::Cast { expr: operand, .. }
-        | HirExprKind::Member { object: operand, .. } => is_pure(operand),
+        | HirExprKind::Member {
+            object: operand, ..
+        } => is_pure(operand),
         HirExprKind::Array(els) => els.iter().all(is_pure),
         HirExprKind::Object(fields) => fields.iter().all(|(_, v)| is_pure(v)),
         HirExprKind::Ternary { cond, then, else_ } => {
@@ -174,4 +178,3 @@ fn is_pure(e: &rts_hir::HirExpr) -> bool {
         HirExprKind::Seq(es) => es.iter().all(is_pure),
     }
 }
-

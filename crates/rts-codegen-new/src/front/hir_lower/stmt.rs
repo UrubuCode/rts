@@ -8,16 +8,16 @@
 //! structured: each opens its own blocks, seals them at the right time, and
 //! resumes at a continuation block.
 
-use cranelift_codegen::ir::{types, InstBuilder};
+use cranelift_codegen::ir::{InstBuilder, types};
 
 use rts_hir::ir::HirExprKind;
 use rts_hir::{HirBinOp, HirExpr, HirStmt, HirType};
 
 use crate::repr::Repr;
 
-use super::super::error::{unsupported, FrontResult, Unsupported};
+use super::super::error::{FrontResult, Unsupported, unsupported};
 use super::super::repr_map::repr_of;
-use super::{cl_type, Local, Lowerer, Val};
+use super::{Local, Lowerer, Val, cl_type};
 
 impl<'a, 'b> Lowerer<'a, 'b> {
     /// Look up a local binding by name.
@@ -65,7 +65,11 @@ impl<'a, 'b> Lowerer<'a, 'b> {
 
         // Prefer an explicit numeric annotation; otherwise take the init repr.
         let annotated = repr_of(ty);
-        let repr = if annotated.is_unboxed() { annotated } else { val.repr };
+        let repr = if annotated.is_unboxed() {
+            annotated
+        } else {
+            val.repr
+        };
         if !repr.is_unboxed() {
             return unsupported!("`let {name}` has non-numeric type {ty:?}");
         }
@@ -87,7 +91,10 @@ impl<'a, 'b> Lowerer<'a, 'b> {
         let val = self.lower_expr(value)?;
         let coerced = self.coerce(val, local.repr)?;
         self.builder.def_var(local.var, coerced);
-        Ok(Val { v: coerced, repr: local.repr })
+        Ok(Val {
+            v: coerced,
+            repr: local.repr,
+        })
     }
 
     /// Compound assignment `x += e` etc. Desugars to `x = x <op> e`.
@@ -102,7 +109,10 @@ impl<'a, 'b> Lowerer<'a, 'b> {
             .local(&name)
             .ok_or_else(|| Unsupported::new(format!("compound-assign to unbound `{name}`")))?;
         let cur = self.builder.use_var(local.var);
-        let cur_val = Val { v: cur, repr: local.repr };
+        let cur_val = Val {
+            v: cur,
+            repr: local.repr,
+        };
         let rhs = self.lower_expr(value)?;
         let result = if op.is_arithmetic() {
             self.lower_arith(op, cur_val, rhs)?
@@ -111,7 +121,10 @@ impl<'a, 'b> Lowerer<'a, 'b> {
         };
         let coerced = self.coerce(result, local.repr)?;
         self.builder.def_var(local.var, coerced);
-        Ok(Val { v: coerced, repr: local.repr })
+        Ok(Val {
+            v: coerced,
+            repr: local.repr,
+        })
     }
 
     /// `++x` / `x++` / `--x` / `x--` on a numeric local. `prefix` selects whether
@@ -148,7 +161,10 @@ impl<'a, 'b> Lowerer<'a, 'b> {
         };
         self.builder.def_var(local.var, new);
         let produced = if prefix { new } else { old };
-        Ok(Val { v: produced, repr: local.repr })
+        Ok(Val {
+            v: produced,
+            repr: local.repr,
+        })
     }
 
     // ---- control flow ----

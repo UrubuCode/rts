@@ -20,7 +20,7 @@
 //!   0`); the trampoline implements the exact rule.
 
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
-use cranelift_codegen::ir::{types, InstBuilder, Value};
+use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_module::Module;
 
 use rts_hir::{HirBinOp, HirExpr};
@@ -28,7 +28,7 @@ use rts_hir::{HirBinOp, HirExpr};
 use crate::repr::Repr;
 use crate::value;
 
-use crate::front::error::{unsupported, FrontResult};
+use crate::front::error::{FrontResult, unsupported};
 
 use super::lower::{JsKind, Lowerer, Val};
 
@@ -139,7 +139,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
         // Relational `< <= > >=`: native when both proven numeric; else the
         // generic PolyValue path (mixed/string operands compared per JS rules).
-        if matches!(op, HirBinOp::Lt | HirBinOp::Le | HirBinOp::Gt | HirBinOp::Ge) {
+        if matches!(
+            op,
+            HirBinOp::Lt | HirBinOp::Le | HirBinOp::Gt | HirBinOp::Ge
+        ) {
             if is_tagged(l) || is_tagged(r) {
                 return self.lower_generic_relational(module, op, l, r);
             }
@@ -213,7 +216,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let res = self
             .call_runtime(module, sym, &[ba, bb])?
             .expect("bitwise returns a value");
-        Ok(Val { v: res, repr: Repr::Tagged, kind: JsKind::Number })
+        Ok(Val {
+            v: res,
+            repr: Repr::Tagged,
+            kind: JsKind::Number,
+        })
     }
 
     /// Reduce a boolean PolyValue word to an i64 0/1 `Bool` carrier by comparing
@@ -314,7 +321,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         } else {
             JsKind::Number
         };
-        Ok(Val { v: res, repr: Repr::Tagged, kind })
+        Ok(Val {
+            v: res,
+            repr: Repr::Tagged,
+            kind,
+        })
     }
 
     /// `==` / `!=` over the JS Abstract Equality algorithm (`__rtsadp_loose_eq`),
@@ -460,7 +471,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.builder.switch_to_block(join_blk);
         self.builder.seal_block(join_blk);
         let result = self.builder.block_params(join_blk)[0];
-        Ok(Val { v: result, repr: Repr::Tagged, kind: JsKind::Unknown })
+        Ok(Val {
+            v: result,
+            repr: Repr::Tagged,
+            kind: JsKind::Unknown,
+        })
     }
 }
 
@@ -496,9 +511,11 @@ fn is_proven_string_expr(e: &HirExpr) -> bool {
     }
     match &e.kind {
         HirExprKind::Lit(HirLit::Str(_)) => true,
-        HirExprKind::Bin { op: HirBinOp::Add, lhs, rhs } => {
-            is_proven_string_expr(lhs) || is_proven_string_expr(rhs)
-        }
+        HirExprKind::Bin {
+            op: HirBinOp::Add,
+            lhs,
+            rhs,
+        } => is_proven_string_expr(lhs) || is_proven_string_expr(rhs),
         _ => false,
     }
 }

@@ -6,7 +6,7 @@
 //! path), `console.log(...)`, and cross-function calls with per-param box/unbox.
 
 use cranelift_codegen::ir::condcodes::IntCC;
-use cranelift_codegen::ir::{types, InstBuilder};
+use cranelift_codegen::ir::{InstBuilder, types};
 use cranelift_module::Module;
 
 use rts_hir::ir::HirExprKind;
@@ -16,17 +16,13 @@ use crate::repr::Repr;
 use crate::value;
 use crate::value::abi_adapter;
 
-use crate::front::error::{unsupported, FrontResult};
+use crate::front::error::{FrontResult, unsupported};
 
 use super::lower::{JsKind, Lowerer, Val};
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Lower an expression to its value + repr.
-    pub(super) fn lower_expr(
-        &mut self,
-        module: &mut dyn Module,
-        e: &HirExpr,
-    ) -> FrontResult<Val> {
+    pub(super) fn lower_expr(&mut self, module: &mut dyn Module, e: &HirExpr) -> FrontResult<Val> {
         match &e.kind {
             HirExprKind::Lit(lit) => self.lower_lit(lit),
             HirExprKind::Ident(name) => self.lower_ident(module, name),
@@ -44,9 +40,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirExprKind::PostInc(t) => self.lower_incdec(module, t, true, false),
             HirExprKind::PostDec(t) => self.lower_incdec(module, t, false, false),
             HirExprKind::Call { callee, args } => self.lower_call(module, callee, args),
-            HirExprKind::MethodCall { object, method, args } => {
-                self.lower_method_call(module, object, method, args)
-            }
+            HirExprKind::MethodCall {
+                object,
+                method,
+                args,
+            } => self.lower_method_call(module, object, method, args),
             HirExprKind::Member { object, prop } => self.lower_member(module, object, prop),
             HirExprKind::Index { object, index } => self.lower_index(module, object, index),
             HirExprKind::New { class, args } => {
@@ -282,8 +280,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let v = self.builder.ins().select(cond_v, tv, ev);
         // Kind is provable only when both arms share it; otherwise fall to the
         // repr-implied kind (Unknown for Tagged).
-        let kind = if t.kind == e.kind { t.kind } else { JsKind::Unknown };
-        Ok(Val { v, repr: target, kind })
+        let kind = if t.kind == e.kind {
+            t.kind
+        } else {
+            JsKind::Unknown
+        };
+        Ok(Val {
+            v,
+            repr: target,
+            kind,
+        })
     }
 }
 

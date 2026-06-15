@@ -103,9 +103,8 @@ pub(super) fn build_template(tpl: &swc_ecma_ast::Tpl) -> HirExpr {
 fn rebuild_interp(expr: &swc_ecma_ast::Expr, scope: &Scope) -> HirExpr {
     match expr {
         swc_ecma_ast::Expr::Tpl(t) => build_template(t),
-        swc_ecma_ast::Expr::OptChain(oc) => {
-            super::optchain::build_opt_chain(oc).unwrap_or_else(|| rts_hir::lower::lower_swc_expr(expr, scope))
-        }
+        swc_ecma_ast::Expr::OptChain(oc) => super::optchain::build_opt_chain(oc)
+            .unwrap_or_else(|| rts_hir::lower::lower_swc_expr(expr, scope)),
         swc_ecma_ast::Expr::Paren(p) => rebuild_interp(&p.expr, scope),
         // An OBJECT interpolation (object literal, `new C()`, or a bare identifier
         // that may be bound to a ToPrimitive object) needs the STRING hint → route
@@ -125,7 +124,10 @@ fn rebuild_interp(expr: &swc_ecma_ast::Expr, scope: &Scope) -> HirExpr {
 fn wrap_string_call(arg: HirExpr) -> HirExpr {
     let callee = HirExpr::new(HirExprKind::Ident("String".to_string()), HirType::Unknown);
     HirExpr::new(
-        HirExprKind::Call { callee: Box::new(callee), args: vec![arg] },
+        HirExprKind::Call {
+            callee: Box::new(callee),
+            args: vec![arg],
+        },
         HirType::Str,
     )
 }
@@ -148,7 +150,11 @@ fn str_lit(s: String) -> HirExpr {
 /// `lhs + rhs` as an HIR `Add` (string-typed: the chain is seeded by a string).
 fn add(lhs: HirExpr, rhs: HirExpr) -> HirExpr {
     HirExpr::new(
-        HirExprKind::Bin { op: HirBinOp::Add, lhs: Box::new(lhs), rhs: Box::new(rhs) },
+        HirExprKind::Bin {
+            op: HirBinOp::Add,
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+        },
         HirType::Str,
     )
 }

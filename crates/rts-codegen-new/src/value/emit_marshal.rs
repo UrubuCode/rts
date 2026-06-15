@@ -7,12 +7,12 @@
 //! call's Cranelift signature is EXACTLY right (param count, f64 vs i64, the
 //! `StrPtr` ptr+len split). It defines no symbol; it only emits `call`s.
 
-use cranelift_codegen::ir::{types, InstBuilder, Value};
-use cranelift_module::{Linkage, Module};
+use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_frontend::FunctionBuilder;
+use cranelift_module::{Linkage, Module};
 
-use super::abi_sig::sig_of;
 use super::PAYLOAD_MASK;
+use super::abi_sig::sig_of;
 
 /// Declare-import `name` (resolving its real [`super::abi_sig::SymSig`]) and emit
 /// the `call` with `args` (already-marshaled Cranelift values, one per Cranelift
@@ -27,8 +27,7 @@ pub fn emit_call(
     name: &str,
     args: &[Value],
 ) -> Option<Value> {
-    let sig = sig_of(name)
-        .unwrap_or_else(|| panic!("emit_call: unknown runtime symbol `{name}`"));
+    let sig = sig_of(name).unwrap_or_else(|| panic!("emit_call: unknown runtime symbol `{name}`"));
     assert_eq!(
         sig.param_slot_count(),
         args.len(),
@@ -99,8 +98,13 @@ pub fn emit_box_real_string(
     builder: &mut FunctionBuilder,
     real_handle: Value,
 ) -> Value {
-    let payload48 = emit_call(module, builder, "__RTS_FN_NS_GC_POLY_FROM_HANDLE", &[real_handle])
-        .expect("POLY_FROM_HANDLE returns a value");
+    let payload48 = emit_call(
+        module,
+        builder,
+        "__RTS_FN_NS_GC_POLY_FROM_HANDLE",
+        &[real_handle],
+    )
+    .expect("POLY_FROM_HANDLE returns a value");
     // box: BOX_BASE | (TAG_STR<<48) | (payload & PAYLOAD_MASK).
     let header = super::encode(super::TAG_STR, 0) as i64; // BOX_BASE | TAG_STR<<48
     let mask = builder.ins().iconst(types::I64, PAYLOAD_MASK as i64);
@@ -143,8 +147,13 @@ fn box_handle_as(
     real_handle: Value,
     tag: u64,
 ) -> Value {
-    let payload48 = emit_call(module, builder, "__RTS_FN_NS_GC_POLY_FROM_HANDLE", &[real_handle])
-        .expect("POLY_FROM_HANDLE returns a value");
+    let payload48 = emit_call(
+        module,
+        builder,
+        "__RTS_FN_NS_GC_POLY_FROM_HANDLE",
+        &[real_handle],
+    )
+    .expect("POLY_FROM_HANDLE returns a value");
     let header = super::encode(tag, 0) as i64; // BOX_BASE | tag<<48
     let mask = builder.ins().iconst(types::I64, PAYLOAD_MASK as i64);
     let payload = builder.ins().band(payload48, mask);
@@ -161,7 +170,12 @@ pub fn emit_vec_push(
     value_word: Value,
 ) {
     let handle = emit_table_load(module, builder, obj_word);
-    emit_call(module, builder, "__RTS_FN_NS_COLLECTIONS_VEC_PUSH", &[handle, value_word]);
+    emit_call(
+        module,
+        builder,
+        "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+        &[handle, value_word],
+    );
 }
 
 /// `VEC_GET(realHandleOf(obj_word), index)` → the i64 slot word (a PolyValue
@@ -173,8 +187,13 @@ pub fn emit_vec_get(
     index: Value,
 ) -> Value {
     let handle = emit_table_load(module, builder, obj_word);
-    emit_call(module, builder, "__RTS_FN_NS_COLLECTIONS_VEC_GET", &[handle, index])
-        .expect("VEC_GET returns a value")
+    emit_call(
+        module,
+        builder,
+        "__RTS_FN_NS_COLLECTIONS_VEC_GET",
+        &[handle, index],
+    )
+    .expect("VEC_GET returns a value")
 }
 
 /// `VEC_SET(realHandleOf(obj_word), index, value_word)` — overwrite one slot.
@@ -201,8 +220,13 @@ pub fn emit_vec_len(
     obj_word: Value,
 ) -> Value {
     let handle = emit_table_load(module, builder, obj_word);
-    emit_call(module, builder, "__RTS_FN_NS_COLLECTIONS_VEC_LEN", &[handle])
-        .expect("VEC_LEN returns a value")
+    emit_call(
+        module,
+        builder,
+        "__RTS_FN_NS_COLLECTIONS_VEC_LEN",
+        &[handle],
+    )
+    .expect("VEC_LEN returns a value")
 }
 
 /// Emit a `console.log`-style line print of one string PolyValue: table-load to

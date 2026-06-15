@@ -7,14 +7,14 @@
 //! `fcmp`/`icmp`, `fneg`/`ineg`, no boxing.
 
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
-use cranelift_codegen::ir::{types, InstBuilder, Value};
+use cranelift_codegen::ir::{InstBuilder, Value, types};
 
 use rts_hir::ir::HirExprKind;
 use rts_hir::{HirBinOp, HirExpr, HirLit, HirUnOp};
 
 use crate::repr::Repr;
 
-use super::super::error::{unsupported, FrontResult};
+use super::super::error::{FrontResult, unsupported};
 use super::{Lowerer, Val};
 
 impl<'a, 'b> Lowerer<'a, 'b> {
@@ -47,7 +47,10 @@ impl<'a, 'b> Lowerer<'a, 'b> {
         match lit {
             HirLit::Float(f) | HirLit::Number(f) => {
                 let v = self.builder.ins().f64const(*f);
-                Ok(Val { v, repr: Repr::Float64 })
+                Ok(Val {
+                    v,
+                    repr: Repr::Float64,
+                })
             }
             HirLit::Int(n) => {
                 // A JS integer literal's natural register width is i64 (and the
@@ -56,11 +59,17 @@ impl<'a, 'b> Lowerer<'a, 'b> {
                 // demands, or widens to `Float64` in float context. Both int
                 // reprs share the i64 register, so this is bit-exact.
                 let v = self.builder.ins().iconst(types::I64, *n);
-                Ok(Val { v, repr: Repr::Int64 })
+                Ok(Val {
+                    v,
+                    repr: Repr::Int64,
+                })
             }
             HirLit::Bool(b) => {
                 let v = self.builder.ins().iconst(types::I64, *b as i64);
-                Ok(Val { v, repr: Repr::Bool })
+                Ok(Val {
+                    v,
+                    repr: Repr::Bool,
+                })
             }
             HirLit::Str(_) => unsupported!("string literal"),
             HirLit::Null => unsupported!("null literal"),
@@ -72,7 +81,10 @@ impl<'a, 'b> Lowerer<'a, 'b> {
         match self.local(name) {
             Some(local) => {
                 let v = self.builder.use_var(local.var);
-                Ok(Val { v, repr: local.repr })
+                Ok(Val {
+                    v,
+                    repr: local.repr,
+                })
             }
             None => unsupported!("unbound identifier `{name}` (globals/captures later)"),
         }
@@ -120,7 +132,10 @@ impl<'a, 'b> Lowerer<'a, 'b> {
                 let lv = self.coerce(l, Repr::Float64)?;
                 let rv = self.coerce(r, Repr::Float64)?;
                 let v = self.builder.ins().fdiv(lv, rv);
-                Ok(Val { v, repr: Repr::Float64 })
+                Ok(Val {
+                    v,
+                    repr: Repr::Float64,
+                })
             }
             HirBinOp::Rem if !both_int => {
                 unsupported!("float remainder `%` (needs runtime fmod)")
@@ -133,7 +148,10 @@ impl<'a, 'b> Lowerer<'a, 'b> {
                     HirBinOp::Rem => self.builder.ins().srem(l.v, r.v),
                     _ => return unsupported!("arithmetic op {op:?}"),
                 };
-                Ok(Val { v, repr: wider_int(l.repr, r.repr) })
+                Ok(Val {
+                    v,
+                    repr: wider_int(l.repr, r.repr),
+                })
             }
             _ => {
                 // Mixed int/float or both-float: widen to f64 and use float ops.
@@ -145,7 +163,10 @@ impl<'a, 'b> Lowerer<'a, 'b> {
                     HirBinOp::Mul => self.builder.ins().fmul(lv, rv),
                     _ => return unsupported!("arithmetic op {op:?}"),
                 };
-                Ok(Val { v, repr: Repr::Float64 })
+                Ok(Val {
+                    v,
+                    repr: Repr::Float64,
+                })
             }
         }
     }
@@ -194,7 +215,10 @@ impl<'a, 'b> Lowerer<'a, 'b> {
         };
         // icmp/fcmp yield an i8 0/1; widen to the i64 Bool carrier.
         let widened = self.builder.ins().uextend(types::I64, cmp);
-        Ok(Val { v: widened, repr: Repr::Bool })
+        Ok(Val {
+            v: widened,
+            repr: Repr::Bool,
+        })
     }
 
     /// Logical `&&`/`||` on two boolean operands → boolean via `select` (both
@@ -212,7 +236,10 @@ impl<'a, 'b> Lowerer<'a, 'b> {
             HirBinOp::LogOr => self.builder.ins().select(l.v, l.v, r.v),
             _ => return unsupported!("logical op {op:?}"),
         };
-        Ok(Val { v, repr: Repr::Bool })
+        Ok(Val {
+            v,
+            repr: Repr::Bool,
+        })
     }
 
     fn lower_unary(&mut self, op: HirUnOp, operand: &HirExpr) -> FrontResult<Val> {
@@ -221,7 +248,10 @@ impl<'a, 'b> Lowerer<'a, 'b> {
             HirUnOp::Neg => match val.repr {
                 Repr::Float64 => {
                     let v = self.builder.ins().fneg(val.v);
-                    Ok(Val { v, repr: Repr::Float64 })
+                    Ok(Val {
+                        v,
+                        repr: Repr::Float64,
+                    })
                 }
                 Repr::Int32 | Repr::Int64 => {
                     let v = self.builder.ins().ineg(val.v);
@@ -236,7 +266,10 @@ impl<'a, 'b> Lowerer<'a, 'b> {
                 }
                 let one = self.builder.ins().iconst(types::I64, 1);
                 let v = self.builder.ins().bxor(val.v, one);
-                Ok(Val { v, repr: Repr::Bool })
+                Ok(Val {
+                    v,
+                    repr: Repr::Bool,
+                })
             }
             other => unsupported!("unary operator {other:?}"),
         }

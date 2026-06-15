@@ -8,19 +8,19 @@
 //! (boxed PolyValue words), so these resolve to codegen-owned trampolines, never
 //! the runtime's raw-i64 Array methods.
 
-use cranelift_codegen::ir::{types, InstBuilder, Value};
+use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_module::Module;
 
-use rts_hir::ir::HirExprKind;
 use rts_hir::HirExpr;
+use rts_hir::ir::HirExprKind;
 
 use rts_runtime::abi::AbiType;
 
-use crate::dispatch::{resolve_method, MethodSpec, RecvAbi, RecvClass};
+use crate::dispatch::{MethodSpec, RecvAbi, RecvClass, resolve_method};
 use crate::repr::Repr;
 use crate::value::{self, emit_marshal};
 
-use crate::front::error::{unsupported, FrontResult};
+use crate::front::error::{FrontResult, unsupported};
 
 use super::lower::{HeapShape, JsKind, Lowerer, Val};
 
@@ -42,7 +42,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
             // A class FIELD proven to hold an array (`this.items.push(x)`): the
             // receiver's class proves the field is array-typed.
-            HirExprKind::Member { object: inner, prop } => self
+            HirExprKind::Member {
+                object: inner,
+                prop,
+            } => self
                 .static_instance_class(inner)
                 .and_then(|c| self.classes.get(&c).map(|d| d.field_is_array(prop)))
                 .unwrap_or(false),
@@ -51,17 +54,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirExprKind::New { class, .. } => self.is_builtin_array_ctor(class),
             // A chained instance method whose result is an array
             // (`a.filter(..).map(..)`, `"x".split(",").map(..)`).
-            HirExprKind::MethodCall { object: inner, method, .. } => {
-                is_array_returning_method(method) || self.is_array_static_or_split(inner, method)
-            }
+            HirExprKind::MethodCall {
+                object: inner,
+                method,
+                ..
+            } => is_array_returning_method(method) || self.is_array_static_or_split(inner, method),
             // A chained call result: either an array-returning instance method
             // lowered as `Call(Member)`, or an Array/String static / global that
             // yields an array (`Array.of(..).join(..)`, `Array.from(..).join(..)`,
             // `Array(n).fill(..)`).
             HirExprKind::Call { callee, .. } => match &callee.kind {
-                HirExprKind::Member { object: inner, prop } => {
-                    is_array_returning_method(prop) || self.is_array_static_or_split(inner, prop)
-                }
+                HirExprKind::Member {
+                    object: inner,
+                    prop,
+                } => is_array_returning_method(prop) || self.is_array_static_or_split(inner, prop),
                 HirExprKind::Ident(name) => self.is_builtin_array_ctor(name),
                 _ => false,
             },
@@ -88,8 +94,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // `Object.keys/values/entries/getOwnPropertyNames(o)` produce an engine
         // array word (P5.4), so a chained `.join`/`.length`/`[i]`/array method on
         // the result dispatches as an array.
-        matches!(method, "keys" | "values" | "entries" | "getOwnPropertyNames")
-            && matches!(&inner.kind, HirExprKind::Ident(n)
+        matches!(
+            method,
+            "keys" | "values" | "entries" | "getOwnPropertyNames"
+        ) && matches!(&inner.kind, HirExprKind::Ident(n)
                 if n == "Object" && self.local(n).is_none() && self.classes.get(n).is_none())
     }
 
@@ -115,7 +123,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if method == "join" && self.array_arg_has_object_element(object) {
             return Err(crate::front::error::Unsupported::new(
                 "Array.join on an array containing an object element \
-                 (element ToPrimitive is a later increment)".to_string(),
+                 (element ToPrimitive is a later increment)"
+                    .to_string(),
             ));
         }
 
@@ -171,6 +180,75 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         spec: &MethodSpec,
         cb: crate::dispatch::CbShape,
     ) -> FrontResult<Val> {
+        // ---- receiver (slot 0): the array word → its real Vec handle ----
+        let arr = self.lower_expr(module, object)?;
+        let arr_word = self.box_value(arr);
+        self.emit_array_callback(module, arr_word, method, args, spec, cb)
+    }
+
+    /// Lower an Array CALLBACK method on an UNPROVEN receiver (P5.9 extension): the
+    /// receiver is a Tagged value of unproven class — an `any`-typed param, a call
+    /// return, or a re-`let` local — already lowered to `recv`. When `method` is an
+    /// array callback method (`map`/`filter`/`reduce`/…) and the callback argument
+    /// is a reifiable function value, dispatch through the SAME codegen-owned
+    /// `__rtsadp_arr_*` trampolines as the proven path. This is SAFE on a non-array
+    /// receiver: the trampolines reduce the word to a real handle via a HandleTable
+    /// LOOKUP (never a raw deref) and `with_vec` yields the default (length 0) for a
+    /// non-`Entry::Vec` handle — map/filter→empty, forEach/find→no-op, reduce→init
+    /// (the honest no-throw answer for a TypeError-class call), never a fault.
+    ///
+    /// Returns `Ok(None)` when `method` is not an array callback method or the
+    /// callback is not reifiable (a capturing closure → #195) so the caller bails.
+    pub(super) fn try_array_callback_dynamic(
+        &mut self,
+        module: &mut dyn Module,
+        recv: Val,
+        method: &str,
+        args: &[HirExpr],
+    ) -> FrontResult<Option<Val>> {
+        let argc = args.len();
+        let Some(spec) = resolve_method(RecvClass::Array, method, argc) else {
+            return Ok(None);
+        };
+        let Some(cb) = spec.cb else {
+            // A non-callback Array method on an unproven receiver is handled by the
+            // `__rtsadp_dyn_*` path, not here.
+            return Ok(None);
+        };
+        // The callback must be a reifiable function value (a synthesized non-
+        // capturing arrow ident, or a function ident). A capturing arrow stays an
+        // `Arrow` node — decline so the caller bails with the closure message
+        // (#195), never a wrong value.
+        if !matches!(&args[0].kind,
+            HirExprKind::Ident(name) if self.sigs.contains_key(name))
+        {
+            return Ok(None);
+        }
+        let arr_word = self.box_value(recv);
+        self.emit_array_callback(module, arr_word, method, args, &spec, cb)
+            .map(Some)
+    }
+
+    /// Shared core of an Array CALLBACK lowering, taking the receiver ALREADY
+    /// boxed to a PolyValue word (`arr_word`). Used by both the proven-array path
+    /// ([`Self::try_array_callback`]) and the DYNAMIC path
+    /// ([`Self::try_array_callback_dynamic`], an unproven receiver). The word is
+    /// reduced to its real Vec handle via `POLY_TO_HANDLE` — a HandleTable LOOKUP,
+    /// never a raw deref — so a non-array word resolves to a handle whose entry is
+    /// not an `Entry::Vec`; the `__rtsadp_arr_*` trampolines then see length 0 (the
+    /// `with_vec` lookup yields the default), i.e. map/filter→empty array,
+    /// forEach/find→no-op, reduce→init/undefined. No fault, no wrong value on a
+    /// non-array receiver (the honest no-throw answer for a TypeError-class call).
+    #[allow(clippy::too_many_arguments)]
+    fn emit_array_callback(
+        &mut self,
+        module: &mut dyn Module,
+        arr_word: Value,
+        method: &str,
+        args: &[HirExpr],
+        spec: &MethodSpec,
+        cb: crate::dispatch::CbShape,
+    ) -> FrontResult<Val> {
         use crate::dispatch::CbShape;
 
         // The callback is always the FIRST argument. A `thisArg` (a SECOND
@@ -181,9 +259,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             )));
         }
 
-        // ---- receiver (slot 0): the array word → its real Vec handle ----
-        let arr = self.lower_expr(module, object)?;
-        let arr_word = self.box_value(arr);
         let handle = emit_marshal::emit_table_load(module, self.builder, arr_word);
 
         // ---- callback (slot 1): reify the first arg to a TAG_FUNCTION word ----

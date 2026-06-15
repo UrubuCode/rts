@@ -200,8 +200,13 @@ fn unknown_method_on_tagged_bails() {
 }
 
 #[test]
-fn callback_on_tagged_receiver_bails() {
-    // An array callback method on a Tagged receiver bails: callbacks need a proven
-    // array receiver + reification (a Tagged receiver cannot supply that).
-    assert_bails(r#"function f(a){ return a.map(x => x * 2); } console.log(f([1, 2]));"#);
+fn callback_on_tagged_receiver_dispatches() {
+    // An array callback method with a NON-CAPTURING callback on a Tagged receiver
+    // now dispatches through the `__rtsadp_arr_*` trampolines (P5.9 extension —
+    // previously this bailed). Observed via `.join` (element indexing on a function
+    // return is a separate dynamic-index limitation).
+    super::assert_stdout(
+        r#"function f(a){ return a.map(x => x * 2).join(","); } console.log(f([1, 2]));"#,
+        "2,4\n",
+    );
 }
