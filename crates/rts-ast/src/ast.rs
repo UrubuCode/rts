@@ -114,6 +114,10 @@ pub struct ClassDecl {
     /// quando ha apenas 1 block ou todos no fim, mas necessario pra
     /// interleaving real.
     pub static_init_blocks: Vec<(usize, Vec<Statement>)>,
+    /// `true` quando a classe foi declarada com `export` (`export class C`).
+    /// Lido pelo resolver de modulos (motor novo) para montar o conjunto de
+    /// exports de um modulo. Default `false` para declaracoes locais.
+    pub exported: bool,
     pub span: Span,
 }
 
@@ -191,6 +195,10 @@ pub struct FunctionDecl {
     /// pra wrappear o body em `thread.spawn_async_join` + retornar
     /// Promise<T>.
     pub is_async: bool,
+    /// `true` quando a fn foi declarada com `export` (`export function f`).
+    /// Lido pelo resolver de modulos (motor novo) para montar o conjunto de
+    /// exports de um modulo. Default `false` para declaracoes locais.
+    pub exported: bool,
 }
 
 #[derive(Debug, Clone)]

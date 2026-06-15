@@ -196,7 +196,17 @@ fn lower_module_decl(cm: &Lrc<SourceMap>, decl: &ModuleDecl, out: &mut Vec<Item>
             out.push(Item::Import(lower_import_decl(cm, import_decl)));
         }
         ModuleDecl::ExportDecl(export_decl) => {
+            let before = out.len();
             lower_decl(cm, &export_decl.decl, out);
+            // Marca os Items produzidos por esta `export` decl como exportados,
+            // para o resolver de modulos (motor novo) montar o export-set.
+            for item in &mut out[before..] {
+                match item {
+                    Item::Function(f) => f.exported = true,
+                    Item::Class(c) => c.exported = true,
+                    _ => {}
+                }
+            }
         }
         ModuleDecl::ExportNamed(export_named) => {
             // (#307) Re-export: \`export { x } from \"./mod\"\` traduzido como
