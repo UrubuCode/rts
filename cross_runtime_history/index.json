@@ -44,6 +44,15 @@
       "total": 388,
       "rts_diverge": 6,
       "errors": 35
+    },
+    {
+      "date": "2026-06-15",
+      "pct": 70.9,
+      "pass": 420,
+      "total_valid": 592,
+      "total": 609,
+      "rts_diverge": 137,
+      "errors": 35
     }
   ]
 }
