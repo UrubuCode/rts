@@ -28,6 +28,7 @@
 //! entry is the actual runtime function the lowering calls.
 
 use rts_runtime::namespaces::collections::vec as rt_vec;
+use rts_runtime::namespaces::engine as rt_engine;
 use rts_runtime::namespaces::gc::handles as rt_handles;
 use rts_runtime::namespaces::gc::string_pool as rt_str;
 use rts_runtime::namespaces::globals::number as rt_num;
@@ -581,6 +582,7 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
     ];
     syms.extend(gl_method_symbols());
     syms.extend(math_number_symbols());
+    syms.extend(engine_symbols());
     // Pilar 6: the REAL `__RTS_FN_GL_DATE_*` / `__RTS_FN_NS_DATE_*` symbols the
     // Registry-driven Date dispatch ([`crate::front::run::registry_call`]) emits
     // directly — replacing the `__rtsadp_date_*` trampolines that used to forward
@@ -844,6 +846,52 @@ fn gl_method_symbols() -> Vec<JitSymbol> {
         sym(
             "__RTS_FN_GL_NUMBER_TO_STRING_RADIX",
             rt_num::__RTS_FN_GL_NUMBER_TO_STRING_RADIX as *const u8,
+        ),
+    ]
+}
+
+/// The PRIVATE `engine` namespace symbols (`__RTS_FN_NS_ENGINE_*`) the engine-
+/// internal TS prelude can call (arch/time/trace passthrough). Each is the ACTUAL
+/// `rts-std` extern taken by address through the facade. The privacy gate is at
+/// the lowering layer (only prelude-origin code may name the `engine` global); the
+/// symbols are installed unconditionally so prelude code links.
+fn engine_symbols() -> Vec<JitSymbol> {
+    vec![
+        sym(
+            "__RTS_FN_NS_ENGINE_ARCH",
+            rt_engine::__RTS_FN_NS_ENGINE_ARCH as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_NOW_MS",
+            rt_engine::__RTS_FN_NS_ENGINE_NOW_MS as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_NOW_NS",
+            rt_engine::__RTS_FN_NS_ENGINE_NOW_NS as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_UNIX_MS",
+            rt_engine::__RTS_FN_NS_ENGINE_UNIX_MS as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_UNIX_NS",
+            rt_engine::__RTS_FN_NS_ENGINE_UNIX_NS as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_TRACE_PUSH",
+            rt_engine::__RTS_FN_NS_ENGINE_TRACE_PUSH as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_TRACE_POP",
+            rt_engine::__RTS_FN_NS_ENGINE_TRACE_POP as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_TRACE_CAPTURE",
+            rt_engine::__RTS_FN_NS_ENGINE_TRACE_CAPTURE as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_TRACE_PRINT",
+            rt_engine::__RTS_FN_NS_ENGINE_TRACE_PRINT as *const u8,
         ),
     ]
 }

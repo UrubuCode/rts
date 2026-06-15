@@ -34,9 +34,8 @@ use crate::repr::Repr;
 use super::error::{FrontResult, Unsupported, unsupported};
 use super::repr_map::repr_of;
 
-/// The Cranelift type a value of `repr` is carried in (mirrors the P1
-/// `lower::lower::cl_type`): `Float64` in an `f64`, everything unboxed-integer
-/// (`Int32`/`Bool`) sign/zero-extended in an `i64`.
+/// The Cranelift type a value of `repr` is carried in: `Float64` in an `f64`,
+/// everything unboxed-integer (`Int32`/`Bool`) sign/zero-extended in an `i64`.
 pub fn cl_type(repr: Repr) -> types::Type {
     match repr {
         Repr::Float64 => types::F64,

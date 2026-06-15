@@ -1,8 +1,8 @@
 //! JIT harness for numeric-subset HIR functions: compile one [`HirFunc`] to
 //! executable memory and hand back a callable.
 //!
-//! Mirrors the P1 [`crate::lower::jit`] harness but drives the real
-//! [`super::hir_lower`] (HIR → Cranelift) instead of the hand-built `Func` IR.
+//! Drives the real [`super::hir_lower`] (HIR → Cranelift): swc parse → typed
+//! HIR → Cranelift IR, all in one JIT module.
 //! No runtime externs are installed — the numeric subset is self-contained
 //! native code (no boxing, no container/string ops). The egraph (`opt_level =
 //! speed`) is the sole optimizer (design pilar 5).

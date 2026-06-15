@@ -58,6 +58,10 @@ fn build_registry() -> Registry {
     ns::date::register(&mut e);
     ns::collections::register(&mut e);
     ns::regex::register(&mut e);
+    // The PRIVATE `engine` namespace (arch/time/trace) the embedded TS prelude
+    // calls. Marked `.private()`; the lowering's `engineobj` gate enforces that
+    // only prelude-origin code names the `engine` global.
+    ns::engine::register(&mut e);
     // The RUNTIME/Registry global classes the engine constructs + dispatches.
     ns::globals::date::register_class_spec(&mut e);
     ns::globals::regexp::register_regexp_class_spec(&mut e);
@@ -128,13 +132,6 @@ pub fn has_class(class: &str) -> bool {
 pub fn class_member(class: &str, method: &str, argc: usize) -> Option<ResolvedCall> {
     let c = registry().class(class)?;
     let m = c.resolve_instance_method(method, argc)?;
-    Some(instance_call(m))
-}
-
-/// Resolve an INSTANCE getter `class.prop` (no parens) to its [`ResolvedCall`].
-pub fn class_getter(class: &str, prop: &str) -> Option<ResolvedCall> {
-    let c = registry().class(class)?;
-    let m = c.instance_getter(prop)?;
     Some(instance_call(m))
 }
 

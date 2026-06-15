@@ -6,7 +6,7 @@
 
 use std::path::PathBuf;
 
-use anyhow::{anyhow, Context};
+use anyhow::anyhow;
 
 pub fn command(input: Option<String>) -> anyhow::Result<()> {
     let input = input.ok_or_else(|| anyhow!("usage: rts run-new <input.ts>"))?;
@@ -14,9 +14,11 @@ pub fn command(input: Option<String>) -> anyhow::Result<()> {
     if !input_path.exists() {
         return Err(anyhow!("input file not found: {}", input_path.display()));
     }
-    let source = std::fs::read_to_string(&input_path)
-        .with_context(|| format!("failed to read {}", input_path.display()))?;
-    match rts_codegen_new::front::run::run_source(&source) {
+    // `run_path` resolves the whole relative-import graph from the entry file's
+    // directory (M1b) and runs the flattened multi-file program. A single-file
+    // program with no imports flows through the same path unchanged. The eval/`-e`
+    // path keeps using `run_source` (a string, no disk imports).
+    match rts_codegen_new::front::run::run_path(&input_path) {
         Ok(()) => std::process::exit(0),
         Err(unsupported) => {
             eprintln!("error: {unsupported}");

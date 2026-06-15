@@ -70,6 +70,7 @@ mod loops;
 mod math_tagged;
 mod mathobj;
 mod method;
+mod modules_e2e;
 mod number;
 mod objdyn;
 mod object;

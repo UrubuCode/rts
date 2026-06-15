@@ -5,6 +5,7 @@
 pub mod audio;
 #[cfg(feature = "asio")]
 pub mod asio_audio;
+pub mod engine;
 pub mod io;
 pub mod os;
 pub mod env;

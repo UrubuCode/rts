@@ -1,8 +1,7 @@
 //! `front/` — parse real TypeScript and lower its typed HIR to native code.
 //!
-//! Increment 3 wires the new engine to REAL source for the first time. Until now
-//! the crate only ran hand-built IR (`lower::ir::Func`, the P1 proofs). Here the
-//! flow is the genuine front-end:
+//! Increment 3 wires the new engine to REAL source for the first time. The flow
+//! is the genuine front-end:
 //!
 //! ```text
 //! TS source --swc--> rts-ast --rts-hir--> HirFunc --hir_lower--> Cranelift --JIT--> run
@@ -35,6 +34,7 @@
 pub mod error;
 pub mod hir_lower;
 pub mod jit;
+pub mod modules;
 pub mod repr_map;
 pub mod run;
 

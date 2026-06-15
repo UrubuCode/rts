@@ -30,6 +30,7 @@ mod call_spread;
 mod class;
 mod dateclass;
 mod desugar;
+mod engineobj;
 mod expr;
 mod funcval;
 mod globalclass;
@@ -39,6 +40,7 @@ mod mathobj;
 mod method;
 mod method_array;
 mod method_dyn;
+mod module_entry;
 pub mod module_jit;
 mod newexpr;
 mod obj;
@@ -54,6 +56,8 @@ mod toprimitive;
 mod trycatch;
 
 pub mod lower;
+
+pub use module_entry::{render_path, run_path};
 
 #[cfg(test)]
 mod fixture_check;
@@ -104,9 +108,23 @@ fn build_with_includes(src: &str) -> FrontResult<LoweredProgram> {
 /// end-to-end stdout use [`run_source`] + the bun fixture harness.
 pub fn render_source(src: &str) -> FrontResult<String> {
     let prog = build_with_includes(src)?;
-    let program = module_jit::compile_program(&prog)?;
+    render_source_core(&prog)
+}
+
+/// Compile an already-built [`LoweredProgram`] and run it with `console.log`
+/// output CAPTURED into a `String`. Shared by [`render_source`] (string path) and
+/// [`module_entry::render_path`] (disk multi-file path).
+fn render_source_core(prog: &LoweredProgram) -> FrontResult<String> {
+    let program = module_jit::compile_program(prog)?;
     let ((), out) = crate::value::abi_adapter::with_capture(|| program.run_main());
     Ok(out)
+}
+
+/// The prelude-side [`build_program`] used by [`module_entry`] to compile the
+/// embedded stdlib includes ahead of a multi-file user program. A thin alias so
+/// the private `build_program` stays the single post-parse entry.
+fn build_program_for_prelude(src: &str) -> FrontResult<LoweredProgram> {
+    build_program(src)
 }
 
 /// Compile `prelude_src` (a declarations-only TS stdlib) ahead of `user_src`,
@@ -143,6 +161,15 @@ fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<
         classes.insert(desc.clone());
     }
 
+    // PRIVACY GATE: record which function names came from the PRELUDE (the engine's
+    // embedded includes). The PRIVATE `engine` global is resolvable ONLY from these
+    // functions; a user function naming `engine.*` bails explicitly (see
+    // `engineobj`). The prelude's own classes/methods/arrows are all in
+    // `prelude.funcs`, so their names are exactly this set (the user's `__rtsn_main`
+    // and user functions are NOT included — `merge_programs` keeps `user.main`).
+    let prelude_fns: std::collections::HashSet<String> =
+        prelude.funcs.iter().map(|f| f.name.clone()).collect();
+
     // funcs: prelude first, then user (user appended; last-wins on name collision).
     let mut funcs = prelude.funcs;
     funcs.extend(user.funcs);
@@ -159,6 +186,7 @@ fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<
         classes,
         fn_this_class,
         captures,
+        prelude_fns,
     })
 }
 
@@ -175,6 +203,12 @@ pub(crate) struct LoweredProgram {
     /// synthesized CLOSURE fn name → ordered captured outer-local names (P5.7).
     /// Drives env construction at reify and the env-read split in the thunk.
     pub captures: std::collections::HashMap<String, Vec<String>>,
+    /// PRIVACY GATE (engine namespace): the set of function names that came from
+    /// the engine's PRELUDE (embedded TS includes). Only these functions may name
+    /// the PRIVATE `engine.*` global; a user function (incl. `__rtsn_main`) that
+    /// references it bails explicitly. Empty for a user-only program (no prelude),
+    /// so the gate denies `engine.*` everywhere unless a prelude is present.
+    pub prelude_fns: std::collections::HashSet<String>,
 }
 
 /// Parse `src` and lower it to (user functions, synthesized `__rtsn_main`).
@@ -187,7 +221,25 @@ pub(crate) struct LoweredProgram {
 fn build_program(src: &str) -> FrontResult<LoweredProgram> {
     let program =
         rts_parser::parse_source(src).map_err(|e| Unsupported::new(format!("parse error: {e}")))?;
+    build_from_program(program, src)
+}
 
+/// Lower an ALREADY-PARSED `rts_ast::Program` to a [`LoweredProgram`]. This is the
+/// shared post-parse body of [`build_program`]: it runs every desugar pass, the
+/// `this`-transform, and arrow extraction, then assembles the funcs/main/classes.
+///
+/// `destructure_src` is the ORIGINAL source string used ONLY to recover function
+/// PARAMETER destructuring patterns (rts-ast drops them; the pass re-parses the
+/// source). For the single-string path it is the real source; for the multi-file
+/// module path (where there is no single source string) it is `""`, so a
+/// destructured PARAM simply stays `"_"` and bails at lowering — sound, never
+/// wrong. Every other destructuring site (let/const/for-of) recovers from the swc
+/// `Stmt` nodes carried in the flattened program, so it works across modules.
+fn build_from_program(
+    program: rts_ast::ast::Program,
+    destructure_src: &str,
+) -> FrontResult<LoweredProgram> {
+    let src = destructure_src;
     let mut scope = rts_hir::scope::Scope::new();
 
     // 0. Collect every `class` declaration into descriptors + synthesized
@@ -313,6 +365,11 @@ fn build_program(src: &str) -> FrontResult<LoweredProgram> {
         classes,
         fn_this_class,
         captures: extracted.captures,
+        // A single `build_program` has no prelude/user split — every fn is "user"
+        // here. When `merge_programs` combines a prelude + user program it computes
+        // the real prelude-origin set; this empty default denies `engine.*` for a
+        // user-only program (the gate's safe default).
+        prelude_fns: std::collections::HashSet::new(),
     })
 }
 

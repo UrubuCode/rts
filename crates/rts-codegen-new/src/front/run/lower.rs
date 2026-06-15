@@ -222,6 +222,11 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// functions). Read-only, shared across all functions. Drives `new C(args)`,
     /// `this.field`, and static `instance.method(args)`.
     pub classes: &'c super::class::ClassTable,
+    /// PRIVACY GATE: whether the function being lowered came from the engine's
+    /// PRELUDE (embedded TS includes). Only a prelude-origin function may name the
+    /// PRIVATE `engine.*` ambient global; in a user function (incl. `__rtsn_main`)
+    /// any `engine.*` reference bails explicitly (see [`super::engineobj`]).
+    pub is_prelude: bool,
 }
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
@@ -238,6 +243,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         classes: &'c super::class::ClassTable,
         captures: &'c HashMap<String, Vec<String>>,
         this_class: Option<&str>,
+        is_prelude: bool,
     ) -> FrontResult<()> {
         let entry = builder.create_block();
         builder.append_block_params_for_function_params(entry);
@@ -261,6 +267,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             thunks,
             captures,
             classes,
+            is_prelude,
         };
 
         // Bind each parameter to a fresh local Variable carrying its ABI repr.

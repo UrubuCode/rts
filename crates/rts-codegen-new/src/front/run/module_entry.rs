@@ -1,0 +1,224 @@
+//! `front/run/module_entry` — run a REAL multi-file TS program from disk (M1b).
+//!
+//! Where [`super::run_source`] runs ONE source string (eval / `-e`, no disk
+//! imports), [`run_path`] takes an ENTRY `.ts` file, resolves its whole relative-
+//! import graph through the pure M1a resolver
+//! ([`crate::front::modules::load_program`]), and runs the flattened program end
+//! to end:
+//!
+//! ```text
+//! entry &Path
+//!   --modules::load_program--> ResolvedProgram { program, bindings }
+//!   --apply_bindings--> flattened Program with imported LOCAL names remapped
+//!                       to the exported declaration name (alias rewrite)
+//!   --build_from_program--> LoweredProgram (USER side; NOT prelude)
+//!   --merge_programs(includes_prelude, user)--> one module
+//!   --compile_program--> JIT --> run --> stdout
+//! ```
+//!
+//! ## Binding application
+//!
+//! - **`Binding::Local { name }`** (a user-module export): the importing module
+//!   sees the export under its LOCAL name (`import { add as plus }` → `plus`),
+//!   but the flattened program carries the declaration under its REAL name
+//!   (`add`). [`apply_bindings`] renames every `plus` IDENTIFIER reference to
+//!   `add` via a focused swc `VisitMut` over each statement / function body /
+//!   class initializer — so the reference resolves to the flattened declaration.
+//!   A plain `import { add }` (local == orig) needs no rename (the name already
+//!   matches the declaration); the rewrite is a no-op for it.
+//!
+//! - **`Binding::Builtin { ns, member }`** (`import … from "rts:<ns>"`): the new
+//!   engine has NO namespace-member dispatch path yet (that is a separate layer,
+//!   out of scope for M1b). When a builtin-bound name is present, [`run_path`]
+//!   bails EXPLICITLY (the honesty floor) rather than silently dropping the
+//!   import or guessing a symbol. Wiring builtin imports through a generic
+//!   `abi::lookup` marshal is the documented follow-up.
+
+use std::collections::HashMap;
+use std::path::Path;
+
+use swc_ecma_visit::VisitMutWith;
+
+use rts_ast::ast::{Item, Statement};
+
+use crate::front::error::{FrontResult, Unsupported};
+use crate::front::modules::{self, Binding};
+
+use super::{build_from_program, merge_programs, module_jit, registry, render_source_core};
+
+/// Resolve, lower, JIT, and RUN the whole multi-file program reachable from
+/// `entry`. `console.log` output goes to the process's real stdout (same as
+/// [`super::run_source`]). Relative imports resolve from the entry file's
+/// directory.
+///
+/// Errors: a resolver failure (missing file, cycle, missing export, name
+/// collision), a parse error, any construct outside the implemented subset, or
+/// an UNWIRED builtin import (`rts:<ns>`) — all explicit `Unsupported`.
+pub fn run_path(entry: &Path) -> FrontResult<()> {
+    let prog = build_path(entry)?;
+    let program = module_jit::compile_program(&prog)?;
+    program.run_main();
+    Ok(())
+}
+
+/// Like [`run_path`] but CAPTURES `console.log` output into a `String` (used by
+/// the in-process e2e tests). Mirrors [`super::render_source`] for the disk path.
+pub fn render_path(entry: &Path) -> FrontResult<String> {
+    let prog = build_path(entry)?;
+    render_source_core(&prog)
+}
+
+/// Shared core: resolve `entry`, apply the import bindings, and build the merged
+/// (prelude + user) [`super::LoweredProgram`]. The user side is NOT prelude
+/// (`is_prelude=false`), so the privacy gate keeps denying `engine.*` to it.
+fn build_path(entry: &Path) -> FrontResult<super::LoweredProgram> {
+    let resolved = modules::load_program(entry)?;
+    let modules::ResolvedProgram {
+        mut program,
+        bindings,
+    } = resolved;
+
+    apply_bindings(&mut program, &bindings)?;
+
+    // The flattened multi-file USER program has no single source string, so the
+    // PARAMETER-destructuring recovery (which re-parses a source) gets `""` — a
+    // destructured param stays `"_"` and bails at lowering (sound). Every other
+    // destructuring site recovers from the swc `Stmt` nodes in `program`.
+    let user = build_from_program(program, "")?;
+
+    let inc = registry::includes_prelude();
+    if inc.is_empty() {
+        Ok(user)
+    } else {
+        let prelude = super::build_program_for_prelude(&inc)?;
+        merge_programs(prelude, user)
+    }
+}
+
+/// Apply the import binding map to the flattened `program` IN PLACE.
+///
+/// For each `Binding::Local { name }` whose LOCAL key differs from the exported
+/// `name` (an `as`-alias), rename every identifier reference of the local key to
+/// `name` across the whole program so it resolves to the flattened declaration.
+/// A `Binding::Builtin` is unwired in this increment → explicit bail.
+fn apply_bindings(
+    program: &mut rts_ast::ast::Program,
+    bindings: &HashMap<String, Binding>,
+) -> FrontResult<()> {
+    // 1. Collect alias renames (local → orig) and reject unwired builtins.
+    let mut renames: HashMap<String, String> = HashMap::new();
+    for (local, binding) in bindings {
+        match binding {
+            Binding::Local { name } => {
+                if local != name {
+                    renames.insert(local.clone(), name.clone());
+                }
+            }
+            Binding::Builtin { ns, member } => {
+                let spec = if ns.is_empty() {
+                    "rts".to_string()
+                } else {
+                    format!("rts:{ns}")
+                };
+                return Err(Unsupported::new(format!(
+                    "builtin import `{{ {member} }}` from `{spec}` (bound as `{local}`) — \
+                     namespace-member dispatch is not wired in the new engine yet \
+                     (M1b builtin-import follow-up); user (relative) imports run"
+                )));
+            }
+        }
+    }
+
+    if renames.is_empty() {
+        return Ok(());
+    }
+
+    // 2. Rewrite every identifier reference across the flattened program.
+    let mut renamer = Renamer { renames: &renames };
+    for item in &mut program.items {
+        rename_item(item, &mut renamer);
+    }
+    Ok(())
+}
+
+/// Apply the [`Renamer`] to one flattened top-level item (statement body, function
+/// body, or class property initializer — every swc subtree the lowering re-reads).
+fn rename_item(item: &mut Item, renamer: &mut Renamer<'_>) {
+    match item {
+        Item::Statement(Statement::Raw(raw)) => {
+            if let Some(stmt) = raw.stmt.as_mut() {
+                stmt.visit_mut_with(renamer);
+            }
+        }
+        Item::Function(f) => {
+            for s in &mut f.body {
+                let Statement::Raw(raw) = s;
+                if let Some(stmt) = raw.stmt.as_mut() {
+                    stmt.visit_mut_with(renamer);
+                }
+            }
+        }
+        Item::Class(c) => {
+            for m in &mut c.members {
+                rename_class_member(m, renamer);
+            }
+            for s in &mut c.static_init_body {
+                let Statement::Raw(raw) = s;
+                if let Some(stmt) = raw.stmt.as_mut() {
+                    stmt.visit_mut_with(renamer);
+                }
+            }
+        }
+        // Imports/ExportNamespace are erased before flatten reaches here; an
+        // Interface introduces no runtime references.
+        Item::Import(_) | Item::ExportNamespace(_) | Item::Interface(_) => {}
+    }
+}
+
+/// Rename references inside a class member's swc subtrees (method bodies + a
+/// constructor body + a property initializer).
+fn rename_class_member(m: &mut rts_ast::ast::ClassMember, renamer: &mut Renamer<'_>) {
+    use rts_ast::ast::ClassMember;
+    match m {
+        ClassMember::Constructor(ctor) => {
+            for s in &mut ctor.body {
+                let Statement::Raw(raw) = s;
+                if let Some(stmt) = raw.stmt.as_mut() {
+                    stmt.visit_mut_with(renamer);
+                }
+            }
+        }
+        ClassMember::Method(md) => {
+            for s in &mut md.body {
+                let Statement::Raw(raw) = s;
+                if let Some(stmt) = raw.stmt.as_mut() {
+                    stmt.visit_mut_with(renamer);
+                }
+            }
+        }
+        ClassMember::Property(p) => {
+            if let Some(init) = p.initializer.as_mut() {
+                init.visit_mut_with(renamer);
+            }
+        }
+    }
+}
+
+/// A focused swc `VisitMut` that rewrites an IDENTIFIER reference's symbol per the
+/// `renames` map. Only `Ident` nodes are visited — swc models member-access
+/// properties (`obj.add`) as `IdentName`/`MemberProp` and object-literal keys as
+/// `PropName`, neither of which is an `Ident`, so a property/key named like an
+/// imported alias is NOT touched. Binding occurrences (a same-named local) ARE
+/// renamed too (a known limitation of the flat global binding map — fine for the
+/// distinct-name common case).
+struct Renamer<'a> {
+    renames: &'a HashMap<String, String>,
+}
+
+impl swc_ecma_visit::VisitMut for Renamer<'_> {
+    fn visit_mut_ident(&mut self, ident: &mut swc_ecma_ast::Ident) {
+        if let Some(target) = self.renames.get(ident.sym.as_ref()) {
+            ident.sym = target.clone().into();
+        }
+    }
+}

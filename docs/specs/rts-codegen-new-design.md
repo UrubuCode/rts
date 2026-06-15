@@ -24,12 +24,13 @@
 6. [Pilar 2 — Lattice de representação (`repr.rs`)](#6-pilar-2--lattice-de-representação-reprrs)
 7. [Pilar 3 — Regra de solidez + confiança nos tipos TS](#7-pilar-3--regra-de-solidez--confiança-nos-tipos-ts)
 8. [Pilar 4 — Shapes (`shape.rs`) + inline caches de dado (`ic.rs`)](#8-pilar-4--shapes-shapers--inline-caches-de-dado-icrs)
-9. [Pilar 5 — Caminho único de lowering (`lower/`), sem MIR](#9-pilar-5--caminho-único-de-lowering-lower-sem-mir)
+9. [Pilar 5 — Caminho único de lowering (`front/run/`), sem MIR](#9-pilar-5--caminho-único-de-lowering-frontrun-sem-mir)
 10. [Pilar 6 — Dispatch data-driven (`dispatch.rs`) + ABI gerada (`abi_gen.rs`)](#10-pilar-6--dispatch-data-driven-dispatchrs--abi-gerada-abi_genrs)
 11. [Por que isto é mais simples que o V8 (e o custo honesto)](#11-por-que-isto-é-mais-simples-que-o-v8-e-o-custo-honesto)
 12. [Plano de migração strangler-fig](#12-plano-de-migração-strangler-fig)
 13. [O que é deletado do motor antigo (por nome)](#13-o-que-é-deletado-do-motor-antigo-por-nome)
 14. [Apêndice — mapa de módulos do crate](#14-apêndice--mapa-de-módulos-do-crate)
+15. [Sistema de módulos (motor novo)](#15-sistema-de-módulos-motor-novo)
 
 ---
 
@@ -201,8 +202,9 @@ redesenho **generaliza** isto no lattice de representação (`repr.rs`).
 
 `crates/rts-codegen-old/src/cache.rs` faz cache por `file_sha256` +
 `compiler_fingerprint` (com invalidação por dep transitiva). O `compile_program`
-é compartilhado por JIT e AOT (`FnCtx.module = &mut dyn Module`). Ambos
-preservados em `pipeline.rs`.
+é compartilhado por JIT e AOT (`FnCtx.module = &mut dyn Module`). No motor novo
+o JIT de módulo inteiro vive em `src/front/run/module_jit.rs::compile_program`; o
+AOT compartilhará esse mesmo caminho `front/run/` quando for construído.
 
 ---
 
@@ -217,9 +219,9 @@ preservados em `pipeline.rs`.
 |-------|----------------------------------------------|---------------------------|
 | 1. PolyValue | `crates/rts-codegen-new/src/value.rs` | as 4 side-tables, `Entry::FloatPrim`, os helpers `FLOAT_*` |
 | 2. Lattice de repr | `crates/rts-codegen-new/src/repr.rs` | `ValTy` + heurísticas de forma-da-AST |
-| 3. Solidez + confiança TS | `repr.rs` + `lower/` + `guards` | `TPL_COERCE_AUTO` espalhado, `guards.rs` morto |
+| 3. Solidez + confiança TS | `repr.rs` + `front/run/lower.rs` + `guards` | `TPL_COERCE_AUTO` espalhado, `guards.rs` morto |
 | 4. Shapes + ICs | `shape.rs` + `ic.rs` | `HashMap<String,i64>` default, dispatch por `gc.string_eq` |
-| 5. Lowering único | `lower/mod.rs` + `pipeline.rs` | o tier MIR e o codegen AST duplicado |
+| 5. Lowering único | `front/run/lower.rs` + `front/run/module_jit.rs` | o tier MIR e o codegen AST duplicado |
 | 6. Dispatch + ABI gerada | `dispatch.rs` + `abi_gen.rs` | switchboard `calls/mod.rs`, os 1113 `add_fn!` |
 
 Cada pilar tem sua seção abaixo, concreta e construível.
@@ -635,9 +637,12 @@ Estas são as fontes de complexidade do V8 que o RTS escolhe *não* pagar (§11)
 
 ---
 
-## 9. Pilar 5 — Caminho único de lowering (`lower/`), sem MIR
+## 9. Pilar 5 — Caminho único de lowering (`front/run/`), sem MIR
 
-> Módulo: `crates/rts-codegen-new/src/lower/mod.rs` (esqueleto: `lower_function()`).
+> Módulos: `crates/rts-codegen-new/src/front/run/lower.rs`
+> (`Lowerer::lower_function`, o lowering HIR → Cranelift) +
+> `crates/rts-codegen-new/src/front/run/module_jit.rs`
+> (`compile_program`, o JIT de módulo inteiro).
 
 ### 9.1 Um caminho, não dois
 
@@ -780,7 +785,7 @@ crash/hang commitado como "pass"; build sempre compila).
 | Fase | Entrega | Critério de pronto | Guarda de regressão |
 |------|---------|--------------------|--------------------|
 | **P0** | `value.rs` (PolyValue) — **feito no Incremento 1** | modelo puro + roundtrip JIT Cranelift exaustivamente testados | testes unitários do `value.rs` verdes |
-| **P1** | Deletar o modelo-mental MIR + baixar **uma** fn numérica pelo caminho novo (HIR→Cranelift direto) | uma fn numérica roda end-to-end via `lower/` + `pipeline.rs` produzindo o mesmo resultado que o antigo | fixture numérico A/B contra o motor antigo |
+| **P1** | Deletar o modelo-mental MIR + baixar **uma** fn numérica pelo caminho novo (HIR→Cranelift direto) | uma fn numérica roda end-to-end via `front/run/` (`lower.rs` + `module_jit.rs`) produzindo o mesmo resultado que o antigo | fixture numérico A/B contra o motor antigo |
 | **P2** | Containers de PolyValue substituindo `i64`+`FloatPrim` | `Map`/`Vec` armazenam `PolyValue`; `Entry::FloatPrim` removível | suíte de containers heterogêneos (float fracionário em Map/Vec) verde |
 | **P3** | Shapes + ICs para objetos | objeto default usa shape + IC de dado; `HashMap` só patológico | suíte de objetos/property-access + dispatch verde, sem `gc.string_eq` por override |
 | **P4** | Dispatch data-driven + `abi_gen` | `resolve_method` dirige tudo por SPECS; símbolos derivados com assert de cobertura | assert de cobertura passa; nenhum `add_fn!` manual remanescente |
@@ -829,17 +834,138 @@ Lista canônica do que **sai** quando o cutover (P5) acontece:
 
 `crates/rts-codegen-new/src/`:
 
-| Arquivo | Papel | Pilar | Estado (na escrita) |
-|---------|-------|-------|---------------------|
+Estado: **todos os módulos abaixo estão implementados** — não há mais `todo!`
+no crate (a escada de esqueletos do redesenho foi superada; este é o motor real).
+
+| Arquivo/diretório | Papel | Pilar | Estado |
+|-------------------|-------|-------|--------|
 | `lib.rs` | manifesto + reexports dos módulos | — | pronto |
-| `value.rs` | `PolyValue` NaN-boxed de 64 bits | 1 | **Incremento 1** (declarado em `lib.rs`) |
-| `repr.rs` | lattice `Repr` + `RefKind` + `join` | 2 | esqueleto pronto |
-| `shape.rs` | `Shape` / `ShapeTable` / árvore de transição | 4 | esqueleto (`todo!`) |
-| `ic.rs` | `IcState` / `PropIcCell` (IC de dado) | 4 | esqueleto pronto |
-| `dispatch.rs` | `Target` / `resolve_method` data-driven | 6 | esqueleto (`todo!`) |
-| `abi_gen.rs` | `SymbolEntry` / `jit_symbols` derivados de SPECS | 6 | esqueleto (`todo!`) |
-| `lower/mod.rs` | `lower_function` — HIR → Cranelift, caminho único | 5 | esqueleto (`todo!`) |
-| `pipeline.rs` | `run_jit` / `compile_aot` — JIT+AOT compartilhados | 5 | esqueleto (`todo!`) |
+| `value/` | `PolyValue` NaN-boxed de 64 bits (`mod.rs` + ops + `abi_adapter`) | 1 | implementado |
+| `repr.rs` | lattice `Repr` + `RefKind` + `join` | 2 | implementado |
+| `shape.rs` | `Shape` / `ShapeTable` / árvore de transição | 4 | implementado |
+| `ic.rs` | `IcState` / `PropIcCell` (IC de dado) | 4 | implementado |
+| `dispatch.rs` | `Target` / `resolve_method` data-driven | 6 | implementado |
+| `abi_gen.rs` | `SymbolEntry` / `jit_symbols` derivados de SPECS | 6 | implementado |
+| `runtime_link.rs` / `registry_link.rs` | superfície de runtime + Registry para o JIT | 6 | implementado |
+| `front/hir_lower/` | lowering numérico de uma `HirFunc` (subset prova-monomórfico) | 5 | implementado |
+| `front/run/lower.rs` | `Lowerer::lower_function` — HIR → Cranelift, caminho único | 5 | implementado |
+| `front/run/module_jit.rs` | `compile_program` — JIT de módulo inteiro (símbolos via `abi_gen`) | 5 | implementado |
+| `front/run/{expr,stmt,call,binop,assign,loops,...}.rs` | lowering por construção de expressão/statement | 5 | implementado |
+| `front/run/class/` | classes (constructor/método/`this`/`extends`/static/getters) via shapes | 4 | implementado |
+| `front/run/{method,method_array,method_dyn,obj,objstatic}.rs` | dispatch de método e acesso a propriedade (shape-keyed) | 4 | implementado |
+| `front/run/registry.rs` / `registry_call.rs` | construção do Registry e marshal genérico via `AbiType` | 6 | implementado |
+| `front/run/desugar/` | template literals, optional chaining, destructuring | 5 | implementado |
+
+> AOT no motor novo ainda não foi construído; quando for, compartilhará o caminho
+> `front/run/` (não há mais um `pipeline.rs` separado — ele foi deletado).
+
+## 15. Sistema de módulos (motor novo)
+
+O motor antigo achatava o grafo de módulos em `crates/rts-codegen-old/src/module/`
+(BFS, dedup por path canônico, detecção de ciclo 3-cores, `flatten_for_jit`).
+O motor novo **não estende nem extrai** esse código: reimplementa um subsistema
+limpo em `crates/rts-codegen-new/src/front/modules/` (`mod.rs` + `resolve.rs` +
+`graph.rs` + `flatten.rs` + `error.rs`, cada um < 500 linhas), sem depender de
+nenhum crate do motor antigo e lendo o runtime só pela fachada `rts-runtime`.
+
+### Decisão: resolver fresco, não extrair
+
+O `module/` antigo carrega features fora de escopo do motor novo (manifest
+walking, workspace packages, node_modules, imports remotos http(s), cache
+`.ometa`, line-scan de `export`) acopladas ao seu `CompileOptions`/diagnostics.
+Reusar a **estrutura** (BFS + dedup + ciclo 3-cores + DFS post-order) custa
+~250 linhas; arrastar o crate inteiro reintroduziria acoplamento que o redesenho
+existe para cortar. Além disso o conjunto de exports agora vem de uma flag de AST
+real (`exported: bool` em `FunctionDecl`/`ClassDecl`, setada no parser em
+`ModuleDecl::ExportDecl`), não de um line-scan frágil — uma melhoria de solidez,
+não uma cópia.
+
+### Sequenciamento M1 / M2 / M3
+
+- **M1 — ES + relativo-filesystem + ramo builtin — FEITO (path de usuário).**
+  `import`/`export` ES2015, especificadores relativos (`./x`, `../x`) com a lista
+  de candidatos `x.ts, x.rts, x.js, x/index.{ts,rts,js}`, e o ramo builtin
+  (`rts`, `rts:<ns>`, `node:<ns>`) resolvido **sem tocar disco**.
+  - **M1a — FEITO.** Resolver/grafo puro + testes (`front/modules/`):
+    `load_program(entry) -> ResolvedProgram { program, bindings }`.
+  - **M1b — FEITO.** O `ResolvedProgram` corre fim-a-fim no lowering. Entrada
+    pública `front::run::run_path(&Path)` (+ `render_path` para captura nos
+    testes): `load_program` → `apply_bindings` → `build_from_program` (lado
+    USER, NÃO prelude) → `merge_programs(includes_prelude, user)` →
+    `compile_program` → JIT → run. **Wiring CLI:** `rts run-new <file>` chama
+    `run_path` (resolve imports relativos a partir do diretório do entry); o
+    path eval/`-e` continua em `run_source` (string, sem imports de disco).
+    - **`Binding::Local` (módulo de usuário) — wired.** Um `import { a as b }`
+      é remapeado: `apply_bindings` (em `front/run/module_entry.rs`) renomeia
+      toda REFERÊNCIA de identificador `b` para o nome exportado `a` via um
+      `swc_ecma_visit::VisitMut` focado sobre cada `Stmt`/corpo de função/
+      inicializador de classe do programa achatado — só nós `Ident` (props de
+      member-access e chaves de objeto são `IdentName`/`PropName`, não tocadas).
+      Um `import { a }` simples (local == orig) é no-op. Limitação conhecida: o
+      binding map é global/achatado, então um local homônimo de um alias é
+      renomeado também (ok no caso comum de nomes distintos).
+    - **`Binding::Builtin` (`rts:<ns>`) — BAIL EXPLÍCITO (não wired).** O motor
+      novo ainda não tem path de dispatch de membro de namespace (camada
+      separada, fora do escopo M1b). Um import builtin presente faz `run_path`
+      bailar com `Unsupported` claro (piso de honestidade) em vez de dropar
+      silenciosamente ou adivinhar símbolo. **Follow-up:** wirar import builtin
+      por um marshal genérico `abi::lookup` + `emit_call_sig` (o mesmo path
+      genérico que as classes Registry usam, mas para funções de namespace).
+- **M2 — CommonJS.** `module.exports` / `exports.name` / `require(...)` exige
+  trabalho no parser (hoje não lowera essas formas); próximo passo.
+- **M3 — cache incremental `.ometa`.** Hash transitivo de dependências para
+  invalidar objetos AOT quando qualquer módulo importado muda (porta do
+  `transitive_deps_hash` antigo), reintroduzido só quando o AOT do motor novo
+  existir.
+
+### Contrato `ResolvedProgram` / `Binding` (o que o M1b consome)
+
+`pub fn load_program(entry: &Path) -> FrontResult<ResolvedProgram>` retorna:
+
+```text
+ResolvedProgram {
+    program:  rts_ast::ast::Program,          // todos os módulos concatenados em
+                                              // ordem de dependência (DFS post-order),
+                                              // SEM nenhum Item::Import/ExportNamespace
+    bindings: HashMap<String, Binding>,       // nome LOCAL importado -> destino
+}
+
+enum Binding {
+    Builtin { ns: String, member: String },   // `import {print} from "rts:io"`
+                                              //   -> Builtin{ ns:"io", member:"print" }
+                                              // `rts` puro -> ns vazio; member = nome
+    Local   { name: String },                 // nome exportado por outro módulo
+                                              //   USER, visível no programa plano
+}
+```
+
+O M1b, ao lowerar um identificador, consulta `bindings`: um `Builtin` resolve o
+símbolo `__RTS_FN_*` real via Registry (Pilar 6 — `front/run/registry.rs`); um
+`Local` é o nome top-level já presente no `program` achatado. A resolução do
+**membro builtin** é deferida ao M1b de propósito: o M1a só registra a intenção
+(ns + member do próprio `import`), sem enumerar o SPECS — o conjunto de membros de
+um namespace é verificado no dispatch, não na resolução de módulos.
+
+### Postura de erro explícito (sem miscompilação silenciosa)
+
+Todo modo de falha é um erro EXPLÍCITO, nunca um drop/last-wins silencioso —
+exatamente o piso de honestidade do redesenho:
+
+- ciclo de import (`a → b → a`) → erro com o caminho do ciclo;
+- importar um nome que o módulo NÃO exporta → erro nomeando o símbolo;
+- colisão de nome top-level entre dois módulos USER no programa plano → erro
+  (sem last-wins);
+- especificador npm/workspace puro (fora do escopo M1) → `Unsupported` honesto;
+- `export * as ns from "./mod"` (o parser hoje dropa o `import * as ns`) →
+  `Unsupported` honesto, registrado como gap, não silenciado.
+
+`ModuleError` (interno, estruturado, testável por variante) converte para
+`Unsupported` no boundary público via `From`, mantendo o subsistema na mesma
+linguagem `FrontResult` do resto do front-end.
+
+> Gap conhecido (não corrigido em M1a): `import * as ns from "..."` é dropado no
+> parser (`crates/rts-parser/src/lowering_items.rs`, `ImportSpecifier::Namespace`);
+> o resolver não pode ver esse binding. Corrigir o parser é trabalho de M1b/M2.
 
 Cross-references externos relevantes:
 

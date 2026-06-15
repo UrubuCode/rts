@@ -154,6 +154,29 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             ret: Void,
         },
 
+        // ---- PRIVATE engine namespace (rts-std engine) — arch/time/trace ----
+        // arch / trace_capture return a GC string handle; the timestamp + trace
+        // fns are I64/Void. trace_push takes (file: StrPtr, fn: StrPtr, line, col).
+        "__RTS_FN_NS_ENGINE_ARCH" | "__RTS_FN_NS_ENGINE_TRACE_CAPTURE" => SymSig {
+            params: &[],
+            ret: Handle,
+        },
+        "__RTS_FN_NS_ENGINE_NOW_MS"
+        | "__RTS_FN_NS_ENGINE_NOW_NS"
+        | "__RTS_FN_NS_ENGINE_UNIX_MS"
+        | "__RTS_FN_NS_ENGINE_UNIX_NS" => SymSig {
+            params: &[],
+            ret: I64,
+        },
+        "__RTS_FN_NS_ENGINE_TRACE_POP" | "__RTS_FN_NS_ENGINE_TRACE_PRINT" => SymSig {
+            params: &[],
+            ret: Void,
+        },
+        "__RTS_FN_NS_ENGINE_TRACE_PUSH" => SymSig {
+            params: &[StrPtr, StrPtr, I64, I64],
+            ret: Void,
+        },
+
         // ---- REAL collections Vec (rts-shared collections::vec) ----
         "__RTS_FN_NS_COLLECTIONS_VEC_NEW" => SymSig {
             params: &[],

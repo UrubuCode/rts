@@ -42,6 +42,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if is_console_ident(object) && method == "log" {
             return self.lower_console_log(module, args);
         }
+        // PRIVATE `engine.*` (arch/time/trace) — prelude-only (privacy gate). A
+        // user caller bails here; a prelude caller lowers the runtime call.
+        if let Some(val) = self.try_engine_call(module, object, method, args)? {
+            return Ok(val);
+        }
         // GLOBAL static `Math.m(..)` / `Number.m(..)` / `Object.m(..)` (P5.4).
         if let Some(val) = self.try_math_number_call(module, object, method, args)? {
             return Ok(val);
@@ -89,6 +94,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if let HirExprKind::Member { object, prop } = &callee.kind {
             if is_console_ident(object) && prop == "log" {
                 return self.lower_console_log(module, args);
+            }
+            // PRIVATE `engine.*` (arch/time/trace) — prelude-only (privacy gate).
+            if let Some(val) = self.try_engine_call(module, object, prop, args)? {
+                return Ok(val);
             }
             // GLOBAL static `Math.m(..)` / `Number.m(..)` / `Object.m(..)` (P5.4)
             // — before user/instance dispatch (these are not user classes/locals).
