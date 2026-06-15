@@ -16,7 +16,20 @@
     `bash scripts/cross_runtime_check.sh` → 73/7/511. (Baseline do motor VELHO,
     congelado, era 419/137/36 — agora só alcançável trocando `run-new`→`run` no script.)
   - `rts run-new <file>` = motor novo (1 arquivo, sem imports); `rts run` = velho.
-- **Unit tests:** `541 passam` (`cargo test -p rts-codegen-new`).
+- **Unit tests:** `583 passam` (`cargo test -p rts-codegen-new`).
+- **Gate do motor velho LARGADO** (owner): a suite TS do velho não bloqueia mais
+  (ver memória `feedback_windows_powershell`). 1 regressão aceita (`fdeccfa7`).
+  Build ainda compila o workspace inteiro.
+- **Parity-lift via histograma** (`cargo test -p rts-codegen-new -- --ignored
+  bail_histogram`): ran 89→92. **Dynamic property fallback** (`c40f4ea8`) eliminou o
+  cluster "object property em shape não-provada" (54→0) — `obj.prop`/`obj[k]` r/w em
+  receiver não-provado caem no `__rtsadp_obj_get/set`. **Array-callback dinâmico**
+  (`85e1c6a0`) — `.map/.filter/.reduce` em receiver não-provado (paridade-neutra:
+  fixtures batem antes em #195/métodos-não-impl). Histogram é métrica de PRIMEIRO-
+  bloqueio. Top clusters restantes: unbound-ident 60, global/Registry-class 48,
+  method-non-dispatchable 46, #195 closures-capturantes, métodos não-impl
+  (flat/toSorted/with). Maiores levers reais: **#195 (mutable closures)** + métodos
+  de array faltantes.
 - **Direção stdlib-em-TS (refinada pelo owner 2026-06-14):** os TIPOS-BASE
   (`string`/`number`/`boolean`/`bigint`/`[]`/`object`) ficam NATIVOS no motor (syms
   diretos: literais, ops, `.length`, indexação, métodos). CLASSES/FUNÇÕES (String/
