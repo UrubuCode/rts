@@ -102,6 +102,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
         let recv = self.lower_expr(module, object)?;
         let Some(class) = recv_class_of(recv) else {
+            // PRIMITIVE BOOL receiver (`true.toString()` / `flag.valueOf()`): route
+            // to the ambient prelude `class Boolean` (the `.ts` primitive-method
+            // library), passing the primitive BOXED as `this`. This is the
+            // primitive → prelude-`.ts`-class dispatch mechanism (the prover for
+            // String/Number next). `Ok(None)` ⇒ no such method on `Boolean` (or the
+            // prelude class is absent) — falls through to the dynamic/bail paths.
+            if matches!(recv.kind, JsKind::Bool) || recv.repr == Repr::Bool {
+                if let Some(val) =
+                    self.try_primitive_class_method(module, recv, "Boolean", method, args)?
+                {
+                    return Ok(Some(val));
+                }
+            }
             // The receiver is a TAGGED value of unproven class (a param, a call
             // return, a re-`let` local). When the METHOD NAME is known (P5.9),
             // dispatch on the receiver's PolyValue tag AT RUNTIME via a
@@ -156,6 +169,40 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
 
         let val = self.emit_dispatch_call(module, recv, &spec, args)?;
+        Ok(Some(val))
+    }
+
+    /// Route a method called on a PRIMITIVE receiver (`recv`, already lowered) to
+    /// the ambient prelude `.ts` class `prim_class` (e.g. `"Boolean"`), passing the
+    /// primitive BOXED as the method's `this`. This is the primitive →
+    /// prelude-`.ts`-class method-dispatch mechanism: the engine resolves the
+    /// `(method, arity)` on the ambient class at COMPILE TIME (shape-based, not JS
+    /// prototypes) and emits a direct call of the synthesized `__rtsn_method_*`,
+    /// reusing the SAME [`Self::call_synth_fn`] path a user-class instance uses.
+    ///
+    /// The `.ts` method bodies read `this` AS THE PRIMITIVE (the boxed primitive
+    /// word — e.g. `this ? "true" : "false"`). Returns `Ok(None)` when the prelude
+    /// class is absent or has no such `(method, arity)` (the caller falls through to
+    /// the dynamic/bail paths — never a guess). This is the reusable pattern
+    /// String/Number will follow (route the proven string/number primitive to a
+    /// prelude `class String`/`class Number` once their `.ts` method libs land).
+    pub(super) fn try_primitive_class_method(
+        &mut self,
+        module: &mut dyn Module,
+        recv: Val,
+        prim_class: &str,
+        method: &str,
+        args: &[HirExpr],
+    ) -> FrontResult<Option<Val>> {
+        let Some(desc) = self.classes.get(prim_class).cloned() else {
+            return Ok(None);
+        };
+        let Some(fn_name) = desc.method_fn(method).map(str::to_string) else {
+            return Ok(None);
+        };
+        // The primitive becomes the method's `this` (boxed PolyValue word).
+        let this_word = self.box_value(recv);
+        let val = self.call_synth_fn(module, &fn_name, Some(this_word), args)?;
         Ok(Some(val))
     }
 

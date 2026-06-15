@@ -11,4 +11,9 @@ pub use rts_shared::stdlib;
 /// engine reaches it through the facade (`rts_runtime::ERROR_TS`). Included by the
 /// engine ahead of the Map/Set stdlib prelude.
 pub use rts_primitives::ERROR_TS;
+/// Embedded TS source of the PRIMORDIAL `Boolean.prototype` methods, re-exported
+/// from `rts-primitives` so the new engine reaches it through the facade
+/// (`rts_runtime::BOOLEAN_TS`). Included by the engine as a declarations-only
+/// prelude; a primitive-bool method call routes into its ambient `class Boolean`.
+pub use rts_primitives::BOOLEAN_TS;
 pub mod namespaces;

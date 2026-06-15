@@ -24,6 +24,17 @@ pub mod gc_surface;
 /// program; declaration order within the include string matters).
 pub const ERROR_TS: &str = include_str!("error.ts");
 
+/// Embedded TypeScript source of the PRIMORDIAL `Boolean.prototype` methods
+/// (`toString`/`valueOf`). The new engine `include`s this declarations-only
+/// prelude: a method called on a PRIMITIVE bool receiver (`true.toString()`) is
+/// routed into this ambient `class Boolean`'s method with the primitive BOXED as
+/// `this` (shape-based dispatch, NOT JS prototypes — the engine resolves the
+/// method on the class at compile time). The method bodies read `this` AS THE
+/// PRIMITIVE boolean. This file is the PROVER of the primitive → prelude-`.ts`-
+/// class method-dispatch mechanism (String/Number follow the same pattern). The
+/// wrapper object `new Boolean(x)` stays the engine's wrapper trampoline.
+pub const BOOLEAN_TS: &str = include_str!("boolean.ts");
+
 pub mod array;
 pub mod boolean;
 pub mod error;

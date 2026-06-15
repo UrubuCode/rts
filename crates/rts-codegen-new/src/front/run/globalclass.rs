@@ -86,6 +86,14 @@ fn class_meta(name: &str) -> Option<ClassMeta> {
     Some(m)
 }
 
+/// Whether `name` is one of the WRAPPER primordials (`Boolean`/`Number`/`String`)
+/// whose `new X(v)` builds a typeof-"object" wrapper. These keep their wrapper
+/// ctor even when a same-named prelude `.ts` class (the primitive-method library)
+/// is ambient — see [`Lowerer::is_global_class_ctor`].
+fn is_wrapper_primordial(name: &str) -> bool {
+    matches!(name, "Boolean" | "Number" | "String")
+}
+
 /// RegExp instance methods (P5.12). `.test(s)` is the high-value one: receiver
 /// word + subject word → a bool word, the SAME generic shape as Map/Set methods.
 /// `.exec` BAILS (capture-group array extraction is a later increment — not a row
@@ -95,7 +103,19 @@ const REGEX_METHODS: &[(&str, usize, &str)] = &[("test", 1, "__rtsadp_re_test")]
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Whether `class` names a runtime/Registry class the engine constructs (and
     /// is NOT shadowed by a user class of the same name).
+    ///
+    /// EXCEPTION — the WRAPPER primordials (`Boolean`/`Number`/`String`): their
+    /// PRIMITIVE-method libraries are prelude `.ts` classes of the same name (e.g.
+    /// `Boolean.ts`), present in `self.classes` as ambient. But `new Boolean(x)`
+    /// must still build the WRAPPER object (typeof === "object") via the engine's
+    /// wrapper trampoline, NOT construct that prototype-only prelude class. So a
+    /// wrapper primordial stays a global-class ctor even when its prelude class is
+    /// ambient. (A primitive method call `true.toString()` routes to the prelude
+    /// class separately, never through `new`.)
     pub(super) fn is_global_class_ctor(&self, class: &str) -> bool {
+        if is_wrapper_primordial(class) && class_meta(class).is_some() {
+            return true;
+        }
         self.classes.get(class).is_none()
             && (class_meta(class).is_some() || super::registry::has_class(class))
     }

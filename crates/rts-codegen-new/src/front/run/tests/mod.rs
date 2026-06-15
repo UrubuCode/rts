@@ -50,6 +50,7 @@ mod ambient_declare;
 mod arr_cb_dyn;
 mod array;
 mod arraycb;
+mod boolean_class;
 mod builtin_import;
 mod class;
 mod class_inherit;

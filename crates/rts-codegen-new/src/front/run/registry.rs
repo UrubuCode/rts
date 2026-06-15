@@ -91,6 +91,14 @@ fn build_registry() -> Registry {
     // `Error` base first (the prelude is one merged program; `includes()` joins them
     // in registration order, so order here is declaration order).
     e.include(rts_runtime::ERROR_TS);
+    // The PRIMORDIAL `Boolean.prototype` methods as faithful TS (embedded include):
+    // its ambient `class Boolean` supplies `toString`/`valueOf`. A method called on
+    // a PRIMITIVE bool receiver (`true.toString()`) is routed into this class with
+    // the primitive boxed as `this` (see `method::try_primitive_class_method`). The
+    // `new Boolean(x)` WRAPPER (typeof === "object") stays the engine's wrapper
+    // trampoline — the lowering keeps `Boolean` a global-class ctor regardless of
+    // this prelude class (see `is_global_class_ctor`).
+    e.include(rts_runtime::BOOLEAN_TS);
     // The faithful TS Map/Set stdlib (embedded include): its ambient `class Map`/
     // `class Set` shadow the native dispatch in every program — making the native
     // Map/Set code dead (deleted in B3).

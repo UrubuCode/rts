@@ -246,6 +246,64 @@ mesclado; a ordem de `include` é a ordem de declaração).
   `instanceof`) funciona. `e.toString()` é correto quando `e` tem classe ESTÁTICA
   (`new Error("x").toString()`).
 
+### 3.2.2 Métodos de PRIMITIVO migrados para `.ts` — `Boolean` (mecanismo prova) — FEITO
+
+O passo que valida a direção "bibliotecas de método de primitivo viram `.ts`": um
+método chamado num receptor PRIMITIVO (`true.toString()`, `flag.valueOf()`) é
+roteado para uma classe `.ts` do prelude, com o primitivo EMBRULHADO (boxed) como
+`this`. **Isto NÃO é protótipo JS** — o motor novo é shape-based, sem objetos de
+protótipo reais. A resolução é a MESMA de uma instância de classe de usuário: o
+motor acha o `(método, aridade)` na classe ambiente do prelude em TEMPO DE
+COMPILAÇÃO e emite um `call` direto do método sintetizado (`__rtsn_method_*`),
+passando o primitivo boxed como `this`. Boolean é o provador (superfície mínima,
+quase sem ops de baixo nível) antes de String/Number.
+
+- **Arquivo:** `crates/rts-primitives/src/boolean.ts` (`rts_primitives::BOOLEAN_TS`,
+  re-exportado pela fachada `rts_runtime::BOOLEAN_TS`). Incluído como prelude
+  declarations-only via `e.include(rts_runtime::BOOLEAN_TS)` em
+  `registry.rs build_registry()` (depois de `ERROR_TS`). `class Boolean {
+  toString(): string { return this ? "true" : "false"; } valueOf(): boolean {
+  return this ? true : false; } }` — SEM construtor e SEM campos: só métodos de
+  protótipo. Os corpos leem `this` COMO O PRIMITIVO (o word bool boxed), num teste
+  de truthiness Tagged ordinário (a MESMA truthiness que os métodos `.ts` de Error
+  usam) — nenhuma op de baixo nível nova foi necessária.
+- **Mecanismo de dispatch (reusável p/ String/Number):**
+  `front/run/method.rs::try_primitive_class_method(recv, prim_class, method, args)`
+  — acha a classe ambiente em `self.classes`, resolve o método via
+  `desc.method_fn(method)`, embrulha o primitivo (`box_value`) como `this` e chama
+  via `call_synth_fn` (o MESMO path de `try_class_method`). O roteamento fica em
+  `try_method_dispatch`: quando o receptor é um bool provado (`Repr::Bool`) ou
+  Tagged-conhecido-bool (`JsKind::Bool`) e `recv_class_of` falha, tenta
+  `try_primitive_class_method(.., "Boolean", ..)`; `Ok(None)` cai p/ o path
+  dinâmico/bail (nunca um chute).
+- **`new Boolean(x)` (WRAPPER, typeof === "object"):** continua o trampolim
+  wrapper do motor, NÃO a classe `.ts` (que é só protótipo). `is_global_class_ctor`
+  ganhou a exceção `is_wrapper_primordial` (Boolean/Number/String): um wrapper
+  primordial segue sendo ctor de classe-global MESMO com a classe `.ts` ambiente —
+  assim `new Boolean(true)` constrói o objeto wrapper e a chamada de método de
+  primitivo `true.toString()` roteia p/ a classe `.ts`, sem colisão.
+- **Coerções inalteradas (guarda de regressão):** `String(b)`/`${b}`/bool num `+`
+  string usam os trampolins runtime de ToString/`+` (`__rtsadp_to_string`/
+  `__rtsadp_add`); `Boolean(x)` (chamada de coerção, não `new`) usa
+  `__rtsadp_g_boolean` em `globals.rs`. Nada disso passa pela classe `.ts`.
+- **Hardcode removido vs mantido:** NENHUM hardcode de método bool existia no motor
+  novo a remover — `true.toString()`/`false.valueOf()` antes BAILAVAM
+  (`recv_class_of` devolve `None` p/ bool; não há `RecvClass::Boolean` em
+  `dispatch.rs`). Esta mudança ADICIONA o path, sem deletar dispatch. **Mantido de
+  propósito:** o runtime Rust `globals::boolean` + `__RTS_FN_GL_BOOLEAN_*` +
+  `register_boolean_class_spec` — o wrapper `new Boolean(x)` do motor novo ainda os
+  usa (via `__rtsadp_w_boolean_new`) e o motor ANTIGO FROZEN também.
+- **Como String/Number seguem o padrão:** mover a lib de método `.ts` (um
+  `class String`/`class Number` só-protótipo) p/ `rts-primitives`, incluí-la no
+  `build_registry()`, e rotear o receptor primitivo PROVADO (string `JsKind::Str` /
+  número `Repr::Float64`/`Int*`) via `try_primitive_class_method(.., "String"/
+  "Number", ..)` ANTES do path de tabela `dispatch.rs::resolve_method` (que então
+  esvazia linha a linha). `is_wrapper_primordial` já cobre os três wrappers. A
+  diferença vs Boolean: String/Number precisam que os corpos `.ts` leiam o
+  primitivo via ops de baixo nível reais (comprimento/charAt/format) — onde uma op
+  faltar, o mínimo honesto é um helper privado `rts:engine`, preferindo reusar a
+  coerção/Registry existentes.
+
 ### 3.3 O instinto `ValTy`
 
 Uma tag semântica de tempo de compilação separada do tipo de máquina. O
