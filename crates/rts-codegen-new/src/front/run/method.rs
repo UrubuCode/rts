@@ -154,6 +154,23 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
         }
 
+        // PROVEN-NUMERIC receiver (`(5).toFixed(2)`, `(255).toString(16)`,
+        // `(42).valueOf()`): route to the ambient prelude `class Number` (the `.ts`
+        // primitive-method library), passing the primitive number BOXED as `this`.
+        // Same mechanism as the primitive-bool path above. The `.ts` method bodies
+        // call the private `engine.num_*` formatters (the irreducible-format bridge),
+        // so the engine no longer hardcodes the Number method surface. `Ok(None)` ⇒
+        // no such method on `Number` (the prelude class is present but lacks this
+        // `(method, arity)`) — falls through to the (now-narrowed) dispatch table /
+        // bail, never a guess.
+        if matches!(class, RecvClass::Number) {
+            if let Some(val) =
+                self.try_primitive_class_method(module, recv, "Number", method, args)?
+            {
+                return Ok(Some(val));
+            }
+        }
+
         let argc = args.len();
         let Some(spec) = resolve_method(class, method, argc) else {
             return Err(crate::front::error::Unsupported::new(format!(

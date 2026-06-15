@@ -75,6 +75,7 @@ mod mathobj;
 mod method;
 mod modules_e2e;
 mod number;
+mod number_class;
 mod objdyn;
 mod object;
 mod objmethod;

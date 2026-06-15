@@ -176,6 +176,16 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[StrPtr, StrPtr, I64, I64],
             ret: Void,
         },
+        // engine.num_* — the irreducible numeric FORMATTING bridge: (n: F64,
+        // arg: I64) -> a GC string handle. Each wraps a `__RTS_FN_GL_NUMBER_*`
+        // formatter; the `.ts` `class Number` methods call these.
+        "__RTS_FN_NS_ENGINE_NUM_TO_STRING_RADIX"
+        | "__RTS_FN_NS_ENGINE_NUM_TO_FIXED"
+        | "__RTS_FN_NS_ENGINE_NUM_TO_PRECISION"
+        | "__RTS_FN_NS_ENGINE_NUM_TO_EXPONENTIAL" => SymSig {
+            params: &[F64, I64],
+            ret: Handle,
+        },
 
         // ---- REAL collections Vec (rts-shared collections::vec) ----
         "__RTS_FN_NS_COLLECTIONS_VEC_NEW" => SymSig {

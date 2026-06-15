@@ -60,8 +60,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let HirExprKind::Ident(name) = &object.kind else {
             return Ok(None);
         };
-        // A local/user-class of the same name shadows the global.
-        if self.local(name).is_some() || self.classes.get(name).is_some() {
+        // A local of the same name shadows the global; a same-named class shadows
+        // too — EXCEPT the prelude WRAPPER primordial `class Number` (prototype-only,
+        // must not hide `Number.MAX_SAFE_INTEGER`/`EPSILON`/…). See
+        // `try_math_number_call` for the same carve-out.
+        if self.local(name).is_some() {
+            return Ok(None);
+        }
+        if self.classes.get(name).is_some() && !is_wrapper_primordial_static(name) {
             return Ok(None);
         }
         match name.as_str() {
@@ -90,7 +96,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let HirExprKind::Ident(name) = &object.kind else {
             return Ok(None);
         };
-        if self.local(name).is_some() || self.classes.get(name).is_some() {
+        // A LOCAL named `Math`/`Number` shadows the global. A same-named CLASS also
+        // shadows — EXCEPT the prelude WRAPPER primordial `class Number` (the
+        // primitive-method library), which is prototype-only and must NOT shadow the
+        // global static surface (`Number.isNaN`/`Number.MAX_SAFE_INTEGER`/…). So a
+        // wrapper-primordial ambient class is transparent here (the static path
+        // wins); a genuine local still bails. (Same carve-out as
+        // `is_global_class_ctor`/`is_wrapper_primordial`.)
+        if self.local(name).is_some() {
+            return Ok(None);
+        }
+        if self.classes.get(name).is_some() && !is_wrapper_primordial_static(name) {
             return Ok(None);
         }
         match name.as_str() {
@@ -392,6 +408,16 @@ fn math_const(name: &str) -> Option<f64> {
         "SQRT1_2" => std::f64::consts::FRAC_1_SQRT_2,
         _ => return None,
     })
+}
+
+/// Whether `name` is a WRAPPER primordial whose ambient prelude `.ts` class is
+/// prototype-only (`Number`/`Boolean`/`String`) — so it must NOT shadow the global
+/// static surface (`Number.isNaN`, `Number.MAX_SAFE_INTEGER`, …). Mirrors
+/// `globalclass::is_wrapper_primordial`: the `.ts` class carries instance methods
+/// only, the static surface stays on the global path. `Math` is not a class so it
+/// never reaches these checks.
+fn is_wrapper_primordial_static(name: &str) -> bool {
+    matches!(name, "Boolean" | "Number" | "String")
 }
 
 /// A `Number.CONST` constant's f64 value (the numeric statics).

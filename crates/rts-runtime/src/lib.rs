@@ -16,4 +16,11 @@ pub use rts_primitives::ERROR_TS;
 /// (`rts_runtime::BOOLEAN_TS`). Included by the engine as a declarations-only
 /// prelude; a primitive-bool method call routes into its ambient `class Boolean`.
 pub use rts_primitives::BOOLEAN_TS;
+/// Embedded TS source of the PRIMORDIAL `Number.prototype` methods, re-exported
+/// from `rts-primitives` so the new engine reaches it through the facade
+/// (`rts_runtime::NUMBER_TS`). Included as a declarations-only prelude; a
+/// primitive-number method call routes into its ambient `class Number`. The
+/// irreducible numeric formatting stays in Rust and is bridged via the private
+/// `engine.num_*` helpers the `.ts` bodies call.
+pub use rts_primitives::NUMBER_TS;
 pub mod namespaces;

@@ -35,6 +35,19 @@ pub const ERROR_TS: &str = include_str!("error.ts");
 /// wrapper object `new Boolean(x)` stays the engine's wrapper trampoline.
 pub const BOOLEAN_TS: &str = include_str!("boolean.ts");
 
+/// Embedded TypeScript source of the PRIMORDIAL `Number.prototype` methods
+/// (`valueOf`/`toString`/`toFixed`/`toPrecision`/`toExponential`/`toLocaleString`).
+/// `number` is a PRIMITIVE (native literal syntax), so the VALUE stays unboxed —
+/// only the METHOD library moves here. A method called on a PRIMITIVE number
+/// receiver (`(5).toFixed(2)`) is routed into this ambient `class Number`'s method
+/// with the primitive BOXED as `this` (shape-based dispatch, NOT JS prototypes).
+/// The irreducible numeric FORMATTING stays in Rust (`number.rs`,
+/// `__RTS_FN_GL_NUMBER_*`) and is re-exposed PRIVATELY via the `engine.num_*`
+/// helpers the bodies call — one source of truth. Same pattern as `BOOLEAN_TS`;
+/// `String` follows next. The wrapper object `new Number(x)` stays the engine's
+/// wrapper trampoline.
+pub const NUMBER_TS: &str = include_str!("number.ts");
+
 pub mod array;
 pub mod boolean;
 pub mod error;

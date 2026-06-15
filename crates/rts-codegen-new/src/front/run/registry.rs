@@ -99,6 +99,16 @@ fn build_registry() -> Registry {
     // trampoline — the lowering keeps `Boolean` a global-class ctor regardless of
     // this prelude class (see `is_global_class_ctor`).
     e.include(rts_runtime::BOOLEAN_TS);
+    // The PRIMORDIAL `Number.prototype` methods as faithful TS (embedded include):
+    // its ambient `class Number` supplies `valueOf`/`toString(radix?)`/`toFixed`/
+    // `toPrecision`/`toExponential`/`toLocaleString`. A method called on a PRIMITIVE
+    // number receiver (`(5).toFixed(2)`) routes into this class with the primitive
+    // boxed as `this` (see `method::try_primitive_class_method`). The irreducible
+    // numeric FORMATTING stays in Rust and is bridged via the private `engine.num_*`
+    // helpers the `.ts` bodies call (one source of truth). The `new Number(x)`
+    // WRAPPER (typeof === "object") stays the engine's wrapper trampoline (see
+    // `is_global_class_ctor` / `is_wrapper_primordial`).
+    e.include(rts_runtime::NUMBER_TS);
     // The faithful TS Map/Set stdlib (embedded include): its ambient `class Map`/
     // `class Set` shadow the native dispatch in every program — making the native
     // Map/Set code dead (deleted in B3).

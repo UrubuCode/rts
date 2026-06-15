@@ -863,6 +863,24 @@ fn engine_symbols() -> Vec<JitSymbol> {
             "__RTS_FN_NS_ENGINE_TRACE_PRINT",
             rt_engine::__RTS_FN_NS_ENGINE_TRACE_PRINT as *const u8,
         ),
+        // engine.num_* — the irreducible numeric FORMATTING bridge the `.ts`
+        // `class Number` methods call (each wraps a `__RTS_FN_GL_NUMBER_*`).
+        sym(
+            "__RTS_FN_NS_ENGINE_NUM_TO_STRING_RADIX",
+            rt_engine::__RTS_FN_NS_ENGINE_NUM_TO_STRING_RADIX as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_NUM_TO_FIXED",
+            rt_engine::__RTS_FN_NS_ENGINE_NUM_TO_FIXED as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_NUM_TO_PRECISION",
+            rt_engine::__RTS_FN_NS_ENGINE_NUM_TO_PRECISION as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_NUM_TO_EXPONENTIAL",
+            rt_engine::__RTS_FN_NS_ENGINE_NUM_TO_EXPONENTIAL as *const u8,
+        ),
     ]
 }
 

@@ -304,6 +304,54 @@ quase sem ops de baixo nível) antes de String/Number.
   faltar, o mínimo honesto é um helper privado `rts:engine`, preferindo reusar a
   coerção/Registry existentes.
 
+#### 3.2.1 Number migrado p/ `.ts` (mesmo padrão de Boolean)
+
+`number` é um PRIMITIVO (sintaxe literal `123`), então o VALOR continua unboxed
+(double/int na fast path) — só a BIBLIOTECA DE MÉTODOS migrou. A formatação
+numérica irredutível (float→string, radix, toFixed/toPrecision/toExponential) é
+DELICADA e já existe UMA vez em Rust (`rts-primitives/src/number.rs`, os externs
+`__RTS_FN_GL_NUMBER_*`); os corpos `.ts` NÃO a reimplementam — eles chamam helpers
+PRIVADOS `engine.num_*` que embrulham esses formatadores (uma fonte de verdade),
+exatamente como `engine.trace_capture()`/`engine.arch()`.
+
+- **Arquivo:** `crates/rts-primitives/src/number.ts` (`rts_primitives::NUMBER_TS`,
+  re-exportado pela fachada `rts_runtime::NUMBER_TS`). Incluído como prelude
+  declarations-only via `e.include(rts_runtime::NUMBER_TS)` em
+  `registry.rs build_registry()` (depois de `BOOLEAN_TS`). `class Number` só com
+  métodos de protótipo (SEM ctor/campos): `valueOf()` (corpo puro `return this`),
+  `toString(radix = 10)`, `toFixed(digits = 0)`, `toPrecision(precision = -1)`,
+  `toExponential(digits = -1)`, `toLocaleString()` (defere a `toString(10)` — sem
+  locale data no runtime). Os defaults JS ficam nos default-params `.ts` (o
+  prólogo de default-param do motor preenche `undefined`); os corpos leem `this`
+  COMO O PRIMITIVO número (word boxed → `coerce(Tagged, Float64)` decodifica por
+  tag).
+- **Ponte de formatação irredutível (`rts:engine`):** 4 membros privados novos
+  em `crates/rts-std/src/engine/mod.rs`, cada um `(n: F64, arg: I64) => Handle`
+  (string), embrulhando o formatador Rust correspondente: `num_to_string_radix`
+  (`__RTS_FN_NS_ENGINE_NUM_TO_STRING_RADIX` → `__RTS_FN_GL_NUMBER_TO_STRING_RADIX`),
+  `num_to_fixed`, `num_to_precision`, `num_to_exponential`. Lowering em
+  `front/run/engineobj.rs` (`lower_engine_num` — marshala receptor→F64 + arg→I64,
+  chama via `call_runtime`, rebox do handle como `TAG_STR`); sigs em
+  `value/abi_sig.rs`; símbolos JIT em `runtime_link.rs::engine_symbols()`.
+- **Roteamento + linhas drenadas:** em `try_method_dispatch`, quando
+  `recv_class_of` prova `RecvClass::Number`, tenta
+  `try_primitive_class_method(.., "Number", ..)` ANTES de `dispatch.rs::resolve_method`.
+  As 4 linhas `NUMBER_ROWS` (`toFixed`/`toPrecision`/`toExponential`/`toString(radix)`
+  → `__RTS_FN_GL_NUMBER_*`) foram DRENADAS — `NUMBER_ROWS` agora é `&[]` (mantida
+  vazia: um método numérico que a classe `.ts` não cobre ainda BAILA explícito via
+  `resolve_method → None`, nunca um chute). Um receptor NÃO-provado-numérico
+  (Tagged/desconhecido) mantém o path dinâmico/bail existente.
+- **Mantido de propósito:** `new Number(x)` (WRAPPER, typeof === "object") segue o
+  trampolim wrapper do motor (`__rtsadp_w_number_new`), coberto por
+  `is_wrapper_primordial`; os formatadores Rust `__RTS_FN_GL_NUMBER_*` +
+  `register_number_class_spec` (motor ANTIGO frozen no CLI + path wrapper). Coerções
+  (`${n}`/`"x" + n`/`String(n)`) seguem nos trampolins runtime, inalteradas.
+- **String segue o MESMO padrão:** mover `class String` só-protótipo p/
+  `rts-primitives/src/string.ts`, incluir no `build_registry()`, rotear o receptor
+  `JsKind::Str` provado via `try_primitive_class_method(.., "String", ..)` antes de
+  `STRING_ROWS`, e expor por `rts:engine` qualquer op de baixo nível que o corpo
+  `.ts` precise e ainda não exista (preferindo reusar os `__RTS_FN_GL_STRING_*`).
+
 ### 3.3 O instinto `ValTy`
 
 Uma tag semântica de tempo de compilação separada do tipo de máquina. O

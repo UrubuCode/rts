@@ -266,32 +266,23 @@ const STRING_ROWS: &[(&str, usize, MethodSpec)] = &[
 // ===========================================================================
 // Number — instance methods (receiver = the f64 primitive, slot 0).
 //
-// Verified against rts-primitives/src/number.rs (register_number_class_spec).
+// DRAINED: the Number method surface (`toFixed`/`toPrecision`/`toExponential`/
+// `toString(radix)` + `valueOf`/`toLocaleString`) now lives in the prelude `.ts`
+// `class Number` (`rts-primitives/src/number.ts`), routed via
+// `method::try_primitive_class_method(.., "Number", ..)` BEFORE this table. The
+// `.ts` bodies call the irreducible Rust formatters through the private
+// `engine.num_*` bridge (one source of truth) — so the engine no longer carries a
+// hardcoded `__RTS_FN_GL_NUMBER_*` row per method here. The table is kept (empty)
+// so a numeric receiver with a method the `.ts` class does NOT cover still BAILS
+// explicitly (`resolve_method` → `None`), never a guess. The `__RTS_FN_GL_NUMBER_*`
+// formatters + `register_number_class_spec` stay for the frozen old engine + the
+// `new Number(x)` wrapper path.
 // ===========================================================================
 
-/// A Number instance-method row. Receiver is the `f64` primitive (`RecvAbi::F64`).
-const NUMBER_ROWS: &[(&str, usize, MethodSpec)] = &[
-    (
-        "toFixed",
-        1,
-        nm("__RTS_FN_GL_NUMBER_TO_FIXED", &[I64], Handle),
-    ),
-    (
-        "toPrecision",
-        1,
-        nm("__RTS_FN_GL_NUMBER_TO_PRECISION", &[I64], Handle),
-    ),
-    (
-        "toExponential",
-        1,
-        nm("__RTS_FN_GL_NUMBER_TO_EXPONENTIAL", &[I64], Handle),
-    ),
-    (
-        "toString",
-        1,
-        nm("__RTS_FN_GL_NUMBER_TO_STRING_RADIX", &[I64], Handle),
-    ),
-];
+/// Number instance-method rows. EMPTY — drained to the prelude `.ts` `class
+/// Number` (see the comment above). Kept as a table so a not-yet-covered method on
+/// a numeric receiver resolves to `None` (an explicit bail) rather than panicking.
+const NUMBER_ROWS: &[(&str, usize, MethodSpec)] = &[];
 
 // ===========================================================================
 // Array — instance methods WITHOUT callbacks (receiver = the array's real Vec
@@ -396,16 +387,5 @@ const fn cm(symbol: &'static str, ret: AbiType, cb: CbShape) -> MethodSpec {
         args: &[],
         ret,
         cb: Some(cb),
-    }
-}
-
-/// Build a Number instance-method spec (receiver = the f64 primitive).
-const fn nm(symbol: &'static str, args: &'static [AbiType], ret: AbiType) -> MethodSpec {
-    MethodSpec {
-        symbol,
-        recv_abi: RecvAbi::F64,
-        args,
-        ret,
-        cb: None,
     }
 }
