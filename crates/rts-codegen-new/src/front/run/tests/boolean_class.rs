@@ -86,8 +86,8 @@ fn bool_in_string_concat() {
 }
 
 // ---------------------------------------------------------------------------
-// `Boolean(x)` COERCION call (not `new`) — handled by the runtime coercion
-// (`__rtsadp_g_boolean`), independent of the prelude class. Regression guard.
+// `Boolean(x)` FACTORY call (not `new`) — the `.ts` `BooleanFactory` returns a
+// PRIMITIVE boolean (typeof === "boolean") via the engine's native ToBoolean.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -98,12 +98,35 @@ fn boolean_coercion_call() {
     );
 }
 
+#[test]
+fn factory_returns_primitive() {
+    assert_stdout("console.log(typeof Boolean(1));", "boolean\n");
+}
+
 // ---------------------------------------------------------------------------
-// `new Boolean(x)` WRAPPER — stays the engine's wrapper trampoline (typeof ===
-// "object"), NOT the prototype-only prelude class. Regression guard.
+// `new Boolean(x)` WRAPPER — now the `.ts` `class Boolean` constructed via the
+// normal user-class path (a shape-based object, typeof === "object"). Its methods
+// route to the SAME `.ts` bodies as the primitive autobox path (dual `this`),
+// reading the primitive from the `__prim` slot.
 // ---------------------------------------------------------------------------
 
 #[test]
 fn new_boolean_is_object() {
     assert_stdout(r#"console.log(typeof new Boolean(true));"#, "object\n");
+}
+
+#[test]
+fn new_boolean_instanceof() {
+    assert_stdout("console.log(new Boolean(0) instanceof Boolean);", "true\n");
+}
+
+#[test]
+fn wrapper_value_of() {
+    // ToBoolean(0) === false, unwrapped from `this.__prim` (dual-`this`).
+    assert_stdout("console.log(new Boolean(0).valueOf());", "false\n");
+}
+
+#[test]
+fn wrapper_to_string() {
+    assert_stdout("console.log(new Boolean(1).toString());", "true\n");
 }

@@ -58,11 +58,6 @@ struct ClassMeta {
 /// trampolines were deleted with this migration.
 fn class_meta(name: &str) -> Option<ClassMeta> {
     let m = match name {
-        "Boolean" => ClassMeta {
-            ctor_symbol: "__rtsadp_w_boolean_new",
-            kind: CtorKind::Wrapper,
-            methods: &[],
-        },
         "String" => ClassMeta {
             ctor_symbol: "__rtsadp_w_string_new",
             kind: CtorKind::Wrapper,
@@ -81,18 +76,19 @@ fn class_meta(name: &str) -> Option<ClassMeta> {
     Some(m)
 }
 
-/// Whether `name` is one of the WRAPPER primordials (`Boolean`/`String`) whose
-/// `new X(v)` builds a typeof-"object" wrapper via the engine's wrapper trampoline.
-/// These keep their wrapper ctor even when a same-named prelude `.ts` class (the
-/// primitive-method library) is ambient — see [`Lowerer::is_global_class_ctor`].
+/// Whether `name` is a WRAPPER primordial whose `new X(v)` builds a typeof-"object"
+/// wrapper via the engine's wrapper trampoline. These keep their wrapper ctor even
+/// when a same-named prelude `.ts` class (the primitive-method library) is ambient
+/// — see [`Lowerer::is_global_class_ctor`].
 ///
-/// `Number` is NOT here: its `.ts` `class Number` (number.ts) now OWNS both
-/// `new Number(x)` (a shape-based object, constructed via the normal user-class
-/// path) and the `Number(x)` factory — so the prelude class WINS construction and
-/// the `__rtsadp_w_number_new` trampoline is unused in the new engine (kept only
-/// for the frozen old engine). `Boolean`/`String` follow next.
+/// `Number` and `Boolean` are NOT here: their `.ts` `class Number`/`class Boolean`
+/// (number.ts / boolean.ts) now OWN both `new X(x)` (a shape-based object,
+/// constructed via the normal user-class path) and the `X(x)` factory — so the
+/// prelude class WINS construction and the `__rtsadp_w_{number,boolean}_new`
+/// trampolines are unused in the new engine (kept only for the frozen old engine).
+/// `String` follows next (its ToString-of-object factory is the remaining piece).
 fn is_wrapper_primordial(name: &str) -> bool {
-    matches!(name, "Boolean" | "String")
+    matches!(name, "String")
 }
 
 /// RegExp instance methods (P5.12). `.test(s)` is the high-value one: receiver

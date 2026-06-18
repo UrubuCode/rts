@@ -433,13 +433,10 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_obj_get", objops::__rtsadp_obj_get as *const u8),
         sym("__rtsadp_obj_set", objops::__rtsadp_obj_set as *const u8),
         sym("__rtsadp_obj_has", objops::__rtsadp_obj_has as *const u8),
-        // ---- codegen-owned wrapper ctors (Boolean/Number/String, P5.3). The Error
-        // family is now a `.ts` prelude class (constructed via the user-class path);
-        // its former `__rtsadp_err_*`/`__rtsadp_is_error` trampolines are gone. ----
-        sym(
-            "__rtsadp_w_boolean_new",
-            wrappers::__rtsadp_w_boolean_new as *const u8,
-        ),
+        // ---- codegen-owned wrapper ctor (String only, P5.3). Boolean/Number now
+        // construct via their `.ts` prelude class (user-class path); the Error
+        // family likewise. Their former `__rtsadp_w_{boolean,number}_new` /
+        // `__rtsadp_err_*` trampolines are gone. ----
         sym(
             "__rtsadp_w_string_new",
             wrappers::__rtsadp_w_string_new as *const u8,

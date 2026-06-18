@@ -616,8 +616,7 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         // PolyValue word in, one PolyValue word out. (The Error family moved to a
         // `.ts` prelude class; its `__rtsadp_err_*`/`__rtsadp_is_error` symbols are
         // gone — `new Error("x")` goes through the user-class ctor path now.) ----
-        "__rtsadp_w_boolean_new"
-        | "__rtsadp_w_string_new"
+        "__rtsadp_w_string_new"
         | "__rtsadp_is_map"
         | "__rtsadp_is_set" => SymSig {
             params: &[U64],

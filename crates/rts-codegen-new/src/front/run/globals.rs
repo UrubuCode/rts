@@ -78,9 +78,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.coerce_call(module, "__rtsadp_g_string", args, JsKind::Str)
                     .map(Some)
             }
-            "Boolean" => self
-                .bool_returning_call(module, "__rtsadp_g_boolean", args)
-                .map(Some),
+            "Boolean" => {
+                // `Boolean(x)` (no `new`) → the prelude `.ts` `BooleanFactory` (a
+                // PRIMITIVE boolean result), so the `.ts` class owns BOTH JS forms.
+                // Falls back to the codegen ToBoolean trampoline only if the prelude
+                // factory is absent (defensive).
+                if args.len() == 1 && self.sigs.contains_key("BooleanFactory") {
+                    let v = self.call_synth_fn(module, "BooleanFactory", None, args)?;
+                    return Ok(Some(v));
+                }
+                self.bool_returning_call(module, "__rtsadp_g_boolean", args)
+                    .map(Some)
+            }
             "parseFloat" => self
                 .coerce_call(module, "__rtsadp_g_parse_float", args, JsKind::Number)
                 .map(Some),
