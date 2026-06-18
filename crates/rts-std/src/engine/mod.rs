@@ -44,6 +44,7 @@ unsafe extern "C" {
     fn __RTS_FN_GL_NUMBER_TO_FIXED(v: f64, digits: i64) -> u64;
     fn __RTS_FN_GL_NUMBER_TO_PRECISION(v: f64, digits: i64) -> u64;
     fn __RTS_FN_GL_NUMBER_TO_EXPONENTIAL(v: f64, digits: i64) -> u64;
+    fn __RTS_FN_GL_NUMBER_FROM_STR(handle: u64) -> f64;
 }
 
 // The String-method bridge (`engine.str_*`) lives in its own submodule — it wraps
@@ -80,6 +81,14 @@ pub extern "C" fn __RTS_FN_NS_ENGINE_NUM_TO_PRECISION(v: f64, digits: i64) -> Ha
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_ENGINE_NUM_TO_EXPONENTIAL(v: f64, digits: i64) -> Handle {
     unsafe { __RTS_FN_GL_NUMBER_TO_EXPONENTIAL(v, digits) }
+}
+
+/// `Number(str)` — parse a string handle to f64 (NaN on failure; "" ⇒ 0). Wraps
+/// the Rust parser (one source of truth). The `.ts` `NumberFactory` calls this
+/// for the string case of ToNumber.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_ENGINE_NUM_FROM_STR(handle: Handle) -> f64 {
+    unsafe { __RTS_FN_GL_NUMBER_FROM_STR(handle) }
 }
 
 /// CPU architecture string handle ('x86_64', 'aarch64', …). Wraps `os.arch`.
@@ -302,6 +311,14 @@ pub fn register(e: &mut Engine) {
             "num_to_exponential(n: number, digits: number): string",
             "n.toExponential(digits) — exponential-notation string. Wraps GL_NUMBER_TO_EXPONENTIAL.",
             __RTS_FN_NS_ENGINE_NUM_TO_EXPONENTIAL as *const u8,
+        ))
+        .member(func(
+            "num_from_str",
+            "__RTS_FN_NS_ENGINE_NUM_FROM_STR",
+            sig!(Handle => F64),
+            "num_from_str(s: string): number",
+            "Number(str) — string→number parse (NaN on failure). Wraps GL_NUMBER_FROM_STR.",
+            __RTS_FN_NS_ENGINE_NUM_FROM_STR as *const u8,
         ));
     // ── String method bridge (the irreducible Unicode-aware string logic). The
     // 21 `engine.str_*` members live in the `string` submodule (each wraps a

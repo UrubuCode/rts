@@ -97,11 +97,72 @@ fn number_in_string_concat() {
 }
 
 // ---------------------------------------------------------------------------
-// `new Number(x)` WRAPPER — stays the engine's wrapper trampoline (typeof ===
-// "object"), NOT the prototype-only prelude class. Regression guard.
+// `Number(x)` FACTORY (no `new`) — the `.ts` `NumberFactory` returns a PRIMITIVE
+// number (typeof === "number"). JS ToNumber: number→itself, string→parsed,
+// boolean→1/0, null→0.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn factory_returns_primitive() {
+    assert_stdout("console.log(typeof Number(5));", "number\n");
+}
+
+#[test]
+fn factory_number_identity() {
+    assert_stdout("console.log(Number(5));", "5\n");
+}
+
+#[test]
+fn factory_parses_string() {
+    assert_stdout(r#"console.log(Number("42"));"#, "42\n");
+}
+
+#[test]
+fn factory_boolean_to_one() {
+    assert_stdout("console.log(Number(true));", "1\n");
+}
+
+#[test]
+fn factory_null_to_zero() {
+    assert_stdout("console.log(Number(null));", "0\n");
+}
+
+// ---------------------------------------------------------------------------
+// `new Number(x)` WRAPPER — now the `.ts` `class Number` constructed via the
+// normal user-class path (a shape-based object, typeof === "object"). Its methods
+// route to the SAME `.ts` bodies as the primitive autobox path (dual `this`),
+// reading the primitive from the `__prim` slot.
 // ---------------------------------------------------------------------------
 
 #[test]
 fn new_number_is_object() {
     assert_stdout("console.log(typeof new Number(5));", "object\n");
+}
+
+#[test]
+fn new_number_instanceof() {
+    assert_stdout("console.log(new Number(7) instanceof Number);", "true\n");
+}
+
+#[test]
+fn wrapper_value_of() {
+    assert_stdout("console.log(new Number(7).valueOf());", "7\n");
+}
+
+#[test]
+fn wrapper_to_fixed() {
+    // The wrapper-object receiver reaches the SAME `.ts` `toFixed` as a primitive,
+    // unwrapping `this.__prim` (dual-`this` via `__num_val`).
+    assert_stdout("console.log(new Number(7).toFixed(2));", "7.00\n");
+}
+
+#[test]
+fn wrapper_to_string_radix() {
+    assert_stdout(r#"console.log(new Number(255).toString(16));"#, "ff\n");
+}
+
+#[test]
+fn wrapper_from_string_arg() {
+    // The ctor runs `NumberFactory`, so a string arg is parsed too.
+    assert_stdout(r#"console.log(new Number("9").valueOf());"#, "9\n");
 }

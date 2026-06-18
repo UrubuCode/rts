@@ -63,11 +63,6 @@ fn class_meta(name: &str) -> Option<ClassMeta> {
             kind: CtorKind::Wrapper,
             methods: &[],
         },
-        "Number" => ClassMeta {
-            ctor_symbol: "__rtsadp_w_number_new",
-            kind: CtorKind::Wrapper,
-            methods: &[],
-        },
         "String" => ClassMeta {
             ctor_symbol: "__rtsadp_w_string_new",
             kind: CtorKind::Wrapper,
@@ -86,12 +81,18 @@ fn class_meta(name: &str) -> Option<ClassMeta> {
     Some(m)
 }
 
-/// Whether `name` is one of the WRAPPER primordials (`Boolean`/`Number`/`String`)
-/// whose `new X(v)` builds a typeof-"object" wrapper. These keep their wrapper
-/// ctor even when a same-named prelude `.ts` class (the primitive-method library)
-/// is ambient — see [`Lowerer::is_global_class_ctor`].
+/// Whether `name` is one of the WRAPPER primordials (`Boolean`/`String`) whose
+/// `new X(v)` builds a typeof-"object" wrapper via the engine's wrapper trampoline.
+/// These keep their wrapper ctor even when a same-named prelude `.ts` class (the
+/// primitive-method library) is ambient — see [`Lowerer::is_global_class_ctor`].
+///
+/// `Number` is NOT here: its `.ts` `class Number` (number.ts) now OWNS both
+/// `new Number(x)` (a shape-based object, constructed via the normal user-class
+/// path) and the `Number(x)` factory — so the prelude class WINS construction and
+/// the `__rtsadp_w_number_new` trampoline is unused in the new engine (kept only
+/// for the frozen old engine). `Boolean`/`String` follow next.
 fn is_wrapper_primordial(name: &str) -> bool {
-    matches!(name, "Boolean" | "Number" | "String")
+    matches!(name, "Boolean" | "String")
 }
 
 /// RegExp instance methods (P5.12). `.test(s)` is the high-value one: receiver

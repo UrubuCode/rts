@@ -28,6 +28,21 @@ PRIMORDIAL-vs-Registry em `CLAUDE.md` (mandatória).
 privado `rts:engine`, sistema de **módulos ES** multi-arquivo, **builtin-import**
 (`import {x} from "rts:io"`).
 
+**Number — DUPLA NATUREZA (sessão atual, 674 unit tests):** a classe `.ts`
+`number.ts` agora é fonte única das DUAS formas JS de construção (padrão
+`array.ts`), não só dos métodos de protótipo:
+- `Number(x)` (sem `new`) → função prelude `NumberFactory` → PRIMITIVO (ToNumber).
+  Rota: `globals.rs::try_global_fn_call` chama `NumberFactory` via `call_synth_fn`.
+- `new Number(x)` → `class Number` (campo `__prim` + ctor) construída pelo path de
+  classe-de-usuário (objeto shape-based, `typeof "object"`). `Number` saiu de
+  `globalclass::is_wrapper_primordial` no motor novo; trampolim
+  `__rtsadp_w_number_new` DRENADO (deletado do motor novo, fica no velho).
+- **Dual `this`:** o helper livre `__num_val(self)` desembrulha o primitivo de um
+  `this` autobox (primitivo) OU wrapper (`self.__prim`) — métodos servem aos dois.
+- Helper novo: `engine.num_from_str` (envolve `__RTS_FN_GL_NUMBER_FROM_STR`).
+- **Boolean/String devem seguir o MESMO padrão** quando migrarem a construção
+  (hoje só método-lib; ctor/factory ainda nos trampolins `__rtsadp_w_*`/`g_*`).
+
 ---
 
 ## 2. O PADRÃO PROVADO (siga exatamente para Object/Function/Array)

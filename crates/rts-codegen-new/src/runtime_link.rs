@@ -441,10 +441,6 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
             wrappers::__rtsadp_w_boolean_new as *const u8,
         ),
         sym(
-            "__rtsadp_w_number_new",
-            wrappers::__rtsadp_w_number_new as *const u8,
-        ),
-        sym(
             "__rtsadp_w_string_new",
             wrappers::__rtsadp_w_string_new as *const u8,
         ),
@@ -811,6 +807,10 @@ fn engine_symbols() -> Vec<JitSymbol> {
         sym(
             "__RTS_FN_NS_ENGINE_NUM_TO_EXPONENTIAL",
             rt_engine::__RTS_FN_NS_ENGINE_NUM_TO_EXPONENTIAL as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_NUM_FROM_STR",
+            rt_engine::__RTS_FN_NS_ENGINE_NUM_FROM_STR as *const u8,
         ),
         // engine.str_* — the irreducible Unicode string-logic bridge the `.ts`
         // `class String` methods call (each wraps a `__RTS_FN_GL_STRING_*`).

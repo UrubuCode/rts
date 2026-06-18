@@ -14,7 +14,6 @@
 
 use rts_runtime::namespaces::gc::handles as rt_handles;
 use rts_runtime::namespaces::globals::boolean as rt_bool;
-use rts_runtime::namespaces::globals::number as rt_num;
 use rts_runtime::namespaces::globals::string::rt as rt_gl_str;
 
 use super::abi_adapter;
@@ -38,12 +37,12 @@ pub extern "C" fn __rtsadp_w_boolean_new(value_word: u64) -> u64 {
     box_object(rt_bool::__RTS_FN_GL_BOOLEAN_NEW(b as i64))
 }
 
-/// `new Number(x)` — boxes the ToNumber of `x` as a Number object.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_w_number_new(value_word: u64) -> u64 {
-    let n = genops::to_number(PolyValue::from_raw(value_word));
-    box_object(rt_num::__RTS_FN_GL_NUMBER_NEW_BOXED(n))
-}
+// `new Number(x)` is no longer a codegen wrapper trampoline: the `.ts`
+// `class Number` (number.ts) now OWNS construction (a shape-based object via the
+// user-class path) — see `front/run/globalclass::is_wrapper_primordial`. The
+// former `__rtsadp_w_number_new` was deleted with that migration. (The Rust
+// `rt_num::__RTS_FN_GL_NUMBER_NEW_BOXED` extern stays — the frozen old engine
+// still uses it.)
 
 /// `new String(x)` — boxes the ToString of `x` (a real string handle) as a String
 /// object. `STRING_NEW_BOXED` takes the underlying string handle.

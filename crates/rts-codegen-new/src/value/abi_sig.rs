@@ -186,6 +186,12 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[F64, I64],
             ret: Handle,
         },
+        // engine.num_from_str — string→number parse bridge: (s: Handle) -> F64.
+        // Wraps `__RTS_FN_GL_NUMBER_FROM_STR`; the `.ts` `NumberFactory` calls it.
+        "__RTS_FN_NS_ENGINE_NUM_FROM_STR" => SymSig {
+            params: &[Handle],
+            ret: F64,
+        },
         // engine.str_* — the irreducible Unicode string-logic bridge: the receiver
         // `s` + string args are GC string `Handle`s, indices/counts are `I64`. Each
         // wraps a `__RTS_FN_GL_STRING_*` impl; the `.ts` `class String` methods call
@@ -611,7 +617,6 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         // `.ts` prelude class; its `__rtsadp_err_*`/`__rtsadp_is_error` symbols are
         // gone — `new Error("x")` goes through the user-class ctor path now.) ----
         "__rtsadp_w_boolean_new"
-        | "__rtsadp_w_number_new"
         | "__rtsadp_w_string_new"
         | "__rtsadp_is_map"
         | "__rtsadp_is_set" => SymSig {

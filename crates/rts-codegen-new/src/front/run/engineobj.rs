@@ -93,6 +93,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if method == "trace_push" {
             return self.lower_engine_trace_push(module, args);
         }
+        // `num_from_str(s)` — the string→number bridge (1 string arg → f64), used
+        // by the `.ts` `NumberFactory` for the ToNumber string case. Shape differs
+        // from the `num_*` formatters (1 arg in, F64 out), so it has its own arm.
+        if method == "num_from_str" {
+            return self.lower_engine_num_from_str(module, args);
+        }
         // The numeric-format bridge (`num_to_fixed`/`num_to_precision`/
         // `num_to_exponential`/`num_to_string_radix`): each takes (n, arg) — a
         // number receiver + an int arg — and returns a GC string handle. They wrap
@@ -180,6 +186,25 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let h = res.expect("engine.num_* returns a string handle");
         let w = emit_marshal::emit_box_real_string(module, self.builder, h);
         Ok(Val::tagged_kind(w, JsKind::Str))
+    }
+
+    /// Lower `engine.num_from_str(s)` — marshal the string arg to its real GC
+    /// handle, call the Rust parser, and return the parsed f64 (Float64 repr).
+    fn lower_engine_num_from_str(
+        &mut self,
+        module: &mut dyn Module,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        if args.len() != 1 {
+            return unsupported!("engine.num_from_str expects 1 arg (s), got {}", args.len());
+        }
+        let s = self.lower_expr(module, &args[0])?;
+        let s_word = self.box_value(s);
+        let s_handle = emit_marshal::emit_table_load(module, self.builder, s_word);
+        let res = self
+            .call_runtime(module, "__RTS_FN_NS_ENGINE_NUM_FROM_STR", &[s_handle])?
+            .expect("engine.num_from_str returns an f64");
+        Ok(Val::new(res, Repr::Float64))
     }
 
     /// Lower an `engine.str_*(s, ...args)` string-method call: marshal the string

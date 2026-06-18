@@ -49,9 +49,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(None);
         }
         match name {
-            "Number" => self
-                .coerce_call(module, "__rtsadp_g_number", args, JsKind::Number)
-                .map(Some),
+            "Number" => {
+                // `Number(x)` (no `new`) → the prelude `.ts` `NumberFactory` (a
+                // PRIMITIVE number result), so the `.ts` class owns BOTH JS forms
+                // (this + `new Number(x)`). Falls back to the codegen coercion
+                // trampoline only if the prelude factory is absent (defensive).
+                if args.len() == 1 && self.sigs.contains_key("NumberFactory") {
+                    let v = self.call_synth_fn(module, "NumberFactory", None, args)?;
+                    return Ok(Some(v));
+                }
+                self.coerce_call(module, "__rtsadp_g_number", args, JsKind::Number)
+                    .map(Some)
+            }
             "String" => {
                 // ToPrimitive (issue #304): `String(obj)` of a STATICALLY-KNOWN-CLASS
                 // object calls its `toString`/`valueOf` (string hint), not the default
