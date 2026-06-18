@@ -28,20 +28,29 @@ PRIMORDIAL-vs-Registry em `CLAUDE.md` (mandatória).
 privado `rts:engine`, sistema de **módulos ES** multi-arquivo, **builtin-import**
 (`import {x} from "rts:io"`).
 
-**Number — DUPLA NATUREZA (sessão atual, 674 unit tests):** a classe `.ts`
-`number.ts` agora é fonte única das DUAS formas JS de construção (padrão
+**Number/Boolean/String — DUPLA NATUREZA (sessão atual, 686 unit tests):** as
+classes `.ts` agora são fonte única das DUAS formas JS de construção (padrão
 `array.ts`), não só dos métodos de protótipo:
-- `Number(x)` (sem `new`) → função prelude `NumberFactory` → PRIMITIVO (ToNumber).
-  Rota: `globals.rs::try_global_fn_call` chama `NumberFactory` via `call_synth_fn`.
-- `new Number(x)` → `class Number` (campo `__prim` + ctor) construída pelo path de
-  classe-de-usuário (objeto shape-based, `typeof "object"`). `Number` saiu de
-  `globalclass::is_wrapper_primordial` no motor novo; trampolim
-  `__rtsadp_w_number_new` DRENADO (deletado do motor novo, fica no velho).
-- **Dual `this`:** o helper livre `__num_val(self)` desembrulha o primitivo de um
+- `X(x)` (sem `new`) → função prelude `<X>Factory` → PRIMITIVO. Rota:
+  `globals.rs::try_global_fn_call` chama via `call_synth_fn`.
+- `new X(x)` → `class X` (campo `__prim` + ctor) construída pelo path de
+  classe-de-usuário (objeto shape-based, `typeof "object"`).
+- **Dual `this`:** helper livre `__<x>_val(self)` desembrulha o primitivo de um
   `this` autobox (primitivo) OU wrapper (`self.__prim`) — métodos servem aos dois.
-- Helper novo: `engine.num_from_str` (envolve `__RTS_FN_GL_NUMBER_FROM_STR`).
-- **Boolean/String devem seguir o MESMO padrão** quando migrarem a construção
-  (hoje só método-lib; ctor/factory ainda nos trampolins `__rtsadp_w_*`/`g_*`).
+- **Drenado:** os 3 trampolins `__rtsadp_w_{boolean,number,string}_new` foram
+  removidos do motor novo (`value/wrappers.rs` DELETADO inteiro) — ficam só no
+  motor velho via os `.rs`. `globalclass::is_wrapper_primordial` removido;
+  `CtorKind::Wrapper` removido (só `Regex` resta).
+- **Helpers novos (rts:engine):** `num_from_str` (envolve
+  `__RTS_FN_GL_NUMBER_FROM_STR`, rts-std); `str_from_any` (envolve o trampolim
+  ToString codegen-side `__rtsadp_to_string`, só em `engineobj.rs`).
+- **String specifics:** `String(obj)` mantém #304 (toString de classe conhecida)
+  no front-end ANTES do factory; `get length()` na classe lê `.length` do
+  primitivo desembrulhado; `new String(undefined)`/`String()` 0-arg = corner
+  documentado.
+
+**Próximos:** Object, Function, console, CommonJS (§5) — Object/Function de
+construção quando aplicável seguem o MESMO padrão dupla-natureza.
 
 ---
 

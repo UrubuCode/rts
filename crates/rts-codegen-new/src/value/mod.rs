@@ -128,9 +128,6 @@ pub mod regexops;
 // `_set`/`_has` for `obj.key`/`obj[k]` whose shape is known only at RUNTIME,
 // reading the slot-0 global shape-id + the global shape registry.
 pub mod objops;
-// Codegen-owned Error-family + Boolean/Number/String wrapper constructors, Error
-// instance props, and `instanceof` runtime tags (P5.3).
-pub mod wrappers;
 // Codegen-owned thread-local pending-error slot for `throw` / `try-catch` (P5.13):
 // `__rtsadp_throw_set` / `__rtsadp_err_pending` / `__rtsadp_err_take` /
 // `__rtsadp_err_clear` — the manual-unwind exception model.

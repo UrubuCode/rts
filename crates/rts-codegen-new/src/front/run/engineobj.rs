@@ -99,6 +99,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if method == "num_from_str" {
             return self.lower_engine_num_from_str(module, args);
         }
+        // `str_from_any(x)` — the JS ToString bridge (1 any arg → string word),
+        // used by the `.ts` `StringFactory` + `class String` ctor. It exposes the
+        // engine's OWN ToString trampoline (`__rtsadp_to_string`, codegen-side,
+        // covers number/bool/null/undefined/array/object) to the prelude. NOTE: the
+        // #304 known-class-object custom `toString` lives in the front-end
+        // (`globals::coerce_object_to_string_word`), NOT here — so `String(obj)`
+        // keeps that path before reaching the factory.
+        if method == "str_from_any" {
+            return self.lower_engine_str_from_any(module, args);
+        }
         // The numeric-format bridge (`num_to_fixed`/`num_to_precision`/
         // `num_to_exponential`/`num_to_string_radix`): each takes (n, arg) — a
         // number receiver + an int arg — and returns a GC string handle. They wrap
@@ -205,6 +215,25 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .call_runtime(module, "__RTS_FN_NS_ENGINE_NUM_FROM_STR", &[s_handle])?
             .expect("engine.num_from_str returns an f64");
         Ok(Val::new(res, Repr::Float64))
+    }
+
+    /// Lower `engine.str_from_any(x)` — JS ToString of an arbitrary value. Boxes
+    /// the arg and calls the engine's `__rtsadp_to_string` trampoline (which itself
+    /// returns a `TAG_STR` PolyValue word), tagging the result `Str`.
+    fn lower_engine_str_from_any(
+        &mut self,
+        module: &mut dyn Module,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        if args.len() != 1 {
+            return unsupported!("engine.str_from_any expects 1 arg (x), got {}", args.len());
+        }
+        let v = self.lower_expr(module, &args[0])?;
+        let w = self.box_value(v);
+        let res = self
+            .call_runtime(module, "__rtsadp_to_string", &[w])?
+            .expect("engine.str_from_any returns a string word");
+        Ok(Val::tagged_kind(res, JsKind::Str))
     }
 
     /// Lower an `engine.str_*(s, ...args)` string-method call: marshal the string

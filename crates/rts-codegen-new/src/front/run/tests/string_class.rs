@@ -236,11 +236,68 @@ fn substr_still_works() {
 }
 
 // ---------------------------------------------------------------------------
-// `new String(x)` WRAPPER — stays the engine's wrapper trampoline (typeof ===
-// "object"), NOT the prototype-only prelude class. Regression guard.
+// `String(x)` FACTORY (no `new`) — the `.ts` `StringFactory` returns a PRIMITIVE
+// string (typeof === "string") via the engine's own ToString.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn factory_returns_primitive() {
+    assert_stdout("console.log(typeof String(42));", "string\n");
+}
+
+#[test]
+fn factory_number() {
+    assert_stdout("console.log(String(42));", "42\n");
+}
+
+#[test]
+fn factory_bool() {
+    assert_stdout("console.log(String(true));", "true\n");
+}
+
+#[test]
+fn factory_array_joins() {
+    assert_stdout("console.log(String([1, 2, 3]));", "1,2,3\n");
+}
+
+// ---------------------------------------------------------------------------
+// `new String(x)` WRAPPER — now the `.ts` `class String` constructed via the
+// normal user-class path (a shape-based object, typeof === "object"). Its methods
+// + `.length` getter route to the SAME `.ts` bodies as the primitive autobox path
+// (dual `this`), reading the primitive from the `__prim` slot.
 // ---------------------------------------------------------------------------
 
 #[test]
 fn new_string_is_object() {
     assert_stdout(r#"console.log(typeof new String("x"));"#, "object\n");
+}
+
+#[test]
+fn new_string_instanceof() {
+    assert_stdout(r#"console.log(new String("x") instanceof String);"#, "true\n");
+}
+
+#[test]
+fn wrapper_to_string() {
+    assert_stdout(r#"console.log(new String("Hello").toString());"#, "Hello\n");
+}
+
+#[test]
+fn wrapper_to_upper() {
+    assert_stdout(r#"console.log(new String("Hello").toUpperCase());"#, "HELLO\n");
+}
+
+#[test]
+fn wrapper_length() {
+    assert_stdout(r#"console.log(new String("Hello").length);"#, "5\n");
+}
+
+#[test]
+fn wrapper_char_at() {
+    assert_stdout(r#"console.log(new String("Hello").charAt(1));"#, "e\n");
+}
+
+#[test]
+fn wrapper_coerces_number_arg() {
+    assert_stdout(r#"console.log(new String(42).valueOf());"#, "42\n");
 }

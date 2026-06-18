@@ -612,13 +612,11 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             ret: Bool,
         },
 
-        // ---- codegen-owned wrapper ctors + Map/Set instanceof tags (P5.3). One
-        // PolyValue word in, one PolyValue word out. (The Error family moved to a
-        // `.ts` prelude class; its `__rtsadp_err_*`/`__rtsadp_is_error` symbols are
-        // gone — `new Error("x")` goes through the user-class ctor path now.) ----
-        "__rtsadp_w_string_new"
-        | "__rtsadp_is_map"
-        | "__rtsadp_is_set" => SymSig {
+        // ---- Map/Set instanceof tags (P5.3). One PolyValue word in, one PolyValue
+        // word out. (The wrapper ctors + Error family moved to `.ts` prelude classes
+        // constructed via the user-class path; their `__rtsadp_w_*`/`__rtsadp_err_*`/
+        // `__rtsadp_is_error` symbols are gone.) ----
+        "__rtsadp_is_map" | "__rtsadp_is_set" => SymSig {
             params: &[U64],
             ret: U64,
         },

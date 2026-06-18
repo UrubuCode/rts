@@ -26,12 +26,11 @@ use crate::front::error::{FrontResult, unsupported};
 
 use super::lower::{JsKind, Lowerer, Val};
 
-/// How a runtime/Registry class's CONSTRUCTOR marshals its arguments.
+/// How a runtime/Registry class's CONSTRUCTOR marshals its arguments. The wrapper
+/// primordials (`Boolean`/`Number`/`String`) are NO LONGER here — they construct
+/// via their `.ts` prelude class (user-class path). Only `RegExp` remains.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CtorKind {
-    /// `new Boolean(x)` / `new Number(x)` / `new String(x)` — one value arg; the
-    /// wrapper boxes a primitive (typeof === "object").
-    Wrapper,
     /// `new RegExp(pattern[, flags])` — one or two string args; compiles via the
     /// regex compile trampoline (P5.12).
     Regex,
@@ -39,8 +38,6 @@ enum CtorKind {
 
 /// One runtime/Registry class the engine can construct + dispatch on.
 struct ClassMeta {
-    /// The codegen-owned constructor trampoline (zero-arg collection / wrapper).
-    ctor_symbol: &'static str,
     kind: CtorKind,
     /// The instance-method rows: `(jsName, arity, methodSymbol)`. Each symbol is a
     /// PolyValue-in/out `__rtsadp_*` trampoline; slot 0 is the instance word.
@@ -58,37 +55,15 @@ struct ClassMeta {
 /// trampolines were deleted with this migration.
 fn class_meta(name: &str) -> Option<ClassMeta> {
     let m = match name {
-        "String" => ClassMeta {
-            ctor_symbol: "__rtsadp_w_string_new",
-            kind: CtorKind::Wrapper,
-            methods: &[],
-        },
         "RegExp" => ClassMeta {
-            // The ctor compiles via `__rtsadp_re_compile`, but the args need
-            // string-handle marshaling (pattern + optional flags), so the Regex
-            // kind drives a dedicated emit path (not the generic ctor_symbol call).
-            ctor_symbol: "__rtsadp_re_compile",
+            // The ctor compiles via `__rtsadp_re_compile` (a dedicated emit path
+            // that marshals the pattern + optional flags strings).
             kind: CtorKind::Regex,
             methods: REGEX_METHODS,
         },
         _ => return None,
     };
     Some(m)
-}
-
-/// Whether `name` is a WRAPPER primordial whose `new X(v)` builds a typeof-"object"
-/// wrapper via the engine's wrapper trampoline. These keep their wrapper ctor even
-/// when a same-named prelude `.ts` class (the primitive-method library) is ambient
-/// — see [`Lowerer::is_global_class_ctor`].
-///
-/// `Number` and `Boolean` are NOT here: their `.ts` `class Number`/`class Boolean`
-/// (number.ts / boolean.ts) now OWN both `new X(x)` (a shape-based object,
-/// constructed via the normal user-class path) and the `X(x)` factory — so the
-/// prelude class WINS construction and the `__rtsadp_w_{number,boolean}_new`
-/// trampolines are unused in the new engine (kept only for the frozen old engine).
-/// `String` follows next (its ToString-of-object factory is the remaining piece).
-fn is_wrapper_primordial(name: &str) -> bool {
-    matches!(name, "String")
 }
 
 /// RegExp instance methods (P5.12). `.test(s)` is the high-value one: receiver
@@ -101,18 +76,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Whether `class` names a runtime/Registry class the engine constructs (and
     /// is NOT shadowed by a user class of the same name).
     ///
-    /// EXCEPTION — the WRAPPER primordials (`Boolean`/`Number`/`String`): their
-    /// PRIMITIVE-method libraries are prelude `.ts` classes of the same name (e.g.
-    /// `Boolean.ts`), present in `self.classes` as ambient. But `new Boolean(x)`
-    /// must still build the WRAPPER object (typeof === "object") via the engine's
-    /// wrapper trampoline, NOT construct that prototype-only prelude class. So a
-    /// wrapper primordial stays a global-class ctor even when its prelude class is
-    /// ambient. (A primitive method call `true.toString()` routes to the prelude
-    /// class separately, never through `new`.)
+    /// The wrapper primordials (`Boolean`/`Number`/`String`) are NO LONGER global
+    /// ctors: their `.ts` prelude `class X` (the primitive-method library) now ALSO
+    /// owns construction — `new X(x)` builds a shape-based object via the normal
+    /// user-class path (`self.classes` has the ambient class, so the first clause
+    /// below is false and we fall through to the user-class `new`). Only true
+    /// runtime/Registry classes (`RegExp`, `Date`, …) with no ambient `.ts` class
+    /// reach the global-ctor path here.
     pub(super) fn is_global_class_ctor(&self, class: &str) -> bool {
-        if is_wrapper_primordial(class) && class_meta(class).is_some() {
-            return true;
-        }
         self.classes.get(class).is_none()
             && (class_meta(class).is_some() || super::registry::has_class(class))
     }
@@ -135,18 +106,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let meta = class_meta(class).expect("caller proved a global class");
         let word = match meta.kind {
             CtorKind::Regex => self.emit_regex_ctor(module, args)?,
-            CtorKind::Wrapper => {
-                if args.len() != 1 {
-                    return unsupported!(
-                        "`new {class}(x)` expects exactly 1 argument, got {}",
-                        args.len()
-                    );
-                }
-                let v = self.lower_expr(module, &args[0])?;
-                let boxed = self.box_value(v);
-                self.call_runtime(module, meta.ctor_symbol, &[boxed])?
-                    .expect("wrapper ctor returns a value")
-            }
         };
         Ok((Val::tagged_kind(word, JsKind::Object), class.to_string()))
     }

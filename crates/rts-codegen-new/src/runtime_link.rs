@@ -38,7 +38,7 @@ use rts_runtime::namespaces::math as rt_math;
 
 use crate::value::{
     abi_adapter, arraycb, arrayops, dyndispatch, errslot, funcops, genops, genops_arith, globalops,
-    inspect, iterops, objops, regexops, wrappers,
+    inspect, iterops, objops, regexops,
 };
 
 /// One installable JIT symbol: an extern "C" name and its function pointer. The
@@ -433,14 +433,10 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_obj_get", objops::__rtsadp_obj_get as *const u8),
         sym("__rtsadp_obj_set", objops::__rtsadp_obj_set as *const u8),
         sym("__rtsadp_obj_has", objops::__rtsadp_obj_has as *const u8),
-        // ---- codegen-owned wrapper ctor (String only, P5.3). Boolean/Number now
-        // construct via their `.ts` prelude class (user-class path); the Error
-        // family likewise. Their former `__rtsadp_w_{boolean,number}_new` /
-        // `__rtsadp_err_*` trampolines are gone. ----
-        sym(
-            "__rtsadp_w_string_new",
-            wrappers::__rtsadp_w_string_new as *const u8,
-        ),
+        // NOTE: the wrapper ctors (`__rtsadp_w_{boolean,number,string}_new`) and the
+        // Error-family trampolines are GONE — Boolean/Number/String/Error all
+        // construct via their `.ts` prelude class (the user-class path). ToString for
+        // the String factory/ctor uses `__rtsadp_to_string` (registered elsewhere).
         // ---- codegen-owned pending-error slot for throw / try-catch (P5.13) ----
         sym(
             "__rtsadp_throw_set",

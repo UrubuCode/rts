@@ -74,6 +74,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     )? {
                         return Ok(Some(Val::tagged_kind(word, JsKind::Str)));
                     }
+                    // Non-#304 case → the prelude `.ts` `StringFactory` (PRIMITIVE
+                    // string via the engine's own ToString). Falls back to the
+                    // codegen coercion trampoline only if the factory is absent.
+                    if self.sigs.contains_key("StringFactory") {
+                        let v = self.call_synth_fn(module, "StringFactory", None, args)?;
+                        return Ok(Some(v));
+                    }
                 }
                 self.coerce_call(module, "__rtsadp_g_string", args, JsKind::Str)
                     .map(Some)
