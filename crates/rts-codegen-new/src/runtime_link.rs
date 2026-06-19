@@ -386,6 +386,10 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
             iterops::__rtsadp_str_chars as *const u8,
         ),
         sym("__rtsadp_obj_keys", iterops::__rtsadp_obj_keys as *const u8),
+        sym(
+            "__rtsadp_to_iter_array",
+            iterops::__rtsadp_to_iter_array as *const u8,
+        ),
         // ---- codegen-owned FUNCTION-value trampolines (__rtsadp_fn_*, P4.6) ----
         sym("__rtsadp_fn_reify", funcops::__rtsadp_fn_reify as *const u8),
         sym(

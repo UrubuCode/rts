@@ -511,7 +511,7 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         // str_chars(str_word) -> TAG_OBJECT array word of one-char strings;
         // obj_keys(obj_word) -> TAG_OBJECT array word of key strings. Both take one
         // PolyValue word and return a fresh array PolyValue word.
-        "__rtsadp_str_chars" | "__rtsadp_obj_keys" => SymSig {
+        "__rtsadp_str_chars" | "__rtsadp_obj_keys" | "__rtsadp_to_iter_array" => SymSig {
             params: &[U64],
             ret: U64,
         },

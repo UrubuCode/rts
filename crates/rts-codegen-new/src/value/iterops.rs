@@ -52,6 +52,28 @@ pub extern "C" fn __rtsadp_str_chars(str_word: u64) -> u64 {
     box_vec_as_array(vec)
 }
 
+/// `__rtsadp_to_iter_array(word)` — coerce an UNPROVEN for-of source to an array of
+/// element words to walk: an ARRAY rides its own handle (returned verbatim); a
+/// STRING is materialized to its code-point char array (`str_chars`); anything else
+/// yields an EMPTY array (JS would throw "not iterable" — we have no throw channel
+/// in for-of, and the lowering only routes here for values that are plausibly
+/// iterable, i.e. NOT a known class instance, so an empty walk is the honest
+/// no-throw fallback). This is what lets `for (const ch of s)` (string PARAM) and
+/// `for (const x of row)` (nested-array for-of binding) iterate without a static
+/// proof of the source's kind.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_to_iter_array(word: u64) -> u64 {
+    let v = PolyValue::from_raw(word);
+    if v.is_object() && !looks_like_object(v) {
+        // Already an array (Vec-backed, NOT a shaped object): walk it directly.
+        return word;
+    }
+    if v.is_string() {
+        return __rtsadp_str_chars(word);
+    }
+    box_vec_as_array(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW())
+}
+
 /// `__rtsadp_obj_keys(obj_word)` — the OWN enumerable keys of a keyed object as a
 /// fresh array of string PolyValue words, in insertion order (the shape's ordered
 /// key list). Recovered from the object's slot-0 global shape-id via the SAME
