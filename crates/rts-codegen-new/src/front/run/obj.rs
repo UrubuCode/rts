@@ -349,6 +349,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
         let recv = self.lower_expr(module, object)?;
         let recv_word = self.box_value(recv);
+        let idx_val = self.lower_expr(module, index)?;
+        // A NUMERIC index on an unproven receiver routes through `__rtsadp_idx_get`,
+        // which detects array (numeric element) / string (char) / object
+        // (ToString-keyed `obj_get`) at RUNTIME — this is what makes `p[0]` work when
+        // `p` is a for-of binding holding a nested array (`new Map([[k,v],…])`). A
+        // NON-numeric (string/dynamic) key keeps the original `obj_get` path with the
+        // compile-time-interned key, preserving object string-key semantics.
+        if matches!(idx_val.repr, Repr::Int32 | Repr::Int64 | Repr::Float64) {
+            let idx_word = self.box_value(idx_val);
+            let word = self
+                .call_runtime(module, "__rtsadp_idx_get", &[recv_word, idx_word])?
+                .expect("__rtsadp_idx_get returns a value");
+            return Ok(Val::new(word, Repr::Tagged));
+        }
         let key_word = self.index_key_word(module, index)?;
         let word = self
             .call_runtime(module, "__rtsadp_obj_get", &[recv_word, key_word])?

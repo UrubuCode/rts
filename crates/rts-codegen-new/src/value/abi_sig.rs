@@ -583,6 +583,7 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         "__rtsadp_dyn_index_of"
         | "__rtsadp_dyn_includes"
         | "__rtsadp_dyn_at"
+        | "__rtsadp_idx_get"
         | "__rtsadp_dyn_concat"
         | "__rtsadp_dyn_join"
         | "__rtsadp_dyn_push"

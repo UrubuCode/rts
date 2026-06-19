@@ -218,6 +218,39 @@ pub extern "C" fn __rtsadp_dyn_at(recv: u64, idx: u64) -> u64 {
     undef()
 }
 
+/// Generic computed-INDEX read `recv[idx]` on an UNPROVEN receiver — the bracket
+/// operator (NOT `.at()`): a string yields the 1-code-unit string at a NON-negative
+/// index (`s[-1]` is `undefined`, no wrap); an array yields the element at a
+/// NON-negative in-bounds index (`a[-1]`/OOB → `undefined`, no wrap); anything else
+/// is treated as an OBJECT and keyed by `ToString(idx)` via `obj_get` (absent →
+/// `undefined`). This is what makes `p[0]`/`p[1]` work on a for-of binding whose
+/// element is a nested array (`new Map([[k,v],…])`), without the proven-shape path.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_idx_get(recv: u64, idx: u64) -> u64 {
+    use rts_runtime::namespaces::collections::vec as rt_vec;
+    let v = PolyValue::from_raw(recv);
+    if v.is_string() {
+        let units = utf16_units(recv);
+        let i = genops_to_i64(idx);
+        if i < 0 || i >= units.len() as i64 {
+            return undef();
+        }
+        return box_str(intern_utf16_unit(units[i as usize]));
+    }
+    if is_array_word(recv) {
+        let h = arr_handle(recv);
+        let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(h).max(0);
+        let i = genops_to_i64(idx);
+        if i < 0 || i >= len {
+            return undef();
+        }
+        return rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(h, i) as u64;
+    }
+    // Object (or any non-string/non-array): key by ToString(idx) via obj_get.
+    let key_handle = abi_adapter::real_handle_of(PolyValue::from_raw(genops::__rtsadp_to_string(idx)));
+    super::objops::__rtsadp_obj_get(recv, key_handle)
+}
+
 /// `recv.slice(start, end)` — string slice (a string word) OR array slice (a fresh
 /// array word). Both take two numeric bounds (the lowering supplies a defaulted
 /// "to end" bound for the 1-arg form). Unexpected receiver → `undefined`.

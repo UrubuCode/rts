@@ -541,6 +541,7 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
             dyndispatch::__rtsadp_dyn_includes as *const u8,
         ),
         sym("__rtsadp_dyn_at", dyndispatch::__rtsadp_dyn_at as *const u8),
+        sym("__rtsadp_idx_get", dyndispatch::__rtsadp_idx_get as *const u8),
         sym(
             "__rtsadp_dyn_slice",
             dyndispatch::__rtsadp_dyn_slice as *const u8,

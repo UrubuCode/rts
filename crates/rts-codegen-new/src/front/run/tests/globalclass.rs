@@ -237,9 +237,15 @@ fn typeof_map_object() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn bail_map_init_from_array() {
-    // `new Map([["a",1]])` (init from an iterable) is a later increment.
-    assert_bails(r#"let m = new Map([["a", 1]]); console.log(m.size);"#);
+fn map_init_from_array() {
+    // `new Map([[k,v],…])` (iterable-of-pairs ctor) — now SUPPORTED: the TS Map
+    // ctor populates via `p[0]`/`p[1]` through the generic `__rtsadp_idx_get`
+    // (array element read on an unproven for-of binding). Intentional, justified
+    // upgrade from the former `assert_bails`.
+    assert_stdout(
+        r#"let m = new Map([["a", 1], ["b", 2]]); console.log(`${m.size} ${m.get("a")} ${m.get("b")}`);"#,
+        "2 1 2\n",
+    );
 }
 
 #[test]

@@ -10,6 +10,12 @@
 class Map<K, V> {
   #keys: K[] = [];
   #vals: V[] = [];
+  // `new Map([[k, v], …])` — iterable of [key, value] pairs, like JS. The pair `p`
+  // is a for-of binding (unproven array); `p[0]`/`p[1]` read its elements via the
+  // generic `__rtsadp_idx_get` runtime path (array element / string char / object).
+  constructor(init: [K, V][] = []) {
+    for (const p of init) { this.set(p[0], p[1]); }
+  }
   set(k: K, v: V): Map<K, V> {
     for (let i = 0; i < this.#keys.length; i++) {
       if (this.#keys[i] === k) { this.#vals[i] = v; return this; }
@@ -46,6 +52,9 @@ class Map<K, V> {
 }
 class Set<T> {
   #items: T[] = [];
+  constructor(init: T[] = []) {
+    for (const v of init) { this.add(v); }
+  }
   add(v: T): Set<T> {
     for (let i = 0; i < this.#items.length; i++) {
       if (this.#items[i] === v) return this;
