@@ -119,8 +119,64 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 }
                 Ok(None)
             }
+            // String→string global functions (one StrPtr arg → string Handle). The
+            // URI codecs are UNIVERSAL (rts-shared `global_this`); btoa/atob are
+            // backend (rts-std `text_encoding`). The arg is ToString-coerced at this
+            // untrusted boundary.
+            "encodeURIComponent" => self
+                .lower_str_global(module, "__RTS_FN_GL_ENCODE_URI_COMPONENT", args)
+                .map(Some),
+            "decodeURIComponent" => self
+                .lower_str_global(module, "__RTS_FN_GL_DECODE_URI_COMPONENT", args)
+                .map(Some),
+            "encodeURI" => self
+                .lower_str_global(module, "__RTS_FN_GL_ENCODE_URI", args)
+                .map(Some),
+            "decodeURI" => self
+                .lower_str_global(module, "__RTS_FN_GL_DECODE_URI", args)
+                .map(Some),
+            "btoa" => self
+                .lower_str_global(module, "__RTS_FN_GL_TEXTENC_BTOA", args)
+                .map(Some),
+            "atob" => self
+                .lower_str_global(module, "__RTS_FN_GL_TEXTENC_ATOB", args)
+                .map(Some),
             _ => Ok(None),
         }
+    }
+
+    /// Lower a string→string GLOBAL function (`encodeURIComponent`/`btoa`/…): the
+    /// single arg is ToString-coerced (untrusted boundary), marshaled to the
+    /// extern's `StrPtr` (ptr+len) shape, and the returned string Handle is reboxed
+    /// as a `TAG_STR` PolyValue. The symbol must be JIT-linked + have a `StrPtr →
+    /// Handle` sig (see `abi_sig`/`runtime_link`), or it is a runtime SIGILL.
+    fn lower_str_global(
+        &mut self,
+        module: &mut dyn Module,
+        symbol: &'static str,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        if args.len() != 1 {
+            return unsupported!("{symbol} expects 1 arg, got {}", args.len());
+        }
+        let v = self.lower_expr(module, &args[0])?;
+        // ToString-coerce at the boundary (a non-string arg → its JS string form);
+        // a proven string rides its word directly.
+        let s_word = if matches!(v.kind, JsKind::Str) {
+            self.box_value(v)
+        } else {
+            let w = self.box_value(v);
+            self.call_runtime(module, "__rtsadp_to_string", &[w])?
+                .expect("__rtsadp_to_string returns a string word")
+        };
+        let handle = crate::value::emit_marshal::emit_table_load(module, self.builder, s_word);
+        let (ptr, len) =
+            crate::value::emit_marshal::emit_string_ptr_len(module, self.builder, handle);
+        let res = self
+            .call_runtime(module, symbol, &[ptr, len])?
+            .expect("string→string global returns a string handle");
+        let w = crate::value::emit_marshal::emit_box_real_string(module, self.builder, res);
+        Ok(Val::tagged_kind(w, JsKind::Str))
     }
 
     /// Try to lower a STATIC member call `Array.m(args)` / `String.m(args)` (the

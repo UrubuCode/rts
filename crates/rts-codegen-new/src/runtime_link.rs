@@ -390,6 +390,36 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
             "__rtsadp_to_iter_array",
             iterops::__rtsadp_to_iter_array as *const u8,
         ),
+        // string→string GLOBAL fns: URI codecs (rts-shared global_this) + btoa/atob
+        // (rts-std text_encoding). Wired in `globals::lower_str_global`.
+        sym(
+            "__RTS_FN_GL_ENCODE_URI",
+            rts_runtime::namespaces::globals::global_this::rt::__RTS_FN_GL_ENCODE_URI as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_DECODE_URI",
+            rts_runtime::namespaces::globals::global_this::rt::__RTS_FN_GL_DECODE_URI as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_ENCODE_URI_COMPONENT",
+            rts_runtime::namespaces::globals::global_this::rt::__RTS_FN_GL_ENCODE_URI_COMPONENT
+                as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_DECODE_URI_COMPONENT",
+            rts_runtime::namespaces::globals::global_this::rt::__RTS_FN_GL_DECODE_URI_COMPONENT
+                as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_TEXTENC_BTOA",
+            rts_runtime::namespaces::globals::text_encoding::instance::__RTS_FN_GL_TEXTENC_BTOA
+                as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_TEXTENC_ATOB",
+            rts_runtime::namespaces::globals::text_encoding::instance::__RTS_FN_GL_TEXTENC_ATOB
+                as *const u8,
+        ),
         // ---- codegen-owned FUNCTION-value trampolines (__rtsadp_fn_*, P4.6) ----
         sym("__rtsadp_fn_reify", funcops::__rtsadp_fn_reify as *const u8),
         sym(

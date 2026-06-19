@@ -511,6 +511,17 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         // str_chars(str_word) -> TAG_OBJECT array word of one-char strings;
         // obj_keys(obj_word) -> TAG_OBJECT array word of key strings. Both take one
         // PolyValue word and return a fresh array PolyValue word.
+        // string→string GLOBAL fns (encodeURIComponent/btoa/…): one StrPtr arg
+        // (ptr+len) → a string Handle.
+        "__RTS_FN_GL_ENCODE_URI"
+        | "__RTS_FN_GL_DECODE_URI"
+        | "__RTS_FN_GL_ENCODE_URI_COMPONENT"
+        | "__RTS_FN_GL_DECODE_URI_COMPONENT"
+        | "__RTS_FN_GL_TEXTENC_BTOA"
+        | "__RTS_FN_GL_TEXTENC_ATOB" => SymSig {
+            params: &[StrPtr],
+            ret: Handle,
+        },
         "__rtsadp_str_chars" | "__rtsadp_obj_keys" | "__rtsadp_to_iter_array" => SymSig {
             params: &[U64],
             ret: U64,
