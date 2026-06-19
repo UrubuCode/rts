@@ -3,6 +3,11 @@ pub mod abi {
 }
 
 pub use rts_std::runtime;
+/// N-API (`.node` native addons). Re-exports the `rts-napi` crate: the `napi_*`
+/// symbols + the loader `__RTS_FN_NS_NAPI_LOAD_ADDON`. The `require('x.node')`
+/// lowering that calls the loader is the remaining integration on the new engine.
+/// See docs/specs/napi-implementation.md.
+pub use rts_napi as napi;
 /// Embedded TS stdlib sources (engine includes), re-exported from `rts-shared`
 /// so the new engine reaches them through the facade (`rts_runtime::stdlib`).
 pub use rts_shared::stdlib;

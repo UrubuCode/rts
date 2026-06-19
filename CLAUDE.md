@@ -275,6 +275,10 @@ crates/
   rts-std/          — backend (io/net/tokio/console/promise impl)
   rts-runtime/      — thin facade ("rts" + "rts:<ns>" submodules); AOT staticlib
   rts-node/         — Node.js builtin shims (fs, os, path, process, crypto, util)
+  rts-napi/         — N-API: Node.js native addons (.node) via libloading + the
+                      engine HandleTable (ArrayBuffer/BigInt/External). 159 N-API
+                      fns. Loader `__RTS_FN_NS_NAPI_LOAD_ADDON`; re-exported by
+                      rts-runtime as `napi`. Spec: docs/specs/napi-implementation.md
   rts-linker/       — native link (system linker + object backend fallback)
   rts-cli/          — CLI (run, compile, apis, init, repl, eval, ir)
 

@@ -2686,6 +2686,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rts-napi"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "libloading",
+ "rts-engine",
+ "rts-shared",
+]
+
+[[package]]
 name = "rts-node"
 version = "0.1.0"
 dependencies = [
@@ -2723,6 +2733,7 @@ name = "rts-runtime"
 version = "0.1.0"
 dependencies = [
  "rts-engine",
+ "rts-napi",
  "rts-primitives",
  "rts-shared",
  "rts-std",

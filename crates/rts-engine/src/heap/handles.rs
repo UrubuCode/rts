@@ -540,6 +540,16 @@ pub enum Entry {
     /// avanca ate o proximo yield a cada `.next()` (lazy real, suporta
     /// generators infinitos).
     GenState(Box<GenStateData>),
+    /// (N-API) Opaque external value: `data`/`finalize`/`hint` pointers the engine
+    /// never dereferences — on cleanup the finalize is ENQUEUED (never called under
+    /// the shard lock). See docs/specs/napi-implementation.md.
+    NapiExternal(Box<NapiExternalData>),
+    /// (N-API #219) Arbitrary-precision BigInt: `negative` + little-endian `words`.
+    BigInt(Box<BigIntData>),
+    /// (N-API) ArrayBuffer with a STABLE byte pointer for the handle's lifetime —
+    /// the addon takes `data: *mut u8` via `arraybuffer_ptr` and writes directly.
+    /// Backing is `Box<[u8]>` (owned, never reallocates) or a borrowed external ptr.
+    ArrayBuffer(Box<ArrayBufferData>),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,
@@ -696,6 +706,40 @@ pub struct FunctionData {
 /// extra aqui.
 fn cleanup_entry(entry: &mut Entry) {
     match entry {
+        // (N-API) Enqueue the finalizer — NEVER call it here: `cleanup_entry` runs
+        // under the shard lock during free/sweep; calling addon code (which may
+        // realloc handles / reenter the GC) under the lock would deadlock. `rts-napi`
+        // drains via `drain_pending_napi_finalizers` at a safe point.
+        Entry::NapiExternal(ext) => {
+            if let Some(finalize) = ext.finalize {
+                if let Ok(mut q) = PENDING_NAPI_FINALIZERS.lock() {
+                    q.push(PendingNapiFinalizer {
+                        data: ext.data,
+                        finalize,
+                        finalize_hint: ext.finalize_hint,
+                    });
+                }
+            }
+        }
+        // (N-API) ArrayBuffer borrowed: enqueue the external ptr's finalizer (the
+        // engine does not own the bytes). Owned frees via the Box's Drop.
+        Entry::ArrayBuffer(ab) => {
+            if let ArrayBufferBacking::Borrowed {
+                ptr,
+                finalize: Some(finalize),
+                finalize_hint,
+                ..
+            } = &ab.backing
+            {
+                if let Ok(mut q) = PENDING_NAPI_FINALIZERS.lock() {
+                    q.push(PendingNapiFinalizer {
+                        data: *ptr as *mut std::ffi::c_void,
+                        finalize: *finalize,
+                        finalize_hint: *finalize_hint,
+                    });
+                }
+            }
+        }
         Entry::ProcessChild(child) => {
             let _ = child.try_wait();
         }
@@ -1720,3 +1764,315 @@ mod tests {
         free_handle(h_reused);
     }
 }
+
+// ===== N-API: ArrayBuffer / BigInt / External (ported from main #1545+) =====
+
+/// Payload de `Entry::BigInt` (#219). `words` little-endian (word 0 = bits
+/// baixos); `negative` é o sinal. Magnitude zero com `negative=false` = 0n.
+#[derive(Debug, Clone)]
+pub struct BigIntData {
+    pub negative: bool,
+    pub words: Vec<u64>,
+}
+
+impl BigIntData {
+    /// Constrói de um i64.
+    pub fn from_i64(v: i64) -> Self {
+        let negative = v < 0;
+        let mag = v.unsigned_abs();
+        Self {
+            negative,
+            words: if mag == 0 { vec![] } else { vec![mag] },
+        }
+    }
+    /// Constrói de um u64.
+    pub fn from_u64(v: u64) -> Self {
+        Self {
+            negative: false,
+            words: if v == 0 { vec![] } else { vec![v] },
+        }
+    }
+    /// Lê como i64 (`lossless=false` se não couber). Trunca aos 64 bits baixos.
+    pub fn to_i64(&self) -> (i64, bool) {
+        let low = self.words.first().copied().unwrap_or(0);
+        let extra = self.words.len() > 1;
+        let mag = low;
+        let val = if self.negative {
+            (mag as i64).wrapping_neg()
+        } else {
+            mag as i64
+        };
+        // lossless se cabe em i64: 1 word e sem overflow de sinal.
+        let lossless = !extra
+            && if self.negative {
+                mag <= (i64::MAX as u64) + 1
+            } else {
+                mag <= i64::MAX as u64
+            };
+        (val, lossless)
+    }
+    /// Lê como u64 (`lossless=false` se negativo ou > 1 word).
+    pub fn to_u64(&self) -> (u64, bool) {
+        let low = self.words.first().copied().unwrap_or(0);
+        let lossless = !self.negative && self.words.len() <= 1;
+        (low, lossless)
+    }
+}
+
+/// Payload de `Entry::ArrayBuffer`. O backing é owned (Box, ptr estável) ou
+/// borrowed (ptr externo do addon + finalizer chamado na coleta).
+pub enum ArrayBufferBacking {
+    /// Bytes possuídos pelo engine. `Box<[u8]>` nunca realoca → ptr estável.
+    Owned(Box<[u8]>),
+    /// Ptr externo emprestado (`napi_create_external_arraybuffer`). O engine
+    /// NÃO possui os bytes; ao coletar, enfileira o `finalize(data, hint)`.
+    Borrowed {
+        ptr: *mut u8,
+        len: usize,
+        finalize: Option<
+            unsafe extern "C" fn(
+                env: *mut std::ffi::c_void,
+                data: *mut std::ffi::c_void,
+                hint: *mut std::ffi::c_void,
+            ),
+        >,
+        finalize_hint: *mut std::ffi::c_void,
+    },
+}
+
+pub struct ArrayBufferData {
+    pub backing: ArrayBufferBacking,
+    /// `true` após `napi_detach_arraybuffer` — leituras devolvem ptr nulo/len 0.
+    pub detached: bool,
+}
+
+impl ArrayBufferData {
+    /// Ponteiro mutável estável para os bytes (nulo se detached).
+    pub fn data_ptr(&mut self) -> *mut u8 {
+        if self.detached {
+            return std::ptr::null_mut();
+        }
+        match &mut self.backing {
+            ArrayBufferBacking::Owned(b) => b.as_mut_ptr(),
+            ArrayBufferBacking::Borrowed { ptr, .. } => *ptr,
+        }
+    }
+    pub fn byte_len(&self) -> usize {
+        if self.detached {
+            return 0;
+        }
+        match &self.backing {
+            ArrayBufferBacking::Owned(b) => b.len(),
+            ArrayBufferBacking::Borrowed { len, .. } => *len,
+        }
+    }
+}
+
+impl std::fmt::Debug for ArrayBufferData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kind = match &self.backing {
+            ArrayBufferBacking::Owned(b) => format!("Owned({})", b.len()),
+            ArrayBufferBacking::Borrowed { len, .. } => format!("Borrowed({len})"),
+        };
+        f.debug_struct("ArrayBufferData")
+            .field("backing", &kind)
+            .field("detached", &self.detached)
+            .finish()
+    }
+}
+
+// SAFETY: o ptr borrowed é opaco ao engine (nunca dereferenciado por ele); o
+// finalize só roda na thread JS via a fila de finalizers. Owned é Box<[u8]>
+// (Send). Mesmo racional de NapiExternalData.
+unsafe impl Send for ArrayBufferData {}
+
+/// Payload de `Entry::NapiExternal`. Campos opacos ao engine.
+pub struct NapiExternalData {
+    /// O `void* data` registrado por `napi_create_external`.
+    pub data: *mut std::ffi::c_void,
+    /// O finalizer N-API, ou `None`. Assinatura crua
+    /// `extern "C" fn(env, data, hint)` — o `rts-napi` faz o cast a partir de
+    /// `napi_finalize` (o engine não depende do crate `rts-napi`, então o tipo
+    /// vive aqui como ponteiro cru).
+    pub finalize: Option<
+        unsafe extern "C" fn(
+            env: *mut std::ffi::c_void,
+            data: *mut std::ffi::c_void,
+            hint: *mut std::ffi::c_void,
+        ),
+    >,
+    /// O `void* finalize_hint` passado ao finalizer.
+    pub finalize_hint: *mut std::ffi::c_void,
+}
+
+impl std::fmt::Debug for NapiExternalData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NapiExternalData")
+            .field("data", &self.data)
+            .field("has_finalize", &self.finalize.is_some())
+            .field("finalize_hint", &self.finalize_hint)
+            .finish()
+    }
+}
+
+// SAFETY: `Entry` precisa ser `Send` (a HandleTable é compartilhada entre os 32
+// shards/threads). Os `*mut c_void` aqui são **opacos** ao engine — ele nunca os
+// dereferencia, só os guarda e, no cleanup, enfileira o finalize. O finalize só
+// é invocado pelo `rts-napi` na thread JS (via `drain_pending_napi_finalizers`),
+// então o ponteiro não é tocado fora dela. Mesmo padrão das demais variantes
+// que cruzam threads carregando recursos não-Send-por-tipo.
+unsafe impl Send for NapiExternalData {}
+
+
+// ── ArrayBuffer (N-API, #1548) ───────────────────────────────────────────────
+
+/// Aloca um `Entry::ArrayBuffer` owned de `len` bytes (zerados) e devolve o
+/// handle. Os bytes têm endereço estável (não realocam) — use [`arraybuffer_ptr`]
+/// para escrever direto neles.
+pub fn alloc_arraybuffer(len: usize) -> u64 {
+    alloc_entry(Entry::ArrayBuffer(Box::new(ArrayBufferData {
+        backing: ArrayBufferBacking::Owned(vec![0u8; len].into_boxed_slice()),
+        detached: false,
+    })))
+}
+
+/// Aloca um `Entry::ArrayBuffer` borrowed (ptr externo + finalizer). O engine
+/// não copia nem possui os bytes; ao coletar, enfileira o finalizer.
+pub fn alloc_external_arraybuffer(
+    ptr: *mut u8,
+    len: usize,
+    finalize: Option<
+        unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, *mut std::ffi::c_void),
+    >,
+    finalize_hint: *mut std::ffi::c_void,
+) -> u64 {
+    alloc_entry(Entry::ArrayBuffer(Box::new(ArrayBufferData {
+        backing: ArrayBufferBacking::Borrowed {
+            ptr,
+            len,
+            finalize,
+            finalize_hint,
+        },
+        detached: false,
+    })))
+}
+
+/// Ponteiro mutável **estável** para os bytes do ArrayBuffer (nulo se o handle
+/// não for ArrayBuffer ou estiver detached). Válido enquanto o handle viver.
+pub fn arraybuffer_ptr(handle: u64) -> *mut u8 {
+    with_entry_mut(handle, |e| match e {
+        Some(Entry::ArrayBuffer(ab)) => ab.data_ptr(),
+        _ => std::ptr::null_mut(),
+    })
+}
+
+/// Comprimento em bytes (0 se não for ArrayBuffer ou estiver detached).
+pub fn arraybuffer_len(handle: u64) -> usize {
+    with_entry(handle, |e| match e {
+        Some(Entry::ArrayBuffer(ab)) => ab.byte_len(),
+        _ => 0,
+    })
+}
+
+/// `true` se o handle é um `Entry::ArrayBuffer`.
+pub fn is_arraybuffer(handle: u64) -> bool {
+    with_entry(handle, |e| matches!(e, Some(Entry::ArrayBuffer(_))))
+}
+
+/// Marca o ArrayBuffer como detached (`napi_detach_arraybuffer`). Leituras
+/// subsequentes devolvem ptr nulo / len 0. Retorna `true` se era um ArrayBuffer.
+pub fn arraybuffer_detach(handle: u64) -> bool {
+    with_entry_mut(handle, |e| match e {
+        Some(Entry::ArrayBuffer(ab)) => {
+            ab.detached = true;
+            true
+        }
+        _ => false,
+    })
+}
+
+/// `true` se o ArrayBuffer está detached.
+pub fn arraybuffer_is_detached(handle: u64) -> bool {
+    with_entry(handle, |e| match e {
+        Some(Entry::ArrayBuffer(ab)) => ab.detached,
+        _ => false,
+    })
+}
+
+// ── BigInt (N-API #219) ──────────────────────────────────────────────────────
+
+pub fn alloc_bigint_i64(v: i64) -> u64 {
+    alloc_entry(Entry::BigInt(Box::new(BigIntData::from_i64(v))))
+}
+pub fn alloc_bigint_u64(v: u64) -> u64 {
+    alloc_entry(Entry::BigInt(Box::new(BigIntData::from_u64(v))))
+}
+pub fn alloc_bigint_words(negative: bool, words: &[u64]) -> u64 {
+    // Normaliza: remove words altas zeradas.
+    let mut w = words.to_vec();
+    while w.last() == Some(&0) {
+        w.pop();
+    }
+    alloc_entry(Entry::BigInt(Box::new(BigIntData {
+        negative: if w.is_empty() { false } else { negative },
+        words: w,
+    })))
+}
+pub fn is_bigint(handle: u64) -> bool {
+    with_entry(handle, |e| matches!(e, Some(Entry::BigInt(_))))
+}
+/// `(value, lossless)` como i64.
+pub fn bigint_to_i64(handle: u64) -> Option<(i64, bool)> {
+    with_entry(handle, |e| match e {
+        Some(Entry::BigInt(b)) => Some(b.to_i64()),
+        _ => None,
+    })
+}
+/// `(value, lossless)` como u64.
+pub fn bigint_to_u64(handle: u64) -> Option<(u64, bool)> {
+    with_entry(handle, |e| match e {
+        Some(Entry::BigInt(b)) => Some(b.to_u64()),
+        _ => None,
+    })
+}
+/// `(negative, words)` — copia as words.
+pub fn bigint_words(handle: u64) -> Option<(bool, Vec<u64>)> {
+    with_entry(handle, |e| match e {
+        Some(Entry::BigInt(b)) => Some((b.negative, b.words.clone())),
+        _ => None,
+    })
+}
+
+/// Um finalizer N-API pendente de disparo: `(env_placeholder, data, finalize,
+/// hint)`. Enfileirado por `cleanup_entry` ao liberar um `Entry::NapiExternal`
+/// com finalizer; drenado por [`drain_pending_napi_finalizers`] **fora** do lock
+/// do shard (chamar código do addon sob o lock arrisca deadlock/reentrância).
+/// O `rts-napi` fornece o `napi_env` correto no momento do disparo.
+pub struct PendingNapiFinalizer {
+    pub data: *mut std::ffi::c_void,
+    pub finalize: unsafe extern "C" fn(
+        env: *mut std::ffi::c_void,
+        data: *mut std::ffi::c_void,
+        hint: *mut std::ffi::c_void,
+    ),
+    pub finalize_hint: *mut std::ffi::c_void,
+}
+
+// SAFETY: os ponteiros são opacos ao engine e só voltam a ser tocados pelo
+// `rts-napi` na thread JS que drena a fila; o `Send` é necessário porque a fila
+// é uma estática global protegida por Mutex.
+unsafe impl Send for PendingNapiFinalizer {}
+
+static PENDING_NAPI_FINALIZERS: std::sync::Mutex<Vec<PendingNapiFinalizer>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Drena os finalizers N-API enfileirados pelo sweep/free. O `rts-napi` chama
+/// isto fora de qualquer lock de GC, num ponto seguro, e invoca cada `finalize`
+/// com o `napi_env` apropriado. Retorna `Vec` vazio se nada pendente.
+pub fn drain_pending_napi_finalizers() -> Vec<PendingNapiFinalizer> {
+    match PENDING_NAPI_FINALIZERS.lock() {
+        Ok(mut q) => std::mem::take(&mut *q),
+        Err(poisoned) => std::mem::take(&mut *poisoned.into_inner()),
+    }
+}
+
