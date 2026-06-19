@@ -150,7 +150,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// element-array word to walk: a GENERATOR iterator method (`ret_lazy_gen`) is
     /// DRAINed; an array-returning one is used directly. `Ok(None)` when not such an
     /// iterable class. The engine names only the protocol key.
-    fn try_class_iterator_source_word(
+    pub(super) fn try_class_iterator_source_word(
         &mut self,
         module: &mut dyn Module,
         iterable: &HirExpr,
@@ -199,7 +199,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// If `iterable` is a CALL to a lazy generator constructor (`ret_lazy_gen`),
     /// lower it to the GenState handle and `GEN_SM_DRAIN` it into an element array
     /// word to walk; `Ok(None)` otherwise.
-    fn try_lazy_gen_source_word(
+    pub(super) fn try_lazy_gen_source_word(
         &mut self,
         module: &mut dyn Module,
         iterable: &HirExpr,

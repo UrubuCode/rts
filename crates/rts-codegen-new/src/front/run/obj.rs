@@ -30,7 +30,7 @@ use crate::repr::Repr;
 use crate::shape::ShapeId;
 use crate::value::{self, abi_adapter, emit_marshal};
 
-use crate::front::error::{FrontResult, unsupported};
+use crate::front::error::{FrontResult, Unsupported, unsupported};
 
 use super::lower::{HeapShape, JsKind, Lowerer, Val};
 
@@ -109,13 +109,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // elements are appended onto the new array via `__rtsadp_arr_spread_append`.
             // A non-array spread (object/iterable/string) is a later increment → bail.
             if let HirExprKind::Spread(inner) = &e.kind {
-                if !self.is_array_valued(inner) {
-                    return unsupported!(
-                        "spread of a non-array value in an array literal (only `[...array]` is supported)"
-                    );
-                }
-                let src = self.lower_expr(module, inner)?;
-                let src_word = self.box_value(src);
+                // Resolve the spread source to an element-ARRAY word, then append.
+                // A proven array rides itself; an ITERABLE (Set/Map/generator/string)
+                // is materialized via the SAME machinery for-of uses (the
+                // `Symbol.iterator` protocol / generator DRAIN / `to_iter_array`), so
+                // `[...set]` / `[...gen()]` / `[..."abc"]` work like JS.
+                let src_word = self.spread_source_array_word(module, inner)?;
                 self.call_runtime(module, "__rtsadp_arr_spread_append", &[arr_word, src_word])?;
                 continue;
             }
@@ -124,6 +123,54 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             emit_marshal::emit_vec_push(module, self.builder, arr_word, word);
         }
         Ok(Val::tagged_kind(arr_word, JsKind::Unknown))
+    }
+
+    /// Resolve a spread source `[...inner]` to an element-ARRAY word. A proven array
+    /// is used directly; an iterable class (`[Symbol.iterator]()`), a lazy generator,
+    /// a proven string, or a generic Tagged value is materialized to an array via the
+    /// same paths for-of uses. Bails on a value that is provably NOT iterable
+    /// (number/bool) or a known non-iterable class instance.
+    fn spread_source_array_word(
+        &mut self,
+        module: &mut dyn Module,
+        inner: &HirExpr,
+    ) -> FrontResult<cranelift_codegen::ir::Value> {
+        if self.is_array_valued(inner) {
+            let src = self.lower_expr(module, inner)?;
+            return Ok(self.box_value(src));
+        }
+        // Iterable class (Set/Map/user with `[Symbol.iterator]`) → call it + collect.
+        if let Some(w) = self.try_class_iterator_source_word(module, inner)? {
+            return Ok(w);
+        }
+        // Lazy generator call → DRAIN to an array.
+        if let Some(w) = self.try_lazy_gen_source_word(module, inner)? {
+            return Ok(w);
+        }
+        // Proven string / generic Tagged (param/binding) → runtime array coercion
+        // (string → chars, array → self). A proven number/bool, or a known
+        // runtime-class instance with no iterator, bails (not iterable).
+        let v = self.lower_expr(module, inner)?;
+        if matches!(v.kind, JsKind::Str) {
+            let word = self.box_value(v);
+            return self
+                .call_runtime(module, "__rtsadp_str_chars", &[word])?
+                .ok_or_else(|| Unsupported::new("__rtsadp_str_chars returns a value".to_string()));
+        }
+        if matches!(v.repr, Repr::Tagged)
+            && self.static_instance_class(inner).is_none()
+            && self.global_instance_class(inner).is_none()
+        {
+            let word = self.box_value(v);
+            return self
+                .call_runtime(module, "__rtsadp_to_iter_array", &[word])?
+                .ok_or_else(|| {
+                    Unsupported::new("__rtsadp_to_iter_array returns a value".to_string())
+                });
+        }
+        unsupported!(
+            "spread of a non-iterable value in an array literal (number/bool, or a class with no iterator)"
+        )
     }
 
     /// Lower a member access `obj.prop`. Resolves the object's proven heap shape
