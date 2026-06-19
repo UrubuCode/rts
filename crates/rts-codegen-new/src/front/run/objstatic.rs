@@ -49,6 +49,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if self.local(name).is_some() || (self.classes.get(name).is_some() && name != "Object") {
             return Ok(None);
         }
+        // DYNAMIC receiver (a param / call-return / reassigned local whose object
+        // shape is not statically proven): route keys/values/entries through the
+        // RUNTIME trampolines (read slot-0 shape-id at run time). `Object` is a
+        // PRIMORDIAL, so this generic enumeration is engine-direct.
+        if matches!(method, "keys" | "getOwnPropertyNames" | "values" | "entries")
+            && !self.is_static_object_arg(args)
+        {
+            let sym = match method {
+                "values" => "__rtsadp_obj_values",
+                "entries" => "__rtsadp_obj_entries",
+                _ => "__rtsadp_obj_keys",
+            };
+            return self.dynamic_obj_enum(module, args, sym).map(Some);
+        }
         match method {
             "keys" | "getOwnPropertyNames" => self.object_keys(module, args).map(Some),
             "values" => self.object_values(module, args).map(Some),
@@ -57,6 +71,39 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             "freeze" | "seal" | "preventExtensions" => self.object_freeze(module, args).map(Some),
             other => unsupported!("Object.{other}(...) static method (later increment)"),
         }
+    }
+
+    /// Whether the single receiver arg has a STATICALLY-PROVEN object shape (an
+    /// inline object literal, or an ident recorded `HeapShape::Object`). Only then
+    /// can the compile-time-keys fast path run; otherwise the dynamic runtime
+    /// trampoline is used.
+    fn is_static_object_arg(&self, args: &[HirExpr]) -> bool {
+        match args.first().map(|a| &a.kind) {
+            Some(HirExprKind::Object(_)) => true,
+            Some(HirExprKind::Ident(n)) => {
+                matches!(self.local_shapes.get(n), Some(HeapShape::Object(_)))
+            }
+            _ => false,
+        }
+    }
+
+    /// Dynamic `Object.keys/values/entries(x)`: lower `x` to an object word and call
+    /// the runtime enumeration trampoline (`sym`), yielding a Tagged array.
+    fn dynamic_obj_enum(
+        &mut self,
+        module: &mut dyn Module,
+        args: &[HirExpr],
+        sym: &str,
+    ) -> FrontResult<Val> {
+        if args.len() != 1 {
+            return unsupported!("Object.{sym} expects 1 receiver arg, got {}", args.len());
+        }
+        let v = self.lower_expr(module, &args[0])?;
+        let word = self.box_value(v);
+        let arr = self
+            .call_runtime(module, sym, &[word])?
+            .expect("obj enumeration returns an array word");
+        Ok(Val::tagged_kind(arr, JsKind::Array))
     }
 
     /// Resolve the single receiver argument to `(obj_word, keys)`: either a

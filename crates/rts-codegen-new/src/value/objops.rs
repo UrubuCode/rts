@@ -113,3 +113,65 @@ pub extern "C" fn __rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word:
 pub extern "C" fn __rtsadp_obj_has(obj_word: u64, key_str_handle: u64) -> i64 {
     resolve_slot(obj_word, key_str_handle).is_some() as i64
 }
+
+/// Recover a keyed object's ordered keys from its slot-0 global shape-id. Empty
+/// for a non-object / unrecognized header (the safe default — `Object.keys` of a
+/// non-object yields `[]`).
+fn object_keys_vec(obj_word: u64) -> Vec<String> {
+    let obj = PolyValue::from_raw(obj_word);
+    if !obj.is_object() || !looks_like_object(obj) {
+        return Vec::new();
+    }
+    let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+    let slot0 = PolyValue::from_raw(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 0) as u64);
+    slot0
+        .is_int32()
+        .then(|| global_shape_keys(slot0.as_i32() as u32))
+        .flatten()
+        .unwrap_or_default()
+}
+
+/// Box a fresh Vec handle as a `TAG_OBJECT` array PolyValue word.
+fn array_word(vec: u64) -> u64 {
+    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(vec)).raw()
+}
+
+// `Object.keys` (dynamic) reuses the existing `iterops::__rtsadp_obj_keys` (for-in
+// already builds the key array) — not redefined here.
+
+/// `__rtsadp_obj_values(obj_word)` — `Object.values(obj)` at RUNTIME: a fresh array
+/// of the object's slot VALUES (slots `1..`; slot 0 is the shape-id header).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_obj_values(obj_word: u64) -> u64 {
+    let obj = PolyValue::from_raw(obj_word);
+    let keys = object_keys_vec(obj_word);
+    let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    if !keys.is_empty() {
+        let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+        for i in 0..keys.len() {
+            let v = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 1 + i as i64);
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, v);
+        }
+    }
+    array_word(out)
+}
+
+/// `__rtsadp_obj_entries(obj_word)` — `Object.entries(obj)` at RUNTIME: a fresh
+/// array of `[key, value]` 2-element sub-arrays (each its own `Entry::Vec`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_obj_entries(obj_word: u64) -> u64 {
+    let obj = PolyValue::from_raw(obj_word);
+    let keys = object_keys_vec(obj_word);
+    let outer = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    if !keys.is_empty() {
+        let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+        for (i, k) in keys.iter().enumerate() {
+            let v = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 1 + i as i64);
+            let pair = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(pair, abi_adapter::intern_poly(k).raw() as i64);
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(pair, v);
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(outer, array_word(pair) as i64);
+        }
+    }
+    array_word(outer)
+}

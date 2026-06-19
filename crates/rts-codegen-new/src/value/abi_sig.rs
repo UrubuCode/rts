@@ -716,6 +716,12 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, U64],
             ret: Bool,
         },
+        // obj_keys/values/entries(obj_word) -> fresh array PolyValue word (dynamic
+        // Object.keys/values/entries; Object is primordial → engine-direct).
+        "__rtsadp_obj_values" | "__rtsadp_obj_entries" => SymSig {
+            params: &[U64],
+            ret: U64,
+        },
 
         // ---- Map/Set instanceof tags (P5.3). One PolyValue word in, one PolyValue
         // word out. (The wrapper ctors + Error family moved to `.ts` prelude classes

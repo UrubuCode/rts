@@ -89,10 +89,13 @@ fn object_entries_two_pairs() {
 // ===========================================================================
 
 #[test]
-fn object_keys_on_unknown_shape_param_bails() {
-    // `o` is a param of unknown shape — Object.keys needs the layout, must bail.
-    assert_bails(
-        "function f(o: any){ return Object.keys(o).length; } let r = {a: 1}; console.log(f(r));",
+fn object_keys_on_unknown_shape_param_runs_dynamically() {
+    // `o` is a param of unknown static shape — Object.keys now recovers the keys at
+    // RUNTIME from the object's slot-0 shape-id (Object is primordial → engine-direct
+    // dynamic enumeration), so this runs instead of bailing.
+    assert_stdout(
+        "function f(o: any){ return Object.keys(o).length; } let r = {a: 1, b: 2}; console.log(f(r));",
+        "2\n",
     );
 }
 
