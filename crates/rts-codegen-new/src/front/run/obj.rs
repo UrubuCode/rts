@@ -347,26 +347,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if self.receiver_is_unbound_this(object) {
             return unsupported!("indexed read on a captured `this` (arrow at top level — #195)");
         }
+        // Computed index on an UNPROVEN receiver → the generic `__rtsadp_idx_get`,
+        // which detects at RUNTIME: array (numeric element) / string (char) / object
+        // (ToString-keyed `obj_get`). This handles a NUMERIC index (`p[0]` on a
+        // nested array), a Tagged numeric index (`this.#a[this.#i]` where the index
+        // is a `number` FIELD lowered as Tagged → the array branch coerces it), AND a
+        // string/dynamic key (object branch — `o[k]`). One path, no static index-kind
+        // proof needed.
         let recv = self.lower_expr(module, object)?;
         let recv_word = self.box_value(recv);
         let idx_val = self.lower_expr(module, index)?;
-        // A NUMERIC index on an unproven receiver routes through `__rtsadp_idx_get`,
-        // which detects array (numeric element) / string (char) / object
-        // (ToString-keyed `obj_get`) at RUNTIME — this is what makes `p[0]` work when
-        // `p` is a for-of binding holding a nested array (`new Map([[k,v],…])`). A
-        // NON-numeric (string/dynamic) key keeps the original `obj_get` path with the
-        // compile-time-interned key, preserving object string-key semantics.
-        if matches!(idx_val.repr, Repr::Int32 | Repr::Int64 | Repr::Float64) {
-            let idx_word = self.box_value(idx_val);
-            let word = self
-                .call_runtime(module, "__rtsadp_idx_get", &[recv_word, idx_word])?
-                .expect("__rtsadp_idx_get returns a value");
-            return Ok(Val::new(word, Repr::Tagged));
-        }
-        let key_word = self.index_key_word(module, index)?;
+        let idx_word = self.box_value(idx_val);
         let word = self
-            .call_runtime(module, "__rtsadp_obj_get", &[recv_word, key_word])?
-            .expect("__rtsadp_obj_get returns a value");
+            .call_runtime(module, "__rtsadp_idx_get", &[recv_word, idx_word])?
+            .expect("__rtsadp_idx_get returns a value");
         Ok(Val::new(word, Repr::Tagged))
     }
 

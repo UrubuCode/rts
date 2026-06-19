@@ -246,9 +246,10 @@ pub extern "C" fn __rtsadp_idx_get(recv: u64, idx: u64) -> u64 {
         }
         return rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(h, i) as u64;
     }
-    // Object (or any non-string/non-array): key by ToString(idx) via obj_get.
-    let key_handle = abi_adapter::real_handle_of(PolyValue::from_raw(genops::__rtsadp_to_string(idx)));
-    super::objops::__rtsadp_obj_get(recv, key_handle)
+    // Object (or any non-string/non-array): key by `idx` via obj_get. `obj_get`'s
+    // key param is a PolyValue WORD (its `key_text` ToStrings internally — `o[0]`
+    // keys on "0"), so pass the raw `idx` word directly, NOT a pre-interned handle.
+    super::objops::__rtsadp_obj_get(recv, idx)
 }
 
 /// `recv.slice(start, end)` — string slice (a string word) OR array slice (a fresh
