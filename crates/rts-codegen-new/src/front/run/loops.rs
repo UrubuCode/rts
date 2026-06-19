@@ -125,6 +125,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         iterable: &HirExpr,
         body: &[HirStmt],
     ) -> FrontResult<()> {
+        // ITERABLE CLASS via `[Symbol.iterator]()` (parser-canonical method name
+        // `"Symbol.iterator"`): a class instance whose class declares that method
+        // (real JS — the `.ts` writes `*[Symbol.iterator]()`, NO engine hook). Call
+        // it and walk the elements: a generator method DRAINs, an array-returning one
+        // walks directly. The engine names ONLY the `Symbol.iterator` protocol key,
+        // never the class.
+        if let Some(arr_word) = self.try_class_iterator_source_word(module, iterable)? {
+            return self.lower_index_walk(module, binding, arr_word, body);
+        }
         // LAZY generator source (`for (const x of g())` where `g` is a generator
         // with loops/yield*): `g()` returns a GenState handle. DRAIN it to a real
         // array (runs the state machine to completion, collecting yields) and walk
@@ -134,6 +143,57 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
         let arr_word = self.for_of_source_word(module, iterable)?;
         self.lower_index_walk(module, binding, arr_word, body)
+    }
+
+    /// If `iterable` is an instance of a class declaring `[Symbol.iterator]()`
+    /// (method name `"Symbol.iterator"`), synthesize the call and produce the
+    /// element-array word to walk: a GENERATOR iterator method (`ret_lazy_gen`) is
+    /// DRAINed; an array-returning one is used directly. `Ok(None)` when not such an
+    /// iterable class. The engine names only the protocol key.
+    fn try_class_iterator_source_word(
+        &mut self,
+        module: &mut dyn Module,
+        iterable: &HirExpr,
+    ) -> FrontResult<Option<Value>> {
+        let Some(class) = self
+            .static_instance_class(iterable)
+            .or_else(|| self.global_instance_class(iterable))
+        else {
+            return Ok(None);
+        };
+        let Some(synth) = self
+            .classes
+            .get(&class)
+            .and_then(|d| d.methods.get("Symbol.iterator").cloned())
+        else {
+            return Ok(None);
+        };
+        let sig = self.sigs.get(&synth);
+        let is_lazy = sig.is_some_and(|s| s.ret_lazy_gen);
+        let is_array = sig.is_some_and(|s| s.ret_array);
+        if !is_lazy && !is_array {
+            return Ok(None);
+        }
+        let iter_call = HirExpr::new(
+            HirExprKind::MethodCall {
+                object: Box::new(iterable.clone()),
+                method: "Symbol.iterator".to_string(),
+                args: Vec::new(),
+            },
+            HirType::Any,
+        );
+        let res = self.lower_expr(module, &iter_call)?;
+        if is_lazy {
+            // The method returned a GenState handle (raw i64) → DRAIN to an array.
+            let handle = self.coerce(res, Repr::Int64)?;
+            let arr = self
+                .call_runtime(module, "__RTS_FN_NS_GC_GEN_SM_DRAIN", &[handle])?
+                .expect("GEN_SM_DRAIN returns an array word");
+            Ok(Some(arr))
+        } else {
+            // An array-returning iterator method → its result IS the element array.
+            Ok(Some(self.box_value(res)))
+        }
     }
 
     /// If `iterable` is a CALL to a lazy generator constructor (`ret_lazy_gen`),

@@ -70,6 +70,12 @@ class Map<K, V> {
     for (let i = 0; i < this.#keys.length; i++) { cb(this.#vals[i], this.#keys[i], this); }
   }
   clear(): void { this.#keys = []; this.#vals = []; }
+  // Default iterator (`for (const [k,v] of map)`): a real generator yielding
+  // `[key, value]` pairs in insertion order. Plain JS — the parser desugars the
+  // `*`/`yield`, the engine drives it through the generator state machine.
+  *[Symbol.iterator](): [K, V][] {
+    for (let i = 0; i < this.size; i++) { yield [this.#keys[i], this.#vals[i]]; }
+  }
 }
 class Set<T> {
   #items: T[] = [];
@@ -117,4 +123,8 @@ class Set<T> {
     for (let i = 0; i < this.#items.length; i++) { cb(this.#items[i], this.#items[i], this); }
   }
   clear(): void { this.#items = []; }
+  // Default iterator (`for (const x of set)`): a real generator yielding values.
+  *[Symbol.iterator](): T[] {
+    for (let i = 0; i < this.size; i++) { yield this.#items[i]; }
+  }
 }
