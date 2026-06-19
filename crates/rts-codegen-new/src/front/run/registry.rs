@@ -66,6 +66,10 @@ fn build_registry() -> Registry {
     // by `runtime_link::jit_symbols` (io/math symbols already linked there).
     ns::io::register(&mut e);
     ns::math::register(&mut e);
+    // `gc` — the string-pool / handle surface (`gc.string_from_i64`/`string_free`/…)
+    // the rts:test fixtures use directly. Its `__RTS_FN_NS_GC_*` symbols are JIT-
+    // linked in `runtime_link`.
+    ns::gc::register(&mut e);
     // The PRIVATE `engine` namespace (arch/time/trace) the embedded TS prelude
     // calls. Marked `.private()`; the lowering's `engineobj` gate enforces that
     // only prelude-origin code names the `engine` global.

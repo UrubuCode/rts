@@ -44,6 +44,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         method: &str,
         args: &[HirExpr],
     ) -> FrontResult<Option<Val>> {
+        // NAMESPACE-OBJECT member call (`gc.string_from_i64(x)`, `io.print(s)`):
+        // `gc`/`io` was imported from bare `"rts"` (bound as a namespace object,
+        // member empty). Resolve `method` as a namespace function of that namespace
+        // through the Registry — the SAME path a direct `rts:<ns>` member-import call
+        // uses. An unknown member / unregistered namespace bails honestly.
+        if let HirExprKind::Ident(obj) = &object.kind {
+            if let Some((ns, member)) = self.builtins.get(obj).cloned() {
+                if member.is_empty() {
+                    return self.lower_builtin_call(module, &ns, method, args).map(Some);
+                }
+            }
+        }
+
         // STATIC method call `C.m(args)` (P5.1): the receiver is a bare class NAME
         // (not a local/instance). Resolve the static method on that class and emit
         // a direct call (no `this`). An unknown static on a known class BAILS.

@@ -192,7 +192,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// A `Handle` return is treated as a STRING (`JsKind::Str`): the namespace fns
     /// that return a `Handle` (e.g. a dynamic-string result) hand back a gc string
     /// handle; the generic rebox interns it as a `TAG_STR` PolyValue.
-    fn lower_builtin_call(
+    pub(super) fn lower_builtin_call(
         &mut self,
         module: &mut dyn Module,
         ns: &str,

@@ -73,14 +73,25 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
             match &edge.target {
                 Target::Builtin { specifier } => {
                     let ns = builtin_ns(specifier);
+                    // BARE `"rts"` (`ns == ""`): each imported name is a NAMESPACE
+                    // OBJECT (`import { io, gc } from "rts"` → `io`/`gc`), so bind it
+                    // as the namespace itself (member empty) — a later `gc.member(..)`
+                    // resolves through `namespace_member`. A `rts:<ns>` import instead
+                    // names a MEMBER of that one namespace.
+                    let bare = ns.is_empty();
                     for (orig, local) in &edge.names {
-                        bindings.insert(
-                            local.clone(),
+                        let binding = if bare {
+                            Binding::Builtin {
+                                ns: orig.clone(),
+                                member: String::new(),
+                            }
+                        } else {
                             Binding::Builtin {
                                 ns: ns.clone(),
                                 member: orig.clone(),
-                            },
-                        );
+                            }
+                        };
+                        bindings.insert(local.clone(), binding);
                     }
                     if let Some(default_local) = &edge.default_name {
                         // Default import of a builtin namespace: bind to the
