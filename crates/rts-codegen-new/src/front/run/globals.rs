@@ -108,6 +108,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 .map(Some),
             "parseInt" => self.parse_int_call(module, args).map(Some),
             "Array" => self.array_ctor_call(module, args).map(Some),
+            "Object" => {
+                // `Object(x)` (no `new`) → the prelude `.ts` `ObjectFactory`
+                // (null/undefined → a fresh object; an object passes through).
+                // 0-arg `Object()` → `ObjectFactory()` (→ `{}`). `Ok(None)` if the
+                // prelude factory is absent (defensive) — the caller bails.
+                if args.len() <= 1 && self.sigs.contains_key("ObjectFactory") {
+                    let v = self.call_synth_fn(module, "ObjectFactory", None, args)?;
+                    return Ok(Some(v));
+                }
+                Ok(None)
+            }
             _ => Ok(None),
         }
     }

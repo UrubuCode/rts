@@ -96,8 +96,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // The receiver must lower AND have a statically-proven class. Lower it
         // first (a whole object/array value is not a dispatch receiver here).
         if self.is_whole_heap_value(object) {
-            // A whole OBJECT value receiver: object method dispatch is a later
-            // increment. Let the caller bail with its own message rather than guess.
+            // A whole OBJECT value receiver (`o.hasOwnProperty(k)`, `o.toString()`):
+            // route to the ambient prelude `class Object` (object.ts), passing the
+            // object as `this`. The `.ts` bodies use the shape-aware `engine.obj_*`
+            // bridge. Arrays were already handled above; guard against an array
+            // value slipping through. `Ok(None)` when the method is not on
+            // `class Object` (the caller bails — never a guess).
+            if !self.is_array_valued(object) {
+                let recv = self.lower_expr(module, object)?;
+                if let Some(val) =
+                    self.try_primitive_class_method(module, recv, "Object", method, args)?
+                {
+                    return Ok(Some(val));
+                }
+            }
             return Ok(None);
         }
         let recv = self.lower_expr(module, object)?;

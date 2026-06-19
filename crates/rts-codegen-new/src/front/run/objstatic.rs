@@ -42,8 +42,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if name != "Object" {
             return Ok(None);
         }
-        // A local/user-class named `Object` shadows the global.
-        if self.local(name).is_some() || self.classes.get(name).is_some() {
+        // A local named `Object` shadows the global. The ambient prelude
+        // `class Object` (object.ts) does NOT: it carries INSTANCE methods only, so
+        // the STATIC surface (`Object.keys`/…) stays on this path (mirrors the
+        // wrapper-primordial-static carve-out for Number/String).
+        if self.local(name).is_some() || (self.classes.get(name).is_some() && name != "Object") {
             return Ok(None);
         }
         match method {
@@ -222,7 +225,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     method.as_str(),
                     "keys" | "values" | "entries" | "getOwnPropertyNames"
                 ) && matches!(&object.kind, HirExprKind::Ident(n)
-                        if n == "Object" && self.local(n).is_none() && self.classes.get(n).is_none())
+                        if n == "Object" && self.local(n).is_none())
             }
             None => false,
         }

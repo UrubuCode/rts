@@ -24,6 +24,16 @@ pub mod gc_surface;
 /// program; declaration order within the include string matters).
 pub const ERROR_TS: &str = include_str!("error.ts");
 
+/// Embedded TypeScript source of the PRIMORDIAL `Object` instance-method library
+/// + factory. Object is NOT a primitive with an autobox — every `{}` is already a
+/// shape-based object, so the methods read `this` AS THE OBJECT (no `__prim`).
+/// `obj.hasOwnProperty(k)`/`.toString()`/`.valueOf()`/… route into this ambient
+/// `class Object` via the OBJECT-receiver dispatch in the new engine, with the
+/// object as `this`; presence checks ride the shape-aware `engine.obj_has` bridge.
+/// The STATIC surface (`Object.keys`/…) stays codegen-native (shape-based) and is
+/// transparent to this instance-only class.
+pub const OBJECT_TS: &str = include_str!("object.ts");
+
 /// Embedded TypeScript source of the PRIMORDIAL `Boolean.prototype` methods
 /// (`toString`/`valueOf`). The new engine `include`s this declarations-only
 /// prelude: a method called on a PRIMITIVE bool receiver (`true.toString()`) is

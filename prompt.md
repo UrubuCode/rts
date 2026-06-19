@@ -49,8 +49,27 @@ classes `.ts` agora são fonte única das DUAS formas JS de construção (padrã
   primitivo desembrulhado; `new String(undefined)`/`String()` 0-arg = corner
   documentado.
 
-**Próximos:** Object, Function, console, CommonJS (§5) — Object/Function de
-construção quando aplicável seguem o MESMO padrão dupla-natureza.
+**Object — instância em .ts + factory (sessão atual, 696 unit tests):** Object NÃO
+é primitivo com autobox (todo `{}` já é objeto shape-based), então NÃO tem `__prim`
+nem dual-`this` — métodos leem `this` como o objeto direto.
+- `obj.hasOwnProperty/propertyIsEnumerable/toString/valueOf` → `class Object`
+  (object.ts) via NOVA rota OBJECT-receiver em `method.rs` (branch no
+  `is_whole_heap_value`: lower o objeto, `try_primitive_class_method(recv,
+  "Object",...)`). Antes BAILAVA.
+- `Object(x)` → `ObjectFactory` (null/undefined→`{}`; objeto passa). `new Object()`
+  → path de classe-de-usuário (objeto vazio).
+- Helper novo: `engine.obj_has(self, key)` (envolve codegen `__rtsadp_obj_has`,
+  shape-aware — NÃO os externs runtime `__RTS_FN_GL_OBJECT_*`, que leem outra
+  representação). Só em `engineobj.rs`.
+- **Estáticas** (`Object.keys/values/entries/assign/freeze`) seguem codegen-native
+  shape-based em `objstatic.rs` (alinhado ao ideal). Carve-out `name != "Object"`
+  em objstatic (2 sítios) torna o `class Object` do prelude transparente às
+  estáticas.
+- Corners: método encadeado em resultado de `Object(x)` (tipo `any`) baila;
+  `Object.keys(Object(...))` (receiver não-ident) baila — limitações pré-existentes
+  do objstatic.
+
+**Próximos:** Function, console, CommonJS (§5).
 
 ---
 

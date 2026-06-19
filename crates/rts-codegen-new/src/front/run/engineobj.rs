@@ -109,6 +109,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if method == "str_from_any" {
             return self.lower_engine_str_from_any(module, args);
         }
+        // `obj_has(self, key)` — shape-aware own-property membership, used by the
+        // `.ts` `class Object` (`hasOwnProperty`/`propertyIsEnumerable`). Both args
+        // are PolyValue words (the object + the key string); wraps the codegen
+        // `__rtsadp_obj_has` (slot-0 shape-id lookup), returns a bool.
+        if method == "obj_has" {
+            return self.lower_engine_obj_has(module, args);
+        }
         // The numeric-format bridge (`num_to_fixed`/`num_to_precision`/
         // `num_to_exponential`/`num_to_string_radix`): each takes (n, arg) — a
         // number receiver + an int arg — and returns a GC string handle. They wrap
@@ -215,6 +222,26 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .call_runtime(module, "__RTS_FN_NS_ENGINE_NUM_FROM_STR", &[s_handle])?
             .expect("engine.num_from_str returns an f64");
         Ok(Val::new(res, Repr::Float64))
+    }
+
+    /// Lower `engine.obj_has(self, key)` — shape-aware own-property membership.
+    /// Boxes the object + key words and calls `__rtsadp_obj_has`, returning a bool.
+    fn lower_engine_obj_has(
+        &mut self,
+        module: &mut dyn Module,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        if args.len() != 2 {
+            return unsupported!("engine.obj_has expects 2 args (self, key), got {}", args.len());
+        }
+        let o = self.lower_expr(module, &args[0])?;
+        let o_word = self.box_value(o);
+        let k = self.lower_expr(module, &args[1])?;
+        let k_word = self.box_value(k);
+        let res = self
+            .call_runtime(module, "__rtsadp_obj_has", &[o_word, k_word])?
+            .expect("engine.obj_has returns a bool");
+        Ok(Val::new(res, Repr::Bool))
     }
 
     /// Lower `engine.str_from_any(x)` — JS ToString of an arbitrary value. Boxes

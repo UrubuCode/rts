@@ -78,6 +78,7 @@ mod number;
 mod number_class;
 mod objdyn;
 mod object;
+mod object_class;
 mod objmethod;
 mod objstatic;
 mod optchain;

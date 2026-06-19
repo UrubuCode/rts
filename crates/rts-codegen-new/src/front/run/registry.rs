@@ -91,6 +91,15 @@ fn build_registry() -> Registry {
     // `Error` base first (the prelude is one merged program; `includes()` joins them
     // in registration order, so order here is declaration order).
     e.include(rts_runtime::ERROR_TS);
+    // The PRIMORDIAL `Object` instance-method library + factory as faithful TS
+    // (`OBJECT_TS`): its ambient `class Object` supplies `hasOwnProperty`/
+    // `propertyIsEnumerable`/`toString`/`valueOf`. An object-receiver method call
+    // (`o.hasOwnProperty(k)`) routes into this class with the object as `this` (see
+    // `method::try_method_dispatch`'s OBJECT-receiver branch); membership rides the
+    // shape-aware `engine.obj_has` bridge. The STATIC surface (`Object.keys`/…)
+    // stays codegen-native in `objstatic.rs` and is transparent to this class (the
+    // `name != "Object"` carve-out there).
+    e.include(rts_runtime::OBJECT_TS);
     // The PRIMORDIAL `Boolean.prototype` methods as faithful TS (embedded include):
     // its ambient `class Boolean` supplies `toString`/`valueOf`. A method called on
     // a PRIMITIVE bool receiver (`true.toString()`) is routed into this class with
