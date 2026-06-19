@@ -40,7 +40,22 @@ cargo build --release` antes de medir.
 
 ## 3. Estado atual (o que já foi feito nesta campanha)
 
+**Baseline de cobertura (medido via `measure_new.sh`):** **183/630 rodam sem bail
+(exit 0)**, dos quais **172 100% VERDES** (asserções corretas) e 11 com divergência
+real exposta. Antes do framework: 0/630 *completavam*. ATENÇÃO: "exit 0" = rodou
+sem bail (cobertura), NÃO = asserção passou — um `expect` que falha imprime ✗ e
+ainda sai 0. O número honesto a citar é **172 verdes**. O pass real definitivo é o
+`rts test` no cutover (P5).
+
 Commits recentes (mais novo primeiro), todos com gate:
+- **`472ac269` FRAMEWORK `rts:test` RODA NO MOTOR NOVO (0 → 172 verdes)** — o
+  GATE-MESTRE do §4. Bundle incluído como prelude; `import from "rts:test"` →
+  funções ambientes; dispatch bare-ambient `test_core`/`string`/`fmt` (prelude-
+  only); prelude com statements top-level prependados ao main; templates em método
+  de classe + re-`this`-rewrite; arrow-callback de fn ambiente; gcell-função
+  `f()`; captura de module-global vira cell-viva; param `fn:i64` chamado forçado
+  Tagged; `expect(x).toBe(y)` via ret_class inferido; StrPtr coage via ToString;
+  superfície completa `test_core`/`string`/`fmt` JIT-linkada (anti-SIGILL §7).
 - `8e2c735c` imports de namespace-objeto (`import {io,gc} from "rts"` → `gc.x()`).
 - `9b0b5f94` fix: gcell store thread-local (corrida cross-programa nos unit tests).
 - **`27e3d4fd` GLOBAIS MUTÁVEIS MODULE-LEVEL (#195) + void fall-through** — maior
@@ -54,7 +69,20 @@ NÃO é regressão; sempre cite assim).
 
 ---
 
-## 4. O PRÓXIMO GATE CRÍTICO — o framework `rts:test`
+## 4. GATE-MESTRE — o framework `rts:test` — ✅ FEITO (`472ac269`)
+
+> **RESOLVIDO.** Os 6 sub-gates abaixo foram todos implementados (ver commit
+> `472ac269` e §3). O framework compila + roda; 172 arquivos verdes. O texto
+> original abaixo fica como REGISTRO do que foi feito. O PRÓXIMO trabalho é a
+> **cauda longa de clusters** do histograma do `measure_new.sh` (maior alavanca
+> primeiro): hoje `expression arrow` (44, arrows que ainda bailam fora do padrão
+> de callback), `unbound identifier` (39), `class X não é user class` (38),
+> `call to unknown function` (32), `no Registry entry` p/ `.map/.filter` com
+> callback (20), `expression raw/unrecognized` (18, templates/optchain em sítios
+> ainda não pareados), `cannot coerce FloatN to IntN` (18). Re-rode
+> `measure_new.sh` e ataque o maior.
+
+### (registro) O gate do framework `rts:test`
 
 **Por que é o gate-mestre:** TODO `.test.ts` termina com as asserções:
 ```ts
