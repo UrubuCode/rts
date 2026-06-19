@@ -80,6 +80,35 @@ framework não roda no motor novo, NENHUM arquivo completa** (fica 0/630
 - `expect(x)` retorna um MATCHER (objeto com `.toBe`/`.toEqual`/…). Ver o resto do
   bundle (`sed -n '40,238p'`).
 
+**Sub-gates CONCRETOS já levantados (ataque nesta ordem):**
+1. **Registrar + JIT-LINKAR `test_core`, `string`, `fmt`.** `ns::test_core::register`
+   existe (`crates/rts-std/src/test/mod.rs:287`), `fmt` idem. MAS **test_core tem 0
+   símbolos em `runtime_link.rs`** → chamar `test_core.suite_begin` = SIGILL. É
+   preciso adicionar TODOS os `__RTS_FN_NS_{TEST_CORE,STRING,FMT}_*` em
+   `runtime_link::jit_symbols` + sigs (ou via registry_call). (~35 fns; agente
+   dedicado.) Confirme cada símbolo existe no runtime antes.
+2. **Dispatch BARE-AMBIENT de namespace:** o bundle chama `test_core.x()`/
+   `string.x()`/`fmt.x()` SEM importar (idents ambientes, "import stripping"). Hoje
+   `test_core` é unbound. Precisa: um Ident que nomeia um namespace REGISTRADO e não
+   é local → `obj.member()` resolve via `namespace_member` (como `Math.x()` em
+   `mathobj.rs`, ou estender o ramo ns-objeto de `method.rs` p/ namespaces ambientes
+   conhecidos, não só os importados). Só p/ código origem-prelude (o bundle).
+3. **Incluir `bundle.ts` como prelude** (`registry.rs::build_registry` →
+   `e.include(rts_runtime::TEST_BUNDLE_TS)`; const em `rts-primitives`/`rts-runtime`
+   facade OU lê de rts-std). describe/test/expect/Matcher viram ambientes.
+4. **Wire `import {…} from "rts:test"`:** NÃO ligar como `Builtin{ns:"test"}` (vira
+   chamada de namespace e falha). Tratar `rts:test` como MÓDULO: cada nome resolve
+   à função/classe ambiente do prelude de mesmo nome (skip binding, ou binding
+   Local-ambiente). `flatten.rs` + `module_entry::apply_bindings`.
+5. **Classe `Matcher` + `expect()`** retornando `new Matcher(actual)` com getter
+   `not` + métodos. Classes/getters já existem no motor — validar o bundle compila.
+6. **`fn: i64` chamado como `fn()`:** o callback de describe/test é arrow `()=>{}`
+   reificada (TAG_FUNCTION); `fn()` = call-indirect de valor-função. Validar
+   `funcops`/reify cobrem o param-i64-chamado.
+
+Itera com `run-new` num `.test.ts` mínimo após cada sub-gate; o bundle revela o
+próximo bail.
+
 **Abordagem provável (validar):** incluir `bundle.ts` como PRELUDE (igual
 `error.ts`/`MAP_SET_TS` em `registry.rs::build_registry` via `e.include(...)`) p/
 describe/test/expect virarem funções AMBIENTES; e fazer `import {…} from "rts:test"`
