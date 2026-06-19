@@ -80,6 +80,37 @@ fn build_registry() -> Registry {
     ns::test::register(&mut e);
     ns::globals::string::register(&mut e);
     ns::fmt::register(&mut e);
+    // The broad std namespace surface the `tests/*.test.ts` import via `rts:<ns>`.
+    // Registering each makes its members resolvable through [`namespace_member`];
+    // their `__RTS_FN_NS_*` symbols carry REAL `fn_ptr`s (macro-`#[rts_namespace]`),
+    // so [`all_jit_symbols`] harvests + installs the whole surface in one shot —
+    // SIGILL-safe (no link-OK/runtime-miss). Heavier/feature-gated namespaces
+    // (http_server/tls/ui/audio/runtime) are deliberately out until a test needs them.
+    ns::fs::register(&mut e);
+    ns::time::register(&mut e);
+    ns::env::register(&mut e);
+    ns::path::register(&mut e);
+    ns::num::register(&mut e);
+    ns::mem::register(&mut e);
+    ns::hash::register(&mut e);
+    ns::hint::register(&mut e);
+    ns::ptr::register(&mut e);
+    ns::buffer::register(&mut e);
+    ns::alloc::register(&mut e);
+    ns::bigfloat::register(&mut e);
+    ns::atomic::register(&mut e);
+    ns::sync::register(&mut e);
+    ns::trace::register(&mut e);
+    ns::process::register(&mut e);
+    ns::os::register(&mut e);
+    ns::crypto::register(&mut e);
+    ns::net::register(&mut e);
+    ns::json::register(&mut e);
+    ns::promise::register(&mut e);
+    ns::parallel::register(&mut e);
+    ns::thread::register(&mut e);
+    ns::ffi::register(&mut e);
+    ns::events::register(&mut e);
     // The PRIVATE `engine` namespace (arch/time/trace) the embedded TS prelude
     // calls. Marked `.private()`; the lowering's `engineobj` gate enforces that
     // only prelude-origin code names the `engine` global.
@@ -222,6 +253,21 @@ pub fn namespace_jit_symbols(ns: &str) -> Vec<(&'static str, *const u8)> {
         .iter()
         .filter(|mem| !mem.fn_ptr.0.is_null())
         .map(|mem| (mem.symbol.as_str(), mem.fn_ptr.0))
+        .collect()
+}
+
+/// EVERY `(symbol, fn_ptr)` the Registry harvested across ALL registered
+/// namespaces + classes (the engine's null-skipped `jit_symbols` table). The JIT
+/// installs all of them so every member resolvable via [`namespace_member`] /
+/// [`class_member`] has its address present — the SIGILL-safe wholesale install
+/// for the macro-`#[rts_namespace]` surfaces (their members carry real `fn_ptr`s).
+/// Namespaces whose members carry NULL `fn_ptr`s (gc pool / `string`) are absent
+/// here and installed by address in `runtime_link`.
+pub fn all_jit_symbols() -> Vec<(&'static str, *const u8)> {
+    registry()
+        .jit_symbols()
+        .filter(|(_, p)| !p.0.is_null())
+        .map(|(s, p)| (s, p.0))
         .collect()
 }
 

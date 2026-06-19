@@ -27,6 +27,8 @@
 //! only list real, non-null bodies) and (b) keeps the surface honest — every
 //! entry is the actual runtime function the lowering calls.
 
+use rts_engine::heap::env as rt_env;
+use rts_engine::heap::instance as rt_inst;
 use rts_runtime::namespaces::collections::vec as rt_vec;
 use rts_runtime::namespaces::globals::string::{
     replace as rt_str_replace, search as rt_str_search, split as rt_str_split,
@@ -544,6 +546,7 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
     syms.extend(math_number_symbols());
     syms.extend(engine_symbols());
     syms.extend(test_framework_symbols());
+    syms.extend(gc_internal_symbols());
     // Pilar 6: the REAL `__RTS_FN_GL_DATE_*` / `__RTS_FN_NS_DATE_*` symbols the
     // Registry-driven Date dispatch ([`crate::front::run::registry_call`]) emits
     // directly — replacing the `__rtsadp_date_*` trampolines that used to forward
@@ -920,12 +923,14 @@ fn engine_symbols() -> Vec<JitSymbol> {
 /// `namespace_jit_symbols`).
 fn test_framework_symbols() -> Vec<JitSymbol> {
     let mut out = Vec::new();
-    // `test_core` + `fmt` set REAL `fn_ptr`s on their members, so the Registry
-    // harvest installs their full surfaces directly.
-    for ns in ["test_core", "fmt"] {
-        for (name, ptr) in crate::front::run::registry::namespace_jit_symbols(ns) {
-            out.push(sym(name, ptr));
-        }
+    // The FULL Registry harvest: every member with a real `fn_ptr` across ALL
+    // registered namespaces (io/math/date/test_core/fmt + the broad std surface
+    // fs/time/atomic/num/… registered in `registry::build_registry`). Installing the
+    // whole table makes every `import { x } from "rts:<ns>"` SIGILL-safe. Duplicates
+    // with the hand-listed entries above are harmless (JITBuilder::symbol last-wins,
+    // same address).
+    for (name, ptr) in crate::front::run::registry::all_jit_symbols() {
+        out.push(sym(name, ptr));
     }
     // The `string` namespace declares its members with a NULL `fn_ptr` (the real
     // bodies live in `rts-primitives::string`, installed by address — the same
@@ -951,6 +956,47 @@ fn test_framework_symbols() -> Vec<JitSymbol> {
         sym("__RTS_FN_NS_STRING_CHAR_COUNT", rt_str_split::__RTS_FN_NS_STRING_CHAR_COUNT as *const u8),
     ]);
     out
+}
+
+/// The `gc` namespace's INTERNAL real symbols (collector / heap env+instance /
+/// string-pool inspection) whose `Member.fn_ptr` is NULL (the owning submodule
+/// holds the address, like the string pool), so the Registry harvest skips them.
+/// The `gc` namespace is registered (the bundle uses `gc.string_*`), which makes
+/// these resolvable via `gc.live_count()` / `import {…} from "rts:gc"`; install
+/// every one by address or such a call link-OK/runtime-SIGILLs (§7). GCELL_GET/SET
+/// and the string-pool string ops are already in the main list above.
+fn gc_internal_symbols() -> Vec<JitSymbol> {
+    use rts_runtime::namespaces::gc::collector as rt_gcoll;
+    use rts_runtime::namespaces::gc::string_pool as rt_pool;
+    vec![
+        // collector
+        sym("__RTS_FN_NS_GC_COLLECT", rt_gcoll::__RTS_FN_NS_GC_COLLECT as *const u8),
+        sym("__RTS_FN_NS_GC_COLLECT_DEBT", rt_gcoll::__RTS_FN_NS_GC_COLLECT_DEBT as *const u8),
+        sym("__RTS_FN_NS_GC_COLLECT_VEC", rt_gcoll::__RTS_FN_NS_GC_COLLECT_VEC as *const u8),
+        sym("__RTS_FN_NS_GC_LIVE_COUNT", rt_gcoll::__RTS_FN_NS_GC_LIVE_COUNT as *const u8),
+        // heap env-record
+        sym("__RTS_FN_NS_GC_ENV_ALLOC", rt_env::__RTS_FN_NS_GC_ENV_ALLOC as *const u8),
+        sym("__RTS_FN_NS_GC_ENV_FREE", rt_env::__RTS_FN_NS_GC_ENV_FREE as *const u8),
+        sym("__RTS_FN_NS_GC_ENV_GET", rt_env::__RTS_FN_NS_GC_ENV_GET as *const u8),
+        sym("__RTS_FN_NS_GC_ENV_SET", rt_env::__RTS_FN_NS_GC_ENV_SET as *const u8),
+        // heap instance
+        sym("__RTS_FN_NS_GC_INSTANCE_NEW", rt_inst::__RTS_FN_NS_GC_INSTANCE_NEW as *const u8),
+        sym("__RTS_FN_NS_GC_INSTANCE_FREE", rt_inst::__RTS_FN_NS_GC_INSTANCE_FREE as *const u8),
+        sym("__RTS_FN_NS_GC_INSTANCE_CLASS", rt_inst::__RTS_FN_NS_GC_INSTANCE_CLASS as *const u8),
+        sym("__RTS_FN_NS_GC_INSTANCE_LOAD_I64", rt_inst::__RTS_FN_NS_GC_INSTANCE_LOAD_I64 as *const u8),
+        sym("__RTS_FN_NS_GC_INSTANCE_LOAD_I32", rt_inst::__RTS_FN_NS_GC_INSTANCE_LOAD_I32 as *const u8),
+        sym("__RTS_FN_NS_GC_INSTANCE_LOAD_F64", rt_inst::__RTS_FN_NS_GC_INSTANCE_LOAD_F64 as *const u8),
+        sym("__RTS_FN_NS_GC_INSTANCE_STORE_I64", rt_inst::__RTS_FN_NS_GC_INSTANCE_STORE_I64 as *const u8),
+        sym("__RTS_FN_NS_GC_INSTANCE_STORE_I32", rt_inst::__RTS_FN_NS_GC_INSTANCE_STORE_I32 as *const u8),
+        sym("__RTS_FN_NS_GC_INSTANCE_STORE_F64", rt_inst::__RTS_FN_NS_GC_INSTANCE_STORE_F64 as *const u8),
+        // string-pool inspection
+        sym("__RTS_FN_NS_GC_HANDLE_LEN", rt_pool::__RTS_FN_NS_GC_HANDLE_LEN as *const u8),
+        sym("__RTS_FN_NS_GC_IS_VEC", rt_pool::__RTS_FN_NS_GC_IS_VEC as *const u8),
+        sym("__RTS_FN_NS_GC_IS_MAP_LIKE", rt_pool::__RTS_FN_NS_GC_IS_MAP_LIKE as *const u8),
+        sym("__RTS_FN_NS_GC_IS_DATE", rt_pool::__RTS_FN_NS_GC_IS_DATE as *const u8),
+        sym("__RTS_FN_NS_GC_IS_PROMISE", rt_pool::__RTS_FN_NS_GC_IS_PROMISE as *const u8),
+        sym("__RTS_FN_NS_GC_IS_REGEX", rt_pool::__RTS_FN_NS_GC_IS_REGEX as *const u8),
+    ]
 }
 
 #[inline]
