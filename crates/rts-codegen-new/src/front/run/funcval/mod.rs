@@ -110,12 +110,25 @@ pub struct ExtractResult {
 /// name. A non-capturing arrow becomes a plain function; a capturing arrow becomes
 /// a CLOSURE (captured vars prepended as leading params + recorded in `captures`).
 /// Returns the synthesized functions + the per-closure capture lists.
-pub fn extract_arrows(funcs: &mut Vec<HirFunc>, main: &mut HirFunc) -> ExtractResult {
+pub fn extract_arrows(
+    funcs: &mut Vec<HirFunc>,
+    main: &mut HirFunc,
+    ambient_fns: &HashSet<String>,
+    module_globals: &HashSet<String>,
+) -> ExtractResult {
     let mut top_level: HashSet<String> = funcs.iter().map(|f| f.name.clone()).collect();
     top_level.insert(main.name.clone());
+    // AMBIENT prelude functions (the `rts:test` `describe`/`test`/`expect`, the
+    // primordial `.ts` helpers) are not in THIS program's `funcs` yet (they merge in
+    // later), but a user callback arrow that references one is NOT capturing an outer
+    // LOCAL — it is a free reference to a known top-level function. Seed them so such
+    // an arrow lifts to a plain function instead of being misjudged an unsound
+    // capture and left to bail (`expression arrow`).
+    top_level.extend(ambient_fns.iter().cloned());
 
     let mut ctx = Ctx {
         top_level,
+        module_globals: module_globals.clone(),
         synthesized: Vec::new(),
         captures: HashMap::new(),
         counter: 0,
@@ -197,6 +210,7 @@ fn hoist_captures(funcs: &mut [HirFunc], main: &HirFunc, ctx: &mut Ctx) {
             if param_names.contains(id)
                 || GLOBALS.contains(&id.as_str())
                 || ctx.top_level.contains(id)
+                || ctx.module_globals.contains(id)
             {
                 continue;
             }
@@ -249,6 +263,12 @@ fn declared_locals(stmts: &[HirStmt]) -> HashSet<String> {
 struct Ctx {
     /// Names resolving to a top-level function (free refs to these are not captures).
     top_level: HashSet<String>,
+    /// MODULE-LEVEL MUTABLE GLOBAL (#195) names: a free ref to one is NOT a capture
+    /// — it resolves to the shared runtime CELL (`GCELL_GET/SET`), so a closure that
+    /// reads/writes it sees the LIVE value, never a stale by-value snapshot. The
+    /// `rts:test` harness's `__rtsCapturedOutput` (a top-level `let` the `print`
+    /// helper writes, read inside every `expect(...)` callback) is the canonical case.
+    module_globals: HashSet<String>,
     /// Functions synthesized from extracted arrows.
     synthesized: Vec<HirFunc>,
     /// synthesized closure fn name → ordered captured outer-local names.
@@ -419,6 +439,7 @@ impl Ctx {
             if param_names.contains(id)
                 || GLOBALS.contains(&id.as_str())
                 || self.top_level.contains(id)
+                || self.module_globals.contains(id)
             {
                 continue;
             }

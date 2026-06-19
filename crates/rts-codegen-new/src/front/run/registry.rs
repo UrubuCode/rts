@@ -70,6 +70,16 @@ fn build_registry() -> Registry {
     // the rts:test fixtures use directly. Its `__RTS_FN_NS_GC_*` symbols are JIT-
     // linked in `runtime_link`.
     ns::gc::register(&mut e);
+    // The `rts:test` FRAMEWORK backing namespaces, used AMBIENTLY by the embedded
+    // `TEST_BUNDLE_TS` prelude (the high-level describe/test/expect harness):
+    // `test_core.*` (the runner primitives), `string.*` (contains/startsWith/
+    // endsWith for the matchers), `fmt.parse_f64` (numeric matchers). They are
+    // resolved as bare-ambient namespace calls gated to PRELUDE-origin code
+    // (`method::try_method_dispatch`), and their `__RTS_FN_NS_{TEST_CORE,STRING,FMT}_*`
+    // symbols are JIT-linked in `runtime_link`.
+    ns::test::register(&mut e);
+    ns::globals::string::register(&mut e);
+    ns::fmt::register(&mut e);
     // The PRIVATE `engine` namespace (arch/time/trace) the embedded TS prelude
     // calls. Marked `.private()`; the lowering's `engineobj` gate enforces that
     // only prelude-origin code names the `engine` global.
@@ -139,6 +149,16 @@ fn build_registry() -> Registry {
     // `class Set` shadow the native dispatch in every program — making the native
     // Map/Set code dead (deleted in B3).
     e.include(rts_runtime::stdlib::MAP_SET_TS);
+    // The high-level `rts:test` FRAMEWORK as faithful TS (embedded include): its
+    // ambient `describe`/`test`/`expect`/`Matcher` (+ lifecycle hooks) are the
+    // surface every `tests/*.test.ts` imports from `"rts:test"`. Included LAST so
+    // its `class Matcher` + functions see every primordial already ambient. The
+    // `import { describe, test, expect } from "rts:test"` in a test file binds to
+    // these prelude declarations (see `flatten`: `rts:test` names resolve to the
+    // ambient prelude function of the same name, NOT a namespace member). The
+    // bundle's bare `test_core.*`/`string.*`/`fmt.*` calls resolve as prelude-only
+    // ambient namespace calls (`method::try_method_dispatch`).
+    e.include(rts_runtime::namespaces::test::BUNDLE_TS);
     e.into_registry()
 }
 
@@ -182,6 +202,35 @@ fn flat_call(m: &'static Member) -> ResolvedCall {
 /// construct + dispatch through here.
 pub fn has_class(class: &str) -> bool {
     registry().class(class).is_some()
+}
+
+/// Every `(symbol, fn_ptr)` of the registered namespace `rts:<ns>` whose member
+/// carries a REAL (non-null) function pointer — the JIT-installable symbols of
+/// that namespace. The JIT must install ALL of them (not just the handful the
+/// prelude bundle calls): once a namespace is registered, ANY of its members is
+/// resolvable via [`namespace_member`] (`import { byte_len } from "rts:string"`),
+/// so each emitted `call <symbol>` needs its address installed or it is a
+/// link-OK/runtime-SIGILL (the honesty floor's "nothing that crashes as pass").
+/// Null pointers (alias/external members) are skipped — same null-skip invariant
+/// as the engine's own `jit_symbols`.
+pub fn namespace_jit_symbols(ns: &str) -> Vec<(&'static str, *const u8)> {
+    let key = format!("rts:{ns}");
+    let Some(m) = registry().module(&key) else {
+        return Vec::new();
+    };
+    m.members
+        .iter()
+        .filter(|mem| !mem.fn_ptr.0.is_null())
+        .map(|mem| (mem.symbol.as_str(), mem.fn_ptr.0))
+        .collect()
+}
+
+/// Whether `ns` is a registered builtin NAMESPACE (`rts:<ns>`). Lets the lowering
+/// recognize a bare ambient namespace ident (`test_core`/`string`/`fmt`) used by
+/// the embedded prelude and route it through [`namespace_member`]. Empty `ns`
+/// (bare `"rts"`) is not a namespace.
+pub fn has_namespace(ns: &str) -> bool {
+    !ns.is_empty() && registry().module(&format!("rts:{ns}")).is_some()
 }
 
 /// Resolve `class.method(argc)` as an INSTANCE method to its [`ResolvedCall`].

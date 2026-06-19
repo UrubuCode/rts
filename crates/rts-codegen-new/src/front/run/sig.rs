@@ -54,6 +54,13 @@ pub struct FnSig {
     /// here. A PLAIN call `F(args)` to a `has_this` function prepends `undefined`
     /// as the receiver (Phase 1; `new F()` passing a real instance is Phase 2).
     pub has_this: bool,
+    /// The user-CLASS this function provably RETURNS, when its body's `return`
+    /// statements all construct the SAME known class (`return new Matcher(..)`).
+    /// Lets a chained method call on the call RESULT (`expect(x).toBe(y)` — the
+    /// `rts:test` matcher pattern) dispatch statically on that class. `None` when
+    /// the return class is not provable. Filled by `compile_program` (which has the
+    /// class table); `of_func`/`main_sig` leave it `None`.
+    pub ret_class: Option<String>,
 }
 
 impl FnSig {
@@ -72,11 +79,20 @@ impl FnSig {
             .iter()
             .map(|p| p.optional || p.has_default)
             .collect();
+        // Params that are CALLED as a function in the body (`fn(...)`). A function
+        // VALUE is a `TAG_FUNCTION` PolyValue word; if such a param were carried in a
+        // native numeric repr (its declared `i64`/`number` — the `rts:test` bundle
+        // types its callbacks `fn: i64`, the old engine's function-handle
+        // convention), the call-site coercion would UNBOX the boxed word as an
+        // integer and corrupt it, so the later `fn()` jumps to a garbage address
+        // (stack overflow / SIGILL). Force every called param to `Tagged` so the
+        // function word rides verbatim and the indirect invoke gets the real value.
+        let called = params_called_as_fn(func);
         let params: Vec<Repr> = func
             .params
             .iter()
             .map(|p| {
-                if p.optional || p.has_default {
+                if p.optional || p.has_default || called.contains(&p.name) {
                     Repr::Tagged
                 } else {
                     repr_for_param(&p.ty)
@@ -120,6 +136,7 @@ impl FnSig {
                 rest_param,
                 fillable,
                 has_this,
+                ret_class: None,
             };
         }
         // The declared return repr — trusted in general (an explicit `boolean` /
@@ -169,6 +186,7 @@ impl FnSig {
             rest_param,
             fillable,
             has_this,
+            ret_class: None,
         }
     }
 
@@ -182,6 +200,7 @@ impl FnSig {
             rest_param: None,
             fillable: Vec::new(),
             has_this: false,
+            ret_class: None,
         }
     }
 
@@ -249,4 +268,157 @@ fn walk_returns(stmts: &[HirStmt], any: &mut bool, all_float: &mut bool) {
 /// the value layer's interpretation, both are i64 registers).
 fn repr_or_tagged(r: Repr) -> Repr {
     if r.is_unboxed() { r } else { Repr::Tagged }
+}
+
+/// The set of PARAMETER names that appear as a CALL CALLEE (`name(...)`) anywhere
+/// in `func`'s body — i.e. params used as first-class functions. Such a param must
+/// be carried `Tagged` (a `TAG_FUNCTION` PolyValue word), never a native numeric
+/// repr, so the indirect invoke gets the real function value (see `of_func`).
+fn params_called_as_fn(func: &HirFunc) -> std::collections::HashSet<String> {
+    let param_names: std::collections::HashSet<&str> =
+        func.params.iter().map(|p| p.name.as_str()).collect();
+    let mut called: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    fn walk_expr(
+        e: &rts_hir::HirExpr,
+        params: &std::collections::HashSet<&str>,
+        out: &mut std::collections::HashSet<String>,
+    ) {
+        use rts_hir::ir::HirExprKind as K;
+        if let K::Call { callee, args } = &e.kind {
+            if let K::Ident(name) = &callee.kind {
+                if params.contains(name.as_str()) {
+                    out.insert(name.clone());
+                }
+            }
+            walk_expr(callee, params, out);
+            for a in args {
+                walk_expr(a, params, out);
+            }
+            return;
+        }
+        // Recurse into every child expression of the other forms.
+        match &e.kind {
+            K::Bin { lhs, rhs, .. } | K::AssignOp { target: lhs, value: rhs, .. } | K::Assign { target: lhs, value: rhs } => {
+                walk_expr(lhs, params, out);
+                walk_expr(rhs, params, out);
+            }
+            K::Unary { operand, .. }
+            | K::Cast { expr: operand, .. }
+            | K::Await(operand)
+            | K::Spread(operand)
+            | K::PreInc(operand)
+            | K::PreDec(operand)
+            | K::PostInc(operand)
+            | K::PostDec(operand) => walk_expr(operand, params, out),
+            K::MethodCall { object, args, .. } => {
+                walk_expr(object, params, out);
+                for a in args {
+                    walk_expr(a, params, out);
+                }
+            }
+            K::New { args, .. } => {
+                for a in args {
+                    walk_expr(a, params, out);
+                }
+            }
+            K::Member { object, .. } => walk_expr(object, params, out),
+            K::Index { object, index } => {
+                walk_expr(object, params, out);
+                walk_expr(index, params, out);
+            }
+            K::Ternary { cond, then, else_ } => {
+                walk_expr(cond, params, out);
+                walk_expr(then, params, out);
+                walk_expr(else_, params, out);
+            }
+            K::Array(items) => {
+                for it in items {
+                    walk_expr(it, params, out);
+                }
+            }
+            K::Object(fields) => {
+                for (_, v) in fields {
+                    walk_expr(v, params, out);
+                }
+            }
+            K::Seq(items) => {
+                for it in items {
+                    walk_expr(it, params, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn walk_stmts(
+        stmts: &[HirStmt],
+        params: &std::collections::HashSet<&str>,
+        out: &mut std::collections::HashSet<String>,
+    ) {
+        for s in stmts {
+            match s {
+                HirStmt::Expr(e) | HirStmt::Return(Some(e)) | HirStmt::Throw(e) => {
+                    walk_expr(e, params, out)
+                }
+                HirStmt::Let { init: Some(e), .. } | HirStmt::Const { init: e, .. } => {
+                    walk_expr(e, params, out)
+                }
+                HirStmt::If { cond, then, else_ } => {
+                    walk_expr(cond, params, out);
+                    walk_stmts(then, params, out);
+                    if let Some(e) = else_ {
+                        walk_stmts(e, params, out);
+                    }
+                }
+                HirStmt::While { cond, body } | HirStmt::DoWhile { body, cond } => {
+                    walk_expr(cond, params, out);
+                    walk_stmts(body, params, out);
+                }
+                HirStmt::For { init, cond, update, body } => {
+                    if let Some(i) = init {
+                        walk_stmts(std::slice::from_ref(i), params, out);
+                    }
+                    if let Some(c) = cond {
+                        walk_expr(c, params, out);
+                    }
+                    if let Some(u) = update {
+                        walk_expr(u, params, out);
+                    }
+                    walk_stmts(body, params, out);
+                }
+                HirStmt::ForOf { iterable, body, .. } => {
+                    walk_expr(iterable, params, out);
+                    walk_stmts(body, params, out);
+                }
+                HirStmt::ForIn { object, body, .. } => {
+                    walk_expr(object, params, out);
+                    walk_stmts(body, params, out);
+                }
+                HirStmt::Block(body) => walk_stmts(body, params, out),
+                HirStmt::Try { body, catch, finally } => {
+                    walk_stmts(body, params, out);
+                    if let Some(c) = catch {
+                        walk_stmts(&c.body, params, out);
+                    }
+                    if let Some(f) = finally {
+                        walk_stmts(f, params, out);
+                    }
+                }
+                HirStmt::Switch { discriminant, cases } => {
+                    walk_expr(discriminant, params, out);
+                    for c in cases {
+                        if let Some(t) = &c.test {
+                            walk_expr(t, params, out);
+                        }
+                        walk_stmts(&c.body, params, out);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    walk_stmts(&func.body, &param_names, &mut called);
+    called
 }

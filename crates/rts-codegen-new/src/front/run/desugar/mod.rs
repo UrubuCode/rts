@@ -54,6 +54,7 @@ pub(crate) fn desugar(
     program: &rts_ast::ast::Program,
     main_body: &mut Vec<HirStmt>,
     funcs: &mut [rts_hir::HirFunc],
+    classes: &super::class::ClassTable,
 ) {
     // Collect the swc statements that became the main body, in source order.
     let top_stmts: Vec<&swc_ecma_ast::Stmt> = program
@@ -81,6 +82,54 @@ pub(crate) fn desugar(
                 .find(|f| f.name == fdecl.name && !f.is_arrow)
             {
                 rewrite_unit(&swc_stmts, &mut f.body);
+            }
+        }
+    }
+
+    // Pair each CLASS METHOD / accessor body with its synthesized HirFunc. A
+    // method body's statements are 1:1 with its swc source (only a leading `this`
+    // PARAM is synthesized — no body statement is injected), so positional pairing
+    // is exact, exactly like a free function. This is what recovers a template /
+    // optional-chain INSIDE a class method (the `rts:test` `Matcher` failure
+    // messages are the canonical case). The CONSTRUCTOR is intentionally skipped:
+    // its HIR body carries a synthesized prologue (field inits, `super(..)`) ahead
+    // of the user statements, so the swc/HIR positional pairing would be offset —
+    // a constructor template/chain stays Raw (a later increment; ctors rarely use
+    // them, the bundle's does not).
+    for it in &program.items {
+        let Item::Class(c) = it else { continue };
+        let Some(desc) = classes.get(&c.name) else {
+            continue;
+        };
+        for m in &c.members {
+            let rts_ast::ast::ClassMember::Method(md) = m else {
+                continue;
+            };
+            use rts_ast::ast::MethodRole;
+            let synth = match md.role {
+                MethodRole::Method => desc.methods.get(&md.name),
+                MethodRole::Getter => desc.accessors.get(&md.name).and_then(|a| a.getter.as_ref()),
+                MethodRole::Setter => desc.accessors.get(&md.name).and_then(|a| a.setter.as_ref()),
+            };
+            let Some(synth) = synth else { continue };
+            let swc_stmts: Vec<&swc_ecma_ast::Stmt> = md
+                .body
+                .iter()
+                .filter_map(|s| match s {
+                    Statement::Raw(raw) => raw.stmt.as_ref(),
+                })
+                .collect();
+            if let Some(f) = funcs.iter_mut().find(|f| &f.name == synth) {
+                rewrite_unit(&swc_stmts, &mut f.body);
+                // Template / optional-chain recovery RE-LOWERS the interpolated swc
+                // sub-exprs through rts-hir, which re-emits a `this` reference as a
+                // fresh `Raw("This(..)")` — but the class `this`-rewrite already ran
+                // (during synth, BEFORE desugar). So re-run it here, idempotently, to
+                // bind any `this` that re-appeared inside a recovered template/chain
+                // in a method body (`` `${this._actual}` `` in `Matcher`). It only
+                // touches `Raw("This(..)")` nodes, so an already-`Ident("this")` body
+                // is unchanged.
+                super::class::rewrite_this_block(&mut f.body);
             }
         }
     }

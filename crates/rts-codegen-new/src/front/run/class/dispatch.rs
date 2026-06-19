@@ -32,6 +32,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         match &object.kind {
             HirExprKind::New { class, .. } => self.classes.get(class).map(|_| class.clone()),
             HirExprKind::Ident(name) => self.local_classes.get(name).cloned(),
+            // A CALL whose callee is a user function with a provable return class
+            // (`expect(x)` → `Matcher`): lets a chained method dispatch statically on
+            // the result (`expect(x).toBe(y)`). Only a bare-ident callee is resolved
+            // (a method/computed callee's return class is a later increment).
+            HirExprKind::Call { callee, .. } => match &callee.kind {
+                HirExprKind::Ident(fname) => {
+                    self.sigs.get(fname).and_then(|s| s.ret_class.clone())
+                }
+                _ => None,
+            },
             _ => None,
         }
     }

@@ -72,6 +72,20 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
         for edge in &node.imports {
             match &edge.target {
                 Target::Builtin { specifier } => {
+                    // `rts:test` is NOT a runtime namespace — it is the high-level
+                    // test FRAMEWORK, embedded as the `TEST_BUNDLE_TS` prelude. Its
+                    // `describe`/`test`/`expect` are AMBIENT prelude functions (merged
+                    // into the flat program). Bind each imported name to the prelude
+                    // declaration of the same name (`Binding::Local`): a plain import
+                    // is a no-op rename and the bare call resolves to the prelude fn;
+                    // an `as`-alias renames the reference. NOT a `Builtin` binding (a
+                    // namespace-member call to a nonexistent `test` namespace).
+                    if specifier == "rts:test" {
+                        for (orig, local) in &edge.names {
+                            bindings.insert(local.clone(), Binding::Local { name: orig.clone() });
+                        }
+                        continue;
+                    }
                     let ns = builtin_ns(specifier);
                     // BARE `"rts"` (`ns == ""`): each imported name is a NAMESPACE
                     // OBJECT (`import { io, gc } from "rts"` → `io`/`gc`), so bind it

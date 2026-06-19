@@ -57,13 +57,21 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 ));
             }
             AbiType::StrPtr => {
-                if !matches!(val.kind, JsKind::Str) {
-                    return unsupported!(
-                        "registry call expects a string arg (StrPtr) but got {:?}",
-                        val.kind
-                    );
-                }
-                let word = self.box_value(val);
+                // A StrPtr param needs a real string handle behind the value. A
+                // PROVEN string rides its word directly; a Tagged/typed value whose
+                // kind is lost at a function boundary (a `string`-typed param, an
+                // `any`) is an UNTRUSTED boundary — coerce it through the ToString
+                // authority (Pilar 3) so it marshals correctly (ToString of a string
+                // is itself; of a number/bool/etc. the JS string form). This is what
+                // lets the `rts:test` bundle pass `name`/`expected` params (Tagged) to
+                // `test_core.*`/`string.*` without a mis-marshal or a false bail.
+                let word = if matches!(val.kind, JsKind::Str) {
+                    self.box_value(val)
+                } else {
+                    let w = self.box_value(val);
+                    self.call_runtime(module, "__rtsadp_to_string", &[w])?
+                        .expect("__rtsadp_to_string returns a string word")
+                };
                 let handle = value::emit_marshal::emit_table_load(module, self.builder, word);
                 let (ptr, len) =
                     value::emit_marshal::emit_string_ptr_len(module, self.builder, handle);

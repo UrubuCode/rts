@@ -48,7 +48,7 @@ mod obj;
 mod objstatic;
 mod optchain_lower;
 mod regex;
-mod registry;
+pub(crate) mod registry;
 mod registry_call;
 mod sig;
 mod stmt;
@@ -98,9 +98,19 @@ fn build_with_includes(src: &str) -> FrontResult<LoweredProgram> {
         build_program(src)
     } else {
         let prelude = build_program(&inc)?;
-        let user = build_program_with_ambient(src, &prelude.classes)?;
+        let ambient_fns = prelude_fn_names(&prelude);
+        let user = build_program_with_ambient(src, &prelude.classes, &ambient_fns)?;
         merge_programs(prelude, user)
     }
+}
+
+/// The set of top-level function names a `prelude` exposes — the AMBIENT functions
+/// a user program may reference (the `rts:test` `describe`/`test`/`expect`, the
+/// primordial `.ts` helpers). Seeded into the user build's arrow extraction so a
+/// callback arrow naming one is not misjudged a capture (see [`build_from_program`]
+/// → [`funcval::extract_arrows`]).
+fn prelude_fn_names(prelude: &LoweredProgram) -> std::collections::HashSet<String> {
+    prelude.funcs.iter().map(|f| f.name.clone()).collect()
 }
 
 /// Parse, lower, JIT, and run `src` with `console.log` output CAPTURED into a
@@ -139,10 +149,11 @@ fn build_program_for_prelude(src: &str) -> FrontResult<LoweredProgram> {
 fn build_program_with_ambient(
     src: &str,
     ambient: &class::ClassTable,
+    ambient_fns: &std::collections::HashSet<String>,
 ) -> FrontResult<LoweredProgram> {
     let program =
         rts_parser::parse_source(src).map_err(|e| Unsupported::new(format!("parse error: {e}")))?;
-    build_from_program(program, src, ambient)
+    build_from_program(program, src, ambient, ambient_fns)
 }
 
 /// Compile `prelude_src` (a declarations-only TS stdlib) ahead of `user_src`,
@@ -163,7 +174,8 @@ pub fn render_source_with_prelude(prelude_src: &str, user_src: &str) -> FrontRes
         format!("{engine_inc}\n{prelude_src}")
     };
     let prelude = build_program(&merged_prelude_src)?;
-    let user = build_program_with_ambient(user_src, &prelude.classes)?;
+    let ambient_fns = prelude_fn_names(&prelude);
+    let user = build_program_with_ambient(user_src, &prelude.classes, &ambient_fns)?;
     let merged = merge_programs(prelude, user)?;
     let program = module_jit::compile_program(&merged)?;
     let ((), out) = crate::value::abi_adapter::with_capture(|| program.run_main());
@@ -175,16 +187,14 @@ pub fn render_source_with_prelude(prelude_src: &str, user_src: &str) -> FrontRes
 /// ambient in the user program; on name collision the user wins (last-wins),
 /// which is exactly the shadow case (a user `class Map` overriding a prelude one).
 ///
-/// The prelude must carry NO top-level statements (its `__rtsn_main` body must be
-/// empty) — only class/function declarations. Top-level code in the prelude is
-/// unsupported (there is one `__rtsn_main`, which belongs to the user program).
+/// The prelude MAY carry top-level statements (module-level `let`/`const`
+/// initializers, e.g. the `rts:test` bundle's hook-slot globals `let
+/// _before_all_fn = 0`): they are PREPENDED to the user's `__rtsn_main` body so
+/// they run FIRST (initialization order: prelude then user). The combined main is
+/// the single `__rtsn_main`; module-level mutable globals are recomputed over it so
+/// a prelude top-level `let` written from a prelude function (the hook setters)
+/// becomes a shared cell exactly like a user one.
 fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<LoweredProgram> {
-    if !prelude.main.body.is_empty() {
-        return Err(Unsupported::new(
-            "prelude must be declarations-only (no top-level statements)".to_string(),
-        ));
-    }
-
     // ClassTable: prelude first, then user (user can override).
     let mut classes = prelude.classes;
     for desc in user.classes.iter() {
@@ -215,15 +225,24 @@ fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<
     let mut builtins = prelude.builtins;
     builtins.extend(user.builtins);
 
-    // Recompute the module-globals over the MERGED funcs + user main so cell ids
-    // are unique across prelude+user (a plain map-merge could collide ids). The
-    // prelude has no module-level mutable globals today, but this stays correct if
-    // one is ever added.
-    let gcells = funcval::module_globals(&funcs, &user.main);
+    // MAIN: prepend the prelude's top-level statements (its initializers) ahead of
+    // the user's, in ONE `__rtsn_main`. Run order is prelude-first, so a prelude
+    // module-global is initialized before any user code observes it.
+    let mut main = user.main;
+    if !prelude.main.body.is_empty() {
+        let mut body = prelude.main.body;
+        body.extend(std::mem::take(&mut main.body));
+        main.body = body;
+    }
+
+    // Recompute the module-globals over the MERGED funcs + the COMBINED main so cell
+    // ids are unique across prelude+user and a prelude top-level `let` written from a
+    // prelude function (the `rts:test` hook setters) is promoted to a shared cell.
+    let gcells = funcval::module_globals(&funcs, &main);
 
     Ok(LoweredProgram {
         funcs,
-        main: user.main,
+        main,
         classes,
         fn_this_class,
         captures,
@@ -276,7 +295,12 @@ pub(crate) struct LoweredProgram {
 fn build_program(src: &str) -> FrontResult<LoweredProgram> {
     let program =
         rts_parser::parse_source(src).map_err(|e| Unsupported::new(format!("parse error: {e}")))?;
-    build_from_program(program, src, &class::ClassTable::default())
+    build_from_program(
+        program,
+        src,
+        &class::ClassTable::default(),
+        &std::collections::HashSet::new(),
+    )
 }
 
 /// Lower an ALREADY-PARSED `rts_ast::Program` to a [`LoweredProgram`]. This is the
@@ -294,6 +318,7 @@ fn build_from_program(
     program: rts_ast::ast::Program,
     destructure_src: &str,
     ambient: &class::ClassTable,
+    ambient_fns: &std::collections::HashSet<String>,
 ) -> FrontResult<LoweredProgram> {
     let src = destructure_src;
     let mut scope = rts_hir::scope::Scope::new();
@@ -382,7 +407,7 @@ fn build_from_program(
     // rewrites each placeholder into ordinary HIR (a string `+` chain / a guarded
     // ternary). Run BEFORE arrow extraction so a template/chain inside a top-level
     // arrow is rewritten while still in the `main` body it was parsed from.
-    desugar::desugar(&program, &mut main.body, &mut funcs);
+    desugar::desugar(&program, &mut main.body, &mut funcs, &classes);
 
     // P5.11: destructuring — array `[a, b, ...rest]` / object `{x, y: z, w = 5}`
     // patterns in let/const, for-of bindings, and function parameters. rts-hir
@@ -412,7 +437,15 @@ fn build_from_program(
     // `Ident` of the synthesized name. A non-capturing arrow becomes a plain
     // function; a capturing arrow becomes a CLOSURE (captures prepended as leading
     // params + recorded in `captures`). Unsound captures are left to bail.
-    let extracted = funcval::extract_arrows(&mut funcs, &mut main);
+    // Pre-extraction module-global names (#195): a top-level `let` written from a
+    // function is a shared CELL, not a capturable local. Computed BEFORE arrow
+    // extraction so the capture classifier treats such a name as a non-capture (the
+    // closure reads the live cell), not a by-value snapshot that would bail. The
+    // authoritative gcell map is recomputed after extraction (synthesized arrows may
+    // add writers); this pre-pass only needs the names the user code already writes.
+    let pre_globals: std::collections::HashSet<String> =
+        funcval::module_globals(&funcs, &main).into_keys().collect();
+    let extracted = funcval::extract_arrows(&mut funcs, &mut main, ambient_fns, &pre_globals);
     funcs.extend(extracted.funcs);
 
     // Module-level mutable globals (#195): top-level lets written from a function.

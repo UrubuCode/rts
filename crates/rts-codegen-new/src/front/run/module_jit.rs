@@ -94,6 +94,14 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
         if fn_this_class.contains_key(&f.name) {
             sig.has_this = false;
         }
+        // Infer the provable RETURN CLASS (every `return new C(..)` of the same
+        // known class C) so a chained method call on the call result dispatches
+        // statically (`expect(x).toBe(y)` — the rts:test matcher). Skip class
+        // ctors/methods (a synthesized ctor "returns" the instance implicitly;
+        // its `this`-typed shape is already known at the call site).
+        if !fn_this_class.contains_key(&f.name) {
+            sig.ret_class = infer_ret_class(f, classes);
+        }
         sigs.insert(f.name.clone(), sig);
     }
     let main_sig = FnSig::main_sig();
@@ -230,4 +238,65 @@ fn define_one(
         .map_err(|e| Unsupported::new(format!("define `{}`: {e}", func.name)))?;
     module.clear_context(&mut ctx);
     Ok(())
+}
+
+/// Infer the user-CLASS a function provably RETURNS: `Some(C)` iff EVERY value
+/// `return e` in the body has `e == new C(..)` for the SAME class `C` that the
+/// program's class table knows, and there is at least one such return. A `return;`
+/// (void) is ignored; any value return that is NOT `new <known-class>(..)` (or a
+/// DIFFERENT class) makes the result `None` (we never guess). This powers static
+/// dispatch on a call result (`expect(x).toBe(y)`).
+fn infer_ret_class(func: &HirFunc, classes: &super::class::ClassTable) -> Option<String> {
+    use rts_hir::ir::HirExprKind;
+    use rts_hir::HirStmt;
+
+    fn walk(stmts: &[HirStmt], classes: &super::class::ClassTable, found: &mut Option<String>) -> bool {
+        for s in stmts {
+            let ok = match s {
+                HirStmt::Return(Some(e)) => match &e.kind {
+                    HirExprKind::New { class, .. } if classes.get(class).is_some() => {
+                        match found {
+                            Some(c) if c != class => false,
+                            _ => {
+                                *found = Some(class.clone());
+                                true
+                            }
+                        }
+                    }
+                    _ => false,
+                },
+                HirStmt::Return(None) => true,
+                HirStmt::If { then, else_, .. } => {
+                    walk(then, classes, found)
+                        && else_.as_deref().map(|e| walk(e, classes, found)).unwrap_or(true)
+                }
+                HirStmt::While { body, .. }
+                | HirStmt::DoWhile { body, .. }
+                | HirStmt::For { body, .. }
+                | HirStmt::ForOf { body, .. }
+                | HirStmt::ForIn { body, .. }
+                | HirStmt::Block(body) => walk(body, classes, found),
+                HirStmt::Try { body, catch, finally } => {
+                    walk(body, classes, found)
+                        && catch.as_ref().map(|c| walk(&c.body, classes, found)).unwrap_or(true)
+                        && finally.as_deref().map(|f| walk(f, classes, found)).unwrap_or(true)
+                }
+                HirStmt::Switch { cases, .. } => {
+                    cases.iter().all(|c| walk(&c.body, classes, found))
+                }
+                _ => true,
+            };
+            if !ok {
+                return false;
+            }
+        }
+        true
+    }
+
+    let mut found = None;
+    if walk(&func.body, classes, &mut found) {
+        found
+    } else {
+        None
+    }
 }

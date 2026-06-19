@@ -95,12 +95,20 @@ fn build_path(entry: &Path) -> FrontResult<super::LoweredProgram> {
         .as_ref()
         .map(|p| &p.classes)
         .unwrap_or(&EMPTY_AMBIENT);
+    // AMBIENT prelude function names (describe/test/expect + primordial `.ts`
+    // helpers) — seeded into the user build's arrow extraction so a user callback
+    // arrow that references one is treated as a free top-level reference, not an
+    // unsound capture (see `build_from_program` → `extract_arrows`).
+    let ambient_fns: std::collections::HashSet<String> = prelude
+        .as_ref()
+        .map(|p| p.funcs.iter().map(|f| f.name.clone()).collect())
+        .unwrap_or_default();
 
     // The flattened multi-file USER program has no single source string, so the
     // PARAMETER-destructuring recovery (which re-parses a source) gets `""` — a
     // destructured param stays `"_"` and bails at lowering (sound). Every other
     // destructuring site recovers from the swc `Stmt` nodes in `program`.
-    let mut user = build_from_program(program, "", ambient)?;
+    let mut user = build_from_program(program, "", ambient, &ambient_fns)?;
     // Carry the BUILTIN-IMPORT bindings into the lowering so a call to an imported
     // `rts:<ns>` member resolves to its real `__RTS_FN_NS_*` symbol (M1b).
     user.builtins = builtins;

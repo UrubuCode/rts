@@ -173,6 +173,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if let Some(local) = self.local(&name) {
             return self.lower_value_call(module, local, args);
         }
+        // A MODULE-GLOBAL cell (#195) holding a function VALUE, called as `f()`:
+        // the `rts:test` bundle's lifecycle hooks (`let _before_all_fn = 0;` then
+        // `if (_before_all_fn !== 0) { _before_all_fn(); }`) are the canonical case.
+        // Load the cell word and invoke it through the same uniform-ABI indirect
+        // path as a function-valued local. `gcell_id` already returns `None` when a
+        // real local shadows the name (handled above), so this never steals a local.
+        if let Some(id) = self.gcell_id(&name) {
+            let cell = self.emit_gcell_get(module, id)?;
+            let word = self.box_value(cell);
+            return self.lower_value_call_word(module, word, args);
+        }
         // A GLOBAL coercion/predicate function (`Number`/`parseInt`/`isNaN`/…) or
         // `Array(n)` (P5.2) — resolved last, so a same-named user fn/local wins.
         if let Some(val) = self.try_global_fn_call(module, &name, args)? {

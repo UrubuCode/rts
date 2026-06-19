@@ -28,6 +28,10 @@
 //! entry is the actual runtime function the lowering calls.
 
 use rts_runtime::namespaces::collections::vec as rt_vec;
+use rts_runtime::namespaces::globals::string::{
+    replace as rt_str_replace, search as rt_str_search, split as rt_str_split,
+    transform as rt_str_transform,
+};
 use rts_runtime::namespaces::engine as rt_engine;
 use rts_runtime::namespaces::gc::collector as rt_gcoll;
 use rts_runtime::namespaces::gc::handles as rt_handles;
@@ -539,6 +543,7 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
     syms.extend(gl_method_symbols());
     syms.extend(math_number_symbols());
     syms.extend(engine_symbols());
+    syms.extend(test_framework_symbols());
     // Pilar 6: the REAL `__RTS_FN_GL_DATE_*` / `__RTS_FN_NS_DATE_*` symbols the
     // Registry-driven Date dispatch ([`crate::front::run::registry_call`]) emits
     // directly — replacing the `__rtsadp_date_*` trampolines that used to forward
@@ -902,6 +907,50 @@ fn engine_symbols() -> Vec<JitSymbol> {
             rt_engine::__RTS_FN_NS_ENGINE_STR_REPLACE_ALL as *const u8,
         ),
     ]
+}
+
+/// The `rts:test` FRAMEWORK backing symbols + the FULL `test_core`/`string`/`fmt`
+/// namespace surfaces. Harvested from the REAL Registry (each member's real
+/// `fn_ptr`) rather than hand-listed: once these namespaces are registered
+/// ([`crate::front::run::registry`]), ANY member is resolvable via
+/// `namespace_member` (`import { byte_len } from "rts:string"`), so EVERY member's
+/// symbol must be installed or an emitted `call` is a link-OK/runtime-SIGILL — a
+/// honesty-floor violation. Harvesting installs the whole surface in one shot and
+/// stays in sync with the namespace automatically (null/alias members skipped by
+/// `namespace_jit_symbols`).
+fn test_framework_symbols() -> Vec<JitSymbol> {
+    let mut out = Vec::new();
+    // `test_core` + `fmt` set REAL `fn_ptr`s on their members, so the Registry
+    // harvest installs their full surfaces directly.
+    for ns in ["test_core", "fmt"] {
+        for (name, ptr) in crate::front::run::registry::namespace_jit_symbols(ns) {
+            out.push(sym(name, ptr));
+        }
+    }
+    // The `string` namespace declares its members with a NULL `fn_ptr` (the real
+    // bodies live in `rts-primitives::string`, installed by address — the same
+    // null-skip pattern as the `gc` pool). The harvest skips them, so we install
+    // the FULL surface by address here; every member must be present or a user
+    // `import { m } from "rts:string"` resolves then SIGILLs (honesty floor).
+    out.extend([
+        sym("__RTS_FN_NS_STRING_CONTAINS", rt_str_search::__RTS_FN_NS_STRING_CONTAINS as *const u8),
+        sym("__RTS_FN_NS_STRING_STARTS_WITH", rt_str_search::__RTS_FN_NS_STRING_STARTS_WITH as *const u8),
+        sym("__RTS_FN_NS_STRING_ENDS_WITH", rt_str_search::__RTS_FN_NS_STRING_ENDS_WITH as *const u8),
+        sym("__RTS_FN_NS_STRING_FIND", rt_str_search::__RTS_FN_NS_STRING_FIND as *const u8),
+        sym("__RTS_FN_NS_STRING_TO_UPPER", rt_str_transform::__RTS_FN_NS_STRING_TO_UPPER as *const u8),
+        sym("__RTS_FN_NS_STRING_TO_LOWER", rt_str_transform::__RTS_FN_NS_STRING_TO_LOWER as *const u8),
+        sym("__RTS_FN_NS_STRING_TRIM", rt_str_transform::__RTS_FN_NS_STRING_TRIM as *const u8),
+        sym("__RTS_FN_NS_STRING_TRIM_START", rt_str_transform::__RTS_FN_NS_STRING_TRIM_START as *const u8),
+        sym("__RTS_FN_NS_STRING_TRIM_END", rt_str_transform::__RTS_FN_NS_STRING_TRIM_END as *const u8),
+        sym("__RTS_FN_NS_STRING_REPEAT", rt_str_transform::__RTS_FN_NS_STRING_REPEAT as *const u8),
+        sym("__RTS_FN_NS_STRING_REPLACE", rt_str_replace::__RTS_FN_NS_STRING_REPLACE as *const u8),
+        sym("__RTS_FN_NS_STRING_REPLACEN", rt_str_replace::__RTS_FN_NS_STRING_REPLACEN as *const u8),
+        sym("__RTS_FN_NS_STRING_BYTE_LEN", rt_str_split::__RTS_FN_NS_STRING_BYTE_LEN as *const u8),
+        sym("__RTS_FN_NS_STRING_CHAR_AT", rt_str_split::__RTS_FN_NS_STRING_CHAR_AT as *const u8),
+        sym("__RTS_FN_NS_STRING_CHAR_CODE_AT", rt_str_split::__RTS_FN_NS_STRING_CHAR_CODE_AT as *const u8),
+        sym("__RTS_FN_NS_STRING_CHAR_COUNT", rt_str_split::__RTS_FN_NS_STRING_CHAR_COUNT as *const u8),
+    ]);
+    out
 }
 
 #[inline]

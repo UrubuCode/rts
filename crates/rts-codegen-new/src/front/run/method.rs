@@ -55,6 +55,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     return self.lower_builtin_call(module, &ns, method, args).map(Some);
                 }
             }
+            // AMBIENT prelude namespace (`test_core.*`/`string.*`/`fmt.*`): a bare
+            // ident naming a REGISTERED namespace, used by the embedded `rts:test`
+            // bundle prelude (it was NOT import-bound, so it is not in `builtins`).
+            // Gated to PRELUDE-origin code + not shadowed by a local/class — the same
+            // privacy posture as the `engine.*` global. Resolves through the SAME
+            // generic Registry path (`lower_builtin_call`); an unknown member bails.
+            if self.is_prelude
+                && self.local(obj).is_none()
+                && self.classes.get(obj).is_none()
+                && super::registry::has_namespace(obj)
+            {
+                return self.lower_builtin_call(module, obj, method, args).map(Some);
+            }
         }
 
         // STATIC method call `C.m(args)` (P5.1): the receiver is a bare class NAME
