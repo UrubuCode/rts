@@ -44,7 +44,54 @@ use std::collections::{HashMap, HashSet};
 use rts_hir::ir::{HirArrowBody, HirExprKind};
 use rts_hir::{HirExpr, HirFunc, HirParam, HirStmt, HirType};
 
-use scan::{arrow_assigned_names, collect_free_stmt, mutated_names};
+use scan::{arrow_assigned_names, collect_free_stmt, declared_names, mutated_names};
+
+/// MODULE-LEVEL MUTABLE GLOBALS (epic #195). Compute the set of top-level `let`
+/// variables that are WRITTEN from inside SOME function (as a free variable — not
+/// the function's own param/local). These are promoted to runtime CELLS: every
+/// access (top-level + the function) goes through `__RTS_FN_NS_GC_GCELL_GET/SET`
+/// by the returned compile-time id, sidestepping the by-value capture limitation.
+///
+/// The rts:test harness's `print` helper (`let __rtsCapturedOutput = "";
+/// function print(v) { __rtsCapturedOutput += v + "\n"; }`) is the canonical case.
+/// `const` is excluded (immutable → never written). A name shadowed by a param or
+/// a local `let` inside the writing function is NOT counted (that write is local).
+pub fn module_globals(funcs: &[HirFunc], main: &HirFunc) -> HashMap<String, u32> {
+    // Top-level `let` names declared directly in main (ordered, deduped).
+    let mut top: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for s in &main.body {
+        if let HirStmt::Let { name, .. } = s {
+            if seen.insert(name.clone()) {
+                top.push(name.clone());
+            }
+        }
+    }
+    if top.is_empty() {
+        return HashMap::new();
+    }
+    // Names written (free) inside SOME function: assigned, minus that fn's own
+    // params + declared locals (which shadow an outer name of the same spelling).
+    let mut written_free: HashSet<String> = HashSet::new();
+    for f in funcs {
+        let mut bound: HashSet<String> = f.params.iter().map(|p| p.name.clone()).collect();
+        bound.extend(declared_names(&f.body));
+        for n in mutated_names(&f.body) {
+            if !bound.contains(&n) {
+                written_free.insert(n);
+            }
+        }
+    }
+    let mut map = HashMap::new();
+    let mut id = 0u32;
+    for name in top {
+        if written_free.contains(&name) {
+            map.insert(name, id);
+            id += 1;
+        }
+    }
+    map
+}
 
 /// Names always considered "not a capture" (engine globals the lowering knows).
 const GLOBALS: &[&str] = &["console", "undefined", "Infinity", "NaN"];

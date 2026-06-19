@@ -218,6 +218,11 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// captured local's current value into a fresh env array (`__rtsadp_fn_reify`
     /// stores the env on the function entry).
     pub captures: &'c HashMap<String, Vec<String>>,
+    /// MODULE-LEVEL MUTABLE GLOBALS (epic #195): top-level `let` name → cell id. A
+    /// name in this map resolves (read/write) through `__RTS_FN_NS_GC_GCELL_GET/SET`
+    /// by its id, NOT a Cranelift Variable — checked AFTER `self.local` so a
+    /// same-named param/local in the current function still shadows it.
+    pub gcells: &'c HashMap<String, u32>,
     /// The program's user classes (descriptors: fields → shape slots, methods →
     /// functions). Read-only, shared across all functions. Drives `new C(args)`,
     /// `this.field`, and static `instance.method(args)`.
@@ -247,6 +252,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         thunks: &'c HashMap<String, cranelift_module::FuncId>,
         classes: &'c super::class::ClassTable,
         captures: &'c HashMap<String, Vec<String>>,
+        gcells: &'c HashMap<String, u32>,
         this_class: Option<&str>,
         is_prelude: bool,
         builtins: &'c HashMap<String, (String, String)>,
@@ -272,6 +278,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             sigs,
             thunks,
             captures,
+            gcells,
             classes,
             is_prelude,
             builtins,
@@ -329,12 +336,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
         ctx.lower_block(module, &func.body)?;
 
-        // A void main may fall off the end — emit the trailing `return`. A
-        // value-returning function that can fall through is ill-formed; bail.
+        // Fall-through at the end of the body. JS: a function with no `return`
+        // returns `undefined`. A `void`/untyped function carries a `Tagged` return
+        // repr, so emit the implicit `return undefined`. A function PROVEN to return
+        // an UNBOXED numeric/bool that can fall through is genuinely ill-formed (an
+        // undefined can't inhabit that slot) → keep the explicit bail.
         if !ctx.block_terminated {
             match ctx.ret {
                 None => {
                     ctx.builder.ins().return_(&[]);
+                }
+                Some(Repr::Tagged) => {
+                    let undef = ctx.builder.ins().iconst(
+                        types::I64,
+                        value::PolyValue::undefined().raw() as i64,
+                    );
+                    ctx.builder.ins().return_(&[undef]);
                 }
                 Some(_) => {
                     return unsupported!(

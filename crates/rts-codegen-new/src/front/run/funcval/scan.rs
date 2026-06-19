@@ -36,6 +36,34 @@ pub(super) fn arrow_assigned_names(stmts: &[HirStmt]) -> HashSet<String> {
     mutated_names(stmts)
 }
 
+/// The names DECLARED (`let`/`const`) anywhere in `stmts` (top-level + nested
+/// blocks/if/while). Used to exclude a function's OWN locals when deciding which
+/// names it writes are FREE (module-global) writes (see `module_globals`).
+pub(super) fn declared_names(stmts: &[HirStmt]) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for s in stmts {
+        collect_declared_stmt(s, &mut out);
+    }
+    out
+}
+
+fn collect_declared_stmt(s: &HirStmt, out: &mut HashSet<String>) {
+    match s {
+        HirStmt::Let { name, .. } | HirStmt::Const { name, .. } => {
+            out.insert(name.clone());
+        }
+        HirStmt::If { then, else_, .. } => {
+            then.iter().for_each(|st| collect_declared_stmt(st, out));
+            if let Some(e) = else_ {
+                e.iter().for_each(|st| collect_declared_stmt(st, out));
+            }
+        }
+        HirStmt::While { body, .. } => body.iter().for_each(|st| collect_declared_stmt(st, out)),
+        HirStmt::Block(b) => b.iter().for_each(|st| collect_declared_stmt(st, out)),
+        _ => {}
+    }
+}
+
 fn collect_mutated_stmt(s: &HirStmt, out: &mut HashSet<String>) {
     match s {
         HirStmt::Expr(e) | HirStmt::Return(Some(e)) => collect_mutated_expr(e, out),

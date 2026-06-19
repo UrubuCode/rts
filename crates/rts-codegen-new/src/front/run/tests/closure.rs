@@ -106,10 +106,14 @@ fn two_closures_same_capture() {
 // ===========================================================================
 
 #[test]
-fn closure_assigns_captured_var_bails() {
-    // The closure WRITES a captured var (mutable capture) — by-value cannot make
-    // the write visible to the outer scope. BAIL.
-    assert_bails("let c = 0; let inc = () => { c = c + 1; }; inc();");
+fn closure_assigns_captured_top_level_var() {
+    // The closure WRITES a captured TOP-LEVEL `let` — now supported (epic #195):
+    // `c` is promoted to a module-global CELL, so the write is visible to the outer
+    // scope (no by-value snapshot). Previously a documented bail.
+    assert_stdout(
+        "let c = 0; let inc = () => { c = c + 1; }; inc(); console.log(c);",
+        "1\n",
+    );
 }
 
 #[test]

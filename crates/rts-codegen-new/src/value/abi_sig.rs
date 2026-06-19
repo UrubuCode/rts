@@ -110,6 +110,15 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
     Some(match name {
         // ---- REAL string pool (rts-std collector::string_pool) ----
         // STRING_NEW(ptr,len) -> handle  — StrPtr = two slots.
+        // module-level mutable global cells (epic #195): GET(id)->word, SET(id,word).
+        "__RTS_FN_NS_GC_GCELL_GET" => SymSig {
+            params: &[U64],
+            ret: U64,
+        },
+        "__RTS_FN_NS_GC_GCELL_SET" => SymSig {
+            params: &[U64, U64],
+            ret: Void,
+        },
         "__RTS_FN_NS_GC_STRING_NEW" | "__RTS_FN_NS_GC_STRING_FROM_STATIC" => SymSig {
             params: &[StrPtr],
             ret: Handle,

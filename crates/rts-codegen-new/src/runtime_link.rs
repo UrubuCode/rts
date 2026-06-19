@@ -29,6 +29,7 @@
 
 use rts_runtime::namespaces::collections::vec as rt_vec;
 use rts_runtime::namespaces::engine as rt_engine;
+use rts_runtime::namespaces::gc::collector as rt_gcoll;
 use rts_runtime::namespaces::gc::handles as rt_handles;
 use rts_runtime::namespaces::gc::string_pool as rt_str;
 use rts_runtime::namespaces::globals::number as rt_num;
@@ -63,6 +64,15 @@ unsafe impl Sync for JitSymbol {}
 /// registry is satisfied by construction — we list only real bodies).
 pub fn jit_symbols() -> Vec<JitSymbol> {
     let mut syms = vec![
+        // ---- module-level mutable global cells (epic #195) ----
+        sym(
+            "__RTS_FN_NS_GC_GCELL_GET",
+            rt_gcoll::__RTS_FN_NS_GC_GCELL_GET as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_GCELL_SET",
+            rt_gcoll::__RTS_FN_NS_GC_GCELL_SET as *const u8,
+        ),
         // ---- REAL string pool (rts-std collector::string_pool) ----
         sym(
             "__RTS_FN_NS_GC_STRING_NEW",

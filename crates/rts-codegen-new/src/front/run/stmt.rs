@@ -108,6 +108,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return unsupported!("`let {name}` without an initializer");
         };
 
+        // MODULE-LEVEL MUTABLE GLOBAL (epic #195): a top-level `let` written from a
+        // function. Store the initializer into the runtime cell (no Cranelift
+        // Variable) — every later read/write of `name` routes through the cell by
+        // id (`gcell_id` resolves it once `name` is not a local). Shape tracking is
+        // dropped (a from-a-function-mutated var is opaque anyway).
+        if let Some(id) = self.gcells.get(name).copied() {
+            let val = self.lower_expr(module, init)?;
+            let word = self.box_value(val);
+            self.emit_gcell_set(module, id, word)?;
+            return Ok(());
+        }
+
         // Object/array literal initializers: lower specially and RECORD the
         // local's proven heap shape, so later `obj.key` / `arr[i]` / `arr.length`
         // resolve to constant-slot `VEC_GET`/`VEC_SET`. The local rides `Tagged`
@@ -256,6 +268,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             _ => {}
         }
         let name = ident_target(target)?;
+        // MODULE-LEVEL MUTABLE GLOBAL (epic #195): a top-level `let` written from a
+        // function (or from main after promotion). Store through the runtime cell.
+        if let Some(id) = self.gcell_id(&name) {
+            let val = self.lower_expr(module, value)?;
+            let word = self.box_value(val);
+            self.emit_gcell_set(module, id, word)?;
+            return Ok(Val::new(word, Repr::Tagged));
+        }
         // Re-`x = {…}` to a DIFFERENT object literal: the local stays a proven
         // keyed OBJECT, but its exact shape may now differ from the old one. Lower
         // the new literal (recording its global shape-id in slot 0), bind it, and
@@ -317,6 +337,24 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         prefix: bool,
     ) -> FrontResult<Val> {
         let name = ident_target(target)?;
+        // MODULE-LEVEL MUTABLE GLOBAL (epic #195): `++`/`--` on a cell var. Read the
+        // cell, ToNumber, ±1 generically, store back; produce old (postfix) or new
+        // (prefix). Mirrors the Tagged-local path below but through gcell get/set.
+        if let Some(id) = self.gcell_id(&name) {
+            let old = self.emit_gcell_get(module, id)?;
+            let old_num = self
+                .call_runtime(module, "__rtsadp_pos", &[old.v])?
+                .expect("__rtsadp_pos returns a value");
+            let one_f64 = self.builder.ins().f64const(1.0);
+            let one_word = self.box_value(Val::new(one_f64, Repr::Float64));
+            let sym = if inc { "__rtsadp_add" } else { "__rtsadp_sub" };
+            let new_num = self
+                .call_runtime(module, sym, &[old_num, one_word])?
+                .expect("generic arithmetic returns a value");
+            self.emit_gcell_set(module, id, new_num)?;
+            let produced = if prefix { new_num } else { old_num };
+            return Ok(Val::new(produced, Repr::Tagged));
+        }
         let local = self
             .local(&name)
             .ok_or_else(|| Unsupported::new(format!("`++`/`--` on unbound `{name}`")))?;

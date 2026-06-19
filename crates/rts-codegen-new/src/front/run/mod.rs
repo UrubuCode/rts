@@ -33,6 +33,7 @@ mod desugar;
 mod engineobj;
 mod expr;
 mod funcval;
+mod gcell;
 mod globalclass;
 mod globals;
 mod loops;
@@ -214,12 +215,19 @@ fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<
     let mut builtins = prelude.builtins;
     builtins.extend(user.builtins);
 
+    // Recompute the module-globals over the MERGED funcs + user main so cell ids
+    // are unique across prelude+user (a plain map-merge could collide ids). The
+    // prelude has no module-level mutable globals today, but this stays correct if
+    // one is ever added.
+    let gcells = funcval::module_globals(&funcs, &user.main);
+
     Ok(LoweredProgram {
         funcs,
         main: user.main,
         classes,
         fn_this_class,
         captures,
+        gcells,
         prelude_fns,
         builtins,
     })
@@ -238,6 +246,11 @@ pub(crate) struct LoweredProgram {
     /// synthesized CLOSURE fn name → ordered captured outer-local names (P5.7).
     /// Drives env construction at reify and the env-read split in the thunk.
     pub captures: std::collections::HashMap<String, Vec<String>>,
+    /// MODULE-LEVEL MUTABLE GLOBALS (epic #195): top-level `let` name → cell id.
+    /// A top-level var written from inside a function is a runtime CELL; every
+    /// access goes through `__RTS_FN_NS_GC_GCELL_GET/SET` by this id. Computed by
+    /// [`funcval::module_globals`] over the final funcs+main.
+    pub gcells: std::collections::HashMap<String, u32>,
     /// PRIVACY GATE (engine namespace): the set of function names that came from
     /// the engine's PRELUDE (embedded TS includes). Only these functions may name
     /// the PRIVATE `engine.*` global; a user function (incl. `__rtsn_main`) that
@@ -402,12 +415,16 @@ fn build_from_program(
     let extracted = funcval::extract_arrows(&mut funcs, &mut main);
     funcs.extend(extracted.funcs);
 
+    // Module-level mutable globals (#195): top-level lets written from a function.
+    let gcells = funcval::module_globals(&funcs, &main);
+
     Ok(LoweredProgram {
         funcs,
         main,
         classes,
         fn_this_class,
         captures: extracted.captures,
+        gcells,
         // A single `build_program` has no prelude/user split — every fn is "user"
         // here. When `merge_programs` combines a prelude + user program it computes
         // the real prelude-origin set; this empty default denies `engine.*` for a

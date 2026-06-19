@@ -3,7 +3,7 @@
 //! unwind). Each test runs a REAL `.ts` program end to end and asserts exact
 //! captured stdout.
 
-use super::{assert_bails, assert_stdout};
+use super::assert_stdout;
 
 #[test]
 fn basic_throw_error_message() {
@@ -165,10 +165,15 @@ try { outer(); } catch (e) { console.log(e.message); }"#,
 // ---- bails (out of the implemented subset; explicit Unsupported, not a crash) ----
 
 #[test]
-fn bail_async_try() {
-    // async functions are not in the run subset at all → bail.
-    assert_bails(
+fn async_try_no_await_runs_synchronously() {
+    // A no-`await` `async` function body runs synchronously to completion (JS: the
+    // body runs up to the first await; with none, it fully runs). The discarded
+    // promise result is unobservable, so the catch's `console.log` is the only
+    // output. Now reaches this (previously bailed on the void fall-through before
+    // the body compiled). The real await/event-loop machinery is still open.
+    assert_stdout(
         r#"async function f() { try { throw new Error("x"); } catch (e) { console.log(e.message); } }
 f();"#,
+        "x\n",
     );
 }

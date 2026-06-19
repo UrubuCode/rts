@@ -41,6 +41,21 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         ) {
             return self.lower_logical_assign(module, op, &name, value);
         }
+        // MODULE-LEVEL MUTABLE GLOBAL (epic #195): `x <op>= e` on a cell var. Read
+        // the cell, apply the arithmetic generically (Tagged current + rhs), store
+        // back. This is the rts:test harness's `__rtsCapturedOutput += v + "\n"`.
+        if let Some(id) = self.gcell_id(&name) {
+            let cur = self.emit_gcell_get(module, id)?;
+            let rhs = self.lower_expr(module, value)?;
+            let result = if op.is_arithmetic() || matches!(op, HirBinOp::Exp) {
+                self.lower_arith(module, op, cur, rhs)?
+            } else {
+                return unsupported!("compound-assign operator {op:?} on a global cell");
+            };
+            let word = self.box_value(result);
+            self.emit_gcell_set(module, id, word)?;
+            return Ok(Val::new(word, Repr::Tagged));
+        }
         let local = self
             .local(&name)
             .ok_or_else(|| Unsupported::new(format!("compound-assign to unbound `{name}`")))?;

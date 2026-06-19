@@ -143,6 +143,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // which makes strict-eq over it conservatively bail.
             return Ok(Val::new(v, local.repr));
         }
+        // MODULE-LEVEL MUTABLE GLOBAL (epic #195): a top-level `let` written from a
+        // function. Read through the runtime cell by id (Tagged word). Checked here
+        // (after the real-local lookup) so a same-named local still shadows it.
+        if let Some(id) = self.gcell_id(name) {
+            return self.emit_gcell_get(module, id);
+        }
         // GLOBAL value constants (P5.2): `NaN`/`Infinity`/`undefined` resolve to
         // their PolyValue when a local of that name does not shadow them. These are
         // the #1 "unbound identifier" bail in the histogram. `NaN`/`Infinity` are

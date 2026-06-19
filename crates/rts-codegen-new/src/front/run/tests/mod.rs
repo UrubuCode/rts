@@ -64,6 +64,7 @@ mod fn_ctor;
 mod fn_props;
 mod free_this;
 mod funcval;
+mod gcell;
 mod globalclass;
 mod globals;
 mod heap_field;

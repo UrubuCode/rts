@@ -24,6 +24,50 @@
 use super::handles::{live_handle_count, mark_handle, sweep_all_shards};
 use super::stack_map_registry;
 
+// ─── Module-level mutable global cells ────────────────────────────────────────
+//
+// A top-level `let` that is WRITTEN from inside a function is promoted by the new
+// engine's front-end to a CELL: every access (top-level + the capturing function)
+// goes through GCELL_GET/SET by a compile-time id, sidestepping the by-value
+// capture limitation (epic #195). Each slot holds a PolyValue word; the front-end
+// always SETs (the `let` initializer) before any GET, so an out-of-range GET
+// (returns 0) never happens for a well-formed program. `mark_gcell_roots` keeps a
+// boxed-handle slot's HandleTable entry alive across a GC cycle.
+
+static GCELLS: std::sync::OnceLock<std::sync::Mutex<Vec<u64>>> = std::sync::OnceLock::new();
+
+fn gcells() -> &'static std::sync::Mutex<Vec<u64>> {
+    GCELLS.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+}
+
+/// Store `word` (a PolyValue) into global cell `id`, growing the store as needed.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GCELL_SET(id: u64, word: u64) {
+    let mut v = gcells().lock().unwrap();
+    let i = id as usize;
+    if i >= v.len() {
+        v.resize(i + 1, 0);
+    }
+    v[i] = word;
+}
+
+/// Load global cell `id` (0 if never set — the front-end SETs before GET).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_GCELL_GET(id: u64) -> u64 {
+    gcells().lock().unwrap().get(id as usize).copied().unwrap_or(0)
+}
+
+/// Mark every cell's PolyValue word as a GC root. A boxed STR/OBJECT/FUNCTION word
+/// keeps its slot alive; an inline int/float/singleton word is a no-op inside
+/// `mark_handle`. Called from `finish_cycle` alongside the microtask roots.
+pub fn mark_gcell_roots() {
+    if let Some(m) = GCELLS.get() {
+        for &w in m.lock().unwrap().iter() {
+            mark_handle(w);
+        }
+    }
+}
+
 // ─── Core collector ──────────────────────────────────────────────────────────
 
 /// Walk the native stack frame-by-frame, mark every GC handle that is live
@@ -63,6 +107,10 @@ pub fn finish_cycle() {
     // heap microtask queue, not on any scanned stack, so without this a GC tick
     // during synchronous code sweeps live async state.
     crate::globals::text_encoding::instance::mark_microtask_roots();
+
+    // Module-level mutable globals (epic #195): keep boxed-handle cell contents
+    // (e.g. an accumulating string) alive across the sweep.
+    mark_gcell_roots();
 
     sweep_all_shards();
 }
