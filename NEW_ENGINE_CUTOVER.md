@@ -40,8 +40,8 @@ cargo build --release` antes de medir.
 
 ## 3. Estado atual (o que já foi feito nesta campanha)
 
-**Baseline de cobertura (medido via `measure_new.sh`):** **270/630 rodam sem bail
-(exit 0)**, dos quais **251 100% VERDES** (asserções corretas) + ~19 com divergência
+**Baseline de cobertura (medido via `measure_new.sh`):** **285/630 rodam sem bail
+(exit 0)**, dos quais **266 100% VERDES** (asserções corretas) + ~19 com divergência
 real exposta. Antes do framework: 0/630. ATENÇÃO: "exit 0" = rodou sem bail
 (cobertura), NÃO = asserção passou — um `expect` que falha imprime ✗ e ainda sai 0.
 Número honesto = **235 verdes**. Pass definitivo = `rts test` no cutover (P5).
@@ -94,6 +94,15 @@ Não há mais correção pontual barata — daqui pra frente é trabalho de feat
 sustentado, melhor por épico em sessão dedicada.
 
 Commits recentes (mais novo primeiro), todos com gate (unit 703/703):
+- `71dea0a0` Map/Set iteráveis via `*[Symbol.iterator]()` REAL + for-of de classe
+  iterável (motor nomeia só a chave de protocolo; .ts JS puro) (→266).
+- `b11c0003` generators LAZY state-machine (loops com yield) — GEN_SM_* + DRAIN
+  (→265). [#211 fase 2]. CONHECIDO: yield* de array erra (GEN_DELEGATE_START
+  runtime era-i64 não entende array NaN-boxed — fase 3); `.next()` direto fase 3.
+- `a3171e79` generators EAGER (yields lineares) — __RTS_GEN_FINISH→SET_RET (→262).
+  [#211 fase 1]
+- `50b8ef90` idx_get cobre índice Tagged (`this.#a[this.#i]`) (→256).
+- `29069d12` globais string→string (encode/decodeURI, btoa, atob) (→255).
 - `42d348ff` for-of genérico sobre fonte Tagged (string param, array aninhado) (→251).
 - `27ed11d3` Map/Set forEach/keys/values/entries/clear + for-of sobre call/método
   array (FnSig.ret_array) (→246).
