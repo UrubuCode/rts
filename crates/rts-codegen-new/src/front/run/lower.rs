@@ -473,6 +473,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
             // int relabel (same register)
             (Repr::Int32, Repr::Int64) | (Repr::Int64, Repr::Int32) => Ok(val.v),
+            // native double → native int: truncate toward zero (JS `ToInteger` /
+            // array-index / `i64`-typed binding from a `number` expression). Uses the
+            // saturating conversion so an out-of-range / NaN double yields a defined
+            // value instead of a Cranelift trap (the proven-numeric path is in range;
+            // saturation only guards the edge). Both Int32/Int64 ride the i64 register
+            // here (the int relabel above shows they share it), so one cvt serves both.
+            (Repr::Float64, Repr::Int32) | (Repr::Float64, Repr::Int64) => {
+                Ok(self.builder.ins().fcvt_to_sint_sat(types::I64, val.v))
+            }
             // native → Tagged (box)
             (_, Repr::Tagged) => Ok(self.box_value(val)),
             // Tagged → native double: SOUND decode that accepts EITHER number

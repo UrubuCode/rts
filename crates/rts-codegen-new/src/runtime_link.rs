@@ -966,9 +966,14 @@ fn test_framework_symbols() -> Vec<JitSymbol> {
 /// every one by address or such a call link-OK/runtime-SIGILLs (§7). GCELL_GET/SET
 /// and the string-pool string ops are already in the main list above.
 fn gc_internal_symbols() -> Vec<JitSymbol> {
+    use rts_engine::heap::closure as rt_clos;
     use rts_runtime::namespaces::gc::collector as rt_gcoll;
     use rts_runtime::namespaces::gc::string_pool as rt_pool;
     vec![
+        // heap closure (closure-as-value env)
+        sym("__RTS_FN_NS_GC_CLOSURE_ALLOC", rt_clos::__RTS_FN_NS_GC_CLOSURE_ALLOC as *const u8),
+        sym("__RTS_FN_NS_GC_CLOSURE_ENV", rt_clos::__RTS_FN_NS_GC_CLOSURE_ENV as *const u8),
+        sym("__RTS_FN_NS_GC_CLOSURE_FN_PTR", rt_clos::__RTS_FN_NS_GC_CLOSURE_FN_PTR as *const u8),
         // collector
         sym("__RTS_FN_NS_GC_COLLECT", rt_gcoll::__RTS_FN_NS_GC_COLLECT as *const u8),
         sym("__RTS_FN_NS_GC_COLLECT_DEBT", rt_gcoll::__RTS_FN_NS_GC_COLLECT_DEBT as *const u8),
