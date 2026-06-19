@@ -270,6 +270,34 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
             "__rtsadp_arr_unshift",
             arrayops::__rtsadp_arr_unshift as *const u8,
         ),
+        // ES2023 / arity-variant Array trampolines
+        sym("__rtsadp_arr_slice1", arrayops::__rtsadp_arr_slice1 as *const u8),
+        sym(
+            "__rtsadp_arr_index_of_from",
+            arrayops::__rtsadp_arr_index_of_from as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_includes_from",
+            arrayops::__rtsadp_arr_includes_from as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_last_index_of_from",
+            arrayops::__rtsadp_arr_last_index_of_from as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_to_reversed",
+            arrayops::__rtsadp_arr_to_reversed as *const u8,
+        ),
+        sym("__rtsadp_arr_with", arrayops::__rtsadp_arr_with as *const u8),
+        sym(
+            "__rtsadp_arr_flat_depth",
+            arrayops::__rtsadp_arr_flat_depth as *const u8,
+        ),
+        sym("__rtsadp_arr_sort", arrayops::__rtsadp_arr_sort as *const u8),
+        sym(
+            "__rtsadp_arr_to_sorted",
+            arrayops::__rtsadp_arr_to_sorted as *const u8,
+        ),
         // ---- codegen-owned GLOBAL constant/function + Array/String STATIC
         //      trampolines (__rtsadp_g_* / __rtsadp_arr_* / __rtsadp_str_*, P5.2) ----
         sym(

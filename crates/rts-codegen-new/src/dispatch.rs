@@ -223,8 +223,23 @@ const ARRAY_ROWS: &[(&str, usize, MethodSpec)] = &[
     ("fill", 1, am("__rtsadp_arr_fill", &[U64], U64)),
     ("concat", 1, am("__rtsadp_arr_concat", &[U64], U64)),
     ("flat", 0, am("__rtsadp_arr_flat", &[], U64)),
+    ("flat", 1, am("__rtsadp_arr_flat_depth", &[I64], U64)),
     ("shift", 0, am("__rtsadp_arr_shift", &[], U64)),
     ("unshift", 1, am("__rtsadp_arr_unshift", &[U64], I64)),
+    // ---- arity variants of the search/slice methods (the `fromIndex` / 1-arg
+    //      forms) + the ES2023 non-mutating copies + default sort ----
+    ("indexOf", 2, am("__rtsadp_arr_index_of_from", &[U64, I64], I64)),
+    ("includes", 2, am("__rtsadp_arr_includes_from", &[U64, I64], Bool)),
+    (
+        "lastIndexOf",
+        2,
+        am("__rtsadp_arr_last_index_of_from", &[U64, I64], I64),
+    ),
+    ("slice", 1, am("__rtsadp_arr_slice1", &[I64], U64)),
+    ("toReversed", 0, am("__rtsadp_arr_to_reversed", &[], U64)),
+    ("with", 2, am("__rtsadp_arr_with", &[I64, U64], U64)),
+    ("sort", 0, am("__rtsadp_arr_sort", &[], U64)),
+    ("toSorted", 0, am("__rtsadp_arr_to_sorted", &[], U64)),
     // ---- callback methods (P4.7): exactly one callback arg (`cb(elem, i, arr)`)
     // for the predicate/map family; `reduce` has the callback + an OPTIONAL init.
     // The lowering reifies the callback to a TAG_FUNCTION word (see CbShape).

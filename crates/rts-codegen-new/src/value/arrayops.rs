@@ -22,6 +22,7 @@
 
 use rts_runtime::namespaces::collections::vec as rt_vec;
 use rts_runtime::namespaces::gc::handles as rt_handles;
+use rts_runtime::namespaces::gc::string_pool as rt_str;
 
 use super::{PolyValue, abi_adapter, genops};
 
@@ -270,6 +271,158 @@ pub extern "C" fn __rtsadp_arr_unshift(vec_handle: u64, value_word: u64) -> i64 
 /// returned by the in-place mutating methods so chaining works.
 fn box_self(vec_handle: u64) -> u64 {
     PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(vec_handle)).raw()
+}
+
+/// A fresh `Entry::Vec` that is a COPY of `vec_handle`'s slot words (the basis of
+/// the non-mutating ES2023 methods `toReversed`/`toSorted`/`with`).
+fn copy_vec(vec_handle: u64) -> u64 {
+    let new_vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    let len = vec_len(vec_handle);
+    for i in 0..len {
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(new_vec, vec_word(vec_handle, i) as i64);
+    }
+    new_vec
+}
+
+/// `arr.slice(start)` — the one-arg form (`slice(start, len)`): elements from
+/// `start` (JS negative-index/clamp) to the end, as a NEW array word.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_slice1(vec_handle: u64, start: i64) -> u64 {
+    __rtsadp_arr_slice(vec_handle, start, vec_len(vec_handle))
+}
+
+/// `arr.indexOf(needle, fromIndex)` — first index `>= fromIndex` whose element
+/// `=== needle`, or `-1`. Negative `from` counts from the end (`len + from`,
+/// clamped to `0`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_index_of_from(vec_handle: u64, needle_word: u64, from: i64) -> i64 {
+    let len = vec_len(vec_handle);
+    let start = if from < 0 { (len + from).max(0) } else { from };
+    for i in start..len {
+        if words_strict_eq(vec_word(vec_handle, i), needle_word) {
+            return i;
+        }
+    }
+    -1
+}
+
+/// `arr.includes(needle, fromIndex)` — `1` iff `indexOf(needle, fromIndex) >= 0`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_includes_from(vec_handle: u64, needle_word: u64, from: i64) -> i64 {
+    (__rtsadp_arr_index_of_from(vec_handle, needle_word, from) >= 0) as i64
+}
+
+/// `arr.lastIndexOf(needle, fromIndex)` — last index `<= fromIndex` whose element
+/// `=== needle`, or `-1`. Negative `from` counts from the end; the scan starts at
+/// `min(from-normalized, len-1)` and walks down.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_last_index_of_from(
+    vec_handle: u64,
+    needle_word: u64,
+    from: i64,
+) -> i64 {
+    let len = vec_len(vec_handle);
+    if len == 0 {
+        return -1;
+    }
+    let raw_start = if from < 0 { len + from } else { from };
+    let start = raw_start.min(len - 1);
+    for i in (0..=start.max(-1)).rev() {
+        if i < 0 {
+            break;
+        }
+        if words_strict_eq(vec_word(vec_handle, i), needle_word) {
+            return i;
+        }
+    }
+    -1
+}
+
+/// `arr.toReversed()` (ES2023) — a NEW reversed array; the receiver is UNCHANGED
+/// (unlike `reverse()`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_to_reversed(vec_handle: u64) -> u64 {
+    let copy = copy_vec(vec_handle);
+    __rtsadp_arr_reverse(copy);
+    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(copy)).raw()
+}
+
+/// `arr.with(index, value)` (ES2023) — a NEW array equal to the receiver but with
+/// slot `index` replaced by `value` (negative index counts from the end). An
+/// out-of-range index would throw `RangeError` in JS; here it returns the copy
+/// unchanged (throw is a later increment). The receiver is UNCHANGED.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_with(vec_handle: u64, index: i64, value_word: u64) -> u64 {
+    let copy = copy_vec(vec_handle);
+    let len = vec_len(copy);
+    let idx = if index < 0 { len + index } else { index };
+    if idx >= 0 && idx < len {
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(copy, idx, value_word as i64);
+    }
+    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(copy)).raw()
+}
+
+/// `arr.flat(depth)` — flatten nested arrays up to `depth` levels into a NEW array
+/// (JS default depth is 1; `flat()`-arity-0 stays the dedicated single-level path).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_flat_depth(vec_handle: u64, depth: i64) -> u64 {
+    let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    flat_into(vec_handle, depth, out);
+    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(out)).raw()
+}
+
+/// Push `vec_handle`'s elements into `out`, splicing array elements recursively
+/// while `depth > 0`. A non-array element (or any element at `depth == 0`) is
+/// pushed verbatim.
+fn flat_into(vec_handle: u64, depth: i64, out: u64) {
+    let len = vec_len(vec_handle);
+    for i in 0..len {
+        let w = vec_word(vec_handle, i);
+        let ev = PolyValue::from_raw(w);
+        if depth > 0 && ev.is_object() && !super::inspect::looks_like_object(ev) {
+            let inner = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(ev.as_handle());
+            flat_into(inner, depth - 1, out);
+        } else {
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, w as i64);
+        }
+    }
+}
+
+/// JS default array sort ORDER between two element words: compare their `ToString`
+/// forms by UTF-8 code units (the spec's default is the string comparison; for the
+/// numeric arrays in the suite this matches bun/node's default-sort output). Reuses
+/// the genops `ToString` + the real pool `STRING_CMP`.
+fn default_sort_cmp(a: u64, b: u64) -> std::cmp::Ordering {
+    let sa = PolyValue::from_raw(genops::__rtsadp_to_string(a)).as_handle_real();
+    let sb = PolyValue::from_raw(genops::__rtsadp_to_string(b)).as_handle_real();
+    match rt_str::__RTS_FN_NS_GC_STRING_CMP(sa, sb) {
+        n if n < 0 => std::cmp::Ordering::Less,
+        0 => std::cmp::Ordering::Equal,
+        _ => std::cmp::Ordering::Greater,
+    }
+}
+
+/// `arr.sort()` — DEFAULT comparator (ToString ascending), IN PLACE; returns the
+/// receiver word. The comparator-callback form (`sort(cmp)`) is a callback method
+/// handled elsewhere (bails until implemented).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_sort(vec_handle: u64) -> u64 {
+    let len = vec_len(vec_handle);
+    let mut words: Vec<u64> = (0..len).map(|i| vec_word(vec_handle, i)).collect();
+    words.sort_by(|&a, &b| default_sort_cmp(a, b));
+    for (i, w) in words.into_iter().enumerate() {
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(vec_handle, i as i64, w as i64);
+    }
+    box_self(vec_handle)
+}
+
+/// `arr.toSorted()` (ES2023) — a NEW array sorted by the default comparator; the
+/// receiver is UNCHANGED.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_to_sorted(vec_handle: u64) -> u64 {
+    let copy = copy_vec(vec_handle);
+    __rtsadp_arr_sort(copy);
+    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(copy)).raw()
 }
 
 impl PolyValue {

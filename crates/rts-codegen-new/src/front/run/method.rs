@@ -434,7 +434,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     pub(super) fn numeric_to_i64(&mut self, v: Val) -> FrontResult<Value> {
         match v.repr {
             Repr::Int32 | Repr::Int64 => Ok(v.v),
-            Repr::Float64 => Ok(self.builder.ins().fcvt_to_sint(types::I64, v.v)),
+            // SATURATING f64→i64: a `number` index/count/depth arg that is
+            // `Infinity`/`NaN`/out-of-range (e.g. `arr.flat(Infinity)`) yields a
+            // defined clamp (i64::MIN/MAX/0) instead of a Cranelift trap (SIGILL).
+            Repr::Float64 => Ok(self.builder.ins().fcvt_to_sint_sat(types::I64, v.v)),
             _ => unsupported!("method arg wants a number index but got {:?}", v.repr),
         }
     }

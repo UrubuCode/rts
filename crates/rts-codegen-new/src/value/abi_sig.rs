@@ -421,8 +421,30 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, U64],
             ret: I64,
         },
-        "__rtsadp_arr_reverse" | "__rtsadp_arr_flat" | "__rtsadp_arr_shift" => SymSig {
+        "__rtsadp_arr_reverse"
+        | "__rtsadp_arr_flat"
+        | "__rtsadp_arr_shift"
+        | "__rtsadp_arr_to_reversed"
+        | "__rtsadp_arr_sort"
+        | "__rtsadp_arr_to_sorted" => SymSig {
             params: &[U64],
+            ret: U64,
+        },
+        // arity-variant + ES2023 Array trampolines (recv U64 + the explicit args)
+        "__rtsadp_arr_slice1" | "__rtsadp_arr_flat_depth" => SymSig {
+            params: &[U64, I64],
+            ret: U64,
+        },
+        "__rtsadp_arr_index_of_from" | "__rtsadp_arr_last_index_of_from" => SymSig {
+            params: &[U64, U64, I64],
+            ret: I64,
+        },
+        "__rtsadp_arr_includes_from" => SymSig {
+            params: &[U64, U64, I64],
+            ret: Bool,
+        },
+        "__rtsadp_arr_with" => SymSig {
+            params: &[U64, I64, U64],
             ret: U64,
         },
         "__rtsadp_arr_fill" | "__rtsadp_arr_concat" => SymSig {
