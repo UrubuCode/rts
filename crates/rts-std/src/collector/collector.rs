@@ -34,38 +34,43 @@ use super::stack_map_registry;
 // (returns 0) never happens for a well-formed program. `mark_gcell_roots` keeps a
 // boxed-handle slot's HandleTable entry alive across a GC cycle.
 
-static GCELLS: std::sync::OnceLock<std::sync::Mutex<Vec<u64>>> = std::sync::OnceLock::new();
-
-fn gcells() -> &'static std::sync::Mutex<Vec<u64>> {
-    GCELLS.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+// THREAD-LOCAL (like the microtask queue): each program runs on its own thread,
+// and the cell ids restart at 0 per compiled program — a process-global store
+// would let concurrent in-process programs (the parallel unit tests) clobber each
+// other's ids. The GC `finish_cycle` runs on the allocating (program) thread, so
+// `mark_gcell_roots` sees the right thread's cells.
+thread_local! {
+    static GCELLS: std::cell::RefCell<Vec<u64>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// Store `word` (a PolyValue) into global cell `id`, growing the store as needed.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_GCELL_SET(id: u64, word: u64) {
-    let mut v = gcells().lock().unwrap();
-    let i = id as usize;
-    if i >= v.len() {
-        v.resize(i + 1, 0);
-    }
-    v[i] = word;
+    GCELLS.with(|c| {
+        let mut v = c.borrow_mut();
+        let i = id as usize;
+        if i >= v.len() {
+            v.resize(i + 1, 0);
+        }
+        v[i] = word;
+    });
 }
 
 /// Load global cell `id` (0 if never set — the front-end SETs before GET).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_GCELL_GET(id: u64) -> u64 {
-    gcells().lock().unwrap().get(id as usize).copied().unwrap_or(0)
+    GCELLS.with(|c| c.borrow().get(id as usize).copied().unwrap_or(0))
 }
 
 /// Mark every cell's PolyValue word as a GC root. A boxed STR/OBJECT/FUNCTION word
 /// keeps its slot alive; an inline int/float/singleton word is a no-op inside
 /// `mark_handle`. Called from `finish_cycle` alongside the microtask roots.
 pub fn mark_gcell_roots() {
-    if let Some(m) = GCELLS.get() {
-        for &w in m.lock().unwrap().iter() {
+    GCELLS.with(|c| {
+        for &w in c.borrow().iter() {
             mark_handle(w);
         }
-    }
+    });
 }
 
 // ─── Core collector ──────────────────────────────────────────────────────────
