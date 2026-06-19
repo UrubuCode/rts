@@ -40,12 +40,22 @@ cargo build --release` antes de medir.
 
 ## 3. Estado atual (o que já foi feito nesta campanha)
 
-**Baseline de cobertura (medido via `measure_new.sh`):** **247/630 rodam sem bail
-(exit 0)**, dos quais **228 100% VERDES** (asserções corretas) + ~19 com divergência
+**Baseline de cobertura (medido via `measure_new.sh`):** **254/630 rodam sem bail
+(exit 0)**, dos quais **235 100% VERDES** (asserções corretas) + ~19 com divergência
 real exposta. Antes do framework: 0/630. ATENÇÃO: "exit 0" = rodou sem bail
 (cobertura), NÃO = asserção passou — um `expect` que falha imprime ✗ e ainda sai 0.
-Número honesto = **228 verdes**. **0 SIGILL** (varredura `/tmp/new_fail.txt`). Pass
-definitivo = `rts test` no cutover (P5).
+Número honesto = **235 verdes**. Pass definitivo = `rts test` no cutover (P5).
+
+**Nota honestidade (crashes no FAIL bucket):** ~15-20 arquivos do FAIL bucket
+CRASHAM (exit 132/139) em vez de bailar limpo — NÃO são contados como verde (exit≠0
+→ fora do pass-list), então NÃO inflam a métrica. Dois tipos: (a) bugs de codegen
+pré-existentes em features (nullish_optional, object_method_this_binding,
+for_in_values stack-overflow, arrow_lift_return); (b) chamadas de namespace
+unsafe/async (ptr.copy/ffi/promise/net/sync) que LINKAM e rodam mas crasham por
+semântica (ex.: ptr.copy com endereço errado) — o §7 (link-OK/runtime-SIGILL de
+símbolo NÃO-linkado) está OK (símbolos linkados); são gaps de marshaling/feature
+por-arquivo. `ptr` p.ex. tem 3 arquivos VERDES, então não dá pra remover o
+namespace. Limpar cada crash = trabalho por-arquivo/feature.
 
 ### Triagem dos clusters restantes (histograma `measure_new.sh`)
 MECÂNICOS JÁ DRENADOS nesta campanha: framework, top-let capturado→cell,
@@ -83,7 +93,9 @@ ret_class de método fluente (`c.inc().add()`). O QUE SOBRA agora é:
 Não há mais correção pontual barata — daqui pra frente é trabalho de feature
 sustentado, melhor por épico em sessão dedicada.
 
-Commits recentes (mais novo primeiro), todos com gate (unit 703/703, 0 SIGILL):
+Commits recentes (mais novo primeiro), todos com gate (unit 703/703):
+- `9bde3293` métodos Array #226 (toSorted/toReversed/with/sort/flat(depth)/fromIndex)
+  + fix `fcvt_to_sint_sat` em numeric_to_i64 (arr.flat(Infinity) não trapa) (→235).
 - `23d65bf3` ret_class de método (return this/new C) → cadeia fluente (→228 verdes).
 - `bb7f3177` member/index compound-assign + ++/-- (→224 verdes).
 - `28a3a371` coerção Float64→Int (ToInteger) + símbolos gc closure (→221 verdes).
