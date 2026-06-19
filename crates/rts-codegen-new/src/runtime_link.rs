@@ -298,6 +298,18 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
             "__rtsadp_arr_to_sorted",
             arrayops::__rtsadp_arr_to_sorted as *const u8,
         ),
+        sym(
+            "__rtsadp_arr_to_spliced",
+            arrayops::__rtsadp_arr_to_spliced as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_copy_within",
+            arrayops::__rtsadp_arr_copy_within as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_copy_within2",
+            arrayops::__rtsadp_arr_copy_within2 as *const u8,
+        ),
         // ---- codegen-owned GLOBAL constant/function + Array/String STATIC
         //      trampolines (__rtsadp_g_* / __rtsadp_arr_* / __rtsadp_str_*, P5.2) ----
         sym(
@@ -422,6 +434,22 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         sym(
             "__rtsadp_arr_reduce",
             arraycb::__rtsadp_arr_reduce as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_find_last",
+            arraycb::__rtsadp_arr_find_last as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_find_last_index",
+            arraycb::__rtsadp_arr_find_last_index as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_reduce_right",
+            arraycb::__rtsadp_arr_reduce_right as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_flat_map",
+            arraycb::__rtsadp_arr_flat_map as *const u8,
         ),
         // ---- codegen-owned RegExp + string-regex-method trampolines (regexops, P5.12) ----
         sym(

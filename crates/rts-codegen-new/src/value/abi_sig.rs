@@ -435,6 +435,14 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, I64],
             ret: U64,
         },
+        "__rtsadp_arr_to_spliced" | "__rtsadp_arr_copy_within2" => SymSig {
+            params: &[U64, I64, I64],
+            ret: U64,
+        },
+        "__rtsadp_arr_copy_within" => SymSig {
+            params: &[U64, I64, I64, I64],
+            ret: U64,
+        },
         "__rtsadp_arr_index_of_from" | "__rtsadp_arr_last_index_of_from" => SymSig {
             params: &[U64, U64, I64],
             ret: I64,
@@ -661,11 +669,13 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         "__rtsadp_arr_map"
         | "__rtsadp_arr_filter"
         | "__rtsadp_arr_for_each"
-        | "__rtsadp_arr_find" => SymSig {
+        | "__rtsadp_arr_find"
+        | "__rtsadp_arr_find_last"
+        | "__rtsadp_arr_flat_map" => SymSig {
             params: &[U64, U64],
             ret: U64,
         },
-        "__rtsadp_arr_find_index" => SymSig {
+        "__rtsadp_arr_find_index" | "__rtsadp_arr_find_last_index" => SymSig {
             params: &[U64, U64],
             ret: I64,
         },
@@ -673,7 +683,7 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, U64],
             ret: Bool,
         },
-        "__rtsadp_arr_reduce" => SymSig {
+        "__rtsadp_arr_reduce" | "__rtsadp_arr_reduce_right" => SymSig {
             params: &[U64, U64, U64, I64],
             ret: U64,
         },

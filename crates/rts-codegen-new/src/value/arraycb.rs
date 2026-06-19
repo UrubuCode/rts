@@ -230,3 +230,88 @@ pub extern "C" fn __rtsadp_arr_reduce(
     }
     acc
 }
+
+/// `arr.findLast(cb)` — the LAST element (scanning from the end) whose predicate is
+/// truthy, else `undefined`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_find_last(vec_handle: u64, cb: u64) -> u64 {
+    let len = vec_len(vec_handle);
+    let arr_word = array_word(vec_handle);
+    for i in (0..len).rev() {
+        let element = vec_word(vec_handle, i);
+        if truthy(invoke_eia(cb, element, i, arr_word)) {
+            return element;
+        }
+    }
+    undef()
+}
+
+/// `arr.findLastIndex(cb)` — the LAST index whose element satisfies the predicate,
+/// else `-1`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_find_last_index(vec_handle: u64, cb: u64) -> i64 {
+    let len = vec_len(vec_handle);
+    let arr_word = array_word(vec_handle);
+    for i in (0..len).rev() {
+        let element = vec_word(vec_handle, i);
+        if truthy(invoke_eia(cb, element, i, arr_word)) {
+            return i;
+        }
+    }
+    -1
+}
+
+/// `arr.reduceRight(cb, init?, hasInit)` — fold from the END. Same ABI/empty-array
+/// semantics as [`__rtsadp_arr_reduce`], iterating indices high→low.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_reduce_right(
+    vec_handle: u64,
+    cb: u64,
+    init_word: u64,
+    has_init: i64,
+) -> u64 {
+    let len = vec_len(vec_handle);
+    let arr_word = array_word(vec_handle);
+
+    let (mut acc, start) = if has_init != 0 {
+        (init_word, len - 1)
+    } else {
+        if len == 0 {
+            return undef();
+        }
+        (vec_word(vec_handle, len - 1), len - 2)
+    };
+
+    let mut i = start;
+    while i >= 0 {
+        let element = vec_word(vec_handle, i);
+        acc = funcops::__rtsadp_fn_invoke(cb, acc, element, index_word(i), arr_word, undef());
+        i -= 1;
+    }
+    acc
+}
+
+/// `arr.flatMap(cb)` — `cb(element, index, array)` per element, then flatten ONE
+/// level: an array result is spliced in, a non-array result pushed verbatim. A NEW
+/// array word.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_flat_map(vec_handle: u64, cb: u64) -> u64 {
+    let len = vec_len(vec_handle);
+    let arr_word = array_word(vec_handle);
+    let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    for i in 0..len {
+        let element = vec_word(vec_handle, i);
+        let r = invoke_eia(cb, element, i, arr_word);
+        let rv = PolyValue::from_raw(r);
+        if rv.is_object() && !super::inspect::looks_like_object(rv) {
+            let inner = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(rv.as_handle());
+            let ilen = vec_len(inner);
+            for j in 0..ilen {
+                vec_push(out, vec_word(inner, j));
+            }
+        } else {
+            vec_push(out, r);
+        }
+    }
+    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(out) & super::PAYLOAD_MASK).raw()
+}

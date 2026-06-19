@@ -425,6 +425,58 @@ pub extern "C" fn __rtsadp_arr_to_sorted(vec_handle: u64) -> u64 {
     PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(copy)).raw()
 }
 
+/// `arr.toSpliced(start, deleteCount)` (ES2023, no-insert 2-arg form) — a NEW array
+/// with `deleteCount` elements removed at `start` (JS negative-index/clamp). The
+/// receiver is UNCHANGED. The insert form (`toSpliced(s, d, ...items)`) is variadic
+/// and a later increment (bails by arity).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_to_spliced(vec_handle: u64, start: i64, delete_count: i64) -> u64 {
+    let len = vec_len(vec_handle);
+    let s = clamp_index(start, len);
+    let del = delete_count.clamp(0, len - s);
+    let new_vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    for i in 0..s {
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(new_vec, vec_word(vec_handle, i) as i64);
+    }
+    for i in (s + del)..len {
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(new_vec, vec_word(vec_handle, i) as i64);
+    }
+    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(new_vec)).raw()
+}
+
+/// `arr.copyWithin(target, start, end)` — copy the slice `[start, end)` to `target`,
+/// IN PLACE, returning the receiver word (JS clamps all three; the copy is shift-
+/// safe via a snapshot of the source range). Arity-2 (`copyWithin(target, start)`)
+/// passes `end = len` from the lowering's default.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_copy_within(
+    vec_handle: u64,
+    target: i64,
+    start: i64,
+    end: i64,
+) -> u64 {
+    let len = vec_len(vec_handle);
+    let t = clamp_index(target, len);
+    let s = clamp_index(start, len);
+    let e = clamp_index(end, len).max(s);
+    // Snapshot the source range so an overlapping copy stays correct.
+    let src: Vec<u64> = (s..e).map(|i| vec_word(vec_handle, i)).collect();
+    for (k, w) in src.into_iter().enumerate() {
+        let dst = t + k as i64;
+        if dst >= len {
+            break;
+        }
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(vec_handle, dst, w as i64);
+    }
+    box_self(vec_handle)
+}
+
+/// `arr.copyWithin(target, start)` — the 2-arg form (`end = len`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_copy_within2(vec_handle: u64, target: i64, start: i64) -> u64 {
+    __rtsadp_arr_copy_within(vec_handle, target, start, vec_len(vec_handle))
+}
+
 impl PolyValue {
     /// The REAL runtime string handle behind a string PolyValue (generation
     /// reconstructed from the live slot) — used to return a real handle from the

@@ -240,6 +240,13 @@ const ARRAY_ROWS: &[(&str, usize, MethodSpec)] = &[
     ("with", 2, am("__rtsadp_arr_with", &[I64, U64], U64)),
     ("sort", 0, am("__rtsadp_arr_sort", &[], U64)),
     ("toSorted", 0, am("__rtsadp_arr_to_sorted", &[], U64)),
+    ("toSpliced", 2, am("__rtsadp_arr_to_spliced", &[I64, I64], U64)),
+    ("copyWithin", 2, am("__rtsadp_arr_copy_within2", &[I64, I64], U64)),
+    (
+        "copyWithin",
+        3,
+        am("__rtsadp_arr_copy_within", &[I64, I64, I64], U64),
+    ),
     // ---- callback methods (P4.7): exactly one callback arg (`cb(elem, i, arr)`)
     // for the predicate/map family; `reduce` has the callback + an OPTIONAL init.
     // The lowering reifies the callback to a TAG_FUNCTION word (see CbShape).
@@ -270,6 +277,32 @@ const ARRAY_ROWS: &[(&str, usize, MethodSpec)] = &[
     // trampoline; the lowering supplies init_word + has_init.
     ("reduce", 1, cm("__rtsadp_arr_reduce", U64, CbShape::Reduce)),
     ("reduce", 2, cm("__rtsadp_arr_reduce", U64, CbShape::Reduce)),
+    // ES2023 / additional callback methods
+    (
+        "findLast",
+        1,
+        cm("__rtsadp_arr_find_last", U64, CbShape::Predicate),
+    ),
+    (
+        "findLastIndex",
+        1,
+        cm("__rtsadp_arr_find_last_index", I64, CbShape::Predicate),
+    ),
+    (
+        "flatMap",
+        1,
+        cm("__rtsadp_arr_flat_map", U64, CbShape::Predicate),
+    ),
+    (
+        "reduceRight",
+        1,
+        cm("__rtsadp_arr_reduce_right", U64, CbShape::Reduce),
+    ),
+    (
+        "reduceRight",
+        2,
+        cm("__rtsadp_arr_reduce_right", U64, CbShape::Reduce),
+    ),
 ];
 
 /// Build a String instance-method spec (receiver = real string handle).
