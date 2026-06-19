@@ -238,7 +238,13 @@ fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<
     // Recompute the module-globals over the MERGED funcs + the COMBINED main so cell
     // ids are unique across prelude+user and a prelude top-level `let` written from a
     // prelude function (the `rts:test` hook setters) is promoted to a shared cell.
-    let gcells = funcval::module_globals(&funcs, &main);
+    // The force-promotion set (captured-and-mutated top lets) is the UNION of both
+    // sides — arrows are already lifted here, so the names were computed pre-extract
+    // and carried on each program; re-promoting keeps the lifted arrows' free reads
+    // resolving to the cell rather than an unbound ident.
+    let mut forced_globals = prelude.forced_globals;
+    forced_globals.extend(user.forced_globals);
+    let gcells = funcval::module_globals(&funcs, &main, &forced_globals);
 
     Ok(LoweredProgram {
         funcs,
@@ -247,6 +253,7 @@ fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<
         fn_this_class,
         captures,
         gcells,
+        forced_globals,
         prelude_fns,
         builtins,
     })
@@ -270,6 +277,12 @@ pub(crate) struct LoweredProgram {
     /// access goes through `__RTS_FN_NS_GC_GCELL_GET/SET` by this id. Computed by
     /// [`funcval::module_globals`] over the final funcs+main.
     pub gcells: std::collections::HashMap<String, u32>,
+    /// CELL-promotion set (#195): top-level `let`s force-promoted to runtime cells
+    /// because a closure captures them AND they are mutated (a by-value snapshot
+    /// would be stale). Carried so the multi-file merge re-promotes the same names
+    /// over the combined main (arrows are already lifted by merge time). Union of
+    /// prelude + user on merge.
+    pub forced_globals: std::collections::HashSet<String>,
     /// PRIVACY GATE (engine namespace): the set of function names that came from
     /// the engine's PRELUDE (embedded TS includes). Only these functions may name
     /// the PRIVATE `engine.*` global; a user function (incl. `__rtsn_main`) that
@@ -437,19 +450,25 @@ fn build_from_program(
     // `Ident` of the synthesized name. A non-capturing arrow becomes a plain
     // function; a capturing arrow becomes a CLOSURE (captures prepended as leading
     // params + recorded in `captures`). Unsound captures are left to bail.
-    // Pre-extraction module-global names (#195): a top-level `let` written from a
-    // function is a shared CELL, not a capturable local. Computed BEFORE arrow
-    // extraction so the capture classifier treats such a name as a non-capture (the
-    // closure reads the live cell), not a by-value snapshot that would bail. The
-    // authoritative gcell map is recomputed after extraction (synthesized arrows may
-    // add writers); this pre-pass only needs the names the user code already writes.
+    // CELL-promotion set (#195): top-level `let`s that must be runtime CELLs, not
+    // capturable locals. Two sources, BOTH computed on the PRE-extraction HIR (arrows
+    // still present): (a) `captured_mutated_top_lets` — a top let mutated at top level
+    // AND captured by a closure (its by-value snapshot would be stale); (b) the
+    // function-written lets `module_globals` finds. Computed BEFORE arrow extraction
+    // so the capture classifier treats such a name as a non-capture (the closure reads
+    // the live cell) instead of bailing. Stored on the program so the multi-file merge
+    // re-promotes the same names over the combined main (arrows are gone by then).
+    let forced_globals = funcval::captured_mutated_top_lets(&funcs, &main);
     let pre_globals: std::collections::HashSet<String> =
-        funcval::module_globals(&funcs, &main).into_keys().collect();
+        funcval::module_globals(&funcs, &main, &forced_globals)
+            .into_keys()
+            .collect();
     let extracted = funcval::extract_arrows(&mut funcs, &mut main, ambient_fns, &pre_globals);
     funcs.extend(extracted.funcs);
 
-    // Module-level mutable globals (#195): top-level lets written from a function.
-    let gcells = funcval::module_globals(&funcs, &main);
+    // Module-level mutable globals (#195): function-written top lets + the
+    // captured-and-mutated top lets force-promoted above.
+    let gcells = funcval::module_globals(&funcs, &main, &forced_globals);
 
     Ok(LoweredProgram {
         funcs,
@@ -458,6 +477,7 @@ fn build_from_program(
         fn_this_class,
         captures: extracted.captures,
         gcells,
+        forced_globals,
         // A single `build_program` has no prelude/user split — every fn is "user"
         // here. When `merge_programs` combines a prelude + user program it computes
         // the real prelude-origin set; this empty default denies `engine.*` for a

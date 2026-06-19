@@ -152,6 +152,94 @@ fn collect_mutated_expr(e: &HirExpr, out: &mut HashSet<String>) {
 }
 
 // ---------------------------------------------------------------------------
+// Arrow-referenced identifiers (which outer names some ARROW body reads).
+// ---------------------------------------------------------------------------
+
+/// Every identifier referenced FREE inside SOME arrow body in `stmts` (the arrow's
+/// own params excluded). A top-level `let` in this set is CAPTURED by a closure; if
+/// it is also mutated, capture-by-value is unsound, so it is promoted to a runtime
+/// CELL instead (live reference — see `module_globals` force-promotion). Reuses
+/// [`collect_free_expr`]: calling it on an `Arrow` node with an empty bound set
+/// yields exactly that arrow's (and any nested arrow's) free identifiers.
+pub(super) fn arrow_free_idents(stmts: &[HirStmt]) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for s in stmts {
+        collect_arrow_frees_stmt(s, &mut out);
+    }
+    out
+}
+
+fn collect_arrow_frees_stmt(s: &HirStmt, out: &mut HashSet<String>) {
+    match s {
+        HirStmt::Expr(e) | HirStmt::Return(Some(e)) | HirStmt::Throw(e) => {
+            collect_arrow_frees_expr(e, out)
+        }
+        HirStmt::Let { init: Some(e), .. } => collect_arrow_frees_expr(e, out),
+        HirStmt::Const { init, .. } => collect_arrow_frees_expr(init, out),
+        HirStmt::If { cond, then, else_ } => {
+            collect_arrow_frees_expr(cond, out);
+            then.iter().for_each(|st| collect_arrow_frees_stmt(st, out));
+            if let Some(e) = else_ {
+                e.iter().for_each(|st| collect_arrow_frees_stmt(st, out));
+            }
+        }
+        HirStmt::While { cond, body } | HirStmt::DoWhile { body, cond } => {
+            collect_arrow_frees_expr(cond, out);
+            body.iter().for_each(|st| collect_arrow_frees_stmt(st, out));
+        }
+        HirStmt::Block(b) => b.iter().for_each(|st| collect_arrow_frees_stmt(st, out)),
+        _ => {}
+    }
+}
+
+fn collect_arrow_frees_expr(e: &HirExpr, out: &mut HashSet<String>) {
+    if matches!(e.kind, HirExprKind::Arrow { .. }) {
+        // Collect this arrow's (and its nested arrows') free idents relative to an
+        // empty bound set — i.e. every outer name it reads.
+        collect_free_expr(e, &HashSet::new(), out);
+        return;
+    }
+    match &e.kind {
+        HirExprKind::Bin { lhs, rhs, .. }
+        | HirExprKind::Assign { target: lhs, value: rhs }
+        | HirExprKind::AssignOp { target: lhs, value: rhs, .. }
+        | HirExprKind::Index { object: lhs, index: rhs } => {
+            collect_arrow_frees_expr(lhs, out);
+            collect_arrow_frees_expr(rhs, out);
+        }
+        HirExprKind::Unary { operand, .. }
+        | HirExprKind::Member { object: operand, .. }
+        | HirExprKind::Cast { expr: operand, .. }
+        | HirExprKind::Await(operand)
+        | HirExprKind::Spread(operand)
+        | HirExprKind::PreInc(operand)
+        | HirExprKind::PreDec(operand)
+        | HirExprKind::PostInc(operand)
+        | HirExprKind::PostDec(operand) => collect_arrow_frees_expr(operand, out),
+        HirExprKind::Call { callee, args } => {
+            collect_arrow_frees_expr(callee, out);
+            args.iter().for_each(|a| collect_arrow_frees_expr(a, out));
+        }
+        HirExprKind::MethodCall { object, args, .. } => {
+            collect_arrow_frees_expr(object, out);
+            args.iter().for_each(|a| collect_arrow_frees_expr(a, out));
+        }
+        HirExprKind::New { args, .. } => args.iter().for_each(|a| collect_arrow_frees_expr(a, out)),
+        HirExprKind::Ternary { cond, then, else_ } => {
+            collect_arrow_frees_expr(cond, out);
+            collect_arrow_frees_expr(then, out);
+            collect_arrow_frees_expr(else_, out);
+        }
+        HirExprKind::Array(elems) => elems.iter().for_each(|el| collect_arrow_frees_expr(el, out)),
+        HirExprKind::Object(fields) => {
+            fields.iter().for_each(|(_, v)| collect_arrow_frees_expr(v, out))
+        }
+        HirExprKind::Seq(items) => items.iter().for_each(|it| collect_arrow_frees_expr(it, out)),
+        _ => {}
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Free-variable collection over the lowering subset.
 // ---------------------------------------------------------------------------
 

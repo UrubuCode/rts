@@ -44,7 +44,9 @@ use std::collections::{HashMap, HashSet};
 use rts_hir::ir::{HirArrowBody, HirExprKind};
 use rts_hir::{HirExpr, HirFunc, HirParam, HirStmt, HirType};
 
-use scan::{arrow_assigned_names, collect_free_stmt, declared_names, mutated_names};
+use scan::{
+    arrow_assigned_names, arrow_free_idents, collect_free_stmt, declared_names, mutated_names,
+};
 
 /// MODULE-LEVEL MUTABLE GLOBALS (epic #195). Compute the set of top-level `let`
 /// variables that are WRITTEN from inside SOME function (as a free variable — not
@@ -56,7 +58,11 @@ use scan::{arrow_assigned_names, collect_free_stmt, declared_names, mutated_name
 /// function print(v) { __rtsCapturedOutput += v + "\n"; }`) is the canonical case.
 /// `const` is excluded (immutable → never written). A name shadowed by a param or
 /// a local `let` inside the writing function is NOT counted (that write is local).
-pub fn module_globals(funcs: &[HirFunc], main: &HirFunc) -> HashMap<String, u32> {
+pub fn module_globals(
+    funcs: &[HirFunc],
+    main: &HirFunc,
+    force: &HashSet<String>,
+) -> HashMap<String, u32> {
     // Top-level `let` names declared directly in main (ordered, deduped).
     let mut top: Vec<String> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
@@ -85,12 +91,49 @@ pub fn module_globals(funcs: &[HirFunc], main: &HirFunc) -> HashMap<String, u32>
     let mut map = HashMap::new();
     let mut id = 0u32;
     for name in top {
-        if written_free.contains(&name) {
+        // Promote a top-level `let` to a runtime CELL when it is written from a
+        // function (the classic #195 case) OR force-promoted (`force`) — a top-level
+        // `let` that is mutated AND captured by a closure, whose by-value snapshot
+        // would be unsound, so it must be a live reference instead.
+        if written_free.contains(&name) || force.contains(&name) {
             map.insert(name, id);
             id += 1;
         }
     }
     map
+}
+
+/// Top-level `let`s that must be promoted to runtime CELLs because a closure
+/// CAPTURES them AND they are mutated at top level (so a by-value snapshot would be
+/// observably stale — `let out=""; out+=…; describe(…, ()=>expect(out)…)`). Such a
+/// var, kept as a plain local, makes its capturing arrow BAIL (`mutated` guard in
+/// `try_extract`); as a cell it reads live and the arrow lifts cleanly. Computed on
+/// the PRE-extraction HIR (arrows still present). Function-written top lets are
+/// already cells via [`module_globals`]; this adds the main-mutated-and-captured set.
+pub fn captured_mutated_top_lets(funcs: &[HirFunc], main: &HirFunc) -> HashSet<String> {
+    // Top-level `let` names in main.
+    let top: HashSet<String> = main
+        .body
+        .iter()
+        .filter_map(|s| match s {
+            HirStmt::Let { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    if top.is_empty() {
+        return HashSet::new();
+    }
+    // Names some arrow body reads (main + every function body).
+    let mut in_arrows = arrow_free_idents(&main.body);
+    for f in funcs {
+        in_arrows.extend(arrow_free_idents(&f.body));
+    }
+    // Names mutated at the top level (`out += …`). A top let mutated only inside a
+    // function is ALREADY a cell via `module_globals`; this targets top-level writes.
+    let mutated_top = mutated_names(&main.body);
+    top.into_iter()
+        .filter(|n| in_arrows.contains(n) && mutated_top.contains(n))
+        .collect()
 }
 
 /// Names always considered "not a capture" (engine globals the lowering knows).
