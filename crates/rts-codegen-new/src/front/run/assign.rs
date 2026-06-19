@@ -12,7 +12,8 @@ use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_module::Module;
 
-use rts_hir::{HirBinOp, HirExpr};
+use rts_hir::ir::HirExprKind;
+use rts_hir::{HirBinOp, HirExpr, HirType};
 
 use crate::repr::Repr;
 
@@ -31,6 +32,32 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         target: &HirExpr,
         value: &HirExpr,
     ) -> FrontResult<Val> {
+        // MEMBER / INDEX compound-assign (`this.n += x`, `obj.prop *= 2`,
+        // `arr[i] += 1`): desugar to `target = (target <op> value)` and reuse the
+        // member/index write path. A compound assignment evaluates to the NEW value,
+        // which is exactly what the synthesized `=` returns — so the desugar is
+        // semantically exact (unlike `++`, there is no old-vs-new ambiguity). The
+        // arithmetic/`+`-concat op rides the normal binary lowering (string `+=`
+        // works). Restricted to arithmetic/`**` (logical-assign on a member is a
+        // later increment) and a SIDE-EFFECT-FREE object (a bare identifier — incl.
+        // `this`) so re-reading the object for the load and the store is harmless;
+        // a complex object expr (`f().p += x`) would double-evaluate, so it bails.
+        if matches!(
+            &target.kind,
+            HirExprKind::Member { object, .. } | HirExprKind::Index { object, .. }
+                if matches!(object.kind, HirExprKind::Ident(_))
+        ) && (op.is_arithmetic() || matches!(op, HirBinOp::Exp))
+        {
+            let new_value = HirExpr::new(
+                HirExprKind::Bin {
+                    op,
+                    lhs: Box::new(target.clone()),
+                    rhs: Box::new(value.clone()),
+                },
+                HirType::Unknown,
+            );
+            return self.lower_assign(module, target, &new_value);
+        }
         let name = ident_target(target)?;
         // Logical-assign ops short-circuit: `a &&= b` only evaluates/assigns `b`
         // when `a` is truthy (resp. `||=` when falsy, `??=` when nullish). Handled

@@ -9,8 +9,8 @@
 use cranelift_codegen::ir::{InstBuilder, types};
 use cranelift_module::Module;
 
-use rts_hir::ir::HirExprKind;
-use rts_hir::{HirExpr, HirStmt, HirType};
+use rts_hir::ir::{HirExprKind, HirLit};
+use rts_hir::{HirBinOp, HirExpr, HirStmt, HirType};
 
 use crate::repr::Repr;
 
@@ -336,6 +336,35 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         inc: bool,
         prefix: bool,
     ) -> FrontResult<Val> {
+        // MEMBER / INDEX `++`/`--` (`this.n++`, `obj.count--`, `arr[i]++`): read the
+        // OLD value, write `target = target ± 1` (reusing the member/index store via a
+        // synthesized `=`), and produce the NEW value (prefix) or the OLD (postfix).
+        // Restricted to a SIDE-EFFECT-FREE object (a bare identifier, incl. `this`) so
+        // the load + the store's re-read of the object are harmless; an ACCESSOR
+        // property is skipped (a getter could have side effects → the double read
+        // would diverge). A complex object expr bails (double-evaluation).
+        if let HirExprKind::Member { object, prop } = &target.kind {
+            if matches!(object.kind, HirExprKind::Ident(_)) {
+                if let Some(class) = self.static_instance_class(object) {
+                    if self
+                        .classes
+                        .get(&class)
+                        .and_then(|d| d.accessor(prop))
+                        .is_some()
+                    {
+                        return unsupported!(
+                            "`++`/`--` on accessor property `.{prop}` (later increment)"
+                        );
+                    }
+                }
+                return self.lower_member_index_incdec(module, target, inc, prefix);
+            }
+        }
+        if let HirExprKind::Index { object, .. } = &target.kind {
+            if matches!(object.kind, HirExprKind::Ident(_)) {
+                return self.lower_member_index_incdec(module, target, inc, prefix);
+            }
+        }
         let name = ident_target(target)?;
         // MODULE-LEVEL MUTABLE GLOBAL (epic #195): `++`/`--` on a cell var. Read the
         // cell, ToNumber, ±1 generically, store back; produce old (postfix) or new
@@ -397,6 +426,36 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.builder.def_var(local.var, new);
         let produced = if prefix { new } else { old };
         Ok(Val::new(produced, local.repr))
+    }
+
+    /// `obj.prop++` / `arr[i]--` (side-effect-free object, already checked): read the
+    /// OLD value, store `target = target ± 1` via a synthesized member/index `=`
+    /// (which returns the NEW value), and produce NEW for prefix / OLD for postfix.
+    /// The object is re-read for the load and inside the store's RHS; harmless for a
+    /// bare-ident object on a data slot (the accessor case bailed in `lower_incdec`).
+    fn lower_member_index_incdec(
+        &mut self,
+        module: &mut dyn Module,
+        target: &HirExpr,
+        inc: bool,
+        prefix: bool,
+    ) -> FrontResult<Val> {
+        // OLD value (only needed for postfix, but reading it first matches the read-
+        // before-write order; for prefix we discard it).
+        let old = self.lower_expr(module, target)?;
+        // target = (target <Add|Sub> 1)
+        let one = HirExpr::new(HirExprKind::Lit(HirLit::Int(1)), HirType::I64);
+        let op = if inc { HirBinOp::Add } else { HirBinOp::Sub };
+        let new_value = HirExpr::new(
+            HirExprKind::Bin {
+                op,
+                lhs: Box::new(target.clone()),
+                rhs: Box::new(one),
+            },
+            HirType::Unknown,
+        );
+        let new = self.lower_assign(module, target, &new_value)?;
+        Ok(if prefix { new } else { old })
     }
 
     // ---- control flow ----
