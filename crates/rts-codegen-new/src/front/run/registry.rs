@@ -180,6 +180,10 @@ fn build_registry() -> Registry {
     // `class Set` shadow the native dispatch in every program — making the native
     // Map/Set code dead (deleted in B3).
     e.include(rts_runtime::stdlib::MAP_SET_TS);
+    // The `JSON` stdlib (stringify/parse) as faithful TS — pure primordials, the
+    // engine names nothing JSON-specific. Its ambient `class JSON` static methods
+    // serve `JSON.stringify(x)` / `JSON.parse(s)`.
+    e.include(rts_runtime::stdlib::JSON_TS);
     // The high-level `rts:test` FRAMEWORK as faithful TS (embedded include): its
     // ambient `describe`/`test`/`expect`/`Matcher` (+ lifecycle hooks) are the
     // surface every `tests/*.test.ts` imports from `"rts:test"`. Included LAST so

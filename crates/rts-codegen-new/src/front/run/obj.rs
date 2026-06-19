@@ -469,9 +469,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 emit_marshal::emit_vec_set(module, self.builder, recv_word, idx, word);
                 return Ok(Val::new(word, Repr::Tagged));
             }
-            return unsupported!(
-                "adding a new key `{prop}` to a known-shape object (transition tree is a later increment)"
-            );
+            // A brand-NEW key on a known-shape object: write it at RUNTIME (the
+            // `__rtsadp_obj_set` shape transition appends the key + value) and DEMOTE
+            // the local to dynamic-shape so subsequent reads see the grown object. A
+            // non-ident receiver (no local to demote) still routes the dynamic set.
+            let v = self.lower_expr(module, value)?;
+            let word = self.box_value(v);
+            let key_word = self.intern_key_word(prop);
+            self.call_runtime(module, "__rtsadp_obj_set", &[recv_word, key_word, word])?;
+            if let HirExprKind::Ident(name) = &object.kind {
+                self.demote_local_to_dynamic(name);
+            }
+            return Ok(Val::new(word, Repr::Tagged));
         }
         // ---- DYNAMIC FALLBACK: an unproven receiver (param / return / reassigned /
         // non-identifier object). Write the EXISTING property by key AT RUNTIME via
@@ -499,6 +508,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let word = self.box_value(v);
                 let obj_word = self.load_local_word(&name);
                 self.call_runtime(module, "__rtsadp_obj_set", &[obj_word, key_word, word])?;
+                // The runtime set may ADD a key (shape transition), so the local's
+                // compile-time shape is no longer authoritative — route its future
+                // reads through the DYNAMIC path (which reads the live runtime shape).
+                self.demote_local_to_dynamic(&name);
                 return Ok(Val::new(word, Repr::Tagged));
             }
         }
@@ -689,6 +702,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
     /// Load the raw object/array PolyValue word held by a local (the local's repr
     /// is `Tagged`, an i64 register).
+    /// Demote a local from STATIC object shape (`local_shapes`) to DYNAMIC shape
+    /// (`object_locals`): after a runtime key-add transition its compile-time shape
+    /// is stale, so its reads/writes must consult the live runtime shape-id.
+    fn demote_local_to_dynamic(&mut self, name: &str) {
+        if self.local_shapes.remove(name).is_some() {
+            self.object_locals.insert(name.to_string());
+        }
+    }
+
     fn load_local_word(&mut self, name: &str) -> Value {
         let local = self.local(name).expect("shaped local must exist");
         self.builder.use_var(local.var)

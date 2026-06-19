@@ -93,15 +93,30 @@ pub extern "C" fn __rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
     }
 }
 
-/// `__rtsadp_obj_set(obj_word, key_str_handle, val_word)` — write `val` to an
-/// EXISTING property `key` of a keyed object at RUNTIME, returning `val` (JS
-/// assignment evaluates to the assigned value). A key not in the shape, or a
-/// non-object receiver, is a NO-OP (adding a new key = the transition tree, a
-/// later increment; the lowering keeps a provably-new key a compile-time bail).
+/// `__rtsadp_obj_set(obj_word, key_str_handle, val_word)` — write `val` to property
+/// `key` of a keyed object at RUNTIME, returning `val` (JS assignment evaluates to
+/// the assigned value). An EXISTING key overwrites its slot. A NEW key TRANSITIONS
+/// the object's shape: the ordered key list grows by `key`, a fresh global shape-id
+/// is interned, slot 0 is updated to it, and `val` is pushed as the new trailing
+/// slot — so `obj[k] = v` for an absent `k` works generically (`JSON.parse`, any
+/// dynamic property add). A non-object receiver is a no-op. (`Object` is a
+/// PRIMORDIAL → property addition is engine-direct.)
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word: u64) -> u64 {
     if let Some((handle, idx)) = resolve_slot(obj_word, key_str_handle) {
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(handle, 1 + idx, val_word as i64);
+        return val_word;
+    }
+    // Absent key on a keyed object → shape transition (append the key + value).
+    let obj = PolyValue::from_raw(obj_word);
+    if obj.is_object() && looks_like_object(obj) {
+        let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+        let mut keys = object_keys_vec(obj_word);
+        keys.push(key_text(key_str_handle));
+        let new_shape = crate::shape::intern_global_shape(&keys);
+        let slot0 = PolyValue::from_i32(new_shape as i32).raw() as i64;
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(handle, 0, slot0);
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle, val_word as i64);
     }
     val_word
 }

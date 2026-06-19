@@ -6,3 +6,8 @@
 /// delete, `get size()`). Registered as an include in the new engine; replaces
 /// the deleted native Map/Set dispatch. Parity proven by `stdlib_parity.rs`.
 pub const MAP_SET_TS: &str = include_str!("map_set.ts");
+
+/// `JSON` (stringify/parse) — a rts-shared utility (not a primordial; no native
+/// syntax). Pure TS over primordials only (typeof / Object.keys / Array.isArray /
+/// recursion); the engine names nothing JSON-specific, it just runs the generics.
+pub const JSON_TS: &str = include_str!("json.ts");

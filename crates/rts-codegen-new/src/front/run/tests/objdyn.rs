@@ -143,8 +143,9 @@ fn numeric_index_into_object_now_dynamic() {
 }
 
 #[test]
-fn add_new_key_to_known_shape_bails() {
-    // Adding a brand-new key to a KNOWN-shape object is the transition tree (a
-    // later increment) — still a compile-time bail (the static write path).
-    assert_bails("let o = {a: 1}; o.b = 2; console.log(o.b);");
+fn add_new_key_to_known_shape_runs() {
+    // Adding a brand-new key to a KNOWN-shape object now TRANSITIONS the shape at
+    // runtime (`__rtsadp_obj_set` appends key+value) and DEMOTES the local to
+    // dynamic shape, so the later read sees it (regression: was a bail).
+    assert_stdout("let o = {a: 1}; o.b = 2; console.log(o.b);", "2\n");
 }

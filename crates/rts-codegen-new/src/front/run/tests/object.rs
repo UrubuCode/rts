@@ -114,7 +114,8 @@ fn computed_object_key_now_dynamic() {
 }
 
 #[test]
-fn adding_new_object_key_bails() {
-    // Adding a key not in the literal's shape needs the transition tree — bail.
-    assert_bails("let o = {a: 1}; o.b = 2; console.log(o.b);");
+fn adding_new_object_key_transitions() {
+    // Adding a key not in the literal's shape now transitions the runtime shape and
+    // demotes the local to dynamic (regression: was a bail).
+    assert_stdout("let o = {a: 1}; o.b = 2; console.log(o.b);", "2\n");
 }
