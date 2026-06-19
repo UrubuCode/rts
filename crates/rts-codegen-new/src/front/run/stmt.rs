@@ -120,6 +120,26 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(());
         }
 
+        // GENERATOR-valued init: `const it = g()` where `g` is a generator. Mark
+        // `it` so `it.next()`/`.return()`/`.throw()` route to `GENERATOR_*`. LAZY →
+        // bind the raw `Int64` GenState handle; EAGER → bind the `__gen_buf` ARRAY
+        // word + record the array shape (so `[...it]`/for-of/`it.length` work too).
+        if let Some(is_lazy) = self.gen_call_kind(init) {
+            let val = self.lower_expr(module, init)?;
+            if is_lazy {
+                let h = self.coerce(val, Repr::Int64)?;
+                let var = self.builder.declare_var(cl_type(Repr::Int64));
+                self.builder.def_var(var, h);
+                self.locals
+                    .insert(name.to_string(), Local { var, repr: Repr::Int64 });
+            } else {
+                self.bind_tagged_local(name, val);
+                self.local_shapes.insert(name.to_string(), HeapShape::Array);
+            }
+            self.generator_locals.insert(name.to_string(), is_lazy);
+            return Ok(());
+        }
+
         // Object/array literal initializers: lower specially and RECORD the
         // local's proven heap shape, so later `obj.key` / `arr[i]` / `arr.length`
         // resolve to constant-slot `VEC_GET`/`VEC_SET`. The local rides `Tagged`
@@ -566,6 +586,57 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.builder.switch_to_block(exit_block);
         self.block_terminated = false;
         Ok(())
+    }
+}
+
+impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
+    /// If `init` is a CALL to a generator constructor, its kind: `Some(true)` lazy
+    /// (GenState handle), `Some(false)` eager (`__gen_buf` array). `None` otherwise.
+    pub(super) fn gen_call_kind(&self, init: &HirExpr) -> Option<bool> {
+        let HirExprKind::Call { callee, .. } = &init.kind else {
+            return None;
+        };
+        let HirExprKind::Ident(f) = &callee.kind else {
+            return None;
+        };
+        let s = self.sigs.get(f)?;
+        if s.ret_lazy_gen {
+            Some(true)
+        } else if s.ret_eager_gen {
+            Some(false)
+        } else {
+            None
+        }
+    }
+
+    /// The runtime GenState/Vec handle of a GENERATOR-valued receiver (a generator
+    /// local, or a direct `g()` call), for `GENERATOR_NEXT`/`RETURN`/`THROW`. EAGER
+    /// (`__gen_buf` array word) → its real Vec handle (`POLY_TO_HANDLE`); LAZY (raw
+    /// `Int64` GenState handle) → verbatim. `Ok(None)` when not a generator.
+    pub(super) fn generator_receiver_handle(
+        &mut self,
+        module: &mut dyn Module,
+        recv: &HirExpr,
+    ) -> FrontResult<Option<cranelift_codegen::ir::Value>> {
+        let is_lazy = match &recv.kind {
+            HirExprKind::Ident(n) => match self.generator_locals.get(n) {
+                Some(&lazy) => lazy,
+                None => return Ok(None),
+            },
+            HirExprKind::Call { .. } => match self.gen_call_kind(recv) {
+                Some(lazy) => lazy,
+                None => return Ok(None),
+            },
+            _ => return Ok(None),
+        };
+        let v = self.lower_expr(module, recv)?;
+        let handle = if is_lazy {
+            self.coerce(v, Repr::Int64)?
+        } else {
+            let word = self.box_value(v);
+            crate::value::emit_marshal::emit_table_load(module, self.builder, word)
+        };
+        Ok(Some(handle))
     }
 }
 

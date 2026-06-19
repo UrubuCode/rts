@@ -559,7 +559,9 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64],
             ret: Void,
         },
-        "__RTS_FN_NS_GC_GENERATOR_GET_RET" => SymSig {
+        "__RTS_FN_NS_GC_GENERATOR_GET_RET"
+        | "__RTS_FN_NS_GC_ITER_VALUE"
+        | "__RTS_FN_NS_GC_ITER_DONE" => SymSig {
             params: &[U64],
             ret: U64,
         },

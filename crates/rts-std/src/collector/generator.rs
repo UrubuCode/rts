@@ -24,6 +24,30 @@ const UNDEFINED: i64 = i64::MIN + 2;
 const BOOL_FALSE: i64 = i64::MIN;
 const BOOL_TRUE: i64 = i64::MIN + 1;
 
+/// (motor NOVO) Lê o campo `value` do `{value, done}` (Entry::Map) que
+/// `GENERATOR_NEXT`/`GEN_SM_NEXT` devolvem. O motor novo não lê um Entry::Map via
+/// seu obj_get shape-based, então expõe acessores: a engine constrói o objeto
+/// `{value, done}` do modelo NOVO a partir destes. `value` é o word
+/// (yield → word PolyValue do motor novo; done-sem-valor → `UNDEFINED` sentinela,
+/// que a engine remapeia pro undefined do motor novo).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_ITER_VALUE(result_handle: u64) -> i64 {
+    with_entry(result_handle, |e| match e {
+        Some(Entry::Map(m)) => m.get("value").copied().unwrap_or(UNDEFINED),
+        _ => UNDEFINED,
+    })
+}
+
+/// (motor NOVO) Lê o campo `done` como flag `1`/`0` (o Map guarda o sentinela
+/// `BOOL_TRUE`/`BOOL_FALSE` era-i64; a engine faz o PolyValue bool do motor novo).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_ITER_DONE(result_handle: u64) -> i64 {
+    with_entry(result_handle, |e| match e {
+        Some(Entry::Map(m)) => i64::from(m.get("done").copied() == Some(BOOL_TRUE)),
+        _ => 1,
+    })
+}
+
 thread_local! {
     /// Cursor de iteracao por handle de Vec consumido via `.next()`.
     static GEN_CURSORS: RefCell<HashMap<u64, usize>> = RefCell::new(HashMap::new());

@@ -1148,6 +1148,9 @@ fn generator_symbols() -> Vec<JitSymbol> {
         sym("__RTS_FN_NS_GC_GEN_DELEGATE_START", rt_gen::__RTS_FN_NS_GC_GEN_DELEGATE_START as *const u8),
         sym("__RTS_FN_NS_GC_GEN_DELEGATE_NEXT", rt_gen::__RTS_FN_NS_GC_GEN_DELEGATE_NEXT as *const u8),
         sym("__RTS_FN_NS_GC_GEN_DELEGATE_DONE", rt_gen::__RTS_FN_NS_GC_GEN_DELEGATE_DONE as *const u8),
+        // `{value, done}` result-Map accessors (new engine builds its own result obj).
+        sym("__RTS_FN_NS_GC_ITER_VALUE", rt_gen::__RTS_FN_NS_GC_ITER_VALUE as *const u8),
+        sym("__RTS_FN_NS_GC_ITER_DONE", rt_gen::__RTS_FN_NS_GC_ITER_DONE as *const u8),
     ]
 }
 

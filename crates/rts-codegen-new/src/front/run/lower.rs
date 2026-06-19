@@ -183,6 +183,10 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// (a `new C()` result, a `: C`-annotated param, or `this` inside a method).
     /// Drives static `instance.method(args)` dispatch; absent ⇒ method calls bail.
     pub local_classes: HashMap<String, String>,
+    /// GENERATOR locals: `const it = g()` where `g` is a generator. `true` = LAZY
+    /// (GenState handle, `Int64`); `false` = EAGER (`__gen_buf` ARRAY word).
+    /// `it.next()`/`.return()`/`.throw()` route to `GENERATOR_*` by this kind.
+    pub generator_locals: HashMap<String, bool>,
     /// Name → the statically-known RUNTIME/Registry class of a local holding a
     /// `new Map()`/`new Set()`/`new Error()`/… instance (P5.3). Distinct from
     /// `local_classes` (user classes): these dispatch through the global-class
@@ -275,6 +279,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             object_locals: std::collections::HashSet::new(),
             string_locals: std::collections::HashSet::new(),
             local_classes: HashMap::new(),
+            generator_locals: HashMap::new(),
             global_instance_classes: HashMap::new(),
             shapes: ShapeTable::new(),
             ret: sig.ret,

@@ -71,6 +71,9 @@ pub struct FnSig {
     /// is a lazy generator object: `for (const x of g())` DRAINs it, `g().next()`
     /// routes to `GENERATOR_NEXT`.
     pub ret_lazy_gen: bool,
+    /// True when this is a desugared EAGER generator (body calls `__RTS_GEN_FINISH`,
+    /// result = the `__gen_buf` ARRAY). `g().next()` cursors it via `GENERATOR_NEXT`.
+    pub ret_eager_gen: bool,
 }
 
 impl FnSig {
@@ -149,6 +152,7 @@ impl FnSig {
                 ret_class: None,
                 ret_array: false,
                 ret_lazy_gen: false,
+                ret_eager_gen: false,
             };
         }
         // The declared return repr — trusted in general (an explicit `boolean` /
@@ -216,6 +220,7 @@ impl FnSig {
             // buffer ARRAY) — both make the call result a proven iterable array.
             ret_array: matches!(func.ret, rts_hir::HirType::Array(_)) || is_eager_generator,
             ret_lazy_gen: is_lazy_gen,
+            ret_eager_gen: is_eager_generator,
         }
     }
 
@@ -232,6 +237,7 @@ impl FnSig {
             ret_class: None,
             ret_array: false,
                 ret_lazy_gen: false,
+                ret_eager_gen: false,
         }
     }
 

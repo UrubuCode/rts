@@ -75,6 +75,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             let prop_word = self.box_value(prop_val);
             return self.lower_value_call_word(module, prop_word, args);
         }
+        // GENERATOR protocol methods on a generator receiver (`it.next()`/
+        // `.return(v)`/`.throw(e)` where `it = g()`): route to `GENERATOR_*` and
+        // rebuild a NEW-ENGINE `{value, done}` object the engine can read.
+        if matches!(method, "next" | "return" | "throw") {
+            if let Some(val) = self.try_generator_method(module, object, method, args)? {
+                return Ok(val);
+            }
+        }
         // Data-driven instance-method dispatch (String/Number) via the Registry
         // mirror. `Ok(None)` ⇒ not a dispatchable receiver; fall through to bail.
         if let Some(val) = self.try_method_dispatch(module, object, method, args)? {
@@ -225,6 +233,104 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let ret_word = self.box_value(ret_val);
         self.call_runtime(module, "__RTS_FN_NS_GC_GENERATOR_SET_RET", &[handle, ret_word])?;
         Ok(Val::tagged_kind(buf_word, JsKind::Array))
+    }
+
+    /// Lower a generator protocol method `it.next()` / `it.return(v)` / `it.throw(e)`
+    /// → the `GENERATOR_*` runtime, then build a NEW-ENGINE `{value, done}` object.
+    /// The runtime returns the result as an old-model `Entry::Map` the new engine
+    /// cannot read with its shape `obj_get`, so we read its fields via the
+    /// `ITER_VALUE`/`ITER_DONE` accessors and reconstruct a real shape object
+    /// (slot0 = global shape-id for `["value","done"]`, slot1 = value, slot2 = done).
+    /// `Ok(None)` when `object` is not a generator receiver.
+    fn try_generator_method(
+        &mut self,
+        module: &mut dyn Module,
+        object: &HirExpr,
+        method: &str,
+        args: &[HirExpr],
+    ) -> FrontResult<Option<Val>> {
+        let Some(handle) = self.generator_receiver_handle(module, object)? else {
+            return Ok(None);
+        };
+        let result_map = match (method, args.first()) {
+            ("next", Some(arg)) => {
+                let v = self.lower_expr(module, arg)?;
+                let w = self.box_value(v);
+                self.call_runtime(module, "__RTS_FN_NS_GC_GENERATOR_NEXT_SENT", &[handle, w])?
+            }
+            ("next", None) => self.call_runtime(module, "__RTS_FN_NS_GC_GENERATOR_NEXT", &[handle])?,
+            (m, arg) => {
+                // `.return(v)` / `.throw(e)` — pass the (optional) arg word.
+                let w = match arg {
+                    Some(a) => {
+                        let v = self.lower_expr(module, a)?;
+                        self.box_value(v)
+                    }
+                    None => self
+                        .builder
+                        .ins()
+                        .iconst(types::I64, value::PolyValue::undefined().raw() as i64),
+                };
+                let sym = if m == "return" {
+                    "__RTS_FN_NS_GC_GENERATOR_RETURN"
+                } else {
+                    "__RTS_FN_NS_GC_GENERATOR_THROW"
+                };
+                self.call_runtime(module, sym, &[handle, w])?
+            }
+        };
+        let result_map = result_map.expect("GENERATOR_* returns a result-Map handle");
+        Ok(Some(self.build_iter_result(module, result_map)))
+    }
+
+    /// Build a NEW-ENGINE `{value, done}` object from the runtime result-Map handle.
+    /// `value` = `ITER_VALUE` (a real word for a yield; the old `UNDEFINED` sentinel
+    /// for the done-no-value case is remapped to the engine's `undefined`); `done` =
+    /// `ITER_DONE` (a `1`/`0` flag) → a PolyValue bool.
+    fn build_iter_result(&mut self, module: &mut dyn Module, result_map: Value) -> Val {
+        // value word (+ remap the old-engine UNDEFINED sentinel → new undefined).
+        let value_raw = self
+            .call_runtime(module, "__RTS_FN_NS_GC_ITER_VALUE", &[result_map])
+            .expect("call_runtime ok")
+            .expect("ITER_VALUE returns a value");
+        let old_undef = self.builder.ins().iconst(types::I64, i64::MIN + 2);
+        let new_undef = self
+            .builder
+            .ins()
+            .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
+        let is_old_undef = self.builder.ins().icmp(IntCC::Equal, value_raw, old_undef);
+        let value_word = self.builder.ins().select(is_old_undef, new_undef, value_raw);
+        // done flag → PolyValue bool.
+        let done_flag = self
+            .call_runtime(module, "__RTS_FN_NS_GC_ITER_DONE", &[result_map])
+            .expect("call_runtime ok")
+            .expect("ITER_DONE returns a flag");
+        let t_word = self
+            .builder
+            .ins()
+            .iconst(types::I64, value::PolyValue::bool(true).raw() as i64);
+        let f_word = self
+            .builder
+            .ins()
+            .iconst(types::I64, value::PolyValue::bool(false).raw() as i64);
+        let done_is_true = {
+            let zero = self.builder.ins().iconst(types::I64, 0);
+            self.builder.ins().icmp(IntCC::NotEqual, done_flag, zero)
+        };
+        let done_word = self.builder.ins().select(done_is_true, t_word, f_word);
+        // Build the object `{value, done}`: slot0 = global shape-id, then the values.
+        let keys = ["value".to_string(), "done".to_string()];
+        self.shapes.intern(&keys);
+        let global_id = crate::shape::intern_global_shape(&keys);
+        let obj = emit_marshal::emit_new_vec_object(module, self.builder);
+        let id_word = self.builder.ins().iconst(
+            types::I64,
+            value::PolyValue::from_i32(global_id as i32).raw() as i64,
+        );
+        emit_marshal::emit_vec_push(module, self.builder, obj, id_word);
+        emit_marshal::emit_vec_push(module, self.builder, obj, value_word);
+        emit_marshal::emit_vec_push(module, self.builder, obj, done_word);
+        Val::tagged_kind(obj, JsKind::Object)
     }
 
     /// Lower a LAZY generator state-machine sentinel call. Returns `Ok(None)` when
