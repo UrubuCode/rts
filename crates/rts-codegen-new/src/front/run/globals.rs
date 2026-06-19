@@ -398,6 +398,25 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     Some(super::lower::HeapShape::Array)
                 )
             }
+            // A CALL of a user function whose declared return type is an array
+            // (`function ks(): string[] {…}` → `for (const k of ks())`).
+            HirExprKind::Call { callee, .. } => match &callee.kind {
+                HirExprKind::Ident(f) => self.sigs.get(f).is_some_and(|s| s.ret_array),
+                _ => false,
+            },
+            // A METHOD CALL whose receiver class is known and whose method's declared
+            // return type is an array (`m.values()`/`o.keys()`/`o.entries()`).
+            HirExprKind::MethodCall { object, method, .. } => {
+                self.static_instance_class(object)
+                    .and_then(|c| {
+                        self.classes
+                            .get(&c)
+                            .and_then(|d| d.methods.get(method).cloned())
+                    })
+                    .and_then(|fname| self.sigs.get(&fname))
+                    .is_some_and(|s| s.ret_array)
+                    || self.is_array_receiver(e)
+            }
             _ => self.is_array_receiver(e),
         }
     }

@@ -283,6 +283,7 @@ fn bail_extends_non_error_builtin() {
 
 #[test]
 fn bail_unknown_map_method() {
-    // A method not in the Map metadata rows bails (never a guess).
-    assert_bails(r#"let m = new Map(); m.forEach(() => {}); console.log(m.size);"#);
+    // A method not on the TS Map class bails (never a guess). `forEach`/`keys`/
+    // `values`/`entries`/`clear` are now real members; `groupInto` is not.
+    assert_bails(r#"let m = new Map(); m.groupInto(() => {}); console.log(m.size);"#);
 }

@@ -218,7 +218,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // An array-VALUED expression (e.g. `let b = a.slice(1, 3)`) produces a
         // TAG_OBJECT array word: bind it as a Tagged local AND record the array
         // shape, so `b.length` / `b[i]` / `b.method(..)` resolve like a literal.
-        if matches!(val.kind, super::lower::JsKind::Array) {
+        // Array-VALUED either by the lowered KIND (`a.slice(..)` tags `Array`) OR by
+        // a statically array-returning call/method (`const vs = m.values()` — the
+        // declared `T[]` return, via `is_array_valued`'s call/method arms). Both bind
+        // a Tagged local + record the array shape so `vs.length`/`vs[i]`/`for-of`
+        // resolve like a literal array.
+        if matches!(val.kind, super::lower::JsKind::Array) || self.is_array_valued(init) {
             self.bind_tagged_local(name, val);
             self.local_shapes.insert(name.to_string(), HeapShape::Array);
             return Ok(());

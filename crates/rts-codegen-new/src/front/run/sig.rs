@@ -61,6 +61,11 @@ pub struct FnSig {
     /// the return class is not provable. Filled by `compile_program` (which has the
     /// class table); `of_func`/`main_sig` leave it `None`.
     pub ret_class: Option<String>,
+    /// True when the declared return type is an ARRAY (`T[]`). Lets a call/method
+    /// RESULT be treated as a proven array (`for (const v of m.values())`,
+    /// `o.keys().length`, `const ks = o.keys()`). Derived from `HirType::Array`
+    /// (preserved through `parse_type_annotation`, unlike a class name).
+    pub ret_array: bool,
 }
 
 impl FnSig {
@@ -137,6 +142,7 @@ impl FnSig {
                 fillable,
                 has_this,
                 ret_class: None,
+                ret_array: false,
             };
         }
         // The declared return repr — trusted in general (an explicit `boolean` /
@@ -187,6 +193,7 @@ impl FnSig {
             fillable,
             has_this,
             ret_class: None,
+            ret_array: matches!(func.ret, rts_hir::HirType::Array(_)),
         }
     }
 
@@ -201,6 +208,7 @@ impl FnSig {
             fillable: Vec::new(),
             has_this: false,
             ret_class: None,
+            ret_array: false,
         }
     }
 

@@ -49,6 +49,27 @@ class Map<K, V> {
     return false;
   }
   get size(): number { return this.#keys.length; }
+  // Iteration helpers — return eager arrays so `for (const k of m.keys())` works
+  // (the engine iterates a proven array). `entries()` yields `[key, value]` pairs.
+  keys(): K[] {
+    const out: K[] = [];
+    for (let i = 0; i < this.#keys.length; i++) { out.push(this.#keys[i]); }
+    return out;
+  }
+  values(): V[] {
+    const out: V[] = [];
+    for (let i = 0; i < this.#vals.length; i++) { out.push(this.#vals[i]); }
+    return out;
+  }
+  entries(): [K, V][] {
+    const out: [K, V][] = [];
+    for (let i = 0; i < this.#keys.length; i++) { out.push([this.#keys[i], this.#vals[i]]); }
+    return out;
+  }
+  forEach(cb: (v: V, k: K, m: Map<K, V>) => void): void {
+    for (let i = 0; i < this.#keys.length; i++) { cb(this.#vals[i], this.#keys[i], this); }
+  }
+  clear(): void { this.#keys = []; this.#vals = []; }
 }
 class Set<T> {
   #items: T[] = [];
@@ -79,4 +100,21 @@ class Set<T> {
     return false;
   }
   get size(): number { return this.#items.length; }
+  // `values()`/`keys()` both yield the elements (JS Set), `entries()` yields
+  // `[v, v]` pairs; eager arrays so `for (const v of s.values())` iterates.
+  values(): T[] {
+    const out: T[] = [];
+    for (let i = 0; i < this.#items.length; i++) { out.push(this.#items[i]); }
+    return out;
+  }
+  keys(): T[] { return this.values(); }
+  entries(): [T, T][] {
+    const out: [T, T][] = [];
+    for (let i = 0; i < this.#items.length; i++) { out.push([this.#items[i], this.#items[i]]); }
+    return out;
+  }
+  forEach(cb: (v: T, v2: T, s: Set<T>) => void): void {
+    for (let i = 0; i < this.#items.length; i++) { cb(this.#items[i], this.#items[i], this); }
+  }
+  clear(): void { this.#items = []; }
 }
