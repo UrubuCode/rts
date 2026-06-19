@@ -40,8 +40,8 @@ cargo build --release` antes de medir.
 
 ## 3. Estado atual (o que já foi feito nesta campanha)
 
-**Baseline de cobertura (medido via `measure_new.sh`):** **254/630 rodam sem bail
-(exit 0)**, dos quais **235 100% VERDES** (asserções corretas) + ~19 com divergência
+**Baseline de cobertura (medido via `measure_new.sh`):** **270/630 rodam sem bail
+(exit 0)**, dos quais **251 100% VERDES** (asserções corretas) + ~19 com divergência
 real exposta. Antes do framework: 0/630. ATENÇÃO: "exit 0" = rodou sem bail
 (cobertura), NÃO = asserção passou — um `expect` que falha imprime ✗ e ainda sai 0.
 Número honesto = **235 verdes**. Pass definitivo = `rts test` no cutover (P5).
@@ -94,6 +94,13 @@ Não há mais correção pontual barata — daqui pra frente é trabalho de feat
 sustentado, melhor por épico em sessão dedicada.
 
 Commits recentes (mais novo primeiro), todos com gate (unit 703/703):
+- `42d348ff` for-of genérico sobre fonte Tagged (string param, array aninhado) (→251).
+- `27ed11d3` Map/Set forEach/keys/values/entries/clear + for-of sobre call/método
+  array (FnSig.ret_array) (→246).
+- `3c3f26c5` new Map([[k,v]])/Set(iterable) + `__rtsadp_idx_get` (index genérico em
+  receptor não-provado) (→242).
+- `cd57728b` Array #226 callback (findLast/findLastIndex/reduceRight/flatMap) +
+  toSpliced/copyWithin (→239).
 - `9bde3293` métodos Array #226 (toSorted/toReversed/with/sort/flat(depth)/fromIndex)
   + fix `fcvt_to_sint_sat` em numeric_to_i64 (arr.flat(Infinity) não trapa) (→235).
 - `23d65bf3` ret_class de método (return this/new C) → cadeia fluente (→228 verdes).
