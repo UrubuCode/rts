@@ -125,8 +125,42 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         iterable: &HirExpr,
         body: &[HirStmt],
     ) -> FrontResult<()> {
+        // LAZY generator source (`for (const x of g())` where `g` is a generator
+        // with loops/yield*): `g()` returns a GenState handle. DRAIN it to a real
+        // array (runs the state machine to completion, collecting yields) and walk
+        // that. Detected by the callee's `ret_lazy_gen` flag.
+        if let Some(arr_word) = self.try_lazy_gen_source_word(module, iterable)? {
+            return self.lower_index_walk(module, binding, arr_word, body);
+        }
         let arr_word = self.for_of_source_word(module, iterable)?;
         self.lower_index_walk(module, binding, arr_word, body)
+    }
+
+    /// If `iterable` is a CALL to a lazy generator constructor (`ret_lazy_gen`),
+    /// lower it to the GenState handle and `GEN_SM_DRAIN` it into an element array
+    /// word to walk; `Ok(None)` otherwise.
+    fn try_lazy_gen_source_word(
+        &mut self,
+        module: &mut dyn Module,
+        iterable: &HirExpr,
+    ) -> FrontResult<Option<Value>> {
+        let is_lazy = match &iterable.kind {
+            HirExprKind::Call { callee, .. } => match &callee.kind {
+                HirExprKind::Ident(f) => self.sigs.get(f).is_some_and(|s| s.ret_lazy_gen),
+                _ => false,
+            },
+            _ => false,
+        };
+        if !is_lazy {
+            return Ok(None);
+        }
+        let h = self.lower_expr(module, iterable)?;
+        // The GenState handle rides a raw `Int64`; pass it verbatim to DRAIN.
+        let handle = self.coerce(h, Repr::Int64)?;
+        let arr = self
+            .call_runtime(module, "__RTS_FN_NS_GC_GEN_SM_DRAIN", &[handle])?
+            .expect("GEN_SM_DRAIN returns an array word");
+        Ok(Some(arr))
     }
 
     /// `for (const k in object) body` over a keyed OBJECT.

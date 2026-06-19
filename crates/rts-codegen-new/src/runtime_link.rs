@@ -1129,6 +1129,25 @@ fn generator_symbols() -> Vec<JitSymbol> {
             "__RTS_FN_NS_GC_GENERATOR_THROW",
             rt_gen::__RTS_FN_NS_GC_GENERATOR_THROW as *const u8,
         ),
+        // LAZY state-machine primitives (generators with loops / yield*).
+        sym("__RTS_FN_NS_GC_GEN_SM_NEW", rt_gen::__RTS_FN_NS_GC_GEN_SM_NEW as *const u8),
+        sym("__RTS_FN_NS_GC_GEN_SM_STATE", rt_gen::__RTS_FN_NS_GC_GEN_SM_STATE as *const u8),
+        sym("__RTS_FN_NS_GC_GEN_SM_SETSTATE", rt_gen::__RTS_FN_NS_GC_GEN_SM_SETSTATE as *const u8),
+        sym("__RTS_FN_NS_GC_GEN_SM_FGET", rt_gen::__RTS_FN_NS_GC_GEN_SM_FGET as *const u8),
+        sym("__RTS_FN_NS_GC_GEN_SM_FSET", rt_gen::__RTS_FN_NS_GC_GEN_SM_FSET as *const u8),
+        sym("__RTS_FN_NS_GC_GEN_SM_YIELD", rt_gen::__RTS_FN_NS_GC_GEN_SM_YIELD as *const u8),
+        sym("__RTS_FN_NS_GC_GEN_SM_DONE", rt_gen::__RTS_FN_NS_GC_GEN_SM_DONE as *const u8),
+        sym("__RTS_FN_NS_GC_GEN_SM_SENT", rt_gen::__RTS_FN_NS_GC_GEN_SM_SENT as *const u8),
+        sym("__RTS_FN_NS_GC_GEN_SM_NEXT", rt_gen::__RTS_FN_NS_GC_GEN_SM_NEXT as *const u8),
+        sym("__RTS_FN_NS_GC_GEN_SM_DRAIN", rt_gen::__RTS_FN_NS_GC_GEN_SM_DRAIN as *const u8),
+        sym("__RTS_FN_NS_GC_GEN_SM_ENTER_TRY", rt_gen::__RTS_FN_NS_GC_GEN_SM_ENTER_TRY as *const u8),
+        sym("__RTS_FN_NS_GC_GEN_SM_ENTER_TRY_CATCH", rt_gen::__RTS_FN_NS_GC_GEN_SM_ENTER_TRY_CATCH as *const u8),
+        sym("__RTS_FN_NS_GC_GEN_SM_EXIT_TRY_CATCH", rt_gen::__RTS_FN_NS_GC_GEN_SM_EXIT_TRY_CATCH as *const u8),
+        sym("__RTS_FN_NS_GC_GEN_SM_CAUGHT", rt_gen::__RTS_FN_NS_GC_GEN_SM_CAUGHT as *const u8),
+        sym("__RTS_FN_NS_GC_GEN_SM_END_FINALLY", rt_gen::__RTS_FN_NS_GC_GEN_SM_END_FINALLY as *const u8),
+        sym("__RTS_FN_NS_GC_GEN_DELEGATE_START", rt_gen::__RTS_FN_NS_GC_GEN_DELEGATE_START as *const u8),
+        sym("__RTS_FN_NS_GC_GEN_DELEGATE_NEXT", rt_gen::__RTS_FN_NS_GC_GEN_DELEGATE_NEXT as *const u8),
+        sym("__RTS_FN_NS_GC_GEN_DELEGATE_DONE", rt_gen::__RTS_FN_NS_GC_GEN_DELEGATE_DONE as *const u8),
     ]
 }
 

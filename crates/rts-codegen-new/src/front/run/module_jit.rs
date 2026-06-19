@@ -148,6 +148,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
             &sig,
             &sigs,
             &thunks,
+            &ids,
             classes,
             captures,
             gcells,
@@ -165,6 +166,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
         &main_sig,
         &sigs,
         &thunks,
+        &ids,
         classes,
         captures,
         gcells,
@@ -209,6 +211,7 @@ fn define_one(
     sig: &FnSig,
     sigs: &HashMap<String, FnSig>,
     thunks: &HashMap<String, FuncId>,
+    ids: &HashMap<String, FuncId>,
     classes: &super::class::ClassTable,
     captures: &HashMap<String, Vec<String>>,
     gcells: &HashMap<String, u32>,
@@ -223,7 +226,7 @@ fn define_one(
         let mut fb_ctx = FunctionBuilderContext::new();
         let mut fb = FunctionBuilder::new(&mut ctx.func, &mut fb_ctx);
         let res = Lowerer::lower_function(
-            module, &mut fb, func, sig, sigs, thunks, classes, captures, gcells, this_class,
+            module, &mut fb, func, sig, sigs, thunks, ids, classes, captures, gcells, this_class,
             is_prelude, builtins,
         );
         match res {

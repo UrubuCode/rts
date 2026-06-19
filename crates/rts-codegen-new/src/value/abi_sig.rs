@@ -523,6 +523,42 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64],
             ret: U64,
         },
+        // LAZY state-machine primitives. `h`/`it` = raw GenState/iterator handle;
+        // value args/returns = PolyValue words; state/idx args = raw ints. (ABI: all
+        // i64.) Void-returning ones write through `h` (FSET/SETSTATE/ENTER_TRY/…).
+        "__RTS_FN_NS_GC_GEN_SM_STATE"
+        | "__RTS_FN_NS_GC_GEN_SM_SENT"
+        | "__RTS_FN_NS_GC_GEN_SM_NEXT"
+        | "__RTS_FN_NS_GC_GEN_SM_DRAIN"
+        | "__RTS_FN_NS_GC_GEN_SM_CAUGHT"
+        | "__RTS_FN_NS_GC_GEN_SM_END_FINALLY"
+        | "__RTS_FN_NS_GC_GEN_DELEGATE_START"
+        | "__RTS_FN_NS_GC_GEN_DELEGATE_NEXT"
+        | "__RTS_FN_NS_GC_GEN_DELEGATE_DONE" => SymSig {
+            params: &[U64],
+            ret: U64,
+        },
+        "__RTS_FN_NS_GC_GEN_SM_NEW"
+        | "__RTS_FN_NS_GC_GEN_SM_FGET"
+        | "__RTS_FN_NS_GC_GEN_SM_YIELD"
+        | "__RTS_FN_NS_GC_GEN_SM_DONE" => SymSig {
+            params: &[U64, U64],
+            ret: U64,
+        },
+        "__RTS_FN_NS_GC_GEN_SM_FSET" => SymSig {
+            params: &[U64, U64, U64],
+            ret: Void,
+        },
+        "__RTS_FN_NS_GC_GEN_SM_SETSTATE"
+        | "__RTS_FN_NS_GC_GEN_SM_ENTER_TRY"
+        | "__RTS_FN_NS_GC_GEN_SM_ENTER_TRY_CATCH" => SymSig {
+            params: &[U64, U64],
+            ret: Void,
+        },
+        "__RTS_FN_NS_GC_GEN_SM_EXIT_TRY_CATCH" => SymSig {
+            params: &[U64],
+            ret: Void,
+        },
         "__RTS_FN_NS_GC_GENERATOR_GET_RET" => SymSig {
             params: &[U64],
             ret: U64,

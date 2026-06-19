@@ -153,6 +153,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if name == "__RTS_GEN_GET_RET" && args.len() == 1 {
             return self.lower_gen_get_ret(module, &args[0]);
         }
+        // LAZY state-machine sentinels (`__RTS_GEN_SM_*` / `__RTS_GEN_DELEGATE_*`,
+        // emitted by the parser's state-machine desugar for loops/yield*). Mapped to
+        // the real runtime externs.
+        if let Some(val) = self.try_gen_sm_sentinel(module, &name, args)? {
+            return Ok(val);
+        }
         // A BUILTIN-IMPORT name (`import { print } from "rts:io"`): resolve the real
         // `__RTS_FN_NS_*` symbol + ABI signature through the Registry and marshal the
         // call via the SAME generic path as a class method (recv = None — a namespace
@@ -219,6 +225,65 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let ret_word = self.box_value(ret_val);
         self.call_runtime(module, "__RTS_FN_NS_GC_GENERATOR_SET_RET", &[handle, ret_word])?;
         Ok(Val::tagged_kind(buf_word, JsKind::Array))
+    }
+
+    /// Lower a LAZY generator state-machine sentinel call. Returns `Ok(None)` when
+    /// `name` is not a `GEN_SM`/`DELEGATE` sentinel. The args marshal uniformly to
+    /// i64: a numeric arg (state label / slot index / GenState handle held as an
+    /// `Int` local) rides its raw integer; anything else (a yielded/stored VALUE) is
+    /// boxed to its PolyValue word. `GEN_SM_NEW`'s first arg is the state-fn IDENT —
+    /// it needs the function's RAW code address (`func_addr`), the `extern "C"
+    /// fn(u64)->i64` pointer `GEN_SM_NEXT` transmutes + calls.
+    fn try_gen_sm_sentinel(
+        &mut self,
+        module: &mut dyn Module,
+        name: &str,
+        args: &[HirExpr],
+    ) -> FrontResult<Option<Val>> {
+        let Some((symbol, ret_kind, word_args)) = gen_sm_sentinel(name, args.len()) else {
+            return Ok(None);
+        };
+        let mut call_args: Vec<Value> = Vec::with_capacity(args.len());
+        for (i, a) in args.iter().enumerate() {
+            // `GEN_SM_NEW(state_fn, nslots)`: arg0 is the state-fn ident → its raw
+            // code address (the C-ABI `fn(u64)->i64` the runtime calls).
+            if symbol == "__RTS_FN_NS_GC_GEN_SM_NEW" && i == 0 {
+                if let HirExprKind::Ident(fname) = &a.kind {
+                    let fid = *self.ids.get(fname).ok_or_else(|| {
+                        Unsupported::new(format!("generator state-fn `{fname}` not declared"))
+                    })?;
+                    let fref = module.declare_func_in_func(fid, self.builder.func);
+                    call_args.push(self.builder.ins().func_addr(types::I64, fref));
+                    continue;
+                }
+            }
+            let v = self.lower_expr(module, a)?;
+            // A VALUE-position arg (a yielded/stored/delegated value) must cross as a
+            // boxed PolyValue WORD (the runtime stores/yields words, DRAIN collects
+            // words). A handle / state-label / slot-index arg crosses as a RAW i64.
+            let w = if word_args.contains(&i) {
+                self.box_value(v)
+            } else {
+                match v.repr {
+                    Repr::Int32 | Repr::Int64 => v.v,
+                    Repr::Float64 => self.builder.ins().fcvt_to_sint_sat(types::I64, v.v),
+                    _ => self.box_value(v),
+                }
+            };
+            call_args.push(w);
+        }
+        let res = self.call_runtime(module, symbol, &call_args)?;
+        Ok(Some(match ret_kind {
+            GenRet::Word => Val::new(res.expect("word-returning GEN_SM"), Repr::Tagged),
+            GenRet::Int => Val::new(res.expect("int-returning GEN_SM"), Repr::Int64),
+            GenRet::Void => {
+                let undef = self
+                    .builder
+                    .ins()
+                    .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
+                Val::tagged_kind(undef, JsKind::Undefined)
+            }
+        }))
     }
 
     /// `__RTS_GEN_GET_RET(vec)` — read the return value a delegated generator
@@ -761,4 +826,44 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 /// Whether an expr is the bare `console` identifier (the object of `console.log`).
 fn is_console_ident(e: &HirExpr) -> bool {
     matches!(&e.kind, HirExprKind::Ident(n) if n == "console")
+}
+
+/// How a `GEN_SM` sentinel's result is reboxed.
+#[derive(Clone, Copy)]
+enum GenRet {
+    /// A PolyValue WORD (a yielded/stored/sent value): `Tagged`.
+    Word,
+    /// A raw integer (a state label / done flag): `Int64`.
+    Int,
+    /// No value (a frame/state write): `undefined`.
+    Void,
+}
+
+/// Map a parser LAZY-generator sentinel name + arg count to its real runtime
+/// `__RTS_FN_NS_GC_*` symbol + result kind. `None` for a non-sentinel name. The
+/// SYNC set only (async `ASYNC_SM_*`/`AGEN_*` are a later phase — they stay
+/// unmapped and bail honestly).
+fn gen_sm_sentinel(name: &str, argc: usize) -> Option<(&'static str, GenRet, &'static [usize])> {
+    use GenRet::{Int, Void, Word};
+    // The third field lists the VALUE-position args (boxed to PolyValue words); all
+    // other positions are raw i64 (handle / state-label / slot-index).
+    Some(match (name, argc) {
+        ("__RTS_GEN_SM_NEW", 2) => ("__RTS_FN_NS_GC_GEN_SM_NEW", Int, &[]),
+        ("__RTS_GEN_SM_FGET", 2) => ("__RTS_FN_NS_GC_GEN_SM_FGET", Word, &[]),
+        ("__RTS_GEN_SM_FSET", 3) => ("__RTS_FN_NS_GC_GEN_SM_FSET", Void, &[2]),
+        ("__RTS_GEN_SM_STATE", 1) => ("__RTS_FN_NS_GC_GEN_SM_STATE", Int, &[]),
+        ("__RTS_GEN_SM_SETSTATE", 2) => ("__RTS_FN_NS_GC_GEN_SM_SETSTATE", Void, &[]),
+        ("__RTS_GEN_SM_YIELD", 2) => ("__RTS_FN_NS_GC_GEN_SM_YIELD", Word, &[1]),
+        ("__RTS_GEN_SM_DONE", 2) => ("__RTS_FN_NS_GC_GEN_SM_DONE", Word, &[1]),
+        ("__RTS_GEN_SM_SENT", 1) => ("__RTS_FN_NS_GC_GEN_SM_SENT", Word, &[]),
+        ("__RTS_GEN_SM_ENTER_TRY", 2) => ("__RTS_FN_NS_GC_GEN_SM_ENTER_TRY", Void, &[]),
+        ("__RTS_GEN_SM_ENTER_TRY_CATCH", 2) => ("__RTS_FN_NS_GC_GEN_SM_ENTER_TRY_CATCH", Void, &[]),
+        ("__RTS_GEN_SM_EXIT_TRY_CATCH", 1) => ("__RTS_FN_NS_GC_GEN_SM_EXIT_TRY_CATCH", Void, &[]),
+        ("__RTS_GEN_SM_CAUGHT", 1) => ("__RTS_FN_NS_GC_GEN_SM_CAUGHT", Word, &[]),
+        ("__RTS_GEN_SM_END_FINALLY", 1) => ("__RTS_FN_NS_GC_GEN_SM_END_FINALLY", Word, &[]),
+        ("__RTS_GEN_DELEGATE_START", 1) => ("__RTS_FN_NS_GC_GEN_DELEGATE_START", Int, &[0]),
+        ("__RTS_GEN_DELEGATE_NEXT", 1) => ("__RTS_FN_NS_GC_GEN_DELEGATE_NEXT", Word, &[]),
+        ("__RTS_GEN_DELEGATE_DONE", 1) => ("__RTS_FN_NS_GC_GEN_DELEGATE_DONE", Int, &[]),
+        _ => return None,
+    })
 }

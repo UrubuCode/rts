@@ -66,6 +66,11 @@ pub struct FnSig {
     /// `o.keys().length`, `const ks = o.keys()`). Derived from `HirType::Array`
     /// (preserved through `parse_type_annotation`, unlike a class name).
     pub ret_array: bool,
+    /// True when this is a LAZY generator constructor — its body calls
+    /// `__RTS_GEN_SM_NEW` and returns the resulting GenState handle. The call result
+    /// is a lazy generator object: `for (const x of g())` DRAINs it, `g().next()`
+    /// routes to `GENERATOR_NEXT`.
+    pub ret_lazy_gen: bool,
 }
 
 impl FnSig {
@@ -143,6 +148,7 @@ impl FnSig {
                 has_this,
                 ret_class: None,
                 ret_array: false,
+                ret_lazy_gen: false,
             };
         }
         // The declared return repr — trusted in general (an explicit `boolean` /
@@ -188,7 +194,11 @@ impl FnSig {
         // PolyValue), but the parser stamps its declared return type `i64` (→ would
         // force `Int64`). Coercing the array word to `Int64` corrupts it (`g()` then
         // yields garbage). Keep the return `Tagged` — its honest body repr.
-        let is_eager_generator = body_is_eager_generator(func);
+        let is_eager_generator = body_calls_fn(func, "__RTS_GEN_FINISH");
+        // A LAZY generator constructor returns the GenState HANDLE from
+        // `__RTS_GEN_SM_NEW` — a raw `i64` (kept `Int64`; it is an opaque handle, not
+        // a PolyValue, and is consumed by `GENERATOR_NEXT`/`GEN_SM_DRAIN`).
+        let is_lazy_gen = body_calls_fn(func, "__RTS_GEN_SM_NEW");
         if is_eager_generator {
             ret = Repr::Tagged;
         }
@@ -205,6 +215,7 @@ impl FnSig {
             // body ends `return __RTS_GEN_FINISH(__gen_buf, ret)`, handing back the
             // buffer ARRAY) — both make the call result a proven iterable array.
             ret_array: matches!(func.ret, rts_hir::HirType::Array(_)) || is_eager_generator,
+            ret_lazy_gen: is_lazy_gen,
         }
     }
 
@@ -220,6 +231,7 @@ impl FnSig {
             has_this: false,
             ret_class: None,
             ret_array: false,
+                ret_lazy_gen: false,
         }
     }
 
@@ -293,50 +305,52 @@ fn repr_or_tagged(r: Repr) -> Repr {
 /// in `func`'s body — i.e. params used as first-class functions. Such a param must
 /// be carried `Tagged` (a `TAG_FUNCTION` PolyValue word), never a native numeric
 /// repr, so the indirect invoke gets the real function value (see `of_func`).
-/// Whether `func` is a desugared EAGER generator: its body contains a call to the
-/// parser sentinel `__RTS_GEN_FINISH` (which a `function*` desugars to — it returns
-/// the `__gen_buf` array). Such a function's result is a proven iterable array.
-fn body_is_eager_generator(func: &HirFunc) -> bool {
+/// Whether `func`'s body contains a CALL to the named (sentinel) function — used to
+/// classify a desugared generator: `__RTS_GEN_FINISH` ⇒ EAGER (returns the
+/// `__gen_buf` array), `__RTS_GEN_SM_NEW` ⇒ LAZY constructor (returns a GenState).
+fn body_calls_fn(func: &HirFunc, target: &str) -> bool {
     use rts_hir::ir::HirExprKind;
-    fn expr_calls(e: &HirExpr) -> bool {
+    fn expr_calls(e: &HirExpr, target: &str) -> bool {
         match &e.kind {
             HirExprKind::Call { callee, args } => {
-                matches!(&callee.kind, HirExprKind::Ident(n) if n == "__RTS_GEN_FINISH")
-                    || expr_calls(callee)
-                    || args.iter().any(expr_calls)
+                matches!(&callee.kind, HirExprKind::Ident(n) if n == target)
+                    || expr_calls(callee, target)
+                    || args.iter().any(|a| expr_calls(a, target))
             }
             HirExprKind::Bin { lhs, rhs, .. }
             | HirExprKind::Assign { target: lhs, value: rhs }
             | HirExprKind::AssignOp { target: lhs, value: rhs, .. } => {
-                expr_calls(lhs) || expr_calls(rhs)
+                expr_calls(lhs, target) || expr_calls(rhs, target)
             }
             HirExprKind::MethodCall { object, args, .. } => {
-                expr_calls(object) || args.iter().any(expr_calls)
+                expr_calls(object, target) || args.iter().any(|a| expr_calls(a, target))
             }
             HirExprKind::Unary { operand, .. } | HirExprKind::Cast { expr: operand, .. } => {
-                expr_calls(operand)
+                expr_calls(operand, target)
             }
             _ => false,
         }
     }
-    fn stmt_has(s: &HirStmt) -> bool {
+    fn stmt_has(s: &HirStmt, target: &str) -> bool {
         match s {
-            HirStmt::Return(Some(e)) | HirStmt::Expr(e) | HirStmt::Throw(e) => expr_calls(e),
-            HirStmt::Let { init: Some(e), .. } | HirStmt::Const { init: e, .. } => expr_calls(e),
+            HirStmt::Return(Some(e)) | HirStmt::Expr(e) | HirStmt::Throw(e) => expr_calls(e, target),
+            HirStmt::Let { init: Some(e), .. } | HirStmt::Const { init: e, .. } => {
+                expr_calls(e, target)
+            }
             HirStmt::If { then, else_, .. } => {
-                then.iter().any(stmt_has)
-                    || else_.as_ref().is_some_and(|e| e.iter().any(stmt_has))
+                then.iter().any(|s| stmt_has(s, target))
+                    || else_.as_ref().is_some_and(|e| e.iter().any(|s| stmt_has(s, target)))
             }
             HirStmt::While { body, .. }
             | HirStmt::DoWhile { body, .. }
             | HirStmt::For { body, .. }
             | HirStmt::ForOf { body, .. }
             | HirStmt::ForIn { body, .. }
-            | HirStmt::Block(body) => body.iter().any(stmt_has),
+            | HirStmt::Block(body) => body.iter().any(|s| stmt_has(s, target)),
             _ => false,
         }
     }
-    func.body.iter().any(stmt_has)
+    func.body.iter().any(|s| stmt_has(s, target))
 }
 
 fn params_called_as_fn(func: &HirFunc) -> std::collections::HashSet<String> {

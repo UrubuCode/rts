@@ -213,6 +213,11 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// Each user function's uniform-ABI THUNK FuncId, for reifying a function
     /// referenced as a VALUE (`func_addr` of the thunk → `__rtsadp_fn_reify`).
     pub thunks: &'c HashMap<String, cranelift_module::FuncId>,
+    /// Each user function's REAL (native-signature) FuncId — for taking the bare
+    /// code address of a function whose native ABI matters (the generator
+    /// state-fn passed to `__RTS_GEN_SM_NEW`, called by the runtime as
+    /// `extern "C" fn(u64)->i64`). Distinct from `thunks` (uniform-ABI wrappers).
+    pub ids: &'c HashMap<String, cranelift_module::FuncId>,
     /// synthesized CLOSURE fn name → ordered captured outer-local names (P5.7).
     /// When reifying such a name as a function VALUE, the lowerer snapshots each
     /// captured local's current value into a fresh env array (`__rtsadp_fn_reify`
@@ -250,6 +255,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         sig: &FnSig,
         sigs: &'c HashMap<String, FnSig>,
         thunks: &'c HashMap<String, cranelift_module::FuncId>,
+        ids: &'c HashMap<String, cranelift_module::FuncId>,
         classes: &'c super::class::ClassTable,
         captures: &'c HashMap<String, Vec<String>>,
         gcells: &'c HashMap<String, u32>,
@@ -277,6 +283,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             try_stack: Vec::new(),
             sigs,
             thunks,
+            ids,
             captures,
             gcells,
             classes,
