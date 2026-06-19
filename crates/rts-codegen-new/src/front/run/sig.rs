@@ -13,7 +13,7 @@
 use cranelift_codegen::ir::{AbiParam, Signature};
 use cranelift_module::Module;
 
-use rts_hir::{HirFunc, HirStmt};
+use rts_hir::{HirExpr, HirFunc, HirStmt};
 
 use crate::front::repr_map::repr_of;
 use crate::repr::Repr;
@@ -184,6 +184,14 @@ impl FnSig {
         {
             ret = Repr::Tagged;
         }
+        // A desugared eager GENERATOR returns the `__gen_buf` ARRAY word (a `Tagged`
+        // PolyValue), but the parser stamps its declared return type `i64` (→ would
+        // force `Int64`). Coercing the array word to `Int64` corrupts it (`g()` then
+        // yields garbage). Keep the return `Tagged` — its honest body repr.
+        let is_eager_generator = body_is_eager_generator(func);
+        if is_eager_generator {
+            ret = Repr::Tagged;
+        }
         FnSig {
             name: func.name.clone(),
             params,
@@ -193,7 +201,10 @@ impl FnSig {
             fillable,
             has_this,
             ret_class: None,
-            ret_array: matches!(func.ret, rts_hir::HirType::Array(_)),
+            // An array declared return (`T[]`) OR a desugared eager GENERATOR (its
+            // body ends `return __RTS_GEN_FINISH(__gen_buf, ret)`, handing back the
+            // buffer ARRAY) — both make the call result a proven iterable array.
+            ret_array: matches!(func.ret, rts_hir::HirType::Array(_)) || is_eager_generator,
         }
     }
 
@@ -282,6 +293,52 @@ fn repr_or_tagged(r: Repr) -> Repr {
 /// in `func`'s body — i.e. params used as first-class functions. Such a param must
 /// be carried `Tagged` (a `TAG_FUNCTION` PolyValue word), never a native numeric
 /// repr, so the indirect invoke gets the real function value (see `of_func`).
+/// Whether `func` is a desugared EAGER generator: its body contains a call to the
+/// parser sentinel `__RTS_GEN_FINISH` (which a `function*` desugars to — it returns
+/// the `__gen_buf` array). Such a function's result is a proven iterable array.
+fn body_is_eager_generator(func: &HirFunc) -> bool {
+    use rts_hir::ir::HirExprKind;
+    fn expr_calls(e: &HirExpr) -> bool {
+        match &e.kind {
+            HirExprKind::Call { callee, args } => {
+                matches!(&callee.kind, HirExprKind::Ident(n) if n == "__RTS_GEN_FINISH")
+                    || expr_calls(callee)
+                    || args.iter().any(expr_calls)
+            }
+            HirExprKind::Bin { lhs, rhs, .. }
+            | HirExprKind::Assign { target: lhs, value: rhs }
+            | HirExprKind::AssignOp { target: lhs, value: rhs, .. } => {
+                expr_calls(lhs) || expr_calls(rhs)
+            }
+            HirExprKind::MethodCall { object, args, .. } => {
+                expr_calls(object) || args.iter().any(expr_calls)
+            }
+            HirExprKind::Unary { operand, .. } | HirExprKind::Cast { expr: operand, .. } => {
+                expr_calls(operand)
+            }
+            _ => false,
+        }
+    }
+    fn stmt_has(s: &HirStmt) -> bool {
+        match s {
+            HirStmt::Return(Some(e)) | HirStmt::Expr(e) | HirStmt::Throw(e) => expr_calls(e),
+            HirStmt::Let { init: Some(e), .. } | HirStmt::Const { init: e, .. } => expr_calls(e),
+            HirStmt::If { then, else_, .. } => {
+                then.iter().any(stmt_has)
+                    || else_.as_ref().is_some_and(|e| e.iter().any(stmt_has))
+            }
+            HirStmt::While { body, .. }
+            | HirStmt::DoWhile { body, .. }
+            | HirStmt::For { body, .. }
+            | HirStmt::ForOf { body, .. }
+            | HirStmt::ForIn { body, .. }
+            | HirStmt::Block(body) => body.iter().any(stmt_has),
+            _ => false,
+        }
+    }
+    func.body.iter().any(stmt_has)
+}
+
 fn params_called_as_fn(func: &HirFunc) -> std::collections::HashSet<String> {
     let param_names: std::collections::HashSet<&str> =
         func.params.iter().map(|p| p.name.as_str()).collect();

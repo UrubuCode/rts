@@ -144,6 +144,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirExprKind::Ident(n) => n.clone(),
             _ => return unsupported!("call of a non-identifier callee"),
         };
+        // GENERATOR sentinels emitted by the parser's eager desugar (a `function* g`
+        // becomes a plain fn that builds an array `__gen_buf` then `return
+        // __RTS_GEN_FINISH(__gen_buf, ret)`). Map them to the real runtime externs.
+        if name == "__RTS_GEN_FINISH" && args.len() == 2 {
+            return self.lower_gen_finish(module, &args[0], &args[1]);
+        }
+        if name == "__RTS_GEN_GET_RET" && args.len() == 1 {
+            return self.lower_gen_get_ret(module, &args[0]);
+        }
         // A BUILTIN-IMPORT name (`import { print } from "rts:io"`): resolve the real
         // `__RTS_FN_NS_*` symbol + ABI signature through the Registry and marshal the
         // call via the SAME generic path as a class method (recv = None — a namespace
@@ -190,6 +199,38 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(val);
         }
         unsupported!("call to unknown function `{name}`")
+    }
+
+    /// `__RTS_GEN_FINISH(__gen_buf, ret)` — the end of a desugared eager generator:
+    /// register `ret` as the generator's return value and hand back the buffer ARRAY
+    /// (so `g()` is an iterable array and a later `gen.next()` cursors it). Lowers to
+    /// `GENERATOR_SET_RET(buf_handle, ret_word)` for the side effect, then returns the
+    /// buffer word as `JsKind::Array`.
+    fn lower_gen_finish(
+        &mut self,
+        module: &mut dyn Module,
+        buf: &HirExpr,
+        ret: &HirExpr,
+    ) -> FrontResult<Val> {
+        let buf_val = self.lower_expr(module, buf)?;
+        let buf_word = self.box_value(buf_val);
+        let handle = emit_marshal::emit_table_load(module, self.builder, buf_word);
+        let ret_val = self.lower_expr(module, ret)?;
+        let ret_word = self.box_value(ret_val);
+        self.call_runtime(module, "__RTS_FN_NS_GC_GENERATOR_SET_RET", &[handle, ret_word])?;
+        Ok(Val::tagged_kind(buf_word, JsKind::Array))
+    }
+
+    /// `__RTS_GEN_GET_RET(vec)` — read the return value a delegated generator
+    /// registered (`const r = yield* g()`). Lowers to `GENERATOR_GET_RET(handle)`.
+    fn lower_gen_get_ret(&mut self, module: &mut dyn Module, vec: &HirExpr) -> FrontResult<Val> {
+        let v = self.lower_expr(module, vec)?;
+        let word = self.box_value(v);
+        let handle = emit_marshal::emit_table_load(module, self.builder, word);
+        let res = self
+            .call_runtime(module, "__RTS_FN_NS_GC_GENERATOR_GET_RET", &[handle])?
+            .expect("GENERATOR_GET_RET returns a value");
+        Ok(Val::new(res, Repr::Tagged))
     }
 
     /// Lower a BUILTIN-IMPORT call `member(args)` where `member` was imported from

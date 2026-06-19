@@ -511,6 +511,22 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         // str_chars(str_word) -> TAG_OBJECT array word of one-char strings;
         // obj_keys(obj_word) -> TAG_OBJECT array word of key strings. Both take one
         // PolyValue word and return a fresh array PolyValue word.
+        // SYNC generator primitives (eager MVP): all u64/i64 (vec handle / value).
+        "__RTS_FN_NS_GC_GENERATOR_SET_RET"
+        | "__RTS_FN_NS_GC_GENERATOR_NEXT_SENT"
+        | "__RTS_FN_NS_GC_GENERATOR_RETURN"
+        | "__RTS_FN_NS_GC_GENERATOR_THROW" => SymSig {
+            params: &[U64, U64],
+            ret: U64,
+        },
+        "__RTS_FN_NS_GC_GENERATOR_NEXT" => SymSig {
+            params: &[U64],
+            ret: U64,
+        },
+        "__RTS_FN_NS_GC_GENERATOR_GET_RET" => SymSig {
+            params: &[U64],
+            ret: U64,
+        },
         // string→string GLOBAL fns (encodeURIComponent/btoa/…): one StrPtr arg
         // (ptr+len) → a string Handle.
         "__RTS_FN_GL_ENCODE_URI"

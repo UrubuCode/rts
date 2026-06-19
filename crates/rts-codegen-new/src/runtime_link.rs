@@ -638,6 +638,7 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
     syms.extend(engine_symbols());
     syms.extend(test_framework_symbols());
     syms.extend(gc_internal_symbols());
+    syms.extend(generator_symbols());
     // Pilar 6: the REAL `__RTS_FN_GL_DATE_*` / `__RTS_FN_NS_DATE_*` symbols the
     // Registry-driven Date dispatch ([`crate::front::run::registry_call`]) emits
     // directly — replacing the `__rtsadp_date_*` trampolines that used to forward
@@ -1092,6 +1093,42 @@ fn gc_internal_symbols() -> Vec<JitSymbol> {
         sym("__RTS_FN_NS_GC_IS_DATE", rt_pool::__RTS_FN_NS_GC_IS_DATE as *const u8),
         sym("__RTS_FN_NS_GC_IS_PROMISE", rt_pool::__RTS_FN_NS_GC_IS_PROMISE as *const u8),
         sym("__RTS_FN_NS_GC_IS_REGEX", rt_pool::__RTS_FN_NS_GC_IS_REGEX as *const u8),
+    ]
+}
+
+/// SYNC GENERATOR runtime primitives (eager-buffer MVP). The parser desugars a
+/// `function* g(){ yield a; … }` into a plain fn that builds an array `__gen_buf`
+/// and ends `return __RTS_GEN_FINISH(__gen_buf, ret)`; the engine maps the
+/// `__RTS_GEN_FINISH`/`__RTS_GEN_GET_RET` sentinels (see `call.rs`) to these real
+/// externs, and `gen().next()` routes to `GENERATOR_NEXT`. (The lazy state-machine
+/// set `GEN_SM_*` is a later phase.)
+fn generator_symbols() -> Vec<JitSymbol> {
+    use rts_runtime::namespaces::gc::generator as rt_gen;
+    vec![
+        sym(
+            "__RTS_FN_NS_GC_GENERATOR_SET_RET",
+            rt_gen::__RTS_FN_NS_GC_GENERATOR_SET_RET as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_GENERATOR_GET_RET",
+            rt_gen::__RTS_FN_NS_GC_GENERATOR_GET_RET as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_GENERATOR_NEXT",
+            rt_gen::__RTS_FN_NS_GC_GENERATOR_NEXT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_GENERATOR_NEXT_SENT",
+            rt_gen::__RTS_FN_NS_GC_GENERATOR_NEXT_SENT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_GENERATOR_RETURN",
+            rt_gen::__RTS_FN_NS_GC_GENERATOR_RETURN as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_GENERATOR_THROW",
+            rt_gen::__RTS_FN_NS_GC_GENERATOR_THROW as *const u8,
+        ),
     ]
 }
 
