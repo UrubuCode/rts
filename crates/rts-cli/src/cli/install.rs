@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use colored::Colorize;
 
-use crate::module::manifest::{RawPackageManifest, strip_json_comments};
+use crate::manifest::{RawPackageManifest, strip_json_comments};
 use crate::registers::install::{InstallRequest, install_packages};
 use crate::registers::lock::LockFile;
 

@@ -1,4 +1,4 @@
-//! `rts run <input.ts>` — compile + execute via Cranelift JIT.
+//! `rts run <input.ts>` — compile + execute via the NEW engine (Cranelift JIT).
 
 use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
@@ -6,50 +6,36 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, anyhow};
 
 use crate::compile_options::CompileOptions;
-use crate::pipeline;
 
-pub fn command(input: Option<String>, options: CompileOptions) -> Result<()> {
+pub fn command(input: Option<String>, _options: CompileOptions) -> Result<()> {
     let input = input.ok_or_else(|| anyhow!("usage: rts run <input.ts>"))?;
     let input_path = PathBuf::from(&input);
     if !input_path.exists() {
         return Err(anyhow!("input file not found: {}", input_path.display()));
     }
 
-    // Load .env from the project directory before executing
+    // Load .env from the project directory before executing.
     if let Ok(abs) = input_path.canonicalize() {
         if let Some(dir) = abs.parent() {
             crate::dotenv::load_from_dir(dir);
         }
     }
 
-    // #213: usa run_jit_with_imports pra resolver `import { x } from "./mod"`.
-    // Modulos relativos sao carregados, flattened em um unico Program e
-    // compilados via JIT. Builtins (rts:*) continuam resolvendo via SPECS.
-    let (exit_code, warnings) = pipeline::run_jit_with_imports(&input_path, options)
-        .with_context(|| format!("JIT run of {} failed", input_path.display()))?;
-    // Warnings sao sempre impressos (#205). Em --debug imprime tudo;
-    // sem --debug, ja eh prefixado com "warning:" por convencao.
-    for warning in &warnings {
-        eprintln!("{warning}");
-    }
-    std::process::exit(exit_code);
+    // Cutover: execute through the NEW engine. `run_path` resolves the relative-
+    // import graph from the entry, lowers HIR→Cranelift (single path) and runs it
+    // in-memory (JIT). Builtins (`rts:*`) resolve via the new engine's registry.
+    rts_codegen_new::front::run::run_path(&input_path)
+        .map_err(|e| anyhow!("{e}"))
+        .with_context(|| format!("run of {} failed", input_path.display()))?;
+    Ok(())
 }
 
-/// `rts eval "<source>"` ou `rts -e "<source>"` — compila + executa
-/// TS inline via JIT, sem precisar criar arquivo temp. Uso tipico:
-/// debug rapido de snippet, ou em pipelines/scripts shell.
-///
-/// (#285) Quando \`source\` e' None e stdin nao e' tty, le de stdin —
-/// permite \`echo \"...\" | rts -e\` e \`cat script.ts | rts -e\`.
-///
-/// Imports relativos (\`./mod\`) nao sao resolvidos — so' builtins
-/// (\`import { io } from \"rts\"\`).
-pub fn eval_command(input: Option<String>, options: CompileOptions) -> Result<()> {
+/// `rts eval "<source>"` / `rts -e "<source>"` — compile + execute inline TS via
+/// the new engine. Relative imports (`./mod`) are not resolved — builtins only.
+pub fn eval_command(input: Option<String>, _options: CompileOptions) -> Result<()> {
     let source = match input {
         Some(s) => s,
         None => {
-            // Tenta ler stdin. Em terminal interativo, isto bloqueia esperando
-            // input — emit usage error em vez de pendurar.
             if is_stdin_tty() {
                 return Err(anyhow!(
                     "usage: rts eval \"<source>\" ou rts -e \"<source>\"\n\
@@ -66,14 +52,10 @@ pub fn eval_command(input: Option<String>, options: CompileOptions) -> Result<()
             buf
         }
     };
-    // Shebang strip e' aplicado no parser (parse_source_with_mode) —
-    // funciona tanto para arquivos via \`rts run\` quanto pra eval/stdin.
-    let (exit_code, warnings) = pipeline::run_jit_inline(&source, options)
-        .with_context(|| "JIT eval falhou")?;
-    for warning in &warnings {
-        eprintln!("{warning}");
-    }
-    std::process::exit(exit_code);
+    rts_codegen_new::front::run::run_source(&source)
+        .map_err(|e| anyhow!("{e}"))
+        .context("eval falhou")?;
+    Ok(())
 }
 
 fn is_stdin_tty() -> bool {

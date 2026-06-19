@@ -1,6 +1,5 @@
 fn main() {
     rts::crash::install();
-    rts_codegen_old::register_runtime_artifacts(rts::rt_artifacts);
 
     std::process::exit(match rts::cli::dispatch(std::env::args()) {
         Ok(()) => 0,

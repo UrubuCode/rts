@@ -10,10 +10,8 @@ members = [
     "crates/rts-std",
     "crates/rts-parser",
     "crates/rts-hir",
-    "crates/rts-mir",
     "crates/rts-linker",
     "crates/rts-runtime",
-    "crates/rts-codegen-old",
     "crates/rts-codegen-new",
     "crates/rts-cli",
 ]
@@ -35,7 +33,7 @@ path = "src/main.rs"
 # Backend ASIO (Windows, baixa latência) no namespace `asio_audio`.
 # Build com: cargo build --release --features asio
 # Requer ASIO SDK da Steinberg + LLVM (LIBCLANG_PATH) + driver ASIO instalado.
-asio = ["rts-codegen-old/asio", "rts-runtime/asio"]
+asio = ["rts-runtime/asio"]
 
 [dependencies]
 rts-ast = { path = "crates/rts-ast" }
@@ -43,7 +41,6 @@ rts-diagnostics = { path = "crates/rts-diagnostics" }
 rts-parser = { path = "crates/rts-parser" }
 rts-linker = { path = "crates/rts-linker" }
 rts-runtime = { path = "crates/rts-runtime" }
-rts-codegen-old = { path = "crates/rts-codegen-old" }
 rts-cli = { path = "crates/rts-cli" }
 anyhow = "1.0"
 backtrace = "0.3"

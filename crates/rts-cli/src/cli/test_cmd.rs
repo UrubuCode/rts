@@ -149,8 +149,10 @@ fn run_single_in_process(file: &Path, root: &Path) -> Result<()> {
     crate::namespaces::gc::error::__RTS_FN_RT_ERROR_CLEAR();
     crate::namespaces::gc::stack::reset_stack_depth();
 
-    let options = CompileOptions::default();
-    let run_result = crate::pipeline::run_jit_with_imports(file, options);
+    // Cutover: run the test file through the NEW engine (resolves the import graph
+    // + the `rts:test` prelude, executes via JIT). The Rust-side runner tracks
+    // pass/fail and prints the summary below.
+    let run_result = rts_codegen_new::front::run::run_path(file).map_err(|e| anyhow::anyhow!("{e}"));
 
     runner::__RTS_FN_NS_TEST_CORE_PRINT_SUMMARY();
 

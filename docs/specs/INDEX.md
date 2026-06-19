@@ -43,6 +43,15 @@ narrow storage real.
   reescreve transparentemente para `parallel.*`. Pipeline dos 3 passes,
   criterio de pureza, infra de suporte (HandleTable shard-aware,
   callconv), limitacoes.
+- [Auto-paralelismo por regioes (motor novo)](auto-parallel-regions.md) —
+  Re-justificativa do paralelismo no motor novo por PROVA (nao chute de
+  AST): modelo de 3 regioes (thread-local / shared-imutavel /
+  shared-mutavel), gate de 2 passes (seguro + vale), trava dura do GC
+  (`SuspendThread`+lock => shared-mutavel so via intrinsic atomico
+  1-call). Base teorica: escape analysis, effect/region (DPJ),
+  commutativity (Rinard), TLS (rejeitado). Inclui explicacao do async
+  RMW atomico (motor velho, ref) e secao "por que NAO e util" (limites,
+  o que rejeitar). Pre-requisito: pos-P5.
 - [Epic #226 — paridade JS/TS](js-parity-epic-226.md) — Lote PRs
   #483-#547: ~60 APIs JS adicionadas (Array/Object/Math/String/Symbol/
   URL/Date/Boolean/parseInt/destructuring), bugs corrigidos no caminho,
