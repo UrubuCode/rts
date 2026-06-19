@@ -40,14 +40,45 @@ cargo build --release` antes de medir.
 
 ## 3. Estado atual (o que já foi feito nesta campanha)
 
-**Baseline de cobertura (medido via `measure_new.sh`):** **183/630 rodam sem bail
-(exit 0)**, dos quais **172 100% VERDES** (asserções corretas) e 11 com divergência
-real exposta. Antes do framework: 0/630 *completavam*. ATENÇÃO: "exit 0" = rodou
-sem bail (cobertura), NÃO = asserção passou — um `expect` que falha imprime ✗ e
-ainda sai 0. O número honesto a citar é **172 verdes**. O pass real definitivo é o
-`rts test` no cutover (P5).
+**Baseline de cobertura (medido via `measure_new.sh`):** **239/630 rodam sem bail
+(exit 0)**, dos quais **221 100% VERDES** (asserções corretas) + ~18 com divergência
+real exposta. Antes do framework: 0/630. ATENÇÃO: "exit 0" = rodou sem bail
+(cobertura), NÃO = asserção passou — um `expect` que falha imprime ✗ e ainda sai 0.
+Número honesto = **221 verdes**. **0 SIGILL** (varredura `/tmp/new_fail.txt`). Pass
+definitivo = `rts test` no cutover (P5).
 
-Commits recentes (mais novo primeiro), todos com gate:
+### Triagem dos clusters restantes (histograma `measure_new.sh`)
+MECÂNICOS JÁ DRENADOS nesta campanha: framework, top-let capturado→cell,
+namespaces std, Float64→Int, símbolos gc. O QUE SOBRA é majoritariamente
+FEATURE-GRANDE (cada uma um épico), não correção pontual:
+- `unbound identifier` (48): globais não-fiados (JSON/Reflect/Symbol/Promise/
+  console-as-value/performance/URL/BigInt) + idents órfãos de closures #195 que
+  bailaram. JSON.stringify/parse precisa SERIALIZAR objetos shape/slot do motor
+  novo (não trivial — o ns json opera no modelo velho).
+- `class não é user class` (42): classes Registry não-fiadas (Proxy/ArrayBuffer/
+  WeakMap/TextEncoder/URL/DataView/typed arrays) — cada uma registro+spec+dispatch.
+- `call to unknown function` (34): ~17 são `__RTS_GEN_*` (generators #211, deferido)
+  + `Symbol` (#216) + globais soltos (structuredClone/btoa/setTimeout/encodeURI*).
+- `expression arrow` (30) + stack-overflow em `tail_call`/`tco_*`: closures
+  MUTÁVEIS (#195, env-record) + TCO ausente no motor novo (return_call/CallConv::Tail
+  — otimização a implementar; recursão de cauda profunda estoura a pilha).
+- `assignment target must be simple identifier` (14): member compound-assign/
+  increment (`this.n++`, `this.n += x`, `obj.prop = v`) — read-modify-write de
+  propriedade (shape slots). `builder_method_chain` também precisa marcar a var
+  intermediária com a classe quando o método retorna `ret_class == classe receiver`.
+- `expression await` (11): async real / event-loop (#207).
+- `raw/unrecognized` (18): template/optchain em sítios não-pareados (construtor —
+  pulei p/ não desalinhar o prólogo; corpos de arrow extraído).
+
+Próximo de maior alavanca tratável: **member compound-assign/increment (14)** ou
+**fiar globais simples** (encodeURI/btoa/structuredClone/setTimeout). Features
+grandes (generators/Proxy/typed-arrays/#195/TCO/async) merecem sessão dedicada.
+
+Commits recentes (mais novo primeiro), todos com gate (unit 703/703, 0 SIGILL):
+- `28a3a371` coerção Float64→Int (ToInteger) + símbolos gc closure (→221 verdes).
+- `86f8bf2b` registra superfície ampla de namespaces std + gc internos (→213).
+- `240eb013` top-level let capturado+mutado vira cell #195-parcial (→193).
+- `2e647331` docs handoff.
 - **`472ac269` FRAMEWORK `rts:test` RODA NO MOTOR NOVO (0 → 172 verdes)** — o
   GATE-MESTRE do §4. Bundle incluído como prelude; `import from "rts:test"` →
   funções ambientes; dispatch bare-ambient `test_core`/`string`/`fmt` (prelude-
