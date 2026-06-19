@@ -40,11 +40,11 @@ cargo build --release` antes de medir.
 
 ## 3. Estado atual (o que já foi feito nesta campanha)
 
-**Baseline de cobertura (medido via `measure_new.sh`):** **239/630 rodam sem bail
-(exit 0)**, dos quais **221 100% VERDES** (asserções corretas) + ~18 com divergência
+**Baseline de cobertura (medido via `measure_new.sh`):** **247/630 rodam sem bail
+(exit 0)**, dos quais **228 100% VERDES** (asserções corretas) + ~19 com divergência
 real exposta. Antes do framework: 0/630. ATENÇÃO: "exit 0" = rodou sem bail
 (cobertura), NÃO = asserção passou — um `expect` que falha imprime ✗ e ainda sai 0.
-Número honesto = **221 verdes**. **0 SIGILL** (varredura `/tmp/new_fail.txt`). Pass
+Número honesto = **228 verdes**. **0 SIGILL** (varredura `/tmp/new_fail.txt`). Pass
 definitivo = `rts test` no cutover (P5).
 
 ### Triagem dos clusters restantes (histograma `measure_new.sh`)
@@ -70,11 +70,22 @@ FEATURE-GRANDE (cada uma um épico), não correção pontual:
 - `raw/unrecognized` (18): template/optchain em sítios não-pareados (construtor —
   pulei p/ não desalinhar o prólogo; corpos de arrow extraído).
 
-Próximo de maior alavanca tratável: **member compound-assign/increment (14)** ou
-**fiar globais simples** (encodeURI/btoa/structuredClone/setTimeout). Features
-grandes (generators/Proxy/typed-arrays/#195/TCO/async) merecem sessão dedicada.
+Mecânicos drenados (todos feitos): member compound-assign/`++` (`this.n+=x`),
+ret_class de método fluente (`c.inc().add()`). O QUE SOBRA agora é:
+- **grind multi-método #226** (21): métodos de Array ainda não-impl
+  (entries/values/keys/flat(depth)/flatMap/toSorted/toReversed/with/findLast/
+  reduceRight/copyWithin) — cada um precisa trampolim + lowering.
+- **features grandes**: generators #211, Proxy #218, typed-arrays/DataView/
+  ArrayBuffer, async #207, closures mutáveis #195 (env-record), TCO (return_call).
+- **globais soltos** (1-2 arq cada): encodeURI*/btoa/structuredClone (limpos);
+  setTimeout/queueMicrotask (precisam event-loop).
+- JSON.stringify/parse: serializar objetos shape/slot do motor novo.
+Não há mais correção pontual barata — daqui pra frente é trabalho de feature
+sustentado, melhor por épico em sessão dedicada.
 
 Commits recentes (mais novo primeiro), todos com gate (unit 703/703, 0 SIGILL):
+- `23d65bf3` ret_class de método (return this/new C) → cadeia fluente (→228 verdes).
+- `bb7f3177` member/index compound-assign + ++/-- (→224 verdes).
 - `28a3a371` coerção Float64→Int (ToInteger) + símbolos gc closure (→221 verdes).
 - `86f8bf2b` registra superfície ampla de namespaces std + gc internos (→213).
 - `240eb013` top-level let capturado+mutado vira cell #195-parcial (→193).
