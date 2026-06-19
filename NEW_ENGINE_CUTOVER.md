@@ -40,8 +40,8 @@ cargo build --release` antes de medir.
 
 ## 3. Estado atual (o que já foi feito nesta campanha)
 
-**Baseline de cobertura (medido via `measure_new.sh`):** **288/630 rodam sem bail
-(exit 0)**, dos quais **269 100% VERDES** (asserções corretas) + ~19 com divergência
+**Baseline de cobertura (medido via `measure_new.sh`):** **297/630 rodam sem bail
+(exit 0)**, dos quais **274 100% VERDES** (asserções corretas) + ~19 com divergência
 real exposta. Antes do framework: 0/630. ATENÇÃO: "exit 0" = rodou sem bail
 (cobertura), NÃO = asserção passou — um `expect` que falha imprime ✗ e ainda sai 0.
 Número honesto = **235 verdes**. Pass definitivo = `rts test` no cutover (P5).
@@ -94,6 +94,10 @@ Não há mais correção pontual barata — daqui pra frente é trabalho de feat
 sustentado, melhor por épico em sessão dedicada.
 
 Commits recentes (mais novo primeiro), todos com gate (unit 703/703):
+- JSON (stringify+parse) como stdlib `.ts` (rts-shared, JS puro — motor NÃO nomeia
+  JSON) + primitivos genéricos `Object.keys/values/entries` dinâmico e
+  `obj[k]=v`/`obj.k=v` de chave NOVA via transição de shape em runtime (→274).
+- spread de iteráveis `[...gen()]` / `[...set]` / `[..."ab"]` (→270).
 - `728af1bc` `gen.next()/.return()/.throw()` corretos — engine lê o result-Map via
   acessores ITER_VALUE/DONE e reconstrói `{value,done}` do modelo novo (→269).
   [#211 fase 3]. CONHECIDO: `[...gen()]` spread + yield* de array = fase seguinte.
