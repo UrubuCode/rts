@@ -42,6 +42,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 }
                 _ => None,
             },
+            // A METHOD CALL whose receiver's class is known and whose method has a
+            // provable return class (`return this` → owning class, or `return new C`):
+            // lets a fluent chain dispatch statically (`c.inc().add(5)`). Recurses
+            // through the receiver, so an N-deep chain resolves.
+            HirExprKind::MethodCall { object, method, .. } => {
+                let recv_class = self.static_instance_class(object)?;
+                let synth = self.classes.get(&recv_class)?.methods.get(method)?;
+                self.sigs.get(synth).and_then(|s| s.ret_class.clone())
+            }
             _ => None,
         }
     }

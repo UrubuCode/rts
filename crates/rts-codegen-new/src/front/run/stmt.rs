@@ -188,6 +188,24 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.local_classes.insert(name.to_string(), class_name);
                 Some(HeapShape::Object(shape_id))
             }
+            // `const c2 = c.inc()` / `const r = make()`: a CALL/METHOD-CALL whose
+            // result class is statically provable (`ret_class` — `return this` /
+            // `return new C`). Record the local's CLASS so a later `c2.method()`
+            // static-dispatches (the fluent-builder via-variable form). No object
+            // FIELD shape is recorded: the result may be `this` (receiver's shape) OR
+            // a fresh `new C` (a different shape), which we cannot tell apart here, so
+            // `c2.field` stays dynamic/bails (sound) while `c2.method()` works.
+            HirExprKind::MethodCall { .. } | HirExprKind::Call { .. }
+                if self.static_instance_class(init).is_some() =>
+            {
+                let class = self
+                    .static_instance_class(init)
+                    .expect("guarded by the match arm");
+                let val = self.lower_expr(module, init)?;
+                self.bind_tagged_local(name, val);
+                self.local_classes.insert(name.to_string(), class);
+                return Ok(());
+            }
             _ => None,
         };
         if let Some(shape) = shape {

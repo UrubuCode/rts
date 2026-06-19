@@ -94,14 +94,17 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
         if fn_this_class.contains_key(&f.name) {
             sig.has_this = false;
         }
-        // Infer the provable RETURN CLASS (every `return new C(..)` of the same
-        // known class C) so a chained method call on the call result dispatches
-        // statically (`expect(x).toBe(y)` — the rts:test matcher). Skip class
-        // ctors/methods (a synthesized ctor "returns" the instance implicitly;
-        // its `this`-typed shape is already known at the call site).
-        if !fn_this_class.contains_key(&f.name) {
-            sig.ret_class = infer_ret_class(f, classes);
-        }
+        // Infer the provable RETURN CLASS so a chained call on the result dispatches
+        // statically (`expect(x).toBe(y)`; `c.inc().add(5)`; `const c2 = c.inc()`).
+        // FREE function: every `return new C(..)` of the same known class C. METHOD
+        // (in `fn_this_class`): the same, PLUS `return this` → the method's OWNING
+        // class (the fluent-builder `inc(): C { …; return this }`).
+        sig.ret_class = infer_ret_class(f, classes).or_else(|| {
+            fn_this_class
+                .get(&f.name)
+                .filter(|_| method_returns_this(f))
+                .cloned()
+        });
         sigs.insert(f.name.clone(), sig);
     }
     let main_sig = FnSig::main_sig();
@@ -246,6 +249,59 @@ fn define_one(
 /// (void) is ignored; any value return that is NOT `new <known-class>(..)` (or a
 /// DIFFERENT class) makes the result `None` (we never guess). This powers static
 /// dispatch on a call result (`expect(x).toBe(y)`).
+/// Whether EVERY value `return` in `func`'s body returns `this` (`return this`),
+/// ignoring `return;` (void). For a method this means it returns the receiver —
+/// i.e. the OWNING class (the fluent-builder `return this`). A body with a value
+/// return that is NOT `this` → `false` (we never guess).
+fn method_returns_this(func: &HirFunc) -> bool {
+    use rts_hir::ir::HirExprKind;
+    use rts_hir::HirStmt;
+
+    fn walk(stmts: &[HirStmt], any: &mut bool, all_this: &mut bool) {
+        for s in stmts {
+            match s {
+                HirStmt::Return(Some(e)) => {
+                    *any = true;
+                    if !matches!(&e.kind, HirExprKind::Ident(n) if n == "this") {
+                        *all_this = false;
+                    }
+                }
+                HirStmt::If { then, else_, .. } => {
+                    walk(then, any, all_this);
+                    if let Some(e) = else_ {
+                        walk(e, any, all_this);
+                    }
+                }
+                HirStmt::While { body, .. }
+                | HirStmt::DoWhile { body, .. }
+                | HirStmt::For { body, .. }
+                | HirStmt::ForOf { body, .. }
+                | HirStmt::ForIn { body, .. }
+                | HirStmt::Block(body) => walk(body, any, all_this),
+                HirStmt::Try { body, catch, finally } => {
+                    walk(body, any, all_this);
+                    if let Some(c) = catch {
+                        walk(&c.body, any, all_this);
+                    }
+                    if let Some(f) = finally {
+                        walk(f, any, all_this);
+                    }
+                }
+                HirStmt::Switch { cases, .. } => {
+                    for c in cases {
+                        walk(&c.body, any, all_this);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut any = false;
+    let mut all_this = true;
+    walk(&func.body, &mut any, &mut all_this);
+    any && all_this
+}
+
 fn infer_ret_class(func: &HirFunc, classes: &super::class::ClassTable) -> Option<String> {
     use rts_hir::ir::HirExprKind;
     use rts_hir::HirStmt;
