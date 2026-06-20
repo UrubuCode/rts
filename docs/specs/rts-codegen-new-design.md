@@ -304,6 +304,45 @@ quase sem ops de baixo nível) antes de String/Number.
   faltar, o mínimo honesto é um helper privado `rts:engine`, preferindo reusar a
   coerção/Registry existentes.
 
+### 3.2.3 `console` migrado para `.ts` (objeto global singleton) — FEITO
+
+O `console` é o terceiro caso de "o motor não nomeia, é `.ts`": diferente de Error
+(classe primordial) e Boolean/Number/String (libs de método de PRIMITIVO), o
+`console` é um OBJETO GLOBAL singleton. Antes era hardcoded no front (`is_console_ident`
+casando `n == "console"` + `lower_console_log` formatando no codegen) — uma violação
+da doutrina "no front só referência". Agora:
+
+- **Arquivo:** `crates/rts-primitives/src/console.ts` (`rts_primitives::CONSOLE_TS`,
+  re-exportado pela fachada). Incluído via `e.include(rts_runtime::CONSOLE_TS)` em
+  `build_registry()`. É uma `class Console` + `const console = new Console()`;
+  `console.log(...)` é uma chamada de método ORDINÁRIA sobre uma instância ambiente,
+  roteada pelo dispatch normal (`try_class_method`). O front NÃO nomeia console —
+  `is_console_ident`/`lower_console_log`/`console_format_line` foram DELETADOS.
+- **Bridges `engine.*` (a lógica irredutível, runtime-side):** três helpers privados
+  em `engineobj.rs` que o `.ts` chama: `engine.display(x)` (render de UM valor →
+  string; ToString-ou-inspect decidido em RUNTIME via `__rtsadp_inspect`, então o
+  front não faz mais o split estático objeto-vs-escalar), `engine.print_line(s)` /
+  `engine.eprint_line(s)` (sink capture-aware → `__rtsadp_print_line(ptr,len,to_stderr)`,
+  stdout/stderr). O join variádico com espaços é `.ts` puro (itera `...args`).
+- **Globais singleton read-only alcançam funções de usuário (mecanismo novo):** um
+  `const console` top-level é, por padrão, INVISÍVEL dentro de `function f() {
+  console.log(..) }` (uma função resolve ident livre só por local/param, gcell #195,
+  ou constante global). Fix: `funcval::prelude_singleton_globals` FORÇA `console` a
+  virar gcell #195 (acessível em qualquer escopo, via o set `force`); `module_globals`
+  passou a considerar `HirStmt::Const` (não só `Let`); e `static_instance_class`
+  recupera a classe `Console` da gcell via uma allow-list singleton→classe em
+  `class/dispatch.rs` (`"console" => "Console"`). Essa allow-list de NOME (não lógica
+  de dispatch) é a ÚNICA menção a console no front — o equivalente do que já existia
+  p/ `undefined`/`NaN`/`Infinity` no set `GLOBALS`.
+- **`finally` com chamada e erro pendente (correção de unwind exposta):** como
+  `console.log` virou chamada de método (várias sub-chamadas com
+  `emit_post_call_error_check`), um `finally { console.log(..) }` alcançado no unwind
+  via abortava (o slot de erro pendente desviava o fluxo antes do print). `lower_try`
+  agora SALVA-e-limpa o erro pendente antes do finalizador e RESTAURA depois
+  (`emit_finally_restore_propagate`) — semântica JS (finally roda normal; erro
+  ressurge após; um throw no próprio finally tem precedência). `io.print` direto não
+  expunha o bug (1 extern, sem post-call check).
+
 #### 3.2.1 Number migrado p/ `.ts` (mesmo padrão de Boolean)
 
 `number` é um PRIMITIVO (sintaxe literal `123`), então o VALOR continua unboxed
@@ -764,6 +803,22 @@ equivalente em `rts-codegen-new`. O que **não** pode continuar: `guard_for` com
 código morto com `TPL_COERCE_AUTO` espalhado por 16 arquivos fazendo a coerção
 de verdade ad-hoc. **Uma autoridade, um lugar.**
 
+### 7.5 Uma anotação NUNCA rebaixa um valor — o corolário do Float64→Int
+
+A regra de §7.2 ("desembrulhe com base numa representação PROVADA") tem um corolário
+na direção oposta, igualmente vinculante: **a anotação/tipo inferido nunca pode
+REBAIXAR a representação provada de um valor.** Em JS `number` é UM tipo (IEEE-754
+double); `/` produz SEMPRE um real (`44100 / 48000 === 0.91875`, não `0`). Quando o
+init de um `const`/`let` é provado `Float64` (resultado de `/`, de aritmética float,
+etc.) mas o HIR inferiu o tipo do binding como `Int*` (porque os operandos eram
+literais inteiros), `lower_let` **não** pode widenar o local para a anotação `Int*`:
+isso coergiria o `Float64` real para um slot inteiro, truncando a fração. A regra de
+widening (`stmt.rs::lower_let`) só promove para a anotação unboxed quando ela NÃO
+rebaixa o valor (`!demotes_float`); um `Float64` sob anotação `Int*` mantém
+`Float64`. Bug histórico que isto fecha: `const ratio = 44100/48000` virava `0`, e um
+resampler de áudio lia o frame 0 para sempre (silêncio). Afeta qualquer
+`const x = <expr float>` inicializado por inteiros, não só áudio.
+
 ---
 
 ## 8. Pilar 4 — Shapes (`shape.rs`) + inline caches de dado (`ic.rs`)
@@ -958,6 +1013,26 @@ typed** (`AbiType`, §3.1) — intacto. PolyValues cruzam a fronteira com **uma
 convenção tagged-in/tagged-out** para as chamadas genéricas de runtime. Os dois
 coexistem: monomórfico paga o caminho rápido typed; genérico paga o tagged. O
 inline de intrínsecos coexiste com ambos.
+
+### 10.4 `AbiType::Handle`: handle-de-HEAP vs handle-de-RECURSO opaco
+
+Um `AbiType::Handle` na fronteira tem DUAS naturezas que o marshal precisa distinguir
+(`front/run/registry_call.rs`):
+
+- **handle-de-HEAP GC** (`gc.string_*`, `string.*` → string): o valor é uma string/
+  objeto da `HandleTable`. No retorno reboxa como `TAG_STR`/`TAG_OBJECT` PolyValue; no
+  arg faz `emit_table_load` para recuperar o handle real.
+- **handle-de-RECURSO opaco** (`audio.*`, `buffer.alloc`, `net.*`, `thread.*`): o valor
+  é um `u64` CRU da tabela própria do namespace (1,2,3…), cujo tipo TS é `number` — NÃO
+  é um handle GC. Reboxa como PolyValue INTEIRO (não objeto), e no arg passa o inteiro
+  VERBATIM. Boxear o id cru como `TAG_OBJECT` faria um `emit_table_load` posterior
+  dereferenciar um slot inexistente → SIGILL (bug histórico: `audio.open_output()` →
+  `sample_rate()`).
+
+A distinção é DADO, derivada da `ts_signature` do membro: retorno `: string` ⇒
+handle-de-heap (`ResolvedCall.ret_is_string_handle = true`); senão handle-de-recurso.
+`lower_builtin_call` passa `JsKind::Str` vs `JsKind::Number` ao rebox conforme esse
+bit. Sem novo metadado de ABI — a assinatura TS já carrega a informação.
 
 ---
 
