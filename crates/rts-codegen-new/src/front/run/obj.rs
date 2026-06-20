@@ -205,6 +205,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         object: &HirExpr,
         prop: &str,
     ) -> FrontResult<Val> {
+        // ---- `globalThis.prop` read: the singleton global object is a keyed
+        // OBJECT of runtime-only shape, so resolve the property dynamically (a
+        // missing key reads `undefined`, JS-correct). ----
+        if self.is_globalthis_receiver(object) {
+            return self.lower_dynamic_get_expr(module, object, prop);
+        }
         // ---- NAMESPACE-OBJECT constant read (`math.PI`, `math.E`): `math` was
         // imported from bare `"rts"` (bound as a namespace object, member empty).
         // The constant is a zero-arg `MemberKind::Constant` getter in the Registry
@@ -453,6 +459,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         prop: &str,
         value: &HirExpr,
     ) -> FrontResult<Val> {
+        // ---- `globalThis.prop = v` write: the singleton global object's dynamic
+        // property. `__rtsadp_obj_set` writes an existing slot or appends a new key
+        // (shape transition), so a brand-new global property works. ----
+        if self.is_globalthis_receiver(object) {
+            return self.lower_dynamic_set_expr(module, object, prop, value);
+        }
         // ---- accessor SET `obj.x = v` where x is a setter on the receiver class ----
         if let Some(class) = self.instance_class_of(object) {
             if self
@@ -841,6 +853,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// stored slot for a keyed object and `undefined` for an absent key OR a
     /// non-object receiver (the trampoline never faults; see `value/objops.rs`).
     /// The result is a Tagged `Val` of kind `Unknown`.
+    /// Whether `object` is the bare `globalThis` language global (not shadowed by a
+    /// local/param or a module-level cell of the same name). Its `.prop` get/set
+    /// routes to the dynamic-object trampolines on the singleton object word.
+    pub(super) fn is_globalthis_receiver(&self, object: &HirExpr) -> bool {
+        matches!(&object.kind, HirExprKind::Ident(n)
+            if n == "globalThis" && self.local(n).is_none() && self.gcell_id(n).is_none())
+    }
+
     fn lower_dynamic_get_expr(
         &mut self,
         module: &mut dyn Module,

@@ -116,9 +116,33 @@ fn coerce_in_concat() {
 // ---- bails for genuinely-unsupported forms (honesty floor) ----
 
 #[test]
-fn global_this_bails() {
-    // globalThis has no value model here → still an unbound-identifier bail.
-    assert_bails("console.log(globalThis);");
+fn global_this_value_props() {
+    // `globalThis` is now the singleton global object (foundation: value get/set).
+    // The instance is a process-global singleton, so these assertions are written
+    // SELF-CONTAINED (set-then-read / a unique absent key) to stay order-independent
+    // of other tests sharing it; a real `rts run` is one program = one fresh global.
+    // Set-then-read a value property.
+    assert_stdout(
+        "globalThis.gtSetGet = 42; console.log(globalThis.gtSetGet);",
+        "42\n",
+    );
+    // An absent property reads `undefined` (a key no other test sets).
+    assert_stdout("console.log(globalThis.gtNeverSetKeyXyz);", "undefined\n");
+    // `typeof globalThis` → "object" (matches bun).
+    assert_stdout("console.log(typeof globalThis);", "object\n");
+}
+
+#[test]
+fn global_this_persists_across_functions() {
+    // A write from inside a function is visible after it returns — the singleton
+    // object is shared by reference. Reset at the top so it is order-independent.
+    assert_stdout(
+        "globalThis.gtCounter = 0;\n\
+         function inc() { globalThis.gtCounter = globalThis.gtCounter + 1; }\n\
+         inc(); inc(); inc();\n\
+         console.log(globalThis.gtCounter);",
+        "3\n",
+    );
 }
 
 #[test]

@@ -705,6 +705,12 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         // value-word param and returns the value word; obj_has returns a Bool
         // (i64 0/1). The key is a string PolyValue word (U64) — a literal interned
         // at lowering or a computed key's ToString.
+        // The `globalThis` singleton object word (no args; returns a TAG_OBJECT
+        // PolyValue). `globalThis.prop` get/set then reuse __rtsadp_obj_get/_set.
+        "__rtsadp_globalthis" => SymSig {
+            params: &[],
+            ret: U64,
+        },
         "__rtsadp_obj_get" => SymSig {
             params: &[U64, U64],
             ret: U64,

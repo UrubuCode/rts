@@ -343,6 +343,37 @@ da doutrina "no front só referência". Agora:
   ressurge após; um throw no próprio finally tem precedência). `io.print` direto não
   expunha o bug (1 extern, sem post-call check).
 
+#### 3.2.4 `globalThis` — objeto global singleton (foundation: VALUES) — FEITO
+
+`globalThis` deixou de ser bail "unbound identifier" e virou um OBJETO global
+singleton com get/set dinâmico de VALORES (`globalThis.x = 5; globalThis.x`,
+write-de-dentro-de-função visível depois, `typeof globalThis === "object"` — bate
+com bun). Reusa a representação de objeto keyed existente (Vec com shape-id no slot
+0), então `globalThis.prop` get/set roteia pelos mesmos trampolins dinâmicos
+`__rtsadp_obj_get`/`__rtsadp_obj_set` (incl. append de chave nova via shape
+transition) — sem maquinaria de propriedade nova.
+
+- O singleton é o extern codegen-owned `__rtsadp_globalthis()` (`value/globalthis.rs`):
+  `OnceLock<u64>` criando uma vez um objeto keyed vazio (slot 0 = shape vazio,
+  igual a `{}`), retornando a palavra `TAG_OBJECT`.
+- **GC**: o objeto vive só no `OnceLock` (fora de toda stack), então é registrado
+  como root permanente via `global_roots::add` (o mesmo pin usado por globals
+  top-level/N-API). O mark normaliza a palavra NaN-boxed e o tracing de `Entry::Vec`
+  mantém vivos os valores guardados.
+- `globalThis` resolve como identificador bare em `lower_ident` (após local/gcell,
+  como `NaN`/`undefined`) → palavra do singleton; `lower_member`/`lower_member_assign`
+  detectam o receiver `globalThis` (`is_globalthis_receiver`) e roteiam ao path
+  dinâmico. É um GLOBAL DE LINGUAGEM (não classe não-primordial) — o motor pode
+  nomeá-lo, como `NaN`.
+- Singleton process-global: um `rts run` é 1 programa = 1 globalThis fresco
+  (correto). O harness de unit-test compartilha o processo → testes são
+  self-contained (set-then-get / chave única absent) p/ serem order-independent.
+
+**Follow-up deferido (NÃO neste increment):** `globalThis.X = class X {…}`
+(classe-como-valor) + `new (globalThis.X)()` (construção dinâmica) precisam de
+class-EXPRESSIONS no HIR (hoje `: C`/`class` expr degradam) + `new` sobre um valor
+dinâmico. É o que destrava o padrão `globalThis.Map = class Map` por completo.
+
 #### 3.2.1 Number migrado p/ `.ts` (mesmo padrão de Boolean)
 
 `number` é um PRIMITIVO (sintaxe literal `123`), então o VALOR continua unboxed
