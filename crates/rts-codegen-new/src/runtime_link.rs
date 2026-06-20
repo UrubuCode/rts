@@ -307,6 +307,10 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         ),
         sym("__rtsadp_arr_sort", arrayops::__rtsadp_arr_sort as *const u8),
         sym(
+            "__rtsadp_arr_sort_cmp",
+            arrayops::__rtsadp_arr_sort_cmp as *const u8,
+        ),
+        sym(
             "__rtsadp_arr_to_sorted",
             arrayops::__rtsadp_arr_to_sorted as *const u8,
         ),

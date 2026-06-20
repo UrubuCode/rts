@@ -774,7 +774,8 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         | "__rtsadp_arr_for_each"
         | "__rtsadp_arr_find"
         | "__rtsadp_arr_find_last"
-        | "__rtsadp_arr_flat_map" => SymSig {
+        | "__rtsadp_arr_flat_map"
+        | "__rtsadp_arr_sort_cmp" => SymSig {
             params: &[U64, U64],
             ret: U64,
         },
