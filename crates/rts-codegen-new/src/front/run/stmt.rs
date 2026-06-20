@@ -251,6 +251,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.local_class_refs.insert(name.to_string(), c.clone());
                 return Ok(());
             }
+            // `const G = globalThis.X` where `globalThis.X` is a statically-tracked
+            // class (every `globalThis.X = <Class>` agrees, via the all-agree
+            // pre-pass): bind the read value AND record `G` as a class reference, so
+            // `new G(args)` constructs `<Class>` on the static path → the result is
+            // method-dispatchable. Reuses the slice-1 `local_class_refs` machinery;
+            // a poisoned/untracked key falls through to the dynamic slice-2 path.
+            HirExprKind::Member { object, prop }
+                if self.is_globalthis_receiver(object)
+                    && self.globalthis_class_refs.contains_key(prop) =>
+            {
+                let class = self.globalthis_class_refs[prop].clone();
+                let val = self.lower_expr(module, init)?;
+                self.bind_tagged_local(name, val);
+                self.local_class_refs.insert(name.to_string(), class);
+                return Ok(());
+            }
             _ => None,
         };
         if let Some(shape) = shape {

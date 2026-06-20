@@ -135,6 +135,11 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
             break;
         }
     }
+    // Program-wide `globalThis.<key>` → class, by the all-agree pre-pass: a key is
+    // a static class only if EVERY `globalThis.key = <Class>` across all functions
+    // + main agrees on one known class (a single non-class / disagreeing write
+    // poisons it). Lets `const G = globalThis.X; new G().m()` dispatch statically.
+    let globalthis_class_refs = infer_globalthis_classes(funcs, main, classes);
     let main_sig = FnSig::main_sig();
 
     // 2. Declare every function up front so cross-calls resolve to a FuncId.
@@ -193,6 +198,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
             captures,
             gcells,
             gcell_classes,
+            &globalthis_class_refs,
             this_class,
             is_prelude,
             builtins,
@@ -212,6 +218,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
         captures,
         gcells,
         gcell_classes,
+        &globalthis_class_refs,
         None,
         false,
         builtins,
@@ -273,6 +280,7 @@ fn define_one(
     captures: &HashMap<String, Vec<String>>,
     gcells: &HashMap<String, u32>,
     gcell_classes: &HashMap<String, String>,
+    globalthis_class_refs: &HashMap<String, String>,
     this_class: Option<&str>,
     is_prelude: bool,
     builtins: &HashMap<String, (String, String)>,
@@ -285,7 +293,7 @@ fn define_one(
         let mut fb = FunctionBuilder::new(&mut ctx.func, &mut fb_ctx);
         let res = Lowerer::lower_function(
             module, &mut fb, func, sig, sigs, thunks, ids, classes, captures, gcells, gcell_classes,
-            this_class, is_prelude, builtins,
+            globalthis_class_refs, this_class, is_prelude, builtins,
         );
         match res {
             Ok(()) => fb.finalize(),
@@ -302,6 +310,193 @@ fn define_one(
         .map_err(|e| Unsupported::new(format!("define `{}`: {e}", func.name)))?;
     module.clear_context(&mut ctx);
     Ok(())
+}
+
+/// Program-wide `globalThis.<key>` → user class, by the ALL-AGREE rule: a key maps
+/// to class `C` iff EVERY assignment `globalThis.key = <Class>` across the whole
+/// program (every function body + `main`, every nested expression) names the SAME
+/// class `C` known to the table, with no non-class / disagreeing write. A single
+/// poisoning write (a non-class value, or a different class) drops the key; zero
+/// assignments → absent. Sound regardless of branches/loops, because ALL writes
+/// agree ⇒ the runtime value of `globalThis.key` is always `C`. Lets
+/// `const G = globalThis.X; new G().m()` dispatch `m` on the static path.
+fn infer_globalthis_classes(
+    funcs: &[HirFunc],
+    main: &HirFunc,
+    classes: &super::class::ClassTable,
+) -> HashMap<String, String> {
+    use rts_hir::HirStmt;
+    use rts_hir::ir::{HirArrowBody, HirExpr, HirExprKind};
+
+    // key → `Some(class)` while still agreeing on one class; `None` once poisoned.
+    let mut acc: HashMap<String, Option<String>> = HashMap::new();
+
+    fn record(key: &str, class: Option<String>, acc: &mut HashMap<String, Option<String>>) {
+        match acc.get(key) {
+            None => {
+                acc.insert(key.to_string(), class);
+            }
+            Some(None) => {} // already poisoned — stays poisoned
+            Some(Some(prev)) => {
+                if class.as_deref() != Some(prev.as_str()) {
+                    acc.insert(key.to_string(), None); // disagree / non-class → poison
+                }
+            }
+        }
+    }
+
+    fn scan_expr(
+        e: &HirExpr,
+        classes: &super::class::ClassTable,
+        acc: &mut HashMap<String, Option<String>>,
+    ) {
+        // `globalThis.<key> = <rhs>`: a known-class rhs is a class candidate;
+        // anything else poisons the key (a reassignment to a non-class).
+        if let HirExprKind::Assign { target, value } = &e.kind {
+            if let HirExprKind::Member { object, prop } = &target.kind {
+                if matches!(&object.kind, HirExprKind::Ident(n) if n == "globalThis") {
+                    let class = match &value.kind {
+                        HirExprKind::Ident(name) if classes.get(name).is_some() => {
+                            Some(name.clone())
+                        }
+                        _ => None,
+                    };
+                    record(prop, class, acc);
+                }
+            }
+        }
+        // Descend into EVERY child expression so a nested write is never missed
+        // (missing a poisoning write would be unsound).
+        match &e.kind {
+            HirExprKind::Lit(_) | HirExprKind::Ident(_) | HirExprKind::Raw(_) => {}
+            HirExprKind::Bin { lhs, rhs, .. } => {
+                scan_expr(lhs, classes, acc);
+                scan_expr(rhs, classes, acc);
+            }
+            HirExprKind::Unary { operand, .. }
+            | HirExprKind::Await(operand)
+            | HirExprKind::Spread(operand)
+            | HirExprKind::PreInc(operand)
+            | HirExprKind::PreDec(operand)
+            | HirExprKind::PostInc(operand)
+            | HirExprKind::PostDec(operand)
+            | HirExprKind::Cast { expr: operand, .. } => scan_expr(operand, classes, acc),
+            HirExprKind::Assign { target, value }
+            | HirExprKind::AssignOp { target, value, .. } => {
+                scan_expr(target, classes, acc);
+                scan_expr(value, classes, acc);
+            }
+            HirExprKind::Call { callee, args } => {
+                scan_expr(callee, classes, acc);
+                for a in args {
+                    scan_expr(a, classes, acc);
+                }
+            }
+            HirExprKind::MethodCall { object, args, .. } => {
+                scan_expr(object, classes, acc);
+                for a in args {
+                    scan_expr(a, classes, acc);
+                }
+            }
+            HirExprKind::New { args, .. } => {
+                for a in args {
+                    scan_expr(a, classes, acc);
+                }
+            }
+            HirExprKind::Member { object, .. } => scan_expr(object, classes, acc),
+            HirExprKind::Index { object, index } => {
+                scan_expr(object, classes, acc);
+                scan_expr(index, classes, acc);
+            }
+            HirExprKind::Array(xs) | HirExprKind::Seq(xs) => {
+                for x in xs {
+                    scan_expr(x, classes, acc);
+                }
+            }
+            HirExprKind::Object(props) => {
+                for (_, x) in props {
+                    scan_expr(x, classes, acc);
+                }
+            }
+            HirExprKind::Ternary { cond, then, else_ } => {
+                scan_expr(cond, classes, acc);
+                scan_expr(then, classes, acc);
+                scan_expr(else_, classes, acc);
+            }
+            HirExprKind::Arrow { body, .. } => match body {
+                HirArrowBody::Expr(e) => scan_expr(e, classes, acc),
+                HirArrowBody::Block(b) => walk(b, classes, acc),
+            },
+        }
+    }
+
+    fn walk(
+        stmts: &[HirStmt],
+        classes: &super::class::ClassTable,
+        acc: &mut HashMap<String, Option<String>>,
+    ) {
+        for s in stmts {
+            match s {
+                HirStmt::Expr(e) | HirStmt::Throw(e) | HirStmt::Const { init: e, .. } => {
+                    scan_expr(e, classes, acc)
+                }
+                HirStmt::Return(Some(e)) | HirStmt::Let { init: Some(e), .. } => {
+                    scan_expr(e, classes, acc)
+                }
+                HirStmt::If { cond, then, else_ } => {
+                    scan_expr(cond, classes, acc);
+                    walk(then, classes, acc);
+                    if let Some(e) = else_ {
+                        walk(e, classes, acc);
+                    }
+                }
+                HirStmt::While { cond, body } | HirStmt::DoWhile { body, cond } => {
+                    scan_expr(cond, classes, acc);
+                    walk(body, classes, acc);
+                }
+                HirStmt::For { init, cond, update, body } => {
+                    if let Some(i) = init {
+                        walk(std::slice::from_ref(i), classes, acc);
+                    }
+                    if let Some(c) = cond {
+                        scan_expr(c, classes, acc);
+                    }
+                    if let Some(u) = update {
+                        scan_expr(u, classes, acc);
+                    }
+                    walk(body, classes, acc);
+                }
+                HirStmt::ForOf { iterable: e, body, .. } | HirStmt::ForIn { object: e, body, .. } => {
+                    scan_expr(e, classes, acc);
+                    walk(body, classes, acc);
+                }
+                HirStmt::Block(body) => walk(body, classes, acc),
+                HirStmt::Try { body, catch, finally } => {
+                    walk(body, classes, acc);
+                    if let Some(c) = catch {
+                        walk(&c.body, classes, acc);
+                    }
+                    if let Some(f) = finally {
+                        walk(f, classes, acc);
+                    }
+                }
+                HirStmt::Switch { discriminant, cases } => {
+                    scan_expr(discriminant, classes, acc);
+                    for c in cases {
+                        walk(&c.body, classes, acc);
+                    }
+                }
+                HirStmt::Labeled { body, .. } => walk(std::slice::from_ref(body), classes, acc),
+                _ => {}
+            }
+        }
+    }
+
+    for f in funcs {
+        walk(&f.body, classes, &mut acc);
+    }
+    walk(&main.body, classes, &mut acc);
+    acc.into_iter().filter_map(|(k, v)| v.map(|c| (k, c))).collect()
 }
 
 /// Infer the user-CLASS a function provably RETURNS: `Some(C)` iff EVERY value
