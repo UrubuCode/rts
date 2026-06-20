@@ -151,10 +151,12 @@ fn math_min_with_spread_now_works() {
 }
 
 #[test]
-fn math_imul_bails() {
-    // imul/clz32 are i32-domain (I64 ABI) — not in the f64 table; bail rather than
-    // mis-marshal an f64 where the symbol wants i64.
-    assert_bails("console.log(Math.imul(3, 4));");
+fn math_imul_i32_domain() {
+    // imul/clz32 are i32-domain (I64 ABI) — resolved DATA-DRIVEN from the `math`
+    // Registry namespace (`try_math_i32_domain`), ToInt32-coerced args, i32 result.
+    assert_stdout("console.log(Math.imul(3, 4));", "12\n");
+    assert_stdout("console.log(Math.imul(-1, 8));", "-8\n");
+    assert_stdout("console.log(Math.clz32(1));", "31\n");
 }
 
 #[test]
