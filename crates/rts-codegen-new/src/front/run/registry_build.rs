@@ -105,6 +105,10 @@ pub(super) static REGISTER: &[Register] = &[
     Register { label: "URL class", run: ns::globals::url::register_url_class_spec, why: "URL ctor + getters" },
     // URLSearchParams: follow-up — needs its own symbols installed + `u.searchParams`
     // tagged RETURNS_OBJECT (it returns a URLSearchParams instance, not a string).
+    // `TextEncoder`/`TextDecoder` — backend/Registry classes (UTF-8, no native
+    // syntax): `new TextEncoder().encode(s)` → Uint8Array handle, `decode(h)` → str.
+    Register { label: "TextEncoder class", run: ns::globals::text_encoding::register_text_encoder_class_spec, why: "TextEncoder ctor + encode" },
+    Register { label: "TextDecoder class", run: ns::globals::text_encoding::register_text_decoder_class_spec, why: "TextDecoder ctor + decode" },
 ];
 
 /// One `.ts` prelude include, in DEPENDENCY ORDER (base before dependent).

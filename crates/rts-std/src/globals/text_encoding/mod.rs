@@ -10,7 +10,7 @@
 
 pub mod instance;
 
-use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+use rts_engine::{AbiType, DefaultArg, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 /// Membro de namespace/classe global (helper hand-written, espelha a macro).
 #[allow(clippy::too_many_arguments)]
@@ -144,7 +144,10 @@ pub fn register_text_decoder_class_spec(e: &mut Engine) {
         .member(m(
             "new",
             MemberKind::Constructor,
-            Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
+            // `label` is OPTIONAL (`new TextDecoder()` valid); default it to
+            // `undefined` so the generic ctor resolver admits a 0-arg call. UTF-8
+            // only, label ignored, so the runtime never reads a missing label.
+            Sig::with_defaults(vec![AbiType::StrPtr], AbiType::Handle, vec![DefaultArg::Undefined]),
             "__RTS_FN_GL_TEXTDEC_NEW",
             "new TextDecoder(label?: string)",
             "new TextDecoder(label?) — label opcional (so' UTF-8 suportado, label ignorado).",
