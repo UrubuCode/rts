@@ -227,6 +227,27 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let Some(class) = self.global_instance_class(object) else {
             return Ok(None);
         };
+        // GENERIC: a property READ on a PURE Registry-class instance (`u.hostname`,
+        // `u.pathname`) resolves to a 0-explicit-arg instance member — a getter — via
+        // the Registry, exactly like a method call but with no `()`. Data-driven, no
+        // per-class literal (the `RegExp` arms below are the primitive `/re/`
+        // exception, kept hardcoded). Today this serves `URL`'s getters; any Registry
+        // class with a 0-arg instance member gets its property read for free.
+        if self.is_pure_registry_class(&class) {
+            if let Some(call) = super::registry::class_member(&class, prop, 0) {
+                let recv = self.lower_expr(module, object)?;
+                let result_kind = match call.ret {
+                    rts_engine::abi::AbiType::Handle => JsKind::Str,
+                    rts_engine::abi::AbiType::Bool => JsKind::Bool,
+                    _ => JsKind::Number,
+                };
+                let v = self.emit_registry_call(module, &call, Some(recv), &[], result_kind)?;
+                return Ok(Some(v));
+            }
+            return Err(crate::front::error::Unsupported::new(format!(
+                "`{class}.{prop}` — no such property on runtime class `{class}`"
+            )));
+        }
         let symbol = match (class.as_str(), prop) {
             ("RegExp", "source") => "__rtsadp_re_source",
             ("RegExp", "flags") => "__rtsadp_re_flags",
