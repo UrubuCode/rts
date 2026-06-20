@@ -189,11 +189,21 @@ genérico**. Correto e escalável.
   lowera a sintaxe direto; impl em `rts-primitives`. **`Error` migrou para `.ts`**
   (prelude include, §3.2.1): a impl de campos/métodos está em
   `rts-primitives/src/error.ts`, não mais hardcoded no codegen.
-- **Sem sintaxe nativa ⇒ lib utilitária rts-shared ⇒ Registry, indireto:**
-  `Date`/`Map`/`Set`/`WeakMap`/`JSON`/`URL`/`Math`/`Promise`/`Proxy`/typed-arrays/
-  backend — acessadas via `new X()`/estáticos, despachadas pela Registry, **nunca
-  reimplementadas como tabelas codegen `__rtsadp_*`**. `Date` é a migração
-  referência (feita); `Map`/`Set` são os próximos.
+- **Sem sintaxe nativa ⇒ lib utilitária rts-shared, indireto:** `Date`/`Map`/`Set`/
+  `WeakMap`/`WeakSet`/`JSON`/`URL`/`Math`/`Promise`/`Proxy`/typed-arrays/backend —
+  acessadas via `new X()`/estáticos, **nunca reimplementadas como tabelas codegen
+  `__rtsadp_*`**. Dois sub-caminhos, ambos sem o motor nomear a classe:
+  - **Registry (despacho de dados):** `Date` é a referência (feita) — ctor/
+    estáticos/métodos resolvem por `MethodSpec`/`Sig.default_args`/flags via
+    `is_pure_registry_class` + `registryclass.rs`. Alvo de `URL`/typed-arrays/
+    `TextEncoder`/backend (têm impl Rust real, sem sintaxe nativa).
+  - **`.ts` stdlib (rts-shared/stdlib):** **COLEÇÕES** (`Map`/`Set` — feito;
+    `WeakMap`/`WeakSet` — feito, strong-ref interim) são classes `.ts` ambient, NÃO
+    Registry. Motivo: chave/valor de tipo **arbitrário** que o backend Rust i64 não
+    guarda sem os containers PolyValue (P2, diferido); o `.ts` (arrays guardando
+    PolyValue) cobre isso. `WeakMap`/`WeakSet` viram weak **real** quando a fase
+    weak do GC existir (§5.7, diferido até ~90% cross-runtime); até lá são
+    strong-ref (igual aos stubs Rust v0).
 
 ### 3.2.1 `Error` migrado para `.ts` (prelude include) — FEITO
 
@@ -720,6 +730,57 @@ PolyValue boxed. A decisão de design:
   inline) e em containers de `PolyValue`.
 - O zoológico `__RTS_FN_RT_FLOAT_BOX/UNBOX/EQ_AMBIG/NUM_ARITH` — box/unbox são IR
   pura; igualdade e aritmética operam sobre tags, não sobre helpers de re-tag.
+
+### 5.7 GC futuro — geracional copying + fase weak (PLANO, diferido)
+
+> **Status: diferido.** Decisão (2026-06-20): o GC atual (mark-sweep preciso com
+> stack maps do Cranelift) fica como está; o upgrade geracional só será feito
+> **quando o cross-runtime estiver em ~90%**. Esta seção documenta o alvo para
+> não se perder. Até lá, novas features assumem o mark-sweep atual.
+
+**A vantagem que decide o design: handle indirection.** Como o PolyValue carrega
+um *índice de slot*, não um ponteiro cru (§5.4), **mover um objeto é barato** — o
+calcanhar-de-aquiles de todo GC móvel (achar + reescrever todo ponteiro pro
+objeto movido) não existe no RTS: o objeto move no backing store, atualiza-se só
+o `slot→endereço` no slab, e o índice nos PolyValues **não muda**. Isto posiciona
+o RTS unicamente para um GC **geracional copying**, que a maioria dos motores paga
+caro para ter.
+
+**Alvo: geracional copying (nursery).** A hipótese geracional é fortíssima em JS
+(a esmagadora maioria dos objetos morre jovem — temporários de loop, `{}`/`[]`
+intermediários):
+
+- **Young gen (nursery):** *bump-allocate* (alloc = incrementa ponteiro). Cheia →
+  **minor GC**: copia só os sobreviventes pro old gen; escaneia só o young + o
+  *remembered set*. A maioria dos temps morre aqui → nunca promovido → coleta
+  baratíssima. Mover = trivial (handle indirection).
+- **Old gen:** mark-sweep / mark-compact dos sobreviventes, roda **raro**.
+- **Write barrier:** registra refs old→young (remembered set) pro minor GC não
+  varrer o old gen — custo pequeno em property-write de objeto velho.
+- **Multi-thread:** nursery por-thread (TLAB) → alloc lock-free; casa com a
+  `HandleTable` shard-aware existente.
+- **Stack maps** (Cranelift `UserStackMap`, já existe) pras roots precisas.
+
+Ganho: alloc rápido (bump), minor GC barato (o caso comum), major GC raro,
+compactação (sem fragmentação) — e o custo de mover sai de graça. É o que V8/JSC
+fazem; no RTS a parte cara já está neutralizada.
+
+**Fase weak (#217) — NÃO precisa do geracional.** O mark-sweep atual já faz weak
+real com **uma fase nova entre mark e sweep**, e pode ser feita antes do upgrade
+geracional:
+
+1. Mark normal — mas **não** marca através das chaves do `WeakMap`/`WeakSet` nem
+   do target do `WeakRef` (ficam "candidatos a morrer").
+2. **Fase weak** (pós-mark, pré-sweep): pra cada `WeakMap`/`WeakSet`/`WeakRef`, se
+   o target **não foi marcado** → remove a entrada / `deref`→`undefined`;
+   `FinalizationRegistry` → enfileira o callback.
+3. Sweep normal.
+
+A handle indirection ajuda de novo: `WeakRef` guarda `(slot, generation)` completos
+(§5.5); se o slot foi liberado/reusado (geração bumpou), `deref` retorna
+`undefined` em O(1), sem scan. **Até a fase weak existir, `WeakMap`/`WeakSet` são
+um stdlib `.ts` strong-ref** (ver §10.x doutrina) — funcionalmente igual aos stubs
+Rust v0, sem coleta automática; o `.ts` cobre tipo de chave/valor arbitrário.
 
 ---
 

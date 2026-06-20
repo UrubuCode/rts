@@ -233,15 +233,23 @@ syntactic form?**
   (`Function`), **regex literals `/re/` (`RegExp` — it HAS native syntax, so it is
   native/primitive, NOT Registry)**, template literals, and `Error`+subclasses
   (primordial). These interact directly with codegen.
-- **No native syntax ⇒ rts-shared UTILITY LIB ⇒ Registry, indirect.** The JS
-  utility libraries you reach via `new X()`/static calls with NO literal form:
-  `Date`, `Map`, `Set`, `WeakMap`/`WeakSet`, `JSON`, `URL`, `Math` (methods),
-  `Promise`, `Intl.*`, `Proxy`/`Reflect`, typed arrays, and all backend classes.
-  These resolve through the real `Registry` (`crates/rts-codegen-new/src/front/run/
-  registry.rs` builds it from `Engine::new()` + the `register`/`register_class_spec`
-  fns; `registry_call.rs` is the generic marshal-from-`AbiType` path) — the engine
-  NEVER reimplements them as codegen `__rtsadp_*` tables. `Date` is the reference
-  migration (done); `Map`/`Set` are the next to migrate.
+- **No native syntax ⇒ rts-shared UTILITY LIB, indirect.** The JS utility
+  libraries you reach via `new X()`/static calls with NO literal form: `Date`,
+  `Map`, `Set`, `WeakMap`/`WeakSet`, `JSON`, `URL`, `Math` (methods), `Promise`,
+  `Intl.*`, `Proxy`/`Reflect`, typed arrays, and all backend classes. The engine
+  NEVER names them / reimplements them as codegen `__rtsadp_*` tables. Two
+  sub-paths, both engine-name-free:
+  - **Registry (data dispatch):** `Date` is the reference (done) — ctor/statics/
+    methods resolve via `MethodSpec`/`Sig.default_args`/flags through
+    `is_pure_registry_class` + `registryclass.rs`. Target of `URL`/typed-arrays/
+    `TextEncoder`/backend (real Rust impl, no native syntax).
+  - **`.ts` stdlib (`rts-shared/src/stdlib/*.ts`):** **COLLECTIONS** (`Map`/`Set`
+    done; `WeakMap`/`WeakSet` done, strong-ref interim) are ambient `.ts` classes,
+    NOT Registry — they need arbitrary key/value types the i64 Rust backend can't
+    hold without the PolyValue containers (P2, deferred); the `.ts` (arrays of
+    PolyValue) covers it. `WeakMap`/`WeakSet` become REAL weak when the GC weak
+    phase lands (design doc §5.7, deferred until ~90% cross-runtime); until then
+    strong-ref, like the Rust v0 stubs.
 - **Reclassification vs the bullet above:** `RegExp` moves to the native/primitive
   side (it has `/re/` syntax). The "Registry only" list still holds for the
   no-native-syntax utilities. This refines, not contradicts, "no builtins in the
