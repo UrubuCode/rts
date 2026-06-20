@@ -12,6 +12,12 @@ pub const MAP_SET_TS: &str = include_str!("map_set.ts");
 /// recursion); the engine names nothing JSON-specific, it just runs the generics.
 pub const JSON_TS: &str = include_str!("json.ts");
 
+/// `WeakMap`/`WeakSet` — STRONG-reference collections for now (#217 tracks the
+/// real weak path), backed by private arrays with `===` keys, like `MAP_SET_TS`.
+/// Non-iterable surface only (no `size`/`keys`/`values`/`forEach`). Ambient `.ts`
+/// classes so `new WeakMap()` is an ordinary user-class construction.
+pub const WEAKMAP_SET_TS: &str = include_str!("weakmap_set.ts");
+
 /// The global `console` object (`log`/`info`/`debug`/`dir` → stdout,
 /// `warn`/`error` → stderr) — a rts-shared backend utility, NOT a primordial: it
 /// has no native syntax and prints through the backend, so it lives here with the
