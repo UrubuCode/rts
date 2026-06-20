@@ -25,10 +25,10 @@
 ,
 {
   "name": "125_array_includes",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "has2=true\nhas5=false\nhasNaN=true\nfrom2=false\nfrom0=true\nnegIdx=false\nstr_e=true\nstr_x=false\nstr_from=true",
   "node": "has2=true\nhas5=false\nhasNaN=true\nfrom2=false\nfrom0=true\nnegIdx=false\nstr_e=true\nstr_x=false\nstr_from=true",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "has2=true\nhas5=false\nhasNaN=false\nfrom2=false\nfrom0=true\nnegIdx=false\nstr_e=true\nstr_x=false\nstr_from=true"
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_error",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "__RUNTIME_ERROR__"
 }
 ,
@@ -3457,10 +3457,10 @@
 ,
 {
   "name": "18_regex_methods",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "test=true\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c",
   "node": "test=true\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "test=true\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c"
 }
 ,
 {
@@ -3633,26 +3633,26 @@
 ,
 {
   "name": "06_string_methods",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "len=11\nupper=HELLO WORLD\nlower=hello world\nindexOf(World)=6\nindexOf(zzz)=-1\nincludes(Wor)=true\nstartsWith(He)=true\nendsWith(ld)=true\nslice(0,5)=Hello\nslice(-5)=World\nsplit=Hello|World\nreplace=Hello TS\nrepeat3=ababab\ntrim=hi\npadStart=005\ncharAt(1)=e\ncharCodeAt(0)=72",
   "node": "len=11\nupper=HELLO WORLD\nlower=hello world\nindexOf(World)=6\nindexOf(zzz)=-1\nincludes(Wor)=true\nstartsWith(He)=true\nendsWith(ld)=true\nslice(0,5)=Hello\nslice(-5)=World\nsplit=Hello|World\nreplace=Hello TS\nrepeat3=ababab\ntrim=hi\npadStart=005\ncharAt(1)=e\ncharCodeAt(0)=72",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "len=11\nupper=HELLO WORLD\nlower=hello world\nindexOf(World)=6\nindexOf(zzz)=-1\nincludes(Wor)=true\nstartsWith(He)=true\nendsWith(ld)=true\nslice(0,5)=Hello\nslice(-5)=World\nsplit=Hello|World\nreplace=Hello TS\nrepeat3=ababab\ntrim=hi\npadStart=005\ncharAt(1)=e\ncharCodeAt(0)=72"
 }
 ,
 {
   "name": "124_string_trim_variants",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "trim=hello world\ntrimStart=hello world  \ntrimEnd=  hello world\ntabs=hello\nnewlines=hello\nmixed=hello",
   "node": "trim=hello world\ntrimStart=hello world  \ntrimEnd=  hello world\ntabs=hello\nnewlines=hello\nmixed=hello",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "trim=hello world\ntrimStart=hello world  \ntrimEnd=  hello world\ntabs=hello\nnewlines=hello\nmixed=hello"
 }
 ,
 {
   "name": "129_string_startswith_endswith",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "starts_hello=true\nstarts_world=false\nstarts_world_6=true\nends_world=true\nends_hello=false\nends_hello_5=true\nempty_starts=true\nempty_ends=true",
   "node": "starts_hello=true\nstarts_world=false\nstarts_world_6=true\nends_world=true\nends_hello=false\nends_hello_5=true\nempty_starts=true\nempty_ends=true",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "starts_hello=true\nstarts_world=false\nstarts_world_6=true\nends_world=true\nends_hello=false\nends_hello_5=true\nempty_starts=true\nempty_ends=true"
 }
 ,
 {
@@ -3665,26 +3665,26 @@
 ,
 {
   "name": "140_string_charat_charcodeat",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "charAt0=h\ncharAt4=o\ncharAt10=\ncharCodeAt0=104\ncharCodeAt4=111\ncharCodeAt10=NaN\nemoji_charAt=�\nemoji_code=55357\nbracket=h\nbracket_out=undefined",
   "node": "charAt0=h\ncharAt4=o\ncharAt10=\ncharCodeAt0=104\ncharCodeAt4=111\ncharCodeAt10=NaN\nemoji_charAt=�\nemoji_code=55357\nbracket=h\nbracket_out=undefined",
-  "rts": "charAt0=h\ncharAt4=o\ncharAt10=\ncharCodeAt0=104\ncharCodeAt4=111\ncharCodeAt10=NaN\nemoji_charAt=�\nemoji_code=55357\nbracket=h\nbracket_out=undefined"
+  "rts": "charAt0=h\ncharAt4=o\ncharAt10=\ncharCodeAt0=104\ncharCodeAt4=111\ncharCodeAt10=-1\nemoji_charAt=�\nemoji_code=55357\nbracket=h\nbracket_out="
 }
 ,
 {
   "name": "141_string_concat",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "concat=hello world\nconcat_empty=hello\nconcat_multi=abcd\nplus=hello world\nwith_num=value:42",
   "node": "concat=hello world\nconcat_empty=hello\nconcat_multi=abcd\nplus=hello world\nwith_num=value:42",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "concat=hello world\nconcat_empty=hello\nconcat_multi=abcd\nplus=hello world\nwith_num=value:42"
 }
 ,
 {
   "name": "156_string_localecompare",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "a_b=true\nb_a=true\na_a=0\napple_banana=true\nA_a=1\na_A=-1",
   "node": "a_b=true\nb_a=true\na_a=0\napple_banana=true\nA_a=1\na_A=-1",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "a_b=true\nb_a=true\na_a=0\napple_banana=true\nA_a=1\na_A=-1"
 }
 ,
 {
@@ -3697,18 +3697,18 @@
 ,
 {
   "name": "165_string_match_search",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "match=quick\nnomatch=null\nmatchall=o,o\nsearch=10\nsearch_none=-1\nsearch_start=0",
   "node": "match=quick\nnomatch=null\nmatchall=o,o\nsearch=10\nsearch_none=-1\nsearch_start=0",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "match=quick\nnomatch=null\nmatchall=o,o\nsearch=10\nsearch_none=-1\nsearch_start=0"
 }
 ,
 {
   "name": "168_string_substring_substr",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "substring_0_5=hello\nsubstring_6=world\nsubstring_6_11=world\nsubstring_-5=hello world\nsubstring_5_2=llo\nsubstr_0_5=hello\nsubstr_6=world\nsubstr_6_5=world\nsubstr_-5=world\nsubstr_-5_2=wo",
   "node": "substring_0_5=hello\nsubstring_6=world\nsubstring_6_11=world\nsubstring_-5=hello world\nsubstring_5_2=llo\nsubstr_0_5=hello\nsubstr_6=world\nsubstr_6_5=world\nsubstr_-5=world\nsubstr_-5_2=wo",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "substring_0_5=hello\nsubstring_6=world\nsubstring_6_11=world\nsubstring_-5=hello world\nsubstring_5_2=llo\nsubstr_0_5=hello\nsubstr_6=world\nsubstr_6_5=world\nsubstr_-5=world\nsubstr_-5_2=wo"
 }
 ,
 {
@@ -3729,10 +3729,10 @@
 ,
 {
   "name": "195_string_codepointat",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
   "node": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "h=104\ne=101\no=111\nout=281474976710895\nemoji=128512\nA=65\ncharCode=55357"
 }
 ,
 {
@@ -3761,10 +3761,10 @@
 ,
 {
   "name": "208_string_split_limit",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "no_limit=a|b|c|d|e\nlimit_2=a|b\nlimit_0=\nlimit_10=a|b|c|d|e\nspace=hello|world|foo|bar\nspace_2=hello|world\nchars=a|b|c\nchars_2=a|b",
   "node": "no_limit=a|b|c|d|e\nlimit_2=a|b\nlimit_0=\nlimit_10=a|b|c|d|e\nspace=hello|world|foo|bar\nspace_2=hello|world\nchars=a|b|c\nchars_2=a|b",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "no_limit=a|b|c|d|e\nlimit_2=a|b\nlimit_0=\nlimit_10=a|b|c|d|e\nspace=hello|world|foo|bar\nspace_2=hello|world\nchars=a|b|c\nchars_2=a|b"
 }
 ,
 {
@@ -3793,10 +3793,10 @@
 ,
 {
   "name": "222_string_search_index",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "world=6\nhello=0\nnot_found=-1\ndigit=3\nletter=3\ncase=0",
   "node": "world=6\nhello=0\nnot_found=-1\ndigit=3\nletter=3\ncase=0",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "world=6\nhello=0\nnot_found=-1\ndigit=3\nletter=3\ncase=0"
 }
 ,
 {
@@ -3817,10 +3817,10 @@
 ,
 {
   "name": "236_string_includes_position",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "world=true\nworld_0=true\nworld_6=true\nworld_7=false\nhello_6=false\no=true\no_5=true\no_8=false",
   "node": "world=true\nworld_0=true\nworld_6=true\nworld_7=false\nhello_6=false\no=true\no_5=true\no_8=false",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "world=true\nworld_0=true\nworld_6=true\nworld_7=false\nhello_6=false\no=true\no_5=true\no_8=false"
 }
 ,
 {
@@ -3841,10 +3841,10 @@
 ,
 {
   "name": "244_string_valueof",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "valueOf=hello\nsame_type=true\nobj_type=true\nprimitive=world\nsame=true",
   "node": "valueOf=hello\nsame_type=true\nobj_type=true\nprimitive=world\nsame=true",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "valueOf=hello\nsame_type=true\nobj_type=true\nprimitive=world\nsame=true"
 }
 ,
 {
@@ -3905,18 +3905,18 @@
 ,
 {
   "name": "37_string_positions",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "includes=true\nstartsWith=true\nendsWith=true",
   "node": "includes=true\nstartsWith=true\nendsWith=true",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "includes=true\nstartsWith=true\nendsWith=true"
 }
 ,
 {
   "name": "412_unicode_surrogate_iteration",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "len=4\nchars=A|🙂|B\nunits=65,55357,56898,66\npoints=65,128578,56898,66\nslice=🙂",
   "node": "len=4\nchars=A|🙂|B\nunits=65,55357,56898,66\npoints=65,128578,56898,66\nslice=🙂",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "len=4\nchars=A|🙂|B\nunits=65,55357,56898,66\npoints=65,128578,56898,66\nslice=🙂B"
 }
 ,
 {
@@ -3932,7 +3932,7 @@
   "status": "rts_diverge",
   "bun": "h\no\nl\no\nundefined\nh\nundefined\nundefined\nh\na\nb\nd83d\n1\nundefined",
   "node": "h\no\nl\no\nundefined\nh\nundefined\nundefined\nh\na\nb\nd83d\n1\nundefined",
-  "rts": "h\no\nl\no\nundefined\nh\nundefined\nundefined\nh\na\nb\nfffd\n1\nundefined"
+  "rts": "h\no\nl\no\nundefined\nh\nundefined\nundefined\nh\na\nb\nd83d\n2\nundefined"
 }
 ,
 {
@@ -4041,10 +4041,10 @@
 ,
 {
   "name": "codex_string_replace_dollar_tokens",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "def-123-abc\nabc[abc][123][def]def\n$-x-$2\na-b",
   "node": "def-123-abc\nabc[abc][123][def]def\n$-x-$2\na-b",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "def-123-abc\nabc[$`][$&][$']def\n$-x-\n$<first>-b"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":126,"rts_diverge":30,"bun_node_diverge":17,"errors":436,"rejected":0}}
+],"summary":{"total":609,"pass":138,"rts_diverge":35,"bun_node_diverge":18,"errors":418,"rejected":0}}
