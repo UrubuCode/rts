@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_error",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "__RUNTIME_ERROR__"
 }
 ,
@@ -4793,10 +4793,10 @@
 ,
 {
   "name": "codex_url_percent_invalid_sequences",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "/a/%zz/%E0%A4%A\n?x=%zz\nhttps://x.test/a/%zz/%E0%A4%A?x=%zz",
   "node": "/a/%zz/%E0%A4%A\n?x=%zz\nhttps://x.test/a/%zz/%E0%A4%A?x=%zz",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "/a/%zz/%E0%A4%A\n?x=%zz\nhttps://x.test/a/%zz/%E0%A4%A?x=%zz"
 }
 ,
 {
@@ -4809,10 +4809,10 @@
 ,
 {
   "name": "codex_url_username_password_encoding",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "https://a%20b:p%40ss%3Aword@example.com/\na%20b\np%40ss%3Aword",
   "node": "https://a%20b:p%40ss%3Aword@example.com/\na%20b\np%40ss%3Aword",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "https://example.com/"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":123,"rts_diverge":29,"bun_node_diverge":18,"errors":439,"rejected":0}}
+],"summary":{"total":609,"pass":124,"rts_diverge":30,"bun_node_diverge":17,"errors":438,"rejected":0}}
