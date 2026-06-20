@@ -137,3 +137,49 @@ fn globalthis_poisoned_key_not_dispatched_as_class() {
         "caught\n",
     );
 }
+
+/// A CLASS EXPRESSION (`const D = class {…}`) is hoisted to a named top-level class
+/// (`__classexpr_N`), so `new D().method()` constructs + dispatches like any class.
+#[test]
+fn class_expression_anonymous() {
+    assert_stdout(
+        "const D = class { x: number = 5; getX(): number { return this.x; } }; \
+         console.log(new D().getX());",
+        "5\n",
+    );
+}
+
+/// A class expression with a CONSTRUCTOR.
+#[test]
+fn class_expression_with_ctor() {
+    assert_stdout(
+        "const D = class { v: number = 0; constructor(n: number) { this.v = n; } \
+         get(): number { return this.v; } }; \
+         console.log(new D(7).get());",
+        "7\n",
+    );
+}
+
+/// A NAMED class expression (`class Box {…}` in value position) is hoisted by the
+/// synthesized name; `new D()` still constructs it.
+#[test]
+fn class_expression_named() {
+    assert_stdout(
+        "const D = class Box { v: number = 3; get(): number { return this.v; } }; \
+         console.log(new D().get());",
+        "3\n",
+    );
+}
+
+/// END-TO-END: a class-EXPRESSION assigned to `globalThis` (`globalThis.Map =
+/// class M {…}`) hoists to `globalThis.Map = __classexpr_N` (a known class), the
+/// caminho-A pre-pass tracks it, and `const G = globalThis.Map; new G().m()`
+/// dispatches — the full `globalThis.Map = class Map {…}` literal pattern.
+#[test]
+fn class_expression_to_globalthis_end_to_end() {
+    assert_stdout(
+        "globalThis.Coll = class M { has(): boolean { return true; } }; \
+         const G = globalThis.Coll; console.log(new G().has());",
+        "true\n",
+    );
+}

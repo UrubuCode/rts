@@ -113,6 +113,53 @@ impl swc_ecma_visit::VisitMut for MemberAssignFnHoister {
     }
 }
 
+/// Hoists a class EXPRESSION (`const D = class {…}` / `globalThis.X = class M {…}`)
+/// into a named top-level class declaration (`__classexpr_N`), rewriting the
+/// expression site to an identifier. Once the site is an `Ident` naming a
+/// top-level class, the existing class-as-value machinery takes over: `const D =
+/// __classexpr_N` reifies the class VALUE, `new D()` constructs, and methods
+/// dispatch on the result (D is a static class reference). `globalThis.X = class
+/// M {…}` becomes `globalThis.X = __classexpr_N` — a known-class ident — so the
+/// caminho-A pre-pass tracks it and `const G = globalThis.X; new G().m()` works
+/// end-to-end. `visit_mut_function` is a no-op so we never descend into a
+/// function/method body: only TRUE top-level class-exprs are hoisted (one nested
+/// inside a body could capture outer locals; left in place it still bails
+/// downstream — the honesty floor). A named class-expr's inner self-reference
+/// (`class Foo { m() { return Foo; } }`) resolves to the original name, which is
+/// not the hoisted decl's name, so it bails downstream (an accepted edge).
+#[derive(Default)]
+struct ClassExprHoister {
+    hoisted: Vec<swc_ecma_ast::ClassDecl>,
+    counter: usize,
+}
+
+impl swc_ecma_visit::VisitMut for ClassExprHoister {
+    fn visit_mut_function(&mut self, _f: &mut SwcFunction) {
+        // no-op: do not descend into function/method bodies (avoid capturing hoists).
+    }
+
+    fn visit_mut_expr(&mut self, e: &mut Expr) {
+        use swc_ecma_visit::VisitMutWith;
+        e.visit_mut_children_with(self);
+        if let Expr::Class(ce) = e {
+            let name = format!("__classexpr_{}", self.counter);
+            self.counter += 1;
+            let ident = swc_ecma_ast::Ident {
+                span: Default::default(),
+                ctxt: Default::default(),
+                sym: name.as_str().into(),
+                optional: false,
+            };
+            self.hoisted.push(swc_ecma_ast::ClassDecl {
+                ident: ident.clone(),
+                declare: false,
+                class: ce.class.clone(),
+            });
+            *e = Expr::Ident(ident);
+        }
+    }
+}
+
 fn lower_program(cm: &Lrc<SourceMap>, source: &SwcProgram) -> Program {
     let mut program = Program::default();
 
@@ -156,6 +203,29 @@ fn lower_program(cm: &Lrc<SourceMap>, source: &SwcProgram) -> Program {
                 SwcProgram::Script(s) => {
                     for (i, fd) in hoister.hoisted.into_iter().enumerate() {
                         s.body.insert(i, Stmt::Decl(Decl::Fn(fd)));
+                    }
+                }
+            }
+        }
+    }
+    // Hoist class EXPRESSIONS (`const D = class {…}` / `globalThis.X = class M {…}`)
+    // to named top-level class decls so the class-as-value machinery (reify +
+    // new-thunk, caminho A) takes over via the rewritten ident.
+    {
+        use swc_ecma_visit::VisitMutWith;
+        let mut hoister = ClassExprHoister::default();
+        owned.visit_mut_with(&mut hoister);
+        if !hoister.hoisted.is_empty() {
+            match &mut owned {
+                SwcProgram::Module(m) => {
+                    for (i, cd) in hoister.hoisted.into_iter().enumerate() {
+                        m.body
+                            .insert(i, ModuleItem::Stmt(Stmt::Decl(Decl::Class(cd))));
+                    }
+                }
+                SwcProgram::Script(s) => {
+                    for (i, cd) in hoister.hoisted.into_iter().enumerate() {
+                        s.body.insert(i, Stmt::Decl(Decl::Class(cd)));
                     }
                 }
             }
