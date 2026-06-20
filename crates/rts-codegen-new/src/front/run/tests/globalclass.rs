@@ -287,3 +287,14 @@ fn bail_unknown_map_method() {
     // `values`/`entries`/`clear` are now real members; `groupInto` is not.
     assert_bails(r#"let m = new Map(); m.groupInto(() => {}); console.log(m.size);"#);
 }
+
+#[test]
+fn url_ctor_and_getters() {
+    // `URL` — a backend/Registry class (WHATWG parser, no native syntax): `new
+    // URL(s)` + its getters resolve generically via registryclass + the Registry
+    // 0-arg-member property read, with NO `"URL"` literal in codegen control flow.
+    assert_stdout(
+        r#"const u = new URL("https://a.com/p?x=1"); console.log(u.hostname, u.pathname);"#,
+        "a.com /p\n",
+    );
+}

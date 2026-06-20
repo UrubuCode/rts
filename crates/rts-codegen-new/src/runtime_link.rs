@@ -657,6 +657,7 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
     // directly — replacing the `__rtsadp_date_*` trampolines that used to forward
     // to them.
     syms.extend(crate::registry_link::date_symbols());
+    syms.extend(crate::registry_link::url_symbols());
     syms
 }
 

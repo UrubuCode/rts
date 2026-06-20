@@ -100,6 +100,11 @@ pub(super) static REGISTER: &[Register] = &[
     Register { label: "Boolean class", run: ns::globals::boolean::register_boolean_class_spec, why: "Boolean wrapper ctor" },
     Register { label: "Number class", run: ns::globals::number::register_number_class_spec, why: "Number wrapper ctor" },
     Register { label: "String class", run: ns::globals::string::register_string_class_spec, why: "String wrapper ctor" },
+    // `URL` — backend/Registry class (WHATWG parser, no native syntax): `new URL(s)`
+    // + getters (href/hostname/pathname/…) resolve generically via registryclass.
+    Register { label: "URL class", run: ns::globals::url::register_url_class_spec, why: "URL ctor + getters" },
+    // URLSearchParams: follow-up — needs its own symbols installed + `u.searchParams`
+    // tagged RETURNS_OBJECT (it returns a URLSearchParams instance, not a string).
 ];
 
 /// One `.ts` prelude include, in DEPENDENCY ORDER (base before dependent).
