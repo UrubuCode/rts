@@ -6,7 +6,6 @@
 pub mod fixed;
 pub mod handles;
 pub mod poly;
-pub mod poly_key;
 pub mod env;
 pub mod closure;
 pub mod instance;

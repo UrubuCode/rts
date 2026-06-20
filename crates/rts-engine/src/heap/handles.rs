@@ -382,16 +382,6 @@ pub enum Entry {
     Map(Box<indexmap::IndexMap<String, i64>>),
     /// Vec<i64> — namespace `collections` (vec_*).
     Vec(Box<Vec<i64>>),
-    /// `IndexMap<PolyKey, u64>` — the P2 PolyValue-keyed runtime `Map` store
-    /// (namespace `collections`, `map_poly_*`). Keys use JS SameValueZero
-    /// equality ([`crate::heap::poly_key::PolyKey`]); values are raw PolyValue
-    /// words. Insertion-ordered (JS `Map` enumeration order). Distinct from the
-    /// legacy string-keyed `Entry::Map` (which it will supersede once the
-    /// Registry `Map` migration wires it in).
-    MapPoly(Box<indexmap::IndexMap<crate::heap::poly_key::PolyKey, u64>>),
-    /// `IndexSet<PolyKey>` — the P2 PolyValue runtime `Set` store (namespace
-    /// `collections`, `set_poly_*`). Members use SameValueZero; insertion-ordered.
-    SetPoly(Box<indexmap::IndexSet<crate::heap::poly_key::PolyKey>>),
     /// Regex compilada — namespace `regex`. Armazena tambem a flag `global`
     /// (JS `/pat/g`) porque o crate `regex` nao expoe esse conceito separado.
     Regex(Box<RtsRegex>),
@@ -804,29 +794,6 @@ impl crate::Traceable for Entry {
                 for h in v.iter() {
                     if *h != 0 {
                         visit(*h as u64);
-                    }
-                }
-            }
-            // (P2) PolyValue Map: both the key word and the value word may be a
-            // boxed handle (string/object/function) — `mark_handle` normalizes a
-            // NaN-boxed word to its slot, so a `Map` holding the only reference to
-            // a string/object keeps it alive. Inline numbers/singletons no-op in
-            // `mark`. Same mechanism the `Entry::Vec` PolyValue array path uses.
-            Entry::MapPoly(m) => {
-                for (k, v) in m.iter() {
-                    if k.0 != 0 {
-                        visit(k.0);
-                    }
-                    if *v != 0 {
-                        visit(*v);
-                    }
-                }
-            }
-            // (P2) PolyValue Set: each member word may be a boxed handle.
-            Entry::SetPoly(s) => {
-                for k in s.iter() {
-                    if k.0 != 0 {
-                        visit(k.0);
                     }
                 }
             }
@@ -1722,65 +1689,6 @@ mod tests {
         // other parallel tests (sweep would also clear, but we avoid a global
         // sweep here to not race other tests' unmarked entries).
         free_handle(vec_h);
-        free_handle(str_h);
-    }
-
-    /// (P2) `mark_handle` marks THROUGH a NaN-boxed PolyValue word stored as a
-    /// `Entry::MapPoly` VALUE — proving a `Map` holding the only reference to a
-    /// string keeps it alive across a GC cycle. Mirrors `mark_through_nanboxed_vec_child`.
-    #[test]
-    fn mark_through_nanboxed_mappoly_value() {
-        use crate::heap::poly::{POLY_BOX_BASE, POLY_PAYLOAD_MASK, POLY_TAG_SHIFT, POLY_TAG_STR};
-        use crate::heap::poly_key::PolyKey;
-
-        let str_h = alloc_entry(Entry::String(b"map-held-value".to_vec()));
-        let poly48 = __RTS_FN_NS_GC_POLY_FROM_HANDLE(str_h);
-        let boxed = POLY_BOX_BASE | (POLY_TAG_STR << POLY_TAG_SHIFT) | (poly48 & POLY_PAYLOAD_MASK);
-
-        // A number key (inline double) → the only live reference to the string is
-        // the map's value word.
-        let mut m = indexmap::IndexMap::new();
-        m.insert(PolyKey(1.0f64.to_bits()), boxed);
-        let map_h = alloc_entry(Entry::MapPoly(Box::new(m)));
-
-        mark_handle(map_h);
-
-        let is_marked = shard_for_handle(str_h)
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_marked_pub(str_h);
-        assert_eq!(
-            is_marked,
-            Some(true),
-            "string reachable only via a NaN-boxed MapPoly value must be marked"
-        );
-        free_handle(map_h);
-        free_handle(str_h);
-    }
-
-    /// (P2) Same, but the string is the MapPoly KEY (a Map keyed by a string must
-    /// keep that string alive).
-    #[test]
-    fn mark_through_nanboxed_mappoly_key() {
-        use crate::heap::poly::{POLY_BOX_BASE, POLY_PAYLOAD_MASK, POLY_TAG_SHIFT, POLY_TAG_STR};
-        use crate::heap::poly_key::PolyKey;
-
-        let str_h = alloc_entry(Entry::String(b"map-held-key".to_vec()));
-        let poly48 = __RTS_FN_NS_GC_POLY_FROM_HANDLE(str_h);
-        let boxed = POLY_BOX_BASE | (POLY_TAG_STR << POLY_TAG_SHIFT) | (poly48 & POLY_PAYLOAD_MASK);
-
-        let mut m = indexmap::IndexMap::new();
-        m.insert(PolyKey(boxed), 1.0f64.to_bits());
-        let map_h = alloc_entry(Entry::MapPoly(Box::new(m)));
-
-        mark_handle(map_h);
-
-        let is_marked = shard_for_handle(str_h)
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_marked_pub(str_h);
-        assert_eq!(is_marked, Some(true), "MapPoly key string must be marked");
-        free_handle(map_h);
         free_handle(str_h);
     }
 
