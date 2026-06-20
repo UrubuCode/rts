@@ -30,7 +30,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// guess a class).
     pub(in crate::front::run) fn static_instance_class(&self, object: &HirExpr) -> Option<String> {
         match &object.kind {
-            HirExprKind::New { class, .. } => self.classes.get(class).map(|_| class.clone()),
+            HirExprKind::New { class, .. } => {
+                // `new Box()` → `Box`; `new C()` where `C` is a class-reference local
+                // (`const C = Box`) → the referenced class, so a chained
+                // `new C().method()` dispatches statically.
+                let class = self
+                    .local_class_refs
+                    .get(class)
+                    .cloned()
+                    .unwrap_or_else(|| class.clone());
+                self.classes.get(&class).map(|_| class)
+            }
             HirExprKind::Ident(name) => self
                 .local_classes
                 .get(name)

@@ -40,6 +40,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         class: &str,
         args: &[HirExpr],
     ) -> FrontResult<(Val, String, ShapeId)> {
+        // A local that REFERENCES a class as a value (`const C = Box; new C(..)`):
+        // resolve `C` to the real class `Box` and construct it on the static path.
+        // A local SHADOWS the bare class name, so this ref map is checked first.
+        // Owned so the name outlives the later `&mut self` lowering calls.
+        let class_owned: String = self
+            .local_class_refs
+            .get(class)
+            .cloned()
+            .unwrap_or_else(|| class.to_string());
+        let class: &str = &class_owned;
         let Some(desc) = self.classes.get(class).cloned() else {
             return unsupported!(
                 "`new {class}(..)` — class `{class}` is not a user class in this program \

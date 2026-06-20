@@ -465,6 +465,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if self.is_globalthis_receiver(object) {
             return self.lower_dynamic_set_expr(module, object, prop, value);
         }
+        // ---- a bare class NAME target (`C.n = 5`) is a STATIC FIELD WRITE, a later
+        // increment. Bail BEFORE the function-value-property path: `C` now reifies
+        // to a `TAG_FUNCTION` class-value, so without this guard the write would be
+        // silently recorded as a data property on the class-value instead. ----
+        if self.class_name_receiver(object).is_some() {
+            return unsupported!(
+                "static field write `.{prop}` (read-only static getter synthesis — a later increment)"
+            );
+        }
         // ---- accessor SET `obj.x = v` where x is a setter on the receiver class ----
         if let Some(class) = self.instance_class_of(object) {
             if self

@@ -160,6 +160,18 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
         let id = thunk::declare_thunk(&mut module, &f.name)?;
         thunks.insert(f.name.clone(), id);
     }
+    // 2c. Declare a per-class NEW-THUNK (`<class>__rtsn_newthunk`) for every user
+    //     class with a REAL synthesized constructor (a literal-shape class has a
+    //     `__rtsl_noctor_*` placeholder not in `ids` — skip it; it is never `new`ed
+    //     through a value). A class used as a VALUE (`const C = Box`) reifies to
+    //     this thunk's address, so `new C(args)` allocates + constructs uniformly.
+    //     Keyed in the same `thunks` map under the distinct `__rtsn_newthunk` name.
+    for desc in classes.iter() {
+        if ids.contains_key(&desc.ctor) {
+            let id = thunk::declare_new_thunk(&mut module, &desc.name)?;
+            thunks.insert(thunk::new_thunk_name(&desc.name), id);
+        }
+    }
 
     // 3. Define each user function body.
     for f in funcs {
@@ -214,6 +226,21 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
             &sigs[&f.name],
             capture_count,
         )?;
+    }
+    // 4c. Define every class NEW-THUNK: allocate the instance + run the ctor +
+    //     return the instance word (the constructor's `this` is synthesized in the
+    //     allocation, sidestepping the `reify_function` `has_this` bail).
+    for desc in classes.iter() {
+        if let Some(&ctor_id) = ids.get(&desc.ctor) {
+            thunk::define_new_thunk(
+                &mut module,
+                thunks[&thunk::new_thunk_name(&desc.name)],
+                ctor_id,
+                &sigs[&desc.ctor],
+                desc.global_shape,
+                desc.fields.len(),
+            )?;
+        }
     }
 
     module

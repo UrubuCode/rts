@@ -183,6 +183,12 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// (a `new C()` result, a `: C`-annotated param, or `this` inside a method).
     /// Drives static `instance.method(args)` dispatch; absent ⇒ method calls bail.
     pub local_classes: HashMap<String, String>,
+    /// Name → the user CLASS a local holds as a VALUE (`const C = Box` → `C`→`Box`).
+    /// Distinct from `local_classes` (which holds an INSTANCE's class): here the
+    /// local IS the class/constructor itself, so `new C(args)` constructs `Box`
+    /// statically. Same insert/remove lifecycle as `local_classes` (cleared on any
+    /// rebind of the name). Absent ⇒ `new <local>()` is not a static class value.
+    pub local_class_refs: HashMap<String, String>,
     /// GENERATOR locals: `const it = g()` where `g` is a generator. `true` = LAZY
     /// (GenState handle, `Int64`); `false` = EAGER (`__gen_buf` ARRAY word).
     /// `it.next()`/`.return()`/`.throw()` route to `GENERATOR_*` by this kind.
@@ -279,6 +285,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             object_locals: std::collections::HashSet::new(),
             string_locals: std::collections::HashSet::new(),
             local_classes: HashMap::new(),
+            local_class_refs: HashMap::new(),
             generator_locals: HashMap::new(),
             global_instance_classes: HashMap::new(),
             shapes: ShapeTable::new(),

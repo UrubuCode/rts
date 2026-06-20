@@ -53,6 +53,7 @@ mod arraycb;
 mod boolean_class;
 mod builtin_import;
 mod class;
+mod class_as_value;
 mod class_inherit;
 mod console_methods;
 mod closure;
