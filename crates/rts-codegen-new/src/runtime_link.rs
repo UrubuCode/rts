@@ -45,7 +45,7 @@ use rts_runtime::namespaces::math as rt_math;
 
 use crate::value::{
     abi_adapter, arraycb, arrayops, dyndispatch, errslot, funcops, genops, genops_arith, globalops,
-    inspect, iterops, objops, regexops,
+    globalthis, inspect, iterops, objops, regexops,
 };
 
 /// One installable JIT symbol: an extern "C" name and its function pointer. The
@@ -535,6 +535,8 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
             "__rtsadp_re_str_search",
             regexops::__rtsadp_re_str_search as *const u8,
         ),
+        // ---- the `globalThis` singleton object (value get/set foundation) ----
+        sym("__rtsadp_globalthis", globalthis::__rtsadp_globalthis as *const u8),
         // ---- codegen-owned DYNAMIC property access (objops, P5.5) ----
         sym("__rtsadp_obj_get", objops::__rtsadp_obj_get as *const u8),
         sym("__rtsadp_obj_set", objops::__rtsadp_obj_set as *const u8),

@@ -128,6 +128,9 @@ pub mod regexops;
 // `_set`/`_has` for `obj.key`/`obj[k]` whose shape is known only at RUNTIME,
 // reading the slot-0 global shape-id + the global shape registry.
 pub mod objops;
+// The `globalThis` singleton object (foundation: VALUE get/set), backed by the
+// same keyed-object repr so `globalThis.prop` reuses the `objops` trampolines.
+pub mod globalthis;
 // Codegen-owned thread-local pending-error slot for `throw` / `try-catch` (P5.13):
 // `__rtsadp_throw_set` / `__rtsadp_err_pending` / `__rtsadp_err_take` /
 // `__rtsadp_err_clear` — the manual-unwind exception model.

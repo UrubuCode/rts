@@ -163,6 +163,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if self.sigs.contains_key(name) {
             return self.reify_function(module, name);
         }
+        // `globalThis` — the singleton global OBJECT (foundation: value get/set).
+        // A local/gcell of the same name would have shadowed it above; here it is
+        // the language global, resolved to the singleton TAG_OBJECT word so
+        // `globalThis.prop` get/set route through the dynamic-object trampolines.
+        if name == "globalThis" {
+            let w = self
+                .call_runtime(module, "__rtsadp_globalthis", &[])?
+                .expect("__rtsadp_globalthis returns a word");
+            return Ok(Val::new_with_kind(w, Repr::Tagged, JsKind::Object));
+        }
         unsupported!("unbound identifier `{name}`")
     }
 
