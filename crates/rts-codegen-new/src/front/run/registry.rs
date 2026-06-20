@@ -25,7 +25,7 @@
 
 use std::sync::OnceLock;
 
-use rts_engine::abi::{AbiType, MemberKind};
+use rts_engine::abi::{AbiType, MemberFlags, MemberKind};
 use rts_engine::{Engine, Member, Registry};
 
 /// One resolved runtime call: the REAL `__RTS_FN_*` symbol + the exact `AbiType`
@@ -45,6 +45,10 @@ pub struct ResolvedCall {
     pub arg_abis: Vec<AbiType>,
     /// The return `AbiType` (`Void` = no value).
     pub ret: AbiType,
+    /// The member's modifier flags from the spec. Carries `MemberFlags::UNSOUND`
+    /// for members that resolve but are NOT sound to lower (the honesty floor as
+    /// spec DATA — the lowering bails on them generically, no per-class predicate).
+    pub flags: MemberFlags,
 }
 
 /// Build the real runtime Registry once. Only the classes the new engine
@@ -219,6 +223,7 @@ fn instance_call(m: &'static Member) -> ResolvedCall {
         recv_abi,
         arg_abis: args.collect(),
         ret: m.sig.returns,
+        flags: m.flags,
     }
 }
 
@@ -230,6 +235,7 @@ fn flat_call(m: &'static Member) -> ResolvedCall {
         recv_abi: None,
         arg_abis: m.sig.args.clone(),
         ret: m.sig.returns,
+        flags: m.flags,
     }
 }
 

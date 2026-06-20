@@ -104,6 +104,13 @@ impl MemberFlags {
     /// Membro `void` que em JS retorna `undefined` — emite sentinela
     /// `i64::MIN + 2` (ambígua) em vez de `0` (`parallel.for_each`). (Q2)
     pub const UNDEF_RET: Self = Self(1 << 5);
+    /// Member is registered but NOT sound to lower (timezone-divergent /
+    /// mutating / non-deterministic) — codegen must BAIL rather than emit a
+    /// wrong-but-close value. The honesty floor as DATA on the spec, so the
+    /// engine no longer hardcodes a per-class divergent-method predicate. Today
+    /// stamped on `Date`'s `toString`/`toLocale*`/`toDateString`/`toUTCString`/
+    /// `toTimeString` formatters and every `setX` mutator.
+    pub const UNSOUND: Self = Self(1 << 6);
 
     /// Union of two flag sets (const, for building composite literals).
     pub const fn or(self, other: Self) -> Self {

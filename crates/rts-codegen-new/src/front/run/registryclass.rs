@@ -18,21 +18,23 @@
 //!
 //! TODAY the only pure-Registry class reaching these paths is `Date` (`RegExp`
 //! is in `class_meta`; `Map`/`Set`/`URL`/… have ambient `.ts` classes). Routing
-//! is now DATA-DRIVEN — no `"Date"` literal in the dispatch control flow. The
-//! LAST hardcoded Date knowledge is isolated into [`registry_class_policy`] (the
-//! divergent/unsound-method predicate) plus the `now`/`UTC`/`parse` static arms
-//! and the calendar-ctor `undefined` padding below — all genuinely Date-shaped.
+//! is now DATA-DRIVEN — no `"Date"` literal in the dispatch control flow.
 //!
-//! NEXT DRAIN (to fully remove the `Date` residual): move that policy onto the
-//! `rts-shared` Date class SPEC as data — a per-method `unsound`/`divergent`
-//! flag, ctor default-arg / overload-arg-type metadata, and the static
-//! arg-padding rule — so codegen reads it generically from the Registry and
-//! [`registry_class_policy`] + the Date-shaped arms disappear.
+//! The unsound-to-lower method set (Date's timezone-divergent formatters + `setX`
+//! mutators) is now SPEC DATA: the `rts-shared` Date class stamps those members
+//! `MemberFlags::UNSOUND` and [`Lowerer::try_registry_instance_method`] bails on
+//! the flag generically — no per-class predicate in the engine.
+//!
+//! REMAINING Date-shaped residual (the smaller next drain): the `now`/`UTC`/
+//! `parse` static arms + the `Date.UTC` calendar-default padding ([`pad_utc_defaults`])
+//! and the calendar-ctor `undefined` padding below. These match by METHOD NAME
+//! (no `"Date"` literal, so they do not trip the gate); fully removing them needs
+//! ctor/static default-arg + overload-arg-type metadata on the spec.
 
 use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_module::Module;
 
-use rts_engine::abi::AbiType;
+use rts_engine::abi::{AbiType, MemberFlags};
 use rts_hir::HirExpr;
 use rts_hir::ir::HirExprKind;
 
@@ -133,23 +135,23 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         args: &[HirExpr],
     ) -> FrontResult<Val> {
         use super::registry;
-        // Some methods resolve in the Registry but are NOT sound to lower (the
-        // honesty floor) — the class's policy decides which. For `Date`: the
-        // timezone-divergent formatters and the `setX` mutators. BAIL instead of
-        // emitting a wrong-but-close value.
-        if (registry_class_policy(class).is_divergent)(method) {
-            return unsupported!(
-                "`{class}.{method}()` — unsound-to-lower method (timezone-divergent / \
-                 mutating; only the deterministic surface is modeled — a later \
-                 increment)"
-            );
-        }
         let Some(call) = registry::class_member(class, method, args.len()) else {
             return unsupported!(
                 "`{class}.{method}({} args)` — no such method on runtime class `{class}`",
                 args.len()
             );
         };
+        // Some methods resolve in the Registry but are NOT sound to lower (the
+        // honesty floor). The spec marks them `MemberFlags::UNSOUND` — data, not a
+        // hardcoded per-class predicate. For `Date` these are the timezone-divergent
+        // formatters + the `setX` mutators. BAIL instead of emitting a wrong value.
+        if call.flags.contains(MemberFlags::UNSOUND) {
+            return unsupported!(
+                "`{class}.{method}()` — unsound-to-lower method (timezone-divergent / \
+                 mutating; only the deterministic surface is modeled — a later \
+                 increment)"
+            );
+        }
         let recv = self.lower_expr(module, object)?;
         let mut vals: Vec<Val> = Vec::with_capacity(args.len());
         for a in args {
@@ -260,48 +262,4 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             vals.push(Val::new(w, crate::repr::Repr::Int64));
         }
     }
-}
-
-/// A pure-Registry class's lowering POLICY — the residual per-class knowledge the
-/// generic dispatch cannot derive from the Registry signatures alone.
-struct ClassPolicy {
-    /// Whether a method resolves in the Registry but is NOT sound to lower
-    /// (timezone-divergent / mutating / otherwise non-deterministic) → BAIL.
-    is_divergent: fn(&str) -> bool,
-}
-
-/// The LAST hardcoded per-class policy in the engine. ONLY `Date` has one today.
-///
-/// This is the single honest `Date` data residual after the routing was made
-/// data-driven. NEXT DRAIN: encode `is_divergent` (and the static arg-padding /
-/// ctor-overload rules in the Date-shaped arms above) as DATA on the `rts-shared`
-/// Date class spec — a per-method `unsound` flag the Registry exposes — so this
-/// `match` and the `now`/`UTC`/`parse` arms disappear and the engine names no
-/// non-primordial class at all.
-fn registry_class_policy(class: &str) -> ClassPolicy {
-    match class {
-        "Date" => ClassPolicy {
-            is_divergent: is_divergent_date_method,
-        },
-        _ => ClassPolicy {
-            is_divergent: |_| false,
-        },
-    }
-}
-
-/// Whether a Date method name is timezone-divergent or mutating — resolvable via
-/// the Registry but NOT sound to lower (the determinism / immutable-instance
-/// floor). Such a method BAILS rather than emitting a wrong-but-close value.
-fn is_divergent_date_method(method: &str) -> bool {
-    matches!(
-        method,
-        "toString"
-            | "toDateString"
-            | "toUTCString"
-            | "toGMTString"
-            | "toTimeString"
-            | "toLocaleString"
-            | "toLocaleDateString"
-            | "toLocaleTimeString"
-    ) || method.starts_with("set")
 }
