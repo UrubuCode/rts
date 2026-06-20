@@ -164,6 +164,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 }
             }
         }
+        // i32-DOMAIN Math methods (`imul`, `clz32`, …): the runtime symbol takes/
+        // returns I64 (the i32 domain), NOT f64 — so they are absent from the f64
+        // `math_op` table. Resolve them DATA-DRIVEN from the `math` Registry
+        // namespace (`namespace_member`), which carries the exact I64 AbiType
+        // signature; marshal i64 args + i64 result. No hardcoded per-method symbol:
+        // any i32-domain Math method registered in `rts-shared::math` works here.
+        if let Some(val) = self.try_math_i32_domain(module, method, args)? {
+            return Ok(val);
+        }
         let Some(op) = math_op(method) else {
             return unsupported!("Math.{method}(...) (unsupported Math method)");
         };
@@ -174,6 +183,66 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let fargs = self.math_f64_args(module, method, &op, args)?;
         let v = self.emit_math_op(module, &op, &fargs)?;
         Ok(Val::new(v, Repr::Float64))
+    }
+
+    /// Lower an i32-DOMAIN `Math.method` (`imul`, `clz32`, …) resolved DATA-DRIVEN
+    /// from the `math` Registry namespace. `Ok(None)` ⇒ the method is not a
+    /// registered i32-domain math member (the caller falls through to the f64 table
+    /// / bail). A method whose Registry signature is all-I64 in + I64 out is treated
+    /// as i32-domain: each arg is ToInt32-coerced (JS `Math.imul`/`clz32` semantics)
+    /// then sign-extended to the I64 ABI; the i64 result reboxes as an Int32 number.
+    fn try_math_i32_domain(
+        &mut self,
+        module: &mut dyn Module,
+        method: &str,
+        args: &[HirExpr],
+    ) -> FrontResult<Option<Val>> {
+        let Some(call) = super::registry::namespace_member("math", method, args.len()) else {
+            return Ok(None);
+        };
+        // i32-domain = every explicit arg AND the return are integer ABI (I64/I32).
+        // (sqrt/floor/… are F64 and fall through to the f64 intrinsic table.)
+        let is_int = |t: &rts_engine::abi::AbiType| {
+            matches!(
+                t,
+                rts_engine::abi::AbiType::I64
+                    | rts_engine::abi::AbiType::I32
+                    | rts_engine::abi::AbiType::U64
+            )
+        };
+        if call.recv_abi.is_some() || !is_int(&call.ret) || !call.arg_abis.iter().all(is_int) {
+            return Ok(None);
+        }
+        if args.len() != call.arg_abis.len() {
+            return unsupported!(
+                "Math.{method} expects {} args, got {}",
+                call.arg_abis.len(),
+                args.len()
+            );
+        }
+        // ToInt32 each arg (JS coercion for the i32-domain ops). In this engine
+        // `Int32`/`Int64` share the Cranelift `i64` slot (`cl_type` maps both to
+        // I64), so the coerced value is ALREADY the i64 the I64-ABI runtime symbol
+        // wants — no sextend/widen (which would be a verifier error on an i64).
+        let mut iargs = Vec::with_capacity(args.len());
+        for a in args {
+            let v = self.lower_expr(module, a)?;
+            iargs.push(self.coerce(v, Repr::Int32)?);
+        }
+        // Emit with the EXACT AbiType signature from the Registry (data-driven —
+        // no `sig_of`/`abi_sig` hand-list needed): `emit_call_sig` builds the
+        // Cranelift sig from `call.arg_abis`/`call.ret` directly. The result is an
+        // i64 holding the i32-domain value → a proven `Int32` Val (same slot).
+        let res = emit_marshal::emit_call_sig(
+            module,
+            self.builder,
+            call.symbol,
+            &iargs,
+            &call.arg_abis,
+            call.ret,
+        )
+        .expect("i32-domain math symbol returns a value");
+        Ok(Some(Val::new(res, Repr::Int32)))
     }
 
     /// Coerce each arg to native f64, validating arity for the op. Variadic
