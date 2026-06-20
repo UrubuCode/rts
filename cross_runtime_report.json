@@ -1001,10 +1001,10 @@
 ,
 {
   "name": "186_map_foreach",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "forEach=a:1,b:2,c:3\nsame=true\nsame=true\nsame=true\nset=1,2,3",
   "node": "forEach=a:1,b:2,c:3\nsame=true\nsame=true\nsame=true\nset=1,2,3",
-  "rts": "forEach=a:1,b:2,c:3\nsame=true\nsame=true\nsame=true\nset=1,2,3"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -1113,10 +1113,10 @@
 ,
 {
   "name": "codex_set_forEach_mutation_order",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1:1:true|3:3:true|4:4:true|5:5:true\n1,3,4,5",
   "node": "1:1:true|3:3:true|4:4:true|5:5:true\n1,3,4,5",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "1:1:true|3:3:true|4:4:true|5:5:true\n1,3,4,5"
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_error",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "__RUNTIME_ERROR__"
 }
 ,
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":120,"rts_diverge":28,"bun_node_diverge":18,"errors":443,"rejected":0}}
+],"summary":{"total":609,"pass":120,"rts_diverge":28,"bun_node_diverge":17,"errors":444,"rejected":0}}
