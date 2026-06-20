@@ -267,6 +267,44 @@ backend in `rts-std`; `rts-runtime` is the thin facade (`pub use` of all four).
 This partition is unchanged by the engine redesign — both `rts-codegen-old` and
 `rts-codegen-new` read the runtime through the facade.
 
+### ANTI-HARDCODE — how to add a feature WITHOUT naming a non-primordial (binding)
+
+The #1 way a contributor (human or agent) regresses the doctrine is by hardcoding
+a non-primordial NAME in the new engine's front-end "just this once". **Do not.**
+A direct `"console"`/`"Date"`/`"Map"`/… literal in `crates/rts-codegen-new/`
+control flow is a REGRESSION — **even inside an allow-list / a `match name {}` /
+a `const NAMES: &[&str]`** (reviewer @drysius rejected exactly this framing; an
+allow-list of a non-primordial name is still naming it). The ONLY names the front
+may write are the PRIMORDIAL set (String/Object/Array/Function/Promise/Boolean/
+Number/Error+subclasses).
+
+When you reach for a non-primordial name, STOP and resolve it by **shape/data**:
+
+1. **Is there a structural pattern instead of a name?** Match the SHAPE, not the
+   identity. Real example — making `const console = new Console()` reach inside
+   user functions: the fix does NOT special-case `"console"`; it matches the
+   pattern `const X = new Y()` referenced-from-a-function
+   (`funcval::singleton_instance_globals`), promotes it to a gcell, and carries
+   `name → class` in a `gcell_classes` map the lowering reads. Generic for ANY
+   singleton, zero name in the front. (Class dispatch did the same: `Date` went
+   from `if class == "Date"` to `is_pure_registry_class` + `registryclass.rs`.)
+2. **Is it a method/static/ctor?** It's a `MethodSpec`/Registry entry resolved by
+   the ONE generic path (`dispatch.rs::resolve_method`, `registry_call.rs`). Add
+   the metadata on the spec (`rts-primitives`/`rts-shared`/`rts-std`), not an arm.
+3. **Is it a whole global object/class (console, Map, JSON, Date)?** Write it as a
+   `.ts` PRELUDE and `e.include` it; the irreducible bits become PRIVATE
+   `engine.*` bridges in `engineobj.rs`. **Where the `.ts` lives:** PRIMORDIAL →
+   `rts-primitives/src/*.ts` (error/object/boolean/number/string); NON-PRIMORDIAL
+   → `rts-shared/src/stdlib/*.ts` (console/json/map_set). Putting a non-primordial
+   `.ts` in `rts-primitives` is wrong (console is a backend class, not primordial).
+4. **No shape/data exists yet?** That's the signal a SPEC is missing metadata —
+   add the flag/field there (`flags`/`default_args`/`ts_signature` on the Member),
+   then the generic path picks it up. Never patch the front to compensate.
+
+The `read_before_commit.sh` gate flags a non-primordial name in
+`crates/rts-codegen-new/` for review — if it fires on your change, you took the
+hardcode path; go back to the list above.
+
 ## Project
 
 RTS is a TypeScript-to-native compiler/runtime using Cranelift as codegen
