@@ -7,7 +7,7 @@
 
 pub mod instance;
 
-use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+use rts_engine::{AbiType, DefaultArg, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 /// Membro de classe global (helper hand-written, espelha `leak_class` da macro).
 #[allow(clippy::too_many_arguments)]
@@ -84,7 +84,11 @@ pub fn register_class_spec(e: &mut Engine) {
         .member(m(
             "UTC",
             MemberKind::Function,
-            Sig::new(
+            // 7×I64 -> I64, mas só year+month são requeridos. Os defaults JS do
+            // tail (day=1, hour/min/sec/ms=0) viram DADO no spec: o emissor
+            // genérico de estáticos (registryclass) padda o tail omitido a partir
+            // daqui, em vez de hardcodar um `pad_utc_defaults` no codegen.
+            Sig::with_defaults(
                 vec![
                     AbiType::I64,
                     AbiType::I64,
@@ -95,6 +99,15 @@ pub fn register_class_spec(e: &mut Engine) {
                     AbiType::I64,
                 ],
                 AbiType::I64,
+                vec![
+                    DefaultArg::Required, // year
+                    DefaultArg::Required, // month
+                    DefaultArg::Int(1),   // day
+                    DefaultArg::Int(0),   // hour
+                    DefaultArg::Int(0),   // min
+                    DefaultArg::Int(0),   // sec
+                    DefaultArg::Int(0),   // ms
+                ],
             ),
             "__RTS_FN_NS_DATE_FROM_PARTS",
             "UTC(year: number, month: number, day?: number, hour?: number, min?: number, sec?: number, ms?: number): number",

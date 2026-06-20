@@ -25,7 +25,7 @@
 
 use std::sync::OnceLock;
 
-use rts_engine::abi::{AbiType, MemberFlags, MemberKind};
+use rts_engine::abi::{AbiType, DefaultArg, MemberFlags, MemberKind};
 use rts_engine::{Engine, Member, Registry};
 
 /// One resolved runtime call: the REAL `__RTS_FN_*` symbol + the exact `AbiType`
@@ -49,6 +49,12 @@ pub struct ResolvedCall {
     /// for members that resolve but are NOT sound to lower (the honesty floor as
     /// spec DATA — the lowering bails on them generically, no per-class predicate).
     pub flags: MemberFlags,
+    /// Per-arg default policy from the spec (parallel to the FULL `sig.args`,
+    /// receiver included for instance methods; empty = every arg required). Lets
+    /// the generic static/ctor emitter pad an omitted trailing arg with the
+    /// spec-declared default (e.g. `Date.UTC`'s day=1/rest=0) instead of a codegen
+    /// `pad_*` table. See [`super::registryclass`].
+    pub default_args: Vec<DefaultArg>,
 }
 
 /// Build the real runtime Registry once. Only the classes the new engine
@@ -224,6 +230,7 @@ fn instance_call(m: &'static Member) -> ResolvedCall {
         arg_abis: args.collect(),
         ret: m.sig.returns,
         flags: m.flags,
+        default_args: m.sig.default_args.clone(),
     }
 }
 
@@ -236,6 +243,7 @@ fn flat_call(m: &'static Member) -> ResolvedCall {
         arg_abis: m.sig.args.clone(),
         ret: m.sig.returns,
         flags: m.flags,
+        default_args: m.sig.default_args.clone(),
     }
 }
 
@@ -298,25 +306,16 @@ pub fn class_member(class: &str, method: &str, argc: usize) -> Option<ResolvedCa
     Some(instance_call(m))
 }
 
-/// Resolve a STATIC method `Class.method(argc)` to its [`ResolvedCall`]. The
-/// Registry stores statics as `MemberKind::StaticMethod` (or, for Date's
-/// now/parse/UTC, as `Function`); accept either, distinguishing by name + the
-/// explicit `argc` honouring variadic tails.
-pub fn class_static(class: &str, method: &str, argc: usize) -> Option<ResolvedCall> {
+/// Resolve a STATIC method `Class.method` by NAME ALONE — ANY arity — to its
+/// [`ResolvedCall`]. The generic static emitter then validates the caller's argc
+/// against the member's `[required, total]` window (derived from `default_args`)
+/// and pads the omitted tail. Unique-named statics (Date's now/parse/UTC) resolve
+/// first-match; `None` when the class/static is unknown.
+pub fn class_static_any(class: &str, method: &str) -> Option<ResolvedCall> {
     let c = registry().class(class)?;
-    let is_static = |m: &&Member| {
+    let m = c.members.iter().find(|m| {
         matches!(m.kind, MemberKind::StaticMethod | MemberKind::Function) && m.matches_name(method)
-    };
-    let m = c
-        .members
-        .iter()
-        .find(|m| is_static(m) && m.sig.args.len() == argc)
-        .or_else(|| {
-            c.members
-                .iter()
-                .find(|m| is_static(m) && m.variadic && argc >= m.sig.args.len().saturating_sub(1))
-        })
-        .or_else(|| c.members.iter().find(is_static))?;
+    })?;
     Some(flat_call(m))
 }
 
