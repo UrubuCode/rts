@@ -107,13 +107,9 @@ fn build_registry() -> Registry {
     ns::test::register(&mut e);
     ns::globals::string::register(&mut e);
     ns::fmt::register(&mut e);
-    // `console` — the global console object. Each method is an `external` member
-    // whose `symbol` points at the real `io.*` extern (`log`→IO_PRINT,
-    // `warn`/`error`→IO_EPRINT); the engine reads that symbol to pick the sink
-    // (see [`console_method_to_stderr`]) instead of hardcoding the per-method
-    // stream. The multi-arg ToString/inspect FORMATTING stays in the front-end
-    // (it is not a fixed-ABI extern), but WHICH stream is data, not code.
-    ns::globals::console::register(&mut e);
+    // (`console` is NOT registered as a namespace: it is a faithful `.ts` prelude
+    // object — `CONSOLE_TS`, included below — whose `log`/`warn`/… are ordinary
+    // member calls routed through the `engine.display`/`print_line` bridges.)
     // The broad std namespace surface the `tests/*.test.ts` import via `rts:<ns>`.
     // Registering each makes its members resolvable through [`namespace_member`];
     // their `__RTS_FN_NS_*` symbols carry REAL `fn_ptr`s (macro-`#[rts_namespace]`),
@@ -216,6 +212,12 @@ fn build_registry() -> Registry {
     // "object") stays the engine's wrapper trampoline (see `is_global_class_ctor` /
     // `is_wrapper_primordial`).
     e.include(rts_runtime::STRING_TS);
+    // The global `console` object as faithful TS: `console.log(...)` is an ordinary
+    // member call on this ambient object, routed through normal dispatch — the
+    // front-end names nothing about `console`. The display rendering + line print
+    // are the private `engine.display`/`engine.print_line`/`engine.eprint_line`
+    // bridges. Replaces the hardcoded `is_console_ident`/`lower_console_log` path.
+    e.include(rts_runtime::CONSOLE_TS);
     // The faithful TS Map/Set stdlib (embedded include): its ambient `class Map`/
     // `class Set` shadow the native dispatch in every program — making the native
     // Map/Set code dead (deleted in B3).
@@ -410,30 +412,6 @@ pub fn namespace_const(ns: &str, name: &str) -> Option<ResolvedCall> {
         .iter()
         .find(|m| matches!(m.kind, MemberKind::Constant) && m.matches_name(name))?;
     Some(flat_call(found))
-}
-
-/// Resolve a `console.<method>` to its output SINK from the `console` Registry
-/// namespace: `Some(true)` ⇒ stderr, `Some(false)` ⇒ stdout, `None` ⇒ the method
-/// is not a known `console` member (the caller bails / falls through).
-///
-/// The decision is DATA, not hardcoded per-method `if`s: each `console` member's
-/// `symbol` points at the real `io.*` extern, and an `EPRINT` target means
-/// stderr (`warn`/`error`/`assert`), a `PRINT` target means stdout
-/// (`log`/`info`/`debug`/`dir`). Adding/retargeting a method in
-/// `globals::console::register` changes the engine's routing with no codegen
-/// edit — the PRIMORDIAL-vs-Registry doctrine for a non-primordial surface.
-pub fn console_method_to_stderr(method: &str) -> Option<bool> {
-    // `assert` is NOT a plain print: it is CONDITIONAL (no-op when the first arg
-    // is truthy) and prefixes `"Assertion failed:"`. The generic format-and-print
-    // path would render the condition and print unconditionally — wrong output.
-    // Excluded here so it BAILS cleanly (honesty floor) until the conditional
-    // lowering lands as its own increment.
-    if method == "assert" {
-        return None;
-    }
-    let m = registry().module("rts:console")?;
-    let member = m.members.iter().find(|m| m.matches_name(method))?;
-    Some(member.symbol.contains("EPRINT"))
 }
 
 /// The real `instanceof` predicate symbol (`fn(handle)->i64`) the Registry

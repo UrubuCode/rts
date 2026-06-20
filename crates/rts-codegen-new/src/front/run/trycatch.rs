@@ -183,14 +183,25 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             self.builder.switch_to_block(fb);
             self.builder.seal_block(fb);
             self.block_terminated = false;
-            // `finally` runs INSIDE any enclosing try: a throw in `fin` itself must
-            // route to the OUTER catch (`try_stack.last()` — this try's entry was
-            // already popped). So lower the finalizer plainly, then re-check the
-            // pending flag: a still-pending error (the body or catch threw and was
-            // not handled) keeps propagating AFTER the finalizer ran.
+            // The finalizer must run with a CLEAR error slot, even when reached on
+            // the unwind path with an error pending. Otherwise a call INSIDE the
+            // finalizer (`finally { console.log(..) }` — now a method call, not an
+            // inline print) would see `__rtsadp_err_pending()` on its own post-call
+            // check and abort mid-finalizer, dropping its effect (the body's error
+            // would swallow the finalizer's output). So SAVE-and-clear the pending
+            // word, run `fin`, then RESTORE it before propagating: JS semantics —
+            // `finally` runs normally; a still-pending body/catch error resurfaces
+            // only AFTER it. (`__rtsadp_err_take` reads+clears; a fresh `throw` in
+            // `fin` overwrites the slot and wins, as it must.)
+            let was_pending = self
+                .call_runtime(module, "__rtsadp_err_pending", &[])?
+                .expect("__rtsadp_err_pending returns a flag");
+            let saved = self
+                .call_runtime(module, "__rtsadp_err_take", &[])?
+                .expect("__rtsadp_err_take returns the pending word");
             self.lower_block(module, fin)?;
             if !self.block_terminated {
-                self.emit_finally_propagate(module, after_block)?;
+                self.emit_finally_restore_propagate(module, saved, was_pending, after_block)?;
             }
         }
 
@@ -244,6 +255,50 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.builder.ins().brif(pending, err_block, &[], after, &[]);
         self.builder.switch_to_block(err_block);
         self.builder.seal_block(err_block);
+        self.block_terminated = false;
+        self.unwind(module)?;
+        Ok(())
+    }
+
+    /// After a finalizer that ran with a SAVED (cleared) pending error: decide what
+    /// propagates. Precedence (JS): a NEW error thrown by the finalizer itself wins
+    /// — its `throw` re-set the slot, so if a pending error exists NOW, unwind it.
+    /// Otherwise, if the entry error `was_pending`, RESTORE the `saved` word
+    /// (`__rtsadp_throw_set`) and unwind it. If neither, fall to `after`.
+    fn emit_finally_restore_propagate(
+        &mut self,
+        module: &mut dyn Module,
+        saved: Value,
+        was_pending: Value,
+        after: Block,
+    ) -> FrontResult<()> {
+        // Did the finalizer throw its own error? If so it already owns the slot.
+        let fin_pending = self
+            .call_runtime(module, "__rtsadp_err_pending", &[])?
+            .expect("__rtsadp_err_pending returns a value");
+        let unwind_block = self.builder.create_block();
+        let check_restore = self.builder.create_block();
+        self.builder
+            .ins()
+            .brif(fin_pending, unwind_block, &[], check_restore, &[]);
+
+        // No finalizer error: restore the saved entry error iff one was pending.
+        self.builder.switch_to_block(check_restore);
+        self.builder.seal_block(check_restore);
+        self.block_terminated = false;
+        let restore_block = self.builder.create_block();
+        self.builder
+            .ins()
+            .brif(was_pending, restore_block, &[], after, &[]);
+        self.builder.switch_to_block(restore_block);
+        self.builder.seal_block(restore_block);
+        self.block_terminated = false;
+        self.call_runtime(module, "__rtsadp_throw_set", &[saved])?;
+        self.builder.ins().jump(unwind_block, &[]);
+
+        // Unwind whatever is now pending (finalizer error or restored entry error).
+        self.builder.switch_to_block(unwind_block);
+        self.builder.seal_block(unwind_block);
         self.block_terminated = false;
         self.unwind(module)?;
         Ok(())

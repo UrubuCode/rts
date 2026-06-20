@@ -20,13 +20,13 @@ fn object_values() {
 
 #[test]
 fn object_entries() {
-    // entries → an array of [key, value] sub-arrays. Nested-element typing is not
-    // tracked, so `e[0].join(..)` (a method on a statically-untyped element) is not
-    // dispatchable; we assert length + the inner pair via to_string (`x,1`), which
-    // exercises the same [key, value] sub-array structure.
+    // entries → an array of [key, value] sub-arrays. `console.log` now renders each
+    // arg through `engine.display` (the Node-style inspect), so a whole sub-array
+    // `e[0]` prints `[ 'x', 1 ]` (bracketed) — matching bun/node, where the old
+    // hardcoded path produced the ToString form `x,1`. Justified format change.
     assert_stdout(
         "let o = {x: 1}; let e = Object.entries(o); console.log(e.length, e[0]);",
-        "1 x,1\n",
+        "1 [ 'x', 1 ]\n",
     );
 }
 
@@ -80,7 +80,7 @@ fn object_assign_two_arg() {
 fn object_entries_two_pairs() {
     assert_stdout(
         "let o = {a: 1, b: 2}; let e = Object.entries(o); console.log(e.length, e[1]);",
-        "2 b,2\n",
+        "2 [ 'b', 2 ]\n",
     );
 }
 

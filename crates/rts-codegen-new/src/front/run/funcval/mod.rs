@@ -63,14 +63,22 @@ pub fn module_globals(
     main: &HirFunc,
     force: &HashSet<String>,
 ) -> HashMap<String, u32> {
-    // Top-level `let` names declared directly in main (ordered, deduped).
+    // Top-level `let`/`const` names declared directly in main (ordered, deduped).
+    // `const` is included because a FORCE-promoted read-only global (a prelude
+    // singleton like `console`, accessed from inside user functions) is a `const`
+    // — it is never written, so the written-free promotion below never catches it;
+    // only `force` does. A `const` not in `force` still won't promote (the
+    // written-free test can't fire on it), so plain user `const`s are unaffected.
     let mut top: Vec<String> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
     for s in &main.body {
-        if let HirStmt::Let { name, .. } = s {
-            if seen.insert(name.clone()) {
-                top.push(name.clone());
-            }
+        let name = match s {
+            HirStmt::Let { name, .. } => name,
+            HirStmt::Const { name, .. } => name,
+            _ => continue,
+        };
+        if seen.insert(name.clone()) {
+            top.push(name.clone());
         }
     }
     if top.is_empty() {
@@ -101,6 +109,32 @@ pub fn module_globals(
         }
     }
     map
+}
+
+/// PRELUDE SINGLETON globals (`console`) that must be promoted to runtime CELLs so
+/// they are reachable from INSIDE user functions, not only at the top level.
+///
+/// These are read-only `const` objects declared by the embedded prelude (e.g.
+/// `const console = new Console()` in `CONSOLE_TS`). Resolved as a plain top-level
+/// local, such a name is invisible inside a user `function f() { console.log(..) }`
+/// (a function reads only locals/params, gcells, and global constants) — it bails
+/// "unbound identifier `console`". Forcing it to a cell makes every scope read the
+/// one shared value. It is the ONLY place the engine references the prelude
+/// singleton names; the names are a fixed allow-list, not dispatch logic. Promotion
+/// is unconditional when the name is a top-level global (a cell is cheap; the
+/// `const` init writes it once via the normal `lower_let` gcell-set path).
+pub fn prelude_singleton_globals(main: &HirFunc) -> HashSet<String> {
+    /// Read-only object singletons the prelude declares at top level.
+    const PRELUDE_SINGLETONS: &[&str] = &["console"];
+    let mut out = HashSet::new();
+    for s in &main.body {
+        if let HirStmt::Const { name, .. } = s {
+            if PRELUDE_SINGLETONS.contains(&name.as_str()) {
+                out.insert(name.clone());
+            }
+        }
+    }
+    out
 }
 
 /// Top-level `let`s that must be promoted to runtime CELLs because a closure

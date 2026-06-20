@@ -1,9 +1,10 @@
 //! Call lowering + truthiness for the whole-program path.
 //!
-//! Split out of [`super::expr`] (the <500-line module rule). Covers the two
-//! Tagged-boundary call shapes the engine runs — `console.log(...)` and
-//! cross-function calls — plus the JS `ToBoolean` reduction
+//! Split out of [`super::expr`] (the <500-line module rule). Covers method calls
+//! and cross-function calls — plus the JS `ToBoolean` reduction
 //! ([`Lowerer::as_bool_value`]) used by `if`/`while`/ternary conditions.
+//! (`console.log(...)` is no longer special here — `console` is a `.ts` prelude
+//! object dispatched through the normal class-instance method path.)
 
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::{InstBuilder, Value, types};
@@ -14,7 +15,7 @@ use rts_hir::ir::HirExprKind;
 
 use crate::repr::Repr;
 use crate::value;
-use crate::value::{abi_adapter, emit_marshal};
+use crate::value::emit_marshal;
 
 use crate::front::error::{FrontResult, Unsupported, unsupported};
 
@@ -22,8 +23,9 @@ use super::lower::{JsKind, Lowerer, Val};
 use super::sig::FnSig;
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
-    /// `console.log(...)` arrives as a `MethodCall` on `console`; any other
-    /// method call is a later increment.
+    /// Lower a `recv.method(args)` method call by routing through the dispatch
+    /// chain (optional-chaining desugar, engine/global statics, function-value
+    /// props, generator protocol, then static/dynamic instance dispatch).
     pub(super) fn lower_method_call(
         &mut self,
         module: &mut dyn Module,
@@ -38,11 +40,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
         if method == super::desugar::OPT_CALL {
             return self.lower_opt_call(module, object, args);
-        }
-        if is_console_ident(object) {
-            if let Some(val) = self.lower_console_call(module, method, args)? {
-                return Ok(val);
-            }
         }
         // PRIVATE `engine.*` (arch/time/trace) — prelude-only (privacy gate). A
         // user caller bails here; a prelude caller lowers the runtime call.
@@ -94,8 +91,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         unsupported!("method call `.{method}()` (receiver class not statically dispatchable)")
     }
 
-    /// A `Call` node: either `console.log(...)` (callee is a `console.log`
-    /// Member) or a cross-function call to a user function by name.
+    /// A `Call` node: a member-callee call (routed through the same static/global/
+    /// instance dispatch as a method call) or a cross-function call by name.
     pub(super) fn lower_call(
         &mut self,
         module: &mut dyn Module,
@@ -103,11 +100,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         args: &[HirExpr],
     ) -> FrontResult<Val> {
         if let HirExprKind::Member { object, prop } = &callee.kind {
-            if is_console_ident(object) {
-                if let Some(val) = self.lower_console_call(module, prop, args)? {
-                    return Ok(val);
-                }
-            }
             // PRIVATE `engine.*` (arch/time/trace) — prelude-only (privacy gate).
             if let Some(val) = self.try_engine_call(module, object, prop, args)? {
                 return Ok(val);
@@ -631,120 +623,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(Val::new(res, Repr::Tagged))
     }
 
-    /// Lower `console.log(a, b, …)` through the REAL runtime: ToString each arg to
-    /// a string PolyValue (`__rtsadp_to_string`, interning in the real pool), join
-    /// them with a single space via `__rtsadp_add` (real `STRING_CONCAT`), then
-    /// print the joined line via [`emit_marshal::emit_print_string_poly`]
-    /// (table-load → `STRING_PTR`/`STRING_LEN` → `__rtsadp_print_line`, which
-    /// forwards to the REAL `__RTS_FN_NS_IO_PRINT(ptr, len)` — the newline is the
-    /// runtime's). Returns `undefined` (console.log's JS result).
-    ///
-    /// No arity cap (the old fixed-arity `console_logN` family is gone): the line
-    /// is folded left-to-right with space separators, so any number of args works.
-    /// Lower a `console.<method>(...)` call. The METHOD is resolved through the
-    /// `console` Registry namespace (`registry::console_method`): an unknown
-    /// method bails, and the resolved sink (`stdout` for log/info/debug/dir,
-    /// `stderr` for warn/error/assert) drives `emit_print_string_poly`. The
-    /// engine does NOT hardcode the per-method stream — it reads the same
-    /// `__RTS_FN_NS_IO_PRINT`/`EPRINT` split the namespace declares. Returns
-    /// `undefined` (console's JS result).
-    pub(super) fn lower_console_call(
-        &mut self,
-        module: &mut dyn Module,
-        method: &str,
-        args: &[HirExpr],
-    ) -> FrontResult<Option<Val>> {
-        let Some(to_stderr) = super::registry::console_method_to_stderr(method) else {
-            return Ok(None);
-        };
-        let line = self.console_format_line(module, args)?;
-        emit_marshal::emit_print_string_poly(module, self.builder, line, to_stderr);
-        let v = self
-            .builder
-            .ins()
-            .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
-        Ok(Some(Val::tagged_kind(v, JsKind::Undefined)))
-    }
-
-    /// Format `console.*(a, b, …)` into ONE joined-line string PolyValue (no
-    /// sink): ToString each arg (`__rtsadp_to_string`, real pool), whole
-    /// objects/arrays via the inspect trampolines, joined with single spaces via
-    /// the generic `+` (real STRING_CONCAT). The sink is the caller's choice.
-    fn console_format_line(
-        &mut self,
-        module: &mut dyn Module,
-        args: &[HirExpr],
-    ) -> FrontResult<Value> {
-        // Build the joined-line string PolyValue. Empty `console.log()` prints a
-        // blank line: start from the empty string.
-        let space = {
-            let pv = abi_adapter::intern_poly(" ");
-            self.builder.ins().iconst(types::I64, pv.raw() as i64)
-        };
-        let mut line: Option<Value> = None;
-        for a in args {
-            // A WHOLE OBJECT value (object literal / object-shaped local) now
-            // renders via `__rtsadp_inspect_object` (P3.6): box the object word,
-            // then the trampoline reads the slot-0 global shape-id, recovers the
-            // keys, and renders `{ k: v }`. A whole ARRAY renders via
-            // `__rtsadp_inspect` (`[ 1, 2, 3 ]`); a SCALAR pulled from a collection
-            // (`o.a`, `arr[0]`, `arr.length`) is a normal PolyValue → ToString.
-            // An array literal carrying an OBJECT element (`[{a:1}]`) still bails:
-            // bun prints it MULTI-LINE while our object inspect is single-line, a
-            // near-miss vs bun — kept bailed (honesty floor) until the formats
-            // reconcile.
-            if self.array_arg_has_object_element(a) {
-                return unsupported!(
-                    "console.log of an array containing an OBJECT element (object inspect format differs from bun's multi-line — a later increment)"
-                );
-            }
-            // A whole ARRAY arg renders with the Bun/Node inspect form; a whole
-            // OBJECT arg renders with the object form. Both box the heap word and
-            // call the matching trampoline (top_level=1 — a top-level string stays
-            // bare, nested strings are quoted inside the trampoline).
-            let s = if self.is_whole_object_value(a) {
-                let v = self.lower_expr(module, a)?;
-                let boxed = self.box_value(v);
-                let top = self.builder.ins().iconst(types::I64, 1);
-                self.call_runtime(module, "__rtsadp_inspect_object", &[boxed, top])?
-                    .expect("__rtsadp_inspect_object returns a value")
-            } else if self.is_whole_array_value(a) {
-                let v = self.lower_expr(module, a)?;
-                let boxed = self.box_value(v);
-                let top = self.builder.ins().iconst(types::I64, 1);
-                self.call_runtime(module, "__rtsadp_inspect", &[boxed, top])?
-                    .expect("__rtsadp_inspect returns a value")
-            } else {
-                let v = self.lower_expr(module, a)?;
-                let boxed = self.box_value(v);
-                // ToString this arg (real pool) → a string PolyValue word.
-                self.call_runtime(module, "__rtsadp_to_string", &[boxed])?
-                    .expect("__rtsadp_to_string returns a value")
-            };
-            line = Some(match line {
-                None => s,
-                Some(prev) => {
-                    // prev + " " + s, both joins through the generic `+` (real
-                    // STRING_CONCAT for string operands).
-                    let with_space = self
-                        .call_runtime(module, "__rtsadp_add", &[prev, space])?
-                        .expect("__rtsadp_add returns a value");
-                    self.call_runtime(module, "__rtsadp_add", &[with_space, s])?
-                        .expect("__rtsadp_add returns a value")
-                }
-            });
-        }
-        let line = match line {
-            Some(v) => v,
-            None => {
-                // console.log() with no args → print an empty line.
-                let pv = abi_adapter::intern_poly("");
-                self.builder.ins().iconst(types::I64, pv.raw() as i64)
-            }
-        };
-        Ok(line)
-    }
-
     /// Marshal a call's arguments to the callee's params, honoring a trailing REST
     /// param (`...items`): the args beyond the fixed params are packed into a fresh
     /// array passed as the single rest slot (F3b). `this_word` is the receiver of a
@@ -971,11 +849,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             other => unsupported!("condition of repr {other:?}"),
         }
     }
-}
-
-/// Whether an expr is the bare `console` identifier (the object of `console.log`).
-fn is_console_ident(e: &HirExpr) -> bool {
-    matches!(&e.kind, HirExprKind::Ident(n) if n == "console")
 }
 
 /// How a `GEN_SM` sentinel's result is reboxed.

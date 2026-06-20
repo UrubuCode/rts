@@ -109,6 +109,28 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if method == "str_from_any" {
             return self.lower_engine_str_from_any(module, args);
         }
+        // `display(x)` — render ONE value to its console display string (a string
+        // PolyValue word). Wraps `__rtsadp_inspect(x, top_level=1)`, which already
+        // decides ToString-vs-bracketed-inspect at RUNTIME (`is_object()` +
+        // `looks_like_object`): scalars/strings → ToString, arrays → `[ … ]`,
+        // objects → `{ … }`. This is the ONE display authority the `.ts` `console`
+        // calls per arg — the front no longer makes the object-vs-scalar decision
+        // statically (which was the old hardcoded `lower_console_log`).
+        if method == "display" {
+            return self.lower_engine_display(module, args);
+        }
+        // `print_line(s)` / `eprint_line(s)` — print ONE already-formatted string to
+        // stdout / stderr (newline appended by the runtime), through the SAME
+        // capture-aware `__rtsadp_print_line` trampoline the tests read. The `.ts`
+        // `console` joins its args (via `display`) then calls one of these — so the
+        // SINK choice (log→stdout, warn/error→stderr) is data in the `.ts`, not a
+        // hardcoded per-method `if` in the front.
+        if method == "print_line" {
+            return self.lower_engine_print_line(module, args, false);
+        }
+        if method == "eprint_line" {
+            return self.lower_engine_print_line(module, args, true);
+        }
         // `obj_has(self, key)` — shape-aware own-property membership, used by the
         // `.ts` `class Object` (`hasOwnProperty`/`propertyIsEnumerable`). Both args
         // are PolyValue words (the object + the key string); wraps the codegen
@@ -261,6 +283,50 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .call_runtime(module, "__rtsadp_to_string", &[w])?
             .expect("engine.str_from_any returns a string word");
         Ok(Val::tagged_kind(res, JsKind::Str))
+    }
+
+    /// Lower `engine.display(x)` — render one value to its console display string
+    /// (a `TAG_STR` PolyValue word) via `__rtsadp_inspect(x, top_level=1)`. The
+    /// inspect trampoline decides ToString-vs-bracketed-inspect at RUNTIME, so the
+    /// `.ts` `console` does not need the front's static object-vs-scalar split.
+    fn lower_engine_display(
+        &mut self,
+        module: &mut dyn Module,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        if args.len() != 1 {
+            return unsupported!("engine.display expects 1 arg (x), got {}", args.len());
+        }
+        let v = self.lower_expr(module, &args[0])?;
+        let w = self.box_value(v);
+        let top = self.builder.ins().iconst(types::I64, 1);
+        let res = self
+            .call_runtime(module, "__rtsadp_inspect", &[w, top])?
+            .expect("engine.display returns a string word");
+        Ok(Val::tagged_kind(res, JsKind::Str))
+    }
+
+    /// Lower `engine.print_line(s)` / `engine.eprint_line(s)` — print one already-
+    /// formatted string `s` to stdout (`to_stderr=false`) or stderr (`true`), via
+    /// the capture-aware `__rtsadp_print_line` (the same sink the tests read).
+    /// Returns `undefined`.
+    fn lower_engine_print_line(
+        &mut self,
+        module: &mut dyn Module,
+        args: &[HirExpr],
+        to_stderr: bool,
+    ) -> FrontResult<Val> {
+        if args.len() != 1 {
+            return unsupported!("engine.print_line expects 1 arg (s), got {}", args.len());
+        }
+        let v = self.lower_expr(module, &args[0])?;
+        let line = self.box_value(v);
+        emit_marshal::emit_print_string_poly(module, self.builder, line, to_stderr);
+        let undef = self
+            .builder
+            .ins()
+            .iconst(types::I64, crate::value::PolyValue::undefined().raw() as i64);
+        Ok(Val::tagged_kind(undef, JsKind::Undefined))
     }
 
     /// Lower an `engine.str_*(s, ...args)` string-method call: marshal the string
