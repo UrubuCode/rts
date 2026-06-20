@@ -1953,10 +1953,10 @@
 ,
 {
   "name": "163_math_clz32_imul",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "clz32_1=31\nclz32_2=30\nclz32_4=29\nclz32_0=32\nclz32_-1=0\nimul_2_3=6\nimul_-1_8=-8\nimul_0xffffffff_5=-5\nimul_0xfffffffe_5=-10",
   "node": "clz32_1=31\nclz32_2=30\nclz32_4=29\nclz32_0=32\nclz32_-1=0\nimul_2_3=6\nimul_-1_8=-8\nimul_0xffffffff_5=-5\nimul_0xfffffffe_5=-10",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "clz32_1=31\nclz32_2=30\nclz32_4=29\nclz32_0=32\nclz32_-1=0\nimul_2_3=6\nimul_-1_8=-8\nimul_0xffffffff_5=-5\nimul_0xfffffffe_5=-10"
 }
 ,
 {
@@ -2017,10 +2017,10 @@
 ,
 {
   "name": "282_math_imul",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "a=8\nb=-8\nc=-5\nd=-2",
   "node": "a=8\nb=-8\nc=-5\nd=-2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "a=8\nb=-8\nc=-5\nd=-2"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":124,"rts_diverge":30,"bun_node_diverge":17,"errors":438,"rejected":0}}
+],"summary":{"total":609,"pass":126,"rts_diverge":30,"bun_node_diverge":17,"errors":436,"rejected":0}}
