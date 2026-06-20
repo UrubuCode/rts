@@ -557,6 +557,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         };
         let func_ref = module.declare_func_in_func(thunk_id, self.builder.func);
         let addr = self.builder.ins().func_addr(types::I64, func_ref);
+        // Register this class NEW-THUNK address as a valid `new <value>()` target,
+        // so a later dynamic `new` through this class-value constructs (and a
+        // non-constructor value throws). Idempotent: the address is stable.
+        self.call_runtime(module, "__rtsadp_register_ctor_thunk", &[addr])?;
         let nparams_v = self.builder.ins().iconst(types::I64, nparams);
         let has_rest_v = self.builder.ins().iconst(types::I64, 0);
         let env_word = self.builder.ins().iconst(types::I64, 0);
@@ -598,6 +602,53 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             emit_marshal::emit_vec_push(module, self.builder, arr, word);
         }
         Ok(arr)
+    }
+
+    /// Lower `new <local>(args)` where `<local>` holds a runtime VALUE (a class
+    /// reified into a local / `globalThis` field — `const G = globalThis.Box; new
+    /// G(5)`). The value is invoked through [`__rtsadp_new_invoke`]: if its stored
+    /// thunk is a registered class NEW-THUNK it constructs (allocates + runs the
+    /// ctor + returns the instance); otherwise a TypeError is thrown (the value is
+    /// not a constructor — never mis-constructed). The result is an opaque
+    /// PolyValue word (kind Unknown), so a `let c = new G()` records no static class.
+    pub(super) fn lower_new_value(
+        &mut self,
+        module: &mut dyn Module,
+        name: &str,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        let local = self
+            .local(name)
+            .expect("caller proved `name` is an in-scope local value");
+        let fn_word = self.builder.use_var(local.var);
+        // Box the first four positional args; overflow (5th+) into a rest array.
+        let undef = || value::PolyValue::undefined().raw() as i64;
+        let mut slots: [Value; 4] = [self.builder.ins().iconst(types::I64, undef()); 4];
+        for (i, a) in args.iter().take(4).enumerate() {
+            let v = self.lower_expr(module, a)?;
+            slots[i] = self.box_value(v);
+        }
+        let rest = if args.len() > 4 {
+            let arr = emit_marshal::emit_new_vec_object(module, self.builder);
+            for a in &args[4..] {
+                let v = self.lower_expr(module, a)?;
+                let word = self.box_value(v);
+                emit_marshal::emit_vec_push(module, self.builder, arr, word);
+            }
+            arr
+        } else {
+            self.builder.ins().iconst(types::I64, undef())
+        };
+        let res = self
+            .call_runtime(
+                module,
+                "__rtsadp_new_invoke",
+                &[fn_word, slots[0], slots[1], slots[2], slots[3], rest],
+            )?
+            .expect("__rtsadp_new_invoke returns a value");
+        // A non-constructor value left a pending TypeError — unwind it here.
+        self.emit_post_call_error_check(module)?;
+        Ok(Val::new(res, Repr::Tagged))
     }
 
     /// Lower a call through a function VALUE held in a local (`g(args)` where `g`

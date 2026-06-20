@@ -200,6 +200,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.bind_tagged_local(name, val);
                 return Ok(());
             }
+            // `let c = new G(args)` where `G` is a LOCAL holding a runtime
+            // class-VALUE (`const G = globalThis.Box; const c = new G(5)`): invoke
+            // through the new-thunk. The result is opaque (no static class/shape).
+            HirExprKind::New { class, args }
+                if self.local(class).is_some()
+                    && self.local_class_refs.get(class).is_none()
+                    && self.classes.get(class).is_none() =>
+            {
+                let val = self.lower_new_value(module, class, args)?;
+                self.bind_tagged_local(name, val);
+                return Ok(());
+            }
             // `let c = new C(args)`: build the instance, record the local's CLASS
             // (for static `c.method()` dispatch) and OBJECT shape (for `c.field`).
             HirExprKind::New { class, args } => {

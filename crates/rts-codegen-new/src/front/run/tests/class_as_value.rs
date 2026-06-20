@@ -3,9 +3,13 @@
 //! class-value (a `TAG_FUNCTION` new-thunk), and `new C(args)` on the const-bound
 //! reference constructs the class. Proven against the reference runtime.
 //!
-//! SCOPE: the dynamic `new` resolves the class statically through the `const C =
-//! Box` reference. `new <runtime-value>()` (a class read back from globalThis at
-//! runtime) and class EXPRESSIONS (`class {…}`) are a deferred follow-up.
+//! SCOPE: `const C = Box; new C(..)` resolves the class statically through the
+//! reference. `new <runtime-value>()` (a class read back from `globalThis` at
+//! runtime) CONSTRUCTS the instance soundly (slice 2) — but the result has no
+//! static class, so calling a METHOD on it (`new G().get()`) needs static
+//! `globalThis`-key→class tracking or shape-keyed dispatch (a deferred follow-up;
+//! field access on the result works). Class EXPRESSIONS (`class {…}`) are also
+//! deferred (HIR does not model them).
 
 use super::assert_stdout;
 
@@ -50,5 +54,43 @@ fn class_value_through_globalthis() {
         "class Widget { } globalThis.Widget = Widget; \
          console.log(typeof globalThis.Widget);",
         "function\n",
+    );
+}
+
+/// (slice 2) `new <runtime-value>()`: a class read back from `globalThis` at
+/// runtime CONSTRUCTS a real instance — field access on the result works (the
+/// instance carries the class's fields). The result has no static class, so a
+/// METHOD call on it is a deferred follow-up.
+#[test]
+fn new_on_runtime_class_value_constructs() {
+    assert_stdout(
+        "class Box { v: number = 0; constructor(n: number) { this.v = n; } } \
+         globalThis.Box = Box; const G = globalThis.Box; \
+         const b = new G(5); console.log(b.v);",
+        "5\n",
+    );
+}
+
+/// Two constructions through a runtime class-value read from `globalThis`.
+#[test]
+fn new_on_runtime_class_value_multiple() {
+    assert_stdout(
+        "class Box { v: number = 0; constructor(n: number) { this.v = n; } } \
+         globalThis.Box = Box; const G = globalThis.Box; \
+         const x = new G(2); const y = new G(8); console.log(x.v + y.v);",
+        "10\n",
+    );
+}
+
+/// SOUNDNESS: `new <value>()` where the value is NOT a constructor (a number held
+/// in a local) throws a TypeError at runtime — it never mis-constructs. The throw
+/// is catchable, exactly like the reference runtime.
+#[test]
+fn new_on_non_constructor_throws() {
+    assert_stdout(
+        "class Box { } globalThis.x = 5; const G = globalThis.x; \
+         try { const b = new G(); console.log(\"no-throw\"); } \
+         catch (e) { console.log(\"caught\"); }",
+        "caught\n",
     );
 }
