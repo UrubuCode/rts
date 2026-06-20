@@ -99,13 +99,40 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
         // FREE function: every `return new C(..)` of the same known class C. METHOD
         // (in `fn_this_class`): the same, PLUS `return this` → the method's OWNING
         // class (the fluent-builder `inc(): C { …; return this }`).
-        sig.ret_class = infer_ret_class(f, classes).or_else(|| {
+        // PASS 1 (no cross-fn return classes yet): a `return new C(..)` of a known
+        // class, or a method whose every return is `this` (the fluent-builder).
+        sig.ret_class = infer_ret_class(f, classes, &|_| None).or_else(|| {
             fn_this_class
                 .get(&f.name)
                 .filter(|_| method_returns_this(f))
                 .cloned()
         });
         sigs.insert(f.name.clone(), sig);
+    }
+    // PASS 2 (fixpoint): resolve the return class of functions whose return is a
+    // CHAIN on a known base — `return new C().m()…` or `return f()` — now that
+    // every base return class from pass 1 is known. Monotonic (only ADDS a proven
+    // class, never overwrites/clears), so it terminates in ≤ `funcs.len()` rounds.
+    // Lets `function mk(): C { return new C()…; }` then `mk().method()` dispatch
+    // statically — the static class of a value survives a call/method result, not
+    // just a `new C()` or a `let`-bound local.
+    loop {
+        let snapshot: HashMap<String, Option<String>> =
+            sigs.iter().map(|(k, v)| (k.clone(), v.ret_class.clone())).collect();
+        let ret_of = |name: &str| snapshot.get(name).and_then(|o| o.clone());
+        let mut changed = false;
+        for f in funcs {
+            if ret_of(&f.name).is_some() {
+                continue;
+            }
+            if let Some(class) = infer_ret_class(f, classes, &ret_of) {
+                sigs.get_mut(&f.name).expect("sig built in pass 1").ret_class = Some(class);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
     }
     let main_sig = FnSig::main_sig();
 
@@ -305,44 +332,132 @@ fn method_returns_this(func: &HirFunc) -> bool {
     any && all_this
 }
 
-fn infer_ret_class(func: &HirFunc, classes: &super::class::ClassTable) -> Option<String> {
+/// The statically-PROVABLE class of an expression, from the class table plus a
+/// `ret_of` lookup of each function's already-known return class. The free-fn
+/// mirror of [`Lowerer::static_instance_class`], used at sig-build time:
+/// - `new C(..)` of a known class C → `C`;
+/// - `f(..)` (bare-ident callee) → `ret_of(f)`;
+/// - `recv.m(..)` → the class of `recv`, then class `recv`'s method `m`'s `ret_of`.
+///
+/// Never guesses: an expression whose class is not provable is `None` (a wrong
+/// class would silently mis-dispatch a later chained call). With a `ret_of` that
+/// always returns `None` it degrades to exactly the old "`return new C`" rule.
+fn expr_static_class(
+    e: &rts_hir::ir::HirExpr,
+    classes: &super::class::ClassTable,
+    ret_of: &dyn Fn(&str) -> Option<String>,
+    locals: &HashMap<String, String>,
+) -> Option<String> {
     use rts_hir::ir::HirExprKind;
+    match &e.kind {
+        HirExprKind::New { class, .. } => classes.get(class).map(|_| class.clone()),
+        // A local PROVEN to hold a class instance (`const m = new C(); … return m`).
+        HirExprKind::Ident(name) => locals.get(name).cloned(),
+        HirExprKind::Call { callee, .. } => match &callee.kind {
+            HirExprKind::Ident(f) => ret_of(f),
+            _ => None,
+        },
+        HirExprKind::MethodCall { object, method, .. } => {
+            let recv = expr_static_class(object, classes, ret_of, locals)?;
+            let synth = classes.get(&recv)?.methods.get(method)?;
+            ret_of(synth)
+        }
+        _ => None,
+    }
+}
+
+/// Infer a function's provable RETURN CLASS: every `return <expr>` must resolve
+/// (via [`expr_static_class`]) to the SAME known class. A bare `return;` (void) is
+/// permitted and ignored (the historical rule). Any return whose class is not
+/// provable, or a disagreement between returns, yields `None` — never a guess.
+fn infer_ret_class(
+    func: &HirFunc,
+    classes: &super::class::ClassTable,
+    ret_of: &dyn Fn(&str) -> Option<String>,
+) -> Option<String> {
     use rts_hir::HirStmt;
 
-    fn walk(stmts: &[HirStmt], classes: &super::class::ClassTable, found: &mut Option<String>) -> bool {
+    // `locals` maps an in-scope CONST binding name → its proven class. Const is
+    // immutable, so the binding cannot be reassigned to another class — sound.
+    // Block/branch/loop bodies save+restore the map so a sibling-scope binding
+    // never leaks (full lexical soundness). `let` is NOT tracked (a later `let`
+    // reassignment could change the class — a deferred increment).
+    fn walk(
+        stmts: &[HirStmt],
+        classes: &super::class::ClassTable,
+        ret_of: &dyn Fn(&str) -> Option<String>,
+        locals: &mut HashMap<String, String>,
+        found: &mut Option<String>,
+    ) -> bool {
         for s in stmts {
             let ok = match s {
-                HirStmt::Return(Some(e)) => match &e.kind {
-                    HirExprKind::New { class, .. } if classes.get(class).is_some() => {
-                        match found {
-                            Some(c) if c != class => false,
-                            _ => {
-                                *found = Some(class.clone());
-                                true
-                            }
-                        }
+                HirStmt::Const { name, init, .. } => {
+                    if let Some(class) = expr_static_class(init, classes, ret_of, locals) {
+                        locals.insert(name.clone(), class);
+                    } else {
+                        locals.remove(name);
                     }
-                    _ => false,
+                    true
+                }
+                HirStmt::Let { name, .. } => {
+                    // Untracked: drop any shadowed const so we never use a stale class.
+                    locals.remove(name);
+                    true
+                }
+                HirStmt::Return(Some(e)) => match expr_static_class(e, classes, ret_of, locals) {
+                    Some(class) => match found {
+                        Some(c) if *c != class => false,
+                        _ => {
+                            *found = Some(class);
+                            true
+                        }
+                    },
+                    None => false,
                 },
                 HirStmt::Return(None) => true,
                 HirStmt::If { then, else_, .. } => {
-                    walk(then, classes, found)
-                        && else_.as_deref().map(|e| walk(e, classes, found)).unwrap_or(true)
+                    let saved = locals.clone();
+                    let a = walk(then, classes, ret_of, locals, found);
+                    *locals = saved.clone();
+                    let b = else_.as_deref().map(|e| walk(e, classes, ret_of, locals, found)).unwrap_or(true);
+                    *locals = saved;
+                    a && b
                 }
                 HirStmt::While { body, .. }
                 | HirStmt::DoWhile { body, .. }
                 | HirStmt::For { body, .. }
                 | HirStmt::ForOf { body, .. }
                 | HirStmt::ForIn { body, .. }
-                | HirStmt::Block(body) => walk(body, classes, found),
+                | HirStmt::Block(body) => {
+                    let saved = locals.clone();
+                    let r = walk(body, classes, ret_of, locals, found);
+                    *locals = saved;
+                    r
+                }
                 HirStmt::Try { body, catch, finally } => {
-                    walk(body, classes, found)
-                        && catch.as_ref().map(|c| walk(&c.body, classes, found)).unwrap_or(true)
-                        && finally.as_deref().map(|f| walk(f, classes, found)).unwrap_or(true)
+                    let saved = locals.clone();
+                    let mut r = walk(body, classes, ret_of, locals, found);
+                    *locals = saved.clone();
+                    if let Some(c) = catch {
+                        r = r && walk(&c.body, classes, ret_of, locals, found);
+                        *locals = saved.clone();
+                    }
+                    if let Some(f) = finally {
+                        r = r && walk(f, classes, ret_of, locals, found);
+                    }
+                    *locals = saved;
+                    r
                 }
                 HirStmt::Switch { cases, .. } => {
-                    cases.iter().all(|c| walk(&c.body, classes, found))
+                    let saved = locals.clone();
+                    let r = cases.iter().all(|c| {
+                        *locals = saved.clone();
+                        walk(&c.body, classes, ret_of, locals, found)
+                    });
+                    *locals = saved;
+                    r
                 }
+                // Other statements (Expr/Throw/Break/…) don't bind a const class.
                 _ => true,
             };
             if !ok {
@@ -352,8 +467,9 @@ fn infer_ret_class(func: &HirFunc, classes: &super::class::ClassTable) -> Option
         true
     }
 
+    let mut locals = HashMap::new();
     let mut found = None;
-    if walk(&func.body, classes, &mut found) {
+    if walk(&func.body, classes, ret_of, &mut locals, &mut found) {
         found
     } else {
         None
