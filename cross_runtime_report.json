@@ -209,10 +209,10 @@
 ,
 {
   "name": "217_array_sort_stability",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "sorted=2,4,1,3\nnums=1,1,2,3,4,5,6,9",
   "node": "sorted=2,4,1,3\nnums=1,1,2,3,4,5,6,9",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "sorted=2,4,1,3\nnums=1,1,2,3,4,5,6,9"
 }
 ,
 {
@@ -409,10 +409,10 @@
 ,
 {
   "name": "405_sort_comparator_weird_returns",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1b,1d,2a,2c\n1,10,2,3",
   "node": "1b,1d,2a,2c\n1,10,2,3",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "1b,1d,2a,2c\n1,10,2,3"
 }
 ,
 {
@@ -521,10 +521,10 @@
 ,
 {
   "name": "claude-sort-comparator-nan-returns",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "4,2,6,1,3,5\n2,3,4,6,1,5\nb,a,c",
   "node": "4,2,6,1,3,5\n2,3,4,6,1,5\nb,a,c",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "4,2,6,1,3,5\n2,4,6,1,3,5\nb,a,c"
 }
 ,
 {
@@ -585,10 +585,10 @@
 ,
 {
   "name": "codex_array_sort_mutates_length",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "6\n1,2,3,0,,5\ntrue",
   "node": "6\n1,2,3,0,,5\ntrue",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "4\n1,2,3,0\ntrue"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":143,"rts_diverge":37,"bun_node_diverge":18,"errors":411,"rejected":0}}
+],"summary":{"total":609,"pass":145,"rts_diverge":39,"bun_node_diverge":18,"errors":407,"rejected":0}}
