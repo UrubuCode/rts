@@ -985,10 +985,10 @@
 ,
 {
   "name": "166_weakmap_weakset",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "get1=value1\nget2=value2\nhas1=true\nafter_delete=false\nws_has1=true\nws_has2=true\nws_after=false",
   "node": "get1=value1\nget2=value2\nhas1=true\nafter_delete=false\nws_has1=true\nws_has2=true\nws_after=false",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "get1=value1\nget2=value2\nhas1=true\nafter_delete=false\nws_has1=true\nws_has2=true\nws_after=false"
 }
 ,
 {
@@ -1057,10 +1057,10 @@
 ,
 {
   "name": "347_weak_collections",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "true\nvalue1\ntrue\n42\nfalse\nHi, I'm Alice, age 30\ntrue\ntrue\nfalse\nfalse",
   "node": "true\nvalue1\ntrue\n42\nfalse\nHi, I'm Alice, age 30\ntrue\ntrue\nfalse\nfalse",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "true\nvalue1\ntrue\n42\nfalse\nHi, I'm Alice, age 30\ntrue\ntrue\nfalse\nfalse"
 }
 ,
 {
@@ -1129,10 +1129,10 @@
 ,
 {
   "name": "codex_weakmap_invalid_keys",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "7:true\nwm:TypeError\nws:TypeError",
   "node": "7:true\nwm:TypeError\nws:TypeError",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "7:true"
 }
 ,
 {
@@ -1641,10 +1641,10 @@
 ,
 {
   "name": "66_weak_refs",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "wm_a=alpha\nwm_b=beta\nws_a=true\nws_b=false",
   "node": "wm_a=alpha\nwm_b=beta\nws_a=true\nws_b=false",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "wm_a=alpha\nwm_b=beta\nws_a=true\nws_b=false"
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_error",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "__RUNTIME_ERROR__"
 }
 ,
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":120,"rts_diverge":28,"bun_node_diverge":17,"errors":444,"rejected":0}}
+],"summary":{"total":609,"pass":123,"rts_diverge":29,"bun_node_diverge":18,"errors":439,"rejected":0}}
