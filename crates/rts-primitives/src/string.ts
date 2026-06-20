@@ -141,7 +141,15 @@ class String {
     }
     return engine.str_index_of(__str_val(this), needle);
   }
-  lastIndexOf(needle: string): number {
+  // lastIndexOf takes an optional `fromIndex` — the LAST match that STARTS at index
+  // <= fromIndex. Compose via slice: a match starting at <= fromIndex lies wholly
+  // within `this.slice(0, fromIndex + needle.length)`, so lastIndexOf over that
+  // prefix gives the same (absolute) index.
+  lastIndexOf(needle: string, fromIndex: number = 2147483647): number {
+    if (fromIndex < 2147483647) {
+      const prefix = this.slice(0, fromIndex + needle.length);
+      return engine.str_last_index_of(__str_val(prefix), needle);
+    }
     return engine.str_last_index_of(__str_val(this), needle);
   }
   // includes/startsWith take an optional `position` (search start); endsWith an

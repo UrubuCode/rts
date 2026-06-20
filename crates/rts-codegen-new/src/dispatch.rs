@@ -237,6 +237,10 @@ const ARRAY_ROWS: &[(&str, usize, MethodSpec)] = &[
         am("__rtsadp_arr_last_index_of_from", &[U64, I64], I64),
     ),
     ("slice", 1, am("__rtsadp_arr_slice1", &[I64], U64)),
+    ("slice", 0, am("__rtsadp_arr_slice0", &[], U64)),
+    ("toString", 0, am("__rtsadp_arr_to_string", &[], Handle)),
+    // toLocaleString without locale data == toString (the runtime has no Intl).
+    ("toLocaleString", 0, am("__rtsadp_arr_to_string", &[], Handle)),
     ("toReversed", 0, am("__rtsadp_arr_to_reversed", &[], U64)),
     ("with", 2, am("__rtsadp_arr_with", &[I64, U64], U64)),
     ("sort", 0, am("__rtsadp_arr_sort", &[], U64)),

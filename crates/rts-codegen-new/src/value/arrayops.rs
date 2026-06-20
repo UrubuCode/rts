@@ -298,6 +298,18 @@ pub extern "C" fn __rtsadp_arr_slice1(vec_handle: u64, start: i64) -> u64 {
     __rtsadp_arr_slice(vec_handle, start, vec_len(vec_handle))
 }
 
+/// `arr.slice()` (no args) — a shallow COPY of the whole array (`slice(0, len)`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_slice0(vec_handle: u64) -> u64 {
+    __rtsadp_arr_slice(vec_handle, 0, vec_len(vec_handle))
+}
+
+/// `arr.toString()` — JS defines it as `arr.join(",")`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_to_string(vec_handle: u64) -> u64 {
+    __rtsadp_arr_join0(vec_handle)
+}
+
 /// `arr.indexOf(needle, fromIndex)` — first index `>= fromIndex` whose element
 /// `=== needle`, or `-1`. Negative `from` counts from the end (`len + from`,
 /// clamped to `0`).
