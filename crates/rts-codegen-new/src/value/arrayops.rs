@@ -79,6 +79,13 @@ pub extern "C" fn __rtsadp_arr_at(vec_handle: u64, i: i64) -> u64 {
 /// `console.log`/`__rtsadp_to_string`), join with `sep` (a real string handle),
 /// and intern the result in the REAL string pool, returning its handle. An empty
 /// array yields the interned empty string.
+/// `arr.join()` with no argument — `arr.join(",")` (the JS default separator).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_join0(vec_handle: u64) -> u64 {
+    let comma = abi_adapter::intern_poly(",").as_handle_real();
+    __rtsadp_arr_join(vec_handle, comma)
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_arr_join(vec_handle: u64, sep_str_handle: u64) -> u64 {
     let sep = abi_adapter::real_handle_to_string(sep_str_handle);
