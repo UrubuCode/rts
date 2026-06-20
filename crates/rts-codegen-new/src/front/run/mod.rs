@@ -48,6 +48,7 @@ mod objstatic;
 mod optchain_lower;
 mod regex;
 pub(crate) mod registry;
+mod registry_build;
 mod registry_call;
 mod registryclass;
 mod sig;
@@ -244,6 +245,10 @@ fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<
     // resolving to the cell rather than an unbound ident.
     let mut forced_globals = prelude.forced_globals;
     forced_globals.extend(user.forced_globals);
+    // Prelude read-only singletons (`console`) over the COMBINED main — the
+    // singleton's `const` lives in the merged prelude side, so re-promote here too
+    // (cell ids are recomputed over prelude+user; this keeps `console` a cell).
+    forced_globals.extend(funcval::prelude_singleton_globals(&main));
     let gcells = funcval::module_globals(&funcs, &main, &forced_globals);
 
     Ok(LoweredProgram {
@@ -458,7 +463,10 @@ fn build_from_program(
     // so the capture classifier treats such a name as a non-capture (the closure reads
     // the live cell) instead of bailing. Stored on the program so the multi-file merge
     // re-promotes the same names over the combined main (arrows are gone by then).
-    let forced_globals = funcval::captured_mutated_top_lets(&funcs, &main);
+    let mut forced_globals = funcval::captured_mutated_top_lets(&funcs, &main);
+    // Prelude read-only singletons (`console`) — force-promoted so they reach
+    // inside user functions (a plain top-level `const` does not).
+    forced_globals.extend(funcval::prelude_singleton_globals(&main));
     let pre_globals: std::collections::HashSet<String> =
         funcval::module_globals(&funcs, &main, &forced_globals)
             .into_keys()

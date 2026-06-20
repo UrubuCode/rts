@@ -48,13 +48,24 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     ) -> FrontResult<()> {
         match ty {
             AbiType::Handle => {
-                // The arg is a heap value (string/object); pass its real handle.
-                let word = self.box_value(val);
-                out.push(value::emit_marshal::emit_table_load(
-                    module,
-                    self.builder,
-                    word,
-                ));
+                // Two kinds of value reach a `Handle` param:
+                //  * an OPAQUE RESOURCE handle — a raw `u64` id riding as an INTEGER
+                //    PolyValue (`audio`/`buffer`/`net` results, TS `number`). It is
+                //    NOT a GC handle, so pass the integer VERBATIM (a table-load on
+                //    it would dereference a bogus slot and SIGILL).
+                //  * a HEAP value (string/object) — table-load its real GC handle.
+                if matches!(val.kind, JsKind::Number)
+                    || matches!(val.repr, Repr::Int64 | Repr::Int32)
+                {
+                    out.push(self.coerce(val, Repr::Int64)?);
+                } else {
+                    let word = self.box_value(val);
+                    out.push(value::emit_marshal::emit_table_load(
+                        module,
+                        self.builder,
+                        word,
+                    ));
+                }
             }
             AbiType::StrPtr => {
                 // A StrPtr param needs a real string handle behind the value. A
@@ -118,12 +129,26 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
             AbiType::Handle => {
                 let h = res.expect("Handle return has a value");
-                if matches!(kind, JsKind::Str) {
-                    let w = value::emit_marshal::emit_box_real_string(module, self.builder, h);
-                    Val::tagged_kind(w, JsKind::Str)
-                } else {
-                    let w = self.box_object_handle(module, h);
-                    Val::tagged_kind(w, JsKind::Object)
+                match kind {
+                    // A HEAP STRING handle (`gc.string_*`, `string.*`): intern as
+                    // a `TAG_STR` PolyValue.
+                    JsKind::Str => {
+                        let w =
+                            value::emit_marshal::emit_box_real_string(module, self.builder, h);
+                        Val::tagged_kind(w, JsKind::Str)
+                    }
+                    // An OPAQUE RESOURCE handle (`audio.*`, `buffer.alloc`,
+                    // `net.*` — a raw `u64` id from the namespace's own table, TS
+                    // type `number`): it is NOT a GC handle, so it rides as a plain
+                    // INTEGER PolyValue. Boxing it as an object word would NaN-box a
+                    // raw id as a heap pointer and SIGILL on the next table-load.
+                    JsKind::Number => Val::new(h, Repr::Int64),
+                    // Any other expectation (the construct/Date path) is a real
+                    // object handle.
+                    _ => {
+                        let w = self.box_object_handle(module, h);
+                        Val::tagged_kind(w, JsKind::Object)
+                    }
                 }
             }
             AbiType::F64 => Val::new(res.expect("F64 return"), Repr::Float64),

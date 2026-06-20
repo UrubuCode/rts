@@ -321,9 +321,10 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64],
             ret: U64,
         },
-        // console.log line sink: takes (ptr, len) as a StrPtr (two slots), void.
+        // console.* line sink: (ptr, len) StrPtr (two slots) + a to_stderr flag
+        // (I64: 0 = stdout/IO_PRINT, !=0 = stderr/IO_EPRINT), void.
         "__rtsadp_print_line" => SymSig {
-            params: &[StrPtr],
+            params: &[StrPtr, I64],
             ret: Void,
         },
         // inspect(value_word, top_level) -> string PolyValue word. value is a raw

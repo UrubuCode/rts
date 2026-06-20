@@ -2,7 +2,7 @@
 //! format. Object inspect is BAILED (see `value/inspect.rs`); the negative tests
 //! pin that boundary so it can never silently emit a near-miss.
 
-use super::{assert_bails, assert_stdout};
+use super::assert_stdout;
 
 // ===========================================================================
 // Arrays — the Bun/Node inspect format.
@@ -149,10 +149,13 @@ fn nested_array_first_elem_small_int_still_array() {
 }
 
 #[test]
-fn array_with_object_element_bails() {
-    // bun prints `[ { a: 1 } ]` MULTI-LINE; our object inspect is single-line — a
-    // near-miss vs the installed bun. BAIL (honesty floor) until formats reconcile.
-    assert_bails("console.log([{a: 1}]);");
+fn array_with_object_element_renders() {
+    // `console.log` now renders through `engine.display` (the runtime inspect), so
+    // an array carrying an object element renders single-line `[ { a: 1 } ]` —
+    // matching bun/node for a short array. The old hardcoded `console.log` path
+    // BAILED here (its static object-vs-array split couldn't form the nested case);
+    // the runtime inspect produces the correct form.
+    assert_stdout("console.log([{a: 1}]);", "[ { a: 1 } ]\n");
 }
 
 #[test]

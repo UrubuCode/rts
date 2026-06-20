@@ -229,20 +229,23 @@ pub fn emit_vec_len(
     .expect("VEC_LEN returns a value")
 }
 
-/// Emit a `console.log`-style line print of one string PolyValue: table-load to
+/// Emit a `console.*`-style line print of one string PolyValue: table-load to
 /// the real handle, STRING_PTR + STRING_LEN (the real pool), then
-/// `__rtsadp_print_line(ptr, len)` — the marshaling trampoline that forwards to
-/// the REAL `__RTS_FN_NS_IO_PRINT(ptr, len)` (newline appended by the runtime),
-/// or buffers in capture mode for the in-process tests. The `(ptr, len)` pair is
-/// the `StrPtr` 2-slot ABI, computed in IR — the proof that boundary is wired
-/// correctly through real codegen.
+/// `__rtsadp_print_line(ptr, len, to_stderr)` — the marshaling trampoline that
+/// forwards to the REAL `__RTS_FN_NS_IO_PRINT` (stdout) or `__RTS_FN_NS_IO_EPRINT`
+/// (stderr) per `to_stderr` (newline appended by the runtime), or buffers in
+/// capture mode for the in-process tests. The `(ptr, len)` pair is the `StrPtr`
+/// 2-slot ABI, computed in IR — the proof that boundary is wired correctly
+/// through real codegen.
 pub fn emit_print_string_poly(
     module: &mut dyn Module,
     builder: &mut FunctionBuilder,
     string_poly_word: Value,
+    to_stderr: bool,
 ) {
     let handle = emit_table_load(module, builder, string_poly_word);
     let (ptr, len) = emit_string_ptr_len(module, builder, handle);
-    // StrPtr = two slots; pass (ptr, len) in order.
-    emit_call(module, builder, "__rtsadp_print_line", &[ptr, len]);
+    let stderr_flag = builder.ins().iconst(types::I64, to_stderr as i64);
+    // StrPtr = two slots; pass (ptr, len, to_stderr) in order.
+    emit_call(module, builder, "__rtsadp_print_line", &[ptr, len, stderr_flag]);
 }

@@ -54,3 +54,9 @@ tmp/
 # Arquivos de audio de teste (grandes, baixados externamente)
 examples/*.wav
 *.wav
+
+# áudio de teste (grande, não versionar)
+examples/*.mp3
+examples/_cancao.wav
+examples/_chord.wav
+examples/music_test.wav

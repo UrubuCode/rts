@@ -31,7 +31,21 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     pub(in crate::front::run) fn static_instance_class(&self, object: &HirExpr) -> Option<String> {
         match &object.kind {
             HirExprKind::New { class, .. } => self.classes.get(class).map(|_| class.clone()),
-            HirExprKind::Ident(name) => self.local_classes.get(name).cloned(),
+            HirExprKind::Ident(name) => self
+                .local_classes
+                .get(name)
+                .cloned()
+                // A PRELUDE SINGLETON (`console`) is a force-promoted gcell (so it
+                // reaches inside functions), which erases the static `new Console()`
+                // class that a plain local would carry. Recover it from the fixed
+                // singleton→class allow-list so `console.log(..)` dispatches
+                // statically on `Console` in any scope. The name appears ONLY in this
+                // allow-list, not in dispatch logic.
+                .or_else(|| {
+                    prelude_singleton_class(name)
+                        .filter(|_| self.gcells.contains_key(name))
+                        .map(str::to_string)
+                }),
             // A CALL whose callee is a user function with a provable return class
             // (`expect(x)` → `Matcher`): lets a chained method dispatch statically on
             // the result (`expect(x).toBe(y)`). Only a bare-ident callee is resolved
@@ -236,5 +250,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             Some(this_word),
             std::slice::from_ref(value),
         )
+    }
+}
+
+/// The user-class name a PRELUDE SINGLETON global maps to, or `None`. A prelude
+/// singleton (`const console = new Console()`) is force-promoted to a gcell to be
+/// reachable inside user functions, which erases the static `new`-class a plain
+/// local would carry; this fixed allow-list restores it so the singleton's methods
+/// dispatch statically. Keep in sync with `funcval::prelude_singleton_globals`.
+fn prelude_singleton_class(name: &str) -> Option<&'static str> {
+    match name {
+        "console" => Some("Console"),
+        _ => None,
     }
 }

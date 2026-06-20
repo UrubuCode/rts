@@ -40,4 +40,10 @@ pub use rts_primitives::NUMBER_TS;
 /// irreducible Unicode string logic stays in Rust and is bridged via the private
 /// `engine.str_*` helpers the `.ts` bodies call.
 pub use rts_primitives::STRING_TS;
+/// Embedded TS source of the global `console` object, re-exported from
+/// `rts-shared` (it is a NON-primordial backend utility, not a primordial) so the
+/// new engine reaches it through the facade (`rts_runtime::CONSOLE_TS`). Included
+/// as a prelude; `console.log(...)` is an ordinary member call on this ambient
+/// object — the front-end names nothing.
+pub use rts_shared::stdlib::CONSOLE_TS;
 pub mod namespaces;
