@@ -7,7 +7,7 @@
 
 pub mod instance;
 
-use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+use rts_engine::{AbiType, DefaultArg, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 /// Membro de classe global (helper hand-written, espelha `leak_class` da macro).
 #[allow(clippy::too_many_arguments)]
@@ -33,6 +33,27 @@ fn m(
         doc: doc.to_string(),
         pure,
         intrinsic: None,
+    }
+}
+
+/// Como [`m`], mas marca o membro `MemberFlags::UNSOUND`: resolve no Registry mas
+/// NÃO é seguro de lowerar (a honesty floor vira DADO no spec). Usado nos
+/// formatadores timezone-divergentes (`toString`/`toLocale*`/`toDateString`/
+/// `toUTCString`/`toGMTString`/`toTimeString`) e em todos os mutadores `setX` —
+/// o codegen dá bail genérico via a flag, sem predicado hardcoded por classe.
+#[allow(clippy::too_many_arguments)]
+fn m_unsound(
+    name: &str,
+    kind: MemberKind,
+    sig: Sig,
+    symbol: &str,
+    ts: &str,
+    doc: &str,
+    pure: bool,
+) -> Member {
+    Member {
+        flags: MemberFlags::UNSOUND,
+        ..m(name, kind, sig, symbol, ts, doc, pure)
     }
 }
 
@@ -63,7 +84,11 @@ pub fn register_class_spec(e: &mut Engine) {
         .member(m(
             "UTC",
             MemberKind::Function,
-            Sig::new(
+            // 7×I64 -> I64, mas só year+month são requeridos. Os defaults JS do
+            // tail (day=1, hour/min/sec/ms=0) viram DADO no spec: o emissor
+            // genérico de estáticos (registryclass) padda o tail omitido a partir
+            // daqui, em vez de hardcodar um `pad_utc_defaults` no codegen.
+            Sig::with_defaults(
                 vec![
                     AbiType::I64,
                     AbiType::I64,
@@ -74,6 +99,15 @@ pub fn register_class_spec(e: &mut Engine) {
                     AbiType::I64,
                 ],
                 AbiType::I64,
+                vec![
+                    DefaultArg::Required, // year
+                    DefaultArg::Required, // month
+                    DefaultArg::Int(1),   // day
+                    DefaultArg::Int(0),   // hour
+                    DefaultArg::Int(0),   // min
+                    DefaultArg::Int(0),   // sec
+                    DefaultArg::Int(0),   // ms
+                ],
             ),
             "__RTS_FN_NS_DATE_FROM_PARTS",
             "UTC(year: number, month: number, day?: number, hour?: number, min?: number, sec?: number, ms?: number): number",
@@ -111,7 +145,12 @@ pub fn register_class_spec(e: &mut Engine) {
         .member(m(
             "new",
             MemberKind::Constructor,
-            Sig::new(
+            // 7×F64 -> Handle, mas só year+month são requeridos. O tail omitido
+            // (day/hour/min/sec/ms) faz default p/ `undefined`: o ctor genérico
+            // (registryclass) injeta o sentinela `undefined` e o extern
+            // FROM_FIELDS lê o NaN resultante como seu próprio default
+            // (day=1/resto=0). DADO no spec, não padding hardcodado no codegen.
+            Sig::with_defaults(
                 vec![
                     AbiType::F64,
                     AbiType::F64,
@@ -122,6 +161,15 @@ pub fn register_class_spec(e: &mut Engine) {
                     AbiType::F64,
                 ],
                 AbiType::Handle,
+                vec![
+                    DefaultArg::Required,  // year
+                    DefaultArg::Required,  // month
+                    DefaultArg::Undefined, // day
+                    DefaultArg::Undefined, // hour
+                    DefaultArg::Undefined, // min
+                    DefaultArg::Undefined, // sec
+                    DefaultArg::Undefined, // ms
+                ],
             ),
             "__RTS_FN_GL_DATE_NEW_FROM_FIELDS",
             "new Date(year: number, month: number, day?: number, hour?: number, min?: number, sec?: number, ms?: number): Date",
@@ -228,7 +276,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "ISO 8601 UTC string.",
             true,
         ))
-        .member(m(
+        .member(m_unsound(
             "toString",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle], AbiType::Handle),
@@ -237,7 +285,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "String representation (ISO 8601 UTC).",
             true,
         ))
-        .member(m(
+        .member(m_unsound(
             "toLocaleDateString",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle], AbiType::Handle),
@@ -327,7 +375,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "Minutos entre UTC e local. RTS sempre 0.",
             true,
         ))
-        .member(m(
+        .member(m_unsound(
             "toUTCString",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle], AbiType::Handle),
@@ -336,7 +384,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "UTC string (alias de toISOString em v0).",
             true,
         ))
-        .member(m(
+        .member(m_unsound(
             "toGMTString",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle], AbiType::Handle),
@@ -345,7 +393,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "Deprecated alias de toUTCString.",
             true,
         ))
-        .member(m(
+        .member(m_unsound(
             "toDateString",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle], AbiType::Handle),
@@ -355,7 +403,7 @@ pub fn register_class_spec(e: &mut Engine) {
             true,
         ))
         // ── Setters ──────────────────────────────────────────────────────────
-        .member(m(
+        .member(m_unsound(
             "setFullYear",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64),
@@ -364,7 +412,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "Substitui o ano. Retorna ms novos.",
             false,
         ))
-        .member(m(
+        .member(m_unsound(
             "setMonth",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64),
@@ -373,7 +421,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "Substitui o mes (0-11). Retorna ms novos.",
             false,
         ))
-        .member(m(
+        .member(m_unsound(
             "setDate",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64),
@@ -382,7 +430,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "Substitui o dia do mes (1-31). Retorna ms novos.",
             false,
         ))
-        .member(m(
+        .member(m_unsound(
             "setHours",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64),
@@ -391,7 +439,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "Substitui hour (0-23).",
             false,
         ))
-        .member(m(
+        .member(m_unsound(
             "setMinutes",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64),
@@ -400,7 +448,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "Substitui min (0-59).",
             false,
         ))
-        .member(m(
+        .member(m_unsound(
             "setSeconds",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64),
@@ -409,7 +457,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "Substitui sec (0-59).",
             false,
         ))
-        .member(m(
+        .member(m_unsound(
             "setMilliseconds",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64),
@@ -418,7 +466,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "Substitui ms (0-999).",
             false,
         ))
-        .member(m(
+        .member(m_unsound(
             "setTime",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64),
@@ -427,7 +475,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "Substitui timestamp completo (ms desde epoch).",
             false,
         ))
-        .member(m(
+        .member(m_unsound(
             "setUTCFullYear",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64),
@@ -436,7 +484,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "Substitui o ano (UTC). Retorna ms novos.",
             false,
         ))
-        .member(m(
+        .member(m_unsound(
             "setUTCMonth",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64),
@@ -445,7 +493,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "Substitui o mes (0-11, UTC).",
             false,
         ))
-        .member(m(
+        .member(m_unsound(
             "setUTCDate",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64),
@@ -454,7 +502,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "Substitui o dia do mes (1-31, UTC).",
             false,
         ))
-        .member(m(
+        .member(m_unsound(
             "setUTCHours",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64),
@@ -463,7 +511,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "Substitui hour (0-23, UTC).",
             false,
         ))
-        .member(m(
+        .member(m_unsound(
             "setUTCMinutes",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64),
@@ -472,7 +520,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "Substitui min (0-59, UTC).",
             false,
         ))
-        .member(m(
+        .member(m_unsound(
             "setUTCSeconds",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64),
@@ -481,7 +529,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "Substitui sec (0-59, UTC).",
             false,
         ))
-        .member(m(
+        .member(m_unsound(
             "setUTCMilliseconds",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64),
@@ -500,7 +548,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "JSON serialization — alias de toISOString.",
             true,
         ))
-        .member(m(
+        .member(m_unsound(
             "toLocaleString",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle], AbiType::Handle),
@@ -509,7 +557,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "Locale string (sem locale support em v0).",
             true,
         ))
-        .member(m(
+        .member(m_unsound(
             "toLocaleTimeString",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle], AbiType::Handle),
@@ -518,7 +566,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "Time portion (HH:MM:SS.mmmZ) — alias de toTimeString.",
             true,
         ))
-        .member(m(
+        .member(m_unsound(
             "toTimeString",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle], AbiType::Handle),

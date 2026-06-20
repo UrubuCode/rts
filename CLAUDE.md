@@ -32,6 +32,12 @@ This is the first and most important rule. It governs all others.
   `docs/specs/rts-codegen-new-design.md`; pick work from its migration phases
   (P0→P5), not from a fixture-grind roadmap (see "HONEST CURRENT STATUS" below
   and `.claude/rules/00-meta.md`)
+- **MANDATORY RULE: read_before_commit.sh GATE + FILE LAYOUT** — run
+  `bash read_before_commit.sh` and read its whole output before every commit
+  touching the engine; no engine source file > 500 lines (split into a
+  folder/subfolder); the engine names ONLY primordials —
+  `rts-shared`/`rts-std` are **NOT** native/primitive and a direct mention is a
+  regression
 
 Keep this list in sync with the sections below. The honesty + build floor
 (parity number stays real, no crash/hang committed as "pass", build must
@@ -83,6 +89,56 @@ piling up until the suite becomes a lie (green tests, broken uncovered paths).
 The discipline here is not "never break a test" — it is "never break a test
 without knowing and saying so". Explicit, justified regression is fine;
 invisible regression rots the project.
+
+## MANDATORY RULE: read_before_commit.sh GATE + FILE LAYOUT
+
+Before **every** commit that touches `crates/rts-codegen-new/`, run the gate and
+read its full output:
+
+```bash
+bash read_before_commit.sh            # full gate (includes cargo build)
+bash read_before_commit.sh --no-build # fast static-only pass while iterating
+```
+
+The gate (at the repo root) encodes the binding rules below so a commit cannot
+silently violate them. It separates **HARD** failures (exit non-zero — never
+commit) from **REVIEW** lists (read every entry; pre-existing debt must shrink,
+never grow).
+
+### Rule A — the engine is native/primitive-only; rts-shared/rts-std are NOT
+
+The engine (`rts-codegen-new`) interacts directly ONLY with the native/primitive
+surface: the PRIMORDIAL classes via `rts-primitives`, reached through the
+`rts-runtime` facade. **`rts-shared` and `rts-std` are NOT native/primitive** —
+they are the non-primordial utility/backend libraries. A direct dependency on,
+`use` of, or hardcoded mention of `rts-shared`/`rts-std` (or any non-primordial
+class: `Map`/`Set`/`Date`/`Symbol`/`URL`/`Proxy`/…) **in the engine is a
+REGRESSION**. Everything non-primordial resolves through the **Registry**
+(`registry.rs` / `registry_call.rs`), never a hardcoded per-class path. This is
+the same PRIMORDIAL-vs-REGISTRY doctrine below, restated as a commit gate. A
+dedicated `*class.rs` (e.g. `dateclass.rs`) is a **draining target** — never add
+a new non-primordial path to one.
+
+> The gate HARD-fails on a forbidden dep/`use`; it REVIEW-lists every
+> non-primordial class name found in codegen (test/fixture files are split out as
+> expected). The current draining targets are `front/run/dateclass.rs` and
+> `front/run/globalclass.rs`.
+
+### Rule B — no source file over 500 lines
+
+No file under `crates/rts-codegen-new/src/` may exceed **500 lines**. When a file
+would grow past 500, split it into a **folder/subfolder** of cohesive submodules
+(the `mod.rs` + sibling-files pattern already used across the engine). The gate
+REVIEW-lists every offender; the list must only shrink. New code lands in a
+small, focused module, not appended to an already-oversized file.
+
+### Rule C — resolve blocking limitations first (focus shift is allowed)
+
+When the main feature you picked is blocked by a missing engine capability
+(e.g. mutable env-record captures before async, a Registry hook before a class
+migration), it is correct to **shift focus and implement the blocker first**,
+then return to the main feature. State the shift explicitly in the commit/PR.
+Keep the change modest and incremental — small focused modules, gate green.
 
 ## HONEST CURRENT STATUS — engine redesign in progress (strangler-fig)
 

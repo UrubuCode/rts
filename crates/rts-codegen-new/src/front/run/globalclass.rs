@@ -1,7 +1,7 @@
 //! `new <RuntimeClass>(args)` + their instance methods + `instanceof` (P5.3).
 //!
 //! PRIMORDIAL-vs-Registry doctrine. `Date` dispatches through the REAL Registry
-//! (Pilar 6 — see [`super::dateclass`] / [`super::registry`]): no row here.
+//! (Pilar 6 — see [`super::registryclass`] / [`super::registry`]): no row here.
 //! `Map`/`Set` are now the faithful TS stdlib (embedded as an engine include in
 //! [`super::registry`]); their ambient `class Map`/`class Set` shadow any native
 //! dispatch, so there is NO Map/Set row here either. The remaining RUNTIME/
@@ -88,6 +88,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             && (class_meta(class).is_some() || super::registry::has_class(class))
     }
 
+    /// Whether `class` is a PURE runtime/Registry class — constructed and
+    /// dispatched ENTIRELY through the REAL Registry (no codegen `class_meta`
+    /// trampoline, no ambient `.ts` user class). This is the DATA-DRIVEN routing
+    /// predicate that replaced the hardcoded `class == "Date"` checks: today the
+    /// set is `{Date}`, and a future `Map`/`Set` migration joins it simply by
+    /// dropping its `class_meta`/ambient entry — no new codegen branch. The
+    /// per-class lowering lives in [`super::registryclass`].
+    pub(super) fn is_pure_registry_class(&self, class: &str) -> bool {
+        self.classes.get(class).is_none()
+            && class_meta(class).is_none()
+            && super::registry::has_class(class)
+    }
+
     /// Lower `new <RuntimeClass>(args)` to its constructor trampoline, returning the
     /// boxed `TAG_OBJECT` instance word + the class name (so a `let` records the
     /// local's static class for method dispatch / instanceof).
@@ -97,10 +110,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         class: &str,
         args: &[HirExpr],
     ) -> FrontResult<(Val, String)> {
-        // Date constructs through the REAL Registry (Pilar 6 — the ctor overloads
-        // come from the registered `Date` class, no codegen ctor table).
-        if class == "Date" {
-            let word = self.emit_date_ctor(module, args)?;
+        // A PURE Registry class (today `Date`) constructs through the REAL
+        // Registry (Pilar 6 — the ctor overloads come from the registered class,
+        // no codegen ctor table). Data-driven: no class-name literal here.
+        if self.is_pure_registry_class(class) {
+            let word = self.emit_registry_ctor(module, class, args)?;
             return Ok((Val::tagged_kind(word, JsKind::Object), class.to_string()));
         }
         let meta = class_meta(class).expect("caller proved a global class");
@@ -155,11 +169,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let Some(class) = self.global_instance_class(object) else {
             return Ok(None);
         };
-        // Date dispatches its instance methods through the REAL Registry (Pilar 6
-        // — data-driven, no hand-written method table): resolve the method's real
-        // `__RTS_FN_GL_DATE_*` symbol + `AbiType` signature and marshal generically.
-        if class == "Date" {
-            return self.try_date_method(module, object, method, args).map(Some);
+        // A PURE Registry class (today `Date`) dispatches its instance methods
+        // through the REAL Registry (Pilar 6 — data-driven, no hand-written method
+        // table): resolve the method's real `__RTS_FN_*` symbol + `AbiType`
+        // signature and marshal generically. No class-name literal here.
+        if self.is_pure_registry_class(&class) {
+            return self
+                .try_registry_instance_method(module, &class, object, method, args)
+                .map(Some);
         }
         let meta = class_meta(&class).expect("recorded global class must resolve");
         let Some(&(_, arity, symbol)) = meta
@@ -291,10 +308,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if self.classes.get(class).is_some() {
             return self.user_instanceof(module, lhs, class).map(Some);
         }
-        // Date resolves instanceof through the REAL Registry predicate symbol
-        // (`__RTS_FN_NS_GC_IS_DATE`) — no codegen `__rtsadp_is_date` trampoline.
-        if class == "Date" {
-            if let Some(pred) = super::registry::instanceof_predicate("Date") {
+        // A PURE Registry class (today `Date`) resolves instanceof through its
+        // REAL Registry predicate symbol (e.g. `__RTS_FN_NS_GC_IS_DATE`) — no
+        // codegen `__rtsadp_is_*` trampoline, no class-name literal here.
+        if self.is_pure_registry_class(class) {
+            if let Some(pred) = super::registry::instanceof_predicate(class) {
                 let v = self.lower_expr(module, lhs)?;
                 let word = self.box_value(v);
                 return self.emit_registry_instanceof(module, word, pred).map(Some);

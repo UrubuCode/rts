@@ -4,3 +4,6 @@
 # Fixture files are compared byte-for-byte — keep LF across platforms.
 tests/fixtures/*.out text eol=lf
 tests/fixtures/*.ts  text eol=lf
+
+# Shell scripts keep LF so the `#!/usr/bin/env bash` shebang works after checkout.
+*.sh text eol=lf
