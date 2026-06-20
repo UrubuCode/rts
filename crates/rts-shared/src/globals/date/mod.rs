@@ -145,7 +145,12 @@ pub fn register_class_spec(e: &mut Engine) {
         .member(m(
             "new",
             MemberKind::Constructor,
-            Sig::new(
+            // 7×F64 -> Handle, mas só year+month são requeridos. O tail omitido
+            // (day/hour/min/sec/ms) faz default p/ `undefined`: o ctor genérico
+            // (registryclass) injeta o sentinela `undefined` e o extern
+            // FROM_FIELDS lê o NaN resultante como seu próprio default
+            // (day=1/resto=0). DADO no spec, não padding hardcodado no codegen.
+            Sig::with_defaults(
                 vec![
                     AbiType::F64,
                     AbiType::F64,
@@ -156,6 +161,15 @@ pub fn register_class_spec(e: &mut Engine) {
                     AbiType::F64,
                 ],
                 AbiType::Handle,
+                vec![
+                    DefaultArg::Required,  // year
+                    DefaultArg::Required,  // month
+                    DefaultArg::Undefined, // day
+                    DefaultArg::Undefined, // hour
+                    DefaultArg::Undefined, // min
+                    DefaultArg::Undefined, // sec
+                    DefaultArg::Undefined, // ms
+                ],
             ),
             "__RTS_FN_GL_DATE_NEW_FROM_FIELDS",
             "new Date(year: number, month: number, day?: number, hour?: number, min?: number, sec?: number, ms?: number): Date",

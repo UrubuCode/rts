@@ -134,6 +134,12 @@ pub enum DefaultArg {
     Int(i64),
     /// Optional float argument; `value` is injected when omitted.
     Float(f64),
+    /// Omitted arg defaults to JS `undefined`: codegen injects the `undefined`
+    /// sentinel word and the runtime extern interprets the resulting NaN/sentinel
+    /// as ITS OWN default — e.g. Date's calendar-field constructor reads a NaN
+    /// component as day=1/rest=0. Lets a spec express "pad the tail with
+    /// `undefined`" as DATA instead of a hardcoded codegen padding.
+    Undefined,
 }
 
 /// Inlinable operations recognised by codegen.

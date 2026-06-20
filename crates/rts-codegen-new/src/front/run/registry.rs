@@ -12,8 +12,8 @@
 //!
 //! - [`class_member`] — resolve `class.method(argc)` (or a static / getter) to a
 //!   [`ResolvedCall`] (the real `__RTS_FN_*` symbol + its `AbiType` signature);
-//! - [`class_ctor`] — resolve `new class(argc)` to the constructor's
-//!   [`ResolvedCall`];
+//! - [`class_ctors`] — every registered constructor overload's [`ResolvedCall`]
+//!   (the generic ctor emitter picks by `[required, total]` arity + proven kind);
 //! - [`instanceof_predicate`] — the real `fn(handle)->i64` tag symbol for
 //!   `x instanceof class`, when the Registry declares one.
 //!
@@ -316,18 +316,6 @@ pub fn class_static_any(class: &str, method: &str) -> Option<ResolvedCall> {
     let m = c.members.iter().find(|m| {
         matches!(m.kind, MemberKind::StaticMethod | MemberKind::Function) && m.matches_name(method)
     })?;
-    Some(flat_call(m))
-}
-
-/// Resolve `new class(argc)` to the matching constructor's [`ResolvedCall`],
-/// distinguishing overloads by the EXPLICIT arg count (Date has 0/1-num/1-str/
-/// 7-field forms). `None` when no constructor matches that arity.
-pub fn class_ctor(class: &str, argc: usize) -> Option<ResolvedCall> {
-    let c = registry().class(class)?;
-    let m = c
-        .members
-        .iter()
-        .find(|m| matches!(m.kind, MemberKind::Constructor) && m.sig.args.len() == argc)?;
     Some(flat_call(m))
 }
 

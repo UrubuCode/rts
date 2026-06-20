@@ -25,16 +25,18 @@
 //! `MemberFlags::UNSOUND` and [`Lowerer::try_registry_instance_method`] bails on
 //! the flag generically — no per-class predicate in the engine.
 //!
-//! STATIC calls ([`Lowerer::try_registry_static_call`]) are now FULLY GENERIC:
-//! resolved by name, the `[required, total]` arity window + the omitted-tail
-//! defaults come from the spec's `Sig::default_args` (e.g. `Date.UTC`'s
-//! day=1/rest=0) — no method-name match, no `pad_utc_defaults` in codegen.
+//! CONSTRUCTORS ([`Lowerer::emit_registry_ctor`]) and STATIC calls
+//! ([`Lowerer::try_registry_static_call`]) are now FULLY GENERIC: resolved from
+//! the registered overloads, the `[required, total]` arity window + the
+//! omitted-tail defaults come from the spec's `Sig::default_args` (`Date.UTC`'s
+//! day=1/rest=0; the calendar ctor's `undefined` tail). A same-arity overload
+//! ambiguity (the 1-arg `new Date(ms)` `[I64]` vs `new Date(iso)` `[StrPtr]`) is
+//! broken by the provided arg's PROVEN `JsKind` matching the param `AbiType` —
+//! still DATA from the registered ctors, no method-name / arity literal.
 //!
-//! REMAINING Date-shaped residual (the smaller next drain): only
-//! [`Lowerer::emit_registry_ctor`] — the 1-arg ms-vs-ISO overload split by proven
-//! arg type and the 7-field calendar-ctor `undefined` padding. Removing it needs
-//! constructor overload-arg-type + default-arg metadata on the spec (the same
-//! `Sig::default_args` mechanism the statics now use).
+//! The engine now encodes ZERO Date-specific knowledge: every Date semantic
+//! (overloads, defaults, unsound methods) is SPEC DATA in the `rts-shared` Date
+//! class (`Sig::default_args` + `MemberFlags::UNSOUND` + the registered members).
 
 use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_module::Module;
@@ -50,19 +52,20 @@ use crate::front::error::{FrontResult, unsupported};
 use super::lower::{JsKind, Lowerer, Val};
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
-    /// `new <RegistryClass>([...])` — pick the REAL registered constructor by
-    /// arity / arg type. For `Date`:
-    /// - 0 args → current instant (the 0-arg ctor, NON-deterministic);
-    /// - 1 numeric arg → epoch ms (the `[I64]` ctor);
-    /// - 1 string arg → ISO parse (the `[StrPtr]` ctor);
-    /// - 2..=7 args → calendar components, month 0-indexed (the `[F64;7]` ctor,
-    ///   padded with `undefined` for the missing tail; TZ-dependent).
+    /// `new <RegistryClass>([...])` — FULLY GENERIC, mirroring
+    /// [`Self::try_registry_static_call`]. Resolve the matching constructor from
+    /// the registered overloads: keep the ctors whose `[required, total]` arity
+    /// window (derived from `Sig::default_args`) contains `argc`; when more than
+    /// one matches the same arity (the `new Date(ms)` `[I64]` vs `new Date(iso)`
+    /// `[StrPtr]` case) break the tie by the provided args' PROVEN `JsKind`
+    /// matching the param `AbiType`. Pad the omitted tail with the chosen ctor's
+    /// spec defaults (`Int`/`Float`/`Undefined`).
     ///
     /// A 1-arg `new C(x)` whose arg is NEITHER a proven number nor a proven
     /// string (an `any`/Tagged value) BAILS: the overload depends on the runtime
     /// type, which we cannot pick statically without guessing — the honesty
-    /// floor. A class with no matching registered ctor BAILS too. Returns the
-    /// boxed `TAG_OBJECT` instance word.
+    /// floor. A class / arity with no matching registered ctor BAILS too. Returns
+    /// the boxed `TAG_OBJECT` instance word.
     pub(super) fn emit_registry_ctor(
         &mut self,
         module: &mut dyn Module,
@@ -70,60 +73,89 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         args: &[HirExpr],
     ) -> FrontResult<Value> {
         use super::registry;
-        match args.len() {
-            0 => {
-                let Some(call) = registry::class_ctor(class, 0) else {
-                    return unsupported!("`new {class}()` — no 0-arg constructor registered");
-                };
-                let v = self.emit_registry_call(module, &call, None, &[], JsKind::Object)?;
-                Ok(v.v)
-            }
-            1 => {
-                let v = self.lower_expr(module, &args[0])?;
-                // Pick the 1-arg ctor overload by the arg's PROVEN type: a string
-                // arg matches the `[StrPtr]` ctor, a number the `[I64]` ctor. An
-                // `any`/Tagged arg cannot be statically picked — BAIL.
-                let want = match v.kind {
-                    JsKind::Str => AbiType::StrPtr,
-                    JsKind::Number => AbiType::I64,
-                    _ => {
-                        return unsupported!(
-                            "`new {class}(x)` with a non-number / non-string argument \
-                             (the overload dispatch depends on the runtime type — a \
-                             later increment)"
-                        );
-                    }
-                };
-                let Some(call) = registry::class_ctors(class)
-                    .into_iter()
-                    .find(|c| c.arg_abis.first() == Some(&want))
-                else {
-                    return unsupported!("`new {class}(x)` — no matching 1-arg constructor overload");
-                };
-                let res = self.emit_registry_call(module, &call, None, &[v], JsKind::Object)?;
-                Ok(res.v)
-            }
-            n @ 2..=7 => {
-                // Calendar components: the registered 7-arg `[F64;7] -> Handle`
-                // constructor (month 0-indexed); pad the missing tail with
-                // `undefined` (ToNumber → NaN → the runtime default day=1/rest=0).
-                let Some(call) = registry::class_ctor(class, 7) else {
-                    return unsupported!("`new {class}(..)` with {n} args — no matching constructor");
-                };
-                let undef = value::PolyValue::undefined().raw() as i64;
-                let mut vals: Vec<Val> = Vec::with_capacity(7);
-                for a in args {
-                    vals.push(self.lower_expr(module, a)?);
-                }
-                for _ in n..7 {
-                    let w = self.builder.ins().iconst(types::I64, undef);
-                    vals.push(Val::tagged_kind(w, JsKind::Number));
-                }
-                let res = self.emit_registry_call(module, &call, None, &vals, JsKind::Object)?;
-                Ok(res.v)
-            }
-            n => unsupported!("`new {class}(..)` expects 0..=7 args, got {n}"),
+        let argc = args.len();
+        // Candidate ctors = those whose [required, total] arity window admits argc.
+        let candidates: Vec<_> = registry::class_ctors(class)
+            .into_iter()
+            .filter(|c| {
+                let total = c.arg_abis.len();
+                (required_args(&c.default_args, total)..=total).contains(&argc)
+            })
+            .collect();
+        if candidates.is_empty() {
+            return unsupported!("`new {class}({argc} args)` — no matching constructor");
         }
+        // Lower the provided args ONCE (needed to disambiguate same-arity
+        // overloads by proven kind, and reused for the marshal).
+        let mut vals: Vec<Val> = Vec::with_capacity(argc);
+        for a in args {
+            vals.push(self.lower_expr(module, a)?);
+        }
+        // Pick the overload: a single candidate wins outright; a tie is broken by
+        // every provided arg's proven `JsKind` matching its param `AbiType`. None
+        // matching (an `any`/Tagged arg) BAILS — no runtime-type guessing.
+        let call = if candidates.len() == 1 {
+            candidates.into_iter().next().expect("len==1")
+        } else {
+            let Some(call) = candidates.into_iter().find(|c| {
+                vals.iter()
+                    .enumerate()
+                    .all(|(i, v)| abi_accepts_kind(c.arg_abis[i], v.kind))
+            }) else {
+                return unsupported!(
+                    "`new {class}(x)` with a non-number / non-string argument \
+                     (the overload dispatch depends on the runtime type — a later \
+                     increment)"
+                );
+            };
+            call
+        };
+        // A `StrPtr` param fed a non-proven-string BAILS (the marshal would
+        // ToString-coerce — a behavior change we refuse; same rule as the statics).
+        for (i, v) in vals.iter().enumerate() {
+            if matches!(call.arg_abis[i], AbiType::StrPtr) && !matches!(v.kind, JsKind::Str) {
+                return unsupported!(
+                    "`new {class}(..)` — argument {i} is not a proven string"
+                );
+            }
+        }
+        // Pad the omitted tail with the chosen ctor's spec defaults.
+        for i in argc..call.arg_abis.len() {
+            vals.push(self.default_arg_val(call.default_args.get(i), class, i)?);
+        }
+        let res = self.emit_registry_call(module, &call, None, &vals, JsKind::Object)?;
+        Ok(res.v)
+    }
+
+    /// Materialise one spec [`DefaultArg`] as the padding [`Val`] for an omitted
+    /// trailing arg. `Int`→`iconst I64`, `Float`→`f64const`, `Undefined`→the
+    /// `undefined` sentinel word (the runtime extern reads its NaN form as its own
+    /// default). A `Required` / missing entry is a spec bug — BAIL, never
+    /// mis-marshal.
+    fn default_arg_val(
+        &mut self,
+        d: Option<&DefaultArg>,
+        class: &str,
+        i: usize,
+    ) -> FrontResult<Val> {
+        Ok(match d {
+            Some(DefaultArg::Int(n)) => {
+                let w = self.builder.ins().iconst(types::I64, *n);
+                Val::new(w, crate::repr::Repr::Int64)
+            }
+            Some(DefaultArg::Float(f)) => {
+                let w = self.builder.ins().f64const(*f);
+                Val::new(w, crate::repr::Repr::Float64)
+            }
+            Some(DefaultArg::Undefined) => {
+                let undef = value::PolyValue::undefined().raw() as i64;
+                let w = self.builder.ins().iconst(types::I64, undef);
+                Val::tagged_kind(w, JsKind::Number)
+            }
+            _ => {
+                return unsupported!("`{class}(..)` — argument {i} has no spec default");
+            }
+        })
     }
 
     /// Try to lower a `inst.method(args)` through the REAL Registry (Pilar 6).
@@ -204,14 +236,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // argc outside the window BAILS — this reproduces `Date.UTC`'s "< 2 args"
         // refusal and any wrong-arity static, as DATA from the spec.
         let total = call.arg_abis.len();
-        let required = if call.default_args.is_empty() {
-            total
-        } else {
-            call.default_args
-                .iter()
-                .take_while(|d| matches!(d, DefaultArg::Required))
-                .count()
-        };
+        let required = required_args(&call.default_args, total);
         let argc = args.len();
         if argc < required || argc > total {
             return unsupported!(
@@ -236,22 +261,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // slot is always a default here (argc ≥ required), so a `Required` /
         // missing entry would be a spec bug — BAIL rather than mis-marshal.
         for i in argc..total {
-            let v = match call.default_args.get(i) {
-                Some(DefaultArg::Int(n)) => {
-                    let w = self.builder.ins().iconst(types::I64, *n);
-                    Val::new(w, crate::repr::Repr::Int64)
-                }
-                Some(DefaultArg::Float(f)) => {
-                    let w = self.builder.ins().f64const(*f);
-                    Val::new(w, crate::repr::Repr::Float64)
-                }
-                _ => {
-                    return unsupported!(
-                        "`{name}.{method}(..)` — argument {i} has no spec default"
-                    );
-                }
-            };
-            vals.push(v);
+            vals.push(self.default_arg_val(call.default_args.get(i), name, i)?);
         }
         let result_kind = match call.ret {
             AbiType::Handle => JsKind::Str,
@@ -260,5 +270,35 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         };
         let v = self.emit_registry_call(module, &call, None, &vals, result_kind)?;
         Ok(Some(v))
+    }
+}
+
+/// The minimum explicit arg count a member accepts: the leading run of
+/// `DefaultArg::Required`. An empty `default_args` slice means every declared
+/// param is required (`required == total`). The `[required, total]` window is the
+/// arity a ctor/static admits — the spec-data replacement for hardcoded arity
+/// literals.
+fn required_args(default_args: &[DefaultArg], total: usize) -> usize {
+    if default_args.is_empty() {
+        total
+    } else {
+        default_args
+            .iter()
+            .take_while(|d| matches!(d, DefaultArg::Required))
+            .count()
+    }
+}
+
+/// Whether a provided arg of proven `JsKind` may fill a param of `AbiType` — the
+/// rule that breaks a same-arity ctor overload tie (`[I64]` vs `[StrPtr]`) by the
+/// PROVEN type, never by guessing. A lost/`any` kind (`JsKind::Any`/`Unknown`)
+/// matches nothing, so an untyped arg bails rather than picking an overload.
+fn abi_accepts_kind(abi: AbiType, kind: JsKind) -> bool {
+    match abi {
+        AbiType::StrPtr => matches!(kind, JsKind::Str),
+        AbiType::Handle => matches!(kind, JsKind::Str | JsKind::Object),
+        AbiType::F64 | AbiType::I64 | AbiType::U64 | AbiType::I32 => matches!(kind, JsKind::Number),
+        AbiType::Bool => matches!(kind, JsKind::Bool),
+        AbiType::Void => false,
     }
 }
