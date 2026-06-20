@@ -226,6 +226,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.local_classes.insert(name.to_string(), class);
                 return Ok(());
             }
+            // `const C = Box`: bind the local to the reified class VALUE (a
+            // `TAG_FUNCTION` new-thunk word) AND record that `C` REFERENCES class
+            // `Box`, so a later `new C(args)` constructs `Box` on the static path.
+            // Guarded so a local of the same name shadows the class (then it is not
+            // a class reference). Reassignment clears the ref (the removes below).
+            HirExprKind::Ident(c)
+                if self.local(c).is_none() && self.classes.get(c).is_some() =>
+            {
+                let val = self.lower_expr(module, init)?;
+                self.bind_tagged_local(name, val);
+                self.local_class_refs.insert(name.to_string(), c.clone());
+                return Ok(());
+            }
             _ => None,
         };
         if let Some(shape) = shape {
@@ -282,6 +295,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // local being re-`let`, drop the stale shape/class (its value is now opaque).
         self.local_shapes.remove(name);
         self.local_classes.remove(name);
+        self.local_class_refs.remove(name);
         self.global_instance_classes.remove(name);
         self.object_locals.remove(name);
         Ok(())

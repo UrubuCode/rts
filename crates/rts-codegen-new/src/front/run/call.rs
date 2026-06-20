@@ -535,6 +535,45 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(Val::tagged_kind(word, JsKind::Function))
     }
 
+    /// Reify a USER CLASS named `name` as a first-class VALUE (`const C = Box`): a
+    /// `TAG_FUNCTION` PolyValue whose code address is the class NEW-THUNK
+    /// (`<class>__rtsn_newthunk`) — invoking it (`new C(args)` / a plain call)
+    /// allocates an instance and runs the constructor. `nparams` is the ctor arity
+    /// (no `this` in the value ABI; the thunk synthesizes `this`). A class without a
+    /// real synthesized ctor (a literal-shape placeholder) has no new-thunk → bail.
+    /// `typeof` of the result is "function" (JS: `typeof Box === "function"`).
+    pub(super) fn reify_class(&mut self, module: &mut dyn Module, name: &str) -> FrontResult<Val> {
+        let desc = self
+            .classes
+            .get(name)
+            .ok_or_else(|| Unsupported::new(format!("reify of unknown class `{name}`")))?;
+        let nparams = desc.ctor_arity as i64;
+        let thunk_key = super::thunk::new_thunk_name(name);
+        let Some(&thunk_id) = self.thunks.get(&thunk_key) else {
+            return unsupported!(
+                "class `{name}` as a VALUE — no synthesized constructor (a literal-shape \
+                 / `extends`-only class as a value is a later increment)"
+            );
+        };
+        let func_ref = module.declare_func_in_func(thunk_id, self.builder.func);
+        let addr = self.builder.ins().func_addr(types::I64, func_ref);
+        let nparams_v = self.builder.ins().iconst(types::I64, nparams);
+        let has_rest_v = self.builder.ins().iconst(types::I64, 0);
+        let env_word = self.builder.ins().iconst(types::I64, 0);
+        let payload = self
+            .call_runtime(module, "__rtsadp_fn_reify", &[addr, nparams_v, has_rest_v, env_word])?
+            .expect("__rtsadp_fn_reify returns a value");
+        let header = value::encode(value::TAG_FUNCTION, 0) as i64;
+        let mask = self
+            .builder
+            .ins()
+            .iconst(types::I64, value::PAYLOAD_MASK as i64);
+        let masked = self.builder.ins().band(payload, mask);
+        let header_v = self.builder.ins().iconst(types::I64, header);
+        let word = self.builder.ins().bor(masked, header_v);
+        Ok(Val::tagged_kind(word, JsKind::Function))
+    }
+
     /// Build a closure's env array (P5.7): a fresh `Entry::Vec` (a `TAG_OBJECT`
     /// PolyValue) holding a SNAPSHOT of each captured outer-local's CURRENT value
     /// (boxed), in the recorded capture order. Returns the env's `TAG_OBJECT` word.

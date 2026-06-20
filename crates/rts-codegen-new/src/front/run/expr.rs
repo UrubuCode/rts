@@ -173,6 +173,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 .expect("__rtsadp_globalthis returns a word");
             return Ok(Val::new_with_kind(w, Repr::Tagged, JsKind::Object));
         }
+        // A bare identifier naming a user CLASS in value position is a class VALUE
+        // reference (`const C = Box`, `globalThis.Box = Box`, `typeof Box`): reify
+        // it to a `TAG_FUNCTION` whose code address is the class new-thunk. `new
+        // C(..)` by name is intercepted on the static path, so this only fires in
+        // value position.
+        if self.classes.get(name).is_some() {
+            return self.reify_class(module, name);
+        }
         unsupported!("unbound identifier `{name}`")
     }
 

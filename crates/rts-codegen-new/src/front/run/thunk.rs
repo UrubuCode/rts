@@ -180,6 +180,122 @@ fn build_thunk_body(
     Ok(())
 }
 
+/// Declare a per-class NEW-THUNK symbol (`<class>__rtsn_newthunk`) and return its
+/// [`FuncId`]. The new-thunk is a uniform-ABI value that, when invoked, ALLOCATES
+/// a fresh instance and runs the class constructor — so a class used as a VALUE
+/// (`const C = Box; new C(7)`) reifies to this thunk's address. Sidesteps the
+/// `reify_function` `has_this` bail: the ctor's `this` is synthesized HERE (the
+/// allocation), never filled from a positional arg.
+pub fn declare_new_thunk(module: &mut JITModule, class_name: &str) -> FrontResult<FuncId> {
+    let sig = uniform_signature(module);
+    let name = new_thunk_name(class_name);
+    module
+        .declare_function(&name, Linkage::Local, &sig)
+        .map_err(|e| Unsupported::new(format!("declare new-thunk `{name}`: {e}")))
+}
+
+/// The synthesized new-thunk symbol name for a user class `class`.
+pub fn new_thunk_name(class: &str) -> String {
+    format!("{class}__rtsn_newthunk")
+}
+
+/// Define a class NEW-THUNK body: allocate the instance (a `VEC` whose slot 0 is
+/// `global_shape`, one `undefined` per field — exactly what `lower_new` emits),
+/// run the constructor `ctor_id` with `this` = the instance and the explicit args
+/// unpacked from `a0..a3` (+ `rest`), and RETURN the instance word (`TAG_OBJECT`),
+/// NOT the ctor's own return. `ctor_sig.params[0]` is the `this` receiver; the
+/// remaining params are the declared ctor args. A `...rest`/non-coercible param is
+/// rejected the same way [`build_thunk_body`] does.
+pub fn define_new_thunk(
+    module: &mut JITModule,
+    new_thunk_id: FuncId,
+    ctor_id: FuncId,
+    ctor_sig: &FnSig,
+    global_shape: u32,
+    n_fields: usize,
+) -> FrontResult<()> {
+    let mut ctx = module.make_context();
+    ctx.func.signature = uniform_signature(module);
+    {
+        let mut fb_ctx = FunctionBuilderContext::new();
+        let mut fb = FunctionBuilder::new(&mut ctx.func, &mut fb_ctx);
+        let res =
+            build_new_thunk_body(module, &mut fb, ctor_id, ctor_sig, global_shape, n_fields);
+        match res {
+            Ok(()) => fb.finalize(),
+            Err(e) => {
+                module.clear_context(&mut ctx);
+                return Err(e);
+            }
+        }
+    }
+    module
+        .define_function(new_thunk_id, &mut ctx)
+        .map_err(|e| Unsupported::new(format!("define new-thunk: {e}")))?;
+    module.clear_context(&mut ctx);
+    Ok(())
+}
+
+/// Emit the new-thunk body: allocate the instance, fill `this` + ctor args, call
+/// the ctor, return the instance word.
+fn build_new_thunk_body(
+    module: &mut JITModule,
+    fb: &mut FunctionBuilder,
+    ctor_id: FuncId,
+    ctor_sig: &FnSig,
+    global_shape: u32,
+    n_fields: usize,
+) -> FrontResult<()> {
+    let entry = fb.create_block();
+    fb.append_block_params_for_function_params(entry);
+    fb.switch_to_block(entry);
+    fb.seal_block(entry);
+    let block_params: Vec<Value> = fb.block_params(entry).to_vec();
+    // uniform params: env, a0..a3, rest. `env` is unused (a class-value never
+    // captures); the positional/rest carry the ctor's explicit args.
+    let positional = &block_params[1..1 + POSITIONAL];
+    let rest_word = block_params[1 + POSITIONAL];
+
+    // ---- allocate the instance: VEC + slot0 shape-id + one `undefined` per field
+    let obj_word = emit_marshal::emit_new_vec_object(module, fb);
+    let id_word = fb.ins().iconst(
+        types::I64,
+        value::PolyValue::from_i32(global_shape as i32).raw() as i64,
+    );
+    emit_marshal::emit_vec_push(module, fb, obj_word, id_word);
+    let undef = fb
+        .ins()
+        .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
+    for _ in 0..n_fields {
+        emit_marshal::emit_vec_push(module, fb, obj_word, undef);
+    }
+
+    // ---- ctor call args: params[0] = `this` (the instance), params[1..] from
+    //      a0.. (the explicit ctor args), unboxed to each param's repr.
+    let mut call_args: Vec<Value> = Vec::with_capacity(ctor_sig.params.len());
+    for (i, &repr) in ctor_sig.params.iter().enumerate() {
+        if i == 0 {
+            // `this` is the freshly allocated instance (a Tagged object word).
+            call_args.push(obj_word);
+            continue;
+        }
+        let pos = i - 1; // arg position (param 1 → a0)
+        let word = if pos < POSITIONAL {
+            positional[pos]
+        } else {
+            let idx = fb.ins().iconst(types::I64, (pos - POSITIONAL) as i64);
+            emit_marshal::emit_vec_get(module, fb, rest_word, idx)
+        };
+        call_args.push(unbox_word_to_repr(fb, word, repr)?);
+    }
+    let ctor_ref = module.declare_func_in_func(ctor_id, fb.func);
+    fb.ins().call(ctor_ref, &call_args);
+
+    // The instance word IS the result of `new` (the ctor's own return is ignored).
+    fb.ins().return_(&[obj_word]);
+    Ok(())
+}
+
 /// Unbox a uniform-ABI PolyValue `word` into a value of native `repr` for the
 /// real call (the inverse of [`box_repr_to_word`]). A `Tagged` param keeps the
 /// word verbatim. Pure IR (the egraph folds a box/unbox round-trip).
