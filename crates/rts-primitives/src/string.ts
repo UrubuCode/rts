@@ -131,7 +131,14 @@ class String {
   substring(start: number, end: number = 2147483647): string {
     return engine.str_substring(__str_val(this), start, end);
   }
-  indexOf(needle: string): number {
+  // indexOf takes an optional `position` (search start). Compose via slice: search
+  // the tail from `position`, then offset the found index back to absolute (or keep
+  // -1). `s.indexOf(x, p)` over the whole string when `p <= 0`.
+  indexOf(needle: string, position: number = 0): number {
+    if (position > 0) {
+      const found = engine.str_index_of(__str_val(this.slice(position)), needle);
+      return found < 0 ? -1 : found + position;
+    }
     return engine.str_index_of(__str_val(this), needle);
   }
   lastIndexOf(needle: string): number {

@@ -209,6 +209,7 @@ const ARRAY_ROWS: &[(&str, usize, MethodSpec)] = &[
     ("indexOf", 1, am("__rtsadp_arr_index_of", &[U64], I64)),
     ("includes", 1, am("__rtsadp_arr_includes", &[U64], Bool)),
     ("at", 1, am("__rtsadp_arr_at", &[I64], U64)),
+    ("join", 0, am("__rtsadp_arr_join0", &[], Handle)),
     ("join", 1, am("__rtsadp_arr_join", &[Handle], Handle)),
     ("push", 1, am("__rtsadp_arr_push", &[U64], I64)),
     ("pop", 0, am("__rtsadp_arr_pop", &[], U64)),
