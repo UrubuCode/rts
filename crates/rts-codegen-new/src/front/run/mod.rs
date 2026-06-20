@@ -48,6 +48,7 @@ mod objstatic;
 mod optchain_lower;
 mod regex;
 pub(crate) mod registry;
+mod registry_build;
 mod registry_call;
 mod registryclass;
 mod sig;
