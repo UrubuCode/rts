@@ -298,3 +298,15 @@ fn url_ctor_and_getters() {
         "a.com /p\n",
     );
 }
+
+#[test]
+fn text_encoder_decoder_roundtrip() {
+    // `TextEncoder`/`TextDecoder` — backend/Registry classes (UTF-8, no native
+    // syntax) wired via the Date template. `new TextDecoder()` is the 0-arg
+    // optional-label ctor (Sig default_args). Round-trip through a Uint8Array
+    // handle, no `"TextEncoder"` literal in codegen.
+    assert_stdout(
+        r#"const e = new TextEncoder(); const d = new TextDecoder(); console.log(d.decode(e.encode("hello")));"#,
+        "hello\n",
+    );
+}

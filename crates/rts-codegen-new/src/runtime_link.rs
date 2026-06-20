@@ -420,6 +420,27 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
             rts_runtime::namespaces::globals::text_encoding::instance::__RTS_FN_GL_TEXTENC_ATOB
                 as *const u8,
         ),
+        // TextEncoder/TextDecoder class ctor + instance methods (Registry class).
+        sym(
+            "__RTS_FN_GL_TEXTENC_NEW",
+            rts_runtime::namespaces::globals::text_encoding::instance::__RTS_FN_GL_TEXTENC_NEW
+                as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_TEXTENC_ENCODE_INSTANCE",
+            rts_runtime::namespaces::globals::text_encoding::instance::__RTS_FN_GL_TEXTENC_ENCODE_INSTANCE
+                as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_TEXTDEC_NEW",
+            rts_runtime::namespaces::globals::text_encoding::instance::__RTS_FN_GL_TEXTDEC_NEW
+                as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_TEXTDEC_DECODE_INSTANCE",
+            rts_runtime::namespaces::globals::text_encoding::instance::__RTS_FN_GL_TEXTDEC_DECODE_INSTANCE
+                as *const u8,
+        ),
         // ---- codegen-owned FUNCTION-value trampolines (__rtsadp_fn_*, P4.6) ----
         sym("__rtsadp_fn_reify", funcops::__rtsadp_fn_reify as *const u8),
         sym(
