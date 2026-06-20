@@ -66,6 +66,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 if self.is_fn_ctor(class) {
                     return self.lower_new_fn_ctor(module, class, args);
                 }
+                // `new G(args)` where `G` is a LOCAL holding a runtime class-VALUE
+                // (`const G = globalThis.Box; new G(5)`) — NOT a static class name,
+                // NOT a `const C = Box` static alias (those go to `lower_new`). The
+                // value is invoked through its new-thunk; a non-constructor throws.
+                if self.local(class).is_some()
+                    && self.local_class_refs.get(class).is_none()
+                    && self.classes.get(class).is_none()
+                {
+                    return self.lower_new_value(module, class, args);
+                }
                 // A `new C(args)` used as a bare expression (not bound to a local
                 // whose class/shape we record) still builds the instance (a valid
                 // TAG_OBJECT PolyValue, so `console.log(new C())` / method chaining

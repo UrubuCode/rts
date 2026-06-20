@@ -131,6 +131,10 @@ pub mod objops;
 // The `globalThis` singleton object (foundation: VALUE get/set), backed by the
 // same keyed-object repr so `globalThis.prop` reuses the `objops` trampolines.
 pub mod globalthis;
+// `new <value>()` through a class VALUE (slice 2 of class-as-value): the
+// constructor-thunk registry + `__rtsadp_new_invoke` (sound — a non-constructor
+// value throws, never mis-constructs).
+pub mod ctorval;
 // Codegen-owned thread-local pending-error slot for `throw` / `try-catch` (P5.13):
 // `__rtsadp_throw_set` / `__rtsadp_err_pending` / `__rtsadp_err_take` /
 // `__rtsadp_err_clear` — the manual-unwind exception model.

@@ -44,8 +44,8 @@ use rts_runtime::namespaces::io as rt_io;
 use rts_runtime::namespaces::math as rt_math;
 
 use crate::value::{
-    abi_adapter, arraycb, arrayops, dyndispatch, errslot, funcops, genops, genops_arith, globalops,
-    globalthis, inspect, iterops, objops, regexops,
+    abi_adapter, arraycb, arrayops, ctorval, dyndispatch, errslot, funcops, genops, genops_arith,
+    globalops, globalthis, inspect, iterops, objops, regexops,
 };
 
 /// One installable JIT symbol: an extern "C" name and its function pointer. The
@@ -425,6 +425,15 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         sym(
             "__rtsadp_fn_invoke",
             funcops::__rtsadp_fn_invoke as *const u8,
+        ),
+        // ---- new <value>() through a class VALUE (slice 2) ----
+        sym(
+            "__rtsadp_register_ctor_thunk",
+            ctorval::__rtsadp_register_ctor_thunk as *const u8,
+        ),
+        sym(
+            "__rtsadp_new_invoke",
+            ctorval::__rtsadp_new_invoke as *const u8,
         ),
         // ---- function-as-constructor side-table (new F() / x instanceof F) ----
         sym("__rtsadp_fn_ptr", funcops::__rtsadp_fn_ptr as *const u8),

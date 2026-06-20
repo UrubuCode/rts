@@ -356,6 +356,18 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, U64, U64, U64, U64, U64],
             ret: U64,
         },
+        // ---- new <value>() through a class VALUE (slice 2) ----
+        // register_ctor_thunk(addr) -> void: mark a class NEW-THUNK address valid.
+        "__rtsadp_register_ctor_thunk" => SymSig {
+            params: &[U64],
+            ret: Void,
+        },
+        // new_invoke(fn_word, a0, a1, a2, a3, rest) -> instance PolyValue word (U64);
+        // throws (pending error) when the value is not a registered constructor.
+        "__rtsadp_new_invoke" => SymSig {
+            params: &[U64, U64, U64, U64, U64, U64],
+            ret: U64,
+        },
         // ---- function-as-constructor side-table (new F() / x instanceof F) ----
         // fn_ptr(fn_word) -> ctor identity (U64, 0 = not a fn).
         "__rtsadp_fn_ptr" => SymSig {
