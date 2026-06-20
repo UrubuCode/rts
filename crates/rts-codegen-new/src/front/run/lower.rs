@@ -242,6 +242,13 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// `static_instance_class` recover the receiver class of a gcell-promoted
     /// singleton in any scope (the gcell erases the `local_classes` entry).
     pub gcell_classes: &'c HashMap<String, String>,
+    /// `globalThis.<key>` → the user CLASS statically held there, when EVERY
+    /// assignment `globalThis.<key> = <Class>` in the whole program agrees on one
+    /// known class (the all-agree pre-pass `infer_globalthis_classes`). Lets
+    /// `const G = globalThis.X` record `G` as a class reference so `new G(args)`
+    /// constructs on the static path and the result is method-dispatchable.
+    /// Program-wide read-only (shared across all function lowerings).
+    pub globalthis_class_refs: &'c HashMap<String, String>,
     /// The program's user classes (descriptors: fields → shape slots, methods →
     /// functions). Read-only, shared across all functions. Drives `new C(args)`,
     /// `this.field`, and static `instance.method(args)`.
@@ -274,6 +281,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         captures: &'c HashMap<String, Vec<String>>,
         gcells: &'c HashMap<String, u32>,
         gcell_classes: &'c HashMap<String, String>,
+        globalthis_class_refs: &'c HashMap<String, String>,
         this_class: Option<&str>,
         is_prelude: bool,
         builtins: &'c HashMap<String, (String, String)>,
@@ -304,6 +312,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             captures,
             gcells,
             gcell_classes,
+            globalthis_class_refs,
             classes,
             is_prelude,
             builtins,

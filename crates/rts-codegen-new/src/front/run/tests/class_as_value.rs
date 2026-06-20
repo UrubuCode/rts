@@ -94,3 +94,46 @@ fn new_on_non_constructor_throws() {
         "caught\n",
     );
 }
+
+/// (caminho A) `globalThis.X = Box` (the only write, a known class) is tracked
+/// statically, so `const G = globalThis.X; new G(5)` constructs on the STATIC path
+/// and a METHOD on the result dispatches — the end-to-end `globalThis`-class
+/// pattern.
+#[test]
+fn globalthis_tracked_class_dispatches_method() {
+    assert_stdout(
+        "class Box { v: number = 0; constructor(n: number) { this.v = n; } \
+         get(): number { return this.v; } } \
+         globalThis.Box = Box; const G = globalThis.Box; \
+         console.log(new G(5).get());",
+        "5\n",
+    );
+}
+
+/// Two constructions + method dispatch through a statically-tracked globalThis key.
+#[test]
+fn globalthis_tracked_class_multiple() {
+    assert_stdout(
+        "class Box { v: number = 0; constructor(n: number) { this.v = n; } \
+         get(): number { return this.v; } } \
+         globalThis.Box = Box; const G = globalThis.Box; \
+         const a = new G(2); const b = new G(8); console.log(a.get() + b.get());",
+        "10\n",
+    );
+}
+
+/// SOUNDNESS: a key with a DISAGREEING write (`globalThis.X = Box` then
+/// `globalThis.X = 5`) is POISONED — it is NOT tracked as `Box`, so `new G()`
+/// falls to the dynamic path where the runtime value (5) is not a constructor and
+/// THROWS, never mis-dispatching as `Box`. (If the poison rule failed, `new G(7)`
+/// would wrongly construct a `Box` and print "constructed".)
+#[test]
+fn globalthis_poisoned_key_not_dispatched_as_class() {
+    assert_stdout(
+        "class Box { v: number = 0; constructor(n: number) { this.v = n; } } \
+         globalThis.X = Box; globalThis.X = 5; const G = globalThis.X; \
+         try { const b = new G(7); console.log(\"constructed\"); } \
+         catch (e) { console.log(\"caught\"); }",
+        "caught\n",
+    );
+}
