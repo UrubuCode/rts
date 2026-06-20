@@ -127,6 +127,7 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
     PreludeTs { label: "console", source: rts_runtime::CONSOLE_TS, why: "console.log/warn/… → engine bridges" },
     // Stdlib classes.
     PreludeTs { label: "Map/Set", source: rts_runtime::stdlib::MAP_SET_TS, why: "class Map/Set shadow native" },
+    PreludeTs { label: "WeakMap/WeakSet", source: rts_runtime::stdlib::WEAKMAP_SET_TS, why: "class WeakMap/WeakSet (strong-ref, #217)" },
     PreludeTs { label: "JSON", source: rts_runtime::stdlib::JSON_TS, why: "JSON.stringify/parse" },
     // The rts:test FRAMEWORK — LAST, so its Matcher/describe/test see every primordial.
     PreludeTs { label: "rts:test", source: rts_runtime::namespaces::test::BUNDLE_TS, why: "describe/test/expect/Matcher" },
