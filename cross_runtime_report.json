@@ -121,10 +121,10 @@
 ,
 {
   "name": "157_array_tostring_tolocalestring",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "toString=1,2,3\nmixed=1,hello,true\nnested=1,2,3,4\nempty=\nlocale=1,2,3",
   "node": "toString=1,2,3\nmixed=1,hello,true\nnested=1,2,3,4\nempty=\nlocale=1,2,3",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "toString=1,2,3\nmixed=1,hello,true\nnested=1,2,3,4\nempty=\nlocale=1,2,3"
 }
 ,
 {
@@ -241,10 +241,10 @@
 ,
 {
   "name": "231_array_tolocalestring",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "has_commas=true\nmixed=true\nempty=",
   "node": "has_commas=true\nmixed=true\nempty=",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "has_commas=true\nmixed=true\nempty="
 }
 ,
 {
@@ -529,10 +529,10 @@
 ,
 {
   "name": "claude-sort-numbers-lexicographic",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1,10,100,13,2,21,3\n5,50,500,9,90\n-1,-10,-2,0,1\n1.125,1.25,1.5,11",
   "node": "1,10,100,13,2,21,3\n5,50,500,9,90\n-1,-10,-2,0,1\n1.125,1.25,1.5,11",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "1,10,100,13,2,21,3\n5,50,500,9,90\n-1,-10,-2,0,1\n1.125,1.25,1.5,11"
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_error",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "__RUNTIME_ERROR__"
 }
 ,
@@ -3769,10 +3769,10 @@
 ,
 {
   "name": "212_string_indexof_empty",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "empty_0=0\nempty_2=2\nempty_10=5\nlastIndexOf_empty=5\nlastIndexOf_empty_2=2\nempty_in_empty=0\nx_in_empty=-1",
   "node": "empty_0=0\nempty_2=2\nempty_10=5\nlastIndexOf_empty=5\nlastIndexOf_empty_2=2\nempty_in_empty=0\nx_in_empty=-1",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "empty_0=0\nempty_2=2\nempty_10=10\nlastIndexOf_empty=5\nlastIndexOf_empty_2=2\nempty_in_empty=0\nx_in_empty=-1"
 }
 ,
 {
@@ -3825,10 +3825,10 @@
 ,
 {
   "name": "238_string_lastindexof_fromindex",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "basic=12\nfrom_10=0\nfrom_5=0\nfrom_0=0\no=16\no_from_10=7\no_from_5=4",
   "node": "basic=12\nfrom_10=0\nfrom_5=0\nfrom_0=0\no=16\no_from_10=7\no_from_5=4",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "basic=12\nfrom_10=0\nfrom_5=0\nfrom_0=0\no=16\no_from_10=7\no_from_5=4"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":139,"rts_diverge":36,"bun_node_diverge":17,"errors":417,"rejected":0}}
+],"summary":{"total":609,"pass":143,"rts_diverge":37,"bun_node_diverge":18,"errors":411,"rejected":0}}
