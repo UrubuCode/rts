@@ -90,6 +90,13 @@ fn build_registry() -> Registry {
     ns::test::register(&mut e);
     ns::globals::string::register(&mut e);
     ns::fmt::register(&mut e);
+    // `console` — the global console object. Each method is an `external` member
+    // whose `symbol` points at the real `io.*` extern (`log`→IO_PRINT,
+    // `warn`/`error`→IO_EPRINT); the engine reads that symbol to pick the sink
+    // (see [`console_method_to_stderr`]) instead of hardcoding the per-method
+    // stream. The multi-arg ToString/inspect FORMATTING stays in the front-end
+    // (it is not a fixed-ABI extern), but WHICH stream is data, not code.
+    ns::globals::console::register(&mut e);
     // The broad std namespace surface the `tests/*.test.ts` import via `rts:<ns>`.
     // Registering each makes its members resolvable through [`namespace_member`];
     // their `__RTS_FN_NS_*` symbols carry REAL `fn_ptr`s (macro-`#[rts_namespace]`),
@@ -121,6 +128,12 @@ fn build_registry() -> Registry {
     ns::thread::register(&mut e);
     ns::ffi::register(&mut e);
     ns::events::register(&mut e);
+    // `audio` — the cross-platform audio backend (`rts-std::audio`). Its
+    // `__RTS_FN_NS_AUDIO_*` externs are real `#[rts_namespace]` fn_ptrs harvested
+    // by `all_jit_symbols`, so registering the metadata is the whole wiring — the
+    // engine never NAMES the audio surface, it resolves it through the Registry
+    // like any other non-primordial namespace. (`asio_audio` stays feature-gated.)
+    ns::audio::register(&mut e);
     // The PRIVATE `engine` namespace (arch/time/trace) the embedded TS prelude
     // calls. Marked `.private()`; the lowering's `engineobj` gate enforces that
     // only prelude-origin code names the `engine` global.
@@ -363,6 +376,30 @@ pub fn namespace_member(ns: &str, member: &str, argc: usize) -> Option<ResolvedC
                 .find(|m| is_callable(m) && m.variadic && argc >= m.sig.args.len().saturating_sub(1))
         })?;
     Some(flat_call(found))
+}
+
+/// Resolve a `console.<method>` to its output SINK from the `console` Registry
+/// namespace: `Some(true)` ⇒ stderr, `Some(false)` ⇒ stdout, `None` ⇒ the method
+/// is not a known `console` member (the caller bails / falls through).
+///
+/// The decision is DATA, not hardcoded per-method `if`s: each `console` member's
+/// `symbol` points at the real `io.*` extern, and an `EPRINT` target means
+/// stderr (`warn`/`error`/`assert`), a `PRINT` target means stdout
+/// (`log`/`info`/`debug`/`dir`). Adding/retargeting a method in
+/// `globals::console::register` changes the engine's routing with no codegen
+/// edit — the PRIMORDIAL-vs-Registry doctrine for a non-primordial surface.
+pub fn console_method_to_stderr(method: &str) -> Option<bool> {
+    // `assert` is NOT a plain print: it is CONDITIONAL (no-op when the first arg
+    // is truthy) and prefixes `"Assertion failed:"`. The generic format-and-print
+    // path would render the condition and print unconditionally — wrong output.
+    // Excluded here so it BAILS cleanly (honesty floor) until the conditional
+    // lowering lands as its own increment.
+    if method == "assert" {
+        return None;
+    }
+    let m = registry().module("rts:console")?;
+    let member = m.members.iter().find(|m| m.matches_name(method))?;
+    Some(member.symbol.contains("EPRINT"))
 }
 
 /// The real `instanceof` predicate symbol (`fn(handle)->i64`) the Registry

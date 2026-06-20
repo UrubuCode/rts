@@ -131,11 +131,16 @@ pub fn with_capture<R>(f: impl FnOnce() -> R) -> (R, String) {
     (r, out)
 }
 
-/// `console.log` line marshaling trampoline: `(ptr, len)` of the final joined
-/// line. In capture mode appends to the thread-local buffer; otherwise forwards
-/// to the REAL `__RTS_FN_NS_IO_PRINT` (newline appended by the runtime).
+/// `console.*` line marshaling trampoline: `(ptr, len)` of the final joined
+/// line + a `to_stderr` flag selecting the sink. In capture mode appends to the
+/// thread-local buffer (both streams share the one capture — the unit tests read
+/// rendered text regardless of stream, matching bun's combined harness output);
+/// otherwise forwards to the REAL `__RTS_FN_NS_IO_PRINT` (stdout, `to_stderr==0`)
+/// or `__RTS_FN_NS_IO_EPRINT` (stderr, `to_stderr!=0`) — the same symbol split
+/// the `console` Registry namespace declares per method (`log`→PRINT,
+/// `warn`/`error`→EPRINT). The newline is appended by the runtime.
 #[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_print_line(ptr: *const u8, len: i64) {
+pub extern "C" fn __rtsadp_print_line(ptr: *const u8, len: i64, to_stderr: i64) {
     let capturing = CAPTURE.with(|c| c.borrow().is_some());
     if capturing {
         let line = bytes_to_string(ptr, len);
@@ -145,8 +150,11 @@ pub extern "C" fn __rtsadp_print_line(ptr: *const u8, len: i64) {
                 buf.push('\n');
             }
         });
+    } else if to_stderr != 0 {
+        // Forward to the REAL io eprint (stderr; appends the newline itself).
+        rt_io::__RTS_FN_NS_IO_EPRINT(ptr, len);
     } else {
-        // Forward to the REAL io print (appends the newline itself).
+        // Forward to the REAL io print (stdout; appends the newline itself).
         rt_io::__RTS_FN_NS_IO_PRINT(ptr, len);
     }
 }

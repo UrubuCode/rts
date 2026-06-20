@@ -39,8 +39,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if method == super::desugar::OPT_CALL {
             return self.lower_opt_call(module, object, args);
         }
-        if is_console_ident(object) && method == "log" {
-            return self.lower_console_log(module, args);
+        if is_console_ident(object) {
+            if let Some(val) = self.lower_console_call(module, method, args)? {
+                return Ok(val);
+            }
         }
         // PRIVATE `engine.*` (arch/time/trace) — prelude-only (privacy gate). A
         // user caller bails here; a prelude caller lowers the runtime call.
@@ -101,8 +103,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         args: &[HirExpr],
     ) -> FrontResult<Val> {
         if let HirExprKind::Member { object, prop } = &callee.kind {
-            if is_console_ident(object) && prop == "log" {
-                return self.lower_console_log(module, args);
+            if is_console_ident(object) {
+                if let Some(val) = self.lower_console_call(module, prop, args)? {
+                    return Ok(val);
+                }
             }
             // PRIVATE `engine.*` (arch/time/trace) — prelude-only (privacy gate).
             if let Some(val) = self.try_engine_call(module, object, prop, args)? {
@@ -626,7 +630,40 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     ///
     /// No arity cap (the old fixed-arity `console_logN` family is gone): the line
     /// is folded left-to-right with space separators, so any number of args works.
-    fn lower_console_log(&mut self, module: &mut dyn Module, args: &[HirExpr]) -> FrontResult<Val> {
+    /// Lower a `console.<method>(...)` call. The METHOD is resolved through the
+    /// `console` Registry namespace (`registry::console_method`): an unknown
+    /// method bails, and the resolved sink (`stdout` for log/info/debug/dir,
+    /// `stderr` for warn/error/assert) drives `emit_print_string_poly`. The
+    /// engine does NOT hardcode the per-method stream — it reads the same
+    /// `__RTS_FN_NS_IO_PRINT`/`EPRINT` split the namespace declares. Returns
+    /// `undefined` (console's JS result).
+    pub(super) fn lower_console_call(
+        &mut self,
+        module: &mut dyn Module,
+        method: &str,
+        args: &[HirExpr],
+    ) -> FrontResult<Option<Val>> {
+        let Some(to_stderr) = super::registry::console_method_to_stderr(method) else {
+            return Ok(None);
+        };
+        let line = self.console_format_line(module, args)?;
+        emit_marshal::emit_print_string_poly(module, self.builder, line, to_stderr);
+        let v = self
+            .builder
+            .ins()
+            .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
+        Ok(Some(Val::tagged_kind(v, JsKind::Undefined)))
+    }
+
+    /// Format `console.*(a, b, …)` into ONE joined-line string PolyValue (no
+    /// sink): ToString each arg (`__rtsadp_to_string`, real pool), whole
+    /// objects/arrays via the inspect trampolines, joined with single spaces via
+    /// the generic `+` (real STRING_CONCAT). The sink is the caller's choice.
+    fn console_format_line(
+        &mut self,
+        module: &mut dyn Module,
+        args: &[HirExpr],
+    ) -> FrontResult<Value> {
         // Build the joined-line string PolyValue. Empty `console.log()` prints a
         // blank line: start from the empty string.
         let space = {
@@ -694,13 +731,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.builder.ins().iconst(types::I64, pv.raw() as i64)
             }
         };
-        emit_marshal::emit_print_string_poly(module, self.builder, line);
-
-        let v = self
-            .builder
-            .ins()
-            .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
-        Ok(Val::tagged_kind(v, JsKind::Undefined))
+        Ok(line)
     }
 
     /// Marshal a call's arguments to the callee's params, honoring a trailing REST
