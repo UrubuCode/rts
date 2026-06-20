@@ -75,7 +75,6 @@ pub fn open_output(_sample_rate: u32, _channels: u16, capacity_frames: usize) ->
         return 0;
     }
 
-    let stream_config = default_cfg.config();
     let real_sr = default_cfg.sample_rate();
     let real_ch = default_cfg.channels();
     let real_cap = if capacity_frames == 0 {
@@ -105,43 +104,91 @@ pub fn open_output(_sample_rate: u32, _channels: u16, capacity_frames: usize) ->
             cv.notify_all();
         };
 
-        let ring_cb = ring_t.clone();
-        let gain_cb = gain_t.clone();
-        let under_cb = under_t.clone();
-        let err_fn = |e| eprintln!("[audio] stream error: {e}");
-        let stream = device.build_output_stream::<f32, _, _>(
-            stream_config,
-            move |out: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                let g = *gain_cb.lock().unwrap();
-                let mut r = ring_cb.lock().unwrap();
-                for s in out.iter_mut() {
-                    match r.pop_front() {
-                        Some(v) => *s = v * g,
-                        None => {
-                            under_cb.fetch_add(1, Ordering::Relaxed);
-                            *s = 0.0;
-                        }
-                    }
-                }
-            },
-            err_fn,
-            None,
-        );
+        // Set by the cpal error callback when the backend reports the stream is
+        // gone — the classic WASAPI `DeviceNotAvailable` / "Default audio device
+        // changed" that happens when the OS default output switches mid-playback
+        // (headset reconnect, app re-routing). The supervisor loop below sees this
+        // and REBUILDS the stream on the CURRENT default device, instead of leaving
+        // a dead stream that drains nothing (silent playback — the bug this fixes).
+        let lost = Arc::new(AtomicBool::new(false));
 
-        let stream = match stream {
-            Ok(s) => s,
-            Err(_) => {
+        // Build (and `play`) a fresh output stream on the current default device.
+        // Returns `None` if no device / non-F32 / build/play failed. The ring,
+        // gain and underrun counters are SHARED across rebuilds, so playback
+        // resumes from where the producer left off (no glitch beyond the gap).
+        let build_stream = {
+            let ring_cb_src = ring_t.clone();
+            let gain_cb_src = gain_t.clone();
+            let under_cb_src = under_t.clone();
+            let lost_src = lost.clone();
+            move || -> Option<cpal::Stream> {
+                let host = cpal::default_host();
+                let device = host.default_output_device()?;
+                let cfg = device.default_output_config().ok()?;
+                if cfg.sample_format() != SampleFormat::F32 {
+                    return None;
+                }
+                let ring_cb = ring_cb_src.clone();
+                let gain_cb = gain_cb_src.clone();
+                let under_cb = under_cb_src.clone();
+                let lost_cb = lost_src.clone();
+                let stream = device
+                    .build_output_stream::<f32, _, _>(
+                        cfg.config(),
+                        move |out: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                            let g = *gain_cb.lock().unwrap();
+                            let mut r = ring_cb.lock().unwrap();
+                            for s in out.iter_mut() {
+                                match r.pop_front() {
+                                    Some(v) => *s = v * g,
+                                    None => {
+                                        under_cb.fetch_add(1, Ordering::Relaxed);
+                                        *s = 0.0;
+                                    }
+                                }
+                            }
+                        },
+                        move |e| {
+                            eprintln!("[audio] stream error: {e}");
+                            lost_cb.store(true, Ordering::Release);
+                        },
+                        None,
+                    )
+                    .ok()?;
+                stream.play().ok()?;
+                Some(stream)
+            }
+        };
+
+        let mut stream = match build_stream() {
+            Some(s) => s,
+            None => {
                 signal_ready(false);
                 return;
             }
         };
-        if stream.play().is_err() {
-            signal_ready(false);
-            return;
-        }
         signal_ready(true);
 
+        // Supervisor loop: hold the stream alive; on a reported loss, rebuild on
+        // the current default device. A rebuild that fails (device truly gone) is
+        // retried each tick, so playback recovers as soon as a device returns.
+        // Hold the live stream in an Option so a rebuild can drop the old one by
+        // assignment without a borrow-checker move across loop iterations.
+        let mut stream = Some(stream);
         while !stop_t.load(Ordering::Acquire) {
+            if lost.swap(false, Ordering::AcqRel) {
+                stream = None; // drop the dead stream first
+                match build_stream() {
+                    Some(s) => stream = Some(s),
+                    None => {
+                        // No device right now; keep the producer's ring intact and
+                        // retry shortly. Put the loss flag back so we re-check.
+                        lost.store(true, Ordering::Release);
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        continue;
+                    }
+                }
+            }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         drop(stream);

@@ -257,8 +257,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // the singleton bits as a number (reading back NaN/0 instead of `null`/
         // `undefined`). Only widen to the annotation when the value can actually live
         // there unboxed.
+        // The local's repr: widen to the (unboxed) annotation only when it does NOT
+        // DEMOTE the value. A `Float64` initializer must NEVER land in an integer
+        // slot — JS `number` is one type and `/` always yields a real number, so
+        // `const r = 44100 / 48000` is `0.91875`, not `0`. The HIR may infer the
+        // const's type as an integer (both operands are int literals), but coercing
+        // the genuine `Float64` result to `Int` truncates the fraction (the bug:
+        // `ratio` became 0 → an audio resampler read frame 0 forever = silence).
+        // So an `Int*` annotation over a `Float64` value keeps `Float64`.
         let annotated = repr_of(ty);
-        let repr = if annotated.is_unboxed() && val.repr.is_unboxed() {
+        let demotes_float =
+            matches!(val.repr, Repr::Float64) && matches!(annotated, Repr::Int32 | Repr::Int64);
+        let repr = if annotated.is_unboxed() && val.repr.is_unboxed() && !demotes_float {
             annotated
         } else {
             val.repr
