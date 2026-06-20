@@ -7,10 +7,6 @@
 //! `MapAny` com valores polimorficos sera natural.
 
 pub mod map;
-/// P2 PolyValue containers (SameValueZero `Map`/`Set` store). Foundation only —
-/// not wired into the `collections` SPEC yet (increment B registers them with
-/// their first codegen caller). See `poly_map.rs`.
-pub mod poly_map;
 pub mod vec;
 
 // (Fase 2) Os 26 membros do namespace sao hand-written em dois módulos —

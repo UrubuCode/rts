@@ -85,6 +85,7 @@ mod objstatic;
 mod optchain;
 mod poly;
 mod precision;
+mod ret_class_chain;
 mod prelude;
 mod regex;
 mod run;

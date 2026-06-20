@@ -105,46 +105,6 @@ pub fn poly_handle_normalize(c: u64) -> Option<u64> {
     }
 }
 
-/// Tag for a boxed `int32`. `typeof` ⇒ `"number"`. Mirrors codegen
-/// `value/layout.rs` `TAG_INT32`.
-pub const POLY_TAG_INT32: u64 = 1;
-
-/// Tag for a singleton (undefined/null/false/true/hole/empty). Mirrors codegen
-/// `value/layout.rs` `TAG_SINGLETON`.
-pub const POLY_TAG_SINGLETON: u64 = 2;
-
-/// The full NaN-boxed word for JS `undefined` (`TAG_SINGLETON`, selector 0).
-/// Returned by container reads when a key is absent (the same sentinel codegen
-/// produces for `undefined`). Mirrors codegen `value/mod.rs::undefined()`.
-pub const POLY_UNDEFINED: u64 = POLY_BOX_BASE | (POLY_TAG_SINGLETON << POLY_TAG_SHIFT);
-
-/// The numeric `f64` value of a PolyValue word, for BOTH the inline-double and
-/// boxed-`int32` representations of a JS number; `None` for any non-number
-/// (string/object/function/singleton). The SameValueZero key equality of
-/// [`super::poly_key::PolyKey`] uses this so `1` (boxed int32) and `1.0` (inline
-/// double) are the same key.
-#[inline]
-pub fn poly_number_value(bits: u64) -> Option<f64> {
-    if (bits & POLY_BOX_BASE) != POLY_BOX_BASE {
-        // Not in the boxed space ⇒ a genuine inline `f64` (incl. the canonical
-        // positive qNaN, whose sign bit is 0 so it is NOT boxed).
-        return Some(f64::from_bits(bits));
-    }
-    if (bits >> POLY_TAG_SHIFT) & POLY_TAG_MASK == POLY_TAG_INT32 {
-        // Low 32 payload bits hold the i32 (decode sign-extends from 32).
-        Some((bits & POLY_PAYLOAD_MASK) as u32 as i32 as f64)
-    } else {
-        None
-    }
-}
-
-/// True iff `bits` is a boxed string-handle word (`typeof` ⇒ `"string"`).
-#[inline]
-pub fn poly_is_string(bits: u64) -> bool {
-    (bits & POLY_BOX_BASE) == POLY_BOX_BASE
-        && (bits >> POLY_TAG_SHIFT) & POLY_TAG_MASK == POLY_TAG_STR
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
