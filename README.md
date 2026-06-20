@@ -136,6 +136,10 @@ lock-free) escala alocação em paralelo.
 
 ## 🔮 Silent Parallelism — o usuário não pede, o compilador entrega
 
+> ⚠️ **Motor antigo (congelado).** Os 3 passes de reescrita silenciosa vivem no
+> `rts-codegen-old` e NÃO são carregados no motor novo sem rejustificação. Descrito
+> aqui como capacidade histórica; o motor novo prioriza o piso de solidez primeiro.
+
 Você escreve isso:
 
 ```ts
@@ -218,60 +222,64 @@ runtime externo.
 
 ## 🏗️ Arquitetura
 
-Workspace Cargo com 10 crates em `crates/`. O diretório `src/` continua existindo
-como fachada do bin `rts` (re-exporta os crates) — `src/main.rs` chama
-`rts_codegen::register_runtime_artifacts` + `rts_cli::cli::dispatch`. Paths
-reais estão sob `crates/<crate>/src/`.
+> **Redesign em andamento (strangler-fig).** O motor de codegen está sendo
+> reescrito do zero atrás do antigo, congelado. O motor **novo** ativo é
+> `crates/rts-codegen-new/` (caminho único HIR→Cranelift, sem MIR; valor
+> `PolyValue` NaN-boxed; shapes + inline caches de dado; dispatch data-driven). O
+> antigo `crates/rts-codegen-old/` (dual HIR→MIR / AST, valor `i64` sobrecarregado)
+> está **congelado** e some no cutover. Plano canônico:
+> [`docs/specs/rts-codegen-new-design.md`](docs/specs/rts-codegen-new-design.md).
+
+Workspace Cargo em `crates/`. O `src/` é a fachada do bin `rts` (re-exporta os
+crates); paths reais sob `crates/<crate>/src/`.
 
 ```
 crates/
 ├─ rts-ast/          AST interno
 ├─ rts-parser/       SWC parse → AST
 ├─ rts-diagnostics/  erros estruturados
-├─ rts-abi/          ⚡ contrato único — SPECS, AbiType, Intrinsic, símbolos
-├─ rts-hir/          HIR tipado (HirType I8..I128, F32/F64, Bool, Str, Handle, Array, Class, Object)
-├─ rts-mir/          MIR SSA (60+ Insts, Terminators, passes fold/fma/cse/dce/narrow/verify/inline)
-├─ rts-codegen/      Cranelift codegen (AST autoritativo + mir_codegen MIR→Cranelift)
-│  └─ src/codegen/   lower/, emit.rs (AOT), jit.rs (rts run), mir_codegen/
-├─ rts-runtime/      builtin "rts" + 40+ namespaces (io, fs, gc, math, ...) + async_rt
+├─ rts-engine/       ⚡ heap GC + contrato ABI (SPECS, AbiType, Intrinsic, símbolos) + Registry
+├─ rts-hir/          HIR tipado (I8..I128/F32/F64/Bool/Str/Handle/Array/Function/Class/Object/Any)
+├─ rts-mir/          MIR SSA — usado SÓ pelo rts-codegen-old (congelado); some no cutover
+├─ rts-codegen-old/  motor CONGELADO (dual MIR/AST, switchboard, add_fn! manual)
+├─ rts-codegen-new/  motor ATIVO — value.rs (PolyValue), repr.rs, shape.rs, ic.rs,
+│                    dispatch.rs (data-driven), abi_gen.rs (ABI gerada de SPECS), lower/ (single path)
+├─ rts-primitives/   classes PRIMORDIAIS (String/Object/Array/Function/Promise/Boolean/Number/Error)
+├─ rts-shared/       não-primordial universal (math/num/collections(Map/Set)/json/globals + stdlib/*.ts)
+├─ rts-std/          backend (io/net/tokio/console/promise/audio)
+├─ rts-runtime/      fachada fina (pub use dos quatro acima) + staticlib AOT
+├─ rts-node/         shims node:* (fs, os, path, process, crypto, util)
+├─ rts-napi/         N-API (.node addons) via libloading + HandleTable
 ├─ rts-linker/       link nativo (system linker + fallback object)
 └─ rts-cli/          run · compile · apis · init · repl · eval · ir
 ```
 
-### Pipeline atual
+### Pipeline (motor novo — caminho único, sem MIR)
 
 ```
-TS → SWC → AST → HIR (rts-hir) → MIR (rts-mir) → inline (fixed-point, max 4 iters)
-                                              → optimize (fold → fma → cse → dce)
-                                              → mir_codegen → Cranelift → JIT/AOT
-                                              ↘ AST autoritativo (fallback)
+TS → SWC → AST → HIR (rts-hir) → lower/ (HIR → Cranelift IR, UM caminho) → egraph Cranelift → JIT/AOT
 ```
 
-MIR está **ativo por default** (commits `f7b924b`, `23dd4b7`). Routing
-híbrido: cada user fn tenta o caminho HIR→MIR→Cranelift; se bate em
-construct ainda não modelado (member em `this`/objetos, classes,
-async/await, address-taken fns, string em params/ret), cai
-automaticamente no codegen AST sem perder semântica. Fase 4 (baixo
-nível + extensões) em progresso, **5/8 entregues**: atomics (4.1),
-inline + integração + fixed-point (4.2/4.3/4.7), CSE (4.5), FMA
-(4.8), arr[i]=v + smoke e2e (4.4/4.6). Métricas atuais:
+Não há tier MIR nem dual AST/MIR no motor novo. O **egraph do Cranelift**
+(`use_egraphs=true`) é o ÚNICO otimizador (const-fold, CSE, DCE, FMA, strength
+reduction, inline intraprocedural). O front-end só faz o que o Cranelift não pode
+(semântica JS): coerções `ToNumber/ToString/ToBoolean`, o `+` polimórfico,
+inserção de box/unbox (IR pura que o egraph dobra), emissão de sites de shape/IC,
+wrap de int estreito, arestas de exceção. AOT/JIT compartilham `compile_program`
+(`FnCtx.module` é `&mut dyn Module`).
 
-- 438 user fns reais da suite TS rodam pelo MIR
-- `cargo test --release --workspace`: **100/100** verde
-- `target/release/rts.exe test`: **1015/1015** (cobertura completa, zero falhas)
-
-Variável `RTS_USE_MIR` controla o routing:
-
-| Valor | Comportamento |
-|---|---|
-| unset / `1` / `on` / `all` | MIR ON (default) |
-| `0` / `off` / `none` | AST only |
-| `fn1,fn2,...` | MIR só pras fns listadas |
+**Doutrina PRIMORDIAL-vs-Registry (central ao motor novo):** o motor NOMEIA só as
+classes primordiais; todo o resto resolve via Registry data-driven — **nada de
+nome não-primordial hardcoded no front, nem em "allow-list"** (ver
+[`CLAUDE.md`](CLAUDE.md) § anti-hardcode). Os globais não-primordiais (console,
+Map/Set, JSON, Date) vivem como `.ts` de prelude (`rts-shared/stdlib/*.ts`) e
+chamam pontes privadas `engine.*`; o front não os nomeia.
 
 **ABI sem boxing**: cada função de namespace é um símbolo
 `#[no_mangle] extern "C" fn __RTS_FN_NS_<NS>_<NAME>(...)`. Nada de `JsValue`,
 nada de dispatcher central. `i64`/`f64` em bits nativos, strings como
-`(ptr, len)` UTF-8, handles `u64` opacos para recursos.
+`(ptr, len)` UTF-8, handles `u64` opacos para recursos. No motor novo a tabela de
+símbolos JIT é DERIVADA de `SPECS` (`abi_gen.rs`), não `add_fn!` manual.
 
 ---
 
@@ -318,46 +326,42 @@ oportunidades de intrinsic. Ver `CLAUDE.md` § Debug do codegen.
 
 ## 🎯 Compatibilidade JS/TS
 
-Suite TS atual: **1015/1015 testes passando**. Cobertura ampla:
+> **Número honesto:** a paridade cross-runtime real do motor **novo** é a do bloco
+> [🌐 Cross-runtime parity](#-cross-runtime-parity) no topo (gerado pelo CI contra
+> Bun+Node). O motor antigo chegou a 100% (372/372) na tag `v0.0-202606072107` — um
+> máximo local de uma abordagem hardcoded sobre um modelo de valor insólido; o
+> redesign existe para furar essa parede, não para repetir o número. NÃO cite
+> "1015/1015"/"100%" como estado atual.
 
-- **Sintaxe core**: classes (extends/super/static/getters/setters), generics,
-  destructuring (array/objeto/nested/defaults/rest/params), spread, optional
-  chaining (3+ níveis), nullish coalescing, IIFE, function expressions, arrow
-  functions, template literals
-- **Modules**: named/default/star imports + re-exports + alias
-  (`import { x as y }`, `export * as ns`)
-- **Async**: Promise, async/await, fetch global, async generators básicos
-- **Tipagem**: `i8..i64/u8..u64/f32/f64/bool/string/handle`, narrow types,
-  intersection types, union types simples
-- **JS globals**: Object/Array/String/Number/Math/Date/RegExp/Error family
-  (TypeError/RangeError/etc), Map/Set, WeakMap/WeakSet, Symbol, JSON,
-  Function (call/apply/bind/.length/.name), Reflect (13 métodos), Proxy
-  (todas as 13 traps: get/set/has/delete/ownKeys/apply/construct/
-  getPrototypeOf/setPrototypeOf/defineProperty/getOwnPropertyDescriptor/
-  isExtensible/preventExtensions)
-- **Operadores**: divisão JS spec (`/` sempre f64), comparações, ternário,
-  bitwise, shifts
-- **Diagnóstico**: identificadores não-resolvidos viram erro de compilação
-  (não segfault)
+O que o motor **novo** já cobre (em construção, paridade subindo):
 
-- **Timers**: `setTimeout`, `setInterval`, `setImmediate` + `clear*`
-  (via `thread::spawn` + AtomicBool de cancelamento)
-- **GC**: scanner conservativo com transitive marking em Map/Vec/Function/Proxy
-  + globals top-level registrados como roots — servidores de longa duração
-  com estado em memória são suportados
+- **Sintaxe core**: classes (extends/super/static/getters/setters),
+  destructuring, spread em literais, optional chaining, nullish coalescing,
+  arrow/function expressions, template literals
+- **Async**: Promise + async/await (caminho síncrono sem `await`; event loop real
+  ainda aberto, #207)
+- **JS globals como `.ts` de prelude (data-driven)**: Object + statics,
+  Boolean/Number/String prototypes, Error family, console.*, Map/Set, JSON, Date —
+  nenhum nomeado no front
+- **Operadores**: divisão JS spec (`/` SEMPRE f64 — `44100/48000 === 0.91875`,
+  inclusive atribuído a `const`), comparações, ternário, bitwise, shifts
+- **try/catch/finally** fase 1 (slot de erro thread-local; finally roda e
+  re-propaga o erro corretamente)
+- **Diagnóstico**: identificador não-resolvido vira erro de compilação, nunca
+  segfault — e nunca um valor errado (o piso de solidez do redesign)
 
-Cobertura node:* parcial: `node:fs` (readFileSync/writeFileSync/exists/
-append/mkdir), `node:path/os/process/util`, `node:crypto` (sha256
-streaming via `createHash`/`update`/`digest`, `randomUUID`, hex/base64).
-Compatibilidade completa com Node está em #226 (epic tracking).
+Itens pesados ainda abertos (alguns em fase de redesign): event loop async real
+(#207), closures com captura mutável (#195), TCO, Proxy (#218), typed
+arrays/DataView/ArrayBuffer, Symbol/Reflect/BigInt (#216/#219). Tracker mestre de
+paridade JS/TS: [#226](https://github.com/UrubuCode/rts/issues/226).
 
 ---
 
 ## 📚 Documentação
 
-- 🛠️ [`CLAUDE.md`](CLAUDE.md) — arquitetura interna + regras do codebase
+- 🛠️ [`CLAUDE.md`](CLAUDE.md) — arquitetura interna + regras do codebase (inclui § anti-hardcode)
 - 📖 [`docs/specs/`](docs/specs/) — specs técnicas de features
-- 🗺️ [`RTS_REFACTOR.md`](RTS_REFACTOR.md) — plano canônico do refator em workspace de crates
+- 🗺️ [`docs/specs/rts-codegen-new-design.md`](docs/specs/rts-codegen-new-design.md) — plano canônico do redesign do motor
 - 🐛 Issues: tracker mestre de paridade JS/TS em [#226](https://github.com/UrubuCode/rts/issues/226)
 
 ---
