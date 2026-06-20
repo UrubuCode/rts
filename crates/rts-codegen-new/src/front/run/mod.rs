@@ -105,13 +105,26 @@ fn build_with_includes(src: &str) -> FrontResult<LoweredProgram> {
     }
 }
 
-/// The set of top-level function names a `prelude` exposes — the AMBIENT functions
-/// a user program may reference (the `rts:test` `describe`/`test`/`expect`, the
-/// primordial `.ts` helpers). Seeded into the user build's arrow extraction so a
-/// callback arrow naming one is not misjudged a capture (see [`build_from_program`]
-/// → [`funcval::extract_arrows`]).
+/// The set of AMBIENT names a `prelude` exposes to a user program — its top-level
+/// FUNCTIONS (`rts:test` describe/test/expect, primordial `.ts` helpers) AND its
+/// top-level SINGLETON INSTANCES (`const console = new Console()`). Seeded into the
+/// user build's arrow extraction so a callback arrow naming one (`x =>
+/// console.log(x)`) is NOT misjudged a capture (the singleton resolves as a shared
+/// gcell after the merge, not a captured outer local). See [`build_from_program`]
+/// → [`funcval::extract_arrows`].
 fn prelude_fn_names(prelude: &LoweredProgram) -> std::collections::HashSet<String> {
-    prelude.funcs.iter().map(|f| f.name.clone()).collect()
+    let mut names: std::collections::HashSet<String> =
+        prelude.funcs.iter().map(|f| f.name.clone()).collect();
+    // Top-level `const x = new C()` singletons in the prelude main (`console`) are
+    // ambient non-captures for the user side too — matched by SHAPE, no name list.
+    for s in &prelude.main.body {
+        if let rts_hir::ir::HirStmt::Const { name, init, .. } = s {
+            if matches!(&init.kind, rts_hir::ir::HirExprKind::New { .. }) {
+                names.insert(name.clone());
+            }
+        }
+    }
+    names
 }
 
 /// Parse, lower, JIT, and run `src` with `console.log` output CAPTURED into a
@@ -245,10 +258,12 @@ fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<
     // resolving to the cell rather than an unbound ident.
     let mut forced_globals = prelude.forced_globals;
     forced_globals.extend(user.forced_globals);
-    // Prelude read-only singletons (`console`) over the COMBINED main — the
-    // singleton's `const` lives in the merged prelude side, so re-promote here too
-    // (cell ids are recomputed over prelude+user; this keeps `console` a cell).
-    forced_globals.extend(funcval::prelude_singleton_globals(&main));
+    // Top-level singleton-instance globals (`const X = new Y()`) over the COMBINED
+    // main — data-driven, no name allow-list. Force-promote each to a cell (so it
+    // reaches inside functions) and carry `name → class` so `static_instance_class`
+    // recovers the receiver class the gcell erases.
+    let gcell_classes = funcval::singleton_instance_globals(&funcs, &main);
+    forced_globals.extend(gcell_classes.keys().cloned());
     let gcells = funcval::module_globals(&funcs, &main, &forced_globals);
 
     Ok(LoweredProgram {
@@ -258,6 +273,7 @@ fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<
         fn_this_class,
         captures,
         gcells,
+        gcell_classes,
         forced_globals,
         prelude_fns,
         builtins,
@@ -282,6 +298,12 @@ pub(crate) struct LoweredProgram {
     /// access goes through `__RTS_FN_NS_GC_GCELL_GET/SET` by this id. Computed by
     /// [`funcval::module_globals`] over the final funcs+main.
     pub gcells: std::collections::HashMap<String, u32>,
+    /// Top-level SINGLETON-INSTANCE globals (`const X = new Y()`) → their class `Y`.
+    /// Data-driven (matched by SHAPE, no name allow-list). Carried so the lowerer's
+    /// `static_instance_class` recovers the receiver class for a gcell-promoted
+    /// singleton (`console.log` dispatches on `Console` inside any function) — the
+    /// gcell promotion erases the `local_classes` entry a plain `new Y()` would set.
+    pub gcell_classes: std::collections::HashMap<String, String>,
     /// CELL-promotion set (#195): top-level `let`s force-promoted to runtime cells
     /// because a closure captures them AND they are mutated (a by-value snapshot
     /// would be stale). Carried so the multi-file merge re-promotes the same names
@@ -464,9 +486,11 @@ fn build_from_program(
     // the live cell) instead of bailing. Stored on the program so the multi-file merge
     // re-promotes the same names over the combined main (arrows are gone by then).
     let mut forced_globals = funcval::captured_mutated_top_lets(&funcs, &main);
-    // Prelude read-only singletons (`console`) — force-promoted so they reach
-    // inside user functions (a plain top-level `const` does not).
-    forced_globals.extend(funcval::prelude_singleton_globals(&main));
+    // Top-level singleton-instance globals (`const X = new Y()`) — data-driven,
+    // force-promoted to cells so they reach inside user functions (a plain
+    // top-level `const` does not); `name → class` carried for `static_instance_class`.
+    let gcell_classes = funcval::singleton_instance_globals(&funcs, &main);
+    forced_globals.extend(gcell_classes.keys().cloned());
     let pre_globals: std::collections::HashSet<String> =
         funcval::module_globals(&funcs, &main, &forced_globals)
             .into_keys()
@@ -485,6 +509,7 @@ fn build_from_program(
         fn_this_class,
         captures: extracted.captures,
         gcells,
+        gcell_classes,
         forced_globals,
         // A single `build_program` has no prelude/user split — every fn is "user"
         // here. When `merge_programs` combines a prelude + user program it computes

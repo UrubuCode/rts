@@ -238,6 +238,10 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// by its id, NOT a Cranelift Variable — checked AFTER `self.local` so a
     /// same-named param/local in the current function still shadows it.
     pub gcells: &'c HashMap<String, u32>,
+    /// Top-level SINGLETON-INSTANCE globals (`const X = new Y()`) → class `Y`. Lets
+    /// `static_instance_class` recover the receiver class of a gcell-promoted
+    /// singleton in any scope (the gcell erases the `local_classes` entry).
+    pub gcell_classes: &'c HashMap<String, String>,
     /// The program's user classes (descriptors: fields → shape slots, methods →
     /// functions). Read-only, shared across all functions. Drives `new C(args)`,
     /// `this.field`, and static `instance.method(args)`.
@@ -269,6 +273,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         classes: &'c super::class::ClassTable,
         captures: &'c HashMap<String, Vec<String>>,
         gcells: &'c HashMap<String, u32>,
+        gcell_classes: &'c HashMap<String, String>,
         this_class: Option<&str>,
         is_prelude: bool,
         builtins: &'c HashMap<String, (String, String)>,
@@ -298,6 +303,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             ids,
             captures,
             gcells,
+            gcell_classes,
             classes,
             is_prelude,
             builtins,

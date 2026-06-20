@@ -243,23 +243,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(())
     }
 
-    /// In a `try`/`finally` with no `catch`: after the finalizer ran, re-check the
-    /// pending flag and route a still-pending error (the body threw and nothing
-    /// caught it) — to the enclosing catch, or a sentinel-return — else fall to
-    /// `after`.
-    fn emit_finally_propagate(&mut self, module: &mut dyn Module, after: Block) -> FrontResult<()> {
-        let pending = self
-            .call_runtime(module, "__rtsadp_err_pending", &[])?
-            .expect("__rtsadp_err_pending returns a value");
-        let err_block = self.builder.create_block();
-        self.builder.ins().brif(pending, err_block, &[], after, &[]);
-        self.builder.switch_to_block(err_block);
-        self.builder.seal_block(err_block);
-        self.block_terminated = false;
-        self.unwind(module)?;
-        Ok(())
-    }
-
     /// After a finalizer that ran with a SAVED (cleared) pending error: decide what
     /// propagates. Precedence (JS): a NEW error thrown by the finalizer itself wins
     /// — its `throw` re-set the slot, so if a pending error exists NOW, unwind it.

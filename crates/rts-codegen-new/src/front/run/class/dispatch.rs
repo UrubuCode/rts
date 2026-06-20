@@ -45,16 +45,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 .local_classes
                 .get(name)
                 .cloned()
-                // A PRELUDE SINGLETON (`console`) is a force-promoted gcell (so it
-                // reaches inside functions), which erases the static `new Console()`
-                // class that a plain local would carry. Recover it from the fixed
-                // singleton→class allow-list so `console.log(..)` dispatches
-                // statically on `Console` in any scope. The name appears ONLY in this
-                // allow-list, not in dispatch logic.
+                // A top-level SINGLETON INSTANCE (`const x = new C()`) force-promoted
+                // to a gcell (so it reaches inside functions) loses the `local_classes`
+                // entry a plain `new C()` local would carry. Recover its class from the
+                // data-driven `gcell_classes` map (`name → C`, built by SHAPE from the
+                // HIR — no hardcoded name) so `x.method(..)` dispatches on `C` in any
+                // scope. Gated on `name` being an actual gcell (a same-named local
+                // shadows it via `local_classes` above, checked first).
                 .or_else(|| {
-                    prelude_singleton_class(name)
+                    self.gcell_classes
+                        .get(name)
                         .filter(|_| self.gcells.contains_key(name))
-                        .map(str::to_string)
+                        .cloned()
                 }),
             // A CALL whose callee is a user function with a provable return class
             // (`expect(x)` → `Matcher`): lets a chained method dispatch statically on
@@ -260,17 +262,5 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             Some(this_word),
             std::slice::from_ref(value),
         )
-    }
-}
-
-/// The user-class name a PRELUDE SINGLETON global maps to, or `None`. A prelude
-/// singleton (`const console = new Console()`) is force-promoted to a gcell to be
-/// reachable inside user functions, which erases the static `new`-class a plain
-/// local would carry; this fixed allow-list restores it so the singleton's methods
-/// dispatch statically. Keep in sync with `funcval::prelude_singleton_globals`.
-fn prelude_singleton_class(name: &str) -> Option<&'static str> {
-    match name {
-        "console" => Some("Console"),
-        _ => None,
     }
 }

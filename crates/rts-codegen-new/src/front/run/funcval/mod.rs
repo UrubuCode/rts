@@ -111,30 +111,56 @@ pub fn module_globals(
     map
 }
 
-/// PRELUDE SINGLETON globals (`console`) that must be promoted to runtime CELLs so
-/// they are reachable from INSIDE user functions, not only at the top level.
+/// Top-level singleton-instance globals — every `const X = new Y()` at the top
+/// level — mapped to their class `Y`. DATA-DRIVEN: the engine NAMES nothing (no
+/// `"console"` allow-list); it matches the SHAPE `const = new`, so any prelude OR
+/// user singleton (`const console = new Console()`, `const app = new App()`) is
+/// covered uniformly.
 ///
-/// These are read-only `const` objects declared by the embedded prelude (e.g.
-/// `const console = new Console()` in `CONSOLE_TS`). Resolved as a plain top-level
-/// local, such a name is invisible inside a user `function f() { console.log(..) }`
-/// (a function reads only locals/params, gcells, and global constants) — it bails
-/// "unbound identifier `console`". Forcing it to a cell makes every scope read the
-/// one shared value. It is the ONLY place the engine references the prelude
-/// singleton names; the names are a fixed allow-list, not dispatch logic. Promotion
-/// is unconditional when the name is a top-level global (a cell is cheap; the
-/// `const` init writes it once via the normal `lower_let` gcell-set path).
-pub fn prelude_singleton_globals(main: &HirFunc) -> HashSet<String> {
-    /// Read-only object singletons the prelude declares at top level.
-    const PRELUDE_SINGLETONS: &[&str] = &["console"];
-    let mut out = HashSet::new();
+/// Why this exists: such a `const` resolved as a plain top-level local is INVISIBLE
+/// inside a user `function f() { console.log(..) }` (a function reads only
+/// locals/params, gcells, and global constants) → "unbound identifier". Two facts
+/// must survive into every scope: (a) the VALUE — fixed by promoting the name to a
+/// runtime CELL (gcell #195), so every scope reads the one shared instance; (b) the
+/// static CLASS — a plain `new Y()` local records `Y` in `local_classes`, but the
+/// gcell erases that, so we carry `name → Y` here for `static_instance_class` to
+/// recover (the receiver class for `console.log`-style dispatch in any scope).
+///
+/// ONLY singletons actually REFERENCED from inside a function (or arrow) are
+/// promoted — a `const x = new C()` used purely at the top level stays an ordinary
+/// local (promoting every singleton would needlessly route plain top-level method
+/// calls through a cell and mis-dispatch user singletons, e.g. `const p = new
+/// Point(); p.parseValue()`). Returns `name → class` for the promoted set.
+pub fn singleton_instance_globals(
+    funcs: &[HirFunc],
+    main: &HirFunc,
+) -> std::collections::HashMap<String, String> {
+    // Candidate singletons: top-level `const x = new C()`.
+    let mut candidates: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for s in &main.body {
-        if let HirStmt::Const { name, .. } = s {
-            if PRELUDE_SINGLETONS.contains(&name.as_str()) {
-                out.insert(name.clone());
+        if let HirStmt::Const { name, init, .. } = s {
+            if let rts_hir::ir::HirExprKind::New { class, .. } = &init.kind {
+                candidates.insert(name.clone(), class.clone());
             }
         }
     }
-    out
+    if candidates.is_empty() {
+        return candidates;
+    }
+    // Names READ FREE inside some function body OR some arrow in main (the actual
+    // reachability condition that needs a shared cell). A function's own params /
+    // locals shadow an outer singleton of the same name and don't count.
+    let mut referenced: HashSet<String> = HashSet::new();
+    for f in funcs {
+        let mut bound: HashSet<String> = f.params.iter().map(|p| p.name.clone()).collect();
+        bound.extend(declared_names(&f.body));
+        for s in &f.body {
+            collect_free_stmt(s, &mut bound, &mut referenced);
+        }
+    }
+    referenced.extend(arrow_free_idents(&main.body));
+    candidates.retain(|name, _| referenced.contains(name));
+    candidates
 }
 
 /// Top-level `let`s that must be promoted to runtime CELLs because a closure
@@ -170,8 +196,10 @@ pub fn captured_mutated_top_lets(funcs: &[HirFunc], main: &HirFunc) -> HashSet<S
         .collect()
 }
 
-/// Names always considered "not a capture" (engine globals the lowering knows).
-const GLOBALS: &[&str] = &["console", "undefined", "Infinity", "NaN"];
+/// Language singletons always considered "not a capture". These are genuine
+/// PRIMORDIAL value globals (not a non-primordial name like `console` — that is a
+/// gcell singleton, already treated as non-capture via `ctx.module_globals`).
+const GLOBALS: &[&str] = &["undefined", "Infinity", "NaN"];
 
 /// The result of the arrow-extraction pre-pass: the synthesized top-level
 /// functions to append, plus the ordered capture list of each CLOSURE (synthesized

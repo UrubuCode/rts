@@ -284,9 +284,81 @@ pub(super) fn collect_free_stmt(
                 collect_free_stmt(st, bound, free);
             }
         }
-        // A statement kind outside the subset: be conservative and treat any
-        // identifier it would reference as free (forces a bail). We approximate by
-        // not descending — the lowering will bail on the construct itself anyway.
+        HirStmt::Throw(e) => collect_free_expr(e, bound, free),
+        HirStmt::Try {
+            body,
+            catch,
+            finally,
+        } => {
+            for st in body {
+                collect_free_stmt(st, bound, free);
+            }
+            if let Some(c) = catch {
+                // The catch param binds inside the handler only; snapshot/restore
+                // `bound` so it doesn't leak out (a `console` AFTER the try still
+                // counts as free).
+                let had = c.binding.as_ref().map(|b| bound.contains(b));
+                if let Some(b) = &c.binding {
+                    bound.insert(b.clone());
+                }
+                for st in &c.body {
+                    collect_free_stmt(st, bound, free);
+                }
+                if let (Some(b), Some(false)) = (&c.binding, had) {
+                    bound.remove(b);
+                }
+            }
+            if let Some(fin) = finally {
+                for st in fin {
+                    collect_free_stmt(st, bound, free);
+                }
+            }
+        }
+        HirStmt::For {
+            init,
+            cond,
+            update,
+            body,
+        } => {
+            if let Some(i) = init {
+                collect_free_stmt(i, bound, free);
+            }
+            if let Some(c) = cond {
+                collect_free_expr(c, bound, free);
+            }
+            if let Some(u) = update {
+                collect_free_expr(u, bound, free);
+            }
+            for st in body {
+                collect_free_stmt(st, bound, free);
+            }
+        }
+        HirStmt::ForOf {
+            binding,
+            iterable,
+            body,
+            ..
+        } => {
+            collect_free_expr(iterable, bound, free);
+            bound.insert(binding.clone());
+            for st in body {
+                collect_free_stmt(st, bound, free);
+            }
+        }
+        HirStmt::ForIn {
+            binding,
+            object,
+            body,
+        } => {
+            collect_free_expr(object, bound, free);
+            bound.insert(binding.clone());
+            for st in body {
+                collect_free_stmt(st, bound, free);
+            }
+        }
+        // Remaining kinds (Switch/Labeled/Break/Continue/Raw) carry no singleton
+        // reference the promotion cares about; not descending is safe (the lowering
+        // bails on an unsupported construct itself).
         _ => {}
     }
 }
