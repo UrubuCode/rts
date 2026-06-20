@@ -54,8 +54,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if let Some(val) = self.try_object_static_call(module, object, method, args)? {
             return Ok(val);
         }
-        // GLOBAL static `Date.now()` / `Date.UTC(..)` / `Date.parse(s)` (P5.16).
-        if let Some(val) = self.try_date_static_call(module, object, method, args)? {
+        // GLOBAL static of a pure-Registry class (today `Date.now()` /
+        // `Date.UTC(..)` / `Date.parse(s)`, P5.16) — data-driven, no class literal.
+        if let Some(val) = self.try_registry_static_call(module, object, method, args)? {
             return Ok(val);
         }
         // GLOBAL static `Array.m(..)` / `String.m(..)` (P5.2).
@@ -115,8 +116,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             if let Some(val) = self.try_object_static_call(module, object, prop, args)? {
                 return Ok(val);
             }
-            // GLOBAL static `Date.now()` / `Date.UTC(..)` / `Date.parse(s)` (P5.16).
-            if let Some(val) = self.try_date_static_call(module, object, prop, args)? {
+            // GLOBAL static of a pure-Registry class (today `Date.now()` /
+            // `Date.UTC(..)` / `Date.parse(s)`, P5.16) — data-driven, no literal.
+            if let Some(val) = self.try_registry_static_call(module, object, prop, args)? {
                 return Ok(val);
             }
             // GLOBAL static `Array.m(..)` / `String.m(..)` (P5.2) — before the
