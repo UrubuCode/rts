@@ -181,12 +181,44 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     ///   `undefined`, statically known here);
     /// - array `.length` → `VEC_LEN` (an unboxed `Int64`);
     /// - anything else (unknown-shape object, array non-`.length` member) bails.
+    /// Resolve a NAMESPACE-OBJECT constant read (`math.PI`) to a value: the
+    /// constant is a zero-arg `MemberKind::Constant` getter in the Registry, so we
+    /// resolve it (`registry::namespace_const`) and emit the zero-arg call through
+    /// the generic marshal. `Ok(None)` ⇒ the namespace has no such constant (the
+    /// caller falls through to its other member handlers / bails).
+    fn try_namespace_const(
+        &mut self,
+        module: &mut dyn Module,
+        ns: &str,
+        name: &str,
+    ) -> FrontResult<Option<Val>> {
+        let Some(call) = super::registry::namespace_const(ns, name) else {
+            return Ok(None);
+        };
+        self.emit_registry_call(module, &call, None, &[], JsKind::Number)
+            .map(Some)
+    }
+
     pub(super) fn lower_member(
         &mut self,
         module: &mut dyn Module,
         object: &HirExpr,
         prop: &str,
     ) -> FrontResult<Val> {
+        // ---- NAMESPACE-OBJECT constant read (`math.PI`, `math.E`): `math` was
+        // imported from bare `"rts"` (bound as a namespace object, member empty).
+        // The constant is a zero-arg `MemberKind::Constant` getter in the Registry
+        // (`__RTS_FN_NS_MATH_PI()`); resolve + call it. Mirrors the namespace-object
+        // METHOD path in `try_method_dispatch`. An unknown const falls through. ----
+        if let HirExprKind::Ident(obj) = &object.kind {
+            if let Some((ns, member)) = self.builtins.get(obj).cloned() {
+                if member.is_empty() {
+                    if let Some(val) = self.try_namespace_const(module, &ns, prop)? {
+                        return Ok(val);
+                    }
+                }
+            }
+        }
         // ---- `Math.CONST` / `Number.CONST` (P5.4): a namespace-constant read ----
         if let Some(val) = self.try_math_number_const(object, prop)? {
             return Ok(val);

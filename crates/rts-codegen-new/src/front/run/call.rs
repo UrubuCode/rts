@@ -446,7 +446,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         for a in args {
             argvals.push(self.lower_expr(module, a)?);
         }
-        self.emit_registry_call(module, &resolved, None, &argvals, JsKind::Str)
+        // The rebox kind only matters for a `Handle` return: a HEAP STRING handle
+        // (`gc.string_*`, `string.*`) reboxes as `TAG_STR`; an OPAQUE RESOURCE
+        // handle (`audio.*`, `buffer.alloc`, `net.*` — a raw `u64` id, TS type
+        // `number`) reboxes as a plain INTEGER. Treating every namespace `Handle`
+        // as a string/object (the old fixed `JsKind::Str`) NaN-boxed a raw id as a
+        // heap pointer → a later `emit_table_load` on it SIGILL'd (audio repro).
+        let result_kind = if resolved.ret_is_string_handle {
+            JsKind::Str
+        } else {
+            JsKind::Number
+        };
+        self.emit_registry_call(module, &resolved, None, &argvals, result_kind)
     }
 
     /// Reify a user function `name` (referenced as a VALUE) into a `TAG_FUNCTION`

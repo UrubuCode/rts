@@ -8,8 +8,10 @@
 //!   second member of the same namespace marshals);
 //! - `rts:math` `sqrt`/`floor` compute a real f64 result used in an expression;
 //! - an aliased builtin import (`import { print as p }`) still calls through;
-//! - the explicit honest bails: an UNKNOWN member, a bare-`"rts"` namespace-object
-//!   import, and `import * as` (dropped by the parser — no binding).
+//! - a bare-`"rts"` namespace-OBJECT import (`import { math } from "rts"`) whose
+//!   `math.sin(..)` METHOD and `math.PI` CONSTANT both route through the Registry;
+//! - the explicit honest bails: an UNKNOWN member, a bare-`"rts"` object CALLED as
+//!   a function (`io("x")`), and `import * as` (dropped by the parser — no binding).
 //!
 //! Uses the same self-cleaning temp-dir + `render_path` harness as `modules_e2e`.
 
@@ -125,6 +127,35 @@ fn unknown_member_bails() {
         msg.contains("nonexistent") && msg.contains("io"),
         "unexpected bail message: {msg}"
     );
+}
+
+/// BARE `"rts"` namespace-object: `import { math, io } from "rts"` binds `math`
+/// as a namespace OBJECT; `math.sin(..)` routes through the same Registry marshal
+/// the `rts:math` member-import uses. `sin(0) == 0`.
+#[test]
+fn bare_rts_namespace_object_method() {
+    let t = TempDir::new();
+    t.write(
+        "main.ts",
+        "import { math } from \"rts\";\nconsole.log(\"\" + math.sin(0));\n",
+    );
+    let out = render_path(&t.path("main.ts")).expect("bare-rts math.sin runs");
+    assert_eq!(out, "0\n");
+}
+
+/// BARE `"rts"` namespace-object CONSTANT read: `math.PI` is a zero-arg
+/// `MemberKind::Constant` getter resolved through `registry::namespace_const`.
+/// Before the fix this bailed with "unbound identifier `math`" (the member read,
+/// unlike the method call, never consulted the namespace-object binding).
+#[test]
+fn bare_rts_namespace_object_constant() {
+    let t = TempDir::new();
+    t.write(
+        "main.ts",
+        "import { math } from \"rts\";\nconsole.log(\"\" + math.PI);\n",
+    );
+    let out = render_path(&t.path("main.ts")).expect("bare-rts math.PI runs");
+    assert_eq!(out, "3.141592653589793\n");
 }
 
 /// A bare-`"rts"` import binds a namespace OBJECT (`io`), not a member; calling it as

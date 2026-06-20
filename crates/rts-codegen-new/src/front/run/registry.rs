@@ -55,6 +55,23 @@ pub struct ResolvedCall {
     /// spec-declared default (e.g. `Date.UTC`'s day=1/rest=0) instead of a codegen
     /// `pad_*` table. See [`super::registryclass`].
     pub default_args: Vec<DefaultArg>,
+    /// For a `ret == Handle`: whether that handle is a HEAP STRING (`gc.*`,
+    /// `string.*`, `buffer.to_string`) vs an OPAQUE RESOURCE handle (`audio.*`,
+    /// `buffer.alloc`, `net.*` — a raw `u64` id from the namespace's own table,
+    /// NOT a GC handle). A string-handle reboxes as `TAG_STR`; a resource-handle
+    /// reboxes as a plain INTEGER PolyValue (its TS type is `number`). Derived
+    /// from the member's `ts_signature` return type (`): string` ⇒ string handle).
+    /// Irrelevant when `ret != Handle`.
+    pub ret_is_string_handle: bool,
+}
+
+/// Whether a member's `ts_signature` declares a `string` RETURN — used to tell a
+/// heap-string `Handle` (rebox as `TAG_STR`) from an opaque resource `Handle`
+/// (rebox as a raw integer `number`). Looks at the text after the LAST `):`.
+fn ts_returns_string(ts: &str) -> bool {
+    ts.rsplit_once("):")
+        .map(|(_, ret)| ret.trim().trim_end_matches(';').trim() == "string")
+        .unwrap_or(false)
 }
 
 /// Build the real runtime Registry once. Only the classes the new engine
@@ -244,6 +261,7 @@ fn instance_call(m: &'static Member) -> ResolvedCall {
         ret: m.sig.returns,
         flags: m.flags,
         default_args: m.sig.default_args.clone(),
+        ret_is_string_handle: ts_returns_string(&m.ts_signature),
     }
 }
 
@@ -257,6 +275,7 @@ fn flat_call(m: &'static Member) -> ResolvedCall {
         ret: m.sig.returns,
         flags: m.flags,
         default_args: m.sig.default_args.clone(),
+        ret_is_string_handle: ts_returns_string(&m.ts_signature),
     }
 }
 
@@ -375,6 +394,21 @@ pub fn namespace_member(ns: &str, member: &str, argc: usize) -> Option<ResolvedC
                 .iter()
                 .find(|m| is_callable(m) && m.variadic && argc >= m.sig.args.len().saturating_sub(1))
         })?;
+    Some(flat_call(found))
+}
+
+/// Resolve a namespace CONSTANT (`math.PI`, `math.E` — `MemberKind::Constant`,
+/// a zero-arg getter symbol) to its [`ResolvedCall`]. `None` when the namespace
+/// has no such constant (the caller falls through / bails).
+pub fn namespace_const(ns: &str, name: &str) -> Option<ResolvedCall> {
+    if ns.is_empty() {
+        return None;
+    }
+    let m = registry().module(&format!("rts:{ns}"))?;
+    let found = m
+        .members
+        .iter()
+        .find(|m| matches!(m.kind, MemberKind::Constant) && m.matches_name(name))?;
     Some(flat_call(found))
 }
 
