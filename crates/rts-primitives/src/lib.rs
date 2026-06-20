@@ -73,16 +73,6 @@ pub const NUMBER_TS: &str = include_str!("number.ts");
 /// `new String(x)` stays the engine's wrapper trampoline.
 pub const STRING_TS: &str = include_str!("string.ts");
 
-/// Embedded TypeScript source of the global `console` object (`log`/`info`/
-/// `debug`/`dir` → stdout, `warn`/`error` → stderr). Written in `.ts` so the
-/// front-end NAMES nothing about `console` — it is an ordinary ambient object and
-/// `console.log(...)` is an ordinary member call. The two irreducible operations
-/// (per-value display rendering + the capture-aware line print) are re-exposed
-/// PRIVATELY via the `engine.display` / `engine.print_line` / `engine.eprint_line`
-/// bridges the bodies call; the variadic space-join is plain `.ts`. Replaces the
-/// former hardcoded `is_console_ident` + `lower_console_log` codegen path.
-pub const CONSOLE_TS: &str = include_str!("console.ts");
-
 pub mod array;
 pub mod boolean;
 pub mod error;
