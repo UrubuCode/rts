@@ -324,16 +324,28 @@ da doutrina "no front só referência". Agora:
   front não faz mais o split estático objeto-vs-escalar), `engine.print_line(s)` /
   `engine.eprint_line(s)` (sink capture-aware → `__rtsadp_print_line(ptr,len,to_stderr)`,
   stdout/stderr). O join variádico com espaços é `.ts` puro (itera `...args`).
-- **Globais singleton read-only alcançam funções de usuário (mecanismo novo):** um
-  `const console` top-level é, por padrão, INVISÍVEL dentro de `function f() {
-  console.log(..) }` (uma função resolve ident livre só por local/param, gcell #195,
-  ou constante global). Fix: `funcval::prelude_singleton_globals` FORÇA `console` a
-  virar gcell #195 (acessível em qualquer escopo, via o set `force`); `module_globals`
-  passou a considerar `HirStmt::Const` (não só `Let`); e `static_instance_class`
-  recupera a classe `Console` da gcell via uma allow-list singleton→classe em
-  `class/dispatch.rs` (`"console" => "Console"`). Essa allow-list de NOME (não lógica
-  de dispatch) é a ÚNICA menção a console no front — o equivalente do que já existia
-  p/ `undefined`/`NaN`/`Infinity` no set `GLOBALS`.
+- **Arquivo:** `crates/rts-shared/src/stdlib/console.ts` — `console` é uma backend
+  class NÃO-primordial, então o `.ts` vive em `rts-shared/stdlib` (ao lado de
+  `json.ts`/`map_set.ts`), NÃO em `rts-primitives` (lá só primordiais: error/object/
+  boolean/number/string). Exposto via `rts_runtime::stdlib::CONSOLE_TS`.
+- **Globais singleton read-only alcançam funções de usuário — DATA-DRIVEN, sem
+  nomear console:** um `const console = new Console()` top-level é, por padrão,
+  INVISÍVEL dentro de `function f() { console.log(..) }` (uma função resolve ident
+  livre só por local/param, gcell #195, ou constante global). A solução NÃO nomeia
+  console em lugar nenhum do front — ela casa o PADRÃO `const X = new Y()`:
+  `funcval::singleton_instance_globals(funcs, main)` detecta todo `const X = new Y()`
+  top-level REFERENCIADO de dentro de função/arrow (a condição real de
+  reachability), promove a gcell #195 e carrega `name → class` num mapa
+  `gcell_classes` (threaded pelo `LoweredProgram`→`module_jit`→`Lowerer`, paralelo a
+  `gcells`); `static_instance_class` recupera a classe da gcell desse mapa. Só os
+  referenciados em função são promovidos (um singleton só-top-level fica local
+  normal — promover todos mis-dispatcharia `const p = new Point(); p.parseValue()`).
+  `prelude_fn_names` inclui os singletons do prelude como ambient não-captura no user
+  build (uma arrow `x => console.log(x)` não vira captura). Bug latente fechado no
+  caminho: `collect_free_stmt` não descia em `Try`/`Throw`/`For*` (scan de free-ident
+  incompleto). NENHUMA allow-list de nome — o equivalente data-driven do que
+  @drysius fez p/ classes Registry (`is_pure_registry_class`, nunca `if class ==
+  "Date"`).
 - **`finally` com chamada e erro pendente (correção de unwind exposta):** como
   `console.log` virou chamada de método (várias sub-chamadas com
   `emit_post_call_error_check`), um `finally { console.log(..) }` alcançado no unwind

@@ -77,6 +77,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
     let fn_this_class = &prog.fn_this_class;
     let captures = &prog.captures;
     let gcells = &prog.gcells;
+    let gcell_classes = &prog.gcell_classes;
     let prelude_fns = &prog.prelude_fns;
     let builtins = &prog.builtins;
     let mut module = make_module();
@@ -191,6 +192,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
             classes,
             captures,
             gcells,
+            gcell_classes,
             this_class,
             is_prelude,
             builtins,
@@ -209,6 +211,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
         classes,
         captures,
         gcells,
+        gcell_classes,
         None,
         false,
         builtins,
@@ -269,6 +272,7 @@ fn define_one(
     classes: &super::class::ClassTable,
     captures: &HashMap<String, Vec<String>>,
     gcells: &HashMap<String, u32>,
+    gcell_classes: &HashMap<String, String>,
     this_class: Option<&str>,
     is_prelude: bool,
     builtins: &HashMap<String, (String, String)>,
@@ -280,8 +284,8 @@ fn define_one(
         let mut fb_ctx = FunctionBuilderContext::new();
         let mut fb = FunctionBuilder::new(&mut ctx.func, &mut fb_ctx);
         let res = Lowerer::lower_function(
-            module, &mut fb, func, sig, sigs, thunks, ids, classes, captures, gcells, this_class,
-            is_prelude, builtins,
+            module, &mut fb, func, sig, sigs, thunks, ids, classes, captures, gcells, gcell_classes,
+            this_class, is_prelude, builtins,
         );
         match res {
             Ok(()) => fb.finalize(),
