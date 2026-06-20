@@ -148,9 +148,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     fn lower_ident(&mut self, module: &mut dyn Module, name: &str) -> FrontResult<Val> {
         if let Some(local) = self.local(name) {
             let v = self.builder.use_var(local.var);
-            // A local's static kind is its repr-implied kind; a Tagged local
-            // carries `Unknown` (we do not flow string-ness through vars yet),
-            // which makes strict-eq over it conservatively bail.
+            // A Tagged local recorded as a PROVEN STRING (`let s = "x"`, a param
+            // typed `string`) carries `JsKind::Str`, so `s.method(...)` dispatches
+            // on `class String` and `s === t` runs the string path — not just the
+            // handful of dynamic-table methods. Other locals' static kind is their
+            // repr-implied kind (a plain Tagged local is `Unknown`).
+            if self.string_locals.contains(name) {
+                return Ok(Val::tagged_kind(v, JsKind::Str));
+            }
             return Ok(Val::new(v, local.repr));
         }
         // MODULE-LEVEL MUTABLE GLOBAL (epic #195): a top-level `let` written from a

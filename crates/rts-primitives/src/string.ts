@@ -35,6 +35,13 @@
 // `dispatch.rs`/`try_string_*` paths (array/regex marshaling is not a clean single
 // string→string engine helper).
 
+// NOTE on the repeated `2147483647` default below: it is the sentinel "to the end
+// of the string" (a large i32 the Rust impl clamps to length). A shared top-level
+// `const __STR_END` does NOT work here — the new engine does not yet resolve a
+// prelude module-level const inside a class METHOD body (only top-level functions
+// like `__str_val` reach method scope), so it would bail "unbound identifier". The
+// literal is therefore the pragmatic single form until that scope gap is closed.
+
 // Unwrap the primitive string from either an autoboxed primitive `self` (the
 // string itself) or a wrapper-object `self` (its `__prim` slot).
 function __str_val(self: any): string {
@@ -130,13 +137,26 @@ class String {
   lastIndexOf(needle: string): number {
     return engine.str_last_index_of(__str_val(this), needle);
   }
-  includes(needle: string): boolean {
+  // includes/startsWith take an optional `position` (search start); endsWith an
+  // optional `endPosition`. The irreducible search stays in the `engine.str_*`
+  // bridge over the WHOLE string; the position is applied by composing with
+  // `slice` (`s.includes(x, p) === s.slice(p).includes(x)`) — no new bridge.
+  includes(needle: string, position: number = 0): boolean {
+    if (position > 0) {
+      return engine.str_includes(__str_val(this.slice(position)), needle);
+    }
     return engine.str_includes(__str_val(this), needle);
   }
-  startsWith(prefix: string): boolean {
+  startsWith(prefix: string, position: number = 0): boolean {
+    if (position > 0) {
+      return engine.str_starts_with(__str_val(this.slice(position)), prefix);
+    }
     return engine.str_starts_with(__str_val(this), prefix);
   }
-  endsWith(suffix: string): boolean {
+  endsWith(suffix: string, endPosition: number = 2147483647): boolean {
+    if (endPosition < 2147483647) {
+      return engine.str_ends_with(__str_val(this.slice(0, endPosition)), suffix);
+    }
     return engine.str_ends_with(__str_val(this), suffix);
   }
   // padStart/padEnd: the pad string defaults to a single space (JS spec).
