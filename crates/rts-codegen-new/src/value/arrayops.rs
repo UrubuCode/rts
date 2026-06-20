@@ -24,7 +24,7 @@ use rts_runtime::namespaces::collections::vec as rt_vec;
 use rts_runtime::namespaces::gc::handles as rt_handles;
 use rts_runtime::namespaces::gc::string_pool as rt_str;
 
-use super::{PolyValue, abi_adapter, genops};
+use super::{PolyValue, abi_adapter, funcops, genops};
 
 /// Element count of the real Vec behind `vec_handle` (clamped to `>= 0`).
 fn vec_len(vec_handle: u64) -> i64 {
@@ -429,6 +429,34 @@ pub extern "C" fn __rtsadp_arr_sort(vec_handle: u64) -> u64 {
     let len = vec_len(vec_handle);
     let mut words: Vec<u64> = (0..len).map(|i| vec_word(vec_handle, i)).collect();
     words.sort_by(|&a, &b| default_sort_cmp(a, b));
+    for (i, w) in words.into_iter().enumerate() {
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(vec_handle, i as i64, w as i64);
+    }
+    box_self(vec_handle)
+}
+
+/// `arr.sort(cmp)` — sort IN PLACE using the JS comparator `cmp(a, b)`: a returned
+/// number < 0 keeps `a` before `b`, > 0 puts `b` first, 0 (or NaN) treats them as
+/// equal. The comparator is a `TAG_FUNCTION` word invoked through the uniform
+/// indirect-call ABI. Returns the (mutated) receiver. Mirrors `__rtsadp_arr_sort`
+/// but with the user comparator instead of `default_sort_cmp`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_sort_cmp(vec_handle: u64, cb: u64) -> u64 {
+    let len = vec_len(vec_handle);
+    let mut words: Vec<u64> = (0..len).map(|i| vec_word(vec_handle, i)).collect();
+    let u = PolyValue::undefined().raw();
+    words.sort_by(|&a, &b| {
+        // `cmp(a, b)` → a PolyValue word; ToNumber it (JS coercion). A NaN/0 result
+        // is `Equal` (a stable no-swap), matching the spec's "treat as equal".
+        let r = genops::dyn_to_number(funcops::__rtsadp_fn_invoke(cb, a, b, u, u, u));
+        if r < 0.0 {
+            std::cmp::Ordering::Less
+        } else if r > 0.0 {
+            std::cmp::Ordering::Greater
+        } else {
+            std::cmp::Ordering::Equal
+        }
+    });
     for (i, w) in words.into_iter().enumerate() {
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(vec_handle, i as i64, w as i64);
     }

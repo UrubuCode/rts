@@ -244,6 +244,10 @@ const ARRAY_ROWS: &[(&str, usize, MethodSpec)] = &[
     ("toReversed", 0, am("__rtsadp_arr_to_reversed", &[], U64)),
     ("with", 2, am("__rtsadp_arr_with", &[I64, U64], U64)),
     ("sort", 0, am("__rtsadp_arr_sort", &[], U64)),
+    // sort(cmp): a 1-callback method. The CbShape is Predicate only to satisfy the
+    // "exactly one callback arg" marshaling; the `__rtsadp_arr_sort_cmp` trampoline
+    // invokes the cb as a 2-arg comparator `(a, b)`, not as `(elem, i, arr)`.
+    ("sort", 1, cm("__rtsadp_arr_sort_cmp", U64, CbShape::Predicate)),
     ("toSorted", 0, am("__rtsadp_arr_to_sorted", &[], U64)),
     ("toSpliced", 2, am("__rtsadp_arr_to_spliced", &[I64, I64], U64)),
     ("copyWithin", 2, am("__rtsadp_arr_copy_within2", &[I64, I64], U64)),

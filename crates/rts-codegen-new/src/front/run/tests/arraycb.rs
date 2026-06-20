@@ -8,7 +8,7 @@
 //! Capturing callbacks + `.sort(comparator)` BAIL explicitly (the soundness
 //! floor) — never a wrong value.
 
-use super::{assert_bails, assert_stdout};
+use super::assert_stdout;
 
 #[test]
 fn map_doubles() {
@@ -118,8 +118,15 @@ fn capturing_callback_now_works() {
 }
 
 #[test]
-fn sort_with_comparator_bails() {
-    // `.sort(cmp)` is not in the implemented Array surface → BAIL (no Registry
-    // row for `Array.sort`).
-    assert_bails("let a=[3,1,2]; a.sort((x:number,y:number)=>x-y); console.log(a.join(\",\"));");
+fn sort_with_comparator() {
+    // `.sort(cmp)` sorts in place using the JS comparator (a 1-callback method via
+    // `__rtsadp_arr_sort_cmp`): `x - y` ascending, `y - x` descending.
+    assert_stdout(
+        "let a=[3,1,2]; a.sort((x:number,y:number)=>x-y); console.log(a.join(\",\"));",
+        "1,2,3\n",
+    );
+    assert_stdout(
+        "let a=[1,3,2]; a.sort((x:number,y:number)=>y-x); console.log(a.join(\",\"));",
+        "3,2,1\n",
+    );
 }
