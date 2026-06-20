@@ -290,6 +290,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(());
         }
 
+        // A STRING-valued initializer (`let s = "x"`, `let s = a + b` over strings,
+        // a string-returning method): record `name` as a proven string so a later
+        // `s.method(...)` dispatches on `class String` (the `.ts` primitive-method
+        // library) exactly like a string literal — not just the handful of methods
+        // in the dynamic table. The local rides Tagged (the boxed string word); only
+        // the proven-string FACT is recorded. (Mirrors the array-shape branch above.)
+        if matches!(val.kind, super::lower::JsKind::Str) {
+            self.bind_tagged_local(name, val);
+            self.string_locals.insert(name.to_string());
+            return Ok(());
+        }
+
         // The local's repr is the numeric annotation when the INITIALIZER ITSELF is
         // unboxed-numeric; a Tagged initializer keeps its `Tagged` repr even under a
         // numeric annotation. This is the soundness seam: `let a: number = null`

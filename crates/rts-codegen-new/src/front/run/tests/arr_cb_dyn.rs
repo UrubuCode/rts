@@ -67,11 +67,25 @@ fn find_some_every_findindex_on_param() {
 
 #[test]
 fn map_on_any_non_array_is_safe_empty() {
-    // SAFETY: `.map` on a NON-array Tagged receiver must not fault — the trampoline
-    // does a HandleTable lookup and sees length 0, so the result is an empty array.
+    // SAFETY: `.map` on a genuinely UNKNOWN-kind Tagged receiver (a param whose
+    // value the engine cannot prove array/string/number) must not fault — the
+    // trampoline does a HandleTable lookup and sees length 0, so the result is an
+    // empty array. (A receiver PROVEN string/number routes to its prelude class and
+    // bails on the missing `.map`, which is JS-correct — see `map_on_proven_string_bails`.)
     assert_stdout(
-        r#"let s: any = "not an array";
-           console.log(s.map((x: number) => x * 2).join(","));"#,
+        r#"function f(s: any): string { return s.map((x: number) => x * 2).join(","); }
+           console.log(f("not an array"));"#,
         "\n",
+    );
+}
+
+#[test]
+fn map_on_proven_string_bails() {
+    // A var initialized with a string is PROVEN a string (string_locals), so
+    // `s.map(...)` dispatches on `class String` — which has no `.map`. JS throws a
+    // TypeError here; the engine BAILS (honesty floor: no wrong-but-safe empty).
+    super::assert_bails(
+        r#"let s = "not an array";
+           console.log(s.map((x: number) => x * 2).join(","));"#,
     );
 }

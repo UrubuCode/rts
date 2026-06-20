@@ -169,7 +169,26 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 if let Some(val) = self.try_array_callback_dynamic(module, recv, method, args)? {
                     return Ok(Some(val));
                 }
-                return self.try_method_dispatch_dynamic(module, recv, method, args);
+                if let Some(val) = self.try_method_dispatch_dynamic(module, recv, method, args)? {
+                    return Ok(Some(val));
+                }
+                // FALLBACK: the dynamic table (`DYN_METHODS`) only covers the
+                // high-frequency string/array methods at fixed arity. For a method
+                // it lacks (`padStart`/`concat`/`includes` with a position arg/…) on
+                // a Tagged receiver that is a STRING, route to the ambient prelude
+                // `class String` (the `.ts` primitive-method library) — the SAME
+                // path a PROVEN-string literal uses, just over the dynamic word. The
+                // `.ts` `__str_val(this)` reads the string from the boxed receiver;
+                // a non-string Tagged word would mis-dispatch, so gate on a proven
+                // string kind. `Ok(None)` ⇒ no such String method (caller bails).
+                if matches!(recv.kind, JsKind::Str) {
+                    if let Some(val) =
+                        self.try_primitive_class_method(module, recv, "String", method, args)?
+                    {
+                        return Ok(Some(val));
+                    }
+                }
+                return Ok(None);
             }
             return Ok(None);
         };
