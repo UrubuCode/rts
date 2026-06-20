@@ -47,6 +47,11 @@ Read these files in order (path relative to repo root):
 - **MANDATORY RULE: FOLLOW THE REDESIGN DESIGN DOC** (below) — work is picked
   from the migration phases of `docs/specs/rts-codegen-new-design.md`, not from a
   fixture-grind roadmap
+- **MANDATORY RULE: read_before_commit.sh GATE + FILE LAYOUT** (in `CLAUDE.md`;
+  workflow detail in `04-workflow.md`) — run `bash read_before_commit.sh` before
+  every engine commit; no engine source file > 500 lines (split into
+  folders/subfolders); engine names ONLY primordials, `rts-shared`/`rts-std` are
+  NOT native/primitive
 
 The honesty + build floor (parity number stays real; no crash/hang as "pass";
 build must compile) never lifts. Adding/removing a meta-rule requires updating

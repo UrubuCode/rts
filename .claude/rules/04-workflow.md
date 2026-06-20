@@ -95,6 +95,35 @@ template: `__rtsCapturedOutput`, a `print()` shim, `describe()` with one or more
 `test()`/`expect().toBe()`. Multiple `test()` per file are welcome to cover
 variations without inflating the file count.
 
+## Pre-commit gate — read_before_commit.sh (MANDATORY for engine commits)
+
+Before **every** commit touching `crates/rts-codegen-new/`, run the gate at the
+repo root and read its full output:
+
+```bash
+bash read_before_commit.sh            # full gate (static checks + cargo build)
+bash read_before_commit.sh --no-build # fast static-only pass while iterating
+```
+
+It enforces the binding rules as a commit gate:
+
+- **HARD (exit non-zero — never commit):** forbidden crate dep / direct `use` of
+  `rts-shared`/`rts-std`/`rts-codegen-old`; broken `cargo build`. `rts-shared`
+  and `rts-std` are **NOT** native/primitive — the engine reaches the runtime
+  ONLY through the `rts-runtime` facade and names ONLY primordials.
+- **REVIEW (read every entry; the list must shrink, never grow):** a
+  non-primordial class named in codegen (`Map`/`Set`/`Date`/`Symbol`/… — must
+  resolve via the Registry, never a hardcoded per-class path; current draining
+  targets `dateclass.rs`, `globalclass.rs`); any source file **> 500 lines**
+  (split into a folder/subfolder of cohesive submodules — never append to an
+  already-oversized file).
+- **INFO:** `todo!()`/`unimplemented!()` markers (fine as WIP, never as a shipped
+  "pass").
+
+When the feature you picked is blocked by a missing engine capability, shift
+focus and implement the blocker first (modest, incremental), then return — state
+the shift explicitly in the commit/PR.
+
 ## How to test
 
 ```bash
