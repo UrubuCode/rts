@@ -89,10 +89,10 @@
 ,
 {
   "name": "143_array_concat",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "basic=1,2,3,4\noriginal=1,2\nmulti=1,2,3,4\nvalues=1,2,3,4\nnested=1,2,3\nempty=1,2",
   "node": "basic=1,2,3,4\noriginal=1,2\nmulti=1,2,3,4\nvalues=1,2,3,4\nnested=1,2,3\nempty=1,2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "basic=1,2,3,4\noriginal=1,2\nmulti=1,2,3,4\nvalues=1,2,3,4\nnested=1,2,3\nempty=1,2"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":151,"rts_diverge":44,"bun_node_diverge":17,"errors":397,"rejected":0}}
+],"summary":{"total":609,"pass":152,"rts_diverge":44,"bun_node_diverge":17,"errors":396,"rejected":0}}
