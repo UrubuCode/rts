@@ -472,6 +472,15 @@ pub extern "C" fn __rtsadp_arr_to_sorted(vec_handle: u64) -> u64 {
     PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(copy)).raw()
 }
 
+/// `arr.toSorted(cmp)` (ES2023) — a NEW array sorted by the user comparator; the
+/// receiver is UNCHANGED. Copy then `__rtsadp_arr_sort_cmp` on the copy.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_to_sorted_cmp(vec_handle: u64, cb: u64) -> u64 {
+    let copy = copy_vec(vec_handle);
+    __rtsadp_arr_sort_cmp(copy, cb);
+    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(copy)).raw()
+}
+
 /// `arr.toSpliced(start, deleteCount)` (ES2023, no-insert 2-arg form) — a NEW array
 /// with `deleteCount` elements removed at `start` (JS negative-index/clamp). The
 /// receiver is UNCHANGED. The insert form (`toSpliced(s, d, ...items)`) is variadic

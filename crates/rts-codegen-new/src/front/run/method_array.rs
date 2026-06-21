@@ -472,8 +472,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 /// result is itself an array dispatch receiver): map/filter/slice + the P5.2
 /// array-producing methods.
 pub(super) fn is_array_returning_method(method: &str) -> bool {
-    matches!(
-        method,
-        "map" | "filter" | "slice" | "reverse" | "fill" | "concat" | "flat"
-    )
+    // DATA-DRIVEN: read the `ret_is_array` bit off the Array dispatch table (the
+    // registrar) instead of a parallel hardcoded list. A method whose ANY arity row
+    // returns an array word (`slice`/`map`/`toSorted`/…) qualifies; `at`/`pop`/`join`
+    // (element/scalar/string returns) do not, even though their ABI is also `U64`.
+    crate::dispatch::array_method_returns_array(method)
 }
