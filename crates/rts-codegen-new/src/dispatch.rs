@@ -80,6 +80,12 @@ pub struct MethodSpec {
     /// (`map`/`filter`/`reduce`/…). `None` for every non-callback method — those
     /// marshal `args` literally. See [`CbShape`].
     pub cb: Option<CbShape>,
+    /// Whether the return value is an ARRAY word (vs an element/scalar). `ret` alone
+    /// is ambiguous: a `U64` return is a PolyValue word that may be a whole array
+    /// (`slice`/`map`/`toSorted`) OR a single element (`at`/`pop`/`shift`). This bit
+    /// is the SOURCE OF TRUTH for "chaining `.length`/`.join()` on the result is an
+    /// array op" — `is_array_returning_method` reads it instead of a parallel list.
+    pub ret_is_array: bool,
 }
 
 /// The callback marshaling shape of an Array callback method (P4.7). The lowering
@@ -94,6 +100,15 @@ pub enum CbShape {
     /// `reduce(cb, init?)`: trampoline takes `(vec_handle, cb_word, init_word,
     /// has_init)`. The user call has the callback + an OPTIONAL initial value.
     Reduce,
+}
+
+/// Whether `method` (at ANY registered arity) returns an ARRAY word — the SOURCE
+/// OF TRUTH for "chaining on the result is an array op". Reads `ret_is_array` off
+/// the `ARRAY_ROWS` registrar so there is no parallel hardcoded list to drift.
+pub fn array_method_returns_array(method: &str) -> bool {
+    ARRAY_ROWS
+        .iter()
+        .any(|(name, _, spec)| *name == method && spec.ret_is_array)
 }
 
 /// Resolve `recv_class.method(argc explicit args)` to a real [`MethodSpec`], or
@@ -213,18 +228,18 @@ const ARRAY_ROWS: &[(&str, usize, MethodSpec)] = &[
     ("join", 1, am("__rtsadp_arr_join", &[Handle], Handle)),
     ("push", 1, am("__rtsadp_arr_push", &[U64], I64)),
     ("pop", 0, am("__rtsadp_arr_pop", &[], U64)),
-    ("slice", 2, am("__rtsadp_arr_slice", &[I64, I64], U64)),
+    ("slice", 2, am_arr("__rtsadp_arr_slice", &[I64, I64], U64)),
     // ---- P5.2 non-callback methods over boxed PolyValue words ----
     (
         "lastIndexOf",
         1,
         am("__rtsadp_arr_last_index_of", &[U64], I64),
     ),
-    ("reverse", 0, am("__rtsadp_arr_reverse", &[], U64)),
-    ("fill", 1, am("__rtsadp_arr_fill", &[U64], U64)),
-    ("concat", 1, am("__rtsadp_arr_concat", &[U64], U64)),
-    ("flat", 0, am("__rtsadp_arr_flat", &[], U64)),
-    ("flat", 1, am("__rtsadp_arr_flat_depth", &[I64], U64)),
+    ("reverse", 0, am_arr("__rtsadp_arr_reverse", &[], U64)),
+    ("fill", 1, am_arr("__rtsadp_arr_fill", &[U64], U64)),
+    ("concat", 1, am_arr("__rtsadp_arr_concat", &[U64], U64)),
+    ("flat", 0, am_arr("__rtsadp_arr_flat", &[], U64)),
+    ("flat", 1, am_arr("__rtsadp_arr_flat_depth", &[I64], U64)),
     ("shift", 0, am("__rtsadp_arr_shift", &[], U64)),
     ("unshift", 1, am("__rtsadp_arr_unshift", &[U64], I64)),
     // ---- arity variants of the search/slice methods (the `fromIndex` / 1-arg
@@ -236,34 +251,37 @@ const ARRAY_ROWS: &[(&str, usize, MethodSpec)] = &[
         2,
         am("__rtsadp_arr_last_index_of_from", &[U64, I64], I64),
     ),
-    ("slice", 1, am("__rtsadp_arr_slice1", &[I64], U64)),
-    ("slice", 0, am("__rtsadp_arr_slice0", &[], U64)),
+    ("slice", 1, am_arr("__rtsadp_arr_slice1", &[I64], U64)),
+    ("slice", 0, am_arr("__rtsadp_arr_slice0", &[], U64)),
     ("toString", 0, am("__rtsadp_arr_to_string", &[], Handle)),
     // toLocaleString without locale data == toString (the runtime has no Intl).
     ("toLocaleString", 0, am("__rtsadp_arr_to_string", &[], Handle)),
-    ("toReversed", 0, am("__rtsadp_arr_to_reversed", &[], U64)),
-    ("with", 2, am("__rtsadp_arr_with", &[I64, U64], U64)),
-    ("sort", 0, am("__rtsadp_arr_sort", &[], U64)),
+    ("toReversed", 0, am_arr("__rtsadp_arr_to_reversed", &[], U64)),
+    ("with", 2, am_arr("__rtsadp_arr_with", &[I64, U64], U64)),
+    ("sort", 0, am_arr("__rtsadp_arr_sort", &[], U64)),
     // sort(cmp): a 1-callback method. The CbShape is Predicate only to satisfy the
     // "exactly one callback arg" marshaling; the `__rtsadp_arr_sort_cmp` trampoline
     // invokes the cb as a 2-arg comparator `(a, b)`, not as `(elem, i, arr)`.
     ("sort", 1, cm("__rtsadp_arr_sort_cmp", U64, CbShape::Predicate)),
-    ("toSorted", 0, am("__rtsadp_arr_to_sorted", &[], U64)),
-    ("toSpliced", 2, am("__rtsadp_arr_to_spliced", &[I64, I64], U64)),
-    ("copyWithin", 2, am("__rtsadp_arr_copy_within2", &[I64, I64], U64)),
+    ("toSorted", 0, am_arr("__rtsadp_arr_to_sorted", &[], U64)),
+    // toSorted(cmp): like sort(cmp) but non-mutating (a new array). 1-callback
+    // method; the trampoline invokes the cb as a 2-arg comparator.
+    ("toSorted", 1, cm_arr("__rtsadp_arr_to_sorted_cmp", U64, CbShape::Predicate)),
+    ("toSpliced", 2, am_arr("__rtsadp_arr_to_spliced", &[I64, I64], U64)),
+    ("copyWithin", 2, am_arr("__rtsadp_arr_copy_within2", &[I64, I64], U64)),
     (
         "copyWithin",
         3,
-        am("__rtsadp_arr_copy_within", &[I64, I64, I64], U64),
+        am_arr("__rtsadp_arr_copy_within", &[I64, I64, I64], U64),
     ),
     // ---- callback methods (P4.7): exactly one callback arg (`cb(elem, i, arr)`)
     // for the predicate/map family; `reduce` has the callback + an OPTIONAL init.
     // The lowering reifies the callback to a TAG_FUNCTION word (see CbShape).
-    ("map", 1, cm("__rtsadp_arr_map", U64, CbShape::Predicate)),
+    ("map", 1, cm_arr("__rtsadp_arr_map", U64, CbShape::Predicate)),
     (
         "filter",
         1,
-        cm("__rtsadp_arr_filter", U64, CbShape::Predicate),
+        cm_arr("__rtsadp_arr_filter", U64, CbShape::Predicate),
     ),
     (
         "forEach",
@@ -300,7 +318,7 @@ const ARRAY_ROWS: &[(&str, usize, MethodSpec)] = &[
     (
         "flatMap",
         1,
-        cm("__rtsadp_arr_flat_map", U64, CbShape::Predicate),
+        cm_arr("__rtsadp_arr_flat_map", U64, CbShape::Predicate),
     ),
     (
         "reduceRight",
@@ -322,10 +340,12 @@ const fn sm(symbol: &'static str, args: &'static [AbiType], ret: AbiType) -> Met
         args,
         ret,
         cb: None,
+        ret_is_array: false,
     }
 }
 
-/// Build an Array instance-method spec (receiver = the array's real Vec handle).
+/// Build an Array instance-method spec (receiver = the array's real Vec handle)
+/// whose result is NOT an array (an element/scalar — `at`/`pop`/`indexOf`/…).
 const fn am(symbol: &'static str, args: &'static [AbiType], ret: AbiType) -> MethodSpec {
     MethodSpec {
         symbol,
@@ -333,18 +353,38 @@ const fn am(symbol: &'static str, args: &'static [AbiType], ret: AbiType) -> Met
         args,
         ret,
         cb: None,
+        ret_is_array: false,
+    }
+}
+
+/// Like [`am`] but the result IS an array word (`slice`/`reverse`/`toSorted`/…) —
+/// so chaining `.length`/`.join()` on it is an array op.
+const fn am_arr(symbol: &'static str, args: &'static [AbiType], ret: AbiType) -> MethodSpec {
+    MethodSpec {
+        ret_is_array: true,
+        ..am(symbol, args, ret)
     }
 }
 
 /// Build an Array CALLBACK method spec (P4.7): receiver = the array's real Vec
 /// handle, `args` is empty (the callback + reduce's init are synthesized by the
-/// lowering from `cb`), `ret` is the trampoline's return ABI.
+/// lowering from `cb`), `ret` is the trampoline's return ABI. `ret_array` flags the
+/// callback methods whose result is a NEW array (`map`/`filter`/`flatMap`/sorted).
 const fn cm(symbol: &'static str, ret: AbiType, cb: CbShape) -> MethodSpec {
+    cm_r(symbol, ret, cb, false)
+}
+
+const fn cm_arr(symbol: &'static str, ret: AbiType, cb: CbShape) -> MethodSpec {
+    cm_r(symbol, ret, cb, true)
+}
+
+const fn cm_r(symbol: &'static str, ret: AbiType, cb: CbShape, ret_is_array: bool) -> MethodSpec {
     MethodSpec {
         symbol,
         recv_abi: RecvAbi::ArrayVec,
         args: &[],
         ret,
         cb: Some(cb),
+        ret_is_array,
     }
 }
