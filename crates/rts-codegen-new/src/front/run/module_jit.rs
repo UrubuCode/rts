@@ -76,6 +76,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
     let classes = &prog.classes;
     let fn_this_class = &prog.fn_this_class;
     let captures = &prog.captures;
+    let cells = &prog.cells;
     let gcells = &prog.gcells;
     let gcell_classes = &prog.gcell_classes;
     let prelude_fns = &prog.prelude_fns;
@@ -196,6 +197,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
             &ids,
             classes,
             captures,
+            cells,
             gcells,
             gcell_classes,
             &globalthis_class_refs,
@@ -216,6 +218,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
         &ids,
         classes,
         captures,
+        cells,
         gcells,
         gcell_classes,
         &globalthis_class_refs,
@@ -278,6 +281,7 @@ fn define_one(
     ids: &HashMap<String, FuncId>,
     classes: &super::class::ClassTable,
     captures: &HashMap<String, Vec<String>>,
+    cells: &HashMap<String, std::collections::HashSet<String>>,
     gcells: &HashMap<String, u32>,
     gcell_classes: &HashMap<String, String>,
     globalthis_class_refs: &HashMap<String, String>,
@@ -291,9 +295,10 @@ fn define_one(
     {
         let mut fb_ctx = FunctionBuilderContext::new();
         let mut fb = FunctionBuilder::new(&mut ctx.func, &mut fb_ctx);
+        let cell_locals = cells.get(&func.name).cloned().unwrap_or_default();
         let res = Lowerer::lower_function(
             module, &mut fb, func, sig, sigs, thunks, ids, classes, captures, gcells, gcell_classes,
-            globalthis_class_refs, this_class, is_prelude, builtins,
+            globalthis_class_refs, this_class, is_prelude, builtins, cell_locals,
         );
         match res {
             Ok(()) => fb.finalize(),

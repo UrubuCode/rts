@@ -83,6 +83,24 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             self.emit_gcell_set(module, id, word)?;
             return Ok(Val::new(word, Repr::Tagged));
         }
+        // FUNCTION-LOCAL CELL (#195): `x <op>= e` through the cell — read live,
+        // apply the arithmetic generically (Tagged), store back.
+        if self.is_cell_local(&name) {
+            let handle = {
+                let local = self.local(&name).expect("cell-local is a bound local");
+                self.builder.use_var(local.var)
+            };
+            let cur = self.emit_cell_get(module, handle);
+            let rhs = self.lower_expr(module, value)?;
+            let result = if op.is_arithmetic() || matches!(op, HirBinOp::Exp) {
+                self.lower_arith(module, op, cur, rhs)?
+            } else {
+                return unsupported!("compound-assign operator {op:?} on a local cell");
+            };
+            let word = self.box_value(result);
+            self.emit_cell_set(module, handle, word);
+            return Ok(Val::new(word, Repr::Tagged));
+        }
         let local = self
             .local(&name)
             .ok_or_else(|| Unsupported::new(format!("compound-assign to unbound `{name}`")))?;
@@ -111,6 +129,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         name: &str,
         value: &HirExpr,
     ) -> FrontResult<Val> {
+        // A FUNCTION-LOCAL CELL (#195) holds its value behind a handle, so the
+        // def_var-based conditional store below would clobber the handle. Bail
+        // honestly — logical-assign on a captured-mutated local is a later increment.
+        if self.is_cell_local(name) {
+            return unsupported!("logical-assign on a captured-mutated local `{name}`");
+        }
         let local = self
             .local(name)
             .ok_or_else(|| Unsupported::new(format!("logical-assign to unbound `{name}`")))?;
