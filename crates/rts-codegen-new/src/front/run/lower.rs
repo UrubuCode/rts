@@ -507,6 +507,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
             // int relabel (same register)
             (Repr::Int32, Repr::Int64) | (Repr::Int64, Repr::Int32) => Ok(val.v),
+            // Bool ToNumber: a Bool is already an i64 0/1, so → Int is a pure relabel
+            // (same register) and → Float64 is a signed-int convert. (`true + 1`,
+            // `-true`, `~true`, `true * 2.0`.)
+            (Repr::Bool, Repr::Int32) | (Repr::Bool, Repr::Int64) => Ok(val.v),
+            (Repr::Bool, Repr::Float64) => {
+                Ok(self.builder.ins().fcvt_from_sint(types::F64, val.v))
+            }
             // native double → native int: truncate toward zero (JS `ToInteger` /
             // array-index / `i64`-typed binding from a `number` expression). Uses the
             // saturating conversion so an out-of-range / NaN double yields a defined

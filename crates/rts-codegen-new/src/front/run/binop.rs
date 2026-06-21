@@ -250,9 +250,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return self.lower_generic_arith(module, op, l, r);
         }
 
-        if matches!(l.repr, Repr::Bool) || matches!(r.repr, Repr::Bool) {
-            return unsupported!("arithmetic on a boolean operand");
-        }
+        // A boolean operand ToNumbers to 0/1 (JS: `true + 1 === 2`). Bool is already
+        // an i64 0/1 in our repr, so coercing to Int32 is a pure reinterpret — then
+        // the normal integer/float arithmetic below applies.
+        let l = if matches!(l.repr, Repr::Bool) {
+            Val::new(self.coerce(l, Repr::Int32)?, Repr::Int32)
+        } else {
+            l
+        };
+        let r = if matches!(r.repr, Repr::Bool) {
+            Val::new(self.coerce(r, Repr::Int32)?, Repr::Int32)
+        } else {
+            r
+        };
         let both_int = is_int_repr(l.repr) && is_int_repr(r.repr);
         match op {
             HirBinOp::Div => {
