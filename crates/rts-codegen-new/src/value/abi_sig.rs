@@ -481,7 +481,7 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, I64, U64],
             ret: U64,
         },
-        "__rtsadp_arr_fill" | "__rtsadp_arr_concat" => SymSig {
+        "__rtsadp_arr_fill" | "__rtsadp_arr_concat" | "__rtsadp_arr_splice" => SymSig {
             params: &[U64, U64],
             ret: U64,
         },
