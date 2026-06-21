@@ -105,7 +105,17 @@ pub enum CbShape {
 /// Whether `method` (at ANY registered arity) returns an ARRAY word — the SOURCE
 /// OF TRUTH for "chaining on the result is an array op". Reads `ret_is_array` off
 /// the `ARRAY_ROWS` registrar so there is no parallel hardcoded list to drift.
+///
+/// `splice`/`toSpliced` are handled by the variadic front path BEFORE `resolve_method`
+/// (they never reach `ARRAY_ROWS`), so they are listed here explicitly — these are
+/// methods DELIBERATELY absent from the registrar, not a duplicated registrar entry.
+/// (`push`/`unshift` are also front-intercepted but return a LENGTH, not an array, so
+/// they are correctly NOT here; `concat` keeps a 1-arg `ARRAY_ROWS` row with
+/// `ret_is_array`, so it is covered by the table scan above.)
 pub fn array_method_returns_array(method: &str) -> bool {
+    if matches!(method, "splice" | "toSpliced") {
+        return true;
+    }
     ARRAY_ROWS
         .iter()
         .any(|(name, _, spec)| *name == method && spec.ret_is_array)
