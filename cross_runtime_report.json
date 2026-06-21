@@ -737,26 +737,26 @@
 ,
 {
   "name": "277_error_cause",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "e1=msg:root\ne2=TypeError:msg",
   "node": "e1=msg:root\ne2=TypeError:msg",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "e1=msg:root\ne2=TypeError:msg"
 }
 ,
 {
   "name": "279_error_chain_cause",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "top=top\nmid=mid\nleaf=leaf",
   "node": "top=top\nmid=mid\nleaf=leaf",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "top=top\nmid=mid\nleaf=leaf"
 }
 ,
 {
   "name": "328_error_types",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "base\nError\nTypeError\nRangeError\nReferenceError\nSyntaxError\nURIError\ntrue\ntrue\ntrue\nfalse\nouter\ninner",
   "node": "base\nError\nTypeError\nRangeError\nReferenceError\nSyntaxError\nURIError\ntrue\ntrue\ntrue\nfalse\nouter\ninner",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "base\nError\nTypeError\nRangeError\nReferenceError\nSyntaxError\nURIError\ntrue\ntrue\ntrue\nfalse\nouter\ninner"
 }
 ,
 {
@@ -3721,10 +3721,10 @@
 ,
 {
   "name": "194_string_normalize",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "length1=4\nnfc=4\nnfd=5\ndefault=4\nsimple=hello",
   "node": "length1=4\nnfc=4\nnfd=5\ndefault=4\nsimple=hello",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "length1=4\nnfc=4\nnfd=5\ndefault=4\nsimple=hello"
 }
 ,
 {
@@ -3732,7 +3732,7 @@
   "status": "rts_diverge",
   "bun": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
   "node": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
-  "rts": "h=104\ne=101\no=111\nout=281474976710895\nemoji=128512\nA=65\ncharCode=55357"
+  "rts": "h=104\ne=101\no=111\nout=281474976710897\nemoji=128512\nA=65\ncharCode=55357"
 }
 ,
 {
@@ -3833,10 +3833,10 @@
 ,
 {
   "name": "23_string_advanced",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "padStart=0007\npadEnd=7...\nrepeat=xoxoxo\nnormalize=Cafe\ntrimStart=cafe  |\ntrimEnd=|  cafe\nincludes=true\nstarts=true\nsliceNeg=bet\nsplitLimit=a,b,c",
   "node": "padStart=0007\npadEnd=7...\nrepeat=xoxoxo\nnormalize=Cafe\ntrimStart=cafe  |\ntrimEnd=|  cafe\nincludes=true\nstarts=true\nsliceNeg=bet\nsplitLimit=a,b,c",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "padStart=0007\npadEnd=7...\nrepeat=xoxoxo\nnormalize=Cafe\ntrimStart=cafe  |\ntrimEnd=|  cafe\nincludes=true\nstarts=true\nsliceNeg=bet\nsplitLimit=a,b,c"
 }
 ,
 {
@@ -3969,10 +3969,10 @@
 ,
 {
   "name": "claude-normalize-forms",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1 2\nfalse\ntrue\ntrue\n1 2\nfi\n1\n1⁄2\ntrue\n2",
   "node": "1 2\nfalse\ntrue\ntrue\n1 2\nfi\n1\n1⁄2\ntrue\n2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "1 2\nfalse\ntrue\ntrue\n1 2\nfi\n1\n1⁄2\ntrue\n2"
 }
 ,
 {
@@ -4025,10 +4025,10 @@
 ,
 {
   "name": "codex_string_normalize_equivalence",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "false\ntrue\ntrue\n2:1",
   "node": "false\ntrue\ntrue\n2:1",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "false\ntrue\ntrue\n2:1"
 }
 ,
 {
@@ -4585,10 +4585,10 @@
 ,
 {
   "name": "codex_computed_assignment_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "7\nbase,key,val",
   "node": "7\nbase,key,val",
-  "rts": "undefined\nbase,key,val"
+  "rts": "7\nbase,key,val"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":156,"rts_diverge":45,"bun_node_diverge":17,"errors":391,"rejected":0}}
+],"summary":{"total":609,"pass":164,"rts_diverge":44,"bun_node_diverge":17,"errors":384,"rejected":0}}
