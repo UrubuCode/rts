@@ -23,10 +23,17 @@ class Error {
   message: string;
   name: string;
   stack: string;
-  constructor(message?: string) {
+  cause: any;
+  // `options` is the ES2022 `{ cause }` bag; when present its `cause` becomes
+  // `error.cause` (a non-object options is ignored, matching the spec leniency
+  // for the corpus). The 1-arg form leaves `cause` undefined.
+  constructor(message?: string, options?: any) {
     this.message = message ?? "";
     this.name = "Error";
     this.stack = engine.trace_capture();
+    if (options !== undefined && options !== null) {
+      this.cause = options.cause;
+    }
   }
   toString(): string {
     if (this.message === "") return this.name;
@@ -36,29 +43,29 @@ class Error {
 }
 
 class TypeError extends Error {
-  constructor(message?: string) { super(message); this.name = "TypeError"; }
+  constructor(message?: string, options?: any) { super(message, options); this.name = "TypeError"; }
 }
 
 class RangeError extends Error {
-  constructor(message?: string) { super(message); this.name = "RangeError"; }
+  constructor(message?: string, options?: any) { super(message, options); this.name = "RangeError"; }
 }
 
 class ReferenceError extends Error {
-  constructor(message?: string) { super(message); this.name = "ReferenceError"; }
+  constructor(message?: string, options?: any) { super(message, options); this.name = "ReferenceError"; }
 }
 
 class SyntaxError extends Error {
-  constructor(message?: string) { super(message); this.name = "SyntaxError"; }
+  constructor(message?: string, options?: any) { super(message, options); this.name = "SyntaxError"; }
 }
 
 class URIError extends Error {
-  constructor(message?: string) { super(message); this.name = "URIError"; }
+  constructor(message?: string, options?: any) { super(message, options); this.name = "URIError"; }
 }
 
 class EvalError extends Error {
-  constructor(message?: string) { super(message); this.name = "EvalError"; }
+  constructor(message?: string, options?: any) { super(message, options); this.name = "EvalError"; }
 }
 
 class AggregateError extends Error {
-  constructor(message?: string) { super(message); this.name = "AggregateError"; }
+  constructor(message?: string, options?: any) { super(message, options); this.name = "AggregateError"; }
 }
