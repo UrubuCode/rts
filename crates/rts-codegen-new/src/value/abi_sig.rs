@@ -210,9 +210,15 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         | "__RTS_FN_NS_ENGINE_STR_TO_LOWER"
         | "__RTS_FN_NS_ENGINE_STR_TRIM"
         | "__RTS_FN_NS_ENGINE_STR_TRIM_START"
-        | "__RTS_FN_NS_ENGINE_STR_TRIM_END" => SymSig {
+        | "__RTS_FN_NS_ENGINE_STR_TRIM_END"
+        | "__RTS_FN_NS_ENGINE_STR_TO_WELL_FORMED" => SymSig {
             params: &[Handle],
             ret: Handle,
+        },
+        // (s) -> boolean.
+        "__RTS_FN_NS_ENGINE_STR_IS_WELL_FORMED" => SymSig {
+            params: &[Handle],
+            ret: Bool,
         },
         // (s, i: number) -> string.
         "__RTS_FN_NS_ENGINE_STR_CHAR_AT"
