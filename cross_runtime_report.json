@@ -297,10 +297,10 @@
 ,
 {
   "name": "24_array_creation_iter",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "from_str=h,e,l,l,o\nfrom_map=3,6,9\nof=4,5,6\nspread=4,5,6,7\nindexOf=3\nlastIndexOf=3\nincludes=true",
   "node": "from_str=h,e,l,l,o\nfrom_map=3,6,9\nof=4,5,6\nspread=4,5,6,7\nindexOf=3\nlastIndexOf=3\nincludes=true",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "from_str=h,e,l,l,o\nfrom_map=3,6,9\nof=4,5,6\nspread=4,5,6,7\nindexOf=3\nlastIndexOf=3\nincludes=true"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":152,"rts_diverge":44,"bun_node_diverge":17,"errors":396,"rejected":0}}
+],"summary":{"total":609,"pass":153,"rts_diverge":44,"bun_node_diverge":17,"errors":395,"rejected":0}}
