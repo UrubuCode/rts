@@ -53,6 +53,7 @@ mod registry_call;
 mod registryclass;
 mod sig;
 mod stmt;
+mod switch;
 mod thunk;
 mod toprimitive;
 mod trycatch;

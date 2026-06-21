@@ -94,6 +94,7 @@ mod run;
 mod stdlib_parity;
 mod string;
 mod string_class;
+mod switch;
 mod template;
 mod toprimitive;
 mod trycatch;
