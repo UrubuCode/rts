@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_error",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "__RUNTIME_ERROR__"
 }
 ,
@@ -2521,10 +2521,10 @@
 ,
 {
   "name": "claude-switch-strict-no-coercion",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "num one\nstr one\nbool true\nbool true\nnull\nundefined\nnum one\nstr one\nother",
   "node": "num one\nstr one\nbool true\nbool true\nnull\nundefined\nnum one\nstr one\nother",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "num one\nstr one\nbool true\nbool true\nnull\nundefined\nnum one\nstr one\nother"
 }
 ,
 {
@@ -3625,10 +3625,10 @@
 ,
 {
   "name": "04_switch_strings",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "color(red)=1\ncolor(green)=2\ncolor(yellow)=0\npriority(high)=important\npriority(urgent)=important\npriority(low)=minor\npriority(med)=normal",
   "node": "color(red)=1\ncolor(green)=2\ncolor(yellow)=0\npriority(high)=important\npriority(urgent)=important\npriority(low)=minor\npriority(med)=normal",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "color(red)=1\ncolor(green)=2\ncolor(yellow)=0\npriority(high)=important\npriority(urgent)=important\npriority(low)=minor\npriority(med)=normal"
 }
 ,
 {
@@ -4473,10 +4473,10 @@
 ,
 {
   "name": "401_switch_strict_equality_edges",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "zero\nzero\nstr-zero\nfalse\nnan-default",
   "node": "zero\nzero\nstr-zero\nfalse\nnan-default",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "zero\nzero\nstr-zero\nfalse\nnan-default"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":171,"rts_diverge":49,"bun_node_diverge":18,"errors":371,"rejected":0}}
+],"summary":{"total":609,"pass":174,"rts_diverge":49,"bun_node_diverge":17,"errors":369,"rejected":0}}
