@@ -1060,6 +1060,10 @@ fn engine_symbols() -> Vec<JitSymbol> {
             "__RTS_FN_NS_ENGINE_STR_REPLACE_ALL",
             rt_engine::__RTS_FN_NS_ENGINE_STR_REPLACE_ALL as *const u8,
         ),
+        sym(
+            "__RTS_FN_NS_ENGINE_STR_NORMALIZE",
+            rt_engine::__RTS_FN_NS_ENGINE_STR_NORMALIZE as *const u8,
+        ),
     ]
 }
 

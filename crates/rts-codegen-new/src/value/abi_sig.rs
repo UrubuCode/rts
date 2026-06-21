@@ -248,8 +248,8 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[Handle, I64, Handle],
             ret: Handle,
         },
-        // (s, other: string) -> string.
-        "__RTS_FN_NS_ENGINE_STR_CONCAT" => SymSig {
+        // (s, other/form: string) -> string.
+        "__RTS_FN_NS_ENGINE_STR_CONCAT" | "__RTS_FN_NS_ENGINE_STR_NORMALIZE" => SymSig {
             params: &[Handle, Handle],
             ret: Handle,
         },

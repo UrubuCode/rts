@@ -198,4 +198,8 @@ class String {
   replaceAll(from: string, to: string): string {
     return engine.str_replace_all(__str_val(this), from, to);
   }
+  // Unicode normalization (NFC/NFD/NFKC/NFKD); `form` defaults to "NFC".
+  normalize(form: string = "NFC"): string {
+    return engine.str_normalize(__str_val(this), form);
+  }
 }

@@ -42,6 +42,14 @@ unsafe extern "C" {
     fn __RTS_FN_GL_STRING_CONCAT(recv: u64, other: u64) -> u64;
     fn __RTS_FN_GL_STRING_REPLACE(recv: u64, from: u64, to: u64) -> u64;
     fn __RTS_FN_GL_STRING_REPLACE_ALL(recv: u64, from: u64, to: u64) -> u64;
+    fn __RTS_FN_GL_STRING_NORMALIZE(recv: u64, form_h: u64) -> u64;
+}
+
+/// `s.normalize(form?)` — Unicode normalization (NFC/NFD/NFKC/NFKD). Wraps
+/// GL_STRING_NORMALIZE; `form_h` is the form string handle (0 ⇒ NFC default).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_ENGINE_STR_NORMALIZE(s: u64, form_h: u64) -> Handle {
+    unsafe { __RTS_FN_GL_STRING_NORMALIZE(s, form_h) }
 }
 
 /// `s.toUpperCase()`. Wraps GL_STRING_TO_UPPER_CASE.
@@ -341,5 +349,13 @@ pub(super) fn register_members(b: ModuleBuilder<'_>) -> ModuleBuilder<'_> {
         "str_replace_all(s: string, from: string, to: string): string",
         "s.replaceAll(from, to). Wraps GL_STRING_REPLACE_ALL.",
         __RTS_FN_NS_ENGINE_STR_REPLACE_ALL as *const u8,
+    ))
+    .member(func(
+        "str_normalize",
+        "__RTS_FN_NS_ENGINE_STR_NORMALIZE",
+        sig!(Handle, Handle => Handle),
+        "str_normalize(s: string, form: string): string",
+        "s.normalize(form). Wraps GL_STRING_NORMALIZE.",
+        __RTS_FN_NS_ENGINE_STR_NORMALIZE as *const u8,
     ))
 }
