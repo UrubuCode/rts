@@ -139,6 +139,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return self.array_variadic_insert(module, object, method, args);
         }
 
+        // VARIADIC `concat(x, y, …)`: `__rtsadp_arr_concat` concatenates ONE operand
+        // (spreading an array arg, appending a non-array arg as one element) and
+        // returns a NEW array. Chain it over the args: acc = concat(acc, arg). 0/1
+        // args use the existing rows below.
+        if method == "concat" && argc > 1 {
+            return self.array_concat_variadic(module, object, args);
+        }
+
         let Some(spec) = resolve_method(RecvClass::Array, method, argc) else {
             return Err(crate::front::error::Unsupported::new(format!(
                 "no Registry entry for `Array.{method}({argc} args)` \
@@ -210,6 +218,36 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // Both return the new length (I64). The last call's result is the final length.
         let len = last.expect("push/unshift returns a length");
         Ok(Val::new(len, Repr::Int64))
+    }
+
+    /// Variadic `arr.concat(x, y, …)` — fold `__rtsadp_arr_concat` over the args,
+    /// chaining the (NEW array) result of each step as the receiver of the next:
+    /// `concat(concat(arr, x), y)`. Each step's `acc` is a TAG_OBJECT array word; it
+    /// is table-loaded to a Vec handle for the next call. The args themselves stay
+    /// boxed PolyValue words (the trampoline spreads an array arg, appends a scalar).
+    fn array_concat_variadic(
+        &mut self,
+        module: &mut dyn Module,
+        object: &HirExpr,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        // acc starts as the receiver array word.
+        let arr = self.lower_expr(module, object)?;
+        let mut acc_word = self.box_value(arr);
+        for a in args {
+            let v = self.lower_expr(module, a)?;
+            let arg_word = self.box_value(v);
+            let handle = emit_marshal::emit_table_load(module, self.builder, acc_word);
+            acc_word = emit_marshal::emit_call(
+                module,
+                self.builder,
+                "__rtsadp_arr_concat",
+                &[handle, arg_word],
+            )
+            .expect("__rtsadp_arr_concat returns an array word");
+        }
+        // The final accumulator is a TAG_OBJECT array word.
+        Ok(Val::tagged_kind(acc_word, super::lower::JsKind::Array))
     }
 
     /// Lower an Array CALLBACK method (`map`/`filter`/`forEach`/`find`/`findIndex`/
