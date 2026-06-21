@@ -221,6 +221,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(Val::tagged_kind(res, JsKind::Str));
         }
 
+        // `-0` is the one negation whose result an integer slot CANNOT hold: JS `-0`
+        // is the IEEE-754 negative zero (distinct from `+0` — `1/-0 === -Infinity`,
+        // `Object.is(0,-0) === false`). The literal-0 operand would otherwise lower
+        // to an Int32 `0`, and `ineg(0) == 0` loses the sign. Emit `f64const(-0.0)`
+        // directly so the sign survives. (`-x` for a non-literal-0 stays the int/f64
+        // path below — only the static `-0` form needs this.)
+        if matches!(op, HirUnOp::Neg) && is_literal_zero(operand) {
+            let v = self.builder.ins().f64const(-0.0);
+            return Ok(Val::new(v, Repr::Float64));
+        }
+
         let val = self.lower_expr(module, operand)?;
         match op {
             HirUnOp::Neg => match val.repr {
@@ -400,6 +411,16 @@ fn global_constant(name: &str) -> Option<GlobalConst> {
 /// The compile-time `typeof` string for a literal operand, when statically known.
 /// (Only literals fold; an identifier's runtime tag is inspected via the runtime
 /// op, which is always correct.)
+/// Whether `e` is the numeric literal `0` (any of the int/float/number forms) —
+/// the operand of a `-0` whose sign must survive as IEEE-754 negative zero.
+fn is_literal_zero(e: &HirExpr) -> bool {
+    match &e.kind {
+        HirExprKind::Lit(HirLit::Int(0)) => true,
+        HirExprKind::Lit(HirLit::Float(f)) | HirExprKind::Lit(HirLit::Number(f)) => *f == 0.0,
+        _ => false,
+    }
+}
+
 fn static_typeof(e: &HirExpr) -> Option<&'static str> {
     match &e.kind {
         HirExprKind::Lit(HirLit::Int(_))
