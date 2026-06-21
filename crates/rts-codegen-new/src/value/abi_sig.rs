@@ -461,12 +461,16 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, I64],
             ret: U64,
         },
-        "__rtsadp_arr_to_spliced" | "__rtsadp_arr_copy_within2" => SymSig {
+        "__rtsadp_arr_to_spliced" | "__rtsadp_arr_copy_within2" | "__rtsadp_arr_fill2" => SymSig {
             params: &[U64, I64, I64],
             ret: U64,
         },
-        "__rtsadp_arr_copy_within" => SymSig {
+        "__rtsadp_arr_copy_within" | "__rtsadp_arr_fill3" => SymSig {
             params: &[U64, I64, I64, I64],
+            ret: U64,
+        },
+        "__rtsadp_arr_copy_within1" => SymSig {
+            params: &[U64, I64],
             ret: U64,
         },
         "__rtsadp_arr_index_of_from" | "__rtsadp_arr_last_index_of_from" => SymSig {

@@ -342,6 +342,18 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
             "__rtsadp_arr_copy_within2",
             arrayops::__rtsadp_arr_copy_within2 as *const u8,
         ),
+        sym(
+            "__rtsadp_arr_copy_within1",
+            arrayops::__rtsadp_arr_copy_within1 as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_fill2",
+            arrayops::__rtsadp_arr_fill2 as *const u8,
+        ),
+        sym(
+            "__rtsadp_arr_fill3",
+            arrayops::__rtsadp_arr_fill3 as *const u8,
+        ),
         // ---- codegen-owned GLOBAL constant/function + Array/String STATIC
         //      trampolines (__rtsadp_g_* / __rtsadp_arr_* / __rtsadp_str_*, P5.2) ----
         sym(

@@ -190,6 +190,29 @@ pub extern "C" fn __rtsadp_arr_fill(vec_handle: u64, value_word: u64) -> u64 {
     box_self(vec_handle)
 }
 
+/// `arr.fill(value, start, end)` — fill `[start, end)` only (the range form).
+/// `start`/`end` follow JS index rules: negative counts from the end, then clamp
+/// to `[0, len]`. Mutates in place; returns the receiver's word. The 2-arg
+/// `fill(value, start)` form passes `end = len` via a dedicated row.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_fill3(vec_handle: u64, value_word: u64, start: i64, end: i64) -> u64 {
+    let len = vec_len(vec_handle);
+    let s = clamp_index(start, len);
+    let e = clamp_index(end, len);
+    for i in s..e {
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(vec_handle, i, value_word as i64);
+    }
+    box_self(vec_handle)
+}
+
+/// `arr.fill(value, start)` — fill `[start, len)`. Thin wrapper over `fill3` with
+/// `end = len` (kept as its own symbol so the 2-arg row needs no synthetic arg).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_fill2(vec_handle: u64, value_word: u64, start: i64) -> u64 {
+    let len = vec_len(vec_handle);
+    __rtsadp_arr_fill3(vec_handle, value_word, start, len)
+}
+
 /// `arr.concat(other)` — a NEW array (fresh `Entry::Vec`) with this array's
 /// elements followed by `other`'s, as boxed PolyValue words. `other_word` is the
 /// raw PolyValue word of the second array; if it is NOT an array word, it is
@@ -555,6 +578,12 @@ pub extern "C" fn __rtsadp_arr_copy_within(
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_arr_copy_within2(vec_handle: u64, target: i64, start: i64) -> u64 {
     __rtsadp_arr_copy_within(vec_handle, target, start, vec_len(vec_handle))
+}
+
+/// `arr.copyWithin(target)` — the 1-arg form (`start = 0`, `end = len`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_copy_within1(vec_handle: u64, target: i64) -> u64 {
+    __rtsadp_arr_copy_within(vec_handle, target, 0, vec_len(vec_handle))
 }
 
 impl PolyValue {
