@@ -12,14 +12,47 @@ class JSON {
     return __json_render(value, indent, 0);
   }
 
-  // JSON.parse(text) — recursive-descent parser over the primordials. Returns the
-  // parsed value (objects become plain object literals, arrays plain arrays).
-  static parse(text: string): any {
+  // JSON.parse(text[, reviver]) — recursive-descent parser over the primordials.
+  // With a `reviver`, the parsed tree is walked BOTTOM-UP (ECMAScript
+  // InternalizeJSONProperty): each property's value is replaced by
+  // `reviver(key, value)`; a returned `undefined` REMOVES the property. The root
+  // is wrapped in a `{ "": root }` holder and revived under key "".
+  static parse(text: string, reviver?: any): any {
     const p = new __JsonParser(text);
     const v = p.parseValue();
     p.skipWs();
+    if (typeof reviver === "function") {
+      return __jsonRevive(v, "", reviver);
+    }
     return v;
   }
+}
+
+// Walk `value` bottom-up, applying `reviver(key, child)` to every nested property
+// (objects) / element (arrays) first, then to `value` itself under `key`. A child
+// that revives to `undefined` is dropped (object: rebuilt without the key; array:
+// the slot is set to `undefined`, matching the spec's element behavior). `value`'s
+// final transform is `reviver(key, value)`.
+function __jsonRevive(value: any, key: string, reviver: any): any {
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      const revived = __jsonRevive(value[i], "" + i, reviver);
+      value[i] = revived; // a deleted array element becomes `undefined` (spec)
+    }
+  } else if (value !== null && typeof value === "object") {
+    const keys = Object.keys(value);
+    // Rebuild without the keys whose revived value is `undefined` (no `delete`).
+    const out: any = {};
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      const revived = __jsonRevive(value[k], k, reviver);
+      if (revived !== undefined) {
+        out[k] = revived;
+      }
+    }
+    value = out;
+  }
+  return reviver(key, value);
 }
 
 // ── stringify helpers (plain functions; the engine runs them generically) ──────
