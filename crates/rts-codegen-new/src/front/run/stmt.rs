@@ -66,6 +66,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 catch,
                 finally,
             } => self.lower_try(module, body, catch.as_ref(), finally.as_deref()),
+            HirStmt::Switch {
+                discriminant,
+                cases,
+            } => self.lower_switch(module, discriminant, cases),
             HirStmt::Raw(text) => unsupported!("unrecognized statement `{}`", text.trim()),
             other => unsupported!("statement {}", stmt_name(other)),
         }
