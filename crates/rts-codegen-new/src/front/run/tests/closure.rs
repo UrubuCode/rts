@@ -157,3 +157,16 @@ fn async_await_synchronous_model() {
         "15\n",
     );
 }
+
+#[test]
+fn inline_arrow_callback_reading_console() {
+    // An inline arrow CALLBACK that reads `console` (a prelude singleton) — the
+    // ubiquitous `xs.forEach(x => console.log(x))` / `ee.on(ev, v => console.log(v))`
+    // shape — must lift: `console` is an ambient prelude singleton (a gcell), NOT an
+    // unsound capture. Was "expression arrow" because the multi-file path's ambient
+    // set omitted prelude singletons.
+    assert_stdout(
+        "function call(f: (n: number) => void): void { f(7); } call((v: number) => console.log(v));",
+        "7\n",
+    );
+}
