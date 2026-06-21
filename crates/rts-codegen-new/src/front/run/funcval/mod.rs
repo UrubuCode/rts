@@ -71,22 +71,37 @@ pub fn module_globals(
     // written-free test can't fire on it), so plain user `const`s are unaffected.
     let mut top: Vec<String> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
+    // Top-level bindings whose initializer is a NON-LITERAL (a call/member/etc. that
+    // yields a RUNTIME value with identity — e.g. `const c = atomic.i64_new(0)`). A
+    // literal init (`let p = "hi-"`) is re-materializable / by-value-capturable, so a
+    // read-only closure capture handles it WITHOUT a cell; a runtime-value init read
+    // from a plain function cannot be re-materialized and MUST be a shared cell.
+    let mut runtime_init: HashSet<String> = HashSet::new();
     for s in &main.body {
-        let name = match s {
-            HirStmt::Let { name, .. } => name,
-            HirStmt::Const { name, .. } => name,
+        let (name, init) = match s {
+            HirStmt::Let { name, init, .. } => (name, init.as_ref()),
+            HirStmt::Const { name, init, .. } => (name, Some(init)),
             _ => continue,
         };
         if seen.insert(name.clone()) {
             top.push(name.clone());
+            if init.is_some_and(|e| !matches!(e.kind, HirExprKind::Lit(_))) {
+                runtime_init.insert(name.clone());
+            }
         }
     }
     if top.is_empty() {
         return HashMap::new();
     }
-    // Names written (free) inside SOME function: assigned, minus that fn's own
-    // params + declared locals (which shadow an outer name of the same spelling).
+    // Names written OR read (free) inside SOME function: minus that fn's own params
+    // + declared locals (which shadow an outer name of the same spelling). A
+    // top-level binding merely READ from a function must ALSO be a cell — a `const
+    // counter = atomic.i64_new(0)` read inside `function tally(){…counter…}` holds a
+    // RUNTIME value that cannot be re-materialized (the call has identity/side
+    // effects), so the function must read the SAME value via the cell, not bail
+    // unbound. (A numeric const pays a cell load, accepted for correctness.)
     let mut written_free: HashSet<String> = HashSet::new();
+    let mut read_free: HashSet<String> = HashSet::new();
     for f in funcs {
         let mut bound: HashSet<String> = f.params.iter().map(|p| p.name.clone()).collect();
         bound.extend(declared_names(&f.body));
@@ -95,15 +110,25 @@ pub fn module_globals(
                 written_free.insert(n);
             }
         }
+        let mut reads: HashSet<String> = HashSet::new();
+        let mut scope = bound.clone();
+        for s in &f.body {
+            collect_free_stmt(s, &mut scope, &mut reads);
+        }
+        read_free.extend(reads);
     }
     let mut map = HashMap::new();
     let mut id = 0u32;
     for name in top {
-        // Promote a top-level `let` to a runtime CELL when it is written from a
-        // function (the classic #195 case) OR force-promoted (`force`) — a top-level
-        // `let` that is mutated AND captured by a closure, whose by-value snapshot
-        // would be unsound, so it must be a live reference instead.
-        if written_free.contains(&name) || force.contains(&name) {
+        // Promote a top-level `let`/`const` to a runtime CELL when it is WRITTEN free
+        // from a function (the classic #195 mutable case) OR force-promoted, OR when
+        // it is READ free from a function AND its init is a runtime value (the
+        // read-only-shared-handle case, `const c = atomic.i64_new(0)`). A read-only
+        // LITERAL is left to the by-value closure-capture path (don't disturb it).
+        let promote = written_free.contains(&name)
+            || force.contains(&name)
+            || (read_free.contains(&name) && runtime_init.contains(&name));
+        if promote {
             map.insert(name, id);
             id += 1;
         }

@@ -130,3 +130,16 @@ fn capture_of_this_bails() {
     // `this` is not a simple capturable local. BAIL (no env entry for it).
     assert_bails("let g = (x: number) => x + this.k; console.log(g(1));");
 }
+
+#[test]
+fn top_level_runtime_const_read_in_function() {
+    // A top-level `const` initialized to a RUNTIME value (a CALL — not a
+    // re-materializable literal) read from inside a plain function resolves to the
+    // SAME value via a shared cell — was "unbound identifier `v`". A literal const
+    // stays on the by-value path (`capture_a_string`).
+    assert_stdout(
+        "function mk(): number { return 7; } const v = mk(); \
+         function rd(): number { return v + 1; } console.log(rd());",
+        "8\n",
+    );
+}
