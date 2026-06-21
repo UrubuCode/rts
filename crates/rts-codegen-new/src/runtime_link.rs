@@ -617,6 +617,10 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_obj_has", objops::__rtsadp_obj_has as *const u8),
         sym("__rtsadp_obj_values", objops::__rtsadp_obj_values as *const u8),
         sym("__rtsadp_obj_entries", objops::__rtsadp_obj_entries as *const u8),
+        sym(
+            "__rtsadp_obj_from_entries",
+            objops::__rtsadp_obj_from_entries as *const u8,
+        ),
         // NOTE: the wrapper ctors (`__rtsadp_w_{boolean,number,string}_new`) and the
         // Error-family trampolines are GONE — Boolean/Number/String/Error all
         // construct via their `.ts` prelude class (the user-class path). ToString for

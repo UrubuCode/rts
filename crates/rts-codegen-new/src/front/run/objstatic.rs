@@ -71,6 +71,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             "freeze" | "seal" | "preventExtensions" => self.object_freeze(module, args).map(Some),
             "is" => self.object_is(module, args).map(Some),
             "hasOwn" => self.object_has_own(module, args).map(Some),
+            "fromEntries" => self.object_from_entries(module, args).map(Some),
             other => unsupported!("Object.{other}(...) static method (later increment)"),
         }
     }
@@ -256,6 +257,34 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
     /// `Object.is(a, b)` — JS SameValue (`===` but NaN is NaN, +0 is not -0). Box
     /// both args and call the `__rtsadp_same_value` trampoline; result is a Bool.
+    /// `Object.fromEntries(entries)` — build an object from an array of `[k, v]`
+    /// pairs via `__rtsadp_obj_from_entries`. Requires a PROVEN-array source (a Map
+    /// source needs iteration — a later increment — so it BAILS honestly rather than
+    /// building an empty/wrong object).
+    fn object_from_entries(
+        &mut self,
+        module: &mut dyn Module,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        if args.len() != 1 {
+            return unsupported!("Object.fromEntries expects 1 arg, got {}", args.len());
+        }
+        // A proven array source: an array-valued expr OR an `Object.entries(...)`
+        // call (whose result is always a freshly-built array of pairs — the common
+        // round-trip `fromEntries(entries(o))`).
+        if !self.is_array_valued(&args[0]) && !self.is_object_static_array_expr(&args[0]) {
+            return unsupported!(
+                "Object.fromEntries with a non-array source (Map/iterator is a later increment)"
+            );
+        }
+        let v = self.lower_expr(module, &args[0])?;
+        let entries = self.box_value(v);
+        let res = self
+            .call_runtime(module, "__rtsadp_obj_from_entries", &[entries])?
+            .expect("__rtsadp_obj_from_entries returns an object word");
+        Ok(Val::tagged_kind(res, super::lower::JsKind::Object))
+    }
+
     /// `Object.hasOwn(obj, key)` — own-property membership (ES2022). Same runtime
     /// path as the `in` operator / `engine.obj_has`: box obj + key and call
     /// `__rtsadp_obj_has`, returning a Bool.

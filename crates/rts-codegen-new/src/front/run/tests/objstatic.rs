@@ -106,7 +106,19 @@ fn object_assign_adding_key_bails() {
 }
 
 #[test]
-fn object_from_entries_bails() {
-    // fromEntries is unimplemented — explicit bail.
-    assert_bails("let e = [[\"a\", 1]]; let o = Object.fromEntries(e); console.log(o.a);");
+fn object_from_entries_array_source() {
+    // fromEntries now builds an object from an array of [k, v] pairs (was a bail).
+    assert_stdout(
+        "let e = [[\"a\", 1], [\"b\", 2]]; let o = Object.fromEntries(e); console.log(o.a, o.b);",
+        "1 2\n",
+    );
+}
+
+#[test]
+fn object_from_entries_non_array_bails() {
+    // A non-array source (a Map/iterator) still needs iteration — explicit bail
+    // (honesty floor: no empty/wrong object). `m` is an `any` param of unknown shape.
+    assert_bails(
+        "function f(m: any): any { return Object.fromEntries(m); } console.log(f([[\"a\", 1]]));",
+    );
 }
