@@ -428,16 +428,66 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         rhs: &HirExpr,
     ) -> FrontResult<Val> {
         let l = self.lower_expr(module, lhs)?;
-        let r = self.lower_expr(module, rhs)?;
-        if !matches!(l.repr, Repr::Bool) || !matches!(r.repr, Repr::Bool) {
-            return unsupported!("logical {op:?} on non-boolean operands");
+        // Both operands PROVEN bool AND the rhs is side-effect-free: the branchless
+        // select fast path (evaluating rhs eagerly is observationally identical, and
+        // the result stays a proven Bool). A rhs with side effects (a CALL) must NOT
+        // take this path — `&&`/`||` short-circuit, so `false && f()` must NOT run
+        // `f()`; it falls through to the general short-circuit form below.
+        if matches!(l.repr, Repr::Bool) && is_effect_free(rhs) {
+            let r = self.lower_expr(module, rhs)?;
+            if matches!(r.repr, Repr::Bool) {
+                let v = match op {
+                    HirBinOp::LogAnd => self.builder.ins().select(l.v, r.v, l.v),
+                    HirBinOp::LogOr => self.builder.ins().select(l.v, l.v, r.v),
+                    _ => return unsupported!("logical op {op:?}"),
+                };
+                return Ok(Val::new(v, Repr::Bool));
+            }
+            // Mixed (bool && non-bool effect-free): fall through to the general form.
         }
-        let v = match op {
-            HirBinOp::LogAnd => self.builder.ins().select(l.v, r.v, l.v),
-            HirBinOp::LogOr => self.builder.ins().select(l.v, l.v, r.v),
+
+        // GENERAL JS `&&`/`||`: the result is one of the OPERANDS (not a bool), with
+        // true short-circuit — `b` is evaluated only when needed. `a && b` yields `b`
+        // when `a` is truthy else `a`; `a || b` yields `a` when truthy else `b`. The
+        // ToBoolean test is on `a`'s value; the carried result is the raw operand
+        // word (Tagged, since the two operands may differ in type).
+        let a_word = self.box_value(l);
+        // ToBoolean of `a` (Tagged) — `as_bool_value` routes a Tagged through
+        // `__rtsadp_to_boolean` (handles "", 0, null, undefined, NaN as falsy).
+        let a_tagged = Val::new(a_word, Repr::Tagged);
+        let a_truthy = self.as_bool_value(module, a_tagged)?;
+
+        let rhs_blk = self.builder.create_block();
+        let carry_blk = self.builder.create_block();
+        let join_blk = self.builder.create_block();
+        self.builder.append_block_param(join_blk, types::I64);
+
+        // `&&`: truthy → evaluate `b`; falsy → carry `a`. `||`: the reverse.
+        let (true_blk, false_blk) = match op {
+            HirBinOp::LogAnd => (rhs_blk, carry_blk),
+            HirBinOp::LogOr => (carry_blk, rhs_blk),
             _ => return unsupported!("logical op {op:?}"),
         };
-        Ok(Val::new(v, Repr::Bool))
+        self.builder
+            .ins()
+            .brif(a_truthy, true_blk, &[], false_blk, &[]);
+
+        // rhs branch: evaluate `b`, yield its word.
+        self.builder.switch_to_block(rhs_blk);
+        self.builder.seal_block(rhs_blk);
+        let b = self.lower_expr(module, rhs)?;
+        let b_word = self.box_value(b);
+        self.builder.ins().jump(join_blk, &[b_word.into()]);
+
+        // carry branch: yield `a`'s word unchanged.
+        self.builder.switch_to_block(carry_blk);
+        self.builder.seal_block(carry_blk);
+        self.builder.ins().jump(join_blk, &[a_word.into()]);
+
+        self.builder.switch_to_block(join_blk);
+        self.builder.seal_block(join_blk);
+        let res = self.builder.block_params(join_blk)[0];
+        Ok(Val::new(res, Repr::Tagged))
     }
 
     /// Nullish coalescing `a ?? b` — short-circuit: lower `a`; if its boxed word
@@ -538,6 +588,22 @@ pub(super) fn is_proven_string_expr(e: &HirExpr) -> bool {
             lhs,
             rhs,
         } => is_proven_string_expr(lhs) || is_proven_string_expr(rhs),
+        _ => false,
+    }
+}
+
+/// Whether `e` is CONSERVATIVELY side-effect-free — safe to evaluate eagerly in
+/// the `&&`/`||` bool fast path (a call/assignment/update MUST short-circuit, so it
+/// returns `false` for those). Literals, identifiers, member reads, and pure
+/// unary/binary combinations of effect-free operands qualify; anything that could
+/// run user code or mutate state does not.
+pub(super) fn is_effect_free(e: &HirExpr) -> bool {
+    use rts_hir::ir::HirExprKind;
+    match &e.kind {
+        HirExprKind::Lit(_) | HirExprKind::Ident(_) => true,
+        HirExprKind::Unary { operand, .. } => is_effect_free(operand),
+        HirExprKind::Bin { lhs, rhs, .. } => is_effect_free(lhs) && is_effect_free(rhs),
+        HirExprKind::Member { object, .. } => is_effect_free(object),
         _ => false,
     }
 }
