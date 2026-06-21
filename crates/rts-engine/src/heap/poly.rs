@@ -80,6 +80,11 @@ pub const POLY_TAG_OBJECT: u64 = 4;
 /// `crates/rts-codegen-new/src/value/layout.rs`; do not change without changing
 /// both.
 pub const POLY_TAG_FUNCTION: u64 = 5;
+/// Singleton tag (undefined/null/bool/hole/empty select via payload).
+pub const POLY_TAG_SINGLETON: u64 = 2;
+/// The `undefined` singleton word (`TAG_SINGLETON`, payload 0) — used to pad
+/// unread callback-arg slots in the `__rtsadp_fn_invoke` bridge.
+pub const POLY_UNDEFINED: u64 = POLY_BOX_BASE | (POLY_TAG_SINGLETON << POLY_TAG_SHIFT);
 
 /// If `c` is a NaN-boxed heap-handle word (boxed discriminator set AND tag ∈
 /// {STR, OBJECT, FUNCTION}), reconstruct the full real runtime handle for its

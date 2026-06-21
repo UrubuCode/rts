@@ -493,6 +493,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // already) — keep as-is, repr Bool.
                 Ok(Val::new(v, Repr::Bool))
             }
+            // A raw PolyValue word returned verbatim → keep it Tagged.
+            AbiType::PolyValue => {
+                Ok(Val::new(value.expect("PolyValue-returning symbol yields a value"), Repr::Tagged))
+            }
             AbiType::Void => {
                 let v = self
                     .builder

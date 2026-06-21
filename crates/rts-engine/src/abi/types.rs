@@ -29,6 +29,12 @@ pub enum AbiType {
     StrPtr,
     /// Opaque runtime handle (`u64`) produced by the GC namespace.
     Handle,
+    /// A raw 64-bit PolyValue word (NaN-boxed) carried across the ABI UNCHANGED —
+    /// no coercion, no unbox. Distinct from `Handle` (table-loads to a slot) and
+    /// `U64` (coerces to an integer): a `PolyValue` arg is the boxed word as-is.
+    /// Lets a backend receive a function-VALUE listener / an arbitrary value (the
+    /// EventEmitter/Proxy callback bridge) without losing its tag.
+    PolyValue,
 }
 
 impl AbiType {
