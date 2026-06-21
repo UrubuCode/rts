@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_error",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "__RUNTIME_ERROR__"
 }
 ,
@@ -2185,10 +2185,10 @@
 ,
 {
   "name": "87_modern_helpers",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "has=true\ncan=true",
   "node": "has=true\ncan=true",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "has=true\ncan=true"
 }
 ,
 {
@@ -4289,10 +4289,10 @@
 ,
 {
   "name": "297_void_operator",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "a=undefined\nb=undefined",
   "node": "a=undefined\nb=undefined",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "a=undefined\nb=undefined"
 }
 ,
 {
@@ -4577,10 +4577,10 @@
 ,
 {
   "name": "claude-void-operator",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "undefined\nundefined\nundefined\nundefined\ncalled\ntrue\nundefined\n6\n2\nundefined",
   "node": "undefined\nundefined\nundefined\nundefined\ncalled\ntrue\nundefined\n6\n2\nundefined",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "undefined\nundefined\nundefined\nundefined\ncalled\ntrue\nundefined\n6\n2\nundefined"
 }
 ,
 {
@@ -4761,10 +4761,10 @@
 ,
 {
   "name": "287_url_canparse",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "abs=true\nrel=true\nbad=false",
   "node": "abs=true\nrel=true\nbad=false",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "abs=true\nrel=true\nbad=false"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":176,"rts_diverge":51,"bun_node_diverge":17,"errors":365,"rejected":0}}
+],"summary":{"total":609,"pass":180,"rts_diverge":51,"bun_node_diverge":18,"errors":360,"rejected":0}}
