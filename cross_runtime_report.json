@@ -1001,10 +1001,10 @@
 ,
 {
   "name": "186_map_foreach",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "forEach=a:1,b:2,c:3\nsame=true\nsame=true\nsame=true\nset=1,2,3",
   "node": "forEach=a:1,b:2,c:3\nsame=true\nsame=true\nsame=true\nset=1,2,3",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "forEach=a:1,b:2,c:3\nsame=true\nsame=true\nsame=true\nset=1,2,3"
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_error",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "__RUNTIME_ERROR__"
 }
 ,
@@ -4377,10 +4377,10 @@
 ,
 {
   "name": "333_void_operator",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "undefined\nundefined\nundefined\nundefined\nundefined\ntrue\n2\n4\n6",
   "node": "undefined\nundefined\nundefined\nundefined\nundefined\ntrue\n2\n4\n6",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "undefined\nundefined\nundefined\nundefined\nundefined\ntrue\n2\n4\n6"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":180,"rts_diverge":51,"bun_node_diverge":18,"errors":360,"rejected":0}}
+],"summary":{"total":609,"pass":182,"rts_diverge":51,"bun_node_diverge":17,"errors":359,"rejected":0}}
