@@ -307,6 +307,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirBinOp::Exp => "__rtsadp_pow",
             _ => return unsupported!("generic arithmetic op {op:?}"),
         };
+        let (lk, rk) = (l.kind, r.kind);
         let ba = self.box_value(l);
         let bb = self.box_value(r);
         let res = self
@@ -316,8 +317,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // (only `+` can yield a string via concatenation). Recording the proven
         // `Number` kind lets a following `x%2 === 0` see same-kind operands and
         // lower the strict-eq soundly instead of bailing on Unknown.
+        //
+        // For `+`: if EITHER operand is a PROVEN string, the result is PROVEN a
+        // string — JS `string + x` ToString-concats `x` (and `x + string` too), so
+        // the concat result is a string regardless of the other operand. Recording
+        // `Str` lets `(v + "\n").length` / string methods on the concat result
+        // dispatch instead of bailing "unproven shape". Otherwise (number-add vs
+        // concat depends on runtime types) it stays Unknown.
         let kind = if matches!(op, HirBinOp::Add) {
-            JsKind::Unknown
+            if matches!(lk, JsKind::Str) || matches!(rk, JsKind::Str) {
+                JsKind::Str
+            } else {
+                JsKind::Unknown
+            }
         } else {
             JsKind::Number
         };
@@ -504,7 +516,7 @@ pub(super) fn is_int_repr(r: Repr) -> bool {
 /// concatenation). Used to allow `string + array/object` (pure concatenation via
 /// `String(...)`), which is well-defined, while still bailing the true ToPrimitive
 /// `array + array` case.
-fn is_proven_string_expr(e: &HirExpr) -> bool {
+pub(super) fn is_proven_string_expr(e: &HirExpr) -> bool {
     use rts_hir::ir::{HirExprKind, HirLit};
     if matches!(e.ty, rts_hir::HirType::Str) {
         return true;

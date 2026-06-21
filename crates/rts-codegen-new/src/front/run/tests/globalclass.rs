@@ -310,3 +310,14 @@ fn text_encoder_decoder_roundtrip() {
         "hello\n",
     );
 }
+
+#[test]
+fn concat_result_is_proven_string() {
+    // JS `string + x` ToString-concats → the result is a proven string, so
+    // `.length` / string methods on a `+`-concat chain dispatch (was "unproven
+    // shape"). Either operand being a proven string proves the whole concat.
+    assert_stdout(
+        r#"function p(v: string): void { console.log((v + "!").length); } p("hi");"#,
+        "3\n",
+    );
+}
