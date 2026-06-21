@@ -275,6 +275,10 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
             arrayops::__rtsadp_arr_concat as *const u8,
         ),
         sym(
+            "__rtsadp_arr_splice",
+            arrayops::__rtsadp_arr_splice as *const u8,
+        ),
+        sym(
             "__rtsadp_arr_flat",
             arrayops::__rtsadp_arr_flat as *const u8,
         ),

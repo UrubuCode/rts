@@ -500,6 +500,20 @@ pub extern "C" fn __rtsadp_arr_to_spliced(vec_handle: u64, start: i64, delete_co
     PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(new_vec)).raw()
 }
 
+/// `arr.splice(start, deleteCount?, ...items)` (MUTATING) — remove `deleteCount`
+/// elements at `start` and insert `items`, returning a NEW array of the removed
+/// elements. `args_word` is a TAG_OBJECT array word holding `[start, deleteCount?,
+/// ...items]` (the lowering packs the variadic args). Delegates to the runtime
+/// `VEC_SPLICE_AUTO` (both the receiver and the args ride real Vec handles; the
+/// element words are raw `i64` PolyValue words on both sides).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_splice(vec_handle: u64, args_handle: u64) -> u64 {
+    // Both `vec_handle` and `args_handle` are REAL Vec handles (the lowering
+    // table-loads the receiver and the packed args array before the call).
+    let removed = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SPLICE_AUTO(vec_handle, args_handle);
+    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(removed)).raw()
+}
+
 /// `arr.copyWithin(target, start, end)` — copy the slice `[start, end)` to `target`,
 /// IN PLACE, returning the receiver word (JS clamps all three; the copy is shift-
 /// safe via a snapshot of the source range). Arity-2 (`copyWithin(target, start)`)

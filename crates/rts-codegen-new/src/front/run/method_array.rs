@@ -147,6 +147,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return self.array_concat_variadic(module, object, args);
         }
 
+        // `splice(start, deleteCount?, ...items)` (MUTATING, variadic): pack the
+        // args into an array word `[start, deleteCount?, ...items]` and delegate to
+        // `__rtsadp_arr_splice` (→ runtime VEC_SPLICE_AUTO). Returns the removed
+        // elements as a NEW array. Any arity (1+) routes here.
+        if method == "splice" && argc >= 1 {
+            return self.array_splice(module, object, args);
+        }
+
         let Some(spec) = resolve_method(RecvClass::Array, method, argc) else {
             return Err(crate::front::error::Unsupported::new(format!(
                 "no Registry entry for `Array.{method}({argc} args)` \
@@ -248,6 +256,43 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
         // The final accumulator is a TAG_OBJECT array word.
         Ok(Val::tagged_kind(acc_word, super::lower::JsKind::Array))
+    }
+
+    /// `arr.splice(start, deleteCount?, ...items)` (MUTATING). Build an args array
+    /// `[start, deleteCount?, ...items]` (each boxed to a PolyValue word), then call
+    /// `__rtsadp_arr_splice(receiver_handle, args_array)`. Returns the removed
+    /// elements as a NEW array.
+    fn array_splice(
+        &mut self,
+        module: &mut dyn Module,
+        object: &HirExpr,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        // Build the args array. The runtime `VEC_SPLICE_AUTO` reads each slot as a
+        // raw `i64`: slots 0/1 (start, deleteCount) are INDICES → coerce to Int64
+        // (the raw integer, not a boxed PolyValue, or the index would be garbage);
+        // slots 2+ (items) are ELEMENTS → boxed PolyValue words (the array element
+        // convention).
+        let args_arr = emit_marshal::emit_new_vec_object(module, self.builder);
+        for (i, a) in args.iter().enumerate() {
+            let v = self.lower_expr(module, a)?;
+            let w = if i < 2 {
+                self.coerce(v, Repr::Int64)?
+            } else {
+                self.box_value(v)
+            };
+            emit_marshal::emit_vec_push(module, self.builder, args_arr, w);
+        }
+        // Receiver → its real Vec handle. The args array (a TAG_OBJECT word) is also
+        // table-loaded to its real Vec handle (the trampoline takes two handles).
+        let args_handle = emit_marshal::emit_table_load(module, self.builder, args_arr);
+        let recv = self.lower_expr(module, object)?;
+        let recv_word = self.box_value(recv);
+        let handle = emit_marshal::emit_table_load(module, self.builder, recv_word);
+        let removed = self
+            .call_runtime(module, "__rtsadp_arr_splice", &[handle, args_handle])?
+            .expect("__rtsadp_arr_splice returns an array word");
+        Ok(Val::tagged_kind(removed, super::lower::JsKind::Array))
     }
 
     /// Lower an Array CALLBACK method (`map`/`filter`/`forEach`/`find`/`findIndex`/
