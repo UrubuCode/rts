@@ -72,6 +72,7 @@ mod globals;
 mod heap_field;
 mod inspect;
 mod instanceof_dyn;
+mod claude_backfill;
 mod logical;
 mod loops;
 mod math_tagged;
