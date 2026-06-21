@@ -961,10 +961,10 @@
 ,
 {
   "name": "codex_instanceof_custom_hasinstance",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "true\nfalse\nfalse",
   "node": "true\nfalse\nfalse",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "false\nfalse\nfalse"
 }
 ,
 {
@@ -1913,10 +1913,10 @@
 ,
 {
   "name": "codex_json_tojson_replacer_interaction",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number",
   "node": "{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "{\"a\":1,\"child\":{}}"
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_error",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "__RUNTIME_ERROR__"
 }
 ,
@@ -2185,10 +2185,10 @@
 ,
 {
   "name": "87_modern_helpers",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "has=true\ncan=true",
   "node": "has=true\ncan=true",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "has=true\ncan=true"
 }
 ,
 {
@@ -2521,10 +2521,10 @@
 ,
 {
   "name": "claude-switch-strict-no-coercion",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "num one\nstr one\nbool true\nbool true\nnull\nundefined\nnum one\nstr one\nother",
   "node": "num one\nstr one\nbool true\nbool true\nnull\nundefined\nnum one\nstr one\nother",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "num one\nstr one\nbool true\nbool true\nnull\nundefined\nnum one\nstr one\nother"
 }
 ,
 {
@@ -3625,10 +3625,10 @@
 ,
 {
   "name": "04_switch_strings",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "color(red)=1\ncolor(green)=2\ncolor(yellow)=0\npriority(high)=important\npriority(urgent)=important\npriority(low)=minor\npriority(med)=normal",
   "node": "color(red)=1\ncolor(green)=2\ncolor(yellow)=0\npriority(high)=important\npriority(urgent)=important\npriority(low)=minor\npriority(med)=normal",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "color(red)=1\ncolor(green)=2\ncolor(yellow)=0\npriority(high)=important\npriority(urgent)=important\npriority(low)=minor\npriority(med)=normal"
 }
 ,
 {
@@ -4161,10 +4161,10 @@
 ,
 {
   "name": "01_logical_truthy",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "'' || 'fb'=fb\n'a' || 'fb'=a\n'' && 'x'=\n'a' && 'x'=x\n'' ? 'y' : 'n'=n\n'a' ? 'y' : 'n'=y\n0 ? 'y' : 'n'=n\n1 ? 'y' : 'n'=y\nnull ? 'y' : 'n'=n\n'   ' ? 'y' : 'n'=y\nchain=fb\nprec='a' || 'b' && 'c'=a\nprec='' || 'x' && 'y'=y",
   "node": "'' || 'fb'=fb\n'a' || 'fb'=a\n'' && 'x'=\n'a' && 'x'=x\n'' ? 'y' : 'n'=n\n'a' ? 'y' : 'n'=y\n0 ? 'y' : 'n'=n\n1 ? 'y' : 'n'=y\nnull ? 'y' : 'n'=n\n'   ' ? 'y' : 'n'=y\nchain=fb\nprec='a' || 'b' && 'c'=a\nprec='' || 'x' && 'y'=y",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "'' || 'fb'=fb\n'a' || 'fb'=a\n'' && 'x'=\n'a' && 'x'=x\n'' ? 'y' : 'n'=n\n'a' ? 'y' : 'n'=y\n0 ? 'y' : 'n'=n\n1 ? 'y' : 'n'=y\nnull ? 'y' : 'n'=n\n'   ' ? 'y' : 'n'=y\nchain=fb\nprec='a' || 'b' && 'c'=a\nprec='' || 'x' && 'y'=y"
 }
 ,
 {
@@ -4289,10 +4289,10 @@
 ,
 {
   "name": "297_void_operator",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "a=undefined\nb=undefined",
   "node": "a=undefined\nb=undefined",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "a=undefined\nb=undefined"
 }
 ,
 {
@@ -4473,10 +4473,10 @@
 ,
 {
   "name": "401_switch_strict_equality_edges",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "zero\nzero\nstr-zero\nfalse\nnan-default",
   "node": "zero\nzero\nstr-zero\nfalse\nnan-default",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "zero\nzero\nstr-zero\nfalse\nnan-default"
 }
 ,
 {
@@ -4569,18 +4569,18 @@
 ,
 {
   "name": "claude-short-circuit-no-eval",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "false\nA\ntrue\nA,C\n9\nA,C,E,F\n0\nA,C,E,F,G",
   "node": "false\nA\ntrue\nA,C\n9\nA,C,E,F\n0\nA,C,E,F,G",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "false\nA\ntrue\nA,C\n9\nA,C,E,F\n0\nA,C,E,F,G"
 }
 ,
 {
   "name": "claude-void-operator",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "undefined\nundefined\nundefined\nundefined\ncalled\ntrue\nundefined\n6\n2\nundefined",
   "node": "undefined\nundefined\nundefined\nundefined\ncalled\ntrue\nundefined\n6\n2\nundefined",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "undefined\nundefined\nundefined\nundefined\ncalled\ntrue\nundefined\n6\n2\nundefined"
 }
 ,
 {
@@ -4761,10 +4761,10 @@
 ,
 {
   "name": "287_url_canparse",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "abs=true\nrel=true\nbad=false",
   "node": "abs=true\nrel=true\nbad=false",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "abs=true\nrel=true\nbad=false"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":171,"rts_diverge":49,"bun_node_diverge":17,"errors":372,"rejected":0}}
+],"summary":{"total":609,"pass":180,"rts_diverge":51,"bun_node_diverge":18,"errors":360,"rejected":0}}
