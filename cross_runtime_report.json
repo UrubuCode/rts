@@ -2289,10 +2289,10 @@
 ,
 {
   "name": "19_bitwise_ops",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "and=2\nor=7\nxor=5\nnot0=-1\nlsh=20\nrsh=-4\ntrunc=3\nhi_bit=-2147483648\nmix=3:-5",
   "node": "and=2\nor=7\nxor=5\nnot0=-1\nlsh=20\nrsh=-4\ntrunc=3\nhi_bit=-2147483648\nmix=3:-5",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "and=2\nor=7\nxor=5\nnot0=-1\nlsh=20\nrsh=-4\ntrunc=3\nhi_bit=-2147483648\nmix=3:-5"
 }
 ,
 {
@@ -2409,10 +2409,10 @@
 ,
 {
   "name": "claude-boolean-arithmetic-coercion",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "2\n1\n0\n2\n10\n3\n0\n1\n6\ntruefalse",
   "node": "2\n1\n0\n2\n10\n3\n0\n1\n6\ntruefalse",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "2\n1\n0\n2\n10\n3\n0\n1\n6\ntruefalse"
 }
 ,
 {
@@ -2513,10 +2513,10 @@
 ,
 {
   "name": "claude-plus-null-undefined-coercion",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "NaN\n1\nNaN\n0\nNaN\n2\n0",
   "node": "NaN\n1\nNaN\n0\nNaN\n2\n0",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "1nullundefined\n1null\n1undefined\nnullnull\nundefined1\n2\nfalsenull"
 }
 ,
 {
@@ -2553,10 +2553,10 @@
 ,
 {
   "name": "claude-unary-minus-coercion",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "-5\n5\n-1\n-0\n-0\n-0\nNaN\n-0\n-5\nNaN\n3\n-16",
   "node": "-5\n5\n-1\n-0\n-0\n-0\nNaN\n-0\n-5\nNaN\n3\n-16",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "-5\n5\n-1\n0\n0\n0\nNaN\nNaN\nNaN\nNaN\n3\n-16"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":169,"rts_diverge":47,"bun_node_diverge":17,"errors":376,"rejected":0}}
+],"summary":{"total":609,"pass":171,"rts_diverge":49,"bun_node_diverge":17,"errors":372,"rejected":0}}
