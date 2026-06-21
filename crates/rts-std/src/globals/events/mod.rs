@@ -145,6 +145,27 @@ pub extern "C" fn __RTS_FN_GL_EE_OFF(
 /// ACCESS_VIOLATION. Fn nomeada / arrow sem captura = raw ptr → fast path.
 #[inline]
 fn invoke_listener(fn_ptr: u64, arg_f64: f64) {
+    use rts_engine::heap::poly::{POLY_BOX_BASE, POLY_TAG_FUNCTION, POLY_TAG_SHIFT, POLY_UNDEFINED};
+    // (callback-from-runtime bridge) The new engine passes a listener as a
+    // PolyValue FUNCTION word (`(w & BOX_BASE)==BOX_BASE && tag==FUNCTION`), not a
+    // raw code ptr nor an `Entry::Function` handle. Invoke it through the codegen
+    // `__rtsadp_fn_invoke` thunk (JIT-installed) — boxing the numeric arg as an
+    // inline-double PolyValue. Transmuting the word as a `fn(f64)` here was the
+    // ACCESS_VIOLATION. Older raw-ptr / handle listeners keep the paths below.
+    let is_poly_fn = (fn_ptr & POLY_BOX_BASE) == POLY_BOX_BASE
+        && ((fn_ptr >> POLY_TAG_SHIFT) & 0x7) == POLY_TAG_FUNCTION;
+    if is_poly_fn {
+        let arg_word = arg_f64.to_bits();
+        crate::gc_surface::__rtsadp_fn_invoke(
+            fn_ptr,
+            arg_word,
+            POLY_UNDEFINED,
+            POLY_UNDEFINED,
+            POLY_UNDEFINED,
+            POLY_UNDEFINED,
+        );
+        return;
+    }
     let is_handle = rts_engine::heap::handles::with_entry(fn_ptr, |e| {
         matches!(e, Some(rts_engine::heap::handles::Entry::Function(_)))
     });
@@ -361,7 +382,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "on",
             MemberKind::InstanceMethod,
             Sig::new(
-                vec![AbiType::Handle, AbiType::StrPtr, AbiType::U64],
+                vec![AbiType::Handle, AbiType::StrPtr, AbiType::PolyValue],
                 AbiType::Handle,
             ),
             "__RTS_FN_GL_EE_ON",
@@ -374,7 +395,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "once",
             MemberKind::InstanceMethod,
             Sig::new(
-                vec![AbiType::Handle, AbiType::StrPtr, AbiType::U64],
+                vec![AbiType::Handle, AbiType::StrPtr, AbiType::PolyValue],
                 AbiType::Handle,
             ),
             "__RTS_FN_GL_EE_ONCE",
@@ -387,7 +408,7 @@ pub fn register_class_spec(e: &mut Engine) {
             "off",
             MemberKind::InstanceMethod,
             Sig::new(
-                vec![AbiType::Handle, AbiType::StrPtr, AbiType::U64],
+                vec![AbiType::Handle, AbiType::StrPtr, AbiType::PolyValue],
                 AbiType::Handle,
             ),
             "__RTS_FN_GL_EE_OFF",

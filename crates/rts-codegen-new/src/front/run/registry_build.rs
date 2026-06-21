@@ -109,6 +109,10 @@ pub(super) static REGISTER: &[Register] = &[
     // syntax): `new TextEncoder().encode(s)` → Uint8Array handle, `decode(h)` → str.
     Register { label: "TextEncoder class", run: ns::globals::text_encoding::register_text_encoder_class_spec, why: "TextEncoder ctor + encode" },
     Register { label: "TextDecoder class", run: ns::globals::text_encoding::register_text_decoder_class_spec, why: "TextDecoder ctor + decode" },
+    // `EventEmitter` — backend/Registry class: `new EventEmitter([async])` + on/once/
+    // off/emit. The listener arg is a function-VALUE the backend invokes via the
+    // codegen `__rtsadp_fn_invoke` callback bridge (JIT-installed).
+    Register { label: "EventEmitter class", run: ns::globals::events::register_class_spec, why: "EventEmitter ctor + on/emit" },
 ];
 
 /// One `.ts` prelude include, in DEPENDENCY ORDER (base before dependent).

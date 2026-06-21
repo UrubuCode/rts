@@ -22,4 +22,18 @@ unsafe extern "C" {
     pub safe fn __RTS_FN_NS_GC_GEN_SM_DRAIN(h: u64) -> u64;
     /// Truthiness JS de um valor i64/handle (0 = falsy). (`gc::string_pool`)
     pub safe fn __RTS_FN_RT_TRUTHY(value: i64) -> i64;
+    /// (callback-from-runtime bridge) Invoca uma FUNCAO-VALOR JS (palavra PolyValue
+    /// TAG_FUNCTION) com 4 args PolyValue + rest, retornando uma palavra PolyValue.
+    /// Codegen-owned (`value::funcops`), instalado no JIT symbol table. Permite a um
+    /// backend (EventEmitter/Proxy/…) chamar de volta um callback armazenado, sem
+    /// transmutar a palavra como ponteiro de codigo (que crashava). JIT-only por ora
+    /// (o simbolo nao esta no archive AOT — async/paralelo real e' redesign limpo).
+    pub safe fn __rtsadp_fn_invoke(
+        fn_word: u64,
+        a0: u64,
+        a1: u64,
+        a2: u64,
+        a3: u64,
+        rest: u64,
+    ) -> u64;
 }

@@ -105,6 +105,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // of an arbitrary value at a typed boundary is a later increment).
                 out.push(self.coerce(val, Repr::Bool)?);
             }
+            AbiType::PolyValue => {
+                // Raw NaN-boxed word, verbatim — a function-VALUE listener / any
+                // value the backend stores + invokes via the callback bridge keeps
+                // its tag (no coerce, no table-load).
+                out.push(self.box_value(val));
+            }
             AbiType::Void => return unsupported!("Void is not a valid argument type"),
         }
         Ok(())
@@ -161,6 +167,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 Val::new(v, Repr::Int64)
             }
             AbiType::Bool => Val::new(res.expect("bool return"), Repr::Bool),
+            AbiType::PolyValue => {
+                // The runtime returned a raw PolyValue word verbatim — keep it Tagged.
+                Val::new(res.expect("PolyValue return"), Repr::Tagged)
+            }
             AbiType::StrPtr => {
                 // No runtime symbol RETURNS a StrPtr (it is not `is_returnable`);
                 // a string result always comes back as a `Handle`.

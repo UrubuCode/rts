@@ -299,6 +299,8 @@ fn abi_accepts_kind(abi: AbiType, kind: JsKind) -> bool {
         AbiType::Handle => matches!(kind, JsKind::Str | JsKind::Object),
         AbiType::F64 | AbiType::I64 | AbiType::U64 | AbiType::I32 => matches!(kind, JsKind::Number),
         AbiType::Bool => matches!(kind, JsKind::Bool),
+        // A raw PolyValue param carries any value verbatim — accepts any kind.
+        AbiType::PolyValue => true,
         AbiType::Void => false,
     }
 }

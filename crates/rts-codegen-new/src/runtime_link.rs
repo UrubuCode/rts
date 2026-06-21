@@ -485,6 +485,15 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
             rts_runtime::namespaces::globals::text_encoding::instance::__RTS_FN_GL_TEXTDEC_DECODE_INSTANCE
                 as *const u8,
         ),
+        // EventEmitter class ctor + on/once/off/emit (the listener is a function
+        // VALUE the backend invokes via the `__rtsadp_fn_invoke` callback bridge).
+        sym("__RTS_FN_GL_EE_NEW", rts_runtime::namespaces::globals::events::__RTS_FN_GL_EE_NEW as *const u8),
+        sym("__RTS_FN_GL_EE_NEW_ASYNC", rts_runtime::namespaces::globals::events::__RTS_FN_GL_EE_NEW_ASYNC as *const u8),
+        sym("__RTS_FN_GL_EE_ON", rts_runtime::namespaces::globals::events::__RTS_FN_GL_EE_ON as *const u8),
+        sym("__RTS_FN_GL_EE_ONCE", rts_runtime::namespaces::globals::events::__RTS_FN_GL_EE_ONCE as *const u8),
+        sym("__RTS_FN_GL_EE_OFF", rts_runtime::namespaces::globals::events::__RTS_FN_GL_EE_OFF as *const u8),
+        sym("__RTS_FN_GL_EE_EMIT", rts_runtime::namespaces::globals::events::__RTS_FN_GL_EE_EMIT as *const u8),
+        sym("__RTS_FN_GL_EE_FREE", rts_runtime::namespaces::globals::events::__RTS_FN_GL_EE_FREE as *const u8),
         // ---- codegen-owned FUNCTION-value trampolines (__rtsadp_fn_*, P4.6) ----
         sym("__rtsadp_fn_reify", funcops::__rtsadp_fn_reify as *const u8),
         sym(

@@ -33,8 +33,10 @@ fn scalar_to_cl(ty: AbiType) -> types::Type {
     match ty {
         AbiType::F64 => types::F64,
         AbiType::I32 => types::I32,
-        // Bool/I64/U64/Handle all ride an i64 register at the boundary.
-        AbiType::Bool | AbiType::I64 | AbiType::U64 | AbiType::Handle => types::I64,
+        // Bool/I64/U64/Handle/PolyValue all ride an i64 register at the boundary.
+        AbiType::Bool | AbiType::I64 | AbiType::U64 | AbiType::Handle | AbiType::PolyValue => {
+            types::I64
+        }
         AbiType::StrPtr => unreachable!("StrPtr must be expanded before scalar_to_cl"),
         AbiType::Void => unreachable!("Void has no Cranelift slot"),
     }
