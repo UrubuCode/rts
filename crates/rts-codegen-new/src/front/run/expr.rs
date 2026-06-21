@@ -241,6 +241,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
         let val = self.lower_expr(module, operand)?;
         match op {
+            // A Bool operand ToNumbers to 0/1 first (`-true === -1`): coerce to Int32
+            // (a pure reinterpret — Bool is already i64 0/1), then `ineg`.
+            HirUnOp::Neg if matches!(val.repr, Repr::Bool) => {
+                let iv = self.coerce(val, Repr::Int32)?;
+                let v = self.builder.ins().ineg(iv);
+                Ok(Val::new(v, Repr::Int32))
+            }
             HirUnOp::Neg => match val.repr {
                 Repr::Float64 => {
                     let v = self.builder.ins().fneg(val.v);
@@ -262,6 +269,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             },
             // `~` (ToInt32 then bitwise NOT). Native for proven ints; generic for
             // Tagged. swc maps `~` to `BitNot` UNAMBIGUOUSLY, so this is sound.
+            // `~` is ToInt32-then-bitwise-NOT: a Bool (0/1) or Float64 operand first
+            // coerces to Int32 (`~true === -2`, `~1.5 === -2` via truncation), then
+            // `bnot`.
+            HirUnOp::BitNot if matches!(val.repr, Repr::Bool | Repr::Float64) => {
+                let iv = self.coerce(val, Repr::Int32)?;
+                let v = self.builder.ins().bnot(iv);
+                Ok(Val::new(v, Repr::Int32))
+            }
             HirUnOp::BitNot => match val.repr {
                 Repr::Int32 | Repr::Int64 => {
                     let v = self.builder.ins().bnot(val.v);
