@@ -321,10 +321,10 @@
 ,
 {
   "name": "258_array_flatmap",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "basic=1,10,2,20,3,30\nempty=2\nscalar=2,3,4\nnested=[1,2]|[2,3]",
   "node": "basic=1,10,2,20,3,30\nempty=2\nscalar=2,3,4\nnested=[1,2]|[2,3]",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "basic=1,10,2,20,3,30\nempty=2\nscalar=2,3,4\nnested=[1,2]|[2,3]"
 }
 ,
 {
@@ -609,10 +609,10 @@
 ,
 {
   "name": "codex_sparse_array_spread_vs_from",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "0:undefined,1:x,2:undefined\n0:undefined,1:x,2:undefined\n0,1,2\n1",
   "node": "0:undefined,1:x,2:undefined\n0:undefined,1:x,2:undefined\n0,1,2\n1",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "0:undefined,1:x,2:undefined\n0:undefined,1:x,2:undefined"
 }
 ,
 {
@@ -1665,10 +1665,10 @@
 ,
 {
   "name": "275_generator_yieldstar",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "steps=1:false|2:false|10:false|11:true",
   "node": "steps=1:false|2:false|10:false|11:true",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "steps=1:false|2:false|10:false|11:true"
 }
 ,
 {
@@ -2121,10 +2121,10 @@
 ,
 {
   "name": "353_obf_xor_decode",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "hello\nw\u007fjl|\noddeeeAadd\nJavaScript\nhello RTS\nRTS runs",
   "node": "hello\nw\u007fjl|\noddeeeAadd\nJavaScript\nhello RTS\nRTS runs",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "hello\nw\u007fjl|\noddeeeAadd\nJavaScript\nhello RTS\nRTS runs"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":153,"rts_diverge":44,"bun_node_diverge":17,"errors":395,"rejected":0}}
+],"summary":{"total":609,"pass":156,"rts_diverge":45,"bun_node_diverge":17,"errors":391,"rejected":0}}
