@@ -47,6 +47,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             } => self.lower_method_call(module, object, method, args),
             HirExprKind::Member { object, prop } => self.lower_member(module, object, prop),
             HirExprKind::Index { object, index } => self.lower_index(module, object, index),
+            // `await <expr>` — SYNCHRONOUS model (the new engine has no event loop /
+            // parallel async yet; the real-suspension state-machine is disabled, to be
+            // redesigned cleanly). An `async` fn body runs synchronously and returns
+            // its value directly (not a Promise wrapper), so `await x` is the value of
+            // `x`: await on a non-thenable yields the value, and a resolved-sync result
+            // needs no suspension. Real pending Promises (timers/IO) are a follow-up.
+            HirExprKind::Await(inner) => self.lower_expr(module, inner),
             HirExprKind::New { class, args } => {
                 // `new Array(n)` is the built-in Array constructor (not a user
                 // class) → a sized array value (P5.2).
