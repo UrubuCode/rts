@@ -1,6 +1,6 @@
-//! Backfill unit tests for fixes that shipped validated by manual repros but
-//! without persisted tests (the `tests/` "Testing creativity" rule). Each block
-//! covers the normal path plus a variation (chained, nested, edge value).
+//! Builtin behavior regression tests: Array mutation/variadic ops, Object statics,
+//! String Unicode methods, Error cause, JSON reviver, boolean ToNumber, and `-0`.
+//! Each block covers the normal path plus a variation (chained, nested, edge value).
 
 use super::{assert_bails, assert_stdout};
 
