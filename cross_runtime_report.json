@@ -500,7 +500,7 @@
   "status": "rts_diverge",
   "bun": "-1\ntrue\n-1\n0\n0\ntrue\ntrue\n-Infinity",
   "node": "-1\ntrue\n-1\n0\n0\ntrue\ntrue\n-Infinity",
-  "rts": "-1\nfalse\n-1\n0\n0\ntrue\ntrue\nInfinity"
+  "rts": "-1\nfalse\n-1\n0\n0\ntrue\ntrue\n-Infinity"
 }
 ,
 {
@@ -2353,10 +2353,10 @@
 ,
 {
   "name": "46_number_format_edges",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "fixed_nan=NaN\nfixed_inf=Infinity\nprec_small=0.000123\nprec_big=1.235e+5\nexp_pos=1.23e+1\nexp_neg=-1.2e+1\nradix36=2n9c\nneg_zero=false:0",
   "node": "fixed_nan=NaN\nfixed_inf=Infinity\nprec_small=0.000123\nprec_big=1.235e+5\nexp_pos=1.23e+1\nexp_neg=-1.2e+1\nradix36=2n9c\nneg_zero=false:0",
-  "rts": "fixed_nan=NaN\nfixed_inf=Infinity\nprec_small=0.000123\nprec_big=1.235e+5\nexp_pos=1.23e+1\nexp_neg=-1.2e+1\nradix36=2n9c\nneg_zero=true:0"
+  "rts": "fixed_nan=NaN\nfixed_inf=Infinity\nprec_small=0.000123\nprec_big=1.235e+5\nexp_pos=1.23e+1\nexp_neg=-1.2e+1\nradix36=2n9c\nneg_zero=false:0"
 }
 ,
 {
@@ -2372,7 +2372,7 @@
   "status": "rts_diverge",
   "bun": "is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=nan\nmap_zero=neg\nset_size=2",
   "node": "is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=nan\nmap_zero=neg\nset_size=2",
-  "rts": "is_nan=true\nis_neg0=true\ndiv_neg0=Infinity\nsign_neg0=0\nmap_nan=undefined\nmap_zero=neg\nset_size=3"
+  "rts": "is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=undefined\nmap_zero=neg\nset_size=3"
 }
 ,
 {
@@ -2452,7 +2452,7 @@
   "status": "rts_diverge",
   "bun": "true\n-0\n-0\ntrue\n-2\n2\ntrue\n-0\n0\n1.5\nNaN\n-2\n0.5\n4\n3",
   "node": "true\n-0\n-0\ntrue\n-2\n2\ntrue\n-0\n0\n1.5\nNaN\n-2\n0.5\n4\n3",
-  "rts": "false\n0\n0\ntrue\n-2\n2\ntrue\n0\n0\n1.5\nNaN\n-2\n0.5\n4\n3"
+  "rts": "true\n0\n0\ntrue\n-2\n2\nfalse\n0\n0\n1.5\nNaN\n-2\n0.5\n4\n3"
 }
 ,
 {
@@ -2460,15 +2460,15 @@
   "status": "rts_diverge",
   "bun": "-0\ntrue\n1\n-1\n3\n-2\n-0\ntrue\n-4\n4\ntrue\n-1\n0\ntrue\nNaN",
   "node": "-0\ntrue\n1\n-1\n3\n-2\n-0\ntrue\n-4\n4\ntrue\n-1\n0\ntrue\nNaN",
-  "rts": "0\ntrue\n1\n-1\n3\n-2\n0\ntrue\n-4\n4\nfalse\n-1\n0\ntrue\nNaN"
+  "rts": "0\nfalse\n1\n-1\n3\n-2\n0\nfalse\n-4\n4\ntrue\n-1\n0\ntrue\nNaN"
 }
 ,
 {
   "name": "claude-nan-infinity-comparison",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "false\nfalse\nfalse\nfalse\nfalse\nNaN\nNaN\nInfinity\n-Infinity\nNaN\ntrue\ntrue\nfalse\ntrue",
   "node": "false\nfalse\nfalse\nfalse\nfalse\nNaN\nNaN\nInfinity\n-Infinity\nNaN\ntrue\ntrue\nfalse\ntrue",
-  "rts": "false\nfalse\nfalse\nfalse\nfalse\nNaN\nNaN\nInfinity\n-Infinity\nNaN\ntrue\ntrue\ntrue\ntrue"
+  "rts": "false\nfalse\nfalse\nfalse\nfalse\nNaN\nNaN\nInfinity\n-Infinity\nNaN\ntrue\ntrue\nfalse\ntrue"
 }
 ,
 {
@@ -2476,7 +2476,7 @@
   "status": "rts_diverge",
   "bun": "false\ntrue\ntrue\n-Infinity\nInfinity\n-Infinity\n0\n0\n0\ntrue\n0\ntrue",
   "node": "false\ntrue\ntrue\n-Infinity\nInfinity\n-Infinity\n0\n0\n0\ntrue\n0\ntrue",
-  "rts": "true\ntrue\ntrue\nInfinity\nInfinity\nInfinity\n0\n0\n0\ntrue\n0\ntrue"
+  "rts": "false\ntrue\ntrue\n-Infinity\nInfinity\nInfinity\n0\n0\n0\nfalse\n0\ntrue"
 }
 ,
 {
@@ -2593,10 +2593,10 @@
 ,
 {
   "name": "codex_negative_zero_propagation",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "true\n0\n-Infinity\ntrue\ntrue\n[0,0]",
   "node": "true\n0\n-Infinity\ntrue\ntrue\n[0,0]",
-  "rts": "true\n0\nInfinity\nfalse\ntrue\n[0,0]"
+  "rts": "true\n0\n-Infinity\ntrue\ntrue\n[0,0]"
 }
 ,
 {
@@ -2625,10 +2625,10 @@
 ,
 {
   "name": "134_object_is",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "is_5_5=true\nis_5_str5=false\nis_NaN_NaN=true\neq_NaN_NaN=false\nis_0_neg0=false\neq_0_neg0=true\nis_Inf_Inf=true\nis_obj=false\nis_same_obj=true",
   "node": "is_5_5=true\nis_5_str5=false\nis_NaN_NaN=true\neq_NaN_NaN=false\nis_0_neg0=false\neq_0_neg0=true\nis_Inf_Inf=true\nis_obj=false\nis_same_obj=true",
-  "rts": "is_5_5=true\nis_5_str5=false\nis_NaN_NaN=true\neq_NaN_NaN=false\nis_0_neg0=true\neq_0_neg0=true\nis_Inf_Inf=true\nis_obj=false\nis_same_obj=true"
+  "rts": "is_5_5=true\nis_5_str5=false\nis_NaN_NaN=true\neq_NaN_NaN=false\nis_0_neg0=false\neq_0_neg0=true\nis_Inf_Inf=true\nis_obj=false\nis_same_obj=true"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":145,"rts_diverge":48,"bun_node_diverge":17,"errors":399,"rejected":0}}
+],"summary":{"total":609,"pass":149,"rts_diverge":44,"bun_node_diverge":17,"errors":399,"rejected":0}}
