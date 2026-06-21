@@ -508,6 +508,8 @@ fn engine_str_member(method: &str) -> Option<EngineStr> {
         "str_replace" => row("__RTS_FN_NS_ENGINE_STR_REPLACE", &[Str, Str], StrRet::Str),
         "str_replace_all" => row("__RTS_FN_NS_ENGINE_STR_REPLACE_ALL", &[Str, Str], StrRet::Str),
         "str_normalize" => row("__RTS_FN_NS_ENGINE_STR_NORMALIZE", &[Str], StrRet::Str),
+        "str_is_well_formed" => row("__RTS_FN_NS_ENGINE_STR_IS_WELL_FORMED", &[], StrRet::Bool),
+        "str_to_well_formed" => row("__RTS_FN_NS_ENGINE_STR_TO_WELL_FORMED", &[], StrRet::Str),
         _ => return None,
     })
 }

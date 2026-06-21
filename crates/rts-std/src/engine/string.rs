@@ -43,6 +43,8 @@ unsafe extern "C" {
     fn __RTS_FN_GL_STRING_REPLACE(recv: u64, from: u64, to: u64) -> u64;
     fn __RTS_FN_GL_STRING_REPLACE_ALL(recv: u64, from: u64, to: u64) -> u64;
     fn __RTS_FN_GL_STRING_NORMALIZE(recv: u64, form_h: u64) -> u64;
+    fn __RTS_FN_GL_STRING_IS_WELL_FORMED(recv: u64) -> i64;
+    fn __RTS_FN_GL_STRING_TO_WELL_FORMED(recv: u64) -> u64;
 }
 
 /// `s.normalize(form?)` — Unicode normalization (NFC/NFD/NFKC/NFKD). Wraps
@@ -50,6 +52,18 @@ unsafe extern "C" {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_ENGINE_STR_NORMALIZE(s: u64, form_h: u64) -> Handle {
     unsafe { __RTS_FN_GL_STRING_NORMALIZE(s, form_h) }
+}
+
+/// `s.isWellFormed()` (i64 0/1). Wraps GL_STRING_IS_WELL_FORMED.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_ENGINE_STR_IS_WELL_FORMED(s: u64) -> i64 {
+    unsafe { __RTS_FN_GL_STRING_IS_WELL_FORMED(s) }
+}
+
+/// `s.toWellFormed()` (string). Wraps GL_STRING_TO_WELL_FORMED.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_ENGINE_STR_TO_WELL_FORMED(s: u64) -> Handle {
+    unsafe { __RTS_FN_GL_STRING_TO_WELL_FORMED(s) }
 }
 
 /// `s.toUpperCase()`. Wraps GL_STRING_TO_UPPER_CASE.
@@ -357,5 +371,21 @@ pub(super) fn register_members(b: ModuleBuilder<'_>) -> ModuleBuilder<'_> {
         "str_normalize(s: string, form: string): string",
         "s.normalize(form). Wraps GL_STRING_NORMALIZE.",
         __RTS_FN_NS_ENGINE_STR_NORMALIZE as *const u8,
+    ))
+    .member(func(
+        "str_is_well_formed",
+        "__RTS_FN_NS_ENGINE_STR_IS_WELL_FORMED",
+        sig!(Handle => Bool),
+        "str_is_well_formed(s: string): boolean",
+        "s.isWellFormed(). Wraps GL_STRING_IS_WELL_FORMED.",
+        __RTS_FN_NS_ENGINE_STR_IS_WELL_FORMED as *const u8,
+    ))
+    .member(func(
+        "str_to_well_formed",
+        "__RTS_FN_NS_ENGINE_STR_TO_WELL_FORMED",
+        sig!(Handle => Handle),
+        "str_to_well_formed(s: string): string",
+        "s.toWellFormed(). Wraps GL_STRING_TO_WELL_FORMED.",
+        __RTS_FN_NS_ENGINE_STR_TO_WELL_FORMED as *const u8,
     ))
 }

@@ -202,4 +202,12 @@ class String {
   normalize(form: string = "NFC"): string {
     return engine.str_normalize(__str_val(this), form);
   }
+  // Whether the string has no lone surrogates (always true for RTS UTF-8 strings).
+  isWellFormed(): boolean {
+    return engine.str_is_well_formed(__str_val(this));
+  }
+  // The string with lone surrogates replaced by U+FFFD (identity for valid UTF-8).
+  toWellFormed(): string {
+    return engine.str_to_well_formed(__str_val(this));
+  }
 }

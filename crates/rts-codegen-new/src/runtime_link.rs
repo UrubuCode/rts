@@ -1084,6 +1084,14 @@ fn engine_symbols() -> Vec<JitSymbol> {
             "__RTS_FN_NS_ENGINE_STR_NORMALIZE",
             rt_engine::__RTS_FN_NS_ENGINE_STR_NORMALIZE as *const u8,
         ),
+        sym(
+            "__RTS_FN_NS_ENGINE_STR_IS_WELL_FORMED",
+            rt_engine::__RTS_FN_NS_ENGINE_STR_IS_WELL_FORMED as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_ENGINE_STR_TO_WELL_FORMED",
+            rt_engine::__RTS_FN_NS_ENGINE_STR_TO_WELL_FORMED as *const u8,
+        ),
     ]
 }
 
