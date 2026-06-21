@@ -129,6 +129,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
 
         let argc = args.len();
+
+        // VARIADIC `push`/`unshift` (N args): the runtime trampolines take ONE value;
+        // a multi-arg call folds into N single-arg calls in `.ts`-equivalent order.
+        // `push(a, b)` appends a then b (left-to-right). `unshift(a, b)` must yield
+        // `[a, b, ...orig]`, so single unshifts run RIGHT-TO-LEFT (unshift b, then a).
+        // The result is the final length (push/unshift both return the new length).
+        if matches!(method, "push" | "unshift") && argc > 1 {
+            return self.array_variadic_insert(module, object, method, args);
+        }
+
         let Some(spec) = resolve_method(RecvClass::Array, method, argc) else {
             return Err(crate::front::error::Unsupported::new(format!(
                 "no Registry entry for `Array.{method}({argc} args)` \
@@ -159,6 +169,47 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // ---- emit + marshal the result ----
         let ret = emit_marshal::emit_call(module, self.builder, spec.symbol, &call_args);
         self.marshal_array_ret(module, method, spec.ret, ret)
+    }
+
+    /// Variadic `push(a, b, …)` / `unshift(a, b, …)` as N single-element runtime
+    /// calls (the trampolines are 1-element). Each arg is boxed to a PolyValue word
+    /// (the array element convention). `push` folds left-to-right; `unshift` folds
+    /// RIGHT-to-left so `unshift(a, b)` yields `[a, b, …orig]`. Returns the final
+    /// length (an `I64` from the last call) as a proven `Int64`.
+    fn array_variadic_insert(
+        &mut self,
+        module: &mut dyn Module,
+        object: &HirExpr,
+        method: &str,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        let sym = if method == "push" {
+            "__rtsadp_arr_push"
+        } else {
+            "__rtsadp_arr_unshift"
+        };
+        // Lower the receiver ONCE → its real Vec handle (re-loaded per call so each
+        // mutation sees the same array; the handle is stable for the same vec word).
+        let arr = self.lower_expr(module, object)?;
+        let arr_word = self.box_value(arr);
+        // Box each arg first (left-to-right evaluation, JS-correct), then apply in
+        // the method's fold order.
+        let mut words: Vec<Value> = Vec::with_capacity(args.len());
+        for a in args {
+            let v = self.lower_expr(module, a)?;
+            words.push(self.box_value(v));
+        }
+        if method == "unshift" {
+            words.reverse();
+        }
+        let mut last: Option<Value> = None;
+        for w in words {
+            let handle = emit_marshal::emit_table_load(module, self.builder, arr_word);
+            last = emit_marshal::emit_call(module, self.builder, sym, &[handle, w]);
+        }
+        // Both return the new length (I64). The last call's result is the final length.
+        let len = last.expect("push/unshift returns a length");
+        Ok(Val::new(len, Repr::Int64))
     }
 
     /// Lower an Array CALLBACK method (`map`/`filter`/`forEach`/`find`/`findIndex`/
