@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_error",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "__RUNTIME_ERROR__"
 }
 ,
@@ -3921,10 +3921,10 @@
 ,
 {
   "name": "91_string_wellformed",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "wf=false\nfix=�",
   "node": "wf=false\nfix=�",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "wf=true\nfix=�"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":169,"rts_diverge":46,"bun_node_diverge":18,"errors":376,"rejected":0}}
+],"summary":{"total":609,"pass":169,"rts_diverge":47,"bun_node_diverge":17,"errors":376,"rejected":0}}
