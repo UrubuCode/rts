@@ -507,6 +507,7 @@ fn engine_str_member(method: &str) -> Option<EngineStr> {
         "str_concat" => row("__RTS_FN_NS_ENGINE_STR_CONCAT", &[Str], StrRet::Str),
         "str_replace" => row("__RTS_FN_NS_ENGINE_STR_REPLACE", &[Str, Str], StrRet::Str),
         "str_replace_all" => row("__RTS_FN_NS_ENGINE_STR_REPLACE_ALL", &[Str, Str], StrRet::Str),
+        "str_normalize" => row("__RTS_FN_NS_ENGINE_STR_NORMALIZE", &[Str], StrRet::Str),
         _ => return None,
     })
 }
