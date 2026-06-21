@@ -70,6 +70,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             "assign" => self.object_assign(module, args).map(Some),
             "freeze" | "seal" | "preventExtensions" => self.object_freeze(module, args).map(Some),
             "is" => self.object_is(module, args).map(Some),
+            "hasOwn" => self.object_has_own(module, args).map(Some),
             other => unsupported!("Object.{other}(...) static method (later increment)"),
         }
     }
@@ -255,6 +256,23 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
     /// `Object.is(a, b)` — JS SameValue (`===` but NaN is NaN, +0 is not -0). Box
     /// both args and call the `__rtsadp_same_value` trampoline; result is a Bool.
+    /// `Object.hasOwn(obj, key)` — own-property membership (ES2022). Same runtime
+    /// path as the `in` operator / `engine.obj_has`: box obj + key and call
+    /// `__rtsadp_obj_has`, returning a Bool.
+    fn object_has_own(&mut self, module: &mut dyn Module, args: &[HirExpr]) -> FrontResult<Val> {
+        if args.len() != 2 {
+            return unsupported!("Object.hasOwn expects 2 args, got {}", args.len());
+        }
+        let o = self.lower_expr(module, &args[0])?;
+        let o_word = self.box_value(o);
+        let k = self.lower_expr(module, &args[1])?;
+        let k_word = self.box_value(k);
+        let res = self
+            .call_runtime(module, "__rtsadp_obj_has", &[o_word, k_word])?
+            .expect("__rtsadp_obj_has returns a bool");
+        Ok(Val::new(res, Repr::Bool))
+    }
+
     fn object_is(&mut self, module: &mut dyn Module, args: &[HirExpr]) -> FrontResult<Val> {
         if args.len() != 2 {
             return unsupported!("Object.is expects 2 args, got {}", args.len());
