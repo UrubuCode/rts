@@ -173,6 +173,10 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
             genops::__rtsadp_strict_eq as *const u8,
         ),
         sym(
+            "__rtsadp_same_value",
+            genops::__rtsadp_same_value as *const u8,
+        ),
+        sym(
             "__rtsadp_strict_neq",
             genops::__rtsadp_strict_neq as *const u8,
         ),

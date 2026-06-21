@@ -267,6 +267,32 @@ fn real_handle_for_concat(v: PolyValue) -> u64 {
 /// (`STRING_EQ`) — the indirection table means two equal strings may sit at
 /// different idxs, so a raw-word compare is NOT sufficient. Everything else
 /// compares by identical representation.
+/// `Object.is(a, b)` — JS SameValue. Like `===` EXCEPT: `Object.is(NaN, NaN)` is
+/// `true` and `Object.is(0, -0)` is `false`. Both differences live in the number
+/// branch (string/other identity match `===`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_same_value(a: u64, b: u64) -> u64 {
+    let av = PolyValue::from_raw(a);
+    let bv = PolyValue::from_raw(b);
+    let same = if is_number(av) && is_number(bv) {
+        let (x, y) = (av.number_as_f64(), bv.number_as_f64());
+        if x.is_nan() && y.is_nan() {
+            true // SameValue: NaN is NaN
+        } else if x == 0.0 && y == 0.0 {
+            x.is_sign_negative() == y.is_sign_negative() // +0 is NOT -0
+        } else {
+            x == y
+        }
+    } else if av.is_string() && bv.is_string() {
+        let ah = abi_adapter::real_handle_of(av);
+        let bh = abi_adapter::real_handle_of(bv);
+        rt_str::__RTS_FN_NS_GC_STRING_EQ(ah, bh) != 0
+    } else {
+        av.raw() == bv.raw()
+    };
+    PolyValue::bool(same).raw()
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_strict_eq(a: u64, b: u64) -> u64 {
     let av = PolyValue::from_raw(a);

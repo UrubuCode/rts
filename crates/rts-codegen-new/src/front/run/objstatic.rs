@@ -69,6 +69,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             "entries" => self.object_entries(module, args).map(Some),
             "assign" => self.object_assign(module, args).map(Some),
             "freeze" | "seal" | "preventExtensions" => self.object_freeze(module, args).map(Some),
+            "is" => self.object_is(module, args).map(Some),
             other => unsupported!("Object.{other}(...) static method (later increment)"),
         }
     }
@@ -250,6 +251,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     fn object_freeze(&mut self, module: &mut dyn Module, args: &[HirExpr]) -> FrontResult<Val> {
         let (word, _keys) = self.receiver(module, args)?;
         Ok(Val::new(word, Repr::Tagged))
+    }
+
+    /// `Object.is(a, b)` — JS SameValue (`===` but NaN is NaN, +0 is not -0). Box
+    /// both args and call the `__rtsadp_same_value` trampoline; result is a Bool.
+    fn object_is(&mut self, module: &mut dyn Module, args: &[HirExpr]) -> FrontResult<Val> {
+        if args.len() != 2 {
+            return unsupported!("Object.is expects 2 args, got {}", args.len());
+        }
+        let a = self.lower_expr(module, &args[0])?;
+        let aw = self.box_value(a);
+        let b = self.lower_expr(module, &args[1])?;
+        let bw = self.box_value(b);
+        let res = self
+            .call_runtime(module, "__rtsadp_same_value", &[aw, bw])?
+            .expect("__rtsadp_same_value returns a value");
+        Ok(Val::tagged_kind(res, super::lower::JsKind::Bool))
     }
 
     /// Whether `e` is an `Object.keys/values/entries/getOwnPropertyNames(o)` call

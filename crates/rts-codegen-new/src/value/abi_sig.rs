@@ -299,7 +299,8 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         | "__rtsadp_strict_eq"
         | "__rtsadp_strict_neq"
         | "__rtsadp_loose_eq"
-        | "__rtsadp_loose_neq" => SymSig {
+        | "__rtsadp_loose_neq"
+        | "__rtsadp_same_value" => SymSig {
             params: &[U64, U64],
             ret: U64,
         },
