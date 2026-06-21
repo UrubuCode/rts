@@ -105,10 +105,10 @@
 ,
 {
   "name": "150_array_push_pop_shift_unshift",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "push=1,2,3,4,len=4\npop=4,arr=1,2,3\nshift=1,arr=2,3\nunshift=0,2,3,len=3\npush_multi=0,2,3,5,6\nunshift_multi=-2,-1,0,2,3,5,6",
   "node": "push=1,2,3,4,len=4\npop=4,arr=1,2,3\nshift=1,arr=2,3\nunshift=0,2,3,len=3\npush_multi=0,2,3,5,6\nunshift_multi=-2,-1,0,2,3,5,6",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "push=1,2,3,4,len=4\npop=4,arr=1,2,3\nshift=1,arr=2,3\nunshift=0,2,3,len=3\npush_multi=0,2,3,5,6\nunshift_multi=-2,-1,0,2,3,5,6"
 }
 ,
 {
@@ -185,10 +185,10 @@
 ,
 {
   "name": "209_array_unshift_return",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "len1=3\narr1=2,3,4\nlen2=5\narr2=0,1,2,3,4\nlen3=1\narr3=1",
   "node": "len1=3\narr1=2,3,4\nlen2=5\narr2=0,1,2,3,4\nlen3=1\narr3=1",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "len1=3\narr1=2,3,4\nlen2=5\narr2=0,1,2,3,4\nlen3=1\narr3=1"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":149,"rts_diverge":44,"bun_node_diverge":17,"errors":399,"rejected":0}}
+],"summary":{"total":609,"pass":151,"rts_diverge":44,"bun_node_diverge":17,"errors":397,"rejected":0}}
