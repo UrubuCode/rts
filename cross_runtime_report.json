@@ -1833,10 +1833,10 @@
 ,
 {
   "name": "228_json_parse_reviver",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "a=2\nb=4\nc=6\narr=11,12,13",
   "node": "a=2\nb=4\nc=6\narr=11,12,13",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "a=2\nb=4\nc=6\narr=1,2,3"
 }
 ,
 {
@@ -1881,10 +1881,10 @@
 ,
 {
   "name": "50_json_deep",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO",
   "node": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_arr={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO"
 }
 ,
 {
@@ -3732,7 +3732,7 @@
   "status": "rts_diverge",
   "bun": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
   "node": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
-  "rts": "h=104\ne=101\no=111\nout=281474976710897\nemoji=128512\nA=65\ncharCode=55357"
+  "rts": "h=104\ne=101\no=111\nout=281474976710901\nemoji=128512\nA=65\ncharCode=55357"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":164,"rts_diverge":44,"bun_node_diverge":17,"errors":384,"rejected":0}}
+],"summary":{"total":609,"pass":164,"rts_diverge":46,"bun_node_diverge":17,"errors":382,"rejected":0}}
