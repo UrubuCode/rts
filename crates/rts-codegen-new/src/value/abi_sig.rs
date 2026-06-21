@@ -763,7 +763,7 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         },
         // obj_keys/values/entries(obj_word) -> fresh array PolyValue word (dynamic
         // Object.keys/values/entries; Object is primordial → engine-direct).
-        "__rtsadp_obj_values" | "__rtsadp_obj_entries" => SymSig {
+        "__rtsadp_obj_values" | "__rtsadp_obj_entries" | "__rtsadp_obj_from_entries" => SymSig {
             params: &[U64],
             ret: U64,
         },

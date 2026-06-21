@@ -121,6 +121,47 @@ pub extern "C" fn __rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word:
     val_word
 }
 
+/// `Object.fromEntries(entries)` — build a keyed object from an array of `[k, v]`
+/// pairs. `entries_word` is an array word; each element is itself a 2-element array
+/// `[key, value]`. The object starts empty (the `{}` shape header) and each pair is
+/// applied via `__rtsadp_obj_set` (shape transition per new key; a repeated key
+/// overwrites). The key is ToString'd to a property key (numbers/bools coerce like
+/// JS). Returns the new object word. A non-array entry (or non-array source) is
+/// skipped defensively — the lowering only routes a proven-array source here.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_obj_from_entries(entries_word: u64) -> u64 {
+    // Empty keyed object (slot 0 = empty-shape id, like a `{}` literal).
+    let obj_handle = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    let empty_shape = crate::shape::intern_global_shape(&[]);
+    let slot0 = PolyValue::from_i32(empty_shape as i32).raw() as i64;
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(obj_handle, slot0);
+    let obj_word =
+        PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(obj_handle)).raw();
+
+    let entries = PolyValue::from_raw(entries_word);
+    if entries.is_object() {
+        let eh = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(entries.as_handle());
+        let n = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(eh).max(0);
+        for i in 0..n {
+            let pair_word = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(eh, i) as u64;
+            let pair = PolyValue::from_raw(pair_word);
+            if !pair.is_object() {
+                continue;
+            }
+            let ph = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(pair.as_handle());
+            if rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(ph) < 2 {
+                continue;
+            }
+            let k_word = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(ph, 0) as u64;
+            let v_word = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(ph, 1) as u64;
+            // Key → a string PolyValue (obj_set's key channel); numbers/bools ToString.
+            let key_str = super::genops::__rtsadp_to_string(k_word);
+            __rtsadp_obj_set(obj_word, key_str, v_word);
+        }
+    }
+    obj_word
+}
+
 /// `__rtsadp_obj_has(obj_word, key_str_handle)` — `key in obj` for a keyed object:
 /// `1` when the object has the property, `0` otherwise (incl. a non-object
 /// receiver). Returns an unboxed i64 (the `Bool` ABI) for a direct `brif`/`select`.
