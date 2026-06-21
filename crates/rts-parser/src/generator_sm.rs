@@ -157,6 +157,13 @@ pub fn try_build_async_gen(name: &str, function: &Function) -> Option<(FnDecl, F
 /// devolve `(constructor, state_fn)`; em qualquer construct inelegivel devolve
 /// `None` (caller cai no caminho thread-blocking de `expand_async_functions`).
 pub fn try_build_async(name: &str, function: &Function) -> Option<(FnDecl, FnDecl)> {
+    // (motor novo) A state-machine async emite `__RTS_ASYNC_SM_SUSPEND`, que o motor
+    // novo NAO instala (a SM e' acoplada ao modelo de valor antigo). Desabilitada
+    // aqui: toda async fn cai no caminho `expand_async_functions` (promise.create/
+    // wait, `ns::promise` registrado). Async paralelo/suspensao real fica p/ um
+    // redesign limpo (latitude @drysius — desativar paralelo agora, refazer depois).
+    return None;
+    #[allow(unreachable_code)]
     let body = function.body.as_ref()?;
     SM_SPAN.with(|c| c.set(body.span));
 

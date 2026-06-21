@@ -143,3 +143,17 @@ fn top_level_runtime_const_read_in_function() {
         "8\n",
     );
 }
+
+#[test]
+fn async_await_synchronous_model() {
+    // SYNCHRONOUS async (no event loop / parallel yet — the suspension SM is
+    // disabled, to be redesigned). An `async` fn runs its body synchronously and
+    // returns the value; `await x` is the value of `x`. Covers the common
+    // resolved/sequential case.
+    assert_stdout(
+        "async function add(a: number, b: number): Promise<number> { return a + b; } \
+         async function run(): Promise<number> { const x = await add(2, 3); return await add(x, 10); } \
+         async function main(): Promise<void> { console.log(await run()); } main();",
+        "15\n",
+    );
+}
