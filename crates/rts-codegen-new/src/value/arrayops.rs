@@ -514,6 +514,16 @@ pub extern "C" fn __rtsadp_arr_splice(vec_handle: u64, args_handle: u64) -> u64 
     PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(removed)).raw()
 }
 
+/// `arr.toSpliced(start, deleteCount?, ...items)` (ES2023, NON-mutating, variadic)
+/// — like `splice` but returns a NEW array with the splice applied and leaves the
+/// receiver unchanged. Same packed-args convention; delegates to the runtime
+/// `VEC_TO_SPLICED_AUTO`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_to_spliced_var(vec_handle: u64, args_handle: u64) -> u64 {
+    let result = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED_AUTO(vec_handle, args_handle);
+    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(result)).raw()
+}
+
 /// `arr.copyWithin(target, start, end)` — copy the slice `[start, end)` to `target`,
 /// IN PLACE, returning the receiver word (JS clamps all three; the copy is shift-
 /// safe via a snapshot of the source range). Arity-2 (`copyWithin(target, start)`)

@@ -152,7 +152,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // `__rtsadp_arr_splice` (→ runtime VEC_SPLICE_AUTO). Returns the removed
         // elements as a NEW array. Any arity (1+) routes here.
         if method == "splice" && argc >= 1 {
-            return self.array_splice(module, object, args);
+            return self.array_splice(module, object, args, "__rtsadp_arr_splice");
+        }
+        // `toSpliced(start, deleteCount?, ...items)` (NON-mutating): same packed-args
+        // path as splice, different trampoline. The 2-arg no-items form keeps its own
+        // dedicated row below; the variadic (items) form routes here.
+        if method == "toSpliced" && argc > 2 {
+            return self.array_splice(module, object, args, "__rtsadp_arr_to_spliced_var");
         }
 
         let Some(spec) = resolve_method(RecvClass::Array, method, argc) else {
@@ -267,6 +273,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         module: &mut dyn Module,
         object: &HirExpr,
         args: &[HirExpr],
+        trampoline: &str,
     ) -> FrontResult<Val> {
         // Build the args array. The runtime `VEC_SPLICE_AUTO` reads each slot as a
         // raw `i64`: slots 0/1 (start, deleteCount) are INDICES → coerce to Int64
@@ -290,8 +297,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let recv_word = self.box_value(recv);
         let handle = emit_marshal::emit_table_load(module, self.builder, recv_word);
         let removed = self
-            .call_runtime(module, "__rtsadp_arr_splice", &[handle, args_handle])?
-            .expect("__rtsadp_arr_splice returns an array word");
+            .call_runtime(module, trampoline, &[handle, args_handle])?
+            .expect("array splice trampoline returns an array word");
         Ok(Val::tagged_kind(removed, super::lower::JsKind::Array))
     }
 
