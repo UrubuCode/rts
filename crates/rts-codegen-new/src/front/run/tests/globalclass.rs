@@ -321,3 +321,16 @@ fn concat_result_is_proven_string() {
         "3\n",
     );
 }
+
+#[test]
+fn arrow_capturing_var_in_template_literal() {
+    // A template literal desugars `${x}` to `String(x)`, so an arrow containing a
+    // template reads `String` as a free ident. `String` (and the other primordial
+    // globals) must be treated as NON-captures, else the capturing arrow bailed
+    // "expression arrow". The arrow here captures `s` AND references `String` via
+    // the template — both must resolve.
+    assert_stdout(
+        r#"const s = 3; function call(g: () => string): string { return g(); } console.log(call(() => `v=${s}`));"#,
+        "v=3\n",
+    );
+}

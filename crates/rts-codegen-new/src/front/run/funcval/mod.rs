@@ -196,10 +196,21 @@ pub fn captured_mutated_top_lets(funcs: &[HirFunc], main: &HirFunc) -> HashSet<S
         .collect()
 }
 
-/// Language singletons always considered "not a capture". These are genuine
-/// PRIMORDIAL value globals (not a non-primordial name like `console` — that is a
-/// gcell singleton, already treated as non-capture via `ctx.module_globals`).
-const GLOBALS: &[&str] = &["undefined", "Infinity", "NaN"];
+/// Language globals always considered "not a capture" — value singletons plus the
+/// PRIMORDIAL/builtin global NAMES an arrow body may reference (resolved at
+/// lowering, never a capturable outer local). Critically includes `String`: the
+/// template-literal desugar wraps each `${expr}` in `String(expr)`, so an arrow
+/// containing a template (`() => `${x}``) reads `String` as a free ident — without
+/// it here the arrow would be misjudged a capture of an unknown name and BAIL
+/// (`expression arrow`). (A non-primordial like `console` is a gcell singleton,
+/// already non-capture via `ctx.module_globals`.)
+const GLOBALS: &[&str] = &[
+    "undefined", "Infinity", "NaN", "globalThis",
+    // Primordial wrapper/constructor + utility globals callable from an arrow.
+    "String", "Number", "Boolean", "Object", "Array", "Function", "Symbol",
+    "Math", "JSON", "Date", "RegExp", "Promise", "Error",
+    "parseInt", "parseFloat", "isNaN", "isFinite",
+];
 
 /// The result of the arrow-extraction pre-pass: the synthesized top-level
 /// functions to append, plus the ordered capture list of each CLOSURE (synthesized
