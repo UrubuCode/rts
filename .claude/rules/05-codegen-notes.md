@@ -123,6 +123,7 @@ Relevant active specs:
   Repr lattice, shapes + data ICs, single lowering, data-driven dispatch)
 - `docs/specs/namespace-creation-guide.md` — namespace process based on
   `rts-engine::abi`
-- `docs/specs/silent-parallelism.md` — the OLD engine's 3 passes (frozen)
+- `docs/specs/gc-generational-design.md` — GC: weak phase now (#217, bounded),
+  generational copying nursery later (deferred until ~90% cross-runtime)
 - `docs/specs/async-promise-function.md` — async/Promise/Function system
-  (#359 + #437)
+  (#359 + #437; the new engine's interim async is SYNCHRONOUS)

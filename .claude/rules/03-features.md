@@ -88,7 +88,8 @@ reproduce the same **semantics** via PolyValue/shapes/ICs. The per-category list
 `crates/rts-codegen-old` has 3 passes that auto-rewrite common TS to `parallel.*`
 (`array_methods_pass`, `reduce_pass`, `purity_pass`; 96 `pure: true` fns). This is
 **frozen in the old engine and NOT carried into the new engine unless
-re-justified** against the redesign. Spec: `docs/specs/silent-parallelism.md`.
+re-justified** against the redesign. (The standalone `silent-parallelism.md`
+spec was removed — old-engine-only.)
 
 ## async / Promise / Function (Promise-centric, #437)
 
