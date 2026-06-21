@@ -200,6 +200,25 @@ pub fn class_static_any(class: &str, method: &str) -> Option<ResolvedCall> {
     Some(flat_call(m))
 }
 
+/// EVERY static/function overload of `method` on `class`, in declaration order —
+/// lets the static-call lowering pick the overload whose arity window admits the
+/// caller's argc (e.g. `URL.canParse(href)` vs `URL.canParse(href, base)`, two
+/// same-named statics of arity 1 and 2). `class_static_any` returns only the FIRST
+/// match, which wrongly rejects the higher-arity overloads.
+pub fn class_statics(class: &str, method: &str) -> Vec<ResolvedCall> {
+    let Some(c) = registry().class(class) else {
+        return Vec::new();
+    };
+    c.members
+        .iter()
+        .filter(|m| {
+            matches!(m.kind, MemberKind::StaticMethod | MemberKind::Function)
+                && m.matches_name(method)
+        })
+        .map(|m| flat_call(m))
+        .collect()
+}
+
 /// Every constructor's argument-`AbiType` slice for `class`, in declaration
 /// order — lets the ctor lowering pick the overload by arg TYPE (Date's 1-arg
 /// ms-vs-ISO split: a `[I64]` ctor vs a `[StrPtr]` ctor of the same arity).

@@ -331,6 +331,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirUnOp::Delete => unsupported!(
                 "`delete` (slot removal needs the transition tree — a later increment)"
             ),
+            // `void x` — `x` is already lowered above (its side effects ran); the
+            // expression always evaluates to `undefined`.
+            HirUnOp::Void => {
+                let v = self
+                    .builder
+                    .ins()
+                    .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
+                Ok(Val::tagged_kind(v, JsKind::Undefined))
+            }
             other => unsupported!("unary operator {other:?}"),
         }
     }

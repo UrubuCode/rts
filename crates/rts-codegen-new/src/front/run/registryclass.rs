@@ -228,21 +228,25 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(None);
         }
         use super::registry;
-        let Some(call) = registry::class_static_any(name, method) else {
-            return unsupported!("`{name}.{method}()` — no such static on `{name}`");
-        };
-        // [required, total] arity window: `total` = declared params, `required` =
-        // leading non-default params (empty `default_args` = all required). An
-        // argc outside the window BAILS — this reproduces `Date.UTC`'s "< 2 args"
-        // refusal and any wrong-arity static, as DATA from the spec.
-        let total = call.arg_abis.len();
-        let required = required_args(&call.default_args, total);
         let argc = args.len();
-        if argc < required || argc > total {
-            return unsupported!(
-                "`{name}.{method}({argc} args)` — expects {required}..={total} arg(s)"
-            );
+        // ALL overloads of `name.method`, then pick the one whose [required, total]
+        // arity window admits `argc` (e.g. `URL.canParse(href)` vs `(href, base)`).
+        // `class_static_any` returned only the FIRST, wrongly rejecting a 2-arg call
+        // to a name whose 1-arg overload was declared first.
+        let overloads = registry::class_statics(name, method);
+        if overloads.is_empty() {
+            return unsupported!("`{name}.{method}()` — no such static on `{name}`");
         }
+        let Some(call) = overloads.into_iter().find(|c| {
+            let total = c.arg_abis.len();
+            let required = required_args(&c.default_args, total);
+            argc >= required && argc <= total
+        }) else {
+            return unsupported!(
+                "`{name}.{method}({argc} args)` — no overload accepts {argc} arg(s)"
+            );
+        };
+        let total = call.arg_abis.len();
         // Lower the provided args. A `StrPtr` param fed a non-proven-string BAILS
         // (the generic marshal would ToString-coerce instead — a behavior change
         // we refuse; preserves the old `Date.parse(non-string)` bail).

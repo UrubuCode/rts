@@ -101,3 +101,4 @@ mod toprimitive;
 mod trycatch;
 mod type_erasure;
 mod update_tagged;
+mod void_op;
