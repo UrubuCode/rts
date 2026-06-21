@@ -384,7 +384,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// stayed an `Arrow` node and BAILS here (a closure — a later increment); any
     /// other expression (a function value held in a Tagged local, etc.) also bails
     /// this increment, never a guess.
-    fn reify_callback_arg(
+    pub(super) fn reify_callback_arg(
         &mut self,
         module: &mut dyn Module,
         a: &HirExpr,

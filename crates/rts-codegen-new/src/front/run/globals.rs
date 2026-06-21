@@ -367,6 +367,37 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // sentinel path is unreachable from the proven-array/string corpus.
                 Ok(Val::tagged_kind(res, JsKind::Array))
             }
+            ("from", 2) => {
+                // `Array.from(source, mapFn)` == `Array.from(source).map(mapFn)`:
+                // build the array from the source, then map each element through the
+                // callback `(elem, index)`. The mapper is reified to a TAG_FUNCTION
+                // word (same path as the array callback methods); a capturing arrow
+                // bails there.
+                //
+                // `__rtsadp_arr_from` only builds from an ARRAY or a STRING source; a
+                // `{ length: n }` array-like (or Map/Set) yields an EMPTY array, which
+                // would silently produce a wrong (empty) mapped result. So require a
+                // proven array/string source and BAIL otherwise (honesty floor —
+                // array-like `from` is a later increment).
+                let is_arr = self.is_array_valued(&args[0]);
+                let v = self.lower_expr(module, &args[0])?;
+                if !is_arr && !matches!(v.kind, super::lower::JsKind::Str) {
+                    return unsupported!(
+                        "Array.from(source, mapFn) with a non-array/non-string source \
+                         (array-like `{{length}}` / Map / Set is a later increment)"
+                    );
+                }
+                let src_boxed = self.box_value(v);
+                let arr_word = self
+                    .call_runtime(module, "__rtsadp_arr_from", &[src_boxed])?
+                    .expect("Array.from returns an array word");
+                let cb_word = self.reify_callback_arg(module, &args[1], "from")?;
+                let handle = emit_marshal::emit_table_load(module, self.builder, arr_word);
+                let mapped = self
+                    .call_runtime(module, "__rtsadp_arr_map", &[handle, cb_word])?
+                    .expect("__rtsadp_arr_map returns an array word");
+                Ok(Val::tagged_kind(mapped, JsKind::Array))
+            }
             (m, n) => unsupported!("Array.{m}({n} args) static method (later increment)"),
         }
     }
