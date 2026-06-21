@@ -27,6 +27,7 @@ mod binop;
 mod call;
 mod call_shape;
 mod call_spread;
+mod cell;
 mod class;
 mod desugar;
 mod engineobj;
@@ -234,6 +235,10 @@ fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<
     fn_this_class.extend(user.fn_this_class);
     let mut captures = prelude.captures;
     captures.extend(user.captures);
+    // FUNCTION-LOCAL CELLS (#195): union (prelude then user). Keyed by function name;
+    // the two sides' synthesized-fn names never collide, so a plain extend is exact.
+    let mut cells = prelude.cells;
+    cells.extend(user.cells);
 
     // builtins: prelude then user (the prelude does not import `rts:<ns>` today, but
     // merging keeps the type total and user wins on a name clash).
@@ -273,6 +278,7 @@ fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<
         classes,
         fn_this_class,
         captures,
+        cells,
         gcells,
         gcell_classes,
         forced_globals,
@@ -294,6 +300,11 @@ pub(crate) struct LoweredProgram {
     /// synthesized CLOSURE fn name → ordered captured outer-local names (P5.7).
     /// Drives env construction at reify and the env-read split in the thunk.
     pub captures: std::collections::HashMap<String, Vec<String>>,
+    /// FUNCTION-LOCAL CELLS (#195): function name → its LOCAL names promoted to
+    /// per-invocation cells (a closure captures + mutates them). Keyed under both the
+    /// declaring function and the synthesized closure. Union of prelude + user on
+    /// merge. See [`funcval::extract_arrows`] / [`cell`].
+    pub cells: std::collections::HashMap<String, std::collections::HashSet<String>>,
     /// MODULE-LEVEL MUTABLE GLOBALS (epic #195): top-level `let` name → cell id.
     /// A top-level var written from inside a function is a runtime CELL; every
     /// access goes through `__RTS_FN_NS_GC_GCELL_GET/SET` by this id. Computed by
@@ -509,6 +520,7 @@ fn build_from_program(
         classes,
         fn_this_class,
         captures: extracted.captures,
+        cells: extracted.cells,
         gcells,
         gcell_classes,
         forced_globals,

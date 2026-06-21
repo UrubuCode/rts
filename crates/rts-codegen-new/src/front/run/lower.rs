@@ -179,6 +179,14 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// unknown shape. The local keeps its Tagged ABI/repr (the i64 register holds
     /// the boxed string word); only the proven-string fact is recorded here.
     pub string_locals: std::collections::HashSet<String>,
+    /// FUNCTION-LOCAL CELLS (#195): names in the CURRENT function whose local
+    /// Variable holds a 1-slot-`Vec` cell HANDLE because a closure CAPTURES and
+    /// MUTATES them. A read routes through `emit_cell_get`, a write through
+    /// `emit_cell_set`, and the declaration (`let`) allocates the cell. Owned (not
+    /// shared) — the per-function set computed by [`super::funcval`] and passed into
+    /// [`Self::lower_function`]. The closure thunk receives the same names as its
+    /// captured leading PARAMS (already holding the handle), so it shares the set.
+    pub cell_locals: std::collections::HashSet<String>,
     /// Name → the statically-known CLASS of a local/param holding a class instance
     /// (a `new C()` result, a `: C`-annotated param, or `this` inside a method).
     /// Drives static `instance.method(args)` dispatch; absent ⇒ method calls bail.
@@ -285,6 +293,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         this_class: Option<&str>,
         is_prelude: bool,
         builtins: &'c HashMap<String, (String, String)>,
+        cell_locals: std::collections::HashSet<String>,
     ) -> FrontResult<()> {
         let entry = builder.create_block();
         builder.append_block_params_for_function_params(entry);
@@ -297,6 +306,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             local_shapes: HashMap::new(),
             object_locals: std::collections::HashSet::new(),
             string_locals: std::collections::HashSet::new(),
+            cell_locals,
             local_classes: HashMap::new(),
             local_class_refs: HashMap::new(),
             generator_locals: HashMap::new(),

@@ -124,6 +124,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(());
         }
 
+        // FUNCTION-LOCAL CELL (#195): a function-scope `let` a closure captures AND
+        // mutates. Allocate a per-invocation 1-slot cell holding the boxed init and
+        // bind the HANDLE to a Tagged local — every later read/write of `name`
+        // routes through `emit_cell_get`/`emit_cell_set`, and a capturing closure
+        // snapshots the HANDLE by value (shared mutable box). Shape tracking is
+        // dropped (a captured-mutated var is opaque).
+        if self.is_cell_local(name) {
+            let val = self.lower_expr(module, init)?;
+            let word = self.box_value(val);
+            let handle = self.emit_cell_alloc(module, word);
+            self.bind_tagged_local(name, Val::new(handle, Repr::Tagged));
+            return Ok(());
+        }
+
         // GENERATOR-valued init: `const it = g()` where `g` is a generator. Mark
         // `it` so `it.next()`/`.return()`/`.throw()` route to `GENERATOR_*`. LAZY →
         // bind the raw `Int64` GenState handle; EAGER → bind the `__gen_buf` ARRAY
@@ -387,6 +401,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             self.emit_gcell_set(module, id, word)?;
             return Ok(Val::new(word, Repr::Tagged));
         }
+        // FUNCTION-LOCAL CELL (#195): write the value through the cell so a
+        // capturing closure (and later reads) see it live.
+        if self.is_cell_local(&name) {
+            let handle = {
+                let local = self.local(&name).expect("cell-local is a bound local");
+                self.builder.use_var(local.var)
+            };
+            let val = self.lower_expr(module, value)?;
+            let word = self.box_value(val);
+            self.emit_cell_set(module, handle, word);
+            return Ok(Val::new(word, Repr::Tagged));
+        }
         // Re-`x = {…}` to a DIFFERENT object literal: the local stays a proven
         // keyed OBJECT, but its exact shape may now differ from the old one. Lower
         // the new literal (recording its global shape-id in slot 0), bind it, and
@@ -492,6 +518,27 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 .call_runtime(module, sym, &[old_num, one_word])?
                 .expect("generic arithmetic returns a value");
             self.emit_gcell_set(module, id, new_num)?;
+            let produced = if prefix { new_num } else { old_num };
+            return Ok(Val::new(produced, Repr::Tagged));
+        }
+        // FUNCTION-LOCAL CELL (#195): `++`/`--` through the cell (mirrors the gcell
+        // path: read live, ToNumber, ±1 generically, store back).
+        if self.is_cell_local(&name) {
+            let handle = {
+                let local = self.local(&name).expect("cell-local is a bound local");
+                self.builder.use_var(local.var)
+            };
+            let old = self.emit_cell_get(module, handle);
+            let old_num = self
+                .call_runtime(module, "__rtsadp_pos", &[old.v])?
+                .expect("__rtsadp_pos returns a value");
+            let one_f64 = self.builder.ins().f64const(1.0);
+            let one_word = self.box_value(Val::new(one_f64, Repr::Float64));
+            let sym = if inc { "__rtsadp_add" } else { "__rtsadp_sub" };
+            let new_num = self
+                .call_runtime(module, sym, &[old_num, one_word])?
+                .expect("generic arithmetic returns a value");
+            self.emit_cell_set(module, handle, new_num);
             let produced = if prefix { new_num } else { old_num };
             return Ok(Val::new(produced, Repr::Tagged));
         }

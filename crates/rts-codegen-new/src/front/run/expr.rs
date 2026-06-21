@@ -154,6 +154,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
     fn lower_ident(&mut self, module: &mut dyn Module, name: &str) -> FrontResult<Val> {
         if let Some(local) = self.local(name) {
+            // FUNCTION-LOCAL CELL (#195): the local Variable holds the cell HANDLE,
+            // not the value. Read the LIVE value through the cell (a closure may have
+            // mutated it). Checked FIRST — a raw `use_var` would yield the handle.
+            if self.is_cell_local(name) {
+                let handle = self.builder.use_var(local.var);
+                return Ok(self.emit_cell_get(module, handle));
+            }
             let v = self.builder.use_var(local.var);
             // A Tagged local recorded as a PROVEN STRING (`let s = "x"`, a param
             // typed `string`) carries `JsKind::Str`, so `s.method(...)` dispatches

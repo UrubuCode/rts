@@ -244,6 +244,12 @@ const GLOBALS: &[&str] = &[
 pub struct ExtractResult {
     pub funcs: Vec<HirFunc>,
     pub captures: HashMap<String, Vec<String>>,
+    /// FUNCTION-LOCAL CELLS (#195): function name → the set of its LOCAL names that
+    /// became per-invocation cells (a closure in that function captures AND mutates
+    /// them). Keyed by BOTH the declaring function (where the `let` allocates the
+    /// cell) AND the synthesized closure (where the captured leading param holds the
+    /// handle), so each side routes reads/writes through the cell. See [`super::cell`].
+    pub cells: HashMap<String, HashSet<String>>,
 }
 
 /// Extract every inline arrow used as a value from `funcs` + `main` into fresh
@@ -272,6 +278,9 @@ pub fn extract_arrows(
         module_globals: module_globals.clone(),
         synthesized: Vec::new(),
         captures: HashMap::new(),
+        cells: HashMap::new(),
+        current_fn: String::new(),
+        current_fn_lets: HashSet::new(),
         counter: 0,
     };
 
@@ -281,10 +290,14 @@ pub fn extract_arrows(
     for f in funcs.iter_mut() {
         let params: HashSet<String> = f.params.iter().map(|p| p.name.clone()).collect();
         let mutated = mutated_names(&f.body);
+        ctx.current_fn = f.name.clone();
+        ctx.current_fn_lets = declared_locals(&f.body);
         ctx.rewrite_block(&mut f.body, &params, &mutated);
     }
     let main_params: HashSet<String> = main.params.iter().map(|p| p.name.clone()).collect();
     let main_mutated = mutated_names(&main.body);
+    ctx.current_fn = main.name.clone();
+    ctx.current_fn_lets = declared_locals(&main.body);
     ctx.rewrite_block(&mut main.body, &main_params, &main_mutated);
 
     // The synthesized arrow bodies may THEMSELVES contain arrows; rewrite those
@@ -295,6 +308,8 @@ pub fn extract_arrows(
         let mut f = ctx.synthesized[i].clone();
         let params: HashSet<String> = f.params.iter().map(|p| p.name.clone()).collect();
         let mutated = mutated_names(&f.body);
+        ctx.current_fn = f.name.clone();
+        ctx.current_fn_lets = declared_locals(&f.body);
         ctx.rewrite_block(&mut f.body, &params, &mutated);
         ctx.synthesized[i] = f;
         i += 1;
@@ -311,6 +326,7 @@ pub fn extract_arrows(
     ExtractResult {
         funcs: ctx.synthesized,
         captures: ctx.captures,
+        cells: ctx.cells,
     }
 }
 
@@ -414,6 +430,18 @@ struct Ctx {
     synthesized: Vec<HirFunc>,
     /// synthesized closure fn name → ordered captured outer-local names.
     captures: HashMap<String, Vec<String>>,
+    /// FUNCTION-LOCAL CELLS (#195): function name → its names that became cells.
+    /// Populated by [`Self::try_extract`] when it accepts a captured-AND-mutated
+    /// local as a cell instead of bailing — keyed under BOTH the declaring function
+    /// ([`Self::current_fn`]) and the synthesized closure.
+    cells: HashMap<String, HashSet<String>>,
+    /// The function whose body is currently being rewritten (the declaring scope of
+    /// any cell a closure here captures). Set before each `rewrite_block` for a fn.
+    current_fn: String,
+    /// The `let`/`const` names declared at the TOP LEVEL of [`Self::current_fn`]'s
+    /// body — the only locals a captured-mutated name may be a cell of this
+    /// increment (a deeper-block or param capture bails, kept sound).
+    current_fn_lets: HashSet<String>,
     /// Fresh-name counter.
     counter: usize,
 }
@@ -576,6 +604,10 @@ impl Ctx {
         // Partition the free idents: a param / global / top-level fn is NOT a
         // capture; anything else must be a CAPTURABLE outer local to be sound.
         let mut captures: Vec<String> = Vec::new();
+        // Captures that are MUTATED (by the closure or the enclosing fn) → CELLS:
+        // a by-value snapshot would be stale, but capturing the cell HANDLE by value
+        // shares the live box. Recorded after the synthesized name exists.
+        let mut cell_caps: Vec<String> = Vec::new();
         for id in &free {
             if param_names.contains(id)
                 || GLOBALS.contains(&id.as_str())
@@ -584,16 +616,23 @@ impl Ctx {
             {
                 continue;
             }
-            // A free ident outside those sets is a CAPTURE. It must be:
-            //   (1) a real outer local in scope (not an unknown name / `this`);
-            //   (2) NOT assigned by the closure body (mutable capture is unsound
-            //       by-value);
-            //   (3) NOT reassigned in the enclosing function (a stale snapshot).
+            // A free ident outside those sets is a CAPTURE. It must be a real outer
+            // local in scope (not an unknown name / `this`).
             if !scope.contains(id) {
                 return None; // unknown name / `this` — not a capturable local.
             }
+            // A MUTATED capture (assigned by the closure body OR reassigned in the
+            // enclosing function) is sound ONLY as a CELL (#195): the local must be a
+            // TOP-LEVEL `let` of THIS function (so its `let` can allocate the cell and
+            // the handle is captured by value). A mutated param / deeper-block local
+            // is outside this increment → bail (sound floor, never a stale snapshot).
             if body_assigns.contains(id) || mutated.contains(id) {
-                return None; // mutable / aliased capture — bail (sound floor).
+                if self.current_fn_lets.contains(id) {
+                    cell_caps.push(id.clone());
+                    captures.push(id.clone());
+                    continue;
+                }
+                return None; // mutable param / non-let-local capture — bail.
             }
             captures.push(id.clone());
         }
@@ -604,6 +643,20 @@ impl Ctx {
         let name = format!("__rtsn_arrow_{}", self.counter);
         self.counter += 1;
         self.top_level.insert(name.clone());
+
+        // Record each CELL capture under BOTH the declaring function (its `let`
+        // allocates the cell) and the synthesized closure (its captured leading param
+        // holds the handle) — both sides route reads/writes through the cell.
+        for c in &cell_caps {
+            self.cells
+                .entry(self.current_fn.clone())
+                .or_default()
+                .insert(c.clone());
+            self.cells
+                .entry(name.clone())
+                .or_default()
+                .insert(c.clone());
+        }
 
         // Prepend each captured var as a leading Tagged param (the thunk fills these
         // from the env array; the arrow's own params follow, filled from a0..a3).

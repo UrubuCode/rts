@@ -158,6 +158,68 @@ fn async_await_synchronous_model() {
     );
 }
 
+// ===========================================================================
+// FUNCTION-LOCAL MUTABLE CAPTURE (#195) — a closure that CAPTURES and MUTATES a
+// function-scope `let`. The local is promoted to a per-invocation runtime CELL
+// (a 1-slot Vec); the closure captures the cell HANDLE by value, so both sides
+// share one mutable box. The headline gap behind the "expression arrow" cluster.
+// ===========================================================================
+
+#[test]
+fn closure_writes_captured_function_local() {
+    // `cb` (an inline arrow in `setup`) WRITES the captured local `count`; the
+    // enclosing function reads it back after three calls → the writes are visible
+    // (a by-value snapshot could not do this). `count` becomes a cell.
+    assert_stdout(
+        "function setup(): number { let count = 0; const cb = () => { count = count + 1; }; \
+         cb(); cb(); cb(); return count; } console.log(setup());",
+        "3\n",
+    );
+}
+
+#[test]
+fn returned_counter_closure_outlives_its_factory() {
+    // The closure `() => ++c` is RETURNED from `mk` and called after `mk` returned:
+    // the cell (held alive by the closure's captured handle) survives, so the three
+    // calls see 1, 2, 3 — independent state per `mk()` invocation.
+    assert_stdout(
+        "function mk(): () => number { let c = 0; return () => ++c; } \
+         const f = mk(); console.log(f(), f(), f());",
+        "1 2 3\n",
+    );
+}
+
+#[test]
+fn two_counters_have_independent_cells() {
+    // Each `mk()` allocates a FRESH cell, so two counters do not share state.
+    assert_stdout(
+        "function mk(): () => number { let c = 0; return () => ++c; } \
+         const a = mk(); const b = mk(); console.log(a(), a(), b());",
+        "1 2 1\n",
+    );
+}
+
+#[test]
+fn captured_mutated_local_compound_assign() {
+    // `+=` on a captured-mutated local routes through the cell (read-modify-write).
+    assert_stdout(
+        "function run(): number { let total = 0; const add = (n: number) => { total += n; }; \
+         add(10); add(5); return total; } console.log(run());",
+        "15\n",
+    );
+}
+
+#[test]
+fn readonly_capture_stays_by_value_not_a_cell() {
+    // A captured local that is NEVER mutated stays the by-value fast path (NOT a
+    // cell) — guards against over-promotion. `k` is read-only in the closure.
+    assert_stdout(
+        "function f(): number { let k = 3; const g = (x: number) => x * k; return g(4); } \
+         console.log(f());",
+        "12\n",
+    );
+}
+
 #[test]
 fn inline_arrow_callback_reading_console() {
     // An inline arrow CALLBACK that reads `console` (a prelude singleton) — the
