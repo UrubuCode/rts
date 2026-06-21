@@ -113,7 +113,7 @@ fn build_with_includes(src: &str) -> FrontResult<LoweredProgram> {
 /// console.log(x)`) is NOT misjudged a capture (the singleton resolves as a shared
 /// gcell after the merge, not a captured outer local). See [`build_from_program`]
 /// → [`funcval::extract_arrows`].
-fn prelude_fn_names(prelude: &LoweredProgram) -> std::collections::HashSet<String> {
+pub(super) fn prelude_fn_names(prelude: &LoweredProgram) -> std::collections::HashSet<String> {
     let mut names: std::collections::HashSet<String> =
         prelude.funcs.iter().map(|f| f.name.clone()).collect();
     // Top-level `const x = new C()` singletons in the prelude main (`console`) are

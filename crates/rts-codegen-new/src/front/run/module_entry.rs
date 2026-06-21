@@ -95,13 +95,16 @@ fn build_path(entry: &Path) -> FrontResult<super::LoweredProgram> {
         .as_ref()
         .map(|p| &p.classes)
         .unwrap_or(&EMPTY_AMBIENT);
-    // AMBIENT prelude function names (describe/test/expect + primordial `.ts`
-    // helpers) — seeded into the user build's arrow extraction so a user callback
-    // arrow that references one is treated as a free top-level reference, not an
-    // unsound capture (see `build_from_program` → `extract_arrows`).
+    // AMBIENT prelude names (describe/test/expect + primordial `.ts` helpers AND
+    // top-level singletons like `console`) — seeded into the user build's arrow
+    // extraction so a user callback arrow that references one (`x => console.log(x)`)
+    // is treated as a free top-level reference, not an unsound capture (see
+    // `build_from_program` → `extract_arrows`). Uses the SAME `prelude_fn_names` the
+    // single-string path does — it adds the `const x = new C()` singletons the bare
+    // `p.funcs` scan missed (so `console` in a callback no longer bails).
     let ambient_fns: std::collections::HashSet<String> = prelude
         .as_ref()
-        .map(|p| p.funcs.iter().map(|f| f.name.clone()).collect())
+        .map(super::prelude_fn_names)
         .unwrap_or_default();
 
     // The flattened multi-file USER program has no single source string, so the
