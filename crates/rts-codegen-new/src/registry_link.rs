@@ -241,5 +241,7 @@ pub fn url_symbols() -> Vec<JitSymbol> {
         s!("__RTS_FN_GL_URL_PASSWORD", rt_gl_url::__RTS_FN_GL_URL_PASSWORD),
         s!("__RTS_FN_GL_URL_TO_STRING", rt_gl_url::__RTS_FN_GL_URL_TO_STRING),
         s!("__RTS_FN_GL_URL_FREE", rt_gl_url::__RTS_FN_GL_URL_FREE),
+        s!("__RTS_FN_GL_URL_CAN_PARSE", rt_gl_url::__RTS_FN_GL_URL_CAN_PARSE),
+        s!("__RTS_FN_GL_URL_CAN_PARSE_BASE", rt_gl_url::__RTS_FN_GL_URL_CAN_PARSE_BASE),
     ]
 }
