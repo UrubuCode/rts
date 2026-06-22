@@ -29,10 +29,6 @@
 
 use rts_engine::heap::env as rt_env;
 use rts_runtime::namespaces::collections::vec as rt_vec;
-use rts_runtime::namespaces::globals::string::{
-    replace as rt_str_replace, search as rt_str_search, split as rt_str_split,
-    transform as rt_str_transform,
-};
 use rts_runtime::namespaces::engine as rt_engine;
 use rts_runtime::namespaces::gc::collector as rt_gcoll;
 use rts_runtime::namespaces::gc::handles as rt_handles;
@@ -1136,29 +1132,10 @@ fn test_framework_symbols() -> Vec<JitSymbol> {
     for (name, ptr) in crate::front::run::registry::all_jit_symbols() {
         out.push(sym(name, ptr));
     }
-    // The `string` namespace declares its members with a NULL `fn_ptr` (the real
-    // bodies live in `rts-primitives::string`, installed by address — the same
-    // null-skip pattern as the `gc` pool). The harvest skips them, so we install
-    // the FULL surface by address here; every member must be present or a user
-    // `import { m } from "rts:string"` resolves then SIGILLs (honesty floor).
-    out.extend([
-        sym("__RTS_FN_NS_STRING_CONTAINS", rt_str_search::__RTS_FN_NS_STRING_CONTAINS as *const u8),
-        sym("__RTS_FN_NS_STRING_STARTS_WITH", rt_str_search::__RTS_FN_NS_STRING_STARTS_WITH as *const u8),
-        sym("__RTS_FN_NS_STRING_ENDS_WITH", rt_str_search::__RTS_FN_NS_STRING_ENDS_WITH as *const u8),
-        sym("__RTS_FN_NS_STRING_FIND", rt_str_search::__RTS_FN_NS_STRING_FIND as *const u8),
-        sym("__RTS_FN_NS_STRING_TO_UPPER", rt_str_transform::__RTS_FN_NS_STRING_TO_UPPER as *const u8),
-        sym("__RTS_FN_NS_STRING_TO_LOWER", rt_str_transform::__RTS_FN_NS_STRING_TO_LOWER as *const u8),
-        sym("__RTS_FN_NS_STRING_TRIM", rt_str_transform::__RTS_FN_NS_STRING_TRIM as *const u8),
-        sym("__RTS_FN_NS_STRING_TRIM_START", rt_str_transform::__RTS_FN_NS_STRING_TRIM_START as *const u8),
-        sym("__RTS_FN_NS_STRING_TRIM_END", rt_str_transform::__RTS_FN_NS_STRING_TRIM_END as *const u8),
-        sym("__RTS_FN_NS_STRING_REPEAT", rt_str_transform::__RTS_FN_NS_STRING_REPEAT as *const u8),
-        sym("__RTS_FN_NS_STRING_REPLACE", rt_str_replace::__RTS_FN_NS_STRING_REPLACE as *const u8),
-        sym("__RTS_FN_NS_STRING_REPLACEN", rt_str_replace::__RTS_FN_NS_STRING_REPLACEN as *const u8),
-        sym("__RTS_FN_NS_STRING_BYTE_LEN", rt_str_split::__RTS_FN_NS_STRING_BYTE_LEN as *const u8),
-        sym("__RTS_FN_NS_STRING_CHAR_AT", rt_str_split::__RTS_FN_NS_STRING_CHAR_AT as *const u8),
-        sym("__RTS_FN_NS_STRING_CHAR_CODE_AT", rt_str_split::__RTS_FN_NS_STRING_CHAR_CODE_AT as *const u8),
-        sym("__RTS_FN_NS_STRING_CHAR_COUNT", rt_str_split::__RTS_FN_NS_STRING_CHAR_COUNT as *const u8),
-    ]);
+    // NOTE: the `string` namespace externs (`__RTS_FN_NS_STRING_*`) used to be
+    // hand-listed here because they were declared with a NULL `fn_ptr`. They now
+    // carry their real address at registration (`rts-primitives::string::fp_for`)
+    // so the harvest above installs them — no manual list needed.
     out
 }
 
