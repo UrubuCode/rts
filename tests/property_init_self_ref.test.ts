@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -20,14 +20,11 @@ class C {
 }
 
 const c = new C();
-const ha = gc.string_from_i64(c.a);
-print(ha); gc.string_free(ha);
+print(`${c.a}`);
 
-const hb = gc.string_from_i64(c.b);
-print(hb); gc.string_free(hb);
+print(`${c.b}`);
 
-const hc = gc.string_from_i64(c.c);
-print(hc); gc.string_free(hc);
+print(`${c.c}`);
 
 describe("fixture:property_init_self_ref", () => {
   test("matches expected stdout", () => {

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { trace, gc } from "rts";
+import { trace } from "rts";
 
 let __out: string = "";
 function print(v: string): void { __out += v + "\n"; }
@@ -34,7 +34,6 @@ if (d1 == 1) {
 const h1 = trace.capture();
 if (h1 != 0) {
   print("capture_with_frame_ok");
-  const s = gc.string_ptr(h1);
   // We can't compare exact content but the handle is valid
   trace.free(h1);
 } else {

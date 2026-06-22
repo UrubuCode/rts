@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc, math } from "rts";
+import { io, math } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -15,13 +15,9 @@ class C {
 }
 
 const c = new C();
-const ha = gc.string_from_i64(c.a);
-print(ha); // 5
-gc.string_free(ha);
+print(`${c.a}`); // 5
 
-const hb = gc.string_from_i64(c.b);
-print(hb); // 7
-gc.string_free(hb);
+print(`${c.b}`); // 7
 
 print(c.s); // hello world
 

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -20,11 +20,9 @@ namespace Math2 {
     }
 }
 
-const h1 = gc.string_from_i64(Math2.double(5));
-print(h1); gc.string_free(h1); // 10
+print(`${Math2.double(5)}`); // 10
 
-const h2 = gc.string_from_i64(Math2.triple(7));
-print(h2); gc.string_free(h2); // 21
+print(`${Math2.triple(7)}`); // 21
 
 describe("fixture:namespace_basic", () => {
   test("matches expected stdout", () => {

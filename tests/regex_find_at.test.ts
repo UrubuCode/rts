@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc, regex } from "rts";
+import { io, regex } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -11,10 +11,8 @@ function print(value: string): void {
 const word = /[0-9]+/;
 const idx = regex.find_at(word, "abc 123 def 456");
 const cnt = regex.match_count(word, "abc 123 def 456");
-const h1 = gc.string_from_i64(idx);
-print(h1); gc.string_free(h1); // 4
-const h2 = gc.string_from_i64(cnt);
-print(h2); gc.string_free(h2); // 2
+print(`${idx}`); // 4
+print(`${cnt}`); // 2
 regex.free(word);
 
 describe("fixture:regex_find_at", () => {

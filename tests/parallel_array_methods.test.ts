@@ -1,6 +1,6 @@
 // Array.prototype.map/forEach/reduce com fn ident → parallel.* (#247 C)
 import { describe, test, expect } from "rts:test";
-import { gc, collections, atomic } from "rts";
+import { collections, atomic } from "rts";
 
 function double(x: i64): i64 { return x * 2; }
 function add(acc: i64, x: i64): i64 { return acc + x; }
@@ -28,16 +28,16 @@ const counterVal = atomic.i64_load(counter);
 
 describe("fixture:parallel_array_methods", () => {
   test("arr.map(fn) retorna vec com elementos transformados", () => {
-    expect(gc.string_from_i64(dlen)).toBe("5");
-    expect(gc.string_from_i64(d0)).toBe("2");
-    expect(gc.string_from_i64(d4)).toBe("10");
+    expect(`${dlen}`).toBe("5");
+    expect(`${d0}`).toBe("2");
+    expect(`${d4}`).toBe("10");
   });
 
   test("arr.reduce(fn, init) acumula via parallel.reduce", () => {
-    expect(gc.string_from_i64(sum)).toBe("15");
+    expect(`${sum}`).toBe("15");
   });
 
   test("arr.forEach(fn) executa callback pra cada elemento", () => {
-    expect(gc.string_from_i64(counterVal)).toBe("15");
+    expect(`${counterVal}`).toBe("15");
   });
 });

@@ -1,5 +1,4 @@
 import { describe, test, expect } from "rts:test";
-import { gc } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -13,8 +12,7 @@ function print(value: string): void {
 // Caso 1: obj null — retorna 0 sem chamar
 const deep1: any = null;
 const r1 = deep1?.getValue();
-const h1 = gc.string_from_i64((r1 as any) === undefined || r1 === null || r1 === 0 ? 0 : 1);
-print(h1); gc.string_free(h1);
+print(`${(r1 as any) === undefined || r1 === null || r1 === 0 ? 0 : 1}`);
 
 // Caso 2: obj nao-null com metodo presente
 function makeObj(): any {

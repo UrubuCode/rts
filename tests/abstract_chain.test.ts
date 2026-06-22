@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -24,11 +24,9 @@ class Box extends ColoredShape {
 }
 
 const b = new Box();
-const h1 = gc.string_from_i64(b.area());
-print(h1); gc.string_free(h1); // 16
+print(`${b.area()}`); // 16
 
-const h2 = gc.string_from_i64(b.describe());
-print(h2); gc.string_free(h2); // 116
+print(`${b.describe()}`); // 116
 
 describe("fixture:abstract_chain", () => {
   test("matches expected stdout", () => {

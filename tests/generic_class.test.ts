@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -16,12 +16,10 @@ class Box<T> {
 }
 
 const b = new Box<i64>(42);
-const h = gc.string_from_i64(b.get());
-print(h); gc.string_free(h);
+print(`${b.get()}`);
 
 b.set(99);
-const h2 = gc.string_from_i64(b.get());
-print(h2); gc.string_free(h2);
+print(`${b.get()}`);
 
 describe("fixture:generic_class", () => {
   test("matches expected stdout", () => {

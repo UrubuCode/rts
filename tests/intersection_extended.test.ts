@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -13,9 +13,8 @@ interface HasAge { age: i64; }
 
 // Apenas valida que TS aceita a anotacao em type alias / declaration site.
 const obj: HasName & HasAge = { name: "Mario", age: 35 };
-const ageStr = gc.string_from_i64(obj.age);
+const ageStr = `${obj.age}`;
 print(obj.name + " com " + ageStr);
-gc.string_free(ageStr);
 
 describe("fixture:intersection_extended", () => {
   test("matches expected stdout", () => {

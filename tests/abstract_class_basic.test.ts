@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -26,11 +26,9 @@ class Square extends Shape {
 }
 
 const sq = new Square();
-const h1 = gc.string_from_i64(sq.area());
-print(h1); gc.string_free(h1); // 25
+print(`${sq.area()}`); // 25
 
-const h2 = gc.string_from_i64(sq.describe());
-print(h2); gc.string_free(h2); // 25 (via dispatch virtual)
+print(`${sq.describe()}`); // 25 (via dispatch virtual)
 
 describe("fixture:abstract_class_basic", () => {
   test("matches expected stdout", () => {

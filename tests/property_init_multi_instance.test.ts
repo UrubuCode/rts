@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -20,12 +20,9 @@ a.n = 1;
 b.n = 2;
 // k.n permanece 100 (initializer)
 
-const ha = gc.string_from_i64(a.n);
-const hb = gc.string_from_i64(b.n);
-const hk = gc.string_from_i64(k.n);
-print(ha); gc.string_free(ha); // 1
-print(hb); gc.string_free(hb); // 2
-print(hk); gc.string_free(hk); // 100
+print(`${a.n}`); // 1
+print(`${b.n}`); // 2
+print(`${k.n}`); // 100
 
 describe("fixture:property_init_multi_instance", () => {
   test("matches expected stdout", () => {

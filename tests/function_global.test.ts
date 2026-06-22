@@ -1,5 +1,4 @@
 import { describe, test, expect } from "rts:test";
-import { gc } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -19,7 +18,7 @@ print("apply=" + add.apply(0, arr));
 
 // 3. fn.toString() — fn estatica retorna [native code]
 const s = noop.toString();
-print(s); gc.string_free(s);
+print(s);
 
 // 4. new Function — compila body em runtime via eval
 const sq = new Function("x", "return x * x;");

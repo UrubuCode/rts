@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -18,12 +18,10 @@ function max<T extends i64>(a: T, b: T): T {
 }
 
 const r1 = add<i64>(7, 8);
-const h1 = gc.string_from_i64(r1);
-print(h1); gc.string_free(h1);
+print(`${r1}`);
 
 const r2 = max<i64>(15, 23);
-const h2 = gc.string_from_i64(r2);
-print(h2); gc.string_free(h2);
+print(`${r2}`);
 
 describe("fixture:generic_constraint", () => {
   test("matches expected stdout", () => {

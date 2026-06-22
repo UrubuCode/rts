@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -30,10 +30,8 @@ class Sub extends Base {
 }
 
 const s = new Sub();
-const h1 = gc.string_from_i64(s.a + s.b);
-print(h1); gc.string_free(h1); // 10
-const h2 = gc.string_from_i64(s.callBase());
-print(h2); gc.string_free(h2); // 3+7+100+200 = 310
+print(`${s.a + s.b}`); // 10
+print(`${s.callBase()}`); // 3+7+100+200 = 310
 
 describe("fixture:spread_super", () => {
   test("matches expected stdout", () => {

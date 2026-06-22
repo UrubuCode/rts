@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -14,13 +14,11 @@ function maybe(x: number): number | null {
 }
 
 const a = maybe(5);
-const ha = gc.string_from_i64(a as number);
-print(ha); gc.string_free(ha); // 5
+print(`${a as number}`); // 5
 
 const b = maybe(-1);
 // b é null ≡ 0 em RTS
-const hb = gc.string_from_i64(b as number);
-print(hb); gc.string_free(hb); // 0
+print(`${b as number}`); // 0
 
 describe("fixture:union_null", () => {
   test("matches expected stdout", () => {

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -16,8 +16,7 @@ function sum(...nums: number[]): number {
     return total;
 }
 
-const h = gc.string_from_i64(sum(1, 2, 3, 4));
-print(h); gc.string_free(h); // 10
+print(`${sum(1, 2, 3, 4)}`); // 10
 
 describe("fixture:rest_param_basic", () => {
   test("matches expected stdout", () => {

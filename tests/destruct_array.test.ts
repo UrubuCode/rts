@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -10,12 +10,9 @@ function print(value: string): void {
 
 const [a, b, c] = [10, 20, 30];
 
-const h1 = gc.string_from_i64(a);
-print(h1); gc.string_free(h1); // 10
-const h2 = gc.string_from_i64(b);
-print(h2); gc.string_free(h2); // 20
-const h3 = gc.string_from_i64(c);
-print(h3); gc.string_free(h3); // 30
+print(`${a}`); // 10
+print(`${b}`); // 20
+print(`${c}`); // 30
 
 describe("fixture:destruct_array", () => {
   test("matches expected stdout", () => {

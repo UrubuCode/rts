@@ -2,7 +2,7 @@
 // que reescrevem pra parallel.*) aceitam arrays vindos de varias
 // fontes alem de literais inline.
 import { describe, test, expect } from "rts:test";
-import { gc, collections, atomic, parallel } from "rts";
+import { collections, atomic, parallel } from "rts";
 
 function double(x: i64): i64 { return x * 2; }
 function add(acc: i64, x: i64): i64 { return acc + x; }
@@ -41,24 +41,24 @@ const dmLen = collections.vec_len(directMap);
 
 describe("fixture:parallel_array_sources", () => {
   test("arr.map em variavel local funciona", () => {
-    expect(gc.string_from_i64(dvLen)).toBe("5");
-    expect(gc.string_from_i64(dvFirst)).toBe("2");
-    expect(gc.string_from_i64(dvLast)).toBe("10");
+    expect(`${dvLen}`).toBe("5");
+    expect(`${dvFirst}`).toBe("2");
+    expect(`${dvLast}`).toBe("10");
   });
 
   test("arr.reduce em variavel local funciona", () => {
-    expect(gc.string_from_i64(sumFromVar)).toBe("15");
+    expect(`${sumFromVar}`).toBe("15");
   });
 
   test("arr.forEach em variavel local funciona", () => {
-    expect(gc.string_from_i64(counterFromVar)).toBe("15");
+    expect(`${counterFromVar}`).toBe("15");
   });
 
   test("array literal direto via reduce funciona (controle)", () => {
-    expect(gc.string_from_i64(sumLiteral)).toBe("600");
+    expect(`${sumLiteral}`).toBe("600");
   });
 
   test("parallel.map() chamado direto aceita variavel", () => {
-    expect(gc.string_from_i64(dmLen)).toBe("5");
+    expect(`${dmLen}`).toBe("5");
   });
 });

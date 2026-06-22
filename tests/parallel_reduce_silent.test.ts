@@ -8,7 +8,7 @@
 // de codegen, nao de paralelismo.
 
 import { describe, test, expect } from "rts:test";
-import { gc, math } from "rts";
+import { math } from "rts";
 
 const arr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
@@ -38,18 +38,18 @@ for (const x of arr) {
 
 describe("fixture:parallel_reduce_silent", () => {
   test("sum via assignment combine", () => {
-    expect(gc.string_from_i64(sum1)).toBe("55");
+    expect(`${sum1}`).toBe("55");
   });
 
   test("sum via +=", () => {
-    expect(gc.string_from_i64(sum2)).toBe("55");
+    expect(`${sum2}`).toBe("55");
   });
 
   test("produto via *=", () => {
-    expect(gc.string_from_i64(prod)).toBe("3628800");
+    expect(`${prod}`).toBe("3628800");
   });
 
   test("sum com fn pura no body (math.abs_i64)", () => {
-    expect(gc.string_from_i64(sumAbs)).toBe("55");
+    expect(`${sumAbs}`).toBe("55");
   });
 });

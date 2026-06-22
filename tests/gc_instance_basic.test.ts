@@ -12,7 +12,6 @@ describe("gc.instance basics", () => {
     expect(h != 0).toBe(true);
     expect(gc.instance_class(h)).toBe(tag);
     gc.instance_free(h);
-    gc.string_free(tag);
   });
 
   test("store/load i64 roundtrip", () => {

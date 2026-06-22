@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { net, gc, buffer } from "rts";
+import { net, buffer } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -53,7 +53,6 @@ if (ipH == 0) {
   print("FAIL: resolve(localhost) deu 0");
 } else {
   print("resolve-ok");
-  gc.string_free(ipH);
 }
 
 // 8) resolve de host invalido deve dar 0
@@ -62,7 +61,6 @@ if (badH == 0) {
   print("resolve-bad-ok");
 } else {
   print("FAIL: resolve invalid deveria ser 0");
-  gc.string_free(badH);
 }
 
 // 9) tcp_send pra stream invalido = -1

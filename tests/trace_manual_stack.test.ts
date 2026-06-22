@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { trace, gc } from "rts";
+import { trace } from "rts";
 
 let __out: string = "";
 function print(v: string): void { __out += v + "\n"; }
@@ -14,7 +14,6 @@ if (trace.depth() == 2) {
 
 const h = trace.capture();
 if (h != 0) {
-  const text = gc.string_ptr(h);
   // stack should mention both functions (most recent first)
   print("captured_2_frames");
   trace.free(h);

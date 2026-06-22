@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { gc, math } from "rts";
+import { math } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -19,17 +19,17 @@ const r4 = math.random_f64();
 
 // Mesma seed → mesma sequencia.
 const same = (r1 === r3) && (r2 === r4);
-const ok = gc.string_from_static(same ? "ok" : "fail");
-print(ok); gc.string_free(ok);
+const ok = same ? "ok" : "fail";
+print(ok);
 
 // Sequencia avanca: r1 != r2.
-const advance = gc.string_from_static(r1 !== r2 ? "advance" : "stuck");
-print(advance); gc.string_free(advance);
+const advance = r1 !== r2 ? "advance" : "stuck";
+print(advance);
 
 // Range esta em [0, 1).
 const inrange = (r1 >= 0.0 && r1 < 1.0) && (r2 >= 0.0 && r2 < 1.0);
-const range = gc.string_from_static(inrange ? "range" : "out");
-print(range); gc.string_free(range);
+const range = inrange ? "range" : "out";
+print(range);
 
 describe("fixture:math_random_thread_local", () => {
   test("seed determinism + range + thread-local state", () => {

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -16,8 +16,7 @@ function makeBumper(start: number): void {
     cb();
     cb();
     cb();
-    const h = gc.string_from_i64(total);
-    print(h); gc.string_free(h); // 21 (start=7, 3x)
+    print(`${total}`); // 21 (start=7, 3x)
 }
 
 makeBumper(7);

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc, ptr, buffer } from "rts";
+import { io, ptr, buffer } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -24,8 +24,7 @@ ptr.copy_nonoverlapping(pdst, psrc, 16);
 // le primeiros 4 bytes do dst
 for (let i: i64 = 0; i < 4; i = i + 1) {
   const v = ptr.read_u8(ptr.offset(pdst, i));
-  const h = gc.string_from_i64(v);
-  print(h); gc.string_free(h);
+  print(`${v}`);
 }
 
 buffer.free(src);

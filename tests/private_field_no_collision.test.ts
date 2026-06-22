@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -18,11 +18,9 @@ class C {
 }
 
 const c = new C();
-const h = gc.string_from_i64(c.bothValues());
-print(h); gc.string_free(h);
+print(`${c.bothValues()}`);
 
-const hx = gc.string_from_i64(c.x);
-print(hx); gc.string_free(hx); // 100 (público)
+print(`${c.x}`); // 100 (público)
 
 describe("fixture:private_field_no_collision", () => {
   test("matches expected stdout", () => {

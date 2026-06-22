@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -19,8 +19,7 @@ class Pair {
 }
 
 const p = new Pair(...[7, 13]);
-const h = gc.string_from_i64(p.sum());
-print(h); gc.string_free(h); // 20
+print(`${p.sum()}`); // 20
 
 describe("fixture:spread_new", () => {
   test("matches expected stdout", () => {

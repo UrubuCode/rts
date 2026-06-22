@@ -3,7 +3,7 @@
 // bytes nulos no meio (caso comum vindo de buffer.to_string com
 // padding).
 import { describe, test, expect } from "rts:test";
-import { net, gc, buffer, string } from "rts";
+import { net, buffer, string } from "rts";
 
 describe("fixture:net_udp_echo", () => {
   test("send_to + recv_from + last_peer", () => {
@@ -21,7 +21,6 @@ describe("fixture:net_udp_echo", () => {
 
     const peerH = net.udp_last_peer(server);
     const peerOk = peerH != 0;
-    if (peerOk) gc.string_free(peerH);
 
     net.udp_close(client);
     net.udp_close(server);

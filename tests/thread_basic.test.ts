@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { gc, thread, atomic } from "rts";
+import { thread, atomic } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -48,8 +48,7 @@ print("join-ok");
 
 // 5) Apos join, counter deve ter sido incrementado pelo worker em 7
 const v = atomic.i64_load(counter);
-const hv = gc.string_from_i64(v);
-print(hv); gc.string_free(hv); // 7
+print(`${v}`); // 7
 
 // 6) detach smoke — spawn + detach nao bloqueiam. Passa 0 pra nao
 //    perturbar counter (race com 5 acima ja medido).

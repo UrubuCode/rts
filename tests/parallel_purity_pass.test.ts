@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { math, parallel, collections, gc } from "rts";
+import { math, parallel, collections } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -41,16 +41,13 @@ const sfp = getPointer(squareFn);
 const src = [1, 2, 3, 4, 5];
 const squared = parallel.map(src, sfp);
 const len = collections.vec_len(squared);
-const h = gc.string_from_i64(len);
-print(h); gc.string_free(h);   // expect 5
+print(`${len}`);   // expect 5
 
 const v0 = collections.vec_get(squared, 0);
-const hv0 = gc.string_from_i64(v0);
-print(hv0); gc.string_free(hv0); // expect 1
+print(`${v0}`); // expect 1
 
 const v4 = collections.vec_get(squared, 4);
-const hv4 = gc.string_from_i64(v4);
-print(hv4); gc.string_free(hv4); // expect 25
+print(`${v4}`); // expect 25
 
 // 5) parallel.reduce: sum of [1..5] = 15
 function addFn(acc: number, x: number): number {
@@ -58,8 +55,7 @@ function addFn(acc: number, x: number): number {
 }
 const afp = getPointer(addFn);
 const total = parallel.reduce(src, 0, afp);
-const ht = gc.string_from_i64(total);
-print(ht); gc.string_free(ht); // expect 15
+print(`${total}`); // expect 15
 
 // 6) Multiple pure for...of loops (each gets own __par_forof_N).
 const vals = [100, 200, 300];
