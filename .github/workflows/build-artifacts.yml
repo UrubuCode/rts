@@ -43,10 +43,6 @@ jobs:
     # on a `uses:` step is not forwarded into composite action steps).
     env:
       RTS_BUILD_VERSION: ${{ needs.version.outputs.version }}
-      # Dev local usa lto = "thin" no Cargo.toml (rebuild ~6min → ~48s).
-      # O release oficial do CI sobrescreve para LTO full ("fat" == lto=true):
-      # binário menor/mais otimizado, custo de tempo aceitável em CI.
-      CARGO_PROFILE_RELEASE_LTO: "fat"
 
     steps:
       - name: Checkout
