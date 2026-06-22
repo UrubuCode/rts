@@ -819,6 +819,17 @@ fn member_prop_name(prop: &swc::MemberProp) -> String {
 fn expr_to_ident_name(expr: &swc::Expr) -> Option<String> {
     match expr {
         swc::Expr::Ident(id) => Some(id.sym.to_string()),
+        // See through a type-only wrapper around the constructor name: `new (Foo as
+        // any)()`, `new (Foo)()`, `new (Foo satisfies T)()`, `new (Foo!)()`,
+        // `new (<any>Foo)()`. These are TS no-ops at runtime — the constructed class
+        // is the inner ident. Without this the callee is not a bare `Ident`, the name
+        // came back empty, and `new (Foo as any)()` bailed with `class ``.
+        swc::Expr::Paren(p) => expr_to_ident_name(&p.expr),
+        swc::Expr::TsAs(a) => expr_to_ident_name(&a.expr),
+        swc::Expr::TsConstAssertion(a) => expr_to_ident_name(&a.expr),
+        swc::Expr::TsSatisfies(a) => expr_to_ident_name(&a.expr),
+        swc::Expr::TsNonNull(a) => expr_to_ident_name(&a.expr),
+        swc::Expr::TsTypeAssertion(a) => expr_to_ident_name(&a.expr),
         _ => None,
     }
 }
