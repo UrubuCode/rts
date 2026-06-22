@@ -1,0 +1,169 @@
+name: Runtime Archives (per-target)
+
+# Builds the rts-runtime AOT staticlib for several targets (desktop, Android,
+# Apple iOS) and publishes each as `<triple>.a`. These feed
+# `rts compile --target <triple>`: a single `rts` binary
+# only embeds its own host archive, so cross targets are resolved from these
+# prebuilt per-target archives (via RTS_RUNTIME_OBJECTS_DIR / RTS_RUNTIME_ARCHIVE_URL
+# / a `runtime-objects/<triple>.a` next to the executable — see src/runtime_objects.rs).
+#
+# Heavy job: runs on tags and on demand, NOT on every PR/push.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # attach archives to the release for the tag
+
+jobs:
+  runtime-archive:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # --- native (build host == target) ---
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            cross: false
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: false
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            cross: false
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            cross: false
+          # --- cross (Linux host -> other target) ---
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: true
+            apt: gcc-aarch64-linux-gnu
+            linker_cc: aarch64-linux-gnu-gcc
+            linker_ar: aarch64-linux-gnu-ar
+          # Best-effort: Android arm64 via the NDK. May need a cpal/audio backend
+          # change (oboe/AAudio instead of ALSA) before it builds clean — kept
+          # non-blocking until that lands.
+          - target: aarch64-linux-android
+            os: ubuntu-latest
+            cross: true
+            android: true
+            continue: true
+          # --- Apple iOS (built on macOS, SDK auto-selected by Xcode) ---
+          # Best-effort: cpal's iOS (coreaudio) backend is experimental; kept
+          # non-blocking until the audio backend is confirmed on iOS.
+          - target: aarch64-apple-ios          # device
+            os: macos-latest
+            cross: false
+            apple_ios: true
+            continue: true
+          - target: aarch64-apple-ios-sim      # simulator (Apple silicon)
+            os: macos-latest
+            cross: false
+            apple_ios: true
+            continue: true
+          - target: x86_64-apple-ios           # simulator (Intel)
+            os: macos-latest
+            cross: false
+            apple_ios: true
+            continue: true
+
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.continue == true }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+
+      - name: Add Rust target
+        shell: bash
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Setup MSVC env (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install cross C toolchain (Linux gnu cross)
+        if: ${{ matrix.cross == true && matrix.android != true }}
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.apt }}
+
+      - name: Configure cross linker/cc (Linux gnu cross)
+        if: ${{ matrix.cross == true && matrix.android != true }}
+        shell: bash
+        run: |
+          TRIPLE_ENV=$(echo "${{ matrix.target }}" | tr 'a-z-' 'A-Z_')
+          {
+            echo "CARGO_TARGET_${TRIPLE_ENV}_LINKER=${{ matrix.linker_cc }}"
+            echo "CC_${{ matrix.target }}=${{ matrix.linker_cc }}"
+            echo "AR_${{ matrix.target }}=${{ matrix.linker_ar }}"
+          } >> "$GITHUB_ENV"
+
+      - name: Setup Android NDK
+        if: ${{ matrix.android == true }}
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27
+
+      - name: Build runtime staticlib (native / Apple iOS)
+        if: ${{ matrix.cross != true }}
+        shell: bash
+        env:
+          CARGO_PROFILE_RELEASE_LTO: "fat"
+          # Min iOS version (ignored by non-Apple targets).
+          IPHONEOS_DEPLOYMENT_TARGET: "13.0"
+        run: cargo build -p rts-runtime --release --target ${{ matrix.target }}
+
+      - name: Build runtime staticlib (Linux gnu cross)
+        if: ${{ matrix.cross == true && matrix.android != true }}
+        shell: bash
+        env:
+          CARGO_PROFILE_RELEASE_LTO: "fat"
+        run: cargo build -p rts-runtime --release --target ${{ matrix.target }}
+
+      - name: Build runtime staticlib (Android NDK)
+        if: ${{ matrix.android == true }}
+        shell: bash
+        env:
+          CARGO_PROFILE_RELEASE_LTO: "fat"
+        run: |
+          cargo install cargo-ndk --locked || true
+          # arm64-v8a == aarch64-linux-android
+          cargo ndk -t arm64-v8a build -p rts-runtime --release
+
+      - name: Collect archive as <triple>.a
+        shell: bash
+        run: |
+          mkdir -p dist
+          out="target/${{ matrix.target }}/release"
+          if [ -f "$out/rts_runtime.lib" ]; then
+            cp "$out/rts_runtime.lib" "dist/${{ matrix.target }}.a"
+          elif [ -f "$out/librts_runtime.a" ]; then
+            cp "$out/librts_runtime.a" "dist/${{ matrix.target }}.a"
+          else
+            echo "::error::no rts-runtime staticlib found in $out"
+            ls -la "$out" || true
+            exit 1
+          fi
+          ls -la dist
+
+      - name: Upload archive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-${{ matrix.target }}
+          path: dist/${{ matrix.target }}.a
+          if-no-files-found: error
+
+      - name: Attach to release (tag push)
+        if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/${{ matrix.target }}.a
+          fail_on_unmatched_files: true
