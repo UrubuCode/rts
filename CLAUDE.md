@@ -475,9 +475,9 @@ function is a direct `#[no_mangle] extern "C"`.
 `io`, `fs`, `gc`, `math`, `num`, `bigfloat`, `time`, `env`, `path`, `buffer`,
 `string`, `process`, `os`, `collections`, `hash`, `fmt`, `crypto`, `net`, `tls`,
 `thread`, `atomic`, `sync`, `parallel`, `mem`, `hint`, `ptr`, `ffi`, `regex`,
-`runtime`, `test`, `trace`, `ui`, `alloc`, `json`, `date`, `http_server`,
+`runtime`, `test`, `trace`, `alloc`, `json`, `date`, `http_server`,
 `promise`, `events` + `globals/` sub-namespaces. Covers std::* + parallelism +
-HTTPS + UI + JSON + Date + native HTTP server (actix-web) + global JS classes.
+HTTPS + JSON + Date + native HTTP server (actix-web) + global JS classes.
 
 Highlights:
 - `gc/` — string pool + `HandleTable` (slab, 16-bit gen + 48-bit slot). `Entry`:
@@ -494,8 +494,9 @@ Highlights:
 - `http_server/` — native HTTP/1.1 via actix-web over shared tokio. Sync→async
   bridge. Peak ~29k req/s.
 - `parallel/` — rayon map/for_each/reduce; backs the silent-parallelism passes.
-- `regex/` — `regex` crate. `runtime/` — eval_file/eval + hot-reload. `ui/` —
-  FLTK 1.x. `trace/` — Bun-style frame stack. `events/` — EventEmitter.
+- `regex/` — `regex` crate. `runtime/` — eval_file/eval + hot-reload.
+  `trace/` — Bun-style frame stack. `events/` — EventEmitter. (UI namespace
+  removed — FLTK dropped; egui-based UI planned.)
 
 ### Globals (`crates/rts-runtime/src/namespaces/globals/<class>/`)
 

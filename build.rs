@@ -9,9 +9,16 @@ fn main() {
     // Embedded artifacts: zstd-compressed archive + sha256 of the *decompressed*
     // bytes. The compressed blob keeps the shipped `rts` binary small
     // (~99MB -> ~18MB); the sha lets `ensure_artifacts` skip decompression when
-    // `~/.rts/artifacts.a` is already up to date.
+    // `~/.rts/artifacts/<host-triple>.a` is already up to date.
     let output_zst = out.join("runtime_support.a.zst");
     let sha_file = out.join("runtime_support.sha256");
+
+    // The embedded archive is the HOST target's runtime; record which triple it
+    // was built for so `runtime_objects.rs` can name `artifacts/<triple>.a` and
+    // tell host vs. cross targets apart. `TARGET` is the triple `rts` is being
+    // built for (== host for a normal native build).
+    let host_target = std::env::var("TARGET").unwrap_or_else(|_| "unknown".to_string());
+    println!("cargo:rustc-env=RTS_HOST_TARGET={host_target}");
 
     // The AOT runtime-support archive is now produced by Cargo itself:
     // `rts-runtime` is built with `crate-type = ["rlib", "staticlib"]`, so Cargo

@@ -208,10 +208,10 @@ fn build_linker_args(
                 }
             }
 
-            // Abre group para resolver dependencias circulares entre
-            // objects (runtime_support.a) e libs FLTK passadas depois.
-            // Sem --start-group, refs em archive sao resolvidos so' no
-            // primeiro pass — libs depois ficam unresolved.
+            // Abre group para resolver dependencias circulares entre o
+            // runtime_support.a e as libs do sistema passadas depois. Sem
+            // --start-group, refs em archive sao resolvidos so' no primeiro
+            // pass — libs depois ficam unresolved.
             if linker.is_compiler_driver() {
                 args.push("-Wl,--start-group".to_string());
             } else {
@@ -256,42 +256,6 @@ fn build_linker_args(
                     args.push("-lgcc_s".to_string());
                 }
             }
-            // C++ stdlib + FLTK deps — necessarios em ambos casos
-            // (compiler driver e raw linker) porque runtime_support.a
-            // contem objetos C++ FLTK que referenciam esses simbolos.
-            // Compiler driver (cc/clang) por default nao linka libstdc++
-            // (so' g++/clang++ fazem); raw linker tambem precisa explicito.
-            args.push("-lstdc++".to_string());
-            // libsupc++ tem ABI symbols (cxa_pure_virtual, vtable ABI)
-            // separada em algumas distros. Inofensivo se nao existir
-            // (linker pula com unresolved error so' se nao tiver os
-            // symbols de algum jeito — e libstdc++ ja' tem geralmente).
-            // Solo adicionado quando syslib_paths sabe que existe (raw):
-            if syslib_paths.iter().any(|p| {
-                p.join("libsupc++.a").is_file() || p.join("libsupc++.so").is_file()
-            }) {
-                args.push("-lsupc++".to_string());
-            }
-            // FLTK Linux deps: X11, GL, Pango, Cairo, fontconfig.
-            // --no-as-needed garante link mesmo quando refs sao descobertas
-            // depois (objects FLTK ja processados antes das libs).
-            if linker.is_compiler_driver() {
-                args.push("-Wl,--no-as-needed".to_string());
-            } else {
-                args.push("--no-as-needed".to_string());
-            }
-            let fltk_libs = [
-                "-lX11", "-lXext", "-lXft", "-lXinerama", "-lXcursor",
-                "-lXrender", "-lXfixes", "-lXdmcp", "-lXau",
-                "-lpangoxft-1.0", "-lpangocairo-1.0", "-lpango-1.0",
-                "-lgobject-2.0", "-lglib-2.0",
-                "-lcairo", "-lfontconfig", "-lfreetype",
-                "-lGL", "-lGLU",
-            ];
-            for lib in fltk_libs {
-                args.push(lib.to_string());
-            }
-
             // Fecha --start-group apos todas as libs.
             if linker.is_compiler_driver() {
                 args.push("-Wl,--end-group".to_string());
@@ -361,17 +325,13 @@ fn build_linker_args(
                 }
                 args.push("-F/System/Library/Frameworks".to_string());
             }
-            // runtime_support.a embeds FLTK which requires these macOS frameworks.
-            // Both raw linkers and compiler drivers need them explicitly listed.
-            for framework in macos_fltk_frameworks() {
+            // runtime_support.a usa o backend de audio (cpal -> coreaudio) que
+            // referencia estes frameworks macOS. Raw linkers e compiler drivers
+            // precisam deles explicitos.
+            for framework in macos_audio_frameworks() {
                 args.push("-framework".to_string());
                 args.push((*framework).to_string());
             }
-            // libc++ — runtime_support.a tem objetos C++/Obj-C FLTK
-            // (Fl_*.mm.o) que referenciam ___gxx_personality_v0 e
-            // outros symbols do C++ runtime ABI.
-            args.push("-lc++".to_string());
-            args.push("-lc++abi".to_string());
             Ok(args)
         }
     }
@@ -469,20 +429,13 @@ fn macos_sdk_frameworks_path() -> Option<PathBuf> {
     fw.is_dir().then_some(fw)
 }
 
-fn macos_fltk_frameworks() -> &'static [&'static str] {
+fn macos_audio_frameworks() -> &'static [&'static str] {
     &[
-        "Cocoa",
+        // cpal -> coreaudio-rs liga estes frameworks no backend de audio macOS.
         "CoreFoundation",
-        "CoreGraphics",
-        "ApplicationServices",
-        "Accessibility",
-        "OpenGL",
-        "AGL",
-        "IOKit",
-        "Carbon",
-        // Fl_Native_File_Chooser_MAC.mm usa UTType (Uniform Type
-        // Identifiers framework, macOS 11+).
-        "UniformTypeIdentifiers",
+        "CoreAudio",
+        "AudioUnit",
+        "AudioToolbox",
     ]
 }
 
@@ -519,10 +472,11 @@ fn macos_platform_versions(triple: &str) -> (String, String) {
 
 fn windows_runtime_default_libs() -> &'static [&'static str] {
     &[
+        // Import libs exigidas pelo Rust std + runtime (net=ws2_32,
+        // crypto/getrandom=bcrypt, dirs=shell32/ole32). As libs de GUI
+        // (user32/gdi32/comctl32/comdlg32/gdiplus/winspool/oleaut32) eram
+        // residuo do FLTK e foram removidas.
         "kernel32.lib",
-        "user32.lib",
-        "gdi32.lib",
-        "oleaut32.lib",
         "userenv.lib",
         "advapi32.lib",
         "bcrypt.lib",
@@ -530,10 +484,6 @@ fn windows_runtime_default_libs() -> &'static [&'static str] {
         "ntdll.lib",
         "shell32.lib",
         "ole32.lib",
-        "comctl32.lib",
-        "comdlg32.lib",
-        "gdiplus.lib",
-        "winspool.lib",
         "synchronization.lib",
         // Rust staticlib on MSVC uses the dynamic CRT by default; keep only
         // the matching dynamic import libraries to avoid duplicate symbols

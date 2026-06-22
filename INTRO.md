@@ -108,8 +108,6 @@ E coisas mais avançadas:
   RTS roda em paralelo automaticamente, usando todos os núcleos.
 - **HTTPS sem instalação**: faz requisições seguras com certificados
   válidos, sem precisar configurar nada.
-- **Interface gráfica**: dá pra criar janelas com botões, campos de
-  texto, tudo nativo (via biblioteca FLTK).
 
 ## "E o que NÃO funciona?"
 

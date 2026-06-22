@@ -165,11 +165,11 @@ Rules:
 Active namespaces (40+): `io`, `fs`, `gc`, `math`, `num`, `bigfloat`, `time`,
 `env`, `path`, `buffer`, `string`, `process`, `os`, `collections`, `hash`,
 `fmt`, `crypto`, `net`, `tls`, `thread`, `atomic`, `sync`, `parallel`, `mem`,
-`hint`, `ptr`, `ffi`, `regex`, `runtime`, `test`, `trace`, `ui`, `alloc`,
+`hint`, `ptr`, `ffi`, `regex`, `runtime`, `test`, `trace`, `alloc`,
 `json`, `date`, `http_server`, `promise`, `events`, plus the `globals/`
 sub-namespaces (number, string, date, regexp, error, events, console, json,
 timers, fetch, performance, global_this, text_encoding, url). Covers std::* +
-parallelism + HTTPS + UI + JSON + Date + native HTTP server (actix-web) + full
+parallelism + HTTPS + JSON + Date + native HTTP server (actix-web) + full
 global JS classes.
 
 ### Existing namespaces
@@ -252,7 +252,6 @@ global JS classes.
 - `test/` — test_core (suite/case begin/end, fail) + bundle.ts (`rts:test`
   describe/test/expect)
 - `trace/` — push/pop/capture/print frame stack for Bun-style errors
-- `ui/` — FLTK 1.x bindings (Button, Window, Input, Slider, ...)
 - `alloc/` — malloc-style raw allocations
 - `hint/` — black_box, spin_loop, unreachable, assert_unchecked
 - `events/` — primitive EventEmitter: emitter_new/free, on, emit0/emit1,
