@@ -138,6 +138,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(());
         }
 
+        // Re-`let` hygiene: from here `name` becomes a fresh Cranelift-local binding,
+        // and exactly ONE of the classification branches below records its kind. Drop
+        // EVERY prior classification of `name` up front so a re-`let` to a different
+        // kind cannot leave a STALE entry in another map (e.g. `let s = "x"` then
+        // `let s = {a:1}`: without this the old `string_locals["s"]` survives next to
+        // the new object shape and `s.length` wrongly takes the string fast path).
+        // Each branch re-inserts only its own; the single clear replaces the partial
+        // per-branch removes that previously covered only the numeric tail.
+        self.clear_local_classifications(name);
+
         // GENERATOR-valued init: `const it = g()` where `g` is a generator. Mark
         // `it` so `it.next()`/`.return()`/`.throw()` route to `GENERATOR_*`. LAZY →
         // bind the raw `Int64` GenState handle; EAGER → bind the `__gen_buf` ARRAY
@@ -349,14 +359,25 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let var = self.builder.declare_var(cl_type(repr));
         self.builder.def_var(var, coerced);
         self.locals.insert(name.to_string(), Local { var, repr });
-        // A non-literal initializer leaves no proven shape; if `name` was a shaped
-        // local being re-`let`, drop the stale shape/class (its value is now opaque).
+        // No per-branch shape/class removal needed: `clear_local_classifications`
+        // already dropped every prior classification of `name` at the top of the
+        // (re)binding, and this numeric tail records none.
+        Ok(())
+    }
+
+    /// Drop EVERY compile-time classification of local `name` (proven shape, object/
+    /// string kind, user/registry class, class-ref, generator). Called once at the
+    /// top of a (re)binding so a re-`let` to a different kind cannot leave a stale
+    /// entry in a map another branch does not touch. Does NOT touch `locals` (the
+    /// Cranelift variable binding itself), which the binding branch replaces.
+    fn clear_local_classifications(&mut self, name: &str) {
         self.local_shapes.remove(name);
+        self.object_locals.remove(name);
+        self.string_locals.remove(name);
         self.local_classes.remove(name);
         self.local_class_refs.remove(name);
         self.global_instance_classes.remove(name);
-        self.object_locals.remove(name);
-        Ok(())
+        self.generator_locals.remove(name);
     }
 
     /// Bind `name` to a fresh `Tagged` local holding `val.v` (used for
