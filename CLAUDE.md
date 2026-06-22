@@ -586,8 +586,9 @@ no `fn.prototype`/`arguments`, no async in `new Function`. Spec:
 3 codegen passes in `rts-codegen-old` rewrite common TS to `parallel.*`
 automatically (`array_methods_pass`, `reduce_pass`, `purity_pass`). This
 machinery is **frozen in the old engine and is NOT carried into the new engine
-unless re-justified** against the redesign. Spec:
-`docs/specs/silent-parallelism.md`.
+unless re-justified** against the redesign. (The standalone
+`silent-parallelism.md` spec was removed — old-engine-only, not a guide for the
+new engine.)
 
 ## Codegen optimizations (new engine)
 
