@@ -55,6 +55,7 @@ mod registryclass;
 mod sig;
 mod stmt;
 mod switch;
+mod tco;
 mod thunk;
 mod toprimitive;
 mod trycatch;

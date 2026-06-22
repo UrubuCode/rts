@@ -111,4 +111,27 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.emit_post_call_error_check(module)?;
         Ok(result)
     }
+
+    /// Emit a TAIL `return_call` to user function `sig` with already-marshaled args
+    /// (TCO of `return f(args)`). The callee's result becomes THIS function's result
+    /// directly — no post-call error check is emitted (there is no "after": if the
+    /// callee throws it sets the pending-error slot and returns its sentinel, both of
+    /// which flow straight to OUR caller, exactly as a normal tail propagation would).
+    /// The caller MUST have verified self+callee are `tail_callable` with matching
+    /// return reprs. Marks the block terminated (`return_call` is a terminator).
+    pub(super) fn emit_user_call_tail(
+        &mut self,
+        module: &mut dyn Module,
+        sig: &FnSig,
+        lowered: &[Value],
+    ) -> FrontResult<()> {
+        let cl_sig = sig.to_cranelift(module);
+        let callee = module
+            .declare_function(&sig.name, cranelift_module::Linkage::Local, &cl_sig)
+            .map_err(|e| Unsupported::new(format!("declare tail callee `{}`: {e}", sig.name)))?;
+        let func_ref = module.declare_func_in_func(callee, self.builder.func);
+        self.builder.ins().return_call(func_ref, lowered);
+        self.block_terminated = true;
+        Ok(())
+    }
 }

@@ -90,6 +90,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 return unsupported!("`return;` with no value in a value-returning function");
             }
             (Some(ret), Some(e)) => {
+                // TAIL-CALL OPTIMIZATION: `return f(args)` to a tail-callable user
+                // function whose return repr matches ours lowers to a Cranelift
+                // `return_call` (constant stack — deep tail recursion no longer
+                // overflows). Falls back to a normal call+return when ANY condition
+                // is unmet (kept conservative and sound — never a wrong value).
+                if self.try_tail_return(module, e, ret)? {
+                    self.block_terminated = true;
+                    return Ok(());
+                }
                 let v = self.lower_expr(module, e)?;
                 let coerced = self.coerce(v, ret)?;
                 self.builder.ins().return_(&[coerced]);
