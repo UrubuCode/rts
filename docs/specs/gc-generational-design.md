@@ -115,12 +115,20 @@ WeakMap/WeakSet do `.ts` strong-ref para a `Entry` nativa que o collector entend
   `FinalizationRegistry{callback,entries}` existem (já existem no enum) e que o
   scanner do collector NÃO marca através do conteúdo dessas variantes (hoje, se
   não alocadas como roots, já não marca — confirmar com teste unit do collector).
-- **A1.1 (WeakRef deref O(1), o mais bounded):** `WeakRef` guarda o handle
-  COMPLETO de 64 bits `(gen<<48 | slot)`. `deref()` chama
-  `POLY_TO_HANDLE(slot)` e compara a generation reconstruída com a guardada: se
-  difere (slot liberado/reusado) → `undefined`. Sem fase de collector nova; é
-  detecção de staleness pura. Entregável isolado, testável com unit
-  (alloc → collect → deref vira undefined). Wire mínimo no TS (`WeakRef`/`deref`).
+- **A1.1 (WeakRef deref O(1), o mais bounded) — FEITO no runtime, BLOQUEADO no
+  TS:** `WeakRef` guarda o handle COMPLETO de 64 bits. `deref()` só devolve o
+  target se `with_entry(target)` ainda for `Some` (gen+slot batem); senão
+  `undefined`. `Entry`'s `Traceable::trace_children` já cai em `_ => {}` para
+  WeakRef — o target NÃO é mantido vivo, então a checagem de staleness é a
+  semântica weak completa (+ corrige use-after-free latente do v0). Implementado
+  em `rts-shared/src/globals/weakref/mod.rs` + unit test.
+  **BLOQUEADOR descoberto:** o motor novo ainda NÃO suporta `new WeakRef(..)`
+  ("class WeakRef is not a user class — global/Registry class é incremento
+  posterior"). Logo A1.1 é correto mas NÃO exercitável por TS até o motor
+  instanciar classes global/Registry via `new`. Esse é o pré-requisito real de
+  TODO o A1 (Rule C: resolver o bloqueador primeiro). O unit test não roda
+  standalone (limitação pré-existente: lib-test não linka símbolos do codegen
+  tipo STRING_NEW).
 - **A1.2 (storage nativa de WeakMap/WeakSet):** novos externs ABI
   `__RTS_FN_NS_GC_WEAKMAP_*`/`WEAKSET_*` (new/set/get/has/delete) sobre
   `Entry::WeakMap`/`WeakSet`; reescrever `rts-shared/src/stdlib/weakmap_set.ts`
