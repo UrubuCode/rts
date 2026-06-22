@@ -59,16 +59,14 @@ fn ext(name: &str, sig: Sig, symbol: &str, ts: &str, pure: bool) -> Member {
 pub fn register(e: &mut Engine) {
     e.ns("gc")
         .doc("Runtime-managed handle table and string pool. All members are `external` —\nthe externs are owned by the submodules; the macro emits only the SPEC.")
-        .member(ext("string_from_i64", Sig::new(vec![AbiType::I64], AbiType::Handle), "__RTS_FN_NS_GC_STRING_FROM_I64", "string_from_i64(value: number): number", false))
-        .member(ext("string_from_f64", Sig::new(vec![AbiType::F64], AbiType::Handle), "__RTS_FN_NS_GC_STRING_FROM_F64", "string_from_f64(value: number): number", false))
-        .member(ext("string_concat", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_GC_STRING_CONCAT", "string_concat(a: number, b: number): number", false))
-        .member(ext("string_eq", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::I64), "__RTS_FN_NS_GC_STRING_EQ", "string_eq(a: number, b: number): number", false))
-        .member(ext("string_cmp", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::I64), "__RTS_FN_NS_GC_STRING_CMP", "string_cmp(a: number, b: number): number", false))
+        // String-pool manual surface (motor antigo) REMOVIDA — strings são
+        // PolyValue TAG_STR nativas no motor novo; conversão é `String()`/template/`+`
+        // e comparação é `===`/`<`. Os símbolos `__RTS_FN_NS_GC_STRING_*` continuam
+        // definidos (string_pool.rs) porque o motor novo os usa INTERNAMENTE para
+        // construir strings nativas (genops/number→string); o que sai é só a
+        // superfície `gc.string_*` exposta ao TS. `string_from_static` fica como
+        // único holdout enquanto `gc.instance_*` (gc_instance_basic) não migra (C2/C4).
         .member(ext("string_from_static", Sig::new(vec![AbiType::StrPtr], AbiType::Handle), "__RTS_FN_NS_GC_STRING_FROM_STATIC", "string_from_static(data: string): number", false))
-        .member(ext("string_new", Sig::new(vec![AbiType::StrPtr], AbiType::Handle), "__RTS_FN_NS_GC_STRING_NEW", "string_new(data: string): number", false))
-        .member(ext("string_len", Sig::new(vec![AbiType::Handle], AbiType::I64), "__RTS_FN_NS_GC_STRING_LEN", "string_len(handle: number): number", false))
-        .member(ext("string_ptr", Sig::new(vec![AbiType::Handle], AbiType::U64), "__RTS_FN_NS_GC_STRING_PTR", "string_ptr(handle: number): number", false))
-        .member(ext("string_free", Sig::new(vec![AbiType::Handle], AbiType::I64), "__RTS_FN_NS_GC_STRING_FREE", "string_free(handle: number): number", false))
         .member(ext("handle_len", Sig::new(vec![AbiType::U64], AbiType::I64), "__RTS_FN_NS_GC_HANDLE_LEN", "handle_len(h: number): number", true))
         .member(ext("env_alloc", Sig::new(vec![AbiType::I32], AbiType::Handle), "__RTS_FN_NS_GC_ENV_ALLOC", "env_alloc(slot_count: number): number", false))
         .member(ext("env_get", Sig::new(vec![AbiType::Handle, AbiType::I32], AbiType::I64), "__RTS_FN_NS_GC_ENV_GET", "env_get(env: number, slot: number): number", false))
