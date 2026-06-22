@@ -9,7 +9,63 @@ pub mod instance;
 
 use rts_engine::{AbiType, DefaultArg, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
+/// Endereço real do extern de um membro `Date`. Os `__RTS_FN_GL_DATE_*` vivem em
+/// `instance.rs` e as 3 estáticas `__RTS_FN_NS_DATE_*` (backing Date.now/UTC/parse)
+/// em `crate::date` — ambos neste mesmo crate. Eram `external` (fn_ptr null) e
+/// supridos à mão pelo `registry_link` do motor; agora carregam o endereço real e o
+/// HARVEST do Registry instala o símbolo. `__RTS_FN_NS_GC_IS_DATE` fica null aqui
+/// (é primitiva gc interna, instalada pelo conjunto `gc_internal` do motor).
+fn fp_for(symbol: &str) -> *const u8 {
+    match symbol {
+        "__RTS_FN_GL_DATE_GET_DATE" => instance::__RTS_FN_GL_DATE_GET_DATE as *const u8,
+        "__RTS_FN_GL_DATE_GET_DAY" => instance::__RTS_FN_GL_DATE_GET_DAY as *const u8,
+        "__RTS_FN_GL_DATE_GET_FULL_YEAR" => instance::__RTS_FN_GL_DATE_GET_FULL_YEAR as *const u8,
+        "__RTS_FN_GL_DATE_GET_HOURS" => instance::__RTS_FN_GL_DATE_GET_HOURS as *const u8,
+        "__RTS_FN_GL_DATE_GET_MILLISECONDS" => instance::__RTS_FN_GL_DATE_GET_MILLISECONDS as *const u8,
+        "__RTS_FN_GL_DATE_GET_MINUTES" => instance::__RTS_FN_GL_DATE_GET_MINUTES as *const u8,
+        "__RTS_FN_GL_DATE_GET_MONTH" => instance::__RTS_FN_GL_DATE_GET_MONTH as *const u8,
+        "__RTS_FN_GL_DATE_GET_SECONDS" => instance::__RTS_FN_GL_DATE_GET_SECONDS as *const u8,
+        "__RTS_FN_GL_DATE_GET_TIME" => instance::__RTS_FN_GL_DATE_GET_TIME as *const u8,
+        "__RTS_FN_GL_DATE_GET_TIMEZONE_OFFSET" => instance::__RTS_FN_GL_DATE_GET_TIMEZONE_OFFSET as *const u8,
+        "__RTS_FN_GL_DATE_GET_UTC_DATE" => instance::__RTS_FN_GL_DATE_GET_UTC_DATE as *const u8,
+        "__RTS_FN_GL_DATE_GET_UTC_DAY" => instance::__RTS_FN_GL_DATE_GET_UTC_DAY as *const u8,
+        "__RTS_FN_GL_DATE_GET_UTC_FULL_YEAR" => instance::__RTS_FN_GL_DATE_GET_UTC_FULL_YEAR as *const u8,
+        "__RTS_FN_GL_DATE_GET_UTC_HOURS" => instance::__RTS_FN_GL_DATE_GET_UTC_HOURS as *const u8,
+        "__RTS_FN_GL_DATE_GET_UTC_MILLISECONDS" => instance::__RTS_FN_GL_DATE_GET_UTC_MILLISECONDS as *const u8,
+        "__RTS_FN_GL_DATE_GET_UTC_MINUTES" => instance::__RTS_FN_GL_DATE_GET_UTC_MINUTES as *const u8,
+        "__RTS_FN_GL_DATE_GET_UTC_MONTH" => instance::__RTS_FN_GL_DATE_GET_UTC_MONTH as *const u8,
+        "__RTS_FN_GL_DATE_GET_UTC_SECONDS" => instance::__RTS_FN_GL_DATE_GET_UTC_SECONDS as *const u8,
+        "__RTS_FN_GL_DATE_NEW_FROM_FIELDS" => instance::__RTS_FN_GL_DATE_NEW_FROM_FIELDS as *const u8,
+        "__RTS_FN_GL_DATE_NEW_FROM_ISO" => instance::__RTS_FN_GL_DATE_NEW_FROM_ISO as *const u8,
+        "__RTS_FN_GL_DATE_NEW_FROM_MS" => instance::__RTS_FN_GL_DATE_NEW_FROM_MS as *const u8,
+        "__RTS_FN_GL_DATE_NEW_NOW" => instance::__RTS_FN_GL_DATE_NEW_NOW as *const u8,
+        "__RTS_FN_GL_DATE_SET_DATE" => instance::__RTS_FN_GL_DATE_SET_DATE as *const u8,
+        "__RTS_FN_GL_DATE_SET_FULL_YEAR" => instance::__RTS_FN_GL_DATE_SET_FULL_YEAR as *const u8,
+        "__RTS_FN_GL_DATE_SET_HOURS" => instance::__RTS_FN_GL_DATE_SET_HOURS as *const u8,
+        "__RTS_FN_GL_DATE_SET_MILLISECONDS" => instance::__RTS_FN_GL_DATE_SET_MILLISECONDS as *const u8,
+        "__RTS_FN_GL_DATE_SET_MINUTES" => instance::__RTS_FN_GL_DATE_SET_MINUTES as *const u8,
+        "__RTS_FN_GL_DATE_SET_MONTH" => instance::__RTS_FN_GL_DATE_SET_MONTH as *const u8,
+        "__RTS_FN_GL_DATE_SET_SECONDS" => instance::__RTS_FN_GL_DATE_SET_SECONDS as *const u8,
+        "__RTS_FN_GL_DATE_SET_TIME" => instance::__RTS_FN_GL_DATE_SET_TIME as *const u8,
+        "__RTS_FN_GL_DATE_TO_DATE_STRING" => instance::__RTS_FN_GL_DATE_TO_DATE_STRING as *const u8,
+        "__RTS_FN_GL_DATE_TO_ISO_STRING" => instance::__RTS_FN_GL_DATE_TO_ISO_STRING as *const u8,
+        "__RTS_FN_GL_DATE_TO_JSON" => instance::__RTS_FN_GL_DATE_TO_JSON as *const u8,
+        "__RTS_FN_GL_DATE_TO_LOCALE_DATE_STRING" => instance::__RTS_FN_GL_DATE_TO_LOCALE_DATE_STRING as *const u8,
+        "__RTS_FN_GL_DATE_TO_LOCALE_STRING" => instance::__RTS_FN_GL_DATE_TO_LOCALE_STRING as *const u8,
+        "__RTS_FN_GL_DATE_TO_LOCALE_TIME_STRING" => instance::__RTS_FN_GL_DATE_TO_LOCALE_TIME_STRING as *const u8,
+        "__RTS_FN_GL_DATE_TO_STRING" => instance::__RTS_FN_GL_DATE_TO_STRING as *const u8,
+        "__RTS_FN_GL_DATE_TO_TIME_STRING" => instance::__RTS_FN_GL_DATE_TO_TIME_STRING as *const u8,
+        "__RTS_FN_GL_DATE_TO_UTC_STRING" => instance::__RTS_FN_GL_DATE_TO_UTC_STRING as *const u8,
+        "__RTS_FN_GL_DATE_VALUE_OF" => instance::__RTS_FN_GL_DATE_VALUE_OF as *const u8,
+        "__RTS_FN_NS_DATE_NOW_MS" => crate::date::__RTS_FN_NS_DATE_NOW_MS as *const u8,
+        "__RTS_FN_NS_DATE_FROM_PARTS" => crate::date::__RTS_FN_NS_DATE_FROM_PARTS as *const u8,
+        "__RTS_FN_NS_DATE_PARSE_F64" => crate::date::__RTS_FN_NS_DATE_PARSE_F64 as *const u8,
+        _ => core::ptr::null(),
+    }
+}
+
 /// Membro de classe global (helper hand-written, espelha `leak_class` da macro).
+/// `fn_ptr` real via [`fp_for`] (harvest do Registry instala o símbolo JIT).
 #[allow(clippy::too_many_arguments)]
 fn m(
     name: &str,
@@ -25,7 +81,7 @@ fn m(
         kind,
         sig,
         symbol: symbol.to_string(),
-        fn_ptr: FnPtr(std::ptr::null()),
+        fn_ptr: FnPtr(fp_for(symbol)),
         flags: MemberFlags::NONE,
         aliases: Vec::new(),
         variadic: false,

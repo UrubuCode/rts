@@ -95,7 +95,6 @@
 pub mod dispatch;
 pub mod front;
 pub mod ic;
-pub mod registry_link;
 pub mod repr;
 pub mod adapter_symbols;
 pub mod shape;

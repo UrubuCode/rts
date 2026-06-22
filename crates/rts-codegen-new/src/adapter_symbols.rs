@@ -750,7 +750,6 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
     // Registry-driven Date dispatch ([`crate::front::run::registry_call`]) emits
     // directly — replacing the `__rtsadp_date_*` trampolines that used to forward
     // to them.
-    syms.extend(crate::registry_link::date_symbols());
     syms
 }
 
