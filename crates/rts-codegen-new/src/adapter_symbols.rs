@@ -1249,3 +1249,36 @@ fn generator_symbols() -> Vec<JitSymbol> {
 fn sym(name: &'static str, ptr: *const u8) -> JitSymbol {
     JitSymbol { name, ptr }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::jit_symbols;
+    use std::collections::HashMap;
+
+    /// Drift guard for the JIT symbol table (the design-doc coverage assert): every
+    /// installed symbol must have a REAL address (no null slipped through from an
+    /// `external` member whose `fp_for` forgot it — that is the link-OK / runtime-
+    /// SIGILL class), and no symbol name may be installed with TWO different
+    /// addresses (a harvest entry disagreeing with a hand entry — same-address
+    /// duplicates are harmless and allowed). A failure here is exactly the bug the
+    /// harvest migration exists to prevent.
+    #[test]
+    fn jit_symbols_have_no_null_and_no_conflicting_dupes() {
+        let syms = jit_symbols();
+        assert!(!syms.is_empty(), "the JIT symbol table is empty");
+        let mut seen: HashMap<&str, *const u8> = HashMap::new();
+        for s in &syms {
+            assert!(!s.ptr.is_null(), "JIT symbol `{}` has a NULL fn_ptr", s.name);
+            match seen.get(s.name) {
+                Some(&prev) => assert_eq!(
+                    prev, s.ptr,
+                    "JIT symbol `{}` installed with two different addresses",
+                    s.name
+                ),
+                None => {
+                    seen.insert(s.name, s.ptr);
+                }
+            }
+        }
+    }
+}
