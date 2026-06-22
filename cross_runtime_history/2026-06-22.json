@@ -1,0 +1,1646 @@
+{
+  "date": "2026-06-22",
+  "summary": {
+    "total": 609,
+    "pass": 184,
+    "rts_diverge": 52,
+    "bun_node_diverge": 17,
+    "errors": 356,
+    "rejected": 0
+  },
+  "pct": 31.1,
+  "divergent": [
+    {
+      "name": "125_array_includes",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "139_array_reduce_edge_cases",
+      "status": "rts_error"
+    },
+    {
+      "name": "142_array_join_edge_cases",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "149_array_reverse_sort_mutate",
+      "status": "rts_error"
+    },
+    {
+      "name": "169_array_of",
+      "status": "rts_error"
+    },
+    {
+      "name": "178_array_constructor",
+      "status": "rts_error"
+    },
+    {
+      "name": "190_array_entries_keys_values",
+      "status": "rts_error"
+    },
+    {
+      "name": "199_array_from_mapfn",
+      "status": "rts_error"
+    },
+    {
+      "name": "214_array_length_setter",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "220_array_map_sparse",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "242_array_map_return",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "303_array_fromasync",
+      "status": "rts_error"
+    },
+    {
+      "name": "34_array_from_length_mapper",
+      "status": "rts_error"
+    },
+    {
+      "name": "351_obf_string_array",
+      "status": "rts_error"
+    },
+    {
+      "name": "357_obf_self_ref_array",
+      "status": "rts_error"
+    },
+    {
+      "name": "397_array_holes_mutation",
+      "status": "rts_error"
+    },
+    {
+      "name": "418_array_species_subclass",
+      "status": "rts_error"
+    },
+    {
+      "name": "45_array_iterators_deep",
+      "status": "rts_error"
+    },
+    {
+      "name": "52_sparse_arrays",
+      "status": "rts_error"
+    },
+    {
+      "name": "94_sparse_array_enumeration",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-at-fractional-and-negative",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-from-thisarg-and-mapfn",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-holes-join-string-indexers",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-holes-map-filter-foreach",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-indexof-nan-and-negzero",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-reduce-no-init-edges",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-sort-comparator-nan-returns",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_array_concat_spreadable_edges",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_array_from_iterator_close_on_throw",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_array_iterator_reused_result_object",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_array_length_define_traps",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_array_methods_thisarg_mutation",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_array_reduce_mutation_window",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_array_sort_mutates_length",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_array_species_constructor_poison",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_array_unshift_holes",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_sparse_array_spread_vs_from",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "102_bigint_ops",
+      "status": "rts_error"
+    },
+    {
+      "name": "291_json_bigint",
+      "status": "rts_error"
+    },
+    {
+      "name": "317_bigint_literals",
+      "status": "rts_error"
+    },
+    {
+      "name": "65_bigint_typed_arrays",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_bigint_asuintn_edges",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_bigint_typedarray_clamp_wrap",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_primitive_wrappers_truthiness",
+      "status": "rts_error"
+    },
+    {
+      "name": "106_error_stack_presence",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "155_object_getprototypeof",
+      "status": "rts_error"
+    },
+    {
+      "name": "22_typeof_instanceof",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "247_object_isprototypeof",
+      "status": "rts_error"
+    },
+    {
+      "name": "415_error_subclass_stack_name",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_aggregate_error_iterable_order",
+      "status": "rts_error"
+    },
+    {
+      "name": "267_private_fields",
+      "status": "rts_error"
+    },
+    {
+      "name": "268_private_methods",
+      "status": "rts_error"
+    },
+    {
+      "name": "269_static_blocks",
+      "status": "rts_error"
+    },
+    {
+      "name": "270_new_target",
+      "status": "rts_error"
+    },
+    {
+      "name": "271_computed_class_members",
+      "status": "rts_error"
+    },
+    {
+      "name": "371_private_fields_basic",
+      "status": "rts_error"
+    },
+    {
+      "name": "372_private_methods",
+      "status": "rts_error"
+    },
+    {
+      "name": "373_private_in_check",
+      "status": "rts_error"
+    },
+    {
+      "name": "374_private_static_methods",
+      "status": "rts_error"
+    },
+    {
+      "name": "375_private_inheritance",
+      "status": "rts_error"
+    },
+    {
+      "name": "376_private_pattern_advanced",
+      "status": "rts_error"
+    },
+    {
+      "name": "38_classes_deep",
+      "status": "rts_error"
+    },
+    {
+      "name": "407_class_static_private_brand",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_class_computed_private_static_order",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_class_static_block_throw_order",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_class_super_field_order",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_instanceof_custom_hasinstance",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_reflect_construct_newtarget_subclass",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_super_getter_setter_receiver",
+      "status": "rts_error"
+    },
+    {
+      "name": "301_groupby_dedicated",
+      "status": "rts_error"
+    },
+    {
+      "name": "302_set_ops_dedicated",
+      "status": "rts_error"
+    },
+    {
+      "name": "406_map_set_key_identity_edges",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "89_groupby",
+      "status": "rts_error"
+    },
+    {
+      "name": "90_set_operations",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_map_forEach_clear_readd",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_map_iteration_mutation",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_set_iteration_mutation",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_weakmap_invalid_keys",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "309_console_assert",
+      "status": "rts_error"
+    },
+    {
+      "name": "310_console_group",
+      "status": "rts_error"
+    },
+    {
+      "name": "311_console_table",
+      "status": "rts_error"
+    },
+    {
+      "name": "312_console_dir",
+      "status": "rts_error"
+    },
+    {
+      "name": "280_date_setutc_family",
+      "status": "rts_error"
+    },
+    {
+      "name": "414_date_overflow_utc",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "43_date_setters_deep",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_date_invalid_setters_nan",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_date_utc_setter_overflow",
+      "status": "rts_error"
+    },
+    {
+      "name": "58_text_encoding",
+      "status": "rts_error"
+    },
+    {
+      "name": "79_subtle_digest",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_textdecoder_fatal_ignorebom",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_textdecoder_streaming_split_utf8",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_textencoder_encodeinto_partial",
+      "status": "rts_error"
+    },
+    {
+      "name": "285_queuemicrotask_order",
+      "status": "rts_error"
+    },
+    {
+      "name": "288_abortsignal_timeout_any",
+      "status": "rts_error"
+    },
+    {
+      "name": "393_promise_microtask",
+      "status": "rts_error"
+    },
+    {
+      "name": "56_microtask_order",
+      "status": "rts_error"
+    },
+    {
+      "name": "62_abort_controller",
+      "status": "rts_error"
+    },
+    {
+      "name": "63_event_target",
+      "status": "rts_error"
+    },
+    {
+      "name": "76_message_channel",
+      "status": "rts_error"
+    },
+    {
+      "name": "84_abortsignal_advanced",
+      "status": "rts_error"
+    },
+    {
+      "name": "179_function_name_length",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "181_function_bind",
+      "status": "rts_error"
+    },
+    {
+      "name": "25_closures",
+      "status": "rts_error"
+    },
+    {
+      "name": "299_arguments_object",
+      "status": "rts_error"
+    },
+    {
+      "name": "348_closure_optimization",
+      "status": "rts_error"
+    },
+    {
+      "name": "41_closures_deep",
+      "status": "rts_error"
+    },
+    {
+      "name": "49_function_meta",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-closure-capture-let-loop",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-closure-mutates-captured",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-compose-reassigned-binding",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-curry-chain",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-let-vs-var-loop-closures",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-nested-closure-multilevel",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-nested-fn-producer-consumer-ok",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-nested-fn-same-name",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-nested-fn-sibling-call",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-nested-loop-let-closures",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-per-iter-let-mutable-state",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-shared-closure-var",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-var-and-fn-hoisting",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_arguments_callee_shape",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_bound_constructor_new_target",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_closure_eval_mutates_outer",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_function_constructor_scope",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_function_name_inferred_destructure",
+      "status": "rts_error"
+    },
+    {
+      "name": "307_weakref_shape",
+      "status": "rts_error"
+    },
+    {
+      "name": "308_finalization_registry_shape",
+      "status": "rts_error"
+    },
+    {
+      "name": "108_generator_functions",
+      "status": "rts_error"
+    },
+    {
+      "name": "109_async_generator",
+      "status": "rts_error"
+    },
+    {
+      "name": "329_generator_basics",
+      "status": "rts_error"
+    },
+    {
+      "name": "379_yield_star",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_async_generator_yield_await_finally",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_generator_delegation_exception_path",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_yield_star_iterator_return_chain",
+      "status": "rts_error"
+    },
+    {
+      "name": "59_intl_basics",
+      "status": "rts_error"
+    },
+    {
+      "name": "71_intl_segmenter",
+      "status": "rts_error"
+    },
+    {
+      "name": "78_intl_more",
+      "status": "rts_error"
+    },
+    {
+      "name": "305_iterator_helpers",
+      "status": "rts_error"
+    },
+    {
+      "name": "306_iterator_toarray",
+      "status": "rts_error"
+    },
+    {
+      "name": "392_async_iterator_advanced",
+      "status": "rts_error"
+    },
+    {
+      "name": "409_for_of_iterator_close",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_async_iterator_break_close",
+      "status": "rts_error"
+    },
+    {
+      "name": "207_json_stringify_space",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "228_json_parse_reviver",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "229_json_stringify_replacer_array",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "290_json_circular",
+      "status": "rts_error"
+    },
+    {
+      "name": "292_json_tojson",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "293_json_reviver_this",
+      "status": "rts_error"
+    },
+    {
+      "name": "403_json_replacer_array_order",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "50_json_deep",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_json_bigint_tojson_monkeypatch",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_json_parse_reviver_delete_root",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_json_stringify_propertylist_objects",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_json_tojson_replacer_interaction",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "137_math_cbrt_hypot",
+      "status": "rts_error"
+    },
+    {
+      "name": "213_math_min_max_empty",
+      "status": "rts_error"
+    },
+    {
+      "name": "284_math_f16round",
+      "status": "rts_error"
+    },
+    {
+      "name": "36_math_edges",
+      "status": "rts_error"
+    },
+    {
+      "name": "100_dynamic_import",
+      "status": "rts_error"
+    },
+    {
+      "name": "103_property_order_weird",
+      "status": "rts_error"
+    },
+    {
+      "name": "278_aggregate_error",
+      "status": "rts_error"
+    },
+    {
+      "name": "286_setimmediate",
+      "status": "rts_error"
+    },
+    {
+      "name": "316_structuredclone_mixed",
+      "status": "rts_error"
+    },
+    {
+      "name": "325_structuredclone_primitives",
+      "status": "rts_error"
+    },
+    {
+      "name": "337_bundler_dead_code",
+      "status": "rts_error"
+    },
+    {
+      "name": "338_bundler_module_patterns",
+      "status": "rts_error"
+    },
+    {
+      "name": "344_bundler_helpers",
+      "status": "rts_error"
+    },
+    {
+      "name": "355_obf_number_encoding",
+      "status": "rts_error"
+    },
+    {
+      "name": "356_obf_dispatcher",
+      "status": "rts_error"
+    },
+    {
+      "name": "394_structuredclone_complex",
+      "status": "rts_error"
+    },
+    {
+      "name": "60_aggregate_error",
+      "status": "rts_error"
+    },
+    {
+      "name": "61_structured_clone",
+      "status": "rts_error"
+    },
+    {
+      "name": "77_domexception",
+      "status": "rts_error"
+    },
+    {
+      "name": "97_structured_clone_edge",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_structuredclone_transfer_detach",
+      "status": "rts_error"
+    },
+    {
+      "name": "130_number_isfinite_isnan",
+      "status": "rts_error"
+    },
+    {
+      "name": "131_number_isinteger_issafeinteger",
+      "status": "rts_error"
+    },
+    {
+      "name": "148_isfinite_isnan_global",
+      "status": "rts_error"
+    },
+    {
+      "name": "198_number_parseint_parsefloat",
+      "status": "rts_error"
+    },
+    {
+      "name": "281_number_edges",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "367_coercion_traps",
+      "status": "rts_error"
+    },
+    {
+      "name": "51_coercion_weird",
+      "status": "rts_error"
+    },
+    {
+      "name": "95_nan_negative_zero",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-array-loose-equality",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-array-object-in-plus",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-int-above-2pow53",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-math-ceil-floor-neg-zero",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-math-round-neg-zero",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-negative-zero-identity",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-plus-null-undefined-coercion",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-to-fixed-rounding",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-toprimitive-valueof-vs-tostring",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-unary-minus-coercion",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-unary-plus-coercion",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_date_toprimitive_addition",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_numeric_relational_coercion",
+      "status": "rts_error"
+    },
+    {
+      "name": "110_object_getownpropertydescriptors",
+      "status": "rts_error"
+    },
+    {
+      "name": "126_object_assign",
+      "status": "rts_error"
+    },
+    {
+      "name": "153_object_preventextensions",
+      "status": "rts_error"
+    },
+    {
+      "name": "162_object_create_null",
+      "status": "rts_error"
+    },
+    {
+      "name": "182_object_propertyisenumerable",
+      "status": "rts_error"
+    },
+    {
+      "name": "183_object_getownpropertynames",
+      "status": "rts_error"
+    },
+    {
+      "name": "188_reflect_basics",
+      "status": "rts_error"
+    },
+    {
+      "name": "189_reflect_defineproperty",
+      "status": "rts_error"
+    },
+    {
+      "name": "191_object_values_entries_iteration",
+      "status": "rts_error"
+    },
+    {
+      "name": "192_object_getownpropertysymbols",
+      "status": "rts_error"
+    },
+    {
+      "name": "193_reflect_construct",
+      "status": "rts_error"
+    },
+    {
+      "name": "20_object_methods",
+      "status": "rts_error"
+    },
+    {
+      "name": "210_object_tostring",
+      "status": "rts_error"
+    },
+    {
+      "name": "216_object_keys_order",
+      "status": "rts_error"
+    },
+    {
+      "name": "221_object_constructor",
+      "status": "rts_error"
+    },
+    {
+      "name": "227_object_hasownproperty",
+      "status": "rts_error"
+    },
+    {
+      "name": "230_object_valueof",
+      "status": "rts_error"
+    },
+    {
+      "name": "253_object_keys_empty",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "264_object_hasown",
+      "status": "rts_error"
+    },
+    {
+      "name": "265_object_fromentries",
+      "status": "rts_error"
+    },
+    {
+      "name": "323_object_entries_fromEntries",
+      "status": "rts_error"
+    },
+    {
+      "name": "335_getter_setter",
+      "status": "rts_error"
+    },
+    {
+      "name": "336_prototype_chain",
+      "status": "rts_error"
+    },
+    {
+      "name": "340_proxy_basics",
+      "status": "rts_error"
+    },
+    {
+      "name": "341_getter_inheritance",
+      "status": "rts_error"
+    },
+    {
+      "name": "346_reflect_api",
+      "status": "rts_error"
+    },
+    {
+      "name": "349_object_descriptors",
+      "status": "rts_error"
+    },
+    {
+      "name": "354_obf_proxy_trap",
+      "status": "rts_error"
+    },
+    {
+      "name": "359_obf_getter_smuggle",
+      "status": "rts_error"
+    },
+    {
+      "name": "368_iterator_protocol",
+      "status": "rts_error"
+    },
+    {
+      "name": "382_field_init_order",
+      "status": "rts_error"
+    },
+    {
+      "name": "387_object_create_descriptors",
+      "status": "rts_error"
+    },
+    {
+      "name": "388_globalThis",
+      "status": "rts_error"
+    },
+    {
+      "name": "389_proto_accessor",
+      "status": "rts_error"
+    },
+    {
+      "name": "396_property_key_coercion",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "408_object_spread_getter_order",
+      "status": "rts_error"
+    },
+    {
+      "name": "40_object_deep",
+      "status": "rts_error"
+    },
+    {
+      "name": "416_proxy_receiver_setter_this",
+      "status": "rts_error"
+    },
+    {
+      "name": "419_property_enumeration_mutation",
+      "status": "rts_error"
+    },
+    {
+      "name": "48_object_freeze_mutation",
+      "status": "rts_error"
+    },
+    {
+      "name": "53_proxy_reflect",
+      "status": "rts_error"
+    },
+    {
+      "name": "98_proxy_invariants",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-delete-return-value",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-destr-default-side-effect",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-destr-nested-default-order",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-in-array-holes-and-proto",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-in-inherited-vs-own",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-json-replacer-and-indent",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-json-stringify-special-values",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-json-tojson-hook",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-keys-numeric-order",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-spread-getter-to-data",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-spread-override-order",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-typeof-edge-cases",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_define_property_defaults",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_defineproperties_partial_side_effect",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_freeze_typedarray_error",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_getownpropertydescriptor_array_length",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_object_assign_setter_order",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_object_create_null_json_keys",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_object_define_accessor_delete",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_object_extensibility_assign",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_ownkeys_order_symbols",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_proxy_construct_apply_newtarget",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_proxy_delete_invariant",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_proxy_descriptor_virtual_property",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_proxy_getprototypeof_invariant",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_proxy_invariant_nonconfigurable",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_proxy_revocable_edges",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_reflect_set_prototype_cycle",
+      "status": "rts_error"
+    },
+    {
+      "name": "361_functional_compose",
+      "status": "rts_error"
+    },
+    {
+      "name": "363_algorithms",
+      "status": "rts_error"
+    },
+    {
+      "name": "386_trampoline",
+      "status": "rts_error"
+    },
+    {
+      "name": "420_state_machine_parser",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_event_emitter_once_mutation",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_lru_cache_map_order",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_memoized_recursive_closure",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_parser_backtracking_tokens",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_reactive_dependency_tracker",
+      "status": "rts_error"
+    },
+    {
+      "name": "116_promise_finally",
+      "status": "rts_error"
+    },
+    {
+      "name": "167_promise_race_any",
+      "status": "rts_error"
+    },
+    {
+      "name": "200_promise_allsettled",
+      "status": "rts_error"
+    },
+    {
+      "name": "28_promise_sync",
+      "status": "rts_error"
+    },
+    {
+      "name": "304_promise_try",
+      "status": "rts_error"
+    },
+    {
+      "name": "365_async_patterns",
+      "status": "rts_error"
+    },
+    {
+      "name": "410_promise_thenable_assimilation",
+      "status": "rts_error"
+    },
+    {
+      "name": "42_promise_deep",
+      "status": "rts_error"
+    },
+    {
+      "name": "83_promise_combinators",
+      "status": "rts_error"
+    },
+    {
+      "name": "92_promise_with_resolvers",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_promise_all_order_thenables",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_promise_any_rejection_order",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_promise_finally_thenable",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_promise_reentrant_then_order",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_promise_then_getter_throws",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_then_getter_called_once",
+      "status": "rts_error"
+    },
+    {
+      "name": "171_regexp_lastindex",
+      "status": "rts_error"
+    },
+    {
+      "name": "243_string_split_regex",
+      "status": "rts_error"
+    },
+    {
+      "name": "366_regex_advanced",
+      "status": "rts_error"
+    },
+    {
+      "name": "395_regex_d_flag",
+      "status": "rts_error"
+    },
+    {
+      "name": "39_regex_deep",
+      "status": "rts_error"
+    },
+    {
+      "name": "404_regexp_replace_named_callback",
+      "status": "rts_error"
+    },
+    {
+      "name": "70_regex_indices",
+      "status": "rts_error"
+    },
+    {
+      "name": "81_regex_named_groups",
+      "status": "rts_error"
+    },
+    {
+      "name": "99_regexp_unicode",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_regex_indices_named_groups",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_regex_replace_zero_length_global",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_regex_sticky_lastindex_unicode",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_regex_unicode_property_escape",
+      "status": "rts_error"
+    },
+    {
+      "name": "101_textdecoder_stream",
+      "status": "rts_error"
+    },
+    {
+      "name": "64_readable_stream",
+      "status": "rts_error"
+    },
+    {
+      "name": "86_blob_stream",
+      "status": "rts_error"
+    },
+    {
+      "name": "88_compression_stream",
+      "status": "rts_error"
+    },
+    {
+      "name": "96_streams_transform",
+      "status": "rts_error"
+    },
+    {
+      "name": "140_string_charat_charcodeat",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "195_string_codepointat",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "197_string_raw",
+      "status": "rts_error"
+    },
+    {
+      "name": "203_string_localecompare_numeric",
+      "status": "rts_error"
+    },
+    {
+      "name": "212_string_indexof_empty",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "252_string_match_groups",
+      "status": "rts_error"
+    },
+    {
+      "name": "256_string_replace_function",
+      "status": "rts_error"
+    },
+    {
+      "name": "261_string_matchall",
+      "status": "rts_error"
+    },
+    {
+      "name": "262_replaceall",
+      "status": "rts_error"
+    },
+    {
+      "name": "412_unicode_surrogate_iteration",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "91_string_wellformed",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-at-negative-index",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-codepoint-iteration-emoji",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-concat-type-coercion",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-lone-surrogate-iteration",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-padstart-unicode",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-replace-capture-groups",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-split-regex-limit",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-template-literal-coercion",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-tostring-vs-valueof-hint",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_string_raw_arraylike",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_string_replace_dollar_tokens",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_string_split_captures_limits",
+      "status": "rts_error"
+    },
+    {
+      "name": "184_symbol_for_keyfor",
+      "status": "rts_error"
+    },
+    {
+      "name": "272_symbol_iterator_custom",
+      "status": "rts_error"
+    },
+    {
+      "name": "273_symbol_asynciterator",
+      "status": "rts_error"
+    },
+    {
+      "name": "274_symbol_toprimitive",
+      "status": "rts_error"
+    },
+    {
+      "name": "378_symbol_species_hasinstance",
+      "status": "rts_error"
+    },
+    {
+      "name": "402_template_toPrimitive_order",
+      "status": "rts_error"
+    },
+    {
+      "name": "54_symbol_registry",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_symbol_match_custom",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_symbol_split_custom",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_symbol_toStringTag_custom",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_symbol_unscopables_with",
+      "status": "rts_error"
+    },
+    {
+      "name": "03_equality",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "09_nullish_optional",
+      "status": "rts_error"
+    },
+    {
+      "name": "104_destructuring_edge_cases",
+      "status": "rts_error"
+    },
+    {
+      "name": "105_template_tagged_raw",
+      "status": "rts_error"
+    },
+    {
+      "name": "10_destructure_spread",
+      "status": "rts_error"
+    },
+    {
+      "name": "118_numeric_separators",
+      "status": "rts_error"
+    },
+    {
+      "name": "11_objects_templates",
+      "status": "rts_error"
+    },
+    {
+      "name": "251_array_constructor_spread",
+      "status": "rts_error"
+    },
+    {
+      "name": "266_logical_assignment",
+      "status": "rts_error"
+    },
+    {
+      "name": "295_labeled_break_continue",
+      "status": "rts_error"
+    },
+    {
+      "name": "296_delete_operator",
+      "status": "rts_error"
+    },
+    {
+      "name": "298_comma_operator",
+      "status": "rts_error"
+    },
+    {
+      "name": "300_this_strict_top_level",
+      "status": "rts_error"
+    },
+    {
+      "name": "313_tagged_template_raw",
+      "status": "rts_error"
+    },
+    {
+      "name": "314_import_meta",
+      "status": "rts_error"
+    },
+    {
+      "name": "319_exponentiation",
+      "status": "rts_error"
+    },
+    {
+      "name": "330_destructuring_defaults",
+      "status": "rts_error"
+    },
+    {
+      "name": "331_labeled_statements",
+      "status": "rts_error"
+    },
+    {
+      "name": "332_comma_operator",
+      "status": "rts_error"
+    },
+    {
+      "name": "334_iife_patterns",
+      "status": "rts_error"
+    },
+    {
+      "name": "342_in_operator",
+      "status": "rts_error"
+    },
+    {
+      "name": "343_optional_chaining",
+      "status": "rts_error"
+    },
+    {
+      "name": "345_string_template_tag",
+      "status": "rts_error"
+    },
+    {
+      "name": "352_obf_control_flow_flat",
+      "status": "rts_error"
+    },
+    {
+      "name": "360_obf_iife_scope",
+      "status": "rts_error"
+    },
+    {
+      "name": "377_for_in_detail",
+      "status": "rts_error"
+    },
+    {
+      "name": "398_destructure_rest_computed_keys",
+      "status": "rts_error"
+    },
+    {
+      "name": "399_default_param_temporal_order",
+      "status": "rts_error"
+    },
+    {
+      "name": "400_eval_scope_edges",
+      "status": "rts_error"
+    },
+    {
+      "name": "417_nested_optional_call_this_binding",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-comma-operator",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-delete-operator",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-optional-chain-call",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-optional-chain-short",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_destructuring_iterator_close_on_default_throw",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_for_in_shadowed_var_closure",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_logical_assignment_getter_once",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_optional_delete",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_tdz_typeof_let",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_try_finally_control_flow",
+      "status": "rts_error"
+    },
+    {
+      "name": "204_typedarray_basic",
+      "status": "rts_error"
+    },
+    {
+      "name": "205_arraybuffer_basic",
+      "status": "rts_error"
+    },
+    {
+      "name": "57_dataview_endianness",
+      "status": "rts_error"
+    },
+    {
+      "name": "68_arraybuffer_transfer_clone",
+      "status": "rts_error"
+    },
+    {
+      "name": "69_atomics_sharedarraybuffer",
+      "status": "rts_error"
+    },
+    {
+      "name": "93_typedarray_methods",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_dataview_nan_payload_canonical",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_dataview_offsets_endian_mix",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_typedarray_set_overlap",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_typedarray_species_slice",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_typedarray_subarray_shared_sort",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_typedarray_toStringTag",
+      "status": "rts_error"
+    },
+    {
+      "name": "107_url_edge_cases",
+      "status": "rts_error"
+    },
+    {
+      "name": "55_url_searchparams",
+      "status": "rts_error"
+    },
+    {
+      "name": "67_url_patternish",
+      "status": "rts_error"
+    },
+    {
+      "name": "80_urlsearchparams_sort",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_url_relative_resolution",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_url_username_password_encoding",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_urlsearchparams_live_sort",
+      "status": "rts_error"
+    },
+    {
+      "name": "289_headers_getsetcookie",
+      "status": "rts_error"
+    },
+    {
+      "name": "72_formdata",
+      "status": "rts_error"
+    },
+    {
+      "name": "73_headers",
+      "status": "rts_error"
+    },
+    {
+      "name": "74_blob_basics",
+      "status": "rts_error"
+    },
+    {
+      "name": "75_file_basics",
+      "status": "rts_error"
+    },
+    {
+      "name": "85_request_response",
+      "status": "rts_error"
+    }
+  ]
+}
