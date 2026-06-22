@@ -166,8 +166,19 @@ fn for_of_non_iterable_bails() {
 }
 
 #[test]
-fn labeled_break_bails() {
-    assert_bails(
-        "outer: for (let i = 0; i < 3; i++) { for (let j = 0; j < 3; j++) { if (j === 1) break outer; } } console.log(\"done\");",
+fn labeled_break_breaks_outer() {
+    // `break outer` from the inner loop exits the OUTER loop (labeled control flow).
+    assert_stdout(
+        "let s = \"\"; outer: for (let i = 0; i < 3; i++) { for (let j = 0; j < 3; j++) { if (i === 1 && j === 1) break outer; s += i + \"\" + j + \" \"; } } console.log(s);",
+        "00 01 02 10 \n",
+    );
+}
+
+#[test]
+fn labeled_continue_continues_outer() {
+    // `continue outer` re-tests the OUTER loop, skipping the rest of both bodies.
+    assert_stdout(
+        "let s = \"\"; outer: for (let i = 0; i < 3; i++) { for (let j = 0; j < 3; j++) { if (j === 1) continue outer; s += i + \"\" + j + \" \"; } } console.log(s);",
+        "00 10 20 \n",
     );
 }
