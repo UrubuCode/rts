@@ -166,6 +166,9 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
     // (#218). `Reflect.get`/`set` on a Proxy fire its traps via the dynamic
     // trampolines; after Object/JSON so its `Object.keys` resolves.
     PreludeTs { label: "Reflect", source: rts_runtime::stdlib::REFLECT_TS, why: "Reflect.get/set/has" },
+    // structuredClone — global fn; after Map/Set/WeakMap/JSON so its instanceof +
+    // Object.keys + Map/Set/Date clone resolve against the already-included classes.
+    PreludeTs { label: "structuredClone", source: rts_runtime::stdlib::STRUCTURED_CLONE_TS, why: "deep clone w/ cycle detection" },
     // The rts:test FRAMEWORK — LAST, so its Matcher/describe/test see every primordial.
     PreludeTs { label: "rts:test", source: rts_runtime::namespaces::test::BUNDLE_TS, why: "describe/test/expect/Matcher" },
 ];

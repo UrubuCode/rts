@@ -36,3 +36,10 @@ pub const CONSOLE_TS: &str = include_str!("console.ts");
 /// dynamic property trampolines detect the proxy. Descriptor / prototype / apply
 /// reflectors are a later increment (#218).
 pub const REFLECT_TS: &str = include_str!("reflect.ts");
+
+/// `structuredClone(value)` — a rts-shared utility GLOBAL FUNCTION (not a
+/// primordial; no native syntax). Pure TS over primordials + ambient stdlib
+/// (typeof / Array.isArray / Object.keys / instanceof / WeakMap / Map / Set /
+/// Date); a deep structural clone with cycle detection. The engine names nothing
+/// here — `structuredClone(x)` is an ordinary call of this ambient function.
+pub const STRUCTURED_CLONE_TS: &str = include_str!("structured_clone.ts");
