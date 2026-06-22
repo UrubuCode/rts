@@ -33,4 +33,18 @@ class Reflect {
   static has(target: any, key: any): any {
     return Object.keys(target).indexOf(key) >= 0;
   }
+
+  // Reflect.deleteProperty(target, key) — `delete target[key]`; returns whether the
+  // property is gone afterward (always true here — the model has no
+  // non-configurable own properties).
+  static deleteProperty(target: any, key: any): any {
+    delete target[key];
+    return true;
+  }
+
+  // Reflect.ownKeys(target) — the target's own (string) keys. Symbol keys are a
+  // later increment (Symbol itself is not yet modeled).
+  static ownKeys(target: any): any {
+    return Object.keys(target);
+  }
 }

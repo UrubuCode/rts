@@ -27,6 +27,16 @@ fn reflect_get_fires_proxy_get_trap() {
 }
 
 #[test]
+fn reflect_delete_property_and_own_keys() {
+    assert_stdout(
+        "const o: any = { a: 1, b: 2, c: 3 }; \
+         const ok = Reflect.deleteProperty(o, \"b\"); \
+         console.log(ok, Reflect.ownKeys(o).join(\",\"), Reflect.has(o, \"b\"));",
+        "true a,c false\n",
+    );
+}
+
+#[test]
 fn reflect_set_fires_proxy_set_trap() {
     // `Reflect.set(proxy, k, v)` → `proxy[k] = v` → the proxy's `set` trap.
     assert_stdout(

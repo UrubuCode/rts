@@ -544,6 +544,48 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     }
 
     /// Lower `arr[index] = value` (index-write) to `VEC_SET`.
+    /// `delete obj.key` / `delete obj[k]` — remove the property and evaluate to
+    /// `true`. Lowers the OBJECT, derives the key (a literal member name or a
+    /// ToString'd computed key), and calls the runtime `__rtsadp_obj_delete` (shape
+    /// transition + value-slot shift). A numeric computed key (`delete arr[i]`) or a
+    /// non-property target (`delete x`) is outside this increment → bail.
+    pub(super) fn lower_delete(
+        &mut self,
+        module: &mut dyn Module,
+        operand: &HirExpr,
+    ) -> FrontResult<Val> {
+        let (object_expr, obj_word, key) = match &operand.kind {
+            HirExprKind::Member { object, prop } => {
+                let obj = self.lower_expr(module, object)?;
+                let obj_word = self.box_value(obj);
+                (object.as_ref(), obj_word, self.intern_key_word(prop))
+            }
+            HirExprKind::Index { object, index } => {
+                let obj = self.lower_expr(module, object)?;
+                let obj_word = self.box_value(obj);
+                let Some(key) = self.dynamic_key_word(module, index)? else {
+                    return unsupported!(
+                        "`delete obj[k]` with a numeric / non-string computed key (later increment)"
+                    );
+                };
+                (object.as_ref(), obj_word, key)
+            }
+            _ => {
+                return unsupported!("`delete` on a non-property target (a no-op in strict mode)");
+            }
+        };
+        let res = self
+            .call_runtime(module, "__rtsadp_obj_delete", &[obj_word, key])?
+            .expect("__rtsadp_obj_delete returns a value");
+        // The delete reshapes the object at RUNTIME, so the local's compile-time
+        // shape is no longer authoritative — route future `o.k` / `Object.keys(o)`
+        // through the DYNAMIC path (which reads the live slot-0 shape).
+        if let Some(name) = self.object_receiver_name(object_expr) {
+            self.demote_local_to_dynamic(&name);
+        }
+        Ok(Val::new(res, Repr::Bool))
+    }
+
     pub(super) fn lower_index_assign(
         &mut self,
         module: &mut dyn Module,
@@ -947,7 +989,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Tagged index is ToString'd via the box + the lowering's key coercion: a
     /// proven-string value passes its word straight through; a Tagged index is
     /// boxed and ToString happens inside the trampoline's `key_text`.
-    fn dynamic_key_word(
+    pub(super) fn dynamic_key_word(
         &mut self,
         module: &mut dyn Module,
         index: &HirExpr,

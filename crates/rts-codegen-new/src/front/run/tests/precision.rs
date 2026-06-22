@@ -143,10 +143,15 @@ fn object_typed_param_literal_annotation_now_dynamic() {
 }
 
 // ===========================================================================
-// Sound bails preserved: `delete` (slot removal) and spread forms not covered.
+// `delete` (slot removal via shape transition) — now implemented (#218 object
+// model). The property is removed and a later read yields `undefined`.
 // ===========================================================================
 
 #[test]
-fn delete_still_bails() {
-    assert_bails("let o = { a: 1 }; delete o.a; console.log(o.a);");
+fn delete_removes_the_property() {
+    assert_stdout(
+        "let o = { a: 1, b: 2 }; const ok = delete o.a; \
+         console.log(ok, o.a, o.b, Object.keys(o).join(\",\"));",
+        "true undefined 2 b\n",
+    );
 }

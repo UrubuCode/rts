@@ -242,6 +242,40 @@ pub extern "C" fn __rtsadp_obj_has(obj_word: u64, key_str_handle: u64) -> i64 {
     resolve_slot(obj_word, key_str_handle).is_some() as i64
 }
 
+/// `delete obj.key` — slot removal via a shape transition (the inverse of the
+/// `obj_set` key-append). Resolve the key's slot: ABSENT (or a non-object) → `1`
+/// (a no-op delete evaluates to `true` in JS). PRESENT → shift the value slots
+/// after it down by one over the hole, drop the now-duplicate tail slot, and set
+/// slot 0 to the shape WITHOUT the key. Always returns `1` (own/configurable/absent
+/// deletes are all `true`; this model has no non-configurable props). A Proxy
+/// `deleteProperty` trap is a later increment — a proxy receiver is not a keyed
+/// object, so `resolve_slot` misses and it returns `1` (no-op) rather than trapping.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_obj_delete(obj_word: u64, key_str_handle: u64) -> i64 {
+    let Some((handle, idx)) = resolve_slot(obj_word, key_str_handle) else {
+        return 1;
+    };
+    // Read the keys + intern the key-less shape BEFORE mutating the Vec: the shift +
+    // pop below transiently breaks the shape↔length invariant `object_keys_vec`
+    // relies on, so computing the new shape after the mutation would read empty.
+    let mut keys = object_keys_vec(obj_word);
+    keys.remove(idx as usize);
+    let new_shape = crate::shape::intern_global_shape(&keys);
+    let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(handle).max(0);
+    // Shift the value slots (1+idx+1 .. len) down by one, over the removed slot.
+    let mut j = 1 + idx;
+    while j + 1 < len {
+        let next = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, j + 1);
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(handle, j, next);
+        j += 1;
+    }
+    // Drop the now-duplicate tail slot, then commit the key-less shape header.
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_POP(handle);
+    let slot0 = PolyValue::from_i32(new_shape as i32).raw() as i64;
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(handle, 0, slot0);
+    1
+}
+
 /// Recover a keyed object's ordered keys from its slot-0 global shape-id. Empty
 /// for a non-object / unrecognized header (the safe default — `Object.keys` of a
 /// non-object yields `[]`).
