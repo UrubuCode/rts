@@ -1,0 +1,56 @@
+[package]
+name = "rts-egui"
+version = "0.1.0"
+edition = "2024"
+
+# GUI imediata cross-platform via egui (immediate-mode, Rust puro — sem FLTK/C++).
+# O Rust expõe PRIMITIVOS via ABI de handles u64 (extern "C"); a lib de alto
+# nível (Window/Button/Slider) vive em TS. Loop dirigido pelo TS sobre esses
+# primitivos. Ver docs/specs/egui-ui-crate-design.md.
+#
+# UiCtx (EventLoop+Window+wgpu+egui) é !Send → vive num thread_local na thread
+# do TS; o handle u64 é só uma chave opaca.
+
+[dependencies]
+rts-engine = { path = "../rts-engine" }
+
+# egui/egui-winit SEM default-features: cortamos accesskit (a11y, traz toda uma
+# árvore), serde, etc. — não usamos no PoC.
+egui = { version = "0.34.3", default-features = false }
+egui-winit = { version = "0.34.3", default-features = false }
+# winit só com rwh_06 (raw-window-handle p/ a Surface do wgpu). default-features
+# off corta serde e backends de plataforma que o cfg já resolve.
+winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
+pollster = "0.4"
+
+# Backend de render — wgpu primário (default), glow fallback de compat.
+# CRÍTICO: o wgpu é declarado UMA ÚNICA VEZ. Declará-lo também num
+# [target.'cfg(...)'] criava uma 2ª especificação com features diferentes, e o
+# Cargo NÃO unificava → 5 cópias de wgpu_core/naga/wgpu_hal (e por arraste 3 de
+# rts_std, 4 de windows) = a staticlib de 1GB era METADE duplicação.
+#
+# default-features=false corta os backends de TODAS as plataformas
+# (dx12+metal+gles+vulkan+webgpu). Os backends por SO entram via [features]
+# abaixo, resolvidos por cfg no momento do build — sem redeclarar o wgpu.
+egui-wgpu = { version = "0.34.3", optional = true, default-features = false }
+wgpu = { version = "29.0", optional = true, default-features = false, features = [
+    "wgsl",  # shaders WGSL (egui usa)
+    "std",
+] }
+egui_glow = { version = "0.34.3", optional = true, default-features = false }
+glow = { version = "0.16", optional = true }
+
+[features]
+# default liga o backend wgpu + dx12 (Windows). macOS/Linux: trocar gpu-dx12 por
+# gpu-metal/gpu-vulkan no consumidor (rts-runtime) por cfg de plataforma.
+default = ["wgpu-backend", "gpu-dx12"]
+# wgpu-backend liga o dep wgpu/egui-wgpu. O backend de GPU concreto é escolhido
+# pelas features de plataforma abaixo (o build ativa a do SO corrente).
+wgpu-backend = ["dep:egui-wgpu", "dep:wgpu"]
+glow-backend = ["dep:egui_glow", "dep:glow"]
+# Backends de GPU — ativar SÓ o do SO alvo (não todos). Por ora explícito; um
+# wrapper de build pode selecioná-los por cfg. dx12=Windows, metal=macOS,
+# vulkan=Linux.
+gpu-dx12 = ["wgpu/dx12"]
+gpu-metal = ["wgpu/metal"]
+gpu-vulkan = ["wgpu/vulkan"]
