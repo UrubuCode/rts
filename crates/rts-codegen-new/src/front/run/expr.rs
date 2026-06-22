@@ -235,6 +235,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(Val::tagged_kind(res, JsKind::Str));
         }
 
+        // `delete obj.key` / `delete obj[k]` — remove the property via a shape
+        // transition (`__rtsadp_obj_delete` shifts the value slots + reshapes the
+        // object, the inverse of the key-append in `obj_set`). Intercepted BEFORE the
+        // operand is lowered (like `typeof`) — we need the object + key separately,
+        // not the property's value. Always evaluates `true` (own/configurable/absent
+        // deletes are all `true`). A non-property target keeps the prior bail.
+        if matches!(op, HirUnOp::Delete) {
+            return self.lower_delete(module, operand);
+        }
+
         // `-0` is the one negation whose result an integer slot CANNOT hold: JS `-0`
         // is the IEEE-754 negative zero (distinct from `+0` — `1/-0 === -Infinity`,
         // `Object.is(0,-0) === false`). The literal-0 operand would otherwise lower
@@ -335,9 +345,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // `delete o.absent` / discarding the result. We bail on a member/index
             // target (cannot actually remove) and only return `true` for the
             // never-removes cases is unsound — so bail uniformly rather than guess.
-            HirUnOp::Delete => unsupported!(
-                "`delete` (slot removal needs the transition tree — a later increment)"
-            ),
+            // `delete` is handled before the operand is lowered (see top of
+            // `lower_unary`); it never reaches this match.
+            HirUnOp::Delete => unreachable!("delete intercepted before operand lowering"),
             // `void x` — `x` is already lowered above (its side effects ran); the
             // expression always evaluates to `undefined`.
             HirUnOp::Void => {
