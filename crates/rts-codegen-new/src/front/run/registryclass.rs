@@ -208,6 +208,26 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.emit_registry_call(module, &call, Some(recv), &vals, result_kind)
     }
 
+    /// The runtime CLASS a registry instance-method/getter `object.method(args)`
+    /// RETURNS, when the spec annotates a named registered class
+    /// (`ArrayBuffer.slice(): ArrayBuffer`, `URL.searchParams: URLSearchParams`).
+    /// Lets `const a = buf.slice(..)` record `a`'s class (in `global_instance_classes`)
+    /// so a chained `a.byteLength` dispatches. `None` when the receiver's class is
+    /// not statically a registry class, the method is unknown, or its return is not
+    /// a named registered class — so nothing is invented.
+    pub(super) fn registry_method_ret_class(
+        &self,
+        object: &HirExpr,
+        method: &str,
+        argc: usize,
+    ) -> Option<String> {
+        let recv_class = self.global_instance_class(object)?;
+        let call = super::registry::class_member(&recv_class, method, argc)?;
+        let cls = call.ret_class?;
+        // Only trust a return-type name that is itself a registered class.
+        super::registry::has_class(&cls).then_some(cls)
+    }
+
     /// Try to lower a `C.static(...)` call where `C` is a bare pure-Registry
     /// class global. Returns `Ok(None)` when `object` is not such a global (so
     /// the caller falls through), or an explicit bail for an unknown static /

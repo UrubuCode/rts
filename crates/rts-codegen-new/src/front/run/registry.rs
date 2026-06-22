@@ -63,6 +63,13 @@ pub struct ResolvedCall {
     /// from the member's `ts_signature` return type (`): string` ⇒ string handle).
     /// Irrelevant when `ret != Handle`.
     pub ret_is_string_handle: bool,
+    /// For a `ret == Handle` that is an OBJECT instance of a NAMED runtime class
+    /// (e.g. `ArrayBuffer.slice(): ArrayBuffer`, `URL.searchParams: URLSearchParams`):
+    /// the class name parsed from the `ts_signature` return type. Lets a
+    /// `const a = buf.slice(..)` record `a`'s class so a chained `a.byteLength`
+    /// dispatches. `None` for primitives / generic `object` / unions. The caller
+    /// still checks it against the registered classes (never invents one).
+    pub ret_class: Option<String>,
 }
 
 /// Whether a member's `ts_signature` declares a `string` RETURN — used to tell a
@@ -72,6 +79,22 @@ fn ts_returns_string(ts: &str) -> bool {
     ts.rsplit_once("):")
         .map(|(_, ret)| ret.trim().trim_end_matches(';').trim() == "string")
         .unwrap_or(false)
+}
+
+/// The RETURN-TYPE NAME a member's `ts_signature` declares, when it is a single
+/// class-like identifier (`slice(...): ArrayBuffer` → `Some("ArrayBuffer")`).
+/// `None` for primitives (`number`/`string`/`boolean`/`void`/`object`), unions
+/// (`object | undefined`), generics, and getters with no `):`. The caller must
+/// still check the name against the registered classes before trusting it — this
+/// only filters the SHAPE of the annotation, never invents a class.
+fn ts_return_class(ts: &str) -> Option<String> {
+    let (_, ret) = ts.rsplit_once("):")?;
+    let ret = ret.trim().trim_end_matches(';').trim();
+    let first = ret.chars().next()?;
+    if !first.is_ascii_uppercase() || !ret.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return None;
+    }
+    Some(ret.to_string())
 }
 
 /// Build the real runtime Registry once. Only the classes the new engine
@@ -111,6 +134,7 @@ fn instance_call(m: &'static Member) -> ResolvedCall {
         flags: m.flags,
         default_args: m.sig.default_args.clone(),
         ret_is_string_handle: ts_returns_string(&m.ts_signature),
+        ret_class: ts_return_class(&m.ts_signature),
     }
 }
 
@@ -125,6 +149,7 @@ fn flat_call(m: &'static Member) -> ResolvedCall {
         flags: m.flags,
         default_args: m.sig.default_args.clone(),
         ret_is_string_handle: ts_returns_string(&m.ts_signature),
+        ret_class: ts_return_class(&m.ts_signature),
     }
 }
 
