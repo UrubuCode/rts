@@ -117,12 +117,15 @@ impl Val {
 /// One active enclosing loop's break/continue jump targets (P5.10). Pushed on the
 /// [`Lowerer::loop_stack`] when a loop body is lowered, popped after; a `break`
 /// jumps to `exit`, a `continue` to `continue_target`.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct LoopCtx {
     /// The block a `break` jumps to (the loop's exit / continuation).
     pub exit: cranelift_codegen::ir::Block,
     /// The block a `continue` jumps to (header / update / advance step).
     pub continue_target: cranelift_codegen::ir::Block,
+    /// The source LABEL of this loop (`outer: for …`), if any — the target of a
+    /// `break label` / `continue label`. `None` for an unlabeled loop/switch.
+    pub label: Option<String>,
 }
 
 /// One active enclosing `try` (P5.13): the block a pending error routes to. For a
@@ -218,6 +221,11 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// the per-iteration advance for for-of/for-in). A `break`/`continue` with no
     /// active loop, or with a label, BAILS.
     pub loop_stack: Vec<LoopCtx>,
+    /// A pending source LABEL (`outer:`) set by [`Self::lower_labeled`] just before
+    /// lowering the labeled statement; the next loop/switch lowering `take`s it into
+    /// its [`LoopCtx`] so a `break`/`continue label` can target it. Cleared if the
+    /// labeled statement is not a loop/switch (a labeled plain block).
+    pub pending_label: Option<String>,
     /// Active enclosing `try` blocks (innermost last) for the manual-unwind
     /// exception model (P5.13). Each entry is the Cranelift block a pending error
     /// routes to — the innermost `catch` handler (or, for a `try`/`finally` with no
@@ -316,6 +324,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             ret: sig.ret,
             block_terminated: false,
             loop_stack: Vec::new(),
+            pending_label: None,
             try_stack: Vec::new(),
             sigs,
             thunks,

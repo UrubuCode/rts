@@ -70,16 +70,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.builder.ins().jump(no_match_target, &[]);
 
         // ── body blocks: emit in source order, FALL THROUGH to the next ──────────
+        // `continue` inside a switch belongs to the enclosing loop; inherit its
+        // target (or the exit when there is no enclosing loop — a `continue` there
+        // bails elsewhere anyway).
+        let continue_target = self
+            .loop_stack
+            .last()
+            .map(|c| c.continue_target)
+            .unwrap_or(exit_block);
+        let label = self.pending_label.take();
         self.loop_stack.push(LoopCtx {
             exit: exit_block,
-            // `continue` inside a switch belongs to the enclosing loop; inherit its
-            // target (or the exit when there is no enclosing loop — a `continue`
-            // there bails elsewhere anyway).
-            continue_target: self
-                .loop_stack
-                .last()
-                .map(|c| c.continue_target)
-                .unwrap_or(exit_block),
+            continue_target,
+            label,
         });
         for (i, case) in cases.iter().enumerate() {
             self.builder.seal_block(body_blocks[i]);
