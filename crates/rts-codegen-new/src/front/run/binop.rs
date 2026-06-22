@@ -91,8 +91,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return self.lower_add_with_toprimitive(module, lhs, rhs);
         }
 
+        // STRICT equality `===`/`!==` on a whole object/array operand is pure
+        // IDENTITY (reference equality) — NO ToPrimitive, so it is always sound and
+        // skips the bail below (which guards the coercing ops). The operands fall
+        // through to the `StrictEq`/`StrictNe` arm (the runtime `strict_eq` compares
+        // the boxed handle words: same object ⇒ equal). This unblocks the common
+        // `a === b` / `a !== b` object-identity / cycle-detection pattern.
+        let is_strict_eq = matches!(op, HirBinOp::StrictEq | HirBinOp::StrictNe);
         let obj_operand = self.is_whole_object_value(lhs) || self.is_whole_object_value(rhs);
-        if self.is_whole_heap_value(lhs) || self.is_whole_heap_value(rhs) {
+        if !is_strict_eq && (self.is_whole_heap_value(lhs) || self.is_whole_heap_value(rhs)) {
             // An array OPERAND containing a method-bearing OBJECT element would
             // string-concat each element via the runtime join, rendering the object
             // as the default `[object Object]` (the JIT'd `toString` is unreachable
