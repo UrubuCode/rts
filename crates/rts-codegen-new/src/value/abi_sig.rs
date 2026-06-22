@@ -678,6 +678,8 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         "__rtsadp_dyn_to_string"
         | "__rtsadp_dyn_length"
         | "__rtsadp_dyn_pop"
+        | "__rtsadp_dyn_reverse"
+        | "__rtsadp_dyn_sort"
         | "__rtsadp_dyn_to_upper_case"
         | "__rtsadp_dyn_to_lower_case"
         | "__rtsadp_dyn_trim" => SymSig {
