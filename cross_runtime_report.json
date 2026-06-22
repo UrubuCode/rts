@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_error",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "__RUNTIME_ERROR__"
 }
 ,
@@ -4657,10 +4657,10 @@
 ,
 {
   "name": "206_dataview_basic",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "get0=255\nget1=128\nget16=1000\nget32=-123456\nbyteLength=8\nbyteOffset=0",
   "node": "get0=255\nget1=128\nget16=1000\nget32=-123456\nbyteLength=8\nbyteOffset=0",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "get0=255\nget1=128\nget16=1000\nget32=-123456\nbyteLength=8\nbyteOffset=0"
 }
 ,
 {
@@ -4689,10 +4689,10 @@
 ,
 {
   "name": "82_dataview_floats",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "f64=3.141593\nf32=-1.5",
   "node": "f64=3.141593\nf32=-1.5",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "f64=3.141593\nf32=-1.5"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":182,"rts_diverge":52,"bun_node_diverge":18,"errors":357,"rejected":0}}
+],"summary":{"total":609,"pass":184,"rts_diverge":52,"bun_node_diverge":17,"errors":356,"rejected":0}}
