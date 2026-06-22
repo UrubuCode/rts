@@ -228,6 +228,11 @@ pub extern "C" fn __rtsadp_dyn_at(recv: u64, idx: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_idx_get(recv: u64, idx: u64) -> u64 {
     use rts_runtime::namespaces::collections::vec as rt_vec;
+    // A Proxy is `TAG_OBJECT` but `is_array_word` would misclassify it as an array
+    // (not a keyed object); route it to `obj_get` so its `get` trap fires.
+    if super::objops::is_proxy_word(recv) {
+        return super::objops::__rtsadp_obj_get(recv, idx);
+    }
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
         let units = utf16_units(recv);

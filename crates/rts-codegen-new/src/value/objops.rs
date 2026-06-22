@@ -68,6 +68,14 @@ fn proxy_parts(obj_word: u64) -> Option<(u64, u64)> {
     Some((t_word, h_word))
 }
 
+/// Whether `obj_word` wraps an `Entry::Proxy`. A proxy is `TAG_OBJECT` but neither
+/// a keyed object nor an array, so callers that discriminate by
+/// [`looks_like_object`] (e.g. the index dispatcher's `is_array_word`) must check
+/// this FIRST and route to [`__rtsadp_obj_get`]/[`__rtsadp_obj_set`] (the trap).
+pub(crate) fn is_proxy_word(obj_word: u64) -> bool {
+    proxy_parts(obj_word).is_some()
+}
+
 /// Proxy `get` trap: `handler.get(target, key)` when the handler defines a `get`
 /// FUNCTION; otherwise read the property straight off the target (the default
 /// behavior of a trap-less handler). The trap is invoked through the

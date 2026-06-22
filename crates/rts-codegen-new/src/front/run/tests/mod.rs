@@ -78,6 +78,7 @@ mod json_parse;
 mod numeric_coercion;
 mod object_static;
 mod proxy;
+mod reflect;
 mod string_methods;
 mod url;
 mod logical;
