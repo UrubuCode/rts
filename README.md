@@ -175,7 +175,6 @@ runtime externo.
 | **Rede** | `net` `tls` `http_server` (actix-web embutido) |
 | **Dados** | `collections` `string` `regex` `json` `date` |
 | **Async** | `events` (EventEmitter), Promise + Function nativos |
-| **UI** | `ui` (FLTK 1.x bindings) |
 | **Meta** | `runtime` `test` `trace` `hint` |
 
 🌐 **HTTPS sem dor**: `rustls` + `webpki-roots` (Mozilla CAs embutidos no binário)
