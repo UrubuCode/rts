@@ -21,6 +21,12 @@ não eram guia para o motor novo.
   mark+sweep atual) agora; geracional copying (nursery) como salto de longo prazo
   deferido até ~90% cross-runtime. A vantagem da handle indirection (mover ≈
   grátis).
+- [Plano — GC novo + API/ABI gc modernizada](gc-new-api-plan.md) — PLANO DE
+  EXECUÇÃO: remover toda a API gc do motor antigo (pool manual de string
+  `gc.string_*` etc.), migrar as ~110 fixtures legacy para string nativa,
+  auditar/enxugar `Entry`, refazer a ABI gc PolyValue-nativa, e preparar o terreno
+  para a fase weak + o geracional. Objetivo: melhor GC + melhor API/ABI, zero
+  legacy do motor antigo.
 
 ## Guias ativos
 
