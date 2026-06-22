@@ -7,8 +7,6 @@ pub mod fixed;
 pub mod handles;
 pub mod poly;
 pub mod env;
-pub mod closure;
-pub mod instance;
 pub mod this_slot;
 pub mod tagged_raw;
 pub mod class_registry;

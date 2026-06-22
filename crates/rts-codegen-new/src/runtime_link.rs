@@ -28,7 +28,6 @@
 //! entry is the actual runtime function the lowering calls.
 
 use rts_engine::heap::env as rt_env;
-use rts_engine::heap::instance as rt_inst;
 use rts_runtime::namespaces::collections::vec as rt_vec;
 use rts_runtime::namespaces::globals::string::{
     replace as rt_str_replace, search as rt_str_search, split as rt_str_split,
@@ -1171,14 +1170,9 @@ fn test_framework_symbols() -> Vec<JitSymbol> {
 /// every one by address or such a call link-OK/runtime-SIGILLs (§7). GCELL_GET/SET
 /// and the string-pool string ops are already in the main list above.
 fn gc_internal_symbols() -> Vec<JitSymbol> {
-    use rts_engine::heap::closure as rt_clos;
     use rts_runtime::namespaces::gc::collector as rt_gcoll;
     use rts_runtime::namespaces::gc::string_pool as rt_pool;
     vec![
-        // heap closure (closure-as-value env)
-        sym("__RTS_FN_NS_GC_CLOSURE_ALLOC", rt_clos::__RTS_FN_NS_GC_CLOSURE_ALLOC as *const u8),
-        sym("__RTS_FN_NS_GC_CLOSURE_ENV", rt_clos::__RTS_FN_NS_GC_CLOSURE_ENV as *const u8),
-        sym("__RTS_FN_NS_GC_CLOSURE_FN_PTR", rt_clos::__RTS_FN_NS_GC_CLOSURE_FN_PTR as *const u8),
         // collector
         sym("__RTS_FN_NS_GC_COLLECT", rt_gcoll::__RTS_FN_NS_GC_COLLECT as *const u8),
         sym("__RTS_FN_NS_GC_COLLECT_DEBT", rt_gcoll::__RTS_FN_NS_GC_COLLECT_DEBT as *const u8),
@@ -1189,16 +1183,6 @@ fn gc_internal_symbols() -> Vec<JitSymbol> {
         sym("__RTS_FN_NS_GC_ENV_FREE", rt_env::__RTS_FN_NS_GC_ENV_FREE as *const u8),
         sym("__RTS_FN_NS_GC_ENV_GET", rt_env::__RTS_FN_NS_GC_ENV_GET as *const u8),
         sym("__RTS_FN_NS_GC_ENV_SET", rt_env::__RTS_FN_NS_GC_ENV_SET as *const u8),
-        // heap instance
-        sym("__RTS_FN_NS_GC_INSTANCE_NEW", rt_inst::__RTS_FN_NS_GC_INSTANCE_NEW as *const u8),
-        sym("__RTS_FN_NS_GC_INSTANCE_FREE", rt_inst::__RTS_FN_NS_GC_INSTANCE_FREE as *const u8),
-        sym("__RTS_FN_NS_GC_INSTANCE_CLASS", rt_inst::__RTS_FN_NS_GC_INSTANCE_CLASS as *const u8),
-        sym("__RTS_FN_NS_GC_INSTANCE_LOAD_I64", rt_inst::__RTS_FN_NS_GC_INSTANCE_LOAD_I64 as *const u8),
-        sym("__RTS_FN_NS_GC_INSTANCE_LOAD_I32", rt_inst::__RTS_FN_NS_GC_INSTANCE_LOAD_I32 as *const u8),
-        sym("__RTS_FN_NS_GC_INSTANCE_LOAD_F64", rt_inst::__RTS_FN_NS_GC_INSTANCE_LOAD_F64 as *const u8),
-        sym("__RTS_FN_NS_GC_INSTANCE_STORE_I64", rt_inst::__RTS_FN_NS_GC_INSTANCE_STORE_I64 as *const u8),
-        sym("__RTS_FN_NS_GC_INSTANCE_STORE_I32", rt_inst::__RTS_FN_NS_GC_INSTANCE_STORE_I32 as *const u8),
-        sym("__RTS_FN_NS_GC_INSTANCE_STORE_F64", rt_inst::__RTS_FN_NS_GC_INSTANCE_STORE_F64 as *const u8),
         // string-pool inspection
         sym("__RTS_FN_NS_GC_HANDLE_LEN", rt_pool::__RTS_FN_NS_GC_HANDLE_LEN as *const u8),
         sym("__RTS_FN_NS_GC_IS_VEC", rt_pool::__RTS_FN_NS_GC_IS_VEC as *const u8),
