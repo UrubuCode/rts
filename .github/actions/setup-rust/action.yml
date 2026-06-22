@@ -12,6 +12,21 @@ runs:
     - name: Install stable toolchain
       uses: dtolnay/rust-toolchain@stable
 
+    # sccache acelera o build LIMPO no CI (medido local: 3m48 → 1m29, ~92% hits).
+    # Só no CI: no dev local ele PIORA o rebuild incremental (desliga o
+    # incremental nativo do Cargo), por isso não está no Cargo.toml/.cargo.
+    - name: Setup sccache
+      uses: mozilla-actions/sccache-action@v0.0.6
+
+    - name: Enable sccache as rustc wrapper
+      shell: bash
+      run: |
+        echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+        # sccache exige incremental desligado (senão cada unit vira única e
+        # nunca há cache hit). Em CI o build é sempre limpo, então não se perde
+        # nada — o incremental nativo só ajudaria em rebuilds locais.
+        echo "CARGO_INCREMENTAL=0" >> "$GITHUB_ENV"
+
     - name: Install FLTK + audio (ALSA) system deps (Linux)
       if: runner.os == 'Linux'
       shell: bash
