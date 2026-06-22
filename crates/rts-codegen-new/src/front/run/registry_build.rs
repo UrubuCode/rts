@@ -103,8 +103,11 @@ pub(super) static REGISTER: &[Register] = &[
     // `URL` — backend/Registry class (WHATWG parser, no native syntax): `new URL(s)`
     // + getters (href/hostname/pathname/…) resolve generically via registryclass.
     Register { label: "URL class", run: ns::globals::url::register_url_class_spec, why: "URL ctor + getters" },
-    // URLSearchParams: follow-up — needs its own symbols installed + `u.searchParams`
-    // tagged RETURNS_OBJECT (it returns a URLSearchParams instance, not a string).
+    // `URLSearchParams` — Registry class: `new URLSearchParams("a=1&b=2")` + get/has/
+    // set/delete/toString. Os símbolos `__RTS_FN_GL_USP_*` já carregam fn_ptr real
+    // (url::fp_for). `url.searchParams` retorna uma instância URLSearchParams →
+    // resolvido pelo return-class tracking (ret_class "URLSearchParams").
+    Register { label: "URLSearchParams class", run: ns::globals::url::register_urlsp_class_spec, why: "URLSearchParams ctor + get/has/set/delete" },
     // `TextEncoder`/`TextDecoder` — backend/Registry classes (UTF-8, no native
     // syntax): `new TextEncoder().encode(s)` → Uint8Array handle, `decode(h)` → str.
     Register { label: "TextEncoder class", run: ns::globals::text_encoding::register_text_encoder_class_spec, why: "TextEncoder ctor + encode" },

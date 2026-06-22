@@ -77,7 +77,16 @@ pub struct ResolvedCall {
 /// (rebox as a raw integer `number`). Looks at the text after the LAST `):`.
 fn ts_returns_string(ts: &str) -> bool {
     ts.rsplit_once("):")
-        .map(|(_, ret)| ret.trim().trim_end_matches(';').trim() == "string")
+        .map(|(_, ret)| {
+            // A bare `string` OR a union with a `string` member (`string | null`,
+            // `string | undefined` — a present value is a heap string, an absent
+            // one is the 0 sentinel). Splitting on `|` keeps `get(): string | null`
+            // a STRING handle instead of mis-reboxing it as an OBJECT.
+            ret.trim()
+                .trim_end_matches(';')
+                .split('|')
+                .any(|t| t.trim() == "string")
+        })
         .unwrap_or(false)
 }
 
