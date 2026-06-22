@@ -43,6 +43,11 @@ fn fp_for(symbol: &str) -> *const u8 {
         "__RTS_FN_NS_STRING_CHAR_AT" => split::__RTS_FN_NS_STRING_CHAR_AT as *const u8,
         "__RTS_FN_NS_STRING_CHAR_CODE_AT" => split::__RTS_FN_NS_STRING_CHAR_CODE_AT as *const u8,
         "__RTS_FN_NS_STRING_CHAR_COUNT" => split::__RTS_FN_NS_STRING_CHAR_COUNT as *const u8,
+        // NOTE: the `__RTS_FN_GL_STRING_*` CLASS methods are NOT mapped here — they
+        // are NOT registered as harvestable members; the engine's lowering emits a
+        // few (slice/substring/substr/codePointAt/localeCompare) DIRECTLY, so they
+        // stay in the engine's `adapter_symbols` list, and the rest route via the
+        // `.ts` String class (Rust→Rust, no JIT symbol). fp_for stays NS-only.
         _ => core::ptr::null(),
     }
 }

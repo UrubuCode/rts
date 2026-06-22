@@ -26,32 +26,26 @@
 //! `codegen/jit.rs`) — but built against the `rts-runtime` FACADE, NOT by
 //! depending on the frozen old crate.
 //!
-//! ## Why direct addresses instead of `Engine` + registry harvest
+//! ## Why sources 2+3 are listed by hand (the harvest cannot supply them)
 //!
-//! The old engine builds an `rts_engine::Engine`, calls every `register_*`, then
-//! reads `registry().jit_symbols()` (symbol→fn_ptr, with the **null-skip**
-//! invariant: alias/external members carry a null fn_ptr and must NOT overwrite
-//! the owner's real address). We honour the SAME invariant here, but cannot build
-//! an `Engine`: `rts_engine::Engine` is NOT re-exported through the `rts-runtime`
-//! facade (`rts_runtime::abi` is `rts_engine::abi::*`, which carries the ABI vocab
-//! but not the builder), and the layering rule forbids adding `rts-engine` as a
-//! second direct dependency.
-//!
-//! Crucially, the `gc` string-pool members are registered in the engine as
-//! `external` (fn_ptr NULL — the real `#[no_mangle] extern "C"` bodies live in
-//! `string_pool`), so even the registry harvest would SKIP them; the old engine
-//! supplies them from a hardcoded `add_fn!` list. We do the equivalent: we take
-//! the address of each REAL `__RTS_FN_*` function directly through its facade
-//! re-export path. This both (a) satisfies the null-skip invariant trivially (we
-//! only list real, non-null bodies) and (b) keeps the surface honest — every
-//! entry is the actual runtime function the lowering calls.
+//! The harvest (`registry().jit_symbols()`) only yields members with a real,
+//! non-null `fn_ptr` (the **null-skip** invariant: alias/external members carry a
+//! null fn_ptr). The engine-internal `__RTS_FN_NS_GC_*` primitives (string-pool /
+//! env / generator / GEN_SM / gcell / poly-bridge) and a few directly-emitted
+//! class methods (`__RTS_FN_GL_STRING_*` slice/substr/codePointAt/localeCompare,
+//! emitted by `try_string_special`) are NOT registered as harvestable members —
+//! the engine NAMES them itself in its lowering — so there is no member to attach
+//! an address to. We take each one's address directly through the facade re-export
+//! and list it here. A genuine namespace/class MEMBER, by contrast, carries its
+//! real address at registration (`fp_for`) and is installed by the harvest with no
+//! hand entry (string ns / Date / URL already converted).
 
 use rts_engine::heap::env as rt_env;
 use rts_runtime::namespaces::gc::collector as rt_gcoll;
 use rts_runtime::namespaces::gc::handles as rt_handles;
 use rts_runtime::namespaces::gc::string_pool as rt_str;
-use rts_runtime::namespaces::globals::proxy::ops as rt_proxy;
 use rts_runtime::namespaces::globals::string::rt as rt_gl_str;
+use rts_runtime::namespaces::globals::proxy::ops as rt_proxy;
 
 use crate::value::{
     abi_adapter, arraycb, arrayops, ctorval, dyndispatch, errslot, funcops, genops, genops_arith,
@@ -711,14 +705,11 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
 /// symbol would be the SIGILL-class bug we avoid).
 fn gl_method_symbols() -> Vec<JitSymbol> {
     vec![
-        // ---- String instance methods STILL emitted by JIT-lowered code ----
-        // The bulk of the String surface migrated to the `.ts` `class String`
-        // (routed via `try_primitive_class_method`); its bodies call `engine.str_*`,
-        // which call the `__RTS_FN_GL_STRING_*` impls as a normal Rust→Rust call
-        // inside rts-std (linked there, NOT via JIT). The symbols below are the ones
-        // the engine's OWN lowering still emits directly: the KEPT `STRING_ROWS`
-        // (`codePointAt`/`localeCompare`/2-arg `substr`) and the `try_string_special`
-        // 1-arg `slice`/`substring`/`substr` specials.
+        // String class methods the engine's OWN lowering emits DIRECTLY
+        // (try_string_special 1-arg slice/substring/substr + the kept STRING_ROWS
+        // codePointAt/localeCompare). These are NOT harvestable members (the rest of
+        // the String surface routes via the `.ts` class, Rust→Rust), so they are
+        // engine-direct and listed here.
         sym(
             "__RTS_FN_GL_STRING_SLICE",
             rt_gl_str::__RTS_FN_GL_STRING_SLICE as *const u8,
