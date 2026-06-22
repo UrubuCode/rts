@@ -47,6 +47,18 @@ fn set_trap_intercepts_writes() {
 }
 
 #[test]
+fn inline_handler_arrow_in_new_ctor_arg() {
+    // The handler object literal — with its `get` ARROW — is passed INLINE as a
+    // ctor arg to `new Proxy(...)` (not a named `const`). The arrow extraction must
+    // descend into `new`'s args to lift it, else "expression arrow".
+    assert_stdout(
+        "const p: any = new Proxy({ y: 2 }, { get: (_t: any, _k: any) => 99 }); \
+         console.log(p.y);",
+        "99\n",
+    );
+}
+
+#[test]
 fn get_trap_can_read_the_target() {
     // A `get` trap that forwards to the target (`target[key]`) — the common
     // logging-proxy shape — reads the real value through the proxy.
