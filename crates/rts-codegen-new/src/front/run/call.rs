@@ -116,25 +116,58 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if method != "call" && method != "apply" {
             return Ok(None);
         }
-        // Only a FUNCTION-value receiver: a top-level fn name (`fn_value_word`) or a
-        // param/local proven to hold a function. A non-function receiver falls
-        // through (its real `.call`/`.apply`, if any, is handled elsewhere).
-        let Some(fn_word) = self.fn_value_word(module, object)? else {
-            return Ok(None);
+        // The function-value receiver word:
+        // - a top-level fn name → its reified value (`fn_value_word`);
+        // - a statically-known CLASS INSTANCE → fall through (`Ok(None)`): its
+        //   `.call`/`.apply` is a real user method, dispatched by `try_class_method`;
+        // - otherwise (an `any`/param/value that may hold a function, e.g.
+        //   `Reflect.apply`'s `target`) → the lowered receiver word. A non-function
+        //   yields `undefined` at `__rtsadp_fn_invoke` (never a crash).
+        let fn_word = match self.fn_value_word(module, object)? {
+            Some(w) => w,
+            None => {
+                if self.static_instance_class(object).is_some() {
+                    return Ok(None);
+                }
+                let v = self.lower_expr(module, object)?;
+                self.box_value(v)
+            }
         };
         if method == "call" {
             let call_args = if args.is_empty() { &[][..] } else { &args[1..] };
             return Ok(Some(self.lower_value_call_word(module, fn_word, call_args)?));
         }
-        match args.get(1).map(|a| &a.kind) {
+        match args.get(1) {
             None => Ok(Some(self.lower_value_call_word(module, fn_word, &[])?)),
-            Some(HirExprKind::Array(elems)) => {
+            // A LITERAL array → lower each element directly (the cheap, exact path).
+            Some(a) if matches!(a.kind, HirExprKind::Array(_)) => {
+                let HirExprKind::Array(elems) = &a.kind else { unreachable!() };
                 Ok(Some(self.lower_value_call_word(module, fn_word, elems)?))
             }
-            _ => unsupported!(
-                "`fn.apply(this, args)` with a non-literal args array (runtime array \
-                 spread is a later increment)"
-            ),
+            // A RUNTIME array value (`Reflect.apply`'s pass-through, a variable):
+            // extract `a0..a3` via `VEC_GET` (OOB → `undefined`, the guard keeps a
+            // missing arg `undefined` not `0`). Functions of arity ≤4 read only
+            // `a0..a3`; a >4-arity apply (rest tail) is a later increment.
+            Some(arr_expr) => {
+                let arr_val = self.lower_expr(module, arr_expr)?;
+                let arr_word = self.box_value(arr_val);
+                let len = emit_marshal::emit_vec_len(module, self.builder, arr_word);
+                let undef = self
+                    .builder
+                    .ins()
+                    .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
+                let mut slots = [undef; 4];
+                for (i, slot) in slots.iter_mut().enumerate() {
+                    let idx = self.builder.ins().iconst(types::I64, i as i64);
+                    let in_range =
+                        self.builder
+                            .ins()
+                            .icmp(IntCC::SignedLessThan, idx, len);
+                    let elem = emit_marshal::emit_vec_get(module, self.builder, arr_word, idx);
+                    *slot = self.builder.ins().select(in_range, elem, undef);
+                }
+                Ok(Some(self.emit_fn_invoke(module, fn_word, slots, undef)?))
+            }
         }
     }
 
@@ -750,6 +783,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             self.builder.ins().iconst(types::I64, undef())
         };
 
+        self.emit_fn_invoke(module, fn_word, slots, rest)
+    }
+
+    /// Emit `__rtsadp_fn_invoke(fn_word, a0..a3, rest)` from already-boxed arg
+    /// words + route the post-call exception edge. Shared by the by-AST value call
+    /// ([`Self::lower_value_call_word`]) and the dynamic `.apply` path (which builds
+    /// the slots from a runtime array via `VEC_GET`).
+    pub(super) fn emit_fn_invoke(
+        &mut self,
+        module: &mut dyn Module,
+        fn_word: Value,
+        slots: [Value; 4],
+        rest: Value,
+    ) -> FrontResult<Val> {
         let res = self
             .call_runtime(
                 module,

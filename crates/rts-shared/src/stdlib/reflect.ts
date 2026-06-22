@@ -47,4 +47,11 @@ class Reflect {
   static ownKeys(target: any): any {
     return Object.keys(target);
   }
+
+  // Reflect.apply(target, thisArg, argumentsList) — call `target` with the args
+  // from the array. `thisArg` is not bound (the engine's function invoke has no
+  // `this` slot — the common `Reflect.apply(fn, null, [...])` is covered).
+  static apply(target: any, thisArg: any, argumentsList: any): any {
+    return target.apply(thisArg, argumentsList);
+  }
 }
