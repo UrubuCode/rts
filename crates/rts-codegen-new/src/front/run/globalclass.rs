@@ -244,9 +244,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let v = self.emit_registry_call(module, &call, Some(recv), &[], result_kind)?;
                 return Ok(Some(v));
             }
-            return Err(crate::front::error::Unsupported::new(format!(
-                "`{class}.{prop}` — no such property on runtime class `{class}`"
-            )));
+            // No registered getter for `prop` → DYNAMIC property read. This serves an
+            // EXOTIC instance whose properties are not fixed members (a `Proxy`, whose
+            // `get` trap fires inside `__rtsadp_obj_get`); for an ordinary Registry
+            // instance with no such key the dynamic read returns `undefined` — the
+            // JS-correct value (`new Date().foo` is `undefined`), not a bail. Generic
+            // (no per-class name): the proxy trap dispatch lives entirely in the
+            // runtime trampoline.
+            let recv = self.lower_expr(module, object)?;
+            let recv_word = self.box_value(recv);
+            let key = self.intern_key_word(prop);
+            let v = self
+                .call_runtime(module, "__rtsadp_obj_get", &[recv_word, key])?
+                .expect("__rtsadp_obj_get returns a value");
+            return Ok(Some(Val::new(v, crate::repr::Repr::Tagged)));
         }
         let symbol = match (class.as_str(), prop) {
             ("RegExp", "source") => "__rtsadp_re_source",

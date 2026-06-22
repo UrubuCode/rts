@@ -113,6 +113,12 @@ pub(super) static REGISTER: &[Register] = &[
     // off/emit. The listener arg is a function-VALUE the backend invokes via the
     // codegen `__rtsadp_fn_invoke` callback bridge (JIT-installed).
     Register { label: "EventEmitter class", run: ns::globals::events::register_class_spec, why: "EventEmitter ctor + on/emit" },
+    // `Proxy` — backend/Registry class (#218): `new Proxy(target, handler)` →
+    // `__RTS_FN_GL_PROXY_NEW` (Entry::Proxy). The get/set TRAPS are resolved at
+    // runtime in the dynamic property trampolines (`__rtsadp_obj_get`/`_set` detect
+    // a Proxy receiver via `resolve_proxy` and invoke `handler.get`/`.set` through
+    // the `__rtsadp_fn_invoke` callback bridge), not by a codegen arm.
+    Register { label: "Proxy class", run: ns::globals::proxy::register_proxy_class_spec, why: "Proxy ctor → PROXY_NEW; traps in obj_get/set" },
 ];
 
 /// One `.ts` prelude include, in DEPENDENCY ORDER (base before dependent).

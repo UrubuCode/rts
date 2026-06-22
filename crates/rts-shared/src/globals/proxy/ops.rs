@@ -46,15 +46,14 @@ unsafe extern "C" {
 }
 
 /// Construtor Proxy: aloca Entry::Proxy { target, handler }.
-/// Retorna 0 se o handler nao for Map (validacao minima — JS lanca
-/// TypeError, mas v0 retorna 0 pra evitar throw desnecessario).
+///
+/// `target` e `handler` sao words/handles de objeto opacos — no motor novo
+/// objetos sao keyed `Entry::Vec` (NAO `Entry::Map` como no motor velho), entao
+/// NAO se valida o tipo do handler aqui: as traps leem `handler.get`/`.set` pela
+/// via dinamica de propriedade do proprio motor (`__rtsadp_obj_get`), que aceita
+/// qualquer objeto. A GC mantem target+handler vivos enquanto o Proxy viver.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_PROXY_NEW(target: u64, handler: u64) -> u64 {
-    // Validacao basica: handler precisa ser Map.
-    let handler_ok = with_entry(handler, |e| matches!(e, Some(Entry::Map(_))));
-    if !handler_ok {
-        return 0;
-    }
     alloc_entry(Entry::Proxy { target, handler })
 }
 

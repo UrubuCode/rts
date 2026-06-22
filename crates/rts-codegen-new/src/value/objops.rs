@@ -38,11 +38,66 @@
 
 use rts_runtime::namespaces::collections::vec as rt_vec;
 use rts_runtime::namespaces::gc::handles as rt_handles;
+use rts_runtime::namespaces::globals::proxy as rt_proxy;
 
 use crate::shape::global_shape_keys;
 
 use super::inspect::looks_like_object;
 use super::{PolyValue, abi_adapter};
+
+/// PROXY (#218) — when `obj_word` wraps an `Entry::Proxy`, return its
+/// `(target, handler)` reboxed as `TAG_OBJECT` PolyValue words (the stored values
+/// are real GC handles; `& PAYLOAD_MASK` drops the generation to the 48-bit slot
+/// the box expects). `None` for any non-proxy receiver — the cost is one extra
+/// HandleTable lookup on the DYNAMIC property path (never the proven-shape fast
+/// path), accepted for the trap semantics.
+fn proxy_parts(obj_word: u64) -> Option<(u64, u64)> {
+    let obj = PolyValue::from_raw(obj_word);
+    if !obj.is_object() {
+        return None;
+    }
+    let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+    let (target, handler) = rt_proxy::ops::resolve_proxy(handle)?;
+    // The stored target/handler are full GC handles; `POLY_FROM_HANDLE` drops the
+    // generation to the 48-bit slot the `TAG_OBJECT` box expects (NOT a raw mask —
+    // the handle layout is not slot-in-low-48).
+    let t_slot = rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(target);
+    let h_slot = rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(handler);
+    let t_word = PolyValue::from_object_handle(t_slot).raw();
+    let h_word = PolyValue::from_object_handle(h_slot).raw();
+    Some((t_word, h_word))
+}
+
+/// Proxy `get` trap: `handler.get(target, key)` when the handler defines a `get`
+/// FUNCTION; otherwise read the property straight off the target (the default
+/// behavior of a trap-less handler). The trap is invoked through the
+/// `__rtsadp_fn_invoke` callback bridge with `(target, key)` — the same bridge the
+/// EventEmitter listeners use.
+fn proxy_get(target_word: u64, handler_word: u64, key_str_handle: u64) -> u64 {
+    let get_key = abi_adapter::intern_poly("get").raw();
+    let trap = __rtsadp_obj_get(handler_word, get_key);
+    if PolyValue::from_raw(trap).is_function() {
+        let undef = PolyValue::undefined().raw();
+        super::funcops::__rtsadp_fn_invoke(trap, target_word, key_str_handle, undef, undef, 0)
+    } else {
+        __rtsadp_obj_get(target_word, key_str_handle)
+    }
+}
+
+/// Proxy `set` trap: `handler.set(target, key, value)` when the handler defines a
+/// `set` FUNCTION; otherwise write straight to the target. JS assignment evaluates
+/// to the assigned `value` regardless of the trap's own return.
+fn proxy_set(target_word: u64, handler_word: u64, key_str_handle: u64, val_word: u64) -> u64 {
+    let set_key = abi_adapter::intern_poly("set").raw();
+    let trap = __rtsadp_obj_get(handler_word, set_key);
+    if PolyValue::from_raw(trap).is_function() {
+        let undef = PolyValue::undefined().raw();
+        super::funcops::__rtsadp_fn_invoke(trap, target_word, key_str_handle, val_word, undef, 0);
+        val_word
+    } else {
+        __rtsadp_obj_set(target_word, key_str_handle, val_word)
+    }
+}
 
 /// Resolve `(real_vec_handle, key_index)` for `obj_word`.`key`: `Some((handle, i))`
 /// when `obj_word` is a keyed object whose shape contains `key` (value lives at
@@ -87,6 +142,11 @@ fn key_text(key_str_handle: u64) -> String {
 /// array / primitive). The lowering routes here only proven-object receivers.
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
+    // PROXY (#218): a proxy receiver routes through its `get` trap. Checked first —
+    // a proxy is not a keyed Vec object, so `resolve_slot` would read `undefined`.
+    if let Some((target, handler)) = proxy_parts(obj_word) {
+        return proxy_get(target, handler, key_str_handle);
+    }
     match resolve_slot(obj_word, key_str_handle) {
         Some((handle, idx)) => rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 1 + idx) as u64,
         None => PolyValue::undefined().raw(),
@@ -103,6 +163,10 @@ pub extern "C" fn __rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
 /// PRIMORDIAL → property addition is engine-direct.)
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word: u64) -> u64 {
+    // PROXY (#218): a proxy receiver routes through its `set` trap.
+    if let Some((target, handler)) = proxy_parts(obj_word) {
+        return proxy_set(target, handler, key_str_handle, val_word);
+    }
     if let Some((handle, idx)) = resolve_slot(obj_word, key_str_handle) {
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(handle, 1 + idx, val_word as i64);
         return val_word;
