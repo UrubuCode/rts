@@ -377,7 +377,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 "`.length` on a receiver of unproven shape (param/return/reassigned) \
                  — dynamic-length is a separate path, not a property slot"
             ),
-            Err(_) => self.lower_dynamic_get_expr(module, object, prop),
+            // DYNAMIC GETTER (`map.size`/`set.size` on a Tagged receiver of unproven
+            // class): if some user class declares a `get prop()`, resolve it by the
+            // instance's runtime shape-id. The dispatch's DEFAULT arm reads the data
+            // slot, so a plain object with a real `prop` still reads its value — only a
+            // getter-class shape calls the getter. `Ok(None)` ⇒ no such getter exists
+            // (keeps the plain dynamic-data read below).
+            Err(_) => {
+                if let Some(val) = self.try_user_getter_dynamic(module, object, prop)? {
+                    return Ok(val);
+                }
+                self.lower_dynamic_get_expr(module, object, prop)
+            }
         }
     }
 
