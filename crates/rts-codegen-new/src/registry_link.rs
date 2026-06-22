@@ -15,7 +15,6 @@
 
 use rts_runtime::namespaces::date as rt_date;
 use rts_runtime::namespaces::globals::date::instance as rt_gl_date;
-use rts_runtime::namespaces::globals::url::instance as rt_gl_url;
 
 use crate::adapter_symbols::JitSymbol;
 
@@ -214,34 +213,7 @@ pub fn date_symbols() -> Vec<JitSymbol> {
     ]
 }
 
-/// Real `URL` class symbols (WHATWG parser): the `[StrPtr]`/`[StrPtr,StrPtr]` ctors
-/// + the string getters (href/protocol/host/hostname/port/pathname/search/hash/
-/// origin/username/password) the Registry `URL` members reference by symbol. The
-/// class-spec Members carry null `fn_ptr` (the harvest skips them), so the real
-/// extern addresses are installed here, like [`date_symbols`].
-pub fn url_symbols() -> Vec<JitSymbol> {
-    macro_rules! s {
-        ($name:literal, $f:path) => {
-            JitSymbol { name: $name, ptr: $f as *const u8 }
-        };
-    }
-    vec![
-        s!("__RTS_FN_GL_URL_NEW", rt_gl_url::__RTS_FN_GL_URL_NEW),
-        s!("__RTS_FN_GL_URL_NEW_WITH_BASE", rt_gl_url::__RTS_FN_GL_URL_NEW_WITH_BASE),
-        s!("__RTS_FN_GL_URL_HREF", rt_gl_url::__RTS_FN_GL_URL_HREF),
-        s!("__RTS_FN_GL_URL_PROTOCOL", rt_gl_url::__RTS_FN_GL_URL_PROTOCOL),
-        s!("__RTS_FN_GL_URL_HOST", rt_gl_url::__RTS_FN_GL_URL_HOST),
-        s!("__RTS_FN_GL_URL_HOSTNAME", rt_gl_url::__RTS_FN_GL_URL_HOSTNAME),
-        s!("__RTS_FN_GL_URL_PORT", rt_gl_url::__RTS_FN_GL_URL_PORT),
-        s!("__RTS_FN_GL_URL_PATHNAME", rt_gl_url::__RTS_FN_GL_URL_PATHNAME),
-        s!("__RTS_FN_GL_URL_SEARCH", rt_gl_url::__RTS_FN_GL_URL_SEARCH),
-        s!("__RTS_FN_GL_URL_HASH", rt_gl_url::__RTS_FN_GL_URL_HASH),
-        s!("__RTS_FN_GL_URL_ORIGIN", rt_gl_url::__RTS_FN_GL_URL_ORIGIN),
-        s!("__RTS_FN_GL_URL_USERNAME", rt_gl_url::__RTS_FN_GL_URL_USERNAME),
-        s!("__RTS_FN_GL_URL_PASSWORD", rt_gl_url::__RTS_FN_GL_URL_PASSWORD),
-        s!("__RTS_FN_GL_URL_TO_STRING", rt_gl_url::__RTS_FN_GL_URL_TO_STRING),
-        s!("__RTS_FN_GL_URL_FREE", rt_gl_url::__RTS_FN_GL_URL_FREE),
-        s!("__RTS_FN_GL_URL_CAN_PARSE", rt_gl_url::__RTS_FN_GL_URL_CAN_PARSE),
-        s!("__RTS_FN_GL_URL_CAN_PARSE_BASE", rt_gl_url::__RTS_FN_GL_URL_CAN_PARSE_BASE),
-    ]
-}
+// NOTE: `url_symbols()` was removed — the `URL`/`URLSearchParams` class members
+// now carry their real `fn_ptr` at registration (`rts-shared::globals::url::fp_for`)
+// so the Registry harvest installs them (and now covers `searchParams` + the full
+// `URLSearchParams` surface, which the old hand list omitted).
