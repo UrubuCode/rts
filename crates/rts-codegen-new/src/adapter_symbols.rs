@@ -47,16 +47,11 @@
 //! entry is the actual runtime function the lowering calls.
 
 use rts_engine::heap::env as rt_env;
-use rts_runtime::namespaces::collections::vec as rt_vec;
-use rts_runtime::namespaces::engine as rt_engine;
 use rts_runtime::namespaces::gc::collector as rt_gcoll;
 use rts_runtime::namespaces::gc::handles as rt_handles;
 use rts_runtime::namespaces::gc::string_pool as rt_str;
 use rts_runtime::namespaces::globals::proxy::ops as rt_proxy;
-use rts_runtime::namespaces::globals::number as rt_num;
 use rts_runtime::namespaces::globals::string::rt as rt_gl_str;
-use rts_runtime::namespaces::io as rt_io;
-use rts_runtime::namespaces::math as rt_math;
 
 use crate::value::{
     abi_adapter, arraycb, arrayops, ctorval, dyndispatch, errslot, funcops, genops, genops_arith,
@@ -135,41 +130,6 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
             "__RTS_FN_NS_GC_STRING_FROM_F64",
             rt_str::__RTS_FN_NS_GC_STRING_FROM_F64 as *const u8,
         ),
-        // ---- REAL io (rts-std io) ----
-        sym(
-            "__RTS_FN_NS_IO_PRINT",
-            rt_io::__RTS_FN_NS_IO_PRINT as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_IO_EPRINT",
-            rt_io::__RTS_FN_NS_IO_EPRINT as *const u8,
-        ),
-        // ---- REAL collections Vec (rts-shared collections::vec) ----
-        sym(
-            "__RTS_FN_NS_COLLECTIONS_VEC_NEW",
-            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
-            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_COLLECTIONS_VEC_GET",
-            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_COLLECTIONS_VEC_LEN",
-            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_COLLECTIONS_VEC_SET",
-            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_COLLECTIONS_VEC_POP",
-            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_POP as *const u8,
-        ),
-        // ---- REAL PolyValue <-> handle bridge (rts-engine heap::handles) ----
         // Replaces the old `__rtsadp_store/_load` indirection table: the payload
         // carries the bare 48-bit slot+shard and the generation is reconstructed
         // on demand from the live slot, so there is no side table to GC-root.
@@ -500,15 +460,6 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
             rts_runtime::namespaces::globals::text_encoding::instance::__RTS_FN_GL_TEXTDEC_DECODE_INSTANCE
                 as *const u8,
         ),
-        // EventEmitter class ctor + on/once/off/emit (the listener is a function
-        // VALUE the backend invokes via the `__rtsadp_fn_invoke` callback bridge).
-        sym("__RTS_FN_GL_EE_NEW", rts_runtime::namespaces::globals::events::__RTS_FN_GL_EE_NEW as *const u8),
-        sym("__RTS_FN_GL_EE_NEW_ASYNC", rts_runtime::namespaces::globals::events::__RTS_FN_GL_EE_NEW_ASYNC as *const u8),
-        sym("__RTS_FN_GL_EE_ON", rts_runtime::namespaces::globals::events::__RTS_FN_GL_EE_ON as *const u8),
-        sym("__RTS_FN_GL_EE_ONCE", rts_runtime::namespaces::globals::events::__RTS_FN_GL_EE_ONCE as *const u8),
-        sym("__RTS_FN_GL_EE_OFF", rts_runtime::namespaces::globals::events::__RTS_FN_GL_EE_OFF as *const u8),
-        sym("__RTS_FN_GL_EE_EMIT", rts_runtime::namespaces::globals::events::__RTS_FN_GL_EE_EMIT as *const u8),
-        sym("__RTS_FN_GL_EE_FREE", rts_runtime::namespaces::globals::events::__RTS_FN_GL_EE_FREE as *const u8),
         // ---- codegen-owned FUNCTION-value trampolines (__rtsadp_fn_*, P4.6) ----
         sym("__rtsadp_fn_reify", funcops::__rtsadp_fn_reify as *const u8),
         sym(
@@ -741,8 +692,6 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
         ),
     ];
     syms.extend(gl_method_symbols());
-    syms.extend(math_number_symbols());
-    syms.extend(engine_symbols());
     syms.extend(test_framework_symbols());
     syms.extend(gc_internal_symbols());
     syms.extend(generator_symbols());
@@ -753,152 +702,6 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
     syms
 }
 
-/// The REAL Math namespace + Number static-predicate symbols the P5.4 `Math.*` /
-/// `Number.*` lowering ([`crate::front::run::mathobj`]) emits. Each is the ACTUAL
-/// `__RTS_FN_NS_MATH_*` / `__RTS_FN_GL_NUMBER_IS_*` extern (taken by address
-/// through the facade). The `Math.sqrt`/`abs`/`min`/`max` intrinsics inline to
-/// Cranelift IR and need NO symbol; only the genuine `call` ops appear here.
-fn math_number_symbols() -> Vec<JitSymbol> {
-    vec![
-        // ---- Math 1-arg f64→f64 ----
-        // sqrt/abs are also exposed as Cranelift INTRINSICS for the `Math.*` static
-        // path (inlined, no symbol). But the BUILTIN-IMPORT path
-        // (`import { sqrt } from "rts:math"`) marshals through the generic Registry
-        // emitter, which always emits a real `call <symbol>` — so the actual extern
-        // address must be installed here too.
-        sym(
-            "__RTS_FN_NS_MATH_SQRT",
-            rt_math::__RTS_FN_NS_MATH_SQRT as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_ABS_F64",
-            rt_math::__RTS_FN_NS_MATH_ABS_F64 as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_FLOOR",
-            rt_math::__RTS_FN_NS_MATH_FLOOR as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_CEIL",
-            rt_math::__RTS_FN_NS_MATH_CEIL as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_ROUND",
-            rt_math::__RTS_FN_NS_MATH_ROUND as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_TRUNC",
-            rt_math::__RTS_FN_NS_MATH_TRUNC as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_SIGN",
-            rt_math::__RTS_FN_NS_MATH_SIGN as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_CBRT",
-            rt_math::__RTS_FN_NS_MATH_CBRT as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_EXP",
-            rt_math::__RTS_FN_NS_MATH_EXP as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_EXPM1",
-            rt_math::__RTS_FN_NS_MATH_EXPM1 as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_LN",
-            rt_math::__RTS_FN_NS_MATH_LN as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_LOG2",
-            rt_math::__RTS_FN_NS_MATH_LOG2 as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_LOG10",
-            rt_math::__RTS_FN_NS_MATH_LOG10 as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_LOG1P",
-            rt_math::__RTS_FN_NS_MATH_LOG1P as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_SIN",
-            rt_math::__RTS_FN_NS_MATH_SIN as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_COS",
-            rt_math::__RTS_FN_NS_MATH_COS as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_TAN",
-            rt_math::__RTS_FN_NS_MATH_TAN as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_ASIN",
-            rt_math::__RTS_FN_NS_MATH_ASIN as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_ACOS",
-            rt_math::__RTS_FN_NS_MATH_ACOS as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_ATAN",
-            rt_math::__RTS_FN_NS_MATH_ATAN as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_SINH",
-            rt_math::__RTS_FN_NS_MATH_SINH as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_COSH",
-            rt_math::__RTS_FN_NS_MATH_COSH as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_TANH",
-            rt_math::__RTS_FN_NS_MATH_TANH as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_FROUND",
-            rt_math::__RTS_FN_NS_MATH_FROUND as *const u8,
-        ),
-        // ---- Math 2-arg f64,f64→f64 ----
-        sym(
-            "__RTS_FN_NS_MATH_POW",
-            rt_math::__RTS_FN_NS_MATH_POW as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_ATAN2",
-            rt_math::__RTS_FN_NS_MATH_ATAN2 as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_MATH_HYPOT",
-            rt_math::__RTS_FN_NS_MATH_HYPOT as *const u8,
-        ),
-        // ---- Math no-arg (PRNG) ----
-        sym(
-            "__RTS_FN_NS_MATH_RANDOM_F64",
-            rt_math::__RTS_FN_NS_MATH_RANDOM_F64 as *const u8,
-        ),
-        // ---- Number static predicates (f64→Bool) ----
-        sym(
-            "__RTS_FN_GL_NUMBER_IS_INTEGER",
-            rt_num::__RTS_FN_GL_NUMBER_IS_INTEGER as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_NUMBER_IS_FINITE",
-            rt_num::__RTS_FN_GL_NUMBER_IS_FINITE as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_NUMBER_IS_NAN",
-            rt_num::__RTS_FN_GL_NUMBER_IS_NAN as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_NUMBER_IS_SAFE_INT",
-            rt_num::__RTS_FN_GL_NUMBER_IS_SAFE_INT as *const u8,
-        ),
-    ]
-}
 
 /// The REAL global-class instance-method symbols the P4 data-driven dispatch
 /// ([`crate::dispatch`]) resolves and the method lowering emits — String + Number
@@ -936,195 +739,12 @@ fn gl_method_symbols() -> Vec<JitSymbol> {
             "__RTS_FN_GL_STRING_LOCALE_COMPARE",
             rt_gl_str::__RTS_FN_GL_STRING_LOCALE_COMPARE as *const u8,
         ),
-        // ---- Number instance methods (rts-primitives number) ----
-        sym(
-            "__RTS_FN_GL_NUMBER_TO_FIXED",
-            rt_num::__RTS_FN_GL_NUMBER_TO_FIXED as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_NUMBER_TO_PRECISION",
-            rt_num::__RTS_FN_GL_NUMBER_TO_PRECISION as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_NUMBER_TO_EXPONENTIAL",
-            rt_num::__RTS_FN_GL_NUMBER_TO_EXPONENTIAL as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_NUMBER_TO_STRING_RADIX",
-            rt_num::__RTS_FN_GL_NUMBER_TO_STRING_RADIX as *const u8,
-        ),
         // Proxy ctor (#218): `new Proxy(target, handler)` → `Entry::Proxy`. The
         // get/set TRAPS run inside `__rtsadp_obj_get`/`_set` (engine trampolines,
         // already installed); only the ctor symbol needs installing here.
         sym(
             "__RTS_FN_GL_PROXY_NEW",
             rt_proxy::__RTS_FN_GL_PROXY_NEW as *const u8,
-        ),
-    ]
-}
-
-/// The PRIVATE `engine` namespace symbols (`__RTS_FN_NS_ENGINE_*`) the engine-
-/// internal TS prelude can call (arch/time/trace passthrough). Each is the ACTUAL
-/// `rts-std` extern taken by address through the facade. The privacy gate is at
-/// the lowering layer (only prelude-origin code may name the `engine` global); the
-/// symbols are installed unconditionally so prelude code links.
-fn engine_symbols() -> Vec<JitSymbol> {
-    vec![
-        sym(
-            "__RTS_FN_NS_ENGINE_ARCH",
-            rt_engine::__RTS_FN_NS_ENGINE_ARCH as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_NOW_MS",
-            rt_engine::__RTS_FN_NS_ENGINE_NOW_MS as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_NOW_NS",
-            rt_engine::__RTS_FN_NS_ENGINE_NOW_NS as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_UNIX_MS",
-            rt_engine::__RTS_FN_NS_ENGINE_UNIX_MS as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_UNIX_NS",
-            rt_engine::__RTS_FN_NS_ENGINE_UNIX_NS as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_TRACE_PUSH",
-            rt_engine::__RTS_FN_NS_ENGINE_TRACE_PUSH as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_TRACE_POP",
-            rt_engine::__RTS_FN_NS_ENGINE_TRACE_POP as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_TRACE_CAPTURE",
-            rt_engine::__RTS_FN_NS_ENGINE_TRACE_CAPTURE as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_TRACE_PRINT",
-            rt_engine::__RTS_FN_NS_ENGINE_TRACE_PRINT as *const u8,
-        ),
-        // engine.num_* — the irreducible numeric FORMATTING bridge the `.ts`
-        // `class Number` methods call (each wraps a `__RTS_FN_GL_NUMBER_*`).
-        sym(
-            "__RTS_FN_NS_ENGINE_NUM_TO_STRING_RADIX",
-            rt_engine::__RTS_FN_NS_ENGINE_NUM_TO_STRING_RADIX as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_NUM_TO_FIXED",
-            rt_engine::__RTS_FN_NS_ENGINE_NUM_TO_FIXED as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_NUM_TO_PRECISION",
-            rt_engine::__RTS_FN_NS_ENGINE_NUM_TO_PRECISION as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_NUM_TO_EXPONENTIAL",
-            rt_engine::__RTS_FN_NS_ENGINE_NUM_TO_EXPONENTIAL as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_NUM_FROM_STR",
-            rt_engine::__RTS_FN_NS_ENGINE_NUM_FROM_STR as *const u8,
-        ),
-        // engine.str_* — the irreducible Unicode string-logic bridge the `.ts`
-        // `class String` methods call (each wraps a `__RTS_FN_GL_STRING_*`).
-        sym(
-            "__RTS_FN_NS_ENGINE_STR_TO_UPPER",
-            rt_engine::__RTS_FN_NS_ENGINE_STR_TO_UPPER as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_STR_TO_LOWER",
-            rt_engine::__RTS_FN_NS_ENGINE_STR_TO_LOWER as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_STR_TRIM",
-            rt_engine::__RTS_FN_NS_ENGINE_STR_TRIM as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_STR_TRIM_START",
-            rt_engine::__RTS_FN_NS_ENGINE_STR_TRIM_START as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_STR_TRIM_END",
-            rt_engine::__RTS_FN_NS_ENGINE_STR_TRIM_END as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_STR_CHAR_AT",
-            rt_engine::__RTS_FN_NS_ENGINE_STR_CHAR_AT as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_STR_CHAR_CODE_AT",
-            rt_engine::__RTS_FN_NS_ENGINE_STR_CHAR_CODE_AT as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_STR_AT",
-            rt_engine::__RTS_FN_NS_ENGINE_STR_AT as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_STR_REPEAT",
-            rt_engine::__RTS_FN_NS_ENGINE_STR_REPEAT as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_STR_SLICE",
-            rt_engine::__RTS_FN_NS_ENGINE_STR_SLICE as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_STR_SUBSTRING",
-            rt_engine::__RTS_FN_NS_ENGINE_STR_SUBSTRING as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_STR_INDEX_OF",
-            rt_engine::__RTS_FN_NS_ENGINE_STR_INDEX_OF as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_STR_LAST_INDEX_OF",
-            rt_engine::__RTS_FN_NS_ENGINE_STR_LAST_INDEX_OF as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_STR_INCLUDES",
-            rt_engine::__RTS_FN_NS_ENGINE_STR_INCLUDES as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_STR_STARTS_WITH",
-            rt_engine::__RTS_FN_NS_ENGINE_STR_STARTS_WITH as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_STR_ENDS_WITH",
-            rt_engine::__RTS_FN_NS_ENGINE_STR_ENDS_WITH as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_STR_PAD_START",
-            rt_engine::__RTS_FN_NS_ENGINE_STR_PAD_START as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_STR_PAD_END",
-            rt_engine::__RTS_FN_NS_ENGINE_STR_PAD_END as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_STR_CONCAT",
-            rt_engine::__RTS_FN_NS_ENGINE_STR_CONCAT as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_STR_REPLACE",
-            rt_engine::__RTS_FN_NS_ENGINE_STR_REPLACE as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_STR_REPLACE_ALL",
-            rt_engine::__RTS_FN_NS_ENGINE_STR_REPLACE_ALL as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_STR_NORMALIZE",
-            rt_engine::__RTS_FN_NS_ENGINE_STR_NORMALIZE as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_STR_IS_WELL_FORMED",
-            rt_engine::__RTS_FN_NS_ENGINE_STR_IS_WELL_FORMED as *const u8,
-        ),
-        sym(
-            "__RTS_FN_NS_ENGINE_STR_TO_WELL_FORMED",
-            rt_engine::__RTS_FN_NS_ENGINE_STR_TO_WELL_FORMED as *const u8,
         ),
     ]
 }
