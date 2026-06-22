@@ -80,9 +80,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.builder.switch_to_block(body_block);
         self.builder.seal_block(body_block);
         self.block_terminated = false;
+        let label = self.pending_label.take();
         self.loop_stack.push(LoopCtx {
             exit: exit_block,
             continue_target: update_block,
+            label,
         });
         self.lower_block(module, body)?;
         self.loop_stack.pop();
@@ -383,9 +385,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let i = self.builder.use_var(idx_var);
         let elem = crate::value::emit_marshal::emit_vec_get(module, self.builder, arr, i);
         self.builder.def_var(bind_var, elem);
+        let label = self.pending_label.take();
         self.loop_stack.push(LoopCtx {
             exit: exit_block,
             continue_target: advance_block,
+            label,
         });
         self.lower_block(module, body)?;
         self.loop_stack.pop();
@@ -410,34 +414,54 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(())
     }
 
-    /// `break` — jump to the innermost loop's exit. A labeled break BAILS (labeled
-    /// control flow is out of this increment); a `break` outside any loop BAILS.
+    /// `break` — jump to a loop's exit. Unlabeled → the innermost loop/switch; a
+    /// `break label` → the enclosing loop carrying that label (searched outward).
+    /// A `break` outside any loop, or an unknown label, BAILS.
     pub(super) fn lower_break(&mut self, label: Option<&str>) -> FrontResult<()> {
-        if label.is_some() {
-            return unsupported!("labeled `break` (labeled control flow is a later increment)");
-        }
-        let ctx = self
-            .loop_stack
-            .last()
-            .copied()
-            .ok_or_else(|| crate::front::error::Unsupported::new("`break` outside a loop"))?;
-        self.builder.ins().jump(ctx.exit, &[]);
+        let exit = match label {
+            Some(l) => self
+                .loop_stack
+                .iter()
+                .rev()
+                .find(|c| c.label.as_deref() == Some(l))
+                .map(|c| c.exit)
+                .ok_or_else(|| {
+                    crate::front::error::Unsupported::new(format!(
+                        "`break {l}`: no enclosing loop labeled `{l}`"
+                    ))
+                })?,
+            None => self
+                .loop_stack
+                .last()
+                .map(|c| c.exit)
+                .ok_or_else(|| crate::front::error::Unsupported::new("`break` outside a loop"))?,
+        };
+        self.builder.ins().jump(exit, &[]);
         self.block_terminated = true;
         Ok(())
     }
 
-    /// `continue` — jump to the innermost loop's continue target (the header for a
-    /// `while`/for-of/for-in advance, the update step for a C-`for`). A labeled
-    /// continue BAILS; a `continue` outside any loop BAILS.
+    /// `continue` — jump to a loop's continue target (header / update / advance).
+    /// Unlabeled → the innermost loop; a `continue label` → the enclosing loop with
+    /// that label. A `continue` outside any loop, or an unknown label, BAILS.
     pub(super) fn lower_continue(&mut self, label: Option<&str>) -> FrontResult<()> {
-        if label.is_some() {
-            return unsupported!("labeled `continue` (labeled control flow is a later increment)");
-        }
-        let ctx =
-            self.loop_stack.last().copied().ok_or_else(|| {
+        let target = match label {
+            Some(l) => self
+                .loop_stack
+                .iter()
+                .rev()
+                .find(|c| c.label.as_deref() == Some(l))
+                .map(|c| c.continue_target)
+                .ok_or_else(|| {
+                    crate::front::error::Unsupported::new(format!(
+                        "`continue {l}`: no enclosing loop labeled `{l}`"
+                    ))
+                })?,
+            None => self.loop_stack.last().map(|c| c.continue_target).ok_or_else(|| {
                 crate::front::error::Unsupported::new("`continue` outside a loop")
-            })?;
-        self.builder.ins().jump(ctx.continue_target, &[]);
+            })?,
+        };
+        self.builder.ins().jump(target, &[]);
         self.block_terminated = true;
         Ok(())
     }
