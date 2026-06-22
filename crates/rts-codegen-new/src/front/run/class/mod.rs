@@ -52,6 +52,7 @@ mod dispatch;
 mod inherit;
 mod litshape;
 mod synth;
+mod vdispatch;
 mod walk;
 
 pub(crate) use litshape::{LitMethod, build_literal_class, ident_param_name};

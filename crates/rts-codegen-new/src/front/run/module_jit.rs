@@ -80,6 +80,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
     let gcell_classes = &prog.gcell_classes;
     let prelude_fns = &prog.prelude_fns;
     let builtins = &prog.builtins;
+    let param_classes = &prog.param_classes;
     let mut module = make_module();
 
     // 1. Freeze every signature (user funcs by their HIR types; main is void).
@@ -203,6 +204,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
             this_class,
             is_prelude,
             builtins,
+            param_classes,
         )?;
     }
     // 4. Define main (the top-level body). `__rtsn_main` is USER code — never
@@ -224,6 +226,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
         None,
         false,
         builtins,
+        param_classes,
     )?;
 
     // 4b. Define every thunk body (bridges the uniform ABI to the real signature).
@@ -287,6 +290,7 @@ fn define_one(
     this_class: Option<&str>,
     is_prelude: bool,
     builtins: &HashMap<String, (String, String)>,
+    param_classes: &HashMap<String, HashMap<String, String>>,
 ) -> FrontResult<()> {
     let mut ctx = module.make_context();
     ctx.func.signature = sig.to_cranelift(module);
@@ -295,9 +299,10 @@ fn define_one(
         let mut fb_ctx = FunctionBuilderContext::new();
         let mut fb = FunctionBuilder::new(&mut ctx.func, &mut fb_ctx);
         let cell_locals = cells.get(&func.name).cloned().unwrap_or_default();
+        let param_cls = param_classes.get(&func.name).cloned().unwrap_or_default();
         let res = Lowerer::lower_function(
             module, &mut fb, func, sig, sigs, thunks, ids, classes, captures, gcells, gcell_classes,
-            globalthis_class_refs, this_class, is_prelude, builtins, cell_locals,
+            globalthis_class_refs, this_class, is_prelude, builtins, cell_locals, param_cls,
         );
         match res {
             Ok(()) => fb.finalize(),

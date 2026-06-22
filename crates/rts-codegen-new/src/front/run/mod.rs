@@ -246,6 +246,11 @@ fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<
     // merging keeps the type total and user wins on a name clash).
     let mut builtins = prelude.builtins;
     builtins.extend(user.builtins);
+    // CLASS-TYPED PARAMS: union (prelude then user). Keyed by function name; the two
+    // sides' top-level function names do not collide in practice, and a user win is
+    // the right shadow behavior.
+    let mut param_classes = prelude.param_classes;
+    param_classes.extend(user.param_classes);
 
     // MAIN: prepend the prelude's top-level statements (its initializers) ahead of
     // the user's, in ONE `__rtsn_main`. Run order is prelude-first, so a prelude
@@ -286,6 +291,7 @@ fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<
         forced_globals,
         prelude_fns,
         builtins,
+        param_classes,
     })
 }
 
@@ -337,6 +343,13 @@ pub(crate) struct LoweredProgram {
     /// empty — no imports there). Bare `"rts"` imports a namespace OBJECT, not a
     /// member, so they are NOT recorded here (the call lowering bails on them).
     pub builtins: std::collections::HashMap<String, (String, String)>,
+    /// CLASS-TYPED FUNCTION PARAMETERS: top-level function name → (param name →
+    /// the user CLASS its `: C` annotation names). Recovered from the AST (rts-hir
+    /// drops a bare class-name annotation to `Unknown`), so the lowerer records the
+    /// param in `local_classes` and a `param.method(..)` dispatches — STATICALLY
+    /// when monomorphic, or VIRTUALLY (by the instance's runtime shape) when the
+    /// method is overridden in `C`'s subtree. Keyed by fn name; unioned on merge.
+    pub param_classes: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
 }
 
 /// Parse `src` and lower it to (user functions, synthesized `__rtsn_main`).
@@ -393,6 +406,32 @@ fn build_from_program(
         scope.register_class(c.name.clone());
     }
     let (mut classes, class_funcs) = class::collect_classes(&class_decls, ambient)?;
+
+    // CLASS-TYPED PARAMS: recover each top-level function's `param: C` annotations
+    // from the AST (rts-hir lowers a bare class-name annotation to `Unknown`, so the
+    // type is otherwise lost). Only a param whose annotation EXACTLY names a user
+    // class declared in this program is recorded — `C[]`, `Map<…>`, primitives, etc.
+    // are ignored. The lowerer turns this into a `local_classes` entry so the param
+    // is a method-dispatch receiver (see [`Lowerer::lower_function`]).
+    let class_name_set: std::collections::HashSet<&str> =
+        class_decls.iter().map(|c| c.name.as_str()).collect();
+    let mut param_classes: std::collections::HashMap<String, std::collections::HashMap<String, String>> =
+        std::collections::HashMap::new();
+    for item in &program.items {
+        if let rts_ast::ast::Item::Function(fdecl) = item {
+            let mut pm: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+            for p in &fdecl.parameters {
+                if let Some(ann) = &p.type_annotation {
+                    if class_name_set.contains(ann.as_str()) {
+                        pm.insert(p.name.clone(), ann.clone());
+                    }
+                }
+            }
+            if !pm.is_empty() {
+                param_classes.insert(fdecl.name.clone(), pm);
+            }
+        }
+    }
 
     // 1. Lower all top-level functions (registers their signatures in `scope`).
     let mut funcs: Vec<HirFunc> = class_funcs;
@@ -534,6 +573,7 @@ fn build_from_program(
         // No imports on the single-source / parse-from-string path. The disk
         // multi-file path ([`module_entry`]) fills this from the binding map.
         builtins: std::collections::HashMap::new(),
+        param_classes,
     })
 }
 
