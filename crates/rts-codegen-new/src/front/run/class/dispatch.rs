@@ -195,11 +195,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         method: &str,
         args: &[HirExpr],
     ) -> FrontResult<Val> {
-        let desc = self
-            .classes
-            .get(class)
-            .expect("class table must contain a statically-resolved class")
-            .clone();
+        // The caller routes here only for a statically-resolved USER class. A
+        // receiver whose recorded class is a Registry/global class (e.g. the
+        // `WeakRef` result of `w.deref()`) has no `self.classes` entry — BAIL
+        // honestly instead of panicking (dynamic/registry-object method dispatch
+        // off such a value is a later increment).
+        let Some(desc) = self.classes.get(class).cloned() else {
+            return unsupported!(
+                "`{class}.{method}()` on a receiver whose class `{class}` is not a \
+                 statically-resolved user class (registry/dynamic-object method \
+                 dispatch is a later increment)"
+            );
+        };
         let Some(fn_name) = desc.method_fn(method).map(str::to_string) else {
             return unsupported!(
                 "`{class}.{method}()` — no such method on class `{class}` \
