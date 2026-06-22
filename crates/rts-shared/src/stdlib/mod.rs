@@ -43,3 +43,8 @@ pub const REFLECT_TS: &str = include_str!("reflect.ts");
 /// Date); a deep structural clone with cycle detection. The engine names nothing
 /// here — `structuredClone(x)` is an ordinary call of this ambient function.
 pub const STRUCTURED_CLONE_TS: &str = include_str!("structured_clone.ts");
+
+/// The global `performance` object (`now()` monotonic ms + `timeOrigin` epoch) —
+/// a rts-shared backend utility (no native syntax). A `.ts` singleton like
+/// `console`, reading the PRIVATE `engine.now_ms`/`unix_ms` clock bridges.
+pub const PERFORMANCE_TS: &str = include_str!("performance.ts");
