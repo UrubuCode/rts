@@ -213,6 +213,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                  (a field-as-function / dynamic method is a later increment)"
             );
         };
+        // VIRTUAL dispatch: when `method` is OVERRIDDEN somewhere in `class`'s
+        // subtree, the receiver's runtime class may differ from its STATIC class
+        // `class` (a `: C`-typed param, a `this` inside a base method, a base-typed
+        // local) — resolve the target at RUNTIME by the instance's shape-id (slot 0).
+        // An EXACT `new C()` receiver is monomorphic (its runtime class IS `class`),
+        // so it keeps the DIRECT call below (the fast path).
+        if !matches!(object.kind, HirExprKind::New { .. }) {
+            if let Some(targets) = self.virtual_targets(class, method) {
+                return self.emit_virtual_dispatch(module, object, &targets, &fn_name, args);
+            }
+        }
         // ---- receiver → `this` (first param) ----
         let recv = self.lower_expr(module, object)?;
         let this_word = self.box_value(recv);

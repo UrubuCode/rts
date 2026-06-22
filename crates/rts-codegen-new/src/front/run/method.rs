@@ -172,6 +172,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 if let Some(val) = self.try_method_dispatch_dynamic(module, recv, method, args)? {
                     return Ok(Some(val));
                 }
+                // USER-CLASS virtual dispatch on a Tagged receiver of unproven class
+                // (a for-of binding, a cast, a reassigned local, a function return):
+                // dispatch by the instance's runtime shape-id to whichever user class
+                // defines `method` (object-guarded, `undefined` for a non-match — a
+                // TypeError-class sentinel, never a wrong value). `Ok(None)` ⇒ no user
+                // class defines `method` / an effectful arg — falls through.
+                if let Some(val) = self.try_user_virtual_dynamic(module, recv, method, args)? {
+                    return Ok(Some(val));
+                }
                 // FALLBACK: the dynamic table (`DYN_METHODS`) only covers the
                 // high-frequency string/array methods at fixed arity. For a method
                 // it lacks (`padStart`/`concat`/`includes` with a position arg/…) on

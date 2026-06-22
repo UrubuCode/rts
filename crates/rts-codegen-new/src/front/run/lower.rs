@@ -294,6 +294,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         is_prelude: bool,
         builtins: &'c HashMap<String, (String, String)>,
         cell_locals: std::collections::HashSet<String>,
+        param_classes: HashMap<String, String>,
     ) -> FrontResult<()> {
         let entry = builder.create_block();
         builder.append_block_params_for_function_params(entry);
@@ -356,6 +357,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // word); only the proven-string fact is recorded.
             if matches!(p.ty, rts_hir::HirType::Str) {
                 ctx.string_locals.insert(p.name.clone());
+            }
+            // A USER-CLASS-typed param (`a: Animal`, recovered from the AST since
+            // rts-hir drops a bare class-name annotation to `Unknown`). Record its
+            // static class so `a.field` resolves against the class shape and
+            // `a.method(..)` dispatches — STATIC when monomorphic, VIRTUAL (by the
+            // instance's runtime shape) when the method is overridden in the
+            // subtree. The param keeps its Tagged ABI/repr (the instance word).
+            if let Some(class) = param_classes.get(&p.name) {
+                if let Some(desc) = classes.get(class) {
+                    let shape_id = ctx.shapes.intern(&desc.fields);
+                    ctx.local_shapes
+                        .insert(p.name.clone(), HeapShape::Object(shape_id));
+                    ctx.local_classes.insert(p.name.clone(), class.clone());
+                }
             }
         }
 
