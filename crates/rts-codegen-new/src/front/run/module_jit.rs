@@ -52,9 +52,6 @@ impl Program {
 fn make_module() -> JITModule {
     let mut flags = settings::builder();
     flags.set("opt_level", "speed").unwrap();
-    // Tail-call optimization (`return_call`, emitted for a `return f(args)` to a
-    // tail-callable user fn) requires frame pointers be preserved on x86-64.
-    flags.set("preserve_frame_pointers", "true").unwrap();
     let isa = cranelift_native::builder()
         .expect("host isa builder")
         .finish(settings::Flags::new(flags))

@@ -210,11 +210,6 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     pub shapes: ShapeTable,
     /// The function's return repr, or `None` for a `void` body (`__rtsn_main`).
     pub ret: Option<Repr>,
-    /// True when THIS function uses the `tail` calling convention (an ordinary user
-    /// fn, not main / a C-ABI state-fn / async / generator). A `return f(args)` in
-    /// tail position lowers to `return_call` only when this AND the callee's
-    /// `tail_callable` hold and their return reprs match (`FnSig::tail_callable`).
-    pub self_tail_callable: bool,
     /// True once the current block has emitted a terminator.
     pub block_terminated: bool,
     /// Active enclosing loops (innermost last) for `break`/`continue` (P5.10). Each
@@ -318,7 +313,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             global_instance_classes: HashMap::new(),
             shapes: ShapeTable::new(),
             ret: sig.ret,
-            self_tail_callable: sig.tail_callable,
             block_terminated: false,
             loop_stack: Vec::new(),
             try_stack: Vec::new(),

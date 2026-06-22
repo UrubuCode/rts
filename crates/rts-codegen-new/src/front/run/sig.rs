@@ -11,7 +11,6 @@
 //! and every call site box/unbox each value to match.
 
 use cranelift_codegen::ir::{AbiParam, Signature};
-use cranelift_codegen::isa::CallConv;
 use cranelift_module::Module;
 
 use rts_hir::{HirExpr, HirFunc, HirStmt};
@@ -75,17 +74,6 @@ pub struct FnSig {
     /// True when this is a desugared EAGER generator (body calls `__RTS_GEN_FINISH`,
     /// result = the `__gen_buf` ARRAY). `g().next()` cursors it via `GENERATOR_NEXT`.
     pub ret_eager_gen: bool,
-    /// True when this function may use the `tail` calling convention, so a
-    /// `return f(args)` to it in tail position can lower to a Cranelift `return_call`
-    /// (TCO). DEFAULT true for an ordinary user function; FORCED false for:
-    /// `__rtsn_main` (it is transmuted + called as `extern "C" fn()` from Rust), and
-    /// — set by `compile_program` — any function whose RAW BODY address is taken and
-    /// invoked under the C ABI (a generator STATE-fn passed to `__RTS_GEN_SM_NEW`),
-    /// plus async/generator functions (conservative). The `tail` conv is ABI-safe to
-    /// call NORMALLY (the thunks do); only `return_call` requires BOTH ends be `tail`,
-    /// so TCO fires only when caller AND callee are `tail_callable` and their return
-    /// reprs match.
-    pub tail_callable: bool,
 }
 
 impl FnSig {
@@ -165,7 +153,6 @@ impl FnSig {
                 ret_array: false,
                 ret_lazy_gen: false,
                 ret_eager_gen: false,
-                tail_callable: !func.is_async && !is_cabi_state_fn(&func.name),
             };
         }
         // The declared return repr — trusted in general (an explicit `boolean` /
@@ -234,14 +221,6 @@ impl FnSig {
             ret_array: matches!(func.ret, rts_hir::HirType::Array(_)) || is_eager_generator,
             ret_lazy_gen: is_lazy_gen,
             ret_eager_gen: is_eager_generator,
-            // NOT tail-callable when the body address is taken for a C-ABI invoke (a
-            // generator/async STATE-fn, recognized by its desugar name prefix) or the
-            // fn is async / a generator constructor (conservative). Everything else is
-            // an ordinary user fn that may use the `tail` conv.
-            tail_callable: !func.is_async
-                && !is_lazy_gen
-                && !is_eager_generator
-                && !is_cabi_state_fn(&func.name),
         }
     }
 
@@ -257,26 +236,14 @@ impl FnSig {
             has_this: false,
             ret_class: None,
             ret_array: false,
-            ret_lazy_gen: false,
-            ret_eager_gen: false,
-            // main is transmuted + called as `extern "C" fn()` from Rust — it must
-            // keep the host C conv, never `tail`.
-            tail_callable: false,
+                ret_lazy_gen: false,
+                ret_eager_gen: false,
         }
     }
 
-    /// Build the Cranelift `Signature` for this function. A `tail_callable` user
-    /// function uses the `tail` calling convention (so a `return f(args)` to it can
-    /// lower to `return_call`); everything else uses the host default conv. The
-    /// `tail` conv is ABI-safe to call with an ordinary `call` too (the thunks do),
-    /// so mixing the two across a call boundary is sound.
+    /// Build the Cranelift `Signature` for this function under the host call conv.
     pub fn to_cranelift(&self, module: &dyn Module) -> Signature {
-        let conv = if self.tail_callable {
-            CallConv::Tail
-        } else {
-            module.isa().default_call_conv()
-        };
-        let mut sig = Signature::new(conv);
+        let mut sig = Signature::new(module.isa().default_call_conv());
         for &p in &self.params {
             sig.params.push(AbiParam::new(cl_type(p)));
         }
@@ -291,16 +258,6 @@ impl FnSig {
 /// unannotated (`Unknown`) or non-numeric parameter is `Tagged`.
 fn repr_for_param(ty: &rts_hir::HirType) -> Repr {
     repr_or_tagged(repr_of(ty))
-}
-
-/// Whether `name` is a generator/async STATE machine function synthesized by the
-/// parser's desugar (`__gen_state_*`/`__agen_state_*`/`__async_state_*`). The
-/// runtime takes its RAW BODY address (`__RTS_*GEN_SM_NEW`/async ctor) and invokes
-/// it under the C ABI, so it must NOT use the `tail` conv — see [`FnSig::tail_callable`].
-fn is_cabi_state_fn(name: &str) -> bool {
-    name.starts_with("__gen_state_")
-        || name.starts_with("__agen_state_")
-        || name.starts_with("__async_state_")
 }
 
 /// Whether the function has at least one `return e` and EVERY such `return e` is
