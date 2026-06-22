@@ -282,6 +282,14 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             dyndispatch::__rtsadp_dyn_pop as *const u8,
         ),
         sym(
+            "__rtsadp_dyn_reverse",
+            dyndispatch::__rtsadp_dyn_reverse as *const u8,
+        ),
+        sym(
+            "__rtsadp_dyn_sort",
+            dyndispatch::__rtsadp_dyn_sort as *const u8,
+        ),
+        sym(
             "__rtsadp_dyn_char_at",
             dyndispatch::__rtsadp_dyn_char_at as *const u8,
         ),

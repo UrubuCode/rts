@@ -330,6 +330,28 @@ pub extern "C" fn __rtsadp_dyn_pop(recv: u64) -> u64 {
     undef()
 }
 
+/// `arr.reverse()` — reverse IN PLACE, returning the (same) array word so a chain
+/// (`a.reverse().join(",")`) works. Array receiver only; other receivers →
+/// `undefined`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_dyn_reverse(recv: u64) -> u64 {
+    if is_array_word(recv) {
+        return arrayops::__rtsadp_arr_reverse(arr_handle(recv));
+    }
+    undef()
+}
+
+/// `arr.sort()` — default (ToString) sort IN PLACE, returning the (same) array
+/// word for chaining. The comparator form `sort(cmp)` is a callback method handled
+/// on the proven-array path. Array receiver only; other receivers → `undefined`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_dyn_sort(recv: u64) -> u64 {
+    if is_array_word(recv) {
+        return arrayops::__rtsadp_arr_sort(arr_handle(recv));
+    }
+    undef()
+}
+
 // ===========================================================================
 // String-only methods (array receivers have no such method → undefined).
 // ===========================================================================

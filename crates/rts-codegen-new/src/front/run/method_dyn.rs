@@ -119,6 +119,18 @@ const DYN_METHODS: &[DynMethod] = &[
         symbol: "__rtsadp_dyn_pop",
         ret_kind: JsKind::Unknown,
     },
+    DynMethod {
+        name: "reverse",
+        argc: 0,
+        symbol: "__rtsadp_dyn_reverse",
+        ret_kind: JsKind::Array,
+    },
+    DynMethod {
+        name: "sort",
+        argc: 0,
+        symbol: "__rtsadp_dyn_sort",
+        ret_kind: JsKind::Array,
+    },
     // ---- string-only ----
     DynMethod {
         name: "toUpperCase",
