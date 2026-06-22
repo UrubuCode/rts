@@ -70,6 +70,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // function-value path. Routed BEFORE the Registry instance-method dispatch so
         // a function receiver is not misrouted. No `this` is passed (a stdlib-style
         // static does not use `this`; receiver-as-`this` is a later increment).
+        // `f.call(thisArg, …)` / `f.apply(thisArg, [args])` — `Function`'s own
+        // methods (primordial). Before the fn-property branch, which would read
+        // `.call`/`.apply` as a stored property (→ undefined) and invoke nothing.
+        if let Some(val) = self.try_fn_call_apply(module, object, method, args)? {
+            return Ok(val);
+        }
         if self.fn_value_word(module, object)?.is_some() {
             let prop_val = self.lower_member(module, object, method)?;
             let prop_word = self.box_value(prop_val);
@@ -89,6 +95,47 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(val);
         }
         unsupported!("method call `.{method}()` (receiver class not statically dispatchable)")
+    }
+
+    /// Lower `fn.call(thisArg, a, b, …)` / `fn.apply(thisArg, [a, b])` on a
+    /// function-VALUE receiver, via the uniform-ABI invoke bridge. `Function` is a
+    /// PRIMORDIAL, so the engine names `call`/`apply` directly.
+    ///
+    /// Returns `Ok(None)` when `method` is not `call`/`apply` OR the receiver is not
+    /// a function value (the caller falls through). `thisArg` (the first arg) is NOT
+    /// bound — the uniform thunk's slot 0 is the closure `env`, not `this` — so this
+    /// covers the common `f.call(null, …)` / `f.apply(null, [...])`. `.apply` with a
+    /// NON-literal args array (a runtime array variable) is a later increment.
+    pub(super) fn try_fn_call_apply(
+        &mut self,
+        module: &mut dyn Module,
+        object: &HirExpr,
+        method: &str,
+        args: &[HirExpr],
+    ) -> FrontResult<Option<Val>> {
+        if method != "call" && method != "apply" {
+            return Ok(None);
+        }
+        // Only a FUNCTION-value receiver: a top-level fn name (`fn_value_word`) or a
+        // param/local proven to hold a function. A non-function receiver falls
+        // through (its real `.call`/`.apply`, if any, is handled elsewhere).
+        let Some(fn_word) = self.fn_value_word(module, object)? else {
+            return Ok(None);
+        };
+        if method == "call" {
+            let call_args = if args.is_empty() { &[][..] } else { &args[1..] };
+            return Ok(Some(self.lower_value_call_word(module, fn_word, call_args)?));
+        }
+        match args.get(1).map(|a| &a.kind) {
+            None => Ok(Some(self.lower_value_call_word(module, fn_word, &[])?)),
+            Some(HirExprKind::Array(elems)) => {
+                Ok(Some(self.lower_value_call_word(module, fn_word, elems)?))
+            }
+            _ => unsupported!(
+                "`fn.apply(this, args)` with a non-literal args array (runtime array \
+                 spread is a later increment)"
+            ),
+        }
     }
 
     /// A `Call` node: a member-callee call (routed through the same static/global/
@@ -133,6 +180,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // paths key on class-name / proven receiver kinds a function value lacks).
             // No `this` is passed: a stdlib-style static does not use `this`; binding
             // the receiver as `this` is a later increment (Phase-1 limitation).
+            // `f.call(thisArg, …)` / `f.apply(thisArg, [args])` — before the
+            // fn-property branch (which would read `.call`/`.apply` as a property).
+            if let Some(val) = self.try_fn_call_apply(module, object, prop, args)? {
+                return Ok(val);
+            }
             if self.fn_value_word(module, object)?.is_some() {
                 let prop_val = self.lower_member(module, object, prop)?;
                 let prop_word = self.box_value(prop_val);
