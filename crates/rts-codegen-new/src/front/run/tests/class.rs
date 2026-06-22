@@ -125,3 +125,15 @@ fn new_of_unknown_class_bails() {
     // `Foo` is not a user class in the program.
     assert_bails("let x = new Foo(1); console.log(x);");
 }
+
+#[test]
+fn new_with_type_cast_callee_resolves_the_class() {
+    // `new (C as any)(..)` / `new (C)(..)` — the TS cast / paren around the ctor name
+    // is a runtime no-op; the constructed class is the inner ident. Without seeing
+    // through it the callee was not a bare ident → the `class ``` empty-name bail.
+    assert_stdout(
+        "class C { v: number; constructor(n: number) { this.v = n; } get(): number { return this.v; } } \
+         const c: any = new (C as any)(7); const d = new (C)(3); console.log(c.get(), d.get());",
+        "7 3\n",
+    );
+}
