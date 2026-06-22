@@ -173,6 +173,28 @@ fn handles_roundtrip() {
     }
 }
 
+/// B3 — the PolyValue↔handle contract pinned across the crate boundary.
+///
+/// The codegen-side `PAYLOAD_MASK` (the 48-bit slot+shard field of a boxed
+/// PolyValue) and the engine-side `HANDLE_SLOT_MASK` (the low bits of a runtime
+/// handle, the gen living above) describe the SAME field. `POLY_FROM_HANDLE` is
+/// literally `full & HANDLE_SLOT_MASK`, so every codegen `word & PAYLOAD_MASK`
+/// payload-extraction is only correct while the two constants are byte-equal.
+/// They are defined independently (different crates) — this test makes a silent
+/// divergence a compile-CI failure instead of heap corruption (the `& PAYLOAD_MASK`
+/// footgun behind Proxy #218).
+#[test]
+fn payload_mask_matches_engine_slot_mask() {
+    assert_eq!(
+        PAYLOAD_MASK,
+        rts_engine::abi::handles::HANDLE_SLOT_MASK,
+        "codegen PAYLOAD_MASK must equal engine HANDLE_SLOT_MASK (same 48-bit slot field)"
+    );
+    // Both must be exactly the low 48 bits, leaving the top 16 for the generation.
+    assert_eq!(PAYLOAD_MASK, 0x0000_FFFF_FFFF_FFFF);
+    assert_eq!(PAYLOAD_MASK | (0xFFFFu64 << 48), u64::MAX);
+}
+
 #[test]
 fn singletons_distinct_and_correct() {
     let undef = PolyValue::undefined();
