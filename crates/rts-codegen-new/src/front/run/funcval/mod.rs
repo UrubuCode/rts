@@ -548,6 +548,16 @@ impl Ctx {
                     self.rewrite_expr(v, scope, mutated);
                 }
             }
+            // `new C(args)` — descend into the CTOR ARGS so an inline arrow there
+            // (`new Proxy(t, { get: (_t, _k) => 42 })`, a callback passed to a ctor)
+            // is lifted, not left to bail. The class is a NAME, never an arrow.
+            HirExprKind::New { args, .. } => {
+                for a in args.iter_mut() {
+                    self.rewrite_expr(a, scope, mutated);
+                }
+            }
+            // `await <expr>` — descend so an arrow inside an awaited expression lifts.
+            HirExprKind::Await(inner) => self.rewrite_expr(inner, scope, mutated),
             HirExprKind::Arrow { .. } => {
                 // Try to extract this arrow into a top-level function or closure. On
                 // success, replace the node with an Ident of the synthesized name.
