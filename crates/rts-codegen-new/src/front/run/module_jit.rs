@@ -48,7 +48,7 @@ impl Program {
 /// installed (so `__RTS_FN_NS_IO_PRINT` / `__RTS_FN_NS_GC_STRING_*` /
 /// `__rtsadp_*` / … resolve at link time). The symbol set is the REAL runtime
 /// surface the lowering calls plus the codegen-owned adapter trampolines, sourced
-/// directly from [`crate::runtime_link::jit_symbols`].
+/// directly from [`crate::adapter_symbols::jit_symbols`].
 fn make_module() -> JITModule {
     let mut flags = settings::builder();
     flags.set("opt_level", "speed").unwrap();
@@ -60,7 +60,7 @@ fn make_module() -> JITModule {
         .finish(settings::Flags::new(flags))
         .expect("finish host isa");
     let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
-    for sym in crate::runtime_link::jit_symbols() {
+    for sym in crate::adapter_symbols::jit_symbols() {
         builder.symbol(sym.name, sym.ptr);
     }
     JITModule::new(builder)

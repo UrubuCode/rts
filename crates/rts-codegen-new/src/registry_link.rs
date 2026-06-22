@@ -17,7 +17,7 @@ use rts_runtime::namespaces::date as rt_date;
 use rts_runtime::namespaces::globals::date::instance as rt_gl_date;
 use rts_runtime::namespaces::globals::url::instance as rt_gl_url;
 
-use crate::runtime_link::JitSymbol;
+use crate::adapter_symbols::JitSymbol;
 
 /// Real `Date` class symbols (instance methods + ctors + the `date` namespace
 /// statics backing `Date.now`/`UTC`/`parse`) the Registry resolves. One entry per

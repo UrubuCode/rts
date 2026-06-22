@@ -1,5 +1,24 @@
-//! JIT symbol registration bridge — install the REAL runtime symbols (and the
-//! codegen-owned adapter trampolines) into a `JITModule`'s `JITBuilder`.
+//! Engine-direct JIT symbols + the Registry-harvest composition for the
+//! `JITBuilder`.
+//!
+//! [`jit_symbols`] assembles the full JIT symbol table from THREE sources:
+//!  1. **Registry harvest** (`front::run::registry::all_jit_symbols`) — every
+//!     genuine namespace/class MEMBER that carries a real `fn_ptr` (e.g. the
+//!     `string` ns via `fp_for`, io, math, Date/URL class methods). The bulk; it
+//!     stays in sync with the Registry automatically, no hand list.
+//!  2. **`__rtsadp_*` adapter trampolines** — the engine's OWN codegen-owned
+//!     symbols (`crate::value::*`): the generic `+`, shape/IC obj access, function
+//!     values, dynamic dispatch. Not runtime, not in any Registry — listed here.
+//!  3. **Engine-internal runtime primitives** — `__RTS_FN_NS_GC_*` env / generator
+//!     / GEN_SM / string-pool ops the engine emits DIRECTLY as codegen sentinels
+//!     (NOT exposed as `rts:gc` members; the `gc` ns deliberately surfaces only
+//!     `collect`/`live_count`). The harvest cannot supply them (no member to hold
+//!     the address), so they are listed here too.
+//!
+//! Sources 2+3 are the irreducible "engine-direct" set — symbols the engine NAMES
+//! itself rather than resolving via the Registry. Source 1 used to be hand-listed
+//! here too; those entries drain out as each namespace's `register` is converted
+//! to carry real `fn_ptr`s (the `dataview`/`string` `fp_for` pattern).
 //!
 //! This replaces the fake `crate::runtime::symbols()` table. It is the new
 //! engine's analogue of the old engine's `register_runtime_symbols` /

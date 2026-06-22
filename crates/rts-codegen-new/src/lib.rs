@@ -42,7 +42,7 @@
 //!    non-primordial method through the Registry/`SPECS` metadata via ONE generic
 //!    path; the JIT symbol table is harvested from the Registry
 //!    ([`front::run::registry::all_jit_symbols`]) plus the codegen-owned
-//!    `__rtsadp_*` adapter trampolines ([`runtime_link`]), killing the 1113
+//!    `__rtsadp_*` adapter trampolines ([`adapter_symbols`]), killing the 1113
 //!    hand-written `add_fn!` and the link-OK/ABI-mismatch SIGILL class.
 //!
 //! ## Status
@@ -65,7 +65,7 @@
 //! REAL `__RTS_FN_NS_IO_PRINT`. The generic JS operators are codegen-owned
 //! `__rtsadp_*` trampolines (no real symbol exists for tag-dispatched `+`) that
 //! call the real pool for the heap parts. The JIT symbol set comes from
-//! [`runtime_link`] (the real runtime surface + the adapter trampolines). The
+//! [`adapter_symbols`] (the real runtime surface + the adapter trampolines). The
 //! first honest measurement on the real cross-runtime fixtures lives in
 //! `front::run::fixture_check` (bun-gated, `#[ignore]`d).
 //!
@@ -97,7 +97,7 @@ pub mod front;
 pub mod ic;
 pub mod registry_link;
 pub mod repr;
-pub mod runtime_link;
+pub mod adapter_symbols;
 pub mod shape;
 pub mod state;
 pub mod value;
