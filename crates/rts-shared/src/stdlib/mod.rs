@@ -29,3 +29,10 @@ pub const WEAKMAP_SET_TS: &str = include_str!("weakmap_set.ts");
 /// bridges the bodies call; the variadic space-join is plain `.ts`. Replaces the
 /// former hardcoded `is_console_ident` + `lower_console_log` codegen path.
 pub const CONSOLE_TS: &str = include_str!("console.ts");
+
+/// `Reflect` (get/set/has) — a rts-shared utility (not a primordial; no native
+/// syntax). Pure TS over primordials only (`target[key]` dynamic access +
+/// `Object.keys`); `Reflect.get`/`set` on a Proxy fire its traps because the
+/// dynamic property trampolines detect the proxy. Descriptor / prototype / apply
+/// reflectors are a later increment (#218).
+pub const REFLECT_TS: &str = include_str!("reflect.ts");
