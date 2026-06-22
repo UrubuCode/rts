@@ -169,6 +169,8 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
     // structuredClone — global fn; after Map/Set/WeakMap/JSON so its instanceof +
     // Object.keys + Map/Set/Date clone resolve against the already-included classes.
     PreludeTs { label: "structuredClone", source: rts_runtime::stdlib::STRUCTURED_CLONE_TS, why: "deep clone w/ cycle detection" },
+    // performance singleton — `.ts` over the private engine clock bridges (like console).
+    PreludeTs { label: "performance", source: rts_runtime::stdlib::PERFORMANCE_TS, why: "performance.now()/timeOrigin" },
     // The rts:test FRAMEWORK — LAST, so its Matcher/describe/test see every primordial.
     PreludeTs { label: "rts:test", source: rts_runtime::namespaces::test::BUNDLE_TS, why: "describe/test/expect/Matcher" },
 ];
