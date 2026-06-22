@@ -90,6 +90,26 @@ pub fn intern_class_shape(keys: &[String]) -> GlobalShapeId {
     id
 }
 
+/// Drop every interned global shape. Called by
+/// [`crate::state::reset_codegen_state`] at the START of each program compile
+/// (before any lowering of the new program interns its shapes). SOUND because the
+/// process compiles-then-runs ONE program at a time: a `GlobalShapeId` baked into
+/// an emitted object is only read while THAT program runs, before the next compile
+/// resets the registry. If concurrent live programs are ever supported, this
+/// registry must move into the per-`Program` state instead.
+pub fn reset_global_shapes() {
+    let mut reg = registry().lock().expect("global shape registry poisoned");
+    reg.keys.clear();
+    reg.keys.shrink_to_fit();
+    reg.by_keys.clear();
+    reg.by_keys.shrink_to_fit();
+}
+
+/// The number of interned global shapes (leak-test probe).
+pub fn global_shape_count() -> usize {
+    registry().lock().map(|r| r.keys.len()).unwrap_or(0)
+}
+
 /// The ordered keys of a [`GlobalShapeId`], or `None` if the id was never
 /// interned (a codegen bug — the runtime stored an id this process did not mint).
 /// The inspect trampoline calls this to render `{ k0: v0, … }`.
