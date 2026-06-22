@@ -936,7 +936,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Intern a STATIC property name as a string-PolyValue key word (an i64
     /// constant — the literal is interned in the real pool at lowering time, like
     /// every string literal).
-    fn intern_key_word(&mut self, prop: &str) -> Value {
+    pub(super) fn intern_key_word(&mut self, prop: &str) -> Value {
         let pv = abi_adapter::intern_poly(prop);
         self.builder.ins().iconst(types::I64, pv.raw() as i64)
     }

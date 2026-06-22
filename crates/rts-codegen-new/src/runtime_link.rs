@@ -38,6 +38,7 @@ use rts_runtime::namespaces::engine as rt_engine;
 use rts_runtime::namespaces::gc::collector as rt_gcoll;
 use rts_runtime::namespaces::gc::handles as rt_handles;
 use rts_runtime::namespaces::gc::string_pool as rt_str;
+use rts_runtime::namespaces::globals::proxy::ops as rt_proxy;
 use rts_runtime::namespaces::globals::number as rt_num;
 use rts_runtime::namespaces::globals::string::rt as rt_gl_str;
 use rts_runtime::namespaces::io as rt_io;
@@ -938,6 +939,13 @@ fn gl_method_symbols() -> Vec<JitSymbol> {
         sym(
             "__RTS_FN_GL_NUMBER_TO_STRING_RADIX",
             rt_num::__RTS_FN_GL_NUMBER_TO_STRING_RADIX as *const u8,
+        ),
+        // Proxy ctor (#218): `new Proxy(target, handler)` → `Entry::Proxy`. The
+        // get/set TRAPS run inside `__rtsadp_obj_get`/`_set` (engine trampolines,
+        // already installed); only the ctor symbol needs installing here.
+        sym(
+            "__RTS_FN_GL_PROXY_NEW",
+            rt_proxy::__RTS_FN_GL_PROXY_NEW as *const u8,
         ),
     ]
 }
