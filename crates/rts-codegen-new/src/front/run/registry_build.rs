@@ -124,6 +124,12 @@ pub(super) static REGISTER: &[Register] = &[
     // real: undefined após coleta). A ctor recebe o objeto-target (Handle) e o
     // deref RETORNA um objeto (Handle não-string → JsKind::Object via ret_is_string_handle).
     Register { label: "WeakRef class", run: ns::globals::weakref::register_weakref_class_spec, why: "WeakRef ctor + deref (weak)" },
+    // `ArrayBuffer` + `DataView` — backend/Registry classes (raw bytes, no native
+    // syntax): `new ArrayBuffer(n)` + `new DataView(buf)` + get/set<T>(offset[,v]).
+    // Os membros do spec agora carregam fn_ptr real (dataview::fp_for) → o harvest
+    // do Registry instala os símbolos no JIT (sem isso = "can't resolve symbol").
+    Register { label: "ArrayBuffer class", run: ns::globals::dataview::register_array_buffer_class_spec, why: "ArrayBuffer ctor + byteLength/slice" },
+    Register { label: "DataView class", run: ns::globals::dataview::register_data_view_class_spec, why: "DataView ctor + get/set accessors" },
 ];
 
 /// One `.ts` prelude include, in DEPENDENCY ORDER (base before dependent).

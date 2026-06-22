@@ -15,8 +15,44 @@
 
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
+/// Endereço real do extern `buffer` que implementa `symbol`. Os membros
+/// ArrayBuffer/DataView são "external" (o extern vive em `crate::namespaces::buffer`),
+/// mas o motor NOVO instala os símbolos JIT pelo HARVEST do Registry
+/// (`all_jit_symbols`), que só colhe `fn_ptr` NÃO-null. Sem este `fn_ptr` real o
+/// `call __RTS_FN_GL_ARRAY_BUFFER_NEW` emitido fica sem endereço → "can't resolve
+/// symbol" no JIT. Mapa símbolo→fn num único lugar (o que o `#[rts_class]` fazia).
+fn fp_for(symbol: &str) -> *const u8 {
+    use crate::namespaces::buffer as b;
+    match symbol {
+        "__RTS_FN_GL_ARRAY_BUFFER_NEW" => b::__RTS_FN_GL_ARRAY_BUFFER_NEW as *const u8,
+        "__RTS_FN_GL_ARRAY_BUFFER_SLICE" => b::__RTS_FN_GL_ARRAY_BUFFER_SLICE as *const u8,
+        "__RTS_FN_GL_DATAVIEW_NEW" => b::__RTS_FN_GL_DATAVIEW_NEW as *const u8,
+        "__RTS_FN_GL_DATAVIEW_BYTE_LENGTH" => b::__RTS_FN_GL_DATAVIEW_BYTE_LENGTH as *const u8,
+        "__RTS_FN_GL_DATAVIEW_BYTE_OFFSET" => b::__RTS_FN_GL_DATAVIEW_BYTE_OFFSET as *const u8,
+        "__RTS_FN_GL_DATAVIEW_SET_UINT8" => b::__RTS_FN_GL_DATAVIEW_SET_UINT8 as *const u8,
+        "__RTS_FN_GL_DATAVIEW_GET_UINT8" => b::__RTS_FN_GL_DATAVIEW_GET_UINT8 as *const u8,
+        "__RTS_FN_GL_DATAVIEW_SET_UINT16" => b::__RTS_FN_GL_DATAVIEW_SET_UINT16 as *const u8,
+        "__RTS_FN_GL_DATAVIEW_GET_UINT16" => b::__RTS_FN_GL_DATAVIEW_GET_UINT16 as *const u8,
+        "__RTS_FN_GL_DATAVIEW_SET_INT32" => b::__RTS_FN_GL_DATAVIEW_SET_INT32 as *const u8,
+        "__RTS_FN_GL_DATAVIEW_GET_INT32" => b::__RTS_FN_GL_DATAVIEW_GET_INT32 as *const u8,
+        "__RTS_FN_GL_DATAVIEW_SET_UINT16_LE" => b::__RTS_FN_GL_DATAVIEW_SET_UINT16_LE as *const u8,
+        "__RTS_FN_GL_DATAVIEW_GET_UINT16_LE" => b::__RTS_FN_GL_DATAVIEW_GET_UINT16_LE as *const u8,
+        "__RTS_FN_GL_DATAVIEW_SET_INT32_LE" => b::__RTS_FN_GL_DATAVIEW_SET_INT32_LE as *const u8,
+        "__RTS_FN_GL_DATAVIEW_GET_INT32_LE" => b::__RTS_FN_GL_DATAVIEW_GET_INT32_LE as *const u8,
+        "__RTS_FN_GL_DATAVIEW_SET_FLOAT64" => b::__RTS_FN_GL_DATAVIEW_SET_FLOAT64 as *const u8,
+        "__RTS_FN_GL_DATAVIEW_GET_FLOAT64" => b::__RTS_FN_GL_DATAVIEW_GET_FLOAT64 as *const u8,
+        "__RTS_FN_GL_DATAVIEW_SET_FLOAT32" => b::__RTS_FN_GL_DATAVIEW_SET_FLOAT32 as *const u8,
+        "__RTS_FN_GL_DATAVIEW_GET_FLOAT32" => b::__RTS_FN_GL_DATAVIEW_GET_FLOAT32 as *const u8,
+        "__RTS_FN_GL_DATAVIEW_SET_BIGINT64" => b::__RTS_FN_GL_DATAVIEW_SET_BIGINT64 as *const u8,
+        "__RTS_FN_GL_DATAVIEW_GET_BIGINT64" => b::__RTS_FN_GL_DATAVIEW_GET_BIGINT64 as *const u8,
+        "__RTS_FN_GL_DATAVIEW_SET_BIGUINT64" => b::__RTS_FN_GL_DATAVIEW_SET_BIGUINT64 as *const u8,
+        "__RTS_FN_GL_DATAVIEW_GET_BIGUINT64" => b::__RTS_FN_GL_DATAVIEW_GET_BIGUINT64 as *const u8,
+        _ => core::ptr::null(),
+    }
+}
+
 /// Membro de classe global (helper hand-written, espelha `leak_class` da macro).
-/// Todos os membros desta classe sao `external` — fn_ptr null, sem extern proprio.
+/// `fn_ptr` resolvido por [`fp_for`] (o motor novo instala o símbolo via harvest).
 #[allow(clippy::too_many_arguments)]
 fn m(
     name: &str,
@@ -32,7 +68,7 @@ fn m(
         kind,
         sig,
         symbol: symbol.to_string(),
-        fn_ptr: FnPtr(core::ptr::null::<u8>()),
+        fn_ptr: FnPtr(fp_for(symbol)),
         flags: MemberFlags::NONE,
         aliases: Vec::new(),
         variadic: false,
