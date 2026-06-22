@@ -163,6 +163,24 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.local_classes.insert(name.to_string(), class_name);
                 Some(HeapShape::Object(shape_id))
             }
+            // `const a = buf.slice(0,4)`: a registry instance-method whose spec
+            // return type is a NAMED registered class (`slice(): ArrayBuffer`).
+            // Record the result's class in `global_instance_classes` so a chained
+            // `a.byteLength` / `a.method()` dispatches (the registry-instance form,
+            // parallel to the user-class arm below which records `local_classes`).
+            HirExprKind::MethodCall { object, method, args }
+                if self
+                    .registry_method_ret_class(object, method, args.len())
+                    .is_some() =>
+            {
+                let class = self
+                    .registry_method_ret_class(object, method, args.len())
+                    .expect("guarded by the match arm");
+                let val = self.lower_expr(module, init)?;
+                self.bind_tagged_local(name, val);
+                self.global_instance_classes.insert(name.to_string(), class);
+                return Ok(());
+            }
             // `const c2 = c.inc()` / `const r = make()`: a CALL/METHOD-CALL whose
             // result class is statically provable (`ret_class` — `return this` /
             // `return new C`). Record the local's CLASS so a later `c2.method()`
