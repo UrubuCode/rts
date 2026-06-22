@@ -148,6 +148,12 @@ fn run_single_in_process(file: &Path, root: &Path) -> Result<()> {
     runner::reset_runner();
     crate::namespaces::gc::error::__RTS_FN_RT_ERROR_CLEAR();
     crate::namespaces::gc::stack::reset_stack_depth();
+    // Drain the engine's process-global tables before compiling the next file.
+    // This is the quiescent top-level boundary `reset_codegen_state` documents:
+    // the previous file's program has finished (its objects are dead) and the next
+    // has not compiled, so clearing the shape registry + side-tables is safe and
+    // bounds their growth across a whole multi-file suite run.
+    rts_codegen_new::state::reset_codegen_state();
 
     // Cutover: run the test file through the NEW engine (resolves the import graph
     // + the `rts:test` prelude, executes via JIT). The Rust-side runner tracks

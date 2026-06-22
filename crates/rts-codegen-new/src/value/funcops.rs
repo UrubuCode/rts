@@ -195,6 +195,33 @@ fn key_text(key_word: u64) -> String {
     }
 }
 
+/// Drop every entry of the two runtime side-tables (`ctor_table`,
+/// `fn_prop_table`). Called by [`crate::state::reset_codegen_state`] at the start
+/// of each program compile so a fresh run does not inherit the previous run's
+/// instance→ctor and function-property records. NOTE: this BOUNDS growth across
+/// runs (eval / hot-reload / the test suite); it does NOT bound the WITHIN-a-run
+/// growth of `ctor_table` (one entry per `new` executed) — that needs GC-tied
+/// pruning / inline storage, a separate increment.
+pub fn reset_state() {
+    if let Ok(mut t) = ctor_table().lock() {
+        t.clear();
+        t.shrink_to_fit();
+    }
+    if let Ok(mut t) = fn_prop_table().lock() {
+        t.clear();
+        t.shrink_to_fit();
+    }
+}
+
+/// `(ctor_table.len(), fn_prop_table.len())` — the live entry counts of the two
+/// runtime side-tables. Used by the leak tests to assert the tables do not grow
+/// unbounded across repeated program runs (each run resets them).
+pub fn table_lens() -> (usize, usize) {
+    let ctor = ctor_table().lock().map(|t| t.len()).unwrap_or(0);
+    let prop = fn_prop_table().lock().map(|t| t.len()).unwrap_or(0);
+    (ctor, prop)
+}
+
 /// The fixed uniform indirect-call signature every function VALUE is invoked
 /// through: a leading `env` word + 4 positional PolyValue words + a `rest`
 /// PolyValue (an array word or `undefined`), returning one PolyValue word.

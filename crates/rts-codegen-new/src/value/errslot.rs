@@ -77,3 +77,12 @@ pub extern "C" fn __rtsadp_err_take() -> u64 {
 pub extern "C" fn __rtsadp_err_clear() {
     PENDING.with(|p| p.set((0, false)));
 }
+
+/// Clear the pending-error slot on THIS thread. Called by
+/// [`crate::state::reset_codegen_state`] at the start of each program compile.
+/// This is a SINGLE-CELL hygiene reset, NOT a leak fix (the slot never grows) —
+/// it prevents a stale pending error from one run leaking into the next on a
+/// reused thread.
+pub fn reset_state() {
+    PENDING.with(|p| p.set((0, false)));
+}

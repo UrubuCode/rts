@@ -54,6 +54,8 @@ mod registry_call;
 mod registryclass;
 mod sig;
 mod stmt;
+mod stmt_assign;
+mod stmt_let;
 mod switch;
 mod thunk;
 mod toprimitive;

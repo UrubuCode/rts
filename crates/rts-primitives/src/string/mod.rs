@@ -19,8 +19,42 @@ pub mod transform;
 use rts_engine::abi::member::DefaultArg;
 use rts_engine::{AbiType, Engine, FnPtr, Intrinsic, Member, MemberFlags, MemberKind, Sig};
 
-/// Membro de namespace/classe (helper hand-written, espelha a macro). Como
-/// todos os membros aqui são `external`, o `fn_ptr` é sempre null.
+/// Endereço real do extern `__RTS_FN_NS_STRING_*` (namespace `string`). Esses
+/// membros eram "external" (fn_ptr null), supridos à mão pelo `runtime_link` do
+/// motor novo; agora o `register` carrega o endereço real e o HARVEST do Registry
+/// (`all_jit_symbols`) instala o símbolo JIT — sem lista-mão no motor. Os externs
+/// vivem nas submódulos search/transform/replace/split deste mesmo crate. Símbolos
+/// de CLASSE (`__RTS_FN_GL_STRING_*`) seguem null aqui (instalados noutro caminho).
+fn fp_for(symbol: &str) -> *const u8 {
+    match symbol {
+        "__RTS_FN_NS_STRING_CONTAINS" => search::__RTS_FN_NS_STRING_CONTAINS as *const u8,
+        "__RTS_FN_NS_STRING_STARTS_WITH" => search::__RTS_FN_NS_STRING_STARTS_WITH as *const u8,
+        "__RTS_FN_NS_STRING_ENDS_WITH" => search::__RTS_FN_NS_STRING_ENDS_WITH as *const u8,
+        "__RTS_FN_NS_STRING_FIND" => search::__RTS_FN_NS_STRING_FIND as *const u8,
+        "__RTS_FN_NS_STRING_TO_UPPER" => transform::__RTS_FN_NS_STRING_TO_UPPER as *const u8,
+        "__RTS_FN_NS_STRING_TO_LOWER" => transform::__RTS_FN_NS_STRING_TO_LOWER as *const u8,
+        "__RTS_FN_NS_STRING_TRIM" => transform::__RTS_FN_NS_STRING_TRIM as *const u8,
+        "__RTS_FN_NS_STRING_TRIM_START" => transform::__RTS_FN_NS_STRING_TRIM_START as *const u8,
+        "__RTS_FN_NS_STRING_TRIM_END" => transform::__RTS_FN_NS_STRING_TRIM_END as *const u8,
+        "__RTS_FN_NS_STRING_REPEAT" => transform::__RTS_FN_NS_STRING_REPEAT as *const u8,
+        "__RTS_FN_NS_STRING_REPLACE" => replace::__RTS_FN_NS_STRING_REPLACE as *const u8,
+        "__RTS_FN_NS_STRING_REPLACEN" => replace::__RTS_FN_NS_STRING_REPLACEN as *const u8,
+        "__RTS_FN_NS_STRING_BYTE_LEN" => split::__RTS_FN_NS_STRING_BYTE_LEN as *const u8,
+        "__RTS_FN_NS_STRING_CHAR_AT" => split::__RTS_FN_NS_STRING_CHAR_AT as *const u8,
+        "__RTS_FN_NS_STRING_CHAR_CODE_AT" => split::__RTS_FN_NS_STRING_CHAR_CODE_AT as *const u8,
+        "__RTS_FN_NS_STRING_CHAR_COUNT" => split::__RTS_FN_NS_STRING_CHAR_COUNT as *const u8,
+        // NOTE: the `__RTS_FN_GL_STRING_*` CLASS methods are NOT mapped here — they
+        // are NOT registered as harvestable members; the engine's lowering emits a
+        // few (slice/substring/substr/codePointAt/localeCompare) DIRECTLY, so they
+        // stay in the engine's `adapter_symbols` list, and the rest route via the
+        // `.ts` String class (Rust→Rust, no JIT symbol). fp_for stays NS-only.
+        _ => core::ptr::null(),
+    }
+}
+
+/// Membro de namespace/classe (helper hand-written, espelha a macro). O `fn_ptr`
+/// é resolvido por [`fp_for`]: real para os externs de NAMESPACE (harvestados),
+/// null para os de classe (`__RTS_FN_GL_STRING_*`, instalados noutro caminho).
 #[allow(clippy::too_many_arguments)]
 fn m(
     name: &str,
@@ -36,7 +70,7 @@ fn m(
         kind,
         sig,
         symbol: symbol.to_string(),
-        fn_ptr: FnPtr(core::ptr::null::<u8>()),
+        fn_ptr: FnPtr(fp_for(symbol)),
         flags: MemberFlags::NONE,
         aliases: Vec::new(),
         variadic: false,

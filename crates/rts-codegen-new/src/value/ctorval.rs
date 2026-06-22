@@ -33,6 +33,23 @@ fn ctor_set() -> &'static Mutex<HashSet<u64>> {
     CTOR_THUNKS.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
+/// Drop every registered constructor-thunk address. Called by
+/// [`crate::state::reset_codegen_state`] at the start of each program compile so a
+/// run does not inherit the previous run's class-reify addresses (stable for the
+/// previous run only). Bounded by distinct reified classes, so small — reset is
+/// for cross-run determinism, not a within-run leak.
+pub fn reset_state() {
+    if let Ok(mut s) = ctor_set().lock() {
+        s.clear();
+        s.shrink_to_fit();
+    }
+}
+
+/// The number of registered constructor-thunk addresses (leak-test probe).
+pub fn ctor_thunk_count() -> usize {
+    ctor_set().lock().map(|s| s.len()).unwrap_or(0)
+}
+
 /// Register `addr` (a class NEW-THUNK code address) as a valid `new` target.
 /// Emitted by `reify_class` whenever a class is reified as a value (idempotent —
 /// the same class registers the same stable address every time).

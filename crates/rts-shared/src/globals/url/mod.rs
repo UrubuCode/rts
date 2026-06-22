@@ -11,8 +11,48 @@ pub mod instance;
 
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-/// Membro `external` (helper hand-written): aponta para um extern já existente
-/// (em `instance.rs`) sem reemitir, `fn_ptr` null.
+/// Endereço real do extern `__RTS_FN_GL_URL_*` / `__RTS_FN_GL_USP_*` (vivem em
+/// `instance.rs`, neste mesmo crate). Os membros eram `external` (fn_ptr null) e
+/// supridos à mão pelo `registry_link` do motor; agora carregam o endereço real e
+/// o HARVEST do Registry (`all_jit_symbols`) instala o símbolo JIT — sem lista-mão.
+fn fp_for(symbol: &str) -> *const u8 {
+    match symbol {
+        "__RTS_FN_GL_URL_CAN_PARSE" => instance::__RTS_FN_GL_URL_CAN_PARSE as *const u8,
+        "__RTS_FN_GL_URL_CAN_PARSE_BASE" => instance::__RTS_FN_GL_URL_CAN_PARSE_BASE as *const u8,
+        "__RTS_FN_GL_URL_FREE" => instance::__RTS_FN_GL_URL_FREE as *const u8,
+        "__RTS_FN_GL_URL_HASH" => instance::__RTS_FN_GL_URL_HASH as *const u8,
+        "__RTS_FN_GL_URL_HOST" => instance::__RTS_FN_GL_URL_HOST as *const u8,
+        "__RTS_FN_GL_URL_HOSTNAME" => instance::__RTS_FN_GL_URL_HOSTNAME as *const u8,
+        "__RTS_FN_GL_URL_HREF" => instance::__RTS_FN_GL_URL_HREF as *const u8,
+        "__RTS_FN_GL_URL_NEW" => instance::__RTS_FN_GL_URL_NEW as *const u8,
+        "__RTS_FN_GL_URL_NEW_WITH_BASE" => instance::__RTS_FN_GL_URL_NEW_WITH_BASE as *const u8,
+        "__RTS_FN_GL_URL_ORIGIN" => instance::__RTS_FN_GL_URL_ORIGIN as *const u8,
+        "__RTS_FN_GL_URL_PASSWORD" => instance::__RTS_FN_GL_URL_PASSWORD as *const u8,
+        "__RTS_FN_GL_URL_PATHNAME" => instance::__RTS_FN_GL_URL_PATHNAME as *const u8,
+        "__RTS_FN_GL_URL_PORT" => instance::__RTS_FN_GL_URL_PORT as *const u8,
+        "__RTS_FN_GL_URL_PROTOCOL" => instance::__RTS_FN_GL_URL_PROTOCOL as *const u8,
+        "__RTS_FN_GL_URL_SEARCH" => instance::__RTS_FN_GL_URL_SEARCH as *const u8,
+        "__RTS_FN_GL_URL_SEARCH_PARAMS" => instance::__RTS_FN_GL_URL_SEARCH_PARAMS as *const u8,
+        "__RTS_FN_GL_URL_SET_PATHNAME" => instance::__RTS_FN_GL_URL_SET_PATHNAME as *const u8,
+        "__RTS_FN_GL_URL_TO_STRING" => instance::__RTS_FN_GL_URL_TO_STRING as *const u8,
+        "__RTS_FN_GL_URL_USERNAME" => instance::__RTS_FN_GL_URL_USERNAME as *const u8,
+        "__RTS_FN_GL_USP_APPEND" => instance::__RTS_FN_GL_USP_APPEND as *const u8,
+        "__RTS_FN_GL_USP_DELETE" => instance::__RTS_FN_GL_USP_DELETE as *const u8,
+        "__RTS_FN_GL_USP_GET" => instance::__RTS_FN_GL_USP_GET as *const u8,
+        "__RTS_FN_GL_USP_GET_ALL" => instance::__RTS_FN_GL_USP_GET_ALL as *const u8,
+        "__RTS_FN_GL_USP_HAS" => instance::__RTS_FN_GL_USP_HAS as *const u8,
+        "__RTS_FN_GL_USP_KEYS" => instance::__RTS_FN_GL_USP_KEYS as *const u8,
+        "__RTS_FN_GL_USP_NEW" => instance::__RTS_FN_GL_USP_NEW as *const u8,
+        "__RTS_FN_GL_USP_SET" => instance::__RTS_FN_GL_USP_SET as *const u8,
+        "__RTS_FN_GL_USP_SORT" => instance::__RTS_FN_GL_USP_SORT as *const u8,
+        "__RTS_FN_GL_USP_TO_STRING" => instance::__RTS_FN_GL_USP_TO_STRING as *const u8,
+        "__RTS_FN_GL_USP_VALUES" => instance::__RTS_FN_GL_USP_VALUES as *const u8,
+        _ => core::ptr::null(),
+    }
+}
+
+/// Membro `external` (helper hand-written): o extern vive em `instance.rs`; o
+/// `fn_ptr` real vem de [`fp_for`] (o motor instala o símbolo via harvest).
 #[allow(clippy::too_many_arguments)]
 fn m(
     name: &str,
@@ -28,7 +68,7 @@ fn m(
         kind,
         sig,
         symbol: symbol.to_string(),
-        fn_ptr: FnPtr(core::ptr::null::<u8>()),
+        fn_ptr: FnPtr(fp_for(symbol)),
         flags: MemberFlags::NONE,
         aliases: Vec::new(),
         variadic: false,

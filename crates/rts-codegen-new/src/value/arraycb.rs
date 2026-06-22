@@ -59,8 +59,10 @@ fn vec_push(vec_handle: u64, word: u64) {
 /// the Vec handle via the bare-payload bridge (`POLY_FROM_HANDLE`) + the OBJECT
 /// header, matching how the lowering boxed it in the first place.
 fn array_word(vec_handle: u64) -> u64 {
+    // `POLY_FROM_HANDLE` already returns the bare 48-bit slot+shard payload
+    // (`full & SLOT_MASK`), so no extra `& PAYLOAD_MASK` is needed.
     let payload = rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(vec_handle);
-    PolyValue::from_object_handle(payload & super::PAYLOAD_MASK).raw()
+    PolyValue::from_object_handle(payload).raw()
 }
 
 /// The `undefined` PolyValue word (the unused `a3`/`rest` slots).
@@ -313,5 +315,6 @@ pub extern "C" fn __rtsadp_arr_flat_map(vec_handle: u64, cb: u64) -> u64 {
             vec_push(out, r);
         }
     }
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(out) & super::PAYLOAD_MASK).raw()
+    // `POLY_FROM_HANDLE` already masks to the 48-bit payload — no extra mask.
+    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(out)).raw()
 }

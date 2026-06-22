@@ -425,16 +425,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         match want {
             // A string handle slot: the arg must be a proven string PolyValue;
             // box it and table-load to the real handle.
-            AbiType::Handle => {
-                if !matches!(v.kind, JsKind::Str) {
-                    return unsupported!(
-                        "method arg wants a string handle but its kind is not statically a string ({:?})",
-                        v.repr
-                    );
-                }
-                let word = self.box_value(v);
-                Ok(emit_marshal::emit_table_load(module, self.builder, word))
-            }
+            AbiType::Handle => self.marshal_proven_string_handle(module, v, "method"),
             // An index / count: a proven number, truncated to i64.
             AbiType::I64 => {
                 let f = self.numeric_to_i64(v)?;
@@ -459,6 +450,29 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             Repr::Float64 => Ok(self.builder.ins().fcvt_to_sint_sat(types::I64, v.v)),
             _ => unsupported!("method arg wants a number index but got {:?}", v.repr),
         }
+    }
+
+    /// Marshal a PROVEN-string `Val` to a real GC string handle (box → table-load).
+    /// A value whose kind is not statically a string BAILS (never a mis-marshal /
+    /// SIGILL on a bogus slot). Shared by the typed-method and array-method arg
+    /// marshalers, whose `Handle` arm means exactly "a proven string"; `ctx` names
+    /// the call family for the bail message. NOTE: this is NOT the registry path's
+    /// `Handle` arm (registry_call.rs), whose `Handle` ALSO accepts an opaque
+    /// integer resource id — that contract is deliberately separate.
+    pub(super) fn marshal_proven_string_handle(
+        &mut self,
+        module: &mut dyn Module,
+        v: Val,
+        ctx: &str,
+    ) -> FrontResult<Value> {
+        if !matches!(v.kind, JsKind::Str) {
+            return unsupported!(
+                "{ctx} arg wants a string but its kind is not statically a string ({:?})",
+                v.repr
+            );
+        }
+        let word = self.box_value(v);
+        Ok(emit_marshal::emit_table_load(module, self.builder, word))
     }
 
     /// Marshal a method result (the `call`'s Cranelift value, or `None` for void)

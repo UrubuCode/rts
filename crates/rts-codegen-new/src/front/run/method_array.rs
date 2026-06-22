@@ -470,16 +470,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         match want {
             AbiType::U64 => Ok(self.box_value(v)),
             AbiType::I64 => self.numeric_to_i64(v),
-            AbiType::Handle => {
-                if !matches!(v.kind, JsKind::Str) {
-                    return unsupported!(
-                        "array method arg wants a string but its kind is not statically a string ({:?})",
-                        v.repr
-                    );
-                }
-                let word = self.box_value(v);
-                Ok(emit_marshal::emit_table_load(module, self.builder, word))
-            }
+            AbiType::Handle => self.marshal_proven_string_handle(module, v, "array method"),
             other => unsupported!("cannot marshal an array-method arg of ABI {other:?}"),
         }
     }
