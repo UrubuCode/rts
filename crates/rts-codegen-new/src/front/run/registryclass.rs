@@ -194,8 +194,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         for a in args {
             vals.push(self.lower_expr(module, a)?);
         }
+        // A `Handle` return is a STRING handle only when the spec's ts-signature
+        // says so (`ret_is_string_handle`, e.g. Date.toISOString → string);
+        // otherwise it is an OBJECT handle (e.g. `WeakRef.deref(): object`). Using
+        // the data-driven flag instead of "Handle ⇒ Str" keeps Date strings as Str
+        // while letting object-returning methods box as TAG_OBJECT.
         let result_kind = match call.ret {
-            AbiType::Handle => JsKind::Str,
+            AbiType::Handle if call.ret_is_string_handle => JsKind::Str,
+            AbiType::Handle => JsKind::Object,
             AbiType::Bool => JsKind::Bool,
             _ => JsKind::Number,
         };

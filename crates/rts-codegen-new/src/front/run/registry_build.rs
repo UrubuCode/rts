@@ -119,6 +119,11 @@ pub(super) static REGISTER: &[Register] = &[
     // a Proxy receiver via `resolve_proxy` and invoke `handler.get`/`.set` through
     // the `__rtsadp_fn_invoke` callback bridge), not by a codegen arm.
     Register { label: "Proxy class", run: ns::globals::proxy::register_proxy_class_spec, why: "Proxy ctor → PROXY_NEW; traps in obj_get/set" },
+    // `WeakRef` — Registry class (#217 A1.1): `new WeakRef(target)` → WEAKREF_NEW
+    // (Entry::WeakRef, não traçado pelo coletor), `deref()` → WEAKREF_DEREF (weak
+    // real: undefined após coleta). A ctor recebe o objeto-target (Handle) e o
+    // deref RETORNA um objeto (Handle não-string → JsKind::Object via ret_is_string_handle).
+    Register { label: "WeakRef class", run: ns::globals::weakref::register_weakref_class_spec, why: "WeakRef ctor + deref (weak)" },
 ];
 
 /// One `.ts` prelude include, in DEPENDENCY ORDER (base before dependent).
