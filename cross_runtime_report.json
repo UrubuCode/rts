@@ -3169,10 +3169,10 @@
 ,
 {
   "name": "codex_proxy_descriptor_virtual_property",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "virtual\n42\n{\"virtual\":42}",
   "node": "virtual\n42\n{\"virtual\":42}",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "\nundefined\n[]"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":182,"rts_diverge":51,"bun_node_diverge":17,"errors":359,"rejected":0}}
+],"summary":{"total":609,"pass":182,"rts_diverge":52,"bun_node_diverge":17,"errors":358,"rejected":0}}
