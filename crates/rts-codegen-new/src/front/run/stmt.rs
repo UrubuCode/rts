@@ -33,6 +33,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.lower_if(module, cond, then, else_.as_deref())
             }
             HirStmt::While { cond, body } => self.lower_while(module, cond, body),
+            HirStmt::DoWhile { body, cond } => self.lower_do_while(module, body, cond),
             HirStmt::For {
                 init,
                 cond,
@@ -210,6 +211,54 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
         self.builder.seal_block(header);
 
+        self.builder.seal_block(exit_block);
+        self.builder.switch_to_block(exit_block);
+        self.block_terminated = false;
+        Ok(())
+    }
+
+    /// `do { body } while (cond)` — like `while`, but the body runs ONCE before the
+    /// first test (the test is at the BOTTOM). `continue` re-tests (jumps to the
+    /// condition block, NOT the top), `break` exits.
+    fn lower_do_while(
+        &mut self,
+        module: &mut dyn Module,
+        body: &[HirStmt],
+        cond: &HirExpr,
+    ) -> FrontResult<()> {
+        let body_block = self.builder.create_block();
+        let cond_block = self.builder.create_block();
+        let exit_block = self.builder.create_block();
+
+        self.builder.ins().jump(body_block, &[]);
+
+        // ---- body: runs first; `continue` → cond_block, `break` → exit_block ----
+        self.builder.switch_to_block(body_block);
+        self.block_terminated = false;
+        self.loop_stack.push(super::lower::LoopCtx {
+            exit: exit_block,
+            continue_target: cond_block,
+        });
+        self.lower_block(module, body)?;
+        self.loop_stack.pop();
+        if !self.block_terminated {
+            self.builder.ins().jump(cond_block, &[]);
+        }
+
+        // ---- cond: re-test at the BOTTOM → body_block else exit ----
+        // Sealed now: its predecessors (the body fall-through + every `continue`)
+        // are all emitted.
+        self.builder.seal_block(cond_block);
+        self.builder.switch_to_block(cond_block);
+        self.block_terminated = false;
+        let c = self.lower_expr(module, cond)?;
+        let cond_v = self.as_bool_value(module, c)?;
+        self.builder
+            .ins()
+            .brif(cond_v, body_block, &[], exit_block, &[]);
+
+        // `body_block` preds (the entry jump + the cond true edge) are now emitted.
+        self.builder.seal_block(body_block);
         self.builder.seal_block(exit_block);
         self.builder.switch_to_block(exit_block);
         self.block_terminated = false;
