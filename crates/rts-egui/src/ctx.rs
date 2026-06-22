@@ -1,8 +1,17 @@
 //! `UiCtx` — estado por janela, vivo num `thread_local! HashMap<u64, UiCtx>`.
 //!
-//! O `UiCtx` agrega tudo que é `!Send` (EventLoop, Window, wgpu, egui::Context).
+//! O `UiCtx` agrega tudo que é `!Send` por janela (Window, wgpu, egui::Context).
 //! O handle `u64` que cruza a ABI é só uma chave nesse mapa local à thread do TS
 //! — nunca um ponteiro, nunca um `Entry` do HandleTable (que é primordial).
+//!
+//! **EventLoop GLOBAL (multi-janela).** winit só permite UM `EventLoop` por
+//! processo; criar um por janela faz a 2ª `openWindow` falhar. Por isso o
+//! `EventLoop<()>` vive num `thread_local` SEPARADO (`EVENT_LOOP`), criado LAZY
+//! na primeira `openWindow` e REUSADO por todas as janelas seguintes. O `UiCtx`
+//! já NÃO guarda mais o loop — só a janela e seu backend. Mantê-lo num
+//! thread_local distinto do `CTXS` é o que destrava o borrow do `pump`: tiramos
+//! o loop com `take()`, pumpamos com `&mut`, e o handler acessa `CTXS` (outro
+//! thread_local) sem colidir com o empréstimo do loop.
 //!
 //! P1: backend wgpu only. glow + Modelo B (callback) vêm depois.
 //!
@@ -29,6 +38,41 @@ thread_local! {
     static CTXS: RefCell<HashMap<u64, UiCtx>> = RefCell::new(HashMap::new());
     /// Próximo handle a alocar (monotônico; geração simples, sem reuso por ora).
     static NEXT_HANDLE: RefCell<u64> = const { RefCell::new(1) };
+    /// EventLoop GLOBAL do processo (thread do TS). `None` até a 1ª `openWindow`
+    /// criá-lo; daí em diante REUSADO por todas as janelas. winit não permite um
+    /// 2º `EventLoop`, então uma vez criado ele vive até o fim do processo.
+    ///
+    /// Fica num thread_local SEPARADO do `CTXS` de propósito: assim o `pump` pode
+    /// tomar o loop com `take()` e pumpá-lo com `&mut` enquanto o handler acessa
+    /// `CTXS` (outro thread_local) para rotear o evento ao `UiCtx` certo, sem que
+    /// o borrow-checker veja um empréstimo duplo do mesmo `RefCell`.
+    static EVENT_LOOP: RefCell<Option<EventLoop<()>>> = const { RefCell::new(None) };
+}
+
+/// Garante que o `EventLoop` global exista (cria UMA vez, lazy) e roda `f` com
+/// ele tomado por valor (`take()`), devolvendo-o ao thread_local em seguida.
+///
+/// `f` recebe `&mut EventLoop<()>` (para `pump_app_events`). Retorna `None` se o
+/// loop não pôde ser criado (winit recusou — p.ex. já há um loop em outro lugar).
+///
+/// O `take()`/devolução é o que mantém o `RefCell` do loop DESEMPRESTADO durante
+/// a execução de `f`, permitindo que `f` (o handler do pump) acesse `CTXS`.
+pub fn with_event_loop<R>(f: impl FnOnce(&mut EventLoop<()>) -> Option<R>) -> Option<R> {
+    // 1. Garante criação lazy (sem manter o borrow do RefCell aberto em `f`).
+    let mut el = EVENT_LOOP.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if slot.is_none() {
+            *slot = EventLoop::new().ok();
+        }
+        slot.take()
+    })?;
+
+    // 2. Roda `f` com o loop fora do thread_local (RefCell livre p/ `CTXS`).
+    let out = f(&mut el);
+
+    // 3. Devolve o loop ao thread_local (ele é único e não pode ser recriado).
+    EVENT_LOOP.with(|slot| *slot.borrow_mut() = Some(el));
+    out
 }
 
 /// Um comando de widget enfileirado entre `beginFrame` e `endFrame`.
@@ -42,12 +86,11 @@ pub enum WidgetCmd {
 }
 
 /// Estado completo de uma janela GUI. Tudo `!Send` (winit/wgpu/egui::Context).
+///
+/// NÃO guarda mais o `EventLoop` — ele agora é global (`EVENT_LOOP`), reusado por
+/// todas as janelas. Cada `UiCtx` é só a janela + seu backend de render + estado
+/// de frame.
 pub struct UiCtx {
-    /// `Option` para permitir `take()` durante `pump`: o `EventLoop` precisa de
-    /// `&mut self` em `pump_app_events`, mas o handler também empresta os demais
-    /// campos do `UiCtx` — então tiramos o loop, pumpamos com o handler vendo o
-    /// resto, e devolvemos o loop em seguida.
-    pub event_loop: Option<EventLoop<()>>,
     /// `Arc<Window>` (owned) — necessário para a `Surface<'static>` do wgpu 29:
     /// `Instance::create_surface(Arc<Window>)` produz `Surface<'static>` porque o
     /// alvo é dono da janela, não um empréstimo.
@@ -86,6 +129,21 @@ pub fn insert(ctx: UiCtx) -> u64 {
 /// Roda `f` com acesso mutável ao `UiCtx` do handle. `None` se o handle não existe.
 pub fn with_ctx<R>(h: u64, f: impl FnOnce(&mut UiCtx) -> R) -> Option<R> {
     CTXS.with(|m| m.borrow_mut().get_mut(&h).map(f))
+}
+
+/// Roda `f` com acesso mutável ao `UiCtx` cuja janela tem o `WindowId` dado.
+/// `None` se nenhuma janela viva casa com esse id. Usado pelo roteador do `pump`
+/// para entregar cada `window_event` ao `UiCtx` correto (multi-janela).
+pub fn with_ctx_by_window<R>(
+    window_id: winit::window::WindowId,
+    f: impl FnOnce(&mut UiCtx) -> R,
+) -> Option<R> {
+    CTXS.with(|m| {
+        let mut m = m.borrow_mut();
+        m.values_mut()
+            .find(|c| c.window.id() == window_id)
+            .map(f)
+    })
 }
 
 /// Remove e dropa o `UiCtx` do handle.

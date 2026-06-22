@@ -111,7 +111,25 @@ pub extern "C" fn __RTS_FN_NS_EGUI_BEGIN_FRAME(h: u64) {
         if c.frame_active {
             return; // beginFrame duplo sem endFrame — ignora.
         }
-        let raw_input = c.egui_state.take_egui_input(&c.window);
+        let mut raw_input = c.egui_state.take_egui_input(&c.window);
+
+        // GARANTE um `screen_rect` válido. O `take_egui_input` só conhece o
+        // tamanho da janela depois de um evento `Resized` — mas no desktop a
+        // 1ª `Resized` pode não chegar antes do 1º frame, deixando o
+        // `screen_rect` vazio → o egui acha que não há área e desenha SÓ o fundo
+        // (a janela fica "tudo cinza", sem widgets). Derivamos o rect do tamanho
+        // físico real da janela / pixels_per_point a cada frame.
+        let size = c.window.inner_size();
+        let ppp = c.egui_ctx.pixels_per_point().max(1.0);
+        if size.width > 0 && size.height > 0 {
+            let w = size.width as f32 / ppp;
+            let h = size.height as f32 / ppp;
+            raw_input.screen_rect = Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(w, h),
+            ));
+        }
+
         c.egui_ctx.begin_pass(raw_input);
         c.frame_active = true;
         c.cmds.clear();

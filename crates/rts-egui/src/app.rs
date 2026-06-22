@@ -1,15 +1,31 @@
 //! Ciclo de vida da janela / loop — Modelo A (o TS dirige o loop).
 //!
-//! winit 0.30 não deixa criar uma `Window` direto de um `EventLoop` parado: a
-//! janela nasce em `ActiveEventLoop::create_window`, que só existe DENTRO de um
-//! callback do `ApplicationHandler` (`resumed`). Para casar isso com uma API
-//! síncrona (`openWindow` precisa retornar um `UiCtx` pronto), usamos
-//! `pump_app_events` com um handler "construtor" (`Builder`) e bombeamos o loop
-//! uma vez: o `resumed` cria a janela + backend wgpu + egui e os deposita num
-//! `Option` que recolhemos após o pump.
+//! **EventLoop global (multi-janela).** winit só permite UM `EventLoop` por
+//! processo, então ele vive num thread_local global (`ctx::EVENT_LOOP`, criado
+//! lazy na 1ª `openWindow`) e TODAS as janelas o compartilham. Cada janela tem
+//! seu próprio `UiCtx` (Window + wgpu + egui), mas o loop é único.
 //!
-//! `pump` reusa o mesmo mecanismo com um handler "rodando" (`Pumper`) que
-//! repassa eventos ao egui-winit e marca `open=false` em `CloseRequested`.
+//! **Criar a 1ª janela.** winit 0.30 não deixa criar uma `Window` direto de um
+//! `EventLoop` parado: a janela nasce em `ActiveEventLoop::create_window`, que só
+//! existe DENTRO de um callback do `ApplicationHandler`. Bombeamos o loop com um
+//! handler "construtor" (`Builder`) que cria a janela e a deposita num `Option`
+//! recolhido após o pump.
+//!
+//! **Criar janelas ADICIONAIS (o ponto-chave do multi-janela).** Numa 2ª
+//! `openWindow` o loop já existe e o `resumed` NÃO dispara de novo (no desktop
+//! ele é one-shot). Por isso o `Builder` cria a janela no `about_to_wait`
+//! TAMBÉM — esse callback recebe um `&ActiveEventLoop` em TODA volta do loop, não
+//! só na 1ª. Assim, qualquer pump (o 1º ou um posterior) dá ao `Builder` a chance
+//! de criar a janela: o que vier primeiro entre `resumed` e `about_to_wait`
+//! constrói; o outro vira no-op (guarda `out.is_some()`).
+//!
+//! **`pump` (roteamento por WindowId).** Com loop GLOBAL, um único pump processa
+//! os eventos de TODAS as janelas. O handler `Pumper` roteia cada
+//! `window_event { window_id, event }` para o `UiCtx` cuja `window.id()` casa
+//! (via `ctx::with_ctx_by_window`), repassa ao `egui_state` daquela janela e
+//! trata `CloseRequested`/`Resized`. Cada `pump(h)` pumpa o loop global uma vez
+//! (despachando para todas as janelas) e retorna 0 — pumpar várias vezes por
+//! frame é inofensivo (só processa o que está pendente).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,7 +33,7 @@ use std::time::Duration;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowId};
 
 use rts_engine::abi::str_abi;
@@ -25,7 +41,7 @@ use rts_engine::abi::str_abi;
 use crate::ctx::{self, UiCtx};
 use crate::frame::RenderState;
 
-/// Tudo que o `Builder` produz no `resumed`, recolhido por `openWindow`.
+/// Tudo que o `Builder` produz ao criar a janela, recolhido por `openWindow`.
 struct BuiltWindow {
     window: Arc<Window>,
     egui_ctx: egui::Context,
@@ -33,24 +49,41 @@ struct BuiltWindow {
     render: RenderState,
 }
 
-/// Handler de construção: cria a janela + backend no primeiro `resumed`.
+/// Handler de construção: cria a janela + backend na primeira oportunidade
+/// (`resumed` na 1ª janela do processo, `about_to_wait` nas seguintes — ver o
+/// doc do módulo). `out` guarda o resultado (ou a mensagem de falha de init).
 struct Builder {
     title: String,
     width: u32,
     height: u32,
-    /// Preenchido no `resumed`. `Err` carrega a mensagem de falha de init.
     out: Option<Result<BuiltWindow, String>>,
+}
+
+impl Builder {
+    /// Constrói a janela se ainda não construímos. Idempotente: o 1º callback a
+    /// rodar (`resumed` ou `about_to_wait`) cria; os demais viram no-op.
+    fn build_once(&mut self, event_loop: &ActiveEventLoop) {
+        if self.out.is_some() {
+            return;
+        }
+        self.out = Some(build(event_loop, &self.title, self.width, self.height));
+    }
 }
 
 impl ApplicationHandler for Builder {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.out.is_some() {
-            return; // já construímos numa volta anterior.
-        }
-        self.out = Some(build(event_loop, &self.title, self.width, self.height));
+        // 1ª janela do processo: o `resumed` dispara e cria aqui.
+        self.build_once(event_loop);
     }
 
-    // Ignoramos eventos de janela durante a construção.
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // Janelas ADICIONAIS: o `resumed` já não dispara, mas `about_to_wait`
+        // chega em toda volta do loop — criamos aqui se ainda não criamos.
+        self.build_once(event_loop);
+    }
+
+    // Ignoramos eventos de janela durante a construção (das janelas já abertas;
+    // elas serão atendidas no próximo `pump` normal).
     fn window_event(
         &mut self,
         _event_loop: &ActiveEventLoop,
@@ -97,7 +130,8 @@ fn build(
     })
 }
 
-/// Abre uma janela + backend de render. Retorna um handle `UiCtx` opaco (0 em
+/// Abre uma janela + backend de render sobre o EventLoop GLOBAL (criado lazy na
+/// 1ª chamada, reusado nas seguintes). Retorna um handle `UiCtx` opaco (0 em
 /// falha). `backend` é ignorado no P1 (sempre wgpu).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_EGUI_OPEN_WINDOW(
@@ -113,11 +147,6 @@ pub extern "C" fn __RTS_FN_NS_EGUI_OPEN_WINDOW(
     let width = w.clamp(1, i64::from(u32::MAX)) as u32;
     let height = h.clamp(1, i64::from(u32::MAX)) as u32;
 
-    let mut event_loop = match EventLoop::new() {
-        Ok(el) => el,
-        Err(_) => return 0,
-    };
-
     let mut builder = Builder {
         title,
         width,
@@ -125,23 +154,30 @@ pub extern "C" fn __RTS_FN_NS_EGUI_OPEN_WINDOW(
         out: None,
     };
 
-    // Bombeia o loop até o `resumed` ter rodado (na prática 1–2 voltas).
+    // Bombeia o loop GLOBAL até o `Builder` ter criado a janela (1–2 voltas na
+    // prática: o 1º pump dispara `resumed`/`about_to_wait`). `with_event_loop`
+    // garante a criação lazy do loop e o devolve ao thread_local após o pump.
     // `pump_app_events` exige a feature "pump_events" do winit (no Cargo.toml).
     use winit::platform::pump_events::EventLoopExtPumpEvents;
-    for _ in 0..16 {
-        let _ = event_loop.pump_app_events(Some(Duration::ZERO), &mut builder);
-        if builder.out.is_some() {
-            break;
+    let built = ctx::with_event_loop(|event_loop| {
+        for _ in 0..16 {
+            let _ = event_loop.pump_app_events(Some(Duration::ZERO), &mut builder);
+            if builder.out.is_some() {
+                break;
+            }
         }
-    }
+        match builder.out.take() {
+            Some(Ok(b)) => Some(b),
+            _ => None,
+        }
+    });
 
-    let built = match builder.out {
-        Some(Ok(b)) => b,
-        _ => return 0,
+    let built = match built {
+        Some(b) => b,
+        None => return 0,
     };
 
     let uictx = UiCtx {
-        event_loop: Some(event_loop),
         window: built.window,
         egui_ctx: built.egui_ctx,
         egui_state: built.egui_state,
@@ -157,69 +193,61 @@ pub extern "C" fn __RTS_FN_NS_EGUI_OPEN_WINDOW(
     ctx::insert(uictx)
 }
 
-/// Handler de runtime: repassa eventos ao egui e fecha em `CloseRequested`.
+/// Handler de runtime do pump: roteia cada evento de janela para o `UiCtx`
+/// correto via `WindowId` e atualiza seu estado.
 ///
-/// Empresta os campos do `UiCtx` (exceto o `EventLoop`, que foi tirado via
-/// `take()` em `pump`) para poder mutar `open`/`egui_state` durante o pump.
-struct Pumper<'a> {
-    window: &'a Window,
-    egui_state: &'a mut egui_winit::State,
-    render: &'a mut RenderState,
-    open: &'a mut bool,
-}
+/// Não empresta nenhum `UiCtx` por referência — busca o `UiCtx` certo no `CTXS`
+/// SOB DEMANDA, a cada `window_event`, pelo `window_id`. Isso é o que destrava o
+/// borrow com loop global: o `EventLoop` está tomado (`take()`) de um
+/// thread_local, e `CTXS` é OUTRO thread_local que o handler acessa livremente.
+struct Pumper;
 
-impl<'a> ApplicationHandler for Pumper<'a> {
+impl ApplicationHandler for Pumper {
     fn resumed(&mut self, _event_loop: &ActiveEventLoop) {
-        // Janela já existe; nada a fazer numa retomada.
+        // Janelas já existem; nada a fazer numa retomada.
     }
 
     fn window_event(
         &mut self,
         _event_loop: &ActiveEventLoop,
-        _window_id: WindowId,
+        window_id: WindowId,
         event: WindowEvent,
     ) {
-        // egui-winit quer ver o evento ANTES de agirmos sobre ele.
-        let _ = self.egui_state.on_window_event(self.window, &event);
-        match event {
-            WindowEvent::CloseRequested => {
-                *self.open = false;
+        // Acha o UiCtx dono desta janela e processa o evento nele.
+        ctx::with_ctx_by_window(window_id, |c| {
+            // egui-winit quer ver o evento ANTES de agirmos sobre ele.
+            let _ = c.egui_state.on_window_event(&c.window, &event);
+            match event {
+                WindowEvent::CloseRequested => {
+                    c.open = false;
+                }
+                WindowEvent::Resized(size) => {
+                    c.render.resize(size.width, size.height);
+                }
+                _ => {}
             }
-            WindowEvent::Resized(size) => {
-                self.render.resize(size.width, size.height);
-            }
-            _ => {}
-        }
+        });
     }
 }
 
-/// Bombeia eventos pendentes do SO (não bloqueante). Retorna 0=continuar,
-/// !=0=sair (hoje só 0; o TS checa `isOpen` para encerrar).
+/// Bombeia eventos pendentes do SO (não bloqueante). Com EventLoop GLOBAL, um
+/// pump processa os eventos de TODAS as janelas (roteados por `WindowId`). O
+/// parâmetro `h` é mantido por compatibilidade da ABI, mas o pump é global: só
+/// validamos que o handle existe (handle inválido → "sair"). Retorna 0=continuar.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_EGUI_PUMP(h: u64) -> i64 {
-    ctx::with_ctx(h, |c| {
-        // Tira o EventLoop para poder pumpar com `&mut` enquanto o handler
-        // empresta os outros campos do mesmo `UiCtx`.
-        let mut event_loop = match c.event_loop.take() {
-            Some(el) => el,
-            None => return 0,
-        };
+    // Handle precisa existir (o TS chama pump(h) por janela).
+    if ctx::with_ctx(h, |_| ()).is_none() {
+        return 1; // handle inexistente → "sair".
+    }
 
-        let mut pumper = Pumper {
-            window: &c.window,
-            egui_state: &mut c.egui_state,
-            render: &mut c.render,
-            open: &mut c.open,
-        };
-
-        use winit::platform::pump_events::EventLoopExtPumpEvents;
+    use winit::platform::pump_events::EventLoopExtPumpEvents;
+    ctx::with_event_loop(|event_loop| {
+        let mut pumper = Pumper;
         let _ = event_loop.pump_app_events(Some(Duration::ZERO), &mut pumper);
-
-        // Devolve o loop ao `UiCtx`.
-        c.event_loop = Some(event_loop);
-        0
-    })
-    .unwrap_or(1) // handle inexistente → "sair".
+        Some(())
+    });
+    0
 }
 
 /// 1 enquanto a janela não foi fechada; 0 caso contrário (ou handle inválido).
@@ -228,7 +256,8 @@ pub extern "C" fn __RTS_FN_NS_EGUI_IS_OPEN(h: u64) -> i64 {
     ctx::with_ctx(h, |c| if c.open { 1 } else { 0 }).unwrap_or(0)
 }
 
-/// Destrói a janela e libera o `UiCtx`.
+/// Destrói a janela e libera o `UiCtx`. NÃO destrói o EventLoop global (winit não
+/// permite recriá-lo; ele fica vivo mesmo após a última janela fechar).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_EGUI_CLOSE(h: u64) {
     ctx::remove(h);
