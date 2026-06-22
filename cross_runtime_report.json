@@ -1452,7 +1452,7 @@
   "status": "rts_diverge",
   "bun": "name=add\nlength=2\ncall=5\napply=10\nbind=12",
   "node": "name=add\nlength=2\ncall=5\napply=10\nbind=12",
-  "rts": "name=undefined\nlength=undefined\ncall=undefined\napply=undefined\nbind=undefined"
+  "rts": "name=undefined\nlength=undefined\ncall=5\napply=10\nbind=undefined"
 }
 ,
 {
