@@ -866,13 +866,14 @@ mod tests {
     use super::jit_symbols;
     use std::collections::HashMap;
 
-    /// Drift guard for the JIT symbol table (the design-doc coverage assert): every
-    /// installed symbol must have a REAL address (no null slipped through from an
-    /// `external` member whose `fp_for` forgot it — that is the link-OK / runtime-
-    /// SIGILL class), and no symbol name may be installed with TWO different
-    /// addresses (a harvest entry disagreeing with a hand entry — same-address
-    /// duplicates are harmless and allowed). A failure here is exactly the bug the
-    /// harvest migration exists to prevent.
+    /// Drift/sanity guard for the JIT symbol table. NOTE: this checks the INSTALLED
+    /// set, not full emittable-symbol coverage — it cannot catch a symbol the
+    /// lowering can emit that is neither harvested nor hand-listed (that surfaces
+    /// only at runtime / in the TS suite as a "can't resolve symbol"). What it DOES
+    /// guarantee: every installed symbol has a REAL address (no null slipped through
+    /// from an `external` member whose `fp_for` forgot it — the link-OK/runtime-
+    /// SIGILL class), and no name is installed with TWO different addresses (a
+    /// harvest entry disagreeing with a hand entry; same-address dupes are harmless).
     #[test]
     fn jit_symbols_have_no_null_and_no_conflicting_dupes() {
         let syms = jit_symbols();
