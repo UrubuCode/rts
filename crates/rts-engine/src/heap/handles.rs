@@ -430,24 +430,10 @@ pub enum Entry {
     /// Usado por `gc.env_*` para implementar capturas reais sem promote-
     /// to-global. Cada slot armazena um valor i64 (cobre int/handle/bool).
     Env(Vec<i64>),
-    /// Closure: par (fn_ptr, env_handle) para o refator #195 (env-record real).
-    /// `fn_ptr` aponta para variante `__lifted_N__envabi` da fn liftada (que
-    /// recebe `env: u64` como primeiro arg); `env` eh handle de outra entry
-    /// `Entry::Env`. Construido por `gc.closure_alloc`. Ainda no-op para o
-    /// codegen vivo — promote-to-global continua atendendo capturas atuais
-    /// ate a Fase 2 do plano migrar arrows simples para este caminho.
-    Closure { fn_ptr: i64, env: u64 },
     /// JSON value boxed — namespace `json`. serde_json::Value preserva
     /// distincao entre null/bool/number/string/array/object necessaria
     /// pro stringify nao virar lossy.
     Json(Box<serde_json::Value>),
-    /// Instancia de classe com layout nativo (#147 — passo 4).
-    /// `class` aponta pro handle do tag string `__rts_class`; `bytes`
-    /// armazena os fields conforme o `ClassLayout` calculado em
-    /// compile-time. Slot 0 é reservado para o tag mas armazenamos o
-    /// class handle redundantemente em `class` para acesso O(1) sem
-    /// decodificar o slot 0.
-    Instance(Box<Instance>),
     /// `Date` instance — milliseconds since Unix epoch (UTC).
     /// Created by `new Date()` / `new Date(ms)` in the globals::date module.
     DateMs(i64),
@@ -883,17 +869,6 @@ impl std::fmt::Debug for PromiseSlot {
 pub struct UdpEntry {
     pub socket: std::net::UdpSocket,
     pub last_peer: Option<std::net::SocketAddr>,
-}
-
-/// Instancia com layout nativo (#147). Armazenada em `Entry::Instance`.
-#[derive(Debug)]
-pub struct Instance {
-    /// Handle do tag string `__rts_class` para a classe desta instancia.
-    pub class: u64,
-    /// Bytes do layout — tamanho determinado em compile-time pelo
-    /// `ClassLayout`. Slot 0 (offset 0) reservado para o tag, demais
-    /// slots para fields conforme `ClassLayout::fields`.
-    pub bytes: Vec<u8>,
 }
 
 #[derive(Debug)]
