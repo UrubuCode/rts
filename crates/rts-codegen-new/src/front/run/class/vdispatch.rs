@@ -174,6 +174,70 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(Some(Val::new_with_kind(result, Repr::Tagged, JsKind::Unknown)))
     }
 
+    /// DYNAMIC GETTER dispatch on a TAGGED receiver of unproven class: an accessor
+    /// READ `recv.prop` where `prop` is a `get prop()` on some USER class (e.g.
+    /// `map.size`, `set.size`) resolved at RUNTIME by the instance's shape-id. The
+    /// DEFAULT arm (a shape matching no getter-class) reads the property as a DATA
+    /// slot (`__rtsadp_obj_get`), so a plain object with a real `prop` slot still
+    /// reads its value — only a getter-class shape calls the getter. A non-object
+    /// receiver yields `undefined`.
+    ///
+    /// Returns `Ok(None)` when NO user class declares a getter `prop` (the caller
+    /// keeps its existing dynamic-data-read fallback) — never a guess.
+    pub(in crate::front::run) fn try_user_getter_dynamic(
+        &mut self,
+        module: &mut dyn Module,
+        object: &HirExpr,
+        prop: &str,
+    ) -> FrontResult<Option<Val>> {
+        // Candidate real user classes with a GETTER `prop` (literal classes excluded,
+        // same reason as the method path).
+        let mut targets: Vec<(u32, String)> = Vec::new();
+        for d in self.classes.iter() {
+            if d.name.starts_with("__rtsl_") {
+                continue;
+            }
+            if let Some(getter) = d.accessor(prop).and_then(|a| a.getter.clone()) {
+                targets.push((d.global_shape, getter));
+            }
+        }
+        if targets.is_empty() {
+            return Ok(None);
+        }
+
+        let recv = self.lower_expr(module, object)?;
+        let recv_word = self.box_value(recv);
+        let is_obj = self.emit_is_object(recv_word);
+        let undef = value::PolyValue::undefined().raw() as i64;
+
+        let merge = self.builder.create_block();
+        self.builder.append_block_param(merge, types::I64);
+        let guarded = self.builder.create_block();
+        let nonobj = self.builder.create_block();
+        self.builder.ins().brif(is_obj, guarded, &[], nonobj, &[]);
+
+        // Non-object receiver → undefined (`(5).size`).
+        self.builder.switch_to_block(nonobj);
+        self.builder.seal_block(nonobj);
+        let u = self.builder.ins().iconst(types::I64, undef);
+        self.builder.ins().jump(merge, &[u.into()]);
+
+        // Object receiver → shape switch over getter-classes; DEFAULT = data-slot read
+        // (`__rtsadp_obj_get`) so a plain object reads its real `prop` value.
+        self.builder.switch_to_block(guarded);
+        self.builder.seal_block(guarded);
+        let shape_word = self.read_shape_word(module, recv_word);
+        self.emit_shape_arms(module, recv_word, shape_word, &targets, &[], merge)?;
+        let key_word = self.intern_key_word(prop);
+        let data = self
+            .call_runtime(module, "__rtsadp_obj_get", &[recv_word, key_word])?
+            .expect("__rtsadp_obj_get returns a value");
+        self.builder.ins().jump(merge, &[data.into()]);
+
+        let result = self.finish_merge(merge);
+        Ok(Some(Val::new_with_kind(result, Repr::Tagged, JsKind::Unknown)))
+    }
+
     /// Read the instance's slot 0 (its class `global_shape`, a `from_i32` tagged-int
     /// word) — the runtime class identity compared by each dispatch arm.
     fn read_shape_word(&mut self, module: &mut dyn Module, recv_word: Value) -> Value {
