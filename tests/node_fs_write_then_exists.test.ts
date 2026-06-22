@@ -1,5 +1,4 @@
 import { describe, test, expect } from "rts:test";
-import { gc } from "rts";
 import {
   writeFileSync,
   existsSync,
@@ -19,20 +18,17 @@ const PATH = "__rts_write_exists.txt";
 // Variacao A: cria do zero.
 writeFileSync(PATH, "abc");
 const a = existsSync(PATH);
-const ah = gc.string_from_static(a ? "yes" : "no");
-print(ah); gc.string_free(ah);
+print(a ? "yes" : "no");
 
 // Variacao B: sobrescreve. exists continua true.
 writeFileSync(PATH, "xyz_long_content");
 const b = existsSync(PATH);
-const bh = gc.string_from_static(b ? "yes" : "no");
-print(bh); gc.string_free(bh);
+print(b ? "yes" : "no");
 
 // Variacao C: depois de remover, exists vira false.
 rmSync(PATH);
 const c = existsSync(PATH);
-const ch = gc.string_from_static(c ? "yes" : "no");
-print(ch); gc.string_free(ch);
+print(c ? "yes" : "no");
 
 describe("fixture:node_fs_write_then_exists", () => {
   test("write+exists, overwrite, remove", () => {

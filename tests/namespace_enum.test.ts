@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -16,12 +16,9 @@ namespace Net {
     }
 }
 
-const h1 = gc.string_from_i64(Net.Status.Ok);
-print(h1); gc.string_free(h1); // 0
-const h2 = gc.string_from_i64(Net.Status.NotFound);
-print(h2); gc.string_free(h2); // 404
-const h3 = gc.string_from_i64(Net.Status.ServerError);
-print(h3); gc.string_free(h3); // 500
+print(`${Net.Status.Ok}`); // 0
+print(`${Net.Status.NotFound}`); // 404
+print(`${Net.Status.ServerError}`); // 500
 
 describe("fixture:namespace_enum", () => {
   test("matches expected stdout", () => {

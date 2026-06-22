@@ -59,35 +59,18 @@ fn ext(name: &str, sig: Sig, symbol: &str, ts: &str, pure: bool) -> Member {
 pub fn register(e: &mut Engine) {
     e.ns("gc")
         .doc("Runtime-managed handle table and string pool. All members are `external` —\nthe externs are owned by the submodules; the macro emits only the SPEC.")
-        .member(ext("string_from_i64", Sig::new(vec![AbiType::I64], AbiType::Handle), "__RTS_FN_NS_GC_STRING_FROM_I64", "string_from_i64(value: number): number", false))
-        .member(ext("string_from_f64", Sig::new(vec![AbiType::F64], AbiType::Handle), "__RTS_FN_NS_GC_STRING_FROM_F64", "string_from_f64(value: number): number", false))
-        .member(ext("string_concat", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_GC_STRING_CONCAT", "string_concat(a: number, b: number): number", false))
-        .member(ext("string_eq", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::I64), "__RTS_FN_NS_GC_STRING_EQ", "string_eq(a: number, b: number): number", false))
-        .member(ext("string_cmp", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::I64), "__RTS_FN_NS_GC_STRING_CMP", "string_cmp(a: number, b: number): number", false))
-        .member(ext("string_from_static", Sig::new(vec![AbiType::StrPtr], AbiType::Handle), "__RTS_FN_NS_GC_STRING_FROM_STATIC", "string_from_static(data: string): number", false))
-        .member(ext("string_new", Sig::new(vec![AbiType::StrPtr], AbiType::Handle), "__RTS_FN_NS_GC_STRING_NEW", "string_new(data: string): number", false))
-        .member(ext("string_len", Sig::new(vec![AbiType::Handle], AbiType::I64), "__RTS_FN_NS_GC_STRING_LEN", "string_len(handle: number): number", false))
-        .member(ext("string_ptr", Sig::new(vec![AbiType::Handle], AbiType::U64), "__RTS_FN_NS_GC_STRING_PTR", "string_ptr(handle: number): number", false))
-        .member(ext("string_free", Sig::new(vec![AbiType::Handle], AbiType::I64), "__RTS_FN_NS_GC_STRING_FREE", "string_free(handle: number): number", false))
-        .member(ext("handle_len", Sig::new(vec![AbiType::U64], AbiType::I64), "__RTS_FN_NS_GC_HANDLE_LEN", "handle_len(h: number): number", true))
-        .member(ext("env_alloc", Sig::new(vec![AbiType::I32], AbiType::Handle), "__RTS_FN_NS_GC_ENV_ALLOC", "env_alloc(slot_count: number): number", false))
-        .member(ext("env_get", Sig::new(vec![AbiType::Handle, AbiType::I32], AbiType::I64), "__RTS_FN_NS_GC_ENV_GET", "env_get(env: number, slot: number): number", false))
-        .member(ext("env_set", Sig::new(vec![AbiType::Handle, AbiType::I32, AbiType::I64], AbiType::I64), "__RTS_FN_NS_GC_ENV_SET", "env_set(env: number, slot: number, value: number): number", false))
-        .member(ext("closure_alloc", Sig::new(vec![AbiType::I64, AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_GC_CLOSURE_ALLOC", "closure_alloc(fn_ptr: number, env: number): number", false))
-        .member(ext("closure_fn_ptr", Sig::new(vec![AbiType::Handle], AbiType::I64), "__RTS_FN_NS_GC_CLOSURE_FN_PTR", "closure_fn_ptr(handle: number): number", true))
-        .member(ext("closure_env", Sig::new(vec![AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_GC_CLOSURE_ENV", "closure_env(handle: number): number", true))
-        .member(ext("instance_new", Sig::new(vec![AbiType::I32, AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_GC_INSTANCE_NEW", "instance_new(size: number, class_handle: number): number", false))
-        .member(ext("instance_class", Sig::new(vec![AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_GC_INSTANCE_CLASS", "instance_class(handle: number): number", false))
-        .member(ext("instance_free", Sig::new(vec![AbiType::Handle], AbiType::I64), "__RTS_FN_NS_GC_INSTANCE_FREE", "instance_free(handle: number): number", false))
-        .member(ext("instance_load_i64", Sig::new(vec![AbiType::Handle, AbiType::I32], AbiType::I64), "__RTS_FN_NS_GC_INSTANCE_LOAD_I64", "instance_load_i64(handle: number, offset: number): number", false))
-        .member(ext("instance_store_i64", Sig::new(vec![AbiType::Handle, AbiType::I32, AbiType::I64], AbiType::I64), "__RTS_FN_NS_GC_INSTANCE_STORE_I64", "instance_store_i64(handle: number, offset: number, value: number): number", false))
-        .member(ext("instance_load_i32", Sig::new(vec![AbiType::Handle, AbiType::I32], AbiType::I32), "__RTS_FN_NS_GC_INSTANCE_LOAD_I32", "instance_load_i32(handle: number, offset: number): number", false))
-        .member(ext("instance_store_i32", Sig::new(vec![AbiType::Handle, AbiType::I32, AbiType::I32], AbiType::I64), "__RTS_FN_NS_GC_INSTANCE_STORE_I32", "instance_store_i32(handle: number, offset: number, value: number): number", false))
-        .member(ext("instance_load_f64", Sig::new(vec![AbiType::Handle, AbiType::I32], AbiType::F64), "__RTS_FN_NS_GC_INSTANCE_LOAD_F64", "instance_load_f64(handle: number, offset: number): number", false))
-        .member(ext("instance_store_f64", Sig::new(vec![AbiType::Handle, AbiType::I32, AbiType::F64], AbiType::I64), "__RTS_FN_NS_GC_INSTANCE_STORE_F64", "instance_store_f64(handle: number, offset: number, value: number): number", false))
-        .member(ext("env_free", Sig::new(vec![AbiType::Handle], AbiType::I64), "__RTS_FN_NS_GC_ENV_FREE", "env_free(env: number): number", false))
+        // SUPERFÍCIE gc.* LEGACY REMOVIDA (motor antigo) — zero-legacy, gc-new-api-plan
+        // C1/C2/C4. O motor NOVO não emite NENHUM destes membros:
+        //   - strings: PolyValue TAG_STR (`String()`/template/`+`/`===`), não string_*;
+        //   - objetos/instâncias: shapes + Vec keyed (`__rtsadp_obj_*`), não instance_*;
+        //   - closures: cells PolyValue (#195), não env_*/closure_*.
+        // Removidos da spec TS: string_* (C1), handle_len, env_alloc/get/set/free,
+        // closure_alloc/fn_ptr/closure_env, instance_new/class/free/load_*/store_* e
+        // collect_vec. Os símbolos `__RTS_FN_NS_GC_*` continuam definidos
+        // (string_pool/handles) e registrados direto no `runtime_link` do motor para
+        // uso INTERNO; o que sai é só a superfície exposta ao TS. Drenar as Entry/
+        // símbolos mortos é a fase B (handles.rs). Sobra só o núcleo chamável de TS:
         .member(ext("collect", Sig::new(vec![AbiType::Handle], AbiType::I64), "__RTS_FN_NS_GC_COLLECT", "collect(root: number): number", false))
-        .member(ext("collect_vec", Sig::new(vec![AbiType::Handle], AbiType::I64), "__RTS_FN_NS_GC_COLLECT_VEC", "collect_vec(roots: number): number", false))
         .member(ext("live_count", Sig::new(Vec::new(), AbiType::I64), "__RTS_FN_NS_GC_LIVE_COUNT", "live_count(): number", false))
         .done();
 }

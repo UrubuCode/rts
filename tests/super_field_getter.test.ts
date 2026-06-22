@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -31,11 +31,9 @@ class Sub extends Base {
 }
 
 const s = new Sub();
-const h1 = gc.string_from_i64(s.fromSuper());
-print(h1); gc.string_free(h1); // 100
+print(`${s.fromSuper()}`); // 100
 
-const h2 = gc.string_from_i64(s.fromThis());
-print(h2); gc.string_free(h2); // 999
+print(`${s.fromThis()}`); // 999
 
 describe("fixture:super_field_getter", () => {
   test("matches expected stdout", () => {

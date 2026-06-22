@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc, alloc, ptr } from "rts";
+import { io, alloc, ptr } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -19,8 +19,8 @@ if (p2 == 0) {
 } else {
   const v1 = ptr.read_i64(p2);
   const v2 = ptr.read_i64(ptr.offset(p2, 8));
-  const h1 = gc.string_from_i64(v1); print(h1); gc.string_free(h1); // 12345
-  const h2 = gc.string_from_i64(v2); print(h2); gc.string_free(h2); // 67890
+  print(`${v1}`); // 12345
+  print(`${v2}`); // 67890
   alloc.dealloc(p2, 64, 8);
 }
 

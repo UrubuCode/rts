@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { gc, buffer } from "rts";
+import { buffer } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -16,28 +16,23 @@ for (let i: i64 = 0; i < 5; i = i + 1) {
 }
 
 const eq = buffer.equals(a, b);
-const eh = gc.string_from_static(eq ? "eq" : "neq");
-print(eh); gc.string_free(eh);
+print(eq ? "eq" : "neq");
 
 buffer.write_u8(b, 4, 9);
 const neq = buffer.equals(a, b);
-const nh = gc.string_from_static(neq ? "still-eq" : "diff");
-print(nh); gc.string_free(nh);
+print(neq ? "still-eq" : "diff");
 
 // indexOf 'C' (67) — pos 2
 const i1 = buffer.index_of(a, 67, 0);
-const ih = gc.string_from_i64(i1);
-print(ih); gc.string_free(ih);
+print(`${i1}`);
 
 // indexOf de byte ausente
 const i2 = buffer.index_of(a, 200, 0);
-const i2h = gc.string_from_i64(i2);
-print(i2h); gc.string_free(i2h);
+print(`${i2}`);
 
 // indexOf com from > size
 const i3 = buffer.index_of(a, 65, 100);
-const i3h = gc.string_from_i64(i3);
-print(i3h); gc.string_free(i3h);
+print(`${i3}`);
 
 buffer.free(a); buffer.free(b);
 

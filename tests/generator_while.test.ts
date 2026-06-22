@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -20,8 +20,7 @@ function* fib_until(max: i64) {
 }
 
 for (const n of fib_until(20)) {
-  const h = gc.string_from_i64(n);
-  print(h); gc.string_free(h);
+  print(`${n}`);
 }
 
 describe("fixture:generator_while", () => {

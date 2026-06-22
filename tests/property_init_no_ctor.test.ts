@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -14,13 +14,9 @@ class C {
 }
 
 const c = new C();
-const h1 = gc.string_from_i64(c.n);
-print(h1); // 100
-gc.string_free(h1);
+print(`${c.n}`); // 100
 
-const h2 = gc.string_from_i64(c.m);
-print(h2); // 200
-gc.string_free(h2);
+print(`${c.m}`); // 200
 
 describe("fixture:property_init_no_ctor", () => {
   test("matches expected stdout", () => {

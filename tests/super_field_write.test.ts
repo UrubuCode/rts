@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -23,12 +23,10 @@ class Sub extends Base {
 
 const s = new Sub();
 s.setBase(42);
-const h1 = gc.string_from_i64(s.x);
-print(h1); gc.string_free(h1); // 42
+print(`${s.x}`); // 42
 
 s.setBaseCompound(); // 42 + 100
-const h2 = gc.string_from_i64(s.x);
-print(h2); gc.string_free(h2); // 142
+print(`${s.x}`); // 142
 
 describe("fixture:super_field_write", () => {
   test("matches expected stdout", () => {

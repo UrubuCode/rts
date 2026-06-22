@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -20,8 +20,7 @@ outer: for (let i = 0; i < 3; i = i + 1) {
     count = count + 100;
 }
 
-const h = gc.string_from_i64(count);
-print(h); gc.string_free(h); // 3 (1 por iteração externa, count++ só com j=0)
+print(`${count}`); // 3 (1 por iteração externa, count++ só com j=0)
 
 describe("fixture:labeled_continue", () => {
   test("matches expected stdout", () => {

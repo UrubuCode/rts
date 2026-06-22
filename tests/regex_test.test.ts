@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc, regex } from "rts";
+import { io, regex } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -11,10 +11,8 @@ function print(value: string): void {
 const re = /^[a-z]+@[a-z]+\.[a-z]+$/i;
 const ok = regex.test(re, "USER@MAIL.COM") ? 1 : 0;
 const bad = regex.test(re, "not-an-email") ? 1 : 0;
-const h1 = gc.string_from_i64(ok);
-print(h1); gc.string_free(h1); // 1
-const h2 = gc.string_from_i64(bad);
-print(h2); gc.string_free(h2); // 0
+print(`${ok}`); // 1
+print(`${bad}`); // 0
 regex.free(re);
 
 describe("fixture:regex_test", () => {

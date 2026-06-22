@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -21,13 +21,13 @@ class Counter {
 }
 
 const c = new Counter();
-const h0 = gc.string_from_i64(c.value()); print(h0); gc.string_free(h0); // 0
+print(`${c.value()}`); // 0
 
 c.inc();
 c.inc();
 c.inc();
 
-const h3 = gc.string_from_i64(c.value()); print(h3); gc.string_free(h3); // 3
+print(`${c.value()}`); // 3
 
 describe("fixture:private_field_basic", () => {
   test("matches expected stdout", () => {

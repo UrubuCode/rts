@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc, ptr } from "rts";
+import { io, ptr } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -9,20 +9,16 @@ function print(value: string): void {
 // ptr.null/is_null/offset.
 
 const p = ptr.null();
-const h1 = gc.string_from_i64(p);
-print(h1); gc.string_free(h1); // 0
+print(`${p}`); // 0
 
 const isNull = ptr.is_null(0) ? 1 : 0;
-const h2 = gc.string_from_i64(isNull);
-print(h2); gc.string_free(h2); // 1
+print(`${isNull}`); // 1
 
 const isNotNull = ptr.is_null(0x1000) ? 1 : 0;
-const h3 = gc.string_from_i64(isNotNull);
-print(h3); gc.string_free(h3); // 0
+print(`${isNotNull}`); // 0
 
 const off = ptr.offset(0x1000, 16);
-const h4 = gc.string_from_i64(off);
-print(h4); gc.string_free(h4); // 4112
+print(`${off}`); // 4112
 
 describe("fixture:ptr_basic", () => {
   test("matches expected stdout", () => {

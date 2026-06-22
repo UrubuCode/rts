@@ -1,5 +1,4 @@
 import { describe, test, expect } from "rts:test";
-import { gc } from "rts";
 import {
   writeFileSync,
   existsSync,
@@ -25,20 +24,16 @@ function print(value: string): void {
 writeFileSync("__rts_stat_helpers.txt", "hello");
 
 const ex = existsSync("__rts_stat_helpers.txt");
-const eh = gc.string_from_static(ex ? "exists" : "no");
-print(eh); gc.string_free(eh);
+print(ex ? "exists" : "no");
 
 const isFile = isFileSync("__rts_stat_helpers.txt");
-const fh = gc.string_from_static(isFile ? "file" : "no");
-print(fh); gc.string_free(fh);
+print(isFile ? "file" : "no");
 
 const isDir = isDirectorySync("__rts_stat_helpers.txt");
-const dh = gc.string_from_static(isDir ? "dir" : "notdir");
-print(dh); gc.string_free(dh);
+print(isDir ? "dir" : "notdir");
 
 const sz = sizeSync("__rts_stat_helpers.txt");
-const sh = gc.string_from_i64(sz);
-print(sh); gc.string_free(sh);
+print(`${sz}`);
 
 rmSync("__rts_stat_helpers.txt");
 

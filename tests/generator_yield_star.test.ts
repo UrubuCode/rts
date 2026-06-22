@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -20,8 +20,7 @@ function* outer() {
 }
 
 for (const v of outer()) {
-  const h = gc.string_from_i64(v);
-  print(h); gc.string_free(h);
+  print(`${v}`);
 }
 
 describe("fixture:generator_yield_star", () => {

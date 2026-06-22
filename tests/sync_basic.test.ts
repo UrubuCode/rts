@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { gc, sync } from "rts";
+import { sync } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -15,8 +15,7 @@ if (m == 0) {
 }
 
 const v0 = sync.mutex_lock(m);
-const h0 = gc.string_from_i64(v0);
-print(h0); gc.string_free(h0); // 7
+print(`${v0}`); // 7
 
 // 2) mutex_set enquanto temos o lock + unlock
 sync.mutex_set(m, 99);
@@ -24,14 +23,12 @@ sync.mutex_unlock(m);
 
 // 3) Re-lock para verificar valor persistido
 const v1 = sync.mutex_lock(m);
-const h1 = gc.string_from_i64(v1);
-print(h1); gc.string_free(h1); // 99
+print(`${v1}`); // 99
 sync.mutex_unlock(m);
 
 // 4) try_lock funciona quando livre
 const v2 = sync.mutex_try_lock(m);
-const h2 = gc.string_from_i64(v2);
-print(h2); gc.string_free(h2); // 99
+print(`${v2}`); // 99
 sync.mutex_unlock(m);
 
 sync.mutex_free(m);

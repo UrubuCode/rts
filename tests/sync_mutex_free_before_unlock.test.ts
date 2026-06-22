@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { gc, sync } from "rts";
+import { sync } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -21,11 +21,9 @@ sync.mutex_free(m);
 // Apos free com lock ativo, mutex_free libera o handle e remove o
 // guard do mapa thread-local — sequencia limpa, sem crash.
 
-const ok = gc.string_from_static("survived-free-before-unlock");
-print(ok); gc.string_free(ok);
+print("survived-free-before-unlock");
 
-const initial = gc.string_from_i64(v);
-print(initial); gc.string_free(initial);
+print(`${v}`);
 
 // Caso normal: lock/unlock/free na ordem correta continua funcionando.
 const m2 = sync.mutex_new(100);
@@ -36,8 +34,7 @@ const v2 = sync.mutex_lock(m2);
 sync.mutex_unlock(m2);
 sync.mutex_free(m2);
 
-const after = gc.string_from_i64(v2);
-print(after); gc.string_free(after);
+print(`${v2}`);
 
 describe("fixture:sync_mutex_free_before_unlock", () => {
   test("free before unlock no longer UB; normal flow still works", () => {

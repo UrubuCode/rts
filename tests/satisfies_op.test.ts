@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -10,15 +10,13 @@ function print(value: string): void {
 // Útil pra TS validar tipo sem alterar o tipo inferido do expr.
 
 const x = 42 satisfies number;
-const h = gc.string_from_i64(x);
-print(h); gc.string_free(h); // 42
+print(`${x}`); // 42
 
 function compute(): number {
     return (10 + 5) satisfies number;
 }
 
-const h2 = gc.string_from_i64(compute());
-print(h2); gc.string_free(h2); // 15
+print(`${compute()}`); // 15
 
 describe("fixture:satisfies_op", () => {
   test("matches expected stdout", () => {

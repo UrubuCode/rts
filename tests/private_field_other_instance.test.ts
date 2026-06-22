@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -22,8 +22,7 @@ class Vec {
 
 const a = new Vec(1, 2);
 const b = new Vec(10, 20);
-const h = gc.string_from_i64(a.addTo(b));
-print(h); gc.string_free(h); // 1+10+2+20 = 33
+print(`${a.addTo(b)}`); // 1+10+2+20 = 33
 
 describe("fixture:private_field_other_instance", () => {
   test("matches expected stdout", () => {

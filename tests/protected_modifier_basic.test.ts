@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -19,8 +19,7 @@ class Sub extends Base {
 }
 
 const s = new Sub();
-const h = gc.string_from_i64(s.triple());
-print(h); gc.string_free(h); // 30
+print(`${s.triple()}`); // 30
 
 describe("fixture:protected_modifier_basic", () => {
   test("matches expected stdout", () => {

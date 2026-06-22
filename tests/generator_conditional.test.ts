@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -17,8 +17,7 @@ function* evens(n: i64) {
 }
 
 for (const v of evens(8)) {
-  const h = gc.string_from_i64(v);
-  print(h); gc.string_free(h);
+  print(`${v}`);
 }
 
 describe("fixture:generator_conditional", () => {

@@ -14,34 +14,24 @@ class Box {
 // libera o resto. Limitacao conhecida: sem codegen-side root tracking, strings
 // globais (como __rtsCapturedOutput) sao coletadas — entao nao usamos `print`
 // atravessando collect; capturamos resultados antes e fazemos os prints depois.
-
-const a = new Box();
-const b = new Box();
-const c = new Box();
-
-const beforeAll = gc.live_count();
-const freed1 = gc.collect_vec(([a, b, c] as unknown) as number);
-const afterAll = gc.live_count();
+// (gc.collect_vec foi removido — superficie legacy do motor antigo, gc-new-api-plan
+// C2; sobra a API de root unico `collect` + `live_count`.)
 
 const x = new Box();
 const beforeOne = gc.live_count();
-const freed2 = gc.collect(x);
+const freed = gc.collect(x);
 const afterOne = gc.live_count();
 
-// Agora os prints. Como HandleTable e' state global compartilhado entre
-// fixtures no test runner, comparamos apenas que o coletor *roda* (returna
-// freed >= 0) sem travar/segfault. Validacao de semantica precisa fica em
-// `cargo test` unit do collector.
-print(`live_works: ${beforeAll >= 0}`);
-print(`live_after_collect_vec_works: ${afterAll >= 0}`);
-print(`live_before_one_works: ${beforeOne >= 0}`);
-print(`live_after_one_works: ${afterOne >= 0}`);
-print(`freed1_nonneg: ${freed1 >= 0}`);
-print(`freed2_nonneg: ${freed2 >= 0}`);
+// HandleTable e' state global compartilhado entre fixtures no test runner —
+// comparamos apenas que o coletor *roda* (freed >= 0, live_count >= 0) sem
+// travar/segfault. Validacao de semantica fica em `cargo test` unit do collector.
+print(`live_before_works: ${beforeOne >= 0}`);
+print(`live_after_works: ${afterOne >= 0}`);
+print(`freed_nonneg: ${freed >= 0}`);
 
 describe("gc_collect_basic", () => {
   test("collect_runs_without_crashing", () =>
     expect(__rtsCapturedOutput).toBe(
-      "live_works: true\nlive_after_collect_vec_works: true\nlive_before_one_works: true\nlive_after_one_works: true\nfreed1_nonneg: true\nfreed2_nonneg: true\n"
+      "live_before_works: true\nlive_after_works: true\nfreed_nonneg: true\n"
     ));
 });

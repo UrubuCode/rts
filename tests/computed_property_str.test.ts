@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -21,8 +21,7 @@ c.bump();
 c.bump();
 c.bump();
 
-const h = gc.string_from_i64(c.count);
-print(h); gc.string_free(h); // 3
+print(`${c.count}`); // 3
 
 describe("fixture:computed_property_str", () => {
   test("matches expected stdout", () => {

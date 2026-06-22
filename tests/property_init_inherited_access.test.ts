@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -22,11 +22,9 @@ class Sub extends Base {
 }
 
 const s = new Sub();
-const hx = gc.string_from_i64(s.x);
-print(hx); gc.string_free(hx); // 5
+print(`${s.x}`); // 5
 
-const hy = gc.string_from_i64(s.y);
-print(hy); gc.string_free(hy); // 50
+print(`${s.y}`); // 50
 
 describe("fixture:property_init_inherited_access", () => {
   test("matches expected stdout", () => {

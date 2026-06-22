@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -14,10 +14,8 @@ enum Code {
   Banner = "*** atencao ***",
 }
 
-const a = gc.string_from_i64(Code.Ok);
-print(a); gc.string_free(a);
-const b = gc.string_from_i64(Code.NotFound);
-print(b); gc.string_free(b);
+print(`${Code.Ok}`);
+print(`${Code.NotFound}`);
 print(Code.Banner);
 
 describe("fixture:enum_mixed", () => {

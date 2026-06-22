@@ -1,5 +1,4 @@
 import { describe, test, expect } from "rts:test";
-import { gc } from "rts";
 import { sha256, randomBytesBuffer } from "node:crypto";
 import { buffer } from "rts";
 
@@ -11,15 +10,14 @@ function print(value: string): void {
 // #289 fase 1: node:crypto.sha256/randomBytesBuffer mapeando rts::crypto.
 
 const h1 = sha256("hello");
-print(h1); gc.string_free(h1);
+print(h1);
 
 const h2 = sha256("");
-print(h2); gc.string_free(h2);
+print(h2);
 
 const buf = randomBytesBuffer(16);
 const len = buffer.len(buf);
-const lh = gc.string_from_i64(len);
-print(lh); gc.string_free(lh);
+print(`${len}`);
 buffer.free(buf);
 
 describe("fixture:node_crypto_basic", () => {

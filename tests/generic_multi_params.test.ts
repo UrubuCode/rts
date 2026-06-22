@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -19,10 +19,8 @@ function takeSecond<K, V>(k: K, v: V): V {
 const a = makePair<i64, i64>(99, 200);
 const b = takeSecond<i64, i64>(99, 200);
 
-const h1 = gc.string_from_i64(a);
-print(h1); gc.string_free(h1);
-const h2 = gc.string_from_i64(b);
-print(h2); gc.string_free(h2);
+print(`${a}`);
+print(`${b}`);
 
 describe("fixture:generic_multi_params", () => {
   test("matches expected stdout", () => {

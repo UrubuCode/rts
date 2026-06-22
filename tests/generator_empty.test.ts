@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -16,8 +16,7 @@ let count: i64 = 0;
 for (const _v of nope()) {
   count = count + 1;
 }
-const h = gc.string_from_i64(count);
-print(h); gc.string_free(h);
+print(`${count}`);
 
 describe("fixture:generator_empty", () => {
   test("matches expected stdout", () => {

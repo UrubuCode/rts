@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -19,8 +19,7 @@ class Counter {
 
 const c = new Counter();
 for (const v of c.bumps()) {
-  const h = gc.string_from_i64(v);
-  print(h); gc.string_free(h);
+  print(`${v}`);
 }
 
 describe("fixture:generator_method", () => {

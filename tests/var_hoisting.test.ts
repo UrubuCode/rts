@@ -1,5 +1,4 @@
 import { describe, test, expect } from "rts:test";
-import { gc } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -15,30 +14,25 @@ function print(value: string): void {
 
 function fnHoist(): void {
   // Le `x` antes do `var x = 5` — deve dar 0 (hoisted).
-  const before = gc.string_from_i64(x);
-  print(before); gc.string_free(before);
+  print(`${x}`);
 
   var x: i64 = 5;
 
-  const after = gc.string_from_i64(x);
-  print(after); gc.string_free(after);
+  print(`${x}`);
 }
 fnHoist();
 
 // `var i` em for: function-scoped — vive fora do loop.
 function forVar(): void {
   for (var i: i64 = 0; i < 3; i = i + 1) {}
-  const h = gc.string_from_i64(i); // i === 3 fora do loop
-  print(h); gc.string_free(h);
+  print(`${i}`); // i === 3 fora do loop
 }
 forVar();
 
 // var top-level
-const tlBefore = gc.string_from_i64(z);
-print(tlBefore); gc.string_free(tlBefore);
+print(`${z}`);
 var z: i64 = 99;
-const tlAfter = gc.string_from_i64(z);
-print(tlAfter); gc.string_free(tlAfter);
+print(`${z}`);
 
 describe("fixture:var_hoisting", () => {
   test("var declarations are hoisted to function/module scope (#301)", () => {

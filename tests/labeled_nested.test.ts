@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -22,8 +22,7 @@ outer: for (let i = 0; i < 3; i = i + 1) {
     }
 }
 
-const h = gc.string_from_i64(count);
-print(h); gc.string_free(h); // 3 iter externas × 1 inc = 3
+print(`${count}`); // 3 iter externas × 1 inc = 3
 
 describe("fixture:labeled_nested", () => {
   test("matches expected stdout", () => {

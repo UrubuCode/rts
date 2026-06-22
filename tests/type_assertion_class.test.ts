@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, gc } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -25,11 +25,9 @@ function makeAny(): number {
 
 const handle = makeAny();
 const c = handle as Counter; // recupera tipo
-const h1 = gc.string_from_i64(c.bump());
-print(h1); gc.string_free(h1); // 1
+print(`${c.bump()}`); // 1
 
-const h2 = gc.string_from_i64(c.bump());
-print(h2); gc.string_free(h2); // 2
+print(`${c.bump()}`); // 2
 
 describe("fixture:type_assertion_class", () => {
   test("matches expected stdout", () => {
