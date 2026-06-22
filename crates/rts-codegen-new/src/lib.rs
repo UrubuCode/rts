@@ -40,8 +40,10 @@
 //!    second optimizer tier** (the old `rts-mir` re-did Cranelift's egraph).
 //! 5. **No builtins; Registry-driven dispatch.** [`dispatch`] resolves every
 //!    non-primordial method through the Registry/`SPECS` metadata via ONE generic
-//!    path; [`abi_gen`] derives the JIT symbol table from `SPECS` (killing the
-//!    1113 hand-written `add_fn!` and the link-OK/ABI-mismatch SIGILL class).
+//!    path; the JIT symbol table is harvested from the Registry
+//!    ([`front::run::registry::all_jit_symbols`]) plus the codegen-owned
+//!    `__rtsadp_*` adapter trampolines ([`runtime_link`]), killing the 1113
+//!    hand-written `add_fn!` and the link-OK/ABI-mismatch SIGILL class.
 //!
 //! ## Status
 //!
@@ -90,7 +92,6 @@
 //! object/array printing, string methods, classes, closures, dynamic property
 //! ICs, and 128-bit ints are later increments.
 
-pub mod abi_gen;
 pub mod dispatch;
 pub mod front;
 pub mod ic;
