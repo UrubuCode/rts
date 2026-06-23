@@ -6,7 +6,7 @@ files=0; clean=0; withfail=0; bail=0
 : > /tmp/correct_fail.txt
 for f in tests/*.test.ts; do
   files=$((files+1))
-  out=$("$RTS" run-new "$f" 2>&1)
+  out=$(timeout 20 "$RTS" run-new "$f" 2>&1)
   code=$?
   if [ $code -ne 0 ]; then
     bail=$((bail+1)); echo "$f	BAIL" >> /tmp/correct_fail.txt; continue
