@@ -2777,10 +2777,10 @@
 ,
 {
   "name": "264_object_hasown",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "own=true:true\ninh=false:false\nmiss=false:false",
   "node": "own=true:true\ninh=false:false\nmiss=false:false",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "own=true:true\ninh=false:false\nmiss=false:false"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":190,"rts_diverge":58,"bun_node_diverge":17,"errors":344,"rejected":0}}
+],"summary":{"total":609,"pass":191,"rts_diverge":58,"bun_node_diverge":17,"errors":343,"rejected":0}}
