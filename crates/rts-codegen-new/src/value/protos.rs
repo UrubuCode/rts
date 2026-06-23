@@ -58,6 +58,24 @@ pub extern "C" fn __rtsadp_obj_proto_of(obj_word: u64) -> u64 {
     proto_of(obj_word).unwrap_or_else(|| PolyValue::null().raw())
 }
 
+/// `Object.setPrototypeOf(obj, proto)` / `Reflect.setPrototypeOf` — record (or
+/// clear) `obj`'s prototype. A non-object `proto` (`null`) REMOVES the link (a null
+/// prototype). Returns `obj` (Object.setPrototypeOf's contract). A non-object `obj`
+/// is a no-op pass-through.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_obj_set_proto(obj_word: u64, proto_word: u64) -> u64 {
+    if PolyValue::from_raw(obj_word).is_object() {
+        if let Ok(mut t) = proto_table().lock() {
+            if PolyValue::from_raw(proto_word).is_object() {
+                t.insert(obj_word, proto_word);
+            } else {
+                t.remove(&obj_word);
+            }
+        }
+    }
+    obj_word
+}
+
 /// `proto.isPrototypeOf(obj)` → walk `obj`'s prototype chain; `true` iff `proto`
 /// appears in it. A bounded walk (a cycle — which `Object.create` cannot build —
 /// stops at the visited cap) returns `false`.
