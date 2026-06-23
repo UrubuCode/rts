@@ -141,6 +141,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     .expect("__rtsadp_is_prototype_of returns a value");
                 return Ok(Some(self.poly_bool_to_bool(res)));
             }
+            // `o.hasOwnProperty(k)` → OWN-slot check (`__rtsadp_obj_has`, which reads
+            // the receiver's own shape only and does NOT walk the prototype chain —
+            // unlike `obj_get`). Routed here for a proven-object receiver.
+            if method == "hasOwnProperty" && args.len() == 1 {
+                let recv = self.lower_expr(module, object)?;
+                let recv_word = self.box_value(recv);
+                let arg = self.lower_expr(module, &args[0])?;
+                let arg_word = self.box_value(arg);
+                let res = self
+                    .call_runtime(module, "__rtsadp_has_own", &[recv_word, arg_word])?
+                    .expect("__rtsadp_has_own returns a value");
+                return Ok(Some(self.poly_bool_to_bool(res)));
+            }
             if !self.is_array_valued(object) {
                 let recv = self.lower_expr(module, object)?;
                 if let Some(val) =

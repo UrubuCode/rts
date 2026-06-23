@@ -126,6 +126,12 @@ const DYN_METHODS: &[DynMethod] = &[
         ret_kind: JsKind::Bool,
     },
     DynMethod {
+        name: "hasOwnProperty",
+        argc: 1,
+        symbol: "__rtsadp_has_own",
+        ret_kind: JsKind::Bool,
+    },
+    DynMethod {
         name: "reverse",
         argc: 0,
         symbol: "__rtsadp_dyn_reverse",

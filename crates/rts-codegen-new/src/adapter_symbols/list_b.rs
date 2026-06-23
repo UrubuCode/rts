@@ -217,6 +217,7 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_obj_get", objops::__rtsadp_obj_get as *const u8),
         sym("__rtsadp_obj_set", objops::__rtsadp_obj_set as *const u8),
         sym("__rtsadp_obj_has", objops::__rtsadp_obj_has as *const u8),
+        sym("__rtsadp_has_own", objops::__rtsadp_has_own as *const u8),
         sym("__rtsadp_obj_delete", objops::__rtsadp_obj_delete as *const u8),
         // ---- Object.create prototype chain (protos) ----
         sym(

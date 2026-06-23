@@ -247,6 +247,16 @@ pub extern "C" fn __rtsadp_obj_has(obj_word: u64, key_str_handle: u64) -> i64 {
     resolve_slot(obj_word, key_str_handle).is_some() as i64
 }
 
+/// `obj.hasOwnProperty(key)` → a BOXED bool PolyValue word (`true`/`false`
+/// singleton). OWN-only: `resolve_slot` reads the receiver's own shape and does
+/// NOT walk the prototype chain (unlike `obj_get`). The word return makes it usable
+/// from the uniform-word dynamic-method dispatch (unlike `__rtsadp_obj_has`'s raw
+/// i64).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_has_own(obj_word: u64, key_str_handle: u64) -> u64 {
+    PolyValue::bool(resolve_slot(obj_word, key_str_handle).is_some()).raw()
+}
+
 /// `delete obj.key` — slot removal via a shape transition (the inverse of the
 /// `obj_set` key-append). Resolve the key's slot: ABSENT (or a non-object) → `1`
 /// (a no-op delete evaluates to `true` in JS). PRESENT → shift the value slots

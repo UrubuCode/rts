@@ -771,7 +771,7 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64],
             ret: U64,
         },
-        "__rtsadp_is_prototype_of" => SymSig {
+        "__rtsadp_is_prototype_of" | "__rtsadp_has_own" => SymSig {
             params: &[U64, U64],
             ret: U64,
         },
