@@ -4481,10 +4481,10 @@
 ,
 {
   "name": "417_nested_optional_call_this_binding",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "5\n9\n12\nundefined",
   "node": "5\n9\n12\nundefined",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "undefined\nundefined\nundefined\nundefined"
 }
 ,
 {
@@ -4553,10 +4553,10 @@
 ,
 {
   "name": "claude-optional-chain-short",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "undefined\nundefined\nundefined\n42\nundefined\nundefined",
   "node": "undefined\nundefined\nundefined\n42\nundefined\nundefined",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "undefined\nundefined\nundefined\n42\nundefined\nundefined"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":189,"rts_diverge":57,"bun_node_diverge":17,"errors":346,"rejected":0}}
+],"summary":{"total":609,"pass":190,"rts_diverge":58,"bun_node_diverge":17,"errors":344,"rejected":0}}
