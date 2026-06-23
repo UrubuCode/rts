@@ -59,8 +59,8 @@ pub fn register(e: &mut Engine) {
             "openWindow",
             "__RTS_FN_NS_EGUI_OPEN_WINDOW",
             Sig::new(vec![AbiType::StrPtr, I64, I64, I64], U64),
-            "openWindow(title: string, w: number, h: number, backend: number): number",
-            "Opens a window + render backend, returns an opaque UiCtx handle.",
+            "openWindow(title: string, w: number, h: number, config: number): number",
+            "Opens a window + render backend, returns an opaque UiCtx handle. `config` is a GPU bitfield (bit0 high-power, bit1 perf-memory, bit2 high-limits); 0 = RAM-optimized defaults.",
             app::__RTS_FN_NS_EGUI_OPEN_WINDOW as *const u8,
         ))
         .member(func(
