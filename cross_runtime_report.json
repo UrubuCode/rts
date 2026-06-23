@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_error",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "__RUNTIME_ERROR__"
 }
 ,
@@ -2689,10 +2689,10 @@
 ,
 {
   "name": "189_reflect_defineproperty",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "success=true\na=42\nvalue=42\nwritable=false\nenumerable=true\ndesc2=undefined",
   "node": "success=true\na=42\nvalue=42\nwritable=false\nenumerable=true\ndesc2=undefined",
-  "rts": "success=true\na=undefined\nvalue=42\nwritable=true\nenumerable=true\ndesc2=undefined"
+  "rts": "success=true\na=42\nvalue=42\nwritable=false\nenumerable=true\ndesc2=undefined"
 }
 ,
 {
@@ -3732,7 +3732,7 @@
   "status": "rts_diverge",
   "bun": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
   "node": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
-  "rts": "h=104\ne=101\no=111\nout=281474976710904\nemoji=128512\nA=65\ncharCode=55357"
+  "rts": "h=104\ne=101\no=111\nout=281474976710907\nemoji=128512\nA=65\ncharCode=55357"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":191,"rts_diverge":60,"bun_node_diverge":18,"errors":340,"rejected":0}}
+],"summary":{"total":609,"pass":192,"rts_diverge":59,"bun_node_diverge":17,"errors":341,"rejected":0}}
