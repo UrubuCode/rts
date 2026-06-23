@@ -11,11 +11,38 @@ pub mod run;
 pub mod run_new;
 pub mod test_cmd;
 
+use std::path::PathBuf;
+use std::sync::OnceLock;
+
 use anyhow::{Result, anyhow, bail};
 
 use crate::compile_options::{CompilationProfile, CompileOptions, FrontendMode};
 use crate::diagnostics::reporter;
 use crate::linker::WindowsSubsystem;
+
+/// Resolver for the AOT runtime-support archive (`<host-triple>.a`). The embedded
+/// archive + its on-demand materialization live in the `rts` BIN crate
+/// (`runtime_objects.rs`), which the CLI cannot reach upward. The bin installs its
+/// `rt_artifacts` here at startup so `rts compile` can locate the archive to link.
+static ARCHIVE_RESOLVER: OnceLock<fn() -> Result<PathBuf>> = OnceLock::new();
+
+/// Install the runtime-archive resolver. Called once by the bin's `main` before
+/// `dispatch`. No-op if already set.
+pub fn set_runtime_archive_resolver(f: fn() -> Result<PathBuf>) {
+    let _ = ARCHIVE_RESOLVER.set(f);
+}
+
+/// Resolve the runtime-support archive path. Errors if the bin never installed a
+/// resolver (e.g. the CLI invoked as a library without `set_runtime_archive_resolver`).
+pub(crate) fn runtime_archive() -> Result<PathBuf> {
+    match ARCHIVE_RESOLVER.get() {
+        Some(f) => f(),
+        None => bail!(
+            "runtime archive resolver not installed — the `rts` bin must call \
+             `rts::cli::set_runtime_archive_resolver(rts::rt_artifacts)` before dispatch"
+        ),
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 struct CliFlags {

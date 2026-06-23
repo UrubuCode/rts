@@ -14,6 +14,7 @@ members = [
     "crates/rts-runtime",
     "crates/rts-napi",
     "crates/rts-egui",
+    "crates/rts-adapters",
     "crates/rts-codegen-new",
     "crates/rts-cli",
 ]

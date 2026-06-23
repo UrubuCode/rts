@@ -1,0 +1,14 @@
+[package]
+name = "rts-adapters"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+# rlib for the JIT path (rts-codegen-new depends on it); staticlib so the
+# `__rtsadp_*` trampolines + value model link into AOT binaries the same way
+# rts-runtime does. Cranelift-free on purpose (the emit side stays in codegen).
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+rts-runtime = { path = "../rts-runtime" }
+rts-engine = { path = "../rts-engine" }

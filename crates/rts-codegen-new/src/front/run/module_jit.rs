@@ -70,6 +70,30 @@ fn make_module() -> JITModule {
 /// On ANY function (or main) hitting an unsupported construct, returns the
 /// `Unsupported` — the module is dropped and nothing runs (no partial program).
 pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Program> {
+    let mut module = make_module();
+    let main_id = populate_module(&mut module, prog)?;
+    module
+        .finalize_definitions()
+        .map_err(|e| Unsupported::new(format!("finalize module: {e}")))?;
+    let main = module.get_finalized_function(main_id);
+    Ok(Program {
+        _module: module,
+        main,
+    })
+}
+
+/// Declare + define every user function, `__rtsn_main`, and the value/new-thunks
+/// into `module` — JIT **or** AOT, anything implementing [`Module`]. Returns the
+/// `__rtsn_main` [`FuncId`]. Does NOT finalize: the JIT caller
+/// ([`compile_program`]) runs `finalize_definitions` + `get_finalized_function`;
+/// the AOT caller ([`super::module_aot`]) runs `finish()` to emit the object.
+///
+/// On ANY function (or main) hitting an unsupported construct, returns the
+/// `Unsupported` — the module is dropped and nothing runs (no partial program).
+pub(crate) fn populate_module(
+    module: &mut dyn Module,
+    prog: &super::LoweredProgram,
+) -> FrontResult<FuncId> {
     let funcs = &prog.funcs;
     let main = &prog.main;
     let classes = &prog.classes;
@@ -81,7 +105,6 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
     let prelude_fns = &prog.prelude_fns;
     let builtins = &prog.builtins;
     let param_classes = &prog.param_classes;
-    let mut module = make_module();
 
     // 1. Freeze every signature (user funcs by their HIR types; main is void).
     let mut sigs: HashMap<String, FnSig> = HashMap::new();
@@ -147,13 +170,13 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
     let mut ids = HashMap::new();
     for f in funcs {
         let sig = &sigs[&f.name];
-        let cl_sig = sig.to_cranelift(&module);
+        let cl_sig = sig.to_cranelift(&*module);
         let id = module
             .declare_function(&f.name, Linkage::Local, &cl_sig)
             .map_err(|e| Unsupported::new(format!("declare `{}`: {e}", f.name)))?;
         ids.insert(f.name.clone(), id);
     }
-    let main_cl_sig = main_sig.to_cranelift(&module);
+    let main_cl_sig = main_sig.to_cranelift(&*module);
     let main_id = module
         .declare_function(&main_sig.name, Linkage::Local, &main_cl_sig)
         .map_err(|e| Unsupported::new(format!("declare main: {e}")))?;
@@ -164,7 +187,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
     //     decide which are values). `main` is never a value, so it gets none.
     let mut thunks: HashMap<String, FuncId> = HashMap::new();
     for f in funcs {
-        let id = thunk::declare_thunk(&mut module, &f.name)?;
+        let id = thunk::declare_thunk(&mut *module, &f.name)?;
         thunks.insert(f.name.clone(), id);
     }
     // 2c. Declare a per-class NEW-THUNK (`<class>__rtsn_newthunk`) for every user
@@ -175,7 +198,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
     //     Keyed in the same `thunks` map under the distinct `__rtsn_newthunk` name.
     for desc in classes.iter() {
         if ids.contains_key(&desc.ctor) {
-            let id = thunk::declare_new_thunk(&mut module, &desc.name)?;
+            let id = thunk::declare_new_thunk(&mut *module, &desc.name)?;
             thunks.insert(thunk::new_thunk_name(&desc.name), id);
         }
     }
@@ -188,7 +211,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
         // global; a user function may not.
         let is_prelude = prelude_fns.contains(&f.name);
         define_one(
-            &mut module,
+            &mut *module,
             ids[&f.name],
             f,
             &sig,
@@ -210,7 +233,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
     // 4. Define main (the top-level body). `__rtsn_main` is USER code — never
     //    prelude — so it cannot name the PRIVATE `engine.*` global.
     define_one(
-        &mut module,
+        &mut *module,
         main_id,
         main,
         &main_sig,
@@ -235,7 +258,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
     for f in funcs {
         let capture_count = captures.get(&f.name).map(Vec::len).unwrap_or(0);
         thunk::define_thunk(
-            &mut module,
+            &mut *module,
             thunks[&f.name],
             ids[&f.name],
             &sigs[&f.name],
@@ -248,7 +271,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
     for desc in classes.iter() {
         if let Some(&ctor_id) = ids.get(&desc.ctor) {
             thunk::define_new_thunk(
-                &mut module,
+                &mut *module,
                 thunks[&thunk::new_thunk_name(&desc.name)],
                 ctor_id,
                 &sigs[&desc.ctor],
@@ -258,15 +281,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
         }
     }
 
-    module
-        .finalize_definitions()
-        .map_err(|e| Unsupported::new(format!("finalize module: {e}")))?;
-
-    let main = module.get_finalized_function(main_id);
-    Ok(Program {
-        _module: module,
-        main,
-    })
+    Ok(main_id)
 }
 
 /// Lower + define one function into the module. On an `Unsupported` bail the
@@ -274,7 +289,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
 /// function must never be defined), and the error propagates.
 #[allow(clippy::too_many_arguments)]
 fn define_one(
-    module: &mut JITModule,
+    module: &mut dyn Module,
     id: cranelift_module::FuncId,
     func: &HirFunc,
     sig: &FnSig,

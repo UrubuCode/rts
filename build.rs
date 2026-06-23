@@ -40,21 +40,29 @@ fn main() {
         )
     });
 
-    // Rust staticlib naming is target-dependent: `librts_runtime.a` on GNU/Unix,
-    // `rts_runtime.lib` on MSVC.
+    // Rust staticlib naming is target-dependent: `librts_adapters.a` on GNU/Unix,
+    // `rts_adapters.lib` on MSVC.
+    //
+    // We embed the `rts-adapters` staticlib, NOT `rts-runtime`'s. `rts-adapters`
+    // DEPENDS ON `rts-runtime`, so Cargo bundles rts-runtime's whole rlib (every
+    // `__RTS_*` extern "C" symbol) INTO the adapters staticlib alongside the 164
+    // codegen-owned `__rtsadp_*` trampolines (which moved out of the compiler crate
+    // for exactly this — they must be linkable into a standalone AOT binary). The
+    // adapters archive is therefore a SUPERSET of the runtime archive: one archive,
+    // no merge, no duplicate symbols. (Embedding both would double rts-runtime/std.)
     //
     // Cargo only emits a dependency's `staticlib` output when that package is a
     // *direct* build target, not when it is pulled in as an rlib dependency — and
     // even `--workspace` does not order the staticlib before this build script
-    // (we only depend on rts-runtime's rlib). So the staticlib must be produced
-    // by a prior `cargo build -p rts-runtime`. The AOT archive build is therefore
-    // a two-step build (see CLAUDE.md / CI).
+    // (we only depend on the rlibs). So the staticlib must be produced by a prior
+    // `cargo build -p rts-adapters`. The AOT archive build is therefore a two-step
+    // build (see CLAUDE.md / CI).
     //
     // When the staticlib is missing we DON'T fail the build: the JIT path (`rts
     // run`) never touches the archive, so dev/JIT iteration must keep working.
     // We embed a tiny placeholder instead; the AOT path detects it at runtime and
     // emits a clear "rebuild the runtime archive" error (see runtime_objects.rs).
-    let candidates = ["librts_runtime.a", "rts_runtime.lib"];
+    let candidates = ["librts_adapters.a", "rts_adapters.lib"];
     let staticlib = candidates
         .iter()
         .map(|n| profile_dir.join(n))
@@ -87,15 +95,16 @@ fn main() {
                 .unwrap_or_else(|e| panic!("write placeholder sha {}: {e}", sha_file.display()));
             zstd_to(b"", &output_zst);
             println!(
-                "cargo:warning=rts-runtime staticlib not found in {} — embedding a \
+                "cargo:warning=rts-adapters staticlib not found in {} — embedding a \
                  placeholder. JIT (`rts run`) works; for AOT (`rts compile`) run \
-                 `cargo build -p rts-runtime` first, then rebuild.",
+                 `cargo build -p rts-adapters` first, then rebuild.",
                 profile_dir.display()
             );
         }
     }
 
     println!("cargo:rerun-if-changed=crates/rts-runtime/src/");
+    println!("cargo:rerun-if-changed=crates/rts-adapters/src/");
     println!("cargo:rerun-if-changed=build.rs");
 }
 
