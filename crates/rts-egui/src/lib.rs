@@ -172,6 +172,55 @@ pub fn register(e: &mut Engine) {
             "Registers an inline tag's style (flags: BOLD=8|ITALIC=16|MONO=1). Render reads this map; no tag is hardcoded in Rust.",
             widgets::__RTS_FN_NS_EGUI_DEFINE_INLINE as *const u8,
         ))
+        // ── Mutação do DOM retido (API DOM crua, por NodeId) ────────────────────
+        .member(func(
+            "querySelector",
+            "__RTS_FN_NS_EGUI_QUERY_SELECTOR",
+            Sig::new(vec![U64, AbiType::StrPtr], U64),
+            "querySelector(h: number, selector: string): number",
+            "First node matching a simple selector (tag / #id / .class) in the retained DOM; returns its NodeId, or 0xFFFFFFFFFFFFFFFF if none.",
+            widgets::__RTS_FN_NS_EGUI_QUERY_SELECTOR as *const u8,
+        ))
+        .member(func(
+            "setText",
+            "__RTS_FN_NS_EGUI_SET_TEXT",
+            Sig::new(vec![U64, U64, AbiType::StrPtr], AbiType::Void),
+            "setText(h: number, node: number, text: string): void",
+            "Replaces a node's content with a single text node (element.textContent = text).",
+            widgets::__RTS_FN_NS_EGUI_SET_TEXT as *const u8,
+        ))
+        .member(func(
+            "setAttr",
+            "__RTS_FN_NS_EGUI_SET_ATTR",
+            Sig::new(vec![U64, U64, AbiType::StrPtr, AbiType::StrPtr], AbiType::Void),
+            "setAttr(h: number, node: number, name: string, value: string): void",
+            "Sets/updates an attribute on a node (element.setAttribute).",
+            widgets::__RTS_FN_NS_EGUI_SET_ATTR as *const u8,
+        ))
+        .member(func(
+            "createElement",
+            "__RTS_FN_NS_EGUI_CREATE_ELEMENT",
+            Sig::new(vec![U64, AbiType::StrPtr], U64),
+            "createElement(h: number, tag: string): number",
+            "Creates a detached element; returns its NodeId (document.createElement).",
+            widgets::__RTS_FN_NS_EGUI_CREATE_ELEMENT as *const u8,
+        ))
+        .member(func(
+            "appendChild",
+            "__RTS_FN_NS_EGUI_APPEND_CHILD",
+            Sig::new(vec![U64, U64, U64], AbiType::Void),
+            "appendChild(h: number, parent: number, child: number): void",
+            "Moves child to the end of parent's children (parent.appendChild).",
+            widgets::__RTS_FN_NS_EGUI_APPEND_CHILD as *const u8,
+        ))
+        .member(func(
+            "removeNode",
+            "__RTS_FN_NS_EGUI_REMOVE_NODE",
+            Sig::new(vec![U64, U64], AbiType::Void),
+            "removeNode(h: number, node: number): void",
+            "Detaches a node from its parent (element.remove).",
+            widgets::__RTS_FN_NS_EGUI_REMOVE_NODE as *const u8,
+        ))
         // ── Inspeção / debug do DOM retido ──────────────────────────────────────
         .member(func(
             "domDump",

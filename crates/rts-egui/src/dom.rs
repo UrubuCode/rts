@@ -25,6 +25,8 @@
 //! teste unitário determinístico (`cargo test -p rts-egui`), SEM abrir janela:
 //! compara-se o `dump()` (ou a estrutura) com o esperado. Ver `#[cfg(test)]`.
 
+use std::collections::HashMap;
+
 use crate::html::{tokenize, Token};
 
 /// Identificador estável de um nó na arena. É o índice em `Dom::nodes`.
@@ -82,14 +84,33 @@ impl Node {
     }
 }
 
-/// A árvore inteira: arena de nós + a raiz.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A árvore inteira: arena de nós + a raiz + índices de busca O(1).
+///
+/// **DOM otimizado:** como somos donos da arena, mantemos índices `id → NodeId`
+/// e `classe → [NodeId]` atualizados na construção e na mutação. Assim
+/// `query("#alvo")`/`query(".card")` é O(1) em vez de varrer a árvore (o que um
+/// `querySelector` genérico não consegue). Query por tag segue pré-ordem O(n)
+/// (pra respeitar a ordem de documento; um índice por tag viria depois, se valer).
+#[derive(Debug, Clone)]
 pub struct Dom {
     /// Arena: `nodes[id]` é o nó de `NodeId == id`.
     pub nodes: Vec<Node>,
     /// A raiz sintética `#document`.
     pub root: NodeId,
+    /// Índice `valor-de-id → NodeId` (último a registrar vence, como no browser).
+    id_index: HashMap<String, NodeId>,
+    /// Índice `classe → nós que a têm` (em ordem de inserção).
+    class_index: HashMap<String, Vec<NodeId>>,
 }
+
+// Igualdade estrutural: compara só a árvore (nodes+root). Os índices são estado
+// DERIVADO — duas árvores com os mesmos nós têm os mesmos índices.
+impl PartialEq for Dom {
+    fn eq(&self, other: &Self) -> bool {
+        self.root == other.root && self.nodes == other.nodes
+    }
+}
+impl Eq for Dom {}
 
 impl Dom {
     /// Cria uma árvore vazia contendo só o `#document`.
@@ -102,6 +123,24 @@ impl Dom {
                 children: Vec::new(),
             }],
             root: 0,
+            id_index: HashMap::new(),
+            class_index: HashMap::new(),
+        }
+    }
+
+    /// Registra um nó nos índices a partir de seus atributos `id`/`class`.
+    fn index_node(&mut self, id: NodeId) {
+        // Coleta antes para não emprestar `self.nodes` e os índices juntos.
+        let id_attr = self.nodes[id].attr("id").map(str::to_string);
+        let classes: Vec<String> = self.nodes[id]
+            .attr("class")
+            .map(|c| c.split_whitespace().map(str::to_string).collect())
+            .unwrap_or_default();
+        if let Some(k) = id_attr {
+            self.id_index.insert(k, id);
+        }
+        for c in classes {
+            self.class_index.entry(c).or_default().push(id);
         }
     }
 
@@ -114,6 +153,7 @@ impl Dom {
             parent: Some(parent),
             children: Vec::new(),
         });
+        self.index_node(id);
         self.nodes[parent].children.push(id);
         id
     }
@@ -121,6 +161,172 @@ impl Dom {
     /// Acesso por id (conveniência para o render e a futura API de mutação JS).
     pub fn node(&self, id: NodeId) -> &Node {
         &self.nodes[id]
+    }
+
+    /// `true` se `id` é um índice válido na arena (defesa contra handles velhos
+    /// vindos do JS após um re-parse que encolheu a árvore).
+    pub fn is_valid(&self, id: NodeId) -> bool {
+        id < self.nodes.len()
+    }
+
+    // ── Query (base do querySelector) ───────────────────────────────────────
+
+    /// Primeiro nó que casa com um seletor SIMPLES: `tag` (`"h1"`), `#id`
+    /// (`"#alvo"`) ou `.classe` (`".card"`). `None` se nada casar. É o
+    /// `querySelector` de um seletor só.
+    ///
+    /// `#id`/`.classe` usam os índices O(1); `tag` varre em pré-ordem (ordem de
+    /// documento). Valida que o hit do índice ainda está vivo (anexado à raiz),
+    /// já que mutações podem ter desligado o nó sem limpar o índice.
+    pub fn query(&self, selector: &str) -> Option<NodeId> {
+        let sel = selector.trim();
+        if let Some(key) = sel.strip_prefix('#') {
+            // Valida valor + alcançabilidade (o índice pode ter entrada stale).
+            return self
+                .id_index
+                .get(key)
+                .copied()
+                .filter(|&id| self.is_attached(id) && self.nodes[id].attr("id") == Some(key));
+        }
+        if let Some(cls) = sel.strip_prefix('.') {
+            return self.class_index.get(cls)?.iter().copied().find(|&id| {
+                self.is_attached(id)
+                    && self.nodes[id]
+                        .attr("class")
+                        .map(|c| c.split_whitespace().any(|x| x == cls))
+                        .unwrap_or(false)
+            });
+        }
+        let tag = sel.to_ascii_lowercase();
+        let m = move |n: &Node| matches!(&n.kind, NodeKind::Element { tag: t } if *t == tag);
+        self.find_pre_order(self.root, &m)
+    }
+
+    /// `true` se `id` está conectado à raiz (não foi desligado por uma mutação).
+    /// Os índices não são limpos no `remove`/`append`, então uma busca por
+    /// índice valida a alcançabilidade aqui (barato: sobe pelos pais).
+    fn is_attached(&self, id: NodeId) -> bool {
+        let mut cur = Some(id);
+        while let Some(c) = cur {
+            if c == self.root {
+                return true;
+            }
+            cur = self.nodes[c].parent;
+        }
+        false
+    }
+
+    fn find_pre_order(&self, id: NodeId, m: &dyn Fn(&Node) -> bool) -> Option<NodeId> {
+        let node = &self.nodes[id];
+        if id != self.root && m(node) {
+            return Some(id);
+        }
+        for &child in &node.children {
+            if let Some(hit) = self.find_pre_order(child, m) {
+                return Some(hit);
+            }
+        }
+        None
+    }
+
+    // ── Mutação (base da API DOM do JS) ─────────────────────────────────────
+
+    /// Substitui TODO o conteúdo de um elemento por um único nó de texto (o
+    /// equivalente a `element.textContent = txt`). Não faz nada num nó de texto.
+    pub fn set_text(&mut self, id: NodeId, text: &str) {
+        if !self.is_valid(id) || !matches!(self.nodes[id].kind, NodeKind::Element { .. }) {
+            return;
+        }
+        // Descarta os filhos atuais (arena não compacta; vira lixo inacessível —
+        // ok para o uso atual, a árvore é reconstruída a cada `html()`).
+        self.nodes[id].children.clear();
+        let child = self.push_detached(NodeKind::Text(text.to_string()));
+        self.nodes[child].parent = Some(id);
+        self.nodes[id].children.push(child);
+    }
+
+    /// Define/atualiza um atributo (`element.setAttribute`). Cria se não existir.
+    /// Mantém os índices `id`/`class` em dia (adiciona a nova entrada; entradas
+    /// antigas viram stale mas a busca valida alcançabilidade/valor).
+    pub fn set_attr(&mut self, id: NodeId, name: &str, value: &str) {
+        if !self.is_valid(id) {
+            return;
+        }
+        let name_lc = name.to_ascii_lowercase();
+        let node = &mut self.nodes[id];
+        if let Some(a) = node.attrs.iter_mut().find(|a| a.name == name_lc) {
+            a.value = value.to_string();
+        } else {
+            node.attrs.push(Attr { name: name_lc.clone(), value: value.to_string() });
+        }
+        // Atualiza índices se o atributo afeta busca.
+        match name_lc.as_str() {
+            "id" => {
+                self.id_index.insert(value.to_string(), id);
+            }
+            "class" => {
+                for c in value.split_whitespace() {
+                    let v = self.class_index.entry(c.to_string()).or_default();
+                    if !v.contains(&id) {
+                        v.push(id);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Cria um elemento SOLTO (sem pai) e devolve seu id; ligue-o com
+    /// `append_child` (`document.createElement`).
+    pub fn create_element(&mut self, tag: &str) -> NodeId {
+        self.push_detached(NodeKind::Element { tag: tag.to_ascii_lowercase() })
+    }
+
+    /// Move `child` para o fim dos filhos de `parent` (`parent.appendChild`).
+    /// Remove `child` do pai antigo, se tiver. Ignora ids inválidos ou ciclos.
+    pub fn append_child(&mut self, parent: NodeId, child: NodeId) {
+        if !self.is_valid(parent) || !self.is_valid(child) || parent == child {
+            return;
+        }
+        if self.is_ancestor(child, parent) {
+            return; // evita criar ciclo (child seria ancestral de parent)
+        }
+        self.detach(child);
+        self.nodes[child].parent = Some(parent);
+        self.nodes[parent].children.push(child);
+    }
+
+    /// Desliga um nó do pai (`element.remove`). O nó continua na arena (lixo).
+    pub fn remove_node(&mut self, id: NodeId) {
+        if self.is_valid(id) && id != self.root {
+            self.detach(id);
+        }
+    }
+
+    /// Aloca um nó sem pai (usado por create_element / set_text).
+    fn push_detached(&mut self, kind: NodeKind) -> NodeId {
+        let id = self.nodes.len();
+        self.nodes.push(Node { kind, attrs: Vec::new(), parent: None, children: Vec::new() });
+        id
+    }
+
+    /// Remove `id` da lista de filhos do seu pai atual (se houver).
+    fn detach(&mut self, id: NodeId) {
+        if let Some(p) = self.nodes[id].parent.take() {
+            self.nodes[p].children.retain(|&c| c != id);
+        }
+    }
+
+    /// `true` se `a` é ancestral de (ou igual a) `b` — guarda contra ciclos.
+    fn is_ancestor(&self, a: NodeId, b: NodeId) -> bool {
+        let mut cur = Some(b);
+        while let Some(c) = cur {
+            if c == a {
+                return true;
+            }
+            cur = self.nodes[c].parent;
+        }
+        false
     }
 
     /// Serializa a árvore indentada (estilo devtools) — a forma legível de
@@ -301,6 +507,85 @@ mod tests {
             NodeKind::Element { tag } => tag,
             other => panic!("esperava Element, achei {other:?}"),
         }
+    }
+
+    #[test]
+    fn query_por_tag_id_classe() {
+        let dom = parse_html_to_dom(
+            "<div class='card'><span id='alvo'>x</span><b class='hl a'>y</b></div>",
+        );
+        // tag
+        let span = dom.query("span").unwrap();
+        assert_eq!(tag(&dom, span), "span");
+        // #id
+        assert_eq!(dom.query("#alvo"), Some(span));
+        // .classe (mesmo dentro de class multi-valor "hl a")
+        let b = dom.query(".hl").unwrap();
+        assert_eq!(tag(&dom, b), "b");
+        assert_eq!(dom.query(".a"), Some(b));
+        // sem match
+        assert_eq!(dom.query("#naoexiste"), None);
+        assert_eq!(dom.query(".naoexiste"), None);
+    }
+
+    #[test]
+    fn set_text_substitui_conteudo() {
+        let mut dom = parse_html_to_dom("<p>antes <b>x</b></p>");
+        let p = dom.query("p").unwrap();
+        dom.set_text(p, "depois");
+        assert_eq!(dom.node(p).children.len(), 1);
+        assert_eq!(dom.node(dom.node(p).children[0]).kind, NodeKind::Text("depois".into()));
+    }
+
+    #[test]
+    fn set_attr_cria_e_atualiza() {
+        let mut dom = parse_html_to_dom("<div>x</div>");
+        let div = dom.query("div").unwrap();
+        dom.set_attr(div, "class", "card");
+        assert_eq!(dom.node(div).attr("class"), Some("card"));
+        dom.set_attr(div, "class", "card ativo"); // atualiza, não duplica
+        assert_eq!(dom.node(div).attr("class"), Some("card ativo"));
+        assert_eq!(dom.node(div).attrs.len(), 1);
+    }
+
+    #[test]
+    fn create_e_append_child() {
+        let mut dom = parse_html_to_dom("<ul></ul>");
+        let ul = dom.query("ul").unwrap();
+        let li = dom.create_element("li");
+        dom.set_text(li, "novo item");
+        dom.append_child(ul, li);
+        assert_eq!(dom.node(ul).children, vec![li]);
+        assert_eq!(dom.node(li).parent, Some(ul));
+        assert_eq!(tag(&dom, li), "li");
+    }
+
+    #[test]
+    fn append_move_de_pai_e_remove() {
+        let mut dom = parse_html_to_dom("<div><span>x</span></div><section></section>");
+        let div = dom.query("div").unwrap();
+        let span = dom.query("span").unwrap();
+        let section = dom.query("section").unwrap();
+        // move o span do div para o section
+        dom.append_child(section, span);
+        assert!(dom.node(div).children.is_empty());
+        assert_eq!(dom.node(section).children, vec![span]);
+        assert_eq!(dom.node(span).parent, Some(section));
+        // remove o span de vez
+        dom.remove_node(span);
+        assert!(dom.node(section).children.is_empty());
+        assert_eq!(dom.node(span).parent, None);
+    }
+
+    #[test]
+    fn append_nao_cria_ciclo() {
+        let mut dom = parse_html_to_dom("<div><span>x</span></div>");
+        let div = dom.query("div").unwrap();
+        let span = dom.query("span").unwrap();
+        // tentar pôr o div (ancestral) dentro do span deve ser ignorado.
+        dom.append_child(span, div);
+        assert_eq!(dom.node(div).parent, Some(dom.root)); // intacto
+        assert!(dom.node(span).children.contains(&div) == false);
     }
 
     #[test]

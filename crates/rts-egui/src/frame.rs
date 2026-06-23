@@ -211,6 +211,15 @@ pub extern "C" fn __RTS_FN_NS_EGUI_END_FRAME(h: u64) {
             // exatamente com a ordem de enfileiramento em `widgets.rs`.
             let mut idx = 0usize;
             drenar(ui, &cmds, dom.as_ref(), &mut idx, &mut new_buttons, &mut new_sliders);
+            // Se há DOM retido e nenhum `html()` foi chamado NESTE frame (a fila
+            // não tem o marcador Html), renderiza o DOM mesmo assim — é o caso do
+            // fluxo "parseia uma vez, depois muta via JS e só re-renderiza".
+            let has_html_marker = cmds.iter().any(|c| matches!(c, WidgetCmd::Html));
+            if !has_html_marker {
+                if let Some(dom) = dom.as_ref() {
+                    render_dom(ui, dom);
+                }
+            }
         });
         // Devolve o DOM retido ao UiCtx (persiste para o próximo frame / mutação).
         c.dom = dom;
