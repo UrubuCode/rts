@@ -45,23 +45,36 @@ fn shared_gpu() -> Result<SharedGpu, String> {
         if let Some(g) = cell.borrow().as_ref() {
             return Ok(g.clone());
         }
-        let instance = wgpu::Instance::new(
-            wgpu::InstanceDescriptor::new_without_display_handle_from_env(),
-        );
+        // Minimal instance: backends from env (DX12 on Windows), but flags forced
+        // to the release build-config (no validation/debug layers, which the DX12
+        // debug layer would otherwise reserve memory for).
+        let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+        desc.flags = wgpu::InstanceFlags::from_build_config();
+        let instance = wgpu::Instance::new(desc);
+        // `LowPower` prefers the INTEGRATED GPU when present: its driver maps far
+        // smaller heaps than a discrete GPU driver, cutting steady RAM for a 2D UI
+        // that needs no discrete-GPU throughput. Falls back to whatever exists.
         let adapter = pollster::block_on(instance.request_adapter(
             &wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
+                power_preference: wgpu::PowerPreference::LowPower,
                 force_fallback_adapter: false,
                 compatible_surface: None,
             },
         ))
         .map_err(|e| format!("request_adapter: {e}"))?;
+        // RAM-minimizing device: a 2D UI needs none of the high-end limits that
+        // make the driver reserve large heaps. `downlevel_defaults` asks for the
+        // modest GLES-3 limit set (small max buffer/texture/binding counts), and
+        // `MemoryHints::MemoryUsage` tells wgpu's gpu-allocator to favor small
+        // blocks over the default (Performance) which pre-allocates big chunks.
+        // Together these cut the steady DX12 footprint substantially for a window
+        // that only draws egui meshes.
         let (device, queue) = pollster::block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
                 label: Some("rts-egui shared device"),
                 required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-                memory_hints: wgpu::MemoryHints::default(),
+                required_limits: wgpu::Limits::downlevel_defaults(),
+                memory_hints: wgpu::MemoryHints::MemoryUsage,
                 experimental_features: wgpu::ExperimentalFeatures::disabled(),
                 trace: wgpu::Trace::Off,
             },
