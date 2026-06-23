@@ -28,6 +28,10 @@ use rts_hir::{HirExpr, HirType};
 
 /// Reserved nullish-tolerant property read the lowerer intercepts.
 pub(crate) const OPT_GET: &str = "__rts_opt_get";
+/// Reserved nullish-tolerant COMPUTED index read (`a?.[k]`): routes to the generic
+/// `__rtsadp_idx_get` (array element / string char / object key), unlike `OPT_GET`
+/// which is a keyed-object slot read only.
+pub(crate) const OPT_INDEX: &str = "__rts_opt_index";
 /// Reserved nullish-guarded value-call the lowerer intercepts.
 pub(crate) const OPT_CALL: &str = "__rts_opt_call";
 /// Reserved nullish-guarded METHOD call (`a?.b(args)`) the lowerer intercepts:
@@ -61,7 +65,7 @@ pub(super) fn build_opt_chain(oc: &swc_ecma_ast::OptChainExpr) -> Option<HirExpr
     let mut i = 0;
     while i < steps.len() {
         match &steps[i] {
-            Step::Get { key } => {
+            Step::Get { key, computed } => {
                 // METHOD-CALL fusion: a `Get` of a string-literal key IMMEDIATELY
                 // followed by a `Call` is `a?.b(args)` — a guarded METHOD CALL, not a
                 // property read then a value-call (a class method is not a data slot,
@@ -79,7 +83,7 @@ pub(super) fn build_opt_chain(oc: &swc_ecma_ast::OptChainExpr) -> Option<HirExpr
                     i += 2;
                     continue;
                 }
-                cur = opt_get(cur, key.clone());
+                cur = opt_get(cur, key.clone(), *computed);
                 i += 1;
             }
             Step::Call { args, .. } => {
@@ -116,8 +120,10 @@ fn is_pure_recv(e: &HirExpr) -> bool {
 
 /// A desugared step over the running receiver value.
 enum Step {
-    /// Nullish-tolerant property/index read (key is a string/computed HIR expr).
-    Get { key: HirExpr },
+    /// Nullish-tolerant property/index read. `computed` distinguishes a `[k]` index
+    /// (→ `opt_index`, which handles array/string element access via `idx_get`) from
+    /// a `.name` property (→ `opt_get`, a keyed-object slot read).
+    Get { key: HirExpr, computed: bool },
     /// A call of the running value. `optional` is the call link's OWN `?.()` flag:
     /// `true` for `a?.()` (an optional value-call — guards the function value),
     /// `false` for the plain `()` after a member (`a?.b()` — a METHOD call, fused
@@ -152,7 +158,8 @@ fn walk_base(
             let _ = optional;
             let root = walk_expr(&m.obj, steps, scope)?;
             let key = member_key(&m.prop, scope)?;
-            steps.push(Step::Get { key });
+            let computed = matches!(m.prop, swc_ecma_ast::MemberProp::Computed(_));
+            steps.push(Step::Get { key, computed });
             Some(root)
         }
         swc_ecma_ast::OptChainBase::Call(call) => {
@@ -211,11 +218,15 @@ fn lower_args(args: &[swc_ecma_ast::ExprOrSpread], scope: &Scope) -> Option<Vec<
     Some(out)
 }
 
-fn opt_get(recv: HirExpr, key: HirExpr) -> HirExpr {
+fn opt_get(recv: HirExpr, key: HirExpr, computed: bool) -> HirExpr {
+    // A computed `?.[k]` routes to `opt_index` (array/string element via `idx_get`);
+    // a `.name` property routes to `opt_get` (keyed-object slot). Both short-circuit
+    // a nullish receiver to `undefined`.
+    let method = if computed { OPT_INDEX } else { OPT_GET };
     HirExpr::new(
         HirExprKind::MethodCall {
             object: Box::new(recv),
-            method: OPT_GET.to_string(),
+            method: method.to_string(),
             args: vec![key],
         },
         HirType::Unknown,

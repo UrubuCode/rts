@@ -38,6 +38,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if method == super::desugar::OPT_GET && args.len() == 1 {
             return self.lower_opt_get(module, object, &args[0]);
         }
+        if method == super::desugar::OPT_INDEX && args.len() == 1 {
+            return self.lower_opt_index(module, object, &args[0]);
+        }
         if method == super::desugar::OPT_CALL {
             return self.lower_opt_call(module, object, args);
         }
