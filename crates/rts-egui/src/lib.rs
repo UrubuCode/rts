@@ -21,6 +21,7 @@ use AbiType::{F64, I64, U64};
 mod ctx;
 mod app;
 mod frame;
+mod html;
 mod widgets;
 
 pub use app::*;
@@ -141,6 +142,15 @@ pub fn register(e: &mut Engine) {
             "horizontalEnd(h: number): void",
             "Closes the most recent horizontal scope; widgets stack vertically again.",
             widgets::__RTS_FN_NS_EGUI_HORIZONTAL_END as *const u8,
+        ))
+        // ── HTML básico (parser à mão → fila de WidgetCmd) ─────────────────────
+        .member(func(
+            "html",
+            "__RTS_FN_NS_EGUI_HTML",
+            Sig::new(vec![U64, AbiType::StrPtr], AbiType::Void),
+            "html(h: number, html: string): void",
+            "Parses basic HTML and emits the corresponding widgets in the frame.",
+            widgets::__RTS_FN_NS_EGUI_HTML as *const u8,
         ))
         .done();
 }

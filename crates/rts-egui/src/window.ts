@@ -82,6 +82,10 @@ class Window {
   slider(value: number, min: number, max: number): number {
     return egui.slider(this.__h, value, min, max);
   }
+  // Renderiza HTML básico (h1/h2/h3, p/div, b/strong, i/em) no frame ativo.
+  html(text: string): void {
+    egui.html(this.__h, text);
+  }
 
   // Fecha a janela.
   close(): void {
