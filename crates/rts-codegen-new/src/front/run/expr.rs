@@ -24,7 +24,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Lower an expression to its value + repr.
     pub(super) fn lower_expr(&mut self, module: &mut dyn Module, e: &HirExpr) -> FrontResult<Val> {
         match &e.kind {
-            HirExprKind::Lit(lit) => self.lower_lit(lit),
+            HirExprKind::Lit(lit) => self.lower_lit(module, lit),
             HirExprKind::Ident(name) => self.lower_ident(module, name),
             HirExprKind::Bin { op, lhs, rhs } => self.lower_bin(module, *op, lhs, rhs),
             HirExprKind::Unary { op, operand } => self.lower_unary(module, *op, operand),
@@ -110,7 +110,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
     }
 
-    fn lower_lit(&mut self, lit: &HirLit) -> FrontResult<Val> {
+    fn lower_lit(&mut self, module: &mut dyn Module, lit: &HirLit) -> FrontResult<Val> {
         match lit {
             HirLit::Float(f) | HirLit::Number(f) => {
                 let v = self.builder.ins().f64const(*f);
@@ -125,12 +125,25 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 Ok(Val::new(v, Repr::Bool))
             }
             HirLit::Str(s) => {
-                // Intern the literal in the REAL string pool at lowering time and
-                // splice the boxed string PolyValue word (whose 48-bit payload is
-                // the real handle's slot+shard) in as a constant (Tagged, kind
-                // Str). At run time `__RTS_FN_NS_GC_POLY_TO_HANDLE(payload)`
-                // reconstructs the full handle (generation read from the live
-                // slot); the slot is a normal GC reference, no side table.
+                // AOT: the compile-time-interned handle is invalid in the produced
+                // binary (a different process with an empty pool — it reads back as
+                // `null`). Emit the bytes as a DATA object and intern at the
+                // binary's OWN runtime via `string_from_static(ptr,len)`, boxing the
+                // returned handle into a `TAG_STR` PolyValue word.
+                if super::aot_str::aot_mode() {
+                    let (ptr, len) = super::aot_str::emit_str_data(module, self.builder, s)?;
+                    let handle = self
+                        .call_runtime(module, "__RTS_FN_NS_GC_STRING_FROM_STATIC", &[ptr, len])?
+                        .expect("string_from_static returns a handle");
+                    let word =
+                        value::emit_marshal::emit_box_real_string(module, self.builder, handle);
+                    return Ok(Val::tagged_kind(word, JsKind::Str));
+                }
+                // JIT: intern the literal in the REAL string pool at lowering time
+                // and splice the boxed string PolyValue word (48-bit payload = the
+                // real handle's slot+shard) in as a constant (Tagged, kind Str). At
+                // run time `__RTS_FN_NS_GC_POLY_TO_HANDLE(payload)` reconstructs the
+                // full handle; the slot is a normal GC reference, no side table.
                 let pv = abi_adapter::intern_poly(s);
                 let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
                 Ok(Val::tagged_kind(v, JsKind::Str))

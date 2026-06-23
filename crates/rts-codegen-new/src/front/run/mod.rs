@@ -27,6 +27,7 @@ mod binop;
 mod call;
 mod call_shape;
 mod call_spread;
+mod aot_str;
 mod cell;
 mod class;
 mod desugar;

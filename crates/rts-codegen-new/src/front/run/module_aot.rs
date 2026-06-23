@@ -24,12 +24,21 @@ use crate::front::error::{FrontResult, Unsupported};
 pub(crate) fn compile_program_aot(prog: &super::LoweredProgram) -> FrontResult<Vec<u8>> {
     let mut module = make_object_module()?;
 
-    // Declare + define every user fn + __rtsn_main + thunks (the SAME path the JIT
-    // uses). `__rtsn_main` is Local; the `main` shim below calls it in-object.
-    let main_id = super::module_jit::populate_module(&mut module, prog)?;
-
-    // The CRT entry `int main(void)`: run the program, drain the event loop, exit 0.
-    emit_main_entry(&mut module, main_id)?;
+    // String literals must be lowered as DATA objects + a runtime
+    // `string_from_static` call (not the JIT's compile-time-baked handle, which is
+    // invalid in the produced binary). Gate ON for the whole AOT lowering, OFF
+    // after so a later same-thread JIT build keeps the fast bake.
+    super::aot_str::set_aot_mode(true);
+    let result: FrontResult<()> = (|| {
+        // Declare + define every user fn + __rtsn_main + thunks (the SAME path the
+        // JIT uses). `__rtsn_main` is Local; the `main` shim below calls it in-object.
+        let main_id = super::module_jit::populate_module(&mut module, prog)?;
+        // The CRT entry `int main(void)`: run the program, drain the event loop, exit 0.
+        emit_main_entry(&mut module, main_id)?;
+        Ok(())
+    })();
+    super::aot_str::set_aot_mode(false);
+    result?;
 
     let product = module.finish();
     product
