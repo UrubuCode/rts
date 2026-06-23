@@ -20,11 +20,14 @@ use AbiType::{F64, I64, U64};
 
 mod ctx;
 mod app;
+mod block;
+mod dom;
 mod frame;
 mod html;
 mod widgets;
 
 pub use app::*;
+pub use dom::*;
 pub use frame::*;
 pub use widgets::*;
 
@@ -151,6 +154,81 @@ pub fn register(e: &mut Engine) {
             "html(h: number, html: string): void",
             "Parses basic HTML and emits the corresponding widgets in the frame.",
             widgets::__RTS_FN_NS_EGUI_HTML as *const u8,
+        ))
+        // ── Alocador dinâmico de blocos (mapa tag→layout definido pelo TS) ──────
+        .member(func(
+            "defineBlock",
+            "__RTS_FN_NS_EGUI_DEFINE_BLOCK",
+            Sig::new(vec![AbiType::StrPtr, I64, F64, I64, I64], AbiType::Void),
+            "defineBlock(tag: string, display: number, indent: number, prefix: number, flags: number): void",
+            "Registers how a tag lays out (display/indent/prefix/flags). Render reads this map; no tag is hardcoded in Rust.",
+            widgets::__RTS_FN_NS_EGUI_DEFINE_BLOCK as *const u8,
+        ))
+        .member(func(
+            "defineInline",
+            "__RTS_FN_NS_EGUI_DEFINE_INLINE",
+            Sig::new(vec![AbiType::StrPtr, I64], AbiType::Void),
+            "defineInline(tag: string, flags: number): void",
+            "Registers an inline tag's style (flags: BOLD=8|ITALIC=16|MONO=1). Render reads this map; no tag is hardcoded in Rust.",
+            widgets::__RTS_FN_NS_EGUI_DEFINE_INLINE as *const u8,
+        ))
+        // ── Mutação do DOM retido (API DOM crua, por NodeId) ────────────────────
+        .member(func(
+            "querySelector",
+            "__RTS_FN_NS_EGUI_QUERY_SELECTOR",
+            Sig::new(vec![U64, AbiType::StrPtr], U64),
+            "querySelector(h: number, selector: string): number",
+            "First node matching a simple selector (tag / #id / .class) in the retained DOM; returns its NodeId, or 0xFFFFFFFFFFFFFFFF if none.",
+            widgets::__RTS_FN_NS_EGUI_QUERY_SELECTOR as *const u8,
+        ))
+        .member(func(
+            "setText",
+            "__RTS_FN_NS_EGUI_SET_TEXT",
+            Sig::new(vec![U64, U64, AbiType::StrPtr], AbiType::Void),
+            "setText(h: number, node: number, text: string): void",
+            "Replaces a node's content with a single text node (element.textContent = text).",
+            widgets::__RTS_FN_NS_EGUI_SET_TEXT as *const u8,
+        ))
+        .member(func(
+            "setAttr",
+            "__RTS_FN_NS_EGUI_SET_ATTR",
+            Sig::new(vec![U64, U64, AbiType::StrPtr, AbiType::StrPtr], AbiType::Void),
+            "setAttr(h: number, node: number, name: string, value: string): void",
+            "Sets/updates an attribute on a node (element.setAttribute).",
+            widgets::__RTS_FN_NS_EGUI_SET_ATTR as *const u8,
+        ))
+        .member(func(
+            "createElement",
+            "__RTS_FN_NS_EGUI_CREATE_ELEMENT",
+            Sig::new(vec![U64, AbiType::StrPtr], U64),
+            "createElement(h: number, tag: string): number",
+            "Creates a detached element; returns its NodeId (document.createElement).",
+            widgets::__RTS_FN_NS_EGUI_CREATE_ELEMENT as *const u8,
+        ))
+        .member(func(
+            "appendChild",
+            "__RTS_FN_NS_EGUI_APPEND_CHILD",
+            Sig::new(vec![U64, U64, U64], AbiType::Void),
+            "appendChild(h: number, parent: number, child: number): void",
+            "Moves child to the end of parent's children (parent.appendChild).",
+            widgets::__RTS_FN_NS_EGUI_APPEND_CHILD as *const u8,
+        ))
+        .member(func(
+            "removeNode",
+            "__RTS_FN_NS_EGUI_REMOVE_NODE",
+            Sig::new(vec![U64, U64], AbiType::Void),
+            "removeNode(h: number, node: number): void",
+            "Detaches a node from its parent (element.remove).",
+            widgets::__RTS_FN_NS_EGUI_REMOVE_NODE as *const u8,
+        ))
+        // ── Inspeção / debug do DOM retido ──────────────────────────────────────
+        .member(func(
+            "domDump",
+            "__RTS_FN_NS_EGUI_DOM_DUMP",
+            Sig::new(vec![U64], AbiType::Void),
+            "domDump(h: number): void",
+            "Prints the retained DOM tree (last parsed HTML) to stderr, devtools-style.",
+            widgets::__RTS_FN_NS_EGUI_DOM_DUMP as *const u8,
         ))
         .done();
 }

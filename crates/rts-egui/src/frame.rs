@@ -189,8 +189,11 @@ pub extern "C" fn __RTS_FN_NS_EGUI_END_FRAME(h: u64) {
         c.frame_active = false;
 
         // ── 1. Drena a fila num CentralPanel, coletando interações ───────────
-        // Toma a fila por valor (evita emprestar `c` dentro do closure).
+        // Toma a fila por valor (evita emprestar `c` dentro do closure). O DOM
+        // retido (`c.dom`) é só LIDO pelo render — saca por valor com `take` e
+        // devolve depois, mantendo `c` livre para o `egui_ctx` no `show`.
         let cmds = std::mem::take(&mut c.cmds);
+        let dom = c.dom.take();
         let mut new_buttons: Vec<bool> = Vec::new();
         let mut new_sliders: Vec<f64> = Vec::new();
 
@@ -207,8 +210,19 @@ pub extern "C" fn __RTS_FN_NS_EGUI_END_FRAME(h: u64) {
             // a ordem em que `new_buttons`/`new_sliders` são preenchidos) casa
             // exatamente com a ordem de enfileiramento em `widgets.rs`.
             let mut idx = 0usize;
-            drenar(ui, &cmds, &mut idx, &mut new_buttons, &mut new_sliders);
+            drenar(ui, &cmds, dom.as_ref(), &mut idx, &mut new_buttons, &mut new_sliders);
+            // Se há DOM retido e nenhum `html()` foi chamado NESTE frame (a fila
+            // não tem o marcador Html), renderiza o DOM mesmo assim — é o caso do
+            // fluxo "parseia uma vez, depois muta via JS e só re-renderiza".
+            let has_html_marker = cmds.iter().any(|c| matches!(c, WidgetCmd::Html));
+            if !has_html_marker {
+                if let Some(dom) = dom.as_ref() {
+                    render_dom(ui, dom);
+                }
+            }
         });
+        // Devolve o DOM retido ao UiCtx (persiste para o próximo frame / mutação).
+        c.dom = dom;
 
         c.button_results = new_buttons;
         c.slider_results = new_sliders;
@@ -254,6 +268,7 @@ pub extern "C" fn __RTS_FN_NS_EGUI_END_FRAME(h: u64) {
 fn drenar(
     ui: &mut egui::Ui,
     cmds: &[WidgetCmd],
+    dom: Option<&crate::dom::Dom>,
     idx: &mut usize,
     new_buttons: &mut Vec<bool>,
     new_sliders: &mut Vec<f64>,
@@ -281,7 +296,7 @@ fn drenar(
                 // mesmo `idx` — os widgets seguintes ficam lado a lado no `hui`
                 // até o `HorizontalEnd` pareado fazer a recursão retornar.
                 ui.horizontal(|hui| {
-                    drenar(hui, cmds, idx, new_buttons, new_sliders);
+                    drenar(hui, cmds, dom, idx, new_buttons, new_sliders);
                 });
             }
             WidgetCmd::HorizontalEnd => {
@@ -289,39 +304,202 @@ fn drenar(
                 // do `ui.horizontal` do `Begin` pareado), encerrando o escopo.
                 return;
             }
-            WidgetCmd::Heading { level, text } => {
-                // Cabeçalho de bloco: fonte maior conforme o nível (h1 > h2 > h3).
-                let size = match level {
-                    1 => 28.0,
-                    2 => 22.0,
-                    _ => 18.0,
-                };
-                ui.heading(egui::RichText::new(text).strong().size(size));
-            }
-            WidgetCmd::ParagraphBegin => {
-                // Igual ao HorizontalBegin, mas com `horizontal_wrapped` (quebra
-                // de linha) e espaçamento horizontal zero entre os fragmentos —
-                // assim "negrito" cola no texto vizinho como num parágrafo real.
-                // Continua a drenar DENTRO dele até o `ParagraphEnd` pareado.
-                ui.horizontal_wrapped(|hui| {
-                    hui.spacing_mut().item_spacing.x = 0.0;
-                    drenar(hui, cmds, idx, new_buttons, new_sliders);
-                });
-            }
-            WidgetCmd::ParagraphEnd => {
-                // Fecha o parágrafo atual: retorna ao closure do `horizontal_wrapped`.
-                return;
-            }
-            WidgetCmd::InlineText { text, bold, italic } => {
-                // Fragmento inline: aplica o estilo herdado das tags <b>/<i>.
-                let mut rt = egui::RichText::new(text);
-                if *bold {
-                    rt = rt.strong();
+            WidgetCmd::Html => {
+                // Conteúdo HTML: o render PERCORRE a árvore de DOM RETIDA em
+                // `UiCtx::dom` (não uma fila plana). Self-contained — não consome
+                // `idx` extra. Sem árvore (nenhum `html` ainda), não faz nada.
+                if let Some(dom) = dom {
+                    render_dom(ui, dom);
                 }
-                if *italic {
-                    rt = rt.italics();
+            }
+        }
+    }
+}
+
+/// Estilo inline herdado (das tags inline registradas) ao descer na árvore.
+#[derive(Clone, Copy, Default)]
+struct InlineStyle {
+    bold: bool,
+    italic: bool,
+    mono: bool,
+}
+
+/// Renderiza um `Dom` inteiro no `ui`: cada filho do `#document` é um bloco.
+///
+/// "Render em cima da árvore": a fonte da verdade é a hierarquia de nós, e o COMO
+/// de cada tag vem do mapa `block::lookup`/`lookup_inline` (definido pelo TS),
+/// não de nomes hardcodados. O Rust só aplica primitivos de layout.
+fn render_dom(ui: &mut egui::Ui, dom: &crate::dom::Dom) {
+    let root = dom.node(dom.root);
+    let mut index = 0usize;
+    for &child in &root.children {
+        render_block(ui, dom, child, &mut index);
+    }
+}
+
+/// Renderiza um nó em contexto de BLOCO. `index` é a posição entre irmãos de
+/// bloco (usada para numerar itens de lista com `PREFIX_NUMBER`).
+fn render_block(
+    ui: &mut egui::Ui,
+    dom: &crate::dom::Dom,
+    id: crate::dom::NodeId,
+    index: &mut usize,
+) {
+    use crate::dom::NodeKind;
+    let tag = match &dom.node(id).kind {
+        NodeKind::Element { tag } => tag.clone(),
+        // Texto solto / não-elemento no nível de bloco: emite inline direto.
+        _ => return render_inline(ui, dom, id, InlineStyle::default()),
+    };
+
+    // Tag sem layout de bloco registrado ⇒ inline transparente (default seguro,
+    // igual a uma tag desconhecida): preserva o texto dos filhos.
+    let Some(def) = crate::block::lookup(&tag) else {
+        return render_inline(ui, dom, id, InlineStyle::default());
+    };
+
+    let this_index = *index;
+    *index += 1;
+
+    // Heading: texto concatenado; `indent` é reusado como TAMANHO de fonte.
+    if def.has(crate::block::FLAG_HEADING) {
+        let text = collect_text(dom, id);
+        let size = if def.indent > 0.0 { def.indent } else { 20.0 };
+        ui.heading(egui::RichText::new(text).strong().size(size));
+        return;
+    }
+
+    // Recuo à esquerda (lista/blockquote) via `ui.indent`; senão renderiza direto.
+    if def.indent > 0.0 {
+        ui.indent(("blk", id), |ui| render_block_body(ui, dom, id, def, this_index));
+    } else {
+        render_block_body(ui, dom, id, def, this_index);
+    }
+}
+
+/// Corpo de um bloco (já dentro do recuo): aplica o eixo (`display`) + o
+/// marcador (`prefix`) e desce nos filhos.
+fn render_block_body(
+    ui: &mut egui::Ui,
+    dom: &crate::dom::Dom,
+    id: crate::dom::NodeId,
+    def: crate::block::BlockDef,
+    this_index: usize,
+) {
+    use crate::block::*;
+
+    let prefix = match def.prefix {
+        x if x == PREFIX_BULLET => Some("•  ".to_string()),
+        x if x == PREFIX_NUMBER => Some(format!("{}.  ", this_index + 1)),
+        _ => None,
+    };
+    let mono = def.has(FLAG_MONO);
+
+    match def.display {
+        // GRID: cada filho-elemento é uma linha; os netos são as células.
+        x if x == DISPLAY_GRID => {
+            egui::Grid::new(("grid", id)).striped(true).show(ui, |ui| {
+                for &row in &dom.node(id).children {
+                    if !matches!(dom.node(row).kind, crate::dom::NodeKind::Element { .. }) {
+                        continue; // ignora texto solto entre linhas
+                    }
+                    for &cell in &dom.node(row).children {
+                        render_block(ui, dom, cell, &mut 0);
+                    }
+                    ui.end_row();
                 }
-                ui.label(rt);
+            });
+        }
+        // HORIZONTAL: filhos lado a lado, sem quebra (linha de tabela / flex-row).
+        x if x == DISPLAY_HORIZONTAL => {
+            ui.horizontal(|ui| {
+                let mut i = 0usize;
+                for &child in &dom.node(id).children {
+                    render_block(ui, dom, child, &mut i);
+                }
+            });
+        }
+        // WRAP: flui inline (CSS inline-flow) — o parágrafo clássico.
+        x if x == DISPLAY_WRAP => {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                if let Some(p) = &prefix {
+                    ui.label(egui::RichText::new(p).strong());
+                }
+                let st = InlineStyle { mono, ..Default::default() };
+                for &child in &dom.node(id).children {
+                    render_inline(ui, dom, child, st);
+                }
+            });
+        }
+        // VERTICAL (default block): empilha os filhos.
+        _ => {
+            ui.vertical(|ui| {
+                if let Some(p) = &prefix {
+                    ui.label(egui::RichText::new(p).strong());
+                }
+                let mut i = 0usize;
+                for &child in &dom.node(id).children {
+                    render_block(ui, dom, child, &mut i);
+                }
+            });
+        }
+    }
+}
+
+/// Renderiza um nó em contexto INLINE, herdando `style`. As tags inline e seu
+/// estilo vêm do mapa `block::lookup_inline` (definido pelo TS) — o Rust não
+/// nomeia nenhuma tag. Tag inline ausente do mapa é transparente (sem estilo).
+fn render_inline(
+    ui: &mut egui::Ui,
+    dom: &crate::dom::Dom,
+    id: crate::dom::NodeId,
+    style: InlineStyle,
+) {
+    use crate::dom::NodeKind;
+    match &dom.node(id).kind {
+        NodeKind::Text(text) => {
+            let mut rt = egui::RichText::new(text);
+            if style.bold {
+                rt = rt.strong();
+            }
+            if style.italic {
+                rt = rt.italics();
+            }
+            if style.mono {
+                rt = rt.monospace();
+            }
+            ui.label(rt);
+        }
+        NodeKind::Element { tag } => {
+            // Liga os bits de estilo registrados para esta tag inline e desce.
+            let flags = crate::block::lookup_inline(tag);
+            let mut st = style;
+            st.bold |= flags & crate::block::FLAG_BOLD != 0;
+            st.italic |= flags & crate::block::FLAG_ITALIC != 0;
+            st.mono |= flags & crate::block::FLAG_MONO != 0;
+            for &child in &dom.node(id).children {
+                render_inline(ui, dom, child, st);
+            }
+        }
+        NodeKind::Document => {}
+    }
+}
+
+/// Concatena o texto de todos os descendentes de `id` (em ordem de documento).
+fn collect_text(dom: &crate::dom::Dom, id: crate::dom::NodeId) -> String {
+    use crate::dom::NodeKind;
+    let mut out = String::new();
+    collect_text_into(dom, id, &mut out);
+    return out;
+
+    fn collect_text_into(dom: &crate::dom::Dom, id: crate::dom::NodeId, out: &mut String) {
+        match &dom.node(id).kind {
+            NodeKind::Text(t) => out.push_str(t),
+            _ => {
+                for &child in &dom.node(id).children {
+                    collect_text_into(dom, child, out);
+                }
             }
         }
     }

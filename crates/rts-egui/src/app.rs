@@ -185,6 +185,7 @@ pub extern "C" fn __RTS_FN_NS_EGUI_OPEN_WINDOW(
         open: true,
         frame_active: false,
         cmds: Vec::new(),
+        dom: None,
         button_results: Vec::new(),
         slider_results: Vec::new(),
         button_cursor: 0,

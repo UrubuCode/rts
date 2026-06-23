@@ -23,11 +23,21 @@ const page =
   "<h3>Fim</h3>" +
   "<p>Ultimo <i>paragrafo</i> da pagina renderizada pelo motor <b>RTS</b> com <b><i>egui</i></b>.</p>";
 
+class Doc {
+  __h: number;
+  constructor(h: number) { this.__h = h; }
+  dump(): void { egui.domDump(this.__h); }
+}
+
 const win = new Window("HTML render", 460, 320);
+const doc = new Doc(win.__h);
+let dumped = false;
 while (win.isOpen()) {
   if (!win.pump()) break;
   win.beginFrame();
   win.html(page);
   win.endFrame();
+  // Imprime a árvore de DOM gerada UMA vez (após o 1o html parsear), no stderr.
+  if (!dumped) { doc.dump(); dumped = true; }
 }
 win.close();

@@ -25,6 +25,70 @@
 
 import egui from "rts:egui";
 
+// ── Alocador dinâmico de blocos ──────────────────────────────────────────────
+// O mapa "tag → como renderizar" vive AQUI no TS (não no Rust). O Rust é um
+// motor de layout genérico que só aplica primitivos; estas constantes e os
+// `defineBlock`/`defineInline` abaixo dizem o que cada tag significa. Edite à
+// vontade — sem recompilar o Rust.
+
+// Eixo de layout (DISPLAY). block ⇒ VERTICAL, inline-flow ⇒ WRAP.
+const DISPLAY_VERTICAL = 0;
+const DISPLAY_WRAP = 1;
+const DISPLAY_HORIZONTAL = 2;
+const DISPLAY_GRID = 3;
+// Marcador de item de lista.
+const PREFIX_NONE = 0;
+const PREFIX_BULLET = 1;
+const PREFIX_NUMBER = 2;
+// Flags (bitmask). Compartilhadas por bloco e inline.
+const FLAG_MONO = 1;
+const FLAG_PRESERVE_WS = 2;
+const FLAG_HEADING = 4;
+const FLAG_BOLD = 8;
+const FLAG_ITALIC = 16;
+
+// Registra os defaults do HTML. Idempotente — chamado no 1º `new Window`.
+let __blocksRegistered = false;
+function registerDefaultBlocks(): void {
+  if (__blocksRegistered) return;
+  __blocksRegistered = true;
+
+  // Cabeçalhos: HEADING + `indent` reusado como tamanho de fonte.
+  egui.defineBlock("h1", DISPLAY_VERTICAL, 28, PREFIX_NONE, FLAG_HEADING);
+  egui.defineBlock("h2", DISPLAY_VERTICAL, 22, PREFIX_NONE, FLAG_HEADING);
+  egui.defineBlock("h3", DISPLAY_VERTICAL, 18, PREFIX_NONE, FLAG_HEADING);
+
+  // Blocos genéricos (CSS block): empilham; parágrafo flui inline.
+  egui.defineBlock("p", DISPLAY_WRAP, 0, PREFIX_NONE, 0);
+  egui.defineBlock("div", DISPLAY_VERTICAL, 0, PREFIX_NONE, 0);
+  egui.defineBlock("section", DISPLAY_VERTICAL, 0, PREFIX_NONE, 0);
+  egui.defineBlock("article", DISPLAY_VERTICAL, 0, PREFIX_NONE, 0);
+  egui.defineBlock("header", DISPLAY_VERTICAL, 0, PREFIX_NONE, 0);
+  egui.defineBlock("footer", DISPLAY_VERTICAL, 0, PREFIX_NONE, 0);
+  egui.defineBlock("blockquote", DISPLAY_VERTICAL, 24, PREFIX_NONE, 0);
+
+  // Listas: bloco com recuo; o item carrega o marcador.
+  egui.defineBlock("ul", DISPLAY_VERTICAL, 16, PREFIX_NONE, 0);
+  egui.defineBlock("ol", DISPLAY_VERTICAL, 16, PREFIX_NONE, 0);
+  egui.defineBlock("li", DISPLAY_WRAP, 0, PREFIX_BULLET, 0);
+
+  // Tabela: grade 2-D.
+  egui.defineBlock("table", DISPLAY_GRID, 0, PREFIX_NONE, 0);
+  egui.defineBlock("tr", DISPLAY_HORIZONTAL, 0, PREFIX_NONE, 0);
+  egui.defineBlock("td", DISPLAY_WRAP, 0, PREFIX_NONE, 0);
+  egui.defineBlock("th", DISPLAY_WRAP, 0, PREFIX_NONE, FLAG_BOLD);
+
+  // Pré-formatado: bloco monoespaçado que preserva espaços.
+  egui.defineBlock("pre", DISPLAY_VERTICAL, 0, PREFIX_NONE, FLAG_MONO | FLAG_PRESERVE_WS);
+
+  // Inlines: só ligam bits de estilo.
+  egui.defineInline("b", FLAG_BOLD);
+  egui.defineInline("strong", FLAG_BOLD);
+  egui.defineInline("i", FLAG_ITALIC);
+  egui.defineInline("em", FLAG_ITALIC);
+  egui.defineInline("code", FLAG_MONO);
+}
+
 // Opções de criação da janela.
 interface WindowOptions {
   title?: string;
@@ -37,6 +101,7 @@ class Window {
   __h: number;
 
   constructor(opts: WindowOptions = {}) {
+    registerDefaultBlocks();
     const title = opts.title !== undefined ? opts.title : "RTS";
     const width = opts.width !== undefined ? opts.width : 800;
     const height = opts.height !== undefined ? opts.height : 600;
@@ -85,6 +150,12 @@ class Window {
   // Renderiza HTML básico (h1/h2/h3, p/div, b/strong, i/em) no frame ativo.
   html(text: string): void {
     egui.html(this.__h, text);
+  }
+
+  // Imprime no stderr a árvore de DOM retida (último html parseado), indentada
+  // estilo devtools. Ferramenta de inspeção/teste do DOM gerado.
+  dumpDom(): void {
+    egui.domDump(this.__h);
   }
 
   // Fecha a janela.
