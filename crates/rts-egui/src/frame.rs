@@ -111,24 +111,16 @@ pub extern "C" fn __RTS_FN_NS_EGUI_BEGIN_FRAME(h: u64) {
         if c.frame_active {
             return; // beginFrame duplo sem endFrame — ignora.
         }
-        let mut raw_input = c.egui_state.take_egui_input(&c.window);
-
-        // GARANTE um `screen_rect` válido. O `take_egui_input` só conhece o
-        // tamanho da janela depois de um evento `Resized` — mas no desktop a
-        // 1ª `Resized` pode não chegar antes do 1º frame, deixando o
-        // `screen_rect` vazio → o egui acha que não há área e desenha SÓ o fundo
-        // (a janela fica "tudo cinza", sem widgets). Derivamos o rect do tamanho
-        // físico real da janela / pixels_per_point a cada frame.
-        let size = c.window.inner_size();
-        let ppp = c.egui_ctx.pixels_per_point().max(1.0);
-        if size.width > 0 && size.height > 0 {
-            let w = size.width as f32 / ppp;
-            let h = size.height as f32 / ppp;
-            raw_input.screen_rect = Some(egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::vec2(w, h),
-            ));
-        }
+        // `take_egui_input` JÁ deriva um `screen_rect` correto a cada chamada,
+        // direto do `window.inner_size()` ÷ `pixels_per_point` (não de um evento
+        // `Resized` em cache — ver egui_winit::State::take_egui_input). Logo NÃO
+        // sobrescrevemos o `screen_rect` aqui: fazê-lo com `window.scale_factor()`
+        // (em vez do `pixels_per_point` do contexto, que inclui o zoom_factor)
+        // arriscaria descasar do `pixels_per_point` usado no tessellate/render.
+        // A consistência físico×lógico é garantida no `present` (size_in_pixels =
+        // inner_size físico; ppp = full_output.pixels_per_point), de modo que
+        // size_in_pixels / ppp == screen_rect lógico em qualquer DPI.
+        let raw_input = c.egui_state.take_egui_input(&c.window);
 
         c.egui_ctx.begin_pass(raw_input);
         c.frame_active = true;
@@ -212,7 +204,33 @@ fn present(
     textures_delta: egui::TexturesDelta,
     pixels_per_point: f32,
 ) {
+    // ── 0. Sincroniza a surface com o tamanho FÍSICO real da janela ──────────
+    // `config.width/height` é o tamanho FÍSICO (px) da surface, e vira o
+    // `size_in_pixels` do `ScreenDescriptor` — a base que o shader do egui usa
+    // para mapear os vértices (em pontos) para clip-space. Ele NÃO pode divergir
+    // do `inner_size()` real da janela.
+    //
+    // Por que divergia (a causa raiz da "faixa vertical estreita"): o `config` é
+    // construído UMA vez em `RenderState::new`, a partir do `inner_size()` do
+    // momento da criação. Mas durante o `openWindow` a janela emite eventos
+    // `Resized` (tamanho transitório do WM/decoração, p.ex. 1424×714 antes de
+    // assentar) que o handler `Builder` IGNORA (`window_event` no-op). Assim a
+    // surface fica com um `config` (size_in_pixels) defasado do tamanho final da
+    // janela, enquanto o LAYOUT do egui usa o `inner_size()` ATUAL (via
+    // `take_egui_input`). Render num espaço físico LARGO + layout num espaço
+    // lógico ESTREITO ⇒ o conteúdo, correto em pontos, é comprimido numa faixa no
+    // canto. Sincronizar aqui (e reconfigurar quando muda) casa os dois espaços
+    // todo frame, independente de quando/se um `Resized` chegou.
+    let size = c.window.inner_size();
     let r = &mut c.render;
+    if size.width > 0
+        && size.height > 0
+        && (size.width != r.config.width || size.height != r.config.height)
+    {
+        r.config.width = size.width;
+        r.config.height = size.height;
+        r.surface.configure(&r.device, &r.config);
+    }
 
     // 3. Sobe textures novas/atualizadas.
     for (id, image_delta) in &textures_delta.set {

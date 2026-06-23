@@ -16,7 +16,14 @@ rts-engine = { path = "../rts-engine" }
 
 # egui/egui-winit SEM default-features: cortamos accesskit (a11y, traz toda uma
 # árvore), serde, etc. — não usamos no PoC.
-egui = { version = "0.34.3", default-features = false }
+#
+# MAS reativamos `default_fonts`: ele NÃO entra junto com `default-features=false`
+# e sem ele o `egui::Context` nasce SEM NENHUMA fonte → todo texto vira galley
+# vazio (zero geometria de glifo). O sintoma é exatamente "widgets aparecem mas
+# sem texto, espremidos": o tessellate só produz o fundo dos widgets (~dezenas de
+# vértices, atlas de fonte 2048×32 = vazio), o texto some. `default_fonts` traz a
+# Ubuntu/Emoji embutidas que o tema padrão referencia.
+egui = { version = "0.34.3", default-features = false, features = ["default_fonts"] }
 egui-winit = { version = "0.34.3", default-features = false }
 # winit só com rwh_06 (raw-window-handle p/ a Surface do wgpu). default-features
 # off corta serde e backends de plataforma que o cfg já resolve.
