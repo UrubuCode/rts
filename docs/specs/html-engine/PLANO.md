@@ -8,6 +8,61 @@
 
 ---
 
+## ⚠️ STATUS DE IMPLEMENTAÇÃO (2026-06-23) — divergência consciente do plano
+
+> Anotação obrigatória (RULE #0: nunca deixar o spec mentir). Foi implementado na
+> main um motor de render de HTML retido **por um caminho DIFERENTE do descrito
+> abaixo**. Não é "P0..P7 parcialmente feito" — é uma **arquitetura alternativa,
+> mais leve**, que cobre parte dos objetivos do plano e diverge em pontos centrais.
+> Branch de origem: `feat/egui-dom-tree` (merge na main). Crate: `rts-egui` (NÃO
+> a `rts-html` que o plano pedia).
+
+### O que foi feito (na `rts-egui`, não em `rts-html`)
+
+- **DOM retido em árvore** (`rts-egui/src/dom.rs`): arena `Vec<Node>` + `NodeId`
+  estável, parent/children, **atributos preservados** (`class`/`id`/`href`…),
+  `Dom::dump()` estilo devtools, **índices `id`/`classe` O(1)** para query.
+- **Render percorre a árvore** (`frame.rs::render_dom`).
+- **Alocador dinâmico de blocos** (`block.rs`): mapa `tag → layout` definido em
+  **TS** via `egui.defineBlock`/`defineInline` (display vertical/wrap/horizontal/
+  grid + indent + prefix + flags). O engine não nomeia tag.
+- **Mutação via JS** (`egui.querySelector/setText/setAttr/createElement/
+  appendChild/removeNode`) — base de manipulação de DOM em runtime.
+- **Inspeção do lado TS**: `egui.domDump`.
+- Testes: `cargo test -p rts-egui` (18). Exemplos: `examples/egui_html_basico.ts`,
+  `egui_html_tree_complexa.ts`, `egui_dom_mutacao.ts`.
+
+### Onde DIVERGE do plano abaixo (não fizemos igual)
+
+| Eixo | PLANO.md (abaixo) | Implementado (main) |
+|---|---|---|
+| **Crate** | crate NOVA `rts-html`, Rust puro, zero dep egui | dentro de `rts-egui` |
+| **Pipeline** | 5 árvores (DOM→Style→Layout→DisplayList→Paint) | 2 estágios (DOM → render direto) |
+| **Paint** | `allocate_painter` + Painter ABSOLUTO + box model próprio | `ui.label`/`horizontal_wrapped`/`Grid` — **egui FAZ o layout** (o plano §3 proíbe isto explicitamente) |
+| **CSS** | cascade real: especificidade + herança + `%`/`em` resolvidos em fases distintas | mapa tag→layout em TS (`defineBlock`); **sem** cascade/herança/box model/`%` |
+| **Eventos** | hit-testing por `node_id`, clique em `<a>`/`<button>` | **não há** clique/hit-testing ainda; há mutação programática via JS |
+| **Texto inline** | `LayoutJob` multi-run medido+quebrado pelo egui (P4, o "coração") | `RichText` por fragmento, egui posiciona |
+
+### Avaliação honesta
+
+A implementação atual é um **renderizador retido data-driven LEVE** (a filosofia
+que o usuário pediu: "tudo deriva de inline/block", "blocos definidos em TS",
+"DOM otimizado além dos padrões"). Ela **NÃO** é o motor de browser canônico
+deste plano. Cobre, do plano: a topologia em árvore (P0), atributos (parte de
+P5), e adianta manipulação de DOM (não prevista aqui). **NÃO** cobre: box model,
+cascade CSS, paint absoluto, inline-flow multi-run, scroll, hit-testing/eventos —
+os itens P1(paint absoluto)→P7.
+
+**Decisão em aberto para os devs:** ou (a) este caminho leve substitui o plano de
+5 árvores como a direção oficial (e este PLANO.md é reescrito/aposentado), ou
+(b) o plano de 5 árvores segue como alvo de longo prazo e o caminho leve é um
+estágio intermediário/coexistente. Enquanto não decidido, AMBOS os documentos
+valem e esta nota previne que alguém implemente P1..P7 achando que parte do zero.
+
+---
+
+---
+
 ## 0) Resumo e escopo HONESTO
 
 ### 0.1) O que isto É
