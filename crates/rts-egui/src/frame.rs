@@ -9,11 +9,74 @@
 //! `endFrame` drena a fila num `CentralPanel`, encerra o pass (`end_pass`),
 //! tesselará as shapes e renderiza/apresenta o frame via wgpu.
 
+use std::cell::RefCell;
 use std::sync::Arc;
 
 use winit::window::Window;
 
 use crate::ctx::{self, WidgetCmd};
+
+/// GPU compartilhada do processo (thread do TS): Instance + Adapter + Device +
+/// Queue são por-GPU, NÃO por-janela. wgpu os expõe como handles `Clone`
+/// (Arc-backed). Criados LAZY na 1ª janela e REUSADOS por todas.
+///
+/// CAUSA RAIZ do vazamento de RAM: a versão anterior criava um Device NOVO (~190
+/// MB) por `openWindow`. Abrir janelas em loop (hot-reload / re-render) sem fechar
+/// — ou só churn de abrir/fechar — acumulava/recriava Devices gigantes (medido:
+/// 30 janelas sem close = 5,6 GB). Compartilhando o Device, cada janela nova custa
+/// só uma Surface + Renderer (poucos MB), e a RAM fica limitada.
+#[derive(Clone)]
+struct SharedGpu {
+    instance: wgpu::Instance,
+    adapter: wgpu::Adapter,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+}
+
+thread_local! {
+    static SHARED_GPU: RefCell<Option<SharedGpu>> = const { RefCell::new(None) };
+}
+
+/// Retorna (clonando os handles) a GPU compartilhada, criando-a UMA vez. O adapter
+/// é pedido sem `compatible_surface` (desktop: pega o GPU default, compatível com
+/// as surfaces de janela criadas depois).
+fn shared_gpu() -> Result<SharedGpu, String> {
+    SHARED_GPU.with(|cell| {
+        if let Some(g) = cell.borrow().as_ref() {
+            return Ok(g.clone());
+        }
+        let instance = wgpu::Instance::new(
+            wgpu::InstanceDescriptor::new_without_display_handle_from_env(),
+        );
+        let adapter = pollster::block_on(instance.request_adapter(
+            &wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::default(),
+                force_fallback_adapter: false,
+                compatible_surface: None,
+            },
+        ))
+        .map_err(|e| format!("request_adapter: {e}"))?;
+        let (device, queue) = pollster::block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                label: Some("rts-egui shared device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                memory_hints: wgpu::MemoryHints::default(),
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                trace: wgpu::Trace::Off,
+            },
+        ))
+        .map_err(|e| format!("request_device: {e}"))?;
+        let gpu = SharedGpu {
+            instance,
+            adapter,
+            device,
+            queue,
+        };
+        *cell.borrow_mut() = Some(gpu.clone());
+        Ok(gpu)
+    })
+}
 
 /// Backend de render wgpu de uma janela. Tudo `!Send`.
 pub struct RenderState {
@@ -36,57 +99,33 @@ impl RenderState {
         let width = size.width.max(1);
         let height = size.height.max(1);
 
-        // wgpu 29: `InstanceDescriptor` NÃO implementa Default; usar o
-        // construtor que dispensa display handle (ok para desktop). Lê backends
-        // de env vars (WGPU_BACKEND etc), como o `_from_env`.
-        let instance = wgpu::Instance::new(
-            wgpu::InstanceDescriptor::new_without_display_handle_from_env(),
-        );
+        // Instance/Adapter/Device/Queue COMPARTILHADOS (criados 1×, reusados por
+        // todas as janelas) — antes eram por-janela (~190 MB cada), a causa do
+        // vazamento. Só a Surface + config + Renderer abaixo são por-janela.
+        let gpu = shared_gpu()?;
 
-        // `Arc<Window>` (owned) → `Surface<'static>`.
-        let surface = instance
+        // `Arc<Window>` (owned) → `Surface<'static>`, da instance compartilhada.
+        let surface = gpu
+            .instance
             .create_surface(window.clone())
             .map_err(|e| format!("create_surface: {e}"))?;
 
-        let adapter = pollster::block_on(instance.request_adapter(
-            &wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
-                force_fallback_adapter: false,
-                compatible_surface: Some(&surface),
-            },
-        ))
-        .map_err(|e| format!("request_adapter: {e}"))?;
-
-        // wgpu 29: `request_device` recebe UM `DeviceDescriptor` e retorna
-        // `Result<(Device, Queue), _>`.
-        let (device, queue) = pollster::block_on(
-            adapter.request_device(&wgpu::DeviceDescriptor {
-                label: Some("rts-egui device"),
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-                memory_hints: wgpu::MemoryHints::default(),
-                experimental_features: wgpu::ExperimentalFeatures::disabled(),
-                trace: wgpu::Trace::Off,
-            }),
-        )
-        .map_err(|e| format!("request_device: {e}"))?;
-
         let config = surface
-            .get_default_config(&adapter, width, height)
+            .get_default_config(&gpu.adapter, width, height)
             .ok_or_else(|| "surface não suportada pelo adapter".to_string())?;
-        surface.configure(&device, &config);
+        surface.configure(&gpu.device, &config);
 
         // egui-wgpu 0.34: `Renderer::new(device, color_format, RendererOptions)`.
         let renderer = egui_wgpu::Renderer::new(
-            &device,
+            &gpu.device,
             config.format,
             egui_wgpu::RendererOptions::default(),
         );
 
         Ok(RenderState {
             surface,
-            device,
-            queue,
+            device: gpu.device,
+            queue: gpu.queue,
             config,
             renderer,
         })
