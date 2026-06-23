@@ -40,6 +40,12 @@ não eram guia para o motor novo.
   — Design da GUI cross-platform: egui (immediate-mode, sem FLTK) numa crate nova,
   primitivos no Rust + lib de alto nível em TS, loop dirigido pelo TS, wgpu
   primário. Fundamento de render visando jogos/browser no futuro.
+- [Motor de render HTML+CSS (estudo + plano)](html-engine/README.md) — Estudo
+  completo do motor de render HTML/CSS próprio sobre o `rts-egui` (rumo a um motor
+  de browser). Pipeline DOM→Style→Layout→Display list→Paint em Rust (crate nova
+  `rts-html`), egui como paint absoluto, escopo honesto (cascade + box model
+  block/inline + scroll + links; flexbox/grid/CSS5-moderno FORA). Fases P0→P7
+  pixel-primeiro. Inclui as 4 análises-base + arquitetura + crítica adversarial.
 - [Epic #226 — paridade JS/TS](js-parity-epic-226.md) — Catálogo das ~60 APIs
   JS (Array/Object/Math/String/URL/Date/Boolean/parseInt/destructuring). Define
   as SEMÂNTICAS que o motor novo deve cobrir (a implementação migra para o
