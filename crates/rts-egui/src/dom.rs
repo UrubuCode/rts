@@ -46,14 +46,40 @@ pub enum NodeKind {
     Text(String),
 }
 
-/// Um nó da árvore: seu tipo + os elos de parentesco (índices na arena).
+/// Um par atributo→valor de um elemento (`class="card"`). Lista ordenada (não
+/// mapa) para preservar a ordem do HTML — importante para `style` e para a
+/// futura cascata de CSS, onde a ordem de declaração desempata.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Attr {
+    /// Nome em minúsculas (`class`, `id`, `href`, `style`…).
+    pub name: String,
+    /// Valor já com entidades decodificadas; `""` para atributo sem valor.
+    pub value: String,
+}
+
+/// Um nó da árvore: seu tipo + atributos + os elos de parentesco (índices na
+/// arena).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Node {
     pub kind: NodeKind,
+    /// Atributos do elemento (vazio para Document/Text). É a base de qualquer
+    /// seletor além da tag (`.classe`, `#id`) e de `<a href>` — o pré-requisito
+    /// de um motor de CSS.
+    pub attrs: Vec<Attr>,
     /// `None` apenas para a raiz `Document`.
     pub parent: Option<NodeId>,
     /// Filhos em ordem de documento.
     pub children: Vec<NodeId>,
+}
+
+impl Node {
+    /// Valor do atributo `name` (case-insensitive), se presente.
+    pub fn attr(&self, name: &str) -> Option<&str> {
+        self.attrs
+            .iter()
+            .find(|a| a.name.eq_ignore_ascii_case(name))
+            .map(|a| a.value.as_str())
+    }
 }
 
 /// A árvore inteira: arena de nós + a raiz.
@@ -71,6 +97,7 @@ impl Dom {
         Dom {
             nodes: vec![Node {
                 kind: NodeKind::Document,
+                attrs: Vec::new(),
                 parent: None,
                 children: Vec::new(),
             }],
@@ -78,11 +105,12 @@ impl Dom {
         }
     }
 
-    /// Aloca um nó como filho de `parent` e devolve seu `NodeId`.
-    fn push(&mut self, kind: NodeKind, parent: NodeId) -> NodeId {
+    /// Aloca um nó (com seus atributos) como filho de `parent`; devolve o id.
+    fn push(&mut self, kind: NodeKind, attrs: Vec<Attr>, parent: NodeId) -> NodeId {
         let id = self.nodes.len();
         self.nodes.push(Node {
             kind,
+            attrs,
             parent: Some(parent),
             children: Vec::new(),
         });
@@ -125,6 +153,13 @@ impl Dom {
             NodeKind::Element { tag } => {
                 out.push('<');
                 out.push_str(tag);
+                for a in &node.attrs {
+                    out.push(' ');
+                    out.push_str(&a.name);
+                    out.push_str("=\"");
+                    out.push_str(&a.value);
+                    out.push('"');
+                }
                 out.push('>');
             }
             NodeKind::Text(t) => {
@@ -145,6 +180,69 @@ fn is_void(tag: &str) -> bool {
     matches!(tag, "br" | "hr" | "img" | "input" | "meta" | "link")
 }
 
+/// Parseia a parte crua de atributos de uma tag (`class='card' id="x" checked`)
+/// em pares `Attr`. Tolerante: aceita aspas simples/duplas ou sem aspas, e
+/// atributo sem valor (`checked` → value vazio). Nomes em minúsculas; valores
+/// com entidades decodificadas. Não é conforme à spec — cobre o uso comum.
+fn parse_attrs(raw: &str) -> Vec<Attr> {
+    let mut attrs = Vec::new();
+    let bytes = raw.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        // Pula espaços entre atributos.
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        // Lê o nome até `=`, espaço ou fim.
+        let name_start = i;
+        while i < bytes.len() && !bytes[i].is_ascii_whitespace() && bytes[i] != b'=' {
+            i += 1;
+        }
+        if i == name_start {
+            break; // nada de nome — acabou.
+        }
+        let name = raw[name_start..i].to_ascii_lowercase();
+        // Pula espaços antes de um possível `=`.
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        let value = if i < bytes.len() && bytes[i] == b'=' {
+            i += 1; // consome `=`
+            while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+                i += 1;
+            }
+            if i < bytes.len() && (bytes[i] == b'"' || bytes[i] == b'\'') {
+                // Valor entre aspas: lê até a aspa de fechamento igual.
+                let quote = bytes[i];
+                i += 1;
+                let v_start = i;
+                while i < bytes.len() && bytes[i] != quote {
+                    i += 1;
+                }
+                let v = raw[v_start..i].to_string();
+                if i < bytes.len() {
+                    i += 1; // consome a aspa de fechamento
+                }
+                v
+            } else {
+                // Valor sem aspas: lê até o próximo espaço.
+                let v_start = i;
+                while i < bytes.len() && !bytes[i].is_ascii_whitespace() {
+                    i += 1;
+                }
+                raw[v_start..i].to_string()
+            }
+        } else {
+            String::new() // atributo booleano (sem `=valor`).
+        };
+        attrs.push(Attr {
+            name,
+            value: crate::html::decode_entities(&value),
+        });
+    }
+    attrs
+}
+
 /// Parseia HTML para uma árvore retida. Reusa o tokenizador de `html.rs`; a
 /// diferença é a etapa sintática: aqui mantém-se uma PILHA de "elemento aberto"
 /// e cada nó nasce filho do topo da pilha.
@@ -163,7 +261,7 @@ pub fn parse_html_to_dom(html: &str) -> Dom {
 
     for tok in tokenize(html) {
         match tok {
-            Token::Tag { name, close } => {
+            Token::Tag { name, attrs_raw, close } => {
                 if close {
                     // Pop até encontrar a tag de nome igual (tolerante).
                     if let Some(pos) = open.iter().rposition(|(_, n)| *n == name) {
@@ -173,7 +271,8 @@ pub fn parse_html_to_dom(html: &str) -> Dom {
                     // `</x>` órfão (sem abertura): ignora, não mexe na pilha.
                 } else {
                     let parent = open.last().unwrap().0;
-                    let id = dom.push(NodeKind::Element { tag: name.clone() }, parent);
+                    let attrs = parse_attrs(&attrs_raw);
+                    let id = dom.push(NodeKind::Element { tag: name.clone() }, attrs, parent);
                     if !is_void(&name) {
                         open.push((id, name));
                     }
@@ -184,7 +283,7 @@ pub fn parse_html_to_dom(html: &str) -> Dom {
                     continue; // whitespace puro entre tags — descarta.
                 }
                 let parent = open.last().unwrap().0;
-                dom.push(NodeKind::Text(text), parent);
+                dom.push(NodeKind::Text(text), Vec::new(), parent);
             }
         }
     }
@@ -202,6 +301,51 @@ mod tests {
             NodeKind::Element { tag } => tag,
             other => panic!("esperava Element, achei {other:?}"),
         }
+    }
+
+    #[test]
+    fn atributos_class_id_href_preservados() {
+        let dom = parse_html_to_dom(
+            "<div class='card' id=\"alvo\"><a href='https://x'>l</a></div>",
+        );
+        let div = dom.node(dom.root).children[0];
+        assert_eq!(dom.node(div).attr("class"), Some("card"));
+        assert_eq!(dom.node(div).attr("id"), Some("alvo"));
+        assert_eq!(dom.node(div).attr("naoexiste"), None);
+        let a = dom.node(div).children[0];
+        assert_eq!(tag(&dom, a), "a");
+        assert_eq!(dom.node(a).attr("href"), Some("https://x"));
+    }
+
+    #[test]
+    fn atributos_variantes_aspas_e_booleano() {
+        // aspas duplas, simples, sem aspas, e atributo sem valor.
+        let dom = parse_html_to_dom("<input type=text value='oi' disabled checked=\"x\">");
+        let inp = dom.node(dom.root).children[0];
+        assert_eq!(dom.node(inp).attr("type"), Some("text"));   // sem aspas
+        assert_eq!(dom.node(inp).attr("value"), Some("oi"));    // aspas simples
+        assert_eq!(dom.node(inp).attr("disabled"), Some(""));   // booleano
+        assert_eq!(dom.node(inp).attr("checked"), Some("x"));   // aspas duplas
+        // `input` é void: não empilha, não tem filhos.
+        assert!(dom.node(inp).children.is_empty());
+    }
+
+    #[test]
+    fn valor_de_atributo_decodifica_entidades() {
+        let dom = parse_html_to_dom("<a title='Tom &amp; Jerry'>x</a>");
+        let a = dom.node(dom.root).children[0];
+        assert_eq!(dom.node(a).attr("title"), Some("Tom & Jerry"));
+    }
+
+    #[test]
+    fn dump_mostra_atributos() {
+        let dom = parse_html_to_dom("<div class='card' id='x'>oi</div>");
+        let esperado = "\
+#document
+  <div class=\"card\" id=\"x\">
+    \"oi\"
+";
+        assert_eq!(dom.dump(), esperado);
     }
 
     #[test]

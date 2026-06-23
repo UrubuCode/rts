@@ -13,8 +13,11 @@
 /// `pub(crate)` para que `dom.rs` reuse o mesmo tokenizador (uma única fonte de
 /// verdade da etapa léxica; o parser de árvore difere só na etapa sintática).
 pub(crate) enum Token {
-    /// `<nome ...>` (atributos descartados) — `close=true` para `</nome>`.
-    Tag { name: String, close: bool },
+    /// `<nome attrs...>` — `close=true` para `</nome>`. `attrs_raw` é a parte
+    /// crua após o nome (`class='x' id='y'`), vazia em tags de fechamento; a
+    /// etapa sintática (`dom.rs`) a parseia em pares. Mantemos cru aqui para o
+    /// tokenizador continuar só-léxico.
+    Tag { name: String, attrs_raw: String, close: bool },
     /// Texto entre tags, já com entidades decodificadas.
     Text(String),
 }
@@ -43,15 +46,19 @@ pub(crate) fn tokenize(html: &str) -> Vec<Token> {
             i = if j < bytes.len() { j + 1 } else { j };
 
             let close = raw.starts_with('/');
-            let raw = raw.trim_start_matches('/').trim();
-            // Nome = primeiro token (antes de espaço/atributos), em minúsculas.
-            let name = raw
-                .split_whitespace()
-                .next()
-                .unwrap_or("")
-                .to_ascii_lowercase();
+            // Tag autofechável `<br/>`: tira a `/` final também.
+            let raw = raw.trim_start_matches('/').trim_end_matches('/').trim();
+            // Nome = primeiro token (antes de espaço/atributos), em minúsculas;
+            // attrs_raw = o que sobra após o nome (só em tags de abertura).
+            let mut parts = raw.splitn(2, char::is_whitespace);
+            let name = parts.next().unwrap_or("").to_ascii_lowercase();
+            let attrs_raw = if close {
+                String::new()
+            } else {
+                parts.next().unwrap_or("").trim().to_string()
+            };
             if !name.is_empty() {
-                tokens.push(Token::Tag { name, close });
+                tokens.push(Token::Tag { name, attrs_raw, close });
             }
         } else {
             // Acumula char de texto (respeitando UTF-8: copia o char inteiro).
@@ -67,8 +74,9 @@ pub(crate) fn tokenize(html: &str) -> Vec<Token> {
 }
 
 /// Decodifica as 3 entidades básicas do P1. Substituímos as três de uma vez, sem
-/// risco de dupla-decodificação.
-fn decode_entities(s: &str) -> String {
+/// risco de dupla-decodificação. `pub(crate)` — reusada por `dom.rs` ao decodar
+/// valores de atributo.
+pub(crate) fn decode_entities(s: &str) -> String {
     s.replace("&lt;", "<")
         .replace("&gt;", ">")
         .replace("&amp;", "&")
