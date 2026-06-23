@@ -14,6 +14,7 @@ edition = "2024"
 cranelift-codegen = "0.131"
 cranelift-frontend = "0.131"
 cranelift-module = "0.131"
+cranelift-object = "0.131"
 anyhow = "1.0"
 # Increment 3: parse REAL TypeScript and lower its typed HIR straight to
 # Cranelift for the proven-monomorphic numeric subset. rts-parser gives the swc
@@ -55,6 +56,10 @@ rts-runtime = { path = "../rts-runtime" }
 # are reached through the `rts-runtime` facade; only the `Engine`/`Registry`/
 # `Member` types come from here directly.
 rts-engine = { path = "../rts-engine" }
+# The runtime-side value model (PolyValue + the `__rtsadp_*` trampolines), split
+# out into its own Cranelift-free crate so it links into AOT binaries as a
+# staticlib. This crate keeps only the Cranelift *emit* side (value::emit/…).
+rts-adapters = { path = "../rts-adapters" }
 
 [dev-dependencies]
 target-lexicon = "0.13"

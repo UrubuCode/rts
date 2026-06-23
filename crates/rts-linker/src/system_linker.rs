@@ -473,9 +473,7 @@ fn macos_platform_versions(triple: &str) -> (String, String) {
 fn windows_runtime_default_libs() -> &'static [&'static str] {
     &[
         // Import libs exigidas pelo Rust std + runtime (net=ws2_32,
-        // crypto/getrandom=bcrypt, dirs=shell32/ole32). As libs de GUI
-        // (user32/gdi32/comctl32/comdlg32/gdiplus/winspool/oleaut32) eram
-        // residuo do FLTK e foram removidas.
+        // crypto/getrandom=bcrypt, dirs=shell32/ole32).
         "kernel32.lib",
         "userenv.lib",
         "advapi32.lib",
@@ -485,6 +483,23 @@ fn windows_runtime_default_libs() -> &'static [&'static str] {
         "shell32.lib",
         "ole32.lib",
         "synchronization.lib",
+        // GUI/GPU stack (rts-egui → winit + wgpu). winit needs window/input/DPI
+        // (user32/gdi32/dwmapi/imm32/shcore/uxtheme); wgpu's dx12 backend needs
+        // dxgi/d3d12; oleaut for COM. The AOT link is manual (Cranelift .o +
+        // staticlib), so the crates' `#[link]` directives don't propagate — these
+        // must be passed explicitly.
+        "user32.lib",
+        "gdi32.lib",
+        "dwmapi.lib",
+        "imm32.lib",
+        "shcore.lib",
+        "uxtheme.lib",
+        "oleaut32.lib",
+        "dxgi.lib",
+        "d3d12.lib",
+        "propsys.lib",
+        "winmm.lib",
+        "version.lib",
         // Rust staticlib on MSVC uses the dynamic CRT by default; keep only
         // the matching dynamic import libraries to avoid duplicate symbols
         // like `__report_gsfailure` that appear in both static and dynamic

@@ -86,6 +86,6 @@ pub const SINGLETON_EMPTY: u64 = 5;
 ///
 /// `encode(tag, payload) = BOX_BASE | (tag << 48) | (payload & 0xFFFF_FFFF_FFFF)`.
 #[inline(always)]
-pub(crate) const fn encode(tag: u64, payload: u64) -> u64 {
+pub const fn encode(tag: u64, payload: u64) -> u64 {
     BOX_BASE | ((tag & TAG_MASK) << TAG_SHIFT) | (payload & PAYLOAD_MASK)
 }

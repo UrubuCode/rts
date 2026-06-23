@@ -92,11 +92,13 @@
 //! object/array printing, string methods, classes, closures, dynamic property
 //! ICs, and 128-bit ints are later increments.
 
-pub mod dispatch;
 pub mod front;
-pub mod ic;
-pub mod repr;
 pub mod adapter_symbols;
-pub mod shape;
-pub mod state;
+// The runtime-side value model (the NaN-box `PolyValue`, hidden-class `shape`s,
+// `ic` cells, data `dispatch`, the `repr` lattice, compile-time `state`) now
+// lives in the Cranelift-free `rts-adapters` crate so it links into AOT binaries
+// as a staticlib. Re-exported here so every `crate::{dispatch,ic,repr,shape,
+// state}` path keeps resolving unchanged. The `value` module below is the facade
+// that adds back the Cranelift emit side.
+pub use rts_adapters::{dispatch, ic, repr, shape, state};
 pub mod value;

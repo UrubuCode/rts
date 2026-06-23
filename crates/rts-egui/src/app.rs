@@ -56,6 +56,7 @@ struct Builder {
     title: String,
     width: u32,
     height: u32,
+    cfg: crate::frame::GpuConfig,
     out: Option<Result<BuiltWindow, String>>,
 }
 
@@ -66,7 +67,7 @@ impl Builder {
         if self.out.is_some() {
             return;
         }
-        self.out = Some(build(event_loop, &self.title, self.width, self.height));
+        self.out = Some(build(event_loop, &self.title, self.width, self.height, self.cfg));
     }
 }
 
@@ -99,6 +100,7 @@ fn build(
     title: &str,
     width: u32,
     height: u32,
+    cfg: crate::frame::GpuConfig,
 ) -> Result<BuiltWindow, String> {
     let attrs = Window::default_attributes()
         .with_title(title)
@@ -108,7 +110,7 @@ fn build(
         .map_err(|e| format!("create_window: {e}"))?;
     let window = Arc::new(window);
 
-    let render = RenderState::new(window.clone())?;
+    let render = RenderState::new(window.clone(), cfg)?;
 
     let egui_ctx = egui::Context::default();
     // egui-winit 0.34: State::new(ctx, viewport_id, display_target,
@@ -139,18 +141,23 @@ pub extern "C" fn __RTS_FN_NS_EGUI_OPEN_WINDOW(
     title_len: i64,
     w: i64,
     h: i64,
-    _backend: i64,
+    config: i64,
 ) -> u64 {
     let title = unsafe { str_abi::from_abi(title_ptr, title_len) }
         .unwrap_or("rts-egui")
         .to_string();
     let width = w.clamp(1, i64::from(u32::MAX)) as u32;
     let height = h.clamp(1, i64::from(u32::MAX)) as u32;
+    // `config` is a bitfield (bit0 high_perf, bit1 mem_performance, bit2
+    // high_limits) — `0` = all-optimized defaults. Only the FIRST window's config
+    // takes effect (the GPU device is shared); later windows reuse it.
+    let cfg = crate::frame::GpuConfig::from_bits(config);
 
     let mut builder = Builder {
         title,
         width,
         height,
+        cfg,
         out: None,
     };
 

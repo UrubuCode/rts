@@ -31,7 +31,6 @@
 
 use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature, Value, types};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
-use cranelift_jit::JITModule;
 use cranelift_module::{FuncId, Linkage, Module};
 
 use crate::repr::Repr;
@@ -61,7 +60,7 @@ pub fn uniform_signature(module: &dyn Module) -> Signature {
 /// Declare the thunk symbol for `base_name` (the real function name) and return
 /// its [`FuncId`]. The thunk name is `<base>__rtsn_thunk`. Declared `Local` so it
 /// lives in the same module and `func_addr` can take its relocatable address.
-pub fn declare_thunk(module: &mut JITModule, base_name: &str) -> FrontResult<FuncId> {
+pub fn declare_thunk(module: &mut dyn Module, base_name: &str) -> FrontResult<FuncId> {
     let sig = uniform_signature(module);
     let name = thunk_name(base_name);
     module
@@ -80,7 +79,7 @@ pub fn thunk_name(base: &str) -> String {
 /// function). Bails explicitly for the cases outside this increment (a `...rest`
 /// param, a non-coercible param repr).
 pub fn define_thunk(
-    module: &mut JITModule,
+    module: &mut dyn Module,
     thunk_id: FuncId,
     real_id: FuncId,
     sig: &FnSig,
@@ -120,7 +119,7 @@ pub fn define_thunk(
 /// closure `env`, unpack `a0..a3` (+ overflow from the rest array) into the
 /// remaining real params, `call` the body, box the result.
 fn build_thunk_body(
-    module: &mut JITModule,
+    module: &mut dyn Module,
     fb: &mut FunctionBuilder,
     real_id: FuncId,
     sig: &FnSig,
@@ -186,7 +185,7 @@ fn build_thunk_body(
 /// (`const C = Box; new C(7)`) reifies to this thunk's address. Sidesteps the
 /// `reify_function` `has_this` bail: the ctor's `this` is synthesized HERE (the
 /// allocation), never filled from a positional arg.
-pub fn declare_new_thunk(module: &mut JITModule, class_name: &str) -> FrontResult<FuncId> {
+pub fn declare_new_thunk(module: &mut dyn Module, class_name: &str) -> FrontResult<FuncId> {
     let sig = uniform_signature(module);
     let name = new_thunk_name(class_name);
     module
@@ -207,7 +206,7 @@ pub fn new_thunk_name(class: &str) -> String {
 /// remaining params are the declared ctor args. A `...rest`/non-coercible param is
 /// rejected the same way [`build_thunk_body`] does.
 pub fn define_new_thunk(
-    module: &mut JITModule,
+    module: &mut dyn Module,
     new_thunk_id: FuncId,
     ctor_id: FuncId,
     ctor_sig: &FnSig,
@@ -239,7 +238,7 @@ pub fn define_new_thunk(
 /// Emit the new-thunk body: allocate the instance, fill `this` + ctor args, call
 /// the ctor, return the instance word.
 fn build_new_thunk_body(
-    module: &mut JITModule,
+    module: &mut dyn Module,
     fb: &mut FunctionBuilder,
     ctor_id: FuncId,
     ctor_sig: &FnSig,

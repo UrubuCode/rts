@@ -95,6 +95,14 @@ interface WindowOptions {
   width?: number;
   height?: number;
   render?: "vulkan" | "metal" | "dx12" | "opengl" | "wgpu" | "glow";
+  // ── Knobs de GPU (default = mais OTIMIZADO p/ RAM) ─────────────────────────
+  // Efeito só na 1ª janela do processo (o device GPU é compartilhado por todas).
+  /** "low" (default; GPU integrada, driver leve) ou "high" (GPU discreta). */
+  power?: "low" | "high";
+  /** "usage" (default; minimiza RAM) ou "performance" (pré-aloca, mais rápido). */
+  memory?: "usage" | "performance";
+  /** "low" (default; limites modestos, menos heap) ou "high" (limites altos). */
+  limits?: "low" | "high";
 }
 
 class Window {
@@ -105,15 +113,18 @@ class Window {
     const title = opts.title !== undefined ? opts.title : "RTS";
     const width = opts.width !== undefined ? opts.width : 800;
     const height = opts.height !== undefined ? opts.height : 600;
-    const backend = Window.__backendCode(opts.render);
-    this.__h = egui.openWindow(title, width, height, backend);
+    this.__h = egui.openWindow(title, width, height, Window.__configBits(opts));
   }
 
-  // Traduz o nome da API gráfica para o código de backend do primitivo:
-  // 0 = wgpu (vulkan/metal/dx12/default), 1 = glow (opengl).
-  static __backendCode(render?: string): number {
-    if (render === "opengl" || render === "glow") return 1;
-    return 0;
+  // Monta o bitfield de config do device GPU lido pelo primitivo `openWindow`:
+  // bit0 = power high, bit1 = memory performance, bit2 = limits high. `0` (o
+  // comum) = tudo otimizado p/ menor RAM. O usuário sobe os bits caso precise.
+  static __configBits(opts: WindowOptions): number {
+    let bits = 0;
+    if (opts.power === "high") bits = bits + 1;
+    if (opts.memory === "performance") bits = bits + 2;
+    if (opts.limits === "high") bits = bits + 4;
+    return bits;
   }
 
   // ── Loop (forma suportada hoje) ──────────────────────────────────────────

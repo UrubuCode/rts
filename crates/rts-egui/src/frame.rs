@@ -25,6 +25,35 @@ use crate::ctx::{self, WidgetCmd};
 /// — ou só churn de abrir/fechar — acumulava/recriava Devices gigantes (medido:
 /// 30 janelas sem close = 5,6 GB). Compartilhando o Device, cada janela nova custa
 /// só uma Surface + Renderer (poucos MB), e a RAM fica limitada.
+/// GPU device knobs, decoded from the `openWindow` config bitfield. Defaults are
+/// the RAM-minimizing choices; the user opts INTO the heavier ones per case.
+/// NOTE: the device is created ONCE (shared); these apply on the FIRST window —
+/// later windows reuse the same device. Per-window knobs live in the surface.
+#[derive(Clone, Copy)]
+pub struct GpuConfig {
+    /// `true` → `PowerPreference::HighPerformance` (discrete GPU). Default `false`
+    /// (`LowPower`, integrated when present — lighter driver).
+    pub high_perf: bool,
+    /// `true` → `MemoryHints::Performance` (pre-allocates big blocks). Default
+    /// `false` (`MemoryHints::MemoryUsage` — small blocks, less RAM).
+    pub mem_performance: bool,
+    /// `true` → high device limits (`Limits::default`). Default `false`
+    /// (`downlevel_defaults` — modest limits, less heap reserved).
+    pub high_limits: bool,
+}
+
+impl GpuConfig {
+    /// Decode the `openWindow` config bitfield: bit0 = high_perf, bit1 =
+    /// mem_performance, bit2 = high_limits. `0` (the common case) = all optimized.
+    pub fn from_bits(bits: i64) -> Self {
+        GpuConfig {
+            high_perf: bits & 0b001 != 0,
+            mem_performance: bits & 0b010 != 0,
+            high_limits: bits & 0b100 != 0,
+        }
+    }
+}
+
 #[derive(Clone)]
 struct SharedGpu {
     instance: wgpu::Instance,
@@ -40,28 +69,54 @@ thread_local! {
 /// Retorna (clonando os handles) a GPU compartilhada, criando-a UMA vez. O adapter
 /// é pedido sem `compatible_surface` (desktop: pega o GPU default, compatível com
 /// as surfaces de janela criadas depois).
-fn shared_gpu() -> Result<SharedGpu, String> {
+fn shared_gpu(cfg: GpuConfig) -> Result<SharedGpu, String> {
     SHARED_GPU.with(|cell| {
         if let Some(g) = cell.borrow().as_ref() {
             return Ok(g.clone());
         }
-        let instance = wgpu::Instance::new(
-            wgpu::InstanceDescriptor::new_without_display_handle_from_env(),
-        );
+        // Minimal instance: backends from env (DX12 on Windows), but flags forced
+        // to the release build-config (no validation/debug layers, which the DX12
+        // debug layer would otherwise reserve memory for).
+        let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+        desc.flags = wgpu::InstanceFlags::from_build_config();
+        let instance = wgpu::Instance::new(desc);
+        // Default `LowPower` prefers the INTEGRATED GPU when present (lighter
+        // driver, less RAM for a 2D UI). The user opts into `HighPerformance` via
+        // the window config when they need discrete-GPU throughput.
+        let power_preference = if cfg.high_perf {
+            wgpu::PowerPreference::HighPerformance
+        } else {
+            wgpu::PowerPreference::LowPower
+        };
         let adapter = pollster::block_on(instance.request_adapter(
             &wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
+                power_preference,
                 force_fallback_adapter: false,
                 compatible_surface: None,
             },
         ))
         .map_err(|e| format!("request_adapter: {e}"))?;
+        // RAM-minimizing device by default: `downlevel_defaults` limits (a 2D UI
+        // needs no high-end limits that make the driver reserve large heaps) +
+        // `MemoryHints::MemoryUsage` (gpu-allocator favors small blocks vs the
+        // Performance default that pre-allocates big chunks). The user opts into
+        // the heavier `default` limits / `Performance` hint via the window config.
+        let required_limits = if cfg.high_limits {
+            wgpu::Limits::default()
+        } else {
+            wgpu::Limits::downlevel_defaults()
+        };
+        let memory_hints = if cfg.mem_performance {
+            wgpu::MemoryHints::Performance
+        } else {
+            wgpu::MemoryHints::MemoryUsage
+        };
         let (device, queue) = pollster::block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
                 label: Some("rts-egui shared device"),
                 required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-                memory_hints: wgpu::MemoryHints::default(),
+                required_limits,
+                memory_hints,
                 experimental_features: wgpu::ExperimentalFeatures::disabled(),
                 trace: wgpu::Trace::Off,
             },
@@ -94,15 +149,16 @@ impl RenderState {
     ///
     /// `window` é `Arc<Window>` para que `create_surface` produza
     /// `Surface<'static>` (o alvo owned satisfaz o lifetime `'static`).
-    pub fn new(window: Arc<Window>) -> Result<RenderState, String> {
+    pub fn new(window: Arc<Window>, cfg: GpuConfig) -> Result<RenderState, String> {
         let size = window.inner_size();
         let width = size.width.max(1);
         let height = size.height.max(1);
 
         // Instance/Adapter/Device/Queue COMPARTILHADOS (criados 1×, reusados por
         // todas as janelas) — antes eram por-janela (~190 MB cada), a causa do
-        // vazamento. Só a Surface + config + Renderer abaixo são por-janela.
-        let gpu = shared_gpu()?;
+        // vazamento. Só a Surface + config + Renderer abaixo são por-janela. `cfg`
+        // só tem efeito na 1ª janela (criação do device); depois é reusado.
+        let gpu = shared_gpu(cfg)?;
 
         // `Arc<Window>` (owned) → `Surface<'static>`, da instance compartilhada.
         let surface = gpu
@@ -110,9 +166,13 @@ impl RenderState {
             .create_surface(window.clone())
             .map_err(|e| format!("create_surface: {e}"))?;
 
-        let config = surface
+        let mut config = surface
             .get_default_config(&gpu.adapter, width, height)
             .ok_or_else(|| "surface não suportada pelo adapter".to_string())?;
+        // 1 frame em voo (default 2): metade das imagens do swapchain → menos VRAM/
+        // RAM reservada. Suficiente para uma UI imediata que não precisa de
+        // pipelining profundo de frames.
+        config.desired_maximum_frame_latency = 1;
         surface.configure(&gpu.device, &config);
 
         // egui-wgpu 0.34: `Renderer::new(device, color_format, RendererOptions)`.
