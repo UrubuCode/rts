@@ -47,6 +47,18 @@ wgpu = { version = "29.0", optional = true, default-features = false, features =
 egui_glow = { version = "0.34.3", optional = true, default-features = false }
 glow = { version = "0.16", optional = true }
 
+# LINUX: winit precisa de um backend de plataforma EXPLÍCITO (x11/wayland são
+# feature-gated no winit; Windows/macOS habilitam o backend pelo próprio target,
+# sem feature). Sem isto winit emite `compile_error!("platform not supported")`
+# (quebrava o CI Linux). Ambos os backends carregam por dlopen, então COMPILAM sem
+# pacotes -dev no runner. Cargo une estas features às do dep `winit` base no Linux.
+[target.'cfg(target_os = "linux")'.dependencies]
+winit = { version = "0.30", default-features = false, features = [
+    "rwh_06",
+    "x11",
+    "wayland",
+] }
+
 [features]
 # default liga o backend wgpu + dx12 (Windows). macOS/Linux: trocar gpu-dx12 por
 # gpu-metal/gpu-vulkan no consumidor (rts-runtime) por cfg de plataforma.
