@@ -1,6 +1,21 @@
-# Motor de render HTML+CSS do RTS sobre egui — spec de design
+# Motor de render HTML+CSS do RTS — NORTH STAR (alvo de longuíssimo prazo, congelado)
 
-> Status: PROPOSTA acionável (v1). Canônico para o motor de render do `rts-egui`.
+> 🧭 **PAPEL DESTE DOCUMENTO (decisão de 2026-06-23):** este é o **north-star** —
+> a referência conceitual do TETO TEÓRICO de um motor de browser canônico (5
+> árvores DOM→Style→Layout→DisplayList→Paint, paint absoluto universal, cascade
+> CSS completa). **NÃO é um plano de execução.** Ninguém pega trabalho daqui.
+> O plano operacional vivo é **[`rts-html-roadmap.md`](rts-html-roadmap.md)**
+> (fases F0-F5, evolução in-place do motor leve já na main).
+>
+> Este north-star permanece como (a) documentação honesta do que o roadmap
+> deliberadamente NÃO alcança e por quê, e (b) referência só ativada se o
+> "critério de teto binário" de F4 do roadmap provar que o egui não basta para
+> além do parágrafo rico. Foi a `PLANO.md` original (de 5 árvores); rebaixado a
+> north-star porque a estratégia escolhida (ver roadmap §1) é evoluir o motor
+> leve in-place, com o egui como motor de layout por padrão e paint absoluto só
+> cirúrgico — não construir as 5 árvores como pipeline global.
+
+> Status histórico (quando era a `PLANO.md`): PROPOSTA acionável (v1).
 > Linguagem de código: Rust (identificadores em inglês). Comunicação: português.
 > Este documento incorpora a arquitetura de 5 árvores E as correções exigidas
 > pela crítica cética. Onde a crítica apontou, o plano regrediu para algo

@@ -40,12 +40,16 @@ não eram guia para o motor novo.
   — Design da GUI cross-platform: egui (immediate-mode, sem FLTK) numa crate nova,
   primitivos no Rust + lib de alto nível em TS, loop dirigido pelo TS, wgpu
   primário. Fundamento de render visando jogos/browser no futuro.
-- [Motor de render HTML+CSS (estudo + plano)](html-engine/README.md) — Estudo
-  completo do motor de render HTML/CSS próprio sobre o `rts-egui` (rumo a um motor
-  de browser). Pipeline DOM→Style→Layout→Display list→Paint em Rust (crate nova
-  `rts-html`), egui como paint absoluto, escopo honesto (cascade + box model
-  block/inline + scroll + links; flexbox/grid/CSS5-moderno FORA). Fases P0→P7
-  pixel-primeiro. Inclui as 4 análises-base + arquitetura + crítica adversarial.
+- [Motor de render HTML (roadmap operacional + north-star)](html-engine/README.md)
+  — **DECIDIDO (2026-06-23):** evoluir o motor leve de HTML retido já na main
+  (DOM em árvore + alocador de blocos data-driven em TS + mutação por NodeId, na
+  `rts-egui`) IN-PLACE; a crate `rts-html` das 5 árvores NÃO será criada. Plano
+  operacional vivo: [`rts-html-roadmap.md`](html-engine/rts-html-roadmap.md)
+  (estratégia, 10 decisões, 6 invariantes, fases F0-F5 pixel-cedo, kill-gates,
+  primeira fatia ≤1 dia). O antigo plano de 5 árvores (DOM→Style→Layout→Display
+  list→Paint, crate nova, paint absoluto universal) foi rebaixado a north-star
+  congelado: [`rts-html-north-star.md`](html-engine/rts-html-north-star.md).
+  Inclui as 4 análises-base + arquitetura + crítica adversarial.
 - [Epic #226 — paridade JS/TS](js-parity-epic-226.md) — Catálogo das ~60 APIs
   JS (Array/Object/Math/String/URL/Date/Boolean/parseInt/destructuring). Define
   as SEMÂNTICAS que o motor novo deve cobrir (a implementação migra para o
