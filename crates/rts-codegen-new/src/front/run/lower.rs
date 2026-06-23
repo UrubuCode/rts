@@ -583,9 +583,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // then truncate toward zero (JS `ToInt`/array-index/`| 0`-style). This
             // replaces the old `emit_unbox_int32`, which silently read 0 from a
             // boxed-double word (e.g. `let s = 0; s = s + arr[i]`).
+            //
+            // SATURATING (`fcvt_to_sint_sat`, like the Float64→Int arm above), NOT
+            // the trapping `fcvt_to_sint`: a Tagged word that is NOT a number — an
+            // object/string/undefined passed where an int is wanted (e.g. a heap
+            // object handed to a `U64`-param builtin like `collections.map_get`) —
+            // decodes to a NaN/out-of-range double, and the trapping convert emits a
+            // Cranelift `trap` (an `ud2` → SIGILL). Saturation yields a DEFINED value
+            // (0 for NaN) instead — never a crash. (Was the root cause of the
+            // heap-value → `collections.*(U64)` SIGILL.)
             (Repr::Tagged, Repr::Int32) | (Repr::Tagged, Repr::Int64) => {
                 let f = value::emit_tagged_number_to_f64(self.builder, val.v);
-                Ok(self.builder.ins().fcvt_to_sint(types::I64, f))
+                Ok(self.builder.ins().fcvt_to_sint_sat(types::I64, f))
             }
             (from, to) => unsupported!("cannot coerce {from:?} to {to:?}"),
         }
