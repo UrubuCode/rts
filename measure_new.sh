@@ -6,7 +6,9 @@ pass=0; fail=0
 : > /tmp/new_fail.txt
 : > /tmp/new_pass.txt
 for f in tests/*.test.ts; do
-  out=$("$RTS" run-new "$f" 2>&1)
+  # Per-file 20s cap: a single hanging fixture (async/thread stub without a real
+  # event loop, #207) must not block the whole measure. Timeout → exit 124 → bailed.
+  out=$(timeout 20 "$RTS" run-new "$f" 2>&1)
   code=$?
   if [ $code -eq 0 ]; then
     pass=$((pass+1)); echo "$f" >> /tmp/new_pass.txt

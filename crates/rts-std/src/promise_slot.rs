@@ -192,19 +192,26 @@ pub fn wait_blocking(slot: &Arc<PromiseSlot>) -> (u8, i64) {
     // runtime" nesse caso. Usar `block_in_place` para informar ao
     // scheduler tokio que vamos bloquear, depois bloqueia via
     // `Handle::block_on` da runtime atual.
+    // BOUNDED wait (anti-hang): the new engine's async is a synchronous stub — a
+    // Promise whose resolver never runs (a thread-based settle the stub never
+    // executes) would block this oneshot FOREVER. Cap the block at 5s; on timeout
+    // return the slot's CURRENT (pending) state/value, so the caller gets a defined
+    // result and the program TERMINATES (a wrong value vs a real event loop, never a
+    // hang). A genuinely-resolving Promise sends `tx` well within the cap.
+    let cap = std::time::Duration::from_secs(5);
     if crate::runtime::async_rt::in_tokio_thread() {
         return tokio::task::block_in_place(|| {
             let handle = tokio::runtime::Handle::current();
-            match handle.block_on(rx) {
-                Ok(v) => v,
-                Err(_) => (STATE_REJECTED, 0),
+            match handle.block_on(async { tokio::time::timeout(cap, rx).await }) {
+                Ok(Ok(v)) => v,
+                _ => (current_state(slot), current_value(slot)),
             }
         });
     }
     let rt = crate::runtime::async_rt::rt();
-    match rt.block_on(rx) {
-        Ok(v) => v,
-        Err(_) => (STATE_REJECTED, 0),
+    match rt.block_on(async { tokio::time::timeout(cap, rx).await }) {
+        Ok(Ok(v)) => v,
+        _ => (current_state(slot), current_value(slot)),
     }
 }
 
