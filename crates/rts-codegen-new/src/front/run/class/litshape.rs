@@ -102,7 +102,6 @@ fn synth_lit_method(fn_name: &str, function: &swc_ecma_ast::Function) -> HirFunc
             has_default: false,
             optional: false,
             default_expr: None,
-            class_hint: None,
         });
     }
 
