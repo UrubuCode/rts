@@ -94,9 +94,13 @@ interface WindowOptions {
   title?: string;
   width?: number;
   height?: number;
+  // Backend de render. "wgpu"/"vulkan"/"metal"/"dx12" (default) = GPU nativa via
+  // wgpu (pesado em RAM, ~224 MB). "glow"/"opengl" = OpenGL leve (dezenas de MB),
+  // ideal p/ UI 2D que não precisa de throughput de GPU discreta.
   render?: "vulkan" | "metal" | "dx12" | "opengl" | "wgpu" | "glow";
   // ── Knobs de GPU (default = mais OTIMIZADO p/ RAM) ─────────────────────────
   // Efeito só na 1ª janela do processo (o device GPU é compartilhado por todas).
+  // Aplicam-se SÓ ao backend wgpu; no glow são ignorados.
   /** "low" (default; GPU integrada, driver leve) ou "high" (GPU discreta). */
   power?: "low" | "high";
   /** "usage" (default; minimiza RAM) ou "performance" (pré-aloca, mais rápido). */
@@ -116,14 +120,15 @@ class Window {
     this.__h = egui.openWindow(title, width, height, Window.__configBits(opts));
   }
 
-  // Monta o bitfield de config do device GPU lido pelo primitivo `openWindow`:
-  // bit0 = power high, bit1 = memory performance, bit2 = limits high. `0` (o
-  // comum) = tudo otimizado p/ menor RAM. O usuário sobe os bits caso precise.
+  // Monta o bitfield de config lido pelo primitivo `openWindow`:
+  // bit0 = power high, bit1 = memory performance, bit2 = limits high,
+  // bit3 = backend glow (OpenGL). `0` (o comum) = wgpu, tudo otimizado p/ RAM.
   static __configBits(opts: WindowOptions): number {
     let bits = 0;
     if (opts.power === "high") bits = bits + 1;
     if (opts.memory === "performance") bits = bits + 2;
     if (opts.limits === "high") bits = bits + 4;
+    if (opts.render === "glow" || opts.render === "opengl") bits = bits + 8;
     return bits;
   }
 

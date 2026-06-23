@@ -40,16 +40,43 @@ pub struct GpuConfig {
     /// `true` → high device limits (`Limits::default`). Default `false`
     /// (`downlevel_defaults` — modest limits, less heap reserved).
     pub high_limits: bool,
+    /// `true` → backend OpenGL (glow) em vez do wgpu/DX12. Bem mais leve em RAM
+    /// (dezenas de MB vs ~224 MB), à custa de menos throughput. Os outros bits de
+    /// device (perf/mem/limits) só se aplicam ao wgpu — no glow são ignorados.
+    pub use_glow: bool,
 }
 
 impl GpuConfig {
     /// Decode the `openWindow` config bitfield: bit0 = high_perf, bit1 =
-    /// mem_performance, bit2 = high_limits. `0` (the common case) = all optimized.
+    /// mem_performance, bit2 = high_limits, bit3 = use_glow. `0` (the common case)
+    /// = wgpu, all-optimized.
     pub fn from_bits(bits: i64) -> Self {
         GpuConfig {
-            high_perf: bits & 0b001 != 0,
-            mem_performance: bits & 0b010 != 0,
-            high_limits: bits & 0b100 != 0,
+            high_perf: bits & 0b0001 != 0,
+            mem_performance: bits & 0b0010 != 0,
+            high_limits: bits & 0b0100 != 0,
+            use_glow: bits & 0b1000 != 0,
+        }
+    }
+}
+
+/// Backend de render de UMA janela. wgpu (DX12/Vulkan/Metal — pesado em RAM) ou
+/// glow (OpenGL — leve), escolhido por janela via `GpuConfig::use_glow`. O pass do
+/// egui (begin/drena/end/tessellate) é AGNÓSTICO; só a pintura/apresentação
+/// (`present_wgpu` vs `GlowState::paint`) difere.
+pub enum Backend {
+    Wgpu(RenderState),
+    #[cfg(feature = "glow-backend")]
+    Glow(crate::glbackend::GlowState),
+}
+
+impl Backend {
+    /// Reage a um `WindowEvent::Resized` reconfigurando a surface do backend ativo.
+    pub fn resize(&mut self, width: u32, height: u32) {
+        match self {
+            Backend::Wgpu(r) => r.resize(width, height),
+            #[cfg(feature = "glow-backend")]
+            Backend::Glow(g) => g.resize(width, height),
         }
     }
 }
@@ -296,7 +323,14 @@ pub extern "C" fn __RTS_FN_NS_EGUI_END_FRAME(h: u64) {
         c.egui_state
             .handle_platform_output(&c.window, full_output.platform_output);
 
-        present(c, paint_jobs, full_output.textures_delta, ppp);
+        // Despacha a pintura pro backend ativo. `window` clonado (Arc, barato) p/
+        // emprestar `c.backend` mutável sem colidir com `c.window`.
+        let window = c.window.clone();
+        match &mut c.backend {
+            Backend::Wgpu(r) => present_wgpu(r, &window, paint_jobs, full_output.textures_delta, ppp),
+            #[cfg(feature = "glow-backend")]
+            Backend::Glow(g) => g.paint(&window, paint_jobs, full_output.textures_delta, ppp),
+        }
     });
 }
 
@@ -565,10 +599,12 @@ fn collect_text(dom: &crate::dom::Dom, id: crate::dom::NodeId) -> String {
     }
 }
 
-/// Render + present de um frame já tesselado. Separado para manter `endFrame`
-/// curto e a regra das 500 linhas.
-fn present(
-    c: &mut ctx::UiCtx,
+/// Render + present de um frame já tesselado (backend wgpu). Separado para manter
+/// `endFrame` curto e a regra das 500 linhas. Recebe a `RenderState` + a janela
+/// por empréstimos disjuntos (o `endFrame` os separa de `c`).
+fn present_wgpu(
+    r: &mut RenderState,
+    window: &Window,
     paint_jobs: Vec<egui::ClippedPrimitive>,
     textures_delta: egui::TexturesDelta,
     pixels_per_point: f32,
@@ -590,8 +626,7 @@ fn present(
     // lógico ESTREITO ⇒ o conteúdo, correto em pontos, é comprimido numa faixa no
     // canto. Sincronizar aqui (e reconfigurar quando muda) casa os dois espaços
     // todo frame, independente de quando/se um `Resized` chegou.
-    let size = c.window.inner_size();
-    let r = &mut c.render;
+    let size = window.inner_size();
     if size.width > 0
         && size.height > 0
         && (size.width != r.config.width || size.height != r.config.height)

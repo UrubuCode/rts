@@ -23,6 +23,8 @@ mod app;
 mod block;
 mod dom;
 mod frame;
+#[cfg(feature = "glow-backend")]
+mod glbackend;
 mod html;
 mod widgets;
 
