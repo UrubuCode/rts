@@ -36,6 +36,9 @@
 //! trampolines read the same bytes the inspect path renders, so a dynamic
 //! `obj.key` and a `console.log(obj)` of the same object agree by construction.
 
+use std::collections::{HashMap, HashSet};
+use std::sync::{Mutex, OnceLock};
+
 use rts_runtime::namespaces::collections::vec as rt_vec;
 use rts_runtime::namespaces::gc::handles as rt_handles;
 use rts_runtime::namespaces::globals::proxy as rt_proxy;
@@ -181,12 +184,18 @@ pub extern "C" fn __rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word:
         return proxy_set(target, handler, key_str_handle, val_word);
     }
     if let Some((handle, idx)) = resolve_slot(obj_word, key_str_handle) {
+        // A `writable:false` data property (set via defineProperty) blocks
+        // re-assignment (sloppy mode: silent no-op, returns the value).
+        if !prop_writable(obj_word, &key_text(key_str_handle)) {
+            return val_word;
+        }
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(handle, 1 + idx, val_word as i64);
         return val_word;
     }
     // Absent key on a keyed object → shape transition (append the key + value).
+    // A non-extensible object (Object.preventExtensions/freeze) rejects new keys.
     let obj = PolyValue::from_raw(obj_word);
-    if obj.is_object() && looks_like_object(obj) {
+    if obj.is_object() && looks_like_object(obj) && !is_non_extensible(obj_word) {
         let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
         let mut keys = object_keys_vec(obj_word);
         keys.push(key_text(key_str_handle));
@@ -255,6 +264,132 @@ pub extern "C" fn __rtsadp_obj_has(obj_word: u64, key_str_handle: u64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_has_own(obj_word: u64, key_str_handle: u64) -> u64 {
     PolyValue::bool(resolve_slot(obj_word, key_str_handle).is_some()).raw()
+}
+
+// ===========================================================================
+// PROPERTY DESCRIPTORS + EXTENSIBILITY (real state, NOT mocked).
+//
+// The shape-slot object stores only the VALUE (in its slot). The descriptor
+// FLAGS (writable/enumerable/configurable) and the object's EXTENSIBILITY are
+// tracked here, keyed by object word + key. A property created by ordinary
+// assignment (`o.k = v`) has NO flags entry and defaults to all-true (a normal
+// data property); only `Object.defineProperty`/`Reflect.defineProperty` records
+// explicit flags. `obj_set` consults both: a `writable:false` property blocks
+// re-assignment, and a NEW key on a non-extensible object is rejected.
+// ===========================================================================
+
+/// `(obj_word, key)` → packed flags: bit0 writable, bit1 enumerable, bit2
+/// configurable. Absent ⇒ the property is a normal data property (all true).
+fn desc_flags_table() -> &'static Mutex<HashMap<(u64, String), u8>> {
+    static T: OnceLock<Mutex<HashMap<(u64, String), u8>>> = OnceLock::new();
+    T.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Object words marked non-extensible (`Object.preventExtensions`/`freeze`/`seal`).
+fn non_extensible_table() -> &'static Mutex<HashSet<u64>> {
+    static T: OnceLock<Mutex<HashSet<u64>>> = OnceLock::new();
+    T.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// Whether `obj_word.key` is writable: an explicit flags entry's bit0, or `true`
+/// for a normal data property (no entry).
+fn prop_writable(obj_word: u64, key: &str) -> bool {
+    match desc_flags_table().lock() {
+        Ok(t) => t
+            .get(&(obj_word, key.to_string()))
+            .map(|f| f & 1 != 0)
+            .unwrap_or(true),
+        Err(_) => true,
+    }
+}
+
+fn is_non_extensible(obj_word: u64) -> bool {
+    non_extensible_table()
+        .lock()
+        .map(|t| t.contains(&obj_word))
+        .unwrap_or(false)
+}
+
+/// `Object.defineProperty(o, k, desc)` / `Reflect.defineProperty` — write the
+/// VALUE and record the explicit FLAGS (packed: bit0 writable, bit1 enumerable,
+/// bit2 configurable). Returns a bool word: `false` when adding a NEW key to a
+/// non-extensible object (the define fails), else `true`. A redefine of an
+/// existing key always applies here (configurable:false strictness is a later
+/// increment — it would only throw, never produce a wrong value).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_define_prop(
+    obj_word: u64,
+    key_str_handle: u64,
+    val_word: u64,
+    flags: i64,
+) -> i64 {
+    let is_own = resolve_slot(obj_word, key_str_handle).is_some();
+    if !is_own && is_non_extensible(obj_word) {
+        return 0;
+    }
+    // Write the value via the normal slot/transition path. A `writable:false`
+    // flags entry must NOT block THIS write (defineProperty sets it), so record the
+    // flags AFTER, and write the slot directly here (bypassing obj_set's writable
+    // guard) — define always sets its own value.
+    define_write_slot(obj_word, key_str_handle, val_word);
+    if let Ok(mut t) = desc_flags_table().lock() {
+        t.insert((obj_word, key_text(key_str_handle)), (flags & 0x7) as u8);
+    }
+    1
+}
+
+/// Write `obj_word.key = value` at the slot (existing) or via a shape transition
+/// (new key), WITHOUT the writable/extensibility guards — used by `define_prop`
+/// (which has already checked extensibility and intentionally overrides writable).
+fn define_write_slot(obj_word: u64, key_str_handle: u64, val_word: u64) {
+    if let Some((handle, idx)) = resolve_slot(obj_word, key_str_handle) {
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(handle, 1 + idx, val_word as i64);
+        return;
+    }
+    let obj = PolyValue::from_raw(obj_word);
+    if obj.is_object() && looks_like_object(obj) {
+        let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+        let mut keys = object_keys_vec(obj_word);
+        keys.push(key_text(key_str_handle));
+        let new_shape = crate::shape::intern_global_shape(&keys);
+        let slot0 = PolyValue::from_i32(new_shape as i32).raw() as i64;
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(handle, 0, slot0);
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle, val_word as i64);
+    }
+}
+
+/// `Reflect.getOwnPropertyDescriptor` helper → packed flags (bit0 writable, bit1
+/// enumerable, bit2 configurable) of an OWN property, or `-1` when `key` is not an
+/// own property. A normal data property (no explicit flags entry) is `7` (all true).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_prop_flags(obj_word: u64, key_str_handle: u64) -> i64 {
+    if resolve_slot(obj_word, key_str_handle).is_none() {
+        return -1;
+    }
+    let key = key_text(key_str_handle);
+    match desc_flags_table().lock() {
+        Ok(t) => *t.get(&(obj_word, key)).unwrap_or(&7) as i64,
+        Err(_) => 7,
+    }
+}
+
+/// `Object.preventExtensions(o)` / `Reflect.preventExtensions` — mark `o`
+/// non-extensible (no new keys). Returns a bool word `true`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_prevent_ext(obj_word: u64) -> i64 {
+    if PolyValue::from_raw(obj_word).is_object() {
+        if let Ok(mut t) = non_extensible_table().lock() {
+            t.insert(obj_word);
+        }
+    }
+    1
+}
+
+/// `Object.isExtensible(o)` / `Reflect.isExtensible` → 1/0. A non-object is not
+/// extensible (`0`), matching JS.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_is_extensible(obj_word: u64) -> i64 {
+    (PolyValue::from_raw(obj_word).is_object() && !is_non_extensible(obj_word)) as i64
 }
 
 /// `delete obj.key` — slot removal via a shape transition (the inverse of the

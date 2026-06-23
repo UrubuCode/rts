@@ -775,6 +775,20 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, U64],
             ret: U64,
         },
+        // Property descriptors + extensibility (real state). prop_flags → packed
+        // flags / -1 (I64); define_prop → 1/0 (I64); prevent_ext/is_extensible → 1/0.
+        "__rtsadp_prop_flags" => SymSig {
+            params: &[U64, U64],
+            ret: I64,
+        },
+        "__rtsadp_define_prop" => SymSig {
+            params: &[U64, U64, U64, I64],
+            ret: I64,
+        },
+        "__rtsadp_prevent_ext" | "__rtsadp_is_extensible" => SymSig {
+            params: &[U64],
+            ret: I64,
+        },
         "__rtsadp_obj_delete" => SymSig {
             params: &[U64, U64],
             ret: Bool,

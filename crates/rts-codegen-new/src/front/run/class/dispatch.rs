@@ -114,6 +114,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let Some(fn_name) = desc.statics.get(method).cloned() else {
             return unsupported!("`{class}.{method}()` — no such static method on class `{class}`");
         };
+        // `defineProperty(obj, …)` (Object/Reflect) GROWS `obj`'s shape at runtime
+        // (engine.define_prop). A subsequent STATIC `obj.key` read would miss the new
+        // key (it reads the compile-time shape) → demote the target local to dynamic
+        // so later reads route through `__rtsadp_obj_get`. Keyed on the METHOD name
+        // (a known shape-mutator), not the class — no non-primordial name in the front.
+        if method == "defineProperty" {
+            if let Some(HirExprKind::Ident(name)) = args.first().map(|a| &a.kind) {
+                self.demote_local_to_dynamic(name);
+            }
+        }
         self.call_synth_fn(module, &fn_name, None, args)
     }
 

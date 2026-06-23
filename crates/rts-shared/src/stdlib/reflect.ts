@@ -69,41 +69,46 @@ class Reflect {
     return true;
   }
 
-  // Reflect.defineProperty(target, key, descriptor) — DATA descriptor: aplica
-  // `descriptor.value` como própria de `target` (atribuição direta → transição de
-  // shape). Os flags writable/enumerable/configurable são modelados como default
-  // (true) — um `writable:false` real é incremento separado (precisa de descriptor
-  // storage). Um accessor descriptor (get/set) também é incremento futuro. Retorna
-  // true (sucesso).
+  // Reflect.defineProperty(target, key, descriptor) — DATA descriptor: grava o
+  // VALOR + os FLAGS REAIS (writable/enumerable/configurable) na descriptor table do
+  // engine. Flags OMITIDOS no descriptor default-am para FALSE (semântica JS de
+  // defineProperty, diferente de uma atribuição comum que é all-true). Retorna se a
+  // definição teve sucesso (false ao adicionar key nova num objeto não-extensível).
+  // Accessor descriptors (get/set) são incremento separado.
   static defineProperty(target: any, key: any, descriptor: any): any {
-    target[key] = descriptor.value;
-    return true;
+    const flags: number =
+      (descriptor.writable ? 1 : 0) |
+      (descriptor.enumerable ? 2 : 0) |
+      (descriptor.configurable ? 4 : 0);
+    return engine.define_prop(target, key, descriptor.value, flags);
   }
 
-  // Reflect.isExtensible(target) — o modelo não tem objetos não-extensíveis por
-  // padrão (freeze/seal de objeto-shape é incremento separado); reporta true.
+  // Reflect.isExtensible(target) — estado REAL de extensibilidade (a descriptor
+  // table marca objetos passados a preventExtensions/freeze/seal).
   static isExtensible(target: any): any {
-    return true;
+    return engine.is_extensible(target);
   }
 
-  // Reflect.preventExtensions(target) — no-op que reporta sucesso (o modelo não
-  // rastreia extensibilidade de objeto-shape; incremento separado). Retorna true.
+  // Reflect.preventExtensions(target) — marca o objeto não-extensível (bloqueia
+  // keys novas, de verdade — obj_set passa a rejeitá-las). Retorna true.
   static preventExtensions(target: any): any {
-    return true;
+    return engine.prevent_ext(target);
   }
 
-  // Reflect.getOwnPropertyDescriptor(target, key) — o descriptor de uma OWN prop:
-  // `{ value, writable, enumerable, configurable }` (flags default true, como o
-  // modelo não rastreia flags); `undefined` se a key não é own (não anda no proto).
+  // Reflect.getOwnPropertyDescriptor(target, key) — descriptor de uma OWN prop com
+  // os FLAGS REAIS lidos da descriptor table (uma prop criada por atribuição comum
+  // é all-true; uma criada por defineProperty traz seus flags). `undefined` se a key
+  // não é own (não anda no proto).
   static getOwnPropertyDescriptor(target: any, key: any): any {
-    if (!target.hasOwnProperty(key)) {
+    const f: number = engine.prop_flags(target, key);
+    if (f < 0) {
       return undefined;
     }
     return {
       value: target[key],
-      writable: true,
-      enumerable: true,
-      configurable: true,
+      writable: (f & 1) !== 0,
+      enumerable: (f & 2) !== 0,
+      configurable: (f & 4) !== 0,
     };
   }
 }
