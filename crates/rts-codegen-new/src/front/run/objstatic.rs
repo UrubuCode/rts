@@ -76,6 +76,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             "getPrototypeOf" => self
                 .object_proto_unary(module, args, "__rtsadp_obj_proto_of")
                 .map(Some),
+            "setPrototypeOf" => self.object_set_proto(module, args).map(Some),
             other => unsupported!("Object.{other}(...) static method (later increment)"),
         }
     }
@@ -133,6 +134,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .call_runtime(module, "__rtsadp_obj_create", &[proto_word])?
             .expect("__rtsadp_obj_create returns an object word");
         Ok(Val::tagged_kind(word, JsKind::Object))
+    }
+
+    /// `Object.setPrototypeOf(obj, proto)` → record `obj`'s prototype (a null/non-
+    /// object `proto` clears it), returning `obj`. Both args boxed to words.
+    fn object_set_proto(&mut self, module: &mut dyn Module, args: &[HirExpr]) -> FrontResult<Val> {
+        if args.len() != 2 {
+            return unsupported!("Object.setPrototypeOf expects 2 args, got {}", args.len());
+        }
+        let o = self.lower_expr(module, &args[0])?;
+        let o_word = self.box_value(o);
+        let p = self.lower_expr(module, &args[1])?;
+        let p_word = self.box_value(p);
+        let res = self
+            .call_runtime(module, "__rtsadp_obj_set_proto", &[o_word, p_word])?
+            .expect("__rtsadp_obj_set_proto returns the object word");
+        Ok(Val::tagged_kind(res, JsKind::Object))
     }
 
     /// A unary `Object.<m>(obj)` over a raw object word → a Tagged result (e.g.

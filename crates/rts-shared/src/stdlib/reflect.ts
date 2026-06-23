@@ -54,4 +54,56 @@ class Reflect {
   static apply(target: any, thisArg: any, argumentsList: any): any {
     return target.apply(thisArg, argumentsList);
   }
+
+  // Reflect.getPrototypeOf(target) — the object's [[Prototype]] (or null). Reusa o
+  // Object.getPrototypeOf (lê a proto side-table do Object.create).
+  static getPrototypeOf(target: any): any {
+    return Object.getPrototypeOf(target);
+  }
+
+  // Reflect.setPrototypeOf(target, proto) — grava o [[Prototype]]; retorna true
+  // (Object.setPrototypeOf retorna o objeto; aqui reportamos sucesso). Um proto
+  // null/não-objeto remove a cadeia.
+  static setPrototypeOf(target: any, proto: any): any {
+    Object.setPrototypeOf(target, proto);
+    return true;
+  }
+
+  // Reflect.defineProperty(target, key, descriptor) — DATA descriptor: aplica
+  // `descriptor.value` como própria de `target` (atribuição direta → transição de
+  // shape). Os flags writable/enumerable/configurable são modelados como default
+  // (true) — um `writable:false` real é incremento separado (precisa de descriptor
+  // storage). Um accessor descriptor (get/set) também é incremento futuro. Retorna
+  // true (sucesso).
+  static defineProperty(target: any, key: any, descriptor: any): any {
+    target[key] = descriptor.value;
+    return true;
+  }
+
+  // Reflect.isExtensible(target) — o modelo não tem objetos não-extensíveis por
+  // padrão (freeze/seal de objeto-shape é incremento separado); reporta true.
+  static isExtensible(target: any): any {
+    return true;
+  }
+
+  // Reflect.preventExtensions(target) — no-op que reporta sucesso (o modelo não
+  // rastreia extensibilidade de objeto-shape; incremento separado). Retorna true.
+  static preventExtensions(target: any): any {
+    return true;
+  }
+
+  // Reflect.getOwnPropertyDescriptor(target, key) — o descriptor de uma OWN prop:
+  // `{ value, writable, enumerable, configurable }` (flags default true, como o
+  // modelo não rastreia flags); `undefined` se a key não é own (não anda no proto).
+  static getOwnPropertyDescriptor(target: any, key: any): any {
+    if (!target.hasOwnProperty(key)) {
+      return undefined;
+    }
+    return {
+      value: target[key],
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    };
+  }
 }
