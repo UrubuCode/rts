@@ -107,6 +107,13 @@ interface WindowOptions {
   memory?: "usage" | "performance";
   /** "low" (default; limites modestos, menos heap) ou "high" (limites altos). */
   limits?: "low" | "high";
+  // ── Chrome da janela ───────────────────────────────────────────────────────
+  /** Fundo transparente (o painel egui fica transparente; o app pinta o que
+   *  quiser por cima — combine com HTML que desenha o próprio fundo). Default false. */
+  transparent?: boolean;
+  /** Barra de título + borda do SO. Default `true`. `false` = janela SEM header
+   *  (frameless) — o app desenha o próprio cabeçalho/botões em HTML. */
+  decorations?: boolean;
 }
 
 class Window {
@@ -122,13 +129,16 @@ class Window {
 
   // Monta o bitfield de config lido pelo primitivo `openWindow`:
   // bit0 = power high, bit1 = memory performance, bit2 = limits high,
-  // bit3 = backend glow (OpenGL). `0` (o comum) = wgpu, tudo otimizado p/ RAM.
+  // bit3 = backend glow (OpenGL), bit4 = transparent, bit5 = sem decorations
+  // (frameless). `0` (o comum) = wgpu, opaco, decorado, otimizado p/ RAM.
   static __configBits(opts: WindowOptions): number {
     let bits = 0;
     if (opts.power === "high") bits = bits + 1;
     if (opts.memory === "performance") bits = bits + 2;
     if (opts.limits === "high") bits = bits + 4;
     if (opts.render === "glow" || opts.render === "opengl") bits = bits + 8;
+    if (opts.transparent === true) bits = bits + 16;
+    if (opts.decorations === false) bits = bits + 32;
     return bits;
   }
 

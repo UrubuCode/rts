@@ -35,6 +35,9 @@ pub struct GlowState {
     gl_surface: Surface<WindowSurface>,
     painter: egui_glow::Painter,
     gl: Arc<glow::Context>,
+    /// Janela transparente → clear com alpha 0 (o painel egui também fica
+    /// transparente em `end_frame`), pra o SO compor o fundo.
+    transparent: bool,
     /// Caminho pendente de snapshot: setado por `request_snapshot`, consumido no
     /// próximo `paint` (lê o back buffer ANTES do swap → PPM). Para teste visual
     /// headless: garante que o frame não está em branco (texto realmente pintado).
@@ -51,14 +54,20 @@ impl GlowState {
         title: &str,
         width: u32,
         height: u32,
+        chrome: crate::frame::WindowChrome,
     ) -> Result<(Arc<Window>, GlowState), String> {
         let window_attrs = WindowAttributes::default()
             .with_title(title)
-            .with_inner_size(LogicalSize::new(width as f64, height as f64));
+            .with_inner_size(LogicalSize::new(width as f64, height as f64))
+            .with_transparent(chrome.transparent)
+            .with_decorations(chrome.decorations);
 
-        // Escolhe uma GlConfig (a de mais samples; alpha 8). DisplayBuilder cria a
-        // janela + a config juntas.
-        let template = ConfigTemplateBuilder::new().with_alpha_size(8);
+        // Escolhe uma GlConfig (a de mais samples; alpha 8). `with_transparency`
+        // pede uma config capaz de compor alpha quando a janela é transparente.
+        // DisplayBuilder cria a janela + a config juntas.
+        let template = ConfigTemplateBuilder::new()
+            .with_alpha_size(8)
+            .with_transparency(chrome.transparent);
         let display_builder = DisplayBuilder::new().with_window_attributes(Some(window_attrs));
         let (window, gl_config) = display_builder
             .build(event_loop, template, |configs| {
@@ -120,6 +129,7 @@ impl GlowState {
                 gl_surface,
                 painter,
                 gl,
+                transparent: chrome.transparent,
                 pending_snapshot: None,
             },
         ))
@@ -189,7 +199,12 @@ impl GlowState {
 
         unsafe {
             use glow::HasContext as _;
-            self.gl.clear_color(0.02, 0.02, 0.03, 1.0);
+            // Transparente: clear alpha 0 (SO compõe o fundo). Opaco: fundo escuro.
+            if self.transparent {
+                self.gl.clear_color(0.0, 0.0, 0.0, 0.0);
+            } else {
+                self.gl.clear_color(0.02, 0.02, 0.03, 1.0);
+            }
             self.gl.clear(glow::COLOR_BUFFER_BIT);
         }
 

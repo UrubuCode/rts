@@ -113,6 +113,9 @@ pub struct UiCtx {
     /// Backend de render desta janela (wgpu/DX12 pesado ou glow/GL leve),
     /// escolhido por `new Window({ render })`.
     pub backend: crate::frame::Backend,
+    /// Janela transparente → o `endFrame` usa um painel sem fundo (Frame::NONE)
+    /// pra a transparência do SO aparecer.
+    pub transparent: bool,
     /// Fica false após `WindowEvent::CloseRequested`.
     pub open: bool,
     /// True entre `beginFrame` e `endFrame`.

@@ -60,6 +60,25 @@ impl GpuConfig {
     }
 }
 
+/// Chrome da janela (winit), do mesmo config bitfield: bit4 = transparent,
+/// bit5 = SEM decorations (frameless). Vale p/ ambos os backends. `transparent`
+/// também troca o fundo do painel egui + a cor de clear p/ alpha 0, pra a
+/// transparência do SO realmente aparecer (senão o painel opaco do egui tapa).
+#[derive(Clone, Copy)]
+pub struct WindowChrome {
+    pub transparent: bool,
+    pub decorations: bool,
+}
+
+impl WindowChrome {
+    pub fn from_bits(bits: i64) -> Self {
+        WindowChrome {
+            transparent: bits & 0b1_0000 != 0,  // bit4
+            decorations: bits & 0b10_0000 == 0, // bit5 set => SEM decorations
+        }
+    }
+}
+
 /// Backend de render de UMA janela. wgpu (DX12/Vulkan/Metal — pesado em RAM) ou
 /// glow (OpenGL — leve), escolhido por janela via `GpuConfig::use_glow`. O pass do
 /// egui (begin/drena/end/tessellate) é AGNÓSTICO; só a pintura/apresentação
@@ -168,6 +187,9 @@ pub struct RenderState {
     pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration,
     pub renderer: egui_wgpu::Renderer,
+    /// Janela transparente → clear com alpha 0 (o painel egui também fica
+    /// transparente em `end_frame`), pra o SO compor o fundo.
+    pub transparent: bool,
 }
 
 impl RenderState {
@@ -176,7 +198,7 @@ impl RenderState {
     ///
     /// `window` é `Arc<Window>` para que `create_surface` produza
     /// `Surface<'static>` (o alvo owned satisfaz o lifetime `'static`).
-    pub fn new(window: Arc<Window>, cfg: GpuConfig) -> Result<RenderState, String> {
+    pub fn new(window: Arc<Window>, cfg: GpuConfig, transparent: bool) -> Result<RenderState, String> {
         let size = window.inner_size();
         let width = size.width.max(1);
         let height = size.height.max(1);
@@ -200,6 +222,20 @@ impl RenderState {
         // RAM reservada. Suficiente para uma UI imediata que não precisa de
         // pipelining profundo de frames.
         config.desired_maximum_frame_latency = 1;
+        // Janela transparente: escolhe um alpha_mode que componha o alpha (não
+        // Opaque). Pega o 1º não-Opaque suportado (PreMultiplied/PostMultiplied/
+        // Inherit); se só houver Opaque, segue opaco (transparência indisponível).
+        if transparent {
+            let caps = surface.get_capabilities(&gpu.adapter);
+            if let Some(mode) = caps
+                .alpha_modes
+                .iter()
+                .copied()
+                .find(|m| *m != wgpu::CompositeAlphaMode::Opaque)
+            {
+                config.alpha_mode = mode;
+            }
+        }
         surface.configure(&gpu.device, &config);
 
         // egui-wgpu 0.34: `Renderer::new(device, color_format, RendererOptions)`.
@@ -215,6 +251,7 @@ impl RenderState {
             queue: gpu.queue,
             config,
             renderer,
+            transparent,
         })
     }
 
@@ -289,8 +326,16 @@ pub extern "C" fn __RTS_FN_NS_EGUI_END_FRAME(h: u64) {
         // Ui` pai — que NÃO temos aqui (estamos no nível do `Context`, dentro do
         // pass aberto por `begin_pass`). Para um painel raiz a partir do
         // `Context`, `show` continua sendo a API correta; o allow é localizado.
+        // Janela transparente → painel SEM fundo (Frame::NONE), pra o clear
+        // transparente (e o SO) aparecerem onde o conteúdo não pinta. Opaco →
+        // painel padrão (fundo do tema).
+        let panel = if c.transparent {
+            egui::CentralPanel::default().frame(egui::Frame::NONE)
+        } else {
+            egui::CentralPanel::default()
+        };
         #[allow(deprecated)]
-        egui::CentralPanel::default().show(&c.egui_ctx, |ui| {
+        panel.show(&c.egui_ctx, |ui| {
             // A drenagem é RECURSIVA para tratar os escopos horizontais (ver
             // `drenar`). O `idx` percorre a fila linearmente e é compartilhado
             // por todos os níveis de recursão, então a ordem de emissão (e logo
@@ -702,11 +747,12 @@ fn present_wgpu(
                 resolve_target: None,
                 depth_slice: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.02,
-                        g: 0.02,
-                        b: 0.03,
-                        a: 1.0,
+                    // Transparente: clear totalmente transparente (alpha 0) p/ o SO
+                    // compor o fundo. Opaco: fundo escuro padrão.
+                    load: wgpu::LoadOp::Clear(if r.transparent {
+                        wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 }
+                    } else {
+                        wgpu::Color { r: 0.02, g: 0.02, b: 0.03, a: 1.0 }
                     }),
                     store: wgpu::StoreOp::Store,
                 },
