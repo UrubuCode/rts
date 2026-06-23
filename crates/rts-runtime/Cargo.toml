@@ -30,4 +30,25 @@ rts-primitives = { path = "../rts-primitives" }
 rts-shared = { path = "../rts-shared" }
 rts-std = { path = "../rts-std" }
 rts-napi = { path = "../rts-napi" }
-rts-egui = { path = "../rts-egui" }
+# rts-egui: liga só `wgpu-backend` (sem o gpu-dx12 do default, que é Windows-only e
+# NÃO compila no Linux). O backend de GPU concreto entra por SO nos [target.*]
+# abaixo: dx12=Windows, vulkan=Linux, metal=macOS. (Linux também precisa do winit
+# x11/wayland — resolvido no Cargo.toml do rts-egui.) Features unem por target.
+rts-egui = { path = "../rts-egui", default-features = false, features = [
+    "wgpu-backend",
+] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+rts-egui = { path = "../rts-egui", default-features = false, features = [
+    "gpu-dx12",
+] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rts-egui = { path = "../rts-egui", default-features = false, features = [
+    "gpu-vulkan",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+rts-egui = { path = "../rts-egui", default-features = false, features = [
+    "gpu-metal",
+] }
