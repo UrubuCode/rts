@@ -70,10 +70,15 @@ fn optional_in_user_function() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn non_optional_after_optional_bails() {
-    // `a?.b.c` has a NON-optional `.c` whose receiver JS would throw on if nullish;
-    // this engine has no real `throw`, so we BAIL rather than substitute undefined.
-    assert_bails(r#"let o = {a: {b: 1}}; console.log(o?.a.b.c);"#);
+fn non_optional_after_optional_short_circuits() {
+    // `a?.b.c` — a NON-optional `.c` after the optional `?.b` still short-circuits
+    // the whole chain on a nullish root (`opt_get(undefined, "c")` is `undefined`),
+    // and reads through normally when present (o.a.b = 1, `.c` on 1 is `undefined`).
+    assert_stdout(
+        r#"let o = {a: {b: 1}}; console.log(o?.a.b.c);"#,
+        "undefined\n",
+    );
+    assert_stdout(r#"let o: any = null; console.log(o?.a.b.c);"#, "undefined\n");
 }
 
 #[test]

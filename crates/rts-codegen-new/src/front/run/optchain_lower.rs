@@ -161,11 +161,30 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
         self.builder.ins().jump(join_blk, &[undef.into()]);
 
-        // present → the REAL method dispatch on the (re-evaluated, pure) receiver.
+        // present → the REAL method dispatch on the (re-evaluated, pure) receiver,
+        // BUT only when the method is resolvable: the receiver has a statically-known
+        // class, or some user/ambient class declares `method` (so the dynamic path can
+        // dispatch it). When NO class declares it (a pure `any`/`null` receiver whose
+        // method is unknown, e.g. `deep1?.getValue()` with `deep1: any = null`), the
+        // dispatch would bail — but in this GUARDED context an unresolvable method is a
+        // runtime `undefined` (the common null receiver never reaches this branch, and
+        // a real object missing the method TypeErrors → `undefined` is the honest
+        // sentinel). Emit `undefined` instead of bailing the whole program.
         self.builder.switch_to_block(else_blk);
         self.builder.seal_block(else_blk);
-        let called = self.lower_method_call(module, object, &method, real_args)?;
-        let called_word = self.box_value(called);
+        let resolvable = self.static_instance_class(object).is_some()
+            || self.classes.iter().any(|d| {
+                !d.name.starts_with("__rtsl_")
+                    && (d.method_fn(&method).is_some() || d.accessor(&method).is_some())
+            });
+        let called_word = if resolvable {
+            let called = self.lower_method_call(module, object, &method, real_args)?;
+            self.box_value(called)
+        } else {
+            self.builder
+                .ins()
+                .iconst(types::I64, value::PolyValue::undefined().raw() as i64)
+        };
         self.builder.ins().jump(join_blk, &[called_word.into()]);
 
         self.builder.switch_to_block(join_blk);

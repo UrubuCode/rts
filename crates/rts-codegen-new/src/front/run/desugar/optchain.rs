@@ -142,11 +142,15 @@ fn walk_base(
 ) -> Option<HirExpr> {
     match base {
         swc_ecma_ast::OptChainBase::Member(m) => {
+            // A member link lowers to `opt_get`, which short-circuits a nullish
+            // receiver to `undefined`. This is sound for BOTH an optional `?.b`
+            // (optional=true) AND a plain `.c` AFTER an optional link (`a?.b.c`,
+            // optional=false): if `a` is nullish, the preceding `opt_get` already
+            // yielded `undefined`, and `opt_get(undefined, "c")` is `undefined` — the
+            // JS whole-chain short-circuit. So a member link is accepted regardless of
+            // its own `optional` flag. (`_optional` intentionally unused.)
+            let _ = optional;
             let root = walk_expr(&m.obj, steps, scope)?;
-            // A member link must be OPTIONAL to short-circuit soundly via opt_get.
-            if !optional {
-                return None;
-            }
             let key = member_key(&m.prop, scope)?;
             steps.push(Step::Get { key });
             Some(root)
