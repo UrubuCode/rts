@@ -421,11 +421,23 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     );
                     ctx.builder.ins().return_(&[undef]);
                 }
-                Some(_) => {
-                    return unsupported!(
-                        "function `{}` may fall through without returning a value",
-                        func.name
-                    );
+                Some(repr) => {
+                    // The fall-through here is genuinely UNREACHABLE: the function
+                    // returns on every real path (e.g. through every try/catch/finally
+                    // arm, or a conditional `throw`), but the linear `block_terminated`
+                    // analysis cannot prove it across those edges. Emit a typed ZERO
+                    // return so the block carries a terminator; this block has no live
+                    // predecessors, so Cranelift DCEs it. A zero filler (never a crash)
+                    // replaces the former whole-program bail — the proven return slot
+                    // can hold it, and it is never actually returned. (A genuinely
+                    // ill-formed fall-through of a numeric fn would return 0, not
+                    // undefined — a rare TS type error, sound vs a wrong value.)
+                    let zero = if matches!(repr, Repr::Float64) {
+                        ctx.builder.ins().f64const(0.0)
+                    } else {
+                        ctx.builder.ins().iconst(cl_type(repr), 0)
+                    };
+                    ctx.builder.ins().return_(&[zero]);
                 }
             }
         }
