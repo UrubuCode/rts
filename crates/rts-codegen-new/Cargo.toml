@@ -14,6 +14,7 @@ edition = "2024"
 cranelift-codegen = "0.131"
 cranelift-frontend = "0.131"
 cranelift-module = "0.131"
+cranelift-object = "0.131"
 anyhow = "1.0"
 # Increment 3: parse REAL TypeScript and lower its typed HIR straight to
 # Cranelift for the proven-monomorphic numeric subset. rts-parser gives the swc

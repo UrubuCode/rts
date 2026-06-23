@@ -3637,6 +3637,7 @@ dependencies = [
  "cranelift-jit",
  "cranelift-module",
  "cranelift-native",
+ "cranelift-object",
  "rts-adapters",
  "rts-ast",
  "rts-engine",

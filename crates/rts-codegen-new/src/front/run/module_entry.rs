@@ -64,6 +64,16 @@ pub fn run_path(entry: &Path) -> FrontResult<()> {
     Ok(())
 }
 
+/// AOT: build the SAME (prelude + user) program from `entry` and emit a native
+/// object file — the relocatable `.o`/`.obj` the linker turns into a standalone
+/// binary. Shares the whole front-end + lowering with [`run_path`]; only the
+/// backend (`ObjectModule`) and the synthesized `main` entry shim differ. Returns
+/// the object bytes; the caller writes them and drives the linker.
+pub fn compile_path_to_object(entry: &Path) -> FrontResult<Vec<u8>> {
+    let prog = build_path(entry)?;
+    super::module_aot::compile_program_aot(&prog)
+}
+
 /// Like [`run_path`] but CAPTURES `console.log` output into a `String` (used by
 /// the in-process e2e tests). Mirrors [`super::render_source`] for the disk path.
 pub fn render_path(entry: &Path) -> FrontResult<String> {

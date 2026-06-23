@@ -41,6 +41,7 @@ mod mathobj;
 mod method;
 mod method_array;
 mod method_dyn;
+mod module_aot;
 mod module_entry;
 pub mod module_jit;
 mod newexpr;
@@ -63,7 +64,7 @@ mod trycatch;
 
 pub mod lower;
 
-pub use module_entry::{render_path, run_path};
+pub use module_entry::{compile_path_to_object, render_path, run_path};
 
 #[cfg(test)]
 mod fixture_check;
