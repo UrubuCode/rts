@@ -33,7 +33,7 @@ mod tpl;
 
 pub(crate) use destructure::desugar_destructure;
 pub(crate) use objmethod::{LIT_CLASS_MARKER, LIT_UNSUPPORTED, desugar_obj_methods};
-pub(super) use optchain::{OPT_CALL, OPT_GET};
+pub(super) use optchain::{OPT_CALL, OPT_GET, OPT_METHOD_CALL};
 
 use std::collections::HashMap;
 
