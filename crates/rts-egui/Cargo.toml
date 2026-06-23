@@ -55,8 +55,12 @@ glow = { version = "0.16", optional = true }
 [target.'cfg(target_os = "linux")'.dependencies]
 winit = { version = "0.30", default-features = false, features = [
     "rwh_06",
-    "x11",
+    "x11",            # via x11-dl: dlopen em runtime, sem lib/pkg-config de build
     "wayland",
+    # CRÍTICO: sem `wayland-dlopen`, o `wayland` linka `libwayland-client` via
+    # pkg-config no BUILD (wayland-sys build.rs) → quebra o runner sem o pacote
+    # `-dev`. Com dlopen, libwayland carrega em runtime — compila em CI pelado.
+    "wayland-dlopen",
 ] }
 
 [features]
