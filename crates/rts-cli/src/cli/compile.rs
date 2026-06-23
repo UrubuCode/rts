@@ -6,27 +6,24 @@
 //! (with a synthesized `main` entry) and writes the resulting relocatable object
 //! (`<output>.o`).
 //!
-//! LINK STEP (pending): turning the `.o` into a standalone executable still needs
-//! a combined runtime archive — the embedded `runtime_support.a` is built from
-//! `rts-runtime` ONLY and so lacks the `__rtsadp_*` adapter symbols that now live
-//! in the `rts-adapters` staticlib. Linking therefore requires (a) the build to
-//! bundle `rts-adapters` into the runtime archive and (b) the bin→cli plumbing to
-//! hand both the archive and the CRT/system libs to `rts-linker`. Until then this
-//! emits the object and reports the precise remaining step rather than producing
-//! a half-linked binary (honesty floor: no crash/partial passed off as done).
+//! LINK STEP: the emitted object is linked against the embedded runtime-support
+//! archive (now the `rts-adapters` staticlib — a SUPERSET of `rts-runtime` that
+//! also carries the `__rtsadp_*` adapter symbols) + the system CRT via
+//! `rts-linker`, producing a standalone native executable. The archive is located
+//! through the bin-installed resolver ([`super::runtime_archive`]).
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 
 use crate::compile_options::CompileOptions;
-use crate::linker::WindowsSubsystem;
+use crate::linker::{LinkRequest, WindowsSubsystem, link_objects_to_binary_with_request};
 
 pub fn command(
     input: Option<String>,
     output: Option<String>,
-    _options: CompileOptions,
-    _windows_subsystem: Option<WindowsSubsystem>,
+    options: CompileOptions,
+    windows_subsystem: Option<WindowsSubsystem>,
 ) -> Result<()> {
     let input = input.ok_or_else(|| anyhow!("usage: rts compile <input.ts> [output]"))?;
     let entry = PathBuf::from(&input);
@@ -51,17 +48,47 @@ pub fn command(
     std::fs::write(&obj_path, &object_bytes)
         .with_context(|| format!("write object {}", obj_path.display()))?;
 
+    // Locate the runtime-support archive (bin-owned embed) and link
+    // [program.o, archive] into a standalone executable.
+    let archive =
+        super::runtime_archive().context("locate runtime-support archive for AOT link")?;
+    let exe_path = exe_output_path(output.as_deref(), &entry);
+
+    let mut request = LinkRequest::from_env();
+    if windows_subsystem.is_some() {
+        request.windows_subsystem = windows_subsystem;
+    }
+    request.keep_all_runtime_symbols = options.all_namespaces;
+
+    let linked = link_objects_to_binary_with_request(
+        &[obj_path.clone(), archive],
+        &exe_path,
+        &request,
+    )
+    .with_context(|| format!("link {} + runtime archive", obj_path.display()))?;
+
     println!(
-        "rts compile: emitted native object {} ({} bytes).",
-        obj_path.display(),
-        object_bytes.len()
-    );
-    println!(
-        "note: native linking to a standalone executable is pending — the runtime \
-         archive must bundle the `rts-adapters` staticlib (__rtsadp_* symbols). \
-         The object links against `rts-runtime` + `rts-adapters` + the system CRT."
+        "rts compile: {} ({} bytes obj) -> {} [{}]",
+        entry.display(),
+        object_bytes.len(),
+        linked.path.display(),
+        linked.backend,
     );
     Ok(())
+}
+
+/// Derive the executable output path: explicit `output` (its `.exe` is added on
+/// Windows) or `<input-stem>` next to the input.
+fn exe_output_path(output: Option<&str>, entry: &Path) -> PathBuf {
+    let base = match output {
+        Some(o) => PathBuf::from(o),
+        None => entry.with_extension(""),
+    };
+    if cfg!(target_os = "windows") {
+        base.with_extension("exe")
+    } else {
+        base
+    }
 }
 
 /// Derive the object-file path. With an explicit `output`, use it as a base

@@ -37,15 +37,15 @@ pub(crate) fn compile_program_aot(prog: &super::LoweredProgram) -> FrontResult<V
         .map_err(|e| Unsupported::new(format!("emit object: {e}")))
 }
 
-/// Host-target `ObjectModule` with the egraph optimizer on (matching the JIT
-/// flags). PIC is enabled so the object relocates cleanly on ELF/Mach-O; on
-/// Windows COFF it is harmless.
+/// Host-target `ObjectModule` with the EXACT same flags as the JIT
+/// ([`super::module_jit`]): `opt_level=speed`, nothing else. We deliberately do
+/// NOT set `is_pic` — on Windows/COFF it changes addressing/relocation in a way
+/// that produced a startup stack overflow (emitted code called through bad
+/// relocations). The final binary is statically linked, so non-PIC is correct on
+/// every host; matching the JIT flags keeps AOT codegen == JIT codegen.
 fn make_object_module() -> FrontResult<ObjectModule> {
     let mut flags = settings::builder();
     flags.set("opt_level", "speed").unwrap();
-    // Position-independent so the linker can place the code anywhere (PIE on
-    // modern toolchains). No effect on Windows/COFF.
-    flags.set("is_pic", "true").unwrap();
     let isa = cranelift_native::builder()
         .map_err(|e| Unsupported::new(format!("host isa builder: {e}")))?
         .finish(settings::Flags::new(flags))
