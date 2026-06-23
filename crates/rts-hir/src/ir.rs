@@ -227,6 +227,14 @@ pub struct HirParam {
     /// The lowered DEFAULT initializer expr (`y = expr`), if any. The call site
     /// lowers this for an omitted trailing arg. `None` when the param has no default.
     pub default_expr: Option<Box<HirExpr>>,
+    /// The NAME of the user class this param is annotated with (`x: Box` → `"Box"`),
+    /// when that name resolves to a real `class` in scope (NOT an interface/alias).
+    /// Lets codegen record the param in `local_classes` so `x.method()` dispatches
+    /// statically — the same fact a `const x = new Box()` local carries. `None` when
+    /// the annotation is absent or not a known class. The `String` (not `ClassId`)
+    /// is what `local_classes` consumes; carrying the name avoids a positional
+    /// `ClassId → name` reconstruction that breaks under prelude/ambient merges.
+    pub class_hint: Option<String>,
 }
 
 /// HIR expression — every variant carries its resolved `HirType`.

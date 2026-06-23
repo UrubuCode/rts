@@ -321,6 +321,7 @@ fn build_ctor(
                     has_default: p.default.is_some(),
                     optional: p.optional,
                     default_expr,
+                    class_hint: None,
                 });
             }
             (ps, None)
@@ -340,6 +341,7 @@ fn build_ctor(
                         has_default: false,
                         optional: false,
                         default_expr: None,
+                        class_hint: None,
                     });
                     fwd.push(HirExpr::new(HirExprKind::Ident(name), HirType::Unknown));
                 }
@@ -492,6 +494,7 @@ fn synth_method_named(
             has_default: p.default.is_some(),
             optional: p.optional,
             default_expr,
+            class_hint: None,
         });
     }
     // A setter returns nothing (its call is a statement); model it `Void` so the
@@ -541,6 +544,7 @@ fn synth_static_method(decl: &ClassDecl, md: &MethodDecl) -> FrontResult<HirFunc
             has_default: p.default.is_some(),
             optional: p.optional,
             default_expr,
+            class_hint: None,
         });
     }
     let ret = md

@@ -292,6 +292,7 @@ pub(crate) fn this_param() -> HirParam {
         has_default: false,
         optional: false,
         default_expr: None,
+        class_hint: None,
     }
 }
 

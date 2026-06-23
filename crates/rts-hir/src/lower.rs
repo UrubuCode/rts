@@ -470,7 +470,24 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
                 let name = extract_swc_pat_name(p);
                 let annotation = extract_ts_type_annotation(p);
                 let ty = annotation.as_deref().map(parse_type_annotation).unwrap_or(HirType::Unknown);
-                HirParam { name, ty, variadic: false, has_default: false, optional: false, default_expr: None }
+                // MESMA lógica de `lower_param`: quando a anotação não vira um
+                // HirType conhecido (`Unknown`), ela ainda pode ser o NOME de uma
+                // classe real em escopo (`x: Box`). Sem isto, o param da arrow
+                // perde o `class_hint` e `x.g()` na arrow não despacha estático
+                // (enquanto `function use(x: Box)` despacha). SOUNDNESS idêntica:
+                // `scope.resolve_class` só casa um `class` real (nunca interface
+                // ou `type` alias), então um param tipado com nome não-classe
+                // mantém `class_hint = None` e dá bail honesto.
+                let class_hint = if matches!(ty, HirType::Unknown) {
+                    annotation
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|s| scope.resolve_class(s).is_some())
+                        .map(str::to_string)
+                } else {
+                    None
+                };
+                HirParam { name, ty, variadic: false, has_default: false, optional: false, default_expr: None, class_hint }
             }).collect();
             let ret = HirType::Unknown;
             let body = match &*arrow.body {
@@ -610,6 +627,23 @@ fn lower_param(p: &Parameter, scope: &mut Scope) -> HirParam {
     let ty = p.type_annotation.as_deref()
         .map(parse_type_annotation)
         .unwrap_or(HirType::Unknown);
+    // When the annotation didn't resolve to a known HIR type (`Unknown`), it may
+    // still be the NAME of a user class in scope (`x: Box`). `parse_type_annotation`
+    // is pure (no `Scope`) so it can't resolve that — we do it here, confined to the
+    // param. SOUNDNESS: `scope.resolve_class` only matches a real `class` (not an
+    // interface or `type` alias — those aren't in `scope.classes`), so a param typed
+    // with a non-class name keeps `class_hint = None` and bails honestly rather than
+    // dispatching on a wrong shape. A `type Alias = RealClass` is the one residual
+    // hole guarded by the alias fixture; never dispatch on a guessed shape.
+    let class_hint = if matches!(ty, HirType::Unknown) {
+        p.type_annotation
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| scope.resolve_class(s).is_some())
+            .map(str::to_string)
+    } else {
+        None
+    };
     scope.define(&p.name, ty.clone());
     // Lower the default initializer expr (`y = expr`) so the call site can lower
     // it for an omitted trailing arg. If it references a not-yet-defined name it
@@ -622,6 +656,7 @@ fn lower_param(p: &Parameter, scope: &mut Scope) -> HirParam {
         has_default: p.default.is_some(),
         optional: p.optional,
         default_expr,
+        class_hint,
     }
 }
 
