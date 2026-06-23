@@ -116,6 +116,50 @@ pub extern "C" fn __RTS_FN_NS_EGUI_HTML(h: u64, ptr: *const u8, len: i64) {
     });
 }
 
+/// Registra o layout de uma TAG no "alocador dinâmico de blocos" (mapa tag →
+/// como renderizar, definido pelo TS). O engine de render consulta esse mapa em
+/// vez de hardcodar nomes de tag. Ver `crate::block`.
+///
+/// `display` 0=vertical 1=wrap 2=horizontal 3=grid; `indent` recuo em pontos (ou
+/// tamanho de fonte quando `flags` tem HEADING); `prefix` 0=none 1=bullet
+/// 2=number; `flags` bitmask MONO=1|PRESERVE_WS=2|HEADING=4. Independe de janela.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_DEFINE_BLOCK(
+    tag_ptr: *const u8,
+    tag_len: i64,
+    display: i64,
+    indent: f64,
+    prefix: i64,
+    flags: i64,
+) {
+    let tag = unsafe { str_abi::from_abi(tag_ptr, tag_len) }.unwrap_or("");
+    if tag.is_empty() {
+        return;
+    }
+    crate::block::define(
+        tag,
+        crate::block::BlockDef {
+            display,
+            indent: indent as f32,
+            prefix,
+            flags,
+        },
+    );
+}
+
+/// Registra o estilo INLINE de uma tag (`<b>`/`<i>`/`<code>`…) no alocador
+/// dinâmico: `flags` é o bitmask BOLD=8|ITALIC=16|MONO=1. Uma tag inline só liga
+/// bits de estilo e desce nos filhos (transparente). Mantém o Rust sem nome de
+/// tag. Independe de janela. Ver `crate::block`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_DEFINE_INLINE(tag_ptr: *const u8, tag_len: i64, flags: i64) {
+    let tag = unsafe { str_abi::from_abi(tag_ptr, tag_len) }.unwrap_or("");
+    if tag.is_empty() {
+        return;
+    }
+    crate::block::define_inline(tag, flags);
+}
+
 /// Imprime a árvore de DOM RETIDA da janela (a última parseada por `html`) no
 /// STDERR, indentada estilo devtools (ver `dom::Dom::dump`). Ferramenta de
 /// inspeção/teste: confere a estrutura gerada SEM depender da renderização.

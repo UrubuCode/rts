@@ -20,6 +20,7 @@ use AbiType::{F64, I64, U64};
 
 mod ctx;
 mod app;
+mod block;
 mod dom;
 mod frame;
 mod html;
@@ -153,6 +154,23 @@ pub fn register(e: &mut Engine) {
             "html(h: number, html: string): void",
             "Parses basic HTML and emits the corresponding widgets in the frame.",
             widgets::__RTS_FN_NS_EGUI_HTML as *const u8,
+        ))
+        // ── Alocador dinâmico de blocos (mapa tag→layout definido pelo TS) ──────
+        .member(func(
+            "defineBlock",
+            "__RTS_FN_NS_EGUI_DEFINE_BLOCK",
+            Sig::new(vec![AbiType::StrPtr, I64, F64, I64, I64], AbiType::Void),
+            "defineBlock(tag: string, display: number, indent: number, prefix: number, flags: number): void",
+            "Registers how a tag lays out (display/indent/prefix/flags). Render reads this map; no tag is hardcoded in Rust.",
+            widgets::__RTS_FN_NS_EGUI_DEFINE_BLOCK as *const u8,
+        ))
+        .member(func(
+            "defineInline",
+            "__RTS_FN_NS_EGUI_DEFINE_INLINE",
+            Sig::new(vec![AbiType::StrPtr, I64], AbiType::Void),
+            "defineInline(tag: string, flags: number): void",
+            "Registers an inline tag's style (flags: BOLD=8|ITALIC=16|MONO=1). Render reads this map; no tag is hardcoded in Rust.",
+            widgets::__RTS_FN_NS_EGUI_DEFINE_INLINE as *const u8,
         ))
         // ── Inspeção / debug do DOM retido ──────────────────────────────────────
         .member(func(
