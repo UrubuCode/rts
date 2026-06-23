@@ -473,12 +473,37 @@ fn drenar(
     }
 }
 
-/// Estilo inline herdado (das tags inline registradas) ao descer na árvore.
+/// Estilo inline herdado ao descer na árvore — flags de tag (`<b>`/`<i>`) MAIS as
+/// propriedades CSS computadas do `style="..."` (cor/tamanho). Herdado: filhos
+/// começam do estilo do pai; o próprio `style` de cada nó sobrepõe.
 #[derive(Clone, Copy, Default)]
 struct InlineStyle {
     bold: bool,
     italic: bool,
     mono: bool,
+    color: Option<egui::Color32>,
+    size: Option<f32>,
+}
+
+/// Mescla o `style="..."` (CSS inline) de um nó SOBRE um `InlineStyle` herdado.
+/// Propriedade ausente no CSS mantém a herdada; presente sobrescreve.
+fn merge_node_style(dom: &crate::dom::Dom, id: crate::dom::NodeId, mut st: InlineStyle) -> InlineStyle {
+    if let Some(s) = dom.node(id).attr("style") {
+        let css = crate::style::parse_inline(s);
+        if let Some(c) = css.color {
+            st.color = Some(c);
+        }
+        if let Some(sz) = css.size {
+            st.size = Some(sz);
+        }
+        if let Some(b) = css.bold {
+            st.bold = b;
+        }
+        if let Some(i) = css.italic {
+            st.italic = i;
+        }
+    }
+    st
 }
 
 /// Renderiza um `Dom` inteiro no `ui`: cada filho do `#document` é um bloco.
@@ -521,8 +546,19 @@ fn render_block(
     // Heading: texto concatenado; `indent` é reusado como TAMANHO de fonte.
     if def.has(crate::block::FLAG_HEADING) {
         let text = collect_text(dom, id);
-        let size = if def.indent > 0.0 { def.indent } else { 20.0 };
-        ui.heading(egui::RichText::new(text).strong().size(size));
+        // `style="..."` do heading sobrepõe tamanho/cor; senão usa o default do
+        // nível (indent reusado como tamanho).
+        let css = dom
+            .node(id)
+            .attr("style")
+            .map(crate::style::parse_inline)
+            .unwrap_or_default();
+        let size = css.size.unwrap_or(if def.indent > 0.0 { def.indent } else { 20.0 });
+        let mut rt = egui::RichText::new(text).strong().size(size);
+        if let Some(c) = css.color {
+            rt = rt.color(c);
+        }
+        ui.heading(rt);
         return;
     }
 
@@ -583,7 +619,9 @@ fn render_block_body(
                 if let Some(p) = &prefix {
                     ui.label(egui::RichText::new(p).strong());
                 }
-                let st = InlineStyle { mono, ..Default::default() };
+                // Seed do estilo inline: mono do bloco + o `style="..."` do PRÓPRIO
+                // bloco (ex. `<p style="color:red">` tinge todo o texto interno).
+                let st = merge_node_style(dom, id, InlineStyle { mono, ..Default::default() });
                 for &child in &dom.node(id).children {
                     render_inline(ui, dom, child, st);
                 }
@@ -626,15 +664,23 @@ fn render_inline(
             if style.mono {
                 rt = rt.monospace();
             }
+            if let Some(sz) = style.size {
+                rt = rt.size(sz);
+            }
+            if let Some(c) = style.color {
+                rt = rt.color(c);
+            }
             ui.label(rt);
         }
         NodeKind::Element { tag } => {
-            // Liga os bits de estilo registrados para esta tag inline e desce.
+            // Liga os bits de estilo registrados para esta tag inline, depois
+            // sobrepõe o CSS do `style="..."` deste nó, e desce nos filhos.
             let flags = crate::block::lookup_inline(tag);
             let mut st = style;
             st.bold |= flags & crate::block::FLAG_BOLD != 0;
             st.italic |= flags & crate::block::FLAG_ITALIC != 0;
             st.mono |= flags & crate::block::FLAG_MONO != 0;
+            st = merge_node_style(dom, id, st);
             for &child in &dom.node(id).children {
                 render_inline(ui, dom, child, st);
             }

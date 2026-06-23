@@ -26,6 +26,7 @@ mod frame;
 #[cfg(feature = "glow-backend")]
 mod glbackend;
 mod html;
+mod style;
 mod widgets;
 
 pub use app::*;
