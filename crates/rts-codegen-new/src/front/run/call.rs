@@ -41,6 +41,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if method == super::desugar::OPT_CALL {
             return self.lower_opt_call(module, object, args);
         }
+        if method == super::desugar::OPT_METHOD_CALL {
+            return self.lower_opt_method_call(module, object, args);
+        }
         // PRIVATE `engine.*` (arch/time/trace) — prelude-only (privacy gate). A
         // user caller bails here; a prelude caller lowers the runtime call.
         if let Some(val) = self.try_engine_call(module, object, method, args)? {

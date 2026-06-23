@@ -102,4 +102,75 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let result = self.builder.block_params(join_blk)[0];
         Ok(Val::new(result, Repr::Tagged))
     }
+
+    /// Lower a guarded METHOD call `a?.b(args)` (P5.8) emitted as
+    /// `recv.__rts_opt_method_call(<methodNameLit>, …realArgs)`:
+    /// `nullish(recv) ? undefined : recv.b(realArgs)`. The present branch re-lowers a
+    /// REAL method call (`lower_method_call`) so it reuses the full dispatch (user
+    /// class / String / Number / Map / dynamic-virtual), unlike `opt_get`+`opt_call`
+    /// which cannot reach a non-slot class method. `object` (the receiver) is proven
+    /// side-effect-free by the desugar, so re-evaluating it here is sound.
+    pub(super) fn lower_opt_method_call(
+        &mut self,
+        module: &mut dyn Module,
+        object: &HirExpr,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        // args[0] = the method name (a string literal the desugar prepended); the
+        // remaining args are the real call arguments.
+        let method = match args.first().map(|a| &a.kind) {
+            Some(rts_hir::ir::HirExprKind::Lit(rts_hir::ir::HirLit::Str(s))) => s.clone(),
+            _ => {
+                return crate::front::error::unsupported!(
+                    "optional method call without a literal method name"
+                );
+            }
+        };
+        let real_args = &args[1..];
+
+        let recv = self.lower_expr(module, object)?;
+        let recv_word = self.box_value(recv);
+
+        let null_w = self
+            .builder
+            .ins()
+            .iconst(types::I64, value::PolyValue::null().raw() as i64);
+        let undef_w = self
+            .builder
+            .ins()
+            .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
+        let is_null = self.builder.ins().icmp(IntCC::Equal, recv_word, null_w);
+        let is_undef = self.builder.ins().icmp(IntCC::Equal, recv_word, undef_w);
+        let nullish = self.builder.ins().bor(is_null, is_undef);
+
+        let then_blk = self.builder.create_block();
+        let else_blk = self.builder.create_block();
+        let join_blk = self.builder.create_block();
+        self.builder.append_block_param(join_blk, types::I64);
+
+        self.builder
+            .ins()
+            .brif(nullish, then_blk, &[], else_blk, &[]);
+
+        // nullish → undefined (short-circuit, no call).
+        self.builder.switch_to_block(then_blk);
+        self.builder.seal_block(then_blk);
+        let undef = self
+            .builder
+            .ins()
+            .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
+        self.builder.ins().jump(join_blk, &[undef.into()]);
+
+        // present → the REAL method dispatch on the (re-evaluated, pure) receiver.
+        self.builder.switch_to_block(else_blk);
+        self.builder.seal_block(else_blk);
+        let called = self.lower_method_call(module, object, &method, real_args)?;
+        let called_word = self.box_value(called);
+        self.builder.ins().jump(join_blk, &[called_word.into()]);
+
+        self.builder.switch_to_block(join_blk);
+        self.builder.seal_block(join_blk);
+        let result = self.builder.block_params(join_blk)[0];
+        Ok(Val::new(result, Repr::Tagged))
+    }
 }
