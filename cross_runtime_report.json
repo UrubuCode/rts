@@ -97,10 +97,10 @@
 ,
 {
   "name": "149_array_reverse_sort_mutate",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "reversed=5,4,3,2,1\nmutated=5,4,3,2,1\nsame=true\nsorted=1,1,3,4,5\nmutated2=1,1,3,4,5\nnumeric=1,5,10,25,40,1000\nstrings=apple,banana,cherry",
   "node": "reversed=5,4,3,2,1\nmutated=5,4,3,2,1\nsame=true\nsorted=1,1,3,4,5\nmutated2=1,1,3,4,5\nnumeric=1,5,10,25,40,1000\nstrings=apple,banana,cherry",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "reversed=5,4,3,2,1\nmutated=5,4,3,2,1\nsame=true\nsorted=1,1,3,4,5\nmutated2=1,1,3,4,5\nnumeric=1,5,10,25,40,1000\nstrings=apple,banana,cherry"
 }
 ,
 {
@@ -681,10 +681,10 @@
 ,
 {
   "name": "codex_primitive_wrappers_truthiness",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "truthy:object:boolean:false\ntruthy:object:number:0\ntruthy:object:string:\nextra:false",
   "node": "truthy:object:boolean:false\ntruthy:object:number:0\ntruthy:object:string:\nextra:false",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "truthy:object:boolean:false\ntruthy:object:number:0\ntruthy:object:string:\n__prim,extra:{\"__prim\":false,\"extra\":3}"
 }
 ,
 {
@@ -777,10 +777,10 @@
 ,
 {
   "name": "415_error_subclass_stack_name",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "MyError\ntop\ntrue\ntrue\ntrue",
   "node": "MyError\ntop\ntrue\ntrue\ntrue",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "MyError\ntop\ntrue\ntrue\ntrue"
 }
 ,
 {
@@ -921,10 +921,10 @@
 ,
 {
   "name": "38_classes_deep",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "a0=1\na1=5\na2=12\nb0=11\nb1=beta:11\nis_base=true\nis_double=true",
   "node": "a0=1\na1=5\na2=12\nb0=11\nb1=beta:11\nis_base=true\nis_double=true",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "a0=1\na1=5\na2=12\nb0=11\nb1=beta:11\nis_base=true\nis_double=true"
 }
 ,
 {
@@ -2089,10 +2089,10 @@
 ,
 {
   "name": "325_structuredclone_primitives",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "42\nhello\ntrue\nnull\n2\n99\n2\n99",
   "node": "42\nhello\ntrue\nnull\n2\n99\n2\n99",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "42\nhello\ntrue\nnull\n2\n99\n2\n2"
 }
 ,
 {
@@ -2681,10 +2681,10 @@
 ,
 {
   "name": "188_reflect_basics",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "get=1\nset=true\nc=3\nhas=true\nhas_d=false\ndeleteProperty=true\nhas_b=false\nkeys=a,c",
   "node": "get=1\nset=true\nc=3\nhas=true\nhas_d=false\ndeleteProperty=true\nhas_b=false\nkeys=a,c",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "get=1\nset=true\nc=undefined\nhas=true\nhas_d=false\ndeleteProperty=true\nhas_b=false\nkeys=a,c"
 }
 ,
 {
@@ -2761,10 +2761,10 @@
 ,
 {
   "name": "230_object_valueof",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "same=true\nnum=42\nstr=hello\nbool=true\ndate=1704067200000",
   "node": "same=true\nnum=42\nstr=hello\nbool=true\ndate=1704067200000",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "same=true\nnum=42\nstr=hello\nbool=true\ndate=1704067200000"
 }
 ,
 {
@@ -3732,7 +3732,7 @@
   "status": "rts_diverge",
   "bun": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
   "node": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
-  "rts": "h=104\ne=101\no=111\nout=281474976710901\nemoji=128512\nA=65\ncharCode=55357"
+  "rts": "h=104\ne=101\no=111\nout=281474976710903\nemoji=128512\nA=65\ncharCode=55357"
 }
 ,
 {
@@ -3849,10 +3849,10 @@
 ,
 {
   "name": "252_string_match_groups",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "found=true\nvalue=world\nindex=6\ninput=hello world\nnoMatch=null",
   "node": "found=true\nvalue=world\nindex=6\ninput=hello world\nnoMatch=null",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "found=true\nvalue=world\nindex=undefined\ninput=undefined\nnoMatch=null"
 }
 ,
 {
@@ -4273,10 +4273,10 @@
 ,
 {
   "name": "295_labeled_break_continue",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "out=0:0|0:1|0:2|2:0",
   "node": "out=0:0|0:1|0:2|2:0",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "out=0:0|0:1|0:2|2:0"
 }
 ,
 {
@@ -4633,10 +4633,10 @@
 ,
 {
   "name": "codex_try_finally_control_flow",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "finally\ntry:catch\nfin0\nfin1\ndone",
   "node": "finally\ntry:catch\nfin0\nfin1\ndone",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "NaN\ntry:catch\nfin0\ndone"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":184,"rts_diverge":52,"bun_node_diverge":18,"errors":355,"rejected":0}}
+],"summary":{"total":609,"pass":189,"rts_diverge":57,"bun_node_diverge":18,"errors":345,"rejected":0}}
