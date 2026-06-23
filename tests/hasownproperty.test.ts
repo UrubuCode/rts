@@ -1,49 +1,35 @@
 import { describe, test, expect } from "rts:test";
-import { collections } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
   __rtsCapturedOutput += value + "\n";
 }
 
-// (#264 PR5) instance.hasOwnProperty(key) verifica own props sem
-// seguir __proto__ chain.
+// (#264) instance.hasOwnProperty(key) verifica own props SEM seguir a cadeia de
+// __proto__. (Modelo novo: Object.create + atribuição direta own, sem
+// `collections.map_*` nem function-constructor com `.prototype`.)
 
-const proto: number = collections.map_new();
-collections.map_set(proto, "kind", 7);
+const proto: any = { kind: 7 };
 
-const inst: number = Object.create(proto) as any;
-collections.map_set(inst, "id", 42);
+const inst: any = Object.create(proto);
+inst.id = 42; // own
 
-// Own
-const ownId: boolean = (inst as any).hasOwnProperty("id");
-print("own id=" + ownId);
+print("own id=" + inst.hasOwnProperty("id")); // own → true
+print("own kind=" + inst.hasOwnProperty("kind")); // herdado → false
+print("own xyz=" + inst.hasOwnProperty("xyz")); // ausente → false
 
-// Inheritado — nao eh own
-const ownKind: boolean = (inst as any).hasOwnProperty("kind");
-print("own kind=" + ownKind);
+// Outra instância com proto + próprias: own props vêm da atribuição direta,
+// a herdada (do proto) NÃO é own.
+const shared: any = { kind: 99 };
+const box: any = Object.create(shared);
+box.w = 3;
+box.h = 5;
+print("box.own w=" + box.hasOwnProperty("w"));
+print("box.own h=" + box.hasOwnProperty("h"));
+print("box.own kind=" + box.hasOwnProperty("kind"));
 
-// Inexistente em ambos
-const ownMissing: boolean = (inst as any).hasOwnProperty("xyz");
-print("own xyz=" + ownMissing);
-
-// Em fn constructor: this.x = v cria own props
-function Box(width: number, height: number): void {
-  collections.map_set(this as any, "w", width);
-  collections.map_set(this as any, "h", height);
-}
-Box.prototype.kind = 99 as any;
-
-const b: number = new (Box as any)(3, 5);
-const ownW: boolean = (b as any).hasOwnProperty("w");
-const ownH: boolean = (b as any).hasOwnProperty("h");
-const ownK: boolean = (b as any).hasOwnProperty("kind");
-print("box.own w=" + ownW);
-print("box.own h=" + ownH);
-print("box.own kind=" + ownK);
-
-describe("hasOwnProperty (#264 PR5)", () => {
-  test("distingue own de inheritado em Object.create e new fn", () =>
+describe("hasOwnProperty (#264)", () => {
+  test("distingue own de herdado em Object.create", () =>
     expect(__rtsCapturedOutput).toBe(
       "own id=true\n" +
       "own kind=false\n" +
