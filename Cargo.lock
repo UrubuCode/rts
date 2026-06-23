@@ -3589,6 +3589,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rts-adapters"
+version = "0.1.0"
+dependencies = [
+ "rts-engine",
+ "rts-runtime",
+]
+
+[[package]]
 name = "rts-ast"
 version = "0.1.0"
 dependencies = [
@@ -3629,6 +3637,7 @@ dependencies = [
  "cranelift-jit",
  "cranelift-module",
  "cranelift-native",
+ "rts-adapters",
  "rts-ast",
  "rts-engine",
  "rts-hir",
