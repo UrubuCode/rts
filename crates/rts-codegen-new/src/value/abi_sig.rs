@@ -765,6 +765,16 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, U64],
             ret: Bool,
         },
+        // Prototype chain (Object.create): create(proto)->obj, proto_of(obj)->proto,
+        // is_prototype_of(proto, obj)->bool word. All raw PolyValue words.
+        "__rtsadp_obj_create" | "__rtsadp_obj_proto_of" => SymSig {
+            params: &[U64],
+            ret: U64,
+        },
+        "__rtsadp_is_prototype_of" => SymSig {
+            params: &[U64, U64],
+            ret: U64,
+        },
         "__rtsadp_obj_delete" => SymSig {
             params: &[U64, U64],
             ret: Bool,

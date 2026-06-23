@@ -72,6 +72,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             "is" => self.object_is(module, args).map(Some),
             "hasOwn" => self.object_has_own(module, args).map(Some),
             "fromEntries" => self.object_from_entries(module, args).map(Some),
+            "create" => self.object_create(module, args).map(Some),
+            "getPrototypeOf" => self
+                .object_proto_unary(module, args, "__rtsadp_obj_proto_of")
+                .map(Some),
             other => unsupported!("Object.{other}(...) static method (later increment)"),
         }
     }
@@ -107,6 +111,47 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .call_runtime(module, sym, &[word])?
             .expect("obj enumeration returns an array word");
         Ok(Val::tagged_kind(arr, JsKind::Array))
+    }
+
+    /// `Object.create(proto)` → a fresh bare object whose `[[Prototype]]` is `proto`
+    /// (recorded in the runtime proto side-table; a null/non-object `proto` ⇒ a null
+    /// prototype). A missing arg defaults to `undefined`. The result is a Tagged
+    /// OBJECT — `result.key` reads route through the dynamic `__rtsadp_obj_get`,
+    /// which walks the prototype chain on an own-slot miss.
+    fn object_create(&mut self, module: &mut dyn Module, args: &[HirExpr]) -> FrontResult<Val> {
+        let proto_word = match args.first() {
+            Some(a) => {
+                let v = self.lower_expr(module, a)?;
+                self.box_value(v)
+            }
+            None => self
+                .builder
+                .ins()
+                .iconst(types::I64, crate::value::PolyValue::undefined().raw() as i64),
+        };
+        let word = self
+            .call_runtime(module, "__rtsadp_obj_create", &[proto_word])?
+            .expect("__rtsadp_obj_create returns an object word");
+        Ok(Val::tagged_kind(word, JsKind::Object))
+    }
+
+    /// A unary `Object.<m>(obj)` over a raw object word → a Tagged result (e.g.
+    /// `getPrototypeOf` → the prototype word or `null`).
+    fn object_proto_unary(
+        &mut self,
+        module: &mut dyn Module,
+        args: &[HirExpr],
+        sym: &str,
+    ) -> FrontResult<Val> {
+        if args.len() != 1 {
+            return unsupported!("Object.{sym} expects 1 arg, got {}", args.len());
+        }
+        let v = self.lower_expr(module, &args[0])?;
+        let word = self.box_value(v);
+        let res = self
+            .call_runtime(module, sym, &[word])?
+            .expect("object proto unary returns a value");
+        Ok(Val::new(res, Repr::Tagged))
     }
 
     /// Resolve the single receiver argument to `(obj_word, keys)`: either a

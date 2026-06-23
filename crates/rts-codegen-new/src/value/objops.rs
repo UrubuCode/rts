@@ -157,7 +157,12 @@ pub extern "C" fn __rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
     }
     match resolve_slot(obj_word, key_str_handle) {
         Some((handle, idx)) => rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 1 + idx) as u64,
-        None => PolyValue::undefined().raw(),
+        // Own-slot MISS → walk the prototype chain (`Object.create(proto)`): the key
+        // may live on a prototype. A null prototype ends the walk at `undefined`.
+        None => match super::protos::proto_of(obj_word) {
+            Some(proto) => __rtsadp_obj_get(proto, key_str_handle),
+            None => PolyValue::undefined().raw(),
+        },
     }
 }
 
