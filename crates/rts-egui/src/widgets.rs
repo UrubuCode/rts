@@ -108,8 +108,24 @@ pub extern "C" fn __RTS_FN_NS_EGUI_HTML(h: u64, ptr: *const u8, len: i64) {
         .to_string();
     ctx::with_ctx(h, |c| {
         if c.frame_active {
-            let dom = crate::dom::parse_html_to_dom(&html);
-            c.cmds.push(WidgetCmd::Html(dom));
+            // Guarda a árvore RETIDA no UiCtx (fonte da verdade persistente) e
+            // enfileira só o marcador de posição; o render lê de `c.dom`.
+            c.dom = Some(crate::dom::parse_html_to_dom(&html));
+            c.cmds.push(WidgetCmd::Html);
         }
+    });
+}
+
+/// Imprime a árvore de DOM RETIDA da janela (a última parseada por `html`) no
+/// STDERR, indentada estilo devtools (ver `dom::Dom::dump`). Ferramenta de
+/// inspeção/teste: confere a estrutura gerada SEM depender da renderização.
+///
+/// Não retorna a string (a ABI proíbe `StrPtr` de retorno e o egui não acessa o
+/// pool de strings GC); imprimir no stderr é o caminho direto e sem dependências.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_DOM_DUMP(h: u64) {
+    ctx::with_ctx(h, |c| match &c.dom {
+        Some(dom) => eprint!("{}", dom.dump()),
+        None => eprintln!("(sem DOM: nenhum html() chamado nesta janela ainda)"),
     });
 }

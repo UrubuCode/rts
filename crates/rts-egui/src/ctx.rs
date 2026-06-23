@@ -91,11 +91,11 @@ pub enum WidgetCmd {
     /// Fecha o escopo horizontal aberto pelo `HorizontalBegin` mais recente
     /// ainda aberto. Volta a empilhar verticalmente no nível pai.
     HorizontalEnd,
-    /// Conteúdo HTML como árvore de DOM RETIDA (ver `crate::dom::Dom`). O render
-    /// PERCORRE essa árvore (`frame::render_dom`) — headings, parágrafos com wrap
-    /// e inlines `<b>`/`<i>` saem da hierarquia real dos nós, não de uma fila
-    /// plana com pares Begin/End. É também o nó que o JS vai mutar no futuro.
-    Html(crate::dom::Dom),
+    /// Marcador de "renderize o DOM retido aqui". A árvore em si vive em
+    /// `UiCtx::dom` (persistente entre frames, mutável pelo JS); este comando só
+    /// marca a POSIÇÃO do conteúdo HTML na ordem da fila, em relação aos widgets
+    /// imperativos. O render (`frame::render_dom`) lê `UiCtx::dom`.
+    Html,
 }
 
 /// Estado completo de uma janela GUI. Tudo `!Send` (winit/wgpu/egui::Context).
@@ -117,6 +117,11 @@ pub struct UiCtx {
     pub frame_active: bool,
     /// Fila de widgets do frame corrente (drenada no `endFrame`).
     pub cmds: Vec<WidgetCmd>,
+    /// Árvore de DOM RETIDA da última chamada a `egui.html(...)`. É a fonte da
+    /// verdade persistente entre frames (ao contrário de `cmds`, zerada a cada
+    /// frame): o render percorre esta árvore, `egui.domDump` a serializa para
+    /// inspeção, e é ela que o JS vai MUTAR (Fatia 3). `None` até o 1º `html`.
+    pub dom: Option<crate::dom::Dom>,
     /// Resultado de cada `button` do frame ANTERIOR (true = clicado), por índice.
     pub button_results: Vec<bool>,
     /// Resultado de cada `slider` do frame ANTERIOR (valor atual), por índice.

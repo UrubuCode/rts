@@ -154,5 +154,14 @@ pub fn register(e: &mut Engine) {
             "Parses basic HTML and emits the corresponding widgets in the frame.",
             widgets::__RTS_FN_NS_EGUI_HTML as *const u8,
         ))
+        // ── Inspeção / debug do DOM retido ──────────────────────────────────────
+        .member(func(
+            "domDump",
+            "__RTS_FN_NS_EGUI_DOM_DUMP",
+            Sig::new(vec![U64], AbiType::Void),
+            "domDump(h: number): void",
+            "Prints the retained DOM tree (last parsed HTML) to stderr, devtools-style.",
+            widgets::__RTS_FN_NS_EGUI_DOM_DUMP as *const u8,
+        ))
         .done();
 }

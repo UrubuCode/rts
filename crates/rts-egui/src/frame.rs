@@ -189,8 +189,11 @@ pub extern "C" fn __RTS_FN_NS_EGUI_END_FRAME(h: u64) {
         c.frame_active = false;
 
         // ── 1. Drena a fila num CentralPanel, coletando interações ───────────
-        // Toma a fila por valor (evita emprestar `c` dentro do closure).
+        // Toma a fila por valor (evita emprestar `c` dentro do closure). O DOM
+        // retido (`c.dom`) é só LIDO pelo render — saca por valor com `take` e
+        // devolve depois, mantendo `c` livre para o `egui_ctx` no `show`.
         let cmds = std::mem::take(&mut c.cmds);
+        let dom = c.dom.take();
         let mut new_buttons: Vec<bool> = Vec::new();
         let mut new_sliders: Vec<f64> = Vec::new();
 
@@ -207,8 +210,10 @@ pub extern "C" fn __RTS_FN_NS_EGUI_END_FRAME(h: u64) {
             // a ordem em que `new_buttons`/`new_sliders` são preenchidos) casa
             // exatamente com a ordem de enfileiramento em `widgets.rs`.
             let mut idx = 0usize;
-            drenar(ui, &cmds, &mut idx, &mut new_buttons, &mut new_sliders);
+            drenar(ui, &cmds, dom.as_ref(), &mut idx, &mut new_buttons, &mut new_sliders);
         });
+        // Devolve o DOM retido ao UiCtx (persiste para o próximo frame / mutação).
+        c.dom = dom;
 
         c.button_results = new_buttons;
         c.slider_results = new_sliders;
@@ -254,6 +259,7 @@ pub extern "C" fn __RTS_FN_NS_EGUI_END_FRAME(h: u64) {
 fn drenar(
     ui: &mut egui::Ui,
     cmds: &[WidgetCmd],
+    dom: Option<&crate::dom::Dom>,
     idx: &mut usize,
     new_buttons: &mut Vec<bool>,
     new_sliders: &mut Vec<f64>,
@@ -281,7 +287,7 @@ fn drenar(
                 // mesmo `idx` — os widgets seguintes ficam lado a lado no `hui`
                 // até o `HorizontalEnd` pareado fazer a recursão retornar.
                 ui.horizontal(|hui| {
-                    drenar(hui, cmds, idx, new_buttons, new_sliders);
+                    drenar(hui, cmds, dom, idx, new_buttons, new_sliders);
                 });
             }
             WidgetCmd::HorizontalEnd => {
@@ -289,10 +295,13 @@ fn drenar(
                 // do `ui.horizontal` do `Begin` pareado), encerrando o escopo.
                 return;
             }
-            WidgetCmd::Html(dom) => {
-                // Conteúdo HTML: o render PERCORRE a árvore de DOM retida (em vez
-                // de uma fila plana). Self-contained — não consome `idx` extra.
-                render_dom(ui, dom);
+            WidgetCmd::Html => {
+                // Conteúdo HTML: o render PERCORRE a árvore de DOM RETIDA em
+                // `UiCtx::dom` (não uma fila plana). Self-contained — não consome
+                // `idx` extra. Sem árvore (nenhum `html` ainda), não faz nada.
+                if let Some(dom) = dom {
+                    render_dom(ui, dom);
+                }
             }
         }
     }

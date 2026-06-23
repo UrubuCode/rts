@@ -87,6 +87,12 @@ class Window {
     egui.html(this.__h, text);
   }
 
+  // Imprime no stderr a árvore de DOM retida (último html parseado), indentada
+  // estilo devtools. Ferramenta de inspeção/teste do DOM gerado.
+  dumpDom(): void {
+    egui.domDump(this.__h);
+  }
+
   // Fecha a janela.
   close(): void {
     egui.close(this.__h);
