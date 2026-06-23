@@ -77,6 +77,7 @@ mod error_cause;
 mod json_parse;
 mod numeric_coercion;
 mod object_static;
+mod param_class_dispatch;
 mod proxy;
 mod reflect;
 mod relet;

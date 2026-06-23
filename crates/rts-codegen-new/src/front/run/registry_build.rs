@@ -41,8 +41,9 @@ pub(super) struct Register {
 
 /// Every `fn(&mut Engine)` register, in any order (each just pushes metadata).
 /// ADD A NAMESPACE/CLASS HERE — one row, append-friendly. Heavier/feature-gated
-/// namespaces (http_server/tls/ui/runtime) are deliberately absent until a test
-/// needs them. `console` is NOT here — it is a `.ts` prelude (see [`PRELUDE_TS`]).
+/// namespaces (http_server/tls/runtime) are deliberately absent until a test
+/// needs them (`ui` is now registered — egui GUI, crate `rts-egui`). `console`
+/// is NOT here — it is a `.ts` prelude (see [`PRELUDE_TS`]).
 pub(super) static REGISTER: &[Register] = &[
     // Namespaces backing class statics/ctors (Date.now/UTC/parse → `date`; Map/Set
     // → `collections`).
@@ -89,6 +90,9 @@ pub(super) static REGISTER: &[Register] = &[
     // `audio` — cross-platform audio backend; metadata-only wiring, engine never
     // NAMES the surface (resolves via Registry). `asio_audio` stays feature-gated.
     Register { label: "audio", run: ns::audio::register, why: "rts:audio device I/O" },
+    // `egui` — GUI imediata na crate `rts-egui`. Engine NUNCA nomeia `egui`;
+    // resolve via Registry. Loop dirigido pelo TS. Ver egui-ui-crate-design.md.
+    Register { label: "egui", run: ns::egui::register, why: "rts:egui GUI primitives" },
     // PRIVATE `engine` namespace (arch/time/trace + the str_*/num_*/display/print_line
     // bridges) — prelude-only via the `engineobj` privacy gate.
     Register { label: "engine", run: ns::engine::register, why: "private prelude bridges" },

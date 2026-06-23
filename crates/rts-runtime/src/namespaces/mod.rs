@@ -11,6 +11,10 @@ pub use rts_shared::alloc;
 pub use rts_std::audio;
 #[cfg(feature = "asio")]
 pub use rts_std::asio_audio;
+/// `egui` — GUI imediata (egui) na crate separada `rts-egui` (como `napi`).
+/// Resolve via Registry: `ns::egui::register`. `import { Window } from "rts:egui"`.
+/// Ver docs/specs/egui-ui-crate-design.md.
+pub use rts_egui as egui;
 pub mod globals;
 pub use rts_std::atomic;
 pub use rts_shared::trace;

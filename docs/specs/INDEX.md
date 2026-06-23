@@ -36,6 +36,10 @@ não eram guia para o motor novo.
   fixtures planejadas.
 - [Como criar um namespace](namespace-creation-guide.md) — Processo baseado em
   `rts-engine::abi` (SPECS centralizado, símbolos `__RTS_FN_NS_*`, `AbiType`).
+- [GUI imediata via egui — crate `rts-egui` + namespace `ui`](egui-ui-crate-design.md)
+  — Design da GUI cross-platform: egui (immediate-mode, sem FLTK) numa crate nova,
+  primitivos no Rust + lib de alto nível em TS, loop dirigido pelo TS, wgpu
+  primário. Fundamento de render visando jogos/browser no futuro.
 - [Epic #226 — paridade JS/TS](js-parity-epic-226.md) — Catálogo das ~60 APIs
   JS (Array/Object/Math/String/URL/Date/Boolean/parseInt/destructuring). Define
   as SEMÂNTICAS que o motor novo deve cobrir (a implementação migra para o

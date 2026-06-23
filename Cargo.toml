@@ -13,6 +13,7 @@ members = [
     "crates/rts-linker",
     "crates/rts-runtime",
     "crates/rts-napi",
+    "crates/rts-egui",
     "crates/rts-codegen-new",
     "crates/rts-cli",
 ]
@@ -98,3 +99,12 @@ lto = "thin"
 codegen-units = 1
 panic = "abort"
 strip = "symbols"
+
+# Em DEBUG, não gerar debug symbols das DEPENDÊNCIAS (só do nosso código).
+# Symbols de wgpu/naga/egui sozinhos incham a staticlib AOT de ~163MB para
+# ~1GB — e você nunca depura dentro do wgpu. `debug=false` nas deps mantém o
+# debug do código do RTS e corta ~900MB inúteis + acelera o build/zstd.
+[profile.dev.package."*"]
+debug = false
+# `strip = "debuginfo"` remove o que sobrou de info de debug das deps no archive.
+strip = "debuginfo"
