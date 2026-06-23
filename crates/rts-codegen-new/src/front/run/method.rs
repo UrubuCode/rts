@@ -128,6 +128,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // bridge. Arrays were already handled above; guard against an array
             // value slipping through. `Ok(None)` when the method is not on
             // `class Object` (the caller bails — never a guess).
+            // `proto.isPrototypeOf(obj)` on a whole-object receiver → the runtime
+            // prototype-chain walk (`Object.create` side-table). Routed here because a
+            // PROVEN object never reaches the Tagged dynamic-method path.
+            if method == "isPrototypeOf" && args.len() == 1 {
+                let recv = self.lower_expr(module, object)?;
+                let recv_word = self.box_value(recv);
+                let arg = self.lower_expr(module, &args[0])?;
+                let arg_word = self.box_value(arg);
+                let res = self
+                    .call_runtime(module, "__rtsadp_is_prototype_of", &[recv_word, arg_word])?
+                    .expect("__rtsadp_is_prototype_of returns a value");
+                return Ok(Some(self.poly_bool_to_bool(res)));
+            }
             if !self.is_array_valued(object) {
                 let recv = self.lower_expr(module, object)?;
                 if let Some(val) =

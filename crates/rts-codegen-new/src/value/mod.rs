@@ -128,6 +128,10 @@ pub mod regexops;
 // `_set`/`_has` for `obj.key`/`obj[k]` whose shape is known only at RUNTIME,
 // reading the slot-0 global shape-id + the global shape registry.
 pub mod objops;
+// Object PROTOTYPE chain (`Object.create` + proto-walk property lookup):
+// `__rtsadp_obj_create`/`_proto_of`/`is_prototype_of` over a side-table keyed by
+// object word. The `objops` property read walks it on an own-slot miss.
+pub mod protos;
 // The `globalThis` singleton object (foundation: VALUE get/set), backed by the
 // same keyed-object repr so `globalThis.prop` reuses the `objops` trampolines.
 pub mod globalthis;

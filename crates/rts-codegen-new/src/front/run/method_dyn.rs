@@ -120,6 +120,12 @@ const DYN_METHODS: &[DynMethod] = &[
         ret_kind: JsKind::Unknown,
     },
     DynMethod {
+        name: "isPrototypeOf",
+        argc: 1,
+        symbol: "__rtsadp_is_prototype_of",
+        ret_kind: JsKind::Bool,
+    },
+    DynMethod {
         name: "reverse",
         argc: 0,
         symbol: "__rtsadp_dyn_reverse",
