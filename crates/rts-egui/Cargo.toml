@@ -46,6 +46,19 @@ wgpu = { version = "29.0", optional = true, default-features = false, features =
 ] }
 egui_glow = { version = "0.34.3", optional = true, default-features = false }
 glow = { version = "0.16", optional = true }
+# glutin cria o CONTEXTO GL (egui_glow só pinta sobre um contexto já corrente).
+# glutin 0.32 + glutin-winit 0.5 casam com winit 0.30 (raw-window-handle 0.6).
+# `wgl` = Windows, `egl` = ANGLE/Linux/Wayland. Gated por `glow-backend` — não
+# entram no build wgpu default.
+glutin = { version = "0.32", optional = true, default-features = false, features = [
+    "egl",
+    "wgl",
+] }
+glutin-winit = { version = "0.5", optional = true, default-features = false, features = [
+    "egl",
+    "wgl",
+] }
+raw-window-handle = { version = "0.6", optional = true }
 
 # LINUX: winit precisa de um backend de plataforma EXPLÍCITO (x11/wayland são
 # feature-gated no winit; Windows/macOS habilitam o backend pelo próprio target,
@@ -70,7 +83,7 @@ default = ["wgpu-backend", "gpu-dx12"]
 # wgpu-backend liga o dep wgpu/egui-wgpu. O backend de GPU concreto é escolhido
 # pelas features de plataforma abaixo (o build ativa a do SO corrente).
 wgpu-backend = ["dep:egui-wgpu", "dep:wgpu"]
-glow-backend = ["dep:egui_glow", "dep:glow"]
+glow-backend = ["dep:egui_glow", "dep:glow", "dep:glutin", "dep:glutin-winit", "dep:raw-window-handle"]
 # Backends de GPU — ativar SÓ o do SO alvo (não todos). Por ora explícito; um
 # wrapper de build pode selecioná-los por cfg. dx12=Windows, metal=macOS,
 # vulkan=Linux.
