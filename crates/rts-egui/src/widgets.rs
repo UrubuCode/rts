@@ -96,10 +96,11 @@ pub extern "C" fn __RTS_FN_NS_EGUI_HORIZONTAL_END(h: u64) {
     });
 }
 
-/// Renderiza HTML BÁSICO no frame ativo: parseia a string (parser à mão em
-/// `html.rs`) e ENFILEIRA os `WidgetCmd` resultantes na MESMA fila de label/
-/// button, reusando a drenagem do `endFrame`. Suporta `h1`/`h2`/`h3`, `p`/`div`,
-/// `b`/`strong`, `i`/`em` e texto solto (ver `html::parse_html_to_cmds`).
+/// Renderiza HTML BÁSICO no frame ativo: parseia a string para uma árvore de DOM
+/// RETIDA (`dom::parse_html_to_dom`) e enfileira um único `WidgetCmd::Html(dom)`.
+/// O render percorre essa árvore no `endFrame` (`frame::render_dom`). Suporta
+/// `h1`/`h2`/`h3`, `p`/`div`, `b`/`strong`, `i`/`em`, tags desconhecidas
+/// (transparentes) e texto solto.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_EGUI_HTML(h: u64, ptr: *const u8, len: i64) {
     let html = unsafe { str_abi::from_abi(ptr, len) }
@@ -107,8 +108,145 @@ pub extern "C" fn __RTS_FN_NS_EGUI_HTML(h: u64, ptr: *const u8, len: i64) {
         .to_string();
     ctx::with_ctx(h, |c| {
         if c.frame_active {
-            let cmds = crate::html::parse_html_to_cmds(&html);
-            c.cmds.extend(cmds);
+            // Guarda a árvore RETIDA no UiCtx (fonte da verdade persistente) e
+            // enfileira só o marcador de posição; o render lê de `c.dom`.
+            c.dom = Some(crate::dom::parse_html_to_dom(&html));
+            c.cmds.push(WidgetCmd::Html);
         }
+    });
+}
+
+/// Registra o layout de uma TAG no "alocador dinâmico de blocos" (mapa tag →
+/// como renderizar, definido pelo TS). O engine de render consulta esse mapa em
+/// vez de hardcodar nomes de tag. Ver `crate::block`.
+///
+/// `display` 0=vertical 1=wrap 2=horizontal 3=grid; `indent` recuo em pontos (ou
+/// tamanho de fonte quando `flags` tem HEADING); `prefix` 0=none 1=bullet
+/// 2=number; `flags` bitmask MONO=1|PRESERVE_WS=2|HEADING=4. Independe de janela.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_DEFINE_BLOCK(
+    tag_ptr: *const u8,
+    tag_len: i64,
+    display: i64,
+    indent: f64,
+    prefix: i64,
+    flags: i64,
+) {
+    let tag = unsafe { str_abi::from_abi(tag_ptr, tag_len) }.unwrap_or("");
+    if tag.is_empty() {
+        return;
+    }
+    crate::block::define(
+        tag,
+        crate::block::BlockDef {
+            display,
+            indent: indent as f32,
+            prefix,
+            flags,
+        },
+    );
+}
+
+/// Sentinela de "nó não encontrado" para os primitivos que retornam `NodeId`
+/// (não há `-1` em `u64`). O TS compara contra `0xFFFF_FFFF_FFFF_FFFF`.
+const NODE_NONE: u64 = u64::MAX;
+
+/// `querySelector`: primeiro nó que casa com um seletor simples (`tag`, `#id`,
+/// `.classe`) no DOM retido da janela. Retorna o `NodeId` (u64) ou `NODE_NONE`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_QUERY_SELECTOR(h: u64, sel_ptr: *const u8, sel_len: i64) -> u64 {
+    let sel = unsafe { str_abi::from_abi(sel_ptr, sel_len) }.unwrap_or("");
+    ctx::with_ctx(h, |c| match &c.dom {
+        Some(dom) => dom.query(sel).map(|id| id as u64).unwrap_or(NODE_NONE),
+        None => NODE_NONE,
+    })
+    .unwrap_or(NODE_NONE)
+}
+
+/// `element.textContent = txt`: substitui o conteúdo do nó por um texto.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_SET_TEXT(h: u64, id: u64, ptr: *const u8, len: i64) {
+    let txt = unsafe { str_abi::from_abi(ptr, len) }.unwrap_or("").to_string();
+    ctx::with_ctx(h, |c| {
+        if let Some(dom) = c.dom.as_mut() {
+            dom.set_text(id as usize, &txt);
+        }
+    });
+}
+
+/// `element.setAttribute(name, value)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_SET_ATTR(
+    h: u64,
+    id: u64,
+    name_ptr: *const u8,
+    name_len: i64,
+    val_ptr: *const u8,
+    val_len: i64,
+) {
+    let name = unsafe { str_abi::from_abi(name_ptr, name_len) }.unwrap_or("").to_string();
+    let val = unsafe { str_abi::from_abi(val_ptr, val_len) }.unwrap_or("").to_string();
+    ctx::with_ctx(h, |c| {
+        if let Some(dom) = c.dom.as_mut() {
+            dom.set_attr(id as usize, &name, &val);
+        }
+    });
+}
+
+/// `document.createElement(tag)`: cria um elemento solto; retorna seu `NodeId`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_CREATE_ELEMENT(h: u64, tag_ptr: *const u8, tag_len: i64) -> u64 {
+    let tag = unsafe { str_abi::from_abi(tag_ptr, tag_len) }.unwrap_or("").to_string();
+    ctx::with_ctx(h, |c| match c.dom.as_mut() {
+        Some(dom) => dom.create_element(&tag) as u64,
+        None => NODE_NONE,
+    })
+    .unwrap_or(NODE_NONE)
+}
+
+/// `parent.appendChild(child)`: move `child` para o fim dos filhos de `parent`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_APPEND_CHILD(h: u64, parent: u64, child: u64) {
+    ctx::with_ctx(h, |c| {
+        if let Some(dom) = c.dom.as_mut() {
+            dom.append_child(parent as usize, child as usize);
+        }
+    });
+}
+
+/// `element.remove()`: desliga o nó do pai.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_REMOVE_NODE(h: u64, id: u64) {
+    ctx::with_ctx(h, |c| {
+        if let Some(dom) = c.dom.as_mut() {
+            dom.remove_node(id as usize);
+        }
+    });
+}
+
+/// Registra o estilo INLINE de uma tag (`<b>`/`<i>`/`<code>`…) no alocador
+/// dinâmico: `flags` é o bitmask BOLD=8|ITALIC=16|MONO=1. Uma tag inline só liga
+/// bits de estilo e desce nos filhos (transparente). Mantém o Rust sem nome de
+/// tag. Independe de janela. Ver `crate::block`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_DEFINE_INLINE(tag_ptr: *const u8, tag_len: i64, flags: i64) {
+    let tag = unsafe { str_abi::from_abi(tag_ptr, tag_len) }.unwrap_or("");
+    if tag.is_empty() {
+        return;
+    }
+    crate::block::define_inline(tag, flags);
+}
+
+/// Imprime a árvore de DOM RETIDA da janela (a última parseada por `html`) no
+/// STDERR, indentada estilo devtools (ver `dom::Dom::dump`). Ferramenta de
+/// inspeção/teste: confere a estrutura gerada SEM depender da renderização.
+///
+/// Não retorna a string (a ABI proíbe `StrPtr` de retorno e o egui não acessa o
+/// pool de strings GC); imprimir no stderr é o caminho direto e sem dependências.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_DOM_DUMP(h: u64) {
+    ctx::with_ctx(h, |c| match &c.dom {
+        Some(dom) => eprint!("{}", dom.dump()),
+        None => eprintln!("(sem DOM: nenhum html() chamado nesta janela ainda)"),
     });
 }

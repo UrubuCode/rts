@@ -4,8 +4,14 @@ Pasta com **todo o estudo** do motor de render HTML+CSS próprio do RTS, sobre o
 `rts-egui`. Objetivo de longo prazo: o "nosso DOOM" — um motor de render do zero,
 dominando cada camada (rumo a um motor de browser).
 
-> **Status:** ESTUDO + PLANO (pré-implementação). A crate `rts-html` ainda NÃO
-> foi criada — esta pasta é a fundação de análise que guia a implementação.
+> **Status:** ESTUDO + PLANO (pré-implementação) — MAS já existe na main um motor
+> de render de HTML retido por um **caminho DIFERENTE** deste plano (DOM em árvore
+> + alocador de blocos data-driven em TS + mutação via JS, tudo na `rts-egui`; a
+> crate `rts-html` das 5 árvores NÃO foi criada). Ver a seção
+> **"⚠️ STATUS DE IMPLEMENTAÇÃO"** no topo do [PLANO.md](PLANO.md) para o que foi
+> feito e onde diverge. **A comparar com os devs:** este plano (motor de browser
+> canônico de 5 árvores) vs. o caminho leve implementado — qual vira a direção
+> oficial. Os dois coexistem até essa decisão.
 
 ## Como ler
 
