@@ -96,10 +96,11 @@ pub extern "C" fn __RTS_FN_NS_EGUI_HORIZONTAL_END(h: u64) {
     });
 }
 
-/// Renderiza HTML BÁSICO no frame ativo: parseia a string (parser à mão em
-/// `html.rs`) e ENFILEIRA os `WidgetCmd` resultantes na MESMA fila de label/
-/// button, reusando a drenagem do `endFrame`. Suporta `h1`/`h2`/`h3`, `p`/`div`,
-/// `b`/`strong`, `i`/`em` e texto solto (ver `html::parse_html_to_cmds`).
+/// Renderiza HTML BÁSICO no frame ativo: parseia a string para uma árvore de DOM
+/// RETIDA (`dom::parse_html_to_dom`) e enfileira um único `WidgetCmd::Html(dom)`.
+/// O render percorre essa árvore no `endFrame` (`frame::render_dom`). Suporta
+/// `h1`/`h2`/`h3`, `p`/`div`, `b`/`strong`, `i`/`em`, tags desconhecidas
+/// (transparentes) e texto solto.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_EGUI_HTML(h: u64, ptr: *const u8, len: i64) {
     let html = unsafe { str_abi::from_abi(ptr, len) }
@@ -107,8 +108,8 @@ pub extern "C" fn __RTS_FN_NS_EGUI_HTML(h: u64, ptr: *const u8, len: i64) {
         .to_string();
     ctx::with_ctx(h, |c| {
         if c.frame_active {
-            let cmds = crate::html::parse_html_to_cmds(&html);
-            c.cmds.extend(cmds);
+            let dom = crate::dom::parse_html_to_dom(&html);
+            c.cmds.push(WidgetCmd::Html(dom));
         }
     });
 }

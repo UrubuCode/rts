@@ -289,39 +289,115 @@ fn drenar(
                 // do `ui.horizontal` do `Begin` pareado), encerrando o escopo.
                 return;
             }
-            WidgetCmd::Heading { level, text } => {
-                // Cabeçalho de bloco: fonte maior conforme o nível (h1 > h2 > h3).
-                let size = match level {
-                    1 => 28.0,
-                    2 => 22.0,
-                    _ => 18.0,
-                };
-                ui.heading(egui::RichText::new(text).strong().size(size));
+            WidgetCmd::Html(dom) => {
+                // Conteúdo HTML: o render PERCORRE a árvore de DOM retida (em vez
+                // de uma fila plana). Self-contained — não consome `idx` extra.
+                render_dom(ui, dom);
             }
-            WidgetCmd::ParagraphBegin => {
-                // Igual ao HorizontalBegin, mas com `horizontal_wrapped` (quebra
-                // de linha) e espaçamento horizontal zero entre os fragmentos —
-                // assim "negrito" cola no texto vizinho como num parágrafo real.
-                // Continua a drenar DENTRO dele até o `ParagraphEnd` pareado.
-                ui.horizontal_wrapped(|hui| {
-                    hui.spacing_mut().item_spacing.x = 0.0;
-                    drenar(hui, cmds, idx, new_buttons, new_sliders);
-                });
-            }
-            WidgetCmd::ParagraphEnd => {
-                // Fecha o parágrafo atual: retorna ao closure do `horizontal_wrapped`.
-                return;
-            }
-            WidgetCmd::InlineText { text, bold, italic } => {
-                // Fragmento inline: aplica o estilo herdado das tags <b>/<i>.
-                let mut rt = egui::RichText::new(text);
-                if *bold {
-                    rt = rt.strong();
+        }
+    }
+}
+
+/// Estilo inline herdado das tags `<b>`/`<i>` ao descer na árvore.
+#[derive(Clone, Copy, Default)]
+struct InlineStyle {
+    bold: bool,
+    italic: bool,
+}
+
+/// Renderiza um `Dom` inteiro no `ui`: cada filho do `#document` é um bloco.
+///
+/// Este é o "render em cima da árvore" — a fonte da verdade é a hierarquia de
+/// nós, não comandos lineares. Percorre recursivamente: blocos
+/// (`h1`/`h2`/`h3`, `p`/`div`) abrem seu layout próprio; o resto flui inline.
+fn render_dom(ui: &mut egui::Ui, dom: &crate::dom::Dom) {
+    let root = dom.node(dom.root);
+    for &child in &root.children {
+        render_block(ui, dom, child);
+    }
+}
+
+/// Renderiza um nó em contexto de BLOCO (filho do documento ou de outro bloco).
+fn render_block(ui: &mut egui::Ui, dom: &crate::dom::Dom, id: crate::dom::NodeId) {
+    use crate::dom::NodeKind;
+    match &dom.node(id).kind {
+        NodeKind::Element { tag } if matches!(tag.as_str(), "h1" | "h2" | "h3") => {
+            // Cabeçalho: fonte maior conforme o nível; texto = todos os
+            // descendentes de texto concatenados (heading não mistura inline).
+            let size = match tag.as_str() {
+                "h1" => 28.0,
+                "h2" => 22.0,
+                _ => 18.0,
+            };
+            let text = collect_text(dom, id);
+            ui.heading(egui::RichText::new(text).strong().size(size));
+        }
+        NodeKind::Element { tag } if matches!(tag.as_str(), "p" | "div") => {
+            // Parágrafo/div: `horizontal_wrapped` (quebra ao fim da largura) com
+            // espaçamento horizontal zero — os inlines colam como num texto real.
+            ui.horizontal_wrapped(|hui| {
+                hui.spacing_mut().item_spacing.x = 0.0;
+                for &child in &dom.node(id).children {
+                    render_inline(hui, dom, child, InlineStyle::default());
                 }
-                if *italic {
-                    rt = rt.italics();
+            });
+        }
+        // Texto solto ou inline (`<b>`/`<i>`/desconhecida) no nível de bloco:
+        // emite direto, sem abrir um parágrafo.
+        _ => render_inline(ui, dom, id, InlineStyle::default()),
+    }
+}
+
+/// Renderiza um nó em contexto INLINE, herdando `style` das tags `<b>`/`<i>`.
+fn render_inline(
+    ui: &mut egui::Ui,
+    dom: &crate::dom::Dom,
+    id: crate::dom::NodeId,
+    style: InlineStyle,
+) {
+    use crate::dom::NodeKind;
+    match &dom.node(id).kind {
+        NodeKind::Text(text) => {
+            let mut rt = egui::RichText::new(text);
+            if style.bold {
+                rt = rt.strong();
+            }
+            if style.italic {
+                rt = rt.italics();
+            }
+            ui.label(rt);
+        }
+        NodeKind::Element { tag } => {
+            // `<b>`/`<i>` ligam o estilo; tags desconhecidas são transparentes
+            // (renderizam os filhos com o estilo corrente, preservando o texto).
+            let mut st = style;
+            match tag.as_str() {
+                "b" | "strong" => st.bold = true,
+                "i" | "em" => st.italic = true,
+                _ => {}
+            }
+            for &child in &dom.node(id).children {
+                render_inline(ui, dom, child, st);
+            }
+        }
+        NodeKind::Document => {}
+    }
+}
+
+/// Concatena o texto de todos os descendentes de `id` (em ordem de documento).
+fn collect_text(dom: &crate::dom::Dom, id: crate::dom::NodeId) -> String {
+    use crate::dom::NodeKind;
+    let mut out = String::new();
+    collect_text_into(dom, id, &mut out);
+    return out;
+
+    fn collect_text_into(dom: &crate::dom::Dom, id: crate::dom::NodeId, out: &mut String) {
+        match &dom.node(id).kind {
+            NodeKind::Text(t) => out.push_str(t),
+            _ => {
+                for &child in &dom.node(id).children {
+                    collect_text_into(dom, child, out);
                 }
-                ui.label(rt);
             }
         }
     }

@@ -20,11 +20,13 @@ use AbiType::{F64, I64, U64};
 
 mod ctx;
 mod app;
+mod dom;
 mod frame;
 mod html;
 mod widgets;
 
 pub use app::*;
+pub use dom::*;
 pub use frame::*;
 pub use widgets::*;
 

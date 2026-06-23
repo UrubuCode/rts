@@ -91,18 +91,11 @@ pub enum WidgetCmd {
     /// Fecha o escopo horizontal aberto pelo `HorizontalBegin` mais recente
     /// ainda aberto. Volta a empilhar verticalmente no nível pai.
     HorizontalEnd,
-    /// Cabeçalho de bloco (`<h1>`/`<h2>`/`<h3>`). `level` 1..3 controla o
-    /// tamanho da fonte. O texto já vem resolvido (heading não mistura inline).
-    Heading { level: u8, text: String },
-    /// Abre um parágrafo de bloco (`<p>`/`<div>`): os `InlineText` seguintes
-    /// (até o `ParagraphEnd` pareado) fluem LADO A LADO com wrap, sem espaço
-    /// extra entre eles. Pareado por ordem na fila, como o horizontal.
-    ParagraphBegin,
-    /// Fecha o parágrafo aberto pelo `ParagraphBegin` mais recente.
-    ParagraphEnd,
-    /// Um fragmento de texto inline (filho de `<p>`, ou texto solto). Carrega o
-    /// estilo corrente herdado das tags `<b>`/`<i>` que o envolvem.
-    InlineText { text: String, bold: bool, italic: bool },
+    /// Conteúdo HTML como árvore de DOM RETIDA (ver `crate::dom::Dom`). O render
+    /// PERCORRE essa árvore (`frame::render_dom`) — headings, parágrafos com wrap
+    /// e inlines `<b>`/`<i>` saem da hierarquia real dos nós, não de uma fila
+    /// plana com pares Begin/End. É também o nó que o JS vai mutar no futuro.
+    Html(crate::dom::Dom),
 }
 
 /// Estado completo de uma janela GUI. Tudo `!Send` (winit/wgpu/egui::Context).
