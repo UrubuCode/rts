@@ -334,6 +334,24 @@ pub extern "C" fn __RTS_FN_NS_EGUI_END_FRAME(h: u64) {
     });
 }
 
+/// Agenda um snapshot do PRÓXIMO `endFrame` num arquivo PPM (teste visual
+/// headless). Chame entre `beginFrame` e `endFrame`. Só o backend glow suporta
+/// (lê o back buffer via `glReadPixels`); no wgpu é no-op com aviso (a janela
+/// wgpu já é confirmada visualmente). O PPM serve p/ asserir que o frame não está
+/// em branco — que o texto/widgets realmente pintaram.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_SNAPSHOT(h: u64, path_ptr: *const u8, path_len: i64) {
+    let path = match unsafe { rts_engine::abi::str_abi::from_abi(path_ptr, path_len) } {
+        Some(p) if !p.is_empty() => p.to_string(),
+        _ => return,
+    };
+    ctx::with_ctx(h, |c| match &mut c.backend {
+        #[cfg(feature = "glow-backend")]
+        Backend::Glow(g) => g.request_snapshot(path),
+        _ => eprintln!("rts-egui snapshot: suportado só no backend glow (render: \"glow\")"),
+    });
+}
+
 /// Drena a fila de comandos `cmds` a partir de `*idx`, emitindo cada widget no
 /// `ui` ATUAL. É RECURSIVA para tratar os escopos horizontais sem precisar
 /// guardar um `egui::Ui` entre chamadas FFI (o `ui.horizontal(...)` exige um

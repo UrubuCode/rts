@@ -35,6 +35,10 @@ pub struct GlowState {
     gl_surface: Surface<WindowSurface>,
     painter: egui_glow::Painter,
     gl: Arc<glow::Context>,
+    /// Caminho pendente de snapshot: setado por `request_snapshot`, consumido no
+    /// próximo `paint` (lê o back buffer ANTES do swap → PPM). Para teste visual
+    /// headless: garante que o frame não está em branco (texto realmente pintado).
+    pending_snapshot: Option<String>,
 }
 
 impl GlowState {
@@ -116,8 +120,49 @@ impl GlowState {
                 gl_surface,
                 painter,
                 gl,
+                pending_snapshot: None,
             },
         ))
+    }
+
+    /// Agenda um snapshot do PRÓXIMO frame pintado (lido antes do swap) num PPM.
+    pub fn request_snapshot(&mut self, path: String) {
+        self.pending_snapshot = Some(path);
+    }
+
+    /// Lê o back buffer (`glReadPixels` RGBA) e grava um PPM P6 (RGB). GL tem
+    /// origem bottom-left → invertemos as linhas para a imagem sair com o topo em
+    /// cima. Chamado DENTRO do `paint`, após pintar e antes do swap.
+    fn write_ppm(&self, path: &str, w: u32, h: u32) {
+        use glow::HasContext as _;
+        let (wi, hi) = (w as i32, h as i32);
+        let mut buf = vec![0u8; (w * h * 4) as usize];
+        unsafe {
+            self.gl.read_pixels(
+                0,
+                0,
+                wi,
+                hi,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                glow::PixelPackData::Slice(Some(&mut buf)),
+            );
+        }
+        // PPM P6: header + RGB (descarta alpha), linhas invertidas (GL→imagem).
+        let mut out = format!("P6\n{w} {h}\n255\n").into_bytes();
+        out.reserve((w * h * 3) as usize);
+        for row in (0..h).rev() {
+            let base = (row * w * 4) as usize;
+            for col in 0..w as usize {
+                let p = base + col * 4;
+                out.push(buf[p]);
+                out.push(buf[p + 1]);
+                out.push(buf[p + 2]);
+            }
+        }
+        if let Err(e) = std::fs::write(path, &out) {
+            eprintln!("rts-egui snapshot: falha ao gravar {path}: {e}");
+        }
     }
 
     /// Pinta um frame já tesselado (paint_jobs + textures_delta) e troca os
@@ -150,6 +195,11 @@ impl GlowState {
 
         self.painter
             .paint_and_update_textures([w, h], pixels_per_point, &paint_jobs, &textures_delta);
+
+        // Snapshot agendado: lê o back buffer (já pintado) ANTES do swap.
+        if let Some(path) = self.pending_snapshot.take() {
+            self.write_ppm(&path, w, h);
+        }
 
         let _ = self.gl_surface.swap_buffers(&self.gl_context);
     }

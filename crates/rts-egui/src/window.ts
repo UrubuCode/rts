@@ -174,6 +174,12 @@ class Window {
     egui.domDump(this.__h);
   }
 
+  // Agenda um snapshot PPM do próximo endFrame (teste visual headless; só backend
+  // glow). Chame entre beginFrame e endFrame.
+  snapshot(path: string): void {
+    egui.snapshot(this.__h, path);
+  }
+
   // Fecha a janela.
   close(): void {
     egui.close(this.__h);
