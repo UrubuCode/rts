@@ -250,6 +250,40 @@ fn drenar(
                 // do `ui.horizontal` do `Begin` pareado), encerrando o escopo.
                 return;
             }
+            WidgetCmd::Heading { level, text } => {
+                // Cabeçalho de bloco: fonte maior conforme o nível (h1 > h2 > h3).
+                let size = match level {
+                    1 => 28.0,
+                    2 => 22.0,
+                    _ => 18.0,
+                };
+                ui.heading(egui::RichText::new(text).strong().size(size));
+            }
+            WidgetCmd::ParagraphBegin => {
+                // Igual ao HorizontalBegin, mas com `horizontal_wrapped` (quebra
+                // de linha) e espaçamento horizontal zero entre os fragmentos —
+                // assim "negrito" cola no texto vizinho como num parágrafo real.
+                // Continua a drenar DENTRO dele até o `ParagraphEnd` pareado.
+                ui.horizontal_wrapped(|hui| {
+                    hui.spacing_mut().item_spacing.x = 0.0;
+                    drenar(hui, cmds, idx, new_buttons, new_sliders);
+                });
+            }
+            WidgetCmd::ParagraphEnd => {
+                // Fecha o parágrafo atual: retorna ao closure do `horizontal_wrapped`.
+                return;
+            }
+            WidgetCmd::InlineText { text, bold, italic } => {
+                // Fragmento inline: aplica o estilo herdado das tags <b>/<i>.
+                let mut rt = egui::RichText::new(text);
+                if *bold {
+                    rt = rt.strong();
+                }
+                if *italic {
+                    rt = rt.italics();
+                }
+                ui.label(rt);
+            }
         }
     }
 }
