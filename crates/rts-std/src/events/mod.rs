@@ -119,12 +119,25 @@ pub extern "C" fn __RTS_FN_NS_EVENTS_EMIT0(h: Handle, name_ptr: *const u8, name_
         return 0;
     }
     for fp in &snapshot {
+        if !callable_fp(*fp) {
+            continue;
+        }
         // SAFETY: caller contract — fp veio de `func_addr` de uma user fn
         // registrada com signature compativel `extern "C" fn()`.
         let f: extern "C" fn() = unsafe { std::mem::transmute(*fp as usize) };
         f();
     }
     1
+}
+
+/// Whether `fp` is a plausible RAW code address — not null, not a NaN-boxed
+/// PolyValue word. The `events` namespace is a RAW-fp API (old-engine model: the
+/// callback is a `func_addr`). The new engine reifies a function as a TAG_FUNCTION
+/// PolyValue (top 13 bits = the negative-qNaN box), NOT a raw pointer; transmuting
+/// such a word — or a `0` (a function arg the new engine could not lower to an fp) —
+/// to a code address and calling it segfaults. Skip a non-callable fp instead.
+fn callable_fp(fp: u64) -> bool {
+    fp != 0 && (fp & 0xFFF8_0000_0000_0000) != 0xFFF8_0000_0000_0000
 }
 
 /// Dispara `name` com 1 argumento i64. Sincrono sequencial Node-style — listeners chamados em ordem de registro na thread atual. Para dispatch paralelo fire-and-forget use `emit1_async`.
@@ -141,6 +154,9 @@ pub extern "C" fn __RTS_FN_NS_EVENTS_EMIT1(h: Handle, name_ptr: *const u8, name_
         return 0;
     }
     for fp in &snapshot {
+        if !callable_fp(*fp) {
+            continue;
+        }
         // SAFETY: caller contract — fp aceita `extern "C" fn(i64)`.
         let f: extern "C" fn(i64) = unsafe { std::mem::transmute(*fp as usize) };
         f(arg0);
@@ -163,6 +179,9 @@ pub extern "C" fn __RTS_FN_NS_EVENTS_EMIT0_ASYNC(h: Handle, name_ptr: *const u8,
     }
     let rt = crate::runtime::async_rt::handle();
     for fp in listeners {
+        if !callable_fp(fp) {
+            continue;
+        }
         rt.spawn_blocking(move || {
             // SAFETY: caller contract — `extern "C" fn()` via `events.on`.
             let f: extern "C" fn() = unsafe { std::mem::transmute(fp as usize) };
@@ -187,6 +206,9 @@ pub extern "C" fn __RTS_FN_NS_EVENTS_EMIT1_ASYNC(h: Handle, name_ptr: *const u8,
     }
     let rt = crate::runtime::async_rt::handle();
     for fp in listeners {
+        if !callable_fp(fp) {
+            continue;
+        }
         rt.spawn_blocking(move || {
             // SAFETY: caller contract — `extern "C" fn(i64)`.
             let f: extern "C" fn(i64) = unsafe { std::mem::transmute(fp as usize) };
