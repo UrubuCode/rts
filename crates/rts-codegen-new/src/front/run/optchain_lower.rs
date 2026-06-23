@@ -42,6 +42,27 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(Val::new(word, Repr::Tagged))
     }
 
+    /// Lower an optional COMPUTED index `recv.__rts_opt_index(key)` (`a?.[k]`) to the
+    /// generic `__rtsadp_idx_get(box(recv), box(key))`: an array element (VEC_GET), a
+    /// string char, or an object key — and `undefined` for a nullish/foreign receiver
+    /// (the optional short-circuit). Unlike `opt_get` (a keyed-object slot read), this
+    /// handles `arr?.[1]` correctly.
+    pub(super) fn lower_opt_index(
+        &mut self,
+        module: &mut dyn Module,
+        object: &HirExpr,
+        key: &HirExpr,
+    ) -> FrontResult<Val> {
+        let recv = self.lower_expr(module, object)?;
+        let recv_word = self.box_value(recv);
+        let key_val = self.lower_expr(module, key)?;
+        let key_word = self.box_value(key_val);
+        let word = self
+            .call_runtime(module, "__rtsadp_idx_get", &[recv_word, key_word])?
+            .expect("__rtsadp_idx_get returns a value");
+        Ok(Val::new(word, Repr::Tagged))
+    }
+
     /// Lower an optional call `recv.__rts_opt_call(args)` (P5.8, the `?.()` link):
     /// `nullish(recv) ? undefined : invoke(recv, args)`. The receiver is the
     /// already-built preceding read (a `__rts_opt_get` result or a value); it is
