@@ -69,3 +69,29 @@ pub extern "C" fn __RTS_FN_NS_EGUI_SLIDER(h: u64, value: f64, min: f64, max: f64
     })
     .unwrap_or(value)
 }
+
+/// Abre um escopo horizontal (enfileira). Os widgets emitidos entre este
+/// `horizontalBegin` e o `horizontalEnd` pareado ficam LADO A LADO. Só empilha
+/// um comando na fila — o layout real é feito na drenagem do `endFrame`, que
+/// abre um `ui.horizontal(...)` ao encontrar este comando. Como label/button,
+/// não retorna nada e não mexe nos cursores de resultado.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_HORIZONTAL_BEGIN(h: u64) {
+    ctx::with_ctx(h, |c| {
+        if c.frame_active {
+            c.cmds.push(WidgetCmd::HorizontalBegin);
+        }
+    });
+}
+
+/// Fecha o escopo horizontal aberto pelo `horizontalBegin` mais recente
+/// (enfileira). Volta a empilhar verticalmente. Igual ao `horizontalBegin`:
+/// só empilha o comando; a drenagem do `endFrame` fecha o `ui.horizontal(...)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_HORIZONTAL_END(h: u64) {
+    ctx::with_ctx(h, |c| {
+        if c.frame_active {
+            c.cmds.push(WidgetCmd::HorizontalEnd);
+        }
+    });
+}

@@ -125,5 +125,22 @@ pub fn register(e: &mut Engine) {
             "Emits a slider; returns the (possibly updated) value.",
             widgets::__RTS_FN_NS_EGUI_SLIDER as *const u8,
         ))
+        // ── Layout horizontal (widgets lado a lado) ────────────────────────────
+        .member(func(
+            "horizontalBegin",
+            "__RTS_FN_NS_EGUI_HORIZONTAL_BEGIN",
+            Sig::new(vec![U64], AbiType::Void),
+            "horizontalBegin(h: number): void",
+            "Opens a horizontal scope: widgets until horizontalEnd sit side by side.",
+            widgets::__RTS_FN_NS_EGUI_HORIZONTAL_BEGIN as *const u8,
+        ))
+        .member(func(
+            "horizontalEnd",
+            "__RTS_FN_NS_EGUI_HORIZONTAL_END",
+            Sig::new(vec![U64], AbiType::Void),
+            "horizontalEnd(h: number): void",
+            "Closes the most recent horizontal scope; widgets stack vertically again.",
+            widgets::__RTS_FN_NS_EGUI_HORIZONTAL_END as *const u8,
+        ))
         .done();
 }

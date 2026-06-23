@@ -162,22 +162,13 @@ pub extern "C" fn __RTS_FN_NS_EGUI_END_FRAME(h: u64) {
         // `Context`, `show` continua sendo a API correta; o allow é localizado.
         #[allow(deprecated)]
         egui::CentralPanel::default().show(&c.egui_ctx, |ui| {
-            for cmd in &cmds {
-                match cmd {
-                    WidgetCmd::Label(text) => {
-                        ui.label(text);
-                    }
-                    WidgetCmd::Button(label) => {
-                        let clicked = ui.button(label).clicked();
-                        new_buttons.push(clicked);
-                    }
-                    WidgetCmd::Slider { value, min, max } => {
-                        let mut v = *value;
-                        ui.add(egui::Slider::new(&mut v, *min..=*max));
-                        new_sliders.push(v);
-                    }
-                }
-            }
+            // A drenagem é RECURSIVA para tratar os escopos horizontais (ver
+            // `drenar`). O `idx` percorre a fila linearmente e é compartilhado
+            // por todos os níveis de recursão, então a ordem de emissão (e logo
+            // a ordem em que `new_buttons`/`new_sliders` são preenchidos) casa
+            // exatamente com a ordem de enfileiramento em `widgets.rs`.
+            let mut idx = 0usize;
+            drenar(ui, &cmds, &mut idx, &mut new_buttons, &mut new_sliders);
         });
 
         c.button_results = new_buttons;
@@ -194,6 +185,73 @@ pub extern "C" fn __RTS_FN_NS_EGUI_END_FRAME(h: u64) {
 
         present(c, paint_jobs, full_output.textures_delta, ppp);
     });
+}
+
+/// Drena a fila de comandos `cmds` a partir de `*idx`, emitindo cada widget no
+/// `ui` ATUAL. É RECURSIVA para tratar os escopos horizontais sem precisar
+/// guardar um `egui::Ui` entre chamadas FFI (o `ui.horizontal(...)` exige um
+/// closure, que esta recursão fornece).
+///
+/// Contrato do `idx` (chave do nesting):
+/// - `*idx` é um cursor ÚNICO sobre a fila, COMPARTILHADO por todos os níveis de
+///   recursão. Cada comando consumido o incrementa exatamente uma vez. Assim a
+///   fila inteira é percorrida em ordem de inserção, independentemente da
+///   profundidade do aninhamento.
+/// - Em `HorizontalBegin`: consome o `Begin`, abre um `ui.horizontal(|hui| ...)`
+///   e CHAMA a si mesma com o `hui` (o Ui horizontal). A chamada interna
+///   continua do mesmo `idx`, então os widgets seguintes saem LADO A LADO no
+///   `hui` até ela encontrar o `HorizontalEnd` pareado, quando retorna.
+/// - Em `HorizontalEnd`: consome o `End` e RETORNA, fechando o nível atual
+///   (o closure do `ui.horizontal` termina e o layout horizontal é aplicado).
+/// - No nível raiz, o laço só termina quando a fila acaba (um `End` órfão sem
+///   `Begin` simplesmente fecha o laço raiz cedo — defensivo, sem panicar).
+///
+/// **Ordem dos resultados button/slider:** como `*idx` avança linearmente sobre
+/// a MESMA fila que `widgets.rs` preencheu em ordem, e os `push` em `new_buttons`
+/// /`new_sliders` acontecem na ordem em que os comandos são consumidos (mesmo
+/// dentro dos horizontais), a N-ésima posição aqui corresponde ao N-ésimo
+/// `button`/`slider` enfileirado — exatamente o que o cursor por posição em
+/// `widgets.rs` espera.
+fn drenar(
+    ui: &mut egui::Ui,
+    cmds: &[WidgetCmd],
+    idx: &mut usize,
+    new_buttons: &mut Vec<bool>,
+    new_sliders: &mut Vec<f64>,
+) {
+    while *idx < cmds.len() {
+        // Lê o comando ANTES de incrementar, para `HorizontalBegin` poder
+        // recursar a partir do PRÓXIMO comando já com o cursor avançado.
+        let cmd = &cmds[*idx];
+        *idx += 1;
+        match cmd {
+            WidgetCmd::Label(text) => {
+                ui.label(text);
+            }
+            WidgetCmd::Button(label) => {
+                let clicked = ui.button(label).clicked();
+                new_buttons.push(clicked);
+            }
+            WidgetCmd::Slider { value, min, max } => {
+                let mut v = *value;
+                ui.add(egui::Slider::new(&mut v, *min..=*max));
+                new_sliders.push(v);
+            }
+            WidgetCmd::HorizontalBegin => {
+                // Abre o escopo horizontal e continua a drenar DENTRO dele, do
+                // mesmo `idx` — os widgets seguintes ficam lado a lado no `hui`
+                // até o `HorizontalEnd` pareado fazer a recursão retornar.
+                ui.horizontal(|hui| {
+                    drenar(hui, cmds, idx, new_buttons, new_sliders);
+                });
+            }
+            WidgetCmd::HorizontalEnd => {
+                // Fecha o nível horizontal atual: retorna ao chamador (o closure
+                // do `ui.horizontal` do `Begin` pareado), encerrando o escopo.
+                return;
+            }
+        }
+    }
 }
 
 /// Render + present de um frame já tesselado. Separado para manter `endFrame`

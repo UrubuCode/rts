@@ -83,6 +83,14 @@ pub enum WidgetCmd {
     Label(String),
     Button(String),
     Slider { value: f64, min: f64, max: f64 },
+    /// Abre um escopo horizontal: os widgets seguintes (até o `HorizontalEnd`
+    /// pareado) ficam LADO A LADO em vez de empilhados. O pareamento é por
+    /// ordem na fila — a drenagem recursiva (ver `frame.rs`) abre um
+    /// `ui.horizontal(...)` aqui e o fecha ao encontrar o `HorizontalEnd`.
+    HorizontalBegin,
+    /// Fecha o escopo horizontal aberto pelo `HorizontalBegin` mais recente
+    /// ainda aberto. Volta a empilhar verticalmente no nível pai.
+    HorizontalEnd,
 }
 
 /// Estado completo de uma janela GUI. Tudo `!Send` (winit/wgpu/egui::Context).
