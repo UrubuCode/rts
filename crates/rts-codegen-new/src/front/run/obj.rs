@@ -818,7 +818,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Demote a local from STATIC object shape (`local_shapes`) to DYNAMIC shape
     /// (`object_locals`): after a runtime key-add transition its compile-time shape
     /// is stale, so its reads/writes must consult the live runtime shape-id.
-    fn demote_local_to_dynamic(&mut self, name: &str) {
+    pub(super) fn demote_local_to_dynamic(&mut self, name: &str) {
         if self.local_shapes.remove(name).is_some() {
             self.object_locals.insert(name.to_string());
         }

@@ -138,6 +138,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if method == "obj_has" {
             return self.lower_engine_obj_has(module, args);
         }
+        // Property descriptors + extensibility bridges (real state — Object/Reflect
+        // defineProperty/getOwnPropertyDescriptor/isExtensible/preventExtensions).
+        // The `.ts` unpacks the descriptor object (value + flags) and packs the
+        // flags int, then calls these flat bridges over the codegen side-tables.
+        if method == "define_prop" {
+            return self.lower_engine_define_prop(module, args);
+        }
+        if method == "prop_flags" {
+            return self.lower_engine_descriptor(module, args, "__rtsadp_prop_flags", 2, Repr::Int64);
+        }
+        if method == "prevent_ext" {
+            return self.lower_engine_descriptor(module, args, "__rtsadp_prevent_ext", 1, Repr::Bool);
+        }
+        if method == "is_extensible" {
+            return self.lower_engine_descriptor(module, args, "__rtsadp_is_extensible", 1, Repr::Bool);
+        }
         // The numeric-format bridge (`num_to_fixed`/`num_to_precision`/
         // `num_to_exponential`/`num_to_string_radix`): each takes (n, arg) — a
         // number receiver + an int arg — and returns a GC string handle. They wrap
@@ -248,6 +264,62 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
     /// Lower `engine.obj_has(self, key)` — shape-aware own-property membership.
     /// Boxes the object + key words and calls `__rtsadp_obj_has`, returning a bool.
+    /// Generic descriptor/extensibility bridge: box each arg to a PolyValue word,
+    /// call `symbol`, rebox the i64 result to `ret`. For the all-word-arg bridges
+    /// (`prop_flags`/`prevent_ext`/`is_extensible`). `define_prop` (mixed word+int
+    /// args) has its own handler.
+    fn lower_engine_descriptor(
+        &mut self,
+        module: &mut dyn Module,
+        args: &[HirExpr],
+        symbol: &str,
+        arity: usize,
+        ret: Repr,
+    ) -> FrontResult<Val> {
+        if args.len() != arity {
+            return unsupported!("engine.{symbol} expects {arity} args, got {}", args.len());
+        }
+        let mut words = Vec::with_capacity(arity);
+        for a in args {
+            let v = self.lower_expr(module, a)?;
+            words.push(self.box_value(v));
+        }
+        let res = self
+            .call_runtime(module, symbol, &words)?
+            .expect("engine descriptor bridge returns a value");
+        Ok(Val::new(res, ret))
+    }
+
+    /// `engine.define_prop(obj, key, value, flags)` — obj/key/value are PolyValue
+    /// words, `flags` is a RAW int (bit0 writable, bit1 enumerable, bit2
+    /// configurable). Returns a Bool (define succeeded).
+    fn lower_engine_define_prop(
+        &mut self,
+        module: &mut dyn Module,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        if args.len() != 4 {
+            return unsupported!(
+                "engine.define_prop expects 4 args (obj, key, value, flags), got {}",
+                args.len()
+            );
+        }
+        let o = self.lower_expr(module, &args[0])?;
+        let o_word = self.box_value(o);
+        let k = self.lower_expr(module, &args[1])?;
+        let k_word = self.box_value(k);
+        let v = self.lower_expr(module, &args[2])?;
+        let v_word = self.box_value(v);
+        let f = self.lower_expr(module, &args[3])?;
+        // `flags` is a `number` from a bitwise-OR of ternaries → Tagged; `coerce`
+        // (not `numeric_to_i64`, which bails on Tagged) decodes it to a raw i64.
+        let f_int = self.coerce(f, Repr::Int64)?;
+        let res = self
+            .call_runtime(module, "__rtsadp_define_prop", &[o_word, k_word, v_word, f_int])?
+            .expect("engine.define_prop returns a bool");
+        Ok(Val::new(res, Repr::Bool))
+    }
+
     fn lower_engine_obj_has(
         &mut self,
         module: &mut dyn Module,
