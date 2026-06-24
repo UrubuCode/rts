@@ -23,7 +23,10 @@ mod app;
 mod block;
 mod dom;
 mod frame;
+#[cfg(feature = "glow-backend")]
+mod glbackend;
 mod html;
+mod style;
 mod widgets;
 
 pub use app::*;
@@ -86,6 +89,15 @@ pub fn register(e: &mut Engine) {
             "close(h: number): void",
             "Destroys the window and frees the UiCtx.",
             app::__RTS_FN_NS_EGUI_CLOSE as *const u8,
+        ))
+        // ── Teste visual headless ──────────────────────────────────────────────
+        .member(func(
+            "snapshot",
+            "__RTS_FN_NS_EGUI_SNAPSHOT",
+            Sig::new(vec![U64, AbiType::StrPtr], AbiType::Void),
+            "snapshot(h: number, path: string): void",
+            "Schedules a PPM snapshot of the next endFrame (glow backend only) — for headless visual assertions that the frame is not blank.",
+            frame::__RTS_FN_NS_EGUI_SNAPSHOT as *const u8,
         ))
         // ── Frame ──────────────────────────────────────────────────────────────
         .member(func(

@@ -60,3 +60,4 @@ examples/*.mp3
 examples/_cancao.wav
 examples/_chord.wav
 examples/music_test.wav
+*.ppm

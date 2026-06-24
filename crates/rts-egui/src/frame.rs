@@ -40,16 +40,62 @@ pub struct GpuConfig {
     /// `true` → high device limits (`Limits::default`). Default `false`
     /// (`downlevel_defaults` — modest limits, less heap reserved).
     pub high_limits: bool,
+    /// `true` → backend OpenGL (glow) em vez do wgpu/DX12. Bem mais leve em RAM
+    /// (dezenas de MB vs ~224 MB), à custa de menos throughput. Os outros bits de
+    /// device (perf/mem/limits) só se aplicam ao wgpu — no glow são ignorados.
+    pub use_glow: bool,
 }
 
 impl GpuConfig {
     /// Decode the `openWindow` config bitfield: bit0 = high_perf, bit1 =
-    /// mem_performance, bit2 = high_limits. `0` (the common case) = all optimized.
+    /// mem_performance, bit2 = high_limits, bit3 = use_glow. `0` (the common case)
+    /// = wgpu, all-optimized.
     pub fn from_bits(bits: i64) -> Self {
         GpuConfig {
-            high_perf: bits & 0b001 != 0,
-            mem_performance: bits & 0b010 != 0,
-            high_limits: bits & 0b100 != 0,
+            high_perf: bits & 0b0001 != 0,
+            mem_performance: bits & 0b0010 != 0,
+            high_limits: bits & 0b0100 != 0,
+            use_glow: bits & 0b1000 != 0,
+        }
+    }
+}
+
+/// Chrome da janela (winit), do mesmo config bitfield: bit4 = transparent,
+/// bit5 = SEM decorations (frameless). Vale p/ ambos os backends. `transparent`
+/// também troca o fundo do painel egui + a cor de clear p/ alpha 0, pra a
+/// transparência do SO realmente aparecer (senão o painel opaco do egui tapa).
+#[derive(Clone, Copy)]
+pub struct WindowChrome {
+    pub transparent: bool,
+    pub decorations: bool,
+}
+
+impl WindowChrome {
+    pub fn from_bits(bits: i64) -> Self {
+        WindowChrome {
+            transparent: bits & 0b1_0000 != 0,  // bit4
+            decorations: bits & 0b10_0000 == 0, // bit5 set => SEM decorations
+        }
+    }
+}
+
+/// Backend de render de UMA janela. wgpu (DX12/Vulkan/Metal — pesado em RAM) ou
+/// glow (OpenGL — leve), escolhido por janela via `GpuConfig::use_glow`. O pass do
+/// egui (begin/drena/end/tessellate) é AGNÓSTICO; só a pintura/apresentação
+/// (`present_wgpu` vs `GlowState::paint`) difere.
+pub enum Backend {
+    Wgpu(RenderState),
+    #[cfg(feature = "glow-backend")]
+    Glow(crate::glbackend::GlowState),
+}
+
+impl Backend {
+    /// Reage a um `WindowEvent::Resized` reconfigurando a surface do backend ativo.
+    pub fn resize(&mut self, width: u32, height: u32) {
+        match self {
+            Backend::Wgpu(r) => r.resize(width, height),
+            #[cfg(feature = "glow-backend")]
+            Backend::Glow(g) => g.resize(width, height),
         }
     }
 }
@@ -141,6 +187,9 @@ pub struct RenderState {
     pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration,
     pub renderer: egui_wgpu::Renderer,
+    /// Janela transparente → clear com alpha 0 (o painel egui também fica
+    /// transparente em `end_frame`), pra o SO compor o fundo.
+    pub transparent: bool,
 }
 
 impl RenderState {
@@ -149,7 +198,7 @@ impl RenderState {
     ///
     /// `window` é `Arc<Window>` para que `create_surface` produza
     /// `Surface<'static>` (o alvo owned satisfaz o lifetime `'static`).
-    pub fn new(window: Arc<Window>, cfg: GpuConfig) -> Result<RenderState, String> {
+    pub fn new(window: Arc<Window>, cfg: GpuConfig, transparent: bool) -> Result<RenderState, String> {
         let size = window.inner_size();
         let width = size.width.max(1);
         let height = size.height.max(1);
@@ -173,6 +222,20 @@ impl RenderState {
         // RAM reservada. Suficiente para uma UI imediata que não precisa de
         // pipelining profundo de frames.
         config.desired_maximum_frame_latency = 1;
+        // Janela transparente: escolhe um alpha_mode que componha o alpha (não
+        // Opaque). Pega o 1º não-Opaque suportado (PreMultiplied/PostMultiplied/
+        // Inherit); se só houver Opaque, segue opaco (transparência indisponível).
+        if transparent {
+            let caps = surface.get_capabilities(&gpu.adapter);
+            if let Some(mode) = caps
+                .alpha_modes
+                .iter()
+                .copied()
+                .find(|m| *m != wgpu::CompositeAlphaMode::Opaque)
+            {
+                config.alpha_mode = mode;
+            }
+        }
         surface.configure(&gpu.device, &config);
 
         // egui-wgpu 0.34: `Renderer::new(device, color_format, RendererOptions)`.
@@ -188,6 +251,7 @@ impl RenderState {
             queue: gpu.queue,
             config,
             renderer,
+            transparent,
         })
     }
 
@@ -262,8 +326,16 @@ pub extern "C" fn __RTS_FN_NS_EGUI_END_FRAME(h: u64) {
         // Ui` pai — que NÃO temos aqui (estamos no nível do `Context`, dentro do
         // pass aberto por `begin_pass`). Para um painel raiz a partir do
         // `Context`, `show` continua sendo a API correta; o allow é localizado.
+        // Janela transparente → painel SEM fundo (Frame::NONE), pra o clear
+        // transparente (e o SO) aparecerem onde o conteúdo não pinta. Opaco →
+        // painel padrão (fundo do tema).
+        let panel = if c.transparent {
+            egui::CentralPanel::default().frame(egui::Frame::NONE)
+        } else {
+            egui::CentralPanel::default()
+        };
         #[allow(deprecated)]
-        egui::CentralPanel::default().show(&c.egui_ctx, |ui| {
+        panel.show(&c.egui_ctx, |ui| {
             // A drenagem é RECURSIVA para tratar os escopos horizontais (ver
             // `drenar`). O `idx` percorre a fila linearmente e é compartilhado
             // por todos os níveis de recursão, então a ordem de emissão (e logo
@@ -296,7 +368,32 @@ pub extern "C" fn __RTS_FN_NS_EGUI_END_FRAME(h: u64) {
         c.egui_state
             .handle_platform_output(&c.window, full_output.platform_output);
 
-        present(c, paint_jobs, full_output.textures_delta, ppp);
+        // Despacha a pintura pro backend ativo. `window` clonado (Arc, barato) p/
+        // emprestar `c.backend` mutável sem colidir com `c.window`.
+        let window = c.window.clone();
+        match &mut c.backend {
+            Backend::Wgpu(r) => present_wgpu(r, &window, paint_jobs, full_output.textures_delta, ppp),
+            #[cfg(feature = "glow-backend")]
+            Backend::Glow(g) => g.paint(&window, paint_jobs, full_output.textures_delta, ppp),
+        }
+    });
+}
+
+/// Agenda um snapshot do PRÓXIMO `endFrame` num arquivo PPM (teste visual
+/// headless). Chame entre `beginFrame` e `endFrame`. Só o backend glow suporta
+/// (lê o back buffer via `glReadPixels`); no wgpu é no-op com aviso (a janela
+/// wgpu já é confirmada visualmente). O PPM serve p/ asserir que o frame não está
+/// em branco — que o texto/widgets realmente pintaram.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_SNAPSHOT(h: u64, path_ptr: *const u8, path_len: i64) {
+    let path = match unsafe { rts_engine::abi::str_abi::from_abi(path_ptr, path_len) } {
+        Some(p) if !p.is_empty() => p.to_string(),
+        _ => return,
+    };
+    ctx::with_ctx(h, |c| match &mut c.backend {
+        #[cfg(feature = "glow-backend")]
+        Backend::Glow(g) => g.request_snapshot(path),
+        _ => eprintln!("rts-egui snapshot: suportado só no backend glow (render: \"glow\")"),
     });
 }
 
@@ -376,12 +473,37 @@ fn drenar(
     }
 }
 
-/// Estilo inline herdado (das tags inline registradas) ao descer na árvore.
+/// Estilo inline herdado ao descer na árvore — flags de tag (`<b>`/`<i>`) MAIS as
+/// propriedades CSS computadas do `style="..."` (cor/tamanho). Herdado: filhos
+/// começam do estilo do pai; o próprio `style` de cada nó sobrepõe.
 #[derive(Clone, Copy, Default)]
 struct InlineStyle {
     bold: bool,
     italic: bool,
     mono: bool,
+    color: Option<egui::Color32>,
+    size: Option<f32>,
+}
+
+/// Mescla o `style="..."` (CSS inline) de um nó SOBRE um `InlineStyle` herdado.
+/// Propriedade ausente no CSS mantém a herdada; presente sobrescreve.
+fn merge_node_style(dom: &crate::dom::Dom, id: crate::dom::NodeId, mut st: InlineStyle) -> InlineStyle {
+    if let Some(s) = dom.node(id).attr("style") {
+        let css = crate::style::parse_inline(s);
+        if let Some(c) = css.color {
+            st.color = Some(c);
+        }
+        if let Some(sz) = css.size {
+            st.size = Some(sz);
+        }
+        if let Some(b) = css.bold {
+            st.bold = b;
+        }
+        if let Some(i) = css.italic {
+            st.italic = i;
+        }
+    }
+    st
 }
 
 /// Renderiza um `Dom` inteiro no `ui`: cada filho do `#document` é um bloco.
@@ -424,8 +546,19 @@ fn render_block(
     // Heading: texto concatenado; `indent` é reusado como TAMANHO de fonte.
     if def.has(crate::block::FLAG_HEADING) {
         let text = collect_text(dom, id);
-        let size = if def.indent > 0.0 { def.indent } else { 20.0 };
-        ui.heading(egui::RichText::new(text).strong().size(size));
+        // `style="..."` do heading sobrepõe tamanho/cor; senão usa o default do
+        // nível (indent reusado como tamanho).
+        let css = dom
+            .node(id)
+            .attr("style")
+            .map(crate::style::parse_inline)
+            .unwrap_or_default();
+        let size = css.size.unwrap_or(if def.indent > 0.0 { def.indent } else { 20.0 });
+        let mut rt = egui::RichText::new(text).strong().size(size);
+        if let Some(c) = css.color {
+            rt = rt.color(c);
+        }
+        ui.heading(rt);
         return;
     }
 
@@ -486,7 +619,9 @@ fn render_block_body(
                 if let Some(p) = &prefix {
                     ui.label(egui::RichText::new(p).strong());
                 }
-                let st = InlineStyle { mono, ..Default::default() };
+                // Seed do estilo inline: mono do bloco + o `style="..."` do PRÓPRIO
+                // bloco (ex. `<p style="color:red">` tinge todo o texto interno).
+                let st = merge_node_style(dom, id, InlineStyle { mono, ..Default::default() });
                 for &child in &dom.node(id).children {
                     render_inline(ui, dom, child, st);
                 }
@@ -529,15 +664,23 @@ fn render_inline(
             if style.mono {
                 rt = rt.monospace();
             }
+            if let Some(sz) = style.size {
+                rt = rt.size(sz);
+            }
+            if let Some(c) = style.color {
+                rt = rt.color(c);
+            }
             ui.label(rt);
         }
         NodeKind::Element { tag } => {
-            // Liga os bits de estilo registrados para esta tag inline e desce.
+            // Liga os bits de estilo registrados para esta tag inline, depois
+            // sobrepõe o CSS do `style="..."` deste nó, e desce nos filhos.
             let flags = crate::block::lookup_inline(tag);
             let mut st = style;
             st.bold |= flags & crate::block::FLAG_BOLD != 0;
             st.italic |= flags & crate::block::FLAG_ITALIC != 0;
             st.mono |= flags & crate::block::FLAG_MONO != 0;
+            st = merge_node_style(dom, id, st);
             for &child in &dom.node(id).children {
                 render_inline(ui, dom, child, st);
             }
@@ -565,10 +708,12 @@ fn collect_text(dom: &crate::dom::Dom, id: crate::dom::NodeId) -> String {
     }
 }
 
-/// Render + present de um frame já tesselado. Separado para manter `endFrame`
-/// curto e a regra das 500 linhas.
-fn present(
-    c: &mut ctx::UiCtx,
+/// Render + present de um frame já tesselado (backend wgpu). Separado para manter
+/// `endFrame` curto e a regra das 500 linhas. Recebe a `RenderState` + a janela
+/// por empréstimos disjuntos (o `endFrame` os separa de `c`).
+fn present_wgpu(
+    r: &mut RenderState,
+    window: &Window,
     paint_jobs: Vec<egui::ClippedPrimitive>,
     textures_delta: egui::TexturesDelta,
     pixels_per_point: f32,
@@ -590,8 +735,7 @@ fn present(
     // lógico ESTREITO ⇒ o conteúdo, correto em pontos, é comprimido numa faixa no
     // canto. Sincronizar aqui (e reconfigurar quando muda) casa os dois espaços
     // todo frame, independente de quando/se um `Resized` chegou.
-    let size = c.window.inner_size();
-    let r = &mut c.render;
+    let size = window.inner_size();
     if size.width > 0
         && size.height > 0
         && (size.width != r.config.width || size.height != r.config.height)
@@ -649,11 +793,12 @@ fn present(
                 resolve_target: None,
                 depth_slice: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.02,
-                        g: 0.02,
-                        b: 0.03,
-                        a: 1.0,
+                    // Transparente: clear totalmente transparente (alpha 0) p/ o SO
+                    // compor o fundo. Opaco: fundo escuro padrão.
+                    load: wgpu::LoadOp::Clear(if r.transparent {
+                        wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 }
+                    } else {
+                        wgpu::Color { r: 0.02, g: 0.02, b: 0.03, a: 1.0 }
                     }),
                     store: wgpu::StoreOp::Store,
                 },

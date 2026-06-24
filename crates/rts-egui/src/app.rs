@@ -39,14 +39,15 @@ use winit::window::{Window, WindowId};
 use rts_engine::abi::str_abi;
 
 use crate::ctx::{self, UiCtx};
-use crate::frame::RenderState;
+use crate::frame::{Backend, RenderState};
 
 /// Tudo que o `Builder` produz ao criar a janela, recolhido por `openWindow`.
 struct BuiltWindow {
     window: Arc<Window>,
     egui_ctx: egui::Context,
     egui_state: egui_winit::State,
-    render: RenderState,
+    backend: Backend,
+    transparent: bool,
 }
 
 /// Handler de construção: cria a janela + backend na primeira oportunidade
@@ -57,6 +58,7 @@ struct Builder {
     width: u32,
     height: u32,
     cfg: crate::frame::GpuConfig,
+    chrome: crate::frame::WindowChrome,
     out: Option<Result<BuiltWindow, String>>,
 }
 
@@ -67,7 +69,14 @@ impl Builder {
         if self.out.is_some() {
             return;
         }
-        self.out = Some(build(event_loop, &self.title, self.width, self.height, self.cfg));
+        self.out = Some(build(
+            event_loop,
+            &self.title,
+            self.width,
+            self.height,
+            self.cfg,
+            self.chrome,
+        ));
     }
 }
 
@@ -94,42 +103,70 @@ impl ApplicationHandler for Builder {
     }
 }
 
-/// Cria janela + wgpu + egui dentro do `ActiveEventLoop`.
+/// Cria janela + backend de render + egui dentro do `ActiveEventLoop`. Escolhe o
+/// backend por `cfg.use_glow`: glow/GL (leve) quando pedido e a feature está
+/// ligada; senão wgpu (default).
 fn build(
     event_loop: &ActiveEventLoop,
     title: &str,
     width: u32,
     height: u32,
     cfg: crate::frame::GpuConfig,
+    chrome: crate::frame::WindowChrome,
 ) -> Result<BuiltWindow, String> {
+    // Caminho glow: o glutin cria a janela JUNTO da GlConfig (não dá pra reusar uma
+    // janela winit já criada com outra config), então é um ramo próprio.
+    #[cfg(feature = "glow-backend")]
+    if cfg.use_glow {
+        let (window, glow_state) =
+            crate::glbackend::GlowState::build(event_loop, title, width, height, chrome)?;
+        let (egui_ctx, egui_state) = make_egui(&window);
+        return Ok(BuiltWindow {
+            window,
+            egui_ctx,
+            egui_state,
+            backend: Backend::Glow(glow_state),
+            transparent: chrome.transparent,
+        });
+    }
+
+    // Caminho wgpu (default).
     let attrs = Window::default_attributes()
         .with_title(title)
-        .with_inner_size(LogicalSize::new(width as f64, height as f64));
+        .with_inner_size(LogicalSize::new(width as f64, height as f64))
+        .with_transparent(chrome.transparent)
+        .with_decorations(chrome.decorations);
     let window = event_loop
         .create_window(attrs)
         .map_err(|e| format!("create_window: {e}"))?;
     let window = Arc::new(window);
 
-    let render = RenderState::new(window.clone(), cfg)?;
+    let render = RenderState::new(window.clone(), cfg, chrome.transparent)?;
+    let (egui_ctx, egui_state) = make_egui(&window);
 
+    Ok(BuiltWindow {
+        window,
+        egui_ctx,
+        egui_state,
+        backend: Backend::Wgpu(render),
+        transparent: chrome.transparent,
+    })
+}
+
+/// `egui::Context` + `egui_winit::State` para uma janela (comum aos dois backends).
+fn make_egui(window: &Window) -> (egui::Context, egui_winit::State) {
     let egui_ctx = egui::Context::default();
     // egui-winit 0.34: State::new(ctx, viewport_id, display_target,
     //                             native_ppp, theme, max_texture_side).
     let egui_state = egui_winit::State::new(
         egui_ctx.clone(),
         egui::ViewportId::ROOT,
-        &*window,
+        window,
         Some(window.scale_factor() as f32),
         None,
         None,
     );
-
-    Ok(BuiltWindow {
-        window,
-        egui_ctx,
-        egui_state,
-        render,
-    })
+    (egui_ctx, egui_state)
 }
 
 /// Abre uma janela + backend de render sobre o EventLoop GLOBAL (criado lazy na
@@ -148,16 +185,19 @@ pub extern "C" fn __RTS_FN_NS_EGUI_OPEN_WINDOW(
         .to_string();
     let width = w.clamp(1, i64::from(u32::MAX)) as u32;
     let height = h.clamp(1, i64::from(u32::MAX)) as u32;
-    // `config` is a bitfield (bit0 high_perf, bit1 mem_performance, bit2
-    // high_limits) — `0` = all-optimized defaults. Only the FIRST window's config
-    // takes effect (the GPU device is shared); later windows reuse it.
+    // `config` is a bitfield: bit0 high_perf, bit1 mem_performance, bit2
+    // high_limits, bit3 use_glow (GpuConfig); bit4 transparent, bit5 no-decorations
+    // (WindowChrome). `0` = all-optimized opaque decorated window. Only the FIRST
+    // window's GpuConfig takes effect (shared device); chrome is per-window.
     let cfg = crate::frame::GpuConfig::from_bits(config);
+    let chrome = crate::frame::WindowChrome::from_bits(config);
 
     let mut builder = Builder {
         title,
         width,
         height,
         cfg,
+        chrome,
         out: None,
     };
 
@@ -188,7 +228,8 @@ pub extern "C" fn __RTS_FN_NS_EGUI_OPEN_WINDOW(
         window: built.window,
         egui_ctx: built.egui_ctx,
         egui_state: built.egui_state,
-        render: built.render,
+        backend: built.backend,
+        transparent: built.transparent,
         open: true,
         frame_active: false,
         cmds: Vec::new(),
@@ -230,7 +271,7 @@ impl ApplicationHandler for Pumper {
                     c.open = false;
                 }
                 WindowEvent::Resized(size) => {
-                    c.render.resize(size.width, size.height);
+                    c.backend.resize(size.width, size.height);
                 }
                 _ => {}
             }

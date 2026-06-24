@@ -94,15 +94,26 @@ interface WindowOptions {
   title?: string;
   width?: number;
   height?: number;
+  // Backend de render. "wgpu"/"vulkan"/"metal"/"dx12" (default) = GPU nativa via
+  // wgpu (pesado em RAM, ~224 MB). "glow"/"opengl" = OpenGL leve (dezenas de MB),
+  // ideal p/ UI 2D que não precisa de throughput de GPU discreta.
   render?: "vulkan" | "metal" | "dx12" | "opengl" | "wgpu" | "glow";
   // ── Knobs de GPU (default = mais OTIMIZADO p/ RAM) ─────────────────────────
   // Efeito só na 1ª janela do processo (o device GPU é compartilhado por todas).
+  // Aplicam-se SÓ ao backend wgpu; no glow são ignorados.
   /** "low" (default; GPU integrada, driver leve) ou "high" (GPU discreta). */
   power?: "low" | "high";
   /** "usage" (default; minimiza RAM) ou "performance" (pré-aloca, mais rápido). */
   memory?: "usage" | "performance";
   /** "low" (default; limites modestos, menos heap) ou "high" (limites altos). */
   limits?: "low" | "high";
+  // ── Chrome da janela ───────────────────────────────────────────────────────
+  /** Fundo transparente (o painel egui fica transparente; o app pinta o que
+   *  quiser por cima — combine com HTML que desenha o próprio fundo). Default false. */
+  transparent?: boolean;
+  /** Barra de título + borda do SO. Default `true`. `false` = janela SEM header
+   *  (frameless) — o app desenha o próprio cabeçalho/botões em HTML. */
+  decorations?: boolean;
 }
 
 class Window {
@@ -116,14 +127,18 @@ class Window {
     this.__h = egui.openWindow(title, width, height, Window.__configBits(opts));
   }
 
-  // Monta o bitfield de config do device GPU lido pelo primitivo `openWindow`:
-  // bit0 = power high, bit1 = memory performance, bit2 = limits high. `0` (o
-  // comum) = tudo otimizado p/ menor RAM. O usuário sobe os bits caso precise.
+  // Monta o bitfield de config lido pelo primitivo `openWindow`:
+  // bit0 = power high, bit1 = memory performance, bit2 = limits high,
+  // bit3 = backend glow (OpenGL), bit4 = transparent, bit5 = sem decorations
+  // (frameless). `0` (o comum) = wgpu, opaco, decorado, otimizado p/ RAM.
   static __configBits(opts: WindowOptions): number {
     let bits = 0;
     if (opts.power === "high") bits = bits + 1;
     if (opts.memory === "performance") bits = bits + 2;
     if (opts.limits === "high") bits = bits + 4;
+    if (opts.render === "glow" || opts.render === "opengl") bits = bits + 8;
+    if (opts.transparent === true) bits = bits + 16;
+    if (opts.decorations === false) bits = bits + 32;
     return bits;
   }
 
@@ -167,6 +182,12 @@ class Window {
   // estilo devtools. Ferramenta de inspeção/teste do DOM gerado.
   dumpDom(): void {
     egui.domDump(this.__h);
+  }
+
+  // Agenda um snapshot PPM do próximo endFrame (teste visual headless; só backend
+  // glow). Chame entre beginFrame e endFrame.
+  snapshot(path: string): void {
+    egui.snapshot(this.__h, path);
   }
 
   // Fecha a janela.
