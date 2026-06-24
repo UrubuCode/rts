@@ -1,23 +1,21 @@
-# Codegen notes (new engine) + artifact layout + docs
+# Codegen notes (engine) + artifact layout + docs
 
-> Canonical design: `docs/specs/rts-codegen-new-design.md`. The new engine's
-> codegen lives in `crates/rts-codegen-new/src/lower/` (single HIR → Cranelift
-> path). The old `mir_codegen/` + dual AST path is **frozen in
-> `crates/rts-codegen-old/`** and is deleted at cutover.
+> Canonical design: `docs/specs/rts-codegen-new-design.md`. The engine's lowering
+> lives in `crates/rts-codegen-new/src/front/run/` (single HIR → Cranelift path);
+> the value model is in `crates/rts-adapters/`. There is no MIR tier and no dual
+> AST path.
 
 ## One optimizer tier — the Cranelift egraph
 
-The new engine has **no second optimizer tier**. The single lowering path
+The engine has **no second optimizer tier**. The single lowering path
 `HIR → Cranelift IR` feeds the Cranelift egraph (`use_egraphs=true`), which is the
 **sole** optimizer: const-fold, CSE, DCE, FMA, strength reduction, intraprocedural
-inlining. The old `rts-mir` passes (`fold`/`fma`/`cse`/`dce`/`narrow`/`inline`)
-**re-did exactly what the egraph already does** — the old `fold.rs` even said so
-about float folding — and are deleted with the MIR tier (design doc §2.5/§9).
+inlining (the deleted MIR tier re-did exactly what the egraph already does).
 
 The front-end's only job is what Cranelift genuinely cannot do (JS semantics):
 `ToNumber`/`ToString`/`ToBoolean` coercions, the polymorphic `+` resolution,
 box/unbox insertion, shape/IC site emission, narrow-int (i8/u8/i16/u16) wrap
-semantics (what `narrow.rs` did), and exception edges. Everything else is the
+semantics, and exception edges. Everything else is the
 egraph's.
 
 ### box/unbox as pure Cranelift IR (the key coupling)
@@ -48,13 +46,12 @@ would survive.
 - **First-class function pointers**: an ident resolving to a user fn materializes
   `func_addr`; call via local/param ident does `call_indirect`.
 - **Imm forms / MemFlags::trusted / f64 mod via libc fmod / constants as
-  properties** — the front-end emits these; the egraph cleans up. (In the old
-  engine some were hand-rolled MIR passes; in the new engine they fall out of the
-  egraph.)
-- **Data-driven dispatch + generated ABI**: every non-primordial method is a
+  properties** — the front-end emits these; the egraph cleans up.
+- **Data-driven dispatch + harvested ABI**: every non-primordial method is a
   `MethodSpec` resolved by one `resolve_method` path; the JIT symbol table is
-  derived from `SPECS` (`abi_gen.rs`) with a build-time coverage assert — killing
-  the link-OK/runtime-SIGILL class of bug (design doc §10).
+  harvested from Registry fn-ptrs in `crates/rts-codegen-new/src/adapter_symbols/`
+  (drift/coverage guard) — killing the link-OK/runtime-SIGILL class of bug (design
+  doc §10).
 
 ## Inline assembly (`std::arch::asm!`) — available technique
 

@@ -30,8 +30,8 @@ Read these files in order (path relative to repo root):
 
 | File | Content |
 |---|---|
-| `.claude/rules/00-meta.md` | This file — meta + local-rules + regress-when-needed + redesign-status |
-| `.claude/rules/01-architecture.md` | Project + Architecture (two codegen crates) + ABI + Namespaces |
+| `.claude/rules/00-meta.md` | This file — meta + local-rules + regress-when-needed + current-status |
+| `.claude/rules/01-architecture.md` | Project + Architecture (single engine + rts-adapters) + ABI + Namespaces |
 | `.claude/rules/02-runtime.md` | HandleTable + tokio + GC (PolyValue scanner note) + State |
 | `.claude/rules/03-features.md` | New value model (PolyValue/Repr/shapes/ICs) + target semantics |
 | `.claude/rules/04-workflow.md` | Conventions + progress bar + issues + tests + benchmarks |
@@ -42,11 +42,18 @@ Read these files in order (path relative to repo root):
 - **RULE #0** (this) — read all files in order
 - **MANDATORY REQUIREMENT: local-rules.md** (below)
 - **MANDATORY RULE: REGRESS WHEN NECESSARY (EXPLICITLY)** (below)
-- **MANDATORY RULE: PRIMORDIAL-vs-REGISTRY DOCTRINE** (in `CLAUDE.md`; survives
-  the redesign — engine names only primordials, no builtins in the engine)
-- **MANDATORY RULE: FOLLOW THE REDESIGN DESIGN DOC** (below) — work is picked
-  from the migration phases of `docs/specs/rts-codegen-new-design.md`, not from a
-  fixture-grind roadmap
+- **MANDATORY RULE: PRIMORDIAL-vs-REGISTRY DOCTRINE** (in `CLAUDE.md`; engine
+  names only primordials, no builtins in the engine)
+- **MANDATORY RULE: DRIVE COVERAGE BY MEASURED CLUSTERS** (below) — the migration
+  is done; work is picked by measure → attack biggest failure cluster → re-measure,
+  with `docs/specs/rts-codegen-new-design.md` as the canonical architecture
+  reference
+- **MANDATORY RULE: READ THE EGUI/WEB ENGINE PLAN BEFORE TOUCHING IT** (in
+  `CLAUDE.md`) — before changing anything in `crates/rts-egui/` or any
+  egui/HTML/web-UI code, read the frozen plan in full
+  (`docs/specs/html-engine/rts-html-roadmap.md` F0–F5 +
+  `rts-html-north-star.md` + `arquitetura.md` + `docs/specs/egui-ui-crate-design.md`)
+  and follow its phases in order. STRICTLY MANDATORY — no exceptions.
 - **MANDATORY RULE: read_before_commit.sh GATE + FILE LAYOUT** (in `CLAUDE.md`;
   workflow detail in `04-workflow.md`) — run `bash read_before_commit.sh` before
   every engine commit; no engine source file > 500 lines (split into
@@ -57,32 +64,33 @@ The honesty + build floor (parity number stays real; no crash/hang as "pass";
 build must compile) never lifts. Adding/removing a meta-rule requires updating
 this list in the same commit.
 
-## MANDATORY RULE: FOLLOW THE REDESIGN DESIGN DOC
+## MANDATORY RULE: DRIVE COVERAGE BY MEASURED CLUSTERS
 
-The project is mid-redesign of its codegen engine (strangler-fig). The canonical
-plan is **`docs/specs/rts-codegen-new-design.md`** — read it before any engine
-work. The frozen old engine is `crates/rts-codegen-old/`; the active redesign is
-`crates/rts-codegen-new/`.
-
-There is no longer a topological fixture-fix roadmap (the old
-`ROADMAP-CORRECAO.md` and `MAINTENANCE.md` are deleted — that grind was the local
-max of a hardcoded approach on an unsound value model). Instead:
+The migration is over — there is ONE engine (`crates/rts-codegen-new/`, value
+model in `crates/rts-adapters/`). The phase roadmap (P0→P5) is done through the
+cutover. `docs/specs/rts-codegen-new-design.md` is still the canonical
+**architecture** reference (PolyValue / Repr lattice / shapes + data ICs /
+data-driven dispatch / single lowering); read it before any engine work. Note its
+file-path map is **stale** — it describes `value.rs`/`repr.rs`/`shape.rs`/`ic.rs`/
+`dispatch.rs`/`abi_gen.rs` under `rts-codegen-new/src/`, but the value model now
+lives in the `rts-adapters` crate, and there is no `abi_gen.rs` (the JIT symbol
+table is harvested in `crates/rts-codegen-new/src/adapter_symbols/`). Trust the
+tree on disk over the doc's paths.
 
 ### How to apply
 
-1. Pick work from the design doc's **migration phases (P0→P5, §12)**,
-   highest-leverage first. Do not jump ahead of a phase's prerequisites.
-2. Each phase runs the suite incrementally (not only at the end) and keeps an
-   A/B guard against the old engine where the doc specifies one.
-3. The honesty + build floor never lifts: no fixture deleted/disabled/hardcoded
-   to inflate the number; nothing that crashes/hangs committed as "pass"; build
-   must compile. At cutover (P5) parity must be ≥ the `v0.0-202606072107` tag,
+1. Work is picked by the loop **measure → attack the biggest failure cluster →
+   re-measure**. Measure with `bash measure_new.sh` (per-file pass/bail histogram)
+   and the cross-runtime report (`cross_runtime_report.json`). The biggest cluster
+   is the biggest lever; resolving it reveals the next.
+2. Run the suite incrementally (not only at the end).
+3. The honesty + build floor never lifts: no fixture deleted/disabled/hardcoded to
+   inflate the number; nothing that crashes/hangs committed as "pass"; build must
+   compile. The bar to re-clear is the deleted old engine's peak (`v0.0-202606072107`),
    measured real.
-4. If the design changes (new constraint discovered), update
+4. If the architecture changes (new constraint discovered), update
    `docs/specs/rts-codegen-new-design.md` in the same PR — never leave the spec
    stale.
-5. If the user asks to work out of phase order, confirm first, pointing out the
-   missing prerequisite.
 
 ## MANDATORY REQUIREMENT: local-rules.md
 
@@ -137,21 +145,23 @@ discipline here is not "never break a test" — it is "never break a test withou
 knowing and saying so". Explicit, justified regression is acceptable; invisible
 regression rots the project.
 
-## HONEST CURRENT STATUS — redesign in progress
+## HONEST CURRENT STATUS — cutover done, one engine
 
-Do not act on stale numbers. The "parity ≥90% push mode" / "94.3%" / "100%"
-framing is **dead**.
+Do not act on stale numbers or a stale architecture. The "94.3%" / "100%" /
+"70.7%" framings are **dead** — they were the deleted old engine.
 
-- The OLD engine reached 100% cross-runtime parity (372/372, tag
-  `v0.0-202606072107`, commit `27e16378`; TS suite 1719/1719). That was the
-  **local maximum of a hardcoded approach** on an unsound value model (a single
-  overloaded `i64` ABI slot + 4 compile-time side-tables), admitted as the wall
-  by the now-deleted `MAINTENANCE.md`.
-- The fixture set then grew 391 → **612** (harder cases) and parity is now
-  **70.7%** — the honest figure to quote.
-- A ground-up engine (`crates/rts-codegen-new/`) is being built **strangler-fig
-  behind the frozen `crates/rts-codegen-old/`**. Canonical plan:
-  `docs/specs/rts-codegen-new-design.md`.
+- **The cutover happened.** The old engine (`rts-codegen-old`) and `rts-mir` are
+  DELETED. `crates/rts-codegen-new/` is the only engine (value model in
+  `crates/rts-adapters/`); `rts run`/`compile`/`test`/`eval` run it. AOT works
+  (`rts compile` emits `.o` + native link). Canonical architecture:
+  `docs/specs/rts-codegen-new-design.md` (path map stale — see the rule above).
+- **Honest parity now: ~31.5% (192/609)** as of 2026-06-23
+  (`cross_runtime_report.json`, `status=pass`; rest ≈ 341 `rts_error`, 59
+  `rts_diverge`, 17 bun/node diverge). The engine has the sound value model and is
+  re-filling JS/TS coverage. **Always re-measure; never quote a remembered
+  number.**
+- The old engine once hit 100% (372/372, tag `v0.0-202606072107`) on an unsound
+  value model — that is the bar to re-clear, not a current figure.
 
 ### The floor (NEVER lifts, no mode suspends it)
 - **The parity number stays real.** No deleting, disabling, skipping,
@@ -161,13 +171,5 @@ framing is **dead**.
 - **No crashing / hanging code committed as "pass".** ACCESS_VIOLATION /
   verifier error / stack overflow / infinite loop = not passed.
 - **Build must compile.** A broken build still blocks merge.
-- **At cutover (design doc P5) parity must be ≥ the `v0.0-202606072107` tag,
-  measured real.** The redesign exists to clear the wall, not to trade the number
-  away.
-
-### Why the old fixture-grind ceremony is gone
-The remaining fixtures need **full feature completion on a sound value model**,
-not bounded patches against a hardcoded switchboard — a half-feature crashes
-rather than producing wrong-but-closer output, so there is no "regress X to pass
-Y" trade to police. The work is now organized by the design doc's phases; the
-honesty floor guards the only real risk (faking the metric) directly.
+- **The bar to re-clear is the deleted old engine's peak (`v0.0-202606072107`),
+  measured real.**

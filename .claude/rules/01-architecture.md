@@ -6,10 +6,10 @@ RTS is a TypeScript-to-native compiler/runtime using Cranelift as codegen
 backend. Goal: compile TS/JS to native binaries with a minimal Rust runtime,
 shipped as a standalone toolchain (no external runtime support library).
 
-The runtime layer is organized around the `rts-engine::abi` + `SPECS` contract,
-with a module-graph pipeline + incremental cache. Two execution paths: JIT via
-`cranelift_jit::JITModule` (direct executable memory, `rts run`) and AOT via
-`cranelift_object::ObjectModule` (external linker, `rts compile`).
+The runtime layer is organized around the `rts-engine::abi` + `SPECS` contract.
+Two execution paths share the engine's lowering: JIT via `cranelift_jit::JITModule`
+(direct executable memory, `rts run`) and AOT via `cranelift_object::ObjectModule`
+(`rts compile` emits `.o` + native link).
 
 The canonical engine direction is `docs/specs/rts-codegen-new-design.md`.
 
@@ -19,8 +19,8 @@ Cargo workspace in `crates/`. `src/` is the facade of the `rts` bin
 (re-exports); real paths live under `crates/<crate>/src/`.
 
 > **PRIMORDIAL-vs-Registry doctrine + crate partition** (see `CLAUDE.md` §
-> "MANDATORY RULE: PRIMORDIAL-vs-REGISTRY DOCTRINE", which **survives the
-> redesign**). The engine may name ONLY the primordial classes
+> "MANDATORY RULE: PRIMORDIAL-vs-REGISTRY DOCTRINE"). The engine may name ONLY the
+> primordial classes
 > (String/Object/Array/Function/Promise/Boolean/Number/Error+subclasses);
 > everything else resolves via the Registry (`global_class_lookup`,
 > `instanceof_predicate`, member metadata), zero hardcoded mention, no builtins
@@ -28,13 +28,13 @@ Cargo workspace in `crates/`. `src/` is the facade of the `rts` bin
 > `rts-primitives` (primordials) + `rts-shared` (non-primordial universal) ←
 > `rts-std` ← `rts-runtime` facade. The ABI contract lives in `rts-engine::abi`.
 
-> **Two codegen crates during the strangler-fig migration.**
-> `crates/rts-codegen-old/` is the **frozen** old engine (dual HIR→MIR /
-> authoritative-AST path, overloaded-`i64` value model, 4.6k-LOC switchboard,
-> 1113 manual `add_fn!`) — still plugged into the bin/cli until cutover.
-> `crates/rts-codegen-new/` is the **active redesign** (single HIR→Cranelift
-> lowering, `PolyValue` NaN-box, shapes + data ICs, data-driven dispatch +
-> generated ABI). Canonical design: `docs/specs/rts-codegen-new-design.md`.
+> **One codegen engine (post-cutover).** The old engine (`rts-codegen-old`) and
+> `rts-mir` are DELETED. `crates/rts-codegen-new/` is the live engine (single
+> HIR→Cranelift lowering, no MIR tier); the value model lives in
+> `crates/rts-adapters/` (`PolyValue` NaN-box, Repr lattice, shapes + data ICs,
+> data-driven dispatch). Canonical design: `docs/specs/rts-codegen-new-design.md`
+> (its file-path map predates the `rts-adapters` extraction — trust the tree on
+> disk).
 
 ```
 crates/
@@ -44,46 +44,50 @@ crates/
   rts-engine/       — heap GC + ABI contract (abi:: SPECS, types, symbols,
                       signatures, Intrinsic, global_class, handles) + Registry/builder
   rts-hir/          — typed HIR (HirType I8..I128/F32/F64/Bool/Str/Handle/Array/Function/Class/Object/Any/Unknown)
-  rts-mir/          — SSA MIR — used ONLY by rts-codegen-old (frozen); the redesign deletes the MIR tier
-  rts-codegen-old/  — FROZEN old engine (dual MIR/AST codegen, switchboard, manual add_fn!)
-  rts-codegen-new/  — ACTIVE redesign (see module map below)
-    src/value.rs    — PolyValue (64-bit NaN-box) — Pilar 1
-    src/repr.rs     — Repr lattice (Int32/Float64/Bool/Ref/Tagged) + join — Pilar 2 (soundness core)
-    src/shape.rs    — hidden classes (Shape / transition tree / slot layout) — Pilar 4
-    src/ic.rs       — AOT-safe data inline caches (PropIcCell, uninit→mono→poly→mega) — Pilar 4
-    src/dispatch.rs — data-driven method resolution (Target / resolve_method) — Pilar 6
-    src/abi_gen.rs  — JIT symbol table derived from SPECS (SymbolEntry / jit_symbols) — Pilar 6
-    src/lower/      — single HIR → Cranelift lowering path (no MIR) — Pilar 5
-    src/pipeline.rs — shared JIT (run_jit) + AOT (compile_aot) — Pilar 5
+  rts-adapters/     — value model shared by the engine:
+    src/value/      — PolyValue (64-bit NaN-box)
+    src/repr.rs     — Repr lattice (Int32/Float64/Bool/Ref/Tagged) + join (soundness core)
+    src/shape.rs    — hidden classes (Shape / transition tree / slot layout)
+    src/ic.rs       — AOT-safe data inline caches (PropIcCell, uninit→mono→poly→mega)
+    src/dispatch.rs — data-driven method resolution (Target / resolve_method)
+    src/state.rs    — codegen state (reset between runs)
+  rts-codegen-new/  — THE engine (single HIR → Cranelift lowering, no MIR):
+    src/front/hir_lower — AST/HIR → lowering front
+    src/front/run/  — the lowering itself (expr/stmt/call/class/registry_call/…);
+                      module_jit.rs (JIT) + module_aot.rs (AOT object emission);
+                      shapes in front/run/class/
+    src/value/      — value-model emission + ABI signatures + marshalling
+    src/adapter_symbols/ — JIT symbol table harvested from Registry fn-ptrs
+                      (drift/coverage guard); replaces manual add_fn!
   rts-primitives/   — PRIMORDIAL classes
   rts-shared/       — non-primordial universal (math/num/collections/json/globals)
   rts-std/          — backend (io/net/tokio/console/promise impl)
   rts-runtime/      — facade ("rts" + "rts:<ns>" submodules); AOT staticlib
   rts-node/         — Node.js builtin shims (fs, os, path, process, crypto, util)
-  rts-linker/       — native link (system linker with object-backend fallback)
-  rts-cli/          — CLI (run, compile, apis, init, repl, eval, ir)
+  rts-egui/         — egui-based GUI / web-UI engine. Follow the FROZEN plan
+                      (docs/specs/html-engine/ + egui-ui-crate-design.md) — see the
+                      MANDATORY egui/web-plan rule in CLAUDE.md / 00-meta.md
+  rts-linker/       — native link (system linker with object-backend fallback);
+                      per-target runtime archives (cross-compile prep)
+  rts-cli/          — CLI (run, run-new, compile, apis, init, repl, eval, ir)
 
 src/                — bin facade (re-exports), runtime_objects.rs, main.rs
 ```
 
-### New-engine pipeline (the redesign — single path, no MIR)
+### Engine pipeline (single path, no MIR)
 
 ```
-TS → SWC → AST → HIR (rts-hir) → lower/ (HIR → Cranelift IR, one path) → Cranelift egraph → JIT/AOT
+TS → SWC → AST → HIR (rts-hir) → front/run (HIR → Cranelift IR, one path) → Cranelift egraph → JIT/AOT
 ```
 
-There is **no MIR tier and no dual AST/MIR codegen** in `rts-codegen-new`. The
-Cranelift egraph (`use_egraphs=true`) is the **sole** optimizer. The front-end
-does only what Cranelift cannot (JS semantics): coercions, the polymorphic `+`,
-box/unbox insertion (pure IR the egraph folds), shape/IC site emission,
-narrow-int wrap, exception edges. See `docs/specs/rts-codegen-new-design.md` §9.
+There is **no MIR tier and no dual AST/MIR codegen**. The Cranelift egraph
+(`use_egraphs=true`) is the **sole** optimizer. The front-end does only what
+Cranelift cannot (JS semantics): coercions, the polymorphic `+`, box/unbox
+insertion (pure IR the egraph folds), shape/IC site emission, narrow-int wrap,
+exception edges. See `docs/specs/rts-codegen-new-design.md` §9.
 
-`FnCtx.module` is `&mut dyn Module` to serve AOT and JIT without duplicating
-codegen (`compile_program` shared, `pipeline.rs`).
-
-> The frozen `rts-codegen-old/` still runs the old hybrid HIR→MIR→Cranelift
-> (default, gated by `RTS_USE_MIR`) with authoritative-AST fallback. That
-> machinery is NOT carried into the new engine.
+`FnCtx.module` is `&mut dyn Module` to serve AOT (`module_aot.rs`) and JIT
+(`module_jit.rs`) without duplicating the lowering.
 
 ## ABI (`rts-engine::abi`) — single contract
 
@@ -92,9 +96,10 @@ per-namespace `SPEC/MEMBERS/dispatch()`, no more `__rts_call_dispatch`.
 
 - `abi::SPECS` (`mod.rs`) — static slice with the `NamespaceSpec` of each
   registered namespace (`io`, `fs`, `gc`, `math`, `bigfloat`, …). Single source
-  consumed by codegen, runtime, JIT, and the `rts.d.ts` generator. In the new
-  engine, `abi_gen.rs` **derives** the JIT symbol table from these SPECS (no
-  manual `add_fn!`), with a build-time coverage assertion.
+  consumed by codegen, runtime, JIT, and the `rts.d.ts` generator. The JIT symbol
+  table is harvested from Registry fn-ptrs in
+  `crates/rts-codegen-new/src/adapter_symbols/` (drift/coverage guard, no manual
+  `add_fn!`).
 - `abi::lookup(qualified)` — resolves `"io.print"` → `&NamespaceMember` with
   symbol and signature.
 - `member.rs` — `NamespaceSpec`, `NamespaceMember` (static consts) and
@@ -109,10 +114,8 @@ per-namespace `SPEC/MEMBERS/dispatch()`, no more `__rts_call_dispatch`.
 - `symbols.rs` — convention `__RTS_<KIND>_<SCOPE>_<NS>_<NAME>` (e.g.
   `__RTS_FN_NS_IO_PRINT`). Macro `rts_sym!` generates symbols at compile time;
   `validate_symbol()` enforces uppercase ASCII.
-- `guards.rs` — `guard_for(expected, caller)`. In the old engine this is **dead
-  code** (zero production call sites; coercion is ad-hoc `TPL_COERCE_AUTO`). The
-  redesign makes coercion ONE real authority (design doc §7) — `guard_for` is
-  promoted to the real path or replaced in `rts-codegen-new`.
+- `guards.rs` — `guard_for(expected, caller)`. Coercion is ONE real authority in
+  the engine (design doc §7); the old ad-hoc `TPL_COERCE_AUTO` scattering is gone.
 
 The monomorphic numeric path still emits `call <symbol>` directly via Cranelift,
 no intermediaries; PolyValues cross the runtime boundary tagged-in/tagged-out for
@@ -236,10 +239,8 @@ global JS classes.
   AtomicBool, AtomicF64 (via AtomicU64 + bit-transmute), fences
 - `sync/` — `std::sync`: Mutex<i64>, RwLock<i64>, Once. Thread-local guards to
   cross extern "C" calls
-- `parallel/` — `rayon`: map/for_each/reduce + num_threads. Backed the OLD
-  engine's silent-parallelism passes (purity_pass, reduce_pass,
-  array_methods_pass; frozen in `rts-codegen-old`, not carried into the new
-  engine unless re-justified)
+- `parallel/` — `rayon`: map/for_each/reduce + num_threads (the old
+  silent-parallelism passes were deleted with the old engine)
 - `mem/` — size_of/align_of constants, swap_i64, drop/forget_handle
 - `num/` — checked/saturating/wrapping arith, bit ops (rotate,
   count_ones/zeros, leading/trailing_zeros, reverse_bits, swap_bytes), bitcast
