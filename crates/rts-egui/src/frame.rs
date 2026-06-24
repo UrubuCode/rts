@@ -222,6 +222,12 @@ impl RenderState {
         // RAM reservada. Suficiente para uma UI imediata que não precisa de
         // pipelining profundo de frames.
         config.desired_maximum_frame_latency = 1;
+        // vsync EXPLÍCITO (Fifo): o loop é dirigido pelo TS sem throttle próprio, e
+        // sem vsync ele gira a milhares de fps — queima CPU e, sob essa cadência,
+        // o swapchain entra em estado ruim (a janela parava de avançar após alguns
+        // milhares de frames). Fifo é garantido em todo backend e limita a ~taxa do
+        // monitor, que é o comportamento certo para uma UI.
+        config.present_mode = wgpu::PresentMode::Fifo;
         // Janela transparente: escolhe um alpha_mode que componha o alpha (não
         // Opaque). Pega o 1º não-Opaque suportado (PreMultiplied/PostMultiplied/
         // Inherit); se só houver Opaque, segue opaco (transparência indisponível).
