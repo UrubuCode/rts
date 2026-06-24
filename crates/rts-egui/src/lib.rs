@@ -196,7 +196,7 @@ pub fn register(e: &mut Engine) {
         .member(func(
             "setText",
             "__RTS_FN_NS_EGUI_SET_TEXT",
-            Sig::new(vec![U64, U64, AbiType::StrPtr], AbiType::Void),
+            Sig::new(vec![U64, I64, AbiType::StrPtr], AbiType::Void),
             "setText(h: number, node: number, text: string): void",
             "Replaces a node's content with a single text node (element.textContent = text).",
             widgets::__RTS_FN_NS_EGUI_SET_TEXT as *const u8,
@@ -204,7 +204,7 @@ pub fn register(e: &mut Engine) {
         .member(func(
             "setAttr",
             "__RTS_FN_NS_EGUI_SET_ATTR",
-            Sig::new(vec![U64, U64, AbiType::StrPtr, AbiType::StrPtr], AbiType::Void),
+            Sig::new(vec![U64, I64, AbiType::StrPtr, AbiType::StrPtr], AbiType::Void),
             "setAttr(h: number, node: number, name: string, value: string): void",
             "Sets/updates an attribute on a node (element.setAttribute).",
             widgets::__RTS_FN_NS_EGUI_SET_ATTR as *const u8,
@@ -220,7 +220,7 @@ pub fn register(e: &mut Engine) {
         .member(func(
             "appendChild",
             "__RTS_FN_NS_EGUI_APPEND_CHILD",
-            Sig::new(vec![U64, U64, U64], AbiType::Void),
+            Sig::new(vec![U64, I64, I64], AbiType::Void),
             "appendChild(h: number, parent: number, child: number): void",
             "Moves child to the end of parent's children (parent.appendChild).",
             widgets::__RTS_FN_NS_EGUI_APPEND_CHILD as *const u8,
@@ -228,7 +228,7 @@ pub fn register(e: &mut Engine) {
         .member(func(
             "removeNode",
             "__RTS_FN_NS_EGUI_REMOVE_NODE",
-            Sig::new(vec![U64, U64], AbiType::Void),
+            Sig::new(vec![U64, I64], AbiType::Void),
             "removeNode(h: number, node: number): void",
             "Detaches a node from its parent (element.remove).",
             widgets::__RTS_FN_NS_EGUI_REMOVE_NODE as *const u8,

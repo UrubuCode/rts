@@ -493,7 +493,7 @@ struct InlineStyle {
 
 /// Mescla o `style="..."` (CSS inline) de um nó SOBRE um `InlineStyle` herdado.
 /// Propriedade ausente no CSS mantém a herdada; presente sobrescreve.
-fn merge_node_style(dom: &crate::dom::Dom, id: crate::dom::NodeId, mut st: InlineStyle) -> InlineStyle {
+fn merge_node_style(dom: &crate::dom::Dom, id: crate::dom::NodeIdx, mut st: InlineStyle) -> InlineStyle {
     if let Some(s) = dom.node(id).attr("style") {
         let css = crate::style::parse_inline(s);
         if let Some(c) = css.color {
@@ -530,7 +530,7 @@ fn render_dom(ui: &mut egui::Ui, dom: &crate::dom::Dom) {
 fn render_block(
     ui: &mut egui::Ui,
     dom: &crate::dom::Dom,
-    id: crate::dom::NodeId,
+    id: crate::dom::NodeIdx,
     index: &mut usize,
 ) {
     use crate::dom::NodeKind;
@@ -581,7 +581,7 @@ fn render_block(
 fn render_block_body(
     ui: &mut egui::Ui,
     dom: &crate::dom::Dom,
-    id: crate::dom::NodeId,
+    id: crate::dom::NodeIdx,
     def: crate::block::BlockDef,
     this_index: usize,
 ) {
@@ -654,7 +654,7 @@ fn render_block_body(
 fn render_inline(
     ui: &mut egui::Ui,
     dom: &crate::dom::Dom,
-    id: crate::dom::NodeId,
+    id: crate::dom::NodeIdx,
     style: InlineStyle,
 ) {
     use crate::dom::NodeKind;
@@ -696,13 +696,13 @@ fn render_inline(
 }
 
 /// Concatena o texto de todos os descendentes de `id` (em ordem de documento).
-fn collect_text(dom: &crate::dom::Dom, id: crate::dom::NodeId) -> String {
+fn collect_text(dom: &crate::dom::Dom, id: crate::dom::NodeIdx) -> String {
     use crate::dom::NodeKind;
     let mut out = String::new();
     collect_text_into(dom, id, &mut out);
     return out;
 
-    fn collect_text_into(dom: &crate::dom::Dom, id: crate::dom::NodeId, out: &mut String) {
+    fn collect_text_into(dom: &crate::dom::Dom, id: crate::dom::NodeIdx, out: &mut String) {
         match &dom.node(id).kind {
             NodeKind::Text(t) => out.push_str(t),
             _ => {

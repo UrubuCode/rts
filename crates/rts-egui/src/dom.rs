@@ -26,14 +26,53 @@
 //! compara-se o `dump()` (ou a estrutura) com o esperado. Ver `#[cfg(test)]`.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::html::{tokenize, Token};
 
-/// Identificador estável de um nó na arena. É o índice em `Dom::nodes`.
+/// Índice cru de um nó na arena (`Dom::nodes`). Uso INTERNO ao `dom.rs` — o que
+/// cruza a fronteira (TS/ABI) é sempre o `NodeId` VERSIONADO, nunca este índice.
+pub type NodeIdx = usize;
+
+/// Contador global de gerações de árvore. Cada `Dom` novo (parse ou vazio) toma a
+/// próxima geração; assim duas árvores nunca colidem e um `NodeId` de uma árvore
+/// velha é detectável como stale na árvore atual.
+static NEXT_GEN: AtomicU32 = AtomicU32::new(1);
+
+fn next_gen() -> u32 {
+    NEXT_GEN.fetch_add(1, Ordering::Relaxed)
+}
+
+/// Identificador VERSIONADO e estável de um nó: `{ generation, idx }` (invariante 2 do
+/// roadmap — sem `generation`, um índice reciclado após re-parse aplica estado a um nó
+/// vivo errado, um bug de SEGURANÇA DE MEMÓRIA). É o handle que o lado JS guarda.
 ///
-/// Estável durante a vida da árvore (não há compactação): é exatamente o handle
-/// que o lado JS guardará para mutar um elemento depois.
-pub type NodeId = usize;
+/// `generation` é a geração da ÁRVORE dona do nó; `idx` é a posição na arena. Um acesso
+/// só é válido se a `generation` do id casa com a `generation` da árvore atual (`Dom::generation`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NodeId {
+    pub generation: u32,
+    pub idx: u32,
+}
+
+impl NodeId {
+    /// Empacota num `i64` opaco para a ABI: `(generation << 32) | idx`. Sempre ≥ 0
+    /// (generation começa em 1, então o bit de sinal nunca acende). `-1` é a sentinela
+    /// de "nó nenhum" (invariante 3), distinta de qualquer id real.
+    pub fn to_abi(self) -> i64 {
+        (((self.generation as u64) << 32) | (self.idx as u64)) as i64
+    }
+
+    /// Desempacota o `i64` da ABI. `None` para a sentinela `-1` ou valores
+    /// negativos (id inválido vindo do TS).
+    pub fn from_abi(v: i64) -> Option<NodeId> {
+        if v < 0 {
+            return None;
+        }
+        let u = v as u64;
+        Some(NodeId { generation: (u >> 32) as u32, idx: (u & 0xFFFF_FFFF) as u32 })
+    }
+}
 
 /// O tipo de um nó da árvore.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,10 +107,10 @@ pub struct Node {
     /// seletor além da tag (`.classe`, `#id`) e de `<a href>` — o pré-requisito
     /// de um motor de CSS.
     pub attrs: Vec<Attr>,
-    /// `None` apenas para a raiz `Document`.
-    pub parent: Option<NodeId>,
-    /// Filhos em ordem de documento.
-    pub children: Vec<NodeId>,
+    /// `None` apenas para a raiz `Document`. Índice cru (interno à arena).
+    pub parent: Option<NodeIdx>,
+    /// Filhos em ordem de documento. Índices crus (internos à arena).
+    pub children: Vec<NodeIdx>,
 }
 
 impl Node {
@@ -93,18 +132,21 @@ impl Node {
 /// (pra respeitar a ordem de documento; um índice por tag viria depois, se valer).
 #[derive(Debug, Clone)]
 pub struct Dom {
-    /// Arena: `nodes[id]` é o nó de `NodeId == id`.
+    /// Geração desta árvore (invariante 2). Todo `NodeId` que sai daqui carrega
+    /// esta `generation`; um id com `generation` diferente é stale (de uma árvore anterior).
+    generation: u32,
+    /// Arena: `nodes[idx]` é o nó de índice cru `idx`.
     pub nodes: Vec<Node>,
-    /// A raiz sintética `#document`.
-    pub root: NodeId,
-    /// Índice `valor-de-id → NodeId` (último a registrar vence, como no browser).
-    id_index: HashMap<String, NodeId>,
+    /// A raiz sintética `#document` (índice cru — sempre 0).
+    pub root: NodeIdx,
+    /// Índice `valor-de-id → NodeIdx` (último a registrar vence, como no browser).
+    id_index: HashMap<String, NodeIdx>,
     /// Índice `classe → nós que a têm` (em ordem de inserção).
-    class_index: HashMap<String, Vec<NodeId>>,
+    class_index: HashMap<String, Vec<NodeIdx>>,
 }
 
-// Igualdade estrutural: compara só a árvore (nodes+root). Os índices são estado
-// DERIVADO — duas árvores com os mesmos nós têm os mesmos índices.
+// Igualdade estrutural: compara só a árvore (nodes+root). Os índices e a `generation`
+// são estado DERIVADO/de-identidade — duas árvores com os mesmos nós são iguais.
 impl PartialEq for Dom {
     fn eq(&self, other: &Self) -> bool {
         self.root == other.root && self.nodes == other.nodes
@@ -113,9 +155,10 @@ impl PartialEq for Dom {
 impl Eq for Dom {}
 
 impl Dom {
-    /// Cria uma árvore vazia contendo só o `#document`.
+    /// Cria uma árvore vazia contendo só o `#document`. Toma a próxima geração.
     fn new() -> Dom {
         Dom {
+            generation: next_gen(),
             nodes: vec![Node {
                 kind: NodeKind::Document,
                 attrs: Vec::new(),
@@ -128,8 +171,36 @@ impl Dom {
         }
     }
 
+    /// A geração desta árvore (para o render/ABI compor `NodeId` versionados).
+    pub fn generation(&self) -> u32 {
+        self.generation
+    }
+
+    /// Empacota um índice cru desta árvore num `NodeId` versionado (com a `generation`
+    /// da árvore). É como um índice interno vira handle público.
+    fn make_id(&self, idx: NodeIdx) -> NodeId {
+        NodeId { generation: self.generation, idx: idx as u32 }
+    }
+
+    /// Valida um `NodeId` versionado contra ESTA árvore e devolve o índice cru.
+    /// `None` se a `generation` não casa (id de árvore velha) ou o índice é inválido —
+    /// é exatamente a guarda que impede aplicar estado a um nó vivo errado.
+    pub fn resolve(&self, id: NodeId) -> Option<NodeIdx> {
+        let idx = id.idx as usize;
+        if id.generation == self.generation && idx < self.nodes.len() {
+            Some(idx)
+        } else {
+            None
+        }
+    }
+
+    /// O `NodeId` versionado da raiz `#document`.
+    pub fn root_id(&self) -> NodeId {
+        self.make_id(self.root)
+    }
+
     /// Registra um nó nos índices a partir de seus atributos `id`/`class`.
-    fn index_node(&mut self, id: NodeId) {
+    fn index_node(&mut self, id: NodeIdx) {
         // Coleta antes para não emprestar `self.nodes` e os índices juntos.
         let id_attr = self.nodes[id].attr("id").map(str::to_string);
         let classes: Vec<String> = self.nodes[id]
@@ -144,8 +215,8 @@ impl Dom {
         }
     }
 
-    /// Aloca um nó (com seus atributos) como filho de `parent`; devolve o id.
-    fn push(&mut self, kind: NodeKind, attrs: Vec<Attr>, parent: NodeId) -> NodeId {
+    /// Aloca um nó (com seus atributos) como filho de `parent`; devolve o índice.
+    fn push(&mut self, kind: NodeKind, attrs: Vec<Attr>, parent: NodeIdx) -> NodeIdx {
         let id = self.nodes.len();
         self.nodes.push(Node {
             kind,
@@ -158,15 +229,16 @@ impl Dom {
         id
     }
 
-    /// Acesso por id (conveniência para o render e a futura API de mutação JS).
-    pub fn node(&self, id: NodeId) -> &Node {
-        &self.nodes[id]
+    /// Acesso por índice CRU (interno ao render, que percorre a árvore por
+    /// índices). A API pública/ABI usa `NodeId` versionado + `resolve`.
+    pub fn node(&self, idx: NodeIdx) -> &Node {
+        &self.nodes[idx]
     }
 
-    /// `true` se `id` é um índice válido na arena (defesa contra handles velhos
-    /// vindos do JS após um re-parse que encolheu a árvore).
+    /// `true` se o `NodeId` versionado é válido NESTA árvore (generation casa + índice na
+    /// arena). Substitui o antigo `idx < len` que não detectava id de árvore velha.
     pub fn is_valid(&self, id: NodeId) -> bool {
-        id < self.nodes.len()
+        self.resolve(id).is_some()
     }
 
     // ── Query (base do querySelector) ───────────────────────────────────────
@@ -180,18 +252,25 @@ impl Dom {
     /// já que mutações podem ter desligado o nó sem limpar o índice.
     pub fn query(&self, selector: &str) -> Option<NodeId> {
         let sel = selector.trim();
+        let idx = self.query_idx(sel)?;
+        Some(self.make_id(idx))
+    }
+
+    /// Núcleo do `query` em índices crus (interno). O `query` público embrulha o
+    /// resultado no `NodeId` versionado.
+    fn query_idx(&self, sel: &str) -> Option<NodeIdx> {
         if let Some(key) = sel.strip_prefix('#') {
             // Valida valor + alcançabilidade (o índice pode ter entrada stale).
             return self
                 .id_index
                 .get(key)
                 .copied()
-                .filter(|&id| self.is_attached(id) && self.nodes[id].attr("id") == Some(key));
+                .filter(|&i| self.is_attached(i) && self.nodes[i].attr("id") == Some(key));
         }
         if let Some(cls) = sel.strip_prefix('.') {
-            return self.class_index.get(cls)?.iter().copied().find(|&id| {
-                self.is_attached(id)
-                    && self.nodes[id]
+            return self.class_index.get(cls)?.iter().copied().find(|&i| {
+                self.is_attached(i)
+                    && self.nodes[i]
                         .attr("class")
                         .map(|c| c.split_whitespace().any(|x| x == cls))
                         .unwrap_or(false)
@@ -202,11 +281,11 @@ impl Dom {
         self.find_pre_order(self.root, &m)
     }
 
-    /// `true` se `id` está conectado à raiz (não foi desligado por uma mutação).
+    /// `true` se `idx` está conectado à raiz (não foi desligado por uma mutação).
     /// Os índices não são limpos no `remove`/`append`, então uma busca por
     /// índice valida a alcançabilidade aqui (barato: sobe pelos pais).
-    fn is_attached(&self, id: NodeId) -> bool {
-        let mut cur = Some(id);
+    fn is_attached(&self, idx: NodeIdx) -> bool {
+        let mut cur = Some(idx);
         while let Some(c) = cur {
             if c == self.root {
                 return true;
@@ -216,10 +295,10 @@ impl Dom {
         false
     }
 
-    fn find_pre_order(&self, id: NodeId, m: &dyn Fn(&Node) -> bool) -> Option<NodeId> {
-        let node = &self.nodes[id];
-        if id != self.root && m(node) {
-            return Some(id);
+    fn find_pre_order(&self, idx: NodeIdx, m: &dyn Fn(&Node) -> bool) -> Option<NodeIdx> {
+        let node = &self.nodes[idx];
+        if idx != self.root && m(node) {
+            return Some(idx);
         }
         for &child in &node.children {
             if let Some(hit) = self.find_pre_order(child, m) {
@@ -234,26 +313,25 @@ impl Dom {
     /// Substitui TODO o conteúdo de um elemento por um único nó de texto (o
     /// equivalente a `element.textContent = txt`). Não faz nada num nó de texto.
     pub fn set_text(&mut self, id: NodeId, text: &str) {
-        if !self.is_valid(id) || !matches!(self.nodes[id].kind, NodeKind::Element { .. }) {
+        let Some(idx) = self.resolve(id) else { return };
+        if !matches!(self.nodes[idx].kind, NodeKind::Element { .. }) {
             return;
         }
         // Descarta os filhos atuais (arena não compacta; vira lixo inacessível —
         // ok para o uso atual, a árvore é reconstruída a cada `html()`).
-        self.nodes[id].children.clear();
+        self.nodes[idx].children.clear();
         let child = self.push_detached(NodeKind::Text(text.to_string()));
-        self.nodes[child].parent = Some(id);
-        self.nodes[id].children.push(child);
+        self.nodes[child].parent = Some(idx);
+        self.nodes[idx].children.push(child);
     }
 
     /// Define/atualiza um atributo (`element.setAttribute`). Cria se não existir.
     /// Mantém os índices `id`/`class` em dia (adiciona a nova entrada; entradas
     /// antigas viram stale mas a busca valida alcançabilidade/valor).
     pub fn set_attr(&mut self, id: NodeId, name: &str, value: &str) {
-        if !self.is_valid(id) {
-            return;
-        }
+        let Some(idx) = self.resolve(id) else { return };
         let name_lc = name.to_ascii_lowercase();
-        let node = &mut self.nodes[id];
+        let node = &mut self.nodes[idx];
         if let Some(a) = node.attrs.iter_mut().find(|a| a.name == name_lc) {
             a.value = value.to_string();
         } else {
@@ -262,13 +340,13 @@ impl Dom {
         // Atualiza índices se o atributo afeta busca.
         match name_lc.as_str() {
             "id" => {
-                self.id_index.insert(value.to_string(), id);
+                self.id_index.insert(value.to_string(), idx);
             }
             "class" => {
                 for c in value.split_whitespace() {
                     let v = self.class_index.entry(c.to_string()).or_default();
-                    if !v.contains(&id) {
-                        v.push(id);
+                    if !v.contains(&idx) {
+                        v.push(idx);
                     }
                 }
             }
@@ -276,16 +354,20 @@ impl Dom {
         }
     }
 
-    /// Cria um elemento SOLTO (sem pai) e devolve seu id; ligue-o com
-    /// `append_child` (`document.createElement`).
+    /// Cria um elemento SOLTO (sem pai) e devolve seu `NodeId` versionado; ligue-o
+    /// com `append_child` (`document.createElement`).
     pub fn create_element(&mut self, tag: &str) -> NodeId {
-        self.push_detached(NodeKind::Element { tag: tag.to_ascii_lowercase() })
+        let idx = self.push_detached(NodeKind::Element { tag: tag.to_ascii_lowercase() });
+        self.make_id(idx)
     }
 
     /// Move `child` para o fim dos filhos de `parent` (`parent.appendChild`).
     /// Remove `child` do pai antigo, se tiver. Ignora ids inválidos ou ciclos.
     pub fn append_child(&mut self, parent: NodeId, child: NodeId) {
-        if !self.is_valid(parent) || !self.is_valid(child) || parent == child {
+        let (Some(parent), Some(child)) = (self.resolve(parent), self.resolve(child)) else {
+            return;
+        };
+        if parent == child {
             return;
         }
         if self.is_ancestor(child, parent) {
@@ -298,27 +380,29 @@ impl Dom {
 
     /// Desliga um nó do pai (`element.remove`). O nó continua na arena (lixo).
     pub fn remove_node(&mut self, id: NodeId) {
-        if self.is_valid(id) && id != self.root {
-            self.detach(id);
+        if let Some(idx) = self.resolve(id) {
+            if idx != self.root {
+                self.detach(idx);
+            }
         }
     }
 
-    /// Aloca um nó sem pai (usado por create_element / set_text).
-    fn push_detached(&mut self, kind: NodeKind) -> NodeId {
+    /// Aloca um nó sem pai (usado por create_element / set_text). Índice cru.
+    fn push_detached(&mut self, kind: NodeKind) -> NodeIdx {
         let id = self.nodes.len();
         self.nodes.push(Node { kind, attrs: Vec::new(), parent: None, children: Vec::new() });
         id
     }
 
-    /// Remove `id` da lista de filhos do seu pai atual (se houver).
-    fn detach(&mut self, id: NodeId) {
-        if let Some(p) = self.nodes[id].parent.take() {
-            self.nodes[p].children.retain(|&c| c != id);
+    /// Remove `idx` da lista de filhos do seu pai atual (se houver).
+    fn detach(&mut self, idx: NodeIdx) {
+        if let Some(p) = self.nodes[idx].parent.take() {
+            self.nodes[p].children.retain(|&c| c != idx);
         }
     }
 
     /// `true` se `a` é ancestral de (ou igual a) `b` — guarda contra ciclos.
-    fn is_ancestor(&self, a: NodeId, b: NodeId) -> bool {
+    fn is_ancestor(&self, a: NodeIdx, b: NodeIdx) -> bool {
         let mut cur = Some(b);
         while let Some(c) = cur {
             if c == a {
@@ -349,8 +433,8 @@ impl Dom {
         out
     }
 
-    fn dump_node(&self, id: NodeId, depth: usize, out: &mut String) {
-        let node = &self.nodes[id];
+    fn dump_node(&self, idx: NodeIdx, depth: usize, out: &mut String) {
+        let node = &self.nodes[idx];
         for _ in 0..depth {
             out.push_str("  ");
         }
@@ -462,8 +546,8 @@ fn parse_attrs(raw: &str) -> Vec<Attr> {
 ///   nós de espaço irrelevantes).
 pub fn parse_html_to_dom(html: &str) -> Dom {
     let mut dom = Dom::new();
-    // Pilha de (NodeId aberto, nome da tag). Começa na raiz Document.
-    let mut open: Vec<(NodeId, String)> = vec![(dom.root, String::new())];
+    // Pilha de (índice cru aberto, nome da tag). Começa na raiz Document.
+    let mut open: Vec<(NodeIdx, String)> = vec![(dom.root, String::new())];
 
     for tok in tokenize(html) {
         match tok {
@@ -500,13 +584,19 @@ pub fn parse_html_to_dom(html: &str) -> Dom {
 mod tests {
     use super::*;
 
-    /// Helper: nome de tag de um nó Element (panica se não for elemento) — só
-    /// para deixar os asserts curtos.
-    fn tag(dom: &Dom, id: NodeId) -> &str {
-        match &dom.node(id).kind {
+    /// Helper: nome de tag de um nó Element por índice cru (panica se não for
+    /// elemento) — só para deixar os asserts curtos.
+    fn tag(dom: &Dom, idx: NodeIdx) -> &str {
+        match &dom.node(idx).kind {
             NodeKind::Element { tag } => tag,
             other => panic!("esperava Element, achei {other:?}"),
         }
+    }
+
+    /// Helper: resolve um `NodeId` versionado da API pública para o índice cru
+    /// usado nos asserts de `children`/`parent`.
+    fn idx(dom: &Dom, id: NodeId) -> NodeIdx {
+        dom.resolve(id).expect("NodeId deveria resolver nesta árvore")
     }
 
     #[test]
@@ -516,12 +606,12 @@ mod tests {
         );
         // tag
         let span = dom.query("span").unwrap();
-        assert_eq!(tag(&dom, span), "span");
+        assert_eq!(tag(&dom, idx(&dom, span)), "span");
         // #id
         assert_eq!(dom.query("#alvo"), Some(span));
         // .classe (mesmo dentro de class multi-valor "hl a")
         let b = dom.query(".hl").unwrap();
-        assert_eq!(tag(&dom, b), "b");
+        assert_eq!(tag(&dom, idx(&dom, b)), "b");
         assert_eq!(dom.query(".a"), Some(b));
         // sem match
         assert_eq!(dom.query("#naoexiste"), None);
@@ -533,6 +623,7 @@ mod tests {
         let mut dom = parse_html_to_dom("<p>antes <b>x</b></p>");
         let p = dom.query("p").unwrap();
         dom.set_text(p, "depois");
+        let p = idx(&dom, p);
         assert_eq!(dom.node(p).children.len(), 1);
         assert_eq!(dom.node(dom.node(p).children[0]).kind, NodeKind::Text("depois".into()));
     }
@@ -542,10 +633,11 @@ mod tests {
         let mut dom = parse_html_to_dom("<div>x</div>");
         let div = dom.query("div").unwrap();
         dom.set_attr(div, "class", "card");
-        assert_eq!(dom.node(div).attr("class"), Some("card"));
+        let d = idx(&dom, div);
+        assert_eq!(dom.node(d).attr("class"), Some("card"));
         dom.set_attr(div, "class", "card ativo"); // atualiza, não duplica
-        assert_eq!(dom.node(div).attr("class"), Some("card ativo"));
-        assert_eq!(dom.node(div).attrs.len(), 1);
+        assert_eq!(dom.node(d).attr("class"), Some("card ativo"));
+        assert_eq!(dom.node(d).attrs.len(), 1);
     }
 
     #[test]
@@ -555,6 +647,7 @@ mod tests {
         let li = dom.create_element("li");
         dom.set_text(li, "novo item");
         dom.append_child(ul, li);
+        let (ul, li) = (idx(&dom, ul), idx(&dom, li));
         assert_eq!(dom.node(ul).children, vec![li]);
         assert_eq!(dom.node(li).parent, Some(ul));
         assert_eq!(tag(&dom, li), "li");
@@ -568,13 +661,14 @@ mod tests {
         let section = dom.query("section").unwrap();
         // move o span do div para o section
         dom.append_child(section, span);
-        assert!(dom.node(div).children.is_empty());
-        assert_eq!(dom.node(section).children, vec![span]);
-        assert_eq!(dom.node(span).parent, Some(section));
+        let (di, si, se) = (idx(&dom, div), idx(&dom, span), idx(&dom, section));
+        assert!(dom.node(di).children.is_empty());
+        assert_eq!(dom.node(se).children, vec![si]);
+        assert_eq!(dom.node(si).parent, Some(se));
         // remove o span de vez
         dom.remove_node(span);
-        assert!(dom.node(section).children.is_empty());
-        assert_eq!(dom.node(span).parent, None);
+        assert!(dom.node(se).children.is_empty());
+        assert_eq!(dom.node(si).parent, None);
     }
 
     #[test]
@@ -584,8 +678,34 @@ mod tests {
         let span = dom.query("span").unwrap();
         // tentar pôr o div (ancestral) dentro do span deve ser ignorado.
         dom.append_child(span, div);
-        assert_eq!(dom.node(div).parent, Some(dom.root)); // intacto
-        assert!(dom.node(span).children.contains(&div) == false);
+        let (di, si) = (idx(&dom, div), idx(&dom, span));
+        assert_eq!(dom.node(di).parent, Some(dom.root)); // intacto
+        assert!(dom.node(si).children.contains(&di) == false);
+    }
+
+    #[test]
+    fn nodeid_versionado_stale_apos_reparse() {
+        // INVARIANTE 2: um NodeId de uma árvore anterior NÃO resolve na nova.
+        let dom1 = parse_html_to_dom("<div id='x'>a</div>");
+        let id_velho = dom1.query("#x").unwrap();
+        let dom2 = parse_html_to_dom("<div id='x'>b</div>");
+        // mesmo seletor, árvore nova → gen diferente.
+        let id_novo = dom2.query("#x").unwrap();
+        assert_ne!(id_velho.generation, id_novo.generation);
+        // o id velho é stale na árvore nova: resolve → None (não aplica a nó errado).
+        assert_eq!(dom2.resolve(id_velho), None);
+        assert!(dom2.resolve(id_novo).is_some());
+    }
+
+    #[test]
+    fn nodeid_abi_roundtrip() {
+        let id = NodeId { generation: 7, idx: 42 };
+        let v = id.to_abi();
+        assert!(v >= 0);
+        assert_eq!(NodeId::from_abi(v), Some(id));
+        // sentinela -1 e negativos → None.
+        assert_eq!(NodeId::from_abi(-1), None);
+        assert_eq!(NodeId::from_abi(-999), None);
     }
 
     #[test]

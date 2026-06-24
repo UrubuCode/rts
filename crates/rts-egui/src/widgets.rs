@@ -160,70 +160,80 @@ const NODE_NONE: i64 = -1;
 pub extern "C" fn __RTS_FN_NS_EGUI_QUERY_SELECTOR(h: u64, sel_ptr: *const u8, sel_len: i64) -> i64 {
     let sel = unsafe { str_abi::from_abi(sel_ptr, sel_len) }.unwrap_or("");
     ctx::with_ctx(h, |c| match &c.dom {
-        Some(dom) => dom.query(sel).map(|id| id as i64).unwrap_or(NODE_NONE),
+        Some(dom) => dom.query(sel).map(|id| id.to_abi()).unwrap_or(NODE_NONE),
         None => NODE_NONE,
     })
     .unwrap_or(NODE_NONE)
 }
 
-/// `element.textContent = txt`: substitui o conteúdo do nó por um texto.
+/// `element.textContent = txt`: substitui o conteúdo do nó por um texto. `id` é o
+/// `NodeId` VERSIONADO (i64) — um id de árvore velha é validado-fora pelo `gen`.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_SET_TEXT(h: u64, id: u64, ptr: *const u8, len: i64) {
+pub extern "C" fn __RTS_FN_NS_EGUI_SET_TEXT(h: u64, id: i64, ptr: *const u8, len: i64) {
+    let Some(node) = crate::dom::NodeId::from_abi(id) else { return };
     let txt = unsafe { str_abi::from_abi(ptr, len) }.unwrap_or("").to_string();
     ctx::with_ctx(h, |c| {
         if let Some(dom) = c.dom.as_mut() {
-            dom.set_text(id as usize, &txt);
+            dom.set_text(node, &txt);
         }
     });
 }
 
-/// `element.setAttribute(name, value)`.
+/// `element.setAttribute(name, value)`. `id` = `NodeId` versionado (i64).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_EGUI_SET_ATTR(
     h: u64,
-    id: u64,
+    id: i64,
     name_ptr: *const u8,
     name_len: i64,
     val_ptr: *const u8,
     val_len: i64,
 ) {
+    let Some(node) = crate::dom::NodeId::from_abi(id) else { return };
     let name = unsafe { str_abi::from_abi(name_ptr, name_len) }.unwrap_or("").to_string();
     let val = unsafe { str_abi::from_abi(val_ptr, val_len) }.unwrap_or("").to_string();
     ctx::with_ctx(h, |c| {
         if let Some(dom) = c.dom.as_mut() {
-            dom.set_attr(id as usize, &name, &val);
+            dom.set_attr(node, &name, &val);
         }
     });
 }
 
 /// `document.createElement(tag)`: cria um elemento solto; retorna seu `NodeId`
-/// (`i64` ≥ 0), ou `-1` se não houver DOM na janela.
+/// versionado (`i64` ≥ 0), ou `-1` se não houver DOM na janela.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_EGUI_CREATE_ELEMENT(h: u64, tag_ptr: *const u8, tag_len: i64) -> i64 {
     let tag = unsafe { str_abi::from_abi(tag_ptr, tag_len) }.unwrap_or("").to_string();
     ctx::with_ctx(h, |c| match c.dom.as_mut() {
-        Some(dom) => dom.create_element(&tag) as i64,
+        Some(dom) => dom.create_element(&tag).to_abi(),
         None => NODE_NONE,
     })
     .unwrap_or(NODE_NONE)
 }
 
 /// `parent.appendChild(child)`: move `child` para o fim dos filhos de `parent`.
+/// `parent`/`child` = `NodeId` versionados (i64).
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_APPEND_CHILD(h: u64, parent: u64, child: u64) {
+pub extern "C" fn __RTS_FN_NS_EGUI_APPEND_CHILD(h: u64, parent: i64, child: i64) {
+    let (Some(parent), Some(child)) =
+        (crate::dom::NodeId::from_abi(parent), crate::dom::NodeId::from_abi(child))
+    else {
+        return;
+    };
     ctx::with_ctx(h, |c| {
         if let Some(dom) = c.dom.as_mut() {
-            dom.append_child(parent as usize, child as usize);
+            dom.append_child(parent, child);
         }
     });
 }
 
-/// `element.remove()`: desliga o nó do pai.
+/// `element.remove()`: desliga o nó do pai. `id` = `NodeId` versionado (i64).
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_REMOVE_NODE(h: u64, id: u64) {
+pub extern "C" fn __RTS_FN_NS_EGUI_REMOVE_NODE(h: u64, id: i64) {
+    let Some(node) = crate::dom::NodeId::from_abi(id) else { return };
     ctx::with_ctx(h, |c| {
         if let Some(dom) = c.dom.as_mut() {
-            dom.remove_node(id as usize);
+            dom.remove_node(node);
         }
     });
 }
