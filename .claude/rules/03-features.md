@@ -1,17 +1,17 @@
 # Engine model + target semantics — value model, async/Promise/Function
 
 > Canonical design: `docs/specs/rts-codegen-new-design.md`. This file describes
-> the NEW engine's value model and the JS/TS **semantics it must cover**. The old
-> HIR→MIR hybrid routing, silent-parallelism passes, and MIR-capability list are
-> **frozen in `crates/rts-codegen-old/`** and are NOT carried into the new engine
-> unless re-justified.
+> the engine's value model and the JS/TS **semantics it must cover**. The value
+> model lives in the `crates/rts-adapters/` crate (the design doc's `src/*.rs`
+> path map is stale — trust the tree on disk).
 
-## The new value model (no MIR, no dual codegen)
+## The value model (single engine, no MIR, no dual codegen)
 
 Single lowering path `HIR → Cranelift IR`; the Cranelift egraph
-(`use_egraphs=true`) is the **sole** optimizer. The four pillars:
+(`use_egraphs=true`) is the **sole** optimizer. The four pillars (in
+`rts-adapters`):
 
-- **PolyValue (`value.rs`, Pilar 1)** — one 64-bit NaN-boxed word. A bit-pattern
+- **PolyValue (`value/`, Pilar 1)** — one 64-bit NaN-boxed word. A bit-pattern
   with `(bits & BOX_BASE) == BOX_BASE` (`BOX_BASE = 0xFFF8_0000_0000_0000`, the
   negative-qNaN quadrant) is **boxed**; anything else is a genuine inline `f64`.
   Boxed = 3-bit tag (bits 50..48) + 48-bit payload: `INT32(1)`, `SINGLETON(2)`
@@ -32,7 +32,7 @@ Single lowering path `HIR → Cranelift IR`; the Cranelift egraph
   boundaries, never "tracked elsewhere" in a `HashSet`. Hard points (loop-header
   phis, catch bindings, destructuring, closure captures, generator state) all
   default conservatively to `Tagged` — correct, never silently wrong.
-- **Shapes + data ICs (`shape.rs` + `ic.rs`, Pilar 4)** — objects are
+- **Shapes + data ICs (`shape.rs` + `ic.rs` in rts-adapters, Pilar 4)** — objects are
   `{ shape_id, slots: [PolyValue; N] }`. Property access = compare `shape_id` +
   fixed-offset load (not hash lookup); construction walks a transition tree so
   same-key-sequence objects share a shape; method dispatch is **shape-keyed, not
@@ -52,9 +52,8 @@ Single lowering path `HIR → Cranelift IR`; the Cranelift egraph
 
 ## Target semantics the engine must cover
 
-The JS/TS surface the engine must support (same intent under both engines). The
-OLD engine implemented these on the overloaded-`i64` model; the NEW engine must
-reproduce the same **semantics** via PolyValue/shapes/ICs. The per-category list:
+The JS/TS surface the engine must support, via PolyValue/shapes/ICs. The
+per-category list:
 
 - Object/array literals.
 - Classes: constructor, method, this, extends, super(args), super.method(args),
@@ -82,14 +81,6 @@ reproduce the same **semantics** via PolyValue/shapes/ICs. The per-category list
   semantics for now, #217); Boolean class; parseInt with radix. Every
   non-primordial method resolves via the Registry/`MethodSpec` (no builtins in
   the engine).
-
-## Silent parallelism (Level-1) — OLD ENGINE ONLY (frozen)
-
-`crates/rts-codegen-old` has 3 passes that auto-rewrite common TS to `parallel.*`
-(`array_methods_pass`, `reduce_pass`, `purity_pass`; 96 `pure: true` fns). This is
-**frozen in the old engine and NOT carried into the new engine unless
-re-justified** against the redesign. (The standalone `silent-parallelism.md`
-spec was removed — old-engine-only.)
 
 ## async / Promise / Function (Promise-centric, #437)
 

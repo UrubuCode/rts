@@ -80,9 +80,9 @@ redesign's `PolyValue` (NaN-box) value model requires the scanner to also
 Two execution paths sharing the same Cranelift codegen:
 
 - **`rts run`**: compiles directly to executable memory via `JITModule`. No disk,
-  no external linker. All ABI symbols are registered in `JITBuilder::symbol` at
-  JIT module startup (the JIT emitter; in the new engine the symbol table is
-  derived from `SPECS` via `abi_gen.rs`, not hand-written `add_fn!`).
+  no external linker. ABI symbols are registered in `JITBuilder::symbol` at JIT
+  module startup; the symbol table is harvested from Registry fn-ptrs in
+  `crates/rts-codegen-new/src/adapter_symbols/`, not hand-written `add_fn!`.
 - **`rts compile`**: applies use-slicing, generates only the objects of the
   effectively used modules, produces the final binary.
 

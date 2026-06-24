@@ -11,8 +11,8 @@
 - `rts.d.ts` contains only `declare module "rts"` — generated from `abi::SPECS`,
   CI lints the committed file against the generator
 - Build is via `cargo` directly — `xtask` was removed. The project is a crate
-  workspace in `crates/` (incl. the frozen `rts-codegen-old` and the active
-  `rts-codegen-new`); `cargo test --workspace` covers all crates in one run
+  workspace in `crates/` (the engine is `rts-codegen-new` + the `rts-adapters`
+  value model); `cargo test --workspace` covers all crates in one run
 
 ## General design rules
 
@@ -108,9 +108,9 @@ bash read_before_commit.sh --no-build # fast static-only pass while iterating
 It enforces the binding rules as a commit gate:
 
 - **HARD (exit non-zero — never commit):** forbidden crate dep / direct `use` of
-  `rts-shared`/`rts-std`/`rts-codegen-old`; broken `cargo build`. `rts-shared`
-  and `rts-std` are **NOT** native/primitive — the engine reaches the runtime
-  ONLY through the `rts-runtime` facade and names ONLY primordials.
+  `rts-shared`/`rts-std`; broken `cargo build`. `rts-shared` and `rts-std` are
+  **NOT** native/primitive — the engine reaches the runtime ONLY through the
+  `rts-runtime` facade and names ONLY primordials.
 - **REVIEW (read every entry; the list must shrink, never grow):** a
   non-primordial class named in codegen (`Map`/`Set`/`Date`/`Symbol`/… — must
   resolve via the Registry, never a hardcoded per-class path; current draining
@@ -268,15 +268,16 @@ powershell.exe -ExecutionPolicy Bypass -File bench/benchmark.ps1
 
 ## Status
 
-The OLD engine hit 100% cross-runtime parity (372/372, tag `v0.0-202606072107`)
-and TS suite 1719/1719 — the local max of a hardcoded approach. The fixture set
-then grew to 612 (harder cases) and parity is now **70.7%**; the new engine
-(`crates/rts-codegen-new/`) is being built strangler-fig to clear the real wall.
-See `00-meta.md` "HONEST CURRENT STATUS" and
-`docs/specs/rts-codegen-new-design.md`. Do not quote the old 94.3%/100%/push-mode
-framing.
+The cutover happened: `rts-codegen-new` (value model in `rts-adapters`) is the
+only engine; the old engine + `rts-mir` are deleted. Honest cross-runtime parity
+is **~31.5% (192/609)** as of 2026-06-23 (`cross_runtime_report.json`) — the
+engine has the sound value model and is re-filling coverage. The deleted old
+engine's 100% (372/372, tag `v0.0-202606072107`) is the bar to re-clear. Always
+re-measure (`measure_new.sh` / cross-runtime report); never quote a remembered
+number or the old 94.3%/100%/70.7% framings. See `00-meta.md` "HONEST CURRENT
+STATUS".
 
-Heavy issues still open (some now in-scope for redesign phases):
+Heavy issues still open:
 
 - **#195** mutable closures — env-record refactor; blocked by #90 (block params).
 - **#207** real async/await event loop — Promise refactor.
