@@ -19,7 +19,7 @@ egui.defineBlock("ul", 0, 16, 0, 0);
 egui.defineBlock("li", 1, 0, 1, 0);
 egui.defineInline("b", 8);
 
-const NONE = 18446744073709551615; // 0xFFFFFFFFFFFFFFFF — "não encontrado"
+const NONE = -1; // sentinela "não encontrado" (invariante 3: -1, nunca u64::MAX)
 
 const win = new Window("DOM mutacao", 460, 360);
 

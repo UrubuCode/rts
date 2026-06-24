@@ -188,9 +188,9 @@ pub fn register(e: &mut Engine) {
         .member(func(
             "querySelector",
             "__RTS_FN_NS_EGUI_QUERY_SELECTOR",
-            Sig::new(vec![U64, AbiType::StrPtr], U64),
+            Sig::new(vec![U64, AbiType::StrPtr], I64),
             "querySelector(h: number, selector: string): number",
-            "First node matching a simple selector (tag / #id / .class) in the retained DOM; returns its NodeId, or 0xFFFFFFFFFFFFFFFF if none.",
+            "First node matching a simple selector (tag / #id / .class) in the retained DOM; returns its NodeId (>= 0), or -1 if none. Extract the result to a const before comparing.",
             widgets::__RTS_FN_NS_EGUI_QUERY_SELECTOR as *const u8,
         ))
         .member(func(
@@ -212,9 +212,9 @@ pub fn register(e: &mut Engine) {
         .member(func(
             "createElement",
             "__RTS_FN_NS_EGUI_CREATE_ELEMENT",
-            Sig::new(vec![U64, AbiType::StrPtr], U64),
+            Sig::new(vec![U64, AbiType::StrPtr], I64),
             "createElement(h: number, tag: string): number",
-            "Creates a detached element; returns its NodeId (document.createElement).",
+            "Creates a detached element; returns its NodeId >= 0 (document.createElement), or -1 if no DOM.",
             widgets::__RTS_FN_NS_EGUI_CREATE_ELEMENT as *const u8,
         ))
         .member(func(

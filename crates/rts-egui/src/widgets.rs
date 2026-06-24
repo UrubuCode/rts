@@ -147,17 +147,20 @@ pub extern "C" fn __RTS_FN_NS_EGUI_DEFINE_BLOCK(
     );
 }
 
-/// Sentinela de "nó não encontrado" para os primitivos que retornam `NodeId`
-/// (não há `-1` em `u64`). O TS compara contra `0xFFFF_FFFF_FFFF_FFFF`.
-const NODE_NONE: u64 = u64::MAX;
+/// Sentinela de "nó não encontrado" para os primitivos que retornam `NodeId`.
+/// É `-1` num `i64` (invariante 3 do roadmap): `u64::MAX` > 2^53 não é exato como
+/// `number` no TS e a comparação inline erra; `-1` é exato e comparável direto.
+/// Regra de uso no TS: extrair o retorno para uma const antes de comparar (ver
+/// `project_codegen_i64_cmp_bug`).
+const NODE_NONE: i64 = -1;
 
 /// `querySelector`: primeiro nó que casa com um seletor simples (`tag`, `#id`,
-/// `.classe`) no DOM retido da janela. Retorna o `NodeId` (u64) ou `NODE_NONE`.
+/// `.classe`) no DOM retido da janela. Retorna o `NodeId` (`i64` ≥ 0) ou `-1`.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_QUERY_SELECTOR(h: u64, sel_ptr: *const u8, sel_len: i64) -> u64 {
+pub extern "C" fn __RTS_FN_NS_EGUI_QUERY_SELECTOR(h: u64, sel_ptr: *const u8, sel_len: i64) -> i64 {
     let sel = unsafe { str_abi::from_abi(sel_ptr, sel_len) }.unwrap_or("");
     ctx::with_ctx(h, |c| match &c.dom {
-        Some(dom) => dom.query(sel).map(|id| id as u64).unwrap_or(NODE_NONE),
+        Some(dom) => dom.query(sel).map(|id| id as i64).unwrap_or(NODE_NONE),
         None => NODE_NONE,
     })
     .unwrap_or(NODE_NONE)
@@ -193,12 +196,13 @@ pub extern "C" fn __RTS_FN_NS_EGUI_SET_ATTR(
     });
 }
 
-/// `document.createElement(tag)`: cria um elemento solto; retorna seu `NodeId`.
+/// `document.createElement(tag)`: cria um elemento solto; retorna seu `NodeId`
+/// (`i64` ≥ 0), ou `-1` se não houver DOM na janela.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_CREATE_ELEMENT(h: u64, tag_ptr: *const u8, tag_len: i64) -> u64 {
+pub extern "C" fn __RTS_FN_NS_EGUI_CREATE_ELEMENT(h: u64, tag_ptr: *const u8, tag_len: i64) -> i64 {
     let tag = unsafe { str_abi::from_abi(tag_ptr, tag_len) }.unwrap_or("").to_string();
     ctx::with_ctx(h, |c| match c.dom.as_mut() {
-        Some(dom) => dom.create_element(&tag) as u64,
+        Some(dom) => dom.create_element(&tag) as i64,
         None => NODE_NONE,
     })
     .unwrap_or(NODE_NONE)
