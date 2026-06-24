@@ -15,15 +15,26 @@ struct InlineStyle {
     size: Option<f32>,
 }
 
+/// Converte a cor própria do motor de estilo (`u32` RGBA `0xRRGGBBAA`, egui-free)
+/// para o `Color32` do egui. A conversão vive AQUI (no render), não no `style.rs`,
+/// que é deliberadamente egui-free (F0(d) do roadmap).
+fn rgba_to_color32(c: crate::style::Rgba) -> egui::Color32 {
+    let r = ((c >> 24) & 0xFF) as u8;
+    let g = ((c >> 16) & 0xFF) as u8;
+    let b = ((c >> 8) & 0xFF) as u8;
+    let a = (c & 0xFF) as u8;
+    egui::Color32::from_rgba_unmultiplied(r, g, b, a)
+}
+
 /// Mescla o `style="..."` (CSS inline) de um nó SOBRE um `InlineStyle` herdado.
 /// Propriedade ausente no CSS mantém a herdada; presente sobrescreve.
 fn merge_node_style(dom: &crate::dom::Dom, id: crate::dom::NodeIdx, mut st: InlineStyle) -> InlineStyle {
     if let Some(s) = dom.node(id).attr("style") {
         let css = crate::style::parse_inline(s);
         if let Some(c) = css.color {
-            st.color = Some(c);
+            st.color = Some(rgba_to_color32(c));
         }
-        if let Some(sz) = css.size {
+        if let Some(sz) = css.font_size {
             st.size = Some(sz);
         }
         if let Some(b) = css.bold {
@@ -83,10 +94,10 @@ fn render_block(
             .attr("style")
             .map(crate::style::parse_inline)
             .unwrap_or_default();
-        let size = css.size.unwrap_or(if def.indent > 0.0 { def.indent } else { 20.0 });
+        let size = css.font_size.unwrap_or(if def.indent > 0.0 { def.indent } else { 20.0 });
         let mut rt = egui::RichText::new(text).strong().size(size);
         if let Some(c) = css.color {
-            rt = rt.color(c);
+            rt = rt.color(rgba_to_color32(c));
         }
         ui.heading(rt);
         return;
