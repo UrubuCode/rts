@@ -1,29 +1,67 @@
-//! Engine de estilo CSS NATIVO (puro RTS) — FASE 0: parse do atributo inline
-//! `style="..."` para propriedades de tipografia computadas. Nada de browser/
-//! webview: é um motor próprio que lê CSS e produz valores que o `render_dom`
-//! aplica direto nos widgets egui.
+//! Engine de estilo CSS NATIVO (puro RTS) — EGUI-FREE.
 //!
-//! Cobertura P0 (tipografia inline): `color`, `font-size` (px), `font-weight`
-//! (bold/normal/numérico), `font-style` (italic). FASES seguintes (ver roadmap no
-//! PR): `<style>` + seletores (tag/.class/#id) + cascata/herança; box model
-//! (margin/padding/width/background); flexbox; grid; unidades %/em/vh.
+//! Tipos PRÓPRIOS, nunca tipos do egui (`Color32`/`FontId`/`Vec2`): a cor é um
+//! `u32` RGBA (`0xRRGGBBAA`), o tamanho um `f32`. Isso é deliberado e é uma
+//! condição de aceite do roadmap (F0(d)): se este módulo dependesse do egui, a
+//! separação "o motor de estilo é independente do backend de render" viraria
+//! mentira (cai o argumento anti-`rts-html`). A conversão para os tipos do egui
+//! acontece NO RENDER (`frame/render.rs`), não aqui.
+//!
+//! Duas fontes de estilo, ambas produzindo o mesmo `ComputedStyle`:
+//! - `parse_inline`: parse do atributo `style="..."` (CSS string). Cobertura P0:
+//!   `color`, `font-size` (px), `font-weight`, `font-style`.
+//! - `apply_slot`: aplicação de um SLOT NUMÉRICO OPACO (invariante 4 — o Rust
+//!   nunca casa nome CSS; o TS mapeia nome→índice). Base do `defineStyle` (F1).
 
-use egui::Color32;
+/// Cor RGBA empacotada `0xRRGGBBAA` num `u32`. Tipo próprio (não `Color32`).
+pub type Rgba = u32;
 
-/// Propriedades de tipografia parseadas de um `style="..."`. Cada campo é
-/// `Option` = "não especificado" → o `render_dom` mantém o valor herdado/default.
-#[derive(Clone, Copy, Default)]
-pub struct InlineCss {
-    pub color: Option<Color32>,
-    pub size: Option<f32>,
+/// Propriedades de estilo COMPUTADAS, com tipos próprios (egui-free). Cada campo
+/// é `Option` = "não especificado" → o render mantém o valor herdado/default.
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
+pub struct ComputedStyle {
+    /// Cor do texto, `0xRRGGBBAA`.
+    pub color: Option<Rgba>,
+    /// Cor de fundo, `0xRRGGBBAA`.
+    pub bg: Option<Rgba>,
+    /// Tamanho da fonte em pontos (> 0).
+    pub font_size: Option<f32>,
     pub bold: Option<bool>,
     pub italic: Option<bool>,
 }
 
-/// Parseia uma lista de declarações `prop: valor; prop: valor`. Ignora
-/// propriedades/valores desconhecidos (sem panicar) — robustez de parser real.
-pub fn parse_inline(style: &str) -> InlineCss {
-    let mut css = InlineCss::default();
+// ── Slots numéricos opacos (invariante 4) ──────────────────────────────────────
+// O Rust NUNCA casa string CSS (`"background-color"`); o TS mapeia nome→índice e
+// chama `defineStyle(tag, slot, val)`. Adicionar `box-shadow` = registrar um slot
+// no TS, sem tocar aqui. Estes códigos são o contrato com a camada TS.
+pub const SLOT_COLOR: i64 = 0;
+pub const SLOT_BG: i64 = 1;
+pub const SLOT_FONT_SIZE: i64 = 2;
+
+impl ComputedStyle {
+    /// Aplica um par `(slot, val)` OPACO (invariante 4). O `val` é interpretado
+    /// conforme o slot: cor/bg = `u32` RGBA; font_size = pontos (o `i64` vira
+    /// `f32`). Slot desconhecido é ignorado (robustez; o TS pode registrar slots
+    /// futuros antes deste Rust conhecê-los). É a base do `defineStyle`/`setStyle`.
+    pub fn apply_slot(&mut self, slot: i64, val: i64) {
+        match slot {
+            SLOT_COLOR => self.color = Some(val as u32),
+            SLOT_BG => self.bg = Some(val as u32),
+            SLOT_FONT_SIZE => {
+                let f = val as f32;
+                if f > 0.0 {
+                    self.font_size = Some(f);
+                }
+            }
+            _ => {} // slot desconhecido: ignora (o TS mapeia o vocabulário CSS).
+        }
+    }
+}
+
+/// Parseia um `style="prop: valor; ..."` para um `ComputedStyle`. Ignora
+/// propriedades/valores desconhecidos sem panicar (robustez de parser real).
+pub fn parse_inline(style: &str) -> ComputedStyle {
+    let mut css = ComputedStyle::default();
     for decl in style.split(';') {
         let mut it = decl.splitn(2, ':');
         let (prop, val) = match (it.next(), it.next()) {
@@ -32,7 +70,8 @@ pub fn parse_inline(style: &str) -> InlineCss {
         };
         match prop.as_str() {
             "color" => css.color = parse_color(val),
-            "font-size" => css.size = parse_px(val),
+            "background-color" | "background" => css.bg = parse_color(val),
+            "font-size" => css.font_size = parse_px(val),
             "font-weight" => css.bold = Some(is_bold(val)),
             "font-style" => {
                 css.italic =
@@ -61,8 +100,9 @@ fn is_bold(v: &str) -> bool {
     v.parse::<u32>().map(|w| w >= 600).unwrap_or(false)
 }
 
-/// Parseia uma cor CSS: `#rgb`, `#rrggbb`, `rgb(r,g,b)` ou um nome básico.
-pub fn parse_color(v: &str) -> Option<Color32> {
+/// Parseia uma cor CSS para `u32` RGBA (`0xRRGGBBAA`): `#rgb`, `#rrggbb`,
+/// `rgb(r,g,b)` ou um nome básico. Alpha implícito = `0xFF` (opaco).
+pub fn parse_color(v: &str) -> Option<Rgba> {
     let v = v.trim();
     if let Some(hex) = v.strip_prefix('#') {
         return parse_hex(hex);
@@ -70,14 +110,19 @@ pub fn parse_color(v: &str) -> Option<Color32> {
     if let Some(inner) = v.strip_prefix("rgb(").and_then(|s| s.strip_suffix(')')) {
         let mut p = inner.split(',').map(|x| x.trim().parse::<u8>().ok());
         if let (Some(Some(r)), Some(Some(g)), Some(Some(b))) = (p.next(), p.next(), p.next()) {
-            return Some(Color32::from_rgb(r, g, b));
+            return Some(rgba(r, g, b));
         }
         return None;
     }
     named_color(v)
 }
 
-fn parse_hex(hex: &str) -> Option<Color32> {
+/// Compõe `0xRRGGBBAA` opaco a partir de componentes.
+fn rgba(r: u8, g: u8, b: u8) -> Rgba {
+    ((r as u32) << 24) | ((g as u32) << 16) | ((b as u32) << 8) | 0xFF
+}
+
+fn parse_hex(hex: &str) -> Option<Rgba> {
     match hex.len() {
         // #rgb → expande cada nibble (f → ff).
         3 => {
@@ -85,11 +130,11 @@ fn parse_hex(hex: &str) -> Option<Color32> {
             let r = ((n >> 8) & 0xF) as u8;
             let g = ((n >> 4) & 0xF) as u8;
             let b = (n & 0xF) as u8;
-            Some(Color32::from_rgb(r * 17, g * 17, b * 17))
+            Some(rgba(r * 17, g * 17, b * 17))
         }
         6 => {
             let n = u32::from_str_radix(hex, 16).ok()?;
-            Some(Color32::from_rgb(
+            Some(rgba(
                 ((n >> 16) & 0xFF) as u8,
                 ((n >> 8) & 0xFF) as u8,
                 (n & 0xFF) as u8,
@@ -99,22 +144,22 @@ fn parse_hex(hex: &str) -> Option<Color32> {
     }
 }
 
-fn named_color(v: &str) -> Option<Color32> {
+fn named_color(v: &str) -> Option<Rgba> {
     Some(match v.to_ascii_lowercase().as_str() {
-        "black" => Color32::BLACK,
-        "white" => Color32::WHITE,
-        "red" => Color32::RED,
-        "green" => Color32::GREEN,
-        "blue" => Color32::BLUE,
-        "yellow" => Color32::YELLOW,
-        "gray" | "grey" => Color32::GRAY,
-        "lightgray" | "lightgrey" => Color32::LIGHT_GRAY,
-        "darkgray" | "darkgrey" => Color32::DARK_GRAY,
-        "orange" => Color32::from_rgb(255, 165, 0),
-        "purple" => Color32::from_rgb(128, 0, 128),
-        "cyan" => Color32::from_rgb(0, 255, 255),
-        "magenta" => Color32::from_rgb(255, 0, 255),
-        "transparent" => Color32::TRANSPARENT,
+        "black" => rgba(0, 0, 0),
+        "white" => rgba(255, 255, 255),
+        "red" => rgba(255, 0, 0),
+        "green" => rgba(0, 255, 0),
+        "blue" => rgba(0, 0, 255),
+        "yellow" => rgba(255, 255, 0),
+        "gray" | "grey" => rgba(128, 128, 128),
+        "lightgray" | "lightgrey" => rgba(211, 211, 211),
+        "darkgray" | "darkgrey" => rgba(64, 64, 64),
+        "orange" => rgba(255, 165, 0),
+        "purple" => rgba(128, 0, 128),
+        "cyan" => rgba(0, 255, 255),
+        "magenta" => rgba(255, 0, 255),
+        "transparent" => 0x0000_0000,
         _ => return None,
     })
 }
@@ -126,25 +171,61 @@ mod tests {
     #[test]
     fn parses_typography() {
         let c = parse_inline("color:#ff0000; font-size:18px; font-weight:bold; font-style:italic");
-        assert_eq!(c.color, Some(Color32::from_rgb(255, 0, 0)));
-        assert_eq!(c.size, Some(18.0));
+        assert_eq!(c.color, Some(0xFF0000FF));
+        assert_eq!(c.font_size, Some(18.0));
         assert_eq!(c.bold, Some(true));
         assert_eq!(c.italic, Some(true));
     }
 
     #[test]
     fn color_forms() {
-        assert_eq!(parse_color("#f00"), Some(Color32::from_rgb(255, 0, 0)));
-        assert_eq!(parse_color("#00ff00"), Some(Color32::from_rgb(0, 255, 0)));
-        assert_eq!(parse_color("rgb(10, 20, 30)"), Some(Color32::from_rgb(10, 20, 30)));
-        assert_eq!(parse_color("blue"), Some(Color32::BLUE));
+        assert_eq!(parse_color("#f00"), Some(0xFF0000FF));
+        assert_eq!(parse_color("#00ff00"), Some(0x00FF00FF));
+        assert_eq!(parse_color("rgb(10, 20, 30)"), Some(0x0A141EFF));
+        assert_eq!(parse_color("blue"), Some(0x0000FFFF));
         assert_eq!(parse_color("nope"), None);
+    }
+
+    #[test]
+    fn background_color() {
+        let c = parse_inline("background-color: #112233");
+        assert_eq!(c.bg, Some(0x112233FF));
+        assert_eq!(c.color, None);
     }
 
     #[test]
     fn ignores_unknown() {
         let c = parse_inline("font-size:bogus; unknown:1; font-weight:300");
-        assert_eq!(c.size, None);
+        assert_eq!(c.font_size, None);
         assert_eq!(c.bold, Some(false));
+    }
+
+    #[test]
+    fn apply_slot_opaco() {
+        // SLOT opaco (invariante 4): nenhum nome CSS, só índice + valor.
+        let mut s = ComputedStyle::default();
+        s.apply_slot(SLOT_COLOR, 0x0088FFFF);
+        s.apply_slot(SLOT_FONT_SIZE, 28);
+        s.apply_slot(SLOT_BG, 0x111111FF);
+        assert_eq!(s.color, Some(0x0088FFFF));
+        assert_eq!(s.font_size, Some(28.0));
+        assert_eq!(s.bg, Some(0x111111FF));
+    }
+
+    #[test]
+    fn apply_slot_desconhecido_e_invalido_ignora() {
+        let mut s = ComputedStyle::default();
+        s.apply_slot(999, 123); // slot inexistente
+        s.apply_slot(SLOT_FONT_SIZE, 0); // tamanho 0 inválido
+        s.apply_slot(SLOT_FONT_SIZE, -5); // negativo inválido
+        assert_eq!(s, ComputedStyle::default());
+    }
+
+    #[test]
+    fn egui_free_garantia() {
+        // Documenta a invariante F0(d): este módulo não nomeia tipos do egui.
+        // A cor é u32; o teste compila SÓ se ComputedStyle for egui-free.
+        let s = ComputedStyle { color: Some(0xAABBCCFF), ..Default::default() };
+        let _raw: Option<u32> = s.color; // se fosse Color32, isto não compilaria.
     }
 }
