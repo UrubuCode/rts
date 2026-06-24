@@ -91,7 +91,7 @@ A contradição central (egui-layout × paint absoluto) é enfrentada SÓ em **F
 o primeiro ponto onde o egui *comprovadamente* não compõe; F0-F3 já entregam a
 rede de segurança (se F4 atrasar, nada regride).
 
-### F0 — Fundação de segurança (zero pixel novo). PRÉ-REQUISITO DE TUDO.
+### F0 — Fundação de segurança (zero pixel novo). PRÉ-REQUISITO DE TUDO. — ✅ FEITO (2026-06-24)
 - **Usável:** tudo que roda hoje continua + base sã para caches/eventos.
 - **Entrega:** (a) **versionar NodeId** `{idx, gen}` (invariante 2); (b) hash da
   string HTML no `UiCtx`; (c) **split de `frame.rs`** (já > 500 linhas — o gate
@@ -108,7 +108,33 @@ rede de segurança (se F4 atrasar, nada regride).
   parcial, coleções perdem tipo), o modelo de eventos de F3 já nasce sem
   armazenar função.
 
-### F1 — Estilo de texto (cor / font-size / bg) via egui. ⭐ MAIOR VALOR-POR-ESFORÇO.
+> **STATUS — ✅ ENTREGUE.** (a) NodeId `{gen,idx}` versionado, validado por `gen`,
+> empacotado `(gen<<32)|idx` em i64 na ABID (PR #1730). (b) `UiCtx.html_hash` — só
+> re-parseia se a string muda; idêntico preserva árvore+geração (PR #1733). (c)
+> `frame.rs` 835→`frame/{gpu,mod,render}.rs` todos <500 (PR #1731). (d) `style.rs`
+> egui-free: `u32 RGBA` (`type Rgba`) + `ComputedStyle` + `apply_slot(slot,val)`
+> OPACO (SLOT_COLOR=0/BG=1/FONT_SIZE=2); conversão `u32→Color32` no render (PR
+> #1732). **Bônus fora do plano:** sentinela `-1` (inv. 3) + entidades HTML (PR
+> #1728); fix vsync `PresentMode::Fifo` + `vsync_kill_gate` — a janela parava
+> sozinha sem vsync (PR #1729/#1731). 32 testes verdes. **Desvios do plano:** (c)
+> a divisão real ficou `gpu/mod/render` (não `render_block/render_inline/painter`
+> — agrupei por responsabilidade GPU vs ciclo vs render); (d) `Dimension` ainda
+> NÃO entrou (só cor/bg/font_size — `Dimension{Auto,Px,Percent}` chega no F2 com o
+> box model). (e) as 3 fixtures de prova ficaram PENDENTES: dependem de `getText`
+> e do prelude achatado, que ainda não existem — movidas para o início do F3
+> (eventos/fachada), onde são pré-requisito natural.
+
+### F1 — Estilo de texto (cor / font-size / bg) via egui. ⭐ MAIOR VALOR-POR-ESFORÇO. — ◐ PRÓXIMO (base pronta no F0)
+
+> **STATUS — base já entregue no F0:** o `style.rs` egui-free, o `ComputedStyle`,
+> o conversor string→valor e o `apply_slot(slot,val)` OPACO já existem (PR #1732),
+> e o `rgba_to_color32` no render também. **Falta só:** (1) a ABI
+> `defineStyle(tag, slot, val)` no `lib.rs` (molde do `defineBlock`) guardando num
+> mapa `tag→ComputedStyle` (thread_local, padrão do `block.rs`); (2)
+> `render_inline`/`render_block` consultarem esse `ComputedStyle` da tag (além do
+> `style=""` inline que já desenha) e aplicarem via `RichText.color/.size`; (3)
+> opcional `setStyle(h,node,slot,val)` por-nó; (4) exemplo `claude-egui-style.ts`.
+
 - **Usável:** doc colorido, font-size arbitrário, bg por bloco — 100% via egui
   (`RichText.color/.size/.background_color`). Demo: `egui_dom_mutacao.ts`
   estilizado.
@@ -222,7 +248,16 @@ em disciplina manual:
 
 ---
 
-## 7) A primeira fatia concreta (≤ 1 dia — valida a direção)
+## 7) A primeira fatia concreta (≤ 1 dia — valida a direção) — ✅ SUPERADA pelo F0
+
+> **NOTA (2026-06-24):** esta fatia foi planejada como prova-de-conceito do
+> `style.rs` egui-free + `defineStyle`. Na prática o **F0 inteiro foi entregue**
+> (ver STATUS no F0 acima), incluindo o `style.rs` egui-free com `ComputedStyle` +
+> `apply_slot` OPACO (PR #1732) — o conversor string→valor e os tipos próprios já
+> existem. O que falta para "ver pixel colorido" é só a ABI `defineStyle` ligando
+> o `apply_slot` ao render: isso é o **F1** abaixo, não mais uma fatia separada. A
+> direção está validada (a janela renderiza HTML, muta o DOM ao vivo, estilo
+> egui-free compila e o `style=""` inline já desenha cor/tamanho).
 
 Provar empiricamente os 3 pontos de viabilidade incertos ANTES de comprometer o
 roadmap (a estratégia inteira assume que eles compilam).
