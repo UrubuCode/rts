@@ -124,6 +124,26 @@ rede de segurança (se F4 atrasar, nada regride).
 > e do prelude achatado, que ainda não existem — movidas para o início do F3
 > (eventos/fachada), onde são pré-requisito natural.
 
+> **⚠️ FOLLOW-UP do F0 — REANÁLISE DE EFICIÊNCIA + PADRÃO (pendente, fazer antes/durante o F1).**
+> O F0 foi entregue rápido, em 6 PRs sequenciais; é possível que alguma feature
+> tenha **fugido do padrão pedido** ou deixado ineficiência. Antes de empilhar o
+> F1 por cima, revisar criticamente o que entrou:
+> - **Aderência à doutrina/invariantes:** o `style.rs` é mesmo 100% egui-free no
+>   código (sim, teste `egui_free_garantia` cobre)? algum nome não-primordial/CSS
+>   vazou pro Rust (invariante 4)? a separação `NodeIdx` interno × `NodeId`
+>   versionado na fronteira ficou consistente em TODOS os call sites (widgets/
+>   render), ou sobrou conversão dúbia?
+> - **Eficiência:** o `html_hash` roda `DefaultHasher` sobre a string inteira por
+>   frame — ok agora, mas medir se vira gargalo em HTML grande; o re-parse-zero
+>   está realmente economizando (não há outro rebuild escondido por frame)? o
+>   `present_mode=Fifo` resolveu o CPU-spin, mas confirmar que não há mais trabalho
+>   redundante no `endFrame`.
+> - **Padrão de código:** o split `frame/` agrupou por responsabilidade (gpu/mod/
+>   render) em vez do `render_block/render_inline/painter` que o plano pedia —
+>   decidir se isso vira o padrão oficial (atualizar o plano) ou se realinha.
+> - **Saída:** ou um PR de limpeza/realinhamento, ou uma nota explícita "revisado,
+>   está conforme". Não deixar dívida silenciosa antes do F1.
+
 ### F1 — Estilo de texto (cor / font-size / bg) via egui. ⭐ MAIOR VALOR-POR-ESFORÇO. — ◐ PRÓXIMO (base pronta no F0)
 
 > **STATUS — base já entregue no F0:** o `style.rs` egui-free, o `ComputedStyle`,
