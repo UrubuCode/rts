@@ -127,6 +127,11 @@ pub struct UiCtx {
     /// frame): o render percorre esta árvore, `egui.domDump` a serializa para
     /// inspeção, e é ela que o JS vai MUTAR (Fatia 3). `None` até o 1º `html`.
     pub dom: Option<crate::dom::Dom>,
+    /// Hash do HTML que gerou o `dom` atual (F0(b), base de cache). `html()` só
+    /// RE-PARSEIA quando a string muda; HTML idêntico é no-op — evita rebuild por
+    /// frame E preserva a geração dos NodeId (re-parsear cria geração nova, o que
+    /// invalidaria os NodeId que o TS guardou). `0` = nenhum HTML ainda.
+    pub html_hash: u64,
     /// Resultado de cada `button` do frame ANTERIOR (true = clicado), por índice.
     pub button_results: Vec<bool>,
     /// Resultado de cada `slider` do frame ANTERIOR (valor atual), por índice.

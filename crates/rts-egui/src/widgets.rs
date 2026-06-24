@@ -106,14 +106,31 @@ pub extern "C" fn __RTS_FN_NS_EGUI_HTML(h: u64, ptr: *const u8, len: i64) {
     let html = unsafe { str_abi::from_abi(ptr, len) }
         .unwrap_or("")
         .to_string();
+    let hash = html_hash(&html);
     ctx::with_ctx(h, |c| {
         if c.frame_active {
-            // Guarda a árvore RETIDA no UiCtx (fonte da verdade persistente) e
-            // enfileira só o marcador de posição; o render lê de `c.dom`.
-            c.dom = Some(crate::dom::parse_html_to_dom(&html));
+            // F0(b) — cache por hash: só RE-PARSEIA quando a string muda. HTML
+            // idêntico (o caso comum de um loop que chama `html()` todo frame)
+            // reusa a árvore: evita rebuild por frame E preserva a geração dos
+            // NodeId que o TS guardou (re-parsear criaria geração nova → ids
+            // stale). O 1º html() sempre parseia (hash inicial = 0).
+            if c.dom.is_none() || c.html_hash != hash {
+                c.dom = Some(crate::dom::parse_html_to_dom(&html));
+                c.html_hash = hash;
+            }
+            // O marcador entra todo frame: ele sinaliza ao render "há DOM neste
+            // frame" (o render desenha `c.dom`), independente de ter re-parseado.
             c.cmds.push(WidgetCmd::Html);
         }
     });
+}
+
+/// Hash não-criptográfico do HTML (só para detectar mudança — "igual ou não").
+fn html_hash(s: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    s.hash(&mut h);
+    h.finish()
 }
 
 /// Registra o layout de uma TAG no "alocador dinâmico de blocos" (mapa tag →
