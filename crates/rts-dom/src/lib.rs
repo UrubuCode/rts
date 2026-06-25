@@ -26,6 +26,10 @@ mod html;
 /// inline, e o registro por-tag (`defineStyle`). O DOM é dono do estilo; o renderer
 /// (egui) só LÊ. Os tipos são próprios (`u32` RGBA), nunca tipos de backend.
 pub mod style;
+/// INTENT de layout por-tag (egui-free): `BlockDef` (display/indent/prefix/flags),
+/// o registro (`defineBlock`/`defineInline`) e os códigos de display. O DOM diz
+/// "esta tag é um bloco vertical / inline-flow"; o renderer decide como pintar.
+pub mod block;
 
 pub use dom::{parse_html_to_dom, Attr, Dom, Node, NodeId, NodeIdx, NodeKind};
 

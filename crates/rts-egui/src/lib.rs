@@ -20,7 +20,6 @@ use AbiType::{F64, I64, U64};
 
 mod ctx;
 mod app;
-mod block;
 mod frame;
 #[cfg(feature = "glow-backend")]
 mod glbackend;
@@ -31,6 +30,7 @@ mod widgets;
 // e `crate::style::*` seguem válidos nos módulos de render/ctx/widgets sem mudar
 // cada call site.
 pub(crate) use rts_dom as dom;
+pub(crate) use rts_dom::block;
 pub(crate) use rts_dom::style;
 
 pub use app::*;
