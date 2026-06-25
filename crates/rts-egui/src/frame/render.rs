@@ -125,12 +125,78 @@ fn render_block(
         return;
     }
 
-    // Recuo à esquerda (lista/blockquote) via `ui.indent`; senão renderiza direto.
-    if def.indent > 0.0 {
-        ui.indent(("blk", id), |ui| render_block_body(ui, dom, id, def, this_index));
-    } else {
-        render_block_body(ui, dom, id, def, this_index);
+    // Box model (F2): se a tag tem caixa (bg/padding/margin/border/raio), envolve
+    // o corpo num `egui::Frame`; senão renderiza direto (sem overhead). O estilo de
+    // TAG e o `style=""` inline já combinados aqui (mesma precedência do texto).
+    let mut box_css = crate::style::lookup_style(tag).unwrap_or_default();
+    if let Some(s) = dom.node(id).attr("style") {
+        let inline = crate::style::parse_inline(s);
+        merge_box_props(&mut box_css, &inline);
     }
+
+    let body = |ui: &mut egui::Ui| {
+        // Recuo à esquerda (lista/blockquote) via `ui.indent`; senão direto.
+        if def.indent > 0.0 {
+            ui.indent(("blk", id), |ui| render_block_body(ui, dom, id, def, this_index));
+        } else {
+            render_block_body(ui, dom, id, def, this_index);
+        }
+    };
+
+    if box_css.has_box() {
+        block_frame(&box_css).show(ui, body);
+    } else {
+        body(ui);
+    }
+}
+
+/// Mescla SÓ as propriedades de caixa de `src` sobre `dst` (`Some` sobrescreve).
+/// Usado para o `style=""` inline sobrepor o estilo-de-tag na caixa do bloco.
+fn merge_box_props(dst: &mut crate::style::ComputedStyle, src: &crate::style::ComputedStyle) {
+    if src.bg.is_some() {
+        dst.bg = src.bg;
+    }
+    if src.padding.is_some() {
+        dst.padding = src.padding;
+    }
+    if src.margin.is_some() {
+        dst.margin = src.margin;
+    }
+    if src.border_width.is_some() {
+        dst.border_width = src.border_width;
+    }
+    if src.border_color.is_some() {
+        dst.border_color = src.border_color;
+    }
+    if src.corner_radius.is_some() {
+        dst.corner_radius = src.corner_radius;
+    }
+}
+
+/// Monta um `egui::Frame` a partir do `ComputedStyle` de caixa. Mapeia padding→
+/// inner_margin, margin→outer_margin, bg→fill, border→stroke, raio→corner_radius.
+/// LIMITE DE PRODUTO (F2): `egui::Frame` NÃO é o box model do CSS — sem
+/// margin-collapse, sem `box-sizing`, sem padding/margin por-lado (um valor para
+/// os 4 lados). É o "card" pragmático, não conformidade CSS.
+fn block_frame(css: &crate::style::ComputedStyle) -> egui::Frame {
+    let mut frame = egui::Frame::new();
+    if let Some(p) = css.padding {
+        frame = frame.inner_margin(p);
+    }
+    if let Some(m) = css.margin {
+        frame = frame.outer_margin(m);
+    }
+    if let Some(bg) = css.bg {
+        frame = frame.fill(rgba_to_color32(bg));
+    }
+    if let Some(w) = css.border_width {
+        let color = css.border_color.map(rgba_to_color32).unwrap_or(egui::Color32::GRAY);
+        frame = frame.stroke(egui::Stroke::new(w, color));
+    }
+    if let Some(r) = css.corner_radius {
+        frame = frame.corner_radius(r);
+    }
+    frame
 }
 
 /// Corpo de um bloco (já dentro do recuo): aplica o eixo (`display`) + o

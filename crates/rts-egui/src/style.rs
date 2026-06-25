@@ -28,6 +28,30 @@ pub struct ComputedStyle {
     pub font_size: Option<f32>,
     pub bold: Option<bool>,
     pub italic: Option<bool>,
+    // ── Box model (F2) — pontos (f32). `None` = não especificado. ───────────────
+    /// Espaço INTERNO entre a borda e o conteúdo (todos os lados).
+    pub padding: Option<f32>,
+    /// Espaço EXTERNO ao redor da caixa (todos os lados).
+    pub margin: Option<f32>,
+    /// Espessura da borda em pontos (0 = sem borda).
+    pub border_width: Option<f32>,
+    /// Cor da borda, `0xRRGGBBAA`.
+    pub border_color: Option<Rgba>,
+    /// Raio dos cantos em pontos.
+    pub corner_radius: Option<f32>,
+}
+
+impl ComputedStyle {
+    /// `true` se algum atributo de CAIXA está setado (bg/padding/margin/border/
+    /// raio) — gatilho para o render envolver o bloco num `egui::Frame`. Sem
+    /// nenhum, o render desenha direto (sem o overhead do Frame).
+    pub fn has_box(&self) -> bool {
+        self.bg.is_some()
+            || self.padding.is_some()
+            || self.margin.is_some()
+            || self.border_width.is_some()
+            || self.corner_radius.is_some()
+    }
 }
 
 // ── Slots numéricos opacos (invariante 4) ──────────────────────────────────────
@@ -37,6 +61,12 @@ pub struct ComputedStyle {
 pub const SLOT_COLOR: i64 = 0;
 pub const SLOT_BG: i64 = 1;
 pub const SLOT_FONT_SIZE: i64 = 2;
+// Box model (F2):
+pub const SLOT_PADDING: i64 = 3;
+pub const SLOT_MARGIN: i64 = 4;
+pub const SLOT_BORDER_WIDTH: i64 = 5;
+pub const SLOT_BORDER_COLOR: i64 = 6;
+pub const SLOT_CORNER_RADIUS: i64 = 7;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -72,6 +102,12 @@ impl ComputedStyle {
     /// `f32`). Slot desconhecido é ignorado (robustez; o TS pode registrar slots
     /// futuros antes deste Rust conhecê-los). É a base do `defineStyle`/`setStyle`.
     pub fn apply_slot(&mut self, slot: i64, val: i64) {
+        // Dimensões (padding/margin/border/raio) em pontos: `i64` → `f32`, clamp em
+        // ≥ 0 (negativo não faz sentido numa caixa; ignora).
+        let dim = |v: i64| -> Option<f32> {
+            let f = v as f32;
+            if f >= 0.0 { Some(f) } else { None }
+        };
         match slot {
             SLOT_COLOR => self.color = Some(val as u32),
             SLOT_BG => self.bg = Some(val as u32),
@@ -81,6 +117,11 @@ impl ComputedStyle {
                     self.font_size = Some(f);
                 }
             }
+            SLOT_PADDING => self.padding = dim(val),
+            SLOT_MARGIN => self.margin = dim(val),
+            SLOT_BORDER_WIDTH => self.border_width = dim(val),
+            SLOT_BORDER_COLOR => self.border_color = Some(val as u32),
+            SLOT_CORNER_RADIUS => self.corner_radius = dim(val),
             _ => {} // slot desconhecido: ignora (o TS mapeia o vocabulário CSS).
         }
     }
@@ -255,6 +296,44 @@ mod tests {
         // A cor é u32; o teste compila SÓ se ComputedStyle for egui-free.
         let s = ComputedStyle { color: Some(0xAABBCCFF), ..Default::default() };
         let _raw: Option<u32> = s.color; // se fosse Color32, isto não compilaria.
+    }
+
+    #[test]
+    fn box_model_slots() {
+        // F2: slots de caixa (padding/margin/border/raio) via apply_slot opaco.
+        let mut s = ComputedStyle::default();
+        assert!(!s.has_box()); // vazio: sem caixa.
+        s.apply_slot(SLOT_PADDING, 8);
+        s.apply_slot(SLOT_MARGIN, 4);
+        s.apply_slot(SLOT_BORDER_WIDTH, 2);
+        s.apply_slot(SLOT_BORDER_COLOR, 0xFF0000FF);
+        s.apply_slot(SLOT_CORNER_RADIUS, 6);
+        s.apply_slot(SLOT_BG, 0x222222FF);
+        assert_eq!(s.padding, Some(8.0));
+        assert_eq!(s.margin, Some(4.0));
+        assert_eq!(s.border_width, Some(2.0));
+        assert_eq!(s.border_color, Some(0xFF0000FF));
+        assert_eq!(s.corner_radius, Some(6.0));
+        assert_eq!(s.bg, Some(0x222222FF));
+        assert!(s.has_box());
+    }
+
+    #[test]
+    fn box_slots_negativos_ignorados() {
+        let mut s = ComputedStyle::default();
+        s.apply_slot(SLOT_PADDING, -3); // negativo não faz sentido numa caixa
+        s.apply_slot(SLOT_CORNER_RADIUS, -1);
+        assert_eq!(s.padding, None);
+        assert_eq!(s.corner_radius, None);
+    }
+
+    #[test]
+    fn has_box_so_com_texto_e_false() {
+        // só cor/tamanho de texto NÃO conta como caixa (não vira egui::Frame).
+        let mut s = ComputedStyle::default();
+        s.apply_slot(SLOT_COLOR, 0xFFFFFFFF);
+        s.apply_slot(SLOT_FONT_SIZE, 18);
+        assert!(!s.has_box());
     }
 
     #[test]
