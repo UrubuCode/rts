@@ -156,16 +156,17 @@ rede de segurança (se F4 atrasar, nada regride).
 > - **Saída:** ou um PR de limpeza/realinhamento, ou uma nota explícita "revisado,
 >   está conforme". Não deixar dívida silenciosa antes do F1.
 
-### F1 — Estilo de texto (cor / font-size / bg) via egui. ⭐ MAIOR VALOR-POR-ESFORÇO. — ◐ PRÓXIMO (base pronta no F0)
+### F1 — Estilo de texto (cor / font-size / bg) via egui. ⭐ MAIOR VALOR-POR-ESFORÇO. — ✅ FEITO (2026-06-25)
 
-> **STATUS — base já entregue no F0:** o `style.rs` egui-free, o `ComputedStyle`,
-> o conversor string→valor e o `apply_slot(slot,val)` OPACO já existem (PR #1732),
-> e o `rgba_to_color32` no render também. **Falta só:** (1) a ABI
-> `defineStyle(tag, slot, val)` no `lib.rs` (molde do `defineBlock`) guardando num
-> mapa `tag→ComputedStyle` (thread_local, padrão do `block.rs`); (2)
-> `render_inline`/`render_block` consultarem esse `ComputedStyle` da tag (além do
-> `style=""` inline que já desenha) e aplicarem via `RichText.color/.size`; (3)
-> opcional `setStyle(h,node,slot,val)` por-nó; (4) exemplo `claude-egui-style.ts`.
+> **STATUS — ✅ ENTREGUE (PR #1738).** ABI `defineStyle(tag, slot, val)` ligando o
+> `apply_slot` (F0d) à renderização: mapa thread_local `STYLES` (tag→ComputedStyle)
+> em `style.rs` com `define_style`/`lookup_style` (acumula slots por tag); o render
+> aplica na ordem CSS herdado < estilo-de-TAG < `style=""` inline (`merge_node_style`
+> + `apply_computed`); heading combina os dois. Exemplo `claude-egui-style.ts` (h1
+> azul tam 28 + p cinza via RichText, zero painter) — critério §7 batido,
+> confirmado visual. 33 testes. **NÃO entrou (fica p/ depois):** (3) `setStyle(h,
+> node, slot, val)` POR-NÓ — só estilo por-TAG por ora; o `bg` (SLOT_BG=1) é
+> aceito mas ainda não pintado no inline (chega no box model F2 via `egui::Frame`).
 
 - **Usável:** doc colorido, font-size arbitrário, bg por bloco — 100% via egui
   (`RichText.color/.size/.background_color`). Demo: `egui_dom_mutacao.ts`
