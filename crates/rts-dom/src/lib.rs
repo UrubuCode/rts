@@ -30,6 +30,10 @@ pub mod style;
 /// o registro (`defineBlock`/`defineInline`) e os códigos de display. O DOM diz
 /// "esta tag é um bloco vertical / inline-flow"; o renderer decide como pintar.
 pub mod block;
+/// Store de `Dom`s vivos por handle — a fonte única da verdade. A ABI headless e
+/// um renderer (rts-egui) acessam o MESMO `Dom` por handle (`with_dom`), então
+/// mutações pela fachada `document` mudam o que a janela pinta.
+pub mod store;
 
 pub use dom::{parse_html_to_dom, Attr, Dom, Node, NodeId, NodeIdx, NodeKind};
 

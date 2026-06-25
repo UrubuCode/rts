@@ -12,13 +12,10 @@
 //! O `rts-egui` tem seu PRÓPRIO DOM no `UiCtx` (consome o tipo `Dom` deste crate
 //! direto, sem passar pela ABI). Esta ABI é o caminho HEADLESS, paralelo.
 
-use std::cell::RefCell;
-use std::collections::HashMap;
-
 use rts_engine::abi::str_abi;
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use crate::dom::{parse_html_to_dom, Dom, NodeId};
+use crate::dom::{parse_html_to_dom, NodeId};
 
 // Aloca uma string no pool de strings GC e devolve seu handle `u64` (o que o TS
 // recebe como `string`). Mesmo padrão de `rts-shared::buffer` /
@@ -41,36 +38,9 @@ fn intern(s: &str) -> u64 {
 // versionado cruza como `i64`. Aliases locais p/ legibilidade das `Sig`.
 use AbiType::{I64, StrPtr, U64 as Handle};
 
-thread_local! {
-    /// Store de Doms avulsos: `handle u64 → Dom`. Próprio deste crate (o engine
-    /// não conhece o DOM — doutrina). Cresce sob `parseHtml`/`createDocument`,
-    /// some sob `freeDom`.
-    static DOMS: RefCell<HashMap<u64, Dom>> = RefCell::new(HashMap::new());
-    /// Próximo handle a alocar (começa em 1; 0 = "nenhum DOM").
-    static NEXT: RefCell<u64> = const { RefCell::new(1) };
-}
-
-/// Aloca um handle e guarda o `Dom`. Retorna o handle (≥ 1).
-fn insert(dom: Dom) -> u64 {
-    let h = NEXT.with(|n| {
-        let mut n = n.borrow_mut();
-        let h = *n;
-        *n += 1;
-        h
-    });
-    DOMS.with(|m| m.borrow_mut().insert(h, dom));
-    h
-}
-
-/// Roda `f` com acesso imutável ao `Dom` de `h`. `None` se o handle não existe.
-fn with<R>(h: u64, f: impl FnOnce(&Dom) -> R) -> Option<R> {
-    DOMS.with(|m| m.borrow().get(&h).map(f))
-}
-
-/// Roda `f` com acesso mutável ao `Dom` de `h`. `None` se o handle não existe.
-fn with_mut<R>(h: u64, f: impl FnOnce(&mut Dom) -> R) -> Option<R> {
-    DOMS.with(|m| m.borrow_mut().get_mut(&h).map(f))
-}
+// O store de `Dom`s vive em `crate::store` (fonte única da verdade, compartilhada
+// com o renderer). Aliases locais curtos para as funções da ABI lerem/escreverem.
+use crate::store::{insert, with_dom as with, with_dom_mut as with_mut};
 
 /// Sentinela "nó não encontrado" — `-1` num `i64` (invariante 3: `u64::MAX` > 2^53
 /// não é exato como `number` no TS). Igual à do `rts-egui`.
@@ -96,9 +66,7 @@ pub extern "C" fn __RTS_FN_NS_DOM_CREATE_DOCUMENT() -> u64 {
 /// `free(domHandle)` — libera o DOM avulso (o handle fica inválido).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_DOM_FREE(h: u64) {
-    DOMS.with(|m| {
-        m.borrow_mut().remove(&h);
-    });
+    crate::store::remove(h);
 }
 
 /// `querySelector(domHandle, selector)` → `NodeId` versionado (`i64` ≥ 0) ou `-1`.
