@@ -124,6 +124,18 @@ rede de segurança (se F4 atrasar, nada regride).
 > e do prelude achatado, que ainda não existem — movidas para o início do F3
 > (eventos/fachada), onde são pré-requisito natural.
 
+> **✅ FOLLOW-UP do F0 — REANÁLISE FEITA (2026-06-25).** Auditoria (doutrina +
+> eficiência) concluída. **Doutrina/invariantes: 100% CONFORME** — nenhuma feature
+> fugiu do padrão; nenhum match de string CSS fora do `parse_inline`, `style.rs`
+> egui-free no código, `NodeIdx` não vaza pra ABI, sentinela `-1`, ABI com tipos
+> corretos. **Eficiência: hot path limpo**; 2 alocações por-frame cortadas (PR
+> #1736): `html()` não aloca mais a string no caminho no-op (hash sobre `&str`), e
+> `render_block` não clona a tag (`as_str` emprestado). **Follow-up menor pendente
+> (P2/P3, não urgente):** `set_text`/`set_attr` com dupla alocação `&str→String`;
+> `parse_inline` do `style=""` re-parseado por nó sem cache. O único "desvio" de
+> padrão é o split `gpu/mod/render` (já documentado abaixo) — decisão, não
+> violação. Texto original do follow-up abaixo (mantido por referência):
+>
 > **⚠️ FOLLOW-UP do F0 — REANÁLISE DE EFICIÊNCIA + PADRÃO (pendente, fazer antes/durante o F1).**
 > O F0 foi entregue rápido, em 6 PRs sequenciais; é possível que alguma feature
 > tenha **fugido do padrão pedido** ou deixado ineficiência. Antes de empilhar o
