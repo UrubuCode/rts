@@ -27,6 +27,7 @@ let bx = 80;        // bolinha (aba Animacao)
 let by = 200;
 let vx = 0.15;
 let vy = 0.11;
+let fpsTarget = 0;  // controlador de FPS (0 = ilimitado)
 
 while (app.running()) {
   if (!app.beginFrame()) break;
@@ -87,16 +88,23 @@ while (app.running()) {
   } else if (activeTab === 2) {
     // ANIMACAO — bolinha quicando com delta time. Area: x[60..500] y[90..430],
     // raio 20 => centro fica em [80..480] x [110..410].
-    app.text(28, 60, "Animacao por delta time (independe do FPS). dt=" + dt + "ms", 0xC0C8D0FF, 14);
+    app.text(28, 60, "FPS medido: " + app.fps() + "  (dt=" + dt + "ms)  alvo=" + fpsTarget, 0x99CCFFFF, 14);
+    // CONTROLADOR DE FPS — botoes pra escolher o cap (testar 30/60/120/ilimitado)
+    if (app.button(28, 84, 90, 30, "30 fps")) { fpsTarget = 30; app.setFps(30); }
+    if (app.button(126, 84, 90, 30, "60 fps")) { fpsTarget = 60; app.setFps(60); }
+    if (app.button(224, 84, 90, 30, "120 fps")) { fpsTarget = 120; app.setFps(120); }
+    if (app.button(322, 84, 110, 30, "ilimitado")) { fpsTarget = 0; app.setFps(0); }
+
     bx = bx + vx * dt;
     by = by + vy * dt;
     // ao bater, CLAMPA a posicao na borda E inverte a velocidade (sem clamp a
-    // bolinha penetra com dt grande, inverte, e fica presa/escapa).
+    // bolinha penetra com dt grande, inverte, e fica presa/escapa). Caixa
+    // deslocada pra baixo (y 130) p/ caber os botoes de fps.
     if (bx < 80) { bx = 80; vx = 0 - vx; }
     if (bx > 480) { bx = 480; vx = 0 - vx; }
-    if (by < 110) { by = 110; vy = 0 - vy; }
+    if (by < 150) { by = 150; vy = 0 - vy; }
     if (by > 410) { by = 410; vy = 0 - vy; }
-    app.box(60, 90, 440, 340, 0x10161EFF, 1, 0x33445566 & 0xFFFFFFFF, 8);
+    app.box(60, 130, 440, 300, 0x10161EFF, 1, 0x33445566 & 0xFFFFFFFF, 8);
     app.box(bx - 20, by - 20, 40, 40, 0xFF8800FF, 0, 0, 20);
 
   } else {

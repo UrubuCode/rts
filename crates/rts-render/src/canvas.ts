@@ -105,6 +105,9 @@ class App {
   _cx: number;
   _cy: number;
   _cw: number;
+  // controle de FPS: alvo (0 = ilimitado) + o FPS MEDIDO (1000/dt).
+  _fpsTarget: number;
+  _fpsNow: number;
 
   constructor(win: number) {
     this._win = win;
@@ -115,6 +118,21 @@ class App {
     this._cx = 16;
     this._cy = 16;
     this._cw = 200;
+    this._fpsTarget = 0;
+    this._fpsNow = 0;
+  }
+
+  /// Limita o FPS ao alvo `n` (frames/segundo). `0` = ilimitado (roda o mais
+  /// rápido possível — útil pra medir/stress). O cap dorme o tempo sobrando ao
+  /// fim do frame. NOTA: o vsync do backend também limita (~taxa do monitor);
+  /// setFps abaixo disso é efetivo, acima fica limitado pelo vsync.
+  setFps(n: number): void {
+    this._fpsTarget = n;
+  }
+
+  /// O FPS MEDIDO no último frame (1000/dt). Pra mostrar/testar.
+  fps(): number {
+    return this._fpsNow;
   }
 
   /// O canvas ergonômico desta janela. NOTA: chamar método sobre o retorno de um
@@ -337,13 +355,27 @@ class App {
     this._dt = now - this._lastMs;
     this._lastMs = now;
     this._frames = this._frames + 1;
+    // FPS medido = 1000/dt (evita divisão por zero).
+    if (this._dt > 0) {
+      this._fpsNow = 1000 / this._dt;
+    }
     render.beginFrame(this._win);
     return true;
   }
 
-  /// Apresenta o frame.
+  /// Apresenta o frame e, se há FPS-cap, dorme o tempo sobrando para não passar do
+  /// alvo (controlador de FPS — útil pra testar 30/60/120 ou medir ilimitado).
   endFrame(): void {
     render.endFrame(this._win);
+    if (this._fpsTarget > 0) {
+      const targetMs = 1000 / this._fpsTarget;
+      // quanto já passou neste frame (desde o beginFrame, que setou _lastMs).
+      const elapsed = time.now_ms() - this._lastMs;
+      const remaining = targetMs - elapsed;
+      if (remaining > 0) {
+        time.sleep_ms(remaining);
+      }
+    }
   }
 
   /// Tempo (ms) desde o frame anterior — para animação/física independente de FPS.
