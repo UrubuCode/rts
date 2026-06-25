@@ -34,3 +34,8 @@ pub mod block;
 pub use dom::{parse_html_to_dom, Attr, Dom, Node, NodeId, NodeIdx, NodeKind};
 
 pub use abi::register;
+
+/// Prelude `.ts` da FACHADA DOM ergonômica (`document` global + `Element`, com a
+/// API/nomes do browser) sobre os primitivos do namespace `rts:dom`. Incluído via
+/// `Engine::include` na tabela `PRELUDE_TS` — DEPOIS do registro do ns `dom`.
+pub const DOM_TS: &str = include_str!("dom.ts");
