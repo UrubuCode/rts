@@ -20,6 +20,7 @@ use AbiType::{F64, I64, U64};
 
 mod ctx;
 mod app;
+mod canvas;
 mod frame;
 #[cfg(feature = "glow-backend")]
 mod glbackend;
@@ -252,6 +253,40 @@ pub fn register(e: &mut Engine) {
             "domDump(h: number): void",
             "Prints the retained DOM tree (last parsed HTML) to stderr, devtools-style.",
             widgets::__RTS_FN_NS_EGUI_DOM_DUMP as *const u8,
+        ))
+        // ── CANVAS BURRO: o TS calcula o layout e emite primitivos; o egui pinta ──
+        // Coords/tamanhos em pontos (number); cores 0xRRGGBBAA (number).
+        .member(func(
+            "drawRect",
+            "__RTS_FN_NS_EGUI_DRAW_RECT",
+            Sig::new(vec![U64, F64, F64, F64, F64, I64, F64, I64, F64], AbiType::Void),
+            "drawRect(h: number, x: number, y: number, w: number, h_: number, fill: number, strokeW: number, stroke: number, radius: number): void",
+            "Dumb-canvas filled rect + optional border at absolute coords. Colors 0xRRGGBBAA. The TS layout engine positions it; egui only paints.",
+            canvas::__RTS_FN_NS_EGUI_DRAW_RECT as *const u8,
+        ))
+        .member(func(
+            "drawText",
+            "__RTS_FN_NS_EGUI_DRAW_TEXT",
+            Sig::new(vec![U64, F64, F64, AbiType::StrPtr, I64, F64, I64], AbiType::Void),
+            "drawText(h: number, x: number, y: number, text: string, color: number, size: number, flags: number): void",
+            "Dumb-canvas text at absolute (x,y) top-left. flags bitmask 1=bold 2=italic 4=mono. Color 0xRRGGBBAA.",
+            canvas::__RTS_FN_NS_EGUI_DRAW_TEXT as *const u8,
+        ))
+        .member(func(
+            "drawLine",
+            "__RTS_FN_NS_EGUI_DRAW_LINE",
+            Sig::new(vec![U64, F64, F64, F64, F64, F64, I64], AbiType::Void),
+            "drawLine(h: number, x1: number, y1: number, x2: number, y2: number, w: number, color: number): void",
+            "Dumb-canvas line at absolute coords. Color 0xRRGGBBAA.",
+            canvas::__RTS_FN_NS_EGUI_DRAW_LINE as *const u8,
+        ))
+        .member(func(
+            "measureText",
+            "__RTS_FN_NS_EGUI_MEASURE_TEXT",
+            Sig::new(vec![U64, AbiType::StrPtr, F64, I64], F64),
+            "measureText(h: number, text: string, size: number, bold: number): number",
+            "Width (points) of a text in the real font — the ONLY layout-aware op left in egui (TS can't measure text without the font). Synchronous.",
+            canvas::__RTS_FN_NS_EGUI_MEASURE_TEXT as *const u8,
         ))
         .done();
 }

@@ -96,6 +96,18 @@ pub enum WidgetCmd {
     /// marca a POSIÇÃO do conteúdo HTML na ordem da fila, em relação aos widgets
     /// imperativos. O render (`frame::render_dom`) lê `UiCtx::dom`.
     Html,
+    // ── CANVAS BURRO (primitivos de pintura em coords ABSOLUTAS) ─────────────────
+    // O TS calcula o layout e emite estes comandos; o egui só os EXECUTA via
+    // `egui::Painter` (não participam do layout-flow dos widgets acima). Cores são
+    // `0xRRGGBBAA` (u32). É a base da arquitetura "DOM/layout em TS, egui só pinta".
+    /// Retângulo preenchido + borda opcional. `(x,y,w,h)` em pontos; `fill`/`stroke`
+    /// RGBA; `stroke_w` espessura da borda (0 = sem); `radius` raio dos cantos.
+    DrawRect { x: f32, y: f32, w: f32, h: f32, fill: u32, stroke_w: f32, stroke: u32, radius: f32 },
+    /// Texto numa posição absoluta `(x,y)` (canto superior-esquerdo). `size` em
+    /// pontos; `flags` bitmask (1=bold, 2=italic, 4=mono — casa com block::FLAG_*).
+    DrawText { x: f32, y: f32, text: String, color: u32, size: f32, flags: i64 },
+    /// Linha de `(x1,y1)` a `(x2,y2)`, espessura `w`, cor RGBA.
+    DrawLine { x1: f32, y1: f32, x2: f32, y2: f32, w: f32, color: u32 },
 }
 
 /// Estado completo de uma janela GUI. Tudo `!Send` (winit/wgpu/egui::Context).

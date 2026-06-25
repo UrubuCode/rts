@@ -17,6 +17,16 @@ use render::render_dom;
 
 use crate::ctx::{self, WidgetCmd};
 
+/// Converte a cor própria do canvas (`u32` RGBA `0xRRGGBBAA`) para `Color32`.
+/// (A mesma conversão que `render::rgba_to_color32` faz para o estilo do DOM.)
+fn rgba32(c: u32) -> egui::Color32 {
+    let r = ((c >> 24) & 0xFF) as u8;
+    let g = ((c >> 16) & 0xFF) as u8;
+    let b = ((c >> 8) & 0xFF) as u8;
+    let a = (c & 0xFF) as u8;
+    egui::Color32::from_rgba_unmultiplied(r, g, b, a)
+}
+
 /// Abre um pass do egui: pega o input acumulado e zera a fila de widgets do
 /// frame. Os widgets-folha entre aqui e `endFrame` apenas enfileiram em `cmds`.
 #[unsafe(no_mangle)]
@@ -219,6 +229,47 @@ fn drenar(
                 if let Some(dom) = dom {
                     render_dom(ui, dom);
                 }
+            }
+            // ── CANVAS BURRO: pinta em coords ABSOLUTAS via Painter ──────────────
+            // Não participam do layout-flow (o TS já calculou a posição). O
+            // `painter()` desenha no espaço da tela do `ui`.
+            WidgetCmd::DrawRect { x, y, w, h, fill, stroke_w, stroke, radius } => {
+                let rect = egui::Rect::from_min_size(
+                    egui::pos2(*x, *y),
+                    egui::vec2(*w, *h),
+                );
+                let stroke = if *stroke_w > 0.0 {
+                    egui::Stroke::new(*stroke_w, rgba32(*stroke))
+                } else {
+                    egui::Stroke::NONE
+                };
+                ui.painter().rect(
+                    rect,
+                    egui::CornerRadius::same(*radius as u8),
+                    rgba32(*fill),
+                    stroke,
+                    egui::StrokeKind::Inside,
+                );
+            }
+            WidgetCmd::DrawText { x, y, text, color, size, flags } => {
+                let family = if flags & crate::block::FLAG_MONO != 0 {
+                    egui::FontFamily::Monospace
+                } else {
+                    egui::FontFamily::Proportional
+                };
+                ui.painter().text(
+                    egui::pos2(*x, *y),
+                    egui::Align2::LEFT_TOP,
+                    text,
+                    egui::FontId::new(*size, family),
+                    rgba32(*color),
+                );
+            }
+            WidgetCmd::DrawLine { x1, y1, x2, y2, w, color } => {
+                ui.painter().line_segment(
+                    [egui::pos2(*x1, *y1), egui::pos2(*x2, *y2)],
+                    egui::Stroke::new(*w, rgba32(*color)),
+                );
             }
         }
     }
