@@ -150,6 +150,82 @@ class App {
     return over && this.clicked();
   }
 
+  // ── COMPONENTES de UI imediata (a biblioteca p/ o "pessoal" usar) ─────────────
+  // Estilo imediato: o componente DESENHA + INTERAGE + RETORNA o novo valor/estado;
+  // o dev guarda o valor numa variável e passa de volta no próximo frame. Sem
+  // estado interno (combina com o motor e com o loop dirigido pelo TS).
+
+  /// Rótulo de texto simples (atalho de `text` com tamanho default 16).
+  label(x: number, y: number, s: string, color: number): void {
+    render.text(this._win, x, y, s, color, 16, 0);
+  }
+
+  /// Painel/cartão: um retângulo com fundo + borda + cantos, p/ agrupar.
+  panel(x: number, y: number, w: number, h: number): void {
+    render.rect(this._win, x, y, w, h, 0x1A2230FF, 1, 0x33445566 & 0xFFFFFFFF, 8);
+  }
+
+  /// Barra de progresso (0..1). Desenha o trilho + o preenchimento.
+  progressBar(x: number, y: number, w: number, h: number, value: number): void {
+    let v = value;
+    if (v < 0) v = 0;
+    if (v > 1) v = 1;
+    render.rect(this._win, x, y, w, h, 0x222A38FF, 1, 0x44556688 & 0xFFFFFFFF, 6);
+    render.rect(this._win, x, y, w * v, h, 0x33CC88FF, 0, 0, 6);
+  }
+
+  /// Checkbox. Recebe o estado atual como NUMBER (0=off, 1=on); devolve o NOVO
+  /// estado (alterna ao clicar). Usa number em vez de boolean porque o motor
+  /// despacha melhor i64 vindo de método. `x,y` = canto da caixinha (18×18).
+  checkbox(x: number, y: number, checked: number, label: string): number {
+    const sz = 18;
+    const over = this.hover(x, y, sz, sz);
+    let result = checked;
+    if (over && this.clicked()) {
+      result = checked === 0 ? 1 : 0;
+    }
+    let border = 0x6699CCFF;
+    if (over) border = 0x99CCFFFF;
+    render.rect(this._win, x, y, sz, sz, 0x1A2230FF, 2, border, 4);
+    if (result !== 0) {
+      render.rect(this._win, x + 4, y + 4, sz - 8, sz - 8, 0x33CC88FF, 0, 0, 2);
+    }
+    render.text(this._win, x + sz + 8, y - 1, label, 0xE0E4E8FF, 15, 0);
+    return result;
+  }
+
+  /// Slider horizontal. Recebe o valor atual (min..max); devolve o NOVO valor
+  /// (arrasta quando o mouse está pressionado sobre a trilha). `x,y,w` definem a
+  /// trilha; a altura é fixa.
+  slider(x: number, y: number, w: number, value: number, min: number, max: number): number {
+    const trackH = 6;
+    const knobR = 9;
+    // trilha
+    render.rect(this._win, x, y + knobR - trackH / 2, w, trackH, 0x222A38FF, 0, 0, 3);
+    // posição atual do knob
+    let v = value;
+    if (v < min) v = min;
+    if (v > max) v = max;
+    const t = (v - min) / (max - min);
+    const knobX = x + t * w;
+    const knobY = y + knobR;
+    // arrasta: mouse pressionado dentro da faixa do slider
+    const over = this.hover(x - knobR, y, w + knobR * 2, knobR * 2);
+    if (over && input.mouseDown(this._win, 0) !== 0) {
+      const mx = input.mouseX(this._win);
+      let nt = (mx - x) / w;
+      if (nt < 0) nt = 0;
+      if (nt > 1) nt = 1;
+      v = min + nt * (max - min);
+    }
+    // preenchimento até o knob
+    const tt = (v - min) / (max - min);
+    render.rect(this._win, x, y + knobR - trackH / 2, w * tt, trackH, 0x3399FFFF, 0, 0, 3);
+    // knob (quadrado arredondado)
+    render.rect(this._win, knobX - knobR, knobY - knobR, knobR * 2, knobR * 2, 0xFFFFFFFF, 0, 0, knobR);
+    return v;
+  }
+
   /// Move a janela do app para a posição absoluta `(x,y)` — escolher monitor.
   moveTo(x: number, y: number): void {
     egui.moveWindow(this._win, x, y);
