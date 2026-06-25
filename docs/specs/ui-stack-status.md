@@ -49,8 +49,17 @@ janela/loop). O egui é um backend plugável; trocá-lo não muda nada acima.
 ### Camada render/input (abstrata, backend plugável)
 - `render.*`: rect/text/line/**image** (bitmap RGBA → vídeo/imagem/viewport)/
   measureText/beginFrame/endFrame. egui é o backend (impl do trait).
-- `input.*`: mouseX/Y/down/clicked/wheel/keyPressed/textInput (polling). egui capta
-  o cru; o DOM/app faz hit-test + eventos (modelo browser).
+- `input.*` — **COMPLETO** (3 fases, ver `input-system-design.md`):
+  - **Mouse:** mouseX/Y, down/clicked/**pressed/released/doubleClicked**,
+    **deltaX/Y**, **dragging** (drag nativo), wheel/**wheelX**, **setCursor**.
+  - **Teclado:** códigos completos (A-Z 100-125, 0-9 130-139, F1-F12 140-151,
+    edição/navegação 1-15) × **keyPressed/keyDown/keyReleased**; **modificadores**
+    modCtrl/Shift/Alt/Cmd (atalhos).
+  - egui capta o cru (winit/SO); `input.*` é a fachada abstrata; trocável por
+    outro backend. **O input NÃO depende de egui** — é um plugin.
+  - **Camada ergonômica (TS, no App):** FOCO real (focusedId/setFocus/isFocused),
+    `clickable(id)` (idle/hover/pressed/clicado, com release-dentro), `textField(id)`
+    (campo com foco exclusivo — só o focado digita). Resolve formulários reais.
 
 ### Camada canvas (UI imediata, sem DOM)
 - **`Canvas`/`App`** + `createApp`/`createAppAt`: loop base (o dev mantém o while;
@@ -67,7 +76,8 @@ janela/loop). O egui é um backend plugável; trocá-lo não muda nada acima.
 ### Exemplos (todos rodam, validados em tela)
 claude-dom-headless / dom-facade / dom-interactive / canvas-poc / render-abstract /
 input-abstract / layout-ts / canvas-facade / app-loop / components / tabs /
-multiwindow / image-video / **showcase** (4 abas: Widgets/Video/Animacao/Sobre).
+multiwindow / image-video / **showcase** (4 abas) / **keyboard** (teclado+mods) /
+**mouse** (drag/double/cursor) / **focus-form** (2 campos com foco real).
 
 ### Docs
 3 specs de arquitetura + o mapa de limites do motor.
@@ -77,12 +87,19 @@ multiwindow / image-video / **showcase** (4 abas: Widgets/Video/Animacao/Sobre).
 ### Curto prazo (refinamento do que existe)
 1. **Medição de texto EXATA** — hoje `measureText` é aproximado (0.52·size·n); a
    exata via atlas de fontes do egui é um TODO isolado em `canvas.rs`/`measure_text`.
-2. **Backspace/edição no textInput** — bloqueado pelo limite `.length`/string-ops
-   sobre shape não-provada (ver limites #4).
+2. **Backspace/edição de cursor no textField** — append + foco JÁ funcionam;
+   backspace/seleção/cursor-no-meio dependem do limite `.length`/string-ops sobre
+   shape não-provada (ver limites #4).
 3. **Modo vsync-off** (benchmark) — pra medir FPS acima do teto do monitor; hoje o
    Fifo limita (e tem kill-gate por causa do bug da janela-que-parava).
 4. **2º backend (headless/PPM)** — provar "N renders genéricos" de fato (render.*
    escrevendo num buffer/PNG, sem janela). É o teste definitivo do isolamento.
+5. **Input fase 4** (opcional) — drag-helper no App + cursor automático (mãozinha
+   sobre clickable). Touch/gamepad/IME = futuro distante.
+
+> **INPUT está COMPLETO** (fases 1-3: teclado+mods, mouse rico, foco+eventos) —
+> saiu das pendências. Bug "dados de ponteiros" (retorno string com alias U64 em
+> vez de AbiType::Handle literal) corrigido — ver limites #9.
 
 ### Médio prazo (completar camadas)
 5. **Fachada DOM → spec MDN completa** — Node/Text/classList/innerHTML/insertBefore/
