@@ -16,6 +16,10 @@ pub use rts_std::asio_audio;
 /// `import { parseHtml } from "rts:dom"`. O `rts-egui` consome o tipo `Dom`
 /// direto (não pela ABI). Ver docs/specs/rts-dom-crate-design.md.
 pub use rts_dom as dom;
+/// `render` — interface de render ABSTRATA na crate `rts-render`. O DOM/layout
+/// chama `render.*` (rect/text/measureText/...); o backend ativo (egui) pinta. O
+/// engine nunca nomeia o backend concreto. Ver docs/specs/dom-render-input-interfaces.md.
+pub use rts_render as render;
 /// `egui` — GUI imediata (egui) na crate separada `rts-egui` (como `napi`).
 /// Resolve via Registry: `ns::egui::register`. `import { Window } from "rts:egui"`.
 /// Ver docs/specs/egui-ui-crate-design.md.

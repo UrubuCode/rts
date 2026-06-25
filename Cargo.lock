@@ -3771,6 +3771,7 @@ dependencies = [
  "raw-window-handle",
  "rts-dom",
  "rts-engine",
+ "rts-render",
  "wgpu",
  "winit",
 ]
@@ -3854,6 +3855,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rts-render"
+version = "0.1.0"
+dependencies = [
+ "rts-engine",
+]
+
+[[package]]
 name = "rts-runtime"
 version = "0.1.0"
 dependencies = [
@@ -3862,6 +3870,7 @@ dependencies = [
  "rts-engine",
  "rts-napi",
  "rts-primitives",
+ "rts-render",
  "rts-shared",
  "rts-std",
 ]

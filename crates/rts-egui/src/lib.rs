@@ -24,6 +24,7 @@ mod canvas;
 mod frame;
 #[cfg(feature = "glow-backend")]
 mod glbackend;
+mod render_backend;
 mod widgets;
 
 // O DOM (árvore + parser + NodeId) E o ESTADO de estilo vivem no crate `rts-dom`;
@@ -59,6 +60,9 @@ fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) 
 /// Registra o namespace `ui` no motor. Resolve via Registry (doutrina
 /// PRIMORDIAL-vs-Registry): o engine NUNCA nomeia `ui`.
 pub fn register(e: &mut Engine) {
+    // Registra o egui como o backend de render ATIVO do `rts-render`: a partir
+    // daqui, o namespace `render.*` (que o DOM/layout chama) despacha p/ o egui.
+    render_backend::register_backend();
     e.ns("egui")
         .doc("Immediate-mode GUI primitives (egui). TS drives the render loop.")
         // ── Ciclo de vida da janela / loop (Modelo A — TS dirige) ──────────────

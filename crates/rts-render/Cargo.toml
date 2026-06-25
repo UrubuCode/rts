@@ -1,0 +1,16 @@
+[package]
+name = "rts-render"
+version = "0.1.0"
+edition = "2024"
+
+# Interface de RENDER abstrata — o contrato que isola o DOM/layout de QUALQUER
+# backend de janela. Define o trait `Renderer` (tipos NEUTROS: u32 RGBA, f32
+# coords — nada de egui/wgpu), o registro do "backend ativo", e o namespace ABI
+# `render` (rect/text/line/measureText/beginFrame/endFrame) cujas fns despacham
+# para o backend ativo. O `rts-egui` (e qualquer outro backend) IMPLEMENTA o trait
+# e se registra. O TS fala `render.*`, nunca `egui.*`.
+#
+# Depende SÓ de rts-engine (p/ a ABI/Engine). Sem egui — é o ponto neutro.
+
+[dependencies]
+rts-engine = { path = "../rts-engine" }

@@ -16,6 +16,9 @@ rts-engine = { path = "../rts-engine" }
 # DOM retido: o egui CONSOME o tipo `Dom` do crate `rts-dom` (parser + árvore +
 # NodeId) e só adiciona o RENDER. O DOM não vive mais aqui.
 rts-dom = { path = "../rts-dom" }
+# Interface de render abstrata: o egui IMPLEMENTA o trait `Renderer` e se registra
+# como backend ativo. O DOM/layout fala `render.*`, nunca `egui.*`.
+rts-render = { path = "../rts-render" }
 
 # egui/egui-winit SEM default-features: cortamos accesskit (a11y, traz toda uma
 # árvore), serde, etc. — não usamos no PoC.
