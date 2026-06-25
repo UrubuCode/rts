@@ -14,43 +14,30 @@ const W = 700;
 const H = 460;
 const app = createAppAt("Pong com IA — menu/config/jogo", W, H, 2100, 360);
 
-// ── ÁUDIO: device + bipes pré-gerados (gerar no loop seria custoso) ──────────
-// rts:audio (cpal): o TS gera samples f32 num buffer e dá audio.write. NOTA: os
-// membros são snake_case (open_output, não openOutput).
+// ── ÁUDIO como STREAM SÍNCRONO (o game loop É o gerador de áudio) ─────────────
+// Resposta a "o loop de áudio não pode ser o game loop?": SIM. Em vez de empurrar
+// blocos grandes adiantados, a cada frame o game loop preenche SÓ o espaço livre
+// do ring (available_frames) com os samples daquele intervalo — áudio anda JUNTO
+// com o vídeo. E MIXA (soma) música + efeitos no mesmo sample (não enfileira, não
+// corta). O callback cpal (thread RT própria) consome o ring; o jogo o alimenta.
 const SR = 44100;
 const dev = audio.open_output(SR, 1, SR);
-// gera um bipe de `freq` Hz por `secs` num buffer (com fade pra não estalar).
-const beepN = 3000; // ~0.068s — curto pro jogo
-const beepPaddle = buffer.alloc(beepN * 4); // agudo (raquete)
-const beepWall = buffer.alloc(beepN * 4);   // grave (parede)
-const beepScore = buffer.alloc(beepN * 4);  // ponto
-let bi = 0;
-while (bi < beepN) {
-  const tt = bi / SR;
-  let env = 0.25;
-  if (bi < 200) env = env * (bi / 200);
-  if (bi > beepN - 400) env = env * ((beepN - bi) / 400);
-  buffer.write_f32(beepPaddle, bi * 4, math.sin(6.283185307 * 660 * tt) * env);
-  buffer.write_f32(beepWall, bi * 4, math.sin(6.283185307 * 330 * tt) * env);
-  buffer.write_f32(beepScore, bi * 4, math.sin(6.283185307 * 220 * tt) * env);
-  bi = bi + 1;
-}
+const chunkBuf = buffer.alloc(SR * 4); // buffer de trabalho (até 1s de samples)
 
-// ── MÚSICA DE FUNDO: HARMONIA (acordes) em loop ──────────────────────────────
-// Cada passo toca um ACORDE INTEIRO (3 notas somadas = harmonia real), com baixo +
-// timbre rico (fundamental + 2 harmônicos) + envelope suave. Progressão Am–F–C–G
-// (vi–IV–I–V, sequência clássica e bonita). Cada acorde = 1 buffer enviado quando
-// a fila esvazia (loop).
-const chordN = 24000;         // ~0.54s por acorde (respira)
-const chordBuf = buffer.alloc(chordN * 4);
-// 4 acordes × 3 notas (Hz) + baixo (oitava abaixo da 1ª). raiz/3ª/5ª:
-// Am = A3 C4 E4 | F = F3 A4 C4 | C = C4 E4 G4 | G = G3 B3 D4
-const ch0a = 220.0; const ch0b = 261.6; const ch0c = 329.6; // Am
-const ch1a = 174.6; const ch1b = 220.0; const ch1c = 261.6; // F
-const ch2a = 261.6; const ch2b = 329.6; const ch2c = 392.0; // C
-const ch3a = 196.0; const ch3b = 246.9; const ch3c = 293.7; // G
-let chordStep = 0;
+// RELÓGIO de áudio: quantos samples já geramos (avança o tempo da música).
+let aClock = 0;
+
+// MÚSICA: progressão Am–F–C–G (vi–IV–I–V). Cada acorde dura `chordLen` samples; a
+// posição na progressão vem de aClock (tempo contínuo) → música nunca "reinicia".
+const chordLen = 26000;       // ~0.59s por acorde
 let musicOn = 1;
+
+// EFEITOS: cada um tem um "tempo restante" (em samples). >0 = tocando. O stream
+// soma a senoide do efeito enquanto durar. (disparados nas colisões.)
+let sfxPaddle = 0;  // samples restantes do bipe da raquete
+let sfxWall = 0;
+let sfxScore = 0;
+const sfxLen = 3000; // duração de um efeito (~0.07s)
 
 // ── ESTADO DE TELA (máquina de estados) ──────────────────────────────────────
 // 0 = MENU, 1 = CONFIG, 2 = JOGO
@@ -105,39 +92,53 @@ while (app.running()) {
     doResetBall = 0;
   }
 
-  // ── MÚSICA DE FUNDO inline: quando a fila esvazia, gera+envia o próximo ACORDE ─
-  // (inline, não função — const top-level não captura em função, limite #1)
-  if (musicOn !== 0 && audio.queued_frames(dev) < chordN) {
-    // escolhe as 3 notas do acorde atual
-    let na = ch0a; let nb = ch0b; let nc = ch0c;
-    if (chordStep === 1) { na = ch1a; nb = ch1b; nc = ch1c; }
-    if (chordStep === 2) { na = ch2a; nb = ch2b; nc = ch2c; }
-    if (chordStep === 3) { na = ch3a; nb = ch3b; nc = ch3c; }
-    const bass = na / 2; // baixo uma oitava abaixo da raiz
-    // gera o acorde: soma das 3 notas (cada uma com fundamental + harmônico leve)
-    // + baixo. envelope suave (fade in/out longo = pad, não pluck agressivo).
+  // ── STREAM DE ÁUDIO SÍNCRONO: o game loop gera os samples DESTE frame ─────────
+  // Preenche o espaço livre do ring (available_frames) com samples MIXADOS: música
+  // (acorde da progressão, pela posição de aClock) + efeitos ativos (somados). Como
+  // só geramos o que cabe, áudio e vídeo andam juntos.
+  let free = audio.available_frames(dev);
+  if (free > SR) free = SR;          // no máx 1s por frame (tamanho do chunkBuf)
+  if (free > 0) {
     const tp = 6.283185307;
-    let k = 0;
-    while (k < chordN) {
-      const tt2 = k / 44100;
-      // envelope: ataque + sustain + release (pad)
-      let env2 = 1.0;
-      if (k < 2000) env2 = k / 2000;
-      if (k > chordN - 4000) env2 = (chordN - k) / 4000;
-      // cada nota: fundamental + 2º harmônico (metade) + 3º (um terço) = timbre rico
-      let v = 0.0;
-      v = v + math.sin(tp * na * tt2) + math.sin(tp * na * 2 * tt2) * 0.4;
-      v = v + math.sin(tp * nb * tt2) * 0.8;
-      v = v + math.sin(tp * nc * tt2) * 0.7;
-      v = v + math.sin(tp * bass * tt2) * 0.9; // baixo dá corpo
-      // normaliza (soma de ~4 fontes) e aplica volume de fundo
-      const sample = v * 0.035 * env2;
-      buffer.write_f32(chordBuf, k * 4, sample);
-      k = k + 1;
+    let j = 0;
+    while (j < free) {
+      const gt = aClock + j;          // índice global deste sample
+      let s = 0.0;
+
+      // MÚSICA: qual acorde? (posição contínua na progressão de 4 acordes)
+      if (musicOn !== 0) {
+        const step = math.floor(gt / chordLen) % 4;
+        const posInChord = (gt % chordLen);
+        // notas do acorde (Hz) por step: Am F C G
+        let na = 220.0; let nb = 261.6; let nc = 329.6;       // Am
+        if (step === 1) { na = 174.6; nb = 220.0; nc = 261.6; } // F
+        if (step === 2) { na = 261.6; nb = 329.6; nc = 392.0; } // C
+        if (step === 3) { na = 196.0; nb = 246.9; nc = 293.7; } // G
+        const bass = na / 2;
+        const ct = gt / SR;
+        // envelope do acorde (pad: ataque/release suaves) usando posInChord
+        let env = 1.0;
+        if (posInChord < 2500) env = posInChord / 2500;
+        if (posInChord > chordLen - 4000) env = (chordLen - posInChord) / 4000;
+        let m = 0.0;
+        m = m + math.sin(tp * na * ct) + math.sin(tp * na * 2 * ct) * 0.35;
+        m = m + math.sin(tp * nb * ct) * 0.8;
+        m = m + math.sin(tp * nc * ct) * 0.7;
+        m = m + math.sin(tp * bass * ct) * 0.9;
+        s = s + m * 0.030 * env;
+      }
+
+      // EFEITOS: somados enquanto durarem (decaem linear). 660/330/220 Hz.
+      const et = gt / SR;
+      if (sfxPaddle > 0) { s = s + math.sin(tp * 660 * et) * 0.22 * (sfxPaddle / sfxLen); sfxPaddle = sfxPaddle - 1; }
+      if (sfxWall > 0)   { s = s + math.sin(tp * 330 * et) * 0.22 * (sfxWall / sfxLen);   sfxWall = sfxWall - 1; }
+      if (sfxScore > 0)  { s = s + math.sin(tp * 220 * et) * 0.25 * (sfxScore / sfxLen);  sfxScore = sfxScore - 1; }
+
+      buffer.write_f32(chunkBuf, j * 4, s);
+      j = j + 1;
     }
-    audio.write(dev, chordBuf, chordN);
-    chordStep = chordStep + 1;
-    if (chordStep > 3) chordStep = 0;
+    audio.write(dev, chunkBuf, free);
+    aClock = aClock + free;
   }
 
   if (screen === 0) {
@@ -220,23 +221,23 @@ while (app.running()) {
     // física
     bx = bx + bvx * dt;
     by = by + bvy * dt;
-    if (by < br) { by = br; bvy = 0 - bvy; audio.write(dev, beepWall, beepN); }
-    if (by > H - br) { by = H - br; bvy = 0 - bvy; audio.write(dev, beepWall, beepN); }
-    // colisão esquerda (bipe agudo)
+    if (by < br) { by = br; bvy = 0 - bvy; sfxWall = sfxLen; }
+    if (by > H - br) { by = H - br; bvy = 0 - bvy; sfxWall = sfxLen; }
+    // colisão esquerda (dispara efeito agudo — o stream mixa)
     if (bx - br < lx + pw && bx > lx && by > ly && by < ly + ph && bvx < 0) {
       bx = lx + pw + br; bvx = 0 - bvx;
       bvy = bvy + ((by - (ly + ph / 2)) / (ph / 2)) * 0.15;
-      audio.write(dev, beepPaddle, beepN);
+      sfxPaddle = sfxLen;
     }
-    // colisão direita (bipe agudo)
+    // colisão direita
     if (bx + br > rx && bx < rx + pw && by > ry && by < ry + ph && bvx > 0) {
       bx = rx - br; bvx = 0 - bvx;
       bvy = bvy + ((by - (ry + ph / 2)) / (ph / 2)) * 0.15;
-      audio.write(dev, beepPaddle, beepN);
+      sfxPaddle = sfxLen;
     }
-    // pontos (bipe grave)
-    if (bx < 0) { scoreR = scoreR + 1; doResetBall = 1; audio.write(dev, beepScore, beepN); }
-    if (bx > W) { scoreL = scoreL + 1; doResetBall = 2; audio.write(dev, beepScore, beepN); }
+    // pontos (efeito grave)
+    if (bx < 0) { scoreR = scoreR + 1; doResetBall = 1; sfxScore = sfxLen; }
+    if (bx > W) { scoreL = scoreL + 1; doResetBall = 2; sfxScore = sfxLen; }
 
     // render do jogo
     let dy = 0;
