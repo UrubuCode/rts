@@ -169,8 +169,60 @@ impl InputSource for EguiRenderer {
             .unwrap_or(false)
     }
 
+    fn mouse_pressed(&self, target: u64, button: i64) -> bool {
+        let btn = egui_button(button);
+        ctx::with_ctx(target, |c| c.egui_ctx.input(|i| i.pointer.button_pressed(btn)))
+            .unwrap_or(false)
+    }
+
+    fn mouse_released(&self, target: u64, button: i64) -> bool {
+        let btn = egui_button(button);
+        ctx::with_ctx(target, |c| c.egui_ctx.input(|i| i.pointer.button_released(btn)))
+            .unwrap_or(false)
+    }
+
+    fn mouse_double_clicked(&self, target: u64, button: i64) -> bool {
+        let btn = egui_button(button);
+        ctx::with_ctx(target, |c| c.egui_ctx.input(|i| i.pointer.button_double_clicked(btn)))
+            .unwrap_or(false)
+    }
+
+    fn mouse_delta(&self, target: u64) -> (f32, f32) {
+        ctx::with_ctx(target, |c| {
+            c.egui_ctx.input(|i| {
+                let d = i.pointer.delta();
+                (d.x, d.y)
+            })
+        })
+        .unwrap_or((0.0, 0.0))
+    }
+
+    fn dragging(&self, target: u64) -> bool {
+        ctx::with_ctx(target, |c| c.egui_ctx.input(|i| i.pointer.is_decidedly_dragging()))
+            .unwrap_or(false)
+    }
+
     fn wheel(&self, target: u64) -> f32 {
         ctx::with_ctx(target, |c| c.egui_ctx.input(|i| i.smooth_scroll_delta.y)).unwrap_or(0.0)
+    }
+
+    fn wheel_x(&self, target: u64) -> f32 {
+        ctx::with_ctx(target, |c| c.egui_ctx.input(|i| i.smooth_scroll_delta.x)).unwrap_or(0.0)
+    }
+
+    fn set_cursor(&self, target: u64, kind: i64) {
+        let icon = match kind {
+            1 => egui::CursorIcon::PointingHand,
+            2 => egui::CursorIcon::Text,
+            3 => egui::CursorIcon::Grab,
+            4 => egui::CursorIcon::Grabbing,
+            5 => egui::CursorIcon::ResizeHorizontal,
+            6 => egui::CursorIcon::ResizeVertical,
+            7 => egui::CursorIcon::Crosshair,
+            8 => egui::CursorIcon::NotAllowed,
+            _ => egui::CursorIcon::Default,
+        };
+        ctx::with_ctx(target, |c| c.egui_ctx.set_cursor_icon(icon));
     }
 
     fn key_pressed(&self, target: u64, key: i64) -> bool {

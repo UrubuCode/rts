@@ -87,12 +87,28 @@ pub trait Renderer {
 pub trait InputSource {
     /// Posição do cursor (x, y) em pontos. `(-1, -1)` se fora da janela.
     fn mouse_pos(&self, target: u64) -> (f32, f32);
-    /// Botão pressionado AGORA.
+    /// Botão SEGURADO agora.
     fn mouse_down(&self, target: u64, button: i64) -> bool;
-    /// Houve um clique completo NESTE frame.
+    /// Clique completo NESTE frame.
     fn mouse_clicked(&self, target: u64, button: i64) -> bool;
-    /// Delta de scroll do frame (vertical).
+    /// Botão FOI pressionado neste frame (transição up→down).
+    fn mouse_pressed(&self, target: u64, button: i64) -> bool;
+    /// Botão FOI solto neste frame (down→up).
+    fn mouse_released(&self, target: u64, button: i64) -> bool;
+    /// Duplo-clique do botão neste frame.
+    fn mouse_double_clicked(&self, target: u64, button: i64) -> bool;
+    /// Movimento RELATIVO do cursor no frame (dx, dy) em pontos.
+    fn mouse_delta(&self, target: u64) -> (f32, f32);
+    /// `true` enquanto arrasta (pressionado + movendo o bastante) — drag nativo.
+    fn dragging(&self, target: u64) -> bool;
+    /// Delta de scroll do frame VERTICAL.
     fn wheel(&self, target: u64) -> f32;
+    /// Delta de scroll do frame HORIZONTAL.
+    fn wheel_x(&self, target: u64) -> f32;
+    /// Define o ícone do cursor: 0=default 1=pointer(mão) 2=text(I) 3=grab
+    /// 4=grabbing 5=resize-h 6=resize-v 7=crosshair 8=not-allowed. O app chama ao
+    /// passar sobre link/campo/borda.
+    fn set_cursor(&self, target: u64, kind: i64);
     /// Tecla disparou neste frame (com auto-repeat). `key` é um código `KEY_*`.
     fn key_pressed(&self, target: u64, key: i64) -> bool;
     /// Tecla SEGURADA agora (estado contínuo, sem repeat).

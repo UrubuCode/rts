@@ -141,8 +141,48 @@ pub extern "C" fn __RTS_FN_NS_INPUT_MOUSE_CLICKED(target: u64, button: i64) -> i
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_INPUT_MOUSE_PRESSED(target: u64, button: i64) -> i64 {
+    crate::with_input(|i| i.mouse_pressed(target, button) as i64).unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_INPUT_MOUSE_RELEASED(target: u64, button: i64) -> i64 {
+    crate::with_input(|i| i.mouse_released(target, button) as i64).unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_INPUT_MOUSE_DOUBLE_CLICKED(target: u64, button: i64) -> i64 {
+    crate::with_input(|i| i.mouse_double_clicked(target, button) as i64).unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_INPUT_MOUSE_DELTA_X(target: u64) -> f64 {
+    crate::with_input(|i| i.mouse_delta(target).0 as f64).unwrap_or(0.0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_INPUT_MOUSE_DELTA_Y(target: u64) -> f64 {
+    crate::with_input(|i| i.mouse_delta(target).1 as f64).unwrap_or(0.0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_INPUT_DRAGGING(target: u64) -> i64 {
+    crate::with_input(|i| i.dragging(target) as i64).unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_INPUT_WHEEL(target: u64) -> f64 {
     crate::with_input(|i| i.wheel(target) as f64).unwrap_or(0.0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_INPUT_WHEEL_X(target: u64) -> f64 {
+    crate::with_input(|i| i.wheel_x(target) as f64).unwrap_or(0.0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_INPUT_SET_CURSOR(target: u64, kind: i64) {
+    crate::with_input(|i| i.set_cursor(target, kind));
 }
 
 #[unsafe(no_mangle)]
@@ -311,12 +351,76 @@ pub fn register_input(e: &mut Engine) {
             __RTS_FN_NS_INPUT_MOUSE_CLICKED as *const u8,
         ))
         .member(func(
+            "mousePressed",
+            "__RTS_FN_NS_INPUT_MOUSE_PRESSED",
+            Sig::new(vec![Handle, I64], I64),
+            "mousePressed(target: number, button: number): number",
+            "1 if button was pressed this frame (up->down transition).",
+            __RTS_FN_NS_INPUT_MOUSE_PRESSED as *const u8,
+        ))
+        .member(func(
+            "mouseReleased",
+            "__RTS_FN_NS_INPUT_MOUSE_RELEASED",
+            Sig::new(vec![Handle, I64], I64),
+            "mouseReleased(target: number, button: number): number",
+            "1 if button was released this frame (down->up transition).",
+            __RTS_FN_NS_INPUT_MOUSE_RELEASED as *const u8,
+        ))
+        .member(func(
+            "mouseDoubleClicked",
+            "__RTS_FN_NS_INPUT_MOUSE_DOUBLE_CLICKED",
+            Sig::new(vec![Handle, I64], I64),
+            "mouseDoubleClicked(target: number, button: number): number",
+            "1 if button was double-clicked this frame.",
+            __RTS_FN_NS_INPUT_MOUSE_DOUBLE_CLICKED as *const u8,
+        ))
+        .member(func(
+            "mouseDeltaX",
+            "__RTS_FN_NS_INPUT_MOUSE_DELTA_X",
+            Sig::new(vec![Handle], F64),
+            "mouseDeltaX(target: number): number",
+            "Relative cursor movement X this frame (points).",
+            __RTS_FN_NS_INPUT_MOUSE_DELTA_X as *const u8,
+        ))
+        .member(func(
+            "mouseDeltaY",
+            "__RTS_FN_NS_INPUT_MOUSE_DELTA_Y",
+            Sig::new(vec![Handle], F64),
+            "mouseDeltaY(target: number): number",
+            "Relative cursor movement Y this frame (points).",
+            __RTS_FN_NS_INPUT_MOUSE_DELTA_Y as *const u8,
+        ))
+        .member(func(
+            "dragging",
+            "__RTS_FN_NS_INPUT_DRAGGING",
+            Sig::new(vec![Handle], I64),
+            "dragging(target: number): number",
+            "1 while dragging (pressed + moving enough) — native drag.",
+            __RTS_FN_NS_INPUT_DRAGGING as *const u8,
+        ))
+        .member(func(
             "wheel",
             "__RTS_FN_NS_INPUT_WHEEL",
             Sig::new(vec![Handle], F64),
             "wheel(target: number): number",
             "Vertical scroll delta this frame.",
             __RTS_FN_NS_INPUT_WHEEL as *const u8,
+        ))
+        .member(func(
+            "wheelX",
+            "__RTS_FN_NS_INPUT_WHEEL_X",
+            Sig::new(vec![Handle], F64),
+            "wheelX(target: number): number",
+            "Horizontal scroll delta this frame.",
+            __RTS_FN_NS_INPUT_WHEEL_X as *const u8,
+        ))
+        .member(func(
+            "setCursor",
+            "__RTS_FN_NS_INPUT_SET_CURSOR",
+            Sig::new(vec![Handle, I64], AbiType::Void),
+            "setCursor(target: number, kind: number): void",
+            "Sets cursor icon: 0=default 1=pointer 2=text 3=grab 4=grabbing 5=resize-h 6=resize-v 7=crosshair 8=not-allowed.",
+            __RTS_FN_NS_INPUT_SET_CURSOR as *const u8,
         ))
         .member(func(
             "keyPressed",
