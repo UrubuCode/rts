@@ -24,13 +24,14 @@ mod block;
 mod frame;
 #[cfg(feature = "glow-backend")]
 mod glbackend;
-mod style;
 mod widgets;
 
-// O DOM (árvore + parser + NodeId) vive no crate `rts-dom`; o egui o CONSUME.
-// `dom` aqui é um alias para reuso interno (`crate::dom::Dom` segue válido nos
-// módulos de render/ctx/widgets sem mudar cada call site).
+// O DOM (árvore + parser + NodeId) E o ESTADO de estilo vivem no crate `rts-dom`;
+// o egui só os CONSOME (lê e pinta). Aliases para reuso interno: `crate::dom::*`
+// e `crate::style::*` seguem válidos nos módulos de render/ctx/widgets sem mudar
+// cada call site.
 pub(crate) use rts_dom as dom;
+pub(crate) use rts_dom::style;
 
 pub use app::*;
 pub use frame::*;

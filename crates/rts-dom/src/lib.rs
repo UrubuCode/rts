@@ -22,6 +22,10 @@
 pub mod abi;
 mod dom;
 mod html;
+/// Estado de ESTILO (egui-free): `ComputedStyle`, slots opacos, parse do `style=""`
+/// inline, e o registro por-tag (`defineStyle`). O DOM é dono do estilo; o renderer
+/// (egui) só LÊ. Os tipos são próprios (`u32` RGBA), nunca tipos de backend.
+pub mod style;
 
 pub use dom::{parse_html_to_dom, Attr, Dom, Node, NodeId, NodeIdx, NodeKind};
 

@@ -325,6 +325,90 @@ impl Dom {
         self.nodes[idx].children.push(child);
     }
 
+    /// Concatena o texto de TODOS os descendentes de `id`, em ordem de documento
+    /// (`element.textContent` getter). `None` se o id não resolve nesta árvore.
+    /// Num nó de texto, retorna o próprio texto.
+    pub fn text_content(&self, id: NodeId) -> Option<String> {
+        let idx = self.resolve(id)?;
+        let mut out = String::new();
+        self.collect_text_into(idx, &mut out);
+        Some(out)
+    }
+
+    fn collect_text_into(&self, idx: NodeIdx, out: &mut String) {
+        match &self.nodes[idx].kind {
+            NodeKind::Text(t) => out.push_str(t),
+            _ => {
+                for &child in &self.nodes[idx].children {
+                    self.collect_text_into(child, out);
+                }
+            }
+        }
+    }
+
+    /// Nome da tag de um elemento em minúsculas (`element.tagName`, mas o browser
+    /// devolve em CAIXA ALTA para HTML — a fachada TS faz o upper). `None` se não
+    /// resolve ou não é elemento.
+    pub fn tag_name(&self, id: NodeId) -> Option<&str> {
+        let idx = self.resolve(id)?;
+        match &self.nodes[idx].kind {
+            NodeKind::Element { tag } => Some(tag.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Valor de um atributo (`element.getAttribute`). `None` se o id não resolve
+    /// ou o atributo não existe.
+    pub fn get_attr(&self, id: NodeId, name: &str) -> Option<&str> {
+        let idx = self.resolve(id)?;
+        self.nodes[idx].attr(name)
+    }
+
+    /// Os filhos ELEMENTO de um nó (`element.children` — exclui nós de texto), em
+    /// ordem. Vazio se o id não resolve.
+    pub fn child_elements(&self, id: NodeId) -> Vec<NodeId> {
+        let Some(idx) = self.resolve(id) else { return Vec::new() };
+        self.nodes[idx]
+            .children
+            .iter()
+            .filter(|&&c| matches!(self.nodes[c].kind, NodeKind::Element { .. }))
+            .map(|&c| self.make_id(c))
+            .collect()
+    }
+
+    /// Todos os nós que casam um seletor simples (`querySelectorAll`), em ordem de
+    /// documento. `tag` varre pré-ordem; `#id`/`.classe` usam os índices.
+    pub fn query_all(&self, selector: &str) -> Vec<NodeId> {
+        let sel = selector.trim();
+        let mut out = Vec::new();
+        self.query_all_into(self.root, sel, &mut out);
+        out
+    }
+
+    fn query_all_into(&self, idx: NodeIdx, sel: &str, out: &mut Vec<NodeId>) {
+        if idx != self.root && self.matches(idx, sel) {
+            out.push(self.make_id(idx));
+        }
+        for &child in &self.nodes[idx].children {
+            self.query_all_into(child, sel, out);
+        }
+    }
+
+    /// `true` se o nó `idx` casa o seletor simples `sel` (tag / `#id` / `.classe`).
+    fn matches(&self, idx: NodeIdx, sel: &str) -> bool {
+        if let Some(key) = sel.strip_prefix('#') {
+            return self.nodes[idx].attr("id") == Some(key);
+        }
+        if let Some(cls) = sel.strip_prefix('.') {
+            return self.nodes[idx]
+                .attr("class")
+                .map(|c| c.split_whitespace().any(|x| x == cls))
+                .unwrap_or(false);
+        }
+        let tag = sel.to_ascii_lowercase();
+        matches!(&self.nodes[idx].kind, NodeKind::Element { tag: t } if *t == tag)
+    }
+
     /// Define/atualiza um atributo (`element.setAttribute`). Cria se não existir.
     /// Mantém os índices `id`/`class` em dia (adiciona a nova entrada; entradas
     /// antigas viram stale mas a busca valida alcançabilidade/valor).
