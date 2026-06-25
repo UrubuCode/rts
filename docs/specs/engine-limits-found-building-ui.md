@@ -93,3 +93,13 @@ time, e uma biblioteca de componentes (button/slider/checkbox/progressBar/panel/
 tabs/textInput/layout-automático) + multi-window. A fundação é sólida; os 6 itens
 acima são o roteiro de refinamento do motor para UI rica — implementar futuramente,
 maior-impacto-primeiro (1, 2 e 4 destravam mais).
+
+---
+
+### 8. `moveWindow`/`set_outer_position` só aplica DEPOIS do loop começar
+- **Não é bug — é timing do winit:** chamar `app.moveTo(x,y)` ANTES do primeiro
+  `beginFrame`/`pump` não reposiciona a janela (o event loop ainda não rodou).
+- **Workaround:** chamar `moveTo` DENTRO do loop, após alguns frames
+  (`if (frameCount() > 2)`), uma vez.
+- **Motor/backend poderia:** aplicar a posição pendente no primeiro pump, ou expor
+  posição inicial no `openWindow`.

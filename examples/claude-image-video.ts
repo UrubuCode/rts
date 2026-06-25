@@ -8,7 +8,6 @@ import buffer from "rts:buffer";
 //   target/release/rts.exe run examples/claude-image-video.ts
 
 const app = createApp("render.image (video procedural)", 480, 420);
-app.moveTo(2000, 200);
 
 // imagem pequena (o TS gera os pixels). RGBA8, linha-major.
 const IW = 96;
@@ -17,9 +16,16 @@ const buf = buffer.alloc(IW * IH * 4);
 const ptr = buffer.ptr(buf);
 
 let t = 0;
+let moved = 0;
 
 while (app.running()) {
   if (!app.beginFrame()) break;
+  // move pra TELA 2 apos a janela existir (winit so aplica set_outer_position
+  // depois do event loop rodar; chamar antes do 1o frame nao pega).
+  if (moved === 0 && app.frameCount() > 2) {
+    app.moveTo(2200, 450); // centro da tela 2 (monitor left=1920, top=313)
+    moved = 1;
+  }
   app.fillRect(0, 0, 480, 420, 0x0E1218FF);
   app.text(16, 12, "Video procedural via render.image", 0xB0B8C0FF, 15);
 
