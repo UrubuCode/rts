@@ -17,6 +17,11 @@ use std::cell::RefCell;
 pub mod abi;
 pub use abi::{register, register_input};
 
+/// Prelude `.ts` da fachada ERGONÔMICA `rts:canvas` — UI imediata (Canvas com
+/// rect/text/button) sobre a interface abstrata `render.*`/`input.*`, FORA do
+/// DOM. Incluído via `Engine::include` DEPOIS dos namespaces render/input.
+pub const CANVAS_TS: &str = include_str!("canvas.ts");
+
 /// Flags de estilo de texto (bitmask) — casam com `block::FLAG_*` do `rts-dom`.
 pub const TEXT_BOLD: i64 = 1;
 pub const TEXT_ITALIC: i64 = 2;

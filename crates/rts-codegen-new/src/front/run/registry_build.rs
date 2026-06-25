@@ -187,6 +187,9 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
     // DOM facade — `Document`/`Element` classes (browser-named API) over the `rts:dom`
     // primitives. AFTER the namespaces register (the `dom.*` it calls must exist).
     PreludeTs { label: "DOM facade", source: ns::dom::DOM_TS, why: "document/Element over rts:dom" },
+    // Canvas facade — ergonomic immediate-mode UI (Canvas: rect/text/button) over
+    // the abstract render.*/input.* (NO DOM). AFTER render/input register.
+    PreludeTs { label: "Canvas facade", source: ns::render::CANVAS_TS, why: "rts:canvas immediate UI over render.*" },
     // The rts:test FRAMEWORK — LAST, so its Matcher/describe/test see every primordial.
     PreludeTs { label: "rts:test", source: rts_runtime::namespaces::test::BUNDLE_TS, why: "describe/test/expect/Matcher" },
 ];
