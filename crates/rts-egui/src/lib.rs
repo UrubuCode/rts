@@ -177,6 +177,14 @@ pub fn register(e: &mut Engine) {
             widgets::__RTS_FN_NS_EGUI_DEFINE_BLOCK as *const u8,
         ))
         .member(func(
+            "defineStyle",
+            "__RTS_FN_NS_EGUI_DEFINE_STYLE",
+            Sig::new(vec![AbiType::StrPtr, I64, I64], AbiType::Void),
+            "defineStyle(tag: string, slot: number, val: number): void",
+            "Registers one opaque style slot for a tag (0=color 1=bg 2=font_size; color/bg as 0xRRGGBBAA u32). The TS maps CSS-name->slot; Rust never matches a CSS string. Accumulates per tag.",
+            widgets::__RTS_FN_NS_EGUI_DEFINE_STYLE as *const u8,
+        ))
+        .member(func(
             "defineInline",
             "__RTS_FN_NS_EGUI_DEFINE_INLINE",
             Sig::new(vec![AbiType::StrPtr, I64], AbiType::Void),

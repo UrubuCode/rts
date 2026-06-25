@@ -38,6 +38,34 @@ pub const SLOT_COLOR: i64 = 0;
 pub const SLOT_BG: i64 = 1;
 pub const SLOT_FONT_SIZE: i64 = 2;
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+thread_local! {
+    /// Mapa `tag → ComputedStyle`, povoado pelo TS via `defineStyle(tag, slot, val)`.
+    /// É o estilo POR-TAG (uma UA-stylesheet de estilo, paralela ao `block::BLOCKS`
+    /// de layout). O render consulta `lookup_style(tag)` e aplica antes do
+    /// `style=""` inline do nó. Vazio até o TS registrar.
+    static STYLES: RefCell<HashMap<String, ComputedStyle>> = RefCell::new(HashMap::new());
+}
+
+/// Registra/atualiza UM slot de estilo de uma TAG (primitivo `defineStyle`).
+/// ACUMULA: chamar com slots diferentes na mesma tag mantém os anteriores
+/// (`defineStyle("h1",0,cor)` + `defineStyle("h1",2,tam)` → cor E tamanho). O
+/// `(slot, val)` é opaco (invariante 4); o Rust nunca vê o nome CSS.
+pub fn define_style(tag: &str, slot: i64, val: i64) {
+    STYLES.with(|m| {
+        let mut m = m.borrow_mut();
+        let entry = m.entry(tag.to_ascii_lowercase()).or_default();
+        entry.apply_slot(slot, val);
+    });
+}
+
+/// Consulta o `ComputedStyle` registrado de uma TAG. `None` ⇒ sem estilo de tag.
+pub fn lookup_style(tag: &str) -> Option<ComputedStyle> {
+    STYLES.with(|m| m.borrow().get(tag).copied())
+}
+
 impl ComputedStyle {
     /// Aplica um par `(slot, val)` OPACO (invariante 4). O `val` é interpretado
     /// conforme o slot: cor/bg = `u32` RGBA; font_size = pontos (o `i64` vira
@@ -227,5 +255,18 @@ mod tests {
         // A cor é u32; o teste compila SÓ se ComputedStyle for egui-free.
         let s = ComputedStyle { color: Some(0xAABBCCFF), ..Default::default() };
         let _raw: Option<u32> = s.color; // se fosse Color32, isto não compilaria.
+    }
+
+    #[test]
+    fn define_style_acumula_por_tag() {
+        // F1: defineStyle por slot OPACO acumula na mesma tag (cor + tamanho).
+        // (thread_local — usa uma tag única pra não colidir com outros testes.)
+        define_style("h1_acum", SLOT_COLOR, 0x0088FFFF);
+        define_style("h1_acum", SLOT_FONT_SIZE, 28);
+        let s = lookup_style("h1_acum").expect("tag registrada");
+        assert_eq!(s.color, Some(0x0088FFFF));
+        assert_eq!(s.font_size, Some(28.0));
+        // tag não registrada → None.
+        assert_eq!(lookup_style("tag_inexistente_xyz"), None);
     }
 }
