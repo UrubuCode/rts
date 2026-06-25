@@ -69,15 +69,17 @@ fn render_block(
     index: &mut usize,
 ) {
     use crate::dom::NodeKind;
+    // `tag` fica emprestado da arena (sem `.clone()`): só é lido por `block::lookup`
+    // logo abaixo e não sobrevive a este escopo. O `dom` é read-only no render.
     let tag = match &dom.node(id).kind {
-        NodeKind::Element { tag } => tag.clone(),
+        NodeKind::Element { tag } => tag.as_str(),
         // Texto solto / não-elemento no nível de bloco: emite inline direto.
         _ => return render_inline(ui, dom, id, InlineStyle::default()),
     };
 
     // Tag sem layout de bloco registrado ⇒ inline transparente (default seguro,
     // igual a uma tag desconhecida): preserva o texto dos filhos.
-    let Some(def) = crate::block::lookup(&tag) else {
+    let Some(def) = crate::block::lookup(tag) else {
         return render_inline(ui, dom, id, InlineStyle::default());
     };
 
