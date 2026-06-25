@@ -376,3 +376,12 @@ function createApp(title: string, w: number, h: number): App {
   const win = egui.openWindow(title, w, h, 0);
   return new App(win);
 }
+
+/// `createAppAt(title, w, h, x, y)` — como `createApp`, mas a janela NASCE na
+/// posição absoluta `(x,y)` (pixels do desktop) — escolher o monitor de forma
+/// confiável (a janela já abre lá, sem mover depois).
+function createAppAt(title: string, w: number, h: number, x: number, y: number): App {
+  egui.setNextWindowPos(x, y);
+  const win = egui.openWindow(title, w, h, 0);
+  return new App(win);
+}

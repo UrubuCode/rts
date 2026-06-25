@@ -131,11 +131,17 @@ fn build(
     }
 
     // Caminho wgpu (default).
-    let attrs = Window::default_attributes()
+    let mut attrs = Window::default_attributes()
         .with_title(title)
         .with_inner_size(LogicalSize::new(width as f64, height as f64))
         .with_transparent(chrome.transparent)
         .with_decorations(chrome.decorations);
+    // Posição INICIAL pendente (setada pelo TS via `setNextWindowPos`): a janela
+    // NASCE ali — bem mais confiável que mover depois (winit aplica
+    // set_outer_position só após o loop rodar e pode reverter).
+    if let Some((px, py)) = NEXT_POS.with(|p| p.borrow_mut().take()) {
+        attrs = attrs.with_position(winit::dpi::PhysicalPosition::new(px, py));
+    }
     let window = event_loop
         .create_window(attrs)
         .map_err(|e| format!("create_window: {e}"))?;
@@ -304,6 +310,21 @@ pub extern "C" fn __RTS_FN_NS_EGUI_PUMP(h: u64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_EGUI_IS_OPEN(h: u64) -> i64 {
     ctx::with_ctx(h, |c| if c.open { 1 } else { 0 }).unwrap_or(0)
+}
+
+thread_local! {
+    /// Posição INICIAL pendente p/ a PRÓXIMA janela criada (setada por
+    /// `setNextWindowPos`). Consumida no `build` via `with_position` — a janela
+    /// nasce ali. `None` = posição default do SO.
+    static NEXT_POS: std::cell::RefCell<Option<(i32, i32)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Define a posição INICIAL (pixels físicos do desktop) da PRÓXIMA janela criada
+/// por `openWindow`. Chame ANTES de `openWindow` para a janela já nascer no
+/// monitor desejado (mais confiável que `moveWindow` depois).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_SET_NEXT_POS(x: i64, y: i64) {
+    NEXT_POS.with(|p| *p.borrow_mut() = Some((x as i32, y as i32)));
 }
 
 /// Move a janela para a posição ABSOLUTA `(x, y)` na área de trabalho virtual

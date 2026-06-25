@@ -106,6 +106,14 @@ pub fn register(e: &mut Engine) {
             "Moves the window to absolute desktop position (x,y) in physical pixels — pick a monitor (e.g. x >= primary width = secondary screen).",
             app::__RTS_FN_NS_EGUI_MOVE_WINDOW as *const u8,
         ))
+        .member(func(
+            "setNextWindowPos",
+            "__RTS_FN_NS_EGUI_SET_NEXT_POS",
+            Sig::new(vec![I64, I64], AbiType::Void),
+            "setNextWindowPos(x: number, y: number): void",
+            "Sets the INITIAL position of the NEXT openWindow (physical px) — the window is born there. Call BEFORE openWindow; more reliable than moveWindow.",
+            app::__RTS_FN_NS_EGUI_SET_NEXT_POS as *const u8,
+        ))
         // ── Teste visual headless ──────────────────────────────────────────────
         .member(func(
             "snapshot",
