@@ -4,7 +4,7 @@
 //   target/release/rts.exe run examples/claude-tabs.ts
 
 const app = createApp("Tabs + layout automatico", 460, 380);
-app.moveTo(2200, 360);
+app.moveTo(2560, 120);
 
 let activeTab = 0;       // qual aba está selecionada
 let counter = 0;

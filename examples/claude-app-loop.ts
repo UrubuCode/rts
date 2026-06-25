@@ -5,7 +5,7 @@
 //   target/release/rts.exe run examples/claude-app-loop.ts
 
 const app = createApp("App loop base (delta time)", 480, 320);
-app.moveTo(2200, 400); // tela 2
+app.moveTo(2000, 580); // tela 2
 
 // estado da bolinha (module-level — captura segura)
 let x = 60;

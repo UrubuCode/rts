@@ -271,6 +271,12 @@ fn drenar(
                     egui::Stroke::new(*w, rgba32(*color)),
                 );
             }
+            WidgetCmd::DrawImage { x, y, w, h, tex } => {
+                let rect = egui::Rect::from_min_size(egui::pos2(*x, *y), egui::vec2(*w, *h));
+                // `image` mapeia a textura inteira (uv 0..1) escalada no retângulo.
+                let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+                ui.painter().image(tex.id(), rect, uv, egui::Color32::WHITE);
+            }
         }
     }
 }

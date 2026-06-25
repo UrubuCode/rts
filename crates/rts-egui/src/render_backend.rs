@@ -63,6 +63,37 @@ impl Renderer for EguiRenderer {
         text.chars().count() as f32 * size * 0.52
     }
 
+    fn image(
+        &self,
+        target: u64,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        pixels: *const u8,
+        img_w: u32,
+        img_h: u32,
+    ) {
+        // Copia os bytes RGBA do ponteiro para um ColorImage, sobe como textura
+        // EFÊMERA (carregada por frame; egui descarta no fim) e pinta no retângulo.
+        let n = (img_w as usize) * (img_h as usize) * 4;
+        let bytes = unsafe { std::slice::from_raw_parts(pixels, n) };
+        let color_image =
+            egui::ColorImage::from_rgba_unmultiplied([img_w as usize, img_h as usize], bytes);
+        ctx::with_ctx(target, |c| {
+            if !c.frame_active {
+                return;
+            }
+            // textura efêmera (nome único por frame evita reuso de cache stale).
+            let tex = c.egui_ctx.load_texture(
+                format!("__rts_img_{}", c.cmds.len()),
+                color_image,
+                egui::TextureOptions::LINEAR,
+            );
+            c.cmds.push(WidgetCmd::DrawImage { x, y, w, h, tex });
+        });
+    }
+
     fn end_frame(&self, target: u64) {
         crate::frame::__RTS_FN_NS_EGUI_END_FRAME(target);
     }

@@ -108,6 +108,9 @@ pub enum WidgetCmd {
     DrawText { x: f32, y: f32, text: String, color: u32, size: f32, flags: i64 },
     /// Linha de `(x1,y1)` a `(x2,y2)`, espessura `w`, cor RGBA.
     DrawLine { x1: f32, y1: f32, x2: f32, y2: f32, w: f32, color: u32 },
+    /// Imagem (bitmap RGBA já subido como textura egui) escalada no retângulo
+    /// `(x,y,w,h)`. Base de vídeo/imagem/viewport — o TS entrega os frames.
+    DrawImage { x: f32, y: f32, w: f32, h: f32, tex: egui::TextureHandle },
 }
 
 /// Estado completo de uma janela GUI. Tudo `!Send` (winit/wgpu/egui::Context).

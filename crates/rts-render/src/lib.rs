@@ -58,6 +58,23 @@ pub trait Renderer {
     /// Largura do texto na fonte real, em pontos. A ÚNICA op que o layout precisa
     /// CONSULTAR (medir exige a fonte; o TS não tem). Síncrona.
     fn measure_text(&self, target: u64, text: &str, size: f32, bold: bool) -> f32;
+    /// Desenha uma IMAGEM (bitmap RGBA8) no retângulo `(x,y,w,h)`. `pixels` aponta
+    /// para `img_w * img_h * 4` bytes (RGBA, linha-major); o backend sobe como
+    /// textura e escala para o retângulo. É a base de vídeo/imagem/viewport: o TS
+    /// gera/decodifica os frames e os entrega aqui. `pixels` válido só durante a
+    /// chamada (o backend copia o que precisa).
+    #[allow(clippy::too_many_arguments)]
+    fn image(
+        &self,
+        target: u64,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        pixels: *const u8,
+        img_w: u32,
+        img_h: u32,
+    );
     /// Fecha + apresenta o frame.
     fn end_frame(&self, target: u64);
 }

@@ -4,7 +4,7 @@
 //   target/release/rts.exe run examples/claude-components.ts
 
 const app = createApp("Componentes (UI imediata sobre render.*)", 520, 420);
-app.moveTo(2200, 360);
+app.moveTo(2000, 120);
 
 // estado da UI (module-level — o dev guarda; UI imediata não guarda)
 let counter = 0;
