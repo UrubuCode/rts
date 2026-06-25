@@ -118,3 +118,22 @@ maior-impacto-primeiro (1, 2 e 4 destravam mais).
 - **Workaround/regra:** retornos de STRING usam `AbiType::Handle` explícito (mesmo
   que os ARGS de handle-de-recurso usem o alias `U64`). Já corrigido em getText/
   getAttribute/tagName (rts-dom) e textInput (rts-render).
+
+---
+
+### 10. namespace `rts:audio` NÃO está wired no motor novo (símbolo ausente no JIT)
+- **Falha:** `import audio from "rts:audio"; audio.openOutput(...)` → "no matching
+  namespace function (bare rts namespace-object imports + unknown members are not
+  wired)". Vale p/ TODOS os membros do audio.
+- **Causa:** o engine de áudio EXISTE e é completo (`rts-std/src/audio`, cpal:
+  openOutput/write/close/sampleRate/channels/masterVolume/availableFrames/...) e
+  está no REGISTER (`registry_build.rs:92`), MAS os fn-ptrs não chegam à tabela
+  de símbolos do JIT (`adapter_symbols`) — o `register` parece não ser
+  harvestado. (Mesmo sintoma apareceu testando isoladamente console.log/print
+  fora do prelude — o wiring de import de namespace tem casos não cobertos.)
+- **O que falta no motor:** conectar o namespace audio ao JIT (harvest dos
+  __RTS_FN_NS_AUDIO_* no adapter_symbols, como os outros namespaces que funcionam:
+  buffer/time/math). Tarefa de MOTOR, não de UI.
+- **Impacto:** som no jogo (bipe ao bater a bola) fica bloqueado até esse wiring.
+  O modelo desejado (TS gera samples f32 num buffer → audio.write) está pronto do
+  lado do runtime; falta só o engine expor.
