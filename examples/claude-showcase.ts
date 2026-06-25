@@ -85,12 +85,17 @@ while (app.running()) {
     if (t > 100000) t = 0;
 
   } else if (activeTab === 2) {
-    // ANIMACAO — bolinha quicando com delta time
+    // ANIMACAO — bolinha quicando com delta time. Area: x[60..500] y[90..430],
+    // raio 20 => centro fica em [80..480] x [110..410].
     app.text(28, 60, "Animacao por delta time (independe do FPS). dt=" + dt + "ms", 0xC0C8D0FF, 14);
     bx = bx + vx * dt;
     by = by + vy * dt;
-    if (bx < 60 + 20 || bx > 500 - 20) vx = 0 - vx;
-    if (by < 90 + 20 || by > 430 - 20) vy = 0 - vy;
+    // ao bater, CLAMPA a posicao na borda E inverte a velocidade (sem clamp a
+    // bolinha penetra com dt grande, inverte, e fica presa/escapa).
+    if (bx < 80) { bx = 80; vx = 0 - vx; }
+    if (bx > 480) { bx = 480; vx = 0 - vx; }
+    if (by < 110) { by = 110; vy = 0 - vy; }
+    if (by > 410) { by = 410; vy = 0 - vy; }
     app.box(60, 90, 440, 340, 0x10161EFF, 1, 0x33445566 & 0xFFFFFFFF, 8);
     app.box(bx - 20, by - 20, 40, 40, 0xFF8800FF, 0, 0, 20);
 
