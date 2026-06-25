@@ -13,6 +13,9 @@ edition = "2024"
 
 [dependencies]
 rts-engine = { path = "../rts-engine" }
+# DOM retido: o egui CONSOME o tipo `Dom` do crate `rts-dom` (parser + árvore +
+# NodeId) e só adiciona o RENDER. O DOM não vive mais aqui.
+rts-dom = { path = "../rts-dom" }
 
 # egui/egui-winit SEM default-features: cortamos accesskit (a11y, traz toda uma
 # árvore), serde, etc. — não usamos no PoC.

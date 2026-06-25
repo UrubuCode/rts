@@ -1,0 +1,19 @@
+[package]
+name = "rts-dom"
+version = "0.1.0"
+edition = "2024"
+
+# DOM retido (árvore de elementos HTML) — estrutura de dados PURA, independente de
+# render/janela. Parser HTML mínimo (tokenizer + árvore em arena), NodeId
+# versionado {gen,idx}, query por tag/#id/.classe (índices O(1)), mutação.
+#
+# DOUTRINA: este crate NÃO conhece egui/winit/wgpu nem nenhum backend de UI. Ele
+# expõe PRIMITIVOS via ABI de handles u64 (extern "C") através de `register`; o
+# `rts-egui` (e qualquer outro consumidor) leem a árvore. A camada de alto nível
+# (Document/Element ergonômico) vive em TS. Ver docs/specs/rts-dom-crate-design.md.
+#
+# Depende SÓ de rts-engine (Engine/Registry/AbiType + HandleTable), como rts-egui.
+# wasm-safe (sem I/O, sem threads de plataforma).
+
+[dependencies]
+rts-engine = { path = "../rts-engine" }

@@ -3750,6 +3750,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rts-dom"
+version = "0.1.0"
+dependencies = [
+ "rts-engine",
+]
+
+[[package]]
 name = "rts-egui"
 version = "0.1.0"
 dependencies = [
@@ -3762,6 +3769,7 @@ dependencies = [
  "glutin-winit",
  "pollster",
  "raw-window-handle",
+ "rts-dom",
  "rts-engine",
  "wgpu",
  "winit",
@@ -3849,6 +3857,7 @@ dependencies = [
 name = "rts-runtime"
 version = "0.1.0"
 dependencies = [
+ "rts-dom",
  "rts-egui",
  "rts-engine",
  "rts-napi",

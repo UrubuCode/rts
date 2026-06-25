@@ -11,6 +11,11 @@ pub use rts_shared::alloc;
 pub use rts_std::audio;
 #[cfg(feature = "asio")]
 pub use rts_std::asio_audio;
+/// `dom` — DOM retido HEADLESS (parser HTML + árvore + query/mutação) na crate
+/// separada `rts-dom`, sem UI. Resolve via Registry: `ns::dom::register`.
+/// `import { parseHtml } from "rts:dom"`. O `rts-egui` consome o tipo `Dom`
+/// direto (não pela ABI). Ver docs/specs/rts-dom-crate-design.md.
+pub use rts_dom as dom;
 /// `egui` — GUI imediata (egui) na crate separada `rts-egui` (como `napi`).
 /// Resolve via Registry: `ns::egui::register`. `import { Window } from "rts:egui"`.
 /// Ver docs/specs/egui-ui-crate-design.md.

@@ -21,16 +21,18 @@ use AbiType::{F64, I64, U64};
 mod ctx;
 mod app;
 mod block;
-mod dom;
 mod frame;
 #[cfg(feature = "glow-backend")]
 mod glbackend;
-mod html;
 mod style;
 mod widgets;
 
+// O DOM (árvore + parser + NodeId) vive no crate `rts-dom`; o egui o CONSUME.
+// `dom` aqui é um alias para reuso interno (`crate::dom::Dom` segue válido nos
+// módulos de render/ctx/widgets sem mudar cada call site).
+pub(crate) use rts_dom as dom;
+
 pub use app::*;
-pub use dom::*;
 pub use frame::*;
 pub use widgets::*;
 

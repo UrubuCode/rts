@@ -90,6 +90,9 @@ pub(super) static REGISTER: &[Register] = &[
     // `audio` — cross-platform audio backend; metadata-only wiring, engine never
     // NAMES the surface (resolves via Registry). `asio_audio` stays feature-gated.
     Register { label: "audio", run: ns::audio::register, why: "rts:audio device I/O" },
+    // `dom` — DOM retido HEADLESS na crate `rts-dom`. Engine NUNCA nomeia `dom`;
+    // resolve via Registry. parseHtml/querySelector/setText sem janela.
+    Register { label: "dom", run: ns::dom::register, why: "rts:dom headless DOM primitives" },
     // `egui` — GUI imediata na crate `rts-egui`. Engine NUNCA nomeia `egui`;
     // resolve via Registry. Loop dirigido pelo TS. Ver egui-ui-crate-design.md.
     Register { label: "egui", run: ns::egui::register, why: "rts:egui GUI primitives" },
