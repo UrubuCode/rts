@@ -481,7 +481,11 @@ pub fn register_input(e: &mut Engine) {
         .member(func(
             "textInput",
             "__RTS_FN_NS_INPUT_TEXT",
-            Sig::new(vec![Handle], Handle),
+            // Retorno `AbiType::Handle` EXPLÍCITO (não o alias `U64 as Handle`): só
+            // `Handle` literal + ts `: string` faz o motor reboxar como TAG_STR
+            // (string usável no TS). Com o alias `U64` reboxava como INTEIRO CRU —
+            // era o bug "dados de ponteiros no campo de texto".
+            Sig::new(vec![Handle], AbiType::Handle),
             "textInput(target: number): string",
             "Text typed this frame (UTF-8), empty if none.",
             __RTS_FN_NS_INPUT_TEXT as *const u8,

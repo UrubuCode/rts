@@ -103,3 +103,18 @@ maior-impacto-primeiro (1, 2 e 4 destravam mais).
   (`if (frameCount() > 2)`), uma vez.
 - **Motor/backend poderia:** aplicar a posição pendente no primeiro pump, ou expor
   posição inicial no `openWindow`.
+
+---
+
+### 9. Retorno de string da ABI: usar `AbiType::Handle` LITERAL, não o alias `U64`
+- **Falha:** uma fn que retorna string (handle GC) declarada com `Sig::new(..,
+  Handle)` onde `Handle` é um alias local `U64 as Handle` → o TS recebe o NÚMERO
+  do handle cru ("dados de ponteiros"), não a string. `typeof` = "number".
+- **Onde:** `input.textInput` (e qualquer getter de string nova num crate que usa
+  o alias `U64 as Handle` pros handles de recurso).
+- **Causa:** o motor só reboxa o retorno como `TAG_STR` quando é `AbiType::Handle`
+  LITERAL **E** o `ts_signature` termina em `: string`. O alias `U64` cai no ramo
+  inteiro-cru.
+- **Workaround/regra:** retornos de STRING usam `AbiType::Handle` explícito (mesmo
+  que os ARGS de handle-de-recurso usem o alias `U64`). Já corrigido em getText/
+  getAttribute/tagName (rts-dom) e textInput (rts-render).
