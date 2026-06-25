@@ -20,9 +20,13 @@ const app = createAppAt("Pong com IA — menu/config/jogo", W, H, 2100, 360);
 // do ring (available_frames) com os samples daquele intervalo — áudio anda JUNTO
 // com o vídeo. E MIXA (soma) música + efeitos no mesmo sample (não enfileira, não
 // corta). O callback cpal (thread RT própria) consome o ring; o jogo o alimenta.
-const SR = 44100;
-const dev = audio.open_output(SR, 1, SR);
-const chunkBuf = buffer.alloc(SR * 4); // buffer de trabalho (até 1s de samples)
+// abre o device e LÊ os valores REAIS (o device dita: ex. 48000Hz, 2 canais — não
+// o que pedimos). Gerar mono num device estéreo desalinha tudo (era o bug do "sem
+// som"). Geramos por canal: cada FRAME escreve CH samples intercalados (L,R,...).
+const dev = audio.open_output(48000, 2, 48000);
+const SR = audio.sample_rate(dev);
+const CH = audio.channels(dev);
+const chunkBuf = buffer.alloc(SR * CH * 4); // 1s de frames (todos os canais)
 
 // RELÓGIO de áudio: quantos samples já geramos (avança o tempo da música).
 let aClock = 0;
@@ -37,7 +41,10 @@ let musicOn = 1;
 let sfxPaddle = 0;  // samples restantes do bipe da raquete
 let sfxWall = 0;
 let sfxScore = 0;
+let sfxHover = 0;   // tique de hover nos botões
 const sfxLen = 3000; // duração de um efeito (~0.07s)
+const hoverLen = 1500; // tique de hover mais curto
+let lastHover = -1;  // qual botão estava sob o mouse no frame anterior (transição)
 
 // ── ESTADO DE TELA (máquina de estados) ──────────────────────────────────────
 // 0 = MENU, 1 = CONFIG, 2 = JOGO
@@ -96,13 +103,13 @@ while (app.running()) {
   // Preenche o espaço livre do ring (available_frames) com samples MIXADOS: música
   // (acorde da progressão, pela posição de aClock) + efeitos ativos (somados). Como
   // só geramos o que cabe, áudio e vídeo andam juntos.
-  let free = audio.available_frames(dev);
+  let free = audio.available_frames(dev); // FRAMES livres (não samples)
   if (free > SR) free = SR;          // no máx 1s por frame (tamanho do chunkBuf)
   if (free > 0) {
     const tp = 6.283185307;
     let j = 0;
     while (j < free) {
-      const gt = aClock + j;          // índice global deste sample
+      const gt = aClock + j;          // índice global deste FRAME
       let s = 0.0;
 
       // MÚSICA: qual acorde? (posição contínua na progressão de 4 acordes)
@@ -133,11 +140,17 @@ while (app.running()) {
       if (sfxPaddle > 0) { s = s + math.sin(tp * 660 * et) * 0.22 * (sfxPaddle / sfxLen); sfxPaddle = sfxPaddle - 1; }
       if (sfxWall > 0)   { s = s + math.sin(tp * 330 * et) * 0.22 * (sfxWall / sfxLen);   sfxWall = sfxWall - 1; }
       if (sfxScore > 0)  { s = s + math.sin(tp * 220 * et) * 0.25 * (sfxScore / sfxLen);  sfxScore = sfxScore - 1; }
+      if (sfxHover > 0)  { s = s + math.sin(tp * 880 * et) * 0.15 * (sfxHover / hoverLen); sfxHover = sfxHover - 1; }
 
-      buffer.write_f32(chunkBuf, j * 4, s);
+      // escreve o MESMO sample nos CH canais (intercalado L,R): índice = j*CH + c
+      let c = 0;
+      while (c < CH) {
+        buffer.write_f32(chunkBuf, (j * CH + c) * 4, s);
+        c = c + 1;
+      }
       j = j + 1;
     }
-    audio.write(dev, chunkBuf, free);
+    audio.write(dev, chunkBuf, free * CH); // n_samples = frames * canais
     aClock = aClock + free;
   }
 
@@ -166,6 +179,14 @@ while (app.running()) {
     app.box(bxm, 338, bw, 50, c3, 2, 0xCC6677FF, 10);
     app.text(W / 2 - 28, 352, "Sair", 0xFFFFFFFF, 20);
     if (s3 === 3) { app.close(); break; }
+
+    // SOM DE HOVER: tique quando o mouse ENTRA num botão (transição, não todo frame)
+    let curHover = -1;
+    if (s1 === 1 || s1 === 2) curHover = 10;
+    if (s2 === 1 || s2 === 2) curHover = 11;
+    if (s3 === 1 || s3 === 2) curHover = 12;
+    if (curHover !== lastHover && curHover !== -1) { sfxHover = hoverLen; }
+    lastHover = curHover;
 
   } else if (screen === 1) {
     // ══ CONFIG ═════════════════════════════════════════════════════════════════
