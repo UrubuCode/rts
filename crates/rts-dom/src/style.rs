@@ -52,6 +52,60 @@ impl ComputedStyle {
             || self.border_width.is_some()
             || self.corner_radius.is_some()
     }
+
+    /// Sobrepõe as propriedades `Some` de `other` sobre `self` (precedência CSS:
+    /// `other` vence onde está setado; `None` mantém `self`). Usado para o
+    /// `style=""` inline cair sobre o estilo-de-tag.
+    pub fn merge_over(&mut self, other: &ComputedStyle) {
+        if other.color.is_some() {
+            self.color = other.color;
+        }
+        if other.bg.is_some() {
+            self.bg = other.bg;
+        }
+        if other.font_size.is_some() {
+            self.font_size = other.font_size;
+        }
+        if other.bold.is_some() {
+            self.bold = other.bold;
+        }
+        if other.italic.is_some() {
+            self.italic = other.italic;
+        }
+        if other.padding.is_some() {
+            self.padding = other.padding;
+        }
+        if other.margin.is_some() {
+            self.margin = other.margin;
+        }
+        if other.border_width.is_some() {
+            self.border_width = other.border_width;
+        }
+        if other.border_color.is_some() {
+            self.border_color = other.border_color;
+        }
+        if other.corner_radius.is_some() {
+            self.corner_radius = other.corner_radius;
+        }
+    }
+
+    /// Lê o valor de um SLOT opaco como `i64`, ou `-1` se não-setado. Cores/dims
+    /// retornam o `u32`/pontos diretamente. É como o LAYOUT (em TS) lê o estilo
+    /// computado de um nó via a ABI `rts:dom` (`nodeStyleSlot`).
+    pub fn slot_value(&self, slot: i64) -> i64 {
+        let dim = |o: Option<f32>| o.map(|v| v as i64).unwrap_or(-1);
+        match slot {
+            SLOT_COLOR => self.color.map(|c| c as i64).unwrap_or(-1),
+            SLOT_BG => self.bg.map(|c| c as i64).unwrap_or(-1),
+            SLOT_FONT_SIZE => dim(self.font_size),
+            SLOT_PADDING => dim(self.padding),
+            SLOT_MARGIN => dim(self.margin),
+            SLOT_BORDER_WIDTH => dim(self.border_width),
+            SLOT_BORDER_COLOR => self.border_color.map(|c| c as i64).unwrap_or(-1),
+            SLOT_CORNER_RADIUS => dim(self.corner_radius),
+            _ => -1,
+        }
+    }
 }
 
 // ── Slots numéricos opacos (invariante 4) ──────────────────────────────────────

@@ -325,6 +325,37 @@ impl Dom {
         self.nodes[idx].children.push(child);
     }
 
+    /// Resolve o `ComputedStyle` de um nó: estilo-de-TAG (`defineStyle`) com o
+    /// `style=""` inline sobreposto. É o estado que o LAYOUT (em TS) lê para
+    /// decidir cor/caixa/tamanho. `None` se o id não resolve ou não é elemento.
+    /// (Mesma precedência do render: herdado < tag < inline; a herança é aplicada
+    /// pelo layout, aqui só o estilo PRÓPRIO do nó.)
+    pub fn computed_style(&self, id: NodeId) -> Option<crate::style::ComputedStyle> {
+        let idx = self.resolve(id)?;
+        let tag = match &self.nodes[idx].kind {
+            NodeKind::Element { tag } => tag.as_str(),
+            _ => return None,
+        };
+        let mut css = crate::style::lookup_style(tag).unwrap_or_default();
+        if let Some(s) = self.nodes[idx].attr("style") {
+            let inline = crate::style::parse_inline(s);
+            css.merge_over(&inline);
+        }
+        Some(css)
+    }
+
+    /// O código de `display` de um nó (do `BlockDef` registrado p/ a tag), ou
+    /// `-1` se a tag não tem layout de bloco (inline/desconhecida).
+    pub fn display_of(&self, id: NodeId) -> i64 {
+        let Some(idx) = self.resolve(id) else { return -1 };
+        match &self.nodes[idx].kind {
+            NodeKind::Element { tag } => {
+                crate::block::lookup(tag).map(|d| d.display).unwrap_or(-1)
+            }
+            _ => -1,
+        }
+    }
+
     /// Concatena o texto de TODOS os descendentes de `id`, em ordem de documento
     /// (`element.textContent` getter). `None` se o id não resolve nesta árvore.
     /// Num nó de texto, retorna o próprio texto.

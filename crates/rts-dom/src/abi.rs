@@ -246,6 +246,25 @@ pub extern "C" fn __RTS_FN_NS_DOM_CHILD_AT(h: u64, id: i64, index: i64) -> i64 {
     .unwrap_or(NODE_NONE)
 }
 
+/// `nodeStyleSlot(domHandle, node, slot)` → valor (`i64`) do SLOT de estilo do nó
+/// (estilo-de-tag + `style=""` inline resolvidos), ou `-1` se não-setado/inválido.
+/// É como o LAYOUT (em TS) lê o estilo computado de cada nó. Slots: 0=color 1=bg
+/// 2=font_size 3=padding 4=margin 5=border_width 6=border_color 7=corner_radius.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_NODE_STYLE_SLOT(h: u64, id: i64, slot: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return -1 };
+    with(h, |dom| dom.computed_style(node).map(|s| s.slot_value(slot)).unwrap_or(-1)).unwrap_or(-1)
+}
+
+/// `displayOf(domHandle, node)` → o código de `display` do nó (0=vertical 1=wrap
+/// 2=horizontal 3=grid), ou `-1` se a tag não é bloco (inline/desconhecida). O
+/// LAYOUT (em TS) usa isso para decidir o eixo de empilhamento.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_DISPLAY_OF(h: u64, id: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return -1 };
+    with(h, |dom| dom.display_of(node)).unwrap_or(-1)
+}
+
 // ── defineStyle / defineBlock / defineInline (estado de estilo/layout no rts-dom) ─
 // Hoje há cópias destes na ABI do `rts-egui`; o ESTADO (style::STYLES,
 // block::BLOCKS/INLINES) migrou pra cá, então a fachada DOM headless também os
@@ -480,6 +499,23 @@ pub fn register(e: &mut Engine) {
             "childAt(dom: number, node: number, index: number): number",
             "The NodeId of the index-th element child, or -1 if out of range. Extract to a const before comparing.",
             __RTS_FN_NS_DOM_CHILD_AT as *const u8,
+        ))
+        // ── Estilo computado por nó (o LAYOUT em TS lê isto) ─────────────────────
+        .member(func(
+            "nodeStyleSlot",
+            "__RTS_FN_NS_DOM_NODE_STYLE_SLOT",
+            Sig::new(vec![Handle, I64, I64], I64),
+            "nodeStyleSlot(dom: number, node: number, slot: number): number",
+            "Computed style slot value of a node (tag-style + inline), or -1 if unset. Slots 0=color 1=bg 2=font_size 3=padding 4=margin 5=border_width 6=border_color 7=corner_radius. The TS layout engine reads this.",
+            __RTS_FN_NS_DOM_NODE_STYLE_SLOT as *const u8,
+        ))
+        .member(func(
+            "displayOf",
+            "__RTS_FN_NS_DOM_DISPLAY_OF",
+            Sig::new(vec![Handle, I64], I64),
+            "displayOf(dom: number, node: number): number",
+            "Display code of a node (0=vertical 1=wrap 2=horizontal 3=grid), or -1 if not a block tag. The TS layout engine reads this to choose the stacking axis.",
+            __RTS_FN_NS_DOM_DISPLAY_OF as *const u8,
         ))
         // ── defineStyle / defineBlock / defineInline (estilo/layout por-tag) ─────
         .member(func(
