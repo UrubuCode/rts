@@ -15,7 +15,7 @@
 use std::cell::RefCell;
 
 pub mod abi;
-pub use abi::register;
+pub use abi::{register, register_input};
 
 /// Flags de estilo de texto (bitmask) — casam com `block::FLAG_*` do `rts-dom`.
 pub const TEXT_BOLD: i64 = 1;
@@ -57,11 +57,33 @@ pub trait Renderer {
     fn end_frame(&self, target: u64);
 }
 
+/// O contrato de ENTRADA: o backend CAPTA o input cru (tem a janela; o SO entrega
+/// a ele) e o reporta SEM interpretar. Modelo POLLING — o DOM/layout pergunta o
+/// estado a cada frame e faz o hit-test/dispatch dos eventos (o backend não
+/// conhece nós DOM). Coords no mesmo espaço do render (pontos). Botões: 0=esq
+/// 1=dir 2=meio.
+pub trait InputSource {
+    /// Posição do cursor (x, y) em pontos. `(-1, -1)` se fora da janela.
+    fn mouse_pos(&self, target: u64) -> (f32, f32);
+    /// Botão pressionado AGORA.
+    fn mouse_down(&self, target: u64, button: i64) -> bool;
+    /// Houve um clique completo NESTE frame.
+    fn mouse_clicked(&self, target: u64, button: i64) -> bool;
+    /// Delta de scroll do frame (vertical).
+    fn wheel(&self, target: u64) -> f32;
+    /// Tecla disparou neste frame (com repeat). `key` é um código (ver `keys`).
+    fn key_pressed(&self, target: u64, key: i64) -> bool;
+    /// Texto digitado neste frame (UTF-8 concatenado).
+    fn text_input(&self, target: u64) -> String;
+}
+
 thread_local! {
     /// O backend de render ATIVO. `None` até um backend se registrar (ex.: o
     /// `rts-egui` ao iniciar). É `thread_local` porque a UI vive na thread do TS
     /// (o backend, ex. egui, é `!Send`).
     static ACTIVE: RefCell<Option<Box<dyn Renderer>>> = const { RefCell::new(None) };
+    /// O backend de INPUT ativo (normalmente o mesmo crate que o render).
+    static INPUT: RefCell<Option<Box<dyn InputSource>>> = const { RefCell::new(None) };
 }
 
 /// Registra (ou troca) o backend de render ativo. Chamado por um crate de backend
@@ -74,3 +96,24 @@ pub fn set_backend(backend: Box<dyn Renderer>) {
 pub fn with_backend<R>(f: impl FnOnce(&dyn Renderer) -> R) -> Option<R> {
     ACTIVE.with(|a| a.borrow().as_deref().map(f))
 }
+
+/// Registra (ou troca) o backend de INPUT ativo.
+pub fn set_input(input: Box<dyn InputSource>) {
+    INPUT.with(|i| *i.borrow_mut() = Some(input));
+}
+
+/// Roda `f` com o backend de input ativo, se houver.
+pub fn with_input<R>(f: impl FnOnce(&dyn InputSource) -> R) -> Option<R> {
+    INPUT.with(|i| i.borrow().as_deref().map(f))
+}
+
+/// Códigos de tecla NEUTROS (o backend mapeia das suas teclas para estes). Mínimo
+/// para o PoC; cresce conforme necessário. O TS usa estas constantes.
+pub const KEY_ENTER: i64 = 1;
+pub const KEY_ESCAPE: i64 = 2;
+pub const KEY_SPACE: i64 = 3;
+pub const KEY_BACKSPACE: i64 = 4;
+pub const KEY_ARROW_UP: i64 = 5;
+pub const KEY_ARROW_DOWN: i64 = 6;
+pub const KEY_ARROW_LEFT: i64 = 7;
+pub const KEY_ARROW_RIGHT: i64 = 8;

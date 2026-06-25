@@ -96,6 +96,9 @@ pub(super) static REGISTER: &[Register] = &[
     // `render` — interface de render ABSTRATA na crate `rts-render`. rect/text/
     // measureText despacham p/ o backend ativo (egui). O DOM/layout fala render.*.
     Register { label: "render", run: ns::render::register, why: "rts:render abstract backend" },
+    // `input` — entrada ABSTRATA (mesma crate). O backend reporta o cru (polling);
+    // o DOM/layout faz hit-test + eventos. O TS fala input.*, nunca egui.
+    Register { label: "input", run: ns::render::register_input, why: "rts:input abstract polling" },
     // `egui` — GUI imediata na crate `rts-egui`. Engine NUNCA nomeia `egui`;
     // resolve via Registry. Loop dirigido pelo TS. Ver egui-ui-crate-design.md.
     Register { label: "egui", run: ns::egui::register, why: "rts:egui GUI primitives" },

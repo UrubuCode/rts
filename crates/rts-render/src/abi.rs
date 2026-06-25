@@ -94,6 +94,50 @@ pub extern "C" fn __RTS_FN_NS_RENDER_END_FRAME(target: u64) {
     crate::with_backend(|r| r.end_frame(target));
 }
 
+// ── INPUT (entrada) — o backend reporta o cru; o DOM/layout interpreta ──────────
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_INPUT_MOUSE_X(target: u64) -> f64 {
+    crate::with_input(|i| i.mouse_pos(target).0 as f64).unwrap_or(-1.0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_INPUT_MOUSE_Y(target: u64) -> f64 {
+    crate::with_input(|i| i.mouse_pos(target).1 as f64).unwrap_or(-1.0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_INPUT_MOUSE_DOWN(target: u64, button: i64) -> i64 {
+    crate::with_input(|i| i.mouse_down(target, button) as i64).unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_INPUT_MOUSE_CLICKED(target: u64, button: i64) -> i64 {
+    crate::with_input(|i| i.mouse_clicked(target, button) as i64).unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_INPUT_WHEEL(target: u64) -> f64 {
+    crate::with_input(|i| i.wheel(target) as f64).unwrap_or(0.0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_INPUT_KEY_PRESSED(target: u64, key: i64) -> i64 {
+    crate::with_input(|i| i.key_pressed(target, key) as i64).unwrap_or(0)
+}
+
+/// `input.textInput(target)` → texto digitado neste frame, como handle de string
+/// GC (o que o TS recebe como `string`). String vazia se nada.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_INPUT_TEXT(target: u64) -> u64 {
+    let s = crate::with_input(|i| i.text_input(target)).unwrap_or_default();
+    unsafe { __RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64) }
+}
+
+unsafe extern "C" {
+    fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
+}
+
 fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
     Member {
         name: name.to_string(),
@@ -163,6 +207,70 @@ pub fn register(e: &mut Engine) {
             "endFrame(target: number): void",
             "Close + present the frame.",
             __RTS_FN_NS_RENDER_END_FRAME as *const u8,
+        ))
+        .done();
+}
+
+/// Monta o namespace `input` no Engine. As fns reportam o estado de input do
+/// backend ativo (polling). O DOM/layout consome p/ hit-test + eventos.
+pub fn register_input(e: &mut Engine) {
+    e.ns("input")
+        .doc("Raw input from the active backend (polling). The DOM/layout hit-tests + dispatches events; the backend doesn't know DOM nodes.")
+        .member(func(
+            "mouseX",
+            "__RTS_FN_NS_INPUT_MOUSE_X",
+            Sig::new(vec![Handle], F64),
+            "mouseX(target: number): number",
+            "Cursor X in points, or -1 if outside the window.",
+            __RTS_FN_NS_INPUT_MOUSE_X as *const u8,
+        ))
+        .member(func(
+            "mouseY",
+            "__RTS_FN_NS_INPUT_MOUSE_Y",
+            Sig::new(vec![Handle], F64),
+            "mouseY(target: number): number",
+            "Cursor Y in points, or -1 if outside the window.",
+            __RTS_FN_NS_INPUT_MOUSE_Y as *const u8,
+        ))
+        .member(func(
+            "mouseDown",
+            "__RTS_FN_NS_INPUT_MOUSE_DOWN",
+            Sig::new(vec![Handle, I64], I64),
+            "mouseDown(target: number, button: number): number",
+            "1 if button (0=left 1=right 2=middle) is held now, else 0.",
+            __RTS_FN_NS_INPUT_MOUSE_DOWN as *const u8,
+        ))
+        .member(func(
+            "mouseClicked",
+            "__RTS_FN_NS_INPUT_MOUSE_CLICKED",
+            Sig::new(vec![Handle, I64], I64),
+            "mouseClicked(target: number, button: number): number",
+            "1 if a full click of button happened this frame, else 0.",
+            __RTS_FN_NS_INPUT_MOUSE_CLICKED as *const u8,
+        ))
+        .member(func(
+            "wheel",
+            "__RTS_FN_NS_INPUT_WHEEL",
+            Sig::new(vec![Handle], F64),
+            "wheel(target: number): number",
+            "Vertical scroll delta this frame.",
+            __RTS_FN_NS_INPUT_WHEEL as *const u8,
+        ))
+        .member(func(
+            "keyPressed",
+            "__RTS_FN_NS_INPUT_KEY_PRESSED",
+            Sig::new(vec![Handle, I64], I64),
+            "keyPressed(target: number, key: number): number",
+            "1 if key (neutral code: 1=Enter 2=Esc 3=Space 4=Backspace 5-8=arrows) fired this frame.",
+            __RTS_FN_NS_INPUT_KEY_PRESSED as *const u8,
+        ))
+        .member(func(
+            "textInput",
+            "__RTS_FN_NS_INPUT_TEXT",
+            Sig::new(vec![Handle], Handle),
+            "textInput(target: number): string",
+            "Text typed this frame (UTF-8), empty if none.",
+            __RTS_FN_NS_INPUT_TEXT as *const u8,
         ))
         .done();
 }

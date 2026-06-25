@@ -8,7 +8,7 @@
 //! `end_frame` mapeiam para o ciclo de frame do egui. `measure_text` mede com a
 //! fonte real (aprox. no PoC — ver canvas).
 
-use rts_render::Renderer;
+use rts_render::{InputSource, Renderer};
 
 use crate::ctx::{self, WidgetCmd};
 
@@ -68,8 +68,79 @@ impl Renderer for EguiRenderer {
     }
 }
 
-/// Registra o egui como o backend de render ativo do `rts-render`. Chamado uma vez
-/// na inicialização (via o `register` do namespace egui).
+/// Mapeia o código de tecla NEUTRO do `rts-render` para a `egui::Key`.
+fn neutral_to_egui_key(key: i64) -> Option<egui::Key> {
+    use rts_render::*;
+    Some(match key {
+        KEY_ENTER => egui::Key::Enter,
+        KEY_ESCAPE => egui::Key::Escape,
+        KEY_SPACE => egui::Key::Space,
+        KEY_BACKSPACE => egui::Key::Backspace,
+        KEY_ARROW_UP => egui::Key::ArrowUp,
+        KEY_ARROW_DOWN => egui::Key::ArrowDown,
+        KEY_ARROW_LEFT => egui::Key::ArrowLeft,
+        KEY_ARROW_RIGHT => egui::Key::ArrowRight,
+        _ => return None,
+    })
+}
+
+impl InputSource for EguiRenderer {
+    fn mouse_pos(&self, target: u64) -> (f32, f32) {
+        ctx::with_ctx(target, |c| {
+            c.egui_ctx
+                .input(|i| i.pointer.hover_pos().map(|p| (p.x, p.y)).unwrap_or((-1.0, -1.0)))
+        })
+        .unwrap_or((-1.0, -1.0))
+    }
+
+    fn mouse_down(&self, target: u64, button: i64) -> bool {
+        let btn = egui_button(button);
+        ctx::with_ctx(target, |c| c.egui_ctx.input(|i| i.pointer.button_down(btn))).unwrap_or(false)
+    }
+
+    fn mouse_clicked(&self, target: u64, button: i64) -> bool {
+        let btn = egui_button(button);
+        ctx::with_ctx(target, |c| c.egui_ctx.input(|i| i.pointer.button_clicked(btn)))
+            .unwrap_or(false)
+    }
+
+    fn wheel(&self, target: u64) -> f32 {
+        ctx::with_ctx(target, |c| c.egui_ctx.input(|i| i.smooth_scroll_delta.y)).unwrap_or(0.0)
+    }
+
+    fn key_pressed(&self, target: u64, key: i64) -> bool {
+        let Some(k) = neutral_to_egui_key(key) else { return false };
+        ctx::with_ctx(target, |c| c.egui_ctx.input(|i| i.key_pressed(k))).unwrap_or(false)
+    }
+
+    fn text_input(&self, target: u64) -> String {
+        ctx::with_ctx(target, |c| {
+            c.egui_ctx.input(|i| {
+                let mut s = String::new();
+                for ev in &i.events {
+                    if let egui::Event::Text(t) = ev {
+                        s.push_str(t);
+                    }
+                }
+                s
+            })
+        })
+        .unwrap_or_default()
+    }
+}
+
+/// Mapeia 0/1/2 → `egui::PointerButton`.
+fn egui_button(button: i64) -> egui::PointerButton {
+    match button {
+        1 => egui::PointerButton::Secondary,
+        2 => egui::PointerButton::Middle,
+        _ => egui::PointerButton::Primary,
+    }
+}
+
+/// Registra o egui como o backend de render E input ativo do `rts-render`. Chamado
+/// uma vez na inicialização (via o `register` do namespace egui).
 pub fn register_backend() {
     rts_render::set_backend(Box::new(EguiRenderer));
+    rts_render::set_input(Box::new(EguiRenderer));
 }
