@@ -13,6 +13,7 @@ members = [
     "crates/rts-linker",
     "crates/rts-runtime",
     "crates/rts-napi",
+    "crates/rts-dom",
     "crates/rts-egui",
     "crates/rts-adapters",
     "crates/rts-codegen-new",
