@@ -100,17 +100,51 @@ impl Renderer for EguiRenderer {
 }
 
 /// Mapeia o código de tecla NEUTRO do `rts-render` para a `egui::Key`.
+/// Códigos: 1-15 edição/navegação; 100-125 A-Z; 130-139 0-9; 140-151 F1-F12.
 fn neutral_to_egui_key(key: i64) -> Option<egui::Key> {
-    use rts_render::*;
+    use egui::Key;
+    // Letras A..Z (100..125).
+    if (100..=125).contains(&key) {
+        const LETTERS: [Key; 26] = [
+            Key::A, Key::B, Key::C, Key::D, Key::E, Key::F, Key::G, Key::H, Key::I, Key::J,
+            Key::K, Key::L, Key::M, Key::N, Key::O, Key::P, Key::Q, Key::R, Key::S, Key::T,
+            Key::U, Key::V, Key::W, Key::X, Key::Y, Key::Z,
+        ];
+        return Some(LETTERS[(key - 100) as usize]);
+    }
+    // Dígitos 0..9 (130..139).
+    if (130..=139).contains(&key) {
+        const DIGITS: [Key; 10] = [
+            Key::Num0, Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5, Key::Num6,
+            Key::Num7, Key::Num8, Key::Num9,
+        ];
+        return Some(DIGITS[(key - 130) as usize]);
+    }
+    // F1..F12 (140..151).
+    if (140..=151).contains(&key) {
+        const FK: [Key; 12] = [
+            Key::F1, Key::F2, Key::F3, Key::F4, Key::F5, Key::F6, Key::F7, Key::F8, Key::F9,
+            Key::F10, Key::F11, Key::F12,
+        ];
+        return Some(FK[(key - 140) as usize]);
+    }
+    // Edição / navegação (1..15).
     Some(match key {
-        KEY_ENTER => egui::Key::Enter,
-        KEY_ESCAPE => egui::Key::Escape,
-        KEY_SPACE => egui::Key::Space,
-        KEY_BACKSPACE => egui::Key::Backspace,
-        KEY_ARROW_UP => egui::Key::ArrowUp,
-        KEY_ARROW_DOWN => egui::Key::ArrowDown,
-        KEY_ARROW_LEFT => egui::Key::ArrowLeft,
-        KEY_ARROW_RIGHT => egui::Key::ArrowRight,
+        1 => Key::Enter,
+        2 => Key::Escape,
+        3 => Key::Space,
+        4 => Key::Backspace,
+        5 => Key::ArrowUp,
+        6 => Key::ArrowDown,
+        7 => Key::ArrowLeft,
+        8 => Key::ArrowRight,
+        9 => Key::Tab,
+        10 => Key::Delete,
+        11 => Key::Insert,
+        12 => Key::Home,
+        13 => Key::End,
+        14 => Key::PageUp,
+        15 => Key::PageDown,
         _ => return None,
     })
 }
@@ -142,6 +176,26 @@ impl InputSource for EguiRenderer {
     fn key_pressed(&self, target: u64, key: i64) -> bool {
         let Some(k) = neutral_to_egui_key(key) else { return false };
         ctx::with_ctx(target, |c| c.egui_ctx.input(|i| i.key_pressed(k))).unwrap_or(false)
+    }
+
+    fn key_down(&self, target: u64, key: i64) -> bool {
+        let Some(k) = neutral_to_egui_key(key) else { return false };
+        ctx::with_ctx(target, |c| c.egui_ctx.input(|i| i.key_down(k))).unwrap_or(false)
+    }
+
+    fn key_released(&self, target: u64, key: i64) -> bool {
+        let Some(k) = neutral_to_egui_key(key) else { return false };
+        ctx::with_ctx(target, |c| c.egui_ctx.input(|i| i.key_released(k))).unwrap_or(false)
+    }
+
+    fn modifiers(&self, target: u64) -> rts_render::Modifiers {
+        ctx::with_ctx(target, |c| {
+            c.egui_ctx.input(|i| {
+                let m = i.modifiers;
+                rts_render::Modifiers { ctrl: m.ctrl, shift: m.shift, alt: m.alt, cmd: m.command }
+            })
+        })
+        .unwrap_or_default()
     }
 
     fn text_input(&self, target: u64) -> String {

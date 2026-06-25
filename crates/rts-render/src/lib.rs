@@ -93,10 +93,26 @@ pub trait InputSource {
     fn mouse_clicked(&self, target: u64, button: i64) -> bool;
     /// Delta de scroll do frame (vertical).
     fn wheel(&self, target: u64) -> f32;
-    /// Tecla disparou neste frame (com repeat). `key` é um código (ver `keys`).
+    /// Tecla disparou neste frame (com auto-repeat). `key` é um código `KEY_*`.
     fn key_pressed(&self, target: u64, key: i64) -> bool;
+    /// Tecla SEGURADA agora (estado contínuo, sem repeat).
+    fn key_down(&self, target: u64, key: i64) -> bool;
+    /// Tecla SOLTA neste frame.
+    fn key_released(&self, target: u64, key: i64) -> bool;
+    /// Modificadores segurados AGORA (Ctrl/Shift/Alt/Cmd) — `mod_*`.
+    fn modifiers(&self, target: u64) -> Modifiers;
     /// Texto digitado neste frame (UTF-8 concatenado).
     fn text_input(&self, target: u64) -> String;
+}
+
+/// Estado dos modificadores num frame (neutro). `cmd` = Super/⌘/Win (o egui
+/// `command`, cross-platform: Ctrl no Win/Linux, ⌘ no Mac).
+#[derive(Clone, Copy, Default)]
+pub struct Modifiers {
+    pub ctrl: bool,
+    pub shift: bool,
+    pub alt: bool,
+    pub cmd: bool,
 }
 
 thread_local! {
@@ -129,8 +145,10 @@ pub fn with_input<R>(f: impl FnOnce(&dyn InputSource) -> R) -> Option<R> {
     INPUT.with(|i| i.borrow().as_deref().map(f))
 }
 
-/// Códigos de tecla NEUTROS (o backend mapeia das suas teclas para estes). Mínimo
-/// para o PoC; cresce conforme necessário. O TS usa estas constantes.
+/// Códigos de tecla NEUTROS (o backend mapeia das suas teclas para estes). O TS
+/// usa estas constantes (ou os números diretos — ver `input-system-design.md`).
+/// Pontuação/símbolos chegam via `textInput`, não como keycode (segue o egui).
+// ── Edição / navegação (1..20) ─────────────────────────────────────────────────
 pub const KEY_ENTER: i64 = 1;
 pub const KEY_ESCAPE: i64 = 2;
 pub const KEY_SPACE: i64 = 3;
@@ -139,3 +157,16 @@ pub const KEY_ARROW_UP: i64 = 5;
 pub const KEY_ARROW_DOWN: i64 = 6;
 pub const KEY_ARROW_LEFT: i64 = 7;
 pub const KEY_ARROW_RIGHT: i64 = 8;
+pub const KEY_TAB: i64 = 9;
+pub const KEY_DELETE: i64 = 10;
+pub const KEY_INSERT: i64 = 11;
+pub const KEY_HOME: i64 = 12;
+pub const KEY_END: i64 = 13;
+pub const KEY_PAGE_UP: i64 = 14;
+pub const KEY_PAGE_DOWN: i64 = 15;
+// ── Letras A..Z (100..125) ─────────────────────────────────────────────────────
+pub const KEY_A: i64 = 100; // ...Z = 125 (KEY_A + offset). Use KEY_A + (letra - 'A').
+// ── Dígitos 0..9 (130..139) ────────────────────────────────────────────────────
+pub const KEY_0: i64 = 130; // ...9 = 139.
+// ── Função F1..F12 (140..151) ──────────────────────────────────────────────────
+pub const KEY_F1: i64 = 140; // ...F12 = 151.

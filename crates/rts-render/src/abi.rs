@@ -150,6 +150,36 @@ pub extern "C" fn __RTS_FN_NS_INPUT_KEY_PRESSED(target: u64, key: i64) -> i64 {
     crate::with_input(|i| i.key_pressed(target, key) as i64).unwrap_or(0)
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_INPUT_KEY_DOWN(target: u64, key: i64) -> i64 {
+    crate::with_input(|i| i.key_down(target, key) as i64).unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_INPUT_KEY_RELEASED(target: u64, key: i64) -> i64 {
+    crate::with_input(|i| i.key_released(target, key) as i64).unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_INPUT_MOD_CTRL(target: u64) -> i64 {
+    crate::with_input(|i| i.modifiers(target).ctrl as i64).unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_INPUT_MOD_SHIFT(target: u64) -> i64 {
+    crate::with_input(|i| i.modifiers(target).shift as i64).unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_INPUT_MOD_ALT(target: u64) -> i64 {
+    crate::with_input(|i| i.modifiers(target).alt as i64).unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_INPUT_MOD_CMD(target: u64) -> i64 {
+    crate::with_input(|i| i.modifiers(target).cmd as i64).unwrap_or(0)
+}
+
 /// `input.textInput(target)` → texto digitado neste frame, como handle de string
 /// GC (o que o TS recebe como `string`). String vazia se nada.
 #[unsafe(no_mangle)]
@@ -293,8 +323,56 @@ pub fn register_input(e: &mut Engine) {
             "__RTS_FN_NS_INPUT_KEY_PRESSED",
             Sig::new(vec![Handle, I64], I64),
             "keyPressed(target: number, key: number): number",
-            "1 if key (neutral code: 1=Enter 2=Esc 3=Space 4=Backspace 5-8=arrows) fired this frame.",
+            "1 if key fired this frame (with auto-repeat). Neutral codes: 1-15 edit/nav, 100-125 A-Z, 130-139 0-9, 140-151 F1-F12. See input-system-design.md.",
             __RTS_FN_NS_INPUT_KEY_PRESSED as *const u8,
+        ))
+        .member(func(
+            "keyDown",
+            "__RTS_FN_NS_INPUT_KEY_DOWN",
+            Sig::new(vec![Handle, I64], I64),
+            "keyDown(target: number, key: number): number",
+            "1 if key is held down now (continuous, no repeat).",
+            __RTS_FN_NS_INPUT_KEY_DOWN as *const u8,
+        ))
+        .member(func(
+            "keyReleased",
+            "__RTS_FN_NS_INPUT_KEY_RELEASED",
+            Sig::new(vec![Handle, I64], I64),
+            "keyReleased(target: number, key: number): number",
+            "1 if key was released this frame.",
+            __RTS_FN_NS_INPUT_KEY_RELEASED as *const u8,
+        ))
+        .member(func(
+            "modCtrl",
+            "__RTS_FN_NS_INPUT_MOD_CTRL",
+            Sig::new(vec![Handle], I64),
+            "modCtrl(target: number): number",
+            "1 if Ctrl is held now.",
+            __RTS_FN_NS_INPUT_MOD_CTRL as *const u8,
+        ))
+        .member(func(
+            "modShift",
+            "__RTS_FN_NS_INPUT_MOD_SHIFT",
+            Sig::new(vec![Handle], I64),
+            "modShift(target: number): number",
+            "1 if Shift is held now.",
+            __RTS_FN_NS_INPUT_MOD_SHIFT as *const u8,
+        ))
+        .member(func(
+            "modAlt",
+            "__RTS_FN_NS_INPUT_MOD_ALT",
+            Sig::new(vec![Handle], I64),
+            "modAlt(target: number): number",
+            "1 if Alt is held now.",
+            __RTS_FN_NS_INPUT_MOD_ALT as *const u8,
+        ))
+        .member(func(
+            "modCmd",
+            "__RTS_FN_NS_INPUT_MOD_CMD",
+            Sig::new(vec![Handle], I64),
+            "modCmd(target: number): number",
+            "1 if Cmd/Super (Win/Cmd key) is held now (egui 'command', cross-platform).",
+            __RTS_FN_NS_INPUT_MOD_CMD as *const u8,
         ))
         .member(func(
             "textInput",
