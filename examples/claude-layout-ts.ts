@@ -42,6 +42,7 @@ const d = dom.parseHtml(
 );
 
 const win = egui.openWindow("Layout em TS (egui so pinta)", 520, 420, 0);
+egui.moveWindow(win, 2200, 400); // UI na tela 2
 
 // ── LAYOUT ENGINE em TS — 2 fases por nó (mede, depois pinta), pra a CAIXA do pai
 // ficar ATRAS do texto dos filhos: a caixa é pintada ANTES de descer (usando a

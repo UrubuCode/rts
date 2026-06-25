@@ -98,6 +98,14 @@ pub fn register(e: &mut Engine) {
             "Destroys the window and frees the UiCtx.",
             app::__RTS_FN_NS_EGUI_CLOSE as *const u8,
         ))
+        .member(func(
+            "moveWindow",
+            "__RTS_FN_NS_EGUI_MOVE_WINDOW",
+            Sig::new(vec![U64, I64, I64], AbiType::Void),
+            "moveWindow(h: number, x: number, y: number): void",
+            "Moves the window to absolute desktop position (x,y) in physical pixels — pick a monitor (e.g. x >= primary width = secondary screen).",
+            app::__RTS_FN_NS_EGUI_MOVE_WINDOW as *const u8,
+        ))
         // ── Teste visual headless ──────────────────────────────────────────────
         .member(func(
             "snapshot",

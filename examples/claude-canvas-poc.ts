@@ -7,6 +7,7 @@ import egui from "rts:egui";
 //   target/release/rts.exe run examples/claude-canvas-poc.ts
 
 const win = egui.openWindow("Canvas burro — TS dirige, egui pinta", 520, 360, 0);
+egui.moveWindow(win, 2200, 400); // UI na tela 2
 
 // cores 0xRRGGBBAA
 const BG = 0x12161CFF;

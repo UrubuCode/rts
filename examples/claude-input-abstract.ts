@@ -9,6 +9,8 @@ import input from "rts:input";
 //   target/release/rts.exe run examples/claude-input-abstract.ts
 
 const win = egui.openWindow("Input abstrato (mouse/clique via input.*)", 480, 320, 0);
+// coloca a UI na TELA 2 (monitor secundario, x >= largura do primario ~1920)
+egui.moveWindow(win, 2200, 400);
 
 const BG = 0x12161CFF;
 const IDLE = 0x33446688 & 0xFFFFFFFF;

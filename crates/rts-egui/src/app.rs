@@ -306,6 +306,17 @@ pub extern "C" fn __RTS_FN_NS_EGUI_IS_OPEN(h: u64) -> i64 {
     ctx::with_ctx(h, |c| if c.open { 1 } else { 0 }).unwrap_or(0)
 }
 
+/// Move a janela para a posição ABSOLUTA `(x, y)` na área de trabalho virtual
+/// (em pixels físicos do desktop multi-monitor). Permite ao TS escolher o
+/// monitor (ex.: x >= largura-do-primário → tela secundária).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_MOVE_WINDOW(h: u64, x: i64, y: i64) {
+    ctx::with_ctx(h, |c| {
+        c.window
+            .set_outer_position(winit::dpi::PhysicalPosition::new(x as i32, y as i32));
+    });
+}
+
 /// Destrói a janela e libera o `UiCtx`. NÃO destrói o EventLoop global (winit não
 /// permite recriá-lo; ele fica vivo mesmo após a última janela fechar).
 #[unsafe(no_mangle)]

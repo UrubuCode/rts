@@ -8,6 +8,7 @@ import render from "rts:render";
 //   target/release/rts.exe run examples/claude-render-abstract.ts
 
 const win = egui.openWindow("Render abstrato (backend plugavel)", 480, 300, 0);
+egui.moveWindow(win, 2200, 400); // UI na tela 2
 
 const BG = 0x12161CFF;
 const CARD = 0x1E2A3AFF;
