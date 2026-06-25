@@ -164,6 +164,25 @@ pub extern "C" fn __RTS_FN_NS_EGUI_DEFINE_BLOCK(
     );
 }
 
+/// Registra UM slot de estilo de uma TAG (`defineStyle(tag, slot, val)`, F1).
+/// `slot` é OPACO (invariante 4): 0=color, 1=bg, 2=font_size — o TS mapeia
+/// nome-CSS→índice, o Rust nunca casa string CSS. `val`: cor/bg = `u32` RGBA
+/// (`0xRRGGBBAA`); font_size = pontos. Acumula por tag (slots diferentes somam).
+/// Independe de janela (igual `defineBlock`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_DEFINE_STYLE(
+    tag_ptr: *const u8,
+    tag_len: i64,
+    slot: i64,
+    val: i64,
+) {
+    let tag = unsafe { str_abi::from_abi(tag_ptr, tag_len) }.unwrap_or("");
+    if tag.is_empty() {
+        return;
+    }
+    crate::style::define_style(tag, slot, val);
+}
+
 /// Sentinela de "nó não encontrado" para os primitivos que retornam `NodeId`.
 /// É `-1` num `i64` (invariante 3 do roadmap): `u64::MAX` > 2^53 não é exato como
 /// `number` no TS e a comparação inline erra; `-1` é exato e comparável direto.

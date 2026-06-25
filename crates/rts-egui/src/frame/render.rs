@@ -26,23 +26,38 @@ fn rgba_to_color32(c: crate::style::Rgba) -> egui::Color32 {
     egui::Color32::from_rgba_unmultiplied(r, g, b, a)
 }
 
-/// Mescla o `style="..."` (CSS inline) de um nó SOBRE um `InlineStyle` herdado.
-/// Propriedade ausente no CSS mantém a herdada; presente sobrescreve.
+/// Aplica um `ComputedStyle` (cor/bg/tamanho/peso) SOBRE um `InlineStyle`:
+/// propriedade `Some` sobrescreve, `None` mantém a herdada. (`bg` ainda não é
+/// usado no inline — chega no box model, F2.)
+fn apply_computed(st: &mut InlineStyle, css: &crate::style::ComputedStyle) {
+    if let Some(c) = css.color {
+        st.color = Some(rgba_to_color32(c));
+    }
+    if let Some(sz) = css.font_size {
+        st.size = Some(sz);
+    }
+    if let Some(b) = css.bold {
+        st.bold = b;
+    }
+    if let Some(i) = css.italic {
+        st.italic = i;
+    }
+}
+
+/// Mescla o estilo de um nó SOBRE um `InlineStyle` herdado, na ordem de
+/// precedência CSS: herdado < estilo-de-TAG (`defineStyle`, F1) < `style=""`
+/// inline do nó. Propriedade ausente mantém a anterior; presente sobrescreve.
 fn merge_node_style(dom: &crate::dom::Dom, id: crate::dom::NodeIdx, mut st: InlineStyle) -> InlineStyle {
+    // 1) estilo registrado para a TAG (slot opaco via defineStyle).
+    if let crate::dom::NodeKind::Element { tag } = &dom.node(id).kind {
+        if let Some(tag_css) = crate::style::lookup_style(tag) {
+            apply_computed(&mut st, &tag_css);
+        }
+    }
+    // 2) `style="..."` inline do nó sobrepõe o estilo da tag.
     if let Some(s) = dom.node(id).attr("style") {
         let css = crate::style::parse_inline(s);
-        if let Some(c) = css.color {
-            st.color = Some(rgba_to_color32(c));
-        }
-        if let Some(sz) = css.font_size {
-            st.size = Some(sz);
-        }
-        if let Some(b) = css.bold {
-            st.bold = b;
-        }
-        if let Some(i) = css.italic {
-            st.italic = i;
-        }
+        apply_computed(&mut st, &css);
     }
     st
 }
@@ -89,13 +104,18 @@ fn render_block(
     // Heading: texto concatenado; `indent` é reusado como TAMANHO de fonte.
     if def.has(crate::block::FLAG_HEADING) {
         let text = collect_text(dom, id);
-        // `style="..."` do heading sobrepõe tamanho/cor; senão usa o default do
-        // nível (indent reusado como tamanho).
-        let css = dom
-            .node(id)
-            .attr("style")
-            .map(crate::style::parse_inline)
-            .unwrap_or_default();
+        // Precedência: estilo-de-TAG (defineStyle) < `style=""` inline. O tamanho
+        // cai para o default do nível (indent) se nenhum dos dois o definir.
+        let mut css = crate::style::lookup_style(tag).unwrap_or_default();
+        if let Some(s) = dom.node(id).attr("style") {
+            let inline = crate::style::parse_inline(s);
+            if inline.color.is_some() {
+                css.color = inline.color;
+            }
+            if inline.font_size.is_some() {
+                css.font_size = inline.font_size;
+            }
+        }
         let size = css.font_size.unwrap_or(if def.indent > 0.0 { def.indent } else { 20.0 });
         let mut rt = egui::RichText::new(text).strong().size(size);
         if let Some(c) = css.color {
