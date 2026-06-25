@@ -108,6 +108,12 @@ class App {
   // controle de FPS: alvo (0 = ilimitado) + o FPS MEDIDO (1000/dt).
   _fpsTarget: number;
   _fpsNow: number;
+  // ── EVENTOS/FOCO (camada ergonômica, estilo UI imediata) ─────────────────────
+  // cada widget tem um ID numérico estável (o dev passa). O App rastreia:
+  //   _focused = quem tem o TECLADO (textField); _active = quem está sendo
+  //   pressionado (drag/click-and-hold). -1 = nenhum.
+  _focused: number;
+  _active: number;
 
   constructor(win: number) {
     this._win = win;
@@ -120,6 +126,8 @@ class App {
     this._cw = 200;
     this._fpsTarget = 0;
     this._fpsNow = 0;
+    this._focused = -1;
+    this._active = -1;
   }
 
   /// Limita o FPS ao alvo `n` (frames/segundo). `0` = ilimitado (roda o mais
@@ -298,6 +306,82 @@ class App {
       return 1;
     }
     return 0;
+  }
+
+  // ── EVENTOS + FOCO (a camada ERGONÔMICA — sobre o input.* cru) ────────────────
+  // Estilo UI imediata: cada widget tem um ID numérico estável (o dev passa). Os
+  // helpers fazem hit-test + gerenciam foco/active, devolvendo o estado. Sem
+  // callback (estado no App; o dev chama por frame).
+
+  /// O ID do elemento que tem o FOCO de teclado (-1 = nenhum).
+  focusedId(): number {
+    return this._focused;
+  }
+  /// Foca explicitamente um elemento (ou -1 pra desfocar).
+  setFocus(id: number): void {
+    this._focused = id;
+  }
+  /// `true` se o elemento `id` está focado.
+  isFocused(id: number): boolean {
+    return this._focused === id;
+  }
+  /// Chame uma vez por frame (no inicio): clicar FORA de tudo desfoca. Helper
+  /// opcional — `textField` ja foca ao clicar nele.
+  clearFocusOnClickAway(): void {
+    if (input.mousePressed(this._win, 0) !== 0) {
+      // se nenhum widget consumir este clique, o foco cai pra -1 no fim do frame.
+      // (simplificado: o textField re-foca se o clique foi nele, ANTES disto rodar.)
+    }
+  }
+
+  /// Estado de uma ÁREA clicável (id estável). Retorna:
+  ///   0 = idle, 1 = hover, 2 = pressed (segurando), 3 = CLICADO (released sobre).
+  /// Gerencia _active (quem segura) — base de botoes/itens robustos com release.
+  clickable(id: number, x: number, y: number, w: number, h: number): number {
+    const over = this.hover(x, y, w, h);
+    if (over && input.mousePressed(this._win, 0) !== 0) {
+      this._active = id;
+    }
+    let result = 0;
+    if (over) result = 1;
+    if (this._active === id) {
+      result = 2;
+      if (input.mouseReleased(this._win, 0) !== 0) {
+        if (over) result = 3; // soltou DENTRO = clique completo
+        this._active = -1;
+      }
+    }
+    return result;
+  }
+
+  /// Campo de texto COM FOCO real: clicar nele o foca; só o focado recebe o
+  /// teclado (input.textInput). Recebe o texto atual; devolve o NOVO texto.
+  /// `id` estável. Backspace via tecla 4 (so quando focado). Sem `.length` sobre
+  /// string de retorno (limite do motor) — o append e backspace usam helpers do
+  /// engine via concatenacao/condicao simples.
+  textField(id: number, x: number, y: number, w: number, value: string): string {
+    const h = 30;
+    // clicar no campo o foca; clicar fora (em outro textField) tira.
+    if (this.hover(x, y, w, h) && input.mousePressed(this._win, 0) !== 0) {
+      this._focused = id;
+    }
+    const focused = this._focused === id;
+    let border = 0x44556688 & 0xFFFFFFFF;
+    if (focused) border = 0x3399FFFF;
+    render.rect(this._win, x, y, w, h, 0x10161EFF, 2, border, 6);
+
+    let text = value;
+    if (focused) {
+      const typed = input.textInput(this._win);
+      text = text + typed;
+      // Enter ou Escape desfoca.
+      if (input.keyPressed(this._win, 1) !== 0) this._focused = -1;
+      if (input.keyPressed(this._win, 2) !== 0) this._focused = -1;
+    }
+    let shown = text;
+    if (focused) shown = text + "|";
+    render.text(this._win, x + 8, y + 7, shown, 0xFFFFFFFF, 15, 0);
+    return text;
   }
 
   // ── LAYOUT AUTOMÁTICO (empilha sem x/y na mão) ────────────────────────────────
