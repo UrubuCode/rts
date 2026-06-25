@@ -100,6 +100,11 @@ class App {
   _lastMs: number;  // instante do frame anterior (ms)
   _dt: number;      // delta do frame atual (ms)
   _frames: number;
+  // cursor de LAYOUT AUTOMÁTICO: os componentes `auto*` empilham aqui, sem x/y na
+  // mão. `panelStart`/`row` movem o cursor; o dev só chama os componentes em ordem.
+  _cx: number;
+  _cy: number;
+  _cw: number;
 
   constructor(win: number) {
     this._win = win;
@@ -107,6 +112,9 @@ class App {
     this._lastMs = time.now_ms();
     this._dt = 0;
     this._frames = 0;
+    this._cx = 16;
+    this._cy = 16;
+    this._cw = 200;
   }
 
   /// O canvas ergonômico desta janela. NOTA: chamar método sobre o retorno de um
@@ -224,6 +232,89 @@ class App {
     // knob (quadrado arredondado)
     render.rect(this._win, knobX - knobR, knobY - knobR, knobR * 2, knobR * 2, 0xFFFFFFFF, 0, 0, knobR);
     return v;
+  }
+
+  /// `textInput(x,y,w, value, focused)` — campo de texto. Recebe o texto atual e
+  /// se está focado (1/0); devolve... veja: como retornar 2 valores é chato, este
+  /// componente MUTA via convenção — devolve o NOVO texto, e o foco é o dev quem
+  /// controla clicando. Aqui: se focado, anexa o textInput do frame e trata
+  /// backspace. (Simplificado p/ o PoC.)
+  textInput(x: number, y: number, w: number, value: string, focused: number): string {
+    const h = 30;
+    let border = 0x44556688 & 0xFFFFFFFF;
+    if (focused !== 0) border = 0x3399FFFF;
+    render.rect(this._win, x, y, w, h, 0x10161EFF, 2, border, 6);
+    // Concatena o texto digitado neste frame. (Backspace/medição de length ficam
+    // p/ quando o motor provar shape de string-de-método; aqui o caminho seguro é
+    // só append — string + string sempre funciona.)
+    let text = value;
+    if (focused !== 0) {
+      const typed = input.textInput(this._win);
+      text = text + typed;
+    }
+    let shown = text;
+    if (focused !== 0) shown = text + "|";
+    render.text(this._win, x + 8, y + 7, shown, 0xFFFFFFFF, 15, 0);
+    return text;
+  }
+
+  // ── TABS ──────────────────────────────────────────────────────────────────────
+  /// `tab(x,y,w,h, label, active)` — UMA aba. `active` (1/0) = é a aba selecionada.
+  /// Devolve 1 se foi CLICADA neste frame (o dev troca o índice ativo). Desenhe as
+  /// abas lado a lado e troque `activeTab` quando uma retornar 1.
+  tab(x: number, y: number, w: number, h: number, label: string, active: number): number {
+    const over = this.hover(x, y, w, h);
+    let fill = 0x161C26FF;
+    if (active !== 0) fill = 0x243246FF;
+    else if (over) fill = 0x1C2430FF;
+    render.rect(this._win, x, y, w, h, fill, 0, 0, 6);
+    // sublinhado da aba ativa
+    if (active !== 0) {
+      render.rect(this._win, x, y + h - 3, w, 3, 0x3399FFFF, 0, 0, 0);
+    }
+    const tw = render.measureText(this._win, label, 15, 0);
+    let tcolor = 0x99A0AAFF;
+    if (active !== 0) tcolor = 0xFFFFFFFF;
+    render.text(this._win, x + (w - tw) / 2, y + h / 2 - 8, label, tcolor, 15, 0);
+    if (over && this.clicked()) {
+      return 1;
+    }
+    return 0;
+  }
+
+  // ── LAYOUT AUTOMÁTICO (empilha sem x/y na mão) ────────────────────────────────
+  /// Inicia uma COLUNA de layout automático em `(x,y)` com largura `w`. Os
+  /// componentes `auto*` seguintes empilham verticalmente a partir daqui — o dev
+  /// não passa mais x/y. `gap` entre eles é fixo.
+  column(x: number, y: number, w: number): void {
+    this._cx = x;
+    this._cy = y;
+    this._cw = w;
+  }
+
+  /// Avança o cursor de layout `h` pontos para baixo (+ gap 8). Interno aos auto*.
+  _advance(h: number): void {
+    this._cy = this._cy + h + 8;
+  }
+
+  autoLabel(s: string, color: number): void {
+    render.text(this._win, this._cx, this._cy, s, color, 16, 0);
+    this._advance(20);
+  }
+  autoButton(label: string): boolean {
+    const r = this.button(this._cx, this._cy, this._cw, 40, label);
+    this._advance(40);
+    return r;
+  }
+  autoCheckbox(checked: number, label: string): number {
+    const r = this.checkbox(this._cx, this._cy, checked, label);
+    this._advance(22);
+    return r;
+  }
+  autoSlider(value: number, min: number, max: number): number {
+    const r = this.slider(this._cx, this._cy, this._cw, value, min, max);
+    this._advance(24);
+    return r;
   }
 
   /// Move a janela do app para a posição absoluta `(x,y)` — escolher monitor.
