@@ -121,19 +121,19 @@ maior-impacto-primeiro (1, 2 e 4 destravam mais).
 
 ---
 
-### 10. namespace `rts:audio` NÃO está wired no motor novo (símbolo ausente no JIT)
-- **Falha:** `import audio from "rts:audio"; audio.openOutput(...)` → "no matching
-  namespace function (bare rts namespace-object imports + unknown members are not
-  wired)". Vale p/ TODOS os membros do audio.
-- **Causa:** o engine de áudio EXISTE e é completo (`rts-std/src/audio`, cpal:
-  openOutput/write/close/sampleRate/channels/masterVolume/availableFrames/...) e
-  está no REGISTER (`registry_build.rs:92`), MAS os fn-ptrs não chegam à tabela
-  de símbolos do JIT (`adapter_symbols`) — o `register` parece não ser
-  harvestado. (Mesmo sintoma apareceu testando isoladamente console.log/print
-  fora do prelude — o wiring de import de namespace tem casos não cobertos.)
-- **O que falta no motor:** conectar o namespace audio ao JIT (harvest dos
-  __RTS_FN_NS_AUDIO_* no adapter_symbols, como os outros namespaces que funcionam:
-  buffer/time/math). Tarefa de MOTOR, não de UI.
-- **Impacto:** som no jogo (bipe ao bater a bola) fica bloqueado até esse wiring.
-  O modelo desejado (TS gera samples f32 num buffer → audio.write) está pronto do
-  lado do runtime; falta só o engine expor.
+### 10. ARMADILHA: membros de namespace são snake_case (NÃO camelCase) — sem normalização
+- **Falha (parecia bug grave):** `import audio from "rts:audio";
+  audio.openOutput(...)` → "no matching namespace function (...)". Idem
+  `audio.default_sample_rate` parecia falhar. Conclusão inicial ERRADA: "audio não
+  está wired no JIT".
+- **Causa REAL:** o membro registrado é `open_output` (snake_case, como no Rust),
+  e o motor **NÃO normaliza camelCase→snake** na resolução de membro de namespace
+  (`registry::namespace_member` compara o nome literal). `audio.open_output(...)`
+  FUNCIONA (testado: bipe 440Hz toca, usuário confirmou).
+- **Regra:** ao importar de `rts:<ns>`, use o nome do membro EXATAMENTE como
+  registrado (snake_case pros namespaces backend: `open_output`,
+  `default_sample_rate`, `write_f32`, etc.). Os preludes ergonômicos (App, console,
+  document) é que expõem camelCase; o namespace cru é snake.
+- **`rts:audio` FUNCIONA** (cpal): open_output/write/close/sample_rate/channels/
+  master_volume/available_frames/queued_frames. Modelo: gerar samples f32 num
+  `rts:buffer` → `audio.write(dev, buf, n)`. Música/efeitos validados no Pong.
