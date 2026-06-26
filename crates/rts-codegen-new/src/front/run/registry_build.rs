@@ -133,6 +133,10 @@ pub(super) static REGISTER: &[Register] = &[
     // off/emit. The listener arg is a function-VALUE the backend invokes via the
     // codegen `__rtsadp_fn_invoke` callback bridge (JIT-installed).
     Register { label: "EventEmitter class", run: ns::globals::events::register_class_spec, why: "EventEmitter ctor + on/emit" },
+    // `Symbol` — NON-primordial Registry class (#216): `Symbol.for/keyFor` statics +
+    // `Symbol.iterator`/… well-knowns + `description` getter resolve data-driven via
+    // is_pure_registry_class (the engine NEVER names "Symbol" in control flow).
+    Register { label: "Symbol class", run: ns::globals::symbol::register_symbol_class_spec, why: "Symbol.for/keyFor + well-knowns + description" },
     // `Proxy` — backend/Registry class (#218): `new Proxy(target, handler)` →
     // `__RTS_FN_GL_PROXY_NEW` (Entry::Proxy). The get/set TRAPS are resolved at
     // runtime in the dynamic property trampolines (`__rtsadp_obj_get`/`_set` detect

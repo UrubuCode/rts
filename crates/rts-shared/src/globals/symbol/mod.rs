@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
 use rts_engine::abi::ty::Handle;
+use rts_engine::abi::member::DefaultArg;
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
@@ -171,7 +172,14 @@ pub fn register_symbol_class_spec(e: &mut Engine) {
         .member(Member {
             name: "new".to_string(),
             kind: MemberKind::Constructor,
-            sig: Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
+            // description is OPTIONAL: `Symbol()` (0 args) and `Symbol("x")` (1) both
+            // valid. The omitted StrPtr defaults to the `undefined` sentinel (the
+            // runtime reads a null/empty description).
+            sig: Sig::with_defaults(
+                vec![AbiType::StrPtr],
+                AbiType::Handle,
+                vec![DefaultArg::Undefined],
+            ),
             symbol: "__RTS_FN_GL_SYMBOL_NEW".to_string(),
             fn_ptr: FnPtr(__RTS_FN_GL_SYMBOL_NEW as *const u8),
             flags: MemberFlags::NONE,

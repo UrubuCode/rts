@@ -181,6 +181,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.global_instance_classes.insert(name.to_string(), class);
                 return Ok(());
             }
+            // `const s = Symbol("x")`: the PRIMORDIAL `Symbol` call form returns a
+            // symbol instance. Record `s`'s class as "Symbol" (in
+            // `global_instance_classes`) so `s.description` dispatches the registry
+            // instance getter. (Engine may name Symbol — it is primordial.)
+            HirExprKind::Call { callee, args: _ }
+                if matches!(&callee.kind, HirExprKind::Ident(n) if n == "Symbol")
+                    && self.local("Symbol").is_none() =>
+            {
+                let val = self.lower_expr(module, init)?;
+                self.bind_tagged_local(name, val);
+                self.global_instance_classes
+                    .insert(name.to_string(), "Symbol".to_string());
+                return Ok(());
+            }
             // `const c2 = c.inc()` / `const r = make()`: a CALL/METHOD-CALL whose
             // result class is statically provable (`ret_class` — `return this` /
             // `return new C`). Record the local's CLASS so a later `c2.method()`

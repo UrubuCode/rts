@@ -133,6 +133,49 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_GL_PROMISE_WITH_RESOLVERS
                 as *const u8,
         ),
+        // Symbol NON-primordial Registry class (#216): ctor + for/keyFor statics +
+        // description getter + well-known accessors. Impls in rts-shared
+        // (globals/symbol); spec carries null fn_ptr (external) → registered here.
+        sym(
+            "__RTS_FN_GL_SYMBOL_NEW",
+            rts_runtime::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_NEW as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_SYMBOL_FOR",
+            rts_runtime::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_FOR as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_SYMBOL_KEY_FOR",
+            rts_runtime::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_KEY_FOR as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_SYMBOL_DESCRIPTION",
+            rts_runtime::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_DESCRIPTION as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_SYMBOL_TO_STRING",
+            rts_runtime::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_TO_STRING as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_SYMBOL_ITERATOR",
+            rts_runtime::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_ITERATOR as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_SYMBOL_ASYNC_ITERATOR",
+            rts_runtime::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_ASYNC_ITERATOR as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_SYMBOL_HAS_INSTANCE",
+            rts_runtime::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_HAS_INSTANCE as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_SYMBOL_TO_PRIMITIVE",
+            rts_runtime::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_TO_PRIMITIVE as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_SYMBOL_TO_STRING_TAG",
+            rts_runtime::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_TO_STRING_TAG as *const u8,
+        ),
         // ---- codegen-owned FUNCTION-value trampolines (__rtsadp_fn_*, P4.6) ----
         sym("__rtsadp_fn_reify", funcops::__rtsadp_fn_reify as *const u8),
         sym(

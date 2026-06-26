@@ -43,9 +43,11 @@ HARD_FAIL=0
 # Non-primordial classes the engine MUST NOT name directly. Primordials allowed
 # (NOT in this list): String Object Array Function Promise Boolean Number Error
 # TypeError RangeError ReferenceError SyntaxError URIError EvalError
-# AggregateError. RegExp is reclassified primitive (it has `/re/` native syntax),
-# so it is NOT forbidden here.
-NONPRIMORDIAL='Map|Set|WeakMap|WeakSet|WeakRef|FinalizationRegistry|Date|Symbol|URL|URLSearchParams|BigInt|Intl|Proxy|Reflect|DataView|ArrayBuffer|SharedArrayBuffer|TextEncoder|TextDecoder|EventTarget|Headers|FormData|ReadableStream'
+# AggregateError Symbol. RegExp is reclassified primitive (it has `/re/` native
+# syntax), so it is NOT forbidden here. Symbol is a PRIMORDIAL (a fundamental
+# language built-in with a unique primitive type + `typeof "symbol"`); the engine
+# MAY name it (its impl/metadata still live in rts-shared, like every primitive).
+NONPRIMORDIAL='Map|Set|WeakMap|WeakSet|WeakRef|FinalizationRegistry|Date|URL|URLSearchParams|BigInt|Intl|Proxy|Reflect|DataView|ArrayBuffer|SharedArrayBuffer|TextEncoder|TextDecoder|EventTarget|Headers|FormData|ReadableStream'
 
 # ---------------------------------------------------------------------------
 hdr "1/5  Forbidden crate dependencies (HARD)"

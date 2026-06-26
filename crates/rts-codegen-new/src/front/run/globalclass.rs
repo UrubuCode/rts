@@ -244,6 +244,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let v = self.emit_registry_call(module, &call, Some(recv), &[], result_kind)?;
                 return Ok(Some(v));
             }
+            // A real `InstanceGetter` member (read with no `()` — e.g. a Symbol's
+            // `description`). `class_member` above only matches `InstanceMethod`;
+            // this resolves the getter-kind member.
+            if let Some(call) = super::registry::class_instance_getter(&class, prop) {
+                let recv = self.lower_expr(module, object)?;
+                let result_kind = match call.ret {
+                    rts_engine::abi::AbiType::Handle => JsKind::Str,
+                    rts_engine::abi::AbiType::Bool => JsKind::Bool,
+                    _ => JsKind::Number,
+                };
+                let v = self.emit_registry_call(module, &call, Some(recv), &[], result_kind)?;
+                return Ok(Some(v));
+            }
             // No registered getter for `prop` → DYNAMIC property read. This serves an
             // EXOTIC instance whose properties are not fixed members (a `Proxy`, whose
             // `get` trap fires inside `__rtsadp_obj_get`); for an ordinary Registry

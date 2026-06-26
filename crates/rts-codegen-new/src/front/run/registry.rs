@@ -221,6 +221,16 @@ pub fn class_member(class: &str, method: &str, argc: usize) -> Option<ResolvedCa
     Some(instance_call(m))
 }
 
+/// Resolve `inst.prop` as an INSTANCE GETTER (a `MemberKind::InstanceGetter`, read
+/// with no `()`) to its [`ResolvedCall`]. `None` when the class has no such getter.
+/// (Distinct from `class_member`, which only matches `InstanceMethod` — some
+/// classes model a property as a real getter, e.g. `Symbol.prototype.description`.)
+pub fn class_instance_getter(class: &str, prop: &str) -> Option<ResolvedCall> {
+    let c = registry().class(class)?;
+    let m = c.instance_getter(prop)?;
+    Some(instance_call(m))
+}
+
 /// Resolve a STATIC method `Class.method` by NAME ALONE — ANY arity — to its
 /// [`ResolvedCall`]. The generic static emitter then validates the caller's argc
 /// against the member's `[required, total]` window (derived from `default_args`)

@@ -154,7 +154,7 @@ surface: the PRIMORDIAL classes via `rts-primitives`, reached through the
 `rts-runtime` facade. **`rts-shared` and `rts-std` are NOT native/primitive** —
 they are the non-primordial utility/backend libraries. A direct dependency on,
 `use` of, or hardcoded mention of `rts-shared`/`rts-std` (or any non-primordial
-class: `Map`/`Set`/`Date`/`Symbol`/`URL`/`Proxy`/…) **in the engine is a
+class: `Map`/`Set`/`Date`/`URL`/`Proxy`/…) **in the engine is a
 REGRESSION**. Everything non-primordial resolves through the **Registry**
 (`registry.rs` / `registry_call.rs`), never a hardcoded per-class path. This is
 the same PRIMORDIAL-vs-REGISTRY doctrine below, restated as a commit gate. A
@@ -255,18 +255,18 @@ engine** — only metadata in the Registry.
 
 - **Primordial set** (engine MAY name): `String`, `Object`, `Array`, `Function`,
   `Promise`, `Boolean`, `Number`, `Error` (+ `TypeError`/`RangeError`/
-  `ReferenceError`/`SyntaxError`/`URIError`/`EvalError`/`AggregateError`).
+  `ReferenceError`/`SyntaxError`/`URIError`/`EvalError`/`AggregateError`),
+  `Symbol`. **`Symbol` is PRIMORDIAL** — a fundamental language built-in with a
+  unique primitive type and `typeof x === "symbol"`. The engine MAY name it
+  (route `Symbol(desc)` / `Symbol.for` / `.description` directly); its impl +
+  spec metadata still live in `rts-shared` (`globals/symbol`), like every
+  primitive's impl. (Reclassified 2026-06-26 — was Registry-only.)
 - **Everything else = Registry only** (engine MUST NOT name): `Map`, `Set`,
   `WeakMap`/`WeakSet`/`WeakRef`/`FinalizationRegistry`, `RegExp`, `Date`,
-  `Symbol`, `URL`, `BigInt`, `Intl.*`, `Proxy`, `Reflect`, `DataView`/
+  `URL`, `BigInt`, `Intl.*`, `Proxy`, `Reflect`, `DataView`/
   `ArrayBuffer`, and all backend classes (Console/Fetch/Timers/Performance/Blob/
   TextEncoder/Decoder/EventTarget/Headers/FormData/ReadableStream*/etc.).
 - **A direct mention of a non-primordial class in codegen = REGRESSION** to drain.
-- **NEVER implement `Symbol` as an engine shortcut.** The Symbol class lives in
-  the Registry as extra-environment; the engine must carry ZERO Symbol mentions.
-  Language features that historically leaned on well-known symbols (iteration,
-  coercion, instanceof) are re-expressed via compile-time desugar to internal
-  `__rts_wk_*` names — never a runtime Symbol hook in the engine.
 - The mechanism in the runtime layer: declare a class's metadata on the spec
   (`ClassBuilder::instanceof_predicate`, member symbols, `default_args`, flags)
   in rts-primitives/rts-shared/rts-std, and route `recv.method(args)` through

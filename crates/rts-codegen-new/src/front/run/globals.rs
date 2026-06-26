@@ -106,6 +106,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             "isFinite" => self
                 .bool_returning_call(module, "__rtsadp_g_is_finite", args)
                 .map(Some),
+            // `Symbol(desc?)` CALL form (no `new`) — Symbol is PRIMORDIAL; the
+            // engine may name it. The call constructs a unique symbol (≡ the ctor),
+            // returning an opaque handle (`===`/`!==` compare it by identity).
+            "Symbol" => {
+                let word = self.emit_registry_ctor(module, "Symbol", args)?;
+                Ok(Some(Val::tagged_kind(word, JsKind::Object)))
+            }
             "parseInt" => self.parse_int_call(module, args).map(Some),
             "Array" => self.array_ctor_call(module, args).map(Some),
             "Object" => {

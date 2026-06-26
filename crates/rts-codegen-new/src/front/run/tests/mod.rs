@@ -107,6 +107,7 @@ mod stdlib_parity;
 mod string;
 mod string_class;
 mod switch;
+mod symbol;
 mod template;
 mod toprimitive;
 mod trycatch;

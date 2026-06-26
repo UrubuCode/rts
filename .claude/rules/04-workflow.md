@@ -112,8 +112,9 @@ It enforces the binding rules as a commit gate:
   **NOT** native/primitive — the engine reaches the runtime ONLY through the
   `rts-runtime` facade and names ONLY primordials.
 - **REVIEW (read every entry; the list must shrink, never grow):** a
-  non-primordial class named in codegen (`Map`/`Set`/`Date`/`Symbol`/… — must
-  resolve via the Registry, never a hardcoded per-class path; current draining
+  non-primordial class named in codegen (`Map`/`Set`/`Date`/`URL`/… — must
+  resolve via the Registry, never a hardcoded per-class path; `Symbol` is
+  PRIMORDIAL since 2026-06-26, engine MAY name it; current draining
   targets `dateclass.rs`, `globalclass.rs`); any source file **> 500 lines**
   (split into a folder/subfolder of cohesive submodules — never append to an
   already-oversized file).
