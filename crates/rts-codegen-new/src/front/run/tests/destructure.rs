@@ -105,8 +105,27 @@ fn bail_assignment_target() {
     assert_bails("let a = 0; let b = 0; [a, b] = [1, 2]; console.log(a + b);");
 }
 
+// ---- nested patterns (temp + recurse) ----
+
 #[test]
-fn bail_nested() {
-    // A nested pattern element reads a shapeless intermediate; bail (never wrong).
-    assert_bails("const [[a], b] = [[1], 2]; console.log(a + b);");
+fn nested_array() {
+    // A nested element binds a fresh temp holding the intermediate read, then
+    // re-expands off it — index/prop access on the `Tagged` temp lowers fine.
+    assert_stdout("const [[a], b] = [[1], 2]; console.log(a + b);", "3\n");
+}
+
+#[test]
+fn nested_object() {
+    assert_stdout(
+        "const {outer: {inner}} = {outer: {inner: 99}}; console.log(inner);",
+        "99\n",
+    );
+}
+
+#[test]
+fn nested_mixed() {
+    assert_stdout(
+        "const [{x}, [y]] = [{x: 5}, [7]]; console.log(x + y);",
+        "12\n",
+    );
 }

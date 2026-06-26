@@ -51,7 +51,7 @@ fn rewrite_one_fn(f: &mut HirFunc, swc_params: &[swc_ecma_ast::Pat], g: &mut Gen
             continue;
         }
         let tmp = g.fresh("param");
-        match expand_pat(&swc_params[i], &tmp) {
+        match expand_pat(&swc_params[i], &tmp, g) {
             Some(binds) => {
                 f.params[i].name = tmp;
                 prefix.extend(binds);

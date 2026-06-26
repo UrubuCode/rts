@@ -209,7 +209,7 @@ fn try_expand_let(
     let decl = var_decl_pat(swc?)?;
     let init = init?;
     let (src_name, prelude) = source_local(init, g);
-    let body = expand_pat(decl, &src_name)?;
+    let body = expand_pat(decl, &src_name, g)?;
     let mut out = prelude;
     out.extend(body);
     Some(out)
@@ -226,7 +226,7 @@ fn try_expand_for_of(
 ) -> Option<()> {
     let pat = for_of_pat(swc?)?;
     let elem = g.fresh("e");
-    let prefix = expand_pat(pat, &elem)?;
+    let prefix = expand_pat(pat, &elem, g)?;
     *binding = elem;
     let mut new_body = prefix;
     new_body.append(body);
@@ -234,13 +234,10 @@ fn try_expand_for_of(
     Some(())
 }
 
-/// Build the binding statements for `pat` reading off source local `src`.
-fn expand_pat(pat: &swc_ecma_ast::Pat, src: &str) -> Option<Vec<HirStmt>> {
-    match pat {
-        swc_ecma_ast::Pat::Array(a) => pat::expand_array(src, a),
-        swc_ecma_ast::Pat::Object(o) => pat::expand_object(src, o),
-        _ => None,
-    }
+/// Build the binding statements for `pat` reading off source local `src`,
+/// recursing into nested patterns via fresh temps (`g`).
+fn expand_pat(pat: &swc_ecma_ast::Pat, src: &str, g: &mut Gen) -> Option<Vec<HirStmt>> {
+    pat::expand_pat(src, pat, g)
 }
 
 /// Decide the SOURCE local a pattern reads from. A bare-identifier init is used

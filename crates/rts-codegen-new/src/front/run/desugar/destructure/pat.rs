@@ -18,13 +18,45 @@
 
 use rts_hir::HirStmt;
 
+use super::Gen;
 use super::builders::{const_bind, default_ternary, elem_at, ident, prop_get, slice_from};
+
+/// Expand a binding `Pat` reading off source local `src`. The single recursion
+/// entry used for both top-level and NESTED patterns: an array/object element
+/// that is itself a pattern is bound to a fresh temp (`const __rtsd_n_K = <read>`)
+/// and re-expanded off that temp — the intermediate read is a `Tagged` value, but
+/// element/property access against it lowers fine (index/prop reads do not require
+/// a statically-proven shape), so nesting is sound.
+pub(super) fn expand_pat(src: &str, pat: &swc_ecma_ast::Pat, g: &mut Gen) -> Option<Vec<HirStmt>> {
+    match pat {
+        swc_ecma_ast::Pat::Array(a) => expand_array(src, a, g),
+        swc_ecma_ast::Pat::Object(o) => expand_object(src, o, g),
+        _ => None,
+    }
+}
+
+/// Bind nested pattern `pat` off the read `access`: introduce a fresh temp holding
+/// `access`, then expand `pat` off that temp.
+fn expand_nested(
+    access: rts_hir::HirExpr,
+    pat: &swc_ecma_ast::Pat,
+    g: &mut Gen,
+    out: &mut Vec<HirStmt>,
+) -> Option<()> {
+    let tmp = g.fresh("n");
+    out.push(const_bind(&tmp, access));
+    out.extend(expand_pat(&tmp, pat, g)?);
+    Some(())
+}
 
 /// Expand an ARRAY pattern `[p0, p1, ..., ...rest]` reading off source local
 /// `src`. A hole (`,`) skips an index; a default applies `=== undefined` ternary;
-/// a rest binds `src.slice(i)`. Returns `None` if any element is a nested pattern
-/// or an unsupported form.
-pub(super) fn expand_array(src: &str, pat: &swc_ecma_ast::ArrayPat) -> Option<Vec<HirStmt>> {
+/// a rest binds `src.slice(i)`; a nested element is bound to a temp and recursed.
+pub(super) fn expand_array(
+    src: &str,
+    pat: &swc_ecma_ast::ArrayPat,
+    g: &mut Gen,
+) -> Option<Vec<HirStmt>> {
     let mut out = Vec::new();
     for (i, slot) in pat.elems.iter().enumerate() {
         // A hole (elision) — `[, b]` — is `None`; skip the index, bind nothing.
@@ -47,7 +79,11 @@ pub(super) fn expand_array(src: &str, pat: &swc_ecma_ast::ArrayPat) -> Option<Ve
                 let name = id.id.sym.to_string();
                 out.push(const_bind(&name, elem_at(ident(src), i as i64)));
             }
-            // Nested array/object element, or anything else → bail.
+            // Nested `[...]` / `{...}` element → temp + recurse.
+            nested @ (swc_ecma_ast::Pat::Array(_) | swc_ecma_ast::Pat::Object(_)) => {
+                expand_nested(elem_at(ident(src), i as i64), nested, g, &mut out)?;
+            }
+            // Anything else → bail.
             _ => return None,
         }
     }
@@ -55,15 +91,20 @@ pub(super) fn expand_array(src: &str, pat: &swc_ecma_ast::ArrayPat) -> Option<Ve
 }
 
 /// Expand an OBJECT pattern `{a, b: c, d = 5}` reading off source local `src`.
-/// Returns `None` for a rest property, a computed key, or a nested value pattern.
-pub(super) fn expand_object(src: &str, pat: &swc_ecma_ast::ObjectPat) -> Option<Vec<HirStmt>> {
+/// Returns `None` for a rest property or a computed key; a nested value pattern is
+/// bound to a temp and recursed.
+pub(super) fn expand_object(
+    src: &str,
+    pat: &swc_ecma_ast::ObjectPat,
+    g: &mut Gen,
+) -> Option<Vec<HirStmt>> {
     let mut out = Vec::new();
     for prop in &pat.props {
         match prop {
             // `{ ...rest }` — needs a new object of the remaining keys → bail.
             swc_ecma_ast::ObjectPatProp::Rest(_) => return None,
-            // `{ key: value_pat }` — including `{ a: b }` rename. The VALUE pat must
-            // be a plain ident or `ident = default`; a nested pattern bails.
+            // `{ key: value_pat }` — including `{ a: b }` rename. The VALUE pat may be
+            // a plain ident, `ident = default`, or a nested pattern (temp + recurse).
             swc_ecma_ast::ObjectPatProp::KeyValue(kv) => {
                 let key = static_key(&kv.key)?;
                 match kv.value.as_ref() {
@@ -76,6 +117,9 @@ pub(super) fn expand_object(src: &str, pat: &swc_ecma_ast::ObjectPat) -> Option<
                         let default = rebuild_default(&assign.right)?;
                         let access = prop_get(ident(src), &key);
                         out.push(const_bind(&name, default_ternary(access, default)));
+                    }
+                    nested @ (swc_ecma_ast::Pat::Array(_) | swc_ecma_ast::Pat::Object(_)) => {
+                        expand_nested(prop_get(ident(src), &key), nested, g, &mut out)?;
                     }
                     _ => return None,
                 }
