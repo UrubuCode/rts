@@ -42,6 +42,23 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // `Array.of(..)`, `String.x(..)`, `Object.x(..)`) is EXCLUDED — it may
             // return an unsupported-source sentinel whose `.length` must bail.
             HirExprKind::MethodCall { object, .. } => !self.is_global_class_static_recv(object),
+            // A MEMBER / INDEX result (`obj.list.length`, `rows[i].length`) is an
+            // opaque Tagged value → read `.length` at runtime. `__rtsadp_dyn_length`
+            // is sound for ANY value (string→code-units, array→len, else→undefined),
+            // so this never produces a wrong length.
+            HirExprKind::Member { .. } | HirExprKind::Index { .. } => true,
+            // `new X(..).length` — the fresh instance's `.length` (an Array ctor, a
+            // user class with a `length` field) dispatched at runtime.
+            HirExprKind::New { .. } => true,
+            // A SHORT-CIRCUIT logical result (`(s || "default").length`,
+            // `(a && b).length`, `(x ?? y).length`) yields one of its operands — a
+            // real value whose `.length` reads dynamically.
+            HirExprKind::Bin { op, .. } => matches!(
+                op,
+                rts_hir::ir::HirBinOp::LogOr
+                    | rts_hir::ir::HirBinOp::LogAnd
+                    | rts_hir::ir::HirBinOp::NullCoalesce
+            ),
             _ => false,
         }
     }

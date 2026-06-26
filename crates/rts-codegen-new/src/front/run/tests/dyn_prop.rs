@@ -73,3 +73,32 @@ fn in_operator_in_arrow_callback() {
         "v,n\n",
     );
 }
+
+#[test]
+fn dyn_length_on_member_result() {
+    // `obj.field.length` — the field read yields an opaque Tagged value; its
+    // `.length` reads dynamically (array → element count).
+    assert_stdout(
+        "const o = { list: [1, 2, 3] }; console.log(o.list.length);",
+        "3\n",
+    );
+}
+
+#[test]
+fn dyn_length_on_logical_result() {
+    // `(s || "default").length` — the short-circuit yields one operand; its
+    // `.length` reads dynamically. Empty → "default" (7).
+    assert_stdout(
+        r#"const s = ""; console.log((s || "default").length);"#,
+        "7\n",
+    );
+}
+
+#[test]
+fn dyn_length_on_index_result() {
+    // `rows[i].length` — an index result's `.length` reads dynamically.
+    assert_stdout(
+        "const rows = [[1, 2], [3, 4, 5]]; console.log(rows[1].length);",
+        "3\n",
+    );
+}
