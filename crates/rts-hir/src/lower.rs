@@ -490,6 +490,40 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
             )
         }
 
+        // A `function (…) { … }` EXPRESSION (anonymous, named, or IIFE). It has the
+        // same param/body shape as an arrow, so we lower it to an `Arrow` node and let
+        // the engine's arrow-extraction machinery (lift / closure / bail) handle it
+        // uniformly. `this`/`arguments`-dependent and async/generator forms are left
+        // to the downstream bail (an arrow that references `this`/an unknown name is
+        // not soundly liftable — never a wrong value). A NAMED function expression's
+        // self-name is visible only inside its body; we do NOT bind it, so a
+        // self-recursive named fn-expr surfaces the name as a free ident and bails
+        // (sound) — a later increment can bind the self-name.
+        swc::Expr::Fn(fn_expr) => {
+            let func = &fn_expr.function;
+            if func.is_async || func.is_generator {
+                return HirExpr::new(HirExprKind::Raw(format!("{:?}", e)), HirType::Unknown);
+            }
+            let params: Vec<HirParam> = func.params.iter().map(|p| {
+                let name = extract_swc_pat_name(&p.pat);
+                let annotation = extract_ts_type_annotation(&p.pat);
+                let ty = annotation.as_deref().map(parse_type_annotation).unwrap_or(HirType::Unknown);
+                HirParam { name, ty, variadic: false, has_default: false, optional: false, default_expr: None }
+            }).collect();
+            let ret = HirType::Unknown;
+            let body = match &func.body {
+                Some(b) => {
+                    let mut inner_scope = Scope::new();
+                    HirArrowBody::Block(lower_swc_stmts_block(b, &mut inner_scope))
+                }
+                None => HirArrowBody::Block(Vec::new()),
+            };
+            HirExpr::new(
+                HirExprKind::Arrow { params, ret: ret.clone(), body },
+                HirType::Function { params: vec![], ret: Box::new(ret) },
+            )
+        }
+
         swc::Expr::Tpl(tpl) => {
             // Template literal: lower as Raw for now
             let _ = tpl;

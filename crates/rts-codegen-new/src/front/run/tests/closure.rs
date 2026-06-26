@@ -234,6 +234,35 @@ fn inline_arrow_callback_reading_console() {
 }
 
 #[test]
+fn function_expression_as_value() {
+    // A `function (…) { … }` EXPRESSION lowers to an arrow → the same lift path.
+    // Anonymous fn-expr bound to a local and called.
+    assert_stdout(
+        "const double = function (x: number): number { return x * 2; }; console.log(double(5));",
+        "10\n",
+    );
+}
+
+#[test]
+fn iife_function_expression() {
+    // An IIFE `(function(a,b){return a+b})(3,4)` — the fn-expr is the callee value.
+    assert_stdout(
+        "console.log((function (a: number, b: number): number { return a + b; })(3, 4));",
+        "7\n",
+    );
+}
+
+#[test]
+fn function_expression_argument() {
+    // A fn-expr passed as a callback argument to a HOF.
+    assert_stdout(
+        "function apply(f: (x: number) => number, x: number): number { return f(x); } \
+         console.log(apply(function (x: number): number { return x + 10; }, 5));",
+        "15\n",
+    );
+}
+
+#[test]
 fn block_body_arrow_local_used_later() {
     // A BLOCK-body arrow that declares a `const`/`let` and uses it in a LATER
     // statement. The nested free-var scan cloned `bound` per statement, dropping the
