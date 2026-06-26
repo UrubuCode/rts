@@ -78,8 +78,45 @@ fn nested_template() {
 }
 
 #[test]
-fn tagged_template_bails() {
-    // A TAGGED template (`tag\`…\``) is a separate feature — it must BAIL, never be
-    // mistaken for a plain template.
-    assert_bails(r#"function tag(s: any): any { return s; } console.log(tag`hi ${1}`);"#);
+fn tagged_template_sums_interpolations() {
+    // `` tag`x${10}y${20}z` `` → `tag(["x","y","z"], 10, 20)`. The tag fn receives
+    // the cooked string-parts array first, then each interpolated value.
+    assert_stdout(
+        "function sum(strings: string[], a: number, b: number): number { return a + b; } \
+         console.log(sum`x${10}y${20}z`);",
+        "30\n",
+    );
+}
+
+#[test]
+fn tagged_template_zero_interpolations() {
+    // No interpolations: the tag gets only the one-element string-parts array.
+    assert_stdout(
+        "function f(strings: string[]): number { return 99; } \
+         console.log(f`only static text`);",
+        "99\n",
+    );
+}
+
+#[test]
+fn tagged_template_nested_in_outer_template() {
+    // A tagged template INSIDE an outer template interpolation (`` `${tag`…`}` ``)
+    // — the inner one is rebuilt directly during the outer's recovery (otherwise it
+    // would surface a `Raw` the cursor never re-reaches).
+    assert_stdout(
+        "function sum(strings: string[], a: number, b: number): number { return a + b; } \
+         console.log(`r=${sum`${5}+${7}`}`);",
+        "r=12\n",
+    );
+}
+
+#[test]
+fn tagged_template_extra_args_to_fixed_arity_bails() {
+    // A tag fn declaring FEWER params than the call passes interpolations: the
+    // engine's user-call enforces exact arity (JS would ignore the extras) — a
+    // SOUND bail, never a wrong value. (Call-arity flexibility is a later increment.)
+    assert_bails(
+        "function partsCount(strings: string[]): number { return strings.length; } \
+         console.log(partsCount`a${1}b${2}c`);",
+    );
 }

@@ -30,6 +30,7 @@ pub(super) fn walk_stmt(stmt: &swc_ecma_ast::Stmt, acc: &mut Recovered) {
     // them in source order already, but sorting by span.lo is a cheap guarantee
     // that the order is canonical regardless of visitor field order.
     acc.templates.sort_by_key(|t| t.span.lo.0);
+    acc.tagged_templates.sort_by_key(|t| t.span.lo.0);
 }
 
 struct Collector<'a> {
@@ -50,12 +51,36 @@ impl Visit for Collector<'_> {
         self.acc.opt_chains.insert(span, node.clone());
     }
 
-    fn visit_tagged_tpl(&mut self, _node: &swc_ecma_ast::TaggedTpl) {
-        // A TAGGED template (`tag\`…\``) is a SEPARATE feature — do NOT record it as
-        // a plain template (its HIR is `Raw("TaggedTpl(…)")`, which has no
-        // `template_literal` placeholder anyway). Stop here so an inner plain
-        // template inside the tag args is not mis-attributed.
+    fn visit_tagged_tpl(&mut self, node: &swc_ecma_ast::TaggedTpl) {
+        // A TAGGED template (`tag\`…\``) — record it in its OWN positional list (HIR
+        // placeholder `Raw("TaggedTpl(…)")`, recovered by `build_tagged_template`).
+        // STOP (do not descend): rts-hir flattened the WHOLE tagged template to one
+        // Raw, so the inner plain template / interpolations have no separate
+        // placeholder — `build_tagged_template` rebuilds them straight from swc.
+        self.acc.tagged_templates.push(node.clone());
     }
+}
+
+/// Desugar `` tag`q0${e0}q1${e1}…` `` to `tag([q0,q1,…], e0, e1, …)` — the tag
+/// function receives the cooked STRING-PARTS array as its first arg, then each
+/// interpolated value as a positional arg (the JS tagged-template call form, minus
+/// the `.raw` property on the strings array, which the modeled subset omits).
+pub(super) fn build_tagged_template(tt: &swc_ecma_ast::TaggedTpl) -> HirExpr {
+    let scope = Scope::new();
+    let tag = rts_hir::lower::lower_swc_expr(&tt.tag, &scope);
+    let strings: Vec<HirExpr> = tt.tpl.quasis.iter().map(|q| str_lit(cooked_quasi(q))).collect();
+    let strings_arr = HirExpr::new(HirExprKind::Array(strings), HirType::Unknown);
+    let mut args = vec![strings_arr];
+    for expr in &tt.tpl.exprs {
+        args.push(rebuild_interp(expr, &scope));
+    }
+    HirExpr::new(
+        HirExprKind::Call {
+            callee: Box::new(tag),
+            args,
+        },
+        HirType::Unknown,
+    )
 }
 
 /// Build the HIR `+`-chain for a template literal.
@@ -103,6 +128,10 @@ pub(super) fn build_template(tpl: &swc_ecma_ast::Tpl) -> HirExpr {
 fn rebuild_interp(expr: &swc_ecma_ast::Expr, scope: &Scope) -> HirExpr {
     match expr {
         swc_ecma_ast::Expr::Tpl(t) => build_template(t),
+        // A nested TAGGED template inside an interpolation (`` `${tag`…`}` ``): rebuild
+        // it directly — rts-hir would only give a `Raw("TaggedTpl(…)")` the cursor
+        // never re-reaches (it is created here, inside the outer template's rebuild).
+        swc_ecma_ast::Expr::TaggedTpl(tt) => build_tagged_template(tt),
         swc_ecma_ast::Expr::OptChain(oc) => super::optchain::build_opt_chain(oc)
             .unwrap_or_else(|| rts_hir::lower::lower_swc_expr(expr, scope)),
         swc_ecma_ast::Expr::Paren(p) => rebuild_interp(&p.expr, scope),

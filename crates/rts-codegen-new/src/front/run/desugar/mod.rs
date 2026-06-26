@@ -145,6 +145,7 @@ fn rewrite_unit(swc_stmts: &[&swc_ecma_ast::Stmt], hir_stmts: &mut [HirStmt]) {
     let mut cx = Cursor {
         recovered: acc,
         next_template: 0,
+        next_tagged: 0,
     };
     cx.rewrite_stmts(hir_stmts);
 }
@@ -154,6 +155,8 @@ fn rewrite_unit(swc_stmts: &[&swc_ecma_ast::Stmt], hir_stmts: &mut [HirStmt]) {
 struct Recovered {
     /// Every `Tpl` node in document order (matched positionally within the unit).
     templates: Vec<swc_ecma_ast::Tpl>,
+    /// Every `TaggedTpl` (`` tag`…` ``) in document order (matched positionally).
+    tagged_templates: Vec<swc_ecma_ast::TaggedTpl>,
     /// `byte-span (start,end)` → the `OptChainExpr` node (matched by exact span).
     opt_chains: HashMap<(u32, u32), swc_ecma_ast::OptChainExpr>,
 }
@@ -162,6 +165,7 @@ struct Recovered {
 struct Cursor {
     recovered: Recovered,
     next_template: usize,
+    next_tagged: usize,
 }
 
 impl Cursor {
@@ -255,6 +259,17 @@ impl Cursor {
                 self.next_template += 1;
                 if let Some(t) = self.recovered.templates.get(idx).cloned() {
                     *e = tpl::build_template(&t);
+                }
+                return;
+            }
+            if payload.starts_with("TaggedTpl(") {
+                let idx = self.next_tagged;
+                self.next_tagged += 1;
+                if let Some(tt) = self.recovered.tagged_templates.get(idx).cloned() {
+                    // `build_tagged_template` rebuilds the args (incl. nested
+                    // templates) directly from swc — like `build_template`, it is
+                    // self-contained, so we do NOT recurse (no placeholders remain).
+                    *e = tpl::build_tagged_template(&tt);
                 }
                 return;
             }
