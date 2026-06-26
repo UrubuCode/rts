@@ -482,6 +482,13 @@ fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) 
     }
 }
 
+/// Anexa apelidos (API node:crypto) a um `Member` nativo já construído —
+/// resolução por dado (`Member::matches_name`), o motor não nomeia nada.
+fn with_aliases(mut m: Member, aliases: &[&str]) -> Member {
+    m.aliases = aliases.iter().map(|s| s.to_string()).collect();
+    m
+}
+
 /// Registra a namespace `crypto` no motor (Fase 2 — hand-written, sem macro).
 pub fn register(e: &mut Engine) {
     e.ns("crypto")
@@ -502,21 +509,27 @@ pub fn register(e: &mut Engine) {
             "A cryptographically secure i64 (0 is a valid value).",
             __RTS_FN_NS_CRYPTO_RANDOM_I64 as *const u8,
         ))
-        .member(func(
-            "random_buffer",
-            "__RTS_FN_NS_CRYPTO_RANDOM_BUFFER",
-            Sig::new(vec![AbiType::I64], AbiType::Handle),
-            "random_buffer(len: number): number",
-            "Allocates a Buffer of `len` random bytes. Handle, or 0 on error.",
-            __RTS_FN_NS_CRYPTO_RANDOM_BUFFER as *const u8,
+        .member(with_aliases(
+            func(
+                "random_buffer",
+                "__RTS_FN_NS_CRYPTO_RANDOM_BUFFER",
+                Sig::new(vec![AbiType::I64], AbiType::Handle),
+                "random_buffer(len: number): number",
+                "Allocates a Buffer of `len` random bytes. Handle, or 0 on error.",
+                __RTS_FN_NS_CRYPTO_RANDOM_BUFFER as *const u8,
+            ),
+            &["randomBytesBuffer"],
         ))
-        .member(func(
-            "random_uuid",
-            "__RTS_FN_NS_CRYPTO_RANDOM_UUID",
-            Sig::new(Vec::new(), AbiType::Handle),
-            "random_uuid(): string",
-            "UUID v4 (RFC 4122) — `crypto.randomUUID()`. String handle.",
-            __RTS_FN_NS_CRYPTO_RANDOM_UUID as *const u8,
+        .member(with_aliases(
+            func(
+                "random_uuid",
+                "__RTS_FN_NS_CRYPTO_RANDOM_UUID",
+                Sig::new(Vec::new(), AbiType::Handle),
+                "random_uuid(): string",
+                "UUID v4 (RFC 4122) — `crypto.randomUUID()`. String handle.",
+                __RTS_FN_NS_CRYPTO_RANDOM_UUID as *const u8,
+            ),
+            &["randomUUID"],
         ))
         .member(func(
             "hash_new",
@@ -558,13 +571,16 @@ pub fn register(e: &mut Engine) {
             "`hash.digest(\"base64\")` — finalize, return a base64 string handle.",
             __RTS_FN_NS_CRYPTO_HASH_DIGEST_BASE64 as *const u8,
         ))
-        .member(func(
-            "sha256_str",
-            "__RTS_FN_NS_CRYPTO_SHA256_STR",
-            Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
-            "sha256_str(s: string): string",
-            "SHA-256 of a string, lowercase hex. String handle.",
-            __RTS_FN_NS_CRYPTO_SHA256_STR as *const u8,
+        .member(with_aliases(
+            func(
+                "sha256_str",
+                "__RTS_FN_NS_CRYPTO_SHA256_STR",
+                Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
+                "sha256_str(s: string): string",
+                "SHA-256 of a string, lowercase hex. String handle.",
+                __RTS_FN_NS_CRYPTO_SHA256_STR as *const u8,
+            ),
+            &["sha256"],
         ))
         .member(func(
             "sha256_bytes",
