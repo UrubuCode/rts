@@ -239,7 +239,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
         let name = match &callee.kind {
             HirExprKind::Ident(n) => n.clone(),
-            _ => return unsupported!("call of a non-identifier callee"),
+            // A non-ident callee that is an EXPRESSION producing a function VALUE
+            // (`f(x)(y)` curry, `(cond ? f : g)(x)`, `arr[i](x)`): lower it to a value
+            // and invoke through the uniform-ABI value-call path. A non-function value
+            // yields `undefined` at `__rtsadp_fn_invoke` (never a crash). Member callees
+            // were already routed above (method dispatch), so they never reach here.
+            _ => {
+                let callee_val = self.lower_expr(module, callee)?;
+                let callee_word = self.box_value(callee_val);
+                return self.lower_value_call_word(module, callee_word, args);
+            }
         };
         // GENERATOR sentinels emitted by the parser's eager desugar (a `function* g`
         // becomes a plain fn that builds an array `__gen_buf` then `return
