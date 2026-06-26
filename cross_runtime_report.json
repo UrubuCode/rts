@@ -4265,10 +4265,10 @@
 ,
 {
   "name": "266_logical_assignment",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "vars=5,y,9\nobj=2,done,3",
   "node": "vars=5,y,9\nobj=2,done,3",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "vars=5,y,9\nobj=2,done,3"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":199,"rts_diverge":73,"bun_node_diverge":17,"errors":320,"rejected":0}}
+],"summary":{"total":609,"pass":200,"rts_diverge":73,"bun_node_diverge":17,"errors":319,"rejected":0}}
