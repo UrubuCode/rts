@@ -256,6 +256,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if let Some(val) = self.try_gen_sm_sentinel(module, &name, args)? {
             return Ok(val);
         }
+        // `getPointer(fn)` — RTS engine builtin: materialize a top-level user
+        // function's RAW code address as an i64 (the C-ABI `fn(..)->..` pointer the
+        // `thread`/`parallel`/`sync` namespaces pass to `spawn`/`map`). Not a JS
+        // primordial — an engine intrinsic, like the private `engine.*` bridges.
+        if let Some(val) = self.try_get_pointer(module, &name, args)? {
+            return Ok(val);
+        }
         // A BUILTIN-IMPORT name (`import { print } from "rts:io"`): resolve the real
         // `__RTS_FN_NS_*` symbol + ABI signature through the Registry and marshal the
         // call via the SAME generic path as a class method (recv = None — a namespace
@@ -420,6 +427,41 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         emit_marshal::emit_vec_push(module, self.builder, obj, value_word);
         emit_marshal::emit_vec_push(module, self.builder, obj, done_word);
         Val::tagged_kind(obj, JsKind::Object)
+    }
+
+    /// `getPointer(fn)` — materialize a top-level user function's raw code address
+    /// as an i64. Returns `Ok(None)` when `name` is not `getPointer` (the caller
+    /// falls through). The single arg must be an IDENT resolving to a declared
+    /// top-level function (in `self.ids`); anything else BAILS (a function VALUE /
+    /// closure has no single stable C-ABI entry to hand a thread — sound refusal).
+    fn try_get_pointer(
+        &mut self,
+        module: &mut dyn Module,
+        name: &str,
+        args: &[HirExpr],
+    ) -> FrontResult<Option<Val>> {
+        if name != "getPointer" {
+            return Ok(None);
+        }
+        // A user local/closure named `getPointer` shadows the builtin → not us.
+        if self.local(name).is_some() || self.captures.contains_key(name) {
+            return Ok(None);
+        }
+        if args.len() != 1 {
+            return unsupported!("getPointer expects exactly 1 argument (a function)");
+        }
+        let HirExprKind::Ident(fname) = &args[0].kind else {
+            return unsupported!("getPointer argument must be a top-level function name");
+        };
+        let Some(fid) = self.ids.get(fname).copied() else {
+            return unsupported!(
+                "getPointer(`{fname}`) — not a declared top-level function (a function \
+                 value / closure has no single C-ABI entry)"
+            );
+        };
+        let fref = module.declare_func_in_func(fid, self.builder.func);
+        let addr = self.builder.ins().func_addr(types::I64, fref);
+        Ok(Some(Val::new(addr, Repr::Int64)))
     }
 
     /// Lower a LAZY generator state-machine sentinel call. Returns `Ok(None)` when

@@ -137,3 +137,20 @@ fn closure_passed_as_arg_now_works() {
         "11\n",
     );
 }
+
+#[test]
+fn get_pointer_materializes_user_fn_address() {
+    // `getPointer(fn)` — engine builtin: a top-level user fn's raw code address as
+    // i64 (the C-ABI pointer thread/parallel/sync pass to spawn). A real, non-null
+    // address (asserted via `!== 0`; the value itself is non-deterministic).
+    assert_stdout(
+        "function w(n: number): number { return n + 1; } console.log(getPointer(w) !== 0);",
+        "true\n",
+    );
+}
+
+#[test]
+fn get_pointer_of_non_function_bails() {
+    // `getPointer(x)` where `x` is not a top-level function name → sound bail.
+    assert_bails("let x = 5; console.log(getPointer(x));");
+}
