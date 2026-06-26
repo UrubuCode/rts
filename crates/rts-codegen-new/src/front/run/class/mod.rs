@@ -248,12 +248,6 @@ fn check_supported(decl: &ClassDecl) -> FrontResult<()> {
                         decl.name, md.name
                     )));
                 }
-                if md.name.starts_with('#') {
-                    return Err(Unsupported::new(format!(
-                        "private method `{}.{}`",
-                        decl.name, md.name
-                    )));
-                }
                 if !matches!(
                     md.role,
                     MethodRole::Method | MethodRole::Getter | MethodRole::Setter
