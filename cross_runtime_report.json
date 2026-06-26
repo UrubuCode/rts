@@ -977,10 +977,10 @@
 ,
 {
   "name": "codex_super_getter_setter_receiver",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "x:base-set:base-get\nx:base-set",
   "node": "x:base-set:base-get\nx:base-set",
-  "rts": "x:base-set:base-get\nx:base-set"
+  "rts": "undefined:base-get\nx:base-set"
 }
 ,
 {
@@ -1137,26 +1137,26 @@
 ,
 {
   "name": "309_console_assert",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "threw=false\nafter=ok",
   "node": "threw=false\nafter=ok",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "threw=false\nafter=ok"
 }
 ,
 {
   "name": "310_console_group",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "events=g:x|end",
   "node": "events=g:x|end",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "x\nevents="
 }
 ,
 {
   "name": "311_console_table",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "calls=2",
   "node": "calls=2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "[ { a: 1 }, { a: 2 } ]\ncalls="
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_error",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "__RUNTIME_ERROR__"
 }
 ,
@@ -3121,10 +3121,10 @@
 ,
 {
   "name": "codex_object_create_null_json_keys",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "true\nb,a,toString\n{\"b\":2,\"a\":1,\"toString\":\"own\"}\n[object Object]",
   "node": "true\nb,a,toString\n{\"b\":2,\"a\":1,\"toString\":\"own\"}\n[object Object]",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "true\nb,a,toString\n{\"b\":2,\"a\":1,\"toString\":\"own\"}\n[object Object]"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":204,"rts_diverge":75,"bun_node_diverge":18,"errors":312,"rejected":0}}
+],"summary":{"total":609,"pass":205,"rts_diverge":78,"bun_node_diverge":17,"errors":309,"rejected":0}}
