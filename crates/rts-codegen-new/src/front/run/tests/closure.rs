@@ -232,3 +232,16 @@ fn inline_arrow_callback_reading_console() {
         "7\n",
     );
 }
+
+#[test]
+fn block_body_arrow_local_used_later() {
+    // A BLOCK-body arrow that declares a `const`/`let` and uses it in a LATER
+    // statement. The nested free-var scan cloned `bound` per statement, dropping the
+    // earlier binding so the local was misreported free → "expression arrow". One
+    // shared `bound` across the block fixes it.
+    assert_stdout(
+        "function call(f: () => void): void { f(); } \
+         call(() => { const a = 1; const b = 2; console.log(a + b); });",
+        "3\n",
+    );
+}

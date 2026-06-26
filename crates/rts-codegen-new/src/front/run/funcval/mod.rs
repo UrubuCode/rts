@@ -368,6 +368,7 @@ fn hoist_captures(funcs: &mut [HirFunc], main: &HirFunc, ctx: &mut Ctx) {
                 || GLOBALS.contains(&id.as_str())
                 || ctx.top_level.contains(id)
                 || ctx.module_globals.contains(id)
+                || super::registry::has_namespace(id)
             {
                 continue;
             }
@@ -623,6 +624,7 @@ impl Ctx {
                 || GLOBALS.contains(&id.as_str())
                 || self.top_level.contains(id)
                 || self.module_globals.contains(id)
+                || super::registry::has_namespace(id)
             {
                 continue;
             }

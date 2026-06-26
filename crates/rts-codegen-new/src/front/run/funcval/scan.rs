@@ -425,8 +425,11 @@ fn collect_free_expr(e: &HirExpr, bound: &HashSet<String>, free: &mut HashSet<St
             match body {
                 HirArrowBody::Expr(inner) => collect_free_expr(inner, &inner_bound, free),
                 HirArrowBody::Block(stmts) => {
+                    // ONE shared `bound` across the block so a `const`/`let` declared
+                    // in an earlier statement is visible to a later one — cloning per
+                    // statement would drop the binding and report the local as free.
                     for st in stmts {
-                        collect_free_stmt(st, &mut inner_bound.clone(), free);
+                        collect_free_stmt(st, &mut inner_bound, free);
                     }
                 }
             }
