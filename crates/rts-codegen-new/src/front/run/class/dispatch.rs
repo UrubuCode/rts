@@ -141,10 +141,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .get(class)
             .expect("static receiver must be a known class")
             .clone();
-        let Some(fn_name) = desc.static_fields.get(field).cloned() else {
-            return unsupported!("`{class}.{field}` — no such static field on class `{class}`");
-        };
-        self.call_synth_fn(module, &fn_name, None, &[])
+        if let Some(fn_name) = desc.static_fields.get(field).cloned() {
+            return self.call_synth_fn(module, &fn_name, None, &[]);
+        }
+        // A static METHOD read as a VALUE (`if (Error.captureStackTrace)`,
+        // `const f = C.staticMethod`): reify the synthesized static fn into a
+        // TAG_FUNCTION value (truthy, callable). Falls through to the bail only when
+        // `field` is neither a static field nor a static method.
+        if let Some(fn_name) = desc.statics.get(field).cloned() {
+            return self.reify_function(module, &fn_name);
+        }
+        unsupported!("`{class}.{field}` — no such static field on class `{class}`")
     }
 
     /// Shared emitter for a direct call of a synthesized class fn `fn_name`,

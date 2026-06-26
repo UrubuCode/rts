@@ -40,6 +40,12 @@ class Error {
     if (this.name === "") return this.message;
     return this.name + ": " + this.message;
   }
+  // `Error.captureStackTrace(target, ctor?)` — V8/Node API. RTS já captura
+  // `.stack` na construção (engine.trace_capture), então isto é um no-op. Existe
+  // para o padrão comum `if (Error.captureStackTrace) Error.captureStackTrace(...)`
+  // compilar e rodar (a leitura reifica este método como valor truthy; a chamada
+  // não faz nada).
+  static captureStackTrace(target?: any, ctor?: any): void {}
 }
 
 class TypeError extends Error {
