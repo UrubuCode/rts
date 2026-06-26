@@ -865,10 +865,10 @@
 ,
 {
   "name": "372_private_methods",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "3\n1,2,3\n3\n2\n100\n373.15\n212\n273.15\n[INFO] ok\n20",
   "node": "3\n1,2,3\n3\n2\n100\n373.15\n212\n273.15\n[INFO] ok\n20",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "3\n1,2,3\n3\n2\n100\n373.15\n212\n273.15\nundefined\n20"
 }
 ,
 {
@@ -977,10 +977,10 @@
 ,
 {
   "name": "codex_super_getter_setter_receiver",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "x:base-set:base-get\nx:base-set",
   "node": "x:base-set:base-get\nx:base-set",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "x:base-set:base-get\nx:base-set"
 }
 ,
 {
@@ -4177,10 +4177,10 @@
 ,
 {
   "name": "09_nullish_optional",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "null_name=anon\nmissing_name=anon\nrich_name=Ada\ntag0=core\ntag9=none\nmissing_tag=none\nnull_chain=none\nnullish_a=fallback\nchain_mix=x:fast",
   "node": "null_name=anon\nmissing_name=anon\nrich_name=Ada\ntag0=core\ntag9=none\nmissing_tag=none\nnull_chain=none\nnullish_a=fallback\nchain_mix=x:fast",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "null_name=anon\nmissing_name=anon\nrich_name=Ada\ntag0=core\ntag9=none\nmissing_tag=none\nnull_chain=none\nnullish_a=fallback\nchain_mix=x:fast"
 }
 ,
 {
@@ -4401,10 +4401,10 @@
 ,
 {
   "name": "343_optional_chaining",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "NYC\nundefined\nundefined\nundefined\n1,2,3\nundefined\n1\nundefined\nunknown\nNYC\n10\nundefined",
   "node": "NYC\nundefined\nundefined\nundefined\n1,2,3\nundefined\n1\nundefined\nunknown\nNYC\n10\nundefined",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "NYC\nundefined\nundefined\nundefined\nundefined\nundefined\n1\nundefined\nunknown\nNYC\n10\nundefined"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":200,"rts_diverge":73,"bun_node_diverge":17,"errors":319,"rejected":0}}
+],"summary":{"total":609,"pass":202,"rts_diverge":75,"bun_node_diverge":17,"errors":315,"rejected":0}}
