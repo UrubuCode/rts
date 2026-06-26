@@ -887,15 +887,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // The rest-param index relative to the USER params (after dropping `this`).
         match sig.rest_param.map(|r| r - pi) {
             None => {
-                // Too many positional args (no rest to absorb them) → bail.
-                if args.len() > user_params.len() {
-                    return unsupported!(
-                        "call to `{}` expects {} args, got {}",
-                        sig.name,
-                        user_params.len(),
-                        args.len()
-                    );
-                }
                 for (i, &want) in user_params.iter().enumerate() {
                     if i < args.len() {
                         let a = &args[i];
@@ -915,6 +906,21 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                         out.push(self.undefined_coerced(want)?);
                     } else {
                         return unsupported!("call to `{}` missing required arg {}", sig.name, i);
+                    }
+                }
+                // EXTRA positional args (JS ignores args beyond the declared arity,
+                // but still EVALUATES them left-to-right for side effects). Lower each
+                // and discard — the callee never receives them. A spread among the
+                // extras is a later increment.
+                if args.len() > user_params.len() {
+                    for a in &args[user_params.len()..] {
+                        if matches!(a.kind, HirExprKind::Spread(_)) {
+                            return unsupported!(
+                                "spread arg into `{}` (later increment)",
+                                sig.name
+                            );
+                        }
+                        self.lower_expr(module, a)?;
                     }
                 }
             }

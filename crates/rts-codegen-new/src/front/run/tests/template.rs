@@ -6,7 +6,7 @@
 //! exactly like JS (`${5}`→"5", `${true}`→"true", `${[1,2,3]}`→"1,2,3",
 //! `${null}`→"null", `${undefined}`→"undefined").
 
-use super::{assert_bails, assert_stdout};
+use super::assert_stdout;
 
 #[test]
 fn interp_number_var() {
@@ -111,12 +111,12 @@ fn tagged_template_nested_in_outer_template() {
 }
 
 #[test]
-fn tagged_template_extra_args_to_fixed_arity_bails() {
-    // A tag fn declaring FEWER params than the call passes interpolations: the
-    // engine's user-call enforces exact arity (JS would ignore the extras) — a
-    // SOUND bail, never a wrong value. (Call-arity flexibility is a later increment.)
-    assert_bails(
+fn tagged_template_extra_args_ignored() {
+    // A tag fn declaring FEWER params than the call passes interpolations: JS
+    // ignores the extra args (the fn only sees `strings`). 3 parts → length 3.
+    assert_stdout(
         "function partsCount(strings: string[]): number { return strings.length; } \
          console.log(partsCount`a${1}b${2}c`);",
+        "3\n",
     );
 }

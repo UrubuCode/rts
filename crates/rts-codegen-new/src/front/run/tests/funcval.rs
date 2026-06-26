@@ -154,3 +154,24 @@ fn get_pointer_of_non_function_bails() {
     // `getPointer(x)` where `x` is not a top-level function name → sound bail.
     assert_bails("let x = 5; console.log(getPointer(x));");
 }
+
+#[test]
+fn extra_positional_args_ignored() {
+    // JS ignores args beyond the declared arity — the callee sees only `x`.
+    assert_stdout(
+        "function f(x: number): number { return x; } console.log(f(7, 8, 9));",
+        "7\n",
+    );
+}
+
+#[test]
+fn extra_args_still_evaluated_left_to_right() {
+    // The EXTRA args are still EVALUATED (side effects) even though dropped: each
+    // appends to the log, in source order, before `f` returns `x`.
+    assert_stdout(
+        "let log = \"\"; function side(n: number): number { log += n; return n; } \
+         function f(x: number): number { return x; } \
+         const r = f(side(1), side(2), side(3)); console.log(log, r);",
+        "123 1\n",
+    );
+}
