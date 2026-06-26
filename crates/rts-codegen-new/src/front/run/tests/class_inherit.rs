@@ -152,6 +152,34 @@ fn static_method_calls_static() {
 }
 
 // ===========================================================================
+// super.field / super.getter READ (bare, not a call)
+// ===========================================================================
+
+#[test]
+fn super_field_read_is_this_field() {
+    // A plain inherited field: `super.x` reads the same own slot as `this.x`.
+    assert_stdout(
+        "class Base { x: number = 7; } \
+         class Sub extends Base { get(): number { return super.x; } } \
+         console.log(new Sub().get());",
+        "7\n",
+    );
+}
+
+#[test]
+fn super_getter_bypasses_override() {
+    // `super.x` invokes the PARENT getter (100), NOT the overriding `Sub.get x`
+    // (999). `this.x` stays virtual → 999. Soundness: never the wrong getter.
+    assert_stdout(
+        "class Base { _x: number = 100; get x(): number { return this._x; } } \
+         class Sub extends Base { get x(): number { return 999; } \
+           viaSuper(): number { return super.x; } viaThis(): number { return this.x; } } \
+         const s = new Sub(); console.log(s.viaSuper()); console.log(s.viaThis());",
+        "100\n999\n",
+    );
+}
+
+// ===========================================================================
 // negative: still-unmodeled shapes BAIL (never a wrong value)
 // ===========================================================================
 

@@ -136,6 +136,37 @@ fn rewrite_super_stmt(s: &mut HirStmt, parent: Option<&ClassDesc>) -> FrontResul
 }
 
 fn rewrite_super_expr(e: &mut HirExpr, parent: Option<&ClassDesc>) -> FrontResult<()> {
+    // A BARE `super.x` FIELD/getter READ (not a call): rts-hir lowered the whole
+    // `SuperPropExpr` to a `Raw("SuperProp(…)")` node. In this engine instance
+    // fields are OWN properties and an inherited getter resolves through the
+    // instance's class, so `super.x` reads the same slot/getter as `this.x` (for
+    // the non-shadowed case the tests cover). Rewrite to `this.<name>`. A
+    // `super.m(args)` CALL is handled below (the Raw is the call's *callee*, so it
+    // is not matched here).
+    if let HirExprKind::Raw(raw) = &e.kind {
+        if raw.starts_with("SuperProp(") {
+            let parent = parent.ok_or_else(|| {
+                Unsupported::new("`super.x` in a class with no superclass".to_string())
+            })?;
+            let name = super_prop_method(raw)?;
+            // If the PARENT (or an ancestor) declares a GETTER for `name`, `super.x`
+            // must invoke THAT getter with `this` — bypassing any override on the
+            // current class (so `super.x` ≠ the virtual `this.x`). Otherwise `x` is a
+            // plain instance field (own property) → `this.x` reads the same slot.
+            if let Some(getter) = parent.accessor(&name).and_then(|a| a.getter.clone()) {
+                e.kind = HirExprKind::Call {
+                    callee: Box::new(ident(&getter)),
+                    args: vec![this_ident()],
+                };
+            } else {
+                e.kind = HirExprKind::Member {
+                    object: Box::new(this_ident()),
+                    prop: name,
+                };
+            }
+            return Ok(());
+        }
+    }
     // Detect a super-shaped Call and rewrite it in place.
     if let HirExprKind::Call { callee, args } = &mut e.kind {
         if let HirExprKind::Raw(raw) = &callee.kind {
