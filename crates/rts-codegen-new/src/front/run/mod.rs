@@ -550,7 +550,18 @@ fn build_from_program(
         funcval::module_globals(&funcs, &main, &forced_globals)
             .into_keys()
             .collect();
-    let extracted = funcval::extract_arrows(&mut funcs, &mut main, ambient_fns, &pre_globals);
+    // Class names (ambient `.ts` collections like Set/Map + user classes +
+    // synthesized parents) — a free reference to one in an arrow is a known class,
+    // not a captured local. `classes` holds the USER decls; `ambient` holds the
+    // prelude classes (Set/Map/…), which are NOT merged into `classes`, so both
+    // are gathered.
+    let class_names: std::collections::HashSet<String> = classes
+        .iter()
+        .map(|d| d.name.clone())
+        .chain(ambient.iter().map(|d| d.name.clone()))
+        .collect();
+    let extracted =
+        funcval::extract_arrows(&mut funcs, &mut main, ambient_fns, &class_names, &pre_globals);
     funcs.extend(extracted.funcs);
 
     // Module-level mutable globals (#195): function-written top lets + the

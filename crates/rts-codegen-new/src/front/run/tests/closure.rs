@@ -234,6 +234,38 @@ fn inline_arrow_callback_reading_console() {
 }
 
 #[test]
+fn arrow_referencing_class_lifts() {
+    // An arrow that references a CLASS NAME (`v instanceof C`, `new C()`) is NOT
+    // capturing — the class is a known name, not an outer local. It must lift to a
+    // plain top-level fn instead of bailing as an unsound capture.
+    assert_stdout(
+        "class Foo {} const xs: any[] = [new Foo(), 2]; \
+         console.log(xs.filter((v) => v instanceof Foo).length);",
+        "1\n",
+    );
+}
+
+#[test]
+fn arrow_referencing_primordial_class_lifts() {
+    // Same, for a PRIMORDIAL class (`Error`) referenced in a callback arrow.
+    assert_stdout(
+        "const xs: any[] = [1, 2]; console.log(xs.filter((v) => v instanceof Error).length);",
+        "0\n",
+    );
+}
+
+#[test]
+fn arrow_referencing_ambient_collection_class_lifts() {
+    // An AMBIENT `.ts` collection class (`Set`) referenced in a callback arrow —
+    // its name comes from the prelude ClassTable (not the user `classes`), so both
+    // must seed the arrow extractor's non-capture set.
+    assert_stdout(
+        "const xs: any[] = [new Set(), 2]; console.log(xs.filter((v) => v instanceof Set).length);",
+        "1\n",
+    );
+}
+
+#[test]
 fn function_expression_as_value() {
     // A `function (…) { … }` EXPRESSION lowers to an arrow → the same lift path.
     // Anonymous fn-expr bound to a local and called.

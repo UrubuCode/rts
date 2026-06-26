@@ -261,6 +261,7 @@ pub fn extract_arrows(
     funcs: &mut Vec<HirFunc>,
     main: &mut HirFunc,
     ambient_fns: &HashSet<String>,
+    class_names: &HashSet<String>,
     module_globals: &HashSet<String>,
 ) -> ExtractResult {
     let mut top_level: HashSet<String> = funcs.iter().map(|f| f.name.clone()).collect();
@@ -272,6 +273,11 @@ pub fn extract_arrows(
     // an arrow lifts to a plain function instead of being misjudged an unsound
     // capture and left to bail (`expression arrow`).
     top_level.extend(ambient_fns.iter().cloned());
+    // CLASS names (ambient `.ts` collections like `Set`/`Map`, user classes, the
+    // synthesized builtin parents): a free reference to one inside an arrow
+    // (`xs.filter(v => v instanceof Set)`, `new C()`) is NOT a captured local — it
+    // is a known class. Seed them so such an arrow lifts instead of bailing.
+    top_level.extend(class_names.iter().cloned());
 
     let mut ctx = Ctx {
         top_level,
@@ -369,6 +375,7 @@ fn hoist_captures(funcs: &mut [HirFunc], main: &HirFunc, ctx: &mut Ctx) {
                 || ctx.top_level.contains(id)
                 || ctx.module_globals.contains(id)
                 || super::registry::has_namespace(id)
+                || super::registry::has_class(id)
             {
                 continue;
             }
@@ -625,6 +632,7 @@ impl Ctx {
                 || self.top_level.contains(id)
                 || self.module_globals.contains(id)
                 || super::registry::has_namespace(id)
+                || super::registry::has_class(id)
             {
                 continue;
             }
