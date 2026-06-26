@@ -634,6 +634,16 @@ fn lower_swc_pat_or_expr(pat: &swc::AssignTarget, scope: &Scope) -> HirExpr {
                     }
                 }
             }
+            swc::SimpleAssignTarget::SuperProp(s) => {
+                // `super.x = v`: lower the target to the SAME `Raw("SuperProp(…)")`
+                // shape the READ path produces (`lower_swc_expr`'s `{:?}` fallback on
+                // `Expr::SuperProp`), so `inherit::rewrite_super_expr` rewrites it to
+                // `this.<name>` (the inherited field is an OWN slot in the flat shape).
+                HirExpr::new(
+                    HirExprKind::Raw(format!("SuperProp({s:?})")),
+                    HirType::Unknown,
+                )
+            }
             _ => HirExpr::new(HirExprKind::Raw("assign_target".into()), HirType::Unknown),
         },
         _ => HirExpr::new(HirExprKind::Raw("assign_target_pat".into()), HirType::Unknown),

@@ -167,6 +167,36 @@ fn rewrite_super_expr(e: &mut HirExpr, parent: Option<&ClassDesc>) -> FrontResul
             return Ok(());
         }
     }
+    // A `super.x = v` WRITE: rts-hir lowered the assign target to the same
+    // `Raw("SuperProp(…)")` shape as a read. If the PARENT (or an ancestor) declares
+    // a SETTER for `x`, `super.x = v` must invoke THAT setter with `this` — bypassing
+    // any override on the current class (so `super.x =` ≠ the virtual `this.x =`).
+    // Otherwise `x` is a plain instance field (own slot) → `this.x = v`.
+    if let HirExprKind::Assign { target, value } = &mut e.kind {
+        if let HirExprKind::Raw(raw) = &target.kind {
+            if raw.starts_with("SuperProp(") {
+                let parent = parent.ok_or_else(|| {
+                    Unsupported::new("`super.x = …` in a class with no superclass".to_string())
+                })?;
+                let name = super_prop_method(raw)?;
+                // The RHS may itself reference `super` (`super.x = super.x + 1`).
+                rewrite_super_expr(value, Some(parent))?;
+                if let Some(setter) = parent.accessor(&name).and_then(|a| a.setter.clone()) {
+                    let rhs = std::mem::replace(value.as_mut(), this_ident());
+                    e.kind = HirExprKind::Call {
+                        callee: Box::new(ident(&setter)),
+                        args: vec![this_ident(), rhs],
+                    };
+                } else {
+                    target.kind = HirExprKind::Member {
+                        object: Box::new(this_ident()),
+                        prop: name,
+                    };
+                }
+                return Ok(());
+            }
+        }
+    }
     // Detect a super-shaped Call and rewrite it in place.
     if let HirExprKind::Call { callee, args } = &mut e.kind {
         if let HirExprKind::Raw(raw) = &callee.kind {
