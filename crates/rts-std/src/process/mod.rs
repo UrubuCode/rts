@@ -224,5 +224,34 @@ pub fn register(e: &mut Engine) {
             "Mata o filho (SIGKILL / TerminateProcess). Consome o handle. 0 ok, -1 erro.",
             __RTS_FN_NS_PROCESS_KILL as *const u8,
         ))
+        // node:process — superfície que o Node expõe em `process` mas que o RTS
+        // mora em `env`/`os`. Membros aqui REUSAM os externs nativos (mesmos
+        // símbolos), só dão o nome node:process. `import { cwd, platform, arch }
+        // from "node:process"` resolve por dado (Member::matches_name), sem o
+        // motor nomear `env`/`os`.
+        .member(func(
+            "cwd",
+            "__RTS_FN_NS_ENV_CWD",
+            Sig::new(Vec::new(), AbiType::Handle),
+            "cwd(): string",
+            "Diretório de trabalho corrente (node:process, alias de env.cwd).",
+            crate::env::__RTS_FN_NS_ENV_CWD as *const u8,
+        ))
+        .member(func(
+            "platform",
+            "__RTS_FN_NS_OS_PLATFORM",
+            Sig::new(Vec::new(), AbiType::Handle),
+            "platform(): string",
+            "Plataforma do SO (node:process, alias de os.platform).",
+            crate::os::__RTS_FN_NS_OS_PLATFORM as *const u8,
+        ))
+        .member(func(
+            "arch",
+            "__RTS_FN_NS_OS_ARCH",
+            Sig::new(Vec::new(), AbiType::Handle),
+            "arch(): string",
+            "Arquitetura da CPU (node:process, alias de os.arch).",
+            crate::os::__RTS_FN_NS_OS_ARCH as *const u8,
+        ))
         .done();
 }

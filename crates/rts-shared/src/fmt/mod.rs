@@ -235,6 +235,21 @@ pub fn register(e: &mut Engine) {
         .done();
 }
 
+/// node:util — a superfície node que o RTS mora em `fmt`. Os membros REUSAM os
+/// externs nativos `__RTS_FN_NS_FMT_*` (mesmos símbolos, já harvestados/JIT) e só
+/// dão os nomes node:util. `import { formatHex, parseInt, ... } from "node:util"`
+/// resolve por DADO (`Member::matches_name`), sem o motor nomear `fmt` — espelha
+/// o mapa de rts-node/src/util (#288 fase 1).
+pub fn register_node_util(e: &mut Engine) {
+    e.ns("util")
+        .doc("node:util compat — formatHex/Bin/Oct + parseInt (alias de rts:fmt).")
+        .member(pure_func("formatHex", "__RTS_FN_NS_FMT_FMT_HEX", sig!(I64 => Handle), "formatHex(value: number): string", "Lowercase hex with `0x` prefix.", __RTS_FN_NS_FMT_FMT_HEX as *const u8))
+        .member(pure_func("formatBin", "__RTS_FN_NS_FMT_FMT_BIN", sig!(I64 => Handle), "formatBin(value: number): string", "Binary with `0b` prefix.", __RTS_FN_NS_FMT_FMT_BIN as *const u8))
+        .member(pure_func("formatOct", "__RTS_FN_NS_FMT_FMT_OCT", sig!(I64 => Handle), "formatOct(value: number): string", "Octal with `0o` prefix.", __RTS_FN_NS_FMT_FMT_OCT as *const u8))
+        .member(pure_func("parseInt", "__RTS_FN_NS_FMT_PARSE_I64", sig!(StrPtr => I64), "parseInt(s: string): number", "Parses an integer. Returns i64::MIN on error.", __RTS_FN_NS_FMT_PARSE_I64 as *const u8))
+        .done();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
