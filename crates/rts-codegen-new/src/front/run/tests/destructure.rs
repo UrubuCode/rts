@@ -129,3 +129,12 @@ fn nested_mixed() {
         "12\n",
     );
 }
+
+#[test]
+fn nested_pattern_with_default() {
+    // `{ obj: { z } = {…} }` — the inner pattern itself carries a default.
+    assert_stdout(
+        "const {obj: {z} = {z: 0}} = {obj: {z: 99}}; console.log(z);",
+        "99\n",
+    );
+}

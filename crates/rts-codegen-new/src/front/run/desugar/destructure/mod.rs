@@ -122,13 +122,18 @@ fn rewrite_one(
         // or the pattern is unsupported, the original statement is kept (and bails).
         HirStmt::Const { name, init, .. } if name == "_" => {
             if let Some(expanded) = try_expand_let(swc, Some(init), g) {
-                out.push(HirStmt::Block(expanded));
+                // Splice the binding statements DIRECTLY (not wrapped in a Block) so
+                // the destructured names stay in the SAME scope — visible both to
+                // later sibling statements and to arrows that capture them as
+                // module/function-level bindings. Index alignment to swc is preserved
+                // because the loop iterates the ORIGINAL HIR list, not `out`.
+                out.extend(expanded);
                 return;
             }
         }
         HirStmt::Let { name, init, .. } if name == "_" => {
             if let Some(expanded) = try_expand_let(swc, init.as_ref(), g) {
-                out.push(HirStmt::Block(expanded));
+                out.extend(expanded);
                 return;
             }
         }

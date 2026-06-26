@@ -35,6 +35,27 @@ pub(super) fn expand_pat(src: &str, pat: &swc_ecma_ast::Pat, g: &mut Gen) -> Opt
     }
 }
 
+/// Bind an `= default` target whose computed `value` (`(access === undefined) ?
+/// default : access`) is already built: a leaf ident binds directly; a nested
+/// `[...]`/`{...}` left binds `value` to a temp and re-expands off it.
+fn expand_assign_target(
+    target: &swc_ecma_ast::Pat,
+    value: rts_hir::HirExpr,
+    g: &mut Gen,
+    out: &mut Vec<HirStmt>,
+) -> Option<()> {
+    match target {
+        swc_ecma_ast::Pat::Ident(id) => {
+            out.push(const_bind(&id.id.sym.to_string(), value));
+            Some(())
+        }
+        nested @ (swc_ecma_ast::Pat::Array(_) | swc_ecma_ast::Pat::Object(_)) => {
+            expand_nested(value, nested, g, out)
+        }
+        _ => None,
+    }
+}
+
 /// Bind nested pattern `pat` off the read `access`: introduce a fresh temp holding
 /// `access`, then expand `pat` off that temp.
 fn expand_nested(
@@ -67,12 +88,12 @@ pub(super) fn expand_array(
                 let name = leaf_name(&rest.arg)?;
                 out.push(const_bind(&name, slice_from(ident(src), i as i64)));
             }
-            // `a = default`
+            // `a = default` (leaf) or `<pat> = default` (nested-with-default).
             swc_ecma_ast::Pat::Assign(assign) => {
-                let name = leaf_name(&assign.left)?;
                 let default = rebuild_default(&assign.right)?;
                 let access = elem_at(ident(src), i as i64);
-                out.push(const_bind(&name, default_ternary(access, default)));
+                let value = default_ternary(access, default);
+                expand_assign_target(&assign.left, value, g, &mut out)?;
             }
             // `a`
             swc_ecma_ast::Pat::Ident(id) => {
@@ -113,10 +134,10 @@ pub(super) fn expand_object(
                         out.push(const_bind(&name, prop_get(ident(src), &key)));
                     }
                     swc_ecma_ast::Pat::Assign(assign) => {
-                        let name = leaf_name(&assign.left)?;
                         let default = rebuild_default(&assign.right)?;
                         let access = prop_get(ident(src), &key);
-                        out.push(const_bind(&name, default_ternary(access, default)));
+                        let value = default_ternary(access, default);
+                        expand_assign_target(&assign.left, value, g, &mut out)?;
                     }
                     nested @ (swc_ecma_ast::Pat::Array(_) | swc_ecma_ast::Pat::Object(_)) => {
                         expand_nested(prop_get(ident(src), &key), nested, g, &mut out)?;
