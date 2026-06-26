@@ -393,10 +393,10 @@
 ,
 {
   "name": "357_obf_self_ref_array",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "gamma\nalpha\nbeta\ngamma alpha\ndelta\nzeta\neta\ntheta\n60\n10\n50",
   "node": "gamma\nalpha\nbeta\ngamma alpha\ndelta\nzeta\neta\ntheta\n60\n10\n50",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "gamma\nalpha\nbeta\ngamma alpha\ndelta\nzeta\neta\ntheta\n60\n10\n50"
 }
 ,
 {
@@ -433,10 +433,10 @@
 ,
 {
   "name": "52_sparse_arrays",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "len=5\njoin=1||3||5\nhas1=false\nhas3=false\nkeys=0,2,4\nmap=2,,6,,10\nfilter=1,3,5\nfrom=1,u,3,u,5",
   "node": "len=5\njoin=1||3||5\nhas1=false\nhas3=false\nkeys=0,2,4\nmap=2,,6,,10\nfilter=1,3,5\nfrom=1,u,3,u,5",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "len=3\njoin=1|3|5\nhas1=false\nhas3=false\nkeys=\nmap=2,6,10\nfilter=1,3,5\nfrom=1,3,5"
 }
 ,
 {
@@ -481,18 +481,18 @@
 ,
 {
   "name": "claude-holes-join-string-indexers",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "1--3\n--2\n1,2,3\n,,\n3\nfalse\n3\n,",
   "node": "1--3\n--2\n1,2,3\n,,\n3\nfalse\n3\n,",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "1-3\nundefined-null-2\n1,2,3\nundefined,undefined,undefined\n3\nfalse\n0\n,"
 }
 ,
 {
   "name": "claude-holes-map-filter-foreach",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "5\n5\nfalse\n2,,6,,10\n2,,6,,10\n3\n3\n1,3,5",
   "node": "5\n5\nfalse\n2,,6,,10\n2,,6,,10\n3\n3\n1,3,5",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "3\n3\nfalse\n2,6,10\n2,6,10\n3\n3\n1,3,5"
 }
 ,
 {
@@ -601,10 +601,10 @@
 ,
 {
   "name": "codex_array_unshift_holes",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "5\na|b|||x\n0,1,4\nfalse false true",
   "node": "5\na|b|||x\n0,1,4\nfalse false true",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "3\na|b|x\n\nfalse false false"
 }
 ,
 {
@@ -793,10 +793,10 @@
 ,
 {
   "name": "codex_aggregate_error_iterable_order",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "AggregateError:many\n3\na,plain,3",
   "node": "AggregateError:many\n3\na,plain,3",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "AggregateError:[object Object],plain,3\nundefined"
 }
 ,
 {
@@ -1161,10 +1161,10 @@
 ,
 {
   "name": "312_console_dir",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "calls=object:1",
   "node": "calls=object:1",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "{ a: { b: 1 } }\ncalls="
 }
 ,
 {
@@ -1265,10 +1265,10 @@
 ,
 {
   "name": "58_text_encoding",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "len=8\nhex=63,61,66,c3,a9,2d,ce,bb\ntext=café-λ",
   "node": "len=8\nhex=63,61,66,c3,a9,2d,ce,bb\ntext=café-λ",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "len=0\nhex=\ntext=café-λ"
 }
 ,
 {
@@ -1393,10 +1393,10 @@
 ,
 {
   "name": "25_closures",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "add=9\niife=12",
   "node": "add=9\niife=12",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "add=9\niife=12"
 }
 ,
 {
@@ -1473,10 +1473,10 @@
 ,
 {
   "name": "claude-closure-mutates-captured",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1\n2\n3\n1\n4",
   "node": "1\n2\n3\n1\n4",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "1\n2\n3\n1\n4"
 }
 ,
 {
@@ -1897,18 +1897,18 @@
 ,
 {
   "name": "codex_json_parse_reviver_delete_root",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "{\"root\":{\"a\":1,\"b\":{},\"d\":[3,4]}}\na:number|c:number|b:object|0:number|1:number|d:array|:object",
   "node": "{\"root\":{\"a\":1,\"b\":{},\"d\":[3,4]}}\na:number|c:number|b:object|0:number|1:number|d:array|:object",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "{\"root\":{\"a\":1,\"b\":{},\"d\":[3,4]}}\na:number|c:number|b:object|0:number|1:number|d:array|:object"
 }
 ,
 {
   "name": "codex_json_stringify_propertylist_objects",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "{\"b\":\"B\",\"1\":\"one\",\"a\":\"A\"}\n[{\"b\":2,\"1\":3,\"a\":1}]",
   "node": "{\"b\":\"B\",\"1\":\"one\",\"a\":\"A\"}\n[{\"b\":2,\"1\":3,\"a\":1}]",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "{\"a\":\"A\",\"b\":\"B\",\"1\":\"one\",\"null\":\"nil\"}\n[{\"a\":1,\"b\":2,\"1\":3,\"null\":4}]"
 }
 ,
 {
@@ -2129,10 +2129,10 @@
 ,
 {
   "name": "355_obf_number_encoding",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "42\n3\n-3\n0\n0 1 2 10\n42\n0\n99\n256\n256\n56\n50\nef\nbe\nad\nde\nde",
   "node": "42\n3\n-3\n0\n0 1 2 10\n42\n0\n99\n256\n256\n56\n50\nef\nbe\nad\nde\nde",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "42\n3\n-3\n0\n0 1 2 10\n42\n0\n99\n256\n256\n56\n50\nundefined\nundefined\nundefined\nundefined\nde"
 }
 ,
 {
@@ -2737,18 +2737,18 @@
 ,
 {
   "name": "216_object_keys_order",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "keys=c,a,b\nnumeric=1,2,3\nmixed=1,2,b,a\nwithSym=a,b",
   "node": "keys=c,a,b\nnumeric=1,2,3\nmixed=1,2,b,a\nwithSym=a,b",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "keys=c,a,b\nnumeric=2,1,3\nmixed=b,1,a,2\nwithSym=a,[computed],b"
 }
 ,
 {
   "name": "221_object_constructor",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "empty=true\nwith_obj=1\nfunc=2\nnum=true\nstr=true\nbool=true",
   "node": "empty=true\nwith_obj=1\nfunc=2\nnum=true\nstr=true\nbool=true",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "empty=true\nwith_obj=undefined\nfunc=2\nnum=true\nstr=true\nbool=true"
 }
 ,
 {
@@ -2825,10 +2825,10 @@
 ,
 {
   "name": "340_proxy_basics",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "1\ntrue\nget:a|set:b=99|has:b|del:b\n5\nmust be positive",
   "node": "1\ntrue\nget:a|set:b=99|has:b|del:b\n5\nmust be positive",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "1\nfalse\n\n5"
 }
 ,
 {
@@ -2969,10 +2969,10 @@
 ,
 {
   "name": "53_proxy_reflect",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "ga=1\nhb=true\nvals=1:9\nseen=get:a,set:b=9,has:b,get:a,get:b",
   "node": "ga=1\nhb=true\nvals=1:9\nseen=get:a,set:b=9,has:b,get:a,get:b",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "ga=1\nhb=false\nvals=1:9\nseen="
 }
 ,
 {
@@ -3009,10 +3009,10 @@
 ,
 {
   "name": "claude-in-array-holes-and-proto",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "true false true\n3\ntrue\ntrue\ntrue\ntrue\ntrue false\ntrue\ntrue\ntrue\ntrue false",
   "node": "true false true\n3\ntrue\ntrue\ntrue\ntrue\ntrue false\ntrue\ntrue\ntrue\ntrue false",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "false false false\n2\nfalse\ntrue\ntrue\nfalse\nfalse false\nfalse\nfalse\nfalse\ntrue false"
 }
 ,
 {
@@ -3033,10 +3033,10 @@
 ,
 {
   "name": "claude-json-stringify-special-values",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "{\"c\":1}\n[null,null,1]\n{\"a\":null,\"b\":null,\"c\":null}\n[null,null]\nundefined\nundefined\nnull\nnull\n{\"a\":null}",
   "node": "{\"c\":1}\n[null,null,1]\n{\"a\":null,\"b\":null,\"c\":null}\n[null,null]\nundefined\nundefined\nnull\nnull\n{\"a\":null}",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "{\"c\":1}\n[null,null,1]\n{\"a\":null,\"b\":null,\"c\":null}\n[null,null]\nundefined\nundefined\nnull\nnull\n{\"a\":null}"
 }
 ,
 {
@@ -3732,7 +3732,7 @@
   "status": "rts_diverge",
   "bun": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
   "node": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
-  "rts": "h=104\ne=101\no=111\nout=281474976710907\nemoji=128512\nA=65\ncharCode=55357"
+  "rts": "h=104\ne=101\no=111\nout=281474976710915\nemoji=128512\nA=65\ncharCode=55357"
 }
 ,
 {
@@ -4353,10 +4353,10 @@
 ,
 {
   "name": "330_destructuring_defaults",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1 20 3\n5\n1 2 7\nhello world\nhello rts\nhello rts\n42",
   "node": "1 20 3\n5\n1 2 7\nhello world\nhello rts\nhello rts\n42",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "1 20 3\n5\n1 2 7\nhello world\nhello rts\nhello rts\n42"
 }
 ,
 {
@@ -4385,10 +4385,10 @@
 ,
 {
   "name": "334_iife_patterns",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "42\n99\n7\n11\ninit called\n42",
   "node": "42\n99\n7\n11\ninit called\n42",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "42\n99\n7\n11\ninit called\n42"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":192,"rts_diverge":59,"bun_node_diverge":17,"errors":341,"rejected":0}}
+],"summary":{"total":609,"pass":199,"rts_diverge":73,"bun_node_diverge":17,"errors":320,"rejected":0}}
