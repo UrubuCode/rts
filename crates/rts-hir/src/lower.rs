@@ -224,6 +224,10 @@ fn lower_swc_stmt(s: &swc::Stmt, scope: &mut Scope, raw_text: &str) -> HirStmt {
 fn lower_decl(decl: &swc::Decl, scope: &mut Scope, raw_text: &str) -> HirStmt {
     match decl {
         swc::Decl::Var(vd) => lower_var_decl(vd, scope, raw_text),
+        // TYPE-ONLY declarations (`type X = …`, `interface X {…}`) are erased at
+        // runtime — they carry no value. Elide to an empty block (a no-op) instead
+        // of a `Raw` the lowering would bail on as an "unrecognized statement".
+        swc::Decl::TsTypeAlias(_) | swc::Decl::TsInterface(_) => HirStmt::Block(Vec::new()),
         // Function/class declarations inside a block fall back to raw text
         // because they're hoisted — handled at the program level, not here.
         _ => HirStmt::Raw(raw_text.to_string()),
