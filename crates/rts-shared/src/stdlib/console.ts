@@ -43,6 +43,31 @@ class Console {
   warn(...args: any[]): void {
     engine.eprint_line(this.__format(args));
   }
+  // Best-effort stubs for the rest of the console surface (#310/#311). Output does
+  // NOT match Node/Bun byte-for-byte (no real table rendering, indent tracking, or
+  // timers) — the goal is that the common calls COMPILE and run without bailing.
+  // `group`/`groupCollapsed`/`table`/`trace` still write a line (Node-ish); the
+  // visual/stateful ones (`groupEnd`/`time*`/`count*`/`clear`/`assert`) are no-ops.
+  table(data?: any): void {
+    engine.print_line(engine.display(data));
+  }
+  group(...args: any[]): void {
+    engine.print_line(this.__format(args));
+  }
+  groupCollapsed(...args: any[]): void {
+    engine.print_line(this.__format(args));
+  }
+  groupEnd(): void {}
+  trace(...args: any[]): void {
+    engine.eprint_line(this.__format(args));
+  }
+  count(label?: any): void {}
+  countReset(label?: any): void {}
+  time(label?: any): void {}
+  timeEnd(label?: any): void {}
+  timeLog(...args: any[]): void {}
+  clear(): void {}
+  assert(cond?: any, ...args: any[]): void {}
 }
 
 const console = new Console();
