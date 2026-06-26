@@ -173,6 +173,17 @@ impl HirBinOp {
     pub fn is_arithmetic(self) -> bool {
         matches!(self, HirBinOp::Add | HirBinOp::Sub | HirBinOp::Mul | HirBinOp::Div | HirBinOp::Rem)
     }
+    pub fn is_bitwise(self) -> bool {
+        matches!(
+            self,
+            HirBinOp::BitAnd
+                | HirBinOp::BitOr
+                | HirBinOp::BitXor
+                | HirBinOp::Shl
+                | HirBinOp::Shr
+                | HirBinOp::UShr
+        )
+    }
     pub fn is_comparison(self) -> bool {
         matches!(
             self,

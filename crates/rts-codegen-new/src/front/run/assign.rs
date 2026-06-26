@@ -38,15 +38,24 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // which is exactly what the synthesized `=` returns — so the desugar is
         // semantically exact (unlike `++`, there is no old-vs-new ambiguity). The
         // arithmetic/`+`-concat op rides the normal binary lowering (string `+=`
-        // works). Restricted to arithmetic/`**` (logical-assign on a member is a
-        // later increment) and a SIDE-EFFECT-FREE object (a bare identifier — incl.
-        // `this`) so re-reading the object for the load and the store is harmless;
-        // a complex object expr (`f().p += x`) would double-evaluate, so it bails.
+        // works); the logical ops (`&&=`/`||=`/`??=`) ride the binary `&&`/`||`/`??`
+        // expression lowering — `obj.x ||= v` → `obj.x = (obj.x || v)`. Restricted to
+        // a SIDE-EFFECT-FREE object (a bare identifier — incl. `this`) so re-reading
+        // the object for the load and the store is harmless; a complex object expr
+        // (`f().p += x`) would double-evaluate, so it bails. NOTE: the logical desugar
+        // does NOT short-circuit the RHS (the binary form always evaluates it before
+        // the store) — exact for a side-effect-free RHS on a plain data property,
+        // which is the covered surface.
         if matches!(
             &target.kind,
             HirExprKind::Member { object, .. } | HirExprKind::Index { object, .. }
                 if matches!(object.kind, HirExprKind::Ident(_))
-        ) && (op.is_arithmetic() || matches!(op, HirBinOp::Exp))
+        ) && (op.is_arithmetic()
+            || op.is_bitwise()
+            || matches!(
+                op,
+                HirBinOp::Exp | HirBinOp::LogAnd | HirBinOp::LogOr | HirBinOp::NullCoalesce
+            ))
         {
             let new_value = HirExpr::new(
                 HirExprKind::Bin {
@@ -109,6 +118,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let rhs = self.lower_expr(module, value)?;
         let result = if op.is_arithmetic() || matches!(op, HirBinOp::Exp) {
             self.lower_arith(module, op, cur_val, rhs)?
+        } else if op.is_bitwise() {
+            // Bitwise compound-assign (`&= |= ^= <<= >>= >>>=`) on a plain local —
+            // JS ToInt32/ToUint32 semantics live in the generic `__rtsadp_*` path.
+            self.lower_bitwise(module, op, cur_val, rhs)?
         } else {
             return unsupported!("compound-assign operator {op:?}");
         };

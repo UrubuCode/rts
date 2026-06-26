@@ -217,7 +217,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Bitwise/shift ops — always the generic `__rtsadp_*` trampoline (JS bitwise
     /// semantics are ToInt32/ToUint32 + 5-bit shift-count mask, NOT a native i64
     /// op). Result is a JS number (int32, or a double for a large `>>>`).
-    fn lower_bitwise(
+    pub(super) fn lower_bitwise(
         &mut self,
         module: &mut dyn Module,
         op: HirBinOp,
