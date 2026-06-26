@@ -87,6 +87,52 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             rts_runtime::namespaces::globals::text_encoding::instance::__RTS_FN_GL_TEXTDEC_DECODE_INSTANCE
                 as *const u8,
         ),
+        // Promise PRIMORDIAL class: ctor + then/catch/finally + statics. The
+        // `__RTS_FN_GL_PROMISE_*` impls live in rts-std (fetch/instance); the spec
+        // carries null fn_ptr (external), so they are registered HERE for the JIT.
+        // (The `__RTS_FN_NS_PROMISE_*` statics — all/race/any/allSettled — are
+        // harvested via the `promise` namespace register, not repeated here.)
+        sym(
+            "__RTS_FN_GL_PROMISE_NEW",
+            rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_GL_PROMISE_NEW as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_PROMISE_THEN",
+            rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_GL_PROMISE_THEN as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_PROMISE_CATCH",
+            rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_GL_PROMISE_CATCH as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_PROMISE_FINALLY",
+            rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_GL_PROMISE_FINALLY
+                as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_PROMISE_RESOLVE",
+            rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_GL_PROMISE_RESOLVE
+                as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_PROMISE_RESOLVE_EMPTY",
+            rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_GL_PROMISE_RESOLVE_EMPTY
+                as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_PROMISE_REJECT",
+            rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_GL_PROMISE_REJECT
+                as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_PROMISE_TRY",
+            rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_GL_PROMISE_TRY as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_PROMISE_WITH_RESOLVERS",
+            rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_GL_PROMISE_WITH_RESOLVERS
+                as *const u8,
+        ),
         // ---- codegen-owned FUNCTION-value trampolines (__rtsadp_fn_*, P4.6) ----
         sym("__rtsadp_fn_reify", funcops::__rtsadp_fn_reify as *const u8),
         sym(

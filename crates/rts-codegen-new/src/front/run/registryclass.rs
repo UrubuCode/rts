@@ -253,6 +253,23 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if self.local(name).is_some() || !self.is_pure_registry_class(name) {
             return Ok(None);
         }
+        self.resolve_static_via_registry(module, name, method, args)
+            .map(Some)
+    }
+
+    /// Resolve `Class.method(args)` through the Registry's static-member metadata
+    /// (overload pick by [required, total] arity window → arg marshal → emit). The
+    /// generic engine for BOTH a pure-Registry class (`Date`, gated by the caller)
+    /// and a PRIMORDIAL with registry-backed statics (`Promise.resolve`, routed from
+    /// the global-static path). `name` must already be confirmed a static class
+    /// reference (not a shadowing local) by the caller.
+    pub(super) fn resolve_static_via_registry(
+        &mut self,
+        module: &mut dyn Module,
+        name: &str,
+        method: &str,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
         use super::registry;
         let argc = args.len();
         // ALL overloads of `name.method`, then pick the one whose [required, total]
@@ -299,7 +316,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             _ => JsKind::Number,
         };
         let v = self.emit_registry_call(module, &call, None, &vals, result_kind)?;
-        Ok(Some(v))
+        Ok(v)
     }
 }
 

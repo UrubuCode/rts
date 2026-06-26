@@ -207,6 +207,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         match obj.as_str() {
             "Array" => self.array_static_call(module, method, args).map(Some),
             "String" => self.string_static_call(module, method, args).map(Some),
+            // `Promise` is PRIMORDIAL — the engine may name it. Its statics
+            // (`resolve`/`reject`/`all`/…) are registry-backed metadata, so route
+            // through the SAME generic static-resolution machinery as Date.
+            "Promise" => self
+                .resolve_static_via_registry(module, "Promise", method, args)
+                .map(Some),
             _ => Ok(None),
         }
     }

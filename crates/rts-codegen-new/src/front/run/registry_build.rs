@@ -107,6 +107,10 @@ pub(super) static REGISTER: &[Register] = &[
     Register { label: "engine", run: ns::engine::register, why: "private prelude bridges" },
     // RUNTIME/Registry global CLASS specs (ctor/methods/instanceof as metadata).
     Register { label: "Date class", run: ns::globals::date::register_class_spec, why: "Date class spec" },
+    // Promise is PRIMORDIAL; its class spec carries the static surface
+    // (`resolve`/`reject`/`all`/…) + then/catch/finally as registry metadata so the
+    // static-call path can resolve `Promise.resolve()` generically.
+    Register { label: "Promise class", run: ns::globals::promise::register_promise_class_spec, why: "Promise statics + then/catch" },
     Register { label: "RegExp class", run: ns::globals::regexp::register_regexp_class_spec, why: "RegExp class spec" },
     // Error is NOT here — it is a `.ts` prelude (ERROR_TS). Boolean/Number/String
     // class specs let the `new X(..)` WRAPPER ctor resolve through the Registry.
