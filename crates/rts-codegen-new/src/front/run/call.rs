@@ -47,6 +47,21 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if method == super::desugar::OPT_METHOD_CALL {
             return self.lower_opt_method_call(module, object, args);
         }
+        // `X.prototype.M.call(recv, ...rest)` → `recv.M(...rest)` — the borrowed-method
+        // idiom (`Object.prototype.hasOwnProperty.call(o, k)`,
+        // `Array.prototype.slice.call(args)`). Matched by SHAPE — a `.prototype.<M>`
+        // member chain as the `.call` receiver — NOT by a class name (doctrine: the
+        // front names no non-primordial; here it names nothing at all, just the
+        // `prototype` key). The receiver `recv` (first arg) becomes the method's `this`.
+        if method == "call" && !args.is_empty() {
+            if let HirExprKind::Member { object: inner, prop: m } = &object.kind {
+                if let HirExprKind::Member { prop: proto, .. } = &inner.kind {
+                    if proto == "prototype" {
+                        return self.lower_method_call(module, &args[0], m, &args[1..]);
+                    }
+                }
+            }
+        }
         // PRIVATE `engine.*` (arch/time/trace) — prelude-only (privacy gate). A
         // user caller bails here; a prelude caller lowers the runtime call.
         if let Some(val) = self.try_engine_call(module, object, method, args)? {
