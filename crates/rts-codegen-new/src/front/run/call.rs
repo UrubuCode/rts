@@ -1005,6 +1005,27 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         sig: &FnSig,
         args: &[HirExpr],
     ) -> FrontResult<Val> {
+        // Compile-time flatten of an ARRAY-LITERAL spread: `f(a, ...[1, 2], b)` →
+        // `f(a, 1, 2, b)`. The element count of a literal is known, so a spread in
+        // the MIDDLE (and multiple literal spreads) reduce to plain positional args
+        // with no runtime indexing. Runtime-array spreads (`...arr`) are left intact
+        // for the unpack paths below. Only allocate when a literal spread is present.
+        if args
+            .iter()
+            .any(|a| matches!(&a.kind, HirExprKind::Spread(inner) if matches!(inner.kind, HirExprKind::Array(_))))
+        {
+            let mut flat: Vec<HirExpr> = Vec::with_capacity(args.len());
+            for a in args {
+                match &a.kind {
+                    HirExprKind::Spread(inner) => match &inner.kind {
+                        HirExprKind::Array(elems) => flat.extend(elems.iter().cloned()),
+                        _ => flat.push(a.clone()),
+                    },
+                    _ => flat.push(a.clone()),
+                }
+            }
+            return self.lower_user_call(module, sig, &flat);
+        }
         // `f(...arr)` (P5.6): a SINGLE spread of a proven array unpacks the array's
         // first `params.len()` elements into the native params. The array must
         // supply exactly the arity at runtime (a shorter array reads `undefined`
@@ -1029,13 +1050,28 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     return self.lower_user_call_spread(module, sig, inner);
                 }
             }
-            // For a non-rest fn, a spread mixed with other args (or anywhere but the
-            // sole arg) is a later increment → bail rather than mis-marshal. A rest
-            // fn handles mixed spread via `marshal_call_args`, so it skips this bail.
-            if args
+            // For a non-rest fn, a TRAILING spread after leading positionals
+            // (`f(a, b, ...arr)`) unpacks: the positionals fill `params[0..k]`, the
+            // spread fills `params[k..]` from `arr[0..]` (out-of-range → undefined,
+            // exactly like the sole-`...arr` path). A `this`-using free fn, a spread
+            // that is not last, or more than one spread stays a later increment.
+            let spread_positions: Vec<usize> = args
                 .iter()
-                .any(|a| matches!(a.kind, HirExprKind::Spread(_)))
-            {
+                .enumerate()
+                .filter(|(_, a)| matches!(a.kind, HirExprKind::Spread(_)))
+                .map(|(i, _)| i)
+                .collect();
+            if !spread_positions.is_empty() {
+                if !sig.has_this
+                    && spread_positions.len() == 1
+                    && spread_positions[0] == args.len() - 1
+                {
+                    let leading = &args[..args.len() - 1];
+                    let HirExprKind::Spread(inner) = &args[args.len() - 1].kind else {
+                        unreachable!("spread position proven above")
+                    };
+                    return self.lower_user_call_spread_mixed(module, sig, leading, inner);
+                }
                 return unsupported!(
                     "call to `{}` with a spread mixed with positional args (later increment)",
                     sig.name

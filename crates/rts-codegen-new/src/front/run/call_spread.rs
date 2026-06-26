@@ -43,39 +43,81 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         for (i, &want) in sig.params.iter().enumerate() {
             let idx = self.builder.ins().iconst(types::I64, i as i64);
             let word = emit_marshal::emit_vec_get(module, self.builder, arr_word, idx);
-            // A numeric param needs the element as a real number. The stored element
-            // word may be a tagged int32 (which the pure `emit_unbox_double` bitcast
-            // would mis-read), so normalize it to a guaranteed inline-double word via
-            // `__rtsadp_canon_double` (ToNumber) before coercing. A Tagged param
-            // keeps the raw word; a Bool param is a later increment → bail.
-            let arg = match want {
-                Repr::Tagged => word,
-                Repr::Float64 | Repr::Int32 | Repr::Int64 => {
-                    // Normalize to a guaranteed inline-double word, bitcast to f64,
-                    // then narrow to an int param via `fcvt_to_sint` (the canon word
-                    // is always a double, NOT a boxed int32, so the int unbox path
-                    // does NOT apply).
-                    let canon = self
-                        .call_runtime(module, "__rtsadp_canon_double", &[word])?
-                        .expect("__rtsadp_canon_double returns a value");
-                    let f = value::emit_unbox_double(self.builder, canon);
-                    if matches!(want, Repr::Float64) {
-                        f
-                    } else {
-                        self.builder.ins().fcvt_to_sint(types::I64, f)
-                    }
-                }
-                other => {
-                    return unsupported!(
-                        "`...spread` into a `{:?}` param of `{}` (later increment)",
-                        other,
-                        sig.name
-                    );
-                }
-            };
-            lowered.push(arg);
+            lowered.push(self.spread_elem_to_param(module, word, want, &sig.name)?);
         }
         self.emit_user_call(module, sig, &lowered)
+    }
+
+    /// Lower `f(a, b, ...arr)`: the `leading` positional args fill `params[0..k]`,
+    /// then the trailing spread fills `params[k..]` from `arr[0..]` (out-of-range →
+    /// `undefined`, like the sole-`...arr` path). The caller proved the fn is
+    /// non-rest, non-`this`, and the spread is the single LAST arg.
+    pub(super) fn lower_user_call_spread_mixed(
+        &mut self,
+        module: &mut dyn Module,
+        sig: &FnSig,
+        leading: &[HirExpr],
+        inner: &HirExpr,
+    ) -> FrontResult<Val> {
+        if !self.is_array_valued(inner) {
+            return unsupported!(
+                "call to `{}` with `...spread` of a non-array value (later increment)",
+                sig.name
+            );
+        }
+        let mut lowered = Vec::with_capacity(sig.params.len());
+        // Leading positionals: lower + coerce to the matching param repr. More
+        // positionals than params is a benign JS arity overrun → ignore the extras.
+        let k = leading.len().min(sig.params.len());
+        for (i, arg) in leading.iter().take(k).enumerate() {
+            let val = self.lower_expr(module, arg)?;
+            lowered.push(self.coerce(val, sig.params[i])?);
+        }
+        // Trailing spread: fill the remaining params from `arr[0..]`.
+        let arr = self.lower_expr(module, inner)?;
+        let arr_word = self.box_value(arr);
+        for (j, &want) in sig.params.iter().enumerate().skip(k) {
+            let idx = self.builder.ins().iconst(types::I64, (j - k) as i64);
+            let word = emit_marshal::emit_vec_get(module, self.builder, arr_word, idx);
+            lowered.push(self.spread_elem_to_param(module, word, want, &sig.name)?);
+        }
+        self.emit_user_call(module, sig, &lowered)
+    }
+
+    /// Coerce one spread-element PolyValue `word` to a native param of repr `want`.
+    /// A numeric param normalizes the element via `__rtsadp_canon_double` (ToNumber,
+    /// since a stored tagged-int32 word would mis-read through the pure double
+    /// bitcast) then narrows to int when needed. `Tagged` keeps the raw word; a
+    /// `Bool` param is a later increment → bail.
+    fn spread_elem_to_param(
+        &mut self,
+        module: &mut dyn Module,
+        word: Value,
+        want: Repr,
+        sig_name: &str,
+    ) -> FrontResult<Value> {
+        let arg = match want {
+            Repr::Tagged => word,
+            Repr::Float64 | Repr::Int32 | Repr::Int64 => {
+                let canon = self
+                    .call_runtime(module, "__rtsadp_canon_double", &[word])?
+                    .expect("__rtsadp_canon_double returns a value");
+                let f = value::emit_unbox_double(self.builder, canon);
+                if matches!(want, Repr::Float64) {
+                    f
+                } else {
+                    self.builder.ins().fcvt_to_sint(types::I64, f)
+                }
+            }
+            other => {
+                return unsupported!(
+                    "`...spread` into a `{:?}` param of `{}` (later increment)",
+                    other,
+                    sig_name
+                );
+            }
+        };
+        Ok(arg)
     }
 
     /// Emit the Cranelift `call` to user function `sig` with already-marshaled
