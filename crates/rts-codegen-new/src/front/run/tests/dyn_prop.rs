@@ -52,3 +52,24 @@ fn computed_string_key_dynamic() {
         "7\n",
     );
 }
+
+#[test]
+fn in_operator_own_property() {
+    // `key in obj` — own-property membership via `__rtsadp_obj_has`. Present key →
+    // true, absent → false.
+    assert_stdout(
+        r#"const o = { value: 1 }; console.log("value" in o, "other" in o);"#,
+        "true false\n",
+    );
+}
+
+#[test]
+fn in_operator_in_arrow_callback() {
+    // The headline #83 case: `in` inside an arrow callback where the receiver is a
+    // param (unproven shape) — the dynamic has-key path handles it.
+    assert_stdout(
+        r#"const arr: any[] = [{ value: 1 }, { other: 2 }];
+           console.log(arr.map((y) => ("value" in y ? "v" : "n")).join(","));"#,
+        "v,n\n",
+    );
+}

@@ -51,6 +51,21 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return self.lower_nullish_coalesce(module, lhs, rhs);
         }
 
+        // `key in obj` — own-property membership. Box both operands and call the
+        // shape-aware `__rtsadp_obj_has` trampoline (the same one `engine.obj_has`
+        // uses), returning a bool. Covers the common own-property `in`; an
+        // inherited-property `in` is a later increment but rare.
+        if matches!(op, HirBinOp::In) {
+            let key = self.lower_expr(module, lhs)?;
+            let key_word = self.box_value(key);
+            let obj = self.lower_expr(module, rhs)?;
+            let obj_word = self.box_value(obj);
+            let res = self
+                .call_runtime(module, "__rtsadp_obj_has", &[obj_word, key_word])?
+                .expect("__rtsadp_obj_has returns a bool");
+            return Ok(Val::new(res, Repr::Bool));
+        }
+
         // `x instanceof C` (P5.3). swc collapses `instanceof`/`in`/etc onto
         // `HirBinOp::Unsupported`; we only treat it as instanceof when the RHS is a
         // bare identifier naming a class the engine can check (a user class, or a

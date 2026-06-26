@@ -160,7 +160,11 @@ pub enum HirBinOp {
     Lt, Le, Gt, Ge,
     LogAnd, LogOr,
     NullCoalesce,
-    /// Sentinel for an op we couldn't map (e.g. `In`, `InstanceOf`). The MIR
+    /// `key in obj` — own-property membership. Kept distinct from `Unsupported`
+    /// (where `instanceof` still lands) so the engine can lower it to a real
+    /// has-key check instead of bailing.
+    In,
+    /// Sentinel for an op we couldn't map (e.g. `InstanceOf`). The MIR
     /// lower bail when it sees this so the AST path keeps full ownership.
     Unsupported,
 }

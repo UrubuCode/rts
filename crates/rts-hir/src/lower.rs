@@ -800,8 +800,11 @@ fn swc_bin_op_to_hir(op: swc::BinaryOp) -> HirBinOp {
         swc::BinaryOp::LogicalAnd => HirBinOp::LogAnd,
         swc::BinaryOp::LogicalOr => HirBinOp::LogOr,
         swc::BinaryOp::NullishCoalescing => HirBinOp::NullCoalesce,
-        // `in`, `instanceof`, etc. — não suportadas direto no MIR; o
-        // lower MIR bail (had_placeholders=true) e o AST path assume.
+        // `key in obj` — own-property membership; the engine lowers it to a real
+        // has-key check (distinct from the `Unsupported` sentinel).
+        swc::BinaryOp::In => HirBinOp::In,
+        // `instanceof`, etc. — handled by the engine's rhs-class-ident path off
+        // `Unsupported`; an unmapped op lands here and the consumer BAILs.
         _ => HirBinOp::Unsupported,
     }
 }
