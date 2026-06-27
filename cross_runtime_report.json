@@ -2617,10 +2617,10 @@
 ,
 {
   "name": "126_object_assign",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "same=true\na=1\nb=3\nc=4\nmulti={\"x\":1,\"y\":2,\"z\":3}\nnormal=data\nhasSym=true",
   "node": "same=true\na=1\nb=3\nc=4\nmulti={\"x\":1,\"y\":2,\"z\":3}\nnormal=data\nhasSym=true",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "same=true\na=1\nb=3\nc=4\nmulti={\"x\":1,\"y\":2,\"z\":3}\nnormal=data\nhasSym=false"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":212,"rts_diverge":73,"bun_node_diverge":17,"errors":307,"rejected":0}}
+],"summary":{"total":609,"pass":212,"rts_diverge":74,"bun_node_diverge":17,"errors":306,"rejected":0}}
