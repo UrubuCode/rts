@@ -310,6 +310,10 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
             let rhs = Box::new(lower_swc_expr(&bin.right, scope));
             let ty = if op.is_comparison() {
                 HirType::Bool
+            } else if matches!(op, HirBinOp::Add)
+                && (matches!(lhs.ty, HirType::Str) || matches!(rhs.ty, HirType::Str))
+            {
+                HirType::Str
             } else {
                 let lt = lhs.ty.clone();
                 let rt = rhs.ty.clone();

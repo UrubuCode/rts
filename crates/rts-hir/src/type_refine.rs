@@ -22,11 +22,20 @@ fn refine_expr(expr: &HirExpr, scope: &Scope) -> HirType {
         HirExprKind::Lit(HirLit::Str(_)) => HirType::Str,
         HirExprKind::Lit(HirLit::Null | HirLit::Undefined) => HirType::Any,
 
-        // Arithmetic: propagate type from both operands
+        // Arithmetic: propagate type from both operands. JS `+` with EITHER operand a
+        // string is CONCATENATION → `Str` (`"a" + "b"`, `"a" + 1`), not numeric — so a
+        // `const u = "a" + "b"` infers `Str` and a fn returning `u` marshals a string,
+        // not an f64 (`NaN`).
         HirExprKind::Bin { op, lhs, rhs } if op.is_arithmetic() => {
             let lt = refine_expr(lhs, scope);
             let rt = refine_expr(rhs, scope);
-            numeric_promotion(lt, rt)
+            if matches!(op, HirBinOp::Add)
+                && (matches!(lt, HirType::Str) || matches!(rt, HirType::Str))
+            {
+                HirType::Str
+            } else {
+                numeric_promotion(lt, rt)
+            }
         }
 
         // Comparison always returns Bool

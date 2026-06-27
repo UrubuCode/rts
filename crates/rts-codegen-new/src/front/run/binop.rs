@@ -100,8 +100,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // method AT LOWERING TIME (where the class is in scope), then concatenates/
         // adds the resulting primitives — never the default `[object Object]`. Plain
         // objects, arrays, and dynamic-class objects keep the gate below.
+        //
+        // `string + knownPlainObject` (a KNOWN class WITHOUT `toString`/`valueOf`):
+        // also route here — `add_operand_word` lowers the object and the generic
+        // `__rtsadp_add` string path renders it as `[object Object]`, exactly the JS
+        // `String(obj)` for a class with no `toString`. Gated on a STATICALLY-KNOWN
+        // class (so a dynamic object that may define `toString` at runtime still
+        // bails below, never silently rendering the wrong `[object Object]`).
+        let str_plus_known_obj = matches!(op, HirBinOp::Add)
+            && ((is_proven_string_expr(lhs) && self.static_instance_class(rhs).is_some())
+                || (is_proven_string_expr(rhs) && self.static_instance_class(lhs).is_some()));
         if matches!(op, HirBinOp::Add)
-            && (self.has_object_toprimitive(lhs) || self.has_object_toprimitive(rhs))
+            && (self.has_object_toprimitive(lhs)
+                || self.has_object_toprimitive(rhs)
+                || str_plus_known_obj)
         {
             return self.lower_add_with_toprimitive(module, lhs, rhs);
         }
