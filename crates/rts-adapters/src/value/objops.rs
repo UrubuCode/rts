@@ -535,15 +535,12 @@ fn array_word(vec: u64) -> u64 {
 /// of the object's slot VALUES (slots `1..`; slot 0 is the shape-id header).
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_obj_values(obj_word: u64) -> u64 {
-    let obj = PolyValue::from_raw(obj_word);
-    let keys = object_keys_vec(obj_word);
     let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
-    if !keys.is_empty() {
-        let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
-        for i in 0..keys.len() {
-            let v = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 1 + i as i64);
-            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, v);
-        }
+    // ENUMERATION order (array-index keys ascending first) — read each value BY KEY
+    // (`obj_get`), not by storage slot, so the reorder and the value stay aligned.
+    for k in super::iterops::reorder_enum_keys(object_keys_vec(obj_word)) {
+        let v = __rtsadp_obj_get(obj_word, abi_adapter::intern_poly(&k).raw());
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, v as i64);
     }
     array_word(out)
 }
@@ -552,18 +549,14 @@ pub extern "C" fn __rtsadp_obj_values(obj_word: u64) -> u64 {
 /// array of `[key, value]` 2-element sub-arrays (each its own `Entry::Vec`).
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_obj_entries(obj_word: u64) -> u64 {
-    let obj = PolyValue::from_raw(obj_word);
-    let keys = object_keys_vec(obj_word);
     let outer = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
-    if !keys.is_empty() {
-        let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
-        for (i, k) in keys.iter().enumerate() {
-            let v = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 1 + i as i64);
-            let pair = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
-            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(pair, abi_adapter::intern_poly(k).raw() as i64);
-            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(pair, v);
-            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(outer, array_word(pair) as i64);
-        }
+    for k in super::iterops::reorder_enum_keys(object_keys_vec(obj_word)) {
+        let key_word = abi_adapter::intern_poly(&k).raw();
+        let v = __rtsadp_obj_get(obj_word, key_word);
+        let pair = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(pair, key_word as i64);
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(pair, v as i64);
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(outer, array_word(pair) as i64);
     }
     array_word(outer)
 }

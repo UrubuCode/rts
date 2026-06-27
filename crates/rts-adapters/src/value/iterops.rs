@@ -80,6 +80,33 @@ pub extern "C" fn __rtsadp_to_iter_array(word: u64) -> u64 {
 /// process-global registry the inspect / dynamic-property trampolines read. A
 /// non-object source (or one without a live shape header) yields an EMPTY array —
 /// the lowering only routes a proven keyed object here.
+/// JS own-property ENUMERATION order: ARRAY-INDEX keys (a canonical non-negative
+/// integer string `< 2^32-1`, no leading zero) come FIRST in ascending NUMERIC
+/// order, then every other key in insertion order. `{ "10": …, "3": …, "b": …,
+/// "1": … }` enumerates `1, 3, 10, b`. Used for `Object.keys`/`getOwnPropertyNames`/
+/// `for-in` — NOT for the storage-order `object_keys_vec` (slot manipulation).
+pub(crate) fn reorder_enum_keys(keys: Vec<String>) -> Vec<String> {
+    let as_index = |s: &str| -> Option<u32> {
+        if s == "0" {
+            return Some(0);
+        }
+        if s.is_empty() || s.as_bytes()[0] == b'0' || !s.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        s.parse::<u32>().ok().filter(|&n| n != u32::MAX)
+    };
+    let mut idx: Vec<(u32, String)> = Vec::new();
+    let mut rest: Vec<String> = Vec::new();
+    for k in keys {
+        match as_index(&k) {
+            Some(n) => idx.push((n, k)),
+            None => rest.push(k),
+        }
+    }
+    idx.sort_by_key(|(n, _)| *n);
+    idx.into_iter().map(|(_, k)| k).chain(rest).collect()
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_obj_keys(obj_word: u64) -> u64 {
     let vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
@@ -92,7 +119,7 @@ pub extern "C" fn __rtsadp_obj_keys(obj_word: u64) -> u64 {
             .then(|| global_shape_keys(slot0.as_i32() as u32))
             .flatten()
         {
-            for k in keys {
+            for k in reorder_enum_keys(keys) {
                 let word = abi_adapter::intern_poly(&k).raw() as i64;
                 rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, word);
             }
