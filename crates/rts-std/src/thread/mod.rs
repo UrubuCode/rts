@@ -149,8 +149,15 @@ pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN(fn_ptr: U64, arg: U64) -> U64 {
     }
     // SAFETY: codegen contract — `fn_ptr` is `extern "C" fn(u64) -> u64`.
     let f: extern "C" fn(u64) -> u64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    // Snapshot the SPAWNING thread's module-global cells so the worker reads the same
+    // `let`/`const` values (a JS module global is shared across a program's threads).
+    // `GCELLS` is thread_local, so without this the worker reads every module-global
+    // as `0` (e.g. a top-level `const c = atomic.i64_new(0)` → handle `0` → its writes
+    // vanish; thread_basic's worker never updated the shared counter).
+    let gcells = crate::collector::collector::gcell_snapshot();
     let jh = thread::spawn(move || {
         thread_registry::register_current();
+        crate::collector::collector::gcell_restore(gcells);
         let r = f(arg);
         thread_registry::unregister_current();
         r
@@ -166,7 +173,9 @@ pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN_ASYNC(fn_ptr: U64, arg: U64) {
     if fn_ptr == 0 {
         return;
     }
+    let gcells = crate::collector::collector::gcell_snapshot();
     crate::runtime::async_rt::handle().spawn_blocking(move || {
+        crate::collector::collector::gcell_restore(gcells);
         // SAFETY: codegen contract — `extern "C" fn(u64) -> u64`.
         let f: extern "C" fn(u64) -> u64 = unsafe { std::mem::transmute(fn_ptr as usize) };
         let _ = f(arg);
@@ -179,7 +188,9 @@ pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN_ASYNC_JOIN(fn_ptr: U64, arg: U64) -> 
     if fn_ptr == 0 {
         return 0;
     }
+    let gcells = crate::collector::collector::gcell_snapshot();
     let jh = crate::runtime::async_rt::handle().spawn_blocking(move || {
+        crate::collector::collector::gcell_restore(gcells);
         // SAFETY: codegen contract — `extern "C" fn(u64) -> u64`.
         let f: extern "C" fn(u64) -> u64 = unsafe { std::mem::transmute(fn_ptr as usize) };
         f(arg)
@@ -220,8 +231,10 @@ pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN_WITH_UD(fn_ptr: U64, arg: U64, userda
     }
     // SAFETY: codegen contract — `extern "C" fn(u64, u64) -> u64`.
     let f: extern "C" fn(u64, u64) -> u64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+    let gcells = crate::collector::collector::gcell_snapshot();
     let jh = thread::spawn(move || {
         thread_registry::register_current();
+        crate::collector::collector::gcell_restore(gcells);
         let r = f(userdata, arg);
         thread_registry::unregister_current();
         r

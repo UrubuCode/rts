@@ -62,6 +62,23 @@ pub extern "C" fn __RTS_FN_NS_GC_GCELL_GET(id: u64) -> u64 {
     GCELLS.with(|c| c.borrow().get(id as usize).copied().unwrap_or(0))
 }
 
+/// Snapshot the CURRENT thread's cells (the spawning thread's module-globals) so a
+/// spawned worker can inherit them — `GCELLS` is thread_local (program isolation),
+/// so a worker thread otherwise sees an EMPTY store and reads every module-global
+/// as `0`. A module-level `let`/`const` is SHARED across a program's threads in JS,
+/// so `thread.spawn`/`parallel` snapshot here and [`gcell_restore`] in the worker.
+/// The values are PolyValue words; a boxed handle stays valid cross-thread (the
+/// HandleTable is process-global). Worker WRITES do not propagate back (workers
+/// share via atomics/handles, not gcell writes — the read-only-shared case).
+pub fn gcell_snapshot() -> Vec<u64> {
+    GCELLS.with(|c| c.borrow().clone())
+}
+
+/// Install `snap` as the current (worker) thread's cells — see [`gcell_snapshot`].
+pub fn gcell_restore(snap: Vec<u64>) {
+    GCELLS.with(|c| *c.borrow_mut() = snap);
+}
+
 /// Mark every cell's PolyValue word as a GC root. A boxed STR/OBJECT/FUNCTION word
 /// keeps its slot alive; an inline int/float/singleton word is a no-op inside
 /// `mark_handle`. Called from `finish_cycle` alongside the microtask roots.
