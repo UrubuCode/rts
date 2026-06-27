@@ -344,8 +344,9 @@ pub extern "C" fn __RTS_FN_NS_DOM_CHILD_AT(h: u64, id: i64, index: i64) -> i64 {
     .unwrap_or(NODE_NONE)
 }
 
-/// `nodeStyleSlot(domHandle, node, slot)` → valor (`i64`) do SLOT de estilo do nó
-/// (estilo-de-tag + `style=""` inline resolvidos), ou `-1` se não-setado/inválido.
+/// `nodeStyleSlot(domHandle, node, slot)` → valor (`i64`) do SLOT de estilo do nó,
+/// com a cascade COMPLETA resolvida (defineStyle < `<style>` autor < `style=""`
+/// inline < override por-nó), ou `-1` se não-setado/inválido.
 /// É como o LAYOUT (em TS) lê o estilo computado de cada nó. Slots: 0=color 1=bg
 /// 2=font_size 3=padding 4=margin 5=border_width 6=border_color 7=corner_radius.
 #[unsafe(no_mangle)]

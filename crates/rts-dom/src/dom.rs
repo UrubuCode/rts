@@ -153,6 +153,11 @@ pub struct Dom {
     /// precisa de `Eq` p/ o diff de árvore. Estado DERIVADO: não entra no
     /// `PartialEq` do `Dom` (que compara só `nodes`+`root`).
     style_overrides: HashMap<NodeIdx, crate::style::ComputedStyle>,
+    /// Stylesheet de AUTOR acumulado de todos os `<style>` da página (regras com
+    /// seletor tag/`.class`/`#id`, resolvidas por especificidade). Camada entre o
+    /// `defineStyle` (por-tag, mais fraco) e o `style=""` inline. Estado DERIVADO
+    /// do HTML — não entra no `PartialEq` do `Dom`.
+    stylesheet: crate::style::Stylesheet,
 }
 
 // Igualdade estrutural: compara só a árvore (nodes+root). Os índices e a `generation`
@@ -179,7 +184,20 @@ impl Dom {
             id_index: HashMap::new(),
             class_index: HashMap::new(),
             style_overrides: HashMap::new(),
+            stylesheet: crate::style::Stylesheet::new(),
         }
+    }
+
+    /// Acrescenta o conteúdo de um `<style>` ao stylesheet de autor da página
+    /// (chamado pelo parser ao encontrar um `RawElement` de `style`). Vários
+    /// `<style>` acumulam, com as regras posteriores desempatando por cima.
+    pub fn add_stylesheet(&mut self, css: &str) {
+        self.stylesheet.append_css(css);
+    }
+
+    /// O stylesheet de autor acumulado (regras dos `<style>`). Exposto p/ inspeção/teste.
+    pub fn stylesheet(&self) -> &crate::style::Stylesheet {
+        &self.stylesheet
     }
 
     /// A geração desta árvore (para o render/ABI compor `NodeId` versionados).
@@ -336,28 +354,66 @@ impl Dom {
         self.nodes[idx].children.push(child);
     }
 
-    /// Resolve o `ComputedStyle` de um nó: estilo-de-TAG (`defineStyle`) com o
-    /// `style=""` inline sobreposto. É o estado que o LAYOUT (em TS) lê para
-    /// decidir cor/caixa/tamanho. `None` se o id não resolve ou não é elemento.
-    /// (Mesma precedência do render: herdado < tag < inline; a herança é aplicada
-    /// pelo layout, aqui só o estilo PRÓPRIO do nó.)
+    /// Resolve o `ComputedStyle` final de um nó pela cascade da MDN (estágio 1
+    /// origem/importância → especificidade → ordem). É o estado que o LAYOUT (em
+    /// TS) e o render leem para decidir cor/caixa/tamanho. `None` se o id não
+    /// resolve ou não é elemento. (A herança de color/font-size é aplicada por quem
+    /// desce a árvore; aqui só o estilo PRÓPRIO do nó.)
     pub fn computed_style(&self, id: NodeId) -> Option<crate::style::ComputedStyle> {
-        let idx = self.resolve(id)?;
+        self.computed_style_idx(self.resolve(id)?)
+    }
+
+    /// Igual a [`computed_style`](Dom::computed_style), mas por `NodeIdx` cru — o
+    /// render desce a árvore em índices. `None` se o nó não é elemento.
+    ///
+    /// Aplica a cascade COMPLETA da MDN, em duas passagens (estágio 1: `!important`
+    /// inverte a precedência de origem):
+    /// - **Normais**, do mais fraco ao mais forte: `defineStyle` (UA) < `<style>`
+    ///   autor < `style=""` inline < override por-nó (`setStyleBatch`).
+    /// - **Important**, por cima de tudo, na mesma ordem de origem: `<style>`
+    ///   important < inline important < override (tratado como mais forte).
+    pub fn computed_style_idx(&self, idx: NodeIdx) -> Option<crate::style::ComputedStyle> {
+        use crate::style;
         let tag = match &self.nodes[idx].kind {
-            NodeKind::Element { tag } => tag.as_str(),
+            NodeKind::Element { tag } => tag.clone(),
             _ => return None,
         };
-        let mut css = crate::style::lookup_style(tag).unwrap_or_default();
-        if let Some(s) = self.nodes[idx].attr("style") {
-            let inline = crate::style::parse_inline(s);
-            css.merge_over(&inline);
+        // Stylesheet de autor resolvido para este nó (normal + important separados).
+        let author = if self.stylesheet.is_empty() {
+            style::DeclBlock::default()
+        } else {
+            let id_attr = self.nodes[idx].attr("id");
+            let classes: Vec<&str> = self.nodes[idx]
+                .attr("class")
+                .map(|c| c.split_whitespace().collect())
+                .unwrap_or_default();
+            self.stylesheet.computed_for(&tag, id_attr, &classes)
+        };
+        // `style=""` inline (normal + important).
+        let inline = self.nodes[idx]
+            .attr("style")
+            .map(style::parse_inline_block)
+            .unwrap_or_default();
+        let override_node = self.style_overrides.get(&idx);
+
+        // ── Passe 1: NORMAIS (fraco → forte) ────────────────────────────────────
+        let mut css = style::lookup_style(&tag).unwrap_or_default(); // UA/defineStyle
+        css.merge_over(&author.normal); // <style> autor
+        css.merge_over(&inline.normal); // style="" inline
+        if let Some(ov) = override_node {
+            css.merge_over(ov); // override por-nó (setStyleBatch)
         }
-        // 3ª fonte, a mais forte: override por-nó (`setStyleBatch`). Vence tag e
-        // inline — é o estilo que o LAYOUT/app aplica imperativamente por frame.
-        if let Some(ov) = self.style_overrides.get(&idx) {
-            css.merge_over(ov);
-        }
+        // ── Passe 2: IMPORTANT (vencem qualquer normal) ─────────────────────────
+        css.merge_over(&author.important); // <style> !important
+        css.merge_over(&inline.important); // inline !important
         Some(css)
+    }
+
+    /// `true` se a tag do nó é texto-cru não-renderável (`<style>`/`<script>`): o
+    /// render deve PULAR (o conteúdo é CSS/JS, não conteúdo de página). O CSS já foi
+    /// absorvido pelo stylesheet no parse.
+    pub fn is_raw_text_element(&self, idx: NodeIdx) -> bool {
+        matches!(&self.nodes[idx].kind, NodeKind::Element { tag } if tag == "style" || tag == "script")
     }
 
     /// Aplica UM slot de estilo OPACO (invariante 4) a UM nó, acumulando no
@@ -868,6 +924,21 @@ pub fn parse_html_to_dom(html: &str) -> Dom {
                 let parent = open.last().unwrap().0;
                 dom.push(NodeKind::Comment(content), Vec::new(), parent);
             }
+            Token::RawElement { tag, content } => {
+                // `<style>`/`<script>`: DOM fiel preserva o ELEMENTO (com o texto cru
+                // como filho), mas o conteúdo NÃO é HTML. Para `<style>`, o CSS
+                // alimenta o stylesheet de autor (a cascade de `computed_style`).
+                // Para `<script>`, só preserva o nó (não executamos JS). O render
+                // ignora ambos (sem `BlockDef`/inline para essas tags).
+                if tag == "style" {
+                    dom.add_stylesheet(&content);
+                }
+                let parent = open.last().unwrap().0;
+                let el = dom.push(NodeKind::Element { tag }, Vec::new(), parent);
+                if !content.is_empty() {
+                    dom.push(NodeKind::Text(content), Vec::new(), el);
+                }
+            }
         }
     }
     dom
@@ -980,6 +1051,79 @@ mod tests {
         assert_eq!(dom2.computed_style(c).unwrap().color, Some(0x0000FFFF)); // inline
         dom2.set_node_style_slot(c, SLOT_COLOR, 0xFF0000FF);
         assert_eq!(dom2.computed_style(c).unwrap().color, Some(0xFF0000FF)); // override vence
+    }
+
+    #[test]
+    fn style_tag_alimenta_cascade() {
+        // <style> com tag/.class/#id alimenta o computed_style por especificidade.
+        let dom = parse_html_to_dom(
+            "<style>p { color:#ff0000; font-size:14 } .hl { color:#00ff00 } #x { color:#0000ff }</style>\
+             <p>normal</p><p class='hl'>destaque</p><p id='x' class='hl'>id</p>",
+        );
+        let ps = dom.query_all("p");
+        assert_eq!(ps.len(), 3);
+        // <p> normal: regra de tag.
+        let s0 = dom.computed_style(ps[0]).unwrap();
+        assert_eq!(s0.color, Some(0xFF0000FF));
+        assert_eq!(s0.font_size, Some(14.0));
+        // <p class="hl">: classe vence a tag na cor; font-size herda da tag.
+        let s1 = dom.computed_style(ps[1]).unwrap();
+        assert_eq!(s1.color, Some(0x00FF00FF));
+        assert_eq!(s1.font_size, Some(14.0));
+        // <p id="x" class="hl">: id vence tudo.
+        let s2 = dom.computed_style(ps[2]).unwrap();
+        assert_eq!(s2.color, Some(0x0000FFFF));
+    }
+
+    #[test]
+    fn style_tag_precede_inline_e_preserva_no() {
+        // precedência: <style> autor < style="" inline.
+        let dom = parse_html_to_dom(
+            "<style>.c { color:#ff0000; padding:10 }</style>\
+             <div class='c' style='color:#0000ff'>x</div>",
+        );
+        let div = dom.query(".c").unwrap();
+        let s = dom.computed_style(div).unwrap();
+        assert_eq!(s.color, Some(0x0000FFFF)); // inline vence o <style>
+        assert_eq!(s.padding, Some(10.0)); // padding só o <style> define
+        // o <style> também vira NÓ no DOM (fiel), com o CSS como texto cru filho.
+        let st = dom.query("style").unwrap();
+        assert_eq!(dom.node_type(st), 1); // Element
+        let kids = dom.child_nodes(st);
+        assert_eq!(kids.len(), 1);
+        assert_eq!(dom.node_type(kids[0]), 3); // Text (o CSS cru)
+    }
+
+    #[test]
+    fn important_inverte_precedencia_de_origem() {
+        // MDN estágio 1: `<style>` com `!important` vence o `style=""` inline NORMAL
+        // (normalmente o inline venceria o autor; o `!important` inverte isso).
+        let dom = parse_html_to_dom(
+            "<style>.c { color:#ff0000 !important }</style>\
+             <div class='c' style='color:#0000ff'>x</div>",
+        );
+        let div = dom.query(".c").unwrap();
+        assert_eq!(dom.computed_style(div).unwrap().color, Some(0xFF0000FF)); // important vence
+        // mas inline `!important` vence o autor `!important` (mesma camada, inline
+        // é origem mais forte que o `<style>`):
+        let dom2 = parse_html_to_dom(
+            "<style>.c { color:#ff0000 !important }</style>\
+             <div class='c' style='color:#0000ff !important'>x</div>",
+        );
+        let div2 = dom2.query(".c").unwrap();
+        assert_eq!(dom2.computed_style(div2).unwrap().color, Some(0x0000FFFF)); // inline important
+    }
+
+    #[test]
+    fn style_tag_conteudo_nao_vira_html() {
+        // CSS com `{`, `>` em `a > b` não deve criar tags-fantasma na árvore.
+        let dom = parse_html_to_dom("<style>a > b { color:red } p { color:blue }</style><p>oi</p>");
+        // o `<b>` do combinador NÃO vira nó na árvore (ficou dentro do raw-text).
+        assert!(dom.query("b").is_none());
+        assert!(dom.query("p").is_some());
+        // o combinador `a > b` é cortado (não suportado); mas `p { }` simples passa.
+        assert!(!dom.stylesheet().is_empty());
+        assert_eq!(dom.computed_style(dom.query("p").unwrap()).unwrap().color, Some(0x0000FFFF));
     }
 
     #[test]

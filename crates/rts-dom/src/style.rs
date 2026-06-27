@@ -310,16 +310,254 @@ impl ComputedStyle {
     }
 }
 
-/// Parseia um `style="prop: valor; ..."` para um `ComputedStyle`. Ignora
-/// propriedades/valores desconhecidos sem panicar (robustez de parser real).
+// ── Stylesheet do `<style>` (cascade autor: tag < .class < #id) ─────────────────
+// O `<style>` traz CSS com SELETORES (`p {}`, `.card {}`, `#header {}`), diferente
+// do `defineStyle` (por-tag, slot opaco) e do `style=""` (um nó só). Aqui parseamos
+// o bloco inteiro numa lista de regras ordenadas e resolvemos por ESPECIFICIDADE
+// (id > classe > tag), fiel à cascade do navegador. Reusa `parse_inline` para o
+// corpo `{ ... }` de cada regra — o mesmo parser de declarações já existente; o
+// `<style>` só adiciona a camada de SELETOR por cima (não é "casar string CSS para
+// slot dispatch" — é parsing de CSS, igual ao `parse_inline`, permitido).
+
+/// Um seletor SIMPLES de uma regra `<style>`. Sem combinadores (descendente,
+/// `>`, `,` já é quebrado em regras separadas antes): só os três alvos básicos.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Selector {
+    /// `p`, `div`, `h1` — casa pela tag (em minúsculas). Especificidade 1.
+    Tag(String),
+    /// `.card` — casa se a classe está na lista `class=""`. Especificidade 10.
+    Class(String),
+    /// `#header` — casa pelo atributo `id`. Especificidade 100.
+    Id(String),
+    /// `*` — casa qualquer elemento. Especificidade 0 (a mais fraca).
+    Universal,
+}
+
+impl Selector {
+    /// Parseia UM seletor simples (já sem espaços). `None` se vazio/desconhecido
+    /// (combinadores como `div p` ou `a:hover` não são suportados nesta fase).
+    fn parse(s: &str) -> Option<Selector> {
+        let s = s.trim();
+        if s.is_empty() {
+            return None;
+        }
+        if s == "*" {
+            return Some(Selector::Universal);
+        }
+        if let Some(c) = s.strip_prefix('.') {
+            return (!c.is_empty() && is_ident(c)).then(|| Selector::Class(c.to_string()));
+        }
+        if let Some(i) = s.strip_prefix('#') {
+            return (!i.is_empty() && is_ident(i)).then(|| Selector::Id(i.to_string()));
+        }
+        // Tag: só letras/dígitos/`-` (rejeita `div p`, `a:hover`, `[attr]` etc — os
+        // combinadores e pseudo-classes são cortes conscientes desta fase).
+        is_ident(s).then(|| Selector::Tag(s.to_ascii_lowercase()))
+    }
+
+    /// Peso da cascade (CSS specificity, simplificado a um número): id=100,
+    /// classe=10, tag=1, universal=0. Empate é desfeito pela ORDEM (regra depois
+    /// vence) na aplicação.
+    pub fn specificity(&self) -> u32 {
+        match self {
+            Selector::Id(_) => 100,
+            Selector::Class(_) => 10,
+            Selector::Tag(_) => 1,
+            Selector::Universal => 0,
+        }
+    }
+}
+
+/// `true` se `s` é um identificador CSS simples (letra/dígito/`-`/`_`), o que
+/// distingue um seletor suportado de um combinador/pseudo que cortamos.
+fn is_ident(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// Uma regra do stylesheet: um seletor + as declarações já parseadas (separadas
+/// nas camadas normal/important da cascade). A ordem de declaração no fonte
+/// (`order`) desempata especificidades iguais.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Rule {
+    pub selector: Selector,
+    pub decls: DeclBlock,
+    /// Posição da regra no fonte (0-based) — desempate da cascade.
+    pub order: u32,
+}
+
+/// Um stylesheet de autor (o conteúdo de um `<style>`), já parseado em regras
+/// ordenadas. Egui-free como o resto. É anexado ao `Dom` e consultado na cascade
+/// de `computed_style`.
+///
+/// ## Fidelidade à cascade CSS da MDN
+///
+/// O modelo segue os estágios da cascade
+/// (<https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Cascade>):
+/// 1. **Origem/importância:** normais UA(`defineStyle`) < `<style>` autor <
+///    `style=""` inline < override-por-nó; depois os `!important` por cima (autor <
+///    inline) — `!important` inverte a precedência de origem. Em `Dom::computed_style`.
+/// 2. **Especificidade:** id(100) > classe(10) > tag(1) > universal(0) — em
+///    [`Selector::specificity`]; a regra mais específica sobrepõe.
+/// 3. **Ordem do fonte:** empate de especificidade → a regra DECLARADA DEPOIS
+///    vence (campo `order`, desempate em [`computed_for`](Stylesheet::computed_for)).
+/// 4. **Herança:** color/font-size descem do pai no render (`InlineStyle` herdado);
+///    propriedade não-tocada fica `None` (= valor herdado/default).
+///
+/// **Cortes conscientes desta fase** (subset CSS do roadmap, não bugs): `@layer`,
+/// seletores compostos (`.a.b`)/combinadores (`div p`, `>`), pseudo-classes
+/// (`:hover`), e as keywords `inherit`/`initial`/`unset`/`revert` não são suportados.
+/// (`!important` — estágio 1 da MDN — JÁ é suportado.)
+#[derive(Clone, Default, PartialEq, Debug)]
+pub struct Stylesheet {
+    pub rules: Vec<Rule>,
+}
+
+impl Stylesheet {
+    /// Stylesheet vazio (nenhuma regra).
+    pub fn new() -> Stylesheet {
+        Stylesheet { rules: Vec::new() }
+    }
+
+    /// `true` se não há nenhuma regra (atalho para o `computed_style` pular a
+    /// cascade quando a página não tem `<style>`).
+    pub fn is_empty(&self) -> bool {
+        self.rules.is_empty()
+    }
+
+    /// Acrescenta as regras de mais um bloco `<style>` (uma página pode ter vários).
+    /// As novas regras vêm DEPOIS (ordem maior), então desempatam por cima das
+    /// anteriores — fiel à cascade (regra de mesmo peso, declarada depois, vence).
+    pub fn append_css(&mut self, css: &str) {
+        let base = self.rules.len() as u32;
+        for (i, rule) in parse_rules(css).into_iter().enumerate() {
+            self.rules.push(Rule { order: base + i as u32, ..rule });
+        }
+    }
+
+    /// Computa o estilo de AUTOR para um elemento dado sua tag/id/classes,
+    /// aplicando todas as regras casadas conforme a cascade da MDN. Retorna um
+    /// [`DeclBlock`] (normal + important separados) — o chamador
+    /// (`Dom::computed_style`) intercala as camadas com as outras origens (inline,
+    /// override) respeitando o estágio 1 (`!important` inverte a precedência).
+    ///
+    /// Dentro de cada camada, as regras casadas são aplicadas em ordem de
+    /// (especificidade, order) crescente — a mais específica/posterior sobrepõe.
+    pub fn computed_for(&self, tag: &str, id: Option<&str>, classes: &[&str]) -> DeclBlock {
+        let mut matched: Vec<&Rule> = self
+            .rules
+            .iter()
+            .filter(|r| selector_matches(&r.selector, tag, id, classes))
+            .collect();
+        matched.sort_by_key(|r| (r.selector.specificity(), r.order));
+        let mut out = DeclBlock::default();
+        for r in &matched {
+            out.normal.merge_over(&r.decls.normal);
+        }
+        for r in &matched {
+            out.important.merge_over(&r.decls.important);
+        }
+        out
+    }
+}
+
+/// `true` se um seletor simples casa um elemento (por tag/id/classe).
+fn selector_matches(sel: &Selector, tag: &str, id: Option<&str>, classes: &[&str]) -> bool {
+    match sel {
+        Selector::Universal => true,
+        Selector::Tag(t) => t == tag,
+        Selector::Id(i) => id == Some(i.as_str()),
+        Selector::Class(c) => classes.contains(&c.as_str()),
+    }
+}
+
+/// Parseia o corpo de um `<style>` numa lista de [`Rule`] (sem `order`, que o
+/// `Stylesheet::append_css` atribui). Robusto: comentários `/* */` são removidos;
+/// regras malformadas (sem `{`/`}`, seletor desconhecido) são puladas sem panicar;
+/// `a, b { ... }` vira uma regra por seletor (mesmas declarações).
+pub fn parse_rules(css: &str) -> Vec<Rule> {
+    let css = strip_css_comments(css);
+    let mut rules = Vec::new();
+    let bytes = css.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        // Acha o `{` que abre o bloco de declarações.
+        let Some(brace) = css[i..].find('{').map(|r| i + r) else { break };
+        let selectors_raw = css[i..brace].trim();
+        // Acha o `}` que fecha; sem fechar, vai até o fim (tolerante).
+        let close = css[brace + 1..].find('}').map(|r| brace + 1 + r);
+        let (body, next) = match close {
+            Some(end) => (&css[brace + 1..end], end + 1),
+            None => (&css[brace + 1..], css.len()),
+        };
+        let decls = parse_inline_block(body); // reusa o parser de declarações (normal+important).
+        // `a, b, .c { }` → uma regra por seletor (lista separada por vírgula).
+        for sel_str in selectors_raw.split(',') {
+            if let Some(selector) = Selector::parse(sel_str) {
+                rules.push(Rule { selector, decls, order: 0 });
+            }
+        }
+        i = next;
+    }
+    rules
+}
+
+/// Remove blocos de comentário `/* ... */` do CSS (um passe, tolerante a não-fechado).
+fn strip_css_comments(css: &str) -> String {
+    let mut out = String::with_capacity(css.len());
+    let mut rest = css;
+    while let Some(start) = rest.find("/*") {
+        out.push_str(&rest[..start]);
+        match rest[start + 2..].find("*/") {
+            Some(end) => rest = &rest[start + 2 + end + 2..],
+            None => return out, // comentário não fechado: descarta o resto.
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Um bloco de declarações separado nas DUAS camadas de importância da cascade
+/// (MDN estágio 1): `normal` e `important`. Na cascade os `normal` de todas as
+/// regras são aplicados primeiro (por origem<especificidade<ordem); depois os
+/// `important`, na mesma ordem — então `!important` SEMPRE vence o normal, mas
+/// entre dois `important` a especificidade/ordem ainda desempata. Egui-free.
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
+pub struct DeclBlock {
+    /// Declarações normais (sem `!important`).
+    pub normal: ComputedStyle,
+    /// Declarações marcadas `!important` (vencem qualquer normal na cascade).
+    pub important: ComputedStyle,
+}
+
+impl DeclBlock {
+    /// `true` se nenhuma das camadas tem qualquer propriedade setada.
+    pub fn is_empty(&self) -> bool {
+        self.normal == ComputedStyle::default() && self.important == ComputedStyle::default()
+    }
+}
+
+/// Parseia um `style="prop: valor; ..."` para um [`ComputedStyle`] (só a camada
+/// NORMAL — atalho retrocompatível; `!important` inline é raro). Para a cascade
+/// completa com `!important`, use [`parse_inline_block`].
 pub fn parse_inline(style: &str) -> ComputedStyle {
-    let mut css = ComputedStyle::default();
+    parse_inline_block(style).normal
+}
+
+/// Parseia um bloco de declarações CSS (`"prop: valor; outra: x !important"`)
+/// separando as camadas normal/important (MDN estágio 1). Ignora
+/// propriedades/valores desconhecidos sem panicar (robustez de parser real).
+pub fn parse_inline_block(style: &str) -> DeclBlock {
+    let mut block = DeclBlock::default();
     for decl in style.split(';') {
         let mut it = decl.splitn(2, ':');
-        let (prop, val) = match (it.next(), it.next()) {
+        let (prop, val_raw) = match (it.next(), it.next()) {
             (Some(p), Some(v)) => (p.trim().to_ascii_lowercase(), v.trim()),
             _ => continue,
         };
+        // Destaca o sufixo `!important` (case-insensitive) do valor; a camada de
+        // destino depende dele.
+        let (val, important) = split_important(val_raw);
+        let css = if important { &mut block.important } else { &mut block.normal };
         match prop.as_str() {
             "color" => css.color = parse_color(val),
             "background-color" | "background" => css.bg = parse_color(val),
@@ -339,7 +577,21 @@ pub fn parse_inline(style: &str) -> ComputedStyle {
             _ => {}
         }
     }
-    css
+    block
+}
+
+/// Separa o sufixo `!important` (case-insensitive, com espaços) de um valor CSS.
+/// Devolve `(valor_sem_important, é_important)`. `"red !important"` → `("red", true)`.
+fn split_important(val: &str) -> (&str, bool) {
+    let v = val.trim();
+    // Acha `!important` no fim, tolerante a espaço entre `!` e `important` não — a
+    // spec exige `!important` colado (espaço só antes do `!`).
+    let lower = v.to_ascii_lowercase();
+    if let Some(stripped) = lower.strip_suffix("!important") {
+        let cut = stripped.len();
+        return (v[..cut].trim_end(), true);
+    }
+    (v, false)
 }
 
 /// `font-size` em px (aceita "18px" ou "18"). Ignora unidades não-px por ora
@@ -625,6 +877,99 @@ mod tests {
         assert_eq!(c.margin, Some(6.0));
         assert_eq!(c.border_width, Some(2.0));
         assert_eq!(c.corner_radius, Some(8.0));
+    }
+
+    #[test]
+    fn stylesheet_seletores_e_especificidade() {
+        // <style> com tag/.class/#id; #id > .class > tag na cascade.
+        let mut sheet = Stylesheet::new();
+        sheet.append_css(
+            "p { color:#ff0000; font-size:14 }
+             .card { color:#00ff00; padding:10 }
+             #alvo { color:#0000ff }",
+        );
+        // <p> simples: só a regra de tag.
+        let s = sheet.computed_for("p", None, &[]).normal;
+        assert_eq!(s.color, Some(0xFF0000FF));
+        assert_eq!(s.font_size, Some(14.0));
+        // <p class="card">: classe vence a tag na COR (10>1), mas font-size só a
+        // tag tem (herda), e padding só a classe.
+        let s = sheet.computed_for("p", None, &["card"]).normal;
+        assert_eq!(s.color, Some(0x00FF00FF)); // classe > tag
+        assert_eq!(s.font_size, Some(14.0)); // só a tag define
+        assert_eq!(s.padding, Some(10.0)); // só a classe define
+        // <p id="alvo" class="card">: id vence tudo na cor (100>10>1).
+        let s = sheet.computed_for("p", Some("alvo"), &["card"]).normal;
+        assert_eq!(s.color, Some(0x0000FFFF)); // id > classe > tag
+        assert_eq!(s.padding, Some(10.0)); // classe ainda aplica onde o id não toca
+    }
+
+    #[test]
+    fn stylesheet_empate_ordem_e_virgula() {
+        let mut sheet = Stylesheet::new();
+        // mesma especificidade (classe) → a DECLARADA DEPOIS vence.
+        sheet.append_css(".a { color:#ff0000 } .a { color:#00ff00 }");
+        assert_eq!(sheet.computed_for("div", None, &["a"]).normal.color, Some(0x00FF00FF));
+        // seletor-lista `h1, h2, .big { ... }` → aplica aos três.
+        let mut s2 = Stylesheet::new();
+        s2.append_css("h1, h2, .big { font-size:30 }");
+        assert_eq!(s2.computed_for("h1", None, &[]).normal.font_size, Some(30.0));
+        assert_eq!(s2.computed_for("h2", None, &[]).normal.font_size, Some(30.0));
+        assert_eq!(s2.computed_for("p", None, &["big"]).normal.font_size, Some(30.0));
+        assert_eq!(s2.computed_for("p", None, &[]).normal.font_size, None); // não casa
+    }
+
+    #[test]
+    fn stylesheet_universal_e_comentarios() {
+        let mut sheet = Stylesheet::new();
+        sheet.append_css(
+            "/* tema escuro */ * { color:#cccccc } /* destaque */ .hl { color:#ffff00 }",
+        );
+        // universal aplica a qualquer tag; a classe (mais específica) sobrepõe.
+        assert_eq!(sheet.computed_for("span", None, &[]).normal.color, Some(0xCCCCCCFF));
+        assert_eq!(sheet.computed_for("span", None, &["hl"]).normal.color, Some(0xFFFF00FF));
+    }
+
+    #[test]
+    fn important_separa_camadas() {
+        // `!important` vai para a camada important; normal fica na normal.
+        let b = parse_inline_block("color:#ff0000 !important; font-size:14");
+        assert_eq!(b.important.color, Some(0xFF0000FF));
+        assert_eq!(b.important.font_size, None);
+        assert_eq!(b.normal.font_size, Some(14.0));
+        assert_eq!(b.normal.color, None);
+        // case-insensitive e com espaço antes do `!`.
+        let b2 = parse_inline_block("padding: 10  !IMPORTANT");
+        assert_eq!(b2.important.padding, Some(10.0));
+    }
+
+    #[test]
+    fn important_vence_especificidade_maior() {
+        // MDN estágio 1: um `!important` de TAG vence um normal de #id (a importância
+        // inverte a precedência de origem/especificidade dentro da mesma origem-autor).
+        let mut sheet = Stylesheet::new();
+        sheet.append_css("p { color:#ff0000 !important } #x { color:#0000ff }");
+        let b = sheet.computed_for("p", Some("x"), &[]);
+        // normal: #id vence (azul). important: a tag (vermelho).
+        assert_eq!(b.normal.color, Some(0x0000FFFF));
+        assert_eq!(b.important.color, Some(0xFF0000FF));
+        // entre dois important, a especificidade volta a valer:
+        let mut s2 = Stylesheet::new();
+        s2.append_css("p { color:#ff0000 !important } #x { color:#0000ff !important }");
+        let b2 = s2.computed_for("p", Some("x"), &[]);
+        assert_eq!(b2.important.color, Some(0x0000FFFF)); // #id important vence tag important
+    }
+
+    #[test]
+    fn stylesheet_malformado_nao_panica() {
+        let mut sheet = Stylesheet::new();
+        // sem `}`, seletor com combinador (cortado), bloco vazio.
+        sheet.append_css("p { color:#ff0000  .x { } div p { color:#000 } #ok { font-size:20 }");
+        // o `#ok` (após o bloco sem-fechar consumir até o próximo `}`) ainda é lido
+        // de forma robusta; o importante é não panicar e parsear o que dá.
+        assert!(!sheet.is_empty());
+        // `div p` (combinador) não vira regra — corte consciente.
+        assert!(!sheet.rules.iter().any(|r| matches!(&r.selector, Selector::Tag(t) if t.contains(' '))));
     }
 
     #[test]

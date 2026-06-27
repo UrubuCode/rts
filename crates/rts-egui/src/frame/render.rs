@@ -63,20 +63,11 @@ fn apply_computed(st: &mut InlineStyle, css: &crate::style::ComputedStyle) {
 /// precedência CSS: herdado < estilo-de-TAG (`defineStyle`, F1) < `style=""`
 /// inline do nó. Propriedade ausente mantém a anterior; presente sobrescreve.
 fn merge_node_style(dom: &crate::dom::Dom, id: crate::dom::NodeIdx, mut st: InlineStyle) -> InlineStyle {
-    // 1) estilo registrado para a TAG (slot opaco via defineStyle).
-    if let crate::dom::NodeKind::Element { tag } = &dom.node(id).kind {
-        if let Some(tag_css) = crate::style::lookup_style(tag) {
-            apply_computed(&mut st, &tag_css);
-        }
-    }
-    // 2) `style="..."` inline do nó sobrepõe o estilo da tag.
-    if let Some(s) = dom.node(id).attr("style") {
-        let css = crate::style::parse_inline(s);
+    // Cascade COMPLETA do nó (defineStyle < `<style>` autor < `style=""` inline <
+    // override por-nó), computada uma vez no `dom` — o render não reconstrói a
+    // camada `<style>` à mão. Só elementos têm estilo próprio; texto herda o `st`.
+    if let Some(css) = dom.computed_style_idx(id) {
         apply_computed(&mut st, &css);
-    }
-    // 3) override por-nó (`setStyleBatch`) — a camada mais forte (vence tag+inline).
-    if let Some(ov) = dom.style_override_idx(id) {
-        apply_computed(&mut st, &ov);
     }
     st
 }
@@ -105,6 +96,11 @@ fn render_block(
     use crate::dom::NodeKind;
     // `tag` fica emprestado da arena (sem `.clone()`): só é lido por `block::lookup`
     // logo abaixo e não sobrevive a este escopo. O `dom` é read-only no render.
+    // `<style>`/`<script>`: o conteúdo é CSS/JS, não conteúdo de página — não
+    // desenha (o CSS já alimentou o stylesheet no parse). Pula o nó inteiro.
+    if dom.is_raw_text_element(id) {
+        return;
+    }
     let tag = match &dom.node(id).kind {
         NodeKind::Element { tag } => tag.as_str(),
         // Texto solto / não-elemento no nível de bloco: emite inline direto.
@@ -123,18 +119,9 @@ fn render_block(
     // Heading: texto concatenado; `indent` é reusado como TAMANHO de fonte.
     if def.has(crate::block::FLAG_HEADING) {
         let text = collect_text(dom, id);
-        // Precedência: estilo-de-TAG (defineStyle) < `style=""` inline. O tamanho
-        // cai para o default do nível (indent) se nenhum dos dois o definir.
-        let mut css = crate::style::lookup_style(tag).unwrap_or_default();
-        if let Some(s) = dom.node(id).attr("style") {
-            let inline = crate::style::parse_inline(s);
-            if inline.color.is_some() {
-                css.color = inline.color;
-            }
-            if inline.font_size.is_some() {
-                css.font_size = inline.font_size;
-            }
-        }
+        // Cascade completa do nó (defineStyle < `<style>` autor < inline < override).
+        // O tamanho cai para o default do nível (indent) se nada o definir.
+        let css = dom.computed_style_idx(id).unwrap_or_default();
         let size = css.font_size.unwrap_or(if def.indent > 0.0 { def.indent } else { 20.0 });
         let mut rt = egui::RichText::new(text).strong().size(size);
         if let Some(c) = css.color {
@@ -148,14 +135,9 @@ fn render_block(
     // envolve o corpo num `egui::Frame`; senão renderiza direto (sem overhead).
     // Precedência (a mais forte vence): TAG < `style=""` inline < override por-nó
     // (`setStyleBatch`) — igual ao texto.
-    let mut box_css = crate::style::lookup_style(tag).unwrap_or_default();
-    if let Some(s) = dom.node(id).attr("style") {
-        let inline = crate::style::parse_inline(s);
-        merge_box_props(&mut box_css, &inline);
-    }
-    if let Some(ov) = dom.style_override_idx(id) {
-        merge_box_props(&mut box_css, &ov);
-    }
+    // Cascade completa (defineStyle < `<style>` autor < inline < override por-nó),
+    // já resolvida no `dom` — inclui a camada `<style>` que o render não reconstrói.
+    let box_css = dom.computed_style_idx(id).unwrap_or_default();
 
     let width = box_css.width;
     let font_size = box_css.font_size.unwrap_or(DEFAULT_FONT_SIZE);
@@ -207,32 +189,6 @@ fn render_block(
         block_frame(&box_css).show(ui, body);
     } else {
         body(ui);
-    }
-}
-
-/// Mescla SÓ as propriedades de caixa de `src` sobre `dst` (`Some` sobrescreve).
-/// Usado para o `style=""` inline sobrepor o estilo-de-tag na caixa do bloco.
-fn merge_box_props(dst: &mut crate::style::ComputedStyle, src: &crate::style::ComputedStyle) {
-    if src.bg.is_some() {
-        dst.bg = src.bg;
-    }
-    if src.padding.is_some() {
-        dst.padding = src.padding;
-    }
-    if src.margin.is_some() {
-        dst.margin = src.margin;
-    }
-    if src.border_width.is_some() {
-        dst.border_width = src.border_width;
-    }
-    if src.border_color.is_some() {
-        dst.border_color = src.border_color;
-    }
-    if src.corner_radius.is_some() {
-        dst.corner_radius = src.corner_radius;
-    }
-    if src.width.is_some() {
-        dst.width = src.width;
     }
 }
 

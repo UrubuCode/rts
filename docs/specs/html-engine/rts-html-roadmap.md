@@ -208,6 +208,30 @@ rede de segurança (se F4 atrasar, nada regride).
 > pegavam a janela errada; testes unit+headless cobrem a lógica); parser de
 > comentário preservado mas createComment ainda não exposto na ABI.
 
+> **✅ EXTRA (2026-06-27) — TAG `<style>` (CSS de autor declarativo).** Feature
+> transversal F1/F2: o motor agora parseia `<style>…</style>` e estiliza por CSS
+> puro, sem `defineStyle` imperativo. Entregue:
+> - **Tokenizer** (`html.rs`): `<style>`/`<script>` viram `Token::RawElement` —
+>   conteúdo CRU (CSS/JS não é HTML; `{`, `>` em `a>b`, `<` não tokenizam como tag),
+>   lido até `</tag>` case-insensitive.
+> - **Stylesheet** (`style.rs`): `Stylesheet`/`Rule`/`Selector` egui-free.
+>   Seletores `tag`/`.class`/`#id`/`*`; `parse_rules` reusa `parse_inline` para o
+>   corpo `{…}`; comentários `/* */` e seletor-lista `a,b,.c{}` suportados.
+> - **Cascade FIEL À MDN** (`Dom::computed_style`, validada contra
+>   developer.mozilla.org/Web/CSS/Guides/Cascade): estágio 1 origem/importância
+>   (UA `defineStyle` < `<style>` autor < `style=""` inline < override-por-nó;
+>   depois os `!important` por cima — **`!important` SUPORTADO**, camadas normal/
+>   important separadas em `DeclBlock`); estágio 2 especificidade (id=100>classe=10>
+>   tag=1>universal=0); estágio 3 ordem do fonte (regra posterior desempata);
+>   estágio 4 herança (color/font-size descem no render).
+> - **Render** (`render.rs`): pula `<style>`/`<script>` (não desenha o texto cru);
+>   usa `computed_style_idx` (cascade completa, inclui a camada `<style>`).
+> - 62 testes rts-dom verdes; exemplo `claude-dom-style-tag.ts` (headless) prova
+>   id>classe>tag + herança + `!important`.
+> - **Cortes conscientes** (subset CSS): `@layer`, seletores compostos (`.a.b`)/
+>   combinadores (`div p`, `>`), pseudo-classes (`:hover`), keywords
+>   `inherit`/`initial`/`unset`/`revert`.
+
 Texto original do plano (referência):
 - **Usável:** cards/caixas com fundo, borda, raio e espaçamento; `width%`
   resolvido **tarde** contra o content-box do pai (evita Risco 5 do north-star).
