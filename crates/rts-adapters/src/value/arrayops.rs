@@ -95,9 +95,15 @@ pub extern "C" fn __rtsadp_arr_join(vec_handle: u64, sep_str_handle: u64) -> u64
         if i > 0 {
             out.push_str(&sep);
         }
-        // ToString each element through the genops path (string already its own
-        // ToString; numbers via the real STRING_FROM_F64 formatting; etc).
+        // JS `Array.prototype.join`: `undefined`, `null`, and array HOLES render as
+        // the EMPTY string (NOT "undefined"/"null") — `[1, undefined, 3].join(",")`
+        // is `"1,,3"`. Every other element goes through the genops ToString (string
+        // is its own ToString; numbers via the real STRING_FROM_F64 formatting; etc).
         let word = vec_word(vec_handle, i);
+        let v = PolyValue::from_raw(word);
+        if v.is_undefined() || v.is_null() || v.is_hole() {
+            continue;
+        }
         let s_word = genops::__rtsadp_to_string(word);
         out.push_str(&abi_adapter::resolve_poly(PolyValue::from_raw(s_word)));
     }
