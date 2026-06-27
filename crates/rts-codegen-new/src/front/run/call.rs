@@ -591,8 +591,28 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         })?;
         // Lower each explicit arg to a Val; the generic marshal coerces it to the
         // parameter's AbiType (StrPtr → ptr+len via the pool, numeric → scalar).
+        // EXCEPTION — a CALLBACK fn-ptr: a `U64` param receiving a bare TOP-LEVEL
+        // function name wants its RAW C-ABI code address (like `getPointer`/
+        // `thread.spawn`), NOT the reified `TAG_FUNCTION` value — so `events.on(e, k,
+        // onTick)` registers a pointer `events.emit0` can `transmute` + call. Only a
+        // non-`this`, non-closure, declared top-level fn (a single C-ABI entry).
         let mut argvals: Vec<Val> = Vec::with_capacity(args.len());
-        for a in args {
+        for (a, &abi) in args.iter().zip(resolved.arg_abis.iter()) {
+            if abi == rts_engine::abi::AbiType::U64 {
+                if let HirExprKind::Ident(fname) = &a.kind {
+                    if self.local(fname).is_none()
+                        && !self.captures.contains_key(fname)
+                        && self.sigs.get(fname).is_some_and(|s| !s.has_this && !s.is_async)
+                    {
+                        if let Some(&fid) = self.ids.get(fname) {
+                            let fref = module.declare_func_in_func(fid, self.builder.func);
+                            let addr = self.builder.ins().func_addr(types::I64, fref);
+                            argvals.push(Val::new(addr, Repr::Int64));
+                            continue;
+                        }
+                    }
+                }
+            }
             argvals.push(self.lower_expr(module, a)?);
         }
         // The rebox kind only matters for a `Handle` return: a HEAP STRING handle
