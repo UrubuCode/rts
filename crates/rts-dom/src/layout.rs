@@ -117,7 +117,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     let mut cursor_y = 0.0f32;
     let root = dom.node(dom.root);
     for &child in &root.children {
-        let (_, h) = layout_block(dom, child, 0.0, cursor_y, ctx.viewport_w, ctx, &mut list);
+        let (_, h) = layout_block(dom, child, 0.0, cursor_y, ctx.viewport_w, false, ctx, &mut list);
         cursor_y += h;
     }
     list.content_height = cursor_y;
@@ -136,6 +136,11 @@ fn layout_block(
     x: f32,
     y: f32,
     avail_w: f32,
+    // `shrink_to_fit`: quando true, um bloco SEM `width` explícito dimensiona pela
+    // largura do CONTEÚDO (como `inline-block`/item flex), não ocupa a largura
+    // disponível. É o que faz badges num container horizontal não esticarem para a
+    // linha toda. No fluxo vertical normal é false (block ocupa a largura — MDN).
+    shrink_to_fit: bool,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> (f32, f32) {
@@ -182,8 +187,15 @@ fn layout_block(
         viewport_h: ctx.viewport_h,
     };
     let frame = 2.0 * (margin + border + padding);
+    let font_for_content = css.font_size.unwrap_or(DEFAULT_FONT_SIZE);
     let content_w = match css.width.and_then(|d| d.resolve(&resolve)) {
+        // `width` explícito sempre vence.
         Some(w) => w,
+        // Sem width: shrink-to-fit → largura do conteúdo (limitada ao disponível);
+        // senão (fluxo block normal) → ocupa a largura disponível.
+        None if shrink_to_fit => {
+            content_natural_width(dom, id, font_for_content, ctx).min((avail_w - frame).max(0.0))
+        }
         None => (avail_w - frame).max(0.0),
     };
 
@@ -203,10 +215,17 @@ fn layout_block(
     // a altura do content = a do filho mais alto (MDN flow: inline-axis stacking).
     let display = css_display(dom, id);
     let font_size = css.font_size.unwrap_or(DEFAULT_FONT_SIZE);
-    let content_h = if display == crate::block::DISPLAY_HORIZONTAL {
-        layout_children_horizontal(dom, id, content_x, content_y, content_w, &css, font_size, ctx, list)
-    } else {
-        layout_children_vertical(dom, id, content_x, content_y, content_w, &css, font_size, ctx, list)
+    let content_h = match display {
+        // horizontal (flex-row sem wrap): lado a lado, encolhe pra caber, não quebra.
+        d if d == crate::block::DISPLAY_HORIZONTAL => {
+            layout_children_horizontal(dom, id, content_x, content_y, content_w, &css, font_size, false, ctx, list)
+        }
+        // wrap (inline-block flow): lado a lado E QUEBRA linha quando enche.
+        d if d == crate::block::DISPLAY_WRAP => {
+            layout_children_horizontal(dom, id, content_x, content_y, content_w, &css, font_size, true, ctx, list)
+        }
+        // vertical (block): empilha.
+        _ => layout_children_vertical(dom, id, content_x, content_y, content_w, &css, font_size, ctx, list),
     };
 
     // ── Insere a CAIXA (fundo + borda) no índice reservado, ATRÁS dos filhos ─────
@@ -240,6 +259,38 @@ fn layout_block(
     (outer_w, outer_h)
 }
 
+/// Largura NATURAL do conteúdo de um nó (sem `width` explícito): a maior largura
+/// de uma linha de texto entre os descendentes. É o "preferred width" do
+/// shrink-to-fit (item flex / inline-block). Para um filho-bloco com `width`, usa
+/// esse width (+ frame); para texto, a largura medida. Aproximação do max-content
+/// (o inline-flow exato — palavras quebrando — vem na fatia de inline).
+fn content_natural_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -> f32 {
+    // Texto direto deste nó concatenado (caso de um <p>badge</p>: "rust").
+    let own_text = collect_text(dom, id);
+    if !own_text.trim().is_empty() && dom.node(id).children.iter().all(|&c| {
+        matches!(dom.node(c).kind, NodeKind::Text(_))
+    }) {
+        // Folha de texto puro: a largura é a do texto.
+        return ctx.measurer.text_width(&own_text, font, false);
+    }
+    // Senão, o máximo entre os filhos (cada bloco-filho com seu width, texto com o seu).
+    let mut max_w = 0.0f32;
+    for &child in &dom.node(id).children {
+        let w = match &dom.node(child).kind {
+            NodeKind::Element { tag } if crate::block::lookup(tag).is_some() => {
+                let css = dom.computed_style_idx(child).unwrap_or_default();
+                let f = css.font_size.unwrap_or(font);
+                let frame = 2.0 * (css.margin.unwrap_or(0.0) + css.border_width.unwrap_or(0.0) + css.padding.unwrap_or(0.0));
+                content_natural_width(dom, child, f, ctx) + frame
+            }
+            NodeKind::Text(t) => ctx.measurer.text_width(t, font, false),
+            _ => 0.0,
+        };
+        max_w = max_w.max(w);
+    }
+    max_w
+}
+
 /// O código de `display` de um nó (do `BlockDef` da tag), ou vertical (0) se a tag
 /// não define bloco. É o eixo de empilhamento dos filhos.
 fn css_display(dom: &Dom, id: NodeIdx) -> i64 {
@@ -268,7 +319,7 @@ fn layout_children_vertical(
     for &child in &dom.node(id).children {
         match &dom.node(child).kind {
             NodeKind::Element { tag } if crate::block::lookup(tag).is_some() => {
-                let (_, h) = layout_block(dom, child, content_x, child_y, content_w, ctx, list);
+                let (_, h) = layout_block(dom, child, content_x, child_y, content_w, false, ctx, list);
                 child_y += h;
             }
             _ => {
@@ -279,8 +330,13 @@ fn layout_children_vertical(
     (child_y - content_y).max(0.0)
 }
 
-/// Dispõe os filhos HORIZONTAL (cada um à direita do anterior). A altura do content
-/// é a do filho MAIS ALTO (inline-axis stacking). Devolve essa altura.
+/// Dispõe os filhos HORIZONTAL (cada um à direita do anterior). Devolve a altura
+/// total do content.
+///
+/// - `wrap = false` (flex-row sem `flex-wrap`): tudo numa linha, encolhendo pra
+///   caber (clamp à largura restante) — nada transborda, mas não quebra.
+/// - `wrap = true` (inline-block flow): quando o próximo filho não cabe na linha
+///   atual, QUEBRA para a próxima (reset x, avança y pela altura da linha cheia).
 fn layout_children_horizontal(
     dom: &Dom,
     id: NodeIdx,
@@ -289,29 +345,43 @@ fn layout_children_horizontal(
     content_w: f32,
     css: &ComputedStyle,
     font_size: f32,
+    wrap: bool,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
-    // A regra do CSS `display:flex` SEM `flex-wrap` é: os filhos ENCOLHEM para
-    // caber (flex-shrink:1), nunca transbordam a tela. Implementamos isso CLAMPANDO
-    // a largura de cada filho ao espaço que RESTA da linha: o `width:%` resolve
-    // contra o container (largura certa quando cabe), mas a largura efetiva nunca
-    // passa do restante — então nada sai da janela. (O shrink proporcional exato
-    // entre todos os filhos é refinamento posterior; o clamp já barra o overflow.)
-    let mut child_x = content_x;
-    let mut max_h = 0.0f32;
     let right_edge = content_x + content_w;
+    let mut child_x = content_x;
+    let mut line_y = content_y; // topo da linha atual
+    let mut line_h = 0.0f32; // altura da linha atual (filho mais alto dela)
+    // Sem gap embutido: o respiro entre itens vem do CSS (margin/gap), não do motor
+    // — fiel ao box model (dois itens sem margin encostam, como no navegador).
+    let gap = 0.0f32;
+
+    // Avança para a próxima linha (só no modo wrap): zera x, desce y pela linha cheia.
+    macro_rules! break_line {
+        () => {{
+            line_y += line_h;
+            child_x = content_x;
+            line_h = 0.0;
+        }};
+    }
+
     for &child in &dom.node(id).children {
+        // Mede a largura que o filho QUER (sem pintar) para decidir a quebra.
+        let want = child_outer_width(dom, child, content_w, font_size, ctx);
+        // Wrap: se não cabe na linha atual E já há algo nela, quebra antes de pôr.
+        if wrap && child_x > content_x && child_x + want > right_edge {
+            break_line!();
+        }
         let remaining = (right_edge - child_x).max(0.0);
         match &dom.node(child).kind {
             NodeKind::Element { tag } if crate::block::lookup(tag).is_some() => {
-                // O `width:%` do filho resolve contra o CONTAINER (`content_w`) —
-                // assim 3×30% dão 270 cada (não 30% do restante). A largura real
-                // produzida é então CLAMPADA ao espaço que resta (`remaining`) para
-                // nada sair da tela: o avanço de `child_x` nunca passa da borda.
-                let (w, h) = layout_block(dom, child, child_x, content_y, content_w, ctx, list);
-                child_x += w.min(remaining);
-                max_h = max_h.max(h);
+                // `width:%` resolve contra o CONTAINER (3×30%=270 cada). A largura
+                // real é clampada ao restante (no modo no-wrap; no wrap já quebramos).
+                let base = if wrap { want.min(content_w) } else { content_w };
+                let (w, h) = layout_block(dom, child, child_x, line_y, base, true, ctx, list);
+                child_x += (w + gap).min(remaining.max(w)); // avança (com respiro)
+                line_h = line_h.max(h);
             }
             _ => {
                 let text = collect_text(dom, child);
@@ -319,22 +389,48 @@ fn layout_children_horizontal(
                     continue;
                 }
                 let color = css.color.unwrap_or(0x000000FF);
-                let tw = ctx.measurer.text_width(&text, font_size, false).min(remaining);
+                let tw = ctx.measurer.text_width(&text, font_size, false);
                 let lh = ctx.measurer.line_height(font_size);
                 list.items.push(DisplayItem::Text {
                     x: child_x,
-                    y: content_y,
+                    y: line_y,
                     text,
                     color,
                     size: font_size,
                     mono: false,
                 });
-                child_x += tw;
-                max_h = max_h.max(lh);
+                child_x += tw + gap;
+                line_h = line_h.max(lh);
             }
         }
     }
-    max_h
+    // Altura total = do topo do content até o fim da última linha.
+    (line_y + line_h - content_y).max(0.0)
+}
+
+/// Largura OUTER que um filho QUER (sem pintar), para decidir a quebra de linha no
+/// modo wrap. Bloco com `width`: esse width (+ frame); sem width: largura natural
+/// do conteúdo (+ frame); texto solto: a largura do texto.
+fn child_outer_width(dom: &Dom, id: NodeIdx, container_w: f32, parent_font: f32, ctx: &LayoutCtx) -> f32 {
+    match &dom.node(id).kind {
+        NodeKind::Element { tag } if crate::block::lookup(tag).is_some() => {
+            let css = dom.computed_style_idx(id).unwrap_or_default();
+            let font = css.font_size.unwrap_or(parent_font);
+            let frame = 2.0 * (css.margin.unwrap_or(0.0) + css.border_width.unwrap_or(0.0) + css.padding.unwrap_or(0.0));
+            let resolve = ResolveCtx {
+                parent_content_w: container_w,
+                node_font_size: font,
+                root_font_size: DEFAULT_FONT_SIZE,
+                viewport_w: ctx.viewport_w,
+                viewport_h: ctx.viewport_h,
+            };
+            let cw = css.width.and_then(|d| d.resolve(&resolve))
+                .unwrap_or_else(|| content_natural_width(dom, id, font, ctx));
+            cw + frame
+        }
+        NodeKind::Text(t) => ctx.measurer.text_width(t, parent_font, false),
+        _ => 0.0,
+    }
 }
 
 /// Desenha um nó como UMA linha de texto (texto solto ou inline simples), herdando
@@ -547,5 +643,47 @@ mod tests {
         assert!(rects.iter().all(|r| (r.w - 270.0).abs() < 1.0), "largura ~270: {rects:?}");
         // o 2º começa onde o 1º termina (sem sobrepor): x[1] ≈ x[0] + w[0].
         assert!((rects[1].x - (rects[0].x + rects[0].w)).abs() < 1.0, "encostados: {rects:?}");
+    }
+
+    #[test]
+    fn badges_fluem_e_quebram_linha_no_wrap() {
+        // <tags display:wrap> com badges: fluem lado a lado e QUEBRAM para a próxima
+        // linha quando não cabem (inline-block flow). Cada badge dimensiona pelo
+        // conteúdo (shrink-to-fit), não estica para a largura toda.
+        crate::block::define(
+            "tags",
+            crate::block::BlockDef { display: 1, indent: 0.0, prefix: 0, flags: 0 },
+        );
+        crate::block::define(
+            "badge",
+            crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 },
+        );
+        // 4 badges; numa largura estreita (200) eles não cabem todos numa linha.
+        let dom = parse_html_to_dom(
+            "<tags>\
+               <badge style='background:#111;padding:6'>rust</badge>\
+               <badge style='background:#222;padding:6'>cranelift</badge>\
+               <badge style='background:#333;padding:6'>typescript</badge>\
+               <badge style='background:#444;padding:6'>egui</badge>\
+             </tags>",
+        );
+        let ctx = LayoutCtx { viewport_w: 200.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let rects: Vec<Rect> = list
+            .items
+            .iter()
+            .filter_map(|it| match it {
+                DisplayItem::SolidRect { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(rects.len(), 4);
+        // shrink-to-fit: nenhum badge ocupa a largura toda (200) — cada um é estreito.
+        assert!(rects.iter().all(|r| r.w < 150.0), "badges estreitos (conteúdo): {rects:?}");
+        // QUEBROU linha: há pelo menos 2 valores distintos de Y (não todos na mesma linha).
+        let ys: std::collections::BTreeSet<i32> = rects.iter().map(|r| r.y as i32).collect();
+        assert!(ys.len() >= 2, "deve haver quebra de linha (Ys distintos): {rects:?}");
+        // o primeiro badge começa no canto (x=0).
+        assert_eq!(rects[0].x, 0.0);
     }
 }
