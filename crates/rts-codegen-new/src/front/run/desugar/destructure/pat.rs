@@ -19,7 +19,10 @@
 use rts_hir::HirStmt;
 
 use super::Gen;
-use super::builders::{const_bind, default_ternary, elem_at, ident, prop_get, slice_from};
+use super::builders::{
+    const_bind, default_ternary, delete_member_stmt, elem_at, ident, obj_assign_copy, prop_get,
+    slice_from,
+};
 
 /// Expand a binding `Pat` reading off source local `src`. The single recursion
 /// entry used for both top-level and NESTED patterns: an array/object element
@@ -120,14 +123,27 @@ pub(super) fn expand_object(
     g: &mut Gen,
 ) -> Option<Vec<HirStmt>> {
     let mut out = Vec::new();
+    // Static keys named explicitly — subtracted from a trailing `...rest` copy.
+    let mut named_keys: Vec<String> = Vec::new();
     for prop in &pat.props {
         match prop {
-            // `{ ...rest }` — needs a new object of the remaining keys → bail.
-            swc_ecma_ast::ObjectPatProp::Rest(_) => return None,
+            // `{ a, b, ...rest }` — JS-guaranteed LAST. Bind `rest` to a shallow copy
+            // of the source (`Object.assign({}, src)`) minus every explicitly-named
+            // key (`delete rest.<key>` each). A non-ident rest target bails (JS forbids
+            // it anyway). A computed/nested key earlier would have bailed at its own
+            // arm (so `named_keys` covers every property already pulled out).
+            swc_ecma_ast::ObjectPatProp::Rest(rest) => {
+                let name = leaf_name(&rest.arg)?;
+                out.push(const_bind(&name, obj_assign_copy(src)));
+                for key in &named_keys {
+                    out.push(delete_member_stmt(&name, key));
+                }
+            }
             // `{ key: value_pat }` — including `{ a: b }` rename. The VALUE pat may be
             // a plain ident, `ident = default`, or a nested pattern (temp + recurse).
             swc_ecma_ast::ObjectPatProp::KeyValue(kv) => {
                 let key = static_key(&kv.key)?;
+                named_keys.push(key.clone());
                 match kv.value.as_ref() {
                     swc_ecma_ast::Pat::Ident(id) => {
                         let name = id.id.sym.to_string();
@@ -148,6 +164,7 @@ pub(super) fn expand_object(
             // `{ a }` shorthand, or `{ a = 5 }` shorthand-with-default.
             swc_ecma_ast::ObjectPatProp::Assign(a) => {
                 let name = a.key.sym.to_string();
+                named_keys.push(name.clone());
                 let access = prop_get(ident(src), &name);
                 match &a.value {
                     Some(default_expr) => {

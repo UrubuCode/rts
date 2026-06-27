@@ -6,7 +6,7 @@
 //! source local's proven heap shape, exactly as a hand-written `const a = src[0]`
 //! would.
 
-use rts_hir::ir::{HirBinOp, HirExprKind, HirLit};
+use rts_hir::ir::{HirBinOp, HirExprKind, HirLit, HirUnOp};
 use rts_hir::{HirExpr, HirStmt, HirType};
 
 /// `ident` reference.
@@ -95,6 +95,44 @@ pub(super) fn default_ternary(access: HirExpr, default: HirExpr) -> HirExpr {
         },
         HirType::Any,
     )
+}
+
+/// `Object.assign({}, src)` — a fresh SHALLOW COPY of the source object's own
+/// enumerable properties. Used to seed an object-rest `{...rest}` binding: copy
+/// everything, then `delete` the keys the pattern named explicitly. `Object.assign`
+/// is the primordial `Object` static (the engine resolves it via the global-class
+/// path), and the empty object literal `{}` lowers to a fresh dynamic object.
+pub(super) fn obj_assign_copy(src: &str) -> HirExpr {
+    let empty = HirExpr::new(HirExprKind::Object(Vec::new()), HirType::Any);
+    HirExpr::new(
+        HirExprKind::MethodCall {
+            object: Box::new(ident("Object")),
+            method: "assign".to_string(),
+            args: vec![empty, ident(src)],
+        },
+        HirType::Any,
+    )
+}
+
+/// `delete obj.key;` — a statement removing one own property (used to subtract the
+/// explicitly-named keys from an object-rest copy). Lowers to `__rtsadp_obj_delete`,
+/// which reshapes the dynamic object at runtime.
+pub(super) fn delete_member_stmt(obj: &str, key: &str) -> HirStmt {
+    let member = HirExpr::new(
+        HirExprKind::Member {
+            object: Box::new(ident(obj)),
+            prop: key.to_string(),
+        },
+        HirType::Any,
+    );
+    let del = HirExpr::new(
+        HirExprKind::Unary {
+            op: HirUnOp::Delete,
+            operand: Box::new(member),
+        },
+        HirType::Any,
+    );
+    HirStmt::Expr(del)
 }
 
 /// `const name = init;` — a binding statement (the destructuring leaf).
