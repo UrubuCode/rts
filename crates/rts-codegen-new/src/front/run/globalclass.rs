@@ -402,12 +402,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         lhs: &HirExpr,
         class: &str,
     ) -> FrontResult<Val> {
-        // Fast path: the lhs's class is known at compile time → a constant bool.
+        // Fast path: the lhs's STATIC class IS-A `class` → constant `true`. This is
+        // sound — an `lhs_class` instance (exact OR a subclass) is always an instance
+        // of any ancestor `class`. The CONVERSE is NOT sound: when `lhs_class` is NOT
+        // an `class`, the runtime value may still be a SUBCLASS of `lhs_class` that
+        // IS-A `class` (a base-typed param/field: `a: Animal` holding a `Dog`, then
+        // `a instanceof Dog`). So a `false` result must come from the RUNTIME shape
+        // check, never a compile-time constant — otherwise `a instanceof Dog` wrongly
+        // folds to `false`.
         if let Some(lhs_class) = self.static_instance_class(lhs) {
-            let is = self.class_is_a(&lhs_class, class);
-            let word = value::PolyValue::bool(is).raw() as i64;
-            let v = self.builder.ins().iconst(types::I64, word);
-            return Ok(Val::tagged_kind(v, JsKind::Bool));
+            if self.class_is_a(&lhs_class, class) {
+                let word = value::PolyValue::bool(true).raw() as i64;
+                let v = self.builder.ins().iconst(types::I64, word);
+                return Ok(Val::tagged_kind(v, JsKind::Bool));
+            }
         }
         self.dynamic_user_instanceof(module, lhs, class)
     }
