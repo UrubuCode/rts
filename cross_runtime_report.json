@@ -977,10 +977,10 @@
 ,
 {
   "name": "codex_super_getter_setter_receiver",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "x:base-set:base-get\nx:base-set",
   "node": "x:base-set:base-get\nx:base-set",
-  "rts": "x:base-set:base-get\nx:base-set"
+  "rts": "undefined:base-get\nx:base-set"
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_error",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "__RUNTIME_ERROR__"
 }
 ,
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":211,"rts_diverge":73,"bun_node_diverge":17,"errors":308,"rejected":0}}
+],"summary":{"total":609,"pass":210,"rts_diverge":74,"bun_node_diverge":18,"errors":307,"rejected":0}}
