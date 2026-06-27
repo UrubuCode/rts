@@ -429,6 +429,20 @@ pub extern "C" fn __rtsadp_obj_delete(obj_word: u64, key_str_handle: u64) -> i64
 /// Recover a keyed object's ordered keys from its slot-0 global shape-id. Empty
 /// for a non-object / unrecognized header (the safe default — `Object.keys` of a
 /// non-object yields `[]`).
+/// `Object.assign(target, source)` — copy every OWN enumerable key of `source`
+/// onto `target` (JS, last write wins). Adds NEW keys to `target` (shape
+/// transition via `__rtsadp_obj_set`). Returns `target`. A non-object `source`
+/// contributes nothing. The N-source form chains this per source.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_obj_assign(target_word: u64, source_word: u64) -> u64 {
+    for k in object_keys_vec(source_word) {
+        let key_word = abi_adapter::intern_poly(&k).raw();
+        let val = __rtsadp_obj_get(source_word, key_word);
+        __rtsadp_obj_set(target_word, key_word, val);
+    }
+    target_word
+}
+
 fn object_keys_vec(obj_word: u64) -> Vec<String> {
     let obj = PolyValue::from_raw(obj_word);
     if !obj.is_object() || !looks_like_object(obj) {

@@ -306,6 +306,7 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
         // ---- codegen-owned DYNAMIC property access (objops, P5.5) ----
         sym("__rtsadp_obj_get", objops::__rtsadp_obj_get as *const u8),
         sym("__rtsadp_obj_set", objops::__rtsadp_obj_set as *const u8),
+        sym("__rtsadp_obj_assign", objops::__rtsadp_obj_assign as *const u8),
         sym("__rtsadp_obj_has", objops::__rtsadp_obj_has as *const u8),
         sym("__rtsadp_has_own", objops::__rtsadp_has_own as *const u8),
         sym("__rtsadp_define_prop", objops::__rtsadp_define_prop as *const u8),

@@ -283,31 +283,29 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// not present in the target's shape BAILS (a transition-tree add is a later
     /// increment). Returns the target word.
     fn object_assign(&mut self, module: &mut dyn Module, args: &[HirExpr]) -> FrontResult<Val> {
-        if args.len() != 2 {
-            return unsupported!(
-                "Object.assign with {} args (only the 2-arg `assign(target, src)` form is supported)",
-                args.len()
-            );
+        // `Object.assign(target, …sources)` — the DYNAMIC path for every form: lower
+        // the target word, then chain `__rtsadp_obj_assign(t, sᵢ)` per source (runtime
+        // key iteration + `obj_set`, which ADDS new keys via a shape transition, JS
+        // last-write-wins). The target local is DEMOTED to dynamic access — added keys
+        // live in runtime slots its compile-time shape doesn't know. Handles N
+        // sources, key-add, and a non-statically-shaped target/source uniformly (the
+        // old static fast path only did 2-arg, keys-already-present, shaped idents).
+        if args.is_empty() {
+            return unsupported!("Object.assign with no target");
         }
-        let (tname, tkeys) = self.shape_of_arg(&args[0])?;
-        let (sname, skeys) = self.shape_of_arg(&args[1])?;
-        // Every source key must already exist in the target shape (no key add).
-        let target = self.object_word(&tname);
-        let source = self.object_word(&sname);
-        for (si, sk) in skeys.iter().enumerate() {
-            let Some(ti) = tkeys.iter().position(|k| k == sk) else {
-                return unsupported!(
-                    "Object.assign would ADD key `{sk}` not in the target's shape (transition tree is a later increment)"
-                );
-            };
-            let s_idx = self.builder.ins().iconst(types::I64, 1 + si as i64);
-            let word = emit_marshal::emit_vec_get(module, self.builder, source, s_idx);
-            let t_idx = self.builder.ins().iconst(types::I64, 1 + ti as i64);
-            emit_marshal::emit_vec_set(module, self.builder, target, t_idx, word);
+        if let HirExprKind::Ident(name) = &args[0].kind {
+            self.demote_local_to_dynamic(name);
         }
-        // The result IS the (mutated) target word — re-load it so the Val carries it.
-        let result = self.object_word(&tname);
-        Ok(Val::new(result, Repr::Tagged))
+        let tval = self.lower_expr(module, &args[0])?;
+        let mut target = self.box_value(tval);
+        for src in &args[1..] {
+            let sval = self.lower_expr(module, src)?;
+            let source = self.box_value(sval);
+            target = self
+                .call_runtime(module, "__rtsadp_obj_assign", &[target, source])?
+                .expect("__rtsadp_obj_assign returns the target word");
+        }
+        Ok(Val::tagged_kind(target, JsKind::Object))
     }
 
     /// `Object.freeze(obj)` / `seal` / `preventExtensions` — a SEMANTIC no-op in
@@ -426,19 +424,4 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
     }
 
-    /// The `(local_name, shape_keys)` of an object-shaped identifier argument, or a
-    /// bail (shared by `assign`'s two operands).
-    fn shape_of_arg(&self, arg: &HirExpr) -> FrontResult<(String, Vec<String>)> {
-        let HirExprKind::Ident(name) = &arg.kind else {
-            return unsupported!("Object.assign operand is not a shaped-object identifier");
-        };
-        match self.local_shapes.get(name) {
-            Some(HeapShape::Object(shape_id)) => {
-                Ok((name.clone(), self.shapes.get(*shape_id).keys.clone()))
-            }
-            _ => {
-                unsupported!("Object.assign operand `{name}` has no statically-proven object shape")
-            }
-        }
-    }
 }
