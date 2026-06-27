@@ -84,7 +84,6 @@ pub(super) static REGISTER: &[Register] = &[
     Register { label: "net", run: ns::net::register, why: "rts:net" },
     Register { label: "json", run: ns::json::register, why: "rts:json namespace" },
     Register { label: "promise", run: ns::promise::register, why: "rts:promise" },
-    Register { label: "parallel", run: ns::parallel::register, why: "rts:parallel" },
     Register { label: "thread", run: ns::thread::register, why: "rts:thread" },
     Register { label: "ffi", run: ns::ffi::register, why: "rts:ffi" },
     Register { label: "events", run: ns::events::register, why: "rts:events EventEmitter" },

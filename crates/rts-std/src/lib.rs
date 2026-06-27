@@ -26,7 +26,6 @@ pub mod collector;
 pub mod time;
 pub mod crypto;
 pub mod promise;
-pub mod parallel;
 pub mod event_loop;
 pub mod gc_surface;
 pub mod globals;
