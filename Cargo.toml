@@ -14,6 +14,7 @@ members = [
     "crates/rts-runtime",
     "crates/rts-napi",
     "crates/rts-dom",
+    "crates/rts-input",
     "crates/rts-render",
     "crates/rts-egui",
     "crates/rts-adapters",

@@ -1,0 +1,18 @@
+[package]
+name = "rts-input"
+version = "0.1.0"
+edition = "2024"
+
+# Interface de INPUT abstrata — o contrato que isola o DOM/layout/app de QUALQUER
+# fonte de eventos (mouse/teclado/scroll/modificadores/texto). Define o trait
+# `InputSource` (tipos NEUTROS: f32 coords, i64 códigos KEY_*), o registro do
+# "backend de input ativo", e o namespace ABI `input` (mouse*/key/wheel/mod*/
+# textInput/setCursor) cujas fns despacham para o backend ativo. O `rts-egui` (e
+# qualquer outro capturador) IMPLEMENTA o trait e se registra. O TS fala
+# `input.*`, nunca `egui.*`. Irmão de `rts-render` (ambos só dependem de
+# rts-engine) — grafo acíclico: rts-engine <- {rts-render, rts-input} <- rts-egui.
+#
+# Depende SÓ de rts-engine (p/ a ABI/Engine). Sem egui — é o ponto neutro.
+
+[dependencies]
+rts-engine = { path = "../rts-engine" }

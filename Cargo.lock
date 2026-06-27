@@ -3771,6 +3771,7 @@ dependencies = [
  "raw-window-handle",
  "rts-dom",
  "rts-engine",
+ "rts-input",
  "rts-render",
  "wgpu",
  "winit",
@@ -3794,6 +3795,13 @@ version = "0.1.0"
 dependencies = [
  "rts-ast",
  "swc_ecma_ast",
+]
+
+[[package]]
+name = "rts-input"
+version = "0.1.0"
+dependencies = [
+ "rts-engine",
 ]
 
 [[package]]
@@ -3868,6 +3876,7 @@ dependencies = [
  "rts-dom",
  "rts-egui",
  "rts-engine",
+ "rts-input",
  "rts-napi",
  "rts-primitives",
  "rts-render",

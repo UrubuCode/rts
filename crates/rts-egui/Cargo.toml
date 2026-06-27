@@ -19,6 +19,10 @@ rts-dom = { path = "../rts-dom" }
 # Interface de render abstrata: o egui IMPLEMENTA o trait `Renderer` e se registra
 # como backend ativo. O DOM/layout fala `render.*`, nunca `egui.*`.
 rts-render = { path = "../rts-render" }
+# Interface de input abstrata (crate irmão de render): o egui também IMPLEMENTA o
+# trait `InputSource` (captura mouse/teclado/etc via winit) e se registra. O app
+# fala `input.*`, nunca `egui.*`.
+rts-input = { path = "../rts-input" }
 
 # egui/egui-winit SEM default-features: cortamos accesskit (a11y, traz toda uma
 # árvore), serde, etc. — não usamos no PoC.

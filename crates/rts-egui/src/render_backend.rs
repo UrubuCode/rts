@@ -8,7 +8,8 @@
 //! `end_frame` mapeiam para o ciclo de frame do egui. `measure_text` mede com a
 //! fonte real (aprox. no PoC — ver canvas).
 
-use rts_render::{InputSource, Renderer};
+use rts_input::InputSource;
+use rts_render::Renderer;
 
 use crate::ctx::{self, WidgetCmd};
 
@@ -229,20 +230,20 @@ impl InputSource for EguiRenderer {
         let Some(k) = neutral_to_egui_key(key) else { return false };
         ctx::with_ctx(target, |c| {
             c.egui_ctx.input(|i| match phase {
-                rts_render::KEY_PHASE_DOWN => i.key_down(k),
-                rts_render::KEY_PHASE_PRESSED => i.key_pressed(k),
-                rts_render::KEY_PHASE_RELEASED => i.key_released(k),
+                rts_input::KEY_PHASE_DOWN => i.key_down(k),
+                rts_input::KEY_PHASE_PRESSED => i.key_pressed(k),
+                rts_input::KEY_PHASE_RELEASED => i.key_released(k),
                 _ => false, // fase desconhecida
             })
         })
         .unwrap_or(false)
     }
 
-    fn modifiers(&self, target: u64) -> rts_render::Modifiers {
+    fn modifiers(&self, target: u64) -> rts_input::Modifiers {
         ctx::with_ctx(target, |c| {
             c.egui_ctx.input(|i| {
                 let m = i.modifiers;
-                rts_render::Modifiers { ctrl: m.ctrl, shift: m.shift, alt: m.alt, cmd: m.command }
+                rts_input::Modifiers { ctrl: m.ctrl, shift: m.shift, alt: m.alt, cmd: m.command }
             })
         })
         .unwrap_or_default()
@@ -273,10 +274,10 @@ fn egui_button(button: i64) -> egui::PointerButton {
     }
 }
 
-/// Registra o egui como o backend de render E input ativo do `rts-render`.
+/// Registra o egui como o backend de RENDER (`rts-render`) E de INPUT (`rts-input`).
 ///
-/// `set_backend`/`set_input` escrevem num `thread_local!` (`rts_render::ACTIVE`/
-/// `INPUT`) — a UI vive na thread do TS. No JIT roda na MESMA thread que
+/// `set_backend`/`set_input` escrevem num `thread_local!` (`rts_render::ACTIVE` e
+/// `rts_input::INPUT`) — a UI vive na thread do TS. No JIT roda na MESMA thread que
 /// `__rtsn_main` (disparado pelo `register` do namespace via `run_source`), então
 /// o backend fica visível ao `render.*`. No AOT o `register` do namespace NÃO roda
 /// no binário (o Registry só existe em tempo de compilação) — por isso o bootstrap
@@ -285,5 +286,5 @@ fn egui_button(button: i64) -> egui::PointerButton {
 /// novo é inofensivo (sobrescreve o `Box` do backend, idempotente).
 pub fn register_backend() {
     rts_render::set_backend(Box::new(EguiRenderer));
-    rts_render::set_input(Box::new(EguiRenderer));
+    rts_input::set_input(Box::new(EguiRenderer));
 }

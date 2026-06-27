@@ -36,6 +36,9 @@ rts-dom = { path = "../rts-dom" }
 # rts-render: interface de render abstrata (namespace `render`, trait Renderer).
 # O DOM/layout fala render.*; o egui é o backend ativo.
 rts-render = { path = "../rts-render" }
+# rts-input: interface de input abstrata (namespace `input`, trait InputSource).
+# Crate irmão de render; o app fala input.*; o egui captura. (Futuro: gamepad/touch.)
+rts-input = { path = "../rts-input" }
 # rts-egui: liga só `wgpu-backend` (sem o gpu-dx12 do default, que é Windows-only e
 # NÃO compila no Linux). O backend de GPU concreto entra por SO nos [target.*]
 # abaixo: dx12=Windows, vulkan=Linux, metal=macOS. (Linux também precisa do winit

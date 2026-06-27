@@ -20,6 +20,10 @@ pub use rts_dom as dom;
 /// chama `render.*` (rect/text/measureText/...); o backend ativo (egui) pinta. O
 /// engine nunca nomeia o backend concreto. Ver docs/specs/dom-render-input-interfaces.md.
 pub use rts_render as render;
+/// `input` — interface de input ABSTRATA na crate `rts-input` (irmã de render).
+/// O app/DOM chama `input.*` (mouse/key/wheel/...); o backend ativo (egui) captura.
+/// Crate próprio p/ crescer (gamepad/touch). Ver docs/specs/dom-render-input-interfaces.md.
+pub use rts_input as input;
 /// `egui` — GUI imediata (egui) na crate separada `rts-egui` (como `napi`).
 /// Resolve via Registry: `ns::egui::register`. `import { Window } from "rts:egui"`.
 /// Ver docs/specs/egui-ui-crate-design.md.
