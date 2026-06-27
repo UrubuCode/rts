@@ -13,5 +13,5 @@ const html = fs.read_text("examples/pagina.html");
 const d = dom.parseHtml(html);
 // largura de viewport igual à da janela do navegador para a comparação bater.
 // (passe o mesmo "viewport" que o extrair-render.js reportou.)
-dom.dumpLayout(d, 1889);
+dom.dumpLayout(d, 984);
 dom.free(d);

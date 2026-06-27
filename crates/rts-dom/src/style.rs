@@ -173,6 +173,12 @@ pub struct ComputedStyle {
     pub padding: Option<f32>,
     /// Espaço EXTERNO ao redor da caixa (todos os lados).
     pub margin: Option<f32>,
+    /// Margem VERTICAL apenas (top/bottom), sem afetar o eixo horizontal. É o que
+    /// a UA-stylesheet usa para separar blocos (`h1`/`p` têm `margin: Npx 0` — só
+    /// vertical, o left/right é 0). Distinto de `margin` (4 lados, do autor via
+    /// `margin: Npx`). No layout, o espaçamento vertical soma os dois; o horizontal
+    /// usa só `margin`. `None` = não especificado.
+    pub margin_v: Option<f32>,
     /// Espessura da borda em pontos (0 = sem borda).
     pub border_width: Option<f32>,
     /// Cor da borda, `0xRRGGBBAA`.
@@ -234,6 +240,9 @@ impl ComputedStyle {
         if other.margin.is_some() {
             self.margin = other.margin;
         }
+        if other.margin_v.is_some() {
+            self.margin_v = other.margin_v;
+        }
         if other.border_width.is_some() {
             self.border_width = other.border_width;
         }
@@ -277,6 +286,7 @@ impl ComputedStyle {
             SLOT_FONT_SIZE => dim(self.font_size),
             SLOT_PADDING => dim(self.padding),
             SLOT_MARGIN => dim(self.margin),
+            SLOT_MARGIN_V => dim(self.margin_v),
             SLOT_BORDER_WIDTH => dim(self.border_width),
             SLOT_BORDER_COLOR => self.border_color.map(|c| c as i64).unwrap_or(-1),
             SLOT_CORNER_RADIUS => dim(self.corner_radius),
@@ -302,6 +312,9 @@ pub const SLOT_CORNER_RADIUS: i64 = 7;
 /// `width`: o `val` é a `Dimension` codificada (Px = pontos diretos; Percent =
 /// `1_000_000 + p`; Auto/não-especificado = `-1`). Ver [`Dimension::from_abi`].
 pub const SLOT_WIDTH: i64 = 8;
+/// `margin_v`: margem VERTICAL apenas (top/bottom), em pontos. A UA-stylesheet usa
+/// para separar blocos sem deslocar no eixo horizontal.
+pub const SLOT_MARGIN_V: i64 = 9;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -354,6 +367,7 @@ impl ComputedStyle {
             }
             SLOT_PADDING => self.padding = dim(val),
             SLOT_MARGIN => self.margin = dim(val),
+            SLOT_MARGIN_V => self.margin_v = dim(val),
             SLOT_BORDER_WIDTH => self.border_width = dim(val),
             SLOT_BORDER_COLOR => self.border_color = Some(val as u32),
             SLOT_CORNER_RADIUS => self.corner_radius = dim(val),

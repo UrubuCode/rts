@@ -180,7 +180,12 @@ fn layout_block(
     };
 
     // ── Box model (content-box): resolve as bordas/espaços absolutos ─────────────
-    let margin = css.margin.unwrap_or(0.0);
+    // Margin separado por eixo (fiel ao CSS): `margin` (autor, 4 lados) conta nos
+    // DOIS eixos; `margin_v` (UA-stylesheet, só vertical) conta SÓ no vertical —
+    // assim um `<h1>` com margem default não desloca no eixo horizontal (no Chrome
+    // `h1` é `margin: Npx 0`). `margin_h` desloca o x; `margin_y` empilha no y.
+    let margin_h = css.margin.unwrap_or(0.0);
+    let margin_y = margin_h + css.margin_v.unwrap_or(0.0);
     let padding = css.padding.unwrap_or(0.0);
     let border = css.border_width.unwrap_or(0.0);
 
@@ -194,7 +199,7 @@ fn layout_block(
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
-    let frame = 2.0 * (margin + border + padding);
+    let frame = 2.0 * (margin_h + border + padding);
     let font_for_content = css.font_size.unwrap_or(DEFAULT_FONT_SIZE);
     let border_box = css.border_box.unwrap_or(false);
     let content_w = match css.width.and_then(|d| d.resolve(&resolve)) {
@@ -212,8 +217,8 @@ fn layout_block(
     };
 
     // Posição do content-box (canto sup-esq), deslocado por margin+border+padding.
-    let content_x = x + margin + border + padding;
-    let content_y = y + margin + border + padding;
+    let content_x = x + margin_h + border + padding;
+    let content_y = y + margin_y + border + padding;
 
     // Z-ORDER: o fundo/borda da caixa precisam ficar ATRÁS dos filhos. Como a
     // display list é pintada em ordem, reservamos AGORA o índice onde a caixa será
@@ -245,8 +250,8 @@ fn layout_block(
     // externo). `insert` no `box_index` põe o fundo antes dos itens dos filhos.
     if css.has_box() {
         let box_rect = Rect::new(
-            x + margin,
-            y + margin,
+            x + margin_h,
+            y + margin_y,
             content_w + 2.0 * (border + padding),
             content_h + 2.0 * (border + padding),
         );
@@ -264,10 +269,10 @@ fn layout_block(
         }
     }
 
-    // Tamanho EXTERNO da caixa (outer = content + padding + border + margin), nos
-    // dois eixos — o pai usa a altura (modo vertical) ou a largura (horizontal).
-    let outer_w = content_w + 2.0 * (border + padding + margin);
-    let outer_h = content_h + 2.0 * (border + padding + margin);
+    // Tamanho EXTERNO da caixa (outer = content + padding + border + margin) — por
+    // eixo: largura usa margin_h, altura usa margin_y (que inclui o margin_v da UA).
+    let outer_w = content_w + 2.0 * (border + padding + margin_h);
+    let outer_h = content_h + 2.0 * (border + padding + margin_y);
     (outer_w, outer_h)
 }
 
@@ -365,6 +370,13 @@ fn layout_children_vertical(
     list: &mut DisplayList,
 ) -> f32 {
     let mut child_y = content_y;
+    // MARGIN-COLLAPSE (versão simples, fiel ao caso comum): margins verticais de
+    // blocos ADJACENTES colapsam para o MAIOR, não somam (regra do CSS). Como o
+    // `outer_h` de cada bloco já inclui seu margin nos dois lados, ao empilhar dois
+    // blocos a soma conta `margin_bottom_anterior + margin_top_atual`; subtraímos o
+    // overlap = min(dos dois) para virar max(dos dois). `prev_margin` rastreia o
+    // margin do último bloco posto.
+    let mut prev_margin = 0.0f32;
     for &child in &dom.node(id).children {
         match &dom.node(child).kind {
             // Metadata não-renderável (`<head>`/`<title>`/`<style>`/`<script>`):
@@ -372,11 +384,19 @@ fn layout_children_vertical(
             // vazam pra tela). Checado ANTES do caminho inline.
             NodeKind::Element { tag } if is_non_rendered_tag(tag) => {}
             NodeKind::Element { .. } if is_block_level(dom, child) => {
+                // margin VERTICAL do filho (margin 4-lados + margin_v da UA).
+                let m = dom.computed_style_idx(child)
+                    .map(|c| c.margin.unwrap_or(0.0) + c.margin_v.unwrap_or(0.0))
+                    .unwrap_or(0.0);
+                // Colapsa com o bloco anterior: recua o overlap antes de posicionar.
+                child_y -= prev_margin.min(m);
                 let (_, h) = layout_block(dom, child, content_x, child_y, content_w, false, ctx, list);
                 child_y += h;
+                prev_margin = m;
             }
             _ => {
                 child_y = layout_inline_line(dom, child, content_x, child_y, css, font_size, ctx, list);
+                prev_margin = 0.0; // texto inline quebra a sequência de collapse.
             }
         }
     }
@@ -799,6 +819,28 @@ mod tests {
         // display:none → o texto "invisível" NÃO está na lista.
         let has_invisivel = list.items.iter().any(|it| matches!(it, DisplayItem::Text { text, .. } if text.contains("invisível")));
         assert!(!has_invisivel, "display:none não renderiza o conteúdo");
+    }
+
+    #[test]
+    fn margin_vertical_empilha_sem_deslocar_horizontal() {
+        // margin_v (UA-stylesheet) separa blocos no VERTICAL mas NÃO empurra no
+        // eixo horizontal (como `margin: Npx 0` do navegador para h1/p). Dois
+        // parágrafos com margin_v: o 2º começa mais abaixo, mas ambos em x=0.
+        crate::block::define("p", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        crate::style::define_style("p", crate::style::SLOT_MARGIN_V, 16);
+        let dom = parse_html_to_dom("<p>um</p><p>dois</p>");
+        let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let texts: Vec<(f32, f32)> = list.items.iter().filter_map(|it| match it {
+            DisplayItem::Text { x, y, .. } => Some((*x, *y)),
+            _ => None,
+        }).collect();
+        assert_eq!(texts.len(), 2);
+        // X: ambos em 0 (margin VERTICAL não desloca horizontal).
+        assert_eq!(texts[0].0, 0.0, "1º texto em x=0: {texts:?}");
+        assert_eq!(texts[1].0, 0.0, "2º texto em x=0 (margin não empurrou): {texts:?}");
+        // Y: o 2º bem abaixo (margin colapsado entre eles + altura da linha).
+        assert!(texts[1].1 > texts[0].1 + 20.0, "2º empilhado abaixo: {texts:?}");
     }
 
     #[test]
