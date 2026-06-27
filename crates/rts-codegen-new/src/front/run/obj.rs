@@ -205,6 +205,25 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         object: &HirExpr,
         prop: &str,
     ) -> FrontResult<Val> {
+        // ---- `<instance>.constructor.name` → the class NAME (a string literal),
+        // when the receiver's class is statically known. JS exposes `inst.constructor`
+        // as the class function and `.name` as its declared name. Matched as the CHAIN
+        // (`prop == "name"` over a `.constructor` member) so no `.constructor` function
+        // value needs reifying. A receiver whose class is NOT statically known (a
+        // `getPrototypeOf(...)` result, a param) falls through. ----
+        if prop == "name" {
+            if let HirExprKind::Member { object: inner, prop: cprop } = &object.kind {
+                if cprop == "constructor" {
+                    if let Some(class) = self.static_instance_class(inner) {
+                        let lit = HirExpr::new(
+                            HirExprKind::Lit(rts_hir::ir::HirLit::Str(class)),
+                            rts_hir::HirType::Str,
+                        );
+                        return self.lower_expr(module, &lit);
+                    }
+                }
+            }
+        }
         // ---- `globalThis.prop` read: the singleton global object is a keyed
         // OBJECT of runtime-only shape, so resolve the property dynamically (a
         // missing key reads `undefined`, JS-correct). ----
