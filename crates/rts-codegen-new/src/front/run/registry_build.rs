@@ -197,9 +197,6 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
     // DOM facade — `Document`/`Element` classes (browser-named API) over the `rts:dom`
     // primitives. AFTER the namespaces register (the `dom.*` it calls must exist).
     PreludeTs { label: "DOM facade", source: ns::dom::DOM_TS, why: "document/Element over rts:dom" },
-    // UA-stylesheet do HTML — defaults de display das tags (div/p block, b/i inline)
-    // como DADOS em TS, não no Rust. AFTER the DOM facade (usa o `dom.*` registrado).
-    PreludeTs { label: "HTML UA-stylesheet", source: ns::dom::UA_TS, why: "tag display defaults (div/p block, …) — engine names no HTML tag" },
     // Canvas facade — ergonomic immediate-mode UI (Canvas: rect/text/button) over
     // the abstract render.*/input.* (NO DOM). AFTER render/input register.
     PreludeTs { label: "Canvas facade", source: ns::render::CANVAS_TS, why: "rts:canvas immediate UI over render.*" },

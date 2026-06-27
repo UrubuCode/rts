@@ -95,3 +95,96 @@ pub fn lookup(tag: &str) -> Option<BlockDef> {
 pub fn lookup_inline(tag: &str) -> i64 {
     INLINES.with(|m| m.borrow().get(tag).copied().unwrap_or(0))
 }
+
+// ── UA-stylesheet do HTML (defaults de cada tag) — DADOS, não lógica ─────────────
+// O equivalente à folha do agente-usuário do navegador: quais tags são block,
+// quais inline-ênfase, tamanhos de heading, margem vertical default. É uma TABELA
+// (não um `match` espalhado), instalada via `install_ua_defaults` quando o primeiro
+// DOM é criado (`parse_html_to_dom`) — então NÃO roda em programas sem DOM (era um
+// prelude `.ts` antes, mas isso quebrava todo programa: o `ua.ts` chamava `dom.*`
+// no top-level e `dom` é unbound sem `import "rts:dom"`). O motor de LAYOUT não
+// nomeia nenhuma tag; só lê o que esta tabela registra.
+
+/// Uma entrada da UA-stylesheet: tudo de uma tag junto (lista de objetos).
+struct UaEntry {
+    tag: &'static str,
+    /// display: 0=block(vertical) 1=wrap(inline-flow) 2=flex. (inline-ênfase usa `inline`.)
+    display: i64,
+    /// margem vertical default (top/bottom), em pontos (0 = nenhuma).
+    margin_v: f32,
+    /// tamanho de fonte para heading (0 = não-heading / herda).
+    font_size: f32,
+    /// `true`: cabeçalho (texto forte; `font_size` é o tamanho).
+    heading: bool,
+    /// flags inline (FLAG_BOLD/ITALIC/MONO); != 0 ⇒ a tag é inline-ênfase (defineInline).
+    inline: i64,
+}
+
+/// A tabela da UA-stylesheet — uma linha por tag, todos os defaults juntos.
+const UA_TABLE: &[UaEntry] = &[
+    // blocos de fluxo (sem margem por padrão)
+    UaEntry { tag: "html", display: 0, margin_v: 0.0, font_size: 0.0, heading: false, inline: 0 },
+    UaEntry { tag: "body", display: 0, margin_v: 0.0, font_size: 0.0, heading: false, inline: 0 },
+    UaEntry { tag: "div", display: 0, margin_v: 0.0, font_size: 0.0, heading: false, inline: 0 },
+    UaEntry { tag: "section", display: 0, margin_v: 0.0, font_size: 0.0, heading: false, inline: 0 },
+    UaEntry { tag: "header", display: 0, margin_v: 0.0, font_size: 0.0, heading: false, inline: 0 },
+    UaEntry { tag: "footer", display: 0, margin_v: 0.0, font_size: 0.0, heading: false, inline: 0 },
+    UaEntry { tag: "main", display: 0, margin_v: 0.0, font_size: 0.0, heading: false, inline: 0 },
+    UaEntry { tag: "article", display: 0, margin_v: 0.0, font_size: 0.0, heading: false, inline: 0 },
+    UaEntry { tag: "aside", display: 0, margin_v: 0.0, font_size: 0.0, heading: false, inline: 0 },
+    UaEntry { tag: "nav", display: 0, margin_v: 0.0, font_size: 0.0, heading: false, inline: 0 },
+    UaEntry { tag: "figcaption", display: 0, margin_v: 0.0, font_size: 0.0, heading: false, inline: 0 },
+    UaEntry { tag: "address", display: 0, margin_v: 0.0, font_size: 0.0, heading: false, inline: 0 },
+    UaEntry { tag: "li", display: 0, margin_v: 0.0, font_size: 0.0, heading: false, inline: 0 },
+    UaEntry { tag: "form", display: 0, margin_v: 0.0, font_size: 0.0, heading: false, inline: 0 },
+    UaEntry { tag: "table", display: 0, margin_v: 0.0, font_size: 0.0, heading: false, inline: 0 },
+    // blocos com margem vertical
+    UaEntry { tag: "p", display: 0, margin_v: 16.0, font_size: 0.0, heading: false, inline: 0 },
+    UaEntry { tag: "ul", display: 0, margin_v: 16.0, font_size: 0.0, heading: false, inline: 0 },
+    UaEntry { tag: "ol", display: 0, margin_v: 16.0, font_size: 0.0, heading: false, inline: 0 },
+    UaEntry { tag: "blockquote", display: 0, margin_v: 16.0, font_size: 0.0, heading: false, inline: 0 },
+    UaEntry { tag: "pre", display: 0, margin_v: 13.0, font_size: 0.0, heading: false, inline: FLAG_MONO },
+    UaEntry { tag: "figure", display: 0, margin_v: 16.0, font_size: 0.0, heading: false, inline: 0 },
+    UaEntry { tag: "hr", display: 0, margin_v: 8.0, font_size: 0.0, heading: false, inline: 0 },
+    // cabeçalhos (block, forte, tamanho + margem)
+    UaEntry { tag: "h1", display: 0, margin_v: 21.0, font_size: 32.0, heading: true, inline: 0 },
+    UaEntry { tag: "h2", display: 0, margin_v: 16.0, font_size: 24.0, heading: true, inline: 0 },
+    UaEntry { tag: "h3", display: 0, margin_v: 16.0, font_size: 19.0, heading: true, inline: 0 },
+    UaEntry { tag: "h4", display: 0, margin_v: 16.0, font_size: 16.0, heading: true, inline: 0 },
+    UaEntry { tag: "h5", display: 0, margin_v: 16.0, font_size: 13.0, heading: true, inline: 0 },
+    UaEntry { tag: "h6", display: 0, margin_v: 16.0, font_size: 11.0, heading: true, inline: 0 },
+    // inlines de ênfase (transparentes; só ligam bits de estilo)
+    UaEntry { tag: "b", display: 0, margin_v: 0.0, font_size: 0.0, heading: false, inline: FLAG_BOLD },
+    UaEntry { tag: "strong", display: 0, margin_v: 0.0, font_size: 0.0, heading: false, inline: FLAG_BOLD },
+    UaEntry { tag: "i", display: 0, margin_v: 0.0, font_size: 0.0, heading: false, inline: FLAG_ITALIC },
+    UaEntry { tag: "em", display: 0, margin_v: 0.0, font_size: 0.0, heading: false, inline: FLAG_ITALIC },
+    UaEntry { tag: "code", display: 0, margin_v: 0.0, font_size: 0.0, heading: false, inline: FLAG_MONO },
+    UaEntry { tag: "kbd", display: 0, margin_v: 0.0, font_size: 0.0, heading: false, inline: FLAG_MONO },
+    UaEntry { tag: "samp", display: 0, margin_v: 0.0, font_size: 0.0, heading: false, inline: FLAG_MONO },
+];
+
+thread_local! {
+    /// Flag de "UA já instalada nesta thread" (idempotência sem custo por-parse).
+    static UA_INSTALLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Instala a UA-stylesheet (uma vez por thread) — `defineBlock`/`defineInline` +
+/// margem vertical default de cada tag da [`UA_TABLE`]. Chamado por
+/// `parse_html_to_dom` na criação do primeiro DOM, então NÃO roda em programas que
+/// não usam o DOM. Idempotente. (margem via `style::define_style` no slot vertical.)
+pub fn install_ua_defaults() {
+    if UA_INSTALLED.with(|f| f.replace(true)) {
+        return; // já instalada nesta thread.
+    }
+    for e in UA_TABLE {
+        if e.inline != 0 {
+            define_inline(e.tag, e.inline);
+        } else {
+            let flags = if e.heading { FLAG_HEADING } else { 0 };
+            define(e.tag, BlockDef { display: e.display, indent: e.font_size, prefix: PREFIX_NONE, flags });
+        }
+        if e.margin_v != 0.0 {
+            crate::style::define_style(e.tag, crate::style::SLOT_MARGIN_V, e.margin_v as i64);
+        }
+    }
+}

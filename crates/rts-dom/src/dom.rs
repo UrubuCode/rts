@@ -888,6 +888,11 @@ fn parse_attrs(raw: &str) -> Vec<Attr> {
 ///   descartado, como no caminho immediate-mode, para a árvore não encher de
 ///   nós de espaço irrelevantes).
 pub fn parse_html_to_dom(html: &str) -> Dom {
+    // Instala a UA-stylesheet (defaults de display/margem das tags HTML) na primeira
+    // vez — em Rust, como DADOS (tabela em block.rs), rodando só quando há DOM. NÃO é
+    // mais um prelude `.ts` (isso quebrava todo programa: o `ua.ts` chamava `dom.*`
+    // no top-level e `dom` é unbound sem `import "rts:dom"`). Idempotente.
+    crate::block::install_ua_defaults();
     let mut dom = Dom::new();
     // Pilha de (índice cru aberto, nome da tag). Começa na raiz Document.
     let mut open: Vec<(NodeIdx, String)> = vec![(dom.root, String::new())];

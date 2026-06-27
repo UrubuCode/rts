@@ -49,9 +49,3 @@ pub use abi::register;
 /// API/nomes do browser) sobre os primitivos do namespace `rts:dom`. Incluído via
 /// `Engine::include` na tabela `PRELUDE_TS` — DEPOIS do registro do ns `dom`.
 pub const DOM_TS: &str = include_str!("dom.ts");
-
-/// UA-stylesheet do HTML (os defaults de `display` das tags: `div`/`p`/… são
-/// block, `b`/`i`/`code` são inline-ênfase). DADOS em TS, não no Rust — o motor de
-/// layout não nomeia nenhuma tag HTML, só lê o que esta folha registra via
-/// `defineBlock`/`defineInline`. Incluído como PRELUDE logo após o ns `dom`.
-pub const UA_TS: &str = include_str!("ua.ts");
