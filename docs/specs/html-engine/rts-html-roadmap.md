@@ -180,14 +180,40 @@ rede de segurança (se F4 atrasar, nada regride).
   atributo `style` ignorado; `indent` carregando tamanho de heading.
 - **Esforço:** baixo-médio (~1.5 sem). **Gate/risco:** nenhum pixel absoluto.
 
-### F2 — Box model de bloco (margin / padding / border / bg / width%) via `egui::Frame`.
+### F2 — Box model de bloco (margin / padding / border / bg / width%) via `egui::Frame`. — ✅ FEITO (2026-06-27)
+
+> **STATUS — ✅ ENTREGUE (branch feat/dom-f2-box-model, 2 commits).** A maior parte
+> do box model (`egui::Frame` com padding→inner_margin/margin→outer_margin/bg→fill/
+> border→stroke/raio→corner_radius) já vinha adiantada do F0/F1; F2 completou:
+> (a) **`Dimension`** completo no `rts-dom/style.rs` (egui-free): `{Auto, Px,
+> Percent, Em, Rem, Vw, Vh}` — TODAS as unidades de comprimento usuais, não só `%`.
+> Cada uma resolve TARDE no render (`resolve(ctx)` contra seu eixo: %=content-box
+> do PAI via `ui.available_width`, em=font do nó, rem=font raiz, vw/vh=viewport).
+> Codificação ABI por FAIXAS (`DIM_RANGE=1bi`, valor×1000, reversível). `parse_inline`
+> lê px/%/em/rem/vw/vh/auto + padding/margin/border-*/radius. Render aplica via
+> `set_max_width`. `SLOT_WIDTH=8`. (b) **`setStyleBatch`** (invariante 6):
+> `setStyle(dom,node,slot,val)` + `setStyleBatch(dom,buffer,count)` (triplas
+> (nodeId,slot,val) i64-LE de um `Entry::Buffer`, lido via `rts_engine::heap::handles`
+> — sem dep de rts-shared). Override por-nó = 3ª fonte de estilo (tag<inline<por-nó),
+> mesclada em `computed_style`+render (caixa+texto). 51 testes verdes. Exemplos
+> claude-egui-box-model.ts (unidades) + claude-dom-setstyle.ts (override/batch,
+> headless validado). **Bônus fora do plano (conformidade DOM/MDN):** navegação
+> (parentNode/first|lastChild/next|previousSibling), childNodes, createTextNode,
+> insertBefore, nodeType/nodeName, NodeKind::Comment + parser preserva comentários,
+> classList — aproxima o rts-dom da definição da Mozilla (era "inspirado no DOM";
+> agora fiel ao paradigma com bem mais cobertura). **Limite do motor confirmado:**
+> `el.setStyle()` sobre `array[i]` de classe baila (receiver não despachável); os
+> exemplos usam os primitivos `dom.*` diretos no laço.
+> **Pendente p/ um F2.1 (não urgente):** validação VISUAL na tela (screenshots
+> pegavam a janela errada; testes unit+headless cobrem a lógica); parser de
+> comentário preservado mas createComment ainda não exposto na ABI.
+
+Texto original do plano (referência):
 - **Usável:** cards/caixas com fundo, borda, raio e espaçamento; `width%`
   resolvido **tarde** contra o content-box do pai (evita Risco 5 do north-star).
 - **Entrega:** `ComputedStyle` ganha `Dimension`; `egui::Frame{inner_margin,
   outer_margin, fill, stroke, corner_radius}` + `set_max_width`. **`setStyleBatch`
   obrigatório** desde aqui (invariante 6).
-- **Reaproveita:** delega layout ao egui; estende `ComputedStyle`. **Abandona:**
-  nada de B. **Esforço:** médio (~2-3 sem).
 - **Gate/risco:** declarar `egui::Frame ≠ box model` (sem margin-collapse, sem
   box-sizing) como limite de produto, não bug.
 
