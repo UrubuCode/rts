@@ -240,6 +240,45 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
                 return Ok(Val::tagged_kind(v, JsKind::Str));
             }
+            // `typeof <symbol>` is `"symbol"`. A symbol instance is carried as a
+            // registry OBJECT word (no distinct PolyValue tag yet, #216), so the
+            // runtime `__rtsadp_typeof` would wrongly say `"object"`. Fold it here
+            // statically: the operand is a direct `Symbol(...)` call, or an ident
+            // recorded as a `Symbol` instance. (Symbol is PRIMORDIAL — the engine
+            // may name it.)
+            let is_symbol = match &operand.kind {
+                HirExprKind::Call { callee, .. } => {
+                    matches!(&callee.kind, HirExprKind::Ident(n) if n == "Symbol")
+                        && self.local("Symbol").is_none()
+                }
+                HirExprKind::Ident(name) => {
+                    self.global_instance_classes.get(name).map(String::as_str) == Some("Symbol")
+                }
+                _ => false,
+            };
+            if is_symbol {
+                let pv = abi_adapter::intern_poly("symbol");
+                let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
+                return Ok(Val::tagged_kind(v, JsKind::Str));
+            }
+            // `typeof <truly-undeclared ident>` is the ONE JS construct that may
+            // name an unbound identifier without a ReferenceError — it yields
+            // `"undefined"`. A bare ident that resolves to NOTHING (not a local/
+            // param, gcell, global constant, user fn, user class, or `globalThis`)
+            // would otherwise bail "unbound identifier"; fold it to "undefined".
+            if let HirExprKind::Ident(name) = &operand.kind {
+                let bound = self.locals.contains_key(name)
+                    || self.gcell_id(name).is_some()
+                    || global_constant(name).is_some()
+                    || self.sigs.contains_key(name)
+                    || self.classes.get(name).is_some()
+                    || name == "globalThis";
+                if !bound {
+                    let pv = abi_adapter::intern_poly("undefined");
+                    let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
+                    return Ok(Val::tagged_kind(v, JsKind::Str));
+                }
+            }
             let val = self.lower_expr(module, operand)?;
             let boxed = self.box_value(val);
             let res = self
