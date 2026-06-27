@@ -977,10 +977,10 @@
 ,
 {
   "name": "codex_super_getter_setter_receiver",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "x:base-set:base-get\nx:base-set",
   "node": "x:base-set:base-get\nx:base-set",
-  "rts": "x:base-set:base-get\nx:base-set"
+  "rts": "undefined:base-get\nx:base-set"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":213,"rts_diverge":81,"bun_node_diverge":17,"errors":298,"rejected":0}}
+],"summary":{"total":609,"pass":212,"rts_diverge":82,"bun_node_diverge":17,"errors":298,"rejected":0}}
