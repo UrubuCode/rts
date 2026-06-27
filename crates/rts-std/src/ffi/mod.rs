@@ -145,7 +145,7 @@ pub fn register(e: &mut Engine) {
             "cstr_from_ptr",
             "__RTS_FN_NS_FFI_CSTR_FROM_PTR",
             Sig::new(vec![AbiType::U64], AbiType::Handle),
-            "cstr_from_ptr(ptr: number): number",
+            "cstr_from_ptr(ptr: number): string",
             "Reads a nul-terminated C string from `ptr` and returns a string handle (UTF-8 lossy).",
             __RTS_FN_NS_FFI_CSTR_FROM_PTR as *const u8,
         ))
@@ -161,7 +161,7 @@ pub fn register(e: &mut Engine) {
             "cstr_to_str",
             "__RTS_FN_NS_FFI_CSTR_TO_STR",
             Sig::new(vec![AbiType::U64], AbiType::Handle),
-            "cstr_to_str(ptr: number): number",
+            "cstr_to_str(ptr: number): string",
             "Validates the C string at `ptr` as UTF-8 and returns a string handle. 0 if invalid.",
             __RTS_FN_NS_FFI_CSTR_TO_STR as *const u8,
         ))
@@ -201,7 +201,7 @@ pub fn register(e: &mut Engine) {
             "osstr_to_str",
             "__RTS_FN_NS_FFI_OSSTR_TO_STR",
             Sig::new(vec![AbiType::U64], AbiType::Handle),
-            "osstr_to_str(handle: number): number",
+            "osstr_to_str(handle: number): string",
             "Converts the OsString handle to a UTF-8 string handle. 0 if not valid UTF-8.",
             __RTS_FN_NS_FFI_OSSTR_TO_STR as *const u8,
         ))

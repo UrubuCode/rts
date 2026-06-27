@@ -112,7 +112,7 @@ pub fn register(e: &mut Engine) {
             "capture",
             "__RTS_FN_NS_TRACE_CAPTURE",
             sig!(=> Handle),
-            "capture(): number",
+            "capture(): string",
             "Capture current trace as a GC string handle. Returns 0 if stack is empty.",
             __RTS_FN_NS_TRACE_CAPTURE as *const u8,
         ))

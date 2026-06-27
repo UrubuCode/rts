@@ -245,7 +245,7 @@ pub fn append_engine_members(v: &mut Vec<Member>) {
         "vec_join",
         "__RTS_FN_NS_COLLECTIONS_VEC_JOIN",
         Sig::new(vec![AbiType::U64, AbiType::Handle], AbiType::Handle),
-        "vec_join(h: number, sep: number): number",
+        "vec_join(h: number, sep: number): string",
         "Junta os elementos do vec separados por `sep` (string handle). Cada elemento i64 e' tratado como string handle se valido, senao formatado como numero decimal. Retorna handle da string resultante.",
         __RTS_FN_NS_COLLECTIONS_VEC_JOIN as *const u8,
     ));
