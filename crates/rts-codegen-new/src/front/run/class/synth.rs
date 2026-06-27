@@ -45,10 +45,10 @@ pub(crate) fn method_name_lit(class: &str, method: &str) -> String {
 }
 
 /// The synthesized getter / setter fn name for `class.prop`.
-fn getter_name(class: &str, prop: &str) -> String {
+pub(crate) fn getter_name(class: &str, prop: &str) -> String {
     format!("__rtsn_get_{class}_{prop}")
 }
-fn setter_name(class: &str, prop: &str) -> String {
+pub(crate) fn setter_name(class: &str, prop: &str) -> String {
     format!("__rtsn_set_{class}_{prop}")
 }
 

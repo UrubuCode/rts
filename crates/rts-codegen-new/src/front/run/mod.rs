@@ -477,21 +477,43 @@ fn build_from_program(
     // builtin-error parents (P5.3), AND literal classes (P5.15).
     let mut fn_this_class: std::collections::HashMap<String, String> =
         std::collections::HashMap::new();
+    // A class's `methods`/`accessors` maps are FLATTENED over the parent's (an
+    // inherited method keeps the PARENT's synthesized fn name). The `classes`
+    // collection iterates in HashMap (non-deterministic) order, so a plain
+    // first-seen `or_insert` could attribute an inherited+shared method (e.g.
+    // `Derived` inheriting `Base.greet`) to the SUBCLASS — then `this.<m>()` inside
+    // it dispatches on the wrong static class and a virtual override resolves wrong
+    // (e.g. a `Base` instance running `Derived`'s override). Phase 1 attributes each
+    // synthesized fn to the class that DEFINES it (its own `method_name`/accessor
+    // name produces that fn) — order-independent and authoritative. Phase 2 is a
+    // defensive fallback so any fn not matched by a known naming pattern still gets a
+    // binding (never lose a `this`), without overwriting a Phase-1 attribution.
     for desc in classes.iter() {
         fn_this_class.insert(desc.ctor.clone(), desc.name.clone());
+        for (key, fn_name) in desc.methods.iter() {
+            if *fn_name == class::synth::method_name(&desc.name, key)
+                || *fn_name == class::synth::method_name_lit(&desc.name, key)
+            {
+                fn_this_class.insert(fn_name.clone(), desc.name.clone());
+            }
+        }
+        for (key, acc) in desc.accessors.iter() {
+            for fn_name in [acc.getter.as_ref(), acc.setter.as_ref()].into_iter().flatten() {
+                if *fn_name == class::synth::getter_name(&desc.name, key)
+                    || *fn_name == class::synth::setter_name(&desc.name, key)
+                {
+                    fn_this_class.insert(fn_name.clone(), desc.name.clone());
+                }
+            }
+        }
+    }
+    for desc in classes.iter() {
         for fn_name in desc.methods.values() {
-            fn_this_class
-                .entry(fn_name.clone())
-                .or_insert(desc.name.clone());
+            fn_this_class.entry(fn_name.clone()).or_insert(desc.name.clone());
         }
         for acc in desc.accessors.values() {
-            for fn_name in [acc.getter.as_ref(), acc.setter.as_ref()]
-                .into_iter()
-                .flatten()
-            {
-                fn_this_class
-                    .entry(fn_name.clone())
-                    .or_insert(desc.name.clone());
+            for fn_name in [acc.getter.as_ref(), acc.setter.as_ref()].into_iter().flatten() {
+                fn_this_class.entry(fn_name.clone()).or_insert(desc.name.clone());
             }
         }
     }
