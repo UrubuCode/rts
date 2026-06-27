@@ -235,6 +235,11 @@ const GLOBALS: &[&str] = &[
     "String", "Number", "Boolean", "Object", "Array", "Function", "Symbol",
     "Math", "JSON", "Date", "RegExp", "Promise", "Error",
     "parseInt", "parseFloat", "isNaN", "isFinite",
+    // `getPointer(fn)` — an ENGINE intrinsic (the C-ABI code address of a top-level
+    // fn, for `thread.spawn`/callbacks). Globally accessible, never captured, so an
+    // arrow/hoisted fn that calls it (`test(() => thread.spawn(getPointer(w), n))`)
+    // must NOT treat `getPointer` as an un-capturable free ident → "expression arrow".
+    "getPointer",
 ];
 
 /// The result of the arrow-extraction pre-pass: the synthesized top-level
