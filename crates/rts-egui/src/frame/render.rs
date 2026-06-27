@@ -64,6 +64,10 @@ fn merge_node_style(dom: &crate::dom::Dom, id: crate::dom::NodeIdx, mut st: Inli
         let css = crate::style::parse_inline(s);
         apply_computed(&mut st, &css);
     }
+    // 3) override por-nó (`setStyleBatch`) — a camada mais forte (vence tag+inline).
+    if let Some(ov) = dom.style_override_idx(id) {
+        apply_computed(&mut st, &ov);
+    }
     st
 }
 
@@ -130,13 +134,17 @@ fn render_block(
         return;
     }
 
-    // Box model (F2): se a tag tem caixa (bg/padding/margin/border/raio), envolve
-    // o corpo num `egui::Frame`; senão renderiza direto (sem overhead). O estilo de
-    // TAG e o `style=""` inline já combinados aqui (mesma precedência do texto).
+    // Box model (F2): se a tag tem caixa (bg/padding/margin/border/raio/width),
+    // envolve o corpo num `egui::Frame`; senão renderiza direto (sem overhead).
+    // Precedência (a mais forte vence): TAG < `style=""` inline < override por-nó
+    // (`setStyleBatch`) — igual ao texto.
     let mut box_css = crate::style::lookup_style(tag).unwrap_or_default();
     if let Some(s) = dom.node(id).attr("style") {
         let inline = crate::style::parse_inline(s);
         merge_box_props(&mut box_css, &inline);
+    }
+    if let Some(ov) = dom.style_override_idx(id) {
+        merge_box_props(&mut box_css, &ov);
     }
 
     let width = box_css.width;

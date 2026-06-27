@@ -147,6 +147,12 @@ pub struct Dom {
     id_index: HashMap<String, NodeIdx>,
     /// Índice `classe → nós que a têm` (em ordem de inserção).
     class_index: HashMap<String, Vec<NodeIdx>>,
+    /// Override de estilo POR-NÓ (`setStyleBatch`) — a 3ª e mais forte fonte de
+    /// estilo (precedência: tag < `style=""` inline < override por-nó). Mapa à
+    /// parte (não no `Node`) porque `ComputedStyle` tem `f32` (não-`Eq`) e o `Node`
+    /// precisa de `Eq` p/ o diff de árvore. Estado DERIVADO: não entra no
+    /// `PartialEq` do `Dom` (que compara só `nodes`+`root`).
+    style_overrides: HashMap<NodeIdx, crate::style::ComputedStyle>,
 }
 
 // Igualdade estrutural: compara só a árvore (nodes+root). Os índices e a `generation`
@@ -172,6 +178,7 @@ impl Dom {
             root: 0,
             id_index: HashMap::new(),
             class_index: HashMap::new(),
+            style_overrides: HashMap::new(),
         }
     }
 
@@ -345,7 +352,54 @@ impl Dom {
             let inline = crate::style::parse_inline(s);
             css.merge_over(&inline);
         }
+        // 3ª fonte, a mais forte: override por-nó (`setStyleBatch`). Vence tag e
+        // inline — é o estilo que o LAYOUT/app aplica imperativamente por frame.
+        if let Some(ov) = self.style_overrides.get(&idx) {
+            css.merge_over(ov);
+        }
         Some(css)
+    }
+
+    /// Aplica UM slot de estilo OPACO (invariante 4) a UM nó, acumulando no
+    /// override por-nó (`setStyle` por-nó / base do `setStyleBatch`). O `(slot,
+    /// val)` é interpretado pelo `apply_slot` do `ComputedStyle` (nunca casa string
+    /// CSS aqui). Ignora id que não resolve.
+    pub fn set_node_style_slot(&mut self, id: NodeId, slot: i64, val: i64) {
+        if let Some(idx) = self.resolve(id) {
+            self.style_overrides.entry(idx).or_default().apply_slot(slot, val);
+        }
+    }
+
+    /// Aplica um LOTE de triplas `(nodeId, slot, val)` de uma vez (invariante 6:
+    /// estilizar N nós por frame não pode ser N×5 FFIs). Cada tripla acumula no
+    /// override do seu nó. O `nodes` é uma fatia plana `[id0, slot0, val0, id1,
+    /// slot1, val1, …]` (o jeito que o buffer GC chega da ABI). Triplas com id
+    /// inválido são ignoradas (robustez).
+    pub fn apply_style_batch(&mut self, triples: &[i64]) {
+        for t in triples.chunks_exact(3) {
+            if let Some(node) = NodeId::from_abi(t[0]) {
+                self.set_node_style_slot(node, t[1], t[2]);
+            }
+        }
+    }
+
+    /// Limpa TODOS os overrides por-nó (`setStyleBatch` recomeça do zero). Útil se
+    /// o app quer re-estilizar do zero num frame em vez de acumular.
+    pub fn clear_style_overrides(&mut self) {
+        self.style_overrides.clear();
+    }
+
+    /// O override de estilo POR-NÓ de um nó (`setStyleBatch`), se houver. O render
+    /// o mescla como 3ª camada (após tag e `style=""` inline). `None` = sem override.
+    pub fn node_style_override(&self, id: NodeId) -> Option<crate::style::ComputedStyle> {
+        let idx = self.resolve(id)?;
+        self.style_overrides.get(&idx).copied()
+    }
+
+    /// Idem [`node_style_override`], mas por `NodeIdx` cru (o render de texto opera
+    /// em índices ao descer a árvore). `None` = sem override.
+    pub fn style_override_idx(&self, idx: NodeIdx) -> Option<crate::style::ComputedStyle> {
+        self.style_overrides.get(&idx).copied()
     }
 
     /// O código de `display` de um nó (do `BlockDef` registrado p/ a tag), ou
@@ -808,6 +862,12 @@ pub fn parse_html_to_dom(html: &str) -> Dom {
                 let parent = open.last().unwrap().0;
                 dom.push(NodeKind::Text(text), Vec::new(), parent);
             }
+            Token::Comment(content) => {
+                // DOM fiel preserva comentários como nós (nodeType 8); o render os
+                // ignora. Conteúdo cru (sem decodificar entidades).
+                let parent = open.last().unwrap().0;
+                dom.push(NodeKind::Comment(content), Vec::new(), parent);
+            }
         }
     }
     dom
@@ -892,6 +952,50 @@ mod tests {
         let li_c = dom.create_element("li");
         dom.insert_before(ul, li_c, None);
         assert_eq!(dom.last_child(ul), Some(li_c));
+    }
+
+    #[test]
+    fn style_override_por_no_e_batch() {
+        use crate::style::{SLOT_BG, SLOT_COLOR};
+        let mut dom = parse_html_to_dom("<div><p id='a'>x</p><p id='b'>y</p></div>");
+        let a = dom.query("#a").unwrap();
+        let b = dom.query("#b").unwrap();
+        // setNodeStyleSlot (1 nó, 1 slot): cor vermelha no #a.
+        dom.set_node_style_slot(a, SLOT_COLOR, 0xFF0000FF);
+        assert_eq!(dom.computed_style(a).unwrap().color, Some(0xFF0000FF));
+        assert_eq!(dom.computed_style(b).unwrap().color, None); // #b intacto
+        // batch: triplas planas [id, slot, val] — bg em ambos + cor no #b.
+        let triples = vec![
+            a.to_abi(), SLOT_BG, 0x111111FF,
+            b.to_abi(), SLOT_BG, 0x222222FF,
+            b.to_abi(), SLOT_COLOR, 0x00FF00FF,
+        ];
+        dom.apply_style_batch(&triples);
+        assert_eq!(dom.computed_style(a).unwrap().bg, Some(0x111111FF));
+        assert_eq!(dom.computed_style(b).unwrap().bg, Some(0x222222FF));
+        assert_eq!(dom.computed_style(b).unwrap().color, Some(0x00FF00FF));
+        // o override VENCE o estilo inline:
+        let mut dom2 = parse_html_to_dom("<p id='c' style='color:#0000ff'>z</p>");
+        let c = dom2.query("#c").unwrap();
+        assert_eq!(dom2.computed_style(c).unwrap().color, Some(0x0000FFFF)); // inline
+        dom2.set_node_style_slot(c, SLOT_COLOR, 0xFF0000FF);
+        assert_eq!(dom2.computed_style(c).unwrap().color, Some(0xFF0000FF)); // override vence
+    }
+
+    #[test]
+    fn parser_preserva_comentarios() {
+        // DOM fiel: <!-- --> vira nó Comment (nodeType 8), não é descartado.
+        let dom = parse_html_to_dom("<div><!-- nota --><p>oi</p></div>");
+        let div = dom.query("div").unwrap();
+        let kids = dom.child_nodes(div); // childNodes inclui o comentário
+        assert_eq!(kids.len(), 2); // Comment + <p>
+        assert_eq!(dom.node_type(kids[0]), 8); // Comment
+        assert_eq!(dom.node_name(kids[0]).as_deref(), Some("#comment"));
+        assert_eq!(dom.node_type(kids[1]), 1); // <p>
+        // o `>` DENTRO do comentário não encerra cedo:
+        let dom2 = parse_html_to_dom("<!-- a > b --><span>x</span>");
+        let span = dom2.query("span").unwrap();
+        assert_eq!(dom2.node_type(span), 1); // span foi parseado corretamente
     }
 
     #[test]

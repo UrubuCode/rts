@@ -154,6 +154,14 @@ class Element {
     return dom.nodeName(this._dom, this._node);
   }
 
+  // `el.setStyle(slot, val)` — aplica UM slot de estilo a ESTE nó (override por-nó,
+  // vence tag e style="" inline). Slots: 0=color 1=bg 2=font_size 3=padding
+  // 4=margin 5=border_width 6=border_color 7=corner_radius 8=width. É o caminho
+  // imperativo de estilo (como `el.style.color = ...` do browser, por slot opaco).
+  setStyle(slot: number, val: number): void {
+    dom.setStyle(this._dom, this._node, slot, val);
+  }
+
   // `el.appendChild(child)` — anexa e devolve o filho (como o browser).
   appendChild(child: Element): Element {
     dom.appendChild(this._dom, this._node, child._node);

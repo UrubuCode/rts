@@ -20,6 +20,10 @@ pub(crate) enum Token {
     Tag { name: String, attrs_raw: String, close: bool },
     /// Texto entre tags, já com entidades decodificadas.
     Text(String),
+    /// Comentário `<!-- ... -->`. Conteúdo CRU entre os delimitadores (sem
+    /// decodificar entidades — comentário é texto literal). Vira `NodeKind::Comment`
+    /// na etapa sintática (DOM fiel preserva comentários).
+    Comment(String),
 }
 
 /// Tokeniza o HTML char a char. Ao ver `<`, lê até `>`; senão acumula texto.
@@ -35,6 +39,19 @@ pub(crate) fn tokenize(html: &str) -> Vec<Token> {
             if !text.is_empty() {
                 tokens.push(Token::Text(decode_entities(&text)));
                 text.clear();
+            }
+            // Comentário `<!-- ... -->`: o `>` pode aparecer DENTRO, então o fim é
+            // o `-->`, não o primeiro `>`. Trata antes do caminho de tag normal.
+            if html[i..].starts_with("<!--") {
+                let body_start = i + 4;
+                let rest = &html[body_start..];
+                let (content, advance) = match rest.find("-->") {
+                    Some(end) => (&rest[..end], 4 + end + 3), // `<!--` + corpo + `-->`
+                    None => (rest, html.len() - i),            // sem fechar: vai até o fim
+                };
+                tokens.push(Token::Comment(content.to_string()));
+                i += advance;
+                continue;
             }
             // Lê até o `>` (ou fim da string, defensivo).
             let start = i + 1;

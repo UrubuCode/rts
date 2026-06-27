@@ -386,6 +386,48 @@ pub extern "C" fn __RTS_FN_NS_DOM_DEFINE_STYLE(
     crate::style::define_style(tag, slot, val);
 }
 
+/// `setStyle(domHandle, node, slot, val)` — aplica UM slot de estilo OPACO a UM
+/// NÓ (override por-nó, vence tag e `style=""` inline). Mesmos slots do
+/// `defineStyle`. Para muitos nós/props use `setStyleBatch` (invariante 6).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_SET_STYLE(h: u64, id: i64, slot: i64, val: i64) {
+    let Some(node) = NodeId::from_abi(id) else { return };
+    with_mut(h, |dom| dom.set_node_style_slot(node, slot, val));
+}
+
+/// `setStyleBatch(domHandle, bufferHandle, count)` — aplica `count` triplas
+/// `(nodeId, slot, val)` de uma vez (invariante 6: estilizar N nós por frame não
+/// pode ser N×5 FFIs). O buffer é um `Entry::Buffer` (do namespace `buffer`) com
+/// `count*3` inteiros i64 LITTLE-ENDIAN consecutivos (`[id0,slot0,val0, id1,…]`).
+/// Lê via a HandleTable do engine (sem dep de `rts-shared` — camada). Triplas com
+/// id inválido são ignoradas.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_SET_STYLE_BATCH(h: u64, buffer: u64, count: i64) {
+    if count <= 0 {
+        return;
+    }
+    let want = (count as usize) * 3; // i64s esperados
+    // Lê o buffer GC como i64 little-endian (8 bytes cada), sem copiar além do
+    // necessário. `with_entry` empresta o `Vec<u8>` do `Entry::Buffer`.
+    let triples: Option<Vec<i64>> = rts_engine::heap::handles::with_entry(buffer, |e| {
+        let bytes = match e {
+            Some(rts_engine::heap::handles::Entry::Buffer(b)) => b,
+            _ => return None,
+        };
+        let n = want.min(bytes.len() / 8); // não lê além do buffer
+        let mut out = Vec::with_capacity(n);
+        for k in 0..n {
+            let mut le = [0u8; 8];
+            le.copy_from_slice(&bytes[k * 8..k * 8 + 8]);
+            out.push(i64::from_le_bytes(le));
+        }
+        Some(out)
+    });
+    if let Some(triples) = triples {
+        with_mut(h, |dom| dom.apply_style_batch(&triples));
+    }
+}
+
 /// `defineBlock(tag, display, indent, prefix, flags)` — registra como uma TAG faz
 /// layout. `display` 0=vertical 1=wrap 2=horizontal 3=grid; `indent` recuo em
 /// pontos (ou tamanho de fonte quando `flags` tem HEADING); `prefix` 0=none
@@ -713,8 +755,24 @@ pub fn register(e: &mut Engine) {
             "__RTS_FN_NS_DOM_DEFINE_STYLE",
             Sig::new(vec![StrPtr, I64, I64], AbiType::Void),
             "defineStyle(tag: string, slot: number, val: number): void",
-            "Registers one opaque style slot for a tag (0=color 1=bg 2=font_size 3=padding 4=margin 5=border_width 6=border_color 7=corner_radius; colors as 0xRRGGBBAA u32). The TS maps CSS-name->slot; Rust never matches a CSS string. Accumulates per tag.",
+            "Registers one opaque style slot for a tag (0=color 1=bg 2=font_size 3=padding 4=margin 5=border_width 6=border_color 7=corner_radius 8=width; colors as 0xRRGGBBAA u32; width as encoded Dimension). The TS maps CSS-name->slot; Rust never matches a CSS string. Accumulates per tag.",
             __RTS_FN_NS_DOM_DEFINE_STYLE as *const u8,
+        ))
+        .member(func(
+            "setStyle",
+            "__RTS_FN_NS_DOM_SET_STYLE",
+            Sig::new(vec![Handle, I64, I64, I64], AbiType::Void),
+            "setStyle(dom: number, node: number, slot: number, val: number): void",
+            "Applies one opaque style slot to a single NODE (per-node override; beats tag and inline). Same slots as defineStyle. For many nodes/props use setStyleBatch.",
+            __RTS_FN_NS_DOM_SET_STYLE as *const u8,
+        ))
+        .member(func(
+            "setStyleBatch",
+            "__RTS_FN_NS_DOM_SET_STYLE_BATCH",
+            Sig::new(vec![Handle, Handle, I64], AbiType::Void),
+            "setStyleBatch(dom: number, buffer: number, count: number): void",
+            "Applies count (nodeId,slot,val) triples at once from a buffer handle (count*3 little-endian i64s). The batch form is mandatory for styling many nodes per frame (invariant 6): N nodes would otherwise be N*5 FFI calls.",
+            __RTS_FN_NS_DOM_SET_STYLE_BATCH as *const u8,
         ))
         .member(func(
             "defineBlock",
