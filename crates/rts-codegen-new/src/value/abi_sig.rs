@@ -443,6 +443,10 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, U64],
             ret: I64,
         },
+        "__rtsadp_arr_set_length" => SymSig {
+            params: &[U64, U64],
+            ret: U64,
+        },
         "__rtsadp_arr_pop" => SymSig {
             params: &[U64],
             ret: U64,

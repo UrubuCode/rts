@@ -495,6 +495,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if self.is_globalthis_receiver(object) {
             return self.lower_dynamic_set_expr(module, object, prop, value);
         }
+        // ---- `arr.length = n` on a PROVEN array: the JS length SETTER (resize) —
+        // `n < len` truncates, `n > len` extends with `undefined`. Routed before the
+        // shape paths since `.length` is not a real slot. ----
+        if prop == "length" && self.is_array_valued(object) {
+            let arr = self.lower_expr(module, object)?;
+            let arr_word = self.box_value(arr);
+            let v = self.lower_expr(module, value)?;
+            let len_word = self.box_value(v);
+            let res = self
+                .call_runtime(module, "__rtsadp_arr_set_length", &[arr_word, len_word])?
+                .expect("__rtsadp_arr_set_length returns the new length value");
+            return Ok(Val::new(res, crate::repr::Repr::Tagged));
+        }
         // ---- a bare class NAME target (`C.n = 5`) is a STATIC FIELD WRITE, a later
         // increment. Bail BEFORE the function-value-property path: `C` now reifies
         // to a `TAG_FUNCTION` class-value, so without this guard the write would be

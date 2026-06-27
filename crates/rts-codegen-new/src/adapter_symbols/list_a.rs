@@ -159,6 +159,10 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             "__rtsadp_arr_push",
             arrayops::__rtsadp_arr_push as *const u8,
         ),
+        sym(
+            "__rtsadp_arr_set_length",
+            arrayops::__rtsadp_arr_set_length as *const u8,
+        ),
         sym("__rtsadp_arr_pop", arrayops::__rtsadp_arr_pop as *const u8),
         sym(
             "__rtsadp_arr_slice",

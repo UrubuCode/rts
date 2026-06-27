@@ -118,6 +118,31 @@ pub extern "C" fn __rtsadp_arr_push(vec_handle: u64, val_word: u64) -> i64 {
     vec_len(vec_handle)
 }
 
+/// `arr.length = n` — RESIZE the array to length `n` (JS length setter). `n < len`
+/// TRUNCATES (drops the tail); `n > len` EXTENDS with `undefined` holes. `arr_word`
+/// is the boxed array PolyValue; a non-array receiver is a no-op. Returns `n` (the
+/// assignment's value). `n` is `ToNumber`'d and floored to a non-negative count.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_set_length(arr_word: u64, len_word: u64) -> u64 {
+    let v = PolyValue::from_raw(arr_word);
+    if !(v.is_object() && !super::inspect::looks_like_object(v)) {
+        return len_word;
+    }
+    let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+    let target = genops::to_number(PolyValue::from_raw(len_word)).max(0.0) as i64;
+    let mut cur = vec_len(handle);
+    while cur > target {
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_POP(handle);
+        cur -= 1;
+    }
+    let undef = PolyValue::undefined().raw() as i64;
+    while cur < target {
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle, undef);
+        cur += 1;
+    }
+    len_word
+}
+
 /// `arr.pop()` — remove and return the last element PolyValue word; `undefined`
 /// (raw word) when the array is empty.
 #[unsafe(no_mangle)]
