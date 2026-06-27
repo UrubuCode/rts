@@ -81,10 +81,10 @@
 ,
 {
   "name": "142_array_join_edge_cases",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "default=1,2,3\ncomma=1,2,3\ndash=1-2-3\nempty=123\nspace=1 2 3\nundef=1,,3\nnull=1,,3\nempty_str=1,,3\nempty_arr=",
   "node": "default=1,2,3\ncomma=1,2,3\ndash=1-2-3\nempty=123\nspace=1 2 3\nundef=1,,3\nnull=1,,3\nempty_str=1,,3\nempty_arr=",
-  "rts": "default=1,2,3\ncomma=1,2,3\ndash=1-2-3\nempty=123\nspace=1 2 3\nundef=1,undefined,3\nnull=1,null,3\nempty_str=1,,3\nempty_arr="
+  "rts": "default=1,2,3\ncomma=1,2,3\ndash=1-2-3\nempty=123\nspace=1 2 3\nundef=1,,3\nnull=1,,3\nempty_str=1,,3\nempty_arr="
 }
 ,
 {
@@ -281,10 +281,10 @@
 ,
 {
   "name": "242_array_map_return",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "mapped=2,4,6\nnoReturn=,,\nexplicit=2,4,6\nmixed=1,4,6",
   "node": "mapped=2,4,6\nnoReturn=,,\nexplicit=2,4,6\nmixed=1,4,6",
-  "rts": "mapped=2,4,6\nnoReturn=undefined,undefined,undefined\nexplicit=2,4,6\nmixed=1,4,6"
+  "rts": "mapped=2,4,6\nnoReturn=,,\nexplicit=2,4,6\nmixed=1,4,6"
 }
 ,
 {
@@ -484,7 +484,7 @@
   "status": "rts_diverge",
   "bun": "1--3\n--2\n1,2,3\n,,\n3\nfalse\n3\n,",
   "node": "1--3\n--2\n1,2,3\n,,\n3\nfalse\n3\n,",
-  "rts": "1-3\nundefined-null-2\n1,2,3\nundefined,undefined,undefined\n3\nfalse\n0\n,"
+  "rts": "1-3\n--2\n1,2,3\n,,\n3\nfalse\n0\n,"
 }
 ,
 {
@@ -977,10 +977,10 @@
 ,
 {
   "name": "codex_super_getter_setter_receiver",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "x:base-set:base-get\nx:base-set",
   "node": "x:base-set:base-get\nx:base-set",
-  "rts": "undefined:base-get\nx:base-set"
+  "rts": "x:base-set:base-get\nx:base-set"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":206,"rts_diverge":78,"bun_node_diverge":17,"errors":308,"rejected":0}}
+],"summary":{"total":609,"pass":209,"rts_diverge":75,"bun_node_diverge":17,"errors":308,"rejected":0}}
