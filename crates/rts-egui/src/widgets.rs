@@ -125,6 +125,20 @@ pub extern "C" fn __RTS_FN_NS_EGUI_HTML(h: u64, ptr: *const u8, len: i64) {
     });
 }
 
+/// `render(win, domHandle)` — RENDER GENÉRICO: pinta um DOM do `rts-dom` (do
+/// `store`, por handle) na janela `win`. O egui NÃO detém nem parseia o DOM — só
+/// o lê e desenha. É o caminho headless-puro (vs `html`, que parseia uma string e
+/// guarda o próprio DOM): o DOM vive 100% no rts-dom; o egui é um consumidor
+/// trocável. Só enfileira o marcador; o render lê o store no `endFrame`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_RENDER(h: u64, dom_handle: u64) {
+    ctx::with_ctx(h, |c| {
+        if c.frame_active {
+            c.cmds.push(WidgetCmd::HtmlHandle(dom_handle));
+        }
+    });
+}
+
 /// Hash não-criptográfico do HTML (só para detectar mudança — "igual ou não").
 fn html_hash(s: &str) -> u64 {
     use std::hash::{Hash, Hasher};

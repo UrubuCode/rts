@@ -1,0 +1,887 @@
+//! Motor de LAYOUT — calcula a geometria (x, y, largura, altura) de cada nó e
+//! emite uma DISPLAY LIST plana que o backend de render só PINTA. EGUI-FREE.
+//!
+//! Esta é a virada arquitetural decidida em 2026-06-27 ("processar tudo no DOM e
+//! o egui só lê e exibe"): o `rts-dom` deixa de só guardar a árvore/estilo e passa
+//! a CALCULAR onde cada caixa fica, seguindo a lógica do CSS (fluxo normal, box
+//! model content-box). O `rts-egui` (ou qualquer backend futuro: web/png/canvas)
+//! recebe a [`DisplayList`] pronta — uma lista de "pinte retângulo/texto em
+//! (x,y,w,h)" — e só desenha. **O backend nunca decide layout.**
+//!
+//! ## Modelo (fluxo normal block, fase 1)
+//!
+//! - **Block empilha vertical**, cada caixa ocupando a largura do container por
+//!   padrão (MDN CSS Flow Layout). `width` explícito (px/%) encolhe; `%` resolve
+//!   contra o content-box do PAI (containing block), TARDE, aqui no layout.
+//! - **Box model content-box** (MDN): `outer_w = margin + border + padding +
+//!   content_w`. O `width` do CSS é a largura do CONTENT; padding/border/margin
+//!   somam por fora.
+//! - **Texto** é medido por um [`TextMeasurer`] (a largura/altura do glifo é o
+//!   único dado que o `rts-dom` não tem sozinho — o backend mede; ver o trait).
+//!   Fase 1 usa uma medida aproximada ([`ApproxMeasurer`]); o egui pluga a real.
+//!
+//! Cortes da fase 1 (aditivos depois): inline-flow rico multi-run, margin-collapse,
+//! `display:horizontal/grid` (chega já a seguir), float/position. O objetivo da
+//! fatia é provar a TUBULAÇÃO DOM→layout→display-list→paint com box model block.
+
+use crate::dom::{Dom, NodeIdx, NodeKind};
+use crate::style::{ComputedStyle, ResolveCtx};
+
+/// Um retângulo em coordenadas de conteúdo (a origem é o canto da área de render;
+/// o backend soma seu próprio offset de tela ao pintar). Unidade: pontos (f32).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Rect {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
+impl Rect {
+    pub fn new(x: f32, y: f32, w: f32, h: f32) -> Rect {
+        Rect { x, y, w, h }
+    }
+}
+
+/// UM item da display list — uma instrução de pintura ATÔMICA e já posicionada. O
+/// backend percorre a lista em ordem (a ordem É o z-order: o que vem depois pinta
+/// por cima) e desenha cada item, sem nenhuma decisão de layout. Egui-free: cor é
+/// `u32` RGBA, posição é `f32` — nenhum tipo de backend.
+#[derive(Clone, PartialEq, Debug)]
+pub enum DisplayItem {
+    /// Retângulo preenchido (fundo de uma caixa). `radius` arredonda os cantos.
+    SolidRect { rect: Rect, color: u32, radius: f32 },
+    /// Borda (contorno) de uma caixa, espessura `width`, na cor dada.
+    Border { rect: Rect, width: f32, color: u32, radius: f32 },
+    /// Texto numa posição (canto superior-esquerdo). `mono` escolhe a família
+    /// monoespaçada. O backend resolve a fonte/atlas; aqui só o necessário.
+    Text { x: f32, y: f32, text: String, color: u32, size: f32, mono: bool },
+}
+
+/// A saída do layout: a lista plana de itens de pintura, em z-order. É o ÚNICO
+/// que o backend de render consome. Sem nenhuma referência à árvore — o layout já
+/// consumiu a topologia (herança/cascade/box model) ao produzir esta lista.
+#[derive(Clone, Default, PartialEq, Debug)]
+pub struct DisplayList {
+    pub items: Vec<DisplayItem>,
+    /// Altura total ocupada pelo conteúdo (para o backend dimensionar o scroll).
+    pub content_height: f32,
+}
+
+/// Abstração de MEDIÇÃO de texto (largura/altura de uma string num tamanho/peso).
+/// Vive aqui (no `rts-dom`) e é IMPLEMENTADA pelo backend (o egui mede via galley);
+/// reimplementar largura de glifo no `rts-dom` é a armadilha que o roadmap alertou.
+/// O layout depende SÓ deste trait — continua egui-free e testável com um mock.
+pub trait TextMeasurer {
+    /// Largura em pontos de `text` renderizado em `size` (mono ou proporcional).
+    fn text_width(&self, text: &str, size: f32, mono: bool) -> f32;
+    /// Altura de UMA linha em `size` (line-height). Aproximação aceitável: `size *
+    /// fator`; o backend pode dar o valor exato da fonte.
+    fn line_height(&self, size: f32) -> f32;
+}
+
+/// Medidor APROXIMADO, sem backend — para teste e para o caminho headless puro
+/// (gerar layout sem janela). Largura ≈ `n_chars * size * 0.5` (média de fonte
+/// proporcional latina); altura ≈ `size * 1.3`. Não é exato (o egui dá o real),
+/// mas é determinístico e suficiente para block-flow (onde a largura do texto não
+/// decide a da caixa — a caixa ocupa o container).
+pub struct ApproxMeasurer;
+
+impl TextMeasurer for ApproxMeasurer {
+    fn text_width(&self, text: &str, size: f32, mono: bool) -> f32 {
+        let per = if mono { 0.6 } else { 0.5 };
+        text.chars().count() as f32 * size * per
+    }
+    fn line_height(&self, size: f32) -> f32 {
+        size * 1.3
+    }
+}
+
+/// Tamanho de fonte default (pontos) quando o estilo não especifica — base de
+/// `em`/`rem` e do texto sem `font-size`. Casa com o default do render antigo.
+pub const DEFAULT_FONT_SIZE: f32 = 20.0;
+
+/// O contexto de uma passada de layout: o viewport (para `vw`/`vh` e largura
+/// inicial) e o medidor de texto. Imutável durante a passada.
+pub struct LayoutCtx<'a> {
+    pub viewport_w: f32,
+    pub viewport_h: f32,
+    pub measurer: &'a dyn TextMeasurer,
+}
+
+/// Calcula o layout de um `Dom` inteiro e devolve a [`DisplayList`]. Ponto de
+/// entrada do motor: percorre os filhos de `#document` como blocos empilhados na
+/// largura do viewport, resolvendo box model e emitindo os itens de pintura.
+pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
+    let mut list = DisplayList::default();
+    let mut cursor_y = 0.0f32;
+    let root = dom.node(dom.root);
+    for &child in &root.children {
+        let (_, h) = layout_block(dom, child, 0.0, cursor_y, ctx.viewport_w, false, ctx, &mut list);
+        cursor_y += h;
+    }
+    list.content_height = cursor_y;
+    list
+}
+
+/// Faz o layout de UM nó-bloco a partir de `(x, y)`, com `avail_w` de largura
+/// disponível (a do container). Emite os itens (fundo/borda/texto/filhos) na
+/// `list` e devolve o TAMANHO EXTERNO `(outer_w, outer_h)` da caixa (incluindo
+/// padding/border/margin) — o pai usa a altura (empilhamento vertical) ou a
+/// largura (horizontal) para posicionar o irmão seguinte. Texto solto e nós inline
+/// são desenhados como linhas dentro do content-box.
+fn layout_block(
+    dom: &Dom,
+    id: NodeIdx,
+    x: f32,
+    y: f32,
+    avail_w: f32,
+    // `shrink_to_fit`: quando true, um bloco SEM `width` explícito dimensiona pela
+    // largura do CONTEÚDO (como `inline-block`/item flex), não ocupa a largura
+    // disponível. É o que faz badges num container horizontal não esticarem para a
+    // linha toda. No fluxo vertical normal é false (block ocupa a largura — MDN).
+    shrink_to_fit: bool,
+    ctx: &LayoutCtx,
+    list: &mut DisplayList,
+) -> (f32, f32) {
+    // Nós não-elemento no nível de bloco (texto solto, comentário): trata o texto
+    // como uma linha; comentário não pinta.
+    let css = match &dom.node(id).kind {
+        NodeKind::Element { tag } => {
+            // Metadata não-renderável (`<head>` e seu conteúdo, `<style>`,
+            // `<script>`): pula a subárvore inteira — não pinta nada. Permite
+            // carregar um HTML COMPLETO (com <head><title><meta>) e renderizar só
+            // o que é visível (o <body> e seus filhos).
+            if is_non_rendered_tag(tag) {
+                return (0.0, 0.0);
+            }
+            let css = dom.computed_style_idx(id).unwrap_or_default();
+            // `display:none` — não renderiza nem ocupa espaço (some da árvore visual).
+            if css.effective_display() == Some(crate::style::DisplayKind::None) {
+                return (0.0, 0.0);
+            }
+            css
+        }
+        NodeKind::Text(t) => {
+            let size = DEFAULT_FONT_SIZE;
+            let lh = ctx.measurer.line_height(size);
+            let tw = ctx.measurer.text_width(t, size, false);
+            list.items.push(DisplayItem::Text {
+                x,
+                y,
+                text: t.clone(),
+                color: 0x000000FF,
+                size,
+                mono: false,
+            });
+            return (tw, lh);
+        }
+        _ => return (0.0, 0.0), // Comment / Document aninhado: não pinta.
+    };
+
+    // ── Box model (content-box): resolve as bordas/espaços absolutos ─────────────
+    // Margin separado por eixo (fiel ao CSS): `margin` (autor, 4 lados) conta nos
+    // DOIS eixos; `margin_v` (UA-stylesheet, só vertical) conta SÓ no vertical —
+    // assim um `<h1>` com margem default não desloca no eixo horizontal (no Chrome
+    // `h1` é `margin: Npx 0`). `margin_h` desloca o x; `margin_y` empilha no y.
+    let margin_h = css.margin.unwrap_or(0.0);
+    let margin_y = margin_h + css.margin_v.unwrap_or(0.0);
+    let padding = css.padding.unwrap_or(0.0);
+    let border = css.border_width.unwrap_or(0.0);
+
+    // Largura do CONTENT: `width` explícito (px/% resolvido contra `avail_w`), ou
+    // o que sobra do container menos margin+border+padding dos dois lados (block
+    // ocupa a largura disponível por padrão — MDN flow layout).
+    let resolve = ResolveCtx {
+        parent_content_w: avail_w,
+        node_font_size: css.font_size.unwrap_or(DEFAULT_FONT_SIZE),
+        root_font_size: DEFAULT_FONT_SIZE,
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+    let frame = 2.0 * (margin_h + border + padding);
+    let font_for_content = css.font_size.unwrap_or(DEFAULT_FONT_SIZE);
+    let border_box = css.border_box.unwrap_or(false);
+    let content_w = match css.width.and_then(|d| d.resolve(&resolve)) {
+        // `width` explícito. Em `border-box`, o `width` INCLUI padding+border —
+        // então o content é `width - 2*(pad+border)` (a caixa terá exatamente
+        // `width`). Em content-box (default), o `width` JÁ é o content.
+        Some(w) if border_box => (w - 2.0 * (padding + border)).max(0.0),
+        Some(w) => w,
+        // Sem width: shrink-to-fit → largura do conteúdo (limitada ao disponível);
+        // senão (fluxo block normal) → ocupa a largura disponível.
+        None if shrink_to_fit => {
+            content_natural_width(dom, id, font_for_content, ctx).min((avail_w - frame).max(0.0))
+        }
+        None => (avail_w - frame).max(0.0),
+    };
+
+    // Posição do content-box (canto sup-esq), deslocado por margin+border+padding.
+    let content_x = x + margin_h + border + padding;
+    let content_y = y + margin_y + border + padding;
+
+    // Z-ORDER: o fundo/borda da caixa precisam ficar ATRÁS dos filhos. Como a
+    // display list é pintada em ordem, reservamos AGORA o índice onde a caixa será
+    // inserida (antes de qualquer filho), descemos nos filhos (que dão append no
+    // fim), e só DEPOIS — conhecendo a altura — inserimos o fundo nesse índice.
+    let box_index = list.items.len();
+
+    // ── Filhos: o EIXO depende do `display` do bloco ─────────────────────────────
+    // vertical (default): cada filho ABAIXO do anterior, ocupando a largura.
+    // horizontal (`display:horizontal`/flex-row): cada filho À DIREITA do anterior,
+    // a altura do content = a do filho mais alto (MDN flow: inline-axis stacking).
+    let display = css_display(dom, id);
+    let font_size = css.font_size.unwrap_or(DEFAULT_FONT_SIZE);
+    let content_h = match display {
+        // horizontal (flex-row sem wrap): lado a lado, encolhe pra caber, não quebra.
+        d if d == crate::block::DISPLAY_HORIZONTAL => {
+            layout_children_horizontal(dom, id, content_x, content_y, content_w, &css, font_size, false, ctx, list)
+        }
+        // wrap (inline-block flow): lado a lado E QUEBRA linha quando enche.
+        d if d == crate::block::DISPLAY_WRAP => {
+            layout_children_horizontal(dom, id, content_x, content_y, content_w, &css, font_size, true, ctx, list)
+        }
+        // vertical (block): empilha.
+        _ => layout_children_vertical(dom, id, content_x, content_y, content_w, &css, font_size, ctx, list),
+    };
+
+    // ── Insere a CAIXA (fundo + borda) no índice reservado, ATRÁS dos filhos ─────
+    // A caixa cobre content + padding + border (NÃO a margin — esta é espaço
+    // externo). `insert` no `box_index` põe o fundo antes dos itens dos filhos.
+    if css.has_box() {
+        let box_rect = Rect::new(
+            x + margin_h,
+            y + margin_y,
+            content_w + 2.0 * (border + padding),
+            content_h + 2.0 * (border + padding),
+        );
+        let radius = css.corner_radius.unwrap_or(0.0);
+        // Insere na ordem: primeiro o fundo, depois a borda por cima dele (ambos
+        // atrás dos filhos). `insert` desloca os filhos para a frente.
+        let mut at = box_index;
+        if let Some(color) = css.bg {
+            list.items.insert(at, DisplayItem::SolidRect { rect: box_rect, color, radius });
+            at += 1;
+        }
+        if border > 0.0 {
+            let color = css.border_color.unwrap_or(0x808080FF);
+            list.items.insert(at, DisplayItem::Border { rect: box_rect, width: border, color, radius });
+        }
+    }
+
+    // Tamanho EXTERNO da caixa (outer = content + padding + border + margin) — por
+    // eixo: largura usa margin_h, altura usa margin_y (que inclui o margin_v da UA).
+    let outer_w = content_w + 2.0 * (border + padding + margin_h);
+    let outer_h = content_h + 2.0 * (border + padding + margin_y);
+    (outer_w, outer_h)
+}
+
+/// Largura NATURAL do conteúdo de um nó (sem `width` explícito): a maior largura
+/// de uma linha de texto entre os descendentes. É o "preferred width" do
+/// shrink-to-fit (item flex / inline-block). Para um filho-bloco com `width`, usa
+/// esse width (+ frame); para texto, a largura medida. Aproximação do max-content
+/// (o inline-flow exato — palavras quebrando — vem na fatia de inline).
+fn content_natural_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -> f32 {
+    // Texto direto deste nó concatenado (caso de um <p>badge</p>: "rust").
+    let own_text = collect_text(dom, id);
+    if !own_text.trim().is_empty() && dom.node(id).children.iter().all(|&c| {
+        matches!(dom.node(c).kind, NodeKind::Text(_))
+    }) {
+        // Folha de texto puro: a largura é a do texto.
+        return ctx.measurer.text_width(&own_text, font, false);
+    }
+    // Senão, o máximo entre os filhos (cada bloco-filho com seu width, texto com o seu).
+    let mut max_w = 0.0f32;
+    for &child in &dom.node(id).children {
+        let w = match &dom.node(child).kind {
+            NodeKind::Element { .. } if is_block_level(dom, child) => {
+                let css = dom.computed_style_idx(child).unwrap_or_default();
+                let f = css.font_size.unwrap_or(font);
+                let frame = 2.0 * (css.margin.unwrap_or(0.0) + css.border_width.unwrap_or(0.0) + css.padding.unwrap_or(0.0));
+                content_natural_width(dom, child, f, ctx) + frame
+            }
+            NodeKind::Text(t) => ctx.measurer.text_width(t, font, false),
+            _ => 0.0,
+        };
+        max_w = max_w.max(w);
+    }
+    max_w
+}
+
+/// `true` se um nó-elemento deve ser tratado como BLOCO no layout (entra em
+/// `layout_block`, com sua própria caixa/eixo) — em vez de inline (texto corrido).
+/// É bloco se: tem `display` no CSS (qualquer um define caixa própria), OU tem um
+/// default de display registrado (`block::lookup` = defineBlock, alimentado pela
+/// UA-stylesheet `ua.ts` para div/p/… e pelo autor). Tags inline puras (sem nada
+/// disso) fluem como texto. O motor NÃO nomeia tags HTML — os defaults são dados
+/// do prelude TS.
+fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
+    match &dom.node(id).kind {
+        NodeKind::Element { tag } => {
+            dom.computed_style_idx(id).and_then(|c| c.effective_display()).is_some()
+                || crate::block::lookup(tag).is_some()
+        }
+        _ => false,
+    }
+}
+
+/// `true` se a tag NÃO é renderável — metadata do documento (`<head>` e o que vive
+/// nele: `<title>`, `<meta>`, `<link>`, `<base>`) e os recursos `<style>`/`<script>`
+/// (o CSS já virou stylesheet no parse; JS não executamos). Permite carregar um HTML
+/// COMPLETO e pintar só o conteúdo visível (`<body>`). `<html>`/`<body>` SÃO
+/// renderáveis (transparentes — fluxo block normal dos filhos).
+fn is_non_rendered_tag(tag: &str) -> bool {
+    matches!(tag, "head" | "title" | "meta" | "link" | "base" | "style" | "script")
+}
+
+/// O código de `display` de um nó: o CSS (`display:` parseado) VENCE; se não
+/// declarado, cai no default da tag (`block::lookup`, a UA-stylesheet via
+/// defineBlock); senão vertical. É o eixo de empilhamento dos filhos.
+/// Códigos: 0=vertical/block, 1=wrap, 2=horizontal/flex, -1=none.
+fn css_display(dom: &Dom, id: NodeIdx) -> i64 {
+    match &dom.node(id).kind {
+        NodeKind::Element { tag } => {
+            // 1) CSS explícito (display:flex/block/inline/none) tem prioridade.
+            if let Some(css) = dom.computed_style_idx(id) {
+                if let Some(kind) = css.effective_display() {
+                    return kind.to_display_code();
+                }
+            }
+            // 2) default da tag: defineBlock (UA-stylesheet do TS) tem prioridade;
+            // senão as tags HTML block conhecidas (div/p/…) são vertical; o resto
+            // também cai em vertical (default seguro para um container).
+            crate::block::lookup(tag).map(|d| d.display).unwrap_or(crate::block::DISPLAY_VERTICAL)
+        }
+        _ => crate::block::DISPLAY_VERTICAL,
+    }
+}
+
+/// Empilha os filhos VERTICAL (cada um abaixo do anterior), ocupando a largura do
+/// content. Devolve a altura TOTAL do content (soma das alturas dos filhos).
+fn layout_children_vertical(
+    dom: &Dom,
+    id: NodeIdx,
+    content_x: f32,
+    content_y: f32,
+    content_w: f32,
+    css: &ComputedStyle,
+    font_size: f32,
+    ctx: &LayoutCtx,
+    list: &mut DisplayList,
+) -> f32 {
+    let mut child_y = content_y;
+    // MARGIN-COLLAPSE (versão simples, fiel ao caso comum): margins verticais de
+    // blocos ADJACENTES colapsam para o MAIOR, não somam (regra do CSS). Como o
+    // `outer_h` de cada bloco já inclui seu margin nos dois lados, ao empilhar dois
+    // blocos a soma conta `margin_bottom_anterior + margin_top_atual`; subtraímos o
+    // overlap = min(dos dois) para virar max(dos dois). `prev_margin` rastreia o
+    // margin do último bloco posto.
+    let mut prev_margin = 0.0f32;
+    for &child in &dom.node(id).children {
+        match &dom.node(child).kind {
+            // Metadata não-renderável (`<head>`/`<title>`/`<style>`/`<script>`):
+            // pula — NÃO coleta seu texto como inline (senão o título e o CSS cru
+            // vazam pra tela). Checado ANTES do caminho inline.
+            NodeKind::Element { tag } if is_non_rendered_tag(tag) => {}
+            NodeKind::Element { .. } if is_block_level(dom, child) => {
+                // margin VERTICAL do filho (margin 4-lados + margin_v da UA).
+                let m = dom.computed_style_idx(child)
+                    .map(|c| c.margin.unwrap_or(0.0) + c.margin_v.unwrap_or(0.0))
+                    .unwrap_or(0.0);
+                // Colapsa com o bloco anterior: recua o overlap antes de posicionar.
+                child_y -= prev_margin.min(m);
+                let (_, h) = layout_block(dom, child, content_x, child_y, content_w, false, ctx, list);
+                child_y += h;
+                prev_margin = m;
+            }
+            _ => {
+                child_y = layout_inline_line(dom, child, content_x, child_y, css, font_size, ctx, list);
+                prev_margin = 0.0; // texto inline quebra a sequência de collapse.
+            }
+        }
+    }
+    (child_y - content_y).max(0.0)
+}
+
+/// Dispõe os filhos HORIZONTAL (cada um à direita do anterior). Devolve a altura
+/// total do content.
+///
+/// - `wrap = false` (flex-row sem `flex-wrap`): tudo numa linha, encolhendo pra
+///   caber (clamp à largura restante) — nada transborda, mas não quebra.
+/// - `wrap = true` (inline-block flow): quando o próximo filho não cabe na linha
+///   atual, QUEBRA para a próxima (reset x, avança y pela altura da linha cheia).
+fn layout_children_horizontal(
+    dom: &Dom,
+    id: NodeIdx,
+    content_x: f32,
+    content_y: f32,
+    content_w: f32,
+    css: &ComputedStyle,
+    font_size: f32,
+    wrap: bool,
+    ctx: &LayoutCtx,
+    list: &mut DisplayList,
+) -> f32 {
+    let right_edge = content_x + content_w;
+    let mut child_x = content_x;
+    let mut line_y = content_y; // topo da linha atual
+    let mut line_h = 0.0f32; // altura da linha atual (filho mais alto dela)
+    // Sem gap embutido: o respiro entre itens vem do CSS (margin/gap), não do motor
+    // — fiel ao box model (dois itens sem margin encostam, como no navegador).
+    let gap = 0.0f32;
+
+    // Avança para a próxima linha (só no modo wrap): zera x, desce y pela linha cheia.
+    macro_rules! break_line {
+        () => {{
+            line_y += line_h;
+            child_x = content_x;
+            line_h = 0.0;
+        }};
+    }
+
+    for &child in &dom.node(id).children {
+        // Metadata não-renderável: pula (não mede nem coleta texto).
+        if let NodeKind::Element { tag } = &dom.node(child).kind {
+            if is_non_rendered_tag(tag) {
+                continue;
+            }
+        }
+        // Mede a largura que o filho QUER (sem pintar) para decidir a quebra.
+        let want = child_outer_width(dom, child, content_w, font_size, ctx);
+        // Wrap: se não cabe na linha atual E já há algo nela, quebra antes de pôr.
+        if wrap && child_x > content_x && child_x + want > right_edge {
+            break_line!();
+        }
+        let remaining = (right_edge - child_x).max(0.0);
+        match &dom.node(child).kind {
+            NodeKind::Element { .. } if is_block_level(dom, child) => {
+                // `width:%` resolve contra o CONTAINER (3×30%=270 cada). A largura
+                // real é clampada ao restante (no modo no-wrap; no wrap já quebramos).
+                let base = if wrap { want.min(content_w) } else { content_w };
+                let (w, h) = layout_block(dom, child, child_x, line_y, base, true, ctx, list);
+                child_x += (w + gap).min(remaining.max(w)); // avança (com respiro)
+                line_h = line_h.max(h);
+            }
+            _ => {
+                let text = collect_text(dom, child);
+                if text.trim().is_empty() {
+                    continue;
+                }
+                let color = css.color.unwrap_or(0x000000FF);
+                let tw = ctx.measurer.text_width(&text, font_size, false);
+                let lh = ctx.measurer.line_height(font_size);
+                list.items.push(DisplayItem::Text {
+                    x: child_x,
+                    y: line_y,
+                    text,
+                    color,
+                    size: font_size,
+                    mono: false,
+                });
+                child_x += tw + gap;
+                line_h = line_h.max(lh);
+            }
+        }
+    }
+    // Altura total = do topo do content até o fim da última linha.
+    (line_y + line_h - content_y).max(0.0)
+}
+
+/// Largura OUTER que um filho QUER (sem pintar), para decidir a quebra de linha no
+/// modo wrap. Bloco com `width`: esse width (+ frame); sem width: largura natural
+/// do conteúdo (+ frame); texto solto: a largura do texto.
+fn child_outer_width(dom: &Dom, id: NodeIdx, container_w: f32, parent_font: f32, ctx: &LayoutCtx) -> f32 {
+    match &dom.node(id).kind {
+        NodeKind::Element { .. } if is_block_level(dom, id) => {
+            let css = dom.computed_style_idx(id).unwrap_or_default();
+            let font = css.font_size.unwrap_or(parent_font);
+            let frame = 2.0 * (css.margin.unwrap_or(0.0) + css.border_width.unwrap_or(0.0) + css.padding.unwrap_or(0.0));
+            let resolve = ResolveCtx {
+                parent_content_w: container_w,
+                node_font_size: font,
+                root_font_size: DEFAULT_FONT_SIZE,
+                viewport_w: ctx.viewport_w,
+                viewport_h: ctx.viewport_h,
+            };
+            // Em border-box, o `width` declarado JÁ é a caixa (outer sem margin) —
+            // não soma pad/border de novo; só a margin. Em content-box, soma o frame.
+            match css.width.and_then(|d| d.resolve(&resolve)) {
+                Some(w) if css.border_box.unwrap_or(false) => {
+                    w + 2.0 * css.margin.unwrap_or(0.0)
+                }
+                Some(w) => w + frame,
+                None => content_natural_width(dom, id, font, ctx) + frame,
+            }
+        }
+        NodeKind::Text(t) => ctx.measurer.text_width(t, parent_font, false),
+        _ => 0.0,
+    }
+}
+
+/// Desenha um nó como UMA linha de texto (texto solto ou inline simples), herdando
+/// cor/tamanho do bloco pai, e devolve o `y` abaixo da linha. Concatena o texto de
+/// todos os descendentes (inline-flow rico — spans em cores diferentes na mesma
+/// linha — fica para a fatia de inline).
+fn layout_inline_line(
+    dom: &Dom,
+    id: NodeIdx,
+    x: f32,
+    y: f32,
+    parent_css: &ComputedStyle,
+    font_size: f32,
+    ctx: &LayoutCtx,
+    list: &mut DisplayList,
+) -> f32 {
+    let text = collect_text(dom, id);
+    if text.trim().is_empty() {
+        return y;
+    }
+    let color = parent_css.color.unwrap_or(0x000000FF);
+    let lh = ctx.measurer.line_height(font_size);
+    list.items.push(DisplayItem::Text { x, y, text, color, size: font_size, mono: false });
+    y + lh
+}
+
+/// Concatena o texto de todos os descendentes de `id` (ordem de documento).
+fn collect_text(dom: &Dom, id: NodeIdx) -> String {
+    let mut out = String::new();
+    collect_into(dom, id, &mut out);
+    return out;
+
+    fn collect_into(dom: &Dom, id: NodeIdx, out: &mut String) {
+        match &dom.node(id).kind {
+            NodeKind::Text(t) => out.push_str(t),
+            _ => {
+                for &c in &dom.node(id).children {
+                    collect_into(dom, c, out);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dom::parse_html_to_dom;
+
+    /// Registra `<div>` como bloco vertical (os testes precisam que a tag tenha
+    /// layout de bloco para entrar no caminho `layout_block` dos filhos).
+    fn def_div() {
+        crate::block::define(
+            "div",
+            crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 },
+        );
+    }
+
+    /// Layout determinístico com medidor aproximado e viewport fixo.
+    fn layout(html: &str, vw: f32) -> DisplayList {
+        def_div();
+        let dom = parse_html_to_dom(html);
+        let ctx = LayoutCtx { viewport_w: vw, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        layout_document(&dom, &ctx)
+    }
+
+    /// Primeiro `SolidRect` da lista (o fundo da 1ª caixa) — atalho de assert.
+    fn first_rect(list: &DisplayList) -> Rect {
+        list.items
+            .iter()
+            .find_map(|it| match it {
+                DisplayItem::SolidRect { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .expect("esperava ao menos um SolidRect")
+    }
+
+    #[test]
+    fn block_ocupa_largura_do_container() {
+        // <div> sem width: bloco ocupa a largura do viewport menos o frame.
+        // Aqui só padding=10 (margin/border=0): content = 600 - 20 = 580; a CAIXA
+        // (content+padding) = 600 (largura cheia).
+        let list = layout("<div style='background:#112233; padding:10'>x</div>", 600.0);
+        let r = first_rect(&list);
+        assert_eq!(r.x, 0.0);
+        assert_eq!(r.y, 0.0);
+        assert_eq!(r.w, 600.0); // content(580) + padding(2×10) = 600
+    }
+
+    #[test]
+    fn width_percent_resolve_contra_container() {
+        // width:50% de um viewport 800 → content=400; sem padding/border a caixa=400.
+        let list = layout("<div style='background:#111111; width:50%'>x</div>", 800.0);
+        let r = first_rect(&list);
+        assert_eq!(r.w, 400.0); // 50% de 800
+        assert_eq!(r.x, 0.0);
+    }
+
+    #[test]
+    fn blocos_empilham_vertical() {
+        // dois <div> com altura de 1 linha (~26 = 20×1.3) empilham: o 2º começa
+        // abaixo do 1º. Sem box (sem bg) — só checa o Y das linhas de texto.
+        let list = layout("<div>um</div><div>dois</div>", 600.0);
+        let texts: Vec<f32> = list
+            .items
+            .iter()
+            .filter_map(|it| match it {
+                DisplayItem::Text { y, .. } => Some(*y),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(texts.len(), 2);
+        assert_eq!(texts[0], 0.0); // primeiro no topo
+        assert!(texts[1] >= 26.0, "segundo bloco abaixo do primeiro (y={})", texts[1]); // 20×1.3
+    }
+
+    #[test]
+    fn fundo_vem_antes_do_texto_filho_no_zorder() {
+        // O SolidRect (fundo) deve estar ANTES do Text na lista (pinta atrás).
+        let list = layout("<div style='background:#222222; padding:8'>oi</div>", 600.0);
+        let i_rect = list.items.iter().position(|it| matches!(it, DisplayItem::SolidRect { .. }));
+        let i_text = list.items.iter().position(|it| matches!(it, DisplayItem::Text { .. }));
+        assert!(i_rect < i_text, "fundo (idx {i_rect:?}) deve vir antes do texto (idx {i_text:?})");
+    }
+
+    #[test]
+    fn box_model_content_box_offset_do_texto() {
+        // content-box: o texto começa deslocado por margin+border+padding.
+        // padding=14, border=2, margin=6 → offset = 22. (MDN: outer = m+b+p+content)
+        let list = layout(
+            "<div style='background:#111111; padding:14; border-width:2; margin:6'>z</div>",
+            600.0,
+        );
+        let txt = list
+            .items
+            .iter()
+            .find_map(|it| match it {
+                DisplayItem::Text { x, y, .. } => Some((*x, *y)),
+                _ => None,
+            })
+            .expect("texto");
+        assert_eq!(txt.0, 22.0); // x = margin(6)+border(2)+padding(14)
+        assert_eq!(txt.1, 22.0); // y idem
+        // a caixa (fundo) NÃO inclui a margin: começa em (6,6).
+        let r = first_rect(&list);
+        assert_eq!(r.x, 6.0);
+        assert_eq!(r.y, 6.0);
+    }
+
+    #[test]
+    fn tres_cards_empilham_no_vertical() {
+        // <div> vertical (default): 3 cards empilham — mesmo x, Y crescente, cada
+        // um com sua caixa de 30% de 900 = 270.
+        let list = layout(
+            "<div style='background:#111;width:30%'>a</div>\
+             <div style='background:#222;width:30%'>b</div>\
+             <div style='background:#333;width:30%'>c</div>",
+            900.0,
+        );
+        let rects: Vec<Rect> = list
+            .items
+            .iter()
+            .filter_map(|it| match it {
+                DisplayItem::SolidRect { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(rects.len(), 3);
+        assert!(rects.iter().all(|r| r.x == 0.0)); // mesmo x (vertical)
+        assert!(rects.iter().all(|r| (r.w - 270.0).abs() < 0.01)); // 30% de 900
+        assert!(rects[0].y < rects[1].y && rects[1].y < rects[2].y); // Y crescente
+    }
+
+    #[test]
+    fn cards_lado_a_lado_no_horizontal() {
+        // <row display:horizontal> com 3 <div> cada 30% → ficam LADO A LADO: X
+        // crescente, MESMO y (topo), cada caixa 270 de largura. (O caso do
+        // stat-card: era isto que o egui colapsava; agora o layout do DOM resolve.)
+        crate::block::define(
+            "row",
+            crate::block::BlockDef { display: 2, indent: 0.0, prefix: 0, flags: 0 },
+        );
+        crate::block::define(
+            "div",
+            crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 },
+        );
+        let dom = parse_html_to_dom(
+            "<row>\
+               <div style='background:#111;width:30%'>a</div>\
+               <div style='background:#222;width:30%'>b</div>\
+               <div style='background:#333;width:30%'>c</div>\
+             </row>",
+        );
+        let ctx = LayoutCtx { viewport_w: 900.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let rects: Vec<Rect> = list
+            .items
+            .iter()
+            .filter_map(|it| match it {
+                DisplayItem::SolidRect { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(rects.len(), 3);
+        // mesmo Y (lado a lado, não empilhado).
+        assert!(rects.iter().all(|r| r.y == rects[0].y), "todos no mesmo topo: {rects:?}");
+        // X crescente: card 2 à direita do 1, card 3 à direita do 2.
+        assert!(rects[0].x < rects[1].x && rects[1].x < rects[2].x, "X crescente: {rects:?}");
+        // cada caixa 30% de 900 = 270 (a % resolve contra o content do <row>).
+        assert!(rects.iter().all(|r| (r.w - 270.0).abs() < 1.0), "largura ~270: {rects:?}");
+        // o 2º começa onde o 1º termina (sem sobrepor): x[1] ≈ x[0] + w[0].
+        assert!((rects[1].x - (rects[0].x + rects[0].w)).abs() < 1.0, "encostados: {rects:?}");
+    }
+
+    #[test]
+    fn cards_com_filhos_nao_esticam_o_ultimo() {
+        // REGRESSÃO (bug visto na tela): 3 cards width:32% COM filhos (<p>) num <row>
+        // largo — o ÚLTIMO não pode esticar até a borda. Cada um = 32% da largura,
+        // o resto fica vazio à direita (como no navegador). p=wrap pra bater o real.
+        crate::block::define("row", crate::block::BlockDef { display: 2, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define("p", crate::block::BlockDef { display: 1, indent: 0.0, prefix: 0, flags: 0 });
+        let dom = parse_html_to_dom(
+            "<row>\
+               <div style='background:#111;width:32%'><p>256</p><p>testes</p></div>\
+               <div style='background:#222;width:32%'><p>31%</p><p>paridade</p></div>\
+               <div style='background:#333;width:32%'><p>5</p><p>fases</p></div>\
+             </row>",
+        );
+        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let rects: Vec<Rect> = list.items.iter().filter_map(|it| match it {
+            DisplayItem::SolidRect { rect, .. } => Some(*rect),
+            _ => None,
+        }).collect();
+        assert_eq!(rects.len(), 3);
+        // TODOS com a MESMA largura = 32% de 1000 = 320 (o 3º NÃO estica).
+        for (i, r) in rects.iter().enumerate() {
+            assert!((r.w - 320.0).abs() < 1.0, "card[{i}] devia ter 320 (32%), tem {}: {rects:?}", r.w);
+        }
+        // o último termina BEM antes da borda (3×320=960 < 1000), sobra vazio.
+        let last = rects[2];
+        assert!(last.x + last.w <= 1000.0, "último não passa da borda: {last:?}");
+    }
+
+    #[test]
+    fn border_box_faz_3_cards_caberem() {
+        // box-sizing:border-box: width:32% INCLUI padding+border → a CAIXA é 32%,
+        // 3 cards = 96% (cabem, sobra ~4%). Sem border-box (content-box) cada caixa
+        // seria 32%+frame e estouraria. Prova a propriedade real do CSS.
+        crate::block::define("row", crate::block::BlockDef { display: 2, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        let dom = parse_html_to_dom(
+            "<style>.card{box-sizing:border-box;width:32%;padding:14;border-width:2;background:#1a2030}</style>\
+             <row>\
+               <div class='card'>a</div><div class='card'>b</div><div class='card'>c</div>\
+             </row>",
+        );
+        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let rects: Vec<Rect> = list.items.iter().filter_map(|it| match it {
+            DisplayItem::SolidRect { rect, .. } => Some(*rect),
+            _ => None,
+        }).collect();
+        assert_eq!(rects.len(), 3);
+        // cada CAIXA = 32% de 1000 = 320 (border-box: o width É a caixa inteira).
+        for (i, r) in rects.iter().enumerate() {
+            assert!((r.w - 320.0).abs() < 1.0, "card[{i}] caixa=320 (border-box): {rects:?}");
+        }
+        // 3×320=960 < 1000: cabem com folga (sobra ~40 = 4%).
+        let last = rects[2];
+        assert!(last.x + last.w <= 1000.0, "cabem todos: {rects:?}");
+        assert!(1000.0 - (last.x + last.w) >= 30.0, "sobra espaço à direita: {rects:?}");
+    }
+
+    #[test]
+    fn display_vem_do_css_nao_do_defineblock() {
+        // O `display:flex` no <style> faz <row> dispor os filhos LADO A LADO, sem
+        // precisar de defineBlock. `display:none` some. É o motor lendo o display DO
+        // CSS. (`<div>` é block via a UA-stylesheet `ua.ts` em produção; nos testes
+        // unitários — sem o prelude TS — registramos o default à mão.)
+        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        let dom = parse_html_to_dom(
+            "<style>row{display:flex} hide{display:none} \
+                    .c{width:30%;background:#111}</style>\
+             <row>\
+               <div class='c'>a</div><div class='c'>b</div><div class='c'>c</div>\
+             </row>\
+             <hide>invisível</hide>",
+        );
+        let ctx = LayoutCtx { viewport_w: 900.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let rects: Vec<Rect> = list.items.iter().filter_map(|it| match it {
+            DisplayItem::SolidRect { rect, .. } => Some(*rect),
+            _ => None,
+        }).collect();
+        assert_eq!(rects.len(), 3, "3 cards (o <hide> display:none não pinta)");
+        // display:flex do CSS → lado a lado (X crescente, mesmo Y).
+        assert!(rects[0].x < rects[1].x && rects[1].x < rects[2].x, "lado a lado: {rects:?}");
+        assert!(rects.iter().all(|r| r.y == rects[0].y), "mesma linha: {rects:?}");
+        // display:none → o texto "invisível" NÃO está na lista.
+        let has_invisivel = list.items.iter().any(|it| matches!(it, DisplayItem::Text { text, .. } if text.contains("invisível")));
+        assert!(!has_invisivel, "display:none não renderiza o conteúdo");
+    }
+
+    #[test]
+    fn margin_vertical_empilha_sem_deslocar_horizontal() {
+        // margin_v (UA-stylesheet) separa blocos no VERTICAL mas NÃO empurra no
+        // eixo horizontal (como `margin: Npx 0` do navegador para h1/p). Dois
+        // parágrafos com margin_v: o 2º começa mais abaixo, mas ambos em x=0.
+        crate::block::define("p", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        crate::style::define_style("p", crate::style::SLOT_MARGIN_V, 16);
+        let dom = parse_html_to_dom("<p>um</p><p>dois</p>");
+        let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let texts: Vec<(f32, f32)> = list.items.iter().filter_map(|it| match it {
+            DisplayItem::Text { x, y, .. } => Some((*x, *y)),
+            _ => None,
+        }).collect();
+        assert_eq!(texts.len(), 2);
+        // X: ambos em 0 (margin VERTICAL não desloca horizontal).
+        assert_eq!(texts[0].0, 0.0, "1º texto em x=0: {texts:?}");
+        assert_eq!(texts[1].0, 0.0, "2º texto em x=0 (margin não empurrou): {texts:?}");
+        // Y: o 2º bem abaixo (margin colapsado entre eles + altura da linha).
+        assert!(texts[1].1 > texts[0].1 + 20.0, "2º empilhado abaixo: {texts:?}");
+    }
+
+    #[test]
+    fn badges_fluem_e_quebram_linha_no_wrap() {
+        // <tags display:wrap> com badges: fluem lado a lado e QUEBRAM para a próxima
+        // linha quando não cabem (inline-block flow). Cada badge dimensiona pelo
+        // conteúdo (shrink-to-fit), não estica para a largura toda.
+        crate::block::define(
+            "tags",
+            crate::block::BlockDef { display: 1, indent: 0.0, prefix: 0, flags: 0 },
+        );
+        crate::block::define(
+            "badge",
+            crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 },
+        );
+        // 4 badges; numa largura estreita (200) eles não cabem todos numa linha.
+        let dom = parse_html_to_dom(
+            "<tags>\
+               <badge style='background:#111;padding:6'>rust</badge>\
+               <badge style='background:#222;padding:6'>cranelift</badge>\
+               <badge style='background:#333;padding:6'>typescript</badge>\
+               <badge style='background:#444;padding:6'>egui</badge>\
+             </tags>",
+        );
+        let ctx = LayoutCtx { viewport_w: 200.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let rects: Vec<Rect> = list
+            .items
+            .iter()
+            .filter_map(|it| match it {
+                DisplayItem::SolidRect { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(rects.len(), 4);
+        // shrink-to-fit: nenhum badge ocupa a largura toda (200) — cada um é estreito.
+        assert!(rects.iter().all(|r| r.w < 150.0), "badges estreitos (conteúdo): {rects:?}");
+        // QUEBROU linha: há pelo menos 2 valores distintos de Y (não todos na mesma linha).
+        let ys: std::collections::BTreeSet<i32> = rects.iter().map(|r| r.y as i32).collect();
+        assert!(ys.len() >= 2, "deve haver quebra de linha (Ys distintos): {rects:?}");
+        // o primeiro badge começa no canto (x=0).
+        assert_eq!(rects[0].x, 0.0);
+    }
+}

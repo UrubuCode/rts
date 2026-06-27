@@ -20,6 +20,21 @@ pub(crate) enum Token {
     Tag { name: String, attrs_raw: String, close: bool },
     /// Texto entre tags, já com entidades decodificadas.
     Text(String),
+    /// Comentário `<!-- ... -->`. Conteúdo CRU entre os delimitadores (sem
+    /// decodificar entidades — comentário é texto literal). Vira `NodeKind::Comment`
+    /// na etapa sintática (DOM fiel preserva comentários).
+    Comment(String),
+    /// Um elemento de TEXTO CRU (`<style>`/`<script>`): o conteúdo entre a abertura
+    /// e o `</tag>` NÃO é HTML e não pode ser tokenizado como tags (CSS tem `{`,
+    /// `>` em `a > b`; JS tem `<`). É lido literal até o fechamento casado. O
+    /// parser de árvore decide o que fazer (CSS → stylesheet; script → ignorado).
+    RawElement { tag: String, content: String },
+}
+
+/// Tags cujo conteúdo é TEXTO CRU (não-HTML): `<style>` (CSS) e `<script>` (JS).
+/// O tokenizer lê o miolo literal até `</tag>`, sem interpretar `<`/`{`/`>`.
+fn is_raw_text_tag(tag: &str) -> bool {
+    matches!(tag, "style" | "script")
 }
 
 /// Tokeniza o HTML char a char. Ao ver `<`, lê até `>`; senão acumula texto.
@@ -35,6 +50,19 @@ pub(crate) fn tokenize(html: &str) -> Vec<Token> {
             if !text.is_empty() {
                 tokens.push(Token::Text(decode_entities(&text)));
                 text.clear();
+            }
+            // Comentário `<!-- ... -->`: o `>` pode aparecer DENTRO, então o fim é
+            // o `-->`, não o primeiro `>`. Trata antes do caminho de tag normal.
+            if html[i..].starts_with("<!--") {
+                let body_start = i + 4;
+                let rest = &html[body_start..];
+                let (content, advance) = match rest.find("-->") {
+                    Some(end) => (&rest[..end], 4 + end + 3), // `<!--` + corpo + `-->`
+                    None => (rest, html.len() - i),            // sem fechar: vai até o fim
+                };
+                tokens.push(Token::Comment(content.to_string()));
+                i += advance;
+                continue;
             }
             // Lê até o `>` (ou fim da string, defensivo).
             let start = i + 1;
@@ -58,6 +86,21 @@ pub(crate) fn tokenize(html: &str) -> Vec<Token> {
                 parts.next().unwrap_or("").trim().to_string()
             };
             if !name.is_empty() {
+                // `<style>`/`<script>`: o conteúdo é texto cru. Em vez de empurrar a
+                // tag e tokenizar o miolo como HTML, consome literal até `</tag>`
+                // (case-insensitive) e emite um único `RawElement`. Tags de
+                // fechamento e autofecháveis (`<style/>`) não entram aqui.
+                if !close && is_raw_text_tag(&name) && !raw.ends_with('/') {
+                    let close_tag = format!("</{name}>");
+                    let lower = html[i..].to_ascii_lowercase();
+                    let (content, advance) = match lower.find(&close_tag) {
+                        Some(end) => (&html[i..i + end], end + close_tag.len()),
+                        None => (&html[i..], html.len() - i), // sem fechar: até o fim.
+                    };
+                    tokens.push(Token::RawElement { tag: name, content: content.to_string() });
+                    i += advance;
+                    continue;
+                }
                 tokens.push(Token::Tag { name, attrs_raw, close });
             }
         } else {
@@ -167,6 +210,27 @@ mod tests {
         assert_eq!(decode_entities("&#abc;"), "&#abc;"); // numérica inválida
         assert_eq!(decode_entities("100% & mais"), "100% & mais");
         assert_eq!(decode_entities("sem ampersand"), "sem ampersand"); // atalho sem `&`
+    }
+
+    #[test]
+    fn style_e_script_viram_raw_element() {
+        // O conteúdo de <style>/<script> não é tokenizado como HTML: `{`, `>` em
+        // `a > b`, `<` em script ficam literais até `</tag>`.
+        let toks = tokenize("<style>.card { color: red } a > b {}</style><p>oi</p>");
+        match &toks[0] {
+            Token::RawElement { tag, content } => {
+                assert_eq!(tag, "style");
+                assert_eq!(content, ".card { color: red } a > b {}");
+            }
+            _ => panic!("esperava RawElement no primeiro token"),
+        }
+        // o <p> depois é tokenizado normalmente.
+        assert!(matches!(&toks[1], Token::Tag { name, .. } if name == "p"));
+        // </style> case-insensitive e sem fechar (vai até o fim).
+        let t2 = tokenize("<STYLE>x{}</STYLE>");
+        assert!(matches!(&t2[0], Token::RawElement { content, .. } if content == "x{}"));
+        let t3 = tokenize("<style>sem fechar");
+        assert!(matches!(&t3[0], Token::RawElement { content, .. } if content == "sem fechar"));
     }
 
     #[test]

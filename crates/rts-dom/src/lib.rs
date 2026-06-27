@@ -34,6 +34,12 @@ pub mod block;
 /// um renderer (rts-egui) acessam o MESMO `Dom` por handle (`with_dom`), então
 /// mutações pela fachada `document` mudam o que a janela pinta.
 pub mod store;
+/// Motor de LAYOUT (egui-free): calcula a geometria (x,y,w,h) de cada nó via box
+/// model + fluxo normal e emite uma `DisplayList` plana. Decisão 2026-06-27:
+/// "processar tudo no DOM, o egui só lê e exibe" — o backend NÃO decide layout,
+/// só pinta a display-list. Medição de texto via trait `TextMeasurer` (o backend
+/// implementa; reimplementar largura de glifo aqui é a armadilha do roadmap).
+pub mod layout;
 
 pub use dom::{parse_html_to_dom, Attr, Dom, Node, NodeId, NodeIdx, NodeKind};
 

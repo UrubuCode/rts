@@ -85,6 +85,10 @@ pub enum NodeKind {
     Element { tag: String },
     /// Um nó de texto (folha). Entidades já vêm decodificadas.
     Text(String),
+    /// Um nó de COMENTÁRIO (`<!-- ... -->`). Um DOM fiel preserva comentários como
+    /// nós (nodeType 8); o render os ignora. O conteúdo é o texto entre os
+    /// delimitadores. (Antes eram descartados no parse.)
+    Comment(String),
 }
 
 /// Um par atributo→valor de um elemento (`class="card"`). Lista ordenada (não
@@ -143,6 +147,17 @@ pub struct Dom {
     id_index: HashMap<String, NodeIdx>,
     /// Índice `classe → nós que a têm` (em ordem de inserção).
     class_index: HashMap<String, Vec<NodeIdx>>,
+    /// Override de estilo POR-NÓ (`setStyleBatch`) — a 3ª e mais forte fonte de
+    /// estilo (precedência: tag < `style=""` inline < override por-nó). Mapa à
+    /// parte (não no `Node`) porque `ComputedStyle` tem `f32` (não-`Eq`) e o `Node`
+    /// precisa de `Eq` p/ o diff de árvore. Estado DERIVADO: não entra no
+    /// `PartialEq` do `Dom` (que compara só `nodes`+`root`).
+    style_overrides: HashMap<NodeIdx, crate::style::ComputedStyle>,
+    /// Stylesheet de AUTOR acumulado de todos os `<style>` da página (regras com
+    /// seletor tag/`.class`/`#id`, resolvidas por especificidade). Camada entre o
+    /// `defineStyle` (por-tag, mais fraco) e o `style=""` inline. Estado DERIVADO
+    /// do HTML — não entra no `PartialEq` do `Dom`.
+    stylesheet: crate::style::Stylesheet,
 }
 
 // Igualdade estrutural: compara só a árvore (nodes+root). Os índices e a `generation`
@@ -168,7 +183,21 @@ impl Dom {
             root: 0,
             id_index: HashMap::new(),
             class_index: HashMap::new(),
+            style_overrides: HashMap::new(),
+            stylesheet: crate::style::Stylesheet::new(),
         }
+    }
+
+    /// Acrescenta o conteúdo de um `<style>` ao stylesheet de autor da página
+    /// (chamado pelo parser ao encontrar um `RawElement` de `style`). Vários
+    /// `<style>` acumulam, com as regras posteriores desempatando por cima.
+    pub fn add_stylesheet(&mut self, css: &str) {
+        self.stylesheet.append_css(css);
+    }
+
+    /// O stylesheet de autor acumulado (regras dos `<style>`). Exposto p/ inspeção/teste.
+    pub fn stylesheet(&self) -> &crate::style::Stylesheet {
+        &self.stylesheet
     }
 
     /// A geração desta árvore (para o render/ABI compor `NodeId` versionados).
@@ -325,23 +354,108 @@ impl Dom {
         self.nodes[idx].children.push(child);
     }
 
-    /// Resolve o `ComputedStyle` de um nó: estilo-de-TAG (`defineStyle`) com o
-    /// `style=""` inline sobreposto. É o estado que o LAYOUT (em TS) lê para
-    /// decidir cor/caixa/tamanho. `None` se o id não resolve ou não é elemento.
-    /// (Mesma precedência do render: herdado < tag < inline; a herança é aplicada
-    /// pelo layout, aqui só o estilo PRÓPRIO do nó.)
+    /// Resolve o `ComputedStyle` final de um nó pela cascade da MDN (estágio 1
+    /// origem/importância → especificidade → ordem). É o estado que o LAYOUT (em
+    /// TS) e o render leem para decidir cor/caixa/tamanho. `None` se o id não
+    /// resolve ou não é elemento. (A herança de color/font-size é aplicada por quem
+    /// desce a árvore; aqui só o estilo PRÓPRIO do nó.)
     pub fn computed_style(&self, id: NodeId) -> Option<crate::style::ComputedStyle> {
-        let idx = self.resolve(id)?;
+        self.computed_style_idx(self.resolve(id)?)
+    }
+
+    /// Igual a [`computed_style`](Dom::computed_style), mas por `NodeIdx` cru — o
+    /// render desce a árvore em índices. `None` se o nó não é elemento.
+    ///
+    /// Aplica a cascade COMPLETA da MDN, em duas passagens (estágio 1: `!important`
+    /// inverte a precedência de origem):
+    /// - **Normais**, do mais fraco ao mais forte: `defineStyle` (UA) < `<style>`
+    ///   autor < `style=""` inline < override por-nó (`setStyleBatch`).
+    /// - **Important**, por cima de tudo, na mesma ordem de origem: `<style>`
+    ///   important < inline important < override (tratado como mais forte).
+    pub fn computed_style_idx(&self, idx: NodeIdx) -> Option<crate::style::ComputedStyle> {
+        use crate::style;
         let tag = match &self.nodes[idx].kind {
-            NodeKind::Element { tag } => tag.as_str(),
+            NodeKind::Element { tag } => tag.clone(),
             _ => return None,
         };
-        let mut css = crate::style::lookup_style(tag).unwrap_or_default();
-        if let Some(s) = self.nodes[idx].attr("style") {
-            let inline = crate::style::parse_inline(s);
-            css.merge_over(&inline);
+        // Stylesheet de autor resolvido para este nó (normal + important separados).
+        let author = if self.stylesheet.is_empty() {
+            style::DeclBlock::default()
+        } else {
+            let id_attr = self.nodes[idx].attr("id");
+            let classes: Vec<&str> = self.nodes[idx]
+                .attr("class")
+                .map(|c| c.split_whitespace().collect())
+                .unwrap_or_default();
+            self.stylesheet.computed_for(&tag, id_attr, &classes)
+        };
+        // `style=""` inline (normal + important).
+        let inline = self.nodes[idx]
+            .attr("style")
+            .map(style::parse_inline_block)
+            .unwrap_or_default();
+        let override_node = self.style_overrides.get(&idx);
+
+        // ── Passe 1: NORMAIS (fraco → forte) ────────────────────────────────────
+        let mut css = style::lookup_style(&tag).unwrap_or_default(); // UA/defineStyle
+        css.merge_over(&author.normal); // <style> autor
+        css.merge_over(&inline.normal); // style="" inline
+        if let Some(ov) = override_node {
+            css.merge_over(ov); // override por-nó (setStyleBatch)
         }
+        // ── Passe 2: IMPORTANT (vencem qualquer normal) ─────────────────────────
+        css.merge_over(&author.important); // <style> !important
+        css.merge_over(&inline.important); // inline !important
         Some(css)
+    }
+
+    /// `true` se a tag do nó é texto-cru não-renderável (`<style>`/`<script>`): o
+    /// render deve PULAR (o conteúdo é CSS/JS, não conteúdo de página). O CSS já foi
+    /// absorvido pelo stylesheet no parse.
+    pub fn is_raw_text_element(&self, idx: NodeIdx) -> bool {
+        matches!(&self.nodes[idx].kind, NodeKind::Element { tag } if tag == "style" || tag == "script")
+    }
+
+    /// Aplica UM slot de estilo OPACO (invariante 4) a UM nó, acumulando no
+    /// override por-nó (`setStyle` por-nó / base do `setStyleBatch`). O `(slot,
+    /// val)` é interpretado pelo `apply_slot` do `ComputedStyle` (nunca casa string
+    /// CSS aqui). Ignora id que não resolve.
+    pub fn set_node_style_slot(&mut self, id: NodeId, slot: i64, val: i64) {
+        if let Some(idx) = self.resolve(id) {
+            self.style_overrides.entry(idx).or_default().apply_slot(slot, val);
+        }
+    }
+
+    /// Aplica um LOTE de triplas `(nodeId, slot, val)` de uma vez (invariante 6:
+    /// estilizar N nós por frame não pode ser N×5 FFIs). Cada tripla acumula no
+    /// override do seu nó. O `nodes` é uma fatia plana `[id0, slot0, val0, id1,
+    /// slot1, val1, …]` (o jeito que o buffer GC chega da ABI). Triplas com id
+    /// inválido são ignoradas (robustez).
+    pub fn apply_style_batch(&mut self, triples: &[i64]) {
+        for t in triples.chunks_exact(3) {
+            if let Some(node) = NodeId::from_abi(t[0]) {
+                self.set_node_style_slot(node, t[1], t[2]);
+            }
+        }
+    }
+
+    /// Limpa TODOS os overrides por-nó (`setStyleBatch` recomeça do zero). Útil se
+    /// o app quer re-estilizar do zero num frame em vez de acumular.
+    pub fn clear_style_overrides(&mut self) {
+        self.style_overrides.clear();
+    }
+
+    /// O override de estilo POR-NÓ de um nó (`setStyleBatch`), se houver. O render
+    /// o mescla como 3ª camada (após tag e `style=""` inline). `None` = sem override.
+    pub fn node_style_override(&self, id: NodeId) -> Option<crate::style::ComputedStyle> {
+        let idx = self.resolve(id)?;
+        self.style_overrides.get(&idx).copied()
+    }
+
+    /// Idem [`node_style_override`], mas por `NodeIdx` cru (o render de texto opera
+    /// em índices ao descer a árvore). `None` = sem override.
+    pub fn style_override_idx(&self, idx: NodeIdx) -> Option<crate::style::ComputedStyle> {
+        self.style_overrides.get(&idx).copied()
     }
 
     /// O código de `display` de um nó (do `BlockDef` registrado p/ a tag), ou
@@ -405,6 +519,62 @@ impl Dom {
             .filter(|&&c| matches!(self.nodes[c].kind, NodeKind::Element { .. }))
             .map(|&c| self.make_id(c))
             .collect()
+    }
+
+    /// TODOS os filhos de um nó (`node.childNodes` — inclui nós de TEXTO), em
+    /// ordem de documento. Vazio se o id não resolve. (`child_elements` filtra só
+    /// elementos; este é o `childNodes` cru do DOM.)
+    pub fn child_nodes(&self, id: NodeId) -> Vec<NodeId> {
+        let Some(idx) = self.resolve(id) else { return Vec::new() };
+        self.nodes[idx].children.iter().map(|&c| self.make_id(c)).collect()
+    }
+
+    // ── Navegação do DOM (parentNode / first|lastChild / next|previousSibling) ───
+    // O `parent`/`children` da arena já têm tudo; aqui só expomos no vocabulário do
+    // DOM. `None`/`-1` na fronteira ABI quando não há (raiz não tem pai; primeiro
+    // filho não tem irmão anterior; etc.).
+
+    /// `node.parentNode`: o pai, ou `None` para a raiz `#document` (ou id inválido).
+    pub fn parent_of(&self, id: NodeId) -> Option<NodeId> {
+        let idx = self.resolve(id)?;
+        self.nodes[idx].parent.map(|p| self.make_id(p))
+    }
+
+    /// `node.firstChild`: o PRIMEIRO filho (qualquer tipo, inclui Text), ou `None`.
+    pub fn first_child(&self, id: NodeId) -> Option<NodeId> {
+        let idx = self.resolve(id)?;
+        self.nodes[idx].children.first().map(|&c| self.make_id(c))
+    }
+
+    /// `node.lastChild`: o ÚLTIMO filho (qualquer tipo), ou `None`.
+    pub fn last_child(&self, id: NodeId) -> Option<NodeId> {
+        let idx = self.resolve(id)?;
+        self.nodes[idx].children.last().map(|&c| self.make_id(c))
+    }
+
+    /// `node.nextSibling`: o próximo irmão na lista de filhos do pai, ou `None` se
+    /// é o último (ou não tem pai / id inválido).
+    pub fn next_sibling(&self, id: NodeId) -> Option<NodeId> {
+        self.sibling(id, 1)
+    }
+
+    /// `node.previousSibling`: o irmão anterior, ou `None` se é o primeiro.
+    pub fn previous_sibling(&self, id: NodeId) -> Option<NodeId> {
+        self.sibling(id, -1)
+    }
+
+    /// Irmão a `delta` posições (`+1` próximo, `-1` anterior). Acha a posição do nó
+    /// na lista de filhos do pai e desloca; `None` se sai dos limites.
+    fn sibling(&self, id: NodeId, delta: isize) -> Option<NodeId> {
+        let idx = self.resolve(id)?;
+        let parent = self.nodes[idx].parent?;
+        let sibs = &self.nodes[parent].children;
+        let pos = sibs.iter().position(|&c| c == idx)?;
+        let target = pos as isize + delta;
+        if target < 0 || target as usize >= sibs.len() {
+            return None;
+        }
+        Some(self.make_id(sibs[target as usize]))
     }
 
     /// Todos os nós que casam um seletor simples (`querySelectorAll`), em ordem de
@@ -474,6 +644,59 @@ impl Dom {
     pub fn create_element(&mut self, tag: &str) -> NodeId {
         let idx = self.push_detached(NodeKind::Element { tag: tag.to_ascii_lowercase() });
         self.make_id(idx)
+    }
+
+    /// Cria um nó de TEXTO solto com o conteúdo dado (`document.createTextNode`).
+    /// Ligue com `append_child`/`insert_before`.
+    pub fn create_text_node(&mut self, text: &str) -> NodeId {
+        let idx = self.push_detached(NodeKind::Text(text.to_string()));
+        self.make_id(idx)
+    }
+
+    /// Insere `child` ANTES de `reference` na lista de filhos de `parent`
+    /// (`parent.insertBefore(child, reference)`). Se `reference` é `None` ou não é
+    /// filho de `parent`, anexa ao fim (semântica do DOM). Move `child` do pai
+    /// antigo; ignora ids inválidos/ciclos.
+    pub fn insert_before(&mut self, parent: NodeId, child: NodeId, reference: Option<NodeId>) {
+        let (Some(parent), Some(child)) = (self.resolve(parent), self.resolve(child)) else {
+            return;
+        };
+        if parent == child || self.is_ancestor(child, parent) {
+            return;
+        }
+        let ref_idx = reference.and_then(|r| self.resolve(r));
+        self.detach(child);
+        self.nodes[child].parent = Some(parent);
+        // posição do nó de referência entre os filhos do pai; sem ref → fim.
+        let pos = ref_idx
+            .and_then(|r| self.nodes[parent].children.iter().position(|&c| c == r))
+            .unwrap_or(self.nodes[parent].children.len());
+        self.nodes[parent].children.insert(pos, child);
+    }
+
+    /// `node.nodeType` — código numérico do DOM: Element=1, Text=3, Comment=8,
+    /// Document=9. `-1` se o id não resolve.
+    pub fn node_type(&self, id: NodeId) -> i64 {
+        let Some(idx) = self.resolve(id) else { return -1 };
+        match &self.nodes[idx].kind {
+            NodeKind::Element { .. } => 1,
+            NodeKind::Text(_) => 3,
+            NodeKind::Comment(_) => 8,
+            NodeKind::Document => 9,
+        }
+    }
+
+    /// `node.nodeName` — nome do DOM: a TAG (maiúscula no browser; aqui devolvemos
+    /// como está, minúscula) para Element; `#text`/`#comment`/`#document` para os
+    /// demais. `None` se o id não resolve.
+    pub fn node_name(&self, id: NodeId) -> Option<String> {
+        let idx = self.resolve(id)?;
+        Some(match &self.nodes[idx].kind {
+            NodeKind::Element { tag } => tag.clone(),
+            NodeKind::Text(_) => "#text".to_string(),
+            NodeKind::Comment(_) => "#comment".to_string(),
+            NodeKind::Document => "#document".to_string(),
+        })
     }
 
     /// Move `child` para o fim dos filhos de `parent` (`parent.appendChild`).
@@ -572,6 +795,11 @@ impl Dom {
                 out.push_str(t);
                 out.push('"');
             }
+            NodeKind::Comment(c) => {
+                out.push_str("<!--");
+                out.push_str(c);
+                out.push_str("-->");
+            }
         }
         out.push('\n');
         for &child in &node.children {
@@ -660,6 +888,11 @@ fn parse_attrs(raw: &str) -> Vec<Attr> {
 ///   descartado, como no caminho immediate-mode, para a árvore não encher de
 ///   nós de espaço irrelevantes).
 pub fn parse_html_to_dom(html: &str) -> Dom {
+    // Instala a UA-stylesheet (defaults de display/margem das tags HTML) na primeira
+    // vez — em Rust, como DADOS (tabela em block.rs), rodando só quando há DOM. NÃO é
+    // mais um prelude `.ts` (isso quebrava todo programa: o `ua.ts` chamava `dom.*`
+    // no top-level e `dom` é unbound sem `import "rts:dom"`). Idempotente.
+    crate::block::install_ua_defaults();
     let mut dom = Dom::new();
     // Pilha de (índice cru aberto, nome da tag). Começa na raiz Document.
     let mut open: Vec<(NodeIdx, String)> = vec![(dom.root, String::new())];
@@ -689,6 +922,27 @@ pub fn parse_html_to_dom(html: &str) -> Dom {
                 }
                 let parent = open.last().unwrap().0;
                 dom.push(NodeKind::Text(text), Vec::new(), parent);
+            }
+            Token::Comment(content) => {
+                // DOM fiel preserva comentários como nós (nodeType 8); o render os
+                // ignora. Conteúdo cru (sem decodificar entidades).
+                let parent = open.last().unwrap().0;
+                dom.push(NodeKind::Comment(content), Vec::new(), parent);
+            }
+            Token::RawElement { tag, content } => {
+                // `<style>`/`<script>`: DOM fiel preserva o ELEMENTO (com o texto cru
+                // como filho), mas o conteúdo NÃO é HTML. Para `<style>`, o CSS
+                // alimenta o stylesheet de autor (a cascade de `computed_style`).
+                // Para `<script>`, só preserva o nó (não executamos JS). O render
+                // ignora ambos (sem `BlockDef`/inline para essas tags).
+                if tag == "style" {
+                    dom.add_stylesheet(&content);
+                }
+                let parent = open.last().unwrap().0;
+                let el = dom.push(NodeKind::Element { tag }, Vec::new(), parent);
+                if !content.is_empty() {
+                    dom.push(NodeKind::Text(content), Vec::new(), el);
+                }
             }
         }
     }
@@ -731,6 +985,179 @@ mod tests {
         // sem match
         assert_eq!(dom.query("#naoexiste"), None);
         assert_eq!(dom.query(".naoexiste"), None);
+    }
+
+    #[test]
+    fn navegacao_dom() {
+        // parentNode / first|lastChild / next|previousSibling sobre <div><a/><b/><i/></div>
+        let dom = parse_html_to_dom("<div><a>1</a><b>2</b><i>3</i></div>");
+        let div = dom.query("div").unwrap();
+        let a = dom.query("a").unwrap();
+        let b = dom.query("b").unwrap();
+        let i = dom.query("i").unwrap();
+        // parentNode
+        assert_eq!(dom.parent_of(a), Some(div));
+        assert_eq!(dom.parent_of(div).map(|p| idx(&dom, p)), Some(dom.root)); // pai do div = #document
+        // first/lastChild do div
+        assert_eq!(dom.first_child(div), Some(a));
+        assert_eq!(dom.last_child(div), Some(i));
+        // siblings
+        assert_eq!(dom.next_sibling(a), Some(b));
+        assert_eq!(dom.next_sibling(b), Some(i));
+        assert_eq!(dom.next_sibling(i), None); // último
+        assert_eq!(dom.previous_sibling(i), Some(b));
+        assert_eq!(dom.previous_sibling(a), None); // primeiro
+    }
+
+    #[test]
+    fn create_text_e_insert_before() {
+        let mut dom = parse_html_to_dom("<ul><li>b</li></ul>");
+        let ul = dom.query("ul").unwrap();
+        let li_b = dom.query("li").unwrap();
+        // createElement + insertBefore(novo, li_b) → novo vira PRIMEIRO filho.
+        let li_a = dom.create_element("li");
+        dom.insert_before(ul, li_a, Some(li_b));
+        assert_eq!(dom.first_child(ul), Some(li_a));
+        assert_eq!(dom.next_sibling(li_a), Some(li_b));
+        // createTextNode + appendChild dentro do li_a.
+        let txt = dom.create_text_node("a");
+        dom.append_child(li_a, txt);
+        assert_eq!(dom.node_type(txt), 3); // Text
+        assert_eq!(dom.first_child(li_a), Some(txt));
+        // insert_before com reference None → anexa ao fim.
+        let li_c = dom.create_element("li");
+        dom.insert_before(ul, li_c, None);
+        assert_eq!(dom.last_child(ul), Some(li_c));
+    }
+
+    #[test]
+    fn style_override_por_no_e_batch() {
+        use crate::style::{SLOT_BG, SLOT_COLOR};
+        let mut dom = parse_html_to_dom("<div><p id='a'>x</p><p id='b'>y</p></div>");
+        let a = dom.query("#a").unwrap();
+        let b = dom.query("#b").unwrap();
+        // setNodeStyleSlot (1 nó, 1 slot): cor vermelha no #a.
+        dom.set_node_style_slot(a, SLOT_COLOR, 0xFF0000FF);
+        assert_eq!(dom.computed_style(a).unwrap().color, Some(0xFF0000FF));
+        assert_eq!(dom.computed_style(b).unwrap().color, None); // #b intacto
+        // batch: triplas planas [id, slot, val] — bg em ambos + cor no #b.
+        let triples = vec![
+            a.to_abi(), SLOT_BG, 0x111111FF,
+            b.to_abi(), SLOT_BG, 0x222222FF,
+            b.to_abi(), SLOT_COLOR, 0x00FF00FF,
+        ];
+        dom.apply_style_batch(&triples);
+        assert_eq!(dom.computed_style(a).unwrap().bg, Some(0x111111FF));
+        assert_eq!(dom.computed_style(b).unwrap().bg, Some(0x222222FF));
+        assert_eq!(dom.computed_style(b).unwrap().color, Some(0x00FF00FF));
+        // o override VENCE o estilo inline:
+        let mut dom2 = parse_html_to_dom("<p id='c' style='color:#0000ff'>z</p>");
+        let c = dom2.query("#c").unwrap();
+        assert_eq!(dom2.computed_style(c).unwrap().color, Some(0x0000FFFF)); // inline
+        dom2.set_node_style_slot(c, SLOT_COLOR, 0xFF0000FF);
+        assert_eq!(dom2.computed_style(c).unwrap().color, Some(0xFF0000FF)); // override vence
+    }
+
+    #[test]
+    fn style_tag_alimenta_cascade() {
+        // <style> com tag/.class/#id alimenta o computed_style por especificidade.
+        let dom = parse_html_to_dom(
+            "<style>p { color:#ff0000; font-size:14 } .hl { color:#00ff00 } #x { color:#0000ff }</style>\
+             <p>normal</p><p class='hl'>destaque</p><p id='x' class='hl'>id</p>",
+        );
+        let ps = dom.query_all("p");
+        assert_eq!(ps.len(), 3);
+        // <p> normal: regra de tag.
+        let s0 = dom.computed_style(ps[0]).unwrap();
+        assert_eq!(s0.color, Some(0xFF0000FF));
+        assert_eq!(s0.font_size, Some(14.0));
+        // <p class="hl">: classe vence a tag na cor; font-size herda da tag.
+        let s1 = dom.computed_style(ps[1]).unwrap();
+        assert_eq!(s1.color, Some(0x00FF00FF));
+        assert_eq!(s1.font_size, Some(14.0));
+        // <p id="x" class="hl">: id vence tudo.
+        let s2 = dom.computed_style(ps[2]).unwrap();
+        assert_eq!(s2.color, Some(0x0000FFFF));
+    }
+
+    #[test]
+    fn style_tag_precede_inline_e_preserva_no() {
+        // precedência: <style> autor < style="" inline.
+        let dom = parse_html_to_dom(
+            "<style>.c { color:#ff0000; padding:10 }</style>\
+             <div class='c' style='color:#0000ff'>x</div>",
+        );
+        let div = dom.query(".c").unwrap();
+        let s = dom.computed_style(div).unwrap();
+        assert_eq!(s.color, Some(0x0000FFFF)); // inline vence o <style>
+        assert_eq!(s.padding, Some(10.0)); // padding só o <style> define
+        // o <style> também vira NÓ no DOM (fiel), com o CSS como texto cru filho.
+        let st = dom.query("style").unwrap();
+        assert_eq!(dom.node_type(st), 1); // Element
+        let kids = dom.child_nodes(st);
+        assert_eq!(kids.len(), 1);
+        assert_eq!(dom.node_type(kids[0]), 3); // Text (o CSS cru)
+    }
+
+    #[test]
+    fn important_inverte_precedencia_de_origem() {
+        // MDN estágio 1: `<style>` com `!important` vence o `style=""` inline NORMAL
+        // (normalmente o inline venceria o autor; o `!important` inverte isso).
+        let dom = parse_html_to_dom(
+            "<style>.c { color:#ff0000 !important }</style>\
+             <div class='c' style='color:#0000ff'>x</div>",
+        );
+        let div = dom.query(".c").unwrap();
+        assert_eq!(dom.computed_style(div).unwrap().color, Some(0xFF0000FF)); // important vence
+        // mas inline `!important` vence o autor `!important` (mesma camada, inline
+        // é origem mais forte que o `<style>`):
+        let dom2 = parse_html_to_dom(
+            "<style>.c { color:#ff0000 !important }</style>\
+             <div class='c' style='color:#0000ff !important'>x</div>",
+        );
+        let div2 = dom2.query(".c").unwrap();
+        assert_eq!(dom2.computed_style(div2).unwrap().color, Some(0x0000FFFF)); // inline important
+    }
+
+    #[test]
+    fn style_tag_conteudo_nao_vira_html() {
+        // CSS com `{`, `>` em `a > b` não deve criar tags-fantasma na árvore.
+        let dom = parse_html_to_dom("<style>a > b { color:red } p { color:blue }</style><p>oi</p>");
+        // o `<b>` do combinador NÃO vira nó na árvore (ficou dentro do raw-text).
+        assert!(dom.query("b").is_none());
+        assert!(dom.query("p").is_some());
+        // o combinador `a > b` é cortado (não suportado); mas `p { }` simples passa.
+        assert!(!dom.stylesheet().is_empty());
+        assert_eq!(dom.computed_style(dom.query("p").unwrap()).unwrap().color, Some(0x0000FFFF));
+    }
+
+    #[test]
+    fn parser_preserva_comentarios() {
+        // DOM fiel: <!-- --> vira nó Comment (nodeType 8), não é descartado.
+        let dom = parse_html_to_dom("<div><!-- nota --><p>oi</p></div>");
+        let div = dom.query("div").unwrap();
+        let kids = dom.child_nodes(div); // childNodes inclui o comentário
+        assert_eq!(kids.len(), 2); // Comment + <p>
+        assert_eq!(dom.node_type(kids[0]), 8); // Comment
+        assert_eq!(dom.node_name(kids[0]).as_deref(), Some("#comment"));
+        assert_eq!(dom.node_type(kids[1]), 1); // <p>
+        // o `>` DENTRO do comentário não encerra cedo:
+        let dom2 = parse_html_to_dom("<!-- a > b --><span>x</span>");
+        let span = dom2.query("span").unwrap();
+        assert_eq!(dom2.node_type(span), 1); // span foi parseado corretamente
+    }
+
+    #[test]
+    fn node_type_e_name() {
+        let mut dom = parse_html_to_dom("<p>oi</p>");
+        let p = dom.query("p").unwrap();
+        let txt = dom.first_child(p).unwrap();
+        assert_eq!(dom.node_type(p), 1); // Element
+        assert_eq!(dom.node_name(p).as_deref(), Some("p"));
+        assert_eq!(dom.node_type(txt), 3); // Text
+        assert_eq!(dom.node_name(txt).as_deref(), Some("#text"));
+        let c = dom.create_text_node("x");
+        assert_eq!(dom.node_type(c), 3);
     }
 
     #[test]

@@ -1,19 +1,24 @@
-# Motor de render HTML+CSS do RTS — NORTH STAR (alvo de longuíssimo prazo, congelado)
+# Motor de render HTML+CSS do RTS — ARQUITETURA-ALVO (5 árvores; reativado 2026-06-27)
 
-> 🧭 **PAPEL DESTE DOCUMENTO (decisão de 2026-06-23):** este é o **north-star** —
-> a referência conceitual do TETO TEÓRICO de um motor de browser canônico (5
-> árvores DOM→Style→Layout→DisplayList→Paint, paint absoluto universal, cascade
-> CSS completa). **NÃO é um plano de execução.** Ninguém pega trabalho daqui.
-> O plano operacional vivo é **[`rts-html-roadmap.md`](rts-html-roadmap.md)**
-> (fases F0-F5, evolução in-place do motor leve já na main).
+> ## ✅ REATIVADO COMO DIREÇÃO OFICIAL (2026-06-27)
+> Este documento **voltou a ser a arquitetura-alvo** do motor. Em 2026-06-27 o
+> desenvolvedor (Marcos) decidiu *"processar tudo no DOM e o egui só lê e exibe"*,
+> **revertendo a decisão #2 do roadmap** (que punha o layout no egui). As 5
+> árvores aqui descritas (DOM→Style→**Layout**→DisplayList→Paint, com o egui só
+> como backend de paint+medição) são agora o pipeline a construir. Motivo: layout
+> no egui torna **impossível trocar de UI** e deixa o DOM headless sem POSIÇÃO.
+> O trabalho segue as fases P0–P7 abaixo. Ver memória `project_layout_moves_to_dom`
+> e a nota de reversão no topo do `rts-html-roadmap.md`.
 >
-> Este north-star permanece como (a) documentação honesta do que o roadmap
-> deliberadamente NÃO alcança e por quê, e (b) referência só ativada se o
-> "critério de teto binário" de F4 do roadmap provar que o egui não basta para
-> além do parágrafo rico. Foi a `PLANO.md` original (de 5 árvores); rebaixado a
-> north-star porque a estratégia escolhida (ver roadmap §1) é evoluir o motor
-> leve in-place, com o egui como motor de layout por padrão e paint absoluto só
-> cirúrgico — não construir as 5 árvores como pipeline global.
+> 🧭 **PAPEL ORIGINAL (decisão de 2026-06-23, agora SUPERADA):** ~~este é o
+> north-star — referência conceitual congelada, não é plano de execução, ninguém
+> pega trabalho daqui~~. Isso valeu de 2026-06-23 a 2026-06-27, enquanto a
+> estratégia era o motor leve com egui-layout. **Não vale mais** — ver acima.
+>
+> **Crate:** o documento foi escrito quando o alvo era uma crate `rts-html` nova.
+> Hoje o DOM/estilo já vivem na crate **`rts-dom`** (extraída do rts-egui) — então
+> as fases Layout/DisplayList são ADITIVAS ao `rts-dom` existente (que já tem
+> DOM+Style+cascade+tag-`<style>`), não uma crate do zero. Trust o `rts-dom` real.
 
 > Status histórico (quando era a `PLANO.md`): PROPOSTA acionável (v1).
 > Linguagem de código: Rust (identificadores em inglês). Comunicação: português.

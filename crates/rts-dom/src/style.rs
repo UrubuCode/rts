@@ -16,6 +16,146 @@
 /// Cor RGBA empacotada `0xRRGGBBAA` num `u32`. Tipo próprio (não `Color32`).
 pub type Rgba = u32;
 
+/// O modo de `display` de um elemento (o eixo/fluxo dos filhos), parseado do CSS.
+/// Mapeia o vocabulário CSS para os modos de layout que o motor implementa.
+/// Egui-free. `None` no `ComputedStyle` = não declarado (usa o default da tag).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DisplayKind {
+    /// `display:block` — empilha os filhos na vertical, ocupa a largura (fluxo normal).
+    Block,
+    /// `display:flex` (row, sem wrap) — filhos lado a lado, encolhem pra caber.
+    Flex,
+    /// `display:flex` + `flex-wrap:wrap` — fluem lado a lado E quebram linha.
+    FlexWrap,
+    /// `display:inline`/`inline-block` — flui inline (no nível de bloco, trata como
+    /// wrap: itens lado a lado que quebram). É o default de tags custom no browser.
+    Inline,
+    /// `display:none` — não renderiza (nem ocupa espaço).
+    None,
+}
+
+impl DisplayKind {
+    /// Converte para o código de display do layout (0=vertical/block, 1=wrap,
+    /// 2=horizontal/flex, -1=none). Casa com `crate::block::DISPLAY_*`.
+    pub fn to_display_code(self) -> i64 {
+        match self {
+            DisplayKind::Block => 0,
+            DisplayKind::FlexWrap | DisplayKind::Inline => 1, // wrap (flui+quebra)
+            DisplayKind::Flex => 2,                            // horizontal (lado a lado)
+            DisplayKind::None => -1,
+        }
+    }
+}
+
+/// O contexto de resolução de uma [`Dimension`] relativa, conhecido só no
+/// render. Cada unidade resolve contra um eixo diferente (north-star risco 5: a
+/// resolução de `%`/`em`/`vw`/… é TARDIA, no layout, não no parse). Egui-free.
+#[derive(Clone, Copy, Debug)]
+pub struct ResolveCtx {
+    /// Largura do content-box do PAI (containing block) — base de `%` e `vw` (este
+    /// usa a largura da viewport, passada aqui como `viewport_w`).
+    pub parent_content_w: f32,
+    /// `font-size` COMPUTADO deste nó — base de `em`.
+    pub node_font_size: f32,
+    /// `font-size` da RAIZ (`:root`/`html`) — base de `rem`.
+    pub root_font_size: f32,
+    /// Largura da viewport (janela) em pontos — base de `vw`.
+    pub viewport_w: f32,
+    /// Altura da viewport (janela) em pontos — base de `vh`.
+    pub viewport_h: f32,
+}
+
+/// Uma dimensão de caixa que SOBREVIVE a unidade relativa até o layout (north-star
+/// risco 5): só `Px`/`Auto` resolvem de imediato; `Percent`/`Em`/`Rem`/`Vw`/`Vh`
+/// precisam de um eixo conhecido só no render (pai/fonte/viewport), então o tipo
+/// PRESERVA a forma e [`resolve`](Dimension::resolve) calcula tarde.
+/// Egui-free (tipo próprio, não `Vec2`/`f32`), como o resto do `style.rs`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Dimension {
+    /// `auto` — o layout decide (o egui usa a largura disponível).
+    Auto,
+    /// Valor absoluto em pontos/px (≥ 0).
+    Px(f32),
+    /// `%` do containing block (0..=100): `pai_content_w * p/100`.
+    Percent(f32),
+    /// `em` — múltiplo do `font-size` DESTE nó.
+    Em(f32),
+    /// `rem` — múltiplo do `font-size` da RAIZ.
+    Rem(f32),
+    /// `vw` — `%` da largura da viewport (0..=100): `viewport_w * v/100`.
+    Vw(f32),
+    /// `vh` — `%` da altura da viewport (0..=100): `viewport_h * v/100`.
+    Vh(f32),
+}
+
+impl Dimension {
+    /// Resolve para PONTOS absolutos, dado o contexto do render. `Auto` → `None`
+    /// (o layout decide). É chamado TARDE (em `frame/render.rs`), nunca no parse.
+    pub fn resolve(self, ctx: &ResolveCtx) -> Option<f32> {
+        let px = match self {
+            Dimension::Auto => return None,
+            Dimension::Px(v) => v,
+            Dimension::Percent(p) => ctx.parent_content_w * p / 100.0,
+            Dimension::Em(e) => ctx.node_font_size * e,
+            Dimension::Rem(r) => ctx.root_font_size * r,
+            Dimension::Vw(v) => ctx.viewport_w * v / 100.0,
+            Dimension::Vh(v) => ctx.viewport_h * v / 100.0,
+        };
+        Some(px.max(0.0))
+    }
+
+    /// Decodifica a forma ABI `i64` (o TS empacota a dimensão num único inteiro,
+    /// slot opaco — invariante 4). Esquema de FAIXAS por unidade (cada unidade tem
+    /// uma base; o valor é `× MILLI` para preservar 3 casas decimais sem float na
+    /// ABI). `< 0` (inclui `-1`) → `Auto`. O TS aplica a base; o Rust só decodifica
+    /// (nunca casa string CSS). Faixas em [`DIM_BASE_*`].
+    pub fn from_abi(v: i64) -> Option<Self> {
+        if v < 0 {
+            return Some(Dimension::Auto);
+        }
+        // `unit_of` separa a base (faixa) do valor-em-milésimos.
+        let unit = v / DIM_RANGE;
+        let milli = (v % DIM_RANGE) as f32 / 1000.0;
+        Some(match unit {
+            0 => Dimension::Px(milli),
+            1 => Dimension::Percent(milli),
+            2 => Dimension::Em(milli),
+            3 => Dimension::Rem(milli),
+            4 => Dimension::Vw(milli),
+            5 => Dimension::Vh(milli),
+            _ => return None, // unidade desconhecida (TS registrou faixa futura)
+        })
+    }
+
+    /// Re-codifica para a forma ABI `i64` (inverso de [`from_abi`]), para o
+    /// `slot_value`/`nodeStyleSlot` que o layout-TS lê.
+    pub fn to_abi(self) -> i64 {
+        let (unit, val) = match self {
+            Dimension::Auto => return -1,
+            Dimension::Px(v) => (0, v),
+            Dimension::Percent(p) => (1, p),
+            Dimension::Em(e) => (2, e),
+            Dimension::Rem(r) => (3, r),
+            Dimension::Vw(v) => (4, v),
+            Dimension::Vh(v) => (5, v),
+        };
+        unit * DIM_RANGE + (val * 1000.0) as i64
+    }
+}
+
+/// Tamanho de cada FAIXA de unidade na codificação ABI da [`Dimension`]. O valor
+/// dentro da faixa é `pontos × 1000` (3 casas decimais sem float na ABI), então a
+/// faixa cobre até 1.000.000 pontos — folgado. `unit = v / DIM_RANGE`,
+/// `valor = (v % DIM_RANGE) / 1000`. Bases: 0=px 1=% 2=em 3=rem 4=vw 5=vh.
+pub const DIM_RANGE: i64 = 1_000_000_000;
+/// Bases de unidade (o TS multiplica por [`DIM_RANGE`] e soma `valor×1000`).
+pub const DIM_BASE_PX: i64 = 0;
+pub const DIM_BASE_PERCENT: i64 = DIM_RANGE;
+pub const DIM_BASE_EM: i64 = 2 * DIM_RANGE;
+pub const DIM_BASE_REM: i64 = 3 * DIM_RANGE;
+pub const DIM_BASE_VW: i64 = 4 * DIM_RANGE;
+pub const DIM_BASE_VH: i64 = 5 * DIM_RANGE;
+
 /// Propriedades de estilo COMPUTADAS, com tipos próprios (egui-free). Cada campo
 /// é `Option` = "não especificado" → o render mantém o valor herdado/default.
 #[derive(Clone, Copy, Default, PartialEq, Debug)]
@@ -33,12 +173,33 @@ pub struct ComputedStyle {
     pub padding: Option<f32>,
     /// Espaço EXTERNO ao redor da caixa (todos os lados).
     pub margin: Option<f32>,
+    /// Margem VERTICAL apenas (top/bottom), sem afetar o eixo horizontal. É o que
+    /// a UA-stylesheet usa para separar blocos (`h1`/`p` têm `margin: Npx 0` — só
+    /// vertical, o left/right é 0). Distinto de `margin` (4 lados, do autor via
+    /// `margin: Npx`). No layout, o espaçamento vertical soma os dois; o horizontal
+    /// usa só `margin`. `None` = não especificado.
+    pub margin_v: Option<f32>,
     /// Espessura da borda em pontos (0 = sem borda).
     pub border_width: Option<f32>,
     /// Cor da borda, `0xRRGGBBAA`.
     pub border_color: Option<Rgba>,
     /// Raio dos cantos em pontos.
     pub corner_radius: Option<f32>,
+    /// Largura da caixa (`Px`/`Percent`/`Auto`). `Percent` resolve TARDE no render
+    /// contra o content-box do pai (north-star risco 5). `None` = não especificado
+    /// (= `Auto` efetivo: o egui usa a largura disponível).
+    pub width: Option<Dimension>,
+    /// `box-sizing: border-box` — quando `Some(true)`, o `width` declarado INCLUI
+    /// padding+border (a caixa tem exatamente `width`; o content é `width - pad -
+    /// border`). `None`/`Some(false)` = `content-box` (default CSS: `width` é só o
+    /// content, pad/border somam por fora). É o que faz 3 cards de 32% caberem.
+    pub border_box: Option<bool>,
+    /// `display` parseado do CSS (block/flex/inline/none). `None` = não declarado
+    /// (o layout usa o default da tag via `block::lookup`). Combina com `flex_wrap`.
+    pub display: Option<DisplayKind>,
+    /// `flex-wrap: wrap` — só relevante com `display:flex`; promove `Flex` a
+    /// `FlexWrap` na resolução. `None`/`Some(false)` = nowrap.
+    pub flex_wrap: Option<bool>,
 }
 
 impl ComputedStyle {
@@ -51,6 +212,7 @@ impl ComputedStyle {
             || self.margin.is_some()
             || self.border_width.is_some()
             || self.corner_radius.is_some()
+            || self.width.is_some()
     }
 
     /// Sobrepõe as propriedades `Some` de `other` sobre `self` (precedência CSS:
@@ -78,6 +240,9 @@ impl ComputedStyle {
         if other.margin.is_some() {
             self.margin = other.margin;
         }
+        if other.margin_v.is_some() {
+            self.margin_v = other.margin_v;
+        }
         if other.border_width.is_some() {
             self.border_width = other.border_width;
         }
@@ -86,6 +251,27 @@ impl ComputedStyle {
         }
         if other.corner_radius.is_some() {
             self.corner_radius = other.corner_radius;
+        }
+        if other.width.is_some() {
+            self.width = other.width;
+        }
+        if other.border_box.is_some() {
+            self.border_box = other.border_box;
+        }
+        if other.display.is_some() {
+            self.display = other.display;
+        }
+        if other.flex_wrap.is_some() {
+            self.flex_wrap = other.flex_wrap;
+        }
+    }
+
+    /// O `display` EFETIVO, combinando `display` + `flex_wrap` (flex + wrap →
+    /// FlexWrap). `None` se não declarado (o layout cai no default da tag).
+    pub fn effective_display(&self) -> Option<DisplayKind> {
+        match self.display {
+            Some(DisplayKind::Flex) if self.flex_wrap == Some(true) => Some(DisplayKind::FlexWrap),
+            other => other,
         }
     }
 
@@ -100,9 +286,11 @@ impl ComputedStyle {
             SLOT_FONT_SIZE => dim(self.font_size),
             SLOT_PADDING => dim(self.padding),
             SLOT_MARGIN => dim(self.margin),
+            SLOT_MARGIN_V => dim(self.margin_v),
             SLOT_BORDER_WIDTH => dim(self.border_width),
             SLOT_BORDER_COLOR => self.border_color.map(|c| c as i64).unwrap_or(-1),
             SLOT_CORNER_RADIUS => dim(self.corner_radius),
+            SLOT_WIDTH => self.width.map(|d| d.to_abi()).unwrap_or(-1),
             _ => -1,
         }
     }
@@ -121,6 +309,12 @@ pub const SLOT_MARGIN: i64 = 4;
 pub const SLOT_BORDER_WIDTH: i64 = 5;
 pub const SLOT_BORDER_COLOR: i64 = 6;
 pub const SLOT_CORNER_RADIUS: i64 = 7;
+/// `width`: o `val` é a `Dimension` codificada (Px = pontos diretos; Percent =
+/// `1_000_000 + p`; Auto/não-especificado = `-1`). Ver [`Dimension::from_abi`].
+pub const SLOT_WIDTH: i64 = 8;
+/// `margin_v`: margem VERTICAL apenas (top/bottom), em pontos. A UA-stylesheet usa
+/// para separar blocos sem deslocar no eixo horizontal.
+pub const SLOT_MARGIN_V: i64 = 9;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -173,24 +367,271 @@ impl ComputedStyle {
             }
             SLOT_PADDING => self.padding = dim(val),
             SLOT_MARGIN => self.margin = dim(val),
+            SLOT_MARGIN_V => self.margin_v = dim(val),
             SLOT_BORDER_WIDTH => self.border_width = dim(val),
             SLOT_BORDER_COLOR => self.border_color = Some(val as u32),
             SLOT_CORNER_RADIUS => self.corner_radius = dim(val),
+            // `width`: o `val` carrega a FORMA (Px/Percent/Auto) na codificação ABI
+            // de `Dimension` — o `-1` (Auto/não-especificado) zera o campo.
+            SLOT_WIDTH => {
+                self.width = match val {
+                    -1 => None,
+                    v => Dimension::from_abi(v),
+                }
+            }
             _ => {} // slot desconhecido: ignora (o TS mapeia o vocabulário CSS).
         }
     }
 }
 
-/// Parseia um `style="prop: valor; ..."` para um `ComputedStyle`. Ignora
-/// propriedades/valores desconhecidos sem panicar (robustez de parser real).
+// ── Stylesheet do `<style>` (cascade autor: tag < .class < #id) ─────────────────
+// O `<style>` traz CSS com SELETORES (`p {}`, `.card {}`, `#header {}`), diferente
+// do `defineStyle` (por-tag, slot opaco) e do `style=""` (um nó só). Aqui parseamos
+// o bloco inteiro numa lista de regras ordenadas e resolvemos por ESPECIFICIDADE
+// (id > classe > tag), fiel à cascade do navegador. Reusa `parse_inline` para o
+// corpo `{ ... }` de cada regra — o mesmo parser de declarações já existente; o
+// `<style>` só adiciona a camada de SELETOR por cima (não é "casar string CSS para
+// slot dispatch" — é parsing de CSS, igual ao `parse_inline`, permitido).
+
+/// Um seletor SIMPLES de uma regra `<style>`. Sem combinadores (descendente,
+/// `>`, `,` já é quebrado em regras separadas antes): só os três alvos básicos.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Selector {
+    /// `p`, `div`, `h1` — casa pela tag (em minúsculas). Especificidade 1.
+    Tag(String),
+    /// `.card` — casa se a classe está na lista `class=""`. Especificidade 10.
+    Class(String),
+    /// `#header` — casa pelo atributo `id`. Especificidade 100.
+    Id(String),
+    /// `*` — casa qualquer elemento. Especificidade 0 (a mais fraca).
+    Universal,
+}
+
+impl Selector {
+    /// Parseia UM seletor simples (já sem espaços). `None` se vazio/desconhecido
+    /// (combinadores como `div p` ou `a:hover` não são suportados nesta fase).
+    fn parse(s: &str) -> Option<Selector> {
+        let s = s.trim();
+        if s.is_empty() {
+            return None;
+        }
+        if s == "*" {
+            return Some(Selector::Universal);
+        }
+        if let Some(c) = s.strip_prefix('.') {
+            return (!c.is_empty() && is_ident(c)).then(|| Selector::Class(c.to_string()));
+        }
+        if let Some(i) = s.strip_prefix('#') {
+            return (!i.is_empty() && is_ident(i)).then(|| Selector::Id(i.to_string()));
+        }
+        // Tag: só letras/dígitos/`-` (rejeita `div p`, `a:hover`, `[attr]` etc — os
+        // combinadores e pseudo-classes são cortes conscientes desta fase).
+        is_ident(s).then(|| Selector::Tag(s.to_ascii_lowercase()))
+    }
+
+    /// Peso da cascade (CSS specificity, simplificado a um número): id=100,
+    /// classe=10, tag=1, universal=0. Empate é desfeito pela ORDEM (regra depois
+    /// vence) na aplicação.
+    pub fn specificity(&self) -> u32 {
+        match self {
+            Selector::Id(_) => 100,
+            Selector::Class(_) => 10,
+            Selector::Tag(_) => 1,
+            Selector::Universal => 0,
+        }
+    }
+}
+
+/// `true` se `s` é um identificador CSS simples (letra/dígito/`-`/`_`), o que
+/// distingue um seletor suportado de um combinador/pseudo que cortamos.
+fn is_ident(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// Uma regra do stylesheet: um seletor + as declarações já parseadas (separadas
+/// nas camadas normal/important da cascade). A ordem de declaração no fonte
+/// (`order`) desempata especificidades iguais.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Rule {
+    pub selector: Selector,
+    pub decls: DeclBlock,
+    /// Posição da regra no fonte (0-based) — desempate da cascade.
+    pub order: u32,
+}
+
+/// Um stylesheet de autor (o conteúdo de um `<style>`), já parseado em regras
+/// ordenadas. Egui-free como o resto. É anexado ao `Dom` e consultado na cascade
+/// de `computed_style`.
+///
+/// ## Fidelidade à cascade CSS da MDN
+///
+/// O modelo segue os estágios da cascade
+/// (<https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Cascade>):
+/// 1. **Origem/importância:** normais UA(`defineStyle`) < `<style>` autor <
+///    `style=""` inline < override-por-nó; depois os `!important` por cima (autor <
+///    inline) — `!important` inverte a precedência de origem. Em `Dom::computed_style`.
+/// 2. **Especificidade:** id(100) > classe(10) > tag(1) > universal(0) — em
+///    [`Selector::specificity`]; a regra mais específica sobrepõe.
+/// 3. **Ordem do fonte:** empate de especificidade → a regra DECLARADA DEPOIS
+///    vence (campo `order`, desempate em [`computed_for`](Stylesheet::computed_for)).
+/// 4. **Herança:** color/font-size descem do pai no render (`InlineStyle` herdado);
+///    propriedade não-tocada fica `None` (= valor herdado/default).
+///
+/// **Cortes conscientes desta fase** (subset CSS do roadmap, não bugs): `@layer`,
+/// seletores compostos (`.a.b`)/combinadores (`div p`, `>`), pseudo-classes
+/// (`:hover`), e as keywords `inherit`/`initial`/`unset`/`revert` não são suportados.
+/// (`!important` — estágio 1 da MDN — JÁ é suportado.)
+#[derive(Clone, Default, PartialEq, Debug)]
+pub struct Stylesheet {
+    pub rules: Vec<Rule>,
+}
+
+impl Stylesheet {
+    /// Stylesheet vazio (nenhuma regra).
+    pub fn new() -> Stylesheet {
+        Stylesheet { rules: Vec::new() }
+    }
+
+    /// `true` se não há nenhuma regra (atalho para o `computed_style` pular a
+    /// cascade quando a página não tem `<style>`).
+    pub fn is_empty(&self) -> bool {
+        self.rules.is_empty()
+    }
+
+    /// Acrescenta as regras de mais um bloco `<style>` (uma página pode ter vários).
+    /// As novas regras vêm DEPOIS (ordem maior), então desempatam por cima das
+    /// anteriores — fiel à cascade (regra de mesmo peso, declarada depois, vence).
+    pub fn append_css(&mut self, css: &str) {
+        let base = self.rules.len() as u32;
+        for (i, rule) in parse_rules(css).into_iter().enumerate() {
+            self.rules.push(Rule { order: base + i as u32, ..rule });
+        }
+    }
+
+    /// Computa o estilo de AUTOR para um elemento dado sua tag/id/classes,
+    /// aplicando todas as regras casadas conforme a cascade da MDN. Retorna um
+    /// [`DeclBlock`] (normal + important separados) — o chamador
+    /// (`Dom::computed_style`) intercala as camadas com as outras origens (inline,
+    /// override) respeitando o estágio 1 (`!important` inverte a precedência).
+    ///
+    /// Dentro de cada camada, as regras casadas são aplicadas em ordem de
+    /// (especificidade, order) crescente — a mais específica/posterior sobrepõe.
+    pub fn computed_for(&self, tag: &str, id: Option<&str>, classes: &[&str]) -> DeclBlock {
+        let mut matched: Vec<&Rule> = self
+            .rules
+            .iter()
+            .filter(|r| selector_matches(&r.selector, tag, id, classes))
+            .collect();
+        matched.sort_by_key(|r| (r.selector.specificity(), r.order));
+        let mut out = DeclBlock::default();
+        for r in &matched {
+            out.normal.merge_over(&r.decls.normal);
+        }
+        for r in &matched {
+            out.important.merge_over(&r.decls.important);
+        }
+        out
+    }
+}
+
+/// `true` se um seletor simples casa um elemento (por tag/id/classe).
+fn selector_matches(sel: &Selector, tag: &str, id: Option<&str>, classes: &[&str]) -> bool {
+    match sel {
+        Selector::Universal => true,
+        Selector::Tag(t) => t == tag,
+        Selector::Id(i) => id == Some(i.as_str()),
+        Selector::Class(c) => classes.contains(&c.as_str()),
+    }
+}
+
+/// Parseia o corpo de um `<style>` numa lista de [`Rule`] (sem `order`, que o
+/// `Stylesheet::append_css` atribui). Robusto: comentários `/* */` são removidos;
+/// regras malformadas (sem `{`/`}`, seletor desconhecido) são puladas sem panicar;
+/// `a, b { ... }` vira uma regra por seletor (mesmas declarações).
+pub fn parse_rules(css: &str) -> Vec<Rule> {
+    let css = strip_css_comments(css);
+    let mut rules = Vec::new();
+    let bytes = css.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        // Acha o `{` que abre o bloco de declarações.
+        let Some(brace) = css[i..].find('{').map(|r| i + r) else { break };
+        let selectors_raw = css[i..brace].trim();
+        // Acha o `}` que fecha; sem fechar, vai até o fim (tolerante).
+        let close = css[brace + 1..].find('}').map(|r| brace + 1 + r);
+        let (body, next) = match close {
+            Some(end) => (&css[brace + 1..end], end + 1),
+            None => (&css[brace + 1..], css.len()),
+        };
+        let decls = parse_inline_block(body); // reusa o parser de declarações (normal+important).
+        // `a, b, .c { }` → uma regra por seletor (lista separada por vírgula).
+        for sel_str in selectors_raw.split(',') {
+            if let Some(selector) = Selector::parse(sel_str) {
+                rules.push(Rule { selector, decls, order: 0 });
+            }
+        }
+        i = next;
+    }
+    rules
+}
+
+/// Remove blocos de comentário `/* ... */` do CSS (um passe, tolerante a não-fechado).
+fn strip_css_comments(css: &str) -> String {
+    let mut out = String::with_capacity(css.len());
+    let mut rest = css;
+    while let Some(start) = rest.find("/*") {
+        out.push_str(&rest[..start]);
+        match rest[start + 2..].find("*/") {
+            Some(end) => rest = &rest[start + 2 + end + 2..],
+            None => return out, // comentário não fechado: descarta o resto.
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Um bloco de declarações separado nas DUAS camadas de importância da cascade
+/// (MDN estágio 1): `normal` e `important`. Na cascade os `normal` de todas as
+/// regras são aplicados primeiro (por origem<especificidade<ordem); depois os
+/// `important`, na mesma ordem — então `!important` SEMPRE vence o normal, mas
+/// entre dois `important` a especificidade/ordem ainda desempata. Egui-free.
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
+pub struct DeclBlock {
+    /// Declarações normais (sem `!important`).
+    pub normal: ComputedStyle,
+    /// Declarações marcadas `!important` (vencem qualquer normal na cascade).
+    pub important: ComputedStyle,
+}
+
+impl DeclBlock {
+    /// `true` se nenhuma das camadas tem qualquer propriedade setada.
+    pub fn is_empty(&self) -> bool {
+        self.normal == ComputedStyle::default() && self.important == ComputedStyle::default()
+    }
+}
+
+/// Parseia um `style="prop: valor; ..."` para um [`ComputedStyle`] (só a camada
+/// NORMAL — atalho retrocompatível; `!important` inline é raro). Para a cascade
+/// completa com `!important`, use [`parse_inline_block`].
 pub fn parse_inline(style: &str) -> ComputedStyle {
-    let mut css = ComputedStyle::default();
+    parse_inline_block(style).normal
+}
+
+/// Parseia um bloco de declarações CSS (`"prop: valor; outra: x !important"`)
+/// separando as camadas normal/important (MDN estágio 1). Ignora
+/// propriedades/valores desconhecidos sem panicar (robustez de parser real).
+pub fn parse_inline_block(style: &str) -> DeclBlock {
+    let mut block = DeclBlock::default();
     for decl in style.split(';') {
         let mut it = decl.splitn(2, ':');
-        let (prop, val) = match (it.next(), it.next()) {
+        let (prop, val_raw) = match (it.next(), it.next()) {
             (Some(p), Some(v)) => (p.trim().to_ascii_lowercase(), v.trim()),
             _ => continue,
         };
+        // Destaca o sufixo `!important` (case-insensitive) do valor; a camada de
+        // destino depende dele.
+        let (val, important) = split_important(val_raw);
+        let css = if important { &mut block.important } else { &mut block.normal };
         match prop.as_str() {
             "color" => css.color = parse_color(val),
             "background-color" | "background" => css.bg = parse_color(val),
@@ -200,10 +641,38 @@ pub fn parse_inline(style: &str) -> ComputedStyle {
                 css.italic =
                     Some(val.eq_ignore_ascii_case("italic") || val.eq_ignore_ascii_case("oblique"))
             }
+            // ── Box model (F2): px puro para as caixas; `width` aceita px OU `%`. ──
+            "padding" => css.padding = parse_px(val),
+            "margin" => css.margin = parse_px(val),
+            "border-width" => css.border_width = parse_px(val),
+            "border-color" => css.border_color = parse_color(val),
+            "border-radius" => css.corner_radius = parse_px(val),
+            "width" => css.width = parse_dimension(val),
+            // `box-sizing: border-box | content-box` — border-box faz o `width`
+            // incluir padding+border (3 cards de 32% cabem). Default content-box.
+            "box-sizing" => css.border_box = Some(val.eq_ignore_ascii_case("border-box")),
+            // `display` — o eixo/fluxo dos filhos, do CSS (não mais só do defineBlock).
+            "display" => css.display = parse_display(val),
+            // `flex-wrap` — combina com display:flex para promover a FlexWrap.
+            "flex-wrap" => css.flex_wrap = Some(val.eq_ignore_ascii_case("wrap")),
             _ => {}
         }
     }
-    css
+    block
+}
+
+/// Separa o sufixo `!important` (case-insensitive, com espaços) de um valor CSS.
+/// Devolve `(valor_sem_important, é_important)`. `"red !important"` → `("red", true)`.
+fn split_important(val: &str) -> (&str, bool) {
+    let v = val.trim();
+    // Acha `!important` no fim, tolerante a espaço entre `!` e `important` não — a
+    // spec exige `!important` colado (espaço só antes do `!`).
+    let lower = v.to_ascii_lowercase();
+    if let Some(stripped) = lower.strip_suffix("!important") {
+        let cut = stripped.len();
+        return (v[..cut].trim_end(), true);
+    }
+    (v, false)
 }
 
 /// `font-size` em px (aceita "18px" ou "18"). Ignora unidades não-px por ora
@@ -212,6 +681,51 @@ fn parse_px(v: &str) -> Option<f32> {
     let v = v.trim();
     let num = v.strip_suffix("px").unwrap_or(v);
     num.trim().parse::<f32>().ok().filter(|n| *n > 0.0)
+}
+
+/// `width` como [`Dimension`], cobrindo as unidades de comprimento usuais:
+/// `auto`; `60%` → Percent; `1.5em` → Em; `2rem` → Rem; `50vw`/`80vh` → Vw/Vh;
+/// `280`/`280px` → Px. Unidades relativas resolvem TARDE no render (risco 5).
+/// Número inválido / unidade desconhecida → `None`. Ordem do match importa: testa
+/// sufixos de 3/2 letras (`rem`) ANTES dos de 1 (`%`) e do px implícito.
+fn parse_dimension(v: &str) -> Option<Dimension> {
+    let v = v.trim();
+    if v.eq_ignore_ascii_case("auto") {
+        return Some(Dimension::Auto);
+    }
+    // (sufixo, construtor, clamp_max) — `%`/`vw`/`vh` em 0..=100; resto sem teto.
+    let num = |s: &str| s.trim().parse::<f32>().ok().filter(|n| *n >= 0.0);
+    let low = v.to_ascii_lowercase();
+    // sufixos de 2+ letras primeiro (rem antes de em; px por último implícito).
+    if let Some(n) = low.strip_suffix("rem").and_then(num) {
+        return Some(Dimension::Rem(n));
+    }
+    if let Some(n) = low.strip_suffix("em").and_then(num) {
+        return Some(Dimension::Em(n));
+    }
+    if let Some(n) = low.strip_suffix("vw").and_then(num) {
+        return Some(Dimension::Vw(n.clamp(0.0, 100.0)));
+    }
+    if let Some(n) = low.strip_suffix("vh").and_then(num) {
+        return Some(Dimension::Vh(n.clamp(0.0, 100.0)));
+    }
+    if let Some(n) = low.strip_suffix('%').and_then(num) {
+        return Some(Dimension::Percent(n.clamp(0.0, 100.0)));
+    }
+    // px explícito ou número puro.
+    num(low.strip_suffix("px").unwrap_or(&low)).map(Dimension::Px)
+}
+
+/// Parseia `display: block|flex|inline|inline-block|none` para [`DisplayKind`].
+/// Valores não suportados (grid, table, …) → `None` (cai no default da tag).
+fn parse_display(v: &str) -> Option<DisplayKind> {
+    match v.trim().to_ascii_lowercase().as_str() {
+        "block" | "flow-root" => Some(DisplayKind::Block),
+        "flex" | "inline-flex" => Some(DisplayKind::Flex),
+        "inline" | "inline-block" => Some(DisplayKind::Inline),
+        "none" => Some(DisplayKind::None),
+        _ => None, // grid/table/etc — não suportado nesta fase.
+    }
 }
 
 /// `font-weight`: `bold`/`bolder` ou peso numérico ≥ 600 → negrito.
@@ -388,6 +902,167 @@ mod tests {
         s.apply_slot(SLOT_COLOR, 0xFFFFFFFF);
         s.apply_slot(SLOT_FONT_SIZE, 18);
         assert!(!s.has_box());
+    }
+
+    #[test]
+    fn dimension_abi_roundtrip() {
+        // F2: a codificação ABI por FAIXAS (px/%/em/rem/vw/vh) é reversível — o que
+        // o TS empacota o Rust decodifica e re-empacota igual. Auto = -1.
+        for d in [
+            Dimension::Auto,
+            Dimension::Px(280.5),
+            Dimension::Percent(60.0),
+            Dimension::Em(1.5),
+            Dimension::Rem(2.0),
+            Dimension::Vw(50.0),
+            Dimension::Vh(80.0),
+        ] {
+            assert_eq!(Dimension::from_abi(d.to_abi()), Some(d), "roundtrip {d:?}");
+        }
+        // contrato concreto das bases (valor × 1000 dentro da faixa):
+        assert_eq!(Dimension::from_abi(-1), Some(Dimension::Auto));
+        assert_eq!(Dimension::from_abi(DIM_BASE_PX + 280_000), Some(Dimension::Px(280.0)));
+        assert_eq!(Dimension::from_abi(DIM_BASE_PERCENT + 60_000), Some(Dimension::Percent(60.0)));
+        assert_eq!(Dimension::from_abi(DIM_BASE_EM + 1_500), Some(Dimension::Em(1.5)));
+        assert_eq!(Dimension::from_abi(DIM_BASE_VW + 50_000), Some(Dimension::Vw(50.0)));
+    }
+
+    #[test]
+    fn dimension_resolve() {
+        // F2: resolução TARDE contra o contexto do render (eixo por unidade).
+        let ctx = ResolveCtx {
+            parent_content_w: 400.0,
+            node_font_size: 16.0,
+            root_font_size: 20.0,
+            viewport_w: 1000.0,
+            viewport_h: 800.0,
+        };
+        assert_eq!(Dimension::Px(120.0).resolve(&ctx), Some(120.0));
+        assert_eq!(Dimension::Percent(50.0).resolve(&ctx), Some(200.0)); // 50% de 400
+        assert_eq!(Dimension::Em(2.0).resolve(&ctx), Some(32.0)); // 2 × 16
+        assert_eq!(Dimension::Rem(2.0).resolve(&ctx), Some(40.0)); // 2 × 20
+        assert_eq!(Dimension::Vw(10.0).resolve(&ctx), Some(100.0)); // 10% de 1000
+        assert_eq!(Dimension::Vh(25.0).resolve(&ctx), Some(200.0)); // 25% de 800
+        assert_eq!(Dimension::Auto.resolve(&ctx), None); // layout decide
+    }
+
+    #[test]
+    fn width_slot_e_parse() {
+        // via SLOT opaco (defineStyle): faixa por unidade.
+        let mut s = ComputedStyle::default();
+        s.apply_slot(SLOT_WIDTH, DIM_BASE_PERCENT + 50_000); // 50%
+        assert_eq!(s.width, Some(Dimension::Percent(50.0)));
+        assert!(s.has_box()); // width sozinho já é "caixa" (vira Frame com max_width).
+        s.apply_slot(SLOT_WIDTH, DIM_BASE_PX + 320_000); // sobrescreve com px
+        assert_eq!(s.width, Some(Dimension::Px(320.0)));
+        // via style="" inline: TODAS as unidades.
+        assert_eq!(parse_inline("width: 280").width, Some(Dimension::Px(280.0)));
+        assert_eq!(parse_inline("width: 280px").width, Some(Dimension::Px(280.0)));
+        assert_eq!(parse_inline("width: 60%").width, Some(Dimension::Percent(60.0)));
+        assert_eq!(parse_inline("width: 1.5em").width, Some(Dimension::Em(1.5)));
+        assert_eq!(parse_inline("width: 2rem").width, Some(Dimension::Rem(2.0)));
+        assert_eq!(parse_inline("width: 50vw").width, Some(Dimension::Vw(50.0)));
+        assert_eq!(parse_inline("width: 80vh").width, Some(Dimension::Vh(80.0)));
+        assert_eq!(parse_inline("width: auto").width, Some(Dimension::Auto));
+        // box props inline (F2): padding/margin/border/raio.
+        let c = parse_inline("padding: 12; margin: 6; border-width: 2; border-radius: 8");
+        assert_eq!(c.padding, Some(12.0));
+        assert_eq!(c.margin, Some(6.0));
+        assert_eq!(c.border_width, Some(2.0));
+        assert_eq!(c.corner_radius, Some(8.0));
+    }
+
+    #[test]
+    fn stylesheet_seletores_e_especificidade() {
+        // <style> com tag/.class/#id; #id > .class > tag na cascade.
+        let mut sheet = Stylesheet::new();
+        sheet.append_css(
+            "p { color:#ff0000; font-size:14 }
+             .card { color:#00ff00; padding:10 }
+             #alvo { color:#0000ff }",
+        );
+        // <p> simples: só a regra de tag.
+        let s = sheet.computed_for("p", None, &[]).normal;
+        assert_eq!(s.color, Some(0xFF0000FF));
+        assert_eq!(s.font_size, Some(14.0));
+        // <p class="card">: classe vence a tag na COR (10>1), mas font-size só a
+        // tag tem (herda), e padding só a classe.
+        let s = sheet.computed_for("p", None, &["card"]).normal;
+        assert_eq!(s.color, Some(0x00FF00FF)); // classe > tag
+        assert_eq!(s.font_size, Some(14.0)); // só a tag define
+        assert_eq!(s.padding, Some(10.0)); // só a classe define
+        // <p id="alvo" class="card">: id vence tudo na cor (100>10>1).
+        let s = sheet.computed_for("p", Some("alvo"), &["card"]).normal;
+        assert_eq!(s.color, Some(0x0000FFFF)); // id > classe > tag
+        assert_eq!(s.padding, Some(10.0)); // classe ainda aplica onde o id não toca
+    }
+
+    #[test]
+    fn stylesheet_empate_ordem_e_virgula() {
+        let mut sheet = Stylesheet::new();
+        // mesma especificidade (classe) → a DECLARADA DEPOIS vence.
+        sheet.append_css(".a { color:#ff0000 } .a { color:#00ff00 }");
+        assert_eq!(sheet.computed_for("div", None, &["a"]).normal.color, Some(0x00FF00FF));
+        // seletor-lista `h1, h2, .big { ... }` → aplica aos três.
+        let mut s2 = Stylesheet::new();
+        s2.append_css("h1, h2, .big { font-size:30 }");
+        assert_eq!(s2.computed_for("h1", None, &[]).normal.font_size, Some(30.0));
+        assert_eq!(s2.computed_for("h2", None, &[]).normal.font_size, Some(30.0));
+        assert_eq!(s2.computed_for("p", None, &["big"]).normal.font_size, Some(30.0));
+        assert_eq!(s2.computed_for("p", None, &[]).normal.font_size, None); // não casa
+    }
+
+    #[test]
+    fn stylesheet_universal_e_comentarios() {
+        let mut sheet = Stylesheet::new();
+        sheet.append_css(
+            "/* tema escuro */ * { color:#cccccc } /* destaque */ .hl { color:#ffff00 }",
+        );
+        // universal aplica a qualquer tag; a classe (mais específica) sobrepõe.
+        assert_eq!(sheet.computed_for("span", None, &[]).normal.color, Some(0xCCCCCCFF));
+        assert_eq!(sheet.computed_for("span", None, &["hl"]).normal.color, Some(0xFFFF00FF));
+    }
+
+    #[test]
+    fn important_separa_camadas() {
+        // `!important` vai para a camada important; normal fica na normal.
+        let b = parse_inline_block("color:#ff0000 !important; font-size:14");
+        assert_eq!(b.important.color, Some(0xFF0000FF));
+        assert_eq!(b.important.font_size, None);
+        assert_eq!(b.normal.font_size, Some(14.0));
+        assert_eq!(b.normal.color, None);
+        // case-insensitive e com espaço antes do `!`.
+        let b2 = parse_inline_block("padding: 10  !IMPORTANT");
+        assert_eq!(b2.important.padding, Some(10.0));
+    }
+
+    #[test]
+    fn important_vence_especificidade_maior() {
+        // MDN estágio 1: um `!important` de TAG vence um normal de #id (a importância
+        // inverte a precedência de origem/especificidade dentro da mesma origem-autor).
+        let mut sheet = Stylesheet::new();
+        sheet.append_css("p { color:#ff0000 !important } #x { color:#0000ff }");
+        let b = sheet.computed_for("p", Some("x"), &[]);
+        // normal: #id vence (azul). important: a tag (vermelho).
+        assert_eq!(b.normal.color, Some(0x0000FFFF));
+        assert_eq!(b.important.color, Some(0xFF0000FF));
+        // entre dois important, a especificidade volta a valer:
+        let mut s2 = Stylesheet::new();
+        s2.append_css("p { color:#ff0000 !important } #x { color:#0000ff !important }");
+        let b2 = s2.computed_for("p", Some("x"), &[]);
+        assert_eq!(b2.important.color, Some(0x0000FFFF)); // #id important vence tag important
+    }
+
+    #[test]
+    fn stylesheet_malformado_nao_panica() {
+        let mut sheet = Stylesheet::new();
+        // sem `}`, seletor com combinador (cortado), bloco vazio.
+        sheet.append_css("p { color:#ff0000  .x { } div p { color:#000 } #ok { font-size:20 }");
+        // o `#ok` (após o bloco sem-fechar consumir até o próximo `}`) ainda é lido
+        // de forma robusta; o importante é não panicar e parsear o que dá.
+        assert!(!sheet.is_empty());
+        // `div p` (combinador) não vira regra — corte consciente.
+        assert!(!sheet.rules.iter().any(|r| matches!(&r.selector, Selector::Tag(t) if t.contains(' '))));
     }
 
     #[test]

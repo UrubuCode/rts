@@ -87,13 +87,16 @@ pub extern "C" fn __RTS_FN_NS_EGUI_END_FRAME(h: u64) {
         // Ui` pai — que NÃO temos aqui (estamos no nível do `Context`, dentro do
         // pass aberto por `begin_pass`). Para um painel raiz a partir do
         // `Context`, `show` continua sendo a API correta; o allow é localizado.
-        // Janela transparente → painel SEM fundo (Frame::NONE), pra o clear
-        // transparente (e o SO) aparecerem onde o conteúdo não pinta. Opaco →
-        // painel padrão (fundo do tema).
+        // Margem do painel ZERADA: TODO o espaçamento da borda deve vir do CSS
+        // (`body { margin/padding }`), não do egui — senão há espaçamento duplo e
+        // o DOM não controla o layout (a "borda à esquerda" que aparecia era a
+        // `inner_margin` padrão do tema). O DOM/CSS é o dono do espaçamento.
+        // Transparente → sem fundo (Frame::NONE); opaco → fundo do tema mas margem 0.
         let panel = if c.transparent {
             egui::CentralPanel::default().frame(egui::Frame::NONE)
         } else {
-            egui::CentralPanel::default()
+            let bg = c.egui_ctx.style().visuals.panel_fill;
+            egui::CentralPanel::default().frame(egui::Frame::NONE.fill(bg))
         };
         #[allow(deprecated)]
         panel.show(&c.egui_ctx, |ui| {
@@ -229,6 +232,12 @@ fn drenar(
                 if let Some(dom) = dom {
                     render_dom(ui, dom);
                 }
+            }
+            WidgetCmd::HtmlHandle(h) => {
+                // Headless-puro: o DOM vive no `store` do rts-dom; o egui SÓ o lê e
+                // pinta (empresta `&Dom` via `with_dom`, sem copiar nem deter). DOM
+                // inválido (handle morto) → não pinta nada.
+                rts_dom::store::with_dom(*h, |d| render_dom(ui, d));
             }
             // ── CANVAS BURRO: pinta em coords ABSOLUTAS via Painter ──────────────
             // Não participam do layout-flow (o TS já calculou a posição). O

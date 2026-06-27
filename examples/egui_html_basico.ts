@@ -1,4 +1,5 @@
 import egui from "rts:egui";
+import dom from "rts:dom";
 class Window {
   __h: number;
   constructor(t: string, w: number, h: number) { this.__h = egui.openWindow(t, w, h, 0); }
@@ -26,7 +27,7 @@ const page =
 class Doc {
   __h: number;
   constructor(h: number) { this.__h = h; }
-  dump(): void { egui.domDump(this.__h); }
+  dump(): void { dom.dump(this.__h); }
 }
 
 const win = new Window("HTML render", 460, 320);

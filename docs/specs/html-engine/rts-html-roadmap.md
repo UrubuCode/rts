@@ -1,9 +1,29 @@
 # Motor de render HTML do RTS — ROADMAP OPERACIONAL (F0-F5)
 
+> ## ⚠️⚠️ REVERSÃO DA DECISÃO #2 (2026-06-27) — LAYOUT VAI PRO rts-dom
+> **Decisão do desenvolvedor (Marcos), 2026-06-27:** *"processar tudo no DOM e o
+> egui só lê e exibe"*. Isto **REVERTE a decisão central deste roadmap** (o ponto
+> #2 da tabela §2: "egui faz o layout por default"). Motivo: com o layout no egui
+> **"vai ser impossível trocar de UI"** — o cálculo de posição fica preso ao
+> backend e o DOM headless fica incompleto (sabe estilo, não sabe POSIÇÃO).
+>
+> **Nova direção oficial = as 5 árvores do [`rts-html-north-star.md`](rts-html-north-star.md)**
+> (que DEIXA de ser "congelado/não-dita-fases" e volta a ser a arquitetura-alvo):
+> `rts-dom` calcula DOM→Style→**LAYOUT (x,y,w,h)**→DisplayList; o `rts-egui` **só
+> pinta** a display-list (Rect/Galley prontos) + serve medição de texto via trait
+> `TextMeasurer`. **O egui nunca mais decide layout.**
+>
+> As fases F0–F5 abaixo (egui-layout in-place) **ficam como registro histórico do
+> que foi entregue** (F0/F1/F2 + tag `<style>` — o ESTILO/cascade no rts-dom já
+> está certo e é reaproveitado). O trabalho NOVO segue o pipeline P0–P7 do
+> north-star (layout próprio, pixel-primeiro). O `render.rs` atual (ui.label/
+> horizontal/Frame) é LEGADO a substituir e deletar quando o novo cobrir o velho.
+> Ver memória `project_layout_moves_to_dom`.
+
 > **Este é o plano de execução vivo do motor de render HTML do RTS.** É a única
 > fonte de trabalho picado. O [`rts-html-north-star.md`](rts-html-north-star.md)
-> (a antiga `PLANO.md` de 5 árvores) é referência conceitual congelada e NÃO
-> dita fases.
+> (a antiga `PLANO.md` de 5 árvores) ~~é referência conceitual congelada e NÃO
+> dita fases~~ **← VOLTOU a ser a direção-alvo (ver reversão acima, 2026-06-27)**.
 >
 > Decisão tomada em 2026-06-23 após análise multi-agente (4 abordagens × 3 lentes
 > adversariais — viabilidade-no-motor-TS, doutrina, custo/risco — + crítica de
@@ -180,14 +200,64 @@ rede de segurança (se F4 atrasar, nada regride).
   atributo `style` ignorado; `indent` carregando tamanho de heading.
 - **Esforço:** baixo-médio (~1.5 sem). **Gate/risco:** nenhum pixel absoluto.
 
-### F2 — Box model de bloco (margin / padding / border / bg / width%) via `egui::Frame`.
+### F2 — Box model de bloco (margin / padding / border / bg / width%) via `egui::Frame`. — ✅ FEITO (2026-06-27)
+
+> **STATUS — ✅ ENTREGUE (branch feat/dom-f2-box-model, 2 commits).** A maior parte
+> do box model (`egui::Frame` com padding→inner_margin/margin→outer_margin/bg→fill/
+> border→stroke/raio→corner_radius) já vinha adiantada do F0/F1; F2 completou:
+> (a) **`Dimension`** completo no `rts-dom/style.rs` (egui-free): `{Auto, Px,
+> Percent, Em, Rem, Vw, Vh}` — TODAS as unidades de comprimento usuais, não só `%`.
+> Cada uma resolve TARDE no render (`resolve(ctx)` contra seu eixo: %=content-box
+> do PAI via `ui.available_width`, em=font do nó, rem=font raiz, vw/vh=viewport).
+> Codificação ABI por FAIXAS (`DIM_RANGE=1bi`, valor×1000, reversível). `parse_inline`
+> lê px/%/em/rem/vw/vh/auto + padding/margin/border-*/radius. Render aplica via
+> `set_max_width`. `SLOT_WIDTH=8`. (b) **`setStyleBatch`** (invariante 6):
+> `setStyle(dom,node,slot,val)` + `setStyleBatch(dom,buffer,count)` (triplas
+> (nodeId,slot,val) i64-LE de um `Entry::Buffer`, lido via `rts_engine::heap::handles`
+> — sem dep de rts-shared). Override por-nó = 3ª fonte de estilo (tag<inline<por-nó),
+> mesclada em `computed_style`+render (caixa+texto). 51 testes verdes. Exemplos
+> claude-egui-box-model.ts (unidades) + claude-dom-setstyle.ts (override/batch,
+> headless validado). **Bônus fora do plano (conformidade DOM/MDN):** navegação
+> (parentNode/first|lastChild/next|previousSibling), childNodes, createTextNode,
+> insertBefore, nodeType/nodeName, NodeKind::Comment + parser preserva comentários,
+> classList — aproxima o rts-dom da definição da Mozilla (era "inspirado no DOM";
+> agora fiel ao paradigma com bem mais cobertura). **Limite do motor confirmado:**
+> `el.setStyle()` sobre `array[i]` de classe baila (receiver não despachável); os
+> exemplos usam os primitivos `dom.*` diretos no laço.
+> **Pendente p/ um F2.1 (não urgente):** validação VISUAL na tela (screenshots
+> pegavam a janela errada; testes unit+headless cobrem a lógica); parser de
+> comentário preservado mas createComment ainda não exposto na ABI.
+
+> **✅ EXTRA (2026-06-27) — TAG `<style>` (CSS de autor declarativo).** Feature
+> transversal F1/F2: o motor agora parseia `<style>…</style>` e estiliza por CSS
+> puro, sem `defineStyle` imperativo. Entregue:
+> - **Tokenizer** (`html.rs`): `<style>`/`<script>` viram `Token::RawElement` —
+>   conteúdo CRU (CSS/JS não é HTML; `{`, `>` em `a>b`, `<` não tokenizam como tag),
+>   lido até `</tag>` case-insensitive.
+> - **Stylesheet** (`style.rs`): `Stylesheet`/`Rule`/`Selector` egui-free.
+>   Seletores `tag`/`.class`/`#id`/`*`; `parse_rules` reusa `parse_inline` para o
+>   corpo `{…}`; comentários `/* */` e seletor-lista `a,b,.c{}` suportados.
+> - **Cascade FIEL À MDN** (`Dom::computed_style`, validada contra
+>   developer.mozilla.org/Web/CSS/Guides/Cascade): estágio 1 origem/importância
+>   (UA `defineStyle` < `<style>` autor < `style=""` inline < override-por-nó;
+>   depois os `!important` por cima — **`!important` SUPORTADO**, camadas normal/
+>   important separadas em `DeclBlock`); estágio 2 especificidade (id=100>classe=10>
+>   tag=1>universal=0); estágio 3 ordem do fonte (regra posterior desempata);
+>   estágio 4 herança (color/font-size descem no render).
+> - **Render** (`render.rs`): pula `<style>`/`<script>` (não desenha o texto cru);
+>   usa `computed_style_idx` (cascade completa, inclui a camada `<style>`).
+> - 62 testes rts-dom verdes; exemplo `claude-dom-style-tag.ts` (headless) prova
+>   id>classe>tag + herança + `!important`.
+> - **Cortes conscientes** (subset CSS): `@layer`, seletores compostos (`.a.b`)/
+>   combinadores (`div p`, `>`), pseudo-classes (`:hover`), keywords
+>   `inherit`/`initial`/`unset`/`revert`.
+
+Texto original do plano (referência):
 - **Usável:** cards/caixas com fundo, borda, raio e espaçamento; `width%`
   resolvido **tarde** contra o content-box do pai (evita Risco 5 do north-star).
 - **Entrega:** `ComputedStyle` ganha `Dimension`; `egui::Frame{inner_margin,
   outer_margin, fill, stroke, corner_radius}` + `set_max_width`. **`setStyleBatch`
   obrigatório** desde aqui (invariante 6).
-- **Reaproveita:** delega layout ao egui; estende `ComputedStyle`. **Abandona:**
-  nada de B. **Esforço:** médio (~2-3 sem).
 - **Gate/risco:** declarar `egui::Frame ≠ box model` (sem margin-collapse, sem
   box-sizing) como limite de produto, não bug.
 

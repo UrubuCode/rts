@@ -1,4 +1,5 @@
 import egui from "rts:egui";
+import dom from "rts:dom";
 
 // Janela mínima — só pra ter um handle e poder chamar html()/domDump().
 class Window {
@@ -9,7 +10,7 @@ class Window {
   beginFrame(): void { egui.beginFrame(this.__h); }
   endFrame(): void { egui.endFrame(this.__h); }
   html(s: string): void { egui.html(this.__h, s); }
-  dumpDom(): void { egui.domDump(this.__h); }
+  dumpDom(): void { dom.dump(this.__h); }
   close(): void { egui.close(this.__h); }
 }
 
@@ -21,28 +22,28 @@ class Window {
 //   DISPLAY: 0=vertical(block) 1=wrap(inline-flow) 2=horizontal 3=grid
 //   PREFIX:  0=none 1=bullet 2=number
 //   FLAGS:   MONO=1 PRESERVE_WS=2 HEADING=4 BOLD=8 ITALIC=16
-egui.defineBlock("h1", 0, 28, 0, 4);
-egui.defineBlock("h2", 0, 22, 0, 4);
-egui.defineBlock("h3", 0, 18, 0, 4);
-egui.defineBlock("p", 1, 0, 0, 0);
-egui.defineBlock("div", 0, 0, 0, 0);
-egui.defineBlock("section", 0, 0, 0, 0);
-egui.defineBlock("article", 0, 0, 0, 0);
-egui.defineBlock("footer", 0, 0, 0, 0);
-egui.defineBlock("blockquote", 0, 24, 0, 0);
-egui.defineBlock("ul", 0, 16, 0, 0);
-egui.defineBlock("ol", 0, 16, 0, 0);
-egui.defineBlock("li", 1, 0, 1, 0);
-egui.defineBlock("table", 3, 0, 0, 0);
-egui.defineBlock("tr", 2, 0, 0, 0);
-egui.defineBlock("td", 1, 0, 0, 0);
-egui.defineBlock("th", 1, 0, 0, 8);
-egui.defineBlock("pre", 0, 0, 0, 3);
-egui.defineInline("b", 8);
-egui.defineInline("strong", 8);
-egui.defineInline("i", 16);
-egui.defineInline("em", 16);
-egui.defineInline("code", 1);
+dom.defineBlock("h1", 0, 28, 0, 4);
+dom.defineBlock("h2", 0, 22, 0, 4);
+dom.defineBlock("h3", 0, 18, 0, 4);
+dom.defineBlock("p", 1, 0, 0, 0);
+dom.defineBlock("div", 0, 0, 0, 0);
+dom.defineBlock("section", 0, 0, 0, 0);
+dom.defineBlock("article", 0, 0, 0, 0);
+dom.defineBlock("footer", 0, 0, 0, 0);
+dom.defineBlock("blockquote", 0, 24, 0, 0);
+dom.defineBlock("ul", 0, 16, 0, 0);
+dom.defineBlock("ol", 0, 16, 0, 0);
+dom.defineBlock("li", 1, 0, 1, 0);
+dom.defineBlock("table", 3, 0, 0, 0);
+dom.defineBlock("tr", 2, 0, 0, 0);
+dom.defineBlock("td", 1, 0, 0, 0);
+dom.defineBlock("th", 1, 0, 0, 8);
+dom.defineBlock("pre", 0, 0, 0, 3);
+dom.defineInline("b", 8);
+dom.defineInline("strong", 8);
+dom.defineInline("i", 16);
+dom.defineInline("em", 16);
+dom.defineInline("code", 1);
 
 // HTML com uma árvore PROPOSITALMENTE complexa, pra estressar o parser/render:
 //  - aninhamento profundo de blocos (div > div > div)

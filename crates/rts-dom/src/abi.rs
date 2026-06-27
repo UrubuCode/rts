@@ -125,6 +125,104 @@ pub extern "C" fn __RTS_FN_NS_DOM_REMOVE_NODE(h: u64, id: i64) {
     with_mut(h, |dom| dom.remove_node(node));
 }
 
+/// `createTextNode(domHandle, text)` → `NodeId` de um nó de texto solto (≥ 0), ou
+/// `-1`. Ligue com `appendChild`/`insertBefore`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_CREATE_TEXT_NODE(h: u64, ptr: *const u8, len: i64) -> i64 {
+    let text = unsafe { str_abi::from_abi(ptr, len) }.unwrap_or("").to_string();
+    with_mut(h, |dom| dom.create_text_node(&text).to_abi()).unwrap_or(NODE_NONE)
+}
+
+/// `insertBefore(domHandle, parent, child, reference)` — `parent.insertBefore(
+/// child, reference)`. `reference = -1` (ou não-filho) → anexa ao fim.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_INSERT_BEFORE(h: u64, parent: i64, child: i64, reference: i64) {
+    let (Some(parent), Some(child)) = (NodeId::from_abi(parent), NodeId::from_abi(child)) else {
+        return;
+    };
+    let reference = NodeId::from_abi(reference);
+    with_mut(h, |dom| dom.insert_before(parent, child, reference));
+}
+
+// ── Navegação (parentNode / first|lastChild / next|previousSibling) ──────────────
+// Cada um recebe um `NodeId` e devolve outro (`-1` quando não há). Extraia o
+// retorno para uma const antes de comparar com -1 (limite do motor i64-cmp inline).
+
+/// `parentNode(domHandle, node)` → `NodeId` do pai, ou `-1` (raiz / inválido).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_PARENT_NODE(h: u64, id: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
+    with(h, |dom| dom.parent_of(node).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
+}
+
+/// `firstChild(domHandle, node)` → 1º filho (qualquer tipo, inclui Text), ou `-1`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_FIRST_CHILD(h: u64, id: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
+    with(h, |dom| dom.first_child(node).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
+}
+
+/// `lastChild(domHandle, node)` → último filho, ou `-1`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_LAST_CHILD(h: u64, id: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
+    with(h, |dom| dom.last_child(node).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
+}
+
+/// `nextSibling(domHandle, node)` → próximo irmão, ou `-1` (é o último).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_NEXT_SIBLING(h: u64, id: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
+    with(h, |dom| dom.next_sibling(node).map(|n| n.to_abi()).unwrap_or(NODE_NONE))
+        .unwrap_or(NODE_NONE)
+}
+
+/// `previousSibling(domHandle, node)` → irmão anterior, ou `-1` (é o primeiro).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_PREVIOUS_SIBLING(h: u64, id: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
+    with(h, |dom| dom.previous_sibling(node).map(|n| n.to_abi()).unwrap_or(NODE_NONE))
+        .unwrap_or(NODE_NONE)
+}
+
+/// `childNodesCount(domHandle, node)` → nº de filhos TOTAL (inclui Text); par com
+/// `childNodeAt` (igual a childCount/childAt, mas SEM filtrar elementos).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_CHILD_NODES_COUNT(h: u64, id: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return 0 };
+    with(h, |dom| dom.child_nodes(node).len() as i64).unwrap_or(0)
+}
+
+/// `childNodeAt(domHandle, node, index)` → o índice-ésimo filho (inclui Text), -1.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_CHILD_NODE_AT(h: u64, id: i64, index: i64) -> i64 {
+    if index < 0 {
+        return NODE_NONE;
+    }
+    let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
+    with(h, |dom| {
+        dom.child_nodes(node).get(index as usize).map(|c| c.to_abi()).unwrap_or(NODE_NONE)
+    })
+    .unwrap_or(NODE_NONE)
+}
+
+/// `nodeType(domHandle, node)` → código DOM: Element=1, Text=3, Comment=8,
+/// Document=9; `-1` se inválido.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_NODE_TYPE(h: u64, id: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
+    with(h, |dom| dom.node_type(node)).unwrap_or(NODE_NONE)
+}
+
+/// `nodeName(domHandle, node)` → nome DOM (tag p/ Element; `#text`/`#comment`/
+/// `#document`), como handle de string. Vazio se inválido.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_NODE_NAME(h: u64, id: i64) -> u64 {
+    let Some(node) = NodeId::from_abi(id) else { return intern("") };
+    let name = with(h, |dom| dom.node_name(node).unwrap_or_default()).unwrap_or_default();
+    intern(&name)
+}
+
 /// `rootId(domHandle)` → `NodeId` versionado da raiz `#document` (≥ 0), ou `-1`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_DOM_ROOT_ID(h: u64) -> i64 {
@@ -136,6 +234,52 @@ pub extern "C" fn __RTS_FN_NS_DOM_ROOT_ID(h: u64) -> i64 {
 pub extern "C" fn __RTS_FN_NS_DOM_DUMP(h: u64) {
     if let Some(s) = with(h, |dom| dom.dump()) {
         eprint!("{s}");
+    }
+}
+
+/// `dumpLayout(domHandle, viewportW)` — computa a DisplayList (layout no DOM, com a
+/// largura de viewport dada) e imprime um JSON com cada item (tipo + x/y/w/h + cor),
+/// para COMPARAR número-a-número com o render do navegador (o JSON do
+/// `extrair-render.js`). Usa o medidor aproximado (headless, determinístico).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_DUMP_LAYOUT(h: u64, viewport_w: i64) {
+    use crate::layout::{layout_document, ApproxMeasurer, DisplayItem, LayoutCtx};
+    let vw = viewport_w.max(1) as f32;
+    let json = with(h, |dom| {
+        let ctx = LayoutCtx { viewport_w: vw, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        let list = layout_document(dom, &ctx);
+        let mut s = String::from("{\n  \"viewport\": ");
+        s.push_str(&(vw as i64).to_string());
+        s.push_str(",\n  \"content_height\": ");
+        s.push_str(&(list.content_height as i64).to_string());
+        s.push_str(",\n  \"items\": [\n");
+        let hx = |c: u32| format!("0x{:08X}", c);
+        for (i, it) in list.items.iter().enumerate() {
+            let line = match it {
+                DisplayItem::SolidRect { rect, color, .. } => format!(
+                    "    {{\"kind\":\"rect\",\"x\":{:.1},\"y\":{:.1},\"w\":{:.1},\"h\":{:.1},\"bg\":\"{}\"}}",
+                    rect.x, rect.y, rect.w, rect.h, hx(*color)
+                ),
+                DisplayItem::Border { rect, width, color, .. } => format!(
+                    "    {{\"kind\":\"border\",\"x\":{:.1},\"y\":{:.1},\"w\":{:.1},\"h\":{:.1},\"width\":{:.1},\"color\":\"{}\"}}",
+                    rect.x, rect.y, rect.w, rect.h, width, hx(*color)
+                ),
+                DisplayItem::Text { x, y, text, color, size, .. } => format!(
+                    "    {{\"kind\":\"text\",\"x\":{:.1},\"y\":{:.1},\"size\":{:.1},\"color\":\"{}\",\"text\":{:?}}}",
+                    x, y, size, hx(*color), text
+                ),
+            };
+            s.push_str(&line);
+            if i + 1 < list.items.len() {
+                s.push(',');
+            }
+            s.push('\n');
+        }
+        s.push_str("  ]\n}");
+        s
+    });
+    if let Some(j) = json {
+        println!("{j}");
     }
 }
 
@@ -246,8 +390,9 @@ pub extern "C" fn __RTS_FN_NS_DOM_CHILD_AT(h: u64, id: i64, index: i64) -> i64 {
     .unwrap_or(NODE_NONE)
 }
 
-/// `nodeStyleSlot(domHandle, node, slot)` → valor (`i64`) do SLOT de estilo do nó
-/// (estilo-de-tag + `style=""` inline resolvidos), ou `-1` se não-setado/inválido.
+/// `nodeStyleSlot(domHandle, node, slot)` → valor (`i64`) do SLOT de estilo do nó,
+/// com a cascade COMPLETA resolvida (defineStyle < `<style>` autor < `style=""`
+/// inline < override por-nó), ou `-1` se não-setado/inválido.
 /// É como o LAYOUT (em TS) lê o estilo computado de cada nó. Slots: 0=color 1=bg
 /// 2=font_size 3=padding 4=margin 5=border_width 6=border_color 7=corner_radius.
 #[unsafe(no_mangle)]
@@ -286,6 +431,48 @@ pub extern "C" fn __RTS_FN_NS_DOM_DEFINE_STYLE(
         return;
     }
     crate::style::define_style(tag, slot, val);
+}
+
+/// `setStyle(domHandle, node, slot, val)` — aplica UM slot de estilo OPACO a UM
+/// NÓ (override por-nó, vence tag e `style=""` inline). Mesmos slots do
+/// `defineStyle`. Para muitos nós/props use `setStyleBatch` (invariante 6).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_SET_STYLE(h: u64, id: i64, slot: i64, val: i64) {
+    let Some(node) = NodeId::from_abi(id) else { return };
+    with_mut(h, |dom| dom.set_node_style_slot(node, slot, val));
+}
+
+/// `setStyleBatch(domHandle, bufferHandle, count)` — aplica `count` triplas
+/// `(nodeId, slot, val)` de uma vez (invariante 6: estilizar N nós por frame não
+/// pode ser N×5 FFIs). O buffer é um `Entry::Buffer` (do namespace `buffer`) com
+/// `count*3` inteiros i64 LITTLE-ENDIAN consecutivos (`[id0,slot0,val0, id1,…]`).
+/// Lê via a HandleTable do engine (sem dep de `rts-shared` — camada). Triplas com
+/// id inválido são ignoradas.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_SET_STYLE_BATCH(h: u64, buffer: u64, count: i64) {
+    if count <= 0 {
+        return;
+    }
+    let want = (count as usize) * 3; // i64s esperados
+    // Lê o buffer GC como i64 little-endian (8 bytes cada), sem copiar além do
+    // necessário. `with_entry` empresta o `Vec<u8>` do `Entry::Buffer`.
+    let triples: Option<Vec<i64>> = rts_engine::heap::handles::with_entry(buffer, |e| {
+        let bytes = match e {
+            Some(rts_engine::heap::handles::Entry::Buffer(b)) => b,
+            _ => return None,
+        };
+        let n = want.min(bytes.len() / 8); // não lê além do buffer
+        let mut out = Vec::with_capacity(n);
+        for k in 0..n {
+            let mut le = [0u8; 8];
+            le.copy_from_slice(&bytes[k * 8..k * 8 + 8]);
+            out.push(i64::from_le_bytes(le));
+        }
+        Some(out)
+    });
+    if let Some(triples) = triples {
+        with_mut(h, |dom| dom.apply_style_batch(&triples));
+    }
 }
 
 /// `defineBlock(tag, display, indent, prefix, flags)` — registra como uma TAG faz
@@ -422,6 +609,98 @@ pub fn register(e: &mut Engine) {
             __RTS_FN_NS_DOM_REMOVE_NODE as *const u8,
         ))
         .member(func(
+            "createTextNode",
+            "__RTS_FN_NS_DOM_CREATE_TEXT_NODE",
+            Sig::new(vec![Handle, StrPtr], I64),
+            "createTextNode(dom: number, text: string): number",
+            "Creates a detached Text node, returns its NodeId (document.createTextNode).",
+            __RTS_FN_NS_DOM_CREATE_TEXT_NODE as *const u8,
+        ))
+        .member(func(
+            "insertBefore",
+            "__RTS_FN_NS_DOM_INSERT_BEFORE",
+            Sig::new(vec![Handle, I64, I64, I64], AbiType::Void),
+            "insertBefore(dom: number, parent: number, child: number, reference: number): void",
+            "Inserts child before reference in parent's children; reference -1 = append (parent.insertBefore).",
+            __RTS_FN_NS_DOM_INSERT_BEFORE as *const u8,
+        ))
+        // ── Navegação (parentNode / first|lastChild / next|previousSibling) ──────
+        .member(func(
+            "parentNode",
+            "__RTS_FN_NS_DOM_PARENT_NODE",
+            Sig::new(vec![Handle, I64], I64),
+            "parentNode(dom: number, node: number): number",
+            "NodeId of the parent, or -1 for the root / invalid. Extract to a const before comparing.",
+            __RTS_FN_NS_DOM_PARENT_NODE as *const u8,
+        ))
+        .member(func(
+            "firstChild",
+            "__RTS_FN_NS_DOM_FIRST_CHILD",
+            Sig::new(vec![Handle, I64], I64),
+            "firstChild(dom: number, node: number): number",
+            "NodeId of the first child (any type, incl. Text), or -1.",
+            __RTS_FN_NS_DOM_FIRST_CHILD as *const u8,
+        ))
+        .member(func(
+            "lastChild",
+            "__RTS_FN_NS_DOM_LAST_CHILD",
+            Sig::new(vec![Handle, I64], I64),
+            "lastChild(dom: number, node: number): number",
+            "NodeId of the last child, or -1.",
+            __RTS_FN_NS_DOM_LAST_CHILD as *const u8,
+        ))
+        .member(func(
+            "nextSibling",
+            "__RTS_FN_NS_DOM_NEXT_SIBLING",
+            Sig::new(vec![Handle, I64], I64),
+            "nextSibling(dom: number, node: number): number",
+            "NodeId of the next sibling, or -1 if last.",
+            __RTS_FN_NS_DOM_NEXT_SIBLING as *const u8,
+        ))
+        .member(func(
+            "previousSibling",
+            "__RTS_FN_NS_DOM_PREVIOUS_SIBLING",
+            Sig::new(vec![Handle, I64], I64),
+            "previousSibling(dom: number, node: number): number",
+            "NodeId of the previous sibling, or -1 if first.",
+            __RTS_FN_NS_DOM_PREVIOUS_SIBLING as *const u8,
+        ))
+        .member(func(
+            "childNodesCount",
+            "__RTS_FN_NS_DOM_CHILD_NODES_COUNT",
+            Sig::new(vec![Handle, I64], I64),
+            "childNodesCount(dom: number, node: number): number",
+            "Total child count (incl. Text nodes) — pair with childNodeAt (node.childNodes.length).",
+            __RTS_FN_NS_DOM_CHILD_NODES_COUNT as *const u8,
+        ))
+        .member(func(
+            "childNodeAt",
+            "__RTS_FN_NS_DOM_CHILD_NODE_AT",
+            Sig::new(vec![Handle, I64, I64], I64),
+            "childNodeAt(dom: number, node: number, index: number): number",
+            "The index-th child (incl. Text), or -1 (node.childNodes[index]).",
+            __RTS_FN_NS_DOM_CHILD_NODE_AT as *const u8,
+        ))
+        .member(func(
+            "nodeType",
+            "__RTS_FN_NS_DOM_NODE_TYPE",
+            Sig::new(vec![Handle, I64], I64),
+            "nodeType(dom: number, node: number): number",
+            "DOM nodeType code: Element=1, Text=3, Comment=8, Document=9; -1 if invalid.",
+            __RTS_FN_NS_DOM_NODE_TYPE as *const u8,
+        ))
+        .member(func(
+            "nodeName",
+            "__RTS_FN_NS_DOM_NODE_NAME",
+            // `AbiType::Handle` LITERAL (não o alias U64) + ts `: string` → o motor
+            // reboxa como TAG_STR (string usável no TS); o alias U64 reboxaria como
+            // inteiro cru (bug "dados de ponteiro").
+            Sig::new(vec![Handle, I64], AbiType::Handle),
+            "nodeName(dom: number, node: number): string",
+            "DOM nodeName: tag for Element; #text/#comment/#document otherwise.",
+            __RTS_FN_NS_DOM_NODE_NAME as *const u8,
+        ))
+        .member(func(
             "rootId",
             "__RTS_FN_NS_DOM_ROOT_ID",
             Sig::new(vec![Handle], I64),
@@ -436,6 +715,14 @@ pub fn register(e: &mut Engine) {
             "dump(dom: number): void",
             "Prints the retained DOM tree to stderr, devtools-style (debug).",
             __RTS_FN_NS_DOM_DUMP as *const u8,
+        ))
+        .member(func(
+            "dumpLayout",
+            "__RTS_FN_NS_DOM_DUMP_LAYOUT",
+            Sig::new(vec![Handle, I64], AbiType::Void),
+            "dumpLayout(dom: number, viewportW: number): void",
+            "Computes the layout DisplayList at the given viewport width and prints it as JSON (x/y/w/h + colors), to compare with the browser render.",
+            __RTS_FN_NS_DOM_DUMP_LAYOUT as *const u8,
         ))
         // ── Leitura de conteúdo (retorna STRING: handle do pool GC) ──────────────
         // Retorno `Handle` + ts_signature `: string` = string dinâmica (mesmo
@@ -523,8 +810,24 @@ pub fn register(e: &mut Engine) {
             "__RTS_FN_NS_DOM_DEFINE_STYLE",
             Sig::new(vec![StrPtr, I64, I64], AbiType::Void),
             "defineStyle(tag: string, slot: number, val: number): void",
-            "Registers one opaque style slot for a tag (0=color 1=bg 2=font_size 3=padding 4=margin 5=border_width 6=border_color 7=corner_radius; colors as 0xRRGGBBAA u32). The TS maps CSS-name->slot; Rust never matches a CSS string. Accumulates per tag.",
+            "Registers one opaque style slot for a tag (0=color 1=bg 2=font_size 3=padding 4=margin 5=border_width 6=border_color 7=corner_radius 8=width; colors as 0xRRGGBBAA u32; width as encoded Dimension). The TS maps CSS-name->slot; Rust never matches a CSS string. Accumulates per tag.",
             __RTS_FN_NS_DOM_DEFINE_STYLE as *const u8,
+        ))
+        .member(func(
+            "setStyle",
+            "__RTS_FN_NS_DOM_SET_STYLE",
+            Sig::new(vec![Handle, I64, I64, I64], AbiType::Void),
+            "setStyle(dom: number, node: number, slot: number, val: number): void",
+            "Applies one opaque style slot to a single NODE (per-node override; beats tag and inline). Same slots as defineStyle. For many nodes/props use setStyleBatch.",
+            __RTS_FN_NS_DOM_SET_STYLE as *const u8,
+        ))
+        .member(func(
+            "setStyleBatch",
+            "__RTS_FN_NS_DOM_SET_STYLE_BATCH",
+            Sig::new(vec![Handle, Handle, I64], AbiType::Void),
+            "setStyleBatch(dom: number, buffer: number, count: number): void",
+            "Applies count (nodeId,slot,val) triples at once from a buffer handle (count*3 little-endian i64s). The batch form is mandatory for styling many nodes per frame (invariant 6): N nodes would otherwise be N*5 FFI calls.",
+            __RTS_FN_NS_DOM_SET_STYLE_BATCH as *const u8,
         ))
         .member(func(
             "defineBlock",
