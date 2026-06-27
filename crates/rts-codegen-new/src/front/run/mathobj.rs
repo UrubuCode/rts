@@ -495,7 +495,10 @@ fn number_const(name: &str) -> Option<f64> {
         "MAX_SAFE_INTEGER" => 9_007_199_254_740_991.0,
         "MIN_SAFE_INTEGER" => -9_007_199_254_740_991.0,
         "MAX_VALUE" => f64::MAX,
-        "MIN_VALUE" => f64::MIN_POSITIVE,
+        // JS `Number.MIN_VALUE` is the smallest positive SUBNORMAL double (`5e-324`,
+        // `f64::from_bits(1)`), NOT `f64::MIN_POSITIVE` (the smallest NORMAL,
+        // `2.2e-308`). Matches `rts-primitives/number.rs`.
+        "MIN_VALUE" => f64::from_bits(1),
         "EPSILON" => f64::EPSILON,
         "POSITIVE_INFINITY" => f64::INFINITY,
         "NEGATIVE_INFINITY" => f64::NEG_INFINITY,
