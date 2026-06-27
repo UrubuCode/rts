@@ -413,7 +413,7 @@ pub fn register(e: &mut Engine) {
                 vec![AbiType::Handle, AbiType::StrPtr, AbiType::StrPtr],
                 AbiType::Handle,
             ),
-            "replace(handle: number, s: string, replacement: string): number",
+            "replace(handle: number, s: string, replacement: string): string",
             "Substitui o primeiro match por `replacement`. Retorna string handle.",
             __RTS_FN_NS_REGEX_REPLACE as *const u8,
         ))
@@ -424,7 +424,7 @@ pub fn register(e: &mut Engine) {
                 vec![AbiType::Handle, AbiType::StrPtr, AbiType::StrPtr],
                 AbiType::Handle,
             ),
-            "replace_all(handle: number, s: string, replacement: string): number",
+            "replace_all(handle: number, s: string, replacement: string): string",
             "Substitui todos os matches por `replacement`. Retorna string handle.",
             __RTS_FN_NS_REGEX_REPLACE_ALL as *const u8,
         ))
