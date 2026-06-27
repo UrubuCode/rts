@@ -63,6 +63,12 @@ pub struct ResolvedCall {
     /// from the member's `ts_signature` return type (`): string` ⇒ string handle).
     /// Irrelevant when `ret != Handle`.
     pub ret_is_string_handle: bool,
+    /// For a `ret == Handle` string return whose ts_signature is a NULLABLE union
+    /// (`: string | null` / `: string | undefined`): a `0` handle means the value is
+    /// ABSENT and must rebox as `null` (JS `URLSearchParams.get(missing)` etc.), NOT
+    /// the empty string. An empty string `""` interns to a NON-zero handle, so `0`
+    /// is unambiguously the absent sentinel here. `false` for a bare `: string`.
+    pub ret_is_nullable_string: bool,
     /// For a `ret == Handle` that is an OBJECT instance of a NAMED runtime class
     /// (e.g. `ArrayBuffer.slice(): ArrayBuffer`, `URL.searchParams: URLSearchParams`):
     /// the class name parsed from the `ts_signature` return type. Lets a
@@ -86,6 +92,19 @@ fn ts_returns_string(ts: &str) -> bool {
                 .trim_end_matches(';')
                 .split('|')
                 .any(|t| t.trim() == "string")
+        })
+        .unwrap_or(false)
+}
+
+/// Whether a member's `ts_signature` declares a NULLABLE string return — a union
+/// of `string` with `null`/`undefined` (`get(...): string | null`). Lets the
+/// rebox map a `0` (absent) handle to `null` instead of the empty string.
+fn ts_returns_nullable_string(ts: &str) -> bool {
+    ts.rsplit_once("):")
+        .map(|(_, ret)| {
+            let parts: Vec<&str> = ret.trim().trim_end_matches(';').split('|').map(str::trim).collect();
+            parts.iter().any(|t| *t == "string")
+                && parts.iter().any(|t| *t == "null" || *t == "undefined")
         })
         .unwrap_or(false)
 }
@@ -143,6 +162,7 @@ fn instance_call(m: &'static Member) -> ResolvedCall {
         flags: m.flags,
         default_args: m.sig.default_args.clone(),
         ret_is_string_handle: ts_returns_string(&m.ts_signature),
+        ret_is_nullable_string: ts_returns_nullable_string(&m.ts_signature),
         ret_class: ts_return_class(&m.ts_signature),
     }
 }
@@ -158,6 +178,7 @@ fn flat_call(m: &'static Member) -> ResolvedCall {
         flags: m.flags,
         default_args: m.sig.default_args.clone(),
         ret_is_string_handle: ts_returns_string(&m.ts_signature),
+        ret_is_nullable_string: ts_returns_nullable_string(&m.ts_signature),
         ret_class: ts_return_class(&m.ts_signature),
     }
 }

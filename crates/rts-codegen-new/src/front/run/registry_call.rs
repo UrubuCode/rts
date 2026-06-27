@@ -291,6 +291,27 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             &params,
             call.ret,
         );
+        // NULLABLE string return (`: string | null`): a `0` handle is ABSENT → rebox
+        // as `null`, not the empty string (`URLSearchParams.get(missing)` etc.). An
+        // empty `""` interns to a NON-zero handle, so `0` is unambiguously absent.
+        if call.ret == AbiType::Handle
+            && matches!(result_kind, JsKind::Str)
+            && call.ret_is_nullable_string
+        {
+            let h = res.expect("Handle return has a value");
+            let is_absent = self.builder.ins().icmp_imm(
+                cranelift_codegen::ir::condcodes::IntCC::Equal,
+                h,
+                0,
+            );
+            let null_w = self
+                .builder
+                .ins()
+                .iconst(types::I64, value::PolyValue::null().raw() as i64);
+            let str_w = value::emit_marshal::emit_box_real_string(module, self.builder, h);
+            let w = self.builder.ins().select(is_absent, null_w, str_w);
+            return Ok(Val::new(w, crate::repr::Repr::Tagged));
+        }
         Ok(self.rebox_result(module, call.ret, result_kind, res))
     }
 }
