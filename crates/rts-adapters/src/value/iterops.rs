@@ -110,3 +110,24 @@ pub extern "C" fn __rtsadp_obj_keys(obj_word: u64) -> u64 {
     }
     box_vec_as_array(vec)
 }
+
+/// `Object.getOwnPropertyNames(x)` — like [`__rtsadp_obj_keys`] but includes the
+/// NON-enumerable own properties JS exposes here: for an ARRAY, the trailing
+/// `"length"` (`getOwnPropertyNames([a,b,c])` is `["0","1","2","length"]`). For a
+/// keyed object it equals `Object.keys` (the corpus has no non-enumerable own
+/// props on plain objects). Reuses `__rtsadp_obj_keys` then appends `"length"`
+/// when the receiver is an array (object, not a keyed shape).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_obj_own_names(obj_word: u64) -> u64 {
+    let keys_arr = __rtsadp_obj_keys(obj_word);
+    let obj = PolyValue::from_raw(obj_word);
+    if obj.is_object() && !looks_like_object(obj) {
+        // ARRAY: append the own non-enumerable "length".
+        let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(
+            PolyValue::from_raw(keys_arr).as_handle(),
+        );
+        let word = abi_adapter::intern_poly("length").raw() as i64;
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle, word);
+    }
+    keys_arr
+}

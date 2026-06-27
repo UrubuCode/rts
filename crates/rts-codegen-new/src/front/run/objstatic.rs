@@ -59,6 +59,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             let sym = match method {
                 "values" => "__rtsadp_obj_values",
                 "entries" => "__rtsadp_obj_entries",
+                // `getOwnPropertyNames` adds an array's non-enumerable `"length"`.
+                "getOwnPropertyNames" => "__rtsadp_obj_own_names",
                 _ => "__rtsadp_obj_keys",
             };
             return self.dynamic_obj_enum(module, args, sym).map(Some);
