@@ -188,6 +188,20 @@ class App {
   keyReleased(key: number): number {
     return input.key(this._win, key, 2);
   }
+  // Modificadores segurados AGORA (1/0). Como o teclado: chame o MÉTODO, não
+  // `input.modCtrl(app._win)` — `app._win` direto como arg lê 0 no AOT.
+  modCtrl(): number {
+    return input.modCtrl(this._win);
+  }
+  modShift(): number {
+    return input.modShift(this._win);
+  }
+  modAlt(): number {
+    return input.modAlt(this._win);
+  }
+  modCmd(): number {
+    return input.modCmd(this._win);
+  }
   button(x: number, y: number, w: number, h: number, label: string): boolean {
     const over = this.hover(x, y, w, h);
     let fill = 0x2A3A50FF;

@@ -1,5 +1,4 @@
 import egui from "rts:egui";
-import input from "rts:input";
 
 // Teclado completo + modificadores (input fase 1). Mostra a tecla pressionada,
 // os modificadores ativos, e detecta um atalho (Ctrl+S). Codigos neutros: 100-125
@@ -19,27 +18,27 @@ while (app.running()) {
   // detecta letras A-Z
   let i = 0;
   while (i < 26) {
-    if (input.key(app._win, 100 + i, 1) !== 0) {
+    if (app.keyPressed(100 + i) !== 0) {
       // converte indice em letra: 'A'=65
       lastKey = "letra " + i; // (sem String.fromCharCode no PoC; mostra o indice)
     }
     i = i + 1;
   }
   // algumas teclas nomeadas
-  if (input.key(app._win, 1, 1) !== 0) lastKey = "Enter";
-  if (input.key(app._win, 3, 1) !== 0) lastKey = "Space";
-  if (input.key(app._win, 9, 1) !== 0) lastKey = "Tab";
-  if (input.key(app._win, 140, 1) !== 0) lastKey = "F1";
-  if (input.key(app._win, 5, 1) !== 0) lastKey = "Seta cima";
-  if (input.key(app._win, 6, 1) !== 0) lastKey = "Seta baixo";
+  if (app.keyPressed(1) !== 0) lastKey = "Enter";
+  if (app.keyPressed(3) !== 0) lastKey = "Space";
+  if (app.keyPressed(9) !== 0) lastKey = "Tab";
+  if (app.keyPressed(140) !== 0) lastKey = "F1";
+  if (app.keyPressed(5) !== 0) lastKey = "Seta cima";
+  if (app.keyPressed(6) !== 0) lastKey = "Seta baixo";
 
   // modificadores ativos
-  const ctrl = input.modCtrl(app._win);
-  const shift = input.modShift(app._win);
-  const alt = input.modAlt(app._win);
+  const ctrl = app.modCtrl();
+  const shift = app.modShift();
+  const alt = app.modAlt();
 
   // atalho: Ctrl + S (S = 100 + 18)
-  if (ctrl !== 0 && input.key(app._win, 100 + 18, 1) !== 0) {
+  if (ctrl !== 0 && app.keyPressed(100 + 18) !== 0) {
     shortcuts = shortcuts + 1;
   }
 
@@ -53,7 +52,7 @@ while (app.running()) {
   // segurar tecla (keyDown) — barra que enche enquanto a seta direita esta down
   app.text(20, 220, "Segure a Seta Direita:", 0xC0C8D0FF, 14);
   let held = 0;
-  if (input.key(app._win, 8, 0) !== 0) held = 1;
+  if (app.keyDown(8) !== 0) held = 1;
   let barColor = 0x333A44FF;
   if (held !== 0) barColor = 0x33CC88FF;
   app.box(20, 244, 440, 24, barColor, 0, 0, 6);
