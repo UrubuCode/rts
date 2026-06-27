@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_error",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "__RUNTIME_ERROR__"
 }
 ,
@@ -2313,10 +2313,10 @@
 ,
 {
   "name": "281_number_edges",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "eps=2.220446049250313e-16\nmax=1.7976931348623157e+308\nmin=5e-324\nsafe=true",
   "node": "eps=2.220446049250313e-16\nmax=1.7976931348623157e+308\nmin=5e-324\nsafe=true",
-  "rts": "eps=2.220446049250313e-16\nmax=1.7976931348623157e+308\nmin=2.2250738585072014e-308\nsafe=true"
+  "rts": "eps=2.220446049250313e-16\nmax=1.7976931348623157e+308\nmin=5e-324\nsafe=true"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":210,"rts_diverge":74,"bun_node_diverge":18,"errors":307,"rejected":0}}
+],"summary":{"total":609,"pass":211,"rts_diverge":73,"bun_node_diverge":17,"errors":308,"rejected":0}}
