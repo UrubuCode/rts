@@ -169,6 +169,27 @@ pub extern "C" fn __rtsadp_arr_from(a: u64) -> u64 {
         }
         return box_vec_as_array(vec);
     }
+    // ARRAY-LIKE keyed object (`Array.from({ length: n })`, `{0:'a', length:1}`):
+    // build `[ source[0], …, source[length-1] ]`, an absent index reading
+    // `undefined`. REQUIRE a finite non-negative numeric `length` — without it we
+    // fall through to the honest FROM_UNSUPPORTED sentinel, so a Map/Set/plain
+    // object (no numeric `length`) never silently becomes `[]` (a wrong result).
+    if v.is_object() && super::inspect::looks_like_object(v) {
+        // `__rtsadp_obj_get` takes the key as a PolyValue WORD (a boxed string), NOT a
+        // raw GC handle — `intern_poly(s).raw()` produces it.
+        let len_key = abi_adapter::intern_poly("length").raw();
+        let len_num = to_number(PolyValue::from_raw(super::objops::__rtsadp_obj_get(a, len_key)));
+        if len_num.is_finite() && len_num >= 0.0 {
+            let len = len_num as i64;
+            let vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+            for i in 0..len {
+                let k = abi_adapter::intern_poly(&i.to_string()).raw();
+                let elem = super::objops::__rtsadp_obj_get(a, k);
+                rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, elem as i64);
+            }
+            return box_vec_as_array(vec);
+        }
+    }
     FROM_UNSUPPORTED
 }
 

@@ -387,17 +387,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // word (same path as the array callback methods); a capturing arrow
                 // bails there.
                 //
-                // `__rtsadp_arr_from` only builds from an ARRAY or a STRING source; a
-                // `{ length: n }` array-like (or Map/Set) yields an EMPTY array, which
-                // would silently produce a wrong (empty) mapped result. So require a
-                // proven array/string source and BAIL otherwise (honesty floor —
-                // array-like `from` is a later increment).
+                // `__rtsadp_arr_from` builds from an ARRAY, a STRING, or an ARRAY-LIKE
+                // keyed object with a numeric `length` (`{ length: n }`); a keyed
+                // object WITHOUT a numeric length (Map/Set/plain) returns the
+                // FROM_UNSUPPORTED sentinel runtime-side. Allow array/string/object
+                // sources through; reject only a proven primitive (number/bool) source
+                // up front (it can never be array-like).
                 let is_arr = self.is_array_valued(&args[0]);
                 let v = self.lower_expr(module, &args[0])?;
-                if !is_arr && !matches!(v.kind, super::lower::JsKind::Str) {
+                let is_objlike = matches!(v.kind, super::lower::JsKind::Object)
+                    || matches!(&args[0].kind, HirExprKind::Object(_));
+                if !is_arr && !matches!(v.kind, super::lower::JsKind::Str) && !is_objlike {
                     return unsupported!(
-                        "Array.from(source, mapFn) with a non-array/non-string source \
-                         (array-like `{{length}}` / Map / Set is a later increment)"
+                        "Array.from(source, mapFn) with a non-array/non-string/non-object source \
+                         (a primitive source is not array-like)"
                     );
                 }
                 let src_boxed = self.box_value(v);
