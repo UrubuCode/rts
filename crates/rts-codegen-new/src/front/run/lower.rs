@@ -233,6 +233,15 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// this stack is non-empty branches to `.last()`; while empty it RETURNS a
     /// sentinel from the current function (propagation to the caller).
     pub try_stack: Vec<TryCtx>,
+    /// Active enclosing `finally` BODIES (innermost last) for NON-error exits. A
+    /// `return` inside a `try`/`finally` must run every enclosing finalizer (in
+    /// JS order: value-expr first, THEN finalizers innermost-first) before the
+    /// real `return`. The error path already routes through the finally block via
+    /// `try_stack`; this carries the finalizer STATEMENTS so `lower_return` can
+    /// inline them on the return edge. Pushed for the body+catch of a
+    /// try-with-finally, popped before the finalizer itself lowers (so a `return`
+    /// inside a finalizer only runs the OUTER finalizers).
+    pub finally_stack: Vec<Vec<HirStmt>>,
     /// Every user function's frozen ABI signature, for cross-fn calls. Keyed by
     /// name; shared (read-only) across all functions in the module.
     pub sigs: &'c HashMap<String, FnSig>,
@@ -326,6 +335,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             loop_stack: Vec::new(),
             pending_label: None,
             try_stack: Vec::new(),
+            finally_stack: Vec::new(),
             sigs,
             thunks,
             ids,

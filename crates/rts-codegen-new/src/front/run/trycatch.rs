@@ -145,7 +145,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.call_runtime(module, "__rtsadp_err_clear", &[])?;
 
         // ---- body ----
+        // A `return` inside the body (or catch) must run THIS finalizer before
+        // returning — push its statements so `lower_return` can inline them on the
+        // return edge (the error edge is already handled by `try_stack`/`on_error`).
         self.try_stack.push(TryCtx { on_error });
+        if let Some(fin) = finally {
+            self.finally_stack.push(fin.to_vec());
+        }
         self.block_terminated = false;
         self.lower_block(module, body)?;
         let body_falls_through = !self.block_terminated;
@@ -179,6 +185,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
         // ---- finally ----
         if let Some(fb) = finally_block {
+            // Pop THIS finalizer off the return-edge stack before lowering it: a
+            // `return` inside the finalizer must run only the OUTER finalizers, not
+            // recurse into itself.
+            self.finally_stack.pop();
             let fin = finally.expect("finally_block ⇒ finally exists");
             self.builder.switch_to_block(fb);
             self.builder.seal_block(fb);

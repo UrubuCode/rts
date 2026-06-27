@@ -87,23 +87,48 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     }
 
     fn lower_return(&mut self, module: &mut dyn Module, arg: Option<&HirExpr>) -> FrontResult<()> {
-        match (self.ret, arg) {
-            (None, None) => {
-                // void `return;` inside main.
-                self.builder.ins().return_(&[]);
-            }
+        // Compute the return VALUE first (JS evaluates the return expression BEFORE
+        // running any enclosing `finally`), then — if inside a try/finally — run every
+        // enclosing finalizer innermost-first, and only THEN emit the real `return`.
+        let ret_val: Option<cranelift_codegen::ir::Value> = match (self.ret, arg) {
+            (None, None) => None,
             (None, Some(e)) => {
                 // value returned from a void context: evaluate for effects, drop.
                 self.lower_expr(module, e)?;
-                self.builder.ins().return_(&[]);
+                None
             }
             (Some(_ret), None) => {
                 return unsupported!("`return;` with no value in a value-returning function");
             }
             (Some(ret), Some(e)) => {
                 let v = self.lower_expr(module, e)?;
-                let coerced = self.coerce(v, ret)?;
-                self.builder.ins().return_(&[coerced]);
+                Some(self.coerce(v, ret)?)
+            }
+        };
+
+        if !self.finally_stack.is_empty() {
+            // Run each enclosing finalizer innermost-first. While finalizer `i` lowers,
+            // only the OUTER finalizers (0..i) stay active so a `return` inside it runs
+            // them but not itself. If a finalizer terminates the block (its own
+            // `return`/`throw`), it OVERRIDES this return — stop without emitting it.
+            let finallys = std::mem::take(&mut self.finally_stack);
+            for i in (0..finallys.len()).rev() {
+                self.finally_stack = finallys[..i].to_vec();
+                self.lower_block(module, &finallys[i])?;
+                if self.block_terminated {
+                    self.finally_stack = finallys;
+                    return Ok(());
+                }
+            }
+            self.finally_stack = finallys;
+        }
+
+        match ret_val {
+            Some(v) => {
+                self.builder.ins().return_(&[v]);
+            }
+            None => {
+                self.builder.ins().return_(&[]);
             }
         }
         self.block_terminated = true;
