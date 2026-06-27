@@ -296,7 +296,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let annotated = repr_of(ty);
         let demotes_float =
             matches!(val.repr, Repr::Float64) && matches!(annotated, Repr::Int32 | Repr::Int64);
-        let repr = if annotated.is_unboxed() && val.repr.is_unboxed() && !demotes_float {
+        // A `Bool` value must NEVER be widened to a numeric annotation: `bool` and
+        // `number` are distinct JS types, and forcing a bool into an Int slot loses
+        // its boolean identity (`typeof` flips to `"number"`, the value prints `1`
+        // instead of `true`). The HIR sometimes mis-infers a `boolean`-result init
+        // as `number` (e.g. `new Date(0) instanceof Date` was typed numeric, so a
+        // `const x = …instanceof…` became a number `1`). Keep the proven `Bool`.
+        let widens_bool_to_num = matches!(val.repr, Repr::Bool)
+            && matches!(annotated, Repr::Int32 | Repr::Int64 | Repr::Float64);
+        let repr = if annotated.is_unboxed()
+            && val.repr.is_unboxed()
+            && !demotes_float
+            && !widens_bool_to_num
+        {
             annotated
         } else {
             val.repr
