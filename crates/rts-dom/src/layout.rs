@@ -148,8 +148,11 @@ fn layout_block(
     // como uma linha; comentário não pinta.
     let css = match &dom.node(id).kind {
         NodeKind::Element { tag } => {
-            // `<style>`/`<script>`: conteúdo não-renderável — pula a subárvore.
-            if tag == "style" || tag == "script" {
+            // Metadata não-renderável (`<head>` e seu conteúdo, `<style>`,
+            // `<script>`): pula a subárvore inteira — não pinta nada. Permite
+            // carregar um HTML COMPLETO (com <head><title><meta>) e renderizar só
+            // o que é visível (o <body> e seus filhos).
+            if is_non_rendered_tag(tag) {
                 return (0.0, 0.0);
             }
             dom.computed_style_idx(id).unwrap_or_default()
@@ -289,6 +292,15 @@ fn content_natural_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -> 
         max_w = max_w.max(w);
     }
     max_w
+}
+
+/// `true` se a tag NÃO é renderável — metadata do documento (`<head>` e o que vive
+/// nele: `<title>`, `<meta>`, `<link>`, `<base>`) e os recursos `<style>`/`<script>`
+/// (o CSS já virou stylesheet no parse; JS não executamos). Permite carregar um HTML
+/// COMPLETO e pintar só o conteúdo visível (`<body>`). `<html>`/`<body>` SÃO
+/// renderáveis (transparentes — fluxo block normal dos filhos).
+fn is_non_rendered_tag(tag: &str) -> bool {
+    matches!(tag, "head" | "title" | "meta" | "link" | "base" | "style" | "script")
 }
 
 /// O código de `display` de um nó (do `BlockDef` da tag), ou vertical (0) se a tag

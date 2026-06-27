@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>Página carregada de arquivo .html pelo motor do RTS</title>
+  <style>
+    /* CSS de autor puro — cascade fiel à MDN (tag < .classe < #id < inline < !important) */
+    body   { background:#0f1420; color:#d8dee9; padding:20 }
+    h1     { color:#88ccff; font-size:30 }
+    h2     { color:#7aa2d0; font-size:20 }
+    p      { color:#b8c2d0; font-size:15 }
+    .muted { color:#6b7686; font-size:13 }
+    .card  { background:#1a2030; border-width:2; border-color:#2e3a52; border-radius:10; padding:14; width:32% }
+    .num   { color:#ffffff; font-size:26 }
+    .ok    { color:#7ee787 }
+    .warn  { color:#ffb454 }
+    .badge { background:#223052; color:#9ecbff; padding:6; border-radius:6; font-size:13; margin:4 }
+    #hero  { background:#142a44; border-color:#3a6ea5; width:100% }
+    .pin   { color:#ff6b6b !important }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Página de Arquivo</h1>
+    <p class="muted">Este HTML foi LIDO de pagina.html no disco, parseado e renderizado pelo motor nativo do RTS (DOM headless + layout no DOM + egui so pinta)</p>
+  </header>
+
+  <section id="hero" class="card">
+    <h2>Sobre</h2>
+    <p>Carregar um arquivo .html e renderizar — o que Node e Bun nao fazem sem jsdom. Aqui o DOM, o CSS e o LAYOUT sao nativos.</p>
+    <p class="pin" style="color:#888888">Linha fixada (!important venceu o inline cinza)</p>
+  </section>
+
+  <row>
+    <div class="card"><p class="num">256</p><p class="stat ok">testes verdes</p></div>
+    <div class="card"><p class="num">31%</p><p class="stat">paridade</p></div>
+    <div class="card"><p class="num">5</p><p class="stat warn">fases restantes</p></div>
+  </row>
+
+  <section>
+    <h2>Stack</h2>
+    <tags>
+      <p class="badge">rust</p><p class="badge">cranelift</p><p class="badge">typescript</p>
+      <p class="badge">egui</p><p class="badge">wgpu</p><p class="badge">winit</p>
+      <p class="badge">tokio</p><p class="badge">rayon</p><p class="badge">actix</p>
+    </tags>
+  </section>
+
+  <footer>
+    <p class="muted">renderizado de arquivo .html — pipeline: fs.read_text -> dom.parseHtml -> egui.render</p>
+  </footer>
+</body>
+</html>
