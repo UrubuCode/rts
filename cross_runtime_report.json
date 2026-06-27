@@ -4169,10 +4169,10 @@
 ,
 {
   "name": "03_equality",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "null==undefined=true\nundefined==null=true\nnull==null=true\nundefined==undefined=true\nnull===undefined=false\n0==false=true\n1==true=true\n0===false=false\n1=='1'=true\n1==='1'=false\nNaN==NaN=false\nNaN===NaN=false",
   "node": "null==undefined=true\nundefined==null=true\nnull==null=true\nundefined==undefined=true\nnull===undefined=false\n0==false=true\n1==true=true\n0===false=false\n1=='1'=true\n1==='1'=false\nNaN==NaN=false\nNaN===NaN=false",
-  "rts": "null==undefined=true\nundefined==null=true\nnull==null=true\nundefined==undefined=true\nnull===undefined=false\n0==false=true\n1==true=true\n0===false=true\n1=='1'=true\n1==='1'=false\nNaN==NaN=false\nNaN===NaN=false"
+  "rts": "null==undefined=true\nundefined==null=true\nnull==null=true\nundefined==undefined=true\nnull===undefined=false\n0==false=true\n1==true=true\n0===false=false\n1=='1'=true\n1==='1'=false\nNaN==NaN=false\nNaN===NaN=false"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":209,"rts_diverge":75,"bun_node_diverge":17,"errors":308,"rejected":0}}
+],"summary":{"total":609,"pass":210,"rts_diverge":74,"bun_node_diverge":17,"errors":308,"rejected":0}}
