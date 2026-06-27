@@ -377,10 +377,10 @@
 ,
 {
   "name": "34_array_from_length_mapper",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "mapped=0,3,6,9",
   "node": "mapped=0,3,6,9",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "mapped=0,3,6,9"
 }
 ,
 {
@@ -977,10 +977,10 @@
 ,
 {
   "name": "codex_super_getter_setter_receiver",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "x:base-set:base-get\nx:base-set",
   "node": "x:base-set:base-get\nx:base-set",
-  "rts": "x:base-set:base-get\nx:base-set"
+  "rts": "undefined:base-get\nx:base-set"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":206,"rts_diverge":77,"bun_node_diverge":17,"errors":309,"rejected":0}}
+],"summary":{"total":609,"pass":206,"rts_diverge":78,"bun_node_diverge":17,"errors":308,"rejected":0}}
