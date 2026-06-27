@@ -344,6 +344,52 @@ pub extern "C" fn __RTS_FN_NS_REGEX_MATCH_ALL(
     )))
 }
 
+/// `String.prototype.match` result as a `Vec` of REAL string handles. A NON-global
+/// regex returns the FIRST match's `[fullMatch, group1, group2, …]` (capture
+/// groups, JS spec — a group that did not participate is the `0`/null sentinel). A
+/// GLOBAL (`/g`) regex returns all full matches (group 0 only), like `match_all`.
+/// `0` on a bad handle / NO MATCH (the lowering maps it to `null`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_REGEX_MATCH_GROUPS(
+    handle: Handle,
+    s_ptr: *const u8,
+    s_len: i64,
+) -> Handle {
+    let s = match unsafe { rts_engine::abi::str_abi::from_abi(s_ptr, s_len) } {
+        Some(s) => s,
+        None => return 0,
+    };
+    let result: Option<Vec<Option<String>>> = with_entry(handle, |entry| match entry {
+        Some(Entry::Regex(rx)) => {
+            if rx.global {
+                let texts = rx.engine.find_all(s);
+                if texts.is_empty() {
+                    None
+                } else {
+                    Some(texts.into_iter().map(|m| Some(m.text)).collect())
+                }
+            } else {
+                rx.engine
+                    .captures(s)
+                    .map(|c| c.groups.into_iter().map(|g| g.map(|m| m.text)).collect())
+            }
+        }
+        _ => None,
+    });
+    match result {
+        None => 0,
+        Some(groups) => alloc_entry(Entry::Vec(Box::new(
+            groups
+                .into_iter()
+                .map(|g| match g {
+                    Some(t) => alloc_string(t.into_bytes()) as i64,
+                    None => 0,
+                })
+                .collect::<Vec<i64>>(),
+        ))),
+    }
+}
+
 /// Função `regex.f(args)`.
 fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
     Member {

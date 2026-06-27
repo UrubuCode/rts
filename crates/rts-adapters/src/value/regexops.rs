@@ -166,7 +166,11 @@ pub extern "C" fn __rtsadp_re_last_index(re_word: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_re_str_match(subj_word: u64, re_word: u64) -> u64 {
     let s = handle_str(str_handle(subj_word));
-    let raw_vec = rt_re::__RTS_FN_NS_REGEX_MATCH_ALL(unbox_re(re_word), s.as_ptr(), s.len() as i64);
+    // `s.match(re)`: NON-global → `[fullMatch, …captureGroups]`; global → all full
+    // matches. `MATCH_GROUPS` picks by the regex's `global` flag (the old path used
+    // `MATCH_ALL`, which never returns capture groups → `m[1]` read `0`).
+    let raw_vec =
+        rt_re::__RTS_FN_NS_REGEX_MATCH_GROUPS(unbox_re(re_word), s.as_ptr(), s.len() as i64);
     if raw_vec == 0 {
         return PolyValue::null().raw();
     }
