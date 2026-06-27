@@ -63,7 +63,12 @@ export class Matcher {
   // ── Equality ────────────────────────────────────────────────────────────────
 
   toBe(expected: string): void {
-    const pass: boolean = this._actual === expected;
+    // Object.is / SameValue semantics, like Jest's `toBe`: `NaN` matches `NaN`
+    // (raw `===` says `NaN !== NaN`). `x !== x` is the JS idiom for "x is NaN" and
+    // is false for every non-NaN value (incl. strings), so this only relaxes the
+    // genuine both-NaN case.
+    const bothNaN: boolean = this._actual !== this._actual && expected !== expected;
+    const pass: boolean = this._actual === expected || bothNaN;
     if (this._neg ? pass : !pass) {
       test_core.case_fail_diff(expected, this._actual);
     }
