@@ -8,6 +8,16 @@
 /// Casa com o default de texto usado no `render_block_body`.
 const DEFAULT_FONT_SIZE: f32 = 20.0;
 
+thread_local! {
+    /// Largura do CONTAINER horizontal atual (pontos), quando estamos DENTRO de um
+    /// `display:horizontal`. `width:%` de um filho resolve contra ESTA largura (a
+    /// do container, fixa), não contra `ui.available_width()` — que dentro do
+    /// `ui.horizontal` é a largura RESTANTE da linha (encolhe a cada card, e o card
+    /// 2 já nasce menor que o card 1). `None` = não estamos num horizontal (o `%`
+    /// usa `available_width` normal, contra o content-box do pai vertical).
+    static HORIZONTAL_CONTAINER_W: std::cell::Cell<Option<f32>> = const { std::cell::Cell::new(None) };
+}
+
 /// Estilo inline herdado ao descer na árvore — flags de tag (`<b>`/`<i>`) MAIS as
 /// propriedades CSS computadas do `style="..."` (cor/tamanho). Herdado: filhos
 /// começam do estilo do pai; o próprio `style` de cada nó sobrepõe.
@@ -157,23 +167,40 @@ fn render_block(
         // Aplica via `set_max_width` (encolhe sem quebrar o layout do pai).
         if let Some(d) = width {
             let screen = ui.ctx().screen_rect();
+            // Dentro de um `display:horizontal`, `%` resolve contra a largura do
+            // CONTAINER (fixa, capturada antes do `ui.horizontal`), não contra
+            // `available_width` (a restante da linha, que encolhe a cada card).
+            let in_horizontal = HORIZONTAL_CONTAINER_W.with(|c| c.get());
+            let base_w = in_horizontal.unwrap_or_else(|| ui.available_width());
             let ctx = crate::style::ResolveCtx {
-                parent_content_w: ui.available_width(),
+                parent_content_w: base_w,
                 node_font_size: font_size,
                 root_font_size: DEFAULT_FONT_SIZE, // rem ancora no default até cascade de :root
                 viewport_w: screen.width(),
                 viewport_h: screen.height(),
             };
             if let Some(w) = d.resolve(&ctx) {
+                // Largura FIXA: min == max. Sem o `set_min_width`, dentro de um
+                // `ui.horizontal` o card encolhe ao conteúdo (o `egui::Frame` colapsa
+                // e o box não aparece). Com min=max o card tem a largura pedida.
+                ui.set_min_width(w);
                 ui.set_max_width(w);
             }
         }
+        // Já consumimos o container horizontal para o `%` DESTE bloco; os FILHOS
+        // dele resolvem `%` contra a largura deste bloco (vertical), não a do
+        // container-avô. Limpa o marcador para os descendentes (restaurado pelo
+        // `DISPLAY_HORIZONTAL` se algum descendente abrir outro horizontal).
+        let saved_container = HORIZONTAL_CONTAINER_W.with(|c| c.replace(None));
         // Recuo à esquerda (lista/blockquote) via `ui.indent`; senão direto.
         if def.indent > 0.0 {
             ui.indent(("blk", id), |ui| render_block_body(ui, dom, id, def, this_index));
         } else {
             render_block_body(ui, dom, id, def, this_index);
         }
+        // Restaura o container do horizontal-PAI para o próximo IRMÃO deste bloco
+        // (que ainda está no mesmo `ui.horizontal`).
+        HORIZONTAL_CONTAINER_W.with(|c| c.set(saved_container));
     };
 
     if box_css.has_box() {
@@ -270,12 +297,19 @@ fn render_block_body(
         }
         // HORIZONTAL: filhos lado a lado, sem quebra (linha de tabela / flex-row).
         x if x == DISPLAY_HORIZONTAL => {
+            // Captura a largura TOTAL do container ANTES do `ui.horizontal` — os
+            // filhos com `width:%` resolvem contra ela (não contra a largura
+            // restante, que encolhe a cada card). Restaura o valor anterior ao sair
+            // (horizontais aninhados: cada nível tem seu container).
+            let container_w = ui.available_width();
+            let prev = HORIZONTAL_CONTAINER_W.with(|c| c.replace(Some(container_w)));
             ui.horizontal(|ui| {
                 let mut i = 0usize;
                 for &child in &dom.node(id).children {
                     render_block(ui, dom, child, &mut i);
                 }
             });
+            HORIZONTAL_CONTAINER_W.with(|c| c.set(prev));
         }
         // WRAP: flui inline (CSS inline-flow) — o parágrafo clássico.
         x if x == DISPLAY_WRAP => {
@@ -294,13 +328,28 @@ fn render_block_body(
         }
         // VERTICAL (default block): empilha os filhos.
         _ => {
+            // Estilo do PRÓPRIO bloco (tag + style="" inline + override) — herdado
+            // pelo TEXTO solto e pelos filhos INLINE deste bloco (ex. `<statnum
+            // style="color:#66CCFF">128</statnum>`: o "128" pega a cor/font do
+            // statnum, não o default). Filhos que são BLOCOS resolvem o seu próprio.
+            let block_st = merge_node_style(dom, id, InlineStyle { mono, ..Default::default() });
             ui.vertical(|ui| {
                 if let Some(p) = &prefix {
                     ui.label(egui::RichText::new(p).strong());
                 }
                 let mut i = 0usize;
                 for &child in &dom.node(id).children {
-                    render_block(ui, dom, child, &mut i);
+                    // Texto solto / tag inline (sem layout de bloco): herda o estilo
+                    // do bloco pai. Bloco de verdade: renderiza com seu próprio.
+                    let is_block = match &dom.node(child).kind {
+                        crate::dom::NodeKind::Element { tag } => crate::block::lookup(tag).is_some(),
+                        _ => false, // texto/comment → inline com o estilo do pai
+                    };
+                    if is_block {
+                        render_block(ui, dom, child, &mut i);
+                    } else {
+                        render_inline(ui, dom, child, block_st);
+                    }
                 }
             });
         }

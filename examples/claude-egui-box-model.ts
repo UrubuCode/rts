@@ -1,4 +1,5 @@
 import egui from "rts:egui";
+import dom from "rts:dom";
 
 // F2 — box model (margin/padding/border/bg/raio) + WIDTH com TODAS as unidades
 // (px/%/em/rem/vw/vh/auto) via SLOT OPACO ou style="" inline. O Rust nunca casa
@@ -21,19 +22,19 @@ const DIM_RANGE = 1000000000;
 const widthPercent = (p: number): number => 1 * DIM_RANGE + p * 1000; // base %
 const widthVw = (v: number): number => 4 * DIM_RANGE + v * 1000; // base vw
 
-egui.defineBlock("h1", 0, 24, 0, 6);
-egui.defineBlock("div", 1, 0, 0, 4);
+dom.defineBlock("h1", 0, 24, 0, 6);
+dom.defineBlock("div", 1, 0, 0, 4);
 
-egui.defineStyle("h1", SLOT_COLOR, 0xE8EEF5FF);
-egui.defineStyle("h1", SLOT_FONT_SIZE, 26);
+dom.defineStyle("h1", SLOT_COLOR, 0xE8EEF5FF);
+dom.defineStyle("h1", SLOT_FONT_SIZE, 26);
 
 // .card via TAG div: caixa azul com padding/borda/raio. width 70% (do pai).
-egui.defineStyle("div", SLOT_BG, 0x1A2A44FF);
-egui.defineStyle("div", SLOT_PADDING, 14);
-egui.defineStyle("div", SLOT_BORDER_WIDTH, 2);
-egui.defineStyle("div", SLOT_BORDER_COLOR, 0x4A7AC0FF);
-egui.defineStyle("div", SLOT_CORNER_RADIUS, 10);
-egui.defineStyle("div", SLOT_WIDTH, widthPercent(70)); // width: 70% (do content-box do pai)
+dom.defineStyle("div", SLOT_BG, 0x1A2A44FF);
+dom.defineStyle("div", SLOT_PADDING, 14);
+dom.defineStyle("div", SLOT_BORDER_WIDTH, 2);
+dom.defineStyle("div", SLOT_BORDER_COLOR, 0x4A7AC0FF);
+dom.defineStyle("div", SLOT_CORNER_RADIUS, 10);
+dom.defineStyle("div", SLOT_WIDTH, widthPercent(70)); // width: 70% (do content-box do pai)
 
 const win = egui.openWindow("F2 — box model + unidades", 560, 420, 0);
 
@@ -49,11 +50,15 @@ const HTML =
   "<div style=\"width: auto; background-color: #30281A; border-color: #C0A06A\">" +
   "auto = ocupa a largura disponivel.</div>";
 
+// DOM no rts-dom (headless); o egui só LÊ e pinta via egui.render.
+const d = dom.parseHtml(HTML);
+
 while (egui.isOpen(win) !== 0) {
   if (egui.pump(win) !== 0) break;
   egui.beginFrame(win);
-  egui.html(win, HTML);
+  egui.render(win, d);
   egui.endFrame(win);
 }
 
 egui.close(win);
+dom.free(d);

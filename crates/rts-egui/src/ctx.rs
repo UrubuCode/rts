@@ -94,8 +94,14 @@ pub enum WidgetCmd {
     /// Marcador de "renderize o DOM retido aqui". A árvore em si vive em
     /// `UiCtx::dom` (persistente entre frames, mutável pelo JS); este comando só
     /// marca a POSIÇÃO do conteúdo HTML na ordem da fila, em relação aos widgets
-    /// imperativos. O render (`frame::render_dom`) lê `UiCtx::dom`.
+    /// imperativos. O render (`frame::render_dom`) lê `UiCtx::dom`. LEGACY: o egui
+    /// detém o próprio DOM. O caminho headless-puro é `HtmlHandle` abaixo.
     Html,
+    /// Renderiza um DOM do `rts-dom` por HANDLE (`egui.render(win, domHandle)`). O
+    /// egui é RENDER GENÉRICO: NÃO detém o DOM — lê a árvore do `store` do rts-dom
+    /// (`rts_dom::store::with_dom`) e pinta. É o que desacopla o DOM do render (o
+    /// DOM vive 100% no rts-dom, headless; o egui é um consumidor trocável).
+    HtmlHandle(u64),
     // ── CANVAS BURRO (primitivos de pintura em coords ABSOLUTAS) ─────────────────
     // O TS calcula o layout e emite estes comandos; o egui só os EXECUTA via
     // `egui::Painter` (não participam do layout-flow dos widgets acima). Cores são

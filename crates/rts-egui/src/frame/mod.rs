@@ -230,6 +230,12 @@ fn drenar(
                     render_dom(ui, dom);
                 }
             }
+            WidgetCmd::HtmlHandle(h) => {
+                // Headless-puro: o DOM vive no `store` do rts-dom; o egui SÓ o lê e
+                // pinta (empresta `&Dom` via `with_dom`, sem copiar nem deter). DOM
+                // inválido (handle morto) → não pinta nada.
+                rts_dom::store::with_dom(*h, |d| render_dom(ui, d));
+            }
             // ── CANVAS BURRO: pinta em coords ABSOLUTAS via Painter ──────────────
             // Não participam do layout-flow (o TS já calculou a posição). O
             // `painter()` desenha no espaço da tela do `ui`.

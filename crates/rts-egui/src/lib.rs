@@ -184,98 +184,36 @@ pub fn register(e: &mut Engine) {
             "Closes the most recent horizontal scope; widgets stack vertically again.",
             widgets::__RTS_FN_NS_EGUI_HORIZONTAL_END as *const u8,
         ))
-        // ── HTML básico (parser à mão → fila de WidgetCmd) ─────────────────────
+        // ── Render do DOM ──────────────────────────────────────────────────────
+        // `render(win, domHandle)`: RENDER GENÉRICO — pinta um DOM do `rts-dom`
+        // (headless, por handle) na janela. O egui só LÊ o DOM e desenha; não o
+        // detém. É o caminho desacoplado (o DOM vive no rts-dom; o egui é um
+        // consumidor trocável). `html(win, string)` é o caminho LEGACY (egui
+        // parseia e detém o próprio DOM) — mantido por compat.
+        .member(func(
+            "render",
+            "__RTS_FN_NS_EGUI_RENDER",
+            Sig::new(vec![U64, U64], AbiType::Void),
+            "render(win: number, domHandle: number): void",
+            "Paints a rts-dom DOM (by handle) into the window — egui only reads the DOM and draws; the DOM lives in rts-dom (headless). Inverts the dependency: any backend consumes the same domHandle.",
+            widgets::__RTS_FN_NS_EGUI_RENDER as *const u8,
+        ))
         .member(func(
             "html",
             "__RTS_FN_NS_EGUI_HTML",
             Sig::new(vec![U64, AbiType::StrPtr], AbiType::Void),
             "html(h: number, html: string): void",
-            "Parses basic HTML and emits the corresponding widgets in the frame.",
+            "LEGACY: parses an HTML string and emits widgets (egui owns the DOM). Prefer `render(win, domHandle)` with a rts-dom DOM (headless, decoupled).",
             widgets::__RTS_FN_NS_EGUI_HTML as *const u8,
         ))
-        // ── Alocador dinâmico de blocos (mapa tag→layout definido pelo TS) ──────
-        .member(func(
-            "defineBlock",
-            "__RTS_FN_NS_EGUI_DEFINE_BLOCK",
-            Sig::new(vec![AbiType::StrPtr, I64, F64, I64, I64], AbiType::Void),
-            "defineBlock(tag: string, display: number, indent: number, prefix: number, flags: number): void",
-            "Registers how a tag lays out (display/indent/prefix/flags). Render reads this map; no tag is hardcoded in Rust.",
-            widgets::__RTS_FN_NS_EGUI_DEFINE_BLOCK as *const u8,
-        ))
-        .member(func(
-            "defineStyle",
-            "__RTS_FN_NS_EGUI_DEFINE_STYLE",
-            Sig::new(vec![AbiType::StrPtr, I64, I64], AbiType::Void),
-            "defineStyle(tag: string, slot: number, val: number): void",
-            "Registers one opaque style slot for a tag (0=color 1=bg 2=font_size; color/bg as 0xRRGGBBAA u32). The TS maps CSS-name->slot; Rust never matches a CSS string. Accumulates per tag.",
-            widgets::__RTS_FN_NS_EGUI_DEFINE_STYLE as *const u8,
-        ))
-        .member(func(
-            "defineInline",
-            "__RTS_FN_NS_EGUI_DEFINE_INLINE",
-            Sig::new(vec![AbiType::StrPtr, I64], AbiType::Void),
-            "defineInline(tag: string, flags: number): void",
-            "Registers an inline tag's style (flags: BOLD=8|ITALIC=16|MONO=1). Render reads this map; no tag is hardcoded in Rust.",
-            widgets::__RTS_FN_NS_EGUI_DEFINE_INLINE as *const u8,
-        ))
-        // ── Mutação do DOM retido (API DOM crua, por NodeId) ────────────────────
-        .member(func(
-            "querySelector",
-            "__RTS_FN_NS_EGUI_QUERY_SELECTOR",
-            Sig::new(vec![U64, AbiType::StrPtr], I64),
-            "querySelector(h: number, selector: string): number",
-            "First node matching a simple selector (tag / #id / .class) in the retained DOM; returns its NodeId (>= 0), or -1 if none. Extract the result to a const before comparing.",
-            widgets::__RTS_FN_NS_EGUI_QUERY_SELECTOR as *const u8,
-        ))
-        .member(func(
-            "setText",
-            "__RTS_FN_NS_EGUI_SET_TEXT",
-            Sig::new(vec![U64, I64, AbiType::StrPtr], AbiType::Void),
-            "setText(h: number, node: number, text: string): void",
-            "Replaces a node's content with a single text node (element.textContent = text).",
-            widgets::__RTS_FN_NS_EGUI_SET_TEXT as *const u8,
-        ))
-        .member(func(
-            "setAttr",
-            "__RTS_FN_NS_EGUI_SET_ATTR",
-            Sig::new(vec![U64, I64, AbiType::StrPtr, AbiType::StrPtr], AbiType::Void),
-            "setAttr(h: number, node: number, name: string, value: string): void",
-            "Sets/updates an attribute on a node (element.setAttribute).",
-            widgets::__RTS_FN_NS_EGUI_SET_ATTR as *const u8,
-        ))
-        .member(func(
-            "createElement",
-            "__RTS_FN_NS_EGUI_CREATE_ELEMENT",
-            Sig::new(vec![U64, AbiType::StrPtr], I64),
-            "createElement(h: number, tag: string): number",
-            "Creates a detached element; returns its NodeId >= 0 (document.createElement), or -1 if no DOM.",
-            widgets::__RTS_FN_NS_EGUI_CREATE_ELEMENT as *const u8,
-        ))
-        .member(func(
-            "appendChild",
-            "__RTS_FN_NS_EGUI_APPEND_CHILD",
-            Sig::new(vec![U64, I64, I64], AbiType::Void),
-            "appendChild(h: number, parent: number, child: number): void",
-            "Moves child to the end of parent's children (parent.appendChild).",
-            widgets::__RTS_FN_NS_EGUI_APPEND_CHILD as *const u8,
-        ))
-        .member(func(
-            "removeNode",
-            "__RTS_FN_NS_EGUI_REMOVE_NODE",
-            Sig::new(vec![U64, I64], AbiType::Void),
-            "removeNode(h: number, node: number): void",
-            "Detaches a node from its parent (element.remove).",
-            widgets::__RTS_FN_NS_EGUI_REMOVE_NODE as *const u8,
-        ))
-        // ── Inspeção / debug do DOM retido ──────────────────────────────────────
-        .member(func(
-            "domDump",
-            "__RTS_FN_NS_EGUI_DOM_DUMP",
-            Sig::new(vec![U64], AbiType::Void),
-            "domDump(h: number): void",
-            "Prints the retained DOM tree (last parsed HTML) to stderr, devtools-style.",
-            widgets::__RTS_FN_NS_EGUI_DOM_DUMP as *const u8,
-        ))
+        // ── DOM/estilo: REMOVIDOS do namespace egui (extração headless) ─────────
+        // defineBlock/defineStyle/defineInline + querySelector/setText/setAttr/
+        // createElement/appendChild/removeNode/domDump migraram 100% para o
+        // namespace `dom` (rts-dom). O egui é RENDER GENÉRICO: só LÊ o DOM e pinta
+        // (via `egui.html` / `egui.render`), nunca detém estado de página. Isso
+        // INVERTE a dependência — o DOM não conhece o render; qualquer backend
+        // (egui hoje; web/headless-png amanhã) consome o mesmo DOM. Ver
+        // docs/specs/html-engine + project_dom_headless_vision.
         // ── CANVAS BURRO: o TS calcula o layout e emite primitivos; o egui pinta ──
         // Coords/tamanhos em pontos (number); cores 0xRRGGBBAA (number).
         .member(func(
