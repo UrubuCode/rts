@@ -24,7 +24,9 @@ mod canvas;
 mod frame;
 #[cfg(feature = "glow-backend")]
 mod glbackend;
-mod render_backend;
+// `pub` para a facade `rts-runtime` chamar `register_backend()` no bootstrap
+// (`runtime_init`), instalando o backend no thread_local da main thread no AOT.
+pub mod render_backend;
 mod widgets;
 
 // O DOM (árvore + parser + NodeId) E o ESTADO de estilo vivem no crate `rts-dom`;

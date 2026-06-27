@@ -174,6 +174,20 @@ class App {
   clicked(): boolean {
     return input.mouseClicked(this._win, 0) !== 0;
   }
+  // ── TECLADO (delega ao input com `this._win`) ────────────────────────────────
+  // IMPORTANTE: chame estes MÉTODOS (`app.keyDown(k)`), NÃO `input.keyDown(app._win, k)`
+  // direto do top-level — passar `app._win` (campo de instância) como argumento de
+  // uma chamada externa lê 0 no AOT (diverge do JIT). Dentro do método, `this._win`
+  // resolve o handle certo. Retornam number (0/1) para o motor despachar i64 bem.
+  keyDown(key: number): number {
+    return input.keyDown(this._win, key);
+  }
+  keyPressed(key: number): number {
+    return input.keyPressed(this._win, key);
+  }
+  keyReleased(key: number): number {
+    return input.keyReleased(this._win, key);
+  }
   button(x: number, y: number, w: number, h: number, label: string): boolean {
     const over = this.hover(x, y, w, h);
     let fill = 0x2A3A50FF;

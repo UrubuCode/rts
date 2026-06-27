@@ -70,6 +70,12 @@ fn make_module() -> JITModule {
 /// On ANY function (or main) hitting an unsupported construct, returns the
 /// `Unsupported` — the module is dropped and nothing runs (no partial program).
 pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Program> {
+    // Bootstrap the runtime on THIS thread (the one that will run `__rtsn_main`):
+    // GC tick hook + main-thread registration + UI render/input backend install.
+    // The OLD engine's deleted `jit.rs` did the GC part; the AOT `main` shim does
+    // the equivalent via `__RTS_FN_RT_INIT`. Same facade entry both paths use.
+    // Idempotent (OnceLock + thread-id dedup + backend box overwrite).
+    rts_runtime::runtime_init();
     let mut module = make_module();
     let main_id = populate_module(&mut module, prog)?;
     module

@@ -89,6 +89,10 @@ let doResetBall = 0; // 0 = não; 1 = dir+1; 2 = dir-1
 // janela criada por ÚLTIMO (após TODAS as declarações) — teste mostrou que criar
 // a janela no MEIO das declarações de áudio silenciava o som.
 const app = createAppAt("Pong com IA — menu/config/jogo", W, H, 2100, 360);
+// TECLADO via MÉTODO do app (`app.keyDown(k)`): dentro do método `this._win`
+// resolve o handle certo. Passar `app._win` (campo) DIRETO como argumento de
+// `input.keyDown(app._win, k)` no top-level lê 0 no AOT (diverge do JIT) — limite
+// do motor: acesso a campo de instância como arg inline fora de um método.
 
 while (app.running()) {
   if (!app.beginFrame()) break;
@@ -236,8 +240,8 @@ while (app.running()) {
   } else {
     // ══ JOGO ═══════════════════════════════════════════════════════════════════
     // jogador
-    if (input.keyDown(app._win, KEY_W) !== 0) ly = ly - pspeed * dt;
-    if (input.keyDown(app._win, KEY_S) !== 0) ly = ly + pspeed * dt;
+    if (app.keyDown(KEY_W) !== 0) ly = ly - pspeed * dt;
+    if (app.keyDown(KEY_S) !== 0) ly = ly + pspeed * dt;
     // IA (velocidade pela config: 0.20..0.46)
     const aispeed = 0.20 + aiDifficulty * 0.26;
     const rcenter = ry + ph / 2;
@@ -285,7 +289,7 @@ while (app.running()) {
     app.text(W - 60, H - 24, "CPU", 0xFF99AAFF, 14);
 
     // botao ESC->menu (canto): pressionar Esc volta
-    if (input.keyPressed(app._win, 2) !== 0) { screen = 0; }
+    if (app.keyPressed(2) !== 0) { screen = 0; }
     app.text(W / 2 - 60, H - 24, "Esc = menu", 0x556066FF, 13);
   }
 

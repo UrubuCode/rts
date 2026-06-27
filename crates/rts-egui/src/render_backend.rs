@@ -275,8 +275,16 @@ fn egui_button(button: i64) -> egui::PointerButton {
     }
 }
 
-/// Registra o egui como o backend de render E input ativo do `rts-render`. Chamado
-/// uma vez na inicialização (via o `register` do namespace egui).
+/// Registra o egui como o backend de render E input ativo do `rts-render`.
+///
+/// `set_backend`/`set_input` escrevem num `thread_local!` (`rts_render::ACTIVE`/
+/// `INPUT`) — a UI vive na thread do TS. No JIT roda na MESMA thread que
+/// `__rtsn_main` (disparado pelo `register` do namespace via `run_source`), então
+/// o backend fica visível ao `render.*`. No AOT o `register` do namespace NÃO roda
+/// no binário (o Registry só existe em tempo de compilação) — por isso o bootstrap
+/// `rts_runtime::runtime_init` (chamado pelo `main` shim via `__RTS_FN_RT_INIT`)
+/// chama esta fn em runtime, na main thread, antes de `__rtsn_main`. Chamar de
+/// novo é inofensivo (sobrescreve o `Box` do backend, idempotente).
 pub fn register_backend() {
     rts_render::set_backend(Box::new(EguiRenderer));
     rts_render::set_input(Box::new(EguiRenderer));

@@ -483,13 +483,16 @@ fn windows_runtime_default_libs() -> &'static [&'static str] {
         "shell32.lib",
         "ole32.lib",
         "synchronization.lib",
-        // GUI/GPU stack (rts-egui → winit + wgpu). winit needs window/input/DPI
-        // (user32/gdi32/dwmapi/imm32/shcore/uxtheme); wgpu's dx12 backend needs
-        // dxgi/d3d12; oleaut for COM. The AOT link is manual (Cranelift .o +
-        // staticlib), so the crates' `#[link]` directives don't propagate — these
-        // must be passed explicitly.
+        // GUI/GPU stack (rts-egui → winit + wgpu + glutin/glow). winit needs
+        // window/input/DPI (user32/gdi32/dwmapi/imm32/shcore/uxtheme); wgpu's dx12
+        // backend needs dxgi/d3d12; the glow-backend's WGL context (glutin) needs
+        // opengl32 (wglCreateContext/wglMakeCurrent/wglGetProcAddress/…); oleaut
+        // for COM. The AOT link is manual (Cranelift .o + staticlib), so the
+        // crates' `#[link]` directives don't propagate — these must be passed
+        // explicitly.
         "user32.lib",
         "gdi32.lib",
+        "opengl32.lib",
         "dwmapi.lib",
         "imm32.lib",
         "shcore.lib",

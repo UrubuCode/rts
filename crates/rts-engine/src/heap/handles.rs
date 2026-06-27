@@ -1183,9 +1183,29 @@ pub fn install_gc_hook(f: fn()) {
 /// The shard index is encoded in the returned handle so `shard_for_handle`
 /// routes correctly without any extra lookup.
 ///
+/// Above this many live handles, the periodic GC (every `GC_TICK_INTERVAL`
+/// allocations) kicks in. Below it the conservative collector is NOT run.
+///
+/// Rationale: the scanner is CONSERVATIVE (it can only see roots on the stack /
+/// in pinned constants / in gcells / microtasks), and the new engine does not yet
+/// register EVERY transient root (array-element temporaries, callback closures,
+/// concat intermediates), so a sweep run early could collect a still-live string
+/// — observed regressing short tests. A normal program (and every test) allocates
+/// a few thousand handles and stays well under this floor, so the GC stays a
+/// no-op for them (matching the pre-existing behavior where the GC never ran).
+///
+/// A long allocation-heavy loop (UI/game frame loop) is the ONLY thing that
+/// crosses it; there the GC must run or it aborts at `HANDLES_MAX` (5M). At that
+/// scale the live set is dominated by genuinely-reachable handles plus the pinned
+/// string constants, so the sweep reclaims the per-frame garbage safely. This is
+/// a pragmatic floor until full root coverage lands — never collect a short
+/// program's live data, always rescue the runaway loop before 5M.
+const GC_LIVE_FLOOR: usize = 500_000;
+
 /// Every `GC_TICK_INTERVAL` allocations triggers an automatic mark+sweep
-/// cycle when the JIT stack map registry is active. This reclaims handles
-/// that are no longer reachable from any JIT frame.
+/// cycle, but ONLY once live handles exceed [`GC_LIVE_FLOOR`] (so short programs
+/// never run the conservative collector — see that constant). This reclaims
+/// handles no longer reachable from any scanned root.
 pub fn alloc_entry(entry: Entry) -> u64 {
     // Periodic GC: tick counter is thread-local (no atomic overhead).
     // We trigger BEFORE the new allocation so the allocation itself is
@@ -1195,7 +1215,10 @@ pub fn alloc_entry(entry: Entry) -> u64 {
         t.set(v);
         v
     });
-    if tick % GC_TICK_INTERVAL == 0 && !gc_disabled() {
+    if tick % GC_TICK_INTERVAL == 0
+        && !gc_disabled()
+        && live_handle_count() >= GC_LIVE_FLOOR
+    {
         if let Some(f) = GC_COLLECT_HOOK.get() {
             f();
         }
@@ -1266,6 +1289,15 @@ pub extern "C" fn __RTS_FN_NS_GC_POLY_FROM_HANDLE(full: u64) -> u64 {
     full & SLOT_MASK
 }
 
+/// Pin `handle` as a permanent GC root — for a compile-time string constant the
+/// lowering splices in as a code immediate (see [`pin_handle`]). The JIT calls
+/// this at lowering time via [`crate`]'s host adapter; the AOT `string_from_static`
+/// path calls it at the binary's runtime so the same constants are pinned there.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_PIN_HANDLE(handle: u64) {
+    pin_handle(handle);
+}
+
 /// Reconstruct a full runtime handle from a 48-bit slot+shard payload by reading
 /// the slot's CURRENT generation. Returns 0 if the slot index is out of range or
 /// the slot is `Free` (the payload no longer refers to a live value).
@@ -1304,6 +1336,51 @@ pub fn handle_is_marked(handle: u64) -> Option<bool> {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .is_marked_pub(handle)
+}
+
+// ─── Pinned roots: compile-time string constants ─────────────────────────────
+//
+// The JIT lowering interns each string LITERAL once at compile time and splices
+// the boxed handle in as an `iconst` immediate (see `expr.rs::HirLit::Str`); the
+// AOT path interns it at the binary's startup via `string_from_static`. Either
+// way the handle lives for the WHOLE program (it backs a code constant), but it
+// is NOT on any scanned stack frame, NOT a `globalThis` cell, and NOT a tracked
+// global — it only ever appears as an instruction immediate. The conservative
+// scanner can't see an immediate, so without pinning the GC sweeps these live
+// constants (observed: "number"/"object"/error-message strings collected, then
+// the same `iconst` reads a recycled slot → corrupted output).
+//
+// Pinning records the handle's SLOT identity once; `mark_pinned_roots` re-marks
+// them every cycle so the sweep keeps them. A string constant interned at
+// compile time is never freed for the life of the program — exactly the right
+// lifetime. The set is tiny (one entry per distinct literal) and append-only.
+static PINNED_ROOTS: OnceLock<Mutex<Vec<u64>>> = OnceLock::new();
+
+fn pinned_roots() -> &'static Mutex<Vec<u64>> {
+    PINNED_ROOTS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+/// Pin `handle` as a permanent GC root (a compile-time string constant). Marked
+/// on every cycle so the sweep never frees it. Idempotent-ish: duplicates are
+/// harmless (re-marking the same slot is a no-op) but we de-dup to keep the set
+/// small. A zero/invalid handle is ignored.
+pub fn pin_handle(handle: u64) {
+    if handle == 0 {
+        return;
+    }
+    let mut g = pinned_roots().lock().unwrap_or_else(|e| e.into_inner());
+    if !g.contains(&handle) {
+        g.push(handle);
+    }
+}
+
+/// Mark every pinned root (compile-time string constants) reachable for this GC
+/// cycle. Called from `finish_cycle` alongside the stack/global/gcell roots.
+pub fn mark_pinned_roots() {
+    let g = pinned_roots().lock().unwrap_or_else(|e| e.into_inner());
+    for &h in g.iter() {
+        mark_handle(h);
+    }
 }
 
 /// Sweep all shards: free unmarked entries and reset mark bits.

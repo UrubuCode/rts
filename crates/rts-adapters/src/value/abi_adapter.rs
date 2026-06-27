@@ -55,6 +55,13 @@ pub fn intern_poly(s: &str) -> PolyValue {
     // STRING_NEW reads `len` bytes from `ptr` internally; the extern is a safe
     // `extern "C" fn`, and we pass a live &str's ptr+len.
     let handle = rt_str::__RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64);
+    // PIN as a permanent GC root: the JIT splices this handle in as a code
+    // `iconst` immediate (string literals are interned ONCE at lowering time),
+    // so it never appears on a scanned stack/cell/global. Without pinning the
+    // GC sweeps these live constants and the immediate later reads a recycled
+    // slot → corrupted string. The constant lives for the whole program, which
+    // is exactly a pinned root's lifetime.
+    rt_handles::__RTS_FN_NS_GC_PIN_HANDLE(handle);
     poly_from_real_handle(handle)
 }
 

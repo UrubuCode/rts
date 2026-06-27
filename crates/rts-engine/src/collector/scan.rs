@@ -30,16 +30,58 @@ pub unsafe fn scan_all_roots(visit: &mut dyn FnMut(u64)) {
     #[cfg(target_arch = "x86_64")]
     {
         // 1. Varre a thread atual (a que disparou o GC tick).
+        //
+        // CRÍTICO: capturar os callee-saved (RBX/RBP/R12-R15) ANTES de varrer.
+        // Quando o GC dispara via `alloc_entry` no meio de uma função JIT, um
+        // handle vivo recém-criado pode estar SÓ num registrador callee-saved,
+        // ainda não derramado na pilha — o `scan_range` (que só lê rsp..high) o
+        // perderia e o sweep coletaria um valor vivo (string corrompida). Para
+        // OUTRAS threads isso já é feito via GetThreadContext; para a thread
+        // atual capturamos os registradores aqui e os tratamos como roots.
+        // (RSI/RDI são caller-saved na convenção SysV/Win64 — não seguram value
+        // vivo através de um `call` para `alloc_entry`, então bastam os 6
+        // callee-saved; RBP entra porque com frame pointers pode segurar handle.)
         let mut rsp: usize;
+        let mut s_rbx: u64;
+        let mut s_rbp: u64;
+        let mut s_r12: u64;
+        let mut s_r13: u64;
+        let mut s_r14: u64;
+        let mut s_r15: u64;
         unsafe {
-            std::arch::asm!("mov {}, rsp", out(reg) rsp, options(nostack, readonly));
+            std::arch::asm!(
+                "mov {rsp}, rsp",
+                "mov {rbx}, rbx",
+                "mov {rbp}, rbp",
+                "mov {r12}, r12",
+                "mov {r13}, r13",
+                "mov {r14}, r14",
+                "mov {r15}, r15",
+                rsp = out(reg) rsp,
+                rbx = out(reg) s_rbx,
+                rbp = out(reg) s_rbp,
+                r12 = out(reg) s_r12,
+                r13 = out(reg) s_r13,
+                r14 = out(reg) s_r14,
+                r15 = out(reg) s_r15,
+                options(nostack, readonly),
+            );
         }
+        let saved: [u64; 6] = [s_rbx, s_rbp, s_r12, s_r13, s_r14, s_r15];
         let stack_high = stack_high_addr();
         if debug::is_enabled() {
             eprintln!(
                 "[gc] scan_all_roots SELF rsp={rsp:#x} stack_high={stack_high:#x} delta={}",
                 stack_high.saturating_sub(rsp)
             );
+        }
+        // Marca os callee-saved da thread atual como roots (mesmo critério do
+        // scan: geração ≠ 0). Um false positive só mantém um slot vivo um ciclo
+        // a mais — nunca corrompe.
+        for &reg in saved.iter() {
+            if reg != 0 && (reg >> HANDLE_GEN_SHIFT) & 0xFFFF != 0 {
+                visit(reg);
+            }
         }
         unsafe { scan_range(&mut *visit, rsp, stack_high) };
 

@@ -47,3 +47,29 @@ pub use rts_primitives::STRING_TS;
 /// object — the front-end names nothing.
 pub use rts_shared::stdlib::CONSOLE_TS;
 pub mod namespaces;
+
+/// One-time runtime bootstrap, called once at program startup before the lowered
+/// top-level (`__rtsn_main`). The AOT `main` shim calls this symbol; the JIT path
+/// calls [`runtime_init`] directly host-side.
+///
+/// It lives in the FACADE (not `rts-std`) because it wires TWO subsystems from
+/// different crates: the GC bootstrap (`rts-std`'s `collector::runtime_init` —
+/// install the GC tick hook + register the main thread) AND the UI render/input
+/// backend (`rts-egui`'s `register_backend` — the egui backend lives in a
+/// `thread_local!` set by the namespace `register()`, which only runs at compile
+/// time, so an AOT binary must install it here, on the main thread, or `render.*`
+/// draws nothing). Keeping it in the facade lets the ENGINE name ONE generic
+/// `RT`-scope symbol and never name `egui`/`render` (PRIMORDIAL-vs-Registry).
+///
+/// Idempotent: the GC hook is a `OnceLock::set`, `register_current` de-dups by
+/// thread id, and `register_backend` just overwrites the backend box.
+pub fn runtime_init() {
+    rts_std::collector::collector::runtime_init();
+    rts_egui::render_backend::register_backend();
+}
+
+/// `extern "C"` entry the AOT `main` shim calls before `__rtsn_main`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_INIT() {
+    runtime_init();
+}

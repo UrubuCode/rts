@@ -70,6 +70,19 @@ fn emit_main_entry(
     module: &mut ObjectModule,
     rtsn_main_id: cranelift_module::FuncId,
 ) -> FrontResult<()> {
+    // Runtime bootstrap, resolved at link time (ONE generic `RT`-scope symbol, no
+    // non-primordial name in the engine). It wires the GC tick hook + main-thread
+    // registration AND the UI render/input backend (the facade `rts-runtime` owns
+    // the symbol because the backend lives in `rts-egui`). The JIT path calls the
+    // equivalent host-side in `module_jit::compile_program`. Without it the AOT
+    // binary's GC never runs (handle leak → 5M abort) and the UI backend
+    // thread_local stays empty (blank window — the namespace `register()` that
+    // installs it only runs at compile time, not in the binary).
+    let rtinit_sig = module.make_signature(); // () -> ()
+    let rtinit_id = module
+        .declare_function("__RTS_FN_RT_INIT", Linkage::Import, &rtinit_sig)
+        .map_err(|e| Unsupported::new(format!("declare runtime init: {e}")))?;
+
     // The runtime's event-loop drain, resolved at link time.
     let evloop_sig = module.make_signature(); // () -> ()
     let evloop_id = module
@@ -91,6 +104,11 @@ fn emit_main_entry(
         fb.append_block_params_for_function_params(blk);
         fb.switch_to_block(blk);
         fb.seal_block(blk);
+
+        // Bootstrap BEFORE the program (GC hook + main thread + UI backend, all
+        // behind the one generic `__RTS_FN_RT_INIT`).
+        let rtinit_ref = module.declare_func_in_func(rtinit_id, fb.func);
+        fb.ins().call(rtinit_ref, &[]);
 
         let rtsn_main_ref = module.declare_func_in_func(rtsn_main_id, fb.func);
         fb.ins().call(rtsn_main_ref, &[]);

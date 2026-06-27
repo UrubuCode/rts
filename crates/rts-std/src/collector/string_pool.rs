@@ -833,9 +833,33 @@ fn element_to_string(raw: i64) -> String {
     }
 }
 
+/// Intern a STATIC string literal (a `.rodata` DATA object emitted by the AOT
+/// lowering — see `expr.rs::HirLit::Str`). Unlike the JIT, which interns each
+/// literal ONCE at lowering time and bakes the handle as a code immediate, the
+/// AOT path calls this at the binary's runtime — and re-evaluating the literal
+/// (e.g. in a loop) would otherwise allocate a fresh handle every time.
+///
+/// We cache by the literal's DATA address (`ptr`): the same literal has a stable
+/// `ptr`, so the first call allocates + PINS the handle (a compile-time constant
+/// lives for the whole program — the correct lifetime), and every later call
+/// returns the same handle. This (a) matches the JIT's one-handle-per-literal
+/// behavior, (b) keeps the constant alive under GC (it's a code constant, on no
+/// scanned stack), and (c) bounds the cache to the number of distinct literals.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_STATIC(ptr: *const u8, len: i64) -> u64 {
-    __RTS_FN_NS_GC_STRING_NEW(ptr, len)
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<HashMap<usize, u64>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let key = ptr as usize;
+    let mut g = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(&h) = g.get(&key) {
+        return h;
+    }
+    let handle = __RTS_FN_NS_GC_STRING_NEW(ptr, len);
+    super::handles::__RTS_FN_NS_GC_PIN_HANDLE(handle);
+    g.insert(key, handle);
+    handle
 }
 
 /// Compares two string handles by content. Returns 1 if equal, 0 otherwise.

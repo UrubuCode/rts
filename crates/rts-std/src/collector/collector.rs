@@ -1,28 +1,28 @@
-//! GC collection — precise mark+sweep for JIT frames via Cranelift stack maps.
+//! GC collection — CONSERVATIVE mark+sweep over the native stack.
 //!
 //! ## How it works
 //!
-//! 1. Codegen calls `builder.declare_value_needs_stack_map(val)` for every
-//!    GC handle Value produced in a function.
-//! 2. After each `define_function`, `jit.rs` extracts `UserStackMap` entries
-//!    (via `ctx.compiled_code().buffer.user_stack_maps()`) and stores them in
-//!    `stack_map_registry` keyed by per-function offset.
-//! 3. After `finalize_definitions()`, absolute return-PC addresses are resolved
-//!    and the registry is finalised.
-//! 4. `finish_cycle()` walks the native stack (frame-pointer chain, valid because
-//!    `preserve_frame_pointers=true`), looks up each return address in the
-//!    registry, and marks every handle found at `caller_sp + offset` as a root.
-//! 5. `sweep_all_shards()` frees every handle that was NOT marked.
+//! 1. Every `GC_TICK_INTERVAL` allocations, `handles::alloc_entry` fires
+//!    [`finish_cycle`] via the `GC_COLLECT_HOOK` (installed by [`runtime_init`]
+//!    at startup — the engine can't name `rts-std`'s `finish_cycle` directly).
+//! 2. [`finish_cycle`] calls [`super::scan::scan_all_roots`], the CONSERVATIVE
+//!    scanner: it walks `rsp..stack_high` word-by-word (+ other RTS threads via
+//!    SuspendThread + global cells) and treats any word with a non-zero handle
+//!    generation as a root candidate, marking it (+ transitive children).
+//! 3. `sweep_all_shards()` frees every handle that was NOT marked.
 //!
-//! ## Fallback
+//! The scanner needs NO Cranelift stack maps — it reads raw stack words — so the
+//! exact same cycle runs for JIT frames AND for an AOT-compiled native binary
+//! (`rts compile`). It works on x86-64; on other arches the scanner is a no-op,
+//! so `finish_cycle` skips the whole cycle there (a sweep without a mark would
+//! collect live stack handles), leaving explicit-free as the only reclamation.
 //!
-//! If the stack map registry has no entries (AOT path, or JIT before any maps
-//! are registered), `finish_cycle()` is a no-op — the existing explicit-free
-//! path remains the only reclamation mechanism. This preserves backwards
-//! compatibility while the JIT path matures.
+//! False positives (a non-handle stack word whose bits happen to have a non-zero
+//! generation) only KEEP a slot alive one extra cycle — never corruption. Real
+//! pointers are never confused with handles: the 48-bit payload is a HandleTable
+//! slot index, not an address.
 
 use super::handles::{live_handle_count, mark_handle, sweep_all_shards};
-use super::stack_map_registry;
 
 // ─── Module-level mutable global cells ────────────────────────────────────────
 //
@@ -75,23 +75,24 @@ pub fn mark_gcell_roots() {
 
 // ─── Core collector ──────────────────────────────────────────────────────────
 
-/// Walk the native stack frame-by-frame, mark every GC handle that is live
-/// at a JIT safepoint, then sweep all unmarked handles.
+/// Conservatively scan the native stack (+ other RTS threads + global cells),
+/// mark every reachable GC handle, then sweep all unmarked handles.
 ///
-/// Only active when the stack map registry has been populated (i.e., at least
-/// one JIT function with GC-tracked values has been compiled and finalised).
-/// On non-x86-64 targets or when the registry is empty this is a no-op.
+/// The scanner ([`super::scan::scan_all_roots`]) is CONSERVATIVE: it walks
+/// `rsp..stack_high` word-by-word and treats any word with a non-zero handle
+/// generation as a root candidate. It does NOT consult the JIT
+/// `stack_map_registry` — so it works identically for JIT-compiled frames AND
+/// for AOT-compiled native binaries (`rts compile`), where the registry is
+/// always empty.
+///
+/// Runs the full cycle on x86-64 (where the conservative scanner is implemented).
+/// On non-x86-64 targets the scanner is a no-op, and a sweep WITHOUT a preceding
+/// mark would collect live stack handles (heap corruption / truncated output —
+/// seen on CI macOS arm64, test `js_parity_epic226`), so the whole cycle is
+/// skipped there: handles stay live until explicit-free (more memory, but
+/// correctness preserved).
 pub fn finish_cycle() {
-    if !stack_map_registry::is_active() {
-        return;
-    }
-
-    // Em arquiteturas onde o stack scanner nao roda (nao-x86_64),
-    // skip o ciclo completo: sweep sem mark coleta handles vivos do
-    // stack -> heap corruption / output truncado em testes (visto em
-    // CI macOS arm64 com test js_parity_epic226).
-    // Tradeoff: handles ficam vivos ate explicit-free; uso de memoria
-    // aumenta mas correctness preservada.
+    // Não-x86_64: scanner é no-op → pular o ciclo (sweep sem mark = coletar vivos).
     #[cfg(not(target_arch = "x86_64"))]
     {
         return;
@@ -117,12 +118,51 @@ pub fn finish_cycle() {
     // (e.g. an accumulating string) alive across the sweep.
     mark_gcell_roots();
 
+    // Compile-time string constants: the JIT/AOT lowering interns each string
+    // LITERAL once and uses its handle as a code immediate (not on any stack /
+    // cell / global), so the conservative scanner can't see it. Pinned roots
+    // keep them alive for the whole program (their correct lifetime).
+    super::handles::mark_pinned_roots();
+
     sweep_all_shards();
 }
 
 /// Incremental GC step. Currently a no-op — incremental pacing is a follow-up.
 pub fn collect_debt() {}
 
+// ─── Runtime bootstrap (JIT host-side + AOT main shim) ───────────────────────
+
+/// One-time runtime bootstrap, run once at program startup BEFORE `__rtsn_main`.
+///
+/// Wires the two things the automatic GC needs that nothing else does anymore:
+///
+/// 1. **Installs the GC tick hook.** `handles::alloc_entry` fires
+///    [`finish_cycle`] every `GC_TICK_INTERVAL` allocations through the
+///    `GC_COLLECT_HOOK` indirection (the engine can't name `rts-std`'s
+///    `finish_cycle` directly). The OLD engine's `jit.rs` installed this; the P5
+///    cutover deleted that file and the install was never reconnected, so the
+///    periodic GC silently never ran — an allocation-heavy loop (e.g. a UI/game
+///    frame loop) leaked handles until the 5M abort. This reinstalls it.
+/// 2. **Registers the main thread** in the `thread_registry`, so the conservative
+///    root scanner ([`super::scan::scan_all_roots`]) covers the main thread's
+///    stack via the same path it already uses for worker threads. Workers
+///    self-register on spawn; the main thread had no one to register it (a
+///    no-op for the common single-thread program, but correct for GC that
+///    suspends+scans other threads).
+///
+/// Idempotent: the hook install is a `OnceLock::set` (later calls are ignored)
+/// and `register_current` de-dups by thread id. Safe to call from both the JIT
+/// host path and the AOT `main` shim.
+pub fn runtime_init() {
+    super::handles::install_gc_hook(finish_cycle);
+    super::thread_registry::register_current();
+}
+
+// NB: the `extern "C" __RTS_FN_RT_INIT` symbol the AOT `main` shim calls lives in
+// the `rts-runtime` FACADE — it also installs the UI render/input backend, which
+// is in `rts-egui` (a crate `rts-std` does not depend on). The facade symbol
+// calls [`runtime_init`] here plus the egui backend install, so the engine names
+// ONE generic `RT`-scope bootstrap symbol and nothing egui-specific.
 
 // ─── GC entry points ─────────────────────────────────────────────────────────
 
