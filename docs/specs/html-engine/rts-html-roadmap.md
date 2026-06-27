@@ -1,9 +1,29 @@
 # Motor de render HTML do RTS — ROADMAP OPERACIONAL (F0-F5)
 
+> ## ⚠️⚠️ REVERSÃO DA DECISÃO #2 (2026-06-27) — LAYOUT VAI PRO rts-dom
+> **Decisão do desenvolvedor (Marcos), 2026-06-27:** *"processar tudo no DOM e o
+> egui só lê e exibe"*. Isto **REVERTE a decisão central deste roadmap** (o ponto
+> #2 da tabela §2: "egui faz o layout por default"). Motivo: com o layout no egui
+> **"vai ser impossível trocar de UI"** — o cálculo de posição fica preso ao
+> backend e o DOM headless fica incompleto (sabe estilo, não sabe POSIÇÃO).
+>
+> **Nova direção oficial = as 5 árvores do [`rts-html-north-star.md`](rts-html-north-star.md)**
+> (que DEIXA de ser "congelado/não-dita-fases" e volta a ser a arquitetura-alvo):
+> `rts-dom` calcula DOM→Style→**LAYOUT (x,y,w,h)**→DisplayList; o `rts-egui` **só
+> pinta** a display-list (Rect/Galley prontos) + serve medição de texto via trait
+> `TextMeasurer`. **O egui nunca mais decide layout.**
+>
+> As fases F0–F5 abaixo (egui-layout in-place) **ficam como registro histórico do
+> que foi entregue** (F0/F1/F2 + tag `<style>` — o ESTILO/cascade no rts-dom já
+> está certo e é reaproveitado). O trabalho NOVO segue o pipeline P0–P7 do
+> north-star (layout próprio, pixel-primeiro). O `render.rs` atual (ui.label/
+> horizontal/Frame) é LEGADO a substituir e deletar quando o novo cobrir o velho.
+> Ver memória `project_layout_moves_to_dom`.
+
 > **Este é o plano de execução vivo do motor de render HTML do RTS.** É a única
 > fonte de trabalho picado. O [`rts-html-north-star.md`](rts-html-north-star.md)
-> (a antiga `PLANO.md` de 5 árvores) é referência conceitual congelada e NÃO
-> dita fases.
+> (a antiga `PLANO.md` de 5 árvores) ~~é referência conceitual congelada e NÃO
+> dita fases~~ **← VOLTOU a ser a direção-alvo (ver reversão acima, 2026-06-27)**.
 >
 > Decisão tomada em 2026-06-23 após análise multi-agente (4 abordagens × 3 lentes
 > adversariais — viabilidade-no-motor-TS, doutrina, custo/risco — + crítica de
