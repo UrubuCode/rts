@@ -163,10 +163,10 @@ while (app.running()) {
     app.text(laneX + 3 * colW + 38, hitY + 30, "K", 0xCC66CCFF, 24);
 
     // detecta apertos (transição via keyPressed)
-    let pressed0 = input.keyPressed(app._win, KEY_D);
-    let pressed1 = input.keyPressed(app._win, KEY_F);
-    let pressed2 = input.keyPressed(app._win, KEY_J);
-    let pressed3 = input.keyPressed(app._win, KEY_K);
+    let pressed0 = input.key(app._win, KEY_D, 1);
+    let pressed1 = input.key(app._win, KEY_F, 1);
+    let pressed2 = input.key(app._win, KEY_J, 1);
+    let pressed3 = input.key(app._win, KEY_K, 1);
     if (pressed0 !== 0) flash0 = 120;
     if (pressed1 !== 0) flash1 = 120;
     if (pressed2 !== 0) flash2 = 120;
@@ -237,7 +237,7 @@ while (app.running()) {
     // fim: passou do tempo da última nota + 2s
     if (gameTime > 2000 + NOTE_COUNT * 480 + 2000) { screen = 2; }
     // Esc volta ao menu
-    if (input.keyPressed(app._win, 2) !== 0) { screen = 0; }
+    if (input.key(app._win, 2, 1) !== 0) { screen = 0; }
 
   } else {
     // ══ FIM ═════════════════════════════════════════════════════════════════════

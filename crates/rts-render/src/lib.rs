@@ -109,12 +109,12 @@ pub trait InputSource {
     /// 4=grabbing 5=resize-h 6=resize-v 7=crosshair 8=not-allowed. O app chama ao
     /// passar sobre link/campo/borda.
     fn set_cursor(&self, target: u64, kind: i64);
-    /// Tecla disparou neste frame (com auto-repeat). `key` é um código `KEY_*`.
-    fn key_pressed(&self, target: u64, key: i64) -> bool;
-    /// Tecla SEGURADA agora (estado contínuo, sem repeat).
-    fn key_down(&self, target: u64, key: i64) -> bool;
-    /// Tecla SOLTA neste frame.
-    fn key_released(&self, target: u64, key: i64) -> bool;
+    /// Estado de uma tecla (`key` = código `KEY_*`) na fase `phase`:
+    /// `KEY_PHASE_DOWN` (0) = SEGURADA agora (contínuo); `KEY_PHASE_PRESSED` (1)
+    /// = disparou neste frame (borda, com auto-repeat); `KEY_PHASE_RELEASED` (2)
+    /// = SOLTA neste frame. Unifica os antigos key_down/pressed/released num só
+    /// (um único símbolo ABI `__RTS_FN_NS_INPUT_KEY`). Fase desconhecida → false.
+    fn key_state(&self, target: u64, key: i64, phase: i64) -> bool;
     /// Modificadores segurados AGORA (Ctrl/Shift/Alt/Cmd) — `mod_*`.
     fn modifiers(&self, target: u64) -> Modifiers;
     /// Texto digitado neste frame (UTF-8 concatenado).
@@ -186,3 +186,11 @@ pub const KEY_A: i64 = 100; // ...Z = 125 (KEY_A + offset). Use KEY_A + (letra -
 pub const KEY_0: i64 = 130; // ...9 = 139.
 // ── Função F1..F12 (140..151) ──────────────────────────────────────────────────
 pub const KEY_F1: i64 = 140; // ...F12 = 151.
+
+// ── Fase da tecla (3º arg de `key_state` / `input.key`) ──────────────────────────
+/// Tecla SEGURADA agora (estado contínuo, sem repeat).
+pub const KEY_PHASE_DOWN: i64 = 0;
+/// Tecla disparou NESTE frame (borda de descida, com auto-repeat).
+pub const KEY_PHASE_PRESSED: i64 = 1;
+/// Tecla SOLTA neste frame (borda de subida).
+pub const KEY_PHASE_RELEASED: i64 = 2;

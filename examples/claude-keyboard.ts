@@ -19,19 +19,19 @@ while (app.running()) {
   // detecta letras A-Z
   let i = 0;
   while (i < 26) {
-    if (input.keyPressed(app._win, 100 + i) !== 0) {
+    if (input.key(app._win, 100 + i, 1) !== 0) {
       // converte indice em letra: 'A'=65
       lastKey = "letra " + i; // (sem String.fromCharCode no PoC; mostra o indice)
     }
     i = i + 1;
   }
   // algumas teclas nomeadas
-  if (input.keyPressed(app._win, 1) !== 0) lastKey = "Enter";
-  if (input.keyPressed(app._win, 3) !== 0) lastKey = "Space";
-  if (input.keyPressed(app._win, 9) !== 0) lastKey = "Tab";
-  if (input.keyPressed(app._win, 140) !== 0) lastKey = "F1";
-  if (input.keyPressed(app._win, 5) !== 0) lastKey = "Seta cima";
-  if (input.keyPressed(app._win, 6) !== 0) lastKey = "Seta baixo";
+  if (input.key(app._win, 1, 1) !== 0) lastKey = "Enter";
+  if (input.key(app._win, 3, 1) !== 0) lastKey = "Space";
+  if (input.key(app._win, 9, 1) !== 0) lastKey = "Tab";
+  if (input.key(app._win, 140, 1) !== 0) lastKey = "F1";
+  if (input.key(app._win, 5, 1) !== 0) lastKey = "Seta cima";
+  if (input.key(app._win, 6, 1) !== 0) lastKey = "Seta baixo";
 
   // modificadores ativos
   const ctrl = input.modCtrl(app._win);
@@ -39,7 +39,7 @@ while (app.running()) {
   const alt = input.modAlt(app._win);
 
   // atalho: Ctrl + S (S = 100 + 18)
-  if (ctrl !== 0 && input.keyPressed(app._win, 100 + 18) !== 0) {
+  if (ctrl !== 0 && input.key(app._win, 100 + 18, 1) !== 0) {
     shortcuts = shortcuts + 1;
   }
 
@@ -53,7 +53,7 @@ while (app.running()) {
   // segurar tecla (keyDown) — barra que enche enquanto a seta direita esta down
   app.text(20, 220, "Segure a Seta Direita:", 0xC0C8D0FF, 14);
   let held = 0;
-  if (input.keyDown(app._win, 8) !== 0) held = 1;
+  if (input.key(app._win, 8, 0) !== 0) held = 1;
   let barColor = 0x333A44FF;
   if (held !== 0) barColor = 0x33CC88FF;
   app.box(20, 244, 440, 24, barColor, 0, 0, 6);

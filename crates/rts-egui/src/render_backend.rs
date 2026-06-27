@@ -225,19 +225,17 @@ impl InputSource for EguiRenderer {
         ctx::with_ctx(target, |c| c.egui_ctx.set_cursor_icon(icon));
     }
 
-    fn key_pressed(&self, target: u64, key: i64) -> bool {
+    fn key_state(&self, target: u64, key: i64, phase: i64) -> bool {
         let Some(k) = neutral_to_egui_key(key) else { return false };
-        ctx::with_ctx(target, |c| c.egui_ctx.input(|i| i.key_pressed(k))).unwrap_or(false)
-    }
-
-    fn key_down(&self, target: u64, key: i64) -> bool {
-        let Some(k) = neutral_to_egui_key(key) else { return false };
-        ctx::with_ctx(target, |c| c.egui_ctx.input(|i| i.key_down(k))).unwrap_or(false)
-    }
-
-    fn key_released(&self, target: u64, key: i64) -> bool {
-        let Some(k) = neutral_to_egui_key(key) else { return false };
-        ctx::with_ctx(target, |c| c.egui_ctx.input(|i| i.key_released(k))).unwrap_or(false)
+        ctx::with_ctx(target, |c| {
+            c.egui_ctx.input(|i| match phase {
+                rts_render::KEY_PHASE_DOWN => i.key_down(k),
+                rts_render::KEY_PHASE_PRESSED => i.key_pressed(k),
+                rts_render::KEY_PHASE_RELEASED => i.key_released(k),
+                _ => false, // fase desconhecida
+            })
+        })
+        .unwrap_or(false)
     }
 
     fn modifiers(&self, target: u64) -> rts_render::Modifiers {

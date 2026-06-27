@@ -175,18 +175,18 @@ class App {
     return input.mouseClicked(this._win, 0) !== 0;
   }
   // ── TECLADO (delega ao input com `this._win`) ────────────────────────────────
-  // IMPORTANTE: chame estes MÉTODOS (`app.keyDown(k)`), NÃO `input.keyDown(app._win, k)`
+  // IMPORTANTE: chame estes MÉTODOS (`app.keyDown(k)`), NÃO `input.key(app._win, k, 0)`
   // direto do top-level — passar `app._win` (campo de instância) como argumento de
   // uma chamada externa lê 0 no AOT (diverge do JIT). Dentro do método, `this._win`
   // resolve o handle certo. Retornam number (0/1) para o motor despachar i64 bem.
   keyDown(key: number): number {
-    return input.keyDown(this._win, key);
+    return input.key(this._win, key, 0);
   }
   keyPressed(key: number): number {
-    return input.keyPressed(this._win, key);
+    return input.key(this._win, key, 1);
   }
   keyReleased(key: number): number {
-    return input.keyReleased(this._win, key);
+    return input.key(this._win, key, 2);
   }
   button(x: number, y: number, w: number, h: number, label: string): boolean {
     const over = this.hover(x, y, w, h);
@@ -389,8 +389,8 @@ class App {
       const typed = input.textInput(this._win);
       text = text + typed;
       // Enter ou Escape desfoca.
-      if (input.keyPressed(this._win, 1) !== 0) this._focused = -1;
-      if (input.keyPressed(this._win, 2) !== 0) this._focused = -1;
+      if (input.key(this._win, 1, 1) !== 0) this._focused = -1;
+      if (input.key(this._win, 2, 1) !== 0) this._focused = -1;
     }
     let shown = text;
     if (focused) shown = text + "|";

@@ -185,19 +185,12 @@ pub extern "C" fn __RTS_FN_NS_INPUT_SET_CURSOR(target: u64, kind: i64) {
     crate::with_input(|i| i.set_cursor(target, kind));
 }
 
+/// Estado de uma tecla numa fase (`phase`: 0=down, 1=pressed, 2=released — ver
+/// `KEY_PHASE_*`). Símbolo ÚNICO que substitui os antigos KEY_DOWN/PRESSED/
+/// RELEASED; o `.ts` (canvas) expõe os atalhos `keyDown`/`keyPressed`/`keyReleased`.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_INPUT_KEY_PRESSED(target: u64, key: i64) -> i64 {
-    crate::with_input(|i| i.key_pressed(target, key) as i64).unwrap_or(0)
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_INPUT_KEY_DOWN(target: u64, key: i64) -> i64 {
-    crate::with_input(|i| i.key_down(target, key) as i64).unwrap_or(0)
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_INPUT_KEY_RELEASED(target: u64, key: i64) -> i64 {
-    crate::with_input(|i| i.key_released(target, key) as i64).unwrap_or(0)
+pub extern "C" fn __RTS_FN_NS_INPUT_KEY(target: u64, key: i64, phase: i64) -> i64 {
+    crate::with_input(|i| i.key_state(target, key, phase) as i64).unwrap_or(0)
 }
 
 #[unsafe(no_mangle)]
@@ -423,28 +416,12 @@ pub fn register_input(e: &mut Engine) {
             __RTS_FN_NS_INPUT_SET_CURSOR as *const u8,
         ))
         .member(func(
-            "keyPressed",
-            "__RTS_FN_NS_INPUT_KEY_PRESSED",
-            Sig::new(vec![Handle, I64], I64),
-            "keyPressed(target: number, key: number): number",
-            "1 if key fired this frame (with auto-repeat). Neutral codes: 1-15 edit/nav, 100-125 A-Z, 130-139 0-9, 140-151 F1-F12. See input-system-design.md.",
-            __RTS_FN_NS_INPUT_KEY_PRESSED as *const u8,
-        ))
-        .member(func(
-            "keyDown",
-            "__RTS_FN_NS_INPUT_KEY_DOWN",
-            Sig::new(vec![Handle, I64], I64),
-            "keyDown(target: number, key: number): number",
-            "1 if key is held down now (continuous, no repeat).",
-            __RTS_FN_NS_INPUT_KEY_DOWN as *const u8,
-        ))
-        .member(func(
-            "keyReleased",
-            "__RTS_FN_NS_INPUT_KEY_RELEASED",
-            Sig::new(vec![Handle, I64], I64),
-            "keyReleased(target: number, key: number): number",
-            "1 if key was released this frame.",
-            __RTS_FN_NS_INPUT_KEY_RELEASED as *const u8,
+            "key",
+            "__RTS_FN_NS_INPUT_KEY",
+            Sig::new(vec![Handle, I64, I64], I64),
+            "key(target: number, key: number, phase: number): number",
+            "1 if key is in the given phase: 0=down (held, continuous), 1=pressed (fired this frame, auto-repeat), 2=released (this frame). Neutral codes: 1-15 edit/nav, 100-125 A-Z, 130-139 0-9, 140-151 F1-F12. The .ts canvas wraps this as keyDown/keyPressed/keyReleased. See input-system-design.md.",
+            __RTS_FN_NS_INPUT_KEY as *const u8,
         ))
         .member(func(
             "modCtrl",
