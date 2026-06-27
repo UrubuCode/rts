@@ -85,6 +85,10 @@ pub enum NodeKind {
     Element { tag: String },
     /// Um nó de texto (folha). Entidades já vêm decodificadas.
     Text(String),
+    /// Um nó de COMENTÁRIO (`<!-- ... -->`). Um DOM fiel preserva comentários como
+    /// nós (nodeType 8); o render os ignora. O conteúdo é o texto entre os
+    /// delimitadores. (Antes eram descartados no parse.)
+    Comment(String),
 }
 
 /// Um par atributo→valor de um elemento (`class="card"`). Lista ordenada (não
@@ -407,6 +411,62 @@ impl Dom {
             .collect()
     }
 
+    /// TODOS os filhos de um nó (`node.childNodes` — inclui nós de TEXTO), em
+    /// ordem de documento. Vazio se o id não resolve. (`child_elements` filtra só
+    /// elementos; este é o `childNodes` cru do DOM.)
+    pub fn child_nodes(&self, id: NodeId) -> Vec<NodeId> {
+        let Some(idx) = self.resolve(id) else { return Vec::new() };
+        self.nodes[idx].children.iter().map(|&c| self.make_id(c)).collect()
+    }
+
+    // ── Navegação do DOM (parentNode / first|lastChild / next|previousSibling) ───
+    // O `parent`/`children` da arena já têm tudo; aqui só expomos no vocabulário do
+    // DOM. `None`/`-1` na fronteira ABI quando não há (raiz não tem pai; primeiro
+    // filho não tem irmão anterior; etc.).
+
+    /// `node.parentNode`: o pai, ou `None` para a raiz `#document` (ou id inválido).
+    pub fn parent_of(&self, id: NodeId) -> Option<NodeId> {
+        let idx = self.resolve(id)?;
+        self.nodes[idx].parent.map(|p| self.make_id(p))
+    }
+
+    /// `node.firstChild`: o PRIMEIRO filho (qualquer tipo, inclui Text), ou `None`.
+    pub fn first_child(&self, id: NodeId) -> Option<NodeId> {
+        let idx = self.resolve(id)?;
+        self.nodes[idx].children.first().map(|&c| self.make_id(c))
+    }
+
+    /// `node.lastChild`: o ÚLTIMO filho (qualquer tipo), ou `None`.
+    pub fn last_child(&self, id: NodeId) -> Option<NodeId> {
+        let idx = self.resolve(id)?;
+        self.nodes[idx].children.last().map(|&c| self.make_id(c))
+    }
+
+    /// `node.nextSibling`: o próximo irmão na lista de filhos do pai, ou `None` se
+    /// é o último (ou não tem pai / id inválido).
+    pub fn next_sibling(&self, id: NodeId) -> Option<NodeId> {
+        self.sibling(id, 1)
+    }
+
+    /// `node.previousSibling`: o irmão anterior, ou `None` se é o primeiro.
+    pub fn previous_sibling(&self, id: NodeId) -> Option<NodeId> {
+        self.sibling(id, -1)
+    }
+
+    /// Irmão a `delta` posições (`+1` próximo, `-1` anterior). Acha a posição do nó
+    /// na lista de filhos do pai e desloca; `None` se sai dos limites.
+    fn sibling(&self, id: NodeId, delta: isize) -> Option<NodeId> {
+        let idx = self.resolve(id)?;
+        let parent = self.nodes[idx].parent?;
+        let sibs = &self.nodes[parent].children;
+        let pos = sibs.iter().position(|&c| c == idx)?;
+        let target = pos as isize + delta;
+        if target < 0 || target as usize >= sibs.len() {
+            return None;
+        }
+        Some(self.make_id(sibs[target as usize]))
+    }
+
     /// Todos os nós que casam um seletor simples (`querySelectorAll`), em ordem de
     /// documento. `tag` varre pré-ordem; `#id`/`.classe` usam os índices.
     pub fn query_all(&self, selector: &str) -> Vec<NodeId> {
@@ -474,6 +534,59 @@ impl Dom {
     pub fn create_element(&mut self, tag: &str) -> NodeId {
         let idx = self.push_detached(NodeKind::Element { tag: tag.to_ascii_lowercase() });
         self.make_id(idx)
+    }
+
+    /// Cria um nó de TEXTO solto com o conteúdo dado (`document.createTextNode`).
+    /// Ligue com `append_child`/`insert_before`.
+    pub fn create_text_node(&mut self, text: &str) -> NodeId {
+        let idx = self.push_detached(NodeKind::Text(text.to_string()));
+        self.make_id(idx)
+    }
+
+    /// Insere `child` ANTES de `reference` na lista de filhos de `parent`
+    /// (`parent.insertBefore(child, reference)`). Se `reference` é `None` ou não é
+    /// filho de `parent`, anexa ao fim (semântica do DOM). Move `child` do pai
+    /// antigo; ignora ids inválidos/ciclos.
+    pub fn insert_before(&mut self, parent: NodeId, child: NodeId, reference: Option<NodeId>) {
+        let (Some(parent), Some(child)) = (self.resolve(parent), self.resolve(child)) else {
+            return;
+        };
+        if parent == child || self.is_ancestor(child, parent) {
+            return;
+        }
+        let ref_idx = reference.and_then(|r| self.resolve(r));
+        self.detach(child);
+        self.nodes[child].parent = Some(parent);
+        // posição do nó de referência entre os filhos do pai; sem ref → fim.
+        let pos = ref_idx
+            .and_then(|r| self.nodes[parent].children.iter().position(|&c| c == r))
+            .unwrap_or(self.nodes[parent].children.len());
+        self.nodes[parent].children.insert(pos, child);
+    }
+
+    /// `node.nodeType` — código numérico do DOM: Element=1, Text=3, Comment=8,
+    /// Document=9. `-1` se o id não resolve.
+    pub fn node_type(&self, id: NodeId) -> i64 {
+        let Some(idx) = self.resolve(id) else { return -1 };
+        match &self.nodes[idx].kind {
+            NodeKind::Element { .. } => 1,
+            NodeKind::Text(_) => 3,
+            NodeKind::Comment(_) => 8,
+            NodeKind::Document => 9,
+        }
+    }
+
+    /// `node.nodeName` — nome do DOM: a TAG (maiúscula no browser; aqui devolvemos
+    /// como está, minúscula) para Element; `#text`/`#comment`/`#document` para os
+    /// demais. `None` se o id não resolve.
+    pub fn node_name(&self, id: NodeId) -> Option<String> {
+        let idx = self.resolve(id)?;
+        Some(match &self.nodes[idx].kind {
+            NodeKind::Element { tag } => tag.clone(),
+            NodeKind::Text(_) => "#text".to_string(),
+            NodeKind::Comment(_) => "#comment".to_string(),
+            NodeKind::Document => "#document".to_string(),
+        })
     }
 
     /// Move `child` para o fim dos filhos de `parent` (`parent.appendChild`).
@@ -571,6 +684,11 @@ impl Dom {
                 out.push('"');
                 out.push_str(t);
                 out.push('"');
+            }
+            NodeKind::Comment(c) => {
+                out.push_str("<!--");
+                out.push_str(c);
+                out.push_str("-->");
             }
         }
         out.push('\n');
@@ -731,6 +849,62 @@ mod tests {
         // sem match
         assert_eq!(dom.query("#naoexiste"), None);
         assert_eq!(dom.query(".naoexiste"), None);
+    }
+
+    #[test]
+    fn navegacao_dom() {
+        // parentNode / first|lastChild / next|previousSibling sobre <div><a/><b/><i/></div>
+        let dom = parse_html_to_dom("<div><a>1</a><b>2</b><i>3</i></div>");
+        let div = dom.query("div").unwrap();
+        let a = dom.query("a").unwrap();
+        let b = dom.query("b").unwrap();
+        let i = dom.query("i").unwrap();
+        // parentNode
+        assert_eq!(dom.parent_of(a), Some(div));
+        assert_eq!(dom.parent_of(div).map(|p| idx(&dom, p)), Some(dom.root)); // pai do div = #document
+        // first/lastChild do div
+        assert_eq!(dom.first_child(div), Some(a));
+        assert_eq!(dom.last_child(div), Some(i));
+        // siblings
+        assert_eq!(dom.next_sibling(a), Some(b));
+        assert_eq!(dom.next_sibling(b), Some(i));
+        assert_eq!(dom.next_sibling(i), None); // último
+        assert_eq!(dom.previous_sibling(i), Some(b));
+        assert_eq!(dom.previous_sibling(a), None); // primeiro
+    }
+
+    #[test]
+    fn create_text_e_insert_before() {
+        let mut dom = parse_html_to_dom("<ul><li>b</li></ul>");
+        let ul = dom.query("ul").unwrap();
+        let li_b = dom.query("li").unwrap();
+        // createElement + insertBefore(novo, li_b) → novo vira PRIMEIRO filho.
+        let li_a = dom.create_element("li");
+        dom.insert_before(ul, li_a, Some(li_b));
+        assert_eq!(dom.first_child(ul), Some(li_a));
+        assert_eq!(dom.next_sibling(li_a), Some(li_b));
+        // createTextNode + appendChild dentro do li_a.
+        let txt = dom.create_text_node("a");
+        dom.append_child(li_a, txt);
+        assert_eq!(dom.node_type(txt), 3); // Text
+        assert_eq!(dom.first_child(li_a), Some(txt));
+        // insert_before com reference None → anexa ao fim.
+        let li_c = dom.create_element("li");
+        dom.insert_before(ul, li_c, None);
+        assert_eq!(dom.last_child(ul), Some(li_c));
+    }
+
+    #[test]
+    fn node_type_e_name() {
+        let mut dom = parse_html_to_dom("<p>oi</p>");
+        let p = dom.query("p").unwrap();
+        let txt = dom.first_child(p).unwrap();
+        assert_eq!(dom.node_type(p), 1); // Element
+        assert_eq!(dom.node_name(p).as_deref(), Some("p"));
+        assert_eq!(dom.node_type(txt), 3); // Text
+        assert_eq!(dom.node_name(txt).as_deref(), Some("#text"));
+        let c = dom.create_text_node("x");
+        assert_eq!(dom.node_type(c), 3);
     }
 
     #[test]

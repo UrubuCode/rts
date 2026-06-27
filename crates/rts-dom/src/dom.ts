@@ -103,15 +103,117 @@ class Element {
     return out;
   }
 
+  // `el.childNodes` — TODOS os filhos (inclui nós de texto), como array.
+  get childNodes(): Element[] {
+    const out: Element[] = [];
+    const n = dom.childNodesCount(this._dom, this._node);
+    let i = 0;
+    while (i < n) {
+      const node = dom.childNodeAt(this._dom, this._node, i);
+      out.push(new Element(this._dom, node));
+      i = i + 1;
+    }
+    return out;
+  }
+
+  // ── Navegação (parentNode / first|lastChild / next|previousSibling) ──────────
+  // Getters que devolvem `Element | null` (null no fim/sem pai). Extrair o NodeId
+  // para uma const antes de comparar com -1 (limite do motor i64-cmp inline).
+  get parentNode(): Element | null {
+    const n = dom.parentNode(this._dom, this._node);
+    if (n === __DOM_NONE) return null;
+    return new Element(this._dom, n);
+  }
+  get firstChild(): Element | null {
+    const n = dom.firstChild(this._dom, this._node);
+    if (n === __DOM_NONE) return null;
+    return new Element(this._dom, n);
+  }
+  get lastChild(): Element | null {
+    const n = dom.lastChild(this._dom, this._node);
+    if (n === __DOM_NONE) return null;
+    return new Element(this._dom, n);
+  }
+  get nextSibling(): Element | null {
+    const n = dom.nextSibling(this._dom, this._node);
+    if (n === __DOM_NONE) return null;
+    return new Element(this._dom, n);
+  }
+  get previousSibling(): Element | null {
+    const n = dom.previousSibling(this._dom, this._node);
+    if (n === __DOM_NONE) return null;
+    return new Element(this._dom, n);
+  }
+
+  // `el.nodeType` — Element=1, Text=3, Comment=8, Document=9.
+  get nodeType(): number {
+    return dom.nodeType(this._dom, this._node);
+  }
+  // `el.nodeName` — tag p/ Element; `#text`/`#comment`/`#document` p/ os demais.
+  get nodeName(): string {
+    return dom.nodeName(this._dom, this._node);
+  }
+
   // `el.appendChild(child)` — anexa e devolve o filho (como o browser).
   appendChild(child: Element): Element {
     dom.appendChild(this._dom, this._node, child._node);
     return child;
   }
 
+  // `el.insertBefore(child, reference)` — insere child antes de reference (ou no
+  // fim se reference for null). Devolve child (como o browser).
+  insertBefore(child: Element, reference: Element | null): Element {
+    const ref = reference === null ? __DOM_NONE : reference._node;
+    dom.insertBefore(this._dom, this._node, child._node, ref);
+    return child;
+  }
+
   // `el.remove()` — desliga do pai.
   remove(): void {
     dom.removeNode(this._dom, this._node);
+  }
+
+  // ── classList (add/remove/contains/toggle) ───────────────────────────────────
+  // Açúcar sobre o atributo `class`, com a semântica do DOMTokenList. Trabalha
+  // sobre a string de classes separada por espaço (sem objeto vivo — o motor
+  // despacha melhor métodos que retornam valor; estado mora no atributo).
+  classListContains(cls: string): boolean {
+    const list = this.getAttribute("class");
+    return (" " + list + " ").indexOf(" " + cls + " ") !== __DOM_NONE;
+  }
+  classListAdd(cls: string): void {
+    if (this.classListContains(cls)) return;
+    const list = this.getAttribute("class");
+    const next = list.length === 0 ? cls : list + " " + cls;
+    this.setAttribute("class", next);
+  }
+  classListRemove(cls: string): void {
+    const list = this.getAttribute("class");
+    let out = "";
+    let part = "";
+    let i = 0;
+    // reconstrói a lista pulando a classe alvo (split manual por espaço).
+    while (i <= list.length) {
+      const ch = i < list.length ? list.charAt(i) : " ";
+      if (ch === " ") {
+        if (part.length > 0 && part !== cls) {
+          out = out.length === 0 ? part : out + " " + part;
+        }
+        part = "";
+      } else {
+        part = part + ch;
+      }
+      i = i + 1;
+    }
+    this.setAttribute("class", out);
+  }
+  classListToggle(cls: string): boolean {
+    if (this.classListContains(cls)) {
+      this.classListRemove(cls);
+      return false;
+    }
+    this.classListAdd(cls);
+    return true;
   }
 }
 
@@ -151,6 +253,12 @@ class Document {
   // `document.createElement(tag)` — elemento solto (anexe com appendChild).
   createElement(tag: string): Element {
     const n = dom.createElement(this._dom, tag);
+    return new Element(this._dom, n);
+  }
+
+  // `document.createTextNode(text)` — nó de texto solto (anexe com appendChild).
+  createTextNode(text: string): Element {
+    const n = dom.createTextNode(this._dom, text);
     return new Element(this._dom, n);
   }
 

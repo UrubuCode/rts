@@ -16,6 +16,115 @@
 /// Cor RGBA empacotada `0xRRGGBBAA` num `u32`. Tipo próprio (não `Color32`).
 pub type Rgba = u32;
 
+/// O contexto de resolução de uma [`Dimension`] relativa, conhecido só no
+/// render. Cada unidade resolve contra um eixo diferente (north-star risco 5: a
+/// resolução de `%`/`em`/`vw`/… é TARDIA, no layout, não no parse). Egui-free.
+#[derive(Clone, Copy, Debug)]
+pub struct ResolveCtx {
+    /// Largura do content-box do PAI (containing block) — base de `%` e `vw` (este
+    /// usa a largura da viewport, passada aqui como `viewport_w`).
+    pub parent_content_w: f32,
+    /// `font-size` COMPUTADO deste nó — base de `em`.
+    pub node_font_size: f32,
+    /// `font-size` da RAIZ (`:root`/`html`) — base de `rem`.
+    pub root_font_size: f32,
+    /// Largura da viewport (janela) em pontos — base de `vw`.
+    pub viewport_w: f32,
+    /// Altura da viewport (janela) em pontos — base de `vh`.
+    pub viewport_h: f32,
+}
+
+/// Uma dimensão de caixa que SOBREVIVE a unidade relativa até o layout (north-star
+/// risco 5): só `Px`/`Auto` resolvem de imediato; `Percent`/`Em`/`Rem`/`Vw`/`Vh`
+/// precisam de um eixo conhecido só no render (pai/fonte/viewport), então o tipo
+/// PRESERVA a forma e [`resolve`](Dimension::resolve) calcula tarde.
+/// Egui-free (tipo próprio, não `Vec2`/`f32`), como o resto do `style.rs`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Dimension {
+    /// `auto` — o layout decide (o egui usa a largura disponível).
+    Auto,
+    /// Valor absoluto em pontos/px (≥ 0).
+    Px(f32),
+    /// `%` do containing block (0..=100): `pai_content_w * p/100`.
+    Percent(f32),
+    /// `em` — múltiplo do `font-size` DESTE nó.
+    Em(f32),
+    /// `rem` — múltiplo do `font-size` da RAIZ.
+    Rem(f32),
+    /// `vw` — `%` da largura da viewport (0..=100): `viewport_w * v/100`.
+    Vw(f32),
+    /// `vh` — `%` da altura da viewport (0..=100): `viewport_h * v/100`.
+    Vh(f32),
+}
+
+impl Dimension {
+    /// Resolve para PONTOS absolutos, dado o contexto do render. `Auto` → `None`
+    /// (o layout decide). É chamado TARDE (em `frame/render.rs`), nunca no parse.
+    pub fn resolve(self, ctx: &ResolveCtx) -> Option<f32> {
+        let px = match self {
+            Dimension::Auto => return None,
+            Dimension::Px(v) => v,
+            Dimension::Percent(p) => ctx.parent_content_w * p / 100.0,
+            Dimension::Em(e) => ctx.node_font_size * e,
+            Dimension::Rem(r) => ctx.root_font_size * r,
+            Dimension::Vw(v) => ctx.viewport_w * v / 100.0,
+            Dimension::Vh(v) => ctx.viewport_h * v / 100.0,
+        };
+        Some(px.max(0.0))
+    }
+
+    /// Decodifica a forma ABI `i64` (o TS empacota a dimensão num único inteiro,
+    /// slot opaco — invariante 4). Esquema de FAIXAS por unidade (cada unidade tem
+    /// uma base; o valor é `× MILLI` para preservar 3 casas decimais sem float na
+    /// ABI). `< 0` (inclui `-1`) → `Auto`. O TS aplica a base; o Rust só decodifica
+    /// (nunca casa string CSS). Faixas em [`DIM_BASE_*`].
+    pub fn from_abi(v: i64) -> Option<Self> {
+        if v < 0 {
+            return Some(Dimension::Auto);
+        }
+        // `unit_of` separa a base (faixa) do valor-em-milésimos.
+        let unit = v / DIM_RANGE;
+        let milli = (v % DIM_RANGE) as f32 / 1000.0;
+        Some(match unit {
+            0 => Dimension::Px(milli),
+            1 => Dimension::Percent(milli),
+            2 => Dimension::Em(milli),
+            3 => Dimension::Rem(milli),
+            4 => Dimension::Vw(milli),
+            5 => Dimension::Vh(milli),
+            _ => return None, // unidade desconhecida (TS registrou faixa futura)
+        })
+    }
+
+    /// Re-codifica para a forma ABI `i64` (inverso de [`from_abi`]), para o
+    /// `slot_value`/`nodeStyleSlot` que o layout-TS lê.
+    pub fn to_abi(self) -> i64 {
+        let (unit, val) = match self {
+            Dimension::Auto => return -1,
+            Dimension::Px(v) => (0, v),
+            Dimension::Percent(p) => (1, p),
+            Dimension::Em(e) => (2, e),
+            Dimension::Rem(r) => (3, r),
+            Dimension::Vw(v) => (4, v),
+            Dimension::Vh(v) => (5, v),
+        };
+        unit * DIM_RANGE + (val * 1000.0) as i64
+    }
+}
+
+/// Tamanho de cada FAIXA de unidade na codificação ABI da [`Dimension`]. O valor
+/// dentro da faixa é `pontos × 1000` (3 casas decimais sem float na ABI), então a
+/// faixa cobre até 1.000.000 pontos — folgado. `unit = v / DIM_RANGE`,
+/// `valor = (v % DIM_RANGE) / 1000`. Bases: 0=px 1=% 2=em 3=rem 4=vw 5=vh.
+pub const DIM_RANGE: i64 = 1_000_000_000;
+/// Bases de unidade (o TS multiplica por [`DIM_RANGE`] e soma `valor×1000`).
+pub const DIM_BASE_PX: i64 = 0;
+pub const DIM_BASE_PERCENT: i64 = DIM_RANGE;
+pub const DIM_BASE_EM: i64 = 2 * DIM_RANGE;
+pub const DIM_BASE_REM: i64 = 3 * DIM_RANGE;
+pub const DIM_BASE_VW: i64 = 4 * DIM_RANGE;
+pub const DIM_BASE_VH: i64 = 5 * DIM_RANGE;
+
 /// Propriedades de estilo COMPUTADAS, com tipos próprios (egui-free). Cada campo
 /// é `Option` = "não especificado" → o render mantém o valor herdado/default.
 #[derive(Clone, Copy, Default, PartialEq, Debug)]
@@ -39,6 +148,10 @@ pub struct ComputedStyle {
     pub border_color: Option<Rgba>,
     /// Raio dos cantos em pontos.
     pub corner_radius: Option<f32>,
+    /// Largura da caixa (`Px`/`Percent`/`Auto`). `Percent` resolve TARDE no render
+    /// contra o content-box do pai (north-star risco 5). `None` = não especificado
+    /// (= `Auto` efetivo: o egui usa a largura disponível).
+    pub width: Option<Dimension>,
 }
 
 impl ComputedStyle {
@@ -51,6 +164,7 @@ impl ComputedStyle {
             || self.margin.is_some()
             || self.border_width.is_some()
             || self.corner_radius.is_some()
+            || self.width.is_some()
     }
 
     /// Sobrepõe as propriedades `Some` de `other` sobre `self` (precedência CSS:
@@ -87,6 +201,9 @@ impl ComputedStyle {
         if other.corner_radius.is_some() {
             self.corner_radius = other.corner_radius;
         }
+        if other.width.is_some() {
+            self.width = other.width;
+        }
     }
 
     /// Lê o valor de um SLOT opaco como `i64`, ou `-1` se não-setado. Cores/dims
@@ -103,6 +220,7 @@ impl ComputedStyle {
             SLOT_BORDER_WIDTH => dim(self.border_width),
             SLOT_BORDER_COLOR => self.border_color.map(|c| c as i64).unwrap_or(-1),
             SLOT_CORNER_RADIUS => dim(self.corner_radius),
+            SLOT_WIDTH => self.width.map(|d| d.to_abi()).unwrap_or(-1),
             _ => -1,
         }
     }
@@ -121,6 +239,9 @@ pub const SLOT_MARGIN: i64 = 4;
 pub const SLOT_BORDER_WIDTH: i64 = 5;
 pub const SLOT_BORDER_COLOR: i64 = 6;
 pub const SLOT_CORNER_RADIUS: i64 = 7;
+/// `width`: o `val` é a `Dimension` codificada (Px = pontos diretos; Percent =
+/// `1_000_000 + p`; Auto/não-especificado = `-1`). Ver [`Dimension::from_abi`].
+pub const SLOT_WIDTH: i64 = 8;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -176,6 +297,14 @@ impl ComputedStyle {
             SLOT_BORDER_WIDTH => self.border_width = dim(val),
             SLOT_BORDER_COLOR => self.border_color = Some(val as u32),
             SLOT_CORNER_RADIUS => self.corner_radius = dim(val),
+            // `width`: o `val` carrega a FORMA (Px/Percent/Auto) na codificação ABI
+            // de `Dimension` — o `-1` (Auto/não-especificado) zera o campo.
+            SLOT_WIDTH => {
+                self.width = match val {
+                    -1 => None,
+                    v => Dimension::from_abi(v),
+                }
+            }
             _ => {} // slot desconhecido: ignora (o TS mapeia o vocabulário CSS).
         }
     }
@@ -200,6 +329,13 @@ pub fn parse_inline(style: &str) -> ComputedStyle {
                 css.italic =
                     Some(val.eq_ignore_ascii_case("italic") || val.eq_ignore_ascii_case("oblique"))
             }
+            // ── Box model (F2): px puro para as caixas; `width` aceita px OU `%`. ──
+            "padding" => css.padding = parse_px(val),
+            "margin" => css.margin = parse_px(val),
+            "border-width" => css.border_width = parse_px(val),
+            "border-color" => css.border_color = parse_color(val),
+            "border-radius" => css.corner_radius = parse_px(val),
+            "width" => css.width = parse_dimension(val),
             _ => {}
         }
     }
@@ -212,6 +348,39 @@ fn parse_px(v: &str) -> Option<f32> {
     let v = v.trim();
     let num = v.strip_suffix("px").unwrap_or(v);
     num.trim().parse::<f32>().ok().filter(|n| *n > 0.0)
+}
+
+/// `width` como [`Dimension`], cobrindo as unidades de comprimento usuais:
+/// `auto`; `60%` → Percent; `1.5em` → Em; `2rem` → Rem; `50vw`/`80vh` → Vw/Vh;
+/// `280`/`280px` → Px. Unidades relativas resolvem TARDE no render (risco 5).
+/// Número inválido / unidade desconhecida → `None`. Ordem do match importa: testa
+/// sufixos de 3/2 letras (`rem`) ANTES dos de 1 (`%`) e do px implícito.
+fn parse_dimension(v: &str) -> Option<Dimension> {
+    let v = v.trim();
+    if v.eq_ignore_ascii_case("auto") {
+        return Some(Dimension::Auto);
+    }
+    // (sufixo, construtor, clamp_max) — `%`/`vw`/`vh` em 0..=100; resto sem teto.
+    let num = |s: &str| s.trim().parse::<f32>().ok().filter(|n| *n >= 0.0);
+    let low = v.to_ascii_lowercase();
+    // sufixos de 2+ letras primeiro (rem antes de em; px por último implícito).
+    if let Some(n) = low.strip_suffix("rem").and_then(num) {
+        return Some(Dimension::Rem(n));
+    }
+    if let Some(n) = low.strip_suffix("em").and_then(num) {
+        return Some(Dimension::Em(n));
+    }
+    if let Some(n) = low.strip_suffix("vw").and_then(num) {
+        return Some(Dimension::Vw(n.clamp(0.0, 100.0)));
+    }
+    if let Some(n) = low.strip_suffix("vh").and_then(num) {
+        return Some(Dimension::Vh(n.clamp(0.0, 100.0)));
+    }
+    if let Some(n) = low.strip_suffix('%').and_then(num) {
+        return Some(Dimension::Percent(n.clamp(0.0, 100.0)));
+    }
+    // px explícito ou número puro.
+    num(low.strip_suffix("px").unwrap_or(&low)).map(Dimension::Px)
 }
 
 /// `font-weight`: `bold`/`bolder` ou peso numérico ≥ 600 → negrito.
@@ -388,6 +557,74 @@ mod tests {
         s.apply_slot(SLOT_COLOR, 0xFFFFFFFF);
         s.apply_slot(SLOT_FONT_SIZE, 18);
         assert!(!s.has_box());
+    }
+
+    #[test]
+    fn dimension_abi_roundtrip() {
+        // F2: a codificação ABI por FAIXAS (px/%/em/rem/vw/vh) é reversível — o que
+        // o TS empacota o Rust decodifica e re-empacota igual. Auto = -1.
+        for d in [
+            Dimension::Auto,
+            Dimension::Px(280.5),
+            Dimension::Percent(60.0),
+            Dimension::Em(1.5),
+            Dimension::Rem(2.0),
+            Dimension::Vw(50.0),
+            Dimension::Vh(80.0),
+        ] {
+            assert_eq!(Dimension::from_abi(d.to_abi()), Some(d), "roundtrip {d:?}");
+        }
+        // contrato concreto das bases (valor × 1000 dentro da faixa):
+        assert_eq!(Dimension::from_abi(-1), Some(Dimension::Auto));
+        assert_eq!(Dimension::from_abi(DIM_BASE_PX + 280_000), Some(Dimension::Px(280.0)));
+        assert_eq!(Dimension::from_abi(DIM_BASE_PERCENT + 60_000), Some(Dimension::Percent(60.0)));
+        assert_eq!(Dimension::from_abi(DIM_BASE_EM + 1_500), Some(Dimension::Em(1.5)));
+        assert_eq!(Dimension::from_abi(DIM_BASE_VW + 50_000), Some(Dimension::Vw(50.0)));
+    }
+
+    #[test]
+    fn dimension_resolve() {
+        // F2: resolução TARDE contra o contexto do render (eixo por unidade).
+        let ctx = ResolveCtx {
+            parent_content_w: 400.0,
+            node_font_size: 16.0,
+            root_font_size: 20.0,
+            viewport_w: 1000.0,
+            viewport_h: 800.0,
+        };
+        assert_eq!(Dimension::Px(120.0).resolve(&ctx), Some(120.0));
+        assert_eq!(Dimension::Percent(50.0).resolve(&ctx), Some(200.0)); // 50% de 400
+        assert_eq!(Dimension::Em(2.0).resolve(&ctx), Some(32.0)); // 2 × 16
+        assert_eq!(Dimension::Rem(2.0).resolve(&ctx), Some(40.0)); // 2 × 20
+        assert_eq!(Dimension::Vw(10.0).resolve(&ctx), Some(100.0)); // 10% de 1000
+        assert_eq!(Dimension::Vh(25.0).resolve(&ctx), Some(200.0)); // 25% de 800
+        assert_eq!(Dimension::Auto.resolve(&ctx), None); // layout decide
+    }
+
+    #[test]
+    fn width_slot_e_parse() {
+        // via SLOT opaco (defineStyle): faixa por unidade.
+        let mut s = ComputedStyle::default();
+        s.apply_slot(SLOT_WIDTH, DIM_BASE_PERCENT + 50_000); // 50%
+        assert_eq!(s.width, Some(Dimension::Percent(50.0)));
+        assert!(s.has_box()); // width sozinho já é "caixa" (vira Frame com max_width).
+        s.apply_slot(SLOT_WIDTH, DIM_BASE_PX + 320_000); // sobrescreve com px
+        assert_eq!(s.width, Some(Dimension::Px(320.0)));
+        // via style="" inline: TODAS as unidades.
+        assert_eq!(parse_inline("width: 280").width, Some(Dimension::Px(280.0)));
+        assert_eq!(parse_inline("width: 280px").width, Some(Dimension::Px(280.0)));
+        assert_eq!(parse_inline("width: 60%").width, Some(Dimension::Percent(60.0)));
+        assert_eq!(parse_inline("width: 1.5em").width, Some(Dimension::Em(1.5)));
+        assert_eq!(parse_inline("width: 2rem").width, Some(Dimension::Rem(2.0)));
+        assert_eq!(parse_inline("width: 50vw").width, Some(Dimension::Vw(50.0)));
+        assert_eq!(parse_inline("width: 80vh").width, Some(Dimension::Vh(80.0)));
+        assert_eq!(parse_inline("width: auto").width, Some(Dimension::Auto));
+        // box props inline (F2): padding/margin/border/raio.
+        let c = parse_inline("padding: 12; margin: 6; border-width: 2; border-radius: 8");
+        assert_eq!(c.padding, Some(12.0));
+        assert_eq!(c.margin, Some(6.0));
+        assert_eq!(c.border_width, Some(2.0));
+        assert_eq!(c.corner_radius, Some(8.0));
     }
 
     #[test]

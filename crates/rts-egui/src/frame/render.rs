@@ -3,6 +3,11 @@
 //! `block::lookup`/`lookup_inline` (definido pelo TS), não de nomes hardcodados.
 //! O Rust só aplica primitivos de layout.
 
+/// Tamanho de fonte default (pontos) quando a tag não especifica — base de `em`
+/// (font deste nó) e `rem` (font da raiz, até a cascade de `:root` existir).
+/// Casa com o default de texto usado no `render_block_body`.
+const DEFAULT_FONT_SIZE: f32 = 20.0;
+
 /// Estilo inline herdado ao descer na árvore — flags de tag (`<b>`/`<i>`) MAIS as
 /// propriedades CSS computadas do `style="..."` (cor/tamanho). Herdado: filhos
 /// começam do estilo do pai; o próprio `style` de cada nó sobrepõe.
@@ -134,7 +139,27 @@ fn render_block(
         merge_box_props(&mut box_css, &inline);
     }
 
+    let width = box_css.width;
+    let font_size = box_css.font_size.unwrap_or(DEFAULT_FONT_SIZE);
     let body = |ui: &mut egui::Ui| {
+        // `width` (F2): resolução TARDE (north-star risco 5). Cada unidade resolve
+        // contra seu eixo, conhecido só AQUI: `%` = available_width (content-box do
+        // pai, egui já descontou o inner/outer margin); `vw`/`vh` = viewport;
+        // `em`/`rem` = font-size. `Auto`/`None` não toca (egui usa a disponível).
+        // Aplica via `set_max_width` (encolhe sem quebrar o layout do pai).
+        if let Some(d) = width {
+            let screen = ui.ctx().screen_rect();
+            let ctx = crate::style::ResolveCtx {
+                parent_content_w: ui.available_width(),
+                node_font_size: font_size,
+                root_font_size: DEFAULT_FONT_SIZE, // rem ancora no default até cascade de :root
+                viewport_w: screen.width(),
+                viewport_h: screen.height(),
+            };
+            if let Some(w) = d.resolve(&ctx) {
+                ui.set_max_width(w);
+            }
+        }
         // Recuo à esquerda (lista/blockquote) via `ui.indent`; senão direto.
         if def.indent > 0.0 {
             ui.indent(("blk", id), |ui| render_block_body(ui, dom, id, def, this_index));
@@ -170,6 +195,9 @@ fn merge_box_props(dst: &mut crate::style::ComputedStyle, src: &crate::style::Co
     }
     if src.corner_radius.is_some() {
         dst.corner_radius = src.corner_radius;
+    }
+    if src.width.is_some() {
+        dst.width = src.width;
     }
 }
 
@@ -314,7 +342,8 @@ fn render_inline(
                 render_inline(ui, dom, child, st);
             }
         }
-        NodeKind::Document => {}
+        // Comentário (`<!-- -->`) está na árvore (DOM fiel) mas NÃO pinta.
+        NodeKind::Comment(_) | NodeKind::Document => {}
     }
 }
 

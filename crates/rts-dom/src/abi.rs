@@ -125,6 +125,104 @@ pub extern "C" fn __RTS_FN_NS_DOM_REMOVE_NODE(h: u64, id: i64) {
     with_mut(h, |dom| dom.remove_node(node));
 }
 
+/// `createTextNode(domHandle, text)` → `NodeId` de um nó de texto solto (≥ 0), ou
+/// `-1`. Ligue com `appendChild`/`insertBefore`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_CREATE_TEXT_NODE(h: u64, ptr: *const u8, len: i64) -> i64 {
+    let text = unsafe { str_abi::from_abi(ptr, len) }.unwrap_or("").to_string();
+    with_mut(h, |dom| dom.create_text_node(&text).to_abi()).unwrap_or(NODE_NONE)
+}
+
+/// `insertBefore(domHandle, parent, child, reference)` — `parent.insertBefore(
+/// child, reference)`. `reference = -1` (ou não-filho) → anexa ao fim.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_INSERT_BEFORE(h: u64, parent: i64, child: i64, reference: i64) {
+    let (Some(parent), Some(child)) = (NodeId::from_abi(parent), NodeId::from_abi(child)) else {
+        return;
+    };
+    let reference = NodeId::from_abi(reference);
+    with_mut(h, |dom| dom.insert_before(parent, child, reference));
+}
+
+// ── Navegação (parentNode / first|lastChild / next|previousSibling) ──────────────
+// Cada um recebe um `NodeId` e devolve outro (`-1` quando não há). Extraia o
+// retorno para uma const antes de comparar com -1 (limite do motor i64-cmp inline).
+
+/// `parentNode(domHandle, node)` → `NodeId` do pai, ou `-1` (raiz / inválido).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_PARENT_NODE(h: u64, id: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
+    with(h, |dom| dom.parent_of(node).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
+}
+
+/// `firstChild(domHandle, node)` → 1º filho (qualquer tipo, inclui Text), ou `-1`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_FIRST_CHILD(h: u64, id: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
+    with(h, |dom| dom.first_child(node).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
+}
+
+/// `lastChild(domHandle, node)` → último filho, ou `-1`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_LAST_CHILD(h: u64, id: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
+    with(h, |dom| dom.last_child(node).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
+}
+
+/// `nextSibling(domHandle, node)` → próximo irmão, ou `-1` (é o último).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_NEXT_SIBLING(h: u64, id: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
+    with(h, |dom| dom.next_sibling(node).map(|n| n.to_abi()).unwrap_or(NODE_NONE))
+        .unwrap_or(NODE_NONE)
+}
+
+/// `previousSibling(domHandle, node)` → irmão anterior, ou `-1` (é o primeiro).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_PREVIOUS_SIBLING(h: u64, id: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
+    with(h, |dom| dom.previous_sibling(node).map(|n| n.to_abi()).unwrap_or(NODE_NONE))
+        .unwrap_or(NODE_NONE)
+}
+
+/// `childNodesCount(domHandle, node)` → nº de filhos TOTAL (inclui Text); par com
+/// `childNodeAt` (igual a childCount/childAt, mas SEM filtrar elementos).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_CHILD_NODES_COUNT(h: u64, id: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return 0 };
+    with(h, |dom| dom.child_nodes(node).len() as i64).unwrap_or(0)
+}
+
+/// `childNodeAt(domHandle, node, index)` → o índice-ésimo filho (inclui Text), -1.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_CHILD_NODE_AT(h: u64, id: i64, index: i64) -> i64 {
+    if index < 0 {
+        return NODE_NONE;
+    }
+    let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
+    with(h, |dom| {
+        dom.child_nodes(node).get(index as usize).map(|c| c.to_abi()).unwrap_or(NODE_NONE)
+    })
+    .unwrap_or(NODE_NONE)
+}
+
+/// `nodeType(domHandle, node)` → código DOM: Element=1, Text=3, Comment=8,
+/// Document=9; `-1` se inválido.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_NODE_TYPE(h: u64, id: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
+    with(h, |dom| dom.node_type(node)).unwrap_or(NODE_NONE)
+}
+
+/// `nodeName(domHandle, node)` → nome DOM (tag p/ Element; `#text`/`#comment`/
+/// `#document`), como handle de string. Vazio se inválido.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_NODE_NAME(h: u64, id: i64) -> u64 {
+    let Some(node) = NodeId::from_abi(id) else { return intern("") };
+    let name = with(h, |dom| dom.node_name(node).unwrap_or_default()).unwrap_or_default();
+    intern(&name)
+}
+
 /// `rootId(domHandle)` → `NodeId` versionado da raiz `#document` (≥ 0), ou `-1`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_DOM_ROOT_ID(h: u64) -> i64 {
@@ -420,6 +518,98 @@ pub fn register(e: &mut Engine) {
             "removeNode(dom: number, node: number): void",
             "Detaches a node from its parent (element.remove).",
             __RTS_FN_NS_DOM_REMOVE_NODE as *const u8,
+        ))
+        .member(func(
+            "createTextNode",
+            "__RTS_FN_NS_DOM_CREATE_TEXT_NODE",
+            Sig::new(vec![Handle, StrPtr], I64),
+            "createTextNode(dom: number, text: string): number",
+            "Creates a detached Text node, returns its NodeId (document.createTextNode).",
+            __RTS_FN_NS_DOM_CREATE_TEXT_NODE as *const u8,
+        ))
+        .member(func(
+            "insertBefore",
+            "__RTS_FN_NS_DOM_INSERT_BEFORE",
+            Sig::new(vec![Handle, I64, I64, I64], AbiType::Void),
+            "insertBefore(dom: number, parent: number, child: number, reference: number): void",
+            "Inserts child before reference in parent's children; reference -1 = append (parent.insertBefore).",
+            __RTS_FN_NS_DOM_INSERT_BEFORE as *const u8,
+        ))
+        // ── Navegação (parentNode / first|lastChild / next|previousSibling) ──────
+        .member(func(
+            "parentNode",
+            "__RTS_FN_NS_DOM_PARENT_NODE",
+            Sig::new(vec![Handle, I64], I64),
+            "parentNode(dom: number, node: number): number",
+            "NodeId of the parent, or -1 for the root / invalid. Extract to a const before comparing.",
+            __RTS_FN_NS_DOM_PARENT_NODE as *const u8,
+        ))
+        .member(func(
+            "firstChild",
+            "__RTS_FN_NS_DOM_FIRST_CHILD",
+            Sig::new(vec![Handle, I64], I64),
+            "firstChild(dom: number, node: number): number",
+            "NodeId of the first child (any type, incl. Text), or -1.",
+            __RTS_FN_NS_DOM_FIRST_CHILD as *const u8,
+        ))
+        .member(func(
+            "lastChild",
+            "__RTS_FN_NS_DOM_LAST_CHILD",
+            Sig::new(vec![Handle, I64], I64),
+            "lastChild(dom: number, node: number): number",
+            "NodeId of the last child, or -1.",
+            __RTS_FN_NS_DOM_LAST_CHILD as *const u8,
+        ))
+        .member(func(
+            "nextSibling",
+            "__RTS_FN_NS_DOM_NEXT_SIBLING",
+            Sig::new(vec![Handle, I64], I64),
+            "nextSibling(dom: number, node: number): number",
+            "NodeId of the next sibling, or -1 if last.",
+            __RTS_FN_NS_DOM_NEXT_SIBLING as *const u8,
+        ))
+        .member(func(
+            "previousSibling",
+            "__RTS_FN_NS_DOM_PREVIOUS_SIBLING",
+            Sig::new(vec![Handle, I64], I64),
+            "previousSibling(dom: number, node: number): number",
+            "NodeId of the previous sibling, or -1 if first.",
+            __RTS_FN_NS_DOM_PREVIOUS_SIBLING as *const u8,
+        ))
+        .member(func(
+            "childNodesCount",
+            "__RTS_FN_NS_DOM_CHILD_NODES_COUNT",
+            Sig::new(vec![Handle, I64], I64),
+            "childNodesCount(dom: number, node: number): number",
+            "Total child count (incl. Text nodes) — pair with childNodeAt (node.childNodes.length).",
+            __RTS_FN_NS_DOM_CHILD_NODES_COUNT as *const u8,
+        ))
+        .member(func(
+            "childNodeAt",
+            "__RTS_FN_NS_DOM_CHILD_NODE_AT",
+            Sig::new(vec![Handle, I64, I64], I64),
+            "childNodeAt(dom: number, node: number, index: number): number",
+            "The index-th child (incl. Text), or -1 (node.childNodes[index]).",
+            __RTS_FN_NS_DOM_CHILD_NODE_AT as *const u8,
+        ))
+        .member(func(
+            "nodeType",
+            "__RTS_FN_NS_DOM_NODE_TYPE",
+            Sig::new(vec![Handle, I64], I64),
+            "nodeType(dom: number, node: number): number",
+            "DOM nodeType code: Element=1, Text=3, Comment=8, Document=9; -1 if invalid.",
+            __RTS_FN_NS_DOM_NODE_TYPE as *const u8,
+        ))
+        .member(func(
+            "nodeName",
+            "__RTS_FN_NS_DOM_NODE_NAME",
+            // `AbiType::Handle` LITERAL (não o alias U64) + ts `: string` → o motor
+            // reboxa como TAG_STR (string usável no TS); o alias U64 reboxaria como
+            // inteiro cru (bug "dados de ponteiro").
+            Sig::new(vec![Handle, I64], AbiType::Handle),
+            "nodeName(dom: number, node: number): string",
+            "DOM nodeName: tag for Element; #text/#comment/#document otherwise.",
+            __RTS_FN_NS_DOM_NODE_NAME as *const u8,
         ))
         .member(func(
             "rootId",
