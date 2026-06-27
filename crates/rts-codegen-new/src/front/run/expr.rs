@@ -106,6 +106,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     super::regex::regex_literal_parts(e).expect("is_regex_literal proved parts");
                 self.lower_regex_literal(module, &pattern, &flags)
             }
+            // Surface the captured SWC text of an unmodeled expression (truncated) so
+            // a fixture's bail names the actual construct, not a generic placeholder.
+            HirExprKind::Raw(text) => {
+                let head: String = text.replace('\0', " ").chars().take(80).collect();
+                unsupported!("expression raw/unrecognized: {head}")
+            }
             other => unsupported!("expression {}", super::stmt::expr_variant_name(other)),
         }
     }
