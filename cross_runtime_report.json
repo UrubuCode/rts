@@ -977,10 +977,10 @@
 ,
 {
   "name": "codex_super_getter_setter_receiver",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "x:base-set:base-get\nx:base-set",
   "node": "x:base-set:base-get\nx:base-set",
-  "rts": "undefined:base-get\nx:base-set"
+  "rts": "x:base-set:base-get\nx:base-set"
 }
 ,
 {
@@ -1908,7 +1908,7 @@
   "status": "rts_diverge",
   "bun": "{\"b\":\"B\",\"1\":\"one\",\"a\":\"A\"}\n[{\"b\":2,\"1\":3,\"a\":1}]",
   "node": "{\"b\":\"B\",\"1\":\"one\",\"a\":\"A\"}\n[{\"b\":2,\"1\":3,\"a\":1}]",
-  "rts": "{\"a\":\"A\",\"b\":\"B\",\"1\":\"one\",\"null\":\"nil\"}\n[{\"a\":1,\"b\":2,\"1\":3,\"null\":4}]"
+  "rts": "{\"1\":\"one\",\"a\":\"A\",\"b\":\"B\",\"null\":\"nil\"}\n[{\"1\":3,\"a\":1,\"b\":2,\"null\":4}]"
 }
 ,
 {
@@ -3028,7 +3028,7 @@
   "status": "rts_diverge",
   "bun": "{\"a\":2,\"1\":4}\n{\n  \"1\": 4,\n  \"2\": 3,\n  \"b\": 1,\n  \"a\": 2\n}\n{\"x\":1,\"y\":2}\n{\"a\":10,\"b\":20,\"c\":30}\n{\n\t\"a\": [\n\t\t1,\n\t\t2\n\t]\n}",
   "node": "{\"a\":2,\"1\":4}\n{\n  \"1\": 4,\n  \"2\": 3,\n  \"b\": 1,\n  \"a\": 2\n}\n{\"x\":1,\"y\":2}\n{\"a\":10,\"b\":20,\"c\":30}\n{\n\t\"a\": [\n\t\t1,\n\t\t2\n\t]\n}",
-  "rts": "{\"b\":1,\"a\":2,\"2\":3,\"1\":4}\n{\n  \"b\": 1,\n  \"a\": 2,\n  \"2\": 3,\n  \"1\": 4\n}\n{\"x\":1,\"secret\":\"hide\",\"y\":2}\n{\"a\":1,\"b\":2,\"c\":3}\n{\"a\":[1,2]}"
+  "rts": "{\"1\":4,\"2\":3,\"b\":1,\"a\":2}\n{\n  \"1\": 4,\n  \"2\": 3,\n  \"b\": 1,\n  \"a\": 2\n}\n{\"x\":1,\"secret\":\"hide\",\"y\":2}\n{\"a\":1,\"b\":2,\"c\":3}\n{\"a\":[1,2]}"
 }
 ,
 {
@@ -3052,7 +3052,7 @@
   "status": "rts_diverge",
   "bun": "0,1,2,10,b,a,c\n3,5,100,z,y,x\n4,2,6,1,3,5\n1,9,01,-1,1.5",
   "node": "0,1,2,10,b,a,c\n3,5,100,z,y,x\n4,2,6,1,3,5\n1,9,01,-1,1.5",
-  "rts": "b,2,a,10,1,c,0\nz,5,y,3,x,100\n1,2,3,4,5,6\n01,1,-1,1.5,9"
+  "rts": "0,1,2,10,b,a,c\nz,5,y,3,x,100\n1,2,3,4,5,6\n01,1,-1,1.5,9"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":212,"rts_diverge":82,"bun_node_diverge":17,"errors":298,"rejected":0}}
+],"summary":{"total":609,"pass":213,"rts_diverge":81,"bun_node_diverge":17,"errors":298,"rejected":0}}
