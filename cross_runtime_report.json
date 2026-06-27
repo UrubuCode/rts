@@ -2652,7 +2652,7 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "value=42\nstill=42\nkeys=a\nb=10\ngetter=10",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "value=42\nstill=42\nkeys=a,b\nb=10\ngetter=undefined"
 }
 ,
 {
@@ -2673,10 +2673,10 @@
 ,
 {
   "name": "183_object_getownpropertynames",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "names=a,b,hidden\narr=0,1,2,length\nempty=\nstr=0,1,length",
   "node": "names=a,b,hidden\narr=0,1,2,length\nempty=\nstr=0,1,length",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "names=a,b,hidden\narr=0,1,2,length\nempty=\nstr=__prim"
 }
 ,
 {
@@ -2697,10 +2697,10 @@
 ,
 {
   "name": "191_object_values_entries_iteration",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3\nempty_values=\nempty_entries=",
   "node": "values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3\nempty_values=\nempty_entries=",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3,4\nempty_values=\nempty_entries="
 }
 ,
 {
@@ -2849,10 +2849,10 @@
 ,
 {
   "name": "349_object_descriptors",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue",
   "node": "42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "42\n99\n42\nreadonly,hidden,normal\n0\nfalse\nfalse\nfalse\n1\ntrue"
 }
 ,
 {
@@ -2977,10 +2977,10 @@
 ,
 {
   "name": "98_proxy_invariants",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
   "node": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "keys=\nvals=[]\nlog="
 }
 ,
 {
@@ -3081,10 +3081,10 @@
 ,
 {
   "name": "codex_define_property_defaults",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "1,false,false,false\n\n1\nTypeError",
   "node": "1,false,false,false\n\n1\nTypeError",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "1,false,false,false\nx\n1"
 }
 ,
 {
@@ -3129,10 +3129,10 @@
 ,
 {
   "name": "codex_object_define_accessor_delete",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "10:10:x\ntrue\n9:10:x",
   "node": "10:10:x\ntrue\n9:10:x",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "undefined:1:x\ntrue\n9:1:x"
 }
 ,
 {
@@ -3161,10 +3161,10 @@
 ,
 {
   "name": "codex_proxy_delete_invariant",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "TypeError\n1",
   "node": "TypeError\n1",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "1"
 }
 ,
 {
@@ -3185,10 +3185,10 @@
 ,
 {
   "name": "codex_proxy_invariant_nonconfigurable",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "TypeError\n1",
   "node": "TypeError\n1",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "1"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":212,"rts_diverge":74,"bun_node_diverge":17,"errors":306,"rejected":0}}
+],"summary":{"total":609,"pass":212,"rts_diverge":82,"bun_node_diverge":17,"errors":298,"rejected":0}}
