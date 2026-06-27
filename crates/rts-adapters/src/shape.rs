@@ -61,12 +61,27 @@ fn registry() -> &'static Mutex<GlobalShapeRegistry> {
 /// [`GlobalShapeId`] that indexes [`global_shape_keys`]. Called at lowering time
 /// (the id is baked into the object's slot 0 as a tagged int). Idempotent for an
 /// identical key-sequence.
+/// Base offset for every global shape id. Object slot 0 stores the shape id as a
+/// boxed INT32, and the DYNAMIC array-vs-object discriminator
+/// ([`crate::value::inspect::looks_like_object`]) can only tell an object's slot-0
+/// shape id from an ARRAY's coincidental first element by `global_shape_keys(slot0)
+/// matching the length`. Without an offset, ids are dense small ints (0,1,2,…) that
+/// collide with the VERY common case of an array whose first element is a small int
+/// (`[2,4,6,…]`) — that array would be MISIDENTIFIED as an object and its dynamic
+/// array methods (`.join`/for-of) would fail. Minting ids from a high base
+/// (2^30) means `global_shape_keys` returns `None` for any small int, so a normal
+/// array is never confused with an object. (NOT a full discriminator: an array
+/// whose first element is exactly a live `BASE+idx` value AND whose length matches
+/// could still collide — astronomically unlikely vs the small-int case this fixes.
+/// The sound fix is a distinct array/object tag; tracked separately.)
+pub const GLOBAL_SHAPE_BASE: GlobalShapeId = 0x4000_0000;
+
 pub fn intern_global_shape(keys: &[String]) -> GlobalShapeId {
     let mut reg = registry().lock().expect("global shape registry poisoned");
     if let Some(&id) = reg.by_keys.get(keys) {
         return id;
     }
-    let id = reg.keys.len() as GlobalShapeId;
+    let id = GLOBAL_SHAPE_BASE + reg.keys.len() as GlobalShapeId;
     reg.keys.push(keys.to_vec());
     reg.by_keys.insert(keys.to_vec(), id);
     id
@@ -82,7 +97,7 @@ pub fn intern_global_shape(keys: &[String]) -> GlobalShapeId {
 /// fine for inspect (id → keys stays a function).
 pub fn intern_class_shape(keys: &[String]) -> GlobalShapeId {
     let mut reg = registry().lock().expect("global shape registry poisoned");
-    let id = reg.keys.len() as GlobalShapeId;
+    let id = GLOBAL_SHAPE_BASE + reg.keys.len() as GlobalShapeId;
     reg.keys.push(keys.to_vec());
     // Seed `by_keys` only if this key-sequence has no id yet, so object literals
     // interning the same keys later still find a stable (first) id.
@@ -114,8 +129,12 @@ pub fn global_shape_count() -> usize {
 /// interned (a codegen bug — the runtime stored an id this process did not mint).
 /// The inspect trampoline calls this to render `{ k0: v0, … }`.
 pub fn global_shape_keys(id: GlobalShapeId) -> Option<Vec<String>> {
+    // Ids are minted from `GLOBAL_SHAPE_BASE`; subtract it to index `keys`. A value
+    // below the base (e.g. an array's small-int first element passed by the
+    // array-vs-object discriminator) yields `None` — it is not a shape id.
+    let idx = id.checked_sub(GLOBAL_SHAPE_BASE)?;
     let reg = registry().lock().expect("global shape registry poisoned");
-    reg.keys.get(id as usize).cloned()
+    reg.keys.get(idx as usize).cloned()
 }
 
 /// A hidden class: the layout shared by all objects built the same way. In this

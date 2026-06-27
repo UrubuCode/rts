@@ -92,10 +92,13 @@ fn for_of_object() {
 // ---- bails (sound refusals, never a wrong value) ----
 
 #[test]
-fn bail_object_rest() {
-    // Object rest `{a, ...rest}` needs a new object of the remaining keys (a
-    // shape-minus-a transition) — not modeled; the pattern stays flattened and bails.
-    assert_bails("const {a, ...rest} = {a: 1, b: 2, c: 3}; console.log(a);");
+fn object_rest() {
+    // Object rest `{a, ...rest}` (#312): `a` binds the named key; `rest` is a fresh
+    // object of the REMAINING keys (`Object.assign({}, src)` minus each named key).
+    assert_stdout(
+        "const {a, ...rest} = {a: 1, b: 2, c: 3}; console.log(a + ' ' + rest.b + ' ' + rest.c + ' ' + (rest.a === undefined));",
+        "1 2 3 true\n",
+    );
 }
 
 #[test]
