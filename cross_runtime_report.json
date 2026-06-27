@@ -201,10 +201,10 @@
 ,
 {
   "name": "214_array_length_setter",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "initial=5\ntruncated=1,2,3\nnew_length=3\nextended=5\nundef=true\ncleared=0\nempty=",
   "node": "initial=5\ntruncated=1,2,3\nnew_length=3\nextended=5\nundef=true\ncleared=0\nempty=",
-  "rts": "initial=5\ntruncated=1,2,3,4,5\nnew_length=5\nextended=5\nundef=false\ncleared=5\nempty=1,2,3,4,5"
+  "rts": "initial=5\ntruncated=1,2,3\nnew_length=3\nextended=5\nundef=true\ncleared=0\nempty="
 }
 ,
 {
@@ -977,10 +977,10 @@
 ,
 {
   "name": "codex_super_getter_setter_receiver",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "x:base-set:base-get\nx:base-set",
   "node": "x:base-set:base-get\nx:base-set",
-  "rts": "undefined:base-get\nx:base-set"
+  "rts": "x:base-set:base-get\nx:base-set"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":211,"rts_diverge":73,"bun_node_diverge":17,"errors":308,"rejected":0}}
+],"summary":{"total":609,"pass":213,"rts_diverge":71,"bun_node_diverge":17,"errors":308,"rejected":0}}
