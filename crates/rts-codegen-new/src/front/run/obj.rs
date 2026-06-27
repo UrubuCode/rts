@@ -614,7 +614,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 (object.as_ref(), obj_word, key)
             }
             _ => {
-                return unsupported!("`delete` on a non-property target (a no-op in strict mode)");
+                // `delete <non-property>` — a plain variable, call result, literal,
+                // etc. JS makes this a no-op that evaluates to `true` (deleting a bare
+                // variable is a strict-mode SyntaxError, but loose TS/JS uses it as a
+                // true-returning no-op). A bare ident is a reference deleting nothing
+                // and is NOT evaluated; any other expression is evaluated for its side
+                // effects, then discarded.
+                if !matches!(&operand.kind, HirExprKind::Ident(_)) {
+                    self.lower_expr(module, operand)?;
+                }
+                let t = self.builder.ins().iconst(types::I64, 1);
+                return Ok(Val::new(t, Repr::Bool));
             }
         };
         let res = self
