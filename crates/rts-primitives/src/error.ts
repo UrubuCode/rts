@@ -73,5 +73,14 @@ class EvalError extends Error {
 }
 
 class AggregateError extends Error {
-  constructor(message?: string, options?: any) { super(message, options); this.name = "AggregateError"; }
+  // `AggregateError(errors, message?, options?)` — note the LEADING `errors`
+  // iterable (unlike the other Error subclasses, whose first arg is `message`).
+  // `.errors` exposes the collected list (stored as-is — the corpus passes an
+  // array, the common case).
+  errors: any;
+  constructor(errors: any, message?: string, options?: any) {
+    super(message, options);
+    this.name = "AggregateError";
+    this.errors = errors;
+  }
 }
