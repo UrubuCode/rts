@@ -71,6 +71,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             "entries" => self.object_entries(module, args).map(Some),
             "assign" => self.object_assign(module, args).map(Some),
             "freeze" | "seal" | "preventExtensions" => self.object_freeze(module, args).map(Some),
+            "isExtensible" => self.object_is_extensible(module, args).map(Some),
             "is" => self.object_is(module, args).map(Some),
             "hasOwn" => self.object_has_own(module, args).map(Some),
             "fromEntries" => self.object_from_entries(module, args).map(Some),
@@ -316,7 +317,26 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// idiom (freeze-then-read) works correctly.
     fn object_freeze(&mut self, module: &mut dyn Module, args: &[HirExpr]) -> FrontResult<Val> {
         let (word, _keys) = self.receiver(module, args)?;
+        // Mark the object NON-EXTENSIBLE (real state — `obj_set` then rejects new
+        // keys). `freeze`/`seal`/`preventExtensions` all at least prevent extension;
+        // the full freeze/seal flag surface is the descriptor layer. Returns the
+        // object (JS `Object.freeze(o)` returns `o`).
+        self.call_runtime(module, "__rtsadp_prevent_ext", &[word])?;
         Ok(Val::new(word, Repr::Tagged))
+    }
+
+    /// `Object.isExtensible(o)` — the REAL extensibility flag (`preventExtensions`/
+    /// `freeze`/`seal` mark it). Returns a `Bool`.
+    fn object_is_extensible(
+        &mut self,
+        module: &mut dyn Module,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        let (word, _keys) = self.receiver(module, args)?;
+        let res = self
+            .call_runtime(module, "__rtsadp_is_extensible", &[word])?
+            .expect("__rtsadp_is_extensible returns a value");
+        Ok(Val::new(res, Repr::Bool))
     }
 
     /// `Object.is(a, b)` — JS SameValue (`===` but NaN is NaN, +0 is not -0). Box
