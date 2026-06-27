@@ -155,7 +155,12 @@ fn layout_block(
             if is_non_rendered_tag(tag) {
                 return (0.0, 0.0);
             }
-            dom.computed_style_idx(id).unwrap_or_default()
+            let css = dom.computed_style_idx(id).unwrap_or_default();
+            // `display:none` — não renderiza nem ocupa espaço (some da árvore visual).
+            if css.effective_display() == Some(crate::style::DisplayKind::None) {
+                return (0.0, 0.0);
+            }
+            css
         }
         NodeKind::Text(t) => {
             let size = DEFAULT_FONT_SIZE;
@@ -191,8 +196,12 @@ fn layout_block(
     };
     let frame = 2.0 * (margin + border + padding);
     let font_for_content = css.font_size.unwrap_or(DEFAULT_FONT_SIZE);
+    let border_box = css.border_box.unwrap_or(false);
     let content_w = match css.width.and_then(|d| d.resolve(&resolve)) {
-        // `width` explícito sempre vence.
+        // `width` explícito. Em `border-box`, o `width` INCLUI padding+border —
+        // então o content é `width - 2*(pad+border)` (a caixa terá exatamente
+        // `width`). Em content-box (default), o `width` JÁ é o content.
+        Some(w) if border_box => (w - 2.0 * (padding + border)).max(0.0),
         Some(w) => w,
         // Sem width: shrink-to-fit → largura do conteúdo (limitada ao disponível);
         // senão (fluxo block normal) → ocupa a largura disponível.
@@ -280,7 +289,7 @@ fn content_natural_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -> 
     let mut max_w = 0.0f32;
     for &child in &dom.node(id).children {
         let w = match &dom.node(child).kind {
-            NodeKind::Element { tag } if crate::block::lookup(tag).is_some() => {
+            NodeKind::Element { .. } if is_block_level(dom, child) => {
                 let css = dom.computed_style_idx(child).unwrap_or_default();
                 let f = css.font_size.unwrap_or(font);
                 let frame = 2.0 * (css.margin.unwrap_or(0.0) + css.border_width.unwrap_or(0.0) + css.padding.unwrap_or(0.0));
@@ -294,6 +303,35 @@ fn content_natural_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -> 
     max_w
 }
 
+/// Tags HTML que são BLOCO por padrão (a UA-stylesheet do navegador: `div`, `p`,
+/// `section`…). Embutido para que um HTML padrão funcione SEM `defineBlock` — é o
+/// que o navegador já sabe. Tags não-listadas e desconhecidas são inline por
+/// default (como `<span>`/`<b>` no HTML), salvo `display`/`defineBlock` explícito.
+fn is_default_block_tag(tag: &str) -> bool {
+    matches!(
+        tag,
+        "html" | "body" | "div" | "p" | "section" | "header" | "footer" | "main"
+            | "article" | "aside" | "nav" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
+            | "ul" | "ol" | "li" | "blockquote" | "pre" | "figure" | "form" | "table"
+    )
+}
+
+/// `true` se um nó-elemento deve ser tratado como BLOCO no layout (entra em
+/// `layout_block`, com sua própria caixa/eixo) — em vez de inline (texto corrido).
+/// É bloco se: tem `display` no CSS (qualquer um define caixa própria), tem default
+/// de bloco registrado (`block::lookup`/defineBlock), OU é uma tag HTML block por
+/// padrão (`div`/`p`/…). Tags inline puras fluem como texto.
+fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
+    match &dom.node(id).kind {
+        NodeKind::Element { tag } => {
+            dom.computed_style_idx(id).and_then(|c| c.effective_display()).is_some()
+                || crate::block::lookup(tag).is_some()
+                || is_default_block_tag(tag)
+        }
+        _ => false,
+    }
+}
+
 /// `true` se a tag NÃO é renderável — metadata do documento (`<head>` e o que vive
 /// nele: `<title>`, `<meta>`, `<link>`, `<base>`) e os recursos `<style>`/`<script>`
 /// (o CSS já virou stylesheet no parse; JS não executamos). Permite carregar um HTML
@@ -303,11 +341,22 @@ fn is_non_rendered_tag(tag: &str) -> bool {
     matches!(tag, "head" | "title" | "meta" | "link" | "base" | "style" | "script")
 }
 
-/// O código de `display` de um nó (do `BlockDef` da tag), ou vertical (0) se a tag
-/// não define bloco. É o eixo de empilhamento dos filhos.
+/// O código de `display` de um nó: o CSS (`display:` parseado) VENCE; se não
+/// declarado, cai no default da tag (`block::lookup`, a UA-stylesheet via
+/// defineBlock); senão vertical. É o eixo de empilhamento dos filhos.
+/// Códigos: 0=vertical/block, 1=wrap, 2=horizontal/flex, -1=none.
 fn css_display(dom: &Dom, id: NodeIdx) -> i64 {
     match &dom.node(id).kind {
         NodeKind::Element { tag } => {
+            // 1) CSS explícito (display:flex/block/inline/none) tem prioridade.
+            if let Some(css) = dom.computed_style_idx(id) {
+                if let Some(kind) = css.effective_display() {
+                    return kind.to_display_code();
+                }
+            }
+            // 2) default da tag: defineBlock (UA-stylesheet do TS) tem prioridade;
+            // senão as tags HTML block conhecidas (div/p/…) são vertical; o resto
+            // também cai em vertical (default seguro para um container).
             crate::block::lookup(tag).map(|d| d.display).unwrap_or(crate::block::DISPLAY_VERTICAL)
         }
         _ => crate::block::DISPLAY_VERTICAL,
@@ -330,7 +379,11 @@ fn layout_children_vertical(
     let mut child_y = content_y;
     for &child in &dom.node(id).children {
         match &dom.node(child).kind {
-            NodeKind::Element { tag } if crate::block::lookup(tag).is_some() => {
+            // Metadata não-renderável (`<head>`/`<title>`/`<style>`/`<script>`):
+            // pula — NÃO coleta seu texto como inline (senão o título e o CSS cru
+            // vazam pra tela). Checado ANTES do caminho inline.
+            NodeKind::Element { tag } if is_non_rendered_tag(tag) => {}
+            NodeKind::Element { .. } if is_block_level(dom, child) => {
                 let (_, h) = layout_block(dom, child, content_x, child_y, content_w, false, ctx, list);
                 child_y += h;
             }
@@ -379,6 +432,12 @@ fn layout_children_horizontal(
     }
 
     for &child in &dom.node(id).children {
+        // Metadata não-renderável: pula (não mede nem coleta texto).
+        if let NodeKind::Element { tag } = &dom.node(child).kind {
+            if is_non_rendered_tag(tag) {
+                continue;
+            }
+        }
         // Mede a largura que o filho QUER (sem pintar) para decidir a quebra.
         let want = child_outer_width(dom, child, content_w, font_size, ctx);
         // Wrap: se não cabe na linha atual E já há algo nela, quebra antes de pôr.
@@ -387,7 +446,7 @@ fn layout_children_horizontal(
         }
         let remaining = (right_edge - child_x).max(0.0);
         match &dom.node(child).kind {
-            NodeKind::Element { tag } if crate::block::lookup(tag).is_some() => {
+            NodeKind::Element { .. } if is_block_level(dom, child) => {
                 // `width:%` resolve contra o CONTAINER (3×30%=270 cada). A largura
                 // real é clampada ao restante (no modo no-wrap; no wrap já quebramos).
                 let base = if wrap { want.min(content_w) } else { content_w };
@@ -425,7 +484,7 @@ fn layout_children_horizontal(
 /// do conteúdo (+ frame); texto solto: a largura do texto.
 fn child_outer_width(dom: &Dom, id: NodeIdx, container_w: f32, parent_font: f32, ctx: &LayoutCtx) -> f32 {
     match &dom.node(id).kind {
-        NodeKind::Element { tag } if crate::block::lookup(tag).is_some() => {
+        NodeKind::Element { .. } if is_block_level(dom, id) => {
             let css = dom.computed_style_idx(id).unwrap_or_default();
             let font = css.font_size.unwrap_or(parent_font);
             let frame = 2.0 * (css.margin.unwrap_or(0.0) + css.border_width.unwrap_or(0.0) + css.padding.unwrap_or(0.0));
@@ -436,9 +495,15 @@ fn child_outer_width(dom: &Dom, id: NodeIdx, container_w: f32, parent_font: f32,
                 viewport_w: ctx.viewport_w,
                 viewport_h: ctx.viewport_h,
             };
-            let cw = css.width.and_then(|d| d.resolve(&resolve))
-                .unwrap_or_else(|| content_natural_width(dom, id, font, ctx));
-            cw + frame
+            // Em border-box, o `width` declarado JÁ é a caixa (outer sem margin) —
+            // não soma pad/border de novo; só a margin. Em content-box, soma o frame.
+            match css.width.and_then(|d| d.resolve(&resolve)) {
+                Some(w) if css.border_box.unwrap_or(false) => {
+                    w + 2.0 * css.margin.unwrap_or(0.0)
+                }
+                Some(w) => w + frame,
+                None => content_natural_width(dom, id, font, ctx) + frame,
+            }
         }
         NodeKind::Text(t) => ctx.measurer.text_width(t, parent_font, false),
         _ => 0.0,
@@ -655,6 +720,95 @@ mod tests {
         assert!(rects.iter().all(|r| (r.w - 270.0).abs() < 1.0), "largura ~270: {rects:?}");
         // o 2º começa onde o 1º termina (sem sobrepor): x[1] ≈ x[0] + w[0].
         assert!((rects[1].x - (rects[0].x + rects[0].w)).abs() < 1.0, "encostados: {rects:?}");
+    }
+
+    #[test]
+    fn cards_com_filhos_nao_esticam_o_ultimo() {
+        // REGRESSÃO (bug visto na tela): 3 cards width:32% COM filhos (<p>) num <row>
+        // largo — o ÚLTIMO não pode esticar até a borda. Cada um = 32% da largura,
+        // o resto fica vazio à direita (como no navegador). p=wrap pra bater o real.
+        crate::block::define("row", crate::block::BlockDef { display: 2, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define("p", crate::block::BlockDef { display: 1, indent: 0.0, prefix: 0, flags: 0 });
+        let dom = parse_html_to_dom(
+            "<row>\
+               <div style='background:#111;width:32%'><p>256</p><p>testes</p></div>\
+               <div style='background:#222;width:32%'><p>31%</p><p>paridade</p></div>\
+               <div style='background:#333;width:32%'><p>5</p><p>fases</p></div>\
+             </row>",
+        );
+        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let rects: Vec<Rect> = list.items.iter().filter_map(|it| match it {
+            DisplayItem::SolidRect { rect, .. } => Some(*rect),
+            _ => None,
+        }).collect();
+        assert_eq!(rects.len(), 3);
+        // TODOS com a MESMA largura = 32% de 1000 = 320 (o 3º NÃO estica).
+        for (i, r) in rects.iter().enumerate() {
+            assert!((r.w - 320.0).abs() < 1.0, "card[{i}] devia ter 320 (32%), tem {}: {rects:?}", r.w);
+        }
+        // o último termina BEM antes da borda (3×320=960 < 1000), sobra vazio.
+        let last = rects[2];
+        assert!(last.x + last.w <= 1000.0, "último não passa da borda: {last:?}");
+    }
+
+    #[test]
+    fn border_box_faz_3_cards_caberem() {
+        // box-sizing:border-box: width:32% INCLUI padding+border → a CAIXA é 32%,
+        // 3 cards = 96% (cabem, sobra ~4%). Sem border-box (content-box) cada caixa
+        // seria 32%+frame e estouraria. Prova a propriedade real do CSS.
+        crate::block::define("row", crate::block::BlockDef { display: 2, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        let dom = parse_html_to_dom(
+            "<style>.card{box-sizing:border-box;width:32%;padding:14;border-width:2;background:#1a2030}</style>\
+             <row>\
+               <div class='card'>a</div><div class='card'>b</div><div class='card'>c</div>\
+             </row>",
+        );
+        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let rects: Vec<Rect> = list.items.iter().filter_map(|it| match it {
+            DisplayItem::SolidRect { rect, .. } => Some(*rect),
+            _ => None,
+        }).collect();
+        assert_eq!(rects.len(), 3);
+        // cada CAIXA = 32% de 1000 = 320 (border-box: o width É a caixa inteira).
+        for (i, r) in rects.iter().enumerate() {
+            assert!((r.w - 320.0).abs() < 1.0, "card[{i}] caixa=320 (border-box): {rects:?}");
+        }
+        // 3×320=960 < 1000: cabem com folga (sobra ~40 = 4%).
+        let last = rects[2];
+        assert!(last.x + last.w <= 1000.0, "cabem todos: {rects:?}");
+        assert!(1000.0 - (last.x + last.w) >= 30.0, "sobra espaço à direita: {rects:?}");
+    }
+
+    #[test]
+    fn display_vem_do_css_nao_do_defineblock() {
+        // O `display:flex` no <style> faz <row> dispor os filhos LADO A LADO, sem
+        // precisar de defineBlock. `display:none` some. `display:flex;flex-wrap`
+        // quebra. É o motor lendo o display DO CSS (autonomia do defineBlock).
+        let dom = parse_html_to_dom(
+            "<style>row{display:flex} hide{display:none} \
+                    .c{width:30%;background:#111}</style>\
+             <row>\
+               <div class='c'>a</div><div class='c'>b</div><div class='c'>c</div>\
+             </row>\
+             <hide>invisível</hide>",
+        );
+        let ctx = LayoutCtx { viewport_w: 900.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let rects: Vec<Rect> = list.items.iter().filter_map(|it| match it {
+            DisplayItem::SolidRect { rect, .. } => Some(*rect),
+            _ => None,
+        }).collect();
+        assert_eq!(rects.len(), 3, "3 cards (o <hide> display:none não pinta)");
+        // display:flex do CSS → lado a lado (X crescente, mesmo Y).
+        assert!(rects[0].x < rects[1].x && rects[1].x < rects[2].x, "lado a lado: {rects:?}");
+        assert!(rects.iter().all(|r| r.y == rects[0].y), "mesma linha: {rects:?}");
+        // display:none → o texto "invisível" NÃO está na lista.
+        let has_invisivel = list.items.iter().any(|it| matches!(it, DisplayItem::Text { text, .. } if text.contains("invisível")));
+        assert!(!has_invisivel, "display:none não renderiza o conteúdo");
     }
 
     #[test]

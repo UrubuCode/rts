@@ -4,19 +4,25 @@
   <meta charset="utf-8">
   <title>Página carregada de arquivo .html pelo motor do RTS</title>
   <style>
-    /* CSS de autor puro — cascade fiel à MDN (tag < .classe < #id < inline < !important) */
-    body   { background:#0f1420; color:#d8dee9; padding:20 }
-    h1     { color:#88ccff; font-size:30 }
-    h2     { color:#7aa2d0; font-size:20 }
-    p      { color:#b8c2d0; font-size:15 }
-    .muted { color:#6b7686; font-size:13 }
-    .card  { background:#1a2030; border-width:2; border-color:#2e3a52; border-radius:10; padding:14; width:32% }
-    .num   { color:#ffffff; font-size:26 }
+    /* CSS de autor puro e VÁLIDO (unidades px) — cascade fiel à MDN
+       (tag < .classe < #id < inline < !important). O `display` agora vem DO CSS
+       (o motor parseia display:flex/block), não mais de defineBlock imperativo. */
+    body   { background:#0f1420; color:#d8dee9; padding:20px }
+    h1     { color:#88ccff; font-size:30px }
+    h2     { color:#7aa2d0; font-size:20px }
+    p      { color:#b8c2d0; font-size:15px }
+    .muted { color:#6b7686; font-size:13px }
+    .card  { background:#1a2030; border-width:2px; border-color:#2e3a52; border-radius:10px; padding:14px; width:32%; box-sizing:border-box }
+    .num   { color:#ffffff; font-size:26px }
     .ok    { color:#7ee787 }
     .warn  { color:#ffb454 }
-    .badge { background:#223052; color:#9ecbff; padding:6; border-radius:6; font-size:13; margin:4 }
+    .badge { background:#223052; color:#9ecbff; padding:6px; border-radius:6px; font-size:13px; margin:4px }
     #hero  { background:#142a44; border-color:#3a6ea5; width:100% }
     .pin   { color:#ff6b6b !important }
+
+    /* o LAYOUT (display) declarado no CSS — o motor lê daqui: */
+    row  { display:flex }
+    tags { display:flex; flex-wrap:wrap }
   </style>
 </head>
 <body>

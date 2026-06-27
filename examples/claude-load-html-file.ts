@@ -6,15 +6,9 @@ import egui from "rts:egui";
 import dom from "rts:dom";
 import { fs, io } from "rts";
 
-// ── Defaults de display das tags HTML (o que o navegador tem embutido). ──────────
-// display: 0=block(vertical) 1=wrap(inline-block) 2=horizontal(flex-row).
-// (No futuro a fachada do rts-dom registra isto sozinha; por ora, explícito.)
-function block(tag: string) { dom.defineBlock(tag, 0, 0, 0, 6); }
-block("html"); block("body"); block("header"); block("footer");
-block("section"); block("div"); block("h1"); block("h2"); block("h3");
-dom.defineBlock("p", 1, 0, 0, 0);     // <p> flui (wrap) — texto inline
-dom.defineBlock("row", 2, 0, 0, 8);   // <row> = flex-row (lado a lado)
-dom.defineBlock("tags", 1, 0, 0, 8);  // <tags> = wrap (flui e quebra linha)
+// SEM defineBlock! As tags HTML (div/p/section/h1…) já são block embutidas no
+// motor (UA-stylesheet), e o LAYOUT (display:flex/block/none) vem do CSS no
+// <style>. O HTML+CSS é autônomo — exatamente como no navegador.
 
 // ── 1. LÊ o arquivo .html do disco (string). ─────────────────────────────────────
 const html = fs.read_text("examples/pagina.html");

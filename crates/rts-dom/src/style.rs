@@ -16,6 +16,37 @@
 /// Cor RGBA empacotada `0xRRGGBBAA` num `u32`. Tipo próprio (não `Color32`).
 pub type Rgba = u32;
 
+/// O modo de `display` de um elemento (o eixo/fluxo dos filhos), parseado do CSS.
+/// Mapeia o vocabulário CSS para os modos de layout que o motor implementa.
+/// Egui-free. `None` no `ComputedStyle` = não declarado (usa o default da tag).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DisplayKind {
+    /// `display:block` — empilha os filhos na vertical, ocupa a largura (fluxo normal).
+    Block,
+    /// `display:flex` (row, sem wrap) — filhos lado a lado, encolhem pra caber.
+    Flex,
+    /// `display:flex` + `flex-wrap:wrap` — fluem lado a lado E quebram linha.
+    FlexWrap,
+    /// `display:inline`/`inline-block` — flui inline (no nível de bloco, trata como
+    /// wrap: itens lado a lado que quebram). É o default de tags custom no browser.
+    Inline,
+    /// `display:none` — não renderiza (nem ocupa espaço).
+    None,
+}
+
+impl DisplayKind {
+    /// Converte para o código de display do layout (0=vertical/block, 1=wrap,
+    /// 2=horizontal/flex, -1=none). Casa com `crate::block::DISPLAY_*`.
+    pub fn to_display_code(self) -> i64 {
+        match self {
+            DisplayKind::Block => 0,
+            DisplayKind::FlexWrap | DisplayKind::Inline => 1, // wrap (flui+quebra)
+            DisplayKind::Flex => 2,                            // horizontal (lado a lado)
+            DisplayKind::None => -1,
+        }
+    }
+}
+
 /// O contexto de resolução de uma [`Dimension`] relativa, conhecido só no
 /// render. Cada unidade resolve contra um eixo diferente (north-star risco 5: a
 /// resolução de `%`/`em`/`vw`/… é TARDIA, no layout, não no parse). Egui-free.
@@ -152,6 +183,17 @@ pub struct ComputedStyle {
     /// contra o content-box do pai (north-star risco 5). `None` = não especificado
     /// (= `Auto` efetivo: o egui usa a largura disponível).
     pub width: Option<Dimension>,
+    /// `box-sizing: border-box` — quando `Some(true)`, o `width` declarado INCLUI
+    /// padding+border (a caixa tem exatamente `width`; o content é `width - pad -
+    /// border`). `None`/`Some(false)` = `content-box` (default CSS: `width` é só o
+    /// content, pad/border somam por fora). É o que faz 3 cards de 32% caberem.
+    pub border_box: Option<bool>,
+    /// `display` parseado do CSS (block/flex/inline/none). `None` = não declarado
+    /// (o layout usa o default da tag via `block::lookup`). Combina com `flex_wrap`.
+    pub display: Option<DisplayKind>,
+    /// `flex-wrap: wrap` — só relevante com `display:flex`; promove `Flex` a
+    /// `FlexWrap` na resolução. `None`/`Some(false)` = nowrap.
+    pub flex_wrap: Option<bool>,
 }
 
 impl ComputedStyle {
@@ -203,6 +245,24 @@ impl ComputedStyle {
         }
         if other.width.is_some() {
             self.width = other.width;
+        }
+        if other.border_box.is_some() {
+            self.border_box = other.border_box;
+        }
+        if other.display.is_some() {
+            self.display = other.display;
+        }
+        if other.flex_wrap.is_some() {
+            self.flex_wrap = other.flex_wrap;
+        }
+    }
+
+    /// O `display` EFETIVO, combinando `display` + `flex_wrap` (flex + wrap →
+    /// FlexWrap). `None` se não declarado (o layout cai no default da tag).
+    pub fn effective_display(&self) -> Option<DisplayKind> {
+        match self.display {
+            Some(DisplayKind::Flex) if self.flex_wrap == Some(true) => Some(DisplayKind::FlexWrap),
+            other => other,
         }
     }
 
@@ -574,6 +634,13 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             "border-color" => css.border_color = parse_color(val),
             "border-radius" => css.corner_radius = parse_px(val),
             "width" => css.width = parse_dimension(val),
+            // `box-sizing: border-box | content-box` — border-box faz o `width`
+            // incluir padding+border (3 cards de 32% cabem). Default content-box.
+            "box-sizing" => css.border_box = Some(val.eq_ignore_ascii_case("border-box")),
+            // `display` — o eixo/fluxo dos filhos, do CSS (não mais só do defineBlock).
+            "display" => css.display = parse_display(val),
+            // `flex-wrap` — combina com display:flex para promover a FlexWrap.
+            "flex-wrap" => css.flex_wrap = Some(val.eq_ignore_ascii_case("wrap")),
             _ => {}
         }
     }
@@ -633,6 +700,18 @@ fn parse_dimension(v: &str) -> Option<Dimension> {
     }
     // px explícito ou número puro.
     num(low.strip_suffix("px").unwrap_or(&low)).map(Dimension::Px)
+}
+
+/// Parseia `display: block|flex|inline|inline-block|none` para [`DisplayKind`].
+/// Valores não suportados (grid, table, …) → `None` (cai no default da tag).
+fn parse_display(v: &str) -> Option<DisplayKind> {
+    match v.trim().to_ascii_lowercase().as_str() {
+        "block" | "flow-root" => Some(DisplayKind::Block),
+        "flex" | "inline-flex" => Some(DisplayKind::Flex),
+        "inline" | "inline-block" => Some(DisplayKind::Inline),
+        "none" => Some(DisplayKind::None),
+        _ => None, // grid/table/etc — não suportado nesta fase.
+    }
 }
 
 /// `font-weight`: `bold`/`bolder` ou peso numérico ≥ 600 → negrito.

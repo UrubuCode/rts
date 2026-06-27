@@ -237,6 +237,52 @@ pub extern "C" fn __RTS_FN_NS_DOM_DUMP(h: u64) {
     }
 }
 
+/// `dumpLayout(domHandle, viewportW)` — computa a DisplayList (layout no DOM, com a
+/// largura de viewport dada) e imprime um JSON com cada item (tipo + x/y/w/h + cor),
+/// para COMPARAR número-a-número com o render do navegador (o JSON do
+/// `extrair-render.js`). Usa o medidor aproximado (headless, determinístico).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_DUMP_LAYOUT(h: u64, viewport_w: i64) {
+    use crate::layout::{layout_document, ApproxMeasurer, DisplayItem, LayoutCtx};
+    let vw = viewport_w.max(1) as f32;
+    let json = with(h, |dom| {
+        let ctx = LayoutCtx { viewport_w: vw, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        let list = layout_document(dom, &ctx);
+        let mut s = String::from("{\n  \"viewport\": ");
+        s.push_str(&(vw as i64).to_string());
+        s.push_str(",\n  \"content_height\": ");
+        s.push_str(&(list.content_height as i64).to_string());
+        s.push_str(",\n  \"items\": [\n");
+        let hx = |c: u32| format!("0x{:08X}", c);
+        for (i, it) in list.items.iter().enumerate() {
+            let line = match it {
+                DisplayItem::SolidRect { rect, color, .. } => format!(
+                    "    {{\"kind\":\"rect\",\"x\":{:.1},\"y\":{:.1},\"w\":{:.1},\"h\":{:.1},\"bg\":\"{}\"}}",
+                    rect.x, rect.y, rect.w, rect.h, hx(*color)
+                ),
+                DisplayItem::Border { rect, width, color, .. } => format!(
+                    "    {{\"kind\":\"border\",\"x\":{:.1},\"y\":{:.1},\"w\":{:.1},\"h\":{:.1},\"width\":{:.1},\"color\":\"{}\"}}",
+                    rect.x, rect.y, rect.w, rect.h, width, hx(*color)
+                ),
+                DisplayItem::Text { x, y, text, color, size, .. } => format!(
+                    "    {{\"kind\":\"text\",\"x\":{:.1},\"y\":{:.1},\"size\":{:.1},\"color\":\"{}\",\"text\":{:?}}}",
+                    x, y, size, hx(*color), text
+                ),
+            };
+            s.push_str(&line);
+            if i + 1 < list.items.len() {
+                s.push(',');
+            }
+            s.push('\n');
+        }
+        s.push_str("  ]\n}");
+        s
+    });
+    if let Some(j) = json {
+        println!("{j}");
+    }
+}
+
 // ── Leitura de conteúdo: STRING de volta pro TS (handle do pool GC) ──────────────
 // A ABI proíbe `StrPtr` de RETORNO (só de arg). A forma de devolver string é
 // internar no pool GC (`intern`) e retornar o handle `u64`; no register() esse
@@ -669,6 +715,14 @@ pub fn register(e: &mut Engine) {
             "dump(dom: number): void",
             "Prints the retained DOM tree to stderr, devtools-style (debug).",
             __RTS_FN_NS_DOM_DUMP as *const u8,
+        ))
+        .member(func(
+            "dumpLayout",
+            "__RTS_FN_NS_DOM_DUMP_LAYOUT",
+            Sig::new(vec![Handle, I64], AbiType::Void),
+            "dumpLayout(dom: number, viewportW: number): void",
+            "Computes the layout DisplayList at the given viewport width and prints it as JSON (x/y/w/h + colors), to compare with the browser render.",
+            __RTS_FN_NS_DOM_DUMP_LAYOUT as *const u8,
         ))
         // ── Leitura de conteúdo (retorna STRING: handle do pool GC) ──────────────
         // Retorno `Handle` + ts_signature `: string` = string dinâmica (mesmo
