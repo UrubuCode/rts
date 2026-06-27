@@ -977,10 +977,10 @@
 ,
 {
   "name": "codex_super_getter_setter_receiver",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "x:base-set:base-get\nx:base-set",
   "node": "x:base-set:base-get\nx:base-set",
-  "rts": "x:base-set:base-get\nx:base-set"
+  "rts": "undefined:base-get\nx:base-set"
 }
 ,
 {
@@ -1625,10 +1625,10 @@
 ,
 {
   "name": "307_weakref_shape",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "type=function\nderef=object",
   "node": "type=function\nderef=object",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "type=undefined\nderef=object"
 }
 ,
 {
@@ -3337,10 +3337,10 @@
 ,
 {
   "name": "28_promise_sync",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "ctor=function",
   "node": "ctor=function",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "ctor=undefined"
 }
 ,
 {
@@ -4617,18 +4617,18 @@
 ,
 {
   "name": "codex_optional_delete",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "true\nfalse\ntrue\ntrue\n3:1,,3:false",
   "node": "true\nfalse\ntrue\ntrue\n3:1,,3:false",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "true\ntrue\ntrue\ntrue\n3:1,2,3:false"
 }
 ,
 {
   "name": "codex_tdz_typeof_let",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "ReferenceError\n1",
   "node": "ReferenceError\n1",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "undefined\n1"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":213,"rts_diverge":81,"bun_node_diverge":17,"errors":298,"rejected":0}}
+],"summary":{"total":609,"pass":212,"rts_diverge":86,"bun_node_diverge":17,"errors":294,"rejected":0}}
