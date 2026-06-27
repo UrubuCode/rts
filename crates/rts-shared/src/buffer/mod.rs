@@ -503,7 +503,7 @@ pub fn register(e: &mut Engine) {
             "to_string",
             "__RTS_FN_NS_BUFFER_TO_STRING",
             Sig::new(vec![AbiType::U64], AbiType::Handle),
-            "to_string(handle: number): number",
+            "to_string(handle: number): string",
             "Interprets buffer contents as UTF-8 and returns a string handle.",
             __RTS_FN_NS_BUFFER_TO_STRING as *const u8,
             false,

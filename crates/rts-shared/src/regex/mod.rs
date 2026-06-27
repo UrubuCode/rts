@@ -394,7 +394,7 @@ pub fn register(e: &mut Engine) {
             "find",
             "__RTS_FN_NS_REGEX_FIND",
             Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Handle),
-            "find(handle: number, s: string): number",
+            "find(handle: number, s: string): string",
             "Primeiro match como string handle (respeita lastIndex em global). 0 se sem match.",
             __RTS_FN_NS_REGEX_FIND as *const u8,
         ))
