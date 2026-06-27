@@ -418,6 +418,21 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Numeric comparison `< <= > >= == !=` → a `Bool`. Operands proven numeric
     /// (the Tagged `==`/`!=` case was already split off in `lower_bin`).
     fn lower_compare(&mut self, op: HirBinOp, l: Val, r: Val) -> FrontResult<Val> {
+        // STRICT equality across a Bool and a NUMBER is ALWAYS unequal — `===` never
+        // coerces, and `boolean` and `number` are different TYPES, so `0 === false` /
+        // `1 === true` are `false` (NOT the value-equal `0 == false` of loose `==`,
+        // which routes to the runtime loose-eq, never here). Without this the raw
+        // `icmp(0, 0)` below would treat `false` (repr 0) as the number 0. Only fires
+        // when EXACTLY one side is Bool (both-Bool / both-numeric compare normally).
+        if matches!(op, HirBinOp::StrictEq | HirBinOp::StrictNe) {
+            let l_bool = matches!(l.repr, Repr::Bool);
+            let r_bool = matches!(r.repr, Repr::Bool);
+            if l_bool != r_bool {
+                let val = matches!(op, HirBinOp::StrictNe); // `===` → false, `!==` → true
+                let c = self.builder.ins().iconst(types::I64, val as i64);
+                return Ok(Val::new(c, Repr::Bool));
+            }
+        }
         let use_float = matches!(l.repr, Repr::Float64) || matches!(r.repr, Repr::Float64);
         let bool_cmp = matches!(l.repr, Repr::Bool) || matches!(r.repr, Repr::Bool);
         if bool_cmp
