@@ -97,6 +97,16 @@ pub extern "C" fn __rtsadp_obj_keys(obj_word: u64) -> u64 {
                 rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, word);
             }
         }
+    } else if obj.is_object() {
+        // ARRAY receiver: `Object.keys([a, b, c])` is the STRING indices
+        // `["0", "1", "2"]` (JS treats an array as an object whose own enumerable
+        // keys are its indices). The element count is the backing Vec's length.
+        let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+        let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(handle).max(0);
+        for i in 0..len {
+            let word = abi_adapter::intern_poly(&i.to_string()).raw() as i64;
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, word);
+        }
     }
     box_vec_as_array(vec)
 }
