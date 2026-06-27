@@ -793,10 +793,10 @@
 ,
 {
   "name": "codex_aggregate_error_iterable_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "AggregateError:many\n3\na,plain,3",
   "node": "AggregateError:many\n3\na,plain,3",
-  "rts": "AggregateError:[object Object],plain,3\nundefined"
+  "rts": "AggregateError:many\n3\na,plain,3"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":210,"rts_diverge":74,"bun_node_diverge":17,"errors":308,"rejected":0}}
+],"summary":{"total":609,"pass":211,"rts_diverge":73,"bun_node_diverge":17,"errors":308,"rejected":0}}
