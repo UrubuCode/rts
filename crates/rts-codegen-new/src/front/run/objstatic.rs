@@ -72,6 +72,32 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             "assign" => self.object_assign(module, args).map(Some),
             "freeze" | "seal" | "preventExtensions" => self.object_freeze(module, args).map(Some),
             "isExtensible" => self.object_is_extensible(module, args).map(Some),
+            "defineProperty" => self.object_define_property(module, args).map(Some),
+            "getOwnPropertyDescriptor" => {
+                if args.len() != 2 {
+                    return unsupported!("Object.getOwnPropertyDescriptor expects 2 args");
+                }
+                let o = self.lower_expr(module, &args[0])?;
+                let o_word = self.box_value(o);
+                let k = self.lower_expr(module, &args[1])?;
+                let k_word = self.box_value(k);
+                let res = self
+                    .call_runtime(
+                        module,
+                        "__rtsadp_obj_get_own_property_descriptor",
+                        &[o_word, k_word],
+                    )?
+                    .expect("descriptor returns a word");
+                Ok(Some(Val::new(res, Repr::Tagged)))
+            }
+            "getOwnPropertyDescriptors" => {
+                let o = self.lower_expr(module, &args[0])?;
+                let o_word = self.box_value(o);
+                let res = self
+                    .call_runtime(module, "__rtsadp_obj_get_own_property_descriptors", &[o_word])?
+                    .expect("descriptors returns a word");
+                Ok(Some(Val::tagged_kind(res, JsKind::Object)))
+            }
             "is" => self.object_is(module, args).map(Some),
             "hasOwn" => self.object_has_own(module, args).map(Some),
             "fromEntries" => self.object_from_entries(module, args).map(Some),
@@ -321,6 +347,33 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // object (JS `Object.freeze(o)` returns `o`).
         self.call_runtime(module, "__rtsadp_prevent_ext", &[word])?;
         Ok(Val::new(word, Repr::Tagged))
+    }
+
+    /// `Object.defineProperty(obj, key, descriptor)` — apply the DATA descriptor's
+    /// `value` + flags to `obj` (adds the key via a shape transition). The target
+    /// local is DEMOTED to dynamic access (the new key lives in a runtime slot its
+    /// compile-time shape doesn't track). Returns the object.
+    fn object_define_property(
+        &mut self,
+        module: &mut dyn Module,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        if args.len() != 3 {
+            return unsupported!("Object.defineProperty expects 3 args, got {}", args.len());
+        }
+        if let HirExprKind::Ident(name) = &args[0].kind {
+            self.demote_local_to_dynamic(name);
+        }
+        let o = self.lower_expr(module, &args[0])?;
+        let o_word = self.box_value(o);
+        let k = self.lower_expr(module, &args[1])?;
+        let k_word = self.box_value(k);
+        let d = self.lower_expr(module, &args[2])?;
+        let d_word = self.box_value(d);
+        let res = self
+            .call_runtime(module, "__rtsadp_obj_define_property", &[o_word, k_word, d_word])?
+            .expect("__rtsadp_obj_define_property returns the object word");
+        Ok(Val::tagged_kind(res, JsKind::Object))
     }
 
     /// `Object.isExtensible(o)` — the REAL extensibility flag (`preventExtensions`/

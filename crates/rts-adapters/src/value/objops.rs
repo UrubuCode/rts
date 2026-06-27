@@ -338,6 +338,72 @@ pub extern "C" fn __rtsadp_define_prop(
     1
 }
 
+/// `Object.getOwnPropertyDescriptor(obj, key)` — build the DATA descriptor object
+/// `{ value, writable, enumerable, configurable }` for an OWN property, or
+/// `undefined` when `key` is not an own property of `obj`. Flags come from the
+/// descriptor table (a plain assignment is all-true; `defineProperty` carries its
+/// own). Accessor (`get`/`set`) descriptors are a later increment.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_obj_get_own_property_descriptor(obj_word: u64, key_word: u64) -> u64 {
+    let flags = __rtsadp_prop_flags(obj_word, key_word);
+    if flags < 0 {
+        return PolyValue::undefined().raw();
+    }
+    let obj_handle = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    let empty_shape = crate::shape::intern_global_shape(&[]);
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(
+        obj_handle,
+        PolyValue::from_i32(empty_shape as i32).raw() as i64,
+    );
+    let desc =
+        PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(obj_handle)).raw();
+    let val = __rtsadp_obj_get(obj_word, key_word);
+    __rtsadp_obj_set(desc, abi_adapter::intern_poly("value").raw(), val);
+    let b = |bit: i64| PolyValue::bool(flags & bit != 0).raw();
+    __rtsadp_obj_set(desc, abi_adapter::intern_poly("writable").raw(), b(1));
+    __rtsadp_obj_set(desc, abi_adapter::intern_poly("enumerable").raw(), b(2));
+    __rtsadp_obj_set(desc, abi_adapter::intern_poly("configurable").raw(), b(4));
+    desc
+}
+
+/// `Object.getOwnPropertyDescriptors(obj)` — an object mapping each own key to its
+/// descriptor object (`{ k: { value, writable, enumerable, configurable }, … }`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_obj_get_own_property_descriptors(obj_word: u64) -> u64 {
+    let res_handle = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    let empty_shape = crate::shape::intern_global_shape(&[]);
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(
+        res_handle,
+        PolyValue::from_i32(empty_shape as i32).raw() as i64,
+    );
+    let res =
+        PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(res_handle)).raw();
+    for k in object_keys_vec(obj_word) {
+        let key_word = abi_adapter::intern_poly(&k).raw();
+        let desc = __rtsadp_obj_get_own_property_descriptor(obj_word, key_word);
+        __rtsadp_obj_set(res, key_word, desc);
+    }
+    res
+}
+
+/// `Object.defineProperty(obj, key, descriptor)` — read the DATA descriptor's
+/// `value` + `writable`/`enumerable`/`configurable` flags off the descriptor
+/// object and apply them via [`__rtsadp_define_prop`]. Omitted flags default to
+/// `false` (JS `defineProperty` semantics, unlike a plain assignment's all-true).
+/// Returns the object. (Accessor descriptors `get`/`set` are a later increment —
+/// only the `value` data form is read here.)
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_obj_define_property(obj_word: u64, key_word: u64, desc_word: u64) -> u64 {
+    let flag = |k: &str| -> i64 {
+        let w = __rtsadp_obj_get(desc_word, abi_adapter::intern_poly(k).raw());
+        super::genops::to_boolean(PolyValue::from_raw(w)) as i64
+    };
+    let val = __rtsadp_obj_get(desc_word, abi_adapter::intern_poly("value").raw());
+    let flags = flag("writable") | (flag("enumerable") << 1) | (flag("configurable") << 2);
+    __rtsadp_define_prop(obj_word, key_word, val, flags);
+    obj_word
+}
+
 /// Write `obj_word.key = value` at the slot (existing) or via a shape transition
 /// (new key), WITHOUT the writable/extensibility guards — used by `define_prop`
 /// (which has already checked extensibility and intentionally overrides writable).
