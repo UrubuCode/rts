@@ -303,30 +303,18 @@ fn content_natural_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -> 
     max_w
 }
 
-/// Tags HTML que são BLOCO por padrão (a UA-stylesheet do navegador: `div`, `p`,
-/// `section`…). Embutido para que um HTML padrão funcione SEM `defineBlock` — é o
-/// que o navegador já sabe. Tags não-listadas e desconhecidas são inline por
-/// default (como `<span>`/`<b>` no HTML), salvo `display`/`defineBlock` explícito.
-fn is_default_block_tag(tag: &str) -> bool {
-    matches!(
-        tag,
-        "html" | "body" | "div" | "p" | "section" | "header" | "footer" | "main"
-            | "article" | "aside" | "nav" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
-            | "ul" | "ol" | "li" | "blockquote" | "pre" | "figure" | "form" | "table"
-    )
-}
-
 /// `true` se um nó-elemento deve ser tratado como BLOCO no layout (entra em
 /// `layout_block`, com sua própria caixa/eixo) — em vez de inline (texto corrido).
-/// É bloco se: tem `display` no CSS (qualquer um define caixa própria), tem default
-/// de bloco registrado (`block::lookup`/defineBlock), OU é uma tag HTML block por
-/// padrão (`div`/`p`/…). Tags inline puras fluem como texto.
+/// É bloco se: tem `display` no CSS (qualquer um define caixa própria), OU tem um
+/// default de display registrado (`block::lookup` = defineBlock, alimentado pela
+/// UA-stylesheet `ua.ts` para div/p/… e pelo autor). Tags inline puras (sem nada
+/// disso) fluem como texto. O motor NÃO nomeia tags HTML — os defaults são dados
+/// do prelude TS.
 fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
     match &dom.node(id).kind {
         NodeKind::Element { tag } => {
             dom.computed_style_idx(id).and_then(|c| c.effective_display()).is_some()
                 || crate::block::lookup(tag).is_some()
-                || is_default_block_tag(tag)
         }
         _ => false,
     }
@@ -786,8 +774,10 @@ mod tests {
     #[test]
     fn display_vem_do_css_nao_do_defineblock() {
         // O `display:flex` no <style> faz <row> dispor os filhos LADO A LADO, sem
-        // precisar de defineBlock. `display:none` some. `display:flex;flex-wrap`
-        // quebra. É o motor lendo o display DO CSS (autonomia do defineBlock).
+        // precisar de defineBlock. `display:none` some. É o motor lendo o display DO
+        // CSS. (`<div>` é block via a UA-stylesheet `ua.ts` em produção; nos testes
+        // unitários — sem o prelude TS — registramos o default à mão.)
+        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
         let dom = parse_html_to_dom(
             "<style>row{display:flex} hide{display:none} \
                     .c{width:30%;background:#111}</style>\
