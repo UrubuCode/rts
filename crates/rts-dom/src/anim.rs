@@ -291,6 +291,172 @@ impl ActiveTransition {
     }
 }
 
+// ── @keyframes + animation (#1776 fase 2) ────────────────────────────────────────
+
+/// UM stop de `@keyframes`: a posição (`offset` ∈ [0,1], de `0%`/`from` a `100%`/`to`)
+/// e o estilo declarado nesse ponto. A animação interpola entre stops consecutivos.
+#[derive(Clone, Debug)]
+pub struct Keyframe {
+    pub offset: f32,
+    pub style: ComputedStyle,
+}
+
+/// Um conjunto `@keyframes nome { ... }` — os stops ordenados por offset.
+#[derive(Clone, Debug, Default)]
+pub struct Keyframes {
+    pub stops: Vec<Keyframe>,
+}
+
+impl Keyframes {
+    /// O estilo INTERPOLADO no progresso `t` ∈ [0,1] da animação: acha os 2 stops
+    /// que cercam `t` e interpola entre eles. `base` é o estilo computado do nó (p/
+    /// os campos que o keyframe não declara herdarem). Vazio → o base.
+    pub fn at(&self, t: f32, base: &ComputedStyle) -> ComputedStyle {
+        if self.stops.is_empty() {
+            return base.clone();
+        }
+        let t = t.clamp(0.0, 1.0);
+        // antes do 1º stop ou depois do último: usa o stop da ponta (sobre o base).
+        if t <= self.stops[0].offset {
+            return merge_keyframe(base, &self.stops[0].style);
+        }
+        let last = self.stops.last().unwrap();
+        if t >= last.offset {
+            return merge_keyframe(base, &last.style);
+        }
+        // acha o par [i, i+1] que cerca t.
+        for w in self.stops.windows(2) {
+            let (a, b) = (&w[0], &w[1]);
+            if t >= a.offset && t <= b.offset {
+                let span = (b.offset - a.offset).max(1e-6);
+                let local = (t - a.offset) / span;
+                // interpola entre os DOIS keyframes (cada um sobre o base).
+                let from = merge_keyframe(base, &a.style);
+                let to = merge_keyframe(base, &b.style);
+                return interpolate(&from, &to, local);
+            }
+        }
+        base.clone()
+    }
+}
+
+/// Funde um keyframe (estilo parcial) sobre o base: o keyframe VENCE onde declara,
+/// o base preenche o resto. (Um keyframe só declara algumas props.)
+fn merge_keyframe(base: &ComputedStyle, kf: &ComputedStyle) -> ComputedStyle {
+    let mut out = base.clone();
+    out.merge_over(kf);
+    out
+}
+
+/// Direção da animação (`animation-direction`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AnimDirection {
+    Normal,
+    Reverse,
+    Alternate,
+    AlternateReverse,
+}
+
+/// A propriedade `animation: nome dur timing delay iter direction`.
+#[derive(Clone, PartialEq, Debug)]
+pub struct AnimationSpec {
+    pub name: String,
+    pub duration_ms: f32,
+    pub delay_ms: f32,
+    pub easing: Easing,
+    /// nº de iterações; `None` = infinito.
+    pub iterations: Option<f32>,
+    pub direction: AnimDirection,
+}
+
+impl AnimationSpec {
+    /// Parseia `animation: name dur [timing] [delay] [iter] [direction]`. O 1º tempo
+    /// é dur, o 2º delay; `infinite`/número = iterações; keyword de direção;
+    /// keyword de easing; o resto (não reconhecido) é o NOME.
+    pub fn parse(v: &str) -> Option<AnimationSpec> {
+        let mut name = None;
+        let mut duration_ms = None;
+        let mut delay_ms = 0.0;
+        let mut easing = Easing::Ease;
+        let mut iterations = Some(1.0);
+        let mut direction = AnimDirection::Normal;
+        let mut seen_time = false;
+        for tok in v.split_whitespace() {
+            if let Some(ms) = parse_time_ms(tok) {
+                if !seen_time {
+                    duration_ms = Some(ms);
+                    seen_time = true;
+                } else {
+                    delay_ms = ms;
+                }
+            } else if tok.eq_ignore_ascii_case("infinite") {
+                iterations = None;
+            } else if let Ok(n) = tok.parse::<f32>() {
+                iterations = Some(n);
+            } else if let Some(d) = parse_direction(tok) {
+                direction = d;
+            } else if let Some(e) = Easing::parse(tok) {
+                easing = e;
+            } else {
+                name = Some(tok.to_string()); // o que sobra é o nome do @keyframes
+            }
+        }
+        match (name, duration_ms) {
+            (Some(n), Some(d)) => Some(AnimationSpec {
+                name: n,
+                duration_ms: d,
+                delay_ms,
+                easing,
+                iterations,
+                direction,
+            }),
+            _ => None,
+        }
+    }
+
+    /// O progresso `t` ∈ [0,1] DENTRO da iteração atual, amaciado pela easing, dado o
+    /// tempo `elapsed_ms` desde o início. Honra delay, iterações e direção. Devolve
+    /// `None` quando a animação terminou (iterações finitas esgotadas).
+    pub fn progress(&self, elapsed_ms: f32) -> Option<f32> {
+        if self.duration_ms <= 0.0 {
+            return Some(1.0);
+        }
+        let after_delay = elapsed_ms - self.delay_ms;
+        if after_delay < 0.0 {
+            return Some(0.0); // antes do delay: parado no início
+        }
+        let iter_f = after_delay / self.duration_ms; // quantas iterações já correram
+        if let Some(max) = self.iterations {
+            if iter_f >= max {
+                return None; // terminou
+            }
+        }
+        let iter_index = iter_f.floor() as i64;
+        let mut local = iter_f.fract(); // [0,1) dentro da iteração
+        // direção: reverte conforme a iteração (alternate) ou sempre (reverse).
+        let reversed = match self.direction {
+            AnimDirection::Normal => false,
+            AnimDirection::Reverse => true,
+            AnimDirection::Alternate => iter_index % 2 == 1,
+            AnimDirection::AlternateReverse => iter_index % 2 == 0,
+        };
+        if reversed {
+            local = 1.0 - local;
+        }
+        Some(self.easing.apply(local))
+    }
+}
+
+fn parse_direction(tok: &str) -> Option<AnimDirection> {
+    Some(match tok.to_ascii_lowercase().as_str() {
+        "normal" => AnimDirection::Normal,
+        "reverse" => AnimDirection::Reverse,
+        "alternate" => AnimDirection::Alternate,
+        "alternate-reverse" => AnimDirection::AlternateReverse,
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

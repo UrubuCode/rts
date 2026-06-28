@@ -178,6 +178,9 @@ pub struct Dom {
     /// O estilo INTERPOLADO atual de cada nó animando (camada que o `computed_style`
     /// aplica POR ÚLTIMO, acima de tudo). Escrito por `advance`, lido pelo layout.
     anim_override: HashMap<NodeIdx, crate::style::ComputedStyle>,
+    /// Instante (ms) em que a `animation` (@keyframes) de cada nó começou. Mantido
+    /// enquanto o nó tem a mesma animação; reinicia se o nome muda.
+    anim_start: HashMap<NodeIdx, (String, f32)>,
 }
 
 // Igualdade estrutural: compara só a árvore (nodes+root). Os índices e a `generation`
@@ -210,6 +213,7 @@ impl Dom {
             active_transitions: HashMap::new(),
             prev_computed: HashMap::new(),
             anim_override: HashMap::new(),
+            anim_start: HashMap::new(),
         }
     }
 
@@ -590,15 +594,45 @@ impl Dom {
         let mut elements = Vec::new();
         self.collect_all_element_idxs(self.root, &mut elements);
 
+        let mut any_active = false;
         for idx in elements {
             // o ALVO base deste frame (cascade sem a camada de animação).
             let Some(target) = self.computed_style_idx_inner(idx, false) else { continue };
+
+            // ── @keyframes ANIMATION (#1776 fase 2): roda sozinha no tempo ──────────
+            if let Some(anim) = &target.animation {
+                // tempo de início: novo nó/nome reinicia; mesmo nome mantém.
+                let start = match self.anim_start.get(&idx) {
+                    Some((n, s)) if *n == anim.name => *s,
+                    _ => {
+                        self.anim_start.insert(idx, (anim.name.clone(), now_ms));
+                        now_ms
+                    }
+                };
+                match anim.progress(now_ms - start) {
+                    Some(t) => {
+                        // acha os @keyframes do nome e interpola sobre o estilo base.
+                        if let Some(kf) = self.stylesheet.keyframes(&anim.name) {
+                            let styled = kf.at(t, &target);
+                            self.anim_override.insert(idx, styled);
+                            any_active = true;
+                        }
+                    }
+                    None => {
+                        // animação terminou (iterações esgotadas) → fica no estado final.
+                        self.anim_override.remove(&idx);
+                    }
+                }
+                self.prev_computed.insert(idx, target.clone());
+                continue; // animation tem prioridade sobre transition neste nó
+            } else {
+                self.anim_start.remove(&idx);
+            }
+
+            // ── TRANSITION (fase 1): anima mudanças de estilo ───────────────────────
             let prev = self.prev_computed.get(&idx).cloned();
-            // detecta MUDANÇA de estilo desde o frame anterior.
             if let (Some(prev_style), Some(spec)) = (&prev, target.transition) {
                 if styles_differ_animated(prev_style, &target) {
-                    // inicia (ou reinicia) a transição: `from` = onde estava VISÍVEL
-                    // (o override atual, se animando) ou o estilo anterior.
                     let from = self
                         .anim_override
                         .get(&idx)
@@ -612,17 +646,18 @@ impl Dom {
             }
             self.prev_computed.insert(idx, target.clone());
 
-            // aplica/atualiza o override interpolado.
             if let Some(active) = self.active_transitions.get(&idx).cloned() {
                 let interp = active.current(&target, now_ms);
                 self.anim_override.insert(idx, interp);
                 if active.done(now_ms) {
                     self.active_transitions.remove(&idx);
-                    self.anim_override.remove(&idx); // encerrou → o alvo passa direto
+                    self.anim_override.remove(&idx);
+                } else {
+                    any_active = true;
                 }
             }
         }
-        !self.active_transitions.is_empty()
+        any_active
     }
 
     /// Coleta os NodeIdx de todos os ELEMENTOS da árvore (pré-ordem).
@@ -2102,6 +2137,47 @@ mod tests {
         let end = dom.computed_style_idx(bi).unwrap().bg.unwrap();
         assert_eq!(end, 0xFFFFFFFF, "fim = branco");
         assert!(!still, "animação encerrou");
+    }
+
+    #[test]
+    fn keyframes_anima_no_tempo() {
+        // @keyframes roda SOZINHA no tempo (sem gatilho) — fase 2 do #1776.
+        let mut dom = parse_html_to_dom(
+            "<style>@keyframes pulse{0%{background:#000000}50%{background:#ff0000}100%{background:#000000}}\
+             #box{animation:pulse 1s linear}</style><div id=\"box\">x</div>",
+        );
+        let bi = dom.resolve(dom.query("#box").unwrap()).unwrap();
+        // t=0: começa no 0% (preto). advance estabelece o start.
+        dom.advance(0.0);
+        assert_eq!(dom.computed_style_idx(bi).unwrap().bg, Some(0x000000FF), "0%");
+        // t=250ms (25% da animação): entre 0% e 50% → metade do caminho preto→vermelho.
+        dom.advance(250.0);
+        let q = dom.computed_style_idx(bi).unwrap().bg.unwrap();
+        assert_eq!(q, 0x800000FF, "25% = meio de preto→vermelho, got 0x{q:08X}");
+        // t=500ms (50%): vermelho puro.
+        dom.advance(500.0);
+        assert_eq!(dom.computed_style_idx(bi).unwrap().bg, Some(0xFF0000FF), "50%");
+        // t=750ms (75%): meio de vermelho→preto de volta.
+        dom.advance(750.0);
+        assert_eq!(dom.computed_style_idx(bi).unwrap().bg, Some(0x800000FF), "75%");
+        // a animação fica ativa (retorna true durante o curso).
+        assert!(dom.advance(400.0));
+    }
+
+    #[test]
+    fn keyframes_from_to_e_iteracoes() {
+        // sintaxe from/to + iterações finitas (termina no estado final).
+        let mut dom = parse_html_to_dom(
+            "<style>@keyframes grow{from{width:100px}to{width:300px}}#b{animation:grow 1s linear 1}</style><div id=\"b\">x</div>",
+        );
+        let bi = dom.resolve(dom.query("#b").unwrap()).unwrap();
+        dom.advance(0.0);
+        assert_eq!(dom.computed_style_idx(bi).unwrap().width, Some(crate::style::Dimension::Px(100.0)), "from");
+        dom.advance(500.0);
+        assert_eq!(dom.computed_style_idx(bi).unwrap().width, Some(crate::style::Dimension::Px(200.0)), "meio");
+        // depois de 1 iteração (1s), a animação encerra (não retorna ativa).
+        let active = dom.advance(1100.0);
+        assert!(!active, "1 iteração terminou");
     }
 
     #[test]
