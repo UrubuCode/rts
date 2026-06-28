@@ -283,7 +283,11 @@ fn layout_block(
             list.items.insert(at, DisplayItem::SolidRect { rect: box_rect, color, radius });
             at += 1;
         }
-        if border > 0.0 {
+        // A borda só pinta se tem largura E um `border-style` VISÍVEL. O default
+        // CSS de border-style é `none` → sem `border-style` declarado, NÃO pinta
+        // (fiel ao Chrome: `border-width:2px` sozinho dá borda invisível).
+        let style_visible = css.border_style.map(|s| s.is_visible()).unwrap_or(false);
+        if border > 0.0 && style_visible {
             let color = css.border_color.unwrap_or(0x808080FF);
             list.items.insert(at, DisplayItem::Border { rect: box_rect, width: border, color, radius });
         }
