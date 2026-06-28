@@ -26,26 +26,35 @@ use swc_ecma_visit::{Visit, VisitWith};
 /// Rewrite every qualifying top-level constructor-function in `program` into a
 /// synthetic `class`. Non-qualifying items pass through unchanged.
 pub(super) fn lift_constructor_functions(mut program: Program) -> Program {
+    // Functions that are the target of a `new` somewhere in the program (callee
+    // unwrapped through `(F)` / `F as any`). A field-LESS `function F(){}` used as
+    // `new F()` is still a constructor (an empty instance) and must become a class
+    // — otherwise `new F()` bails "not a user class". A function with `this.x=`
+    // writes is a constructor regardless of how it is referenced.
+    let newed = collect_new_targets(&program);
     let items = std::mem::take(&mut program.items);
     program.items = items
         .into_iter()
         .map(|item| match item {
             // `async function` is its own rewrite (returns a Promise) — never a ctor.
-            Item::Function(f) if !f.is_async => match function_to_class(&f) {
-                Some(class) => Item::Class(class),
-                None => Item::Function(f),
-            },
+            Item::Function(f) if !f.is_async => {
+                match function_to_class(&f, newed.contains(&f.name)) {
+                    Some(class) => Item::Class(class),
+                    None => Item::Function(f),
+                }
+            }
             other => other,
         })
         .collect();
     program
 }
 
-/// Build a synthetic `ClassDecl` from `f` iff its body writes to `this.<field>`.
-/// `None` for an ordinary function (no `this` field writes) — left untouched.
-fn function_to_class(f: &FunctionDecl) -> Option<ClassDecl> {
+/// Build a synthetic `ClassDecl` from `f` iff it is a constructor: it writes to
+/// `this.<field>`, OR it is used as a `new` target (`is_newed`). `None` for an
+/// ordinary function — left untouched.
+fn function_to_class(f: &FunctionDecl, is_newed: bool) -> Option<ClassDecl> {
     let fields = discover_this_fields(&f.body);
-    if fields.is_empty() {
+    if fields.is_empty() && !is_newed {
         return None;
     }
     let mut members: Vec<ClassMember> = fields
@@ -75,6 +84,73 @@ fn function_to_class(f: &FunctionDecl) -> Option<ClassDecl> {
         exported: f.exported,
         span: f.span,
     })
+}
+
+/// Collect the names that appear as `new <name>(…)` anywhere in the program
+/// (the callee unwrapped through `(…)` / `… as T` casts). Walks every top-level
+/// statement and function/class-method body.
+fn collect_new_targets(program: &Program) -> HashSet<String> {
+    let mut c = NewTargetCollector { out: HashSet::new() };
+    for item in &program.items {
+        match item {
+            Item::Statement(Statement::Raw(raw)) => {
+                if let Some(stmt) = &raw.stmt {
+                    stmt.visit_with(&mut c);
+                }
+            }
+            Item::Function(f) => {
+                for Statement::Raw(raw) in &f.body {
+                    if let Some(stmt) = &raw.stmt {
+                        stmt.visit_with(&mut c);
+                    }
+                }
+            }
+            Item::Class(cl) => {
+                for m in &cl.members {
+                    let body = match m {
+                        rts_ast::ast::ClassMember::Constructor(c) => &c.body,
+                        rts_ast::ast::ClassMember::Method(m) => &m.body,
+                        rts_ast::ast::ClassMember::Property(_) => continue,
+                    };
+                    for Statement::Raw(raw) in body {
+                        if let Some(stmt) = &raw.stmt {
+                            stmt.visit_with(&mut c);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    c.out
+}
+
+struct NewTargetCollector {
+    out: HashSet<String>,
+}
+
+impl Visit for NewTargetCollector {
+    fn visit_new_expr(&mut self, node: &swc_ecma_ast::NewExpr) {
+        if let Some(name) = callee_ident(&node.callee) {
+            self.out.insert(name);
+        }
+        node.visit_children_with(self);
+    }
+}
+
+/// The base identifier of a `new`/call callee, unwrapping `(…)` / `… as T` /
+/// `<T>…` / `…!` casts (`new (F as any)()` → `F`).
+fn callee_ident(e: &swc_ecma_ast::Expr) -> Option<String> {
+    use swc_ecma_ast::Expr;
+    match e {
+        Expr::Ident(id) => Some(id.sym.to_string()),
+        Expr::Paren(p) => callee_ident(&p.expr),
+        Expr::TsAs(a) => callee_ident(&a.expr),
+        Expr::TsConstAssertion(a) => callee_ident(&a.expr),
+        Expr::TsNonNull(a) => callee_ident(&a.expr),
+        Expr::TsTypeAssertion(a) => callee_ident(&a.expr),
+        _ => None,
+    }
 }
 
 /// Collect the `this.<ident>` field names assigned in `body`, first-seen order.
