@@ -298,26 +298,42 @@ impl Dom {
     /// Núcleo do `query` em índices crus (interno). O `query` público embrulha o
     /// resultado no `NodeId` versionado.
     fn query_idx(&self, sel: &str) -> Option<NodeIdx> {
+        // Atalho por ÍNDICE p/ seletores simples PUROS (`#id`/`.classe`) — O(1).
         if let Some(key) = sel.strip_prefix('#') {
-            // Valida valor + alcançabilidade (o índice pode ter entrada stale).
-            return self
-                .id_index
-                .get(key)
-                .copied()
-                .filter(|&i| self.is_attached(i) && self.nodes[i].attr("id") == Some(key));
+            if is_plain_ident(key) {
+                return self
+                    .id_index
+                    .get(key)
+                    .copied()
+                    .filter(|&i| self.is_attached(i) && self.nodes[i].attr("id") == Some(key));
+            }
         }
         if let Some(cls) = sel.strip_prefix('.') {
-            return self.class_index.get(cls)?.iter().copied().find(|&i| {
-                self.is_attached(i)
-                    && self.nodes[i]
-                        .attr("class")
-                        .map(|c| c.split_whitespace().any(|x| x == cls))
-                        .unwrap_or(false)
-            });
+            if is_plain_ident(cls) {
+                return self.class_index.get(cls)?.iter().copied().find(|&i| {
+                    self.is_attached(i)
+                        && self.nodes[i]
+                            .attr("class")
+                            .map(|c| c.split_whitespace().any(|x| x == cls))
+                            .unwrap_or(false)
+                });
+            }
         }
-        let tag = sel.to_ascii_lowercase();
-        let m = move |n: &Node| matches!(&n.kind, NodeKind::Element { tag: t } if *t == tag);
-        self.find_pre_order(self.root, &m)
+        // Caso geral (composto/combinador/atributo/pseudo): pré-ordem + matches.
+        self.find_idx_pre_order(self.root, sel)
+    }
+
+    /// Pré-ordem buscando o 1º elemento que casa o seletor completo.
+    fn find_idx_pre_order(&self, idx: NodeIdx, sel: &str) -> Option<NodeIdx> {
+        if idx != self.root && self.matches(idx, sel) {
+            return Some(idx);
+        }
+        for &child in &self.nodes[idx].children {
+            if let Some(found) = self.find_idx_pre_order(child, sel) {
+                return Some(found);
+            }
+        }
+        None
     }
 
     /// `true` se `idx` está conectado à raiz (não foi desligado por uma mutação).
@@ -389,15 +405,12 @@ impl Dom {
             _ => return None,
         };
         // Stylesheet de autor resolvido para este nó (normal + important separados).
+        // O matcher navega a árvore (combinadores) via `matches_complex`.
         let author = if self.stylesheet.is_empty() {
             style::DeclBlock::default()
         } else {
-            let id_attr = self.nodes[idx].attr("id");
-            let classes: Vec<&str> = self.nodes[idx]
-                .attr("class")
-                .map(|c| c.split_whitespace().collect())
-                .unwrap_or_default();
-            self.stylesheet.computed_for(&tag, id_attr, &classes)
+            self.stylesheet
+                .computed_for_node(|sel| self.matches_complex(idx, sel))
         };
         // `style=""` inline (normal + important).
         let inline = self.nodes[idx]
@@ -1082,24 +1095,165 @@ impl Dom {
         }
     }
 
-    /// `true` se o nó `idx` casa o seletor simples `sel` (`*` / tag / `#id` /
-    /// `.classe`). O `*` (universal) casa qualquer elemento.
+    /// `true` se o nó `idx` casa o seletor `sel` (string). Aceita uma LISTA separada
+    /// por vírgula (`p, a` casa se QUALQUER um casar). Cada item é um seletor
+    /// COMPLEXO (compostos + combinadores + atributo + pseudo). Item inválido é
+    /// ignorado; lista toda inválida → false. (#1752)
     fn matches(&self, idx: NodeIdx, sel: &str) -> bool {
-        // universal: casa qualquer ELEMENTO (não texto/comentário/Document).
-        if sel == "*" {
-            return matches!(self.nodes[idx].kind, NodeKind::Element { .. });
+        crate::style::parse_selector_list(sel)
+            .iter()
+            .any(|complex| self.matches_complex(idx, complex))
+    }
+
+    /// Casa um [`ComplexSelector`] contra o nó `idx`, navegando a árvore para os
+    /// combinadores. O ÚLTIMO compound casa `idx`; os anteriores casam ancestrais/
+    /// irmãos conforme o combinador (matching da direita p/ a esquerda).
+    fn matches_complex(&self, idx: NodeIdx, sel: &crate::style::ComplexSelector) -> bool {
+        let n = sel.compounds.len();
+        if !self.compound_matches_idx(idx, &sel.compounds[n - 1]) {
+            return false;
         }
-        if let Some(key) = sel.strip_prefix('#') {
-            return self.nodes[idx].attr("id") == Some(key);
+        if n == 1 {
+            return true;
         }
-        if let Some(cls) = sel.strip_prefix('.') {
-            return self.nodes[idx]
-                .attr("class")
-                .map(|c| c.split_whitespace().any(|x| x == cls))
-                .unwrap_or(false);
+        self.match_combinators(idx, sel, n - 1)
+    }
+
+    /// Tenta casar os compounds [0..=i-1] contra o contexto (ancestrais/irmãos) de
+    /// `idx`, dado que `compounds[i]` já casou `idx`. Backtracking p/ descendente e
+    /// irmão-geral (que têm múltiplos candidatos).
+    fn match_combinators(&self, idx: NodeIdx, sel: &crate::style::ComplexSelector, i: usize) -> bool {
+        if i == 0 {
+            return true;
         }
-        let tag = sel.to_ascii_lowercase();
-        matches!(&self.nodes[idx].kind, NodeKind::Element { tag: t } if *t == tag)
+        let combinator = sel.combinators[i - 1];
+        let prev = &sel.compounds[i - 1];
+        use crate::style::Combinator;
+        match combinator {
+            Combinator::Child => match self.parent_element_idx(idx) {
+                Some(p) if self.compound_matches_idx(p, prev) => self.match_combinators(p, sel, i - 1),
+                _ => false,
+            },
+            Combinator::Descendant => {
+                let mut cur = self.parent_element_idx(idx);
+                while let Some(a) = cur {
+                    if self.compound_matches_idx(a, prev) && self.match_combinators(a, sel, i - 1) {
+                        return true;
+                    }
+                    cur = self.parent_element_idx(a);
+                }
+                false
+            }
+            Combinator::NextSibling => match self.prev_element_sibling_idx(idx) {
+                Some(s) if self.compound_matches_idx(s, prev) => self.match_combinators(s, sel, i - 1),
+                _ => false,
+            },
+            Combinator::SubsequentSibling => {
+                let mut cur = self.prev_element_sibling_idx(idx);
+                while let Some(s) = cur {
+                    if self.compound_matches_idx(s, prev) && self.match_combinators(s, sel, i - 1) {
+                        return true;
+                    }
+                    cur = self.prev_element_sibling_idx(s);
+                }
+                false
+            }
+        }
+    }
+
+    /// `true` se o COMPOUND casa o elemento `idx` (tag/id/classe/atributo/pseudo).
+    fn compound_matches_idx(&self, idx: NodeIdx, compound: &crate::style::CompoundSelector) -> bool {
+        let tag = match &self.nodes[idx].kind {
+            NodeKind::Element { tag } => tag.as_str(),
+            _ => return false,
+        };
+        let id = self.nodes[idx].attr("id");
+        let classes: Vec<&str> = self.nodes[idx]
+            .attr("class")
+            .map(|c| c.split_whitespace().collect())
+            .unwrap_or_default();
+        let attr = |name: &str| self.nodes[idx].attr(name).map(str::to_string);
+        let pseudo = |pc: &crate::style::PseudoClass| self.pseudo_matches(idx, pc);
+        crate::style::compound_matches(compound, tag, id, &classes, &attr, &pseudo)
+    }
+
+    /// Resolve uma pseudo-classe contra o nó (posição entre irmãos / atributo de estado).
+    fn pseudo_matches(&self, idx: NodeIdx, pc: &crate::style::PseudoClass) -> bool {
+        use crate::style::PseudoClass as P;
+        match pc {
+            // `:root` = o elemento raiz do documento (o `<html>`). Num DOM headless de
+            // FRAGMENTO (sem <html>), casa só se for o ÚNICO elemento top-level — senão
+            // 0 (fiel ao browser, que tem exatamente 1 root).
+            P::Root => {
+                self.nodes[idx].parent == Some(self.root)
+                    && self.nodes[self.root]
+                        .children
+                        .iter()
+                        .filter(|&&c| matches!(self.nodes[c].kind, NodeKind::Element { .. }))
+                        .count()
+                        == 1
+            }
+            P::Empty => !self.nodes[idx].children.iter().any(|&c| {
+                matches!(self.nodes[c].kind, NodeKind::Element { .. })
+                    || matches!(&self.nodes[c].kind, NodeKind::Text(t) if !t.trim().is_empty())
+            }),
+            P::FirstChild => self.element_index_among_siblings(idx) == Some(0),
+            P::LastChild => self.element_siblings(idx).last() == Some(&idx),
+            P::OnlyChild => self.element_siblings(idx).len() == 1,
+            P::NthChild(a, b) => match self.element_index_among_siblings(idx) {
+                Some(zero_based) => {
+                    let n = zero_based as i32 + 1; // 1-based
+                    if *a == 0 {
+                        n == *b
+                    } else {
+                        let k = (n - b) / a;
+                        k >= 0 && a * k + b == n
+                    }
+                }
+                None => false,
+            },
+            // estado → presença de atributo (DOM headless, sem UI viva).
+            P::Checked => {
+                self.nodes[idx].attr("checked").is_some() || self.nodes[idx].attr("selected").is_some()
+            }
+            P::Disabled => self.nodes[idx].attr("disabled").is_some(),
+            P::Required => self.nodes[idx].attr("required").is_some(),
+            P::Enabled => {
+                let is_form = matches!(&self.nodes[idx].kind,
+                    NodeKind::Element { tag } if matches!(tag.as_str(),
+                        "input" | "button" | "select" | "textarea" | "option" | "fieldset"));
+                is_form && self.nodes[idx].attr("disabled").is_none()
+            }
+        }
+    }
+
+    /// Os irmãos-ELEMENTO de `idx` (incluindo ele), em ordem.
+    fn element_siblings(&self, idx: NodeIdx) -> Vec<NodeIdx> {
+        let Some(parent) = self.nodes[idx].parent else { return vec![idx] };
+        self.nodes[parent]
+            .children
+            .iter()
+            .copied()
+            .filter(|&c| matches!(self.nodes[c].kind, NodeKind::Element { .. }))
+            .collect()
+    }
+
+    /// Índice (0-based) de `idx` entre seus irmãos-elemento, ou `None`.
+    fn element_index_among_siblings(&self, idx: NodeIdx) -> Option<usize> {
+        self.element_siblings(idx).iter().position(|&c| c == idx)
+    }
+
+    /// O pai de `idx` SE for elemento (não o #document), em índice cru.
+    fn parent_element_idx(&self, idx: NodeIdx) -> Option<NodeIdx> {
+        let p = self.nodes[idx].parent?;
+        matches!(self.nodes[p].kind, NodeKind::Element { .. }).then_some(p)
+    }
+
+    /// O irmão-elemento imediatamente anterior a `idx`, em índice cru.
+    fn prev_element_sibling_idx(&self, idx: NodeIdx) -> Option<NodeIdx> {
+        let sibs = self.element_siblings(idx);
+        let pos = sibs.iter().position(|&c| c == idx)?;
+        (pos > 0).then(|| sibs[pos - 1])
     }
 
     /// Define/atualiza um atributo (`element.setAttribute`). Cria se não existir.
@@ -1409,6 +1563,12 @@ impl Dom {
 /// Tags que são VAZIAS (void) — não têm fechamento nem filhos. Mínimo por ora.
 fn is_void(tag: &str) -> bool {
     matches!(tag, "br" | "hr" | "img" | "input" | "meta" | "link")
+}
+
+/// `true` se `s` é um identificador CSS PURO (letra/dígito/`-`/`_`), sem
+/// combinadores/compostos/atributo/pseudo — habilita o atalho por índice no query.
+fn is_plain_ident(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 /// Insere/atualiza/remove uma declaração `name: value` numa string de `style=""`,
@@ -1808,6 +1968,105 @@ mod tests {
         let sec = dom.query("#s").unwrap();
         let serial = dom.outer_html(sec).unwrap();
         assert_eq!(serial, html);
+    }
+
+    #[test]
+    fn seletor_composto() {
+        let dom = parse_html_to_dom("<p class=\"card big\" id=\"x\">a</p><p class=\"card\">b</p><div class=\"card\">c</div>");
+        assert_eq!(dom.query_all("p.card").len(), 2);
+        assert_eq!(dom.query_all(".card.big").len(), 1);
+        assert_eq!(dom.query_all("p.card#x").len(), 1);
+        assert_eq!(dom.query_all("div.card").len(), 1);
+    }
+
+    #[test]
+    fn seletor_combinadores() {
+        let dom = parse_html_to_dom(
+            "<div id=\"root\"><section><p class=\"a\">1</p></section><p class=\"b\">2</p><span>3</span><p class=\"c\">4</p></div>",
+        );
+        assert_eq!(dom.query_all("#root p").len(), 3); // descendente
+        assert_eq!(dom.query_all("#root > p").len(), 2); // filho direto
+        assert_eq!(dom.query_all("p.b + span").len(), 1); // irmão imediato
+        assert_eq!(dom.query_all("p.b ~ p").len(), 1); // irmão geral
+        assert_eq!(dom.query_all("section p.a").len(), 1);
+    }
+
+    #[test]
+    fn seletor_atributo() {
+        let dom = parse_html_to_dom(
+            "<a href=\"https://x.com/page\">1</a><a href=\"http://y.org\">2</a><input type=\"text\"><input disabled>",
+        );
+        assert_eq!(dom.query_all("[href]").len(), 2);
+        assert_eq!(dom.query_all("[disabled]").len(), 1);
+        assert_eq!(dom.query_all("[type=text]").len(), 1);
+        assert_eq!(dom.query_all("[href^=https]").len(), 1);
+        assert_eq!(dom.query_all("[href$=.org]").len(), 1);
+        assert_eq!(dom.query_all("[href*=x.com]").len(), 1);
+    }
+
+    #[test]
+    fn seletor_pseudo_estrutural() {
+        let dom = parse_html_to_dom("<ul><li>1</li><li>2</li><li>3</li><li>4</li></ul><div></div>");
+        assert_eq!(dom.query_all("li:first-child").len(), 1);
+        assert_eq!(dom.query_all("li:last-child").len(), 1);
+        assert_eq!(dom.query_all("li:nth-child(2)").len(), 1);
+        assert_eq!(dom.query_all("li:nth-child(odd)").len(), 2);
+        assert_eq!(dom.query_all("li:nth-child(even)").len(), 2);
+        assert_eq!(dom.query_all("li:nth-child(2n+1)").len(), 2);
+        assert_eq!(dom.query_all("div:empty").len(), 1);
+        assert_eq!(dom.query_all("ul:only-child").len(), 0);
+    }
+
+    #[test]
+    fn seletor_pseudo_estado() {
+        // :checked/:disabled/:required mapeiam para presença de atributo (#1752).
+        let dom = parse_html_to_dom(
+            "<input type=\"checkbox\" checked><input type=\"checkbox\"><input required><button disabled>x</button>",
+        );
+        assert_eq!(dom.query_all("input:checked").len(), 1);
+        assert_eq!(dom.query_all(":disabled").len(), 1); // o button
+        assert_eq!(dom.query_all("input:required").len(), 1);
+        assert_eq!(dom.query_all("input:enabled").len(), 3); // os 3 inputs (nenhum disabled)
+    }
+
+    #[test]
+    fn seletor_lista_e_invalidos() {
+        // bugs da verificação adversarial corrigidos (#1752).
+        let dom = parse_html_to_dom("<div><p>1</p><a>2</a><span>3</span></div>");
+        // lista por vírgula: p, a → casa qualquer um.
+        assert_eq!(dom.query_all("p, a").len(), 2);
+        assert_eq!(dom.query_all("p, a, span").len(), 3);
+        // combinador duplo `>>` → inválido, casa 0.
+        assert_eq!(dom.query_all("div >> p").len(), 0);
+        // universal no meio `p*` → inválido.
+        assert_eq!(dom.query_all("p*").len(), 0);
+    }
+
+    #[test]
+    fn seletor_root_em_fragmento() {
+        // :root num fragmento com VÁRIOS top-level → casa 0 (não há <html> único).
+        let dom = parse_html_to_dom("<div id=\"a\">x</div><div id=\"b\">y</div>");
+        assert_eq!(dom.query_all(":root").len(), 0);
+        // com UM só top-level, :root casa esse 1.
+        let dom2 = parse_html_to_dom("<html><body>x</body></html>");
+        assert_eq!(dom2.query_all(":root").len(), 1);
+    }
+
+    #[test]
+    fn seletor_atributo_com_colchete_no_valor() {
+        // [data-x="a]b"] — o `]` literal no valor aspado não fecha o seletor.
+        let dom = parse_html_to_dom("<div data-x=\"a]b\">x</div>");
+        assert_eq!(dom.query_all("[data-x=\"a]b\"]").len(), 1);
+    }
+
+    #[test]
+    fn cascade_com_seletor_composto() {
+        let dom = parse_html_to_dom(
+            "<style>p { color:#000000 } p.hi { color:#ff0000 } div > p.hi { color:#00ff00 }</style>\
+             <div><p class=\"hi\">x</p></div>",
+        );
+        let p = dom.query("p.hi").unwrap();
+        assert_eq!(dom.computed_style(p).unwrap().color, Some(0x00FF00FF));
     }
 
     #[test]
