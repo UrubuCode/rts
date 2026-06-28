@@ -210,6 +210,50 @@ fn process_scroll_regions(
                 off.x -= if can_y { d.x } else { d.y };
             }
         }
+
+        // ARRASTAR as barras da DIV (clicar e puxar). Geometria igual à emit_scrollbar_in:
+        // barra-Y na borda direita, barra-X na borda inferior. A posição do mouse na
+        // faixa da barra → fração → offset.
+        let bar_w = match sb.width {
+            Some(rts_dom::scrollbar::BarWidth::Thin) => 8.0,
+            Some(rts_dom::scrollbar::BarWidth::Px(px)) => px,
+            _ => 12.0,
+        };
+        let v = region.visible;
+        let sx = base.x + v.x;
+        let sy = base.y + v.y + page_dy;
+        if can_y {
+            let track_h = if can_x { v.h - bar_w } else { v.h };
+            let bar_rect = egui::Rect::from_min_size(
+                egui::pos2(sx + v.w - bar_w, sy),
+                egui::vec2(bar_w, track_h),
+            );
+            let resp = ui.interact(bar_rect, oid.with("bar_y"), egui::Sense::click_and_drag());
+            if let Some(p) = resp.interact_pointer_pos() {
+                if resp.is_pointer_button_down_on() || resp.dragged() {
+                    let frac = (track_h / region.content_h).clamp(0.0, 1.0);
+                    let thumb_h = (track_h * frac).max(24.0);
+                    let local = (p.y - sy - thumb_h / 2.0).max(0.0);
+                    off.y = (local / (track_h - thumb_h).max(1.0)).clamp(0.0, 1.0) * max_y;
+                }
+            }
+        }
+        if can_x {
+            let track_w = if can_y { v.w - bar_w } else { v.w };
+            let bar_rect = egui::Rect::from_min_size(
+                egui::pos2(sx, sy + v.h - bar_w),
+                egui::vec2(track_w, bar_w),
+            );
+            let resp = ui.interact(bar_rect, oid.with("bar_x"), egui::Sense::click_and_drag());
+            if let Some(p) = resp.interact_pointer_pos() {
+                if resp.is_pointer_button_down_on() || resp.dragged() {
+                    let frac = (track_w / region.content_w).clamp(0.0, 1.0);
+                    let thumb_w = (track_w * frac).max(24.0);
+                    let local = (p.x - sx - thumb_w / 2.0).max(0.0);
+                    off.x = (local / (track_w - thumb_w).max(1.0)).clamp(0.0, 1.0) * max_x;
+                }
+            }
+        }
         off.x = off.x.clamp(0.0, max_x);
         off.y = off.y.clamp(0.0, max_y);
         ui.ctx().memory_mut(|m| m.data.insert_temp(oid, off));
