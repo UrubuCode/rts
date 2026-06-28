@@ -73,3 +73,4 @@ pub fn runtime_init() {
 pub extern "C" fn __RTS_FN_RT_INIT() {
     runtime_init();
 }
+

@@ -61,6 +61,20 @@ pub fn run_path(entry: &Path) -> FrontResult<()> {
     let prog = build_path(entry)?;
     let program = module_jit::compile_program(&prog)?;
     program.run_main();
+    // An uncaught top-level `throw` records the thrown value in the codegen
+    // pending-error slot and unwinds via a sentinel `return` out of `main`, but
+    // it does NOT crash the process. Surface it host-side: stringify the thrown
+    // value, print `Uncaught <value>` to stderr, and fail (non-zero exit),
+    // matching JS/Node. No-op when the slot is clear.
+    if crate::value::errslot::__rtsadp_err_pending() != 0 {
+        let word = crate::value::errslot::__rtsadp_err_take();
+        let s_word = crate::value::genops::__rtsadp_to_string(word);
+        let text = crate::value::abi_adapter::resolve_poly(crate::value::PolyValue::from_raw(s_word));
+        eprintln!("Uncaught {text}");
+        return Err(crate::front::error::Unsupported::new(format!(
+            "uncaught exception: {text}"
+        )));
+    }
     Ok(())
 }
 
