@@ -272,6 +272,39 @@ class Element {
     dom.clearChildren(this._dom, this._node);
   }
 
+  // ── element.style + getComputedStyle (#1759) ─────────────────────────────────
+  // ⚠️ `el.style.color = v` NÃO é viável (sem objeto-proxy/setter no motor). Em vez
+  // disso: MÉTODOS por nome. Aceitam nome CSS (`background-color`) OU camelCase
+  // (`backgroundColor`) — convertido com __camelToKebab.
+  //
+  // `el.style.setProperty(name, value)` — define UMA prop inline (preserva as outras).
+  setStyleProp(name: string, value: string): void {
+    dom.setStyleProperty(this._dom, this._node, __camelToKebab(name), value);
+  }
+  // `el.style.getPropertyValue(name)` — valor inline (só o style=""). ⚠️ CORTE: o
+  // valor é NORMALIZADO (red→rgb(255, 0, 0)), enquanto o browser preserva o texto
+  // cru no style.getPropertyValue (mas normaliza no getComputedStyle). Só props
+  // conhecidas (as do ComputedStyle); props arbitrárias/custom (--var) → "".
+  getStyleProp(name: string): string {
+    return dom.inlineProperty(this._dom, this._node, __camelToKebab(name));
+  }
+  // `el.style.removeProperty(name)`.
+  removeStyleProp(name: string): void {
+    dom.removeStyleProperty(this._dom, this._node, __camelToKebab(name));
+  }
+  // `el.style.cssText` (get) — o style="" inteiro.
+  get cssText(): string {
+    return dom.cssText(this._dom, this._node);
+  }
+  // `el.style.cssText = v` via método (setter não dispara no motor).
+  setCssText(text: string): void {
+    dom.setCssText(this._dom, this._node, text);
+  }
+  // `getComputedStyle(el).<name>` — valor COMPUTADO (após cascade), formato browser.
+  getComputedProp(name: string): string {
+    return dom.computedProperty(this._dom, this._node, __camelToKebab(name));
+  }
+
   // ── Node utils (#1762) ───────────────────────────────────────────────────────
   // `node.contains(other)` — other é este nó ou um descendente?
   contains(other: Element): boolean {
