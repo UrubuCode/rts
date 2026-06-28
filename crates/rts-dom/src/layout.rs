@@ -135,6 +135,18 @@ pub struct LayoutCtx<'a> {
 /// largura do viewport, resolvendo box model e emitindo os itens de pintura.
 pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     let mut list = DisplayList::default();
+    // PROPAGAÇÃO DO FUNDO do <body>/<html> (regra especial do CSS): o background
+    // desses dois elementos "vaza" para o VIEWPORT inteiro, não só a caixa deles.
+    // Pintamos PRIMEIRO (atrás de tudo) um retângulo do tamanho do viewport com a cor
+    // do body. (Reserva uma altura generosa; o egui faz clip na sua área.)
+    if let Some(bg) = body_background(dom) {
+        let h = ctx.viewport_h.max(4000.0); // cobre bem além do conteúdo
+        list.items.push(DisplayItem::SolidRect {
+            rect: Rect::new(0.0, 0.0, ctx.viewport_w, h),
+            color: bg,
+            radius: 0.0,
+        });
+    }
     let mut cursor_y = 0.0f32;
     let root = dom.node(dom.root);
     for &child in &root.children {
@@ -143,6 +155,43 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     }
     list.content_height = cursor_y;
     list
+}
+
+/// O `background` do `<body>` (ou, se ausente, do `<html>`) — a cor que o CSS
+/// PROPAGA para o viewport inteiro. `None` se nenhum dos dois tem fundo.
+fn body_background(dom: &Dom) -> Option<u32> {
+    // procura body e html entre os descendentes da raiz.
+    for &child in &dom.node(dom.root).children {
+        if let Some(bg) = bg_of_tag(dom, child, "body") {
+            return Some(bg);
+        }
+        if let Some(bg) = bg_of_tag(dom, child, "html") {
+            // o html pode ter o body dentro; tenta o body primeiro.
+            if let Some(body_bg) = find_body_bg(dom, child) {
+                return Some(body_bg);
+            }
+            return Some(bg);
+        }
+    }
+    None
+}
+
+/// O bg de `idx` se sua tag é `tag` e tem background computado.
+fn bg_of_tag(dom: &Dom, idx: NodeIdx, tag: &str) -> Option<u32> {
+    match &dom.node(idx).kind {
+        NodeKind::Element { tag: t } if t == tag => dom.computed_style_idx(idx).and_then(|c| c.bg),
+        _ => None,
+    }
+}
+
+/// Procura um `<body>` com bg na subárvore de `idx` (ex: html>body).
+fn find_body_bg(dom: &Dom, idx: NodeIdx) -> Option<u32> {
+    for &child in &dom.node(idx).children {
+        if let Some(bg) = bg_of_tag(dom, child, "body") {
+            return Some(bg);
+        }
+    }
+    None
 }
 
 /// O retângulo (border-box) de um nó, computando o layout do documento na largura

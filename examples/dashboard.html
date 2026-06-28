@@ -10,6 +10,9 @@
        line-height/font), sizing (max-width), border-radius, @keyframes + animation.
        Paleta: índigo/violeta sobre quase-preto, acentos teal. Tudo à mão, 0 deps.
        ════════════════════════════════════════════════════════════════════════ */
+    /* fundo no body (vaza p/ a tela toda no browser e no RTS). O CONTEÚDO é fluido
+       até um max-width e centraliza — o padrão de sites reais (acompanha a tela
+       até o limite, depois centra). */
     body {
       background: #08070d;
       color: #ece9f5;
@@ -18,7 +21,10 @@
       line-height: 1.6;
       margin: 0;
       padding: 0;
-      width: 1080px;
+    }
+    .shell {
+      max-width: 1080px;
+      margin: 0 auto;
     }
 
     @keyframes float {
@@ -183,6 +189,7 @@
   </style>
 </head>
 <body>
+  <div class="shell">
   <nav class="nav">
     <div class="logo">
       <div class="mark"></div>
@@ -253,5 +260,6 @@
     <span>© 2026 Nebula Data, Inc.</span>
     <span>renderizado pelo motor CSS nativo do RTS — 0 deps, sem jsdom</span>
   </footer>
+  </div>
 </body>
 </html>
