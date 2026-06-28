@@ -512,6 +512,122 @@ pub extern "C" fn __RTS_FN_NS_DOM_ATTR_VALUE_AT(h: u64, id: i64, i: i64) -> u64 
     intern(&val)
 }
 
+// ── Query extra — #1758: getElementsBy* + querySelector por subárvore ────────────
+// Mesmo padrão count+at do querySelectorAll (re-roda a coleção por índice).
+
+/// `getByClassCount`/`getByClassAt` — elementos com a classe (HTMLCollection).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_GET_BY_CLASS_COUNT(h: u64, n_ptr: *const u8, n_len: i64) -> i64 {
+    let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("");
+    with(h, |dom| dom.get_elements_by_class_name(name).len() as i64).unwrap_or(0)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_GET_BY_CLASS_AT(h: u64, n_ptr: *const u8, n_len: i64, i: i64) -> i64 {
+    if i < 0 { return NODE_NONE; }
+    let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("");
+    with(h, |dom| dom.get_elements_by_class_name(name).get(i as usize).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
+}
+
+/// `getByTagCount`/`getByTagAt` — elementos da tag (`*` = todos).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_GET_BY_TAG_COUNT(h: u64, n_ptr: *const u8, n_len: i64) -> i64 {
+    let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("");
+    with(h, |dom| dom.get_elements_by_tag_name(name).len() as i64).unwrap_or(0)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_GET_BY_TAG_AT(h: u64, n_ptr: *const u8, n_len: i64, i: i64) -> i64 {
+    if i < 0 { return NODE_NONE; }
+    let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("");
+    with(h, |dom| dom.get_elements_by_tag_name(name).get(i as usize).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
+}
+
+/// `getByNameCount`/`getByNameAt` — elementos com atributo `name`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_GET_BY_NAME_COUNT(h: u64, n_ptr: *const u8, n_len: i64) -> i64 {
+    let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("");
+    with(h, |dom| dom.get_elements_by_name(name).len() as i64).unwrap_or(0)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_GET_BY_NAME_AT(h: u64, n_ptr: *const u8, n_len: i64, i: i64) -> i64 {
+    if i < 0 { return NODE_NONE; }
+    let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("");
+    with(h, |dom| dom.get_elements_by_name(name).get(i as usize).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
+}
+
+/// `queryWithin(domHandle, root, selector)` → 1º descendente de `root` que casa, ou -1.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_QUERY_WITHIN(h: u64, id: i64, sel_ptr: *const u8, sel_len: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
+    let sel = unsafe { str_abi::from_abi(sel_ptr, sel_len) }.unwrap_or("").to_string();
+    with(h, |dom| dom.query_within(node, &sel).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
+}
+
+/// `queryAllWithinCount`/`At` — descendentes de `root` que casam (subárvore).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_QUERY_ALL_WITHIN_COUNT(h: u64, id: i64, sel_ptr: *const u8, sel_len: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return 0 };
+    let sel = unsafe { str_abi::from_abi(sel_ptr, sel_len) }.unwrap_or("").to_string();
+    with(h, |dom| dom.query_all_within(node, &sel).len() as i64).unwrap_or(0)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_QUERY_ALL_WITHIN_AT(h: u64, id: i64, sel_ptr: *const u8, sel_len: i64, i: i64) -> i64 {
+    if i < 0 { return NODE_NONE; }
+    let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
+    let sel = unsafe { str_abi::from_abi(sel_ptr, sel_len) }.unwrap_or("").to_string();
+    with(h, |dom| dom.query_all_within(node, &sel).get(i as usize).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
+}
+
+// ── Mutação rica — #1756 ─────────────────────────────────────────────────────────
+
+/// `cloneNode(domHandle, node, deep)` → NodeId do clone solto (deep!=0 = com filhos).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_CLONE_NODE(h: u64, id: i64, deep: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
+    with_mut(h, |dom| dom.clone_node(node, deep != 0).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
+}
+
+/// `prepend(domHandle, parent, child)` → insere child no início dos filhos.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_PREPEND(h: u64, parent: i64, child: i64) {
+    let (Some(p), Some(c)) = (NodeId::from_abi(parent), NodeId::from_abi(child)) else { return };
+    with_mut(h, |dom| dom.prepend_child(p, c));
+}
+
+/// `insertAdjacent(domHandle, node, other, after)` → other como irmão antes/depois.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_INSERT_ADJACENT(h: u64, node: i64, other: i64, after: i64) {
+    let (Some(n), Some(o)) = (NodeId::from_abi(node), NodeId::from_abi(other)) else { return };
+    with_mut(h, |dom| dom.insert_adjacent(n, o, after != 0));
+}
+
+/// `replaceWith(domHandle, node, other)` → substitui node por other.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_REPLACE_WITH(h: u64, node: i64, other: i64) {
+    let (Some(n), Some(o)) = (NodeId::from_abi(node), NodeId::from_abi(other)) else { return };
+    with_mut(h, |dom| dom.replace_with(n, o));
+}
+
+/// `replaceChild(domHandle, parent, new, old)` → substitui old por new.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_REPLACE_CHILD(h: u64, parent: i64, new_child: i64, old_child: i64) {
+    let (Some(p), Some(nw), Some(od)) = (NodeId::from_abi(parent), NodeId::from_abi(new_child), NodeId::from_abi(old_child)) else { return };
+    with_mut(h, |dom| dom.replace_child(p, nw, od));
+}
+
+/// `removeChild(domHandle, parent, child)` → remove child se for filho de parent.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_REMOVE_CHILD(h: u64, parent: i64, child: i64) {
+    let (Some(p), Some(c)) = (NodeId::from_abi(parent), NodeId::from_abi(child)) else { return };
+    with_mut(h, |dom| dom.remove_child(p, c));
+}
+
+/// `clearChildren(domHandle, parent)` → remove todos os filhos (base de replaceChildren).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_CLEAR_CHILDREN(h: u64, parent: i64) {
+    let Some(p) = NodeId::from_abi(parent) else { return };
+    with_mut(h, |dom| dom.clear_children(p));
+}
+
 /// `getAttribute(domHandle, node, name)` → valor do atributo como STRING (handle
 /// do pool GC). Atributo ausente / nó inválido ⇒ `""` (a fachada TS converte ""
 /// para `null` se quiser semântica de browser).
@@ -1111,6 +1227,120 @@ pub fn register(e: &mut Engine) {
             "attrValueAt(dom: number, node: number, i: number): string",
             "value of the i-th attribute.",
             __RTS_FN_NS_DOM_ATTR_VALUE_AT as *const u8,
+        ))
+        // ── Query extra — #1758 ─────────────────────────────────────────────────
+        .member(func(
+            "getByClassCount", "__RTS_FN_NS_DOM_GET_BY_CLASS_COUNT",
+            Sig::new(vec![Handle, StrPtr], I64),
+            "getByClassCount(dom: number, name: string): number",
+            "count of getElementsByClassName.",
+            __RTS_FN_NS_DOM_GET_BY_CLASS_COUNT as *const u8,
+        ))
+        .member(func(
+            "getByClassAt", "__RTS_FN_NS_DOM_GET_BY_CLASS_AT",
+            Sig::new(vec![Handle, StrPtr, I64], I64),
+            "getByClassAt(dom: number, name: string, i: number): number",
+            "i-th element of getElementsByClassName.",
+            __RTS_FN_NS_DOM_GET_BY_CLASS_AT as *const u8,
+        ))
+        .member(func(
+            "getByTagCount", "__RTS_FN_NS_DOM_GET_BY_TAG_COUNT",
+            Sig::new(vec![Handle, StrPtr], I64),
+            "getByTagCount(dom: number, tag: string): number",
+            "count of getElementsByTagName ('*' = all).",
+            __RTS_FN_NS_DOM_GET_BY_TAG_COUNT as *const u8,
+        ))
+        .member(func(
+            "getByTagAt", "__RTS_FN_NS_DOM_GET_BY_TAG_AT",
+            Sig::new(vec![Handle, StrPtr, I64], I64),
+            "getByTagAt(dom: number, tag: string, i: number): number",
+            "i-th element of getElementsByTagName.",
+            __RTS_FN_NS_DOM_GET_BY_TAG_AT as *const u8,
+        ))
+        .member(func(
+            "getByNameCount", "__RTS_FN_NS_DOM_GET_BY_NAME_COUNT",
+            Sig::new(vec![Handle, StrPtr], I64),
+            "getByNameCount(dom: number, name: string): number",
+            "count of getElementsByName.",
+            __RTS_FN_NS_DOM_GET_BY_NAME_COUNT as *const u8,
+        ))
+        .member(func(
+            "getByNameAt", "__RTS_FN_NS_DOM_GET_BY_NAME_AT",
+            Sig::new(vec![Handle, StrPtr, I64], I64),
+            "getByNameAt(dom: number, name: string, i: number): number",
+            "i-th element of getElementsByName.",
+            __RTS_FN_NS_DOM_GET_BY_NAME_AT as *const u8,
+        ))
+        .member(func(
+            "queryWithin", "__RTS_FN_NS_DOM_QUERY_WITHIN",
+            Sig::new(vec![Handle, I64, StrPtr], I64),
+            "queryWithin(dom: number, root: number, selector: string): number",
+            "element.querySelector restricted to the subtree (-1 if none).",
+            __RTS_FN_NS_DOM_QUERY_WITHIN as *const u8,
+        ))
+        .member(func(
+            "queryAllWithinCount", "__RTS_FN_NS_DOM_QUERY_ALL_WITHIN_COUNT",
+            Sig::new(vec![Handle, I64, StrPtr], I64),
+            "queryAllWithinCount(dom: number, root: number, selector: string): number",
+            "count of element.querySelectorAll in the subtree.",
+            __RTS_FN_NS_DOM_QUERY_ALL_WITHIN_COUNT as *const u8,
+        ))
+        .member(func(
+            "queryAllWithinAt", "__RTS_FN_NS_DOM_QUERY_ALL_WITHIN_AT",
+            Sig::new(vec![Handle, I64, StrPtr, I64], I64),
+            "queryAllWithinAt(dom: number, root: number, selector: string, i: number): number",
+            "i-th element of element.querySelectorAll in the subtree.",
+            __RTS_FN_NS_DOM_QUERY_ALL_WITHIN_AT as *const u8,
+        ))
+        // ── Mutação rica — #1756 ────────────────────────────────────────────────
+        .member(func(
+            "cloneNode", "__RTS_FN_NS_DOM_CLONE_NODE",
+            Sig::new(vec![Handle, I64, I64], I64),
+            "cloneNode(dom: number, node: number, deep: number): number",
+            "node.cloneNode(deep): detached clone (deep!=0 = with children).",
+            __RTS_FN_NS_DOM_CLONE_NODE as *const u8,
+        ))
+        .member(func(
+            "prepend", "__RTS_FN_NS_DOM_PREPEND",
+            Sig::new(vec![Handle, I64, I64], AbiType::Void),
+            "prepend(dom: number, parent: number, child: number): void",
+            "parent.prepend(child): insert at the start.",
+            __RTS_FN_NS_DOM_PREPEND as *const u8,
+        ))
+        .member(func(
+            "insertAdjacent", "__RTS_FN_NS_DOM_INSERT_ADJACENT",
+            Sig::new(vec![Handle, I64, I64, I64], AbiType::Void),
+            "insertAdjacent(dom: number, node: number, other: number, after: number): void",
+            "node.before(other)/after(other): insert as sibling (after!=0 = after).",
+            __RTS_FN_NS_DOM_INSERT_ADJACENT as *const u8,
+        ))
+        .member(func(
+            "replaceWith", "__RTS_FN_NS_DOM_REPLACE_WITH",
+            Sig::new(vec![Handle, I64, I64], AbiType::Void),
+            "replaceWith(dom: number, node: number, other: number): void",
+            "node.replaceWith(other).",
+            __RTS_FN_NS_DOM_REPLACE_WITH as *const u8,
+        ))
+        .member(func(
+            "replaceChild", "__RTS_FN_NS_DOM_REPLACE_CHILD",
+            Sig::new(vec![Handle, I64, I64, I64], AbiType::Void),
+            "replaceChild(dom: number, parent: number, newChild: number, oldChild: number): void",
+            "parent.replaceChild(new, old).",
+            __RTS_FN_NS_DOM_REPLACE_CHILD as *const u8,
+        ))
+        .member(func(
+            "removeChild", "__RTS_FN_NS_DOM_REMOVE_CHILD",
+            Sig::new(vec![Handle, I64, I64], AbiType::Void),
+            "removeChild(dom: number, parent: number, child: number): void",
+            "parent.removeChild(child).",
+            __RTS_FN_NS_DOM_REMOVE_CHILD as *const u8,
+        ))
+        .member(func(
+            "clearChildren", "__RTS_FN_NS_DOM_CLEAR_CHILDREN",
+            Sig::new(vec![Handle, I64], AbiType::Void),
+            "clearChildren(dom: number, parent: number): void",
+            "parent.replaceChildren() with no args: remove all children.",
+            __RTS_FN_NS_DOM_CLEAR_CHILDREN as *const u8,
         ))
         .member(func(
             "getAttribute",

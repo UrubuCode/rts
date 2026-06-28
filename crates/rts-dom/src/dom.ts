@@ -117,23 +117,21 @@ class Element {
   }
 
   // `el.querySelector(sel)` — primeiro descendente que casa, ou null. MÉTODO
-  // (regra 2). NOTE: o primitivo busca na árvore inteira; refino por subárvore
-  // chega quando os seletores compostos chegarem.
+  // `el.querySelector(sel)` — 1º DESCENDENTE que casa (restrito à subárvore deste
+  // nó, fiel à MDN; #1758 corrigiu o antigo, que buscava a árvore toda).
   querySelector(sel: string): Element | null {
-    const n = dom.querySelector(this._dom, sel);
+    const n = dom.queryWithin(this._dom, this._node, sel);
     if (n === __DOM_NONE) return null;
     return new Element(this._dom, n);
   }
 
-  // `el.querySelectorAll(sel)` — todos os que casam, como array. Montado via
-  // count+at (evita retorno de array do Rust).
+  // `el.querySelectorAll(sel)` — todos os DESCENDENTES que casam (subárvore).
   querySelectorAll(sel: string): Element[] {
     const out: Element[] = [];
-    const n = dom.querySelectorAllCount(this._dom, sel);
+    const n = dom.queryAllWithinCount(this._dom, this._node, sel);
     let i = 0;
     while (i < n) {
-      const node = dom.querySelectorAllAt(this._dom, sel, i);
-      out.push(new Element(this._dom, node));
+      out.push(new Element(this._dom, dom.queryAllWithinAt(this._dom, this._node, sel, i)));
       i = i + 1;
     }
     return out;
@@ -237,6 +235,41 @@ class Element {
   // só simples; vazio/inválido → false em vez de SyntaxError.)
   matches(selector: string): boolean {
     return dom.matches(this._dom, this._node, selector) === 1;
+  }
+
+  // ── Mutação rica (#1756) ─────────────────────────────────────────────────────
+  // `el.cloneNode(deep)` — duplica o nó (deep=true com filhos); clone SOLTO.
+  cloneNode(deep: boolean): Element {
+    const n = dom.cloneNode(this._dom, this._node, deep ? 1 : 0);
+    return new Element(this._dom, n);
+  }
+  // `parent.prepend(child)` — insere no INÍCIO. (variádico não no motor → 1 nó.)
+  prepend(child: Element): void {
+    dom.prepend(this._dom, this._node, child._node);
+  }
+  // `el.before(other)` / `after(other)` — insere como irmão (no pai).
+  before(other: Element): void {
+    dom.insertAdjacent(this._dom, this._node, other._node, 0);
+  }
+  after(other: Element): void {
+    dom.insertAdjacent(this._dom, this._node, other._node, 1);
+  }
+  // `el.replaceWith(other)` — substitui este nó por outro.
+  replaceWith(other: Element): void {
+    dom.replaceWith(this._dom, this._node, other._node);
+  }
+  // `parent.replaceChild(new, old)` — substitui o filho old por new.
+  replaceChild(newChild: Element, oldChild: Element): void {
+    dom.replaceChild(this._dom, this._node, newChild._node, oldChild._node);
+  }
+  // `parent.removeChild(child)`.
+  removeChild(child: Element): void {
+    dom.removeChild(this._dom, this._node, child._node);
+  }
+  // `parent.replaceChildren()` sem args — remove todos os filhos. (a variante com
+  // novos filhos: chame replaceChildrenClear() + appendChild manualmente.)
+  replaceChildrenClear(): void {
+    dom.clearChildren(this._dom, this._node);
   }
 
   // ── Node utils (#1762) ───────────────────────────────────────────────────────
@@ -447,6 +480,38 @@ class Document {
   // `document.getElementById(id)` — atalho para `#id`.
   getElementById(id: string): Element | null {
     return this.querySelector("#" + id);
+  }
+
+  // ── getElementsBy* (#1758) — coleções por classe/tag/name ────────────────────
+  getElementsByClassName(name: string): Element[] {
+    const out: Element[] = [];
+    const n = dom.getByClassCount(this._dom, name);
+    let i = 0;
+    while (i < n) {
+      out.push(new Element(this._dom, dom.getByClassAt(this._dom, name, i)));
+      i = i + 1;
+    }
+    return out;
+  }
+  getElementsByTagName(tag: string): Element[] {
+    const out: Element[] = [];
+    const n = dom.getByTagCount(this._dom, tag);
+    let i = 0;
+    while (i < n) {
+      out.push(new Element(this._dom, dom.getByTagAt(this._dom, tag, i)));
+      i = i + 1;
+    }
+    return out;
+  }
+  getElementsByName(name: string): Element[] {
+    const out: Element[] = [];
+    const n = dom.getByNameCount(this._dom, name);
+    let i = 0;
+    while (i < n) {
+      out.push(new Element(this._dom, dom.getByNameAt(this._dom, name, i)));
+      i = i + 1;
+    }
+    return out;
   }
 
   // `document.createElement(tag)` — elemento solto (anexe com appendChild).

@@ -594,6 +594,189 @@ impl Dom {
         None
     }
 
+    // ── Query por subárvore + getElementsBy* — #1758 ─────────────────────────────
+
+    /// `element.querySelector(sel)`: o 1º descendente do nó que casa o seletor
+    /// (busca SÓ na subárvore, não na árvore toda). `None` se nenhum casa.
+    pub fn query_within(&self, root: NodeId, selector: &str) -> Option<NodeId> {
+        self.query_all_within(root, selector).into_iter().next()
+    }
+
+    /// `element.querySelectorAll(sel)` restrito à subárvore do nó (exclui o próprio).
+    pub fn query_all_within(&self, root: NodeId, selector: &str) -> Vec<NodeId> {
+        let sel = selector.trim();
+        let Some(root_idx) = self.resolve(root) else { return Vec::new() };
+        let mut out = Vec::new();
+        // só os DESCENDENTES (o próprio nó não casa a si mesmo no querySelector).
+        for &child in &self.nodes[root_idx].children {
+            self.query_all_into(child, sel, &mut out);
+        }
+        out
+    }
+
+    /// `getElementsByTagName(tag)`: todos os descendentes da árvore com a tag.
+    /// (`"*"` casa qualquer elemento.) Reusa o matcher de `query_all`.
+    pub fn get_elements_by_tag_name(&self, tag: &str) -> Vec<NodeId> {
+        let tag = tag.trim();
+        if tag == "*" {
+            // todos os elementos em ordem de documento.
+            let mut out = Vec::new();
+            self.collect_all_elements(self.root, &mut out);
+            return out;
+        }
+        self.query_all(tag)
+    }
+
+    fn collect_all_elements(&self, idx: NodeIdx, out: &mut Vec<NodeId>) {
+        if idx != self.root && matches!(self.nodes[idx].kind, NodeKind::Element { .. }) {
+            out.push(self.make_id(idx));
+        }
+        for &child in &self.nodes[idx].children {
+            self.collect_all_elements(child, out);
+        }
+    }
+
+    /// `getElementsByClassName(names)`: todos os elementos que têm TODAS as classes
+    /// dadas (separadas por espaço — semântica AND da MDN). Um único token reusa o
+    /// caminho de `.classe`; múltiplos filtram por interseção.
+    pub fn get_elements_by_class_name(&self, names: &str) -> Vec<NodeId> {
+        let wanted: Vec<&str> = names.split_whitespace().collect();
+        if wanted.is_empty() {
+            return Vec::new();
+        }
+        // varre todos os elementos, mantendo os que têm TODAS as classes pedidas.
+        let mut out = Vec::new();
+        self.collect_by_classes(self.root, &wanted, &mut out);
+        out
+    }
+
+    fn collect_by_classes(&self, idx: NodeIdx, wanted: &[&str], out: &mut Vec<NodeId>) {
+        if idx != self.root {
+            if let Some(class_attr) = self.nodes[idx].attr("class") {
+                let have: Vec<&str> = class_attr.split_whitespace().collect();
+                if wanted.iter().all(|w| have.contains(w)) {
+                    out.push(self.make_id(idx));
+                }
+            }
+        }
+        for &child in &self.nodes[idx].children {
+            self.collect_by_classes(child, wanted, out);
+        }
+    }
+
+    /// `getElementsByName(name)`: todos os elementos cujo atributo `name` é igual.
+    /// Nome vazio → lista vazia (consistente com getElementsByClassName).
+    pub fn get_elements_by_name(&self, name: &str) -> Vec<NodeId> {
+        if name.is_empty() {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        self.collect_by_name(self.root, name, &mut out);
+        out
+    }
+
+    fn collect_by_name(&self, idx: NodeIdx, name: &str, out: &mut Vec<NodeId>) {
+        if idx != self.root && self.nodes[idx].attr("name") == Some(name) {
+            out.push(self.make_id(idx));
+        }
+        for &child in &self.nodes[idx].children {
+            self.collect_by_name(child, name, out);
+        }
+    }
+
+    // ── Mutação rica — #1756 ─────────────────────────────────────────────────────
+
+    /// `node.cloneNode(deep)`: duplica o nó. `deep=false` clona só o nó (sem
+    /// filhos); `deep=true` clona a subárvore inteira. O clone é SOLTO (sem pai) —
+    /// anexe-o com appendChild/insertBefore. Devolve o `NodeId` do clone.
+    pub fn clone_node(&mut self, id: NodeId, deep: bool) -> Option<NodeId> {
+        let idx = self.resolve(id)?;
+        let new_idx = self.clone_subtree(idx, deep);
+        Some(self.make_id(new_idx))
+    }
+
+    /// Clona um nó (e opcionalmente sua subárvore) DENTRO do mesmo DOM, soltos.
+    fn clone_subtree(&mut self, src_idx: NodeIdx, deep: bool) -> NodeIdx {
+        let kind = self.nodes[src_idx].kind.clone();
+        let attrs = self.nodes[src_idx].attrs.clone();
+        let new_idx = self.push_detached(kind);
+        self.nodes[new_idx].attrs = attrs;
+        // INDEXA o clone (id/class) — senão querySelector('#x')/getElementById não o
+        // acham depois de anexado (caminhos que usam só os índices).
+        self.index_node(new_idx);
+        if deep {
+            let children = self.nodes[src_idx].children.clone();
+            for c in children {
+                let cc = self.clone_subtree(c, true);
+                self.nodes[cc].parent = Some(new_idx);
+                self.nodes[new_idx].children.push(cc);
+            }
+        }
+        new_idx
+    }
+
+    /// `parent.prepend(child)`: insere `child` no INÍCIO dos filhos de `parent`.
+    pub fn prepend_child(&mut self, parent: NodeId, child: NodeId) {
+        let first = self.first_child(parent);
+        self.insert_before(parent, child, first);
+    }
+
+    /// `node.before(other)` / `after`: insere `other` como irmão antes/depois de
+    /// `node` (no pai de `node`). `after=true` insere depois.
+    pub fn insert_adjacent(&mut self, node: NodeId, other: NodeId, after: bool) {
+        let Some(parent) = self.parent_of(node) else { return };
+        let reference = if after { self.next_sibling(node) } else { Some(node) };
+        self.insert_before(parent, other, reference);
+    }
+
+    /// `node.replaceWith(other)`: substitui `node` por `other`. ATÔMICO: insere
+    /// `other` no lugar e SÓ remove `node` se a inserção funcionou (a guarda de
+    /// ciclo pode abortar o insert — aí não destruímos `node`). No-op se `other`
+    /// é o próprio `node`.
+    pub fn replace_with(&mut self, node: NodeId, other: NodeId) {
+        if node == other {
+            return; // substituir por si mesmo é no-op (não remove)
+        }
+        let Some(parent) = self.parent_of(node) else { return };
+        self.insert_before(parent, other, Some(node)); // other ANTES de node
+        // só remove node se other realmente entrou (insert pode ter abortado por ciclo).
+        if self.parent_of(other) == Some(parent) {
+            self.remove_node(node);
+        }
+    }
+
+    /// `parent.replaceChild(new, old)`: substitui o filho `old` por `new`. ATÔMICO:
+    /// só remove `old` se `new` foi inserido (guarda de ciclo). No-op se new==old.
+    pub fn replace_child(&mut self, parent: NodeId, new_child: NodeId, old_child: NodeId) {
+        if new_child == old_child {
+            return;
+        }
+        if self.parent_of(old_child) != Some(parent) {
+            return; // old precisa ser filho de parent
+        }
+        self.insert_before(parent, new_child, Some(old_child));
+        if self.parent_of(new_child) == Some(parent) {
+            self.remove_node(old_child);
+        }
+    }
+
+    /// `parent.removeChild(child)`: remove `child` se for filho de `parent`.
+    pub fn remove_child(&mut self, parent: NodeId, child: NodeId) {
+        if self.parent_of(child) == Some(parent) {
+            self.remove_node(child);
+        }
+    }
+
+    /// `parent.replaceChildren()`: remove TODOS os filhos de `parent` (a variante
+    /// com novos filhos é montada no JS chamando isto + appendChild).
+    pub fn clear_children(&mut self, parent: NodeId) {
+        let Some(idx) = self.resolve(parent) else { return };
+        let children: Vec<NodeIdx> = self.nodes[idx].children.clone();
+        for c in children {
+            self.detach(c);
+        }
+    }
+
     // ── Node utils — #1762 ───────────────────────────────────────────────────────
 
     /// `node.contains(other)`: `other` é o próprio nó OU um descendente dele?
@@ -778,8 +961,13 @@ impl Dom {
         }
     }
 
-    /// `true` se o nó `idx` casa o seletor simples `sel` (tag / `#id` / `.classe`).
+    /// `true` se o nó `idx` casa o seletor simples `sel` (`*` / tag / `#id` /
+    /// `.classe`). O `*` (universal) casa qualquer elemento.
     fn matches(&self, idx: NodeIdx, sel: &str) -> bool {
+        // universal: casa qualquer ELEMENTO (não texto/comentário/Document).
+        if sel == "*" {
+            return matches!(self.nodes[idx].kind, NodeKind::Element { .. });
+        }
         if let Some(key) = sel.strip_prefix('#') {
             return self.nodes[idx].attr("id") == Some(key);
         }
@@ -847,10 +1035,22 @@ impl Dom {
         if parent == child || self.is_ancestor(child, parent) {
             return;
         }
+        // ref==child é no-op (inserir antes de si mesmo mantém a posição). A spec do
+        // DOM trata referenceNode==node como manter no lugar.
         let ref_idx = reference.and_then(|r| self.resolve(r));
+        if ref_idx == Some(child) {
+            // já garante o parent (caso o nó fosse solto) e mantém a ordem.
+            if self.nodes[child].parent != Some(parent) {
+                self.detach(child);
+                self.nodes[child].parent = Some(parent);
+                self.nodes[parent].children.push(child);
+            }
+            return;
+        }
+        // captura a posição da referência ANTES do detach (o detach pode mexer na
+        // lista de filhos do pai se o child já era irmão da referência).
         self.detach(child);
         self.nodes[child].parent = Some(parent);
-        // posição do nó de referência entre os filhos do pai; sem ref → fim.
         let pos = ref_idx
             .and_then(|r| self.nodes[parent].children.iter().position(|&c| c == r))
             .unwrap_or(self.nodes[parent].children.len());
@@ -1506,6 +1706,136 @@ mod tests {
         dom.remove_attr(div, "hidden");
         assert!(!dom.has_attr(div, "hidden"));
         assert_eq!(dom.attr_names(div), vec!["id", "class"]);
+    }
+
+    #[test]
+    fn query_por_subarvore() {
+        // querySelector restrito à subárvore (#1758): o <p> dentro de #b não deve
+        // ser achado pela busca dentro de #a.
+        let dom = parse_html_to_dom("<div id=\"a\"><p class=\"x\">in-a</p></div><div id=\"b\"><p class=\"x\">in-b</p></div>");
+        let a = dom.query("#a").unwrap();
+        let found = dom.query_within(a, ".x").unwrap();
+        assert_eq!(dom.text_content(found).as_deref(), Some("in-a")); // só o de dentro de #a
+        assert_eq!(dom.query_all_within(a, ".x").len(), 1); // não vê o de #b
+        // mas a busca global vê os dois.
+        assert_eq!(dom.query_all(".x").len(), 2);
+    }
+
+    #[test]
+    fn get_elements_by() {
+        let dom = parse_html_to_dom(
+            "<div class=\"card\"><p class=\"card\">x</p></div><span name=\"f\">y</span><span name=\"f\">z</span>",
+        );
+        assert_eq!(dom.get_elements_by_class_name("card").len(), 2); // div + p
+        assert_eq!(dom.get_elements_by_tag_name("span").len(), 2);
+        assert_eq!(dom.get_elements_by_name("f").len(), 2); // os 2 spans
+        // '*' = todos os elementos.
+        assert_eq!(dom.get_elements_by_tag_name("*").len(), 4); // div,p,span,span
+    }
+
+    #[test]
+    fn clone_node_deep_e_shallow() {
+        let mut dom = parse_html_to_dom("<div id=\"a\"><p>oi</p><span>tchau</span></div>");
+        let a = dom.query("#a").unwrap();
+        // shallow: clone sem filhos.
+        let shallow = dom.clone_node(a, false).unwrap();
+        assert_eq!(dom.child_nodes(shallow).len(), 0);
+        assert_eq!(dom.node_name(shallow).as_deref(), Some("div"));
+        // deep: com a subárvore.
+        let deep = dom.clone_node(a, true).unwrap();
+        assert_eq!(dom.child_elements(deep).len(), 2); // p + span
+        assert_eq!(dom.text_content(deep).as_deref(), Some("oitchau"));
+        // o clone é SOLTO (sem pai).
+        assert_eq!(dom.parent_of(deep), None);
+    }
+
+    #[test]
+    fn mutacao_rica() {
+        let mut dom = parse_html_to_dom("<div id=\"a\"><p id=\"p\">x</p></div>");
+        let a = dom.query("#a").unwrap();
+        let p = dom.query("#p").unwrap();
+        // prepend: novo elemento no início.
+        let h = dom.create_element("h1");
+        dom.prepend_child(a, h);
+        assert_eq!(dom.first_element_child(a), Some(h)); // h1 antes do p
+        // before/after: irmão de p.
+        let b = dom.create_element("b");
+        dom.insert_adjacent(p, b, false); // b antes de p
+        let i = dom.create_element("i");
+        dom.insert_adjacent(p, i, true); // i depois de p
+        // ordem: h1, b, p, i.
+        let kids = dom.child_elements(a);
+        let names: Vec<String> = kids.iter().map(|&k| dom.node_name(k).unwrap()).collect();
+        assert_eq!(names, vec!["h1", "b", "p", "i"]);
+        // replaceWith: troca p por um span.
+        let s = dom.create_element("span");
+        dom.replace_with(p, s);
+        assert!(dom.query("#p").is_none()); // p saiu
+        // clearChildren: esvazia.
+        dom.clear_children(a);
+        assert_eq!(dom.child_nodes(a).len(), 0);
+    }
+
+    #[test]
+    fn matcher_universal_e_multi_classe() {
+        // BUG (verificação adversarial): "*" não casava; multi-classe não tokenizava.
+        let dom = parse_html_to_dom("<div class=\"a b\"><p class=\"a\">x</p></div>");
+        // "*" casa todos os elementos (div + p).
+        assert_eq!(dom.query_all("*").len(), 2);
+        // multi-classe = AND: só o div tem 'a' E 'b'.
+        assert_eq!(dom.get_elements_by_class_name("a b").len(), 1);
+        assert_eq!(dom.get_elements_by_class_name("a").len(), 2); // div e p têm 'a'
+        // ordem dos tokens não importa.
+        assert_eq!(dom.get_elements_by_class_name("b a").len(), 1);
+    }
+
+    #[test]
+    fn clone_indexado_e_achavel() {
+        // BUG: o clone não entrava nos índices id/class → querySelector não achava.
+        let mut dom = parse_html_to_dom("<div id=\"src\" class=\"card\">x</div>");
+        let src = dom.query("#src").unwrap();
+        let clone = dom.clone_node(src, true).unwrap();
+        // muda o id do clone e anexa à raiz.
+        dom.set_attr(clone, "id", "copy");
+        // anexa à própria raiz #document.
+        dom.append_child(dom.root_id(), clone);
+        // agora querySelector acha o clone pela classe (índice) e pelo novo id.
+        assert!(dom.query(".card").is_some());
+        assert_eq!(dom.get_elements_by_class_name("card").len(), 2); // original + clone
+    }
+
+    #[test]
+    fn replace_with_atomico_nao_destroi_em_ciclo() {
+        // BUG CRITICAL: replaceWith(node, ancestral) destruía node sem inserir.
+        let mut dom = parse_html_to_dom("<div id=\"out\"><div id=\"in\"><p id=\"p\">x</p></div></div>");
+        let out = dom.query("#out").unwrap();
+        let p = dom.query("#p").unwrap();
+        // tentar substituir p por 'out' (ancestral de p) — guarda de ciclo aborta o
+        // insert; p NÃO deve ser destruído.
+        dom.replace_with(p, out);
+        assert!(dom.query("#p").is_some(), "p preservado quando a inserção aborta");
+        // replaceWith por si mesmo é no-op (não remove).
+        dom.replace_with(p, p);
+        assert!(dom.query("#p").is_some());
+        // caso normal: substitui p por um span novo.
+        let s = dom.create_element("span");
+        dom.set_attr(s, "id", "s");
+        dom.replace_with(p, s);
+        assert!(dom.query("#p").is_none());
+        assert!(dom.query("#s").is_some());
+    }
+
+    #[test]
+    fn after_com_proximo_irmao_mantem_ordem() {
+        // BUG: after(other) com other já sendo o próximo irmão jogava other pro fim.
+        let mut dom = parse_html_to_dom("<div id=\"a\"><b id=\"b\">1</b><i id=\"i\">2</i><u id=\"u\">3</u></div>");
+        let a = dom.query("#a").unwrap();
+        let b = dom.query("#b").unwrap();
+        let i = dom.query("#i").unwrap();
+        // b.after(i) — i JÁ é o próximo irmão de b; deve manter a ordem b,i,u.
+        dom.insert_adjacent(b, i, true);
+        let names: Vec<String> = dom.child_elements(a).iter().map(|&k| dom.node_name(k).unwrap()).collect();
+        assert_eq!(names, vec!["b", "i", "u"]); // ordem preservada, i não foi pro fim
     }
 
     #[test]
