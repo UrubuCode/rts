@@ -16,6 +16,146 @@
 /// Cor RGBA empacotada `0xRRGGBBAA` num `u32`. Tipo próprio (não `Color32`).
 pub type Rgba = u32;
 
+/// `text-align` — alinhamento horizontal do conteúdo inline dentro do bloco.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TextAlign {
+    Left,
+    Right,
+    Center,
+    Justify,
+}
+
+impl TextAlign {
+    pub fn parse(v: &str) -> Option<TextAlign> {
+        Some(match v.trim().to_ascii_lowercase().as_str() {
+            "left" | "start" => TextAlign::Left,
+            "right" | "end" => TextAlign::Right,
+            "center" => TextAlign::Center,
+            "justify" => TextAlign::Justify,
+            _ => return None,
+        })
+    }
+}
+
+/// `line-height` — ou um MULTIPLICADOR do font-size (número sem unidade), ou um
+/// comprimento absoluto em pontos. `normal` é representado como `Mult(1.2)`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum LineHeight {
+    /// número sem unidade (`1.5`) → 1.5 × font-size do elemento.
+    Mult(f32),
+    /// comprimento absoluto em pontos (`24px`).
+    Px(f32),
+}
+
+impl LineHeight {
+    /// Resolve para a altura da linha em pontos, dado o font-size do elemento.
+    pub fn resolve(self, font_size: f32) -> f32 {
+        match self {
+            LineHeight::Mult(m) => m * font_size,
+            LineHeight::Px(p) => p,
+        }
+    }
+
+    pub fn parse(v: &str) -> Option<LineHeight> {
+        let v = v.trim();
+        if v.eq_ignore_ascii_case("normal") {
+            return Some(LineHeight::Mult(1.2));
+        }
+        // `%` → multiplicador (150% = 1.5×).
+        if let Some(p) = v.strip_suffix('%') {
+            return p.trim().parse::<f32>().ok().map(|n| LineHeight::Mult(n / 100.0));
+        }
+        // `px` → absoluto.
+        if let Some(p) = v.strip_suffix("px") {
+            return p.trim().parse::<f32>().ok().map(LineHeight::Px);
+        }
+        // número puro → multiplicador.
+        v.parse::<f32>().ok().map(LineHeight::Mult)
+    }
+}
+
+/// `white-space` — como espaços e quebras de linha são tratados. ⚠️ PARSEADO e
+/// exposto em getComputedStyle, mas o LAYOUT inline atual é linha-única (não quebra
+/// texto), então `normal` vs `nowrap` são equivalentes hoje; `pre` preserva o texto
+/// cru (o `collect_text` já não colapsa). Efeito pleno chega com inline-flow rico
+/// (corte de fase, documentado em layout.rs).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WhiteSpace {
+    /// `normal` — colapsa espaços/quebras, quebra linha quando necessário.
+    Normal,
+    /// `nowrap` — colapsa espaços, NÃO quebra linha.
+    Nowrap,
+    /// `pre` — preserva espaços e quebras, não quebra automaticamente.
+    Pre,
+    /// `pre-wrap` — preserva espaços/quebras E quebra automaticamente.
+    PreWrap,
+    /// `pre-line` — colapsa espaços mas preserva quebras explícitas.
+    PreLine,
+}
+
+impl WhiteSpace {
+    pub fn parse(v: &str) -> Option<WhiteSpace> {
+        Some(match v.trim().to_ascii_lowercase().as_str() {
+            "normal" => WhiteSpace::Normal,
+            "nowrap" => WhiteSpace::Nowrap,
+            "pre" => WhiteSpace::Pre,
+            "pre-wrap" => WhiteSpace::PreWrap,
+            "pre-line" => WhiteSpace::PreLine,
+            _ => return None,
+        })
+    }
+    /// `true` se preserva os espaços/quebras originais (pre/pre-wrap/pre-line p/ quebras).
+    pub fn preserves_spaces(self) -> bool {
+        matches!(self, WhiteSpace::Pre | WhiteSpace::PreWrap)
+    }
+}
+
+/// `text-transform` — transformação de caixa do texto.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TextTransform {
+    None,
+    Uppercase,
+    Lowercase,
+    /// `capitalize` — primeira letra de cada palavra em maiúscula.
+    Capitalize,
+}
+
+impl TextTransform {
+    pub fn parse(v: &str) -> Option<TextTransform> {
+        Some(match v.trim().to_ascii_lowercase().as_str() {
+            "none" => TextTransform::None,
+            "uppercase" => TextTransform::Uppercase,
+            "lowercase" => TextTransform::Lowercase,
+            "capitalize" => TextTransform::Capitalize,
+            _ => return None,
+        })
+    }
+    /// Aplica a transformação a um texto.
+    pub fn apply(self, s: &str) -> String {
+        match self {
+            TextTransform::None => s.to_string(),
+            TextTransform::Uppercase => s.to_uppercase(),
+            TextTransform::Lowercase => s.to_lowercase(),
+            TextTransform::Capitalize => {
+                let mut out = String::with_capacity(s.len());
+                let mut at_word_start = true;
+                for ch in s.chars() {
+                    if ch.is_whitespace() {
+                        at_word_start = true;
+                        out.push(ch);
+                    } else if at_word_start {
+                        out.extend(ch.to_uppercase());
+                        at_word_start = false;
+                    } else {
+                        out.push(ch);
+                    }
+                }
+                out
+            }
+        }
+    }
+}
+
 /// Valor de UM lado de margin/padding: um comprimento em pontos, `auto` (só faz
 /// sentido em margin — centralização), ou não-especificado. Egui-free.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
@@ -339,7 +479,8 @@ pub const DIM_BASE_VH: i64 = 5 * DIM_RANGE;
 
 /// Propriedades de estilo COMPUTADAS, com tipos próprios (egui-free). Cada campo
 /// é `Option` = "não especificado" → o render mantém o valor herdado/default.
-#[derive(Clone, Copy, Default, PartialEq, Debug)]
+/// (Não é `Copy` desde #1749 — `font_family: Option<String>`; use `.clone()`.)
+#[derive(Clone, Default, PartialEq, Debug)]
 pub struct ComputedStyle {
     /// Cor do texto, `0xRRGGBBAA`.
     pub color: Option<Rgba>,
@@ -349,6 +490,20 @@ pub struct ComputedStyle {
     pub font_size: Option<f32>,
     pub bold: Option<bool>,
     pub italic: Option<bool>,
+    // ── Texto/fonte (#1749) ──────────────────────────────────────────────────────
+    /// `text-align` — alinhamento horizontal do conteúdo inline. `None` = `left`.
+    pub text_align: Option<TextAlign>,
+    /// `line-height` — altura da linha. `None` = `normal` (~1.2×font-size). Pode ser
+    /// um MULTIPLICADOR (número sem unidade, ×font-size) ou um comprimento absoluto.
+    pub line_height: Option<LineHeight>,
+    /// `white-space` — colapso de espaço / quebra. `None` = `normal`.
+    pub white_space: Option<WhiteSpace>,
+    /// `text-transform` — caixa do texto (`uppercase`/`lowercase`/`capitalize`).
+    /// `None` = `none` (texto como está).
+    pub text_transform: Option<TextTransform>,
+    /// `font-family` — a 1ª família da lista (só guardamos o nome; o backend escolhe
+    /// a fonte real). `None` = default. `mono` derivado se a família é monoespaçada.
+    pub font_family: Option<String>,
     // ── Box model (F2) — pontos (f32). `None` = não especificado. ───────────────
     /// Espaço INTERNO entre a borda e o conteúdo, POR LADO (`Edges`). O shorthand
     /// `padding: a b c d` e os longhands `padding-top` etc. populam aqui.
@@ -433,6 +588,21 @@ impl ComputedStyle {
         }
         if other.italic.is_some() {
             self.italic = other.italic;
+        }
+        if other.text_align.is_some() {
+            self.text_align = other.text_align;
+        }
+        if other.line_height.is_some() {
+            self.line_height = other.line_height;
+        }
+        if other.white_space.is_some() {
+            self.white_space = other.white_space;
+        }
+        if other.text_transform.is_some() {
+            self.text_transform = other.text_transform;
+        }
+        if other.font_family.is_some() {
+            self.font_family = other.font_family.clone();
         }
         self.padding.merge_over(&other.padding);
         self.margin.merge_over(&other.margin);
@@ -560,7 +730,7 @@ pub fn define_style(tag: &str, slot: i64, val: i64) {
 
 /// Consulta o `ComputedStyle` registrado de uma TAG. `None` ⇒ sem estilo de tag.
 pub fn lookup_style(tag: &str) -> Option<ComputedStyle> {
-    STYLES.with(|m| m.borrow().get(tag).copied())
+    STYLES.with(|m| m.borrow().get(tag).cloned())
 }
 
 impl ComputedStyle {
@@ -593,6 +763,36 @@ impl ComputedStyle {
                 Some(false) => "normal".into(),
                 None => String::new(),
             },
+            "text-align" => match self.text_align {
+                Some(TextAlign::Left) => "left".into(),
+                Some(TextAlign::Right) => "right".into(),
+                Some(TextAlign::Center) => "center".into(),
+                Some(TextAlign::Justify) => "justify".into(),
+                None => String::new(),
+            },
+            "line-height" => match self.line_height {
+                // o browser reporta line-height computado em px (resolve o multiplicador
+                // contra o font-size); aqui sem o font-size do nó, reportamos o cru.
+                Some(LineHeight::Px(p)) => fmt_px(p),
+                Some(LineHeight::Mult(m)) => format!("{m}"),
+                None => String::new(),
+            },
+            "white-space" => match self.white_space {
+                Some(WhiteSpace::Normal) => "normal".into(),
+                Some(WhiteSpace::Nowrap) => "nowrap".into(),
+                Some(WhiteSpace::Pre) => "pre".into(),
+                Some(WhiteSpace::PreWrap) => "pre-wrap".into(),
+                Some(WhiteSpace::PreLine) => "pre-line".into(),
+                None => String::new(),
+            },
+            "text-transform" => match self.text_transform {
+                Some(TextTransform::None) => "none".into(),
+                Some(TextTransform::Uppercase) => "uppercase".into(),
+                Some(TextTransform::Lowercase) => "lowercase".into(),
+                Some(TextTransform::Capitalize) => "capitalize".into(),
+                None => String::new(),
+            },
+            "font-family" => self.font_family.clone().unwrap_or_default(),
             "padding-top" => self.padding.top.px().map(fmt_px).unwrap_or_default(),
             "padding-right" => self.padding.right.px().map(fmt_px).unwrap_or_default(),
             "padding-bottom" => self.padding.bottom.px().map(fmt_px).unwrap_or_default(),
@@ -1211,7 +1411,7 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
         // `a, b, .c { }` → uma regra por seletor (lista separada por vírgula).
         for sel_str in selectors_raw.split(',') {
             if let Some(selector) = Selector::parse(sel_str) {
-                rules.push(Rule { selector, decls, order: 0 });
+                rules.push(Rule { selector, decls: decls.clone(), order: 0 });
             }
         }
         i = next;
@@ -1239,7 +1439,7 @@ fn strip_css_comments(css: &str) -> String {
 /// regras são aplicados primeiro (por origem<especificidade<ordem); depois os
 /// `important`, na mesma ordem — então `!important` SEMPRE vence o normal, mas
 /// entre dois `important` a especificidade/ordem ainda desempata. Egui-free.
-#[derive(Clone, Copy, Default, PartialEq, Debug)]
+#[derive(Clone, Default, PartialEq, Debug)]
 pub struct DeclBlock {
     /// Declarações normais (sem `!important`).
     pub normal: ComputedStyle,
@@ -1285,6 +1485,13 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
                 css.italic =
                     Some(val.eq_ignore_ascii_case("italic") || val.eq_ignore_ascii_case("oblique"))
             }
+            // ── Texto/fonte (#1749) ────────────────────────────────────────────────
+            "text-align" => css.text_align = TextAlign::parse(val),
+            "line-height" => css.line_height = LineHeight::parse(val),
+            "white-space" => css.white_space = WhiteSpace::parse(val),
+            "text-transform" => css.text_transform = TextTransform::parse(val),
+            "font-family" => css.font_family = parse_font_family(val),
+            "font" => apply_font_shorthand(css, val),
             // ── Box model: shorthand 1/2/3/4 valores + longhands por lado. ─────────
             "padding" => css.padding = parse_edges(val, false),
             "padding-top" => css.padding.top = parse_side(val, false),
@@ -1492,6 +1699,69 @@ fn is_bold(v: &str) -> bool {
         return true;
     }
     v.parse::<u32>().map(|w| w >= 600).unwrap_or(false)
+}
+
+/// `font-family: A, B, C` → o NOME da 1ª família (sem aspas). É o que guardamos
+/// (o backend resolve a fonte real; o motor só precisa saber se é monoespaçada).
+fn parse_font_family(v: &str) -> Option<String> {
+    let first = v.split(',').next()?.trim().trim_matches(|c| c == '"' || c == '\'');
+    (!first.is_empty()).then(|| first.to_string())
+}
+
+/// `true` se o nome de família indica fonte MONOESPAÇADA (o backend usa para
+/// escolher o atlas mono). Reconhece a keyword genérica `monospace` e nomes comuns.
+pub fn is_mono_family(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.contains("mono") || n.contains("courier") || n.contains("consol") || n == "menlo"
+}
+
+/// `font: [style] [weight] size[/line-height] family` (shorthand). Parseia os
+/// tokens posicionais: o `size` é o 1º comprimento; `/line-height` segue o size; o
+/// resto antes do size são style/weight; o resto depois do size é a família.
+/// ⚠️ CORTE: a spec diz que o shorthand RESETA as longhands omitidas ao valor
+/// inicial (font sem `italic` zera o italic). Aqui só SETAMOS o que vem (não
+/// resetamos o omitido) — `font-weight:bold; font:16px X` mantém o bold. E o size em
+/// `em/rem/%` não resolve (parse_px só px), igual à longhand font-size.
+fn apply_font_shorthand(css: &mut ComputedStyle, val: &str) {
+    // separa o `size/line-height` (tem `/`) do resto.
+    let tokens: Vec<&str> = val.split_whitespace().collect();
+    let mut size_idx = None;
+    for (i, t) in tokens.iter().enumerate() {
+        // o token de size é o 1º que começa com dígito (ex: 16px, 1.2em, 16px/1.5).
+        if t.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+            size_idx = Some(i);
+            break;
+        }
+    }
+    let Some(si) = size_idx else { return };
+    // antes do size: style/weight.
+    for t in &tokens[..si] {
+        if t.eq_ignore_ascii_case("italic") || t.eq_ignore_ascii_case("oblique") {
+            css.italic = Some(true);
+        } else if is_bold(t) {
+            css.bold = Some(true);
+        }
+    }
+    // o size (e line-height opcional após `/`). Aceita qualquer unidade via
+    // parse_dimension → resolve px direto; em/rem/% guardam a Dimension no width? não:
+    // o font-size é f32 px. Resolvemos o que dá (px), e para relativo (em/%) deixamos
+    // o measurer herdar — registramos o px quando absoluto (corte: em/rem no size do
+    // shorthand não resolvem aqui, como na longhand font-size).
+    let size_tok = tokens[si];
+    let (sz, lh) = match size_tok.split_once('/') {
+        Some((s, l)) => (s, Some(l)),
+        None => (size_tok, None),
+    };
+    // px direto; se for relativo (em/rem/%), parse_px falha e fica None (herda) —
+    // mesma limitação da longhand font-size (documentada).
+    css.font_size = parse_px(sz);
+    if let Some(l) = lh {
+        css.line_height = LineHeight::parse(l);
+    }
+    // depois do size: a família.
+    if si + 1 < tokens.len() {
+        css.font_family = parse_font_family(&tokens[si + 1..].join(" "));
+    }
 }
 
 /// Serializa uma cor `0xRRGGBBAA` no formato do browser: `rgb(r, g, b)` se opaco
