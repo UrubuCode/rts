@@ -84,6 +84,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Whether `object` is a bare identifier naming a user CLASS (not a local) —
     /// the receiver of a STATIC member access `C.m(..)` / `C.f`.
     pub(in crate::front::run) fn class_name_receiver(&self, object: &HirExpr) -> Option<String> {
+        // Peel a `… as T` cast — `(Foo as any).bar()` is `Foo.bar()` (the common
+        // `(Ctor as any).call(this, …)` idiom in constructor-functions).
+        let object = match &object.kind {
+            HirExprKind::Cast { expr, .. } => expr.as_ref(),
+            _ => object,
+        };
         match &object.kind {
             HirExprKind::Ident(name)
                 if self.local(name).is_none()
@@ -111,6 +117,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .get(class)
             .expect("static receiver must be a known class")
             .clone();
+        // `Ctor.call(thisArg, ...rest)` — ES5 super/mixin init: run the
+        // constructor BODY on the EXISTING `thisArg` (no new allocation), so a
+        // `Base.call(this, …)` inside a derived constructor-function copies Base's
+        // fields onto the current instance. The derived class's shape already holds
+        // Base's field slots (ctorfn expands `.call` mixins during field discovery).
+        if method == "call" && !args.is_empty() {
+            let this_v = self.lower_expr(module, &args[0])?;
+            let this_word = self.box_value(this_v);
+            return self.call_synth_fn(module, &desc.ctor, Some(this_word), &args[1..]);
+        }
         let Some(fn_name) = desc.statics.get(method).cloned() else {
             return unsupported!("`{class}.{method}()` — no such static method on class `{class}`");
         };

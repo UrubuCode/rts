@@ -32,13 +32,27 @@ pub(super) fn lift_constructor_functions(mut program: Program) -> Program {
     // — otherwise `new F()` bails "not a user class". A function with `this.x=`
     // writes is a constructor regardless of how it is referenced.
     let newed = collect_new_targets(&program);
+    // Each function's OWN `this.<field>` writes (no `.call` expansion) — the lookup
+    // a derived constructor uses to absorb a mixed-in base's fields.
+    let mut own_fields: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for item in &program.items {
+        if let Item::Function(f) = item {
+            if !f.is_async {
+                let fields = discover_this_fields(&f.body, &std::collections::HashMap::new());
+                if !fields.is_empty() {
+                    own_fields.insert(f.name.clone(), fields);
+                }
+            }
+        }
+    }
     let items = std::mem::take(&mut program.items);
     program.items = items
         .into_iter()
         .map(|item| match item {
             // `async function` is its own rewrite (returns a Promise) — never a ctor.
             Item::Function(f) if !f.is_async => {
-                match function_to_class(&f, newed.contains(&f.name)) {
+                match function_to_class(&f, newed.contains(&f.name), &own_fields) {
                     Some(class) => Item::Class(class),
                     None => Item::Function(f),
                 }
@@ -51,9 +65,15 @@ pub(super) fn lift_constructor_functions(mut program: Program) -> Program {
 
 /// Build a synthetic `ClassDecl` from `f` iff it is a constructor: it writes to
 /// `this.<field>`, OR it is used as a `new` target (`is_newed`). `None` for an
-/// ordinary function — left untouched.
-fn function_to_class(f: &FunctionDecl, is_newed: bool) -> Option<ClassDecl> {
-    let fields = discover_this_fields(&f.body);
+/// ordinary function — left untouched. `own_fields` maps each constructor name to
+/// its direct `this.<field>` writes, so a `Base.call(this, …)` mixin contributes
+/// Base's fields to this constructor's shape.
+fn function_to_class(
+    f: &FunctionDecl,
+    is_newed: bool,
+    own_fields: &std::collections::HashMap<String, Vec<String>>,
+) -> Option<ClassDecl> {
+    let fields = discover_this_fields(&f.body, own_fields);
     if fields.is_empty() && !is_newed {
         return None;
     }
@@ -153,11 +173,17 @@ fn callee_ident(e: &swc_ecma_ast::Expr) -> Option<String> {
     }
 }
 
-/// Collect the `this.<ident>` field names assigned in `body`, first-seen order.
-fn discover_this_fields(body: &[Statement]) -> Vec<String> {
+/// Collect the field names of a constructor `body`, first-seen order: each
+/// `this.<ident> = …` write, plus the fields of any `Base.call(this, …)` mixin
+/// (looked up in `own_fields`, one level — enough for `Derived → Base` chains).
+fn discover_this_fields(
+    body: &[Statement],
+    own_fields: &std::collections::HashMap<String, Vec<String>>,
+) -> Vec<String> {
     let mut c = ThisFieldCollector {
         out: Vec::new(),
         seen: HashSet::new(),
+        own_fields,
     };
     for s in body {
         let Statement::Raw(raw) = s;
@@ -168,16 +194,51 @@ fn discover_this_fields(body: &[Statement]) -> Vec<String> {
     c.out
 }
 
-struct ThisFieldCollector {
+struct ThisFieldCollector<'a> {
     out: Vec<String>,
     seen: HashSet<String>,
+    own_fields: &'a std::collections::HashMap<String, Vec<String>>,
 }
 
-impl Visit for ThisFieldCollector {
+impl<'a> ThisFieldCollector<'a> {
+    fn add(&mut self, name: String) {
+        if self.seen.insert(name.clone()) {
+            self.out.push(name);
+        }
+    }
+}
+
+impl<'a> Visit for ThisFieldCollector<'a> {
     fn visit_assign_expr(&mut self, node: &swc_ecma_ast::AssignExpr) {
         if let Some(name) = this_member_field(&node.left) {
-            if self.seen.insert(name.clone()) {
-                self.out.push(name);
+            self.add(name);
+        }
+        node.visit_children_with(self);
+    }
+
+    fn visit_call_expr(&mut self, node: &swc_ecma_ast::CallExpr) {
+        // `Base.call(this, …)` mixin: absorb Base's own fields at this position so
+        // the derived shape has slots for what Base's body will write.
+        if let swc_ecma_ast::Callee::Expr(callee) = &node.callee {
+            if let swc_ecma_ast::Expr::Member(m) = callee.as_ref() {
+                if let swc_ecma_ast::MemberProp::Ident(mp) = &m.prop {
+                    if mp.sym.as_ref() == "call" {
+                        // first arg is `this` → this is a constructor mixin
+                        let first_is_this = node
+                            .args
+                            .first()
+                            .is_some_and(|a| a.spread.is_none() && is_this_expr(&a.expr));
+                        if first_is_this {
+                            if let Some(base) = callee_ident(&m.obj) {
+                                if let Some(bf) = self.own_fields.get(&base) {
+                                    for name in bf.clone() {
+                                        self.add(name);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
         node.visit_children_with(self);

@@ -1,26 +1,26 @@
 import { describe, test, expect } from "rts:test";
-import { collections } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
   __rtsCapturedOutput += value + "\n";
 }
 
-// (#264) (Animal as any).call(this, ...) em fn body — antes
-// "unsupported call expression form".
+// (#264) `(Base as any).call(this, ...)` no corpo de um constructor-function —
+// mixin estilo ES5: roda o corpo de Base no `this` atual. Via canônica JS
+// `this.x`/`obj.x` (antes usava `collections.map_*(this)`).
 
 function Init(name: string): void {
-  collections.map_set(this as any, "tag", 7);
+  this.tag = 7;
 }
 
 function Wrapper(name: string): void {
   (Init as any).call(this, name);
-  collections.map_set(this as any, "wrapped", 99);
+  this.wrapped = 99;
 }
 
-const w: number = new (Wrapper as any)("foo");
-const t: number = collections.map_get(w, "tag");
-const wr: number = collections.map_get(w, "wrapped");
+const w: any = new (Wrapper as any)("foo");
+const t: number = w.tag;
+const wr: number = w.wrapped;
 print("tag=" + t);
 print("wrapped=" + wr);
 

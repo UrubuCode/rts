@@ -137,6 +137,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if method != "call" && method != "apply" {
             return Ok(None);
         }
+        // A CLASS-NAME receiver (`Base.call(this, …)` / `(Base as any).call(…)`):
+        // fall through so the class `.call` mixin path (`try_static_method`) runs
+        // the constructor body on `thisArg`. Reifying the class as a function value
+        // here would drop `thisArg` (the ctor's `this` would not be the instance).
+        if self.class_name_receiver(object).is_some() {
+            return Ok(None);
+        }
         // The function-value receiver word:
         // - a top-level fn name → its reified value (`fn_value_word`);
         // - a statically-known CLASS INSTANCE → fall through (`Ok(None)`): its
