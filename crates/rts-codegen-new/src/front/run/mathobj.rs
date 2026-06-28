@@ -176,6 +176,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let Some(op) = math_op(method) else {
             return unsupported!("Math.{method}(...) (unsupported Math method)");
         };
+        // Empty variadic (JS spec): `Math.max()` is `-Infinity`, `Math.min()` is
+        // `+Infinity`, `Math.hypot()` is `0`. A pairwise fold has no neutral start
+        // element, so emit the identity constant directly.
+        if args.is_empty() && matches!(method, "min" | "max" | "hypot") {
+            let c = match method {
+                "max" => f64::NEG_INFINITY,
+                "min" => f64::INFINITY,
+                _ => 0.0,
+            };
+            let v = self.builder.ins().f64const(c);
+            return Ok(Val::new(v, Repr::Float64));
+        }
         // Lower + coerce every arg to a native f64 FIRST (a Tagged/non-numeric arg
         // bails here — these are numeric statics). A spread arg flattened to an
         // array word is rejected by `coerce` (Tagged→Float64 only unboxes a proven
@@ -255,15 +267,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         op: &MathOp,
         args: &[HirExpr],
     ) -> FrontResult<Vec<Value>> {
+        // Variadic min/max/hypot accept 1..N (empty handled by the caller's
+        // identity-constant fast path); fixed ops want exactly their arity.
         let variadic = matches!(method, "min" | "max" | "hypot");
         let want = op_arity(op);
-        if variadic {
-            if args.is_empty() {
-                return unsupported!(
-                    "Math.{method}() with no args (variadic empty is a later increment)"
-                );
-            }
-        } else if args.len() != want {
+        if !variadic && args.len() != want {
             return unsupported!("Math.{method} expects {want} args, got {}", args.len());
         }
         let mut out = Vec::with_capacity(args.len());
