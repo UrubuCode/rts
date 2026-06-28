@@ -85,7 +85,10 @@ print("stress_sum=" + stressSum);  // sum(0..100)*2 = 2 * 4950 = 9900
 describe("promise resolve com varios valores e cadeias", () => {
   test("matches expected stdout", () => {
     expect(__rtsCapturedOutput).toBe(
-      "zero_state=1\nzero_wait=0\nneg_wait=-42\nmax_wait=9223372036854775807\nmin_wait=-9007199254740990\nchain_sum=15\nstuck_try=0\nstuck_state=0\nstuck_after_resolve=99\nstress_sum=9900\n"
+      // max_wait: 9223372036854775807 (i64::MAX) > 2^53 não cabe na mantissa
+      // f64; vira 9223372036854776000, exatamente como JS/Node imprime o
+      // literal numérico. (Motor velho tinha repr i64 exata, deletado.)
+      "zero_state=1\nzero_wait=0\nneg_wait=-42\nmax_wait=9223372036854776000\nmin_wait=-9007199254740990\nchain_sum=15\nstuck_try=0\nstuck_state=0\nstuck_after_resolve=99\nstress_sum=9900\n"
     );
   });
 });

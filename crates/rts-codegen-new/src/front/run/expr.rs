@@ -267,6 +267,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
                 return Ok(Val::tagged_kind(v, JsKind::Str));
             }
+            // `typeof <GlobalClass>` is `"function"`. A bare ident naming a
+            // global/Registry class (`Date`, `Map`, …) does not reify to a value
+            // and is not in `self.classes`, so without this it falls to the
+            // unbound-ident fold below and wrongly yields `"undefined"`. Uses the
+            // DATA-DRIVEN registry predicate (no class-name literal).
+            if let HirExprKind::Ident(name) = &operand.kind {
+                if self.local(name).is_none() && self.is_global_class_ctor(name) {
+                    let pv = abi_adapter::intern_poly("function");
+                    let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
+                    return Ok(Val::tagged_kind(v, JsKind::Str));
+                }
+            }
             // `typeof <truly-undeclared ident>` is the ONE JS construct that may
             // name an unbound identifier without a ReferenceError — it yields
             // `"undefined"`. A bare ident that resolves to NOTHING (not a local/
