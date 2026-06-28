@@ -16,6 +16,41 @@
 /// Cor RGBA empacotada `0xRRGGBBAA` num `u32`. Tipo próprio (não `Color32`).
 pub type Rgba = u32;
 
+/// Estilo de linha da borda (`border-style`). O DEFAULT do CSS é `None` (sem
+/// `border-style`, a borda não aparece). `Hidden` também não pinta. Os 3D
+/// (groove/ridge/inset/outset) são aproximados como sólido por ora (corte do egui).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BorderStyle {
+    None,
+    Hidden,
+    Solid,
+    Dashed,
+    Dotted,
+    Double,
+}
+
+impl BorderStyle {
+    /// Parseia um keyword de `border-style`. Desconhecido → `None`.
+    pub fn parse(v: &str) -> Option<BorderStyle> {
+        Some(match v.trim().to_ascii_lowercase().as_str() {
+            "none" => BorderStyle::None,
+            "hidden" => BorderStyle::Hidden,
+            "solid" => BorderStyle::Solid,
+            "dashed" => BorderStyle::Dashed,
+            "dotted" => BorderStyle::Dotted,
+            "double" => BorderStyle::Double,
+            // 3D aproximados como sólido (egui não tem groove/ridge/inset/outset).
+            "groove" | "ridge" | "inset" | "outset" => BorderStyle::Solid,
+            _ => return None,
+        })
+    }
+
+    /// `true` se este estilo DESENHA algo (qualquer um exceto none/hidden).
+    pub fn is_visible(self) -> bool {
+        !matches!(self, BorderStyle::None | BorderStyle::Hidden)
+    }
+}
+
 /// O modo de `display` de um elemento (o eixo/fluxo dos filhos), parseado do CSS.
 /// Mapeia o vocabulário CSS para os modos de layout que o motor implementa.
 /// Egui-free. `None` no `ComputedStyle` = não declarado (usa o default da tag).
@@ -181,6 +216,10 @@ pub struct ComputedStyle {
     pub margin_v: Option<f32>,
     /// Espessura da borda em pontos (0 = sem borda).
     pub border_width: Option<f32>,
+    /// Estilo da borda (`solid`/`dashed`/`none`/...). `None` no struct = não
+    /// declarado. ⚠️ Na cascade, o DEFAULT do CSS é `BorderStyle::None` (sem
+    /// `border-style`, a borda NÃO aparece, mesmo com width/cor) — o render checa isso.
+    pub border_style: Option<BorderStyle>,
     /// Cor da borda, `0xRRGGBBAA`.
     pub border_color: Option<Rgba>,
     /// Raio dos cantos em pontos.
@@ -245,6 +284,9 @@ impl ComputedStyle {
         }
         if other.border_width.is_some() {
             self.border_width = other.border_width;
+        }
+        if other.border_style.is_some() {
+            self.border_style = other.border_style;
         }
         if other.border_color.is_some() {
             self.border_color = other.border_color;
@@ -644,7 +686,11 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             // ── Box model (F2): px puro para as caixas; `width` aceita px OU `%`. ──
             "padding" => css.padding = parse_px(val),
             "margin" => css.margin = parse_px(val),
+            // shorthand `border: <width> <style> <color>` (qualquer ordem, qualquer
+            // omitível). Setar os 3 de uma vez. (Por-lado fica para fase 2.)
+            "border" => apply_border_shorthand(css, val),
             "border-width" => css.border_width = parse_px(val),
+            "border-style" => css.border_style = BorderStyle::parse(val),
             "border-color" => css.border_color = parse_color(val),
             "border-radius" => css.corner_radius = parse_px(val),
             "width" => css.width = parse_dimension(val),
@@ -728,6 +774,42 @@ fn parse_display(v: &str) -> Option<DisplayKind> {
     }
 }
 
+/// Aplica o shorthand `border: <width> <style> <color>` — os 3 em QUALQUER ORDEM,
+/// qualquer um omitível (MDN). Classifica cada token: keyword de estilo → style;
+/// largura (px/keyword) → width; senão tenta cor. Defaults CSS: style=none (se não
+/// vier, a borda não aparece — o render checa `is_visible`), width=medium(3),
+/// color=currentColor (aqui deixamos `border_color` como veio / herdado).
+fn apply_border_shorthand(css: &mut ComputedStyle, val: &str) {
+    for tok in val.split_whitespace() {
+        if let Some(style) = BorderStyle::parse(tok) {
+            css.border_style = Some(style);
+        } else if let Some(w) = parse_border_width_token(tok) {
+            css.border_width = Some(w);
+        } else if let Some(c) = parse_color(tok) {
+            css.border_color = Some(c);
+        }
+        // token irreconhecível: ignora (robustez).
+    }
+    // `border: 2px red` sem estilo → o CSS exige style p/ aparecer; mas o shorthand
+    // `border` RESETA o style para o default `solid`? Não — a spec diz que o
+    // shorthand SETA todos os 3, e se o estilo for omitido vira `none`. Porém o uso
+    // real quase sempre traz o estilo. Para fidelidade: se nenhum estilo veio no
+    // shorthand, fica `none` (não pinta) — mas só se o width veio (senão é no-op).
+    if css.border_style.is_none() && css.border_width.is_some() {
+        css.border_style = Some(BorderStyle::None);
+    }
+}
+
+/// Largura de borda de um token: `thin`/`medium`/`thick` ou um comprimento px.
+fn parse_border_width_token(tok: &str) -> Option<f32> {
+    match tok.to_ascii_lowercase().as_str() {
+        "thin" => Some(1.0),
+        "medium" => Some(3.0),
+        "thick" => Some(5.0),
+        _ => parse_px(tok),
+    }
+}
+
 /// `font-weight`: `bold`/`bolder` ou peso numérico ≥ 600 → negrito.
 fn is_bold(v: &str) -> bool {
     let v = v.trim();
@@ -737,48 +819,173 @@ fn is_bold(v: &str) -> bool {
     v.parse::<u32>().map(|w| w >= 600).unwrap_or(false)
 }
 
-/// Parseia uma cor CSS para `u32` RGBA (`0xRRGGBBAA`): `#rgb`, `#rrggbb`,
-/// `rgb(r,g,b)` ou um nome básico. Alpha implícito = `0xFF` (opaco).
+/// Parseia uma cor CSS para `u32` RGBA (`0xRRGGBBAA`). Suporta:
+/// - hex: `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa` (com alpha)
+/// - `rgb()`/`rgba()`: legado por vírgula OU moderno por espaço, com `/ alpha`;
+///   canais 0-255 ou `%`; alpha 0-1 ou `%`
+/// - `hsl()`/`hsla()`: idem, convertido para RGB
+/// - nomes (tabela básica) + `transparent`. Alpha implícito = opaco.
 pub fn parse_color(v: &str) -> Option<Rgba> {
     let v = v.trim();
     if let Some(hex) = v.strip_prefix('#') {
         return parse_hex(hex);
     }
-    if let Some(inner) = v.strip_prefix("rgb(").and_then(|s| s.strip_suffix(')')) {
-        let mut p = inner.split(',').map(|x| x.trim().parse::<u8>().ok());
-        if let (Some(Some(r)), Some(Some(g)), Some(Some(b))) = (p.next(), p.next(), p.next()) {
-            return Some(rgba(r, g, b));
-        }
-        return None;
+    // rgb()/rgba() — o nome da função não importa (são aliases na spec moderna).
+    if let Some(inner) = func_args(v, "rgb").or_else(|| func_args(v, "rgba")) {
+        return parse_rgb_fn(inner);
+    }
+    // hsl()/hsla() — converte para RGB.
+    if let Some(inner) = func_args(v, "hsl").or_else(|| func_args(v, "hsla")) {
+        return parse_hsl_fn(inner);
     }
     named_color(v)
 }
 
-/// Compõe `0xRRGGBBAA` opaco a partir de componentes.
+/// Extrai o miolo de uma chamada `name(...)` (case-insensitive), ou `None`.
+fn func_args<'a>(v: &'a str, name: &str) -> Option<&'a str> {
+    let low = v.to_ascii_lowercase();
+    if low.starts_with(name) && low[name.len()..].trim_start().starts_with('(') && v.ends_with(')') {
+        let open = v.find('(')?;
+        Some(v[open + 1..v.len() - 1].trim())
+    } else {
+        None
+    }
+}
+
+/// Compõe `0xRRGGBBAA` opaco a partir de componentes (alpha = 0xFF).
 fn rgba(r: u8, g: u8, b: u8) -> Rgba {
-    ((r as u32) << 24) | ((g as u32) << 16) | ((b as u32) << 8) | 0xFF
+    rgba_a(r, g, b, 0xFF)
+}
+
+/// Compõe `0xRRGGBBAA` com alpha explícito.
+fn rgba_a(r: u8, g: u8, b: u8, a: u8) -> Rgba {
+    ((r as u32) << 24) | ((g as u32) << 16) | ((b as u32) << 8) | (a as u32)
 }
 
 fn parse_hex(hex: &str) -> Option<Rgba> {
-    match hex.len() {
-        // #rgb → expande cada nibble (f → ff).
-        3 => {
-            let n = u32::from_str_radix(hex, 16).ok()?;
-            let r = ((n >> 8) & 0xF) as u8;
-            let g = ((n >> 4) & 0xF) as u8;
-            let b = (n & 0xF) as u8;
-            Some(rgba(r * 17, g * 17, b * 17))
+    // expande um nibble (f → ff) ou lê um byte.
+    let nib = |c: char| c.to_digit(16).map(|d| (d * 17) as u8);
+    let chars: Vec<char> = hex.chars().collect();
+    match chars.len() {
+        // #rgb / #rgba — cada nibble expandido.
+        3 | 4 => {
+            let r = nib(chars[0])?;
+            let g = nib(chars[1])?;
+            let b = nib(chars[2])?;
+            let a = if chars.len() == 4 { nib(chars[3])? } else { 0xFF };
+            Some(rgba_a(r, g, b, a))
         }
-        6 => {
-            let n = u32::from_str_radix(hex, 16).ok()?;
-            Some(rgba(
-                ((n >> 16) & 0xFF) as u8,
-                ((n >> 8) & 0xFF) as u8,
-                (n & 0xFF) as u8,
-            ))
+        // #rrggbb / #rrggbbaa — bytes.
+        6 | 8 => {
+            let byte = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).ok();
+            let r = byte(0)?;
+            let g = byte(2)?;
+            let b = byte(4)?;
+            let a = if chars.len() == 8 { byte(6)? } else { 0xFF };
+            Some(rgba_a(r, g, b, a))
         }
         _ => None,
     }
+}
+
+/// Parseia os args de `rgb(...)`/`rgba(...)`: 3-4 componentes separados por VÍRGULA
+/// (legado) ou ESPAÇO (moderno, com `/ alpha`). Cada R/G/B é 0-255 ou `%`; alpha
+/// 0-1 ou `%`. Tolerante a mistura (a spec permite).
+fn parse_rgb_fn(inner: &str) -> Option<Rgba> {
+    let (main_part, slash_alpha) = split_alpha(inner);
+    let comps: Vec<&str> = split_components(main_part);
+    // 3 componentes (alpha via `/` opcional) OU 4 (legado: alpha é a 4ª vírgula).
+    if comps.len() < 3 || comps.len() > 4 {
+        return None;
+    }
+    let r = parse_channel_255(comps[0])?;
+    let g = parse_channel_255(comps[1])?;
+    let b = parse_channel_255(comps[2])?;
+    // alpha: o 4º componente (legado `rgba(r,g,b,a)`) tem prioridade; senão o `/`.
+    let a = if comps.len() == 4 {
+        parse_alpha(comps[3])?
+    } else {
+        slash_alpha.and_then(parse_alpha).unwrap_or(0xFF)
+    };
+    Some(rgba_a(r, g, b, a))
+}
+
+/// Parseia `hsl(h, s%, l% [/ a])` para RGB. `h` em graus (0-360, wrap), `s`/`l` em
+/// `%` (0-100). Conversão padrão HSL→RGB.
+fn parse_hsl_fn(inner: &str) -> Option<Rgba> {
+    let (main_part, slash_alpha) = split_alpha(inner);
+    let comps: Vec<&str> = split_components(main_part);
+    if comps.len() < 3 || comps.len() > 4 {
+        return None;
+    }
+    let h = comps[0].trim().trim_end_matches("deg").trim().parse::<f32>().ok()?;
+    let s = comps[1].trim().trim_end_matches('%').trim().parse::<f32>().ok()? / 100.0;
+    let l = comps[2].trim().trim_end_matches('%').trim().parse::<f32>().ok()? / 100.0;
+    let (r, g, b) = hsl_to_rgb(h, s.clamp(0.0, 1.0), l.clamp(0.0, 1.0));
+    let a = if comps.len() == 4 {
+        parse_alpha(comps[3])?
+    } else {
+        slash_alpha.and_then(parse_alpha).unwrap_or(0xFF)
+    };
+    Some(rgba_a(r, g, b, a))
+}
+
+/// Separa um valor de função no `/` (alpha moderno): `(antes, depois?)`.
+fn split_alpha(inner: &str) -> (&str, Option<&str>) {
+    match inner.split_once('/') {
+        Some((a, b)) => (a.trim(), Some(b.trim())),
+        None => (inner, None),
+    }
+}
+
+/// Divide os componentes por vírgula (legado) ou whitespace (moderno).
+fn split_components(s: &str) -> Vec<&str> {
+    if s.contains(',') {
+        s.split(',').map(str::trim).collect()
+    } else {
+        s.split_whitespace().collect()
+    }
+}
+
+/// Um canal R/G/B: número 0-255 OU `%` (×2.55). `none` = 0.
+fn parse_channel_255(s: &str) -> Option<u8> {
+    let s = s.trim();
+    if s.eq_ignore_ascii_case("none") {
+        return Some(0);
+    }
+    if let Some(p) = s.strip_suffix('%') {
+        let pct = p.trim().parse::<f32>().ok()?;
+        return Some((pct.clamp(0.0, 100.0) * 2.55).round() as u8);
+    }
+    s.parse::<f32>().ok().map(|n| n.clamp(0.0, 255.0).round() as u8)
+}
+
+/// Alpha: número 0-1 OU `%` (0-100). Vira 0-255.
+fn parse_alpha(s: &str) -> Option<u8> {
+    let s = s.trim();
+    if let Some(p) = s.strip_suffix('%') {
+        let pct = p.trim().parse::<f32>().ok()?;
+        return Some((pct.clamp(0.0, 100.0) * 2.55).round() as u8);
+    }
+    s.parse::<f32>().ok().map(|n| (n.clamp(0.0, 1.0) * 255.0).round() as u8)
+}
+
+/// Conversão HSL→RGB (algoritmo padrão CSS). `h` graus, `s`/`l` em 0..=1.
+fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
+    let h = ((h % 360.0) + 360.0) % 360.0; // wrap para 0..360
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let x = c * (1.0 - (((h / 60.0) % 2.0) - 1.0).abs());
+    let m = l - c / 2.0;
+    let (r1, g1, b1) = match h as u32 {
+        0..=59 => (c, x, 0.0),
+        60..=119 => (x, c, 0.0),
+        120..=179 => (0.0, c, x),
+        180..=239 => (0.0, x, c),
+        240..=299 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    let to = |v: f32| ((v + m) * 255.0).round().clamp(0.0, 255.0) as u8;
+    (to(r1), to(g1), to(b1))
 }
 
 fn named_color(v: &str) -> Option<Rgba> {
@@ -821,6 +1028,69 @@ mod tests {
         assert_eq!(parse_color("rgb(10, 20, 30)"), Some(0x0A141EFF));
         assert_eq!(parse_color("blue"), Some(0x0000FFFF));
         assert_eq!(parse_color("nope"), None);
+    }
+
+    #[test]
+    fn border_shorthand() {
+        // border: width style color — qualquer ordem.
+        let c = parse_inline("border: 2px solid #ff0000");
+        assert_eq!(c.border_width, Some(2.0));
+        assert_eq!(c.border_style, Some(BorderStyle::Solid));
+        assert_eq!(c.border_color, Some(0xFF0000FF));
+        // ordem trocada.
+        let c2 = parse_inline("border: red solid 3px");
+        assert_eq!(c2.border_width, Some(3.0));
+        assert_eq!(c2.border_style, Some(BorderStyle::Solid));
+        assert_eq!(c2.border_color, Some(0xFF0000FF));
+        // keyword de largura.
+        assert_eq!(parse_inline("border: thin dashed blue").border_width, Some(1.0));
+        // border-style isolado.
+        assert_eq!(parse_inline("border-style: dotted").border_style, Some(BorderStyle::Dotted));
+    }
+
+    #[test]
+    fn border_sem_style_nao_e_visivel() {
+        // border-width sem border-style → o default é none → NÃO pinta (fiel ao CSS).
+        let c = parse_inline("border-width: 2px; border-color: red");
+        assert_eq!(c.border_width, Some(2.0));
+        // sem border-style declarado: o campo fica None (o render trata como invisível).
+        assert_eq!(c.border_style, None);
+        // is_visible: none/hidden não pintam, solid/dashed/dotted/double pintam.
+        assert!(BorderStyle::Solid.is_visible());
+        assert!(BorderStyle::Dashed.is_visible());
+        assert!(!BorderStyle::None.is_visible());
+        assert!(!BorderStyle::Hidden.is_visible());
+    }
+
+    #[test]
+    fn color_alpha_hex() {
+        // #rgba e #rrggbbaa (com alpha).
+        assert_eq!(parse_color("#F09F"), Some(0xFF0099FF)); // nibbles expandidos
+        assert_eq!(parse_color("#FF009980"), Some(0xFF009980)); // 8 díg
+        assert_eq!(parse_color("#0000"), Some(0x00000000)); // transparente
+    }
+
+    #[test]
+    fn color_rgba_e_moderno() {
+        // rgba legado (vírgula + alpha).
+        assert_eq!(parse_color("rgba(255, 0, 153, 0.5)"), Some(0xFF009980));
+        // moderno: espaço + / alpha.
+        assert_eq!(parse_color("rgb(255 0 153)"), Some(0xFF0099FF));
+        assert_eq!(parse_color("rgb(255 0 153 / 50%)"), Some(0xFF009980));
+        // canais em %.
+        assert_eq!(parse_color("rgb(100% 0% 60%)"), Some(0xFF0099FF));
+    }
+
+    #[test]
+    fn color_hsl() {
+        // hsl básicos (vértices do círculo).
+        assert_eq!(parse_color("hsl(0 100% 50%)"), Some(0xFF0000FF)); // vermelho
+        assert_eq!(parse_color("hsl(120, 100%, 50%)"), Some(0x00FF00FF)); // verde
+        assert_eq!(parse_color("hsl(240 100% 50%)"), Some(0x0000FFFF)); // azul
+        // cinza (s=0).
+        assert_eq!(parse_color("hsl(0 0% 50%)"), Some(0x808080FF));
+        // com alpha.
+        assert_eq!(parse_color("hsl(0 100% 50% / 50%)"), Some(0xFF000080));
     }
 
     #[test]
