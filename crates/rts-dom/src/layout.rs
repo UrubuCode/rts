@@ -469,8 +469,15 @@ fn content_natural_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -> 
 fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
     match &dom.node(id).kind {
         NodeKind::Element { tag } => {
-            dom.computed_style_idx(id).and_then(|c| c.effective_display()).is_some()
+            let css = dom.computed_style_idx(id);
+            css.as_ref().and_then(|c| c.effective_display()).is_some()
                 || crate::block::lookup(tag).is_some()
+                // INLINE-BLOCK de fato: um elemento inline (`<a>`/`<span>`/`<button>`)
+                // que tem CAIXA própria (fundo/borda/padding/width/height) precisa de
+                // layout_block p/ pintar essa caixa e respeitar o padding — senão o
+                // botão fica sem fundo/borda. (`has_box` cobre bg/pad/margin/border/
+                // radius/width; +height.)
+                || css.as_ref().map(|c| c.has_box() || c.height.is_some()).unwrap_or(false)
         }
         _ => false,
     }

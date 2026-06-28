@@ -159,9 +159,44 @@ fn build(
     })
 }
 
+/// Carrega uma fonte de UI de QUALIDADE no contexto egui (substitui a fonte default
+/// do egui, que destoa de um browser). Tenta o sistema (Segoe UI no Windows — a mesma
+/// que o Chrome usa, p/ paridade visual); cai na fonte default se não achar. A fonte
+/// vira a Proportional padrão; uma mono do sistema vira a Monospace.
+fn install_ui_fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    // candidatos de fonte proporcional (1ª que existir vence).
+    let proportional = [
+        "C:/Windows/Fonts/segoeui.ttf", // Windows — igual ao Chrome
+        "/System/Library/Fonts/SFNS.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ];
+    let monospace = [
+        "C:/Windows/Fonts/consola.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+    ];
+    let mut load = |paths: &[&str], name: &str, family: egui::FontFamily| -> bool {
+        for p in paths {
+            if let Ok(bytes) = std::fs::read(p) {
+                fonts.font_data.insert(name.to_string(), std::sync::Arc::new(egui::FontData::from_owned(bytes)));
+                // insere no INÍCIO da família (vira a preferida).
+                fonts.families.entry(family.clone()).or_default().insert(0, name.to_string());
+                return true;
+            }
+        }
+        false
+    };
+    let got_prop = load(&proportional, "ui-sans", egui::FontFamily::Proportional);
+    load(&monospace, "ui-mono", egui::FontFamily::Monospace);
+    if got_prop {
+        ctx.set_fonts(fonts);
+    }
+}
+
 /// `egui::Context` + `egui_winit::State` para uma janela (comum aos dois backends).
 fn make_egui(window: &Window) -> (egui::Context, egui_winit::State) {
     let egui_ctx = egui::Context::default();
+    install_ui_fonts(&egui_ctx); // fonte de UI de qualidade (paridade com o browser)
     // egui-winit 0.34: State::new(ctx, viewport_id, display_target,
     //                             native_ppp, theme, max_texture_side).
     let egui_state = egui_winit::State::new(
