@@ -158,6 +158,10 @@ pub struct Dom {
     /// `defineStyle` (por-tag, mais fraco) e o `style=""` inline. Estado DERIVADO
     /// do HTML — não entra no `PartialEq` do `Dom`.
     stylesheet: crate::style::Stylesheet,
+    /// CSS BRUTO acumulado dos `<style>` — guardado para resolver os pseudo-elementos
+    /// `::-webkit-scrollbar*` (o stylesheet parseado não modela pseudo-elementos).
+    /// DERIVADO do HTML, fora do `PartialEq`.
+    raw_css: String,
     /// Eventos (#1760, modelo de POLLING — F3): que TIPOS cada nó escuta
     /// (`addEventListener`). Os callbacks vivem no TS (o motor não guarda fn-handles
     /// de forma confiável — limite #195); aqui só registramos o tipo p/ saber se um
@@ -208,6 +212,7 @@ impl Dom {
             class_index: HashMap::new(),
             style_overrides: HashMap::new(),
             stylesheet: crate::style::Stylesheet::new(),
+            raw_css: String::new(),
             listeners: HashMap::new(),
             event_queue: std::collections::VecDeque::new(),
             active_transitions: HashMap::new(),
@@ -222,6 +227,17 @@ impl Dom {
     /// `<style>` acumulam, com as regras posteriores desempatando por cima.
     pub fn add_stylesheet(&mut self, css: &str) {
         self.stylesheet.append_css(css);
+        // guarda o bruto p/ os pseudo-elementos ::-webkit-scrollbar* (#1744).
+        self.raw_css.push_str(css);
+        self.raw_css.push('\n');
+    }
+
+    /// O estilo da SCROLLBAR resolvido da página (#1744): combina `scrollbar-width`/
+    /// `scrollbar-color` declarados no `<body>`/`<html>` (sintaxe padrão) com os
+    /// pseudo-elementos `::-webkit-scrollbar*` do CSS bruto (WebKit). O WebKit vence
+    /// o padrão (ordem do Chrome). O backend (egui) lê isto e pinta a barra.
+    pub fn scrollbar_style(&self) -> crate::scrollbar::ScrollbarStyle {
+        crate::scrollbar::resolve(&self.raw_css)
     }
 
     /// O stylesheet de autor acumulado (regras dos `<style>`). Exposto p/ inspeção/teste.

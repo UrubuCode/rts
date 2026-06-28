@@ -26,6 +26,14 @@
       max-width: 1080px;
       margin: 0 auto;
     }
+    /* Scrollbar customizada via CSS (#1744) — padrão + WebKit, ambas aceitas. */
+    body {
+      scrollbar-width: thin;
+      scrollbar-color: #6d5efc #1a1530;
+    }
+    ::-webkit-scrollbar { width: 12px }
+    ::-webkit-scrollbar-thumb { background: #6d5efc; border-radius: 6px }
+    ::-webkit-scrollbar-track { background: #1a1530 }
 
     @keyframes float {
       0%   { background: #6d5efc }

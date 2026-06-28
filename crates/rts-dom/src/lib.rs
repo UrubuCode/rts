@@ -46,6 +46,11 @@ pub mod layout;
 /// Egui-free; o tick por frame é dirigido pelo loop de render.
 pub mod anim;
 
+/// Estilo da SCROLLBAR via CSS (#1744): `scrollbar-width`/`scrollbar-color` (padrão)
+/// + `::-webkit-scrollbar*` (WebKit). Produz um `ScrollbarStyle` neutro que o backend
+/// (egui) lê e aplica — o motor não conhece o egui.
+pub mod scrollbar;
+
 pub use dom::{parse_html_to_dom, Attr, Dom, Node, NodeId, NodeIdx, NodeKind};
 
 pub use abi::register;

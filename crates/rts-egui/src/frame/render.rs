@@ -59,6 +59,46 @@ impl<'a> TextMeasurer for EguiMeasurer<'a> {
     }
 }
 
+/// Aplica o estilo da SCROLLBAR vindo do CSS (#1744) no `ui.style`: largura da barra
+/// (`scrollbar-width`/`::-webkit-scrollbar{width}`), cor do polegar/trilho
+/// (`scrollbar-color`/`-thumb`/`-track`) e arredondamento do polegar. O egui é burro:
+/// só traduz o `ScrollbarStyle` neutro do rts-dom para os campos do `egui::Style`.
+pub(crate) fn apply_scrollbar_style(ui: &mut egui::Ui, sb: &rts_dom::scrollbar::ScrollbarStyle) {
+    use rts_dom::scrollbar::BarWidth;
+    if sb.is_default() {
+        return;
+    }
+    let style = ui.style_mut();
+    let scroll = &mut style.spacing.scroll;
+    // largura da barra. `none` → 0 (rola sem barra visível); `thin` → fina.
+    match sb.width {
+        Some(BarWidth::None) => scroll.bar_width = 0.0,
+        Some(BarWidth::Thin) => scroll.bar_width = 6.0,
+        Some(BarWidth::Auto) => {}
+        Some(BarWidth::Px(px)) => scroll.bar_width = px,
+        None => {}
+    }
+    // barra sólida (não-flutuante) quando o CSS estiliza cores — fica visível como num
+    // browser (a flutuante do egui é discreta demais p/ paridade).
+    if sb.thumb.is_some() || sb.track.is_some() {
+        scroll.floating = false;
+    }
+    if let Some(radius) = sb.thumb_radius {
+        scroll.handle_min_length = scroll.handle_min_length.max(radius * 2.0);
+    }
+    // cores: o thumb é o "handle" (widgets inativos/hover), o track é o fundo da barra.
+    if let Some(thumb) = sb.thumb {
+        let c = rgba_to_color32(thumb);
+        let w = &mut style.visuals.widgets;
+        w.inactive.bg_fill = c;
+        w.hovered.bg_fill = c;
+        w.active.bg_fill = c;
+    }
+    if let Some(track) = sb.track {
+        style.visuals.extreme_bg_color = rgba_to_color32(track);
+    }
+}
+
 /// Renderiza um `Dom` inteiro: calcula o layout (rts-dom) e PINTA a display list.
 ///
 /// A origem do conteúdo é o canto superior-esquerdo da área do `ui`

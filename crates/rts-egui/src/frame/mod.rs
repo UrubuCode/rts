@@ -249,8 +249,26 @@ fn drenar(
                 // continua usando a LARGURA VISÍVEL (não a infinita do scroll) p/ ficar
                 // fluido — por isso travamos a largura antes de entrar no scroll.
                 let visible_w = ui.available_width();
-                egui::ScrollArea::both()
+                // CSS customiza a scrollbar (#1744): o DOM resolve scrollbar-width/
+                // color + ::-webkit-scrollbar* + overflow. O egui (burro) aplica.
+                let sb = rts_dom::store::with_dom(*h, |d| d.scrollbar_style())
+                    .unwrap_or_default();
+                render::apply_scrollbar_style(ui, &sb);
+                // `overflow` decide os eixos roláveis e se a barra é forçada (scroll):
+                // eixo X rola SÓ se overflow-x pedir (auto/scroll); eixo Y rola por
+                // padrão (root rola vertical, como o browser) a menos que hidden.
+                let ox = sb.overflow_x.unwrap_or(rts_dom::scrollbar::Overflow::Visible);
+                let oy = sb.overflow_y.unwrap_or(rts_dom::scrollbar::Overflow::Visible);
+                let scroll_x = ox.scrollable();
+                let scroll_y = oy != rts_dom::scrollbar::Overflow::Hidden;
+                egui::ScrollArea::new([scroll_x, scroll_y])
                     .auto_shrink([false, false])
+                    // `scroll` força a barra sempre visível; senão aparece só se precisar.
+                    .scroll_bar_visibility(if ox.always_bar() || oy.always_bar() {
+                        egui::scroll_area::ScrollBarVisibility::AlwaysVisible
+                    } else {
+                        egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded
+                    })
                     .show(ui, |ui| {
                         ui.set_width(visible_w);
                         rts_dom::store::with_dom(*h, |d| render_dom(ui, d));
