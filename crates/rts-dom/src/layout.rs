@@ -433,30 +433,103 @@ fn layout_block(
 /// esse width (+ frame); para texto, a largura medida. Aproximação do max-content
 /// (o inline-flow exato — palavras quebrando — vem na fatia de inline).
 fn content_natural_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -> f32 {
-    // Texto direto deste nó concatenado (caso de um <p>badge</p>: "rust").
+    intrinsic_content_width(dom, id, font, ctx)
+}
+
+/// LARGURA INTRÍNSECA do CONTEÚDO de um elemento (max-content): quanto o conteúdo
+/// QUER de largura sem quebrar. É a BASE de toda medição (shrink-to-fit, item flex,
+/// inline-block, container flex). CONSCIENTE DO DISPLAY dos filhos:
+/// - flex-ROW (horizontal/wrap): SOMA as larguras outer dos filhos + os gaps (eles
+///   ficam lado a lado). Era o bug do navbar: `.logo`/`.links` (flex) mediam pelo
+///   MAX, dando ~0.
+/// - block (vertical): MAX das larguras dos filhos (empilham).
+/// - texto: a largura do texto concatenado.
+/// Recursivo: a largura de um filho é a SUA intrínseca + frame (ou seu `width` fixo).
+fn intrinsic_content_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -> f32 {
+    // folha de texto puro → largura do texto.
     let own_text = collect_text(dom, id);
-    if !own_text.trim().is_empty() && dom.node(id).children.iter().all(|&c| {
-        matches!(dom.node(c).kind, NodeKind::Text(_))
-    }) {
-        // Folha de texto puro: a largura é a do texto.
-        return ctx.measurer.text_width(&own_text, font, false);
+    let only_text = !dom.node(id).children.is_empty()
+        && dom.node(id).children.iter().all(|&c| matches!(dom.node(c).kind, NodeKind::Text(_)));
+    if (dom.node(id).children.is_empty() || only_text) && !own_text.trim().is_empty() {
+        let mono = dom
+            .computed_style_idx(id)
+            .and_then(|c| c.font_family)
+            .map(|f| crate::style::is_mono_family(&f))
+            .unwrap_or(false);
+        return ctx.measurer.text_width(&own_text, font, mono);
     }
-    // Senão, o máximo entre os filhos (cada bloco-filho com seu width, texto com o seu).
-    let mut max_w = 0.0f32;
-    for &child in &dom.node(id).children {
-        let w = match &dom.node(child).kind {
-            NodeKind::Element { .. } if is_block_level(dom, child) => {
-                let css = dom.computed_style_idx(child).unwrap_or_default();
-                let f = css.font_size.unwrap_or(font);
-                let frame = css.margin.horizontal_px() + 2.0 * css.border_width.unwrap_or(0.0) + css.padding.horizontal_px();
-                content_natural_width(dom, child, f, ctx) + frame
-            }
-            NodeKind::Text(t) => ctx.measurer.text_width(t, font, false),
-            _ => 0.0,
+
+    // o EIXO em que os filhos se dispõem decide SOMA vs MAX.
+    let display = css_display(dom, id);
+    let is_row = display == crate::block::DISPLAY_HORIZONTAL || display == crate::block::DISPLAY_WRAP;
+    let gap = if is_row {
+        let resolve = ResolveCtx {
+            parent_content_w: ctx.viewport_w,
+            node_font_size: font,
+            root_font_size: DEFAULT_FONT_SIZE,
+            viewport_w: ctx.viewport_w,
+            viewport_h: ctx.viewport_h,
         };
-        max_w = max_w.max(w);
+        dom.computed_style_idx(id)
+            .and_then(|c| c.gap)
+            .and_then(|d| d.resolve(&resolve))
+            .unwrap_or(0.0)
+            .max(0.0)
+    } else {
+        0.0
+    };
+
+    let mut sum = 0.0f32;
+    let mut max = 0.0f32;
+    let mut count: usize = 0;
+    for &child in &dom.node(id).children {
+        let w = intrinsic_outer_width(dom, child, font, ctx);
+        if w > 0.0 {
+            count += 1;
+        }
+        sum += w;
+        max = max.max(w);
     }
-    max_w
+    if is_row {
+        // soma + gaps entre os itens.
+        sum + (count.saturating_sub(1)) as f32 * gap
+    } else {
+        max
+    }
+}
+
+/// A largura OUTER intrínseca de UM filho (max-content): seu `width` fixo (+ frame),
+/// senão a intrínseca do seu conteúdo (+ frame). Texto → largura do texto.
+fn intrinsic_outer_width(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &LayoutCtx) -> f32 {
+    match &dom.node(id).kind {
+        NodeKind::Element { .. } => {
+            // metadata (head/style/script) não conta.
+            if let NodeKind::Element { tag } = &dom.node(id).kind {
+                if is_non_rendered_tag(tag) {
+                    return 0.0;
+                }
+            }
+            let css = dom.computed_style_idx(id).unwrap_or_default();
+            let f = css.font_size.unwrap_or(parent_font);
+            let border_box = css.border_box.unwrap_or(false);
+            let frame = css.margin.horizontal_px() + 2.0 * css.border_width.unwrap_or(0.0) + css.padding.horizontal_px();
+            let resolve = ResolveCtx {
+                parent_content_w: ctx.viewport_w,
+                node_font_size: f,
+                root_font_size: DEFAULT_FONT_SIZE,
+                viewport_w: ctx.viewport_w,
+                viewport_h: ctx.viewport_h,
+            };
+            // width fixo: a caixa tem essa largura.
+            if let Some(w) = css.width.and_then(|d| d.resolve(&resolve)) {
+                return if border_box { w + css.margin.horizontal_px() } else { w + frame };
+            }
+            // senão: a intrínseca do conteúdo + frame.
+            intrinsic_content_width(dom, id, f, ctx) + frame
+        }
+        NodeKind::Text(t) => ctx.measurer.text_width(t, parent_font, false),
+        _ => 0.0,
+    }
 }
 
 /// `true` se um nó-elemento deve ser tratado como BLOCO no layout (entra em
