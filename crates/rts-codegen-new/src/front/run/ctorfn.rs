@@ -31,36 +31,113 @@ pub(super) fn lift_constructor_functions(mut program: Program) -> Program {
     // `new F()` is still a constructor (an empty instance) and must become a class
     // — otherwise `new F()` bails "not a user class". A function with `this.x=`
     // writes is a constructor regardless of how it is referenced.
+    use std::collections::HashMap;
     let newed = collect_new_targets(&program);
     // Each function's OWN `this.<field>` writes (no `.call` expansion) — the lookup
     // a derived constructor uses to absorb a mixed-in base's fields.
-    let mut own_fields: std::collections::HashMap<String, Vec<String>> =
-        std::collections::HashMap::new();
+    let mut own_fields: HashMap<String, Vec<String>> = HashMap::new();
     for item in &program.items {
         if let Item::Function(f) = item {
             if !f.is_async {
-                let fields = discover_this_fields(&f.body, &std::collections::HashMap::new());
+                let fields = discover_this_fields(&f.body, &HashMap::new());
                 if !fields.is_empty() {
                     own_fields.insert(f.name.clone(), fields);
                 }
             }
         }
     }
+    // ES5 prototype methods: `F.prototype.m = __fnprop_N` (the parser hoists the
+    // assigned fn-expr to a top-level `__fnprop_N`). Map class → [(method, fn)].
+    let mut proto_methods: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    for item in &program.items {
+        if let Item::Statement(Statement::Raw(raw)) = item {
+            if let Some(stmt) = &raw.stmt {
+                if let Some((cls, m, fnid)) = parse_proto_method(stmt) {
+                    proto_methods.entry(cls).or_default().push((m, fnid));
+                }
+            }
+        }
+    }
+    // A name is a constructor iff it has `this.x=` fields, is `new`ed, or has a
+    // prototype method assigned. Only such names trigger conversion / consumption.
+    let is_ctor = |name: &str| {
+        own_fields.contains_key(name) || newed.contains(name) || proto_methods.contains_key(name)
+    };
+    // Hoisted fns moved into a class as methods — dropped from the top level.
+    let consumed_fns: HashSet<String> = proto_methods
+        .iter()
+        .filter(|(cls, _)| is_ctor(cls))
+        .flat_map(|(_, ms)| ms.iter().map(|(_, fnid)| fnid.clone()))
+        .collect();
+    // Bodies of the hoisted method fns, by name.
+    let fn_bodies: HashMap<String, FunctionDecl> = program
+        .items
+        .iter()
+        .filter_map(|it| match it {
+            Item::Function(f) if consumed_fns.contains(&f.name) => Some((f.name.clone(), f.clone())),
+            _ => None,
+        })
+        .collect();
+
     let items = std::mem::take(&mut program.items);
     program.items = items
         .into_iter()
-        .map(|item| match item {
+        .filter_map(|item| match item {
+            // Drop a hoisted method fn (it now lives inside its class).
+            Item::Function(ref f) if consumed_fns.contains(&f.name) => None,
+            // Drop a consumed `F.prototype.m = …` assignment statement.
+            Item::Statement(Statement::Raw(ref raw))
+                if raw
+                    .stmt
+                    .as_ref()
+                    .and_then(parse_proto_method)
+                    .is_some_and(|(cls, _, _)| is_ctor(&cls)) =>
+            {
+                None
+            }
             // `async function` is its own rewrite (returns a Promise) — never a ctor.
             Item::Function(f) if !f.is_async => {
-                match function_to_class(&f, newed.contains(&f.name), &own_fields) {
-                    Some(class) => Item::Class(class),
-                    None => Item::Function(f),
-                }
+                let protos = proto_methods.get(&f.name);
+                Some(
+                    match function_to_class(&f, is_ctor(&f.name), &own_fields, protos, &fn_bodies) {
+                        Some(class) => Item::Class(class),
+                        None => Item::Function(f),
+                    },
+                )
             }
-            other => other,
+            other => Some(other),
         })
         .collect();
     program
+}
+
+/// Parse `F.prototype.m = <ident>` (the hoisted prototype-method form) →
+/// `(class "F", method "m", fn-ident)`. `None` for any other statement.
+fn parse_proto_method(stmt: &swc_ecma_ast::Stmt) -> Option<(String, String, String)> {
+    use swc_ecma_ast::{AssignTarget, Expr, MemberProp, SimpleAssignTarget, Stmt};
+    let Stmt::Expr(es) = stmt else { return None };
+    let Expr::Assign(a) = es.expr.as_ref() else {
+        return None;
+    };
+    let AssignTarget::Simple(SimpleAssignTarget::Member(m)) = &a.left else {
+        return None;
+    };
+    // `m` is `F.prototype.<method>`: prop = method, obj = `F.prototype`.
+    let MemberProp::Ident(method) = &m.prop else {
+        return None;
+    };
+    let Expr::Member(inner) = m.obj.as_ref() else {
+        return None;
+    };
+    let MemberProp::Ident(proto) = &inner.prop else {
+        return None;
+    };
+    if proto.sym.as_ref() != "prototype" {
+        return None;
+    }
+    let cls = callee_ident(&inner.obj)?;
+    let fnid = callee_ident(&a.right)?;
+    Some((cls, method.sym.to_string(), fnid))
 }
 
 /// Build a synthetic `ClassDecl` from `f` iff it is a constructor: it writes to
@@ -70,11 +147,13 @@ pub(super) fn lift_constructor_functions(mut program: Program) -> Program {
 /// Base's fields to this constructor's shape.
 fn function_to_class(
     f: &FunctionDecl,
-    is_newed: bool,
+    is_ctor: bool,
     own_fields: &std::collections::HashMap<String, Vec<String>>,
+    proto_methods: Option<&Vec<(String, String)>>,
+    fn_bodies: &std::collections::HashMap<String, FunctionDecl>,
 ) -> Option<ClassDecl> {
     let fields = discover_this_fields(&f.body, own_fields);
-    if fields.is_empty() && !is_newed {
+    if fields.is_empty() && !is_ctor {
         return None;
     }
     let mut members: Vec<ClassMember> = fields
@@ -94,6 +173,23 @@ fn function_to_class(
         body: f.body.clone(),
         span: f.span,
     }));
+    // ES5 prototype methods: each `F.prototype.m = __fnprop_N` becomes a real
+    // method `m` (the hoisted fn's params/body, `this` now bound by the class).
+    if let Some(protos) = proto_methods {
+        for (method, fnid) in protos {
+            if let Some(mf) = fn_bodies.get(fnid) {
+                members.push(ClassMember::Method(rts_ast::ast::MethodDecl {
+                    name: method.clone(),
+                    modifiers: MemberModifiers::default(),
+                    parameters: mf.parameters.clone(),
+                    return_type: mf.return_type.clone(),
+                    body: mf.body.clone(),
+                    role: rts_ast::ast::MethodRole::Method,
+                    span: mf.span,
+                }));
+            }
+        }
+    }
     Some(ClassDecl {
         name: f.name.clone(),
         super_class: None,
