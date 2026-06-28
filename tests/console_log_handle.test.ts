@@ -63,8 +63,8 @@ describe("console_log_handle", () => {
     test("JSON.parse null", () => expect(e).toBe("[null]"));
     test("JSON.parse true (PR #1206: sentinel → 'true')", () => expect(f).toBe("[true]"));
     test("WeakMap.get number value", () => expect(g).toBe("[99]"));
-    test("WeakMap.get missing → undefined-ish (null in v0)", () =>
-        expect(h).toBe("[null]"));
+    test("WeakMap.get missing → undefined (igual a JS/Node)", () =>
+        expect(h).toBe("[undefined]"));
     test("object literal stringify", () =>
         expect(i_).toBe("[[object Object]]"));
     test("array literal stringify", () => expect(j).toBe("[1,2,3]"));

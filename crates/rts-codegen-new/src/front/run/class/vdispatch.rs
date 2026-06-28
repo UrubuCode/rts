@@ -127,17 +127,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         method: &str,
         args: &[HirExpr],
     ) -> FrontResult<Option<Val>> {
-        // Candidate REAL user classes defining `method`. Object-literal-synthesized
-        // "literal classes" (`__rtsl_*`) are EXCLUDED: their bodies can use a model
-        // the dynamic word cannot satisfy (e.g. `collections.map_get(this, …)` over a
-        // shape-slot object), so dispatching one on a Tagged receiver would run a body
-        // on a mismatched receiver. A declared `class C` uses the shape-slot model and
-        // is safe. An excluded method stays a clean BAIL (never a crash), as before.
+        // Candidate user classes defining `method`, including object-literal
+        // synthesized "literal classes" (`__rtsl_*`). Post-cutover, an object
+        // literal IS a shape-slot object and its method `this` is that shape
+        // object, so dispatching its body on a Tagged receiver carrying the SAME
+        // shape-id is sound (the per-shape arm in `emit_shape_arms` only runs the
+        // body for an exactly-matching shape). This lets a free top-level
+        // `const o = { m(){…} }` referenced inside another function's body
+        // dispatch `o.m()` by runtime shape-id instead of bailing. (The old
+        // exclusion guarded the deleted `collections.map_get(this, …)` model,
+        // which no longer exists.)
         let mut targets: Vec<(u32, String)> = Vec::new();
         for d in self.classes.iter() {
-            if d.name.starts_with("__rtsl_") {
-                continue;
-            }
             if let Some(f) = d.method_fn(method) {
                 targets.push((d.global_shape, f.to_string()));
             }

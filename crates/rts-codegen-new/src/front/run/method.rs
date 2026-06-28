@@ -161,6 +161,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 {
                     return Ok(Some(val));
                 }
+                // Not a `class Object` builtin: the receiver may be an object literal
+                // carrying its own method (synthetic class) whose static class is not
+                // visible here (a free top-level `const o = { m(){…} }` used inside
+                // another fn). Dispatch by runtime shape-id (same virtual path the
+                // Tagged branch uses). `Ok(None)` ⇒ no class defines it (caller bails).
+                if let Some(val) = self.try_user_virtual_dynamic(module, recv, method, args)? {
+                    return Ok(Some(val));
+                }
             }
             return Ok(None);
         }
