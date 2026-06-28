@@ -15,6 +15,19 @@
 
 const __DOM_NONE = -1;
 
+// DOMRect-like — o retorno de `getBoundingClientRect()`. Campos numéricos simples
+// (o browser tem um objeto DOMRect; aqui um literal com os mesmos campos).
+interface DOMRectLike {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  top: number;
+  left: number;
+  right: number;
+  bottom: number;
+}
+
 // Um nó do DOM. Embrulha (handle-do-dom, NodeId-versionado). Todas as propriedades
 // do browser (textContent, id, className, tagName) são accessors.
 class Element {
@@ -160,6 +173,30 @@ class Element {
   // imperativo de estilo (como `el.style.color = ...` do browser, por slot opaco).
   setStyle(slot: number, val: number): void {
     dom.setStyle(this._dom, this._node, slot, val);
+  }
+
+  // `el.getBoundingClientRect()` — o retângulo (border-box) deste elemento, lido do
+  // LAYOUT que o motor calcula. Devolve um DOMRect-like {x,y,width,height,top,left,
+  // right,bottom}. ⚠️ HEADLESS: o browser usa o viewport real; aqui o layout precisa
+  // de uma largura — passe `viewportW` (default 1280). Os componentes vêm do Rust em
+  // pontos×1000 (subpixel preservado); dividimos por 1000. Se o nó não tem caixa
+  // (texto/inline/display:none), tudo é 0.
+  getBoundingClientRect(viewportW: number): DOMRectLike {
+    const vw = viewportW > 0 ? viewportW : 1280;
+    // extrai cada componente para uma const antes de comparar (limite i64-cmp inline).
+    const rawX = dom.boundingComponent(this._dom, this._node, vw, 0);
+    const rawY = dom.boundingComponent(this._dom, this._node, vw, 1);
+    const rawW = dom.boundingComponent(this._dom, this._node, vw, 2);
+    const rawH = dom.boundingComponent(this._dom, this._node, vw, 3);
+    // -1 (sem caixa) vira 0 — getBoundingClientRect de elemento sem layout é zeros.
+    const x = rawX < 0 ? 0 : rawX / 1000;
+    const y = rawY < 0 ? 0 : rawY / 1000;
+    const w = rawW < 0 ? 0 : rawW / 1000;
+    const h = rawH < 0 ? 0 : rawH / 1000;
+    return {
+      x: x, y: y, width: w, height: h,
+      top: y, left: x, right: x + w, bottom: y + h,
+    };
   }
 
   // `el.appendChild(child)` — anexa e devolve o filho (como o browser).
