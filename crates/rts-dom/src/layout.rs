@@ -457,12 +457,16 @@ fn intrinsic_content_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -
     let only_text = !dom.node(id).children.is_empty()
         && dom.node(id).children.iter().all(|&c| matches!(dom.node(c).kind, NodeKind::Text(_)));
     if (dom.node(id).children.is_empty() || only_text) && !own_text.trim().is_empty() {
-        let mono = dom
-            .computed_style_idx(id)
-            .and_then(|c| c.font_family)
-            .map(|f| crate::style::is_mono_family(&f))
+        let css = dom.computed_style_idx(id);
+        let mono = css
+            .as_ref()
+            .and_then(|c| c.font_family.as_ref())
+            .map(|f| crate::style::is_mono_family(f))
             .unwrap_or(false);
-        return ctx.measurer.text_width(&own_text, font, mono, false);
+        // o peso importa p/ a largura natural: medir regular mas o wrap/paint usar bold
+        // (mais largo) faz o conteúdo não caber na largura natural → quebra indevida.
+        let bold = css.as_ref().and_then(|c| c.bold).unwrap_or(false);
+        return ctx.measurer.text_width(&own_text, font, mono, bold);
     }
 
     // o EIXO em que os filhos se dispõem decide SOMA vs MAX.
