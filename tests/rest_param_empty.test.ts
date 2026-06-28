@@ -1,15 +1,17 @@
 import { describe, test, expect } from "rts:test";
-import { io, collections } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
   __rtsCapturedOutput += value + "\n";
 }
 
-// Rest sem args passados.
+// Rest sem args passados. Lê o tamanho via `.length` (via canônica JS; antes
+// usava o escape hatch `collections.vec_len(nums)` do motor velho onde arrays
+// eram Vec handles — no motor novo rest params são shape-arrays).
 
 function count(...nums: number[]): number {
-    return collections.vec_len(nums);
+    return nums.length;
 }
 
 print(`${count()}`); // 0

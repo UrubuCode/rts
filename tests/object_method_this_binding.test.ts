@@ -1,20 +1,19 @@
 import { describe, test, expect } from "rts:test";
-import { collections } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
   __rtsCapturedOutput += value + "\n";
 }
 
-// (#261) `this` dentro de method shorthand referencia o object
-// receiver via thread-local slot. Cada call empilha o receiver.
+// (#261) `this` dentro de method shorthand referencia o object receiver. Lê/grava
+// campos via `this.v` (via canônica JS; antes usava o escape hatch
+// `collections.map_get/set(this, "v")` do motor velho onde objetos eram Maps).
 
 const counter: any = {
   v: 0,
   inc(): number {
-    const t: number = (this as any);
-    const cur: number = collections.map_get(t, "v");
-    collections.map_set(t, "v", cur + 1);
+    const cur: number = this.v;
+    this.v = cur + 1;
     return cur + 1;
   },
 };
@@ -30,9 +29,8 @@ print("r3=" + r3);
 const counter2: any = {
   v: 100,
   inc(): number {
-    const t: number = (this as any);
-    const cur: number = collections.map_get(t, "v");
-    collections.map_set(t, "v", cur + 1);
+    const cur: number = this.v;
+    this.v = cur + 1;
     return cur + 1;
   },
 };

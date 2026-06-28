@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, collections } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -7,7 +7,9 @@ function print(value: string): void {
 }
 
 const nums = [10, 20, 30];
-print(`vec_len=${collections.vec_len(nums)}`);
+// `.length` é a via canônica JS (antes: `collections.vec_len(nums)`, escape
+// hatch do motor velho onde arrays eram Vec handles).
+print(`vec_len=${nums.length}`);
 print(`nums[0]=${nums[0]}`);
 print(`nums[2]=${nums[2]}`);
 
