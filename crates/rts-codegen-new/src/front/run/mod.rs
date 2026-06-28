@@ -25,6 +25,7 @@
 mod assign;
 mod binop;
 mod binop_eq;
+mod ctorfn;
 mod call;
 mod call_shape;
 mod call_spread;
@@ -392,6 +393,12 @@ fn build_from_program(
 ) -> FrontResult<LoweredProgram> {
     let src = destructure_src;
     let mut scope = rts_hir::scope::Scope::new();
+
+    // -1. Lift ES5 constructor-functions (`function F(){ this.x = … }`, used as
+    //     `new F()`) into synthetic classes BEFORE class collection, so they flow
+    //     through the whole class pipeline. Non-regressing: such functions bail at
+    //     lowering today (no `this` binding), so the program already fails.
+    let program = ctorfn::lift_constructor_functions(program);
 
     // 0. Collect every `class` declaration into descriptors + synthesized
     //    constructor/method HirFuncs (each with `this` as the implicit first
