@@ -70,7 +70,7 @@ pub enum DisplayItem {
     Border { rect: Rect, width: f32, color: u32, radius: f32 },
     /// Texto numa posição (canto superior-esquerdo). `mono` escolhe a família
     /// monoespaçada. O backend resolve a fonte/atlas; aqui só o necessário.
-    Text { x: f32, y: f32, text: String, color: u32, size: f32, mono: bool },
+    Text { x: f32, y: f32, text: String, color: u32, size: f32, mono: bool, bold: bool },
 }
 
 /// A saída do layout: a lista plana de itens de pintura, em z-order. É o ÚNICO
@@ -94,8 +94,10 @@ pub struct DisplayList {
 /// reimplementar largura de glifo no `rts-dom` é a armadilha que o roadmap alertou.
 /// O layout depende SÓ deste trait — continua egui-free e testável com um mock.
 pub trait TextMeasurer {
-    /// Largura em pontos de `text` renderizado em `size` (mono ou proporcional).
-    fn text_width(&self, text: &str, size: f32, mono: bool) -> f32;
+    /// Largura em pontos de `text` renderizado em `size` (mono ou proporcional,
+    /// regular ou `bold`). O peso importa: a fonte bold é mais larga — medir regular
+    /// e pintar bold faz o texto estourar a linha (quebra a mais).
+    fn text_width(&self, text: &str, size: f32, mono: bool, bold: bool) -> f32;
     /// Altura de UMA linha em `size` (line-height). Aproximação aceitável: `size *
     /// fator`; o backend pode dar o valor exato da fonte.
     fn line_height(&self, size: f32) -> f32;
@@ -109,8 +111,11 @@ pub trait TextMeasurer {
 pub struct ApproxMeasurer;
 
 impl TextMeasurer for ApproxMeasurer {
-    fn text_width(&self, text: &str, size: f32, mono: bool) -> f32 {
-        let per = if mono { 0.6 } else { 0.5 };
+    fn text_width(&self, text: &str, size: f32, mono: bool, bold: bool) -> f32 {
+        let mut per = if mono { 0.6 } else { 0.5 };
+        if bold {
+            per *= 1.06; // bold ~6% mais largo.
+        }
         text.chars().count() as f32 * size * per
     }
     fn line_height(&self, size: f32) -> f32 {
@@ -244,7 +249,7 @@ fn layout_block(
         NodeKind::Text(t) => {
             let size = DEFAULT_FONT_SIZE;
             let lh = ctx.measurer.line_height(size);
-            let tw = ctx.measurer.text_width(t, size, false);
+            let tw = ctx.measurer.text_width(t, size, false, false);
             list.items.push(DisplayItem::Text {
                 x,
                 y,
@@ -252,6 +257,7 @@ fn layout_block(
                 color: 0x000000FF,
                 size,
                 mono: false,
+                bold: false,
             });
             return (tw, lh);
         }
@@ -456,7 +462,7 @@ fn intrinsic_content_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -
             .and_then(|c| c.font_family)
             .map(|f| crate::style::is_mono_family(&f))
             .unwrap_or(false);
-        return ctx.measurer.text_width(&own_text, font, mono);
+        return ctx.measurer.text_width(&own_text, font, mono, false);
     }
 
     // o EIXO em que os filhos se dispõem decide SOMA vs MAX.
@@ -527,7 +533,7 @@ fn intrinsic_outer_width(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &LayoutC
             // senão: a intrínseca do conteúdo + frame.
             intrinsic_content_width(dom, id, f, ctx) + frame
         }
-        NodeKind::Text(t) => ctx.measurer.text_width(t, parent_font, false),
+        NodeKind::Text(t) => ctx.measurer.text_width(t, parent_font, false, false),
         _ => 0.0,
     }
 }
@@ -745,7 +751,7 @@ fn layout_children_horizontal(
             if text.trim().is_empty() {
                 continue;
             }
-            let w = ctx.measurer.text_width(&text, font_size, false);
+            let w = ctx.measurer.text_width(&text, font_size, false, false);
             let h = ctx.measurer.line_height(font_size);
             let cur = lines.last_mut().unwrap();
             let with_gap = if cur.is_empty() { 0.0 } else { gap };
@@ -815,6 +821,7 @@ fn layout_children_horizontal(
                     color,
                     size: font_size,
                     mono: false,
+                    bold: css.bold.unwrap_or(false),
                 });
             } else {
                 // o filho resolve seu próprio width contra o container (%).
@@ -922,7 +929,7 @@ fn child_outer_width(dom: &Dom, id: NodeIdx, container_w: f32, parent_font: f32,
                 None => content_natural_width(dom, id, font, ctx) + frame,
             }
         }
-        NodeKind::Text(t) => ctx.measurer.text_width(t, parent_font, false),
+        NodeKind::Text(t) => ctx.measurer.text_width(t, parent_font, false, false),
         _ => 0.0,
     }
 }
@@ -969,17 +976,20 @@ fn layout_inline_line(
     let lines = wrap_runs(&runs, wrap_w, font_size, mono, ctx.measurer);
     let mut cy = y;
     for line in &lines {
-        // largura total da linha (soma dos pedaços) p/ o text-align.
-        let line_w: f32 = line.iter().map(|seg| ctx.measurer.text_width(&seg.text, font_size, mono)).sum();
+        // largura total da linha (soma dos pedaços, cada um no SEU peso) p/ text-align.
+        let line_w: f32 = line
+            .iter()
+            .map(|seg| ctx.measurer.text_width(&seg.text, font_size, mono, seg.bold))
+            .sum();
         let free = (content_w - line_w).max(0.0);
         let mut seg_x = match parent_css.text_align {
             Some(crate::style::TextAlign::Right) => x + free,
             Some(crate::style::TextAlign::Center) => x + free / 2.0,
             _ => x, // left/justify
         };
-        // pinta cada pedaço NA SUA COR, avançando o x.
+        // pinta cada pedaço NA SUA COR e PESO, avançando o x.
         for seg in line {
-            let w = ctx.measurer.text_width(&seg.text, font_size, mono);
+            let w = ctx.measurer.text_width(&seg.text, font_size, mono, seg.bold);
             list.items.push(DisplayItem::Text {
                 x: seg_x,
                 y: cy,
@@ -987,6 +997,7 @@ fn layout_inline_line(
                 color: seg.color,
                 size: font_size,
                 mono,
+                bold: seg.bold,
             });
             seg_x += w;
         }
@@ -995,10 +1006,11 @@ fn layout_inline_line(
     cy
 }
 
-/// Um pedaço de texto inline com seu estilo resolvido (cor herdada do span pai).
+/// Um pedaço de texto inline com seu estilo resolvido (cor/peso herdados do span pai).
 struct InlineRun {
     text: String,
     color: u32,
+    bold: bool,
 }
 
 /// Coleta os RUNS de texto de `id` em ordem de documento, cada um com a COR efetiva
@@ -1008,7 +1020,14 @@ struct InlineRun {
 /// a valer no texto.
 fn collect_runs(dom: &Dom, id: NodeIdx, parent_css: &ComputedStyle) -> Vec<InlineRun> {
     let mut runs = Vec::new();
-    walk(dom, id, parent_css.color.unwrap_or(0x000000FF), parent_css.text_transform, &mut runs);
+    walk(
+        dom,
+        id,
+        parent_css.color.unwrap_or(0x000000FF),
+        parent_css.text_transform,
+        parent_css.bold.unwrap_or(false),
+        &mut runs,
+    );
     return runs;
 
     fn walk(
@@ -1016,6 +1035,7 @@ fn collect_runs(dom: &Dom, id: NodeIdx, parent_css: &ComputedStyle) -> Vec<Inlin
         id: NodeIdx,
         inherited_color: u32,
         inherited_tt: Option<crate::style::TextTransform>,
+        inherited_bold: bool,
         out: &mut Vec<InlineRun>,
     ) {
         match &dom.node(id).kind {
@@ -1024,15 +1044,16 @@ fn collect_runs(dom: &Dom, id: NodeIdx, parent_css: &ComputedStyle) -> Vec<Inlin
                     Some(tt) => tt.apply(t),
                     None => t.clone(),
                 };
-                out.push(InlineRun { text, color: inherited_color });
+                out.push(InlineRun { text, color: inherited_color, bold: inherited_bold });
             }
             NodeKind::Element { .. } => {
-                // a cor/text-transform DESTE inline (se declarar) vence p/ os filhos.
+                // a cor/text-transform/peso DESTE inline (se declarar) vence p/ os filhos.
                 let css = dom.computed_style_idx(id);
                 let color = css.as_ref().and_then(|c| c.color).unwrap_or(inherited_color);
                 let tt = css.as_ref().and_then(|c| c.text_transform).or(inherited_tt);
+                let bold = css.as_ref().and_then(|c| c.bold).unwrap_or(inherited_bold);
                 for &c in &dom.node(id).children {
-                    walk(dom, c, color, tt, out);
+                    walk(dom, c, color, tt, bold, out);
                 }
             }
             _ => {}
@@ -1040,10 +1061,11 @@ fn collect_runs(dom: &Dom, id: NodeIdx, parent_css: &ComputedStyle) -> Vec<Inlin
     }
 }
 
-/// Um segmento de texto colorido posicionado numa linha (após o wrap).
+/// Um segmento de texto colorido/pesado posicionado numa linha (após o wrap).
 struct Segment {
     text: String,
     color: u32,
+    bold: bool,
 }
 
 /// Quebra uma sequência de RUNS coloridos em LINHAS por palavra (word-wrap), juntando
@@ -1057,7 +1079,7 @@ fn wrap_runs(
     mono: bool,
     m: &dyn TextMeasurer,
 ) -> Vec<Vec<Segment>> {
-    let space_w = m.text_width(" ", font_size, mono);
+    let space_w = m.text_width(" ", font_size, mono, false);
     let mut lines: Vec<Vec<Segment>> = Vec::new();
     let mut cur: Vec<Segment> = Vec::new();
     let mut cur_w = 0.0f32;
@@ -1065,7 +1087,7 @@ fn wrap_runs(
 
     for run in runs {
         for word in run.text.split_whitespace() {
-            let ww = m.text_width(word, font_size, mono);
+            let ww = m.text_width(word, font_size, mono, run.bold);
             let need = if at_line_start { ww } else { space_w + ww };
             if !at_line_start && cur_w + need > max_w {
                 // não cabe: fecha a linha.
@@ -1075,15 +1097,15 @@ fn wrap_runs(
             }
             // adiciona a palavra (com espaço antes, se não for início de linha).
             let piece = if at_line_start { word.to_string() } else { format!(" {word}") };
-            // junta no último segmento se mesma cor, senão novo segmento.
+            // junta no último segmento se mesma cor E peso, senão novo segmento.
             if let Some(last) = cur.last_mut() {
-                if last.color == run.color {
+                if last.color == run.color && last.bold == run.bold {
                     last.text.push_str(&piece);
                 } else {
-                    cur.push(Segment { text: piece, color: run.color });
+                    cur.push(Segment { text: piece, color: run.color, bold: run.bold });
                 }
             } else {
-                cur.push(Segment { text: piece, color: run.color });
+                cur.push(Segment { text: piece, color: run.color, bold: run.bold });
             }
             cur_w += need;
             at_line_start = false;
@@ -1093,7 +1115,7 @@ fn wrap_runs(
         lines.push(cur);
     }
     if lines.is_empty() {
-        lines.push(vec![Segment { text: String::new(), color: 0 }]);
+        lines.push(vec![Segment { text: String::new(), color: 0, bold: false }]);
     }
     lines
 }
@@ -1106,9 +1128,9 @@ fn wrap_text(text: &str, max_w: f32, font_size: f32, mono: bool, m: &dyn TextMea
     let mut lines = Vec::new();
     let mut current = String::new();
     let mut current_w = 0.0f32;
-    let space_w = m.text_width(" ", font_size, mono);
+    let space_w = m.text_width(" ", font_size, mono, false);
     for word in text.split_whitespace() {
-        let word_w = m.text_width(word, font_size, mono);
+        let word_w = m.text_width(word, font_size, mono, false);
         if current.is_empty() {
             current.push_str(word);
             current_w = word_w;

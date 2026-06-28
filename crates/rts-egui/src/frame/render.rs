@@ -31,20 +31,30 @@ struct EguiMeasurer<'a> {
 }
 
 impl<'a> EguiMeasurer<'a> {
-    fn font_id(size: f32, mono: bool) -> egui::FontId {
-        let family = if mono { egui::FontFamily::Monospace } else { egui::FontFamily::Proportional };
-        egui::FontId::new(size, family)
+    /// A família egui p/ (mono, bold): bold vence (família nomeada "bold"); senão
+    /// mono → Monospace; senão Proportional. Casa medição com pintura.
+    fn family(mono: bool, bold: bool) -> egui::FontFamily {
+        if bold {
+            egui::FontFamily::Name("bold".into())
+        } else if mono {
+            egui::FontFamily::Monospace
+        } else {
+            egui::FontFamily::Proportional
+        }
+    }
+    fn font_id(size: f32, mono: bool, bold: bool) -> egui::FontId {
+        egui::FontId::new(size, Self::family(mono, bold))
     }
 }
 
 impl<'a> TextMeasurer for EguiMeasurer<'a> {
-    fn text_width(&self, text: &str, size: f32, mono: bool) -> f32 {
-        let font = Self::font_id(size, mono);
+    fn text_width(&self, text: &str, size: f32, mono: bool, bold: bool) -> f32 {
+        let font = Self::font_id(size, mono, bold);
         // `fonts_mut` dá um `&mut FontsView` (glyph_width exige `&mut`).
         self.ctx.fonts_mut(|f| text.chars().map(|c| f.glyph_width(&font, c)).sum())
     }
     fn line_height(&self, size: f32) -> f32 {
-        let font = Self::font_id(size, false);
+        let font = Self::font_id(size, false, false);
         self.ctx.fonts_mut(|f| f.row_height(&font))
     }
 }
@@ -95,8 +105,15 @@ fn paint_list(ui: &mut egui::Ui, list: &DisplayList) {
                     egui::StrokeKind::Inside,
                 );
             }
-            DisplayItem::Text { x, y, text, color, size, mono } => {
-                let family = if *mono { egui::FontFamily::Monospace } else { egui::FontFamily::Proportional };
+            DisplayItem::Text { x, y, text, color, size, mono, bold } => {
+                // bold vence (família "bold"); senão mono → Monospace; senão Proportional.
+                let family = if *bold {
+                    egui::FontFamily::Name("bold".into())
+                } else if *mono {
+                    egui::FontFamily::Monospace
+                } else {
+                    egui::FontFamily::Proportional
+                };
                 painter.text(
                     origin + egui::vec2(*x, *y),
                     egui::Align2::LEFT_TOP,

@@ -175,6 +175,12 @@ fn install_ui_fonts(ctx: &egui::Context) {
         "C:/Windows/Fonts/consola.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
     ];
+    // fonte BOLD do sistema → família NOMEADA "bold" (font-weight:700). Medir/pintar
+    // bold com a fonte regular faz o texto estourar a linha (a bold é mais larga).
+    let bold = [
+        "C:/Windows/Fonts/segoeuib.ttf", // Segoe UI Bold (Windows)
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    ];
     let mut load = |paths: &[&str], name: &str, family: egui::FontFamily| -> bool {
         for p in paths {
             if let Ok(bytes) = std::fs::read(p) {
@@ -188,6 +194,7 @@ fn install_ui_fonts(ctx: &egui::Context) {
     };
     let got_prop = load(&proportional, "ui-sans", egui::FontFamily::Proportional);
     load(&monospace, "ui-mono", egui::FontFamily::Monospace);
+    load(&bold, "ui-bold", egui::FontFamily::Name("bold".into()));
     if got_prop {
         ctx.set_fonts(fonts);
     }
