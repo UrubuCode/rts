@@ -112,18 +112,34 @@ impl Visit for ThisFieldCollector {
     fn visit_class(&mut self, _node: &swc_ecma_ast::Class) {}
 }
 
-/// `Some("x")` iff `target` is exactly `this.x` (a simple member of `this` with an
+/// `Some("x")` iff `target` is exactly `this.x` / `(this as any).x` (a simple
+/// member of `this`, with `this` possibly wrapped in `as`/parens, and an
 /// identifier key); `None` otherwise (`this[expr]`, `a.x`, a bare ident, …).
 fn this_member_field(target: &swc_ecma_ast::AssignTarget) -> Option<String> {
-    use swc_ecma_ast::{AssignTarget, Expr, MemberProp, SimpleAssignTarget};
+    use swc_ecma_ast::{AssignTarget, MemberProp, SimpleAssignTarget};
     let AssignTarget::Simple(SimpleAssignTarget::Member(m)) = target else {
         return None;
     };
-    if !matches!(*m.obj, Expr::This(_)) {
+    if !is_this_expr(&m.obj) {
         return None;
     }
     match &m.prop {
         MemberProp::Ident(id) => Some(id.sym.to_string()),
         _ => None,
+    }
+}
+
+/// Whether `e` is `this`, possibly wrapped in `(…)` / `… as T` / `<T>…` casts
+/// (`(this as any)`, `(this)`, `this!`) — all of which preserve the `this` value.
+fn is_this_expr(e: &swc_ecma_ast::Expr) -> bool {
+    use swc_ecma_ast::Expr;
+    match e {
+        Expr::This(_) => true,
+        Expr::Paren(p) => is_this_expr(&p.expr),
+        Expr::TsAs(a) => is_this_expr(&a.expr),
+        Expr::TsConstAssertion(a) => is_this_expr(&a.expr),
+        Expr::TsNonNull(a) => is_this_expr(&a.expr),
+        Expr::TsTypeAssertion(a) => is_this_expr(&a.expr),
+        _ => false,
     }
 }
