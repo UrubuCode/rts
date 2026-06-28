@@ -148,6 +148,86 @@ impl DisplayKind {
     }
 }
 
+/// `justify-content` — distribuição dos itens no EIXO PRINCIPAL do flex. Default
+/// `FlexStart`. Egui-free.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum JustifyContent {
+    FlexStart,
+    FlexEnd,
+    Center,
+    SpaceBetween,
+    SpaceAround,
+    SpaceEvenly,
+}
+
+impl JustifyContent {
+    pub fn parse(v: &str) -> Option<JustifyContent> {
+        Some(match v.trim().to_ascii_lowercase().as_str() {
+            "flex-start" | "start" | "normal" | "left" => JustifyContent::FlexStart,
+            "flex-end" | "end" | "right" => JustifyContent::FlexEnd,
+            "center" => JustifyContent::Center,
+            "space-between" => JustifyContent::SpaceBetween,
+            "space-around" => JustifyContent::SpaceAround,
+            "space-evenly" => JustifyContent::SpaceEvenly,
+            _ => return None,
+        })
+    }
+}
+
+/// `align-items` — alinhamento dos itens no EIXO CRUZADO. Default `Stretch`. (baseline
+/// fica de fora desta fase — sem inline-flow rico.) Egui-free.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AlignItems {
+    /// ⚠️ CORTE: o layout trata `Stretch` como `FlexStart` (item mantém a altura
+    /// natural, NÃO estica até a altura da linha). É o DEFAULT do flex — ver a nota
+    /// de cortes no topo de `layout.rs::align_offset`.
+    Stretch,
+    FlexStart,
+    FlexEnd,
+    Center,
+}
+
+impl AlignItems {
+    pub fn parse(v: &str) -> Option<AlignItems> {
+        Some(match v.trim().to_ascii_lowercase().as_str() {
+            "stretch" | "normal" => AlignItems::Stretch,
+            "flex-start" | "start" | "self-start" => AlignItems::FlexStart,
+            "flex-end" | "end" | "self-end" => AlignItems::FlexEnd,
+            "center" => AlignItems::Center,
+            _ => return None,
+        })
+    }
+}
+
+/// `flex-direction` — qual eixo é o principal. Default `Row`. Egui-free.
+/// ⚠️ CORTE: o layout hoje SÓ honra `Row`. `Column`/`RowReverse`/`ColumnReverse`
+/// são parseados e mesclados (cascade pronta) mas o `layout_block` dispõe sempre em
+/// row — ver a nota de cortes no topo de `layout.rs`. Generalização por eixo é fatia
+/// futura.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FlexDirection {
+    Row,
+    RowReverse,
+    Column,
+    ColumnReverse,
+}
+
+impl FlexDirection {
+    pub fn parse(v: &str) -> Option<FlexDirection> {
+        Some(match v.trim().to_ascii_lowercase().as_str() {
+            "row" => FlexDirection::Row,
+            "row-reverse" => FlexDirection::RowReverse,
+            "column" => FlexDirection::Column,
+            "column-reverse" => FlexDirection::ColumnReverse,
+            _ => return None,
+        })
+    }
+    /// `true` se o eixo principal é VERTICAL (column / column-reverse).
+    pub fn is_column(self) -> bool {
+        matches!(self, FlexDirection::Column | FlexDirection::ColumnReverse)
+    }
+}
+
 /// O contexto de resolução de uma [`Dimension`] relativa, conhecido só no
 /// render. Cada unidade resolve contra um eixo diferente (north-star risco 5: a
 /// resolução de `%`/`em`/`vw`/… é TARDIA, no layout, não no parse). Egui-free.
@@ -307,6 +387,19 @@ pub struct ComputedStyle {
     /// `flex-wrap: wrap` — só relevante com `display:flex`; promove `Flex` a
     /// `FlexWrap` na resolução. `None`/`Some(false)` = nowrap.
     pub flex_wrap: Option<bool>,
+    /// `justify-content` — distribuição no eixo principal do flex. `None` = FlexStart.
+    pub justify: Option<JustifyContent>,
+    /// `align-items` — alinhamento no eixo cruzado. `None` = Stretch.
+    pub align_items: Option<AlignItems>,
+    /// `gap`/`column-gap` — espaço FIXO entre itens no eixo principal (em row).
+    pub gap: Option<Dimension>,
+    /// `row-gap` — espaço entre LINHAS no wrap (eixo cruzado em row).
+    pub row_gap: Option<Dimension>,
+    /// `flex-direction` — eixo principal (row/column). `None` = Row.
+    pub flex_direction: Option<FlexDirection>,
+    /// `height` — altura explícita da caixa. `None` = auto (altura do conteúdo).
+    /// Necessária para align-items:stretch ter cross-size de referência e p/ flex-column.
+    pub height: Option<Dimension>,
 }
 
 impl ComputedStyle {
@@ -369,6 +462,24 @@ impl ComputedStyle {
         }
         if other.flex_wrap.is_some() {
             self.flex_wrap = other.flex_wrap;
+        }
+        if other.justify.is_some() {
+            self.justify = other.justify;
+        }
+        if other.align_items.is_some() {
+            self.align_items = other.align_items;
+        }
+        if other.gap.is_some() {
+            self.gap = other.gap;
+        }
+        if other.row_gap.is_some() {
+            self.row_gap = other.row_gap;
+        }
+        if other.flex_direction.is_some() {
+            self.flex_direction = other.flex_direction;
+        }
+        if other.height.is_some() {
+            self.height = other.height;
         }
     }
 
@@ -785,6 +896,19 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             "display" => css.display = parse_display(val),
             // `flex-wrap` — combina com display:flex para promover a FlexWrap.
             "flex-wrap" => css.flex_wrap = Some(val.eq_ignore_ascii_case("wrap")),
+            // ── Flexbox: alinhamento + gap + direção ──────────────────────────────
+            "justify-content" => css.justify = JustifyContent::parse(val),
+            "align-items" => css.align_items = AlignItems::parse(val),
+            "flex-direction" => css.flex_direction = FlexDirection::parse(val),
+            "column-gap" => css.gap = parse_dimension(val),
+            "row-gap" => css.row_gap = parse_dimension(val),
+            // `gap: <row> <col>` (1 valor = ambos; 2 = row col).
+            "gap" => {
+                let (rg, cg) = parse_gap_pair(val);
+                css.row_gap = rg;
+                css.gap = cg;
+            }
+            "height" => css.height = parse_dimension(val),
             _ => {}
         }
     }
@@ -891,6 +1015,20 @@ fn parse_border_width_token(tok: &str) -> Option<f32> {
         "medium" => Some(3.0),
         "thick" => Some(5.0),
         _ => parse_px(tok),
+    }
+}
+
+/// Parseia o shorthand `gap: <row-gap> <column-gap>` → `(row_gap, column_gap)`.
+/// 1 valor = ambos iguais; 2 valores = row primeiro (ordem CSS). Reusa parse_dimension.
+fn parse_gap_pair(val: &str) -> (Option<Dimension>, Option<Dimension>) {
+    let parts: Vec<&str> = val.split_whitespace().collect();
+    match parts.as_slice() {
+        [a] => {
+            let d = parse_dimension(a);
+            (d, d)
+        }
+        [r, c] => (parse_dimension(r), parse_dimension(c)),
+        _ => (None, None),
     }
 }
 
