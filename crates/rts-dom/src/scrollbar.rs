@@ -29,6 +29,11 @@ pub enum Overflow {
 }
 
 impl Overflow {
+    /// Parseia um valor de `overflow` do CSS. Público p/ o ComputedStyle (qualquer
+    /// div) usar, além da resolução de página.
+    pub fn parse_str(v: &str) -> Option<Overflow> {
+        Self::parse(v)
+    }
     fn parse(v: &str) -> Option<Overflow> {
         Some(match v.trim() {
             "visible" => Overflow::Visible,
