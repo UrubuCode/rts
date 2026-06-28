@@ -195,14 +195,25 @@ fn layout_block(
     };
 
     // ── Box model (content-box): resolve as bordas/espaços absolutos ─────────────
-    // Margin separado por eixo (fiel ao CSS): `margin` (autor, 4 lados) conta nos
-    // DOIS eixos; `margin_v` (UA-stylesheet, só vertical) conta SÓ no vertical —
-    // assim um `<h1>` com margem default não desloca no eixo horizontal (no Chrome
-    // `h1` é `margin: Npx 0`). `margin_h` desloca o x; `margin_y` empilha no y.
-    let margin_h = css.margin.unwrap_or(0.0);
-    let margin_y = margin_h + css.margin_v.unwrap_or(0.0);
-    let padding = css.padding.unwrap_or(0.0);
+    // Margin/padding POR LADO (Edges). O `margin_v` (UA-stylesheet, só vertical) é
+    // somado ao top/bottom. `margin_left/right` deslocam no x; o vertical empilha.
+    // (auto vira 0 aqui — o auto de centralização é resolução futura, #1745.)
+    let m = &css.margin;
+    let p = &css.padding;
+    let margin_left = m.left.px().unwrap_or(0.0);
+    let margin_right = m.right.px().unwrap_or(0.0);
+    let margin_v_extra = css.margin_v.unwrap_or(0.0);
+    let margin_top = m.top.px().unwrap_or(0.0) + margin_v_extra;
+    let margin_bottom = m.bottom.px().unwrap_or(0.0) + margin_v_extra;
+    let pad_left = p.left.px().unwrap_or(0.0);
+    let pad_right = p.right.px().unwrap_or(0.0);
+    let pad_top = p.top.px().unwrap_or(0.0);
+    let pad_bottom = p.bottom.px().unwrap_or(0.0);
     let border = css.border_width.unwrap_or(0.0);
+    // Atalhos para o eixo (horizontal = left+right): a maioria do box model usa o
+    // total por eixo. (`margin_h`/`padding_h` = soma do eixo horizontal.)
+    let margin_h = margin_left + margin_right;
+    let padding_h = pad_left + pad_right;
 
     // Largura do CONTENT: `width` explícito (px/% resolvido contra `avail_w`), ou
     // o que sobra do container menos margin+border+padding dos dois lados (block
@@ -214,14 +225,16 @@ fn layout_block(
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
-    let frame = 2.0 * (margin_h + border + padding);
+    // `frame` horizontal = o que cerca o content no eixo X (margin+border+padding
+    // dos DOIS lados). border conta 2× (left+right); padding/margin já são a soma.
+    let frame = margin_h + 2.0 * border + padding_h;
     let font_for_content = css.font_size.unwrap_or(DEFAULT_FONT_SIZE);
     let border_box = css.border_box.unwrap_or(false);
     let content_w = match css.width.and_then(|d| d.resolve(&resolve)) {
         // `width` explícito. Em `border-box`, o `width` INCLUI padding+border —
-        // então o content é `width - 2*(pad+border)` (a caixa terá exatamente
-        // `width`). Em content-box (default), o `width` JÁ é o content.
-        Some(w) if border_box => (w - 2.0 * (padding + border)).max(0.0),
+        // então o content é `width - (padding_h + 2*border)`. Em content-box
+        // (default), o `width` JÁ é o content.
+        Some(w) if border_box => (w - (padding_h + 2.0 * border)).max(0.0),
         Some(w) => w,
         // Sem width: shrink-to-fit → largura do conteúdo (limitada ao disponível);
         // senão (fluxo block normal) → ocupa a largura disponível.
@@ -231,9 +244,10 @@ fn layout_block(
         None => (avail_w - frame).max(0.0),
     };
 
-    // Posição do content-box (canto sup-esq), deslocado por margin+border+padding.
-    let content_x = x + margin_h + border + padding;
-    let content_y = y + margin_y + border + padding;
+    // Posição do content-box (canto sup-esq): deslocado pelo lado ESQUERDO/TOPO
+    // (margin+border+padding daquele lado), não a soma do eixo.
+    let content_x = x + margin_left + border + pad_left;
+    let content_y = y + margin_top + border + pad_top;
 
     // Z-ORDER: o fundo/borda da caixa precisam ficar ATRÁS dos filhos. Como a
     // display list é pintada em ordem, reservamos AGORA o índice onde a caixa será
@@ -264,10 +278,10 @@ fn layout_block(
     // O BORDER-BOX do nó: content + padding + border (NÃO a margin — esta é espaço
     // externo). É o retângulo que `getBoundingClientRect()` reporta.
     let box_rect = Rect::new(
-        x + margin_h,
-        y + margin_y,
-        content_w + 2.0 * (border + padding),
-        content_h + 2.0 * (border + padding),
+        x + margin_left,
+        y + margin_top,
+        content_w + padding_h + 2.0 * border,
+        content_h + pad_top + pad_bottom + 2.0 * border,
     );
     // Registra a geometria deste nó (base do getBoundingClientRect/offsetWidth).
     list.node_rects.insert(id, box_rect);
@@ -293,10 +307,11 @@ fn layout_block(
         }
     }
 
-    // Tamanho EXTERNO da caixa (outer = content + padding + border + margin) — por
-    // eixo: largura usa margin_h, altura usa margin_y (que inclui o margin_v da UA).
-    let outer_w = content_w + 2.0 * (border + padding + margin_h);
-    let outer_h = content_h + 2.0 * (border + padding + margin_y);
+    // Tamanho EXTERNO da caixa (outer = content + padding + border + margin) — cada
+    // componente já é a SOMA do seu eixo (padding_h = left+right; margin_h idem;
+    // border conta 2× pelos dois lados). Não multiplicar margin/padding por 2.
+    let outer_w = content_w + padding_h + 2.0 * border + margin_h;
+    let outer_h = content_h + pad_top + pad_bottom + 2.0 * border + margin_top + margin_bottom;
     (outer_w, outer_h)
 }
 
@@ -321,7 +336,7 @@ fn content_natural_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -> 
             NodeKind::Element { .. } if is_block_level(dom, child) => {
                 let css = dom.computed_style_idx(child).unwrap_or_default();
                 let f = css.font_size.unwrap_or(font);
-                let frame = 2.0 * (css.margin.unwrap_or(0.0) + css.border_width.unwrap_or(0.0) + css.padding.unwrap_or(0.0));
+                let frame = css.margin.horizontal_px() + 2.0 * css.border_width.unwrap_or(0.0) + css.padding.horizontal_px();
                 content_natural_width(dom, child, f, ctx) + frame
             }
             NodeKind::Text(t) => ctx.measurer.text_width(t, font, false),
@@ -408,9 +423,10 @@ fn layout_children_vertical(
             // vazam pra tela). Checado ANTES do caminho inline.
             NodeKind::Element { tag } if is_non_rendered_tag(tag) => {}
             NodeKind::Element { .. } if is_block_level(dom, child) => {
-                // margin VERTICAL do filho (margin 4-lados + margin_v da UA).
+                // margin VERTICAL TOP do filho (para o collapse com o anterior):
+                // margin.top + margin_v da UA.
                 let m = dom.computed_style_idx(child)
-                    .map(|c| c.margin.unwrap_or(0.0) + c.margin_v.unwrap_or(0.0))
+                    .map(|c| c.margin.top.px().unwrap_or(0.0) + c.margin_v.unwrap_or(0.0))
                     .unwrap_or(0.0);
                 // Colapsa com o bloco anterior: recua o overlap antes de posicionar.
                 child_y -= prev_margin.min(m);
@@ -519,7 +535,8 @@ fn child_outer_width(dom: &Dom, id: NodeIdx, container_w: f32, parent_font: f32,
         NodeKind::Element { .. } if is_block_level(dom, id) => {
             let css = dom.computed_style_idx(id).unwrap_or_default();
             let font = css.font_size.unwrap_or(parent_font);
-            let frame = 2.0 * (css.margin.unwrap_or(0.0) + css.border_width.unwrap_or(0.0) + css.padding.unwrap_or(0.0));
+            // frame horizontal = margin_h + 2*border + padding_h (cada já é o eixo).
+            let frame = css.margin.horizontal_px() + 2.0 * css.border_width.unwrap_or(0.0) + css.padding.horizontal_px();
             let resolve = ResolveCtx {
                 parent_content_w: container_w,
                 node_font_size: font,
@@ -531,7 +548,7 @@ fn child_outer_width(dom: &Dom, id: NodeIdx, container_w: f32, parent_font: f32,
             // não soma pad/border de novo; só a margin. Em content-box, soma o frame.
             match css.width.and_then(|d| d.resolve(&resolve)) {
                 Some(w) if css.border_box.unwrap_or(false) => {
-                    w + 2.0 * css.margin.unwrap_or(0.0)
+                    w + css.margin.horizontal_px()
                 }
                 Some(w) => w + frame,
                 None => content_natural_width(dom, id, font, ctx) + frame,
