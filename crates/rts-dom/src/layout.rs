@@ -459,7 +459,7 @@ fn layout_children_vertical(
                 prev_margin = m;
             }
             _ => {
-                child_y = layout_inline_line(dom, child, content_x, child_y, css, font_size, ctx, list);
+                child_y = layout_inline_line(dom, child, content_x, child_y, content_w, css, font_size, ctx, list);
                 prev_margin = 0.0; // texto inline quebra a sequência de collapse.
             }
         }
@@ -727,18 +727,41 @@ fn layout_inline_line(
     id: NodeIdx,
     x: f32,
     y: f32,
+    content_w: f32,
     parent_css: &ComputedStyle,
     font_size: f32,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
-    let text = collect_text(dom, id);
+    let mut text = collect_text(dom, id);
     if text.trim().is_empty() {
         return y;
     }
+    // text-transform: aplica a caixa (uppercase/lowercase/capitalize) — #1749.
+    if let Some(tt) = parent_css.text_transform {
+        text = tt.apply(&text);
+    }
     let color = parent_css.color.unwrap_or(0x000000FF);
-    let lh = ctx.measurer.line_height(font_size);
-    list.items.push(DisplayItem::Text { x, y, text, color, size: font_size, mono: false });
+    let mono = parent_css
+        .font_family
+        .as_deref()
+        .map(crate::style::is_mono_family)
+        .unwrap_or(false);
+    // line-height: do CSS (multiplicador ou px), senão o default do measurer — #1749.
+    let lh = parent_css
+        .line_height
+        .map(|l| l.resolve(font_size))
+        .unwrap_or_else(|| ctx.measurer.line_height(font_size));
+    // text-align: desloca o x conforme o espaço livre (content_w - largura do texto).
+    let text_w = ctx.measurer.text_width(&text, font_size, mono);
+    let free = (content_w - text_w).max(0.0);
+    let text_x = match parent_css.text_align {
+        Some(crate::style::TextAlign::Right) => x + free,
+        Some(crate::style::TextAlign::Center) => x + free / 2.0,
+        // justify (sem espaçamento entre palavras por ora) e left ficam no x.
+        _ => x,
+    };
+    list.items.push(DisplayItem::Text { x: text_x, y, text, color, size: font_size, mono });
     y + lh
 }
 
@@ -989,6 +1012,45 @@ mod tests {
         let last = rects[2];
         assert!(last.x + last.w <= 1000.0, "cabem todos: {rects:?}");
         assert!(1000.0 - (last.x + last.w) >= 30.0, "sobra espaço à direita: {rects:?}");
+    }
+
+    #[test]
+    fn text_align_desloca_o_texto() {
+        // text-align center/right desloca o texto pelo espaço livre (#1749).
+        let dom = parse_html_to_dom("<style>#c{text-align:center;width:400px}#r{text-align:right;width:400px}</style><div id=\"c\">x</div><div id=\"r\">y</div>");
+        let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let texts: Vec<(String, f32)> = list.items.iter().filter_map(|it| match it {
+            DisplayItem::Text { text, x, .. } => Some((text.clone(), *x)),
+            _ => None,
+        }).collect();
+        // "x" (1 char, ~10px de largura) centrado em 400 → x ≈ (400-10)/2 = 195.
+        let cx = texts.iter().find(|(t, _)| t == "x").unwrap().1;
+        assert!((cx - 195.0).abs() < 2.0, "center: {cx}");
+        // "y" à direita → x ≈ 400-10 = 390.
+        let rx = texts.iter().find(|(t, _)| t == "y").unwrap().1;
+        assert!((rx - 390.0).abs() < 2.0, "right: {rx}");
+    }
+
+    #[test]
+    fn line_height_e_text_transform() {
+        // line-height do CSS respeitado + text-transform aplicado (#1749). Usa <div>
+        // (sem margin default da UA, ao contrário de <p>) p/ isolar o line-height.
+        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        let dom = parse_html_to_dom("<style>div{line-height:3;text-transform:uppercase}</style><div>oi</div><div>tchau</div>");
+        let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let texts: Vec<(String, f32)> = list.items.iter().filter_map(|it| match it {
+            DisplayItem::Text { text, y, .. } => Some((text.clone(), *y)),
+            _ => None,
+        }).collect();
+        // uppercase aplicado.
+        assert!(texts.iter().any(|(t, _)| t == "OI"));
+        assert!(texts.iter().any(|(t, _)| t == "TCHAU"));
+        // line-height:3 = 3×20 = 60px entre as linhas (div sem margin).
+        let y_oi = texts.iter().find(|(t, _)| t == "OI").unwrap().1;
+        let y_tchau = texts.iter().find(|(t, _)| t == "TCHAU").unwrap().1;
+        assert!((y_tchau - y_oi - 60.0).abs() < 5.0, "line-height: {y_oi} → {y_tchau}");
     }
 
     #[test]
