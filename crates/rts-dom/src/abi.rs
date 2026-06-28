@@ -684,6 +684,71 @@ pub extern "C" fn __RTS_FN_NS_DOM_REMOVE_STYLE_PROPERTY(h: u64, id: i64, n_ptr: 
     with_mut(h, |dom| dom.remove_style_property(node, &name));
 }
 
+// ── Eventos (#1760) — polling + bubbling ─────────────────────────────────────────
+// `poll_event` devolve (NodeId, tipo). Como a ABI retorna um escalar por chamada, o
+// `pollEvent` avança a fila e GUARDA o tipo num thread_local; `pollEventType` lê
+// esse tipo logo após. O loop TS: `n = pollEvent(); if (n>=0) { t = pollEventType(); ... }`.
+thread_local! {
+    static LAST_EVENT_TYPE: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+}
+
+/// `addListener(domHandle, node, type)` → registra que o nó escuta o tipo.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_ADD_LISTENER(h: u64, id: i64, t_ptr: *const u8, t_len: i64) {
+    let Some(node) = NodeId::from_abi(id) else { return };
+    let t = unsafe { str_abi::from_abi(t_ptr, t_len) }.unwrap_or("").to_string();
+    with_mut(h, |dom| dom.add_event_listener(node, &t));
+}
+
+/// `removeListener(domHandle, node, type)` → para de escutar o tipo.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_REMOVE_LISTENER(h: u64, id: i64, t_ptr: *const u8, t_len: i64) {
+    let Some(node) = NodeId::from_abi(id) else { return };
+    let t = unsafe { str_abi::from_abi(t_ptr, t_len) }.unwrap_or("").to_string();
+    with_mut(h, |dom| dom.remove_event_listener(node, &t));
+}
+
+/// `hasListener(domHandle, node, type)` → 1 se o nó escuta o tipo, 0 senão.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_HAS_LISTENER(h: u64, id: i64, t_ptr: *const u8, t_len: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return 0 };
+    let t = unsafe { str_abi::from_abi(t_ptr, t_len) }.unwrap_or("").to_string();
+    with(h, |dom| dom.has_listener(node, &t) as i64).unwrap_or(0)
+}
+
+/// `dispatchEvent(domHandle, target, type, bubbles)` → dispara; `bubbles!=0` sobe
+/// pelos ancestrais. Devolve quantos listeners foram enfileirados.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_DISPATCH_EVENT(h: u64, id: i64, t_ptr: *const u8, t_len: i64, bubbles: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return 0 };
+    let t = unsafe { str_abi::from_abi(t_ptr, t_len) }.unwrap_or("").to_string();
+    with_mut(h, |dom| dom.dispatch_event(node, &t, bubbles != 0)).unwrap_or(0)
+}
+
+/// `pollEvent(domHandle)` → NodeId do próximo evento pendente (ou -1 se a fila está
+/// vazia). GUARDA o tipo p/ `pollEventType` ler em seguida.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_POLL_EVENT(h: u64) -> i64 {
+    match with_mut(h, |dom| dom.poll_event()) {
+        Some(Some((node, t))) => {
+            LAST_EVENT_TYPE.with(|c| *c.borrow_mut() = t);
+            node.to_abi()
+        }
+        _ => {
+            LAST_EVENT_TYPE.with(|c| c.borrow_mut().clear());
+            NODE_NONE
+        }
+    }
+}
+
+/// `pollEventType(domHandle)` → o tipo do evento entregue no último `pollEvent` (""
+/// se nenhum). Ler imediatamente após `pollEvent`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_POLL_EVENT_TYPE(_h: u64) -> u64 {
+    let t = LAST_EVENT_TYPE.with(|c| c.borrow().clone());
+    intern(&t)
+}
+
 /// `getAttribute(domHandle, node, name)` → valor do atributo como STRING (handle
 /// do pool GC). Atributo ausente / nó inválido ⇒ `""` (a fachada TS converte ""
 /// para `null` se quiser semântica de browser).
@@ -1440,6 +1505,49 @@ pub fn register(e: &mut Engine) {
             "removeStyleProperty(dom: number, node: number, name: string): void",
             "el.style.removeProperty(name).",
             __RTS_FN_NS_DOM_REMOVE_STYLE_PROPERTY as *const u8,
+        ))
+        // ── Eventos (#1760) ─────────────────────────────────────────────────────
+        .member(func(
+            "addListener", "__RTS_FN_NS_DOM_ADD_LISTENER",
+            Sig::new(vec![Handle, I64, StrPtr], AbiType::Void),
+            "addListener(dom: number, node: number, type: string): void",
+            "element.addEventListener(type): register the node as listening for type.",
+            __RTS_FN_NS_DOM_ADD_LISTENER as *const u8,
+        ))
+        .member(func(
+            "removeListener", "__RTS_FN_NS_DOM_REMOVE_LISTENER",
+            Sig::new(vec![Handle, I64, StrPtr], AbiType::Void),
+            "removeListener(dom: number, node: number, type: string): void",
+            "element.removeEventListener(type).",
+            __RTS_FN_NS_DOM_REMOVE_LISTENER as *const u8,
+        ))
+        .member(func(
+            "hasListener", "__RTS_FN_NS_DOM_HAS_LISTENER",
+            Sig::new(vec![Handle, I64, StrPtr], I64),
+            "hasListener(dom: number, node: number, type: string): number",
+            "1 if the node listens for the type, 0 otherwise.",
+            __RTS_FN_NS_DOM_HAS_LISTENER as *const u8,
+        ))
+        .member(func(
+            "dispatchEvent", "__RTS_FN_NS_DOM_DISPATCH_EVENT",
+            Sig::new(vec![Handle, I64, StrPtr, I64], I64),
+            "dispatchEvent(dom: number, target: number, type: string, bubbles: number): number",
+            "element.dispatchEvent(type, bubbles): fire; bubbles!=0 propagates to ancestors.",
+            __RTS_FN_NS_DOM_DISPATCH_EVENT as *const u8,
+        ))
+        .member(func(
+            "pollEvent", "__RTS_FN_NS_DOM_POLL_EVENT",
+            Sig::new(vec![Handle], I64),
+            "pollEvent(dom: number): number",
+            "next pending event's NodeId (-1 if none); stores type for pollEventType.",
+            __RTS_FN_NS_DOM_POLL_EVENT as *const u8,
+        ))
+        .member(func(
+            "pollEventType", "__RTS_FN_NS_DOM_POLL_EVENT_TYPE",
+            Sig::new(vec![Handle], AbiType::Handle),
+            "pollEventType(dom: number): string",
+            "type of the event delivered by the last pollEvent ('' if none).",
+            __RTS_FN_NS_DOM_POLL_EVENT_TYPE as *const u8,
         ))
         .member(func(
             "getAttribute",
