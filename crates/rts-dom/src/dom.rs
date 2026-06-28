@@ -1184,7 +1184,7 @@ mod tests {
         let div = dom.query(".c").unwrap();
         let s = dom.computed_style(div).unwrap();
         assert_eq!(s.color, Some(0x0000FFFF)); // inline vence o <style>
-        assert_eq!(s.padding, Some(10.0)); // padding só o <style> define
+        assert_eq!(s.padding.top, crate::style::Side::Px(10.0)); // padding só o <style> define
         // o <style> também vira NÓ no DOM (fiel), com o CSS como texto cru filho.
         let st = dom.query("style").unwrap();
         assert_eq!(dom.node_type(st), 1); // Element

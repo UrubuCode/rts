@@ -16,6 +16,72 @@
 /// Cor RGBA empacotada `0xRRGGBBAA` num `u32`. Tipo próprio (não `Color32`).
 pub type Rgba = u32;
 
+/// Valor de UM lado de margin/padding: um comprimento em pontos, `auto` (só faz
+/// sentido em margin — centralização), ou não-especificado. Egui-free.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub enum Side {
+    /// Não especificado (herda o default / 0 efetivo).
+    #[default]
+    Unset,
+    /// Comprimento absoluto em pontos.
+    Px(f32),
+    /// `auto` — margin que absorve o espaço livre (`margin: 0 auto` centraliza).
+    Auto,
+}
+
+impl Side {
+    /// O valor em pontos (Px), ou `None` para Unset/Auto (o layout decide).
+    pub fn px(self) -> Option<f32> {
+        match self {
+            Side::Px(v) => Some(v),
+            _ => None,
+        }
+    }
+    /// `true` se é `auto`.
+    pub fn is_auto(self) -> bool {
+        matches!(self, Side::Auto)
+    }
+}
+
+/// Os 4 lados de uma propriedade de caixa (margin/padding), no modelo do CSS
+/// (top/right/bottom/left). Um valor por lado, cada um `Side` (px/auto/unset).
+/// `merge_over` sobrepõe lado a lado (longhand vence shorthand na cascade).
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub struct Edges {
+    pub top: Side,
+    pub right: Side,
+    pub bottom: Side,
+    pub left: Side,
+}
+
+impl Edges {
+    /// Todos os 4 lados com o mesmo valor (shorthand de 1 valor).
+    pub fn all(v: Side) -> Edges {
+        Edges { top: v, right: v, bottom: v, left: v }
+    }
+    /// `true` se algum lado está especificado (≠ Unset) — gatilho de `has_box`.
+    pub fn any_set(&self) -> bool {
+        self.top != Side::Unset || self.right != Side::Unset
+            || self.bottom != Side::Unset || self.left != Side::Unset
+    }
+    /// Sobrepõe os lados ESPECIFICADOS de `other` sobre `self` (Unset não apaga).
+    pub fn merge_over(&mut self, other: &Edges) {
+        if other.top != Side::Unset { self.top = other.top; }
+        if other.right != Side::Unset { self.right = other.right; }
+        if other.bottom != Side::Unset { self.bottom = other.bottom; }
+        if other.left != Side::Unset { self.left = other.left; }
+    }
+    /// Valor horizontal efetivo (left+right em px, auto/unset = 0) — para somar à
+    /// largura. (O `auto` não soma largura; é resolvido à parte no layout.)
+    pub fn horizontal_px(&self) -> f32 {
+        self.left.px().unwrap_or(0.0) + self.right.px().unwrap_or(0.0)
+    }
+    /// Valor vertical efetivo (top+bottom em px).
+    pub fn vertical_px(&self) -> f32 {
+        self.top.px().unwrap_or(0.0) + self.bottom.px().unwrap_or(0.0)
+    }
+}
+
 /// Estilo de linha da borda (`border-style`). O DEFAULT do CSS é `None` (sem
 /// `border-style`, a borda não aparece). `Hidden` também não pinta. Os 3D
 /// (groove/ridge/inset/outset) são aproximados como sólido por ora (corte do egui).
@@ -204,10 +270,12 @@ pub struct ComputedStyle {
     pub bold: Option<bool>,
     pub italic: Option<bool>,
     // ── Box model (F2) — pontos (f32). `None` = não especificado. ───────────────
-    /// Espaço INTERNO entre a borda e o conteúdo (todos os lados).
-    pub padding: Option<f32>,
-    /// Espaço EXTERNO ao redor da caixa (todos os lados).
-    pub margin: Option<f32>,
+    /// Espaço INTERNO entre a borda e o conteúdo, POR LADO (`Edges`). O shorthand
+    /// `padding: a b c d` e os longhands `padding-top` etc. populam aqui.
+    pub padding: Edges,
+    /// Espaço EXTERNO ao redor da caixa, POR LADO (`Edges`). `auto` (centralização)
+    /// é marcado em `Edges` via o sentinela `Side::Auto`.
+    pub margin: Edges,
     /// Margem VERTICAL apenas (top/bottom), sem afetar o eixo horizontal. É o que
     /// a UA-stylesheet usa para separar blocos (`h1`/`p` têm `margin: Npx 0` — só
     /// vertical, o left/right é 0). Distinto de `margin` (4 lados, do autor via
@@ -247,8 +315,8 @@ impl ComputedStyle {
     /// nenhum, o render desenha direto (sem o overhead do Frame).
     pub fn has_box(&self) -> bool {
         self.bg.is_some()
-            || self.padding.is_some()
-            || self.margin.is_some()
+            || self.padding.any_set()
+            || self.margin.any_set()
             || self.border_width.is_some()
             || self.corner_radius.is_some()
             || self.width.is_some()
@@ -273,12 +341,8 @@ impl ComputedStyle {
         if other.italic.is_some() {
             self.italic = other.italic;
         }
-        if other.padding.is_some() {
-            self.padding = other.padding;
-        }
-        if other.margin.is_some() {
-            self.margin = other.margin;
-        }
+        self.padding.merge_over(&other.padding);
+        self.margin.merge_over(&other.margin);
         if other.margin_v.is_some() {
             self.margin_v = other.margin_v;
         }
@@ -326,8 +390,10 @@ impl ComputedStyle {
             SLOT_COLOR => self.color.map(|c| c as i64).unwrap_or(-1),
             SLOT_BG => self.bg.map(|c| c as i64).unwrap_or(-1),
             SLOT_FONT_SIZE => dim(self.font_size),
-            SLOT_PADDING => dim(self.padding),
-            SLOT_MARGIN => dim(self.margin),
+            // o slot opaco reporta o lado `top` como representante (compat com o
+            // shorthand de 1 valor que a camada TS usa via defineStyle/setStyle).
+            SLOT_PADDING => dim(self.padding.top.px()),
+            SLOT_MARGIN => dim(self.margin.top.px()),
             SLOT_MARGIN_V => dim(self.margin_v),
             SLOT_BORDER_WIDTH => dim(self.border_width),
             SLOT_BORDER_COLOR => self.border_color.map(|c| c as i64).unwrap_or(-1),
@@ -407,8 +473,17 @@ impl ComputedStyle {
                     self.font_size = Some(f);
                 }
             }
-            SLOT_PADDING => self.padding = dim(val),
-            SLOT_MARGIN => self.margin = dim(val),
+            // slot opaco de 1 valor (defineStyle/setStyle) → os 4 lados iguais.
+            SLOT_PADDING => {
+                if let Some(p) = dim(val) {
+                    self.padding = Edges::all(Side::Px(p));
+                }
+            }
+            SLOT_MARGIN => {
+                if let Some(m) = dim(val) {
+                    self.margin = Edges::all(Side::Px(m));
+                }
+            }
             SLOT_MARGIN_V => self.margin_v = dim(val),
             SLOT_BORDER_WIDTH => self.border_width = dim(val),
             SLOT_BORDER_COLOR => self.border_color = Some(val as u32),
@@ -683,9 +758,18 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
                 css.italic =
                     Some(val.eq_ignore_ascii_case("italic") || val.eq_ignore_ascii_case("oblique"))
             }
-            // ── Box model (F2): px puro para as caixas; `width` aceita px OU `%`. ──
-            "padding" => css.padding = parse_px(val),
-            "margin" => css.margin = parse_px(val),
+            // ── Box model: shorthand 1/2/3/4 valores + longhands por lado. ─────────
+            "padding" => css.padding = parse_edges(val, false),
+            "padding-top" => css.padding.top = parse_side(val, false),
+            "padding-right" => css.padding.right = parse_side(val, false),
+            "padding-bottom" => css.padding.bottom = parse_side(val, false),
+            "padding-left" => css.padding.left = parse_side(val, false),
+            // margin aceita `auto` (centralização); padding não.
+            "margin" => css.margin = parse_edges(val, true),
+            "margin-top" => css.margin.top = parse_side(val, true),
+            "margin-right" => css.margin.right = parse_side(val, true),
+            "margin-bottom" => css.margin.bottom = parse_side(val, true),
+            "margin-left" => css.margin.left = parse_side(val, true),
             // shorthand `border: <width> <style> <color>` (qualquer ordem, qualquer
             // omitível). Setar os 3 de uma vez. (Por-lado fica para fase 2.)
             "border" => apply_border_shorthand(css, val),
@@ -807,6 +891,43 @@ fn parse_border_width_token(tok: &str) -> Option<f32> {
         "medium" => Some(3.0),
         "thick" => Some(5.0),
         _ => parse_px(tok),
+    }
+}
+
+/// Parseia o shorthand de margin/padding (1/2/3/4 valores) para [`Edges`], com o
+/// mapeamento exato do CSS:
+/// - 1: todos os lados
+/// - 2: `top/bottom` | `left/right` (vertical | horizontal)
+/// - 3: `top` | `left/right` | `bottom`
+/// - 4: `top` | `right` | `bottom` | `left` (horário)
+/// `allow_auto` habilita o keyword `auto` (margin). Tokens inválidos → Unset.
+fn parse_edges(val: &str, allow_auto: bool) -> Edges {
+    let toks: Vec<Side> = val
+        .split_whitespace()
+        .map(|t| parse_side(t, allow_auto))
+        .collect();
+    match toks.as_slice() {
+        [a] => Edges::all(*a),
+        [v, h] => Edges { top: *v, right: *h, bottom: *v, left: *h },
+        [t, h, b] => Edges { top: *t, right: *h, bottom: *b, left: *h },
+        [t, r, b, l] => Edges { top: *t, right: *r, bottom: *b, left: *l },
+        _ => Edges::default(), // 0 ou >4: ignora (robustez).
+    }
+}
+
+/// Parseia UM lado de margin/padding: comprimento px (aceita "10" ou "10px"),
+/// `auto` (se `allow_auto`), ou `Unset` se inválido. Negativo permitido em margin
+/// (puxa o elemento); padding clamp em ≥ 0 — mas aqui aceitamos o número e o layout
+/// trata (padding negativo é raro e o render ignora).
+fn parse_side(tok: &str, allow_auto: bool) -> Side {
+    let t = tok.trim();
+    if allow_auto && t.eq_ignore_ascii_case("auto") {
+        return Side::Auto;
+    }
+    let num = t.strip_suffix("px").unwrap_or(t);
+    match num.trim().parse::<f32>() {
+        Ok(v) => Side::Px(v),
+        Err(_) => Side::Unset,
     }
 }
 
@@ -1031,6 +1152,54 @@ mod tests {
     }
 
     #[test]
+    fn margin_padding_shorthand() {
+        // 1 valor: todos os lados.
+        let c = parse_inline("padding: 10px");
+        assert_eq!(c.padding, Edges::all(Side::Px(10.0)));
+        // 2 valores: vertical | horizontal.
+        let c = parse_inline("margin: 10px 20px");
+        assert_eq!(c.margin.top, Side::Px(10.0));
+        assert_eq!(c.margin.bottom, Side::Px(10.0));
+        assert_eq!(c.margin.left, Side::Px(20.0));
+        assert_eq!(c.margin.right, Side::Px(20.0));
+        // 3 valores: top | horizontal | bottom.
+        let c = parse_inline("padding: 1px 2px 3px");
+        assert_eq!(c.padding.top, Side::Px(1.0));
+        assert_eq!(c.padding.right, Side::Px(2.0));
+        assert_eq!(c.padding.left, Side::Px(2.0));
+        assert_eq!(c.padding.bottom, Side::Px(3.0));
+        // 4 valores: top right bottom left (horário).
+        let c = parse_inline("margin: 1px 2px 3px 4px");
+        assert_eq!(c.margin.top, Side::Px(1.0));
+        assert_eq!(c.margin.right, Side::Px(2.0));
+        assert_eq!(c.margin.bottom, Side::Px(3.0));
+        assert_eq!(c.margin.left, Side::Px(4.0));
+    }
+
+    #[test]
+    fn margin_padding_longhand_e_auto() {
+        // por-lado.
+        let c = parse_inline("padding-left: 12px; margin-top: 8px");
+        assert_eq!(c.padding.left, Side::Px(12.0));
+        assert_eq!(c.margin.top, Side::Px(8.0));
+        assert_eq!(c.padding.top, Side::Unset); // outros lados Unset
+        // margin: 0 auto (centralização) — left/right auto.
+        let c = parse_inline("margin: 0 auto");
+        assert_eq!(c.margin.top, Side::Px(0.0));
+        assert!(c.margin.left.is_auto());
+        assert!(c.margin.right.is_auto());
+        // padding NÃO aceita auto (vira Unset).
+        assert_eq!(parse_inline("padding: auto").padding.left, Side::Unset);
+        // margin negativo permitido.
+        assert_eq!(parse_inline("margin-top: -5px").margin.top, Side::Px(-5.0));
+        // longhand VENCE o shorthand na cascade (merge_over por lado).
+        let mut base = parse_inline("padding: 10px");
+        base.merge_over(&parse_inline("padding-left: 30px"));
+        assert_eq!(base.padding.left, Side::Px(30.0));
+        assert_eq!(base.padding.top, Side::Px(10.0)); // os outros mantêm
+    }
+
+    #[test]
     fn border_shorthand() {
         // border: width style color — qualquer ordem.
         let c = parse_inline("border: 2px solid #ff0000");
@@ -1147,8 +1316,8 @@ mod tests {
         s.apply_slot(SLOT_BORDER_COLOR, 0xFF0000FF);
         s.apply_slot(SLOT_CORNER_RADIUS, 6);
         s.apply_slot(SLOT_BG, 0x222222FF);
-        assert_eq!(s.padding, Some(8.0));
-        assert_eq!(s.margin, Some(4.0));
+        assert_eq!(s.padding.top, Side::Px(8.0));
+        assert_eq!(s.margin.top, Side::Px(4.0));
         assert_eq!(s.border_width, Some(2.0));
         assert_eq!(s.border_color, Some(0xFF0000FF));
         assert_eq!(s.corner_radius, Some(6.0));
@@ -1161,7 +1330,7 @@ mod tests {
         let mut s = ComputedStyle::default();
         s.apply_slot(SLOT_PADDING, -3); // negativo não faz sentido numa caixa
         s.apply_slot(SLOT_CORNER_RADIUS, -1);
-        assert_eq!(s.padding, None);
+        assert_eq!(s.padding.top, Side::Unset);
         assert_eq!(s.corner_radius, None);
     }
 
@@ -1236,8 +1405,8 @@ mod tests {
         assert_eq!(parse_inline("width: auto").width, Some(Dimension::Auto));
         // box props inline (F2): padding/margin/border/raio.
         let c = parse_inline("padding: 12; margin: 6; border-width: 2; border-radius: 8");
-        assert_eq!(c.padding, Some(12.0));
-        assert_eq!(c.margin, Some(6.0));
+        assert_eq!(c.padding.top, Side::Px(12.0));
+        assert_eq!(c.margin.top, Side::Px(6.0));
         assert_eq!(c.border_width, Some(2.0));
         assert_eq!(c.corner_radius, Some(8.0));
     }
@@ -1260,11 +1429,11 @@ mod tests {
         let s = sheet.computed_for("p", None, &["card"]).normal;
         assert_eq!(s.color, Some(0x00FF00FF)); // classe > tag
         assert_eq!(s.font_size, Some(14.0)); // só a tag define
-        assert_eq!(s.padding, Some(10.0)); // só a classe define
+        assert_eq!(s.padding.top, Side::Px(10.0)); // só a classe define
         // <p id="alvo" class="card">: id vence tudo na cor (100>10>1).
         let s = sheet.computed_for("p", Some("alvo"), &["card"]).normal;
         assert_eq!(s.color, Some(0x0000FFFF)); // id > classe > tag
-        assert_eq!(s.padding, Some(10.0)); // classe ainda aplica onde o id não toca
+        assert_eq!(s.padding.top, Side::Px(10.0)); // classe ainda aplica onde o id não toca
     }
 
     #[test]
@@ -1303,7 +1472,7 @@ mod tests {
         assert_eq!(b.normal.color, None);
         // case-insensitive e com espaço antes do `!`.
         let b2 = parse_inline_block("padding: 10  !IMPORTANT");
-        assert_eq!(b2.important.padding, Some(10.0));
+        assert_eq!(b2.important.padding.top, Side::Px(10.0));
     }
 
     #[test]
