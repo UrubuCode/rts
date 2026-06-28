@@ -388,6 +388,130 @@ pub extern "C" fn __RTS_FN_NS_DOM_SET_INNER_HTML(h: u64, id: i64, html_ptr: *con
     with_mut(h, |dom| dom.set_inner_html(node, &html));
 }
 
+// ── Traversal por elemento — #1757 ──────────────────────────────────────────────
+
+/// Macro de navegação que devolve um `NodeId` (ou `-1`). Reduz boilerplate.
+macro_rules! nav_fn {
+    ($fn:ident, $method:ident) => {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn $fn(h: u64, id: i64) -> i64 {
+            let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
+            with(h, |dom| dom.$method(node).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
+        }
+    };
+}
+nav_fn!(__RTS_FN_NS_DOM_FIRST_ELEMENT_CHILD, first_element_child);
+nav_fn!(__RTS_FN_NS_DOM_LAST_ELEMENT_CHILD, last_element_child);
+nav_fn!(__RTS_FN_NS_DOM_NEXT_ELEMENT_SIBLING, next_element_sibling);
+nav_fn!(__RTS_FN_NS_DOM_PREVIOUS_ELEMENT_SIBLING, previous_element_sibling);
+nav_fn!(__RTS_FN_NS_DOM_PARENT_ELEMENT, parent_element);
+
+/// `closest(domHandle, node, selector)` → o NodeId do ancestral (ou o próprio) que
+/// casa o seletor simples, ou `-1`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_CLOSEST(h: u64, id: i64, sel_ptr: *const u8, sel_len: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
+    let sel = unsafe { str_abi::from_abi(sel_ptr, sel_len) }.unwrap_or("").to_string();
+    with(h, |dom| dom.closest(node, &sel).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
+}
+
+/// `matches(domHandle, node, selector)` → 1 se o nó casa o seletor, 0 senão.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_MATCHES(h: u64, id: i64, sel_ptr: *const u8, sel_len: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return 0 };
+    let sel = unsafe { str_abi::from_abi(sel_ptr, sel_len) }.unwrap_or("").to_string();
+    with(h, |dom| dom.matches_selector(node, &sel) as i64).unwrap_or(0)
+}
+
+// ── Node utils — #1762 ──────────────────────────────────────────────────────────
+
+/// `contains(domHandle, node, other)` → 1 se `node` contém `other` (ou é ele), 0 senão.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_CONTAINS(h: u64, id: i64, other: i64) -> i64 {
+    let (Some(node), Some(o)) = (NodeId::from_abi(id), NodeId::from_abi(other)) else { return 0 };
+    with(h, |dom| dom.contains(node, o) as i64).unwrap_or(0)
+}
+
+/// `hasChildNodes(domHandle, node)` → 1 se tem ao menos um filho, 0 senão.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_HAS_CHILD_NODES(h: u64, id: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return 0 };
+    with(h, |dom| dom.has_child_nodes(node) as i64).unwrap_or(0)
+}
+
+/// `nodeValue(domHandle, node)` → o texto cru de um nó Text/Comment como STRING; ""
+/// para Element/Document (nodeValue null).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_NODE_VALUE(h: u64, id: i64) -> u64 {
+    let Some(node) = NodeId::from_abi(id) else { return intern("") };
+    let v = with(h, |dom| dom.node_value(node).unwrap_or_default()).unwrap_or_default();
+    intern(&v)
+}
+
+/// `setNodeValue(domHandle, node, value)` → substitui o texto de um nó Text/Comment.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_SET_NODE_VALUE(h: u64, id: i64, v_ptr: *const u8, v_len: i64) {
+    let Some(node) = NodeId::from_abi(id) else { return };
+    let v = unsafe { str_abi::from_abi(v_ptr, v_len) }.unwrap_or("").to_string();
+    with_mut(h, |dom| dom.set_node_value(node, &v));
+}
+
+/// `createComment(domHandle, text)` → NodeId de um nó de comentário solto.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_CREATE_COMMENT(h: u64, t_ptr: *const u8, t_len: i64) -> i64 {
+    let text = unsafe { str_abi::from_abi(t_ptr, t_len) }.unwrap_or("").to_string();
+    with_mut(h, |dom| dom.create_comment(&text).to_abi()).unwrap_or(NODE_NONE)
+}
+
+/// `normalize(domHandle, node)` → funde nós de texto adjacentes + remove vazios.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_NORMALIZE(h: u64, id: i64) {
+    let Some(node) = NodeId::from_abi(id) else { return };
+    with_mut(h, |dom| dom.normalize(node));
+}
+
+// ── Atributos extra — #1761 ─────────────────────────────────────────────────────
+
+/// `removeAttr(domHandle, node, name)` → remove o atributo (no-op se ausente).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_REMOVE_ATTR(h: u64, id: i64, n_ptr: *const u8, n_len: i64) {
+    let Some(node) = NodeId::from_abi(id) else { return };
+    let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("").to_string();
+    with_mut(h, |dom| dom.remove_attr(node, &name));
+}
+
+/// `hasAttr(domHandle, node, name)` → 1 se o atributo está PRESENTE (mesmo vazio),
+/// 0 senão. Corrige atributos booleanos (`hidden`/`disabled`, valor `""`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_HAS_ATTR(h: u64, id: i64, n_ptr: *const u8, n_len: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return 0 };
+    let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("").to_string();
+    with(h, |dom| dom.has_attr(node, &name) as i64).unwrap_or(0)
+}
+
+/// `attrCount(domHandle, node)` → nº de atributos (para getAttributeNames/attributes).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_ATTR_COUNT(h: u64, id: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return 0 };
+    with(h, |dom| dom.attr_names(node).len() as i64).unwrap_or(0)
+}
+
+/// `attrNameAt(domHandle, node, i)` → nome do i-ésimo atributo como STRING.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_ATTR_NAME_AT(h: u64, id: i64, i: i64) -> u64 {
+    let Some(node) = NodeId::from_abi(id) else { return intern("") };
+    let name = with(h, |dom| dom.attr_names(node).get(i as usize).cloned().unwrap_or_default()).unwrap_or_default();
+    intern(&name)
+}
+
+/// `attrValueAt(domHandle, node, i)` → valor do i-ésimo atributo como STRING.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_ATTR_VALUE_AT(h: u64, id: i64, i: i64) -> u64 {
+    let Some(node) = NodeId::from_abi(id) else { return intern("") };
+    let val = with(h, |dom| dom.attr_value_at(node, i as usize).unwrap_or_default()).unwrap_or_default();
+    intern(&val)
+}
+
 /// `getAttribute(domHandle, node, name)` → valor do atributo como STRING (handle
 /// do pool GC). Atributo ausente / nó inválido ⇒ `""` (a fachada TS converte ""
 /// para `null` se quiser semântica de browser).
@@ -858,6 +982,135 @@ pub fn register(e: &mut Engine) {
             "setInnerHtml(dom: number, node: number, html: string): void",
             "element.innerHTML = html (set): parses the HTML and replaces the node's children.",
             __RTS_FN_NS_DOM_SET_INNER_HTML as *const u8,
+        ))
+        // ── Traversal por elemento — #1757 ──────────────────────────────────────
+        .member(func(
+            "firstElementChild", "__RTS_FN_NS_DOM_FIRST_ELEMENT_CHILD",
+            Sig::new(vec![Handle, I64], I64),
+            "firstElementChild(dom: number, node: number): number",
+            "element.firstElementChild: first child that is an Element (-1 if none).",
+            __RTS_FN_NS_DOM_FIRST_ELEMENT_CHILD as *const u8,
+        ))
+        .member(func(
+            "lastElementChild", "__RTS_FN_NS_DOM_LAST_ELEMENT_CHILD",
+            Sig::new(vec![Handle, I64], I64),
+            "lastElementChild(dom: number, node: number): number",
+            "element.lastElementChild: last child Element (-1 if none).",
+            __RTS_FN_NS_DOM_LAST_ELEMENT_CHILD as *const u8,
+        ))
+        .member(func(
+            "nextElementSibling", "__RTS_FN_NS_DOM_NEXT_ELEMENT_SIBLING",
+            Sig::new(vec![Handle, I64], I64),
+            "nextElementSibling(dom: number, node: number): number",
+            "element.nextElementSibling: next sibling Element, skipping text (-1 if none).",
+            __RTS_FN_NS_DOM_NEXT_ELEMENT_SIBLING as *const u8,
+        ))
+        .member(func(
+            "previousElementSibling", "__RTS_FN_NS_DOM_PREVIOUS_ELEMENT_SIBLING",
+            Sig::new(vec![Handle, I64], I64),
+            "previousElementSibling(dom: number, node: number): number",
+            "element.previousElementSibling: previous sibling Element (-1 if none).",
+            __RTS_FN_NS_DOM_PREVIOUS_ELEMENT_SIBLING as *const u8,
+        ))
+        .member(func(
+            "parentElement", "__RTS_FN_NS_DOM_PARENT_ELEMENT",
+            Sig::new(vec![Handle, I64], I64),
+            "parentElement(dom: number, node: number): number",
+            "node.parentElement: the parent if it is an Element (not the Document) (-1 otherwise).",
+            __RTS_FN_NS_DOM_PARENT_ELEMENT as *const u8,
+        ))
+        .member(func(
+            "closest", "__RTS_FN_NS_DOM_CLOSEST",
+            Sig::new(vec![Handle, I64, StrPtr], I64),
+            "closest(dom: number, node: number, selector: string): number",
+            "element.closest(sel): nearest ancestor (incl. self) matching the simple selector (-1 if none).",
+            __RTS_FN_NS_DOM_CLOSEST as *const u8,
+        ))
+        .member(func(
+            "matches", "__RTS_FN_NS_DOM_MATCHES",
+            Sig::new(vec![Handle, I64, StrPtr], I64),
+            "matches(dom: number, node: number, selector: string): number",
+            "element.matches(sel): 1 if the node matches the simple selector, 0 otherwise.",
+            __RTS_FN_NS_DOM_MATCHES as *const u8,
+        ))
+        // ── Node utils — #1762 ──────────────────────────────────────────────────
+        .member(func(
+            "contains", "__RTS_FN_NS_DOM_CONTAINS",
+            Sig::new(vec![Handle, I64, I64], I64),
+            "contains(dom: number, node: number, other: number): number",
+            "node.contains(other): 1 if other is node or a descendant, 0 otherwise.",
+            __RTS_FN_NS_DOM_CONTAINS as *const u8,
+        ))
+        .member(func(
+            "hasChildNodes", "__RTS_FN_NS_DOM_HAS_CHILD_NODES",
+            Sig::new(vec![Handle, I64], I64),
+            "hasChildNodes(dom: number, node: number): number",
+            "node.hasChildNodes(): 1 if it has any child, 0 otherwise.",
+            __RTS_FN_NS_DOM_HAS_CHILD_NODES as *const u8,
+        ))
+        .member(func(
+            "nodeValue", "__RTS_FN_NS_DOM_NODE_VALUE",
+            Sig::new(vec![Handle, I64], AbiType::Handle),
+            "nodeValue(dom: number, node: number): string",
+            "node.nodeValue: raw text of a Text/Comment node ('' for Element/Document).",
+            __RTS_FN_NS_DOM_NODE_VALUE as *const u8,
+        ))
+        .member(func(
+            "setNodeValue", "__RTS_FN_NS_DOM_SET_NODE_VALUE",
+            Sig::new(vec![Handle, I64, StrPtr], AbiType::Void),
+            "setNodeValue(dom: number, node: number, value: string): void",
+            "node.nodeValue = value: replaces the text of a Text/Comment node.",
+            __RTS_FN_NS_DOM_SET_NODE_VALUE as *const u8,
+        ))
+        .member(func(
+            "createComment", "__RTS_FN_NS_DOM_CREATE_COMMENT",
+            Sig::new(vec![Handle, StrPtr], I64),
+            "createComment(dom: number, text: string): number",
+            "document.createComment(text): a detached comment node.",
+            __RTS_FN_NS_DOM_CREATE_COMMENT as *const u8,
+        ))
+        .member(func(
+            "normalize", "__RTS_FN_NS_DOM_NORMALIZE",
+            Sig::new(vec![Handle, I64], AbiType::Void),
+            "normalize(dom: number, node: number): void",
+            "node.normalize(): merge adjacent text nodes and drop empty ones, recursively.",
+            __RTS_FN_NS_DOM_NORMALIZE as *const u8,
+        ))
+        // ── Atributos extra — #1761 ─────────────────────────────────────────────
+        .member(func(
+            "removeAttr", "__RTS_FN_NS_DOM_REMOVE_ATTR",
+            Sig::new(vec![Handle, I64, StrPtr], AbiType::Void),
+            "removeAttr(dom: number, node: number, name: string): void",
+            "element.removeAttribute(name).",
+            __RTS_FN_NS_DOM_REMOVE_ATTR as *const u8,
+        ))
+        .member(func(
+            "hasAttr", "__RTS_FN_NS_DOM_HAS_ATTR",
+            Sig::new(vec![Handle, I64, StrPtr], I64),
+            "hasAttr(dom: number, node: number, name: string): number",
+            "element.hasAttribute(name): 1 if present (even empty value), 0 otherwise.",
+            __RTS_FN_NS_DOM_HAS_ATTR as *const u8,
+        ))
+        .member(func(
+            "attrCount", "__RTS_FN_NS_DOM_ATTR_COUNT",
+            Sig::new(vec![Handle, I64], I64),
+            "attrCount(dom: number, node: number): number",
+            "number of attributes (for getAttributeNames/attributes).",
+            __RTS_FN_NS_DOM_ATTR_COUNT as *const u8,
+        ))
+        .member(func(
+            "attrNameAt", "__RTS_FN_NS_DOM_ATTR_NAME_AT",
+            Sig::new(vec![Handle, I64, I64], AbiType::Handle),
+            "attrNameAt(dom: number, node: number, i: number): string",
+            "name of the i-th attribute.",
+            __RTS_FN_NS_DOM_ATTR_NAME_AT as *const u8,
+        ))
+        .member(func(
+            "attrValueAt", "__RTS_FN_NS_DOM_ATTR_VALUE_AT",
+            Sig::new(vec![Handle, I64, I64], AbiType::Handle),
+            "attrValueAt(dom: number, node: number, i: number): string",
+            "value of the i-th attribute.",
+            __RTS_FN_NS_DOM_ATTR_VALUE_AT as *const u8,
         ))
         .member(func(
             "getAttribute",

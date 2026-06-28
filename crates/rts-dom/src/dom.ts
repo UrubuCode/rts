@@ -15,6 +15,23 @@
 
 const __DOM_NONE = -1;
 
+// camelCase → kebab-case para o açúcar de `dataset` (`userId` → `user-id`).
+function __camelToKebab(s: string): string {
+  let out = "";
+  let i = 0;
+  while (i < s.length) {
+    const ch = s.charAt(i);
+    const lo = ch.toLowerCase();
+    if (ch !== lo) {
+      out = out + "-" + lo;
+    } else {
+      out = out + ch;
+    }
+    i = i + 1;
+  }
+  return out;
+}
+
 // DOMRect-like — o retorno de `getBoundingClientRect()`. Campos numéricos simples
 // (o browser tem um objeto DOMRect; aqui um literal com os mesmos campos).
 interface DOMRectLike {
@@ -95,7 +112,8 @@ class Element {
     dom.setAttr(this._dom, this._node, name, value);
   }
   hasAttribute(name: string): boolean {
-    return dom.getAttribute(this._dom, this._node, name).length > 0;
+    // checa PRESENÇA (não valor) — atributos booleanos têm valor "" mas existem.
+    return dom.hasAttr(this._dom, this._node, name) === 1;
   }
 
   // `el.querySelector(sel)` — primeiro descendente que casa, ou null. MÉTODO
@@ -174,6 +192,124 @@ class Element {
     const n = dom.previousSibling(this._dom, this._node);
     if (n === __DOM_NONE) return null;
     return new Element(this._dom, n);
+  }
+
+  // ── Traversal POR ELEMENTO (#1757) — pula nós de texto/comentário ────────────
+  get firstElementChild(): Element | null {
+    const n = dom.firstElementChild(this._dom, this._node);
+    if (n === __DOM_NONE) return null;
+    return new Element(this._dom, n);
+  }
+  get lastElementChild(): Element | null {
+    const n = dom.lastElementChild(this._dom, this._node);
+    if (n === __DOM_NONE) return null;
+    return new Element(this._dom, n);
+  }
+  get nextElementSibling(): Element | null {
+    const n = dom.nextElementSibling(this._dom, this._node);
+    if (n === __DOM_NONE) return null;
+    return new Element(this._dom, n);
+  }
+  get previousElementSibling(): Element | null {
+    const n = dom.previousElementSibling(this._dom, this._node);
+    if (n === __DOM_NONE) return null;
+    return new Element(this._dom, n);
+  }
+  get parentElement(): Element | null {
+    const n = dom.parentElement(this._dom, this._node);
+    if (n === __DOM_NONE) return null;
+    return new Element(this._dom, n);
+  }
+  // `el.childElementCount` — reusa o primitivo childCount (já existente).
+  get childElementCount(): number {
+    return dom.childCount(this._dom, this._node);
+  }
+  // `el.closest(sel)` — sobe até o 1º ancestral (ou o próprio) que casa o seletor.
+  // ⚠️ CORTE: só seletor SIMPLES (tag/#id/.classe). Combinadores/compostos → #1752.
+  // Seletor vazio/inválido devolve null (a spec lança SyntaxError — o motor não
+  // propaga exceções da fronteira; tolerante por ora).
+  closest(selector: string): Element | null {
+    const n = dom.closest(this._dom, this._node, selector);
+    if (n === __DOM_NONE) return null;
+    return new Element(this._dom, n);
+  }
+  // `el.matches(sel)` — testa o seletor simples NESTE nó. (mesmos cortes do closest:
+  // só simples; vazio/inválido → false em vez de SyntaxError.)
+  matches(selector: string): boolean {
+    return dom.matches(this._dom, this._node, selector) === 1;
+  }
+
+  // ── Node utils (#1762) ───────────────────────────────────────────────────────
+  // `node.contains(other)` — other é este nó ou um descendente?
+  contains(other: Element): boolean {
+    return dom.contains(this._dom, this._node, other._node) === 1;
+  }
+  // `node.hasChildNodes()`.
+  hasChildNodes(): boolean {
+    return dom.hasChildNodes(this._dom, this._node) === 1;
+  }
+  // `node.nodeValue` — texto cru de Text/Comment. ⚠️ CORTE: a spec dá `null` para
+  // Element/Document, mas a fronteira ABI (string) não carrega null → devolve `''`
+  // nesses casos (um Text vazio também é '', indistinguível). SET é método
+  // (setNodeValue) porque o motor não dispara setters de propriedade.
+  get nodeValue(): string {
+    return dom.nodeValue(this._dom, this._node);
+  }
+  setNodeValue(value: string): void {
+    dom.setNodeValue(this._dom, this._node, value);
+  }
+  // `node.normalize()` — funde textos adjacentes + remove vazios.
+  normalize(): void {
+    dom.normalize(this._dom, this._node);
+  }
+
+  // ── Atributos extra (#1761) ──────────────────────────────────────────────────
+  // `el.removeAttribute(name)`.
+  removeAttribute(name: string): void {
+    dom.removeAttr(this._dom, this._node, name);
+  }
+  // `el.toggleAttribute(name)` — alterna: adiciona se ausente, remove se presente.
+  toggleAttribute(name: string): boolean {
+    if (dom.hasAttr(this._dom, this._node, name) === 1) {
+      dom.removeAttr(this._dom, this._node, name);
+      return false;
+    }
+    dom.setAttr(this._dom, this._node, name, "");
+    return true;
+  }
+  // `el.toggleAttribute(name, force)` — força o estado: force=true só ADICIONA
+  // (nunca remove); force=false só REMOVE (nunca adiciona). Devolve o estado final.
+  // (método separado porque o motor não tem parâmetro opcional/default real.)
+  toggleAttributeForce(name: string, force: boolean): boolean {
+    if (force) {
+      if (dom.hasAttr(this._dom, this._node, name) !== 1) {
+        dom.setAttr(this._dom, this._node, name, "");
+      }
+      return true;
+    }
+    dom.removeAttr(this._dom, this._node, name);
+    return false;
+  }
+  // `el.getAttributeNames()` — nomes dos atributos, em ordem.
+  getAttributeNames(): string[] {
+    const out: string[] = [];
+    const n = dom.attrCount(this._dom, this._node);
+    let i = 0;
+    while (i < n) {
+      out.push(dom.attrNameAt(this._dom, this._node, i));
+      i = i + 1;
+    }
+    return out;
+  }
+  // `el.dataset.foo` não é viável (sem objeto-proxy no motor) → métodos sobre
+  // `data-*`. datasetGet("userId") lê `data-user-id`; datasetSet idem.
+  // ⚠️ CORTES vs DOMStringMap: sem enumeração (for..in), sem delete, e o
+  // camelCase→kebab só cobre letras ASCII A-Z (input não-ASCII não hifeniza).
+  datasetGet(key: string): string {
+    return dom.getAttribute(this._dom, this._node, "data-" + __camelToKebab(key));
+  }
+  datasetSet(key: string, value: string): void {
+    dom.setAttr(this._dom, this._node, "data-" + __camelToKebab(key), value);
   }
 
   // `el.nodeType` — Element=1, Text=3, Comment=8, Document=9.
@@ -322,6 +458,12 @@ class Document {
   // `document.createTextNode(text)` — nó de texto solto (anexe com appendChild).
   createTextNode(text: string): Element {
     const n = dom.createTextNode(this._dom, text);
+    return new Element(this._dom, n);
+  }
+
+  // `document.createComment(text)` — nó de comentário solto (nodeType 8).
+  createComment(text: string): Element {
+    const n = dom.createComment(this._dom, text);
     return new Element(this._dom, n);
   }
 

@@ -529,6 +529,189 @@ impl Dom {
         self.nodes[idx].children.iter().map(|&c| self.make_id(c)).collect()
     }
 
+    // ── Traversal POR ELEMENTO (pula nós de texto/comentário) — #1757 ────────────
+    // `*ElementChild`/`*ElementSibling`/`parentElement` são as variantes "só
+    // elemento" das de cima. O JS usa muito mais estas (ignora whitespace/texto).
+
+    /// `element.firstElementChild`: o 1º filho que é ELEMENTO (pula Text/Comment).
+    pub fn first_element_child(&self, id: NodeId) -> Option<NodeId> {
+        self.child_elements(id).first().copied()
+    }
+
+    /// `element.lastElementChild`: o último filho-elemento.
+    pub fn last_element_child(&self, id: NodeId) -> Option<NodeId> {
+        self.child_elements(id).last().copied()
+    }
+
+    /// `element.nextElementSibling`: o próximo irmão que é ELEMENTO (pula texto).
+    pub fn next_element_sibling(&self, id: NodeId) -> Option<NodeId> {
+        self.element_sibling(id, 1)
+    }
+
+    /// `element.previousElementSibling`: o irmão-elemento anterior.
+    pub fn previous_element_sibling(&self, id: NodeId) -> Option<NodeId> {
+        self.element_sibling(id, -1)
+    }
+
+    /// Caminha irmão-a-irmão na direção `delta` até achar um ELEMENTO (ou acabar).
+    fn element_sibling(&self, id: NodeId, delta: isize) -> Option<NodeId> {
+        let mut cur = id;
+        loop {
+            cur = self.sibling(cur, delta)?;
+            let idx = self.resolve(cur)?;
+            if matches!(self.nodes[idx].kind, NodeKind::Element { .. }) {
+                return Some(cur);
+            }
+        }
+    }
+
+    /// `element.parentElement`: o pai SE for um elemento; `None` se o pai é o
+    /// `#document` (a raiz não é um elemento) ou não há pai.
+    pub fn parent_element(&self, id: NodeId) -> Option<NodeId> {
+        let parent = self.parent_of(id)?;
+        let pidx = self.resolve(parent)?;
+        matches!(self.nodes[pidx].kind, NodeKind::Element { .. }).then_some(parent)
+    }
+
+    /// `element.matches(sel)`: o nó casa o seletor SIMPLES (tag/`#id`/`.classe`)?
+    /// Reusa o matcher de `querySelector` (mesma sintaxe). Combinadores → #1752.
+    pub fn matches_selector(&self, id: NodeId, sel: &str) -> bool {
+        self.resolve(id).map(|i| self.matches(i, sel.trim())).unwrap_or(false)
+    }
+
+    /// `element.closest(sel)`: sobe pela cadeia de ancestrais (incluindo o próprio
+    /// nó) e devolve o PRIMEIRO que casa o seletor; `None` se nenhum casa.
+    pub fn closest(&self, id: NodeId, sel: &str) -> Option<NodeId> {
+        let sel = sel.trim();
+        let mut cur = Some(id);
+        while let Some(node) = cur {
+            let idx = self.resolve(node)?;
+            if matches!(self.nodes[idx].kind, NodeKind::Element { .. }) && self.matches(idx, sel) {
+                return Some(node);
+            }
+            cur = self.parent_of(node);
+        }
+        None
+    }
+
+    // ── Node utils — #1762 ───────────────────────────────────────────────────────
+
+    /// `node.contains(other)`: `other` é o próprio nó OU um descendente dele?
+    /// (Reusa a guarda de ciclo `is_ancestor`, que é exatamente esta relação.)
+    pub fn contains(&self, node: NodeId, other: NodeId) -> bool {
+        let (Some(a), Some(b)) = (self.resolve(node), self.resolve(other)) else { return false };
+        a == b || self.is_ancestor(a, b)
+    }
+
+    /// `node.hasChildNodes()`: tem ao menos um filho (de qualquer tipo)?
+    pub fn has_child_nodes(&self, id: NodeId) -> bool {
+        self.resolve(id).map(|i| !self.nodes[i].children.is_empty()).unwrap_or(false)
+    }
+
+    /// `node.nodeValue`: o texto cru de um nó Text/Comment; `None` para
+    /// Element/Document (que têm `nodeValue` null no DOM). Distinto de
+    /// `textContent` (que concatena descendentes).
+    pub fn node_value(&self, id: NodeId) -> Option<String> {
+        let idx = self.resolve(id)?;
+        match &self.nodes[idx].kind {
+            NodeKind::Text(t) | NodeKind::Comment(t) => Some(t.clone()),
+            _ => None,
+        }
+    }
+
+    /// `node.nodeValue = v`: substitui o texto de um nó Text/Comment (no-op em
+    /// Element/Document).
+    pub fn set_node_value(&mut self, id: NodeId, value: &str) {
+        let Some(idx) = self.resolve(id) else { return };
+        match &mut self.nodes[idx].kind {
+            NodeKind::Text(t) | NodeKind::Comment(t) => *t = value.to_string(),
+            _ => {}
+        }
+    }
+
+    /// `document.createComment(text)`: cria um nó de comentário solto.
+    pub fn create_comment(&mut self, text: &str) -> NodeId {
+        let idx = self.push_detached(NodeKind::Comment(text.to_string()));
+        self.make_id(idx)
+    }
+
+    /// `node.normalize()`: funde nós de Texto ADJACENTES num só e remove os de
+    /// texto vazio, recursivamente. Mantém a semântica do DOM (não toca elementos).
+    pub fn normalize(&mut self, id: NodeId) {
+        let Some(idx) = self.resolve(id) else { return };
+        // 1) recursão nos filhos-elemento primeiro.
+        let children: Vec<NodeIdx> = self.nodes[idx].children.clone();
+        for c in &children {
+            if matches!(self.nodes[*c].kind, NodeKind::Element { .. }) {
+                let cid = self.make_id(*c);
+                self.normalize(cid);
+            }
+        }
+        // 2) funde Text adjacentes + remove vazios nos filhos diretos.
+        let mut new_children: Vec<NodeIdx> = Vec::new();
+        for c in self.nodes[idx].children.clone() {
+            if let NodeKind::Text(t) = &self.nodes[c].kind {
+                if t.is_empty() {
+                    continue; // remove texto vazio
+                }
+                // funde com o anterior se também for Text.
+                if let Some(&prev) = new_children.last() {
+                    if let NodeKind::Text(pt) = &self.nodes[prev].kind {
+                        let merged = format!("{pt}{t}");
+                        if let NodeKind::Text(pt_mut) = &mut self.nodes[prev].kind {
+                            *pt_mut = merged;
+                        }
+                        continue; // não acrescenta o nó atual (foi fundido)
+                    }
+                }
+            }
+            new_children.push(c);
+        }
+        self.nodes[idx].children = new_children;
+    }
+
+    // ── Atributos extra — #1761 ──────────────────────────────────────────────────
+
+    /// `element.removeAttribute(name)`: remove o atributo (no-op se ausente).
+    /// Limpa os índices id/class para o nó (a busca revalida, mas evita stale).
+    pub fn remove_attr(&mut self, id: NodeId, name: &str) {
+        let Some(idx) = self.resolve(id) else { return };
+        let name_lc = name.to_ascii_lowercase();
+        self.nodes[idx].attrs.retain(|a| a.name != name_lc);
+        // limpa o índice correspondente (entradas stale são toleradas, mas
+        // remover ajuda a manter o índice enxuto).
+        match name_lc.as_str() {
+            "id" => self.id_index.retain(|_, &mut v| v != idx),
+            "class" => {
+                for v in self.class_index.values_mut() {
+                    v.retain(|&x| x != idx);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// `element.hasAttribute(name)`: o atributo ESTÁ PRESENTE (mesmo com valor
+    /// vazio — `hidden`/`disabled` são booleanos com valor `""`)? Checa a presença
+    /// na lista, não o valor (o `getAttribute("").length>0` da fachada errava aqui).
+    pub fn has_attr(&self, id: NodeId, name: &str) -> bool {
+        let Some(idx) = self.resolve(id) else { return false };
+        let name_lc = name.to_ascii_lowercase();
+        self.nodes[idx].attrs.iter().any(|a| a.name == name_lc)
+    }
+
+    /// `element.getAttributeNames()`: os nomes dos atributos, em ordem do HTML.
+    pub fn attr_names(&self, id: NodeId) -> Vec<String> {
+        let Some(idx) = self.resolve(id) else { return Vec::new() };
+        self.nodes[idx].attrs.iter().map(|a| a.name.clone()).collect()
+    }
+
+    /// Valor do atributo N-ésimo (para `attributes`), por índice. `None` fora do range.
+    pub fn attr_value_at(&self, id: NodeId, i: usize) -> Option<String> {
+        let idx = self.resolve(id)?;
+        self.nodes[idx].attrs.get(i).map(|a| a.value.clone())
+    }
+
     // ── Navegação do DOM (parentNode / first|lastChild / next|previousSibling) ───
     // O `parent`/`children` da arena já têm tudo; aqui só expomos no vocabulário do
     // DOM. `None`/`-1` na fronteira ABI quando não há (raiz não tem pai; primeiro
@@ -1261,6 +1444,76 @@ mod tests {
         let sec = dom.query("#s").unwrap();
         let serial = dom.outer_html(sec).unwrap();
         assert_eq!(serial, html);
+    }
+
+    #[test]
+    fn traversal_por_elemento() {
+        // firstElementChild/nextElementSibling pulam texto e comentário (#1757).
+        let dom = parse_html_to_dom("<div id=\"a\"><!--c--><p class=\"x\">um</p>txt<span>dois</span></div>");
+        let div = dom.query("#a").unwrap();
+        let p = dom.first_element_child(div).unwrap();
+        // node_name no Rust é minúsculo (a fachada TS faz toUpperCase).
+        assert_eq!(dom.node_name(p).as_deref(), Some("p")); // pulou o comentário
+        let span = dom.next_element_sibling(p).unwrap();
+        assert_eq!(dom.node_name(span).as_deref(), Some("span")); // pulou o texto "txt"
+        assert_eq!(dom.last_element_child(div), Some(span));
+        assert_eq!(dom.parent_element(p), Some(div));
+        // matches/closest com seletor simples.
+        assert!(dom.matches_selector(p, ".x"));
+        assert!(!dom.matches_selector(p, ".y"));
+        assert_eq!(dom.closest(p, "#a"), Some(div));
+        assert_eq!(dom.closest(p, "p"), Some(p)); // o próprio nó conta
+    }
+
+    #[test]
+    fn node_utils_contains_e_nodevalue() {
+        let dom = parse_html_to_dom("<div id=\"a\"><p>oi</p></div>");
+        let div = dom.query("#a").unwrap();
+        let p = dom.query("p").unwrap();
+        assert!(dom.contains(div, p)); // div contém p
+        assert!(dom.contains(div, div)); // contém a si mesmo
+        assert!(!dom.contains(p, div)); // p NÃO contém o div
+        assert!(dom.has_child_nodes(div));
+        // nodeValue: só Text/Comment; Element = None.
+        let txt = dom.first_child(p).unwrap();
+        assert_eq!(dom.node_value(txt).as_deref(), Some("oi"));
+        assert_eq!(dom.node_value(div), None);
+    }
+
+    #[test]
+    fn normalize_funde_textos_adjacentes() {
+        let mut dom = parse_html_to_dom("<div id=\"a\"></div>");
+        let div = dom.query("#a").unwrap();
+        for s in ["a", "b", "", "c"] {
+            let t = dom.create_text_node(s);
+            dom.append_child(div, t);
+        }
+        assert_eq!(dom.child_nodes(div).len(), 4);
+        dom.normalize(div);
+        let kids = dom.child_nodes(div);
+        assert_eq!(kids.len(), 1, "4 textos (1 vazio) → 1 fundido");
+        assert_eq!(dom.node_value(kids[0]).as_deref(), Some("abc"));
+    }
+
+    #[test]
+    fn atributos_remove_has_e_names() {
+        let mut dom = parse_html_to_dom("<div id=\"a\" class=\"c\" hidden>x</div>");
+        let div = dom.query("#a").unwrap();
+        // hidden é booleano (valor "") mas PRESENTE — has_attr o detecta.
+        assert!(dom.has_attr(div, "hidden"));
+        assert!(!dom.has_attr(div, "title"));
+        assert_eq!(dom.attr_names(div), vec!["id", "class", "hidden"]);
+        dom.remove_attr(div, "hidden");
+        assert!(!dom.has_attr(div, "hidden"));
+        assert_eq!(dom.attr_names(div), vec!["id", "class"]);
+    }
+
+    #[test]
+    fn create_comment_node() {
+        let mut dom = parse_html_to_dom("<div></div>");
+        let c = dom.create_comment("nota");
+        assert_eq!(dom.node_type(c), 8);
+        assert_eq!(dom.node_value(c).as_deref(), Some("nota"));
     }
 
     #[test]
