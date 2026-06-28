@@ -455,6 +455,16 @@ impl Dom {
         // ── Passe 2: IMPORTANT (vencem qualquer normal) ─────────────────────────
         css.merge_over(&author.important); // <style> !important
         css.merge_over(&inline.important); // inline !important
+
+        // ── HERANÇA (CSS inherited properties): color/font/text-align/etc. que NÃO
+        // foram declaradas neste nó descem do PAI-elemento. É o que faz o texto pegar
+        // a cor do body sem cada elemento redeclarar (sem isto, texto fica preto).
+        if let Some(parent_idx) = self.element_parent_idx(idx) {
+            if let Some(parent_css) = self.computed_style_idx_inner(parent_idx, with_anim) {
+                inherit_from_parent(&mut css, &parent_css);
+            }
+        }
+
         // ── Camada de ANIMAÇÃO (#1776): o estilo interpolado do frame atual vence
         // tudo (é o que o usuário VÊ animando). Só quando `with_anim` (o que o render
         // vê); o `advance` pede `with_anim=false` p/ obter o ALVO base.
@@ -464,6 +474,13 @@ impl Dom {
             }
         }
         Some(css)
+    }
+
+    /// O pai de `idx` SE for um elemento (não o #document) — para a herança subir só
+    /// pela cadeia de elementos.
+    fn element_parent_idx(&self, idx: NodeIdx) -> Option<NodeIdx> {
+        let p = self.nodes[idx].parent?;
+        matches!(self.nodes[p].kind, NodeKind::Element { .. }).then_some(p)
     }
 
     /// `getComputedStyle(el).<name>` — o valor COMPUTADO (após a cascade completa)
@@ -1690,6 +1707,39 @@ impl Dom {
 /// Tags que são VAZIAS (void) — não têm fechamento nem filhos. Mínimo por ora.
 fn is_void(tag: &str) -> bool {
     matches!(tag, "br" | "hr" | "img" | "input" | "meta" | "link")
+}
+
+/// Aplica a HERANÇA de CSS: as propriedades HERDÁVEIS que o nó NÃO declarou (ficaram
+/// `None`) recebem o valor COMPUTADO do pai. As não-herdáveis (bg/padding/margin/
+/// border/width/display/flex…) NÃO herdam (cada caixa tem as suas).
+///
+/// DATA-DRIVEN: a lista de campos herdáveis vive num ÚNICO lugar (a macro abaixo),
+/// não num `if` por campo espalhado. Adicionar uma prop herdável = uma linha na
+/// lista. Cada entrada é só o nome do campo `Option<_>` — a macro gera o "se None,
+/// pega do pai" pra todos.
+fn inherit_from_parent(css: &mut crate::style::ComputedStyle, parent: &crate::style::ComputedStyle) {
+    /// para cada campo: se o filho não declarou (None), herda o do pai (clone).
+    macro_rules! inherit_fields {
+        ($($field:ident),* $(,)?) => {
+            $(
+                if css.$field.is_none() {
+                    css.$field = parent.$field.clone();
+                }
+            )*
+        };
+    }
+    // ── A LISTA das propriedades herdáveis do CSS (fonte única) ──────────────────
+    inherit_fields!(
+        color,
+        font_size,
+        bold,        // font-weight
+        italic,      // font-style
+        text_align,
+        line_height,
+        white_space,
+        text_transform,
+        font_family,
+    );
 }
 
 /// `true` se algum campo ANIMÁVEL (cor/tamanho/posição) difere entre dois estilos —

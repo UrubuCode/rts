@@ -212,11 +212,10 @@ fn layout_block(
     // ── Box model (content-box): resolve as bordas/espaços absolutos ─────────────
     // Margin/padding POR LADO (Edges). O `margin_v` (UA-stylesheet, só vertical) é
     // somado ao top/bottom. `margin_left/right` deslocam no x; o vertical empilha.
-    // (auto vira 0 aqui — o auto de centralização é resolução futura, #1745.)
     let m = &css.margin;
     let p = &css.padding;
-    let margin_left = m.left.px().unwrap_or(0.0);
-    let margin_right = m.right.px().unwrap_or(0.0);
+    let mut margin_left = m.left.px().unwrap_or(0.0);
+    let mut margin_right = m.right.px().unwrap_or(0.0);
     let margin_v_extra = css.margin_v.unwrap_or(0.0);
     let margin_top = m.top.px().unwrap_or(0.0) + margin_v_extra;
     let margin_bottom = m.bottom.px().unwrap_or(0.0) + margin_v_extra;
@@ -269,6 +268,26 @@ fn layout_block(
         if border_box { (v - (padding_h + 2.0 * border)).max(0.0) } else { v }
     });
     let content_w = crate::style::clamp_size(content_w, mnw, mxw);
+
+    // `margin: 0 auto` (#1745): se o margin-left/right é `auto` E o bloco tem largura
+    // definida (não ocupa o pai inteiro), o espaço livre se distribui pelos lados
+    // auto — centralizando (ambos auto) ou empurrando (um só auto). Resolvido AQUI,
+    // depois de saber o content_w. Só quando há largura explícita (senão o bloco já
+    // ocupa avail_w e não há espaço a distribuir).
+    let has_width = css.width.is_some() || css.max_width.is_some();
+    if has_width {
+        let box_outer = content_w + padding_h + 2.0 * border; // sem a margin
+        let free = (avail_w - box_outer).max(0.0);
+        match (m.left.is_auto(), m.right.is_auto()) {
+            (true, true) => {
+                margin_left = free / 2.0;
+                margin_right = free / 2.0;
+            }
+            (true, false) => margin_left = (free - margin_right).max(0.0),
+            (false, true) => margin_right = (free - margin_left).max(0.0),
+            (false, false) => {}
+        }
+    }
 
     // Posição do content-box (canto sup-esq): deslocado pelo lado ESQUERDO/TOPO
     // (margin+border+padding daquele lado), não a soma do eixo.

@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>Nebula — plataforma de dados, renderizada pelo motor CSS nativo do RTS</title>
+  <style>
+    /* ════════════════════════════════════════════════════════════════════════
+       Nebula — landing page de SaaS. Exercita: cascade + especificidade, flexbox
+       (justify/align/gap), seletores compostos/nth-child, texto (align/transform/
+       line-height/font), sizing (max-width), border-radius, @keyframes + animation.
+       Paleta: índigo/violeta sobre quase-preto, acentos teal. Tudo à mão, 0 deps.
+       ════════════════════════════════════════════════════════════════════════ */
+    body {
+      background: #08070d;
+      color: #ece9f5;
+      font-family: sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+      margin: 0;
+      padding: 0;
+      width: 1080px;
+    }
+
+    @keyframes float {
+      0%   { background: #6d5efc }
+      50%  { background: #8b7dff }
+      100% { background: #6d5efc }
+    }
+    @keyframes shimmer {
+      from { background: #14b8a6 }
+      to   { background: #2dd4bf }
+    }
+
+    /* ── Navbar minimalista ────────────────────────────────────────────────── */
+    .nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 22px 48px;
+    }
+    .nav .logo { display: flex; align-items: center; gap: 12px }
+    .nav .mark {
+      width: 30px; height: 30px;
+      background: #6d5efc;
+      border-radius: 9px;
+      animation: float 3s ease-in-out infinite;
+    }
+    .nav .wordmark { font-size: 20px; font-weight: 700; letter-spacing: 0 }
+    .nav .links { display: flex; align-items: center; gap: 8px }
+    .nav .links a {
+      padding: 9px 16px;
+      color: #a39fbd;
+      font-size: 14px;
+      border-radius: 8px;
+    }
+    .nav .links a.cta {
+      background: #6d5efc;
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    /* ── Hero centralizado, tipografia grande ──────────────────────────────── */
+    .hero {
+      text-align: center;
+      padding: 90px 48px 70px 48px;
+    }
+    .hero .pill {
+      display: inline-block;
+      background: #1a1530;
+      color: #b6acff;
+      font-size: 13px;
+      text-transform: uppercase;
+      padding: 7px 16px;
+      border-radius: 50px;
+      border: 1px solid #2a2348;
+      margin-bottom: 28px;
+    }
+    .hero h1 {
+      font-size: 60px;
+      font-weight: 700;
+      line-height: 1.1;
+      margin: 0 auto 22px auto;
+      max-width: 760px;
+    }
+    .hero .accent { color: #8b7dff }
+    .hero .lead {
+      font-size: 20px;
+      color: #a39fbd;
+      line-height: 1.6;
+      max-width: 600px;
+      margin: 0 auto 38px auto;
+    }
+    .hero .actions { display: flex; justify-content: center; gap: 14px }
+    .btn {
+      padding: 15px 30px;
+      border-radius: 11px;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .btn.primary { background: #6d5efc; color: #ffffff }
+    .btn.ghost { background: #14101f; color: #ece9f5; border: 1px solid #2a2348 }
+
+    /* ── Métricas em destaque (flexbox, números grandes) ───────────────────── */
+    .stats {
+      display: flex;
+      justify-content: center;
+      gap: 64px;
+      padding: 40px 48px 70px 48px;
+    }
+    .stats .stat { text-align: center }
+    .stats .num {
+      font-size: 44px;
+      font-weight: 700;
+      color: #ffffff;
+    }
+    .stats .cap {
+      color: #7d7896;
+      font-size: 14px;
+      text-transform: uppercase;
+    }
+
+    /* ── Grade de features (3 cards iguais com gap) ────────────────────────── */
+    .features {
+      display: flex;
+      gap: 20px;
+      padding: 20px 48px 80px 48px;
+    }
+    .feature {
+      width: 33%;
+      box-sizing: border-box;
+      background: #0e0b18;
+      border: 1px solid #1d1830;
+      border-radius: 16px;
+      padding: 30px;
+    }
+    .feature .icon {
+      width: 48px; height: 48px;
+      border-radius: 13px;
+      background: #6d5efc;
+      margin-bottom: 20px;
+    }
+    .feature:nth-child(2) .icon { background: #14b8a6; animation: shimmer 2s ease infinite alternate }
+    .feature:nth-child(3) .icon { background: #f472b6 }
+    .feature h3 { font-size: 20px; font-weight: 700; margin: 0 0 10px 0 }
+    .feature p { color: #a39fbd; font-size: 15px; line-height: 1.6; margin: 0 }
+
+    /* ── Faixa de logos (texto centralizado, uppercase) ────────────────────── */
+    .trusted {
+      text-align: center;
+      padding: 50px 48px;
+      border-top: 1px solid #161226;
+      border-bottom: 1px solid #161226;
+    }
+    .trusted .eyebrow {
+      color: #5e5a78;
+      font-size: 13px;
+      text-transform: uppercase;
+      margin-bottom: 26px;
+    }
+    .trusted .logos { display: flex; justify-content: center; gap: 48px }
+    .trusted .logos span { color: #6b6685; font-size: 22px; font-weight: 700 }
+
+    /* ── CTA final em caixa gradiente-like ─────────────────────────────────── */
+    .cta-box {
+      margin: 70px 48px;
+      background: #150f2e;
+      border: 1px solid #2a2348;
+      border-radius: 24px;
+      padding: 56px;
+      text-align: center;
+    }
+    .cta-box h2 { font-size: 38px; font-weight: 700; margin: 0 0 14px 0 }
+    .cta-box p { color: #a39fbd; font-size: 18px; max-width: 480px; margin: 0 auto 32px auto }
+
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 30px 48px 50px 48px;
+      color: #5e5a78;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <nav class="nav">
+    <div class="logo">
+      <div class="mark"></div>
+      <span class="wordmark">Nebula</span>
+    </div>
+    <div class="links">
+      <a href="/produto">Produto</a>
+      <a href="/precos">Preços</a>
+      <a href="/docs">Documentação</a>
+      <a href="/empresa">Empresa</a>
+      <a href="/comecar" class="cta">Começar agora</a>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <span class="pill">Novo · pipelines em tempo real</span>
+    <h1>Seus dados, <span class="accent">do bruto ao insight</span>, em minutos</h1>
+    <p class="lead">A plataforma que unifica ingestão, transformação e visualização — sem infraestrutura para manter, sem código boilerplate.</p>
+    <div class="actions">
+      <a href="/comecar" class="btn primary">Criar conta grátis</a>
+      <a href="/demo" class="btn ghost">Ver demonstração</a>
+    </div>
+  </header>
+
+  <section class="stats">
+    <div class="stat"><div class="num">2,4B</div><div class="cap">eventos por dia</div></div>
+    <div class="stat"><div class="num">99,99%</div><div class="cap">uptime</div></div>
+    <div class="stat"><div class="num">38ms</div><div class="cap">latência média</div></div>
+    <div class="stat"><div class="num">12k+</div><div class="cap">times ativos</div></div>
+  </section>
+
+  <section class="features">
+    <div class="feature">
+      <div class="icon"></div>
+      <h3>Ingestão sem atrito</h3>
+      <p>Conecte qualquer fonte — bancos, filas, APIs — com conectores nativos e captura de mudanças em tempo real.</p>
+    </div>
+    <div class="feature">
+      <div class="icon"></div>
+      <h3>Transformação visual</h3>
+      <p>Construa pipelines com um editor declarativo. Versionado, testável e pronto para produção desde o primeiro dia.</p>
+    </div>
+    <div class="feature">
+      <div class="icon"></div>
+      <h3>Insights instantâneos</h3>
+      <p>Dashboards que atualizam ao vivo e alertas inteligentes que avisam antes do problema acontecer.</p>
+    </div>
+  </section>
+
+  <section class="trusted">
+    <div class="eyebrow">A confiança de equipes em todo o mundo</div>
+    <div class="logos">
+      <span>Vertex</span>
+      <span>Lumina</span>
+      <span>Atlas</span>
+      <span>Corvus</span>
+      <span>Helios</span>
+    </div>
+  </section>
+
+  <section class="cta-box">
+    <h2>Comece a construir hoje</h2>
+    <p>Sem cartão de crédito. Sem configuração. Do zero ao primeiro pipeline em menos de 5 minutos.</p>
+    <a href="/comecar" class="btn primary">Criar conta grátis</a>
+  </section>
+
+  <footer class="footer">
+    <span>© 2026 Nebula Data, Inc.</span>
+    <span>renderizado pelo motor CSS nativo do RTS — 0 deps, sem jsdom</span>
+  </footer>
+</body>
+</html>
