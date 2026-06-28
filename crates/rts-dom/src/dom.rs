@@ -409,6 +409,53 @@ impl Dom {
         Some(css)
     }
 
+    /// `getComputedStyle(el).<name>` — o valor COMPUTADO (após a cascade completa)
+    /// de uma propriedade CSS por nome, no formato do browser. `""` se não definida
+    /// ou o nó não é elemento. (#1759)
+    pub fn computed_property(&self, id: NodeId, name: &str) -> String {
+        self.computed_style(id).map(|c| c.get_property(name)).unwrap_or_default()
+    }
+
+    /// `el.style.<name>` (getPropertyValue) — o valor INLINE da propriedade (só o
+    /// `style=""`, sem a cascade), no formato do browser. `""` se ausente.
+    pub fn inline_property(&self, id: NodeId, name: &str) -> String {
+        let Some(idx) = self.resolve(id) else { return String::new() };
+        let inline = self.nodes[idx]
+            .attr("style")
+            .map(crate::style::parse_inline_block)
+            .unwrap_or_default();
+        // o inline (normal+important fundidos) → get_property.
+        let mut css = inline.normal.clone();
+        css.merge_over(&inline.important);
+        css.get_property(name)
+    }
+
+    /// `el.style.cssText` (get) — o atributo `style=""` cru (a string inteira).
+    pub fn css_text(&self, id: NodeId) -> String {
+        self.get_attr(id, "style").unwrap_or("").to_string()
+    }
+
+    /// `el.style.cssText = v` (set) — substitui o `style=""` inteiro.
+    pub fn set_css_text(&mut self, id: NodeId, text: &str) {
+        self.set_attr(id, "style", text);
+    }
+
+    /// `el.style.setProperty(name, value)` — define UMA propriedade no `style=""`
+    /// inline, preservando as demais. Re-serializa a string `style`. Valor vazio
+    /// REMOVE a propriedade (como `removeProperty`).
+    pub fn set_style_property(&mut self, id: NodeId, name: &str, value: &str) {
+        let cur = self.css_text(id);
+        let new = upsert_css_decl(&cur, name.trim(), value.trim());
+        self.set_attr(id, "style", &new);
+    }
+
+    /// `el.style.removeProperty(name)` — remove a propriedade do `style=""`.
+    pub fn remove_style_property(&mut self, id: NodeId, name: &str) {
+        let cur = self.css_text(id);
+        let new = upsert_css_decl(&cur, name.trim(), ""); // valor vazio = remover
+        self.set_attr(id, "style", &new);
+    }
+
     /// `true` se a tag do nó é texto-cru não-renderável (`<style>`/`<script>`): o
     /// render deve PULAR (o conteúdo é CSS/JS, não conteúdo de página). O CSS já foi
     /// absorvido pelo stylesheet no parse.
@@ -1290,6 +1337,49 @@ fn is_void(tag: &str) -> bool {
     matches!(tag, "br" | "hr" | "img" | "input" | "meta" | "link")
 }
 
+/// Insere/atualiza/remove uma declaração `name: value` numa string de `style=""`,
+/// preservando as outras declarações e a ordem. `value` vazio REMOVE a declaração.
+/// É o motor de `element.style.setProperty`/`removeProperty` (#1759).
+fn upsert_css_decl(css_text: &str, name: &str, value: &str) -> String {
+    let name_lc = name.to_ascii_lowercase();
+    let mut decls: Vec<(String, String)> = Vec::new();
+    let mut replaced = false;
+    // parseia as declarações atuais (split por ';', cada uma `prop: val`).
+    for part in css_text.split(';') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        let Some((p, v)) = part.split_once(':') else { continue };
+        let p = p.trim().to_ascii_lowercase();
+        if p == name_lc {
+            if !value.is_empty() {
+                // PRESERVA o `!important` que a declaração antiga tinha (o novo valor
+                // só substitui o valor, não a prioridade — fiel ao CSSOM setProperty).
+                let had_important = v.to_ascii_lowercase().contains("!important");
+                let new_v = if had_important && !value.to_ascii_lowercase().contains("!important") {
+                    format!("{value} !important")
+                } else {
+                    value.to_string()
+                };
+                decls.push((p, new_v));
+            }
+            replaced = true;
+        } else {
+            decls.push((p, v.trim().to_string()));
+        }
+    }
+    // não existia e tem valor → adiciona ao fim.
+    if !replaced && !value.is_empty() {
+        decls.push((name_lc, value.to_string()));
+    }
+    decls
+        .iter()
+        .map(|(p, v)| format!("{p}: {v}"))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 /// Parseia a parte crua de atributos de uma tag (`class='card' id="x" checked`)
 /// em pares `Attr`. Tolerante: aceita aspas simples/duplas ou sem aspas, e
 /// atributo sem valor (`checked` → value vazio). Nomes em minúsculas; valores
@@ -1836,6 +1926,72 @@ mod tests {
         dom.insert_adjacent(b, i, true);
         let names: Vec<String> = dom.child_elements(a).iter().map(|&k| dom.node_name(k).unwrap()).collect();
         assert_eq!(names, vec!["b", "i", "u"]); // ordem preservada, i não foi pro fim
+    }
+
+    #[test]
+    fn computed_property_formato_browser() {
+        // getComputedStyle por nome, formato do browser (#1759).
+        let dom = parse_html_to_dom(
+            "<style>#a{color:#ff0000;background:rgba(0,0,255,0.5);font-size:18px;padding:10px}</style><div id=\"a\">x</div>",
+        );
+        let a = dom.query("#a").unwrap();
+        assert_eq!(dom.computed_property(a, "color"), "rgb(255, 0, 0)");
+        // alpha a 2 casas — VALIDADO no Chrome (#..80 / rgba(.5) → "0.5", não 0.501961).
+        assert_eq!(dom.computed_property(a, "background-color"), "rgba(0, 0, 255, 0.5)");
+        assert_eq!(dom.computed_property(a, "font-size"), "18px");
+        assert_eq!(dom.computed_property(a, "padding-top"), "10px");
+        assert_eq!(dom.computed_property(a, "margin-top"), ""); // não definido
+    }
+
+    #[test]
+    fn style_set_get_remove_property() {
+        // el.style.setProperty/getPropertyValue/removeProperty + cssText (#1759).
+        let mut dom = parse_html_to_dom("<div id=\"a\" style=\"color: red; padding: 5px\">x</div>");
+        let a = dom.query("#a").unwrap();
+        // get inline.
+        assert_eq!(dom.inline_property(a, "color"), "rgb(255, 0, 0)");
+        // set nova prop preserva as outras.
+        dom.set_style_property(a, "font-size", "20px");
+        assert_eq!(dom.inline_property(a, "font-size"), "20px");
+        assert_eq!(dom.inline_property(a, "color"), "rgb(255, 0, 0)"); // mantida
+        // atualizar prop existente.
+        dom.set_style_property(a, "color", "blue");
+        assert_eq!(dom.inline_property(a, "color"), "rgb(0, 0, 255)");
+        // remover.
+        dom.remove_style_property(a, "padding");
+        assert_eq!(dom.inline_property(a, "padding-top"), "");
+        // cssText reflete o estado.
+        assert!(dom.css_text(a).contains("color: blue"));
+        assert!(dom.css_text(a).contains("font-size: 20px"));
+        assert!(!dom.css_text(a).contains("padding"));
+    }
+
+    #[test]
+    fn upsert_preserva_important() {
+        // editar uma prop com !important NÃO perde a prioridade (verificação adversarial).
+        let r = upsert_css_decl("color: red !important; margin: 0", "color", "blue");
+        assert!(r.contains("color: blue !important"), "got: {r}");
+        assert!(r.contains("margin: 0"));
+        // prop sem important continua sem.
+        let r2 = upsert_css_decl("color: red; margin: 0", "color", "blue");
+        assert!(!r2.contains("!important"), "got: {r2}");
+    }
+
+    #[test]
+    fn display_keyword_valido() {
+        // FlexWrap → "flex" (não "flexwrap" inválido); flex-wrap é prop separada.
+        let dom = parse_html_to_dom("<style>#a{display:flex;flex-wrap:wrap}</style><div id=\"a\">x</div>");
+        let a = dom.query("#a").unwrap();
+        assert_eq!(dom.computed_property(a, "display"), "flex");
+    }
+
+    #[test]
+    fn css_text_set_substitui_tudo() {
+        let mut dom = parse_html_to_dom("<div id=\"a\" style=\"color: red\">x</div>");
+        let a = dom.query("#a").unwrap();
+        dom.set_css_text(a, "background: green; margin: 4px");
+        assert_eq!(dom.inline_property(a, "color"), ""); // o color sumiu
+        assert_eq!(dom.inline_property(a, "background-color"), "rgb(0, 128, 0)");
     }
 
     #[test]

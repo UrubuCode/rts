@@ -628,6 +628,62 @@ pub extern "C" fn __RTS_FN_NS_DOM_CLEAR_CHILDREN(h: u64, parent: i64) {
     with_mut(h, |dom| dom.clear_children(p));
 }
 
+// ── element.style + getComputedStyle — #1759 ────────────────────────────────────
+
+/// `computedProperty(domHandle, node, name)` → valor COMPUTADO da prop (após
+/// cascade) como STRING, formato do browser. "" se ausente.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_COMPUTED_PROPERTY(h: u64, id: i64, n_ptr: *const u8, n_len: i64) -> u64 {
+    let Some(node) = NodeId::from_abi(id) else { return intern("") };
+    let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("").to_string();
+    let v = with(h, |dom| dom.computed_property(node, &name)).unwrap_or_default();
+    intern(&v)
+}
+
+/// `inlineProperty(domHandle, node, name)` → valor INLINE da prop (só `style=""`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_INLINE_PROPERTY(h: u64, id: i64, n_ptr: *const u8, n_len: i64) -> u64 {
+    let Some(node) = NodeId::from_abi(id) else { return intern("") };
+    let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("").to_string();
+    let v = with(h, |dom| dom.inline_property(node, &name)).unwrap_or_default();
+    intern(&v)
+}
+
+/// `cssText(domHandle, node)` → o `style=""` cru.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_CSS_TEXT(h: u64, id: i64) -> u64 {
+    let Some(node) = NodeId::from_abi(id) else { return intern("") };
+    let v = with(h, |dom| dom.css_text(node)).unwrap_or_default();
+    intern(&v)
+}
+
+/// `setCssText(domHandle, node, text)` → substitui o `style=""` inteiro.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_SET_CSS_TEXT(h: u64, id: i64, t_ptr: *const u8, t_len: i64) {
+    let Some(node) = NodeId::from_abi(id) else { return };
+    let text = unsafe { str_abi::from_abi(t_ptr, t_len) }.unwrap_or("").to_string();
+    with_mut(h, |dom| dom.set_css_text(node, &text));
+}
+
+/// `setStyleProperty(domHandle, node, name, value)` → define UMA prop no `style=""`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_SET_STYLE_PROPERTY(
+    h: u64, id: i64, n_ptr: *const u8, n_len: i64, v_ptr: *const u8, v_len: i64,
+) {
+    let Some(node) = NodeId::from_abi(id) else { return };
+    let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("").to_string();
+    let value = unsafe { str_abi::from_abi(v_ptr, v_len) }.unwrap_or("").to_string();
+    with_mut(h, |dom| dom.set_style_property(node, &name, &value));
+}
+
+/// `removeStyleProperty(domHandle, node, name)` → remove a prop do `style=""`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_REMOVE_STYLE_PROPERTY(h: u64, id: i64, n_ptr: *const u8, n_len: i64) {
+    let Some(node) = NodeId::from_abi(id) else { return };
+    let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("").to_string();
+    with_mut(h, |dom| dom.remove_style_property(node, &name));
+}
+
 /// `getAttribute(domHandle, node, name)` → valor do atributo como STRING (handle
 /// do pool GC). Atributo ausente / nó inválido ⇒ `""` (a fachada TS converte ""
 /// para `null` se quiser semântica de browser).
@@ -1341,6 +1397,49 @@ pub fn register(e: &mut Engine) {
             "clearChildren(dom: number, parent: number): void",
             "parent.replaceChildren() with no args: remove all children.",
             __RTS_FN_NS_DOM_CLEAR_CHILDREN as *const u8,
+        ))
+        // ── element.style + getComputedStyle — #1759 ────────────────────────────
+        .member(func(
+            "computedProperty", "__RTS_FN_NS_DOM_COMPUTED_PROPERTY",
+            Sig::new(vec![Handle, I64, StrPtr], AbiType::Handle),
+            "computedProperty(dom: number, node: number, name: string): string",
+            "getComputedStyle(el).<name>: computed value after the cascade.",
+            __RTS_FN_NS_DOM_COMPUTED_PROPERTY as *const u8,
+        ))
+        .member(func(
+            "inlineProperty", "__RTS_FN_NS_DOM_INLINE_PROPERTY",
+            Sig::new(vec![Handle, I64, StrPtr], AbiType::Handle),
+            "inlineProperty(dom: number, node: number, name: string): string",
+            "el.style.getPropertyValue(name): inline value from style='' only.",
+            __RTS_FN_NS_DOM_INLINE_PROPERTY as *const u8,
+        ))
+        .member(func(
+            "cssText", "__RTS_FN_NS_DOM_CSS_TEXT",
+            Sig::new(vec![Handle, I64], AbiType::Handle),
+            "cssText(dom: number, node: number): string",
+            "el.style.cssText (get): the raw style='' string.",
+            __RTS_FN_NS_DOM_CSS_TEXT as *const u8,
+        ))
+        .member(func(
+            "setCssText", "__RTS_FN_NS_DOM_SET_CSS_TEXT",
+            Sig::new(vec![Handle, I64, StrPtr], AbiType::Void),
+            "setCssText(dom: number, node: number, text: string): void",
+            "el.style.cssText = text (set): replace the whole style='' string.",
+            __RTS_FN_NS_DOM_SET_CSS_TEXT as *const u8,
+        ))
+        .member(func(
+            "setStyleProperty", "__RTS_FN_NS_DOM_SET_STYLE_PROPERTY",
+            Sig::new(vec![Handle, I64, StrPtr, StrPtr], AbiType::Void),
+            "setStyleProperty(dom: number, node: number, name: string, value: string): void",
+            "el.style.setProperty(name, value): set one inline property.",
+            __RTS_FN_NS_DOM_SET_STYLE_PROPERTY as *const u8,
+        ))
+        .member(func(
+            "removeStyleProperty", "__RTS_FN_NS_DOM_REMOVE_STYLE_PROPERTY",
+            Sig::new(vec![Handle, I64, StrPtr], AbiType::Void),
+            "removeStyleProperty(dom: number, node: number, name: string): void",
+            "el.style.removeProperty(name).",
+            __RTS_FN_NS_DOM_REMOVE_STYLE_PROPERTY as *const u8,
         ))
         .member(func(
             "getAttribute",
