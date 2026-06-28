@@ -116,6 +116,34 @@ pub(crate) fn render_dom_scrolled(
             let dy = ui.input(|i| i.smooth_scroll_delta.y);
             offset -= dy; // roda p/ cima (dy>0) sobe o conteúdo (offset menor)
         }
+
+        // ARRASTAR a barra: a mesma geometria do thumb que o `emit_scrollbar` usa.
+        // Clicar/puxar na faixa da barra mapeia a posição do mouse → offset. O input
+        // (clique/drag) é legítimo do backend; o resultado vira o nosso `offset`.
+        if max_off > 0.0 {
+            let bar_w = match sb.width {
+                Some(rts_dom::scrollbar::BarWidth::Thin) => 8.0,
+                Some(rts_dom::scrollbar::BarWidth::Px(px)) => px,
+                _ => 12.0,
+            };
+            let origin = ui.max_rect().min;
+            let bar_rect = egui::Rect::from_min_size(
+                origin + egui::vec2(viewport_w - bar_w, 0.0),
+                egui::vec2(bar_w, viewport_h),
+            );
+            // área interativa da barra (resposta a clique/drag).
+            let resp = ui.interact(bar_rect, id.with("bar"), egui::Sense::click_and_drag());
+            let frac = (viewport_h / content_h).clamp(0.0, 1.0);
+            let thumb_h = (viewport_h * frac).max(24.0);
+            if let Some(pos) = resp.interact_pointer_pos() {
+                if resp.is_pointer_button_down_on() || resp.dragged() {
+                    // centraliza o thumb no ponteiro: y do mouse → fração → offset.
+                    let local_y = (pos.y - origin.y - thumb_h / 2.0).max(0.0);
+                    let track_span = (viewport_h - thumb_h).max(1.0);
+                    offset = (local_y / track_span).clamp(0.0, 1.0) * max_off;
+                }
+            }
+        }
     }
     offset = offset.clamp(0.0, max_off);
     ui.ctx().memory_mut(|m| m.data.insert_temp(id, offset));
