@@ -48,6 +48,24 @@ class Element {
     dom.setText(this._dom, this._node, t);
   }
 
+  // `el.innerHTML` — GET serializa os filhos. O jeito #1 de mexer no DOM em apps.
+  get innerHTML(): string {
+    return dom.innerHtml(this._dom, this._node);
+  }
+  // ⚠️ O SET é via MÉTODO `setInnerHTML(html)`, não o setter `el.innerHTML = ...`:
+  // o motor RTS atual não dispara setters de propriedade de classe (o `app.x = v`
+  // não chama `set x()` — cria um campo no objeto). Métodos despacham certo. Quando
+  // o motor suportar setters, o `set innerHTML` volta. (mesmo motivo de classList*
+  // serem métodos, não um objeto `.classList` vivo.)
+  setInnerHTML(html: string): void {
+    dom.setInnerHtml(this._dom, this._node, html);
+  }
+
+  // `el.outerHTML` — GET inclui o próprio elemento.
+  get outerHTML(): string {
+    return dom.outerHtml(this._dom, this._node);
+  }
+
   // `el.tagName` — o browser devolve em CAIXA ALTA para HTML.
   get tagName(): string {
     return dom.tagName(this._dom, this._node).toUpperCase();
