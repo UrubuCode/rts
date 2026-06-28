@@ -30,6 +30,8 @@ print(`${e}`);
 
 describe("fixture:num_bits", () => {
   test("matches expected stdout", () => {
-    expect(__rtsCapturedOutput).toBe("8\n63\n3\n16\n1297036692682702848\n");
+    // swap_bytes > 2^53 (0x1200000000000000): sem repr Int64, vira f64 e imprime
+    // como JS/Node (1297036692682702800). Era exato no motor velho (deletado).
+    expect(__rtsCapturedOutput).toBe("8\n63\n3\n16\n1297036692682702800\n");
   });
 });

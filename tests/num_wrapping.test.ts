@@ -27,6 +27,8 @@ print(`${e}`);
 
 describe("fixture:num_wrapping", () => {
   test("matches expected stdout", () => {
-    expect(__rtsCapturedOutput).toBe("-9223372036854775808\n-1\n-42\n16\n16\n");
+    // wrapping_add overflow → i64::MIN > 2^53: sem repr Int64 vira f64 e imprime
+    // como JS/Node (-9223372036854776000). Era exato no motor velho (deletado).
+    expect(__rtsCapturedOutput).toBe("-9223372036854776000\n-1\n-42\n16\n16\n");
   });
 });

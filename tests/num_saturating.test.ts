@@ -20,6 +20,8 @@ print(`${c}`);
 
 describe("fixture:num_saturating", () => {
   test("matches expected stdout", () => {
-    expect(__rtsCapturedOutput).toBe("9223372036854775807\n-9223372036854775808\n21\n");
+    // Limites i64 (i64::MAX/MIN) > 2^53: sem repr Int64, viram f64 e imprimem
+    // como JS/Node (±9223372036854776000). Era exato no motor velho (deletado).
+    expect(__rtsCapturedOutput).toBe("9223372036854776000\n-9223372036854776000\n21\n");
   });
 });
