@@ -361,6 +361,33 @@ pub extern "C" fn __RTS_FN_NS_DOM_GET_TEXT(h: u64, id: i64) -> u64 {
     intern(&txt)
 }
 
+/// `innerHtml(domHandle, node)` → `element.innerHTML` como STRING (handle do pool
+/// GC): o HTML serializado dos FILHOS do nó. Nó inválido ⇒ `""`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_INNER_HTML(h: u64, id: i64) -> u64 {
+    let Some(node) = NodeId::from_abi(id) else { return intern("") };
+    let s = with(h, |dom| dom.inner_html(node).unwrap_or_default()).unwrap_or_default();
+    intern(&s)
+}
+
+/// `outerHtml(domHandle, node)` → `element.outerHTML` (inclui o próprio elemento).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_OUTER_HTML(h: u64, id: i64) -> u64 {
+    let Some(node) = NodeId::from_abi(id) else { return intern("") };
+    let s = with(h, |dom| dom.outer_html(node).unwrap_or_default()).unwrap_or_default();
+    intern(&s)
+}
+
+/// `setInnerHtml(domHandle, node, html)` → `element.innerHTML = html`: parseia o
+/// HTML e SUBSTITUI os filhos do nó pela nova subárvore. Nó inválido / não-elemento
+/// ⇒ no-op.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_SET_INNER_HTML(h: u64, id: i64, html_ptr: *const u8, html_len: i64) {
+    let Some(node) = NodeId::from_abi(id) else { return };
+    let html = unsafe { str_abi::from_abi(html_ptr, html_len) }.unwrap_or("").to_string();
+    with_mut(h, |dom| dom.set_inner_html(node, &html));
+}
+
 /// `getAttribute(domHandle, node, name)` → valor do atributo como STRING (handle
 /// do pool GC). Atributo ausente / nó inválido ⇒ `""` (a fachada TS converte ""
 /// para `null` se quiser semântica de browser).
@@ -807,6 +834,30 @@ pub fn register(e: &mut Engine) {
             "getText(dom: number, node: number): string",
             "node.textContent: concatenated text of all descendants. Empty string if the node is invalid.",
             __RTS_FN_NS_DOM_GET_TEXT as *const u8,
+        ))
+        .member(func(
+            "innerHtml",
+            "__RTS_FN_NS_DOM_INNER_HTML",
+            Sig::new(vec![Handle, I64], AbiType::Handle),
+            "innerHtml(dom: number, node: number): string",
+            "element.innerHTML (get): serialized HTML of the node's children. Empty string if invalid.",
+            __RTS_FN_NS_DOM_INNER_HTML as *const u8,
+        ))
+        .member(func(
+            "outerHtml",
+            "__RTS_FN_NS_DOM_OUTER_HTML",
+            Sig::new(vec![Handle, I64], AbiType::Handle),
+            "outerHtml(dom: number, node: number): string",
+            "element.outerHTML (get): serialized HTML including the element itself.",
+            __RTS_FN_NS_DOM_OUTER_HTML as *const u8,
+        ))
+        .member(func(
+            "setInnerHtml",
+            "__RTS_FN_NS_DOM_SET_INNER_HTML",
+            Sig::new(vec![Handle, I64, StrPtr], AbiType::Void),
+            "setInnerHtml(dom: number, node: number, html: string): void",
+            "element.innerHTML = html (set): parses the HTML and replaces the node's children.",
+            __RTS_FN_NS_DOM_SET_INNER_HTML as *const u8,
         ))
         .member(func(
             "getAttribute",

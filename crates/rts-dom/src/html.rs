@@ -161,6 +161,45 @@ pub(crate) fn decode_entities(s: &str) -> String {
     out
 }
 
+/// Re-encoda um texto para conteúdo HTML (inverso de `decode_entities` no caminho
+/// de TEXTO): `&`→`&amp;`, `<`→`&lt;`, `>`→`&gt;`. É o que `innerHTML` (GET) usa
+/// para serializar um nó de texto de forma segura. `pub(crate)`.
+pub(crate) fn encode_text_entities(s: &str) -> String {
+    // Atalho: sem caractere especial, nada a fazer (caso comum).
+    if !s.contains(['&', '<', '>']) {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(s.len() + 8);
+    for ch in s.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
+/// Re-encoda um valor de ATRIBUTO (serializado entre aspas duplas): além de
+/// `&`/`<`/`>`, escapa `"`→`&quot;` (o delimitador). Para `innerHTML`/`outerHTML`.
+pub(crate) fn encode_attr_entities(s: &str) -> String {
+    if !s.contains(['&', '<', '>', '"']) {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(s.len() + 8);
+    for ch in s.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 /// Decodifica o MIOLO de uma entidade (sem o `&` e o `;`). `None` se desconhecida.
 fn decode_one_entity(body: &str) -> Option<char> {
     if let Some(num) = body.strip_prefix('#') {

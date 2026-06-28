@@ -751,6 +751,100 @@ impl Dom {
         false
     }
 
+    /// `element.innerHTML` (GET) — serializa os FILHOS do nó como string HTML
+    /// válida (o inverso do parser: `<tag attrs>filhos</tag>`, texto com entidades
+    /// re-encodadas, `<!-- -->` para comentário, void tags sem fechar). `None` se o
+    /// id não resolve. Round-trip com `set_inner_html` é estável para o subset.
+    pub fn inner_html(&self, id: NodeId) -> Option<String> {
+        let idx = self.resolve(id)?;
+        let mut out = String::new();
+        for &child in &self.nodes[idx].children {
+            self.serialize_node(child, &mut out);
+        }
+        Some(out)
+    }
+
+    /// `element.outerHTML` (GET) — como [`inner_html`](Dom::inner_html) mas inclui o
+    /// PRÓPRIO elemento (a tag de abertura+fechamento ao redor dos filhos).
+    pub fn outer_html(&self, id: NodeId) -> Option<String> {
+        let idx = self.resolve(id)?;
+        let mut out = String::new();
+        self.serialize_node(idx, &mut out);
+        Some(out)
+    }
+
+    /// Serializa UM nó como HTML (recursivo). Element → `<tag a="v">filhos</tag>`
+    /// (void → `<tag>` sem fechar); Text → texto com entidades re-encodadas;
+    /// Comment → `<!-- ... -->`; Document → só os filhos.
+    fn serialize_node(&self, idx: NodeIdx, out: &mut String) {
+        match &self.nodes[idx].kind {
+            NodeKind::Document => {
+                for &c in &self.nodes[idx].children {
+                    self.serialize_node(c, out);
+                }
+            }
+            NodeKind::Text(t) => out.push_str(&crate::html::encode_text_entities(t)),
+            NodeKind::Comment(c) => {
+                out.push_str("<!--");
+                out.push_str(c);
+                out.push_str("-->");
+            }
+            NodeKind::Element { tag } => {
+                out.push('<');
+                out.push_str(tag);
+                for a in &self.nodes[idx].attrs {
+                    out.push(' ');
+                    out.push_str(&a.name);
+                    out.push_str("=\"");
+                    out.push_str(&crate::html::encode_attr_entities(&a.value));
+                    out.push('"');
+                }
+                out.push('>');
+                if is_void(tag) {
+                    return; // void: sem filhos, sem fechamento.
+                }
+                for &c in &self.nodes[idx].children {
+                    self.serialize_node(c, out);
+                }
+                out.push_str("</");
+                out.push_str(tag);
+                out.push('>');
+            }
+        }
+    }
+
+    /// `element.innerHTML = html` (SET) — parseia o HTML e SUBSTITUI todos os filhos
+    /// do nó pela nova subárvore. Reusa o parser (`parse_html_to_dom`); os nós
+    /// parseados são COPIADOS para esta arena (re-parentados sob `id`), atualizando
+    /// os índices id/class. Não faz nada num nó que não é elemento ou não resolve.
+    pub fn set_inner_html(&mut self, id: NodeId, html: &str) {
+        let Some(idx) = self.resolve(id) else { return };
+        if !matches!(self.nodes[idx].kind, NodeKind::Element { .. }) {
+            return;
+        }
+        // Descarta os filhos atuais (arena não compacta; viram lixo).
+        self.nodes[idx].children.clear();
+        // Parseia a nova subárvore numa árvore temporária e copia os filhos do
+        // #document dela para baixo de `idx`.
+        let sub = parse_html_to_dom(html);
+        let sub_root_children: Vec<NodeIdx> = sub.nodes[sub.root].children.clone();
+        for sub_child in sub_root_children {
+            self.copy_subtree_into(&sub, sub_child, idx);
+        }
+    }
+
+    /// Copia recursivamente o nó `src_idx` da árvore `src` para dentro desta arena,
+    /// como filho de `dst_parent`. Novos `NodeIdx`, índices id/class atualizados.
+    fn copy_subtree_into(&mut self, src: &Dom, src_idx: NodeIdx, dst_parent: NodeIdx) -> NodeIdx {
+        let src_node = &src.nodes[src_idx];
+        let new_idx = self.push(src_node.kind.clone(), src_node.attrs.clone(), dst_parent);
+        let src_children: Vec<NodeIdx> = src_node.children.clone();
+        for c in src_children {
+            self.copy_subtree_into(src, c, new_idx);
+        }
+        new_idx
+    }
+
     /// Serializa a árvore indentada (estilo devtools) — a forma legível de
     /// inspecionar/verificar o que foi gerado. Elemento vira `<tag>`; texto vira
     /// a string entre aspas; cada nível adiciona 2 espaços.
@@ -1129,6 +1223,44 @@ mod tests {
         // o combinador `a > b` é cortado (não suportado); mas `p { }` simples passa.
         assert!(!dom.stylesheet().is_empty());
         assert_eq!(dom.computed_style(dom.query("p").unwrap()).unwrap().color, Some(0x0000FFFF));
+    }
+
+    #[test]
+    fn inner_html_get_serializa() {
+        // innerHTML (get): reconstrói o HTML dos filhos.
+        let dom = parse_html_to_dom("<div><p class='x'>oi <b>forte</b></p></div>");
+        let div = dom.query("div").unwrap();
+        assert_eq!(dom.inner_html(div).unwrap(), "<p class=\"x\">oi <b>forte</b></p>");
+        // outerHTML inclui o próprio div.
+        assert_eq!(dom.outer_html(div).unwrap(), "<div><p class=\"x\">oi <b>forte</b></p></div>");
+        // entidades re-encodadas no texto.
+        let d2 = parse_html_to_dom("<p>a &lt; b &amp; c</p>");
+        let p = d2.query("p").unwrap();
+        assert_eq!(d2.inner_html(p).unwrap(), "a &lt; b &amp; c");
+    }
+
+    #[test]
+    fn inner_html_set_substitui() {
+        // innerHTML (set): parseia e troca os filhos.
+        let mut dom = parse_html_to_dom("<div><span>velho</span></div>");
+        let div = dom.query("div").unwrap();
+        dom.set_inner_html(div, "<p>novo</p><b>!</b>");
+        // os filhos novos estão lá; o velho sumiu.
+        assert_eq!(dom.inner_html(div).unwrap(), "<p>novo</p><b>!</b>");
+        // a árvore real reflete (query acha o <p> novo).
+        let p = dom.query("p").unwrap();
+        assert_eq!(dom.text_content(p).unwrap(), "novo");
+        assert!(dom.query("span").is_none()); // o velho foi descartado
+    }
+
+    #[test]
+    fn inner_html_round_trip() {
+        // parse → serialize → parse estável (subset).
+        let html = "<section id=\"s\"><h2>T</h2><p>texto <i>it</i> fim</p></section>";
+        let dom = parse_html_to_dom(html);
+        let sec = dom.query("#s").unwrap();
+        let serial = dom.outer_html(sec).unwrap();
+        assert_eq!(serial, html);
     }
 
     #[test]
