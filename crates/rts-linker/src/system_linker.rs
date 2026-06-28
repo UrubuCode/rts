@@ -163,6 +163,14 @@ fn build_linker_args(
                 // Dead code / COMDAT elimination — strips unused namespace functions.
                 args.push("/OPT:REF".to_string());
                 args.push("/OPT:ICF".to_string());
+            } else {
+                // `--all-namespaces` força `/WHOLEARCHIVE` no runtime, que arrasta os
+                // import-stubs do kernel32 já contidos no archive — colidindo com o
+                // `/defaultlib:kernel32.lib` do SDK (duplicate symbol DuplicateHandle/
+                // FreeLibrary/…). `/FORCE:MULTIPLE` deixa o linker usar a 1ª definição
+                // (idêntica) em vez de abortar. Só vale neste modo (sem ele, OPT:REF
+                // já evita o problema removendo o não-usado).
+                args.push("/FORCE:MULTIPLE".to_string());
             }
             args.push(format!("/out:{}", output_path.display()));
             for object_path in object_paths {
