@@ -68,35 +68,50 @@ pub(crate) fn apply_scrollbar_style(ui: &mut egui::Ui, sb: &rts_dom::scrollbar::
     if sb.is_default() {
         return;
     }
-    let style = ui.style_mut();
-    let scroll = &mut style.spacing.scroll;
-    // largura da barra. `none` → 0 (rola sem barra visível); `thin` → fina.
-    match sb.width {
-        Some(BarWidth::None) => scroll.bar_width = 0.0,
-        Some(BarWidth::Thin) => scroll.bar_width = 6.0,
-        Some(BarWidth::Auto) => {}
-        Some(BarWidth::Px(px)) => scroll.bar_width = px,
-        None => {}
-    }
-    // barra sólida (não-flutuante) quando o CSS estiliza cores — fica visível como num
-    // browser (a flutuante do egui é discreta demais p/ paridade).
-    if sb.thumb.is_some() || sb.track.is_some() {
+    // Modifica o estilo IN-PLACE do `ui` (afeta este frame; o ScrollArea criado a
+    // seguir herda este `ui`). O handle da scroll lê `widgets.inactive.bg_fill`; o
+    // track lê `extreme_bg_color`; a largura/flutuação, `spacing.scroll`.
+    // Modifica o estilo PERSISTENTE do contexto (`ctx.style_mut`) — aplicado em vigor
+    // imediato e é o que o ScrollArea lê ao desenhar a barra. `ui.style_mut()` (Arc
+    // clonado) não chegava ao pass de pintura da barra.
+    ui.ctx().style_mut(|style| {
+        let scroll = &mut style.spacing.scroll;
+        // barra SÓLIDA (não-flutuante) e sempre opaca — visível como num browser.
         scroll.floating = false;
-    }
-    if let Some(radius) = sb.thumb_radius {
-        scroll.handle_min_length = scroll.handle_min_length.max(radius * 2.0);
-    }
-    // cores: o thumb é o "handle" (widgets inativos/hover), o track é o fundo da barra.
-    if let Some(thumb) = sb.thumb {
-        let c = rgba_to_color32(thumb);
-        let w = &mut style.visuals.widgets;
-        w.inactive.bg_fill = c;
-        w.hovered.bg_fill = c;
-        w.active.bg_fill = c;
-    }
-    if let Some(track) = sb.track {
-        style.visuals.extreme_bg_color = rgba_to_color32(track);
-    }
+        scroll.dormant_handle_opacity = 1.0;
+        scroll.active_handle_opacity = 1.0;
+        scroll.interact_handle_opacity = 1.0;
+        scroll.dormant_background_opacity = 1.0;
+        scroll.active_background_opacity = 1.0;
+        scroll.interact_background_opacity = 1.0;
+        // largura: none→0, thin→8, px direto, senão mínimo visível.
+        match sb.width {
+            Some(BarWidth::None) => scroll.bar_width = 0.0,
+            Some(BarWidth::Thin) => scroll.bar_width = 8.0,
+            Some(BarWidth::Auto) => scroll.bar_width = scroll.bar_width.max(10.0),
+            Some(BarWidth::Px(px)) => scroll.bar_width = px,
+            None => scroll.bar_width = scroll.bar_width.max(10.0),
+        }
+        if let Some(radius) = sb.thumb_radius {
+            scroll.handle_min_length = scroll.handle_min_length.max(radius * 2.0);
+        }
+        // COR do handle/track: o handle lê `fg_stroke.color` (barra sólida usa
+        // foreground_color=true) com fallback `bg_fill`; o track, `extreme_bg_color`.
+        // Setamos todos os widget-states p/ a cor valer em qualquer interação.
+        scroll.foreground_color = false; // usar bg_fill (handle sólido colorido)
+        if let Some(thumb) = sb.thumb {
+            let c = rgba_to_color32(thumb);
+            let w = &mut style.visuals.widgets;
+            for v in [&mut w.inactive, &mut w.hovered, &mut w.active, &mut w.noninteractive] {
+                v.bg_fill = c;
+                v.weak_bg_fill = c;
+                v.fg_stroke.color = c;
+            }
+        }
+        if let Some(track) = sb.track {
+            style.visuals.extreme_bg_color = rgba_to_color32(track);
+        }
+    });
 }
 
 /// Renderiza um `Dom` inteiro: calcula o layout (rts-dom) e PINTA a display list.
