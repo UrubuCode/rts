@@ -41,6 +41,11 @@ pub mod store;
 /// implementa; reimplementar largura de glifo aqui é a armadilha do roadmap).
 pub mod layout;
 
+/// Motor de ANIMAÇÃO (#1776): interpolação de [`style::ComputedStyle`] no tempo +
+/// curvas de easing. Núcleo comum de `transition` (2 pontos) e `@keyframes` (N).
+/// Egui-free; o tick por frame é dirigido pelo loop de render.
+pub mod anim;
+
 pub use dom::{parse_html_to_dom, Attr, Dom, Node, NodeId, NodeIdx, NodeKind};
 
 pub use abi::register;

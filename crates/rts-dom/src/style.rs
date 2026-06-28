@@ -564,6 +564,11 @@ pub struct ComputedStyle {
     pub min_height: Option<Dimension>,
     /// `max-height` — teto da altura usada.
     pub max_height: Option<Dimension>,
+    /// `transition` (#1776) — anima as mudanças de estilo deste nó ao longo do tempo.
+    /// `None` = sem transição (mudanças são instantâneas).
+    pub transition: Option<crate::anim::TransitionSpec>,
+    /// `animation` (#1776) — roda um `@keyframes` sozinho no tempo. `None` = nenhuma.
+    pub animation: Option<crate::anim::AnimationSpec>,
 }
 
 /// Aplica o clamp de min/max a um valor base resolvido: `clamp(min, base, max)` =
@@ -685,6 +690,12 @@ impl ComputedStyle {
         }
         if other.max_height.is_some() {
             self.max_height = other.max_height;
+        }
+        if other.transition.is_some() {
+            self.transition = other.transition;
+        }
+        if other.animation.is_some() {
+            self.animation = other.animation.clone();
         }
     }
 
@@ -1331,15 +1342,26 @@ pub struct Rule {
 /// `:not()`/`:is()`/`:where()`/`:nth-of-type`; pseudo-elementos (`::before`); flag
 /// de case `[a=v i]`; as keywords `inherit`/`initial`/`unset`/`revert`.
 /// (`!important` — estágio 1 da MDN — JÁ é suportado.)
-#[derive(Clone, Default, PartialEq, Debug)]
+#[derive(Clone, Default, Debug)]
 pub struct Stylesheet {
     pub rules: Vec<Rule>,
+    /// Os `@keyframes nome {...}` da página (#1776), por nome. Consultados pelo
+    /// `advance` quando um nó tem `animation: nome ...`.
+    pub keyframes: std::collections::HashMap<String, crate::anim::Keyframes>,
+}
+
+// PartialEq manual (Keyframes tem f32, não derivamos Eq; o diff de árvore só compara
+// nodes+root, não o Stylesheet, então isto é só p/ testes).
+impl PartialEq for Stylesheet {
+    fn eq(&self, other: &Self) -> bool {
+        self.rules == other.rules
+    }
 }
 
 impl Stylesheet {
     /// Stylesheet vazio (nenhuma regra).
     pub fn new() -> Stylesheet {
-        Stylesheet { rules: Vec::new() }
+        Stylesheet { rules: Vec::new(), keyframes: std::collections::HashMap::new() }
     }
 
     /// `true` se não há nenhuma regra (atalho para o `computed_style` pular a
@@ -1348,14 +1370,46 @@ impl Stylesheet {
         self.rules.is_empty()
     }
 
+    /// Os `@keyframes` de um nome, se existir.
+    pub fn keyframes(&self, name: &str) -> Option<&crate::anim::Keyframes> {
+        self.keyframes.get(name)
+    }
+
     /// Acrescenta as regras de mais um bloco `<style>` (uma página pode ter vários).
-    /// As novas regras vêm DEPOIS (ordem maior), então desempatam por cima das
-    /// anteriores — fiel à cascade (regra de mesmo peso, declarada depois, vence).
+    /// EXTRAI os `@keyframes` primeiro (não são regras de seletor), depois as regras.
     pub fn append_css(&mut self, css: &str) {
+        // 1) extrai e remove os blocos @keyframes (guarda por nome).
+        let css_without_kf = self.extract_keyframes(css);
+        // 2) as regras normais do resto.
         let base = self.rules.len() as u32;
-        for (i, rule) in parse_rules(css).into_iter().enumerate() {
+        for (i, rule) in parse_rules(&css_without_kf).into_iter().enumerate() {
             self.rules.push(Rule { order: base + i as u32, ..rule });
         }
+    }
+
+    /// Acha cada `@keyframes nome { ... }`, parseia os stops e guarda; devolve o CSS
+    /// SEM os blocos de keyframes (p/ o parser de regras não tropeçar neles).
+    fn extract_keyframes(&mut self, css: &str) -> String {
+        let css = strip_css_comments(css);
+        let mut out = String::new();
+        let mut rest = css.as_str();
+        while let Some(at) = rest.find("@keyframes") {
+            out.push_str(&rest[..at]);
+            let after = &rest[at + "@keyframes".len()..];
+            // nome até o `{`.
+            let Some(brace) = after.find('{') else { break };
+            let name = after[..brace].trim().to_string();
+            // acha o `}` que fecha o bloco (contando aninhamento, pois cada stop tem `{}`).
+            let body_start = at + "@keyframes".len() + brace + 1;
+            let Some(body_end) = find_matching_brace(&rest[body_start..]) else { break };
+            let body = &rest[body_start..body_start + body_end];
+            if !name.is_empty() {
+                self.keyframes.insert(name, parse_keyframe_body(body));
+            }
+            rest = &rest[body_start + body_end + 1..];
+        }
+        out.push_str(rest);
+        out
     }
 
     /// Computa o estilo de AUTOR para um elemento, aplicando as regras cujo seletor
@@ -1459,6 +1513,62 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
 }
 
 /// Remove blocos de comentário `/* ... */` do CSS (um passe, tolerante a não-fechado).
+/// Acha o índice do `}` que fecha o bloco iniciado APÓS o `{` já consumido, contando
+/// o aninhamento (`@keyframes` tem `{}` por stop). `None` se não fecha.
+fn find_matching_brace(s: &str) -> Option<usize> {
+    let mut depth = 1i32;
+    for (i, c) in s.char_indices() {
+        match c {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Parseia o corpo de um `@keyframes`: `0% { ... } 50% { ... } to { ... }` → stops
+/// ordenados por offset. `from`=0%, `to`=100%. Cada stop reusa o parser de declarações.
+fn parse_keyframe_body(body: &str) -> crate::anim::Keyframes {
+    let mut stops = Vec::new();
+    let mut rest = body;
+    loop {
+        let Some(brace) = rest.find('{') else { break };
+        let selector = rest[..brace].trim();
+        let Some(close_rel) = find_matching_brace(&rest[brace + 1..]) else { break };
+        let decl_body = &rest[brace + 1..brace + 1 + close_rel];
+        let decls = parse_inline_block(decl_body);
+        // o seletor de stop pode ser uma lista: `0%, 50%`.
+        for tok in selector.split(',') {
+            if let Some(offset) = parse_keyframe_offset(tok.trim()) {
+                let mut style = decls.normal.clone();
+                style.merge_over(&decls.important);
+                stops.push(crate::anim::Keyframe { offset, style });
+            }
+        }
+        rest = &rest[brace + 1 + close_rel + 1..];
+    }
+    stops.sort_by(|a, b| a.offset.partial_cmp(&b.offset).unwrap_or(std::cmp::Ordering::Equal));
+    crate::anim::Keyframes { stops }
+}
+
+/// `0%`/`from`/`50%`/`100%`/`to` → offset ∈ [0,1]. `None` se inválido.
+fn parse_keyframe_offset(s: &str) -> Option<f32> {
+    let s = s.trim();
+    if s.eq_ignore_ascii_case("from") {
+        return Some(0.0);
+    }
+    if s.eq_ignore_ascii_case("to") {
+        return Some(1.0);
+    }
+    s.strip_suffix('%')?.trim().parse::<f32>().ok().map(|p| (p / 100.0).clamp(0.0, 1.0))
+}
+
 fn strip_css_comments(css: &str) -> String {
     let mut out = String::with_capacity(css.len());
     let mut rest = css;
@@ -1575,6 +1685,8 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             "max-width" => css.max_width = parse_dimension(val),
             "min-height" => css.min_height = parse_dimension(val),
             "max-height" => css.max_height = parse_dimension(val),
+            "transition" => css.transition = crate::anim::TransitionSpec::parse(val),
+            "animation" => css.animation = crate::anim::AnimationSpec::parse(val),
             _ => {}
         }
     }

@@ -234,9 +234,16 @@ fn drenar(
                 }
             }
             WidgetCmd::HtmlHandle(h) => {
+                // ANIMAÇÃO (#1776): o egui passa o TEMPO do frame e o DOM avança suas
+                // animações internamente (loop interno ao DOM). O egui continua BURRO
+                // — só passa o tempo e, se há animação ativa, pede o próximo frame.
+                let now_ms = (ui.input(|i| i.time) * 1000.0) as f32;
+                let animating = rts_dom::store::with_dom_mut(*h, |d| d.advance(now_ms)).unwrap_or(false);
+                if animating {
+                    ui.ctx().request_repaint(); // continua repintando enquanto anima
+                }
                 // Headless-puro: o DOM vive no `store` do rts-dom; o egui SÓ o lê e
-                // pinta (empresta `&Dom` via `with_dom`, sem copiar nem deter). DOM
-                // inválido (handle morto) → não pinta nada.
+                // pinta (empresta `&Dom` via `with_dom`). DOM inválido → não pinta.
                 rts_dom::store::with_dom(*h, |d| render_dom(ui, d));
             }
             // ── CANVAS BURRO: pinta em coords ABSOLUTAS via Painter ──────────────
