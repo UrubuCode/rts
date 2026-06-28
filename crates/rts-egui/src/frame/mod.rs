@@ -242,37 +242,18 @@ fn drenar(
                 if animating {
                     ui.ctx().request_repaint(); // continua repintando enquanto anima
                 }
-                // Headless-puro: o DOM vive no `store` do rts-dom; o egui SÓ o lê e
-                // pinta (empresta `&Dom` via `with_dom`). DOM inválido → não pinta.
-                // SCROLL nos dois eixos (x e y): quando o conteúdo é maior que a área
-                // visível, o ScrollArea do egui mostra a barra e recorta. O layout
-                // continua usando a LARGURA VISÍVEL (não a infinita do scroll) p/ ficar
-                // fluido — por isso travamos a largura antes de entrar no scroll.
-                let visible_w = ui.available_width();
-                // CSS customiza a scrollbar (#1744): o DOM resolve scrollbar-width/
-                // color + ::-webkit-scrollbar* + overflow. O egui (burro) aplica.
+                // Headless-puro + EGUI BURRO: o DOM resolve TODO o layout E A BARRA de
+                // scroll (track+thumb como SolidRect na DisplayList). O egui só (a)
+                // mantém o offset de scroll — input do mouse, legítimo do backend —,
+                // (b) translada o conteúdo por -offset e (c) pinta a DisplayList. NÃO
+                // usa o ScrollArea do egui: isso prenderia a barra ao egui e impediria
+                // trocar/remover o backend (a visão do projeto). A cor da barra "só
+                // funciona" porque é o mesmo SolidRect dos botões.
                 let sb = rts_dom::store::with_dom(*h, |d| d.scrollbar_style())
                     .unwrap_or_default();
-                render::apply_scrollbar_style(ui, &sb);
-                // `overflow` decide os eixos roláveis e se a barra é forçada (scroll):
-                // eixo X rola SÓ se overflow-x pedir (auto/scroll); eixo Y rola por
-                // padrão (root rola vertical, como o browser) a menos que hidden.
-                let ox = sb.overflow_x.unwrap_or(rts_dom::scrollbar::Overflow::Visible);
                 let oy = sb.overflow_y.unwrap_or(rts_dom::scrollbar::Overflow::Visible);
-                let scroll_x = ox.scrollable();
                 let scroll_y = oy != rts_dom::scrollbar::Overflow::Hidden;
-                egui::ScrollArea::new([scroll_x, scroll_y])
-                    .auto_shrink([false, false])
-                    // `scroll` força a barra sempre visível; senão aparece só se precisar.
-                    .scroll_bar_visibility(if ox.always_bar() || oy.always_bar() {
-                        egui::scroll_area::ScrollBarVisibility::AlwaysVisible
-                    } else {
-                        egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded
-                    })
-                    .show(ui, |ui| {
-                        ui.set_width(visible_w);
-                        rts_dom::store::with_dom(*h, |d| render_dom(ui, d));
-                    });
+                render::render_dom_scrolled(ui, *h, &sb, scroll_y, oy.always_bar());
             }
             // ── CANVAS BURRO: pinta em coords ABSOLUTAS via Painter ──────────────
             // Não participam do layout-flow (o TS já calculou a posição). O

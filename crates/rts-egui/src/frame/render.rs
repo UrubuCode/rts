@@ -59,60 +59,6 @@ impl<'a> TextMeasurer for EguiMeasurer<'a> {
     }
 }
 
-/// Aplica o estilo da SCROLLBAR vindo do CSS (#1744) no `ui.style`: largura da barra
-/// (`scrollbar-width`/`::-webkit-scrollbar{width}`), cor do polegar/trilho
-/// (`scrollbar-color`/`-thumb`/`-track`) e arredondamento do polegar. O egui é burro:
-/// só traduz o `ScrollbarStyle` neutro do rts-dom para os campos do `egui::Style`.
-pub(crate) fn apply_scrollbar_style(ui: &mut egui::Ui, sb: &rts_dom::scrollbar::ScrollbarStyle) {
-    use rts_dom::scrollbar::BarWidth;
-    if sb.is_default() {
-        return;
-    }
-    // Modifica o estilo IN-PLACE do `ui` (afeta este frame; o ScrollArea criado a
-    // seguir herda este `ui`). O handle da scroll lê `widgets.inactive.bg_fill`; o
-    // track lê `extreme_bg_color`; a largura/flutuação, `spacing.scroll`.
-    // Modifica o estilo PERSISTENTE do contexto (`ctx.style_mut`) — aplicado em vigor
-    // imediato e é o que o ScrollArea lê ao desenhar a barra. `ui.style_mut()` (Arc
-    // clonado) não chegava ao pass de pintura da barra.
-    ui.ctx().style_mut(|style| {
-        let scroll = &mut style.spacing.scroll;
-        // barra SÓLIDA (não-flutuante) e sempre opaca — visível como num browser.
-        scroll.floating = false;
-        scroll.dormant_handle_opacity = 1.0;
-        scroll.active_handle_opacity = 1.0;
-        scroll.interact_handle_opacity = 1.0;
-        scroll.dormant_background_opacity = 1.0;
-        scroll.active_background_opacity = 1.0;
-        scroll.interact_background_opacity = 1.0;
-        // largura: none→0, thin→8, px direto, senão mínimo visível.
-        match sb.width {
-            Some(BarWidth::None) => scroll.bar_width = 0.0,
-            Some(BarWidth::Thin) => scroll.bar_width = 8.0,
-            Some(BarWidth::Auto) => scroll.bar_width = scroll.bar_width.max(10.0),
-            Some(BarWidth::Px(px)) => scroll.bar_width = px,
-            None => scroll.bar_width = scroll.bar_width.max(10.0),
-        }
-        if let Some(radius) = sb.thumb_radius {
-            scroll.handle_min_length = scroll.handle_min_length.max(radius * 2.0);
-        }
-        // COR do handle/track: o handle lê `fg_stroke.color` (barra sólida usa
-        // foreground_color=true) com fallback `bg_fill`; o track, `extreme_bg_color`.
-        // Setamos todos os widget-states p/ a cor valer em qualquer interação.
-        scroll.foreground_color = false; // usar bg_fill (handle sólido colorido)
-        if let Some(thumb) = sb.thumb {
-            let c = rgba_to_color32(thumb);
-            let w = &mut style.visuals.widgets;
-            for v in [&mut w.inactive, &mut w.hovered, &mut w.active, &mut w.noninteractive] {
-                v.bg_fill = c;
-                v.weak_bg_fill = c;
-                v.fg_stroke.color = c;
-            }
-        }
-        if let Some(track) = sb.track {
-            style.visuals.extreme_bg_color = rgba_to_color32(track);
-        }
-    });
-}
 
 /// Renderiza um `Dom` inteiro: calcula o layout (rts-dom) e PINTA a display list.
 ///
@@ -130,14 +76,71 @@ pub(crate) fn render_dom(ui: &mut egui::Ui, dom: &crate::dom::Dom) {
         measurer: &measurer,
     };
     let list = layout::layout_document(dom, &ctx);
-    paint_list(ui, &list);
+    paint_list(ui, &list, 0.0);
+    // reserva a altura total ocupada (p/ o egui ao redor dimensionar).
+    ui.allocate_space(egui::vec2(ui.available_width(), list.content_height));
+}
+
+/// Renderiza o DOM COM SCROLL — o egui burro: mantém só o offset (input do mouse),
+/// translada o conteúdo por -offset e pinta. A BARRA (track+thumb) é emitida pelo
+/// DOM (`layout::emit_scrollbar`) como `SolidRect` — NÃO usa o ScrollArea do egui,
+/// p/ a barra não ficar presa ao backend (visão: egui removível). `h` é o handle do
+/// DOM; `sb` o estilo do CSS; `scroll_y` se o eixo Y rola; `force` se a barra é
+/// sempre visível (overflow:scroll).
+pub(crate) fn render_dom_scrolled(
+    ui: &mut egui::Ui,
+    h: u64,
+    sb: &rts_dom::scrollbar::ScrollbarStyle,
+    scroll_y: bool,
+    force: bool,
+) {
+    let avail = ui.available_size();
+    let viewport_w = avail.x.max(1.0);
+    let viewport_h = avail.y.max(1.0);
+    // layout (com a barra ainda não — precisa do content_h primeiro).
+    let measurer = EguiMeasurer { ctx: ui.ctx() };
+    let lctx = layout::LayoutCtx { viewport_w, viewport_h, measurer: &measurer };
+    let mut list = rts_dom::store::with_dom(h, |d| layout::layout_document(d, &lctx))
+        .unwrap_or_default();
+    let content_h = list.content_height;
+
+    // OFFSET de scroll: estado por-handle no egui (input é do backend). Acumula a roda
+    // do mouse; limita a [0, content_h - viewport_h].
+    let max_off = (content_h - viewport_h).max(0.0);
+    let id = egui::Id::new(("rts_dom_scroll", h));
+    let mut offset = ui.ctx().memory(|m| m.data.get_temp::<f32>(id).unwrap_or(0.0));
+    if scroll_y && (max_off > 0.0 || force) {
+        // a roda do mouse só conta quando o ponteiro está sobre a área do DOM.
+        let hovered = ui.rect_contains_pointer(ui.max_rect());
+        if hovered {
+            let dy = ui.input(|i| i.smooth_scroll_delta.y);
+            offset -= dy; // roda p/ cima (dy>0) sobe o conteúdo (offset menor)
+        }
+    }
+    offset = offset.clamp(0.0, max_off);
+    ui.ctx().memory_mut(|m| m.data.insert_temp(id, offset));
+
+    // BARRA emitida pelo DOM (SolidRect) — fixa na viewport (a função soma o offset).
+    if scroll_y {
+        layout::emit_scrollbar(&mut list, viewport_w, viewport_h, content_h, offset, sb, force);
+    }
+    // pinta tudo transladado por -offset (o conteúdo sobe; a barra, somando offset na
+    // emissão, fica parada na tela). Recorta na área visível.
+    let clip = ui.max_rect();
+    let old_clip = ui.clip_rect();
+    ui.set_clip_rect(clip);
+    paint_list(ui, &list, -offset);
+    ui.set_clip_rect(old_clip);
+    // reserva a área visível (não a altura total — o scroll é nosso, não do egui).
+    ui.allocate_space(egui::vec2(viewport_w, viewport_h));
 }
 
 /// Percorre a [`DisplayList`] e pinta cada item via `ui.painter()`, em coordenadas
 /// absolutas (conteúdo + origem do `ui`). A ordem da lista É o z-order (o que vem
 /// depois pinta por cima). Reserva o espaço da altura total para o `ui` pai.
-fn paint_list(ui: &mut egui::Ui, list: &DisplayList) {
-    let origin = ui.max_rect().min; // canto sup-esq da área de conteúdo
+fn paint_list(ui: &mut egui::Ui, list: &DisplayList, offset_y: f32) {
+    // origem do conteúdo + a translação de scroll (offset_y negativo sobe o conteúdo).
+    let origin = ui.max_rect().min + egui::vec2(0.0, offset_y);
     let painter = ui.painter().clone();
     for item in &list.items {
         match item {
@@ -179,6 +182,4 @@ fn paint_list(ui: &mut egui::Ui, list: &DisplayList) {
             }
         }
     }
-    // Reserva o espaço ocupado (para scroll/medida do egui ao redor).
-    ui.allocate_space(egui::vec2(ui.available_width(), list.content_height));
 }

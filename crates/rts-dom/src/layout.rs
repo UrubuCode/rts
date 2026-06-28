@@ -162,6 +162,65 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     list
 }
 
+/// Emite os retângulos da SCROLLBAR (track + thumb) na DisplayList — a BARRA é
+/// preparada pelo DOM, não pelo backend (o egui só pinta `SolidRect`, mantendo-se
+/// burro e substituível). Dados de geometria: `viewport_w/h` (área visível),
+/// `content_h` (altura total do conteúdo), `offset_y` (quanto já rolou). Estilo:
+/// `sb` (cor/largura/radius do CSS). Só emite a barra VERTICAL (a horizontal segue
+/// o mesmo molde quando precisar). Coordenadas em espaço de CONTEÚDO já rolado: a
+/// barra é desenhada FIXA na viewport, então some o `offset_y` (o backend translada
+/// o conteúdo por -offset; somar offset à barra a mantém na tela).
+///
+/// Não faz nada se o conteúdo cabe (sem overflow) e a barra não é forçada.
+pub fn emit_scrollbar(
+    list: &mut DisplayList,
+    viewport_w: f32,
+    viewport_h: f32,
+    content_h: f32,
+    offset_y: f32,
+    sb: &crate::scrollbar::ScrollbarStyle,
+    force: bool,
+) {
+    use crate::scrollbar::BarWidth;
+    // precisa rolar? (conteúdo maior que a viewport) ou barra forçada (overflow:scroll).
+    let overflow = content_h > viewport_h + 0.5;
+    if !overflow && !force {
+        return;
+    }
+    // largura da barra (px): thin=8, none=0 (não desenha), px direto, senão 12.
+    let bar_w = match sb.width {
+        Some(BarWidth::None) => return,
+        Some(BarWidth::Thin) => 8.0,
+        Some(BarWidth::Px(px)) => px,
+        _ => 12.0,
+    };
+    // cores default fiéis a um browser escuro (sobrescritas pelo CSS).
+    let track_color = sb.track.unwrap_or(0x1e1e1eff);
+    let thumb_color = sb.thumb.unwrap_or(0x6b6b6bff);
+    let radius = sb.thumb_radius.unwrap_or(bar_w / 2.0);
+    let bar_x = viewport_w - bar_w;
+    // o thumb: tamanho proporcional à fração visível; posição proporcional ao offset.
+    let frac = (viewport_h / content_h).clamp(0.0, 1.0);
+    let thumb_h = (viewport_h * frac).max(24.0); // mínimo p/ pegar com o mouse
+    let max_off = (content_h - viewport_h).max(1.0);
+    let scroll_frac = (offset_y / max_off).clamp(0.0, 1.0);
+    let thumb_y = scroll_frac * (viewport_h - thumb_h);
+    // FIXA na viewport: soma offset_y (o backend translada tudo por -offset).
+    let vy = offset_y;
+    // track (faixa direita inteira) — atrás do thumb.
+    list.items.push(DisplayItem::SolidRect {
+        rect: Rect::new(bar_x, vy, bar_w, viewport_h),
+        color: track_color,
+        radius: 0.0,
+    });
+    // thumb (handle).
+    list.items.push(DisplayItem::SolidRect {
+        rect: Rect::new(bar_x, vy + thumb_y, bar_w, thumb_h),
+        color: thumb_color,
+        radius,
+    });
+}
+
 /// O `background` do `<body>` (ou, se ausente, do `<html>`) — a cor que o CSS
 /// PROPAGA para o viewport inteiro. `None` se nenhum dos dois tem fundo.
 fn body_background(dom: &Dom) -> Option<u32> {
