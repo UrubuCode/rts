@@ -483,6 +483,30 @@ fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
     }
 }
 
+/// `true` se o elemento é INLINE-BLOCK: tem caixa (vira bloco p/ pintar) MAS é inline
+/// por natureza (`<a>`/`<span>`/`<button>`/etc., não uma tag block) e SEM width que
+/// ocupe o pai → dimensiona pelo CONTEÚDO (shrink-to-fit), como o pill/botão. Tags
+/// block conhecidas (div/p/section…) NÃO são inline-block (ocupam o pai).
+fn is_inline_block(dom: &Dom, id: NodeIdx) -> bool {
+    match &dom.node(id).kind {
+        NodeKind::Element { tag } => {
+            // tag block conhecida OU display de bloco explícito → NÃO é inline-block.
+            let css = dom.computed_style_idx(id);
+            let explicit_block = css
+                .as_ref()
+                .and_then(|c| c.effective_display())
+                .map(|d| d != crate::style::DisplayKind::Inline)
+                .unwrap_or(false);
+            if crate::block::lookup(tag).is_some() || explicit_block {
+                return false;
+            }
+            // é inline-com-box (tem caixa mas é tag inline) → inline-block.
+            css.as_ref().map(|c| c.has_box() || c.height.is_some()).unwrap_or(false)
+        }
+        _ => false,
+    }
+}
+
 /// `true` se a tag NÃO é renderável — metadata do documento (`<head>` e o que vive
 /// nele: `<title>`, `<meta>`, `<link>`, `<base>`) e os recursos `<style>`/`<script>`
 /// (o CSS já virou stylesheet no parse; JS não executamos). Permite carregar um HTML
@@ -549,7 +573,24 @@ fn layout_children_vertical(
                     .unwrap_or(0.0);
                 // Colapsa com o bloco anterior: recua o overlap antes de posicionar.
                 child_y -= prev_margin.min(m);
-                let (_, h) = layout_block(dom, child, content_x, child_y, content_w, false, ctx, list);
+                // INLINE-BLOCK (pill/botão solto): dimensiona pelo conteúdo (shrink) e
+                // posiciona conforme o text-align do PAI (center/right desloca o x).
+                let inline_block = is_inline_block(dom, child);
+                let child_x = if inline_block {
+                    // mede a largura desejada (shrink) numa lista descartável p/ achar
+                    // o offset do text-align ANTES de pintar de verdade.
+                    let mut scratch = DisplayList::default();
+                    let (w, _) = layout_block(dom, child, content_x, child_y, content_w, true, ctx, &mut scratch);
+                    let free = (content_w - w).max(0.0);
+                    match css.text_align {
+                        Some(crate::style::TextAlign::Center) => content_x + free / 2.0,
+                        Some(crate::style::TextAlign::Right) => content_x + free,
+                        _ => content_x,
+                    }
+                } else {
+                    content_x
+                };
+                let (_, h) = layout_block(dom, child, child_x, child_y, content_w, inline_block, ctx, list);
                 child_y += h;
                 prev_margin = m;
             }
