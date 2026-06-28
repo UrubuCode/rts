@@ -258,6 +258,17 @@ fn layout_block(
         }
         None => (avail_w - frame).max(0.0),
     };
+    // CLAMP min/max-width (#1751): `used = clamp(min, width, max)`. min/max são sobre
+    // a CAIXA (border-box) na spec — descontamos o frame p/ aplicar ao content quando
+    // border-box; em content-box o min/max já são do content. (aprox: aplicamos ao
+    // content, descontando pad+border só no border-box.)
+    let mnw = css.min_width.and_then(|d| d.resolve(&resolve)).map(|v| {
+        if border_box { (v - (padding_h + 2.0 * border)).max(0.0) } else { v }
+    });
+    let mxw = css.max_width.and_then(|d| d.resolve(&resolve)).map(|v| {
+        if border_box { (v - (padding_h + 2.0 * border)).max(0.0) } else { v }
+    });
+    let content_w = crate::style::clamp_size(content_w, mnw, mxw);
 
     // Posição do content-box (canto sup-esq): deslocado pelo lado ESQUERDO/TOPO
     // (margin+border+padding daquele lado), não a soma do eixo.
@@ -297,6 +308,15 @@ fn layout_block(
         Some(h) => h,
         None => content_h,
     };
+    // CLAMP min/max-height (#1751): used = clamp(min, height, max).
+    let frame_v = pad_top + pad_bottom + 2.0 * border;
+    let mnh = css.min_height.and_then(|d| d.resolve(&resolve)).map(|v| {
+        if border_box { (v - frame_v).max(0.0) } else { v }
+    });
+    let mxh = css.max_height.and_then(|d| d.resolve(&resolve)).map(|v| {
+        if border_box { (v - frame_v).max(0.0) } else { v }
+    });
+    let content_h = crate::style::clamp_size(content_h, mnh, mxh);
 
     // ── Insere a CAIXA (fundo + borda) no índice reservado, ATRÁS dos filhos ─────
     // O BORDER-BOX do nó: content + padding + border (NÃO a margin — esta é espaço
@@ -1012,6 +1032,41 @@ mod tests {
         let last = rects[2];
         assert!(last.x + last.w <= 1000.0, "cabem todos: {rects:?}");
         assert!(1000.0 - (last.x + last.w) >= 30.0, "sobra espaço à direita: {rects:?}");
+    }
+
+    #[test]
+    fn min_max_width_clamp() {
+        // VALIDADO no Chrome: used_width = clamp(min, width, max) (#1751).
+        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        let cases = [
+            ("width:500px;max-width:300px", 300.0),  // max limita
+            ("width:50px;min-width:200px", 200.0),   // min eleva
+            ("width:1000px;max-width:400px;min-width:100px", 400.0), // clamp
+            ("width:600px;max-width:50%", 400.0),    // % de 800
+        ];
+        for (style, expected) in cases {
+            let dom = parse_html_to_dom(&format!("<div id=\"t\" style=\"{style}\">x</div>"));
+            let t = dom.query("#t").unwrap();
+            let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+            let rect = bounding_rect(&dom, dom.resolve(t).unwrap(), &ctx).unwrap();
+            assert!((rect.w - expected).abs() < 1.0, "{style}: w={} esperado {expected}", rect.w);
+        }
+    }
+
+    #[test]
+    fn min_max_height_clamp() {
+        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        // height:500 max-height:200 → caixa de 200.
+        let dom = parse_html_to_dom("<div id=\"t\" style=\"height:500px;max-height:200px;width:100px\">x</div>");
+        let t = dom.query("#t").unwrap();
+        let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let rect = bounding_rect(&dom, dom.resolve(t).unwrap(), &ctx).unwrap();
+        assert!((rect.h - 200.0).abs() < 1.0, "max-height: h={}", rect.h);
+        // min-height:300 num conteúdo pequeno → caixa de 300.
+        let dom2 = parse_html_to_dom("<div id=\"t\" style=\"min-height:300px;width:100px\">x</div>");
+        let t2 = dom2.query("#t").unwrap();
+        let rect2 = bounding_rect(&dom2, dom2.resolve(t2).unwrap(), &ctx).unwrap();
+        assert!(rect2.h >= 300.0, "min-height: h={}", rect2.h);
     }
 
     #[test]

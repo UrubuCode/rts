@@ -555,6 +555,29 @@ pub struct ComputedStyle {
     /// `height` — altura explícita da caixa. `None` = auto (altura do conteúdo).
     /// Necessária para align-items:stretch ter cross-size de referência e p/ flex-column.
     pub height: Option<Dimension>,
+    // ── Constraints de tamanho (#1751) — clamp sobre width/height ────────────────
+    /// `min-width` — piso da largura usada: `used = max(min, width)`.
+    pub min_width: Option<Dimension>,
+    /// `max-width` — teto da largura usada: `used = min(width, max)`.
+    pub max_width: Option<Dimension>,
+    /// `min-height` — piso da altura usada.
+    pub min_height: Option<Dimension>,
+    /// `max-height` — teto da altura usada.
+    pub max_height: Option<Dimension>,
+}
+
+/// Aplica o clamp de min/max a um valor base resolvido: `clamp(min, base, max)` =
+/// `max(min, min(base, max))`. `min`/`max` resolvidos a px (None = sem limite).
+pub fn clamp_size(base: f32, min: Option<f32>, max: Option<f32>) -> f32 {
+    let mut v = base;
+    // max primeiro, min depois (min vence se min > max — regra do CSS).
+    if let Some(mx) = max {
+        v = v.min(mx);
+    }
+    if let Some(mn) = min {
+        v = v.max(mn);
+    }
+    v
 }
 
 impl ComputedStyle {
@@ -650,6 +673,18 @@ impl ComputedStyle {
         }
         if other.height.is_some() {
             self.height = other.height;
+        }
+        if other.min_width.is_some() {
+            self.min_width = other.min_width;
+        }
+        if other.max_width.is_some() {
+            self.max_width = other.max_width;
+        }
+        if other.min_height.is_some() {
+            self.min_height = other.min_height;
+        }
+        if other.max_height.is_some() {
+            self.max_height = other.max_height;
         }
     }
 
@@ -807,6 +842,10 @@ impl ComputedStyle {
             "border-radius" => self.corner_radius.map(fmt_px).unwrap_or_default(),
             "width" => self.width.map(fmt_dim).unwrap_or_default(),
             "height" => self.height.map(fmt_dim).unwrap_or_default(),
+            "min-width" => self.min_width.map(fmt_dim).unwrap_or_default(),
+            "max-width" => self.max_width.map(fmt_dim).unwrap_or_default(),
+            "min-height" => self.min_height.map(fmt_dim).unwrap_or_default(),
+            "max-height" => self.max_height.map(fmt_dim).unwrap_or_default(),
             "display" => self.display.map(fmt_display).unwrap_or_default(),
             "box-sizing" => match self.border_box {
                 Some(true) => "border-box".into(),
@@ -1532,6 +1571,10 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
                 css.gap = cg;
             }
             "height" => css.height = parse_dimension(val),
+            "min-width" => css.min_width = parse_dimension(val),
+            "max-width" => css.max_width = parse_dimension(val),
+            "min-height" => css.min_height = parse_dimension(val),
+            "max-height" => css.max_height = parse_dimension(val),
             _ => {}
         }
     }
