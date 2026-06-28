@@ -295,6 +295,22 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             globalops::__rtsadp_g_is_finite as *const u8,
         ),
         sym(
+            "__rtsadp_num_is_nan",
+            globalops::__rtsadp_num_is_nan as *const u8,
+        ),
+        sym(
+            "__rtsadp_num_is_finite",
+            globalops::__rtsadp_num_is_finite as *const u8,
+        ),
+        sym(
+            "__rtsadp_num_is_integer",
+            globalops::__rtsadp_num_is_integer as *const u8,
+        ),
+        sym(
+            "__rtsadp_num_is_safe_integer",
+            globalops::__rtsadp_num_is_safe_integer as *const u8,
+        ),
+        sym(
             "__rtsadp_arr_is_array",
             globalops::__rtsadp_arr_is_array as *const u8,
         ),

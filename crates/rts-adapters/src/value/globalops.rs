@@ -101,6 +101,50 @@ pub extern "C" fn __rtsadp_g_is_finite(a: u64) -> u64 {
     PolyValue::bool(to_number(PolyValue::from_raw(a)).is_finite()).raw()
 }
 
+/// The number value of `p` WITHOUT coercion: `Some(f64)` iff `p` is a genuine JS
+/// number (inline double or tagged int32), else `None`. Backs the `Number.is*`
+/// static predicates, which (unlike the global `isNaN`/`isFinite`) do NOT coerce
+/// — `Number.isNaN("NaN")` is `false`, not `true`.
+#[inline]
+fn poly_number(p: PolyValue) -> Option<f64> {
+    if p.is_double() || p.is_int32() {
+        Some(p.number_as_f64())
+    } else {
+        None
+    }
+}
+
+/// `Number.isNaN(x)` — no coercion: `true` iff `x` is the number `NaN`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_num_is_nan(a: u64) -> u64 {
+    PolyValue::bool(poly_number(PolyValue::from_raw(a)).is_some_and(|n| n.is_nan())).raw()
+}
+
+/// `Number.isFinite(x)` — no coercion: `true` iff `x` is a finite number.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_num_is_finite(a: u64) -> u64 {
+    PolyValue::bool(poly_number(PolyValue::from_raw(a)).is_some_and(|n| n.is_finite())).raw()
+}
+
+/// `Number.isInteger(x)` — no coercion: `true` iff `x` is a finite integer-valued
+/// number.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_num_is_integer(a: u64) -> u64 {
+    PolyValue::bool(
+        poly_number(PolyValue::from_raw(a)).is_some_and(|n| n.is_finite() && n.fract() == 0.0),
+    )
+    .raw()
+}
+
+/// `Number.isSafeInteger(x)` — no coercion: an integer in `[-(2^53-1), 2^53-1]`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_num_is_safe_integer(a: u64) -> u64 {
+    PolyValue::bool(poly_number(PolyValue::from_raw(a)).is_some_and(|n| {
+        n.is_finite() && n.fract() == 0.0 && n.abs() <= 9_007_199_254_740_991.0
+    }))
+    .raw()
+}
+
 // ===========================================================================
 // `Array.isArray(x)` — the array-vs-object runtime discriminator.
 // ===========================================================================

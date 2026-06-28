@@ -354,16 +354,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if args.len() != 1 {
             return unsupported!("Number.{method} expects 1 arg, got {}", args.len());
         }
-        // The Number.is* predicates do NOT coerce: they return false for a
-        // non-number arg. We require a PROVEN number (so coercing to f64 is exact);
-        // a Tagged arg bails (a faithful no-coerce check on a Tagged word is a later
-        // increment — never a wrong `true`).
+        // Number.is* do NOT coerce. A PROVEN number uses the fast f64 extern; a
+        // Tagged arg routes to the no-coerce `__rtsadp_num_is_*` trampoline (a
+        // non-number word → `false`, never a wrong `true`).
         let v = self.lower_expr(module, &args[0])?;
         if !matches!(v.repr, Repr::Int32 | Repr::Int64 | Repr::Float64) {
-            return unsupported!(
-                "Number.{method} on a non-proven-number arg ({:?}) — the no-coerce check is a later increment",
-                v.repr
-            );
+            let Some(dyn_sym) = number_predicate_dynamic(method) else {
+                return unsupported!(
+                    "Number.{method} on a non-proven-number arg ({:?})",
+                    v.repr
+                );
+            };
+            let word = self.box_value(v);
+            let res = self
+                .call_runtime(module, dyn_sym, &[word])?
+                .expect("no-coerce Number predicate returns a value");
+            return Ok(self.poly_bool_to_bool(res));
         }
         let f = self.coerce(v, Repr::Float64)?;
         let b = emit_marshal::emit_call(module, self.builder, sym, &[f])
@@ -514,6 +520,18 @@ fn number_predicate(method: &str) -> Option<&'static str> {
         "isFinite" => "__RTS_FN_GL_NUMBER_IS_FINITE",
         "isNaN" => "__RTS_FN_GL_NUMBER_IS_NAN",
         "isSafeInteger" => "__RTS_FN_GL_NUMBER_IS_SAFE_INT",
+        _ => return None,
+    })
+}
+
+/// No-coerce `Number.is*` trampoline (boxed word in, PolyValue bool out) for a
+/// Tagged arg — a non-number word yields `false`.
+fn number_predicate_dynamic(method: &str) -> Option<&'static str> {
+    Some(match method {
+        "isInteger" => "__rtsadp_num_is_integer",
+        "isFinite" => "__rtsadp_num_is_finite",
+        "isNaN" => "__rtsadp_num_is_nan",
+        "isSafeInteger" => "__rtsadp_num_is_safe_integer",
         _ => return None,
     })
 }
