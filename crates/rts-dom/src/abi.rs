@@ -749,6 +749,14 @@ pub extern "C" fn __RTS_FN_NS_DOM_POLL_EVENT_TYPE(_h: u64) -> u64 {
     intern(&t)
 }
 
+/// `advance(domHandle, nowMs)` → avança as animações para o instante `nowMs` (o LOOP
+/// INTERNO ao DOM; #1776). Devolve 1 se há animação ATIVA (o backend deve repintar o
+/// próximo frame), 0 se tudo estático. O egui só chama isto passando o tempo do frame.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_ADVANCE(h: u64, now_ms: f64) -> i64 {
+    with_mut(h, |dom| dom.advance(now_ms as f32) as i64).unwrap_or(0)
+}
+
 /// `getAttribute(domHandle, node, name)` → valor do atributo como STRING (handle
 /// do pool GC). Atributo ausente / nó inválido ⇒ `""` (a fachada TS converte ""
 /// para `null` se quiser semântica de browser).
@@ -1548,6 +1556,13 @@ pub fn register(e: &mut Engine) {
             "pollEventType(dom: number): string",
             "type of the event delivered by the last pollEvent ('' if none).",
             __RTS_FN_NS_DOM_POLL_EVENT_TYPE as *const u8,
+        ))
+        .member(func(
+            "advance", "__RTS_FN_NS_DOM_ADVANCE",
+            Sig::new(vec![Handle, AbiType::F64], I64),
+            "advance(dom: number, nowMs: number): number",
+            "advance animations to nowMs (DOM-internal loop, #1776); 1 if active (repaint), 0 if static.",
+            __RTS_FN_NS_DOM_ADVANCE as *const u8,
         ))
         .member(func(
             "getAttribute",

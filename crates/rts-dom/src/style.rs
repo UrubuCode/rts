@@ -564,6 +564,9 @@ pub struct ComputedStyle {
     pub min_height: Option<Dimension>,
     /// `max-height` — teto da altura usada.
     pub max_height: Option<Dimension>,
+    /// `transition` (#1776) — anima as mudanças de estilo deste nó ao longo do tempo.
+    /// `None` = sem transição (mudanças são instantâneas).
+    pub transition: Option<crate::anim::TransitionSpec>,
 }
 
 /// Aplica o clamp de min/max a um valor base resolvido: `clamp(min, base, max)` =
@@ -685,6 +688,9 @@ impl ComputedStyle {
         }
         if other.max_height.is_some() {
             self.max_height = other.max_height;
+        }
+        if other.transition.is_some() {
+            self.transition = other.transition;
         }
     }
 
@@ -1575,6 +1581,7 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             "max-width" => css.max_width = parse_dimension(val),
             "min-height" => css.min_height = parse_dimension(val),
             "max-height" => css.max_height = parse_dimension(val),
+            "transition" => css.transition = crate::anim::TransitionSpec::parse(val),
             _ => {}
         }
     }

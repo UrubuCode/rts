@@ -166,6 +166,18 @@ pub struct Dom {
     /// Fila de eventos PENDENTES a entregar ao loop TS via `pollEvent`. Cada entrada
     /// é `(nó-alvo a notificar, tipo)` — já expandida pelo bubbling no `dispatch`.
     event_queue: std::collections::VecDeque<(NodeIdx, String)>,
+    // ── Animação (#1776) — LOOP INTERNO ao DOM; o egui só passa o tempo ───────────
+    /// As transições EM CURSO, por nó. O `Dom` é dono do loop: `advance(now_ms)`
+    /// detecta mudanças de estilo, inicia/atualiza transições e grava o estilo
+    /// interpolado em `style_overrides` (a camada mais forte). O backend (egui) só
+    /// passa o `now_ms` ao pedir o layout — continua BURRO (lê a DisplayList e pinta).
+    active_transitions: HashMap<NodeIdx, crate::anim::ActiveTransition>,
+    /// O estilo computado de cada nó NO FRAME ANTERIOR (sem o override de animação),
+    /// para detectar mudanças que disparam uma transição. DERIVADO, fora do Eq.
+    prev_computed: HashMap<NodeIdx, crate::style::ComputedStyle>,
+    /// O estilo INTERPOLADO atual de cada nó animando (camada que o `computed_style`
+    /// aplica POR ÚLTIMO, acima de tudo). Escrito por `advance`, lido pelo layout.
+    anim_override: HashMap<NodeIdx, crate::style::ComputedStyle>,
 }
 
 // Igualdade estrutural: compara só a árvore (nodes+root). Os índices e a `generation`
@@ -195,6 +207,9 @@ impl Dom {
             stylesheet: crate::style::Stylesheet::new(),
             listeners: HashMap::new(),
             event_queue: std::collections::VecDeque::new(),
+            active_transitions: HashMap::new(),
+            prev_computed: HashMap::new(),
+            anim_override: HashMap::new(),
         }
     }
 
@@ -399,6 +414,13 @@ impl Dom {
     /// - **Important**, por cima de tudo, na mesma ordem de origem: `<style>`
     ///   important < inline important < override (tratado como mais forte).
     pub fn computed_style_idx(&self, idx: NodeIdx) -> Option<crate::style::ComputedStyle> {
+        self.computed_style_idx_inner(idx, true)
+    }
+
+    /// Núcleo da cascade. `with_anim` controla se a camada de ANIMAÇÃO (o estilo
+    /// interpolado do frame) é aplicada por cima: `true` para o que o layout/render
+    /// vê (animado); `false` para o ALVO base que o `advance` compara entre frames.
+    fn computed_style_idx_inner(&self, idx: NodeIdx, with_anim: bool) -> Option<crate::style::ComputedStyle> {
         use crate::style;
         let tag = match &self.nodes[idx].kind {
             NodeKind::Element { tag } => tag.clone(),
@@ -429,6 +451,14 @@ impl Dom {
         // ── Passe 2: IMPORTANT (vencem qualquer normal) ─────────────────────────
         css.merge_over(&author.important); // <style> !important
         css.merge_over(&inline.important); // inline !important
+        // ── Camada de ANIMAÇÃO (#1776): o estilo interpolado do frame atual vence
+        // tudo (é o que o usuário VÊ animando). Só quando `with_anim` (o que o render
+        // vê); o `advance` pede `with_anim=false` p/ obter o ALVO base.
+        if with_anim {
+            if let Some(anim) = self.anim_override.get(&idx) {
+                css.merge_over(anim);
+            }
+        }
         Some(css)
     }
 
@@ -543,6 +573,68 @@ impl Dom {
         self.event_queue.pop_front().map(|(idx, t)| (self.make_id(idx), t))
     }
 
+    // ── Animação (#1776) — o LOOP INTERNO ao DOM ─────────────────────────────────
+
+    /// `advance(now_ms)` — avança TODAS as animações para o instante `now_ms` (ms do
+    /// relógio do backend). É o LOOP INTERNO: o `Dom` é dono do tempo; o egui só
+    /// chama isto ao pedir o render, passando o tempo do frame, e continua BURRO.
+    ///
+    /// Para cada elemento: computa o estilo-ALVO base (sem animação); se mudou desde
+    /// o frame anterior E o nó tem `transition`, INICIA uma transição (captura o
+    /// estilo anterior como `from`); grava o estilo interpolado em `anim_override`
+    /// (a camada que o layout/render vê). Transições terminadas são removidas.
+    /// Devolve `true` se há QUALQUER animação ativa (o backend deve continuar
+    /// repintando — pedir o próximo frame).
+    pub fn advance(&mut self, now_ms: f32) -> bool {
+        // todos os elementos da árvore (a animação só vale p/ elementos).
+        let mut elements = Vec::new();
+        self.collect_all_element_idxs(self.root, &mut elements);
+
+        for idx in elements {
+            // o ALVO base deste frame (cascade sem a camada de animação).
+            let Some(target) = self.computed_style_idx_inner(idx, false) else { continue };
+            let prev = self.prev_computed.get(&idx).cloned();
+            // detecta MUDANÇA de estilo desde o frame anterior.
+            if let (Some(prev_style), Some(spec)) = (&prev, target.transition) {
+                if styles_differ_animated(prev_style, &target) {
+                    // inicia (ou reinicia) a transição: `from` = onde estava VISÍVEL
+                    // (o override atual, se animando) ou o estilo anterior.
+                    let from = self
+                        .anim_override
+                        .get(&idx)
+                        .cloned()
+                        .unwrap_or_else(|| prev_style.clone());
+                    self.active_transitions.insert(
+                        idx,
+                        crate::anim::ActiveTransition { from, start_ms: now_ms, spec },
+                    );
+                }
+            }
+            self.prev_computed.insert(idx, target.clone());
+
+            // aplica/atualiza o override interpolado.
+            if let Some(active) = self.active_transitions.get(&idx).cloned() {
+                let interp = active.current(&target, now_ms);
+                self.anim_override.insert(idx, interp);
+                if active.done(now_ms) {
+                    self.active_transitions.remove(&idx);
+                    self.anim_override.remove(&idx); // encerrou → o alvo passa direto
+                }
+            }
+        }
+        !self.active_transitions.is_empty()
+    }
+
+    /// Coleta os NodeIdx de todos os ELEMENTOS da árvore (pré-ordem).
+    fn collect_all_element_idxs(&self, idx: NodeIdx, out: &mut Vec<NodeIdx>) {
+        if idx != self.root && matches!(self.nodes[idx].kind, NodeKind::Element { .. }) {
+            out.push(idx);
+        }
+        for &child in &self.nodes[idx].children {
+            self.collect_all_element_idxs(child, out);
+        }
+    }
+
     /// `true` se a tag do nó é texto-cru não-renderável (`<style>`/`<script>`): o
     /// render deve PULAR (o conteúdo é CSS/JS, não conteúdo de página). O CSS já foi
     /// absorvido pelo stylesheet no parse.
@@ -583,13 +675,13 @@ impl Dom {
     /// o mescla como 3ª camada (após tag e `style=""` inline). `None` = sem override.
     pub fn node_style_override(&self, id: NodeId) -> Option<crate::style::ComputedStyle> {
         let idx = self.resolve(id)?;
-        self.style_overrides.get(&idx).copied()
+        self.style_overrides.get(&idx).cloned()
     }
 
     /// Idem [`node_style_override`], mas por `NodeIdx` cru (o render de texto opera
     /// em índices ao descer a árvore). `None` = sem override.
     pub fn style_override_idx(&self, idx: NodeIdx) -> Option<crate::style::ComputedStyle> {
-        self.style_overrides.get(&idx).copied()
+        self.style_overrides.get(&idx).cloned()
     }
 
     /// O código de `display` de um nó (do `BlockDef` registrado p/ a tag), ou
@@ -1565,6 +1657,21 @@ fn is_void(tag: &str) -> bool {
     matches!(tag, "br" | "hr" | "img" | "input" | "meta" | "link")
 }
 
+/// `true` se algum campo ANIMÁVEL (cor/tamanho/posição) difere entre dois estilos —
+/// o gatilho para iniciar uma transição (#1776).
+fn styles_differ_animated(a: &crate::style::ComputedStyle, b: &crate::style::ComputedStyle) -> bool {
+    a.color != b.color
+        || a.bg != b.bg
+        || a.border_color != b.border_color
+        || a.font_size != b.font_size
+        || a.border_width != b.border_width
+        || a.corner_radius != b.corner_radius
+        || a.width != b.width
+        || a.height != b.height
+        || a.padding != b.padding
+        || a.margin != b.margin
+}
+
 /// `true` se `s` é um identificador CSS PURO (letra/dígito/`-`/`_`), sem
 /// combinadores/compostos/atributo/pseudo — habilita o atalho por índice no query.
 fn is_plain_ident(s: &str) -> bool {
@@ -1968,6 +2075,33 @@ mod tests {
         let sec = dom.query("#s").unwrap();
         let serial = dom.outer_html(sec).unwrap();
         assert_eq!(serial, html);
+    }
+
+    #[test]
+    fn transition_interpola_no_tempo() {
+        // transition: o DOM é dono do loop — advance(now) interpola a mudança (#1776).
+        let mut dom = parse_html_to_dom(
+            "<div id=\"box\" style=\"background:#000000;transition:0.5s linear\">x</div>",
+        );
+        let box_id = dom.query("#box").unwrap();
+        let bi = dom.resolve(box_id).unwrap();
+        // frame 0: estabelece o baseline (background preto). Sem animação ainda.
+        assert!(!dom.advance(0.0));
+        // o JS muda o background para branco (via setStyleProp → atributo style).
+        dom.set_style_property(box_id, "background", "white");
+        // frame em t=0: detecta a mudança, inicia a transição. Ainda preto (t=0).
+        assert!(dom.advance(0.0)); // há animação ativa
+        let at0 = dom.computed_style_idx(bi).unwrap().bg.unwrap();
+        assert_eq!(at0, 0x000000FF, "início = preto");
+        // metade do tempo (250ms de 500): cinza (#808080).
+        dom.advance(250.0);
+        let mid = dom.computed_style_idx(bi).unwrap().bg.unwrap();
+        assert_eq!(mid, 0x808080FF, "meio = cinza, got 0x{mid:08X}");
+        // fim (500ms): branco, e a animação encerra.
+        let still = dom.advance(500.0);
+        let end = dom.computed_style_idx(bi).unwrap().bg.unwrap();
+        assert_eq!(end, 0xFFFFFFFF, "fim = branco");
+        assert!(!still, "animação encerrou");
     }
 
     #[test]
