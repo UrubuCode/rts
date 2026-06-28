@@ -158,6 +158,14 @@ pub struct Dom {
     /// `defineStyle` (por-tag, mais fraco) e o `style=""` inline. Estado DERIVADO
     /// do HTML — não entra no `PartialEq` do `Dom`.
     stylesheet: crate::style::Stylesheet,
+    /// Eventos (#1760, modelo de POLLING — F3): que TIPOS cada nó escuta
+    /// (`addEventListener`). Os callbacks vivem no TS (o motor não guarda fn-handles
+    /// de forma confiável — limite #195); aqui só registramos o tipo p/ saber se um
+    /// `dispatchEvent` deve notificar o nó. `NodeIdx → tipos`. DERIVADO, fora do Eq.
+    listeners: HashMap<NodeIdx, Vec<String>>,
+    /// Fila de eventos PENDENTES a entregar ao loop TS via `pollEvent`. Cada entrada
+    /// é `(nó-alvo a notificar, tipo)` — já expandida pelo bubbling no `dispatch`.
+    event_queue: std::collections::VecDeque<(NodeIdx, String)>,
 }
 
 // Igualdade estrutural: compara só a árvore (nodes+root). Os índices e a `generation`
@@ -185,6 +193,8 @@ impl Dom {
             class_index: HashMap::new(),
             style_overrides: HashMap::new(),
             stylesheet: crate::style::Stylesheet::new(),
+            listeners: HashMap::new(),
+            event_queue: std::collections::VecDeque::new(),
         }
     }
 
@@ -454,6 +464,70 @@ impl Dom {
         let cur = self.css_text(id);
         let new = upsert_css_decl(&cur, name.trim(), ""); // valor vazio = remover
         self.set_attr(id, "style", &new);
+    }
+
+    // ── Eventos (#1760) — modelo de polling + bubbling headless ──────────────────
+    // O motor não guarda callbacks de fn de forma confiável (limite #195), então o
+    // Rust registra só QUE TIPO cada nó escuta; os callbacks vivem no TS. O
+    // `dispatchEvent` enfileira (nó, tipo) já expandido pelo BUBBLING (alvo → pais
+    // que escutam), e o loop TS consome via `poll_event` e chama o handler certo.
+
+    /// `element.addEventListener(type, handler)`: registra que o nó escuta `type`.
+    /// (O handler real é guardado no lado TS, indexado por (nó, tipo).) Idempotente:
+    /// não duplica o mesmo tipo. O tipo é CASE-SENSITIVE (spec DOM: `click`≠`CLICK`).
+    pub fn add_event_listener(&mut self, id: NodeId, event_type: &str) {
+        let Some(idx) = self.resolve(id) else { return };
+        let types = self.listeners.entry(idx).or_default();
+        let t = event_type.to_string();
+        if !types.contains(&t) {
+            types.push(t);
+        }
+    }
+
+    /// `element.removeEventListener(type)`: para de escutar `type` neste nó.
+    pub fn remove_event_listener(&mut self, id: NodeId, event_type: &str) {
+        let Some(idx) = self.resolve(id) else { return };
+        if let Some(types) = self.listeners.get_mut(&idx) {
+            types.retain(|x| x != event_type);
+        }
+    }
+
+    /// `true` se o nó escuta o tipo de evento dado (case-sensitive).
+    pub fn has_listener(&self, id: NodeId, event_type: &str) -> bool {
+        let Some(idx) = self.resolve(id) else { return false };
+        self.listeners.get(&idx).map(|v| v.iter().any(|x| x == event_type)).unwrap_or(false)
+    }
+
+    /// `element.dispatchEvent(type, bubbles)`: dispara um evento no nó-alvo. Sempre
+    /// notifica o ALVO; se `bubbles`, sobe pelos ancestrais que escutam o tipo (fiel
+    /// ao DOM: `focus`/`blur`/`new Event(t)` não borbulham). Para cada nó na cadeia
+    /// que escuta, enfileira `(nó, tipo)` para o loop TS via `poll_event`. Devolve
+    /// quantos listeners foram enfileirados. Tipo CASE-SENSITIVE.
+    pub fn dispatch_event(&mut self, target: NodeId, event_type: &str, bubbles: bool) -> i64 {
+        let mut count = 0;
+        let mut cur = Some(target);
+        let mut first = true;
+        while let Some(node) = cur {
+            let Some(idx) = self.resolve(node) else { break };
+            if self.listeners.get(&idx).map(|v| v.iter().any(|x| x == event_type)).unwrap_or(false) {
+                self.event_queue.push_back((idx, event_type.to_string()));
+                count += 1;
+            }
+            // sem bubbling: só o alvo (primeira iteração) é notificado.
+            if !bubbles && first {
+                break;
+            }
+            first = false;
+            cur = self.parent_of(node);
+        }
+        count
+    }
+
+    /// `poll_event`: remove e devolve o próximo evento pendente `(NodeId, tipo)`, ou
+    /// `None` se a fila está vazia. O loop TS chama em laço por frame e despacha o
+    /// callback certo (que vive no TS, indexado por nó+tipo). O NodeId é versionado.
+    pub fn poll_event(&mut self) -> Option<(NodeId, String)> {
+        self.event_queue.pop_front().map(|(idx, t)| (self.make_id(idx), t))
     }
 
     /// `true` se a tag do nó é texto-cru não-renderável (`<style>`/`<script>`): o
@@ -1992,6 +2066,112 @@ mod tests {
         dom.set_css_text(a, "background: green; margin: 4px");
         assert_eq!(dom.inline_property(a, "color"), ""); // o color sumiu
         assert_eq!(dom.inline_property(a, "background-color"), "rgb(0, 128, 0)");
+    }
+
+    #[test]
+    fn eventos_add_dispatch_poll() {
+        // addEventListener marca o nó; dispatchEvent enfileira; poll consome (#1760).
+        let mut dom = parse_html_to_dom("<div id=\"a\"><button id=\"b\">x</button></div>");
+        let a = dom.query("#a").unwrap();
+        let b = dom.query("#b").unwrap();
+        dom.add_event_listener(b, "click");
+        assert!(dom.has_listener(b, "click"));
+        assert!(!dom.has_listener(b, "mousedown"));
+        // dispatch no botão → 1 listener (só o botão escuta).
+        assert_eq!(dom.dispatch_event(b, "click", true), 1);
+        let (target, t) = dom.poll_event().unwrap();
+        assert_eq!(target, b);
+        assert_eq!(t, "click");
+        assert!(dom.poll_event().is_none()); // fila esvaziou
+    }
+
+    #[test]
+    fn eventos_bubbling() {
+        // dispatch no filho borbulha para o pai que também escuta (#1760).
+        let mut dom = parse_html_to_dom("<div id=\"a\"><button id=\"b\">x</button></div>");
+        let a = dom.query("#a").unwrap();
+        let b = dom.query("#b").unwrap();
+        dom.add_event_listener(a, "click"); // o PAI escuta
+        dom.add_event_listener(b, "click"); // o filho também
+        // dispatch no filho: notifica filho E pai (bubbling) → 2.
+        assert_eq!(dom.dispatch_event(b, "click", true), 2);
+        // ordem: alvo primeiro, depois o ancestral (target → bubble).
+        let (first, _) = dom.poll_event().unwrap();
+        let (second, _) = dom.poll_event().unwrap();
+        assert_eq!(first, b);
+        assert_eq!(second, a);
+    }
+
+    #[test]
+    fn eventos_arvore_profunda_e_filtro_por_tipo() {
+        // VALIDADO no Chrome: árvore de 6 níveis, bubbling seletivo + filtro de tipo.
+        let mut dom = parse_html_to_dom(
+            "<section id=\"sec\"><article id=\"art\"><div id=\"box\"><p id=\"par\"><a id=\"link\">t</a></p></div></article></section>",
+        );
+        let sec = dom.query("#sec").unwrap();
+        let box_ = dom.query("#box").unwrap();
+        let link = dom.query("#link").unwrap();
+        dom.add_event_listener(sec, "click");
+        dom.add_event_listener(box_, "click");
+        dom.add_event_listener(link, "click");
+        dom.add_event_listener(box_, "mouseover");
+        // click no link borbulha por link→box→sec (pula art/par que não escutam).
+        assert_eq!(dom.dispatch_event(link, "click", true), 3);
+        let chain: Vec<NodeId> = std::iter::from_fn(|| dom.poll_event().map(|(n, _)| n)).collect();
+        assert_eq!(chain, vec![link, box_, sec]); // ordem target→bubble
+        // mouseover no link: só o box escuta esse TIPO (apesar do bubbling).
+        assert_eq!(dom.dispatch_event(link, "mouseover", true), 1);
+        assert_eq!(dom.poll_event().unwrap().0, box_);
+        // remove o do box → re-dispatch click enfileira só link+sec.
+        dom.remove_event_listener(box_, "click");
+        assert_eq!(dom.dispatch_event(link, "click", true), 2);
+    }
+
+    #[test]
+    fn eventos_no_solto_sem_bubbling() {
+        // dispatch num nó SOLTO (sem pai): só ele, sem bubbling.
+        let mut dom = parse_html_to_dom("<div></div>");
+        let solto = dom.create_element("button");
+        dom.add_event_listener(solto, "click");
+        assert_eq!(dom.dispatch_event(solto, "click", true), 1); // só ele, não tem pai
+    }
+
+    #[test]
+    fn eventos_bubbles_false_so_o_alvo() {
+        // bubbles=false: só o alvo é notificado, mesmo com o pai escutando (#1760).
+        let mut dom = parse_html_to_dom("<div id=\"a\"><button id=\"b\">x</button></div>");
+        let a = dom.query("#a").unwrap();
+        let b = dom.query("#b").unwrap();
+        dom.add_event_listener(a, "focus");
+        dom.add_event_listener(b, "focus");
+        // focus não borbulha (bubbles=false): só o botão, não o pai.
+        assert_eq!(dom.dispatch_event(b, "focus", false), 1);
+        assert_eq!(dom.poll_event().unwrap().0, b);
+        assert!(dom.poll_event().is_none());
+    }
+
+    #[test]
+    fn eventos_tipo_case_sensitive() {
+        // tipos de evento são CASE-SENSITIVE (spec DOM: click ≠ CLICK).
+        let mut dom = parse_html_to_dom("<div id=\"a\">x</div>");
+        let a = dom.query("#a").unwrap();
+        dom.add_event_listener(a, "click");
+        assert!(dom.has_listener(a, "click"));
+        assert!(!dom.has_listener(a, "CLICK")); // case diferente não casa
+        assert_eq!(dom.dispatch_event(a, "Click", true), 0); // não dispara
+        assert_eq!(dom.dispatch_event(a, "click", true), 1); // o exato dispara
+    }
+
+    #[test]
+    fn eventos_remove_e_sem_listener() {
+        let mut dom = parse_html_to_dom("<div id=\"a\">x</div>");
+        let a = dom.query("#a").unwrap();
+        dom.add_event_listener(a, "click");
+        dom.remove_event_listener(a, "click");
+        assert!(!dom.has_listener(a, "click"));
+        // dispatch sem ninguém escutando → 0 enfileirados.
+        assert_eq!(dom.dispatch_event(a, "click", true), 0);
+        assert!(dom.poll_event().is_none());
     }
 
     #[test]

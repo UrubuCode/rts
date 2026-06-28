@@ -305,6 +305,35 @@ class Element {
     return dom.computedProperty(this._dom, this._node, __camelToKebab(name));
   }
 
+  // ── Eventos (#1760) — modelo de POLLING (limite do motor: callbacks vivem no TS) ─
+  // `el.addEventListener(type)` — registra que o nó escuta o tipo. ⚠️ O motor não
+  // guarda fn-handles de forma confiável (#195), então NÃO recebe o callback aqui;
+  // o loop chama `pumpEvents()` por frame e despacha via getEventTargetId()/Type().
+  // O padrão de uso:
+  //   el.addEventListener("click");
+  //   ... // num laço por frame:
+  //   while (pumpEvents(d) !== -1) { if (getEventTargetId() === el.nodeId) { ... } }
+  addEventListener(type: string): void {
+    dom.addListener(this._dom, this._node, type);
+  }
+  removeEventListener(type: string): void {
+    dom.removeListener(this._dom, this._node, type);
+  }
+  // `el.dispatchEvent(type)` — dispara COM BUBBLING (como `new Event(t, {bubbles:
+  // true})`). Devolve quantos listeners foram enfileirados.
+  dispatchEvent(type: string): number {
+    return dom.dispatchEvent(this._dom, this._node, type, 1);
+  }
+  // `el.dispatchEventNoBubble(type)` — dispara SÓ no alvo (como `new Event(t)`, que
+  // é bubbles:false por padrão; focus/blur/mouseenter não borbulham).
+  dispatchEventNoBubble(type: string): number {
+    return dom.dispatchEvent(this._dom, this._node, type, 0);
+  }
+  // `el.nodeId` — o NodeId cru deste elemento (p/ comparar no switch do polling).
+  get nodeId(): number {
+    return this._node;
+  }
+
   // ── Node utils (#1762) ───────────────────────────────────────────────────────
   // `node.contains(other)` — other é este nó ou um descendente?
   contains(other: Element): boolean {
@@ -576,4 +605,21 @@ class Document {
 // retorno `| null`, então é segura; o `| null` só seria problema em função livre.)
 function parseDocument(html: string): Document {
   return new Document(dom.parseHtml(html));
+}
+
+// ── Polling de eventos (#1760) — consumir a fila gerada por dispatchEvent ─────────
+// `pumpEvents(domHandle)` — o NodeId do próximo evento pendente (-1 = fila vazia).
+// Chame em laço; após cada chamada não-(-1), use `getLastEventType(domHandle)` para
+// o tipo. O domHandle vem de `document._dom` (ou guarde-o).
+//
+// ⚠️ USO ATÔMICO: o tipo é guardado num slot único — SEMPRE chame getLastEventType
+// IMEDIATAMENTE após o pumpEvents correspondente, sem intercalar pumpEvents de OUTRO
+// dom no meio (senão o tipo lido pode ser do outro evento). Padrão seguro:
+//   let n = pumpEvents(d); while (n !== -1) { const t = getLastEventType(d); /* usa n,t */ n = pumpEvents(d); }
+function pumpEvents(domHandle: number): number {
+  return dom.pollEvent(domHandle);
+}
+// O tipo do evento entregue pelo último `pumpEvents` ('' se nenhum).
+function getLastEventType(domHandle: number): string {
+  return dom.pollEventType(domHandle);
 }
