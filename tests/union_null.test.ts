@@ -17,11 +17,13 @@ const a = maybe(5);
 print(`${a as number}`); // 5
 
 const b = maybe(-1);
-// b é null ≡ 0 em RTS
-print(`${b as number}`); // 0
+// b é null; `as number` é erasure de TS, então no runtime `${b}` é
+// String(null) === "null" (igual a JS/Node). O motor velho usava o sentinel
+// null≡0 e imprimia "0".
+print(`${b as number}`); // null
 
 describe("fixture:union_null", () => {
   test("matches expected stdout", () => {
-    expect(__rtsCapturedOutput).toBe("5\n0\n");
+    expect(__rtsCapturedOutput).toBe("5\nnull\n");
   });
 });

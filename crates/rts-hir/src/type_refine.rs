@@ -192,12 +192,57 @@ pub fn refine_func_ret(declared: &HirType, body: &[HirStmt], scope: &Scope) -> H
         return declared.clone();
     }
 
+    // A `return null` / `return undefined` makes the function genuinely able to
+    // yield a nullish value. Its result MUST stay Tagged (`Any`) — never collapse
+    // to a numeric repr, which would coerce `null` to `NaN` on the return path
+    // (e.g. `function f(x): number|null { if (x>0) return x; return null; }`).
+    // This wins over a numeric return in the same body (`numeric_promotion`
+    // optimistically absorbs `Any`, which is wrong for a definite nullish return).
+    if body_has_nullish_return(body) {
+        return HirType::Any;
+    }
+
     let mut acc: Option<HirType> = None;
     collect_return_types(body, scope, &mut acc);
 
     match acc {
         Some(ty) if !matches!(ty, HirType::Unknown | HirType::Any) => ty,
         _ => declared.clone(),
+    }
+}
+
+/// Whether any `return` in `body` (recursively) returns a `null`/`undefined`
+/// LITERAL — the signal that the function is genuinely nullish and its return
+/// repr must stay Tagged.
+fn body_has_nullish_return(stmts: &[HirStmt]) -> bool {
+    stmts.iter().any(stmt_has_nullish_return)
+}
+
+fn stmt_has_nullish_return(stmt: &HirStmt) -> bool {
+    match stmt {
+        HirStmt::Return(Some(expr)) => {
+            matches!(&expr.kind, HirExprKind::Lit(HirLit::Null | HirLit::Undefined))
+        }
+        HirStmt::If { then, else_, .. } => {
+            body_has_nullish_return(then)
+                || else_.as_ref().is_some_and(|e| body_has_nullish_return(e))
+        }
+        HirStmt::While { body, .. }
+        | HirStmt::DoWhile { body, .. }
+        | HirStmt::ForOf { body, .. }
+        | HirStmt::ForIn { body, .. }
+        | HirStmt::For { body, .. }
+        | HirStmt::Block(body) => body_has_nullish_return(body),
+        HirStmt::Try { body, catch, finally } => {
+            body_has_nullish_return(body)
+                || catch.as_ref().is_some_and(|c| body_has_nullish_return(&c.body))
+                || finally.as_ref().is_some_and(|f| body_has_nullish_return(f))
+        }
+        HirStmt::Switch { cases, .. } => {
+            cases.iter().any(|case| body_has_nullish_return(&case.body))
+        }
+        HirStmt::Labeled { body, .. } => stmt_has_nullish_return(body),
+        _ => false,
     }
 }
 
