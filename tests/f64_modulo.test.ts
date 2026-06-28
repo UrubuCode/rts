@@ -27,10 +27,10 @@ print(`${5.0 % 0.0}`);     // NaN
 print(`${-5.0 % 0.0}`);    // NaN
 print(`${0.0 % 0.0}`);     // NaN
 
-// 5. Infinity e NaN propaga (RTS retorna NaN em qualquer divisor/dividendo
-// nao-finito — divergente de IEEE-754 puro mas determinista)
+// 5. Infinity e NaN — IEEE-754 (igual a JS/Node/Bun): divisor Infinity preserva
+// o dividendo; dividendo nao-finito ou NaN propaga NaN.
 print(`${Infinity % 3.0}`);   // NaN
-print(`${5.0 % Infinity}`);   // NaN (em RTS — IEEE seria 5)
+print(`${5.0 % Infinity}`);   // 5 (IEEE: x % Infinity === x)
 print(`${NaN % 3.0}`);        // NaN
 print(`${3.0 % NaN}`);        // NaN
 
@@ -53,7 +53,7 @@ describe("f64 modulo — sinais, zero, Inf/NaN, fn, loop", () => {
       "1.5\n-1.5\n" +
       "0\n0\n" +
       "NaN\nNaN\nNaN\n" +
-      "NaN\nNaN\nNaN\nNaN\n" +
+      "NaN\n5\nNaN\nNaN\n" +
       "2.5\n-0.7000000000000002\n" +
       "3\n"
     );

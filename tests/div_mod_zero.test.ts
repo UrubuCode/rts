@@ -6,16 +6,16 @@ function print(value: string): void {
 }
 
 // (#296) RTS antes crashava com 'Illegal instruction' em x/0 e x%0 com
-// inteiros. (#584) Hoje `/` segue o JS spec — sempre retorna f64, entao
-// 5/0 = Infinity (IEEE) tanto pra literal int quanto float. So' o `%`
-// inteiro ainda retorna sentinel 0 em divisor 0 (RTS-specific, evita trap).
+// inteiros. Hoje `/` e `%` seguem o JS spec — `/` sempre retorna f64
+// (5/0 = Infinity), e `%` por zero retorna NaN (igual a JS/Node/Bun),
+// tanto pra literal int quanto float, sem trap.
 
-// 1. Casos do issue — `/` IEEE em qualquer caso, `%` int sentinel, `%` float NaN
+// 1. Casos do issue — `/` IEEE em qualquer caso, `%` por zero NaN
 print(`${5 / 0}`);          // Infinity (JS spec — `/` sempre f64)
 print(`${5.0 / 0.0}`);      // Infinity
 print(`${-5.0 / 0.0}`);     // -Infinity
 print(`${0.0 / 0.0}`);      // NaN
-print(`${5 % 0}`);          // 0    (int sentinel — evita trap)
+print(`${5 % 0}`);          // NaN  (JS spec — x % 0 === NaN)
 print(`${5.0 % 0.0}`);      // NaN
 
 // 2. Caminho normal preservado (sem trap penalty)
@@ -76,9 +76,9 @@ print(`${modBy(7, 3)}`);  // 1
 print(`${modBy(7, 0)}`);  // NaN (f64 IEEE)
 
 describe("div_mod_zero", () => {
-  test("no trap, sentinel 0 in int /0, IEEE in float /0", () =>
+  test("no trap, IEEE in /0, NaN in %0", () =>
     expect(__rtsCapturedOutput).toBe(
-      "Infinity\nInfinity\n-Infinity\nNaN\n0\nNaN\n" +  // 1
+      "Infinity\nInfinity\n-Infinity\nNaN\nNaN\nNaN\n" +  // 1
       "5\n1\n-1\n" +                                    // 2
       "guarded\nskip\n" +                               // 3
       "22.833333333333332\n" +                          // 4

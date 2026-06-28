@@ -24,6 +24,7 @@
 
 mod assign;
 mod binop;
+mod binop_eq;
 mod call;
 mod call_shape;
 mod call_spread;
