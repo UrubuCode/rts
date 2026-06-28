@@ -283,6 +283,68 @@ pub extern "C" fn __RTS_FN_NS_DOM_DUMP_LAYOUT(h: u64, viewport_w: i64) {
     }
 }
 
+// ── Geometria: getBoundingClientRect (x/y/w/h por nó) ───────────────────────────
+// O `element.getBoundingClientRect()` lê o LAYOUT que o motor já calcula (o
+// `node_rects` da DisplayList). A ABI dá 1 i64 por chamada; cada componente vem
+// como pontos × 1000 (3 casas decimais, preserva subpixel tipo 302.1 → 302100), e
+// a fachada `.ts` monta `{x, y, width, height, top, left, right, bottom}` dividindo
+// por 1000. Para não recomputar o layout 4× (x/y/w/h), guardamos a última
+// DisplayList por (handle, viewport) num cache thread-local.
+
+thread_local! {
+    /// Cache da última DisplayList computada para geometria — evita rodar o layout
+    /// 4× quando a fachada lê x/y/w/h em sequência. Chave: (domHandle, viewportW).
+    static GEOM_CACHE: std::cell::RefCell<Option<(u64, i64, crate::layout::DisplayList)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Componente do border-box de um nó (`which`: 0=x 1=y 2=width 3=height), em
+/// pontos × 1000. `-1` se o nó não tem rect (texto/inline/display:none/inválido) —
+/// distinto de 0 (um rect legítimo de tamanho 0 dá 0, não -1). A fachada divide /1000.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_BOUNDING_COMPONENT(h: u64, id: i64, viewport_w: i64, which: i64) -> i64 {
+    use crate::layout::{ApproxMeasurer, LayoutCtx};
+    let Some(node) = NodeId::from_abi(id) else { return -1 };
+    let vw = viewport_w.max(1);
+    // Resolve o NodeIdx cru do nó nesta árvore.
+    let idx = match with(h, |dom| dom.resolve(node)) {
+        Some(Some(i)) => i,
+        _ => return -1,
+    };
+    GEOM_CACHE.with(|cache| {
+        let mut c = cache.borrow_mut();
+        // (re)computa o layout se o cache não bate com (handle, viewport).
+        let need = !matches!(&*c, Some((ch, cv, _)) if *ch == h && *cv == vw);
+        if need {
+            let list = with(h, |dom| {
+                let ctx = LayoutCtx { viewport_w: vw as f32, viewport_h: 800.0, measurer: &ApproxMeasurer };
+                crate::layout::layout_document(dom, &ctx)
+            });
+            match list {
+                Some(l) => *c = Some((h, vw, l)),
+                None => return -1,
+            }
+        }
+        let rect = match &*c {
+            Some((_, _, l)) => l.node_rects.get(&idx).copied(),
+            None => None,
+        };
+        match rect {
+            Some(r) => {
+                let v = match which {
+                    0 => r.x,
+                    1 => r.y,
+                    2 => r.w,
+                    3 => r.h,
+                    _ => return -1,
+                };
+                (v * 1000.0) as i64
+            }
+            None => -1,
+        }
+    })
+}
+
 // ── Leitura de conteúdo: STRING de volta pro TS (handle do pool GC) ──────────────
 // A ABI proíbe `StrPtr` de RETORNO (só de arg). A forma de devolver string é
 // internar no pool GC (`intern`) e retornar o handle `u64`; no register() esse
@@ -723,6 +785,14 @@ pub fn register(e: &mut Engine) {
             "dumpLayout(dom: number, viewportW: number): void",
             "Computes the layout DisplayList at the given viewport width and prints it as JSON (x/y/w/h + colors), to compare with the browser render.",
             __RTS_FN_NS_DOM_DUMP_LAYOUT as *const u8,
+        ))
+        .member(func(
+            "boundingComponent",
+            "__RTS_FN_NS_DOM_BOUNDING_COMPONENT",
+            Sig::new(vec![Handle, I64, I64, I64], I64),
+            "boundingComponent(dom: number, node: number, viewportW: number, which: number): number",
+            "One component of a node's border-box (which: 0=x 1=y 2=width 3=height) in points×1000, or -1 if the node has no box. Basis of element.getBoundingClientRect(); the facade divides by 1000.",
+            __RTS_FN_NS_DOM_BOUNDING_COMPONENT as *const u8,
         ))
         // ── Leitura de conteúdo (retorna STRING: handle do pool GC) ──────────────
         // Retorno `Handle` + ts_signature `: string` = string dinâmica (mesmo

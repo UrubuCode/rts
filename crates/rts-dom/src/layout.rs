@@ -66,6 +66,12 @@ pub struct DisplayList {
     pub items: Vec<DisplayItem>,
     /// Altura total ocupada pelo conteúdo (para o backend dimensionar o scroll).
     pub content_height: f32,
+    /// Geometria por NÓ (border-box, em coordenadas de conteúdo) — a base do
+    /// `element.getBoundingClientRect()`/`offsetWidth`/etc. Preenchido durante o
+    /// layout: cada bloco registra seu retângulo (margin EXCLUÍDA — border-box, como
+    /// o `getBoundingClientRect` do browser). Nós inline/texto não entram (a API só
+    /// dá rect de elementos; um inline teria múltiplos rects — fase futura).
+    pub node_rects: std::collections::HashMap<NodeIdx, Rect>,
 }
 
 /// Abstração de MEDIÇÃO de texto (largura/altura de uma string num tamanho/peso).
@@ -122,6 +128,15 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     }
     list.content_height = cursor_y;
     list
+}
+
+/// O retângulo (border-box) de um nó, computando o layout do documento na largura
+/// dada — a base de `element.getBoundingClientRect()`. `None` se o nó não é um
+/// bloco renderável (texto/inline/`display:none`/metadata não têm rect próprio).
+/// Roda o layout inteiro (O(n)); para várias consultas no mesmo frame, reuse a
+/// `DisplayList` de `layout_document` e leia `node_rects` direto.
+pub fn bounding_rect(dom: &Dom, node: NodeIdx, ctx: &LayoutCtx) -> Option<Rect> {
+    layout_document(dom, ctx).node_rects.get(&node).copied()
 }
 
 /// Faz o layout de UM nó-bloco a partir de `(x, y)`, com `avail_w` de largura
@@ -246,15 +261,20 @@ fn layout_block(
     };
 
     // ── Insere a CAIXA (fundo + borda) no índice reservado, ATRÁS dos filhos ─────
-    // A caixa cobre content + padding + border (NÃO a margin — esta é espaço
-    // externo). `insert` no `box_index` põe o fundo antes dos itens dos filhos.
+    // O BORDER-BOX do nó: content + padding + border (NÃO a margin — esta é espaço
+    // externo). É o retângulo que `getBoundingClientRect()` reporta.
+    let box_rect = Rect::new(
+        x + margin_h,
+        y + margin_y,
+        content_w + 2.0 * (border + padding),
+        content_h + 2.0 * (border + padding),
+    );
+    // Registra a geometria deste nó (base do getBoundingClientRect/offsetWidth).
+    list.node_rects.insert(id, box_rect);
+
+    // Pinta a CAIXA (fundo/borda) ATRÁS dos filhos. `insert` no `box_index` põe o
+    // fundo antes dos itens dos filhos (z-order).
     if css.has_box() {
-        let box_rect = Rect::new(
-            x + margin_h,
-            y + margin_y,
-            content_w + 2.0 * (border + padding),
-            content_h + 2.0 * (border + padding),
-        );
         let radius = css.corner_radius.unwrap_or(0.0);
         // Insere na ordem: primeiro o fundo, depois a borda por cima dele (ambos
         // atrás dos filhos). `insert` desloca os filhos para a frente.
@@ -841,6 +861,49 @@ mod tests {
         assert_eq!(texts[1].0, 0.0, "2º texto em x=0 (margin não empurrou): {texts:?}");
         // Y: o 2º bem abaixo (margin colapsado entre eles + altura da linha).
         assert!(texts[1].1 > texts[0].1 + 20.0, "2º empilhado abaixo: {texts:?}");
+    }
+
+    #[test]
+    fn bounding_rect_dos_cards() {
+        // getBoundingClientRect: o border-box de cada nó-bloco. Os 3 cards (flex,
+        // 32% border-box) têm os MESMOS rects que o dump mostra (x=20/322/624, w=302).
+        crate::block::define("row", crate::block::BlockDef { display: 2, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        let dom = parse_html_to_dom(
+            "<style>.card{box-sizing:border-box;width:32%;padding:14;border-width:2;background:#1a2030}</style>\
+             <row>\
+               <div class='card' id='a'>1</div><div class='card' id='b'>2</div><div class='card' id='c'>3</div>\
+             </row>",
+        );
+        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        // resolve os NodeIdx dos 3 cards e mede cada um.
+        let a = dom.resolve(dom.query("#a").unwrap()).unwrap();
+        let b = dom.resolve(dom.query("#b").unwrap()).unwrap();
+        let c = dom.resolve(dom.query("#c").unwrap()).unwrap();
+        let ra = bounding_rect(&dom, a, &ctx).expect("card a tem rect");
+        let rb = bounding_rect(&dom, b, &ctx).expect("card b tem rect");
+        let rc = bounding_rect(&dom, c, &ctx).expect("card c tem rect");
+        // border-box = 32% de 1000 = 320 cada; lado a lado.
+        assert!((ra.w - 320.0).abs() < 1.0, "largura ~320: {ra:?}");
+        assert!((rb.w - 320.0).abs() < 1.0);
+        assert!((rc.w - 320.0).abs() < 1.0);
+        assert_eq!(ra.x, 0.0); // (sem padding no body de teste, x começa em 0)
+        assert!(rb.x > ra.x && rc.x > rb.x, "X crescente: {ra:?} {rb:?} {rc:?}");
+        assert_eq!(ra.y, rb.y); // mesma linha (flex)
+    }
+
+    #[test]
+    fn bounding_rect_none_para_texto() {
+        // texto/inline não tem rect próprio (a API só dá rect de elemento-bloco).
+        let dom = parse_html_to_dom("<p>oi</p>");
+        crate::block::define("p", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let p = dom.resolve(dom.query("p").unwrap()).unwrap();
+        // o <p> (bloco) TEM rect.
+        assert!(bounding_rect(&dom, p, &ctx).is_some());
+        // o nó de texto filho NÃO tem (não é bloco).
+        let txt = dom.node(p).children[0];
+        assert!(bounding_rect(&dom, txt, &ctx).is_none());
     }
 
     #[test]
