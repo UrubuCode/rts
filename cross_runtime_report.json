@@ -1977,10 +1977,10 @@
 ,
 {
   "name": "213_math_min_max_empty",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "min_empty=Infinity\nmax_empty=-Infinity\nmin_1=1\nmax_1=1\nmin_neg=-10\nmax_neg=-1\nmin_mixed=-3\nmax_mixed=10\nmin_inf=1\nmax_inf=1",
   "node": "min_empty=Infinity\nmax_empty=-Infinity\nmin_1=1\nmax_1=1\nmin_neg=-10\nmax_neg=-1\nmin_mixed=-3\nmax_mixed=10\nmin_inf=1\nmax_inf=1",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "min_empty=Infinity\nmax_empty=-Infinity\nmin_1=1\nmax_1=1\nmin_neg=-10\nmax_neg=-1\nmin_mixed=-3\nmax_mixed=10\nmin_inf=1\nmax_inf=1"
 }
 ,
 {
@@ -2041,10 +2041,10 @@
 ,
 {
   "name": "36_math_edges",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "min=Infinity\nmax=-Infinity\nsignnan=NaN\npow=-8",
   "node": "min=Infinity\nmax=-Infinity\nsignnan=NaN\npow=-8",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "min=Infinity\nmax=-Infinity\nsignnan=NaN\npow=-8"
 }
 ,
 {
@@ -2217,18 +2217,18 @@
 ,
 {
   "name": "130_number_isfinite_isnan",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "isFinite_5=true\nisFinite_Inf=false\nisFinite_NaN=false\nisFinite_str=false\nisNaN_NaN=true\nisNaN_5=false\nisNaN_str=false\nisNaN_undef=false\nglobal_isNaN_str=true\nglobal_isFinite_str=true",
   "node": "isFinite_5=true\nisFinite_Inf=false\nisFinite_NaN=false\nisFinite_str=false\nisNaN_NaN=true\nisNaN_5=false\nisNaN_str=false\nisNaN_undef=false\nglobal_isNaN_str=true\nglobal_isFinite_str=true",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "isFinite_5=true\nisFinite_Inf=false\nisFinite_NaN=false\nisFinite_str=false\nisNaN_NaN=true\nisNaN_5=false\nisNaN_str=false\nisNaN_undef=false\nglobal_isNaN_str=true\nglobal_isFinite_str=true"
 }
 ,
 {
   "name": "131_number_isinteger_issafeinteger",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "isInt_5=true\nisInt_5.0=true\nisInt_5.5=false\nisInt_str=false\nisInt_NaN=false\nisInt_Inf=false\nisSafe_100=true\nisSafe_max=true\nisSafe_max+1=false\nisSafe_min=true\nisSafe_5.5=false",
   "node": "isInt_5=true\nisInt_5.0=true\nisInt_5.5=false\nisInt_str=false\nisInt_NaN=false\nisInt_Inf=false\nisSafe_100=true\nisSafe_max=true\nisSafe_max+1=false\nisSafe_min=true\nisSafe_5.5=false",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "isInt_5=true\nisInt_5.0=true\nisInt_5.5=false\nisInt_str=false\nisInt_NaN=false\nisInt_Inf=false\nisSafe_100=true\nisSafe_max=true\nisSafe_max+1=false\nisSafe_min=true\nisSafe_5.5=false"
 }
 ,
 {
@@ -2265,10 +2265,10 @@
 ,
 {
   "name": "148_isfinite_isnan_global",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "isFinite_5=true\nisFinite_Inf=false\nisFinite_NaN=false\nisFinite_str5=true\nisNaN_NaN=true\nisNaN_5=false\nisNaN_str=true\nglobal_str=true\nnumber_str=false",
   "node": "isFinite_5=true\nisFinite_Inf=false\nisFinite_NaN=false\nisFinite_str5=true\nisNaN_NaN=true\nisNaN_5=false\nisNaN_str=true\nglobal_str=true\nnumber_str=false",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "isFinite_5=true\nisFinite_Inf=false\nisFinite_NaN=false\nisFinite_str5=true\nisNaN_NaN=true\nisNaN_5=false\nisNaN_str=true\nglobal_str=true\nnumber_str=false"
 }
 ,
 {
@@ -2425,10 +2425,10 @@
 ,
 {
   "name": "claude-int-above-2pow53",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "9007199254740991\ntrue\n9007199254740992\n9007199254740992\n9007199254740992\n9007199254740994\nfalse\ntrue\n18014398509481984\n10000000000000000\nfalse",
   "node": "9007199254740991\ntrue\n9007199254740992\n9007199254740992\n9007199254740992\n9007199254740994\nfalse\ntrue\n18014398509481984\n10000000000000000\nfalse",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "9007199254740991\ntrue\n9007199254740992\n9007199254740992\n9007199254740992\n9007199254740994\nfalse\ntrue\n18014398509481984\n10000000000000000\nfalse"
 }
 ,
 {
@@ -3732,7 +3732,7 @@
   "status": "rts_diverge",
   "bun": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
   "node": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
-  "rts": "h=104\ne=101\no=111\nout=281474976710940\nemoji=128512\nA=65\ncharCode=55357"
+  "rts": "h=104\ne=101\no=111\nout=281474976710947\nemoji=128512\nA=65\ncharCode=55357"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":213,"rts_diverge":85,"bun_node_diverge":17,"errors":294,"rejected":0}}
+],"summary":{"total":609,"pass":219,"rts_diverge":85,"bun_node_diverge":17,"errors":288,"rejected":0}}
