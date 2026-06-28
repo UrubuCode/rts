@@ -942,15 +942,14 @@ fn layout_inline_line(
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
-    let mut text = collect_text(dom, id);
-    if text.trim().is_empty() {
+    // INLINE-FLOW RICO: coleta os RUNS (cada pedaço de texto com a SUA cor/bold/
+    // italic herdada do span que o contém), em ordem de documento. Assim
+    // <h1>Seus dados <span style=color:roxo>insight</span> fim</h1> vira 3 runs com
+    // cores diferentes que FLUEM numa linha contínua (não 1 linha por nó).
+    let runs = collect_runs(dom, id, parent_css);
+    if runs.iter().all(|r| r.text.trim().is_empty()) {
         return y;
     }
-    // text-transform: aplica a caixa (uppercase/lowercase/capitalize) — #1749.
-    if let Some(tt) = parent_css.text_transform {
-        text = tt.apply(&text);
-    }
-    let color = parent_css.color.unwrap_or(0x000000FF);
     let mono = parent_css
         .font_family
         .as_deref()
@@ -961,32 +960,142 @@ fn layout_inline_line(
         .line_height
         .map(|l| l.resolve(font_size))
         .unwrap_or_else(|| ctx.measurer.line_height(font_size));
-    // `white-space:nowrap`/`pre` → não quebra (1 linha só). Senão (normal, default),
-    // QUEBRA por palavra quando excede a largura — o word-wrap do CSS.
     let nowrap = matches!(
         parent_css.white_space,
         Some(crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre)
     );
-    // monta as LINHAS quebrando por palavra (a não ser nowrap).
-    let lines = if nowrap {
-        vec![text]
-    } else {
-        wrap_text(&text, content_w, font_size, mono, ctx.measurer)
-    };
+    let wrap_w = if nowrap { f32::INFINITY } else { content_w };
+    // quebra os runs em LINHAS, cada linha = sequência de pedaços coloridos (word).
+    let lines = wrap_runs(&runs, wrap_w, font_size, mono, ctx.measurer);
     let mut cy = y;
-    for line in lines {
-        // text-align por linha: desloca pelo espaço livre da largura do content.
-        let line_w = ctx.measurer.text_width(&line, font_size, mono);
+    for line in &lines {
+        // largura total da linha (soma dos pedaços) p/ o text-align.
+        let line_w: f32 = line.iter().map(|seg| ctx.measurer.text_width(&seg.text, font_size, mono)).sum();
         let free = (content_w - line_w).max(0.0);
-        let line_x = match parent_css.text_align {
+        let mut seg_x = match parent_css.text_align {
             Some(crate::style::TextAlign::Right) => x + free,
             Some(crate::style::TextAlign::Center) => x + free / 2.0,
             _ => x, // left/justify
         };
-        list.items.push(DisplayItem::Text { x: line_x, y: cy, text: line, color, size: font_size, mono });
+        // pinta cada pedaço NA SUA COR, avançando o x.
+        for seg in line {
+            let w = ctx.measurer.text_width(&seg.text, font_size, mono);
+            list.items.push(DisplayItem::Text {
+                x: seg_x,
+                y: cy,
+                text: seg.text.clone(),
+                color: seg.color,
+                size: font_size,
+                mono,
+            });
+            seg_x += w;
+        }
         cy += lh;
     }
     cy
+}
+
+/// Um pedaço de texto inline com seu estilo resolvido (cor herdada do span pai).
+struct InlineRun {
+    text: String,
+    color: u32,
+}
+
+/// Coleta os RUNS de texto de `id` em ordem de documento, cada um com a COR efetiva
+/// do elemento inline que o contém (um `<span style=color:x>` muda a cor do seu
+/// texto). Aplica text-transform por run. A cor vem do `computed_style_idx` do nó
+/// inline (que já herda do pai via a cascade) — é por isso que o style do span passa
+/// a valer no texto.
+fn collect_runs(dom: &Dom, id: NodeIdx, parent_css: &ComputedStyle) -> Vec<InlineRun> {
+    let mut runs = Vec::new();
+    walk(dom, id, parent_css.color.unwrap_or(0x000000FF), parent_css.text_transform, &mut runs);
+    return runs;
+
+    fn walk(
+        dom: &Dom,
+        id: NodeIdx,
+        inherited_color: u32,
+        inherited_tt: Option<crate::style::TextTransform>,
+        out: &mut Vec<InlineRun>,
+    ) {
+        match &dom.node(id).kind {
+            NodeKind::Text(t) => {
+                let text = match inherited_tt {
+                    Some(tt) => tt.apply(t),
+                    None => t.clone(),
+                };
+                out.push(InlineRun { text, color: inherited_color });
+            }
+            NodeKind::Element { .. } => {
+                // a cor/text-transform DESTE inline (se declarar) vence p/ os filhos.
+                let css = dom.computed_style_idx(id);
+                let color = css.as_ref().and_then(|c| c.color).unwrap_or(inherited_color);
+                let tt = css.as_ref().and_then(|c| c.text_transform).or(inherited_tt);
+                for &c in &dom.node(id).children {
+                    walk(dom, c, color, tt, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Um segmento de texto colorido posicionado numa linha (após o wrap).
+struct Segment {
+    text: String,
+    color: u32,
+}
+
+/// Quebra uma sequência de RUNS coloridos em LINHAS por palavra (word-wrap), juntando
+/// runs adjacentes na mesma linha. Cada linha é um vetor de [`Segment`] (pedaços
+/// coloridos contíguos). Uma palavra que não cabe começa nova linha; preserva a cor
+/// de cada palavra conforme o run de origem.
+fn wrap_runs(
+    runs: &[InlineRun],
+    max_w: f32,
+    font_size: f32,
+    mono: bool,
+    m: &dyn TextMeasurer,
+) -> Vec<Vec<Segment>> {
+    let space_w = m.text_width(" ", font_size, mono);
+    let mut lines: Vec<Vec<Segment>> = Vec::new();
+    let mut cur: Vec<Segment> = Vec::new();
+    let mut cur_w = 0.0f32;
+    let mut at_line_start = true;
+
+    for run in runs {
+        for word in run.text.split_whitespace() {
+            let ww = m.text_width(word, font_size, mono);
+            let need = if at_line_start { ww } else { space_w + ww };
+            if !at_line_start && cur_w + need > max_w {
+                // não cabe: fecha a linha.
+                lines.push(std::mem::take(&mut cur));
+                cur_w = 0.0;
+                at_line_start = true;
+            }
+            // adiciona a palavra (com espaço antes, se não for início de linha).
+            let piece = if at_line_start { word.to_string() } else { format!(" {word}") };
+            // junta no último segmento se mesma cor, senão novo segmento.
+            if let Some(last) = cur.last_mut() {
+                if last.color == run.color {
+                    last.text.push_str(&piece);
+                } else {
+                    cur.push(Segment { text: piece, color: run.color });
+                }
+            } else {
+                cur.push(Segment { text: piece, color: run.color });
+            }
+            cur_w += need;
+            at_line_start = false;
+        }
+    }
+    if !cur.is_empty() {
+        lines.push(cur);
+    }
+    if lines.is_empty() {
+        lines.push(vec![Segment { text: String::new(), color: 0 }]);
+    }
+    lines
 }
 
 /// Quebra `text` em LINHAS que cabem em `max_w` (word-wrap do CSS `white-space:
