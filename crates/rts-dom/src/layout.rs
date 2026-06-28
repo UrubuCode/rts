@@ -888,17 +888,66 @@ fn layout_inline_line(
         .line_height
         .map(|l| l.resolve(font_size))
         .unwrap_or_else(|| ctx.measurer.line_height(font_size));
-    // text-align: desloca o x conforme o espaço livre (content_w - largura do texto).
-    let text_w = ctx.measurer.text_width(&text, font_size, mono);
-    let free = (content_w - text_w).max(0.0);
-    let text_x = match parent_css.text_align {
-        Some(crate::style::TextAlign::Right) => x + free,
-        Some(crate::style::TextAlign::Center) => x + free / 2.0,
-        // justify (sem espaçamento entre palavras por ora) e left ficam no x.
-        _ => x,
+    // `white-space:nowrap`/`pre` → não quebra (1 linha só). Senão (normal, default),
+    // QUEBRA por palavra quando excede a largura — o word-wrap do CSS.
+    let nowrap = matches!(
+        parent_css.white_space,
+        Some(crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre)
+    );
+    // monta as LINHAS quebrando por palavra (a não ser nowrap).
+    let lines = if nowrap {
+        vec![text]
+    } else {
+        wrap_text(&text, content_w, font_size, mono, ctx.measurer)
     };
-    list.items.push(DisplayItem::Text { x: text_x, y, text, color, size: font_size, mono });
-    y + lh
+    let mut cy = y;
+    for line in lines {
+        // text-align por linha: desloca pelo espaço livre da largura do content.
+        let line_w = ctx.measurer.text_width(&line, font_size, mono);
+        let free = (content_w - line_w).max(0.0);
+        let line_x = match parent_css.text_align {
+            Some(crate::style::TextAlign::Right) => x + free,
+            Some(crate::style::TextAlign::Center) => x + free / 2.0,
+            _ => x, // left/justify
+        };
+        list.items.push(DisplayItem::Text { x: line_x, y: cy, text: line, color, size: font_size, mono });
+        cy += lh;
+    }
+    cy
+}
+
+/// Quebra `text` em LINHAS que cabem em `max_w` (word-wrap do CSS `white-space:
+/// normal`): acumula palavras separadas por espaço; quando a próxima não cabe,
+/// fecha a linha e começa outra. Uma palavra maior que `max_w` fica sozinha na
+/// linha (não quebra no meio da palavra — `overflow-wrap:normal`).
+fn wrap_text(text: &str, max_w: f32, font_size: f32, mono: bool, m: &dyn TextMeasurer) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    let mut current_w = 0.0f32;
+    let space_w = m.text_width(" ", font_size, mono);
+    for word in text.split_whitespace() {
+        let word_w = m.text_width(word, font_size, mono);
+        if current.is_empty() {
+            current.push_str(word);
+            current_w = word_w;
+        } else if current_w + space_w + word_w <= max_w {
+            current.push(' ');
+            current.push_str(word);
+            current_w += space_w + word_w;
+        } else {
+            // não cabe: fecha a linha atual e começa nova com a palavra.
+            lines.push(std::mem::take(&mut current));
+            current.push_str(word);
+            current_w = word_w;
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
 }
 
 /// Concatena o texto de todos os descendentes de `id` (ordem de documento).
