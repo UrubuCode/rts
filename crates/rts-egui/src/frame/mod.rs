@@ -244,7 +244,17 @@ fn drenar(
                 }
                 // Headless-puro: o DOM vive no `store` do rts-dom; o egui SÓ o lê e
                 // pinta (empresta `&Dom` via `with_dom`). DOM inválido → não pinta.
-                rts_dom::store::with_dom(*h, |d| render_dom(ui, d));
+                // SCROLL nos dois eixos (x e y): quando o conteúdo é maior que a área
+                // visível, o ScrollArea do egui mostra a barra e recorta. O layout
+                // continua usando a LARGURA VISÍVEL (não a infinita do scroll) p/ ficar
+                // fluido — por isso travamos a largura antes de entrar no scroll.
+                let visible_w = ui.available_width();
+                egui::ScrollArea::both()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.set_width(visible_w);
+                        rts_dom::store::with_dom(*h, |d| render_dom(ui, d));
+                    });
             }
             // ── CANVAS BURRO: pinta em coords ABSOLUTAS via Painter ──────────────
             // Não participam do layout-flow (o TS já calculou a posição). O
