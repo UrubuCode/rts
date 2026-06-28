@@ -71,6 +71,33 @@ pub enum DisplayItem {
     /// Texto numa posição (canto superior-esquerdo). `mono` escolhe a família
     /// monoespaçada. O backend resolve a fonte/atlas; aqui só o necessário.
     Text { x: f32, y: f32, text: String, color: u32, size: f32, mono: bool, bold: bool },
+    /// Começa a RECORTAR a um retângulo (scroll container interno): os itens
+    /// seguintes, até o `EndClip`, só pintam DENTRO deste rect E são transladados por
+    /// `(offset_x, offset_y)` (o quanto a região rolou). O backend aplica o clip
+    /// (egui: `painter.with_clip_rect`) e soma o offset. `node` liga ao `ScrollRegion`
+    /// (o backend injeta o offset aqui antes de pintar). Empilha — pode aninhar.
+    BeginClip { rect: Rect, node: NodeIdx, offset_x: f32, offset_y: f32 },
+    /// Fecha o clip mais recente, restaurando o anterior.
+    EndClip,
+}
+
+/// Um CONTAINER ROLÁVEL interno (uma `<div>` com `overflow:auto/scroll` e tamanho
+/// definido): o conteúdo é maior que a caixa, então o backend recorta no `visible`,
+/// rola por um offset próprio e mostra barra(s) dentro dela. Produzido pelo layout,
+/// consumido pelo backend. Distinto do scroll da PÁGINA (que é a viewport inteira).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct ScrollRegion {
+    /// Qual nó é o container (chave do offset por-região no backend).
+    pub node_idx: NodeIdx,
+    /// Rect VISÍVEL (content-box do container, coords de conteúdo da página).
+    pub visible: Rect,
+    /// Largura REAL do conteúdo (pode exceder `visible.w` → rola em X).
+    pub content_w: f32,
+    /// Altura REAL do conteúdo (pode exceder `visible.h` → rola em Y).
+    pub content_h: f32,
+    /// overflow de cada eixo (auto/scroll rolam; hidden corta; visible não recorta).
+    pub overflow_x: crate::scrollbar::Overflow,
+    pub overflow_y: crate::scrollbar::Overflow,
 }
 
 /// A saída do layout: a lista plana de itens de pintura, em z-order. É o ÚNICO
@@ -87,6 +114,9 @@ pub struct DisplayList {
     /// o `getBoundingClientRect` do browser). Nós inline/texto não entram (a API só
     /// dá rect de elementos; um inline teria múltiplos rects — fase futura).
     pub node_rects: std::collections::HashMap<NodeIdx, Rect>,
+    /// Containers roláveis internos (divs com `overflow`) — o backend gerencia o
+    /// offset de cada um e recorta. Vazio quando a página não tem scroll interno.
+    pub scroll_regions: Vec<ScrollRegion>,
 }
 
 /// Abstração de MEDIÇÃO de texto (largura/altura de uma string num tamanho/peso).
@@ -219,6 +249,55 @@ pub fn emit_scrollbar(
         color: thumb_color,
         radius,
     });
+}
+
+/// Emite as barras (x e/ou y) DENTRO de um scroll container interno (#1744), no rect
+/// visível dele (coords de conteúdo da página). Diferente de `emit_scrollbar` (que é
+/// a viewport): aqui as barras ficam nas bordas da DIV. Emitidas APÓS o `EndClip`
+/// (fora do recorte), então não rolam — ficam fixas na div. `offset_*` é o quanto a
+/// região rolou (posiciona o thumb).
+pub fn emit_scrollbar_in(
+    list: &mut DisplayList,
+    region: &ScrollRegion,
+    offset_x: f32,
+    offset_y: f32,
+    sb: &crate::scrollbar::ScrollbarStyle,
+) {
+    use crate::scrollbar::BarWidth;
+    let bar_w = match sb.width {
+        Some(BarWidth::None) => return,
+        Some(BarWidth::Thin) => 8.0,
+        Some(BarWidth::Px(px)) => px,
+        _ => 12.0,
+    };
+    let track_color = sb.track.unwrap_or(0x1e1e1eff);
+    let thumb_color = sb.thumb.unwrap_or(0x6b6b6bff);
+    let radius = sb.thumb_radius.unwrap_or(bar_w / 2.0);
+    let v = region.visible;
+    let need_y = region.overflow_y.scrollable() && region.content_h > v.h + 0.5;
+    let need_x = region.overflow_x.scrollable() && region.content_w > v.w + 0.5;
+    // barra VERTICAL (borda direita da div).
+    if need_y {
+        let track_h = if need_x { v.h - bar_w } else { v.h };
+        let frac = (track_h / region.content_h).clamp(0.0, 1.0);
+        let thumb_h = (track_h * frac).max(24.0);
+        let max_off = (region.content_h - v.h).max(1.0);
+        let thumb_y = (offset_y / max_off).clamp(0.0, 1.0) * (track_h - thumb_h);
+        let bx = v.x + v.w - bar_w;
+        list.items.push(DisplayItem::SolidRect { rect: Rect::new(bx, v.y, bar_w, track_h), color: track_color, radius: 0.0 });
+        list.items.push(DisplayItem::SolidRect { rect: Rect::new(bx, v.y + thumb_y, bar_w, thumb_h), color: thumb_color, radius });
+    }
+    // barra HORIZONTAL (borda inferior da div).
+    if need_x {
+        let track_w = if need_y { v.w - bar_w } else { v.w };
+        let frac = (track_w / region.content_w).clamp(0.0, 1.0);
+        let thumb_w = (track_w * frac).max(24.0);
+        let max_off = (region.content_w - v.w).max(1.0);
+        let thumb_x = (offset_x / max_off).clamp(0.0, 1.0) * (track_w - thumb_w);
+        let by = v.y + v.h - bar_w;
+        list.items.push(DisplayItem::SolidRect { rect: Rect::new(v.x, by, track_w, bar_w), color: track_color, radius: 0.0 });
+        list.items.push(DisplayItem::SolidRect { rect: Rect::new(v.x + thumb_x, by, thumb_w, bar_w), color: thumb_color, radius });
+    }
 }
 
 /// O `background` do `<body>` (ou, se ausente, do `<html>`) — a cor que o CSS
@@ -420,18 +499,35 @@ fn layout_block(
     // a altura do content = a do filho mais alto (MDN flow: inline-axis stacking).
     let display = css_display(dom, id);
     let font_size = css.font_size.unwrap_or(DEFAULT_FONT_SIZE);
+
+    // SCROLL CONTAINER (#1744): uma div com `overflow-x:auto/scroll` NÃO comprime os
+    // filhos — eles transbordam e a div rola. Nesse caso layoutamos os filhos com a
+    // largura NATURAL do conteúdo (intrinsic), não a do container. (overflow-y já não
+    // comprime: o vertical empilha e a altura é a soma — só precisamos do clip+barra.)
+    let ov_x = css.overflow_x.unwrap_or(crate::scrollbar::Overflow::Visible);
+    let ov_y = css.overflow_y.unwrap_or(crate::scrollbar::Overflow::Visible);
+    let scrolls_x = ov_x.scrollable() || ov_x == crate::scrollbar::Overflow::Hidden;
+    let children_w = if scrolls_x {
+        // largura que o conteúdo QUER (sem comprimir) — pode exceder content_w.
+        intrinsic_content_width(dom, id, font_size, ctx).max(content_w)
+    } else {
+        content_w
+    };
+
     let content_h = match display {
         // horizontal (flex-row sem wrap): lado a lado, encolhe pra caber, não quebra.
         d if d == crate::block::DISPLAY_HORIZONTAL => {
-            layout_children_horizontal(dom, id, content_x, content_y, content_w, &css, font_size, false, ctx, list)
+            layout_children_horizontal(dom, id, content_x, content_y, children_w, &css, font_size, false, ctx, list)
         }
         // wrap (inline-block flow): lado a lado E QUEBRA linha quando enche.
         d if d == crate::block::DISPLAY_WRAP => {
-            layout_children_horizontal(dom, id, content_x, content_y, content_w, &css, font_size, true, ctx, list)
+            layout_children_horizontal(dom, id, content_x, content_y, children_w, &css, font_size, true, ctx, list)
         }
         // vertical (block): empilha.
-        _ => layout_children_vertical(dom, id, content_x, content_y, content_w, &css, font_size, ctx, list),
+        _ => layout_children_vertical(dom, id, content_x, content_y, children_w, &css, font_size, ctx, list),
     };
+    // a altura REAL do conteúdo (antes de `height` explícito a cortar) — p/ o scroll-Y.
+    let content_h_natural = content_h;
 
     // `height` explícito SOBRESCREVE a altura do conteúdo (a caixa tem essa altura,
     // mesmo que o conteúdo seja menor). Em border-box, o height inclui pad+border —
@@ -481,6 +577,44 @@ fn layout_block(
         if border > 0.0 && style_visible {
             let color = css.border_color.unwrap_or(0x808080FF);
             list.items.insert(at, DisplayItem::Border { rect: box_rect, width: border, color, radius });
+        }
+    }
+
+    // ── SCROLL CONTAINER interno (#1744): se a div rola (overflow-x/y) e o conteúdo
+    // excede a caixa, (1) RECORTA os itens dos filhos ao content-box (BeginClip já
+    // emitido depois da caixa, EndClip no fim), (2) registra a ScrollRegion p/ o
+    // backend gerenciar o offset + pintar as barras. `hidden` também recorta (corta o
+    // excesso, sem barra). `visible` não faz nada (transborda, como hoje).
+    let clips = ov_x != crate::scrollbar::Overflow::Visible
+        || ov_y != crate::scrollbar::Overflow::Visible;
+    if clips {
+        let content_rect = Rect::new(content_x, content_y, content_w, content_h);
+        // BeginClip no índice onde os FILHOS começam (logo após os itens de caixa que
+        // foram inseridos em `box_index`); EndClip no fim. Quantos itens de caixa:
+        // fundo (se bg) + borda (se visível).
+        let style_visible = css.border_style.map(|s| s.is_visible()).unwrap_or(false);
+        let box_items = if css.has_box() {
+            css.bg.is_some() as usize + (border > 0.0 && style_visible) as usize
+        } else {
+            0
+        };
+        let children_start = box_index + box_items;
+        // offset 0 aqui; o backend injeta o offset rolado por região antes de pintar.
+        list.items.insert(
+            children_start,
+            DisplayItem::BeginClip { rect: content_rect, node: id, offset_x: 0.0, offset_y: 0.0 },
+        );
+        list.items.push(DisplayItem::EndClip);
+        // só registra como rolável (com barra) se de fato rola (auto/scroll), não hidden.
+        if ov_x.scrollable() || ov_y.scrollable() {
+            list.scroll_regions.push(ScrollRegion {
+                node_idx: id,
+                visible: content_rect,
+                content_w: children_w.max(content_w),
+                content_h: content_h_natural,
+                overflow_x: ov_x,
+                overflow_y: ov_y,
+            });
         }
     }
 

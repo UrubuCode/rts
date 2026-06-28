@@ -152,6 +152,10 @@ pub(crate) fn render_dom_scrolled(
     if scroll_y {
         layout::emit_scrollbar(&mut list, viewport_w, viewport_h, content_h, offset, sb, force);
     }
+    // SCROLL CONTAINERS INTERNOS (#1744): para cada região rolável (div com overflow),
+    // o egui gerencia seu offset (input), injeta no BeginClip e emite as barras dela.
+    // O `base_origin` desloca o page-scroll p/ casar com o paint (que usa -offset).
+    process_scroll_regions(ui, h, &mut list, sb, -offset);
     // pinta tudo transladado por -offset (o conteúdo sobe; a barra, somando offset na
     // emissão, fica parada na tela). Recorta na área visível.
     let clip = ui.max_rect();
@@ -163,14 +167,85 @@ pub(crate) fn render_dom_scrolled(
     ui.allocate_space(egui::vec2(viewport_w, viewport_h));
 }
 
+/// Processa os SCROLL CONTAINERS internos (#1744): para cada `ScrollRegion`, lê/
+/// atualiza o offset (roda do mouse quando o ponteiro está sobre a div), injeta esse
+/// offset no `BeginClip` correspondente (p/ o paint transladar os filhos) e emite as
+/// barras (x/y) DENTRO da região via `emit_scrollbar_in`. `page_dy` é a translação do
+/// scroll da página (p/ posicionar a região na tela). Egui burro: só input + dados.
+fn process_scroll_regions(
+    ui: &mut egui::Ui,
+    h: u64,
+    list: &mut layout::DisplayList,
+    sb: &rts_dom::scrollbar::ScrollbarStyle,
+    page_dy: f32,
+) {
+    if list.scroll_regions.is_empty() {
+        return;
+    }
+    let base = ui.max_rect().min;
+    let regions = list.scroll_regions.clone();
+    for region in &regions {
+        let max_x = (region.content_w - region.visible.w).max(0.0);
+        let max_y = (region.content_h - region.visible.h).max(0.0);
+        let can_x = region.overflow_x.scrollable() && max_x > 0.0;
+        let can_y = region.overflow_y.scrollable() && max_y > 0.0;
+        if !can_x && !can_y {
+            continue;
+        }
+        // offset por-nó em memory.
+        let oid = egui::Id::new(("rts_dom_region", h, region.node_idx));
+        let mut off = ui.ctx().memory(|m| m.data.get_temp::<egui::Vec2>(oid).unwrap_or_default());
+        // rect da região na TELA (visible + page scroll).
+        let screen = egui::Rect::from_min_size(
+            base + egui::vec2(region.visible.x, region.visible.y + page_dy),
+            egui::vec2(region.visible.w, region.visible.h),
+        );
+        if ui.rect_contains_pointer(screen) {
+            let d = ui.input(|i| i.smooth_scroll_delta);
+            // se rola Y, a roda move Y; se SÓ rola X, a roda (Y) move X (UX comum).
+            if can_y {
+                off.y -= d.y;
+            }
+            if can_x {
+                off.x -= if can_y { d.x } else { d.y };
+            }
+        }
+        off.x = off.x.clamp(0.0, max_x);
+        off.y = off.y.clamp(0.0, max_y);
+        ui.ctx().memory_mut(|m| m.data.insert_temp(oid, off));
+
+        // injeta o offset no BeginClip desta região (acha pelo node).
+        for it in list.items.iter_mut() {
+            if let layout::DisplayItem::BeginClip { node, offset_x, offset_y, .. } = it {
+                if *node == region.node_idx {
+                    *offset_x = off.x;
+                    *offset_y = off.y;
+                    break;
+                }
+            }
+        }
+        // barras DENTRO da região (coords de conteúdo; o paint soma o page scroll).
+        layout::emit_scrollbar_in(list, region, off.x, off.y, sb);
+    }
+}
+
 /// Percorre a [`DisplayList`] e pinta cada item via `ui.painter()`, em coordenadas
 /// absolutas (conteúdo + origem do `ui`). A ordem da lista É o z-order (o que vem
 /// depois pinta por cima). Reserva o espaço da altura total para o `ui` pai.
 fn paint_list(ui: &mut egui::Ui, list: &DisplayList, offset_y: f32) {
-    // origem do conteúdo + a translação de scroll (offset_y negativo sobe o conteúdo).
-    let origin = ui.max_rect().min + egui::vec2(0.0, offset_y);
-    let painter = ui.painter().clone();
+    // origem do conteúdo + a translação de scroll da PÁGINA (offset_y negativo sobe).
+    let base_origin = ui.max_rect().min + egui::vec2(0.0, offset_y);
+    // PILHA para o scroll container interno (#1744): cada BeginClip empilha (painter
+    // recortado, offset extra da região); EndClip desempilha. O item é pintado com o
+    // painter do topo e a SOMA dos offsets extra (a região rolada). Base = ui.
+    let base = ui.painter().clone();
+    let mut stack: Vec<(egui::Painter, egui::Vec2)> = Vec::new();
     for item in &list.items {
+        let (painter, extra) = stack
+            .last()
+            .map(|(p, o)| (p.clone(), *o))
+            .unwrap_or_else(|| (base.clone(), egui::Vec2::ZERO));
+        let origin = base_origin + extra; // origem da página + translação da região
         match item {
             DisplayItem::SolidRect { rect, color, radius } => {
                 let r = egui::Rect::from_min_size(
@@ -207,6 +282,21 @@ fn paint_list(ui: &mut egui::Ui, list: &DisplayList, offset_y: f32) {
                     egui::FontId::new(*size, family),
                     rgba_to_color32(*color),
                 );
+            }
+            DisplayItem::BeginClip { rect, offset_x, offset_y, .. } => {
+                // o RECT do container é FIXO (não rola) — posiciona com `origin` (que
+                // já inclui o extra do pai, mas não o desta região). Os FILHOS dentro
+                // rolam: empilha o offset (-offset) somado ao extra herdado.
+                let r = egui::Rect::from_min_size(
+                    origin + egui::vec2(rect.x, rect.y),
+                    egui::vec2(rect.w, rect.h),
+                );
+                let clipped = painter.with_clip_rect(r.intersect(painter.clip_rect()));
+                let new_extra = extra + egui::vec2(-*offset_x, -*offset_y);
+                stack.push((clipped, new_extra));
+            }
+            DisplayItem::EndClip => {
+                stack.pop();
             }
         }
     }

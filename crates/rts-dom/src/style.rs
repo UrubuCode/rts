@@ -569,6 +569,12 @@ pub struct ComputedStyle {
     pub transition: Option<crate::anim::TransitionSpec>,
     /// `animation` (#1776) — roda um `@keyframes` sozinho no tempo. `None` = nenhuma.
     pub animation: Option<crate::anim::AnimationSpec>,
+    /// `overflow-x` / `overflow-y` (#1744) — se este elemento vira um CONTAINER
+    /// rolável próprio (auto/scroll) ou corta/transborda (hidden/visible). `None` =
+    /// `visible` (default). Lido por qualquer div (não só a página) para o scroll
+    /// interno; a página usa o resolvido em `scrollbar::resolve`.
+    pub overflow_x: Option<crate::scrollbar::Overflow>,
+    pub overflow_y: Option<crate::scrollbar::Overflow>,
 }
 
 /// Aplica o clamp de min/max a um valor base resolvido: `clamp(min, base, max)` =
@@ -696,6 +702,12 @@ impl ComputedStyle {
         }
         if other.animation.is_some() {
             self.animation = other.animation.clone();
+        }
+        if other.overflow_x.is_some() {
+            self.overflow_x = other.overflow_x;
+        }
+        if other.overflow_y.is_some() {
+            self.overflow_y = other.overflow_y;
         }
     }
 
@@ -1641,6 +1653,15 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             "text-transform" => css.text_transform = TextTransform::parse(val),
             "font-family" => css.font_family = parse_font_family(val),
             "font" => apply_font_shorthand(css, val),
+            // ── overflow (#1744): scroll container interno. `overflow` define os dois
+            // eixos; `-x`/`-y` cada um. Reusa o enum do módulo scrollbar.
+            "overflow" => {
+                let o = crate::scrollbar::Overflow::parse_str(val);
+                css.overflow_x = o;
+                css.overflow_y = o;
+            }
+            "overflow-x" => css.overflow_x = crate::scrollbar::Overflow::parse_str(val),
+            "overflow-y" => css.overflow_y = crate::scrollbar::Overflow::parse_str(val),
             // ── Box model: shorthand 1/2/3/4 valores + longhands por lado. ─────────
             "padding" => css.padding = parse_edges(val, false),
             "padding-top" => css.padding.top = parse_side(val, false),
@@ -2594,4 +2615,5 @@ mod tests {
         assert_eq!(lookup_style("tag_inexistente_xyz"), None);
     }
 }
+
 

@@ -268,6 +268,11 @@ pub extern "C" fn __RTS_FN_NS_DOM_DUMP_LAYOUT(h: u64, viewport_w: i64) {
                     "    {{\"kind\":\"text\",\"x\":{:.1},\"y\":{:.1},\"size\":{:.1},\"color\":\"{}\",\"text\":{:?}}}",
                     x, y, size, hx(*color), text
                 ),
+                DisplayItem::BeginClip { rect, .. } => format!(
+                    "    {{\"kind\":\"beginClip\",\"x\":{:.1},\"y\":{:.1},\"w\":{:.1},\"h\":{:.1}}}",
+                    rect.x, rect.y, rect.w, rect.h
+                ),
+                DisplayItem::EndClip => "    {\"kind\":\"endClip\"}".to_string(),
             };
             s.push_str(&line);
             if i + 1 < list.items.len() {
