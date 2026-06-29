@@ -53,6 +53,15 @@
       "total": 609,
       "rts_diverge": 52,
       "errors": 356
+    },
+    {
+      "date": "2026-06-29",
+      "pct": 37.1,
+      "pass": 219,
+      "total_valid": 591,
+      "total": 609,
+      "rts_diverge": 85,
+      "errors": 287
     }
   ]
 }
