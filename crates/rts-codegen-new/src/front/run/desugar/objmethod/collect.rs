@@ -65,8 +65,9 @@ pub(super) fn recover_methods(obj: &swc_ecma_ast::ObjectLit) -> Recovered<'_> {
     let mut methods = Vec::new();
     for p in &obj.props {
         match p {
-            // A spread `{ ...src }` is out of subset → the literal must bail.
-            PropOrSpread::Spread(_) => return Recovered::Unsupported,
+            // A spread `{ ...src }`: rts-hir keeps it as a `"\0spread_<i>"` field
+            // (applied at runtime via `obj_assign`) — nothing to recover here.
+            PropOrSpread::Spread(_) => {}
             PropOrSpread::Prop(prop) => match prop.as_ref() {
                 // Fields: rts-hir already kept these — nothing to recover.
                 Prop::KeyValue(_) | Prop::Shorthand(_) => {}

@@ -449,7 +449,14 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
                             _ => None,
                         }
                     }
-                    _ => None,
+                    // An object SPREAD `{ ...src }` keeps its source expr: the
+                    // field is encoded as (`"\0spread_<i>"`, `src_expr`) — the
+                    // object lowering copies `src`'s own enumerable keys at
+                    // RUNTIME (`Object.assign` semantics), in source order.
+                    swc::PropOrSpread::Spread(s) => {
+                        let src = lower_swc_expr(&s.expr, scope);
+                        Some((format!("\0spread_{i}"), src))
+                    }
                 }
             }).collect();
             HirExpr::new(HirExprKind::Object(fields), HirType::Object)

@@ -57,17 +57,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             );
         }
 
-        // COMPUTED keys (`{ [k]: v }` — encoded by the HIR as a `"\0computed_<i>"`
-        // field whose value is the `[key_expr, value_expr]` pair): split them out.
-        // The STATIC keys build the shape as before; each computed pair is then
-        // appended at RUNTIME via `__rtsadp_obj_set` (ToString(key) + a shape
-        // transition), in source order — exactly the dynamic-add path `o[k] = v`
-        // uses. The literal's static shape does not track them, which is sound:
-        // reads of a computed key resolve through the dynamic slot-0 shape.
-        let (computed, static_fields): (Vec<_>, Vec<_>) = fields
-            .iter()
-            .partition(|(k, _)| k.starts_with('\0'));
-        let fields: Vec<(String, HirExpr)> = static_fields.into_iter().cloned().collect();
+        // DYNAMIC members — COMPUTED keys (`{ [k]: v }`, encoded by the HIR as a
+        // `"\0computed_<i>"` field whose value is the `[key_expr, value_expr]`
+        // pair) and SPREADS (`{ ...src }`, a `"\0spread_<i>"` field holding the
+        // source expr). With ANY dynamic member present, EVERY field is applied
+        // at runtime IN SOURCE ORDER over an empty-shape object (`obj_set` /
+        // `obj_assign`) — JS's last-write-wins across `{ ...a, x: 1 }` /
+        // `{ x: 1, ...a }` depends on that order, so the static-shape fast path
+        // cannot be mixed in. The local stays dynamic (no static shape recorded).
+        if fields.iter().any(|(k, _)| k.starts_with('\0')) {
+            let val = self.lower_object_literal_dynamic(module, &fields)?;
+            let empty_shape = self.shapes.intern(&[]);
+            return Ok((val, empty_shape, lit_class));
+        }
+        let fields: Vec<(String, HirExpr)> = fields.to_vec();
 
         // A duplicate key keeps the LAST value (JS); de-dup to the last occurrence
         // while preserving first-seen slot order — but if a literal repeats a key
@@ -99,25 +102,59 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             let word = self.box_value(v);
             emit_marshal::emit_vec_push(module, self.builder, obj_word, word);
         }
-        // ---- computed keys: append at runtime, in source order ----
-        for (_, pair) in computed {
-            let HirExprKind::Array(kv) = &pair.kind else {
-                return unsupported!("computed object key: malformed HIR pair");
-            };
-            let [key_expr, value_expr] = kv.as_slice() else {
-                return unsupported!("computed object key: malformed HIR pair");
-            };
-            let k = self.lower_expr(module, key_expr)?;
-            let k_word = self.box_value(k);
-            let v = self.lower_expr(module, value_expr)?;
-            let v_word = self.box_value(v);
-            self.call_runtime(module, "__rtsadp_obj_set", &[obj_word, k_word, v_word])?;
-        }
         Ok((
             Val::tagged_kind(obj_word, JsKind::Unknown),
             shape,
             lit_class,
         ))
+    }
+
+    /// Lower an object literal containing DYNAMIC members (computed keys /
+    /// spreads): build an EMPTY-shape object and apply every field at runtime in
+    /// source order — static `k: v` and computed `[k]: v` via `__rtsadp_obj_set`
+    /// (shape transition per new key, overwrite per existing), a spread `...src`
+    /// via `__rtsadp_obj_assign` (own enumerable copy). Last write wins, like JS.
+    fn lower_object_literal_dynamic(
+        &mut self,
+        module: &mut dyn Module,
+        fields: &[(String, HirExpr)],
+    ) -> FrontResult<Val> {
+        let obj_word = emit_marshal::emit_new_vec_object(module, self.builder);
+        let empty_id = crate::shape::intern_global_shape(&[]);
+        let id_word = self.builder.ins().iconst(
+            types::I64,
+            value::PolyValue::from_i32(empty_id as i32).raw() as i64,
+        );
+        emit_marshal::emit_vec_push(module, self.builder, obj_word, id_word);
+
+        for (key, expr) in fields {
+            // Spread: copy the source's own enumerable keys onto the object.
+            if key.starts_with("\0spread_") {
+                let src = self.lower_expr(module, expr)?;
+                let src_word = self.box_value(src);
+                self.call_runtime(module, "__rtsadp_obj_assign", &[obj_word, src_word])?;
+                continue;
+            }
+            // Computed: the value is the `[key_expr, value_expr]` pair.
+            let (k_word, value_expr) = if key.starts_with("\0computed_") {
+                let HirExprKind::Array(kv) = &expr.kind else {
+                    return unsupported!("computed object key: malformed HIR pair");
+                };
+                let [key_expr, value_expr] = kv.as_slice() else {
+                    return unsupported!("computed object key: malformed HIR pair");
+                };
+                let k = self.lower_expr(module, key_expr)?;
+                (self.box_value(k), value_expr)
+            } else {
+                let k = abi_adapter::intern_poly(key);
+                let k_word = self.builder.ins().iconst(types::I64, k.raw() as i64);
+                (k_word, expr)
+            };
+            let v = self.lower_expr(module, value_expr)?;
+            let v_word = self.box_value(v);
+            self.call_runtime(module, "__rtsadp_obj_set", &[obj_word, k_word, v_word])?;
+        }
+        Ok(Val::tagged_kind(obj_word, JsKind::Unknown))
     }
 
     /// Lower an array literal `[e0, e1, …]` to a fresh `Entry::Vec` filled in
