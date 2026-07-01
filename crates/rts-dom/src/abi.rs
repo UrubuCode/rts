@@ -298,8 +298,10 @@ pub extern "C" fn __RTS_FN_NS_DOM_DUMP_LAYOUT(h: u64, viewport_w: i64) {
 
 thread_local! {
     /// Cache da última DisplayList computada para geometria — evita rodar o layout
-    /// 4× quando a fachada lê x/y/w/h em sequência. Chave: (domHandle, viewportW).
-    static GEOM_CACHE: std::cell::RefCell<Option<(u64, i64, crate::layout::DisplayList)>> =
+    /// 4× quando a fachada lê x/y/w/h em sequência. Chave: (domHandle, viewportW,
+    /// render_revision) — a revisão invalida o cache quando o DOM/estilo MUDAM
+    /// (antes, mutar e reler boundingComponent devolvia rects STALE).
+    static GEOM_CACHE: std::cell::RefCell<Option<(u64, i64, u64, crate::layout::DisplayList)>> =
         const { std::cell::RefCell::new(None) };
 }
 
@@ -316,22 +318,26 @@ pub extern "C" fn __RTS_FN_NS_DOM_BOUNDING_COMPONENT(h: u64, id: i64, viewport_w
         Some(Some(i)) => i,
         _ => return -1,
     };
+    let rev = match with(h, |dom| dom.render_revision()) {
+        Some(r) => r,
+        None => return -1,
+    };
     GEOM_CACHE.with(|cache| {
         let mut c = cache.borrow_mut();
-        // (re)computa o layout se o cache não bate com (handle, viewport).
-        let need = !matches!(&*c, Some((ch, cv, _)) if *ch == h && *cv == vw);
+        // (re)computa o layout se o cache não bate com (handle, viewport, revisão).
+        let need = !matches!(&*c, Some((ch, cv, cr, _)) if *ch == h && *cv == vw && *cr == rev);
         if need {
             let list = with(h, |dom| {
                 let ctx = LayoutCtx { viewport_w: vw as f32, viewport_h: 800.0, measurer: &ApproxMeasurer };
                 crate::layout::layout_document(dom, &ctx)
             });
             match list {
-                Some(l) => *c = Some((h, vw, l)),
+                Some(l) => *c = Some((h, vw, rev, l)),
                 None => return -1,
             }
         }
         let rect = match &*c {
-            Some((_, _, l)) => l.node_rects.get(&idx).copied(),
+            Some((_, _, _, l)) => l.node_rects.get(&idx).copied(),
             None => None,
         };
         match rect {

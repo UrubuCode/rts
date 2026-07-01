@@ -77,6 +77,8 @@ pub fn define(tag: &str, def: BlockDef) {
     BLOCKS.with(|m| {
         m.borrow_mut().insert(tag.to_ascii_lowercase(), def);
     });
+    // muda o layout de toda tag registrada → invalida os caches de layout.
+    crate::style::props::bump_style_epoch();
 }
 
 /// Registra/atualiza o estilo INLINE de uma tag (primitivo `defineInline`).
@@ -84,6 +86,7 @@ pub fn define_inline(tag: &str, flags: i64) {
     INLINES.with(|m| {
         m.borrow_mut().insert(tag.to_ascii_lowercase(), flags);
     });
+    crate::style::props::bump_style_epoch();
 }
 
 /// Consulta o layout de BLOCO de uma tag. `None` ⇒ não é bloco.

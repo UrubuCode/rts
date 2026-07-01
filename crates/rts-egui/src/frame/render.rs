@@ -60,6 +60,15 @@ impl<'a> TextMeasurer for EguiMeasurer<'a> {
 }
 
 
+thread_local! {
+    /// Cache da DisplayList BASE (pré-barra/pré-offset) por DOM handle: chave =
+    /// (render_revision do Dom, viewport_w/h em bits). A barra de scroll e os
+    /// offsets são aplicados por-frame SOBRE a lista cacheada (mutações baratas);
+    /// só a mudança real de DOM/estilo/viewport re-roda o layout.
+    static LAYOUT_CACHE: std::cell::RefCell<std::collections::HashMap<u64, (u64, u32, u32, layout::DisplayList)>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
 /// Renderiza um `Dom` inteiro: calcula o layout (rts-dom) e PINTA a display list.
 ///
 /// A origem do conteúdo é o canto superior-esquerdo da área do `ui`
@@ -98,10 +107,25 @@ pub(crate) fn render_dom_scrolled(
     let viewport_w = avail.x.max(1.0);
     let viewport_h = avail.y.max(1.0);
     // layout (com a barra ainda não — precisa do content_h primeiro).
+    // CACHE por revisão: o modo imediato repinta a cada frame/clique, mas o layout
+    // (cascade de todas as regras × nós — numa página Bootstrap ~2700 regras) só
+    // precisa re-rodar quando o DOM/estilo MUDAM (`render_revision`) ou o viewport
+    // muda. Era a "travada" ao clicar: re-layout completo por frame.
     let measurer = EguiMeasurer { ctx: ui.ctx() };
     let lctx = layout::LayoutCtx { viewport_w, viewport_h, measurer: &measurer };
-    let mut list = rts_dom::store::with_dom(h, |d| layout::layout_document(d, &lctx))
-        .unwrap_or_default();
+    let rev = rts_dom::store::with_dom(h, |d| d.render_revision()).unwrap_or(0);
+    let mut list = LAYOUT_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some((c_rev, c_w, c_h, cached)) = cache.get(&h) {
+            if *c_rev == rev && *c_w == viewport_w.to_bits() && *c_h == viewport_h.to_bits() {
+                return cached.clone(); // clone da lista pronta ≪ re-layout
+            }
+        }
+        let fresh = rts_dom::store::with_dom(h, |d| layout::layout_document(d, &lctx))
+            .unwrap_or_default();
+        cache.insert(h, (rev, viewport_w.to_bits(), viewport_h.to_bits(), fresh.clone()));
+        fresh
+    });
     let content_h = list.content_height;
 
     // OFFSET de scroll: estado por-handle no egui (input é do backend). Acumula a roda
