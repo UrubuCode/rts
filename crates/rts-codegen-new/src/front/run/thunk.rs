@@ -301,8 +301,16 @@ fn build_new_thunk_body(
 fn unbox_word_to_repr(fb: &mut FunctionBuilder, word: Value, repr: Repr) -> FrontResult<Value> {
     Ok(match repr {
         Repr::Tagged => word,
-        Repr::Float64 => value::emit_unbox_double(fb, word),
-        Repr::Int32 | Repr::Int64 => value::emit_unbox_int32(fb, word),
+        // SOUND number decode (both the tagged-int32 AND the inline-double
+        // encodings): a caller boxes an int arg as a DOUBLE whenever its repr was
+        // Int64 (`box_value`), so the int32-only unbox read 0 from e.g.
+        // `f.call(null, 21)`. Decode by tag, then truncate for the int reprs —
+        // exactly the `coerce(Tagged → Int)` rule, pure IR the egraph folds.
+        Repr::Float64 => value::emit_tagged_number_to_f64(fb, word),
+        Repr::Int32 | Repr::Int64 => {
+            let f = value::emit_tagged_number_to_f64(fb, word);
+            fb.ins().fcvt_to_sint_sat(types::I64, f)
+        }
         Repr::Bool => {
             // A Bool carrier is i64 0/1; recover it from the boolean singleton word
             // by comparing against the `true` singleton.

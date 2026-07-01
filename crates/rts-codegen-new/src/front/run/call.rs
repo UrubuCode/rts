@@ -134,7 +134,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         method: &str,
         args: &[HirExpr],
     ) -> FrontResult<Option<Val>> {
-        if method != "call" && method != "apply" {
+        if method != "call" && method != "apply" && method != "bind" {
             return Ok(None);
         }
         // A CLASS-NAME receiver (`Base.call(this, …)` / `(Base as any).call(…)`):
@@ -161,6 +161,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.box_value(v)
             }
         };
+        // `f.bind(thisArg)` — plain functions have no `this` slot in the uniform
+        // ABI, so binding only a thisArg is the IDENTITY on the function value
+        // (matches `.call(null, …)` ignoring thisArg above). Partial-application
+        // args (`f.bind(null, a)`) need a bound-args entry — a later increment,
+        // bail honestly.
+        if method == "bind" {
+            if args.len() > 1 {
+                return unsupported!("fn.bind with partial-application args (only thisArg is supported)");
+            }
+            return Ok(Some(Val::tagged_kind(fn_word, JsKind::Function)));
+        }
         if method == "call" {
             let call_args = if args.is_empty() { &[][..] } else { &args[1..] };
             return Ok(Some(self.lower_value_call_word(module, fn_word, call_args)?));
