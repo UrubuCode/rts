@@ -1938,17 +1938,19 @@ pub fn parse_html_to_dom(html: &str) -> Dom {
                 let parent = open.last().unwrap().0;
                 dom.push(NodeKind::Comment(content), Vec::new(), parent);
             }
-            Token::RawElement { tag, content } => {
+            Token::RawElement { tag, attrs, content } => {
                 // `<style>`/`<script>`: DOM fiel preserva o ELEMENTO (com o texto cru
                 // como filho), mas o conteúdo NÃO é HTML. Para `<style>`, o CSS
                 // alimenta o stylesheet de autor (a cascade de `computed_style`).
                 // Para `<script>`, só preserva o nó (não executamos JS). O render
-                // ignora ambos (sem `BlockDef`/inline para essas tags).
+                // ignora ambos (sem `BlockDef`/inline para essas tags). Os atributos
+                // da abertura são preservados (`<script src>`/`<style media>`).
                 if tag == "style" {
                     dom.add_stylesheet(&content);
                 }
                 let parent = open.last().unwrap().0;
-                let el = dom.push(NodeKind::Element { tag }, Vec::new(), parent);
+                let parsed = parse_attrs(&attrs);
+                let el = dom.push(NodeKind::Element { tag }, parsed, parent);
                 if !content.is_empty() {
                     dom.push(NodeKind::Text(content), Vec::new(), el);
                 }

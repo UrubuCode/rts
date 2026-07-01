@@ -28,7 +28,9 @@ pub(crate) enum Token {
     /// e o `</tag>` NÃO é HTML e não pode ser tokenizado como tags (CSS tem `{`,
     /// `>` em `a > b`; JS tem `<`). É lido literal até o fechamento casado. O
     /// parser de árvore decide o que fazer (CSS → stylesheet; script → ignorado).
-    RawElement { tag: String, content: String },
+    /// `attrs` preserva os atributos da tag de abertura (`<script src=…>`,
+    /// `<style media=…>`) — necessários para resolver `<script src>`/`<link>`.
+    RawElement { tag: String, attrs: String, content: String },
 }
 
 /// Tags cujo conteúdo é TEXTO CRU (não-HTML): `<style>` (CSS) e `<script>` (JS).
@@ -97,7 +99,7 @@ pub(crate) fn tokenize(html: &str) -> Vec<Token> {
                         Some(end) => (&html[i..i + end], end + close_tag.len()),
                         None => (&html[i..], html.len() - i), // sem fechar: até o fim.
                     };
-                    tokens.push(Token::RawElement { tag: name, content: content.to_string() });
+                    tokens.push(Token::RawElement { tag: name, attrs: attrs_raw, content: content.to_string() });
                     i += advance;
                     continue;
                 }
@@ -257,7 +259,7 @@ mod tests {
         // `a > b`, `<` em script ficam literais até `</tag>`.
         let toks = tokenize("<style>.card { color: red } a > b {}</style><p>oi</p>");
         match &toks[0] {
-            Token::RawElement { tag, content } => {
+            Token::RawElement { tag, content, .. } => {
                 assert_eq!(tag, "style");
                 assert_eq!(content, ".card { color: red } a > b {}");
             }
@@ -270,6 +272,24 @@ mod tests {
         assert!(matches!(&t2[0], Token::RawElement { content, .. } if content == "x{}"));
         let t3 = tokenize("<style>sem fechar");
         assert!(matches!(&t3[0], Token::RawElement { content, .. } if content == "sem fechar"));
+    }
+
+    #[test]
+    fn raw_element_preserva_atributos() {
+        // `<script src>`/`<style media>`: os atributos da abertura são preservados
+        // (necessário para resolver <script src>/<link>). O `content` é o miolo cru.
+        let toks = tokenize(r#"<script src="./a.js" defer>code()</script>"#);
+        match &toks[0] {
+            Token::RawElement { tag, attrs, content } => {
+                assert_eq!(tag, "script");
+                assert_eq!(attrs, r#"src="./a.js" defer"#);
+                assert_eq!(content, "code()");
+            }
+            _ => panic!("esperava RawElement"),
+        }
+        // sem atributos → attrs vazio.
+        let t2 = tokenize("<style>x{}</style>");
+        assert!(matches!(&t2[0], Token::RawElement { attrs, .. } if attrs.is_empty()));
     }
 
     #[test]
