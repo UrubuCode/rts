@@ -36,10 +36,12 @@ pub fn lerp_dimension(a: Dimension, b: Dimension, t: f32) -> Dimension {
     }
 }
 
-/// Interpola um lado de [`Edges`]: só Px↔Px interpola; o resto salta discreto.
+/// Interpola um lado de [`Edges`]: comprimentos interpolam pela regra de
+/// [`lerp_dimension`] (mesma unidade — px↔px, rem↔rem; misto salta); Auto/Unset
+/// saltam discretos.
 fn lerp_side(a: Side, b: Side, t: f32) -> Side {
     match (a, b) {
-        (Side::Px(x), Side::Px(y)) => Side::Px(lerp_f32(x, y, t)),
+        (Side::Len(x), Side::Len(y)) => Side::Len(lerp_dimension(x, y, t)),
         _ => if t < 0.5 { a } else { b },
     }
 }

@@ -25,48 +25,48 @@ fn color_forms() {
 fn margin_padding_shorthand() {
     // 1 valor: todos os lados.
     let c = parse_inline("padding: 10px");
-    assert_eq!(c.padding, Edges::all(Side::Px(10.0)));
+    assert_eq!(c.padding, Edges::all(Side::px_len(10.0)));
     // 2 valores: vertical | horizontal.
     let c = parse_inline("margin: 10px 20px");
-    assert_eq!(c.margin.top, Side::Px(10.0));
-    assert_eq!(c.margin.bottom, Side::Px(10.0));
-    assert_eq!(c.margin.left, Side::Px(20.0));
-    assert_eq!(c.margin.right, Side::Px(20.0));
+    assert_eq!(c.margin.top, Side::px_len(10.0));
+    assert_eq!(c.margin.bottom, Side::px_len(10.0));
+    assert_eq!(c.margin.left, Side::px_len(20.0));
+    assert_eq!(c.margin.right, Side::px_len(20.0));
     // 3 valores: top | horizontal | bottom.
     let c = parse_inline("padding: 1px 2px 3px");
-    assert_eq!(c.padding.top, Side::Px(1.0));
-    assert_eq!(c.padding.right, Side::Px(2.0));
-    assert_eq!(c.padding.left, Side::Px(2.0));
-    assert_eq!(c.padding.bottom, Side::Px(3.0));
+    assert_eq!(c.padding.top, Side::px_len(1.0));
+    assert_eq!(c.padding.right, Side::px_len(2.0));
+    assert_eq!(c.padding.left, Side::px_len(2.0));
+    assert_eq!(c.padding.bottom, Side::px_len(3.0));
     // 4 valores: top right bottom left (horário).
     let c = parse_inline("margin: 1px 2px 3px 4px");
-    assert_eq!(c.margin.top, Side::Px(1.0));
-    assert_eq!(c.margin.right, Side::Px(2.0));
-    assert_eq!(c.margin.bottom, Side::Px(3.0));
-    assert_eq!(c.margin.left, Side::Px(4.0));
+    assert_eq!(c.margin.top, Side::px_len(1.0));
+    assert_eq!(c.margin.right, Side::px_len(2.0));
+    assert_eq!(c.margin.bottom, Side::px_len(3.0));
+    assert_eq!(c.margin.left, Side::px_len(4.0));
 }
 
 #[test]
 fn margin_padding_longhand_e_auto() {
     // por-lado.
     let c = parse_inline("padding-left: 12px; margin-top: 8px");
-    assert_eq!(c.padding.left, Side::Px(12.0));
-    assert_eq!(c.margin.top, Side::Px(8.0));
+    assert_eq!(c.padding.left, Side::px_len(12.0));
+    assert_eq!(c.margin.top, Side::px_len(8.0));
     assert_eq!(c.padding.top, Side::Unset); // outros lados Unset
     // margin: 0 auto (centralização) — left/right auto.
     let c = parse_inline("margin: 0 auto");
-    assert_eq!(c.margin.top, Side::Px(0.0));
+    assert_eq!(c.margin.top, Side::px_len(0.0));
     assert!(c.margin.left.is_auto());
     assert!(c.margin.right.is_auto());
     // padding NÃO aceita auto (vira Unset).
     assert_eq!(parse_inline("padding: auto").padding.left, Side::Unset);
     // margin negativo permitido.
-    assert_eq!(parse_inline("margin-top: -5px").margin.top, Side::Px(-5.0));
+    assert_eq!(parse_inline("margin-top: -5px").margin.top, Side::px_len(-5.0));
     // longhand VENCE o shorthand na cascade (merge_over por lado).
     let mut base = parse_inline("padding: 10px");
     base.merge_over(&parse_inline("padding-left: 30px"));
-    assert_eq!(base.padding.left, Side::Px(30.0));
-    assert_eq!(base.padding.top, Side::Px(10.0)); // os outros mantêm
+    assert_eq!(base.padding.left, Side::px_len(30.0));
+    assert_eq!(base.padding.top, Side::px_len(10.0)); // os outros mantêm
 }
 
 #[test]
@@ -186,8 +186,8 @@ fn box_model_slots() {
     s.apply_slot(SLOT_BORDER_COLOR, 0xFF0000FF);
     s.apply_slot(SLOT_CORNER_RADIUS, 6);
     s.apply_slot(SLOT_BG, 0x222222FF);
-    assert_eq!(s.padding.top, Side::Px(8.0));
-    assert_eq!(s.margin.top, Side::Px(4.0));
+    assert_eq!(s.padding.top, Side::px_len(8.0));
+    assert_eq!(s.margin.top, Side::px_len(4.0));
     assert_eq!(s.border_width, Some(2.0));
     assert_eq!(s.border_color, Some(0xFF0000FF));
     assert_eq!(s.corner_radius, Some(6.0));
@@ -275,8 +275,8 @@ fn width_slot_e_parse() {
     assert_eq!(parse_inline("width: auto").width, Some(Dimension::Auto));
     // box props inline (F2): padding/margin/border/raio.
     let c = parse_inline("padding: 12; margin: 6; border-width: 2; border-radius: 8");
-    assert_eq!(c.padding.top, Side::Px(12.0));
-    assert_eq!(c.margin.top, Side::Px(6.0));
+    assert_eq!(c.padding.top, Side::px_len(12.0));
+    assert_eq!(c.margin.top, Side::px_len(6.0));
     assert_eq!(c.border_width, Some(2.0));
     assert_eq!(c.corner_radius, Some(8.0));
 }
@@ -299,11 +299,11 @@ fn stylesheet_seletores_e_especificidade() {
     let s = sheet.computed_for("p", None, &["card"]).normal;
     assert_eq!(s.color, Some(0x00FF00FF)); // classe > tag
     assert_eq!(s.font_size, Some(14.0)); // só a tag define
-    assert_eq!(s.padding.top, Side::Px(10.0)); // só a classe define
+    assert_eq!(s.padding.top, Side::px_len(10.0)); // só a classe define
     // <p id="alvo" class="card">: id vence tudo na cor (100>10>1).
     let s = sheet.computed_for("p", Some("alvo"), &["card"]).normal;
     assert_eq!(s.color, Some(0x0000FFFF)); // id > classe > tag
-    assert_eq!(s.padding.top, Side::Px(10.0)); // classe ainda aplica onde o id não toca
+    assert_eq!(s.padding.top, Side::px_len(10.0)); // classe ainda aplica onde o id não toca
 }
 
 #[test]
@@ -342,7 +342,7 @@ fn important_separa_camadas() {
     assert_eq!(b.normal.color, None);
     // case-insensitive e com espaço antes do `!`.
     let b2 = parse_inline_block("padding: 10  !IMPORTANT");
-    assert_eq!(b2.important.padding.top, Side::Px(10.0));
+    assert_eq!(b2.important.padding.top, Side::px_len(10.0));
 }
 
 #[test]
@@ -387,6 +387,20 @@ fn define_style_acumula_por_tag() {
     assert_eq!(s.font_size, Some(28.0));
     // tag não registrada → None.
     assert_eq!(lookup_style("tag_inexistente_xyz"), None);
+}
+
+#[test]
+fn font_size_e_lados_em_rem() {
+    // font-size em rem resolve contra o root FIXO 16 (browser default; o Bootstrap
+    // define a tipografia toda em rem): 2.5rem = 40px.
+    assert_eq!(parse_inline("font-size: 2.5rem").font_size, Some(40.0));
+    // padding/margin carregam a unidade (resolve TARDE no layout).
+    let c = parse_inline("padding: 1rem; margin: -0.5rem 2em");
+    assert_eq!(c.padding.top, Side::Len(Dimension::Rem(1.0)));
+    assert_eq!(c.margin.top, Side::Len(Dimension::Rem(-0.5)), "negativo preserva o sinal");
+    assert_eq!(c.margin.left, Side::Len(Dimension::Em(2.0)));
+    // border-radius em rem: 0.375rem = 6px (o .btn do Bootstrap).
+    assert_eq!(parse_inline("border-radius: 0.375rem").corner_radius, Some(6.0));
 }
 
 #[test]

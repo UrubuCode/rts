@@ -38,7 +38,7 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
         match prop.as_str() {
             "color" => css.color = parse_color(val),
             "background-color" | "background" => css.bg = parse_color(val),
-            "font-size" => css.font_size = parse_px(val),
+            "font-size" => css.font_size = parse_len(val),
             "font-weight" => css.bold = Some(is_bold(val)),
             "font-style" => {
                 css.italic =
@@ -75,10 +75,10 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             // shorthand `border: <width> <style> <color>` (qualquer ordem, qualquer
             // omitível). Setar os 3 de uma vez. (Por-lado fica para fase 2.)
             "border" => apply_border_shorthand(css, val),
-            "border-width" => css.border_width = parse_px(val),
+            "border-width" => css.border_width = parse_len(val),
             "border-style" => css.border_style = BorderStyle::parse(val),
             "border-color" => css.border_color = parse_color(val),
-            "border-radius" => css.corner_radius = parse_px(val),
+            "border-radius" => css.corner_radius = parse_len(val),
             "width" => css.width = parse_dimension(val),
             // `box-sizing: border-box | content-box` — border-box faz o `width`
             // incluir padding+border (3 cards de 32% cabem). Default content-box.
@@ -271,20 +271,57 @@ fn parse_edges(val: &str, allow_auto: bool) -> Edges {
     }
 }
 
-/// Parseia UM lado de margin/padding: comprimento px (aceita "10" ou "10px"),
-/// `auto` (se `allow_auto`), ou `Unset` se inválido. Negativo permitido em margin
-/// (puxa o elemento); padding clamp em ≥ 0 — mas aqui aceitamos o número e o layout
-/// trata (padding negativo é raro e o render ignora).
+/// Parseia UM lado de margin/padding: um COMPRIMENTO em qualquer unidade
+/// (px/%/em/rem/vw/vh — resolve tarde, como width), `auto` (se `allow_auto`), ou
+/// `Unset` se inválido. NEGATIVO permitido (margem negativa é o gutter `.row` do
+/// Bootstrap; padding negativo é clampado ≥ 0 no consumo do layout).
 fn parse_side(tok: &str, allow_auto: bool) -> Side {
     let t = tok.trim();
     if allow_auto && t.eq_ignore_ascii_case("auto") {
         return Side::Auto;
     }
-    let num = t.strip_suffix("px").unwrap_or(t);
-    match num.trim().parse::<f32>() {
-        Ok(v) => Side::Px(v),
-        Err(_) => Side::Unset,
+    match parse_dimension_signed(t) {
+        // `auto` já foi tratado acima (só margin); um Auto aqui é inválido
+        // (padding: auto não existe) — vira Unset, nunca `Len(Auto)`.
+        Some(Dimension::Auto) | None => Side::Unset,
+        Some(d) => Side::Len(d),
     }
+}
+
+/// Como [`parse_dimension`], mas aceita valores NEGATIVOS (margens/offsets). O
+/// `%`/`vw`/`vh` não são clampados a 0..=100 aqui (o sinal importa).
+fn parse_dimension_signed(v: &str) -> Option<Dimension> {
+    let v = v.trim();
+    let (neg, abs) = match v.strip_prefix('-') {
+        Some(rest) => (true, rest.trim()),
+        None => (false, v),
+    };
+    let d = parse_dimension(abs)?;
+    if !neg {
+        return Some(d);
+    }
+    Some(match d {
+        Dimension::Auto => Dimension::Auto,
+        Dimension::Px(x) => Dimension::Px(-x),
+        Dimension::Percent(x) => Dimension::Percent(-x),
+        Dimension::Em(x) => Dimension::Em(-x),
+        Dimension::Rem(x) => Dimension::Rem(-x),
+        Dimension::Vw(x) => Dimension::Vw(-x),
+        Dimension::Vh(x) => Dimension::Vh(-x),
+    })
+}
+
+/// Um comprimento de TEXTO/BORDA (`font-size`/`border-width`/`border-radius`, que
+/// são `f32` px no modelo): aceita `px`/número E `rem` (× o root FIXO de 16px —
+/// igual ao browser sem `html{font-size}` custom; o Bootstrap define TODA a
+/// tipografia em rem). ⚠️ CORTE documentado: `em`/`%` de font-size dependem do
+/// font do PAI (só a cascade sabe) — ficam de fora até o campo virar `Dimension`.
+fn parse_len(v: &str) -> Option<f32> {
+    let low = v.trim().to_ascii_lowercase();
+    if let Some(n) = low.strip_suffix("rem") {
+        return n.trim().parse::<f32>().ok().filter(|x| *x > 0.0).map(|x| x * 16.0);
+    }
+    parse_px(&low)
 }
 
 /// `font-weight`: `bold`/`bolder` ou peso numérico ≥ 600 → negrito.
@@ -345,7 +382,7 @@ fn apply_font_shorthand(css: &mut ComputedStyle, val: &str) {
     };
     // px direto; se for relativo (em/rem/%), parse_px falha e fica None (herda) —
     // mesma limitação da longhand font-size (documentada).
-    css.font_size = parse_px(sz);
+    css.font_size = parse_len(sz);
     if let Some(l) = lh {
         css.line_height = LineHeight::parse(l);
     }

@@ -299,12 +299,12 @@ impl ComputedStyle {
             // slot opaco de 1 valor (defineStyle/setStyle) → os 4 lados iguais.
             SLOT_PADDING => {
                 if let Some(p) = dim(val) {
-                    self.padding = Edges::all(Side::Px(p));
+                    self.padding = Edges::all(Side::px_len(p));
                 }
             }
             SLOT_MARGIN => {
                 if let Some(m) = dim(val) {
-                    self.margin = Edges::all(Side::Px(m));
+                    self.margin = Edges::all(Side::px_len(m));
                 }
             }
             SLOT_MARGIN_V => self.margin_v = dim(val),
