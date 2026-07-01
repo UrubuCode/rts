@@ -12,7 +12,7 @@
 //! loop chama `tick(node, now_ms)` por frame; o resultado é um override de estilo
 //! por-nó que a cascade aplica como a camada mais forte.
 
-use crate::style::{ComputedStyle, Dimension, Rgba};
+use crate::style::ComputedStyle;
 
 /// Curva de temporização (`transition-timing-function` / `animation-timing-function`).
 /// Mapeia o progresso linear `x` ∈ [0,1] para o progresso "amaciado" `y` ∈ [0,1].
@@ -105,93 +105,19 @@ fn cubic_bezier_y(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
     bez(y1, y2, t)
 }
 
-/// Interpola um `f32` linearmente.
-pub fn lerp_f32(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t
-}
-
-/// Interpola uma cor RGBA `0xRRGGBBAA` componente a componente (em sRGB, como os
-/// browsers fazem por padrão para transições simples).
-pub fn lerp_color(a: Rgba, b: Rgba, t: f32) -> Rgba {
-    let ch = |shift: u32| {
-        let ca = ((a >> shift) & 0xFF) as f32;
-        let cb = ((b >> shift) & 0xFF) as f32;
-        (lerp_f32(ca, cb, t).round().clamp(0.0, 255.0) as u32) << shift
-    };
-    ch(24) | ch(16) | ch(8) | ch(0)
-}
-
-/// Interpola uma `Dimension` — só quando ambas têm a MESMA unidade (px↔px, %↔%);
-/// senão salta para o destino em t>=0.5 (fiel ao "discrete" do CSS p/ não-animável).
-pub fn lerp_dimension(a: Dimension, b: Dimension, t: f32) -> Dimension {
-    match (a, b) {
-        (Dimension::Px(x), Dimension::Px(y)) => Dimension::Px(lerp_f32(x, y, t)),
-        (Dimension::Percent(x), Dimension::Percent(y)) => Dimension::Percent(lerp_f32(x, y, t)),
-        (Dimension::Em(x), Dimension::Em(y)) => Dimension::Em(lerp_f32(x, y, t)),
-        (Dimension::Rem(x), Dimension::Rem(y)) => Dimension::Rem(lerp_f32(x, y, t)),
-        _ => if t < 0.5 { a } else { b }, // unidades diferentes → discreto
-    }
-}
-
-/// Interpola `Option<f32>` (campos como border_width/corner_radius/margin_v): se um
-/// lado é `None`, trata como 0; ambos `None` → `None`.
-fn lerp_opt_f32(a: Option<f32>, b: Option<f32>, t: f32) -> Option<f32> {
-    match (a, b) {
-        (None, None) => None,
-        (x, y) => Some(lerp_f32(x.unwrap_or(0.0), y.unwrap_or(0.0), t)),
-    }
-}
-
-fn lerp_opt_color(a: Option<Rgba>, b: Option<Rgba>, t: f32) -> Option<Rgba> {
-    match (a, b) {
-        (None, None) => None,
-        (Some(x), Some(y)) => Some(lerp_color(x, y, t)),
-        // um lado ausente → o presente, sem interpolar (não há de/para completo).
-        (x, y) => if t < 0.5 { x } else { y },
-    }
-}
-
-fn lerp_opt_dim(a: Option<Dimension>, b: Option<Dimension>, t: f32) -> Option<Dimension> {
-    match (a, b) {
-        (None, None) => None,
-        (Some(x), Some(y)) => Some(lerp_dimension(x, y, t)),
-        (x, y) => if t < 0.5 { x } else { y },
-    }
-}
+// Os helpers de interpolação por TIPO (lerp_f32/lerp_color/lerp_dimension e a
+// semântica de `Option`) moram em `style::lerp` (trait `AnimValue`), de onde a
+// tabela de propriedades `css_props!` gera o `interpolate_animated`. Reexportados
+// aqui por compat (eram públicos deste módulo).
+pub use crate::style::{lerp_color, lerp_dimension, lerp_f32};
 
 /// Interpola DOIS estilos `from`→`to` no progresso `t` ∈ [0,1] (já amaciado pela
-/// easing). Só os campos ANIMÁVEIS numéricos/cor interpolam; os demais (display,
-/// flex enums, font_family, etc.) saltam discretamente (de/para por t<0.5). O
+/// easing). Só os campos ANIMÁVEIS interpolam (marcados `anim` na tabela
+/// `css_props!` — a regra por tipo vem de `style::lerp::AnimValue`); os demais
+/// (display, flex enums, font_family, etc.) saltam discretamente para o destino. O
 /// resultado é um override de estilo a aplicar no nó por este frame.
 pub fn interpolate(from: &ComputedStyle, to: &ComputedStyle, t: f32) -> ComputedStyle {
-    let mut out = to.clone(); // base: campos não-animados ficam no destino
-    out.color = lerp_opt_color(from.color, to.color, t);
-    out.bg = lerp_opt_color(from.bg, to.bg, t);
-    out.border_color = lerp_opt_color(from.border_color, to.border_color, t);
-    out.font_size = lerp_opt_f32(from.font_size, to.font_size, t);
-    out.border_width = lerp_opt_f32(from.border_width, to.border_width, t);
-    out.corner_radius = lerp_opt_f32(from.corner_radius, to.corner_radius, t);
-    out.width = lerp_opt_dim(from.width, to.width, t);
-    out.height = lerp_opt_dim(from.height, to.height, t);
-    // padding/margin por lado.
-    out.padding.top = lerp_side(from.padding.top, to.padding.top, t);
-    out.padding.right = lerp_side(from.padding.right, to.padding.right, t);
-    out.padding.bottom = lerp_side(from.padding.bottom, to.padding.bottom, t);
-    out.padding.left = lerp_side(from.padding.left, to.padding.left, t);
-    out.margin.top = lerp_side(from.margin.top, to.margin.top, t);
-    out.margin.right = lerp_side(from.margin.right, to.margin.right, t);
-    out.margin.bottom = lerp_side(from.margin.bottom, to.margin.bottom, t);
-    out.margin.left = lerp_side(from.margin.left, to.margin.left, t);
-    out
-}
-
-/// Interpola um lado de Edges ([`crate::style::Side`]): só Px↔Px interpola.
-fn lerp_side(a: crate::style::Side, b: crate::style::Side, t: f32) -> crate::style::Side {
-    use crate::style::Side;
-    match (a, b) {
-        (Side::Px(x), Side::Px(y)) => Side::Px(lerp_f32(x, y, t)),
-        _ => if t < 0.5 { a } else { b },
-    }
+    ComputedStyle::interpolate_animated(from, to, t)
 }
 
 // ── transition (#1776 fase 1) ────────────────────────────────────────────────────
@@ -460,6 +386,7 @@ fn parse_direction(tok: &str) -> Option<AnimDirection> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::style::Dimension;
 
     #[test]
     fn easing_endpoints() {
