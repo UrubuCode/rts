@@ -425,10 +425,53 @@ pub struct ResolveCtx {
     pub viewport_h: f32,
 }
 
+/// Uma expressão `calc()` LINEAR já reduzida à combinação das 6 bases de
+/// comprimento: `px + pct·CB + em·font + rem·root + vw·VW + vh·VH`. Qualquer
+/// calc de soma/subtração/multiplicação-por-escalar reduz a esta forma no PARSE
+/// (simbolicamente), e a resolução continua TARDIA como toda [`Dimension`] — é o
+/// que faz `calc(1.375rem + 1.5vw)` (a tipografia fluida do Bootstrap) funcionar.
+/// `Copy` de propósito (a `Dimension` viaja por valor pelo layout inteiro).
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub struct CalcLen {
+    pub px: f32,
+    /// coeficiente de `%` (resolve contra o containing block, como `Percent`).
+    pub pct: f32,
+    pub em: f32,
+    pub rem: f32,
+    pub vw: f32,
+    pub vh: f32,
+}
+
+impl CalcLen {
+    /// Soma termo a termo (o `+`/`-` do calc; para `-`, chame com `rhs.scale(-1.0)`).
+    pub fn add(self, rhs: CalcLen) -> CalcLen {
+        CalcLen {
+            px: self.px + rhs.px,
+            pct: self.pct + rhs.pct,
+            em: self.em + rhs.em,
+            rem: self.rem + rhs.rem,
+            vw: self.vw + rhs.vw,
+            vh: self.vh + rhs.vh,
+        }
+    }
+    /// Multiplica por um escalar (o `*`/`/` do calc — a spec só permite escalar).
+    pub fn scale(self, k: f32) -> CalcLen {
+        CalcLen {
+            px: self.px * k,
+            pct: self.pct * k,
+            em: self.em * k,
+            rem: self.rem * k,
+            vw: self.vw * k,
+            vh: self.vh * k,
+        }
+    }
+}
+
 /// Uma dimensão de caixa que SOBREVIVE a unidade relativa até o layout (north-star
 /// risco 5): só `Px`/`Auto` resolvem de imediato; `Percent`/`Em`/`Rem`/`Vw`/`Vh`
-/// precisam de um eixo conhecido só no render (pai/fonte/viewport), então o tipo
-/// PRESERVA a forma e [`resolve`](Dimension::resolve) calcula tarde.
+/// (e o [`Calc`](Dimension::Calc) que os combina) precisam de um eixo conhecido só
+/// no render (pai/fonte/viewport), então o tipo PRESERVA a forma e
+/// [`resolve`](Dimension::resolve) calcula tarde.
 /// Egui-free (tipo próprio, não `Vec2`/`f32`), como o resto do `style`.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Dimension {
@@ -446,6 +489,9 @@ pub enum Dimension {
     Vw(f32),
     /// `vh` — `%` da altura da viewport (0..=100): `viewport_h * v/100`.
     Vh(f32),
+    /// `calc(...)` linear reduzido no parse ([`CalcLen`]). Não cruza a ABI de
+    /// faixas (`to_abi` → `-1`, corte documentado — o TS não empacota calc).
+    Calc(CalcLen),
 }
 
 impl Dimension {
@@ -468,6 +514,14 @@ impl Dimension {
             Dimension::Rem(r) => ctx.root_font_size * r,
             Dimension::Vw(v) => ctx.viewport_w * v / 100.0,
             Dimension::Vh(v) => ctx.viewport_h * v / 100.0,
+            // calc linear: cada base resolvida no seu eixo e somada.
+            Dimension::Calc(c) => {
+                c.px + ctx.parent_content_w * c.pct / 100.0
+                    + ctx.node_font_size * c.em
+                    + ctx.root_font_size * c.rem
+                    + ctx.viewport_w * c.vw / 100.0
+                    + ctx.viewport_h * c.vh / 100.0
+            }
         })
     }
 
@@ -505,6 +559,9 @@ impl Dimension {
             Dimension::Rem(r) => (3, r),
             Dimension::Vw(v) => (4, v),
             Dimension::Vh(v) => (5, v),
+            // calc não cabe na codificação de faixas — o TS lê `-1` (corte
+            // documentado; calc resolve no layout, não cruza slots).
+            Dimension::Calc(_) => return -1,
         };
         unit * DIM_RANGE + (val * 1000.0) as i64
     }

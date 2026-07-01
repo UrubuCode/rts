@@ -27,7 +27,7 @@ impl ComputedStyle {
         match n.as_str() {
             "color" => self.color.map(fmt_color).unwrap_or_default(),
             "background-color" | "background" => self.bg.map(fmt_color).unwrap_or_default(),
-            "font-size" => self.font_size.map(fmt_px).unwrap_or_default(),
+            "font-size" => self.font_size.map(fmt_dim).unwrap_or_default(),
             "font-weight" => match self.bold {
                 Some(true) => "700".into(),
                 Some(false) => "400".into(),
@@ -166,6 +166,23 @@ pub(crate) fn fmt_dim(d: Dimension) -> String {
         Dimension::Vw(v) => format!("{v}vw"),
         Dimension::Vh(v) => format!("{v}vh"),
         Dimension::Auto => "auto".into(),
+        // calc: reconstrói a forma canônica com os termos não-zero.
+        Dimension::Calc(c) => {
+            let mut parts: Vec<String> = Vec::new();
+            for (v, u) in [
+                (c.px, "px"), (c.pct, "%"), (c.em, "em"),
+                (c.rem, "rem"), (c.vw, "vw"), (c.vh, "vh"),
+            ] {
+                if v != 0.0 {
+                    parts.push(format!("{v}{u}"));
+                }
+            }
+            if parts.is_empty() {
+                "0px".into()
+            } else {
+                format!("calc({})", parts.join(" + "))
+            }
+        }
     }
 }
 

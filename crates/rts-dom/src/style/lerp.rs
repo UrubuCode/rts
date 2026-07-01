@@ -32,6 +32,15 @@ pub fn lerp_dimension(a: Dimension, b: Dimension, t: f32) -> Dimension {
         (Dimension::Percent(x), Dimension::Percent(y)) => Dimension::Percent(lerp_f32(x, y, t)),
         (Dimension::Em(x), Dimension::Em(y)) => Dimension::Em(lerp_f32(x, y, t)),
         (Dimension::Rem(x), Dimension::Rem(y)) => Dimension::Rem(lerp_f32(x, y, t)),
+        // calc interpola por COMPONENTE (a combinação linear é fechada sob lerp).
+        (Dimension::Calc(x), Dimension::Calc(y)) => Dimension::Calc(crate::style::CalcLen {
+            px: lerp_f32(x.px, y.px, t),
+            pct: lerp_f32(x.pct, y.pct, t),
+            em: lerp_f32(x.em, y.em, t),
+            rem: lerp_f32(x.rem, y.rem, t),
+            vw: lerp_f32(x.vw, y.vw, t),
+            vh: lerp_f32(x.vh, y.vh, t),
+        }),
         _ => if t < 0.5 { a } else { b }, // unidades diferentes → discreto
     }
 }
