@@ -165,6 +165,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 Repr::Bool,
             );
         }
+        // `construct(target, argsArray)` — Reflect.construct: new-thunk invoke
+        // with args read from the array; Proxy `construct` trap-aware.
+        if method == "construct" {
+            return self.lower_engine_descriptor(
+                module,
+                args,
+                "__rtsadp_construct",
+                2,
+                Repr::Tagged,
+            );
+        }
         // `get_own_desc(obj, key)` — the synthesized descriptor object (or
         // undefined), Proxy `getOwnPropertyDescriptor` trap-aware.
         if method == "get_own_desc" {

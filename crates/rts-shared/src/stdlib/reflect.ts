@@ -55,6 +55,12 @@ class Reflect {
     return target.apply(thisArg, argumentsList);
   }
 
+  // Reflect.construct(target, argsArray) — `new target(...args)`, via a ponte do
+  // new-thunk (engine.construct); um Proxy target dispara a trap `construct`.
+  static construct(target: any, argumentsList: any): any {
+    return engine.construct(target, argumentsList);
+  }
+
   // Reflect.getPrototypeOf(target) — the object's [[Prototype]] (or null). Reusa o
   // Object.getPrototypeOf (lê a proto side-table do Object.create).
   static getPrototypeOf(target: any): any {

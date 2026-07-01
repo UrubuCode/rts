@@ -69,6 +69,39 @@ pub extern "C" fn __rtsadp_register_ctor_thunk(addr: u64) {
 /// instance word). Otherwise the value is NOT a constructor: set a pending
 /// TypeError and return `undefined` (the caller's post-call error check unwinds).
 /// Never mis-constructs a non-constructor.
+/// `Reflect.construct(target, argsArray)` — construct through a class VALUE with
+/// the args read from a REAL array word (up to the 4 positional uniform slots; a
+/// wider ctor is a later increment). A PROXY target routes through its
+/// `construct` trap (#218 phase 2): `handler.construct(target, argsArray)` — the
+/// trap's return is the instance; no trap → construct the target.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_construct(target_word: u64, args_word: u64) -> u64 {
+    if let Some((target, handler)) = super::objops::proxy_parts(target_word) {
+        let trap_key = intern_poly("construct").raw();
+        let trap = super::objops::__rtsadp_obj_get(handler, trap_key);
+        if PolyValue::from_raw(trap).is_function() {
+            let undef = PolyValue::undefined().raw();
+            return __rtsadp_fn_invoke(trap, target, args_word, undef, undef, 0);
+        }
+        return __rtsadp_construct(target, args_word);
+    }
+    use rts_runtime::namespaces::collections::vec as rt_vec;
+    use rts_runtime::namespaces::gc::handles as rt_handles;
+    let undef = PolyValue::undefined().raw();
+    let args = PolyValue::from_raw(args_word);
+    let mut slots = [undef; 4];
+    if args.is_object() {
+        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(args.as_handle());
+        let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(h).max(0);
+        for (i, slot) in slots.iter_mut().enumerate() {
+            if (i as i64) < len {
+                *slot = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(h, i as i64) as u64;
+            }
+        }
+    }
+    __rtsadp_new_invoke(target_word, slots[0], slots[1], slots[2], slots[3], undef)
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_new_invoke(
     fn_word: u64,
@@ -84,9 +117,32 @@ pub extern "C" fn __rtsadp_new_invoke(
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .contains(&addr);
-    if !is_ctor {
-        __rtsadp_throw_set(intern_poly("TypeError: value is not a constructor").raw());
-        return PolyValue::undefined().raw();
+    if is_ctor {
+        return __rtsadp_fn_invoke(fn_word, a0, a1, a2, a3, rest);
     }
-    __rtsadp_fn_invoke(fn_word, a0, a1, a2, a3, rest)
+    // A PLAIN function value used as a constructor (`new F()` on a fn that was
+    // never elevated to a synthetic class — e.g. an empty-body fn-ctor reached
+    // through `bind`/`Reflect.construct`): JS runs the fn and yields its return
+    // when that is an object, otherwise the fresh instance. The fn has no `this`
+    // slot here, so the fresh instance is an empty keyed object — field writes
+    // via `this` inside such a fn are the fn-ctor synthesis path, not this one.
+    if addr != 0 && PolyValue::from_raw(fn_word).is_function() {
+        let r = __rtsadp_fn_invoke(fn_word, a0, a1, a2, a3, rest);
+        if PolyValue::from_raw(r).is_object() {
+            return r;
+        }
+        return empty_keyed_object();
+    }
+    __rtsadp_throw_set(intern_poly("TypeError: value is not a constructor").raw());
+    PolyValue::undefined().raw()
+}
+
+/// A fresh `{}` — an empty keyed object word (the `{}` literal's runtime shape).
+fn empty_keyed_object() -> u64 {
+    use rts_runtime::namespaces::collections::vec as rt_vec;
+    use rts_runtime::namespaces::gc::handles as rt_handles;
+    let h = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    let shape = crate::shape::intern_global_shape(&[]);
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(h, PolyValue::from_i32(shape as i32).raw() as i64);
+    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h)).raw()
 }

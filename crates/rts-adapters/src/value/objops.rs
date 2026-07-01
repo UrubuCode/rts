@@ -62,11 +62,21 @@ pub(crate) fn proxy_parts(obj_word: u64) -> Option<(u64, u64)> {
     let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
     let (target, handler) = rt_proxy::ops::resolve_proxy(handle)?;
     // The stored target/handler are full GC handles; `POLY_FROM_HANDLE` drops the
-    // generation to the 48-bit slot the `TAG_OBJECT` box expects (NOT a raw mask —
-    // the handle layout is not slot-in-low-48).
+    // generation to the 48-bit slot the box expects (NOT a raw mask — the handle
+    // layout is not slot-in-low-48). The TARGET's tag follows its live entry: a
+    // proxied FUNCTION (`new Proxy(fn, …)` — the apply/construct traps) must ride
+    // `TAG_FUNCTION` or the forward path reads it as a plain object and refuses
+    // to call/construct it.
     let t_slot = rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(target);
     let h_slot = rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(handler);
-    let t_word = PolyValue::from_object_handle(t_slot).raw();
+    let t_is_fn = rt_handles::with_entry(target, |e| {
+        matches!(e, Some(rt_handles::Entry::Function(_)))
+    });
+    let t_word = if t_is_fn {
+        PolyValue::from_function_handle(t_slot).raw()
+    } else {
+        PolyValue::from_object_handle(t_slot).raw()
+    };
     let h_word = PolyValue::from_object_handle(h_slot).raw();
     Some((t_word, h_word))
 }
@@ -531,6 +541,43 @@ pub extern "C" fn __rtsadp_freeze(obj_word: u64) -> i64 {
         }
     }
     1
+}
+
+/// `Object.isFrozen(o)` → 1/0: non-extensible AND every own key `writable:false`
+/// + `configurable:false`. A NON-object is frozen (`1`), matching JS (primitives
+/// are trivially frozen). Mirrors what [`__rtsadp_freeze`] records.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_is_frozen(obj_word: u64) -> i64 {
+    if !PolyValue::from_raw(obj_word).is_object() {
+        return 1;
+    }
+    if !is_non_extensible(obj_word) {
+        return 0;
+    }
+    let keys = object_keys_vec(obj_word);
+    match desc_flags_table().lock() {
+        Ok(t) => keys
+            .iter()
+            .all(|k| {
+                t.get(&(obj_word, k.clone()))
+                    // bit0 writable, bit2 configurable — both must be OFF.
+                    .map(|f| f & 0b101 == 0)
+                    .unwrap_or(false)
+            }) as i64,
+        Err(_) => 0,
+    }
+}
+
+/// `Object.isSealed(o)` → 1/0: non-extensible AND every own key
+/// `configurable:false` (writable may stay true — `seal` permits updates). This
+/// model's `seal` records only extensibility, so sealed-ness here is
+/// `!isExtensible` for objects with no explicit flags; a frozen object is sealed.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_is_sealed(obj_word: u64) -> i64 {
+    if !PolyValue::from_raw(obj_word).is_object() {
+        return 1;
+    }
+    is_non_extensible(obj_word) as i64
 }
 
 /// `Object.isExtensible(o)` / `Reflect.isExtensible` → 1/0. A non-object is not

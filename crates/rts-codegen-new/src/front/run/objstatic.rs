@@ -74,6 +74,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 .object_freeze(module, args, method == "freeze")
                 .map(Some),
             "isExtensible" => self.object_is_extensible(module, args).map(Some),
+            "isFrozen" | "isSealed" => {
+                if args.len() != 1 {
+                    return unsupported!("Object.{method} expects 1 arg, got {}", args.len());
+                }
+                let sym = if method == "isFrozen" {
+                    "__rtsadp_is_frozen"
+                } else {
+                    "__rtsadp_is_sealed"
+                };
+                let v = self.lower_expr(module, &args[0])?;
+                let word = self.box_value(v);
+                let res = self
+                    .call_runtime(module, sym, &[word])?
+                    .expect("isFrozen/isSealed returns a flag");
+                Ok(Some(Val::new(res, Repr::Bool)))
+            }
             "defineProperty" => self.object_define_property(module, args).map(Some),
             "getOwnPropertyDescriptor" => {
                 if args.len() != 2 {
