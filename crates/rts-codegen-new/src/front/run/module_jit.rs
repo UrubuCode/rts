@@ -26,6 +26,18 @@ use super::thunk;
 
 use cranelift_module::FuncId;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// When set, [`define_one`] prints each successfully-lowered function's Cranelift
+/// IR to stderr (the `rts ir` command). Process-wide, off by default; the CLI
+/// enables it for a compile-only pass and never runs the program.
+static DUMP_IR: AtomicBool = AtomicBool::new(false);
+
+/// Enable/disable the per-function Cranelift IR dump (`rts ir`).
+pub fn set_dump_ir(on: bool) {
+    DUMP_IR.store(on, Ordering::Relaxed);
+}
+
 /// A finalized module: keeps the `JITModule` mapped and carries the
 /// `__rtsn_main` entry pointer.
 pub struct Program {
@@ -333,6 +345,13 @@ fn define_one(
                 return Err(e);
             }
         }
+    }
+
+    // `rts ir`: print USER functions only — the embedded stdlib prelude would bury
+    // the program under hundreds of identical bundle fns.
+    if !is_prelude && DUMP_IR.load(Ordering::Relaxed) {
+        eprintln!("--- fn {} ---", func.name);
+        eprintln!("{}", ctx.func.display());
     }
 
     module

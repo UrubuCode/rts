@@ -67,7 +67,7 @@ mod trycatch;
 
 pub mod lower;
 
-pub use module_entry::{compile_path_to_object, render_path, run_path};
+pub use module_entry::{compile_path_to_object, dump_ir_path, render_path, run_path};
 
 #[cfg(test)]
 mod fixture_check;
@@ -91,6 +91,17 @@ pub fn run_source(src: &str) -> FrontResult<()> {
     let program = module_jit::compile_program(&prog)?;
     program.run_main();
     Ok(())
+}
+
+/// `rts ir -e` — build + JIT-compile `src` (a single source string, no disk
+/// imports) with the per-function Cranelift IR dump enabled, WITHOUT running
+/// `__rtsn_main`. The string-source twin of [`module_entry::dump_ir_path`].
+pub fn dump_ir_source(src: &str) -> FrontResult<()> {
+    let prog = build_with_includes(src)?;
+    module_jit::set_dump_ir(true);
+    let res = module_jit::compile_program(&prog);
+    module_jit::set_dump_ir(false);
+    res.map(|_| ())
 }
 
 /// Build `src` with the embedded stdlib `include`s (if any) prepended as a
