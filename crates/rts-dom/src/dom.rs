@@ -520,7 +520,7 @@ impl Dom {
             style::DeclBlock::default()
         } else {
             self.stylesheet
-                .computed_for_node(|sel| self.matches_complex(idx, sel))
+                .computed_for_node(self.viewport.get().0, |sel| self.matches_complex(idx, sel))
         };
         // `style=""` inline (normal + important).
         let inline = self.nodes[idx]

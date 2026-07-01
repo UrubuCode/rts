@@ -9,8 +9,8 @@ use super::color::parse_color;
 use super::props::ComputedStyle;
 use super::stylesheet::DeclBlock;
 use super::values::{
-    AlignItems, BorderStyle, Dimension, DisplayKind, Edges, FlexDirection, JustifyContent,
-    LineHeight, Position, Side, TextAlign, TextTransform, WhiteSpace,
+    AlignItems, BorderStyle, Dimension, DisplayKind, Edges, FlexDirection, FloatSide,
+    JustifyContent, LineHeight, Position, Side, TextAlign, TextTransform, WhiteSpace,
 };
 
 /// Parseia um `style="prop: valor; ..."` para um [`ComputedStyle`] (só a camada
@@ -107,6 +107,7 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             // `position` + offsets (top/right/bottom/left). Os offsets aceitam
             // negativos (deslocam para fora) — parse_dimension rejeita <0, então
             // px negativo entra por parse direto.
+            "float" => css.float_side = FloatSide::parse(val),
             "position" => css.position = Position::parse(val),
             "top" => css.inset_top = parse_inset(val),
             "right" => css.inset_right = parse_inset(val),

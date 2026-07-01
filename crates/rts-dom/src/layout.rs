@@ -507,9 +507,14 @@ fn layout_block(
     let p = &css.padding;
     let mut margin_left = m.left.resolve(&resolve).unwrap_or(0.0);
     let mut margin_right = m.right.resolve(&resolve).unwrap_or(0.0);
+    // margin_v (UA-stylesheet) só vale no lado que o AUTOR NÃO declarou — um
+    // `margin-top: 0` explícito ANULA o default da UA naquele lado (era o brand
+    // do cover descendo 16px apesar do `h3 { margin-top: 0 }` do Bootstrap).
     let margin_v_extra = css.margin_v.unwrap_or(0.0);
-    let margin_top = m.top.resolve(&resolve).unwrap_or(0.0) + margin_v_extra;
-    let margin_bottom = m.bottom.resolve(&resolve).unwrap_or(0.0) + margin_v_extra;
+    let mv_top = if m.top == crate::style::Side::Unset { margin_v_extra } else { 0.0 };
+    let mv_bottom = if m.bottom == crate::style::Side::Unset { margin_v_extra } else { 0.0 };
+    let margin_top = m.top.resolve(&resolve).unwrap_or(0.0) + mv_top;
+    let margin_bottom = m.bottom.resolve(&resolve).unwrap_or(0.0) + mv_bottom;
     let pad_left = p.left.resolve(&resolve).unwrap_or(0.0).max(0.0);
     let pad_right = p.right.resolve(&resolve).unwrap_or(0.0).max(0.0);
     let pad_top = p.top.resolve(&resolve).unwrap_or(0.0).max(0.0);
@@ -969,6 +974,24 @@ fn layout_children_vertical(
     // overlap = min(dos dois) para virar max(dos dois). `prev_margin` rastreia o
     // margin do último bloco posto.
     let mut prev_margin = 0.0f32;
+    // ── FLOAT LINE (v1): floats CONSECUTIVOS dividem a mesma linha — left encosta
+    // à esquerda, right à direita (o header brand+nav do Bootstrap). Um irmão
+    // NÃO-float fecha a linha (começa abaixo do float mais alto). Ver FloatSide.
+    let mut float_top: Option<f32> = None; // y do topo da linha de floats
+    let mut float_left_x = content_x;
+    let mut float_right_x = content_x + content_w;
+    let mut float_h = 0.0f32; // altura da linha (max dos floats)
+    // fecha a float line corrente (chamado antes de um não-float e no fim).
+    macro_rules! close_floats {
+        ($y:expr) => {
+            if let Some(top) = float_top.take() {
+                $y = $y.max(top + float_h);
+                float_left_x = content_x;
+                float_right_x = content_x + content_w;
+                float_h = 0.0;
+            }
+        };
+    }
     for &child in &dom.node(id).children {
         match &dom.node(child).kind {
             // Metadata não-renderável (`<head>`/`<title>`/`<style>`/`<script>`):
@@ -978,7 +1001,26 @@ fn layout_children_vertical(
             // Fora do fluxo (`position:absolute/fixed`): não ocupa espaço aqui —
             // pintado na passada out-of-flow de layout_document.
             NodeKind::Element { .. } if is_out_of_flow(dom, child) => {}
+            // FLOAT left/right: shrink-to-fit na linha de floats corrente.
+            NodeKind::Element { .. } if float_of(dom, child) != crate::style::FloatSide::None => {
+                let side = float_of(dom, child);
+                let top = *float_top.get_or_insert(child_y);
+                let w = child_outer_width(dom, child, content_w, font_size, ctx);
+                let h = child_outer_height(dom, child, content_w, avail_h, font_size, ctx);
+                let x = if side == crate::style::FloatSide::Left {
+                    let x = float_left_x;
+                    float_left_x += w;
+                    x
+                } else {
+                    float_right_x -= w;
+                    float_right_x
+                };
+                layout_block(dom, child, x, top, content_w, avail_h, true, ctx, list);
+                float_h = float_h.max(h);
+                prev_margin = 0.0; // float quebra a sequência de collapse
+            }
             NodeKind::Element { .. } if is_block_level(dom, child) => {
+                close_floats!(child_y);
                 // margin VERTICAL TOP do filho (para o collapse com o anterior):
                 // margin.top + margin_v da UA.
                 let m = dom.computed_style_idx(child)
@@ -992,7 +1034,12 @@ fn layout_children_vertical(
                             viewport_w: ctx.viewport_w,
                             viewport_h: ctx.viewport_h,
                         };
-                        c.margin.top.resolve(&r).unwrap_or(0.0) + c.margin_v.unwrap_or(0.0)
+                        let mv = if c.margin.top == crate::style::Side::Unset {
+                            c.margin_v.unwrap_or(0.0)
+                        } else {
+                            0.0
+                        };
+                        c.margin.top.resolve(&r).unwrap_or(0.0) + mv
                     })
                     .unwrap_or(0.0);
                 // Colapsa com o bloco anterior: recua o overlap antes de posicionar.
@@ -1019,12 +1066,23 @@ fn layout_children_vertical(
                 prev_margin = m;
             }
             _ => {
+                close_floats!(child_y);
                 child_y = layout_inline_line(dom, child, content_x, child_y, content_w, css, font_size, ctx, list);
                 prev_margin = 0.0; // texto inline quebra a sequência de collapse.
             }
         }
     }
+    // fecha a float line pendente: os floats CONTRIBUEM para a altura (v1 = o
+    // comportamento de BFC — correto p/ flex items, o caso do header do cover).
+    close_floats!(child_y);
     (child_y - content_y).max(0.0)
+}
+
+/// O `float` computado de um nó-elemento (None p/ não-elemento/sem estilo).
+fn float_of(dom: &Dom, id: NodeIdx) -> crate::style::FloatSide {
+    dom.computed_style_idx(id)
+        .and_then(|c| c.float_side)
+        .unwrap_or(crate::style::FloatSide::None)
 }
 
 /// Um item medido do flex (pré-pass), com a referência ao nó e seu tamanho OUTER
@@ -2350,6 +2408,23 @@ mod tests {
         let r = all_rects(&list);
         assert_eq!(r[0].w, 672.0, "42em x 16: {r:?}");
         assert_eq!(r[0].x, 164.0, "(1000-672)/2, centrado como no Chrome");
+    }
+
+    #[test]
+    fn float_left_right_dividem_a_linha() {
+        // O header clássico (brand+nav do Bootstrap cover): float:left e
+        // float:right consecutivos dividem a MESMA linha; o irmão não-float
+        // começa abaixo do float mais alto; o pai contém os floats (BFC v1).
+        let list = layout(
+            "<div style='background:#111'>               <div style='float:left; background:#222; width:100; height:30'>brand</div>               <div style='float:right; background:#333; width:150; height:40'>nav</div>               <div style='background:#444; height:20'>abaixo</div>             </div>",
+            600.0,
+        );
+        let r = all_rects(&list);
+        assert_eq!(r.len(), 4);
+        assert_eq!((r[1].x, r[1].y), (0.0, 0.0), "left encosta na esquerda: {r:?}");
+        assert_eq!((r[2].x, r[2].y), (450.0, 0.0), "right encosta na direita (600-150)");
+        assert_eq!(r[3].y, 40.0, "nao-float comeca abaixo do float mais alto");
+        assert_eq!(r[0].h, 60.0, "pai contem os floats: 40 + 20");
     }
 
     #[test]

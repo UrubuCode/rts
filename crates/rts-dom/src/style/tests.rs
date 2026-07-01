@@ -422,9 +422,23 @@ fn at_rules_nao_corrompem_o_parse() {
     // as regras APÓS as at-rules sobrevivem (antes eram corrompidas).
     assert_eq!(sheet.computed_for("h1", None, &[]).normal.color, Some(0xFF0000FF));
     assert_eq!(sheet.computed_for("p", None, &[]).normal.color, Some(0x00FF00FF));
-    // as regras INTERNAS do @media ficam de fora (fase 1: pular o bloco; a
-    // avaliação de min-width contra o viewport é a fase 2).
-    assert_eq!(sheet.computed_for("h1", None, &[]).normal.font_size, None);
+    // FASE 2: as regras INTERNAS do @media APLICAM quando o viewport casa (o
+    // helper computed_for usa 1280 ≥ 1200)…
+    assert_eq!(
+        sheet.computed_for("h1", None, &[]).normal.font_size,
+        Some(Dimension::Px(40.0))
+    );
+    // …e NÃO aplicam quando não casa (viewport 800 < 1200).
+    let no_match = sheet.computed_for_node(800.0, |sel| {
+        sel.compounds.len() == 1
+            && compound_matches(&sel.compounds[0], "h1", None, &[], &|_| None, &|_| false)
+    });
+    assert_eq!(no_match.normal.font_size, None);
+    assert_eq!(no_match.normal.color, Some(0xFF0000FF), "a regra fora do @media segue");
+    // feature desconhecida (prefers-*) nunca casa.
+    let mut s3 = Stylesheet::new();
+    s3.append_css("@media (prefers-reduced-motion: reduce){ p{ color:#111111 } }");
+    assert_eq!(s3.computed_for("p", None, &[]).normal.color, None);
     // @media sem fechar não panica (tolerância).
     let mut s2 = Stylesheet::new();
     s2.append_css("p { color:#0000ff } @media (x) { .a { color:#fff }");

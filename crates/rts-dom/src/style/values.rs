@@ -407,6 +407,33 @@ impl Position {
     }
 }
 
+/// `float` — v1: floats CONSECUTIVOS dividem a mesma linha no fluxo vertical
+/// (left encosta à esquerda, right à direita — o header clássico brand+nav do
+/// Bootstrap cover via `float-md-start/end`); um irmão não-float começa ABAIXO
+/// deles (clear implícito). ⚠️ Cortes documentados: sem texto fluindo AO REDOR
+/// do float, sem `clear` explícito; floats sempre contribuem para a altura do
+/// pai (o comportamento de BFC — correto para flex items, que é o caso do
+/// cover; um block sem clearfix renderiza "contido demais"). Em containers
+/// FLEX, float é IGNORADO (spec: float não se aplica a flex items).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FloatSide {
+    None,
+    Left,
+    Right,
+}
+
+impl FloatSide {
+    pub fn parse(v: &str) -> Option<FloatSide> {
+        Some(match v.trim().to_ascii_lowercase().as_str() {
+            "none" => FloatSide::None,
+            // `inline-start`/`inline-end` = left/right em LTR (nosso único modo).
+            "left" | "inline-start" => FloatSide::Left,
+            "right" | "inline-end" => FloatSide::Right,
+            _ => return None,
+        })
+    }
+}
+
 /// O contexto de resolução de uma [`Dimension`] relativa, conhecido só no
 /// render. Cada unidade resolve contra um eixo diferente (north-star risco 5: a
 /// resolução de `%`/`em`/`vw`/… é TARDIA, no layout, não no parse). Egui-free.
