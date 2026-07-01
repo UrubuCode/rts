@@ -76,13 +76,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // is itself; of a number/bool/etc. the JS string form). This is what
                 // lets the `rts:test` bundle pass `name`/`expected` params (Tagged) to
                 // `test_core.*`/`string.*` without a mis-marshal or a false bail.
-                let word = if matches!(val.kind, JsKind::Str) {
-                    self.box_value(val)
-                } else {
-                    let w = self.box_value(val);
-                    self.call_runtime(module, "__rtsadp_to_string", &[w])?
-                        .expect("__rtsadp_to_string returns a string word")
-                };
+                // Even a `JsKind::Str` value is NOT trusted here: a `string`-typed
+                // field/param can hold a non-string smuggled through `any` (the TS
+                // annotation is an untrusted boundary, Pilar 3). `__rtsadp_to_string`
+                // is the identity for a real string word (no re-intern), so routing
+                // EVERY value through it is sound and cheap — trusting the kind was
+                // the bug where `expect(bool)` printed a garbage interned string.
+                let w = self.box_value(val);
+                let word = self
+                    .call_runtime(module, "__rtsadp_to_string", &[w])?
+                    .expect("__rtsadp_to_string returns a string word");
                 let handle = value::emit_marshal::emit_table_load(module, self.builder, word);
                 let (ptr, len) =
                     value::emit_marshal::emit_string_ptr_len(module, self.builder, handle);
@@ -93,7 +96,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             AbiType::I64 | AbiType::U64 | AbiType::I32 => {
                 // Marshal numeric args through the int coercion (ToInt-style); the
                 // Cranelift slot is i64 for I64/U64/Handle and i32 for I32.
-                let i = self.coerce(val, Repr::Int64)?;
+                //
+                // A Tagged arg NOT proven number dispatches on its runtime tag
+                // instead (`__rtsadp_word_to_abi_i64`): a heap value yields its real
+                // handle id (the collections/promise namespaces take handles in
+                // `U64` params — e.g. `vec_len(await Promise.all(v))`), a number its
+                // truncation. The blind Tagged→Int saturating convert read garbage
+                // from an OBJECT word.
+                let i = if matches!(val.repr, Repr::Tagged)
+                    && !matches!(val.kind, JsKind::Number)
+                {
+                    let w = self.box_value(val);
+                    self.call_runtime(module, "__rtsadp_word_to_abi_i64", &[w])?
+                        .expect("__rtsadp_word_to_abi_i64 returns a value")
+                } else {
+                    self.coerce(val, Repr::Int64)?
+                };
                 if matches!(ty, AbiType::I32) {
                     out.push(self.builder.ins().ireduce(types::I32, i));
                 } else {

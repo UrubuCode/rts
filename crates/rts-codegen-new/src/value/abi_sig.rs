@@ -312,7 +312,8 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, U64],
             ret: U64,
         },
-        "__rtsadp_typeof" | "__rtsadp_to_string" | "__rtsadp_to_boolean" => SymSig {
+        "__rtsadp_typeof" | "__rtsadp_to_string" | "__rtsadp_to_boolean"
+        | "__rtsadp_await" | "__rtsadp_word_to_abi_i64" => SymSig {
             params: &[U64],
             ret: U64,
         },

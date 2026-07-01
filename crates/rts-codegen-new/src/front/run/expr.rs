@@ -50,10 +50,27 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // `await <expr>` — SYNCHRONOUS model (the new engine has no event loop /
             // parallel async yet; the real-suspension state-machine is disabled, to be
             // redesigned cleanly). An `async` fn body runs synchronously and returns
-            // its value directly (not a Promise wrapper), so `await x` is the value of
-            // `x`: await on a non-thenable yields the value, and a resolved-sync result
-            // needs no suspension. Real pending Promises (timers/IO) are a follow-up.
-            HirExprKind::Await(inner) => self.lower_expr(module, inner),
+            // its value directly (not a Promise wrapper), so `await x` is usually the
+            // value of `x` — EXCEPT a real Promise (`Promise.resolve(..)`, the
+            // combinators), which rides as a number word holding the raw handle id.
+            // `__rtsadp_await` unwraps exactly that shape at runtime (blocking WAIT,
+            // pumping microtasks/timers) and is the identity for everything else. A
+            // proven-Int32/Bool value can never be a handle id (< 2^48) — skip the
+            // call and keep the unboxed fast path.
+            HirExprKind::Await(inner) => {
+                let val = self.lower_expr(module, inner)?;
+                if matches!(val.repr, Repr::Int32 | Repr::Bool) {
+                    return Ok(val);
+                }
+                let w = self.box_value(val);
+                let out = self
+                    .call_runtime(module, "__rtsadp_await", &[w])?
+                    .expect("__rtsadp_await returns a word");
+                // A REJECTED promise records its error in the pending slot — route
+                // it like any throwing call (innermost catch / propagate).
+                self.emit_post_call_error_check(module)?;
+                Ok(Val::tagged_kind(out, JsKind::Unknown))
+            }
             HirExprKind::New { class, args } => {
                 // `new Array(n)` is the built-in Array constructor (not a user
                 // class) → a sized array value (P5.2).

@@ -100,6 +100,11 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             "__rtsadp_to_boolean",
             genops::__rtsadp_to_boolean as *const u8,
         ),
+        sym("__rtsadp_await", genops::__rtsadp_await as *const u8),
+        sym(
+            "__rtsadp_word_to_abi_i64",
+            genops::__rtsadp_word_to_abi_i64 as *const u8,
+        ),
         sym(
             "__rtsadp_print_line",
             abi_adapter::__rtsadp_print_line as *const u8,

@@ -398,6 +398,137 @@ pub extern "C" fn __rtsadp_to_string(a: u64) -> u64 {
     abi_adapter::intern_poly(&s).raw()
 }
 
+/// `__rtsadp_await` — JS `await <expr>` under the interim SYNCHRONOUS model
+/// (#207). Async fns run synchronously and return their value directly, so
+/// `await` is usually the identity — but a REAL Promise (`Promise.resolve(..)`,
+/// the `promise` namespace, the combinators) rides as a NUMBER word holding the
+/// raw `u64` HandleTable id. Detect exactly that shape — an integral number
+/// ≥ 2^48 whose live entry is `PromiseAsync` — and block on `PROMISE_WAIT`
+/// (which pumps microtasks/timers while pending), reboxing the settled value.
+/// Anything else passes through untouched.
+///
+/// False positives are impossible: a live handle id carries a non-zero 16-bit
+/// generation in the top bits, so its numeric value is always ≥ 2^48 — ordinary
+/// JS numbers never reach the table lookup.
+///
+/// A REJECTED promise records the settled error word in the codegen pending-
+/// error slot (the same one `throw` uses), so an enclosing `try/catch` — or the
+/// host-side uncaught check after `main` — surfaces it; the returned word is
+/// `undefined` in that case.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_await(word: u64) -> u64 {
+    let v = PolyValue::from_raw(word);
+    let f = if v.is_double() {
+        v.as_f64()
+    } else if v.is_int32() {
+        v.as_i32() as f64
+    } else {
+        return word;
+    };
+    const HANDLE_MIN: f64 = 281_474_976_710_656.0; // 2^48 (generation ≥ 1)
+    if !(f.is_finite() && f >= HANDLE_MIN && f <= u64::MAX as f64 && f.fract() == 0.0) {
+        return word;
+    }
+    let handle = f as u64;
+    use rts_engine::heap::handles::{Entry, with_entry};
+    let is_promise = with_entry(handle, |e| matches!(e, Some(Entry::PromiseAsync(_))));
+    if !is_promise {
+        return word;
+    }
+    use rts_runtime::namespaces::promise as rt_promise;
+    let mut h = handle;
+    loop {
+        let settled = rt_promise::__RTS_FN_NS_PROMISE_WAIT(h);
+        let rejected = rt_promise::__RTS_FN_NS_PROMISE_STATE(h) == 2;
+        // JS `await` FLATTENS: a promise settled with another promise resolves to
+        // the inner value. Follow the raw-id chain (finite — each hop consumes one
+        // settled promise) before reboxing.
+        let sw = settled as u64;
+        if !rejected
+            && sw >= (1 << 48)
+            && with_entry(sw, |e| matches!(e, Some(Entry::PromiseAsync(_))))
+        {
+            h = sw;
+            continue;
+        }
+        let settled_word = rebox_settled(settled);
+        if rejected {
+            super::errslot::__rtsadp_throw_set(settled_word);
+            return PolyValue::undefined().raw();
+        }
+        return settled_word;
+    }
+}
+
+/// Rebox a Promise's settled `i64` into a PolyValue word. The slot stores
+/// whatever the producer wrote: a NEW-engine producer wrote a PolyValue word
+/// (already boxed — pass through); a raw-`i64` producer (the legacy `promise`
+/// namespace ABI) wrote a plain integer OR a raw HandleTable id (the combinators
+/// settle `Promise.all` with the results `Entry::Vec` handle) — box those as a
+/// number / heap value respectively.
+fn rebox_settled(raw: i64) -> u64 {
+    let w = raw as u64;
+    if PolyValue::from_raw(w).is_boxed() {
+        return w;
+    }
+    // A raw heap-handle id (generation ≥ 1 ⇒ value ≥ 2^48, exact): rebox as the
+    // right PolyValue heap kind so `.length`/indexing/template printing work on
+    // the awaited result (the combinators settle with the results Vec's id).
+    if w >= (1 << 48) {
+        use rts_engine::heap::handles::{Entry, with_entry};
+        let kind = with_entry(w, |e| {
+            e.map(|entry| match entry {
+                Entry::String(_) => 1u8,
+                Entry::Vec(_) | Entry::Map(_) => 2,
+                _ => 0,
+            })
+        });
+        match kind {
+            Some(1) => {
+                return super::abi_adapter::poly_from_real_handle(w).raw();
+            }
+            Some(2) => {
+                use rts_runtime::namespaces::gc::handles as rt_handles;
+                let slot = rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(w);
+                return PolyValue::from_object_handle(slot).raw();
+            }
+            _ => {}
+        }
+    }
+    // Not boxed, not a live handle: a legacy raw int (exact i32) or an
+    // inline-double PolyValue word (huge bits when read as an integer).
+    if let Ok(i) = i32::try_from(raw) {
+        return PolyValue::from_i32(i).raw();
+    }
+    w
+}
+
+/// `__rtsadp_word_to_abi_i64` — marshal a Tagged PolyValue word to a raw-`i64`
+/// ABI slot (`I64`/`U64` namespace params), dispatching on the TAG instead of
+/// assuming a number: a heap value (string/object/function) yields its REAL
+/// HandleTable id (the collections/promise namespaces take handles in `U64`
+/// params); a number yields its integer truncation; bool 0/1; anything else 0.
+/// This replaces the blind saturating float-convert that turned an awaited
+/// `Promise.all` results-array (an OBJECT word) into garbage before `vec_len`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_word_to_abi_i64(a: u64) -> i64 {
+    use rts_runtime::namespaces::gc::handles as rt_handles;
+    let v = PolyValue::from_raw(a);
+    if v.is_string() || v.is_object() || v.is_function() {
+        return rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle()) as i64;
+    }
+    if v.is_double() {
+        let f = v.as_f64();
+        if f.is_finite() { f as i64 } else { 0 }
+    } else if v.is_int32() {
+        v.as_i32() as i64
+    } else if v.is_bool() {
+        v.as_bool() as i64
+    } else {
+        0
+    }
+}
+
 /// `__rtsadp_to_boolean` — JS `ToBoolean`, returning an UNBOXED i64 0/1 (NOT a
 /// PolyValue) to feed a Cranelift `brif`/`select` directly. The empty-string case
 /// needs the heap (length lives in the real pool), so it is resolved here.

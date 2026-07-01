@@ -235,7 +235,13 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_WAIT(promise: U64) -> I64 {
         Some(Entry::PromiseAsync(arc)) => Some(arc.clone()),
         _ => None,
     });
-    let Some(arc) = slot_arc else { return 0 };
+    // `wait` de um valor que NAO e' uma Promise viva = o proprio valor (semantica
+    // JS de `await` sobre nao-thenable). No motor novo as async fns rodam SINCRONO
+    // e retornam o valor direto, entao `promise.wait(asyncFn())` recebe o valor
+    // ja' resolvido — devolve-lo e' o comportamento correto (era `return 0`).
+    let Some(arc) = slot_arc else {
+        return promise as i64;
+    };
     // (cross-runtime #56/#285/#393) Enquanto a Promise esta PENDING, bombeia o
     // event loop na thread do main: microtasks (fast-path de `.then` settled e
     // chains) + timers vencidos. setTimeout virou queue-based (sem thread por
