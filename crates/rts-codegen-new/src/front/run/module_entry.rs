@@ -145,11 +145,14 @@ fn build_path(entry: &Path) -> FrontResult<super::LoweredProgram> {
         .map(super::prelude_fn_names)
         .unwrap_or_default();
 
-    // The flattened multi-file USER program has no single source string, so the
-    // PARAMETER-destructuring recovery (which re-parses a source) gets `""` — a
-    // destructured param stays `"_"` and bails at lowering (sound). Every other
-    // destructuring site recovers from the swc `Stmt` nodes in `program`.
-    let mut user = build_from_program(program, "", ambient, &ambient_fns)?;
+    // The PARAMETER-destructuring recovery re-parses a SOURCE string. The
+    // flattened multi-file program has no single source, but the ENTRY file's own
+    // source covers the dominant case (a single-file program / patterns declared
+    // in the entry); a destructured param in an IMPORTED module stays `"_"` and
+    // bails at lowering (sound). Every other destructuring site recovers from the
+    // swc `Stmt` nodes in `program`.
+    let entry_src = std::fs::read_to_string(entry).unwrap_or_default();
+    let mut user = build_from_program(program, &entry_src, ambient, &ambient_fns)?;
     // Carry the BUILTIN-IMPORT bindings into the lowering so a call to an imported
     // `rts:<ns>` member resolves to its real `__RTS_FN_NS_*` symbol (M1b).
     user.builtins = builtins;
