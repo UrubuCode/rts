@@ -2097,10 +2097,10 @@
 ,
 {
   "name": "337_bundler_dead_code",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "prod\nfeature-x disabled\ntrue\nno warning above\n1 2 3\n42",
   "node": "prod\nfeature-x disabled\ntrue\nno warning above\n1 2 3\n42",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "prod\nfeature-x disabled\ntrue\nno warning above\n1 2 3\n42"
 }
 ,
 {
@@ -2617,10 +2617,10 @@
 ,
 {
   "name": "126_object_assign",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "same=true\na=1\nb=3\nc=4\nmulti={\"x\":1,\"y\":2,\"z\":3}\nnormal=data\nhasSym=true",
   "node": "same=true\na=1\nb=3\nc=4\nmulti={\"x\":1,\"y\":2,\"z\":3}\nnormal=data\nhasSym=true",
-  "rts": "same=true\na=1\nb=3\nc=4\nmulti={\"x\":1,\"y\":2,\"z\":3}\nnormal=data\nhasSym=false"
+  "rts": "same=true\na=1\nb=3\nc=4\nmulti={\"x\":1,\"y\":2,\"z\":3}\nnormal=data\nhasSym=true"
 }
 ,
 {
@@ -2721,10 +2721,10 @@
 ,
 {
   "name": "20_object_methods",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "spread={\"a\":1,\"b\":\"x\",\"q\":\"tail\"}\nown_a=true\nown_z=false",
   "node": "spread={\"a\":1,\"b\":\"x\",\"q\":\"tail\"}\nown_a=true\nown_z=false",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "spread={\"a\":1,\"b\":\"x\",\"q\":\"tail\"}\nown_a=true\nown_z=false"
 }
 ,
 {
@@ -2740,7 +2740,7 @@
   "status": "rts_diverge",
   "bun": "keys=c,a,b\nnumeric=1,2,3\nmixed=1,2,b,a\nwithSym=a,b",
   "node": "keys=c,a,b\nnumeric=1,2,3\nmixed=1,2,b,a\nwithSym=a,b",
-  "rts": "keys=c,a,b\nnumeric=2,1,3\nmixed=b,1,a,2\nwithSym=a,[computed],b"
+  "rts": "keys=c,a,b\nnumeric=2,1,3\nmixed=b,1,a,2\nwithSym=a,,b"
 }
 ,
 {
@@ -2937,10 +2937,10 @@
 ,
 {
   "name": "40_object_deep",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "keys=a,b,c,d\nvalues=1,x,y,z\nentries=a=1,b=x,c=y,d=z\nfromEntries=10:20\nfrozen=true\nspread={\"a\":1,\"b\":\"x\",\"q\":\"tail\"}\nin_a=true\nin_z=false\nown_a=true\nown_z=false",
   "node": "keys=a,b,c,d\nvalues=1,x,y,z\nentries=a=1,b=x,c=y,d=z\nfromEntries=10:20\nfrozen=true\nspread={\"a\":1,\"b\":\"x\",\"q\":\"tail\"}\nin_a=true\nin_z=false\nown_a=true\nown_z=false",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "keys=a,b,c,d\nvalues=1,x,y,z\nentries=a=1,b=x,c=y,d=z\nfromEntries=10:20\nfrozen=true\nspread={\"a\":1,\"b\":\"x\",\"q\":\"tail\"}\nin_a=true\nin_z=false\nown_a=true\nown_z=false"
 }
 ,
 {
@@ -4201,10 +4201,10 @@
 ,
 {
   "name": "10_destructure_spread",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "arr_pick=10,20,30\narr_rest=40\nobj_pick=localhost:8080:fallback\nobj_rest_keys=secure,mode\nobj_rest_vals=off,dev\nspread_call=15\nrest_call=n:1|2|3|4:4\nmerged={\"base\":3,\"extra\":2,\"tail\":4}\nclone=10,20,99,30,40",
   "node": "arr_pick=10,20,30\narr_rest=40\nobj_pick=localhost:8080:fallback\nobj_rest_keys=secure,mode\nobj_rest_vals=off,dev\nspread_call=15\nrest_call=n:1|2|3|4:4\nmerged={\"base\":3,\"extra\":2,\"tail\":4}\nclone=10,20,99,30,40",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "arr_pick=10,20,30\narr_rest=40\nobj_pick=localhost:8080:fallback\nobj_rest_keys=secure,mode\nobj_rest_vals=off,dev\nspread_call=15\nrest_call=n:1|2|3|4:4\nmerged={\"base\":3,\"extra\":2,\"tail\":4}\nclone=10,20,99,30,40"
 }
 ,
 {
@@ -4233,10 +4233,10 @@
 ,
 {
   "name": "11_objects_templates",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "dynamic=9\ncomputed=ana\nupper=ANA\nchain=ana:5\nnested=5:ana",
   "node": "dynamic=9\ncomputed=ana\nupper=ANA\nchain=ana:5\nnested=5:ana",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "dynamic=9\ncomputed=ana\nupper=ANA\nchain=ana:5\nnested=5:ana"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":222,"rts_diverge":86,"bun_node_diverge":17,"errors":284,"rejected":0}}
+],"summary":{"total":609,"pass":228,"rts_diverge":85,"bun_node_diverge":17,"errors":279,"rejected":0}}
