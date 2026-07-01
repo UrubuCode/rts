@@ -1,12 +1,15 @@
 //! Tokenizador HTML MÍNIMO à mão (sem crate externa).
 //!
-//! É só a etapa LÉXICA: quebra a string em `<tag>` / `</tag>` / texto. A etapa
-//! SINTÁTICA (montar a árvore de `Dom`) vive em `dom.rs`, que consome estes
-//! tokens. Não é um parser conforme à spec — cobre o subconjunto necessário ao
-//! P1 (tags simples, atributos descartados, 3 entidades básicas).
+//! É só a etapa LÉXICA: quebra a string em `<tag>` / `</tag>` / texto /
+//! comentário / raw-text. A etapa SINTÁTICA (montar a árvore de `Dom`) vive em
+//! `dom.rs`, que consome estes tokens. Não é um parser conforme à spec — cobre
+//! o subconjunto que páginas reais exigem.
 //!
-//! Robustez: atributos são ignorados, o nome da tag é normalizado para
-//! minúsculas, e `&amp;`/`&lt;`/`&gt;` são decodificados no texto.
+//! Robustez: nome da tag normalizado para minúsculas; atributos preservados
+//! crus (`attrs_raw`, parseados em `dom.rs`); `>` dentro de valor de atributo
+//! com aspas não fecha a tag; `<!DOCTYPE …>` e declarações `<!…>` são ignorados
+//! (não modelamos DocumentType); entidades nomeadas comuns + numéricas
+//! decodificadas no texto.
 
 /// Um token cru do HTML: ou uma tag (com flag de fechamento) ou texto literal.
 ///
@@ -66,14 +69,41 @@ pub(crate) fn tokenize(html: &str) -> Vec<Token> {
                 i += advance;
                 continue;
             }
-            // Lê até o `>` (ou fim da string, defensivo).
+            // Lê até o `>` que FECHA a tag (ou fim da string, defensivo),
+            // respeitando aspas: um `>` DENTRO de valor de atributo com aspas
+            // (`<div title="a>b">`) não termina a tag — parar no primeiro `>`
+            // cru quebrava o atributo no meio e vazava `b">` como texto.
+            // Aspas simples e duplas contam; são ASCII, então o scan por byte
+            // continua UTF-8-safe.
             let start = i + 1;
             let mut j = start;
-            while j < bytes.len() && bytes[j] != b'>' {
+            let mut quote = 0u8; // 0 = fora de aspas; senão o byte da aspa aberta
+            while j < bytes.len() {
+                let b = bytes[j];
+                if quote == 0 {
+                    if b == b'>' {
+                        break;
+                    }
+                    if b == b'"' || b == b'\'' {
+                        quote = b;
+                    }
+                } else if b == quote {
+                    quote = 0;
+                }
                 j += 1;
             }
             let raw = &html[start..j.min(html.len())];
             i = if j < bytes.len() { j + 1 } else { j };
+
+            // Declaração de markup `<!...>` (`<!DOCTYPE html>` em qualquer caixa,
+            // CDATA etc.): IGNORA — nenhum token é emitido. Não modelamos o nó
+            // DocumentType (nodeType 10, fora do escopo); antes o doctype virava
+            // `Element { tag: "!doctype" }` que EMPILHAVA na pilha de abertos
+            // (a "tag" nunca fecha) e o documento inteiro aninhava como filho
+            // dele. Comentário `<!--` já foi tratado acima.
+            if raw.starts_with('!') {
+                continue;
+            }
 
             let close = raw.starts_with('/');
             // Tag autofechável `<br/>`: tira a `/` final também.
@@ -296,5 +326,44 @@ mod tests {
     fn entidade_no_fim_e_consecutivas() {
         assert_eq!(decode_entities("fim &amp;"), "fim &");
         assert_eq!(decode_entities("&lt;&lt;&gt;&gt;"), "<<>>");
+    }
+
+    #[test]
+    fn doctype_e_declaracoes_sao_ignorados() {
+        // `<!DOCTYPE html>` NÃO vira token: não modelamos o nó DocumentType
+        // (nodeType 10, fora do escopo) e emiti-lo como Tag empilhava o
+        // documento inteiro como filho de um falso `<!doctype>`. Vale para
+        // qualquer caixa (case-insensitive) e qualquer declaração `<!…>`.
+        let toks = tokenize("<!DOCTYPE html><p>x</p>");
+        assert!(matches!(&toks[0], Token::Tag { name, close: false, .. } if name == "p"));
+        let toks2 = tokenize("<!doctype html><p>x</p>");
+        assert!(matches!(&toks2[0], Token::Tag { name, .. } if name == "p"));
+        // com identificadores públicos entre aspas (DTD antigo) também.
+        let toks3 = tokenize("<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01//EN\"><p>x</p>");
+        assert!(matches!(&toks3[0], Token::Tag { name, .. } if name == "p"));
+    }
+
+    #[test]
+    fn maior_que_dentro_de_aspas_nao_fecha_tag() {
+        // `<div title="a>b">`: o `>` dentro do valor com aspas pertence ao
+        // atributo — parar no primeiro `>` cru quebrava a tag e vazava `b">`
+        // como texto. O scan rastreia aspas simples e duplas.
+        let toks = tokenize(r#"<div title="a>b">x</div>"#);
+        match &toks[0] {
+            Token::Tag { name, attrs_raw, close } => {
+                assert_eq!(name, "div");
+                assert!(!close);
+                assert_eq!(attrs_raw, r#"title="a>b""#);
+            }
+            _ => panic!("esperava Tag no primeiro token"),
+        }
+        assert!(matches!(&toks[1], Token::Text(t) if t == "x"));
+        // aspas simples também protegem o `>`.
+        let t2 = tokenize("<div title='a>b'>x</div>");
+        assert!(matches!(&t2[0], Token::Tag { attrs_raw, .. } if attrs_raw == "title='a>b'"));
+        // fora de aspas o `>` segue fechando a tag normalmente.
+        let t3 = tokenize("<br>depois");
+        assert!(matches!(&t3[0], Token::Tag { name, .. } if name == "br"));
+        assert!(matches!(&t3[1], Token::Text(t) if t == "depois"));
     }
 }
