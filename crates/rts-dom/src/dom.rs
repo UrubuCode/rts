@@ -1720,9 +1720,59 @@ impl Dom {
     }
 }
 
-/// Tags que são VAZIAS (void) — não têm fechamento nem filhos. Mínimo por ora.
+/// Tags VAZIAS (void) da spec HTML — não têm fechamento nem filhos, logo NUNCA
+/// empilham como "elemento aberto". Lista COMPLETA do HTML5 (whatwg
+/// §void-elements): antes faltavam `area/base/col/embed/source/track/wbr`, e um
+/// `<source>` dentro de `<video>` empilhava sem nunca fechar — o resto do
+/// documento inteiro virava descendente dele.
 fn is_void(tag: &str) -> bool {
-    matches!(tag, "br" | "hr" | "img" | "input" | "meta" | "link")
+    matches!(
+        tag,
+        "area" | "base" | "br" | "col" | "embed" | "hr" | "img" | "input"
+            | "link" | "meta" | "source" | "track" | "wbr"
+    )
+}
+
+/// Elementos de BLOCO cuja tag de ABERTURA fecha implicitamente um `<p>` aberto
+/// (HTML5, tag omission do `p`: developer.mozilla.org/docs/Web/HTML/Element/p).
+/// É a regra de fim-omitido que MAIS aparece em páginas reais — `<p>texto<div>`
+/// põe o `div` como IRMÃO do `p`, nunca filho. Tabela como DADOS (uma lista num
+/// único lugar), não um emaranhado de `if`s.
+fn closes_open_p(tag: &str) -> bool {
+    matches!(
+        tag,
+        "address" | "article" | "aside" | "blockquote" | "details" | "div" | "dl"
+            | "fieldset" | "figcaption" | "figure" | "footer" | "form"
+            | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "header" | "hgroup" | "hr"
+            | "main" | "menu" | "nav" | "ol" | "p" | "pre" | "section" | "table" | "ul"
+    )
+}
+
+/// `true` se a ABERTURA de `new_tag` fecha implicitamente `open_tag` quando este
+/// é o TOPO da pilha de abertos (subconjunto das regras de tag-omission do HTML5
+/// que mais dói em páginas reais: `<li>` sem `</li>`, `<p>` sem `</p>`, células
+/// de tabela). IMPORTANTE: o chamador só aplica isto ao TOPO da pilha, em loop —
+/// nunca fechamos "através" de um container (um `<li>` novo NÃO fecha o `<li>`
+/// de um `<ul>` ancestral: se o topo é `ul`, nada casa e nada fecha).
+fn implicitly_closes(new_tag: &str, open_tag: &str) -> bool {
+    let same_kind = match new_tag {
+        // um <li> novo termina o <li> corrente (viram irmãos, não aninhados).
+        "li" => open_tag == "li",
+        // <dt>/<dd> terminam o <dt>/<dd> corrente (termo/definição irmãos).
+        "dt" | "dd" => matches!(open_tag, "dt" | "dd"),
+        // <option> termina o <option> corrente.
+        "option" => open_tag == "option",
+        // um <tr> novo termina a célula aberta E o <tr> corrente: o loop do
+        // chamador fecha o td/th que estiver no topo e depois o tr exposto.
+        "tr" => matches!(open_tag, "td" | "th" | "tr"),
+        // uma célula nova termina a célula corrente (mas NÃO o tr — a nova
+        // célula nasce dentro da mesma linha).
+        "td" | "th" => matches!(open_tag, "td" | "th"),
+        _ => false,
+    };
+    // Regra dos blocos: a abertura de qualquer elemento de bloco fecha um <p>
+    // aberto (inclui `<p>` novo fechando `<p>` corrente — p está na tabela).
+    same_kind || (open_tag == "p" && closes_open_p(new_tag))
 }
 
 /// Aplica a HERANÇA de CSS: as propriedades HERDÁVEIS que o nó NÃO declarou (ficaram
@@ -1889,8 +1939,10 @@ fn parse_attrs(raw: &str) -> Vec<Attr> {
 /// diferença é a etapa sintática: aqui mantém-se uma PILHA de "elemento aberto"
 /// e cada nó nasce filho do topo da pilha.
 ///
-/// - Tag de abertura → cria `Element` filho do topo e empurra na pilha (salvo
-///   void, que não empurra).
+/// - Tag de abertura → primeiro aplica o AUTO-FECHAMENTO IMPLÍCITO do HTML5
+///   (`implicitly_closes`: `<li>` fecha `<li>`, bloco fecha `<p>`, `<tr>` fecha
+///   `td/th`+`tr`…), depois cria `Element` filho do topo e empurra na pilha
+///   (salvo void, que não empurra).
 /// - Tag de fechamento → faz pop até casar o nome (tolerante a aninhamento
 ///   malformado; um `</x>` sem `<x>` aberto é ignorado).
 /// - Texto → vira nó `Text` filho do topo (whitespace puro entre tags é
@@ -1917,6 +1969,16 @@ pub fn parse_html_to_dom(html: &str) -> Dom {
                     }
                     // `</x>` órfão (sem abertura): ignora, não mexe na pilha.
                 } else {
+                    // AUTO-FECHAMENTO IMPLÍCITO (HTML5 tag omission, subconjunto):
+                    // antes de abrir, fecha a(s) tag(s) do TOPO da pilha que a
+                    // nova tag termina. Em loop porque `<tr>` pode ter que fechar
+                    // a célula (`td`/`th`) E o `tr` empilhados; só o topo é
+                    // inspecionado a cada passo — nunca um ancestral através de
+                    // um container (ver `implicitly_closes`). O guard `> 1`
+                    // preserva a raiz `#document`.
+                    while open.len() > 1 && implicitly_closes(&name, &open.last().unwrap().1) {
+                        open.pop();
+                    }
                     let parent = open.last().unwrap().0;
                     let attrs = parse_attrs(&attrs_raw);
                     let id = dom.push(NodeKind::Element { tag: name.clone() }, attrs, parent);
@@ -2981,5 +3043,191 @@ mod tests {
       \"forte\"
 ";
         assert_eq!(dom.dump(), esperado);
+    }
+
+    // ── Parser para páginas REAIS: DOCTYPE, `>` em atributo, void tags, ──────────
+    // ── auto-fechamento implícito (HTML5 tag omission) ───────────────────────────
+
+    #[test]
+    fn doctype_nao_vira_elemento() {
+        // Antes, `<!DOCTYPE html>` virava `Element { tag: "!doctype" }` que
+        // EMPILHAVA na pilha de abertos (a "tag" nunca fecha) — o documento
+        // INTEIRO aninhava como filho dele. Agora o tokenizador ignora `<!…>`
+        // (não modelamos DocumentType, nodeType 10 fora do escopo) e `html`
+        // é filho direto do #document.
+        let dom = parse_html_to_dom("<!DOCTYPE html><html><body><p>x</p></body></html>");
+        let html_el = dom.query("html").unwrap();
+        assert_eq!(dom.parent_of(html_el).map(|p| idx(&dom, p)), Some(dom.root));
+        // único elemento de topo — nada de "!doctype" fantasma na raiz.
+        let top = &dom.node(dom.root).children;
+        assert_eq!(top.len(), 1);
+        assert_eq!(tag(&dom, top[0]), "html");
+        // body é filho do html, e o texto chega intacto.
+        let body = dom.query("body").unwrap();
+        assert_eq!(dom.parent_of(body), Some(html_el));
+        assert_eq!(dom.text_content(dom.query("p").unwrap()).unwrap(), "x");
+    }
+
+    #[test]
+    fn atributo_com_maior_que_no_valor() {
+        // `<div title="a>b">`: o `>` dentro do valor com aspas não termina a
+        // tag — antes o tokenizador cortava no primeiro `>` cru, o atributo
+        // vinha truncado (`title="a`) e `b">` vazava como texto.
+        let dom = parse_html_to_dom(r#"<div title="a>b">x</div>"#);
+        let div = dom.query("div").unwrap();
+        let n = dom.node(idx(&dom, div));
+        assert_eq!(n.attr("title"), Some("a>b"));
+        assert_eq!(dom.text_content(div).unwrap(), "x");
+        // um único elemento de topo (nenhuma tag-fantasma criada pela quebra).
+        let top = &dom.node(dom.root).children;
+        assert_eq!(top.len(), 1);
+    }
+
+    #[test]
+    fn void_tags_completas_nao_empilham() {
+        // `source`/`track` (e as demais void novas: area/base/col/embed/wbr)
+        // não têm fechamento — se empilhassem, o `</video>` não casaria e o
+        // `<p>` seguinte viraria DESCENDENTE do video em vez de irmão.
+        let dom = parse_html_to_dom("<video><source src=\"a.mp4\"><track></video><p>x</p>");
+        let video = dom.query("video").unwrap();
+        let p = dom.query("p").unwrap();
+        let source = dom.query("source").unwrap();
+        let track = dom.query("track").unwrap();
+        // source/track são filhos do video (não empilham nem engolem irmãos)…
+        assert_eq!(dom.parent_of(source), Some(video));
+        assert_eq!(dom.parent_of(track), Some(video));
+        // …e p é IRMÃO do video (filho do #document), não descendente.
+        assert_eq!(dom.parent_of(p).map(|x| idx(&dom, x)), Some(dom.root));
+        assert_eq!(dom.next_sibling(video), Some(p));
+    }
+
+    #[test]
+    fn li_fecha_li_implicito() {
+        // HTML5 tag omission: um `<li>` novo fecha o `<li>` corrente — os dois
+        // viram IRMÃOS dentro do `<ul>` (antes o segundo aninhava no primeiro).
+        let dom = parse_html_to_dom("<ul><li>a<li>b</ul>");
+        let ul = dom.query("ul").unwrap();
+        let kids = dom.child_nodes(ul);
+        assert_eq!(kids.len(), 2);
+        assert_eq!(tag(&dom, idx(&dom, kids[0])), "li");
+        assert_eq!(tag(&dom, idx(&dom, kids[1])), "li");
+        assert_eq!(dom.text_content(kids[0]).unwrap(), "a");
+        assert_eq!(dom.text_content(kids[1]).unwrap(), "b");
+    }
+
+    #[test]
+    fn dt_dd_e_option_implicitos() {
+        // <dt>/<dd> fecham o dt/dd corrente (termo e definição são irmãos)…
+        let dom = parse_html_to_dom("<dl><dt>t<dd>d</dl>");
+        let dl = dom.query("dl").unwrap();
+        let kids = dom.child_nodes(dl);
+        assert_eq!(kids.len(), 2);
+        assert_eq!(tag(&dom, idx(&dom, kids[0])), "dt");
+        assert_eq!(tag(&dom, idx(&dom, kids[1])), "dd");
+        // …e <option> fecha o option corrente.
+        let dom2 = parse_html_to_dom("<select><option>1<option>2</select>");
+        let sel = dom2.query("select").unwrap();
+        let opts = dom2.child_nodes(sel);
+        assert_eq!(opts.len(), 2);
+        assert_eq!(dom2.text_content(opts[0]).unwrap(), "1");
+        assert_eq!(dom2.text_content(opts[1]).unwrap(), "2");
+    }
+
+    #[test]
+    fn p_fecha_p_e_bloco_fecha_p() {
+        // `<p>a<p>b`: p nunca aninha em p — o segundo fecha o primeiro (irmãos).
+        let dom = parse_html_to_dom("<p>a<p>b");
+        let p1 = dom.query("p").unwrap();
+        let p2 = dom.next_sibling(p1).expect("segundo <p> deveria ser irmão");
+        assert_eq!(dom.text_content(p1).unwrap(), "a");
+        assert_eq!(dom.text_content(p2).unwrap(), "b");
+        // `<p>texto<div>`: a regra do HTML5 que MAIS aparece em páginas reais —
+        // a abertura de um elemento de bloco fecha o <p> aberto.
+        let dom2 = parse_html_to_dom("<p>texto<div>x</div>");
+        let p = dom2.query("p").unwrap();
+        let div = dom2.query("div").unwrap();
+        assert_eq!(dom2.parent_of(div).map(|x| idx(&dom2, x)), Some(dom2.root));
+        assert_eq!(dom2.next_sibling(p), Some(div));
+        assert_eq!(dom2.text_content(p).unwrap(), "texto"); // o "x" NÃO entrou no p
+    }
+
+    #[test]
+    fn tabela_com_td_tr_implicitos() {
+        // `<td>` fecha a célula corrente; `<tr>` fecha a célula E o tr do topo.
+        // (Divergência consciente da spec: não sintetizamos `<tbody>` — os tr
+        // ficam filhos diretos do table.)
+        let dom = parse_html_to_dom("<table><tr><td>a<td>b<tr><td>c</table>");
+        let table = dom.query("table").unwrap();
+        let trs = dom.child_nodes(table);
+        assert_eq!(trs.len(), 2);
+        assert_eq!(tag(&dom, idx(&dom, trs[0])), "tr");
+        assert_eq!(tag(&dom, idx(&dom, trs[1])), "tr");
+        let tds1 = dom.child_nodes(trs[0]);
+        assert_eq!(tds1.len(), 2);
+        assert_eq!(dom.text_content(tds1[0]).unwrap(), "a");
+        assert_eq!(dom.text_content(tds1[1]).unwrap(), "b");
+        let tds2 = dom.child_nodes(trs[1]);
+        assert_eq!(tds2.len(), 1);
+        assert_eq!(dom.text_content(tds2[0]).unwrap(), "c");
+    }
+
+    #[test]
+    fn li_novo_nao_fecha_li_de_lista_ancestral() {
+        // O fechamento implícito só olha o TOPO da pilha: o `<li>` de uma
+        // sublista NÃO fecha o `<li>` do `<ul>` ancestral (o topo ali é `ul`,
+        // nada casa). Fechar "através" do container colapsaria a sublista.
+        let dom = parse_html_to_dom("<ul><li>a<ul><li>b</li></ul></li></ul>");
+        let outer_ul = dom.query("ul").unwrap();
+        let outer_kids = dom.child_nodes(outer_ul);
+        assert_eq!(outer_kids.len(), 1); // só o li "a…"
+        let li_a = outer_kids[0];
+        assert_eq!(tag(&dom, idx(&dom, li_a)), "li");
+        // dentro do li: o texto "a" + a sublista com o li "b".
+        let inner_ul = dom
+            .child_nodes(li_a)
+            .into_iter()
+            .find(|&k| dom.node_type(k) == 1)
+            .expect("sublista deveria estar DENTRO do li externo");
+        assert_eq!(tag(&dom, idx(&dom, inner_ul)), "ul");
+        let inner_kids = dom.child_nodes(inner_ul);
+        assert_eq!(inner_kids.len(), 1);
+        assert_eq!(dom.text_content(inner_kids[0]).unwrap(), "b");
+    }
+
+    #[test]
+    fn pagina_real_bootstrap_cover() {
+        // Valida contra uma página REAL (Bootstrap 5.3 "cover": `<!doctype html>`
+        // minúsculo, tags multi-linha, `<meta/>`/`<link/>` autofecháveis, <svg>,
+        // <style> longo): `html` deve ser filho DIRETO do #document — o doctype
+        // não pode virar elemento que aninha o documento — e head/body filhos
+        // de html. O corpus vive em `examples/` (ainda não versionado); se
+        // ausente (ex.: CI antes do corpus entrar), o teste é um no-op EXPLÍCITO.
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../examples/bootstrap-5.3.8-examples/cover/index.html"
+        );
+        let Ok(src) = std::fs::read_to_string(path) else {
+            eprintln!("corpus real ausente ({path}) — validação da página pulada");
+            return;
+        };
+        let dom = parse_html_to_dom(&src);
+        let html_el = dom.query("html").unwrap();
+        assert_eq!(dom.parent_of(html_el).map(|p| idx(&dom, p)), Some(dom.root));
+        // único elemento de topo (sem "!doctype" fantasma).
+        let top: Vec<_> = dom
+            .node(dom.root)
+            .children
+            .iter()
+            .filter(|&&c| matches!(dom.node(c).kind, NodeKind::Element { .. }))
+            .collect();
+        assert_eq!(top.len(), 1);
+        // head e body são filhos de html.
+        let head = dom.query("head").unwrap();
+        let body = dom.query("body").unwrap();
+        assert_eq!(dom.parent_of(head), Some(html_el));
+        assert_eq!(dom.parent_of(body), Some(html_el));
+        // conteúdo real chegou: o h1 do template.
+        let h1 = dom.query("h1").unwrap();
+        assert_eq!(dom.text_content(h1).unwrap(), "Cover your page.");
     }
 }
