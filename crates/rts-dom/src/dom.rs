@@ -477,7 +477,7 @@ impl Dom {
         // a cor do body sem cada elemento redeclarar (sem isto, texto fica preto).
         if let Some(parent_idx) = self.element_parent_idx(idx) {
             if let Some(parent_css) = self.computed_style_idx_inner(parent_idx, with_anim) {
-                inherit_from_parent(&mut css, &parent_css);
+                css.inherit_from(&parent_css);
             }
         }
 
@@ -665,7 +665,7 @@ impl Dom {
             // ── TRANSITION (fase 1): anima mudanças de estilo ───────────────────────
             let prev = self.prev_computed.get(&idx).cloned();
             if let (Some(prev_style), Some(spec)) = (&prev, target.transition) {
-                if styles_differ_animated(prev_style, &target) {
+                if prev_style.differs_animated(&target) {
                     let from = self
                         .anim_override
                         .get(&idx)
@@ -1775,53 +1775,10 @@ fn implicitly_closes(new_tag: &str, open_tag: &str) -> bool {
     same_kind || (open_tag == "p" && closes_open_p(new_tag))
 }
 
-/// Aplica a HERANÇA de CSS: as propriedades HERDÁVEIS que o nó NÃO declarou (ficaram
-/// `None`) recebem o valor COMPUTADO do pai. As não-herdáveis (bg/padding/margin/
-/// border/width/display/flex…) NÃO herdam (cada caixa tem as suas).
-///
-/// DATA-DRIVEN: a lista de campos herdáveis vive num ÚNICO lugar (a macro abaixo),
-/// não num `if` por campo espalhado. Adicionar uma prop herdável = uma linha na
-/// lista. Cada entrada é só o nome do campo `Option<_>` — a macro gera o "se None,
-/// pega do pai" pra todos.
-fn inherit_from_parent(css: &mut crate::style::ComputedStyle, parent: &crate::style::ComputedStyle) {
-    /// para cada campo: se o filho não declarou (None), herda o do pai (clone).
-    macro_rules! inherit_fields {
-        ($($field:ident),* $(,)?) => {
-            $(
-                if css.$field.is_none() {
-                    css.$field = parent.$field.clone();
-                }
-            )*
-        };
-    }
-    // ── A LISTA das propriedades herdáveis do CSS (fonte única) ──────────────────
-    inherit_fields!(
-        color,
-        font_size,
-        bold,        // font-weight
-        italic,      // font-style
-        text_align,
-        line_height,
-        white_space,
-        text_transform,
-        font_family,
-    );
-}
-
-/// `true` se algum campo ANIMÁVEL (cor/tamanho/posição) difere entre dois estilos —
-/// o gatilho para iniciar uma transição (#1776).
-fn styles_differ_animated(a: &crate::style::ComputedStyle, b: &crate::style::ComputedStyle) -> bool {
-    a.color != b.color
-        || a.bg != b.bg
-        || a.border_color != b.border_color
-        || a.font_size != b.font_size
-        || a.border_width != b.border_width
-        || a.corner_radius != b.corner_radius
-        || a.width != b.width
-        || a.height != b.height
-        || a.padding != b.padding
-        || a.margin != b.margin
-}
+// A herança de CSS (`inherit_from`) e o gatilho de transição (`differs_animated`)
+// são GERADOS pela tabela de propriedades `css_props!` em `style/props.rs` — a
+// lista de campos herdáveis/animáveis vive SÓ lá (as versões locais campo-a-campo
+// que moravam aqui dessincronizavam da interpolação do anim.rs).
 
 /// `true` se `s` é um identificador CSS PURO (letra/dígito/`-`/`_`), sem
 /// combinadores/compostos/atributo/pseudo — habilita o atalho por índice no query.

@@ -1,0 +1,362 @@
+//! A TABELA DE PROPRIEDADES do CSS — a fonte única de verdade por propriedade.
+//!
+//! ## Por que uma macro (a decisão de arquitetura)
+//!
+//! Antes, cada propriedade nova exigia tocar 5+ lugares espalhados: o campo na
+//! struct, ~100 linhas de `merge_over` campo-a-campo, a lista da herança em
+//! `dom.rs`, a lista fixa de `styles_differ_animated` e o `interpolate` do
+//! `anim.rs` — listas paralelas que DESSINCRONIZAVAM (transição não disparava para
+//! campo fora da lista). É o mesmo antipadrão que o projeto matou no codegen com o
+//! Registry/SPECS data-driven.
+//!
+//! Agora [`css_props!`] declara cada propriedade UMA vez — campo, tipo e flags
+//! (`inh` = herdável na cascade; `anim` = animável em transition/keyframes) — e
+//! GERA: a struct `ComputedStyle`, `merge_over` (precedência da cascade),
+//! `inherit_from` (herança CSS), `differs_animated` (gatilho de transition) e
+//! `interpolate_animated` (o lerp por tipo, via [`super::lerp::AnimValue`]).
+//! Adicionar `opacity` = UMA linha aqui + o braço de parse/fmt + o consumo no
+//! layout/paint. Esquecer um mecanismo ficou impossível: todos derivam da tabela.
+//!
+//! O parse (nome CSS → campo) e a serialização (getComputedStyle) continuam
+//! matches explícitos em `parse.rs`/`fmt.rs` porque shorthands (`margin`,
+//! `border`, `font`) expandem para vários campos — não são 1-nome-1-campo.
+
+use super::lerp::AnimValue;
+use super::values::{
+    AlignItems, BorderStyle, Dimension, DisplayKind, Edges, FlexDirection, JustifyContent,
+    LineHeight, Rgba, Side, TextAlign, TextTransform, WhiteSpace,
+};
+
+/// Declara a tabela de propriedades e gera a struct + os 4 mecanismos da cascade.
+///
+/// Flags por campo (entre `[]`, separadas por espaço):
+/// - `inh`  — a propriedade HERDA do pai quando não declarada (cascade MDN).
+/// - `anim` — a propriedade é ANIMÁVEL (participa do gatilho de transition e da
+///   interpolação; o COMO interpolar vem do tipo, via [`AnimValue`]).
+///
+/// Seções: `options` (campos `Option<T>`, precedência = "declarado vence") e
+/// `edges` (caixas por lado [`Edges`], merge lado a lado — longhand vence shorthand).
+macro_rules! css_props {
+    (
+        options { $( $(#[$od:meta])* [$($of:ident)*] $ofield:ident : $oty:ty ; )* }
+        edges   { $( $(#[$ed:meta])* [$($ef:ident)*] $efield:ident ; )* }
+    ) => {
+        /// Propriedades de estilo COMPUTADAS, com tipos próprios (egui-free). Cada
+        /// campo `Option` = "não especificado" → o render mantém o valor herdado/
+        /// default. (Não é `Copy` desde #1749 — `font_family: Option<String>`; use
+        /// `.clone()`.) GERADA pela tabela [`css_props!`] — não adicione campo à
+        /// mão fora dela.
+        #[derive(Clone, Default, PartialEq, Debug)]
+        pub struct ComputedStyle {
+            $( $(#[$od])* pub $ofield : Option<$oty>, )*
+            $( $(#[$ed])* pub $efield : Edges, )*
+        }
+
+        impl ComputedStyle {
+            /// Sobrepõe as propriedades `Some` de `other` sobre `self` (precedência
+            /// CSS: `other` vence onde está setado; `None` mantém `self`). Edges
+            /// mesclam POR LADO (longhand vence shorthand). Gerado da tabela.
+            pub fn merge_over(&mut self, other: &ComputedStyle) {
+                $( if other.$ofield.is_some() { self.$ofield = other.$ofield.clone(); } )*
+                $( self.$efield.merge_over(&other.$efield); )*
+            }
+
+            /// HERANÇA da cascade (MDN estágio 4): os campos marcados `inh` na
+            /// tabela que este nó NÃO declarou recebem o valor computado do pai.
+            /// Box props (bg/padding/margin/border/width/display/flex…) não herdam
+            /// (cada caixa tem as suas). Gerado da tabela — a lista de herdáveis
+            /// vive SÓ lá.
+            pub fn inherit_from(&mut self, parent: &ComputedStyle) {
+                $( $( css_props!(@inherit $of, $ofield, self, parent); )* )*
+            }
+
+            /// `true` se algum campo ANIMÁVEL (`anim` na tabela) difere entre os
+            /// dois estilos — o gatilho para iniciar uma transição (#1776). Gerado
+            /// da tabela: um campo animável novo entra aqui automaticamente (a
+            /// antiga lista fixa dessincronizava).
+            pub fn differs_animated(&self, other: &ComputedStyle) -> bool {
+                let mut d = false;
+                $( $( css_props!(@differ $of, $ofield, d, self, other); )* )*
+                $( $( css_props!(@differ $ef, $efield, d, self, other); )* )*
+                d
+            }
+
+            /// Interpola DOIS estilos `from`→`to` no progresso `t` ∈ [0,1] (já
+            /// amaciado pela easing). Só os campos `anim` interpolam (regra por
+            /// tipo, [`AnimValue`]); os demais saltam discretamente para o destino.
+            /// Gerado da tabela.
+            pub fn interpolate_animated(from: &ComputedStyle, to: &ComputedStyle, t: f32) -> ComputedStyle {
+                let mut out = to.clone(); // base: campos não-animados ficam no destino
+                $( $( css_props!(@lerp $of, $ofield, out, from, to, t); )* )*
+                $( $( css_props!(@lerp $ef, $efield, out, from, to, t); )* )*
+                out
+            }
+        }
+    };
+
+    // ── dispatch por flag (uma sub-regra casa a flag-alvo; a genérica ignora) ────
+    (@inherit inh, $f:ident, $s:expr, $p:expr) => {
+        if $s.$f.is_none() { $s.$f = $p.$f.clone(); }
+    };
+    (@inherit $other:ident, $f:ident, $s:expr, $p:expr) => {};
+    (@differ anim, $f:ident, $d:ident, $a:expr, $b:expr) => {
+        $d = $d || $a.$f != $b.$f;
+    };
+    (@differ $other:ident, $f:ident, $d:ident, $a:expr, $b:expr) => {};
+    (@lerp anim, $f:ident, $out:ident, $from:expr, $to:expr, $t:expr) => {
+        $out.$f = AnimValue::lerp_anim(&$from.$f, &$to.$f, $t);
+    };
+    (@lerp $other:ident, $f:ident, $out:ident, $from:expr, $to:expr, $t:expr) => {};
+}
+
+css_props! {
+    options {
+        /// Cor do texto, `0xRRGGBBAA`.
+        [inh anim] color: Rgba;
+        /// Cor de fundo, `0xRRGGBBAA`.
+        [anim] bg: Rgba;
+        /// Tamanho da fonte em pontos (> 0).
+        [inh anim] font_size: f32;
+        /// `font-weight` colapsado em negrito (≥600/bold). Herdável.
+        [inh] bold: bool;
+        /// `font-style: italic/oblique`. Herdável.
+        [inh] italic: bool;
+        // ── Texto/fonte (#1749) ──────────────────────────────────────────────────
+        /// `text-align` — alinhamento horizontal do conteúdo inline. `None` = `left`.
+        [inh] text_align: TextAlign;
+        /// `line-height` — altura da linha. `None` = `normal` (~1.2×font-size). Pode
+        /// ser um MULTIPLICADOR (número sem unidade, ×font-size) ou um comprimento
+        /// absoluto.
+        [inh] line_height: LineHeight;
+        /// `white-space` — colapso de espaço / quebra. `None` = `normal`.
+        [inh] white_space: WhiteSpace;
+        /// `text-transform` — caixa do texto (`uppercase`/`lowercase`/`capitalize`).
+        /// `None` = `none` (texto como está).
+        [inh] text_transform: TextTransform;
+        /// `font-family` — a 1ª família da lista (só guardamos o nome; o backend
+        /// escolhe a fonte real). `None` = default. `mono` derivado se a família é
+        /// monoespaçada.
+        [inh] font_family: String;
+        /// Margem VERTICAL apenas (top/bottom), sem afetar o eixo horizontal. É o
+        /// que a UA-stylesheet usa para separar blocos (`h1`/`p` têm `margin: Npx 0`
+        /// — só vertical, o left/right é 0). Distinto de `margin` (4 lados, do autor
+        /// via `margin: Npx`). No layout, o espaçamento vertical soma os dois; o
+        /// horizontal usa só `margin`. `None` = não especificado.
+        [] margin_v: f32;
+        /// Espessura da borda em pontos (0 = sem borda).
+        [anim] border_width: f32;
+        /// Estilo da borda (`solid`/`dashed`/`none`/...). `None` no struct = não
+        /// declarado. ⚠️ Na cascade, o DEFAULT do CSS é `BorderStyle::None` (sem
+        /// `border-style`, a borda NÃO aparece, mesmo com width/cor) — o render
+        /// checa isso.
+        [] border_style: BorderStyle;
+        /// Cor da borda, `0xRRGGBBAA`.
+        [anim] border_color: Rgba;
+        /// Raio dos cantos em pontos.
+        [anim] corner_radius: f32;
+        /// Largura da caixa (`Px`/`Percent`/`Auto`). `Percent` resolve TARDE no
+        /// render contra o content-box do pai (north-star risco 5). `None` = não
+        /// especificado (= `Auto` efetivo: o egui usa a largura disponível).
+        [anim] width: Dimension;
+        /// `box-sizing: border-box` — quando `Some(true)`, o `width` declarado
+        /// INCLUI padding+border (a caixa tem exatamente `width`; o content é
+        /// `width - pad - border`). `None`/`Some(false)` = `content-box` (default
+        /// CSS: `width` é só o content, pad/border somam por fora). É o que faz 3
+        /// cards de 32% caberem.
+        [] border_box: bool;
+        /// `display` parseado do CSS (block/flex/inline/none). `None` = não
+        /// declarado (o layout usa o default da tag via `block::lookup`). Combina
+        /// com `flex_wrap`.
+        [] display: DisplayKind;
+        /// `flex-wrap: wrap` — só relevante com `display:flex`; promove `Flex` a
+        /// `FlexWrap` na resolução. `None`/`Some(false)` = nowrap.
+        [] flex_wrap: bool;
+        /// `justify-content` — distribuição no eixo principal do flex. `None` =
+        /// FlexStart.
+        [] justify: JustifyContent;
+        /// `align-items` — alinhamento no eixo cruzado. `None` = Stretch.
+        [] align_items: AlignItems;
+        /// `gap`/`column-gap` — espaço FIXO entre itens no eixo principal (em row).
+        [] gap: Dimension;
+        /// `row-gap` — espaço entre LINHAS no wrap (eixo cruzado em row).
+        [] row_gap: Dimension;
+        /// `flex-direction` — eixo principal (row/column). `None` = Row.
+        [] flex_direction: FlexDirection;
+        /// `height` — altura explícita da caixa. `None` = auto (altura do conteúdo).
+        /// Necessária para align-items:stretch ter cross-size de referência e p/
+        /// flex-column.
+        [anim] height: Dimension;
+        // ── Constraints de tamanho (#1751) — clamp sobre width/height ────────────
+        /// `min-width` — piso da largura usada: `used = max(min, width)`.
+        [] min_width: Dimension;
+        /// `max-width` — teto da largura usada: `used = min(width, max)`.
+        [] max_width: Dimension;
+        /// `min-height` — piso da altura usada.
+        [] min_height: Dimension;
+        /// `max-height` — teto da altura usada.
+        [] max_height: Dimension;
+        /// `transition` (#1776) — anima as mudanças de estilo deste nó ao longo do
+        /// tempo. `None` = sem transição (mudanças são instantâneas).
+        [] transition: crate::anim::TransitionSpec;
+        /// `animation` (#1776) — roda um `@keyframes` sozinho no tempo. `None` =
+        /// nenhuma.
+        [] animation: crate::anim::AnimationSpec;
+        /// `overflow-x` / `overflow-y` (#1744) — se este elemento vira um CONTAINER
+        /// rolável próprio (auto/scroll) ou corta/transborda (hidden/visible).
+        /// `None` = `visible` (default). Lido por qualquer div (não só a página)
+        /// para o scroll interno; a página usa o resolvido em `scrollbar::resolve`.
+        [] overflow_x: crate::scrollbar::Overflow;
+        [] overflow_y: crate::scrollbar::Overflow;
+    }
+    edges {
+        // ── Box model (F2) — pontos (f32), por lado. ─────────────────────────────
+        /// Espaço INTERNO entre a borda e o conteúdo, POR LADO (`Edges`). O
+        /// shorthand `padding: a b c d` e os longhands `padding-top` etc. populam
+        /// aqui.
+        [anim] padding;
+        /// Espaço EXTERNO ao redor da caixa, POR LADO (`Edges`). `auto`
+        /// (centralização) é marcado em `Edges` via o sentinela `Side::Auto`.
+        [anim] margin;
+    }
+}
+
+impl ComputedStyle {
+    /// `true` se algum atributo de CAIXA está setado (bg/padding/margin/border/
+    /// raio) — gatilho para o render envolver o bloco num `egui::Frame`. Sem
+    /// nenhum, o render desenha direto (sem o overhead do Frame).
+    pub fn has_box(&self) -> bool {
+        self.bg.is_some()
+            || self.padding.any_set()
+            || self.margin.any_set()
+            || self.border_width.is_some()
+            || self.corner_radius.is_some()
+            || self.width.is_some()
+    }
+
+    /// O `display` EFETIVO, combinando `display` + `flex_wrap` (flex + wrap →
+    /// FlexWrap). `None` se não declarado (o layout cai no default da tag).
+    pub fn effective_display(&self) -> Option<DisplayKind> {
+        match self.display {
+            Some(DisplayKind::Flex) if self.flex_wrap == Some(true) => Some(DisplayKind::FlexWrap),
+            other => other,
+        }
+    }
+
+    /// Lê o valor de um SLOT opaco como `i64`, ou `-1` se não-setado. Cores/dims
+    /// retornam o `u32`/pontos diretamente. É como o LAYOUT (em TS) lê o estilo
+    /// computado de um nó via a ABI `rts:dom` (`nodeStyleSlot`).
+    pub fn slot_value(&self, slot: i64) -> i64 {
+        let dim = |o: Option<f32>| o.map(|v| v as i64).unwrap_or(-1);
+        match slot {
+            SLOT_COLOR => self.color.map(|c| c as i64).unwrap_or(-1),
+            SLOT_BG => self.bg.map(|c| c as i64).unwrap_or(-1),
+            SLOT_FONT_SIZE => dim(self.font_size),
+            // o slot opaco reporta o lado `top` como representante (compat com o
+            // shorthand de 1 valor que a camada TS usa via defineStyle/setStyle).
+            SLOT_PADDING => dim(self.padding.top.px()),
+            SLOT_MARGIN => dim(self.margin.top.px()),
+            SLOT_MARGIN_V => dim(self.margin_v),
+            SLOT_BORDER_WIDTH => dim(self.border_width),
+            SLOT_BORDER_COLOR => self.border_color.map(|c| c as i64).unwrap_or(-1),
+            SLOT_CORNER_RADIUS => dim(self.corner_radius),
+            SLOT_WIDTH => self.width.map(|d| d.to_abi()).unwrap_or(-1),
+            _ => -1,
+        }
+    }
+
+    /// Aplica um par `(slot, val)` OPACO (invariante 4). O `val` é interpretado
+    /// conforme o slot: cor/bg = `u32` RGBA; font_size = pontos (o `i64` vira
+    /// `f32`). Slot desconhecido é ignorado (robustez; o TS pode registrar slots
+    /// futuros antes deste Rust conhecê-los). É a base do `defineStyle`/`setStyle`.
+    pub fn apply_slot(&mut self, slot: i64, val: i64) {
+        // Dimensões (padding/margin/border/raio) em pontos: `i64` → `f32`, clamp em
+        // ≥ 0 (negativo não faz sentido numa caixa; ignora).
+        let dim = |v: i64| -> Option<f32> {
+            let f = v as f32;
+            if f >= 0.0 { Some(f) } else { None }
+        };
+        match slot {
+            SLOT_COLOR => self.color = Some(val as u32),
+            SLOT_BG => self.bg = Some(val as u32),
+            SLOT_FONT_SIZE => {
+                let f = val as f32;
+                if f > 0.0 {
+                    self.font_size = Some(f);
+                }
+            }
+            // slot opaco de 1 valor (defineStyle/setStyle) → os 4 lados iguais.
+            SLOT_PADDING => {
+                if let Some(p) = dim(val) {
+                    self.padding = Edges::all(Side::Px(p));
+                }
+            }
+            SLOT_MARGIN => {
+                if let Some(m) = dim(val) {
+                    self.margin = Edges::all(Side::Px(m));
+                }
+            }
+            SLOT_MARGIN_V => self.margin_v = dim(val),
+            SLOT_BORDER_WIDTH => self.border_width = dim(val),
+            SLOT_BORDER_COLOR => self.border_color = Some(val as u32),
+            SLOT_CORNER_RADIUS => self.corner_radius = dim(val),
+            // `width`: o `val` carrega a FORMA (Px/Percent/Auto) na codificação ABI
+            // de `Dimension` — o `-1` (Auto/não-especificado) zera o campo.
+            SLOT_WIDTH => {
+                self.width = match val {
+                    -1 => None,
+                    v => Dimension::from_abi(v),
+                }
+            }
+            _ => {} // slot desconhecido: ignora (o TS mapeia o vocabulário CSS).
+        }
+    }
+}
+
+// ── Slots numéricos opacos (invariante 4) ──────────────────────────────────────
+// O Rust NUNCA casa string CSS (`"background-color"`) na fronteira ABI; o TS mapeia
+// nome→índice e chama `defineStyle(tag, slot, val)`. Adicionar `box-shadow` =
+// registrar um slot no TS, sem tocar aqui. Estes códigos são o contrato com a
+// camada TS.
+pub const SLOT_COLOR: i64 = 0;
+pub const SLOT_BG: i64 = 1;
+pub const SLOT_FONT_SIZE: i64 = 2;
+// Box model (F2):
+pub const SLOT_PADDING: i64 = 3;
+pub const SLOT_MARGIN: i64 = 4;
+pub const SLOT_BORDER_WIDTH: i64 = 5;
+pub const SLOT_BORDER_COLOR: i64 = 6;
+pub const SLOT_CORNER_RADIUS: i64 = 7;
+/// `width`: o `val` é a `Dimension` codificada (Px = pontos diretos; Percent =
+/// faixa própria; Auto/não-especificado = `-1`). Ver [`Dimension::from_abi`].
+pub const SLOT_WIDTH: i64 = 8;
+/// `margin_v`: margem VERTICAL apenas (top/bottom), em pontos. A UA-stylesheet usa
+/// para separar blocos sem deslocar no eixo horizontal.
+pub const SLOT_MARGIN_V: i64 = 9;
+
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+thread_local! {
+    /// Mapa `tag → ComputedStyle`, povoado pelo TS via `defineStyle(tag, slot, val)`.
+    /// É o estilo POR-TAG (uma UA-stylesheet de estilo, paralela ao `block::BLOCKS`
+    /// de layout). O render consulta `lookup_style(tag)` e aplica antes do
+    /// `style=""` inline do nó. Vazio até o TS registrar.
+    static STYLES: RefCell<HashMap<String, ComputedStyle>> = RefCell::new(HashMap::new());
+}
+
+/// Registra/atualiza UM slot de estilo de uma TAG (primitivo `defineStyle`).
+/// ACUMULA: chamar com slots diferentes na mesma tag mantém os anteriores
+/// (`defineStyle("h1",0,cor)` + `defineStyle("h1",2,tam)` → cor E tamanho). O
+/// `(slot, val)` é opaco (invariante 4); o Rust nunca vê o nome CSS.
+pub fn define_style(tag: &str, slot: i64, val: i64) {
+    STYLES.with(|m| {
+        let mut m = m.borrow_mut();
+        let entry = m.entry(tag.to_ascii_lowercase()).or_default();
+        entry.apply_slot(slot, val);
+    });
+}
+
+/// Consulta o `ComputedStyle` registrado de uma TAG. `None` ⇒ sem estilo de tag.
+pub fn lookup_style(tag: &str) -> Option<ComputedStyle> {
+    STYLES.with(|m| m.borrow().get(tag).cloned())
+}
