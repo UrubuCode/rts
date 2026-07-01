@@ -27,11 +27,11 @@ class Reflect {
     return true;
   }
 
-  // Reflect.has(target, key) — `key in target`. Checked against the target's OWN
-  // enumerable keys (the common case); the prototype chain + a Proxy `has` trap
-  // are a later increment.
+  // Reflect.has(target, key) — `key in target`, via the engine's shape-aware
+  // membership op (`__rtsadp_obj_has`), which also fires a Proxy `has` trap.
+  // The prototype chain is a later increment.
   static has(target: any, key: any): any {
-    return Object.keys(target).indexOf(key) >= 0;
+    return engine.obj_has(target, key);
   }
 
   // Reflect.deleteProperty(target, key) — `delete target[key]`; returns whether the

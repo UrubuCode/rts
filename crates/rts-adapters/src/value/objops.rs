@@ -251,8 +251,28 @@ pub extern "C" fn __rtsadp_obj_from_entries(entries_word: u64) -> u64 {
 /// `__rtsadp_obj_has(obj_word, key_str_handle)` — `key in obj` for a keyed object:
 /// `1` when the object has the property, `0` otherwise (incl. a non-object
 /// receiver). Returns an unboxed i64 (the `Bool` ABI) for a direct `brif`/`select`.
+/// A PROXY receiver routes through its `has` trap (#218) — `handler.has(target,
+/// key)` when defined, ToBoolean of the trap's return; otherwise forward to the
+/// target (recursion terminates: the target of a proxy-of-proxy chain is finite).
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_obj_has(obj_word: u64, key_str_handle: u64) -> i64 {
+    if let Some((target, handler)) = proxy_parts(obj_word) {
+        let has_key = abi_adapter::intern_poly("has").raw();
+        let trap = __rtsadp_obj_get(handler, has_key);
+        if PolyValue::from_raw(trap).is_function() {
+            let undef = PolyValue::undefined().raw();
+            let r = super::funcops::__rtsadp_fn_invoke(
+                trap,
+                target,
+                key_str_handle,
+                undef,
+                undef,
+                0,
+            );
+            return PolyValue::from_raw(r).is_truthy() as i64;
+        }
+        return __rtsadp_obj_has(target, key_str_handle);
+    }
     resolve_slot(obj_word, key_str_handle).is_some() as i64
 }
 
@@ -451,6 +471,28 @@ pub extern "C" fn __rtsadp_prevent_ext(obj_word: u64) -> i64 {
     1
 }
 
+/// `Object.freeze(o)` — non-extensible + every CURRENT own key marked
+/// `writable:false` (and non-configurable, bit2 clear), so an existing-key
+/// re-assignment is a silent no-op (JS non-strict) via `obj_set`'s
+/// `prop_writable` gate. `seal`/`preventExtensions` use
+/// [`__rtsadp_prevent_ext`] instead (they keep existing keys writable).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_freeze(obj_word: u64) -> i64 {
+    if PolyValue::from_raw(obj_word).is_object() {
+        if let Ok(mut t) = non_extensible_table().lock() {
+            t.insert(obj_word);
+        }
+        let keys = object_keys_vec(obj_word);
+        if let Ok(mut t) = desc_flags_table().lock() {
+            for k in keys {
+                // bit0 writable=0, bit1 enumerable=1, bit2 configurable=0.
+                t.insert((obj_word, k), 0b010);
+            }
+        }
+    }
+    1
+}
+
 /// `Object.isExtensible(o)` / `Reflect.isExtensible` → 1/0. A non-object is not
 /// extensible (`0`), matching JS.
 #[unsafe(no_mangle)]
@@ -463,11 +505,28 @@ pub extern "C" fn __rtsadp_is_extensible(obj_word: u64) -> i64 {
 /// (a no-op delete evaluates to `true` in JS). PRESENT → shift the value slots
 /// after it down by one over the hole, drop the now-duplicate tail slot, and set
 /// slot 0 to the shape WITHOUT the key. Always returns `1` (own/configurable/absent
-/// deletes are all `true`; this model has no non-configurable props). A Proxy
-/// `deleteProperty` trap is a later increment — a proxy receiver is not a keyed
-/// object, so `resolve_slot` misses and it returns `1` (no-op) rather than trapping.
+/// deletes are all `true`; this model has no non-configurable props). A PROXY
+/// receiver routes through its `deleteProperty` trap (#218) — ToBoolean of the
+/// trap's return when defined; otherwise forward the delete to the target.
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_obj_delete(obj_word: u64, key_str_handle: u64) -> i64 {
+    if let Some((target, handler)) = proxy_parts(obj_word) {
+        let trap_key = abi_adapter::intern_poly("deleteProperty").raw();
+        let trap = __rtsadp_obj_get(handler, trap_key);
+        if PolyValue::from_raw(trap).is_function() {
+            let undef = PolyValue::undefined().raw();
+            let r = super::funcops::__rtsadp_fn_invoke(
+                trap,
+                target,
+                key_str_handle,
+                undef,
+                undef,
+                0,
+            );
+            return PolyValue::from_raw(r).is_truthy() as i64;
+        }
+        return __rtsadp_obj_delete(target, key_str_handle);
+    }
     let Some((handle, idx)) = resolve_slot(obj_word, key_str_handle) else {
         return 1;
     };

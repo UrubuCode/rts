@@ -70,7 +70,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             "values" => self.object_values(module, args).map(Some),
             "entries" => self.object_entries(module, args).map(Some),
             "assign" => self.object_assign(module, args).map(Some),
-            "freeze" | "seal" | "preventExtensions" => self.object_freeze(module, args).map(Some),
+            "freeze" | "seal" | "preventExtensions" => self
+                .object_freeze(module, args, method == "freeze")
+                .map(Some),
             "isExtensible" => self.object_is_extensible(module, args).map(Some),
             "defineProperty" => self.object_define_property(module, args).map(Some),
             "getOwnPropertyDescriptor" => {
@@ -339,13 +341,23 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// adjacent): return the receiver verbatim. A program that RELIES on a frozen
     /// mutation throwing is out of scope; the common `const x = Object.freeze({…})`
     /// idiom (freeze-then-read) works correctly.
-    fn object_freeze(&mut self, module: &mut dyn Module, args: &[HirExpr]) -> FrontResult<Val> {
+    fn object_freeze(
+        &mut self,
+        module: &mut dyn Module,
+        args: &[HirExpr],
+        deep_freeze: bool,
+    ) -> FrontResult<Val> {
         let (word, _keys) = self.receiver(module, args)?;
-        // Mark the object NON-EXTENSIBLE (real state — `obj_set` then rejects new
-        // keys). `freeze`/`seal`/`preventExtensions` all at least prevent extension;
-        // the full freeze/seal flag surface is the descriptor layer. Returns the
-        // object (JS `Object.freeze(o)` returns `o`).
-        self.call_runtime(module, "__rtsadp_prevent_ext", &[word])?;
+        // `freeze` marks the object non-extensible AND every current key
+        // `writable:false` (an existing-key write becomes a silent no-op);
+        // `seal`/`preventExtensions` only prevent extension (existing keys stay
+        // writable). Returns the object (JS `Object.freeze(o)` returns `o`).
+        let sym = if deep_freeze {
+            "__rtsadp_freeze"
+        } else {
+            "__rtsadp_prevent_ext"
+        };
+        self.call_runtime(module, sym, &[word])?;
         Ok(Val::new(word, Repr::Tagged))
     }
 

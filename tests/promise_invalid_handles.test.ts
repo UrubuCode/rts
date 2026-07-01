@@ -15,7 +15,9 @@ print("reject_0=" + promise.reject(0, 1));    // 0
 
 // 2. Handle aleatorio invalido (gen 0).
 print("state_garbage=" + promise.state(123));    // -1
-print("wait_garbage=" + promise.wait(456));      // 0
+// `wait` de um valor que nao e' Promise viva = o proprio valor (semantica JS de
+// `await` sobre nao-thenable; async fns rodam sincrono no motor novo).
+print("wait_garbage=" + promise.wait(456));      // 456
 
 // 3. Handle valido apos free conceitual — wait em Promise nao reaproveitavel.
 const p = promise.new_resolved(42);
@@ -44,7 +46,7 @@ print("idem_value=" + promise.wait(idem));     // 1
 describe("promise invalid handles + edge cases", () => {
   test("matches expected stdout", () => {
     expect(__rtsCapturedOutput).toBe(
-      "state_0=-1\nwait_0=0\ntry_value_0=0\nresolve_0=0\nreject_0=0\nstate_garbage=-1\nwait_garbage=0\np_state=1\np_wait=42\np_wait_again=42\nre_resolve=0\nr_value=1\nre_reject=0\nrj_value=7\nfirst=1\nsecond=0\nthird=0\nidem_value=1\n"
+      "state_0=-1\nwait_0=0\ntry_value_0=0\nresolve_0=0\nreject_0=0\nstate_garbage=-1\nwait_garbage=456\np_state=1\np_wait=42\np_wait_again=42\nre_resolve=0\nr_value=1\nre_reject=0\nrj_value=7\nfirst=1\nsecond=0\nthird=0\nidem_value=1\n"
     );
   });
 });
