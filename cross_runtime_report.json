@@ -2065,10 +2065,10 @@
 ,
 {
   "name": "278_aggregate_error",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "name=AggregateError\nmsg=many\nlen=2\nitems=a|b",
   "node": "name=AggregateError\nmsg=many\nlen=2\nitems=a|b",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "name=AggregateError\nmsg=many\nlen=2\nitems=a|b"
 }
 ,
 {
@@ -2161,10 +2161,10 @@
 ,
 {
   "name": "60_aggregate_error",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "cause=origin\nname=AggregateError\nmsg=many\ncount=2\nitems=a,b",
   "node": "cause=origin\nname=AggregateError\nmsg=many\ncount=2\nitems=a,b",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "cause=origin\nname=AggregateError\nmsg=many\ncount=2\nitems=a,b"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":219,"rts_diverge":85,"bun_node_diverge":17,"errors":288,"rejected":0}}
+],"summary":{"total":609,"pass":221,"rts_diverge":85,"bun_node_diverge":17,"errors":286,"rejected":0}}
