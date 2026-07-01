@@ -1449,10 +1449,10 @@
 ,
 {
   "name": "49_function_meta",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "name=add\nlength=2\ncall=5\napply=10\nbind=12",
   "node": "name=add\nlength=2\ncall=5\napply=10\nbind=12",
-  "rts": "name=undefined\nlength=undefined\ncall=5\napply=10\nbind=undefined"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_error",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "__RUNTIME_ERROR__"
 }
 ,
@@ -2652,7 +2652,7 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "value=42\nstill=42\nkeys=a\nb=10\ngetter=10",
-  "rts": "value=42\nstill=42\nkeys=a,b\nb=10\ngetter=undefined"
+  "rts": "value=42\nstill=42\nkeys=a,b\nb=10\ngetter=5"
 }
 ,
 {
@@ -2828,7 +2828,7 @@
   "status": "rts_diverge",
   "bun": "1\ntrue\nget:a|set:b=99|has:b|del:b\n5\nmust be positive",
   "node": "1\ntrue\nget:a|set:b=99|has:b|del:b\n5\nmust be positive",
-  "rts": "1\nfalse\n\n5"
+  "rts": "1\ntrue\n\n5"
 }
 ,
 {
@@ -2852,7 +2852,7 @@
   "status": "rts_diverge",
   "bun": "42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue",
   "node": "42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue",
-  "rts": "42\n99\n42\nreadonly,hidden,normal\n0\nfalse\nfalse\nfalse\n1\ntrue"
+  "rts": "42\n99\n42\nreadonly,hidden,normal\n0\ntrue\ntrue\ntrue\n1\ntrue"
 }
 ,
 {
@@ -2972,7 +2972,7 @@
   "status": "rts_diverge",
   "bun": "ga=1\nhb=true\nvals=1:9\nseen=get:a,set:b=9,has:b,get:a,get:b",
   "node": "ga=1\nhb=true\nvals=1:9\nseen=get:a,set:b=9,has:b,get:a,get:b",
-  "rts": "ga=1\nhb=false\nvals=1:9\nseen="
+  "rts": "ga=1\nhb=true\nvals=1:9\nseen="
 }
 ,
 {
@@ -2980,7 +2980,7 @@
   "status": "rts_diverge",
   "bun": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
   "node": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
-  "rts": "keys=\nvals=[]\nlog="
+  "rts": "keys=a,c\nvals=[]\nlog="
 }
 ,
 {
@@ -3084,7 +3084,7 @@
   "status": "rts_diverge",
   "bun": "1,false,false,false\n\n1\nTypeError",
   "node": "1,false,false,false\n\n1\nTypeError",
-  "rts": "1,false,false,false\nx\n1"
+  "rts": "1,true,true,true\nx\n2"
 }
 ,
 {
@@ -3132,7 +3132,7 @@
   "status": "rts_diverge",
   "bun": "10:10:x\ntrue\n9:10:x",
   "node": "10:10:x\ntrue\n9:10:x",
-  "rts": "undefined:1:x\ntrue\n9:1:x"
+  "rts": "5:1:x\ntrue\n9:1:x"
 }
 ,
 {
@@ -3164,7 +3164,7 @@
   "status": "rts_diverge",
   "bun": "TypeError\n1",
   "node": "TypeError\n1",
-  "rts": "1"
+  "rts": "undefined"
 }
 ,
 {
@@ -3377,10 +3377,10 @@
 ,
 {
   "name": "83_promise_combinators",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "settled=fulfilled:1|rejected:x\nany=b",
   "node": "settled=fulfilled:1|rejected:x\nany=b",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "settled=\nany=[object Object]"
 }
 ,
 {
@@ -3732,7 +3732,7 @@
   "status": "rts_diverge",
   "bun": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
   "node": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
-  "rts": "h=104\ne=101\no=111\nout=281474976710947\nemoji=128512\nA=65\ncharCode=55357"
+  "rts": "h=104\ne=101\no=111\nout=281474976711007\nemoji=128512\nA=65\ncharCode=55357"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":219,"rts_diverge":85,"bun_node_diverge":18,"errors":287,"rejected":0}}
+],"summary":{"total":609,"pass":219,"rts_diverge":85,"bun_node_diverge":17,"errors":288,"rejected":0}}
