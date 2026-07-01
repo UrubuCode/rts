@@ -57,6 +57,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             );
         }
 
+        // COMPUTED keys (`{ [k]: v }` — encoded by the HIR as a `"\0computed_<i>"`
+        // field whose value is the `[key_expr, value_expr]` pair): split them out.
+        // The STATIC keys build the shape as before; each computed pair is then
+        // appended at RUNTIME via `__rtsadp_obj_set` (ToString(key) + a shape
+        // transition), in source order — exactly the dynamic-add path `o[k] = v`
+        // uses. The literal's static shape does not track them, which is sound:
+        // reads of a computed key resolve through the dynamic slot-0 shape.
+        let (computed, static_fields): (Vec<_>, Vec<_>) = fields
+            .iter()
+            .partition(|(k, _)| k.starts_with('\0'));
+        let fields: Vec<(String, HirExpr)> = static_fields.into_iter().cloned().collect();
+
         // A duplicate key keeps the LAST value (JS); de-dup to the last occurrence
         // while preserving first-seen slot order — but if a literal repeats a key
         // we conservatively bail (rare, and the shape/value alignment is subtle).
@@ -82,10 +94,24 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         );
         emit_marshal::emit_vec_push(module, self.builder, obj_word, id_word);
         // ---- slots 1.. : property values in key order, each a boxed PolyValue ----
-        for (_, value_expr) in fields {
+        for (_, value_expr) in &fields {
             let v = self.lower_expr(module, value_expr)?;
             let word = self.box_value(v);
             emit_marshal::emit_vec_push(module, self.builder, obj_word, word);
+        }
+        // ---- computed keys: append at runtime, in source order ----
+        for (_, pair) in computed {
+            let HirExprKind::Array(kv) = &pair.kind else {
+                return unsupported!("computed object key: malformed HIR pair");
+            };
+            let [key_expr, value_expr] = kv.as_slice() else {
+                return unsupported!("computed object key: malformed HIR pair");
+            };
+            let k = self.lower_expr(module, key_expr)?;
+            let k_word = self.box_value(k);
+            let v = self.lower_expr(module, value_expr)?;
+            let v_word = self.box_value(v);
+            self.call_runtime(module, "__rtsadp_obj_set", &[obj_word, k_word, v_word])?;
         }
         Ok((
             Val::tagged_kind(obj_word, JsKind::Unknown),

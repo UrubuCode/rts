@@ -97,7 +97,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 if let Some(class) = lit_class {
                     self.local_classes.insert(name.to_string(), class);
                 }
-                Some(HeapShape::Object(shape_id))
+                // A literal with COMPUTED keys (`{ [k]: v }`, the `\0`-prefixed
+                // fields) has runtime-appended keys its static shape does not
+                // track — recording the shape would statically prove a computed
+                // key ABSENT. Leave the local dynamic (runtime slot-0 shape reads).
+                if fields.iter().any(|(k, _)| k.starts_with('\0')) {
+                    None
+                } else {
+                    Some(HeapShape::Object(shape_id))
+                }
             }
             HirExprKind::Array(elems) => {
                 let val = self.lower_array_literal(module, elems)?;

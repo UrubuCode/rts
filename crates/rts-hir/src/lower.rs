@@ -416,11 +416,27 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
         }
 
         swc::Expr::Object(obj) => {
-            let fields: Vec<(String, HirExpr)> = obj.props.iter().filter_map(|p| {
+            let fields: Vec<(String, HirExpr)> = obj.props.iter().enumerate().filter_map(|(i, p)| {
                 match p {
                     swc::PropOrSpread::Prop(prop) => {
                         match prop.as_ref() {
                             swc::Prop::KeyValue(kv) => {
+                                // A COMPUTED key `{ [k]: v }` keeps BOTH exprs: the
+                                // field is encoded as (`"\0computed_<i>"`,
+                                // `[key_expr, value_expr]`) — the `\0` prefix can
+                                // never collide with a real JS source key, and the
+                                // 2-element array carries the pair to the object
+                                // lowering, which appends the key at RUNTIME
+                                // (ToString(key) + a shape transition).
+                                if let swc::PropName::Computed(c) = &kv.key {
+                                    let key_expr = lower_swc_expr(&c.expr, scope);
+                                    let val_expr = lower_swc_expr(&kv.value, scope);
+                                    let pair = HirExpr::new(
+                                        HirExprKind::Array(vec![key_expr, val_expr]),
+                                        HirType::Array(Box::new(HirType::Unknown)),
+                                    );
+                                    return Some((format!("\0computed_{i}"), pair));
+                                }
                                 let key = prop_name_to_str(&kv.key);
                                 let val = lower_swc_expr(&kv.value, scope);
                                 Some((key, val))
