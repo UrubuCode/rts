@@ -571,13 +571,17 @@ fn synth_static_method(decl: &ClassDecl, md: &MethodDecl) -> FrontResult<HirFunc
 /// or an initializer referencing `this`/other statics, bails.
 fn synth_static_field_getter(decl: &ClassDecl, pd: &PropertyDecl) -> FrontResult<HirFunc> {
     let scope = Scope::new();
-    let Some(init_expr) = &pd.initializer else {
-        return Err(Unsupported::new(format!(
-            "static field `{}.{}` without an initializer",
-            decl.name, pd.name
-        )));
+    // No initializer (`static readonly V: string;` — filled by a `static {}`
+    // block / a later write): the getter returns `undefined`. For a USER class
+    // the getter is only the fallback — reads prefer the writable static-field
+    // CELL (`build_from_program` prepends its init to main).
+    let value = match &pd.initializer {
+        Some(init_expr) => rts_hir::lower::lower_swc_expr(init_expr, &scope),
+        None => rts_hir::ir::HirExpr::new(
+            rts_hir::ir::HirExprKind::Lit(rts_hir::HirLit::Undefined),
+            rts_hir::HirType::Unknown,
+        ),
     };
-    let value = rts_hir::lower::lower_swc_expr(init_expr, &scope);
     let body = vec![HirStmt::Return(Some(value))];
     if body_uses_this(&body) {
         return Err(Unsupported::new(format!(

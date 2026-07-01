@@ -575,13 +575,26 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 .expect("__rtsadp_arr_set_length returns the new length value");
             return Ok(Val::new(res, crate::repr::Repr::Tagged));
         }
-        // ---- a bare class NAME target (`C.n = 5`) is a STATIC FIELD WRITE, a later
-        // increment. Bail BEFORE the function-value-property path: `C` now reifies
-        // to a `TAG_FUNCTION` class-value, so without this guard the write would be
+        // ---- a bare class NAME target (`C.n = 5`) is a STATIC FIELD WRITE. A
+        // DECLARED static field lives in its writable module-global cell
+        // (`__rtsn_sfield_C_f`) — store there. An UNDECLARED static prop keeps the
+        // bail, BEFORE the function-value-property path: `C` reifies to a
+        // `TAG_FUNCTION` class-value, so without this guard the write would be
         // silently recorded as a data property on the class-value instead. ----
-        if self.class_name_receiver(object).is_some() {
+        if let Some(class) = self.class_name_receiver(object) {
+            let cell = self
+                .classes
+                .get(&class)
+                .and_then(|d| d.static_fields.get(prop).cloned())
+                .and_then(|fn_name| self.gcell_id(&fn_name).map(|id| (id, fn_name)));
+            if let Some((id, _)) = cell {
+                let v = self.lower_expr(module, value)?;
+                let word = self.box_value(v);
+                self.emit_gcell_set(module, id, word)?;
+                return Ok(Val::new(word, Repr::Tagged));
+            }
             return unsupported!(
-                "static field write `.{prop}` (read-only static getter synthesis — a later increment)"
+                "static field write `.{prop}` (not a declared static field of `{class}`)"
             );
         }
         // ---- accessor SET `obj.x = v` where x is a setter on the receiver class ----

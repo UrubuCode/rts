@@ -232,12 +232,9 @@ fn check_supported(decl: &ClassDecl) -> FrontResult<()> {
     if decl.is_abstract {
         return Err(Unsupported::new(format!("abstract class `{}`", decl.name)));
     }
-    if !decl.static_init_blocks.is_empty() {
-        return Err(Unsupported::new(format!(
-            "class `{}` has a `static {{}}` init block",
-            decl.name
-        )));
-    }
+    // `static {}` init blocks are SUPPORTED: their statements run at the head of
+    // `__rtsn_main` (prepended by `build_from_program`, after the class's own
+    // static-field cell inits), writing the writable static-field cells.
     for m in &decl.members {
         match m {
             ClassMember::Constructor(_) => {}

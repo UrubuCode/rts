@@ -74,6 +74,7 @@ mod fixture_check;
 #[cfg(test)]
 mod tests;
 
+use rts_hir::HirStmt;
 use rts_hir::ir::{HirFunc, HirType};
 
 use super::error::{FrontResult, Unsupported};
@@ -472,6 +473,49 @@ fn build_from_program(
     }
     let body = rts_hir::lower::lower_stmts(&top_stmts, &mut scope);
 
+    // STATIC fields + `static {}` init blocks: every static FIELD of a user class
+    // lives in a WRITABLE module-global cell named by the synth convention
+    // (`__rtsn_sfield_C_f`), declared as a top-level `let` at the HEAD of main
+    // (its name is force-promoted to a gcell below) and initialized in
+    // declaration order; each class's `static {}` blocks run right after its
+    // field inits — before ANY user top-level statement, matching class
+    // evaluation order for the hoisted-class common case. Reads (`C.f`) prefer
+    // the cell; writes (`C.f = v`, incl. inside static blocks) store to it.
+    let mut static_prelude: Vec<HirStmt> = Vec::new();
+    let mut static_field_cells: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+    for c in &class_decls {
+        for m in &c.members {
+            if let rts_ast::ast::ClassMember::Property(pd) = m {
+                if pd.modifiers.is_static {
+                    let cell = class::synth::static_field_getter_name(&c.name, &pd.name);
+                    let init = match &pd.initializer {
+                        Some(e) => rts_hir::lower::lower_swc_expr(e, &scope),
+                        None => rts_hir::ir::HirExpr::new(
+                            rts_hir::ir::HirExprKind::Lit(rts_hir::HirLit::Undefined),
+                            HirType::Unknown,
+                        ),
+                    };
+                    static_prelude.push(HirStmt::Let {
+                        name: cell.clone(),
+                        ty: HirType::Unknown,
+                        init: Some(init),
+                    });
+                    static_field_cells.insert(cell);
+                }
+            }
+        }
+        for (_pos, stmts) in &c.static_init_blocks {
+            static_prelude.extend(rts_hir::lower::lower_stmts(stmts, &mut scope));
+        }
+    }
+    let body = if static_prelude.is_empty() {
+        body
+    } else {
+        static_prelude.extend(body);
+        static_prelude
+    };
+
     let mut main = HirFunc {
         name: "__rtsn_main".to_string(),
         params: Vec::new(),
@@ -587,6 +631,9 @@ fn build_from_program(
     // top-level `const` does not); `name → class` carried for `static_instance_class`.
     let gcell_classes = funcval::singleton_instance_globals(&funcs, &main);
     forced_globals.extend(gcell_classes.keys().cloned());
+    // Static-field cells (`__rtsn_sfield_C_f` lets prepended to main): ALWAYS
+    // promoted — static methods read/write them from inside functions.
+    forced_globals.extend(static_field_cells.iter().cloned());
     let pre_globals: std::collections::HashSet<String> =
         funcval::module_globals(&funcs, &main, &forced_globals)
             .into_keys()

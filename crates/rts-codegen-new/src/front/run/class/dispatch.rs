@@ -158,6 +158,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .expect("static receiver must be a known class")
             .clone();
         if let Some(fn_name) = desc.static_fields.get(field).cloned() {
+            // A USER class's static field lives in a WRITABLE module-global cell
+            // (`__rtsn_sfield_C_f`, promoted in `build_from_program`) — read it.
+            // A prelude/ambient class without a cell keeps the zero-arg getter.
+            if let Some(id) = self.gcell_id(&fn_name) {
+                return self.emit_gcell_get(module, id);
+            }
             return self.call_synth_fn(module, &fn_name, None, &[]);
         }
         // A static METHOD read as a VALUE (`if (Error.captureStackTrace)`,
