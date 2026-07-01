@@ -54,7 +54,7 @@ use super::{PolyValue, abi_adapter};
 /// the box expects). `None` for any non-proxy receiver — the cost is one extra
 /// HandleTable lookup on the DYNAMIC property path (never the proven-shape fast
 /// path), accepted for the trap semantics.
-fn proxy_parts(obj_word: u64) -> Option<(u64, u64)> {
+pub(crate) fn proxy_parts(obj_word: u64) -> Option<(u64, u64)> {
     let obj = PolyValue::from_raw(obj_word);
     if !obj.is_object() {
         return None;
@@ -343,6 +343,27 @@ pub extern "C" fn __rtsadp_define_prop(
     val_word: u64,
     flags: i64,
 ) -> i64 {
+    // PROXY (#218 phase 3): route through the `defineProperty` trap — ToBoolean of
+    // the trap's return (the trap arg is the descriptor's VALUE; the full
+    // descriptor object was unpacked by the `.ts` caller). No trap → forward the
+    // define to the target.
+    if let Some((target, handler)) = proxy_parts(obj_word) {
+        let trap_key = abi_adapter::intern_poly("defineProperty").raw();
+        let trap = __rtsadp_obj_get(handler, trap_key);
+        if PolyValue::from_raw(trap).is_function() {
+            let undef = PolyValue::undefined().raw();
+            let r = super::funcops::__rtsadp_fn_invoke(
+                trap,
+                target,
+                key_str_handle,
+                val_word,
+                undef,
+                0,
+            );
+            return PolyValue::from_raw(r).is_truthy() as i64;
+        }
+        return __rtsadp_define_prop(target, key_str_handle, val_word, flags);
+    }
     let is_own = resolve_slot(obj_word, key_str_handle).is_some();
     if !is_own && is_non_extensible(obj_word) {
         return 0;
@@ -365,6 +386,17 @@ pub extern "C" fn __rtsadp_define_prop(
 /// own). Accessor (`get`/`set`) descriptors are a later increment.
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_obj_get_own_property_descriptor(obj_word: u64, key_word: u64) -> u64 {
+    // PROXY (#218 phase 3): the `getOwnPropertyDescriptor` trap returns the
+    // descriptor object verbatim; no trap → synthesize from the target.
+    if let Some((target, handler)) = proxy_parts(obj_word) {
+        let trap_key = abi_adapter::intern_poly("getOwnPropertyDescriptor").raw();
+        let trap = __rtsadp_obj_get(handler, trap_key);
+        if PolyValue::from_raw(trap).is_function() {
+            let undef = PolyValue::undefined().raw();
+            return super::funcops::__rtsadp_fn_invoke(trap, target, key_word, undef, undef, 0);
+        }
+        return __rtsadp_obj_get_own_property_descriptor(target, key_word);
+    }
     let flags = __rtsadp_prop_flags(obj_word, key_word);
     if flags < 0 {
         return PolyValue::undefined().raw();
@@ -414,8 +446,16 @@ pub extern "C" fn __rtsadp_obj_get_own_property_descriptors(obj_word: u64) -> u6
 /// only the `value` data form is read here.)
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_obj_define_property(obj_word: u64, key_word: u64, desc_word: u64) -> u64 {
+    // A flag OMITTED from the descriptor stays TRUE (#749: only an explicit
+    // `writable:false`/`enumerable:false` marks the property); an explicit value
+    // reads as its ToBoolean. (Full JS omitted⇒false strictness is a later
+    // increment — it would flip properties nobody asked about.)
     let flag = |k: &str| -> i64 {
-        let w = __rtsadp_obj_get(desc_word, abi_adapter::intern_poly(k).raw());
+        let key = abi_adapter::intern_poly(k).raw();
+        if __rtsadp_obj_has(desc_word, key) == 0 {
+            return 1;
+        }
+        let w = __rtsadp_obj_get(desc_word, key);
         super::genops::to_boolean(PolyValue::from_raw(w)) as i64
     };
     let val = __rtsadp_obj_get(desc_word, abi_adapter::intern_poly("value").raw());

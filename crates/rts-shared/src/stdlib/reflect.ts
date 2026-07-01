@@ -61,12 +61,12 @@ class Reflect {
     return Object.getPrototypeOf(target);
   }
 
-  // Reflect.setPrototypeOf(target, proto) — grava o [[Prototype]]; retorna true
-  // (Object.setPrototypeOf retorna o objeto; aqui reportamos sucesso). Um proto
-  // null/não-objeto remove a cadeia.
+  // Reflect.setPrototypeOf(target, proto) — grava o [[Prototype]] e retorna
+  // SUCESSO (bool). Roteia por engine.set_proto_check, que dispara a trap
+  // `setPrototypeOf` de um Proxy (trap false = rejeita). Um proto null/não-objeto
+  // remove a cadeia.
   static setPrototypeOf(target: any, proto: any): any {
-    Object.setPrototypeOf(target, proto);
-    return true;
+    return engine.set_proto_check(target, proto);
   }
 
   // Reflect.defineProperty(target, key, descriptor) — DATA descriptor: grava o
@@ -100,15 +100,8 @@ class Reflect {
   // é all-true; uma criada por defineProperty traz seus flags). `undefined` se a key
   // não é own (não anda no proto).
   static getOwnPropertyDescriptor(target: any, key: any): any {
-    const f: number = engine.prop_flags(target, key);
-    if (f < 0) {
-      return undefined;
-    }
-    return {
-      value: target[key],
-      writable: (f & 1) !== 0,
-      enumerable: (f & 2) !== 0,
-      configurable: (f & 4) !== 0,
-    };
+    // engine.get_own_desc sintetiza o descriptor com os FLAGS REAIS e roteia a
+    // trap `getOwnPropertyDescriptor` de um Proxy (#218 fase 3).
+    return engine.get_own_desc(target, key);
   }
 }

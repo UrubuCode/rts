@@ -294,6 +294,20 @@ pub extern "C" fn __rtsadp_fn_invoke(
 ) -> u64 {
     let pv = PolyValue::from_raw(fn_word);
     if !pv.is_function() {
+        // PROXY over a callable (#218): route the call through the `apply` trap —
+        // `handler.apply(target, thisArg, argsList)`. The uniform 5-slot invoke
+        // does not carry an arg COUNT, so `argsList` rides as `undefined` (traps
+        // that ignore it — the observed pattern — work; reading it is a later
+        // increment). No trap → forward the call to the target verbatim.
+        if let Some((target, handler)) = super::objops::proxy_parts(fn_word) {
+            let apply_key = super::abi_adapter::intern_poly("apply").raw();
+            let trap = super::objops::__rtsadp_obj_get(handler, apply_key);
+            let undef = PolyValue::undefined().raw();
+            if PolyValue::from_raw(trap).is_function() {
+                return __rtsadp_fn_invoke(trap, target, undef, undef, undef, 0);
+            }
+            return __rtsadp_fn_invoke(target, a0, a1, a2, a3, rest);
+        }
         return PolyValue::undefined().raw();
     }
     // Reconstruct the full real handle (generation read from the live slot) from

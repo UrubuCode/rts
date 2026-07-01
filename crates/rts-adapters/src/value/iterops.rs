@@ -109,6 +109,18 @@ pub(crate) fn reorder_enum_keys(keys: Vec<String>) -> Vec<String> {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_obj_keys(obj_word: u64) -> u64 {
+    // PROXY (#218): the `ownKeys` trap returns the keys array verbatim; no trap →
+    // forward to the target (an `Entry::Proxy` is not a keyed object, so falling
+    // through would read zero keys).
+    if let Some((target, handler)) = super::objops::proxy_parts(obj_word) {
+        let trap_key = abi_adapter::intern_poly("ownKeys").raw();
+        let trap = super::objops::__rtsadp_obj_get(handler, trap_key);
+        if PolyValue::from_raw(trap).is_function() {
+            let undef = PolyValue::undefined().raw();
+            return super::funcops::__rtsadp_fn_invoke(trap, target, undef, undef, undef, 0);
+        }
+        return __rtsadp_obj_keys(target);
+    }
     let vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     let obj = PolyValue::from_raw(obj_word);
     if obj.is_object() && looks_like_object(obj) {

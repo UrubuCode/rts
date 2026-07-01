@@ -53,8 +53,19 @@ pub extern "C" fn __rtsadp_obj_create(proto_word: u64) -> u64 {
 }
 
 /// `Object.getPrototypeOf(obj)` → the recorded prototype object word, or `null`.
+/// A PROXY receiver routes through its `getPrototypeOf` trap (#218 phase 3);
+/// no trap → forward to the target.
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_obj_proto_of(obj_word: u64) -> u64 {
+    if let Some((target, handler)) = super::objops::proxy_parts(obj_word) {
+        let trap_key = super::abi_adapter::intern_poly("getPrototypeOf").raw();
+        let trap = super::objops::__rtsadp_obj_get(handler, trap_key);
+        if PolyValue::from_raw(trap).is_function() {
+            let undef = PolyValue::undefined().raw();
+            return super::funcops::__rtsadp_fn_invoke(trap, target, undef, undef, undef, 0);
+        }
+        return __rtsadp_obj_proto_of(target);
+    }
     proto_of(obj_word).unwrap_or_else(|| PolyValue::null().raw())
 }
 
@@ -64,6 +75,12 @@ pub extern "C" fn __rtsadp_obj_proto_of(obj_word: u64) -> u64 {
 /// is a no-op pass-through.
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_obj_set_proto(obj_word: u64, proto_word: u64) -> u64 {
+    // PROXY: same trap routing as `set_proto_check` (Object.setPrototypeOf's
+    // contract returns the object either way).
+    if super::objops::proxy_parts(obj_word).is_some() {
+        __rtsadp_set_proto_check(obj_word, proto_word);
+        return obj_word;
+    }
     if PolyValue::from_raw(obj_word).is_object() {
         if let Ok(mut t) = proto_table().lock() {
             if PolyValue::from_raw(proto_word).is_object() {
@@ -74,6 +91,30 @@ pub extern "C" fn __rtsadp_obj_set_proto(obj_word: u64, proto_word: u64) -> u64 
         }
     }
     obj_word
+}
+
+/// `Reflect.setPrototypeOf(obj, proto)` — like [`__rtsadp_obj_set_proto`] but
+/// returns SUCCESS as an i64 0/1, and routes a PROXY receiver through its
+/// `setPrototypeOf` trap (#218 phase 3): ToBoolean of the trap's return decides
+/// (a `false` trap REJECTS — the target is not written); no trap → forward to
+/// the target. A non-object receiver fails (`0`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_set_proto_check(obj_word: u64, proto_word: u64) -> i64 {
+    if let Some((target, handler)) = super::objops::proxy_parts(obj_word) {
+        let trap_key = super::abi_adapter::intern_poly("setPrototypeOf").raw();
+        let trap = super::objops::__rtsadp_obj_get(handler, trap_key);
+        if PolyValue::from_raw(trap).is_function() {
+            let undef = PolyValue::undefined().raw();
+            let r = super::funcops::__rtsadp_fn_invoke(trap, target, proto_word, undef, undef, 0);
+            return PolyValue::from_raw(r).is_truthy() as i64;
+        }
+        return __rtsadp_set_proto_check(target, proto_word);
+    }
+    if !PolyValue::from_raw(obj_word).is_object() {
+        return 0;
+    }
+    __rtsadp_obj_set_proto(obj_word, proto_word);
+    1
 }
 
 /// `proto.isPrototypeOf(obj)` → walk `obj`'s prototype chain; `true` iff `proto`

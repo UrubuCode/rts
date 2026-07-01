@@ -817,6 +817,10 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64],
             ret: I64,
         },
+        "__rtsadp_set_proto_check" => SymSig {
+            params: &[U64, U64],
+            ret: I64,
+        },
         "__rtsadp_obj_delete" => SymSig {
             params: &[U64, U64],
             ret: Bool,

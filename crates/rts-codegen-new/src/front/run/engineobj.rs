@@ -154,6 +154,28 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if method == "is_extensible" {
             return self.lower_engine_descriptor(module, args, "__rtsadp_is_extensible", 1, Repr::Bool);
         }
+        // `set_proto_check(obj, proto)` — Reflect.setPrototypeOf: success bool +
+        // Proxy `setPrototypeOf` trap routing (#218 phase 3).
+        if method == "set_proto_check" {
+            return self.lower_engine_descriptor(
+                module,
+                args,
+                "__rtsadp_set_proto_check",
+                2,
+                Repr::Bool,
+            );
+        }
+        // `get_own_desc(obj, key)` — the synthesized descriptor object (or
+        // undefined), Proxy `getOwnPropertyDescriptor` trap-aware.
+        if method == "get_own_desc" {
+            return self.lower_engine_descriptor(
+                module,
+                args,
+                "__rtsadp_obj_get_own_property_descriptor",
+                2,
+                Repr::Tagged,
+            );
+        }
         // The numeric-format bridge (`num_to_fixed`/`num_to_precision`/
         // `num_to_exponential`/`num_to_string_radix`): each takes (n, arg) — a
         // number receiver + an int arg — and returns a GC string handle. They wrap
