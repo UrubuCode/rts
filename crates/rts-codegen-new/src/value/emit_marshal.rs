@@ -113,6 +113,27 @@ pub fn emit_box_real_string(
     builder.ins().bor(payload, header_v)
 }
 
+/// Like [`emit_box_real_string`] but boxes as a `TAG_OBJECT` PolyValue (an
+/// array/object handle return — e.g. `s.match(p)`'s Vec-of-strings).
+pub fn emit_box_real_object(
+    module: &mut dyn Module,
+    builder: &mut FunctionBuilder,
+    real_handle: Value,
+) -> Value {
+    let payload48 = emit_call(
+        module,
+        builder,
+        "__RTS_FN_NS_GC_POLY_FROM_HANDLE",
+        &[real_handle],
+    )
+    .expect("POLY_FROM_HANDLE returns a value");
+    let header = super::encode(super::TAG_OBJECT, 0) as i64;
+    let mask = builder.ins().iconst(types::I64, PAYLOAD_MASK as i64);
+    let payload = builder.ins().band(payload48, mask);
+    let header_v = builder.ins().iconst(types::I64, header);
+    builder.ins().bor(payload, header_v)
+}
+
 /// From a real string handle, emit `STRING_PTR(h)` and `STRING_LEN(h)`, returning
 /// `(ptr, len)` as two i64 Cranelift values — the `StrPtr` 2-slot ABI shape.
 pub fn emit_string_ptr_len(

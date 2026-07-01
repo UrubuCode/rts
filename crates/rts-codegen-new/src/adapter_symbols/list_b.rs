@@ -479,6 +479,23 @@ fn gl_method_symbols() -> Vec<JitSymbol> {
             "__RTS_FN_GL_STRING_SUBSTR",
             rt_gl_str::__RTS_FN_GL_STRING_SUBSTR as *const u8,
         ),
+        // match/search/matchAll AUTO (string-or-regex pattern, runtime dispatch) —
+        // live in the primitives `string::search` module, not `rt`.
+        sym(
+            "__RTS_FN_GL_STRING_MATCH_AUTO",
+            rts_runtime::namespaces::globals::string::search::__RTS_FN_GL_STRING_MATCH_AUTO
+                as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_SEARCH_AUTO",
+            rts_runtime::namespaces::globals::string::search::__RTS_FN_GL_STRING_SEARCH_AUTO
+                as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_STRING_MATCH_ALL_AUTO",
+            rts_runtime::namespaces::globals::string::search::__RTS_FN_GL_STRING_MATCH_ALL_AUTO
+                as *const u8,
+        ),
         sym(
             "__RTS_FN_GL_STRING_CODE_POINT_AT",
             rt_gl_str::__RTS_FN_GL_STRING_CODE_POINT_AT as *const u8,

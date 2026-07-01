@@ -16,6 +16,7 @@
 //! - an argument whose proven kind does not match the slot's `AbiType` (a string
 //!   slot wants a string arg, a number slot wants a numeric arg).
 
+use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_module::Module;
 
@@ -453,7 +454,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let ret = emit_marshal::emit_call(module, self.builder, spec.symbol, &call_args);
 
         // ---- marshal the result back to a PolyValue ----
-        self.marshal_ret(module, spec.ret, ret)
+        self.marshal_ret(module, spec.ret, spec.ret_is_array, ret)
     }
 
     /// Marshal one lowered arg `v` to the slot `AbiType` the real symbol wants.
@@ -524,11 +525,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         &mut self,
         module: &mut dyn Module,
         ret: AbiType,
+        ret_is_array: bool,
         value: Option<Value>,
     ) -> FrontResult<Val> {
         match ret {
-            // A returned string/object handle → box as a TAG_STR PolyValue (the
-            // GL_STRING methods all return strings).
+            // A returned handle: `ret_is_array` routes the ONE heterogeneous-
+            // handle authority (`__rtsadp_box_handle_auto`): 0 → null; a String
+            // entry → string word (`s.match("p")` returns the match STRING); a
+            // Vec → object word with legacy raw-handle elements normalized to
+            // words. Otherwise a TAG_STR string (the GL_STRING scalar returns).
+            AbiType::Handle if ret_is_array => {
+                let h = value.expect("Handle-returning symbol yields a value");
+                let word = self
+                    .call_runtime(module, "__rtsadp_box_handle_auto", &[h])?
+                    .expect("__rtsadp_box_handle_auto returns a word");
+                Ok(Val::new(word, Repr::Tagged))
+            }
             AbiType::Handle => {
                 let h = value.expect("Handle-returning symbol yields a value");
                 let word = emit_marshal::emit_box_real_string(module, self.builder, h);

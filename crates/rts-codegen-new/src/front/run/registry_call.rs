@@ -168,7 +168,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     // raw id as a heap pointer and SIGILL on the next table-load.
                     JsKind::Number => Val::new(h, Repr::Int64),
                     // Any other expectation (the construct/Date path) is a real
-                    // object handle.
+                    // object handle. NOT routed through `__rtsadp_box_handle_auto`:
+                    // a Registry-class INSTANCE may itself be an `Entry::Vec` whose
+                    // raw-handle layout belongs to its Rust backend (URLSearchParams
+                    // stores raw pair handles) — normalizing it in place corrupts
+                    // the backend's own reads. Only the row paths whose results are
+                    // FRESH JS arrays (`match`/`matchAll`) normalize.
                     _ => {
                         let w = self.box_object_handle(module, h);
                         Val::tagged_kind(w, JsKind::Object)

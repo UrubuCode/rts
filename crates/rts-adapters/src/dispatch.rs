@@ -116,8 +116,12 @@ pub fn array_method_returns_array(method: &str) -> bool {
     if matches!(method, "splice" | "toSpliced") {
         return true;
     }
+    // Includes the STRING rows too: `s.match(p)`/`s.matchAll(p)`/`s.split(sep)`
+    // yield an array, so chaining `.join()`/`.length` on the result is an array
+    // dispatch (the caller's receiver-class inference reads this bit).
     ARRAY_ROWS
         .iter()
+        .chain(STRING_ROWS.iter())
         .any(|(name, _, spec)| *name == method && spec.ret_is_array)
 }
 
@@ -181,6 +185,26 @@ const STRING_ROWS: &[(&str, usize, MethodSpec)] = &[
         "localeCompare",
         1,
         sm("__RTS_FN_GL_STRING_LOCALE_COMPARE", &[Handle], I64),
+    ),
+    // ---- match/search/matchAll with a STRING pattern arg: the `_AUTO` symbols
+    // dispatch string-vs-regex at runtime (Entry::Regex probe), so ONE row per
+    // method covers both; the regex-LITERAL first-arg form short-circuits earlier
+    // in `try_string_regex_method`. `match`/`matchAll` return a Vec handle (0 ⇒
+    // JS `null`); `search` a number. ----
+    (
+        "match",
+        1,
+        sm_arr("__RTS_FN_GL_STRING_MATCH_AUTO", &[Handle], Handle),
+    ),
+    (
+        "search",
+        1,
+        sm("__RTS_FN_GL_STRING_SEARCH_AUTO", &[Handle], I64),
+    ),
+    (
+        "matchAll",
+        1,
+        sm_arr("__RTS_FN_GL_STRING_MATCH_ALL_AUTO", &[Handle], Handle),
     ),
     // ---- deprecated start+count slice (2-arg form) ----
     (
@@ -354,6 +378,15 @@ const fn sm(symbol: &'static str, args: &'static [AbiType], ret: AbiType) -> Met
         ret,
         cb: None,
         ret_is_array: false,
+    }
+}
+
+/// Like [`sm`] but the result IS an array word (`match`/`matchAll` — the AUTO
+/// dispatchers return a Vec-of-strings handle, or 0 for `null`).
+const fn sm_arr(symbol: &'static str, args: &'static [AbiType], ret: AbiType) -> MethodSpec {
+    MethodSpec {
+        ret_is_array: true,
+        ..sm(symbol, args, ret)
     }
 }
 

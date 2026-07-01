@@ -106,6 +106,10 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             genops::__rtsadp_word_to_abi_i64 as *const u8,
         ),
         sym(
+            "__rtsadp_box_handle_auto",
+            genops::__rtsadp_box_handle_auto as *const u8,
+        ),
+        sym(
             "__rtsadp_print_line",
             abi_adapter::__rtsadp_print_line as *const u8,
         ),

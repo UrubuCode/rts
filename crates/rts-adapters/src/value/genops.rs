@@ -503,6 +503,64 @@ fn rebox_settled(raw: i64) -> u64 {
     w
 }
 
+/// `__rtsadp_box_handle_auto` — box a RAW runtime handle return into the right
+/// PolyValue by its LIVE entry kind: `0` → `null`; `Entry::String` → a string
+/// word; `Entry::Vec`/anything else → an object word. A Vec's elements are
+/// NORMALIZED in place: a legacy producer (`s.match(re)`, `URLSearchParams`
+/// getters) stores RAW string-handle i64s (they read back as denormal doubles),
+/// which are reboxed to real string words; a nested Vec recurses (bounded).
+/// This is the ONE heterogeneous-handle-return authority — tag-dispatch at
+/// runtime, no static guessing.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_box_handle_auto(h: u64) -> u64 {
+    box_handle_auto_depth(h, 0)
+}
+
+fn box_handle_auto_depth(h: u64, depth: u32) -> u64 {
+    use rts_engine::heap::handles::{Entry, with_entry};
+    use rts_runtime::namespaces::collections::vec as rt_vec;
+    use rts_runtime::namespaces::gc::handles as rt_handles;
+    if h == 0 {
+        return PolyValue::null().raw();
+    }
+    let kind = with_entry(h, |e| match e {
+        Some(Entry::String(_)) => 1u8,
+        Some(Entry::Vec(_)) => 2,
+        Some(_) => 3,
+        None => 0,
+    });
+    match kind {
+        1 => abi_adapter::poly_from_real_handle(h).raw(),
+        2 => {
+            // Normalize legacy RAW elements (outside the entry lock — VEC_GET
+            // re-locks the shard). A raw handle is NOT a boxed word and NOT a
+            // plausible double (its bits read as a denormal ≥ 2^48 as an int).
+            if depth < 4 {
+                let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(h).max(0);
+                for i in 0..len {
+                    let e = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(h, i) as u64;
+                    if !PolyValue::from_raw(e).is_boxed() && e >= (1 << 48) {
+                        let is_heap = with_entry(e, |en| {
+                            matches!(en, Some(Entry::String(_)) | Some(Entry::Vec(_)))
+                        });
+                        if is_heap {
+                            let w = box_handle_auto_depth(e, depth + 1);
+                            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(h, i, w as i64);
+                        }
+                    }
+                }
+            }
+            let slot = rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h);
+            PolyValue::from_object_handle(slot).raw()
+        }
+        3 => {
+            let slot = rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h);
+            PolyValue::from_object_handle(slot).raw()
+        }
+        _ => PolyValue::null().raw(),
+    }
+}
+
 /// `__rtsadp_word_to_abi_i64` — marshal a Tagged PolyValue word to a raw-`i64`
 /// ABI slot (`I64`/`U64` namespace params), dispatching on the TAG instead of
 /// assuming a number: a heap value (string/object/function) yields its REAL

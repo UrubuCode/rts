@@ -313,7 +313,7 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             ret: U64,
         },
         "__rtsadp_typeof" | "__rtsadp_to_string" | "__rtsadp_to_boolean"
-        | "__rtsadp_await" | "__rtsadp_word_to_abi_i64" => SymSig {
+        | "__rtsadp_await" | "__rtsadp_word_to_abi_i64" | "__rtsadp_box_handle_auto" => SymSig {
             params: &[U64],
             ret: U64,
         },
@@ -914,9 +914,15 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[Handle, I64],
             ret: I64,
         },
-        "__RTS_FN_GL_STRING_LOCALE_COMPARE" => SymSig {
+        "__RTS_FN_GL_STRING_LOCALE_COMPARE" | "__RTS_FN_GL_STRING_SEARCH_AUTO" => SymSig {
             params: &[Handle, Handle],
             ret: I64,
+        },
+        // match/matchAll AUTO: (recv handle, pattern handle string-or-regex) →
+        // a Vec-of-strings handle (0 ⇒ JS null).
+        "__RTS_FN_GL_STRING_MATCH_AUTO" | "__RTS_FN_GL_STRING_MATCH_ALL_AUTO" => SymSig {
+            params: &[Handle, Handle],
+            ret: Handle,
         },
         "__RTS_FN_GL_STRING_REPLACE" | "__RTS_FN_GL_STRING_REPLACE_ALL" => SymSig {
             params: &[Handle, Handle, Handle],

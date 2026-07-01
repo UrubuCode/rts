@@ -24,7 +24,8 @@ describe("String.match() retorna array (#match-spec)", () => {
   test("m1[0] full match", () => expect(str0).toBe("Hello 123"));
   test("m1[1] grupo 1", () => expect(str1).toBe("Hello"));
   test("m1[2] grupo 2", () => expect(str2).toBe("123"));
-  test("m2 null no match", () => expect(m2 === 0).toBe(true));
+  // JS fiel: match sem match retorna null (era `=== 0` no modelo velho).
+  test("m2 null no match", () => expect(m2 === null).toBe(true));
   test("m3 1 elem (sem groups)", () => expect(m3len).toBe(1));
   // m1len.toBe(3) tem problema de codegen quando 2+ vars number sao
   // declaradas a partir de m.length consecutivamente — investigacao em
