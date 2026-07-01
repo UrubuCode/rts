@@ -179,6 +179,31 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
     let bytes = css.as_bytes();
     let mut i = 0usize;
     while i < bytes.len() {
+        // AT-RULES (`@media`/`@supports`/`@font-face`/…): têm um BLOCO ANINHADO
+        // próprio (`@media (...) { .x { … } }`) — o fechamento raso no primeiro `}`
+        // CORROMPIA o parse (o `}` externo órfão dessincronizava e ENGOLIA as regras
+        // vizinhas; era assim que o bootstrap.min.css perdia `h1{font-size}` etc.).
+        // Fase 1: PULAR o bloco inteiro com chaves casadas (as regras internas ficam
+        // de fora — a responsividade real de `@media (min-width)` chega quando a
+        // cascade souber o viewport, fase 2). `@import`/`@charset` (sem bloco) pulam
+        // até o `;`. `@keyframes` nunca chega aqui (extraído antes em append_css).
+        let ws = css[i..].find(|c: char| !c.is_whitespace()).map(|r| i + r).unwrap_or(css.len());
+        if css[ws..].starts_with('@') {
+            let brace_rel = css[ws..].find('{');
+            let semi_rel = css[ws..].find(';');
+            match (brace_rel, semi_rel) {
+                // `;` antes do `{` (ou sem bloco): at-rule sem corpo → pula até o `;`.
+                (None, Some(s)) => i = ws + s + 1,
+                (Some(b), Some(s)) if s < b => i = ws + s + 1,
+                // com bloco: pula até o `}` CASADO (conta aninhamento).
+                (Some(b), _) => match find_matching_brace(&css[ws + b + 1..]) {
+                    Some(end) => i = ws + b + 1 + end + 1,
+                    None => break, // bloco não fecha: nada mais a parsear.
+                },
+                (None, None) => break,
+            }
+            continue;
+        }
         // Acha o `{` que abre o bloco de declarações.
         let Some(brace) = css[i..].find('{').map(|r| i + r) else { break };
         let selectors_raw = css[i..brace].trim();

@@ -10,7 +10,7 @@ use super::props::ComputedStyle;
 use super::stylesheet::DeclBlock;
 use super::values::{
     AlignItems, BorderStyle, Dimension, DisplayKind, Edges, FlexDirection, JustifyContent,
-    LineHeight, Side, TextAlign, TextTransform, WhiteSpace,
+    LineHeight, Position, Side, TextAlign, TextTransform, WhiteSpace,
 };
 
 /// Parseia um `style="prop: valor; ..."` para um [`ComputedStyle`] (só a camada
@@ -104,6 +104,14 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             "max-width" => css.max_width = parse_dimension(val),
             "min-height" => css.min_height = parse_dimension(val),
             "max-height" => css.max_height = parse_dimension(val),
+            // `position` + offsets (top/right/bottom/left). Os offsets aceitam
+            // negativos (deslocam para fora) — parse_dimension rejeita <0, então
+            // px negativo entra por parse direto.
+            "position" => css.position = Position::parse(val),
+            "top" => css.inset_top = parse_inset(val),
+            "right" => css.inset_right = parse_inset(val),
+            "bottom" => css.inset_bottom = parse_inset(val),
+            "left" => css.inset_left = parse_inset(val),
             "transition" => css.transition = crate::anim::TransitionSpec::parse(val),
             "animation" => css.animation = crate::anim::AnimationSpec::parse(val),
             _ => {}
@@ -213,6 +221,19 @@ fn parse_border_width_token(tok: &str) -> Option<f32> {
         "thick" => Some(5.0),
         _ => parse_px(tok),
     }
+}
+
+/// Um offset de posicionamento (`top`/`left`/…): como [`parse_dimension`], MAS
+/// aceita valores NEGATIVOS em px (deslocar para fora é comum em badges/tooltips);
+/// as unidades relativas continuam ≥ 0 via parse_dimension.
+fn parse_inset(v: &str) -> Option<Dimension> {
+    let t = v.trim();
+    // negativo: só a forma px/número (o parse_dimension rejeita <0).
+    if t.starts_with('-') {
+        let num = t.strip_suffix("px").unwrap_or(t);
+        return num.trim().parse::<f32>().ok().map(Dimension::Px);
+    }
+    parse_dimension(t)
 }
 
 /// Parseia o shorthand `gap: <row-gap> <column-gap>` → `(row_gap, column_gap)`.

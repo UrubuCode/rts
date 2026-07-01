@@ -24,7 +24,7 @@
 use super::lerp::AnimValue;
 use super::values::{
     AlignItems, BorderStyle, Dimension, DisplayKind, Edges, FlexDirection, JustifyContent,
-    LineHeight, Rgba, Side, TextAlign, TextTransform, WhiteSpace,
+    LineHeight, Position, Rgba, Side, TextAlign, TextTransform, WhiteSpace,
 };
 
 /// Declara a tabela de propriedades e gera a struct + os 4 mecanismos da cascade.
@@ -195,6 +195,18 @@ css_props! {
         [] min_height: Dimension;
         /// `max-height` — teto da altura usada.
         [] max_height: Dimension;
+        /// `position` — esquema de posicionamento. `absolute`/`fixed` saem do
+        /// FLUXO (não ocupam espaço) e pintam contra o viewport com os offsets
+        /// abaixo (v1 — ver [`Position`]). `None` = `static`.
+        [] position: Position;
+        /// `top` — offset do posicionamento (só atua com position abs/fixed na v1).
+        [] inset_top: Dimension;
+        /// `right` — offset do posicionamento.
+        [] inset_right: Dimension;
+        /// `bottom` — offset do posicionamento.
+        [] inset_bottom: Dimension;
+        /// `left` — offset do posicionamento.
+        [] inset_left: Dimension;
         /// `transition` (#1776) — anima as mudanças de estilo deste nó ao longo do
         /// tempo. `None` = sem transição (mudanças são instantâneas).
         [] transition: crate::anim::TransitionSpec;
