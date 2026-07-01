@@ -1,0 +1,62 @@
+<html>
+<head>
+  <link rel="stylesheet" href="./theme.css">
+</head>
+<body>
+  <nav class="navbar">
+    <span class="brand">◆ RTS</span>
+    <span class="nav-links">Docs · Bench · GitHub</span>
+  </nav>
+
+  <header class="hero">
+    <div class="badge">TYPESCRIPT-TO-NATIVE</div>
+    <h1>Construa nativo. Renderize web.</h1>
+    <p class="subtitle">Um compilador TS com motor HTML/CSS próprio. O mesmo runtime que roda seu código também desenha sua interface — sem navegador.</p>
+    <div class="cta-row">
+      <span class="btn btn-primary">Começar agora</span>
+      <span class="btn btn-ghost">Ver benchmarks</span>
+    </div>
+  </header>
+
+  <section class="stats">
+    <div class="stat">
+      <div class="stat-num">5.1×</div>
+      <div class="stat-label">mais rápido que Bun</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">29k</div>
+      <div class="stat-label">req/s HTTP nativo</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">0</div>
+      <div class="stat-label">runtime externo</div>
+    </div>
+  </section>
+
+  <main class="grid">
+    <div class="card">
+      <div class="chip chip-blue">CG</div>
+      <h2>Cranelift codegen</h2>
+      <p>HIR direto para código de máquina. Sem interpretador, sem VM — binários nativos de verdade.</p>
+    </div>
+    <div class="card">
+      <div class="chip chip-green">GC</div>
+      <h2>GC preciso</h2>
+      <p>Mark-and-sweep com stack maps. Memória gerenciada sem ownership manual no seu TypeScript.</p>
+    </div>
+    <div class="card">
+      <div class="chip chip-purple">UI</div>
+      <h2>Motor HTML próprio</h2>
+      <p>DOM, cascade CSS e layout em Rust. O backend só pinta — troque de UI sem reescrever nada.</p>
+    </div>
+  </main>
+
+  <section class="cta-band">
+    <h2>Esta página foi renderizada pelo RTS</h2>
+    <p>DOM, CSS externo e @import — tudo resolvido pelo motor, zero navegador.</p>
+    <span class="btn btn-light">Baixar a toolchain</span>
+  </section>
+
+  <footer class="footer">© 2026 RTS Web Engine · Cranelift · zero runtime externo</footer>
+</body>
+</html>

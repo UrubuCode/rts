@@ -670,6 +670,29 @@ pub extern "C" fn __RTS_FN_NS_DOM_SET_CSS_TEXT(h: u64, id: i64, t_ptr: *const u8
     with_mut(h, |dom| dom.set_css_text(node, &text));
 }
 
+/// `addStylesheet(domHandle, css)` → injeta uma folha de estilo de AUTOR na página,
+/// pelo MESMO caminho do `<style>` inline (acumula no stylesheet, regras posteriores
+/// desempatam por cima). Usado pela camada TS de carregamento de recursos para ligar
+/// CSS externo (`<link rel=stylesheet>`, `@import`) à cascade — o Rust não conhece a
+/// tag `<link>` nem lê o arquivo; o TS resolve/baixa e chama isto com o CSS pronto.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_ADD_STYLESHEET(h: u64, css_ptr: *const u8, css_len: i64) {
+    let css = unsafe { str_abi::from_abi(css_ptr, css_len) }.unwrap_or("").to_string();
+    with_mut(h, |dom| dom.add_stylesheet(&css));
+}
+
+/// `runScript(domHandle, node, code)` → materializa o fonte de um `<script src>`
+/// carregado como TEXTO do nó (acessível por `textContent`). NÃO executa: o motor
+/// novo não tem eval in-process com acesso ao DOM (ver a nota em `__loadScriptAt`).
+/// Carregar ≠ executar — quando o eval in-process existir, este primitivo evolui para
+/// disparar a execução de fato.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_RUN_SCRIPT(h: u64, id: i64, c_ptr: *const u8, c_len: i64) {
+    let Some(node) = NodeId::from_abi(id) else { return };
+    let code = unsafe { str_abi::from_abi(c_ptr, c_len) }.unwrap_or("").to_string();
+    with_mut(h, |dom| dom.set_text(node, &code));
+}
+
 /// `setStyleProperty(domHandle, node, name, value)` → define UMA prop no `style=""`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_DOM_SET_STYLE_PROPERTY(
@@ -1504,6 +1527,22 @@ pub fn register(e: &mut Engine) {
             "setCssText(dom: number, node: number, text: string): void",
             "el.style.cssText = text (set): replace the whole style='' string.",
             __RTS_FN_NS_DOM_SET_CSS_TEXT as *const u8,
+        ))
+        .member(func(
+            "addStylesheet", "__RTS_FN_NS_DOM_ADD_STYLESHEET",
+            Sig::new(vec![Handle, StrPtr], AbiType::Void),
+            "addStylesheet(dom: number, css: string): void",
+            "inject an author stylesheet (same path as inline <style>): external CSS \
+             from <link rel=stylesheet>/@import is loaded in TS and fed to the cascade.",
+            __RTS_FN_NS_DOM_ADD_STYLESHEET as *const u8,
+        ))
+        .member(func(
+            "runScript", "__RTS_FN_NS_DOM_RUN_SCRIPT",
+            Sig::new(vec![Handle, I64, StrPtr], AbiType::Void),
+            "runScript(dom: number, node: number, code: string): void",
+            "materialize a loaded <script src> source as the node's text (load, not \
+             execute — the new engine has no in-process eval with DOM access yet).",
+            __RTS_FN_NS_DOM_RUN_SCRIPT as *const u8,
         ))
         .member(func(
             "setStyleProperty", "__RTS_FN_NS_DOM_SET_STYLE_PROPERTY",

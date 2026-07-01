@@ -1,0 +1,44 @@
+@import "./reset.css";
+
+/* ---- base ---- */
+body { background: #0b0f1a; color: #e8edf5; font-size: 16px; }
+
+/* ---- navbar ---- */
+.navbar { background: #0f1626; color: #e8edf5; padding: 18px; border-width: 1px; border-color: #1c2740; }
+.brand { color: #5ea8ff; font-size: 20px; font-weight: 700; }
+.nav-links { color: #7e8aa3; font-size: 14px; }
+
+/* ---- hero ---- */
+.hero { background: #121d33; color: #ffffff; padding: 56px; border-width: 1px; border-color: #1c2740; }
+.badge { background: #1c3a66; color: #8ec5ff; font-size: 12px; font-weight: 700; padding: 8px; border-radius: 6px; }
+.hero h1 { font-size: 46px; font-weight: 700; color: #ffffff; margin-top: 20px; margin-bottom: 16px; }
+.subtitle { color: #a9b6cf; font-size: 18px; }
+.cta-row { margin-top: 28px; }
+.btn { font-size: 15px; font-weight: 700; padding: 14px; border-radius: 8px; }
+.btn-primary { background: #2f7bff; color: #ffffff; }
+.btn-ghost { background: #18233b; color: #9fc0ff; border-width: 1px; border-color: #2c4373; }
+.btn-light { background: #ffffff; color: #0b0f1a; }
+
+/* ---- stats ---- */
+.stats { background: #0e1525; padding: 32px; }
+.stat { background: #131d33; border-width: 1px; border-color: #20304f; border-radius: 12px; padding: 24px; margin: 8px; }
+.stat-num { color: #5ea8ff; font-size: 38px; font-weight: 700; }
+.stat-label { color: #8b98b3; font-size: 14px; margin-top: 4px; }
+
+/* ---- feature cards ---- */
+.grid { background: #0b0f1a; padding: 32px; }
+.card { background: #131d33; border-width: 1px; border-color: #20304f; border-radius: 14px; padding: 28px; margin: 12px; }
+.chip { color: #ffffff; font-size: 15px; font-weight: 700; padding: 10px; border-radius: 10px; }
+.chip-blue { background: #2f7bff; }
+.chip-green { background: #1f9d6b; }
+.chip-purple { background: #8b5cf6; }
+.card h2 { color: #ffffff; font-size: 22px; font-weight: 700; margin-top: 16px; margin-bottom: 8px; }
+.card p { color: #a9b6cf; font-size: 15px; }
+
+/* ---- cta band ---- */
+.cta-band { background: #142a52; color: #ffffff; padding: 48px; border-radius: 0px; }
+.cta-band h2 { font-size: 30px; font-weight: 700; color: #ffffff; margin-bottom: 10px; }
+.cta-band p { color: #b9cdf0; font-size: 16px; margin-bottom: 24px; }
+
+/* ---- footer ---- */
+.footer { background: #090d16; color: #67738e; font-size: 13px; padding: 28px; }

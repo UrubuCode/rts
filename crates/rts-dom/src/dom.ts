@@ -623,3 +623,313 @@ function pumpEvents(domHandle: number): number {
 function getLastEventType(domHandle: number): string {
   return dom.pollEventType(domHandle);
 }
+
+
+// ── Carregamento de recursos externos (CSS/script) ───────────────────────────────
+// O HTML referencia arquivos externos: `<link rel=stylesheet href>`, `@import` no
+// CSS, `<script src>`. O `rts-dom` (Rust) é um motor PURO — não conhece a tag
+// `<link>` nem lê arquivos. A POLÍTICA ("o que carregar, de onde, quando") mora aqui
+// em TS, fiel à doutrina do projeto (o Rust expõe só primitivos: `dom.addStylesheet`
+// para ligar CSS à cascade, `fs.read_text`/`fetch`/`runtime.eval` para o I/O).
+//
+// Origem: arquivo local (`fs.read_text`) ou `http(s)://` (`fetch().text()`, caminho
+// SÍNCRONO — sem await, para não depender do loop async). Resolução de URL relativa
+// é feita contra um `baseUrl` (o diretório/URL do documento).
+//
+// ⚠️ Sentinela: `fs.read_text` devolve "" em erro; `fetch` pode falhar — tratamos
+// como "recurso ausente" (segue sem ele, como o browser tolera).
+
+// Junta um caminho-base com uma referência relativa. Absolutos (`http://`, `/...`,
+// `C:\`) passam direto; relativos (`./x`, `x.css`, `../y`) resolvem contra a base.
+function __resolveUrl(base: string, ref: string): string {
+  if (ref.length === 0) return ref;
+  // URL absoluta (tem esquema "xxx://") ou protocol-relative "//host".
+  if (__hasScheme(ref) || (ref.charAt(0) === "/" && ref.charAt(1) === "/")) return ref;
+  // Raiz absoluta local "/abs".
+  if (ref.charAt(0) === "/") return ref;
+  // Caminho absoluto Windows "C:\..." ou "C:/...".
+  if (ref.length >= 2 && ref.charAt(1) === ":") return ref;
+  if (base.length === 0) return ref;
+  // Relativo: corta o último segmento da base (o "arquivo") e anexa a ref.
+  const dir = __dirOf(base);
+  return __normalizeUrl(dir + "/" + ref);
+}
+
+// `true` se a string começa com um esquema de URL ("http://", "file://", "data:").
+function __hasScheme(s: string): boolean {
+  let i = 0;
+  while (i < s.length) {
+    const c = s.charAt(i);
+    const isAlpha = (c >= "a" && c <= "z") || (c >= "A" && c <= "Z");
+    const isSchemeChar = isAlpha || (c >= "0" && c <= "9") || c === "+" || c === "-" || c === ".";
+    if (c === ":") return i > 0;
+    if (!isSchemeChar) return false;
+    i = i + 1;
+  }
+  return false;
+}
+
+// O diretório de uma URL/caminho (tudo antes do último "/", ou "\" no Windows).
+function __dirOf(p: string): string {
+  let cut = -1;
+  let i = 0;
+  while (i < p.length) {
+    const c = p.charAt(i);
+    if (c === "/" || c === "\\") cut = i;
+    i = i + 1;
+  }
+  if (cut < 0) return "";
+  return p.substring(0, cut);
+}
+
+// Colapsa "." e ".." num caminho separado por "/". Preserva um prefixo de esquema.
+//
+// NOTA (motor): passar como índice de `string.substring`/`charAt` um valor vindo do
+// RETORNO de uma função de usuário, sobre uma string-PARÂMETRO, falha no subset
+// numérico do motor ("method arg wants a number index but got Tagged"): o tipo do
+// retorno não é provado Int32. `Math.trunc(...)` força a prova e destrava (testado:
+// `| 0`/`+0`/ternário NÃO bastam; só `Math.trunc`/`Math.max`). Aplicado a `cut` aqui
+// e a `at` em `__hostPrefixLen`.
+function __normalizeUrl(p: string): string {
+  const cut = Math.trunc(__hostPrefixLen(p)); // "scheme://host" a preservar (0 se nenhum)
+  const prefix = p.substring(0, cut);
+  const rest = p.substring(cut);
+  const parts = rest.split("/");
+  const out: string[] = [];
+  let i = 0;
+  while (i < parts.length) {
+    const seg = parts[i];
+    if (seg === "." || seg === "") {
+      // ignora (mantém vazio inicial via prefixo)
+    } else if (seg === "..") {
+      if (out.length > 0) out.pop();
+    } else {
+      out.push(seg);
+    }
+    i = i + 1;
+  }
+  const joined = out.join("/");
+  if (prefix.length > 0) return prefix + "/" + joined;
+  if (rest.charAt(0) === "/") return "/" + joined;
+  return joined;
+}
+
+// Tamanho do prefixo "scheme://host" (até a "/" do path, exclusiva), ou 0 se a
+// string não começa por um esquema seguido de "//". Função PURA — ver a nota em
+// `__normalizeUrl` sobre por que o host NÃO é fatiado por mutação condicional lá.
+function __hostPrefixLen(p: string): number {
+  const at = Math.trunc(__schemeSlashSlash(p)); // índice após "://", ou -1 (trunc: ver __normalizeUrl)
+  if (at < 0) return 0;
+  let h = at;
+  while (h < p.length && p.charAt(h) !== "/") h = h + 1;
+  return h;
+}
+
+// Índice logo após "://" de uma URL com esquema, ou -1.
+function __schemeSlashSlash(p: string): number {
+  let i = 0;
+  while (i + 2 < p.length) {
+    if (p.charAt(i) === ":" && p.charAt(i + 1) === "/" && p.charAt(i + 2) === "/") {
+      return i + 3;
+    }
+    i = i + 1;
+  }
+  return -1;
+}
+
+// Lê o conteúdo textual de uma URL/caminho. `http(s)://` via fetch síncrono; o resto
+// via filesystem. "" se não conseguir (recurso ausente — tolerado).
+function __readResource(url: string): string {
+  if (url.length > 7 && url.substring(0, 7) === "http://") return __fetchText(url);
+  if (url.length > 8 && url.substring(0, 8) === "https://") return __fetchText(url);
+  // local: tira "file://" se houver.
+  let path = url;
+  if (path.length > 7 && path.substring(0, 7) === "file://") path = path.substring(7);
+  return fs.read_text(path);
+}
+
+// fetch síncrono de texto (o caminho sync do runtime; sem await).
+function __fetchText(url: string): string {
+  // TEMP: fetch global ainda não resolvido no motor novo — stub.
+  return "";
+}
+
+// Expande os `@import url(...)` / `@import "..."` de um CSS, INLINE e recursivamente.
+// Cada import é resolvido contra a base do CSS que o contém. `seen` corta ciclos;
+// `depth` limita a profundidade (defesa contra recursão patológica).
+// NOTA (motor): sem `break` (ver `__trimEnd`); o fim do laço é controlado por `i`,
+// que salta para `n` quando não há mais `@import`.
+function __inlineImports(css: string, base: string, seen: string[], depth: number): string {
+  if (depth <= 0) return css;
+  let out = "";
+  let i = 0;
+  const n = css.length;
+  while (i < n) {
+    // procura o próximo "@import"
+    const at = css.indexOf("@import", i);
+    if (at < 0) {
+      // não há mais imports: copia o resto e encerra o laço (i := n).
+      out = out + css.substring(i);
+      i = n;
+    } else {
+      out = out + css.substring(i, at);
+      // acha o fim da regra (";")
+      let end = css.indexOf(";", at);
+      if (end < 0) end = n;
+      const rule = css.substring(at + 7, end); // depois de "@import"
+      const ref = __parseImportRef(rule);
+      if (ref.length > 0) {
+        const abs = __resolveUrl(base, ref);
+        if (!__includes(seen, abs)) {
+          seen.push(abs);
+          const imported = __readResource(abs);
+          if (imported.length > 0) {
+            out = out + __inlineImports(imported, abs, seen, depth - 1) + "\n";
+          }
+        }
+      }
+      i = end + 1;
+    }
+  }
+  return out;
+}
+
+// Extrai a URL de uma regra `@import` (sem o "@import"): `url("x")`, `url(x)`, `"x"`.
+//
+// NOTA (motor): cada transformação vai para uma `const` nova — NÃO mutamos uma
+// variável-string num `if`/`while` para depois indexá-la, senão o tipo degrada a
+// `Tagged` (ver a nota em `__normalizeUrl`).
+function __parseImportRef(rule: string): string {
+  // 1) tira espaços iniciais.
+  let a = 0;
+  while (a < rule.length && (rule.charAt(a) === " " || rule.charAt(a) === "\t" || rule.charAt(a) === "\n")) {
+    a = a + 1;
+  }
+  const trimmed = rule.substring(a);
+  // 2) desembrulha `url(...)` se presente; senão usa a string como veio.
+  const inner = __unwrapUrl(trimmed);
+  // 3) tira aspas e espaço final.
+  return __stripQuotes(__trimEnd(inner));
+}
+
+// Se `s` começa por `url(`, devolve o conteúdo até o `)`; senão devolve `s` igual.
+// Função PURA (cada ramo retorna uma `const`/argumento, sem mutação reaproveitada).
+function __unwrapUrl(s: string): string {
+  if (s.length >= 4 && s.substring(0, 4).toLowerCase() === "url(") {
+    const close = s.indexOf(")");
+    if (close < 0) return "";
+    return s.substring(4, close);
+  }
+  return s;
+}
+
+// NOTA (motor): sem `break`/`continue` — o subset numérico do motor não os aceita
+// em laço (vira "method arg wants a number index but got Tagged" na compilação). O
+// laço usa uma flag de parada (`going`) no lugar.
+function __trimEnd(s: string): string {
+  let e = s.length;
+  let going = true;
+  while (going && e > 0) {
+    const c = s.charAt(e - 1);
+    if (c === " " || c === "\t" || c === "\n" || c === "\r") e = e - 1;
+    else going = false;
+  }
+  return s.substring(0, e);
+}
+
+function __stripQuotes(s: string): string {
+  if (s.length >= 2) {
+    const f = s.charAt(0);
+    const l = s.charAt(s.length - 1);
+    if ((f === '"' && l === '"') || (f === "'" && l === "'")) return s.substring(1, s.length - 1);
+  }
+  return s;
+}
+
+function __includes(arr: string[], v: string): boolean {
+  let i = 0;
+  while (i < arr.length) {
+    if (arr[i] === v) return true;
+    i = i + 1;
+  }
+  return false;
+}
+
+// `loadResources(doc, baseUrl)` — percorre o documento e carrega os recursos externos
+// para dentro do DOM. Roda UMA VEZ após o parse, antes do primeiro render (nunca no
+// loop de frame — handle de string não persiste entre frames). Faz:
+//   • `<link rel="stylesheet" href>`  → lê o CSS, expande @import, injeta na cascade.
+//   • `@import` no CSS externo        → inline recursivo (via __inlineImports).
+//   • `<script src>`                  → carrega o fonte e o materializa como texto do
+//                                       nó (NÃO executa — ver __loadScriptAt).
+// `baseUrl` é o diretório/URL do documento, para resolver href/src relativos ("" se
+// não tiver — aí só absolutos carregam). Devolve quantos recursos foram carregados.
+//
+// ORIGEM hoje: arquivo LOCAL (`fs.read_text`) funciona. `http(s)://` está pronto no
+// código mas inerte: o `fetch` global ainda não resolve no motor novo (__fetchText
+// devolve "" até lá). Ambos os bloqueios (fetch global, eval in-process) são de
+// motor, não desta camada — quando ligarem, só __fetchText/__loadScriptAt mudam.
+// NOTA (motor): sem `continue` (ver `__trimEnd`); o corpo de cada item é uma função
+// auxiliar (`__loadLinkAt`/`__loadScriptAt`) que devolve 1 (carregou) ou 0, e o laço
+// só soma — assim a guarda-cláusula vira `return 0` na helper, não `continue`.
+function loadResources(doc: Document, baseUrl: string): number {
+  const h = doc._dom;
+  let loaded = 0;
+
+  // 1) <link rel="stylesheet" href> — usa getByTag (independe do parser de seletor).
+  const linkCount = dom.getByTagCount(h, "link");
+  let i = 0;
+  while (i < linkCount) {
+    loaded = loaded + __loadLinkAt(h, i, baseUrl);
+    i = i + 1;
+  }
+
+  // 2) <script src> — carrega e executa (runtime.eval). Scripts inline (sem src)
+  //    são preservados como nós mas NÃO executados aqui (eval só do src externo).
+  const scriptCount = dom.getByTagCount(h, "script");
+  let j = 0;
+  while (j < scriptCount) {
+    loaded = loaded + __loadScriptAt(h, j, baseUrl);
+    j = j + 1;
+  }
+
+  return loaded;
+}
+
+// Carrega o i-ésimo `<link>` se for uma folha de estilo com `href`. Devolve 1/0.
+function __loadLinkAt(h: number, i: number, baseUrl: string): number {
+  const node = dom.getByTagAt(h, "link", i);
+  if (node === __DOM_NONE) return 0;
+  const rel = dom.getAttribute(h, node, "rel").toLowerCase();
+  if (rel.indexOf("stylesheet") < 0) return 0;
+  const href = dom.getAttribute(h, node, "href");
+  if (href.length === 0) return 0;
+  const abs = __resolveUrl(baseUrl, href);
+  const css = __readResource(abs);
+  if (css.length === 0) return 0;
+  const seen: string[] = [abs];
+  const expanded = __inlineImports(css, abs, seen, 16);
+  dom.addStylesheet(h, expanded);
+  return 1;
+}
+
+// Carrega o fonte do j-ésimo `<script src>` e o injeta no DOM como texto do nó
+// `<script>` (fica acessível via `el.textContent`), via `dom.runScript`. Devolve 1/0.
+//
+// ⚠️ NÃO há EXECUÇÃO de script no motor novo ainda: o namespace `runtime` (eval) não
+// está registrado no codegen novo, e o único eval disponível (`__RTS_FN_NS_RUNTIME_EVAL`)
+// roda num SUBPROCESSO isolado que não enxerga este DOM — inútil para `<script>`.
+// Então `dom.runScript` apenas materializa o fonte no nó (carregar ≠ executar). A
+// execução real entra quando o motor expuser um eval in-process com acesso ao DOM.
+// Regressão explícita do escopo "executar via eval", justificada pelo bloqueador.
+function __loadScriptAt(h: number, j: number, baseUrl: string): number {
+  const node = dom.getByTagAt(h, "script", j);
+  if (node === __DOM_NONE) return 0;
+  const src = dom.getAttribute(h, node, "src");
+  if (src.length === 0) return 0;
+  const abs = __resolveUrl(baseUrl, src);
+  const code = __readResource(abs);
+  if (code.length === 0) return 0;
+  dom.runScript(h, node, code);
+  return 1;
+}

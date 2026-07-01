@@ -1390,8 +1390,11 @@ impl Stylesheet {
     /// Acrescenta as regras de mais um bloco `<style>` (uma página pode ter vários).
     /// EXTRAI os `@keyframes` primeiro (não são regras de seletor), depois as regras.
     pub fn append_css(&mut self, css: &str) {
+        // 0) resolve custom properties + var() ANTES de tudo (versão temporária,
+        //    textual e global — ver crate::cssvars e a issue de var() completo).
+        let css = crate::cssvars::resolve(css);
         // 1) extrai e remove os blocos @keyframes (guarda por nome).
-        let css_without_kf = self.extract_keyframes(css);
+        let css_without_kf = self.extract_keyframes(&css);
         // 2) as regras normais do resto.
         let base = self.rules.len() as u32;
         for (i, rule) in parse_rules(&css_without_kf).into_iter().enumerate() {
