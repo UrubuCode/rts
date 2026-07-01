@@ -185,11 +185,89 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     let mut cursor_y = 0.0f32;
     let root = dom.node(dom.root);
     for &child in &root.children {
-        let (_, h) = layout_block(dom, child, 0.0, cursor_y, ctx.viewport_w, false, ctx, &mut list);
+        // o containing block da raiz é a VIEWPORT: `height:100%` no <html> resolve
+        // contra a altura da janela (base do `h-100` de páginas reais).
+        let (_, h) =
+            layout_block(dom, child, 0.0, cursor_y, ctx.viewport_w, Some(ctx.viewport_h), false, ctx, &mut list);
         cursor_y += h;
     }
     list.content_height = cursor_y;
+    // ── PASSADA OUT-OF-FLOW: `position:absolute/fixed` saíram do fluxo (não
+    // ocuparam espaço); pinta cada um contra o VIEWPORT com top/right/bottom/left,
+    // por cima do fluxo (apêndice da lista = z maior; sem z-index real). V1: o
+    // containing block é sempre a viewport (o de `absolute` — ancestral positioned
+    // — e o "fica fixo ao rolar" do `fixed` são a v2).
+    let mut out_of_flow = Vec::new();
+    collect_out_of_flow(dom, dom.root, &mut out_of_flow);
+    for id in out_of_flow {
+        layout_out_of_flow(dom, id, ctx, &mut list);
+    }
     list
+}
+
+/// DFS que coleta os nós `position:absolute/fixed`. Não desce DENTRO de um
+/// out-of-flow (os filhos dele pertencem ao layout dele; abs-dentro-de-abs = v2).
+fn collect_out_of_flow(dom: &Dom, id: NodeIdx, out: &mut Vec<NodeIdx>) {
+    for &child in &dom.node(id).children {
+        if is_out_of_flow(dom, child) {
+            out.push(child);
+        } else {
+            collect_out_of_flow(dom, child, out);
+        }
+    }
+}
+
+/// Layouta UM nó fora do fluxo contra o viewport: mede shrink-to-fit e posiciona
+/// pelos offsets (`left` OU `right`−largura; `top` OU `bottom`−altura; sem nenhum
+/// dos dois no eixo → 0).
+fn layout_out_of_flow(dom: &Dom, id: NodeIdx, ctx: &LayoutCtx, list: &mut DisplayList) {
+    let css = dom.computed_style_idx(id).unwrap_or_default();
+    let resolve = ResolveCtx {
+        parent_content_w: ctx.viewport_w,
+        node_font_size: css.font_size.unwrap_or(DEFAULT_FONT_SIZE),
+        root_font_size: DEFAULT_FONT_SIZE,
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+    // mede (w, h) numa lista descartável para resolver right/bottom.
+    let mut scratch = DisplayList::default();
+    let (w, h) = layout_block(dom, id, 0.0, 0.0, ctx.viewport_w, Some(ctx.viewport_h), true, ctx, &mut scratch);
+    let left = resolve_inset(css.inset_left, ctx.viewport_w, &resolve);
+    let right = resolve_inset(css.inset_right, ctx.viewport_w, &resolve);
+    let top = resolve_inset(css.inset_top, ctx.viewport_h, &resolve);
+    let bottom = resolve_inset(css.inset_bottom, ctx.viewport_h, &resolve);
+    let x = match (left, right) {
+        (Some(l), _) => l,
+        (None, Some(r)) => ctx.viewport_w - w - r,
+        (None, None) => 0.0,
+    };
+    let y = match (top, bottom) {
+        (Some(t), _) => t,
+        (None, Some(b)) => ctx.viewport_h - h - b,
+        (None, None) => 0.0,
+    };
+    layout_block(dom, id, x, y, ctx.viewport_w, Some(ctx.viewport_h), true, ctx, list);
+}
+
+/// Resolve um offset de posicionamento (`top`/`left`/…): px SEM clamp (negativo
+/// desloca para fora — badges/tooltips); `%` contra o eixo do viewport dado.
+fn resolve_inset(d: Option<crate::style::Dimension>, axis: f32, ctx: &ResolveCtx) -> Option<f32> {
+    match d? {
+        crate::style::Dimension::Px(v) => Some(v),
+        crate::style::Dimension::Percent(p) => Some(axis * p / 100.0),
+        other => other.resolve(ctx),
+    }
+}
+
+/// `true` se o nó SAI do fluxo (`position: absolute/fixed`) — não ocupa espaço
+/// entre os irmãos; pintado na passada out-of-flow de [`layout_document`].
+fn is_out_of_flow(dom: &Dom, id: NodeIdx) -> bool {
+    matches!(&dom.node(id).kind, NodeKind::Element { .. })
+        && dom
+            .computed_style_idx(id)
+            .and_then(|c| c.position)
+            .map(|p| p.out_of_flow())
+            .unwrap_or(false)
 }
 
 /// Emite os retângulos da SCROLLBAR (track + thumb) na DisplayList — a BARRA é
@@ -358,6 +436,11 @@ fn layout_block(
     x: f32,
     y: f32,
     avail_w: f32,
+    // Altura do CONTENT do containing block, quando DEFINIDA (height explícito no
+    // pai / viewport na raiz): a base de `height: %` — que resolve contra a ALTURA
+    // do pai (antes resolvia errado contra a largura; `h-100` não funcionava).
+    // `None` = pai com altura auto → `height: %` vira auto (fiel ao browser).
+    avail_h: Option<f32>,
     // `shrink_to_fit`: quando true, um bloco SEM `width` explícito dimensiona pela
     // largura do CONTEÚDO (como `inline-block`/item flex), não ocupa a largura
     // disponível. É o que faz badges num container horizontal não esticarem para a
@@ -514,35 +597,47 @@ fn layout_block(
         content_w
     };
 
+    // `height` EXPLÍCITO resolve ANTES dos filhos (não depende deles): eles o
+    // recebem como containing-block height (base do `height:%` deles), e o flex
+    // COLUMN o usa como referência do eixo principal (justify/margin-auto).
+    let frame_v = pad_top + pad_bottom + 2.0 * border;
+    let explicit_content_h = resolve_height(css.height, avail_h, &resolve).map(|h| {
+        if border_box { (h - frame_v).max(0.0) } else { h }
+    });
+
+    // `flex-direction: column` — o eixo PRINCIPAL do flex vira o vertical: os itens
+    // empilham (sem margin-collapse, que flex não tem), gap/justify/margin-auto
+    // atuam no Y e align-items no X (stretch = ocupar a largura, o default).
+    let is_column = css.flex_direction.map(|f| f.is_column()).unwrap_or(false);
+    let is_flex = display == crate::block::DISPLAY_HORIZONTAL || display == crate::block::DISPLAY_WRAP;
     let content_h = match display {
+        // flex column (com ou sem wrap — multi-coluna do wrap é corte documentado).
+        _ if is_flex && is_column => {
+            layout_children_column(dom, id, content_x, content_y, children_w, explicit_content_h, &css, font_size, ctx, list)
+        }
         // horizontal (flex-row sem wrap): lado a lado, encolhe pra caber, não quebra.
         d if d == crate::block::DISPLAY_HORIZONTAL => {
-            layout_children_horizontal(dom, id, content_x, content_y, children_w, &css, font_size, false, ctx, list)
+            layout_children_horizontal(dom, id, content_x, content_y, children_w, explicit_content_h, &css, font_size, false, ctx, list)
         }
         // wrap (inline-block flow): lado a lado E QUEBRA linha quando enche.
         d if d == crate::block::DISPLAY_WRAP => {
-            layout_children_horizontal(dom, id, content_x, content_y, children_w, &css, font_size, true, ctx, list)
+            layout_children_horizontal(dom, id, content_x, content_y, children_w, explicit_content_h, &css, font_size, true, ctx, list)
         }
         // vertical (block): empilha.
-        _ => layout_children_vertical(dom, id, content_x, content_y, children_w, &css, font_size, ctx, list),
+        _ => layout_children_vertical(dom, id, content_x, content_y, children_w, explicit_content_h, &css, font_size, ctx, list),
     };
     // a altura REAL do conteúdo (antes de `height` explícito a cortar) — p/ o scroll-Y.
     let content_h_natural = content_h;
 
     // `height` explícito SOBRESCREVE a altura do conteúdo (a caixa tem essa altura,
-    // mesmo que o conteúdo seja menor). Em border-box, o height inclui pad+border —
-    // o content_h é o height menos pad_v+2border. Em content-box, height JÁ é o content.
-    let content_h = match css.height.and_then(|d| d.resolve(&resolve)) {
-        Some(h) if border_box => (h - (pad_top + pad_bottom + 2.0 * border)).max(0.0),
-        Some(h) => h,
-        None => content_h,
-    };
-    // CLAMP min/max-height (#1751): used = clamp(min, height, max).
-    let frame_v = pad_top + pad_bottom + 2.0 * border;
-    let mnh = css.min_height.and_then(|d| d.resolve(&resolve)).map(|v| {
+    // mesmo que o conteúdo seja menor) — já resolvido antes dos filhos.
+    let content_h = explicit_content_h.unwrap_or(content_h);
+    // CLAMP min/max-height (#1751): used = clamp(min, height, max) — eixo vertical
+    // (`%` contra a ALTURA do containing block, como o height).
+    let mnh = resolve_height(css.min_height, avail_h, &resolve).map(|v| {
         if border_box { (v - frame_v).max(0.0) } else { v }
     });
-    let mxh = css.max_height.and_then(|d| d.resolve(&resolve)).map(|v| {
+    let mxh = resolve_height(css.max_height, avail_h, &resolve).map(|v| {
         if border_box { (v - frame_v).max(0.0) } else { v }
     });
     let content_h = crate::style::clamp_size(content_h, mnh, mxh);
@@ -686,6 +781,10 @@ fn intrinsic_content_width(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -
     let mut max = 0.0f32;
     let mut count: usize = 0;
     for &child in &dom.node(id).children {
+        // fora do fluxo não contribui para a largura intrínseca do container.
+        if is_out_of_flow(dom, child) {
+            continue;
+        }
         let w = intrinsic_outer_width(dom, child, font, ctx);
         if w > 0.0 {
             count += 1;
@@ -814,14 +913,33 @@ fn css_display(dom: &Dom, id: NodeIdx) -> i64 {
     }
 }
 
+/// Resolve uma dimensão do EIXO VERTICAL (`height`/`min-height`/`max-height`):
+/// `%` resolve contra a ALTURA do containing block (não a largura — era o bug que
+/// fazia `height:100%` virar 100% da largura do pai); as demais unidades usam o
+/// ctx normal. `avail_h = None` (pai com altura auto) → `%` vira auto (`None`),
+/// fiel ao browser.
+fn resolve_height(
+    d: Option<crate::style::Dimension>,
+    avail_h: Option<f32>,
+    ctx: &ResolveCtx,
+) -> Option<f32> {
+    match d? {
+        crate::style::Dimension::Percent(p) => avail_h.map(|h| (h * p / 100.0).max(0.0)),
+        other => other.resolve(ctx),
+    }
+}
+
 /// Empilha os filhos VERTICAL (cada um abaixo do anterior), ocupando a largura do
 /// content. Devolve a altura TOTAL do content (soma das alturas dos filhos).
+/// `avail_h` = altura do content DESTE container quando explícita (containing
+/// block dos filhos p/ `height:%`).
 fn layout_children_vertical(
     dom: &Dom,
     id: NodeIdx,
     content_x: f32,
     content_y: f32,
     content_w: f32,
+    avail_h: Option<f32>,
     css: &ComputedStyle,
     font_size: f32,
     ctx: &LayoutCtx,
@@ -841,6 +959,9 @@ fn layout_children_vertical(
             // pula — NÃO coleta seu texto como inline (senão o título e o CSS cru
             // vazam pra tela). Checado ANTES do caminho inline.
             NodeKind::Element { tag } if is_non_rendered_tag(tag) => {}
+            // Fora do fluxo (`position:absolute/fixed`): não ocupa espaço aqui —
+            // pintado na passada out-of-flow de layout_document.
+            NodeKind::Element { .. } if is_out_of_flow(dom, child) => {}
             NodeKind::Element { .. } if is_block_level(dom, child) => {
                 // margin VERTICAL TOP do filho (para o collapse com o anterior):
                 // margin.top + margin_v da UA.
@@ -856,7 +977,7 @@ fn layout_children_vertical(
                     // mede a largura desejada (shrink) numa lista descartável p/ achar
                     // o offset do text-align ANTES de pintar de verdade.
                     let mut scratch = DisplayList::default();
-                    let (w, _) = layout_block(dom, child, content_x, child_y, content_w, true, ctx, &mut scratch);
+                    let (w, _) = layout_block(dom, child, content_x, child_y, content_w, avail_h, true, ctx, &mut scratch);
                     let free = (content_w - w).max(0.0);
                     match css.text_align {
                         Some(crate::style::TextAlign::Center) => content_x + free / 2.0,
@@ -866,7 +987,7 @@ fn layout_children_vertical(
                 } else {
                     content_x
                 };
-                let (_, h) = layout_block(dom, child, child_x, child_y, content_w, inline_block, ctx, list);
+                let (_, h) = layout_block(dom, child, child_x, child_y, content_w, avail_h, inline_block, ctx, list);
                 child_y += h;
                 prev_margin = m;
             }
@@ -904,6 +1025,10 @@ fn layout_children_horizontal(
     content_x: f32,
     content_y: f32,
     content_w: f32,
+    // altura do CONTENT do container quando explícita (já resolvida pelo caller,
+    // no eixo certo) — referência do cross-axis p/ align-items e containing block
+    // dos filhos.
+    container_content_h: Option<f32>,
     css: &ComputedStyle,
     font_size: f32,
     wrap: bool,
@@ -922,15 +1047,8 @@ fn layout_children_horizontal(
     let row_gap = css.row_gap.and_then(|d| d.resolve(&resolve)).unwrap_or(0.0).max(0.0);
     let justify = css.justify.unwrap_or(crate::style::JustifyContent::FlexStart);
     let align = css.align_items.unwrap_or(crate::style::AlignItems::Stretch);
-    // altura do CONTENT do container (se `height` explícito) — referência do cross-axis
-    // para align-items numa linha única. `0` = sem height (usa o max dos itens).
-    let container_cross_h = match css.height.and_then(|d| d.resolve(&resolve)) {
-        Some(h) if css.border_box.unwrap_or(false) => {
-            (h - (css.padding.vertical_px() + 2.0 * css.border_width.unwrap_or(0.0))).max(0.0)
-        }
-        Some(h) => h,
-        None => 0.0,
-    };
+    // `0` = sem height explícito (o cross-size da linha usa o max dos itens).
+    let container_cross_h = container_content_h.unwrap_or(0.0);
 
     // ── PRÉ-PASS: mede cada filho renderável e agrupa em LINHAS (wrap) ────────────
     let mut lines: Vec<Vec<FlexItem>> = vec![Vec::new()];
@@ -940,6 +1058,10 @@ fn layout_children_horizontal(
             if is_non_rendered_tag(tag) {
                 continue;
             }
+        }
+        // fora do fluxo: não é item flex (pintado na passada out-of-flow).
+        if is_out_of_flow(dom, child) {
+            continue;
         }
         let is_block = is_block_level(dom, child);
         if !is_block {
@@ -962,7 +1084,7 @@ fn layout_children_horizontal(
             continue;
         }
         let w = child_outer_width(dom, child, content_w, font_size, ctx);
-        let h = child_outer_height(dom, child, content_w, font_size, ctx);
+        let h = child_outer_height(dom, child, content_w, container_content_h, font_size, ctx);
         let cur = lines.last_mut().unwrap();
         let with_gap = if cur.is_empty() { 0.0 } else { gap };
         if wrap && !cur.is_empty() && line_w + with_gap + w > content_w {
@@ -1022,7 +1144,7 @@ fn layout_children_horizontal(
                 });
             } else {
                 // o filho resolve seu próprio width contra o container (%).
-                layout_block(dom, it.node, x, item_y, content_w, true, ctx, list);
+                layout_block(dom, it.node, x, item_y, content_w, container_content_h, true, ctx, list);
             }
             x += it.w;
         }
@@ -1031,6 +1153,154 @@ fn layout_children_horizontal(
     // desconta o último row_gap (só ENTRE linhas, não após a última).
     let total_h = (line_y - row_gap - content_y).max(0.0);
     total_h
+}
+
+/// Dispõe os filhos como FLEX COLUMN (`display:flex; flex-direction:column`): o
+/// eixo PRINCIPAL é o vertical. Diferenças do block vertical: SEM margin-collapse
+/// (flex não colapsa margens), `gap` entre itens (em column o espaçamento main é o
+/// `row-gap`; o shorthand `gap:` seta ambos), `justify-content` distribui o espaço
+/// livre VERTICAL (só quando o container tem altura explícita), `margin-top/bottom:
+/// auto` de um item ABSORVE o espaço livre (spec flexbox §8.1 — é o `mb-auto`/
+/// `mt-auto` do Bootstrap empurrando header/footer para as pontas), e `align-items`
+/// atua no X: `stretch` (default) = item ocupa a largura; start/center/end = item
+/// shrink-to-fit deslocado. Devolve a altura natural do content.
+/// ⚠️ Cortes: `column-reverse` dispõe como `column` (sem inverter); `flex-wrap` em
+/// column (multi-coluna) trata como coluna única; `flex-grow/shrink/basis` ainda
+/// fora (fatia própria).
+fn layout_children_column(
+    dom: &Dom,
+    id: NodeIdx,
+    content_x: f32,
+    content_y: f32,
+    content_w: f32,
+    // altura do CONTENT do container quando explícita — a referência do eixo
+    // principal (justify/margin-auto) e o containing block dos filhos (height:%).
+    container_content_h: Option<f32>,
+    css: &ComputedStyle,
+    font_size: f32,
+    ctx: &LayoutCtx,
+    list: &mut DisplayList,
+) -> f32 {
+    let resolve = ResolveCtx {
+        parent_content_w: content_w,
+        node_font_size: font_size,
+        root_font_size: DEFAULT_FONT_SIZE,
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+    // Em column, o espaço entre itens no eixo principal é o ROW-gap; o shorthand
+    // `gap: X` seta os dois, então row_gap cobre o caso comum. (Fallback ao `gap`
+    // — column-gap — só quando row_gap não veio, cobrindo `column-gap` usado
+    // "errado" sem quebrar o shorthand.)
+    let main_gap = css
+        .row_gap
+        .or(css.gap)
+        .and_then(|d| d.resolve(&resolve))
+        .unwrap_or(0.0)
+        .max(0.0);
+    let justify = css.justify.unwrap_or(crate::style::JustifyContent::FlexStart);
+    let align = css.align_items.unwrap_or(crate::style::AlignItems::Stretch);
+
+    // ── PASSO 1: mede a altura outer desejada de cada filho + margens auto ───────
+    struct ColItem {
+        node: NodeIdx,
+        h: f32,
+        is_text: bool,
+        mt_auto: bool,
+        mb_auto: bool,
+    }
+    let mut items: Vec<ColItem> = Vec::new();
+    for &child in &dom.node(id).children {
+        if let NodeKind::Element { tag } = &dom.node(child).kind {
+            if is_non_rendered_tag(tag) {
+                continue;
+            }
+        }
+        // fora do fluxo: não é item flex (pintado na passada out-of-flow).
+        if is_out_of_flow(dom, child) {
+            continue;
+        }
+        if !is_block_level(dom, child) {
+            let text = collect_text(dom, child);
+            if text.trim().is_empty() {
+                continue;
+            }
+            items.push(ColItem {
+                node: child,
+                h: ctx.measurer.line_height(font_size),
+                is_text: true,
+                mt_auto: false,
+                mb_auto: false,
+            });
+            continue;
+        }
+        let h = child_outer_height(dom, child, content_w, container_content_h, font_size, ctx);
+        let (mt_auto, mb_auto) = dom
+            .computed_style_idx(child)
+            .map(|c| (c.margin.top.is_auto(), c.margin.bottom.is_auto()))
+            .unwrap_or((false, false));
+        items.push(ColItem { node: child, h, is_text: false, mt_auto, mb_auto });
+    }
+    if items.is_empty() {
+        return 0.0;
+    }
+
+    // ── PASSO 2: distribui o espaço livre do eixo principal (Y) ──────────────────
+    let n = items.len();
+    let sum_h: f32 = items.iter().map(|it| it.h).sum();
+    let total_gap = (n.saturating_sub(1)) as f32 * main_gap;
+    let free = container_content_h.map(|ch| ch - sum_h - total_gap).unwrap_or(0.0);
+    let auto_count: usize = items.iter().map(|it| it.mt_auto as usize + it.mb_auto as usize).sum();
+    // margin:auto no eixo main absorve TODO o espaço livre (o justify vira no-op) —
+    // spec css-flexbox §8.1. Sem autos, o justify distribui.
+    let auto_size = if free > 0.0 && auto_count > 0 { free / auto_count as f32 } else { 0.0 };
+    let (leading, between) = if auto_count > 0 {
+        (0.0, 0.0)
+    } else {
+        justify_offsets(justify, free, n)
+    };
+
+    // ── PASSO 3: posiciona e pinta ────────────────────────────────────────────────
+    let mut y = content_y + leading;
+    for (j, it) in items.iter().enumerate() {
+        if j > 0 {
+            y += main_gap + between;
+        }
+        if it.mt_auto {
+            y += auto_size;
+        }
+        if it.is_text {
+            let text = collect_text(dom, it.node);
+            list.items.push(DisplayItem::Text {
+                x: content_x,
+                y,
+                text,
+                color: css.color.unwrap_or(0x000000FF),
+                size: font_size,
+                mono: false,
+                bold: css.bold.unwrap_or(false),
+            });
+        } else {
+            // CROSS (X): stretch (default) → o item ocupa a largura do container
+            // (layout normal de bloco); start/center/end → shrink-to-fit + offset.
+            let stretch = align == crate::style::AlignItems::Stretch;
+            let child_x = if stretch {
+                content_x
+            } else {
+                let mut scratch = DisplayList::default();
+                let (w, _) =
+                    layout_block(dom, it.node, content_x, y, content_w, container_content_h, true, ctx, &mut scratch);
+                let free_x = (content_w - w).max(0.0);
+                content_x + align_offset(align, content_w, content_w - free_x)
+            };
+            layout_block(dom, it.node, child_x, y, content_w, container_content_h, !stretch, ctx, list);
+        }
+        y += it.h;
+        if it.mb_auto {
+            y += auto_size;
+        }
+    }
+    (y - content_y).max(0.0)
 }
 
 /// Calcula (leading, between) do justify-content dado o espaço livre `free` e o nº
@@ -1086,12 +1356,19 @@ fn align_offset(a: crate::style::AlignItems, line_h: f32, item_h: f32) -> f32 {
 /// recursão nos filhos, %). Sem aproximação: a verificação adversarial pegou que a
 /// estimativa por "nº de linhas × line-height" divergia da pintura quando o filho
 /// tinha frame próprio ou múltiplas linhas, errando a centralização cross-axis.
-fn child_outer_height(dom: &Dom, id: NodeIdx, container_w: f32, parent_font: f32, ctx: &LayoutCtx) -> f32 {
+fn child_outer_height(
+    dom: &Dom,
+    id: NodeIdx,
+    container_w: f32,
+    container_h: Option<f32>,
+    parent_font: f32,
+    ctx: &LayoutCtx,
+) -> f32 {
     match &dom.node(id).kind {
         NodeKind::Element { .. } if is_block_level(dom, id) => {
             // layout de teste numa lista descartável: o (_, outer_h) é a altura real.
             let mut scratch = DisplayList::default();
-            let (_, outer_h) = layout_block(dom, id, 0.0, 0.0, container_w, true, ctx, &mut scratch);
+            let (_, outer_h) = layout_block(dom, id, 0.0, 0.0, container_w, container_h, true, ctx, &mut scratch);
             outer_h
         }
         NodeKind::Text(_) => ctx.measurer.line_height(parent_font),
@@ -1915,5 +2192,129 @@ mod tests {
         assert!(ys.len() >= 2, "deve haver quebra de linha (Ys distintos): {rects:?}");
         // o primeiro badge começa no canto (x=0).
         assert_eq!(rects[0].x, 0.0);
+    }
+
+    /// Coleta todos os SolidRect da lista, em ordem (container primeiro, filhos
+    /// depois — o fundo do container é inserido ATRÁS dos filhos).
+    fn all_rects(list: &DisplayList) -> Vec<Rect> {
+        list.items
+            .iter()
+            .filter_map(|it| match it {
+                DisplayItem::SolidRect { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn flex_column_empilha_com_gap() {
+        // `flex-direction:column`: itens empilham na VERTICAL (main = Y) com o gap
+        // entre eles; align default (stretch) → cada item ocupa a largura.
+        let list = layout(
+            "<div style='display:flex; flex-direction:column; gap:10; background:#111'>\
+               <div style='background:#222; height:30'>a</div>\
+               <div style='background:#333; height:40'>b</div>\
+             </div>",
+            600.0,
+        );
+        let r = all_rects(&list);
+        assert_eq!(r.len(), 3, "container + 2 filhos: {r:?}");
+        // filhos: o 1º em y=0; o 2º abaixo (30 + gap 10 = 40) — NÃO lado a lado.
+        assert_eq!(r[1].y, 0.0);
+        assert_eq!((r[1].h, r[2].h), (30.0, 40.0));
+        assert_eq!(r[2].y, 40.0);
+        assert_eq!(r[1].x, r[2].x, "mesmo X (coluna, não row)");
+        // stretch (default): os itens ocupam a largura do container.
+        assert_eq!(r[1].w, 600.0);
+    }
+
+    #[test]
+    fn flex_column_margin_auto_empurra() {
+        // O padrão do Bootstrap cover: header + main(mt-auto/mb-auto) + footer numa
+        // coluna com altura — os margins auto ABSORVEM o espaço livre e centralizam
+        // o main (spec flexbox §8.1; mb-auto/mt-auto).
+        let list = layout(
+            "<div style='display:flex; flex-direction:column; height:300; background:#111'>\
+               <div style='background:#222; height:20'>h</div>\
+               <div style='background:#333; height:60; margin-top:auto; margin-bottom:auto'>m</div>\
+               <div style='background:#444; height:20'>f</div>\
+             </div>",
+            600.0,
+        );
+        let r = all_rects(&list);
+        assert_eq!(r.len(), 4);
+        // free = 300 - (20+60+20) = 200; 2 autos → 100 cada.
+        assert_eq!(r[1].y, 0.0); // header no topo
+        assert_eq!(r[2].y, 120.0); // main: 20 + 100 (mt-auto)
+        assert_eq!(r[3].y, 280.0); // footer: 120 + 60 + 100 (mb-auto)
+    }
+
+    #[test]
+    fn flex_column_justify_center() {
+        // justify-content atua no eixo PRINCIPAL (Y em column) quando o container
+        // tem altura: um item de 50 num container de 300 centra em y=125.
+        let list = layout(
+            "<div style='display:flex; flex-direction:column; height:300; justify-content:center'>\
+               <div style='background:#222; height:50'>x</div>\
+             </div>",
+            600.0,
+        );
+        let r = all_rects(&list);
+        assert_eq!(r[0].y, 125.0, "{r:?}");
+    }
+
+    #[test]
+    fn height_percent_resolve_contra_altura_do_pai() {
+        // `height:%` resolve contra a ALTURA do containing block (antes resolvia
+        // errado contra a LARGURA). Pai height:200 → filho 50% = 100.
+        let list = layout(
+            "<div style='height:200; background:#111'>\
+               <div style='height:50%; background:#222'>x</div>\
+             </div>",
+            600.0,
+        );
+        let r = all_rects(&list);
+        assert_eq!(r[0].h, 200.0);
+        assert_eq!(r[1].h, 100.0, "50% de 200: {r:?}");
+        // pai SEM height (auto): height:% do filho vira auto (altura do conteúdo,
+        // 1 linha ≈ 26) — fiel ao browser, não 50% da largura (que daria 300).
+        let l2 = layout(
+            "<div style='background:#111'><div style='height:50%; background:#222'>x</div></div>",
+            600.0,
+        );
+        let r2 = all_rects(&l2);
+        assert!(r2[1].h < 40.0, "height %% com pai auto = altura natural: {r2:?}");
+    }
+
+    #[test]
+    fn position_fixed_sai_do_fluxo_e_posiciona_no_viewport() {
+        // O caso do dropdown do Bootstrap cover: um `position:fixed` DENTRO de um
+        // flex row NÃO pode empurrar os irmãos (sai do fluxo) e pinta contra o
+        // viewport pelos offsets (bottom/right).
+        let list = layout(
+            "<div style='display:flex; background:#111'>\
+               <div style='position:fixed; bottom:10; right:10; width:50; height:20; background:#900'>t</div>\
+               <div style='background:#222; height:30'>conteudo</div>\
+             </div>",
+            600.0,
+        );
+        let r = all_rects(&list);
+        assert_eq!(r.len(), 3);
+        // o item NO FLUXO começa em x=0 (o fixed não o empurrou).
+        assert_eq!(r[1].x, 0.0, "{r:?}");
+        assert_eq!(r[1].h, 30.0);
+        // o fixed: x = 600-50-10 = 540; y = viewport_h(600)-20-10 = 570. Pintado por
+        // ÚLTIMO (por cima do fluxo).
+        assert_eq!((r[2].x, r[2].y), (540.0, 570.0), "{r:?}");
+        assert_eq!((r[2].w, r[2].h), (50.0, 20.0));
+    }
+
+    #[test]
+    fn viewport_e_o_containing_block_da_raiz() {
+        // `height:100%` num filho direto do document resolve contra a viewport_h
+        // (600 no helper) — o `h-100` do html/body de páginas reais.
+        let list = layout("<div style='height:100%; background:#111'>x</div>", 600.0);
+        let r = all_rects(&list);
+        assert_eq!(r[0].h, 600.0, "{r:?}");
     }
 }

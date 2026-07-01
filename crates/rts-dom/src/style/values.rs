@@ -358,6 +358,39 @@ impl FlexDirection {
     }
 }
 
+/// `position` — o esquema de posicionamento da caixa. V1 honesta (cortes
+/// documentados): `absolute`/`fixed` SAEM do fluxo (não ocupam espaço nem
+/// empurram irmãos — era o dropdown `position:fixed` do Bootstrap cover
+/// deslocando a página inteira) e são pintados contra o VIEWPORT com
+/// `top/right/bottom/left` (o containing block correto de `absolute` — o
+/// ancestral positioned — fica para a v2); `relative`/`sticky` ficam no fluxo
+/// (offset de relative e o comportamento de sticky também v2).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Position {
+    Static,
+    Relative,
+    Absolute,
+    Fixed,
+    Sticky,
+}
+
+impl Position {
+    pub fn parse(v: &str) -> Option<Position> {
+        Some(match v.trim().to_ascii_lowercase().as_str() {
+            "static" => Position::Static,
+            "relative" => Position::Relative,
+            "absolute" => Position::Absolute,
+            "fixed" => Position::Fixed,
+            "sticky" => Position::Sticky,
+            _ => return None,
+        })
+    }
+    /// `true` se a caixa SAI do fluxo normal (não ocupa espaço entre os irmãos).
+    pub fn out_of_flow(self) -> bool {
+        matches!(self, Position::Absolute | Position::Fixed)
+    }
+}
+
 /// O contexto de resolução de uma [`Dimension`] relativa, conhecido só no
 /// render. Cada unidade resolve contra um eixo diferente (north-star risco 5: a
 /// resolução de `%`/`em`/`vw`/… é TARDIA, no layout, não no parse). Egui-free.

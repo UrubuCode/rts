@@ -390,6 +390,31 @@ fn define_style_acumula_por_tag() {
 }
 
 #[test]
+fn at_rules_nao_corrompem_o_parse() {
+    // `@media` tem bloco ANINHADO — o fechamento raso no primeiro `}` deixava o
+    // `}` externo órfão e ENGOLIA as regras vizinhas (era assim que o
+    // bootstrap.min.css perdia `h1{font-size}`). Agora o bloco é pulado inteiro
+    // com chaves casadas; at-rules sem corpo (@charset/@import) pulam até o `;`.
+    let mut sheet = Stylesheet::new();
+    sheet.append_css(
+        "@media (min-width: 1200px){ h1{ font-size:40px } .x{ color:#ffffff } } \
+         h1 { color:#ff0000 } \
+         @charset \"utf-8\"; \
+         p { color:#00ff00 }",
+    );
+    // as regras APÓS as at-rules sobrevivem (antes eram corrompidas).
+    assert_eq!(sheet.computed_for("h1", None, &[]).normal.color, Some(0xFF0000FF));
+    assert_eq!(sheet.computed_for("p", None, &[]).normal.color, Some(0x00FF00FF));
+    // as regras INTERNAS do @media ficam de fora (fase 1: pular o bloco; a
+    // avaliação de min-width contra o viewport é a fase 2).
+    assert_eq!(sheet.computed_for("h1", None, &[]).normal.font_size, None);
+    // @media sem fechar não panica (tolerância).
+    let mut s2 = Stylesheet::new();
+    s2.append_css("p { color:#0000ff } @media (x) { .a { color:#fff }");
+    assert_eq!(s2.computed_for("p", None, &[]).normal.color, Some(0x0000FFFF));
+}
+
+#[test]
 fn mecanismos_gerados_da_tabela() {
     // A REFATORAÇÃO data-driven: herança, diff-de-animação e interpolação são
     // GERADOS da tabela css_props! — este teste prova que os 3 mecanismos batem

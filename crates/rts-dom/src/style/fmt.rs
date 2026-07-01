@@ -86,6 +86,14 @@ impl ComputedStyle {
             "max-width" => self.max_width.map(fmt_dim).unwrap_or_default(),
             "min-height" => self.min_height.map(fmt_dim).unwrap_or_default(),
             "max-height" => self.max_height.map(fmt_dim).unwrap_or_default(),
+            "position" => self
+                .position
+                .map(|p| format!("{p:?}").to_ascii_lowercase())
+                .unwrap_or_default(),
+            "top" => self.inset_top.map(fmt_dim).unwrap_or_default(),
+            "right" => self.inset_right.map(fmt_dim).unwrap_or_default(),
+            "bottom" => self.inset_bottom.map(fmt_dim).unwrap_or_default(),
+            "left" => self.inset_left.map(fmt_dim).unwrap_or_default(),
             "display" => self.display.map(fmt_display).unwrap_or_default(),
             "box-sizing" => match self.border_box {
                 Some(true) => "border-box".into(),
