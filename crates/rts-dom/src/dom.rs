@@ -185,6 +185,21 @@ pub struct Dom {
     /// Instante (ms) em que a `animation` (@keyframes) de cada nó começou. Mantido
     /// enquanto o nó tem a mesma animação; reinicia se o nome muda.
     anim_start: HashMap<NodeIdx, (String, f32)>,
+    /// REVISÃO de render: contador bumpado por TODA mutação que afeta o que se
+    /// desenha (árvore/atributos/texto/estilo/animação — via `touch()`). É a chave
+    /// dos caches de layout (a DisplayList do backend e o GEOM_CACHE da ABI):
+    /// mesma [`render_revision`](Dom::render_revision) + mesmo viewport ⇒ o layout
+    /// anterior ainda vale (era o motivo de a página Bootstrap re-rodar a cascade
+    /// de ~2700 regras a CADA frame/clique). DERIVADO, fora do `PartialEq`.
+    /// ⚠️ Método mutador novo que afete o render DEVE chamar `self.touch()`.
+    revision: u64,
+    /// Memo do estilo COMPUTADO por nó DENTRO de uma revisão: a cascade completa
+    /// (todas as regras × seletores) rodava várias vezes POR NÓ num único layout
+    /// (pré-pass de medição + pintura + intrínsecas). Invalidado quando a revisão
+    /// muda. `RefCell` porque `computed_style_idx` é `&self` (chamado do layout).
+    computed_memo: std::cell::RefCell<HashMap<NodeIdx, crate::style::ComputedStyle>>,
+    /// A revisão de render em que o `computed_memo` foi preenchido.
+    memo_revision: std::cell::Cell<u64>,
 }
 
 // Igualdade estrutural: compara só a árvore (nodes+root). Os índices e a `generation`
@@ -219,13 +234,32 @@ impl Dom {
             prev_computed: HashMap::new(),
             anim_override: HashMap::new(),
             anim_start: HashMap::new(),
+            revision: 0,
+            computed_memo: std::cell::RefCell::new(HashMap::new()),
+            memo_revision: std::cell::Cell::new(0),
         }
+    }
+
+    /// Marca que ALGO que afeta o render mudou (bumpa a revisão). Chamado por todo
+    /// método mutador de árvore/atributo/texto/estilo/animação. Barato (u64 += 1);
+    /// um bump espúrio (mutação que falhou a validação) só invalida cache à toa.
+    fn touch(&mut self) {
+        self.revision = self.revision.wrapping_add(1);
+    }
+
+    /// A revisão de RENDER desta árvore: muda sempre que árvore/estilo/animação
+    /// mudam — inclui o epoch GLOBAL de estilo por-tag (`defineStyle`/`defineBlock`,
+    /// que vivem fora do `Dom`). É a chave de cache de layout do backend e da ABI:
+    /// mesma revisão + mesmo viewport ⇒ a DisplayList anterior ainda vale.
+    pub fn render_revision(&self) -> u64 {
+        self.revision.wrapping_add(crate::style::props::style_epoch())
     }
 
     /// Acrescenta o conteúdo de um `<style>` ao stylesheet de autor da página
     /// (chamado pelo parser ao encontrar um `RawElement` de `style`). Vários
     /// `<style>` acumulam, com as regras posteriores desempatando por cima.
     pub fn add_stylesheet(&mut self, css: &str) {
+        self.touch();
         self.stylesheet.append_css(css);
         // guarda o bruto p/ os pseudo-elementos ::-webkit-scrollbar* (#1744).
         self.raw_css.push_str(css);
@@ -403,6 +437,7 @@ impl Dom {
     /// Substitui TODO o conteúdo de um elemento por um único nó de texto (o
     /// equivalente a `element.textContent = txt`). Não faz nada num nó de texto.
     pub fn set_text(&mut self, id: NodeId, text: &str) {
+        self.touch();
         let Some(idx) = self.resolve(id) else { return };
         if !matches!(self.nodes[idx].kind, NodeKind::Element { .. }) {
             return;
@@ -434,7 +469,21 @@ impl Dom {
     /// - **Important**, por cima de tudo, na mesma ordem de origem: `<style>`
     ///   important < inline important < override (tratado como mais forte).
     pub fn computed_style_idx(&self, idx: NodeIdx) -> Option<crate::style::ComputedStyle> {
-        self.computed_style_idx_inner(idx, true)
+        // MEMO por revisão: dentro de um mesmo estado da árvore, a cascade de um nó
+        // é determinística — e o layout a consulta várias vezes por nó (medição +
+        // pintura). Um clone do ComputedStyle é muito mais barato que re-rodar
+        // todas as regras do stylesheet (Bootstrap: ~2700).
+        let rev = self.render_revision();
+        if self.memo_revision.get() != rev {
+            self.computed_memo.borrow_mut().clear();
+            self.memo_revision.set(rev);
+        }
+        if let Some(hit) = self.computed_memo.borrow().get(&idx) {
+            return Some(hit.clone());
+        }
+        let computed = self.computed_style_idx_inner(idx, true)?;
+        self.computed_memo.borrow_mut().insert(idx, computed.clone());
+        Some(computed)
     }
 
     /// Núcleo da cascade. `with_anim` controla se a camada de ANIMAÇÃO (o estilo
@@ -527,6 +576,7 @@ impl Dom {
 
     /// `el.style.cssText = v` (set) — substitui o `style=""` inteiro.
     pub fn set_css_text(&mut self, id: NodeId, text: &str) {
+        self.touch();
         self.set_attr(id, "style", text);
     }
 
@@ -534,6 +584,7 @@ impl Dom {
     /// inline, preservando as demais. Re-serializa a string `style`. Valor vazio
     /// REMOVE a propriedade (como `removeProperty`).
     pub fn set_style_property(&mut self, id: NodeId, name: &str, value: &str) {
+        self.touch();
         let cur = self.css_text(id);
         let new = upsert_css_decl(&cur, name.trim(), value.trim());
         self.set_attr(id, "style", &new);
@@ -541,6 +592,7 @@ impl Dom {
 
     /// `el.style.removeProperty(name)` — remove a propriedade do `style=""`.
     pub fn remove_style_property(&mut self, id: NodeId, name: &str) {
+        self.touch();
         let cur = self.css_text(id);
         let new = upsert_css_decl(&cur, name.trim(), ""); // valor vazio = remover
         self.set_attr(id, "style", &new);
@@ -628,6 +680,11 @@ impl Dom {
         self.collect_all_element_idxs(self.root, &mut elements);
 
         let mut any_active = false;
+        // `changed` = o estilo VISÍVEL de algum nó mudou neste tick (override
+        // inserido OU removido — remover também muda o render: do interpolado
+        // para o alvo final). Dirige o `touch()` que invalida os caches de layout;
+        // `any_active` sozinho não cobre o frame em que a animação TERMINA.
+        let mut changed = false;
         for idx in elements {
             // o ALVO base deste frame (cascade sem a camada de animação).
             let Some(target) = self.computed_style_idx_inner(idx, false) else { continue };
@@ -649,11 +706,14 @@ impl Dom {
                             let styled = kf.at(t, &target);
                             self.anim_override.insert(idx, styled);
                             any_active = true;
+                            changed = true;
                         }
                     }
                     None => {
                         // animação terminou (iterações esgotadas) → fica no estado final.
-                        self.anim_override.remove(&idx);
+                        if self.anim_override.remove(&idx).is_some() {
+                            changed = true;
+                        }
                     }
                 }
                 self.prev_computed.insert(idx, target.clone());
@@ -682,6 +742,7 @@ impl Dom {
             if let Some(active) = self.active_transitions.get(&idx).cloned() {
                 let interp = active.current(&target, now_ms);
                 self.anim_override.insert(idx, interp);
+                changed = true;
                 if active.done(now_ms) {
                     self.active_transitions.remove(&idx);
                     self.anim_override.remove(&idx);
@@ -689,6 +750,12 @@ impl Dom {
                     any_active = true;
                 }
             }
+        }
+        if changed {
+            // o estilo visível mudou neste tick → invalida os caches de layout
+            // (revision). Sem mudança, o advance é um no-op de render e o frame
+            // reusa a DisplayList cacheada.
+            self.touch();
         }
         any_active
     }
@@ -715,6 +782,7 @@ impl Dom {
     /// val)` é interpretado pelo `apply_slot` do `ComputedStyle` (nunca casa string
     /// CSS aqui). Ignora id que não resolve.
     pub fn set_node_style_slot(&mut self, id: NodeId, slot: i64, val: i64) {
+        self.touch();
         if let Some(idx) = self.resolve(id) {
             self.style_overrides.entry(idx).or_default().apply_slot(slot, val);
         }
@@ -726,6 +794,7 @@ impl Dom {
     /// slot1, val1, …]` (o jeito que o buffer GC chega da ABI). Triplas com id
     /// inválido são ignoradas (robustez).
     pub fn apply_style_batch(&mut self, triples: &[i64]) {
+        self.touch();
         for t in triples.chunks_exact(3) {
             if let Some(node) = NodeId::from_abi(t[0]) {
                 self.set_node_style_slot(node, t[1], t[2]);
@@ -736,6 +805,7 @@ impl Dom {
     /// Limpa TODOS os overrides por-nó (`setStyleBatch` recomeça do zero). Útil se
     /// o app quer re-estilizar do zero num frame em vez de acumular.
     pub fn clear_style_overrides(&mut self) {
+        self.touch();
         self.style_overrides.clear();
     }
 
@@ -1011,6 +1081,7 @@ impl Dom {
 
     /// `parent.prepend(child)`: insere `child` no INÍCIO dos filhos de `parent`.
     pub fn prepend_child(&mut self, parent: NodeId, child: NodeId) {
+        self.touch();
         let first = self.first_child(parent);
         self.insert_before(parent, child, first);
     }
@@ -1018,6 +1089,7 @@ impl Dom {
     /// `node.before(other)` / `after`: insere `other` como irmão antes/depois de
     /// `node` (no pai de `node`). `after=true` insere depois.
     pub fn insert_adjacent(&mut self, node: NodeId, other: NodeId, after: bool) {
+        self.touch();
         let Some(parent) = self.parent_of(node) else { return };
         let reference = if after { self.next_sibling(node) } else { Some(node) };
         self.insert_before(parent, other, reference);
@@ -1028,6 +1100,7 @@ impl Dom {
     /// ciclo pode abortar o insert — aí não destruímos `node`). No-op se `other`
     /// é o próprio `node`.
     pub fn replace_with(&mut self, node: NodeId, other: NodeId) {
+        self.touch();
         if node == other {
             return; // substituir por si mesmo é no-op (não remove)
         }
@@ -1042,6 +1115,7 @@ impl Dom {
     /// `parent.replaceChild(new, old)`: substitui o filho `old` por `new`. ATÔMICO:
     /// só remove `old` se `new` foi inserido (guarda de ciclo). No-op se new==old.
     pub fn replace_child(&mut self, parent: NodeId, new_child: NodeId, old_child: NodeId) {
+        self.touch();
         if new_child == old_child {
             return;
         }
@@ -1056,6 +1130,7 @@ impl Dom {
 
     /// `parent.removeChild(child)`: remove `child` se for filho de `parent`.
     pub fn remove_child(&mut self, parent: NodeId, child: NodeId) {
+        self.touch();
         if self.parent_of(child) == Some(parent) {
             self.remove_node(child);
         }
@@ -1064,6 +1139,7 @@ impl Dom {
     /// `parent.replaceChildren()`: remove TODOS os filhos de `parent` (a variante
     /// com novos filhos é montada no JS chamando isto + appendChild).
     pub fn clear_children(&mut self, parent: NodeId) {
+        self.touch();
         let Some(idx) = self.resolve(parent) else { return };
         let children: Vec<NodeIdx> = self.nodes[idx].children.clone();
         for c in children {
@@ -1099,6 +1175,7 @@ impl Dom {
     /// `node.nodeValue = v`: substitui o texto de um nó Text/Comment (no-op em
     /// Element/Document).
     pub fn set_node_value(&mut self, id: NodeId, value: &str) {
+        self.touch();
         let Some(idx) = self.resolve(id) else { return };
         match &mut self.nodes[idx].kind {
             NodeKind::Text(t) | NodeKind::Comment(t) => *t = value.to_string(),
@@ -1115,6 +1192,7 @@ impl Dom {
     /// `node.normalize()`: funde nós de Texto ADJACENTES num só e remove os de
     /// texto vazio, recursivamente. Mantém a semântica do DOM (não toca elementos).
     pub fn normalize(&mut self, id: NodeId) {
+        self.touch();
         let Some(idx) = self.resolve(id) else { return };
         // 1) recursão nos filhos-elemento primeiro.
         let children: Vec<NodeIdx> = self.nodes[idx].children.clone();
@@ -1152,6 +1230,7 @@ impl Dom {
     /// `element.removeAttribute(name)`: remove o atributo (no-op se ausente).
     /// Limpa os índices id/class para o nó (a busca revalida, mas evita stale).
     pub fn remove_attr(&mut self, id: NodeId, name: &str) {
+        self.touch();
         let Some(idx) = self.resolve(id) else { return };
         let name_lc = name.to_ascii_lowercase();
         self.nodes[idx].attrs.retain(|a| a.name != name_lc);
@@ -1420,6 +1499,7 @@ impl Dom {
     /// Mantém os índices `id`/`class` em dia (adiciona a nova entrada; entradas
     /// antigas viram stale mas a busca valida alcançabilidade/valor).
     pub fn set_attr(&mut self, id: NodeId, name: &str, value: &str) {
+        self.touch();
         let Some(idx) = self.resolve(id) else { return };
         let name_lc = name.to_ascii_lowercase();
         let node = &mut self.nodes[idx];
@@ -1464,6 +1544,7 @@ impl Dom {
     /// filho de `parent`, anexa ao fim (semântica do DOM). Move `child` do pai
     /// antigo; ignora ids inválidos/ciclos.
     pub fn insert_before(&mut self, parent: NodeId, child: NodeId, reference: Option<NodeId>) {
+        self.touch();
         let (Some(parent), Some(child)) = (self.resolve(parent), self.resolve(child)) else {
             return;
         };
@@ -1520,6 +1601,7 @@ impl Dom {
     /// Move `child` para o fim dos filhos de `parent` (`parent.appendChild`).
     /// Remove `child` do pai antigo, se tiver. Ignora ids inválidos ou ciclos.
     pub fn append_child(&mut self, parent: NodeId, child: NodeId) {
+        self.touch();
         let (Some(parent), Some(child)) = (self.resolve(parent), self.resolve(child)) else {
             return;
         };
@@ -1536,6 +1618,7 @@ impl Dom {
 
     /// Desliga um nó do pai (`element.remove`). O nó continua na arena (lixo).
     pub fn remove_node(&mut self, id: NodeId) {
+        self.touch();
         if let Some(idx) = self.resolve(id) {
             if idx != self.root {
                 self.detach(idx);
@@ -1636,6 +1719,7 @@ impl Dom {
     /// parseados são COPIADOS para esta arena (re-parentados sob `id`), atualizando
     /// os índices id/class. Não faz nada num nó que não é elemento ou não resolve.
     pub fn set_inner_html(&mut self, id: NodeId, html: &str) {
+        self.touch();
         let Some(idx) = self.resolve(id) else { return };
         if !matches!(self.nodes[idx].kind, NodeKind::Element { .. }) {
             return;
@@ -2197,6 +2281,32 @@ mod tests {
         let sec = dom.query("#s").unwrap();
         let serial = dom.outer_html(sec).unwrap();
         assert_eq!(serial, html);
+    }
+
+    #[test]
+    fn revision_bumpa_na_mutacao_e_nao_na_leitura() {
+        // O contrato dos caches de layout (backend + GEOM_CACHE): a revisão muda a
+        // cada MUTAÇÃO que afeta render, e NÃO muda em leituras — inclusive o
+        // computed_style memoizado (que preenche o memo mas não altera o estado).
+        let mut dom = parse_html_to_dom("<div id='a' style='color:#fff'>x</div>");
+        let r0 = dom.render_revision();
+        // leituras não bumpam (o memo do computed usa interior mutability).
+        let a = dom.query("#a").unwrap();
+        let _ = dom.computed_style(a);
+        let _ = dom.computed_style(a); // 2ª leitura = hit do memo
+        assert_eq!(dom.render_revision(), r0, "leitura não muda a revisão");
+        // mutações bumpam — e o computed reflete a mudança (memo invalidado).
+        dom.set_attr(a, "style", "color:#ff0000");
+        assert_ne!(dom.render_revision(), r0, "set_attr bumpa");
+        let css = dom.computed_style(a).unwrap();
+        assert_eq!(css.color, Some(0xFF0000FF), "memo invalidado pela revisão");
+        let r1 = dom.render_revision();
+        dom.set_text(a, "novo");
+        assert_ne!(dom.render_revision(), r1, "set_text bumpa");
+        // defineStyle (estado global por-tag, fora do Dom) também invalida.
+        let r2 = dom.render_revision();
+        crate::style::define_style("tag_rev_teste", crate::style::SLOT_COLOR, 0x11223344);
+        assert_ne!(dom.render_revision(), r2, "defineStyle bumpa o epoch global");
     }
 
     #[test]

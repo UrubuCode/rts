@@ -354,6 +354,21 @@ thread_local! {
     /// de layout). O render consulta `lookup_style(tag)` e aplica antes do
     /// `style=""` inline do nó. Vazio até o TS registrar.
     static STYLES: RefCell<HashMap<String, ComputedStyle>> = RefCell::new(HashMap::new());
+    /// EPOCH global de estilo por-tag: bumpado por `defineStyle`/`defineBlock`
+    /// (estado que vive FORA do `Dom` mas muda o computed). Entra na
+    /// `Dom::render_revision` para invalidar os caches de layout/estilo.
+    static STYLE_EPOCH: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// O epoch global do estilo por-tag (ver [`bump_style_epoch`]).
+pub fn style_epoch() -> u64 {
+    STYLE_EPOCH.with(|e| e.get())
+}
+
+/// Bumpa o epoch global — chamado por `defineStyle` (aqui) e `defineBlock`
+/// (`crate::block`), que alteram estilo/layout sem passar por um `Dom`.
+pub fn bump_style_epoch() {
+    STYLE_EPOCH.with(|e| e.set(e.get().wrapping_add(1)));
 }
 
 /// Registra/atualiza UM slot de estilo de uma TAG (primitivo `defineStyle`).
@@ -366,6 +381,7 @@ pub fn define_style(tag: &str, slot: i64, val: i64) {
         let entry = m.entry(tag.to_ascii_lowercase()).or_default();
         entry.apply_slot(slot, val);
     });
+    bump_style_epoch();
 }
 
 /// Consulta o `ComputedStyle` registrado de uma TAG. `None` ⇒ sem estilo de tag.
