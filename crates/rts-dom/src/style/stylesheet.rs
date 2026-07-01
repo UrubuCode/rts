@@ -30,6 +30,97 @@ use super::parse::parse_inline_block;
 use super::props::ComputedStyle;
 use super::selector::{compound_matches, ComplexSelector, PseudoClass, Selector};
 
+/// A condição de um bloco `@media`, avaliada contra o VIEWPORT (fase 2 — antes
+/// o bloco inteiro era pulado). V1 honesta: só `min-width`/`max-width` (px, e
+/// em/rem ×16) e os keywords neutros `screen`/`all`/`only`; qualquer feature
+/// desconhecida (`prefers-reduced-motion`, `orientation`, `print`, `not …`)
+/// torna a query SEMPRE-FALSA (conservador — para `prefers-reduced-motion:
+/// reduce` é exatamente o default desejado).
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub struct MediaQuery {
+    pub min_width: Option<f32>,
+    pub max_width: Option<f32>,
+    /// feature não suportada na condição → a query nunca casa.
+    pub always_false: bool,
+}
+
+impl MediaQuery {
+    /// Parseia a condição após o `@media` (`(min-width: 768px)`,
+    /// `screen and (max-width: 991.98px)`, lista por vírgula = OR de queries).
+    pub fn parse(cond: &str) -> MediaQuery {
+        // lista por vírgula é OR — v1: se QUALQUER query da lista for só de
+        // width, usamos a primeira suportada; senão always_false. (Bootstrap não
+        // usa listas em @media; mantém simples.)
+        let first = cond.split(',').next().unwrap_or("");
+        let mut q = MediaQuery::default();
+        for term in first.split(" and ") {
+            let t = term.trim().to_ascii_lowercase();
+            if t.is_empty() || t == "screen" || t == "all" || t == "only screen" || t == "only all" {
+                continue; // keywords neutros
+            }
+            // `(feature: valor)`
+            let inner = t.strip_prefix('(').and_then(|s| s.strip_suffix(')')).unwrap_or(&t);
+            let Some((feat, val)) = inner.split_once(':') else {
+                q.always_false = true; // `not`, `print`, feature sem valor…
+                continue;
+            };
+            let px = parse_media_len(val.trim());
+            match (feat.trim(), px) {
+                ("min-width", Some(v)) => q.min_width = Some(v),
+                ("max-width", Some(v)) => q.max_width = Some(v),
+                _ => q.always_false = true,
+            }
+        }
+        q
+    }
+
+    /// `true` se a query casa o viewport dado.
+    pub fn matches(&self, viewport_w: f32) -> bool {
+        if self.always_false {
+            return false;
+        }
+        if let Some(mn) = self.min_width {
+            if viewport_w < mn {
+                return false;
+            }
+        }
+        if let Some(mx) = self.max_width {
+            if viewport_w > mx {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Combina com uma query EXTERNA (aninhamento `@media` dentro de `@media`):
+    /// AND dos limites.
+    fn and(self, outer: MediaQuery) -> MediaQuery {
+        MediaQuery {
+            min_width: match (self.min_width, outer.min_width) {
+                (Some(a), Some(b)) => Some(a.max(b)),
+                (a, b) => a.or(b),
+            },
+            max_width: match (self.max_width, outer.max_width) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            },
+            always_false: self.always_false || outer.always_false,
+        }
+    }
+}
+
+/// Um comprimento de condição de media: px (ou em/rem ×16, como o browser).
+fn parse_media_len(v: &str) -> Option<f32> {
+    let low = v.to_ascii_lowercase();
+    if let Some(n) = low.strip_suffix("px") {
+        return n.trim().parse().ok();
+    }
+    if let Some(n) = low.strip_suffix("rem").or_else(|| low.strip_suffix("em")) {
+        return n.trim().parse::<f32>().ok().map(|x| x * 16.0);
+    }
+    low.parse().ok()
+}
+
 /// Uma regra do stylesheet: um seletor + as declarações já parseadas (separadas
 /// nas camadas normal/important da cascade). A ordem de declaração no fonte
 /// (`order`) desempata especificidades iguais.
@@ -39,6 +130,9 @@ pub struct Rule {
     pub decls: DeclBlock,
     /// Posição da regra no fonte (0-based) — desempate da cascade.
     pub order: u32,
+    /// A condição `@media` que ENVOLVE a regra (None = sempre aplica). Avaliada
+    /// contra o viewport na cascade ([`Stylesheet::computed_for_node`]).
+    pub media: Option<MediaQuery>,
 }
 
 /// Um bloco de declarações separado nas DUAS camadas de importância da cascade
@@ -141,8 +235,17 @@ impl Stylesheet {
     /// casa (decidido pelo `matches` fornecido — o `Dom` passa um que navega a
     /// árvore p/ os combinadores). Retorna um [`DeclBlock`] (normal + important
     /// separados). Dentro de cada camada, ordem de (especificidade, order) crescente.
-    pub fn computed_for_node(&self, matches: impl Fn(&ComplexSelector) -> bool) -> DeclBlock {
-        let mut matched: Vec<&Rule> = self.rules.iter().filter(|r| matches(&r.selector)).collect();
+    pub fn computed_for_node(
+        &self,
+        viewport_w: f32,
+        matches: impl Fn(&ComplexSelector) -> bool,
+    ) -> DeclBlock {
+        let mut matched: Vec<&Rule> = self
+            .rules
+            .iter()
+            .filter(|r| r.media.map(|m| m.matches(viewport_w)).unwrap_or(true))
+            .filter(|r| matches(&r.selector))
+            .collect();
         matched.sort_by_key(|r| (r.selector.specificity(), r.order));
         let mut out = DeclBlock::default();
         for r in &matched {
@@ -161,7 +264,8 @@ impl Stylesheet {
     pub fn computed_for(&self, tag: &str, id: Option<&str>, classes: &[&str]) -> DeclBlock {
         let no_attr = |_: &str| None;
         let no_pseudo = |_: &PseudoClass| false;
-        self.computed_for_node(|sel| {
+        // viewport de referência 1280 (helper sem árvore/viewport — testes).
+        self.computed_for_node(1280.0, |sel| {
             // só seletores de 1 compound casam sem a árvore.
             sel.compounds.len() == 1
                 && compound_matches(&sel.compounds[0], tag, id, classes, &no_attr, &no_pseudo)
@@ -179,14 +283,14 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
     let bytes = css.as_bytes();
     let mut i = 0usize;
     while i < bytes.len() {
-        // AT-RULES (`@media`/`@supports`/`@font-face`/…): têm um BLOCO ANINHADO
-        // próprio (`@media (...) { .x { … } }`) — o fechamento raso no primeiro `}`
-        // CORROMPIA o parse (o `}` externo órfão dessincronizava e ENGOLIA as regras
-        // vizinhas; era assim que o bootstrap.min.css perdia `h1{font-size}` etc.).
-        // Fase 1: PULAR o bloco inteiro com chaves casadas (as regras internas ficam
-        // de fora — a responsividade real de `@media (min-width)` chega quando a
-        // cascade souber o viewport, fase 2). `@import`/`@charset` (sem bloco) pulam
-        // até o `;`. `@keyframes` nunca chega aqui (extraído antes em append_css).
+        // AT-RULES: blocos ANINHADOS (`@media (...) { .x { … } }`) — o fechamento
+        // raso no primeiro `}` CORROMPIA o parse (o `}` órfão engolia as regras
+        // vizinhas do bootstrap.min.css). `@media` agora é AVALIADO (fase 2): a
+        // condição vira [`MediaQuery`] e as regras INTERNAS entram com ela anexada
+        // (a cascade filtra pelo viewport). Os demais at-rules com bloco
+        // (`@supports`/`@font-face`/…) são pulados com chaves casadas;
+        // `@import`/`@charset` (sem corpo) pulam até o `;`. `@keyframes` nunca
+        // chega aqui (extraído antes em append_css).
         let ws = css[i..].find(|c: char| !c.is_whitespace()).map(|r| i + r).unwrap_or(css.len());
         if css[ws..].starts_with('@') {
             let brace_rel = css[ws..].find('{');
@@ -195,11 +299,28 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
                 // `;` antes do `{` (ou sem bloco): at-rule sem corpo → pula até o `;`.
                 (None, Some(s)) => i = ws + s + 1,
                 (Some(b), Some(s)) if s < b => i = ws + s + 1,
-                // com bloco: pula até o `}` CASADO (conta aninhamento).
-                (Some(b), _) => match find_matching_brace(&css[ws + b + 1..]) {
-                    Some(end) => i = ws + b + 1 + end + 1,
-                    None => break, // bloco não fecha: nada mais a parsear.
-                },
+                // com bloco: @media parseia o corpo recursivo; o resto pula casado.
+                (Some(b), _) => {
+                    let body_start = ws + b + 1;
+                    match find_matching_brace(&css[body_start..]) {
+                        Some(end) => {
+                            let header = &css[ws..ws + b];
+                            if let Some(cond) = header.strip_prefix("@media") {
+                                let outer = MediaQuery::parse(cond.trim());
+                                for mut rule in parse_rules(&css[body_start..body_start + end]) {
+                                    // aninhamento @media-em-@media: AND das queries.
+                                    rule.media = Some(match rule.media {
+                                        Some(inner) => inner.and(outer),
+                                        None => outer,
+                                    });
+                                    rules.push(rule);
+                                }
+                            }
+                            i = body_start + end + 1;
+                        }
+                        None => break, // bloco não fecha: nada mais a parsear.
+                    }
+                }
                 (None, None) => break,
             }
             continue;
@@ -217,7 +338,7 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
         // `a, b, .c { }` → uma regra por seletor (lista separada por vírgula).
         for sel_str in selectors_raw.split(',') {
             if let Some(selector) = ComplexSelector::parse(sel_str) {
-                rules.push(Rule { selector, decls: decls.clone(), order: 0 });
+                rules.push(Rule { selector, decls: decls.clone(), order: 0, media: None });
             }
         }
         i = next;

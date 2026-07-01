@@ -56,9 +56,9 @@ pub use selector::{
     compound_matches, parse_selector, parse_selector_list, AttrOp, Combinator, ComplexSelector,
     CompoundSelector, PseudoClass, Selector, SimpleSelector,
 };
-pub use stylesheet::{parse_rules, DeclBlock, Rule, Stylesheet};
+pub use stylesheet::{parse_rules, DeclBlock, MediaQuery, Rule, Stylesheet};
 pub use values::{
-    clamp_size, AlignItems, BorderStyle, CalcLen, Dimension, DisplayKind, Edges, FlexDirection,
+    clamp_size, AlignItems, BorderStyle, CalcLen, Dimension, DisplayKind, Edges, FlexDirection, FloatSide,
     JustifyContent, LineHeight, Position, ResolveCtx, Rgba, Side, TextAlign, TextTransform,
     WhiteSpace, DIM_BASE_EM, DIM_BASE_PERCENT, DIM_BASE_PX, DIM_BASE_REM, DIM_BASE_VH,
     DIM_BASE_VW, DIM_RANGE,
