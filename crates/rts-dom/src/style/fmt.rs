@@ -68,14 +68,14 @@ impl ComputedStyle {
                 None => String::new(),
             },
             "font-family" => self.font_family.clone().unwrap_or_default(),
-            "padding-top" => self.padding.top.px().map(fmt_px).unwrap_or_default(),
-            "padding-right" => self.padding.right.px().map(fmt_px).unwrap_or_default(),
-            "padding-bottom" => self.padding.bottom.px().map(fmt_px).unwrap_or_default(),
-            "padding-left" => self.padding.left.px().map(fmt_px).unwrap_or_default(),
-            "margin-top" => self.margin.top.px().map(fmt_px).unwrap_or_default(),
-            "margin-right" => self.margin.right.px().map(fmt_px).unwrap_or_default(),
-            "margin-bottom" => self.margin.bottom.px().map(fmt_px).unwrap_or_default(),
-            "margin-left" => self.margin.left.px().map(fmt_px).unwrap_or_default(),
+            "padding-top" => side_css(self.padding.top),
+            "padding-right" => side_css(self.padding.right),
+            "padding-bottom" => side_css(self.padding.bottom),
+            "padding-left" => side_css(self.padding.left),
+            "margin-top" => side_css(self.margin.top),
+            "margin-right" => side_css(self.margin.right),
+            "margin-bottom" => side_css(self.margin.bottom),
+            "margin-left" => side_css(self.margin.left),
             "border-width" => self.border_width.map(fmt_px).unwrap_or_default(),
             "border-color" => self.border_color.map(fmt_color).unwrap_or_default(),
             "border-style" => self.border_style.map(|s| format!("{s:?}").to_ascii_lowercase()).unwrap_or_default(),
@@ -106,6 +106,16 @@ impl ComputedStyle {
             "row-gap" => self.row_gap.map(fmt_dim).unwrap_or_default(),
             _ => String::new(),
         }
+    }
+}
+
+/// Um lado de margin/padding → string CSS: comprimento cru (`fmt_dim` — px sai
+/// `Npx` como antes; relativo sai `Nrem` etc, corte documentado), `auto`, ou `""`.
+fn side_css(s: crate::style::Side) -> String {
+    match s {
+        crate::style::Side::Len(d) => fmt_dim(d),
+        crate::style::Side::Auto => "auto".into(),
+        crate::style::Side::Unset => String::new(),
     }
 }
 

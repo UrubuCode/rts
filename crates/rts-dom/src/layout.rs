@@ -154,8 +154,10 @@ impl TextMeasurer for ApproxMeasurer {
 }
 
 /// Tamanho de fonte default (pontos) quando o estilo não especifica — base de
-/// `em`/`rem` e do texto sem `font-size`. Casa com o default do render antigo.
-pub const DEFAULT_FONT_SIZE: f32 = 20.0;
+/// `em`/`rem` e do texto sem `font-size`. **16px, o default de todo browser**
+/// (era 20, o que inflava cada `em`/`rem` em 25% — `max-width:42em` dava 840 em
+/// vez dos 672 do Chrome; validado número-a-número no cover).
+pub const DEFAULT_FONT_SIZE: f32 = 16.0;
 
 /// O contexto de uma passada de layout: o viewport (para `vw`/`vh` e largura
 /// inicial) e o medidor de texto. Imutável durante a passada.
@@ -486,28 +488,8 @@ fn layout_block(
     };
 
     // ── Box model (content-box): resolve as bordas/espaços absolutos ─────────────
-    // Margin/padding POR LADO (Edges). O `margin_v` (UA-stylesheet, só vertical) é
-    // somado ao top/bottom. `margin_left/right` deslocam no x; o vertical empilha.
-    let m = &css.margin;
-    let p = &css.padding;
-    let mut margin_left = m.left.px().unwrap_or(0.0);
-    let mut margin_right = m.right.px().unwrap_or(0.0);
-    let margin_v_extra = css.margin_v.unwrap_or(0.0);
-    let margin_top = m.top.px().unwrap_or(0.0) + margin_v_extra;
-    let margin_bottom = m.bottom.px().unwrap_or(0.0) + margin_v_extra;
-    let pad_left = p.left.px().unwrap_or(0.0);
-    let pad_right = p.right.px().unwrap_or(0.0);
-    let pad_top = p.top.px().unwrap_or(0.0);
-    let pad_bottom = p.bottom.px().unwrap_or(0.0);
-    let border = css.border_width.unwrap_or(0.0);
-    // Atalhos para o eixo (horizontal = left+right): a maioria do box model usa o
-    // total por eixo. (`margin_h`/`padding_h` = soma do eixo horizontal.)
-    let margin_h = margin_left + margin_right;
-    let padding_h = pad_left + pad_right;
-
-    // Largura do CONTENT: `width` explícito (px/% resolvido contra `avail_w`), ou
-    // o que sobra do container menos margin+border+padding dos dois lados (block
-    // ocupa a largura disponível por padrão — MDN flow layout).
+    // O contexto de RESOLUÇÃO tardia primeiro (margens/paddings agora aceitam
+    // unidades relativas — `p-3` = 1rem do Bootstrap — e resolvem AQUI, como width).
     let resolve = ResolveCtx {
         parent_content_w: avail_w,
         node_font_size: css.font_size.unwrap_or(DEFAULT_FONT_SIZE),
@@ -515,6 +497,25 @@ fn layout_block(
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
+    // Margin/padding POR LADO (Edges). O `margin_v` (UA-stylesheet, só vertical) é
+    // somado ao top/bottom. Margens são SIGNED (negativa puxa — gutters `.row`);
+    // padding é clampado ≥ 0 (padding negativo não existe no CSS).
+    let m = &css.margin;
+    let p = &css.padding;
+    let mut margin_left = m.left.resolve(&resolve).unwrap_or(0.0);
+    let mut margin_right = m.right.resolve(&resolve).unwrap_or(0.0);
+    let margin_v_extra = css.margin_v.unwrap_or(0.0);
+    let margin_top = m.top.resolve(&resolve).unwrap_or(0.0) + margin_v_extra;
+    let margin_bottom = m.bottom.resolve(&resolve).unwrap_or(0.0) + margin_v_extra;
+    let pad_left = p.left.resolve(&resolve).unwrap_or(0.0).max(0.0);
+    let pad_right = p.right.resolve(&resolve).unwrap_or(0.0).max(0.0);
+    let pad_top = p.top.resolve(&resolve).unwrap_or(0.0).max(0.0);
+    let pad_bottom = p.bottom.resolve(&resolve).unwrap_or(0.0).max(0.0);
+    let border = css.border_width.unwrap_or(0.0);
+    // Atalhos para o eixo (horizontal = left+right): a maioria do box model usa o
+    // total por eixo. (`margin_h`/`padding_h` = soma do eixo horizontal.)
+    let margin_h = margin_left + margin_right;
+    let padding_h = pad_left + pad_right;
     // `frame` horizontal = o que cerca o content no eixo X (margin+border+padding
     // dos DOIS lados). border conta 2× (left+right); padding/margin já são a soma.
     let frame = margin_h + 2.0 * border + padding_h;
@@ -814,7 +815,6 @@ fn intrinsic_outer_width(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &LayoutC
             let css = dom.computed_style_idx(id).unwrap_or_default();
             let f = css.font_size.unwrap_or(parent_font);
             let border_box = css.border_box.unwrap_or(false);
-            let frame = css.margin.horizontal_px() + 2.0 * css.border_width.unwrap_or(0.0) + css.padding.horizontal_px();
             let resolve = ResolveCtx {
                 parent_content_w: ctx.viewport_w,
                 node_font_size: f,
@@ -822,9 +822,12 @@ fn intrinsic_outer_width(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &LayoutC
                 viewport_w: ctx.viewport_w,
                 viewport_h: ctx.viewport_h,
             };
+            let frame = css.margin.resolve_h(&resolve)
+                + 2.0 * css.border_width.unwrap_or(0.0)
+                + css.padding.resolve_h(&resolve);
             // width fixo: a caixa tem essa largura.
             if let Some(w) = css.width.and_then(|d| d.resolve(&resolve)) {
-                return if border_box { w + css.margin.horizontal_px() } else { w + frame };
+                return if border_box { w + css.margin.resolve_h(&resolve) } else { w + frame };
             }
             // senão: a intrínseca do conteúdo + frame.
             intrinsic_content_width(dom, id, f, ctx) + frame
@@ -966,7 +969,18 @@ fn layout_children_vertical(
                 // margin VERTICAL TOP do filho (para o collapse com o anterior):
                 // margin.top + margin_v da UA.
                 let m = dom.computed_style_idx(child)
-                    .map(|c| c.margin.top.px().unwrap_or(0.0) + c.margin_v.unwrap_or(0.0))
+                    .map(|c| {
+                        // margem TOP do filho p/ o collapse (unidades relativas
+                        // resolvem contra o content deste container).
+                        let r = ResolveCtx {
+                            parent_content_w: content_w,
+                            node_font_size: c.font_size.unwrap_or(font_size),
+                            root_font_size: DEFAULT_FONT_SIZE,
+                            viewport_w: ctx.viewport_w,
+                            viewport_h: ctx.viewport_h,
+                        };
+                        c.margin.top.resolve(&r).unwrap_or(0.0) + c.margin_v.unwrap_or(0.0)
+                    })
                     .unwrap_or(0.0);
                 // Colapsa com o bloco anterior: recua o overlap antes de posicionar.
                 child_y -= prev_margin.min(m);
@@ -1384,8 +1398,6 @@ fn child_outer_width(dom: &Dom, id: NodeIdx, container_w: f32, parent_font: f32,
         NodeKind::Element { .. } if is_block_level(dom, id) => {
             let css = dom.computed_style_idx(id).unwrap_or_default();
             let font = css.font_size.unwrap_or(parent_font);
-            // frame horizontal = margin_h + 2*border + padding_h (cada já é o eixo).
-            let frame = css.margin.horizontal_px() + 2.0 * css.border_width.unwrap_or(0.0) + css.padding.horizontal_px();
             let resolve = ResolveCtx {
                 parent_content_w: container_w,
                 node_font_size: font,
@@ -1393,11 +1405,16 @@ fn child_outer_width(dom: &Dom, id: NodeIdx, container_w: f32, parent_font: f32,
                 viewport_w: ctx.viewport_w,
                 viewport_h: ctx.viewport_h,
             };
+            // frame horizontal = margin_h + 2*border + padding_h (cada já é o eixo;
+            // unidades relativas resolvidas contra o container).
+            let frame = css.margin.resolve_h(&resolve)
+                + 2.0 * css.border_width.unwrap_or(0.0)
+                + css.padding.resolve_h(&resolve);
             // Em border-box, o `width` declarado JÁ é a caixa (outer sem margin) —
             // não soma pad/border de novo; só a margin. Em content-box, soma o frame.
             match css.width.and_then(|d| d.resolve(&resolve)) {
                 Some(w) if css.border_box.unwrap_or(false) => {
-                    w + css.margin.horizontal_px()
+                    w + css.margin.resolve_h(&resolve)
                 }
                 Some(w) => w + frame,
                 None => content_natural_width(dom, id, font, ctx) + frame,
@@ -1715,7 +1732,7 @@ mod tests {
             .collect();
         assert_eq!(texts.len(), 2);
         assert_eq!(texts[0], 0.0); // primeiro no topo
-        assert!(texts[1] >= 26.0, "segundo bloco abaixo do primeiro (y={})", texts[1]); // 20×1.3
+        assert!(texts[1] >= 20.8, "segundo bloco abaixo do primeiro (y={})", texts[1]); // 16×1.3
     }
 
     #[test]
@@ -1922,12 +1939,12 @@ mod tests {
             DisplayItem::Text { text, x, .. } => Some((text.clone(), *x)),
             _ => None,
         }).collect();
-        // "x" (1 char, ~10px de largura) centrado em 400 → x ≈ (400-10)/2 = 195.
+        // "x" (1 char, ~8px = 16×0.5) centrado em 400 → x ≈ (400-8)/2 = 196.
         let cx = texts.iter().find(|(t, _)| t == "x").unwrap().1;
-        assert!((cx - 195.0).abs() < 2.0, "center: {cx}");
-        // "y" à direita → x ≈ 400-10 = 390.
+        assert!((cx - 196.0).abs() < 2.0, "center: {cx}");
+        // "y" à direita → x ≈ 400-8 = 392.
         let rx = texts.iter().find(|(t, _)| t == "y").unwrap().1;
-        assert!((rx - 390.0).abs() < 2.0, "right: {rx}");
+        assert!((rx - 392.0).abs() < 2.0, "right: {rx}");
     }
 
     #[test]
@@ -1945,10 +1962,10 @@ mod tests {
         // uppercase aplicado.
         assert!(texts.iter().any(|(t, _)| t == "OI"));
         assert!(texts.iter().any(|(t, _)| t == "TCHAU"));
-        // line-height:3 = 3×20 = 60px entre as linhas (div sem margin).
+        // line-height:3 = 3×16 = 48px entre as linhas (div sem margin).
         let y_oi = texts.iter().find(|(t, _)| t == "OI").unwrap().1;
         let y_tchau = texts.iter().find(|(t, _)| t == "TCHAU").unwrap().1;
-        assert!((y_tchau - y_oi - 60.0).abs() < 5.0, "line-height: {y_oi} → {y_tchau}");
+        assert!((y_tchau - y_oi - 48.0).abs() < 5.0, "line-height: {y_oi} → {y_tchau}");
     }
 
     #[test]
@@ -2284,6 +2301,42 @@ mod tests {
         );
         let r2 = all_rects(&l2);
         assert!(r2[1].h < 40.0, "height %% com pai auto = altura natural: {r2:?}");
+    }
+
+    #[test]
+    fn unidades_relativas_em_padding_e_margem_negativa() {
+        // padding: 1rem = 16px (root 16, o default de browser) — o `p-3` do
+        // Bootstrap; margem NEGATIVA puxa (os gutters `.row` usam margin -12px).
+        let list = layout("<div style='background:#111; padding:1rem'>x</div>", 600.0);
+        let tx = list
+            .items
+            .iter()
+            .find_map(|it| match it {
+                DisplayItem::Text { x, y, .. } => Some((*x, *y)),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(tx, (16.0, 16.0), "texto após o padding de 1rem = 16px");
+        // margem negativa: o segundo bloco com margin-top:-10 SOBE sobre o primeiro.
+        let l2 = layout(
+            "<div style='background:#111; height:30'>a</div>             <div style='background:#222; height:30; margin-top:-10px'>b</div>",
+            600.0,
+        );
+        let r2 = all_rects(&l2);
+        assert_eq!(r2[1].y, 20.0, "30 - 10 (negativa nao clampa): {r2:?}");
+    }
+
+    #[test]
+    fn max_width_em_bate_com_o_chrome() {
+        // `max-width: 42em` com root 16 = 672px — o `.cover-container` do Bootstrap
+        // cover, VALIDADO numero-a-numero no Chrome (viewport 1000: rect 164,0,672).
+        let list = layout(
+            "<div style='background:#111; max-width:42em; margin:0 auto; height:50'>x</div>",
+            1000.0,
+        );
+        let r = all_rects(&list);
+        assert_eq!(r[0].w, 672.0, "42em x 16: {r:?}");
+        assert_eq!(r[0].x, 164.0, "(1000-672)/2, centrado como no Chrome");
     }
 
     #[test]

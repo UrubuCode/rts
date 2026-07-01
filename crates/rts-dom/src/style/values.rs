@@ -146,24 +146,40 @@ impl TextTransform {
     }
 }
 
-/// Valor de UM lado de margin/padding: um comprimento em pontos, `auto` (só faz
-/// sentido em margin — centralização), ou não-especificado. Egui-free.
+/// Valor de UM lado de margin/padding: um COMPRIMENTO (px/%/em/rem/vw/vh — a
+/// unidade relativa sobrevive até o layout, como em `width`), `auto` (só faz
+/// sentido em margin — centralização/flex), ou não-especificado. Egui-free.
+/// É o que destrava o `p-3`/`px-2` (padding em rem) do Bootstrap — antes só px.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum Side {
     /// Não especificado (herda o default / 0 efetivo).
     #[default]
     Unset,
-    /// Comprimento absoluto em pontos.
-    Px(f32),
+    /// Um comprimento — resolve TARDE no layout ([`Side::resolve`]); pode ser
+    /// NEGATIVO (margem negativa é válida: os gutters `.row` do Bootstrap).
+    Len(Dimension),
     /// `auto` — margin que absorve o espaço livre (`margin: 0 auto` centraliza).
     Auto,
 }
 
 impl Side {
-    /// O valor em pontos (Px), ou `None` para Unset/Auto (o layout decide).
+    /// Constrói um lado ABSOLUTO em pontos (o caso comum de UA-stylesheet/slots).
+    pub fn px_len(v: f32) -> Side {
+        Side::Len(Dimension::Px(v))
+    }
+    /// O valor em pontos SE já absoluto (`Len(Px)`); `None` para Unset/Auto e
+    /// para unidades relativas (essas precisam de [`resolve`](Side::resolve)).
     pub fn px(self) -> Option<f32> {
         match self {
-            Side::Px(v) => Some(v),
+            Side::Len(Dimension::Px(v)) => Some(v),
+            _ => None,
+        }
+    }
+    /// Resolve para pontos com o contexto do layout — SIGNED (margem negativa
+    /// vale; padding é clampado ≥0 pelo CONSUMIDOR). `None` = Unset/Auto.
+    pub fn resolve(self, ctx: &ResolveCtx) -> Option<f32> {
+        match self {
+            Side::Len(d) => d.resolve_signed(ctx),
             _ => None,
         }
     }
@@ -201,14 +217,14 @@ impl Edges {
         if other.bottom != Side::Unset { self.bottom = other.bottom; }
         if other.left != Side::Unset { self.left = other.left; }
     }
-    /// Valor horizontal efetivo (left+right em px, auto/unset = 0) — para somar à
-    /// largura. (O `auto` não soma largura; é resolvido à parte no layout.)
-    pub fn horizontal_px(&self) -> f32 {
-        self.left.px().unwrap_or(0.0) + self.right.px().unwrap_or(0.0)
+    /// Valor horizontal efetivo (left+right) RESOLVIDO com o contexto do layout
+    /// (unidades relativas contam; auto/unset = 0 — o `auto` é resolvido à parte).
+    pub fn resolve_h(&self, ctx: &ResolveCtx) -> f32 {
+        self.left.resolve(ctx).unwrap_or(0.0) + self.right.resolve(ctx).unwrap_or(0.0)
     }
-    /// Valor vertical efetivo (top+bottom em px).
-    pub fn vertical_px(&self) -> f32 {
-        self.top.px().unwrap_or(0.0) + self.bottom.px().unwrap_or(0.0)
+    /// Valor vertical efetivo (top+bottom) resolvido com o contexto.
+    pub fn resolve_v(&self, ctx: &ResolveCtx) -> f32 {
+        self.top.resolve(ctx).unwrap_or(0.0) + self.bottom.resolve(ctx).unwrap_or(0.0)
     }
 }
 
@@ -435,8 +451,16 @@ pub enum Dimension {
 impl Dimension {
     /// Resolve para PONTOS absolutos, dado o contexto do render. `Auto` → `None`
     /// (o layout decide). É chamado TARDE (em `frame/render.rs`), nunca no parse.
+    /// Clampa em ≥ 0 (largura/altura negativa não existe); para MARGENS/offsets
+    /// (negativo é válido), use [`resolve_signed`](Dimension::resolve_signed).
     pub fn resolve(self, ctx: &ResolveCtx) -> Option<f32> {
-        let px = match self {
+        self.resolve_signed(ctx).map(|px| px.max(0.0))
+    }
+
+    /// Como [`resolve`](Dimension::resolve), mas SEM o clamp ≥ 0 — para margens
+    /// negativas (`.row` gutters do Bootstrap) e offsets de posicionamento.
+    pub fn resolve_signed(self, ctx: &ResolveCtx) -> Option<f32> {
+        Some(match self {
             Dimension::Auto => return None,
             Dimension::Px(v) => v,
             Dimension::Percent(p) => ctx.parent_content_w * p / 100.0,
@@ -444,8 +468,7 @@ impl Dimension {
             Dimension::Rem(r) => ctx.root_font_size * r,
             Dimension::Vw(v) => ctx.viewport_w * v / 100.0,
             Dimension::Vh(v) => ctx.viewport_h * v / 100.0,
-        };
-        Some(px.max(0.0))
+        })
     }
 
     /// Decodifica a forma ABI `i64` (o TS empacota a dimensão num único inteiro,
