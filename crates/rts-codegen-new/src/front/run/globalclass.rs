@@ -110,6 +110,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         class: &str,
         args: &[HirExpr],
     ) -> FrontResult<(Val, String)> {
+        // A runtime-class ctor may CAPTURE an object arg and mutate it later
+        // through paths the static shape cannot see (`new Proxy(target, handler)`
+        // forwards writes onto `target`). Demote every IDENT arg to dynamic
+        // reads — matched by SHAPE (any global-class ctor), no class name.
+        for a in args {
+            if let rts_hir::ir::HirExprKind::Ident(name) = &a.kind {
+                self.demote_local_to_dynamic(name);
+            }
+        }
         // A PURE Registry class (today `Date`) constructs through the REAL
         // Registry (Pilar 6 — the ctor overloads come from the registered class,
         // no codegen ctor table). Data-driven: no class-name literal here.

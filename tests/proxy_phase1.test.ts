@@ -16,7 +16,8 @@ const h2: any = {};
 const p2: any = new Proxy(t2, h2);
 const p2foo: i64 = p2.foo;
 const p2bar: i64 = p2.bar;
-const p2miss: i64 = p2.missing;
+// JS fiel: key ausente le' undefined (era coercao i64→0 do modelo velho).
+const p2miss = p2.missing;
 
 // 3. Set trap intercepta
 let setCount = 0;
@@ -108,7 +109,7 @@ describe("proxy_phase1", () => {
     // 2. forward
     test("get forward foo", () => expect(p2foo).toBe(100));
     test("get forward bar", () => expect(p2bar).toBe(200));
-    test("get forward missing returns 0", () => expect(p2miss).toBe(0));
+    test("get forward missing is undefined", () => expect(p2miss === undefined).toBe(true));
     // 3. set trap
     test("set trap counts invocations", () => expect(setCount).toBe(3));
     test("set trap does not reach target unless explicit", () =>
