@@ -171,6 +171,9 @@ pub struct LayoutCtx<'a> {
 /// entrada do motor: percorre os filhos de `#document` como blocos empilhados na
 /// largura do viewport, resolvendo box model e emitindo os itens de pintura.
 pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
+    // informa o viewport à CASCADE (base de vw/vh no font-size fluido/calc; o
+    // memo de estilo do Dom invalida sozinho se mudou).
+    dom.set_viewport(ctx.viewport_w, ctx.viewport_h);
     let mut list = DisplayList::default();
     // PROPAGAÇÃO DO FUNDO do <body>/<html> (regra especial do CSS): o background
     // desses dois elementos "vaza" para o VIEWPORT inteiro, não só a caixa deles.
@@ -226,7 +229,7 @@ fn layout_out_of_flow(dom: &Dom, id: NodeIdx, ctx: &LayoutCtx, list: &mut Displa
     let css = dom.computed_style_idx(id).unwrap_or_default();
     let resolve = ResolveCtx {
         parent_content_w: ctx.viewport_w,
-        node_font_size: css.font_size.unwrap_or(DEFAULT_FONT_SIZE),
+        node_font_size: font_px(&css, DEFAULT_FONT_SIZE),
         root_font_size: DEFAULT_FONT_SIZE,
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
@@ -492,7 +495,7 @@ fn layout_block(
     // unidades relativas — `p-3` = 1rem do Bootstrap — e resolvem AQUI, como width).
     let resolve = ResolveCtx {
         parent_content_w: avail_w,
-        node_font_size: css.font_size.unwrap_or(DEFAULT_FONT_SIZE),
+        node_font_size: font_px(&css, DEFAULT_FONT_SIZE),
         root_font_size: DEFAULT_FONT_SIZE,
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
@@ -519,7 +522,7 @@ fn layout_block(
     // `frame` horizontal = o que cerca o content no eixo X (margin+border+padding
     // dos DOIS lados). border conta 2× (left+right); padding/margin já são a soma.
     let frame = margin_h + 2.0 * border + padding_h;
-    let font_for_content = css.font_size.unwrap_or(DEFAULT_FONT_SIZE);
+    let font_for_content = font_px(&css, DEFAULT_FONT_SIZE);
     let border_box = css.border_box.unwrap_or(false);
     let content_w = match css.width.and_then(|d| d.resolve(&resolve)) {
         // `width` explícito. Em `border-box`, o `width` INCLUI padding+border —
@@ -582,7 +585,7 @@ fn layout_block(
     // horizontal (`display:horizontal`/flex-row): cada filho À DIREITA do anterior,
     // a altura do content = a do filho mais alto (MDN flow: inline-axis stacking).
     let display = css_display(dom, id);
-    let font_size = css.font_size.unwrap_or(DEFAULT_FONT_SIZE);
+    let font_size = font_px(&css, DEFAULT_FONT_SIZE);
 
     // SCROLL CONTAINER (#1744): uma div com `overflow-x:auto/scroll` NÃO comprime os
     // filhos — eles transbordam e a div rola. Nesse caso layoutamos os filhos com a
@@ -813,7 +816,7 @@ fn intrinsic_outer_width(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &LayoutC
                 }
             }
             let css = dom.computed_style_idx(id).unwrap_or_default();
-            let f = css.font_size.unwrap_or(parent_font);
+            let f = font_px(&css, parent_font);
             let border_box = css.border_box.unwrap_or(false);
             let resolve = ResolveCtx {
                 parent_content_w: ctx.viewport_w,
@@ -916,6 +919,16 @@ fn css_display(dom: &Dom, id: NodeIdx) -> i64 {
     }
 }
 
+/// O `font-size` COMPUTADO em pontos: a CASCADE já resolveu a forma para `Px`
+/// (dom.rs — base de em/% é o pai; rem/vw/vh contra root/viewport), então aqui é
+/// só extrair; `fallback` cobre o não-declarado (herda) e formas não-resolvidas.
+fn font_px(css: &ComputedStyle, fallback: f32) -> f32 {
+    match css.font_size {
+        Some(crate::style::Dimension::Px(v)) => v,
+        _ => fallback,
+    }
+}
+
 /// Resolve uma dimensão do EIXO VERTICAL (`height`/`min-height`/`max-height`):
 /// `%` resolve contra a ALTURA do containing block (não a largura — era o bug que
 /// fazia `height:100%` virar 100% da largura do pai); as demais unidades usam o
@@ -974,7 +987,7 @@ fn layout_children_vertical(
                         // resolvem contra o content deste container).
                         let r = ResolveCtx {
                             parent_content_w: content_w,
-                            node_font_size: c.font_size.unwrap_or(font_size),
+                            node_font_size: font_px(&c, font_size),
                             root_font_size: DEFAULT_FONT_SIZE,
                             viewport_w: ctx.viewport_w,
                             viewport_h: ctx.viewport_h,
@@ -1397,7 +1410,7 @@ fn child_outer_width(dom: &Dom, id: NodeIdx, container_w: f32, parent_font: f32,
     match &dom.node(id).kind {
         NodeKind::Element { .. } if is_block_level(dom, id) => {
             let css = dom.computed_style_idx(id).unwrap_or_default();
-            let font = css.font_size.unwrap_or(parent_font);
+            let font = font_px(&css, parent_font);
             let resolve = ResolveCtx {
                 parent_content_w: container_w,
                 node_font_size: font,

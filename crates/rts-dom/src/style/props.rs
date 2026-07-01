@@ -115,8 +115,11 @@ css_props! {
         [inh anim] color: Rgba;
         /// Cor de fundo, `0xRRGGBBAA`.
         [anim] bg: Rgba;
-        /// Tamanho da fonte em pontos (> 0).
-        [inh anim] font_size: f32;
+        /// Tamanho da fonte. Declarado em QUALQUER unidade (px/em/%/rem/vw/vh/
+        /// calc — a tipografia fluida `calc(1.375rem + 1.5vw)` do Bootstrap), mas
+        /// a CASCADE resolve para `Px` cedo (base de em/% = font do pai; ver
+        /// dom.rs) — o layout sempre lê `Px`.
+        [inh anim] font_size: Dimension;
         /// `font-weight` colapsado em negrito (≥600/bold). Herdável.
         [inh] bold: bool;
         /// `font-style: italic/oblique`. Herdável.
@@ -262,7 +265,12 @@ impl ComputedStyle {
         match slot {
             SLOT_COLOR => self.color.map(|c| c as i64).unwrap_or(-1),
             SLOT_BG => self.bg.map(|c| c as i64).unwrap_or(-1),
-            SLOT_FONT_SIZE => dim(self.font_size),
+            // font-size: só a forma ABSOLUTA cruza o slot (a cascade resolve
+            // para Px de qualquer jeito; uma forma relativa crua reporta -1).
+            SLOT_FONT_SIZE => dim(match self.font_size {
+                Some(Dimension::Px(v)) => Some(v),
+                _ => None,
+            }),
             // o slot opaco reporta o lado `top` como representante (compat com o
             // shorthand de 1 valor que a camada TS usa via defineStyle/setStyle).
             SLOT_PADDING => dim(self.padding.top.px()),
@@ -293,7 +301,7 @@ impl ComputedStyle {
             SLOT_FONT_SIZE => {
                 let f = val as f32;
                 if f > 0.0 {
-                    self.font_size = Some(f);
+                    self.font_size = Some(Dimension::Px(f));
                 }
             }
             // slot opaco de 1 valor (defineStyle/setStyle) → os 4 lados iguais.

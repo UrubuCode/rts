@@ -38,7 +38,7 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
         match prop.as_str() {
             "color" => css.color = parse_color(val),
             "background-color" | "background" => css.bg = parse_color(val),
-            "font-size" => css.font_size = parse_len(val),
+            "font-size" => css.font_size = parse_dimension(val),
             "font-weight" => css.bold = Some(is_bold(val)),
             "font-style" => {
                 css.italic =
@@ -151,6 +151,11 @@ fn parse_dimension(v: &str) -> Option<Dimension> {
     let v = v.trim();
     if v.eq_ignore_ascii_case("auto") {
         return Some(Dimension::Auto);
+    }
+    // `calc(...)` — expressão linear reduzida no parse (resolve tarde).
+    let low_full = v.to_ascii_lowercase();
+    if let Some(inner) = low_full.strip_prefix("calc(").and_then(|r| r.strip_suffix(')')) {
+        return parse_calc(inner).map(Dimension::Calc);
     }
     // (sufixo, construtor, clamp_max) — `%`/`vw`/`vh` em 0..=100; resto sem teto.
     let num = |s: &str| s.trim().parse::<f32>().ok().filter(|n| *n >= 0.0);
@@ -288,6 +293,128 @@ fn parse_side(tok: &str, allow_auto: bool) -> Side {
     }
 }
 
+// ── calc() — expressão LINEAR de comprimentos, reduzida no parse ────────────────
+// `calc(1.375rem + 1.5vw)` / `calc(100% - 2rem)` / `calc(2 * (1rem + 4px))`.
+// Gramática (recursive descent): expr := term (('+'|'-') term)* ;
+// term := atom (('*'|'/') atom)* ; atom := comprimento | número | '(' expr ')'.
+// Multiplicação/divisão só com ESCALAR de um dos lados (regra da spec). O
+// resultado é um [`CalcLen`] (combinação das 6 bases) que resolve TARDE.
+
+/// Um valor intermediário do parser de calc: comprimento (combinação linear) ou
+/// número puro (escalar de multiplicação).
+enum CalcVal {
+    Len(crate::style::CalcLen),
+    Num(f32),
+}
+
+/// Parseia o MIOLO de um `calc(...)` (sem o `calc(` e `)`), ou `None` se inválido.
+fn parse_calc(inner: &str) -> Option<crate::style::CalcLen> {
+    let toks: Vec<char> = inner.chars().collect();
+    let mut pos = 0usize;
+    let v = calc_expr(&toks, &mut pos)?;
+    // sobrou lixo → inválido.
+    while pos < toks.len() {
+        if !toks[pos].is_whitespace() {
+            return None;
+        }
+        pos += 1;
+    }
+    match v {
+        CalcVal::Len(l) => Some(l),
+        CalcVal::Num(_) => None, // calc(2) não é um comprimento
+    }
+}
+
+fn calc_ws(t: &[char], p: &mut usize) {
+    while *p < t.len() && t[*p].is_whitespace() {
+        *p += 1;
+    }
+}
+
+fn calc_expr(t: &[char], p: &mut usize) -> Option<CalcVal> {
+    let mut acc = calc_term(t, p)?;
+    loop {
+        calc_ws(t, p);
+        let op = match t.get(*p) {
+            Some('+') => 1.0f32,
+            Some('-') => -1.0f32,
+            _ => return Some(acc),
+        };
+        *p += 1;
+        let rhs = calc_term(t, p)?;
+        acc = match (acc, rhs) {
+            (CalcVal::Len(a), CalcVal::Len(b)) => CalcVal::Len(a.add(b.scale(op))),
+            (CalcVal::Num(a), CalcVal::Num(b)) => CalcVal::Num(a + op * b),
+            _ => return None, // comprimento ± número é inválido na spec
+        };
+    }
+}
+
+fn calc_term(t: &[char], p: &mut usize) -> Option<CalcVal> {
+    let mut acc = calc_atom(t, p)?;
+    loop {
+        calc_ws(t, p);
+        let mul = match t.get(*p) {
+            Some('*') => true,
+            Some('/') => false,
+            _ => return Some(acc),
+        };
+        *p += 1;
+        let rhs = calc_atom(t, p)?;
+        acc = match (acc, rhs, mul) {
+            (CalcVal::Len(a), CalcVal::Num(k), true) => CalcVal::Len(a.scale(k)),
+            (CalcVal::Num(k), CalcVal::Len(a), true) => CalcVal::Len(a.scale(k)),
+            (CalcVal::Num(a), CalcVal::Num(b), true) => CalcVal::Num(a * b),
+            (CalcVal::Len(a), CalcVal::Num(k), false) if k != 0.0 => CalcVal::Len(a.scale(1.0 / k)),
+            (CalcVal::Num(a), CalcVal::Num(b), false) if b != 0.0 => CalcVal::Num(a / b),
+            _ => return None, // len*len, num/len, divisão por zero: inválidos
+        };
+    }
+}
+
+fn calc_atom(t: &[char], p: &mut usize) -> Option<CalcVal> {
+    calc_ws(t, p);
+    if t.get(*p) == Some(&'(') {
+        *p += 1;
+        let v = calc_expr(t, p)?;
+        calc_ws(t, p);
+        if t.get(*p) != Some(&')') {
+            return None;
+        }
+        *p += 1;
+        return Some(v);
+    }
+    // número (com sinal) + unidade opcional.
+    let start = *p;
+    if matches!(t.get(*p), Some('-') | Some('+')) {
+        *p += 1;
+    }
+    while matches!(t.get(*p), Some(c) if c.is_ascii_digit() || *c == '.') {
+        *p += 1;
+    }
+    if *p == start {
+        return None;
+    }
+    let num: f32 = t[start..*p].iter().collect::<String>().parse().ok()?;
+    // unidade (letras/%).
+    let ustart = *p;
+    while matches!(t.get(*p), Some(c) if c.is_ascii_alphabetic() || *c == '%') {
+        *p += 1;
+    }
+    let unit: String = t[ustart..*p].iter().collect::<String>().to_ascii_lowercase();
+    use crate::style::CalcLen;
+    Some(match unit.as_str() {
+        "" => CalcVal::Num(num),
+        "px" => CalcVal::Len(CalcLen { px: num, ..Default::default() }),
+        "%" => CalcVal::Len(CalcLen { pct: num, ..Default::default() }),
+        "em" => CalcVal::Len(CalcLen { em: num, ..Default::default() }),
+        "rem" => CalcVal::Len(CalcLen { rem: num, ..Default::default() }),
+        "vw" => CalcVal::Len(CalcLen { vw: num, ..Default::default() }),
+        "vh" => CalcVal::Len(CalcLen { vh: num, ..Default::default() }),
+        _ => return None, // unidade desconhecida (ch/vmin/…): calc inválido
+    })
+}
+
 /// Como [`parse_dimension`], mas aceita valores NEGATIVOS (margens/offsets). O
 /// `%`/`vw`/`vh` não são clampados a 0..=100 aqui (o sinal importa).
 fn parse_dimension_signed(v: &str) -> Option<Dimension> {
@@ -308,6 +435,7 @@ fn parse_dimension_signed(v: &str) -> Option<Dimension> {
         Dimension::Rem(x) => Dimension::Rem(-x),
         Dimension::Vw(x) => Dimension::Vw(-x),
         Dimension::Vh(x) => Dimension::Vh(-x),
+        Dimension::Calc(c) => Dimension::Calc(c.scale(-1.0)),
     })
 }
 
@@ -382,7 +510,7 @@ fn apply_font_shorthand(css: &mut ComputedStyle, val: &str) {
     };
     // px direto; se for relativo (em/rem/%), parse_px falha e fica None (herda) —
     // mesma limitação da longhand font-size (documentada).
-    css.font_size = parse_len(sz);
+    css.font_size = parse_dimension(sz);
     if let Some(l) = lh {
         css.line_height = LineHeight::parse(l);
     }

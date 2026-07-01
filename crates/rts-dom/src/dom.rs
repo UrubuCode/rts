@@ -200,6 +200,13 @@ pub struct Dom {
     computed_memo: std::cell::RefCell<HashMap<NodeIdx, crate::style::ComputedStyle>>,
     /// A revisão de render em que o `computed_memo` foi preenchido.
     memo_revision: std::cell::Cell<u64>,
+    /// O VIEWPORT corrente (w, h) — setado pelo layout no início da passada
+    /// ([`set_viewport`](Dom::set_viewport)); a base de `vw`/`vh` na cascade
+    /// (font-size fluido) e do `@media` futuro. Default 1280×800 (headless).
+    viewport: std::cell::Cell<(f32, f32)>,
+    /// O viewport com que o `computed_memo` foi preenchido (o computed depende
+    /// dele via vw/vh) — muda → memo invalida.
+    memo_viewport: std::cell::Cell<(u32, u32)>,
 }
 
 // Igualdade estrutural: compara só a árvore (nodes+root). Os índices e a `generation`
@@ -237,7 +244,16 @@ impl Dom {
             revision: 0,
             computed_memo: std::cell::RefCell::new(HashMap::new()),
             memo_revision: std::cell::Cell::new(0),
+            viewport: std::cell::Cell::new((1280.0, 800.0)),
+            memo_viewport: std::cell::Cell::new((1280.0f32.to_bits(), 800.0f32.to_bits())),
         }
+    }
+
+    /// Informa o VIEWPORT da passada de layout (base de `vw`/`vh` no computed).
+    /// `&self` (Cell) — o layout roda sobre `&Dom`; o memo de estilo invalida
+    /// sozinho quando o viewport muda (compara em `computed_style_idx`).
+    pub fn set_viewport(&self, w: f32, h: f32) {
+        self.viewport.set((w, h));
     }
 
     /// Marca que ALGO que afeta o render mudou (bumpa a revisão). Chamado por todo
@@ -474,9 +490,12 @@ impl Dom {
         // pintura). Um clone do ComputedStyle é muito mais barato que re-rodar
         // todas as regras do stylesheet (Bootstrap: ~2700).
         let rev = self.render_revision();
-        if self.memo_revision.get() != rev {
+        let (vw, vh) = self.viewport.get();
+        let vp_key = (vw.to_bits(), vh.to_bits());
+        if self.memo_revision.get() != rev || self.memo_viewport.get() != vp_key {
             self.computed_memo.borrow_mut().clear();
             self.memo_revision.set(rev);
+            self.memo_viewport.set(vp_key);
         }
         if let Some(hit) = self.computed_memo.borrow().get(&idx) {
             return Some(hit.clone());
@@ -521,13 +540,39 @@ impl Dom {
         css.merge_over(&author.important); // <style> !important
         css.merge_over(&inline.important); // inline !important
 
+        // ── FONT-SIZE resolve CEDO (aqui na cascade, não no layout): a base de
+        // `em`/`%` de font-size é o font do PAI (já computado em Px pela recursão
+        // abaixo) e `rem`/`vw`/`vh` usam root/viewport — assim a HERANÇA desce
+        // sempre o VALOR (Px), nunca a forma (um `2em` herdado re-multiplicaria a
+        // cada nível). É o que permite `calc(1.375rem + 1.5vw)` no font-size (a
+        // tipografia fluida do h1 do Bootstrap).
+        let parent_css = self
+            .element_parent_idx(idx)
+            .and_then(|p| self.computed_style_idx_inner(p, with_anim));
+        if let Some(d) = css.font_size {
+            let parent_font = parent_css
+                .as_ref()
+                .and_then(|p| match p.font_size {
+                    Some(style::Dimension::Px(v)) => Some(v),
+                    _ => None,
+                })
+                .unwrap_or(crate::layout::DEFAULT_FONT_SIZE);
+            let (vw, vh) = self.viewport.get();
+            let rctx = style::ResolveCtx {
+                parent_content_w: parent_font, // `%` de font-size = % do font do PAI
+                node_font_size: parent_font,   // `em` de font-size = × font do PAI
+                root_font_size: crate::layout::DEFAULT_FONT_SIZE,
+                viewport_w: vw,
+                viewport_h: vh,
+            };
+            css.font_size = d.resolve(&rctx).filter(|v| *v > 0.0).map(style::Dimension::Px);
+        }
+
         // ── HERANÇA (CSS inherited properties): color/font/text-align/etc. que NÃO
         // foram declaradas neste nó descem do PAI-elemento. É o que faz o texto pegar
         // a cor do body sem cada elemento redeclarar (sem isto, texto fica preto).
-        if let Some(parent_idx) = self.element_parent_idx(idx) {
-            if let Some(parent_css) = self.computed_style_idx_inner(parent_idx, with_anim) {
-                css.inherit_from(&parent_css);
-            }
+        if let Some(parent_css) = &parent_css {
+            css.inherit_from(parent_css);
         }
 
         // ── Camada de ANIMAÇÃO (#1776): o estilo interpolado do frame atual vence
@@ -2184,11 +2229,11 @@ mod tests {
         // <p> normal: regra de tag.
         let s0 = dom.computed_style(ps[0]).unwrap();
         assert_eq!(s0.color, Some(0xFF0000FF));
-        assert_eq!(s0.font_size, Some(14.0));
+        assert_eq!(s0.font_size, Some(crate::style::Dimension::Px(14.0)));
         // <p class="hl">: classe vence a tag na cor; font-size herda da tag.
         let s1 = dom.computed_style(ps[1]).unwrap();
         assert_eq!(s1.color, Some(0x00FF00FF));
-        assert_eq!(s1.font_size, Some(14.0));
+        assert_eq!(s1.font_size, Some(crate::style::Dimension::Px(14.0)));
         // <p id="x" class="hl">: id vence tudo.
         let s2 = dom.computed_style(ps[2]).unwrap();
         assert_eq!(s2.color, Some(0x0000FFFF));
@@ -2738,7 +2783,6 @@ mod tests {
     fn eventos_add_dispatch_poll() {
         // addEventListener marca o nó; dispatchEvent enfileira; poll consome (#1760).
         let mut dom = parse_html_to_dom("<div id=\"a\"><button id=\"b\">x</button></div>");
-        let a = dom.query("#a").unwrap();
         let b = dom.query("#b").unwrap();
         dom.add_event_listener(b, "click");
         assert!(dom.has_listener(b, "click"));

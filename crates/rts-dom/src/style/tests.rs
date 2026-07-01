@@ -7,7 +7,7 @@ use super::*;
 fn parses_typography() {
     let c = parse_inline("color:#ff0000; font-size:18px; font-weight:bold; font-style:italic");
     assert_eq!(c.color, Some(0xFF0000FF));
-    assert_eq!(c.font_size, Some(18.0));
+    assert_eq!(c.font_size, Some(Dimension::Px(18.0)));
     assert_eq!(c.bold, Some(true));
     assert_eq!(c.italic, Some(true));
 }
@@ -154,7 +154,7 @@ fn apply_slot_opaco() {
     s.apply_slot(SLOT_FONT_SIZE, 28);
     s.apply_slot(SLOT_BG, 0x111111FF);
     assert_eq!(s.color, Some(0x0088FFFF));
-    assert_eq!(s.font_size, Some(28.0));
+    assert_eq!(s.font_size, Some(Dimension::Px(28.0)));
     assert_eq!(s.bg, Some(0x111111FF));
 }
 
@@ -293,12 +293,12 @@ fn stylesheet_seletores_e_especificidade() {
     // <p> simples: só a regra de tag.
     let s = sheet.computed_for("p", None, &[]).normal;
     assert_eq!(s.color, Some(0xFF0000FF));
-    assert_eq!(s.font_size, Some(14.0));
+    assert_eq!(s.font_size, Some(Dimension::Px(14.0)));
     // <p class="card">: classe vence a tag na COR (10>1), mas font-size só a
     // tag tem (herda), e padding só a classe.
     let s = sheet.computed_for("p", None, &["card"]).normal;
     assert_eq!(s.color, Some(0x00FF00FF)); // classe > tag
-    assert_eq!(s.font_size, Some(14.0)); // só a tag define
+    assert_eq!(s.font_size, Some(Dimension::Px(14.0))); // só a tag define
     assert_eq!(s.padding.top, Side::px_len(10.0)); // só a classe define
     // <p id="alvo" class="card">: id vence tudo na cor (100>10>1).
     let s = sheet.computed_for("p", Some("alvo"), &["card"]).normal;
@@ -315,9 +315,9 @@ fn stylesheet_empate_ordem_e_virgula() {
     // seletor-lista `h1, h2, .big { ... }` → aplica aos três.
     let mut s2 = Stylesheet::new();
     s2.append_css("h1, h2, .big { font-size:30 }");
-    assert_eq!(s2.computed_for("h1", None, &[]).normal.font_size, Some(30.0));
-    assert_eq!(s2.computed_for("h2", None, &[]).normal.font_size, Some(30.0));
-    assert_eq!(s2.computed_for("p", None, &["big"]).normal.font_size, Some(30.0));
+    assert_eq!(s2.computed_for("h1", None, &[]).normal.font_size, Some(Dimension::Px(30.0)));
+    assert_eq!(s2.computed_for("h2", None, &[]).normal.font_size, Some(Dimension::Px(30.0)));
+    assert_eq!(s2.computed_for("p", None, &["big"]).normal.font_size, Some(Dimension::Px(30.0)));
     assert_eq!(s2.computed_for("p", None, &[]).normal.font_size, None); // não casa
 }
 
@@ -338,7 +338,7 @@ fn important_separa_camadas() {
     let b = parse_inline_block("color:#ff0000 !important; font-size:14");
     assert_eq!(b.important.color, Some(0xFF0000FF));
     assert_eq!(b.important.font_size, None);
-    assert_eq!(b.normal.font_size, Some(14.0));
+    assert_eq!(b.normal.font_size, Some(Dimension::Px(14.0)));
     assert_eq!(b.normal.color, None);
     // case-insensitive e com espaço antes do `!`.
     let b2 = parse_inline_block("padding: 10  !IMPORTANT");
@@ -384,16 +384,19 @@ fn define_style_acumula_por_tag() {
     define_style("h1_acum", SLOT_FONT_SIZE, 28);
     let s = lookup_style("h1_acum").expect("tag registrada");
     assert_eq!(s.color, Some(0x0088FFFF));
-    assert_eq!(s.font_size, Some(28.0));
+    assert_eq!(s.font_size, Some(Dimension::Px(28.0)));
     // tag não registrada → None.
     assert_eq!(lookup_style("tag_inexistente_xyz"), None);
 }
 
 #[test]
 fn font_size_e_lados_em_rem() {
-    // font-size em rem resolve contra o root FIXO 16 (browser default; o Bootstrap
-    // define a tipografia toda em rem): 2.5rem = 40px.
-    assert_eq!(parse_inline("font-size: 2.5rem").font_size, Some(40.0));
+    // font-size preserva a FORMA no parse (rem/em/%/vw/calc); quem resolve para
+    // Px é a CASCADE (base de em/% = font do pai — ver dom.rs). 2.5rem → Rem(2.5).
+    assert_eq!(parse_inline("font-size: 2.5rem").font_size, Some(Dimension::Rem(2.5)));
+    // calc() linear reduz no parse: calc(1.375rem + 1.5vw) → {rem:1.375, vw:1.5}.
+    let c = parse_inline("font-size: calc(1.375rem + 1.5vw)").font_size;
+    assert_eq!(c, Some(Dimension::Calc(CalcLen { rem: 1.375, vw: 1.5, ..Default::default() })));
     // padding/margin carregam a unidade (resolve TARDE no layout).
     let c = parse_inline("padding: 1rem; margin: -0.5rem 2em");
     assert_eq!(c.padding.top, Side::Len(Dimension::Rem(1.0)));
@@ -439,10 +442,10 @@ fn mecanismos_gerados_da_tabela() {
     let mut parent = ComputedStyle::default();
     parent.color = Some(0x112233FF); // inh
     parent.bg = Some(0x445566FF); // NÃO herda (box)
-    parent.font_size = Some(20.0); // inh
+    parent.font_size = Some(Dimension::Px(20.0)); // inh
     child.inherit_from(&parent);
     assert_eq!(child.color, Some(0x112233FF));
-    assert_eq!(child.font_size, Some(20.0));
+    assert_eq!(child.font_size, Some(Dimension::Px(20.0)));
     assert_eq!(child.bg, None); // bg não herda
     // diff animado: campo [anim] dispara; não-animável não.
     let mut a = ComputedStyle::default();

@@ -1863,7 +1863,7 @@ mod tests {
         );
         let s = crate::style::lookup_style(tag).expect("style registrado");
         assert_eq!(s.color, Some(0x0088FFFF));
-        assert_eq!(s.font_size, Some(28.0));
+        assert_eq!(s.font_size, Some(crate::style::Dimension::Px(28.0)));
 
         let btag = "claudeblk";
         __RTS_FN_NS_DOM_DEFINE_BLOCK(
