@@ -2636,15 +2636,15 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "sealed=true\nfrozen=false\nmodified=10\nfrozen2=true\nsealed2=true\nnot_modified=1\nnormal_sealed=false\nnormal_frozen=false",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "sealed=true\nfrozen=false\nmodified=10\nfrozen2=true\nsealed2=true\nnot_modified=10\nnormal_sealed=false\nnormal_frozen=false"
 }
 ,
 {
   "name": "153_object_preventextensions",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "extensible=true\nafter=false\nmodify=10\nsealed=false\nfrozen=false",
   "node": "extensible=true\nafter=false\nmodify=10\nsealed=false\nfrozen=false",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "extensible=true\nafter=false\nmodify=10\nsealed=true\nfrozen=false"
 }
 ,
 {
@@ -2961,10 +2961,10 @@
 ,
 {
   "name": "48_object_freeze_mutation",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "frozen=true\nkeys=a,b\njson={\"a\":1,\"b\":\"x\"}",
   "node": "frozen=true\nkeys=a,b\njson={\"a\":1,\"b\":\"x\"}",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "frozen=true\nkeys=a,b\njson={\"a\":1,\"b\":\"x\"}"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":221,"rts_diverge":85,"bun_node_diverge":17,"errors":286,"rejected":0}}
+],"summary":{"total":609,"pass":222,"rts_diverge":86,"bun_node_diverge":17,"errors":284,"rejected":0}}
