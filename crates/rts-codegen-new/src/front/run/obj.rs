@@ -387,15 +387,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // load and took priority.
             //
             // EXCEPTION: `.length` is NOT a stored slot — on an array it is the element
-            // count, on a string the code-unit count — and `__rtsadp_obj_get` would
-            // wrongly read `undefined` for it. The proven-receiver `.length` paths ran
-            // above; an UNPROVEN `.length` is the dynamic-length feature (the existing
-            // `__rtsadp_dyn_length` path, gated by `is_dynamic_length_receiver`) and is
-            // intentionally left to bail here rather than read a wrong `undefined`. ----
-            Err(_) if prop == "length" => unsupported!(
-                "`.length` on a receiver of unproven shape (param/return/reassigned) \
-                 — dynamic-length is a separate path, not a property slot"
-            ),
+            // count, on a string the code-unit count — so it routes through the
+            // TAG-dispatched `__rtsadp_dyn_length` (string → UTF-16 units, array →
+            // VEC_LEN, keyed object → its own `length` key, else `undefined`).
+            // Polymorphic and never a wrong value — this replaced the old bail, which
+            // killed any program whose prelude/user fn read `.length` off a param. ----
+            Err(_) if prop == "length" => {
+                let v = self.lower_expr(module, object)?;
+                let recv_word = self.box_value(v);
+                let word = self
+                    .call_runtime(module, "__rtsadp_dyn_length", &[recv_word])?
+                    .expect("__rtsadp_dyn_length returns a value");
+                Ok(Val::new_with_kind(word, Repr::Tagged, JsKind::Number))
+            }
             // DYNAMIC GETTER (`map.size`/`set.size` on a Tagged receiver of unproven
             // class): if some user class declares a `get prop()`, resolve it by the
             // instance's runtime shape-id. The dispatch's DEFAULT arm reads the data

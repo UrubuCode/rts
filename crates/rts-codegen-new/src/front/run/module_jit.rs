@@ -340,9 +340,10 @@ fn define_one(
         match res {
             Ok(()) => fb.finalize(),
             Err(e) => {
-                // drop the builder/ctx without defining; clear and bail.
+                // drop the builder/ctx without defining; clear and bail — naming
+                // WHICH function failed (a prelude bail is otherwise untraceable).
                 module.clear_context(&mut ctx);
-                return Err(e);
+                return Err(Unsupported::new(format!("in fn `{}`: {e}", func.name)));
             }
         }
     }

@@ -127,6 +127,12 @@ pub extern "C" fn __rtsadp_dyn_length(recv: u64) -> u64 {
         let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(arr_handle(recv)).max(0);
         return PolyValue::from_i32(len as i32).raw();
     }
+    // A KEYED OBJECT may carry a real own `length` property (`{length: 3}`) —
+    // read it like any other key (undefined when absent, matching JS).
+    if v.is_object() {
+        let key = abi_adapter::intern_poly("length").raw();
+        return super::objops::__rtsadp_obj_get(recv, key);
+    }
     undef()
 }
 
