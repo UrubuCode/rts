@@ -598,6 +598,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // `TAG_FUNCTION` class-value, so without this guard the write would be
         // silently recorded as a data property on the class-value instead. ----
         if let Some(class) = self.class_name_receiver(object) {
+            // `C.prototype = obj` — replace the class's shared prototype object.
+            if prop == "prototype" {
+                let k = abi_adapter::intern_poly(&class);
+                let k_word = self.builder.ins().iconst(types::I64, k.raw() as i64);
+                let v = self.lower_expr(module, value)?;
+                let word = self.box_value(v);
+                self.call_runtime(module, "__rtsadp_class_proto_set", &[k_word, word])?;
+                return Ok(Val::new(word, Repr::Tagged));
+            }
             let cell = self
                 .classes
                 .get(&class)
@@ -629,6 +638,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // `__rtsadp_fn_set_prop` (returns the assigned value). Routed BEFORE the
         // shape paths — a function receiver has no static object shape. ----
         if let Some(fn_word) = self.fn_value_word(module, object)? {
+            // `F.prototype = obj` on a NAMED function value — same shared-proto
+            // replacement as a class-name receiver (the read side resolves the
+            // same `class_proto(name)`).
+            if prop == "prototype" {
+                if let HirExprKind::Ident(name) = &object.kind {
+                    let k = abi_adapter::intern_poly(name);
+                    let k_word = self.builder.ins().iconst(types::I64, k.raw() as i64);
+                    let v = self.lower_expr(module, value)?;
+                    let word = self.box_value(v);
+                    self.call_runtime(module, "__rtsadp_class_proto_set", &[k_word, word])?;
+                    return Ok(Val::new(word, Repr::Tagged));
+                }
+            }
             let key_word = self.intern_key_word(prop);
             let v = self.lower_expr(module, value)?;
             let word = self.box_value(v);

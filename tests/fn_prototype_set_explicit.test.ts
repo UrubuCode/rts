@@ -20,7 +20,8 @@ Dog.prototype.barks = 1 as any;
 const d: number = new (Dog as any)();
 const legs: number = (d as any).legs;
 const barks: number = (d as any).barks;
-const missing: number = (d as any).xyz;
+// JS fiel: key ausente le undefined (era coercao i64→0 do modelo velho).
+const missing = (d as any).xyz;
 print("legs=" + legs);
 print("barks=" + barks);
 print("missing=" + missing);
@@ -30,6 +31,6 @@ describe("fn.prototype set explicito (#264)", () => {
     expect(__rtsCapturedOutput).toBe(
       "legs=4\n" +
       "barks=1\n" +
-      "missing=0\n"
+      "missing=undefined\n"
     ));
 });

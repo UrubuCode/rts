@@ -332,6 +332,10 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             crate::value::protos::__rtsadp_class_proto_init as *const u8,
         ),
         sym(
+            "__rtsadp_class_proto_set",
+            crate::value::protos::__rtsadp_class_proto_set as *const u8,
+        ),
+        sym(
             "__rtsadp_is_extensible",
             objops::__rtsadp_is_extensible as *const u8,
         ),

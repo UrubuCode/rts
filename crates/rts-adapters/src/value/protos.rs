@@ -99,12 +99,8 @@ pub extern "C" fn __rtsadp_obj_set_proto(obj_word: u64, proto_word: u64) -> u64 
 /// reaches every instance through the dynamic-get prototype walk.
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_class_proto(name_str_word: u64) -> u64 {
-    use std::collections::HashMap;
-    use std::sync::{Mutex, OnceLock};
-    static T: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
     let name = super::abi_adapter::resolve_poly(PolyValue::from_raw(name_str_word));
-    let table = T.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut t = table.lock().unwrap_or_else(|e| e.into_inner());
+    let mut t = class_proto_table().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(w) = t.get(&name) {
         return *w;
     }
@@ -119,6 +115,28 @@ pub extern "C" fn __rtsadp_class_proto(name_str_word: u64) -> u64 {
     let w = PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h)).raw();
     t.insert(name, w);
     w
+}
+
+/// name → the class's shared prototype object word (see [`__rtsadp_class_proto`]).
+fn class_proto_table() -> &'static Mutex<HashMap<String, u64>> {
+    static T: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
+    T.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// `C.prototype = obj` / `F.prototype = obj` — REPLACE the shared prototype.
+/// Instances created BEFORE keep the old proto (matching JS); instances created
+/// after link to `obj`. A non-object clears to the lazy default.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_class_proto_set(name_word: u64, proto_word: u64) -> u64 {
+    let name = super::abi_adapter::resolve_poly(PolyValue::from_raw(name_word));
+    if let Ok(mut t) = class_proto_table().lock() {
+        if PolyValue::from_raw(proto_word).is_object() {
+            t.insert(name, proto_word);
+        } else {
+            t.remove(&name);
+        }
+    }
+    proto_word
 }
 
 /// `__rtsadp_class_proto_init(name, parent_name_or_undefined)` — the ONE
@@ -151,14 +169,18 @@ pub extern "C" fn __rtsadp_class_proto_init(name_word: u64, parent_name_word: u6
     super::objops::__rtsadp_obj_set(ctor, name_key, name_word);
     let ctor_key = super::abi_adapter::intern_poly("constructor").raw();
     super::objops::__rtsadp_obj_set(proto, ctor_key, ctor);
-    // Chain: parent's proto, or the Object.prototype root.
-    let parent = PolyValue::from_raw(parent_name_word);
-    let up = if parent.is_string() {
-        __rtsadp_class_proto(parent_name_word)
-    } else {
-        object_proto_root()
-    };
-    __rtsadp_obj_set_proto(proto, up);
+    // Chain: parent's proto, or the Object.prototype root — but NEVER overwrite
+    // a [[Prototype]] the user already wired (`F.prototype =
+    // Object.create(Base.prototype)` runs before the first `new F()`).
+    if proto_of(proto).is_none() {
+        let parent = PolyValue::from_raw(parent_name_word);
+        let up = if parent.is_string() {
+            __rtsadp_class_proto(parent_name_word)
+        } else {
+            object_proto_root()
+        };
+        __rtsadp_obj_set_proto(proto, up);
+    }
     proto
 }
 
