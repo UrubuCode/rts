@@ -347,6 +347,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // RUNTIME via `__rtsadp_fn_get_prop` (absent → undefined). Routed BEFORE the
         // shape/array paths, which a function receiver has no static shape for. ----
         if let Some(fn_word) = self.fn_value_word(module, object)? {
+            // `F.prototype` on a NAMED function value resolves to the SAME shared
+            // prototype object a class of that name uses (`__rtsadp_class_proto`,
+            // keyed by name) — so `F.prototype.x = v` and a later fn-ctor
+            // elevation / `new F()` observe one object.
+            if prop == "prototype" {
+                if let HirExprKind::Ident(name) = &object.kind {
+                    let k = abi_adapter::intern_poly(name);
+                    let k_word = self.builder.ins().iconst(types::I64, k.raw() as i64);
+                    let w = self
+                        .call_runtime(module, "__rtsadp_class_proto", &[k_word])?
+                        .expect("__rtsadp_class_proto returns a word");
+                    return Ok(Val::tagged_kind(w, JsKind::Object));
+                }
+            }
             let key_word = self.intern_key_word(prop);
             let word = self
                 .call_runtime(module, "__rtsadp_fn_get_prop", &[fn_word, key_word])?
