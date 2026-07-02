@@ -249,24 +249,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         object: &HirExpr,
         body: &[HirStmt],
     ) -> FrontResult<()> {
-        // Only a proven keyed OBJECT (a known-shape object literal local or a
-        // reassigned object local) can enumerate keys; anything else bails.
-        let is_object = match &object.kind {
-            HirExprKind::Ident(name) => {
-                self.object_locals.contains(name)
-                    || matches!(
-                        self.local_shapes.get(name),
-                        Some(super::lower::HeapShape::Object(_))
-                    )
-            }
-            HirExprKind::Object(_) => true,
-            _ => false,
-        };
-        if !is_object {
-            return unsupported!(
-                "for-in over a non-object receiver (only a proven keyed object is supported)"
-            );
-        }
+        // POLYMORPHIC source: `__rtsadp_obj_keys` tag-dispatches the receiver
+        // (keyed object → own enumerable keys; array → "0".."n-1"; string →
+        // code-unit indices; anything else → `[]`, so the loop runs zero times —
+        // exactly JS for-in semantics). No static receiver gate needed.
         let obj = self.lower_expr(module, object)?;
         let obj_word = self.box_value(obj);
         let keys_word = self

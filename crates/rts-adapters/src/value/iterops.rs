@@ -188,6 +188,16 @@ pub extern "C" fn __rtsadp_obj_keys(obj_word: u64) -> u64 {
             let word = abi_adapter::intern_poly(&i.to_string()).raw() as i64;
             rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, word);
         }
+    } else if obj.is_string() {
+        // STRING receiver: `for (const i in "abc")` enumerates the CODE-UNIT
+        // indices `"0".."len-1"` (JS string exotic object). Everything else
+        // (numbers, bools, null/undefined) has no enumerable keys → `[]`,
+        // which makes a for-in over it iterate zero times (JS semantics).
+        let len = abi_adapter::resolve_poly(obj).encode_utf16().count();
+        for i in 0..len {
+            let word = abi_adapter::intern_poly(&i.to_string()).raw() as i64;
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, word);
+        }
     }
     box_vec_as_array(vec)
 }

@@ -1,6 +1,7 @@
 //! `let`/`const` binding lowering + the local-classification reset and the
 //! Tagged-local bind helper — split out of `stmt.rs` (the <500-line module rule).
 
+use cranelift_codegen::ir::{InstBuilder, types};
 use cranelift_module::Module;
 
 use rts_hir::ir::HirExprKind;
@@ -23,8 +24,29 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         ty: &HirType,
         init: Option<&HirExpr>,
     ) -> FrontResult<()> {
+        // `let u;` — no initializer: the binding starts as `undefined` (JS). Bind a
+        // Tagged local (or store into the gcell/cell for captured/module-level
+        // bindings) holding the undefined word; a later assignment re-routes
+        // through the normal Tagged assign.
         let Some(init) = init else {
-            return unsupported!("`let {name}` without an initializer");
+            let undef = self
+                .builder
+                .ins()
+                .iconst(types::I64, crate::value::PolyValue::undefined().raw() as i64);
+            if self.is_main {
+                if let Some(id) = self.gcells.get(name).copied() {
+                    self.emit_gcell_set(module, id, undef)?;
+                    return Ok(());
+                }
+            }
+            if self.is_cell_local(name) {
+                let handle = self.emit_cell_alloc(module, undef);
+                self.bind_tagged_local(name, Val::new(handle, Repr::Tagged));
+                return Ok(());
+            }
+            self.clear_local_classifications(name);
+            self.bind_tagged_local(name, Val::new(undef, Repr::Tagged));
+            return Ok(());
         };
 
         // MODULE-LEVEL MUTABLE GLOBAL (epic #195): a top-level `let` IN MAIN
