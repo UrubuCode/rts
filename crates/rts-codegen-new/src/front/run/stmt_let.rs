@@ -218,6 +218,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.global_instance_classes.insert(name.to_string(), class);
                 return Ok(());
             }
+            // `const sp = u.searchParams`: a registry-instance PROPERTY read whose
+            // spec return is a NAMED registered class (`searchParams:
+            // URLSearchParams`) — same tracking as the method-call arm above.
+            HirExprKind::Member { object, prop }
+                if self.registry_method_ret_class(object, prop, 0).is_some() =>
+            {
+                let class = self
+                    .registry_method_ret_class(object, prop, 0)
+                    .expect("guarded by the match arm");
+                let val = self.lower_expr(module, init)?;
+                self.bind_tagged_local(name, val);
+                self.global_instance_classes.insert(name.to_string(), class);
+                return Ok(());
+            }
             // `const s = Symbol("x")`: the PRIMORDIAL `Symbol` call form returns a
             // symbol instance. Record `s`'s class as "Symbol" (in
             // `global_instance_classes`) so `s.description` dispatches the registry

@@ -201,6 +201,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // while letting object-returning methods box as TAG_OBJECT.
         let result_kind = match call.ret {
             AbiType::Handle if call.ret_is_string_handle => JsKind::Str,
+            // A FRESH JS-array return (ts `): T[]`, e.g. `URLSearchParams.getAll`):
+            // rebox via `__rtsadp_box_handle_auto`, which normalizes legacy raw
+            // string-handle elements to words — an object-boxed raw Vec read its
+            // elements as garbage doubles.
+            AbiType::Handle if call.ret_is_array_handle => JsKind::Array,
             AbiType::Handle => JsKind::Object,
             AbiType::Bool => JsKind::Bool,
             _ => JsKind::Number,
@@ -222,7 +227,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         argc: usize,
     ) -> Option<String> {
         let recv_class = self.global_instance_class(object)?;
-        let call = super::registry::class_member(&recv_class, method, argc)?;
+        let call = super::registry::class_member(&recv_class, method, argc)
+            .or_else(|| super::registry::class_instance_getter(&recv_class, method))?;
         let cls = call.ret_class?;
         // Only trust a return-type name that is itself a registered class.
         super::registry::has_class(&cls).then_some(cls)

@@ -88,17 +88,28 @@ pub struct ResolvedCall {
 /// Whether a member's `ts_signature` declares a `string` RETURN — used to tell a
 /// heap-string `Handle` (rebox as `TAG_STR`) from an opaque resource `Handle`
 /// (rebox as a raw integer `number`). Looks at the text after the LAST `):`.
+/// The declared RETURN-TYPE text of a `ts_signature` — `"m(a: T): R"` → `"R"`,
+/// or the GETTER form `"prop: R"` (no parens) → `"R"`. `None` when neither
+/// shape yields a type text.
+fn ts_ret_text(ts: &str) -> Option<&str> {
+    let ret = match ts.rsplit_once("):") {
+        Some((_, ret)) => ret,
+        // Getter form `readonly prop: Type` — no parens; the FIRST `:` splits
+        // name from type (a type can itself contain `:` only in exotic forms
+        // the specs don't use).
+        None => ts.split_once(':').map(|(_, r)| r)?,
+    };
+    Some(ret.trim().trim_end_matches(';').trim())
+}
+
 fn ts_returns_string(ts: &str) -> bool {
-    ts.rsplit_once("):")
-        .map(|(_, ret)| {
+    ts_ret_text(ts)
+        .map(|ret| {
             // A bare `string` OR a union with a `string` member (`string | null`,
             // `string | undefined` — a present value is a heap string, an absent
             // one is the 0 sentinel). Splitting on `|` keeps `get(): string | null`
             // a STRING handle instead of mis-reboxing it as an OBJECT.
-            ret.trim()
-                .trim_end_matches(';')
-                .split('|')
-                .any(|t| t.trim() == "string")
+            ret.split('|').any(|t| t.trim() == "string")
         })
         .unwrap_or(false)
 }
@@ -109,9 +120,7 @@ fn ts_returns_string(ts: &str) -> bool {
 /// Whether a member's `ts_signature` declares an ARRAY return (`): string[]`,
 /// `): number[]`). Routes the Handle rebox through `__rtsadp_box_handle_auto`.
 fn ts_returns_array(ts: &str) -> bool {
-    ts.rsplit_once("):")
-        .map(|(_, ret)| ret.trim().trim_end_matches(';').trim().ends_with("[]"))
-        .unwrap_or(false)
+    ts_ret_text(ts).is_some_and(|ret| ret.ends_with("[]"))
 }
 
 fn ts_returns_nullable_string(ts: &str) -> bool {
@@ -131,8 +140,7 @@ fn ts_returns_nullable_string(ts: &str) -> bool {
 /// still check the name against the registered classes before trusting it — this
 /// only filters the SHAPE of the annotation, never invents a class.
 fn ts_return_class(ts: &str) -> Option<String> {
-    let (_, ret) = ts.rsplit_once("):")?;
-    let ret = ret.trim().trim_end_matches(';').trim();
+    let ret = ts_ret_text(ts)?;
     let first = ret.chars().next()?;
     if !first.is_ascii_uppercase() || !ret.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
         return None;

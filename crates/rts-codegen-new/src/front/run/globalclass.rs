@@ -66,6 +66,21 @@ fn class_meta(name: &str) -> Option<ClassMeta> {
     Some(m)
 }
 
+/// The JS result kind of a Registry PROPERTY/getter read, DATA-DRIVEN from the
+/// member's declared return: `): string` → Str; `): T[]` → Array (reboxes via
+/// the heterogeneous authority); a named class / other Handle → Object (the old
+/// blanket "Handle ⇒ Str" mis-kinded `u.searchParams` as a String local, so
+/// `sp.get(..)` dispatched on class `String`).
+fn registry_prop_kind(call: &super::registry::ResolvedCall) -> JsKind {
+    match call.ret {
+        rts_engine::abi::AbiType::Handle if call.ret_is_string_handle => JsKind::Str,
+        rts_engine::abi::AbiType::Handle if call.ret_is_array_handle => JsKind::Array,
+        rts_engine::abi::AbiType::Handle => JsKind::Object,
+        rts_engine::abi::AbiType::Bool => JsKind::Bool,
+        _ => JsKind::Number,
+    }
+}
+
 /// RegExp instance methods (P5.12). `.test(s)` is the high-value one: receiver
 /// word + subject word → a bool word, the SAME generic shape as Map/Set methods.
 /// `.exec` BAILS (capture-group array extraction is a later increment — not a row
@@ -248,11 +263,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if self.is_pure_registry_class(&class) {
             if let Some(call) = super::registry::class_member(&class, prop, 0) {
                 let recv = self.lower_expr(module, object)?;
-                let result_kind = match call.ret {
-                    rts_engine::abi::AbiType::Handle => JsKind::Str,
-                    rts_engine::abi::AbiType::Bool => JsKind::Bool,
-                    _ => JsKind::Number,
-                };
+                let result_kind = registry_prop_kind(&call);
                 let v = self.emit_registry_call(module, &call, Some(recv), &[], result_kind)?;
                 return Ok(Some(v));
             }
@@ -261,11 +272,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // this resolves the getter-kind member.
             if let Some(call) = super::registry::class_instance_getter(&class, prop) {
                 let recv = self.lower_expr(module, object)?;
-                let result_kind = match call.ret {
-                    rts_engine::abi::AbiType::Handle => JsKind::Str,
-                    rts_engine::abi::AbiType::Bool => JsKind::Bool,
-                    _ => JsKind::Number,
-                };
+                let result_kind = registry_prop_kind(&call);
                 let v = self.emit_registry_call(module, &call, Some(recv), &[], result_kind)?;
                 return Ok(Some(v));
             }
