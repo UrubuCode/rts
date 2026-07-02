@@ -142,8 +142,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.lower_expr(module, e)?;
                 None
             }
-            (Some(_ret), None) => {
-                return unsupported!("`return;` with no value in a value-returning function");
+            (Some(ret), None) => {
+                // JS `return;` yields `undefined` — a lifted arrow/callback with
+                // an early `return;` returns the undefined word coerced to the
+                // fn's return repr (Tagged for a lifted arrow, the common case).
+                let undef = self.builder.ins().iconst(
+                    cranelift_codegen::ir::types::I64,
+                    crate::value::PolyValue::undefined().raw() as i64,
+                );
+                let v = self.coerce(
+                    super::lower::Val::tagged_kind(undef, super::lower::JsKind::Undefined),
+                    ret,
+                )?;
+                Some(v)
             }
             (Some(ret), Some(e)) => {
                 // TAIL CALL (TCO): `return f(args)` where both this fn and `f`

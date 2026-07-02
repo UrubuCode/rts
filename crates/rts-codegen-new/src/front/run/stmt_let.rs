@@ -324,6 +324,35 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     .insert(name.to_string(), "Symbol".to_string());
                 return Ok(());
             }
+            // `const dc = structuredClone(d)` where `d`'s class is known (a
+            // registry/user class instance): the clone PRESERVES the type, so
+            // propagate the arg's classification to the receiver — `dc.getUTC*`
+            // / `.has` / `.size` static-dispatch like the original. Only the
+            // ident-arg form (the provable case); anything else stays dynamic.
+            HirExprKind::Call { callee, args }
+                if matches!(&callee.kind, HirExprKind::Ident(n) if n == "structuredClone")
+                    && self.local("structuredClone").is_none()
+                    && args.first().is_some_and(|a| {
+                        self.global_instance_class(a).is_some()
+                            || matches!(&a.kind,
+                                HirExprKind::Ident(v) if self.local_classes.contains_key(v.as_str()))
+                    }) =>
+            {
+                let arg = args.first().expect("guarded by the match arm");
+                let g_class = self.global_instance_class(arg);
+                let l_class = match &arg.kind {
+                    HirExprKind::Ident(v) => self.local_classes.get(v.as_str()).cloned(),
+                    _ => None,
+                };
+                let val = self.lower_expr(module, init)?;
+                self.bind_tagged_local(name, val);
+                if let Some(c) = g_class {
+                    self.global_instance_classes.insert(name.to_string(), c);
+                } else if let Some(c) = l_class {
+                    self.local_classes.insert(name.to_string(), c);
+                }
+                return Ok(());
+            }
             // `const c2 = c.inc()` / `const r = make()`: a CALL/METHOD-CALL whose
             // result class is statically provable (`ret_class` — `return this` /
             // `return new C`). Record the local's CLASS so a later `c2.method()`

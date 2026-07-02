@@ -702,11 +702,29 @@ fn build_from_program(
     // not a captured local. `classes` holds the USER decls; `ambient` holds the
     // prelude classes (Set/Map/…), which are NOT merged into `classes`, so both
     // are gathered.
-    let class_names: std::collections::HashSet<String> = classes
+    let mut class_names: std::collections::HashSet<String> = classes
         .iter()
         .map(|d| d.name.clone())
         .chain(ambient.iter().map(|d| d.name.clone()))
         .collect();
+    // BUILTIN import bindings (`import { net, tls } from "rts"` / `rts:<ns>` /
+    // `node:<ns>`): a free reference inside an arrow (`test(() =>
+    // net.tcp_connect(..))`) is a namespace/member binding resolved at lowering,
+    // NEVER a captured outer local — without this seed the arrow was misjudged
+    // an unsound capture and bailed ("expression arrow").
+    for item in &program.items {
+        if let rts_ast::ast::Item::Import(decl) = item {
+            let spec = decl.from.as_str();
+            if spec == "rts" || spec.starts_with("rts:") || spec.starts_with("node:") {
+                for n in &decl.names {
+                    class_names.insert(n.local.clone());
+                }
+                if let Some(d) = &decl.default_name {
+                    class_names.insert(d.clone());
+                }
+            }
+        }
+    }
     let extracted =
         funcval::extract_arrows(&mut funcs, &mut main, ambient_fns, &class_names, &pre_globals);
     funcs.extend(extracted.funcs);
