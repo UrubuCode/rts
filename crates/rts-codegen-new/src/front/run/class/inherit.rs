@@ -131,6 +131,47 @@ fn rewrite_super_stmt(s: &mut HirStmt, parent: Option<&ClassDesc>) -> FrontResul
             rewrite_super_block(body, parent)
         }
         HirStmt::Block(b) => rewrite_super_block(b, parent),
+        // for/for-of/for-in/try: `for (const v of super.vals())` (a generator
+        // method delegating to the parent) kept its Raw SuperProp without these.
+        HirStmt::For {
+            init,
+            cond,
+            update,
+            body,
+        } => {
+            if let Some(i) = init {
+                rewrite_super_stmt(i, parent)?;
+            }
+            if let Some(c) = cond {
+                rewrite_super_expr(c, parent)?;
+            }
+            if let Some(u) = update {
+                rewrite_super_expr(u, parent)?;
+            }
+            rewrite_super_block(body, parent)
+        }
+        HirStmt::ForOf { iterable, body, .. } => {
+            rewrite_super_expr(iterable, parent)?;
+            rewrite_super_block(body, parent)
+        }
+        HirStmt::ForIn { object, body, .. } => {
+            rewrite_super_expr(object, parent)?;
+            rewrite_super_block(body, parent)
+        }
+        HirStmt::Try {
+            body,
+            catch,
+            finally,
+        } => {
+            rewrite_super_block(body, parent)?;
+            if let Some(c) = catch {
+                rewrite_super_block(&mut c.body, parent)?;
+            }
+            if let Some(f) = finally {
+                rewrite_super_block(f, parent)?;
+            }
+            Ok(())
+        }
         _ => Ok(()),
     }
 }
