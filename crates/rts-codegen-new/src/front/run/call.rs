@@ -115,6 +115,21 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if let Some(val) = self.try_method_dispatch(module, object, method, args)? {
             return Ok(val);
         }
+        // LAST CHANCE — a FUNCTION-VALUED PROPERTY: `{ add: function(a,b){…} }`
+        // stores a fn word in a data slot; `math.add(2,3)` reads the member and
+        // invokes it through the uniform fn-value path (a non-function word
+        // yields `undefined` defensively in `__rtsadp_fn_invoke`). Only for a
+        // receiver whose member READ lowers (an object-shaped value) — anything
+        // else keeps the honest bail below.
+        if matches!(
+            &object.kind,
+            HirExprKind::Ident(_) | HirExprKind::Member { .. } | HirExprKind::Index { .. }
+        ) {
+            if let Ok(prop_val) = self.lower_member(module, object, method) {
+                let prop_word = self.box_value(prop_val);
+                return self.lower_value_call_word(module, prop_word, args);
+            }
+        }
         unsupported!("method call `.{method}()` (receiver class not statically dispatchable)")
     }
 
