@@ -581,6 +581,21 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
             HirExpr::new(HirExprKind::Raw(format!("template_literal")), HirType::Str)
         }
 
+        // `#x` in EXPRESSION position exists only as the LHS of an ergonomic
+        // brand check (`#x in obj`, ES2022) — anywhere else it is a syntax error
+        // upstream in swc. Lower it as a string literal carrying the private
+        // name: the engine's object model stores private fields as ordinary
+        // shape slots named `#x` (mangled `#x@Class` only on an inheritance
+        // collision), so the `in` lowering's shape-aware `__rtsadp_obj_has`
+        // resolves slot presence — the brand. Known approximation: two UNRELATED
+        // classes declaring the same UNMANGLED `#x` are not distinguished (JS
+        // private-name identity is per-class); exact per-class branding is a
+        // later increment.
+        swc::Expr::PrivateName(p) => HirExpr::new(
+            HirExprKind::Lit(crate::ir::HirLit::Str(format!("#{}", p.name))),
+            HirType::Str,
+        ),
+
         // TypeScript type-only expression wrappers carry ZERO runtime effect:
         // the value is just the inner expression. Erase the type and lower the
         // inner expr directly, instead of falling through to a `Raw` node that

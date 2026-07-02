@@ -288,6 +288,12 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// inside ANY function declares a fresh LOCAL that shadows the global
     /// (without this a prelude-internal `let out` clobbered a user gcell).
     pub is_main: bool,
+    /// The NAME of the function being lowered (`__rtsn_main`, `__rtsn_ctor_C`,
+    /// `__rtsn_method_C_m`, `__rtsn_static_C_m`, …). Drives the TS access-surface
+    /// re-checks: a `readonly` field write is allowed only inside a
+    /// `__rtsn_ctor_*`, and a static method's enclosing class is recovered from
+    /// the `__rtsn_static_<C>_` prefix (see `enclosing_class`).
+    pub current_fn: String,
     /// BUILTIN-IMPORT bindings (M1b): a LOCAL name imported from `rts:<ns>` →
     /// `(ns, member)`. A `name(args)` call whose `name` is here lowers to the real
     /// `__RTS_FN_NS_*` symbol via the generic Registry marshal (see [`super::call`]).
@@ -361,6 +367,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             classes,
             is_prelude,
             is_main: func.name == "__rtsn_main",
+            current_fn: func.name.clone(),
             builtins,
             float_promoted: super::floatscan::float_promoted_locals(&func.body),
             singleton_overrides: std::collections::HashSet::new(),

@@ -119,6 +119,18 @@ pub(crate) struct ClassDesc {
     /// field of this kind reads as a `JsKind::Str` value so it reaches the same
     /// native string member/index/method paths a string literal or param does.
     pub field_strings: std::collections::HashSet<String>,
+    /// FLATTENED non-public INSTANCE members (TS `private`/`protected` fields and
+    /// methods, plus JS `#name` fields/methods): member SLOT/method name →
+    /// (visibility, DECLARING class). Parent entries first, like `fields`. The
+    /// lowering refuses an access whose enclosing class is outside the visibility
+    /// domain — the TS compile-error surface, same family as `is_abstract`. A JS
+    /// `#name` member records `Visibility::Private` (lexically scoped to the
+    /// declaring class body — the same rule).
+    pub member_access: HashMap<String, (rts_ast::ast::Visibility, String)>,
+    /// FLATTENED TS `readonly` INSTANCE field slot names. A write outside a
+    /// constructor refuses at compile time (the TS surface; the ctor prologue and
+    /// user ctor body run as `__rtsn_ctor_*`, which is allowed).
+    pub readonly_fields: std::collections::HashSet<String>,
 }
 
 impl ClassDesc {

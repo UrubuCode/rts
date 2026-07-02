@@ -268,6 +268,49 @@ pub(super) fn build_class(
         static_fields.insert(sg.name.clone(), static_method_name(&decl.name, &sg.name));
     }
 
+    // --- FLATTENED access surface: TS `private`/`protected` fields + methods and
+    // JS `#name` fields record (visibility, DECLARING class); TS `readonly` fields
+    // record their slot name. Parent entries first (like `fields`); the lowering
+    // enforces the TS compile-error surface from these (same family as
+    // `is_abstract`). A JS `#name` is `Visibility::Private` — lexically scoped to
+    // the declaring class body, the same access rule.
+    let mut member_access: HashMap<String, (rts_ast::ast::Visibility, String)> =
+        parent.map(|p| p.member_access.clone()).unwrap_or_default();
+    let mut readonly_fields: std::collections::HashSet<String> =
+        parent.map(|p| p.readonly_fields.clone()).unwrap_or_default();
+    for pd in &m.props {
+        let slot = field_slot_name(&pd.name, &priv_renames);
+        let vis = if pd.name.starts_with('#') {
+            Some(rts_ast::ast::Visibility::Private)
+        } else {
+            match pd.modifiers.visibility {
+                Some(v @ (rts_ast::ast::Visibility::Private
+                | rts_ast::ast::Visibility::Protected)) => Some(v),
+                _ => None,
+            }
+        };
+        if let Some(v) = vis {
+            member_access.insert(slot.clone(), (v, decl.name.clone()));
+        }
+        if pd.modifiers.readonly {
+            readonly_fields.insert(slot);
+        }
+    }
+    for md in &m.methods {
+        let vis = if md.name.starts_with('#') {
+            Some(rts_ast::ast::Visibility::Private)
+        } else {
+            match md.modifiers.visibility {
+                Some(v @ (rts_ast::ast::Visibility::Private
+                | rts_ast::ast::Visibility::Protected)) => Some(v),
+                _ => None,
+            }
+        };
+        if let Some(v) = vis {
+            member_access.insert(md.name.clone(), (v, decl.name.clone()));
+        }
+    }
+
     // --- abstract accounting: own abstract decls + parent's unimplemented,
     // minus what THIS class's `methods` now implements. A CONCRETE class with
     // leftovers is the TS "missing implementation" compile error — re-checked.
@@ -306,6 +349,8 @@ pub(super) fn build_class(
         static_fields,
         field_arrays,
         field_strings,
+        member_access,
+        readonly_fields,
     };
     Ok((desc, out))
 }
