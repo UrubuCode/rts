@@ -101,6 +101,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 return unsupported!("`return;` with no value in a value-returning function");
             }
             (Some(ret), Some(e)) => {
+                // TAIL CALL (TCO): `return f(args)` where both this fn and `f`
+                // are in the program's tail set (CallConv::Tail) and the site
+                // qualifies (no enclosing try/finally, exact arity, matching
+                // return repr) → ONE `return_call`, no frame growth. All checks
+                // run before any lowering, so the fallback below never
+                // double-evaluates. See `super::tco`.
+                if self.try_tail_return_call(module, e)? {
+                    return Ok(());
+                }
                 let v = self.lower_expr(module, e)?;
                 Some(self.coerce(v, ret)?)
             }

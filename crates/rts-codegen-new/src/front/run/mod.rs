@@ -62,6 +62,7 @@ mod stmt;
 mod stmt_assign;
 mod stmt_let;
 mod switch;
+mod tco;
 mod thunk;
 mod toprimitive;
 mod trycatch;

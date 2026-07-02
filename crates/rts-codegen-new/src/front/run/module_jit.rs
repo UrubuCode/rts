@@ -64,6 +64,9 @@ impl Program {
 fn make_module() -> JITModule {
     let mut flags = settings::builder();
     flags.set("opt_level", "speed").unwrap();
+    // TCO (`return_call` between `CallConv::Tail` fns) requires frame pointers
+    // preserved on x86-64 — the documented requirement the old engine also set.
+    flags.set("preserve_frame_pointers", "true").unwrap();
     let isa = cranelift_native::builder()
         .expect("host isa builder")
         .finish(settings::Flags::new(flags))
@@ -182,6 +185,15 @@ pub(crate) fn populate_module(
     // + main agrees on one known class (a single non-class / disagreeing write
     // poisons it). Lets `const G = globalThis.X; new G().m()` dispatch statically.
     let globalthis_class_refs = infer_globalthis_classes(funcs, main, classes);
+    // TAIL SET (TCO): fns participating in a direct `return f(args)` edge whose
+    // both endpoints are safe under `CallConv::Tail` get `sig.tail = true` —
+    // their declarations switch callconv and qualifying return sites emit
+    // `return_call` (deep self/mutual tail recursion stops consuming stack).
+    for name in super::tco::compute_tail_set(funcs, &sigs) {
+        if let Some(s) = sigs.get_mut(&name) {
+            s.tail = true;
+        }
+    }
     let main_sig = FnSig::main_sig();
 
     // 2. Declare every function up front so cross-calls resolve to a FuncId.

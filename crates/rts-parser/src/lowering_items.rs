@@ -108,7 +108,72 @@ impl swc_ecma_visit::VisitMut for MemberAssignFnHoister {
                 let ident = self.hoist(function);
                 assign.right = Box::new(Expr::Ident(ident));
             }
+            // `F.prototype = Object.create(proto, { m: { value: function(){…} },
+            // … })` — the ES5 descriptor-map form: hoist each descriptor's
+            // `value:` fn-expr exactly like the direct `F.prototype.m = fn`
+            // form, so the ctor-fn lift (`ctorfn::parse_proto_descriptor`) sees
+            // hoisted idents. Same capture-risk profile as the direct form (a
+            // top-level statement, no enclosing fn scope).
+            Expr::Call(call) => {
+                self.hoist_object_create_descriptor_values(call);
+            }
             _ => {}
+        }
+    }
+}
+
+impl MemberAssignFnHoister {
+    /// When `call` is `Object.create(_, { k: { value: <fn-expr>, … }, … })`,
+    /// hoist each `value:` fn/arrow to a `__fnprop_N` decl and rewrite the
+    /// descriptor value to the ident. Any other call is left untouched.
+    fn hoist_object_create_descriptor_values(&mut self, call: &mut swc_ecma_ast::CallExpr) {
+        use swc_ecma_ast::{Callee, MemberProp, Prop, PropName, PropOrSpread};
+        let Callee::Expr(callee) = &call.callee else {
+            return;
+        };
+        let Expr::Member(cm) = callee.as_ref() else {
+            return;
+        };
+        let (MemberProp::Ident(create), Expr::Ident(obj)) = (&cm.prop, cm.obj.as_ref()) else {
+            return;
+        };
+        if create.sym.as_ref() != "create" || obj.sym.as_ref() != "Object" || call.args.len() != 2
+        {
+            return;
+        }
+        let Expr::Object(desc_map) = call.args[1].expr.as_mut() else {
+            return;
+        };
+        for p in &mut desc_map.props {
+            let PropOrSpread::Prop(prop) = p else { continue };
+            let Prop::KeyValue(kv) = prop.as_mut() else {
+                continue;
+            };
+            let Expr::Object(desc) = kv.value.as_mut() else {
+                continue;
+            };
+            for dp in &mut desc.props {
+                let PropOrSpread::Prop(dprop) = dp else { continue };
+                let Prop::KeyValue(dkv) = dprop.as_mut() else {
+                    continue;
+                };
+                let is_value = matches!(&dkv.key, PropName::Ident(id) if id.sym.as_ref() == "value");
+                if !is_value {
+                    continue;
+                }
+                match dkv.value.as_mut() {
+                    Expr::Fn(fe) if !fe.function.is_generator && !fe.function.is_async => {
+                        let ident = self.hoist((*fe.function).clone());
+                        dkv.value = Box::new(Expr::Ident(ident));
+                    }
+                    Expr::Arrow(arrow) if !arrow.is_generator && !arrow.is_async => {
+                        let function = arrow_to_function(arrow);
+                        let ident = self.hoist(function);
+                        dkv.value = Box::new(Expr::Ident(ident));
+                    }
+                    _ => {}
+                }
+            }
         }
     }
 }

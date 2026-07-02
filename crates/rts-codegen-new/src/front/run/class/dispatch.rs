@@ -454,6 +454,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let base_fn = last.1.clone();
                 return self.emit_virtual_dispatch(module, object, rest, &base_fn, args);
             }
+            // The Object-PROTOCOL surface every JS object inherits
+            // (`hasOwnProperty`/`isPrototypeOf`/`propertyIsEnumerable`): a class
+            // instance answers these like any object when its class chain does
+            // not define them.
+            if let Some(val) = self.try_object_protocol_method(module, object, method, args)? {
+                return Ok(val);
+            }
             return unsupported!(
                 "`{class}.{method}()` — no such method on class `{class}` \
                  (a field-as-function / dynamic method is a later increment)"
