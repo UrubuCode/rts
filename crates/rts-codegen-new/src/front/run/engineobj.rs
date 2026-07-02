@@ -165,6 +165,23 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 Repr::Bool,
             );
         }
+        // Timer bridges (the `.ts` global setTimeout/… wrappers): all-words in,
+        // a word out — the adapters wrapper decodes ms / converts the fn word.
+        if method == "set_timeout" {
+            return self.lower_engine_descriptor(module, args, "__rtsadp_set_timeout", 2, Repr::Tagged);
+        }
+        if method == "set_interval" {
+            return self.lower_engine_descriptor(module, args, "__rtsadp_set_interval", 2, Repr::Tagged);
+        }
+        if method == "clear_timer" {
+            return self.lower_engine_descriptor(module, args, "__rtsadp_clear_timer", 1, Repr::Tagged);
+        }
+        if method == "queue_microtask" {
+            return self.lower_engine_descriptor(module, args, "__rtsadp_queue_microtask", 1, Repr::Tagged);
+        }
+        if method == "set_immediate" {
+            return self.lower_engine_descriptor(module, args, "__rtsadp_set_immediate", 1, Repr::Tagged);
+        }
         // `construct(target, argsArray)` — Reflect.construct: new-thunk invoke
         // with args read from the array; Proxy `construct` trap-aware.
         if method == "construct" {

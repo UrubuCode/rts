@@ -74,6 +74,7 @@ pub unsafe extern "C" fn napi_define_class(
         keep_alive: None,
         prototype_handle: 0,
         rest_param_idx: -1,
+        uniform_thunk: false,
     })));
 
     // Coleta os métodos de instância dos descriptors.

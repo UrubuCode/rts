@@ -37,6 +37,11 @@ struct Macrotask {
     handle: u64,
     deadline: std::time::Instant,
     seq: u64,
+    /// `Some(ms)` = setInterval: o pump RE-ENFILEIRA após disparar (mesma
+    /// thread do main — uma thread por interval escrevia gcells thread-local
+    /// numa cópia órfã, o callback capturante nunca era visto). `None` =
+    /// setTimeout (one-shot).
+    period_ms: Option<u64>,
 }
 thread_local! {
     static MACROTASK_QUEUE: std::cell::RefCell<Vec<Macrotask>>
@@ -49,7 +54,14 @@ fn next_macrotask_seq() -> u64 {
 }
 
 /// Enfileira um setTimeout(fp, delay) como macrotask com deadline absoluto.
-fn enqueue_macrotask(fp: u64, flag: Arc<AtomicBool>, handle: u64, delay_ms: u64) {
+/// `period_ms = Some(ms)` re-enfileira apos disparar (setInterval).
+fn enqueue_macrotask(
+    fp: u64,
+    flag: Arc<AtomicBool>,
+    handle: u64,
+    delay_ms: u64,
+    period_ms: Option<u64>,
+) {
     let deadline = std::time::Instant::now() + Duration::from_millis(delay_ms);
     let seq = next_macrotask_seq();
     MACROTASK_QUEUE.with(|q| {
@@ -59,12 +71,28 @@ fn enqueue_macrotask(fp: u64, flag: Arc<AtomicBool>, handle: u64, delay_ms: u64)
             handle,
             deadline,
             seq,
+            period_ms,
         })
     });
 }
 
 /// Menor deadline entre macrotasks pendentes nao-canceladas (None se vazia).
+/// EXCLUI intervals (periodicos): o drain pos-main nao deve esperar um
+/// setInterval infinito — so' timeouts one-shot contam como trabalho pendente.
 pub fn next_macrotask_deadline() -> Option<std::time::Instant> {
+    MACROTASK_QUEUE.with(|q| {
+        q.borrow()
+            .iter()
+            .filter(|m| !m.flag.load(Ordering::Relaxed) && m.period_ms.is_none())
+            .map(|m| m.deadline)
+            .min()
+    })
+}
+
+/// Menor deadline INCLUINDO intervals — usado pelo pump dirigido por tempo
+/// (`pump_until` / `time.sleep_ms`), onde um tick de interval dentro da janela
+/// de sono DEVE acordar o pump.
+fn next_any_deadline() -> Option<std::time::Instant> {
     MACROTASK_QUEUE.with(|q| {
         q.borrow()
             .iter()
@@ -109,8 +137,31 @@ pub fn pump_due_macrotasks() {
         match next {
             Some(m) => {
                 invoke_timer_cb(m.fp);
-                free_handle(m.handle);
-                cancel_timer(m.handle);
+                if let Some(period) = m.period_ms {
+                    // setInterval: re-enfileira o proximo tick (a menos que o
+                    // callback tenha chamado clearInterval — a flag cobre).
+                    if !m.flag.load(Ordering::Relaxed) {
+                        let deadline =
+                            std::time::Instant::now() + Duration::from_millis(period.max(1));
+                        let seq = next_macrotask_seq();
+                        MACROTASK_QUEUE.with(|q| {
+                            q.borrow_mut().push(Macrotask {
+                                fp: m.fp,
+                                flag: m.flag,
+                                handle: m.handle,
+                                deadline,
+                                seq,
+                                period_ms: Some(period),
+                            })
+                        });
+                    } else {
+                        free_handle(m.handle);
+                        cancel_timer(m.handle);
+                    }
+                } else {
+                    free_handle(m.handle);
+                    cancel_timer(m.handle);
+                }
                 crate::globals::text_encoding::instance::drain_microtasks();
             }
             None => break,
@@ -152,7 +203,7 @@ pub fn pump_until(target: std::time::Instant) {
         if now >= target {
             break;
         }
-        let wake = next_macrotask_deadline()
+        let wake = next_any_deadline()
             .map(|d| d.min(target))
             .unwrap_or(target);
         let now2 = std::time::Instant::now();
@@ -213,7 +264,7 @@ pub extern "C" fn __RTS_FN_GL_TIMERS_SET_TIMEOUT(fp: u64, delay_ms: i64) -> u64 
     // thread-per-timer: dois setTimeout(_, 10) disparam na ordem de registro
     // (deterministico). `time.sleep_ms` faz pump dirigido por tempo, entao um
     // setTimeout(cb, 10) ainda dispara dentro de sleep_ms(50).
-    enqueue_macrotask(fp, flag, handle, delay);
+    enqueue_macrotask(fp, flag, handle, delay, None);
     handle
 }
 
@@ -231,22 +282,12 @@ pub extern "C" fn __RTS_FN_GL_TIMERS_SET_INTERVAL(fp: u64, interval_ms: i64) -> 
     } else {
         1
     };
-
     let handle = alloc_entry(Entry::Env(vec![0]));
-
-    let flag2 = flag.clone();
-    thread::spawn(move || {
-        loop {
-            thread::sleep(Duration::from_millis(ms));
-            if flag2.load(Ordering::Relaxed) || fp == 0 {
-                break;
-            }
-            invoke_timer_cb(fp);
-        }
-        free_handle(handle);
-        cancel_timer(handle);
-    });
-
+    // (#207 / gcells) QUEUED como o setTimeout — o pump da THREAD DO MAIN
+    // dispara e re-enfileira cada tick. A thread-per-interval antiga invocava o
+    // callback numa thread onde os GCELLS (thread-local) eram uma cópia órfã:
+    // um callback capturante (`count = count + 1`) nunca era observado.
+    enqueue_macrotask(fp, flag, handle, ms, Some(ms));
     register_timer(handle, cancelled);
     handle
 }

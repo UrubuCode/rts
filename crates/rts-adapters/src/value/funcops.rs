@@ -269,6 +269,9 @@ pub extern "C" fn __rtsadp_fn_reify(addr: u64, nparams: u64, has_rest: u64, env_
         } else {
             -1
         },
+        // The NEW-engine reify: `fn_ptr` is the uniform 6-slot thunk. INVOKE_AUTO
+        // (the legacy invoker the timer/microtask pumps use) dispatches on this.
+        uniform_thunk: true,
     };
     let handle = alloc_entry(Entry::Function(Box::new(data)));
     // Drop the 16-bit generation → bare 48-bit slot+shard payload.

@@ -110,6 +110,26 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             genops::__rtsadp_box_handle_auto as *const u8,
         ),
         sym(
+            "__rtsadp_set_timeout",
+            globalops::__rtsadp_set_timeout as *const u8,
+        ),
+        sym(
+            "__rtsadp_set_interval",
+            globalops::__rtsadp_set_interval as *const u8,
+        ),
+        sym(
+            "__rtsadp_clear_timer",
+            globalops::__rtsadp_clear_timer as *const u8,
+        ),
+        sym(
+            "__rtsadp_queue_microtask",
+            globalops::__rtsadp_queue_microtask as *const u8,
+        ),
+        sym(
+            "__rtsadp_set_immediate",
+            globalops::__rtsadp_set_immediate as *const u8,
+        ),
+        sym(
             "__rtsadp_print_line",
             abi_adapter::__rtsadp_print_line as *const u8,
         ),

@@ -640,8 +640,34 @@ pub fn drain_microtasks() {
             match task {
                 Microtask::Bare(fp) => {
                     if fp != 0 {
-                        unsafe {
-                            (std::mem::transmute::<u64, CallbackFn>(fp))(0);
+                        // Um Function HANDLE (motor novo: queueMicrotask com fn
+                        // value) invoca via INVOKE_AUTO (bound env + kinds);
+                        // um fn-ptr cru mantém o transmute (modelo velho).
+                        let is_fn_handle =
+                            rts_engine::heap::handles::with_entry(fp, |e| {
+                                matches!(
+                                    e,
+                                    Some(rts_engine::heap::handles::Entry::Function(_))
+                                )
+                            });
+                        if is_fn_handle {
+                            unsafe extern "C" {
+                                fn __RTS_FN_RT_INVOKE_AUTO(
+                                    callee: i64,
+                                    this_arg: i64,
+                                    args_handle: u64,
+                                ) -> i64;
+                            }
+                            let empty_args = rts_engine::heap::handles::alloc_entry(
+                                rts_engine::heap::handles::Entry::Vec(Box::new(Vec::new())),
+                            );
+                            unsafe {
+                                __RTS_FN_RT_INVOKE_AUTO(fp as i64, 0, empty_args);
+                            }
+                        } else {
+                            unsafe {
+                                (std::mem::transmute::<u64, CallbackFn>(fp))(0);
+                            }
                         }
                     }
                 }

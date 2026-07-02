@@ -670,6 +670,13 @@ pub struct FunctionData {
     /// ultimo param, `idx = arity - 1` cobre capturas+fixos automaticamente.
     /// Setado no reify de lambdas liftadas variadic; demais construtores: -1.
     pub rest_param_idx: i32,
+    /// (motor novo) `fn_ptr` aponta um THUNK de ABI UNIFORME
+    /// `extern "C" fn(env, a0, a1, a2, a3, rest) -> word` (6 slots PolyValue;
+    /// env = `bound_this`). O INVOKE_AUTO despacha por esta flag em vez da
+    /// convenção legada por aridade — sem ela um callback CAPTURANTE do motor
+    /// novo (setTimeout/queueMicrotask com arrow) era invocado com a
+    /// convenção errada (env não passado como slot 0).
+    pub uniform_thunk: bool,
 }
 
 /// Cleanup ativo de recursos do SO quando um Entry e' descartado (#279).

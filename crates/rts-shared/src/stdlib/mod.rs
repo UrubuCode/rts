@@ -48,3 +48,9 @@ pub const STRUCTURED_CLONE_TS: &str = include_str!("structured_clone.ts");
 /// a rts-shared backend utility (no native syntax). A `.ts` singleton like
 /// `console`, reading the PRIVATE `engine.now_ms`/`unix_ms` clock bridges.
 pub const PERFORMANCE_TS: &str = include_str!("performance.ts");
+
+/// Global timer functions (`setTimeout`/`clearTimeout`/`setInterval`/
+/// `clearInterval`/`queueMicrotask`) — rts-shared backend utilities (no native
+/// syntax). Pure TS over the private `engine.set_timeout`/… bridges; the fn
+/// value rides into the runtime's ordered macro/microtask queues.
+pub const TIMERS_TS: &str = include_str!("timers.ts");

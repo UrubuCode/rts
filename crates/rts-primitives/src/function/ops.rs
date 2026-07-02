@@ -474,6 +474,18 @@ fn read_function_data(handle: u64) -> Option<(u64, Vec<i64>, bool, i64, bool, bo
     })
 }
 
+/// Le a flag `uniform_thunk` (motor novo: fn_ptr = thunk de ABI uniforme de 6
+/// slots). Fn separada p/ nao inflar o tuple de read_function_data.
+fn read_uniform_thunk(handle: u64) -> bool {
+    with_entry(handle, |entry| {
+        if let Some(Entry::Function(d)) = entry {
+            d.uniform_thunk
+        } else {
+            false
+        }
+    })
+}
+
 /// (#1281 packed) Le o packed_shim de um handle Function (0 = sem shim).
 /// Funcao separada p/ nao inflar o tuple de read_function_data (8 campos,
 /// usado em muitos call sites).
@@ -670,6 +682,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY_BOUND_TYPED(
         keep_alive: None,
         prototype_handle: 0,
         rest_param_idx: -1,
+        uniform_thunk: false,
     })))
 }
 
@@ -729,6 +742,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY_CAPTURED(
         keep_alive: None,
         prototype_handle: 0,
         rest_param_idx: rest_idx,
+        uniform_thunk: false,
     })))
 }
 
@@ -793,6 +807,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_NEW(params_handle: u64, body_handle: u64)
         keep_alive: Some(compiled.keep_alive),
         prototype_handle: 0,
         rest_param_idx: -1,
+        uniform_thunk: false,
     })))
 }
 
@@ -1081,6 +1096,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_BIND(handle: u64, this_arg: i64, args_han
         keep_alive,
         prototype_handle: 0,
         rest_param_idx: -1,
+        uniform_thunk: false,
     })))
 }
 
@@ -1259,6 +1275,7 @@ pub extern "C" fn __RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE() -> u64 {
                 keep_alive: None,
                 prototype_handle: 0,
                 rest_param_idx: -1,
+                uniform_thunk: false,
             },
         )));
         unsafe {
@@ -1467,6 +1484,23 @@ fn invoke_auto_impl(
     // pra trap `apply` ou faz forward chamando o target via Function.apply.
     if let Some((target, handler)) = proxy_resolve(callee as u64) {
         return unsafe { __RTS_FN_RT_PROXY_DISPATCH_APPLY(target, handler, this_arg, args_handle) };
+    }
+    // Motor NOVO: `fn_ptr` é um THUNK de ABI UNIFORME (env, a0..a3, rest) — 6
+    // slots PolyValue, env em bound_this. A convenção legada por aridade abaixo
+    // invocaria com os slots errados (env perdido → capturas quebradas). Args
+    // além de 4 ficam de fora (rest=0) — os pumps de timer/microtask chamam com
+    // 0 args, o caso observado.
+    if read_uniform_thunk(callee as u64) {
+        if let Some((fn_ptr, _bound, _hbt, bound_this, ..)) = read_function_data(callee as u64) {
+            if fn_ptr != 0 {
+                let args = read_args_vec(args_handle);
+                let a = |i: usize| args.get(i).copied().unwrap_or(0) as u64;
+                type Uniform = unsafe extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64;
+                let f: Uniform = unsafe { std::mem::transmute(fn_ptr as usize) };
+                return unsafe { f(bound_this as u64, a(0), a(1), a(2), a(3), 0) } as i64;
+            }
+        }
+        return 0;
     }
     // Tenta como handle Function primeiro.
     if let Some((

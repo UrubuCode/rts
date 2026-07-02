@@ -38,6 +38,77 @@ fn to_string_word(v: u64) -> u64 {
 // Global coercion functions — `Number(x)`, `String(x)`, `Boolean(x)`.
 // ===========================================================================
 
+/// `setTimeout(cb, ms)` — schedule a FUNCTION value on the runtime's ordered
+/// macrotask queue (`GL_TIMERS_SET_TIMEOUT`, pumped by `promise.wait` /
+/// `time.sleep_ms` / the post-main drain). The fn WORD's real Entry::Function
+/// handle is what the queue stores — the pump detects it and invokes through
+/// `INVOKE_AUTO` (bound env + kinds), so a CAPTURING arrow works. Returns the
+/// timer id as a number word. A non-function `cb` returns id 0 (no-op).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_set_timeout(cb_word: u64, ms_word: u64) -> u64 {
+    schedule_timer(cb_word, ms_word, false)
+}
+
+/// `setInterval(cb, ms)` — like [`__rtsadp_set_timeout`] but periodic.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_set_interval(cb_word: u64, ms_word: u64) -> u64 {
+    schedule_timer(cb_word, ms_word, true)
+}
+
+fn schedule_timer(cb_word: u64, ms_word: u64, periodic: bool) -> u64 {
+    use rts_runtime::namespaces::globals::timers::instance as rt_timers;
+    let v = PolyValue::from_raw(cb_word);
+    if !v.is_function() {
+        return PolyValue::from_i32(0).raw();
+    }
+    let real = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+    let ms = genops::__rtsadp_word_to_abi_i64(ms_word);
+    let id = if periodic {
+        rt_timers::__RTS_FN_GL_TIMERS_SET_INTERVAL(real, ms)
+    } else {
+        rt_timers::__RTS_FN_GL_TIMERS_SET_TIMEOUT(real, ms)
+    };
+    PolyValue::from_f64(id as f64).raw()
+}
+
+/// `clearTimeout(id)` / `clearInterval(id)` — cancel by the numeric id.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_clear_timer(id_word: u64) -> u64 {
+    use rts_runtime::namespaces::globals::timers::instance as rt_timers;
+    let id = genops::__rtsadp_word_to_abi_i64(id_word);
+    if id > 0 {
+        rt_timers::__RTS_FN_GL_TIMERS_CLEAR_TIMEOUT(id as u64);
+    }
+    PolyValue::undefined().raw()
+}
+
+/// `setImmediate(cb)` — enqueue on the check-phase queue (after microtasks).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_set_immediate(cb_word: u64) -> u64 {
+    use rts_runtime::namespaces::globals::timers::instance as rt_timers;
+    let v = PolyValue::from_raw(cb_word);
+    if !v.is_function() {
+        return PolyValue::from_i32(0).raw();
+    }
+    let real = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+    let id = rt_timers::__RTS_FN_GL_TIMERS_SET_IMMEDIATE(real);
+    PolyValue::from_f64(id as f64).raw()
+}
+
+/// `queueMicrotask(cb)` — enqueue a FUNCTION value on the microtask queue
+/// (drained at sync end / after each macrotask). Same handle convention as
+/// [`__rtsadp_set_timeout`].
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_queue_microtask(cb_word: u64) -> u64 {
+    use rts_runtime::namespaces::globals::text_encoding::instance as rt_micro;
+    let v = PolyValue::from_raw(cb_word);
+    if v.is_function() {
+        let real = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+        rt_micro::__RTS_FN_GL_TEXTENC_QUEUE_MICROTASK(real);
+    }
+    PolyValue::undefined().raw()
+}
+
 /// `Number(x)` — JS `ToNumber`, the SAME coercion `genops::to_number` performs
 /// (so `Number("42")` → 42, `Number(true)` → 1, `Number("x")` → NaN). The result
 /// is re-tightened to int32 when exact-in-range (via [`genops::number_result`]).

@@ -826,8 +826,13 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, U64],
             ret: I64,
         },
-        "__rtsadp_construct" | "__rtsadp_class_proto_init" => SymSig {
+        "__rtsadp_construct" | "__rtsadp_class_proto_init" | "__rtsadp_set_timeout"
+        | "__rtsadp_set_interval" => SymSig {
             params: &[U64, U64],
+            ret: U64,
+        },
+        "__rtsadp_clear_timer" | "__rtsadp_queue_microtask" | "__rtsadp_set_immediate" => SymSig {
+            params: &[U64],
             ret: U64,
         },
         "__rtsadp_obj_delete" => SymSig {
