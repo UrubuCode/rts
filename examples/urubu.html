@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  * { box-sizing: border-box }
+  body { margin: 0; background: #0b1020; color: #e8ecf4; text-align: center }
+  .wrap { max-width: 56em; margin: 0 auto; padding: 1.5rem 1rem }
+
+  @keyframes titlecolor {
+    0%   { color: #4f8cff }
+    50%  { color: #ef6a8b }
+    100% { color: #4f8cff }
+  }
+  h1 { font-size: calc(1.6rem + 1vw); margin: 0; animation: titlecolor 4s ease-in-out infinite }
+  .sub { color: #8fa0bd; margin: 0.25rem 0 0 0 }
+
+  /* ── LUA pulsando (canto sup. direito) ── */
+  @keyframes moon {
+    0%   { width: 70px; height: 70px; background: #f4edd8 }
+    50%  { width: 84px; height: 84px; background: #fff7dd }
+    100% { width: 70px; height: 70px; background: #f4edd8 }
+  }
+  .moon { position: fixed; top: 40px; right: 60px; border-radius: 999px;
+          animation: moon 5s ease-in-out infinite }
+
+  /* ── NUVENS passando (margin-left anima = desloca) ── */
+  @keyframes drift1 { 0% { margin-left: -140px } 100% { margin-left: 900px } }
+  @keyframes drift2 { 0% { margin-left: 940px } 100% { margin-left: -220px } }
+  .cloudlane { height: 34px; margin: 6px 0 }
+  .cloud { width: 130px; height: 30px; background: #232c44; border-radius: 999px }
+  .c1 { animation: drift1 11s linear infinite }
+  .c2 { animation: drift2 15s linear infinite; width: 180px }
+
+  /* ── O URUBU ─────────────────────────────────────────────── */
+  .fly-zone { margin-top: 1rem }
+  /* o voo: o pássaro inteiro sobe/desce (margin-top oscila) */
+  @keyframes hover-fly {
+    0%   { margin-top: 34px }
+    50%  { margin-top: 0px }
+    100% { margin-top: 34px }
+  }
+  .bird { animation: hover-fly 2.4s ease-in-out infinite }
+
+  /* cabeça: urubu-de-cabeça-vermelha 🙂 — círculo + olho aninhado + bico */
+  .head-row { display: flex; justify-content: center; align-items: center }
+  .head { width: 74px; height: 74px; background: #c0392b; border-radius: 999px;
+          display: flex; justify-content: center; align-items: center }
+  .eye { width: 26px; height: 26px; background: #ffffff; border-radius: 999px;
+         display: flex; justify-content: center; align-items: center }
+  @keyframes blink {
+    0%   { height: 12px }
+    92%  { height: 12px }
+    96%  { height: 3px }
+    100% { height: 12px }
+  }
+  .pupil { width: 12px; background: #10131c; border-radius: 999px;
+           animation: blink 3.5s linear infinite }
+  .beak { width: 30px; height: 14px; background: #e8b13f;
+          border-radius: 0px 8px 8px 0px; margin-left: -6px }
+
+  /* asas + corpo: row central; as asas BATEM (height anima, ancoradas no topo) */
+  .body-row { display: flex; justify-content: center; align-items: flex-start;
+              margin-top: -10px }
+  @keyframes flap {
+    0%   { height: 26px; margin-top: 48px; background: #232c44 }
+    50%  { height: 96px; margin-top: 2px;  background: #2e3a5c }
+    100% { height: 26px; margin-top: 48px; background: #232c44 }
+  }
+  .wing { width: 74px; border-radius: 18px; animation: flap 0.6s ease-in-out infinite }
+  .wing-l { margin-right: -14px }
+  .wing-r { margin-left: -14px }
+  .torso { width: 104px; height: 128px; background: #1a2233; border-radius: 52px;
+           border: 2px solid #2e3a5c }
+
+  /* pernas */
+  .legs { display: flex; justify-content: center; gap: 22px; margin-top: -6px }
+  .leg { width: 7px; height: 30px; background: #e8b13f; border-radius: 4px }
+
+  .foot-note { color: #66748f; margin-top: 2.2rem }
+</style>
+</head>
+<body>
+  <div class="moon"></div>
+  <div class="wrap">
+    <h1>UrubuCode</h1>
+    <p class="sub">o mascote, desenhado só com caixas CSS e animado pelo motor do RTS</p>
+
+    <div class="cloudlane"><div class="cloud c1"></div></div>
+    <div class="cloudlane"><div class="cloud c2"></div></div>
+
+    <div class="fly-zone">
+      <div class="bird">
+        <div class="head-row">
+          <div class="head"><div class="eye"><div class="pupil"></div></div></div>
+          <div class="beak"></div>
+        </div>
+        <div class="body-row">
+          <div class="wing wing-l"></div>
+          <div class="torso"></div>
+          <div class="wing wing-r"></div>
+        </div>
+        <div class="legs"><div class="leg"></div><div class="leg"></div></div>
+      </div>
+    </div>
+
+    <p class="foot-note">asas: flap 0.6s · voo: 2.4s · piscada: 3.5s · lua: 5s · nuvens: 11s/15s</p>
+  </div>
+</body>
+</html>
