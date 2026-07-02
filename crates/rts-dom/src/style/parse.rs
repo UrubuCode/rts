@@ -103,6 +103,23 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             // ── Flexbox: alinhamento + gap + direção ──────────────────────────────
             "justify-content" => css.justify = JustifyContent::parse(val),
             "align-items" => css.align_items = AlignItems::parse(val),
+            "align-self" => {
+                // `auto` = herda o align-items do container (campo fica None).
+                css.align_self = if val.eq_ignore_ascii_case("auto") {
+                    None
+                } else {
+                    AlignItems::parse(val)
+                }
+            }
+            "order" => css.order = val.trim().parse::<i32>().ok(),
+            "flex-grow" => css.flex_grow = val.trim().parse::<f32>().ok().filter(|v| *v >= 0.0),
+            "flex-shrink" => {
+                css.flex_shrink = val.trim().parse::<f32>().ok().filter(|v| *v >= 0.0)
+            }
+            "flex-basis" => css.flex_basis = parse_dimension(val),
+            // shorthand `flex`: none | auto | <grow> [<shrink>] [<basis>] — o
+            // `.col` do Bootstrap é `flex: 1 0 0%`.
+            "flex" => apply_flex_shorthand(css, val),
             "flex-direction" => css.flex_direction = FlexDirection::parse(val),
             "column-gap" => css.gap = parse_dimension(val),
             "row-gap" => css.row_gap = parse_dimension(val),
@@ -253,6 +270,51 @@ fn parse_inset(v: &str) -> Option<Dimension> {
         return num.trim().parse::<f32>().ok().map(Dimension::Px);
     }
     parse_dimension(t)
+}
+
+/// Aplica o shorthand `flex: none | auto | <grow> [<shrink>] [<basis>]`.
+/// Mapeamentos da spec: `none` = 0 0 auto; `auto` = 1 1 auto; UM número =
+/// grow=N shrink=1 basis=0% (o `.col { flex: 1 0 0% }` já vem com os três).
+fn apply_flex_shorthand(css: &mut ComputedStyle, val: &str) {
+    let v = val.trim();
+    if v.eq_ignore_ascii_case("none") {
+        css.flex_grow = Some(0.0);
+        css.flex_shrink = Some(0.0);
+        css.flex_basis = Some(Dimension::Auto);
+        return;
+    }
+    if v.eq_ignore_ascii_case("auto") {
+        css.flex_grow = Some(1.0);
+        css.flex_shrink = Some(1.0);
+        css.flex_basis = Some(Dimension::Auto);
+        return;
+    }
+    let toks: Vec<&str> = v.split_whitespace().collect();
+    // separa os NÚMEROS iniciais (grow [shrink]) de uma dimensão final (basis).
+    let mut nums: Vec<f32> = Vec::new();
+    let mut basis: Option<Dimension> = None;
+    for t in &toks {
+        if basis.is_none() && nums.len() < 2 {
+            if let Ok(n) = t.parse::<f32>() {
+                nums.push(n.max(0.0));
+                continue;
+            }
+        }
+        if basis.is_none() {
+            basis = parse_dimension(t);
+        }
+    }
+    match (nums.len(), basis) {
+        // `flex: 200px` — só a basis.
+        (0, Some(b)) => css.flex_basis = Some(b),
+        (0, None) => {} // inválido: ignora (robustez)
+        (n, b) => {
+            css.flex_grow = Some(nums[0]);
+            css.flex_shrink = Some(if n >= 2 { nums[1] } else { 1.0 });
+            // UM número sem basis → basis 0% (spec); com basis explícita, usa-a.
+            css.flex_basis = Some(b.unwrap_or(Dimension::Percent(0.0)));
+        }
+    }
 }
 
 /// Parseia o shorthand `gap: <row-gap> <column-gap>` → `(row_gap, column_gap)`.

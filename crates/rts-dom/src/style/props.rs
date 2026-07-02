@@ -221,6 +221,21 @@ css_props! {
         [] row_gap: Dimension;
         /// `flex-direction` — eixo principal (row/column). `None` = Row.
         [] flex_direction: FlexDirection;
+        /// `flex-grow` — fração do espaço LIVRE do container que este item
+        /// recebe (o `.col` do Bootstrap é `flex: 1 0 0%`). `None` = 0.
+        [] flex_grow: f32;
+        /// `flex-shrink` — fator de ENCOLHIMENTO em overflow (ponderado pelo
+        /// base size, spec flexbox §9.7). `None` = 1 (o default do CSS!).
+        [] flex_shrink: f32;
+        /// `flex-basis` — o tamanho BASE do item no eixo principal antes de
+        /// grow/shrink (`auto` = usa width/conteúdo; `0%` = zero). `None` = auto.
+        [] flex_basis: Dimension;
+        /// `align-self` — sobrepõe o `align-items` do container para ESTE item.
+        /// `None` = `auto` (herda o do container).
+        [] align_self: AlignItems;
+        /// `order` — reordena os itens flex (menor primeiro; empate = ordem do
+        /// documento). `None` = 0.
+        [] order: i32;
         /// `height` — altura explícita da caixa. `None` = auto (altura do conteúdo).
         /// Necessária para align-items:stretch ter cross-size de referência e p/
         /// flex-column.
