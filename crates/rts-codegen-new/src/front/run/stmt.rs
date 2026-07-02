@@ -78,6 +78,24 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // OUTER names persist (they `def_var` the outer Variable — the map
             // entry itself is untouched). `var` declarations were rewritten to
             // plain assignments by the hoist pass, so they escape correctly.
+            //
+            // EXCEPTION — a DECLARATIONS-ONLY block: rts-hir encodes a
+            // multi-declarator (`let i = 0, j = 10` — one statement, NO lexical
+            // scope of its own) as a Block of individual Lets, indistinguishable
+            // from a real `{ let … }` here. Lower it WITHOUT the scope restore:
+            // the multi-declarator NEEDS its names to escape (a `for` header /
+            // plain statement declares into the enclosing scope), and for a real
+            // declarations-only block the extra visibility can never change a
+            // VALID program's value (nothing else inside the block observes the
+            // names; an invalid out-of-scope read is tsc's to reject).
+            HirStmt::Block(stmts)
+                if !stmts.is_empty()
+                    && stmts.iter().all(|s| {
+                        matches!(s, HirStmt::Let { .. } | HirStmt::Const { .. })
+                    }) =>
+            {
+                self.lower_block(module, stmts)
+            }
             HirStmt::Block(stmts) => {
                 let saved_locals = self.locals.clone();
                 let saved_shapes = self.local_shapes.clone();

@@ -287,6 +287,12 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, U64, U64],
             ret: Void,
         },
+        // Counted-args fn-value invoke through INVOKE_AUTO (variadic packing;
+        // the singleton-override dispatch).
+        "__rtsadp_invoke_auto_word" => SymSig {
+            params: &[U64, U64, U64],
+            ret: U64,
+        },
 
         // ---- REAL collections Vec (rts-shared collections::vec) ----
         "__RTS_FN_NS_COLLECTIONS_VEC_NEW" => SymSig {

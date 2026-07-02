@@ -115,6 +115,14 @@ pub extern "C" fn __rtsadp_dyn_length(recv: u64) -> u64 {
     use rts_runtime::namespaces::collections::vec as rt_vec;
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
+        // An INVALID string handle (a runtime fn's error sentinel — e.g. digest
+        // over an unknown-algorithm hasher returns handle 0, never interned):
+        // `.length` reports the pool's own -1 sentinel. An EMPTY string is a
+        // LIVE pool entry, so `""` still reads 0 through the code-unit path.
+        let h = abi_adapter::real_handle_of(v);
+        if rts_runtime::namespaces::collector::string_pool::__RTS_FN_NS_GC_STRING_LEN(h) < 0 {
+            return PolyValue::from_i32(-1).raw();
+        }
         // JS `String.prototype.length` is the UTF-16 CODE-UNIT count, NOT the byte
         // length (`STRING_LEN` is bytes — they differ for any non-ASCII char). We
         // OWN this trampoline, so we read the real bytes and count code units

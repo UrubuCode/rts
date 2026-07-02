@@ -279,6 +279,49 @@ extern "C" fn box_async_result(fn_ptr: u64, raw: i64) -> i64 {
     w as i64
 }
 
+/// `__rtsadp_invoke_auto_word(callee_word, this_word, args_vec)` — invoke a
+/// function VALUE word through the FULL `INVOKE_AUTO` machinery (bound args,
+/// param kinds, uniform-thunk env, VARIADIC tail packing — a `(...args)` rest
+/// callee gets its overflow packed into ONE array). The raw 6-slot
+/// `__rtsadp_fn_invoke` cannot pack (it carries no arg COUNT); call sites that
+/// know the exact argc (the singleton-override dispatch) route here with a
+/// counted args vec instead.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_invoke_auto_word(callee_word: u64, this_word: u64, args_vec: u64) -> u64 {
+    use rts_engine::heap::handles::{alloc_entry, with_entry, Entry as E};
+    let h = rts_engine::heap::poly::poly_handle_normalize(callee_word).unwrap_or(callee_word);
+    // A VARIADIC uniform-thunk callee (post-expand: the rest param is ONE array
+    // at `rest_param_idx`): pack the positional tail HERE — INVOKE_AUTO's
+    // uniform-thunk fast path passes the vec slots verbatim (no packing), so a
+    // `(...args)` override would read a bare first arg where its array goes.
+    let (uniform, rest_idx, has_this) = with_entry(h, |e| match e {
+        Some(E::Function(d)) => (d.uniform_thunk, d.rest_param_idx, d.has_this_param),
+        _ => (false, -1, false),
+    });
+    let mut vec_arg = args_vec;
+    if uniform && rest_idx >= 0 && !has_this {
+        let items: Vec<i64> = with_entry(args_vec, |e| match e {
+            Some(E::Vec(v)) => v.as_ref().clone(),
+            _ => Vec::new(),
+        });
+        let ri = (rest_idx as usize).min(items.len());
+        let tail: Vec<i64> = items[ri..].to_vec();
+        let arr_h = alloc_entry(E::Vec(Box::new(tail)));
+        let arr_word = PolyValue::from_object_handle(
+            rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(arr_h),
+        )
+        .raw() as i64;
+        let mut packed: Vec<i64> = items[..ri].to_vec();
+        packed.push(arr_word);
+        vec_arg = alloc_entry(E::Vec(Box::new(packed)));
+    }
+    rts_runtime::namespaces::globals::function::ops::__RTS_FN_RT_INVOKE_AUTO(
+        h as i64,
+        this_word as i64,
+        vec_arg,
+    ) as u64
+}
+
 /// `__rtsadp_register_fn_abi(fn_addr, kinds_packed, meta)` — register a user
 /// fn's packed ABI (param kinds + return kind) in the FN_KINDS registry, so any
 /// RAW-pointer consumer that invokes through the registry path
@@ -427,9 +470,14 @@ pub extern "C" fn __rtsadp_fn_invoke(
     // Reconstruct the full real handle (generation read from the live slot) from
     // the bare 48-bit payload, then read the stored thunk address AND env word.
     let real = rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(pv.as_handle());
-    let (addr, env, has_this) = with_entry(real, |e| match e {
-        Some(Entry::Function(d)) => (d.fn_ptr, d.bound_this as u64, d.has_this_param),
-        _ => (0, 0, false),
+    let (addr, env, has_this, rest_idx) = with_entry(real, |e| match e {
+        Some(Entry::Function(d)) => (
+            d.fn_ptr,
+            d.bound_this as u64,
+            d.has_this_param,
+            d.rest_param_idx,
+        ),
+        _ => (0, 0, false, -1),
     });
     if addr == 0 {
         return PolyValue::undefined().raw();
@@ -447,6 +495,47 @@ pub extern "C" fn __rtsadp_fn_invoke(
     // whole run (`Program` owns it). Transmuting a code address to its true
     // declared signature is sound.
     let f: UniformFn = unsafe { std::mem::transmute::<u64, UniformFn>(addr) };
+    // A VARIADIC callee (post-expand: the rest param is ONE array at
+    // `rest_idx`): pack the positional tail into a fresh array. The caller's
+    // `rest` slot carries the exact ARG COUNT as an INT32 word for ≤4 args (or
+    // the overflow ARRAY for >4); a legacy `undefined` rest falls back to
+    // counting the trailing non-undefined slots.
+    if rest_idx >= 0 && !has_this {
+        use rts_engine::heap::handles::{alloc_entry, Entry as E};
+        let slots = [a0, a1, a2, a3];
+        let rest_pv = PolyValue::from_raw(rest);
+        let (argc, overflow): (usize, Vec<i64>) = if rest_pv.is_int32() {
+            ((rest_pv.as_i32().max(0) as usize).min(4), Vec::new())
+        } else if let Some(h) = rts_engine::heap::poly::poly_handle_normalize(rest) {
+            let items: Vec<i64> = with_entry(h, |e| match e {
+                Some(E::Vec(v)) => v.as_ref().clone(),
+                _ => Vec::new(),
+            });
+            (4, items)
+        } else {
+            let undef = PolyValue::undefined().raw();
+            let n = slots.iter().rposition(|&w| w != undef).map_or(0, |i| i + 1);
+            (n, Vec::new())
+        };
+        let ri = rest_idx as usize;
+        if ri <= 4 {
+            let mut tail: Vec<i64> = Vec::new();
+            for &w in slots.iter().take(argc).skip(ri) {
+                tail.push(w as i64);
+            }
+            tail.extend(overflow);
+            let arr_h = alloc_entry(E::Vec(Box::new(tail)));
+            let arr_word = PolyValue::from_object_handle(
+                rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(arr_h),
+            )
+            .raw();
+            let undef = PolyValue::undefined().raw();
+            let mut call = [undef; 4];
+            call[..ri].copy_from_slice(&slots[..ri]);
+            call[ri] = arr_word;
+            return f(env_word, call[0], call[1], call[2], call[3], undef);
+        }
+    }
     if has_this {
         // A this-first function called WITHOUT a receiver (plain `f(x)`): JS
         // binds `this = undefined`; positional args shift past it (a3 drops -
