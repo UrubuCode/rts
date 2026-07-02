@@ -825,10 +825,10 @@
 ,
 {
   "name": "269_static_blocks",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "order=field|block1:3|block2:5",
   "node": "order=field|block1:3|block2:5",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "order=field|block1:3|block2:5"
 }
 ,
 {
@@ -857,10 +857,10 @@
 ,
 {
   "name": "371_private_fields_basic",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20",
   "node": "6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "6\n4\n0\n0\ntrue\n1 2 3\n1\n10\n20"
 }
 ,
 {
@@ -881,10 +881,10 @@
 ,
 {
   "name": "374_private_static_methods",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown",
   "node": "Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "undefined\nundefined\ntrue\n3\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown"
 }
 ,
 {
@@ -929,10 +929,10 @@
 ,
 {
   "name": "407_class_static_private_brand",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "C1/2\nC2/2\n2\ntrue:false",
   "node": "C1/2\nC2/2\n2\ntrue:false",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "C1/2\nC2/2\n2\ntrue:false"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":262,"rts_diverge":131,"bun_node_diverge":17,"errors":199,"rejected":0}}
+],"summary":{"total":609,"pass":264,"rts_diverge":133,"bun_node_diverge":17,"errors":195,"rejected":0}}
