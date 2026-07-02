@@ -107,6 +107,10 @@ pub(crate) fn desugar(
             };
             use rts_ast::ast::MethodRole;
             let synth = match md.role {
+                // A STATIC method's synthesized fn lives in `desc.statics`
+                // (`__rtsn_static_C_m`), not `desc.methods` — without this arm a
+                // template/optional-chain inside a static method stayed Raw.
+                MethodRole::Method if md.modifiers.is_static => desc.statics.get(&md.name),
                 MethodRole::Method => desc.methods.get(&md.name),
                 MethodRole::Getter => desc.accessors.get(&md.name).and_then(|a| a.getter.as_ref()),
                 MethodRole::Setter => desc.accessors.get(&md.name).and_then(|a| a.setter.as_ref()),
