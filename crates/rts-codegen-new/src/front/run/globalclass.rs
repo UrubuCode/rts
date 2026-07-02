@@ -359,6 +359,32 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 .expect("__rtsadp_instanceof_fn returns a value");
             return Ok(Some(Val::tagged_kind(res, JsKind::Bool)));
         }
+        // `x instanceof Object` (Object is PRIMORDIAL): every heap value — plain
+        // object, array, class instance, function — is an Object instance; a
+        // primitive is not. A pure tag check: boxed && tag ∈ {OBJECT, FUNCTION}.
+        // Checked BEFORE the user-class branch (the ambient prelude `class Object`
+        // would otherwise run the shape-id compare, which rejects arrays).
+        if class == "Object" && self.local(class).is_none() {
+            let v = self.lower_expr(module, lhs)?;
+            let word = self.box_value(v);
+            let boxed = value::emit_is_boxed(self.builder, word);
+            let shifted = self.builder.ins().ushr_imm(word, value::TAG_SHIFT as i64);
+            let tag = self.builder.ins().band_imm(shifted, value::TAG_MASK as i64);
+            let is_obj = self.builder.ins().icmp_imm(
+                cranelift_codegen::ir::condcodes::IntCC::Equal,
+                tag,
+                value::TAG_OBJECT as i64,
+            );
+            let is_fn = self.builder.ins().icmp_imm(
+                cranelift_codegen::ir::condcodes::IntCC::Equal,
+                tag,
+                value::TAG_FUNCTION as i64,
+            );
+            let either = self.builder.ins().bor(is_obj, is_fn);
+            let res_i8 = self.builder.ins().band(boxed, either);
+            let res = self.builder.ins().uextend(types::I64, res_i8);
+            return Ok(Some(Val::new(res, crate::repr::Repr::Bool)));
+        }
         // A user class instanceof: a compile-time class-name compare (the local's
         // recorded class equals `class` or a descendant). Only resolvable when the
         // lhs has a statically-known class.
@@ -512,8 +538,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             matches = self.builder.ins().bor(matches, eq);
         }
 
-        // result = is_object && shapeId ∈ accepting (i8 0/1, Repr::Bool).
-        let result = self.builder.ins().band(is_object, matches);
+        // result = is_object && shapeId ∈ accepting. The icmp/band chain yields an
+        // i8; the engine's Bool carrier is i64 0/1 (`cl_type(Bool) == I64`), so
+        // widen — binding the raw i8 to a `let` panicked Cranelift's def_var
+        // (declared type ≠ value type).
+        let result_i8 = self.builder.ins().band(is_object, matches);
+        let result = self.builder.ins().uextend(types::I64, result_i8);
         Ok(Val::new(result, crate::repr::Repr::Bool))
     }
 
