@@ -145,18 +145,18 @@
 ,
 {
   "name": "169_array_of",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "of_1_2_3=1,2,3\nof_single=5\nof_empty=\nof_mixed=1,a,true\nconstructor_5=5\nof_5=1\nconstructor_1_2=1,2\nof_1_2=1,2",
   "node": "of_1_2_3=1,2,3\nof_single=5\nof_empty=\nof_mixed=1,a,true\nconstructor_5=5\nof_5=1\nconstructor_1_2=1,2\nof_1_2=1,2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "of_1_2_3=1,2,3\nof_single=5\nof_empty=\nof_mixed=1,a,true\nconstructor_5=5\nof_5=1\nconstructor_1_2=1,2\nof_1_2=1,2"
 }
 ,
 {
   "name": "178_array_constructor",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "length=5\nempty=true\nvalues=1,2,3\nempty_length=0\nfunc_length=3\nfunc_values=1,2",
   "node": "length=5\nempty=true\nvalues=1,2,3\nempty_length=0\nfunc_length=3\nfunc_values=1,2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "length=5\nempty=true\nvalues=1,2,3\nempty_length=0\nfunc_length=3\nfunc_values=1,2"
 }
 ,
 {
@@ -513,10 +513,10 @@
 ,
 {
   "name": "claude-reduce-no-init-edges",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "60\n|30|20|10\n42\n4\ntrue\n99",
   "node": "60\n|30|20|10\n42\n4\ntrue\n99",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "60\n|30|20|10\n42\n4\n99"
 }
 ,
 {
@@ -772,7 +772,7 @@
   "status": "bun_node_diverge",
   "bun": "NetworkError\nNot Found\n404\n404\ntrue\ntrue\ntrue\nok\ntry,after throw,finally\ncaught\ntry,catch:fail,finally\nAppError:invalid json: {bad\nTypeError:not a number\n42\nmultiple errors\ne1,e2",
   "node": "__RUNTIME_ERROR__",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "NetworkError\nNot Found\n404\n404\ntrue\ntrue\ntrue\nok\ntry,after throw,finally\ncaught\ntry,after throw,finally,try,catch:fail,finally\nError:Expected ':'\nTypeError:not a number\n42\nmultiple errors\ne1,e2"
 }
 ,
 {
@@ -1268,7 +1268,7 @@
   "status": "rts_diverge",
   "bun": "len=8\nhex=63,61,66,c3,a9,2d,ce,bb\ntext=café-λ",
   "node": "len=8\nhex=63,61,66,c3,a9,2d,ce,bb\ntext=café-λ",
-  "rts": "len=0\nhex=\ntext=café-λ"
+  "rts": "len=8\nhex=\ntext=café-λ"
 }
 ,
 {
@@ -4601,10 +4601,10 @@
 ,
 {
   "name": "codex_for_in_shadowed_var_closure",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "a1,b2,c3\nc,c,c",
   "node": "a1,b2,c3\nc,c,c",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "a1,b2,c3\na,b,c"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":237,"rts_diverge":116,"bun_node_diverge":17,"errors":239,"rejected":0}}
+],"summary":{"total":609,"pass":239,"rts_diverge":118,"bun_node_diverge":17,"errors":235,"rejected":0}}
