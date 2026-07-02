@@ -359,9 +359,12 @@ fn rewrite_this_expr(e: &mut HirExpr) {
 /// DISTINCT slots (the flattened field list would otherwise collide by name).
 /// Covers Member/Index reads+writes through the same expr walk shape as the
 /// `this` rewrite.
-pub(crate) fn mangle_private_block(stmts: &mut [HirStmt], class: &str) {
+pub(crate) fn mangle_private_block(stmts: &mut [HirStmt], renames: &std::collections::HashMap<String, String>) {
+    if renames.is_empty() {
+        return;
+    }
     for s in stmts {
-        mangle_private_stmt(s, class);
+        mangle_private_stmt(s, renames);
     }
 }
 
@@ -370,22 +373,22 @@ pub(crate) fn mangle_private_name(name: &str, class: &str) -> String {
     format!("{name}@{class}")
 }
 
-fn mangle_private_stmt(s: &mut HirStmt, class: &str) {
+fn mangle_private_stmt(s: &mut HirStmt, renames: &std::collections::HashMap<String, String>) {
     match s {
-        HirStmt::Expr(e) | HirStmt::Throw(e) => mangle_private_expr(e, class),
-        HirStmt::Return(Some(e)) => mangle_private_expr(e, class),
-        HirStmt::Let { init: Some(e), .. } => mangle_private_expr(e, class),
-        HirStmt::Const { init, .. } => mangle_private_expr(init, class),
+        HirStmt::Expr(e) | HirStmt::Throw(e) => mangle_private_expr(e, renames),
+        HirStmt::Return(Some(e)) => mangle_private_expr(e, renames),
+        HirStmt::Let { init: Some(e), .. } => mangle_private_expr(e, renames),
+        HirStmt::Const { init, .. } => mangle_private_expr(init, renames),
         HirStmt::If { cond, then, else_ } => {
-            mangle_private_expr(cond, class);
-            mangle_private_block(then, class);
+            mangle_private_expr(cond, renames);
+            mangle_private_block(then, renames);
             if let Some(e) = else_ {
-                mangle_private_block(e, class);
+                mangle_private_block(e, renames);
             }
         }
         HirStmt::While { cond, body } | HirStmt::DoWhile { cond, body } => {
-            mangle_private_expr(cond, class);
-            mangle_private_block(body, class);
+            mangle_private_expr(cond, renames);
+            mangle_private_block(body, renames);
         }
         HirStmt::For {
             init,
@@ -394,95 +397,95 @@ fn mangle_private_stmt(s: &mut HirStmt, class: &str) {
             body,
         } => {
             if let Some(i) = init {
-                mangle_private_stmt(i, class);
+                mangle_private_stmt(i, renames);
             }
             if let Some(c) = cond {
-                mangle_private_expr(c, class);
+                mangle_private_expr(c, renames);
             }
             if let Some(u) = update {
-                mangle_private_expr(u, class);
+                mangle_private_expr(u, renames);
             }
-            mangle_private_block(body, class);
+            mangle_private_block(body, renames);
         }
         HirStmt::ForOf { iterable, body, .. } => {
-            mangle_private_expr(iterable, class);
-            mangle_private_block(body, class);
+            mangle_private_expr(iterable, renames);
+            mangle_private_block(body, renames);
         }
         HirStmt::ForIn { object, body, .. } => {
-            mangle_private_expr(object, class);
-            mangle_private_block(body, class);
+            mangle_private_expr(object, renames);
+            mangle_private_block(body, renames);
         }
-        HirStmt::Block(b) => mangle_private_block(b, class),
+        HirStmt::Block(b) => mangle_private_block(b, renames),
         HirStmt::Try {
             body,
             catch,
             finally,
         } => {
-            mangle_private_block(body, class);
+            mangle_private_block(body, renames);
             if let Some(c) = catch {
-                mangle_private_block(&mut c.body, class);
+                mangle_private_block(&mut c.body, renames);
             }
             if let Some(f) = finally {
-                mangle_private_block(f, class);
+                mangle_private_block(f, renames);
             }
         }
         _ => {}
     }
 }
 
-fn mangle_private_expr(e: &mut HirExpr, class: &str) {
+fn mangle_private_expr(e: &mut HirExpr, renames: &std::collections::HashMap<String, String>) {
     if let HirExprKind::Member { object, prop } = &mut e.kind {
-        if prop.starts_with('#') && !prop.contains('@') {
-            *prop = mangle_private_name(prop, class);
+        if let Some(m) = renames.get(prop.as_str()) {
+            *prop = m.clone();
         }
-        mangle_private_expr(object, class);
+        mangle_private_expr(object, renames);
         return;
     }
     match &mut e.kind {
         HirExprKind::Bin { lhs, rhs, .. } => {
-            mangle_private_expr(lhs, class);
-            mangle_private_expr(rhs, class);
+            mangle_private_expr(lhs, renames);
+            mangle_private_expr(rhs, renames);
         }
-        HirExprKind::Unary { operand, .. } => mangle_private_expr(operand, class),
+        HirExprKind::Unary { operand, .. } => mangle_private_expr(operand, renames),
         HirExprKind::Assign { target, value } | HirExprKind::AssignOp { target, value, .. } => {
-            mangle_private_expr(target, class);
-            mangle_private_expr(value, class);
+            mangle_private_expr(target, renames);
+            mangle_private_expr(value, renames);
         }
         HirExprKind::Call { callee, args } => {
-            mangle_private_expr(callee, class);
-            args.iter_mut().for_each(|a| mangle_private_expr(a, class));
+            mangle_private_expr(callee, renames);
+            args.iter_mut().for_each(|a| mangle_private_expr(a, renames));
         }
         HirExprKind::MethodCall { object, args, .. } => {
-            mangle_private_expr(object, class);
-            args.iter_mut().for_each(|a| mangle_private_expr(a, class));
+            mangle_private_expr(object, renames);
+            args.iter_mut().for_each(|a| mangle_private_expr(a, renames));
         }
         HirExprKind::Index { object, index } => {
-            mangle_private_expr(object, class);
-            mangle_private_expr(index, class);
+            mangle_private_expr(object, renames);
+            mangle_private_expr(index, renames);
         }
         HirExprKind::Ternary { cond, then, else_ } => {
-            mangle_private_expr(cond, class);
-            mangle_private_expr(then, class);
-            mangle_private_expr(else_, class);
+            mangle_private_expr(cond, renames);
+            mangle_private_expr(then, renames);
+            mangle_private_expr(else_, renames);
         }
-        HirExprKind::Array(elems) => elems.iter_mut().for_each(|x| mangle_private_expr(x, class)),
+        HirExprKind::Array(elems) => elems.iter_mut().for_each(|x| mangle_private_expr(x, renames)),
         HirExprKind::Object(fields) => fields
             .iter_mut()
-            .for_each(|(_, v)| mangle_private_expr(v, class)),
+            .for_each(|(_, v)| mangle_private_expr(v, renames)),
         HirExprKind::New { args, .. } => {
-            args.iter_mut().for_each(|a| mangle_private_expr(a, class));
+            args.iter_mut().for_each(|a| mangle_private_expr(a, renames));
         }
         HirExprKind::Await(inner) | HirExprKind::Spread(inner) => {
-            mangle_private_expr(inner, class);
+            mangle_private_expr(inner, renames);
         }
-        HirExprKind::Seq(items) => items.iter_mut().for_each(|x| mangle_private_expr(x, class)),
+        HirExprKind::Seq(items) => items.iter_mut().for_each(|x| mangle_private_expr(x, renames)),
         HirExprKind::PreInc(t)
         | HirExprKind::PreDec(t)
         | HirExprKind::PostInc(t)
-        | HirExprKind::PostDec(t) => mangle_private_expr(t, class),
+        | HirExprKind::PostDec(t) => mangle_private_expr(t, renames),
         HirExprKind::Arrow { body, .. } => match body {
-            rts_hir::ir::HirArrowBody::Expr(inner) => mangle_private_expr(inner, class),
-            rts_hir::ir::HirArrowBody::Block(stmts) => mangle_private_block(stmts, class),
+            rts_hir::ir::HirArrowBody::Expr(inner) => mangle_private_expr(inner, renames),
+            rts_hir::ir::HirArrowBody::Block(stmts) => mangle_private_block(stmts, renames),
         },
         _ => {}
     }

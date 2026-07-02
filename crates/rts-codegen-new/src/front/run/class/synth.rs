@@ -66,12 +66,29 @@ pub(crate) fn static_field_getter_name(class: &str, field: &str) -> String {
 /// The SLOT name a declared field uses: a PRIVATE field (`#x`) mangles to its
 /// per-class form (`#x@Class` — see [`mangle_private_name`]); a public field
 /// keeps its name.
-fn field_slot_name(name: &str, class: &str) -> String {
-    if name.starts_with('#') {
-        mangle_private_name(name, class)
-    } else {
-        name.to_string()
-    }
+fn field_slot_name(name: &str, renames: &std::collections::HashMap<String, String>) -> String {
+    renames.get(name).cloned().unwrap_or_else(|| name.to_string())
+}
+
+/// The private-field COLLISION renames of `decl` vs its ancestor chain (see
+/// `build_class`) — recomputed where `m.props` is out of reach (method synth).
+fn priv_renames_of(
+    decl: &ClassDecl,
+    parent: Option<&ClassDesc>,
+) -> std::collections::HashMap<String, String> {
+    decl.members
+        .iter()
+        .filter_map(|mem| match mem {
+            ClassMember::Property(pd)
+                if pd.name.starts_with('#')
+                    && !pd.modifiers.is_static
+                    && parent.is_some_and(|p| p.fields.iter().any(|f| f == &pd.name)) =>
+            {
+                Some((pd.name.clone(), mangle_private_name(&pd.name, &decl.name)))
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// Categorized members of one class decl.
@@ -124,8 +141,16 @@ pub(super) fn build_class(
     let m = categorize(decl)?;
     let mut out: Vec<HirFunc> = Vec::new();
 
+    // --- PRIVATE-field COLLISION renames: a `#x` THIS class declares that an
+    // ANCESTOR's flattened field list already contains must be a DISTINCT slot
+    // (TS privates are per-declaring-class). Only the COLLIDING names mangle
+    // (`#x@Class`) — an uncontended `#x` keeps its raw name, so the prelude's
+    // shape-detected slots (`#items`/`#keys`/`#vals`) and private METHODS are
+    // untouched.
+    let priv_renames = priv_renames_of(decl, parent);
+
     // --- constructor (forwarding super if the subclass omits one) ---
-    let (ctor_fn, ctor_arity, own_fields) = build_ctor(decl, &m, parent, &mut out)?;
+    let (ctor_fn, ctor_arity, own_fields) = build_ctor(decl, &m, parent, &mut out, &priv_renames)?;
 
     // --- FLATTENED field list: parent fields first, then own fields ---
     let mut fields: Vec<String> = parent.map(|p| p.fields.clone()).unwrap_or_default();
@@ -148,7 +173,7 @@ pub(super) fn build_class(
             let scope = Scope::new();
             let lowered = rts_hir::lower::lower_swc_expr(init_expr, &scope);
             if matches!(lowered.kind, HirExprKind::Array(_)) {
-                field_arrays.insert(field_slot_name(&pd.name, &decl.name));
+                field_arrays.insert(field_slot_name(&pd.name, &priv_renames));
             }
         }
     }
@@ -172,7 +197,7 @@ pub(super) fn build_class(
             .map(|t| matches!(t, HirType::Str))
             .unwrap_or(false);
         if is_string {
-            field_strings.insert(field_slot_name(&pd.name, &decl.name));
+            field_strings.insert(field_slot_name(&pd.name, &priv_renames));
         }
     }
 
@@ -349,6 +374,7 @@ fn build_ctor(
     m: &Members,
     parent: Option<&ClassDesc>,
     out: &mut Vec<HirFunc>,
+    priv_renames: &std::collections::HashMap<String, String>,
 ) -> FrontResult<(String, usize, Vec<String>)> {
     let mut scope = Scope::new();
 
@@ -420,7 +446,7 @@ fn build_ctor(
     for pd in &m.props {
         if let Some(init_expr) = &pd.initializer {
             let value = rts_hir::lower::lower_swc_expr(init_expr, &scope);
-            prologue.push(this_field_assign(&field_slot_name(&pd.name, &decl.name), value));
+            prologue.push(this_field_assign(&field_slot_name(&pd.name, &priv_renames), value));
         }
     }
 
@@ -437,7 +463,7 @@ fn build_ctor(
     if let Some(c) = m.ctor {
         let mut user = rts_hir::lower::lower_stmts(&c.body, &mut scope);
         rewrite_this_block(&mut user);
-        mangle_private_block(&mut user, &decl.name);
+        mangle_private_block(&mut user, priv_renames);
         rewrite_super_block(&mut user, parent)?;
         // Property initializers run AFTER super() but before the rest of the user
         // body. We approximate by appending the prologue right after a leading
@@ -454,7 +480,7 @@ fn build_ctor(
     // OWN field order: declared props, then any extra `this.x` assigned in body.
     let mut own_fields: Vec<String> = Vec::new();
     for pd in &m.props {
-        push_unique(&mut own_fields, &field_slot_name(&pd.name, &decl.name));
+        push_unique(&mut own_fields, &field_slot_name(&pd.name, &priv_renames));
     }
     collect_this_assign_fields(&body, &mut own_fields);
 
@@ -569,7 +595,7 @@ fn synth_method_named(
     };
     let mut body = rts_hir::lower::lower_stmts(&md.body, &mut scope);
     rewrite_this_block(&mut body);
-    mangle_private_block(&mut body, &decl.name);
+    mangle_private_block(&mut body, &priv_renames_of(decl, parent));
     rewrite_super_block(&mut body, parent)?;
     Ok(HirFunc {
         name: fn_name,
