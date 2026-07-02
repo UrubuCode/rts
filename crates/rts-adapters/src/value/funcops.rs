@@ -279,6 +279,28 @@ extern "C" fn box_async_result(fn_ptr: u64, raw: i64) -> i64 {
     w as i64
 }
 
+/// `__rtsadp_register_fn_abi(fn_addr, kinds_packed, meta)` — register a user
+/// fn's packed ABI (param kinds + return kind) in the FN_KINDS registry, so any
+/// RAW-pointer consumer that invokes through the registry path
+/// (`invoke_fn_ptr_with_registry` — `thread.spawn`, dynamic HOFs, the async
+/// spawn) reads f64 params/returns through the right registers. Emitted by
+/// `getPointer(f)` when `f` carries an f64 in its signature (#247).
+/// `meta`: bits 0..7 = return kind, bits 8..15 = argc.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_register_fn_abi(fn_addr: u64, kinds_packed: u64, meta: u64) {
+    let argc = ((meta >> 8) & 0xFF) as usize;
+    let ret_kind = (meta & 0xFF) as i32;
+    let kinds: Vec<u8> = (0..argc)
+        .map(|i| ((kinds_packed >> (8 * i)) & 0xFF) as u8)
+        .collect();
+    rts_runtime::namespaces::globals::function::ops::__RTS_FN_RT_REGISTER_FN_KINDS(
+        fn_addr,
+        kinds.as_ptr() as i64,
+        kinds.len() as i64,
+        ret_kind,
+    );
+}
+
 /// `__rtsadp_promise_spawn(fn_addr, args_vec, kinds_packed, meta)` — the ASYNC
 /// function CALL spawn (see `front/run/asyncspawn.rs`). Registers the callee's
 /// packed ABI (one kind byte per param — 0 = i64-class, 1 = f64-bits, 2 = bool)

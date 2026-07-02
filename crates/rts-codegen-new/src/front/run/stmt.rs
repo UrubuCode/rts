@@ -70,7 +70,34 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.pending_label = None;
                 Ok(())
             }
-            HirStmt::Block(stmts) => self.lower_block(module, stmts),
+            // An EXPLICIT `{ … }` block is a LEXICAL SCOPE: a `let`/`const`
+            // declared inside must not leak (JS block scoping) — save the
+            // name-keyed binding maps, lower, restore. An inner `let a` gets a
+            // FRESH Variable (see `fresh_local_var`), so the outer `a` keeps its
+            // register AND its map entry after the block. Reassignments to
+            // OUTER names persist (they `def_var` the outer Variable — the map
+            // entry itself is untouched). `var` declarations were rewritten to
+            // plain assignments by the hoist pass, so they escape correctly.
+            HirStmt::Block(stmts) => {
+                let saved_locals = self.locals.clone();
+                let saved_shapes = self.local_shapes.clone();
+                let saved_obj = self.object_locals.clone();
+                let saved_str = self.string_locals.clone();
+                let saved_classes = self.local_classes.clone();
+                let saved_class_refs = self.local_class_refs.clone();
+                let saved_gen = self.generator_locals.clone();
+                let saved_glob = self.global_instance_classes.clone();
+                let r = self.lower_block(module, stmts);
+                self.locals = saved_locals;
+                self.local_shapes = saved_shapes;
+                self.object_locals = saved_obj;
+                self.string_locals = saved_str;
+                self.local_classes = saved_classes;
+                self.local_class_refs = saved_class_refs;
+                self.generator_locals = saved_gen;
+                self.global_instance_classes = saved_glob;
+                r
+            }
             HirStmt::Throw(arg) => self.lower_throw(module, arg),
             HirStmt::Try {
                 body,
@@ -111,7 +138,31 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     return Ok(());
                 }
                 let v = self.lower_expr(module, e)?;
-                Some(self.coerce(v, ret)?)
+                // A PROVEN HEAP value returned through an `Int*`-declared fn
+                // (`function make(): number { return new (F as any)(); }` — the
+                // handle-as-number interop surface): the numeric decode would
+                // read the OBJECT word as NaN→0. Route through the
+                // tag-dispatched `__rtsadp_word_to_abi_i64` (heap → real handle
+                // id, number → truncation) — the same rule the registry marshal
+                // applies to a U64 param. Numeric kinds keep the pure-IR path.
+                if matches!(ret, Repr::Int32 | Repr::Int64)
+                    && matches!(v.repr, Repr::Tagged)
+                    && matches!(
+                        v.kind,
+                        super::lower::JsKind::Object
+                            | super::lower::JsKind::Array
+                            | super::lower::JsKind::Str
+                            | super::lower::JsKind::Function
+                    )
+                {
+                    let w = self.box_value(v);
+                    let h = self
+                        .call_runtime(module, "__rtsadp_word_to_abi_i64", &[w])?
+                        .expect("__rtsadp_word_to_abi_i64 returns a value");
+                    Some(h)
+                } else {
+                    Some(self.coerce(v, ret)?)
+                }
             }
         };
 

@@ -1129,6 +1129,17 @@ fn fn_kinds_registry() -> &'static std::sync::RwLock<std::collections::HashMap<u
     FN_KINDS_REGISTRY.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()))
 }
 
+/// A ABI registrada (param_kinds, return_kind) de uma user fn pelo endereço —
+/// `None` quando o codegen não a registrou. Consumido pelos spawners de thread
+/// (`thread.spawn` invoca `fn(f64)` quando o worker declara `arg: number`).
+pub fn registered_fn_kinds(fn_ptr: u64) -> Option<(Vec<u8>, u8)> {
+    fn_kinds_registry()
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&fn_ptr)
+        .cloned()
+}
+
 /// Registra a ABI (param_kinds + return_kind) de uma user fn pelo seu endereço.
 /// Emitido pelo codegen no início de `__RTS_MAIN` para cada fn address-taken.
 #[unsafe(no_mangle)]

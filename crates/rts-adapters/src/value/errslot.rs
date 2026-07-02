@@ -98,6 +98,14 @@ pub fn install_async_error_hook() {
         __rtsadp_err_pending,
         __rtsadp_err_take,
     );
+    // The SHAPED-OBJECT bridge for the low-level `collections.map_*` surface
+    // (#264): a fn-ctor's `this` (a shape-vec instance) reaching `map_get`/
+    // `map_set` routes through the shape-aware obj_get/obj_set instead of a
+    // silent no-op. Same dynamic-hook pattern (dep direction).
+    rts_runtime::namespaces::collections::map::set_shaped_object_hook(
+        super::objops::shaped_object_get,
+        super::objops::shaped_object_set,
+    );
 }
 
 /// AOT bootstrap entry: the generated `main` shim calls this right after

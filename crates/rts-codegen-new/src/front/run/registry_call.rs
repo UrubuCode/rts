@@ -103,7 +103,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // `U64` params — e.g. `vec_len(await Promise.all(v))`), a number its
                 // truncation. The blind Tagged→Int saturating convert read garbage
                 // from an OBJECT word.
-                let i = if matches!(val.repr, Repr::Tagged)
+                let i = if matches!(ty, AbiType::U64) && matches!(val.repr, Repr::Float64) {
+                    // An f64 arg into an OPAQUE `U64` slot rides as its BITS —
+                    // the historical `thread.spawn(fp, 3.14)` convention (#247):
+                    // the typed invoke reads the bits back via the FN_KINDS
+                    // registry. Truncating (fcvt) here destroyed the fraction
+                    // before the worker ever ran.
+                    self.builder.ins().bitcast(
+                        types::I64,
+                        cranelift_codegen::ir::MemFlags::new(),
+                        val.v,
+                    )
+                } else if matches!(val.repr, Repr::Tagged)
                     && !matches!(val.kind, JsKind::Number)
                 {
                     let w = self.box_value(val);

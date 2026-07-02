@@ -141,14 +141,31 @@ fn next_join_id() -> u64 {
     N.fetch_add(1, Ordering::Relaxed)
 }
 
+/// Invoke a worker `fn_ptr(arg)` honoring the registered FN_KINDS ABI: a
+/// worker declaring `arg: number` compiled with an f64 param (xmm) — the raw
+/// `fn(u64)` transmute misloads it (#247). When the codegen registered the
+/// kinds (via `getPointer`), the f64 form reads `arg`'s BITS back into the
+/// float register; otherwise the historical raw-i64 call is unchanged.
+fn invoke_worker(fn_ptr: u64, arg: u64) -> u64 {
+    let f64_param = rts_primitives::function::ops::registered_fn_kinds(fn_ptr)
+        .is_some_and(|(kinds, _)| kinds.first().copied() == Some(1));
+    if f64_param {
+        // SAFETY: codegen contract for a kinds-registered f64-param worker.
+        let f: extern "C" fn(f64) -> u64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+        f(f64::from_bits(arg))
+    } else {
+        // SAFETY: codegen contract — `extern "C" fn(u64) -> u64`.
+        let f: extern "C" fn(u64) -> u64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+        f(arg)
+    }
+}
+
 /// Spawns an OS thread running `fn_ptr(arg)`. JoinHandle, 0 on null fn.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN(fn_ptr: U64, arg: U64) -> U64 {
     if fn_ptr == 0 {
         return 0;
     }
-    // SAFETY: codegen contract — `fn_ptr` is `extern "C" fn(u64) -> u64`.
-    let f: extern "C" fn(u64) -> u64 = unsafe { std::mem::transmute(fn_ptr as usize) };
     // Snapshot the SPAWNING thread's module-global cells so the worker reads the same
     // `let`/`const` values (a JS module global is shared across a program's threads).
     // `GCELLS` is thread_local, so without this the worker reads every module-global
@@ -158,7 +175,7 @@ pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN(fn_ptr: U64, arg: U64) -> U64 {
     let jh = thread::spawn(move || {
         thread_registry::register_current();
         crate::collector::collector::gcell_restore(gcells);
-        let r = f(arg);
+        let r = invoke_worker(fn_ptr, arg);
         thread_registry::unregister_current();
         r
     });
@@ -176,9 +193,7 @@ pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN_ASYNC(fn_ptr: U64, arg: U64) {
     let gcells = crate::collector::collector::gcell_snapshot();
     crate::runtime::async_rt::handle().spawn_blocking(move || {
         crate::collector::collector::gcell_restore(gcells);
-        // SAFETY: codegen contract — `extern "C" fn(u64) -> u64`.
-        let f: extern "C" fn(u64) -> u64 = unsafe { std::mem::transmute(fn_ptr as usize) };
-        let _ = f(arg);
+        let _ = invoke_worker(fn_ptr, arg);
     });
 }
 
@@ -191,9 +206,7 @@ pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN_ASYNC_JOIN(fn_ptr: U64, arg: U64) -> 
     let gcells = crate::collector::collector::gcell_snapshot();
     let jh = crate::runtime::async_rt::handle().spawn_blocking(move || {
         crate::collector::collector::gcell_restore(gcells);
-        // SAFETY: codegen contract — `extern "C" fn(u64) -> u64`.
-        let f: extern "C" fn(u64) -> u64 = unsafe { std::mem::transmute(fn_ptr as usize) };
-        f(arg)
+        invoke_worker(fn_ptr, arg)
     });
     let id = next_join_id();
     join_store()

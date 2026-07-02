@@ -210,6 +210,15 @@ impl FnSig {
         if ret != Repr::Tagged && any_return_is_function(func) {
             ret = Repr::Tagged;
         }
+        // A `return new C(..)` yields a HEAP INSTANCE word: a numeric-declared
+        // ret would coerce it through the f64/int decode (NaN→garbage; and a
+        // handle does NOT survive an f64 slot — generations push it past 2^53).
+        // Ride `Tagged` — the honest word — and let the CALLER decide (a
+        // `collections.*`-style U64 consumer gets the real handle via
+        // `word_to_abi_i64`; property/method access keeps the object word).
+        if ret != Repr::Tagged && any_return_is_new(func) {
+            ret = Repr::Tagged;
+        }
         // A desugared eager GENERATOR returns the `__gen_buf` ARRAY word (a `Tagged`
         // PolyValue), but the parser stamps its declared return type `i64` (→ would
         // force `Int64`). Coercing the array word to `Int64` corrupts it (`g()` then
@@ -327,6 +336,34 @@ fn any_return_is_function(func: &HirFunc) -> bool {
     found
 }
 
+/// Whether any `return e` in `func` returns a `new C(..)` HEAP INSTANCE — such
+/// a fn rides a `Tagged` return (see `of_func`; a numeric slot corrupts the
+/// word/handle). Mirrors [`any_return_is_function`]'s walk.
+fn any_return_is_new(func: &HirFunc) -> bool {
+    fn walk(stmts: &[HirStmt], found: &mut bool) {
+        for s in stmts {
+            match s {
+                HirStmt::Return(Some(e)) => {
+                    if matches!(e.kind, rts_hir::ir::HirExprKind::New { .. }) {
+                        *found = true;
+                    }
+                }
+                HirStmt::If { then, else_, .. } => {
+                    walk(then, found);
+                    if let Some(el) = else_ {
+                        walk(el, found);
+                    }
+                }
+                HirStmt::While { body, .. } | HirStmt::Block(body) => walk(body, found),
+                _ => {}
+            }
+        }
+    }
+    let mut found = false;
+    walk(&func.body, &mut found);
+    found
+}
+
 /// Walk the lowering-subset statements; set `any` if any `return e` is seen and
 /// clear `all_float` unless every `return e` is a provable Float64 expression.
 fn walk_returns(stmts: &[HirStmt], any: &mut bool, all_float: &mut bool) {
@@ -334,7 +371,12 @@ fn walk_returns(stmts: &[HirStmt], any: &mut bool, all_float: &mut bool) {
         match s {
             HirStmt::Return(Some(e)) => {
                 *any = true;
-                if repr_of(&e.ty) != Repr::Float64 {
+                // A `new C(..)` yields a HEAP INSTANCE whatever the (unreliable)
+                // inferred expression type says — it must never trigger the
+                // Float64 override (`function make(): number { return new (F as
+                // any)(); }` returned f64 and NaN-canonicalized the object word).
+                let is_new = matches!(e.kind, rts_hir::ir::HirExprKind::New { .. });
+                if is_new || repr_of(&e.ty) != Repr::Float64 {
                     *all_float = false;
                 }
             }
