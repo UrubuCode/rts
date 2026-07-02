@@ -24,6 +24,7 @@
 
 mod argsobj;
 mod assign;
+mod asyncspawn;
 mod binop;
 mod floatscan;
 mod binop_eq;
@@ -65,6 +66,7 @@ mod stmt_let;
 mod switch;
 mod tco;
 mod thunk;
+mod varhoist;
 mod toprimitive;
 mod trycatch;
 
@@ -462,7 +464,15 @@ fn build_from_program(
     let mut funcs: Vec<HirFunc> = class_funcs;
     for item in &program.items {
         if let rts_ast::ast::Item::Function(fdecl) = item {
-            funcs.push(rts_hir::lower::lower_func(fdecl, &mut scope));
+            // `var` HOISTING (#301): predeclare every `var`-kind name at the
+            // top of the fn body (JS function scope) — the real `var x = init`
+            // later is a flat re-`let` (same slot). See `varhoist`.
+            let hoists = varhoist::hoisted_var_lets(&fdecl.body);
+            let mut f = rts_hir::lower::lower_func(fdecl, &mut scope);
+            if !hoists.is_empty() {
+                f.body.splice(0..0, hoists);
+            }
+            funcs.push(f);
         }
     }
 
@@ -481,7 +491,14 @@ fn build_from_program(
             top_stmts.push(stmt.clone());
         }
     }
-    let body = rts_hir::lower::lower_stmts(&top_stmts, &mut scope);
+    // `var` HOISTING (#301) at MODULE scope: a top-level `var z` predeclares
+    // at the head of main so a read before its line resolves (same flat-slot
+    // model as the fn-body hoist above).
+    let top_var_hoists = varhoist::hoisted_var_lets(&top_stmts);
+    let mut body = rts_hir::lower::lower_stmts(&top_stmts, &mut scope);
+    if !top_var_hoists.is_empty() {
+        body.splice(0..0, top_var_hoists);
+    }
 
     // STATIC fields + `static {}` init blocks: every static FIELD of a user class
     // lives in a WRITABLE module-global cell named by the synth convention
@@ -515,8 +532,33 @@ fn build_from_program(
                 }
             }
         }
-        for (_pos, stmts) in &c.static_init_blocks {
-            static_prelude.extend(rts_hir::lower::lower_stmts(stmts, &mut scope));
+        // `static { … }` blocks run LEXICALLY inside the class body (JS): a
+        // `C.#priv` access inside one must pass the private-name re-check. They
+        // are therefore synthesized as STATIC fns (`__rtsn_static_<C>_init<i>` —
+        // the `enclosing_class` prefix parse recovers `<C>`), called from the
+        // static prelude in declaration order — not inlined into `__rtsn_main`
+        // (whose enclosing class is None, which refused the access).
+        for (i, (_pos, stmts)) in c.static_init_blocks.iter().enumerate() {
+            let fn_name = format!("__rtsn_static_{}_init{}", c.name, i);
+            let block_body = rts_hir::lower::lower_stmts(stmts, &mut scope);
+            funcs.push(rts_hir::ir::HirFunc {
+                name: fn_name.clone(),
+                params: Vec::new(),
+                ret: HirType::Void,
+                body: block_body,
+                is_async: false,
+                is_arrow: false,
+            });
+            static_prelude.push(HirStmt::Expr(rts_hir::ir::HirExpr::new(
+                rts_hir::ir::HirExprKind::Call {
+                    callee: Box::new(rts_hir::ir::HirExpr::new(
+                        rts_hir::ir::HirExprKind::Ident(fn_name),
+                        HirType::Unknown,
+                    )),
+                    args: Vec::new(),
+                },
+                HirType::Void,
+            )));
         }
     }
     let body = if static_prelude.is_empty() {

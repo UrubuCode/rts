@@ -86,3 +86,24 @@ pub extern "C" fn __rtsadp_err_clear() {
 pub fn reset_state() {
     PENDING.with(|p| p.set((0, false)));
 }
+
+/// Register THIS slot's readers with the runtime's `promise.create` watcher, so
+/// a `throw` inside a spawned async-fn body (which lands HERE, not in the
+/// legacy handle slot) rejects the Promise instead of resolving with the
+/// sentinel. Idempotent (`OnceLock` on the runtime side). Called by the engine
+/// bootstrap: JIT via `compile_program`, AOT via [`__rtsadp_engine_bootstrap`]
+/// in the generated `main` shim.
+pub fn install_async_error_hook() {
+    rts_runtime::namespaces::promise::set_async_error_hook(
+        __rtsadp_err_pending,
+        __rtsadp_err_take,
+    );
+}
+
+/// AOT bootstrap entry: the generated `main` shim calls this right after
+/// `__RTS_FN_RT_INIT` (the shim cannot reach Rust-side adapters fns except by
+/// symbol). Today it only installs the async-error hook.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_engine_bootstrap() {
+    install_async_error_hook();
+}

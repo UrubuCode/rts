@@ -145,15 +145,17 @@ fn top_level_runtime_const_read_in_function() {
 }
 
 #[test]
-fn async_await_synchronous_model() {
-    // SYNCHRONOUS async (no event loop / parallel yet — the suspension SM is
-    // disabled, to be redesigned). An `async` fn runs its body synchronously and
-    // returns the value; `await x` is the value of `x`. Covers the common
-    // resolved/sequential case.
+fn async_await_real_spawn_chain() {
+    // REAL async (2026-07-02): an async CALL spawns its body on the shared
+    // runtime and returns a pending Promise handle; `await` blocks (pumping the
+    // event loop) and unwraps the settled value. `: number` (f64) params ride
+    // the typed spawn (`__rtsadp_promise_spawn` registers the packed kinds so
+    // the invoke reads the bits back into xmm). The top-level `await` keeps the
+    // print on the MAIN thread — deterministic capture.
     assert_stdout(
         "async function add(a: number, b: number): Promise<number> { return a + b; } \
          async function run(): Promise<number> { const x = await add(2, 3); return await add(x, 10); } \
-         async function main(): Promise<void> { console.log(await run()); } main();",
+         console.log(await run());",
         "15\n",
     );
 }

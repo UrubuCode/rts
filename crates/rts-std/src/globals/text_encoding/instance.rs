@@ -852,7 +852,10 @@ unsafe fn invoke_microtask_callback(fn_ptr: u64, bound: &[i64], extra: Option<i6
     if let Some(v) = extra {
         args.push(v);
     }
-    rts_primitives::function::ops::invoke_fn_ptr_with_registry(fn_ptr, &args)
+    // Ponte de convenção ÚNICA: um callable que é fn VALUE do motor novo
+    // (word/handle Entry::Function — possivelmente uniform-thunk com env)
+    // invoca via INVOKE_AUTO; um fn_ptr cru mantém o caminho registry.
+    rts_primitives::function::ops::invoke_callable_auto(fn_ptr, &args)
 }
 
 // TextEncoder / TextDecoder constructors — stateless, token handle.

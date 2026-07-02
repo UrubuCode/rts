@@ -531,21 +531,27 @@ pub fn register(e: &mut Engine) {
             ),
             &["randomUUID"],
         ))
-        .member(func(
-            "hash_new",
-            "__RTS_FN_NS_CRYPTO_HASH_NEW",
-            Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
-            "hash_new(alg: string): number",
-            "`crypto.createHash(\"sha256\")` — new streaming hasher. 0 if unsupported.",
-            __RTS_FN_NS_CRYPTO_HASH_NEW as *const u8,
+        .member(with_aliases(
+            func(
+                "hash_new",
+                "__RTS_FN_NS_CRYPTO_HASH_NEW",
+                Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
+                "hash_new(alg: string): number",
+                "`crypto.createHash(\"sha256\")` — new streaming hasher. 0 if unsupported.",
+                __RTS_FN_NS_CRYPTO_HASH_NEW as *const u8,
+            ),
+            &["createHash"],
         ))
-        .member(func(
-            "hash_update_str",
-            "__RTS_FN_NS_CRYPTO_HASH_UPDATE_STR",
-            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::I64),
-            "hash_update_str(h: number, data: string): number",
-            "`hash.update(data: string)` — feed bytes into the streaming hasher.",
-            __RTS_FN_NS_CRYPTO_HASH_UPDATE_STR as *const u8,
+        .member(with_aliases(
+            func(
+                "hash_update_str",
+                "__RTS_FN_NS_CRYPTO_HASH_UPDATE_STR",
+                Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::I64),
+                "hash_update_str(h: number, data: string): number",
+                "`hash.update(data: string)` — feed bytes into the streaming hasher.",
+                __RTS_FN_NS_CRYPTO_HASH_UPDATE_STR as *const u8,
+            ),
+            &["hashUpdate"],
         ))
         .member(func(
             "hash_update_bytes",
@@ -555,21 +561,27 @@ pub fn register(e: &mut Engine) {
             "`hash.update(buf)` — feed raw ptr+len bytes.",
             __RTS_FN_NS_CRYPTO_HASH_UPDATE_BYTES as *const u8,
         ))
-        .member(func(
-            "hash_digest_hex",
-            "__RTS_FN_NS_CRYPTO_HASH_DIGEST_HEX",
-            Sig::new(vec![AbiType::Handle], AbiType::Handle),
-            "hash_digest_hex(h: number): string",
-            "`hash.digest(\"hex\")` — finalize, return a hex string handle.",
-            __RTS_FN_NS_CRYPTO_HASH_DIGEST_HEX as *const u8,
+        .member(with_aliases(
+            func(
+                "hash_digest_hex",
+                "__RTS_FN_NS_CRYPTO_HASH_DIGEST_HEX",
+                Sig::new(vec![AbiType::Handle], AbiType::Handle),
+                "hash_digest_hex(h: number): string",
+                "`hash.digest(\"hex\")` — finalize, return a hex string handle.",
+                __RTS_FN_NS_CRYPTO_HASH_DIGEST_HEX as *const u8,
+            ),
+            &["hashDigestHex"],
         ))
-        .member(func(
-            "hash_digest_base64",
-            "__RTS_FN_NS_CRYPTO_HASH_DIGEST_BASE64",
-            Sig::new(vec![AbiType::Handle], AbiType::Handle),
-            "hash_digest_base64(h: number): string",
-            "`hash.digest(\"base64\")` — finalize, return a base64 string handle.",
-            __RTS_FN_NS_CRYPTO_HASH_DIGEST_BASE64 as *const u8,
+        .member(with_aliases(
+            func(
+                "hash_digest_base64",
+                "__RTS_FN_NS_CRYPTO_HASH_DIGEST_BASE64",
+                Sig::new(vec![AbiType::Handle], AbiType::Handle),
+                "hash_digest_base64(h: number): string",
+                "`hash.digest(\"base64\")` — finalize, return a base64 string handle.",
+                __RTS_FN_NS_CRYPTO_HASH_DIGEST_BASE64 as *const u8,
+            ),
+            &["hashDigestBase64"],
         ))
         .member(with_aliases(
             func(

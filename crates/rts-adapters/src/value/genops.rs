@@ -438,7 +438,11 @@ pub extern "C" fn __rtsadp_await(word: u64) -> u64 {
     use rts_runtime::namespaces::promise as rt_promise;
     let mut h = handle;
     loop {
-        let settled = rt_promise::__RTS_FN_NS_PROMISE_WAIT(h);
+        // `wait_raw` — the settled value VERBATIM (a new-engine word or a legacy
+        // raw i64); `rebox_settled` below does the honest rebox. The PUBLIC
+        // `PROMISE_WAIT` normalizes for the TS i64 surface and would round a
+        // fractional double word.
+        let settled = rt_promise::wait_raw(h);
         let rejected = rt_promise::__RTS_FN_NS_PROMISE_STATE(h) == 2;
         // JS `await` FLATTENS: a promise settled with another promise resolves to
         // the inner value. Follow the raw-id chain (finite — each hop consumes one

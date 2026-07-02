@@ -267,6 +267,21 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             ret: Handle,
         },
 
+        // `promise.create(fn_addr, args_vec)` — the async-fn CALL spawn
+        // (front/run/asyncspawn.rs): runs the body on the shared runtime,
+        // returns the pending PromiseAsync handle.
+        "__RTS_FN_NS_PROMISE_CREATE" => SymSig {
+            params: &[U64, U64],
+            ret: U64,
+        },
+        // The typed async spawn: registers the callee's packed param/ret kinds
+        // (an f64 param travels as bits and reads back into xmm), then
+        // delegates to `promise.create`.
+        "__rtsadp_promise_spawn" => SymSig {
+            params: &[U64, U64, U64, U64],
+            ret: U64,
+        },
+
         // ---- REAL collections Vec (rts-shared collections::vec) ----
         "__RTS_FN_NS_COLLECTIONS_VEC_NEW" => SymSig {
             params: &[],

@@ -310,6 +310,25 @@ pub(super) fn build_class(
             member_access.insert(md.name.clone(), (v, decl.name.clone()));
         }
     }
+    // STATIC `#name` members also mark the LEXICAL declaring class (the
+    // `check_private_name_lexical` re-check keys on member_access membership —
+    // a `static #table` read from the class's own static method must pass).
+    for pd in &m.static_props {
+        if pd.name.starts_with('#') {
+            member_access.insert(
+                pd.name.clone(),
+                (rts_ast::ast::Visibility::Private, decl.name.clone()),
+            );
+        }
+    }
+    for md in &m.static_methods {
+        if md.name.starts_with('#') {
+            member_access.insert(
+                md.name.clone(),
+                (rts_ast::ast::Visibility::Private, decl.name.clone()),
+            );
+        }
+    }
 
     // --- abstract accounting: own abstract decls + parent's unimplemented,
     // minus what THIS class's `methods` now implements. A CONCRETE class with
