@@ -340,6 +340,15 @@ fn rewrite_this_expr(e: &mut HirExpr) {
         | HirExprKind::PostDec(t) => rewrite_this_expr(t),
         HirExprKind::Seq(items) => items.iter_mut().for_each(rewrite_this_expr),
         HirExprKind::New { args, .. } => args.iter_mut().for_each(rewrite_this_expr),
+        // An ARROW inside a method body: its lexical `this` IS the method's
+        // `this` param, so rewrite the arrow body too — the extraction pass then
+        // sees `this` as an ordinary capturable outer local (capture-by-value is
+        // exact: `this` never reassigns). Without this arm a `() => this.x`
+        // kept `Raw("This(..)")` and bailed the whole arrow.
+        HirExprKind::Arrow { body, .. } => match body {
+            rts_hir::ir::HirArrowBody::Expr(e) => rewrite_this_expr(e),
+            rts_hir::ir::HirArrowBody::Block(stmts) => rewrite_this_block(stmts),
+        },
         _ => {}
     }
 }

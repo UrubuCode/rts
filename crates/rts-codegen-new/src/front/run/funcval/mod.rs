@@ -136,6 +136,126 @@ pub fn module_globals(
     map
 }
 
+/// Rename every `Ident(from)` to `to` across `stmts` (a synthesized closure body
+/// whose captured `this` param must not literally be named `this`). Walks the
+/// same expr/stmt surface the extraction handles; an unvisited exotic node keeps
+/// the old name and lowers to an unbound-ident bail (honest, never a wrong bind).
+fn rename_ident_stmts(stmts: &mut [HirStmt], from: &str, to: &str) {
+    for s in stmts {
+        rename_ident_stmt(s, from, to);
+    }
+}
+
+fn rename_ident_stmt(s: &mut HirStmt, from: &str, to: &str) {
+    match s {
+        HirStmt::Expr(e) | HirStmt::Throw(e) => rename_ident_expr(e, from, to),
+        HirStmt::Return(Some(e)) => rename_ident_expr(e, from, to),
+        HirStmt::Let { init: Some(e), .. } => rename_ident_expr(e, from, to),
+        HirStmt::Const { init, .. } => rename_ident_expr(init, from, to),
+        HirStmt::If { cond, then, else_ } => {
+            rename_ident_expr(cond, from, to);
+            rename_ident_stmts(then, from, to);
+            if let Some(e) = else_ {
+                rename_ident_stmts(e, from, to);
+            }
+        }
+        HirStmt::While { cond, body } | HirStmt::DoWhile { cond, body } => {
+            rename_ident_expr(cond, from, to);
+            rename_ident_stmts(body, from, to);
+        }
+        HirStmt::For {
+            init,
+            cond,
+            update,
+            body,
+        } => {
+            if let Some(i) = init {
+                rename_ident_stmt(i, from, to);
+            }
+            if let Some(c) = cond {
+                rename_ident_expr(c, from, to);
+            }
+            if let Some(u) = update {
+                rename_ident_expr(u, from, to);
+            }
+            rename_ident_stmts(body, from, to);
+        }
+        HirStmt::ForOf { iterable, body, .. } => {
+            rename_ident_expr(iterable, from, to);
+            rename_ident_stmts(body, from, to);
+        }
+        HirStmt::ForIn { object, body, .. } => {
+            rename_ident_expr(object, from, to);
+            rename_ident_stmts(body, from, to);
+        }
+        HirStmt::Block(b) => rename_ident_stmts(b, from, to),
+        HirStmt::Try {
+            body,
+            catch,
+            finally,
+        } => {
+            rename_ident_stmts(body, from, to);
+            if let Some(c) = catch {
+                rename_ident_stmts(&mut c.body, from, to);
+            }
+            if let Some(f) = finally {
+                rename_ident_stmts(f, from, to);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn rename_ident_expr(e: &mut HirExpr, from: &str, to: &str) {
+    if let HirExprKind::Ident(n) = &mut e.kind {
+        if n == from {
+            *n = to.to_string();
+        }
+        return;
+    }
+    match &mut e.kind {
+        HirExprKind::Bin { lhs, rhs, .. } => {
+            rename_ident_expr(lhs, from, to);
+            rename_ident_expr(rhs, from, to);
+        }
+        HirExprKind::Unary { operand, .. } => rename_ident_expr(operand, from, to),
+        HirExprKind::Assign { target, value } | HirExprKind::AssignOp { target, value, .. } => {
+            rename_ident_expr(target, from, to);
+            rename_ident_expr(value, from, to);
+        }
+        HirExprKind::Call { callee, args } => {
+            rename_ident_expr(callee, from, to);
+            args.iter_mut().for_each(|a| rename_ident_expr(a, from, to));
+        }
+        HirExprKind::MethodCall { object, args, .. } => {
+            rename_ident_expr(object, from, to);
+            args.iter_mut().for_each(|a| rename_ident_expr(a, from, to));
+        }
+        HirExprKind::Member { object, .. } => rename_ident_expr(object, from, to),
+        HirExprKind::Index { object, index } => {
+            rename_ident_expr(object, from, to);
+            rename_ident_expr(index, from, to);
+        }
+        HirExprKind::Ternary { cond, then, else_ } => {
+            rename_ident_expr(cond, from, to);
+            rename_ident_expr(then, from, to);
+            rename_ident_expr(else_, from, to);
+        }
+        HirExprKind::Array(elems) => elems.iter_mut().for_each(|x| rename_ident_expr(x, from, to)),
+        HirExprKind::Object(fields) => fields
+            .iter_mut()
+            .for_each(|(_, v)| rename_ident_expr(v, from, to)),
+        HirExprKind::New { args, .. } => {
+            args.iter_mut().for_each(|a| rename_ident_expr(a, from, to));
+        }
+        HirExprKind::Await(inner) | HirExprKind::Spread(inner) => {
+            rename_ident_expr(inner, from, to);
+        }
+        HirExprKind::Seq(items) => items.iter_mut().for_each(|x| rename_ident_expr(x, from, to)),
+        _ => {}
+    }
+}
+
 /// Top-level singleton-instance globals — every `const X = new Y()` at the top
 /// level — mapped to their class `Y`. DATA-DRIVEN: the engine NAMES nothing (no
 /// `"console"` allow-list); it matches the SHAPE `const = new`, so any prelude OR
@@ -750,12 +870,29 @@ impl Ctx {
                 .insert(c.clone());
         }
 
+        // A captured lexical `this` (an arrow inside a method): the CALL-SITE
+        // snapshot still reads the local named `this` (the method's param — the
+        // captures MAP keeps the original name), but the SYNTH param + body must
+        // use a rename: a leading param literally named `this` would mark the
+        // closure `has_this`, and the reify path refuses `this`-using functions
+        // as VALUES. Position in the sorted list is preserved (the env ABI is
+        // positional). Capture-by-value is exact for `this` (never reassigned).
+        let this_rename = "__rtsn_capthis";
+        let mut body_stmts = body_stmts;
+        if captures.iter().any(|c| c == "this") {
+            rename_ident_stmts(&mut body_stmts, "this", this_rename);
+        }
+
         // Prepend each captured var as a leading Tagged param (the thunk fills these
         // from the env array; the arrow's own params follow, filled from a0..a3).
         let mut all_params: Vec<HirParam> = captures
             .iter()
             .map(|n| HirParam {
-                name: n.clone(),
+                name: if n == "this" {
+                    this_rename.to_string()
+                } else {
+                    n.clone()
+                },
                 ty: HirType::Any,
                 variadic: false,
                 has_default: false,
