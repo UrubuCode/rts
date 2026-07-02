@@ -654,7 +654,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // `number`) reboxes as a plain INTEGER. Treating every namespace `Handle`
         // as a string/object (the old fixed `JsKind::Str`) NaN-boxed a raw id as a
         // heap pointer → a later `emit_table_load` on it SIGILL'd (audio repro).
-        let result_kind = if resolved.ret_is_string_handle {
+        let result_kind = if resolved.ret_is_array_handle {
+            // A FRESH JS array (`fs.readdir(): string[]`) — reboxes through
+            // `__rtsadp_box_handle_auto` (normalizes raw string-handle elements).
+            JsKind::Array
+        } else if resolved.ret_is_string_handle {
             JsKind::Str
         } else {
             JsKind::Number

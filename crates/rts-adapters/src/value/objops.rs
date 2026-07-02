@@ -168,6 +168,17 @@ pub extern "C" fn __rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
     if let Some((target, handler)) = proxy_parts(obj_word) {
         return proxy_get(target, handler, key_str_handle);
     }
+    // `.length` on a NON-keyed receiver (a string / an array reached through the
+    // dynamic get — `cfg?.list.length`): route the tag-dispatched length. A KEYED
+    // object falls through to its own `length` slot below (`dyn_length`'s keyed
+    // arm calls back here — the guard prevents the mutual recursion).
+    {
+        let obj = PolyValue::from_raw(obj_word);
+        let is_keyed = obj.is_object() && looks_like_object(obj);
+        if !is_keyed && key_text(key_str_handle) == "length" {
+            return super::dyndispatch::__rtsadp_dyn_length(obj_word);
+        }
+    }
     // SYMBOL primitive (#216): `.description` reads the stored description (a
     // string word, or `undefined` for a description-less symbol). A symbol wraps
     // `Entry::Symbol`, not a keyed Vec, so `resolve_slot` cannot see it.

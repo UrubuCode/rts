@@ -167,6 +167,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     // INTEGER PolyValue. Boxing it as an object word would NaN-box a
                     // raw id as a heap pointer and SIGILL on the next table-load.
                     JsKind::Number => Val::new(h, Repr::Int64),
+                    // A FRESH JS ARRAY handle (`ts_signature` return `T[]`, e.g.
+                    // `fs.readdir(): string[]`): the namespace built this Vec for
+                    // this call, so the heterogeneous authority may normalize its
+                    // legacy raw string-handle elements to words in place.
+                    JsKind::Array => {
+                        let w = self
+                            .call_runtime(module, "__rtsadp_box_handle_auto", &[h])
+                            .expect("box_handle_auto is registered")
+                            .expect("__rtsadp_box_handle_auto returns a word");
+                        Val::new(w, Repr::Tagged)
+                    }
                     // Any other expectation (the construct/Date path) is a real
                     // object handle. NOT routed through `__rtsadp_box_handle_auto`:
                     // a Registry-class INSTANCE may itself be an `Entry::Vec` whose

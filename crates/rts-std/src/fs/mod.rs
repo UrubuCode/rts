@@ -557,7 +557,7 @@ pub fn register(e: &mut Engine) {
                 "readdir",
                 "__RTS_FN_NS_FS_READDIR",
                 Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
-                "readdir(path: string): number",
+                "readdir(path: string): string[]",
                 "Lists directory entry names (file_name only) as a Vec<i64> of string\nhandles. 0 on error.",
                 __RTS_FN_NS_FS_READDIR as *const u8,
             ),
