@@ -121,6 +121,76 @@ pub extern "C" fn __rtsadp_class_proto(name_str_word: u64) -> u64 {
     w
 }
 
+/// `__rtsadp_class_proto_init(name, parent_name_or_undefined)` — the ONE
+/// idempotent per-class prototype setup, run on each `new C()` (cheap after the
+/// first): ensures `C.prototype` exists (via [`__rtsadp_class_proto`]), gives it
+/// a `constructor` object carrying `{ name: "C" }`, and links its
+/// `[[Prototype]]` to the PARENT's prototype (`class C extends P`) or to the
+/// shared `Object.prototype` root (whose own chain ends in `null` and whose
+/// constructor name is `"Object"`). Returns the proto word for the instance
+/// link. This is what makes `Object.getPrototypeOf(d).constructor.name` and the
+/// `while (proto) { … getPrototypeOf(proto) }` chain walk behave like JS.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_class_proto_init(name_word: u64, parent_name_word: u64) -> u64 {
+    use std::collections::HashSet;
+    use std::sync::{Mutex, OnceLock};
+    static DONE: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    let proto = __rtsadp_class_proto(name_word);
+    let name = super::abi_adapter::resolve_poly(PolyValue::from_raw(name_word));
+    {
+        let done = DONE.get_or_init(|| Mutex::new(HashSet::new()));
+        let mut d = done.lock().unwrap_or_else(|e| e.into_inner());
+        if !d.insert(name) {
+            return proto;
+        }
+    }
+    // constructor = { name: "<C>" } (a data object — the callable-class link is
+    // a later increment; `.constructor.name` is the observed surface).
+    let ctor = empty_proto_object();
+    let name_key = super::abi_adapter::intern_poly("name").raw();
+    super::objops::__rtsadp_obj_set(ctor, name_key, name_word);
+    let ctor_key = super::abi_adapter::intern_poly("constructor").raw();
+    super::objops::__rtsadp_obj_set(proto, ctor_key, ctor);
+    // Chain: parent's proto, or the Object.prototype root.
+    let parent = PolyValue::from_raw(parent_name_word);
+    let up = if parent.is_string() {
+        __rtsadp_class_proto(parent_name_word)
+    } else {
+        object_proto_root()
+    };
+    __rtsadp_obj_set_proto(proto, up);
+    proto
+}
+
+/// The shared `Object.prototype` root: constructor name `"Object"`, no
+/// prototype above it (`getPrototypeOf` → null, terminating chain walks).
+fn object_proto_root() -> u64 {
+    use std::sync::OnceLock;
+    static ROOT: OnceLock<u64> = OnceLock::new();
+    *ROOT.get_or_init(|| {
+        let root = empty_proto_object();
+        let ctor = empty_proto_object();
+        let name_key = super::abi_adapter::intern_poly("name").raw();
+        let obj_name = super::abi_adapter::intern_poly("Object").raw();
+        super::objops::__rtsadp_obj_set(ctor, name_key, obj_name);
+        let ctor_key = super::abi_adapter::intern_poly("constructor").raw();
+        super::objops::__rtsadp_obj_set(root, ctor_key, ctor);
+        root
+    })
+}
+
+/// A fresh empty keyed object word, PINned (proto-graph objects live for the
+/// whole program).
+fn empty_proto_object() -> u64 {
+    use rts_runtime::namespaces::collections::vec as rt_vec;
+    use rts_runtime::namespaces::gc::handles as rt_handles;
+    let h = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    let shape = crate::shape::intern_global_shape(&[]);
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(h, PolyValue::from_i32(shape as i32).raw() as i64);
+    rt_handles::__RTS_FN_NS_GC_PIN_HANDLE(h);
+    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h)).raw()
+}
+
 /// `Reflect.setPrototypeOf(obj, proto)` — like [`__rtsadp_obj_set_proto`] but
 /// returns SUCCESS as an i64 0/1, and routes a PROXY receiver through its
 /// `setPrototypeOf` trap (#218 phase 3): ToBoolean of the trap's return decides

@@ -826,7 +826,7 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, U64],
             ret: I64,
         },
-        "__rtsadp_construct" => SymSig {
+        "__rtsadp_construct" | "__rtsadp_class_proto_init" => SymSig {
             params: &[U64, U64],
             ret: U64,
         },

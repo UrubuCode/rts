@@ -16,7 +16,6 @@
 //! - an argument whose proven kind does not match the slot's `AbiType` (a string
 //!   slot wants a string arg, a number slot wants a numeric arg).
 
-use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_module::Module;
 
@@ -483,15 +482,23 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
     }
 
-    /// Coerce a proven-numeric `Val` to an i64 (index/count). A Tagged value is
-    /// not accepted here (we cannot prove it numeric) — bail.
+    /// Coerce a numeric `Val` to an i64 (index/count). A TAGGED value decodes by
+    /// TAG at runtime (`emit_tagged_number_to_f64` — int32 or inline double) and
+    /// truncates, exactly the `coerce(Tagged → Int)` rule: a non-number word
+    /// decodes NaN → saturates to a defined 0, never a trap or a wrong slot.
     pub(super) fn numeric_to_i64(&mut self, v: Val) -> FrontResult<Value> {
         match v.repr {
             Repr::Int32 | Repr::Int64 => Ok(v.v),
+            // Bool rides i64 0/1 already (JS ToNumber of a bool index).
+            Repr::Bool => Ok(v.v),
             // SATURATING f64→i64: a `number` index/count/depth arg that is
             // `Infinity`/`NaN`/out-of-range (e.g. `arr.flat(Infinity)`) yields a
             // defined clamp (i64::MIN/MAX/0) instead of a Cranelift trap (SIGILL).
             Repr::Float64 => Ok(self.builder.ins().fcvt_to_sint_sat(types::I64, v.v)),
+            Repr::Tagged => {
+                let f = value::emit_tagged_number_to_f64(self.builder, v.v);
+                Ok(self.builder.ins().fcvt_to_sint_sat(types::I64, f))
+            }
             _ => unsupported!("method arg wants a number index but got {:?}", v.repr),
         }
     }

@@ -35,8 +35,10 @@ const w2: number = (a2 as any).weight;
 print("w1=" + w1);
 print("w2=" + w2);
 
-// Setar prop direto na instance NAO afeta o proto
-collections.map_set(a1, "color", 1);  // own prop em a1 sobrescreve proto
+// Setar prop direto na instance NAO afeta o proto (JS fiel: atribuicao
+// direta cria own prop que sombreia o proto; era collections.map_set do
+// modelo velho de instancia-como-Map)
+(a1 as any).color = 1;  // own prop em a1 sobrescreve proto
 const c1Own: number = (a1 as any).color;
 const c2Still: number = (a2 as any).color;
 print("c1Own=" + c1Own);

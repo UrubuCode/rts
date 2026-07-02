@@ -103,12 +103,24 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
         // ---- 2b. link the instance to the class's SHARED prototype object, so a
         //          later `C.prototype.m = v` reaches it through the dynamic-get
-        //          prototype walk (own-key reads never touch this). ----
+        //          prototype walk (own-key reads never touch this). The one-time
+        //          init also wires `constructor.name` + the extends chain up to
+        //          the Object.prototype root. ----
         let k = crate::value::abi_adapter::intern_poly(class);
         let k_word = self.builder.ins().iconst(types::I64, k.raw() as i64);
+        let parent_word = match &desc.parent {
+            Some(p) => {
+                let pk = crate::value::abi_adapter::intern_poly(p);
+                self.builder.ins().iconst(types::I64, pk.raw() as i64)
+            }
+            None => self
+                .builder
+                .ins()
+                .iconst(types::I64, value::PolyValue::undefined().raw() as i64),
+        };
         let proto = self
-            .call_runtime(module, "__rtsadp_class_proto", &[k_word])?
-            .expect("__rtsadp_class_proto returns a word");
+            .call_runtime(module, "__rtsadp_class_proto_init", &[k_word, parent_word])?
+            .expect("__rtsadp_class_proto_init returns a word");
         self.call_runtime(module, "__rtsadp_obj_set_proto", &[obj_word, proto])?;
 
         // ---- 3. intern this fn's OBJECT shape (key list = the class fields) and
