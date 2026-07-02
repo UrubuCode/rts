@@ -231,6 +231,29 @@ pub(super) fn build_class(
         static_fields.insert(sg.name.clone(), static_method_name(&decl.name, &sg.name));
     }
 
+    // --- abstract accounting: own abstract decls + parent's unimplemented,
+    // minus what THIS class's `methods` now implements. A CONCRETE class with
+    // leftovers is the TS "missing implementation" compile error — re-checked.
+    let mut abstract_methods: Vec<String> = parent
+        .map(|p| p.abstract_methods.clone())
+        .unwrap_or_default();
+    for mem in &decl.members {
+        if let ClassMember::Method(md) = mem {
+            if md.modifiers.is_abstract && !abstract_methods.contains(&md.name) {
+                abstract_methods.push(md.name.clone());
+            }
+        }
+    }
+    abstract_methods.retain(|n| !methods.contains_key(n));
+    if !decl.is_abstract {
+        if let Some(missing) = abstract_methods.first() {
+            return Err(Unsupported::new(format!(
+                "concrete class `{}` does not implement inherited abstract method `{missing}`",
+                decl.name
+            )));
+        }
+    }
+
     let desc = ClassDesc {
         name: decl.name.clone(),
         parent: decl.super_class.clone(),
@@ -241,6 +264,8 @@ pub(super) fn build_class(
         methods,
         accessors,
         statics,
+        is_abstract: decl.is_abstract,
+        abstract_methods,
         static_fields,
         field_arrays,
         field_strings,

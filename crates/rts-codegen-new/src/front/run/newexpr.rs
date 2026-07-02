@@ -56,6 +56,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                  (a global/Registry class or `extends` class is a later increment)"
             );
         };
+        // `new AbstractC()` — a TS compile error, re-checked (the class lowers
+        // normally for its concrete subclasses, but direct instantiation bails).
+        if desc.is_abstract {
+            return unsupported!("cannot instantiate abstract class `{class}`");
+        }
         // NOTE: arity is validated by `marshal_call_args` against the ctor's
         // `FnSig` (which knows the rest param), not against `desc.ctor_arity` — a
         // variadic ctor accepts a variable count, so the exact `ctor_arity` gate is

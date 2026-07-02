@@ -98,6 +98,13 @@ pub(crate) struct ClassDesc {
     pub accessors: HashMap<String, Accessor>,
     /// Static method name → synthesized fn name (`__rtsn_static_C_m`; no `this`).
     pub statics: HashMap<String, String>,
+    /// Whether the class was declared `abstract` — a direct `new` bails (the
+    /// TS compile-error surface, re-checked so `new AbstractC()` fails).
+    pub is_abstract: bool,
+    /// Abstract method names still UNIMPLEMENTED at this class (own abstract
+    /// decls + parent's, minus what `methods` implements). A CONCRETE class
+    /// with a non-empty list bails at build time (TS: missing implementation).
+    pub abstract_methods: Vec<String>,
     /// Static field name → synthesized zero-arg getter fn (`__rtsn_sfield_C_f`).
     pub static_fields: HashMap<String, String>,
     /// FLATTENED names of fields PROVEN to hold an Array (declaration initializer

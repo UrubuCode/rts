@@ -108,6 +108,8 @@ pub(crate) fn build_literal_class(
         methods: method_map,
         accessors,
         statics: HashMap::new(),
+        is_abstract: false,
+        abstract_methods: Vec::new(),
         static_fields: HashMap::new(),
         // Object-literal classes do not track array-typed fields (no `this.x[i]`
         // chaining target in the literal-recovery path yet).
