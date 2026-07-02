@@ -161,10 +161,10 @@
 ,
 {
   "name": "190_array_entries_keys_values",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "entries=0:a,1:b,2:c\nkeys=0,1,2\nvalues=a,b,c\nsparse_keys=0,1,2",
   "node": "entries=0:a,1:b,2:c\nkeys=0,1,2\nvalues=a,b,c\nsparse_keys=0,1,2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "entries=0:a,1:b,2:c\nkeys=0,1,2\nvalues=a,b,c\nsparse_keys=0,1"
 }
 ,
 {
@@ -825,10 +825,10 @@
 ,
 {
   "name": "269_static_blocks",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "order=field|block1:3|block2:5",
   "node": "order=field|block1:3|block2:5",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "order=field|block1:3|block2:5"
 }
 ,
 {
@@ -857,10 +857,10 @@
 ,
 {
   "name": "371_private_fields_basic",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20",
   "node": "6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "6\n4\n0\n0\ntrue\n1 2 3\n1\n20\n20"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":228,"rts_diverge":85,"bun_node_diverge":17,"errors":279,"rejected":0}}
+],"summary":{"total":609,"pass":229,"rts_diverge":87,"bun_node_diverge":17,"errors":276,"rejected":0}}
