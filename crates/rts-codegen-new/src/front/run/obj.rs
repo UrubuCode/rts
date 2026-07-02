@@ -324,6 +324,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 }
             }
         }
+        // ---- `Array.prototype` / `Object.prototype` (PRIMORDIAL globals with no
+        // user/ambient-class prototype path): the shared class-proto word, so
+        // `Array.prototype.isPrototypeOf(arr)` resolves (the runtime tag check
+        // recognizes these prototypes). ----
+        if prop == "prototype" {
+            if let HirExprKind::Ident(g) = &object.kind {
+                if matches!(g.as_str(), "Array" | "Object") && self.local(g).is_none() {
+                    let k = crate::value::abi_adapter::intern_poly(g);
+                    let k_word = self.builder.ins().iconst(types::I64, k.raw() as i64);
+                    let w = self
+                        .call_runtime(module, "__rtsadp_class_proto", &[k_word])?
+                        .expect("__rtsadp_class_proto returns a word");
+                    return Ok(Val::tagged_kind(w, JsKind::Object));
+                }
+            }
+        }
         // ---- static member read `C.f` (C is a class name, not a local) ----
         if let Some(class) = self.class_name_receiver(object) {
             return self.try_static_field_read(module, &class, prop);

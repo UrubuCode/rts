@@ -43,10 +43,19 @@ function __structuredCloneInner(__scValue: any, __scSeen: any[], __scClones: any
     }
     return __scArr;
   }
+  const __scKeys = Object.keys(__scValue);
+  // A BACKEND-OPAQUE instance (Date/RegExp/URL — a Rust-backed object with NO
+  // enumerable own keys): cloning key-by-key would produce an empty `{}` and
+  // lose the value. Return it as-is (data preserved; a type-preserving deep
+  // copy needs method dispatch on an `any` receiver — a later increment). An
+  // EMPTY plain `{}` also takes this path (indistinguishable without type
+  // dispatch) — its clone would be an identical empty object anyway.
+  if (__scKeys.length === 0) {
+    return __scValue;
+  }
   const __scOut: any = {};
   __scSeen.push(__scValue);
   __scClones.push(__scOut);
-  const __scKeys = Object.keys(__scValue);
   for (let __scI = 0; __scI < __scKeys.length; __scI++) {
     const __scK = __scKeys[__scI];
     __scOut[__scK] = __structuredCloneInner(__scValue[__scK], __scSeen, __scClones);

@@ -242,6 +242,22 @@ pub extern "C" fn __rtsadp_set_proto_check(obj_word: u64, proto_word: u64) -> i6
 /// stops at the visited cap) returns `false`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_is_prototype_of(proto_word: u64, obj_word: u64) -> u64 {
+    // PRIMORDIAL prototypes by TAG: every array IS-A `Array.prototype` child and
+    // every heap value (object/array/function) an `Object.prototype` child, even
+    // with no per-instance proto entry linked. Compared against the lazily
+    // created shared proto words (Array/Object are primordial — doctrine-legal).
+    {
+        let t = class_proto_table().lock().unwrap_or_else(|e| e.into_inner());
+        let v = PolyValue::from_raw(obj_word);
+        let is_heap = v.is_object() || v.is_function();
+        let is_array = v.is_object() && !super::inspect::looks_like_object(v);
+        if t.get("Object") == Some(&proto_word) && is_heap {
+            return PolyValue::bool(true).raw();
+        }
+        if t.get("Array") == Some(&proto_word) && is_array {
+            return PolyValue::bool(true).raw();
+        }
+    }
     let mut cur = proto_of(obj_word);
     let mut guard = 0;
     while let Some(p) = cur {
