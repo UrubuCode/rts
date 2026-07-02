@@ -2156,7 +2156,7 @@
   "status": "rts_diverge",
   "bun": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
   "node": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
-  "rts": "3\n99\nfalse\ntrue\n2026\nundefined\ntrue\nundefined\nundefined\ntrue\nfalse\ntrue\ntrue\ntrue\ntrue\nundefined\n1\ntrue\nfalse"
+  "rts": "3\n99\nfalse\ntrue\n2099\n2099\ntrue\nhello\ngi\ntrue\nfalse\ntrue\ntrue\ntrue\ntrue\nundefined\n1\ntrue\nfalse"
 }
 ,
 {
