@@ -46,6 +46,9 @@ thread_local! {
 /// Store `word` (a PolyValue) into global cell `id`, growing the store as needed.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_GCELL_SET(id: u64, word: u64) {
+    if std::env::var("RTS_DEBUG_GCELL").is_ok() {
+        eprintln!("[gcell] SET {id} = {word:#x}");
+    }
     GCELLS.with(|c| {
         let mut v = c.borrow_mut();
         let i = id as usize;

@@ -283,6 +283,11 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// PRIVATE `engine.*` ambient global; in a user function (incl. `__rtsn_main`)
     /// any `engine.*` reference bails explicitly (see [`super::engineobj`]).
     pub is_prelude: bool,
+    /// Whether THIS function is the synthesized `__rtsn_main`. A module-level
+    /// `let` in main initializes its promoted GCELL; the same-spelled `let`
+    /// inside ANY function declares a fresh LOCAL that shadows the global
+    /// (without this a prelude-internal `let out` clobbered a user gcell).
+    pub is_main: bool,
     /// BUILTIN-IMPORT bindings (M1b): a LOCAL name imported from `rts:<ns>` →
     /// `(ns, member)`. A `name(args)` call whose `name` is here lowers to the real
     /// `__RTS_FN_NS_*` symbol via the generic Registry marshal (see [`super::call`]).
@@ -345,6 +350,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             globalthis_class_refs,
             classes,
             is_prelude,
+            is_main: func.name == "__rtsn_main",
             builtins,
         };
 

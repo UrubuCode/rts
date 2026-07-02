@@ -27,16 +27,23 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return unsupported!("`let {name}` without an initializer");
         };
 
-        // MODULE-LEVEL MUTABLE GLOBAL (epic #195): a top-level `let` written from a
-        // function. Store the initializer into the runtime cell (no Cranelift
-        // Variable) — every later read/write of `name` routes through the cell by
-        // id (`gcell_id` resolves it once `name` is not a local). Shape tracking is
-        // dropped (a from-a-function-mutated var is opaque anyway).
-        if let Some(id) = self.gcells.get(name).copied() {
-            let val = self.lower_expr(module, init)?;
-            let word = self.box_value(val);
-            self.emit_gcell_set(module, id, word)?;
-            return Ok(());
+        // MODULE-LEVEL MUTABLE GLOBAL (epic #195): a top-level `let` IN MAIN
+        // written from a function. Store the initializer into the runtime cell (no
+        // Cranelift Variable) — every later read/write of `name` routes through the
+        // cell by id (`gcell_id` resolves it once `name` is not a local). Shape
+        // tracking is dropped (a from-a-function-mutated var is opaque anyway).
+        //
+        // ONLY in `__rtsn_main`: a same-spelled `let` inside a FUNCTION declares a
+        // fresh LOCAL that shadows the global (JS scoping) — routing it to the cell
+        // made the prelude's `Console.__format` local `let out` CLOBBER a user
+        // gcell named `out` (every console.log corrupted the captured variable).
+        if self.is_main {
+            if let Some(id) = self.gcells.get(name).copied() {
+                let val = self.lower_expr(module, init)?;
+                let word = self.box_value(val);
+                self.emit_gcell_set(module, id, word)?;
+                return Ok(());
+            }
         }
 
         // FUNCTION-LOCAL CELL (#195): a function-scope `let` a closure captures AND
