@@ -352,3 +352,138 @@ fn rewrite_this_expr(e: &mut HirExpr) {
         _ => {}
     }
 }
+
+/// Mangle every PRIVATE property name (`#x`) in `stmts` to its per-class form
+/// (`#x@Class`) — TS private fields are visible ONLY in the declaring class, so
+/// two classes in one inheritance chain may each declare `#v` and they must be
+/// DISTINCT slots (the flattened field list would otherwise collide by name).
+/// Covers Member/Index reads+writes through the same expr walk shape as the
+/// `this` rewrite.
+pub(crate) fn mangle_private_block(stmts: &mut [HirStmt], class: &str) {
+    for s in stmts {
+        mangle_private_stmt(s, class);
+    }
+}
+
+/// The mangled per-class name of a private field `#x` declared in `class`.
+pub(crate) fn mangle_private_name(name: &str, class: &str) -> String {
+    format!("{name}@{class}")
+}
+
+fn mangle_private_stmt(s: &mut HirStmt, class: &str) {
+    match s {
+        HirStmt::Expr(e) | HirStmt::Throw(e) => mangle_private_expr(e, class),
+        HirStmt::Return(Some(e)) => mangle_private_expr(e, class),
+        HirStmt::Let { init: Some(e), .. } => mangle_private_expr(e, class),
+        HirStmt::Const { init, .. } => mangle_private_expr(init, class),
+        HirStmt::If { cond, then, else_ } => {
+            mangle_private_expr(cond, class);
+            mangle_private_block(then, class);
+            if let Some(e) = else_ {
+                mangle_private_block(e, class);
+            }
+        }
+        HirStmt::While { cond, body } | HirStmt::DoWhile { cond, body } => {
+            mangle_private_expr(cond, class);
+            mangle_private_block(body, class);
+        }
+        HirStmt::For {
+            init,
+            cond,
+            update,
+            body,
+        } => {
+            if let Some(i) = init {
+                mangle_private_stmt(i, class);
+            }
+            if let Some(c) = cond {
+                mangle_private_expr(c, class);
+            }
+            if let Some(u) = update {
+                mangle_private_expr(u, class);
+            }
+            mangle_private_block(body, class);
+        }
+        HirStmt::ForOf { iterable, body, .. } => {
+            mangle_private_expr(iterable, class);
+            mangle_private_block(body, class);
+        }
+        HirStmt::ForIn { object, body, .. } => {
+            mangle_private_expr(object, class);
+            mangle_private_block(body, class);
+        }
+        HirStmt::Block(b) => mangle_private_block(b, class),
+        HirStmt::Try {
+            body,
+            catch,
+            finally,
+        } => {
+            mangle_private_block(body, class);
+            if let Some(c) = catch {
+                mangle_private_block(&mut c.body, class);
+            }
+            if let Some(f) = finally {
+                mangle_private_block(f, class);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn mangle_private_expr(e: &mut HirExpr, class: &str) {
+    if let HirExprKind::Member { object, prop } = &mut e.kind {
+        if prop.starts_with('#') && !prop.contains('@') {
+            *prop = mangle_private_name(prop, class);
+        }
+        mangle_private_expr(object, class);
+        return;
+    }
+    match &mut e.kind {
+        HirExprKind::Bin { lhs, rhs, .. } => {
+            mangle_private_expr(lhs, class);
+            mangle_private_expr(rhs, class);
+        }
+        HirExprKind::Unary { operand, .. } => mangle_private_expr(operand, class),
+        HirExprKind::Assign { target, value } | HirExprKind::AssignOp { target, value, .. } => {
+            mangle_private_expr(target, class);
+            mangle_private_expr(value, class);
+        }
+        HirExprKind::Call { callee, args } => {
+            mangle_private_expr(callee, class);
+            args.iter_mut().for_each(|a| mangle_private_expr(a, class));
+        }
+        HirExprKind::MethodCall { object, args, .. } => {
+            mangle_private_expr(object, class);
+            args.iter_mut().for_each(|a| mangle_private_expr(a, class));
+        }
+        HirExprKind::Index { object, index } => {
+            mangle_private_expr(object, class);
+            mangle_private_expr(index, class);
+        }
+        HirExprKind::Ternary { cond, then, else_ } => {
+            mangle_private_expr(cond, class);
+            mangle_private_expr(then, class);
+            mangle_private_expr(else_, class);
+        }
+        HirExprKind::Array(elems) => elems.iter_mut().for_each(|x| mangle_private_expr(x, class)),
+        HirExprKind::Object(fields) => fields
+            .iter_mut()
+            .for_each(|(_, v)| mangle_private_expr(v, class)),
+        HirExprKind::New { args, .. } => {
+            args.iter_mut().for_each(|a| mangle_private_expr(a, class));
+        }
+        HirExprKind::Await(inner) | HirExprKind::Spread(inner) => {
+            mangle_private_expr(inner, class);
+        }
+        HirExprKind::Seq(items) => items.iter_mut().for_each(|x| mangle_private_expr(x, class)),
+        HirExprKind::PreInc(t)
+        | HirExprKind::PreDec(t)
+        | HirExprKind::PostInc(t)
+        | HirExprKind::PostDec(t) => mangle_private_expr(t, class),
+        HirExprKind::Arrow { body, .. } => match body {
+            rts_hir::ir::HirArrowBody::Expr(inner) => mangle_private_expr(inner, class),
+            rts_hir::ir::HirArrowBody::Block(stmts) => mangle_private_block(stmts, class),
+        },
+        _ => {}
+    }
+}

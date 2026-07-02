@@ -23,7 +23,8 @@ use crate::front::error::{FrontResult, Unsupported};
 
 use super::inherit::rewrite_super_block;
 use super::walk::{
-    body_uses_this, collect_this_assign_fields, push_unique, rewrite_this_block, this_field_assign,
+    body_uses_this, collect_this_assign_fields, mangle_private_block, mangle_private_name,
+    push_unique, rewrite_this_block, this_field_assign,
 };
 use super::{Accessor, ClassDesc, this_param};
 
@@ -60,6 +61,17 @@ pub(crate) fn static_method_name(class: &str, method: &str) -> String {
 /// The synthesized static-field-getter fn name for `class.field`.
 pub(crate) fn static_field_getter_name(class: &str, field: &str) -> String {
     format!("__rtsn_sfield_{class}_{field}")
+}
+
+/// The SLOT name a declared field uses: a PRIVATE field (`#x`) mangles to its
+/// per-class form (`#x@Class` — see [`mangle_private_name`]); a public field
+/// keeps its name.
+fn field_slot_name(name: &str, class: &str) -> String {
+    if name.starts_with('#') {
+        mangle_private_name(name, class)
+    } else {
+        name.to_string()
+    }
 }
 
 /// Categorized members of one class decl.
@@ -136,7 +148,7 @@ pub(super) fn build_class(
             let scope = Scope::new();
             let lowered = rts_hir::lower::lower_swc_expr(init_expr, &scope);
             if matches!(lowered.kind, HirExprKind::Array(_)) {
-                field_arrays.insert(pd.name.clone());
+                field_arrays.insert(field_slot_name(&pd.name, &decl.name));
             }
         }
     }
@@ -160,7 +172,7 @@ pub(super) fn build_class(
             .map(|t| matches!(t, HirType::Str))
             .unwrap_or(false);
         if is_string {
-            field_strings.insert(pd.name.clone());
+            field_strings.insert(field_slot_name(&pd.name, &decl.name));
         }
     }
 
@@ -408,7 +420,7 @@ fn build_ctor(
     for pd in &m.props {
         if let Some(init_expr) = &pd.initializer {
             let value = rts_hir::lower::lower_swc_expr(init_expr, &scope);
-            prologue.push(this_field_assign(&pd.name, value));
+            prologue.push(this_field_assign(&field_slot_name(&pd.name, &decl.name), value));
         }
     }
 
@@ -425,6 +437,7 @@ fn build_ctor(
     if let Some(c) = m.ctor {
         let mut user = rts_hir::lower::lower_stmts(&c.body, &mut scope);
         rewrite_this_block(&mut user);
+        mangle_private_block(&mut user, &decl.name);
         rewrite_super_block(&mut user, parent)?;
         // Property initializers run AFTER super() but before the rest of the user
         // body. We approximate by appending the prologue right after a leading
@@ -441,7 +454,7 @@ fn build_ctor(
     // OWN field order: declared props, then any extra `this.x` assigned in body.
     let mut own_fields: Vec<String> = Vec::new();
     for pd in &m.props {
-        push_unique(&mut own_fields, &pd.name);
+        push_unique(&mut own_fields, &field_slot_name(&pd.name, &decl.name));
     }
     collect_this_assign_fields(&body, &mut own_fields);
 
@@ -510,9 +523,8 @@ fn synth_method(
 /// Synthesize a method-shaped fn under an explicit `fn_name` (used for methods,
 /// getters, setters — all `this`-first instance functions).
 fn synth_method_named(
-    // `decl` is no longer read inside (the defaulted-param bail that used `decl.name`
-    // is gone — defaults are now threaded); `fn_name` already carries the class name.
-    _decl: &ClassDecl,
+    // `decl.name` mangles the body's private-field props (`#x` → `#x@Class`).
+    decl: &ClassDecl,
     md: &MethodDecl,
     parent: Option<&ClassDesc>,
     with_this: bool,
@@ -557,6 +569,7 @@ fn synth_method_named(
     };
     let mut body = rts_hir::lower::lower_stmts(&md.body, &mut scope);
     rewrite_this_block(&mut body);
+    mangle_private_block(&mut body, &decl.name);
     rewrite_super_block(&mut body, parent)?;
     Ok(HirFunc {
         name: fn_name,
