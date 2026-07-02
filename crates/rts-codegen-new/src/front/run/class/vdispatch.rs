@@ -338,5 +338,21 @@ fn ret_kind(ret: Option<Repr>) -> JsKind {
 /// literal. A virtual-dispatch arm re-lowers each argument, so only such args are
 /// safe (an effectful arg bails / declines).
 fn is_side_effect_free_arg(e: &HirExpr) -> bool {
-    matches!(&e.kind, HirExprKind::Ident(_) | HirExprKind::Lit(_))
+    match &e.kind {
+        HirExprKind::Ident(_) | HirExprKind::Lit(_) => true,
+        // Pure arithmetic/comparison over side-effect-free operands (`cur + 1`
+        // as a call arg): re-evaluating per dispatch arm is harmless. Rejecting
+        // it made the virtual dispatch DECLINE and the caller fall through to a
+        // dynamic own-prop miss — `map.set(k, cur + 1)` silently no-opped.
+        HirExprKind::Bin { lhs, rhs, .. } => {
+            is_side_effect_free_arg(lhs) && is_side_effect_free_arg(rhs)
+        }
+        HirExprKind::Unary { operand, .. } => is_side_effect_free_arg(operand),
+        // A MEMBER READ (`this.x`, `obj.k`) may hit a GETTER with effects in
+        // principle, but the object-position operand is an Ident (no call), so
+        // double-lowering only re-reads — accepted (matches the member reads the
+        // dispatch arms themselves perform).
+        HirExprKind::Member { object, .. } => is_side_effect_free_arg(object),
+        _ => false,
+    }
 }
