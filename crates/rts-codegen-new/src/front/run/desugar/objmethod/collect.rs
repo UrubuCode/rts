@@ -3,11 +3,20 @@
 
 use swc_ecma_visit::{Visit, VisitWith};
 
-/// One recovered PLAIN method of an object literal: its property name + the swc
-/// `Function` (its body rts-hir dropped).
+/// One recovered method-like member of an object literal: its property name +
+/// the swc node (its body rts-hir dropped) — a plain METHOD, a GETTER
+/// (`get x() {…}`) or a SETTER (`set x(v) {…}`).
 pub(super) struct RecoveredMethod<'a> {
     pub name: String,
-    pub function: &'a swc_ecma_ast::Function,
+    pub fn_ref: LitFnRef<'a>,
+}
+
+/// The swc node backing a recovered literal member (methods carry a full
+/// `Function`; accessors carry their dedicated prop nodes).
+pub(super) enum LitFnRef<'a> {
+    Method(&'a swc_ecma_ast::Function),
+    Getter(&'a swc_ecma_ast::GetterProp),
+    Setter(&'a swc_ecma_ast::SetterProp),
 }
 
 /// Collect every `ObjectLit` reachable from the unit's statements in document
@@ -87,11 +96,39 @@ pub(super) fn recover_methods(obj: &swc_ecma_ast::ObjectLit) -> Recovered<'_> {
                     }
                     methods.push(RecoveredMethod {
                         name,
-                        function: &m.function,
+                        fn_ref: LitFnRef::Method(&m.function),
                     });
                 }
-                // Getter / setter / assign-shorthand → the literal must bail.
-                Prop::Getter(_) | Prop::Setter(_) | Prop::Assign(_) => {
+                // Accessors — recovered as getter/setter members of the literal
+                // class (the same accessor dispatch user classes use).
+                Prop::Getter(g) => {
+                    let Some(name) = prop_ident_name(&g.key) else {
+                        return Recovered::Unsupported;
+                    };
+                    if g.body.is_none() {
+                        return Recovered::Unsupported;
+                    }
+                    methods.push(RecoveredMethod {
+                        name,
+                        fn_ref: LitFnRef::Getter(g),
+                    });
+                }
+                Prop::Setter(s) => {
+                    let Some(name) = prop_ident_name(&s.key) else {
+                        return Recovered::Unsupported;
+                    };
+                    if s.body.is_none()
+                        || super::super::super::class::ident_param_name(&s.param).is_none()
+                    {
+                        return Recovered::Unsupported;
+                    }
+                    methods.push(RecoveredMethod {
+                        name,
+                        fn_ref: LitFnRef::Setter(s),
+                    });
+                }
+                // Assign-shorthand → the literal must bail.
+                Prop::Assign(_) => {
                     return Recovered::Unsupported;
                 }
                 // Defensive: any future variant bails rather than silently drop.

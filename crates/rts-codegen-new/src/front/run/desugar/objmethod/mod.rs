@@ -39,7 +39,7 @@ use rts_hir::{HirExpr, HirFunc, HirStmt, HirType};
 
 use rts_ast::ast::{Item, Statement};
 
-use super::super::class::{ClassTable, LitMethod, build_literal_class};
+use super::super::class::{ClassTable, LitFnRef as ClassLitFnRef, LitMethod, build_literal_class};
 
 /// The marker field key prepended to an HIR `Object` node to carry its recovered
 /// literal-class name to `lower_object_literal` (which strips it). Chosen so it can
@@ -254,7 +254,11 @@ impl Recovery<'_> {
                 .iter()
                 .map(|m| LitMethod {
                     name: m.name.clone(),
-                    function: m.function,
+                    fn_ref: match &m.fn_ref {
+                        collect::LitFnRef::Method(f) => ClassLitFnRef::Method(f),
+                        collect::LitFnRef::Getter(g) => ClassLitFnRef::Getter(g),
+                        collect::LitFnRef::Setter(s) => ClassLitFnRef::Setter(s),
+                    },
                 })
                 .collect();
             let (desc, fns) = build_literal_class(&name, &field_keys, global_shape, &lit_methods);
@@ -370,7 +374,17 @@ fn content_key(fields: &[String], methods: &[collect::RecoveredMethod<'_>]) -> S
     let mut s = String::new();
     let _ = write!(s, "f:{}|", fields.join(","));
     for m in methods {
-        let _ = write!(s, "m:{}={:?};", m.name, m.function);
+        match &m.fn_ref {
+            collect::LitFnRef::Method(f) => {
+                let _ = write!(s, "m:{}={:?};", m.name, f);
+            }
+            collect::LitFnRef::Getter(g) => {
+                let _ = write!(s, "g:{}={:?};", m.name, g);
+            }
+            collect::LitFnRef::Setter(st) => {
+                let _ = write!(s, "s:{}={:?};", m.name, st);
+            }
+        }
     }
     s
 }

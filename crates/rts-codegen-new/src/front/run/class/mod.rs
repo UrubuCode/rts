@@ -55,7 +55,7 @@ pub(crate) mod synth;
 mod vdispatch;
 mod walk;
 
-pub(crate) use litshape::{LitMethod, build_literal_class, ident_param_name};
+pub(crate) use litshape::{LitFnRef, LitMethod, build_literal_class, ident_param_name};
 pub(crate) use walk::{body_uses_raw_this, rewrite_this_block};
 
 /// The implicit receiver parameter name bound to a0 in every constructor/method.

@@ -36,7 +36,16 @@ use super::{ClassDesc, this_param};
 /// One recovered plain method of an object literal: its name + the swc function.
 pub(crate) struct LitMethod<'a> {
     pub name: String,
-    pub function: &'a swc_ecma_ast::Function,
+    pub fn_ref: LitFnRef<'a>,
+}
+
+/// The swc node backing a literal member: a plain METHOD, or a GETTER/SETTER
+/// (recovered into the literal class's `accessors` map, dispatched exactly like
+/// a user class accessor).
+pub(crate) enum LitFnRef<'a> {
+    Method(&'a swc_ecma_ast::Function),
+    Getter(&'a swc_ecma_ast::GetterProp),
+    Setter(&'a swc_ecma_ast::SetterProp),
 }
 
 /// Build the literal-class [`ClassDesc`] + its synthesized method `HirFunc`s for an
@@ -54,11 +63,37 @@ pub(crate) fn build_literal_class(
 ) -> (ClassDesc, Vec<HirFunc>) {
     let mut out: Vec<HirFunc> = Vec::new();
     let mut method_map: HashMap<String, String> = HashMap::new();
+    let mut accessors: HashMap<String, super::Accessor> = HashMap::new();
 
     for m in methods {
-        let fn_name = method_name_lit(class_name, &m.name);
-        out.push(synth_lit_method(&fn_name, m.function));
-        method_map.insert(m.name.clone(), fn_name);
+        match &m.fn_ref {
+            LitFnRef::Method(f) => {
+                let fn_name = method_name_lit(class_name, &m.name);
+                out.push(synth_lit_method(&fn_name, &f.params, f.body.as_ref()));
+                method_map.insert(m.name.clone(), fn_name);
+            }
+            LitFnRef::Getter(g) => {
+                let fn_name = format!("__rtsn_lget_{class_name}_{}", m.name);
+                out.push(synth_lit_method(&fn_name, &[], g.body.as_ref()));
+                accessors.entry(m.name.clone()).or_insert(super::Accessor {
+                    getter: None,
+                    setter: None,
+                }).getter = Some(fn_name);
+            }
+            LitFnRef::Setter(s) => {
+                let fn_name = format!("__rtsn_lset_{class_name}_{}", m.name);
+                let param = swc_ecma_ast::Param {
+                    span: Default::default(),
+                    decorators: Vec::new(),
+                    pat: (*s.param).clone(),
+                };
+                out.push(synth_lit_method(&fn_name, std::slice::from_ref(&param), s.body.as_ref()));
+                accessors.entry(m.name.clone()).or_insert(super::Accessor {
+                    getter: None,
+                    setter: None,
+                }).setter = Some(fn_name);
+            }
+        }
     }
 
     let desc = ClassDesc {
@@ -71,7 +106,7 @@ pub(crate) fn build_literal_class(
         ctor: format!("__rtsl_noctor_{class_name}"),
         ctor_arity: 0,
         methods: method_map,
-        accessors: HashMap::new(),
+        accessors,
         statics: HashMap::new(),
         static_fields: HashMap::new(),
         // Object-literal classes do not track array-typed fields (no `this.x[i]`
@@ -87,10 +122,14 @@ pub(crate) fn build_literal_class(
 /// [`super::synth`]'s class-method synthesis but driven by a raw swc `Function`
 /// (the body rts-hir dropped). Generator/async/computed cases are filtered by the
 /// recovery pass before reaching here.
-fn synth_lit_method(fn_name: &str, function: &swc_ecma_ast::Function) -> HirFunc {
+fn synth_lit_method(
+    fn_name: &str,
+    swc_params: &[swc_ecma_ast::Param],
+    body: Option<&swc_ecma_ast::BlockStmt>,
+) -> HirFunc {
     let mut scope = Scope::new();
     let mut params: Vec<HirParam> = vec![this_param()];
-    for p in &function.params {
+    for p in swc_params {
         // Only a simple identifier parameter is recovered; the recovery pass refused
         // any non-ident / defaulted / rest param before building this method.
         let name = ident_param_name(&p.pat).expect("recovery proved a simple ident param");
@@ -108,9 +147,7 @@ fn synth_lit_method(fn_name: &str, function: &swc_ecma_ast::Function) -> HirFunc
     // Lower the swc body by wrapping each statement as an rts-ast `Raw` (the same
     // bridge the parser uses), then run rts-hir's statement lowering against the
     // method scope. An empty body lowers to an empty block.
-    let stmts: Vec<Statement> = function
-        .body
-        .as_ref()
+    let stmts: Vec<Statement> = body
         .map(|b| b.stmts.iter().map(wrap_stmt).collect())
         .unwrap_or_default();
     let mut body = rts_hir::lower::lower_stmts(&stmts, &mut scope);
