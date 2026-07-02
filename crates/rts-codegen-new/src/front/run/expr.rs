@@ -469,24 +469,66 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     ) -> FrontResult<Val> {
         let c = self.lower_expr(module, cond)?;
         let cond_v = self.as_bool_value(module, c)?;
+        // FAST PATH — both arms side-effect-free: evaluate both eagerly and
+        // `select` (the order is unobservable, and a numeric ternary keeps its
+        // UNBOXED repr — the winning path for `a < b ? a : b`). An arm with a
+        // CALL/assignment must NOT take this path: JS evaluates only the chosen
+        // arm, so `n <= 1 ? 1 : n * fact(n - 1)` under an eager `select` ran the
+        // recursive call unconditionally — infinite recursion / stack overflow
+        // (the `function_expression` bug). Same rule `lower_logical` applies to
+        // its select fast path.
+        if super::binop::is_effect_free(then) && super::binop::is_effect_free(else_) {
+            let t = self.lower_expr(module, then)?;
+            let e = self.lower_expr(module, else_)?;
+            let target = ternary_target(t.repr, e.repr)?;
+            let tv = self.coerce(t, target)?;
+            let ev = self.coerce(e, target)?;
+            let v = self.builder.ins().select(cond_v, tv, ev);
+            // Kind is provable only when both arms share it; otherwise fall to
+            // the repr-implied kind (Unknown for Tagged).
+            let kind = if t.kind == e.kind {
+                t.kind
+            } else {
+                JsKind::Unknown
+            };
+            return Ok(Val {
+                v,
+                repr: target,
+                kind,
+            });
+        }
+        // GENERAL PATH — true branching: each arm evaluates ONLY when chosen,
+        // mirroring `lower_logical`'s short-circuit form. The join carries the
+        // BOXED word (Tagged) since the arms lower in disjoint blocks and may
+        // differ in repr; the egraph folds the box where it is redundant.
+        let then_blk = self.builder.create_block();
+        let else_blk = self.builder.create_block();
+        let join_blk = self.builder.create_block();
+        self.builder.append_block_param(join_blk, types::I64);
+
+        self.builder
+            .ins()
+            .brif(cond_v, then_blk, &[], else_blk, &[]);
+
+        self.builder.switch_to_block(then_blk);
+        self.builder.seal_block(then_blk);
         let t = self.lower_expr(module, then)?;
+        let t_kind = t.kind;
+        let t_word = self.box_value(t);
+        self.builder.ins().jump(join_blk, &[t_word.into()]);
+
+        self.builder.switch_to_block(else_blk);
+        self.builder.seal_block(else_blk);
         let e = self.lower_expr(module, else_)?;
-        let target = ternary_target(t.repr, e.repr)?;
-        let tv = self.coerce(t, target)?;
-        let ev = self.coerce(e, target)?;
-        let v = self.builder.ins().select(cond_v, tv, ev);
-        // Kind is provable only when both arms share it; otherwise fall to the
-        // repr-implied kind (Unknown for Tagged).
-        let kind = if t.kind == e.kind {
-            t.kind
-        } else {
-            JsKind::Unknown
-        };
-        Ok(Val {
-            v,
-            repr: target,
-            kind,
-        })
+        let e_kind = e.kind;
+        let e_word = self.box_value(e);
+        self.builder.ins().jump(join_blk, &[e_word.into()]);
+
+        self.builder.switch_to_block(join_blk);
+        self.builder.seal_block(join_blk);
+        let out = self.builder.block_params(join_blk)[0];
+        let kind = if t_kind == e_kind { t_kind } else { JsKind::Unknown };
+        Ok(Val::new_with_kind(out, Repr::Tagged, kind))
     }
 }
 
