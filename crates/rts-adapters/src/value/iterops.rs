@@ -107,17 +107,59 @@ pub(crate) fn reorder_enum_keys(keys: Vec<String>) -> Vec<String> {
     idx.into_iter().map(|(_, k)| k).chain(rest).collect()
 }
 
+/// `Reflect.ownKeys(target)` — the trap's list VERBATIM (the ECMA `ownKeys`
+/// reflector does NOT run the per-key enumerability filter `Object.keys` does).
 #[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_obj_keys(obj_word: u64) -> u64 {
-    // PROXY (#218): the `ownKeys` trap returns the keys array verbatim; no trap →
-    // forward to the target (an `Entry::Proxy` is not a keyed object, so falling
-    // through would read zero keys).
+pub extern "C" fn __rtsadp_own_keys_raw(obj_word: u64) -> u64 {
     if let Some((target, handler)) = super::objops::proxy_parts(obj_word) {
         let trap_key = abi_adapter::intern_poly("ownKeys").raw();
         let trap = super::objops::__rtsadp_obj_get(handler, trap_key);
         if PolyValue::from_raw(trap).is_function() {
             let undef = PolyValue::undefined().raw();
             return super::funcops::__rtsadp_fn_invoke(trap, target, undef, undef, undef, 0);
+        }
+        return __rtsadp_own_keys_raw(target);
+    }
+    __rtsadp_obj_keys(obj_word)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_obj_keys(obj_word: u64) -> u64 {
+    // PROXY (#218): the `ownKeys` trap lists the keys; JS's `Object.keys` then
+    // runs [[GetOwnProperty]] PER KEY (trap/forward) and keeps only ENUMERABLE
+    // ones — a trap key absent from the target (and with no getOwnDesc trap)
+    // yields `undefined` → filtered (Bun/Node return `[]` for that shape). No
+    // trap → forward to the target.
+    if let Some((target, handler)) = super::objops::proxy_parts(obj_word) {
+        let trap_key = abi_adapter::intern_poly("ownKeys").raw();
+        let trap = super::objops::__rtsadp_obj_get(handler, trap_key);
+        if PolyValue::from_raw(trap).is_function() {
+            let undef = PolyValue::undefined().raw();
+            let keys_word =
+                super::funcops::__rtsadp_fn_invoke(trap, target, undef, undef, undef, 0);
+            let keys = PolyValue::from_raw(keys_word);
+            if !keys.is_object() {
+                return keys_word;
+            }
+            let kh = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(keys.as_handle());
+            let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(kh).max(0);
+            let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+            let enum_key = abi_adapter::intern_poly("enumerable").raw();
+            for i in 0..len {
+                let k = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(kh, i) as u64;
+                let desc = super::objops::__rtsadp_obj_get_own_property_descriptor(obj_word, k);
+                let dv = PolyValue::from_raw(desc);
+                let keep = dv.is_object()
+                    && PolyValue::from_raw(super::objops::__rtsadp_obj_get(desc, enum_key))
+                        .is_truthy();
+                if keep {
+                    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, k as i64);
+                }
+            }
+            return PolyValue::from_object_handle(
+                rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(out),
+            )
+            .raw();
         }
         return __rtsadp_obj_keys(target);
     }

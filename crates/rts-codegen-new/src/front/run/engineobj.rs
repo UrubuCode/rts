@@ -182,6 +182,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if method == "set_immediate" {
             return self.lower_engine_descriptor(module, args, "__rtsadp_set_immediate", 1, Repr::Tagged);
         }
+        // `own_keys_raw(obj)` — Reflect.ownKeys: a Proxy ownKeys trap VERBATIM
+        // (no enumerability filter — that is Object.keys' job).
+        if method == "own_keys_raw" {
+            return self.lower_engine_descriptor(module, args, "__rtsadp_own_keys_raw", 1, Repr::Tagged);
+        }
         // `construct(target, argsArray)` — Reflect.construct: new-thunk invoke
         // with args read from the array; Proxy `construct` trap-aware.
         if method == "construct" {

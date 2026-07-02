@@ -42,10 +42,11 @@ class Reflect {
     return true;
   }
 
-  // Reflect.ownKeys(target) — the target's own (string) keys. Symbol keys are a
-  // later increment (Symbol itself is not yet modeled).
+  // Reflect.ownKeys(target) — the target's own (string) keys, VERBATIM da trap
+  // ownKeys de um Proxy (o reflector ECMA NÃO filtra por enumerabilidade — só
+  // Object.keys filtra). Symbol keys são incremento posterior.
   static ownKeys(target: any): any {
-    return Object.keys(target);
+    return engine.own_keys_raw(target);
   }
 
   // Reflect.apply(target, thisArg, argumentsList) — call `target` with the args

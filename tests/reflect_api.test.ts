@@ -60,7 +60,8 @@ const zv = Reflect.get(obj5, "z");
 
 describe("reflect_api", () => {
     test("Reflect.get hit", () => expect(a).toBe(1));
-    test("Reflect.get miss", () => expect(b).toBe(0));
+    // JS fiel: miss lê undefined (era coerção 0 do modelo velho).
+    test("Reflect.get miss", () => expect(b === undefined).toBe(true));
     test("Reflect.has true", () => expect(hasA).toBe(true));
     test("Reflect.has false", () => expect(hasMiss).toBe(false));
     test("Reflect.set then get", () => expect(yv).toBe(20));
@@ -75,8 +76,9 @@ describe("reflect_api", () => {
     // (#795) writable agora retorna bool sentinel (i64::MIN+1 = true).
     test("Reflect.getOwnPropertyDescriptor writable", () =>
         expect(descWritableStr).toBe("true"));
-    // (#795) Missing prop retorna handle de string "undefined" (ECMA spec).
+    // JS fiel: prop ausente retorna undefined (undefined === "undefined" é
+    // FALSE em JS — a expectativa antiga codificava a coerção do modelo velho).
     test("Reflect.getOwnPropertyDescriptor missing", () =>
-        expect(descMissing).toBe("undefined"));
+        expect(descMissing === undefined).toBe(true));
     test("Reflect.defineProperty writes value", () => expect(zv).toBe(99));
 });
