@@ -81,6 +81,109 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
     }
 
+    /// The user class whose BODY the function being lowered belongs to, if any:
+    /// a ctor/method/accessor binds `this` (`local_classes["this"]`); a STATIC
+    /// method carries no `this`, so it is recovered from the synthesized name
+    /// (`__rtsn_static_<C>_<m>`, matched against the known classes — longest
+    /// class-name match wins so `A` never shadows `A_b`).
+    pub(in crate::front::run) fn enclosing_class(&self) -> Option<String> {
+        if let Some(c) = self.local_classes.get(super::THIS) {
+            return Some(c.clone());
+        }
+        let rest = self.current_fn.strip_prefix("__rtsn_static_")?;
+        self.classes
+            .iter()
+            .filter(|d| {
+                rest.len() > d.name.len()
+                    && rest.starts_with(&d.name)
+                    && rest.as_bytes()[d.name.len()] == b'_'
+            })
+            .max_by_key(|d| d.name.len())
+            .map(|d| d.name.clone())
+    }
+
+    /// JS PRIVATE NAMES are LEXICALLY scoped: an `x.#p` access is legal only
+    /// inside the body of the class that DECLARES `#p` — real JS makes this a
+    /// syntax error receiver-type-free, so the check fires for ANY receiver,
+    /// even one of unknown class. (An inheritance-collision-mangled own access
+    /// arrives here already rewritten to `#p@Class`, whose declarer IS the
+    /// enclosing class — still exact.)
+    pub(in crate::front::run) fn check_private_name_lexical(
+        &self,
+        prop: &str,
+    ) -> FrontResult<()> {
+        if !prop.starts_with('#') {
+            return Ok(());
+        }
+        let ok = self.enclosing_class().is_some_and(|c| {
+            self.classes.get(&c).is_some_and(|d| {
+                d.member_access
+                    .get(prop)
+                    .is_some_and(|(_, declarer)| declarer == &c)
+            })
+        });
+        if ok {
+            Ok(())
+        } else {
+            unsupported!(
+                "private name `{prop}` is not accessible here — a `#name` is \
+                 lexically scoped to the body of its declaring class (JS spec)"
+            )
+        }
+    }
+
+    /// Enforce the TS/JS member-ACCESS surface for `class`.`member` from the
+    /// current lowering context — the TS compile-error re-check, same family as
+    /// the `is_abstract` re-check in `lower_new`. `Ok(())` when the member is
+    /// public/unknown or the enclosing class is inside the visibility domain:
+    /// - `private` / JS `#name`: only the DECLARING class's own body;
+    /// - `protected`: the declaring class or any subclass (parent-chain walk).
+    pub(in crate::front::run) fn check_member_access(
+        &self,
+        class: &str,
+        member: &str,
+    ) -> FrontResult<()> {
+        use rts_ast::ast::Visibility;
+        let Some((vis, declarer)) = self
+            .classes
+            .get(class)
+            .and_then(|d| d.member_access.get(member))
+        else {
+            return Ok(());
+        };
+        let caller = self.enclosing_class();
+        let allowed = match vis {
+            Visibility::Public => true,
+            Visibility::Private => caller.as_deref() == Some(declarer.as_str()),
+            Visibility::Protected => {
+                // The enclosing class or any ANCESTOR may be the declarer (a
+                // subclass touching an inherited protected member is legal).
+                let mut cur = caller;
+                let mut ok = false;
+                while let Some(c) = cur {
+                    if &c == declarer {
+                        ok = true;
+                        break;
+                    }
+                    cur = self.classes.get(&c).and_then(|d| d.parent.clone());
+                }
+                ok
+            }
+        };
+        if allowed {
+            return Ok(());
+        }
+        let vis_name = match vis {
+            Visibility::Private => "private",
+            Visibility::Protected => "protected",
+            Visibility::Public => "public",
+        };
+        unsupported!(
+            "`{member}` is {vis_name} in class `{declarer}` and not accessible here \
+             (the TS access-modifier surface, re-checked)"
+        )
+    }
+
     /// Whether `object` is a bare identifier naming a user CLASS (not a local) —
     /// the receiver of a STATIC member access `C.m(..)` / `C.f`.
     pub(in crate::front::run) fn class_name_receiver(&self, object: &HirExpr) -> Option<String> {
@@ -338,6 +441,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                  dispatch is a later increment)"
             );
         };
+        // TS/JS ACCESS SURFACE (re-check): a `private`/`protected`/`#name` method
+        // call outside its visibility domain refuses at compile time.
+        self.check_member_access(class, method)?;
         let Some(fn_name) = desc.method_fn(method).map(str::to_string) else {
             // An ABSTRACT-declared method (no base impl, defined by descendants):
             // resolve VIRTUALLY by the instance's runtime shape. The last target

@@ -318,6 +318,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         object: &HirExpr,
         prop: &str,
     ) -> FrontResult<Val> {
+        // ---- JS PRIVATE NAME lexical scope: `x.#p` is legal only inside the
+        // declaring class's body — receiver-type-free (JS spec), so it fires
+        // before any receiver resolution. ----
+        self.check_private_name_lexical(prop)?;
         // ---- `<instance>.constructor.name` → the class NAME (a string literal),
         // when the receiver's class is statically known. JS exposes `inst.constructor`
         // as the class function and `.name` as its declared name. Matched as the CHAIN
@@ -393,6 +397,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // ---- static member read `C.f` (C is a class name, not a local) ----
         if let Some(class) = self.class_name_receiver(object) {
             return self.try_static_field_read(module, &class, prop);
+        }
+        // ---- TS/JS ACCESS SURFACE (re-check): a `private`/`protected`/`#name`
+        // member READ on a receiver of statically-known class refuses outside its
+        // visibility domain, BEFORE any instance path below resolves it. ----
+        if let Some(class) = self.static_instance_class(object) {
+            self.check_member_access(&class, prop)?;
         }
         // ---- runtime/Registry-class instance PROPERTY (`m.size`, `e.message`) ----
         if let Some(val) = self.try_global_class_member(module, object, prop)? {
@@ -659,6 +669,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         prop: &str,
         value: &HirExpr,
     ) -> FrontResult<Val> {
+        // ---- JS PRIVATE NAME lexical scope: `x.#p = v` is legal only inside the
+        // declaring class's body — receiver-type-free (JS spec). ----
+        self.check_private_name_lexical(prop)?;
         // ---- `globalThis.prop = v` write: the singleton global object's dynamic
         // property. `__rtsadp_obj_set` writes an existing slot or appends a new key
         // (shape transition), so a brand-new global property works. ----
@@ -740,6 +753,24 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return unsupported!(
                 "static field write `.{prop}` (not a declared static field of `{class}`)"
             );
+        }
+        // ---- TS/JS ACCESS SURFACE (re-check): a `private`/`protected`/`#name`
+        // member WRITE outside its visibility domain, and a TS `readonly` field
+        // write outside a constructor (`__rtsn_ctor_*` covers the initializer
+        // prologue + user ctor body), refuse at compile time. ----
+        if let Some(class) = self.static_instance_class(object) {
+            self.check_member_access(&class, prop)?;
+            if self
+                .classes
+                .get(&class)
+                .is_some_and(|d| d.readonly_fields.contains(prop))
+                && !self.current_fn.starts_with("__rtsn_ctor_")
+            {
+                return unsupported!(
+                    "cannot assign to `{prop}` — it is a `readonly` field of class \
+                     `{class}` and this is not a constructor (the TS surface, re-checked)"
+                );
+            }
         }
         // ---- accessor SET `obj.x = v` where x is a setter on the receiver class ----
         if let Some(class) = self.instance_class_of(object) {
