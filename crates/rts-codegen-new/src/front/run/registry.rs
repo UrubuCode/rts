@@ -141,6 +141,8 @@ fn ts_returns_nullable_string(ts: &str) -> bool {
 /// only filters the SHAPE of the annotation, never invents a class.
 fn ts_return_class(ts: &str) -> Option<String> {
     let ret = ts_ret_text(ts)?;
+    // A GENERIC return (`Promise<T>`) names the class before the `<`.
+    let ret = ret.split('<').next().unwrap_or(ret).trim();
     let first = ret.chars().next()?;
     if !first.is_ascii_uppercase() || !ret.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
         return None;
