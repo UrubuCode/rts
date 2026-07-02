@@ -282,6 +282,18 @@ pub fn class_static_any(class: &str, method: &str) -> Option<ResolvedCall> {
     Some(flat_call(m))
 }
 
+/// A zero-arg STATIC CONSTANT member of a Registry class (`Symbol.iterator`,
+/// well-known symbols): `MemberKind::Constant` on the class spec, read as a
+/// member (not called). Resolved to its zero-arg getter call.
+pub fn class_static_const(class: &str, name: &str) -> Option<ResolvedCall> {
+    let c = registry().class(class)?;
+    let m = c
+        .members
+        .iter()
+        .find(|m| matches!(m.kind, MemberKind::Constant) && m.matches_name(name))?;
+    Some(flat_call(m))
+}
+
 /// EVERY static/function overload of `method` on `class`, in declaration order —
 /// lets the static-call lowering pick the overload whose arity window admits the
 /// caller's argc (e.g. `URL.canParse(href)` vs `URL.canParse(href, base)`, two

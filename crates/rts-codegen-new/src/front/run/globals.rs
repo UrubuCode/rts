@@ -50,6 +50,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
         match name {
             "Number" => {
+                // `Number()` with NO arg is `+0` (JS spec).
+                if args.is_empty() {
+                    let zero = self.builder.ins().iconst(types::I64, 0);
+                    return Ok(Some(Val::new(zero, Repr::Int64)));
+                }
                 // `Number(x)` (no `new`) → the prelude `.ts` `NumberFactory` (a
                 // PRIMITIVE number result), so the `.ts` class owns BOTH JS forms
                 // (this + `new Number(x)`). Falls back to the codegen coercion

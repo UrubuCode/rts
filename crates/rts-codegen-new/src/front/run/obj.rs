@@ -311,6 +311,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if let Some(val) = self.try_math_number_const(object, prop)? {
             return Ok(val);
         }
+        // ---- Registry-class STATIC CONSTANT read (`Symbol.iterator` — the
+        // well-known symbols, `MemberKind::Constant` on the class spec): resolve
+        // the zero-arg getter + rebox its Handle as an OBJECT word (a symbol is a
+        // handle-backed value; two reads of the same well-known return the SAME
+        // sticky handle, so `===` identity holds). Data-driven — no class name in
+        // control flow. ----
+        if let HirExprKind::Ident(cname) = &object.kind {
+            if self.local(cname).is_none() {
+                if let Some(call) = super::registry::class_static_const(cname, prop) {
+                    return self.emit_registry_call(module, &call, None, &[], JsKind::Object);
+                }
+            }
+        }
         // ---- static member read `C.f` (C is a class name, not a local) ----
         if let Some(class) = self.class_name_receiver(object) {
             return self.try_static_field_read(module, &class, prop);
