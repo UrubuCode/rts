@@ -857,18 +857,18 @@
 ,
 {
   "name": "371_private_fields_basic",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20",
   "node": "6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20",
-  "rts": "6\n4\n0\n0\ntrue\n1 2 3\n1\n10\n20"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
   "name": "372_private_methods",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "3\n1,2,3\n3\n2\n100\n373.15\n212\n273.15\n[INFO] ok\n20",
   "node": "3\n1,2,3\n3\n2\n100\n373.15\n212\n273.15\n[INFO] ok\n20",
-  "rts": "3\n1,2,3\n3\n2\n100\n373.15\n212\n273.15\nundefined\n20"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -4369,10 +4369,10 @@
 ,
 {
   "name": "332_comma_operator",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "3\n2\n2\n0:10\n1:7\n2:4\nside\n42",
   "node": "3\n2\n2\n0:10\n1:7\n2:4\nside\n42",
-  "rts": "3\n2\n2\n0:10\n1:7\n2:4\nside\n42"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -4497,10 +4497,10 @@
 ,
 {
   "name": "claude-comma-operator",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "3\n30\n10,20,30\n0:10\n1:9\n2:8\n6\n10,20,30,1,2,3,4",
   "node": "3\n30\n10,20,30\n0:10\n1:9\n2:8\n6\n10,20,30,1,2,3,4",
-  "rts": "3\n30\n10,20,30\n0:10\n1:9\n2:8\n6\n10,20,30,1,2,3,4"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -4537,10 +4537,10 @@
 ,
 {
   "name": "claude-nested-ternary",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "A\nB\nC\nF\nac\n2\n2\nfallback",
   "node": "A\nB\nC\nF\nac\n2\n2\nfallback",
-  "rts": "A\nB\nC\nF\nac\n2\n2\nfallback"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":264,"rts_diverge":133,"bun_node_diverge":17,"errors":195,"rejected":0}}
+],"summary":{"total":609,"pass":261,"rts_diverge":131,"bun_node_diverge":17,"errors":200,"rejected":0}}
