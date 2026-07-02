@@ -51,12 +51,6 @@ pub mod anim;
 /// (egui) lê e aplica — o motor não conhece o egui.
 pub mod scrollbar;
 
-/// Resolução TEMPORÁRIA de custom properties (`--x`) + `var(--x, fallback)` —
-/// textual e global, para desbloquear CSS moderno (Bootstrap usa var() em ~1370
-/// lugares). NÃO é a cascade de variáveis fiel à spec; ver o cabeçalho do módulo
-/// e a issue de var() completo.
-pub mod cssvars;
-
 pub use dom::{parse_html_to_dom, Attr, Dom, Node, NodeId, NodeIdx, NodeKind};
 
 pub use abi::register;

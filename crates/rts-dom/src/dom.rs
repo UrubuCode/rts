@@ -514,31 +514,80 @@ impl Dom {
             NodeKind::Element { tag } => tag.clone(),
             _ => return None,
         };
-        // Stylesheet de autor resolvido para este nó (normal + important separados).
-        // O matcher navega a árvore (combinadores) via `matches_complex`.
-        let author = if self.stylesheet.is_empty() {
-            style::DeclBlock::default()
-        } else {
-            self.stylesheet
-                .computed_for_node(self.viewport.get().0, |sel| self.matches_complex(idx, sel))
-        };
-        // `style=""` inline (normal + important).
+        // `style=""` inline (normal + important + customs/pendentes).
         let inline = self.nodes[idx]
             .attr("style")
             .map(style::parse_inline_block)
             .unwrap_or_default();
+
+        // ── CUSTOM PROPERTIES do elemento (#1779, PASS A): as declarações `--x:`
+        // das regras que casam + as do style="" + a HERANÇA do pai (o computed do
+        // pai já carrega o mapa dele — CoW: sem declaração própria, compartilha o
+        // Arc). Precisam vir ANTES porque os valores com var() dependem delas.
+        let parent_css_for_vars = self
+            .element_parent_idx(idx)
+            .and_then(|p| self.computed_style_idx_inner(p, with_anim));
+        let own_customs: Vec<(String, String)> = if self.stylesheet.is_empty() {
+            inline.custom.clone()
+        } else {
+            let mut v = self
+                .stylesheet
+                .custom_for_node(self.viewport.get().0, |sel| self.matches_complex(idx, sel));
+            v.extend(inline.custom.iter().cloned());
+            v
+        };
+        let parent_vars = parent_css_for_vars.as_ref().and_then(|p| p.custom_props.clone());
+        let vars_arc: Option<std::sync::Arc<std::collections::HashMap<String, String>>> =
+            match (parent_vars, own_customs.is_empty()) {
+                (p, true) => p, // só herda: compartilha o Arc (O(1))
+                (p, false) => {
+                    let mut m = p.map(|a| (*a).clone()).unwrap_or_default();
+                    // o valor de uma custom pode conter var() de OUTRA — a
+                    // substituição recursiva do consumidor resolve; guarda cru.
+                    for (k, v) in own_customs {
+                        m.insert(k, v);
+                    }
+                    Some(std::sync::Arc::new(m))
+                }
+            };
+        let empty_vars = std::collections::HashMap::new();
+        let vars_ref: &std::collections::HashMap<String, String> =
+            vars_arc.as_deref().unwrap_or(&empty_vars);
+
+        // Stylesheet de autor resolvido para este nó (normal + important separados;
+        // PASS B — as declarações com var() resolvem na posição da regra, contra
+        // as vars acima). O matcher navega a árvore via `matches_complex`.
+        let author = if self.stylesheet.is_empty() {
+            style::DeclBlock::default()
+        } else {
+            self.stylesheet.computed_for_node(self.viewport.get().0, Some(vars_ref), |sel| {
+                self.matches_complex(idx, sel)
+            })
+        };
         let override_node = self.style_overrides.get(&idx);
 
         // ── Passe 1: NORMAIS (fraco → forte) ────────────────────────────────────
         let mut css = style::lookup_style(&tag).unwrap_or_default(); // UA/defineStyle
         css.merge_over(&author.normal); // <style> autor
         css.merge_over(&inline.normal); // style="" inline
+        for (prop, raw, important) in &inline.pending {
+            if !important {
+                crate::style::stylesheet::apply_resolved_decl(&mut css, prop, raw, vars_ref);
+            }
+        }
         if let Some(ov) = override_node {
             css.merge_over(ov); // override por-nó (setStyleBatch)
         }
         // ── Passe 2: IMPORTANT (vencem qualquer normal) ─────────────────────────
         css.merge_over(&author.important); // <style> !important
         css.merge_over(&inline.important); // inline !important
+        for (prop, raw, important) in &inline.pending {
+            if *important {
+                crate::style::stylesheet::apply_resolved_decl(&mut css, prop, raw, vars_ref);
+            }
+        }
+        // o mapa de vars entra no computado (os FILHOS herdam daqui).
+        css.custom_props = vars_arc;
 
         // ── FONT-SIZE resolve CEDO (aqui na cascade, não no layout): a base de
         // `em`/`%` de font-size é o font do PAI (já computado em Px pela recursão
@@ -546,9 +595,7 @@ impl Dom {
         // sempre o VALOR (Px), nunca a forma (um `2em` herdado re-multiplicaria a
         // cada nível). É o que permite `calc(1.375rem + 1.5vw)` no font-size (a
         // tipografia fluida do h1 do Bootstrap).
-        let parent_css = self
-            .element_parent_idx(idx)
-            .and_then(|p| self.computed_style_idx_inner(p, with_anim));
+        let parent_css = parent_css_for_vars;
         if let Some(d) = css.font_size {
             let parent_font = parent_css
                 .as_ref()
@@ -2352,6 +2399,39 @@ mod tests {
         let r2 = dom.render_revision();
         crate::style::define_style("tag_rev_teste", crate::style::SLOT_COLOR, 0x11223344);
         assert_ne!(dom.render_revision(), r2, "defineStyle bumpa o epoch global");
+    }
+
+    #[test]
+    fn var_por_elemento_na_cascade() {
+        // #1779: .btn usa var(--btn-bg); cada VARIANTE redefine a var NO SELETOR
+        // do componente — cada botao pega a SUA cor. (O antigo mapa global dava a
+        // mesma cor a todos: a ultima declaracao do arquivo vencia.)
+        let dom = parse_html_to_dom(
+            "<html><head><style>               :root { --btn-bg: #000000 }               .btn { background: var(--btn-bg) }               .btn-primary { --btn-bg: #0000ff }               .btn-danger { --btn-bg: #ff0000 }             </style></head><body>             <div id=\"a\" class=\"btn btn-primary\">a</div>             <div id=\"b\" class=\"btn btn-danger\">b</div>             <div id=\"c\" class=\"btn\">c</div>             </body></html>",
+        );
+        let bg = |sel: &str| {
+            let n = dom.query(sel).unwrap();
+            dom.computed_property(n, "background-color")
+        };
+        assert_eq!(bg("#a"), "rgb(0, 0, 255)", "btn-primary redefine a var");
+        assert_eq!(bg("#b"), "rgb(255, 0, 0)", "btn-danger redefine a var");
+        assert_eq!(bg("#c"), "rgb(0, 0, 0)", "sem variante: o :root vale");
+    }
+
+    #[test]
+    fn var_heranca_fallback_e_aninhado() {
+        // heranca: o filho usa a var declarada no ANCESTRAL; fallback quando
+        // ausente; var aninhada (--a referencia --b).
+        let dom = parse_html_to_dom(
+            "<style>               #pai { --c: #00ff00; --a: var(--b); --b: #112233 }               span { color: var(--c) }               em { color: var(--a) }               p { color: var(--nada, #123456) }             </style>             <div id=\"pai\"><span id=\"f\">x</span><em id=\"e\">y</em></div>             <p id=\"p\">z</p>",
+        );
+        let color = |sel: &str| {
+            let n = dom.query(sel).unwrap();
+            dom.computed_property(n, "color")
+        };
+        assert_eq!(color("#f"), "rgb(0, 255, 0)", "var herdada do pai");
+        assert_eq!(color("#e"), "rgb(17, 34, 51)", "var aninhada resolve");
+        assert_eq!(color("#p"), "rgb(18, 52, 86)", "fallback quando ausente");
     }
 
     #[test]

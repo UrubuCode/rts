@@ -954,6 +954,10 @@ fn resolve_height(
 /// content. Devolve a altura TOTAL do content (soma das alturas dos filhos).
 /// `avail_h` = altura do content DESTE container quando explícita (containing
 /// block dos filhos p/ `height:%`).
+// as macros de estado (close_floats!/flush_inline!) resetam as variáveis a cada
+// fechamento — a ÚLTIMA atribuição (no flush final) é estruturalmente morta, o
+// que dispara unused_assignments sem haver bug.
+#[allow(unused_assignments)]
 fn layout_children_vertical(
     dom: &Dom,
     id: NodeIdx,

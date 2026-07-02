@@ -37,6 +37,7 @@ pub mod props;
 pub mod selector;
 pub mod stylesheet;
 pub mod values;
+pub(crate) mod vars;
 
 #[cfg(test)]
 mod tests;

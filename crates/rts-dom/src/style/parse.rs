@@ -34,6 +34,19 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
         // Destaca o sufixo `!important` (case-insensitive) do valor; a camada de
         // destino depende dele.
         let (val, important) = split_important(val_raw);
+        // CUSTOM PROPERTY (`--nome: valor`): guarda o valor CRU no bloco — a
+        // cascade por elemento resolve (#1779). Importância ignorada (v1).
+        if prop.starts_with("--") {
+            block.custom.push((prop.clone(), val.to_string()));
+            continue;
+        }
+        // Valor com `var()`: NÃO parseia agora — vira declaração PENDENTE, que a
+        // cascade resolve POR ELEMENTO (contra as custom props dele) na posição
+        // desta regra.
+        if val.contains("var(") {
+            block.pending.push((prop.clone(), val.to_string(), important));
+            continue;
+        }
         let css = if important { &mut block.important } else { &mut block.normal };
         match prop.as_str() {
             "color" => css.color = parse_color(val),
