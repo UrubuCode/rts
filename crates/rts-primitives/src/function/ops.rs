@@ -1527,10 +1527,14 @@ fn invoke_auto_impl(
         if let Some((fn_ptr, _bound, _hbt, bound_this, ..)) = read_function_data(callee as u64) {
             if fn_ptr != 0 {
                 let args = read_args_vec(args_handle);
-                let a = |i: usize| args.get(i).copied().unwrap_or(0) as u64;
+                // Absent slots ride as the UNDEFINED word (not 0): the uniform
+                // thunk's `...rest` pack trims trailing undefineds — a raw 0
+                // would be packed as a bogus element.
+                let undef = rts_engine::heap::poly::POLY_UNDEFINED;
+                let a = |i: usize| args.get(i).map(|&v| v as u64).unwrap_or(undef);
                 type Uniform = unsafe extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64;
                 let f: Uniform = unsafe { std::mem::transmute(fn_ptr as usize) };
-                return unsafe { f(bound_this as u64, a(0), a(1), a(2), a(3), 0) } as i64;
+                return unsafe { f(bound_this as u64, a(0), a(1), a(2), a(3), undef) } as i64;
             }
         }
         return 0;
