@@ -403,7 +403,7 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, U64],
             ret: U64,
         },
-        "__rtsadp_fn_set_prop" => SymSig {
+        "__rtsadp_fn_set_prop" | "__rtsadp_arr_ta_set" | "__rtsadp_arr_subarray" => SymSig {
             params: &[U64, U64, U64],
             ret: U64,
         },
@@ -504,6 +504,8 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         },
         "__rtsadp_arr_fill"
         | "__rtsadp_arr_concat"
+        | "__rtsadp_arr_ta_set1"
+        | "__rtsadp_arr_subarray1"
         | "__rtsadp_arr_splice"
         | "__rtsadp_arr_to_spliced_var" => SymSig {
             params: &[U64, U64],

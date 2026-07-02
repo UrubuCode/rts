@@ -7,7 +7,7 @@ use rts_runtime::namespaces::globals::proxy::ops as rt_proxy;
 
 use crate::value::{
     arraycb, ctorval, dyndispatch, errslot, funcops, globalops, globalthis, iterops, objops,
-    regexops,
+    regexops, taops,
 };
 
 use super::{JitSymbol, sym};
@@ -319,6 +319,10 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_has_own", objops::__rtsadp_has_own as *const u8),
         sym("__rtsadp_prop_is_enumerable", objops::__rtsadp_prop_is_enumerable as *const u8),
         sym("__rtsadp_obj_own_symbols", iterops::__rtsadp_obj_own_symbols as *const u8),
+        sym("__rtsadp_arr_ta_set", taops::__rtsadp_arr_ta_set as *const u8),
+        sym("__rtsadp_arr_ta_set1", taops::__rtsadp_arr_ta_set1 as *const u8),
+        sym("__rtsadp_arr_subarray", taops::__rtsadp_arr_subarray as *const u8),
+        sym("__rtsadp_arr_subarray1", taops::__rtsadp_arr_subarray1 as *const u8),
         sym("__rtsadp_define_prop", objops::__rtsadp_define_prop as *const u8),
         sym("__rtsadp_prop_flags", objops::__rtsadp_prop_flags as *const u8),
         sym("__rtsadp_prevent_ext", objops::__rtsadp_prevent_ext as *const u8),

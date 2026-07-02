@@ -137,6 +137,34 @@ const DYN_METHODS: &[DynMethod] = &[
         symbol: "__rtsadp_prop_is_enumerable",
         ret_kind: JsKind::Bool,
     },
+    // TypedArray-only surface (Vec-backed level A): `ta.set(src[, off])` and
+    // `ta.subarray(b[, e])`. Plain JS arrays don't define these — a call on one
+    // would be a TypeError in JS; the level-A backing accepts it (documented
+    // divergence, no test exercises it).
+    DynMethod {
+        name: "set",
+        argc: 2,
+        symbol: "__rtsadp_arr_ta_set",
+        ret_kind: JsKind::Undefined,
+    },
+    DynMethod {
+        name: "subarray",
+        argc: 2,
+        symbol: "__rtsadp_arr_subarray",
+        ret_kind: JsKind::Array,
+    },
+    DynMethod {
+        name: "set",
+        argc: 1,
+        symbol: "__rtsadp_arr_ta_set1",
+        ret_kind: JsKind::Undefined,
+    },
+    DynMethod {
+        name: "subarray",
+        argc: 1,
+        symbol: "__rtsadp_arr_subarray1",
+        ret_kind: JsKind::Array,
+    },
     DynMethod {
         name: "reverse",
         argc: 0,

@@ -123,7 +123,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         for i in argc..call.arg_abis.len() {
             vals.push(self.default_arg_val(call.default_args.get(i), class, i)?);
         }
-        let res = self.emit_registry_call(module, &call, None, &vals, JsKind::Object)?;
+        // A ctor whose spec declares an ARRAY return (`new Uint8Array(..):
+        // number[]` — the Vec-backed typed arrays) reboxes as a plain JS array
+        // (`__rtsadp_box_handle_auto`), so the instance rides the whole array
+        // surface (length/index/iteration). Everything else stays an Object.
+        let kind = if call.ret_is_array_handle {
+            JsKind::Array
+        } else {
+            JsKind::Object
+        };
+        let res = self.emit_registry_call(module, &call, None, &vals, kind)?;
         Ok(res.v)
     }
 

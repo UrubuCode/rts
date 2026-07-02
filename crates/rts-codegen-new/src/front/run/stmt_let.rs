@@ -166,8 +166,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirExprKind::New { class, args } if self.is_global_class_ctor(class) => {
                 let (val, class_name) = self.lower_new_global_class(module, class, args)?;
                 self.bind_tagged_local(name, val);
-                self.global_instance_classes
-                    .insert(name.to_string(), class_name);
+                // A ctor whose spec declares an ARRAY return (`new Uint8Array(..):
+                // number[]`, the Vec-backed typed arrays): the instance IS a plain
+                // JS array — record the ARRAY shape (index/length/methods ride the
+                // array surface), NOT the class (class dispatch would reject
+                // `.subarray`/index writes).
+                let is_array_instance = super::registry::class_ctors(&class_name)
+                    .iter()
+                    .any(|c| c.ret_is_array_handle);
+                if is_array_instance {
+                    self.local_shapes.insert(name.to_string(), HeapShape::Array);
+                } else {
+                    self.global_instance_classes
+                        .insert(name.to_string(), class_name);
+                }
                 // No object FIELD shape (the instance is an opaque runtime handle);
                 // return early so the generic `let` tail does not run.
                 return Ok(());

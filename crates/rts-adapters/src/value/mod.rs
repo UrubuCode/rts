@@ -151,6 +151,7 @@ pub mod inspect;
 // Codegen-owned ITERATION-source trampolines (P5.10): materialize a string's code
 // points / an object's keys into a fresh array, so for-of/for-in share ONE walk.
 pub mod iterops;
+pub mod taops;
 
 // ===========================================================================
 // PolyValue

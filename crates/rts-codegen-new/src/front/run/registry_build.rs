@@ -155,7 +155,50 @@ pub(super) static REGISTER: &[Register] = &[
     // do Registry instala os símbolos no JIT (sem isso = "can't resolve symbol").
     Register { label: "ArrayBuffer class", run: ns::globals::dataview::register_array_buffer_class_spec, why: "ArrayBuffer ctor + byteLength/slice" },
     Register { label: "DataView class", run: ns::globals::dataview::register_data_view_class_spec, why: "DataView ctor + get/set accessors" },
+    Register { label: "TypedArray classes", run: register_typed_array_class_specs, why: "Uint8Array/Int8Array/… ctors (Vec-backed level A, ret number[] — rides the array surface)" },
 ];
+
+/// Register the 8 TypedArray classes (Vec-backed level A — see
+/// `rts_adapters::value::taops`). Each ctor takes ONE polymorphic arg (length /
+/// source array / ArrayBuffer) and declares a `number[]` return, so the engine
+/// tracks the instance as a plain ARRAY (length/index/`Array.from`/`join`/`at`/
+/// `includes`/`slice` all ride the array surface; `set`/`subarray` are the two
+/// TypedArray-only dispatch rows). Registered HERE (not rts-runtime) because
+/// the ctor externs live in `rts-adapters` (they build PolyValue words), which
+/// rts-runtime cannot depend on.
+fn register_typed_array_class_specs(e: &mut Engine) {
+    use rts_adapters::value::taops as ta;
+    use rts_engine::{AbiType, FnPtr, Member, MemberFlags, MemberKind, Sig};
+    let ctors: &[(&str, &str, *const u8)] = &[
+        ("Uint8Array", "__RTS_FN_GL_TA_NEW_U8", ta::__RTS_FN_GL_TA_NEW_U8 as *const u8),
+        ("Int8Array", "__RTS_FN_GL_TA_NEW_I8", ta::__RTS_FN_GL_TA_NEW_I8 as *const u8),
+        ("Uint16Array", "__RTS_FN_GL_TA_NEW_U16", ta::__RTS_FN_GL_TA_NEW_U16 as *const u8),
+        ("Int16Array", "__RTS_FN_GL_TA_NEW_I16", ta::__RTS_FN_GL_TA_NEW_I16 as *const u8),
+        ("Uint32Array", "__RTS_FN_GL_TA_NEW_U32", ta::__RTS_FN_GL_TA_NEW_U32 as *const u8),
+        ("Int32Array", "__RTS_FN_GL_TA_NEW_I32", ta::__RTS_FN_GL_TA_NEW_I32 as *const u8),
+        ("Float32Array", "__RTS_FN_GL_TA_NEW_F32", ta::__RTS_FN_GL_TA_NEW_F32 as *const u8),
+        ("Float64Array", "__RTS_FN_GL_TA_NEW_F64", ta::__RTS_FN_GL_TA_NEW_F64 as *const u8),
+    ];
+    for (class, symbol, ptr) in ctors {
+        e.class(class)
+            .doc("TypedArray (Vec-backed level A) — the instance IS a plain JS array of wrapped elements.")
+            .member(Member {
+                name: "new".to_string(),
+                kind: MemberKind::Constructor,
+                sig: Sig::new(vec![AbiType::PolyValue], AbiType::Handle),
+                symbol: symbol.to_string(),
+                fn_ptr: FnPtr(*ptr),
+                flags: MemberFlags::NONE,
+                aliases: Vec::new(),
+                variadic: false,
+                ts_signature: format!("new {class}(src: number | number[] | ArrayBuffer): number[]"),
+                doc: "Level-A Vec-backed typed array (elements wrapped at construction).".to_string(),
+                pure: false,
+                intrinsic: None,
+            })
+            .done();
+    }
+}
 
 /// One `.ts` prelude include, in DEPENDENCY ORDER (base before dependent).
 /// `label`/`why` are in-table documentation (see [`Register`]).

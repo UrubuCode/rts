@@ -112,6 +112,31 @@ pub fn register_array_buffer_class_spec(e: &mut Engine) {
             true,
         ))
         .done();
+    // `SharedArrayBuffer` — the RTS runtime is single-threaded at the JS level,
+    // so a SharedArrayBuffer IS an ArrayBuffer (same Entry::Buffer backing; the
+    // Atomics ops operate on it directly). Registered as a separate class name
+    // over the SAME externs.
+    e.class("SharedArrayBuffer")
+        .doc("SharedArrayBuffer — alias of ArrayBuffer (single-threaded runtime; same Entry::Buffer backing).")
+        .member(m(
+            "new",
+            MemberKind::Constructor,
+            Sig::new(vec![AbiType::I64], AbiType::Handle),
+            "__RTS_FN_GL_ARRAY_BUFFER_NEW",
+            "new SharedArrayBuffer(byteLength: number): SharedArrayBuffer",
+            "",
+            false,
+        ))
+        .member(m(
+            "byteLength",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::I64),
+            "__RTS_FN_GL_DATAVIEW_BYTE_LENGTH",
+            "byteLength: number",
+            "",
+            true,
+        ))
+        .done();
 }
 
 /// Registra a classe global `DataView` no motor (hand-written, sem macro).

@@ -161,6 +161,34 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return self.array_splice(module, object, args, "__rtsadp_arr_to_spliced_var");
         }
 
+        // TypedArray-only surface on a PROVEN array receiver (the Vec-backed
+        // level-A typed arrays ride the array shape): `ta.set(src[, off])` /
+        // `ta.subarray(b[, e])`.
+        if matches!(method, "set" | "subarray") && (argc == 1 || argc == 2) {
+            let symbol = match (method, argc) {
+                ("set", 1) => "__rtsadp_arr_ta_set1",
+                ("set", _) => "__rtsadp_arr_ta_set",
+                ("subarray", 1) => "__rtsadp_arr_subarray1",
+                _ => "__rtsadp_arr_subarray",
+            };
+            let recv = self.lower_expr(module, object)?;
+            let recv_word = self.box_value(recv);
+            let mut call_args = vec![recv_word];
+            for a in args {
+                let v = self.lower_expr(module, a)?;
+                call_args.push(self.box_value(v));
+            }
+            let res = self
+                .call_runtime(module, symbol, &call_args)?
+                .expect("typed-array trampoline returns a value");
+            let kind = if method == "subarray" {
+                JsKind::Array
+            } else {
+                JsKind::Undefined
+            };
+            return Ok(Val::new_with_kind(res, crate::repr::Repr::Tagged, kind));
+        }
+
         // `arr.propertyIsEnumerable(k)` / `arr.hasOwnProperty(k)` — the universal
         // Object.prototype pair on an ARRAY receiver: route the polymorphic
         // tag-dispatched runtime check (index-bounds semantics for arrays).
