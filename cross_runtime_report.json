@@ -2777,10 +2777,10 @@
 ,
 {
   "name": "264_object_hasown",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "own=true:true\ninh=false:false\nmiss=false:false",
   "node": "own=true:true\ninh=false:false\nmiss=false:false",
-  "rts": "own=true:true\ninh=false:false\nmiss=false:false"
+  "rts": "own=true:true\ninh=true:false\nmiss=false:false"
 }
 ,
 {
@@ -3012,7 +3012,7 @@
   "status": "rts_diverge",
   "bun": "true false true\n3\ntrue\ntrue\ntrue\ntrue\ntrue false\ntrue\ntrue\ntrue\ntrue false",
   "node": "true false true\n3\ntrue\ntrue\ntrue\ntrue\ntrue false\ntrue\ntrue\ntrue\ntrue false",
-  "rts": "false false false\n2\nfalse\ntrue\ntrue\nfalse\nfalse false\nfalse\nfalse\nfalse\ntrue false"
+  "rts": "false false false\n2\nfalse\ntrue\ntrue\nfalse\ntrue false\ntrue\nfalse\nfalse\ntrue false"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":230,"rts_diverge":89,"bun_node_diverge":17,"errors":273,"rejected":0}}
+],"summary":{"total":609,"pass":229,"rts_diverge":90,"bun_node_diverge":17,"errors":273,"rejected":0}}
