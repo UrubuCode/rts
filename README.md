@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Single Binary](https://img.shields.io/badge/output-single%20binary-blue?style=flat-square)](#)
 <!-- CROSS_RUNTIME_BADGE_START -->
-[![Bun/Node parity](https://img.shields.io/badge/Bun%2FNode%20parity-40.4%25-orange?style=flat-square)](docs/specs/cross-runtime-testing.md)
+[![Bun/Node parity](https://img.shields.io/badge/Bun%2FNode%20parity-40.9%25-orange?style=flat-square)](docs/specs/cross-runtime-testing.md)
 <!-- CROSS_RUNTIME_BADGE_END -->
 
 </div>
@@ -24,17 +24,17 @@
 Compatibilidade JS spec validada contra **Bun** e **Node** em 609 fixtures TS standalone.
 
 ```
-[▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱] 40.4%   239/592 fixtures passam
+[▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱] 40.9%   242/591 fixtures passam
 ```
 
 | Métrica | Valor |
 |---|---|
-| **Paridade** | **40.4%** (239/592) |
-| ✅ RTS = Bun = Node | 239 |
-| ❌ RTS diverge | 118 |
-| 💥 RTS runtime error | 235 |
-| 🛠️  **Falta corrigir** | **353** |
-| ⚠️ Bun ≠ Node (skip) | 17 |
+| **Paridade** | **40.9%** (242/591) |
+| ✅ RTS = Bun = Node | 242 |
+| ❌ RTS diverge | 126 |
+| 💥 RTS runtime error | 223 |
+| 🛠️  **Falta corrigir** | **349** |
+| ⚠️ Bun ≠ Node (skip) | 18 |
 | 🚫 Rejeitados (RTS-only) | 0 |
 | 📦 Total fixtures | 609 |
 
