@@ -128,12 +128,38 @@ pub extern "C" fn __RTS_FN_GL_EE_OFF(
 ) -> Handle {
     let event = unsafe { rts_engine::abi::str_abi::from_abi(event_ptr, event_len) };
     let event = event.unwrap_or("").to_string();
+    let key = listener_identity(fn_ptr);
     with_emitter(handle, handle, |data| {
         if let Some(list) = data.listeners.get_mut(&event) {
-            list.retain(|l| l.fn_ptr != fn_ptr);
+            list.retain(|l| listener_identity(l.fn_ptr) != key);
         }
         handle
     })
+}
+
+/// The IDENTITY key of a listener value for `off`. Each `ee.on(ev, f)` /
+/// `ee.off(ev, f)` reifies `f` to a FRESH `Entry::Function` slot, so comparing
+/// the PolyValue words (or handles) directly never matches — the stable identity
+/// of a named fn / non-capturing arrow is its underlying CODE POINTER. A
+/// capture-carrying closure keeps the word itself (per-reify env — JS semantics:
+/// two separately-created closures are distinct listeners anyway).
+fn listener_identity(fn_ptr: u64) -> u64 {
+    use rts_engine::heap::poly::{POLY_BOX_BASE, POLY_TAG_FUNCTION, POLY_TAG_SHIFT};
+    let is_poly_fn = (fn_ptr & POLY_BOX_BASE) == POLY_BOX_BASE
+        && ((fn_ptr >> POLY_TAG_SHIFT) & 0x7) == POLY_TAG_FUNCTION;
+    let handle = if is_poly_fn {
+        // 48-bit payload → full (gen|slot) handle.
+        rts_engine::heap::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(fn_ptr & 0xFFFF_FFFF_FFFF)
+    } else {
+        fn_ptr
+    };
+    rts_engine::heap::handles::with_entry(handle, |e| match e {
+        Some(rts_engine::heap::handles::Entry::Function(f)) if f.bound_args.is_empty() => {
+            Some(f.fn_ptr)
+        }
+        _ => None,
+    })
+    .unwrap_or(fn_ptr)
 }
 
 /// emitter.emit(event, arg) — listeners recebem `arg` como number (f64).

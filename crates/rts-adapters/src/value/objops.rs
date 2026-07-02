@@ -484,12 +484,54 @@ pub extern "C" fn __rtsadp_obj_get_own_property_descriptors(obj_word: u64) -> u6
     );
     let res =
         PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(res_handle)).raw();
-    for k in object_keys_vec(obj_word) {
-        let key_word = abi_adapter::intern_poly(&k).raw();
+    let keys = object_keys_vec(obj_word);
+    for k in &keys {
+        // An accessor slot pair (`__get_<name>` / `__set_<name>` — how a literal
+        // getter/setter is stored): emit ONE accessor descriptor `{ get, set,
+        // enumerable, configurable }` under the REAL name; never leak the
+        // internal keys (#749).
+        if let Some(name) = k.strip_prefix("__get_") {
+            let desc = accessor_descriptor(obj_word, name);
+            __rtsadp_obj_set(res, abi_adapter::intern_poly(name).raw(), desc);
+            continue;
+        }
+        if let Some(name) = k.strip_prefix("__set_") {
+            // Setter-only accessor (no paired getter — that case already emitted).
+            if !keys.iter().any(|g| g == &format!("__get_{name}")) {
+                let desc = accessor_descriptor(obj_word, name);
+                __rtsadp_obj_set(res, abi_adapter::intern_poly(name).raw(), desc);
+            }
+            continue;
+        }
+        let key_word = abi_adapter::intern_poly(k).raw();
         let desc = __rtsadp_obj_get_own_property_descriptor(obj_word, key_word);
         __rtsadp_obj_set(res, key_word, desc);
     }
     res
+}
+
+/// Build an ACCESSOR descriptor `{ get, set, enumerable, configurable }` for the
+/// property `name` of `obj_word`, reading the stored `__get_<name>` /
+/// `__set_<name>` slots (absent slot → `undefined`, JS accessor-descriptor form).
+fn accessor_descriptor(obj_word: u64, name: &str) -> u64 {
+    let desc_handle = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    let empty_shape = crate::shape::intern_global_shape(&[]);
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(
+        desc_handle,
+        PolyValue::from_i32(empty_shape as i32).raw() as i64,
+    );
+    let desc = PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(
+        desc_handle,
+    ))
+    .raw();
+    let getter = __rtsadp_obj_get(obj_word, abi_adapter::intern_poly(&format!("__get_{name}")).raw());
+    let setter = __rtsadp_obj_get(obj_word, abi_adapter::intern_poly(&format!("__set_{name}")).raw());
+    __rtsadp_obj_set(desc, abi_adapter::intern_poly("get").raw(), getter);
+    __rtsadp_obj_set(desc, abi_adapter::intern_poly("set").raw(), setter);
+    let t = PolyValue::bool(true).raw();
+    __rtsadp_obj_set(desc, abi_adapter::intern_poly("enumerable").raw(), t);
+    __rtsadp_obj_set(desc, abi_adapter::intern_poly("configurable").raw(), t);
+    desc
 }
 
 /// `Object.defineProperty(obj, key, descriptor)` — read the DATA descriptor's
@@ -551,6 +593,27 @@ pub extern "C" fn __rtsadp_prop_flags(obj_word: u64, key_str_handle: u64) -> i64
         Ok(t) => *t.get(&(obj_word, key)).unwrap_or(&7) as i64,
         Err(_) => 7,
     }
+}
+
+/// `o.propertyIsEnumerable(k)` → a BOXED bool word. Polymorphic over the
+/// receiver TAG: an ARRAY answers true for an in-bounds numeric index (its
+/// element props are enumerable; `length` and any other name are not); a KEYED
+/// object answers its own-key enumerable flag (`prop_flags` bit 2, default
+/// true); anything else (primitives, missing key) → false.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_prop_is_enumerable(obj_word: u64, key_word: u64) -> u64 {
+    let obj = PolyValue::from_raw(obj_word);
+    if obj.is_object() && !looks_like_object(obj) {
+        // Array (a non-keyed Vec): in-bounds index ⇒ enumerable own element.
+        if let Ok(i) = key_text(key_word).parse::<i64>() {
+            let lw = super::dyndispatch::__rtsadp_dyn_length(obj_word);
+            let len = super::genops::to_number(PolyValue::from_raw(lw));
+            return PolyValue::bool(i >= 0 && (i as f64) < len).raw();
+        }
+        return PolyValue::bool(false).raw();
+    }
+    let flags = __rtsadp_prop_flags(obj_word, key_word);
+    PolyValue::bool(flags >= 0 && (flags & 2) != 0).raw()
 }
 
 /// `Object.preventExtensions(o)` / `Reflect.preventExtensions` — mark `o`

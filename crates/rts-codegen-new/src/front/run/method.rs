@@ -154,6 +154,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     .expect("__rtsadp_has_own returns a value");
                 return Ok(Some(self.poly_bool_to_bool(res)));
             }
+            // `o.propertyIsEnumerable(k)` — polymorphic tag-dispatched runtime
+            // check (array index bounds / keyed enumerable flag).
+            if method == "propertyIsEnumerable" && args.len() == 1 {
+                let recv = self.lower_expr(module, object)?;
+                let recv_word = self.box_value(recv);
+                let arg = self.lower_expr(module, &args[0])?;
+                let arg_word = self.box_value(arg);
+                let res = self
+                    .call_runtime(module, "__rtsadp_prop_is_enumerable", &[recv_word, arg_word])?
+                    .expect("__rtsadp_prop_is_enumerable returns a value");
+                return Ok(Some(self.poly_bool_to_bool(res)));
+            }
             if !self.is_array_valued(object) {
                 let recv = self.lower_expr(module, object)?;
                 if let Some(val) =

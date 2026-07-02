@@ -161,6 +161,25 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return self.array_splice(module, object, args, "__rtsadp_arr_to_spliced_var");
         }
 
+        // `arr.propertyIsEnumerable(k)` / `arr.hasOwnProperty(k)` — the universal
+        // Object.prototype pair on an ARRAY receiver: route the polymorphic
+        // tag-dispatched runtime check (index-bounds semantics for arrays).
+        if matches!(method, "propertyIsEnumerable" | "hasOwnProperty") && argc == 1 {
+            let symbol = if method == "hasOwnProperty" {
+                "__rtsadp_has_own"
+            } else {
+                "__rtsadp_prop_is_enumerable"
+            };
+            let recv = self.lower_expr(module, object)?;
+            let recv_word = self.box_value(recv);
+            let arg = self.lower_expr(module, &args[0])?;
+            let arg_word = self.box_value(arg);
+            let res = self
+                .call_runtime(module, symbol, &[recv_word, arg_word])?
+                .expect("prop-check trampoline returns a value");
+            return Ok(self.poly_bool_to_bool(res));
+        }
+
         let Some(spec) = resolve_method(RecvClass::Array, method, argc) else {
             return Err(crate::front::error::Unsupported::new(format!(
                 "no Registry entry for `Array.{method}({argc} args)` \
