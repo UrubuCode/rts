@@ -302,7 +302,21 @@ pub extern "C" fn __rtsadp_obj_has(obj_word: u64, key_str_handle: u64) -> i64 {
         }
         return __rtsadp_obj_has(target, key_str_handle);
     }
-    resolve_slot(obj_word, key_str_handle).is_some() as i64
+    if resolve_slot(obj_word, key_str_handle).is_some() {
+        return 1;
+    }
+    // `[[HasProperty]]` walks the PROTOTYPE chain (unlike `hasOwnProperty`):
+    // `"m" in child` is true for an inherited `m`. `"__proto__"` reads true for
+    // any object whose [[Prototype]] is wired (the Object.prototype accessor in
+    // real JS) — an Object.create(null)-style bare object stays false.
+    let key = key_text(key_str_handle);
+    if key == "__proto__" {
+        return super::protos::proto_of(obj_word).is_some() as i64;
+    }
+    match super::protos::proto_of(obj_word) {
+        Some(proto) => __rtsadp_obj_has(proto, key_str_handle),
+        None => 0,
+    }
 }
 
 /// `obj.hasOwnProperty(key)` → a BOXED bool PolyValue word (`true`/`false`
