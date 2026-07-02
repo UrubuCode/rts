@@ -294,6 +294,11 @@ const ARRAY_ROWS: &[(&str, usize, MethodSpec)] = &[
     // toLocaleString without locale data == toString (the runtime has no Intl).
     ("toLocaleString", 0, am("__rtsadp_arr_to_string", &[], Handle)),
     ("toReversed", 0, am_arr("__rtsadp_arr_to_reversed", &[], U64)),
+    // entries/keys/values: materialized arrays (for-of consumes them like JS's
+    // iterators for the dominant shapes; the lazy protocol is a later increment).
+    ("entries", 0, am_arr("__rtsadp_arr_entries", &[], U64)),
+    ("keys", 0, am_arr("__rtsadp_arr_keys", &[], U64)),
+    ("values", 0, am_arr("__rtsadp_arr_values", &[], U64)),
     ("with", 2, am_arr("__rtsadp_arr_with", &[I64, U64], U64)),
     ("sort", 0, am_arr("__rtsadp_arr_sort", &[], U64)),
     // sort(cmp): a 1-callback method. The CbShape is Predicate only to satisfy the

@@ -465,7 +465,10 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         | "__rtsadp_arr_shift"
         | "__rtsadp_arr_to_reversed"
         | "__rtsadp_arr_sort"
-        | "__rtsadp_arr_to_sorted" => SymSig {
+        | "__rtsadp_arr_to_sorted"
+        | "__rtsadp_arr_entries"
+        | "__rtsadp_arr_keys"
+        | "__rtsadp_arr_values" => SymSig {
             params: &[U64],
             ret: U64,
         },

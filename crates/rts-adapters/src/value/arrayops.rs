@@ -420,6 +420,45 @@ pub extern "C" fn __rtsadp_arr_to_reversed(vec_handle: u64) -> u64 {
     PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(copy)).raw()
 }
 
+/// `arr.entries()` — the `[index, value]` pairs as a MATERIALIZED array (the
+/// engine's `for-of` consumes arrays; the lazy iterator protocol is a later
+/// increment, and eager materialization is observably identical for the
+/// dominant `for (const [i, v] of arr.entries())` shape).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_entries(vec_handle: u64) -> u64 {
+    let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    let len = vec_len(vec_handle);
+    for i in 0..len {
+        let v = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(vec_handle, i);
+        let pair = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(pair, PolyValue::from_i32(i as i32).raw() as i64);
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(pair, v);
+        let pair_word =
+            PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(pair)).raw();
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, pair_word as i64);
+    }
+    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(out)).raw()
+}
+
+/// `arr.keys()` — the indices as a materialized array (see [`__rtsadp_arr_entries`]).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_keys(vec_handle: u64) -> u64 {
+    let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    let len = vec_len(vec_handle);
+    for i in 0..len {
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, PolyValue::from_i32(i as i32).raw() as i64);
+    }
+    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(out)).raw()
+}
+
+/// `arr.values()` — the values as a materialized array copy (see
+/// [`__rtsadp_arr_entries`]).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_values(vec_handle: u64) -> u64 {
+    let copy = copy_vec(vec_handle);
+    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(copy)).raw()
+}
+
 /// `arr.with(index, value)` (ES2023) — a NEW array equal to the receiver but with
 /// slot `index` replaced by `value` (negative index counts from the end). An
 /// out-of-range index would throw `RangeError` in JS; here it returns the copy

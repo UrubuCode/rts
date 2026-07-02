@@ -231,6 +231,15 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             "__rtsadp_arr_to_reversed",
             arrayops::__rtsadp_arr_to_reversed as *const u8,
         ),
+        sym(
+            "__rtsadp_arr_entries",
+            arrayops::__rtsadp_arr_entries as *const u8,
+        ),
+        sym("__rtsadp_arr_keys", arrayops::__rtsadp_arr_keys as *const u8),
+        sym(
+            "__rtsadp_arr_values",
+            arrayops::__rtsadp_arr_values as *const u8,
+        ),
         sym("__rtsadp_arr_with", arrayops::__rtsadp_arr_with as *const u8),
         sym(
             "__rtsadp_arr_flat_depth",
