@@ -857,18 +857,18 @@
 ,
 {
   "name": "371_private_fields_basic",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20",
   "node": "6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "6\n4\n0\n0\ntrue\n1 2 3\n1\n10\n20"
 }
 ,
 {
   "name": "372_private_methods",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "3\n1,2,3\n3\n2\n100\n373.15\n212\n273.15\n[INFO] ok\n20",
   "node": "3\n1,2,3\n3\n2\n100\n373.15\n212\n273.15\n[INFO] ok\n20",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "3\n1,2,3\n3\n2\n100\n373.15\n212\n273.15\nundefined\n20"
 }
 ,
 {
@@ -1145,10 +1145,10 @@
 ,
 {
   "name": "310_console_group",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "events=g:x|end",
   "node": "events=g:x|end",
-  "rts": "events=g:|end"
+  "rts": "events=g:x|end"
 }
 ,
 {
@@ -1705,10 +1705,10 @@
 ,
 {
   "name": "codex_generator_delegation_exception_path",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return",
   "node": "{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "{\"value\":1073741852,\"done\":false}\n{\"value\":{\"message\":\"E\",\"name\":\"Error\",\"stack\":\"\"},\"done\":true}\n{\"value\":\"R\",\"done\":true}"
 }
 ,
 {
@@ -1737,10 +1737,10 @@
 ,
 {
   "name": "codex_yield_star_iterator_return_chain",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "{\"value\":0,\"done\":false}\n{\"value\":\"closed\",\"done\":true}\ninner-next0|inner-return:bye",
   "node": "{\"value\":0,\"done\":false}\n{\"value\":\"closed\",\"done\":true}\ninner-next0|inner-return:bye",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "{\"done\":true}\n{\"value\":\"bye\",\"done\":true}\nouter-after:-1e-323"
 }
 ,
 {
@@ -1801,10 +1801,10 @@
 ,
 {
   "name": "codex_async_iterator_break_close",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "1\nnext0,next1,return-start,return-end",
   "node": "1\nnext0,next1,return-start,return-end",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "0"
 }
 ,
 {
@@ -3945,10 +3945,10 @@
 ,
 {
   "name": "claude-concat-type-coercion",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "a1true\n3x34\n1,2,3\n[object Object]\n,,1\n1,2,3\nnnulluundefined\nbtruefalse\nInfinity,-Infinity,NaN\nxy1truenull",
   "node": "a1true\n3x34\n1,2,3\n[object Object]\n,,1\n1,2,3\nnnulluundefined\nbtruefalse\nInfinity,-Infinity,NaN\nxy1truenull",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "a1true\n3x34\n1,2,3\n[object Object]\n,,1\n1,2,3\nnnulluundefined\nbtruefalse\nInfinity,-Infinity,NaN\nxyError"
 }
 ,
 {
@@ -4009,10 +4009,10 @@
 ,
 {
   "name": "claude-template-literal-coercion",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "val=T\narr=1,2,3\nnested=1,2,3,4\no2=only-str\nT and 43\nnull=null undef=undefined\nsym=S",
   "node": "val=T\narr=1,2,3\nnested=1,2,3,4\no2=only-str\nT and 43\nnull=null undef=undefined\nsym=S",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "val=T\narr=1,2,3\nnested=1,2,3,4\no2=only-str\nT and 43\nnull=null undef=undefined\nsym=S"
 }
 ,
 {
@@ -4081,10 +4081,10 @@
 ,
 {
   "name": "274_symbol_toprimitive",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "num=7\nstr=str!\ndef=def!",
   "node": "num=7\nstr=str!\ndef=def!",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "num=7\nstr=str!\ndef=def!"
 }
 ,
 {
@@ -4113,10 +4113,10 @@
 ,
 {
   "name": "402_template_toPrimitive_order",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "S\nSx\n7\nprim:string|prim:default|prim:number",
   "node": "S\nSx\n7\nprim:string|prim:default|prim:number",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "T\n3x\n7\ntoString|valueOf|prim:number"
 }
 ,
 {
@@ -4369,10 +4369,10 @@
 ,
 {
   "name": "332_comma_operator",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "3\n2\n2\n0:10\n1:7\n2:4\nside\n42",
   "node": "3\n2\n2\n0:10\n1:7\n2:4\nside\n42",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "3\n2\n2\n0:10\n1:7\n2:4\nside\n42"
 }
 ,
 {
@@ -4497,10 +4497,10 @@
 ,
 {
   "name": "claude-comma-operator",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "3\n30\n10,20,30\n0:10\n1:9\n2:8\n6\n10,20,30,1,2,3,4",
   "node": "3\n30\n10,20,30\n0:10\n1:9\n2:8\n6\n10,20,30,1,2,3,4",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "3\n30\n10,20,30\n0:10\n1:9\n2:8\n6\n10,20,30,1,2,3,4"
 }
 ,
 {
@@ -4537,10 +4537,10 @@
 ,
 {
   "name": "claude-nested-ternary",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "A\nB\nC\nF\nac\n2\n2\nfallback",
   "node": "A\nB\nC\nF\nac\n2\n2\nfallback",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "A\nB\nC\nF\nac\n2\n2\nfallback"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":261,"rts_diverge":131,"bun_node_diverge":17,"errors":200,"rejected":0}}
+],"summary":{"total":609,"pass":267,"rts_diverge":137,"bun_node_diverge":17,"errors":188,"rejected":0}}
