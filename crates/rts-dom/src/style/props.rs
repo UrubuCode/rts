@@ -50,6 +50,14 @@ macro_rules! css_props {
         pub struct ComputedStyle {
             $( $(#[$od])* pub $ofield : Option<$oty>, )*
             $( $(#[$ed])* pub $efield : Edges, )*
+            /// CUSTOM PROPERTIES (`--nome: valor`) COMPUTADAS do elemento — a
+            /// cascade por elemento do `var()` (#1779; substitui o antigo mapa
+            /// global do cssvars). `Arc` + copy-on-write: quem só HERDA clona o
+            /// ponteiro (o `:root` do Bootstrap tem ~1175 vars — herdar é O(1));
+            /// quem declara vars novas materializa um mapa próprio. Campo
+            /// BUILT-IN da macro (herança/merge próprios; não anima).
+            pub custom_props:
+                Option<std::sync::Arc<std::collections::HashMap<String, String>>>,
         }
 
         impl ComputedStyle {
@@ -59,6 +67,19 @@ macro_rules! css_props {
             pub fn merge_over(&mut self, other: &ComputedStyle) {
                 $( if other.$ofield.is_some() { self.$ofield = other.$ofield.clone(); } )*
                 $( self.$efield.merge_over(&other.$efield); )*
+                // custom props: as de `other` vencem POR NOME (união CoW).
+                if let Some(theirs) = &other.custom_props {
+                    self.custom_props = Some(match self.custom_props.take() {
+                        None => theirs.clone(),
+                        Some(mine) => {
+                            let mut m = (*mine).clone();
+                            for (k, v) in theirs.iter() {
+                                m.insert(k.clone(), v.clone());
+                            }
+                            std::sync::Arc::new(m)
+                        }
+                    });
+                }
             }
 
             /// HERANÇA da cascade (MDN estágio 4): os campos marcados `inh` na
@@ -68,6 +89,21 @@ macro_rules! css_props {
             /// vive SÓ lá.
             pub fn inherit_from(&mut self, parent: &ComputedStyle) {
                 $( $( css_props!(@inherit $of, $ofield, self, parent); )* )*
+                // custom props SEMPRE herdam (spec): sem declaração própria o
+                // filho compartilha o Arc do pai (O(1)); com declaração própria,
+                // as do pai preenchem por baixo (o filho vence por nome).
+                if let Some(parents) = &parent.custom_props {
+                    self.custom_props = Some(match self.custom_props.take() {
+                        None => parents.clone(),
+                        Some(mine) => {
+                            let mut m = (**parents).clone();
+                            for (k, v) in mine.iter() {
+                                m.insert(k.clone(), v.clone());
+                            }
+                            std::sync::Arc::new(m)
+                        }
+                    });
+                }
             }
 
             /// `true` se algum campo ANIMÁVEL (`anim` na tabela) difere entre os

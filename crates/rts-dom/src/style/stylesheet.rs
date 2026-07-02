@@ -146,12 +146,23 @@ pub struct DeclBlock {
     pub normal: ComputedStyle,
     /// Declarações marcadas `!important` (vencem qualquer normal na cascade).
     pub important: ComputedStyle,
+    /// Declarações de CUSTOM PROPERTIES (`--nome: valor`) do bloco, na ordem do
+    /// fonte, com o valor CRU (pode conter `var()` aninhado). Participam da
+    /// cascade por elemento (#1779). Importância ignorada na v1 (documentado).
+    pub custom: Vec<(String, String)>,
+    /// Declarações PENDENTES — o valor contém `var()` e só resolve POR ELEMENTO
+    /// (contra as custom props computadas dele): `(prop, valor-cru, important)`.
+    /// Resolvidas na posição da regra em [`Stylesheet::computed_for_node`].
+    pub pending: Vec<(String, String, bool)>,
 }
 
 impl DeclBlock {
     /// `true` se nenhuma das camadas tem qualquer propriedade setada.
     pub fn is_empty(&self) -> bool {
-        self.normal == ComputedStyle::default() && self.important == ComputedStyle::default()
+        self.normal == ComputedStyle::default()
+            && self.important == ComputedStyle::default()
+            && self.custom.is_empty()
+            && self.pending.is_empty()
     }
 }
 
@@ -194,11 +205,10 @@ impl Stylesheet {
     /// Acrescenta as regras de mais um bloco `<style>` (uma página pode ter vários).
     /// EXTRAI os `@keyframes` primeiro (não são regras de seletor), depois as regras.
     pub fn append_css(&mut self, css: &str) {
-        // 0) resolve custom properties + var() ANTES de tudo (versão temporária,
-        //    textual e global — ver crate::cssvars e a issue #1779 de var() completo).
-        let css = crate::cssvars::resolve(css);
+        // (var()/custom properties agora resolvem POR ELEMENTO na cascade — #1779;
+        // o antigo passe textual GLOBAL daqui foi removido.)
         // 1) extrai e remove os blocos @keyframes (guarda por nome).
-        let css_without_kf = self.extract_keyframes(&css);
+        let css_without_kf = self.extract_keyframes(css);
         // 2) as regras normais do resto.
         let base = self.rules.len() as u32;
         for (i, rule) in parse_rules(&css_without_kf).into_iter().enumerate() {
@@ -238,6 +248,7 @@ impl Stylesheet {
     pub fn computed_for_node(
         &self,
         viewport_w: f32,
+        vars: Option<&std::collections::HashMap<String, String>>,
         matches: impl Fn(&ComplexSelector) -> bool,
     ) -> DeclBlock {
         let mut matched: Vec<&Rule> = self
@@ -250,11 +261,46 @@ impl Stylesheet {
         let mut out = DeclBlock::default();
         for r in &matched {
             out.normal.merge_over(&r.decls.normal);
+            // declarações PENDENTES (`prop: …var(--x)…`) resolvem AQUI, na posição
+            // da regra na cascade, contra as custom props do ELEMENTO (#1779).
+            if let Some(v) = vars {
+                for (prop, raw, important) in &r.decls.pending {
+                    if !important {
+                        apply_resolved_decl(&mut out.normal, prop, raw, v);
+                    }
+                }
+            }
         }
         for r in &matched {
             out.important.merge_over(&r.decls.important);
+            if let Some(v) = vars {
+                for (prop, raw, important) in &r.decls.pending {
+                    if *important {
+                        apply_resolved_decl(&mut out.important, prop, raw, v);
+                    }
+                }
+            }
         }
         out
+    }
+
+    /// PASS A do var() por elemento (#1779): coleta as declarações de CUSTOM
+    /// PROPERTIES (`--x: v`) das regras que casam, na ordem da cascade
+    /// (especificidade + ordem — a última vence por nome no consumidor).
+    pub fn custom_for_node(
+        &self,
+        viewport_w: f32,
+        matches: impl Fn(&ComplexSelector) -> bool,
+    ) -> Vec<(String, String)> {
+        let mut matched: Vec<&Rule> = self
+            .rules
+            .iter()
+            .filter(|r| !r.decls.custom.is_empty())
+            .filter(|r| r.media.map(|m| m.matches(viewport_w)).unwrap_or(true))
+            .filter(|r| matches(&r.selector))
+            .collect();
+        matched.sort_by_key(|r| (r.selector.specificity(), r.order));
+        matched.iter().flat_map(|r| r.decls.custom.iter().cloned()).collect()
     }
 
     /// Conveniência: computa o estilo para um elemento dado SÓ tag/id/classes (sem
@@ -264,8 +310,9 @@ impl Stylesheet {
     pub fn computed_for(&self, tag: &str, id: Option<&str>, classes: &[&str]) -> DeclBlock {
         let no_attr = |_: &str| None;
         let no_pseudo = |_: &PseudoClass| false;
-        // viewport de referência 1280 (helper sem árvore/viewport — testes).
-        self.computed_for_node(1280.0, |sel| {
+        // viewport de referência 1280 (helper sem árvore/viewport — testes);
+        // sem vars (pendentes com var() não resolvem aqui).
+        self.computed_for_node(1280.0, None, |sel| {
             // só seletores de 1 compound casam sem a árvore.
             sel.compounds.len() == 1
                 && compound_matches(&sel.compounds[0], tag, id, classes, &no_attr, &no_pseudo)
@@ -400,6 +447,23 @@ fn parse_keyframe_offset(s: &str) -> Option<f32> {
         return Some(1.0);
     }
     s.strip_suffix('%')?.trim().parse::<f32>().ok().map(|p| (p / 100.0).clamp(0.0, 1.0))
+}
+
+/// Resolve uma declaração PENDENTE (`prop: …var()…`) contra as custom props do
+/// elemento e aplica no estilo — re-parseando a declaração única pelo parser
+/// normal (mantém TODO o vocabulário: cores, dimensões, shorthands…).
+pub(crate) fn apply_resolved_decl(
+    css: &mut ComputedStyle,
+    prop: &str,
+    raw: &str,
+    vars: &std::collections::HashMap<String, String>,
+) {
+    let resolved = super::vars::substitute(raw, vars);
+    if resolved.trim().is_empty() {
+        return; // var() sem valor nem fallback: declaração inválida (spec: unset)
+    }
+    let mini = parse_inline_block(&format!("{prop}: {resolved}"));
+    css.merge_over(&mini.normal);
 }
 
 /// Remove blocos de comentário `/* ... */` do CSS (um passe, tolerante a não-fechado).
