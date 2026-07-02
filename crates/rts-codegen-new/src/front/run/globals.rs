@@ -365,6 +365,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 Ok(Val::tagged_kind(arr, JsKind::Array))
             }
             ("from", 1) => {
+                // An ITERABLE-CLASS source (`Array.from(new Set(..))` — any class
+                // with a `[Symbol.iterator]` method) collects through the SAME
+                // hook the spread uses; the runtime trampoline below only covers
+                // strings/arrays/array-likes.
+                if let Some(w) = self.try_class_iterator_source_word(module, &args[0])? {
+                    return Ok(Val::tagged_kind(w, JsKind::Array));
+                }
                 let v = self.lower_expr(module, &args[0])?;
                 let boxed = self.box_value(v);
                 let res = self
