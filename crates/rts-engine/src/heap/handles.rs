@@ -1293,6 +1293,16 @@ pub fn mark_handle(handle: u64) {
 /// the slot+shard field with the generation cleared.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_POLY_FROM_HANDLE(full: u64) -> u64 {
+    // The all-zero HANDLE is the ABI-wide error sentinel (a live handle always
+    // has `generation >= 1`). Its payload must NOT be 0 — payload 0 is the
+    // legitimate live slot (0, 0), so boxing a sentinel as payload 0 would
+    // ALIAS the first entry allocated in shard 0 (e.g. an invalid digest's
+    // string word reading some unrelated live string). Map the sentinel to the
+    // all-ones payload: never an allocatable slot, so `POLY_TO_HANDLE`
+    // round-trips it back to the 0 sentinel (`slot_generation` → `None`).
+    if full == 0 {
+        return SLOT_MASK;
+    }
     full & SLOT_MASK
 }
 

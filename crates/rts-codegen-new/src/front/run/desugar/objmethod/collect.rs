@@ -83,11 +83,19 @@ pub(super) fn recover_methods(obj: &swc_ecma_ast::ObjectLit) -> Recovered<'_> {
                 Prop::Method(m) => {
                     // Plain method only: a generator/async method, a non-identifier
                     // (computed/string/number) name, or a non-simple param → bail.
+                    // EXCEPTION: a computed key that IS a well-known `Symbol.X`
+                    // member (`[Symbol.toPrimitive](hint) {…}`) recovers as the
+                    // internal `@@X` method name — Symbol is PRIMORDIAL, and the
+                    // coercion trampolines look the method up by that own-prop
+                    // key (`@@` is not spellable as a plain JS identifier key).
                     if m.function.is_generator || m.function.is_async {
                         return Recovered::Unsupported;
                     }
-                    let Some(name) = prop_ident_name(&m.key) else {
-                        return Recovered::Unsupported;
+                    let name = match prop_ident_name(&m.key)
+                        .or_else(|| wellknown_symbol_method_name(&m.key))
+                    {
+                        Some(name) => name,
+                        None => return Recovered::Unsupported,
                     };
                     for param in &m.function.params {
                         if super::super::super::class::ident_param_name(&param.pat).is_none() {
@@ -151,4 +159,29 @@ fn prop_ident_name(key: &swc_ecma_ast::PropName) -> Option<String> {
         swc_ecma_ast::PropName::Ident(id) => Some(id.sym.to_string()),
         _ => None,
     }
+}
+
+/// `[Symbol.X](){}` — a COMPUTED key that is literally the well-known `Symbol.X`
+/// member expression, recovered as the internal `@@X` method name (`Symbol` is
+/// PRIMORDIAL — the engine may name it). The literal class materializes the
+/// method as an own-prop fn slot under that key, and the generic coercion
+/// trampolines (`to_number`/`to_string`/`__rtsadp_add`) look `@@toPrimitive` up
+/// by it. Any other computed key stays out of subset.
+fn wellknown_symbol_method_name(key: &swc_ecma_ast::PropName) -> Option<String> {
+    let swc_ecma_ast::PropName::Computed(c) = key else {
+        return None;
+    };
+    let swc_ecma_ast::Expr::Member(m) = &*c.expr else {
+        return None;
+    };
+    let swc_ecma_ast::Expr::Ident(obj) = &*m.obj else {
+        return None;
+    };
+    if obj.sym.as_ref() != "Symbol" {
+        return None;
+    }
+    let swc_ecma_ast::MemberProp::Ident(p) = &m.prop else {
+        return None;
+    };
+    Some(format!("@@{}", p.sym))
 }

@@ -36,6 +36,38 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let fn_name = self.classes.get(&class)?.methods.get(m)?.clone();
         self.sigs.get(&fn_name)?.ret_class.clone()
     }
+
+    /// Whether `e`, as a `+` operand, is EXACT through the runtime generic `+`'s
+    /// ToPrimitive: a non-object operand always is; an OBJECT operand is when
+    /// its statically-known class defines no custom `toString`/`valueOf` (those
+    /// are unreachable from the trampoline → wrong value, keep the bail). A
+    /// `[Symbol.toPrimitive]` method (`@@toPrimitive` slot) is fine — the
+    /// generic path consults it; a method-free object renders the spec
+    /// `[object Object]`.
+    fn add_operand_to_primitive_safe(&self, e: &HirExpr) -> bool {
+        if !self.is_whole_object_value(e) {
+            return true;
+        }
+        // An INLINE literal carries its recovered class in the marker field.
+        let class = match &e.kind {
+            rts_hir::ir::HirExprKind::Object(fields) => fields
+                .iter()
+                .find(|(k, _)| k == crate::front::run::desugar::LIT_CLASS_MARKER)
+                .and_then(|(_, v)| match &v.kind {
+                    rts_hir::ir::HirExprKind::Lit(rts_hir::ir::HirLit::Str(s)) => Some(s.clone()),
+                    _ => None,
+                }),
+            _ => self.static_instance_class(e),
+        };
+        match class {
+            Some(class) => self.classes.get(&class).is_none_or(|d| {
+                !d.methods.contains_key("toString") && !d.methods.contains_key("valueOf")
+            }),
+            // An anonymous plain shape (no class ⇒ no methods) renders the spec
+            // `[object Object]` — exact.
+            None => true,
+        }
+    }
 }
 
 /// The Rust-style operator-overload method name for `op` (`a + b` → `a.add(b)`
@@ -196,7 +228,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 && !obj_operand
                 && !array_has_object_element
                 && (is_proven_string_expr(lhs) || is_proven_string_expr(rhs));
-            if !array_string_concat {
+            // GENERIC-`+` OBJECT path: `Add` where every OBJECT operand is
+            // ToPrimitive-safe through the runtime generic `+` — its statically
+            // known class (if any) defines neither `toString` nor `valueOf` (a
+            // custom one is unreachable from the trampoline → wrong value;
+            // `[Symbol.toPrimitive]` IS consulted by the generic path, and a
+            // method-free object renders the spec `[object Object]`). Array
+            // operands keep the stricter `array_string_concat` rule above.
+            let object_generic_add = matches!(op, HirBinOp::Add)
+                && !self.is_whole_array_value(lhs)
+                && !self.is_whole_array_value(rhs)
+                && self.add_operand_to_primitive_safe(lhs)
+                && self.add_operand_to_primitive_safe(rhs);
+            if !array_string_concat && !object_generic_add {
                 return unsupported!(
                     "binary `{op:?}` on a whole object/array operand (ToPrimitive coercion is a later increment)"
                 );

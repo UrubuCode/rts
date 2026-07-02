@@ -376,8 +376,23 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.builder.seal_block(b_static);
 
         self.builder.switch_to_block(b_fn);
-        let v1 = self.lower_value_call_word(module, own, args)?;
-        let w1 = self.box_value(v1);
+        // Invoke through the FULL INVOKE_AUTO machinery with a COUNTED args
+        // vec — a `(...args)` REST override needs its tail packed into one
+        // array (the raw 6-slot invoke carries no argc and cannot pack; the
+        // callbacks then read a bare first arg where the array should be).
+        let vec_h = self
+            .call_runtime(module, "__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[])?
+            .expect("VEC_NEW returns a handle");
+        for a in args {
+            let v = self.lower_expr(module, a)?;
+            let w = self.box_value(v);
+            self.call_runtime(module, "__RTS_FN_NS_COLLECTIONS_VEC_PUSH", &[vec_h, w])?;
+        }
+        let zero = self.builder.ins().iconst(types::I64, 0);
+        let w1 = self
+            .call_runtime(module, "__rtsadp_invoke_auto_word", &[own, zero, vec_h])?
+            .expect("__rtsadp_invoke_auto_word returns a word");
+        self.emit_post_call_error_check(module)?;
         self.builder.ins().jump(merge, &[w1.into()]);
 
         self.builder.switch_to_block(b_static);

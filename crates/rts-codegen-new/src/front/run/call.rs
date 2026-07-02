@@ -806,9 +806,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let addr = self.builder.ins().func_addr(types::I64, func_ref);
 
         let nparams_v = self.builder.ins().iconst(types::I64, nparams);
-        // No `...rest` in this increment's reify surface (variadic arrows are
-        // rejected at extraction); has_rest is always 0.
-        let has_rest_v = self.builder.ins().iconst(types::I64, 0);
+        // A `(...rest)` fn (post-expand: ONE packed-array param at the tail)
+        // records `has_rest` so the value-invoke (`__rtsadp_fn_invoke` /
+        // INVOKE_AUTO) packs the caller's positional tail into that array —
+        // an indirect `g("x","y")` on a rest arrow read a bare "x" otherwise.
+        let has_rest_v = self
+            .builder
+            .ins()
+            .iconst(types::I64, i64::from(sig.rest_param.is_some()));
         // A this-first function reifies through the `_this` variant: FunctionData
         // marks `has_this_param`, so the method-aware invoker binds the receiver
         // into a0 and the plain invoker shifts (JS `this = undefined`).
@@ -1021,7 +1026,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             slots[i] = self.box_value(v);
         }
 
-        // Overflow args (5th onward) go into a fresh rest ARRAY; ≤4 args → undefined.
+        // Overflow args (5th onward) go into a fresh rest ARRAY. For ≤4 args the
+        // rest slot carries the ARG COUNT as an INT32 word (NOT `undefined`): a
+        // VARIADIC callee's `__rtsadp_fn_invoke` needs the exact count to pack
+        // `a0..a3` into its rest array (undefined-padding is ambiguous — an
+        // explicit `undefined` arg is indistinguishable from an absent one). A
+        // non-variadic ≤4-param thunk never reads the slot, so this is invisible
+        // to every other callee.
         let rest = if args.len() > 4 {
             let arr = emit_marshal::emit_new_vec_object(module, self.builder);
             for a in &args[4..] {
@@ -1031,7 +1042,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
             arr
         } else {
-            self.builder.ins().iconst(types::I64, undef())
+            let argc_word = value::PolyValue::from_i32(args.len() as i32).raw() as i64;
+            self.builder.ins().iconst(types::I64, argc_word)
         };
 
         self.emit_fn_invoke(module, fn_word, slots, rest)

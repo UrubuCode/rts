@@ -52,8 +52,38 @@ pub(super) fn to_string(v: PolyValue) -> String {
     if v.is_object() && !crate::value::inspect::looks_like_object(v) {
         return array_to_string(v);
     }
+    // A keyed object with a `[Symbol.toPrimitive]` method: ToString runs it with
+    // hint "string" and stringifies the primitive result (spec ToPrimitive).
+    if let Some(p) = to_primitive_via_method(v, "string") {
+        return to_string(p);
+    }
     // objects (and any reserved/leaked singleton)
     "[object Object]".to_string()
+}
+
+/// JS `ToPrimitive(v, hint)` OBJECT step: when `v` is a keyed object carrying an
+/// own `[Symbol.toPrimitive](hint)` method (the object-literal desugar recovers
+/// it as the `@@toPrimitive` own-prop fn slot — see `desugar::objmethod`),
+/// invoke it with the hint string and return the PRIMITIVE result. `None` = no
+/// such method, or the method returned a non-primitive (spec: TypeError; here
+/// the caller keeps its default coercion — never a wrong recursion).
+pub(super) fn to_primitive_via_method(v: PolyValue, hint: &str) -> Option<PolyValue> {
+    if !v.is_object() || !crate::value::inspect::looks_like_object(v) {
+        return None;
+    }
+    let key = abi_adapter::intern_poly("@@toPrimitive").raw();
+    let f = super::objops::__rtsadp_obj_get(v.raw(), key);
+    if !PolyValue::from_raw(f).is_function() {
+        return None;
+    }
+    let hint_w = abi_adapter::intern_poly(hint).raw();
+    let undef = PolyValue::undefined().raw();
+    let r = super::funcops::__rtsadp_fn_invoke_method(f, v.raw(), hint_w, undef, undef, undef);
+    let p = PolyValue::from_raw(r);
+    if p.is_object() || p.is_function() {
+        return None;
+    }
+    Some(p)
 }
 
 /// JS `Array.prototype.toString` = `join(",")` with `null`/`undefined` elements
@@ -124,6 +154,11 @@ pub(super) fn to_number(v: PolyValue) -> f64 {
     }
     if v.is_string() {
         return string_to_number(&abi_adapter::resolve_poly(v));
+    }
+    // A keyed object with a `[Symbol.toPrimitive]` method: ToNumber runs it with
+    // hint "number" and coerces the primitive result (spec ToPrimitive).
+    if let Some(p) = to_primitive_via_method(v, "number") {
+        return to_number(p);
     }
     // undefined, object, function, hole, empty → NaN.
     f64::NAN
@@ -214,6 +249,22 @@ pub extern "C" fn __rtsadp_add(a: u64, b: u64) -> u64 {
     let av = PolyValue::from_raw(a);
     let bv = PolyValue::from_raw(b);
 
+    // JS `+` runs ToPrimitive(default) on BOTH operands FIRST (spec 13.15.3):
+    // an object with a `[Symbol.toPrimitive]` method converts through it even
+    // when the other side is already a string (`obj + ""` gets hint "default",
+    // NOT the concat's later ToString hint "string"). One re-entry with the
+    // primitive results; without the method the tag checks below decide as
+    // before.
+    if av.is_object() || bv.is_object() {
+        let ap = to_primitive_via_method(av, "default");
+        let bp = to_primitive_via_method(bv, "default");
+        if ap.is_some() || bp.is_some() {
+            let a2 = ap.map_or(a, |p| p.raw());
+            let b2 = bp.map_or(b, |p| p.raw());
+            return __rtsadp_add(a2, b2);
+        }
+    }
+
     // String path: if either side is a string, ToString both and concat through
     // the REAL pool.
     if av.is_string() || bv.is_string() {
@@ -234,7 +285,8 @@ pub extern "C" fn __rtsadp_add(a: u64, b: u64) -> u64 {
         return PolyValue::from_f64(sum).raw();
     }
 
-    // Mixed/other: JS would ToPrimitive; stringify both (never panics).
+    // Mixed/other: JS would ToPrimitive (the `[Symbol.toPrimitive]` step already
+    // ran above); stringify both (never panics).
     concat_via_real_pool(av, bv).raw()
 }
 
