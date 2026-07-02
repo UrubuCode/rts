@@ -1209,10 +1209,10 @@
 ,
 {
   "name": "280_date_setutc_family",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "iso=2024-05-10T12:34:56.789Z\nparts=2024,4,10,12,34,56,789",
   "node": "iso=2024-05-10T12:34:56.789Z\nparts=2024,4,10,12,34,56,789",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "iso=2024-05-10T12:34:56.789Z\nparts=2024,4,10,12,34,56,789"
 }
 ,
 {
@@ -1233,10 +1233,10 @@
 ,
 {
   "name": "43_date_setters_deep",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "iso=2024-06-15T08:00:00.000Z\nmonth=5\ndate=15\nhours=8",
   "node": "iso=2024-06-15T08:00:00.000Z\nmonth=5\ndate=15\nhours=8",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "iso=2024-06-15T08:00:00.000Z\nmonth=5\ndate=15\nhours=8"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":259,"rts_diverge":132,"bun_node_diverge":17,"errors":201,"rejected":0}}
+],"summary":{"total":609,"pass":261,"rts_diverge":132,"bun_node_diverge":17,"errors":199,"rejected":0}}
