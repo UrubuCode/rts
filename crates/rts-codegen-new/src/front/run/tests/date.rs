@@ -10,7 +10,7 @@
 //! deterministically regardless of the machine timezone. The bails pin the honesty
 //! floor (TZ-dependent / unmodeled constructs refuse, never a wrong value).
 
-use super::{assert_bails, assert_stdout};
+use super::assert_stdout;
 
 // ---------------------------------------------------------------------------
 // getTime / valueOf — the stored epoch ms (deterministic).
@@ -178,22 +178,39 @@ fn non_date_not_instanceof_date() {
 }
 
 // ---------------------------------------------------------------------------
-// Bails — the honesty floor.
+// Deterministic UTC surface — setters mutate in place; formatters emit the
+// UTC-deterministic forms (the modeled semantic; `MemberFlags::UNSOUND` was
+// dropped from the Date spec on 2026-07-02, the TS suite defines these).
 // ---------------------------------------------------------------------------
 
 #[test]
-fn set_time_bails() {
-    // Mutating setters are not modeled (a later increment) → refuse.
-    assert_bails(r#"let d = new Date(0); d.setTime(1000); console.log(d.getTime());"#);
+fn set_time_mutates() {
+    assert_stdout(
+        r#"let d = new Date(0); d.setTime(1000); console.log(d.getTime());"#,
+        "1000\n",
+    );
 }
 
 #[test]
-fn to_string_bails() {
-    // `toString()` format (the long GMT form) is a divergence risk → refuse.
-    assert_bails(r#"let d = new Date(0); console.log(d.toString());"#);
+fn set_full_year_mutates() {
+    assert_stdout(
+        r#"let d = new Date(0); d.setFullYear(2024); console.log(d.getUTCFullYear());"#,
+        "2024\n",
+    );
 }
 
 #[test]
-fn to_date_string_bails() {
-    assert_bails(r#"let d = new Date(0); console.log(d.toDateString());"#);
+fn to_string_js_spec_utc() {
+    assert_stdout(
+        r#"let d = new Date(0); console.log(d.toString());"#,
+        "Thu Jan 01 1970 00:00:00 GMT+0000 (Coordinated Universal Time)\n",
+    );
+}
+
+#[test]
+fn to_date_string_utc() {
+    assert_stdout(
+        r#"let d = new Date(0); console.log(d.toDateString());"#,
+        "Thu Jan 01 1970\n",
+    );
 }
