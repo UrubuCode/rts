@@ -1865,10 +1865,10 @@
 ,
 {
   "name": "293_json_reviver_this",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "obj={\"a\":2,\"b\":4}\nseen=2",
   "node": "obj={\"a\":2,\"b\":4}\nseen=2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "obj=undefined\nseen="
 }
 ,
 {
@@ -2948,7 +2948,7 @@
   "status": "rts_diverge",
   "bun": "new:set\nnew:set:get\ntrue",
   "node": "new:set\nnew:set:get\ntrue",
-  "rts": "base\nv\ntrue"
+  "rts": "base\nnew\ntrue"
 }
 ,
 {
@@ -2969,10 +2969,10 @@
 ,
 {
   "name": "53_proxy_reflect",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "ga=1\nhb=true\nvals=1:9\nseen=get:a,set:b=9,has:b,get:a,get:b",
   "node": "ga=1\nhb=true\nvals=1:9\nseen=get:a,set:b=9,has:b,get:a,get:b",
-  "rts": "ga=a\nhb=false\nvals=a:b\nseen=get:undefined,set:9=undefined,has:undefined,get:undefined,get:undefined"
+  "rts": "ga=1\nhb=true\nvals=1:9\nseen=get:a,set:b=9,has:b,get:a,get:b"
 }
 ,
 {
@@ -2980,7 +2980,7 @@
   "status": "rts_diverge",
   "bun": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
   "node": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
-  "rts": "keys=\nvals=[]\nlog=ownKeys|def:3=undefined|del:undefined|ownKeys"
+  "rts": "keys=a\nvals=[]\nlog=ownKeys|desc:a|desc:b|def:c=undefined|del:b|ownKeys|desc:a|desc:c"
 }
 ,
 {
@@ -3068,7 +3068,7 @@
   "status": "rts_diverge",
   "bun": "{\"x\":1,\"y\":3,\"z\":4}\nx,y,z\nfirst,p,q,last\np,q\n{\"a\":1}\n{\"0\":\"a\",\"1\":\"b\"}",
   "node": "{\"x\":1,\"y\":3,\"z\":4}\nx,y,z\nfirst,p,q,last\np,q\n{\"a\":1}\n{\"0\":\"a\",\"1\":\"b\"}",
-  "rts": "{\"x\":1,\"y\":3,\"z\":4}\nx,y,z\nfirst,q,p,last\n\n{\"a\":1}\n{}"
+  "rts": "{\"x\":1,\"y\":3,\"z\":4}\nx,y,z\nfirst,p,q,last\n\n{\"a\":1}\n{}"
 }
 ,
 {
@@ -3172,7 +3172,7 @@
   "status": "rts_diverge",
   "bun": "virtual\n42\n{\"virtual\":42}",
   "node": "virtual\n42\n{\"virtual\":42}",
-  "rts": "\nundefined\n[]"
+  "rts": "virtual\n42\n[]"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":258,"rts_diverge":132,"bun_node_diverge":17,"errors":202,"rejected":0}}
+],"summary":{"total":609,"pass":259,"rts_diverge":132,"bun_node_diverge":17,"errors":201,"rejected":0}}
