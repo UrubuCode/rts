@@ -88,9 +88,18 @@ function __json5_sanitize(__j5src: string): string {
       let __j5k = __j5i + 2;
       let __j5v = 0;
       while (__j5k < __j5n) {
-        const __j5h = __j5src[__j5k];
-        const __j5d = parseInt(__j5h, 16);
-        if (Number.isNaN(__j5d)) {
+        // Manual hex-digit decode — the prelude must not reference `parseInt`
+        // (a user's `import { parseInt } from "node:util"` would shadow it).
+        const __j5hc = __j5src.charCodeAt(__j5k);
+        let __j5d = -1;
+        if (__j5hc >= 48 && __j5hc <= 57) {
+          __j5d = __j5hc - 48;
+        } else if (__j5hc >= 97 && __j5hc <= 102) {
+          __j5d = __j5hc - 87;
+        } else if (__j5hc >= 65 && __j5hc <= 70) {
+          __j5d = __j5hc - 55;
+        }
+        if (__j5d < 0) {
           break;
         }
         __j5v = __j5v * 16 + __j5d;
