@@ -193,7 +193,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
         // o containing block da raiz é a VIEWPORT: `height:100%` no <html> resolve
         // contra a altura da janela (base do `h-100` de páginas reais).
         let (_, h) =
-            layout_block(dom, child, 0.0, cursor_y, ctx.viewport_w, Some(ctx.viewport_h), false, ctx, &mut list);
+            layout_block(dom, child, 0.0, cursor_y, ctx.viewport_w, Some(ctx.viewport_h), None, None, false, ctx, &mut list);
         cursor_y += h;
     }
     list.content_height = cursor_y;
@@ -236,7 +236,7 @@ fn layout_out_of_flow(dom: &Dom, id: NodeIdx, ctx: &LayoutCtx, list: &mut Displa
     };
     // mede (w, h) numa lista descartável para resolver right/bottom.
     let mut scratch = DisplayList::default();
-    let (w, h) = layout_block(dom, id, 0.0, 0.0, ctx.viewport_w, Some(ctx.viewport_h), true, ctx, &mut scratch);
+    let (w, h) = layout_block(dom, id, 0.0, 0.0, ctx.viewport_w, Some(ctx.viewport_h), None, None, true, ctx, &mut scratch);
     let left = resolve_inset(css.inset_left, ctx.viewport_w, &resolve);
     let right = resolve_inset(css.inset_right, ctx.viewport_w, &resolve);
     let top = resolve_inset(css.inset_top, ctx.viewport_h, &resolve);
@@ -251,7 +251,7 @@ fn layout_out_of_flow(dom: &Dom, id: NodeIdx, ctx: &LayoutCtx, list: &mut Displa
         (None, Some(b)) => ctx.viewport_h - h - b,
         (None, None) => 0.0,
     };
-    layout_block(dom, id, x, y, ctx.viewport_w, Some(ctx.viewport_h), true, ctx, list);
+    layout_block(dom, id, x, y, ctx.viewport_w, Some(ctx.viewport_h), None, None, true, ctx, list);
 }
 
 /// Resolve um offset de posicionamento (`top`/`left`/…): px SEM clamp (negativo
@@ -446,6 +446,13 @@ fn layout_block(
     // do pai (antes resolvia errado contra a largura; `h-100` não funcionava).
     // `None` = pai com altura auto → `height: %` vira auto (fiel ao browser).
     avail_h: Option<f32>,
+    // Largura OUTER IMPOSTA (com margem) — o flex resolveu grow/shrink e DITA o
+    // main size do item; vence width/min-max/shrink-to-fit (v1: clamp min/max no
+    // resolve flex fica como corte documentado). `None` = fluxo normal.
+    forced_outer_w: Option<f32>,
+    // Altura OUTER IMPOSTA (com margem) — o `align-items/self: stretch` do flex.
+    // O caller só passa para item SEM height explícito. `None` = altura natural.
+    forced_outer_h: Option<f32>,
     // `shrink_to_fit`: quando true, um bloco SEM `width` explícito dimensiona pela
     // largura do CONTEÚDO (como `inline-block`/item flex), não ocupa a largura
     // disponível. É o que faz badges num container horizontal não esticarem para a
@@ -529,30 +536,36 @@ fn layout_block(
     let frame = margin_h + 2.0 * border + padding_h;
     let font_for_content = font_px(&css, DEFAULT_FONT_SIZE);
     let border_box = css.border_box.unwrap_or(false);
-    let content_w = match css.width.and_then(|d| d.resolve(&resolve)) {
-        // `width` explícito. Em `border-box`, o `width` INCLUI padding+border —
-        // então o content é `width - (padding_h + 2*border)`. Em content-box
-        // (default), o `width` JÁ é o content.
-        Some(w) if border_box => (w - (padding_h + 2.0 * border)).max(0.0),
-        Some(w) => w,
-        // Sem width: shrink-to-fit → largura do conteúdo (limitada ao disponível);
-        // senão (fluxo block normal) → ocupa a largura disponível.
-        None if shrink_to_fit => {
-            content_natural_width(dom, id, font_for_content, ctx).min((avail_w - frame).max(0.0))
-        }
-        None => (avail_w - frame).max(0.0),
+    let content_w = if let Some(fw) = forced_outer_w {
+        // main size do FLEX (grow/shrink já resolvidos): outer imposto → content =
+        // outer - frame (o frame já soma margem+borda+padding dos dois lados).
+        // Vence width/min-max (o clamp no resolve flex é corte documentado).
+        (fw - frame).max(0.0)
+    } else {
+        let base = match css.width.and_then(|d| d.resolve(&resolve)) {
+            // `width` explícito. Em `border-box`, o `width` INCLUI padding+border —
+            // então o content é `width - (padding_h + 2*border)`. Em content-box
+            // (default), o `width` JÁ é o content.
+            Some(w) if border_box => (w - (padding_h + 2.0 * border)).max(0.0),
+            Some(w) => w,
+            // Sem width: shrink-to-fit → largura do conteúdo (limitada ao disponível);
+            // senão (fluxo block normal) → ocupa a largura disponível.
+            None if shrink_to_fit => {
+                content_natural_width(dom, id, font_for_content, ctx).min((avail_w - frame).max(0.0))
+            }
+            None => (avail_w - frame).max(0.0),
+        };
+        // CLAMP min/max-width (#1751): `used = clamp(min, width, max)`. min/max são
+        // sobre a CAIXA (border-box) na spec — descontamos o frame p/ aplicar ao
+        // content quando border-box; em content-box já são do content.
+        let mnw = css.min_width.and_then(|d| d.resolve(&resolve)).map(|v| {
+            if border_box { (v - (padding_h + 2.0 * border)).max(0.0) } else { v }
+        });
+        let mxw = css.max_width.and_then(|d| d.resolve(&resolve)).map(|v| {
+            if border_box { (v - (padding_h + 2.0 * border)).max(0.0) } else { v }
+        });
+        crate::style::clamp_size(base, mnw, mxw)
     };
-    // CLAMP min/max-width (#1751): `used = clamp(min, width, max)`. min/max são sobre
-    // a CAIXA (border-box) na spec — descontamos o frame p/ aplicar ao content quando
-    // border-box; em content-box o min/max já são do content. (aprox: aplicamos ao
-    // content, descontando pad+border só no border-box.)
-    let mnw = css.min_width.and_then(|d| d.resolve(&resolve)).map(|v| {
-        if border_box { (v - (padding_h + 2.0 * border)).max(0.0) } else { v }
-    });
-    let mxw = css.max_width.and_then(|d| d.resolve(&resolve)).map(|v| {
-        if border_box { (v - (padding_h + 2.0 * border)).max(0.0) } else { v }
-    });
-    let content_w = crate::style::clamp_size(content_w, mnw, mxw);
 
     // `margin: 0 auto` (#1745): se o margin-left/right é `auto` E o bloco tem largura
     // definida (não ocupa o pai inteiro), o espaço livre se distribui pelos lados
@@ -650,6 +663,13 @@ fn layout_block(
         if border_box { (v - frame_v).max(0.0) } else { v }
     });
     let content_h = crate::style::clamp_size(content_h, mnh, mxh);
+    // STRETCH do flex: altura OUTER imposta pelo container (align-items/self:
+    // stretch) → content = outer - margens - frame_v; nunca ENCOLHE o conteúdo
+    // (max com o natural — um item mais alto que a linha não é cortado).
+    let content_h = match forced_outer_h {
+        Some(fh) => (fh - margin_top - margin_bottom - frame_v).max(content_h),
+        None => content_h,
+    };
 
     // ── Insere a CAIXA (fundo + borda) no índice reservado, ATRÁS dos filhos ─────
     // O BORDER-BOX do nó: content + padding + border (NÃO a margin — esta é espaço
@@ -1036,7 +1056,7 @@ fn layout_children_vertical(
                     float_right_x -= w;
                     float_right_x
                 };
-                layout_block(dom, child, x, top, content_w, avail_h, true, ctx, list);
+                layout_block(dom, child, x, top, content_w, avail_h, None, None, true, ctx, list);
                 float_h = float_h.max(h);
                 prev_margin = 0.0; // float quebra a sequência de collapse
             }
@@ -1073,7 +1093,7 @@ fn layout_children_vertical(
                     // mede a largura desejada (shrink) numa lista descartável p/ achar
                     // o offset do text-align ANTES de pintar de verdade.
                     let mut scratch = DisplayList::default();
-                    let (w, _) = layout_block(dom, child, content_x, child_y, content_w, avail_h, true, ctx, &mut scratch);
+                    let (w, _) = layout_block(dom, child, content_x, child_y, content_w, avail_h, None, None, true, ctx, &mut scratch);
                     let free = (content_w - w).max(0.0);
                     match css.text_align {
                         Some(crate::style::TextAlign::Center) => content_x + free / 2.0,
@@ -1083,7 +1103,7 @@ fn layout_children_vertical(
                 } else {
                     content_x
                 };
-                let (_, h) = layout_block(dom, child, child_x, child_y, content_w, avail_h, inline_block, ctx, list);
+                let (_, h) = layout_block(dom, child, child_x, child_y, content_w, avail_h, None, None, inline_block, ctx, list);
                 child_y += h;
                 prev_margin = m;
             }
@@ -1107,16 +1127,61 @@ fn float_of(dom: &Dom, id: NodeIdx) -> crate::style::FloatSide {
         .unwrap_or(crate::style::FloatSide::None)
 }
 
-/// Um item medido do flex (pré-pass), com a referência ao nó e seu tamanho OUTER
-/// desejado nos dois eixos (para justify no main e align no cross).
+/// Um item do flex (pré-pass), com a BASE no eixo principal (flex-basis/width/
+/// conteúdo, outer com margem), o MAIN size final (após grow/shrink) e os
+/// fatores de flexibilidade lidos do estilo.
 struct FlexItem {
     node: NodeIdx,
-    /// largura outer desejada (eixo principal em row).
-    w: f32,
-    /// altura outer desejada (eixo cruzado em row).
+    /// tamanho BASE outer no eixo principal (antes de grow/shrink).
+    base: f32,
+    /// main size FINAL outer (após grow/shrink) — começa igual à base.
+    main: f32,
+    /// altura outer (cross) — re-medida com o main final quando ele muda.
     h: f32,
     /// `true` se é um nó de texto solto (pintado direto, não via layout_block).
     is_text: bool,
+    /// `flex-grow` (0 = não cresce).
+    grow: f32,
+    /// `flex-shrink` (1 = default do CSS; texto solto não encolhe).
+    shrink: f32,
+    /// `align-self` do item (None = usa o align-items do container).
+    align_self: Option<crate::style::AlignItems>,
+    /// `order` (menor primeiro; empate = ordem do documento — sort estável).
+    order: i32,
+    /// o item PODE ser esticado pelo stretch (sem `height` explícito).
+    can_stretch: bool,
+}
+
+/// A BASE outer de um item flex no eixo principal: `flex-basis` explícita
+/// (resolvida como o width — respeita box-sizing) + margens; `auto`/ausente →
+/// width/conteúdo ([`child_outer_width`]). O `.col` do Bootstrap tem basis `0%`
+/// → a base é só o frame (e o grow distribui o espaço).
+fn flex_base_outer(dom: &Dom, id: NodeIdx, container_w: f32, parent_font: f32, ctx: &LayoutCtx) -> f32 {
+    let css = dom.computed_style_idx(id).unwrap_or_default();
+    let font = font_px(&css, parent_font);
+    let resolve = ResolveCtx {
+        parent_content_w: container_w,
+        node_font_size: font,
+        root_font_size: DEFAULT_FONT_SIZE,
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+    let basis = css.flex_basis.and_then(|d| match d {
+        crate::style::Dimension::Auto => None,
+        other => other.resolve(&resolve),
+    });
+    let Some(basis) = basis else {
+        return child_outer_width(dom, id, container_w, parent_font, ctx);
+    };
+    let margin_h = css.margin.resolve_h(&resolve);
+    if css.border_box.unwrap_or(false) {
+        basis + margin_h // border-box: a basis JÁ é a caixa (pad+borda inclusos)
+    } else {
+        basis
+            + margin_h
+            + 2.0 * css.border_width.unwrap_or(0.0)
+            + css.padding.resolve_h(&resolve)
+    }
 }
 
 /// Dispõe os filhos HORIZONTAL (flex-row). Implementa gap, justify-content (eixo
@@ -1157,9 +1222,8 @@ fn layout_children_horizontal(
     // `0` = sem height explícito (o cross-size da linha usa o max dos itens).
     let container_cross_h = container_content_h.unwrap_or(0.0);
 
-    // ── PRÉ-PASS: mede cada filho renderável e agrupa em LINHAS (wrap) ────────────
-    let mut lines: Vec<Vec<FlexItem>> = vec![Vec::new()];
-    let mut line_w = 0.0f32; // largura consumida da linha atual (itens + gaps)
+    // ── PRÉ-PASS: coleta cada filho renderável com a BASE flex + fatores ─────────
+    let mut items: Vec<FlexItem> = Vec::new();
     for &child in &dom.node(id).children {
         if let NodeKind::Element { tag } = &dom.node(child).kind {
             if is_non_rendered_tag(tag) {
@@ -1170,54 +1234,106 @@ fn layout_children_horizontal(
         if is_out_of_flow(dom, child) {
             continue;
         }
-        let is_block = is_block_level(dom, child);
-        if !is_block {
-            // texto solto: largura medida; vazio é ignorado.
+        if !is_block_level(dom, child) {
+            // texto solto: largura medida; vazio é ignorado. Não cresce nem encolhe.
             let text = collect_text(dom, child);
             if text.trim().is_empty() {
                 continue;
             }
             let w = ctx.measurer.text_width(&text, font_size, false, false);
             let h = ctx.measurer.line_height(font_size);
-            let cur = lines.last_mut().unwrap();
-            let with_gap = if cur.is_empty() { 0.0 } else { gap };
-            if wrap && !cur.is_empty() && line_w + with_gap + w > content_w {
-                lines.push(Vec::new());
-                line_w = w;
-            } else {
-                line_w += with_gap + w;
-            }
-            lines.last_mut().unwrap().push(FlexItem { node: child, w, h, is_text: true });
+            items.push(FlexItem {
+                node: child,
+                base: w,
+                main: w,
+                h,
+                is_text: true,
+                grow: 0.0,
+                shrink: 0.0,
+                align_self: None,
+                order: 0,
+                can_stretch: false,
+            });
             continue;
         }
-        let w = child_outer_width(dom, child, content_w, font_size, ctx);
+        let ccss = dom.computed_style_idx(child).unwrap_or_default();
+        let base = flex_base_outer(dom, child, content_w, font_size, ctx);
         let h = child_outer_height(dom, child, content_w, container_content_h, font_size, ctx);
+        items.push(FlexItem {
+            node: child,
+            base,
+            main: base,
+            h,
+            is_text: false,
+            grow: ccss.flex_grow.unwrap_or(0.0),
+            shrink: ccss.flex_shrink.unwrap_or(1.0), // 1 é o default do CSS
+            align_self: ccss.align_self,
+            order: ccss.order.unwrap_or(0),
+            can_stretch: ccss.height.is_none(),
+        });
+    }
+    // `order` reordena ANTES do wrap (sort estável: empate = ordem do documento).
+    items.sort_by_key(|it| it.order);
+
+    // agrupa em LINHAS pela BASE (o wrap decide pelas bases; grow/shrink POR linha).
+    let mut lines: Vec<Vec<FlexItem>> = vec![Vec::new()];
+    let mut line_w = 0.0f32;
+    for it in items {
         let cur = lines.last_mut().unwrap();
         let with_gap = if cur.is_empty() { 0.0 } else { gap };
-        if wrap && !cur.is_empty() && line_w + with_gap + w > content_w {
+        if wrap && !cur.is_empty() && line_w + with_gap + it.base > content_w {
             lines.push(Vec::new());
-            line_w = w;
+            line_w = it.base;
         } else {
-            line_w += with_gap + w;
+            line_w += with_gap + it.base;
         }
-        lines.last_mut().unwrap().push(FlexItem { node: child, w, h, is_text: false });
+        lines.last_mut().unwrap().push(it);
     }
 
-    // ── POSICIONAMENTO: por linha, aplica justify (main) + align (cross) ─────────
+    // ── RESOLVE + POSICIONA por linha: grow/shrink (main), justify, align ────────
     let mut line_y = content_y;
-    for line in &lines {
+    for line in &mut lines {
         if line.is_empty() {
             continue;
         }
         let n = line.len();
-        let sum_w: f32 = line.iter().map(|it| it.w).sum();
         let total_gap = (n.saturating_sub(1)) as f32 * gap;
-        let free = content_w - sum_w - total_gap;
+
+        // GROW/SHRINK (spec flexbox §9.7 simplificada): espaço livre positivo
+        // distribui ∝ flex-grow (o `.col { flex:1 0 0% }` divide igual); negativo
+        // encolhe ∝ shrink × base (itens maiores cedem mais), clamp ≥ 0.
+        let sum_base: f32 = line.iter().map(|it| it.base).sum();
+        let free_pre = content_w - sum_base - total_gap;
+        let sum_grow: f32 = line.iter().map(|it| it.grow).sum();
+        if free_pre > 0.0 && sum_grow > 0.0 {
+            for it in line.iter_mut() {
+                it.main = it.base + free_pre * it.grow / sum_grow;
+            }
+        } else if free_pre < 0.0 {
+            let weighted: f32 = line.iter().map(|it| it.shrink * it.base).sum();
+            if weighted > 0.0 {
+                for it in line.iter_mut() {
+                    it.main = (it.base + free_pre * (it.shrink * it.base) / weighted).max(0.0);
+                }
+            }
+        }
+        // re-mede a ALTURA com o main final (mais largura → menos linhas de texto);
+        // só quando o main mudou (senão a medição do pré-pass vale).
+        for it in line.iter_mut() {
+            if !it.is_text && (it.main - it.base).abs() > 0.5 {
+                let mut scratch = DisplayList::default();
+                let (_, h) = layout_block(
+                    dom, it.node, 0.0, 0.0, content_w, container_content_h,
+                    Some(it.main), None, true, ctx, &mut scratch,
+                );
+                it.h = h;
+            }
+        }
+
         // Cross-size de referência da linha = max das alturas dos itens, MAS se o
         // container tem `height` explícito e a linha é única (no-wrap), o cross-size
-        // é a ALTURA DO CONTENT do container (fiel ao Chrome: align-items:center num
-        // bar height:60 com botões height:40 → botão em y=10, não y=0). Em wrap, cada
-        // linha usa seu próprio max (height do container reparte entre linhas — corte).
+        // é a ALTURA DO CONTENT do container (fiel ao Chrome). Em wrap, cada linha
+        // usa seu próprio max (repartir o height entre linhas — corte documentado).
         let items_h = line.iter().fold(0.0f32, |a, it| a.max(it.h));
         let line_h = if !wrap && container_cross_h > items_h {
             container_cross_h
@@ -1225,8 +1341,10 @@ fn layout_children_horizontal(
             items_h
         };
 
-        // justify-content → (leading, between extra). Em overflow (free<=0) ou n==1
-        // os space-* caem para flex-start/center (ver justify_offsets).
+        // justify-content sobre o espaço restante PÓS-grow (com grow>0 o free é 0
+        // e o justify é neutro — correto). Em overflow, ver justify_offsets.
+        let sum_main: f32 = line.iter().map(|it| it.main).sum();
+        let free = content_w - sum_main - total_gap;
         let (leading, between) = justify_offsets(justify, free, n);
 
         let mut x = content_x + leading;
@@ -1234,8 +1352,15 @@ fn layout_children_horizontal(
             if j > 0 {
                 x += gap + between;
             }
-            // align-items → offset no eixo cruzado dentro da altura da linha.
-            let off_cross = align_offset(align, line_h, it.h);
+            // align por item: `align-self` vence o `align-items` do container;
+            // STRETCH real: item sem height explícito ganha a ALTURA DA LINHA
+            // (forced_outer_h) — os cards `.col` preenchem a linha.
+            let item_align = it.align_self.unwrap_or(align);
+            let stretches = item_align == crate::style::AlignItems::Stretch
+                && it.can_stretch
+                && !it.is_text
+                && line_h > it.h;
+            let off_cross = if stretches { 0.0 } else { align_offset(item_align, line_h, it.h) };
             let item_y = line_y + off_cross;
             if it.is_text {
                 let text = collect_text(dom, it.node);
@@ -1250,10 +1375,15 @@ fn layout_children_horizontal(
                     bold: css.bold.unwrap_or(false),
                 });
             } else {
-                // o filho resolve seu próprio width contra o container (%).
-                layout_block(dom, it.node, x, item_y, content_w, container_content_h, true, ctx, list);
+                // o main resolvido é IMPOSTO ao item (grow/shrink venceram o
+                // width); stretch impõe a altura da linha.
+                let forced_h = if stretches { Some(line_h) } else { None };
+                layout_block(
+                    dom, it.node, x, item_y, content_w, container_content_h,
+                    Some(it.main), forced_h, true, ctx, list,
+                );
             }
-            x += it.w;
+            x += it.main;
         }
         line_y += line_h + row_gap;
     }
@@ -1396,11 +1526,11 @@ fn layout_children_column(
             } else {
                 let mut scratch = DisplayList::default();
                 let (w, _) =
-                    layout_block(dom, it.node, content_x, y, content_w, container_content_h, true, ctx, &mut scratch);
+                    layout_block(dom, it.node, content_x, y, content_w, container_content_h, None, None, true, ctx, &mut scratch);
                 let free_x = (content_w - w).max(0.0);
                 content_x + align_offset(align, content_w, content_w - free_x)
             };
-            layout_block(dom, it.node, child_x, y, content_w, container_content_h, !stretch, ctx, list);
+            layout_block(dom, it.node, child_x, y, content_w, container_content_h, None, None, !stretch, ctx, list);
         }
         y += it.h;
         if it.mb_auto {
@@ -1475,7 +1605,7 @@ fn child_outer_height(
         NodeKind::Element { .. } if is_block_level(dom, id) => {
             // layout de teste numa lista descartável: o (_, outer_h) é a altura real.
             let mut scratch = DisplayList::default();
-            let (_, outer_h) = layout_block(dom, id, 0.0, 0.0, container_w, container_h, true, ctx, &mut scratch);
+            let (_, outer_h) = layout_block(dom, id, 0.0, 0.0, container_w, container_h, None, None, true, ctx, &mut scratch);
             outer_h
         }
         NodeKind::Text(_) => ctx.measurer.line_height(parent_font),
@@ -2199,7 +2329,10 @@ mod tests {
     fn flex_card_rects(style: &str, n_cards: usize, vw: f32) -> Vec<Rect> {
         crate::block::define("row", crate::block::BlockDef { display: 2, indent: 0.0, prefix: 0, flags: 0 });
         crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
-        let mut html = format!("<style>row{{display:flex;{style}}} .c{{width:100px;background:#111}}</style><row>");
+        // flex-shrink:0 nos cards: estes testes validam JUSTIFY (inclusive em
+        // overflow real, como o Chrome foi medido); sem o 0, o shrink default=1
+        // (agora implementado!) encolheria os itens e não haveria overflow.
+        let mut html = format!("<style>row{{display:flex;{style}}} .c{{width:100px;flex-shrink:0;background:#111}}</style><row>");
         for i in 0..n_cards {
             html.push_str(&format!("<div class='c' id='c{i}'>x</div>"));
         }
@@ -2244,6 +2377,85 @@ mod tests {
         let r = flex_card_rects("justify-content:space-evenly", 3, 600.0);
         assert!((r[0].x - 75.0).abs() < 0.5, "evenly leading=75: {r:?}");
         assert!((r[1].x - 250.0).abs() < 0.5, "{r:?}");
+    }
+
+    #[test]
+    fn flex_grow_distribui_o_espaco() {
+        // O GRID do Bootstrap: `.col { flex: 1 0 0% }` — 3 colunas dividem o
+        // container igualmente (base 0, grow distribui TUDO).
+        crate::block::define("row", crate::block::BlockDef { display: 2, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        let list = layout(
+            "<style>row{display:flex} .col{flex:1 0 0%;background:#111}</style>\
+             <row><div class='col'>a</div><div class='col'>b</div><div class='col'>c</div></row>",
+            600.0,
+        );
+        let r = all_rects(&list);
+        assert_eq!(r.len(), 3);
+        assert!((r[0].w - 200.0).abs() < 0.5, "3 colunas iguais: {r:?}");
+        assert!((r[1].x - 200.0).abs() < 0.5, "{r:?}");
+        assert!((r[2].x - 400.0).abs() < 0.5, "{r:?}");
+        // grow 1:2 → 200 e 400.
+        let l2 = layout(
+            "<style>row{display:flex} .a{flex:1 0 0%;background:#111} .b{flex:2 0 0%;background:#222}</style>\
+             <row><div class='a'>a</div><div class='b'>b</div></row>",
+            600.0,
+        );
+        let r2 = all_rects(&l2);
+        assert!((r2[0].w - 200.0).abs() < 0.5, "grow 1: {r2:?}");
+        assert!((r2[1].w - 400.0).abs() < 0.5, "grow 2: {r2:?}");
+    }
+
+    #[test]
+    fn flex_shrink_encolhe_em_overflow() {
+        // shrink DEFAULT = 1 (fiel ao CSS): 2 itens de 400 em 600 encolhem para
+        // 300 cada; com shrink:0 no primeiro, ele mantém 400 e o outro cede.
+        crate::block::define("row", crate::block::BlockDef { display: 2, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        let list = layout(
+            "<style>row{display:flex} .c{width:400px;background:#111}</style>\
+             <row><div class='c'>a</div><div class='c'>b</div></row>",
+            600.0,
+        );
+        let r = all_rects(&list);
+        assert!((r[0].w - 300.0).abs() < 0.5, "shrink default encolhe: {r:?}");
+        assert!((r[1].w - 300.0).abs() < 0.5, "{r:?}");
+        let l2 = layout(
+            "<style>row{display:flex} .fix{width:400px;flex-shrink:0;background:#111} .c{width:400px;background:#222}</style>\
+             <row><div class='fix'>a</div><div class='c'>b</div></row>",
+            600.0,
+        );
+        let r2 = all_rects(&l2);
+        assert!((r2[0].w - 400.0).abs() < 0.5, "shrink:0 nao cede: {r2:?}");
+        assert!((r2[1].w - 200.0).abs() < 0.5, "o flexivel cede tudo: {r2:?}");
+    }
+
+    #[test]
+    fn flex_order_e_align_self() {
+        // `order` reordena visualmente (menor primeiro); `align-self` vence o
+        // align-items do container; STRETCH real estica o item sem height.
+        crate::block::define("row", crate::block::BlockDef { display: 2, indent: 0.0, prefix: 0, flags: 0 });
+        crate::block::define("div", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        let list = layout(
+            "<style>row{display:flex;height:100px;align-items:flex-start}\
+              .a{order:2;width:100px;height:20px;background:#111}\
+              .b{order:1;width:100px;height:20px;align-self:center;background:#222}\
+              .s{align-self:stretch;width:100px;background:#333}</style>\
+             <row><div class='a'>a</div><div class='b'>b</div><div class='s'>s</div></row>",
+            600.0,
+        );
+        // os rects saem na ordem VISUAL (pós-order): .s (0) → .b (1) → .a (2).
+        let r = all_rects(&list);
+        assert!((r[0].x - 0.0).abs() < 0.5, ".s primeiro (order 0): {r:?}");
+        assert!((r[1].x - 100.0).abs() < 0.5, ".b no meio (order 1): {r:?}");
+        assert!((r[2].x - 200.0).abs() < 0.5, ".a por ultimo (order 2): {r:?}");
+        // align-self:stretch do .s (sem height): estica até a linha (100) — o
+        // align-items:flex-start do container é VENCIDO pelo align-self.
+        assert!((r[0].h - 100.0).abs() < 0.5, "stretch estica: {r:?}");
+        // align-self:center do .b: y = (100-20)/2 = 40.
+        assert!((r[1].y - 40.0).abs() < 0.5, "align-self center: {r:?}");
+        // .a fica no topo (align-items:flex-start do container).
+        assert!((r[2].y - 0.0).abs() < 0.5, "{r:?}");
     }
 
     #[test]
