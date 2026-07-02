@@ -293,6 +293,18 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, U64, U64],
             ret: U64,
         },
+        // `new Function(p…, body)` — args vec of PolyValue words → TAG_FUNCTION
+        // word (`undefined` on a failed compile).
+        "__rtsadp_fn_new" => SymSig {
+            params: &[U64],
+            ret: U64,
+        },
+        // `f.bind(thisArg, …partial)` — clone the fn value with the partial
+        // args appended to bound_args.
+        "__rtsadp_fn_bind" => SymSig {
+            params: &[U64, U64],
+            ret: U64,
+        },
 
         // ---- REAL collections Vec (rts-shared collections::vec) ----
         "__RTS_FN_NS_COLLECTIONS_VEC_NEW" => SymSig {

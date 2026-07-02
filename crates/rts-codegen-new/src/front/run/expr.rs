@@ -100,6 +100,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 {
                     return self.lower_new_value(module, class, args);
                 }
+                // `new Function(p…, body)` — the PRIMORDIAL dynamic-function ctor
+                // (unless a user class shadows the name): a function VALUE.
+                if class == "Function" && self.classes.get(class).is_none() {
+                    return self.lower_new_function(module, args);
+                }
                 // A `new C(args)` used as a bare expression (not bound to a local
                 // whose class/shape we record) still builds the instance (a valid
                 // TAG_OBJECT PolyValue, so `console.log(new C())` / method chaining

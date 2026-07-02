@@ -34,6 +34,32 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Lower `new C(args)`. Returns the instance `Val` (kind `Object`) plus the
     /// class name + the OBJECT shape id (interned in THIS fn's ShapeTable), so a
     /// `let` can record the local's class/shape for later member/method access.
+    /// `new Function(p0…pN-1, body)` — the PRIMORDIAL dynamic-function ctor (only
+    /// when no user class shadows the name): pack every arg word into a Vec and
+    /// hand it to `__rtsadp_fn_new`, which ToStrings the params/body, compiles
+    /// the body through the engine-installed COMPILE_FN_HOOK (see
+    /// [`super::dynfn`]) and returns the boxed `TAG_FUNCTION` word (`undefined`
+    /// on a failed compile). The result is a function VALUE — no class, no
+    /// object shape — so `.call`/`.apply` dispatch through the fn-value path.
+    pub(super) fn lower_new_function(
+        &mut self,
+        module: &mut dyn Module,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        let vec_h = self
+            .call_runtime(module, "__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[])?
+            .expect("VEC_NEW returns a handle");
+        for a in args {
+            let v = self.lower_expr(module, a)?;
+            let w = self.box_value(v);
+            self.call_runtime(module, "__RTS_FN_NS_COLLECTIONS_VEC_PUSH", &[vec_h, w])?;
+        }
+        let word = self
+            .call_runtime(module, "__rtsadp_fn_new", &[vec_h])?
+            .expect("__rtsadp_fn_new returns a word");
+        Ok(Val::tagged_kind(word, JsKind::Function))
+    }
+
     pub(super) fn lower_new(
         &mut self,
         module: &mut dyn Module,

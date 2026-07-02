@@ -240,6 +240,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.bind_tagged_local(name, val);
                 return Ok(());
             }
+            // `const f = new Function(p…, body)` — the PRIMORDIAL dynamic-function
+            // ctor (unless a user class shadows the name): a function VALUE, so
+            // NO class/shape is recorded (`.call`/`.apply` dispatch through the
+            // fn-value path, not the class-method path).
+            HirExprKind::New { class, args }
+                if class == "Function" && self.classes.get(class).is_none() =>
+            {
+                let val = self.lower_new_function(module, args)?;
+                self.bind_tagged_local(name, val);
+                return Ok(());
+            }
             // `let c = new C(args)`: build the instance, record the local's CLASS
             // (for static `c.method()` dispatch) and OBJECT shape (for `c.field`).
             HirExprKind::New { class, args } => {

@@ -178,6 +178,17 @@ pub extern "C" fn __rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
     if let Some((target, handler)) = proxy_parts(obj_word) {
         return proxy_get(target, handler, key_str_handle);
     }
+    // A FUNCTION receiver: `.name` is the Function getter (`"anonymous"` for a
+    // `new Function`); `.length` falls into the tag-dispatched length below.
+    {
+        let v = PolyValue::from_raw(obj_word);
+        if v.is_function() && key_text(key_str_handle) == "name" {
+            let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+            let name_h =
+                rts_runtime::namespaces::globals::function::ops::__RTS_FN_GL_FUNCTION_NAME(h);
+            return abi_adapter::poly_from_real_handle(name_h).raw();
+        }
+    }
     // `.length` on a NON-keyed receiver (a string / an array reached through the
     // dynamic get — `cfg?.list.length`): route the tag-dispatched length. A KEYED
     // object falls through to its own `length` slot below (`dyn_length`'s keyed

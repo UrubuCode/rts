@@ -61,7 +61,7 @@ impl Program {
 /// `__rtsadp_*` / … resolve at link time). The symbol set is the REAL runtime
 /// surface the lowering calls plus the codegen-owned adapter trampolines, sourced
 /// directly from [`crate::adapter_symbols::jit_symbols`].
-fn make_module() -> JITModule {
+pub(super) fn make_module() -> JITModule {
     let mut flags = settings::builder();
     flags.set("opt_level", "speed").unwrap();
     // TCO (`return_call` between `CallConv::Tail` fns) requires frame pointers
@@ -94,6 +94,10 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
     // Wire the engine's pending-error slot into the runtime's async watcher (a
     // `throw` inside a spawned async body must REJECT, not resolve). Idempotent.
     rts_adapters::value::errslot::install_async_error_hook();
+    // Wire `new Function(params…, body)` to the engine's own nested-compile
+    // pipeline (rts-primitives' COMPILE_FN_HOOK — never registered means the
+    // ctor returns handle 0 with an eprintln). Idempotent.
+    super::dynfn::register_hook();
     let mut module = make_module();
     let main_id = populate_module(&mut module, prog)?;
     module

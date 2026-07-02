@@ -26,6 +26,7 @@ mod argsobj;
 mod assign;
 mod asyncspawn;
 mod binop;
+mod dynfn;
 mod floatscan;
 mod binop_eq;
 mod ctorfn;
