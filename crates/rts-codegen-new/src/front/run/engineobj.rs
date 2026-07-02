@@ -227,6 +227,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if let Some(spec) = engine_str_member(method) {
             return self.lower_engine_str(module, spec, args);
         }
+        // WORD → WORD members (one PolyValue arg, PolyValue return): the
+        // structuredClone transfer bridges (is_buffer/buffer_clone/buffer_detach).
+        if let Some(symbol) = engine_word_member(method) {
+            if args.len() != 1 {
+                return unsupported!("engine.{method} expects 1 arg, got {}", args.len());
+            }
+            let v = self.lower_expr(module, &args[0])?;
+            let w = self.box_value(v);
+            let res = self
+                .call_runtime(module, symbol, &[w])?
+                .expect("engine word member returns a value");
+            return Ok(Val::new(res, crate::repr::Repr::Tagged));
+        }
         let Some((symbol, ret)) = engine_member(method) else {
             return unsupported!("engine.{method}(...) (unknown engine member)");
         };
@@ -549,6 +562,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
 /// Resolve a 0-arg `engine.method` name to its real symbol + return kind.
 /// `trace_push` is handled separately (it takes args).
+/// WORD->WORD engine members (1 PolyValue arg, PolyValue ret).
+fn engine_word_member(method: &str) -> Option<&'static str> {
+    Some(match method {
+        "is_buffer" => "__RTS_FN_NS_ENGINE_IS_BUFFER",
+        "buffer_clone" => "__RTS_FN_NS_ENGINE_BUFFER_CLONE",
+        "buffer_detach" => "__RTS_FN_NS_ENGINE_BUFFER_DETACH",
+        _ => return None,
+    })
+}
+
 fn engine_member(method: &str) -> Option<(&'static str, EngRet)> {
     Some(match method {
         "arch" => ("__RTS_FN_NS_ENGINE_ARCH", EngRet::Str),

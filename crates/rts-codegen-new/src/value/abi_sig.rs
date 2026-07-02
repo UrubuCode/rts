@@ -341,7 +341,10 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         },
         "__rtsadp_typeof" | "__rtsadp_to_string" | "__rtsadp_to_boolean"
         | "__rtsadp_await" | "__rtsadp_word_to_abi_i64" | "__rtsadp_box_handle_auto"
-        | "__rtsadp_class_proto" => SymSig {
+        | "__rtsadp_class_proto"
+        | "__RTS_FN_NS_ENGINE_IS_BUFFER"
+        | "__RTS_FN_NS_ENGINE_BUFFER_CLONE"
+        | "__RTS_FN_NS_ENGINE_BUFFER_DETACH" => SymSig {
             params: &[U64],
             ret: U64,
         },

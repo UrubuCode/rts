@@ -194,7 +194,23 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let is_array_instance = super::registry::class_ctors(&class_name)
                     .iter()
                     .any(|c| c.ret_is_array_handle);
-                if is_array_instance {
+                // A typed array constructed OVER an ArrayBuffer is a level-B live
+                // VIEW (a keyed object sharing the buffer) — the PROVEN-array fast
+                // paths (VEC_LEN/VEC_GET) would read its internal slots. Detected
+                // statically by the ctor arg's class; the local keeps the CLASS
+                // (its spec carries set/subarray/length) and every index/length
+                // goes through the tag-dispatched dynamic path.
+                let is_buffer_view = is_array_instance
+                    && args.first().is_some_and(|a| {
+                        matches!(
+                            self.global_instance_class(a).as_deref(),
+                            Some("ArrayBuffer") | Some("SharedArrayBuffer")
+                        )
+                    });
+                if is_buffer_view {
+                    self.global_instance_classes
+                        .insert(name.to_string(), class_name);
+                } else if is_array_instance {
                     self.local_shapes.insert(name.to_string(), HeapShape::Array);
                 } else {
                     self.global_instance_classes

@@ -180,8 +180,22 @@ fn register_typed_array_class_specs(e: &mut Engine) {
         ("Float64Array", "__RTS_FN_GL_TA_NEW_F64", ta::__RTS_FN_GL_TA_NEW_F64 as *const u8),
     ];
     for (class, symbol, ptr) in ctors {
+        let m = |name: &str, argc: usize, sym: &str, fp: *const u8, ts: &str| Member {
+            name: name.to_string(),
+            kind: MemberKind::InstanceMethod,
+            sig: Sig::new(vec![AbiType::PolyValue; argc + 1], AbiType::PolyValue),
+            symbol: sym.to_string(),
+            fn_ptr: FnPtr(fp),
+            flags: MemberFlags::NONE,
+            aliases: Vec::new(),
+            variadic: false,
+            ts_signature: ts.to_string(),
+            doc: "TypedArray instance surface (works on both the Vec-backed and the buffer-VIEW representations).".to_string(),
+            pure: false,
+            intrinsic: None,
+        };
         e.class(class)
-            .doc("TypedArray (Vec-backed level A) — the instance IS a plain JS array of wrapped elements.")
+            .doc("TypedArray — Vec-backed for length/array ctors, a live buffer VIEW for an ArrayBuffer ctor.")
             .member(Member {
                 name: "new".to_string(),
                 kind: MemberKind::Constructor,
@@ -192,8 +206,50 @@ fn register_typed_array_class_specs(e: &mut Engine) {
                 aliases: Vec::new(),
                 variadic: false,
                 ts_signature: format!("new {class}(src: number | number[] | ArrayBuffer): number[]"),
-                doc: "Level-A Vec-backed typed array (elements wrapped at construction).".to_string(),
+                doc: "Typed-array constructor (length → zeros; array → wrapped copy; ArrayBuffer → live view).".to_string(),
                 pure: false,
+                intrinsic: None,
+            })
+            .member(m(
+                "set",
+                2,
+                "__rtsadp_arr_ta_set",
+                ta::__rtsadp_arr_ta_set as *const u8,
+                "set(src: number[], offset?: number): void",
+            ))
+            .member(m(
+                "set",
+                1,
+                "__rtsadp_arr_ta_set1",
+                ta::__rtsadp_arr_ta_set1 as *const u8,
+                "set(src: number[]): void",
+            ))
+            .member(m(
+                "subarray",
+                2,
+                "__rtsadp_arr_subarray",
+                ta::__rtsadp_arr_subarray as *const u8,
+                "subarray(begin?: number, end?: number): number[]",
+            ))
+            .member(m(
+                "subarray",
+                1,
+                "__rtsadp_arr_subarray1",
+                ta::__rtsadp_arr_subarray1 as *const u8,
+                "subarray(begin: number): number[]",
+            ))
+            .member(Member {
+                name: "length".to_string(),
+                kind: MemberKind::InstanceGetter,
+                sig: Sig::new(vec![AbiType::PolyValue], AbiType::PolyValue),
+                symbol: "__rtsadp_dyn_length".to_string(),
+                fn_ptr: FnPtr(rts_adapters::value::dyndispatch::__rtsadp_dyn_length as *const u8),
+                flags: MemberFlags::NONE,
+                aliases: Vec::new(),
+                variadic: false,
+                ts_signature: "length: number".to_string(),
+                doc: "Element count (tag-dispatched: Vec length or buffer bytes / elem width).".to_string(),
+                pure: true,
                 intrinsic: None,
             })
             .done();

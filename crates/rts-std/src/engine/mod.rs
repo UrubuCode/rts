@@ -214,6 +214,30 @@ pub fn register(e: &mut Engine) {
             __RTS_FN_NS_ENGINE_ARCH as *const u8,
         ))
         .member(func(
+            "is_buffer",
+            "__RTS_FN_NS_ENGINE_IS_BUFFER",
+            rts_engine::Sig::new(vec![rts_engine::AbiType::PolyValue], rts_engine::AbiType::PolyValue),
+            "is_buffer(x: unknown): boolean",
+            "Whether the value wraps an Entry::Buffer (an ArrayBuffer) — the structuredClone transfer bridge.",
+            rts_shared::buffer::__RTS_FN_NS_ENGINE_IS_BUFFER as *const u8,
+        ))
+        .member(func(
+            "buffer_clone",
+            "__RTS_FN_NS_ENGINE_BUFFER_CLONE",
+            rts_engine::Sig::new(vec![rts_engine::AbiType::PolyValue], rts_engine::AbiType::PolyValue),
+            "buffer_clone(x: unknown): unknown",
+            "A NEW ArrayBuffer copying the bytes (structuredClone of a buffer).",
+            rts_shared::buffer::__RTS_FN_NS_ENGINE_BUFFER_CLONE as *const u8,
+        ))
+        .member(func(
+            "buffer_detach",
+            "__RTS_FN_NS_ENGINE_BUFFER_DETACH",
+            rts_engine::Sig::new(vec![rts_engine::AbiType::PolyValue], rts_engine::AbiType::PolyValue),
+            "buffer_detach(x: unknown): void",
+            "Empty the buffer in place (JS detach: byteLength reads 0 afterwards).",
+            rts_shared::buffer::__RTS_FN_NS_ENGINE_BUFFER_DETACH as *const u8,
+        ))
+        .member(func(
             "now_ms",
             "__RTS_FN_NS_ENGINE_NOW_MS",
             sig!(=> I64),

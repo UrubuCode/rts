@@ -131,6 +131,10 @@ pub extern "C" fn __rtsadp_dyn_length(recv: u64) -> u64 {
         let units = s.chars().map(|c| c.len_utf16()).sum::<usize>();
         return PolyValue::from_i32(units as i32).raw();
     }
+    // A level-B typed-array VIEW: element COUNT (buffer bytes / elem width).
+    if let Some((bh, bytes, ..)) = super::taops::view_parts(recv) {
+        return PolyValue::from_i32(super::taops::view_len(bh, bytes) as i32).raw();
+    }
     // A BUFFER (a `TextEncoder.encode` result — `Entry::Buffer` bytes): its
     // `.length` is the byte count (the Uint8Array surface). Checked BEFORE the
     // array arm — a Buffer word also passes `is_array_word` (object, non-keyed)
@@ -260,6 +264,11 @@ pub extern "C" fn __rtsadp_idx_get(recv: u64, idx: u64) -> u64 {
     // (not a keyed object); route it to `obj_get` so its `get` trap fires.
     if super::objops::is_proxy_word(recv) {
         return super::objops::__rtsadp_obj_get(recv, idx);
+    }
+    // A level-B typed-array VIEW (`__ta_buf`-shaped): element read through the
+    // SHARED buffer.
+    if let Some((bh, bytes, signed, float)) = super::taops::view_parts(recv) {
+        return super::taops::view_get(bh, bytes, signed, float, genops_to_i64(idx));
     }
     let v = PolyValue::from_raw(recv);
     if v.is_string() {

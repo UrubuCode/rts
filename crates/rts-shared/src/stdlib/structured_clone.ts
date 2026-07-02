@@ -63,6 +63,22 @@ function __structuredCloneInner(__scValue: any, __scSeen: any[], __scClones: any
   return __scOut;
 }
 
-function structuredClone(value: any): any {
+function structuredClone(value: any, __scOpts?: any): any {
+  // An ArrayBuffer clones its BYTES into a fresh buffer; when listed in
+  // `opts.transfer`, the SOURCE detaches (byteLength reads 0 afterwards) —
+  // the `engine.*` bridges own the byte-level ops the prelude cannot express.
+  if (engine.is_buffer(value)) {
+    const __scCopy = engine.buffer_clone(value);
+    if (__scOpts && __scOpts.transfer) {
+      const __scT = __scOpts.transfer;
+      for (let __scI = 0; __scI < __scT.length; __scI++) {
+        if (__scT[__scI] === value) {
+          engine.buffer_detach(value);
+          break;
+        }
+      }
+    }
+    return __scCopy;
+  }
   return __structuredCloneInner(value, [], []);
 }

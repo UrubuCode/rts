@@ -1048,3 +1048,51 @@ pub extern "C" fn __RTS_FN_GL_TA_LENGTH(handle: u64, elem_bytes: i64) -> i64 {
 pub extern "C" fn __RTS_FN_GL_BUFFER_DETACH(handle: u64) {
     with_buffer_mut(handle, (), |b| b.clear());
 }
+
+// ── structuredClone transfer bridges (engine.* prelude-only surface) ─────────
+
+/// `engine.is_buffer(word)` — whether the PolyValue word wraps an
+/// `Entry::Buffer` (an ArrayBuffer). Returns a bool word.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_ENGINE_IS_BUFFER(word: u64) -> u64 {
+    use rts_engine::heap::poly::*;
+    let boxed = (word & POLY_BOX_BASE) == POLY_BOX_BASE;
+    let is_obj = boxed && ((word >> POLY_TAG_SHIFT) & 0x7) == POLY_TAG_OBJECT;
+    let yes = is_obj && {
+        let h = rts_engine::heap::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(word & POLY_PAYLOAD_MASK);
+        with_entry(h, |e| matches!(e, Some(Entry::Buffer(_))))
+    };
+    // Singleton payloads: true = 3, false = 2 (rts-adapters layout).
+    let sel = if yes { 3u64 } else { 2u64 };
+    POLY_BOX_BASE | (POLY_TAG_SINGLETON << POLY_TAG_SHIFT) | sel
+}
+
+/// `engine.buffer_clone(word)` — a NEW ArrayBuffer with a copy of the bytes,
+/// as a boxed object word. `undefined` for a non-buffer.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_ENGINE_BUFFER_CLONE(word: u64) -> u64 {
+    use rts_engine::heap::poly::*;
+    let h = rts_engine::heap::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(word & POLY_PAYLOAD_MASK);
+    let Some(bytes) = with_entry(h, |e| match e {
+        Some(Entry::Buffer(b)) => Some(b.clone()),
+        _ => None,
+    }) else {
+        return POLY_UNDEFINED;
+    };
+    let nh = alloc_entry(Entry::Buffer(bytes));
+    POLY_BOX_BASE | (POLY_TAG_OBJECT << POLY_TAG_SHIFT) | (nh & POLY_PAYLOAD_MASK)
+}
+
+/// `engine.buffer_detach(word)` — empty the buffer in place (JS detach:
+/// `byteLength` reads 0 afterwards). Returns `undefined`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_ENGINE_BUFFER_DETACH(word: u64) -> u64 {
+    use rts_engine::heap::poly::*;
+    let h = rts_engine::heap::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(word & POLY_PAYLOAD_MASK);
+    with_entry_mut(h, |e| {
+        if let Some(Entry::Buffer(b)) = e {
+            b.clear();
+        }
+    });
+    POLY_UNDEFINED
+}

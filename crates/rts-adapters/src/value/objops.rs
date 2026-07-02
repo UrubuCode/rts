@@ -188,11 +188,21 @@ pub extern "C" fn __rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
         if !is_keyed && key_text(key_str_handle) == "length" {
             return super::dyndispatch::__rtsadp_dyn_length(obj_word);
         }
-        // A BUFFER receiver (`Entry::Buffer` — a TextEncoder.encode result) with
-        // a numeric key: read the byte (the Uint8Array indexing surface);
-        // out-of-bounds → `undefined` (JS).
+        // A BUFFER receiver (`Entry::Buffer` — an ArrayBuffer / encode result):
+        // a numeric key reads the byte (the Uint8Array indexing surface,
+        // out-of-bounds → `undefined`); `byteLength` reads the byte count.
         if !is_keyed && obj.is_object() {
-            if let Ok(i) = key_text(key_str_handle).parse::<usize>() {
+            let key = key_text(key_str_handle);
+            if key == "byteLength" {
+                let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+                if let Some(len) = rt_handles::with_entry(h, |e| match e {
+                    Some(rt_handles::Entry::Buffer(b)) => Some(b.len()),
+                    _ => None,
+                }) {
+                    return PolyValue::from_i32(len as i32).raw();
+                }
+            }
+            if let Ok(i) = key.parse::<usize>() {
                 let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
                 if let Some(byte) = rt_handles::with_entry(h, |e| match e {
                     Some(rt_handles::Entry::Buffer(b)) => Some(b.get(i).copied()),
@@ -310,6 +320,14 @@ pub extern "C" fn __rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word:
     // PROXY (#218): a proxy receiver routes through its `set` trap.
     if let Some((target, handler)) = proxy_parts(obj_word) {
         return proxy_set(target, handler, key_str_handle, val_word);
+    }
+    // Level-B typed-array VIEW + NUMERIC key: element write through the SHARED
+    // buffer (a shape transition would orphan the write).
+    if let Some((bh, bytes, _s, float)) = super::taops::view_parts(obj_word) {
+        if let Ok(i) = key_text(key_str_handle).parse::<i64>() {
+            super::taops::view_set(bh, bytes, float, i, val_word);
+            return val_word;
+        }
     }
     if let Some((handle, idx)) = resolve_slot(obj_word, key_str_handle) {
         // A `writable:false` data property (set via defineProperty) blocks

@@ -46,10 +46,101 @@ fn wrap(v: f64, k: Kind) -> PolyValue {
     PolyValue::from_f64(out as f64)
 }
 
+/// LEVEL-B VIEW: a typed array constructed OVER an ArrayBuffer is a keyed
+/// object `{ __ta_buf, __ta_bytes, __ta_signed, __ta_float }` — reads/writes
+/// go through `TA_GET_ELEM`/`TA_SET_ELEM` on the SHARED `Entry::Buffer`, so
+/// two views over one buffer see each other's writes (JS semantics). The
+/// engine-owned `__ta_*` slot names are the shape detector (like `#items`).
+fn ta_view_new(buf_word: u64, k: Kind) -> u64 {
+    let keys = [
+        "__ta_buf".to_string(),
+        "__ta_bytes".to_string(),
+        "__ta_signed".to_string(),
+        "__ta_float".to_string(),
+    ];
+    let shape = crate::shape::intern_global_shape(&keys);
+    let h = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(h, PolyValue::from_i32(shape as i32).raw() as i64);
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(h, buf_word as i64);
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(
+        h,
+        PolyValue::from_i32(k.elem_bytes as i32).raw() as i64,
+    );
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(
+        h,
+        PolyValue::from_i32(k.signed as i32).raw() as i64,
+    );
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(h, PolyValue::from_i32(k.float as i32).raw() as i64);
+    // The ctor ABI returns the RAW Vec handle (like `finish`) — the engine's
+    // array rebox boxes it; a keyed shape header makes it an OBJECT word there.
+    h
+}
+
+/// Decompose a level-B VIEW word: `(buffer_handle, elem_bytes, signed, float)`.
+/// `None` for anything that is not a `__ta_buf`-shaped keyed object.
+pub(crate) fn view_parts(word: u64) -> Option<(u64, i64, i64, i64)> {
+    let v = PolyValue::from_raw(word);
+    if !v.is_object() {
+        return None;
+    }
+    let buf = super::objops::__rtsadp_obj_get(word, super::abi_adapter::intern_poly("__ta_buf").raw());
+    let bv = PolyValue::from_raw(buf);
+    if !bv.is_object() {
+        return None;
+    }
+    let field = |k: &str| -> i64 {
+        super::genops::to_number(PolyValue::from_raw(super::objops::__rtsadp_obj_get(
+            word,
+            super::abi_adapter::intern_poly(k).raw(),
+        ))) as i64
+    };
+    let bytes = field("__ta_bytes");
+    if bytes <= 0 {
+        return None;
+    }
+    let bh = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(bv.as_handle());
+    Some((bh, bytes, field("__ta_signed"), field("__ta_float")))
+}
+
+/// The element COUNT of a level-B view (`buffer byteLength / elem_bytes`).
+pub(crate) fn view_len(bh: u64, bytes: i64) -> i64 {
+    let blen = rts_engine::heap::handles::with_entry(bh, |e| match e {
+        Some(rts_engine::heap::handles::Entry::Buffer(b)) => b.len() as i64,
+        _ => 0,
+    });
+    if bytes > 0 { blen / bytes } else { 0 }
+}
+
+/// Read `view[i]` as a JS number word via the shared buffer.
+pub(crate) fn view_get(bh: u64, bytes: i64, signed: i64, float: i64, i: i64) -> u64 {
+    use rts_runtime::namespaces::buffer as rt_buf;
+    if i < 0 || i >= view_len(bh, bytes) {
+        return PolyValue::undefined().raw();
+    }
+    let raw = rt_buf::__RTS_FN_GL_TA_GET_ELEM(bh, i, bytes, signed, float);
+    if float != 0 {
+        PolyValue::from_f64(f64::from_bits(raw as u64)).raw()
+    } else {
+        PolyValue::from_f64(raw as f64).raw()
+    }
+}
+
+/// Write `view[i] = v` through the shared buffer (wraps via the byte store).
+pub(crate) fn view_set(bh: u64, bytes: i64, float: i64, i: i64, val_word: u64) {
+    use rts_runtime::namespaces::buffer as rt_buf;
+    let n = super::genops::to_number(PolyValue::from_raw(val_word));
+    let raw = if float != 0 {
+        n.to_bits() as i64
+    } else {
+        n.trunc() as i64
+    };
+    rt_buf::__RTS_FN_GL_TA_SET_ELEM(bh, i, bytes, float, raw);
+}
+
 /// The constructor core: `arg_word` is a NUMBER (length → zeros), an ARRAY
-/// (each element ToNumber'd + wrapped), or an `Entry::Buffer` object (an
-/// ArrayBuffer — decode `elem_bytes`-wide little-endian elements, a SNAPSHOT).
-/// Anything else → an empty typed array.
+/// (each element ToNumber'd + wrapped), an `Entry::Buffer` object (an
+/// ArrayBuffer — a level-B live VIEW sharing the bytes), or anything else →
+/// an empty typed array.
 fn ta_new(arg_word: u64, k: Kind) -> u64 {
     let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     let v = PolyValue::from_raw(arg_word);
@@ -65,31 +156,12 @@ fn ta_new(arg_word: u64, k: Kind) -> u64 {
     }
     if v.is_object() {
         let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
-        // ArrayBuffer (Entry::Buffer): decode bytes, little-endian.
-        if let Some(bytes) = rts_engine::heap::handles::with_entry(h, |e| match e {
-            Some(rts_engine::heap::handles::Entry::Buffer(b)) => Some(b.clone()),
-            _ => None,
-        }) {
-            let n = bytes.len() / k.elem_bytes;
-            for i in 0..n {
-                let chunk = &bytes[i * k.elem_bytes..(i + 1) * k.elem_bytes];
-                let raw: u64 = chunk
-                    .iter()
-                    .enumerate()
-                    .fold(0u64, |acc, (j, &b)| acc | ((b as u64) << (j * 8)));
-                let val = if k.float {
-                    match k.elem_bytes {
-                        4 => f32::from_le_bytes(chunk.try_into().unwrap()) as f64,
-                        _ => f64::from_le_bytes(chunk.try_into().unwrap()),
-                    }
-                } else {
-                    raw as f64
-                };
-                // Sign-extension for signed int kinds happens through wrap.
-                let w = wrap(val, k).raw() as i64;
-                rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, w);
-            }
-            return finish(out);
+        // ArrayBuffer (Entry::Buffer): a level-B live VIEW over the shared bytes.
+        let is_buffer = rts_engine::heap::handles::with_entry(h, |e| {
+            matches!(e, Some(rts_engine::heap::handles::Entry::Buffer(_)))
+        });
+        if is_buffer {
+            return ta_view_new(arg_word, k);
         }
         // A source ARRAY: ToNumber + wrap each element.
         let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(h).max(0);
@@ -148,6 +220,21 @@ ta_ctor!(__RTS_FN_GL_TA_NEW_F64, 8, false, true);
 pub extern "C" fn __rtsadp_arr_ta_set(arr_word: u64, src_word: u64, off_word: u64) -> u64 {
     let a = PolyValue::from_raw(arr_word);
     let s = PolyValue::from_raw(src_word);
+    // Level-B VIEW receiver: write each source element through the shared
+    // buffer (`TA_SET_ELEM`), so sibling views observe it.
+    if let Some((bh, bytes, _sg, float)) = view_parts(arr_word) {
+        if s.is_object() {
+            let off = super::genops::to_number(PolyValue::from_raw(off_word));
+            let off = if off.is_finite() && off > 0.0 { off as i64 } else { 0 };
+            let sh = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(s.as_handle());
+            let slen = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(sh).max(0);
+            for i in 0..slen {
+                let w = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(sh, i) as u64;
+                view_set(bh, bytes, float, off + i, w);
+            }
+        }
+        return PolyValue::undefined().raw();
+    }
     if a.is_object() && s.is_object() {
         let ah = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(a.as_handle());
         let sh = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(s.as_handle());
@@ -171,13 +258,29 @@ pub extern "C" fn __rtsadp_arr_ta_set(arr_word: u64, src_word: u64, off_word: u6
 // observable JS results — previous value for RMW ops, the stored value for
 // `store` — are exact). ────────────────────────────────────────────────────
 
-fn vec_elem_i64(arr_word: u64, idx_word: u64) -> Option<(u64, i64, i64)> {
+/// The Atomics element accessor: a Vec-backed typed array reads/writes the Vec
+/// slot; a level-B VIEW goes through the shared buffer. `Loc` abstracts the two.
+enum Loc {
+    Vec(u64, i64),
+    View { bh: u64, bytes: i64, float: i64, i: i64 },
+}
+
+fn atomics_loc(arr_word: u64, idx_word: u64) -> Option<(Loc, i64)> {
+    let i = super::genops::to_number(PolyValue::from_raw(idx_word)) as i64;
+    if let Some((bh, bytes, signed, float)) = view_parts(arr_word) {
+        if i < 0 || i >= view_len(bh, bytes) {
+            return None;
+        }
+        let cur = super::genops::to_number(PolyValue::from_raw(view_get(
+            bh, bytes, signed, float, i,
+        ))) as i64;
+        return Some((Loc::View { bh, bytes, float, i }, cur));
+    }
     let a = PolyValue::from_raw(arr_word);
     if !a.is_object() {
         return None;
     }
     let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(a.as_handle());
-    let i = super::genops::to_number(PolyValue::from_raw(idx_word)) as i64;
     let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(h).max(0);
     if i < 0 || i >= len {
         return None;
@@ -185,7 +288,16 @@ fn vec_elem_i64(arr_word: u64, idx_word: u64) -> Option<(u64, i64, i64)> {
     let cur = super::genops::to_number(PolyValue::from_raw(
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(h, i) as u64,
     )) as i64;
-    Some((h, i, cur))
+    Some((Loc::Vec(h, i), cur))
+}
+
+fn atomics_store_loc(loc: &Loc, v: i64) {
+    match *loc {
+        Loc::Vec(h, i) => {
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(h, i, num(v) as i64);
+        }
+        Loc::View { bh, bytes, float, i } => view_set(bh, bytes, float, i, num(v)),
+    }
 }
 
 fn num(v: i64) -> u64 {
@@ -197,13 +309,13 @@ macro_rules! atomics_rmw {
         /// Atomics RMW op — returns the PREVIOUS value (JS semantics).
         #[unsafe(no_mangle)]
         pub extern "C" fn $name(arr_word: u64, idx_word: u64, val_word: u64) -> u64 {
-            let Some((h, i, cur)) = vec_elem_i64(arr_word, idx_word) else {
+            let Some((loc, cur)) = atomics_loc(arr_word, idx_word) else {
                 return PolyValue::undefined().raw();
             };
             let v = super::genops::to_number(PolyValue::from_raw(val_word)) as i64;
             let op: fn(i64, i64) -> i64 = $op;
             let next = op(cur, v);
-            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(h, i, num(next) as i64);
+            atomics_store_loc(&loc, next);
             num(cur)
         }
     };
@@ -219,8 +331,8 @@ atomics_rmw!(__rtsadp_atomics_exchange, |_a, b| b);
 /// `Atomics.load(ta, i)` — the current value.
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_atomics_load(arr_word: u64, idx_word: u64) -> u64 {
-    match vec_elem_i64(arr_word, idx_word) {
-        Some((_, _, cur)) => num(cur),
+    match atomics_loc(arr_word, idx_word) {
+        Some((_, cur)) => num(cur),
         None => PolyValue::undefined().raw(),
     }
 }
@@ -228,9 +340,9 @@ pub extern "C" fn __rtsadp_atomics_load(arr_word: u64, idx_word: u64) -> u64 {
 /// `Atomics.store(ta, i, v)` — stores and returns `v` (JS).
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_atomics_store(arr_word: u64, idx_word: u64, val_word: u64) -> u64 {
-    if let Some((h, i, _)) = vec_elem_i64(arr_word, idx_word) {
+    if let Some((loc, _)) = atomics_loc(arr_word, idx_word) {
         let v = super::genops::to_number(PolyValue::from_raw(val_word)) as i64;
-        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(h, i, num(v) as i64);
+        atomics_store_loc(&loc, v);
         return num(v);
     }
     PolyValue::undefined().raw()
@@ -245,13 +357,13 @@ pub extern "C" fn __rtsadp_atomics_cmpxchg(
     expected_word: u64,
     replacement_word: u64,
 ) -> u64 {
-    let Some((h, i, cur)) = vec_elem_i64(arr_word, idx_word) else {
+    let Some((loc, cur)) = atomics_loc(arr_word, idx_word) else {
         return PolyValue::undefined().raw();
     };
     let expected = super::genops::to_number(PolyValue::from_raw(expected_word)) as i64;
     if cur == expected {
         let r = super::genops::to_number(PolyValue::from_raw(replacement_word)) as i64;
-        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(h, i, num(r) as i64);
+        atomics_store_loc(&loc, r);
     }
     num(cur)
 }

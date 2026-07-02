@@ -71,6 +71,17 @@ pub extern "C" fn __rtsadp_to_iter_array(word: u64) -> u64 {
     if v.is_string() {
         return __rtsadp_str_chars(word);
     }
+    // A level-B typed-array VIEW: materialize the elements (read through the
+    // shared buffer) into a fresh array.
+    if let Some((bh, bytes, signed, float)) = super::taops::view_parts(word) {
+        let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+        let n = super::taops::view_len(bh, bytes);
+        for i in 0..n {
+            let w = super::taops::view_get(bh, bytes, signed, float, i);
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, w as i64);
+        }
+        return box_vec_as_array(out);
+    }
     // A `.ts` stdlib SET instance reached dynamically (a nested Set element, a
     // param): its elements live in the private `#items` array slot. A MAP yields
     // `[k, v]` pairs from `#keys`/`#vals`. Detected by SHAPE (the engine-owned
