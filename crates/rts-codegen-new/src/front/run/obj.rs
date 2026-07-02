@@ -983,15 +983,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
     }
 
-    /// The `undefined` PolyValue as a Tagged `Val`.
-    fn undefined_val(&mut self) -> Val {
-        let v = self
-            .builder
-            .ins()
-            .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
-        Val::tagged_kind(v, JsKind::Undefined)
-    }
-
     // ---- DYNAMIC property access (P5.5) ----
 
     /// Whether `object` is a `this` reference that has reached the DYNAMIC fallback.
