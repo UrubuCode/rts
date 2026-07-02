@@ -198,6 +198,38 @@ fn register_typed_array_class_specs(e: &mut Engine) {
             })
             .done();
     }
+    // `Atomics.*` statics (level A — single-threaded runtime: plain RMW on the
+    // Vec-backed typed array; RMW ops return the PREVIOUS value, `store` the
+    // stored value — exact JS observables).
+    let statics: &[(&str, usize, *const u8)] = &[
+        ("load", 2, ta::__rtsadp_atomics_load as *const u8),
+        ("store", 3, ta::__rtsadp_atomics_store as *const u8),
+        ("add", 3, ta::__rtsadp_atomics_add as *const u8),
+        ("sub", 3, ta::__rtsadp_atomics_sub as *const u8),
+        ("and", 3, ta::__rtsadp_atomics_and as *const u8),
+        ("or", 3, ta::__rtsadp_atomics_or as *const u8),
+        ("xor", 3, ta::__rtsadp_atomics_xor as *const u8),
+        ("exchange", 3, ta::__rtsadp_atomics_exchange as *const u8),
+        ("compareExchange", 4, ta::__rtsadp_atomics_cmpxchg as *const u8),
+    ];
+    let mut cls = e.class("Atomics");
+    for (name, argc, ptr) in statics {
+        cls = cls.member(Member {
+            name: name.to_string(),
+            kind: MemberKind::StaticMethod,
+            sig: Sig::new(vec![AbiType::PolyValue; *argc], AbiType::PolyValue),
+            symbol: format!("__RTS_FN_GL_TAATOMICS_{}", name.to_uppercase()),
+            fn_ptr: FnPtr(*ptr),
+            flags: MemberFlags::NONE,
+            aliases: Vec::new(),
+            variadic: false,
+            ts_signature: format!("{name}(...): number"),
+            doc: "Atomics level A (single-threaded RMW).".to_string(),
+            pure: false,
+            intrinsic: None,
+        });
+    }
+    cls.done();
 }
 
 /// One `.ts` prelude include, in DEPENDENCY ORDER (base before dependent).

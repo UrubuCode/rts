@@ -166,6 +166,96 @@ pub extern "C" fn __rtsadp_arr_ta_set(arr_word: u64, src_word: u64, off_word: u6
     PolyValue::undefined().raw()
 }
 
+// ── Atomics (level A — the runtime is single-threaded at the JS level, so
+// each op is a plain read/modify/write on the Vec-backed typed array; the
+// observable JS results — previous value for RMW ops, the stored value for
+// `store` — are exact). ────────────────────────────────────────────────────
+
+fn vec_elem_i64(arr_word: u64, idx_word: u64) -> Option<(u64, i64, i64)> {
+    let a = PolyValue::from_raw(arr_word);
+    if !a.is_object() {
+        return None;
+    }
+    let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(a.as_handle());
+    let i = super::genops::to_number(PolyValue::from_raw(idx_word)) as i64;
+    let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(h).max(0);
+    if i < 0 || i >= len {
+        return None;
+    }
+    let cur = super::genops::to_number(PolyValue::from_raw(
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(h, i) as u64,
+    )) as i64;
+    Some((h, i, cur))
+}
+
+fn num(v: i64) -> u64 {
+    PolyValue::from_f64(v as f64).raw()
+}
+
+macro_rules! atomics_rmw {
+    ($name:ident, $op:expr) => {
+        /// Atomics RMW op — returns the PREVIOUS value (JS semantics).
+        #[unsafe(no_mangle)]
+        pub extern "C" fn $name(arr_word: u64, idx_word: u64, val_word: u64) -> u64 {
+            let Some((h, i, cur)) = vec_elem_i64(arr_word, idx_word) else {
+                return PolyValue::undefined().raw();
+            };
+            let v = super::genops::to_number(PolyValue::from_raw(val_word)) as i64;
+            let op: fn(i64, i64) -> i64 = $op;
+            let next = op(cur, v);
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(h, i, num(next) as i64);
+            num(cur)
+        }
+    };
+}
+
+atomics_rmw!(__rtsadp_atomics_add, |a, b| a.wrapping_add(b));
+atomics_rmw!(__rtsadp_atomics_sub, |a, b| a.wrapping_sub(b));
+atomics_rmw!(__rtsadp_atomics_and, |a, b| a & b);
+atomics_rmw!(__rtsadp_atomics_or, |a, b| a | b);
+atomics_rmw!(__rtsadp_atomics_xor, |a, b| a ^ b);
+atomics_rmw!(__rtsadp_atomics_exchange, |_a, b| b);
+
+/// `Atomics.load(ta, i)` — the current value.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_atomics_load(arr_word: u64, idx_word: u64) -> u64 {
+    match vec_elem_i64(arr_word, idx_word) {
+        Some((_, _, cur)) => num(cur),
+        None => PolyValue::undefined().raw(),
+    }
+}
+
+/// `Atomics.store(ta, i, v)` — stores and returns `v` (JS).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_atomics_store(arr_word: u64, idx_word: u64, val_word: u64) -> u64 {
+    if let Some((h, i, _)) = vec_elem_i64(arr_word, idx_word) {
+        let v = super::genops::to_number(PolyValue::from_raw(val_word)) as i64;
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(h, i, num(v) as i64);
+        return num(v);
+    }
+    PolyValue::undefined().raw()
+}
+
+/// `Atomics.compareExchange(ta, i, expected, replacement)` — returns the
+/// PREVIOUS value; stores only on match.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_atomics_cmpxchg(
+    arr_word: u64,
+    idx_word: u64,
+    expected_word: u64,
+    replacement_word: u64,
+) -> u64 {
+    let Some((h, i, cur)) = vec_elem_i64(arr_word, idx_word) else {
+        return PolyValue::undefined().raw();
+    };
+    let expected = super::genops::to_number(PolyValue::from_raw(expected_word)) as i64;
+    if cur == expected {
+        let r = super::genops::to_number(PolyValue::from_raw(replacement_word)) as i64;
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(h, i, num(r) as i64);
+    }
+    num(cur)
+}
+
 /// 1-arg form `ta.set(src)` — offset 0.
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_arr_ta_set1(arr_word: u64, src_word: u64) -> u64 {
