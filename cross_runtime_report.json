@@ -969,18 +969,18 @@
 ,
 {
   "name": "codex_reflect_construct_newtarget_subclass",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "7\nfalse\ntrue\ntrue",
   "node": "7\nfalse\ntrue\ntrue",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "7\ntrue\nfalse\nfalse"
 }
 ,
 {
   "name": "codex_super_getter_setter_receiver",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "x:base-set:base-get\nx:base-set",
   "node": "x:base-set:base-get\nx:base-set",
-  "rts": "undefined:base-get\nx:base-set"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -2652,15 +2652,15 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "value=42\nstill=42\nkeys=a\nb=10\ngetter=10",
-  "rts": "value=42\nstill=42\nkeys=a,b\nb=10\ngetter=5"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
   "name": "162_object_create_null",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "a=1\nproto=null\ntoString=true\nproto2=true\nchild_x=10\nown=false\nwithProps=1",
   "node": "a=1\nproto=null\ntoString=true\nproto2=true\nchild_x=10\nown=false\nwithProps=1",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "a=1\nproto=null\ntoString=true\nproto2=true\nchild_x=10\nown=false\nwithProps=undefined"
 }
 ,
 {
@@ -2681,10 +2681,10 @@
 ,
 {
   "name": "188_reflect_basics",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "get=1\nset=true\nc=3\nhas=true\nhas_d=false\ndeleteProperty=true\nhas_b=false\nkeys=a,c",
   "node": "get=1\nset=true\nc=3\nhas=true\nhas_d=false\ndeleteProperty=true\nhas_b=false\nkeys=a,c",
-  "rts": "get=1\nset=true\nc=undefined\nhas=true\nhas_d=false\ndeleteProperty=true\nhas_b=false\nkeys=a,c"
+  "rts": "get=1\nset=true\nc=3\nhas=true\nhas_d=false\ndeleteProperty=true\nhas_b=false\nkeys=a,c"
 }
 ,
 {
@@ -3732,7 +3732,7 @@
   "status": "rts_diverge",
   "bun": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
   "node": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
-  "rts": "h=104\ne=101\no=111\nout=281474976711007\nemoji=128512\nA=65\ncharCode=55357"
+  "rts": "h=104\ne=101\no=111\nout=281474976711047\nemoji=128512\nA=65\ncharCode=55357"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":229,"rts_diverge":87,"bun_node_diverge":17,"errors":276,"rejected":0}}
+],"summary":{"total":609,"pass":230,"rts_diverge":87,"bun_node_diverge":17,"errors":275,"rejected":0}}
