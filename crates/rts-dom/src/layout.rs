@@ -992,6 +992,22 @@ fn layout_children_vertical(
             }
         };
     }
+    // ── CONTEXTO INLINE (P4): irmãos inline CONSECUTIVOS (texto + <a>/<b>/<span>)
+    // fluem JUNTOS numa sequência de linhas — acumulados aqui e descarregados por
+    // `flush_inline!` quando um bloco/float/fim interrompe o fluxo.
+    let mut inline_group: Vec<NodeIdx> = Vec::new();
+    macro_rules! flush_inline {
+        ($y:expr) => {
+            if !inline_group.is_empty() {
+                close_floats!($y);
+                $y = layout_inline_flow(
+                    dom, &inline_group, content_x, $y, content_w, css, font_size, ctx, list,
+                );
+                inline_group.clear();
+                prev_margin = 0.0; // texto quebra a sequência de margin-collapse
+            }
+        };
+    }
     for &child in &dom.node(id).children {
         match &dom.node(child).kind {
             // Metadata não-renderável (`<head>`/`<title>`/`<style>`/`<script>`):
@@ -1003,6 +1019,7 @@ fn layout_children_vertical(
             NodeKind::Element { .. } if is_out_of_flow(dom, child) => {}
             // FLOAT left/right: shrink-to-fit na linha de floats corrente.
             NodeKind::Element { .. } if float_of(dom, child) != crate::style::FloatSide::None => {
+                flush_inline!(child_y);
                 let side = float_of(dom, child);
                 let top = *float_top.get_or_insert(child_y);
                 let w = child_outer_width(dom, child, content_w, font_size, ctx);
@@ -1020,6 +1037,7 @@ fn layout_children_vertical(
                 prev_margin = 0.0; // float quebra a sequência de collapse
             }
             NodeKind::Element { .. } if is_block_level(dom, child) => {
+                flush_inline!(child_y);
                 close_floats!(child_y);
                 // margin VERTICAL TOP do filho (para o collapse com o anterior):
                 // margin.top + margin_v da UA.
@@ -1065,15 +1083,15 @@ fn layout_children_vertical(
                 child_y += h;
                 prev_margin = m;
             }
-            _ => {
-                close_floats!(child_y);
-                child_y = layout_inline_line(dom, child, content_x, child_y, content_w, css, font_size, ctx, list);
-                prev_margin = 0.0; // texto inline quebra a sequência de collapse.
-            }
+            // Texto / elemento inline: entra no CONTEXTO INLINE corrente — flui
+            // com os irmãos inline adjacentes (o flush pinta o grupo inteiro).
+            _ => inline_group.push(child),
         }
     }
-    // fecha a float line pendente: os floats CONTRIBUEM para a altura (v1 = o
-    // comportamento de BFC — correto p/ flex items, o caso do header do cover).
+    // descarrega o fluxo inline pendente e fecha a float line: os floats
+    // CONTRIBUEM para a altura (v1 = comportamento de BFC — correto p/ flex
+    // items, o caso do header do cover).
+    flush_inline!(child_y);
     close_floats!(child_y);
     (child_y - content_y).max(0.0)
 }
@@ -1496,10 +1514,10 @@ fn child_outer_width(dom: &Dom, id: NodeIdx, container_w: f32, parent_font: f32,
     }
 }
 
-/// Desenha um nó como UMA linha de texto (texto solto ou inline simples), herdando
-/// cor/tamanho do bloco pai, e devolve o `y` abaixo da linha. Concatena o texto de
-/// todos os descendentes (inline-flow rico — spans em cores diferentes na mesma
-/// linha — fica para a fatia de inline).
+/// Desenha um nó como linha(s) de texto (texto solto ou inline simples), herdando
+/// cor/tamanho do bloco pai, e devolve o `y` abaixo. Caso de UM nó do fluxo
+/// inline — o caminho geral (irmãos inline fluindo juntos) é
+/// [`layout_inline_flow`].
 fn layout_inline_line(
     dom: &Dom,
     id: NodeIdx,
@@ -1511,11 +1529,32 @@ fn layout_inline_line(
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
-    // INLINE-FLOW RICO: coleta os RUNS (cada pedaço de texto com a SUA cor/bold/
-    // italic herdada do span que o contém), em ordem de documento. Assim
-    // <h1>Seus dados <span style=color:roxo>insight</span> fim</h1> vira 3 runs com
-    // cores diferentes que FLUEM numa linha contínua (não 1 linha por nó).
-    let runs = collect_runs(dom, id, parent_css);
+    layout_inline_flow(dom, &[id], x, y, content_w, parent_css, font_size, ctx, list)
+}
+
+/// O FLUXO INLINE RICO (P4): um GRUPO de irmãos inline consecutivos (nós de texto
+/// + elementos inline como `<a>`/`<b>`/`<span>`) flui como UM contexto — os runs
+/// de todos concatenam, quebram por palavra na largura, e cada pedaço pinta com a
+/// SUA cor/peso. É o que faz `<p>texto <a>link</a>, fim</p>` virar UMA linha
+/// (antes cada filho virava uma linha própria — o footer do Bootstrap cover saía
+/// em 5 linhas).
+fn layout_inline_flow(
+    dom: &Dom,
+    group: &[NodeIdx],
+    x: f32,
+    y: f32,
+    content_w: f32,
+    parent_css: &ComputedStyle,
+    font_size: f32,
+    ctx: &LayoutCtx,
+    list: &mut DisplayList,
+) -> f32 {
+    // coleta os RUNS (cada pedaço de texto com a SUA cor/bold herdada do span que
+    // o contém) de TODOS os nós do grupo, em ordem de documento.
+    let mut runs = Vec::new();
+    for &id in group {
+        runs.extend(collect_runs(dom, id, parent_css));
+    }
     if runs.iter().all(|r| r.text.trim().is_empty()) {
         return y;
     }
@@ -1632,8 +1671,11 @@ struct Segment {
 
 /// Quebra uma sequência de RUNS coloridos em LINHAS por palavra (word-wrap), juntando
 /// runs adjacentes na mesma linha. Cada linha é um vetor de [`Segment`] (pedaços
-/// coloridos contíguos). Uma palavra que não cabe começa nova linha; preserva a cor
-/// de cada palavra conforme o run de origem.
+/// coloridos contíguos). Uma palavra que não cabe começa nova linha. FIEL AOS
+/// ESPAÇOS do fonte: um espaço só entra entre duas palavras quando o texto
+/// ORIGINAL tinha whitespace ali (colapsado p/ 1) — inclusive ATRAVÉS de runs
+/// (`<a>Bootstrap</a>, by` NÃO ganha espaço antes da vírgula; antes toda palavra
+/// ganhava espaço e a pontuação descolava).
 fn wrap_runs(
     runs: &[InlineRun],
     max_w: f32,
@@ -1646,19 +1688,33 @@ fn wrap_runs(
     let mut cur: Vec<Segment> = Vec::new();
     let mut cur_w = 0.0f32;
     let mut at_line_start = true;
+    // havia whitespace no ORIGINAL desde a última palavra? (carrega entre runs)
+    let mut pending_space = false;
 
     for run in runs {
-        for word in run.text.split_whitespace() {
+        // scanner ws/palavra preservando a fronteira original.
+        let mut rest = run.text.as_str();
+        while !rest.is_empty() {
+            if rest.starts_with(char::is_whitespace) {
+                pending_space = true;
+                rest = rest.trim_start();
+                continue;
+            }
+            let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+            let word = &rest[..end];
+            rest = &rest[end..];
+
             let ww = m.text_width(word, font_size, mono, run.bold);
-            let need = if at_line_start { ww } else { space_w + ww };
+            let with_space = pending_space && !at_line_start;
+            let need = if with_space { space_w + ww } else { ww };
             if !at_line_start && cur_w + need > max_w {
                 // não cabe: fecha a linha.
                 lines.push(std::mem::take(&mut cur));
                 cur_w = 0.0;
                 at_line_start = true;
             }
-            // adiciona a palavra (com espaço antes, se não for início de linha).
-            let piece = if at_line_start { word.to_string() } else { format!(" {word}") };
+            let sep = pending_space && !at_line_start;
+            let piece = if sep { format!(" {word}") } else { word.to_string() };
             // junta no último segmento se mesma cor E peso, senão novo segmento.
             if let Some(last) = cur.last_mut() {
                 if last.color == run.color && last.bold == run.bold {
@@ -1669,8 +1725,9 @@ fn wrap_runs(
             } else {
                 cur.push(Segment { text: piece, color: run.color, bold: run.bold });
             }
-            cur_w += need;
+            cur_w += if sep { space_w + ww } else { ww };
             at_line_start = false;
+            pending_space = false;
         }
     }
     if !cur.is_empty() {
@@ -2408,6 +2465,37 @@ mod tests {
         let r = all_rects(&list);
         assert_eq!(r[0].w, 672.0, "42em x 16: {r:?}");
         assert_eq!(r[0].x, 164.0, "(1000-672)/2, centrado como no Chrome");
+    }
+
+    #[test]
+    fn inline_flow_links_fluem_no_paragrafo() {
+        // P4 (o coracao): <p>texto <a>link</a>, fim</p> flui numa UNICA linha —
+        // antes cada filho virava linha propria (o footer do cover saia em 5
+        // linhas). A pontuacao NAO ganha espaco (fiel ao fonte: "Bootstrap, by").
+        crate::block::define("p", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        let list = layout(
+            "<p style='color:#ffffff'>Cover template for <a style='color:#ff0000'>Bootstrap</a>, by <a style='color:#00ff00'>mdo</a>.</p>",
+            600.0,
+        );
+        let texts: Vec<(String, f32, f32, u32)> = list
+            .items
+            .iter()
+            .filter_map(|it| match it {
+                DisplayItem::Text { text, x, y, color, .. } => {
+                    Some((text.clone(), *x, *y, *color))
+                }
+                _ => None,
+            })
+            .collect();
+        // TODOS os segmentos na MESMA linha (y igual).
+        let y0 = texts[0].2;
+        assert!(texts.iter().all(|(_, _, y, _)| *y == y0), "uma linha so: {texts:?}");
+        // os segmentos avancam em x (fluem lado a lado) e preservam a cor do span.
+        assert!(texts.len() >= 4, "segmentos por cor: {texts:?}");
+        assert!(texts.windows(2).all(|w| w[1].1 > w[0].1), "x crescente: {texts:?}");
+        assert_eq!(texts[1].3, 0xFF0000FF, "cor do link preservada");
+        // a virgula gruda no link (segmento seguinte comeca com ',' sem espaco).
+        assert!(texts[2].0.starts_with(','), "pontuacao sem espaco: {:?}", texts[2].0);
     }
 
     #[test]
