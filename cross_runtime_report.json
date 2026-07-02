@@ -1305,10 +1305,10 @@
 ,
 {
   "name": "285_queuemicrotask_order",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "order=sync|qm|then|timeout",
   "node": "order=sync|qm|then|timeout",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "order=sync|qm|then|timeout"
 }
 ,
 {
@@ -1321,18 +1321,18 @@
 ,
 {
   "name": "393_promise_microtask",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
   "node": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "caught:handled\nundefined\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C"
 }
 ,
 {
   "name": "56_microtask_order",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
   "node": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "sync:start|sync:end|micro:qm|micro:promise|macro:timeout"
 }
 ,
 {
@@ -2073,10 +2073,10 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
   "node": "order=micro|immediate|timeout",
-  "rts": ""
+  "rts": "order=micro|immediate|timeout"
 }
 ,
 {
@@ -3313,26 +3313,26 @@
 ,
 {
   "name": "116_promise_finally",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
   "node": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "log=then:42,catch:error,finally1,finally2,then2:84"
 }
 ,
 {
   "name": "167_promise_race_any",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "race=1\nany=1\nrace2=4\nany2=4",
   "node": "race=1\nany=1\nrace2=4\nany2=4",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "race=1\nany=1\nrace2=4\nany2=4"
 }
 ,
 {
   "name": "200_promise_allsettled",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "count=3\nstatus0=fulfilled\nvalue0=1\nstatus1=rejected\nreason1=error\nstatus2=fulfilled\nvalue2=3",
   "node": "count=3\nstatus0=fulfilled\nvalue0=1\nstatus1=rejected\nreason1=error\nstatus2=fulfilled\nvalue2=3",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "count=3\nstatus0=fulfilled\nvalue0=1\nstatus1=rejected\nreason1=error\nstatus2=fulfilled\nvalue2=3"
 }
 ,
 {
@@ -3361,10 +3361,10 @@
 ,
 {
   "name": "410_promise_thenable_assimilation",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "then|value:ok|next",
   "node": "then|value:ok|next",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "value:[object Object]|"
 }
 ,
 {
@@ -3393,34 +3393,34 @@
 ,
 {
   "name": "codex_promise_all_order_thenables",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "slow,fast,then\nslow-start|thenable|slow-end",
   "node": "slow,fast,then\nslow-start|thenable|slow-end",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": ""
 }
 ,
 {
   "name": "codex_promise_any_rejection_order",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "AggregateError\na,b,c",
   "node": "AggregateError\na,b,c",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "undefined"
 }
 ,
 {
   "name": "codex_promise_finally_thenable",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "finally|thenable|value",
   "node": "finally|thenable|value",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "finally|value"
 }
 ,
 {
   "name": "codex_promise_reentrant_then_order",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "a,b,d,c",
   "node": "a,b,d,c",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "a,b,d"
 }
 ,
 {
@@ -3433,10 +3433,10 @@
 ,
 {
   "name": "codex_then_getter_called_once",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "ok\n1",
   "node": "ok\n1",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "{ __get_then: function }\n0"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":270,"rts_diverge":140,"bun_node_diverge":17,"errors":182,"rejected":0}}
+],"summary":{"total":609,"pass":276,"rts_diverge":146,"bun_node_diverge":17,"errors":170,"rejected":0}}
