@@ -339,6 +339,9 @@ fn lower_module_decl(cm: &Lrc<SourceMap>, decl: &ModuleDecl, out: &mut Vec<Item>
                 match item {
                     Item::Function(f) => f.exported = true,
                     Item::Class(c) => c.exported = true,
+                    // `export const x = 1` vira Item::Statement — marca o
+                    // RawStmt pro resolver incluir consts no export-set.
+                    Item::Statement(rts_ast::ast::Statement::Raw(r)) => r.exported = true,
                     _ => {}
                 }
             }
@@ -402,6 +405,7 @@ fn lower_module_decl(cm: &Lrc<SourceMap>, decl: &ModuleDecl, out: &mut Vec<Item>
                         default_name: None,
                         from: src.value.to_string_lossy().to_string(),
                         span: convert_span(cm, export_named.span),
+                        reexport: true,
                     };
                     out.push(Item::Import(import));
                 }
@@ -423,30 +427,28 @@ fn lower_module_decl(cm: &Lrc<SourceMap>, decl: &ModuleDecl, out: &mut Vec<Item>
                 default_name: None,
                 from: export_all.src.value.to_string_lossy().to_string(),
                 span: convert_span(cm, export_all.span),
+                reexport: true,
             };
             out.push(Item::Import(import));
         }
         ModuleDecl::ExportDefaultDecl(default_decl) => match &default_decl.decl {
             DefaultDecl::Class(class_expr) => {
                 if let Some(name) = class_expr.ident.as_ref().map(|ident| ident.sym.to_string()) {
-                    out.push(Item::Class(lower_class(
-                        cm,
-                        &name,
-                        &class_expr.class,
-                        class_expr.span(),
-                    )));
+                    let mut c = lower_class(cm, &name, &class_expr.class, class_expr.span());
+                    c.exported = true;
+                    c.exported_default = true;
+                    out.push(Item::Class(c));
                 } else {
                     push_raw_statement(cm, decl.span(), out);
                 }
             }
             DefaultDecl::Fn(fn_expr) => {
                 if let Some(name) = fn_expr.ident.as_ref().map(|ident| ident.sym.to_string()) {
-                    out.push(Item::Function(lower_function(
-                        cm,
-                        &name,
-                        &fn_expr.function,
-                        fn_expr.function.span,
-                    )));
+                    let mut f =
+                        lower_function(cm, &name, &fn_expr.function, fn_expr.function.span);
+                    f.exported = true;
+                    f.exported_default = true;
+                    out.push(Item::Function(f));
                 } else {
                     push_raw_statement(cm, decl.span(), out);
                 }
@@ -922,6 +924,7 @@ fn lower_import_decl(cm: &Lrc<SourceMap>, import_decl: &SwcImportDecl) -> Import
         default_name,
         from: import_decl.src.value.to_string_lossy().to_string(),
         span: convert_span(cm, import_decl.span),
+        reexport: false,
     }
 }
 

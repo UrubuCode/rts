@@ -265,6 +265,7 @@ fn lower_class(cm: &Lrc<SourceMap>, name: &str, class: &SwcClass, span: SwcSpan)
         static_init_body,
         static_init_blocks,
         exported: false,
+        exported_default: false,
         span: convert_span(cm, span),
     }
 }
@@ -319,6 +320,7 @@ fn lower_function(
         span: convert_span(cm, span),
         is_async: function.is_async,
         exported: false,
+        exported_default: false,
     }
 }
 

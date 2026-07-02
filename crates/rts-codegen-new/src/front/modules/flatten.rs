@@ -68,6 +68,34 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
             program.items.push(item.clone());
         }
 
+        // 1b. Synthesize each `export * as ns from "./mod"` aggregate as a
+        //     namespace OBJECT literal `const ns = { a: a, b: b };` referencing
+        //     the target's exports (post-order guarantees the target's items
+        //     already precede this point). Parsed through `rts_parser` so the
+        //     statement carries a real swc node (the object-literal lowering
+        //     materializes fn-valued props; `ns.f()` invokes the fn value).
+        for (local, target) in &node.ns_reexports {
+            let dep_node = graph.modules.get(target).ok_or_else(|| {
+                ModuleError::Resolve(format!("dangling ns re-export to {}", target.display()))
+            })?;
+            let fields: Vec<String> = dep_node
+                .exports
+                .iter()
+                .map(|n| format!("{n}: {n}"))
+                .collect();
+            let synth = format!("const {local} = {{ {} }};", fields.join(", "));
+            let parsed = rts_parser::parse_source(&synth).map_err(|e| {
+                ModuleError::Parse(format!("ns re-export `{local}` synth: {e}"))
+            })?;
+            if let Some(prev) = defined.get(local) {
+                if prev != key {
+                    return Err(ModuleError::NameCollision { name: local.clone() });
+                }
+            }
+            defined.insert(local.clone(), key.clone());
+            program.items.extend(parsed.items);
+        }
+
         // 2. Build the binding map for THIS module's imports.
         for edge in &node.imports {
             match &edge.target {
@@ -130,13 +158,30 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
                                 from: edge.specifier.clone(),
                             });
                         }
-                        bindings.insert(local.clone(), Binding::Local { name: orig.clone() });
+                        // TRANSITIVE re-export: `orig` may be an alias the dep
+                        // itself re-exported (`export { add as plus }` — no flat
+                        // declaration named `plus`). Post-order processed the dep
+                        // first, so its binding for `orig` already points at the
+                        // REAL flat declaration — follow it.
+                        let binding = match bindings.get(orig) {
+                            Some(b) if !defined.contains_key(orig) => b.clone(),
+                            _ => Binding::Local { name: orig.clone() },
+                        };
+                        bindings.insert(local.clone(), binding);
                     }
-                    if edge.default_name.is_some() {
-                        return Err(ModuleError::Unsupported(format!(
-                            "default import from user module '{}'",
-                            edge.specifier
-                        )));
+                    if let Some(default_local) = &edge.default_name {
+                        // `import answer from "./mod"` — bind the local to the
+                        // dep's `export default` flat declaration name.
+                        let Some(def) = &dep_node.default_export else {
+                            return Err(ModuleError::Unsupported(format!(
+                                "default import from user module '{}' (module has no `export default` declaration)",
+                                edge.specifier
+                            )));
+                        };
+                        bindings.insert(
+                            default_local.clone(),
+                            Binding::Local { name: def.clone() },
+                        );
                     }
                 }
                 Target::Unsupported { specifier } => {

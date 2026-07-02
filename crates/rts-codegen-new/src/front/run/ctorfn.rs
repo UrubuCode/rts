@@ -468,6 +468,7 @@ fn function_to_class(
         static_init_body: Vec::new(),
         static_init_blocks: Vec::new(),
         exported: f.exported,
+        exported_default: false,
         span: f.span,
     })
 }

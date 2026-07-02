@@ -77,6 +77,9 @@ pub struct ImportDecl {
     pub default_name: Option<String>,
     pub from: String,
     pub span: Span,
+    /// True quando sintetizado de um RE-EXPORT (`export { x } from "./mod"` /
+    /// `export * from "./mod"`): os nomes locais também entram no export-set.
+    pub reexport: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -118,6 +121,8 @@ pub struct ClassDecl {
     /// Lido pelo resolver de modulos (motor novo) para montar o conjunto de
     /// exports de um modulo. Default `false` para declaracoes locais.
     pub exported: bool,
+    /// `true` quando declarada como `export default class C`.
+    pub exported_default: bool,
     pub span: Span,
 }
 
@@ -199,6 +204,8 @@ pub struct FunctionDecl {
     /// Lido pelo resolver de modulos (motor novo) para montar o conjunto de
     /// exports de um modulo. Default `false` para declaracoes locais.
     pub exported: bool,
+    /// `true` quando declarada como `export default function f`.
+    pub exported_default: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -234,6 +241,10 @@ pub struct RawStmt {
     /// casos limite onde o lowerer do parser interno nao tem acesso
     /// ao Stmt original (ex: construcoes sinteticas).
     pub stmt: Option<swc_ecma_ast::Stmt>,
+    /// True quando o statement veio de uma `export` decl (`export const x = 1`).
+    /// O resolver de módulos usa isso pra incluir consts exportadas no
+    /// export-set (fns/classes têm o próprio flag `exported`).
+    pub exported: bool,
 }
 
 impl RawStmt {
@@ -242,6 +253,7 @@ impl RawStmt {
             text,
             span,
             stmt: None,
+            exported: false,
         }
     }
 

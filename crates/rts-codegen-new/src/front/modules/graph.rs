@@ -28,6 +28,9 @@ pub struct ImportEdge {
     pub names: Vec<(String, String)>,
     /// The default-import local name, if any (`import io from "..."`).
     pub default_name: Option<String>,
+    /// True when synthesized from a RE-EXPORT (`export { x } from "./mod"`):
+    /// the local names are ALSO exports of the importing module.
+    pub reexport: bool,
 }
 
 /// A single loaded user module.
@@ -41,6 +44,12 @@ pub struct ModuleNode {
     pub imports: Vec<ImportEdge>,
     /// The set of top-level names this module `export`s.
     pub exports: BTreeSet<String>,
+    /// `export * as ns from "./mod"` re-exports: `(local, resolved target)`.
+    /// The flatten step synthesizes a namespace OBJECT literal for each.
+    pub ns_reexports: Vec<(String, PathBuf)>,
+    /// The flat declaration name of this module's `export default fn/class`,
+    /// when it has one (`export default function answer()` → `"answer"`).
+    pub default_export: Option<String>,
 }
 
 /// The loaded graph: the entry key + every reachable user module, keyed by
@@ -72,6 +81,38 @@ impl ModuleGraph {
                 }
             }
             modules.insert(key, node);
+        }
+
+        // `export * from "./mod"` (a STAR re-export: a marked edge with an empty
+        // name list): the module's export set includes EVERY export of the
+        // target. Propagated to a fixpoint (a chain of star re-exports).
+        loop {
+            let mut grew = false;
+            let keys: Vec<PathBuf> = modules.keys().cloned().collect();
+            for key in &keys {
+                let star_targets: Vec<PathBuf> = modules[key]
+                    .imports
+                    .iter()
+                    .filter(|e| e.reexport && e.names.is_empty() && e.default_name.is_none())
+                    .filter_map(|e| match &e.target {
+                        Target::File(dep) => Some(dep.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                for dep in star_targets {
+                    let dep_exports: Vec<String> = modules
+                        .get(&dep)
+                        .map(|n| n.exports.iter().cloned().collect())
+                        .unwrap_or_default();
+                    let node = modules.get_mut(key).expect("key is live");
+                    for name in dep_exports {
+                        grew |= node.exports.insert(name);
+                    }
+                }
+            }
+            if !grew {
+                break;
+            }
         }
 
         let graph = Self { entry_key, modules };
@@ -162,6 +203,7 @@ fn load_one(key: &Path) -> ModuleResult<ModuleNode> {
         .map_err(|e| ModuleError::Parse(format!("{}: {e}", key.display())))?;
 
     let mut imports = Vec::new();
+    let mut ns_reexports = Vec::new();
     for item in &program.items {
         match item {
             Item::Import(decl) => {
@@ -176,28 +218,66 @@ fn load_one(key: &Path) -> ModuleResult<ModuleNode> {
                     target,
                     names,
                     default_name: decl.default_name.clone(),
+                    reexport: decl.reexport,
                 });
             }
-            // `export * as ns from "./mod"` — out of M1 scope (namespace
-            // aggregate import is dropped at the parser; record as unsupported
-            // so we never silently miscompile a program that relies on it).
+            // `export * as ns from "./mod"` — record the aggregate: the target
+            // becomes a graph dependency, and the flatten step synthesizes a
+            // namespace OBJECT literal `const ns = { a: a, … }` from the
+            // target's export set. Only a FILE target (a builtin namespace
+            // aggregate stays unsupported — no member list to synthesize from).
             Item::ExportNamespace(d) => {
-                return Err(ModuleError::Unsupported(format!(
-                    "`export * as {} from \"{}\"` (namespace re-export)",
-                    d.local, d.from
-                )));
+                let target = resolve::resolve(&d.from, key)?;
+                let Target::File(dep) = target else {
+                    return Err(ModuleError::Unsupported(format!(
+                        "`export * as {} from \"{}\"` (builtin namespace re-export)",
+                        d.local, d.from
+                    )));
+                };
+                // NOTE: `reexport: false` — the aggregate LOCAL enters the
+                // export set via `ns_reexports` below; marking the edge would
+                // make the star-reexport fixpoint wrongly flatten the target's
+                // exports into this module.
+                imports.push(ImportEdge {
+                    specifier: d.from.clone(),
+                    target: Target::File(dep.clone()),
+                    names: Vec::new(),
+                    default_name: None,
+                    reexport: false,
+                });
+                ns_reexports.push((d.local.clone(), dep));
             }
             _ => {}
         }
     }
 
-    let exports = collect_exports(&program);
+    let mut exports = collect_exports(&program);
+    // The aggregate local (`starNs`) is itself an export of THIS module.
+    for (local, _) in &ns_reexports {
+        exports.insert(local.clone());
+    }
+    // A named re-export (`export { add as plus } from "./lib"`) exports the
+    // LOCAL alias from THIS module (the parser synthesized it as a marked
+    // import edge).
+    for edge in imports.iter().filter(|e| e.reexport) {
+        for (_, local) in &edge.names {
+            exports.insert(local.clone());
+        }
+    }
+
+    let default_export = program.items.iter().find_map(|item| match item {
+        Item::Function(f) if f.exported_default => Some(f.name.clone()),
+        Item::Class(c) if c.exported_default => Some(c.name.clone()),
+        _ => None,
+    });
 
     Ok(ModuleNode {
         key: key.to_path_buf(),
         program,
         imports,
         exports,
+        ns_reexports,
+        default_export,
     })
 }
 
@@ -212,6 +292,17 @@ fn collect_exports(program: &Program) -> BTreeSet<String> {
             }
             Item::Class(c) if c.exported => {
                 set.insert(c.name.clone());
+            }
+            // `export const x = …` — the parser marks the RawStmt; the names
+            // come from the carried swc var declarators (simple idents only).
+            Item::Statement(rts_ast::ast::Statement::Raw(r)) if r.exported => {
+                if let Some(swc_ecma_ast::Stmt::Decl(swc_ecma_ast::Decl::Var(var))) = &r.stmt {
+                    for d in &var.decls {
+                        if let swc_ecma_ast::Pat::Ident(id) = &d.name {
+                            set.insert(id.id.sym.to_string());
+                        }
+                    }
+                }
             }
             _ => {}
         }

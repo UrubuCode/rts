@@ -182,6 +182,7 @@ fn wrap_stmt(s: &swc_ecma_ast::Stmt) -> Statement {
         text: String::new(),
         span: AstSpan::default(),
         stmt: Some(s.clone()),
+        exported: false,
     })
 }
 
