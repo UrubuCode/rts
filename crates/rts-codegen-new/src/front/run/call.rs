@@ -330,6 +330,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if let Some((ns, member)) = self.builtins.get(&name).cloned() {
             return self.lower_builtin_call(module, &ns, &member, args);
         }
+        // A LOCAL holding a function VALUE (a Tagged param/let) → the indirect
+        // uniform-ABI invoke path (P4.6). Checked BEFORE the user-fn table: a
+        // param/let SHADOWS a same-named top-level function (JS scoping) — the
+        // `rts:test` `describe(name, fn)` param `fn` vs a user `function fn(..)`
+        // is the canonical collision.
+        if let Some(local) = self.local(&name) {
+            return self.lower_value_call(module, local, args);
+        }
         // A direct call to a CLOSURE (a hoisted `let g = (x) => x*k`, P5.7): `g`'s
         // captures must be snapshotted from the CALL-SITE locals, so it cannot take
         // the native fast path. Reify it (builds the env from current locals), then
@@ -343,11 +351,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // A statically-known user function → the native fast path (NOT regressed).
         if let Some(sig) = self.sigs.get(&name).cloned() {
             return self.lower_user_call(module, &sig, args);
-        }
-        // A local holding a function VALUE (a Tagged param/let) → the indirect
-        // uniform-ABI invoke path (P4.6).
-        if let Some(local) = self.local(&name) {
-            return self.lower_value_call(module, local, args);
         }
         // A MODULE-GLOBAL cell (#195) holding a function VALUE, called as `f()`:
         // the `rts:test` bundle's lifecycle hooks (`let _before_all_fn = 0;` then
