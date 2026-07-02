@@ -900,7 +900,7 @@
   "status": "rts_diverge",
   "bun": "1,2,3\n0\n4\n5\nVec2(4,6)\nVec2(6,8)\n11\nidle\ntrue\nrunning\nfalse\ntrue\ntrue\nfalse\nstopped",
   "node": "1,2,3\n0\n4\n5\nVec2(4,6)\nVec2(6,8)\n11\nidle\ntrue\nrunning\nfalse\ntrue\ntrue\nfalse\nstopped",
-  "rts": "\n0\n4\n5\nVec2(4,6)\nVec2(6,8)\n11\nidle\nfalse\nidle\nfalse\nfalse\nfalse\nfalse\nidle"
+  "rts": "\n0\n4\n5\nVec2(4,6)\nVec2(6,8)\n11\nidle\ntrue\nrunning\nfalse\ntrue\ntrue\nfalse\nstopped"
 }
 ,
 {
@@ -1148,23 +1148,23 @@
   "status": "rts_diverge",
   "bun": "events=g:x|end",
   "node": "events=g:x|end",
-  "rts": "x\nevents="
+  "rts": "events=g:|end"
 }
 ,
 {
   "name": "311_console_table",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "calls=2",
   "node": "calls=2",
-  "rts": "[ { a: 1 }, { a: 2 } ]\ncalls="
+  "rts": "calls=2"
 }
 ,
 {
   "name": "312_console_dir",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "calls=object:1",
   "node": "calls=object:1",
-  "rts": "{ a: { b: 1 } }\ncalls="
+  "rts": "calls=object:1"
 }
 ,
 {
@@ -1777,10 +1777,10 @@
 ,
 {
   "name": "306_iterator_toarray",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "a=1,2,3\nb=",
   "node": "a=1,2,3\nb=",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "a=1,2,3\nb="
 }
 ,
 {
@@ -3732,7 +3732,7 @@
   "status": "rts_diverge",
   "bun": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
   "node": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
-  "rts": "h=104\ne=101\no=111\nout=281474976711058\nemoji=128512\nA=65\ncharCode=55357"
+  "rts": "h=104\ne=101\no=111\nout=281474976711098\nemoji=128512\nA=65\ncharCode=55357"
 }
 ,
 {
@@ -4772,7 +4772,7 @@
   "status": "rts_diverge",
   "bun": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4",
   "node": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4",
-  "rts": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=undefined\nquery=1.390671161569076e-309,1.39067116156908e-309,1.390671161569086e-309,1.39067116156909e-309\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4"
+  "rts": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=undefined\nquery=1.390671161569274e-309,1.39067116156928e-309,1.390671161569283e-309,1.39067116156929e-309\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":252,"rts_diverge":135,"bun_node_diverge":17,"errors":205,"rejected":0}}
+],"summary":{"total":609,"pass":255,"rts_diverge":133,"bun_node_diverge":17,"errors":204,"rejected":0}}
