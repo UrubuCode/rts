@@ -92,6 +92,26 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // per-branch removes that previously covered only the numeric tail.
         self.clear_local_classifications(name);
 
+        // `const p = Promise.resolve(x)`: a registry-class STATIC call whose spec
+        // return is a NAMED registered class (`resolve(): Promise<T>`) — record
+        // the result's CLASS so `p.then(cb)` dispatches. Registration ONLY: the
+        // binding itself follows the normal flow below (forcing a Tagged bind here
+        // regressed `promise.wait(q)` — the namespace marshal wants the native
+        // repr the generic tail preserves).
+        if let HirExprKind::MethodCall { object, method, .. } = &init.kind {
+            if let HirExprKind::Ident(cn) = &object.kind {
+                if self.local(cn).is_none() {
+                    if let Some(cls) = super::registry::class_statics(cn, method)
+                        .iter()
+                        .find_map(|c| c.ret_class.clone())
+                        .filter(|c| super::registry::has_class(c))
+                    {
+                        self.global_instance_classes.insert(name.to_string(), cls);
+                    }
+                }
+            }
+        }
+
         // GENERATOR-valued init: `const it = g()` where `g` is a generator. Mark
         // `it` so `it.next()`/`.return()`/`.throw()` route to `GENERATOR_*`. LAZY →
         // bind the raw `Int64` GenState handle; EAGER → bind the `__gen_buf` ARRAY
@@ -247,28 +267,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                         .insert(name.to_string(), HeapShape::Object(shape_id));
                 }
                 self.local_classes.insert(name.to_string(), class);
-                return Ok(());
-            }
-            // `const p = Promise.resolve(x)`: a registry-class STATIC call whose
-            // spec return is a NAMED registered class (`resolve(): Promise<T>`) —
-            // record the result's class so `p.then(cb)` dispatches.
-            HirExprKind::MethodCall { object, method, .. }
-                if matches!(&object.kind, HirExprKind::Ident(cn)
-                    if self.local(cn).is_none()
-                        && super::registry::class_statics(cn, method)
-                            .iter()
-                            .any(|c| c.ret_class.as_deref().is_some_and(super::registry::has_class))) =>
-            {
-                let val = self.lower_expr(module, init)?;
-                self.bind_tagged_local(name, val);
-                if let HirExprKind::Ident(cn) = &object.kind {
-                    if let Some(cls) = super::registry::class_statics(cn, method)
-                        .iter()
-                        .find_map(|c| c.ret_class.clone())
-                    {
-                        self.global_instance_classes.insert(name.to_string(), cls);
-                    }
-                }
                 return Ok(());
             }
             // `const sp = u.searchParams`: a registry-instance PROPERTY read whose
