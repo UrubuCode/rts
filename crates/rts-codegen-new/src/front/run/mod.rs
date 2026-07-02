@@ -22,6 +22,7 @@
 //! (driver + locals + coercions), [`expr`] (expressions, incl. the Tagged path),
 //! [`stmt`] (statements + control flow), [`module_jit`] (N-function JIT).
 
+mod argsobj;
 mod assign;
 mod binop;
 mod floatscan;
@@ -464,6 +465,13 @@ fn build_from_program(
             funcs.push(rts_hir::lower::lower_func(fdecl, &mut scope));
         }
     }
+
+    // 1b. Materialize the `arguments` object (#450/#299): a zero-arity fn
+    //     referencing `arguments` gains a synthetic variadic rest param (sees
+    //     every call arg); a declared-params fn gains a `let arguments = [p…]`
+    //     prologue. Runs on the lowered HirFuncs (incl. class methods), before
+    //     signatures freeze in `populate_module`.
+    argsobj::expand_arguments_object(&mut funcs);
 
     // 2. Lower the top-level statements (everything that is `Item::Statement`)
     //    against the same scope, in source order.

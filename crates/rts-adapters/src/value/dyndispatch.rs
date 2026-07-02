@@ -282,6 +282,31 @@ pub extern "C" fn __rtsadp_idx_get(recv: u64, idx: u64) -> u64 {
         }
     }
     if is_array_word(recv) {
+        // A SYMBOL key on an array (#216/#299): `arr[Symbol.iterator]` yields
+        // the native values-iterator FUNCTION (a real callable Entry::Function,
+        // `typeof === "function"`); any other symbol key is an absent property
+        // → `undefined`. Checked BEFORE the numeric decode — a symbol word must
+        // never coerce to an element index (it silently read `arr[0..]`).
+        {
+            use rts_runtime::namespaces::gc::handles as rt_handles;
+            let k = PolyValue::from_raw(idx);
+            if k.is_object() {
+                let kh = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(k.as_handle());
+                let is_symbol = rt_handles::with_entry(kh, |e| {
+                    matches!(e, Some(rt_handles::Entry::Symbol { .. }))
+                });
+                if is_symbol {
+                    let iter_sym =
+                        rts_runtime::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_ITERATOR();
+                    if kh == iter_sym {
+                        let f = rts_runtime::namespaces::gc::generator::__RTS_FN_GL_ARRAY_ITERATOR_FN();
+                        let slot = rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(f);
+                        return PolyValue::from_function_handle(slot).raw();
+                    }
+                    return undef();
+                }
+            }
+        }
         let h = arr_handle(recv);
         let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(h).max(0);
         let i = genops_to_i64(idx);
