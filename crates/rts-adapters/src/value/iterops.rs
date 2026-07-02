@@ -71,6 +71,39 @@ pub extern "C" fn __rtsadp_to_iter_array(word: u64) -> u64 {
     if v.is_string() {
         return __rtsadp_str_chars(word);
     }
+    // A `.ts` stdlib SET instance reached dynamically (a nested Set element, a
+    // param): its elements live in the private `#items` array slot. A MAP yields
+    // `[k, v]` pairs from `#keys`/`#vals`. Detected by SHAPE (the engine-owned
+    // private slot names), never by class name.
+    if v.is_object() {
+        let items = super::objops::__rtsadp_obj_get(word, abi_adapter::intern_poly("#items").raw());
+        let iv = PolyValue::from_raw(items);
+        if iv.is_object() && !looks_like_object(iv) {
+            return items;
+        }
+        let ks = super::objops::__rtsadp_obj_get(word, abi_adapter::intern_poly("#keys").raw());
+        let vs = super::objops::__rtsadp_obj_get(word, abi_adapter::intern_poly("#vals").raw());
+        let (kv, vv) = (PolyValue::from_raw(ks), PolyValue::from_raw(vs));
+        if kv.is_object() && !looks_like_object(kv) && vv.is_object() && !looks_like_object(vv) {
+            let kh = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(kv.as_handle());
+            let vh = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(vv.as_handle());
+            let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(kh).max(0);
+            let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+            for i in 0..len {
+                let pair = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+                let k = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(kh, i);
+                let vl = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(vh, i);
+                rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(pair, k);
+                rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(pair, vl);
+                let pair_word = PolyValue::from_object_handle(
+                    rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(pair),
+                )
+                .raw() as i64;
+                rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, pair_word);
+            }
+            return box_vec_as_array(out);
+        }
+    }
     box_vec_as_array(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW())
 }
 

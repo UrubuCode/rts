@@ -261,6 +261,7 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             regexops::__rtsadp_re_compile as *const u8,
         ),
         sym("__rtsadp_re_test", regexops::__rtsadp_re_test as *const u8),
+        sym("__rtsadp_re_exec", regexops::__rtsadp_re_exec as *const u8),
         sym(
             "__rtsadp_re_source",
             regexops::__rtsadp_re_source as *const u8,

@@ -70,7 +70,10 @@ fn class_meta(name: &str) -> Option<ClassMeta> {
 /// word + subject word → a bool word, the SAME generic shape as Map/Set methods.
 /// `.exec` BAILS (capture-group array extraction is a later increment — not a row
 /// here, so it is rejected as "no such method").
-const REGEX_METHODS: &[(&str, usize, &str)] = &[("test", 1, "__rtsadp_re_test")];
+const REGEX_METHODS: &[(&str, usize, &str)] = &[
+    ("test", 1, "__rtsadp_re_test"),
+    ("exec", 1, "__rtsadp_re_exec"),
+];
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Whether `class` names a runtime/Registry class the engine constructs (and

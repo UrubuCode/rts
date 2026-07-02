@@ -738,7 +738,7 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, U64],
             ret: U64,
         },
-        "__rtsadp_re_test" => SymSig {
+        "__rtsadp_re_test" | "__rtsadp_re_exec" => SymSig {
             params: &[U64, U64],
             ret: U64,
         },

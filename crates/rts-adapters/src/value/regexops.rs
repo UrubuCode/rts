@@ -177,6 +177,14 @@ pub extern "C" fn __rtsadp_re_str_match(subj_word: u64, re_word: u64) -> u64 {
     rebox_string_vec_as_array(raw_vec)
 }
 
+/// `re.exec(s)` — JS spec: an Array `[fullMatch, …captureGroups]` for the first
+/// match, or `null` when the subject does not match. Same result shape as
+/// `s.match(re)`; only the receiver/arg order differs.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_re_exec(re_word: u64, subj_word: u64) -> u64 {
+    __rtsadp_re_str_match(subj_word, re_word)
+}
+
 /// `s.replace(re, repl)` — replace the FIRST match (a non-global regex) with the
 /// literal replacement string. Returns a PolyValue string word.
 #[unsafe(no_mangle)]
