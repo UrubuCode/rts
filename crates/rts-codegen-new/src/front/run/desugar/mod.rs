@@ -102,6 +102,38 @@ pub(crate) fn desugar(
             continue;
         };
         for m in &c.members {
+            // CONSTRUCTOR: its HIR body carries a synthesized PROLOGUE (field
+            // inits, `super(..)`) ahead of the user statements, so the swc/HIR
+            // positional pairing is only sound when the prologue itself contains
+            // NO template placeholders. Verify by count: the HIR body's
+            // `Raw("template_literal")`/`Raw("TaggedTpl(..)")` placeholders must
+            // equal the swc ctor body's templates — then every placeholder came
+            // from the user statements and document order matches. On mismatch
+            // (a field initializer with a template) the ctor stays Raw (honest
+            // bail, as before).
+            if let rts_ast::ast::ClassMember::Constructor(cd) = m {
+                let swc_stmts: Vec<&swc_ecma_ast::Stmt> = cd
+                    .body
+                    .iter()
+                    .filter_map(|s| match s {
+                        Statement::Raw(raw) => raw.stmt.as_ref(),
+                    })
+                    .collect();
+                let mut acc = Recovered::default();
+                for s in &swc_stmts {
+                    tpl::walk_stmt(s, &mut acc);
+                }
+                if let Some(f) = funcs.iter_mut().find(|f| f.name == desc.ctor) {
+                    let dump = format!("{:?}", f.body);
+                    let ph = dump.matches("Raw(\"template_literal\")").count()
+                        + dump.matches("Raw(\"TaggedTpl(").count();
+                    if ph == acc.templates.len() + acc.tagged_templates.len() {
+                        rewrite_unit(&swc_stmts, &mut f.body);
+                        super::class::rewrite_this_block(&mut f.body);
+                    }
+                }
+                continue;
+            }
             let rts_ast::ast::ClassMember::Method(md) = m else {
                 continue;
             };
