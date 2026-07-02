@@ -449,10 +449,10 @@
 ,
 {
   "name": "claude-at-fractional-and-negative",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "20\n50\n40\nundefined\nundefined\n10\n10\n30\n20",
   "node": "20\n50\n40\nundefined\nundefined\n10\n10\n30\n20",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "20\n50\n40\nundefined\nundefined\n10\n10\n10\n20"
 }
 ,
 {
@@ -3732,7 +3732,7 @@
   "status": "rts_diverge",
   "bun": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
   "node": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
-  "rts": "h=104\ne=101\no=111\nout=281474976711047\nemoji=128512\nA=65\ncharCode=55357"
+  "rts": "h=104\ne=101\no=111\nout=281474976711058\nemoji=128512\nA=65\ncharCode=55357"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":230,"rts_diverge":87,"bun_node_diverge":17,"errors":275,"rejected":0}}
+],"summary":{"total":609,"pass":230,"rts_diverge":88,"bun_node_diverge":17,"errors":274,"rejected":0}}
