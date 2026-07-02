@@ -168,6 +168,25 @@ pub extern "C" fn __rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
     if let Some((target, handler)) = proxy_parts(obj_word) {
         return proxy_get(target, handler, key_str_handle);
     }
+    // SYMBOL primitive (#216): `.description` reads the stored description (a
+    // string word, or `undefined` for a description-less symbol). A symbol wraps
+    // `Entry::Symbol`, not a keyed Vec, so `resolve_slot` cannot see it.
+    {
+        let obj = PolyValue::from_raw(obj_word);
+        if obj.is_object() && key_text(key_str_handle) == "description" {
+            let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+            let desc = rt_handles::with_entry(handle, |e| match e {
+                Some(rt_handles::Entry::Symbol { description }) => Some(description.clone()),
+                _ => None,
+            });
+            if let Some(d) = desc {
+                return match d {
+                    Some(s) => abi_adapter::intern_poly(&s).raw(),
+                    None => PolyValue::undefined().raw(),
+                };
+            }
+        }
+    }
     match resolve_slot(obj_word, key_str_handle) {
         Some((handle, idx)) => rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 1 + idx) as u64,
         // Own-slot MISS → walk the prototype chain (`Object.create(proto)`): the key
