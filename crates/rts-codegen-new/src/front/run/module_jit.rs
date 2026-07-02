@@ -51,6 +51,11 @@ impl Program {
     pub fn run_main(&self) {
         let f: extern "C" fn() = unsafe { std::mem::transmute(self.main) };
         f();
+        // Drain the event loop (pending microtasks / timers / promise tasks) —
+        // the SAME post-main step the AOT shim emits (`module_aot`). Without it
+        // a top-level `p.then(cb)` / `setTimeout(cb)` never fired under JIT
+        // (`rts run`); a program with nothing queued is a no-op.
+        rts_runtime::namespaces::event_loop::__RTS_FN_RT_RUN_EVENT_LOOP();
         // keep the module mapped until after the call returns.
         let _keep = &self._module;
     }

@@ -338,7 +338,20 @@ pub extern "C" fn __rtsadp_idx_get(recv: u64, idx: u64) -> u64 {
         if i < 0 || i >= len {
             return undef();
         }
-        return rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(h, i) as u64;
+        let elem = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(h, i) as u64;
+        // A LEGACY raw-handle element (a runtime-built Vec — e.g.
+        // `Promise.allSettled`'s result rows are raw `Entry::Map` handles, not
+        // words): box it by live entry kind. A boxed word / small number passes
+        // verbatim; a ≥2^48 non-boxed value with a live entry is never a real
+        // double in practice (the generation bits).
+        const BOX_BASE: u64 = 0xFFF8_0000_0000_0000;
+        if (elem & BOX_BASE) != BOX_BASE && elem >= (1u64 << 48) {
+            let live = rts_engine::heap::handles::with_entry(elem, |e| e.is_some());
+            if live {
+                return genops::__rtsadp_box_handle_auto(elem);
+            }
+        }
+        return elem;
     }
     // Object (or any non-string/non-array): key by `idx` via obj_get. `obj_get`'s
     // key param is a PolyValue WORD (its `key_text` ToStrings internally — `o[0]`

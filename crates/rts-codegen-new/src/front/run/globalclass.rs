@@ -339,6 +339,26 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 Some(class.clone())
             }
             HirExprKind::Ident(name) => self.global_instance_classes.get(name).cloned(),
+            // A CHAINED registry call receiver, resolved by the specs' ts return
+            // classes (data-driven, no class named here):
+            // - a STATIC (`Promise.resolve(4)` → its spec ret class);
+            // - an INSTANCE method on a receiver whose class this same fn
+            //   resolves (`p.then(a).then(b)` — recursion covers N-deep chains).
+            HirExprKind::MethodCall { object: inner, method, .. } => {
+                if let HirExprKind::Ident(cn) = &inner.kind {
+                    if self.local(cn).is_none() {
+                        if let Some(c) = super::registry::class_statics(cn, method)
+                            .iter()
+                            .find_map(|c| c.ret_class.clone())
+                            .filter(|c| super::registry::has_class(c))
+                        {
+                            return Some(c);
+                        }
+                    }
+                }
+                let recv = self.global_instance_class(inner)?;
+                super::registry::class_member_ret_class(&recv, method)
+            }
             _ => None,
         }
     }

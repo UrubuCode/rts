@@ -1526,10 +1526,25 @@ fn raw_to_word(a: i64) -> i64 {
     }
     if let Ok(i) = i32::try_from(a) {
         // TAG_INT32 = 1 (the PolyValue small-int tag).
-        (p::POLY_BOX_BASE | (1u64 << p::POLY_TAG_SHIFT) | (i as u32 as u64)) as i64
-    } else {
-        f64::to_bits(a as f64) as i64
+        return (p::POLY_BOX_BASE | (1u64 << p::POLY_TAG_SHIFT) | (i as u32 as u64)) as i64;
     }
+    // Um HANDLE GC cru (generation bits ⇒ ≥ 2^48, entry viva — e.g. o settled
+    // de `Promise.reject("error")` chegando num `.catch`): boxa por entry kind
+    // (STR/OBJECT) pro callee uniforme ler o valor real, não um número gigante.
+    if w >= (1u64 << 48) {
+        use rts_engine::heap::handles::{Entry, with_entry};
+        let tag: u64 = with_entry(w, |e| match e {
+            Some(Entry::String(_)) => p::POLY_TAG_STR,
+            Some(Entry::Function(_)) => p::POLY_TAG_FUNCTION,
+            Some(_) => p::POLY_TAG_OBJECT,
+            None => 0,
+        });
+        if tag != 0 {
+            let slot = rts_engine::heap::handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(w);
+            return (p::POLY_BOX_BASE | (tag << p::POLY_TAG_SHIFT) | slot) as i64;
+        }
+    }
+    f64::to_bits(a as f64) as i64
 }
 
 /// WORD PolyValue → i64 CRU da superfície: INT32 → valor, singleton → 0,

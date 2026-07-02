@@ -269,6 +269,19 @@ pub fn class_member(class: &str, method: &str, argc: usize) -> Option<ResolvedCa
     Some(instance_call(m))
 }
 
+/// The provable RETURN CLASS of instance method `class.method`, ANY arity —
+/// first same-named instance method whose ts signature names a registered
+/// class (`then(cb): Promise` → "Promise"). Lets a CHAINED receiver classify
+/// (`Promise.resolve(4).then(cb)` — the outer `.then`'s receiver class).
+pub fn class_member_ret_class(class: &str, method: &str) -> Option<String> {
+    let c = registry().class(class)?;
+    c.members
+        .iter()
+        .filter(|m| matches!(m.kind, MemberKind::InstanceMethod) && m.matches_name(method))
+        .find_map(|m| ts_return_class(&m.ts_signature))
+        .filter(|rc| has_class(rc))
+}
+
 /// Resolve `inst.prop` as an INSTANCE GETTER (a `MemberKind::InstanceGetter`, read
 /// with no `()`) to its [`ResolvedCall`]. `None` when the class has no such getter.
 /// (Distinct from `class_member`, which only matches `InstanceMethod` — some

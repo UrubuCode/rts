@@ -189,6 +189,37 @@ pub extern "C" fn __rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
             return abi_adapter::poly_from_real_handle(name_h).raw();
         }
     }
+    // A legacy DICTIONARY object (`Entry::Map` — e.g. `Promise.allSettled`'s
+    // `{status, value}` result rows built runtime-side): read the key straight
+    // from the IndexMap, boxing the raw i64 value by its live kind (int word,
+    // heap handle → STR/OBJECT word, f64 bits).
+    {
+        let obj = PolyValue::from_raw(obj_word);
+        if obj.is_object() {
+            let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+            let hit = rt_handles::with_entry(h, |e| match e {
+                Some(rt_handles::Entry::Map(m)) => {
+                    Some(m.get(&key_text(key_str_handle)).copied())
+                }
+                _ => None,
+            });
+            if let Some(v) = hit {
+                return match v {
+                    Some(x) => {
+                        let w = x as u64;
+                        if let Ok(i) = i32::try_from(x) {
+                            PolyValue::from_i32(i).raw()
+                        } else if w >= (1u64 << 48) {
+                            super::genops::__rtsadp_box_handle_auto(w)
+                        } else {
+                            PolyValue::from_f64(x as f64).raw()
+                        }
+                    }
+                    None => PolyValue::undefined().raw(),
+                };
+            }
+        }
+    }
     // `.length` on a NON-keyed receiver (a string / an array reached through the
     // dynamic get — `cfg?.list.length`): route the tag-dispatched length. A KEYED
     // object falls through to its own `length` slot below (`dyn_length`'s keyed
