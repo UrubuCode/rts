@@ -1023,17 +1023,38 @@ fn set_delegate_done(h: u64, d: bool) {
 /// de iterador. Generator (GenState) -> ele mesmo (ja' eh iterador). Array (Vec)
 /// -> uma copia com cursor (ITERATOR_FROM). String -> Vec de chars (1 handle por
 /// caractere). Outro -> passthrough (assume iterador).
+/// Um arg de delegação chega em TRÊS convenções, conforme o call site do SM
+/// boxa/coage: um WORD PolyValue NaN-boxed (TAG_OBJECT de um buffer eager), os
+/// BITS de um double inline (um GenState HANDLE Int64 boxado como double e
+/// repassado verbatim), ou um handle cru legado. Normaliza por TAG.
+fn normalize_delegate_word(src: i64) -> u64 {
+    let w = src as u64;
+    if let Some(real) = rts_engine::heap::poly::poly_handle_normalize(w) {
+        return real;
+    }
+    let f = f64::from_bits(w);
+    if f.is_finite() && f >= (1u64 << 48) as f64 && f.fract() == 0.0 {
+        return f as u64;
+    }
+    w
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_GEN_DELEGATE_START(src: i64) -> i64 {
-    let h = src as u64;
+    let h = normalize_delegate_word(src);
     let kind = with_entry(h, |e| match e {
         Some(Entry::GenState(_)) => 1u8,
         Some(Entry::Vec(_)) => 2,
         Some(Entry::String(_)) => 3,
         _ => 0,
     });
+    if std::env::var("RTS_DEBUG_GEN").is_ok() {
+        eprintln!("[gen] DELEGATE_START src={src:#x} h={h:#x} kind={kind}");
+    }
     match kind {
-        1 => src, // generator: ja' eh iterador
+        // Generator: ja' eh iterador — devolve o HANDLE NORMALIZADO (o `src`
+        // cru pode ser o word boxed; NEXT/DONE fazem with_entry direto).
+        1 => h as i64,
         2 => __RTS_FN_GL_ITERATOR_FROM(h) as i64,
         3 => {
             // String iteravel: cada char vira um handle de String de 1 char.
@@ -1060,12 +1081,15 @@ pub extern "C" fn __RTS_FN_NS_GC_GEN_DELEGATE_START(src: i64) -> i64 {
 /// `__RTS_GEN_DELEGATE_DONE(it)`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_GEN_DELEGATE_NEXT(it: i64) -> i64 {
-    let h = it as u64;
+    let h = normalize_delegate_word(it);
     let kind = with_entry(h, |e| match e {
         Some(Entry::GenState(_)) => 1u8,
         Some(Entry::Vec(_)) => 2,
         _ => 0,
     });
+    if std::env::var("RTS_DEBUG_GEN").is_ok() {
+        eprintln!("[gen] DELEGATE_NEXT it={it:#x} h={h:#x} kind={kind}");
+    }
     match kind {
         1 => {
             let (fn_ptr, done0) = with_entry(h, |e| match e {
@@ -1142,7 +1166,7 @@ pub extern "C" fn __RTS_FN_NS_GC_SYMBOL_ITERATOR_OF(obj: i64) -> i64 {
 /// truthy no `if` da state-machine.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_GEN_DELEGATE_DONE(it: i64) -> i64 {
-    let h = it as u64;
+    let h = normalize_delegate_word(it);
     let done = DELEGATE_DONE.with(|c| c.borrow().get(&h).copied().unwrap_or(false));
     if done { 1 } else { 0 }
 }
