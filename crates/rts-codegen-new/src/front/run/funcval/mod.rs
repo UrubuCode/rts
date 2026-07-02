@@ -506,6 +506,73 @@ impl Ctx {
                 self.rewrite_block(body, scope, mutated);
             }
             HirStmt::Block(b) => self.rewrite_block(b, scope, mutated),
+            // try/catch/finally: arrows inside the bodies must lift like anywhere
+            // else (`catch { return xs.map(x => x + 1) }`). The catch binding is a
+            // block-scoped name.
+            HirStmt::Try {
+                body,
+                catch,
+                finally,
+            } => {
+                self.rewrite_block(body, scope, mutated);
+                if let Some(c) = catch {
+                    let mut inner = scope.clone();
+                    if let Some(b) = &c.binding {
+                        inner.insert(b.clone());
+                    }
+                    self.rewrite_block(&mut c.body, &inner, mutated);
+                }
+                if let Some(f) = finally {
+                    self.rewrite_block(f, scope, mutated);
+                }
+            }
+            HirStmt::DoWhile { cond, body } => {
+                self.rewrite_expr(cond, scope, mutated);
+                self.rewrite_block(body, scope, mutated);
+            }
+            HirStmt::For {
+                init,
+                cond,
+                update,
+                body,
+            } => {
+                let mut inner = scope.clone();
+                if let Some(i) = init {
+                    self.rewrite_stmt(i, &mut inner, mutated);
+                }
+                if let Some(c) = cond {
+                    self.rewrite_expr(c, &inner, mutated);
+                }
+                if let Some(u) = update {
+                    self.rewrite_expr(u, &inner, mutated);
+                }
+                self.rewrite_block(body, &inner, mutated);
+            }
+            HirStmt::ForOf { binding, iterable, body, .. } => {
+                self.rewrite_expr(iterable, scope, mutated);
+                let mut inner = scope.clone();
+                inner.insert(binding.clone());
+                self.rewrite_block(body, &inner, mutated);
+            }
+            HirStmt::ForIn { binding, object, body } => {
+                self.rewrite_expr(object, scope, mutated);
+                let mut inner = scope.clone();
+                inner.insert(binding.clone());
+                self.rewrite_block(body, &inner, mutated);
+            }
+            HirStmt::Throw(e) => self.rewrite_expr(e, scope, mutated),
+            HirStmt::Switch {
+                discriminant,
+                cases,
+            } => {
+                self.rewrite_expr(discriminant, scope, mutated);
+                for c in cases.iter_mut() {
+                    if let Some(t) = &mut c.test {
+                        self.rewrite_expr(t, scope, mutated);
+                    }
+                    self.rewrite_block(&mut c.body, scope, mutated);
+                }
+            }
             // Other statement kinds are outside the lowering subset; any arrow in
             // them will reach the lowering and bail. Leave untouched.
             _ => {}
