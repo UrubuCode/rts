@@ -194,6 +194,14 @@ impl FnSig {
         {
             ret = Repr::Tagged;
         }
+        // A `return <function-value>` (an extracted arrow — `e.ty` is stamped
+        // `HirType::Function` by the extraction, or a fn-expr) must ride `Tagged`:
+        // the old-model `: i64` annotation on a fn-returning function would
+        // otherwise coerce the `TAG_FUNCTION` word through the numeric decode
+        // (NaN → 0) and the caller invokes nothing.
+        if ret != Repr::Tagged && any_return_is_function(func) {
+            ret = Repr::Tagged;
+        }
         // A desugared eager GENERATOR returns the `__gen_buf` ARRAY word (a `Tagged`
         // PolyValue), but the parser stamps its declared return type `i64` (→ would
         // force `Int64`). Coercing the array word to `Int64` corrupts it (`g()` then
@@ -272,6 +280,33 @@ fn all_returns_are_float64(func: &HirFunc) -> bool {
     let mut all_float = true;
     walk_returns(&func.body, &mut any, &mut all_float);
     any && all_float
+}
+
+/// Whether any `return e` in `func` returns a FUNCTION value (`e.ty` is
+/// `HirType::Function` — an extracted arrow / fn-expr Ident). See `of_func`.
+fn any_return_is_function(func: &HirFunc) -> bool {
+    fn walk(stmts: &[HirStmt], found: &mut bool) {
+        for s in stmts {
+            match s {
+                HirStmt::Return(Some(e)) => {
+                    if matches!(e.ty, rts_hir::HirType::Function { .. }) {
+                        *found = true;
+                    }
+                }
+                HirStmt::If { then, else_, .. } => {
+                    walk(then, found);
+                    if let Some(el) = else_ {
+                        walk(el, found);
+                    }
+                }
+                HirStmt::While { body, .. } | HirStmt::Block(body) => walk(body, found),
+                _ => {}
+            }
+        }
+    }
+    let mut found = false;
+    walk(&func.body, &mut found);
+    found
 }
 
 /// Walk the lowering-subset statements; set `any` if any `return e` is seen and
