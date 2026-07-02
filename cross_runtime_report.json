@@ -564,7 +564,7 @@
   "status": "rts_diverge",
   "bun": "after-define=7:1|2|3|4|||7:0,1,2,3,6\nafter-trunc=2:1|2:0,1\nRangeError\nfinal=2:1|2",
   "node": "after-define=7:1|2|3|4|||7:0,1,2,3,6\nafter-trunc=2:1|2:0,1\nRangeError\nfinal=2:1|2",
-  "rts": "after-define=undefined:undefined:0,1,2,3\nafter-trunc=undefined:undefined:0,1,2,3\nfinal=undefined:undefined"
+  "rts": "after-define=4:undefined:0,1,2,3\nafter-trunc=4:undefined:0,1,2,3\nfinal=4:undefined"
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": ""
 }
 ,
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":232,"rts_diverge":104,"bun_node_diverge":17,"errors":256,"rejected":0}}
+],"summary":{"total":609,"pass":232,"rts_diverge":103,"bun_node_diverge":18,"errors":256,"rejected":0}}
