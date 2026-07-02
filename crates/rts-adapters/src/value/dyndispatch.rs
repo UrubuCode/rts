@@ -123,6 +123,20 @@ pub extern "C" fn __rtsadp_dyn_length(recv: u64) -> u64 {
         let units = s.chars().map(|c| c.len_utf16()).sum::<usize>();
         return PolyValue::from_i32(units as i32).raw();
     }
+    // A BUFFER (a `TextEncoder.encode` result — `Entry::Buffer` bytes): its
+    // `.length` is the byte count (the Uint8Array surface). Checked BEFORE the
+    // array arm — a Buffer word also passes `is_array_word` (object, non-keyed)
+    // and `VEC_LEN` on it reads 0.
+    if v.is_object() {
+        use rts_runtime::namespaces::gc::handles as rt_handles;
+        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+        if let Some(len) = rts_engine::heap::handles::with_entry(h, |e| match e {
+            Some(rts_engine::heap::handles::Entry::Buffer(b)) => Some(b.len()),
+            _ => None,
+        }) {
+            return PolyValue::from_i32(len as i32).raw();
+        }
+    }
     if is_array_word(recv) {
         let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(arr_handle(recv)).max(0);
         return PolyValue::from_i32(len as i32).raw();
@@ -247,6 +261,25 @@ pub extern "C" fn __rtsadp_idx_get(recv: u64, idx: u64) -> u64 {
             return undef();
         }
         return box_str(intern_utf16_unit(units[i as usize]));
+    }
+    // A BUFFER (`Entry::Buffer` — TextEncoder.encode bytes): numeric index reads
+    // the byte (Uint8Array surface); OOB → undefined. Before the array arm — a
+    // Buffer word also passes `is_array_word` and `VEC_GET` on it reads nothing.
+    if v.is_object() {
+        use rts_runtime::namespaces::gc::handles as rt_handles;
+        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+        let i = genops_to_i64(idx);
+        if let Some(byte) = rts_engine::heap::handles::with_entry(h, |e| match e {
+            Some(rts_engine::heap::handles::Entry::Buffer(b)) => {
+                Some(usize::try_from(i).ok().and_then(|i| b.get(i).copied()))
+            }
+            _ => None,
+        }) {
+            return match byte {
+                Some(b) => PolyValue::from_i32(b as i32).raw(),
+                None => undef(),
+            };
+        }
     }
     if is_array_word(recv) {
         let h = arr_handle(recv);

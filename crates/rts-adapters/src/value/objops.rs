@@ -188,6 +188,23 @@ pub extern "C" fn __rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
         if !is_keyed && key_text(key_str_handle) == "length" {
             return super::dyndispatch::__rtsadp_dyn_length(obj_word);
         }
+        // A BUFFER receiver (`Entry::Buffer` — a TextEncoder.encode result) with
+        // a numeric key: read the byte (the Uint8Array indexing surface);
+        // out-of-bounds → `undefined` (JS).
+        if !is_keyed && obj.is_object() {
+            if let Ok(i) = key_text(key_str_handle).parse::<usize>() {
+                let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+                if let Some(byte) = rt_handles::with_entry(h, |e| match e {
+                    Some(rt_handles::Entry::Buffer(b)) => Some(b.get(i).copied()),
+                    _ => None,
+                }) {
+                    return match byte {
+                        Some(v) => PolyValue::from_i32(v as i32).raw(),
+                        None => PolyValue::undefined().raw(),
+                    };
+                }
+            }
+        }
     }
     // SYMBOL primitive (#216): `.description` reads the stored description (a
     // string word, or `undefined` for a description-less symbol). A symbol wraps

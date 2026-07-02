@@ -298,11 +298,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// single-numeric-arg form is supported; `Array(a, b, …)` (an element list) is
     /// `Array.of`-shaped and BAILS here (a later increment). Result kind Array.
     fn array_ctor_call(&mut self, module: &mut dyn Module, args: &[HirExpr]) -> FrontResult<Val> {
+        // `Array(a, b, …)` / `Array()` — the element-list form (JS: 0 or 2+ args
+        // never mean a size): lower exactly like the array literal `[a, b, …]`.
         if args.len() != 1 {
-            return unsupported!(
-                "Array(...) with {} args (only `Array(n)` sized form is supported)",
-                args.len()
+            let arr_expr = HirExpr::new(
+                HirExprKind::Array(args.to_vec()),
+                rts_hir::HirType::Unknown,
             );
+            return self.lower_expr(module, &arr_expr);
         }
         // `Array(...arr)` (spread, flattened to a single array arg by the HIR) is
         // NOT the sized form — bail rather than treat the array's `length` coercion
