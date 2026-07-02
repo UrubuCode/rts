@@ -69,6 +69,7 @@ struct Members<'a> {
     getters: Vec<&'a MethodDecl>,
     setters: Vec<&'a MethodDecl>,
     static_methods: Vec<&'a MethodDecl>,
+    static_getters: Vec<&'a MethodDecl>,
     props: Vec<&'a PropertyDecl>,
     static_props: Vec<&'a PropertyDecl>,
 }
@@ -222,6 +223,13 @@ pub(super) fn build_class(
             static_field_getter_name(&decl.name, &sp.name),
         );
     }
+    // STATIC GETTERS (`static get version()`): synthesized exactly like a
+    // zero-arg static method, registered as a static FIELD — the member-read
+    // path (`C.version`) already calls a zero-arg getter fn for those.
+    for sg in &m.static_getters {
+        out.push(synth_static_method(decl, sg)?);
+        static_fields.insert(sg.name.clone(), static_method_name(&decl.name, &sg.name));
+    }
 
     let desc = ClassDesc {
         name: decl.name.clone(),
@@ -249,6 +257,7 @@ fn categorize(decl: &ClassDecl) -> FrontResult<Members<'_>> {
         getters: Vec::new(),
         setters: Vec::new(),
         static_methods: Vec::new(),
+        static_getters: Vec::new(),
         props: Vec::new(),
         static_props: Vec::new(),
     };
@@ -264,13 +273,20 @@ fn categorize(decl: &ClassDecl) -> FrontResult<Members<'_>> {
                 m.ctor = Some(c);
             }
             ClassMember::Method(md) if md.modifiers.is_static => {
-                if !matches!(md.role, MethodRole::Method) {
-                    return Err(Unsupported::new(format!(
-                        "static getter/setter `{}.{}`",
-                        decl.name, md.name
-                    )));
+                match md.role {
+                    MethodRole::Method => m.static_methods.push(md),
+                    // A STATIC GETTER (`static get version()`) synthesizes exactly
+                    // like a zero-arg static method, registered as a static FIELD
+                    // (the read path already calls a zero-arg getter fn). A static
+                    // SETTER stays unsupported (write path is a later increment).
+                    MethodRole::Getter => m.static_getters.push(md),
+                    MethodRole::Setter => {
+                        return Err(Unsupported::new(format!(
+                            "static setter `{}.{}`",
+                            decl.name, md.name
+                        )));
+                    }
                 }
-                m.static_methods.push(md);
             }
             ClassMember::Method(md) => match md.role {
                 MethodRole::Method => m.methods.push(md),

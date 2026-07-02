@@ -497,8 +497,18 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
         }
 
         swc::Expr::Arrow(arrow) => {
-            let params: Vec<HirParam> = arrow.params.iter().map(|p| {
-                let name = extract_swc_pat_name(p);
+            // A DESTRUCTURED param (`([k, v]) => …`, `({ a }) => …`) binds a
+            // SYNTHETIC param name and prefixes the body with the equivalent
+            // `const` reads — so the arrow's free-ident analysis (the extraction
+            // pass) sees `k`/`v` as bound locals, not phantom captures. Simple
+            // flat array/object patterns only; anything deeper keeps the legacy
+            // "_" (the lowering bails explicitly).
+            let mut prologue: Vec<HirStmt> = Vec::new();
+            let params: Vec<HirParam> = arrow.params.iter().enumerate().map(|(i, p)| {
+                let name = match destructure_param_prologue(p, i, &mut prologue) {
+                    Some(synth) => synth,
+                    None => extract_swc_pat_name(p),
+                };
                 let annotation = extract_ts_type_annotation(p);
                 let ty = annotation.as_deref().map(parse_type_annotation).unwrap_or(HirType::Unknown);
                 HirParam { name, ty, variadic: false, has_default: false, optional: false, default_expr: None }
@@ -507,11 +517,21 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
             let body = match &*arrow.body {
                 swc::BlockStmtOrExpr::Expr(e) => {
                     let expr = lower_swc_expr(e, scope);
-                    HirArrowBody::Expr(Box::new(expr))
+                    if prologue.is_empty() {
+                        HirArrowBody::Expr(Box::new(expr))
+                    } else {
+                        let mut stmts = prologue;
+                        stmts.push(HirStmt::Return(Some(expr)));
+                        HirArrowBody::Block(stmts)
+                    }
                 }
                 swc::BlockStmtOrExpr::BlockStmt(b) => {
                     let mut inner_scope = Scope::new();
-                    let stmts = lower_swc_stmts_block(b, &mut inner_scope);
+                    let mut stmts = lower_swc_stmts_block(b, &mut inner_scope);
+                    if !prologue.is_empty() {
+                        prologue.append(&mut stmts);
+                        stmts = prologue;
+                    }
                     HirArrowBody::Block(stmts)
                 }
             };
@@ -736,6 +756,79 @@ fn extract_pat_binding(pat: &swc::ForHead) -> String {
         swc::ForHead::UsingDecl(u) => u.decls.first()
             .map(|d| extract_swc_pat_name(&d.name))
             .unwrap_or_default(),
+    }
+}
+
+/// If `pat` is a SIMPLE flat destructuring pattern (`[k, v]` of plain idents /
+/// holes, or `{ a, b: c }` of plain/aliased idents), return a synthetic param
+/// name (`__rtsn_dp<i>`) and append the equivalent `const` reads to `prologue`
+/// (`const k = __rtsn_dp0[0];` / `const c = __rtsn_dp0.b;`). `None` for a plain
+/// ident param or an unsupported (nested/defaulted/rest) pattern — the caller
+/// keeps the legacy name and the lowering bails explicitly.
+fn destructure_param_prologue(
+    pat: &swc::Pat,
+    index: usize,
+    prologue: &mut Vec<HirStmt>,
+) -> Option<String> {
+    let synth = format!("__rtsn_dp{index}");
+    let synth_ident = || HirExpr::new(HirExprKind::Ident(synth.clone()), HirType::Unknown);
+    match pat {
+        swc::Pat::Array(arr) => {
+            let mut stmts: Vec<HirStmt> = Vec::new();
+            for (i, el) in arr.elems.iter().enumerate() {
+                let Some(el) = el else { continue }; // hole: skip
+                let swc::Pat::Ident(id) = el else { return None };
+                let idx = HirExpr::new(
+                    HirExprKind::Lit(HirLit::Int(i as i64)),
+                    HirType::I64,
+                );
+                let read = HirExpr::new(
+                    HirExprKind::Index {
+                        object: Box::new(synth_ident()),
+                        index: Box::new(idx),
+                    },
+                    HirType::Unknown,
+                );
+                stmts.push(HirStmt::Const {
+                    name: id.id.sym.to_string(),
+                    ty: HirType::Unknown,
+                    init: read,
+                });
+            }
+            prologue.extend(stmts);
+            Some(synth)
+        }
+        swc::Pat::Object(obj) => {
+            let mut stmts: Vec<HirStmt> = Vec::new();
+            for p in &obj.props {
+                let (key, bind) = match p {
+                    swc::ObjectPatProp::Assign(a) if a.value.is_none() => {
+                        (a.key.sym.to_string(), a.key.sym.to_string())
+                    }
+                    swc::ObjectPatProp::KeyValue(kv) => {
+                        let swc::Pat::Ident(id) = &*kv.value else { return None };
+                        let swc::PropName::Ident(k) = &kv.key else { return None };
+                        (k.sym.to_string(), id.id.sym.to_string())
+                    }
+                    _ => return None,
+                };
+                let read = HirExpr::new(
+                    HirExprKind::Member {
+                        object: Box::new(synth_ident()),
+                        prop: key,
+                    },
+                    HirType::Unknown,
+                );
+                stmts.push(HirStmt::Const {
+                    name: bind,
+                    ty: HirType::Unknown,
+                    init: read,
+                });
+            }
+            prologue.extend(stmts);
+            Some(synth)
+        }
+        _ => None,
     }
 }
 
