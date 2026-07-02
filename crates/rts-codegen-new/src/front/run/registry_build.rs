@@ -254,6 +254,29 @@ fn register_typed_array_class_specs(e: &mut Engine) {
             })
             .done();
     }
+    // `BigInt.asIntN/asUintN` statics — N-bit wrap over the i64 interim BigInt
+    // model (#219; literals already lower as fits-i64 Ints).
+    let mut bi = e.class("BigInt");
+    for (name, sym, fp) in [
+        ("asIntN", "__RTS_FN_GL_BIGINT_AS_INTN", ta::__rtsadp_bigint_as_intn as *const u8),
+        ("asUintN", "__RTS_FN_GL_BIGINT_AS_UINTN", ta::__rtsadp_bigint_as_uintn as *const u8),
+    ] {
+        bi = bi.member(Member {
+            name: name.to_string(),
+            kind: MemberKind::StaticMethod,
+            sig: Sig::new(vec![AbiType::PolyValue; 2], AbiType::PolyValue),
+            symbol: sym.to_string(),
+            fn_ptr: FnPtr(fp),
+            flags: MemberFlags::NONE,
+            aliases: Vec::new(),
+            variadic: false,
+            ts_signature: format!("{name}(bits: number, v: bigint): bigint"),
+            doc: "N-bit wrap (i64 interim BigInt model, #219).".to_string(),
+            pure: true,
+            intrinsic: None,
+        });
+    }
+    bi.done();
     // `Atomics.*` statics (level A — single-threaded runtime: plain RMW on the
     // Vec-backed typed array; RMW ops return the PREVIOUS value, `store` the
     // stored value — exact JS observables).

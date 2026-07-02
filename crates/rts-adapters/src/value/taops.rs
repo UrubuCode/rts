@@ -368,6 +368,33 @@ pub extern "C" fn __rtsadp_atomics_cmpxchg(
     num(cur)
 }
 
+/// `BigInt.asIntN(bits, v)` — wrap `v` into an N-bit SIGNED integer (the i64
+/// interim BigInt model, #219). `asUintN` is the unsigned form.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_bigint_as_intn(bits_word: u64, val_word: u64) -> u64 {
+    let bits = super::genops::to_number(PolyValue::from_raw(bits_word)) as u32;
+    let v = super::genops::to_number(PolyValue::from_raw(val_word)).trunc() as i64;
+    if bits == 0 || bits >= 64 {
+        return PolyValue::from_f64(v as f64).raw();
+    }
+    let m = (v as u64) & (u64::MAX >> (64 - bits));
+    let shift = 64 - bits;
+    let out = ((m << shift) as i64) >> shift;
+    PolyValue::from_f64(out as f64).raw()
+}
+
+/// `BigInt.asUintN(bits, v)` — unsigned N-bit wrap.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_bigint_as_uintn(bits_word: u64, val_word: u64) -> u64 {
+    let bits = super::genops::to_number(PolyValue::from_raw(bits_word)) as u32;
+    let v = super::genops::to_number(PolyValue::from_raw(val_word)).trunc() as i64;
+    if bits == 0 || bits >= 64 {
+        return PolyValue::from_f64(v as f64).raw();
+    }
+    let m = (v as u64) & (u64::MAX >> (64 - bits));
+    PolyValue::from_f64(m as f64).raw()
+}
+
 /// Pack a `...rest` param's value from the uniform-ABI slots: the positional
 /// slots `a[start_idx..4]` (TRAILING `undefined`s trimmed — the ABI carries no
 /// argc, so an explicit trailing `undefined` argument is indistinguishable
