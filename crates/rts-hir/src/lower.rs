@@ -816,6 +816,12 @@ pub fn parse_type_annotation(s: &str) -> HirType {
     }
 }
 
+/// Public mirror of the swc→HIR binary-op map (the template-interpolation
+/// rebuild composes Bin nodes whose operands it re-lowers itself).
+pub fn bin_op_of(op: swc::BinaryOp) -> HirBinOp {
+    swc_bin_op_to_hir(op)
+}
+
 fn swc_bin_op_to_hir(op: swc::BinaryOp) -> HirBinOp {
     match op {
         swc::BinaryOp::Add => HirBinOp::Add,

@@ -135,6 +135,12 @@ fn rebuild_interp(expr: &swc_ecma_ast::Expr, scope: &Scope) -> HirExpr {
         swc_ecma_ast::Expr::OptChain(oc) => super::optchain::build_opt_chain(oc)
             .unwrap_or_else(|| rts_hir::lower::lower_swc_expr(expr, scope)),
         swc_ecma_ast::Expr::Paren(p) => rebuild_interp(&p.expr, scope),
+        // A binary interpolation (`${a?.b ?? "x"}`, `${x + y?.z}`): rebuild BOTH
+        // sides recursively so an optional chain INSIDE the operand recovers
+        // (the plain lowering would leave it a Raw that bails). Operands use the
+        // OPERAND rebuild — no `String(ident)` wrap (that is only for a whole
+        // object interpolation; wrapping an operand broke `${n ?? 99}`).
+        swc_ecma_ast::Expr::Bin(b) => rebuild_bin(b, scope),
         // An OBJECT interpolation (object literal, `new C()`, or a bare identifier
         // that may be bound to a ToPrimitive object) needs the STRING hint → route
         // through `String(...)`. For a primitive bound to the identifier `String()`
@@ -146,6 +152,29 @@ fn rebuild_interp(expr: &swc_ecma_ast::Expr, scope: &Scope) -> HirExpr {
         }
         _ => rts_hir::lower::lower_swc_expr(expr, scope),
     }
+}
+
+/// Rebuild a binary interpolation operand-by-operand: an OptChain/nested Bin/
+/// Paren recovers; anything else lowers plainly (NO `String(...)` wrap — that
+/// hint is only for a whole-interpolation object value).
+fn rebuild_bin(b: &swc_ecma_ast::BinExpr, scope: &Scope) -> HirExpr {
+    fn operand(e: &swc_ecma_ast::Expr, scope: &Scope) -> HirExpr {
+        match e {
+            swc_ecma_ast::Expr::OptChain(oc) => super::optchain::build_opt_chain(oc)
+                .unwrap_or_else(|| rts_hir::lower::lower_swc_expr(e, scope)),
+            swc_ecma_ast::Expr::Paren(p) => operand(&p.expr, scope),
+            swc_ecma_ast::Expr::Bin(inner) => rebuild_bin(inner, scope),
+            _ => rts_hir::lower::lower_swc_expr(e, scope),
+        }
+    }
+    HirExpr::new(
+        rts_hir::ir::HirExprKind::Bin {
+            op: rts_hir::lower::bin_op_of(b.op),
+            lhs: Box::new(operand(&b.left, scope)),
+            rhs: Box::new(operand(&b.right, scope)),
+        },
+        HirType::Unknown,
+    )
 }
 
 /// Wrap `arg` in a `String(arg)` HIR call (the global `String` conversion), so a
