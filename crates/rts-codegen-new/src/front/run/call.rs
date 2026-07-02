@@ -127,6 +127,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         ) {
             if let Ok(prop_val) = self.lower_member(module, object, method) {
                 let prop_word = self.box_value(prop_val);
+                // Pass the RECEIVER as `this` (the stored fn may be this-first —
+                // an object-literal method or a descriptor fn). The object is
+                // re-lowered; for the admitted receiver shapes that is a re-READ
+                // (no call), so double evaluation is harmless.
+                if args.len() <= 3 {
+                    let recv = self.lower_expr(module, object)?;
+                    let recv_word = self.box_value(recv);
+                    return self.lower_value_call_word_with_this(
+                        module, prop_word, recv_word, args,
+                    );
+                }
                 return self.lower_value_call_word(module, prop_word, args);
             }
         }
@@ -716,18 +727,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 "async/generator function `{name}` as a VALUE (it returns a Promise / suspends — a later increment)"
             );
         }
-        // Phase 1: a free function with a synthesized `this` (`params[0]`) is not yet
-        // reifiable as a VALUE — the uniform-ABI thunk fills `params[0]` from `a0`
-        // (the first user arg), shifting every arg by one. The DIRECT call path
-        // (`F(args)`) handles the implicit receiver; the value path is a later
-        // increment. Bail explicitly rather than mis-bind the receiver — EXCEPT
-        // the METHOD-materialization path (`allow_this`), whose invokers pass the
-        // receiver as `a0` by contract.
-        if sig.has_this && !allow_this {
-            return unsupported!(
-                "free function `{name}` that uses `this` as a VALUE (direct calls work; value-invoke is a later increment)"
-            );
-        }
+        // A this-first function IS reifiable now: it reifies through
+        // `__rtsadp_fn_reify_this` (FunctionData.has_this_param), the METHOD-aware
+        // invoker binds the receiver into the thunk's a0, and the PLAIN invoker
+        // shifts positional args past an `undefined` this (JS semantics for a
+        // receiver-less call). `allow_this` is kept for call-site documentation.
+        let _ = allow_this;
+        // `sig.has_this` is CLEARED for class fns by `compile_program` (the flag's
+        // other consumer is a free-fn behavior), so a this-first SYNTHESIZED
+        // method/accessor is recognized by its engine-owned name prefix instead.
+        let fn_has_this = sig.has_this
+            || name.starts_with("__rtsn_method_")
+            || name.starts_with("__rtsl_method_")
+            || name.starts_with("__rtsn_get_")
+            || name.starts_with("__rtsn_set_")
+            || name.starts_with("__rtsl_lget_")
+            || name.starts_with("__rtsl_lset_");
         // The captured-var list (if `name` is a closure) — clone to drop the borrow
         // on `self` before lowering the env snapshot.
         let capture_names: Vec<String> = self.captures.get(name).cloned().unwrap_or_default();
@@ -755,12 +770,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // No `...rest` in this increment's reify surface (variadic arrows are
         // rejected at extraction); has_rest is always 0.
         let has_rest_v = self.builder.ins().iconst(types::I64, 0);
+        // A this-first function reifies through the `_this` variant: FunctionData
+        // marks `has_this_param`, so the method-aware invoker binds the receiver
+        // into a0 and the plain invoker shifts (JS `this = undefined`).
+        let reify_sym = if fn_has_this {
+            "__rtsadp_fn_reify_this"
+        } else {
+            "__rtsadp_fn_reify"
+        };
         let payload = self
-            .call_runtime(
-                module,
-                "__rtsadp_fn_reify",
-                &[addr, nparams_v, has_rest_v, env_word],
-            )?
+            .call_runtime(module, reify_sym, &[addr, nparams_v, has_rest_v, env_word])?
             .expect("__rtsadp_fn_reify returns a value");
 
         // Box the bare 48-bit payload as a TAG_FUNCTION PolyValue word:
@@ -912,6 +931,43 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// `TAG_FUNCTION` PolyValue) through the uniform-ABI indirect path. Shared by
     /// the value-local call ([`Self::lower_value_call`]) and the direct closure
     /// call (P5.7, where `fn_word` is a freshly reified closure with its env).
+    /// Invoke a FUNCTION-word as a METHOD of `this_word` (`recv.m(args)` where
+    /// `m` resolved dynamically): routes `__rtsadp_fn_invoke_method`, which binds
+    /// the receiver for a `has_this_param` callee and drops it for a plain one.
+    /// Up to 3 positional args (the method-invoke ABI reserves a slot for
+    /// `this`); more bails.
+    pub(super) fn lower_value_call_word_with_this(
+        &mut self,
+        module: &mut dyn Module,
+        fn_word: Value,
+        this_word: Value,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        if args.len() > 3 {
+            return unsupported!(
+                "dynamic method-property call with more than 3 args (later increment)"
+            );
+        }
+        let undef = || value::PolyValue::undefined().raw() as i64;
+        let mut slots: [Value; 3] = [self.builder.ins().iconst(types::I64, undef()); 3];
+        for (i, a) in args.iter().enumerate() {
+            let v = self.lower_expr(module, a)?;
+            slots[i] = self.box_value(v);
+        }
+        let zero = self.builder.ins().iconst(types::I64, 0);
+        let res = self
+            .call_runtime(
+                module,
+                "__rtsadp_fn_invoke_method",
+                &[fn_word, this_word, slots[0], slots[1], slots[2], zero],
+            )?
+            .expect("__rtsadp_fn_invoke_method returns a value");
+        // Route the pending-error unwind before the result is used (same edge as
+        // the plain fn-value invoke).
+        self.emit_post_call_error_check(module)?;
+        Ok(Val::new(res, Repr::Tagged))
+    }
+
     pub(super) fn lower_value_call_word(
         &mut self,
         module: &mut dyn Module,

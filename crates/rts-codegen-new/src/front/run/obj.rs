@@ -75,7 +75,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // A duplicate key keeps the LAST value (JS); de-dup to the last occurrence
         // while preserving first-seen slot order — but if a literal repeats a key
         // we conservatively bail (rare, and the shape/value alignment is subtle).
-        let keys: Vec<String> = fields.iter().map(|(k, _)| k.clone()).collect();
+        // A METHOD-BEARING literal's shape is the lit-class's EXTENDED key list
+        // (fields + method/accessor slots — see `desugar::objmethod`): the extra
+        // slots are filled below with reified fn words, keeping the slot-0 shape
+        // id STABLE (a post-construction transition would break the shape-keyed
+        // virtual dispatch).
+        let keys: Vec<String> = match &lit_class {
+            Some(class) => self
+                .classes
+                .get(class)
+                .map(|d| d.fields.clone())
+                .unwrap_or_else(|| fields.iter().map(|(k, _)| k.clone()).collect()),
+            None => fields.iter().map(|(k, _)| k.clone()).collect(),
+        };
         let mut seen = std::collections::HashSet::new();
         for k in &keys {
             if !seen.insert(k) {
@@ -109,41 +121,35 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // `defineProperty`-style read works, and `getOwnPropertyDescriptors` maps
         // them (#749). Static accessor dispatch is untouched (compile-time first);
         // `Object.keys`/for-in map the internal slots back to the property name. ----
+        // ---- METHOD/ACCESSOR slots (the extended-key tail): fill each with the
+        // REIFIED this-first fn word, by direct PUSH in key order (no obj_set,
+        // no shape transition). ----
         if let Some(class) = &lit_class {
-            let accs: Vec<(String, Option<String>, Option<String>)> = self
-                .classes
-                .get(class)
-                .map(|d| {
-                    d.accessors
-                        .iter()
-                        .map(|(k, a)| (k.clone(), a.getter.clone(), a.setter.clone()))
-                        .collect()
-                })
-                .unwrap_or_default();
-            for (prop, getter, setter) in accs {
-                for (prefix, fn_name) in [("__get_", getter), ("__set_", setter)] {
-                    let Some(fn_name) = fn_name else { continue };
-                    let f = self.reify_method(module, &fn_name)?;
-                    let key = crate::value::abi_adapter::intern_poly(&format!("{prefix}{prop}"));
-                    let key_word = self.builder.ins().iconst(types::I64, key.raw() as i64);
-                    let fw = self.box_value(f);
-                    self.call_runtime(module, "__rtsadp_obj_set", &[obj_word, key_word, fw])?;
-                }
-            }
-            // METHODS materialize as own fn-word props too (`{ get(){…} }` — JS:
-            // a literal method IS an enumerable own property; a `defineProperty`
-            // descriptor's `get`/`value` member must be readable dynamically).
-            let methods: Vec<(String, String)> = self
-                .classes
-                .get(class)
-                .map(|d| d.methods.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
-                .unwrap_or_default();
-            for (prop, fn_name) in methods {
+            let own_n = fields.len();
+            let (tail, methods_map, accessors_map) = {
+                let Some(d) = self.classes.get(class) else {
+                    return unsupported!("literal class `{class}` not registered");
+                };
+                (
+                    d.fields[own_n..].to_vec(),
+                    d.methods.clone(),
+                    d.accessors.clone(),
+                )
+            };
+            for slot in tail {
+                let fn_name = if let Some(prop) = slot.strip_prefix("__get_") {
+                    accessors_map.get(prop).and_then(|a| a.getter.clone())
+                } else if let Some(prop) = slot.strip_prefix("__set_") {
+                    accessors_map.get(prop).and_then(|a| a.setter.clone())
+                } else {
+                    methods_map.get(&slot).cloned()
+                };
+                let Some(fn_name) = fn_name else {
+                    return unsupported!("literal slot `{slot}` has no synthesized fn");
+                };
                 let f = self.reify_method(module, &fn_name)?;
-                let key = crate::value::abi_adapter::intern_poly(&prop);
-                let key_word = self.builder.ins().iconst(types::I64, key.raw() as i64);
                 let fw = self.box_value(f);
-                self.call_runtime(module, "__rtsadp_obj_set", &[obj_word, key_word, fw])?;
+                emit_marshal::emit_vec_push(module, self.builder, obj_word, fw);
             }
         }
         Ok((

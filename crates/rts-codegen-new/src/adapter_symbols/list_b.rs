@@ -183,6 +183,8 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
         ),
         // ---- codegen-owned FUNCTION-value trampolines (__rtsadp_fn_*, P4.6) ----
         sym("__rtsadp_fn_reify", funcops::__rtsadp_fn_reify as *const u8),
+        sym("__rtsadp_fn_reify_this", funcops::__rtsadp_fn_reify_this as *const u8),
+        sym("__rtsadp_fn_invoke_method", funcops::__rtsadp_fn_invoke_method as *const u8),
         sym(
             "__rtsadp_fn_invoke",
             funcops::__rtsadp_fn_invoke as *const u8,

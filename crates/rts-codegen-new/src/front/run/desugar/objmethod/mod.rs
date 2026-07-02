@@ -246,10 +246,26 @@ impl Recovery<'_> {
             name.clone()
         } else {
             let name = format!("__rtsl_lit_{}", self.names.len());
-            // The literal bakes this same global shape-id into slot 0 (interned from
-            // the field keys); the literal class MUST share it so `this.field` reads
-            // resolve to the same slots.
-            let global_shape = crate::shape::intern_global_shape(&field_keys);
+            // The literal bakes this same global shape-id into slot 0; the literal
+            // class MUST share it so `this.field` reads resolve to the same slots.
+            // The shape's key list is EXTENDED with one slot per method (`m`) and
+            // per accessor (`__get_x`/`__set_x`) — the literal MATERIALIZES those
+            // as fn-word slots at construction (a JS literal method IS an own
+            // property), and baking them into the shape keeps the slot-0 id
+            // stable (an obj_set transition after construction would change it
+            // and break the shape-keyed virtual dispatch).
+            let mut ext_keys = field_keys.clone();
+            for m in &methods {
+                let slot = match &m.fn_ref {
+                    collect::LitFnRef::Method(_) => m.name.clone(),
+                    collect::LitFnRef::Getter(_) => format!("__get_{}", m.name),
+                    collect::LitFnRef::Setter(_) => format!("__set_{}", m.name),
+                };
+                if !ext_keys.contains(&slot) {
+                    ext_keys.push(slot);
+                }
+            }
+            let global_shape = crate::shape::intern_global_shape(&ext_keys);
             let lit_methods: Vec<LitMethod> = methods
                 .iter()
                 .map(|m| LitMethod {
@@ -261,7 +277,7 @@ impl Recovery<'_> {
                     },
                 })
                 .collect();
-            let (desc, fns) = build_literal_class(&name, &field_keys, global_shape, &lit_methods);
+            let (desc, fns) = build_literal_class(&name, &ext_keys, global_shape, &lit_methods);
             if !self.classes.contains(&name) {
                 self.classes.insert(desc);
                 self.new_funcs.extend(fns);

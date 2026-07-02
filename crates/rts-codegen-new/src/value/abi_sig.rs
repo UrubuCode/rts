@@ -357,13 +357,13 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         // ---- codegen-owned FUNCTION-value trampolines (__rtsadp_fn_*, P4.6) ----
         // reify(addr, nparams, has_rest, env_word) -> 48-bit slot+shard payload
         // (U64). env_word is the captured-env PolyValue word (0 = non-capturing).
-        "__rtsadp_fn_reify" => SymSig {
+        "__rtsadp_fn_reify" | "__rtsadp_fn_reify_this" => SymSig {
             params: &[U64, U64, U64, U64],
             ret: U64,
         },
         // invoke(fn_word, a0, a1, a2, a3, rest) -> result PolyValue word (U64).
         // All slots are raw PolyValue words (U64); the fixed uniform call ABI.
-        "__rtsadp_fn_invoke" => SymSig {
+        "__rtsadp_fn_invoke" | "__rtsadp_fn_invoke_method" => SymSig {
             params: &[U64, U64, U64, U64, U64, U64],
             ret: U64,
         },

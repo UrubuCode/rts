@@ -242,6 +242,24 @@ type UniformFn = extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64;
 /// `POLY_TO_HANDLE` when the value is invoked / marked.
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_fn_reify(addr: u64, nparams: u64, has_rest: u64, env_word: u64) -> u64 {
+    fn_reify_core(addr, nparams, has_rest, env_word, false)
+}
+
+/// Reify a THIS-FIRST function (a method or ES5 `function (this: any)` expr):
+/// identical to `__rtsadp_fn_reify` but marks `has_this_param` - the
+/// method-aware invoker binds `this` into the thunk a0; the plain invoker
+/// shifts positional args past an `undefined` this.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_fn_reify_this(
+    addr: u64,
+    nparams: u64,
+    has_rest: u64,
+    env_word: u64,
+) -> u64 {
+    fn_reify_core(addr, nparams, has_rest, env_word, true)
+}
+
+fn fn_reify_core(addr: u64, nparams: u64, has_rest: u64, env_word: u64, has_this: bool) -> u64 {
     let data = FunctionData {
         fn_ptr: addr,
         arity: nparams.min(u8::MAX as u64) as u8,
@@ -254,7 +272,7 @@ pub extern "C" fn __rtsadp_fn_reify(addr: u64, nparams: u64, has_rest: u64, env_
         has_bound_this: env_word != 0,
         bound_args: Vec::new(),
         is_arrow: false,
-        has_this_param: false,
+        has_this_param: has_this,
         param_kinds: Vec::new(),
         return_kind: 0,
         packed_shim: 0,
@@ -316,9 +334,9 @@ pub extern "C" fn __rtsadp_fn_invoke(
     // Reconstruct the full real handle (generation read from the live slot) from
     // the bare 48-bit payload, then read the stored thunk address AND env word.
     let real = rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(pv.as_handle());
-    let (addr, env) = with_entry(real, |e| match e {
-        Some(Entry::Function(d)) => (d.fn_ptr, d.bound_this as u64),
-        _ => (0, 0),
+    let (addr, env, has_this) = with_entry(real, |e| match e {
+        Some(Entry::Function(d)) => (d.fn_ptr, d.bound_this as u64, d.has_this_param),
+        _ => (0, 0, false),
     });
     if addr == 0 {
         return PolyValue::undefined().raw();
@@ -336,5 +354,48 @@ pub extern "C" fn __rtsadp_fn_invoke(
     // whole run (`Program` owns it). Transmuting a code address to its true
     // declared signature is sound.
     let f: UniformFn = unsafe { std::mem::transmute::<u64, UniformFn>(addr) };
+    if has_this {
+        // A this-first function called WITHOUT a receiver (plain `f(x)`): JS
+        // binds `this = undefined`; positional args shift past it (a3 drops -
+        // a 4-arg this-method through the plain invoker is out of this subset).
+        return f(env_word, PolyValue::undefined().raw(), a0, a1, a2, rest);
+    }
     f(env_word, a0, a1, a2, a3, rest)
+}
+
+/// METHOD-AWARE invoke: `recv.m(args)` where `m` resolved to a FUNCTION word.
+/// A `has_this_param` callee receives `this_word` in the thunk a0 slot (its
+/// this-first real param); a plain function ignores the receiver (JS: `this`
+/// unused) and gets the args unshifted.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_fn_invoke_method(
+    fn_word: u64,
+    this_word: u64,
+    a0: u64,
+    a1: u64,
+    a2: u64,
+    rest: u64,
+) -> u64 {
+    let pv = PolyValue::from_raw(fn_word);
+    if !pv.is_function() {
+        return PolyValue::undefined().raw();
+    }
+    let real = rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(pv.as_handle());
+    let (addr, env, has_this) = with_entry(real, |e| match e {
+        Some(Entry::Function(d)) => (d.fn_ptr, d.bound_this as u64, d.has_this_param),
+        _ => (0, 0, false),
+    });
+    if addr == 0 {
+        return PolyValue::undefined().raw();
+    }
+    let env_word = if env == 0 {
+        PolyValue::undefined().raw()
+    } else {
+        env
+    };
+    let f: UniformFn = unsafe { std::mem::transmute::<u64, UniformFn>(addr) };
+    if has_this {
+        return f(env_word, this_word, a0, a1, a2, rest);
+    }
+    f(env_word, a0, a1, a2, PolyValue::undefined().raw(), rest)
 }

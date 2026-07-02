@@ -237,7 +237,7 @@ pub extern "C" fn __rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
                 let getter = lookup_chain(obj_word, gkey, 0);
                 if PolyValue::from_raw(getter).is_function() {
                     let undef = PolyValue::undefined().raw();
-                    return super::funcops::__rtsadp_fn_invoke(
+                    return super::funcops::__rtsadp_fn_invoke_method(
                         getter, obj_word, undef, undef, undef, 0,
                     );
                 }

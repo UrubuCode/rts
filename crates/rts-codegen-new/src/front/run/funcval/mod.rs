@@ -800,10 +800,19 @@ impl Ctx {
 
         // Build the function body and gather its free identifiers + the names it
         // ASSIGNS to (mutable-capture detection).
-        let body_stmts: Vec<HirStmt> = match body {
+        let mut body_stmts: Vec<HirStmt> = match body {
             HirArrowBody::Expr(inner) => vec![HirStmt::Return(Some((**inner).clone()))],
             HirArrowBody::Block(stmts) => stmts.clone(),
         };
+        // An ES5-style FUNCTION EXPRESSION with an explicit `this` param
+        // (`function (this: any) { … this.x … }` — a defineProperty descriptor
+        // method): the body still carries swc's `Raw("This(..)")`. Rewrite it to
+        // `Ident("this")`, which the declared `this` param binds — the uniform
+        // thunk fills it from `a0`, so a receiver-passing invoker (`obj.m()`
+        // prop-call, the `__get_` accessor dispatch) binds `this` correctly.
+        if param_names.contains("this") {
+            super::class::rewrite_this_block(&mut body_stmts);
+        }
         let mut free = HashSet::new();
         let mut bound = param_names.clone();
         for s in &body_stmts {
