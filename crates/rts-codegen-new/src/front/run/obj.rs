@@ -417,16 +417,24 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 .map(|d| d.field_is_string(prop))
                 .unwrap_or(false)
             {
-                let (recv_word, shape) = self.resolve_heap_receiver(module, object)?;
-                let HeapShape::Object(shape_id) = shape else {
-                    return unsupported!("string field `.{prop}` on a non-object receiver");
-                };
-                let Some(slot) = self.shapes.slot_of(shape_id, prop) else {
-                    return unsupported!("string field `.{prop}` not in the receiver's shape");
-                };
-                let idx = self.builder.ins().iconst(types::I64, 1 + slot as i64);
-                let word = emit_marshal::emit_vec_get(module, self.builder, recv_word, idx);
-                return Ok(Val::tagged_kind(word, JsKind::Str));
+                // A receiver WITHOUT a proven local shape (a CAPTURED instance
+                // inside an arrow — `a` is a gcell there): read the key
+                // dynamically (`__rtsadp_obj_get`), still tagging the proven
+                // string kind. Only a shape-proven receiver takes the
+                // constant-slot fast path.
+                if let Ok((recv_word, shape)) = self.resolve_heap_receiver(module, object) {
+                    let HeapShape::Object(shape_id) = shape else {
+                        return unsupported!("string field `.{prop}` on a non-object receiver");
+                    };
+                    let Some(slot) = self.shapes.slot_of(shape_id, prop) else {
+                        return unsupported!("string field `.{prop}` not in the receiver's shape");
+                    };
+                    let idx = self.builder.ins().iconst(types::I64, 1 + slot as i64);
+                    let word = emit_marshal::emit_vec_get(module, self.builder, recv_word, idx);
+                    return Ok(Val::tagged_kind(word, JsKind::Str));
+                }
+                let val = self.lower_dynamic_get_expr(module, object, prop)?;
+                return Ok(Val::tagged_kind(val.v, JsKind::Str));
             }
         }
         // ---- native STRING receiver fast-path (CHANGE 3): `s.length` on a proven
