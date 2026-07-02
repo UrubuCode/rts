@@ -234,6 +234,72 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(result)
     }
 
+    /// Dispatch a singleton method whose slot was OVERRIDDEN earlier in this
+    /// function (`console.table = fn`): read the own prop word; when it is a
+    /// FUNCTION, invoke it; else fall back to the class method (the own slot may
+    /// hold `undefined` after a restore). Args are lowered once per ARM — only
+    /// the branch runtime takes executes.
+    fn call_overridden_singleton(
+        &mut self,
+        module: &mut dyn Module,
+        object: &HirExpr,
+        class: &str,
+        method: &str,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        use cranelift_codegen::ir::condcodes::IntCC;
+        let recv = self.lower_expr(module, object)?;
+        let recv_word = self.box_value(recv);
+        let key = crate::value::abi_adapter::intern_poly(method);
+        let key_word = self.builder.ins().iconst(types::I64, key.raw() as i64);
+        let own = self
+            .call_runtime(module, "__rtsadp_obj_get", &[recv_word, key_word])?
+            .expect("__rtsadp_obj_get returns a value");
+        let boxed = value::emit_is_boxed(self.builder, own);
+        let shifted = self.builder.ins().ushr_imm(own, value::TAG_SHIFT as i64);
+        let tag = self.builder.ins().band_imm(shifted, value::TAG_MASK as i64);
+        let is_fn_tag =
+            self.builder
+                .ins()
+                .icmp_imm(IntCC::Equal, tag, value::TAG_FUNCTION as i64);
+        let is_fn = self.builder.ins().band(boxed, is_fn_tag);
+
+        let b_fn = self.builder.create_block();
+        let b_static = self.builder.create_block();
+        let merge = self.builder.create_block();
+        self.builder.append_block_param(merge, types::I64);
+        self.builder.ins().brif(is_fn, b_fn, &[], b_static, &[]);
+        self.builder.seal_block(b_fn);
+        self.builder.seal_block(b_static);
+
+        self.builder.switch_to_block(b_fn);
+        let v1 = self.lower_value_call_word(module, own, args)?;
+        let w1 = self.box_value(v1);
+        self.builder.ins().jump(merge, &[w1.into()]);
+
+        self.builder.switch_to_block(b_static);
+        let fn_name = self
+            .classes
+            .get(class)
+            .and_then(|d| d.method_fn(method).map(str::to_string));
+        let w2 = match fn_name {
+            Some(f) => {
+                let v2 = self.call_synth_fn(module, &f, Some(recv_word), args)?;
+                self.box_value(v2)
+            }
+            None => self
+                .builder
+                .ins()
+                .iconst(types::I64, value::PolyValue::undefined().raw() as i64),
+        };
+        self.builder.ins().jump(merge, &[w2.into()]);
+
+        self.builder.seal_block(merge);
+        self.builder.switch_to_block(merge);
+        let out = self.builder.block_params(merge)[0];
+        Ok(Val::new(out, crate::repr::Repr::Tagged))
+    }
+
     /// Lower `instance.method(args)` for a statically-known class via a DIRECT call
     /// to the synthesized `__rtsn_method_C_m(this, args…)`. The receiver is lowered
     /// (a `new C()` instance, a local, or `this`), boxed to its `this` slot, and
@@ -248,6 +314,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         method: &str,
         args: &[HirExpr],
     ) -> FrontResult<Val> {
+        // SINGLETON METHOD OVERRIDE (`console.table = fn` earlier in this
+        // function): dispatch through the OWN prop word when it is a function,
+        // else fall back to the class method (covers the restore-to-original
+        // pattern where the own slot holds `undefined`).
+        if let HirExprKind::Ident(n) = &object.kind {
+            if self
+                .singleton_overrides
+                .contains(&(n.clone(), method.to_string()))
+            {
+                return self.call_overridden_singleton(module, object, class, method, args);
+            }
+        }
         // The caller routes here only for a statically-resolved USER class. A
         // receiver whose recorded class is a Registry/global class (e.g. the
         // `WeakRef` result of `w.deref()`) has no `self.classes` entry — BAIL

@@ -297,6 +297,12 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// per function (`floatscan`); an `Int*`-proven `let` of such a name binds
     /// `Float64` instead so the accumulation never truncates the fraction.
     pub float_promoted: std::collections::HashSet<String>,
+    /// Singleton-instance METHOD OVERRIDES seen so far in THIS function
+    /// (`console.table = fn`): `(gcell name, prop)`. A later `name.prop(..)`
+    /// call in the same function dispatches DYNAMICALLY (own-prop fn word if
+    /// set, else the class method). Per-function by design — the test corpus
+    /// overrides and calls at the top level (one `__rtsn_main` pass).
+    pub singleton_overrides: std::collections::HashSet<(String, String)>,
 }
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
@@ -357,6 +363,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             is_main: func.name == "__rtsn_main",
             builtins,
             float_promoted: super::floatscan::float_promoted_locals(&func.body),
+            singleton_overrides: std::collections::HashSet::new(),
         };
 
         // Bind each parameter to a fresh local Variable carrying its ABI repr.

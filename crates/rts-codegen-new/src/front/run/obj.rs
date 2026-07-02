@@ -615,6 +615,38 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if self.is_globalthis_receiver(object) {
             return self.lower_dynamic_set_expr(module, object, prop, value);
         }
+        // ---- SINGLETON METHOD OVERRIDE (`console.table = fn`, possibly through a
+        // cast `(console as any).table = fn`): the receiver is a gcell singleton
+        // whose class defines `prop` as a METHOD. Write the value as a dynamic OWN
+        // prop and record the override — a later `console.table(..)` in this
+        // function dispatches through the own prop (falling back to the class
+        // method when it is not a function, e.g. after a restore-to-undefined). ----
+        {
+            let inner = match &object.kind {
+                HirExprKind::Cast { expr, .. } => expr.as_ref(),
+                _ => object,
+            };
+            if let HirExprKind::Ident(n) = &inner.kind {
+                let class_opt = self
+                    .local_classes
+                    .get(n)
+                    .or_else(|| self.gcell_classes.get(n))
+                    .or_else(|| self.global_instance_classes.get(n))
+                    .cloned();
+                if let Some(class) = class_opt {
+                    let is_method = self
+                        .classes
+                        .get(&class)
+                        .is_some_and(|d| d.methods.contains_key(prop));
+                    if is_method {
+                        let res = self.lower_dynamic_set_expr(module, inner, prop, value)?;
+                        self.singleton_overrides
+                            .insert((n.clone(), prop.to_string()));
+                        return Ok(res);
+                    }
+                }
+            }
+        }
         // ---- `arr.length = n` on a PROVEN array: the JS length SETTER (resize) —
         // `n < len` truncates, `n > len` extends with `undefined`. Routed before the
         // shape paths since `.length` is not a real slot. ----
