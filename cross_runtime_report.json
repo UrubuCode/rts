@@ -2609,10 +2609,10 @@
 ,
 {
   "name": "110_object_getownpropertydescriptors",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "keys=a,b,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=function\nc.value=3\nc.writable=false\nc.enumerable=false",
   "node": "keys=a,b,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=function\nc.value=3\nc.writable=false\nc.enumerable=false",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "keys=a,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=undefined\nc.value=3\nc.writable=false\nc.enumerable=false"
 }
 ,
 {
@@ -2929,10 +2929,10 @@
 ,
 {
   "name": "408_object_spread_getter_order",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "{\"z\":0,\"a\":3,\"b\":5,\"c\":4}\nz,a,b,c\nget-a",
   "node": "{\"z\":0,\"a\":3,\"b\":5,\"c\":4}\nz,a,b,c\nget-a",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "{\"z\":0,\"b\":5,\"a\":3,\"c\":4}\nz,b,hidden,a,c"
 }
 ,
 {
@@ -3057,18 +3057,18 @@
 ,
 {
   "name": "claude-spread-getter-to-data",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "1\n2\n2\ntrue\n1\ntrue true true",
   "node": "1\n2\n2\ntrue\n1\ntrue true true",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "undefined\nundefined\n0\ntrue\nundefined\nundefined undefined undefined"
 }
 ,
 {
   "name": "claude-spread-override-order",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "{\"x\":1,\"y\":3,\"z\":4}\nx,y,z\nfirst,p,q,last\np,q\n{\"a\":1}\n{\"0\":\"a\",\"1\":\"b\"}",
   "node": "{\"x\":1,\"y\":3,\"z\":4}\nx,y,z\nfirst,p,q,last\np,q\n{\"a\":1}\n{\"0\":\"a\",\"1\":\"b\"}",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "{\"x\":1,\"y\":3,\"z\":4}\nx,y,z\nfirst,last\n\n{\"a\":1}\n{}"
 }
 ,
 {
@@ -3113,10 +3113,10 @@
 ,
 {
   "name": "codex_object_assign_setter_order",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "true\n2\nget-a|set-a:1|get-b|set-a:3",
   "node": "true\n2\nget-a|set-a:1|get-b|set-a:3",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "true\nundefined"
 }
 ,
 {
@@ -4609,10 +4609,10 @@
 ,
 {
   "name": "codex_logical_assignment_getter_once",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "7\nget:0|set:5|get:5|set:7|get:7",
   "node": "7\nget:0|set:5|get:5|set:7|get:7",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "7\nget:0|set:5|get:5|set:7|get:7|set:7"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":229,"rts_diverge":98,"bun_node_diverge":17,"errors":265,"rejected":0}}
+],"summary":{"total":609,"pass":229,"rts_diverge":104,"bun_node_diverge":17,"errors":259,"rejected":0}}
