@@ -354,7 +354,13 @@ fn build_ctor(
                         ty: HirType::Unknown,
                         variadic: false,
                         has_default: false,
-                        optional: false,
+                        // FILLABLE: the parent's ctor owns the real default
+                        // prologue (a defaulted parent param receives the
+                        // `undefined` this forward passes and replaces it) — a
+                        // required forwarding param would wrongly reject
+                        // `super(fewer args)` from a grandchild (JS never
+                        // enforces arity).
+                        optional: true,
                         default_expr: None,
                     });
                     fwd.push(HirExpr::new(HirExprKind::Ident(name), HirType::Unknown));
