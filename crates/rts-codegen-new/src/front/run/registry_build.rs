@@ -259,6 +259,7 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
     PreludeTs { label: "Map/Set", source: rts_runtime::stdlib::MAP_SET_TS, why: "class Map/Set shadow native" },
     PreludeTs { label: "WeakMap/WeakSet", source: rts_runtime::stdlib::WEAKMAP_SET_TS, why: "class WeakMap/WeakSet (strong-ref, #217)" },
     PreludeTs { label: "JSON", source: rts_runtime::stdlib::JSON_TS, why: "JSON.stringify/parse" },
+    PreludeTs { label: "JSON5", source: rts_runtime::stdlib::JSON5_TS, why: "JSON5.parse (sanitizer → JSON.parse) + stringify" },
     // Reflect (get/set/has) — pure TS over dynamic property access + Object.keys
     // (#218). `Reflect.get`/`set` on a Proxy fire its traps via the dynamic
     // trampolines; after Object/JSON so its `Object.keys` resolves.

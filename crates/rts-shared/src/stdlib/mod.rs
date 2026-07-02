@@ -11,6 +11,7 @@ pub const MAP_SET_TS: &str = include_str!("map_set.ts");
 /// syntax). Pure TS over primordials only (typeof / Object.keys / Array.isArray /
 /// recursion); the engine names nothing JSON-specific, it just runs the generics.
 pub const JSON_TS: &str = include_str!("json.ts");
+pub const JSON5_TS: &str = include_str!("json5.ts");
 
 /// `WeakMap`/`WeakSet` — STRONG-reference collections for now (#217 tracks the
 /// real weak path), backed by private arrays with `===` keys, like `MAP_SET_TS`.
