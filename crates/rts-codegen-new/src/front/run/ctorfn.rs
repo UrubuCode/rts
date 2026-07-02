@@ -49,19 +49,43 @@ pub(super) fn lift_constructor_functions(mut program: Program) -> Program {
     // ES5 prototype methods: `F.prototype.m = __fnprop_N` (the parser hoists the
     // assigned fn-expr to a top-level `__fnprop_N`). Map class → [(method, fn)].
     let mut proto_methods: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    // ES5 prototype-chain inheritance: `F.prototype = Object.create(G.prototype)`
+    // → the lifted `class F` gets `extends G` (map F → G). The statement itself
+    // is consumed (the class model carries the chain).
+    let mut extends_map: HashMap<String, String> = HashMap::new();
     for item in &program.items {
         if let Item::Statement(Statement::Raw(raw)) = item {
             if let Some(stmt) = &raw.stmt {
                 if let Some((cls, m, fnid)) = parse_proto_method(stmt) {
                     proto_methods.entry(cls).or_default().push((m, fnid));
                 }
+                if let Some((cls, base)) = parse_proto_extends(stmt) {
+                    extends_map.insert(cls, base);
+                }
+                // Descriptor form: `F.prototype = Object.create(proto, { m:
+                // { value: fn, … }, … })` — each `value:` fn becomes a method;
+                // a non-`Object` proto base becomes `extends`.
+                if let Some((cls, base, methods)) = parse_proto_descriptor(stmt) {
+                    if let Some(b) = base {
+                        extends_map.insert(cls.clone(), b);
+                    }
+                    proto_methods.entry(cls).or_default().extend(methods);
+                }
             }
         }
     }
-    // A name is a constructor iff it has `this.x=` fields, is `new`ed, or has a
-    // prototype method assigned. Only such names trigger conversion / consumption.
+    // A name is a constructor iff it has `this.x=` fields, is `new`ed, has a
+    // prototype method assigned, or participates in a prototype-chain link
+    // (either side of `F.prototype = Object.create(G.prototype)` — the BASE must
+    // also lift so `extends` resolves). Only such names trigger conversion /
+    // consumption.
+    let extends_bases: HashSet<String> = extends_map.values().cloned().collect();
     let is_ctor = |name: &str| {
-        own_fields.contains_key(name) || newed.contains(name) || proto_methods.contains_key(name)
+        own_fields.contains_key(name)
+            || newed.contains(name)
+            || proto_methods.contains_key(name)
+            || extends_map.contains_key(name)
+            || extends_bases.contains(name)
     };
     // Hoisted fns moved into a class as methods — dropped from the top level.
     let consumed_fns: HashSet<String> = proto_methods
@@ -95,11 +119,53 @@ pub(super) fn lift_constructor_functions(mut program: Program) -> Program {
             {
                 None
             }
+            // Drop a consumed `F.prototype = Object.create(G.prototype)` link
+            // (it became `class F extends G`).
+            Item::Statement(Statement::Raw(ref raw))
+                if raw
+                    .stmt
+                    .as_ref()
+                    .and_then(parse_proto_extends)
+                    .is_some_and(|(cls, _)| is_ctor(&cls)) =>
+            {
+                None
+            }
+            // Drop a consumed descriptor-form proto replace (its `value:` fns
+            // became methods; a non-Object base became `extends`).
+            Item::Statement(Statement::Raw(ref raw))
+                if raw
+                    .stmt
+                    .as_ref()
+                    .and_then(parse_proto_descriptor)
+                    .is_some_and(|(cls, _, _)| is_ctor(&cls)) =>
+            {
+                None
+            }
+            // Drop the `F.prototype.constructor = F` re-link idiom — the class
+            // model carries the constructor identity (`inst.constructor.name`
+            // resolves from the static class), so the statement is a no-op here.
+            Item::Statement(Statement::Raw(ref raw))
+                if raw
+                    .stmt
+                    .as_ref()
+                    .and_then(parse_proto_ctor_link)
+                    .is_some_and(|cls| is_ctor(&cls)) =>
+            {
+                None
+            }
             // `async function` is its own rewrite (returns a Promise) — never a ctor.
             Item::Function(f) if !f.is_async => {
                 let protos = proto_methods.get(&f.name);
+                let super_class = extends_map.get(&f.name).cloned();
                 Some(
-                    match function_to_class(&f, is_ctor(&f.name), &own_fields, protos, &fn_bodies) {
+                    match function_to_class(
+                        &f,
+                        is_ctor(&f.name),
+                        &own_fields,
+                        protos,
+                        &fn_bodies,
+                        super_class,
+                    ) {
                         Some(class) => Item::Class(class),
                         None => Item::Function(f),
                     },
@@ -112,7 +178,11 @@ pub(super) fn lift_constructor_functions(mut program: Program) -> Program {
 }
 
 /// Parse `F.prototype.m = <ident>` (the hoisted prototype-method form) →
-/// `(class "F", method "m", fn-ident)`. `None` for any other statement.
+/// `(class "F", method "m", fn-ident)`. `None` for any other statement — and
+/// deliberately `None` for `m == "constructor"` (the ES5 re-link idiom
+/// `F.prototype.constructor = F` is NOT a method: treating it as one used to
+/// CONSUME the constructor function itself, dropping `F` from the program —
+/// "unbound identifier F". See [`parse_proto_ctor_link`]).
 fn parse_proto_method(stmt: &swc_ecma_ast::Stmt) -> Option<(String, String, String)> {
     use swc_ecma_ast::{AssignTarget, Expr, MemberProp, SimpleAssignTarget, Stmt};
     let Stmt::Expr(es) = stmt else { return None };
@@ -126,6 +196,9 @@ fn parse_proto_method(stmt: &swc_ecma_ast::Stmt) -> Option<(String, String, Stri
     let MemberProp::Ident(method) = &m.prop else {
         return None;
     };
+    if method.sym.as_ref() == "constructor" {
+        return None;
+    }
     let Expr::Member(inner) = m.obj.as_ref() else {
         return None;
     };
@@ -140,6 +213,202 @@ fn parse_proto_method(stmt: &swc_ecma_ast::Stmt) -> Option<(String, String, Stri
     Some((cls, method.sym.to_string(), fnid))
 }
 
+/// Parse the ES5 constructor RE-LINK idiom `F.prototype.constructor = F` →
+/// `Some("F")`. Only the exact self-link form matches (LHS class == RHS ident);
+/// anything else passes through to the normal lowering.
+fn parse_proto_ctor_link(stmt: &swc_ecma_ast::Stmt) -> Option<String> {
+    use swc_ecma_ast::{AssignTarget, Expr, MemberProp, SimpleAssignTarget, Stmt};
+    let Stmt::Expr(es) = stmt else { return None };
+    let Expr::Assign(a) = es.expr.as_ref() else {
+        return None;
+    };
+    let AssignTarget::Simple(SimpleAssignTarget::Member(m)) = &a.left else {
+        return None;
+    };
+    let MemberProp::Ident(method) = &m.prop else {
+        return None;
+    };
+    if method.sym.as_ref() != "constructor" {
+        return None;
+    }
+    let Expr::Member(inner) = m.obj.as_ref() else {
+        return None;
+    };
+    let MemberProp::Ident(proto) = &inner.prop else {
+        return None;
+    };
+    if proto.sym.as_ref() != "prototype" {
+        return None;
+    }
+    let cls = callee_ident(&inner.obj)?;
+    let rhs = callee_ident(&a.right)?;
+    (cls == rhs).then_some(cls)
+}
+
+/// Parse the ES5 prototype-chain link `F.prototype = Object.create(G.prototype)`
+/// → `Some(("F", "G"))`. The lifted `class F` gets `extends G` (field
+/// flattening + method inheritance + `instanceof` chain all ride the class
+/// model). `None` for any other statement.
+fn parse_proto_extends(stmt: &swc_ecma_ast::Stmt) -> Option<(String, String)> {
+    use swc_ecma_ast::{AssignTarget, Callee, Expr, MemberProp, SimpleAssignTarget, Stmt};
+    let Stmt::Expr(es) = stmt else { return None };
+    let Expr::Assign(a) = es.expr.as_ref() else {
+        return None;
+    };
+    let AssignTarget::Simple(SimpleAssignTarget::Member(m)) = &a.left else {
+        return None;
+    };
+    // LHS must be exactly `F.prototype`.
+    let MemberProp::Ident(proto) = &m.prop else {
+        return None;
+    };
+    if proto.sym.as_ref() != "prototype" {
+        return None;
+    }
+    let cls = callee_ident(&m.obj)?;
+    // RHS must be `Object.create(G.prototype)`.
+    let Expr::Call(call) = a.right.as_ref() else {
+        return None;
+    };
+    let Callee::Expr(callee) = &call.callee else {
+        return None;
+    };
+    let Expr::Member(cm) = callee.as_ref() else {
+        return None;
+    };
+    let MemberProp::Ident(create) = &cm.prop else {
+        return None;
+    };
+    if create.sym.as_ref() != "create" || callee_ident(&cm.obj).as_deref() != Some("Object") {
+        return None;
+    }
+    let arg = call.args.first()?;
+    if arg.spread.is_some() {
+        return None;
+    }
+    let Expr::Member(am) = arg.expr.as_ref() else {
+        return None;
+    };
+    let MemberProp::Ident(aproto) = &am.prop else {
+        return None;
+    };
+    if aproto.sym.as_ref() != "prototype" {
+        return None;
+    }
+    let base = callee_ident(&am.obj)?;
+    Some((cls, base))
+}
+
+/// Parse the DESCRIPTOR-map proto replace
+/// `F.prototype = Object.create(<G|Object>.prototype, { m: { value: fn, … }, … })`
+/// → `Some((cls, base, methods))` where `base` is `None` for `Object.prototype`
+/// (no user parent) and `methods` maps each descriptor key with a `value:` fn
+/// (the parser hoists the fn-expr to a top-level ident) to that fn's name.
+/// `None` for any other statement.
+fn parse_proto_descriptor(
+    stmt: &swc_ecma_ast::Stmt,
+) -> Option<(String, Option<String>, Vec<(String, String)>)> {
+    use swc_ecma_ast::{
+        AssignTarget, Callee, Expr, MemberProp, Prop, PropName, PropOrSpread, SimpleAssignTarget,
+        Stmt,
+    };
+    let Stmt::Expr(es) = stmt else { return None };
+    let Expr::Assign(a) = es.expr.as_ref() else {
+        return None;
+    };
+    let AssignTarget::Simple(SimpleAssignTarget::Member(m)) = &a.left else {
+        return None;
+    };
+    let MemberProp::Ident(proto) = &m.prop else {
+        return None;
+    };
+    if proto.sym.as_ref() != "prototype" {
+        return None;
+    }
+    let cls = callee_ident(&m.obj)?;
+    // RHS `Object.create(<base>.prototype, { … })` — exactly 2 args.
+    let Expr::Call(call) = a.right.as_ref() else {
+        return None;
+    };
+    let Callee::Expr(callee) = &call.callee else {
+        return None;
+    };
+    let Expr::Member(cm) = callee.as_ref() else {
+        return None;
+    };
+    let MemberProp::Ident(create) = &cm.prop else {
+        return None;
+    };
+    if create.sym.as_ref() != "create"
+        || callee_ident(&cm.obj).as_deref() != Some("Object")
+        || call.args.len() != 2
+        || call.args.iter().any(|a| a.spread.is_some())
+    {
+        return None;
+    }
+    // arg0: `<base>.prototype`.
+    let Expr::Member(am) = call.args[0].expr.as_ref() else {
+        return None;
+    };
+    let MemberProp::Ident(aproto) = &am.prop else {
+        return None;
+    };
+    if aproto.sym.as_ref() != "prototype" {
+        return None;
+    }
+    let base_name = callee_ident(&am.obj)?;
+    let base = (base_name != "Object").then_some(base_name);
+    // arg1: `{ m: { value: <fn-ident>, … }, … }` — every prop must contribute a
+    // `value:` fn (a getter/setter descriptor is not modeled here → None, so
+    // the statement falls through to the normal lowering and bails honestly).
+    let Expr::Object(desc_obj) = call.args[1].expr.as_ref() else {
+        return None;
+    };
+    let mut methods: Vec<(String, String)> = Vec::new();
+    for p in &desc_obj.props {
+        let PropOrSpread::Prop(prop) = p else {
+            return None;
+        };
+        let Prop::KeyValue(kv) = prop.as_ref() else {
+            return None;
+        };
+        let name = match &kv.key {
+            PropName::Ident(id) => id.sym.to_string(),
+            PropName::Str(s) => s.value.to_string_lossy().into_owned(),
+            _ => return None,
+        };
+        // The descriptor body: an object literal with a `value:` key whose value
+        // is a (hoisted) fn ident. `writable`/`configurable`/`enumerable` flags
+        // are irrelevant to the class model and ignored.
+        let Expr::Object(desc) = kv.value.as_ref() else {
+            return None;
+        };
+        let mut fnid: Option<String> = None;
+        for dp in &desc.props {
+            let PropOrSpread::Prop(dprop) = dp else {
+                return None;
+            };
+            let Prop::KeyValue(dkv) = dprop.as_ref() else {
+                return None;
+            };
+            let dname = match &dkv.key {
+                PropName::Ident(id) => id.sym.to_string(),
+                PropName::Str(s) => s.value.to_string_lossy().into_owned(),
+                _ => return None,
+            };
+            if dname == "value" {
+                fnid = callee_ident(&dkv.value);
+            }
+            if dname == "get" || dname == "set" {
+                // Accessor descriptors are a different surface — not lifted.
+                return None;
+            }
+        }
+        methods.push((name, fnid?));
+    }
+    Some((cls, base, methods))
+}
+
 /// Build a synthetic `ClassDecl` from `f` iff it is a constructor: it writes to
 /// `this.<field>`, OR it is used as a `new` target (`is_newed`). `None` for an
 /// ordinary function — left untouched. `own_fields` maps each constructor name to
@@ -151,6 +420,7 @@ fn function_to_class(
     own_fields: &std::collections::HashMap<String, Vec<String>>,
     proto_methods: Option<&Vec<(String, String)>>,
     fn_bodies: &std::collections::HashMap<String, FunctionDecl>,
+    super_class: Option<String>,
 ) -> Option<ClassDecl> {
     let fields = discover_this_fields(&f.body, own_fields);
     if fields.is_empty() && !is_ctor {
@@ -192,7 +462,7 @@ fn function_to_class(
     }
     Some(ClassDecl {
         name: f.name.clone(),
-        super_class: None,
+        super_class,
         members,
         is_abstract: false,
         static_init_body: Vec::new(),

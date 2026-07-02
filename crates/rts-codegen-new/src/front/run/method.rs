@@ -33,6 +33,37 @@ use crate::front::error::{FrontResult, unsupported};
 use super::lower::{JsKind, Lowerer, Val};
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
+    /// The Object-PROTOCOL methods every JS object inherits from
+    /// `Object.prototype`, over ANY object receiver expression:
+    /// `proto.isPrototypeOf(obj)` (the `Object.create` chain walk),
+    /// `o.hasOwnProperty(k)` (OWN-slot check, no prototype walk) and
+    /// `o.propertyIsEnumerable(k)`. Shared by the whole-heap-object receiver
+    /// path and the user-class not-found fallback in `try_class_method` (a
+    /// class instance inherits these like any object). `Ok(None)` ⇒ not one of
+    /// the three (the caller keeps its own fallbacks).
+    pub(in crate::front::run) fn try_object_protocol_method(
+        &mut self,
+        module: &mut dyn Module,
+        object: &HirExpr,
+        method: &str,
+        args: &[HirExpr],
+    ) -> FrontResult<Option<Val>> {
+        let symbol = match (method, args.len()) {
+            ("isPrototypeOf", 1) => "__rtsadp_is_prototype_of",
+            ("hasOwnProperty", 1) => "__rtsadp_has_own",
+            ("propertyIsEnumerable", 1) => "__rtsadp_prop_is_enumerable",
+            _ => return Ok(None),
+        };
+        let recv = self.lower_expr(module, object)?;
+        let recv_word = self.box_value(recv);
+        let arg = self.lower_expr(module, &args[0])?;
+        let arg_word = self.box_value(arg);
+        let res = self
+            .call_runtime(module, symbol, &[recv_word, arg_word])?
+            .expect("an object-protocol trampoline returns a value");
+        Ok(Some(self.poly_bool_to_bool(res)))
+    }
+
     /// Try to lower `recv.method(args)` via data-driven dispatch. Returns
     /// `Ok(Some(val))` on success, `Ok(None)` when the receiver class is not a
     /// dispatchable primordial (so the caller falls through to its next handler,
@@ -122,49 +153,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // The receiver must lower AND have a statically-proven class. Lower it
         // first (a whole object/array value is not a dispatch receiver here).
         if self.is_whole_heap_value(object) {
-            // A whole OBJECT value receiver (`o.hasOwnProperty(k)`, `o.toString()`):
-            // route to the ambient prelude `class Object` (object.ts), passing the
-            // object as `this`. The `.ts` bodies use the shape-aware `engine.obj_*`
-            // bridge. Arrays were already handled above; guard against an array
-            // value slipping through. `Ok(None)` when the method is not on
-            // `class Object` (the caller bails — never a guess).
-            // `proto.isPrototypeOf(obj)` on a whole-object receiver → the runtime
-            // prototype-chain walk (`Object.create` side-table). Routed here because a
-            // PROVEN object never reaches the Tagged dynamic-method path.
-            if method == "isPrototypeOf" && args.len() == 1 {
-                let recv = self.lower_expr(module, object)?;
-                let recv_word = self.box_value(recv);
-                let arg = self.lower_expr(module, &args[0])?;
-                let arg_word = self.box_value(arg);
-                let res = self
-                    .call_runtime(module, "__rtsadp_is_prototype_of", &[recv_word, arg_word])?
-                    .expect("__rtsadp_is_prototype_of returns a value");
-                return Ok(Some(self.poly_bool_to_bool(res)));
-            }
-            // `o.hasOwnProperty(k)` → OWN-slot check (`__rtsadp_obj_has`, which reads
-            // the receiver's own shape only and does NOT walk the prototype chain —
-            // unlike `obj_get`). Routed here for a proven-object receiver.
-            if method == "hasOwnProperty" && args.len() == 1 {
-                let recv = self.lower_expr(module, object)?;
-                let recv_word = self.box_value(recv);
-                let arg = self.lower_expr(module, &args[0])?;
-                let arg_word = self.box_value(arg);
-                let res = self
-                    .call_runtime(module, "__rtsadp_has_own", &[recv_word, arg_word])?
-                    .expect("__rtsadp_has_own returns a value");
-                return Ok(Some(self.poly_bool_to_bool(res)));
-            }
-            // `o.propertyIsEnumerable(k)` — polymorphic tag-dispatched runtime
-            // check (array index bounds / keyed enumerable flag).
-            if method == "propertyIsEnumerable" && args.len() == 1 {
-                let recv = self.lower_expr(module, object)?;
-                let recv_word = self.box_value(recv);
-                let arg = self.lower_expr(module, &args[0])?;
-                let arg_word = self.box_value(arg);
-                let res = self
-                    .call_runtime(module, "__rtsadp_prop_is_enumerable", &[recv_word, arg_word])?
-                    .expect("__rtsadp_prop_is_enumerable returns a value");
-                return Ok(Some(self.poly_bool_to_bool(res)));
+            // The Object-protocol surface (`hasOwnProperty`/`isPrototypeOf`/
+            // `propertyIsEnumerable`) — shared with the user-class not-found
+            // fallback in `try_class_method` (every JS object inherits these).
+            if let Some(val) = self.try_object_protocol_method(module, object, method, args)? {
+                return Ok(Some(val));
             }
             if !self.is_array_valued(object) {
                 let recv = self.lower_expr(module, object)?;

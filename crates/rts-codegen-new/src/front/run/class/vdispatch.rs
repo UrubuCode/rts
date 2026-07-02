@@ -183,13 +183,55 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let u = self.builder.ins().iconst(types::I64, undef);
         self.builder.ins().jump(merge, &[u.into()]);
 
-        // Object receiver → shape switch over every class-with-method, default undef.
+        // Object receiver → shape switch over every class-with-method; the
+        // DEFAULT arm falls through below.
         self.builder.switch_to_block(guarded);
         self.builder.seal_block(guarded);
         let shape_word = self.read_shape_word(module, recv_word);
         self.emit_shape_arms(module, recv_word, shape_word, &targets, args, merge)?;
-        let u = self.builder.ins().iconst(types::I64, undef);
-        self.builder.ins().jump(merge, &[u.into()]);
+        // DEFAULT arm — no class shape matched: the receiver may still carry
+        // `method` as an OWN function-valued property (`{ add: (a, b) => a + b }`
+        // — an object literal whose fn-valued member shares a name with some
+        // class's method, or an own override). Read the own slot; when it holds a
+        // FUNCTION word, invoke it as a method (`__rtsadp_fn_invoke_method` binds
+        // `this` for a this-first callee); anything else keeps the `undefined`
+        // sentinel. Mirrors `try_user_getter_dynamic`'s data-slot default arm —
+        // an own property beats "no method" (JS). Without this, a class defining
+        // `method` ANYWHERE in the program (e.g. the prelude `Set.add`) stole the
+        // call from every plain object carrying an own fn of that name.
+        if args.len() <= 3 {
+            use cranelift_codegen::ir::condcodes::IntCC;
+            let key = crate::value::abi_adapter::intern_poly(method);
+            let key_word = self.builder.ins().iconst(types::I64, key.raw() as i64);
+            let own = self
+                .call_runtime(module, "__rtsadp_obj_get", &[recv_word, key_word])?
+                .expect("__rtsadp_obj_get returns a value");
+            let boxed = value::emit_is_boxed(self.builder, own);
+            let shifted = self.builder.ins().ushr_imm(own, value::TAG_SHIFT as i64);
+            let tag = self.builder.ins().band_imm(shifted, value::TAG_MASK as i64);
+            let is_fn_tag = self
+                .builder
+                .ins()
+                .icmp_imm(IntCC::Equal, tag, value::TAG_FUNCTION as i64);
+            let is_fn = self.builder.ins().band(boxed, is_fn_tag);
+            let b_fn = self.builder.create_block();
+            let b_undef = self.builder.create_block();
+            self.builder.ins().brif(is_fn, b_fn, &[], b_undef, &[]);
+            self.builder.seal_block(b_fn);
+            self.builder.seal_block(b_undef);
+
+            self.builder.switch_to_block(b_fn);
+            let v = self.lower_value_call_word_with_this(module, own, recv_word, args)?;
+            let w = self.box_value(v);
+            self.builder.ins().jump(merge, &[w.into()]);
+
+            self.builder.switch_to_block(b_undef);
+            let u = self.builder.ins().iconst(types::I64, undef);
+            self.builder.ins().jump(merge, &[u.into()]);
+        } else {
+            let u = self.builder.ins().iconst(types::I64, undef);
+            self.builder.ins().jump(merge, &[u.into()]);
+        }
 
         let result = self.finish_merge(merge);
         Ok(Some(Val::new_with_kind(result, Repr::Tagged, JsKind::Unknown)))

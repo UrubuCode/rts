@@ -74,6 +74,13 @@ pub struct FnSig {
     /// True when this is a desugared EAGER generator (body calls `__RTS_GEN_FINISH`,
     /// result = the `__gen_buf` ARRAY). `g().next()` cursors it via `GENERATOR_NEXT`.
     pub ret_eager_gen: bool,
+    /// True when this fn is in the program's TAIL SET (participates in a direct
+    /// `return f(args)` edge and is safe to compile under `CallConv::Tail` —
+    /// see [`super::tco::compute_tail_set`]). Drives both the Cranelift callconv
+    /// ([`Self::to_cranelift`]) and the `return_call` emission at qualifying
+    /// return sites. Stamped by `populate_module`; `of_func`/`main_sig` leave it
+    /// `false`.
+    pub tail: bool,
 }
 
 impl FnSig {
@@ -153,6 +160,7 @@ impl FnSig {
                 ret_array: false,
                 ret_lazy_gen: false,
                 ret_eager_gen: false,
+                tail: false,
             };
         }
         // The declared return repr — trusted in general (an explicit `boolean` /
@@ -229,6 +237,7 @@ impl FnSig {
             ret_array: matches!(func.ret, rts_hir::HirType::Array(_)) || is_eager_generator,
             ret_lazy_gen: is_lazy_gen,
             ret_eager_gen: is_eager_generator,
+            tail: false,
         }
     }
 
@@ -246,12 +255,21 @@ impl FnSig {
             ret_array: false,
                 ret_lazy_gen: false,
                 ret_eager_gen: false,
+            tail: false,
         }
     }
 
-    /// Build the Cranelift `Signature` for this function under the host call conv.
+    /// Build the Cranelift `Signature` for this function: the host call conv, or
+    /// `CallConv::Tail` for a tail-set fn (both endpoints of a `return f(args)`
+    /// edge must share it for `return_call` — see [`super::tco`]). A normal
+    /// `call` to a Tail-conv callee from any conv is still valid Cranelift.
     pub fn to_cranelift(&self, module: &dyn Module) -> Signature {
-        let mut sig = Signature::new(module.isa().default_call_conv());
+        let conv = if self.tail {
+            cranelift_codegen::isa::CallConv::Tail
+        } else {
+            module.isa().default_call_conv()
+        };
+        let mut sig = Signature::new(conv);
         for &p in &self.params {
             sig.params.push(AbiParam::new(cl_type(p)));
         }
