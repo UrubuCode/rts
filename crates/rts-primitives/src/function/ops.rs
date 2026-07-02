@@ -1482,6 +1482,80 @@ pub fn invoke_callable_auto(callable: u64, args: &[i64]) -> i64 {
     invoke_fn_ptr_with_registry(callable, args)
 }
 
+/// Ponte de CONVENÇÃO COMPLETA para callbacks da superfície i64 (`promise.then`
+/// / `promise.create` / drain de microtasks): um callee UNIFORM-THUNK (fn VALUE
+/// do motor novo) fala PolyValue WORDS nos dois sentidos; a superfície fala i64
+/// CRU. `args_are_words` marca a proveniência dos args (`true` = array do motor
+/// novo, já words; `false` = valor settled cru da superfície). O retorno volta
+/// SEMPRE cru — INT32 → valor, singleton → 0, heap-tag → handle real, double
+/// inline → trunc — para o slot i64 (o `await` do motor novo re-boxa números).
+/// Um callee NÃO-uniform (fn_ptr cru / `new Function` legado) recebe args CRUS
+/// (words decodificadas quando `args_are_words`) e devolve verbatim.
+pub fn invoke_callable_bridged(callable: u64, args: &[i64], args_are_words: bool) -> i64 {
+    use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
+    let h = rts_engine::heap::poly::poly_handle_normalize(callable).unwrap_or(callable);
+    let uniform = with_entry(h, |e| {
+        matches!(e, Some(Entry::Function(d)) if d.uniform_thunk)
+    });
+    if uniform {
+        let words: Vec<i64> = if args_are_words {
+            args.to_vec()
+        } else {
+            args.iter().map(|&a| raw_to_word(a)).collect()
+        };
+        let args_h = alloc_entry(Entry::Vec(Box::new(words)));
+        let r = __RTS_FN_RT_INVOKE_AUTO(h as i64, 0, args_h) as u64;
+        return word_to_raw(r);
+    }
+    let raw: Vec<i64> = if args_are_words {
+        args.iter().map(|&a| word_to_raw(a as u64)).collect()
+    } else {
+        args.to_vec()
+    };
+    invoke_callable_auto(callable, &raw)
+}
+
+/// i64 CRU da superfície → WORD PolyValue numérica (INT32 quando cabe, senão os
+/// bits do f64). Um valor que JÁ está no quadrante boxed passa verbatim (o
+/// produtor já falava words).
+fn raw_to_word(a: i64) -> i64 {
+    use rts_engine::heap::poly as p;
+    let w = a as u64;
+    if (w & p::POLY_BOX_BASE) == p::POLY_BOX_BASE {
+        return a;
+    }
+    if let Ok(i) = i32::try_from(a) {
+        // TAG_INT32 = 1 (the PolyValue small-int tag).
+        (p::POLY_BOX_BASE | (1u64 << p::POLY_TAG_SHIFT) | (i as u32 as u64)) as i64
+    } else {
+        f64::to_bits(a as f64) as i64
+    }
+}
+
+/// WORD PolyValue → i64 CRU da superfície: INT32 → valor, singleton → 0,
+/// heap-tag (STR/OBJECT/FUNCTION) → handle real, double inline → trunc. Um i64
+/// pequeno não-boxed (já cru — bits abaixo de 2^48, onde nenhum double normal
+/// vive) passa verbatim.
+fn word_to_raw(w: u64) -> i64 {
+    use rts_engine::heap::poly as p;
+    if (w & p::POLY_BOX_BASE) == p::POLY_BOX_BASE {
+        let tag = (w >> p::POLY_TAG_SHIFT) & p::POLY_TAG_MASK;
+        return match tag {
+            1 => (w & 0xFFFF_FFFF) as u32 as i32 as i64,
+            p::POLY_TAG_SINGLETON => 0,
+            p::POLY_TAG_STR | p::POLY_TAG_OBJECT | p::POLY_TAG_FUNCTION => {
+                p::poly_handle_normalize(w).unwrap_or(0) as i64
+            }
+            _ => w as i64,
+        };
+    }
+    if w > (1u64 << 48) {
+        f64::from_bits(w) as i64
+    } else {
+        w as i64
+    }
+}
+
 /// (issue-pai) Para invoke de fn_ptr raw i64-ABI: os args number vieram como
 /// bits-f64 (convencao do call site dinamico). Aloca um novo args Vec com cada
 /// elemento convertido de bits-f64 -> i64 truncado, p/ a fn i64-param ler o

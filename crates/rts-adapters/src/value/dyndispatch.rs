@@ -149,6 +149,14 @@ pub extern "C" fn __rtsadp_dyn_length(recv: u64) -> u64 {
         let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(arr_handle(recv)).max(0);
         return PolyValue::from_i32(len as i32).raw();
     }
+    // A FUNCTION receiver: `.length` is the Function getter — the declared
+    // arity minus the partially-bound count (`f.bind(null, x)`).
+    if v.is_function() {
+        use rts_runtime::namespaces::gc::handles as rt_handles;
+        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+        let len = rts_runtime::namespaces::globals::function::ops::__RTS_FN_GL_FUNCTION_LENGTH(h);
+        return PolyValue::from_i32(len as i32).raw();
+    }
     // A KEYED OBJECT may carry a real own `length` property (`{length: 3}`) —
     // read it like any other key (undefined when absent, matching JS).
     if v.is_object() {

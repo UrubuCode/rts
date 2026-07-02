@@ -852,10 +852,12 @@ unsafe fn invoke_microtask_callback(fn_ptr: u64, bound: &[i64], extra: Option<i6
     if let Some(v) = extra {
         args.push(v);
     }
-    // Ponte de convenção ÚNICA: um callable que é fn VALUE do motor novo
-    // (word/handle Entry::Function — possivelmente uniform-thunk com env)
-    // invoca via INVOKE_AUTO; um fn_ptr cru mantém o caminho registry.
-    rts_primitives::function::ops::invoke_callable_auto(fn_ptr, &args)
+    // Ponte de convenção COMPLETA: um callable UNIFORM-THUNK do motor novo fala
+    // WORDS nos dois sentidos (o settled value cru vira INT32/f64 word, e o
+    // retorno-word volta cru pro slot i64); um fn_ptr cru/`new Function` mantém
+    // o caminho registry i64. Sem a volta word→cru, `then(fnValue)` resolvia a
+    // promise com a WORD e o await re-boxava bits de f64 como número errado.
+    rts_primitives::function::ops::invoke_callable_bridged(fn_ptr, &args, false)
 }
 
 // TextEncoder / TextDecoder constructors — stateless, token handle.

@@ -160,6 +160,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         method: &str,
         args: &[HirExpr],
     ) -> FrontResult<Option<Val>> {
+        // `f.toString()` on a STATICALLY-known user fn: the source is not
+        // preserved through compilation, so the contract is the `[native code]`
+        // rendering with the fn's NAME — known here at compile time (a literal;
+        // zero runtime). A local shadowing the fn name falls through.
+        if method == "toString" && args.is_empty() {
+            if let HirExprKind::Ident(n) = &object.kind {
+                if self.sigs.contains_key(n) && self.local(n).is_none() {
+                    let s = format!("function {n}() {{ [native code] }}");
+                    let lit = rts_hir::HirExpr::new(
+                        HirExprKind::Lit(rts_hir::ir::HirLit::Str(s)),
+                        rts_hir::HirType::Str,
+                    );
+                    return Ok(Some(self.lower_expr(module, &lit)?));
+                }
+            }
+        }
         if method != "call" && method != "apply" && method != "bind" {
             return Ok(None);
         }
@@ -189,12 +205,24 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         };
         // `f.bind(thisArg)` — plain functions have no `this` slot in the uniform
         // ABI, so binding only a thisArg is the IDENTITY on the function value
-        // (matches `.call(null, …)` ignoring thisArg above). Partial-application
-        // args (`f.bind(null, a)`) need a bound-args entry — a later increment,
-        // bail honestly.
+        // (matches `.call(null, …)` ignoring thisArg above). PARTIAL-APPLICATION
+        // args (`f.bind(null, a)`) clone the function value with the extra args
+        // in `bound_args` (`__rtsadp_fn_bind`) — both invoke paths prepend them
+        // and `.length` reads `arity - bound`.
         if method == "bind" {
             if args.len() > 1 {
-                return unsupported!("fn.bind with partial-application args (only thisArg is supported)");
+                let vec_h = self
+                    .call_runtime(module, "__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[])?
+                    .expect("VEC_NEW returns a handle");
+                for a in &args[1..] {
+                    let v = self.lower_expr(module, a)?;
+                    let w = self.box_value(v);
+                    self.call_runtime(module, "__RTS_FN_NS_COLLECTIONS_VEC_PUSH", &[vec_h, w])?;
+                }
+                let word = self
+                    .call_runtime(module, "__rtsadp_fn_bind", &[fn_word, vec_h])?
+                    .expect("__rtsadp_fn_bind returns a word");
+                return Ok(Some(Val::tagged_kind(word, JsKind::Function)));
             }
             return Ok(Some(Val::tagged_kind(fn_word, JsKind::Function)));
         }
@@ -539,39 +567,53 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         };
         let fref = module.declare_func_in_func(fid, self.builder.func);
         let addr = self.builder.ins().func_addr(types::I64, fref);
-        // When the target's signature carries an f64 anywhere, register its
-        // packed ABI (FN_KINDS) so RAW-pointer consumers (`thread.spawn`,
-        // dynamic HOFs) invoke through the typed path — an f64 param reads its
-        // BITS back into xmm instead of the raw-i64 misload (#247).
-        if let Some(sig) = self.sigs.get(fname) {
-            let has_f64 = sig.params.iter().any(|&p| matches!(p, Repr::Float64))
-                || matches!(sig.ret, Some(Repr::Float64));
-            if has_f64 && sig.params.len() <= 8 {
-                let mut kinds_packed: u64 = 0;
-                for (i, &repr) in sig.params.iter().enumerate() {
-                    let k: u64 = match repr {
-                        Repr::Float64 => 1,
-                        Repr::Bool => 2,
-                        _ => 0,
-                    };
-                    kinds_packed |= k << (8 * i);
-                }
-                let ret_kind: u64 = match sig.ret {
-                    Some(Repr::Float64) => 1,
-                    Some(Repr::Bool) => 2,
-                    _ => 0,
-                };
-                let meta = ((sig.params.len() as u64) << 8) | ret_kind;
-                let kinds_word = self.builder.ins().iconst(types::I64, kinds_packed as i64);
-                let meta_word = self.builder.ins().iconst(types::I64, meta as i64);
-                self.call_runtime(
-                    module,
-                    "__rtsadp_register_fn_abi",
-                    &[addr, kinds_word, meta_word],
-                )?;
-            }
-        }
+        self.emit_register_fn_abi_if_f64(module, fname, addr)?;
         Ok(Some(Val::new(addr, Repr::Int64)))
+    }
+
+    /// When `fname`'s signature carries an f64 anywhere, register its packed
+    /// ABI (FN_KINDS) keyed by `addr` so RAW-pointer consumers (`thread.spawn`,
+    /// the promise/microtask callback bridge, dynamic HOFs) invoke through the
+    /// typed path — an f64 param reads its BITS back into xmm instead of the
+    /// raw-i64 misload (#247). Emitted at every site that hands out a bare
+    /// C-ABI code address (`getPointer`, a `U64`-param callback arg).
+    fn emit_register_fn_abi_if_f64(
+        &mut self,
+        module: &mut dyn Module,
+        fname: &str,
+        addr: Value,
+    ) -> FrontResult<()> {
+        let Some(sig) = self.sigs.get(fname) else {
+            return Ok(());
+        };
+        let has_f64 = sig.params.iter().any(|&p| matches!(p, Repr::Float64))
+            || matches!(sig.ret, Some(Repr::Float64));
+        if !has_f64 || sig.params.len() > 8 {
+            return Ok(());
+        }
+        let mut kinds_packed: u64 = 0;
+        for (i, &repr) in sig.params.iter().enumerate() {
+            let k: u64 = match repr {
+                Repr::Float64 => 1,
+                Repr::Bool => 2,
+                _ => 0,
+            };
+            kinds_packed |= k << (8 * i);
+        }
+        let ret_kind: u64 = match sig.ret {
+            Some(Repr::Float64) => 1,
+            Some(Repr::Bool) => 2,
+            _ => 0,
+        };
+        let meta = ((sig.params.len() as u64) << 8) | ret_kind;
+        let kinds_word = self.builder.ins().iconst(types::I64, kinds_packed as i64);
+        let meta_word = self.builder.ins().iconst(types::I64, meta as i64);
+        self.call_runtime(
+            module,
+            "__rtsadp_register_fn_abi",
+            &[addr, kinds_word, meta_word],
+        )?;
+        Ok(())
     }
 
     /// Lower a LAZY generator state-machine sentinel call. Returns `Ok(None)` when
@@ -693,6 +735,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                         if let Some(&fid) = self.ids.get(fname) {
                             let fref = module.declare_func_in_func(fid, self.builder.func);
                             let addr = self.builder.ins().func_addr(types::I64, fref);
+                            // An f64 anywhere in the callback's signature needs
+                            // its FN_KINDS registered — the runtime invokes this
+                            // bare address through the typed path (#247).
+                            self.emit_register_fn_abi_if_f64(module, fname, addr)?;
                             argvals.push(Val::new(addr, Repr::Int64));
                             continue;
                         }

@@ -688,7 +688,9 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_CREATE(fn_handle: U64, args_vec_handle: U6
     let result_clone = result.clone();
     let handle = alloc_entry(Entry::PromiseAsync(result));
 
-    create_spawn(fn_handle, args_vec_handle, result_clone, handle, None)
+    // Explicit `promise.create(fn, [args])` from source: the args array comes
+    // from the NEW engine — its elements are PolyValue WORDS.
+    create_spawn(fn_handle, args_vec_handle, result_clone, handle, None, true)
 }
 
 /// O spawn de `promise.create`, com um `boxer` OPCIONAL aplicado ao valor de
@@ -704,7 +706,10 @@ pub fn create_spawn_boxed(
     let result = promise_slot::new_pending();
     let result_clone = result.clone();
     let handle = alloc_entry(Entry::PromiseAsync(result));
-    create_spawn(fn_handle, args_vec_handle, result_clone, handle, Some(boxer))
+    // The engine's async-CALL spawn (`__rtsadp_promise_spawn`): the args ride
+    // the FN_KINDS convention (an f64 travels as its BITS) — NOT words; the
+    // registry-typed invoke reads them back. Never word-decode these.
+    create_spawn(fn_handle, args_vec_handle, result_clone, handle, Some(boxer), false)
 }
 
 fn create_spawn(
@@ -713,6 +718,7 @@ fn create_spawn(
     result_clone: std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
     handle: u64,
     boxer: Option<extern "C" fn(u64, i64) -> i64>,
+    args_are_words: bool,
 ) -> u64 {
     let (fn_ptr, bound) = callable_or_decomposed(fn_handle);
     if fn_ptr == 0 {
@@ -732,9 +738,14 @@ fn create_spawn(
         // Combina bound (de bind) + extra_args do caller.
         let mut all: Vec<i64> = bound;
         all.extend(extra_args);
-        // Ponte de convenção: um fn VALUE (handle) invoca via INVOKE_AUTO
-        // (env/kinds do uniform-thunk); um fn_ptr cru mantém o transmute i64.
-        let r = rts_primitives::function::ops::invoke_callable_auto(fn_ptr, &all);
+        // Ponte de convenção COMPLETA: o args array de um `promise.create`
+        // explícito vem do MOTOR NOVO (`args_are_words` — elementos são WORDS
+        // PolyValue): um callee uniform-thunk as recebe verbatim e devolve
+        // WORD (re-crua p/ o slot i64); um fn_ptr cru/`new Function` recebe os
+        // valores DECODIFICADOS (INT32-word 50 → 50). O async-spawn do motor
+        // (`create_spawn_boxed`) fala a convenção FN_KINDS (bits f64) — os
+        // args passam verbatim pro invoke tipado do registry.
+        let r = rts_primitives::function::ops::invoke_callable_bridged(fn_ptr, &all, args_are_words);
         // Checa AMBOS os slots de erro pra detectar throw dentro do body: o
         // handle-slot legado E o errslot do motor novo (via hook — um `throw`
         // novo-motor grava a WORD lançada lá, não aqui).

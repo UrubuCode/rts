@@ -470,18 +470,47 @@ pub extern "C" fn __rtsadp_fn_invoke(
     // Reconstruct the full real handle (generation read from the live slot) from
     // the bare 48-bit payload, then read the stored thunk address AND env word.
     let real = rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(pv.as_handle());
-    let (addr, env, has_this, rest_idx) = with_entry(real, |e| match e {
+    let (addr, env, has_this, rest_idx, uniform, arity, bound) = with_entry(real, |e| match e {
         Some(Entry::Function(d)) => (
             d.fn_ptr,
             d.bound_this as u64,
             d.has_this_param,
             d.rest_param_idx,
+            d.uniform_thunk,
+            d.arity,
+            d.bound_args.clone(),
         ),
-        _ => (0, 0, false, -1),
+        _ => (0, 0, false, -1, true, 0, Vec::new()),
     });
     if addr == 0 {
         return PolyValue::undefined().raw();
     }
+    // A LEGACY-convention callee (`new Function` compiles a raw all-i64 extern —
+    // `uniform_thunk: false`): unbox the arg words to raw i64s and route through
+    // the runtime's own typed invoker (`FUNCTION_CALL`, which also applies bound
+    // args), then box the raw i64 result back as a number word.
+    if !uniform {
+        return invoke_legacy_fn(real, arity, bound.len(), [a0, a1, a2, a3]);
+    }
+    // BOUND partial-application args on a UNIFORM callee (`f.bind(null, x)`):
+    // prepend the stored WORDS — the call-site args shift right, and an
+    // INT32-argc `rest` word grows by the bound count (args past slot 4 drop —
+    // the ≤4-slot subset).
+    let (a0, a1, a2, a3, rest) = if bound.is_empty() {
+        (a0, a1, a2, a3, rest)
+    } else {
+        let mut all: Vec<u64> = bound.iter().map(|&w| w as u64).collect();
+        all.extend([a0, a1, a2, a3]);
+        let undef = PolyValue::undefined().raw();
+        let get = |i: usize| all.get(i).copied().unwrap_or(undef);
+        let rest_pv = PolyValue::from_raw(rest);
+        let new_rest = if rest_pv.is_int32() {
+            PolyValue::from_i32(rest_pv.as_i32().saturating_add(bound.len() as i32)).raw()
+        } else {
+            rest
+        };
+        (get(0), get(1), get(2), get(3), new_rest)
+    };
     // A non-capturing function stored env = 0; normalize that to the `undefined`
     // singleton word the thunk's env-read path expects (it never reads it anyway).
     let env_word = if env == 0 {
@@ -543,6 +572,144 @@ pub extern "C" fn __rtsadp_fn_invoke(
         return f(env_word, PolyValue::undefined().raw(), a0, a1, a2, rest);
     }
     f(env_word, a0, a1, a2, a3, rest)
+}
+
+/// Invoke a LEGACY-convention function handle (a `new Function` compile: raw
+/// all-i64 `extern "C"`, `uniform_thunk: false`) with up to 4 PolyValue-word
+/// args: unbox each to its raw i64, route through the runtime's own
+/// `FUNCTION_CALL` (which applies bound args / kinds), box the i64 result back
+/// as the tightest number word.
+fn invoke_legacy_fn(real_handle: u64, arity: u8, bound_len: usize, slots: [u64; 4]) -> u64 {
+    use rts_engine::heap::handles::{Entry as E, alloc_entry};
+    // `FUNCTION_CALL` prepends the stored bound args itself — pass only the
+    // REMAINING positional count so the total matches the callee's arity.
+    let n = (arity as usize).saturating_sub(bound_len).min(4);
+    let raw: Vec<i64> = slots[..n].iter().map(|&w| word_to_raw_i64(w)).collect();
+    let args_h = alloc_entry(E::Vec(Box::new(raw)));
+    let r = rts_runtime::namespaces::globals::function::ops::__RTS_FN_GL_FUNCTION_CALL(
+        real_handle,
+        0,
+        args_h,
+    );
+    if let Ok(i) = i32::try_from(r) {
+        PolyValue::from_i32(i).raw()
+    } else {
+        PolyValue::from_f64(r as f64).raw()
+    }
+}
+
+/// A PolyValue word → the raw i64 a legacy all-i64 callee reads: int32 → its
+/// value, inline double → truncated, bool → 0/1, anything else → 0.
+fn word_to_raw_i64(w: u64) -> i64 {
+    let v = PolyValue::from_raw(w);
+    if v.is_int32() {
+        v.as_i32() as i64
+    } else if v.is_double() {
+        v.as_f64() as i64
+    } else if v.is_bool() {
+        v.as_bool() as i64
+    } else {
+        0
+    }
+}
+
+/// `__rtsadp_fn_bind(fn_word, args_vec)` — `f.bind(thisArg, …partial)` with
+/// PARTIAL-APPLICATION args: clone the function value with the extra args
+/// appended to `bound_args` (`.length` reads `arity - bound_args.len()`, and
+/// both invoke paths prepend them). A UNIFORM-thunk callee stores the raw
+/// PolyValue WORDS (its invoke shifts them into `a0…`); a legacy callee
+/// (`new Function`) stores raw i64s (its `invoke_typed` path reads them
+/// verbatim). Non-function → `undefined`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_fn_bind(fn_word: u64, args_vec: u64) -> u64 {
+    use rts_engine::heap::handles::{Entry as E, FunctionData, alloc_entry};
+    let pv = PolyValue::from_raw(fn_word);
+    if !pv.is_function() {
+        return PolyValue::undefined().raw();
+    }
+    let real = rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(pv.as_handle());
+    let items: Vec<i64> = with_entry(args_vec, |e| match e {
+        Some(E::Vec(v)) => v.as_ref().clone(),
+        _ => Vec::new(),
+    });
+    let cloned: Option<Box<FunctionData>> = with_entry(real, |e| match e {
+        Some(E::Function(d)) => {
+            let extra: Vec<i64> = if d.uniform_thunk {
+                items.clone()
+            } else {
+                items.iter().map(|&w| word_to_raw_i64(w as u64)).collect()
+            };
+            let mut bound = d.bound_args.clone();
+            bound.extend(extra);
+            Some(Box::new(FunctionData {
+                fn_ptr: d.fn_ptr,
+                arity: d.arity,
+                name: d.name.clone(),
+                bound_this: d.bound_this,
+                has_bound_this: d.has_bound_this,
+                bound_args: bound,
+                is_arrow: d.is_arrow,
+                has_this_param: d.has_this_param,
+                param_kinds: d.param_kinds.clone(),
+                return_kind: d.return_kind,
+                packed_shim: d.packed_shim,
+                source: d.source.clone(),
+                keep_alive: d.keep_alive.clone(),
+                prototype_handle: 0,
+                rest_param_idx: d.rest_param_idx,
+                uniform_thunk: d.uniform_thunk,
+            }))
+        }
+        _ => None,
+    });
+    let Some(data) = cloned else {
+        return PolyValue::undefined().raw();
+    };
+    let h = alloc_entry(E::Function(data));
+    PolyValue::from_function_handle(
+        rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h),
+    )
+    .raw()
+}
+
+/// `__rtsadp_fn_new(args_vec)` — the PRIMORDIAL `new Function(p0…pN-1, body)`:
+/// ToString every arg word, join the leading N-1 as the params CSV, hand
+/// `(params_handle, body_handle)` to the runtime ctor (which compiles the body
+/// through the engine-installed COMPILE_FN_HOOK — see `front::run::dynfn`), and
+/// box the resulting `Entry::Function` handle as a `TAG_FUNCTION` word. A
+/// failed compile yields `undefined` (the runtime already eprintln'd why).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_fn_new(args_vec: u64) -> u64 {
+    use rts_engine::heap::handles::Entry as E;
+    let items: Vec<i64> = with_entry(args_vec, |e| match e {
+        Some(E::Vec(v)) => v.as_ref().clone(),
+        _ => Vec::new(),
+    });
+    let text = |w: i64| super::genops::to_string(PolyValue::from_raw(w as u64));
+    let (params, body) = match items.split_last() {
+        Some((last, init)) => (
+            init.iter().map(|&w| text(w)).collect::<Vec<_>>().join(","),
+            text(*last),
+        ),
+        None => (String::new(), String::new()),
+    };
+    let intern = |s: &str| {
+        rts_runtime::namespaces::collector::string_pool::__RTS_FN_NS_GC_STRING_NEW(
+            s.as_ptr(),
+            s.len() as i64,
+        )
+    };
+    let h = rts_runtime::namespaces::globals::function::ops::__RTS_FN_GL_FUNCTION_NEW(
+        intern(&params),
+        intern(&body),
+    );
+    if h == 0 {
+        return PolyValue::undefined().raw();
+    }
+    PolyValue::from_function_handle(
+        rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h),
+    )
+    .raw()
 }
 
 /// METHOD-AWARE invoke: `recv.m(args)` where `m` resolved to a FUNCTION word.
