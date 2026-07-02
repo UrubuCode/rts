@@ -79,6 +79,8 @@ pub fn with_event_loop<R>(f: impl FnOnce(&mut EventLoop<()>) -> Option<R>) -> Op
 ///
 /// O índice posicional na fila é o "id" estável do widget dentro do frame: o
 /// N-ésimo `button` deste frame casa com o N-ésimo resultado do frame anterior.
+/// `Clone` p/ o REPLAY do frame durante o resize modal (ver `redraw_retained`).
+#[derive(Clone)]
 pub enum WidgetCmd {
     Label(String),
     Button(String),
@@ -143,6 +145,17 @@ pub struct UiCtx {
     pub frame_active: bool,
     /// Fila de widgets do frame corrente (drenada no `endFrame`).
     pub cmds: Vec<WidgetCmd>,
+    /// A fila do ÚLTIMO frame apresentado — o REPLAY do live-resize: durante o
+    /// arrasto de borda o Windows prende o `pump` num loop modal (WM_SIZING) e o
+    /// loop TS não roda; o handler de `Resized` re-apresenta este frame para o
+    /// conteúdo acompanhar a janela (ver `frame::redraw_retained`).
+    pub last_cmds: Vec<WidgetCmd>,
+    /// Instante do último replay de resize — THROTTLE do live-resize (~30fps):
+    /// os `Resized` chegam em rajada durante o arrasto e cada replay re-layouta
+    /// a página inteira na largura nova + espera o vsync no present; sem o
+    /// freio o arrasto fica pesado. O frame de assentamento (largura final
+    /// exata) vem do loop TS assim que o arrasto solta.
+    pub last_resize_redraw: Option<std::time::Instant>,
     /// Árvore de DOM RETIDA da última chamada a `egui.html(...)`. É a fonte da
     /// verdade persistente entre frames (ao contrário de `cmds`, zerada a cada
     /// frame): o render percorre esta árvore, `egui.domDump` a serializa para
