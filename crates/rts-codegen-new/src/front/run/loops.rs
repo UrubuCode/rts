@@ -187,11 +187,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let res = self.lower_expr(module, &iter_call)?;
         if is_lazy {
             // The method returned a GenState handle (raw i64) → DRAIN to an array.
+            // DRAIN returns the RAW Vec handle; rebox it as a TAG_OBJECT array
+            // word (the spread-append consumer reads a word — a raw id there
+            // appended nothing).
             let handle = self.coerce(res, Repr::Int64)?;
             let arr = self
                 .call_runtime(module, "__RTS_FN_NS_GC_GEN_SM_DRAIN", &[handle])?
-                .expect("GEN_SM_DRAIN returns an array word");
-            Ok(Some(arr))
+                .expect("GEN_SM_DRAIN returns a Vec handle");
+            let word = self
+                .call_runtime(module, "__rtsadp_box_handle_auto", &[arr])?
+                .expect("__rtsadp_box_handle_auto returns a word");
+            Ok(Some(word))
         } else {
             // An array-returning iterator method → its result IS the element array.
             Ok(Some(self.box_value(res)))
@@ -218,11 +224,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
         let h = self.lower_expr(module, iterable)?;
         // The GenState handle rides a raw `Int64`; pass it verbatim to DRAIN.
+        // DRAIN returns the RAW Vec handle → rebox as a TAG_OBJECT array word
+        // (spread-append / element reads consume a word).
         let handle = self.coerce(h, Repr::Int64)?;
         let arr = self
             .call_runtime(module, "__RTS_FN_NS_GC_GEN_SM_DRAIN", &[handle])?
-            .expect("GEN_SM_DRAIN returns an array word");
-        Ok(Some(arr))
+            .expect("GEN_SM_DRAIN returns a Vec handle");
+        let word = self
+            .call_runtime(module, "__rtsadp_box_handle_auto", &[arr])?
+            .expect("__rtsadp_box_handle_auto returns a word");
+        Ok(Some(word))
     }
 
     /// `for (const k in object) body` over a keyed OBJECT.
