@@ -72,12 +72,48 @@ pub extern "C" fn __RTS_FN_NS_EGUI_END_FRAME(h: u64) {
             return;
         }
         c.frame_active = false;
-
-        // ── 1. Drena a fila num CentralPanel, coletando interações ───────────
-        // Toma a fila por valor (evita emprestar `c` dentro do closure). O DOM
-        // retido (`c.dom`) é só LIDO pelo render — saca por valor com `take` e
-        // devolve depois, mantendo `c` livre para o `egui_ctx` no `show`.
         let cmds = std::mem::take(&mut c.cmds);
+        // guarda a fila p/ o REPLAY do live-resize (redraw_retained).
+        c.last_cmds = cmds.clone();
+        finish_frame(c, cmds);
+    });
+}
+
+/// RE-APRESENTA o último frame — o live-resize: chamado pelo handler de
+/// `Resized` (app.rs) enquanto o loop modal de resize do Windows prende o pump
+/// (o loop TS não roda durante o arrasto). Abre um pass próprio e re-executa a
+/// última fila; o conteúdo DOM re-layouta na largura nova (o cache de layout é
+/// por viewport). No-op no meio de um frame TS (pass já aberto) ou sem frame
+/// anterior. Efeito colateral aceito: input consumido neste replay (um clique
+/// exatamente durante o arrasto) alimenta este frame interno.
+pub(crate) fn redraw_retained(c: &mut crate::ctx::UiCtx) {
+    if c.frame_active || c.last_cmds.is_empty() {
+        return;
+    }
+    // THROTTLE (~30fps): os Resized chegam em rajada no arrasto e cada replay é
+    // um re-layout completo na largura nova (+ vsync no present). Pular eventos
+    // intermediários mantém a sensação de acompanhar sem afogar a CPU; o frame
+    // de assentamento (largura final exata) vem do loop TS ao soltar o arrasto.
+    if let Some(t) = c.last_resize_redraw {
+        if t.elapsed() < std::time::Duration::from_millis(33) {
+            return;
+        }
+    }
+    c.last_resize_redraw = Some(std::time::Instant::now());
+    let raw_input = c.egui_state.take_egui_input(&c.window);
+    c.egui_ctx.begin_pass(raw_input);
+    let cmds = c.last_cmds.clone();
+    finish_frame(c, cmds);
+}
+
+/// O corpo do frame (drena a fila num CentralPanel + end_pass + tessellate +
+/// present) — compartilhado entre `endFrame` (fila nova do TS) e
+/// `redraw_retained` (replay no resize). Pré-condição: um pass ABERTO.
+fn finish_frame(c: &mut crate::ctx::UiCtx, cmds: Vec<WidgetCmd>) {
+    {
+        // ── 1. Drena a fila num CentralPanel, coletando interações ───────────
+        // O DOM retido (`c.dom`) é só LIDO pelo render — saca por valor com
+        // `take` e devolve depois, mantendo `c` livre p/ o `egui_ctx` no `show`.
         let dom = c.dom.take();
         let mut new_buttons: Vec<bool> = Vec::new();
         let mut new_sliders: Vec<f64> = Vec::new();
@@ -140,7 +176,7 @@ pub extern "C" fn __RTS_FN_NS_EGUI_END_FRAME(h: u64) {
             #[cfg(feature = "glow-backend")]
             Backend::Glow(g) => g.paint(&window, paint_jobs, full_output.textures_delta, ppp),
         }
-    });
+    }
 }
 
 /// Agenda um snapshot do PRÓXIMO `endFrame` num arquivo PPM (teste visual

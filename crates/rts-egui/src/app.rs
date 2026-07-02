@@ -281,6 +281,8 @@ pub extern "C" fn __RTS_FN_NS_EGUI_OPEN_WINDOW(
         open: true,
         frame_active: false,
         cmds: Vec::new(),
+        last_cmds: Vec::new(),
+        last_resize_redraw: None,
         dom: None,
         html_hash: 0,
         button_results: Vec::new(),
@@ -321,6 +323,13 @@ impl ApplicationHandler for Pumper {
                 }
                 WindowEvent::Resized(size) => {
                     c.backend.resize(size.width, size.height);
+                    // LIVE-RESIZE: durante o arrasto de borda o Windows prende o
+                    // pump num loop modal (WM_SIZING) — o loop TS (que faz o
+                    // draw) congela até soltar. Re-apresenta o último frame AQUI
+                    // (dentro do handler, como apps winit fazem no Redraw): o
+                    // DOM re-layouta na largura nova (cache por viewport) e o
+                    // conteúdo acompanha a janela.
+                    crate::frame::redraw_retained(c);
                 }
                 _ => {}
             }
