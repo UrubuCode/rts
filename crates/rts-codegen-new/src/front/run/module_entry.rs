@@ -185,9 +185,12 @@ fn apply_bindings(
     program: &mut rts_ast::ast::Program,
     bindings: &HashMap<String, Binding>,
 ) -> FrontResult<HashMap<String, (String, String)>> {
-    // 1. Split the bindings into alias renames (local → orig) and builtins.
+    // 1. Split the bindings into alias renames (local → orig), namespace
+    //    aggregates (`export * as ns` — member-access rewrites), and builtins.
     let mut renames: HashMap<String, String> = HashMap::new();
     let mut builtins: HashMap<String, (String, String)> = HashMap::new();
+    let mut namespaces: HashMap<String, std::collections::BTreeMap<String, String>> =
+        HashMap::new();
     for (local, binding) in bindings {
         match binding {
             Binding::Local { name } => {
@@ -198,10 +201,26 @@ fn apply_bindings(
             Binding::Builtin { ns, member } => {
                 builtins.insert(local.clone(), (ns.clone(), member.clone()));
             }
+            Binding::Namespace { members } => {
+                namespaces.insert(local.clone(), members.clone());
+            }
         }
     }
 
-    // 2. Rewrite every identifier reference across the flattened program (only if
+    // 2. Rewrite `<ns>.<member>` aggregate accesses FIRST (`starNs.one` → `one`),
+    //    so the plain ident renamer below never sees the aggregate name. An
+    //    unknown member is left untouched — the unbound `starNs` ident then
+    //    bails at lowering (honest, never a guessed value).
+    if !namespaces.is_empty() {
+        let mut rewriter = NamespaceMemberRewriter {
+            namespaces: &namespaces,
+        };
+        for item in &mut program.items {
+            rename_item_with(item, &mut rewriter);
+        }
+    }
+
+    // 3. Rewrite every identifier reference across the flattened program (only if
     //    there is an alias to rewrite).
     if !renames.is_empty() {
         let mut renamer = Renamer { renames: &renames };
@@ -212,9 +231,19 @@ fn apply_bindings(
     Ok(builtins)
 }
 
-/// Apply the [`Renamer`] to one flattened top-level item (statement body, function
-/// body, or class property initializer — every swc subtree the lowering re-reads).
+/// Apply a swc `VisitMut` to one flattened top-level item (statement body,
+/// function body, or class property initializer — every swc subtree the
+/// lowering re-reads). Shared by the alias [`Renamer`] and the
+/// [`NamespaceMemberRewriter`].
+fn rename_item_with<V: swc_ecma_visit::VisitMut>(item: &mut Item, visitor: &mut V) {
+    rename_item_impl(item, visitor)
+}
+
 fn rename_item(item: &mut Item, renamer: &mut Renamer<'_>) {
+    rename_item_impl(item, renamer)
+}
+
+fn rename_item_impl<V: swc_ecma_visit::VisitMut>(item: &mut Item, renamer: &mut V) {
     match item {
         Item::Statement(Statement::Raw(raw)) => {
             if let Some(stmt) = raw.stmt.as_mut() {
@@ -248,7 +277,7 @@ fn rename_item(item: &mut Item, renamer: &mut Renamer<'_>) {
 
 /// Rename references inside a class member's swc subtrees (method bodies + a
 /// constructor body + a property initializer).
-fn rename_class_member(m: &mut rts_ast::ast::ClassMember, renamer: &mut Renamer<'_>) {
+fn rename_class_member<V: swc_ecma_visit::VisitMut>(m: &mut rts_ast::ast::ClassMember, renamer: &mut V) {
     use rts_ast::ast::ClassMember;
     match m {
         ClassMember::Constructor(ctor) => {
@@ -291,5 +320,40 @@ impl swc_ecma_visit::VisitMut for Renamer<'_> {
         if let Some(target) = self.renames.get(ident.sym.as_ref()) {
             ident.sym = target.clone().into();
         }
+    }
+}
+
+/// Rewrites `<aggregate>.<member>` accesses (an `export * as ns` import) to the
+/// member's FLAT top-level identifier (`starNs.one` → `one`). Only a MemberExpr
+/// whose OBJECT is the aggregate ident and whose prop is a KNOWN member is
+/// rewritten; an unknown member is left untouched — the unbound aggregate ident
+/// then bails at lowering (honest, never a guessed value).
+struct NamespaceMemberRewriter<'a> {
+    namespaces: &'a HashMap<String, std::collections::BTreeMap<String, String>>,
+}
+
+impl swc_ecma_visit::VisitMut for NamespaceMemberRewriter<'_> {
+    fn visit_mut_expr(&mut self, e: &mut swc_ecma_ast::Expr) {
+        use swc_ecma_visit::VisitMutWith;
+        e.visit_mut_children_with(self);
+        let swc_ecma_ast::Expr::Member(m) = e else {
+            return;
+        };
+        let swc_ecma_ast::Expr::Ident(obj) = &*m.obj else {
+            return;
+        };
+        let Some(members) = self.namespaces.get(obj.sym.as_ref()) else {
+            return;
+        };
+        let swc_ecma_ast::MemberProp::Ident(prop) = &m.prop else {
+            return;
+        };
+        let Some(flat) = members.get(prop.sym.as_ref()) else {
+            return;
+        };
+        *e = swc_ecma_ast::Expr::Ident(swc_ecma_ast::Ident::new_no_ctxt(
+            flat.clone().into(),
+            m.span,
+        ));
     }
 }

@@ -307,6 +307,7 @@ fn lower_program(cm: &Lrc<SourceMap>, source: &SwcProgram) -> Program {
             for item in &module.body {
                 lower_module_item(cm, item, &mut program.items);
             }
+            collect_export_meta(module, &mut program);
         }
         SwcProgram::Script(script) => {
             for stmt in &script.body {
@@ -316,6 +317,37 @@ fn lower_program(cm: &Lrc<SourceMap>, source: &SwcProgram) -> Program {
     }
 
     program
+}
+
+/// Collect the export metadata a `Statement` cannot carry: the NAMES of every
+/// top-level `export const`/`export let` declarator (Statement has no exported
+/// flag) and the NAMED `export default function NAME(){}`. Read by the module
+/// resolver's export-set collection (`front::modules::graph`).
+fn collect_export_meta(module: &swc_ecma_ast::Module, program: &mut Program) {
+    for item in &module.body {
+        let ModuleItem::ModuleDecl(decl) = item else {
+            continue;
+        };
+        match decl {
+            ModuleDecl::ExportDecl(d) => {
+                if let Decl::Var(v) = &d.decl {
+                    for declarator in &v.decls {
+                        if let swc_ecma_ast::Pat::Ident(id) = &declarator.name {
+                            program.exported_names.push(id.id.sym.to_string());
+                        }
+                    }
+                }
+            }
+            ModuleDecl::ExportDefaultDecl(d) => {
+                if let DefaultDecl::Fn(f) = &d.decl {
+                    if let Some(ident) = &f.ident {
+                        program.default_export = Some(ident.sym.to_string());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 fn lower_module_item(cm: &Lrc<SourceMap>, item: &ModuleItem, out: &mut Vec<Item>) {
@@ -402,6 +434,7 @@ fn lower_module_decl(cm: &Lrc<SourceMap>, decl: &ModuleDecl, out: &mut Vec<Item>
                         default_name: None,
                         from: src.value.to_string_lossy().to_string(),
                         span: convert_span(cm, export_named.span),
+                        reexport: true,
                     };
                     out.push(Item::Import(import));
                 }
@@ -423,6 +456,7 @@ fn lower_module_decl(cm: &Lrc<SourceMap>, decl: &ModuleDecl, out: &mut Vec<Item>
                 default_name: None,
                 from: export_all.src.value.to_string_lossy().to_string(),
                 span: convert_span(cm, export_all.span),
+                reexport: true,
             };
             out.push(Item::Import(import));
         }
@@ -922,6 +956,7 @@ fn lower_import_decl(cm: &Lrc<SourceMap>, import_decl: &SwcImportDecl) -> Import
         default_name,
         from: import_decl.src.value.to_string_lossy().to_string(),
         span: convert_span(cm, import_decl.span),
+        reexport: false,
     }
 }
 

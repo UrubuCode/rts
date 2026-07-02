@@ -41,9 +41,10 @@ pub(super) struct Register {
 
 /// Every `fn(&mut Engine)` register, in any order (each just pushes metadata).
 /// ADD A NAMESPACE/CLASS HERE — one row, append-friendly. Heavier/feature-gated
-/// namespaces (http_server/tls/runtime) are deliberately absent until a test
-/// needs them (`ui` is now registered — egui GUI, crate `rts-egui`). `console`
-/// is NOT here — it is a `.ts` prelude (see [`PRELUDE_TS`]).
+/// namespaces (http_server/runtime) are deliberately absent until a test
+/// needs them (`ui` is now registered — egui GUI, crate `rts-egui`; `tls` is
+/// registered — `tls_basic`). `console` is NOT here — it is a `.ts` prelude
+/// (see [`PRELUDE_TS`]).
 pub(super) static REGISTER: &[Register] = &[
     // Namespaces backing class statics/ctors (Date.now/UTC/parse → `date`; Map/Set
     // → `collections`).
@@ -82,6 +83,7 @@ pub(super) static REGISTER: &[Register] = &[
     Register { label: "os", run: ns::os::register, why: "rts:os" },
     Register { label: "crypto", run: ns::crypto::register, why: "rts:crypto" },
     Register { label: "net", run: ns::net::register, why: "rts:net" },
+    Register { label: "tls", run: ns::tls::register, why: "rts:tls TLS 1.2/1.3 client (tls_basic)" },
     Register { label: "json", run: ns::json::register, why: "rts:json namespace" },
     Register { label: "promise", run: ns::promise::register, why: "rts:promise" },
     Register { label: "thread", run: ns::thread::register, why: "rts:thread" },

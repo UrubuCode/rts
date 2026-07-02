@@ -26,6 +26,14 @@ pub struct Program {
     /// Populated by `ModuleGraph::flatten_for_jit` and by single-file
     /// AOT scan in `compile_program`.
     pub local_alias_map: HashMap<String, String>,
+    /// Top-level `export const`/`export let` NAMES (a `Statement` carries no
+    /// exported flag — the parser collects them straight off the swc module).
+    /// Read by the module resolver's export-set collection.
+    pub exported_names: Vec<String>,
+    /// The `export default function NAME(){}` name, when the module has a NAMED
+    /// default export (an anonymous default is a later increment). The resolver
+    /// exposes it under the `"default"` export key.
+    pub default_export: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -77,6 +85,10 @@ pub struct ImportDecl {
     pub default_name: Option<String>,
     pub from: String,
     pub span: Span,
+    /// True when this edge came from a RE-EXPORT form (`export * from` — empty
+    /// `names` — or `export { x as y } from`): the resolver joins the target's
+    /// exports into THIS module's export set (star-chain fixpoint).
+    pub reexport: bool,
 }
 
 #[derive(Debug, Clone)]

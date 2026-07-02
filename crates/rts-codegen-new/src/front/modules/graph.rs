@@ -9,7 +9,7 @@
 //! Builtins (`rts`/`rts:<ns>`/`node:<ns>`) are LEAF edges: recorded on the
 //! importing module but never loaded from disk and never part of a cycle.
 
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
 use rts_ast::ast::{Item, Program};
@@ -28,6 +28,10 @@ pub struct ImportEdge {
     pub names: Vec<(String, String)>,
     /// The default-import local name, if any (`import io from "..."`).
     pub default_name: Option<String>,
+    /// True for a RE-EXPORT edge (`export * from` — empty `names` — or
+    /// `export { x as y } from`): the target's exports join THIS module's
+    /// export map (the post-load star-chain fixpoint).
+    pub reexport: bool,
 }
 
 /// A single loaded user module.
@@ -39,8 +43,14 @@ pub struct ModuleNode {
     pub program: Program,
     /// Resolved import edges, in source order.
     pub imports: Vec<ImportEdge>,
-    /// The set of top-level names this module `export`s.
-    pub exports: BTreeSet<String>,
+    /// Export name → the FLAT top-level name it resolves to. For an own
+    /// declaration the two coincide; a re-export alias (`export { add as plus }
+    /// from`) maps `plus → add`; a NAMED default export maps `default → name`.
+    pub exports: BTreeMap<String, String>,
+    /// `export * as ns from "./m"` aggregates: `ns` → the resolved TARGET key.
+    /// The flatten materializes the member map from the target's (fixpointed)
+    /// exports and binds the importing side as a namespace-alias rewrite.
+    pub ns_reexports: Vec<(String, PathBuf)>,
 }
 
 /// The loaded graph: the entry key + every reachable user module, keyed by
@@ -71,8 +81,15 @@ impl ModuleGraph {
                     }
                 }
             }
+            for (_, dep) in &node.ns_reexports {
+                if !modules.contains_key(dep) {
+                    pending.push_back(dep.clone());
+                }
+            }
             modules.insert(key, node);
         }
+
+        propagate_reexports(&mut modules);
 
         let graph = Self { entry_key, modules };
         if let Some(cycle) = graph.detect_cycle() {
@@ -162,6 +179,7 @@ fn load_one(key: &Path) -> ModuleResult<ModuleNode> {
         .map_err(|e| ModuleError::Parse(format!("{}: {e}", key.display())))?;
 
     let mut imports = Vec::new();
+    let mut ns_reexports = Vec::new();
     for item in &program.items {
         match item {
             Item::Import(decl) => {
@@ -176,16 +194,21 @@ fn load_one(key: &Path) -> ModuleResult<ModuleNode> {
                     target,
                     names,
                     default_name: decl.default_name.clone(),
+                    reexport: decl.reexport,
                 });
             }
-            // `export * as ns from "./mod"` — out of M1 scope (namespace
-            // aggregate import is dropped at the parser; record as unsupported
-            // so we never silently miscompile a program that relies on it).
+            // `export * as ns from "./mod"` — a NAMESPACE AGGREGATE: record the
+            // resolved target; the flatten materializes the member map from the
+            // target's (fixpointed) exports and rewrites `ns.<m>` accesses.
             Item::ExportNamespace(d) => {
-                return Err(ModuleError::Unsupported(format!(
-                    "`export * as {} from \"{}\"` (namespace re-export)",
-                    d.local, d.from
-                )));
+                let target = resolve::resolve(&d.from, key)?;
+                let Target::File(dep) = target else {
+                    return Err(ModuleError::Unsupported(format!(
+                        "`export * as {} from \"{}\"` over a non-file module",
+                        d.local, d.from
+                    )));
+                };
+                ns_reexports.push((d.local.clone(), dep));
             }
             _ => {}
         }
@@ -197,26 +220,82 @@ fn load_one(key: &Path) -> ModuleResult<ModuleNode> {
         key: key.to_path_buf(),
         program,
         imports,
+        ns_reexports,
         exports,
     })
 }
 
 /// The set of top-level names a module exports, read from the parser's
 /// `exported: bool` flag on functions/classes.
-fn collect_exports(program: &Program) -> BTreeSet<String> {
-    let mut set = BTreeSet::new();
+fn collect_exports(program: &Program) -> BTreeMap<String, String> {
+    let mut map = BTreeMap::new();
     for item in &program.items {
         match item {
             Item::Function(f) if f.exported => {
-                set.insert(f.name.clone());
+                map.insert(f.name.clone(), f.name.clone());
             }
             Item::Class(c) if c.exported => {
-                set.insert(c.name.clone());
+                map.insert(c.name.clone(), c.name.clone());
             }
             _ => {}
         }
     }
-    set
+    // `export const`/`export let` names — a `Statement` carries no exported
+    // flag, so the parser collected them straight off the swc module.
+    for name in &program.exported_names {
+        map.insert(name.clone(), name.clone());
+    }
+    // A NAMED `export default function NAME(){}` — exposed under "default".
+    if let Some(name) = &program.default_export {
+        map.insert("default".to_string(), name.clone());
+    }
+    map
+}
+
+/// The star-chain FIXPOINT: a `reexport` edge joins the target's export map
+/// into the re-exporter's — an EMPTY-names edge (`export * from`) copies the
+/// whole map EXCEPT `"default"` (per spec, `export *` never re-exports the
+/// default); a NAMED edge (`export { x as y } from`) maps `y → target[x]`
+/// (already resolved to the FLAT name, so chains stay transitive). Iterated to
+/// a fixed point so chains of star re-exports converge (module counts are
+/// small; each pass only ever ADDS entries, so it terminates).
+fn propagate_reexports(modules: &mut HashMap<PathBuf, ModuleNode>) {
+    loop {
+        let mut updates: Vec<(PathBuf, String, String)> = Vec::new();
+        for node in modules.values() {
+            for edge in node.imports.iter().filter(|e| e.reexport) {
+                let Target::File(dep) = &edge.target else {
+                    continue;
+                };
+                let Some(target) = modules.get(dep) else {
+                    continue;
+                };
+                if edge.names.is_empty() {
+                    for (k, v) in &target.exports {
+                        if k != "default" && node.exports.get(k) != Some(v) {
+                            updates.push((node.key.clone(), k.clone(), v.clone()));
+                        }
+                    }
+                } else {
+                    for (orig, local) in &edge.names {
+                        if let Some(v) = target.exports.get(orig) {
+                            if node.exports.get(local) != Some(v) {
+                                updates.push((node.key.clone(), local.clone(), v.clone()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if updates.is_empty() {
+            break;
+        }
+        for (key, k, v) in updates {
+            if let Some(node) = modules.get_mut(&key) {
+                node.exports.insert(k, v);
+            }
+        }
+    }
 }
 
 /// Render a cycle path (`a.ts -> b.ts -> a.ts`) for the error message.

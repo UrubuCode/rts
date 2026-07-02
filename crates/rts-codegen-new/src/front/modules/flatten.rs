@@ -33,6 +33,12 @@ pub enum Binding {
     /// A name exported by another resolved USER module, visible in the flat
     /// program under `name` (its top-level declaration name).
     Local { name: String },
+    /// An `export * as ns from "./m"` AGGREGATE: `members` maps each member
+    /// name to its FLAT top-level name. The entry lowering rewrites every
+    /// `<local>.<member>` access to the flat identifier.
+    Namespace {
+        members: std::collections::BTreeMap<String, String>,
+    },
 }
 
 /// Flatten `graph` into a single program + binding map.
@@ -124,19 +130,53 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
                         ModuleError::Resolve(format!("dangling edge to {}", dep.display()))
                     })?;
                     for (orig, local) in &edge.names {
-                        if !dep_node.exports.contains(orig) {
+                        // A plain export: bind to its FLAT name (the export map
+                        // already resolved re-export aliases transitively).
+                        if let Some(flat) = dep_node.exports.get(orig) {
+                            bindings.insert(local.clone(), Binding::Local { name: flat.clone() });
+                            continue;
+                        }
+                        // An `export * as ns` AGGREGATE exported by `dep`: the
+                        // member map is the aggregate TARGET's fixpointed
+                        // exports (never including "default").
+                        if let Some((_, agg_dep)) = dep_node
+                            .ns_reexports
+                            .iter()
+                            .find(|(name, _)| name == orig)
+                        {
+                            let agg_node = graph.modules.get(agg_dep).ok_or_else(|| {
+                                ModuleError::Resolve(format!(
+                                    "dangling namespace re-export to {}",
+                                    agg_dep.display()
+                                ))
+                            })?;
+                            let members = agg_node
+                                .exports
+                                .iter()
+                                .filter(|(k, _)| k.as_str() != "default")
+                                .map(|(k, v)| (k.clone(), v.clone()))
+                                .collect();
+                            bindings.insert(local.clone(), Binding::Namespace { members });
+                            continue;
+                        }
+                        return Err(ModuleError::MissingExport {
+                            name: orig.clone(),
+                            from: edge.specifier.clone(),
+                        });
+                    }
+                    if let Some(default_local) = &edge.default_name {
+                        // `import x from "./m"` — the module's NAMED default
+                        // export (`export default function name(){}`).
+                        let Some(flat) = dep_node.exports.get("default") else {
                             return Err(ModuleError::MissingExport {
-                                name: orig.clone(),
+                                name: "default".to_string(),
                                 from: edge.specifier.clone(),
                             });
-                        }
-                        bindings.insert(local.clone(), Binding::Local { name: orig.clone() });
-                    }
-                    if edge.default_name.is_some() {
-                        return Err(ModuleError::Unsupported(format!(
-                            "default import from user module '{}'",
-                            edge.specifier
-                        )));
+                        };
+                        bindings.insert(
+                            default_local.clone(),
+                            Binding::Local { name: flat.clone() },
+                        );
                     }
                 }
                 Target::Unsupported { specifier } => {

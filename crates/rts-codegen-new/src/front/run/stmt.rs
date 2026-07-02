@@ -6,7 +6,7 @@
 //! condition is reduced through JS `ToBoolean` ([`Lowerer::as_bool_value`]), so
 //! `if (x)` / `while (i)` over numbers or Tagged values work, not just booleans.
 
-use cranelift_codegen::ir::InstBuilder;
+use cranelift_codegen::ir::{InstBuilder, types};
 use cranelift_module::Module;
 
 use rts_hir::ir::{HirExprKind, HirLit};
@@ -127,7 +127,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 cases,
             } => self.lower_switch(module, discriminant, cases),
             HirStmt::Raw(text) => unsupported!("unrecognized statement `{}`", text.trim()),
-            other => unsupported!("statement {}", stmt_name(other)),
         }
     }
 
@@ -142,8 +141,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.lower_expr(module, e)?;
                 None
             }
-            (Some(_ret), None) => {
-                return unsupported!("`return;` with no value in a value-returning function");
+            (Some(ret), None) => {
+                // A bare `return;` in a TAGGED-returning function (an early exit
+                // in a lifted arrow/callback — every lifted arrow returns a word)
+                // is JS `return undefined`. A PROVEN-numeric return keeps the
+                // bail (a void return through a proven Int/Float ABI would
+                // fabricate a 0 — tsc rejects that program anyway).
+                if !matches!(ret, Repr::Tagged) {
+                    return unsupported!("`return;` with no value in a value-returning function");
+                }
+                let undef = self
+                    .builder
+                    .ins()
+                    .iconst(types::I64, crate::value::PolyValue::undefined().raw() as i64);
+                Some(undef)
             }
             (Some(ret), Some(e)) => {
                 // TAIL CALL (TCO): `return f(args)` where both this fn and `f`
@@ -443,29 +454,6 @@ pub(super) fn ident_target(target: &HirExpr) -> FrontResult<String> {
     }
 }
 
-/// A readable name for an unsupported statement variant.
-fn stmt_name(s: &HirStmt) -> &'static str {
-    match s {
-        HirStmt::Expr(_) => "expression",
-        HirStmt::Return(_) => "return",
-        HirStmt::Let { .. } => "let",
-        HirStmt::Const { .. } => "const",
-        HirStmt::If { .. } => "if",
-        HirStmt::While { .. } => "while",
-        HirStmt::DoWhile { .. } => "do-while",
-        HirStmt::For { .. } => "for",
-        HirStmt::ForOf { .. } => "for-of",
-        HirStmt::ForIn { .. } => "for-in",
-        HirStmt::Break(_) => "break",
-        HirStmt::Continue(_) => "continue",
-        HirStmt::Try { .. } => "try",
-        HirStmt::Throw(_) => "throw",
-        HirStmt::Switch { .. } => "switch",
-        HirStmt::Block(_) => "block",
-        HirStmt::Labeled { .. } => "labeled",
-        HirStmt::Raw(_) => "raw",
-    }
-}
 
 /// A readable name for an unsupported expression variant (used by `expr.rs`).
 pub(super) fn expr_variant_name(k: &HirExprKind) -> &'static str {
