@@ -62,6 +62,26 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         (!out.is_empty()).then_some(out)
     }
 
+    /// Like [`Self::virtual_targets`] but for an ABSTRACT-declared method: the
+    /// base class has NO implementation, so EVERY descendant defining `method`
+    /// is a target (no base-fn filter). `None` when no descendant defines it.
+    pub(in crate::front::run) fn virtual_targets_abstract(
+        &self,
+        class: &str,
+        method: &str,
+    ) -> Option<Vec<(u32, String)>> {
+        let mut out: Vec<(u32, String)> = Vec::new();
+        for d in self.classes.iter() {
+            if d.name == class || !self.is_descendant(&d.name, class) {
+                continue;
+            }
+            if let Some(f) = d.method_fn(method) {
+                out.push((d.global_shape, f.to_string()));
+            }
+        }
+        (!out.is_empty()).then_some(out)
+    }
+
     /// Whether class `d` is a (transitive) descendant of `ancestor` — walks the
     /// `parent` chain. `d == ancestor` is NOT a descendant (returns false).
     fn is_descendant(&self, d: &str, ancestor: &str) -> bool {

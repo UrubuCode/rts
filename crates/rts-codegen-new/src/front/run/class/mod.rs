@@ -229,9 +229,12 @@ pub(crate) fn collect_classes(
 /// accessors, and statics are now SUPPORTED; only the genuinely-unmodeled
 /// features remain refused here.)
 fn check_supported(decl: &ClassDecl) -> FrontResult<()> {
-    if decl.is_abstract {
-        return Err(Unsupported::new(format!("abstract class `{}`", decl.name)));
-    }
+    // An ABSTRACT class lowers like a normal class: its abstract METHODS are
+    // skipped below (no stub is synthesized/registered — the concrete subclass
+    // defines them), so a concrete method's `this.absMethod()` resolves through
+    // the VIRTUAL shape-keyed dispatch to the override. `new AbstractC()` is a
+    // TS-only compile error the engine does not re-check.
+    //
     // `static {}` init blocks are SUPPORTED: their statements run at the head of
     // `__rtsn_main` (prepended by `build_from_program`, after the class's own
     // static-field cell inits), writing the writable static-field cells.
@@ -240,10 +243,9 @@ fn check_supported(decl: &ClassDecl) -> FrontResult<()> {
             ClassMember::Constructor(_) => {}
             ClassMember::Method(md) => {
                 if md.modifiers.is_abstract {
-                    return Err(Unsupported::new(format!(
-                        "abstract method `{}.{}`",
-                        decl.name, md.name
-                    )));
+                    // Abstract method: no body to synthesize — skipped by
+                    // `categorize` (never a stub that would win dispatch).
+                    continue;
                 }
                 if !matches!(
                     md.role,

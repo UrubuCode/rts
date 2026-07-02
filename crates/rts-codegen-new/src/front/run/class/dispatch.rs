@@ -261,6 +261,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             );
         };
         let Some(fn_name) = desc.method_fn(method).map(str::to_string) else {
+            // An ABSTRACT-declared method (no base impl, defined by descendants):
+            // resolve VIRTUALLY by the instance's runtime shape. The last target
+            // doubles as the default arm — TS guarantees the receiver is a
+            // concrete subclass, so the default is exercised only by that class.
+            if let Some(targets) = self.virtual_targets_abstract(class, method) {
+                let (last, rest) = targets.split_last().expect("non-empty targets");
+                let base_fn = last.1.clone();
+                return self.emit_virtual_dispatch(module, object, rest, &base_fn, args);
+            }
             return unsupported!(
                 "`{class}.{method}()` — no such method on class `{class}` \
                  (a field-as-function / dynamic method is a later increment)"

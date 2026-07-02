@@ -288,6 +288,10 @@ fn categorize(decl: &ClassDecl) -> FrontResult<Members<'_>> {
                     }
                 }
             }
+            // An ABSTRACT method has no body: skip it entirely — synthesizing a
+            // stub would WIN the static dispatch over the subclass override.
+            // `this.absMethod()` in a concrete method resolves virtually.
+            ClassMember::Method(md) if md.modifiers.is_abstract => {}
             ClassMember::Method(md) => match md.role {
                 MethodRole::Method => m.methods.push(md),
                 MethodRole::Getter => m.getters.push(md),
