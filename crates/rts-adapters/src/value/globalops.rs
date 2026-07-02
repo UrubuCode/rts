@@ -228,7 +228,17 @@ pub extern "C" fn __rtsadp_num_is_safe_integer(a: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_arr_is_array(a: u64) -> u64 {
     let v = PolyValue::from_raw(a);
-    let is_array = v.is_object() && !super::inspect::looks_like_object(v);
+    // A real array is an OBJECT word over an `Entry::Vec` that is not a keyed
+    // shape. A non-Vec backend instance (`Entry::DateMs`, `Entry::Buffer`, …)
+    // is NOT an array — the object-and-not-keyed test alone wrongly said `true`
+    // for those (a `structuredClone(new Date())` then cloned it as `[]`).
+    let is_array = v.is_object() && !super::inspect::looks_like_object(v) && {
+        use rts_runtime::namespaces::gc::handles as rt_handles;
+        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+        rts_engine::heap::handles::with_entry(h, |e| {
+            matches!(e, Some(rts_engine::heap::handles::Entry::Vec(_)))
+        })
+    };
     PolyValue::bool(is_array).raw()
 }
 
