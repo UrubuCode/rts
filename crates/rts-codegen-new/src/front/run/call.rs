@@ -361,6 +361,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
         // A statically-known user function → the native fast path (NOT regressed).
         if let Some(sig) = self.sigs.get(&name).cloned() {
+            // An ASYNC function call SPAWNS its body on the shared runtime and
+            // returns the pending Promise handle immediately (the
+            // promise-centric model, #437) — `Promise.all([f(..), g(..)])`
+            // genuinely runs in parallel. See `super::asyncspawn`.
+            if sig.is_async {
+                return self.lower_async_spawn(module, &sig, args);
+            }
             return self.lower_user_call(module, &sig, args);
         }
         // A MODULE-GLOBAL cell (#195) holding a function VALUE, called as `f()`:

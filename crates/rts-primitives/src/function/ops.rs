@@ -1449,6 +1449,28 @@ pub extern "C" fn __RTS_FN_RT_INVOKE_AUTO_AS_F64(
     }
 }
 
+/// Invoca um CALLABLE em qualquer das convenções vivas, com args crus:
+/// - uma WORD `TAG_FUNCTION` do motor novo → normaliza para o handle real;
+/// - um handle `Entry::Function` vivo → `INVOKE_AUTO` (aplica bound_args,
+///   param_kinds, env de uniform-thunk — a convenção correta do fn VALUE);
+/// - um fn_ptr cru legado → `invoke_fn_ptr_with_registry` (kinds do registry
+///   quando conhecidos, senão o transmute i64 histórico).
+///
+/// É a ponte ÚNICA usada pelos consumidores de callback do runtime (watcher de
+/// `promise.create`, drain de microtasks then/catch/finally) — sem ela, um
+/// callback uniform-thunk era invocado como fn crua e lia o arg no slot do env
+/// (valores "a0b0" no lugar de "a1b2").
+pub fn invoke_callable_auto(callable: u64, args: &[i64]) -> i64 {
+    use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
+    let h = rts_engine::heap::poly::poly_handle_normalize(callable).unwrap_or(callable);
+    let is_fn_handle = with_entry(h, |e| matches!(e, Some(Entry::Function(_))));
+    if is_fn_handle {
+        let args_h = alloc_entry(Entry::Vec(Box::new(args.to_vec())));
+        return __RTS_FN_RT_INVOKE_AUTO(h as i64, 0, args_h);
+    }
+    invoke_fn_ptr_with_registry(callable, args)
+}
+
 /// (issue-pai) Para invoke de fn_ptr raw i64-ABI: os args number vieram como
 /// bits-f64 (convencao do call site dinamico). Aloca um novo args Vec com cada
 /// elemento convertido de bits-f64 -> i64 truncado, p/ a fn i64-param ler o

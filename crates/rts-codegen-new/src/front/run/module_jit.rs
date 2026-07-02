@@ -91,6 +91,9 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
     // the equivalent via `__RTS_FN_RT_INIT`. Same facade entry both paths use.
     // Idempotent (OnceLock + thread-id dedup + backend box overwrite).
     rts_runtime::runtime_init();
+    // Wire the engine's pending-error slot into the runtime's async watcher (a
+    // `throw` inside a spawned async body must REJECT, not resolve). Idempotent.
+    rts_adapters::value::errslot::install_async_error_hook();
     let mut module = make_module();
     let main_id = populate_module(&mut module, prog)?;
     module

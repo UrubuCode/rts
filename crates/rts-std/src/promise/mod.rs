@@ -1,4 +1,4 @@
-//! `promise` namespace — primitivas de Promise<T> async (issue #412).
+﻿//! `promise` namespace — primitivas de Promise<T> async (issue #412).
 //!
 //! Diferente de `Entry::Promise(i64)` (Promise sincrona ja' resolvida —
 //! caminho rapido legado de `globals/fetch`), aqui temos
@@ -23,6 +23,46 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// Drain do pipeline aguarda chegar a 0 para que async fns fire-and-forget
 /// (sem await no top-level) terminem antes do processo sair.
 pub(crate) static PENDING_PROMISE_TASKS: AtomicUsize = AtomicUsize::new(0);
+
+/// HOOK do slot de erro do MOTOR (rts-adapters `errslot`): o `throw` do motor
+/// novo grava a WORD lançada num thread-local PRÓPRIO do codegen, distinto do
+/// slot handle legado (`__RTS_FN_RT_ERROR_*`). O watcher de `promise.create`
+/// consulta AMBOS ao decidir resolve/reject — sem o hook, um `throw` dentro de
+/// uma async fn spawnada resolvia a Promise com o sentinela em vez de rejeitar.
+/// `(pending, take)`: `pending() != 0` ⇒ há erro; `take()` lê+limpa a word.
+/// Instalado pelo bootstrap do motor (JIT: `compile_program`; AOT: o shim main
+/// chama `__rtsadp_engine_bootstrap`). rts-std não pode depender de
+/// rts-adapters (direção de deps), daí o registro dinâmico.
+#[allow(clippy::type_complexity)]
+static ASYNC_ERR_HOOK: std::sync::OnceLock<(extern "C" fn() -> i64, extern "C" fn() -> u64)> =
+    std::sync::OnceLock::new();
+
+/// Registra o leitor do slot de erro do motor (chamado pelo rts-adapters).
+pub fn set_async_error_hook(pending: extern "C" fn() -> i64, take: extern "C" fn() -> u64) {
+    let _ = ASYNC_ERR_HOOK.set((pending, take));
+}
+
+/// Lê+limpa o erro pendente do MOTOR nesta thread, se houver: `Some(word)`.
+fn take_engine_pending_error() -> Option<u64> {
+    let (pending, take) = ASYNC_ERR_HOOK.get()?;
+    if pending() != 0 { Some(take()) } else { None }
+}
+
+/// O CALLABLE a enfileirar/invocar: um fn VALUE do motor novo (uma WORD
+/// `TAG_FUNCTION` ou um handle `Entry::Function` vivo) fica VERBATIM com bound
+/// vazio — `invoke_callable_auto` roteia via INVOKE_AUTO (env de uniform-thunk,
+/// bound_args, param_kinds). Qualquer outra forma mantém a decomposição legada
+/// `resolve_callback_ptr` (fn_ptr cru + bound).
+fn callable_or_decomposed(fp: u64) -> (u64, Vec<i64>) {
+    let h = rts_engine::heap::poly::poly_handle_normalize(fp).unwrap_or(fp);
+    let is_fn_handle = with_entry(h, |e| matches!(e, Some(Entry::Function(_))));
+    if is_fn_handle {
+        (h, Vec::new())
+    } else {
+        let (fn_ptr, bound, _has_this, _this) = resolve_callback_ptr(fp);
+        (fn_ptr, bound)
+    }
+}
 
 /// Bloqueia ate todas as tasks de promise.create completarem, com deadline
 /// de 5s para evitar hang em tasks que nunca settle.
@@ -104,9 +144,43 @@ fn resolve_callback_ptr(fp: u64) -> (u64, Vec<i64>, bool, i64) {
 /// Le o Vec<i64> de handles de Promise.
 fn collect_promise_handles(vec_handle: u64) -> Vec<u64> {
     with_entry(vec_handle, |entry| match entry {
-        Some(Entry::Vec(v)) => v.iter().map(|x| *x as u64).collect(),
+        Some(Entry::Vec(v)) => v.iter().map(|x| element_to_handle(*x as u64)).collect(),
         _ => Vec::new(),
     })
+}
+
+/// Normalize ONE collection element to a real promise handle, accepting every
+/// convention that reaches a `Promise.all/race/any/allSettled` array:
+/// - a NaN-boxed `TAG_OBJECT` PolyValue word (the new-engine array element for
+///   a promise OBJECT) → its real handle;
+/// - a NaN-boxed INT32 / an inline-f64 NUMBER word (a promise handle riding the
+///   `promise.*` i64 surface, stored into the array as a plain number) → the
+///   integer it encodes;
+/// - anything else (a raw handle from the low-level `collections.vec` path) →
+///   verbatim. An element that is not actually a promise still becomes a `None`
+///   slot downstream (the per-op invalid-element path), same as before.
+fn element_to_handle(w: u64) -> u64 {
+    if let Some(h) = rts_engine::heap::poly::poly_handle_normalize(w) {
+        return h;
+    }
+    const BOX_BASE: u64 = 0xFFF8_0000_0000_0000;
+    if (w & BOX_BASE) == BOX_BASE {
+        // Boxed non-handle: an INT32 payload is the handle-as-number form; any
+        // other tag (singleton/…) is not a promise — 0 keeps the invalid path.
+        let tag = (w >> 48) & 0x7;
+        if tag == 1 {
+            return (w & 0xFFFF_FFFF) as u32 as u64;
+        }
+        return 0;
+    }
+    // An inline f64 word encoding a non-negative integer (a handle > 2^31 —
+    // generation bits — stored as a plain number): decode it. A RAW handle's
+    // bit-pattern reads as a denormal/fractional f64 and falls through verbatim.
+    let as_f = f64::from_bits(w);
+    if as_f.is_finite() && as_f >= 1.0 && as_f.fract() == 0.0 && as_f < (1u64 << 53) as f64 {
+        return as_f as u64;
+    }
+    w
 }
 
 /// Clone os Arc<PromiseSlot> de cada handle. Handle invalido vira None
@@ -123,39 +197,6 @@ fn collect_slots(
             })
         })
         .collect()
-}
-
-/// Variante de invoke_callback que recebe args ja' empacotados (sem extra).
-unsafe fn invoke_callback_full(fn_ptr: u64, args: &[i64]) -> i64 {
-    use std::mem::transmute;
-    unsafe {
-        match args.len() {
-            0 => transmute::<u64, extern "C" fn() -> i64>(fn_ptr)(),
-            1 => transmute::<u64, extern "C" fn(i64) -> i64>(fn_ptr)(args[0]),
-            2 => transmute::<u64, extern "C" fn(i64, i64) -> i64>(fn_ptr)(args[0], args[1]),
-            3 => transmute::<u64, extern "C" fn(i64, i64, i64) -> i64>(fn_ptr)(
-                args[0], args[1], args[2],
-            ),
-            4 => transmute::<u64, extern "C" fn(i64, i64, i64, i64) -> i64>(fn_ptr)(
-                args[0], args[1], args[2], args[3],
-            ),
-            5 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64) -> i64>(fn_ptr)(
-                args[0], args[1], args[2], args[3], args[4],
-            ),
-            6 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(
-                args[0], args[1], args[2], args[3], args[4], args[5],
-            ),
-            7 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64) -> i64>(fn_ptr)(
-                args[0], args[1], args[2], args[3], args[4], args[5], args[6],
-            ),
-            8 => transmute::<u64, extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64) -> i64>(
-                fn_ptr,
-            )(
-                args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
-            ),
-            _ => 0,
-        }
-    }
 }
 
 /// Le o conteudo de um Vec<i64> handle (ou retorna vazio se nao for Vec).
@@ -225,9 +266,53 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_STATE(promise: U64) -> I64 {
     with_slot(promise, -1, |slot| promise_slot::current_state(slot) as i64)
 }
 
-/// Bloqueia thread chamadora ate Promise settle e retorna o valor. Se rejected, retorna o erro com bit alto setado (F5 vai tratar isso pra integrar try/catch). 0 se handle invalido.
+/// Bloqueia thread chamadora ate Promise settle e retorna o valor NORMALIZADO
+/// para a superfície i64 (`promise.wait` do TS): uma WORD PolyValue settled por
+/// um produtor do motor novo decodifica para o inteiro/handle que representa
+/// (um número imprime como número, não como os bits). O `await` do motor NÃO
+/// passa por aqui — usa [`wait_raw`] (verbatim) e reboxa a word ele mesmo.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_PROMISE_WAIT(promise: U64) -> I64 {
+    normalize_settled_i64(wait_raw(promise))
+}
+
+/// Normaliza um valor settled cru para a superfície i64: word `TAG_*`-handle →
+/// handle real; word INT32 → o inteiro; word SINGLETON (undefined/null) → 0;
+/// word f64 inteira → o inteiro; qualquer outra forma passa VERBATIM — em
+/// particular um i64 cru NEGATIVO legado, cujos bits caem no quadrante do
+/// NaN-box (tag 7) e NÃO podem ser tratados como word (`Promise.resolve(-42)`
+/// zerava sem esta distinção).
+fn normalize_settled_i64(raw: i64) -> i64 {
+    let w = raw as u64;
+    if let Some(h) = rts_engine::heap::poly::poly_handle_normalize(w) {
+        return h as i64;
+    }
+    const BOX_BASE: u64 = 0xFFF8_0000_0000_0000;
+    if (w & BOX_BASE) == BOX_BASE {
+        let tag = (w >> 48) & 0x7;
+        if tag == 1 {
+            return (w & 0xFFFF_FFFF) as u32 as i32 as i64;
+        }
+        if tag == 2 {
+            // singleton (undefined/null) — a superfície i64 lê 0.
+            return 0;
+        }
+        // tag 3/5 já saíram pelo poly_handle_normalize; o resto do quadrante é
+        // um i64 cru NEGATIVO legado — verbatim.
+        return raw;
+    }
+    let f = f64::from_bits(w);
+    if f.is_finite() && f.fract() == 0.0 && f.abs() >= 1.0 && f.abs() < 9.007e15 {
+        return f as i64;
+    }
+    raw
+}
+
+/// O valor settled VERBATIM (a word do motor novo OU o i64 cru legado), com o
+/// mesmo bombeio de event-loop do `WAIT` público. Consumido pelo `await` do
+/// motor (`__rtsadp_await`), que faz o próprio rebox — normalizar aqui
+/// arredondaria um double fracionário.
+pub fn wait_raw(promise: u64) -> i64 {
     // Clona o Arc fora do `with_entry` pra liberar o lock do shard
     // antes de bloquear em wait_blocking (que pode esperar minutos).
     // Sem isso, qualquer outra op no mesmo shard fica bloqueada.
@@ -314,8 +399,11 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_THEN(p_handle: U64, fp: U64) -> Handle {
     let result_clone = result.clone();
     let result_handle = alloc_entry(Entry::PromiseAsync(result));
 
-    // Resolve handle Function -> fn_ptr + bound args (ou usa fp como ptr direto).
-    let (fn_ptr, bound, _has_this, _this) = resolve_callback_ptr(fp);
+    // Um fn VALUE do motor novo (word/handle Entry::Function) fica VERBATIM como
+    // callable — o invocador (`invoke_callable_auto`) aplica env/bound/kinds via
+    // INVOKE_AUTO; decompor em fn_ptr+bound aqui perdia o env do uniform-thunk
+    // (callback recebia o valor no slot errado). Um fp cru mantém a decomposição.
+    let (fn_ptr, bound) = callable_or_decomposed(fp);
 
     // (cross-runtime #56/#285) Fast-path: se a Promise ja' esta settled,
     // enfileira no microtask queue em vez de spawn_blocking. Isso preserva
@@ -365,7 +453,7 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_CATCH(p_handle: U64, fp: U64) -> Handle {
     let result_clone = result.clone();
     let result_handle = alloc_entry(Entry::PromiseAsync(result));
 
-    let (fn_ptr, bound, _h, _t) = resolve_callback_ptr(fp);
+    let (fn_ptr, bound) = callable_or_decomposed(fp);
     // (#207) Determinista via microtask queue (igual ao .then). is_catch=true:
     // o callback so' roda no rejected; fulfilled propaga o valor.
     crate::globals::text_encoding::instance::enqueue_microtask_pending_then(
@@ -392,7 +480,7 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_FINALLY(p_handle: U64, fp: U64) -> Handle 
     let result_clone = result.clone();
     let result_handle = alloc_entry(Entry::PromiseAsync(result));
 
-    let (fn_ptr, _bound, _h, _t) = resolve_callback_ptr(fp);
+    let (fn_ptr, _bound) = callable_or_decomposed(fp);
     // (#207) Determinista via microtask queue (igual ao .then/.catch).
     crate::globals::text_encoding::instance::enqueue_microtask_pending_finally(
         arc,
@@ -437,7 +525,9 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_ALL(promises: U64) -> Handle {
                 promise_slot::reject(&result, value);
                 return result_handle;
             }
-            values.push(value);
+            // Normaliza para a superfície i64 do Vec de resultados (uma WORD
+            // de produtor novo-motor decodifica; cru legado passa verbatim).
+            values.push(normalize_settled_i64(value));
         }
         let result_vec = alloc_entry(Entry::Vec(Box::new(values)));
         promise_slot::resolve(&result, result_vec as i64);
@@ -462,7 +552,9 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_ALL(promises: U64) -> Handle {
                 promise_slot::reject(&result_clone, value);
                 return;
             }
-            values.push(value);
+            // Normaliza para a superfície i64 do Vec de resultados (uma WORD
+            // de produtor novo-motor decodifica; cru legado passa verbatim).
+            values.push(normalize_settled_i64(value));
         }
         // Todos resolveram — empacota num Vec novo.
         let result_vec = alloc_entry(Entry::Vec(Box::new(values)));
@@ -596,7 +688,33 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_CREATE(fn_handle: U64, args_vec_handle: U6
     let result_clone = result.clone();
     let handle = alloc_entry(Entry::PromiseAsync(result));
 
-    let (fn_ptr, bound, _h, _t) = resolve_callback_ptr(fn_handle);
+    create_spawn(fn_handle, args_vec_handle, result_clone, handle, None)
+}
+
+/// O spawn de `promise.create`, com um `boxer` OPCIONAL aplicado ao valor de
+/// RESOLVE: o async-spawn do MOTOR NOVO (`__rtsadp_promise_spawn`) instala um
+/// boxer que converte o retorno cru do invoke na WORD PolyValue correta (um
+/// i64 NEGATIVO cru colide com o quadrante NaN-box — só o produtor sabe a
+/// convenção). Rejeições (ambos os slots de erro) idênticas nos dois modos.
+pub fn create_spawn_boxed(
+    fn_handle: u64,
+    args_vec_handle: u64,
+    boxer: extern "C" fn(u64, i64) -> i64,
+) -> u64 {
+    let result = promise_slot::new_pending();
+    let result_clone = result.clone();
+    let handle = alloc_entry(Entry::PromiseAsync(result));
+    create_spawn(fn_handle, args_vec_handle, result_clone, handle, Some(boxer))
+}
+
+fn create_spawn(
+    fn_handle: u64,
+    args_vec_handle: u64,
+    result_clone: std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
+    handle: u64,
+    boxer: Option<extern "C" fn(u64, i64) -> i64>,
+) -> u64 {
+    let (fn_ptr, bound) = callable_or_decomposed(fn_handle);
     if fn_ptr == 0 {
         // fn invalida — Promise rejeitada com 0.
         promise_slot::reject(&result_clone, 0);
@@ -614,14 +732,23 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_CREATE(fn_handle: U64, args_vec_handle: U6
         // Combina bound (de bind) + extra_args do caller.
         let mut all: Vec<i64> = bound;
         all.extend(extra_args);
-        // Tudo ja' empacotado em `all`, invocamos diretamente.
-        let r = unsafe { invoke_callback_full(fn_ptr, &all) };
-        // Checa error slot pra detectar throw dentro do body.
+        // Ponte de convenção: um fn VALUE (handle) invoca via INVOKE_AUTO
+        // (env/kinds do uniform-thunk); um fn_ptr cru mantém o transmute i64.
+        let r = rts_primitives::function::ops::invoke_callable_auto(fn_ptr, &all);
+        // Checa AMBOS os slots de erro pra detectar throw dentro do body: o
+        // handle-slot legado E o errslot do motor novo (via hook — um `throw`
+        // novo-motor grava a WORD lançada lá, não aqui).
         let err = crate::gc_surface::__RTS_FN_RT_ERROR_GET();
         if err != 0 {
             crate::gc_surface::__RTS_FN_RT_ERROR_CLEAR();
             promise_slot::reject(&result_clone, err as i64);
+        } else if let Some(word) = take_engine_pending_error() {
+            promise_slot::reject(&result_clone, word as i64);
         } else {
+            let r = match boxer {
+                Some(b) => b(fn_ptr, r),
+                None => r,
+            };
             promise_slot::resolve(&result_clone, r);
         }
         PENDING_PROMISE_TASKS.fetch_sub(1, Ordering::AcqRel);

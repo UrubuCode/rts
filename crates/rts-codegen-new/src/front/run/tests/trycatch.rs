@@ -165,15 +165,16 @@ try { outer(); } catch (e) { console.log(e.message); }"#,
 // ---- bails (out of the implemented subset; explicit Unsupported, not a crash) ----
 
 #[test]
-fn async_try_no_await_runs_synchronously() {
-    // A no-`await` `async` function body runs synchronously to completion (JS: the
-    // body runs up to the first await; with none, it fully runs). The discarded
-    // promise result is unobservable, so the catch's `console.log` is the only
-    // output. Now reaches this (previously bailed on the void fall-through before
-    // the body compiled). The real await/event-loop machinery is still open.
+fn async_try_awaited_runs_catch() {
+    // REAL async (2026-07-02): the CALL spawns the body on the shared runtime;
+    // the top-level `await` unwraps the settled value. The catch RETURNS the
+    // message and MAIN prints it — the unit harness's console capture is
+    // thread-local by design (parallel test isolation), so a worker-side
+    // `console.log` is not observable HERE (it reaches the real stdout in a
+    // real run — the TS suite covers that path).
     assert_stdout(
-        r#"async function f() { try { throw new Error("x"); } catch (e) { console.log(e.message); } }
-f();"#,
+        r#"async function f() { try { throw new Error("x"); } catch (e) { return e.message; } }
+console.log(await f());"#,
         "x\n",
     );
 }

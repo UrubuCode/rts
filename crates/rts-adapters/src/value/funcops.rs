@@ -245,6 +245,77 @@ pub extern "C" fn __rtsadp_fn_reify(addr: u64, nparams: u64, has_rest: u64, env_
     fn_reify_core(addr, nparams, has_rest, env_word, false)
 }
 
+/// fn_ptr → the BOX kind of an async fn's RESOLVE value (see
+/// [`__rtsadp_promise_spawn`]): 0 = raw int (→ INT32/f64 number word),
+/// 1 = f64 BITS (→ inline double word), 2 = bool, 3 = already a WORD (a
+/// Tagged-return body — verbatim). Distinct from the INVOKE return kind (which
+/// tells `invoke_typed` which register to read).
+fn async_box_kinds() -> &'static Mutex<HashMap<u64, u8>> {
+    static T: OnceLock<Mutex<HashMap<u64, u8>>> = OnceLock::new();
+    T.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// The resolve-value BOXER installed on the async spawn: converts the raw
+/// invoke return into the correct PolyValue WORD by the registered box kind.
+/// This is what makes a NEGATIVE i64 return survive — its raw bits fall inside
+/// the NaN-box quadrant and would read back as a boxed garbage object.
+extern "C" fn box_async_result(fn_ptr: u64, raw: i64) -> i64 {
+    let kind = async_box_kinds()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&fn_ptr)
+        .copied()
+        .unwrap_or(3);
+    let w = match kind {
+        1 => PolyValue::from_f64(f64::from_bits(raw as u64)).raw(),
+        2 => PolyValue::bool(raw != 0).raw(),
+        3 => raw as u64,
+        _ => match i32::try_from(raw) {
+            Ok(i) => PolyValue::from_i32(i).raw(),
+            // An integer beyond i32 rides as a JS double (exact ≤ 2^53).
+            Err(_) => PolyValue::from_f64(raw as f64).raw(),
+        },
+    };
+    w as i64
+}
+
+/// `__rtsadp_promise_spawn(fn_addr, args_vec, kinds_packed, meta)` — the ASYNC
+/// function CALL spawn (see `front/run/asyncspawn.rs`). Registers the callee's
+/// packed ABI (one kind byte per param — 0 = i64-class, 1 = f64-bits, 2 = bool)
+/// in the FN_KINDS registry so the spawned invoke goes through `invoke_typed`
+/// with the REAL param kinds (an f64 param reads its bits back into xmm —
+/// never the raw-i64 misload), records the BOX kind of the return (`meta`
+/// bits 16..23), and spawns via `create_spawn_boxed` — the resolve value is
+/// boxed into a proper PolyValue WORD (see [`box_async_result`]).
+///
+/// `meta`: bits 0..7 = invoke return kind, bits 8..15 = argc, bits 16..23 =
+/// resolve box kind.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_promise_spawn(
+    fn_addr: u64,
+    args_vec: u64,
+    kinds_packed: u64,
+    meta: u64,
+) -> u64 {
+    let argc = ((meta >> 8) & 0xFF) as usize;
+    let ret_kind = (meta & 0xFF) as i32;
+    let box_kind = ((meta >> 16) & 0xFF) as u8;
+    let kinds: Vec<u8> = (0..argc)
+        .map(|i| ((kinds_packed >> (8 * i)) & 0xFF) as u8)
+        .collect();
+    rts_runtime::namespaces::globals::function::ops::__RTS_FN_RT_REGISTER_FN_KINDS(
+        fn_addr,
+        kinds.as_ptr() as i64,
+        kinds.len() as i64,
+        ret_kind,
+    );
+    async_box_kinds()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(fn_addr, box_kind);
+    rts_runtime::namespaces::promise::create_spawn_boxed(fn_addr, args_vec, box_async_result)
+}
+
 /// Reify a THIS-FIRST function (a method or ES5 `function (this: any)` expr):
 /// identical to `__rtsadp_fn_reify` but marks `has_this_param` - the
 /// method-aware invoker binds `this` into the thunk a0; the plain invoker
