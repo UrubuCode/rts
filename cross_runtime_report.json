@@ -561,10 +561,10 @@
 ,
 {
   "name": "codex_array_length_define_traps",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "after-define=7:1|2|3|4|||7:0,1,2,3,6\nafter-trunc=2:1|2:0,1\nRangeError\nfinal=2:1|2",
   "node": "after-define=7:1|2|3|4|||7:0,1,2,3,6\nafter-trunc=2:1|2:0,1\nRangeError\nfinal=2:1|2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "after-define=undefined:undefined:0,1,2,3\nafter-trunc=undefined:undefined:0,1,2,3\nfinal=undefined:undefined"
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": ""
 }
 ,
@@ -2105,10 +2105,10 @@
 ,
 {
   "name": "338_bundler_module_patterns",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "5\n20\n3.14159\n1\n1\n100\n100\ntrue\nworld",
   "node": "5\n20\n3.14159\n1\n1\n100\n100\ntrue\nworld",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "undefined\n20\n3.14159\n1\n1\nundefined\nundefined\ntrue\nworld"
 }
 ,
 {
@@ -2153,10 +2153,10 @@
 ,
 {
   "name": "394_structuredclone_complex",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
   "node": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "3\n99\nfalse\nundefined\n2026\nundefined\nfalse\nundefined\nundefined\nfalse\nfalse\ntrue\ntrue\ntrue\nfalse\nundefined\n1\nfalse\nfalse"
 }
 ,
 {
@@ -2193,10 +2193,10 @@
 ,
 {
   "name": "97_structured_clone_edge",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
   "node": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "date=undefined\nregex=undefined:undefined\nerror=Error:boom\nself=false"
 }
 ,
 {
@@ -3105,10 +3105,10 @@
 ,
 {
   "name": "codex_getownpropertydescriptor_array_length",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "3:true:false:false\nfalse\nTypeError\n1,2,3",
   "node": "3:true:false:false\nfalse\nTypeError\n1,2,3",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "undefined:undefined:undefined:undefined\nundefined\nundefined"
 }
 ,
 {
@@ -3753,10 +3753,10 @@
 ,
 {
   "name": "203_string_localecompare_numeric",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "alpha=1,10,2,20\nsimple=a,b,c\ncompare=-1\nequal=0\ngreater=1",
   "node": "alpha=1,10,2,20\nsimple=a,b,c\ncompare=-1\nequal=0\ngreater=1",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "alpha=10,2,1,20\nsimple=a,b,c\ncompare=-1\nequal=0\ngreater=1"
 }
 ,
 {
@@ -3937,10 +3937,10 @@
 ,
 {
   "name": "claude-codepoint-iteration-emoji",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "4\n3\n[\"a\",\"😀\",\"b\"]\na|😀|b|\n[97,128512,98]\nd83d\nde00\n128512\ntrue\n3\n2",
   "node": "4\n3\n[\"a\",\"😀\",\"b\"]\na|😀|b|\n[97,128512,98]\nd83d\nde00\n128512\ntrue\n3\n2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "4\n3\n[\"a\",\"��\",\"b\"]\na|😀|b|\n[null,null,null]\nundefined\nundefined\n128512\ntrue\n3\n2"
 }
 ,
 {
@@ -3961,10 +3961,10 @@
 ,
 {
   "name": "claude-lone-surrogate-iteration",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "3\n3\n[97,55357,98]\n1 55357\n1 128512\n2 2\ntrue\ntrue",
   "node": "3\n3\n[97,55357,98]\n1 55357\n1 128512\n2 2\ntrue\ntrue",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "3\n3\n[null,null,null]\n1 65533\n1 128512\n2 2\ntrue\ntrue"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":229,"rts_diverge":89,"bun_node_diverge":18,"errors":273,"rejected":0}}
+],"summary":{"total":609,"pass":229,"rts_diverge":98,"bun_node_diverge":17,"errors":265,"rejected":0}}
