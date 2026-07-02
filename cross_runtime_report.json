@@ -1860,7 +1860,7 @@
   "status": "rts_diverge",
   "bun": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\"",
   "node": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\"",
-  "rts": "cls={}\ndate=[]"
+  "rts": "cls={}\ndate={}"
 }
 ,
 {
@@ -2156,7 +2156,7 @@
   "status": "rts_diverge",
   "bun": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
   "node": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
-  "rts": "3\n99\nfalse\ntrue\n2026\nundefined\nfalse\nundefined\nundefined\nfalse\nfalse\ntrue\ntrue\ntrue\nfalse\nundefined\n1\ntrue\nfalse"
+  "rts": "3\n99\nfalse\ntrue\n2026\nundefined\ntrue\nundefined\nundefined\ntrue\nfalse\ntrue\ntrue\ntrue\ntrue\nundefined\n1\ntrue\nfalse"
 }
 ,
 {
@@ -2980,7 +2980,7 @@
   "status": "rts_diverge",
   "bun": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
   "node": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
-  "rts": "keys=a\nvals=[]\nlog=ownKeys|desc:a|desc:b|def:c=undefined|del:b|ownKeys|desc:a|desc:c"
+  "rts": "keys=a\nvals={\"a\":1}\nlog=ownKeys|desc:a|desc:b|def:c=undefined|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c"
 }
 ,
 {
@@ -3044,7 +3044,7 @@
   "status": "rts_diverge",
   "bun": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
   "node": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
-  "rts": "{\"value\":42}\n{\"nested\":{\"value\":42},\"plain\":1}\n[{\"value\":42},{\"value\":42}]\n{\"when\":[]}\n{}\n{\"a\":[1,2,3]}"
+  "rts": "{\"value\":42}\n{\"nested\":{\"value\":42},\"plain\":1}\n[{\"value\":42},{\"value\":42}]\n{\"when\":{}}\n{}\n{\"a\":[1,2,3]}"
 }
 ,
 {
@@ -3169,10 +3169,10 @@
 ,
 {
   "name": "codex_proxy_descriptor_virtual_property",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "virtual\n42\n{\"virtual\":42}",
   "node": "virtual\n42\n{\"virtual\":42}",
-  "rts": "virtual\n42\n[]"
+  "rts": "virtual\n42\n{\"virtual\":42}"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":267,"rts_diverge":137,"bun_node_diverge":17,"errors":188,"rejected":0}}
+],"summary":{"total":609,"pass":268,"rts_diverge":136,"bun_node_diverge":17,"errors":188,"rejected":0}}
