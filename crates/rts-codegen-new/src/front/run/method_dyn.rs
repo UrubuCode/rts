@@ -243,6 +243,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return self.emit_dyn_slice(module, recv, args).map(Some);
         }
 
+        // NUMBER-EXCLUSIVE formatters on a Tagged receiver (`c.area().toFixed(2)`
+        // — a dynamic-call result): these names exist ONLY on Number, so routing
+        // the boxed word into the prelude `class Number` method is unambiguous
+        // (its `.ts` body ToNumbers the receiver).
+        if matches!(method, "toFixed" | "toPrecision" | "toExponential") {
+            if let Some(val) =
+                self.try_primitive_class_method(module, recv, "Number", method, args)?
+            {
+                return Ok(Some(val));
+            }
+        }
+
         let Some(m) = DYN_METHODS
             .iter()
             .find(|m| m.name == method && m.argc == args.len())
