@@ -24,6 +24,7 @@
 
 mod assign;
 mod binop;
+mod floatscan;
 mod binop_eq;
 mod ctorfn;
 mod call;

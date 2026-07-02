@@ -9,7 +9,7 @@ use rts_hir::{HirExpr, HirType};
 
 use crate::repr::Repr;
 
-use crate::front::error::{FrontResult, unsupported};
+use crate::front::error::FrontResult;
 use crate::front::repr_map::repr_of;
 
 use super::lower::{HeapShape, Local, Lowerer, Val, cl_type};
@@ -349,6 +349,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             annotated
         } else {
             val.repr
+        };
+        // FLOAT-ACCUMULATOR promotion (pre-scan): `let s = 0` later accumulated
+        // with a heap-read number (`s = s + p.age`) binds `Float64` — an `Int*`
+        // binding would truncate every fractional carry at the assign's coerce.
+        // JS numbers are f64, so widening an int init is always sound.
+        let repr = if matches!(repr, Repr::Int32 | Repr::Int64)
+            && self.float_promoted.contains(name)
+        {
+            Repr::Float64
+        } else {
+            repr
         };
 
         let coerced = self.coerce(val, repr)?;

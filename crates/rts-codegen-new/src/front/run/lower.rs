@@ -293,6 +293,10 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// `__RTS_FN_NS_*` symbol via the generic Registry marshal (see [`super::call`]).
     /// Shared (read-only) across all functions; empty for a single-source program.
     pub builtins: &'c HashMap<String, (String, String)>,
+    /// Locals that ACCUMULATE a heap-read number (`s = s + p.age`) — pre-scanned
+    /// per function (`floatscan`); an `Int*`-proven `let` of such a name binds
+    /// `Float64` instead so the accumulation never truncates the fraction.
+    pub float_promoted: std::collections::HashSet<String>,
 }
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
@@ -352,6 +356,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             is_prelude,
             is_main: func.name == "__rtsn_main",
             builtins,
+            float_promoted: super::floatscan::float_promoted_locals(&func.body),
         };
 
         // Bind each parameter to a fresh local Variable carrying its ABI repr.
