@@ -971,6 +971,29 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // The rest-param index relative to the USER params (after dropping `this`).
         match sig.rest_param.map(|r| r - pi) {
             None => {
+                // SOLE-SPREAD form `f(...arr)` / `new C(...tuple)`: expand by
+                // index — param `i` reads `arr[i]` through the tag-dispatched
+                // `__rtsadp_idx_get` (OOB → undefined, JS's missing-arg value).
+                // The fixed arity is the callee's declared param count, known
+                // here, so no variadic trampoline is needed.
+                if args.len() == 1 && matches!(args[0].kind, HirExprKind::Spread(_)) {
+                    let HirExprKind::Spread(inner) = &args[0].kind else {
+                        unreachable!()
+                    };
+                    let arr = self.lower_expr(module, inner)?;
+                    let arr_word = self.box_value(arr);
+                    for (i, &want) in user_params.iter().enumerate() {
+                        let idx = self
+                            .builder
+                            .ins()
+                            .iconst(types::I64, value::PolyValue::from_i32(i as i32).raw() as i64);
+                        let w = self
+                            .call_runtime(module, "__rtsadp_idx_get", &[arr_word, idx])?
+                            .expect("__rtsadp_idx_get returns a value");
+                        out.push(self.coerce(Val::new(w, Repr::Tagged), want)?);
+                    }
+                    return Ok(out);
+                }
                 for (i, &want) in user_params.iter().enumerate() {
                     if i < args.len() {
                         let a = &args[i];
