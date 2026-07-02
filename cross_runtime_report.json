@@ -825,10 +825,10 @@
 ,
 {
   "name": "269_static_blocks",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "order=field|block1:3|block2:5",
   "node": "order=field|block1:3|block2:5",
-  "rts": "order=field|block1:3|block2:5"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -857,10 +857,10 @@
 ,
 {
   "name": "371_private_fields_basic",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20",
   "node": "6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20",
-  "rts": "6\n4\n0\n0\ntrue\n1 2 3\n1\n10\n20"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -873,18 +873,18 @@
 ,
 {
   "name": "373_private_in_check",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\nfalse\ntrue\nfalse\nWhiskers says meow\nRex says woof",
   "node": "true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\nfalse\ntrue\nfalse\nWhiskers says meow\nRex says woof",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\ntrue\ntrue\ntrue\nWhiskers says meow\nRex says woof"
 }
 ,
 {
   "name": "374_private_static_methods",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown",
   "node": "Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown",
-  "rts": "undefined\nundefined\ntrue\n3\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -897,10 +897,10 @@
 ,
 {
   "name": "376_private_pattern_advanced",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "1,2,3\n0\n4\n5\nVec2(4,6)\nVec2(6,8)\n11\nidle\ntrue\nrunning\nfalse\ntrue\ntrue\nfalse\nstopped",
   "node": "1,2,3\n0\n4\n5\nVec2(4,6)\nVec2(6,8)\n11\nidle\ntrue\nrunning\nfalse\ntrue\ntrue\nfalse\nstopped",
-  "rts": "\n0\n4\n5\nVec2(4,6)\nVec2(6,8)\n11\nidle\ntrue\nrunning\nfalse\ntrue\ntrue\nfalse\nstopped"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -4393,10 +4393,10 @@
 ,
 {
   "name": "342_in_operator",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "true\ntrue\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue\ntrue\ntrue\ntrue\ntrue\nfalse",
   "node": "true\ntrue\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue\ntrue\ntrue\ntrue\ntrue\nfalse",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "true\ntrue\ntrue\nfalse\nfalse\nfalse\nfalse\nfalse\ntrue\nfalse\nfalse\ntrue\nfalse"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":261,"rts_diverge":132,"bun_node_diverge":17,"errors":199,"rejected":0}}
+],"summary":{"total":609,"pass":260,"rts_diverge":131,"bun_node_diverge":17,"errors":201,"rejected":0}}
