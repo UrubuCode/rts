@@ -857,10 +857,10 @@
 ,
 {
   "name": "371_private_fields_basic",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20",
   "node": "6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20",
-  "rts": "6\n4\n0\n0\ntrue\n1 2 3\n1\n20\n20"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -881,18 +881,18 @@
 ,
 {
   "name": "374_private_static_methods",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown",
   "node": "Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown",
-  "rts": "undefined\nundefined\ntrue\n3\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
   "name": "375_private_inheritance",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "Rex eats bone\nRex moves (energy:80)\nRex learned sit\nRex learned shake\nRex performs shake\n80\nBuddy guides Alice\nBuddy eats kibble\nBuddy moves (energy:90)\nA-private\nB-private\ntrue\ntrue\ntrue",
   "node": "Rex eats bone\nRex moves (energy:80)\nRex learned sit\nRex learned shake\nRex performs shake\n80\nBuddy guides Alice\nBuddy eats kibble\nBuddy moves (energy:90)\nA-private\nB-private\ntrue\ntrue\ntrue",
-  "rts": "Rex eats bone\nRex moves (energy:80)\nRex learned sit\nRex learned shake\nRex performs shake\n80\nBuddy guides Alice\nBuddy eats kibble\nBuddy moves (energy:90)\nB-private\nB-private\ntrue\ntrue\ntrue"
+  "rts": "Rex eats bone\nRex moves (energy:80)\nRex learned sit\nRex learned shake\nRex performs shake\n80\nBuddy guides Alice\nBuddy eats kibble\nBuddy moves (energy:90)\nA-private\nB-private\ntrue\ntrue\ntrue"
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "rts_diverge",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": ""
 }
 ,
@@ -2156,7 +2156,7 @@
   "status": "rts_diverge",
   "bun": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
   "node": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
-  "rts": "3\n99\nfalse\ntrue\n2026\nundefined\nfalse\nundefined\nundefined\nfalse\nfalse\ntrue\ntrue\ntrue\nfalse\nundefined\n1\ntrue\nfalse"
+  "rts": "3\n99\nfalse\nundefined\n2026\nundefined\nfalse\nundefined\nundefined\nfalse\nfalse\ntrue\ntrue\ntrue\nfalse\nundefined\n1\ntrue\nfalse"
 }
 ,
 {
@@ -4641,18 +4641,18 @@
 ,
 {
   "name": "204_typedarray_basic",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "length=4\n0=1\n3=4\nmodified=10\n16bit=100,200,300\n32bit=1,-2,3",
   "node": "length=4\n0=1\n3=4\nmodified=10\n16bit=100,200,300\n32bit=1,-2,3",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "length=4\n0=1\n3=4\nmodified=10\n16bit=100,200,300\n32bit=1,-2,3"
 }
 ,
 {
   "name": "205_arraybuffer_basic",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "byteLength=8\nview8_0=255\nview8_1=128\nview32_0=33023\nsliced=4",
   "node": "byteLength=8\nview8_0=255\nview8_1=128\nview32_0=33023\nsliced=4",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "byteLength=8\nview8_0=255\nview8_1=128\nview32_0=0\nsliced=4"
 }
 ,
 {
@@ -4665,10 +4665,10 @@
 ,
 {
   "name": "57_dataview_endianness",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "u16be=1234\nu16le=5678\ni32=-42\nbytes=18,52,120,86,255,255,255,214",
   "node": "u16be=1234\nu16le=5678\ni32=-42\nbytes=18,52,120,86,255,255,255,214",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "u16be=1234\nu16le=5678\ni32=-42\nbytes=18,52,120,86,255,255,255,214"
 }
 ,
 {
@@ -4681,10 +4681,10 @@
 ,
 {
   "name": "69_atomics_sharedarraybuffer",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "sab=function\nadd_prev=1\nafter_add=5\ncmp_prev=5\nafter_cmp=9",
   "node": "sab=function\nadd_prev=1\nafter_add=5\ncmp_prev=5\nafter_cmp=9",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "sab=function\nadd_prev=1\nafter_add=5\ncmp_prev=5\nafter_cmp=9"
 }
 ,
 {
@@ -4697,18 +4697,18 @@
 ,
 {
   "name": "93_typedarray_methods",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "sub=20,30,40\nslice=30,40,50\nset=10,99,88,40,50\ncopyWithin=40,50,88,40,50\nfill=40,7,7,40,50\nincludes=true\nat=50",
   "node": "sub=20,30,40\nslice=30,40,50\nset=10,99,88,40,50\ncopyWithin=40,50,88,40,50\nfill=40,7,7,40,50\nincludes=true\nat=50",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "sub=20,30,40\nslice=30,40,50\nset=10,99,88,40,50\ncopyWithin=40,50,88,40,50\nfill=40,7,7,40,50\nincludes=true\nat=50"
 }
 ,
 {
   "name": "codex_dataview_nan_payload_canonical",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "true\ntrue",
   "node": "true\ntrue",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "true\ntrue"
 }
 ,
 {
@@ -4721,10 +4721,10 @@
 ,
 {
   "name": "codex_typedarray_set_overlap",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "1,2,1,2,3,4\n127,-128,127,4",
   "node": "1,2,1,2,3,4\n127,-128,127,4",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "1,2,1,2,3,4\n127,128,-129,260"
 }
 ,
 {
@@ -4737,18 +4737,18 @@
 ,
 {
   "name": "codex_typedarray_subarray_shared_sort",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "2,3,4\n5,2,3,4,1\n5,9,3,4,1",
   "node": "2,3,4\n5,2,3,4,1\n5,9,3,4,1",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "2,3,4\n5,4,3,2,1\n5,4,3,2,1"
 }
 ,
 {
   "name": "codex_typedarray_toStringTag",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "[object Uint8Array]\n[object Int16Array]\n[object Float32Array]",
   "node": "[object Uint8Array]\n[object Int16Array]\n[object Float32Array]",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "0\n0\n0"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":246,"rts_diverge":132,"bun_node_diverge":17,"errors":214,"rejected":0}}
+],"summary":{"total":609,"pass":252,"rts_diverge":132,"bun_node_diverge":18,"errors":207,"rejected":0}}
