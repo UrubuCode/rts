@@ -184,6 +184,47 @@ runtime externo.
 
 ---
 
+## 🕸️ Motor de render HTML/CSS nativo
+
+<div align="center">
+<img src=".github/imgs/urubu-mascote.png" alt="O UrubuCode — o mascote, desenhado só com caixas CSS e animado pelo motor de render do RTS" width="560" />
+
+*O mascote acima é uma página HTML — nenhuma imagem: só caixas CSS + `@keyframes`, renderizado e animado pelo motor.*
+</div>
+
+O RTS tem um **motor de render HTML+CSS próprio, em Rust puro** (`crates/rts-dom`),
+seguindo o pipeline canônico de browser: `DOM → cascade CSS → layout (x,y,w,h) →
+display list → paint`. O backend (egui/wgpu) só **pinta** — o DOM é dono de tudo,
+headless e testável sem janela.
+
+O que já renderiza fiel (validado **número a número contra o Chrome real**,
+`getBoundingClientRect` elemento a elemento — o cover e o grid `.row`/`.col` do
+Bootstrap saem **pixel-perfect**):
+
+- **Cascade completa** (especificidade, `!important`, herança, `@media` por viewport)
+  com **custom properties por elemento** (`var()` com override por componente)
+- **Flexbox**: `grow`/`shrink`/`basis`, `align-self`, `order`, stretch real,
+  column com `margin:auto` absorvendo, gap, wrap
+- **Unidades**: `rem`/`em`/`%`/`vw`/`vh` e **`calc()`** (tipografia fluida),
+  margens negativas, `box-sizing`
+- **Fluxo**: inline rico (links/negrito fluindo no parágrafo), `float`,
+  `position: absolute/fixed` v1, scroll containers com barras próprias
+- **Animações CSS**: `@keyframes` + `transition` com easing completo —
+  cores, tamanhos e margens interpolando (o urubu acima bate asa com isso)
+- **Recursos externos**: `<link rel="stylesheet">` + `@import` locais
+
+Teste qualquer página local com uma linha:
+
+```bash
+rts run examples/view.ts examples/urubu.html                            # o mascote
+rts run examples/view.ts examples/bootstrap-5.3.8-examples/cover/index.html  # Bootstrap real
+rts run examples/view.ts caminho/para/seu/index.html                    # o seu site
+```
+
+Estado e backlog técnico completo: [issue #1793](https://github.com/UrubuCode/rts/issues/1793).
+
+---
+
 ## 🎯 O que a linguagem entende hoje
 
 ✅ **Controle de fluxo** — `if/else`, `while`, `do-while`, `for`, `switch`
