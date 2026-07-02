@@ -29,7 +29,7 @@ describe("Object.setPrototypeOf (#772)", () => {
       "child_x=10\n" +
       "child_y=20\n" +
       "child_x2=100\n" +
-      "child_y2=0\n"
+      "child_y2=undefined\n"
     )
   );
 });

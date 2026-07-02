@@ -65,6 +65,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             };
             return self.dynamic_obj_enum(module, args, sym).map(Some);
         }
+        // `Object.getOwnPropertySymbols(o)` — always the runtime walk (symbol
+        // entries live under canonical `@@sym:<handle>` keys, #798).
+        if method == "getOwnPropertySymbols" {
+            return self
+                .dynamic_obj_enum(module, args, "__rtsadp_obj_own_symbols")
+                .map(Some);
+        }
         match method {
             "keys" | "getOwnPropertyNames" => self.object_keys(module, args).map(Some),
             "values" => self.object_values(module, args).map(Some),
@@ -133,11 +140,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// can the compile-time-keys fast path run; otherwise the dynamic runtime
     /// trampoline is used.
     fn is_static_object_arg(&self, args: &[HirExpr]) -> bool {
+        // A shape carrying an ENGINE-OWNED key demotes to the RUNTIME enumeration:
+        // `__prim` (a String/Number wrapper box — its own names are the code-unit
+        // indices + `length`, not the slot) and `@@sym:*` (a Symbol-keyed entry —
+        // filtered from string enumeration). The static path would leak them.
+        let needs_runtime =
+            |keys: &[String]| keys.iter().any(|k| k == "__prim" || k.starts_with("@@sym:"));
         match args.first().map(|a| &a.kind) {
-            Some(HirExprKind::Object(_)) => true,
-            Some(HirExprKind::Ident(n)) => {
-                matches!(self.local_shapes.get(n), Some(HeapShape::Object(_)))
+            Some(HirExprKind::Object(fields)) => {
+                !needs_runtime(&fields.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>())
             }
+            Some(HirExprKind::Ident(n)) => match self.local_shapes.get(n) {
+                Some(HeapShape::Object(shape_id)) => {
+                    !needs_runtime(&self.shapes.get(*shape_id).keys)
+                }
+                _ => false,
+            },
             _ => false,
         }
     }

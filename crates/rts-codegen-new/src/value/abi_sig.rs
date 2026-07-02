@@ -634,6 +634,7 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         | "__rtsadp_obj_keys"
         | "__rtsadp_own_keys_raw"
         | "__rtsadp_obj_own_names"
+        | "__rtsadp_obj_own_symbols"
         | "__rtsadp_to_iter_array" => SymSig {
             params: &[U64],
             ret: U64,

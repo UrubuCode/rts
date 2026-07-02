@@ -174,6 +174,12 @@ pub extern "C" fn __rtsadp_obj_keys(obj_word: u64) -> u64 {
             .flatten()
         {
             for k in reorder_enum_keys(keys) {
+                // Symbol-keyed entries (`@@sym:<handle>` canonical repr, #798) are
+                // NOT string-enumerable: `Object.keys`/for-in/`JSON.stringify`
+                // all skip them (JS spec). `Reflect.ownKeys` uses the raw path.
+                if k.starts_with("@@sym:") {
+                    continue;
+                }
                 let word = abi_adapter::intern_poly(&k).raw() as i64;
                 rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, word);
             }
@@ -202,6 +208,35 @@ pub extern "C" fn __rtsadp_obj_keys(obj_word: u64) -> u64 {
     box_vec_as_array(vec)
 }
 
+/// `Object.getOwnPropertySymbols(o)` — the SYMBOL-keyed own entries, decoded
+/// from their canonical `@@sym:<handle>` storage keys (#798) back to symbol
+/// words, in shape order. Non-keyed receivers → `[]`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_obj_own_symbols(obj_word: u64) -> u64 {
+    let vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    let obj = PolyValue::from_raw(obj_word);
+    if obj.is_object() && looks_like_object(obj) {
+        let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+        let slot0 = PolyValue::from_raw(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 0) as u64);
+        if let Some(keys) = slot0
+            .is_int32()
+            .then(|| global_shape_keys(slot0.as_i32() as u32))
+            .flatten()
+        {
+            for k in keys {
+                if let Some(h) = k.strip_prefix("@@sym:").and_then(|s| s.parse::<u64>().ok()) {
+                    let word = PolyValue::from_object_handle(
+                        rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h),
+                    )
+                    .raw() as i64;
+                    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, word);
+                }
+            }
+        }
+    }
+    box_vec_as_array(vec)
+}
+
 /// `Object.getOwnPropertyNames(x)` — like [`__rtsadp_obj_keys`] but includes the
 /// NON-enumerable own properties JS exposes here: for an ARRAY, the trailing
 /// `"length"` (`getOwnPropertyNames([a,b,c])` is `["0","1","2","length"]`). For a
@@ -210,8 +245,41 @@ pub extern "C" fn __rtsadp_obj_keys(obj_word: u64) -> u64 {
 /// when the receiver is an array (object, not a keyed shape).
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_obj_own_names(obj_word: u64) -> u64 {
-    let keys_arr = __rtsadp_obj_keys(obj_word);
     let obj = PolyValue::from_raw(obj_word);
+    // A STRING BOX (`new String("hi")` — a keyed object whose primitive lives in
+    // the `__prim` slot): JS exposes the code-unit indices + `length` as own
+    // property names (#789). Shape-detected (the `__prim` slot holding a string),
+    // never by class name.
+    if obj.is_object() && looks_like_object(obj) {
+        let prim = super::objops::__rtsadp_obj_get(
+            obj_word,
+            abi_adapter::intern_poly("__prim").raw(),
+        );
+        if PolyValue::from_raw(prim).is_string() {
+            let vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+            let len = abi_adapter::resolve_poly(PolyValue::from_raw(prim))
+                .encode_utf16()
+                .count();
+            for i in 0..len {
+                let word = abi_adapter::intern_poly(&i.to_string()).raw() as i64;
+                rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, word);
+            }
+            let word = abi_adapter::intern_poly("length").raw() as i64;
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, word);
+            return box_vec_as_array(vec);
+        }
+    }
+    // A raw STRING primitive: indices + "length" too.
+    if obj.is_string() {
+        let keys_arr = __rtsadp_obj_keys(obj_word);
+        let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(
+            PolyValue::from_raw(keys_arr).as_handle(),
+        );
+        let word = abi_adapter::intern_poly("length").raw() as i64;
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle, word);
+        return keys_arr;
+    }
+    let keys_arr = __rtsadp_obj_keys(obj_word);
     if obj.is_object() && !looks_like_object(obj) {
         // ARRAY: append the own non-enumerable "length".
         let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(

@@ -149,6 +149,16 @@ fn key_text(key_str_handle: u64) -> String {
     let k = PolyValue::from_raw(key_str_handle);
     if k.is_string() {
         abi_adapter::resolve_poly(k)
+    } else if k.is_object() && {
+        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(k.as_handle());
+        rt_handles::with_entry(h, |e| matches!(e, Some(rt_handles::Entry::Symbol { .. })))
+    } {
+        // A SYMBOL property key: the canonical storage repr is `@@sym:<handle>`
+        // (#798) — unique per symbol, filtered from string enumeration
+        // (`Object.keys`/for-in/`JSON.stringify` skip it; `getOwnPropertySymbols`
+        // decodes it back).
+        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(k.as_handle());
+        format!("@@sym:{h}")
     } else {
         // Reuse the engine ToString (numbers/bools); the result is the JS property
         // key string (`o[0]` keys on "0").
