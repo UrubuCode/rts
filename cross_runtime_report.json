@@ -977,10 +977,10 @@
 ,
 {
   "name": "codex_super_getter_setter_receiver",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "x:base-set:base-get\nx:base-set",
   "node": "x:base-set:base-get\nx:base-set",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "x:base-set:base-get\nx:base-set"
 }
 ,
 {
@@ -2108,7 +2108,7 @@
   "status": "rts_diverge",
   "bun": "5\n20\n3.14159\n1\n1\n100\n100\ntrue\nworld",
   "node": "5\n20\n3.14159\n1\n1\n100\n100\ntrue\nworld",
-  "rts": "undefined\n20\n3.14159\n1\n1\nundefined\nundefined\ntrue\nworld"
+  "rts": "undefined\n20\n3.14159\n1\n1\n100\n100\ntrue\nworld"
 }
 ,
 {
@@ -2609,10 +2609,10 @@
 ,
 {
   "name": "110_object_getownpropertydescriptors",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "keys=a,b,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=function\nc.value=3\nc.writable=false\nc.enumerable=false",
   "node": "keys=a,b,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=function\nc.value=3\nc.writable=false\nc.enumerable=false",
-  "rts": "keys=a,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=undefined\nc.value=3\nc.writable=false\nc.enumerable=false"
+  "rts": "keys=a,b,c\na.value=1\na.writable=true\na.enumerable=true\nb.get=function\nc.value=3\nc.writable=false\nc.enumerable=false"
 }
 ,
 {
@@ -2652,7 +2652,7 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "value=42\nstill=42\nkeys=a\nb=10\ngetter=10",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "value=42\nstill=42\nkeys=a,b\nb=10\ngetter=5"
 }
 ,
 {
@@ -2825,18 +2825,18 @@
 ,
 {
   "name": "340_proxy_basics",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "1\ntrue\nget:a|set:b=99|has:b|del:b\n5\nmust be positive",
   "node": "1\ntrue\nget:a|set:b=99|has:b|del:b\n5\nmust be positive",
-  "rts": "1\ntrue\n\n5"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
   "name": "341_getter_inheritance",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "5\nbase:5\n10\nbase:5\ntrue\nfalse",
   "node": "5\nbase:5\n10\nbase:5\ntrue\nfalse",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "5\nbase:5\n10\nbase:5\ntrue\nfalse"
 }
 ,
 {
@@ -2932,7 +2932,7 @@
   "status": "rts_diverge",
   "bun": "{\"z\":0,\"a\":3,\"b\":5,\"c\":4}\nz,a,b,c\nget-a",
   "node": "{\"z\":0,\"a\":3,\"b\":5,\"c\":4}\nz,a,b,c\nget-a",
-  "rts": "{\"z\":0,\"b\":5,\"a\":3,\"c\":4}\nz,b,hidden,a,c"
+  "rts": "{\"z\":0,\"b\":5,\"a\":3,\"hidden\":9,\"c\":4}\nz,b,a,hidden,c\nhidden"
 }
 ,
 {
@@ -2945,10 +2945,10 @@
 ,
 {
   "name": "416_proxy_receiver_setter_this",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "new:set\nnew:set:get\ntrue",
   "node": "new:set\nnew:set:get\ntrue",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "base\nv\ntrue"
 }
 ,
 {
@@ -2972,7 +2972,7 @@
   "status": "rts_diverge",
   "bun": "ga=1\nhb=true\nvals=1:9\nseen=get:a,set:b=9,has:b,get:a,get:b",
   "node": "ga=1\nhb=true\nvals=1:9\nseen=get:a,set:b=9,has:b,get:a,get:b",
-  "rts": "ga=1\nhb=true\nvals=1:9\nseen="
+  "rts": "ga=a\nhb=false\nvals=a:b\nseen=get:undefined,set:9=undefined,has:undefined,get:undefined,get:undefined"
 }
 ,
 {
@@ -2980,7 +2980,7 @@
   "status": "rts_diverge",
   "bun": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
   "node": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
-  "rts": "keys=a,c\nvals=[]\nlog="
+  "rts": "keys=\nvals=[]\nlog=ownKeys|def:3=undefined|del:undefined|ownKeys"
 }
 ,
 {
@@ -3060,7 +3060,7 @@
   "status": "rts_diverge",
   "bun": "1\n2\n2\ntrue\n1\ntrue true true",
   "node": "1\n2\n2\ntrue\n1\ntrue true true",
-  "rts": "undefined\nundefined\n0\ntrue\nundefined\nundefined undefined undefined"
+  "rts": "1\n2\n2\ntrue\nundefined\nundefined undefined undefined"
 }
 ,
 {
@@ -3068,7 +3068,7 @@
   "status": "rts_diverge",
   "bun": "{\"x\":1,\"y\":3,\"z\":4}\nx,y,z\nfirst,p,q,last\np,q\n{\"a\":1}\n{\"0\":\"a\",\"1\":\"b\"}",
   "node": "{\"x\":1,\"y\":3,\"z\":4}\nx,y,z\nfirst,p,q,last\np,q\n{\"a\":1}\n{\"0\":\"a\",\"1\":\"b\"}",
-  "rts": "{\"x\":1,\"y\":3,\"z\":4}\nx,y,z\nfirst,last\n\n{\"a\":1}\n{}"
+  "rts": "{\"x\":1,\"y\":3,\"z\":4}\nx,y,z\nfirst,q,p,last\n\n{\"a\":1}\n{}"
 }
 ,
 {
@@ -3116,7 +3116,7 @@
   "status": "rts_diverge",
   "bun": "true\n2\nget-a|set-a:1|get-b|set-a:3",
   "node": "true\n2\nget-a|set-a:1|get-b|set-a:3",
-  "rts": "true\nundefined"
+  "rts": "true\n2\nget-b"
 }
 ,
 {
@@ -3164,7 +3164,7 @@
   "status": "rts_diverge",
   "bun": "TypeError\n1",
   "node": "TypeError\n1",
-  "rts": "undefined"
+  "rts": "1"
 }
 ,
 {
@@ -4484,7 +4484,7 @@
   "status": "rts_diverge",
   "bun": "5\n9\n12\nundefined",
   "node": "5\n9\n12\nundefined",
-  "rts": "undefined\nundefined\nundefined\nundefined"
+  "rts": "undefined\n0\nundefined\nundefined"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":255,"rts_diverge":133,"bun_node_diverge":17,"errors":204,"rejected":0}}
+],"summary":{"total":609,"pass":258,"rts_diverge":132,"bun_node_diverge":17,"errors":202,"rejected":0}}
