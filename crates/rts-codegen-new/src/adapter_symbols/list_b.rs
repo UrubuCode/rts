@@ -337,6 +337,7 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_arr_ta_set1", taops::__rtsadp_arr_ta_set1 as *const u8),
         sym("__rtsadp_arr_subarray", taops::__rtsadp_arr_subarray as *const u8),
         sym("__rtsadp_arr_subarray1", taops::__rtsadp_arr_subarray1 as *const u8),
+        sym("__rtsadp_pack_rest", taops::__rtsadp_pack_rest as *const u8),
         sym("__rtsadp_define_prop", objops::__rtsadp_define_prop as *const u8),
         sym("__rtsadp_prop_flags", objops::__rtsadp_prop_flags as *const u8),
         sym("__rtsadp_prevent_ext", objops::__rtsadp_prevent_ext as *const u8),

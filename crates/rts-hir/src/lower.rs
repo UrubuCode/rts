@@ -511,7 +511,10 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
                 };
                 let annotation = extract_ts_type_annotation(p);
                 let ty = annotation.as_deref().map(parse_type_annotation).unwrap_or(HirType::Unknown);
-                HirParam { name, ty, variadic: false, has_default: false, optional: false, default_expr: None }
+                // A REST param (`(...args) =>`) is variadic — the extraction and
+                // the uniform thunk pack the overflow args into it.
+                let variadic = matches!(p, swc::Pat::Rest(_));
+                HirParam { name, ty, variadic, has_default: false, optional: false, default_expr: None }
             }).collect();
             let ret = HirType::Unknown;
             let body = match &*arrow.body {

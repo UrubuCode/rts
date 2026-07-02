@@ -390,7 +390,7 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         },
         // invoke(fn_word, a0, a1, a2, a3, rest) -> result PolyValue word (U64).
         // All slots are raw PolyValue words (U64); the fixed uniform call ABI.
-        "__rtsadp_fn_invoke" | "__rtsadp_fn_invoke_method" => SymSig {
+        "__rtsadp_fn_invoke" | "__rtsadp_fn_invoke_method" | "__rtsadp_pack_rest" => SymSig {
             params: &[U64, U64, U64, U64, U64, U64],
             ret: U64,
         },

@@ -145,6 +145,28 @@ fn build_thunk_body(
             // Captured var: read the snapshot from the env array.
             let idx = fb.ins().iconst(types::I64, i as i64);
             emit_marshal::emit_vec_get(module, fb, env_word, idx)
+        } else if sig.rest_param == Some(i) {
+            // The `...rest` param: PACK the remaining positional slots (trailing
+            // `undefined`s trimmed — the uniform ABI carries no argc, so an
+            // EXPLICIT trailing `undefined` argument is indistinguishable from an
+            // absent one; a documented divergence) plus the overflow array into
+            // one fresh array word.
+            let pos = i - capture_count;
+            let start = fb.ins().iconst(types::I64, pos as i64);
+            let pack = emit_marshal::emit_call(
+                module,
+                fb,
+                "__rtsadp_pack_rest",
+                &[
+                    positional[0],
+                    positional[1],
+                    positional[2],
+                    positional[3],
+                    rest_word,
+                    start,
+                ],
+            );
+            pack.expect("__rtsadp_pack_rest returns a value")
         } else {
             let pos = i - capture_count;
             if pos < POSITIONAL {

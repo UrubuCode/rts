@@ -792,8 +792,18 @@ impl Ctx {
         let HirExprKind::Arrow { params, ret, body } = &e.kind else {
             return None;
         };
-        // A variadic / defaulted param is out of this increment's arrow subset.
-        if params.iter().any(|p| p.variadic || p.has_default) {
+        // A DEFAULTED param is out of this increment's arrow subset. A VARIADIC
+        // (`...rest`) param is allowed only in LAST position (JS grammar) — the
+        // synthesized fn keeps the flag, so the sig records `rest_param` and the
+        // uniform thunk packs the overflow into it.
+        if params.iter().any(|p| p.has_default) {
+            return None;
+        }
+        if params
+            .iter()
+            .enumerate()
+            .any(|(i, p)| p.variadic && i + 1 != params.len())
+        {
             return None;
         }
         let param_names: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
