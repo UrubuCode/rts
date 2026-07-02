@@ -1385,10 +1385,10 @@
 ,
 {
   "name": "181_function_bind",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "bound=24\noriginal=12\npartial=10\nrebind=24",
   "node": "bound=24\noriginal=12\npartial=10\nrebind=24",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "bound=undefined\noriginal=undefined\npartial=undefined\nrebind=undefined"
 }
 ,
 {
@@ -1449,10 +1449,10 @@
 ,
 {
   "name": "49_function_meta",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "name=add\nlength=2\ncall=5\napply=10\nbind=12",
   "node": "name=add\nlength=2\ncall=5\napply=10\nbind=12",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "name=undefined\nlength=undefined\ncall=5\napply=10\nbind=12"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":270,"rts_diverge":138,"bun_node_diverge":17,"errors":184,"rejected":0}}
+],"summary":{"total":609,"pass":270,"rts_diverge":140,"bun_node_diverge":17,"errors":182,"rejected":0}}
