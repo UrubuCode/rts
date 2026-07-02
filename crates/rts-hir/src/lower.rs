@@ -734,7 +734,13 @@ fn lower_lit(lit: &swc::Lit) -> HirExpr {
         swc::Lit::Bool(b) => HirExpr::new(HirExprKind::Lit(HirLit::Bool(b.value)), HirType::Bool),
         swc::Lit::Str(s) => HirExpr::new(HirExprKind::Lit(HirLit::Str(s.value.to_string_lossy().into_owned())), HirType::Str),
         swc::Lit::Null(_) => HirExpr::new(HirExprKind::Lit(HirLit::Null), HirType::Any),
-        swc::Lit::BigInt(_) => HirExpr::new(HirExprKind::Raw("bigint".into()), HirType::I64),
+        // A BigInt LITERAL that fits i64 lowers as a plain Int (the documented
+        // interim: RTS treats bigint as i64, precision lost above 2^63 — #751 /
+        // epic #219). An out-of-range literal keeps the Raw (honest bail).
+        swc::Lit::BigInt(b) => match i64::try_from(&*b.value) {
+            Ok(v) => HirExpr::new(HirExprKind::Lit(HirLit::Int(v)), HirType::I64),
+            Err(_) => HirExpr::new(HirExprKind::Raw("bigint".into()), HirType::I64),
+        },
         swc::Lit::Regex(r) => {
             // Carry the pattern + flags in the Raw payload so the new engine can
             // recover them (the old engine / MIR match `Raw(_)` and ignore the
