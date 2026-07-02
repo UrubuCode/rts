@@ -152,6 +152,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         class: &str,
         field: &str,
     ) -> FrontResult<Val> {
+        // `C.prototype` — the class's ONE shared prototype object (lazy, runtime
+        // side-table). `C.prototype.m = v` then writes it dynamically, and every
+        // instance reaches it through the dynamic-get prototype walk.
+        if field == "prototype" {
+            let k = crate::value::abi_adapter::intern_poly(class);
+            let k_word = self
+                .builder
+                .ins()
+                .iconst(cranelift_codegen::ir::types::I64, k.raw() as i64);
+            let w = self
+                .call_runtime(module, "__rtsadp_class_proto", &[k_word])?
+                .expect("__rtsadp_class_proto returns a word");
+            return Ok(Val::tagged_kind(w, JsKind::Object));
+        }
         let desc = self
             .classes
             .get(class)

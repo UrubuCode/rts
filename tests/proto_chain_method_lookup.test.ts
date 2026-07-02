@@ -1,5 +1,4 @@
 import { describe, test, expect } from "rts:test";
-import { collections } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -7,40 +6,33 @@ function print(value: string): void {
 }
 
 // (#264 PR4) Member access em instance segue __proto__ chain quando
-// a key nao existe nas own props.
+// a key nao existe nas own props. (Reescrito JS-fiel: own props via
+// `this.id = ...` — o escape-hatch collections.map_set(this) era o
+// modelo velho de instancia-como-Map; missing agora le undefined.)
 
-function Animal(name: string): void {
-  collections.map_set(this as any, "id", 7);
+function Animal(id: number): void {
+  (this as any).id = id;
 }
 Animal.prototype.legs = 4 as any;
 Animal.prototype.kingdom = 1 as any;  // 1 = animal
 
-const a: number = new (Animal as any)("Rex");
+const a: any = new (Animal as any)(7);
 
 // own prop
-const name: number = (a as any).id;
-print("id=" + name);
+print("id=" + a.id);
 
 // proto chain — legs e kingdom estao em Animal.prototype
-const legs: number = (a as any).legs;
-print("legs=" + legs);
+print("legs=" + a.legs);
+print("kingdom=" + a.kingdom);
 
-const kingdom: number = (a as any).kingdom;
-print("kingdom=" + kingdom);
-
-// missing — nem own nem proto
-const missing: number = (a as any).missing;
-print("missing=" + missing);
+// missing — nem own nem proto (JS: undefined)
+print("missing=" + a.missing);
 
 // Outra instance: comparte mesmo prototype, suas own props sao isoladas
-const b: number = new (Animal as any)("Cat");
-collections.map_set(b, "id", 99);
-const bName: number = (b as any).id;
-const bLegs: number = (b as any).legs;
-const aName: number = (a as any).id;
-print("a.id=" + aName);
-print("b.id=" + bName);
-print("b.legs=" + bLegs);
+const b: any = new (Animal as any)(99);
+print("a.id=" + a.id);
+print("b.id=" + b.id);
+print("b.legs=" + b.legs);
 
 describe("proto chain lookup em instance.field (#264 PR4)", () => {
   test("own + proto + missing + isolacao entre instances", () =>
@@ -48,7 +40,7 @@ describe("proto chain lookup em instance.field (#264 PR4)", () => {
       "id=7\n" +
       "legs=4\n" +
       "kingdom=1\n" +
-      "missing=0\n" +
+      "missing=undefined\n" +
       "a.id=7\n" +
       "b.id=99\n" +
       "b.legs=4\n"

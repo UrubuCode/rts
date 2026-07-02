@@ -101,6 +101,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // return left the pending-error slot set) — route the unwind here.
         self.emit_post_call_error_check(module)?;
 
+        // ---- 2b. link the instance to the class's SHARED prototype object, so a
+        //          later `C.prototype.m = v` reaches it through the dynamic-get
+        //          prototype walk (own-key reads never touch this). ----
+        let k = crate::value::abi_adapter::intern_poly(class);
+        let k_word = self.builder.ins().iconst(types::I64, k.raw() as i64);
+        let proto = self
+            .call_runtime(module, "__rtsadp_class_proto", &[k_word])?
+            .expect("__rtsadp_class_proto returns a word");
+        self.call_runtime(module, "__rtsadp_obj_set_proto", &[obj_word, proto])?;
+
         // ---- 3. intern this fn's OBJECT shape (key list = the class fields) and
         //         yield the instance word as a TAG_OBJECT PolyValue ----
         let shape_id = self.shapes.intern(&desc.fields);

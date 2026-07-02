@@ -426,8 +426,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                         let word = emit_marshal::emit_vec_get(module, self.builder, recv_word, idx);
                         Ok(Val::new(word, Repr::Tagged))
                     }
-                    // Missing key → `undefined` (statically proven by the shape).
-                    None => Ok(self.undefined_val()),
+                    // Missing OWN key: read DYNAMICALLY — `__rtsadp_obj_get` walks
+                    // the prototype chain (`C.prototype.m`, `Object.create(p)`),
+                    // and still yields `undefined` for a genuinely absent key.
+                    None => self.lower_dynamic_get_expr(module, object, prop),
                 }
             }
             Ok((recv_word, HeapShape::Array)) => {

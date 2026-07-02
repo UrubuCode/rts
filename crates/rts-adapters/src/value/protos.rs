@@ -93,6 +93,34 @@ pub extern "C" fn __rtsadp_obj_set_proto(obj_word: u64, proto_word: u64) -> u64 
     obj_word
 }
 
+/// `C.prototype` — the ONE shared prototype OBJECT of a class, created lazily
+/// (an empty keyed object) and keyed by the class-name string. `new C()` links
+/// each instance to it (`__rtsadp_obj_set_proto`), so `C.prototype.m = v`
+/// reaches every instance through the dynamic-get prototype walk.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_class_proto(name_str_word: u64) -> u64 {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static T: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
+    let name = super::abi_adapter::resolve_poly(PolyValue::from_raw(name_str_word));
+    let table = T.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut t = table.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(w) = t.get(&name) {
+        return *w;
+    }
+    use rts_runtime::namespaces::collections::vec as rt_vec;
+    use rts_runtime::namespaces::gc::handles as rt_handles;
+    let h = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    let shape = crate::shape::intern_global_shape(&[]);
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(h, PolyValue::from_i32(shape as i32).raw() as i64);
+    // PIN: the proto word is cached for the whole program (like an interned
+    // string constant) — it must never be swept.
+    rt_handles::__RTS_FN_NS_GC_PIN_HANDLE(h);
+    let w = PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h)).raw();
+    t.insert(name, w);
+    w
+}
+
 /// `Reflect.setPrototypeOf(obj, proto)` — like [`__rtsadp_obj_set_proto`] but
 /// returns SUCCESS as an i64 0/1, and routes a PROXY receiver through its
 /// `setPrototypeOf` trap (#218 phase 3): ToBoolean of the trap's return decides
