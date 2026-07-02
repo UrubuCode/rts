@@ -20,10 +20,12 @@
 //! is in `class_meta`; `Map`/`Set`/`URL`/… have ambient `.ts` classes). Routing
 //! is now DATA-DRIVEN — no `"Date"` literal in the dispatch control flow.
 //!
-//! The unsound-to-lower method set (Date's timezone-divergent formatters + `setX`
-//! mutators) is now SPEC DATA: the `rts-shared` Date class stamps those members
+//! The unsound-to-lower mechanism is SPEC DATA: a class may stamp a member
 //! `MemberFlags::UNSOUND` and [`Lowerer::try_registry_instance_method`] bails on
-//! the flag generically — no per-class predicate in the engine.
+//! the flag generically — no per-class predicate in the engine. (Date's
+//! formatters + `setX` mutators carried the flag until 2026-07-02; the suite
+//! defines their DETERMINISTIC UTC surface as the modeled semantic, so the flag
+//! was dropped from the spec — the mechanism stays for future specs.)
 //!
 //! CONSTRUCTORS ([`Lowerer::emit_registry_ctor`]) and STATIC calls
 //! ([`Lowerer::try_registry_static_call`]) are now FULLY GENERIC: resolved from
@@ -35,8 +37,8 @@
 //! still DATA from the registered ctors, no method-name / arity literal.
 //!
 //! The engine now encodes ZERO Date-specific knowledge: every Date semantic
-//! (overloads, defaults, unsound methods) is SPEC DATA in the `rts-shared` Date
-//! class (`Sig::default_args` + `MemberFlags::UNSOUND` + the registered members).
+//! (overloads, defaults) is SPEC DATA in the `rts-shared` Date class
+//! (`Sig::default_args` + the registered members).
 
 use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_module::Module;
@@ -189,8 +191,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         };
         // Some methods resolve in the Registry but are NOT sound to lower (the
         // honesty floor). The spec marks them `MemberFlags::UNSOUND` — data, not a
-        // hardcoded per-class predicate. For `Date` these are the timezone-divergent
-        // formatters + the `setX` mutators. BAIL instead of emitting a wrong value.
+        // hardcoded per-class predicate. BAIL instead of emitting a wrong value.
         if call.flags.contains(MemberFlags::UNSOUND) {
             return unsupported!(
                 "`{class}.{method}()` — unsound-to-lower method (timezone-divergent / \
