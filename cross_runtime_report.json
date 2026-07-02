@@ -625,10 +625,10 @@
 ,
 {
   "name": "291_json_bigint",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "err=TypeError",
   "node": "err=TypeError",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "err="
 }
 ,
 {
@@ -697,10 +697,10 @@
 ,
 {
   "name": "155_object_getprototypeof",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "is_object_proto=true\nis_array_proto=true\nchild_proto=true\nchild_x=10\nnew_proto=true\nhas_b=2",
   "node": "is_object_proto=true\nis_array_proto=true\nchild_proto=true\nchild_x=10\nnew_proto=true\nhas_b=2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "is_object_proto=false\nis_array_proto=false\nchild_proto=true\nchild_x=10\nnew_proto=true\nhas_b=2"
 }
 ,
 {
@@ -729,10 +729,10 @@
 ,
 {
   "name": "247_object_isprototypeof",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "is_proto=true\nnot_proto=false\nobject_proto=true\narray_proto=true\nobject_array=true",
   "node": "is_proto=true\nnot_proto=false\nobject_proto=true\narray_proto=true\nobject_array=true",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "is_proto=true\nnot_proto=false\nobject_proto=true\narray_proto=true\nobject_array=true"
 }
 ,
 {
@@ -889,18 +889,18 @@
 ,
 {
   "name": "375_private_inheritance",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "Rex eats bone\nRex moves (energy:80)\nRex learned sit\nRex learned shake\nRex performs shake\n80\nBuddy guides Alice\nBuddy eats kibble\nBuddy moves (energy:90)\nA-private\nB-private\ntrue\ntrue\ntrue",
   "node": "Rex eats bone\nRex moves (energy:80)\nRex learned sit\nRex learned shake\nRex performs shake\n80\nBuddy guides Alice\nBuddy eats kibble\nBuddy moves (energy:90)\nA-private\nB-private\ntrue\ntrue\ntrue",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "Rex eats bone\nRex moves (energy:80)\nRex learned sit\nRex learned shake\nRex performs shake\n80\nBuddy guides Alice\nBuddy eats kibble\nBuddy moves (energy:90)\nB-private\nB-private\ntrue\ntrue\ntrue"
 }
 ,
 {
   "name": "376_private_pattern_advanced",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "1,2,3\n0\n4\n5\nVec2(4,6)\nVec2(6,8)\n11\nidle\ntrue\nrunning\nfalse\ntrue\ntrue\nfalse\nstopped",
   "node": "1,2,3\n0\n4\n5\nVec2(4,6)\nVec2(6,8)\n11\nidle\ntrue\nrunning\nfalse\ntrue\ntrue\nfalse\nstopped",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "\n0\n4\n5\nVec2(4,6)\nVec2(6,8)\n11\nidle\nfalse\nidle\nfalse\nfalse\nfalse\nfalse\nidle"
 }
 ,
 {
@@ -1441,10 +1441,10 @@
 ,
 {
   "name": "41_closures_deep",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=8",
   "node": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=8",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=8"
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": ""
 }
 ,
@@ -2841,10 +2841,10 @@
 ,
 {
   "name": "346_reflect_api",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "true\nfalse\nx,y\n10\n99\nfalse\n7\n1 2\ntrue\n42\ntrue",
   "node": "true\nfalse\nx,y\n10\n99\nfalse\n7\n1 2\ntrue\n42\ntrue",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "true\nfalse\nx,y\n10\n99\nfalse\n7\n1 2\ntrue\n42\nfalse"
 }
 ,
 {
@@ -4217,10 +4217,10 @@
 ,
 {
   "name": "118_numeric_separators",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "million=1000000\nbinary=41349\nhex=4293713502\nfloat=3.141592653\nbigint=1234567890",
   "node": "million=1000000\nbinary=41349\nhex=4293713502\nfloat=3.141592653\nbigint=1234567890",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "million=1000000\nbinary=41349\nhex=4293713502\nfloat=3.141592653\nbigint=1234567890"
 }
 ,
 {
@@ -4345,10 +4345,10 @@
 ,
 {
   "name": "319_exponentiation",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "num=-8\npow=-8\nbig=256",
   "node": "num=-8\npow=-8\nbig=256",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "num=-8\npow=-8\nbig=256"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":242,"rts_diverge":126,"bun_node_diverge":18,"errors":223,"rejected":0}}
+],"summary":{"total":609,"pass":246,"rts_diverge":132,"bun_node_diverge":17,"errors":214,"rejected":0}}
