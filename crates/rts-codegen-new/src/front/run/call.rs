@@ -539,6 +539,38 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         };
         let fref = module.declare_func_in_func(fid, self.builder.func);
         let addr = self.builder.ins().func_addr(types::I64, fref);
+        // When the target's signature carries an f64 anywhere, register its
+        // packed ABI (FN_KINDS) so RAW-pointer consumers (`thread.spawn`,
+        // dynamic HOFs) invoke through the typed path — an f64 param reads its
+        // BITS back into xmm instead of the raw-i64 misload (#247).
+        if let Some(sig) = self.sigs.get(fname) {
+            let has_f64 = sig.params.iter().any(|&p| matches!(p, Repr::Float64))
+                || matches!(sig.ret, Some(Repr::Float64));
+            if has_f64 && sig.params.len() <= 8 {
+                let mut kinds_packed: u64 = 0;
+                for (i, &repr) in sig.params.iter().enumerate() {
+                    let k: u64 = match repr {
+                        Repr::Float64 => 1,
+                        Repr::Bool => 2,
+                        _ => 0,
+                    };
+                    kinds_packed |= k << (8 * i);
+                }
+                let ret_kind: u64 = match sig.ret {
+                    Some(Repr::Float64) => 1,
+                    Some(Repr::Bool) => 2,
+                    _ => 0,
+                };
+                let meta = ((sig.params.len() as u64) << 8) | ret_kind;
+                let kinds_word = self.builder.ins().iconst(types::I64, kinds_packed as i64);
+                let meta_word = self.builder.ins().iconst(types::I64, meta as i64);
+                self.call_runtime(
+                    module,
+                    "__rtsadp_register_fn_abi",
+                    &[addr, kinds_word, meta_word],
+                )?;
+            }
+        }
         Ok(Some(Val::new(addr, Repr::Int64)))
     }
 

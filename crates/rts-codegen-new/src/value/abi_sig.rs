@@ -281,6 +281,12 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, U64, U64, U64],
             ret: U64,
         },
+        // Register a user fn's packed ABI for raw-pointer consumers
+        // (`getPointer` emission — thread.spawn f64 workers, #247).
+        "__rtsadp_register_fn_abi" => SymSig {
+            params: &[U64, U64, U64],
+            ret: Void,
+        },
 
         // ---- REAL collections Vec (rts-shared collections::vec) ----
         "__RTS_FN_NS_COLLECTIONS_VEC_NEW" => SymSig {

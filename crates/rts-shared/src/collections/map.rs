@@ -119,6 +119,38 @@ fn is_array_proto_member(key: &str) -> bool {
     )
 }
 
+/// HOOK shape-object (instalado pelo rts-adapters no bootstrap do motor): um
+/// handle que NÃO é `Entry::Map` mas um OBJETO shape-vec do motor novo (uma
+/// instância de classe/fn-ctor cujo `this` chega à superfície de baixo nível
+/// `collections.map_*(this, …)` — #264) roteia pelo get/set shape-aware dos
+/// adapters (obj_get / obj_set com transition) em vez de virar no-op/0.
+/// `(get, set)`. rts-shared não pode depender de rts-adapters (direção de
+/// deps), daí o registro dinâmico — o mesmo padrão do async-error hook.
+#[allow(clippy::type_complexity)]
+static SHAPED_OBJ_HOOK: std::sync::OnceLock<(
+    extern "C" fn(u64, *const u8, i64) -> i64,
+    extern "C" fn(u64, *const u8, i64, i64),
+)> = std::sync::OnceLock::new();
+
+/// Registra a ponte shape-object (chamado pelo rts-adapters no bootstrap).
+pub fn set_shaped_object_hook(
+    get: extern "C" fn(u64, *const u8, i64) -> i64,
+    set: extern "C" fn(u64, *const u8, i64, i64),
+) {
+    let _ = SHAPED_OBJ_HOOK.set((get, set));
+}
+
+/// Se `h` é um OBJETO shape-vec (Entry::Vec, não Map) e o hook está instalado,
+/// devolve a ponte; senão `None` (o caminho Map normal segue).
+fn shaped_object_route(h: u64) -> Option<(
+    extern "C" fn(u64, *const u8, i64) -> i64,
+    extern "C" fn(u64, *const u8, i64, i64),
+)> {
+    let hook = SHAPED_OBJ_HOOK.get()?;
+    let is_vec = with_entry(h, |e| matches!(e, Some(Entry::Vec(_))));
+    if is_vec { Some(*hook) } else { None }
+}
+
 /// Creates an empty HashMap<string, number> and returns its handle.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_NEW() -> Handle {
@@ -162,6 +194,10 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET(h: U64, key_ptr: *const u8, ke
     if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(h) {
         return crate::globals::proxy::ops::dispatch_get(target, handler, key);
     }
+    // (#264) Um OBJETO shape-vec do motor novo: leitura shape-aware via hook.
+    if let Some((get, _)) = shaped_object_route(h) {
+        return get(h, key_ptr, key_len);
+    }
     with_map(h, 0, |m| m.get(key).copied().unwrap_or(0))
 }
 
@@ -189,6 +225,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SET(
     // (#218) Proxy: trap `set(target, prop, value)` ou forward.
     if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(h) {
         crate::globals::proxy::ops::dispatch_set(target, handler, key, value);
+        return;
+    }
+    // (#264) Um OBJETO shape-vec do motor novo: escrita shape-aware via hook.
+    if let Some((_, set)) = shaped_object_route(h) {
+        set(h, key_ptr, key_len, value);
         return;
     }
     // (#479 follow-up) frozen impede mutacao; sealed so' impede add de novas keys.

@@ -18,6 +18,8 @@
 //! `var x: i64` prints `0` pre-init, the documented #301 proxy for undefined),
 //! `undefined` otherwise.
 
+use std::collections::HashSet;
+
 use rts_ast::ast::Statement;
 use rts_hir::ir::{HirExprKind, HirLit, HirStmt};
 use rts_hir::{HirExpr, HirType};
@@ -63,6 +65,98 @@ pub(crate) fn hoisted_var_lets(body: &[Statement]) -> Vec<HirStmt> {
             }
         })
         .collect()
+}
+
+/// The NAMES the hoist prologue predeclares for `body` (the set the in-body
+/// `var` declarations must be REWRITTEN against).
+pub(crate) fn hoisted_var_names(body: &[Statement]) -> HashSet<String> {
+    let mut names: Vec<(String, Option<String>)> = Vec::new();
+    let mut seen = HashSet::new();
+    for s in body {
+        let Statement::Raw(raw) = s;
+        if let Some(stmt) = &raw.stmt {
+            collect_stmt(stmt, &mut names, &mut seen);
+        }
+    }
+    seen
+}
+
+/// Rewrite every in-body `let <name> = init` whose `name` was HOISTED into a
+/// plain ASSIGNMENT (`name = init`; an initializer-less decl is dropped — the
+/// prologue already bound it). Without this, a `var v = 7` inside an explicit
+/// `{ }` block would bind a fresh BLOCK-scoped local that dies at the block
+/// exit (the lexical-scope save/restore), instead of assigning the hoisted
+/// function-scoped binding. Recurses through every statement body (never into
+/// nested fn/arrow bodies — those are separate HirFuncs).
+pub(crate) fn rewrite_var_decls_to_assigns(stmts: &mut Vec<HirStmt>, hoisted: &HashSet<String>) {
+    for s in stmts.iter_mut() {
+        rewrite_stmt(s, hoisted);
+    }
+}
+
+fn rewrite_stmt(s: &mut HirStmt, hoisted: &HashSet<String>) {
+    match s {
+        HirStmt::Let { name, init, .. } if hoisted.contains(name.as_str()) => {
+            let assign = match init.take() {
+                Some(v) => HirStmt::Expr(HirExpr::new(
+                    HirExprKind::Assign {
+                        target: Box::new(HirExpr::new(
+                            HirExprKind::Ident(name.clone()),
+                            HirType::Unknown,
+                        )),
+                        value: Box::new(v),
+                    },
+                    HirType::Unknown,
+                )),
+                // `var x;` with no init — the prologue already bound it; the
+                // statement becomes a no-op expression.
+                None => HirStmt::Expr(HirExpr::new(
+                    HirExprKind::Lit(HirLit::Undefined),
+                    HirType::Unknown,
+                )),
+            };
+            *s = assign;
+        }
+        HirStmt::If { then, else_, .. } => {
+            rewrite_var_decls_to_assigns(then, hoisted);
+            if let Some(el) = else_ {
+                rewrite_var_decls_to_assigns(el, hoisted);
+            }
+        }
+        HirStmt::While { body, .. } | HirStmt::DoWhile { body, .. } => {
+            rewrite_var_decls_to_assigns(body, hoisted)
+        }
+        HirStmt::For { init, body, .. } => {
+            if let Some(i) = init {
+                rewrite_stmt(i, hoisted);
+            }
+            rewrite_var_decls_to_assigns(body, hoisted);
+        }
+        HirStmt::ForOf { body, .. } | HirStmt::ForIn { body, .. } => {
+            rewrite_var_decls_to_assigns(body, hoisted)
+        }
+        HirStmt::Block(b) => rewrite_var_decls_to_assigns(b, hoisted),
+        HirStmt::Try {
+            body,
+            catch,
+            finally,
+        } => {
+            rewrite_var_decls_to_assigns(body, hoisted);
+            if let Some(c) = catch {
+                rewrite_var_decls_to_assigns(&mut c.body, hoisted);
+            }
+            if let Some(f) = finally {
+                rewrite_var_decls_to_assigns(f, hoisted);
+            }
+        }
+        HirStmt::Switch { cases, .. } => {
+            for c in cases.iter_mut() {
+                rewrite_var_decls_to_assigns(&mut c.body, hoisted);
+            }
+        }
+        HirStmt::Labeled { body, .. } => rewrite_stmt(body, hoisted),
+        _ => {}
+    }
 }
 
 /// Collect `var`-kind declarator names (+ type annotation text) from `stmt`,

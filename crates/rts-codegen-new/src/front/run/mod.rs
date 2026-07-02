@@ -465,11 +465,15 @@ fn build_from_program(
     for item in &program.items {
         if let rts_ast::ast::Item::Function(fdecl) = item {
             // `var` HOISTING (#301): predeclare every `var`-kind name at the
-            // top of the fn body (JS function scope) — the real `var x = init`
-            // later is a flat re-`let` (same slot). See `varhoist`.
+            // top of the fn body (JS function scope); the in-body `var x = init`
+            // decls are rewritten to plain ASSIGNMENTS of the hoisted binding
+            // (so one inside an explicit `{ }` block escapes the lexical
+            // save/restore — the `var` semantic). See `varhoist`.
             let hoists = varhoist::hoisted_var_lets(&fdecl.body);
             let mut f = rts_hir::lower::lower_func(fdecl, &mut scope);
             if !hoists.is_empty() {
+                let names = varhoist::hoisted_var_names(&fdecl.body);
+                varhoist::rewrite_var_decls_to_assigns(&mut f.body, &names);
                 f.body.splice(0..0, hoists);
             }
             funcs.push(f);
@@ -492,11 +496,13 @@ fn build_from_program(
         }
     }
     // `var` HOISTING (#301) at MODULE scope: a top-level `var z` predeclares
-    // at the head of main so a read before its line resolves (same flat-slot
-    // model as the fn-body hoist above).
+    // at the head of main so a read before its line resolves; in-body decls
+    // become assignments (see the fn-body hoist above).
     let top_var_hoists = varhoist::hoisted_var_lets(&top_stmts);
     let mut body = rts_hir::lower::lower_stmts(&top_stmts, &mut scope);
     if !top_var_hoists.is_empty() {
+        let names = varhoist::hoisted_var_names(&top_stmts);
+        varhoist::rewrite_var_decls_to_assigns(&mut body, &names);
         body.splice(0..0, top_var_hoists);
     }
 

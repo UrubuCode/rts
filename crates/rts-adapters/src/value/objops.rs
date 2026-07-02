@@ -1,4 +1,4 @@
-//! Codegen-owned DYNAMIC property-access trampolines (P5.5).
+﻿//! Codegen-owned DYNAMIC property-access trampolines (P5.5).
 //!
 //! P3.6 / P5.4 do `obj.key` only when the object's SHAPE is statically proven in
 //! the lowering ctx (an object literal / typed local), resolving the slot index at
@@ -258,6 +258,53 @@ pub extern "C" fn __rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
 /// slot — so `obj[k] = v` for an absent `k` works generically (`JSON.parse`, any
 /// dynamic property add). A non-object receiver is a no-op. (`Object` is a
 /// PRIMORDIAL → property addition is engine-direct.)
+/// SHAPED-OBJECT bridge for the LOW-LEVEL `collections.map_get` surface
+/// (#264): a fn-ctor writing `collections.map_set(this, k, v)` receives the
+/// new-engine shape-vec instance, not an `Entry::Map`. The map namespace
+/// routes a non-Map `Entry::Vec` handle here (hook installed at bootstrap);
+/// the read goes through the SAME shape-aware `obj_get` any property read
+/// uses, and the result is normalized to the raw-i64 map surface.
+pub extern "C" fn shaped_object_get(h: u64, key_ptr: *const u8, key_len: i64) -> i64 {
+    use rts_runtime::namespaces::gc::handles as rt_handles;
+    let Some(key) = (unsafe { rts_engine::abi::str_abi::from_abi(key_ptr, key_len) }) else {
+        return 0;
+    };
+    let word = PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h)).raw();
+    let kh = rts_runtime::namespaces::collector::string_pool::__RTS_FN_NS_GC_STRING_NEW(key.as_ptr(), key.len() as i64);
+    let kw = PolyValue::from_str_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(kh)).raw();
+    let out = PolyValue::from_raw(__rtsadp_obj_get(word, kw));
+    // Normalize to the i64 surface: INT32 → the int; a heap value → its real
+    // handle; a double → truncated; undefined/absent → 0.
+    if out.is_int32() {
+        return out.as_i32() as i64;
+    }
+    if let Some(hh) = rts_engine::heap::poly::poly_handle_normalize(out.raw()) {
+        return hh as i64;
+    }
+    if out.is_double() {
+        return out.as_f64() as i64;
+    }
+    0
+}
+
+/// SHAPED-OBJECT write bridge (see [`shaped_object_get`]): boxes the raw-i64
+/// value as a number word and routes through the shape-aware `obj_set`
+/// (existing-slot write or append-with-transition).
+pub extern "C" fn shaped_object_set(h: u64, key_ptr: *const u8, key_len: i64, value: i64) {
+    use rts_runtime::namespaces::gc::handles as rt_handles;
+    let Some(key) = (unsafe { rts_engine::abi::str_abi::from_abi(key_ptr, key_len) }) else {
+        return;
+    };
+    let word = PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h)).raw();
+    let kh = rts_runtime::namespaces::collector::string_pool::__RTS_FN_NS_GC_STRING_NEW(key.as_ptr(), key.len() as i64);
+    let kw = PolyValue::from_str_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(kh)).raw();
+    let vw = match i32::try_from(value) {
+        Ok(i) => PolyValue::from_i32(i),
+        Err(_) => PolyValue::from_f64(value as f64),
+    };
+    __rtsadp_obj_set(word, kw, vw.raw());
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word: u64) -> u64 {
     // PROXY (#218): a proxy receiver routes through its `set` trap.
