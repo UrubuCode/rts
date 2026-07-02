@@ -857,10 +857,10 @@
 ,
 {
   "name": "371_private_fields_basic",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20",
   "node": "6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "6\n4\n0\n0\ntrue\n1 2 3\n1\n10\n20"
 }
 ,
 {
@@ -881,10 +881,10 @@
 ,
 {
   "name": "374_private_static_methods",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown",
   "node": "Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "undefined\nundefined\ntrue\n3\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown"
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "rts_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": ""
 }
 ,
@@ -2156,7 +2156,7 @@
   "status": "rts_diverge",
   "bun": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
   "node": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
-  "rts": "3\n99\nfalse\nundefined\n2026\nundefined\nfalse\nundefined\nundefined\nfalse\nfalse\ntrue\ntrue\ntrue\nfalse\nundefined\n1\ntrue\nfalse"
+  "rts": "3\n99\nfalse\ntrue\n2026\nundefined\nfalse\nundefined\nundefined\nfalse\nfalse\ntrue\ntrue\ntrue\nfalse\nundefined\n1\ntrue\nfalse"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":252,"rts_diverge":132,"bun_node_diverge":18,"errors":207,"rejected":0}}
+],"summary":{"total":609,"pass":252,"rts_diverge":135,"bun_node_diverge":17,"errors":205,"rejected":0}}
