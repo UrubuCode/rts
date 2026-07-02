@@ -227,12 +227,26 @@ pub extern "C" fn __rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
     }
     match resolve_slot(obj_word, key_str_handle) {
         Some((handle, idx)) => rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 1 + idx) as u64,
-        // Own-slot MISS → walk the prototype chain (`Object.create(proto)`): the key
-        // may live on a prototype. A null prototype ends the walk at `undefined`.
-        None => match super::protos::proto_of(obj_word) {
-            Some(proto) => __rtsadp_obj_get(proto, key_str_handle),
-            None => PolyValue::undefined().raw(),
-        },
+        // Own-slot MISS: an ACCESSOR slot (`__get_<key>` — a defineProperty /
+        // literal getter) anywhere on the chain wins, invoked with `this` = the
+        // ORIGINAL receiver; else walk the prototype chain for the data key.
+        None => {
+            let key = key_text(key_str_handle);
+            if !key.starts_with("__get_") && !key.starts_with("__set_") {
+                let gkey = abi_adapter::intern_poly(&format!("__get_{key}")).raw();
+                let getter = lookup_chain(obj_word, gkey, 0);
+                if PolyValue::from_raw(getter).is_function() {
+                    let undef = PolyValue::undefined().raw();
+                    return super::funcops::__rtsadp_fn_invoke(
+                        getter, obj_word, undef, undef, undef, 0,
+                    );
+                }
+            }
+            match super::protos::proto_of(obj_word) {
+                Some(proto) => __rtsadp_obj_get(proto, key_str_handle),
+                None => PolyValue::undefined().raw(),
+            }
+        }
     }
 }
 
@@ -581,6 +595,31 @@ pub extern "C" fn __rtsadp_obj_define_property(obj_word: u64, key_word: u64, des
         let w = __rtsadp_obj_get(desc_word, key);
         super::genops::to_boolean(PolyValue::from_raw(w)) as i64
     };
+    // ACCESSOR descriptor (`{ get: fn, set?: fn }`): store the accessor fns
+    // under the canonical `__get_<key>` / `__set_<key>` slots (the same storage
+    // an object-literal getter uses) — the dynamic `obj_get` invokes `__get_<k>`
+    // on a key miss (walking the prototype chain), so a
+    // `defineProperty(C.prototype, k, { get })` read works on every instance.
+    let getter = __rtsadp_obj_get(desc_word, abi_adapter::intern_poly("get").raw());
+    let setter = __rtsadp_obj_get(desc_word, abi_adapter::intern_poly("set").raw());
+    if PolyValue::from_raw(getter).is_function() || PolyValue::from_raw(setter).is_function() {
+        let key = key_text(key_word);
+        if PolyValue::from_raw(getter).is_function() {
+            __rtsadp_obj_set(
+                obj_word,
+                abi_adapter::intern_poly(&format!("__get_{key}")).raw(),
+                getter,
+            );
+        }
+        if PolyValue::from_raw(setter).is_function() {
+            __rtsadp_obj_set(
+                obj_word,
+                abi_adapter::intern_poly(&format!("__set_{key}")).raw(),
+                setter,
+            );
+        }
+        return obj_word;
+    }
     let val = __rtsadp_obj_get(desc_word, abi_adapter::intern_poly("value").raw());
     let flags = flag("writable") | (flag("enumerable") << 1) | (flag("configurable") << 2);
     __rtsadp_define_prop(obj_word, key_word, val, flags);
@@ -641,6 +680,22 @@ pub extern "C" fn __rtsadp_prop_is_enumerable(obj_word: u64, key_word: u64) -> u
     }
     let flags = __rtsadp_prop_flags(obj_word, key_word);
     PolyValue::bool(flags >= 0 && (flags & 2) != 0).raw()
+}
+
+/// RAW chain lookup: the stored word for `key` on `obj_word` or any prototype
+/// (bounded walk), WITHOUT invoking accessors — used to find `__get_<k>` fn
+/// words. `undefined` when absent.
+fn lookup_chain(obj_word: u64, key_str_handle: u64, depth: u32) -> u64 {
+    if depth > 64 {
+        return PolyValue::undefined().raw();
+    }
+    if let Some((handle, idx)) = resolve_slot(obj_word, key_str_handle) {
+        return rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 1 + idx) as u64;
+    }
+    match super::protos::proto_of(obj_word) {
+        Some(proto) => lookup_chain(proto, key_str_handle, depth + 1),
+        None => PolyValue::undefined().raw(),
+    }
 }
 
 /// `Object.preventExtensions(o)` / `Reflect.preventExtensions` — mark `o`

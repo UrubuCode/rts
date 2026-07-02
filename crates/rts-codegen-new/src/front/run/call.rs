@@ -685,6 +685,28 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         module: &mut dyn Module,
         name: &str,
     ) -> FrontResult<Val> {
+        self.reify_function_inner(module, name, false)
+    }
+
+    /// Reify a METHOD (`this`-first synthesized fn) as a function VALUE: its
+    /// uniform thunk fills `params[0]` from `a0`, so an invoker that passes the
+    /// RECEIVER as `a0` (the accessor/`__get_` dispatch, `fn.call(this, …)`)
+    /// binds `this` correctly. Used to MATERIALIZE object-literal methods /
+    /// accessors as own fn-word slots.
+    pub(super) fn reify_method(
+        &mut self,
+        module: &mut dyn Module,
+        name: &str,
+    ) -> FrontResult<Val> {
+        self.reify_function_inner(module, name, true)
+    }
+
+    fn reify_function_inner(
+        &mut self,
+        module: &mut dyn Module,
+        name: &str,
+        allow_this: bool,
+    ) -> FrontResult<Val> {
         let sig = self
             .sigs
             .get(name)
@@ -698,8 +720,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // reifiable as a VALUE — the uniform-ABI thunk fills `params[0]` from `a0`
         // (the first user arg), shifting every arg by one. The DIRECT call path
         // (`F(args)`) handles the implicit receiver; the value path is a later
-        // increment. Bail explicitly rather than mis-bind the receiver.
-        if sig.has_this {
+        // increment. Bail explicitly rather than mis-bind the receiver — EXCEPT
+        // the METHOD-materialization path (`allow_this`), whose invokers pass the
+        // receiver as `a0` by contract.
+        if sig.has_this && !allow_this {
             return unsupported!(
                 "free function `{name}` that uses `this` as a VALUE (direct calls work; value-invoke is a later increment)"
             );

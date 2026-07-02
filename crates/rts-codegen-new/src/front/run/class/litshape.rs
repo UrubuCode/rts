@@ -135,6 +135,13 @@ fn synth_lit_method(
         // Only a simple identifier parameter is recovered; the recovery pass refused
         // any non-ident / defaulted / rest param before building this method.
         let name = ident_param_name(&p.pat).expect("recovery proved a simple ident param");
+        // A TypeScript `this` PARAMETER (`get(this: any) { … }`) is TYPE-ONLY —
+        // erased at runtime, never positional. Keeping it would DUPLICATE the
+        // synthesized leading `this` (the second binding shadows it with the
+        // first REAL argument, breaking `this.x` reads).
+        if name == "this" {
+            continue;
+        }
         scope.define(&name, HirType::Unknown);
         params.push(HirParam {
             name,

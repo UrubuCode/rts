@@ -102,6 +102,50 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             let word = self.box_value(v);
             emit_marshal::emit_vec_push(module, self.builder, obj_word, word);
         }
+        // ---- ACCESSOR materialization: a literal's getters/setters (compile-time
+        // `accessors` on its lit-class) become OWN `__get_<k>`/`__set_<k>` fn-word
+        // slots, so the DYNAMIC surface sees them: `obj_get` invokes `__get_<k>`
+        // with `this` = the receiver (the method thunk fills `this` from a0), a
+        // `defineProperty`-style read works, and `getOwnPropertyDescriptors` maps
+        // them (#749). Static accessor dispatch is untouched (compile-time first);
+        // `Object.keys`/for-in map the internal slots back to the property name. ----
+        if let Some(class) = &lit_class {
+            let accs: Vec<(String, Option<String>, Option<String>)> = self
+                .classes
+                .get(class)
+                .map(|d| {
+                    d.accessors
+                        .iter()
+                        .map(|(k, a)| (k.clone(), a.getter.clone(), a.setter.clone()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            for (prop, getter, setter) in accs {
+                for (prefix, fn_name) in [("__get_", getter), ("__set_", setter)] {
+                    let Some(fn_name) = fn_name else { continue };
+                    let f = self.reify_method(module, &fn_name)?;
+                    let key = crate::value::abi_adapter::intern_poly(&format!("{prefix}{prop}"));
+                    let key_word = self.builder.ins().iconst(types::I64, key.raw() as i64);
+                    let fw = self.box_value(f);
+                    self.call_runtime(module, "__rtsadp_obj_set", &[obj_word, key_word, fw])?;
+                }
+            }
+            // METHODS materialize as own fn-word props too (`{ get(){…} }` — JS:
+            // a literal method IS an enumerable own property; a `defineProperty`
+            // descriptor's `get`/`value` member must be readable dynamically).
+            let methods: Vec<(String, String)> = self
+                .classes
+                .get(class)
+                .map(|d| d.methods.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+                .unwrap_or_default();
+            for (prop, fn_name) in methods {
+                let f = self.reify_method(module, &fn_name)?;
+                let key = crate::value::abi_adapter::intern_poly(&prop);
+                let key_word = self.builder.ins().iconst(types::I64, key.raw() as i64);
+                let fw = self.box_value(f);
+                self.call_runtime(module, "__rtsadp_obj_set", &[obj_word, key_word, fw])?;
+            }
+        }
         Ok((
             Val::tagged_kind(obj_word, JsKind::Unknown),
             shape,
@@ -1084,8 +1128,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// env-record, #195). Its value is not an honest receiver, so the dynamic property
     /// fallback declines it (bails) rather than read a property off a bogus word.
     fn receiver_is_unbound_this(&self, object: &HirExpr) -> bool {
+        // Only an UNBOUND `this` (a top-level arrow's lexical this — #195) bails;
+        // a method's `this` IS a local param and reads dynamically like any
+        // object word (`this._visible` off a shape the method's class does not
+        // prove, e.g. a defineProperty descriptor getter invoked on a receiver).
         matches!(&object.kind, HirExprKind::Ident(name)
-            if name == crate::front::run::class::THIS)
+            if name == crate::front::run::class::THIS && self.local(name).is_none())
     }
 
     /// The local NAME of a receiver PROVEN to be a keyed OBJECT (a known-shape

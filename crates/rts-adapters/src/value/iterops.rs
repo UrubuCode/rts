@@ -206,6 +206,7 @@ pub extern "C" fn __rtsadp_obj_keys(obj_word: u64) -> u64 {
             .then(|| global_shape_keys(slot0.as_i32() as u32))
             .flatten()
         {
+            let mut listed: Vec<String> = Vec::new();
             for k in reorder_enum_keys(keys) {
                 // Symbol-keyed entries (`@@sym:<handle>` canonical repr, #798) are
                 // NOT string-enumerable: `Object.keys`/for-in/`JSON.stringify`
@@ -213,7 +214,19 @@ pub extern "C" fn __rtsadp_obj_keys(obj_word: u64) -> u64 {
                 if k.starts_with("@@sym:") {
                     continue;
                 }
-                let word = abi_adapter::intern_poly(&k).raw() as i64;
+                // ACCESSOR slots (`__get_<k>`/`__set_<k>` — materialized literal
+                // getters / defineProperty accessors): enumerate as the PROPERTY
+                // name (a getter IS an enumerable own property in JS), deduped.
+                let name = k
+                    .strip_prefix("__get_")
+                    .or_else(|| k.strip_prefix("__set_"))
+                    .unwrap_or(&k)
+                    .to_string();
+                if listed.iter().any(|x| x == &name) {
+                    continue;
+                }
+                listed.push(name.clone());
+                let word = abi_adapter::intern_poly(&name).raw() as i64;
                 rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, word);
             }
         }
