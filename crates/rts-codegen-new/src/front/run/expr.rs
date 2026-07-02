@@ -107,6 +107,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let (val, _class, _shape) = self.lower_new(module, class, args)?;
                 Ok(val)
             }
+            // Sequence (comma) expression `(a, b, c)` — evaluate every operand in
+            // order for its side effects; the value is the LAST operand's.
+            HirExprKind::Seq(exprs) => {
+                let mut last: Option<Val> = None;
+                for inner in exprs {
+                    last = Some(self.lower_expr(module, inner)?);
+                }
+                match last {
+                    Some(v) => Ok(v),
+                    None => unsupported!("empty sequence expression"),
+                }
+            }
             HirExprKind::Array(elems) => self.lower_array_literal(module, elems),
             HirExprKind::Object(fields) => {
                 // An object literal used as a bare expression (not bound to a local
