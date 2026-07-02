@@ -218,6 +218,25 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.global_instance_classes.insert(name.to_string(), class);
                 return Ok(());
             }
+            // `const c = a + b` where `+` resolves the Rust-style OPERATOR
+            // OVERLOAD (`a.add(b)`) and the method's return type is a known
+            // class: record `c`'s class so `c.describe()` / `c == f` dispatch.
+            HirExprKind::Bin { op, lhs, .. }
+                if self.overload_ret_class(lhs, *op).is_some() =>
+            {
+                let class = self
+                    .overload_ret_class(lhs, *op)
+                    .expect("guarded by the match arm");
+                let val = self.lower_expr(module, init)?;
+                self.bind_tagged_local(name, val);
+                if let Some(desc) = self.classes.get(&class) {
+                    let shape_id = self.shapes.intern(&desc.fields);
+                    self.local_shapes
+                        .insert(name.to_string(), HeapShape::Object(shape_id));
+                }
+                self.local_classes.insert(name.to_string(), class);
+                return Ok(());
+            }
             // `const sp = u.searchParams`: a registry-instance PROPERTY read whose
             // spec return is a NAMED registered class (`searchParams:
             // URLSearchParams`) — same tracking as the method-call arm above.

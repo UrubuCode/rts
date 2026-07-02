@@ -25,6 +25,40 @@ use cranelift_module::Module;
 
 use rts_hir::{HirBinOp, HirExpr};
 
+impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
+    /// The CLASS an operator-overload `lhs <op> rhs` RETURNS, when the lhs's
+    /// static class defines the mapped method and that method's return type is a
+    /// known class (`Vec2.add(): Vec2`). Lets `const c = a + b` record `c`'s
+    /// class so a chained `c.describe()` / `c == f` dispatches.
+    pub(super) fn overload_ret_class(&self, lhs: &HirExpr, op: HirBinOp) -> Option<String> {
+        let class = self.static_instance_class(lhs)?;
+        let m = overload_method_name(op)?;
+        let fn_name = self.classes.get(&class)?.methods.get(m)?.clone();
+        self.sigs.get(&fn_name)?.ret_class.clone()
+    }
+}
+
+/// The Rust-style operator-overload method name for `op` (`a + b` → `a.add(b)`
+/// when the class defines it), or `None` for a non-overloadable op.
+pub(super) fn overload_method_name(op: HirBinOp) -> Option<&'static str> {
+    Some(match op {
+        HirBinOp::Add => "add",
+        HirBinOp::Sub => "sub",
+        HirBinOp::Mul => "mul",
+        HirBinOp::Div => "div",
+        HirBinOp::Rem => "rem",
+        HirBinOp::Eq | HirBinOp::StrictEq => "eq",
+        HirBinOp::Lt => "lt",
+        HirBinOp::Le => "le",
+        HirBinOp::Gt => "gt",
+        HirBinOp::Ge => "ge",
+        HirBinOp::BitAnd => "bit_and",
+        HirBinOp::BitOr => "bit_or",
+        HirBinOp::BitXor => "bit_xor",
+        _ => return None,
+    })
+}
+
 use crate::repr::Repr;
 use crate::value;
 
@@ -116,6 +150,30 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 || str_plus_known_obj)
         {
             return self.lower_add_with_toprimitive(module, lhs, rhs);
+        }
+
+        // RUST-STYLE OPERATOR OVERLOAD: `a + b` → `a.add(b)` at COMPILE TIME when
+        // the lhs's statically-known class defines the mapped method (add/sub/mul/
+        // div/rem/eq/lt/gt/le/ge). Checked before the object gate — a class that
+        // opts in gets the method call; everything else keeps the honest bail.
+        if let Some(class) = self.static_instance_class(lhs) {
+            if let Some(m) = overload_method_name(op) {
+                if self
+                    .classes
+                    .get(&class)
+                    .is_some_and(|d| d.methods.contains_key(m))
+                {
+                    let call = HirExpr::new(
+                        rts_hir::ir::HirExprKind::MethodCall {
+                            object: Box::new(lhs.clone()),
+                            method: m.to_string(),
+                            args: vec![rhs.clone()],
+                        },
+                        rts_hir::HirType::Unknown,
+                    );
+                    return self.lower_expr(module, &call);
+                }
+            }
         }
 
         // STRICT equality `===`/`!==` on a whole object/array operand is pure
