@@ -401,10 +401,10 @@
 ,
 {
   "name": "397_array_holes_mutation",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "seen=0=0,1=11,2=2\nkeys=0,1,2\nmap=0:0|1:11|2:2||\njoin=0-11-2--\nhas1=true,has3=false,has4=false",
   "node": "seen=0=0,1=11,2=2\nkeys=0,1,2\nmap=0:0|1:11|2:2||\njoin=0-11-2--\nhas1=true,has3=false,has4=false",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "seen=0=0,1=11,2=4\nkeys=0,1,2\nmap=0:0|1:11|2:4\njoin=0-11-4\nhas1=false,has3=false,has4=false"
 }
 ,
 {
@@ -561,10 +561,10 @@
 ,
 {
   "name": "codex_array_length_define_traps",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "after-define=7:1|2|3|4|||7:0,1,2,3,6\nafter-trunc=2:1|2:0,1\nRangeError\nfinal=2:1|2",
   "node": "after-define=7:1|2|3|4|||7:0,1,2,3,6\nafter-trunc=2:1|2:0,1\nRangeError\nfinal=2:1|2",
-  "rts": "after-define=4:undefined:0,1,2,3\nafter-trunc=4:undefined:0,1,2,3\nfinal=4:undefined"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -577,10 +577,10 @@
 ,
 {
   "name": "codex_array_reduce_mutation_window",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "sum=6\nseen=0:1,1:2,2:3\nkeys=0,1,2",
   "node": "sum=6\nseen=0:1,1:2,2:3\nkeys=0,1,2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "sum=7\nseen=0:1,1:2,2:4\nkeys=0,1,2"
 }
 ,
 {
@@ -881,10 +881,10 @@
 ,
 {
   "name": "374_private_static_methods",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown",
   "node": "Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown",
-  "rts": "undefined\nundefined\ntrue\n3\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -2073,18 +2073,18 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "order=micro|immediate|timeout"
 }
 ,
 {
   "name": "316_structuredclone_mixed",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi",
   "node": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi",
-  "rts": "same=true\nmap=a:1\nset=2,3\ndate=undefined\nre=undefined:undefined"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -2193,10 +2193,10 @@
 ,
 {
   "name": "97_structured_clone_edge",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
   "node": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
-  "rts": "date=undefined\nregex=undefined:undefined\nerror=Error:boom\nself=true"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -2361,10 +2361,10 @@
 ,
 {
   "name": "51_coercion_weird",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "plus_arr=\nplus_obj=[object Object]\nnum_empty=0\nnum_space=0\nnum_null=0\nnum_true=1\nstr_arr=1,,3\neq_a=true\neq_b=true\neq_c=true\neq_d=true",
   "node": "plus_arr=\nplus_obj=[object Object]\nnum_empty=0\nnum_space=0\nnum_null=0\nnum_true=1\nstr_arr=1,,3\neq_a=true\neq_b=true\neq_c=true\neq_d=true",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "plus_arr=\nplus_obj=[object Object]\nnum_empty=0\nnum_space=0\nnum_null=0\nnum_true=1\nstr_arr=1,,3\neq_a=true\neq_b=true\neq_c=true\neq_d=true"
 }
 ,
 {
@@ -2385,18 +2385,18 @@
 ,
 {
   "name": "claude-array-loose-equality",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue",
   "node": "true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue"
 }
 ,
 {
   "name": "claude-array-object-in-plus",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "\n[object Object]\n12\n1,23,4\n1\n12\n1\n31\nx\nx[object Object]",
   "node": "\n[object Object]\n12\n1,23,4\n1\n12\n1\n31\nx\nx[object Object]",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "\n[object Object]\n12\n1,23,4\n1\n12\n1\n31\nx\nx[object Object]"
 }
 ,
 {
@@ -2513,10 +2513,10 @@
 ,
 {
   "name": "claude-plus-null-undefined-coercion",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "NaN\n1\nNaN\n0\nNaN\n2\n0",
   "node": "NaN\n1\nNaN\n0\nNaN\n2\n0",
-  "rts": "1nullundefined\n1null\n1undefined\nnullnull\nundefined1\n2\nfalsenull"
+  "rts": "NaN\n1\nNaN\n0\nNaN\n2\n0"
 }
 ,
 {
@@ -2985,10 +2985,10 @@
 ,
 {
   "name": "claude-delete-return-value",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "true\ntrue\nfalse true\ntrue\n3\nfalse\n1,,3\nundefined\ntrue\n{\"inner\":{}}\ntrue\ntrue\nfalse",
   "node": "true\ntrue\nfalse true\ntrue\n3\nfalse\n1,,3\nundefined\ntrue\n{\"inner\":{}}\ntrue\ntrue\nfalse",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "true\ntrue\nfalse true\ntrue\n3\nfalse\n1,,3\nundefined\ntrue\n{\"inner\":{}}\ntrue\ntrue\nfalse"
 }
 ,
 {
@@ -3105,10 +3105,10 @@
 ,
 {
   "name": "codex_getownpropertydescriptor_array_length",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "3:true:false:false\nfalse\nTypeError\n1,2,3",
   "node": "3:true:false:false\nfalse\nTypeError\n1,2,3",
-  "rts": "undefined:undefined:undefined:undefined\nundefined\nundefined"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -3393,10 +3393,10 @@
 ,
 {
   "name": "codex_promise_all_order_thenables",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "slow,fast,then\nslow-start|thenable|slow-end",
   "node": "slow,fast,then\nslow-start|thenable|slow-end",
-  "rts": ""
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -3417,10 +3417,10 @@
 ,
 {
   "name": "codex_promise_reentrant_then_order",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "a,b,d,c",
   "node": "a,b,d,c",
-  "rts": "a,b,d"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -3753,10 +3753,10 @@
 ,
 {
   "name": "203_string_localecompare_numeric",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "alpha=1,10,2,20\nsimple=a,b,c\ncompare=-1\nequal=0\ngreater=1",
   "node": "alpha=1,10,2,20\nsimple=a,b,c\ncompare=-1\nequal=0\ngreater=1",
-  "rts": "alpha=10,2,1,20\nsimple=a,b,c\ncompare=-1\nequal=0\ngreater=1"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -3937,10 +3937,10 @@
 ,
 {
   "name": "claude-codepoint-iteration-emoji",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "4\n3\n[\"a\",\"😀\",\"b\"]\na|😀|b|\n[97,128512,98]\nd83d\nde00\n128512\ntrue\n3\n2",
   "node": "4\n3\n[\"a\",\"😀\",\"b\"]\na|😀|b|\n[97,128512,98]\nd83d\nde00\n128512\ntrue\n3\n2",
-  "rts": "4\n3\n[\"a\",\"��\",\"b\"]\na|😀|b|\n[null,null,null]\nundefined\nundefined\n128512\ntrue\n3\n2"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -3961,10 +3961,10 @@
 ,
 {
   "name": "claude-lone-surrogate-iteration",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "3\n3\n[97,55357,98]\n1 55357\n1 128512\n2 2\ntrue\ntrue",
   "node": "3\n3\n[97,55357,98]\n1 55357\n1 128512\n2 2\ntrue\ntrue",
-  "rts": "3\n3\n[null,null,null]\n1 65533\n1 128512\n2 2\ntrue\ntrue"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -4281,10 +4281,10 @@
 ,
 {
   "name": "296_delete_operator",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "obj=true:{\"b\":2}\narr=true:3:1||3",
   "node": "obj=true:{\"b\":2}\narr=true:3:1||3",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "obj=true:{\"b\":2}\narr=true:3:1||3"
 }
 ,
 {
@@ -4505,10 +4505,10 @@
 ,
 {
   "name": "claude-delete-operator",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "true\n1,undefined,3\nfalse\ntrue\n3\nundefined\nfalse\ntrue\ntrue\nfalse\ntrue\nfalse",
   "node": "true\n1,undefined,3\nfalse\ntrue\n3\nundefined\nfalse\ntrue\ntrue\nfalse\ntrue\nfalse",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "true\n1,undefined,3\nfalse\ntrue\n3\nundefined\nfalse\ntrue\ntrue\nfalse\ntrue\nfalse"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":294,"rts_diverge":133,"bun_node_diverge":18,"errors":164,"rejected":0}}
+],"summary":{"total":609,"pass":302,"rts_diverge":124,"bun_node_diverge":17,"errors":166,"rejected":0}}
