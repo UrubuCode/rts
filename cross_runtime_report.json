@@ -3500,7 +3500,7 @@
   "status": "rts_diverge",
   "bun": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
   "node": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
-  "rts": "2026-05-22\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\ndate: 2026-05-22 end\nundefined@undefined|undefined@undefined|undefined@undefined\n42\n\nundefined\nundefined"
+  "rts": "2026-05-22\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\ndate: 2026-05-22 end\nfoo@0-1.5e-323|bar@2e-323-3.5e-323|baz@4e-323-5.4e-323\n42\n\nundefined\nundefined"
 }
 ,
 {
@@ -3540,7 +3540,7 @@
   "status": "rts_diverge",
   "bun": "words=café|λ\nchars=A|😀|B\nnamed=λ",
   "node": "words=café|λ\nchars=A|😀|B\nnamed=λ",
-  "rts": "words=café|λ\nchars=||\nnamed=undefined"
+  "rts": "words=café|λ\nchars=A|😀|B\nnamed=undefined"
 }
 ,
 {
@@ -3569,10 +3569,10 @@
 ,
 {
   "name": "codex_regex_unicode_property_escape",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "A|Ω|Ж\nΩ|Ж|🙂",
   "node": "A|Ω|Ж\nΩ|Ж|🙂",
-  "rts": "||\n||"
+  "rts": "A|Ω|Ж\nΩ|Ж|🙂"
 }
 ,
 {
@@ -3865,10 +3865,10 @@
 ,
 {
   "name": "261_string_matchall",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "rows=aa-10:aa:10:aa|bb-20:bb:20:bb\nlastIndex=0",
   "node": "rows=aa-10:aa:10:aa|bb-20:bb:20:bb\nlastIndex=0",
-  "rts": "rows=undefined:undefined:undefined:undefined|undefined:undefined:undefined:undefined\nlastIndex=0"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":302,"rts_diverge":128,"bun_node_diverge":17,"errors":162,"rejected":0}}
+],"summary":{"total":609,"pass":303,"rts_diverge":126,"bun_node_diverge":17,"errors":163,"rejected":0}}
