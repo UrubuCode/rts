@@ -7,7 +7,7 @@
 ,
 {"name":"123_array_with","status":"pass","bun":"modified=1,2,99,4,5\noriginal=1,2,3,4,5\nnegative=1,2,3,4,88\nfirst=11,2,3,4,5","node":"modified=1,2,99,4,5\noriginal=1,2,3,4,5\nnegative=1,2,3,4,88\nfirst=11,2,3,4,5","rts":"modified=1,2,99,4,5\noriginal=1,2,3,4,5\nnegative=1,2,3,4,88\nfirst=11,2,3,4,5"}
 ,
-{"name":"125_array_includes","status":"rts_diverge","bun":"has2=true\nhas5=false\nhasNaN=true\nfrom2=false\nfrom0=true\nnegIdx=false\nstr_e=true\nstr_x=false\nstr_from=true","node":"has2=true\nhas5=false\nhasNaN=true\nfrom2=false\nfrom0=true\nnegIdx=false\nstr_e=true\nstr_x=false\nstr_from=true","rts":"has2=true\nhas5=false\nhasNaN=false\nfrom2=false\nfrom0=true\nnegIdx=false\nstr_e=true\nstr_x=false\nstr_from=true"}
+{"name":"125_array_includes","status":"pass","bun":"has2=true\nhas5=false\nhasNaN=true\nfrom2=false\nfrom0=true\nnegIdx=false\nstr_e=true\nstr_x=false\nstr_from=true","node":"has2=true\nhas5=false\nhasNaN=true\nfrom2=false\nfrom0=true\nnegIdx=false\nstr_e=true\nstr_x=false\nstr_from=true","rts":"has2=true\nhas5=false\nhasNaN=true\nfrom2=false\nfrom0=true\nnegIdx=false\nstr_e=true\nstr_x=false\nstr_from=true"}
 ,
 {"name":"127_array_fill","status":"pass","bun":"all=0,0,0,0,0\nfrom2=1,2,9,9,9\nrange=1,7,7,4,5\nnegative=1,2,3,8,8\nnew=3,3,3,3,3","node":"all=0,0,0,0,0\nfrom2=1,2,9,9,9\nrange=1,7,7,4,5\nnegative=1,2,3,8,8\nnew=3,3,3,3,3","rts":"all=0,0,0,0,0\nfrom2=1,2,9,9,9\nrange=1,7,7,4,5\nnegative=1,2,3,8,8\nnew=3,3,3,3,3"}
 ,
@@ -123,7 +123,7 @@
 ,
 {"name":"claude-holes-map-filter-foreach","status":"rts_diverge","bun":"5\n5\nfalse\n2,,6,,10\n2,,6,,10\n3\n3\n1,3,5","node":"5\n5\nfalse\n2,,6,,10\n2,,6,,10\n3\n3\n1,3,5","rts":"3\n3\nfalse\n2,6,10\n2,6,10\n3\n3\n1,3,5"}
 ,
-{"name":"claude-indexof-nan-and-negzero","status":"rts_diverge","bun":"-1\ntrue\n-1\n0\n0\ntrue\ntrue\n-Infinity","node":"-1\ntrue\n-1\n0\n0\ntrue\ntrue\n-Infinity","rts":"-1\nfalse\n-1\n0\n0\ntrue\ntrue\n-Infinity"}
+{"name":"claude-indexof-nan-and-negzero","status":"pass","bun":"-1\ntrue\n-1\n0\n0\ntrue\ntrue\n-Infinity","node":"-1\ntrue\n-1\n0\n0\ntrue\ntrue\n-Infinity","rts":"-1\ntrue\n-1\n0\n0\ntrue\ntrue\n-Infinity"}
 ,
 {"name":"claude-indexof-strict-no-coercion","status":"pass","bun":"0\n1\ntrue\n4\n6\n7\nfalse\nfalse","node":"0\n1\ntrue\n4\n6\n7\nfalse\nfalse","rts":"0\n1\ntrue\n4\n6\n7\nfalse\nfalse"}
 ,
@@ -185,11 +185,11 @@
 ,
 {"name":"370_advanced_classes","status":"bun_node_diverge","bun":"true\n{\"name\":\"Alice\",\"age\":30}\nfalse\n15 USD\nnegative amount\ncurrency mismatch","node":"__RUNTIME_ERROR__","rts":"__RUNTIME_ERROR__"}
 ,
-{"name":"371_private_fields_basic","status":"rts_diverge","bun":"6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20","node":"6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20","rts":"6\n4\n0\n0\ntrue\n1 2 3\n1\n10\n20"}
+{"name":"371_private_fields_basic","status":"pass","bun":"6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20","node":"6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20","rts":"6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20"}
 ,
 {"name":"372_private_methods","status":"rts_diverge","bun":"3\n1,2,3\n3\n2\n100\n373.15\n212\n273.15\n[INFO] ok\n20","node":"3\n1,2,3\n3\n2\n100\n373.15\n212\n273.15\n[INFO] ok\n20","rts":"3\n1,2,3\n3\n2\n100\n373.15\n212\n273.15\nundefined\n20"}
 ,
-{"name":"373_private_in_check","status":"rts_diverge","bun":"true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\nfalse\ntrue\nfalse\nWhiskers says meow\nRex says woof","node":"true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\nfalse\ntrue\nfalse\nWhiskers says meow\nRex says woof","rts":"true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\ntrue\ntrue\ntrue\nWhiskers says meow\nRex says woof"}
+{"name":"373_private_in_check","status":"pass","bun":"true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\nfalse\ntrue\nfalse\nWhiskers says meow\nRex says woof","node":"true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\nfalse\ntrue\nfalse\nWhiskers says meow\nRex says woof","rts":"true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\nfalse\ntrue\nfalse\nWhiskers says meow\nRex says woof"}
 ,
 {"name":"374_private_static_methods","status":"rts_error","bun":"Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown","node":"Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown","rts":"__RUNTIME_ERROR__"}
 ,
@@ -265,7 +265,7 @@
 ,
 {"name":"347_weak_collections","status":"pass","bun":"true\nvalue1\ntrue\n42\nfalse\nHi, I'm Alice, age 30\ntrue\ntrue\nfalse\nfalse","node":"true\nvalue1\ntrue\n42\nfalse\nHi, I'm Alice, age 30\ntrue\ntrue\nfalse\nfalse","rts":"true\nvalue1\ntrue\n42\nfalse\nHi, I'm Alice, age 30\ntrue\ntrue\nfalse\nfalse"}
 ,
-{"name":"406_map_set_key_identity_edges","status":"rts_diverge","bun":"4\nnan2\nzero:zero\no1:o2\n4:true:true","node":"4\nnan2\nzero:zero\no1:o2\n4:true:true","rts":"5\nundefined\nzero:zero\no1:o2\n5:false:true"}
+{"name":"406_map_set_key_identity_edges","status":"pass","bun":"4\nnan2\nzero:zero\no1:o2\n4:true:true","node":"4\nnan2\nzero:zero\no1:o2\n4:true:true","rts":"4\nnan2\nzero:zero\no1:o2\n4:true:true"}
 ,
 {"name":"89_groupby","status":"rts_error","bun":"obj={\"odd\":[1,3],\"even\":[2,4]}\nmap=1:1,3|0:2","node":"obj={\"odd\":[1,3],\"even\":[2,4]}\nmap=1:1,3|0:2","rts":"__RUNTIME_ERROR__"}
 ,
@@ -309,9 +309,9 @@
 ,
 {"name":"43_date_setters_deep","status":"pass","bun":"iso=2024-06-15T08:00:00.000Z\nmonth=5\ndate=15\nhours=8","node":"iso=2024-06-15T08:00:00.000Z\nmonth=5\ndate=15\nhours=8","rts":"iso=2024-06-15T08:00:00.000Z\nmonth=5\ndate=15\nhours=8"}
 ,
-{"name":"codex_date_invalid_setters_nan","status":"rts_error","bun":"true\nfalse\n2020-0-2\ntrue\nInvalid Date","node":"true\nfalse\n2020-0-2\ntrue\nInvalid Date","rts":"__RUNTIME_ERROR__"}
+{"name":"codex_date_invalid_setters_nan","status":"rts_diverge","bun":"true\nfalse\n2020-0-2\ntrue\nInvalid Date","node":"true\nfalse\n2020-0-2\ntrue\nInvalid Date","rts":"false\nfalse\n2020-0-2\nfalse"}
 ,
-{"name":"codex_date_utc_setter_overflow","status":"rts_error","bun":"2021-03-03T23:00:00.000Z\n2021-02-28T23:00:00.000Z\n2021-03-02T02:02:01.000Z","node":"2021-03-03T23:00:00.000Z\n2021-02-28T23:00:00.000Z\n2021-03-02T02:02:01.000Z","rts":"__RUNTIME_ERROR__"}
+{"name":"codex_date_utc_setter_overflow","status":"pass","bun":"2021-03-03T23:00:00.000Z\n2021-02-28T23:00:00.000Z\n2021-03-02T02:02:01.000Z","node":"2021-03-03T23:00:00.000Z\n2021-02-28T23:00:00.000Z\n2021-03-02T02:02:01.000Z","rts":"2021-03-03T23:00:00.000Z\n2021-02-28T23:00:00.000Z\n2021-03-02T02:02:01.000Z"}
 ,
 {"name":"158_encodeuri_decodeuri","status":"pass","bun":"encoded=https://example.com/path%20with%20spaces\ndecoded=https://example.com/path with spaces\ncomponent=hello%20world%20%26%20foo%3Dbar\ndecoded_comp=hello world & foo=bar\nslash=%2F\nquestion=%3F\namp=%26","node":"encoded=https://example.com/path%20with%20spaces\ndecoded=https://example.com/path with spaces\ncomponent=hello%20world%20%26%20foo%3Dbar\ndecoded_comp=hello world & foo=bar\nslash=%2F\nquestion=%3F\namp=%26","rts":"encoded=https://example.com/path%20with%20spaces\ndecoded=https://example.com/path with spaces\ncomponent=hello%20world%20%26%20foo%3Dbar\ndecoded_comp=hello world & foo=bar\nslash=%2F\nquestion=%3F\namp=%26"}
 ,
@@ -381,11 +381,11 @@
 ,
 {"name":"claude-nested-closure-multilevel","status":"pass","bun":"6\n60\n106\n108","node":"6\n60\n106\n108","rts":"6\n60\n106\n108"}
 ,
-{"name":"claude-nested-fn-producer-consumer-ok","status":"rts_error","bun":"filled=20 final_queued=20 rounds=4","node":"filled=20 final_queued=20 rounds=4","rts":"__RUNTIME_ERROR__"}
+{"name":"claude-nested-fn-producer-consumer-ok","status":"pass","bun":"filled=20 final_queued=20 rounds=4","node":"filled=20 final_queued=20 rounds=4","rts":"filled=20 final_queued=20 rounds=4"}
 ,
-{"name":"claude-nested-fn-same-name","status":"rts_error","bun":"a=1\nb=2","node":"a=1\nb=2","rts":"__RUNTIME_ERROR__"}
+{"name":"claude-nested-fn-same-name","status":"pass","bun":"a=1\nb=2","node":"a=1\nb=2","rts":"a=1\nb=2"}
 ,
-{"name":"claude-nested-fn-sibling-call","status":"rts_error","bun":"drained=8 remaining=0 iters=1","node":"drained=8 remaining=0 iters=1","rts":"__RUNTIME_ERROR__"}
+{"name":"claude-nested-fn-sibling-call","status":"pass","bun":"drained=8 remaining=0 iters=1","node":"drained=8 remaining=0 iters=1","rts":"drained=8 remaining=0 iters=1"}
 ,
 {"name":"claude-nested-loop-let-closures","status":"rts_error","bun":"0 1 10 11 20 21","node":"0 1 10 11 20 21","rts":"__RUNTIME_ERROR__"}
 ,
@@ -425,7 +425,7 @@
 ,
 {"name":"codex_async_generator_yield_await_finally","status":"rts_error","bun":"{\"value\":\"a\",\"done\":false}\n{\"value\":\"fin\",\"done\":false}\n{\"value\":\"ret\",\"done\":true}","node":"{\"value\":\"a\",\"done\":false}\n{\"value\":\"fin\",\"done\":false}\n{\"value\":\"ret\",\"done\":true}","rts":"__RUNTIME_ERROR__"}
 ,
-{"name":"codex_generator_delegation_exception_path","status":"rts_diverge","bun":"{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return","node":"{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return","rts":"{\"value\":1073741852,\"done\":false}\n{\"value\":{\"message\":\"E\",\"name\":\"Error\",\"stack\":\"\"},\"done\":true}\n{\"value\":\"R\",\"done\":true}"}
+{"name":"codex_generator_delegation_exception_path","status":"rts_diverge","bun":"{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return","node":"{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return","rts":"{\"value\":1073741853,\"done\":false}\n{\"value\":{\"message\":\"E\",\"name\":\"Error\",\"stack\":\"\"},\"done\":true}\n{\"value\":\"R\",\"done\":true}"}
 ,
 {"name":"codex_generator_finally_return","status":"pass","bun":"{\"value\":1,\"done\":false}\n{\"value\":99,\"done\":false}\n{\"value\":7,\"done\":true}","node":"{\"value\":1,\"done\":false}\n{\"value\":99,\"done\":false}\n{\"value\":7,\"done\":true}","rts":"{\"value\":1,\"done\":false}\n{\"value\":99,\"done\":false}\n{\"value\":7,\"done\":true}"}
 ,
@@ -543,7 +543,7 @@
 ,
 {"name":"61_structured_clone","status":"pass","bun":"orig_list=1,2,3\ncopy_list=1,2,3,4\norig_map=a:1,b:2\ncopy_map=a:1,b:2,c:3\norig_set=x,y\ncopy_set=x,y,z","node":"orig_list=1,2,3\ncopy_list=1,2,3,4\norig_map=a:1,b:2\ncopy_map=a:1,b:2,c:3\norig_set=x,y\ncopy_set=x,y,z","rts":"orig_list=1,2,3\ncopy_list=1,2,3,4\norig_map=a:1,b:2\ncopy_map=a:1,b:2,c:3\norig_set=x,y\ncopy_set=x,y,z"}
 ,
-{"name":"77_domexception","status":"rts_error","bun":"name=AbortError\nmsg=nope\ncode=20","node":"name=AbortError\nmsg=nope\ncode=20","rts":"__RUNTIME_ERROR__"}
+{"name":"77_domexception","status":"pass","bun":"name=AbortError\nmsg=nope\ncode=20","node":"name=AbortError\nmsg=nope\ncode=20","rts":"name=AbortError\nmsg=nope\ncode=20"}
 ,
 {"name":"87_modern_helpers","status":"pass","bun":"has=true\ncan=true","node":"has=true\ncan=true","rts":"has=true\ncan=true"}
 ,
@@ -591,7 +591,7 @@
 ,
 {"name":"51_coercion_weird","status":"pass","bun":"plus_arr=\nplus_obj=[object Object]\nnum_empty=0\nnum_space=0\nnum_null=0\nnum_true=1\nstr_arr=1,,3\neq_a=true\neq_b=true\neq_c=true\neq_d=true","node":"plus_arr=\nplus_obj=[object Object]\nnum_empty=0\nnum_space=0\nnum_null=0\nnum_true=1\nstr_arr=1,,3\neq_a=true\neq_b=true\neq_c=true\neq_d=true","rts":"plus_arr=\nplus_obj=[object Object]\nnum_empty=0\nnum_space=0\nnum_null=0\nnum_true=1\nstr_arr=1,,3\neq_a=true\neq_b=true\neq_c=true\neq_d=true"}
 ,
-{"name":"95_nan_negative_zero","status":"rts_diverge","bun":"is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=nan\nmap_zero=neg\nset_size=2","node":"is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=nan\nmap_zero=neg\nset_size=2","rts":"is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=undefined\nmap_zero=neg\nset_size=3"}
+{"name":"95_nan_negative_zero","status":"pass","bun":"is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=nan\nmap_zero=neg\nset_size=2","node":"is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=nan\nmap_zero=neg\nset_size=2","rts":"is_nan=true\nis_neg0=false\ndiv_neg0=-Infinity\nsign_neg0=0\nmap_nan=nan\nmap_zero=neg\nset_size=2"}
 ,
 {"name":"claude-arith-operators-tonumber-strings","status":"pass","bun":"5\n20\n2.5\n2\n10\nNaN\n102\n102\n3\n3\nNaN\n10","node":"5\n20\n2.5\n2\n10\nNaN\n102\n102\n3\n3\nNaN\n10","rts":"5\n20\n2.5\n2\n10\nNaN\n102\n102\n3\n3\nNaN\n10"}
 ,
@@ -611,7 +611,7 @@
 ,
 {"name":"claude-loose-vs-strict-string-number","status":"pass","bun":"true\ntrue\nfalse\ntrue\nfalse\nfalse\ntrue\nfalse\ntrue\ntrue\ntrue","node":"true\ntrue\nfalse\ntrue\nfalse\nfalse\ntrue\nfalse\ntrue\ntrue\ntrue","rts":"true\ntrue\nfalse\ntrue\nfalse\nfalse\ntrue\nfalse\ntrue\ntrue\ntrue"}
 ,
-{"name":"claude-math-ceil-floor-neg-zero","status":"rts_diverge","bun":"true\n-0\n-0\ntrue\n-2\n2\ntrue\n-0\n0\n1.5\nNaN\n-2\n0.5\n4\n3","node":"true\n-0\n-0\ntrue\n-2\n2\ntrue\n-0\n0\n1.5\nNaN\n-2\n0.5\n4\n3","rts":"true\n-0\n-0\ntrue\n-2\n2\nfalse\n0\n0\n1.5\nNaN\n-2\n0.5\n4\n3"}
+{"name":"claude-math-ceil-floor-neg-zero","status":"pass","bun":"true\n-0\n-0\ntrue\n-2\n2\ntrue\n-0\n0\n1.5\nNaN\n-2\n0.5\n4\n3","node":"true\n-0\n-0\ntrue\n-2\n2\ntrue\n-0\n0\n1.5\nNaN\n-2\n0.5\n4\n3","rts":"true\n-0\n-0\ntrue\n-2\n2\ntrue\n-0\n0\n1.5\nNaN\n-2\n0.5\n4\n3"}
 ,
 {"name":"claude-math-round-neg-zero","status":"pass","bun":"-0\ntrue\n1\n-1\n3\n-2\n-0\ntrue\n-4\n4\ntrue\n-1\n0\ntrue\nNaN","node":"-0\ntrue\n1\n-1\n3\n-2\n-0\ntrue\n-4\n4\ntrue\n-1\n0\ntrue\nNaN","rts":"-0\ntrue\n1\n-1\n3\n-2\n-0\ntrue\n-4\n4\ntrue\n-1\n0\ntrue\nNaN"}
 ,
@@ -839,7 +839,7 @@
 ,
 {"name":"365_async_patterns","status":"rts_error","bun":"6\n60\nfulfilled:ok|rejected:fail|fulfilled:also ok\ncaught:bad input\nsuccess\n3\n1,2,3,4,5\nfast","node":"6\n60\nfulfilled:ok|rejected:fail|fulfilled:also ok\ncaught:bad input\nsuccess\n3\n1,2,3,4,5\nfast","rts":"__RUNTIME_ERROR__"}
 ,
-{"name":"410_promise_thenable_assimilation","status":"rts_diverge","bun":"then|value:ok|next","node":"then|value:ok|next","rts":"value:[object Object]|"}
+{"name":"410_promise_thenable_assimilation","status":"pass","bun":"then|value:ok|next","node":"then|value:ok|next","rts":"then|value:ok|next"}
 ,
 {"name":"42_promise_deep","status":"rts_error","bun":"one=3\ntwo=5\nall=a,b\nasync=9","node":"one=3\ntwo=5\nall=a,b\nasync=9","rts":"__RUNTIME_ERROR__"}
 ,
@@ -857,11 +857,11 @@
 ,
 {"name":"codex_promise_then_getter_throws","status":"rts_error","bun":"nope","node":"nope","rts":"__RUNTIME_ERROR__"}
 ,
-{"name":"codex_then_getter_called_once","status":"rts_diverge","bun":"ok\n1","node":"ok\n1","rts":"{ __get_then: function }\n0"}
+{"name":"codex_then_getter_called_once","status":"rts_diverge","bun":"ok\n1","node":"ok\n1","rts":"ok\n2"}
 ,
 {"name":"170_regexp_flags","status":"pass","bun":"source=abc\nflags=gi\nglobal=true\nignoreCase=true\nmultiline=false\nmultiline2=true\nglobal2=false\nflags3=gi\nsource3=hello","node":"source=abc\nflags=gi\nglobal=true\nignoreCase=true\nmultiline=false\nmultiline2=true\nglobal2=false\nflags3=gi\nsource3=hello","rts":"source=abc\nflags=gi\nglobal=true\nignoreCase=true\nmultiline=false\nmultiline2=true\nglobal2=false\nflags3=gi\nsource3=hello"}
 ,
-{"name":"171_regexp_lastindex","status":"rts_diverge","bun":"lastIndex_init=0\nmatch1=1\nlastIndex1=2\nmatch2=2\nlastIndex2=4\nmatch3=3\nlastIndex3=6\nmatch4=null\nlastIndex4=0","node":"lastIndex_init=0\nmatch1=1\nlastIndex1=2\nmatch2=2\nlastIndex2=4\nmatch3=3\nlastIndex3=6\nmatch4=null\nlastIndex4=0","rts":"lastIndex_init=0\nmatch1=1\nlastIndex1=0\nmatch2=1\nlastIndex2=0\nmatch3=1\nlastIndex3=0\nmatch4=1,2,3\nlastIndex4=0"}
+{"name":"171_regexp_lastindex","status":"rts_diverge","bun":"lastIndex_init=0\nmatch1=1\nlastIndex1=2\nmatch2=2\nlastIndex2=4\nmatch3=3\nlastIndex3=6\nmatch4=null\nlastIndex4=0","node":"lastIndex_init=0\nmatch1=1\nlastIndex1=2\nmatch2=2\nlastIndex2=4\nmatch3=3\nlastIndex3=6\nmatch4=null\nlastIndex4=0","rts":"lastIndex_init=0\nmatch1=1\nlastIndex1=0\nmatch2=1\nlastIndex2=0\nmatch3=1\nlastIndex3=0\nmatch4=\nlastIndex4=0"}
 ,
 {"name":"18_regex_methods","status":"pass","bun":"test=true\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c","node":"test=true\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c","rts":"test=true\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c"}
 ,
@@ -873,23 +873,23 @@
 ,
 {"name":"366_regex_advanced","status":"rts_error","bun":"2026\n05\n22\n22/05/2026\n$10,$20,$40\nfoo,food\ncat=5\ndog=3\nbird=8\n123\n7\nhello ? world\na|1|b|2|c|3|\nHello World Foo","node":"2026\n05\n22\n22/05/2026\n$10,$20,$40\nfoo,food\ncat=5\ndog=3\nbird=8\n123\n7\nhello ? world\na|1|b|2|c|3|\nHello World Foo","rts":"__RUNTIME_ERROR__"}
 ,
-{"name":"39_regex_deep","status":"rts_diverge","bun":"test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true","node":"test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true","rts":"test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=item-99\nlast1=0\ng2=item-99\nlast2=0\nflag_m=true\nflag_s=true"}
+{"name":"39_regex_deep","status":"rts_diverge","bun":"test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true","node":"test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true","rts":"test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=0\ng2=42\nlast2=0\nflag_m=true\nflag_s=true"}
 ,
-{"name":"395_regex_d_flag","status":"rts_diverge","bun":"2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined","node":"2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined","rts":"2026-05-22\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\ndate: 2026-05-22 end\nfoo@0-1.5e-323|bar@2e-323-3.5e-323|baz@4e-323-5.4e-323\n42\n\nundefined\nundefined"}
+{"name":"395_regex_d_flag","status":"rts_error","bun":"2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined","node":"2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined","rts":"__RUNTIME_ERROR__"}
 ,
 {"name":"404_regexp_replace_named_callback","status":"rts_error","bun":"RED@0=11 BLUE@7=21\n[a]ab[a]a","node":"RED@0=11 BLUE@7=21\n[a]ab[a]a","rts":"__RUNTIME_ERROR__"}
 ,
-{"name":"70_regex_indices","status":"rts_diverge","bun":"indices=[[1,4],[2,3],[3,4]]","node":"indices=[[1,4],[2,3],[3,4]]","rts":"indices=undefined"}
+{"name":"70_regex_indices","status":"rts_diverge","bun":"indices=[[1,4],[2,3],[3,4]]","node":"indices=[[1,4],[2,3],[3,4]]","rts":"indices={}"}
 ,
-{"name":"81_regex_named_groups","status":"rts_diverge","bun":"word=abbb","node":"word=abbb","rts":"word=undefined"}
+{"name":"81_regex_named_groups","status":"pass","bun":"word=abbb","node":"word=abbb","rts":"word=abbb"}
 ,
-{"name":"99_regexp_unicode","status":"rts_diverge","bun":"words=café|λ\nchars=A|😀|B\nnamed=λ","node":"words=café|λ\nchars=A|😀|B\nnamed=λ","rts":"words=café|λ\nchars=A|😀|B\nnamed=undefined"}
+{"name":"99_regexp_unicode","status":"rts_error","bun":"words=café|λ\nchars=A|😀|B\nnamed=λ","node":"words=café|λ\nchars=A|😀|B\nnamed=λ","rts":"__RUNTIME_ERROR__"}
 ,
-{"name":"codex_regex_indices_named_groups","status":"rts_diverge","bun":"aaab:2\n[2,6]\n[2,5]\naaa","node":"aaab:2\n[2,6]\n[2,5]\naaa","rts":"aaab:undefined\nundefined\nundefined\nundefined"}
+{"name":"codex_regex_indices_named_groups","status":"rts_diverge","bun":"aaab:2\n[2,6]\n[2,5]\naaa","node":"aaab:2\n[2,6]\n[2,5]\naaa","rts":"aaab:2\n[1e-323,3e-323]\n[1e-323,2.5e-323]\naaa"}
 ,
 {"name":"codex_regex_replace_zero_length_global","status":"rts_error","bun":"|a|b\n0:0,1:0","node":"|a|b\n0:0,1:0","rts":"__RUNTIME_ERROR__"}
 ,
-{"name":"codex_regex_sticky_lastindex_unicode","status":"rts_diverge","bun":"true:3\ntrue:5\nfalse:0\nabc:5","node":"true:3\ntrue:5\nfalse:0\nabc:5","rts":"true:0\ntrue:0\ntrue:0\nundefined:0"}
+{"name":"codex_regex_sticky_lastindex_unicode","status":"rts_diverge","bun":"true:3\ntrue:5\nfalse:0\nabc:5","node":"true:3\ntrue:5\nfalse:0\nabc:5","rts":"true:0\ntrue:0\ntrue:0\nabc:0"}
 ,
 {"name":"codex_regex_unicode_property_escape","status":"pass","bun":"A|Ω|Ж\nΩ|Ж|🙂","node":"A|Ω|Ж\nΩ|Ж|🙂","rts":"A|Ω|Ж\nΩ|Ж|🙂"}
 ,
@@ -915,7 +915,7 @@
 ,
 {"name":"133_string_repeat","status":"pass","bun":"repeat3=abcabcabc\nrepeat0=\nrepeat1=abc\nempty=\nspace=     x\nline=----------\nindent=      text","node":"repeat3=abcabcabc\nrepeat0=\nrepeat1=abc\nempty=\nspace=     x\nline=----------\nindent=      text","rts":"repeat3=abcabcabc\nrepeat0=\nrepeat1=abc\nempty=\nspace=     x\nline=----------\nindent=      text"}
 ,
-{"name":"140_string_charat_charcodeat","status":"rts_diverge","bun":"charAt0=h\ncharAt4=o\ncharAt10=\ncharCodeAt0=104\ncharCodeAt4=111\ncharCodeAt10=NaN\nemoji_charAt=�\nemoji_code=55357\nbracket=h\nbracket_out=undefined","node":"charAt0=h\ncharAt4=o\ncharAt10=\ncharCodeAt0=104\ncharCodeAt4=111\ncharCodeAt10=NaN\nemoji_charAt=�\nemoji_code=55357\nbracket=h\nbracket_out=undefined","rts":"charAt0=h\ncharAt4=o\ncharAt10=\ncharCodeAt0=104\ncharCodeAt4=111\ncharCodeAt10=-1\nemoji_charAt=�\nemoji_code=55357\nbracket=h\nbracket_out="}
+{"name":"140_string_charat_charcodeat","status":"pass","bun":"charAt0=h\ncharAt4=o\ncharAt10=\ncharCodeAt0=104\ncharCodeAt4=111\ncharCodeAt10=NaN\nemoji_charAt=�\nemoji_code=55357\nbracket=h\nbracket_out=undefined","node":"charAt0=h\ncharAt4=o\ncharAt10=\ncharCodeAt0=104\ncharCodeAt4=111\ncharCodeAt10=NaN\nemoji_charAt=�\nemoji_code=55357\nbracket=h\nbracket_out=undefined","rts":"charAt0=h\ncharAt4=o\ncharAt10=\ncharCodeAt0=104\ncharCodeAt4=111\ncharCodeAt10=NaN\nemoji_charAt=�\nemoji_code=55357\nbracket=h\nbracket_out=undefined"}
 ,
 {"name":"141_string_concat","status":"pass","bun":"concat=hello world\nconcat_empty=hello\nconcat_multi=abcd\nplus=hello world\nwith_num=value:42","node":"concat=hello world\nconcat_empty=hello\nconcat_multi=abcd\nplus=hello world\nwith_num=value:42","rts":"concat=hello world\nconcat_empty=hello\nconcat_multi=abcd\nplus=hello world\nwith_num=value:42"}
 ,
@@ -931,7 +931,7 @@
 ,
 {"name":"194_string_normalize","status":"pass","bun":"length1=4\nnfc=4\nnfd=5\ndefault=4\nsimple=hello","node":"length1=4\nnfc=4\nnfd=5\ndefault=4\nsimple=hello","rts":"length1=4\nnfc=4\nnfd=5\ndefault=4\nsimple=hello"}
 ,
-{"name":"195_string_codepointat","status":"rts_diverge","bun":"h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357","node":"h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357","rts":"h=104\ne=101\no=111\nout=281474976711128\nemoji=128512\nA=65\ncharCode=55357"}
+{"name":"195_string_codepointat","status":"rts_diverge","bun":"h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357","node":"h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357","rts":"h=104\ne=101\no=111\nout=281474976711152\nemoji=128512\nA=65\ncharCode=55357"}
 ,
 {"name":"196_string_fromcodepoint","status":"pass","bun":"ABC=ABC\nhello=hello\nemoji=😀\nmulti=😀A😁\ncharCode=","node":"ABC=ABC\nhello=hello\nemoji=😀\nmulti=😀A😁\ncharCode=","rts":"ABC=ABC\nhello=hello\nemoji=😀\nmulti=😀A😁\ncharCode="}
 ,
@@ -961,7 +961,7 @@
 ,
 {"name":"244_string_valueof","status":"pass","bun":"valueOf=hello\nsame_type=true\nobj_type=true\nprimitive=world\nsame=true","node":"valueOf=hello\nsame_type=true\nobj_type=true\nprimitive=world\nsame=true","rts":"valueOf=hello\nsame_type=true\nobj_type=true\nprimitive=world\nsame=true"}
 ,
-{"name":"252_string_match_groups","status":"rts_diverge","bun":"found=true\nvalue=world\nindex=6\ninput=hello world\nnoMatch=null","node":"found=true\nvalue=world\nindex=6\ninput=hello world\nnoMatch=null","rts":"found=true\nvalue=world\nindex=undefined\ninput=undefined\nnoMatch=null"}
+{"name":"252_string_match_groups","status":"pass","bun":"found=true\nvalue=world\nindex=6\ninput=hello world\nnoMatch=null","node":"found=true\nvalue=world\nindex=6\ninput=hello world\nnoMatch=null","rts":"found=true\nvalue=world\nindex=6\ninput=hello world\nnoMatch=null"}
 ,
 {"name":"256_string_replace_function","status":"rts_error","bun":"replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John","node":"replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John","rts":"__RUNTIME_ERROR__"}
 ,
@@ -1191,11 +1191,11 @@
 ,
 {"name":"287_url_canparse","status":"pass","bun":"abs=true\nrel=true\nbad=false","node":"abs=true\nrel=true\nbad=false","rts":"abs=true\nrel=true\nbad=false"}
 ,
-{"name":"55_url_searchparams","status":"rts_diverge","bun":"host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4","node":"host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4","rts":"host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=undefined\nquery=1.390671161569446e-309,1.39067116156945e-309,1.390671161569456e-309,1.39067116156946e-309\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4"}
+{"name":"55_url_searchparams","status":"rts_diverge","bun":"host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4","node":"host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4","rts":"host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=undefined\nquery=1.390671161569565e-309,1.39067116156957e-309,1.390671161569575e-309,1.39067116156958e-309\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4"}
 ,
 {"name":"67_url_patternish","status":"rts_diverge","bun":"href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/space%20here?q=a%2Bb+c","node":"href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/space%20here?q=a%2Bb+c","rts":"href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/"}
 ,
-{"name":"80_urlsearchparams_sort","status":"rts_error","bun":"query=x=1+2&x=3","node":"query=x=1+2&x=3","rts":"__RUNTIME_ERROR__"}
+{"name":"80_urlsearchparams_sort","status":"pass","bun":"query=x=1+2&x=3","node":"query=x=1+2&x=3","rts":"query=x=1+2&x=3"}
 ,
 {"name":"codex_url_percent_invalid_sequences","status":"pass","bun":"/a/%zz/%E0%A4%A\n?x=%zz\nhttps://x.test/a/%zz/%E0%A4%A?x=%zz","node":"/a/%zz/%E0%A4%A\n?x=%zz\nhttps://x.test/a/%zz/%E0%A4%A?x=%zz","rts":"/a/%zz/%E0%A4%A\n?x=%zz\nhttps://x.test/a/%zz/%E0%A4%A?x=%zz"}
 ,
@@ -1217,4 +1217,4 @@
 ,
 {"name":"85_request_response","status":"rts_error","bun":"ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi","node":"ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi","rts":"__RUNTIME_ERROR__"}
 
-],"summary":{"total":609,"pass":306,"rts_diverge":123,"bun_node_diverge":17,"errors":163,"rejected":0}}
+],"summary":{"total":609,"pass":323,"rts_diverge":111,"bun_node_diverge":17,"errors":158,"rejected":0}}
