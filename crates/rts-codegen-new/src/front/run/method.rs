@@ -449,6 +449,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
         // ---- explicit args ----
         for (a, &want) in args.iter().zip(spec.args) {
+            // A REGEX-valued arg into a Handle slot (`s.matchAll(re)` where the
+            // pattern rides an `_AUTO` string|RegExp member): the real
+            // `Entry::Regex` handle — the runtime dispatches by entry kind.
+            if matches!(want, AbiType::Handle) && self.is_regex_value(a) {
+                let re = self.lower_regex_value(module, a)?;
+                let word = self.box_value(re);
+                call_args.push(emit_marshal::emit_table_load(module, self.builder, word));
+                continue;
+            }
             let v = self.lower_expr(module, a)?;
             let marshaled = self.marshal_arg(module, v, want)?;
             call_args.push(marshaled);
