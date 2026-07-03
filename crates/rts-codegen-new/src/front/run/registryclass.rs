@@ -161,7 +161,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             Some(DefaultArg::Undefined) => {
                 let undef = value::PolyValue::undefined().raw() as i64;
                 let w = self.builder.ins().iconst(types::I64, undef);
-                Val::tagged_kind(w, JsKind::Number)
+                // Kind Undefined: the StrPtr marshal maps a defaulted string
+                // slot to "" (not the "undefined" text); numeric slots decode
+                // the sentinel NaN as before.
+                Val::tagged_kind(w, JsKind::Undefined)
             }
             _ => {
                 return unsupported!("`{class}(..)` — argument {i} has no spec default");

@@ -456,6 +456,7 @@ fn math_op(method: &str) -> Option<MathOp> {
         "cosh" => Sym("__RTS_FN_NS_MATH_COSH", 1),
         "tanh" => Sym("__RTS_FN_NS_MATH_TANH", 1),
         "fround" => Sym("__RTS_FN_NS_MATH_FROUND", 1),
+        "f16round" => Sym("__RTS_FN_NS_MATH_F16ROUND", 1),
         // ---- 2-arg f64→f64 ----
         "pow" => Sym("__RTS_FN_NS_MATH_POW", 2),
         "atan2" => Sym("__RTS_FN_NS_MATH_ATAN2", 2),

@@ -1032,7 +1032,8 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         | "__RTS_FN_NS_MATH_SINH"
         | "__RTS_FN_NS_MATH_COSH"
         | "__RTS_FN_NS_MATH_TANH"
-        | "__RTS_FN_NS_MATH_FROUND" => SymSig {
+        | "__RTS_FN_NS_MATH_FROUND"
+        | "__RTS_FN_NS_MATH_F16ROUND" => SymSig {
             params: &[F64],
             ret: F64,
         },

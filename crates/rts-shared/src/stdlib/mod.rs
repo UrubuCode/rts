@@ -46,6 +46,9 @@ pub const REFLECT_TS: &str = include_str!("reflect.ts");
 /// here — `structuredClone(x)` is an ordinary call of this ambient function.
 pub const STRUCTURED_CLONE_TS: &str = include_str!("structured_clone.ts");
 
+/// DOMException — web exception class (name/message/legacy code), ambient.
+pub const DOMEXCEPTION_TS: &str = include_str!("domexception.ts");
+
 /// The global `performance` object (`now()` monotonic ms + `timeOrigin` epoch) —
 /// a rts-shared backend utility (no native syntax). A `.ts` singleton like
 /// `console`, reading the PRIVATE `engine.now_ms`/`unix_ms` clock bridges.

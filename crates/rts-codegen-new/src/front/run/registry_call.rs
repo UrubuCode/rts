@@ -68,6 +68,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 }
             }
             AbiType::StrPtr => {
+                // A spec-DEFAULTED omitted string arg (DefaultArg::Undefined on a
+                // StrPtr slot - `new URLSearchParams()`): the EMPTY string, not
+                // the "undefined" text ToString would render.
+                if matches!(val.kind, JsKind::Undefined) {
+                    let pv = crate::value::abi_adapter::intern_poly("");
+                    let w = self.builder.ins().iconst(types::I64, pv.raw() as i64);
+                    let handle = value::emit_marshal::emit_table_load(module, self.builder, w);
+                    let (ptr, len) =
+                        value::emit_marshal::emit_string_ptr_len(module, self.builder, handle);
+                    out.push(ptr);
+                    out.push(len);
+                    return Ok(());
+                }
                 // A StrPtr param needs a real string handle behind the value. A
                 // PROVEN string rides its word directly; a Tagged/typed value whose
                 // kind is lost at a function boundary (a `string`-typed param, an

@@ -9,7 +9,7 @@
 
 pub mod instance;
 
-use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+use rts_engine::{AbiType, DefaultArg, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 /// Endereço real do extern `__RTS_FN_GL_URL_*` / `__RTS_FN_GL_USP_*` (vivem em
 /// `instance.rs`, neste mesmo crate). Os membros eram `external` (fn_ptr null) e
@@ -370,7 +370,11 @@ pub fn register_urlsp_class_spec(e: &mut Engine) {
         .member(m(
             "new",
             MemberKind::Constructor,
-            Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
+            Sig::with_defaults(
+                vec![AbiType::StrPtr],
+                AbiType::Handle,
+                vec![DefaultArg::Undefined],
+            ),
             "__RTS_FN_GL_USP_NEW",
             "new URLSearchParams(init?: string): URLSearchParams",
             "new URLSearchParams(init?) — init e' string \"a=1&b=2\".",
