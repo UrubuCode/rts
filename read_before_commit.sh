@@ -47,7 +47,17 @@ HARD_FAIL=0
 # syntax), so it is NOT forbidden here. Symbol is a PRIMORDIAL (a fundamental
 # language built-in with a unique primitive type + `typeof "symbol"`); the engine
 # MAY name it (its impl/metadata still live in rts-shared, like every primitive).
-NONPRIMORDIAL='Map|Set|WeakMap|WeakSet|WeakRef|FinalizationRegistry|Date|URL|URLSearchParams|BigInt|Intl|Proxy|Reflect|DataView|ArrayBuffer|SharedArrayBuffer|TextEncoder|TextDecoder|EventTarget|Headers|FormData|ReadableStream'
+# PRIMORDIAL since 2026-07-03 (owner decision) — they define/intercept the
+# VALUE MODEL itself, so the engine MAY name them (impls stay in the runtime
+# layer): BigInt (new primitive, `123n`, typeof "bigint"), Proxy (traps the
+# engine's own property paths consult), Reflect (1:1 mirrors of the engine's
+# internal ops), ArrayBuffer/SharedArrayBuffer/DataView/TypedArrays (the raw
+# MEMORY model; ta indexing is engine-lowered), Atomics (memory-model ops),
+# WeakRef/FinalizationRegistry (GC-coupled, #217), Math (its core ops are IR
+# intrinsics already). Iterator/generator PROTOCOL is primordial (engine
+# interactions); the API bodies stay in classes so the surface can evolve
+# without touching the engine.
+NONPRIMORDIAL='Map|Set|WeakMap|WeakSet|Date|URL|URLSearchParams|Intl|TextEncoder|TextDecoder|EventTarget|Headers|FormData|ReadableStream'
 
 # ---------------------------------------------------------------------------
 hdr "1/5  Forbidden crate dependencies (HARD)"

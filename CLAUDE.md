@@ -256,16 +256,32 @@ engine** — only metadata in the Registry.
 - **Primordial set** (engine MAY name): `String`, `Object`, `Array`, `Function`,
   `Promise`, `Boolean`, `Number`, `Error` (+ `TypeError`/`RangeError`/
   `ReferenceError`/`SyntaxError`/`URIError`/`EvalError`/`AggregateError`),
-  `Symbol`. **`Symbol` is PRIMORDIAL** — a fundamental language built-in with a
-  unique primitive type and `typeof x === "symbol"`. The engine MAY name it
-  (route `Symbol(desc)` / `Symbol.for` / `.description` directly); its impl +
-  spec metadata still live in `rts-shared` (`globals/symbol`), like every
-  primitive's impl. (Reclassified 2026-06-26 — was Registry-only.)
+  `Symbol`, `BigInt`, `Proxy`, `Reflect`. **`Symbol` is PRIMORDIAL** — a
+  fundamental language built-in with a unique primitive type and
+  `typeof x === "symbol"`. The engine MAY name it (route `Symbol(desc)` /
+  `Symbol.for` / `.description` directly); its impl + spec metadata still live
+  in `rts-shared` (`globals/symbol`), like every primitive's impl.
+  (Reclassified 2026-06-26 — was Registry-only.) **Reclassified 2026-07-03
+  (owner decision) — also PRIMORDIAL**: `BigInt` (new primitive type,
+  `typeof "bigint"`, native `123n` syntax the generic operators tag-dispatch),
+  `Proxy` (traps the engine's own property paths consult — obj_get/idx_get/
+  fn_invoke already route `proxy_parts`), `Reflect` (1:1 mirrors of the
+  engine's internal ops [[Get]]/[[Set]]/[[OwnKeys]]/[[Construct]]),
+  `ArrayBuffer`/`SharedArrayBuffer`/`DataView`/TypedArrays (`Int8Array`…
+  `Float64Array`, `BigInt64Array`/`BigUint64Array`, `Uint8ClampedArray` — the
+  raw MEMORY model; element indexing is engine-lowered), `Atomics`
+  (memory-model operations), `WeakRef`/`FinalizationRegistry` (GC-coupled,
+  #217), `Math` (formalization — its core ops are already IR intrinsics).
+  Iterator/generator PROTOCOL is primordial (the engine owns the
+  interactions); the API bodies stay in classes so the main API surface can
+  evolve without touching the engine. The rule of thumb: **primordial =
+  defines or intercepts what a VALUE is (tag, trap, internal op, memory, GC);
+  Registry = operates over existing values.** Impls still live in the runtime
+  layer.
 - **Everything else = Registry only** (engine MUST NOT name): `Map`, `Set`,
-  `WeakMap`/`WeakSet`/`WeakRef`/`FinalizationRegistry`, `RegExp`, `Date`,
-  `URL`, `BigInt`, `Intl.*`, `Proxy`, `Reflect`, `DataView`/
-  `ArrayBuffer`, and all backend classes (Console/Fetch/Timers/Performance/Blob/
-  TextEncoder/Decoder/EventTarget/Headers/FormData/ReadableStream*/etc.).
+  `WeakMap`/`WeakSet`, `Date`, `URL`, `Intl.*`, and all backend classes
+  (Console/Fetch/Timers/Performance/Blob/TextEncoder/Decoder/EventTarget/
+  Headers/FormData/ReadableStream*/etc.).
 - **A direct mention of a non-primordial class in codegen = REGRESSION** to drain.
 - The mechanism in the runtime layer: declare a class's metadata on the spec
   (`ClassBuilder::instanceof_predicate`, member symbols, `default_args`, flags)

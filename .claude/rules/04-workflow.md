@@ -114,7 +114,10 @@ It enforces the binding rules as a commit gate:
 - **REVIEW (read every entry; the list must shrink, never grow):** a
   non-primordial class named in codegen (`Map`/`Set`/`Date`/`URL`/… — must
   resolve via the Registry, never a hardcoded per-class path; `Symbol` is
-  PRIMORDIAL since 2026-06-26, engine MAY name it; current draining
+  PRIMORDIAL since 2026-06-26; since 2026-07-03 also BigInt/Proxy/Reflect/
+  ArrayBuffer/SharedArrayBuffer/DataView/TypedArrays/Atomics/WeakRef/
+  FinalizationRegistry/Math — they define/intercept the value model, engine
+  MAY name them (see CLAUDE.md doctrine); current draining
   targets `dateclass.rs`, `globalclass.rs`); any source file **> 500 lines**
   (split into a folder/subfolder of cohesive submodules — never append to an
   already-oversized file).
