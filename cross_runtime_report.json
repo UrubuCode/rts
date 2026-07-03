@@ -2980,7 +2980,7 @@
   "status": "rts_diverge",
   "bun": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
   "node": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
-  "rts": "keys=a\nvals={\"a\":1}\nlog=ownKeys|desc:a|desc:b|def:c=undefined|del:b|ownKeys|desc:a|ownKeys|desc:a"
+  "rts": "keys=a\nvals={\"a\":1}\nlog=ownKeys|desc:a|desc:b|def:c=undefined|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c"
 }
 ,
 {
