@@ -857,10 +857,10 @@
 ,
 {
   "name": "371_private_fields_basic",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20",
   "node": "6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20",
-  "rts": "6\n4\n0\n0\ntrue\n1 2 3\n1\n10\n20"
+  "rts": "6\n4\n0\nundefined\nfalse\n1 2 3\n1\n10\n20"
 }
 ,
 {
@@ -873,10 +873,10 @@
 ,
 {
   "name": "373_private_in_check",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\nfalse\ntrue\nfalse\nWhiskers says meow\nRex says woof",
   "node": "true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\nfalse\ntrue\nfalse\nWhiskers says meow\nRex says woof",
-  "rts": "true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\ntrue\ntrue\ntrue\nWhiskers says meow\nRex says woof"
+  "rts": "true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\nfalse\ntrue\nfalse\nWhiskers says meow\nRex says woof"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":306,"rts_diverge":123,"bun_node_diverge":17,"errors":163,"rejected":0}}
+],"summary":{"total":609,"pass":308,"rts_diverge":121,"bun_node_diverge":17,"errors":163,"rejected":0}}
