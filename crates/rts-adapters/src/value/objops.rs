@@ -371,6 +371,34 @@ pub extern "C" fn __rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word:
             return val_word;
         }
     }
+    // An ARRAY receiver + NUMERIC key (`v[i] = x` through the dynamic path —
+    // the receiver was an `any` param/local): element write. `i == len`
+    // appends; `i > len` fills the gap with `undefined` (no holes in the
+    // model) then appends — JS growth semantics.
+    {
+        let obj = PolyValue::from_raw(obj_word);
+        if obj.is_object() && !looks_like_object(obj) {
+            if let Ok(i) = key_text(key_str_handle).parse::<i64>() {
+                let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+                let is_vec = rt_handles::with_entry(handle, |e| {
+                    matches!(e, Some(rt_handles::Entry::Vec(_)))
+                });
+                if is_vec && i >= 0 {
+                    let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(handle).max(0);
+                    if i < len {
+                        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(handle, i, val_word as i64);
+                    } else {
+                        let undef = PolyValue::undefined().raw() as i64;
+                        for _ in len..i {
+                            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle, undef);
+                        }
+                        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle, val_word as i64);
+                    }
+                    return val_word;
+                }
+            }
+        }
+    }
     if let Some((handle, idx)) = resolve_slot(obj_word, key_str_handle) {
         // A `writable:false` data property (set via defineProperty) blocks
         // re-assignment (sloppy mode: silent no-op, returns the value).

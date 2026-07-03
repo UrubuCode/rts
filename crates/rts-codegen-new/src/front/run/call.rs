@@ -193,15 +193,34 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // - otherwise (an `any`/param/value that may hold a function, e.g.
         //   `Reflect.apply`'s `target`) → the lowered receiver word. A non-function
         //   yields `undefined` at `__rtsadp_fn_invoke` (never a crash).
-        let fn_word = match self.fn_value_word(module, object)? {
-            Some(w) => w,
-            None => {
-                if self.static_instance_class(object).is_some() {
-                    return Ok(None);
-                }
-                let v = self.lower_expr(module, object)?;
-                self.box_value(v)
+        // A TOP-LEVEL user fn ident reifies DIRECTLY (not via `fn_value_word`,
+        // whose fn-ctor shortcut yields the raw thunk ADDRESS — useless to the
+        // method-aware invoke): `reify_function` handles a this-first fn via
+        // `__rtsadp_fn_reify_this`, so `m.call(obj, …)`/`m.bind(obj)` bind the
+        // receiver correctly.
+        let ident_fn_word = match &object.kind {
+            HirExprKind::Ident(n)
+                if self.local(n).is_none()
+                    && self.sigs.get(n.as_str()).is_some_and(|s| !s.is_async) =>
+            {
+                let name = n.clone();
+                let v = self.reify_function(module, &name)?;
+                Some(self.box_value(v))
             }
+            _ => None,
+        };
+        let fn_word = match ident_fn_word {
+            Some(w) => w,
+            None => match self.fn_value_word(module, object)? {
+                Some(w) => w,
+                None => {
+                    if self.static_instance_class(object).is_some() {
+                        return Ok(None);
+                    }
+                    let v = self.lower_expr(module, object)?;
+                    self.box_value(v)
+                }
+            },
         };
         // `f.bind(thisArg)` — plain functions have no `this` slot in the uniform
         // ABI, so binding only a thisArg is the IDENTITY on the function value
@@ -210,24 +229,45 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // in `bound_args` (`__rtsadp_fn_bind`) — both invoke paths prepend them
         // and `.length` reads `arity - bound`.
         if method == "bind" {
+            // Always through the runtime clone: `thisArg` binds into a
+            // THIS-FIRST fn's `bound_args[0]` (a plain fn ignores it), partial
+            // args append after. JS `bind` always returns a NEW fn.
+            let this_word = match args.first() {
+                Some(a) => {
+                    let v = self.lower_expr(module, a)?;
+                    self.box_value(v)
+                }
+                None => self
+                    .builder
+                    .ins()
+                    .iconst(types::I64, value::PolyValue::undefined().raw() as i64),
+            };
+            let vec_h = self
+                .call_runtime(module, "__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[])?
+                .expect("VEC_NEW returns a handle");
             if args.len() > 1 {
-                let vec_h = self
-                    .call_runtime(module, "__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[])?
-                    .expect("VEC_NEW returns a handle");
                 for a in &args[1..] {
                     let v = self.lower_expr(module, a)?;
                     let w = self.box_value(v);
                     self.call_runtime(module, "__RTS_FN_NS_COLLECTIONS_VEC_PUSH", &[vec_h, w])?;
                 }
-                let word = self
-                    .call_runtime(module, "__rtsadp_fn_bind", &[fn_word, vec_h])?
-                    .expect("__rtsadp_fn_bind returns a word");
-                return Ok(Some(Val::tagged_kind(word, JsKind::Function)));
             }
-            return Ok(Some(Val::tagged_kind(fn_word, JsKind::Function)));
+            let word = self
+                .call_runtime(module, "__rtsadp_fn_bind", &[fn_word, this_word, vec_h])?
+                .expect("__rtsadp_fn_bind returns a word");
+            return Ok(Some(Val::tagged_kind(word, JsKind::Function)));
         }
         if method == "call" {
+            // METHOD-aware invoke: a THIS-FIRST callee reads `thisArg` in its
+            // this slot (`m.call({k:1}, a)`); a plain fn ignores the receiver.
             let call_args = if args.is_empty() { &[][..] } else { &args[1..] };
+            if let Some(t) = args.first() {
+                let tv = self.lower_expr(module, t)?;
+                let this_word = self.box_value(tv);
+                return Ok(Some(self.lower_value_call_word_with_this(
+                    module, fn_word, this_word, call_args,
+                )?));
+            }
             return Ok(Some(self.lower_value_call_word(module, fn_word, call_args)?));
         }
         match args.get(1) {

@@ -565,10 +565,12 @@ pub extern "C" fn __rtsadp_fn_invoke(
             return f(env_word, call[0], call[1], call[2], call[3], undef);
         }
     }
-    if has_this {
+    if has_this && bound.is_empty() {
         // A this-first function called WITHOUT a receiver (plain `f(x)`): JS
         // binds `this = undefined`; positional args shift past it (a3 drops -
         // a 4-arg this-method through the plain invoker is out of this subset).
+        // A BOUND this-first fn (`f.bind(obj)` prepended the this word into
+        // `bound_args[0]`) already carries `this` in a0 — no shift.
         return f(env_word, PolyValue::undefined().raw(), a0, a1, a2, rest);
     }
     f(env_word, a0, a1, a2, a3, rest)
@@ -621,7 +623,7 @@ fn word_to_raw_i64(w: u64) -> i64 {
 /// (`new Function`) stores raw i64s (its `invoke_typed` path reads them
 /// verbatim). Non-function → `undefined`.
 #[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_fn_bind(fn_word: u64, args_vec: u64) -> u64 {
+pub extern "C" fn __rtsadp_fn_bind(fn_word: u64, this_word: u64, args_vec: u64) -> u64 {
     use rts_engine::heap::handles::{Entry as E, FunctionData, alloc_entry};
     let pv = PolyValue::from_raw(fn_word);
     if !pv.is_function() {
@@ -640,6 +642,15 @@ pub extern "C" fn __rtsadp_fn_bind(fn_word: u64, args_vec: u64) -> u64 {
                 items.iter().map(|&w| word_to_raw_i64(w as u64)).collect()
             };
             let mut bound = d.bound_args.clone();
+            // JS `f.bind(thisArg)` on a THIS-FIRST fn (`function m(this,…)`):
+            // the receiver rides `bound_args[0]` (the thunk's this-first real
+            // param slot); the plain invoker then skips its this=undefined
+            // shift. A REBIND (`bound.bind(other)`) does NOT replace it — JS
+            // keeps the first bound this. A plain fn ignores thisArg (no this
+            // slot in the uniform ABI).
+            if d.has_this_param && d.uniform_thunk && bound.is_empty() {
+                bound.push(this_word as i64);
+            }
             bound.extend(extra);
             Some(Box::new(FunctionData {
                 fn_ptr: d.fn_ptr,
@@ -730,12 +741,25 @@ pub extern "C" fn __rtsadp_fn_invoke_method(
         return PolyValue::undefined().raw();
     }
     let real = rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(pv.as_handle());
-    let (addr, env, has_this) = with_entry(real, |e| match e {
-        Some(Entry::Function(d)) => (d.fn_ptr, d.bound_this as u64, d.has_this_param),
-        _ => (0, 0, false),
+    let (addr, env, has_this, uniform, arity, bound) = with_entry(real, |e| match e {
+        Some(Entry::Function(d)) => (
+            d.fn_ptr,
+            d.bound_this as u64,
+            d.has_this_param,
+            d.uniform_thunk,
+            d.arity,
+            d.bound_args.clone(),
+        ),
+        _ => (0, 0, false, true, 0, Vec::new()),
     });
     if addr == 0 {
         return PolyValue::undefined().raw();
+    }
+    // LEGACY all-i64 callee (`new Function`): no this slot — same typed-invoke
+    // route the plain invoker uses (the receiver is ignored, JS-consistent for
+    // a function that never reads `this`).
+    if !uniform {
+        return invoke_legacy_fn(real, arity, bound.len(), [a0, a1, a2, PolyValue::undefined().raw()]);
     }
     let env_word = if env == 0 {
         PolyValue::undefined().raw()
@@ -743,6 +767,18 @@ pub extern "C" fn __rtsadp_fn_invoke_method(
         env
     };
     let f: UniformFn = unsafe { std::mem::transmute::<u64, UniformFn>(addr) };
+    // BOUND args prepend (a `.bind` clone): a bound THIS-FIRST fn already has
+    // its receiver in bound[0] — the call-site `this_word` is ignored (JS:
+    // `.call` on a bound fn cannot re-bind this).
+    if !bound.is_empty() {
+        let undef = PolyValue::undefined().raw();
+        let mut all: Vec<u64> = bound.iter().map(|&w| w as u64).collect();
+        for w in [a0, a1, a2] {
+            all.push(w);
+        }
+        let g = |i: usize| all.get(i).copied().unwrap_or(undef);
+        return f(env_word, g(0), g(1), g(2), g(3), rest);
+    }
     if has_this {
         return f(env_word, this_word, a0, a1, a2, rest);
     }

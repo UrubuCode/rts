@@ -50,12 +50,14 @@ fi
 if ! command -v bun >/dev/null 2>&1; then echo "error: bun nao instalado" >&2; exit 2; fi
 if ! command -v node >/dev/null 2>&1; then echo "error: node nao instalado" >&2; exit 2; fi
 
-# Resolve interpretador JSON (jq > python > node)
+# Resolve interpretador JSON (jq > python > node). `command -v` nao basta no
+# Windows: o alias `python` da Microsoft Store EXISTE mas so abre a loja (exit
+# != 0) — o report saia com todas as entries vazias. Testa EXECUCAO real.
 if command -v jq >/dev/null 2>&1; then
     JSON_TOOL=jq
-elif command -v python3 >/dev/null 2>&1; then
+elif python3 -c 1 >/dev/null 2>&1; then
     JSON_TOOL=python3
-elif command -v python >/dev/null 2>&1; then
+elif python -c 1 >/dev/null 2>&1; then
     JSON_TOOL=python
 else
     JSON_TOOL=node

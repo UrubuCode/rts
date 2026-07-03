@@ -299,10 +299,10 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64],
             ret: U64,
         },
-        // `f.bind(thisArg, …partial)` — clone the fn value with the partial
-        // args appended to bound_args.
+        // `f.bind(thisArg, …partial)` — clone the fn value; a THIS-FIRST fn
+        // binds thisArg into bound_args[0], partial args append after.
         "__rtsadp_fn_bind" => SymSig {
-            params: &[U64, U64],
+            params: &[U64, U64, U64],
             ret: U64,
         },
 

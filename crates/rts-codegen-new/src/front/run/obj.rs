@@ -341,6 +341,30 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 }
             }
         }
+        // ---- `f.name` / `f.length` on a STATICALLY-known top-level user fn
+        // ident: compile-time constants (the declared name; the arity excluding
+        // any rest param). A local of the same name shadows (checked). ----
+        if prop == "name" || prop == "length" {
+            if let HirExprKind::Ident(fname) = &object.kind {
+                if self.local(fname).is_none() {
+                    if let Some(sig) = self.sigs.get(fname.as_str()) {
+                        if prop == "name" {
+                            let pv = crate::value::abi_adapter::intern_poly(fname);
+                            let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
+                            return Ok(Val::tagged_kind(v, JsKind::Str));
+                        }
+                        let n = sig.params.len() as i64
+                            - i64::from(sig.rest_param.is_some())
+                            - i64::from(sig.has_this);
+                        let v = self
+                            .builder
+                            .ins()
+                            .iconst(types::I64, value::PolyValue::from_i32(n.max(0) as i32).raw() as i64);
+                        return Ok(Val::new(v, Repr::Tagged));
+                    }
+                }
+            }
+        }
         // ---- `globalThis.prop` read: the singleton global object is a keyed
         // OBJECT of runtime-only shape, so resolve the property dynamically (a
         // missing key reads `undefined`, JS-correct). ----
