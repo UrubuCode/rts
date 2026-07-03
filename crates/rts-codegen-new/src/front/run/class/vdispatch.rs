@@ -82,6 +82,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         (!out.is_empty()).then_some(out)
     }
 
+    /// Whether the synthesized METHOD `fn_name` (its `params[0]` is `this`) is
+    /// callable with `argc` explicit args: every user param beyond `argc` must be
+    /// FILLABLE (optional/defaulted); a rest param packs any surplus. Extra args
+    /// beyond the declared arity are fine (JS evaluates + ignores them).
+    fn sig_accepts_argc(&self, fn_name: &str, argc: usize) -> bool {
+        let Some(sig) = self.sigs.get(fn_name) else {
+            return false;
+        };
+        if sig.rest_param.is_some() {
+            return true;
+        }
+        let pi = 1usize; // methods carry `this` as params[0]
+        let user = sig.params.len().saturating_sub(pi);
+        (argc..user).all(|i| sig.fillable.get(pi + i).copied().unwrap_or(false))
+    }
+
     /// Whether class `d` is a (transitive) descendant of `ancestor` — walks the
     /// `parent` chain. `d == ancestor` is NOT a descendant (returns false).
     fn is_descendant(&self, d: &str, ancestor: &str) -> bool {
@@ -163,6 +179,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 targets.push((d.global_shape, f.to_string()));
             }
         }
+        // Drop ARITY-INCOMPATIBLE candidates (a 2-arg literal `has(target, key)`
+        // — a Proxy handler — colliding with a 1-arg `Set.has(v)` call site):
+        // emitting their arm would fail the WHOLE compile with "missing required
+        // arg". A skipped candidate's receiver falls to the default arm (own-prop
+        // read → `undefined` sentinel) — honest, never a wrong value.
+        targets.retain(|(_, f)| self.sig_accepts_argc(f, args.len()));
         if targets.is_empty() || !args.iter().all(is_side_effect_free_arg) {
             return Ok(None);
         }

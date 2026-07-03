@@ -561,10 +561,25 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                         let word = emit_marshal::emit_vec_get(module, self.builder, recv_word, idx);
                         Ok(Val::new(word, Repr::Tagged))
                     }
-                    // Missing OWN key: read DYNAMICALLY — `__rtsadp_obj_get` walks
-                    // the prototype chain (`C.prototype.m`, `Object.create(p)`),
-                    // and still yields `undefined` for a genuinely absent key.
-                    None => self.lower_dynamic_get_expr(module, object, prop),
+                    // Missing OWN key: a METHOD of the receiver's statically-known
+                    // class read as a VALUE (`typeof h.m`, `const f = h.m`) reifies
+                    // the synthesized fn into a TAG_FUNCTION word (mirrors the
+                    // static-method-as-value arm in `try_static_field_read`);
+                    // otherwise read DYNAMICALLY — `__rtsadp_obj_get` walks the
+                    // prototype chain (`C.prototype.m`, `Object.create(p)`), and
+                    // still yields `undefined` for a genuinely absent key.
+                    None => {
+                        if let Some(fn_name) = self
+                            .instance_class_of(object)
+                            .and_then(|c| {
+                                self.classes.get(&c).and_then(|d| d.method_fn(prop))
+                            })
+                            .map(str::to_string)
+                        {
+                            return self.reify_function(module, &fn_name);
+                        }
+                        self.lower_dynamic_get_expr(module, object, prop)
+                    }
                 }
             }
             Ok((recv_word, HeapShape::Array)) => {

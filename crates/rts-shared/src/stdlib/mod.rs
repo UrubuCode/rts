@@ -59,3 +59,9 @@ pub const PERFORMANCE_TS: &str = include_str!("performance.ts");
 /// syntax). Pure TS over the private `engine.set_timeout`/… bridges; the fn
 /// value rides into the runtime's ordered macro/microtask queues.
 pub const TIMERS_TS: &str = include_str!("timers.ts");
+
+/// Web-platform value classes — `Headers`/`FormData`/`Blob`/`File`/`Request`/
+/// `Response` — rts-shared backend utilities (no native syntax). Pure `.ts`
+/// value holders (insertion-ordered parallel arrays; UTF-8 measured/decoded in
+/// TS); ambient classes so `new Headers()` is ordinary user-class construction.
+pub const WEBAPI_TS: &str = include_str!("webapi.ts");

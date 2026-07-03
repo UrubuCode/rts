@@ -354,6 +354,9 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
     // Global timers — setTimeout/clearTimeout/setInterval/clearInterval/
     // queueMicrotask over the private engine timer bridges (ordered queues).
     PreludeTs { label: "timers", source: rts_runtime::stdlib::TIMERS_TS, why: "setTimeout/queueMicrotask globals" },
+    // Web-platform value classes — pure `.ts` holders; after Object/JSON (their
+    // ctors read `Object.keys` + `JSON.parse` from the merged prelude).
+    PreludeTs { label: "web-api", source: rts_runtime::stdlib::WEBAPI_TS, why: "Headers/FormData/Blob/File/Request/Response" },
     // DOM facade — `Document`/`Element` classes (browser-named API) over the `rts:dom`
     // primitives. AFTER the namespaces register (the `dom.*` it calls must exist).
     PreludeTs { label: "DOM facade", source: ns::dom::DOM_TS, why: "document/Element over rts:dom" },
