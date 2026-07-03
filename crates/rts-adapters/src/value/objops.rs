@@ -553,6 +553,30 @@ fn prop_writable(obj_word: u64, key: &str) -> bool {
     }
 }
 
+/// Whether `obj_word.key` is enumerable: an explicit flags entry's bit1, or
+/// `true` for a normal data property. `Object.keys`/`values`/`entries`/for-in
+/// skip a `defineProperty(.., {enumerable:false})` property through this.
+pub(crate) fn prop_enumerable(obj_word: u64, key: &str) -> bool {
+    match desc_flags_table().lock() {
+        Ok(t) => t
+            .get(&(obj_word, key.to_string()))
+            .map(|f| f & 2 != 0)
+            .unwrap_or(true),
+        Err(_) => true,
+    }
+}
+
+/// Whether `obj_word.key` is configurable (bit2; absent ⇒ true).
+fn prop_configurable(obj_word: u64, key: &str) -> bool {
+    match desc_flags_table().lock() {
+        Ok(t) => t
+            .get(&(obj_word, key.to_string()))
+            .map(|f| f & 4 != 0)
+            .unwrap_or(true),
+        Err(_) => true,
+    }
+}
+
 fn is_non_extensible(obj_word: u64) -> bool {
     non_extensible_table()
         .lock()
@@ -892,16 +916,42 @@ pub extern "C" fn __rtsadp_is_frozen(obj_word: u64) -> i64 {
     }
 }
 
+/// `Object.seal(o)` — non-extensible + every CURRENT own key marked
+/// `configurable:false` (writable/enumerable stay as-is), so `isSealed` is true
+/// but existing keys remain writable (JS seal semantics; freeze also clears
+/// writable). `preventExtensions` alone does NOT touch key flags.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_seal(obj_word: u64) -> i64 {
+    if PolyValue::from_raw(obj_word).is_object() {
+        if let Ok(mut t) = non_extensible_table().lock() {
+            t.insert(obj_word);
+        }
+        let keys = object_keys_vec(obj_word);
+        if let Ok(mut t) = desc_flags_table().lock() {
+            for k in keys {
+                let cur = t.get(&(obj_word, k.clone())).copied().unwrap_or(0b111);
+                t.insert((obj_word, k), cur & !0b100);
+            }
+        }
+    }
+    1
+}
+
 /// `Object.isSealed(o)` → 1/0: non-extensible AND every own key
-/// `configurable:false` (writable may stay true — `seal` permits updates). This
-/// model's `seal` records only extensibility, so sealed-ness here is
-/// `!isExtensible` for objects with no explicit flags; a frozen object is sealed.
+/// `configurable:false` (writable may stay true — `seal` permits updates).
+/// A bare `preventExtensions` object with default-configurable keys is NOT
+/// sealed (matching JS); an empty non-extensible object IS.
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_is_sealed(obj_word: u64) -> i64 {
     if !PolyValue::from_raw(obj_word).is_object() {
         return 1;
     }
-    is_non_extensible(obj_word) as i64
+    if !is_non_extensible(obj_word) {
+        return 0;
+    }
+    object_keys_vec(obj_word)
+        .iter()
+        .all(|k| !prop_configurable(obj_word, k)) as i64
 }
 
 /// `Object.isExtensible(o)` / `Reflect.isExtensible` → 1/0. A non-object is not
@@ -1009,6 +1059,9 @@ pub extern "C" fn __rtsadp_obj_values(obj_word: u64) -> u64 {
     // ENUMERATION order (array-index keys ascending first) — read each value BY KEY
     // (`obj_get`), not by storage slot, so the reorder and the value stay aligned.
     for k in super::iterops::reorder_enum_keys(object_keys_vec(obj_word)) {
+        if !prop_enumerable(obj_word, &k) {
+            continue;
+        }
         let v = __rtsadp_obj_get(obj_word, abi_adapter::intern_poly(&k).raw());
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, v as i64);
     }
@@ -1021,6 +1074,9 @@ pub extern "C" fn __rtsadp_obj_values(obj_word: u64) -> u64 {
 pub extern "C" fn __rtsadp_obj_entries(obj_word: u64) -> u64 {
     let outer = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     for k in super::iterops::reorder_enum_keys(object_keys_vec(obj_word)) {
+        if !prop_enumerable(obj_word, &k) {
+            continue;
+        }
         let key_word = abi_adapter::intern_poly(&k).raw();
         let v = __rtsadp_obj_get(obj_word, key_word);
         let pair = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();

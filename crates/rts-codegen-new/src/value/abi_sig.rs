@@ -863,7 +863,7 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, U64, U64, I64],
             ret: I64,
         },
-        "__rtsadp_prevent_ext" | "__rtsadp_freeze" | "__rtsadp_is_frozen"
+        "__rtsadp_prevent_ext" | "__rtsadp_freeze" | "__rtsadp_seal" | "__rtsadp_is_frozen"
         | "__rtsadp_is_sealed" | "__rtsadp_is_extensible" => SymSig {
             params: &[U64],
             ret: I64,

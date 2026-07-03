@@ -77,9 +77,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             "values" => self.object_values(module, args).map(Some),
             "entries" => self.object_entries(module, args).map(Some),
             "assign" => self.object_assign(module, args).map(Some),
-            "freeze" | "seal" | "preventExtensions" => self
-                .object_freeze(module, args, method == "freeze")
-                .map(Some),
+            "freeze" | "seal" | "preventExtensions" => {
+                self.object_freeze(module, args, method).map(Some)
+            }
             "isExtensible" => self.object_is_extensible(module, args).map(Some),
             "isFrozen" | "isSealed" => {
                 if args.len() != 1 {
@@ -379,17 +379,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         &mut self,
         module: &mut dyn Module,
         args: &[HirExpr],
-        deep_freeze: bool,
+        method: &str,
     ) -> FrontResult<Val> {
         let (word, _keys) = self.receiver(module, args)?;
-        // `freeze` marks the object non-extensible AND every current key
-        // `writable:false` (an existing-key write becomes a silent no-op);
-        // `seal`/`preventExtensions` only prevent extension (existing keys stay
-        // writable). Returns the object (JS `Object.freeze(o)` returns `o`).
-        let sym = if deep_freeze {
-            "__rtsadp_freeze"
-        } else {
-            "__rtsadp_prevent_ext"
+        // `freeze`: non-extensible + keys writable:false+configurable:false;
+        // `seal`: non-extensible + keys configurable:false (still writable);
+        // `preventExtensions`: extensibility only. Returns the object.
+        let sym = match method {
+            "freeze" => "__rtsadp_freeze",
+            "seal" => "__rtsadp_seal",
+            _ => "__rtsadp_prevent_ext",
         };
         self.call_runtime(module, sym, &[word])?;
         Ok(Val::new(word, Repr::Tagged))

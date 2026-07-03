@@ -4,12 +4,26 @@
 // `JSON.stringify` / `JSON.parse` are static methods of this ambient class.
 
 class JSON {
-  // JSON.stringify(value, replacer?, space?). `replacer` is ignored (only the
-  // common null/undefined forms appear in practice); `space` (a number) selects
-  // pretty output with that many spaces of indent.
+  // JSON.stringify(value, replacer?, space?). `replacer`: a FUNCTION is applied
+  // to every (key, value) pair top-down (the root under key ""); an ARRAY of
+  // keys filters object properties. `space`: a number (0..10 spaces) or a
+  // string (first 10 chars) selects pretty output.
   static stringify(value: any, replacer?: any, space?: any): any {
-    const indent: number = typeof space === "number" ? space : 0;
-    return __json_render(value, indent, 0);
+    let pad = "";
+    if (typeof space === "number") {
+      const n = space < 10 ? space : 10;
+      for (let i = 0; i < n; i++) pad += " ";
+    } else if (typeof space === "string") {
+      for (let i = 0; i < space.length && i < 10; i++) pad += space[i];
+    }
+    let keyFilter: any = null;
+    let fnReplacer: any = null;
+    if (Array.isArray(replacer)) keyFilter = replacer;
+    else if (typeof replacer === "function") fnReplacer = replacer;
+    let root: any = value;
+    if (fnReplacer !== null) root = fnReplacer("", root);
+    const seen: any[] = [];
+    return __json_render(root, pad, 0, keyFilter, fnReplacer, seen);
   }
 
   // JSON.parse(text[, reviver]) — recursive-descent parser over the primordials.
@@ -57,7 +71,7 @@ function __jsonRevive(value: any, key: string, reviver: any): any {
 
 // ── stringify helpers (plain functions; the engine runs them generically) ──────
 
-function __json_render(v: any, indent: number, depth: number): any {
+function __json_render(v: any, pad: string, depth: number, keyFilter: any, fnReplacer: any, seen: any[]): any {
   if (v === null) return "null";
   const t = typeof v;
   if (t === "number") return isFinite(v) ? ("" + v) : "null";
@@ -66,34 +80,69 @@ function __json_render(v: any, indent: number, depth: number): any {
   // undefined / function: omitted by JSON (the caller turns this into `null` in an
   // array, or skips the key in an object, or returns undefined at top level).
   if (t === "undefined" || t === "function") return undefined;
+  // Cycle detection (ECMAScript SerializeJSON*): re-entering a value already on
+  // the render stack throws.
+  if (seen.indexOf(v) >= 0) {
+    throw new TypeError("Converting circular structure to JSON");
+  }
+  seen.push(v);
+  let out: any;
   if (Array.isArray(v)) {
-    if (v.length === 0) return "[]";
+    if (v.length === 0) {
+      out = "[]";
+    } else {
+      const parts: string[] = [];
+      for (let i = 0; i < v.length; i++) {
+        let el: any = v[i];
+        if (fnReplacer !== null) el = fnReplacer("" + i, el);
+        let s: any = __json_render(el, pad, depth + 1, keyFilter, fnReplacer, seen);
+        if (s === undefined) s = "null";
+        parts.push(s);
+      }
+      out = __json_wrap("[", "]", parts, pad, depth);
+    }
+  } else {
+    // plain object: enumerate own keys (an ARRAY replacer filters + orders
+    // them — string/number entries and String/Number wrappers only, dedup),
+    // apply the fn replacer per property, omit undefined/function members.
+    let keys: any = Object.keys(v);
+    if (keyFilter !== null) {
+      const own = Object.keys(v);
+      const picked: string[] = [];
+      for (let i = 0; i < keyFilter.length; i++) {
+        const kv: any = keyFilter[i];
+        let k: any = undefined;
+        if (typeof kv === "string") k = kv;
+        else if (typeof kv === "number") k = "" + kv;
+        else if (kv !== null && typeof kv === "object") {
+          const p: any = kv.__prim;
+          if (typeof p === "string") k = p;
+          else if (typeof p === "number") k = "" + p;
+        }
+        if (k !== undefined && own.indexOf(k) >= 0 && picked.indexOf(k) < 0) picked.push(k);
+      }
+      keys = picked;
+    }
     const parts: string[] = [];
-    for (let i = 0; i < v.length; i++) {
-      let s: any = __json_render(v[i], indent, depth + 1);
-      if (s === undefined) s = "null";
-      parts.push(s);
+    const colon = pad.length > 0 ? ": " : ":";
+    for (let i = 0; i < keys.length; i++) {
+      let pv: any = v[keys[i]];
+      if (fnReplacer !== null) pv = fnReplacer(keys[i], pv);
+      const val: any = __json_render(pv, pad, depth + 1, keyFilter, fnReplacer, seen);
+      if (val !== undefined) {
+        parts.push(__json_quote(keys[i]) + colon + val);
+      }
     }
-    return __json_wrap("[", "]", parts, indent, depth);
+    out = parts.length === 0 ? "{}" : __json_wrap("{", "}", parts, pad, depth);
   }
-  // plain object: enumerate own keys, omit undefined/function-valued members.
-  const keys = Object.keys(v);
-  const parts: string[] = [];
-  const colon = indent > 0 ? ": " : ":";
-  for (let i = 0; i < keys.length; i++) {
-    const val: any = __json_render(v[keys[i]], indent, depth + 1);
-    if (val !== undefined) {
-      parts.push(__json_quote(keys[i]) + colon + val);
-    }
-  }
-  if (parts.length === 0) return "{}";
-  return __json_wrap("{", "}", parts, indent, depth);
+  seen.pop();
+  return out;
 }
 
-// Join `parts` between brackets: compact (indent 0) `[a,b]`, or pretty with one
-// member per indented line.
-function __json_wrap(open: string, close: string, parts: string[], indent: number, depth: number): string {
-  if (indent === 0) {
+// Join `parts` between brackets: compact (no pad) `[a,b]`, or pretty with one
+// member per pad-indented line.
+function __json_wrap(open: string, close: string, parts: string[], pad: string, depth: number): string {
+  if (pad.length === 0) {
     let body = "";
     for (let i = 0; i < parts.length; i++) {
       if (i > 0) body += ",";
@@ -101,8 +150,8 @@ function __json_wrap(open: string, close: string, parts: string[], indent: numbe
     }
     return open + body + close;
   }
-  const inner = __json_spaces(indent * (depth + 1));
-  const outer = __json_spaces(indent * depth);
+  const inner = __json_repeat(pad, depth + 1);
+  const outer = __json_repeat(pad, depth);
   let body = "";
   for (let i = 0; i < parts.length; i++) {
     if (i > 0) body += ",\n";
@@ -111,9 +160,9 @@ function __json_wrap(open: string, close: string, parts: string[], indent: numbe
   return open + "\n" + body + "\n" + outer + close;
 }
 
-function __json_spaces(n: number): string {
+function __json_repeat(pad: string, n: number): string {
   let s = "";
-  for (let i = 0; i < n; i++) s += " ";
+  for (let i = 0; i < n; i++) s += pad;
   return s;
 }
 

@@ -225,6 +225,11 @@ pub extern "C" fn __rtsadp_obj_keys(obj_word: u64) -> u64 {
                 if k.starts_with("@@sym:") {
                     continue;
                 }
+                // A `defineProperty(.., {enumerable:false})` property is skipped
+                // by Object.keys/values/entries/for-in (JS spec).
+                if !super::objops::prop_enumerable(obj_word, &k) {
+                    continue;
+                }
                 // ACCESSOR slots (`__get_<k>`/`__set_<k>` — materialized literal
                 // getters / defineProperty accessors): enumerate as the PROPERTY
                 // name (a getter IS an enumerable own property in JS), deduped.
