@@ -301,6 +301,14 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         },
         // `f.bind(thisArg, …partial)` — clone the fn value; a THIS-FIRST fn
         // binds thisArg into bound_args[0], partial args append after.
+        "__rtsadp_string_raw" => SymSig {
+            params: &[U64, U64],
+            ret: U64,
+        },
+        "__rtsadp_tsa_raw" => SymSig {
+            params: &[U64, U64],
+            ret: U64,
+        },
         "__rtsadp_fn_bind" => SymSig {
             params: &[U64, U64, U64],
             ret: U64,

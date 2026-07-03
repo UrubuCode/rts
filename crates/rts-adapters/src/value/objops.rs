@@ -230,6 +230,13 @@ pub extern "C" fn __rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
         if !is_keyed && key_text(key_str_handle) == "length" {
             return super::dyndispatch::__rtsadp_dyn_length(obj_word);
         }
+        // Tagged-template `strings.raw` on the cooked ARRAY (paired at the
+        // desugar via `engine.tsa_raw`).
+        if !is_keyed && obj.is_object() && key_text(key_str_handle) == "raw" {
+            if let Some(raw) = super::iterops::tsa_raw_of(obj_word) {
+                return raw;
+            }
+        }
         // A BUFFER receiver (`Entry::Buffer` — an ArrayBuffer / encode result):
         // a numeric key reads the byte (the Uint8Array indexing surface,
         // out-of-bounds → `undefined`); `byteLength` reads the byte count.

@@ -145,7 +145,7 @@
 ,
 {"name":"codex_array_reduce_mutation_window","status":"rts_error","bun":"sum=6\nseen=0:1,1:2,2:3\nkeys=0,1,2","node":"sum=6\nseen=0:1,1:2,2:3\nkeys=0,1,2","rts":"__RUNTIME_ERROR__"}
 ,
-{"name":"codex_array_sort_mutates_length","status":"rts_diverge","bun":"6\n1,2,3,0,,5\ntrue","node":"6\n1,2,3,0,,5\ntrue","rts":"4\n1,2,3,0\ntrue"}
+{"name":"codex_array_sort_mutates_length","status":"pass","bun":"6\n1,2,3,0,,5\ntrue","node":"6\n1,2,3,0,,5\ntrue","rts":"6\n1,2,3,0,,5\ntrue"}
 ,
 {"name":"codex_array_species_constructor_poison","status":"rts_error","bun":"true\n10,20,30\n3","node":"true\n10,20,30\n3","rts":"__RUNTIME_ERROR__"}
 ,
@@ -341,11 +341,11 @@
 ,
 {"name":"84_abortsignal_advanced","status":"rts_error","bun":"ab=true:x\nto=true:TimeoutError","node":"ab=true:x\nto=true:TimeoutError","rts":"__RUNTIME_ERROR__"}
 ,
-{"name":"179_function_name_length","status":"rts_diverge","bun":"name=foo\nlength=2\nanon_name=bar\nanon_length=1\narrow_name=arrow\narrow_length=3\nnoargs_length=0","node":"name=foo\nlength=2\nanon_name=bar\nanon_length=1\narrow_name=arrow\narrow_length=3\nnoargs_length=0","rts":"name=undefined\nlength=undefined\nanon_name=undefined\nanon_length=undefined\narrow_name=undefined\narrow_length=undefined\nnoargs_length=undefined"}
+{"name":"179_function_name_length","status":"pass","bun":"name=foo\nlength=2\nanon_name=bar\nanon_length=1\narrow_name=arrow\narrow_length=3\nnoargs_length=0","node":"name=foo\nlength=2\nanon_name=bar\nanon_length=1\narrow_name=arrow\narrow_length=3\nnoargs_length=0","rts":"name=foo\nlength=2\nanon_name=bar\nanon_length=1\narrow_name=arrow\narrow_length=3\nnoargs_length=0"}
 ,
 {"name":"180_function_call_apply","status":"bun_node_diverge","bun":"__RUNTIME_ERROR__","node":"call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9","rts":"__RUNTIME_ERROR__"}
 ,
-{"name":"181_function_bind","status":"rts_diverge","bun":"bound=24\noriginal=12\npartial=10\nrebind=24","node":"bound=24\noriginal=12\npartial=10\nrebind=24","rts":"bound=undefined\noriginal=undefined\npartial=undefined\nrebind=undefined"}
+{"name":"181_function_bind","status":"pass","bun":"bound=24\noriginal=12\npartial=10\nrebind=24","node":"bound=24\noriginal=12\npartial=10\nrebind=24","rts":"bound=24\noriginal=12\npartial=10\nrebind=24"}
 ,
 {"name":"25_closures","status":"pass","bun":"add=9\niife=12","node":"add=9\niife=12","rts":"add=9\niife=12"}
 ,
@@ -361,7 +361,7 @@
 ,
 {"name":"411_function_arguments_aliasing","status":"bun_node_diverge","bun":"a:b\nY:X:a","node":"A:B\nY:X:a","rts":"a:b\nY:X:a"}
 ,
-{"name":"49_function_meta","status":"rts_diverge","bun":"name=add\nlength=2\ncall=5\napply=10\nbind=12","node":"name=add\nlength=2\ncall=5\napply=10\nbind=12","rts":"name=undefined\nlength=undefined\ncall=5\napply=10\nbind=12"}
+{"name":"49_function_meta","status":"pass","bun":"name=add\nlength=2\ncall=5\napply=10\nbind=12","node":"name=add\nlength=2\ncall=5\napply=10\nbind=12","rts":"name=add\nlength=2\ncall=5\napply=10\nbind=12"}
 ,
 {"name":"claude-ackermann-deep-recursion","status":"pass","bun":"1\n3\n9\n61","node":"1\n3\n9\n61","rts":"1\n3\n9\n61"}
 ,
@@ -455,29 +455,29 @@
 ,
 {"name":"13_json_replacer_reviver","status":"pass","bun":"plain={\"name\":\"rts\",\"nums\":[1,2,3],\"nested\":{\"count\":1,\"text\":\"line\\nbreak\"}}\narr=[{\"id\":1},{\"id\":2}]\nquoted=\"say \\\"hi\\\"\"\npretty={|  \"a\": 1,|  \"b\": [|    2,|    3|  ]|}\nparsed_count=4\nparsed_label=go\nparsed_meta=1","node":"plain={\"name\":\"rts\",\"nums\":[1,2,3],\"nested\":{\"count\":1,\"text\":\"line\\nbreak\"}}\narr=[{\"id\":1},{\"id\":2}]\nquoted=\"say \\\"hi\\\"\"\npretty={|  \"a\": 1,|  \"b\": [|    2,|    3|  ]|}\nparsed_count=4\nparsed_label=go\nparsed_meta=1","rts":"plain={\"name\":\"rts\",\"nums\":[1,2,3],\"nested\":{\"count\":1,\"text\":\"line\\nbreak\"}}\narr=[{\"id\":1},{\"id\":2}]\nquoted=\"say \\\"hi\\\"\"\npretty={|  \"a\": 1,|  \"b\": [|    2,|    3|  ]|}\nparsed_count=4\nparsed_label=go\nparsed_meta=1"}
 ,
-{"name":"207_json_stringify_space","status":"rts_diverge","bun":"compact={\"a\":1,\"b\":{\"c\":2}}\nlines=6\nhas_indent=true\nhas_tab=true\narr_lines=5","node":"compact={\"a\":1,\"b\":{\"c\":2}}\nlines=6\nhas_indent=true\nhas_tab=true\narr_lines=5","rts":"compact={\"a\":1,\"b\":{\"c\":2}}\nlines=6\nhas_indent=true\nhas_tab=false\narr_lines=5"}
+{"name":"207_json_stringify_space","status":"pass","bun":"compact={\"a\":1,\"b\":{\"c\":2}}\nlines=6\nhas_indent=true\nhas_tab=true\narr_lines=5","node":"compact={\"a\":1,\"b\":{\"c\":2}}\nlines=6\nhas_indent=true\nhas_tab=true\narr_lines=5","rts":"compact={\"a\":1,\"b\":{\"c\":2}}\nlines=6\nhas_indent=true\nhas_tab=true\narr_lines=5"}
 ,
-{"name":"228_json_parse_reviver","status":"rts_diverge","bun":"a=2\nb=4\nc=6\narr=11,12,13","node":"a=2\nb=4\nc=6\narr=11,12,13","rts":"a=2\nb=4\nc=6\narr=1,2,3"}
+{"name":"228_json_parse_reviver","status":"pass","bun":"a=2\nb=4\nc=6\narr=11,12,13","node":"a=2\nb=4\nc=6\narr=11,12,13","rts":"a=2\nb=4\nc=6\narr=11,12,13"}
 ,
-{"name":"229_json_stringify_replacer_array","status":"rts_diverge","bun":"filtered={\"a\":1,\"c\":3}\nall={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nnone={}\nnested={\"x\":{\"a\":1}}","node":"filtered={\"a\":1,\"c\":3}\nall={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nnone={}\nnested={\"x\":{\"a\":1}}","rts":"filtered={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nall={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nnone={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nnested={\"x\":{\"a\":1,\"b\":2},\"y\":3}"}
+{"name":"229_json_stringify_replacer_array","status":"pass","bun":"filtered={\"a\":1,\"c\":3}\nall={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nnone={}\nnested={\"x\":{\"a\":1}}","node":"filtered={\"a\":1,\"c\":3}\nall={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nnone={}\nnested={\"x\":{\"a\":1}}","rts":"filtered={\"a\":1,\"c\":3}\nall={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nnone={}\nnested={\"x\":{\"a\":1}}"}
 ,
-{"name":"290_json_circular","status":"rts_error","bun":"err=TypeError","node":"err=TypeError","rts":"__RUNTIME_ERROR__"}
+{"name":"290_json_circular","status":"pass","bun":"err=TypeError","node":"err=TypeError","rts":"err=TypeError"}
 ,
 {"name":"292_json_tojson","status":"rts_diverge","bun":"cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\"","node":"cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\"","rts":"cls={}\ndate={}"}
 ,
 {"name":"293_json_reviver_this","status":"rts_diverge","bun":"obj={\"a\":2,\"b\":4}\nseen=2","node":"obj={\"a\":2,\"b\":4}\nseen=2","rts":"obj=undefined\nseen="}
 ,
-{"name":"403_json_replacer_array_order","status":"rts_diverge","bun":"{\"c\":3,\"a\":1,\"nested\":{\"a\":8}}\n[{\"c\":3,\"a\":1,\"nested\":{\"a\":8}},{\"c\":5,\"a\":4}]\n{\"1\":\"one\",\"01\":\"zero-one\",\"a\":\"aye\"}","node":"{\"c\":3,\"a\":1,\"nested\":{\"a\":8}}\n[{\"c\":3,\"a\":1,\"nested\":{\"a\":8}},{\"c\":5,\"a\":4}]\n{\"1\":\"one\",\"01\":\"zero-one\",\"a\":\"aye\"}","rts":"{\"b\":2,\"a\":1,\"c\":3,\"nested\":{\"z\":9,\"a\":8}}\n[{\"b\":2,\"a\":1,\"c\":3,\"nested\":{\"z\":9,\"a\":8}},{\"a\":4,\"c\":5}]\n{\"1\":\"one\",\"01\":\"zero-one\",\"a\":\"aye\"}"}
+{"name":"403_json_replacer_array_order","status":"pass","bun":"{\"c\":3,\"a\":1,\"nested\":{\"a\":8}}\n[{\"c\":3,\"a\":1,\"nested\":{\"a\":8}},{\"c\":5,\"a\":4}]\n{\"1\":\"one\",\"01\":\"zero-one\",\"a\":\"aye\"}","node":"{\"c\":3,\"a\":1,\"nested\":{\"a\":8}}\n[{\"c\":3,\"a\":1,\"nested\":{\"a\":8}},{\"c\":5,\"a\":4}]\n{\"1\":\"one\",\"01\":\"zero-one\",\"a\":\"aye\"}","rts":"{\"c\":3,\"a\":1,\"nested\":{\"a\":8}}\n[{\"c\":3,\"a\":1,\"nested\":{\"a\":8}},{\"c\":5,\"a\":4}]\n{\"1\":\"one\",\"01\":\"zero-one\",\"a\":\"aye\"}"}
 ,
-{"name":"50_json_deep","status":"rts_diverge","bun":"plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO","node":"plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO","rts":"plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_arr={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO"}
+{"name":"50_json_deep","status":"pass","bun":"plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO","node":"plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO","rts":"plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO"}
 ,
 {"name":"codex_json_bigint_tojson_monkeypatch","status":"rts_error","bun":"{\"x\":\"5n\",\"arr\":[\"1n\",\"2n\"]}\nTypeError","node":"{\"x\":\"5n\",\"arr\":[\"1n\",\"2n\"]}\nTypeError","rts":"__RUNTIME_ERROR__"}
 ,
 {"name":"codex_json_parse_reviver_delete_root","status":"pass","bun":"{\"root\":{\"a\":1,\"b\":{},\"d\":[3,4]}}\na:number|c:number|b:object|0:number|1:number|d:array|:object","node":"{\"root\":{\"a\":1,\"b\":{},\"d\":[3,4]}}\na:number|c:number|b:object|0:number|1:number|d:array|:object","rts":"{\"root\":{\"a\":1,\"b\":{},\"d\":[3,4]}}\na:number|c:number|b:object|0:number|1:number|d:array|:object"}
 ,
-{"name":"codex_json_stringify_propertylist_objects","status":"rts_diverge","bun":"{\"b\":\"B\",\"1\":\"one\",\"a\":\"A\"}\n[{\"b\":2,\"1\":3,\"a\":1}]","node":"{\"b\":\"B\",\"1\":\"one\",\"a\":\"A\"}\n[{\"b\":2,\"1\":3,\"a\":1}]","rts":"{\"1\":\"one\",\"a\":\"A\",\"b\":\"B\",\"null\":\"nil\"}\n[{\"1\":3,\"a\":1,\"b\":2,\"null\":4}]"}
+{"name":"codex_json_stringify_propertylist_objects","status":"pass","bun":"{\"b\":\"B\",\"1\":\"one\",\"a\":\"A\"}\n[{\"b\":2,\"1\":3,\"a\":1}]","node":"{\"b\":\"B\",\"1\":\"one\",\"a\":\"A\"}\n[{\"b\":2,\"1\":3,\"a\":1}]","rts":"{\"b\":\"B\",\"1\":\"one\",\"a\":\"A\"}\n[{\"b\":2,\"1\":3,\"a\":1}]"}
 ,
-{"name":"codex_json_tojson_replacer_interaction","status":"rts_diverge","bun":"{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number","node":"{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number","rts":"{\"a\":1,\"child\":{}}"}
+{"name":"codex_json_tojson_replacer_interaction","status":"rts_diverge","bun":"{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number","node":"{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number","rts":"{\"a\":1,\"child\":{}}\nrep::object|rep:a:number|rep:child:object|rep:toJSON:function"}
 ,
 {"name":"136_math_sign_trunc","status":"pass","bun":"sign_5=1\nsign_-5=-1\nsign_0=0\nsign_-0=0\nsign_NaN=NaN\ntrunc_5.9=5\ntrunc_-5.9=-5\ntrunc_0.1=0\ntrunc_-0.1=0\ntrunc_NaN=NaN\nfloor_-5.9=-6\nceil_-5.9=-5","node":"sign_5=1\nsign_-5=-1\nsign_0=0\nsign_-0=0\nsign_NaN=NaN\ntrunc_5.9=5\ntrunc_-5.9=-5\ntrunc_0.1=0\ntrunc_-0.1=0\ntrunc_NaN=NaN\nfloor_-5.9=-6\nceil_-5.9=-5","rts":"sign_5=1\nsign_-5=-1\nsign_0=0\nsign_-0=0\nsign_NaN=NaN\ntrunc_5.9=5\ntrunc_-5.9=-5\ntrunc_0.1=0\ntrunc_-0.1=0\ntrunc_NaN=NaN\nfloor_-5.9=-6\nceil_-5.9=-5"}
 ,
@@ -521,7 +521,7 @@
 ,
 {"name":"316_structuredclone_mixed","status":"rts_diverge","bun":"same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi","node":"same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi","rts":"same=true\nmap=a:1\nset=2,3\ndate=undefined\nre=undefined:undefined"}
 ,
-{"name":"325_structuredclone_primitives","status":"rts_diverge","bun":"42\nhello\ntrue\nnull\n2\n99\n2\n99","node":"42\nhello\ntrue\nnull\n2\n99\n2\n99","rts":"42\nhello\ntrue\nnull\n2\n99\n2\n2"}
+{"name":"325_structuredclone_primitives","status":"pass","bun":"42\nhello\ntrue\nnull\n2\n99\n2\n99","node":"42\nhello\ntrue\nnull\n2\n99\n2\n99","rts":"42\nhello\ntrue\nnull\n2\n99\n2\n99"}
 ,
 {"name":"337_bundler_dead_code","status":"pass","bun":"prod\nfeature-x disabled\ntrue\nno warning above\n1 2 3\n42","node":"prod\nfeature-x disabled\ntrue\nno warning above\n1 2 3\n42","rts":"prod\nfeature-x disabled\ntrue\nno warning above\n1 2 3\n42"}
 ,
@@ -537,7 +537,7 @@
 ,
 {"name":"358_obf_dead_inject","status":"pass","bun":"11\n1\n-5\ntrue\ntrue\ntrue\n0\n42","node":"11\n1\n-5\ntrue\ntrue\ntrue\n0\n42","rts":"11\n1\n-5\ntrue\ntrue\ntrue\n0\n42"}
 ,
-{"name":"394_structuredclone_complex","status":"rts_diverge","bun":"3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse","node":"3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse","rts":"3\n99\nfalse\ntrue\n2099\n2099\ntrue\nhello\ngi\ntrue\nfalse\ntrue\ntrue\ntrue\ntrue\nundefined\n1\ntrue\nfalse"}
+{"name":"394_structuredclone_complex","status":"rts_diverge","bun":"3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse","node":"3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse","rts":"3\n99\nfalse\ntrue\n2099\n2099\ntrue\nhello\ngi\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue\nundefined\n1\ntrue\nfalse"}
 ,
 {"name":"60_aggregate_error","status":"pass","bun":"cause=origin\nname=AggregateError\nmsg=many\ncount=2\nitems=a,b","node":"cause=origin\nname=AggregateError\nmsg=many\ncount=2\nitems=a,b","rts":"cause=origin\nname=AggregateError\nmsg=many\ncount=2\nitems=a,b"}
 ,
@@ -659,21 +659,21 @@
 ,
 {"name":"152_object_seal_freeze","status":"bun_node_diverge","bun":"__RUNTIME_ERROR__","node":"sealed=true\nfrozen=false\nmodified=10\nfrozen2=true\nsealed2=true\nnot_modified=1\nnormal_sealed=false\nnormal_frozen=false","rts":"sealed=true\nfrozen=false\nmodified=10\nfrozen2=true\nsealed2=true\nnot_modified=10\nnormal_sealed=false\nnormal_frozen=false"}
 ,
-{"name":"153_object_preventextensions","status":"rts_diverge","bun":"extensible=true\nafter=false\nmodify=10\nsealed=false\nfrozen=false","node":"extensible=true\nafter=false\nmodify=10\nsealed=false\nfrozen=false","rts":"extensible=true\nafter=false\nmodify=10\nsealed=true\nfrozen=false"}
+{"name":"153_object_preventextensions","status":"pass","bun":"extensible=true\nafter=false\nmodify=10\nsealed=false\nfrozen=false","node":"extensible=true\nafter=false\nmodify=10\nsealed=false\nfrozen=false","rts":"extensible=true\nafter=false\nmodify=10\nsealed=false\nfrozen=false"}
 ,
-{"name":"154_object_defineproperty","status":"bun_node_diverge","bun":"__RUNTIME_ERROR__","node":"value=42\nstill=42\nkeys=a\nb=10\ngetter=10","rts":"value=42\nstill=42\nkeys=a,b\nb=10\ngetter=5"}
+{"name":"154_object_defineproperty","status":"bun_node_diverge","bun":"__RUNTIME_ERROR__","node":"value=42\nstill=42\nkeys=a\nb=10\ngetter=10","rts":"value=42\nstill=42\nkeys=a\nb=10\ngetter=5"}
 ,
 {"name":"162_object_create_null","status":"rts_diverge","bun":"a=1\nproto=null\ntoString=true\nproto2=true\nchild_x=10\nown=false\nwithProps=1","node":"a=1\nproto=null\ntoString=true\nproto2=true\nchild_x=10\nown=false\nwithProps=1","rts":"a=1\nproto=null\ntoString=true\nproto2=true\nchild_x=10\nown=false\nwithProps=undefined"}
 ,
 {"name":"182_object_propertyisenumerable","status":"pass","bun":"a=true\nb=true\nc=false\nhidden=false\ninherited=false\narr_0=true\narr_length=false","node":"a=true\nb=true\nc=false\nhidden=false\ninherited=false\narr_0=true\narr_length=false","rts":"a=true\nb=true\nc=false\nhidden=false\ninherited=false\narr_0=true\narr_length=false"}
 ,
-{"name":"183_object_getownpropertynames","status":"pass","bun":"names=a,b,hidden\narr=0,1,2,length\nempty=\nstr=0,1,length","node":"names=a,b,hidden\narr=0,1,2,length\nempty=\nstr=0,1,length","rts":"names=a,b,hidden\narr=0,1,2,length\nempty=\nstr=0,1,length"}
+{"name":"183_object_getownpropertynames","status":"rts_diverge","bun":"names=a,b,hidden\narr=0,1,2,length\nempty=\nstr=0,1,length","node":"names=a,b,hidden\narr=0,1,2,length\nempty=\nstr=0,1,length","rts":"names=a,b\narr=0,1,2,length\nempty=\nstr=0,1,length"}
 ,
 {"name":"188_reflect_basics","status":"pass","bun":"get=1\nset=true\nc=3\nhas=true\nhas_d=false\ndeleteProperty=true\nhas_b=false\nkeys=a,c","node":"get=1\nset=true\nc=3\nhas=true\nhas_d=false\ndeleteProperty=true\nhas_b=false\nkeys=a,c","rts":"get=1\nset=true\nc=3\nhas=true\nhas_d=false\ndeleteProperty=true\nhas_b=false\nkeys=a,c"}
 ,
 {"name":"189_reflect_defineproperty","status":"pass","bun":"success=true\na=42\nvalue=42\nwritable=false\nenumerable=true\ndesc2=undefined","node":"success=true\na=42\nvalue=42\nwritable=false\nenumerable=true\ndesc2=undefined","rts":"success=true\na=42\nvalue=42\nwritable=false\nenumerable=true\ndesc2=undefined"}
 ,
-{"name":"191_object_values_entries_iteration","status":"rts_diverge","bun":"values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3\nempty_values=\nempty_entries=","node":"values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3\nempty_values=\nempty_entries=","rts":"values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3,4\nempty_values=\nempty_entries="}
+{"name":"191_object_values_entries_iteration","status":"pass","bun":"values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3\nempty_values=\nempty_entries=","node":"values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3\nempty_values=\nempty_entries=","rts":"values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3\nempty_values=\nempty_entries="}
 ,
 {"name":"192_object_getownpropertysymbols","status":"pass","bun":"count=2\nhas_sym1=true\nhas_sym2=true\nkeys=normal\nnames=normal","node":"count=2\nhas_sym1=true\nhas_sym2=true\nkeys=normal\nnames=normal","rts":"count=2\nhas_sym1=true\nhas_sym2=true\nkeys=normal\nnames=normal"}
 ,
@@ -711,7 +711,7 @@
 ,
 {"name":"346_reflect_api","status":"rts_diverge","bun":"true\nfalse\nx,y\n10\n99\nfalse\n7\n1 2\ntrue\n42\ntrue","node":"true\nfalse\nx,y\n10\n99\nfalse\n7\n1 2\ntrue\n42\ntrue","rts":"true\nfalse\nx,y\n10\n99\nfalse\n7\n1 2\ntrue\n42\nfalse"}
 ,
-{"name":"349_object_descriptors","status":"rts_diverge","bun":"42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue","node":"42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue","rts":"42\n99\n42\nreadonly,hidden,normal\n0\ntrue\ntrue\ntrue\n1\ntrue"}
+{"name":"349_object_descriptors","status":"rts_diverge","bun":"42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue","node":"42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue","rts":"42\n99\n42\nreadonly,normal\n0\ntrue\ntrue\ntrue\n1\ntrue"}
 ,
 {"name":"354_obf_proxy_trap","status":"rts_error","bun":"255\ntest\n5\n20\nadd(2,3)|mul(4,5)","node":"255\ntest\n5\n20\nadd(2,3)|mul(4,5)","rts":"__RUNTIME_ERROR__"}
 ,
@@ -755,7 +755,7 @@
 ,
 {"name":"claude-in-inherited-vs-own","status":"rts_diverge","bun":"true\ntrue\ntrue\nfalse\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue\ntrue\nfalse","node":"true\ntrue\ntrue\nfalse\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue\ntrue\nfalse","rts":"true\ntrue\ntrue\nfalse\nfalse\nfalse\nfalse\nfalse\nfalse\nfalse\nfalse\nfalse"}
 ,
-{"name":"claude-json-replacer-and-indent","status":"rts_diverge","bun":"{\"a\":2,\"1\":4}\n{\n  \"1\": 4,\n  \"2\": 3,\n  \"b\": 1,\n  \"a\": 2\n}\n{\"x\":1,\"y\":2}\n{\"a\":10,\"b\":20,\"c\":30}\n{\n\t\"a\": [\n\t\t1,\n\t\t2\n\t]\n}","node":"{\"a\":2,\"1\":4}\n{\n  \"1\": 4,\n  \"2\": 3,\n  \"b\": 1,\n  \"a\": 2\n}\n{\"x\":1,\"y\":2}\n{\"a\":10,\"b\":20,\"c\":30}\n{\n\t\"a\": [\n\t\t1,\n\t\t2\n\t]\n}","rts":"{\"1\":4,\"2\":3,\"b\":1,\"a\":2}\n{\n  \"1\": 4,\n  \"2\": 3,\n  \"b\": 1,\n  \"a\": 2\n}\n{\"x\":1,\"secret\":\"hide\",\"y\":2}\n{\"a\":1,\"b\":2,\"c\":3}\n{\"a\":[1,2]}"}
+{"name":"claude-json-replacer-and-indent","status":"pass","bun":"{\"a\":2,\"1\":4}\n{\n  \"1\": 4,\n  \"2\": 3,\n  \"b\": 1,\n  \"a\": 2\n}\n{\"x\":1,\"y\":2}\n{\"a\":10,\"b\":20,\"c\":30}\n{\n\t\"a\": [\n\t\t1,\n\t\t2\n\t]\n}","node":"{\"a\":2,\"1\":4}\n{\n  \"1\": 4,\n  \"2\": 3,\n  \"b\": 1,\n  \"a\": 2\n}\n{\"x\":1,\"y\":2}\n{\"a\":10,\"b\":20,\"c\":30}\n{\n\t\"a\": [\n\t\t1,\n\t\t2\n\t]\n}","rts":"{\"a\":2,\"1\":4}\n{\n  \"1\": 4,\n  \"2\": 3,\n  \"b\": 1,\n  \"a\": 2\n}\n{\"x\":1,\"y\":2}\n{\"a\":10,\"b\":20,\"c\":30}\n{\n\t\"a\": [\n\t\t1,\n\t\t2\n\t]\n}"}
 ,
 {"name":"claude-json-stringify-special-values","status":"pass","bun":"{\"c\":1}\n[null,null,1]\n{\"a\":null,\"b\":null,\"c\":null}\n[null,null]\nundefined\nundefined\nnull\nnull\n{\"a\":null}","node":"{\"c\":1}\n[null,null,1]\n{\"a\":null,\"b\":null,\"c\":null}\n[null,null]\nundefined\nundefined\nnull\nnull\n{\"a\":null}","rts":"{\"c\":1}\n[null,null,1]\n{\"a\":null,\"b\":null,\"c\":null}\n[null,null]\nundefined\nundefined\nnull\nnull\n{\"a\":null}"}
 ,
@@ -931,7 +931,7 @@
 ,
 {"name":"194_string_normalize","status":"pass","bun":"length1=4\nnfc=4\nnfd=5\ndefault=4\nsimple=hello","node":"length1=4\nnfc=4\nnfd=5\ndefault=4\nsimple=hello","rts":"length1=4\nnfc=4\nnfd=5\ndefault=4\nsimple=hello"}
 ,
-{"name":"195_string_codepointat","status":"rts_diverge","bun":"h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357","node":"h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357","rts":"h=104\ne=101\no=111\nout=281474976711112\nemoji=128512\nA=65\ncharCode=55357"}
+{"name":"195_string_codepointat","status":"rts_diverge","bun":"h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357","node":"h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357","rts":"h=104\ne=101\no=111\nout=281474976711128\nemoji=128512\nA=65\ncharCode=55357"}
 ,
 {"name":"196_string_fromcodepoint","status":"pass","bun":"ABC=ABC\nhello=hello\nemoji=😀\nmulti=😀A😁\ncharCode=","node":"ABC=ABC\nhello=hello\nemoji=😀\nmulti=😀A😁\ncharCode=","rts":"ABC=ABC\nhello=hello\nemoji=😀\nmulti=😀A😁\ncharCode="}
 ,
@@ -1107,7 +1107,7 @@
 ,
 {"name":"360_obf_iife_scope","status":"rts_error","bun":"30\n2\n49\n49\n9\nneg\nzero\nsmall\nmedium\nlarge","node":"30\n2\n49\n49\n9\nneg\nzero\nsmall\nmedium\nlarge","rts":"__RUNTIME_ERROR__"}
 ,
-{"name":"377_for_in_detail","status":"rts_diverge","bun":"own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx\n0\na=1,b=2\ntrue\ntrue","node":"own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx\n0\na=1,b=2\ntrue\ntrue","rts":"own1,own2,hidden\nown1,own2,hidden\nstring:0,string:1,string:2\nx\n2\na=1,b=2\ntrue\ntrue"}
+{"name":"377_for_in_detail","status":"rts_diverge","bun":"own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx\n0\na=1,b=2\ntrue\ntrue","node":"own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx\n0\na=1,b=2\ntrue\ntrue","rts":"own1,own2\nown1,own2\nstring:0,string:1,string:2\nx\n2\na=1,b=2\ntrue\ntrue"}
 ,
 {"name":"390_with_statement","status":"bun_node_diverge","bun":"50\nred rect\n5\n14\n10","node":"__RUNTIME_ERROR__","rts":"__RUNTIME_ERROR__"}
 ,
@@ -1191,7 +1191,7 @@
 ,
 {"name":"287_url_canparse","status":"pass","bun":"abs=true\nrel=true\nbad=false","node":"abs=true\nrel=true\nbad=false","rts":"abs=true\nrel=true\nbad=false"}
 ,
-{"name":"55_url_searchparams","status":"rts_diverge","bun":"host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4","node":"host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4","rts":"host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=undefined\nquery=1.390671161569367e-309,1.39067116156937e-309,1.390671161569377e-309,1.39067116156938e-309\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4"}
+{"name":"55_url_searchparams","status":"rts_diverge","bun":"host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4","node":"host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4","rts":"host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=undefined\nquery=1.390671161569446e-309,1.39067116156945e-309,1.390671161569456e-309,1.39067116156946e-309\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4"}
 ,
 {"name":"67_url_patternish","status":"rts_diverge","bun":"href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/space%20here?q=a%2Bb+c","node":"href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/space%20here?q=a%2Bb+c","rts":"href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/"}
 ,
@@ -1217,4 +1217,4 @@
 ,
 {"name":"85_request_response","status":"rts_error","bun":"ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi","node":"ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi","rts":"__RUNTIME_ERROR__"}
 
-],"summary":{"total":609,"pass":276,"rts_diverge":146,"bun_node_diverge":17,"errors":170,"rejected":0}}
+],"summary":{"total":609,"pass":290,"rts_diverge":133,"bun_node_diverge":17,"errors":169,"rejected":0}}

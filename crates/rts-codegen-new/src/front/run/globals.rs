@@ -441,6 +441,26 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         method: &str,
         args: &[HirExpr],
     ) -> FrontResult<Val> {
+        // `String.raw(callSite, ...subs)` — the FUNCTION-call form (the tag
+        // form `String.raw\`…\`` is desugared at compile time): pack the
+        // substitutions into one array word and interleave at runtime.
+        if method == "raw" {
+            if args.is_empty() {
+                return unsupported!("String.raw() requires a call-site object");
+            }
+            let cs = self.lower_expr(module, &args[0])?;
+            let cs_w = self.box_value(cs);
+            let subs = emit_marshal::emit_new_vec_object(module, self.builder);
+            for a in &args[1..] {
+                let v = self.lower_expr(module, a)?;
+                let w = self.box_value(v);
+                emit_marshal::emit_vec_push(module, self.builder, subs, w);
+            }
+            let res = self
+                .call_runtime(module, "__rtsadp_string_raw", &[cs_w, subs])?
+                .expect("__rtsadp_string_raw returns a string word");
+            return Ok(Val::tagged_kind(res, JsKind::Str));
+        }
         let symbol = match method {
             "fromCharCode" => "__rtsadp_str_from_char_code",
             "fromCodePoint" => "__rtsadp_str_from_code_point",

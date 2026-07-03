@@ -67,9 +67,54 @@ impl Visit for Collector<'_> {
 /// the `.raw` property on the strings array, which the modeled subset omits).
 pub(super) fn build_tagged_template(tt: &swc_ecma_ast::TaggedTpl) -> HirExpr {
     let scope = Scope::new();
+    // `String.raw` (PRIMORDIAL String static): the spec result is exactly the
+    // RAW quasis interleaved with the ToString'd substitutions — a compile-time
+    // `+`-chain over the UNCOOKED segments (`\n` stays backslash-n). No call.
+    if let swc_ecma_ast::Expr::Member(m) = tt.tag.as_ref() {
+        if let (swc_ecma_ast::Expr::Ident(obj), swc_ecma_ast::MemberProp::Ident(prop)) =
+            (m.obj.as_ref(), &m.prop)
+        {
+            if obj.sym.as_ref() == "String" && prop.sym.as_ref() == "raw" {
+                let raw = |i: usize| -> String {
+                    tt.tpl
+                        .quasis
+                        .get(i)
+                        .map(|q| q.raw.replace("\r\n", "\n").replace('\r', "\n"))
+                        .unwrap_or_default()
+                };
+                let mut acc = str_lit(raw(0));
+                for (i, expr) in tt.tpl.exprs.iter().enumerate() {
+                    acc = add(acc, rebuild_interp(expr, &scope));
+                    acc = add(acc, str_lit(raw(i + 1)));
+                }
+                return acc;
+            }
+        }
+    }
     let tag = rts_hir::lower::lower_swc_expr(&tt.tag, &scope);
     let strings: Vec<HirExpr> = tt.tpl.quasis.iter().map(|q| str_lit(cooked_quasi(q))).collect();
     let strings_arr = HirExpr::new(HirExprKind::Array(strings), HirType::Unknown);
+    // Pair the cooked array with the RAW quasis (`strings.raw` in the tag body)
+    // through the private `engine.tsa_raw` bridge — it registers the pair and
+    // yields the cooked array unchanged.
+    let raws: Vec<HirExpr> = tt
+        .tpl
+        .quasis
+        .iter()
+        .map(|q| str_lit(q.raw.replace("\r\n", "\n").replace('\r', "\n")))
+        .collect();
+    let raw_arr = HirExpr::new(HirExprKind::Array(raws), HirType::Unknown);
+    let strings_arr = HirExpr::new(
+        HirExprKind::MethodCall {
+            object: Box::new(HirExpr::new(
+                HirExprKind::Ident("engine".to_string()),
+                HirType::Unknown,
+            )),
+            method: "tsa_raw".to_string(),
+            args: vec![strings_arr, raw_arr],
+        },
+        HirType::Unknown,
+    );
     let mut args = vec![strings_arr];
     for expr in &tt.tpl.exprs {
         args.push(rebuild_interp(expr, &scope));

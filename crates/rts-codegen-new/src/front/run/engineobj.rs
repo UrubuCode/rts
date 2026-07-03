@@ -72,8 +72,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if self.local(name).is_some() || self.classes.get(name).is_some() {
             return Ok(None);
         }
-        // PRIVACY GATE: only prelude-origin code may reach the private namespace.
-        if !self.is_prelude {
+        // PRIVACY GATE: only prelude-origin code may reach the private
+        // namespace. Exception: `tsa_raw` — the tagged-template DESUGAR itself
+        // emits it into user-origin units (pairing cooked/raw string arrays);
+        // it is a benign data-registration bridge, not a capability.
+        if !self.is_prelude && method != "tsa_raw" {
             return unsupported!(
                 "`engine.{method}()` is a PRIVATE engine-internal API (usable only from the engine's embedded prelude, not user code)"
             );
@@ -226,6 +229,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // member is a data row, never new Cranelift code.
         if let Some(spec) = engine_str_member(method) {
             return self.lower_engine_str(module, spec, args);
+        }
+        // `engine.tsa_raw(cooked, raw)` — pair a tagged template's cooked
+        // strings array with its RAW strings array (the `.raw` property read)
+        // and yield the cooked array (the tag call's first arg).
+        if method == "tsa_raw" {
+            if args.len() != 2 {
+                return unsupported!("engine.tsa_raw expects 2 args, got {}", args.len());
+            }
+            let c = self.lower_expr(module, &args[0])?;
+            let cw = self.box_value(c);
+            let r = self.lower_expr(module, &args[1])?;
+            let rw = self.box_value(r);
+            let res = self
+                .call_runtime(module, "__rtsadp_tsa_raw", &[cw, rw])?
+                .expect("__rtsadp_tsa_raw returns the cooked word");
+            return Ok(Val::tagged_kind(res, super::lower::JsKind::Array));
         }
         // WORD → WORD members (one PolyValue arg, PolyValue return): the
         // structuredClone transfer bridges (is_buffer/buffer_clone/buffer_detach).

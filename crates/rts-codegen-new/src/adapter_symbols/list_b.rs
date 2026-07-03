@@ -344,6 +344,8 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_prop_flags", objops::__rtsadp_prop_flags as *const u8),
         sym("__rtsadp_prevent_ext", objops::__rtsadp_prevent_ext as *const u8),
         sym("__rtsadp_seal", objops::__rtsadp_seal as *const u8),
+        sym("__rtsadp_tsa_raw", iterops::__rtsadp_tsa_raw as *const u8),
+        sym("__rtsadp_string_raw", iterops::__rtsadp_string_raw as *const u8),
         sym("__rtsadp_freeze", objops::__rtsadp_freeze as *const u8),
         sym("__rtsadp_is_frozen", objops::__rtsadp_is_frozen as *const u8),
         sym("__rtsadp_construct", ctorval::__rtsadp_construct as *const u8),

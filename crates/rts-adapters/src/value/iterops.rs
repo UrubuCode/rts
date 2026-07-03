@@ -359,3 +359,78 @@ pub extern "C" fn __rtsadp_obj_own_names(obj_word: u64) -> u64 {
     }
     keys_arr
 }
+
+// ===========================================================================
+// Tagged-template `strings.raw` (String.raw / custom tags): the desugar builds
+// the COOKED strings array and the RAW strings array, pairs them here, and the
+// dynamic `.raw` property read on the cooked array resolves via this table.
+// Keyed by the cooked array's WORD (stable — the payload is its heap slot).
+// ===========================================================================
+
+fn tsa_raw_table() -> &'static std::sync::Mutex<std::collections::HashMap<u64, u64>> {
+    static T: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<u64, u64>>> =
+        std::sync::OnceLock::new();
+    T.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// `engine.tsa_raw(cooked, raw)` — record `cooked.raw = raw` and return the
+/// cooked array word (the tag call's first arg).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_tsa_raw(cooked_word: u64, raw_word: u64) -> u64 {
+    if let Ok(mut t) = tsa_raw_table().lock() {
+        t.insert(cooked_word, raw_word);
+    }
+    cooked_word
+}
+
+/// The paired RAW strings array of a tagged-template cooked array, if any.
+pub(crate) fn tsa_raw_of(cooked_word: u64) -> Option<u64> {
+    tsa_raw_table().lock().ok()?.get(&cooked_word).copied()
+}
+
+/// `String.raw(callSite, ...subs)` — the FUNCTION-call form (the tag form is
+/// desugared at compile time): read `callSite.raw` (array or array-like with
+/// `length`), interleave its ToString'd segments with the substitutions.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_string_raw(callsite_word: u64, subs_word: u64) -> u64 {
+    use rts_runtime::namespaces::gc::handles as rt_handles;
+    let raw_key = abi_adapter::intern_poly("raw").raw();
+    let raw = super::objops::__rtsadp_obj_get(callsite_word, raw_key);
+    let len_w = super::dyndispatch::__rtsadp_dyn_length(raw);
+    let len = {
+        let v = PolyValue::from_raw(len_w);
+        if v.is_int32() {
+            v.as_i32() as i64
+        } else if v.is_double() {
+            v.as_f64() as i64
+        } else {
+            0
+        }
+    };
+    let subs: Vec<i64> = {
+        let v = PolyValue::from_raw(subs_word);
+        if v.is_object() {
+            let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+            rt_handles::with_entry(h, |e| match e {
+                Some(rt_handles::Entry::Vec(items)) => items.as_ref().clone(),
+                _ => Vec::new(),
+            })
+        } else {
+            Vec::new()
+        }
+    };
+    let mut out = String::new();
+    for i in 0..len {
+        let idx_w = PolyValue::from_i32(i as i32).raw();
+        let seg = super::dyndispatch::__rtsadp_idx_get(raw, idx_w);
+        let seg_s = super::genops::__rtsadp_to_string(seg);
+        out.push_str(&abi_adapter::resolve_poly(PolyValue::from_raw(seg_s)));
+        if i + 1 < len {
+            if let Some(&s) = subs.get(i as usize) {
+                let ss = super::genops::__rtsadp_to_string(s as u64);
+                out.push_str(&abi_adapter::resolve_poly(PolyValue::from_raw(ss)));
+            }
+        }
+    }
+    abi_adapter::intern_poly(&out).raw()
+}
