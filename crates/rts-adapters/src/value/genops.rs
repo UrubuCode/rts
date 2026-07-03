@@ -614,9 +614,10 @@ fn box_handle_auto_depth(h: u64, depth: u32) -> u64 {
                 for i in 0..len {
                     let e = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(h, i) as u64;
                     if !PolyValue::from_raw(e).is_boxed() && e >= (1 << 48) {
-                        let is_heap = with_entry(e, |en| {
-                            matches!(en, Some(Entry::String(_)) | Some(Entry::Vec(_)))
-                        });
+                        // ANY live entry normalizes (String → str word, Vec →
+                        // nested array word, Map/other → object word) —
+                        // `matchAll` rows are raw `Entry::Map` handles.
+                        let is_heap = with_entry(e, |en| en.is_some());
                         if is_heap {
                             let w = box_handle_auto_depth(e, depth + 1);
                             rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(h, i, w as i64);

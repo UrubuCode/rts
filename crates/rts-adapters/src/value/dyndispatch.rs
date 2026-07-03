@@ -306,6 +306,19 @@ pub extern "C" fn __rtsadp_idx_get(recv: u64, idx: u64) -> u64 {
             };
         }
     }
+    // A legacy DICTIONARY entry (`Entry::Map` — matchAll rows etc.) is object-
+    // tagged but NOT a keyed shape-vec, so `is_array_word` would misroute it to
+    // `VEC_GET`; key it through `obj_get` (whose Map branch reads the IndexMap).
+    if v.is_object() && !super::objops::is_proxy_word(recv) {
+        use rts_runtime::namespaces::gc::handles as rt_handles;
+        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+        let is_map = rts_engine::heap::handles::with_entry(h, |e| {
+            matches!(e, Some(rts_engine::heap::handles::Entry::Map(_)))
+        });
+        if is_map {
+            return super::objops::__rtsadp_obj_get(recv, idx);
+        }
+    }
     if is_array_word(recv) {
         // A SYMBOL key on an array (#216/#299): `arr[Symbol.iterator]` yields
         // the native values-iterator FUNCTION (a real callable Entry::Function,
