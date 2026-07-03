@@ -164,7 +164,7 @@ pub extern "C" fn __rtsadp_own_keys_raw(obj_word: u64) -> u64 {
         }
         return __rtsadp_own_keys_raw(target);
     }
-    __rtsadp_obj_keys(obj_word)
+    obj_keys_impl(obj_word, false)
 }
 
 #[unsafe(no_mangle)]
@@ -207,6 +207,13 @@ pub extern "C" fn __rtsadp_obj_keys(obj_word: u64) -> u64 {
         }
         return __rtsadp_obj_keys(target);
     }
+    obj_keys_impl(obj_word, true)
+}
+
+/// The shared key-enumeration core. `enumerable_only` = `Object.keys`/for-in
+/// semantics (skip `defineProperty(.., {enumerable:false})` properties);
+/// `false` = `Reflect.ownKeys`/`getOwnPropertyNames` (every own string key).
+fn obj_keys_impl(obj_word: u64, enumerable_only: bool) -> u64 {
     let vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     let obj = PolyValue::from_raw(obj_word);
     if obj.is_object() && looks_like_object(obj) {
@@ -227,7 +234,7 @@ pub extern "C" fn __rtsadp_obj_keys(obj_word: u64) -> u64 {
                 }
                 // A `defineProperty(.., {enumerable:false})` property is skipped
                 // by Object.keys/values/entries/for-in (JS spec).
-                if !super::objops::prop_enumerable(obj_word, &k) {
+                if enumerable_only && !super::objops::prop_enumerable(obj_word, &k) {
                     continue;
                 }
                 // ACCESSOR slots (`__get_<k>`/`__set_<k>` — materialized literal
