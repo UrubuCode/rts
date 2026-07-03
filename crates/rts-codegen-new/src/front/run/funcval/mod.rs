@@ -351,9 +351,12 @@ pub fn captured_mutated_top_lets(funcs: &[HirFunc], main: &HirFunc) -> HashSet<S
 /// already non-capture via `ctx.module_globals`.)
 const GLOBALS: &[&str] = &[
     "undefined", "Infinity", "NaN", "globalThis",
-    // Primordial wrapper/constructor + utility globals callable from an arrow.
+    // PRIMORDIAL wrapper/constructor + spec global functions callable from an
+    // arrow. Non-primordial globals (Date/JSON/URL/…) are NOT listed — both
+    // call sites also consult `registry::has_class`/`has_namespace`, which
+    // covers every registered class data-driven.
     "String", "Number", "Boolean", "Object", "Array", "Function", "Symbol",
-    "Math", "JSON", "Date", "RegExp", "Promise", "Error",
+    "Math", "RegExp", "Promise", "Error",
     "parseInt", "parseFloat", "isNaN", "isFinite",
     // `getPointer(fn)` — an ENGINE intrinsic (the C-ABI code address of a top-level
     // fn, for `thread.spawn`/callbacks). Globally accessible, never captured, so an
