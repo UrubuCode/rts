@@ -144,7 +144,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // and `m[0]` / `m.length` resolve. CAVEAT (JS-faithful): on no match
                 // the value is `null`; `m[0]` then dereferences null — the same
                 // throw JS produces (we do not paper over it with a wrong value).
-                Ok(Some(Val::tagged_kind(word, JsKind::Array)))
+                Ok(Some(Val::new(word, crate::repr::Repr::Tagged)))
             }
             // `s.search(re)` → index (number) or -1.
             ("search", 1) => {

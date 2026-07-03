@@ -116,6 +116,14 @@ pub fn array_method_returns_array(method: &str) -> bool {
     if matches!(method, "splice" | "toSpliced") {
         return true;
     }
+    // `s.match(re)` / `re.exec(s)` results are RegExpExecArray-shaped Map rows
+    // for a NON-global regex (numeric slots + index/input/groups) and a plain
+    // array only for a global one - the static Array shape is UNSAFE for the
+    // receiver-class inference (a Map row read through VEC_GET yields garbage).
+    // `matchAll` rows are Maps too. Keep them DYNAMIC.
+    if matches!(method, "match" | "matchAll") {
+        return false;
+    }
     // Includes the STRING rows too: `s.match(p)`/`s.matchAll(p)`/`s.split(sep)`
     // yield an array, so chaining `.join()`/`.length` on the result is an array
     // dispatch (the caller's receiver-class inference reads this bit).

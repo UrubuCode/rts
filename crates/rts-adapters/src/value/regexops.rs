@@ -165,10 +165,17 @@ pub extern "C" fn __rtsadp_re_last_index(re_word: u64) -> u64 {
 /// the same first element JS yields). `null` (PolyValue) on no match.
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_re_str_match(subj_word: u64, re_word: u64) -> u64 {
+    // NON-global `s.match(re)` is spec'd as the SAME RegExpExecArray `exec`
+    // yields (numeric slots + index/input/groups) — route the exec builder. A
+    // GLOBAL regex returns the plain array of all full matches (no props).
+    let is_global = rts_engine::heap::handles::with_entry(unbox_re(re_word), |e| match e {
+        Some(rts_engine::heap::handles::Entry::Regex(rx)) => rx.global,
+        _ => false,
+    });
+    if !is_global {
+        return __rtsadp_re_exec(re_word, subj_word);
+    }
     let s = handle_str(str_handle(subj_word));
-    // `s.match(re)`: NON-global → `[fullMatch, …captureGroups]`; global → all full
-    // matches. `MATCH_GROUPS` picks by the regex's `global` flag (the old path used
-    // `MATCH_ALL`, which never returns capture groups → `m[1]` read `0`).
     let raw_vec =
         rt_re::__RTS_FN_NS_REGEX_MATCH_GROUPS(unbox_re(re_word), s.as_ptr(), s.len() as i64);
     if raw_vec == 0 {
@@ -177,12 +184,25 @@ pub extern "C" fn __rtsadp_re_str_match(subj_word: u64, re_word: u64) -> u64 {
     rebox_string_vec_as_array(raw_vec)
 }
 
-/// `re.exec(s)` — JS spec: an Array `[fullMatch, …captureGroups]` for the first
-/// match, or `null` when the subject does not match. Same result shape as
-/// `s.match(re)`; only the receiver/arg order differs.
+/// `re.exec(s)` — JS spec: a RegExpExecArray for the FIRST match, or `null`.
+/// Built as the SAME array-like `Entry::Map` rows `matchAll` produces
+/// (numeric "0".."N" slots + `length`/`index`/`input`/`groups`), so
+/// `m[1]`/`m.index`/`m.groups.name` all read through the dynamic Map paths.
+/// (Global-regex `lastIndex` statefulness is the separate lastindex cluster.)
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_re_exec(re_word: u64, subj_word: u64) -> u64 {
-    __rtsadp_re_str_match(subj_word, re_word)
+    use rts_runtime::namespaces::globals::string::search as rt_search;
+    let s = handle_str(str_handle(subj_word));
+    let rows = rt_search::__RTS_FN_NS_STRING_MATCH_ALL_REGEX(
+        s.as_ptr(),
+        s.len() as i64,
+        unbox_re(re_word),
+    );
+    let first = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(rows, 0);
+    if first == 0 {
+        return PolyValue::null().raw();
+    }
+    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(first as u64)).raw()
 }
 
 /// `s.replace(re, repl)` — replace the FIRST match (a non-global regex) with the

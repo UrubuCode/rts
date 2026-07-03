@@ -135,6 +135,27 @@ pub extern "C" fn __rtsadp_dyn_length(recv: u64) -> u64 {
     if let Some((bh, bytes, ..)) = super::taops::view_parts(recv) {
         return PolyValue::from_i32(super::taops::view_len(bh, bytes) as i32).raw();
     }
+    // A legacy DICTIONARY row (`Entry::Map` — match/exec/matchAll results):
+    // its own `length` entry, read straight off the IndexMap (BEFORE the
+    // array arm — a Map word passes `is_array_word` and `VEC_LEN` reads 0).
+    if v.is_object() {
+        use rts_runtime::namespaces::gc::handles as rt_handles;
+        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+        let hit = rts_engine::heap::handles::with_entry(h, |e| match e {
+            Some(rts_engine::heap::handles::Entry::Map(m)) => {
+                Some(m.get("length").copied())
+            }
+            _ => None,
+        });
+        if let Some(len) = hit {
+            return match len {
+                Some(n) if (i32::MIN as i64..=i32::MAX as i64).contains(&n) => {
+                    PolyValue::from_i32(n as i32).raw()
+                }
+                _ => undef(),
+            };
+        }
+    }
     // A BUFFER (a `TextEncoder.encode` result — `Entry::Buffer` bytes): its
     // `.length` is the byte count (the Uint8Array surface). Checked BEFORE the
     // array arm — a Buffer word also passes `is_array_word` (object, non-keyed)
