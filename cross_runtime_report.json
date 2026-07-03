@@ -3361,10 +3361,10 @@
 ,
 {
   "name": "410_promise_thenable_assimilation",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "then|value:ok|next",
   "node": "then|value:ok|next",
-  "rts": "value:[object Object]|"
+  "rts": "then|value:ok|next"
 }
 ,
 {
@@ -3436,7 +3436,7 @@
   "status": "rts_diverge",
   "bun": "ok\n1",
   "node": "ok\n1",
-  "rts": "{ __get_then: function }\n0"
+  "rts": "ok\n2"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":321,"rts_diverge":112,"bun_node_diverge":18,"errors":158,"rejected":0}}
+],"summary":{"total":609,"pass":322,"rts_diverge":111,"bun_node_diverge":18,"errors":158,"rejected":0}}
