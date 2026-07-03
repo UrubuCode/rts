@@ -240,7 +240,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 && !self.is_whole_array_value(rhs)
                 && self.add_operand_to_primitive_safe(lhs)
                 && self.add_operand_to_primitive_safe(rhs);
-            if !array_string_concat && !object_generic_add {
+            // GENERIC coercing op with ToPrimitive-SAFE operands: every object
+            // operand has no custom toString/valueOf (the runtime generic op's
+            // spec rendering is exact) and every ARRAY operand has no OBJECT
+            // element (the join renders elements exactly). Covers `[] + []`,
+            // `[1] == 1`, `{} - 1`, relationals — the coercion-semantics corpus.
+            let coercing_generic = {
+                let safe = |e: &HirExpr| {
+                    !self.array_arg_has_object_element(e) && self.add_operand_to_primitive_safe(e)
+                };
+                safe(lhs) && safe(rhs)
+            };
+            if !array_string_concat && !object_generic_add && !coercing_generic {
                 return unsupported!(
                     "binary `{op:?}` on a whole object/array operand (ToPrimitive coercion is a later increment)"
                 );

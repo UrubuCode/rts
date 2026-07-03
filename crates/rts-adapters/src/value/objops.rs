@@ -995,6 +995,31 @@ pub extern "C" fn __rtsadp_obj_delete(obj_word: u64, key_str_handle: u64) -> i64
         }
         return __rtsadp_obj_delete(target, key_str_handle);
     }
+    // `delete arr[i]` — an ARRAY receiver with a numeric key: JS leaves a hole
+    // (length unchanged, the slot reads `undefined`); this model writes the
+    // `undefined` word in place. Out-of-range → no-op (still `true`).
+    {
+        let obj = PolyValue::from_raw(obj_word);
+        if obj.is_object() && !looks_like_object(obj) {
+            if let Ok(i) = key_text(key_str_handle).parse::<i64>() {
+                let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+                let is_vec = rt_handles::with_entry(handle, |e| {
+                    matches!(e, Some(rt_handles::Entry::Vec(_)))
+                });
+                if is_vec {
+                    let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(handle).max(0);
+                    if i >= 0 && i < len {
+                        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(
+                            handle,
+                            i,
+                            PolyValue::undefined().raw() as i64,
+                        );
+                    }
+                    return 1;
+                }
+            }
+        }
+    }
     let Some((handle, idx)) = resolve_slot(obj_word, key_str_handle) else {
         return 1;
     };

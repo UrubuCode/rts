@@ -898,11 +898,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirExprKind::Index { object, index } => {
                 let obj = self.lower_expr(module, object)?;
                 let obj_word = self.box_value(obj);
-                let Some(key) = self.dynamic_key_word(module, index)? else {
-                    return unsupported!(
-                        "`delete obj[k]` with a numeric / non-string computed key (later increment)"
-                    );
-                };
+                // ANY computed key: ToString through the generic key coercion
+                // (`delete arr[1]` — the runtime delete's ARRAY branch writes
+                // the `undefined` hole; `delete o[k]` keys the object).
+                let key = self.index_key_word(module, index)?;
                 (object.as_ref(), obj_word, key)
             }
             _ => {

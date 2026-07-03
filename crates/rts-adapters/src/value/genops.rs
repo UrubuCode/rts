@@ -424,8 +424,19 @@ fn loose_eq(av: PolyValue, bv: PolyValue) -> bool {
         let y = to_number(bv);
         return x == y;
     }
-    // Object/function on a side (ToPrimitive is a later increment): fall to the
-    // strict identity compare — sound, never a wrong `true`.
+    // OBJECT vs primitive: ToPrimitive the object side (default hint — array
+    // join / `[object Object]`, matching the engine's single ToString path,
+    // exact for method-free objects) and recurse (`[] == ""` → true,
+    // `[0] == 0` → true). Object vs object stays IDENTITY (JS never coerces
+    // both sides).
+    let a_obj = av.is_object();
+    let b_obj = bv.is_object();
+    if a_obj != b_obj {
+        let (obj, prim) = if a_obj { (av, bv) } else { (bv, av) };
+        let s = PolyValue::from_raw(__rtsadp_to_string(obj.raw()));
+        return loose_eq(s, prim);
+    }
+    // Object/object (or function): strict identity — sound, never a wrong `true`.
     av.raw() == bv.raw()
 }
 
