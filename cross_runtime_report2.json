@@ -139,7 +139,7 @@
 ,
 {"name":"codex_array_iterator_reused_result_object","status":"rts_error","bun":"0,1,2","node":"0,1,2","rts":"__RUNTIME_ERROR__"}
 ,
-{"name":"codex_array_length_define_traps","status":"rts_diverge","bun":"after-define=7:1|2|3|4|||7:0,1,2,3,6\nafter-trunc=2:1|2:0,1\nRangeError\nfinal=2:1|2","node":"after-define=7:1|2|3|4|||7:0,1,2,3,6\nafter-trunc=2:1|2:0,1\nRangeError\nfinal=2:1|2","rts":"after-define=4:undefined:0,1,2,3\nafter-trunc=4:undefined:0,1,2,3\nfinal=4:undefined"}
+{"name":"codex_array_length_define_traps","status":"rts_error","bun":"after-define=7:1|2|3|4|||7:0,1,2,3,6\nafter-trunc=2:1|2:0,1\nRangeError\nfinal=2:1|2","node":"after-define=7:1|2|3|4|||7:0,1,2,3,6\nafter-trunc=2:1|2:0,1\nRangeError\nfinal=2:1|2","rts":"__RUNTIME_ERROR__"}
 ,
 {"name":"codex_array_methods_thisarg_mutation","status":"rts_error","bun":"3,6,9,120\n1,2,3,40,99\n1,2,3","node":"3,6,9,120\n1,2,3,40,99\n1,2,3","rts":"__RUNTIME_ERROR__"}
 ,
@@ -191,7 +191,7 @@
 ,
 {"name":"373_private_in_check","status":"rts_diverge","bun":"true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\nfalse\ntrue\nfalse\nWhiskers says meow\nRex says woof","node":"true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\nfalse\ntrue\nfalse\nWhiskers says meow\nRex says woof","rts":"true\ntrue\nfalse\nfalse\n5\nnot a Point\ntrue\ntrue\ntrue\ntrue\nWhiskers says meow\nRex says woof"}
 ,
-{"name":"374_private_static_methods","status":"rts_diverge","bun":"Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown","node":"Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown","rts":"undefined\nundefined\ntrue\n3\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown"}
+{"name":"374_private_static_methods","status":"rts_error","bun":"Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown","node":"Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown","rts":"__RUNTIME_ERROR__"}
 ,
 {"name":"375_private_inheritance","status":"pass","bun":"Rex eats bone\nRex moves (energy:80)\nRex learned sit\nRex learned shake\nRex performs shake\n80\nBuddy guides Alice\nBuddy eats kibble\nBuddy moves (energy:90)\nA-private\nB-private\ntrue\ntrue\ntrue","node":"Rex eats bone\nRex moves (energy:80)\nRex learned sit\nRex learned shake\nRex performs shake\n80\nBuddy guides Alice\nBuddy eats kibble\nBuddy moves (energy:90)\nA-private\nB-private\ntrue\ntrue\ntrue","rts":"Rex eats bone\nRex moves (energy:80)\nRex learned sit\nRex learned shake\nRex performs shake\n80\nBuddy guides Alice\nBuddy eats kibble\nBuddy moves (energy:90)\nA-private\nB-private\ntrue\ntrue\ntrue"}
 ,
@@ -517,9 +517,9 @@
 ,
 {"name":"278_aggregate_error","status":"pass","bun":"name=AggregateError\nmsg=many\nlen=2\nitems=a|b","node":"name=AggregateError\nmsg=many\nlen=2\nitems=a|b","rts":"name=AggregateError\nmsg=many\nlen=2\nitems=a|b"}
 ,
-{"name":"286_setimmediate","status":"bun_node_diverge","bun":"order=micro|immediate|timeout","node":"order=micro|timeout|immediate","rts":"order=micro|immediate|timeout"}
+{"name":"286_setimmediate","status":"pass","bun":"order=micro|immediate|timeout","node":"order=micro|immediate|timeout","rts":"order=micro|immediate|timeout"}
 ,
-{"name":"316_structuredclone_mixed","status":"rts_diverge","bun":"same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi","node":"same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi","rts":"same=true\nmap=a:1\nset=2,3\ndate=undefined\nre=undefined:undefined"}
+{"name":"316_structuredclone_mixed","status":"rts_error","bun":"same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi","node":"same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi","rts":"__RUNTIME_ERROR__"}
 ,
 {"name":"325_structuredclone_primitives","status":"pass","bun":"42\nhello\ntrue\nnull\n2\n99\n2\n99","node":"42\nhello\ntrue\nnull\n2\n99\n2\n99","rts":"42\nhello\ntrue\nnull\n2\n99\n2\n99"}
 ,
@@ -547,7 +547,7 @@
 ,
 {"name":"87_modern_helpers","status":"pass","bun":"has=true\ncan=true","node":"has=true\ncan=true","rts":"has=true\ncan=true"}
 ,
-{"name":"97_structured_clone_edge","status":"rts_diverge","bun":"date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true","node":"date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true","rts":"date=undefined\nregex=undefined:undefined\nerror=Error:boom\nself=true"}
+{"name":"97_structured_clone_edge","status":"rts_error","bun":"date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true","node":"date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true","rts":"__RUNTIME_ERROR__"}
 ,
 {"name":"codex_structuredclone_transfer_detach","status":"rts_diverge","bun":"0\n4\n1,2,3,4","node":"0\n4\n1,2,3,4","rts":"4\n4\n1,2,3,4"}
 ,
@@ -611,9 +611,9 @@
 ,
 {"name":"claude-loose-vs-strict-string-number","status":"pass","bun":"true\ntrue\nfalse\ntrue\nfalse\nfalse\ntrue\nfalse\ntrue\ntrue\ntrue","node":"true\ntrue\nfalse\ntrue\nfalse\nfalse\ntrue\nfalse\ntrue\ntrue\ntrue","rts":"true\ntrue\nfalse\ntrue\nfalse\nfalse\ntrue\nfalse\ntrue\ntrue\ntrue"}
 ,
-{"name":"claude-math-ceil-floor-neg-zero","status":"rts_diverge","bun":"true\n-0\n-0\ntrue\n-2\n2\ntrue\n-0\n0\n1.5\nNaN\n-2\n0.5\n4\n3","node":"true\n-0\n-0\ntrue\n-2\n2\ntrue\n-0\n0\n1.5\nNaN\n-2\n0.5\n4\n3","rts":"true\n0\n0\ntrue\n-2\n2\nfalse\n0\n0\n1.5\nNaN\n-2\n0.5\n4\n3"}
+{"name":"claude-math-ceil-floor-neg-zero","status":"rts_diverge","bun":"true\n-0\n-0\ntrue\n-2\n2\ntrue\n-0\n0\n1.5\nNaN\n-2\n0.5\n4\n3","node":"true\n-0\n-0\ntrue\n-2\n2\ntrue\n-0\n0\n1.5\nNaN\n-2\n0.5\n4\n3","rts":"true\n-0\n-0\ntrue\n-2\n2\nfalse\n0\n0\n1.5\nNaN\n-2\n0.5\n4\n3"}
 ,
-{"name":"claude-math-round-neg-zero","status":"rts_diverge","bun":"-0\ntrue\n1\n-1\n3\n-2\n-0\ntrue\n-4\n4\ntrue\n-1\n0\ntrue\nNaN","node":"-0\ntrue\n1\n-1\n3\n-2\n-0\ntrue\n-4\n4\ntrue\n-1\n0\ntrue\nNaN","rts":"0\nfalse\n1\n-1\n3\n-2\n0\nfalse\n-4\n4\ntrue\n-1\n0\ntrue\nNaN"}
+{"name":"claude-math-round-neg-zero","status":"pass","bun":"-0\ntrue\n1\n-1\n3\n-2\n-0\ntrue\n-4\n4\ntrue\n-1\n0\ntrue\nNaN","node":"-0\ntrue\n1\n-1\n3\n-2\n-0\ntrue\n-4\n4\ntrue\n-1\n0\ntrue\nNaN","rts":"-0\ntrue\n1\n-1\n3\n-2\n-0\ntrue\n-4\n4\ntrue\n-1\n0\ntrue\nNaN"}
 ,
 {"name":"claude-nan-infinity-comparison","status":"pass","bun":"false\nfalse\nfalse\nfalse\nfalse\nNaN\nNaN\nInfinity\n-Infinity\nNaN\ntrue\ntrue\nfalse\ntrue","node":"false\nfalse\nfalse\nfalse\nfalse\nNaN\nNaN\nInfinity\n-Infinity\nNaN\ntrue\ntrue\nfalse\ntrue","rts":"false\nfalse\nfalse\nfalse\nfalse\nNaN\nNaN\nInfinity\n-Infinity\nNaN\ntrue\ntrue\nfalse\ntrue"}
 ,
@@ -627,7 +627,7 @@
 ,
 {"name":"claude-parse-int-radix-prefix","status":"pass","bun":"31\n31\n31\n42\n8\n0\n0\n35\n2\n-255\n123\n123\nNaN\nNaN\n4","node":"31\n31\n31\n42\n8\n0\n0\n35\n2\n-255\n123\n123\nNaN\nNaN\n4","rts":"31\n31\n31\n42\n8\n0\n0\n35\n2\n-255\n123\n123\nNaN\nNaN\n4"}
 ,
-{"name":"claude-plus-null-undefined-coercion","status":"rts_diverge","bun":"NaN\n1\nNaN\n0\nNaN\n2\n0","node":"NaN\n1\nNaN\n0\nNaN\n2\n0","rts":"1nullundefined\n1null\n1undefined\nnullnull\nundefined1\n2\nfalsenull"}
+{"name":"claude-plus-null-undefined-coercion","status":"pass","bun":"NaN\n1\nNaN\n0\nNaN\n2\n0","node":"NaN\n1\nNaN\n0\nNaN\n2\n0","rts":"NaN\n1\nNaN\n0\nNaN\n2\n0"}
 ,
 {"name":"claude-switch-strict-no-coercion","status":"pass","bun":"num one\nstr one\nbool true\nbool true\nnull\nundefined\nnum one\nstr one\nother","node":"num one\nstr one\nbool true\nbool true\nnull\nundefined\nnum one\nstr one\nother","rts":"num one\nstr one\nbool true\nbool true\nnull\nundefined\nnum one\nstr one\nother"}
 ,
@@ -637,15 +637,15 @@
 ,
 {"name":"claude-toprimitive-valueof-vs-tostring","status":"rts_error","bun":"15\n20\n10\nstr\n71\n14\n4\n9\ntrue","node":"15\n20\n10\nstr\n71\n14\n4\n9\ntrue","rts":"__RUNTIME_ERROR__"}
 ,
-{"name":"claude-unary-minus-coercion","status":"rts_diverge","bun":"-5\n5\n-1\n-0\n-0\n-0\nNaN\n-0\n-5\nNaN\n3\n-16","node":"-5\n5\n-1\n-0\n-0\n-0\nNaN\n-0\n-5\nNaN\n3\n-16","rts":"-5\n5\n-1\n0\n0\n0\nNaN\nNaN\nNaN\nNaN\n3\n-16"}
+{"name":"claude-unary-minus-coercion","status":"pass","bun":"-5\n5\n-1\n-0\n-0\n-0\nNaN\n-0\n-5\nNaN\n3\n-16","node":"-5\n5\n-1\n-0\n-0\n-0\nNaN\n-0\n-5\nNaN\n3\n-16","rts":"-5\n5\n-1\n-0\n-0\n-0\nNaN\n-0\n-5\nNaN\n3\n-16"}
 ,
-{"name":"claude-unary-plus-coercion","status":"rts_diverge","bun":"42\n7\n0\n3.14\n31\n1000\n0\nNaN\n1\n0\n0\nInfinity\n-0","node":"42\n7\n0\n3.14\n31\n1000\n0\nNaN\n1\n0\n0\nInfinity\n-0","rts":"42\n7\n0\n3.14\n31\n1000\n0\nNaN\n1\n0\n0\nInfinity\n0"}
+{"name":"claude-unary-plus-coercion","status":"pass","bun":"42\n7\n0\n3.14\n31\n1000\n0\nNaN\n1\n0\n0\nInfinity\n-0","node":"42\n7\n0\n3.14\n31\n1000\n0\nNaN\n1\n0\n0\nInfinity\n-0","rts":"42\n7\n0\n3.14\n31\n1000\n0\nNaN\n1\n0\n0\nInfinity\n-0"}
 ,
 {"name":"claude-unsigned-right-shift","status":"pass","bun":"4294967295\n2147483647\n1073741822\n-2\n-2147483648\n1\n2\n1\n2147483648\n4294967295\n5\n1\n1","node":"4294967295\n2147483647\n1073741822\n-2\n-2147483648\n1\n2\n1\n2147483648\n4294967295\n5\n1\n1","rts":"4294967295\n2147483647\n1073741822\n-2\n-2147483648\n1\n2\n1\n2147483648\n4294967295\n5\n1\n1"}
 ,
 {"name":"codex_bitwise_shift_count_masking","status":"pass","bun":"1\n2\n-4\n2147483644\n-1\n1","node":"1\n2\n-4\n2147483644\n-1\n1","rts":"1\n2\n-4\n2147483644\n-1\n1"}
 ,
-{"name":"codex_date_toprimitive_addition","status":"rts_diverge","bun":"string\ntrue\n0\ntrue","node":"string\ntrue\n0\ntrue","rts":"string\ntrue\nNaN\nfalse"}
+{"name":"codex_date_toprimitive_addition","status":"rts_diverge","bun":"string\ntrue\n0\ntrue","node":"string\ntrue\n0\ntrue","rts":"string\ntrue\n0\nfalse"}
 ,
 {"name":"codex_negative_zero_propagation","status":"pass","bun":"true\n0\n-Infinity\ntrue\ntrue\n[0,0]","node":"true\n0\n-Infinity\ntrue\ntrue\n[0,0]","rts":"true\n0\n-Infinity\ntrue\ntrue\n[0,0]"}
 ,
@@ -775,7 +775,7 @@
 ,
 {"name":"codex_freeze_typedarray_error","status":"rts_error","bun":"true\nTypeError\n1","node":"true\nTypeError\n1","rts":"__RUNTIME_ERROR__"}
 ,
-{"name":"codex_getownpropertydescriptor_array_length","status":"rts_diverge","bun":"3:true:false:false\nfalse\nTypeError\n1,2,3","node":"3:true:false:false\nfalse\nTypeError\n1,2,3","rts":"undefined:undefined:undefined:undefined\nundefined\nundefined"}
+{"name":"codex_getownpropertydescriptor_array_length","status":"rts_error","bun":"3:true:false:false\nfalse\nTypeError\n1,2,3","node":"3:true:false:false\nfalse\nTypeError\n1,2,3","rts":"__RUNTIME_ERROR__"}
 ,
 {"name":"codex_object_assign_setter_order","status":"rts_diverge","bun":"true\n2\nget-a|set-a:1|get-b|set-a:3","node":"true\n2\nget-a|set-a:1|get-b|set-a:3","rts":"true\n2\nget-b"}
 ,
@@ -847,13 +847,13 @@
 ,
 {"name":"92_promise_with_resolvers","status":"rts_error","bun":"value=ok","node":"value=ok","rts":"__RUNTIME_ERROR__"}
 ,
-{"name":"codex_promise_all_order_thenables","status":"rts_diverge","bun":"slow,fast,then\nslow-start|thenable|slow-end","node":"slow,fast,then\nslow-start|thenable|slow-end","rts":""}
+{"name":"codex_promise_all_order_thenables","status":"rts_error","bun":"slow,fast,then\nslow-start|thenable|slow-end","node":"slow,fast,then\nslow-start|thenable|slow-end","rts":"__RUNTIME_ERROR__"}
 ,
 {"name":"codex_promise_any_rejection_order","status":"rts_diverge","bun":"AggregateError\na,b,c","node":"AggregateError\na,b,c","rts":"undefined"}
 ,
 {"name":"codex_promise_finally_thenable","status":"rts_diverge","bun":"finally|thenable|value","node":"finally|thenable|value","rts":"finally|value"}
 ,
-{"name":"codex_promise_reentrant_then_order","status":"rts_diverge","bun":"a,b,d,c","node":"a,b,d,c","rts":"a,b,d"}
+{"name":"codex_promise_reentrant_then_order","status":"rts_error","bun":"a,b,d,c","node":"a,b,d,c","rts":"__RUNTIME_ERROR__"}
 ,
 {"name":"codex_promise_then_getter_throws","status":"rts_error","bun":"nope","node":"nope","rts":"__RUNTIME_ERROR__"}
 ,
@@ -875,7 +875,7 @@
 ,
 {"name":"39_regex_deep","status":"rts_diverge","bun":"test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true","node":"test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true","rts":"test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=item-99\nlast1=0\ng2=item-99\nlast2=0\nflag_m=true\nflag_s=true"}
 ,
-{"name":"395_regex_d_flag","status":"rts_error","bun":"2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined","node":"2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined","rts":"__RUNTIME_ERROR__"}
+{"name":"395_regex_d_flag","status":"rts_diverge","bun":"2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined","node":"2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined","rts":"2026-05-22\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\ndate: 2026-05-22 end\nfoo@0-1.5e-323|bar@2e-323-3.5e-323|baz@4e-323-5.4e-323\n42\n\nundefined\nundefined"}
 ,
 {"name":"404_regexp_replace_named_callback","status":"rts_error","bun":"RED@0=11 BLUE@7=21\n[a]ab[a]a","node":"RED@0=11 BLUE@7=21\n[a]ab[a]a","rts":"__RUNTIME_ERROR__"}
 ,
@@ -883,7 +883,7 @@
 ,
 {"name":"81_regex_named_groups","status":"rts_diverge","bun":"word=abbb","node":"word=abbb","rts":"word=undefined"}
 ,
-{"name":"99_regexp_unicode","status":"rts_error","bun":"words=café|λ\nchars=A|😀|B\nnamed=λ","node":"words=café|λ\nchars=A|😀|B\nnamed=λ","rts":"__RUNTIME_ERROR__"}
+{"name":"99_regexp_unicode","status":"rts_diverge","bun":"words=café|λ\nchars=A|😀|B\nnamed=λ","node":"words=café|λ\nchars=A|😀|B\nnamed=λ","rts":"words=café|λ\nchars=A|😀|B\nnamed=undefined"}
 ,
 {"name":"codex_regex_indices_named_groups","status":"rts_diverge","bun":"aaab:2\n[2,6]\n[2,5]\naaa","node":"aaab:2\n[2,6]\n[2,5]\naaa","rts":"aaab:undefined\nundefined\nundefined\nundefined"}
 ,
@@ -891,7 +891,7 @@
 ,
 {"name":"codex_regex_sticky_lastindex_unicode","status":"rts_diverge","bun":"true:3\ntrue:5\nfalse:0\nabc:5","node":"true:3\ntrue:5\nfalse:0\nabc:5","rts":"true:0\ntrue:0\ntrue:0\nundefined:0"}
 ,
-{"name":"codex_regex_unicode_property_escape","status":"rts_error","bun":"A|Ω|Ж\nΩ|Ж|🙂","node":"A|Ω|Ж\nΩ|Ж|🙂","rts":"__RUNTIME_ERROR__"}
+{"name":"codex_regex_unicode_property_escape","status":"pass","bun":"A|Ω|Ж\nΩ|Ж|🙂","node":"A|Ω|Ж\nΩ|Ж|🙂","rts":"A|Ω|Ж\nΩ|Ж|🙂"}
 ,
 {"name":"101_textdecoder_stream","status":"rts_error","bun":"out=caf|é","node":"out=caf|é","rts":"__RUNTIME_ERROR__"}
 ,
@@ -937,7 +937,7 @@
 ,
 {"name":"197_string_raw","status":"pass","bun":"path=C:\\Users\\name\\file.txt\nlines=true\nsub=Hello test!\nregular=C:Users\name\file.txt","node":"path=C:\\Users\\name\\file.txt\nlines=true\nsub=Hello test!\nregular=C:Users\name\file.txt","rts":"path=C:\\Users\\name\\file.txt\nlines=true\nsub=Hello test!\nregular=C:Users\name\file.txt"}
 ,
-{"name":"203_string_localecompare_numeric","status":"rts_diverge","bun":"alpha=1,10,2,20\nsimple=a,b,c\ncompare=-1\nequal=0\ngreater=1","node":"alpha=1,10,2,20\nsimple=a,b,c\ncompare=-1\nequal=0\ngreater=1","rts":"alpha=10,2,1,20\nsimple=a,b,c\ncompare=-1\nequal=0\ngreater=1"}
+{"name":"203_string_localecompare_numeric","status":"rts_error","bun":"alpha=1,10,2,20\nsimple=a,b,c\ncompare=-1\nequal=0\ngreater=1","node":"alpha=1,10,2,20\nsimple=a,b,c\ncompare=-1\nequal=0\ngreater=1","rts":"__RUNTIME_ERROR__"}
 ,
 {"name":"208_string_split_limit","status":"pass","bun":"no_limit=a|b|c|d|e\nlimit_2=a|b\nlimit_0=\nlimit_10=a|b|c|d|e\nspace=hello|world|foo|bar\nspace_2=hello|world\nchars=a|b|c\nchars_2=a|b","node":"no_limit=a|b|c|d|e\nlimit_2=a|b\nlimit_0=\nlimit_10=a|b|c|d|e\nspace=hello|world|foo|bar\nspace_2=hello|world\nchars=a|b|c\nchars_2=a|b","rts":"no_limit=a|b|c|d|e\nlimit_2=a|b\nlimit_0=\nlimit_10=a|b|c|d|e\nspace=hello|world|foo|bar\nspace_2=hello|world\nchars=a|b|c\nchars_2=a|b"}
 ,
@@ -983,13 +983,13 @@
 ,
 {"name":"claude-at-negative-index","status":"rts_diverge","bun":"h\no\nl\no\nundefined\nh\nundefined\nundefined\nh\na\nb\nd83d\n1\nundefined","node":"h\no\nl\no\nundefined\nh\nundefined\nundefined\nh\na\nb\nd83d\n1\nundefined","rts":"h\no\nl\no\nundefined\nh\nundefined\nundefined\nh\na\nb\nd83d\n2\nundefined"}
 ,
-{"name":"claude-codepoint-iteration-emoji","status":"rts_diverge","bun":"4\n3\n[\"a\",\"😀\",\"b\"]\na|😀|b|\n[97,128512,98]\nd83d\nde00\n128512\ntrue\n3\n2","node":"4\n3\n[\"a\",\"😀\",\"b\"]\na|😀|b|\n[97,128512,98]\nd83d\nde00\n128512\ntrue\n3\n2","rts":"4\n3\n[\"a\",\"��\",\"b\"]\na|😀|b|\n[null,null,null]\nundefined\nundefined\n128512\ntrue\n3\n2"}
+{"name":"claude-codepoint-iteration-emoji","status":"rts_error","bun":"4\n3\n[\"a\",\"😀\",\"b\"]\na|😀|b|\n[97,128512,98]\nd83d\nde00\n128512\ntrue\n3\n2","node":"4\n3\n[\"a\",\"😀\",\"b\"]\na|😀|b|\n[97,128512,98]\nd83d\nde00\n128512\ntrue\n3\n2","rts":"__RUNTIME_ERROR__"}
 ,
 {"name":"claude-concat-type-coercion","status":"rts_diverge","bun":"a1true\n3x34\n1,2,3\n[object Object]\n,,1\n1,2,3\nnnulluundefined\nbtruefalse\nInfinity,-Infinity,NaN\nxy1truenull","node":"a1true\n3x34\n1,2,3\n[object Object]\n,,1\n1,2,3\nnnulluundefined\nbtruefalse\nInfinity,-Infinity,NaN\nxy1truenull","rts":"a1true\n3x34\n1,2,3\n[object Object]\n,,1\n1,2,3\nnnulluundefined\nbtruefalse\nInfinity,-Infinity,NaN\nxyError"}
 ,
 {"name":"claude-locale-compare","status":"pass","bun":"0\n0\n-1\n1\n1\n1\n-1\n1\n-1\n-1\n1","node":"0\n0\n-1\n1\n1\n1\n-1\n1\n-1\n-1\n1","rts":"0\n0\n-1\n1\n1\n1\n-1\n1\n-1\n-1\n1"}
 ,
-{"name":"claude-lone-surrogate-iteration","status":"rts_diverge","bun":"3\n3\n[97,55357,98]\n1 55357\n1 128512\n2 2\ntrue\ntrue","node":"3\n3\n[97,55357,98]\n1 55357\n1 128512\n2 2\ntrue\ntrue","rts":"3\n3\n[null,null,null]\n1 65533\n1 128512\n2 2\ntrue\ntrue"}
+{"name":"claude-lone-surrogate-iteration","status":"rts_error","bun":"3\n3\n[97,55357,98]\n1 55357\n1 128512\n2 2\ntrue\ntrue","node":"3\n3\n[97,55357,98]\n1 55357\n1 128512\n2 2\ntrue\ntrue","rts":"__RUNTIME_ERROR__"}
 ,
 {"name":"claude-normalize-forms","status":"pass","bun":"1 2\nfalse\ntrue\ntrue\n1 2\nfi\n1\n1⁄2\ntrue\n2","node":"1 2\nfalse\ntrue\ntrue\n1 2\nfi\n1\n1⁄2\ntrue\n2","rts":"1 2\nfalse\ntrue\ntrue\n1 2\nfi\n1\n1⁄2\ntrue\n2"}
 ,
@@ -1217,4 +1217,4 @@
 ,
 {"name":"85_request_response","status":"rts_error","bun":"ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi","node":"ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi","rts":"__RUNTIME_ERROR__"}
 
-],"summary":{"total":609,"pass":300,"rts_diverge":135,"bun_node_diverge":18,"errors":156,"rejected":0}}
+],"summary":{"total":609,"pass":306,"rts_diverge":123,"bun_node_diverge":17,"errors":163,"rejected":0}}
