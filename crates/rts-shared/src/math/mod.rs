@@ -136,7 +136,13 @@ pub extern "C" fn __RTS_FN_NS_MATH_CEIL(x: F64) -> F64 {
 /// Rounds to nearest; ties go to +Infinity to match JS semantics.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_MATH_ROUND(x: F64) -> F64 {
-    (x + 0.5).floor()
+    let r = (x + 0.5).floor();
+    // JS: a negative input rounding to zero yields NEGATIVE zero
+    // (`Math.round(-0.4)` -> -0, `Object.is(Math.round(-0.5), -0)` -> true).
+    if r == 0.0 && (x < 0.0 || (x == 0.0 && x.is_sign_negative())) {
+        return -0.0;
+    }
+    r
 }
 
 /// Truncates fractional part (rounds toward zero).

@@ -365,9 +365,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // A Bool operand ToNumbers to 0/1 first (`-true === -1`): coerce to Int32
             // (a pure reinterpret — Bool is already i64 0/1), then `ineg`.
             HirUnOp::Neg if matches!(val.repr, Repr::Bool) => {
-                let iv = self.coerce(val, Repr::Int32)?;
-                let v = self.builder.ins().ineg(iv);
-                Ok(Val::new(v, Repr::Int32))
+                // Negate in the FLOAT domain so `-false` yields -0.0 (the int
+                // `ineg(0)` loses the sign; `-true` is -1.0 either way).
+                let fv = self.coerce(val, Repr::Float64)?;
+                let v = self.builder.ins().fneg(fv);
+                Ok(Val::new(v, Repr::Float64))
             }
             HirUnOp::Neg => match val.repr {
                 Repr::Float64 => {

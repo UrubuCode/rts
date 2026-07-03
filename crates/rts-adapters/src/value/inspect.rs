@@ -115,6 +115,14 @@ fn render(v: PolyValue, top_level: bool, depth: u32) -> String {
         let content = abi_adapter::resolve_poly(v);
         return if top_level { content } else { quote(&content) };
     }
+    // NEGATIVE ZERO: `console.log(-0)` displays "-0" (Node/Bun inspect),
+    // although `String(-0)` is "0" — an inspect-only distinction.
+    if v.is_double() {
+        let f = v.as_f64();
+        if f == 0.0 && f.is_sign_negative() {
+            return "-0".to_string();
+        }
+    }
     // number / bool / null / undefined / function — reuse the engine's ToString.
     genops_to_string(v)
 }

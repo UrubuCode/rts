@@ -160,6 +160,11 @@ pub(super) fn to_number(v: PolyValue) -> f64 {
     if let Some(p) = to_primitive_via_method(v, "number") {
         return to_number(p);
     }
+    // An ARRAY (no toPrimitive method): ToPrimitive falls to its ToString (the
+    // element join) and re-parses — `-[]` → -0, `+[5]` → 5, `+[1,2]` → NaN.
+    if v.is_object() && !super::inspect::looks_like_object(v) {
+        return string_to_number(&to_string(v));
+    }
     // undefined, object, function, hole, empty → NaN.
     f64::NAN
 }

@@ -153,7 +153,13 @@ pub extern "C" fn __rtsadp_ge(a: u64, b: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_neg(a: u64) -> u64 {
     let x = to_number(PolyValue::from_raw(a));
-    number_result(-x).raw()
+    let r = -x;
+    // NEGATIVE zero survives as an inline double (number_result would tighten
+    // it to the int32 0 and lose the sign - `-false`/`-""`/`-null` are -0).
+    if r == 0.0 && r.is_sign_negative() {
+        return PolyValue::from_f64(r).raw();
+    }
+    number_result(r).raw()
 }
 
 /// `__rtsadp_pos` — JS unary `+` (ToNumber, returns a number PolyValue). `+"42"`
@@ -162,6 +168,11 @@ pub extern "C" fn __rtsadp_neg(a: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_pos(a: u64) -> u64 {
     let x = to_number(PolyValue::from_raw(a));
+    // `+"-0"` is NEGATIVE zero - keep the double (number_result tightens to
+    // the int32 0 and loses the sign).
+    if x == 0.0 && x.is_sign_negative() {
+        return PolyValue::from_f64(x).raw();
+    }
     number_result(x).raw()
 }
 
