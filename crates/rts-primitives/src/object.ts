@@ -28,6 +28,27 @@ function ObjectFactory(value?: any): any {
   return value;
 }
 
+// `Object.groupBy(items, cb)` — ES2024 (routed here by `objstatic.rs`). Groups
+// `items` into a fresh plain object keyed by the PROPERTY KEY of `cb(item, index)`
+// (string-coerced), buckets in first-seen key order. Parallel proven arrays keep
+// the buckets pushable; the dynamic `out[key] = bucket` writes append via the
+// runtime shape transition.
+function __object_group_by(items: any[], cb: any): any {
+  const keys: string[] = [];
+  const buckets: any[][] = [];
+  for (let i = 0; i < items.length; i++) {
+    const k = "" + cb(items[i], i);
+    let found = false;
+    for (let j = 0; j < keys.length; j++) {
+      if (keys[j] === k) { buckets[j].push(items[i]); found = true; break; }
+    }
+    if (!found) { keys.push(k); buckets.push([items[i]]); }
+  }
+  const out: any = {};
+  for (let j = 0; j < keys.length; j++) { out[keys[j]] = buckets[j]; }
+  return out;
+}
+
 class Object {
   // `obj.hasOwnProperty(key)` — true iff `key` is an own property of `this`,
   // decided by the engine's shape-aware membership check.

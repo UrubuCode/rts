@@ -71,6 +71,21 @@ class Map<K, V> {
     for (let i = 0; i < this.#keys.length; i++) { cb(this.#vals[i], this.#keys[i], this); }
   }
   clear(): void { this.#keys = []; this.#vals = []; }
+  // `Map.groupBy(items, cb)` — ES2024. Groups `items` by `cb(item, index)` under
+  // SameValueZero key identity, buckets in first-seen key order (JS spec).
+  static groupBy(items: any[], cb: (item: any, index: number) => any): Map<any, any[]> {
+    const m = new Map<any, any[]>();
+    for (let i = 0; i < items.length; i++) {
+      const k = cb(items[i], i);
+      const bucket = m.get(k);
+      if (bucket === undefined) {
+        m.set(k, [items[i]]);
+      } else {
+        bucket.push(items[i]);
+      }
+    }
+    return m;
+  }
   // Default iterator (`for (const [k,v] of map)`): a real generator yielding
   // `[key, value]` pairs in insertion order. Plain JS — the parser desugars the
   // `*`/`yield`, the engine drives it through the generator state machine.
@@ -124,6 +139,63 @@ class Set<T> {
     for (let i = 0; i < this.#items.length; i++) { cb(this.#items[i], this.#items[i], this); }
   }
   clear(): void { this.#items = []; }
+  // --- ES2025 Set operations. Each takes another Set and reads it through its
+  // public surface (`values()`/`has()`), returning a fresh Set / boolean.
+  union(other: Set<T>): Set<T> {
+    const out = new Set<T>();
+    for (let i = 0; i < this.#items.length; i++) { out.add(this.#items[i]); }
+    const ov = other.values();
+    for (let i = 0; i < ov.length; i++) { out.add(ov[i]); }
+    return out;
+  }
+  intersection(other: Set<T>): Set<T> {
+    const out = new Set<T>();
+    for (let i = 0; i < this.#items.length; i++) {
+      const v = this.#items[i];
+      if (other.has(v)) { out.add(v); }
+    }
+    return out;
+  }
+  difference(other: Set<T>): Set<T> {
+    const out = new Set<T>();
+    for (let i = 0; i < this.#items.length; i++) {
+      const v = this.#items[i];
+      if (!other.has(v)) { out.add(v); }
+    }
+    return out;
+  }
+  symmetricDifference(other: Set<T>): Set<T> {
+    const out = new Set<T>();
+    for (let i = 0; i < this.#items.length; i++) {
+      const v = this.#items[i];
+      if (!other.has(v)) { out.add(v); }
+    }
+    const ov = other.values();
+    for (let i = 0; i < ov.length; i++) {
+      const v = ov[i];
+      if (!this.has(v)) { out.add(v); }
+    }
+    return out;
+  }
+  isSubsetOf(other: Set<T>): boolean {
+    for (let i = 0; i < this.#items.length; i++) {
+      if (!other.has(this.#items[i])) return false;
+    }
+    return true;
+  }
+  isSupersetOf(other: Set<T>): boolean {
+    const ov = other.values();
+    for (let i = 0; i < ov.length; i++) {
+      if (!this.has(ov[i])) return false;
+    }
+    return true;
+  }
+  isDisjointFrom(other: Set<T>): boolean {
+    for (let i = 0; i < this.#items.length; i++) {
+      if (other.has(this.#items[i])) return false;
+    }
+    return true;
+  }
   // Default iterator (`for (const x of set)`): a real generator yielding values.
   *[Symbol.iterator](): T[] {
     for (let i = 0; i < this.size; i++) { yield this.#items[i]; }
