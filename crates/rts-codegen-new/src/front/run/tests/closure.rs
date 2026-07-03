@@ -126,9 +126,13 @@ fn captured_var_reassigned_in_outer_scope_bails() {
 }
 
 #[test]
-fn capture_of_this_bails() {
-    // `this` is not a simple capturable local. BAIL (no env entry for it).
-    assert_bails("let g = (x: number) => x + this.k; console.log(g(1));");
+fn capture_of_this_reads_undefined() {
+    // A top-level arrow's `this` has no binding — `this.k` reads `undefined`,
+    // and `x + undefined` is the NUMERIC `+` → NaN (bun: NaN).
+    super::assert_stdout(
+        "let g = (x: number) => x + this.k; console.log(g(1));",
+        "NaN\n",
+    );
 }
 
 #[test]

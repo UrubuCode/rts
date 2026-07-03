@@ -194,8 +194,10 @@ fn method_on_call_return_bound() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn unknown_method_on_tagged_bails() {
-    // A method not in the dynamic table on a Tagged receiver bails (never guessed).
+fn unknown_method_on_tagged_throws() {
+    // A method NO class implements, invoked on a Tagged receiver, is a RUNTIME
+    // `TypeError: not a function` (bun throws the same) — surfaced by
+    // `run_source` as an uncaught-exception error, never a guessed value.
     assert_bails(r#"function f(s){ return s.notARealMethod(); } console.log(f("x"));"#);
 }
 

@@ -440,6 +440,17 @@ fn fn_reify_core(addr: u64, nparams: u64, has_rest: u64, env_word: u64, has_this
 /// `fn_word` is the full PolyValue word; its 48-bit payload is the heap slot. We
 /// reconstruct the live generation via `with_entry` keyed by the full real
 /// handle. A non-function / dead handle yields `undefined` (never a crash).
+/// JS `TypeError: … is not a function` — calling a NON-function value. Records
+/// the pending error (a STRING word for now; a real `TypeError` instance is a
+/// later increment) and returns `undefined` — the caller's post-call
+/// `err_pending` check unwinds past the sentinel, so the wrong value is never
+/// observed (matching JS, which throws instead of yielding `undefined`).
+fn throw_not_a_function() -> u64 {
+    let msg = super::abi_adapter::intern_poly("TypeError: not a function");
+    super::errslot::__rtsadp_throw_set(msg.raw());
+    PolyValue::undefined().raw()
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_fn_invoke(
     fn_word: u64,
@@ -465,7 +476,7 @@ pub extern "C" fn __rtsadp_fn_invoke(
             }
             return __rtsadp_fn_invoke(target, a0, a1, a2, a3, rest);
         }
-        return PolyValue::undefined().raw();
+        return throw_not_a_function();
     }
     // Reconstruct the full real handle (generation read from the live slot) from
     // the bare 48-bit payload, then read the stored thunk address AND env word.
@@ -738,7 +749,8 @@ pub extern "C" fn __rtsadp_fn_invoke_method(
 ) -> u64 {
     let pv = PolyValue::from_raw(fn_word);
     if !pv.is_function() {
-        return PolyValue::undefined().raw();
+        // `recv.m()` where `m` resolved to a NON-function — JS TypeError.
+        return throw_not_a_function();
     }
     let real = rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(pv.as_handle());
     let (addr, env, has_this, uniform, arity, bound) = with_entry(real, |e| match e {
