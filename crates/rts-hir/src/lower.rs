@@ -228,7 +228,59 @@ fn lower_decl(decl: &swc::Decl, scope: &mut Scope, raw_text: &str) -> HirStmt {
         // runtime — they carry no value. Elide to an empty block (a no-op) instead
         // of a `Raw` the lowering would bail on as an "unrecognized statement".
         swc::Decl::TsTypeAlias(_) | swc::Decl::TsInterface(_) => HirStmt::Block(Vec::new()),
-        // Function/class declarations inside a block fall back to raw text
+        // A NESTED `function f(){…}` declaration (inside another fn's body):
+        // lower as `const f = <arrow>` — the same shape the fn-expression takes,
+        // so the arrow-extraction pass lifts it (captures included) like any
+        // local closure. (Full var-style hoisting across the block is a later
+        // increment; the declaration-before-use corpus is covered.)
+        swc::Decl::Fn(fd) if !fd.function.is_async && !fd.function.is_generator => {
+            let func = &fd.function;
+            let params: Vec<HirParam> = func
+                .params
+                .iter()
+                .map(|p| {
+                    let name = extract_swc_pat_name(&p.pat);
+                    let annotation = extract_ts_type_annotation(&p.pat);
+                    let ty = annotation
+                        .as_deref()
+                        .map(parse_type_annotation)
+                        .unwrap_or(HirType::Unknown);
+                    HirParam {
+                        name,
+                        ty,
+                        variadic: false,
+                        has_default: false,
+                        optional: false,
+                        default_expr: None,
+                    }
+                })
+                .collect();
+            let body = match &func.body {
+                Some(b) => {
+                    let mut inner_scope = Scope::new();
+                    HirArrowBody::Block(lower_swc_stmts_block(b, &mut inner_scope))
+                }
+                None => HirArrowBody::Block(Vec::new()),
+            };
+            let ret = HirType::Unknown;
+            let init = HirExpr::new(
+                HirExprKind::Arrow {
+                    params,
+                    ret: ret.clone(),
+                    body,
+                },
+                HirType::Function {
+                    params: vec![],
+                    ret: Box::new(ret),
+                },
+            );
+            HirStmt::Let {
+                name: fd.ident.sym.to_string(),
+                ty: HirType::Unknown,
+                init: Some(init),
+            }
+        }
+        // Class declarations inside a block fall back to raw text
         // because they're hoisted — handled at the program level, not here.
         _ => HirStmt::Raw(raw_text.to_string()),
     }
