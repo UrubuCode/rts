@@ -334,19 +334,19 @@ fn set_ms(handle: u64, new_ms: i64) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_FULL_YEAR(handle: u64, year: i64) -> i64 {
+pub extern "C" fn __RTS_FN_GL_DATE_SET_FULL_YEAR(handle: u64, year: i64, month: i64, day: i64) -> i64 {
     use crate::date::__RTS_FN_NS_DATE_FROM_PARTS;
     let (_, mo, d, h, mi, s, ms) = ms_to_parts(get_ms(handle));
-    let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(year, mo, d, h, mi, s, ms);
+    let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(year, keep(month, mo), keep(day, d), h, mi, s, ms);
     set_ms(handle, new_ms);
     new_ms
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_MONTH(handle: u64, month: i64) -> i64 {
+pub extern "C" fn __RTS_FN_GL_DATE_SET_MONTH(handle: u64, month: i64, day: i64) -> i64 {
     use crate::date::__RTS_FN_NS_DATE_FROM_PARTS;
     let (y, _, d, h, mi, s, ms) = ms_to_parts(get_ms(handle));
-    let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(y, month, d, h, mi, s, ms);
+    let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(y, month, keep(day, d), h, mi, s, ms);
     set_ms(handle, new_ms);
     new_ms
 }
@@ -361,28 +361,28 @@ pub extern "C" fn __RTS_FN_GL_DATE_SET_DATE(handle: u64, day: i64) -> i64 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_HOURS(handle: u64, hour: i64) -> i64 {
+pub extern "C" fn __RTS_FN_GL_DATE_SET_HOURS(handle: u64, hour: i64, min: i64, sec: i64, msec: i64) -> i64 {
     use crate::date::__RTS_FN_NS_DATE_FROM_PARTS;
     let (y, mo, d, _, mi, s, ms) = ms_to_parts(get_ms(handle));
-    let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(y, mo, d, hour, mi, s, ms);
+    let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(y, mo, d, hour, keep(min, mi), keep(sec, s), keep(msec, ms));
     set_ms(handle, new_ms);
     new_ms
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_MINUTES(handle: u64, min: i64) -> i64 {
+pub extern "C" fn __RTS_FN_GL_DATE_SET_MINUTES(handle: u64, min: i64, sec: i64, msec: i64) -> i64 {
     use crate::date::__RTS_FN_NS_DATE_FROM_PARTS;
     let (y, mo, d, h, _, s, ms) = ms_to_parts(get_ms(handle));
-    let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(y, mo, d, h, min, s, ms);
+    let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(y, mo, d, h, min, keep(sec, s), keep(msec, ms));
     set_ms(handle, new_ms);
     new_ms
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_SECONDS(handle: u64, sec: i64) -> i64 {
+pub extern "C" fn __RTS_FN_GL_DATE_SET_SECONDS(handle: u64, sec: i64, msec: i64) -> i64 {
     use crate::date::__RTS_FN_NS_DATE_FROM_PARTS;
     let (y, mo, d, h, mi, _, ms) = ms_to_parts(get_ms(handle));
-    let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(y, mo, d, h, mi, sec, ms);
+    let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(y, mo, d, h, mi, sec, keep(msec, ms));
     set_ms(handle, new_ms);
     new_ms
 }
@@ -461,4 +461,10 @@ pub extern "C" fn __RTS_FN_GL_DATE_TO_TIME_STRING(handle: u64) -> u64 {
     } else {
         alloc_entry(Entry::String(bytes))
     }
+}
+
+/// Optional-tail sentinel of the variadic Date setters: the spec injects
+/// `i64::MIN` for an omitted arg — keep the current field then.
+fn keep(v: i64, cur: i64) -> i64 {
+    if v == i64::MIN { cur } else { v }
 }

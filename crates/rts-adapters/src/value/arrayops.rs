@@ -57,10 +57,18 @@ pub extern "C" fn __rtsadp_arr_index_of(vec_handle: u64, needle_word: u64) -> i6
     -1
 }
 
-/// `arr.includes(needle)` — `1` if any element `=== needle`, else `0`.
+/// `arr.includes(needle)` — SameValueZero membership (JS spec: unlike
+/// `indexOf`'s strict equality, `includes(NaN)` finds a NaN element).
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_arr_includes(vec_handle: u64, needle_word: u64) -> i64 {
-    (__rtsadp_arr_index_of(vec_handle, needle_word) >= 0) as i64
+    __rtsadp_arr_includes_from(vec_handle, needle_word, 0)
+}
+
+/// Whether the needle is a NaN number word (inline double NaN — the canonical
+/// boxed-NaN never collides with the box quadrant tags).
+fn word_is_nan(w: u64) -> bool {
+    let v = PolyValue::from_raw(w);
+    v.is_double() && v.as_f64().is_nan()
 }
 
 /// `arr.at(i)` — the element PolyValue word at `i` (negative `i` counts from the
@@ -379,9 +387,20 @@ pub extern "C" fn __rtsadp_arr_index_of_from(vec_handle: u64, needle_word: u64, 
     -1
 }
 
-/// `arr.includes(needle, fromIndex)` — `1` iff `indexOf(needle, fromIndex) >= 0`.
+/// `arr.includes(needle, fromIndex)` — SameValueZero membership from `from`
+/// (a NaN needle matches a NaN element; everything else = the indexOf scan).
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_arr_includes_from(vec_handle: u64, needle_word: u64, from: i64) -> i64 {
+    if word_is_nan(needle_word) {
+        let len = vec_len(vec_handle);
+        let start = if from < 0 { (len + from).max(0) } else { from };
+        for i in start..len {
+            if word_is_nan(vec_word(vec_handle, i)) {
+                return 1;
+            }
+        }
+        return 0;
+    }
     (__rtsadp_arr_index_of_from(vec_handle, needle_word, from) >= 0) as i64
 }
 

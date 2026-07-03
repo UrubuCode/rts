@@ -658,14 +658,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // op (PolyValue-native: takes the string word + a boxed index word, returns
         // a 1-char string word) — the same primitive `s.charAt(i)` resolves to. ----
         if self.receiver_is_proven_string(object) {
+            // `s[i]` INDEXING yields `undefined` out of range (JS) — unlike the
+            // `charAt` METHOD's "" — so route the generic `idx_get` (its string
+            // arm reads the UTF-16 unit, OOB → undefined). Kind stays Tagged:
+            // the result may be undefined, not always Str.
             let recv = self.lower_string_receiver(module, object)?;
             let recv_word = self.box_value(recv);
             let idx_val = self.lower_expr(module, index)?;
             let idx_word = self.box_value(idx_val);
             let word = self
-                .call_runtime(module, "__rtsadp_dyn_char_at", &[recv_word, idx_word])?
-                .expect("__rtsadp_dyn_char_at returns a value");
-            return Ok(Val::tagged_kind(word, JsKind::Str));
+                .call_runtime(module, "__rtsadp_idx_get", &[recv_word, idx_word])?
+                .expect("__rtsadp_idx_get returns a value");
+            return Ok(Val::new(word, Repr::Tagged));
         }
         if let Ok((recv_word, HeapShape::Array)) = self.resolve_heap_receiver(module, object) {
             // A PROVEN array with a numeric index → fast-path `VEC_GET`. A non-numeric

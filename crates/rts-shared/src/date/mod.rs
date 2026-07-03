@@ -58,6 +58,10 @@ fn unpack(ts_ms: i64) -> (i64, i64, i64, i64, i64, i64, i64) {
 }
 
 fn pack(year: i64, month0: i64, day: i64, hour: i64, min: i64, sec: i64, ms: i64) -> i64 {
+    // Normalize an out-of-range month (JS setMonth(12) rolls the year): the
+    // civil-days formula below is only valid for months 1..12.
+    let year = year + month0.div_euclid(12);
+    let month0 = month0.rem_euclid(12);
     let m_civil = month0 + 1;
     let y = if m_civil <= 2 { year - 1 } else { year };
     let era = if y >= 0 { y } else { y - 399 } / 400;

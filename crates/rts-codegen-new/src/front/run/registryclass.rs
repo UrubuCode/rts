@@ -200,9 +200,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             );
         }
         let recv = self.lower_expr(module, object)?;
-        let mut vals: Vec<Val> = Vec::with_capacity(args.len());
+        let mut vals: Vec<Val> = Vec::with_capacity(call.arg_abis.len());
         for a in args {
             vals.push(self.lower_expr(module, a)?);
+        }
+        // Pad the omitted TAIL with the spec's `default_args` (an INSTANCE
+        // method with optional args — `d.setUTCHours(h)` on the 4-slot spec):
+        // the same data-driven fill the ctor/static paths already apply.
+        for i in args.len()..call.arg_abis.len() {
+            vals.push(self.default_arg_val(call.default_args.get(i), class, i)?);
         }
         // A `Handle` return is a STRING handle only when the spec's ts-signature
         // says so (`ret_is_string_handle`, e.g. Date.toISOString → string);

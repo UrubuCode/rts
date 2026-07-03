@@ -1,6 +1,7 @@
 // Faithful TypeScript `Map`/`Set` — the REAL stdlib for the new engine.
 //
-// Generic `Map<K,V>` + `Set<T>` with private array fields, `===` key compare,
+// Generic `Map<K,V>` + `Set<T>` with private array fields, SameValueZero key
+// compare (=== plus NaN matches NaN, JS spec),
 // `return this` chaining, `delete` via shift+pop, `undefined` on miss, and a
 // `get size()` getter. Embedded as an engine `include` (declarations-only, no
 // top-level code): its top-level classes become ambient and shadow the native
@@ -18,26 +19,26 @@ class Map<K, V> {
   }
   set(k: K, v: V): Map<K, V> {
     for (let i = 0; i < this.#keys.length; i++) {
-      if (this.#keys[i] === k) { this.#vals[i] = v; return this; }
+      if (__svz(this.#keys[i], k)) { this.#vals[i] = v; return this; }
     }
     this.#keys.push(k); this.#vals.push(v);
     return this;
   }
   get(k: K): V | undefined {
     for (let i = 0; i < this.#keys.length; i++) {
-      if (this.#keys[i] === k) return this.#vals[i];
+      if (__svz(this.#keys[i], k)) return this.#vals[i];
     }
     return undefined;
   }
   has(k: K): boolean {
     for (let i = 0; i < this.#keys.length; i++) {
-      if (this.#keys[i] === k) return true;
+      if (__svz(this.#keys[i], k)) return true;
     }
     return false;
   }
   delete(k: K): boolean {
     for (let i = 0; i < this.#keys.length; i++) {
-      if (this.#keys[i] === k) {
+      if (__svz(this.#keys[i], k)) {
         for (let j = i; j < this.#keys.length - 1; j++) {
           this.#keys[j] = this.#keys[j + 1];
           this.#vals[j] = this.#vals[j + 1];
@@ -84,20 +85,20 @@ class Set<T> {
   }
   add(v: T): Set<T> {
     for (let i = 0; i < this.#items.length; i++) {
-      if (this.#items[i] === v) return this;
+      if (__svz(this.#items[i], v)) return this;
     }
     this.#items.push(v);
     return this;
   }
   has(v: T): boolean {
     for (let i = 0; i < this.#items.length; i++) {
-      if (this.#items[i] === v) return true;
+      if (__svz(this.#items[i], v)) return true;
     }
     return false;
   }
   delete(v: T): boolean {
     for (let i = 0; i < this.#items.length; i++) {
-      if (this.#items[i] === v) {
+      if (__svz(this.#items[i], v)) {
         for (let j = i; j < this.#items.length - 1; j++) this.#items[j] = this.#items[j + 1];
         this.#items.pop();
         return true;
@@ -127,4 +128,11 @@ class Set<T> {
   *[Symbol.iterator](): T[] {
     for (let i = 0; i < this.size; i++) { yield this.#items[i]; }
   }
+}
+
+// SameValueZero (JS spec key equality for Map/Set/includes): `===` except
+// NaN equals NaN (x !== x detects NaN without naming it).
+function __svz(a: any, b: any): boolean {
+  if (a === b) return true;
+  return a !== a && b !== b;
 }

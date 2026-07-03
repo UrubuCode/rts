@@ -483,6 +483,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 _ => self.lower_generic_arith(module, op, l, r),
             },
             _ if both_int => {
+                // JS `0 * negative` is NEGATIVE zero — the int `imul` loses the
+                // sign. Both-CONST operands whose product is a signed zero fold
+                // to the exact `-0.0` double at compile time (`1 / (0 * -1)` →
+                // -Infinity); the variable-operand int fast path is unchanged.
+                if matches!(op, HirBinOp::Mul) {
+                    if let (Some(a), Some(b)) =
+                        (self.const_int_value(l.v), self.const_int_value(r.v))
+                    {
+                        if a.checked_mul(b) == Some(0) && ((a < 0) != (b < 0)) {
+                            let v = self.builder.ins().f64const(-0.0);
+                            return Ok(Val::new(v, Repr::Float64));
+                        }
+                    }
+                }
                 let v = match op {
                     HirBinOp::Add => self.builder.ins().iadd(l.v, r.v),
                     HirBinOp::Sub => self.builder.ins().isub(l.v, r.v),

@@ -228,6 +228,11 @@ pub(super) fn to_boolean(v: PolyValue) -> bool {
 /// JS small-int fast path), otherwise an inline double. This mirrors the int/
 /// double choice [`__rtsadp_add`] makes for `+`.
 pub(super) fn number_result(f: f64) -> PolyValue {
+    // NEGATIVE ZERO stays an inline double — the int32 0 would lose the sign
+    // (`-0 % 5`, `Object.is(x, -0)`, `-0` renderings).
+    if f == 0.0 && f.is_sign_negative() {
+        return PolyValue::from_f64(f);
+    }
     if f.is_finite() && f.fract() == 0.0 && f >= i32::MIN as f64 && f <= i32::MAX as f64 {
         PolyValue::from_i32(f as i32)
     } else {

@@ -179,13 +179,21 @@ pub fn includes_prelude() -> String {
 fn instance_call(m: &'static Member) -> ResolvedCall {
     let mut args = m.sig.args.iter().copied();
     let recv_abi = args.next();
+    // `default_args` is declared over ALL sig params (receiver included);
+    // `arg_abis` drops the receiver, so the defaults must drop slot 0 too or
+    // every explicit-arg default reads one position off.
+    let default_args = if recv_abi.is_some() && !m.sig.default_args.is_empty() {
+        m.sig.default_args[1..].to_vec()
+    } else {
+        m.sig.default_args.clone()
+    };
     ResolvedCall {
         symbol: m.symbol.as_str(),
         recv_abi,
         arg_abis: args.collect(),
         ret: m.sig.returns,
         flags: m.flags,
-        default_args: m.sig.default_args.clone(),
+        default_args,
         ret_is_string_handle: ts_returns_string(&m.ts_signature),
         ret_is_array_handle: ts_returns_array(&m.ts_signature),
         ret_is_nullable_string: ts_returns_nullable_string(&m.ts_signature),

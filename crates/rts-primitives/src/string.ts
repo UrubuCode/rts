@@ -115,7 +115,9 @@ class String {
     return engine.str_char_at(__str_val(this), i);
   }
   charCodeAt(i: number): number {
-    return engine.str_char_code_at(__str_val(this), i);
+    // OOB: the engine bridge returns the -1 sentinel; JS spec is NaN.
+    const __cc = engine.str_char_code_at(__str_val(this), i);
+    return __cc < 0 ? NaN : __cc;
   }
   at(i: number): string {
     return engine.str_at(__str_val(this), i);
