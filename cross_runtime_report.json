@@ -585,10 +585,10 @@
 ,
 {
   "name": "codex_array_sort_mutates_length",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "6\n1,2,3,0,,5\ntrue",
   "node": "6\n1,2,3,0,,5\ntrue",
-  "rts": "4\n1,2,3,0\ntrue"
+  "rts": "6\n1,2,3,0,,5\ntrue"
 }
 ,
 {
@@ -1369,10 +1369,10 @@
 ,
 {
   "name": "179_function_name_length",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "name=foo\nlength=2\nanon_name=bar\nanon_length=1\narrow_name=arrow\narrow_length=3\nnoargs_length=0",
   "node": "name=foo\nlength=2\nanon_name=bar\nanon_length=1\narrow_name=arrow\narrow_length=3\nnoargs_length=0",
-  "rts": "name=undefined\nlength=undefined\nanon_name=undefined\nanon_length=undefined\narrow_name=undefined\narrow_length=undefined\nnoargs_length=undefined"
+  "rts": "name=foo\nlength=2\nanon_name=bar\nanon_length=1\narrow_name=arrow\narrow_length=3\nnoargs_length=0"
 }
 ,
 {
@@ -1385,10 +1385,10 @@
 ,
 {
   "name": "181_function_bind",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "bound=24\noriginal=12\npartial=10\nrebind=24",
   "node": "bound=24\noriginal=12\npartial=10\nrebind=24",
-  "rts": "bound=undefined\noriginal=undefined\npartial=undefined\nrebind=undefined"
+  "rts": "bound=24\noriginal=12\npartial=10\nrebind=24"
 }
 ,
 {
@@ -1449,10 +1449,10 @@
 ,
 {
   "name": "49_function_meta",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "name=add\nlength=2\ncall=5\napply=10\nbind=12",
   "node": "name=add\nlength=2\ncall=5\napply=10\nbind=12",
-  "rts": "name=undefined\nlength=undefined\ncall=5\napply=10\nbind=12"
+  "rts": "name=add\nlength=2\ncall=5\napply=10\nbind=12"
 }
 ,
 {
@@ -1833,10 +1833,10 @@
 ,
 {
   "name": "228_json_parse_reviver",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "a=2\nb=4\nc=6\narr=11,12,13",
   "node": "a=2\nb=4\nc=6\narr=11,12,13",
-  "rts": "a=2\nb=4\nc=6\narr=1,2,3"
+  "rts": "a=2\nb=4\nc=6\narr=11,12,13"
 }
 ,
 {
@@ -2089,10 +2089,10 @@
 ,
 {
   "name": "325_structuredclone_primitives",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "42\nhello\ntrue\nnull\n2\n99\n2\n99",
   "node": "42\nhello\ntrue\nnull\n2\n99\n2\n99",
-  "rts": "42\nhello\ntrue\nnull\n2\n99\n2\n2"
+  "rts": "42\nhello\ntrue\nnull\n2\n99\n2\n99"
 }
 ,
 {
@@ -2156,7 +2156,7 @@
   "status": "rts_diverge",
   "bun": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
   "node": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
-  "rts": "3\n99\nfalse\ntrue\n2099\n2099\ntrue\nhello\ngi\ntrue\nfalse\ntrue\ntrue\ntrue\ntrue\nundefined\n1\ntrue\nfalse"
+  "rts": "3\n99\nfalse\ntrue\n2099\n2099\ntrue\nhello\ngi\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue\nundefined\n1\ntrue\nfalse"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":276,"rts_diverge":146,"bun_node_diverge":17,"errors":170,"rejected":0}}
+],"summary":{"total":609,"pass":282,"rts_diverge":140,"bun_node_diverge":17,"errors":170,"rejected":0}}
