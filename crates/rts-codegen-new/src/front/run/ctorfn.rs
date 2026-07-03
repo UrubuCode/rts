@@ -74,15 +74,35 @@ pub(super) fn lift_constructor_functions(mut program: Program) -> Program {
             }
         }
     }
-    // A name is a constructor iff it has `this.x=` fields, is `new`ed, has a
-    // prototype method assigned, or participates in a prototype-chain link
-    // (either side of `F.prototype = Object.create(G.prototype)` — the BASE must
-    // also lift so `extends` resolves). Only such names trigger conversion /
-    // consumption.
+    // A field-less `new`ed function whose body tests `this instanceof …` (the
+    // JS DUAL-CALLABLE pattern — behaves differently under `new` vs a plain
+    // call) is a NATIVE fn-ctor: the engine's `is_fn_ctor`/`lower_new_fn_ctor`
+    // path runs it with a synthesized receiver AND keeps the plain `F()` call
+    // working. Lifting it into a class would break the plain call ("call to
+    // unknown function") and the `this instanceof F` distinction — leave it
+    // alone. (A field-less ctor that merely PASSES `this` on — the old-style
+    // `map_set(this, …)` handle pattern — still lifts: it needs the class
+    // instance representation.)
+    let mut this_readers: HashSet<String> = HashSet::new();
+    for item in &program.items {
+        if let Item::Function(f) = item {
+            if !f.is_async
+                && !own_fields.contains_key(&f.name)
+                && body_has_this_instanceof(&f.body)
+            {
+                this_readers.insert(f.name.clone());
+            }
+        }
+    }
+    // A name is a constructor iff it has `this.x=` fields, is `new`ed (and not a
+    // native dual-callable fn-ctor — see above), has a prototype method
+    // assigned, or participates in a prototype-chain link (either side of
+    // `F.prototype = Object.create(G.prototype)` — the BASE must also lift so
+    // `extends` resolves). Only such names trigger conversion / consumption.
     let extends_bases: HashSet<String> = extends_map.values().cloned().collect();
     let is_ctor = |name: &str| {
         own_fields.contains_key(name)
-            || newed.contains(name)
+            || (newed.contains(name) && !this_readers.contains(name))
             || proto_methods.contains_key(name)
             || extends_map.contains_key(name)
             || extends_bases.contains(name)
@@ -614,6 +634,34 @@ impl<'a> Visit for ThisFieldCollector<'a> {
     // A nested non-arrow function / class has its OWN `this` — do not descend.
     fn visit_function(&mut self, _node: &swc_ecma_ast::Function) {}
     fn visit_class(&mut self, _node: &swc_ecma_ast::Class) {}
+}
+
+/// Whether `body` contains a `this instanceof …` test (the dual-callable
+/// discriminator), without descending into nested non-arrow functions / classes
+/// (their `this` is a different binding). Used to keep the NATIVE dual-callable
+/// fn-ctor out of the class lift.
+fn body_has_this_instanceof(body: &[Statement]) -> bool {
+    struct ThisInstanceof {
+        found: bool,
+    }
+    impl Visit for ThisInstanceof {
+        fn visit_bin_expr(&mut self, n: &swc_ecma_ast::BinExpr) {
+            if n.op == swc_ecma_ast::BinaryOp::InstanceOf && is_this_expr(&n.left) {
+                self.found = true;
+            }
+            n.visit_children_with(self);
+        }
+        fn visit_function(&mut self, _n: &swc_ecma_ast::Function) {}
+        fn visit_class(&mut self, _n: &swc_ecma_ast::Class) {}
+    }
+    let mut v = ThisInstanceof { found: false };
+    for s in body {
+        let Statement::Raw(raw) = s;
+        if let Some(stmt) = &raw.stmt {
+            stmt.visit_with(&mut v);
+        }
+    }
+    v.found
 }
 
 /// `Some("x")` iff `target` is exactly `this.x` / `(this as any).x` (a simple

@@ -189,20 +189,22 @@ fn unknown_parent_bails() {
 }
 
 #[test]
-fn abstract_class_bails() {
-    assert_bails(
+fn abstract_parent_method_inherits() {
+    // An abstract class cannot be instantiated DIRECTLY (a separate check), but a
+    // concrete subclass inherits and dispatches its methods (bun: 1).
+    super::assert_stdout(
         "abstract class A { foo(){ return 1; } } class B extends A {} console.log(new B().foo());",
+        "1\n",
     );
 }
 
 #[test]
-fn private_method_bails() {
-    // (F2) Private FIELDS now work (covered in `heap_field.rs`). Private
-    // METHODS remain out of subset — assert they still bail. (This test
-    // replaced the obsolete `private_field_bails`, which asserted the
-    // now-supported feature.)
-    assert_bails(
+fn private_method_dispatches() {
+    // A `#method` dispatches like a plain method INSIDE the declaring class (the
+    // lexical `#` access check lives in the member lowering; bun: 1).
+    super::assert_stdout(
         "class C { #step(){ return 1; } go(){ return this.#step(); } } console.log(new C().go());",
+        "1\n",
     );
 }
 
@@ -215,9 +217,12 @@ fn field_and_accessor_clash_bails() {
 }
 
 #[test]
-fn static_field_write_bails() {
-    // A static-field WRITE is a later increment (read-only getter synthesis).
-    assert_bails("class C { static n:number = 0; } C.n = 5; console.log(C.n);");
+fn static_field_write_works() {
+    // A static-field WRITE persists (the writable module-global cell; bun: 5).
+    super::assert_stdout(
+        "class C { static n:number = 0; } C.n = 5; console.log(C.n);",
+        "5\n",
+    );
 }
 
 #[test]

@@ -285,8 +285,15 @@ pub extern "C" fn __rtsadp_add(a: u64, b: u64) -> u64 {
         return PolyValue::from_f64(sum).raw();
     }
 
-    // Mixed/other: JS would ToPrimitive (the `[Symbol.toPrimitive]` step already
-    // ran above); stringify both (never panics).
+    // Mixed/other with NO string side: an OBJECT/ARRAY/FUNCTION side stringifies
+    // through its ToString (`[object Object]` / joined elements) and
+    // concatenates — the JS default-ToPrimitive outcome for a method-less
+    // object. Two NON-object sides (number/bool/null/undefined) are the NUMERIC
+    // `+`: ToNumber both (undefined → NaN, null → 0, true → 1), matching JS —
+    // `1 + undefined` is `NaN`, never the string `"1undefined"`.
+    if !av.is_object() && !av.is_function() && !bv.is_object() && !bv.is_function() {
+        return number_result(to_number(av) + to_number(bv)).raw();
+    }
     concat_via_real_pool(av, bv).raw()
 }
 

@@ -100,9 +100,13 @@ fn object_keys_on_unknown_shape_param_runs_dynamically() {
 }
 
 #[test]
-fn object_assign_adding_key_bails() {
-    // assign that would ADD a key not in the target's shape bails (no transition).
-    assert_bails("let t = {a: 1}; let s = {b: 2}; Object.assign(t, s); console.log(t.b);");
+fn object_assign_adds_key() {
+    // `Object.assign` ADDING a key not in the target's shape transitions the
+    // shape, and the new key reads back (bun: 2).
+    assert_stdout(
+        "let t = {a: 1}; let s = {b: 2}; Object.assign(t, s); console.log(t.b);",
+        "2\n",
+    );
 }
 
 #[test]

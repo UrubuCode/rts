@@ -97,6 +97,19 @@ pub fn run_source(src: &str) -> FrontResult<()> {
     let prog = build_with_includes(src)?;
     let program = module_jit::compile_program(&prog)?;
     program.run_main();
+    // An UNCAUGHT top-level throw (e.g. a runtime `TypeError: not a function`)
+    // left the pending-error slot set — surface it as an error, exactly like
+    // [`module_entry::run_path`] does for the disk path. Without this, a unit
+    // test over a throwing program would silently pass with partial output.
+    if crate::value::errslot::__rtsadp_err_pending() != 0 {
+        let word = crate::value::errslot::__rtsadp_err_take();
+        let s_word = crate::value::genops::__rtsadp_to_string(word);
+        let text =
+            crate::value::abi_adapter::resolve_poly(crate::value::PolyValue::from_raw(s_word));
+        return Err(crate::front::error::Unsupported::new(format!(
+            "uncaught exception: {text}"
+        )));
+    }
     Ok(())
 }
 

@@ -152,14 +152,13 @@ fn console_log_with_fields_does_not_call_to_string() {
 }
 
 #[test]
-fn no_to_string_class_in_string_bails() {
+fn no_to_string_class_renders_object_object() {
     // A known-class instance with NEITHER toString NOR valueOf, in a string `+`,
-    // resolves NO primitive method — so it falls to the pre-existing whole-object
-    // gate, which BAILS (rather than the engine inventing a coercion). Sound: never
-    // a wrong value. (JS would render `[object Object]`; a faithful default for the
-    // no-method case is a later increment.)
-    assert_bails(
+    // takes the GENERIC `+` (the object-operand gate admits method-free classes)
+    // and renders the spec default `[object Object]` (bun: `v=[object Object]`).
+    assert_stdout(
         r#"class C { n: number; constructor() { this.n = 1; } }
            console.log("v=" + new C());"#,
+        "v=[object Object]\n",
     );
 }

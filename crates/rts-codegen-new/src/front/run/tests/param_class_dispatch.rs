@@ -46,25 +46,30 @@ fn method_on_class_param_in_map() {
     );
 }
 
-/// SOUNDNESS: a `type` alias to a real class must NOT dispatch on the aliased
-/// shape — it bails honestly (the alias name is not a `class` in scope). A wrong
-/// dispatch here would read a wrong slot / ACCESS_VIOLATION; bailing is correct.
+/// A `type` alias param no longer bails: the method dispatches DYNAMICALLY by
+/// the receiver's runtime shape (the shape-keyed virtual dispatch), so the
+/// aliased type name never has to resolve statically — and a wrong-slot read
+/// cannot happen (the shape check keys the arm).
 #[test]
-fn alias_to_class_bails_not_dispatches() {
-    assert_bails(
+fn alias_to_class_dispatches() {
+    assert_stdout(
         "class RealClass { m(): number { return 42; } } \
          type Alias = RealClass; \
          function f(x: Alias): number { return x.m(); } \
-         const r = new RealClass(); f(r);",
+         const r = new RealClass(); console.log(f(r));",
+        "42\n",
     );
 }
 
-/// SOUNDNESS: an `interface` name that is NOT a class also bails (no class in
-/// scope to prove the receiver's shape).
+/// An `interface`-typed param dispatches the same way: the RUNTIME shape of the
+/// argument (a class implementing the interface) keys the virtual dispatch.
 #[test]
-fn interface_param_bails() {
-    assert_bails(
+fn interface_param_dispatches() {
+    assert_stdout(
         "interface Shape { area(): number; } \
-         function f(s: Shape): number { return s.area(); } ",
+         function f(s: Shape): number { return s.area(); } \
+         class Circle implements Shape { area(): number { return 3; } } \
+         console.log(f(new Circle()));",
+        "3\n",
     );
 }

@@ -166,8 +166,8 @@ fn math_as_bare_value_bails() {
 }
 
 #[test]
-fn number_predicate_on_tagged_bails() {
-    // The no-coerce predicate on a non-proven-number (Tagged) arg bails — never a
-    // wrong `true`.
-    assert_bails(r#"let s = "5"; console.log(Number.isInteger(s));"#);
+fn number_predicate_on_string_is_false() {
+    // `Number.isInteger` does NOT coerce — a string arg is `false` (bun: false),
+    // decided on the runtime tag, never a wrong `true`.
+    super::assert_stdout(r#"let s = "5"; console.log(Number.isInteger(s));"#, "false\n");
 }

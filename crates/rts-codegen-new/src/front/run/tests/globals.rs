@@ -146,10 +146,10 @@ fn global_this_persists_across_functions() {
 }
 
 #[test]
-fn array_from_map_bails_on_use() {
-    // Array.from over a non-string/non-array source is out of scope; a Map literal
-    // itself is unsupported, so this bails before reaching Array.from.
-    assert_bails("console.log(Array.from(new Map()).length);");
+fn array_from_empty_map_is_empty() {
+    // `Array.from(new Map())` over the `.ts`-stdlib Map — an empty map yields an
+    // empty array (bun: 0).
+    assert_stdout("console.log(Array.from(new Map()).length);", "0\n");
 }
 
 #[test]
