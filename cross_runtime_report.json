@@ -1708,7 +1708,7 @@
   "status": "rts_diverge",
   "bun": "{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return",
   "node": "{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return",
-  "rts": "{\"value\":1073741852,\"done\":false}\n{\"value\":{\"message\":\"E\",\"name\":\"Error\",\"stack\":\"\"},\"done\":true}\n{\"value\":\"R\",\"done\":true}"
+  "rts": "{\"value\":1073741853,\"done\":false}\n{\"value\":{\"message\":\"E\",\"name\":\"Error\",\"stack\":\"\"},\"done\":true}\n{\"value\":\"R\",\"done\":true}"
 }
 ,
 {
@@ -2177,10 +2177,10 @@
 ,
 {
   "name": "77_domexception",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "name=AbortError\nmsg=nope\ncode=20",
   "node": "name=AbortError\nmsg=nope\ncode=20",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "name=AbortError\nmsg=nope\ncode=20"
 }
 ,
 {
@@ -3732,7 +3732,7 @@
   "status": "rts_diverge",
   "bun": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
   "node": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
-  "rts": "h=104\ne=101\no=111\nout=281474976711128\nemoji=128512\nA=65\ncharCode=55357"
+  "rts": "h=104\ne=101\no=111\nout=281474976711152\nemoji=128512\nA=65\ncharCode=55357"
 }
 ,
 {
@@ -4772,7 +4772,7 @@
   "status": "rts_diverge",
   "bun": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4",
   "node": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4",
-  "rts": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=undefined\nquery=1.390671161569446e-309,1.39067116156945e-309,1.390671161569456e-309,1.39067116156946e-309\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4"
+  "rts": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=undefined\nquery=1.390671161569565e-309,1.39067116156957e-309,1.390671161569575e-309,1.39067116156958e-309\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4"
 }
 ,
 {
@@ -4785,10 +4785,10 @@
 ,
 {
   "name": "80_urlsearchparams_sort",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "query=x=1+2&x=3",
   "node": "query=x=1+2&x=3",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "query=x=1+2&x=3"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":315,"rts_diverge":116,"bun_node_diverge":17,"errors":161,"rejected":0}}
+],"summary":{"total":609,"pass":317,"rts_diverge":116,"bun_node_diverge":17,"errors":159,"rejected":0}}
