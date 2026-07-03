@@ -20,7 +20,7 @@ const aStr = String(descs.a.writable) + "/" + String(descs.a.enumerable);
 
 describe("descriptor writable/enumerable reflete defineProperty (#749)", () => {
   test("b com writable+enumerable false", () => expect(bStr).toBe("false/false"));
-  test("c so' writable false", () => expect(cStr).toBe("false/true"));
-  test("d so' enumerable false", () => expect(dStr).toBe("true/false"));
+  test("c so' writable false (omitted=false, spec)", () => expect(cStr).toBe("false/false"));
+  test("d so' enumerable false (omitted=false, spec)", () => expect(dStr).toBe("false/false"));
   test("a sem flags -> default true", () => expect(aStr).toBe("true/true"));
 });

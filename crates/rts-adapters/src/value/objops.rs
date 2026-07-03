@@ -749,14 +749,15 @@ fn accessor_descriptor(obj_word: u64, name: &str) -> u64 {
 /// only the `value` data form is read here.)
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_obj_define_property(obj_word: u64, key_word: u64, desc_word: u64) -> u64 {
-    // A flag OMITTED from the descriptor stays TRUE (#749: only an explicit
-    // `writable:false`/`enumerable:false` marks the property); an explicit value
-    // reads as its ToBoolean. (Full JS omitted⇒false strictness is a later
-    // increment — it would flip properties nobody asked about.)
-    let flag = |k: &str| -> i64 {
+    // JS defineProperty attribute semantics: a flag OMITTED from the
+    // descriptor is FALSE for a NEW property, and KEEPS the current attribute
+    // on a REDEFINE; an explicit value reads as its ToBoolean.
+    let is_new = __rtsadp_obj_has(obj_word, key_word) == 0;
+    let key_txt = key_text(key_word);
+    let flag = |k: &str, current: bool| -> i64 {
         let key = abi_adapter::intern_poly(k).raw();
         if __rtsadp_obj_has(desc_word, key) == 0 {
-            return 1;
+            return if is_new { 0 } else { current as i64 };
         }
         let w = __rtsadp_obj_get(desc_word, key);
         super::genops::to_boolean(PolyValue::from_raw(w)) as i64
@@ -787,7 +788,9 @@ pub extern "C" fn __rtsadp_obj_define_property(obj_word: u64, key_word: u64, des
         return obj_word;
     }
     let val = __rtsadp_obj_get(desc_word, abi_adapter::intern_poly("value").raw());
-    let flags = flag("writable") | (flag("enumerable") << 1) | (flag("configurable") << 2);
+    let flags = flag("writable", prop_writable(obj_word, &key_txt))
+        | (flag("enumerable", prop_enumerable(obj_word, &key_txt)) << 1)
+        | (flag("configurable", prop_configurable(obj_word, &key_txt)) << 2);
     __rtsadp_define_prop(obj_word, key_word, val, flags);
     obj_word
 }
