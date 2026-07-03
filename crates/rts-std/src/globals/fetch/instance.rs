@@ -332,6 +332,14 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVE(value: u64) -> i64 {
         Some(i64::MIN) => value as i64, // PromiseAsync — passthrough do handle
         Some(v) => v,                   // Entry::Promise legacy — extrai inline
         None => {
+            // Promise/A+: um THENABLE e' ADOTADO (`Promise.resolve({then})`
+            // segue o estado do thenable); valor plano cria fulfilled direto.
+            if crate::promise_slot::thenable_then_of(value as i64) != 0 {
+                let slot = crate::promise_slot::new_pending();
+                let h = alloc_entry(Entry::PromiseAsync(slot.clone()));
+                crate::promise::resolve_assimilating(&slot, h, value as i64);
+                return h as i64;
+            }
             // Valor regular: cria PromiseAsync ja fulfilled.
             let slot = crate::promise_slot::new_fulfilled(value as i64);
             alloc_entry(Entry::PromiseAsync(slot)) as i64

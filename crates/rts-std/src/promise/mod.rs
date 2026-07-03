@@ -225,6 +225,15 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_NEW_PENDING() -> Handle {
 /// Cria Promise async ja' fulfilled com `value`. Equivalente do `Promise.resolve(v)` JS.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_PROMISE_NEW_RESOLVED(value: I64) -> Handle {
+    // Promise/A+: `Promise.resolve(thenable)` ADOPTS the thenable instead of
+    // fulfilling with it - start pending and assimilate; a plain value keeps
+    // the already-fulfilled fast path.
+    if promise_slot::thenable_then_of(value) != 0 {
+        let slot = promise_slot::new_pending();
+        let h = alloc_entry(Entry::PromiseAsync(slot.clone()));
+        resolve_assimilating(&slot, h, value);
+        return h;
+    }
     let slot = promise_slot::new_fulfilled(value);
     alloc_entry(Entry::PromiseAsync(slot))
 }
@@ -760,7 +769,8 @@ fn create_spawn(
                 Some(b) => b(fn_ptr, r),
                 None => r,
             };
-            promise_slot::resolve(&result_clone, r);
+            // Promise/A+: an async body returning a thenable/promise ADOPTS it.
+            resolve_assimilating(&result_clone, handle, r);
         }
         PENDING_PROMISE_TASKS.fetch_sub(1, Ordering::AcqRel);
     });
@@ -1140,4 +1150,153 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_ASYNC(iterable: u64, mapper_handle: u64
 
     let promises_vec = alloc_entry(Entry::Vec(Box::new(wrapped)));
     __RTS_FN_NS_PROMISE_ALL(promises_vec)
+}
+
+// ===========================================================================
+// THENABLE assimilation (Promise/A+): fulfilling a promise with a value that
+// carries a callable `.then` must ADOPT that thenable's state instead —
+// `then(resolveFn, rejectFn)` is invoked ONCE and the first settle wins (the
+// slot's first-wins `settle` covers the single-resolution rule).
+// ===========================================================================
+
+/// The settle bridge the thenable's `then` invokes: a LEGACY all-i64 callable
+/// (`FunctionData{uniform_thunk:false}` with `bound_args = [promise_handle,
+/// is_reject]`) — the user's `resolve(v)` call lands here as `(h, flag, v)`.
+extern "C" fn __rts_thenable_settle(promise_h: i64, is_reject: i64, value: i64) -> i64 {
+    let arc = with_entry(promise_h as u64, |e| match e {
+        Some(Entry::PromiseAsync(a)) => Some(a.clone()),
+        _ => None,
+    });
+    if let Some(arc) = arc {
+        if is_reject != 0 {
+            promise_slot::reject(&arc, value);
+        } else {
+            // Recursive adoption: the resolution value may itself be a thenable.
+            resolve_assimilating(&arc, promise_h as u64, value);
+        }
+    }
+    0
+}
+
+/// Build the legacy settle callable (`bound = [promise_h, is_reject]`) as a
+/// function WORD the user's `then` body can invoke.
+fn settle_callable_word(promise_h: u64, is_reject: i64) -> i64 {
+    use rts_engine::heap::handles::FunctionData;
+    let h = alloc_entry(Entry::Function(Box::new(FunctionData {
+        fn_ptr: __rts_thenable_settle as usize as u64,
+        arity: 3,
+        name: Box::from(""),
+        bound_this: 0,
+        has_bound_this: false,
+        bound_args: vec![promise_h as i64, is_reject],
+        is_arrow: false,
+        has_this_param: false,
+        param_kinds: Vec::new(),
+        return_kind: 0,
+        packed_shim: 0,
+        source: None,
+        keep_alive: None,
+        prototype_handle: 0,
+        rest_param_idx: -1,
+        uniform_thunk: false,
+    })));
+    // TAG_FUNCTION word over the bare slot (the invoke bridges normalize).
+    const BOX_BASE: u64 = 0xFFF8_0000_0000_0000;
+    let slot = rts_engine::heap::handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h);
+    (BOX_BASE | (5u64 << 48) | slot) as i64
+}
+
+/// Fulfil `arc` with `value`, ADOPTING a thenable value instead of storing it:
+/// when the probe finds a callable `.then`, invoke it with the settle pair and
+/// leave the slot pending until one of them fires. `promise_h` is the live
+/// `Entry::PromiseAsync` handle for `arc` (the bridge finds the slot by it).
+pub(crate) fn resolve_assimilating(
+    arc: &std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
+    promise_h: u64,
+    value: i64,
+) {
+    // A PROMISE value (an async callback returning `Promise.resolve(x)` /
+    // another chain): ADOPT its state directly — fulfil/reject through, or
+    // chain a pending source via the microtask queue (fn_ptr 0 = pass-through).
+    if let Some(src) = with_slot(
+        rts_engine::heap::poly::poly_handle_normalize(value as u64).unwrap_or(value as u64),
+        None,
+        |a| Some(a.clone()),
+    ) {
+        promise_slot::mark_handled(&src);
+        match promise_slot::current_state(&src) {
+            promise_slot::STATE_FULFILLED => {
+                let inner = promise_slot::current_value(&src);
+                resolve_assimilating(arc, promise_h, inner);
+            }
+            promise_slot::STATE_REJECTED => {
+                promise_slot::reject(arc, promise_slot::current_value(&src));
+            }
+            _ => {
+                crate::globals::text_encoding::instance::enqueue_microtask_pending_then(
+                    src,
+                    0,
+                    Vec::new(),
+                    false,
+                    arc.clone(),
+                );
+            }
+        }
+        return;
+    }
+    let then_w = promise_slot::thenable_then_of(value);
+    if then_w == 0 {
+        promise_slot::resolve(arc, value);
+        return;
+    }
+    let res_w = settle_callable_word(promise_h, 0);
+    let rej_w = settle_callable_word(promise_h, 1);
+    // An object-literal METHOD materializes as a THIS-FIRST uniform thunk (its
+    // a0 slot is the receiver): prepend the thenable's own object word so
+    // `resolve`/`reject` land in the right params. A plain fn stays unshifted.
+    let real = rts_engine::heap::poly::poly_handle_normalize(then_w).unwrap_or(then_w);
+    let has_this = with_entry(real, |e| {
+        matches!(e, Some(Entry::Function(d)) if d.has_this_param)
+    });
+    let args: Vec<i64> = if has_this {
+        const BOX_BASE: u64 = 0xFFF8_0000_0000_0000;
+        let w = value as u64;
+        let obj_word = if (w & BOX_BASE) == BOX_BASE {
+            value
+        } else {
+            let slot = rts_engine::heap::handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(w);
+            (BOX_BASE | (4u64 << 48) | slot) as i64
+        };
+        vec![obj_word, res_w, rej_w]
+    } else {
+        vec![res_w, rej_w]
+    };
+    // `then` may throw synchronously → reject (spec). The engine's pending-
+    // error slot carries the thrown word.
+    rts_primitives::function::ops::invoke_callable_auto(then_w, &args);
+    if let Some(word) = take_engine_pending_error() {
+        promise_slot::reject(arc, word as i64);
+    }
+}
+
+/// [`resolve_assimilating`] without a pre-existing handle: allocates a fresh
+/// `Entry::PromiseAsync` alias for the slot only when the value IS a thenable
+/// (the common plain-value path stays allocation-free).
+pub(crate) fn resolve_adopting(
+    arc: &std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
+    value: i64,
+) {
+    // A PROMISE or a thenable value both adopt (the assimilating path handles
+    // either); a plain value fulfils allocation-free.
+    let is_promise = with_slot(
+        rts_engine::heap::poly::poly_handle_normalize(value as u64).unwrap_or(value as u64),
+        false,
+        |_| true,
+    );
+    if !is_promise && promise_slot::thenable_then_of(value) == 0 {
+        promise_slot::resolve(arc, value);
+        return;
+    }
+    let h = alloc_entry(Entry::PromiseAsync(arc.clone()));
+    resolve_assimilating(arc, h, value);
 }

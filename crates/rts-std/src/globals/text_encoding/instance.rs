@@ -561,7 +561,7 @@ pub fn drain_microtasks() {
                                 let r = unsafe {
                                     invoke_microtask_callback(fn_ptr, &bound, Some(value))
                                 };
-                                promise_slot::resolve(&result_slot, r);
+                                crate::promise::resolve_adopting(&result_slot, r);
                             } else if fulfilled {
                                 promise_slot::resolve(&result_slot, value);
                             } else {
@@ -600,7 +600,7 @@ pub fn drain_microtasks() {
                             let cb = if fulfilled { on_ful } else { on_rej };
                             if cb != 0 {
                                 let r = unsafe { invoke_microtask_callback(cb, &[], Some(value)) };
-                                promise_slot::resolve(&result_slot, r);
+                                crate::promise::resolve_adopting(&result_slot, r);
                             } else if fulfilled {
                                 promise_slot::resolve(&result_slot, value);
                             } else {
@@ -684,7 +684,7 @@ pub fn drain_microtasks() {
                         } else {
                             let r =
                                 unsafe { invoke_microtask_callback(fn_ptr, &bound, Some(value)) };
-                            promise_slot::resolve(&result_slot, r);
+                            crate::promise::resolve_adopting(&result_slot, r);
                         }
                     } else {
                         // catch path nao usa este enqueue ainda; reject direto.
@@ -736,7 +736,7 @@ pub fn drain_microtasks() {
                         if runs && fn_ptr != 0 {
                             let r =
                                 unsafe { invoke_microtask_callback(fn_ptr, &bound, Some(value)) };
-                            promise_slot::resolve(&result_slot, r);
+                            crate::promise::resolve_adopting(&result_slot, r);
                         } else if fulfilled {
                             promise_slot::resolve(&result_slot, value);
                         } else {
@@ -796,7 +796,7 @@ pub fn drain_microtasks() {
                             // .then(f) sucesso e .catch(g)/onRej recuperam:
                             // result resolved com o retorno do callback.
                             let r = unsafe { invoke_microtask_callback(cb, &[], Some(value)) };
-                            promise_slot::resolve(&result_slot, r);
+                            crate::promise::resolve_adopting(&result_slot, r);
                         } else if fulfilled {
                             promise_slot::resolve(&result_slot, value);
                         } else {

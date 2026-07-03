@@ -259,3 +259,24 @@ mod tests {
         assert_eq!(v, 1);
     }
 }
+
+// ===========================================================================
+// THENABLE assimilation hook (Promise/A+ resolution). The probe lives in the
+// value-model layer (rts-adapters — it reads object shapes); rts-std cannot
+// depend on it, so the engine bootstrap installs the fn-ptr here (the same
+// pattern as the async error hook). `probe(value) != 0` returns the value's
+// callable `.then` as a function WORD.
+// ===========================================================================
+
+static THENABLE_HOOK: std::sync::OnceLock<extern "C" fn(i64) -> u64> = std::sync::OnceLock::new();
+
+/// Install the thenable probe (called by the engine bootstrap; idempotent).
+pub fn set_thenable_hook(probe: extern "C" fn(i64) -> u64) {
+    let _ = THENABLE_HOOK.set(probe);
+}
+
+/// The value's callable `.then` (a function word), or 0 when the value is not
+/// a thenable / no probe installed.
+pub fn thenable_then_of(value: i64) -> u64 {
+    THENABLE_HOOK.get().map(|f| f(value)).unwrap_or(0)
+}

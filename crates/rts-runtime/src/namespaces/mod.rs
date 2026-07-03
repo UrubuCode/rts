@@ -62,6 +62,7 @@ pub use rts_std::os;
 pub use rts_shared::path;
 pub use rts_std::process;
 pub use rts_std::promise;
+pub use rts_std::promise_slot;
 pub use rts_shared::ptr;
 pub use rts_shared::regex;
 pub use rts_std::runtime;

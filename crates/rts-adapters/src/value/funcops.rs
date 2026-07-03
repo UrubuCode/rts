@@ -621,6 +621,10 @@ fn word_to_raw_i64(w: u64) -> i64 {
         v.as_f64() as i64
     } else if v.is_bool() {
         v.as_bool() as i64
+    } else if let Some(h) = rts_engine::heap::poly::poly_handle_normalize(w) {
+        // A heap value (string/object/function word) crosses the raw-i64 ABI
+        // as its REAL handle (the legacy surface convention).
+        h as i64
     } else {
         0
     }
