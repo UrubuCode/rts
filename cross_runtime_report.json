@@ -2852,7 +2852,7 @@
   "status": "rts_diverge",
   "bun": "42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue",
   "node": "42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue",
-  "rts": "42\n99\n42\nreadonly,normal\n0\ntrue\ntrue\ntrue\n1\ntrue"
+  "rts": "42\n99\n42\nreadonly,normal\n0\nfalse\ntrue\nfalse\n1\ntrue"
 }
 ,
 {
@@ -3084,7 +3084,7 @@
   "status": "rts_diverge",
   "bun": "1,false,false,false\n\n1\nTypeError",
   "node": "1,false,false,false\n\n1\nTypeError",
-  "rts": "1,true,true,true\nx\n2"
+  "rts": "1,false,false,false\n\n1"
 }
 ,
 {
