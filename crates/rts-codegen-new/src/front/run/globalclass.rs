@@ -461,7 +461,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// statically-recorded class) we emit a REAL runtime check: the result is
     /// `true` iff the value is a `TAG_OBJECT` instance whose shape-id (slot 0)
     /// equals the `global_shape` of `class` OR of any descendant of `class`.
-    fn user_instanceof(
+    pub(super) fn user_instanceof(
         &mut self,
         module: &mut dyn Module,
         lhs: &HirExpr,

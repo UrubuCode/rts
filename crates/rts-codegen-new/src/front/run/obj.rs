@@ -625,6 +625,21 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         object: &HirExpr,
         index: &HirExpr,
     ) -> FrontResult<Val> {
+        // ---- PRIVATE-NAME probe `obj["#field"]` (a string-literal key starting
+        // with `#`): a JS private field is NOT a string-keyed property — the
+        // read is `undefined` regardless of the class's real `#field` (which
+        // this model stores under the same spelling; the literal-key form is
+        // the only string route a program can write). ----
+        if let HirExprKind::Lit(rts_hir::ir::HirLit::Str(s)) = &index.kind {
+            if s.starts_with('#') {
+                self.lower_expr(module, object)?; // evaluate for effects
+                let v = self
+                    .builder
+                    .ins()
+                    .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
+                return Ok(Val::tagged_kind(v, JsKind::Undefined));
+            }
+        }
         // ---- DYNAMIC computed object key `obj[k]` (P5.5): a STRING-keyed index on
         // a proven keyed OBJECT (known OR unknown shape). ToString the key and
         // resolve at runtime via `__rtsadp_obj_get`. A NUMERIC index on an object

@@ -594,8 +594,11 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
         // classes declaring the same UNMANGLED `#x` are not distinguished (JS
         // private-name identity is per-class); exact per-class branding is a
         // later increment.
+        // The `\0pn` prefix marks a REAL private-name expression (the `#x in o`
+        // brand check) apart from a plain string literal "#x" — the consumers
+        // (binop `in`) strip it back to the storage spelling `#x`.
         swc::Expr::PrivateName(p) => HirExpr::new(
-            HirExprKind::Lit(crate::ir::HirLit::Str(format!("#{}", p.name))),
+            HirExprKind::Lit(crate::ir::HirLit::Str(format!("\u{0}pn#{}", p.name))),
             HirType::Str,
         ),
 

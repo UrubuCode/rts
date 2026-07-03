@@ -122,6 +122,38 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // uses), returning a bool. Covers the common own-property `in`; an
         // inherited-property `in` is a later increment but rare.
         if matches!(op, HirBinOp::In) {
+            // PRIVATE names in `in`:
+            // - `#field in obj` (the BRAND check — rts-hir marks the real
+            //   private-name expr with the `\0pn` prefix): probe the storage
+            //   spelling `#field` through the normal obj_has (an instance of
+            //   the declaring class carries that slot).
+            // - `"#field" in obj` (a plain STRING literal): a private field is
+            //   never a string-keyed property — constant `false`.
+            if let rts_hir::ir::HirExprKind::Lit(rts_hir::ir::HirLit::Str(s)) = &lhs.kind {
+                if let Some(real) = s.strip_prefix("\u{0}pn") {
+                    // The BRAND is per-CLASS (Cat's `#name` ≠ Dog's `#name`,
+                    // same spelling): inside a class body the check is exactly
+                    // "is `rhs` an instance of the DECLARING class" — the
+                    // shape-set instanceof. Outside a known class body (should
+                    // not parse in JS) fall back to the storage-key probe.
+                    if let Some(class) = self.enclosing_class() {
+                        return self.user_instanceof(module, rhs, &class);
+                    }
+                    let k = crate::value::abi_adapter::intern_poly(real);
+                    let key_word = self.builder.ins().iconst(types::I64, k.raw() as i64);
+                    let obj = self.lower_expr(module, rhs)?;
+                    let obj_word = self.box_value(obj);
+                    let res = self
+                        .call_runtime(module, "__rtsadp_obj_has", &[obj_word, key_word])?
+                        .expect("__rtsadp_obj_has returns a bool");
+                    return Ok(Val::new(res, Repr::Bool));
+                }
+                if s.starts_with('#') {
+                    self.lower_expr(module, rhs)?; // evaluate for effects
+                    let v = self.builder.ins().iconst(types::I64, 0);
+                    return Ok(Val::new(v, Repr::Bool));
+                }
+            }
             let key = self.lower_expr(module, lhs)?;
             let key_word = self.box_value(key);
             let obj = self.lower_expr(module, rhs)?;
