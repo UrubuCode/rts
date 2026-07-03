@@ -3452,7 +3452,7 @@
   "status": "rts_diverge",
   "bun": "lastIndex_init=0\nmatch1=1\nlastIndex1=2\nmatch2=2\nlastIndex2=4\nmatch3=3\nlastIndex3=6\nmatch4=null\nlastIndex4=0",
   "node": "lastIndex_init=0\nmatch1=1\nlastIndex1=2\nmatch2=2\nlastIndex2=4\nmatch3=3\nlastIndex3=6\nmatch4=null\nlastIndex4=0",
-  "rts": "lastIndex_init=0\nmatch1=1\nlastIndex1=0\nmatch2=1\nlastIndex2=0\nmatch3=1\nlastIndex3=0\nmatch4=1,2,3\nlastIndex4=0"
+  "rts": "lastIndex_init=0\nmatch1=1\nlastIndex1=0\nmatch2=1\nlastIndex2=0\nmatch3=1\nlastIndex3=0\nmatch4=\nlastIndex4=0"
 }
 ,
 {
@@ -3497,10 +3497,10 @@
 ,
 {
   "name": "395_regex_d_flag",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
   "node": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
-  "rts": "2026-05-22\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\ndate: 2026-05-22 end\nfoo@0-1.5e-323|bar@2e-323-3.5e-323|baz@4e-323-5.4e-323\n42\n\nundefined\nundefined"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -3508,7 +3508,7 @@
   "status": "rts_diverge",
   "bun": "test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true",
   "node": "test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=7\ng2=99\nlast2=19\nflag_m=true\nflag_s=true",
-  "rts": "test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=item-99\nlast1=0\ng2=item-99\nlast2=0\nflag_m=true\nflag_s=true"
+  "rts": "test=true\nmatch0=Item-42\nmatch1=42\nreplace=unit-42 and unit-99\nreplaceAll=a/b/c\nsplit=x,y,z,\ng1=42\nlast1=0\ng2=42\nlast2=0\nflag_m=true\nflag_s=true"
 }
 ,
 {
@@ -3524,23 +3524,23 @@
   "status": "rts_diverge",
   "bun": "indices=[[1,4],[2,3],[3,4]]",
   "node": "indices=[[1,4],[2,3],[3,4]]",
-  "rts": "indices=undefined"
+  "rts": "indices={}"
 }
 ,
 {
   "name": "81_regex_named_groups",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "word=abbb",
   "node": "word=abbb",
-  "rts": "word=undefined"
+  "rts": "word=abbb"
 }
 ,
 {
   "name": "99_regexp_unicode",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "words=café|λ\nchars=A|😀|B\nnamed=λ",
   "node": "words=café|λ\nchars=A|😀|B\nnamed=λ",
-  "rts": "words=café|λ\nchars=A|😀|B\nnamed=undefined"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -3548,7 +3548,7 @@
   "status": "rts_diverge",
   "bun": "aaab:2\n[2,6]\n[2,5]\naaa",
   "node": "aaab:2\n[2,6]\n[2,5]\naaa",
-  "rts": "aaab:undefined\nundefined\nundefined\nundefined"
+  "rts": "aaab:2\n[1e-323,3e-323]\n[1e-323,2.5e-323]\naaa"
 }
 ,
 {
@@ -3564,7 +3564,7 @@
   "status": "rts_diverge",
   "bun": "true:3\ntrue:5\nfalse:0\nabc:5",
   "node": "true:3\ntrue:5\nfalse:0\nabc:5",
-  "rts": "true:0\ntrue:0\ntrue:0\nundefined:0"
+  "rts": "true:0\ntrue:0\ntrue:0\nabc:0"
 }
 ,
 {
@@ -3849,10 +3849,10 @@
 ,
 {
   "name": "252_string_match_groups",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "found=true\nvalue=world\nindex=6\ninput=hello world\nnoMatch=null",
   "node": "found=true\nvalue=world\nindex=6\ninput=hello world\nnoMatch=null",
-  "rts": "found=true\nvalue=world\nindex=undefined\ninput=undefined\nnoMatch=null"
+  "rts": "found=true\nvalue=world\nindex=6\ninput=hello world\nnoMatch=null"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":317,"rts_diverge":116,"bun_node_diverge":17,"errors":159,"rejected":0}}
+],"summary":{"total":609,"pass":319,"rts_diverge":112,"bun_node_diverge":17,"errors":161,"rejected":0}}
