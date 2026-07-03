@@ -395,6 +395,13 @@ fn is_side_effect_free_arg(e: &HirExpr) -> bool {
         // double-lowering only re-reads — accepted (matches the member reads the
         // dispatch arms themselves perform).
         HirExprKind::Member { object, .. } => is_side_effect_free_arg(object),
+        // An INDEX READ (`arr[i]`, `this.#items[i]`) over side-effect-free
+        // operands re-lowers as a plain re-read, same reasoning as Member.
+        // Rejecting it made `other.has(this.#items[i])` (the stdlib Set ops)
+        // decline the virtual dispatch and fall to a dynamic own-prop miss.
+        HirExprKind::Index { object, index } => {
+            is_side_effect_free_arg(object) && is_side_effect_free_arg(index)
+        }
         _ => false,
     }
 }
