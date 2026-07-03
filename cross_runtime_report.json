@@ -1529,26 +1529,26 @@
 ,
 {
   "name": "claude-nested-fn-producer-consumer-ok",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "filled=20 final_queued=20 rounds=4",
   "node": "filled=20 final_queued=20 rounds=4",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "filled=20 final_queued=20 rounds=4"
 }
 ,
 {
   "name": "claude-nested-fn-same-name",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "a=1\nb=2",
   "node": "a=1\nb=2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "a=1\nb=2"
 }
 ,
 {
   "name": "claude-nested-fn-sibling-call",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "drained=8 remaining=0 iters=1",
   "node": "drained=8 remaining=0 iters=1",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "drained=8 remaining=0 iters=1"
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":319,"rts_diverge":112,"bun_node_diverge":17,"errors":161,"rejected":0}}
+],"summary":{"total":609,"pass":321,"rts_diverge":112,"bun_node_diverge":18,"errors":158,"rejected":0}}
