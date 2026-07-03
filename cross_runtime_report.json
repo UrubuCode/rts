@@ -1825,10 +1825,10 @@
 ,
 {
   "name": "207_json_stringify_space",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "compact={\"a\":1,\"b\":{\"c\":2}}\nlines=6\nhas_indent=true\nhas_tab=true\narr_lines=5",
   "node": "compact={\"a\":1,\"b\":{\"c\":2}}\nlines=6\nhas_indent=true\nhas_tab=true\narr_lines=5",
-  "rts": "compact={\"a\":1,\"b\":{\"c\":2}}\nlines=6\nhas_indent=true\nhas_tab=false\narr_lines=5"
+  "rts": "compact={\"a\":1,\"b\":{\"c\":2}}\nlines=6\nhas_indent=true\nhas_tab=true\narr_lines=5"
 }
 ,
 {
@@ -1841,18 +1841,18 @@
 ,
 {
   "name": "229_json_stringify_replacer_array",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "filtered={\"a\":1,\"c\":3}\nall={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nnone={}\nnested={\"x\":{\"a\":1}}",
   "node": "filtered={\"a\":1,\"c\":3}\nall={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nnone={}\nnested={\"x\":{\"a\":1}}",
-  "rts": "filtered={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nall={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nnone={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nnested={\"x\":{\"a\":1,\"b\":2},\"y\":3}"
+  "rts": "filtered={\"a\":1,\"c\":3}\nall={\"a\":1,\"b\":2,\"c\":3,\"d\":4}\nnone={}\nnested={\"x\":{\"a\":1}}"
 }
 ,
 {
   "name": "290_json_circular",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "err=TypeError",
   "node": "err=TypeError",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "err=TypeError"
 }
 ,
 {
@@ -1873,18 +1873,18 @@
 ,
 {
   "name": "403_json_replacer_array_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "{\"c\":3,\"a\":1,\"nested\":{\"a\":8}}\n[{\"c\":3,\"a\":1,\"nested\":{\"a\":8}},{\"c\":5,\"a\":4}]\n{\"1\":\"one\",\"01\":\"zero-one\",\"a\":\"aye\"}",
   "node": "{\"c\":3,\"a\":1,\"nested\":{\"a\":8}}\n[{\"c\":3,\"a\":1,\"nested\":{\"a\":8}},{\"c\":5,\"a\":4}]\n{\"1\":\"one\",\"01\":\"zero-one\",\"a\":\"aye\"}",
-  "rts": "{\"b\":2,\"a\":1,\"c\":3,\"nested\":{\"z\":9,\"a\":8}}\n[{\"b\":2,\"a\":1,\"c\":3,\"nested\":{\"z\":9,\"a\":8}},{\"a\":4,\"c\":5}]\n{\"1\":\"one\",\"01\":\"zero-one\",\"a\":\"aye\"}"
+  "rts": "{\"c\":3,\"a\":1,\"nested\":{\"a\":8}}\n[{\"c\":3,\"a\":1,\"nested\":{\"a\":8}},{\"c\":5,\"a\":4}]\n{\"1\":\"one\",\"01\":\"zero-one\",\"a\":\"aye\"}"
 }
 ,
 {
   "name": "50_json_deep",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO",
   "node": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO",
-  "rts": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_arr={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO"
+  "rts": "plain={\"keep\":1,\"nested\":{\"active\":true},\"list\":[1,null,3]}\nreplacer_fn={\"keep\":10,\"nested\":{\"active\":\"yes\"},\"list\":[1,null,3]}\nreplacer_arr={\"nested\":{\"active\":true},\"list\":[1,null,3]}\nparsed_count=8\nparsed_items=1,2,3\nparsed_label=GO"
 }
 ,
 {
@@ -1905,10 +1905,10 @@
 ,
 {
   "name": "codex_json_stringify_propertylist_objects",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "{\"b\":\"B\",\"1\":\"one\",\"a\":\"A\"}\n[{\"b\":2,\"1\":3,\"a\":1}]",
   "node": "{\"b\":\"B\",\"1\":\"one\",\"a\":\"A\"}\n[{\"b\":2,\"1\":3,\"a\":1}]",
-  "rts": "{\"1\":\"one\",\"a\":\"A\",\"b\":\"B\",\"null\":\"nil\"}\n[{\"1\":3,\"a\":1,\"b\":2,\"null\":4}]"
+  "rts": "{\"b\":\"B\",\"1\":\"one\",\"a\":\"A\"}\n[{\"b\":2,\"1\":3,\"a\":1}]"
 }
 ,
 {
@@ -1916,7 +1916,7 @@
   "status": "rts_diverge",
   "bun": "{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number",
   "node": "{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number",
-  "rts": "{\"a\":1,\"child\":{}}"
+  "rts": "{\"a\":1,\"child\":{}}\nrep::object|rep:a:number|rep:child:object|rep:toJSON:function"
 }
 ,
 {
@@ -2641,10 +2641,10 @@
 ,
 {
   "name": "153_object_preventextensions",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "extensible=true\nafter=false\nmodify=10\nsealed=false\nfrozen=false",
   "node": "extensible=true\nafter=false\nmodify=10\nsealed=false\nfrozen=false",
-  "rts": "extensible=true\nafter=false\nmodify=10\nsealed=true\nfrozen=false"
+  "rts": "extensible=true\nafter=false\nmodify=10\nsealed=false\nfrozen=false"
 }
 ,
 {
@@ -2652,7 +2652,7 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "value=42\nstill=42\nkeys=a\nb=10\ngetter=10",
-  "rts": "value=42\nstill=42\nkeys=a,b\nb=10\ngetter=5"
+  "rts": "value=42\nstill=42\nkeys=a\nb=10\ngetter=5"
 }
 ,
 {
@@ -2673,10 +2673,10 @@
 ,
 {
   "name": "183_object_getownpropertynames",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "names=a,b,hidden\narr=0,1,2,length\nempty=\nstr=0,1,length",
   "node": "names=a,b,hidden\narr=0,1,2,length\nempty=\nstr=0,1,length",
-  "rts": "names=a,b,hidden\narr=0,1,2,length\nempty=\nstr=0,1,length"
+  "rts": "names=a,b\narr=0,1,2,length\nempty=\nstr=0,1,length"
 }
 ,
 {
@@ -2697,10 +2697,10 @@
 ,
 {
   "name": "191_object_values_entries_iteration",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3\nempty_values=\nempty_entries=",
   "node": "values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3\nempty_values=\nempty_entries=",
-  "rts": "values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3,4\nempty_values=\nempty_entries="
+  "rts": "values=1,2,3\nentries=a:1,b:2,c:3\nvalues2=1,2,3\nempty_values=\nempty_entries="
 }
 ,
 {
@@ -2852,7 +2852,7 @@
   "status": "rts_diverge",
   "bun": "42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue",
   "node": "42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue",
-  "rts": "42\n99\n42\nreadonly,hidden,normal\n0\ntrue\ntrue\ntrue\n1\ntrue"
+  "rts": "42\n99\n42\nreadonly,normal\n0\ntrue\ntrue\ntrue\n1\ntrue"
 }
 ,
 {
@@ -2980,7 +2980,7 @@
   "status": "rts_diverge",
   "bun": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
   "node": "keys=a,c\nvals={\"a\":1,\"c\":3}\nlog=ownKeys|desc:a|desc:b|def:c=3|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c",
-  "rts": "keys=a\nvals={\"a\":1}\nlog=ownKeys|desc:a|desc:b|def:c=undefined|del:b|ownKeys|desc:a|desc:c|ownKeys|desc:a|desc:c"
+  "rts": "keys=a\nvals={\"a\":1}\nlog=ownKeys|desc:a|desc:b|def:c=undefined|del:b|ownKeys|desc:a|ownKeys|desc:a"
 }
 ,
 {
@@ -3025,10 +3025,10 @@
 ,
 {
   "name": "claude-json-replacer-and-indent",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "{\"a\":2,\"1\":4}\n{\n  \"1\": 4,\n  \"2\": 3,\n  \"b\": 1,\n  \"a\": 2\n}\n{\"x\":1,\"y\":2}\n{\"a\":10,\"b\":20,\"c\":30}\n{\n\t\"a\": [\n\t\t1,\n\t\t2\n\t]\n}",
   "node": "{\"a\":2,\"1\":4}\n{\n  \"1\": 4,\n  \"2\": 3,\n  \"b\": 1,\n  \"a\": 2\n}\n{\"x\":1,\"y\":2}\n{\"a\":10,\"b\":20,\"c\":30}\n{\n\t\"a\": [\n\t\t1,\n\t\t2\n\t]\n}",
-  "rts": "{\"1\":4,\"2\":3,\"b\":1,\"a\":2}\n{\n  \"1\": 4,\n  \"2\": 3,\n  \"b\": 1,\n  \"a\": 2\n}\n{\"x\":1,\"secret\":\"hide\",\"y\":2}\n{\"a\":1,\"b\":2,\"c\":3}\n{\"a\":[1,2]}"
+  "rts": "{\"a\":2,\"1\":4}\n{\n  \"1\": 4,\n  \"2\": 3,\n  \"b\": 1,\n  \"a\": 2\n}\n{\"x\":1,\"y\":2}\n{\"a\":10,\"b\":20,\"c\":30}\n{\n\t\"a\": [\n\t\t1,\n\t\t2\n\t]\n}"
 }
 ,
 {
@@ -3732,7 +3732,7 @@
   "status": "rts_diverge",
   "bun": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
   "node": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
-  "rts": "h=104\ne=101\no=111\nout=281474976711112\nemoji=128512\nA=65\ncharCode=55357"
+  "rts": "h=104\ne=101\no=111\nout=281474976711128\nemoji=128512\nA=65\ncharCode=55357"
 }
 ,
 {
@@ -4436,7 +4436,7 @@
   "status": "rts_diverge",
   "bun": "own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx\n0\na=1,b=2\ntrue\ntrue",
   "node": "own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx\n0\na=1,b=2\ntrue\ntrue",
-  "rts": "own1,own2,hidden\nown1,own2,hidden\nstring:0,string:1,string:2\nx\n2\na=1,b=2\ntrue\ntrue"
+  "rts": "own1,own2\nown1,own2\nstring:0,string:1,string:2\nx\n2\na=1,b=2\ntrue\ntrue"
 }
 ,
 {
@@ -4772,7 +4772,7 @@
   "status": "rts_diverge",
   "bun": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4",
   "node": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4",
-  "rts": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=undefined\nquery=1.390671161569367e-309,1.39067116156937e-309,1.390671161569377e-309,1.39067116156938e-309\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4"
+  "rts": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=undefined\nquery=1.390671161569446e-309,1.39067116156945e-309,1.390671161569456e-309,1.39067116156946e-309\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "__RUNTIME_ERROR__"
 }
 
-],"summary":{"total":609,"pass":282,"rts_diverge":140,"bun_node_diverge":17,"errors":170,"rejected":0}}
+],"summary":{"total":609,"pass":290,"rts_diverge":133,"bun_node_diverge":17,"errors":169,"rejected":0}}
