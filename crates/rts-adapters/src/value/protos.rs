@@ -76,8 +76,20 @@ pub extern "C" fn __rtsadp_obj_proto_of(obj_word: u64) -> u64 {
     match proto_of(obj_word) {
         // The EXPLICIT null prototype (`Object.create(null)` records 0): JS
         // reads `null`, never the raw 0 word.
-        Some(0) | None => PolyValue::null().raw(),
+        Some(0) => PolyValue::null().raw(),
         Some(p) => p,
+        None => {
+            // No recorded link: an ARRAY's implicit prototype is the SAME
+            // object `Array.prototype` resolves to (`__rtsadp_class_proto`),
+            // so `Object.getPrototypeOf([]) === Array.prototype` holds.
+            let v = PolyValue::from_raw(obj_word);
+            if v.is_object() && !super::inspect::looks_like_object(v) {
+                let name = super::abi_adapter::intern_poly("Array").raw();
+                let undef = PolyValue::undefined().raw();
+                return __rtsadp_class_proto_init(name, undef);
+            }
+            PolyValue::null().raw()
+        }
     }
 }
 

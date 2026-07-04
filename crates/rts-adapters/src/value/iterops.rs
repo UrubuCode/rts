@@ -353,6 +353,12 @@ pub extern "C" fn __rtsadp_obj_own_names(obj_word: u64) -> u64 {
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle, word);
         return keys_arr;
     }
+    // Keyed OBJECT: the OWN names include non-enumerable properties
+    // (`defineProperty(.., {enumerable:false})`) — the enumerable_only=false
+    // pass, unlike `Object.keys`.
+    if obj.is_object() && looks_like_object(obj) {
+        return obj_keys_impl(obj_word, false);
+    }
     let keys_arr = __rtsadp_obj_keys(obj_word);
     if obj.is_object() && !looks_like_object(obj) {
         // ARRAY: append the own non-enumerable "length".

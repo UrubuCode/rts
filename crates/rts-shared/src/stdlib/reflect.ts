@@ -20,11 +20,13 @@ class Reflect {
   }
 
   // Reflect.set(target, key, value[, receiver]) — returns whether the assignment
-  // succeeded. The dynamic set never reports failure here, so it is always `true`
-  // (a `set` trap that returns `false` is not yet propagated — later increment).
+  // succeeded: the write is attempted and then READ BACK (a new key on a
+  // non-extensible target / a non-writable prop is silently dropped by the
+  // dynamic set → `false`, like JS). SameValue-style compare so NaN counts.
   static set(target: any, key: any, value: any, receiver?: any): any {
     target[key] = value;
-    return true;
+    const read = target[key];
+    return read === value || (read !== read && value !== value);
   }
 
   // Reflect.has(target, key) — `key in target`, via the engine's shape-aware
