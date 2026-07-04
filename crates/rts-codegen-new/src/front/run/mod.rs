@@ -135,14 +135,20 @@ pub fn dump_ir_source(src: &str) -> FrontResult<()> {
 fn build_with_includes(src: &str) -> FrontResult<LoweredProgram> {
     let inc = registry::includes_prelude();
     if inc.is_empty() {
-        build_program(src)
+        build_program(src, "")
     } else {
-        let prelude = build_program(&inc)?;
+        let prelude = build_program(&inc, PRELUDE_ARROW_NS)?;
         let ambient_fns = prelude_fn_names(&prelude);
         let user = build_program_with_ambient(src, &prelude.classes, &ambient_fns)?;
         merge_programs(prelude, user)
     }
 }
+
+/// Arrow-name namespace for the PRELUDE build (`__rtsn_arrow_p{N}`). The prelude
+/// and the user program are lowered separately (each arrow counter starts at 0)
+/// and merged last-wins — without distinct namespaces a prelude arrow and a user
+/// arrow collided on `__rtsn_arrow_0`.
+const PRELUDE_ARROW_NS: &str = "p";
 
 /// The set of AMBIENT names a `prelude` exposes to a user program — its top-level
 /// FUNCTIONS (`rts:test` describe/test/expect, primordial `.ts` helpers) AND its
@@ -193,7 +199,7 @@ fn render_source_core(prog: &LoweredProgram) -> FrontResult<String> {
 /// embedded stdlib includes ahead of a multi-file user program. A thin alias so
 /// the private `build_program` stays the single post-parse entry.
 fn build_program_for_prelude(src: &str) -> FrontResult<LoweredProgram> {
-    build_program(src)
+    build_program(src, PRELUDE_ARROW_NS)
 }
 
 /// [`build_program`] with AMBIENT (prelude) classes available for `extends`
@@ -206,7 +212,7 @@ fn build_program_with_ambient(
 ) -> FrontResult<LoweredProgram> {
     let program =
         rts_parser::parse_source(src).map_err(|e| Unsupported::new(format!("parse error: {e}")))?;
-    build_from_program(program, src, ambient, ambient_fns)
+    build_from_program(program, src, ambient, ambient_fns, "")
 }
 
 /// Compile `prelude_src` (a declarations-only TS stdlib) ahead of `user_src`,
@@ -226,7 +232,7 @@ pub fn render_source_with_prelude(prelude_src: &str, user_src: &str) -> FrontRes
     } else {
         format!("{engine_inc}\n{prelude_src}")
     };
-    let prelude = build_program(&merged_prelude_src)?;
+    let prelude = build_program(&merged_prelude_src, PRELUDE_ARROW_NS)?;
     let ambient_fns = prelude_fn_names(&prelude);
     let user = build_program_with_ambient(user_src, &prelude.classes, &ambient_fns)?;
     let merged = merge_programs(prelude, user)?;
@@ -394,7 +400,7 @@ pub(crate) struct LoweredProgram {
 /// body — to resolve cross-calls and return types), then the top-level
 /// statements are lowered against that same scope and wrapped as the body of a
 /// synthetic void function named `__rtsn_main`.
-fn build_program(src: &str) -> FrontResult<LoweredProgram> {
+fn build_program(src: &str, arrow_ns: &str) -> FrontResult<LoweredProgram> {
     let program =
         rts_parser::parse_source(src).map_err(|e| Unsupported::new(format!("parse error: {e}")))?;
     build_from_program(
@@ -402,6 +408,7 @@ fn build_program(src: &str) -> FrontResult<LoweredProgram> {
         src,
         &class::ClassTable::default(),
         &std::collections::HashSet::new(),
+        arrow_ns,
     )
 }
 
@@ -421,6 +428,7 @@ fn build_from_program(
     destructure_src: &str,
     ambient: &class::ClassTable,
     ambient_fns: &std::collections::HashSet<String>,
+    arrow_ns: &str,
 ) -> FrontResult<LoweredProgram> {
     let src = destructure_src;
     let mut scope = rts_hir::scope::Scope::new();
@@ -738,8 +746,14 @@ fn build_from_program(
             }
         }
     }
-    let extracted =
-        funcval::extract_arrows(&mut funcs, &mut main, ambient_fns, &class_names, &pre_globals);
+    let extracted = funcval::extract_arrows(
+        &mut funcs,
+        &mut main,
+        ambient_fns,
+        &class_names,
+        &pre_globals,
+        arrow_ns,
+    );
     funcs.extend(extracted.funcs);
 
     // Module-level mutable globals (#195): function-written top lets + the

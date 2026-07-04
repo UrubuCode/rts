@@ -497,20 +497,29 @@ pub extern "C" fn __rtsadp_to_string(a: u64) -> u64 {
 /// `undefined` in that case.
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_await(word: u64) -> u64 {
-    let v = PolyValue::from_raw(word);
-    let f = if v.is_double() {
-        v.as_f64()
-    } else if v.is_int32() {
-        v.as_i32() as f64
-    } else {
-        return word;
-    };
-    const HANDLE_MIN: f64 = 281_474_976_710_656.0; // 2^48 (generation ≥ 1)
-    if !(f.is_finite() && f >= HANDLE_MIN && f <= u64::MAX as f64 && f.fract() == 0.0) {
-        return word;
-    }
-    let handle = f as u64;
     use rts_engine::heap::handles::{Entry, with_entry};
+    use rts_runtime::namespaces::gc::handles as rt_handles;
+    let v = PolyValue::from_raw(word);
+    // Tag-dispatch, no static guessing. An OBJECT word may be a boxed Promise
+    // (`new Promise(executor)` returns its handle through the heterogeneous
+    // `__rtsadp_box_handle_auto`, which tags a PromiseAsync entry OBJECT) —
+    // reconstruct the full handle from the live slot and wait on it too.
+    let handle = if v.is_object() {
+        rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle())
+    } else {
+        let f = if v.is_double() {
+            v.as_f64()
+        } else if v.is_int32() {
+            v.as_i32() as f64
+        } else {
+            return word;
+        };
+        const HANDLE_MIN: f64 = 281_474_976_710_656.0; // 2^48 (generation ≥ 1)
+        if !(f.is_finite() && f >= HANDLE_MIN && f <= u64::MAX as f64 && f.fract() == 0.0) {
+            return word;
+        }
+        f as u64
+    };
     let is_promise = with_entry(handle, |e| matches!(e, Some(Entry::PromiseAsync(_))));
     if !is_promise {
         return word;
