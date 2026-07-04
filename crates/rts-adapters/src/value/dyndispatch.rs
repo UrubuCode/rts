@@ -582,6 +582,59 @@ pub extern "C" fn __rtsadp_dyn_trim(recv: u64) -> u64 {
     undef()
 }
 
+/// The `@@<name>` HOOK method of an OBJECT arg (`matcher[Symbol.match]`), or
+/// `None` — string protocol hooks (match/replace/search/split).
+fn wellknown_hook(arg: u64, name: &str) -> Option<u64> {
+    let v = PolyValue::from_raw(arg);
+    if !v.is_object() {
+        return None;
+    }
+    let m = super::objops::__rtsadp_obj_get(arg, abi_adapter::intern_poly(name).raw());
+    PolyValue::from_raw(m).is_function().then_some(m)
+}
+
+/// `s.match(arg)` with an UNPROVEN (object) arg — a custom `[Symbol.match]`
+/// hook runs (`hook.call(arg, s)`, spec); a hook-less object coerces ToString
+/// into a fresh regex (spec `new RegExp(arg)`), delegating to the real match.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_str_match_w(recv: u64, arg: u64) -> u64 {
+    let undef = PolyValue::undefined().raw();
+    if let Some(h) = wellknown_hook(arg, "@@match") {
+        return super::funcops::__rtsadp_fn_invoke_method(h, arg, recv, undef, undef, 0);
+    }
+    let pat = genops::__rtsadp_to_string(arg);
+    let re = super::regexops::__rtsadp_re_compile(pat, undef);
+    super::regexops::__rtsadp_re_str_match(recv, re)
+}
+
+/// `s.replace(pat, rep)` with an UNPROVEN pattern — the `[Symbol.replace]`
+/// hook runs (`hook.call(pat, s, rep)`, spec); hook-less delegates to the
+/// plain string replace on `ToString(pat)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_str_replace_w(recv: u64, pat: u64, rep: u64) -> u64 {
+    let undef = PolyValue::undefined().raw();
+    if let Some(h) = wellknown_hook(pat, "@@replace") {
+        return super::funcops::__rtsadp_fn_invoke_method(h, pat, recv, rep, undef, 0);
+    }
+    let sh = abi_adapter::real_handle_of(PolyValue::from_raw(genops::__rtsadp_to_string(recv)));
+    let ph = abi_adapter::real_handle_of(PolyValue::from_raw(genops::__rtsadp_to_string(pat)));
+    let rh = abi_adapter::real_handle_of(PolyValue::from_raw(genops::__rtsadp_to_string(rep)));
+    box_str(rt_gl_str::__RTS_FN_GL_STRING_REPLACE(sh, ph, rh))
+}
+
+/// `s.split(sep, limit?)` with an UNPROVEN separator — the `[Symbol.split]`
+/// hook runs (`hook.call(sep, s, limit)`, spec); hook-less delegates to the
+/// plain string split on `ToString(sep)` (limit via the dyn split).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_str_split_w(recv: u64, sep: u64, limit: u64) -> u64 {
+    let undef = PolyValue::undefined().raw();
+    if let Some(h) = wellknown_hook(sep, "@@split") {
+        return super::funcops::__rtsadp_fn_invoke_method(h, sep, recv, limit, undef, 0);
+    }
+    let sep_s = genops::__rtsadp_to_string(sep);
+    __rtsadp_dyn_split(recv, sep_s)
+}
+
 /// `recv[key](a0..)` — a CALL whose callee is a COMPUTED index (`arr[k](x)`,
 /// the obfuscator staple `arr["pu"+"sh"](x)`). A NUMERIC key invokes the
 /// element as a function value; a STRING key on an ARRAY dispatches the

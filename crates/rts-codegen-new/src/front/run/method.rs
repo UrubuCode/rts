@@ -264,6 +264,73 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             if let Some(val) = self.try_string_regex_method(module, recv, method, args)? {
                 return Ok(Some(val));
             }
+            // `s.match(x)` / `s.replace(x, r)` with an UNPROVEN (Tagged/object)
+            // first arg: the runtime hook trampoline — a custom `[Symbol.match]`/
+            // `[Symbol.replace]` object runs its hook (spec); hook-less coerces
+            // (match → `new RegExp(ToString)`, replace → plain string replace).
+            {
+                // Only a pattern arg that is STATICALLY an object-ish value (an
+                // object literal, or an ident holding a Tagged/object local)
+                // routes here — a proven string/regex arg keeps its row, and
+                // nothing is double-lowered.
+                let arg_objectish = |a: &HirExpr, me: &Self| -> bool {
+                    if me.is_regex_value(a) || matches!(a.ty, rts_hir::HirType::Str) {
+                        return false;
+                    }
+                    match &a.kind {
+                        HirExprKind::Object(_) => true,
+                        HirExprKind::Ident(n) => me
+                            .local(n)
+                            .is_some_and(|l| matches!(l.repr, crate::repr::Repr::Tagged))
+                            && !me.string_locals.contains(n),
+                        _ => false,
+                    }
+                };
+                if method == "match" && args.len() == 1 && arg_objectish(&args[0], self) {
+                    let recv_word = self.box_value(recv);
+                    let a = self.lower_expr(module, &args[0])?;
+                    let aw = self.box_value(a);
+                    let word = self
+                        .call_runtime(module, "__rtsadp_str_match_w", &[recv_word, aw])?
+                        .expect("__rtsadp_str_match_w returns a value");
+                    self.emit_post_call_error_check(module)?;
+                    return Ok(Some(Val::new(word, crate::repr::Repr::Tagged)));
+                }
+                if method == "split" && (args.len() == 1 || args.len() == 2)
+                    && arg_objectish(&args[0], self)
+                {
+                    let recv_word = self.box_value(recv);
+                    let p = self.lower_expr(module, &args[0])?;
+                    let pw = self.box_value(p);
+                    let lw = match args.get(1) {
+                        Some(a) => {
+                            let v = self.lower_expr(module, a)?;
+                            self.box_value(v)
+                        }
+                        None => self.builder.ins().iconst(
+                            cranelift_codegen::ir::types::I64,
+                            crate::value::PolyValue::undefined().raw() as i64,
+                        ),
+                    };
+                    let word = self
+                        .call_runtime(module, "__rtsadp_str_split_w", &[recv_word, pw, lw])?
+                        .expect("__rtsadp_str_split_w returns a value");
+                    self.emit_post_call_error_check(module)?;
+                    return Ok(Some(Val::new(word, crate::repr::Repr::Tagged)));
+                }
+                if method == "replace" && args.len() == 2 && arg_objectish(&args[0], self) {
+                    let recv_word = self.box_value(recv);
+                    let p = self.lower_expr(module, &args[0])?;
+                    let pw = self.box_value(p);
+                    let r = self.lower_expr(module, &args[1])?;
+                    let rw = self.box_value(r);
+                    let word = self
+                        .call_runtime(module, "__rtsadp_str_replace_w", &[recv_word, pw, rw])?
+                        .expect("__rtsadp_str_replace_w returns a value");
+                    self.emit_post_call_error_check(module)?;
+                    return Ok(Some(Val::new(word, crate::repr::Repr::Tagged)));
+                }
+            }
             if let Some(val) = self.try_string_special(module, recv, method, args)? {
                 return Ok(Some(val));
             }

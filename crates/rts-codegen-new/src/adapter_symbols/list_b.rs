@@ -531,6 +531,18 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             dyndispatch::__rtsadp_idx_call as *const u8,
         ),
         sym(
+            "__rtsadp_str_match_w",
+            dyndispatch::__rtsadp_str_match_w as *const u8,
+        ),
+        sym(
+            "__rtsadp_str_replace_w",
+            dyndispatch::__rtsadp_str_replace_w as *const u8,
+        ),
+        sym(
+            "__rtsadp_str_split_w",
+            dyndispatch::__rtsadp_str_split_w as *const u8,
+        ),
+        sym(
             "__rtsadp_dyn_trim_start",
             dyndispatch::__rtsadp_dyn_trim_start as *const u8,
         ),
