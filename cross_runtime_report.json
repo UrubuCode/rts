@@ -1649,10 +1649,10 @@
 ,
 {
   "name": "108_generator_functions",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "next1={\"value\":1,\"done\":false}\nnext2={\"value\":2,\"done\":false}\nnext3={\"value\":3,\"done\":false}\nnext4={\"done\":true}\nforof=a,b\nfib=0,1,1,2,3",
   "node": "next1={\"value\":1,\"done\":false}\nnext2={\"value\":2,\"done\":false}\nnext3={\"value\":3,\"done\":false}\nnext4={\"done\":true}\nforof=a,b\nfib=0,1,1,2,3",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "next1={\"value\":1,\"done\":false}\nnext2={\"value\":2,\"done\":false}\nnext3={\"value\":3,\"done\":false}\nnext4={\"done\":true}\nforof=a,b\nfib="
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -3220,15 +3220,15 @@
   "status": "bun_node_diverge",
   "bun": "3\n3\n2\na\nb\n2\n1,2,3,4,5\n5,4,3,2,1\n1,2,3,5,7,8,9",
   "node": "__RUNTIME_ERROR__",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "3\n3\n2\na\nb\n2\n1,2,3,4,5\n5,4,3,2,1\n1,2,3,5,7,8,9"
 }
 ,
 {
   "name": "363_algorithms",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "3\n0\n9\n-1\n1,2,3,4,5,6,7,8,9\n1,2,3,4,5,6\n1,2,4,5,3,6\n4",
   "node": "3\n0\n9\n-1\n1,2,3,4,5,6,7,8,9\n1,2,3,4,5,6\n1,2,4,5,3,6\n4",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "3\n0\n9\n-1\n1,2,3,4,5,6,7,8,9\n1,2,3,4,5,6\n1,2,4,5,3,6\n4"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":443,"rts_diverge":62,"bun_node_diverge":17,"errors":87,"rejected":0}}
+],"summary":{"total":609,"pass":443,"rts_diverge":63,"bun_node_diverge":18,"errors":85,"rejected":0}}
