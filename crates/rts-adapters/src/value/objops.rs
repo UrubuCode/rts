@@ -615,7 +615,34 @@ const OBJECT_PROTO_MEMBERS: &[&str] = &[
 /// i64).
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_has_own(obj_word: u64, key_str_handle: u64) -> u64 {
-    PolyValue::bool(resolve_slot(obj_word, key_str_handle).is_some()).raw()
+    if resolve_slot(obj_word, key_str_handle).is_some() {
+        return PolyValue::bool(true).raw();
+    }
+    // ARRAY receiver: the own keys are the non-hole in-range indices and the
+    // non-enumerable `length` — NOT the prototype methods (`hasOwnProperty`
+    // never walks the chain, unlike `in`).
+    {
+        let obj = PolyValue::from_raw(obj_word);
+        if obj.is_object() && !looks_like_object(obj) {
+            let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+            let is_vec =
+                rt_handles::with_entry(h, |e| matches!(e, Some(rt_handles::Entry::Vec(_))));
+            if is_vec {
+                let key = key_text(key_str_handle);
+                if key == "length" {
+                    return PolyValue::bool(true).raw();
+                }
+                if let Ok(i) = key.parse::<i64>() {
+                    let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(h).max(0);
+                    if i >= 0 && i < len {
+                        let elem = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(h, i) as u64;
+                        return PolyValue::bool(!PolyValue::from_raw(elem).is_hole()).raw();
+                    }
+                }
+            }
+        }
+    }
+    PolyValue::bool(false).raw()
 }
 
 // ===========================================================================
