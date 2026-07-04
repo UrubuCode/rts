@@ -612,7 +612,10 @@ fn build_from_program(
     // object so `lower_object_literal` records the local's class. Run FIRST (before
     // the template/destructure rewrites touch the object's field VALUES, and before
     // arrow extraction) so the swc/HIR positional pairing is on the clean lowering.
-    desugar::desugar_obj_methods(&program, &mut main.body, &mut funcs, &mut classes);
+    let lit_fn_units = {
+        let main_name = main.name.clone();
+        desugar::desugar_obj_methods(&program, &main_name, &mut main.body, &mut funcs, &mut classes)
+    };
 
     // Map each synthesized constructor/method fn name → its class (for `this`). Built
     // AFTER object-literal recovery so the synthesized literal-class methods are
@@ -753,6 +756,7 @@ fn build_from_program(
         &class_names,
         &pre_globals,
         arrow_ns,
+        &lit_fn_units,
     );
     funcs.extend(extracted.funcs);
 

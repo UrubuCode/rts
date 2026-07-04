@@ -60,14 +60,17 @@ pub(crate) const LIT_UNSUPPORTED: &str = "__rtsl_unsupported__";
 /// extraction so a literal inside a top-level arrow is recovered in the main body.
 pub(crate) fn desugar_obj_methods(
     program: &rts_ast::ast::Program,
+    main_name: &str,
     main_body: &mut Vec<HirStmt>,
     funcs: &mut Vec<HirFunc>,
     classes: &mut ClassTable,
-) {
+) -> HashMap<String, String> {
     let mut rec = Recovery {
         classes,
         new_funcs: Vec::new(),
         names: HashMap::new(),
+        unit: main_name.to_string(),
+        fn_units: HashMap::new(),
     };
 
     let top_stmts: Vec<&swc_ecma_ast::Stmt> = program
@@ -95,6 +98,7 @@ pub(crate) fn desugar_obj_methods(
                 .iter_mut()
                 .find(|f| f.name == fdecl.name && !f.is_arrow)
             {
+                rec.unit = fdecl.name.clone();
                 rec.rewrite_unit(&swc_stmts, &mut f.body);
             }
         }
@@ -102,6 +106,7 @@ pub(crate) fn desugar_obj_methods(
 
     let new = rec.new_funcs;
     funcs.extend(new);
+    rec.fn_units
 }
 
 /// Per-program recovery state: the class table to register into, the synthesized
@@ -111,6 +116,12 @@ struct Recovery<'a> {
     new_funcs: Vec<HirFunc>,
     /// content key (fields + method debug) → assigned literal-class name.
     names: HashMap<String, String>,
+    /// The fn whose body is currently being rewritten — the literal's BUILD
+    /// site. Synthesized lit-method fns record it so the capture pass can
+    /// resolve their free idents against the constructing fn's locals.
+    unit: String,
+    /// synthesized lit fn name → constructing unit fn name.
+    fn_units: HashMap<String, String>,
 }
 
 impl Recovery<'_> {
@@ -246,6 +257,11 @@ impl Recovery<'_> {
             name.clone()
         } else {
             let name = format!("__rtsl_lit_{}", self.names.len());
+            // RESERVE the name BEFORE the method-body recursion below — an
+            // inner literal synthesized during it would otherwise reuse the
+            // same `names.len()` counter (name collision → the outer class'
+            // fns were dropped by the `classes.contains` dedup).
+            self.names.insert(key.clone(), name.clone());
             // The literal bakes this same global shape-id into slot 0; the literal
             // class MUST share it so `this.field` reads resolve to the same slots.
             // The shape's key list is EXTENDED with one slot per method (`m`) and
@@ -284,6 +300,10 @@ impl Recovery<'_> {
             // synth order is 1:1 with `methods`, so pair each fn with its swc
             // body and run the same recovery over it.
             for (m, f) in methods.iter().zip(fns.iter_mut()) {
+                // The lit fn's BUILD SITE is the fn currently being rewritten —
+                // record it so the capture pass resolves the method's free
+                // idents against the constructing fn's locals.
+                self.fn_units.insert(f.name.clone(), self.unit.clone());
                 let body = match &m.fn_ref {
                     collect::LitFnRef::Method(func) => func.body.as_ref(),
                     collect::LitFnRef::Getter(g) => g.body.as_ref(),
@@ -291,14 +311,15 @@ impl Recovery<'_> {
                 };
                 if let Some(b) = body {
                     let stmts: Vec<&swc_ecma_ast::Stmt> = b.stmts.iter().collect();
+                    let prev = std::mem::replace(&mut self.unit, f.name.clone());
                     self.rewrite_unit(&stmts, &mut f.body);
+                    self.unit = prev;
                 }
             }
             if !self.classes.contains(&name) {
                 self.classes.insert(desc);
                 self.new_funcs.extend(fns);
             }
-            self.names.insert(key, name.clone());
             name
         };
         Some(marker(&class_name))

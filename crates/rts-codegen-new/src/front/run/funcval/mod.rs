@@ -392,6 +392,7 @@ pub fn extract_arrows(
     class_names: &HashSet<String>,
     module_globals: &HashSet<String>,
     arrow_ns: &str,
+    lit_fn_units: &HashMap<String, String>,
 ) -> ExtractResult {
     let mut top_level: HashSet<String> = funcs.iter().map(|f| f.name.clone()).collect();
     top_level.insert(main.name.clone());
@@ -460,6 +461,14 @@ pub fn extract_arrows(
     // builds the env from the call-site locals (handled in `lower_call`).
     hoist_captures(funcs, main, &mut ctx);
 
+    // LIT-METHOD captures: a literal method whose body references a LOCAL of
+    // the fn that BUILDS the literal (`{ next() { return i++; } }` inside
+    // `[Symbol.iterator]() { let i = 0; … }`) captures it through the SAME
+    // reify machinery closures use — the tail-slot reify at the build site
+    // snapshots the constructing fn's live locals. A capture the lit method
+    // MUTATES becomes a CELL of both sides.
+    lit_method_captures(funcs, main, lit_fn_units, &mut ctx);
+
     ExtractResult {
         funcs: ctx.synthesized,
         captures: ctx.captures,
@@ -478,6 +487,144 @@ pub fn extract_arrows(
 /// capture, no main-scope reassignment of a captured var). A function whose only
 /// free non-globals are NOT main-scope locals is left untouched (a genuine
 /// unbound-identifier bail at lowering).
+/// Resolve LIT-METHOD free idents against the CONSTRUCTING fn's locals and
+/// convert them to captures (leading params + `ctx.captures`), so the
+/// tail-slot reify at the literal build site snapshots them (a mutated one is
+/// a CELL of both the constructing fn and the lit method). Iterates to a
+/// fixpoint so a nested literal (unit = another lit method) resolves after its
+/// own unit gained leading capture params.
+fn lit_method_captures(
+    funcs: &mut Vec<HirFunc>,
+    main: &HirFunc,
+    lit_fn_units: &HashMap<String, String>,
+    ctx: &mut Ctx,
+) {
+    let main_name = main.name.clone();
+    for _round in 0..4 {
+        let mut changed = false;
+        // Snapshot each unit's (params + declared locals + mutated set) — the
+        // borrow on `funcs` must end before we mutate the lit fns.
+        let unit_info: HashMap<String, (HashSet<String>, HashSet<String>, HashSet<String>)> = {
+            let mut m = HashMap::new();
+            for u in lit_fn_units.values() {
+                if m.contains_key(u) {
+                    continue;
+                }
+                let (params, lets, muts) = if *u == main_name {
+                    (
+                        main.params.iter().map(|p| p.name.clone()).collect(),
+                        declared_locals(&main.body),
+                        mutated_names(&main.body),
+                    )
+                } else if let Some(f) = funcs.iter().find(|f| f.name == *u) {
+                    (
+                        f.params.iter().map(|p| p.name.clone()).collect(),
+                        declared_locals(&f.body),
+                        mutated_names(&f.body),
+                    )
+                } else {
+                    continue;
+                };
+                m.insert(u.clone(), (params, lets, muts));
+            }
+            m
+        };
+        for i in 0..funcs.len() {
+            let name = funcs[i].name.clone();
+            if ctx.captures.contains_key(&name) {
+                continue; // already resolved (previous round).
+            }
+            let Some(unit) = lit_fn_units.get(&name) else {
+                continue;
+            };
+            if std::env::var_os("RTS_DEBUG_LITCAP").is_some() {
+                eprintln!("[litcap] fn={name} unit={unit}");
+            }
+            let Some((u_params, u_lets, u_muts)) = unit_info.get(unit) else {
+                if std::env::var_os("RTS_DEBUG_LITCAP").is_some() {
+                    let names: Vec<&str> = funcs
+                        .iter()
+                        .filter(|f| f.name.contains("lit_0"))
+                        .map(|f| f.name.as_str())
+                        .collect();
+                    eprintln!("[litcap] NO unit_info for {unit}; lit funcs={names:?}; keys={:?}", lit_fn_units);
+                }
+                continue;
+            };
+            let param_names: HashSet<String> =
+                funcs[i].params.iter().map(|p| p.name.clone()).collect();
+            let mut free = HashSet::new();
+            let mut bound = param_names.clone();
+            for s in &funcs[i].body {
+                collect_free_stmt(s, &mut bound, &mut free);
+            }
+            let body_assigns = mutated_names(&funcs[i].body);
+            let mut captures: Vec<String> = Vec::new();
+            let mut cell_caps: Vec<String> = Vec::new();
+            let mut ok = true;
+            for id in &free {
+                if param_names.contains(id)
+                    || GLOBALS.contains(&id.as_str())
+                    || ctx.top_level.contains(id)
+                    || ctx.module_globals.contains(id)
+                    || id == "this"
+                {
+                    continue;
+                }
+                let in_unit = u_params.contains(id) || u_lets.contains(id);
+                if !in_unit {
+                    if super::registry::has_namespace(id) || super::registry::has_class(id) {
+                        continue;
+                    }
+                    ok = false; // unresolvable — leave to bail honestly.
+                    break;
+                }
+                let unit_cell = ctx.cells.get(unit).is_some_and(|s| s.contains(id));
+                if body_assigns.contains(id) || u_muts.contains(id) || unit_cell {
+                    // A mutated / already-cell capture must be a CELL declared
+                    // by a `let` of the unit (a mutated unit PARAM can't host
+                    // the cell — bail honestly).
+                    if !u_lets.contains(id) && !unit_cell {
+                        ok = false;
+                        break;
+                    }
+                    cell_caps.push(id.clone());
+                }
+                captures.push(id.clone());
+            }
+            if std::env::var_os("RTS_DEBUG_LITCAP").is_some() {
+                eprintln!("[litcap] free={free:?} ok={ok} caps={captures:?} u_lets={u_lets:?}");
+            }
+            if !ok || captures.is_empty() {
+                continue;
+            }
+            captures.sort();
+            for c in &cell_caps {
+                ctx.cells.entry(unit.clone()).or_default().insert(c.clone());
+                ctx.cells.entry(name.clone()).or_default().insert(c.clone());
+            }
+            let mut new_params: Vec<HirParam> = captures
+                .iter()
+                .map(|n| HirParam {
+                    name: n.clone(),
+                    ty: HirType::Any,
+                    variadic: false,
+                    has_default: false,
+                    optional: false,
+                    default_expr: None,
+                })
+                .collect();
+            new_params.extend(funcs[i].params.iter().cloned());
+            funcs[i].params = new_params;
+            ctx.captures.insert(name, captures);
+            changed = true;
+        }
+        if !changed {
+            break;
+        }
+    }
+}
+
 fn hoist_captures(funcs: &mut [HirFunc], main: &HirFunc, ctx: &mut Ctx) {
     // Main-scope locals = the `let`/`const` names declared directly in main's body
     // (the only outer scope a hoisted function can capture).
