@@ -836,8 +836,13 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64],
             ret: U64,
         },
-        "__rtsadp_re_str_match" | "__rtsadp_re_str_split" | "__rtsadp_re_str_search" => SymSig {
+        "__rtsadp_re_str_match" | "__rtsadp_re_str_search" => SymSig {
             params: &[U64, U64],
+            ret: U64,
+        },
+        // Full JS-spec split: (subj, re, limit_word) — `undefined` limit = none.
+        "__rtsadp_re_str_split" => SymSig {
+            params: &[U64, U64, U64],
             ret: U64,
         },
         // replace/replaceAll — the ONE polymorphic replacement trampoline

@@ -155,20 +155,32 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     .expect("re_str_search returns a value");
                 Ok(Some(Val::tagged_kind(word, JsKind::Number)))
             }
-            // `s.split(re)` → array of string parts. A 2-arg `split(re, limit)` with
-            // a non-negative limit is a later increment (the runtime split has no
-            // limit param); BAIL rather than ignore the limit (which would diverge).
-            ("split", 1) => {
+            // `s.split(re, limit?)` → the FULL JS-spec regex split (capture
+            // groups spliced into the result, ToUint32 limit, per-position
+            // empty-match rule) — one polymorphic trampoline; the omitted limit
+            // rides `undefined`.
+            ("split", 1 | 2) => {
                 let re = self.lower_regex_value(module, &args[0])?;
                 let re_word = self.box_value(re);
+                let limit_word = match args.get(1) {
+                    Some(a) => {
+                        let v = self.lower_expr(module, a)?;
+                        self.box_value(v)
+                    }
+                    None => self.builder.ins().iconst(
+                        cranelift_codegen::ir::types::I64,
+                        crate::value::PolyValue::undefined().raw() as i64,
+                    ),
+                };
                 let word = self
-                    .call_runtime(module, "__rtsadp_re_str_split", &[recv_word, re_word])?
+                    .call_runtime(
+                        module,
+                        "__rtsadp_re_str_split",
+                        &[recv_word, re_word, limit_word],
+                    )?
                     .expect("re_str_split returns a value");
                 Ok(Some(Val::tagged_kind(word, JsKind::Array)))
             }
-            ("split", 2) => crate::front::error::unsupported!(
-                "`s.split(re, limit)` with a regex separator + limit is a later increment"
-            ),
             // `s.replace(re, repl)` / `s.replaceAll(re, repl)` → string, via the
             // ONE polymorphic trampoline: a STRING replacement runs the JS
             // `GetSubstitution` token expansion ($$, $&, $`, $', $n, $<name>);

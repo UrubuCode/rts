@@ -373,9 +373,25 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     ) -> FrontResult<Option<Val>> {
         match (method, args.len()) {
             ("split", 1) | ("split", 2) => {
-                // sep must be a proven string (a regex separator is a later
-                // increment). Lower + marshal it to a real string handle.
+                // sep must be a proven string (a regex separator routes through
+                // the regex-first path before this). Lower + marshal it to a
+                // real string handle.
                 let sep = self.lower_expr(module, &args[0])?;
+                // `split(undefined)` — JS: the whole string as the ONE element.
+                if matches!(sep.kind, JsKind::Undefined) {
+                    let arr = crate::value::emit_marshal::emit_new_vec_object(
+                        module,
+                        self.builder,
+                    );
+                    let recv_word = self.box_value(recv);
+                    crate::value::emit_marshal::emit_vec_push(
+                        module,
+                        self.builder,
+                        arr,
+                        recv_word,
+                    );
+                    return Ok(Some(Val::tagged_kind(arr, JsKind::Array)));
+                }
                 if !matches!(sep.kind, JsKind::Str) {
                     return unsupported!(
                         "String.split with a non-string (regex?) separator is a later increment"
