@@ -76,6 +76,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .cloned()
             .unwrap_or_else(|| class.to_string());
         let class: &str = &class_owned;
+        // `new Object(x)` ≡ `Object(x)` (spec: the Object constructor passes an
+        // object argument THROUGH) — route the prelude `ObjectFactory` instead of
+        // constructing a fresh empty ambient-class instance that drops `x`.
+        if class == "Object" && args.len() == 1 && self.sigs.contains_key("ObjectFactory") {
+            let v = self.call_synth_fn(module, "ObjectFactory", None, args)?;
+            let shape_id = self.shapes.intern(&[]);
+            return Ok((v, "Object".to_string(), shape_id));
+        }
         let Some(desc) = self.classes.get(class).cloned() else {
             return unsupported!(
                 "`new {class}(..)` — class `{class}` is not a user class in this program \

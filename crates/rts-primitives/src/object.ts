@@ -25,6 +25,12 @@ function ObjectFactory(value?: any): any {
   if (value === undefined || value === null) {
     return {};
   }
+  // A PRIMITIVE wraps into its object box (`Object(5)` → a Number object,
+  // `typeof` "object") — the same `__prim`-slot box `new String(..)` uses.
+  const t = typeof value;
+  if (t === "number" || t === "string" || t === "boolean" || t === "bigint") {
+    return { __prim: value };
+  }
   return value;
 }
 

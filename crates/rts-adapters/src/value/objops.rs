@@ -406,6 +406,24 @@ pub extern "C" fn __rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word:
             }
         }
     }
+    // An ACCESSOR property (a `__set_<key>` slot from a literal setter /
+    // defineProperty accessor) with NO data slot of the same name: assignment
+    // INVOKES the setter (chain walk, `this` = the original receiver — the
+    // mirror of the getter read in `obj_get`).
+    {
+        let key = key_text(key_str_handle);
+        if resolve_slot(obj_word, key_str_handle).is_none() && !key.starts_with("__") {
+            let skey = abi_adapter::intern_poly(&format!("__set_{key}")).raw();
+            let setter = lookup_chain(obj_word, skey, 0);
+            if PolyValue::from_raw(setter).is_function() {
+                let undef = PolyValue::undefined().raw();
+                super::funcops::__rtsadp_fn_invoke_method(
+                    setter, obj_word, val_word, undef, undef, 0,
+                );
+                return val_word;
+            }
+        }
+    }
     if let Some((handle, idx)) = resolve_slot(obj_word, key_str_handle) {
         // A `writable:false` data property (set via defineProperty) blocks
         // re-assignment (sloppy mode: silent no-op, returns the value).
