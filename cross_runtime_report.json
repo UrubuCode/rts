@@ -1321,10 +1321,10 @@
 ,
 {
   "name": "393_promise_microtask",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
   "node": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
-  "rts": "caught:handled\nA1,A2,A3,B1,B2,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C"
+  "rts": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C"
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -3257,10 +3257,10 @@
 ,
 {
   "name": "386_trampoline",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "3628800\n1\n0\n1\n55\n6765\n500500\n50005000\ntrue\nfalse\ntrue",
   "node": "3628800\n1\n0\n1\n55\n6765\n500500\n50005000\ntrue\nfalse\ntrue",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "3628800\n1\n0\n1\n55\n6765\n500500\n50005000\ntrue\nfalse\ntrue"
 }
 ,
 {
@@ -3313,26 +3313,26 @@
 ,
 {
   "name": "116_promise_finally",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
   "node": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "rts": "log=then:42,catch:error,finally1,finally2,then2:84"
+  "rts": "log=then:4631107791820423000,catch:error,finally1,finally2,then2:9223372036854776000"
 }
 ,
 {
   "name": "167_promise_race_any",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "race=1\nany=1\nrace2=4\nany2=4",
   "node": "race=1\nany=1\nrace2=4\nany2=4",
-  "rts": "race=1\nany=1\nrace2=4\nany2=4"
+  "rts": "race=4607182418800017400\nany=4607182418800017400\nrace2=4616189618054758000\nany2=4616189618054758000"
 }
 ,
 {
   "name": "200_promise_allsettled",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "count=3\nstatus0=fulfilled\nvalue0=1\nstatus1=rejected\nreason1=error\nstatus2=fulfilled\nvalue2=3",
   "node": "count=3\nstatus0=fulfilled\nvalue0=1\nstatus1=rejected\nreason1=error\nstatus2=fulfilled\nvalue2=3",
-  "rts": "count=3\nstatus0=fulfilled\nvalue0=1\nstatus1=rejected\nreason1=error\nstatus2=fulfilled\nvalue2=3"
+  "rts": "count=3\nstatus0=fulfilled\nvalue0=null\nstatus1=rejected\nreason1=error\nstatus2=fulfilled\nvalue2=null"
 }
 ,
 {
@@ -3425,18 +3425,18 @@
 ,
 {
   "name": "codex_promise_then_getter_throws",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "nope",
   "node": "nope",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "nope"
 }
 ,
 {
   "name": "codex_then_getter_called_once",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "ok\n1",
   "node": "ok\n1",
-  "rts": "ok\n2"
+  "rts": "ok\n1"
 }
 ,
 {
@@ -3497,10 +3497,10 @@
 ,
 {
   "name": "395_regex_d_flag",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
   "node": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "2026-05-22\n6\n3e-323,8e-323\n3e-323,5e-323\n5.4e-323,6.4e-323\n7e-323,8e-323\n3e-323,5e-323\n5.4e-323,6.4e-323\n7e-323,8e-323\n\nfoo@0-1.5e-323|bar@2e-323-3.5e-323|baz@4e-323-5.4e-323\n42\nnull\n0,1e-323\nnull"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":442,"rts_diverge":59,"bun_node_diverge":17,"errors":91,"rejected":0}}
+],"summary":{"total":609,"pass":442,"rts_diverge":61,"bun_node_diverge":18,"errors":88,"rejected":0}}
