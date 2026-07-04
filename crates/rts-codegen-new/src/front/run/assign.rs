@@ -50,22 +50,29 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             &target.kind,
             HirExprKind::Member { object, .. } | HirExprKind::Index { object, .. }
                 if matches!(object.kind, HirExprKind::Ident(_))
-        ) && (op.is_arithmetic()
-            || op.is_bitwise()
-            || matches!(
+        ) {
+            // Logical assign on a MEMBER short-circuits the whole STORE (spec
+            // AssignmentExpression : LeftHandSideExpression &&= ...): the target
+            // is read once, and the RHS + the setter run ONLY on the taken
+            // branch (`obj.x ??= v` with `x` present must not fire the setter —
+            // the `obj.x = (obj.x ?? v)` desugar fired it unconditionally).
+            if matches!(
                 op,
-                HirBinOp::Exp | HirBinOp::LogAnd | HirBinOp::LogOr | HirBinOp::NullCoalesce
-            ))
-        {
-            let new_value = HirExpr::new(
-                HirExprKind::Bin {
-                    op,
-                    lhs: Box::new(target.clone()),
-                    rhs: Box::new(value.clone()),
-                },
-                HirType::Unknown,
-            );
-            return self.lower_assign(module, target, &new_value);
+                HirBinOp::LogAnd | HirBinOp::LogOr | HirBinOp::NullCoalesce
+            ) {
+                return self.lower_logical_assign_member(module, op, target, value);
+            }
+            if op.is_arithmetic() || op.is_bitwise() || matches!(op, HirBinOp::Exp) {
+                let new_value = HirExpr::new(
+                    HirExprKind::Bin {
+                        op,
+                        lhs: Box::new(target.clone()),
+                        rhs: Box::new(value.clone()),
+                    },
+                    HirType::Unknown,
+                );
+                return self.lower_assign(module, target, &new_value);
+            }
         }
         let name = ident_target(target)?;
         // Logical-assign ops short-circuit: `a &&= b` only evaluates/assigns `b`
@@ -185,6 +192,65 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // builder reconstructs the φ); re-read it as the expression's result.
         let merged = self.builder.use_var(local.var);
         Ok(Val::new(merged, local.repr))
+    }
+
+    /// Logical-assign on a MEMBER/INDEX target (`obj.x ||= v`, `arr[i] ??= v`).
+    /// The target is READ once (its getter runs once); the RHS and the STORE run
+    /// only on the taken branch — the expression yields the old value otherwise.
+    /// The object is a bare identifier (the caller's gate), so the store path
+    /// re-reading it is harmless.
+    fn lower_logical_assign_member(
+        &mut self,
+        module: &mut dyn Module,
+        op: HirBinOp,
+        target: &HirExpr,
+        value: &HirExpr,
+    ) -> FrontResult<Val> {
+        let cur = self.lower_expr(module, target)?;
+        let cur_word = self.box_value(cur);
+        let do_assign = match op {
+            HirBinOp::LogAnd => self.as_bool_value(module, cur)?,
+            HirBinOp::LogOr => {
+                let b = self.as_bool_value(module, cur)?;
+                let zero = self.builder.ins().iconst(types::I64, 0);
+                let neg = self.builder.ins().icmp(IntCC::Equal, b, zero);
+                self.builder.ins().uextend(types::I64, neg)
+            }
+            HirBinOp::NullCoalesce => {
+                let null_w = self
+                    .builder
+                    .ins()
+                    .iconst(types::I64, crate::value::PolyValue::null().raw() as i64);
+                let undef_w = self.builder.ins().iconst(
+                    types::I64,
+                    crate::value::PolyValue::undefined().raw() as i64,
+                );
+                let is_null = self.builder.ins().icmp(IntCC::Equal, cur_word, null_w);
+                let is_undef = self.builder.ins().icmp(IntCC::Equal, cur_word, undef_w);
+                let either = self.builder.ins().bor(is_null, is_undef);
+                self.builder.ins().uextend(types::I64, either)
+            }
+            _ => return unsupported!("logical-assign op {op:?}"),
+        };
+
+        let assign_block = self.builder.create_block();
+        let cont_block = self.builder.create_block();
+        self.builder.append_block_param(cont_block, types::I64);
+        self.builder
+            .ins()
+            .brif(do_assign, assign_block, &[], cont_block, &[cur_word.into()]);
+
+        self.builder.switch_to_block(assign_block);
+        self.builder.seal_block(assign_block);
+        // The plain `=` path: evaluates the RHS and runs the setter — only here.
+        let new_v = self.lower_assign(module, target, value)?;
+        let new_word = self.box_value(new_v);
+        self.builder.ins().jump(cont_block, &[new_word.into()]);
+
+        self.builder.switch_to_block(cont_block);
+        self.builder.seal_block(cont_block);
+        let merged = self.builder.block_params(cont_block)[0];
+        Ok(Val::new(merged, Repr::Tagged))
     }
 
     /// An i64 0/1 condition that is `1` iff the local `cur` is JS-nullish
