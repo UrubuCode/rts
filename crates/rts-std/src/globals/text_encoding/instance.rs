@@ -944,12 +944,44 @@ pub extern "C" fn __RTS_FN_GL_TEXTENC_NEW() -> u64 {
     alloc_entry(Entry::Env(vec![1])) // token "TextEncoder"
 }
 
-/// (cross-runtime #874) Aceita label opcional como (ptr, len). Em RTS so'
-/// UTF-8 e' suportado; o label e' aceito mas ignorado (Bun/Node aceitam
-/// `new TextDecoder("utf-8")` sem erro).
+// ── TextDecoder options + streaming state ──────────────────────────────────────
+//
+// A TextDecoder instance is an `Entry::Env` vec:
+//   [0] = 2 (the "TextDecoder" token), [1] = fatal, [2] = ignoreBOM,
+//   [3] = started (current stream already began — BOM handled),
+//   [4..] = pending bytes (an incomplete UTF-8 tail carried between
+//           `decode(chunk, {stream: true})` calls).
+
+/// Read a boolean option `key` from an options-bag handle (a keyed object /
+/// `Entry::Map`; `0` = absent bag). Resolves through the engine's own dynamic
+/// property read + ToBoolean (link-resolved externs — no crate cycle).
+fn opt_flag(opts_h: u64, key: &str) -> bool {
+    unsafe extern "C" {
+        fn __rtsadp_obj_get(obj_word: u64, key_word: u64) -> u64;
+        fn __rtsadp_to_boolean(word: u64) -> u64;
+    }
+    use rts_engine::heap::handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE;
+    use rts_engine::heap::poly::{POLY_BOX_BASE, POLY_TAG_OBJECT, POLY_TAG_SHIFT, POLY_TAG_STR};
+    if opts_h == 0 {
+        return false;
+    }
+    let obj_word = POLY_BOX_BASE
+        | (POLY_TAG_OBJECT << POLY_TAG_SHIFT)
+        | __RTS_FN_NS_GC_POLY_FROM_HANDLE(opts_h);
+    let key_h = alloc_entry(Entry::String(key.as_bytes().to_vec()));
+    let key_word = POLY_BOX_BASE
+        | (POLY_TAG_STR << POLY_TAG_SHIFT)
+        | __RTS_FN_NS_GC_POLY_FROM_HANDLE(key_h);
+    unsafe { __rtsadp_to_boolean(__rtsadp_obj_get(obj_word, key_word)) != 0 }
+}
+
+/// (cross-runtime #874/#1407) Label opcional (so' UTF-8; aceito e ignorado) +
+/// options-bag opcional `{fatal, ignoreBOM}` guardado no estado da instância.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_TEXTDEC_NEW(_label_ptr: i64, _label_len: i64) -> u64 {
-    alloc_entry(Entry::Env(vec![2])) // token "TextDecoder"
+pub extern "C" fn __RTS_FN_GL_TEXTDEC_NEW(_label_ptr: i64, _label_len: i64, opts_h: u64) -> u64 {
+    let fatal = opt_flag(opts_h, "fatal") as i64;
+    let ignore_bom = opt_flag(opts_h, "ignoreBOM") as i64;
+    alloc_entry(Entry::Env(vec![2, fatal, ignore_bom, 0]))
 }
 
 // Instance method variants: (self_handle, ptr, len) — self ignored.
@@ -959,7 +991,127 @@ pub extern "C" fn __RTS_FN_GL_TEXTENC_ENCODE_INSTANCE(_self_h: u64, ptr: i64, le
     __RTS_FN_GL_TEXTENC_ENCODE(ptr, len)
 }
 
+/// The length of the maximal WELL-FORMED-so-far prefix of `bytes`: everything
+/// except a trailing incomplete (but still potentially valid) UTF-8 sequence.
+/// A trailing sequence that can never become valid is NOT held back — it stays
+/// in the prefix so the caller surfaces it (U+FFFD / fatal TypeError) now.
+fn utf8_complete_prefix_len(bytes: &[u8]) -> usize {
+    let n = bytes.len();
+    // A lead byte at most 3 positions from the end can still be incomplete.
+    let start = n.saturating_sub(3);
+    for i in (start..n).rev() {
+        let b = bytes[i];
+        let need = match b {
+            0xC2..=0xDF => 2,
+            0xE0..=0xEF => 3,
+            0xF0..=0xF4 => 4,
+            _ => continue, // continuation/ASCII/invalid — not a lead byte
+        };
+        let have = n - i;
+        if have < need && bytes[i + 1..].iter().all(|&c| (0x80..=0xBF).contains(&c)) {
+            return i; // a potentially-valid incomplete tail — hold it back
+        }
+        return n; // the last lead's sequence is complete (or already invalid)
+    }
+    n
+}
+
+/// (#1407/#1408) `decoder.decode(buf?, opts?)` — instance decode with the WHATWG
+/// semantics the token-only path lacked: per-stream BOM strip (unless
+/// `ignoreBOM`), `{stream: true}` carrying a split UTF-8 tail between chunks,
+/// a no-arg flush call, and `fatal` throwing TypeError on malformed input.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_TEXTDEC_DECODE_INSTANCE(_self_h: u64, buf_h: u64) -> u64 {
-    __RTS_FN_GL_TEXTENC_DECODE(buf_h)
+pub extern "C" fn __RTS_FN_GL_TEXTDEC_DECODE_INSTANCE(self_h: u64, buf_h: u64, opts_h: u64) -> u64 {
+    use rts_engine::heap::handles::with_entry_mut;
+    let stream = opt_flag(opts_h, "stream");
+    // Drain the instance state: flags + any pending bytes from a prior chunk.
+    let (fatal, ignore_bom, started, mut bytes) = with_entry_mut(self_h, |e| match e {
+        Some(Entry::Env(v)) if v.first() == Some(&2) => {
+            let fatal = v.get(1).copied().unwrap_or(0) != 0;
+            let ib = v.get(2).copied().unwrap_or(0) != 0;
+            let started = v.get(3).copied().unwrap_or(0) != 0;
+            let pending: Vec<u8> = v.iter().skip(4).map(|&x| x as u8).collect();
+            v.truncate(4.min(v.len()));
+            (fatal, ib, started, pending)
+        }
+        _ => (false, false, false, Vec::new()),
+    });
+    // Append this call's input (absent on the flush call `decode()`).
+    if buf_h != 0 {
+        let extra = with_entry(buf_h, |entry| match entry {
+            Some(Entry::Buffer(v)) | Some(Entry::String(v)) => Some(v.clone()),
+            Some(Entry::Vec(v)) => Some(v.iter().map(|&x| slot_byte(x)).collect()),
+            _ => None,
+        });
+        if let Some(b) = extra {
+            bytes.extend_from_slice(&b);
+        }
+    }
+    // Streaming: hold back a potentially-valid incomplete UTF-8 tail.
+    let mut hold: Vec<u8> = Vec::new();
+    if stream {
+        let cut = utf8_complete_prefix_len(&bytes);
+        hold = bytes.split_off(cut);
+    }
+    // BOM: stripped ONCE at the start of each stream, unless ignoreBOM. The
+    // stream only "starts" when bytes are actually EMITTED — a fully held-back
+    // tail (a BOM split across chunks) keeps the strip armed for the next call.
+    let mut emit: &[u8] = &bytes;
+    let mut new_started = started;
+    if !bytes.is_empty() {
+        new_started = true;
+    }
+    if !started && !ignore_bom && emit.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        emit = &emit[3..];
+    }
+    // Decode: fatal throws TypeError on malformed input (WHATWG); otherwise
+    // U+FFFD replacement. The flush call also fails a fatal decoder whose
+    // pending tail never completed.
+    let text: String = match std::str::from_utf8(emit) {
+        Ok(s) => s.to_owned(),
+        Err(_) if fatal => {
+            // Throw into the ENGINE's pending-error slot (a real TypeError
+            // instance, so `e instanceof TypeError` / `e.constructor.name`
+            // hold) — link-reached extern, paired with the member's THROWS flag.
+            unsafe extern "C" {
+                fn __rtsadp_throw_js_error(
+                    kind_ptr: *const u8,
+                    kind_len: i64,
+                    msg_ptr: *const u8,
+                    msg_len: i64,
+                );
+            }
+            let kind = "TypeError";
+            let msg = "The encoded data was not valid utf-8";
+            unsafe {
+                __rtsadp_throw_js_error(
+                    kind.as_ptr(),
+                    kind.len() as i64,
+                    msg.as_ptr(),
+                    msg.len() as i64,
+                );
+            }
+            return alloc_entry(Entry::String(Vec::new()));
+        }
+        Err(_) => String::from_utf8_lossy(emit).into_owned(),
+    };
+    // Persist / reset the stream state.
+    let _ = with_entry_mut(self_h, |e| {
+        if let Some(Entry::Env(v)) = e {
+            if v.first() == Some(&2) {
+                while v.len() < 4 {
+                    v.push(0);
+                }
+                if stream {
+                    v[3] = new_started as i64;
+                    v.extend(hold.iter().map(|&b| b as i64));
+                } else {
+                    v[3] = 0; // a non-stream decode ends the stream
+                }
+            }
+        }
+    });
+    // A FINAL (non-stream) call with an incomplete tail still pending would
+    // have kept it in `emit` (no cut) — already surfaced above.
+    alloc_entry(Entry::String(text.into_bytes()))
 }

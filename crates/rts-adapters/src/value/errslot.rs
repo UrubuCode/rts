@@ -92,6 +92,27 @@ pub(crate) fn throw_js_error(kind: &str, message: &str) {
     __rtsadp_throw_set(msg.raw());
 }
 
+/// Link-reachable form of [`throw_js_error`] for the runtime layer: an
+/// `rts-std`/`rts-shared` impl cannot depend on this crate (dep direction), but
+/// CAN reach the extern by symbol to throw a real `kind` Error instance with
+/// `message` into the engine's pending-error slot (a THROWS-flagged Registry
+/// member pairs this with the front's post-call error check).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_throw_js_error(
+    kind_ptr: *const u8,
+    kind_len: i64,
+    msg_ptr: *const u8,
+    msg_len: i64,
+) {
+    let read = |p: *const u8, n: i64| -> &str {
+        if p.is_null() || n <= 0 {
+            return "";
+        }
+        unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(p, n as usize)) }
+    };
+    throw_js_error(read(kind_ptr, kind_len), read(msg_ptr, msg_len));
+}
+
 /// `1` iff a thrown value is pending (an unwind is in progress), else `0`. Emitted
 /// after every call that can throw; the lowering branches on the result.
 #[unsafe(no_mangle)]

@@ -111,6 +111,11 @@ impl MemberFlags {
     /// stamped on `Date`'s `toString`/`toLocale*`/`toDateString`/`toUTCString`/
     /// `toTimeString` formatters and every `setX` mutator.
     pub const UNSOUND: Self = Self(1 << 6);
+    /// Member can THROW: the impl may set the pending-error slot
+    /// (`__RTS_FN_RT_ERROR_SET`) — codegen emits the post-call error check
+    /// after the call so a `try/catch` routes the unwind (e.g. a
+    /// `{fatal: true}` TextDecoder rejecting malformed input with TypeError).
+    pub const THROWS: Self = Self(1 << 7);
 
     /// Union of two flag sets (const, for building composite literals).
     pub const fn or(self, other: Self) -> Self {
