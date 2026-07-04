@@ -913,8 +913,12 @@ impl Ctx {
                 || GLOBALS.contains(&id.as_str())
                 || self.top_level.contains(id)
                 || self.module_globals.contains(id)
-                || super::registry::has_namespace(id)
-                || super::registry::has_class(id)
+                // An in-scope OUTER LOCAL/PARAM SHADOWS a same-named Registry
+                // namespace/class (JS scoping): `parse(input: string)` captures
+                // the param even though an `input` namespace exists. Only a
+                // NON-shadowed name resolves to the Registry surface.
+                || (!scope.contains(id)
+                    && (super::registry::has_namespace(id) || super::registry::has_class(id)))
             {
                 continue;
             }
