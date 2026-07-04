@@ -87,6 +87,11 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
                 as *const u8,
         ),
         sym(
+            "__RTS_FN_GL_TEXTENC_ENCODE_INTO",
+            rts_runtime::namespaces::globals::text_encoding::instance::__RTS_FN_GL_TEXTENC_ENCODE_INTO
+                as *const u8,
+        ),
+        sym(
             "__RTS_FN_GL_TEXTDEC_NEW",
             rts_runtime::namespaces::globals::text_encoding::instance::__RTS_FN_GL_TEXTDEC_NEW
                 as *const u8,

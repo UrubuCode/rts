@@ -133,6 +133,19 @@ pub fn register_text_encoder_class_spec(e: &mut Engine) {
             core::ptr::null::<u8>(),
             true,
         ))
+        .member(m(
+            "encodeInto",
+            MemberKind::InstanceMethod,
+            Sig::new(
+                vec![AbiType::Handle, AbiType::StrPtr, AbiType::Handle],
+                AbiType::Handle,
+            ),
+            "__RTS_FN_GL_TEXTENC_ENCODE_INTO",
+            "encodeInto(src: string, dest: Uint8Array): TextEncoderEncodeIntoResult",
+            "encoder.encodeInto(src, dest) — escreve UTF-8 em dest (só code points inteiros que cabem); retorna {read, written}.",
+            core::ptr::null::<u8>(),
+            false,
+        ))
         .done();
 }
 
