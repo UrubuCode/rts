@@ -118,6 +118,40 @@ pub fn reset_global_shapes() {
     reg.keys.shrink_to_fit();
     reg.by_keys.clear();
     reg.by_keys.shrink_to_fit();
+    if let Ok(mut t) = error_classes().lock() {
+        t.clear();
+    }
+}
+
+/// PRIMORDIAL error-class registry: `name` (`"Error"`/`"TypeError"`/…) → the
+/// class's unique instance shape-id + its flattened field layout. Populated by
+/// the class lowering when it lowers the prelude Error classes, so RUNTIME
+/// trampolines can fabricate a REAL error instance (`e instanceof TypeError`
+/// reads true) for spec-mandated throws (empty `reduce`, etc.). JIT-only by
+/// construction (registration happens at lowering time in the same process);
+/// an AOT binary falls back to the string-throw path.
+#[allow(clippy::type_complexity)]
+fn error_classes()
+-> &'static std::sync::Mutex<std::collections::HashMap<String, (GlobalShapeId, Vec<String>)>> {
+    static T: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, (GlobalShapeId, Vec<String>)>>,
+    > = std::sync::OnceLock::new();
+    T.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Record an Error-family class's instance shape + field layout (see
+/// [`error_classes`]). Called by the class lowering; Error+subclasses are
+/// PRIMORDIAL, so naming them here is doctrine-clean.
+pub fn register_error_class(name: &str, shape: GlobalShapeId, fields: &[String]) {
+    if let Ok(mut t) = error_classes().lock() {
+        t.insert(name.to_string(), (shape, fields.to_vec()));
+    }
+}
+
+/// Look up a registered Error-family class (`None` when the prelude class was
+/// not lowered in this process — e.g. an AOT binary).
+pub fn error_class_info(name: &str) -> Option<(GlobalShapeId, Vec<String>)> {
+    error_classes().lock().ok()?.get(name).cloned()
 }
 
 /// The number of interned global shapes (leak-test probe).

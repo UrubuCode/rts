@@ -163,6 +163,23 @@ pub(super) fn build_class(
     // fields must be distinguishable at runtime for `opaque instanceof C`.
     let global_shape = crate::shape::intern_class_shape(&fields);
 
+    // PRIMORDIAL Error family: publish (shape, layout) so runtime trampolines
+    // can fabricate REAL error instances for spec-mandated throws (empty
+    // `reduce` → TypeError, etc.) that pass `instanceof`.
+    if matches!(
+        decl.name.as_str(),
+        "Error"
+            | "TypeError"
+            | "RangeError"
+            | "ReferenceError"
+            | "SyntaxError"
+            | "URIError"
+            | "EvalError"
+            | "AggregateError"
+    ) {
+        crate::shape::register_error_class(&decl.name, global_shape, &fields);
+    }
+
     // --- FLATTENED array-typed fields: parent's set, then own array fields ---
     // A field is PROVEN to hold an array when its declaration initializer is an
     // array literal `[...]`, or a top-level `this.<field> = [...]` in the ctor.

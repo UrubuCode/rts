@@ -479,6 +479,10 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, I64],
             ret: U64,
         },
+        "__rtsadp_arr_at_w" => SymSig {
+            params: &[U64, U64],
+            ret: U64,
+        },
         "__rtsadp_arr_join" => SymSig {
             params: &[U64, Handle],
             ret: Handle,

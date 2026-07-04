@@ -255,8 +255,13 @@ pub extern "C" fn __rtsadp_arr_reduce(
             k += 1;
         }
         if k >= len {
-            // Reduce of empty array with no initial value → TypeError in JS; we
-            // have no throw channel here, so return undefined (documented).
+            // Reduce of empty array with no initial value → TypeError (a REAL
+            // instance via the registered prelude shape; the caller's
+            // err_pending check unwinds past the sentinel return).
+            super::errslot::throw_js_error(
+                "TypeError",
+                "Reduce of empty array with no initial value",
+            );
             return undef();
         }
         (vec_word(vec_handle, k), k + 1)
@@ -329,6 +334,10 @@ pub extern "C" fn __rtsadp_arr_reduce_right(
             k -= 1;
         }
         if k < 0 {
+            super::errslot::throw_js_error(
+                "TypeError",
+                "Reduce of empty array with no initial value",
+            );
             return undef();
         }
         (vec_word(vec_handle, k), k - 1)

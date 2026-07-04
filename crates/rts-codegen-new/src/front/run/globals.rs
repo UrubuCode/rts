@@ -402,6 +402,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // word (same path as the array callback methods); a capturing arrow
                 // bails there.
                 //
+                // An ITERABLE-CLASS source (`Array.from(new Set(..), mapFn)`)
+                // collects through the same hook the 1-arg form / spread use,
+                // then maps.
+                if let Some(w) = self.try_class_iterator_source_word(module, &args[0])? {
+                    let cb_word = self.reify_callback_arg(module, &args[1], "from")?;
+                    let handle = emit_marshal::emit_table_load(module, self.builder, w);
+                    let mapped = self
+                        .call_runtime(module, "__rtsadp_arr_map", &[handle, cb_word])?
+                        .expect("__rtsadp_arr_map returns an array word");
+                    return Ok(Val::tagged_kind(mapped, JsKind::Array));
+                }
                 // `__rtsadp_arr_from` builds from an ARRAY, a STRING, or an ARRAY-LIKE
                 // keyed object with a numeric `length` (`{ length: n }`); a keyed
                 // object WITHOUT a numeric length (Map/Set/plain) returns the
@@ -426,6 +437,44 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let handle = emit_marshal::emit_table_load(module, self.builder, arr_word);
                 let mapped = self
                     .call_runtime(module, "__rtsadp_arr_map", &[handle, cb_word])?
+                    .expect("__rtsadp_arr_map returns an array word");
+                Ok(Val::tagged_kind(mapped, JsKind::Array))
+            }
+            ("from", 3) => {
+                // `Array.from(source, mapFn, thisArg)` — bind the mapper to
+                // `thisArg` (`__rtsadp_fn_bind` with no pre-bound args; a
+                // this-first fn receives it as its `this` slot), then run the
+                // 2-arg path over the bound function.
+                let is_arr = self.is_array_valued(&args[0]);
+                let v = self.lower_expr(module, &args[0])?;
+                let is_objlike = matches!(v.kind, super::lower::JsKind::Object)
+                    || matches!(&args[0].kind, HirExprKind::Object(_));
+                if !is_arr && !matches!(v.kind, super::lower::JsKind::Str) && !is_objlike {
+                    return unsupported!(
+                        "Array.from(source, mapFn, thisArg) with a non-array/non-string/\
+                         non-object source (a primitive source is not array-like)"
+                    );
+                }
+                let src_boxed = self.box_value(v);
+                let arr_word = self
+                    .call_runtime(module, "__rtsadp_arr_from", &[src_boxed])?
+                    .expect("Array.from returns an array word");
+                let cb_word = self.reify_callback_arg(module, &args[1], "from")?;
+                let this_v = self.lower_expr(module, &args[2])?;
+                let this_word = self.box_value(this_v);
+                let empty_args = emit_marshal::emit_new_vec_object(module, self.builder);
+                let empty_handle =
+                    emit_marshal::emit_table_load(module, self.builder, empty_args);
+                let bound = self
+                    .call_runtime(
+                        module,
+                        "__rtsadp_fn_bind",
+                        &[cb_word, this_word, empty_handle],
+                    )?
+                    .expect("__rtsadp_fn_bind returns a function word");
+                let handle = emit_marshal::emit_table_load(module, self.builder, arr_word);
+                let mapped = self
+                    .call_runtime(module, "__rtsadp_arr_map", &[handle, bound])?
                     .expect("__rtsadp_arr_map returns an array word");
                 Ok(Val::tagged_kind(mapped, JsKind::Array))
             }

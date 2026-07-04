@@ -47,6 +47,40 @@ pub extern "C" fn __rtsadp_throw_set(word: u64) {
     PENDING.with(|p| p.set((word, true)));
 }
 
+/// Throw a REAL Error-family instance (`kind` = `"TypeError"`/`"RangeError"`/…)
+/// with `message`, fabricated on the prelude class's registered shape so
+/// `e instanceof TypeError` reads true in the catch. Falls back to throwing the
+/// plain `"<kind>: <message>"` STRING word when the class shape is not
+/// registered in this process (an AOT binary).
+pub(crate) fn throw_js_error(kind: &str, message: &str) {
+    use rts_runtime::namespaces::collections::vec as rt_vec;
+    use rts_runtime::namespaces::gc::handles as rt_handles;
+    if let Some((shape, fields)) = crate::shape::error_class_info(kind) {
+        let vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(
+            vec,
+            super::PolyValue::from_i32(shape as i32).raw() as i64,
+        );
+        for f in &fields {
+            let w = match f.as_str() {
+                "message" => super::abi_adapter::intern_poly(message).raw(),
+                "name" => super::abi_adapter::intern_poly(kind).raw(),
+                "stack" => super::abi_adapter::intern_poly("").raw(),
+                _ => super::PolyValue::undefined().raw(),
+            };
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, w as i64);
+        }
+        let word = super::PolyValue::from_object_handle(
+            rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(vec),
+        )
+        .raw();
+        __rtsadp_throw_set(word);
+        return;
+    }
+    let msg = super::abi_adapter::intern_poly(&format!("{kind}: {message}"));
+    __rtsadp_throw_set(msg.raw());
+}
+
 /// `1` iff a thrown value is pending (an unwind is in progress), else `0`. Emitted
 /// after every call that can throw; the lowering branches on the result.
 #[unsafe(no_mangle)]

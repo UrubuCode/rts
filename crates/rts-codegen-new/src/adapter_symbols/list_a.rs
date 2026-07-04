@@ -168,6 +168,7 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             arrayops::__rtsadp_arr_includes as *const u8,
         ),
         sym("__rtsadp_arr_at", arrayops::__rtsadp_arr_at as *const u8),
+        sym("__rtsadp_arr_at_w", arrayops::__rtsadp_arr_at_w as *const u8),
         sym(
             "__rtsadp_arr_join",
             arrayops::__rtsadp_arr_join as *const u8,

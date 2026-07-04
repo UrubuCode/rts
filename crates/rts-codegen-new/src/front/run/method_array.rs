@@ -237,6 +237,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
         // ---- emit + marshal the result ----
         let ret = emit_marshal::emit_call(module, self.builder, spec.symbol, &call_args);
+        // A callback method can THROW (the user callback itself, or a
+        // spec-mandated throw like empty-reduce's TypeError) — route the unwind.
+        self.emit_post_call_error_check(module)?;
         self.marshal_array_ret(module, method, spec.ret, ret)
     }
 
@@ -473,6 +476,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
         // ---- emit + marshal the result ----
         let ret = emit_marshal::emit_call(module, self.builder, spec.symbol, &call_args);
+        // A callback method can THROW (the user callback itself, or a
+        // spec-mandated throw like empty-reduce's TypeError) — route the unwind.
+        self.emit_post_call_error_check(module)?;
         self.marshal_array_ret(module, method, spec.ret, ret)
     }
 

@@ -80,7 +80,22 @@ pub extern "C" fn __rtsadp_arr_at(vec_handle: u64, i: i64) -> u64 {
     if idx < 0 || idx >= len {
         return PolyValue::undefined().raw();
     }
-    vec_word(vec_handle, idx)
+    let w = vec_word(vec_handle, idx);
+    // A sparse HOLE reads as `undefined` ([[Get]]).
+    if PolyValue::from_raw(w).is_hole() {
+        return PolyValue::undefined().raw();
+    }
+    w
+}
+
+/// `arr.at(idxWord)` — the WORD-argument form the data dispatch routes: full JS
+/// `ToNumber` on the index (string/bool/NaN args: `at("2")` → 2, `at(NaN)` → 0)
+/// then truncate toward zero and delegate to [`__rtsadp_arr_at`].
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_arr_at_w(vec_handle: u64, idx_word: u64) -> u64 {
+    let n = genops::dyn_to_number(idx_word);
+    let i = if n.is_finite() { n as i64 } else { 0 };
+    __rtsadp_arr_at(vec_handle, i)
 }
 
 /// `arr.join(sep)` — ToString every element (the SAME genops ToString used by
@@ -557,18 +572,43 @@ pub extern "C" fn __rtsadp_arr_sort_cmp(vec_handle: u64, cb: u64) -> u64 {
     let len = vec_len(vec_handle);
     let mut words: Vec<u64> = (0..len).map(|i| vec_word(vec_handle, i)).collect();
     let u = PolyValue::undefined().raw();
-    words.sort_by(|&a, &b| {
-        // `cmp(a, b)` → a PolyValue word; ToNumber it (JS coercion). A NaN/0 result
-        // is `Equal` (a stable no-swap), matching the spec's "treat as equal".
+    // `cmp(a, b)` → a PolyValue word; ToNumber it (JS coercion). A NaN/non-number
+    // result reads as 0 ("treat as equal" per spec).
+    let call_cmp = |a: u64, b: u64| -> f64 {
         let r = genops::dyn_to_number(funcops::__rtsadp_fn_invoke(cb, a, b, u, u, u));
-        if r < 0.0 {
-            std::cmp::Ordering::Less
-        } else if r > 0.0 {
-            std::cmp::Ordering::Greater
-        } else {
-            std::cmp::Ordering::Equal
+        if r.is_nan() { 0.0 } else { r }
+    };
+    if words.len() <= 22 {
+        // BINARY INSERTION SORT — V8's small-array (≤22) path. With an
+        // INCONSISTENT comparator (sometimes NaN/undefined) the final order is
+        // implementation-defined, and bun/node agree on THIS algorithm's
+        // output; a stable merge sort diverges from them.
+        for i in 1..words.len() {
+            let v = words[i];
+            let (mut lo, mut hi) = (0usize, i);
+            while lo < hi {
+                let mid = (lo + hi) / 2;
+                if call_cmp(v, words[mid]) < 0.0 {
+                    hi = mid;
+                } else {
+                    lo = mid + 1;
+                }
+            }
+            words.copy_within(lo..i, lo + 1);
+            words[lo] = v;
         }
-    });
+    } else {
+        words.sort_by(|&a, &b| {
+            let r = call_cmp(a, b);
+            if r < 0.0 {
+                std::cmp::Ordering::Less
+            } else if r > 0.0 {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        });
+    }
     for (i, w) in words.into_iter().enumerate() {
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(vec_handle, i as i64, w as i64);
     }
