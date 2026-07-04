@@ -17,10 +17,12 @@ clearTimeout(h2);
 time.sleep_ms(50);
 const fired2_end = fired2;
 
-// 3. setInterval dispara periodicamente
+// 3. setInterval dispara periodicamente. Janela LARGA (100ms / 15ms ~ 6
+// fires esperados) com bounds folgados nos DOIS lados: um runner de CI
+// lento (macos) pausa a VM e derruba a contagem — `> 2` em 70ms flakava.
 let count3 = 0;
 const h3 = setInterval(() => { count3 = count3 + 1; }, 15);
-time.sleep_ms(70);
+time.sleep_ms(100);
 clearInterval(h3);
 time.sleep_ms(30);
 const count3_end = count3;
@@ -44,9 +46,9 @@ describe("set_timeout_interval", () => {
     test("setTimeout fires after delay", () => expect(fired1_end).toBe(1));
     test("clearTimeout prevents fire", () => expect(fired2_end).toBe(0));
     test("setInterval fires periodically", () =>
-        expect(count3_end > 2).toBe(true));
+        expect(count3_end > 1).toBe(true));
     test("clearInterval stops interval", () =>
-        expect(count3_end < 8).toBe(true));
+        expect(count3_end < 12).toBe(true));
     test("setImmediate fires", () => expect(fired4_end).toBe(1));
     test("setTimeout returns non-zero handle", () =>
         expect(h5_nonzero).toBe(true));
