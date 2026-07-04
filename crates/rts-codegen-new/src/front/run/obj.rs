@@ -691,6 +691,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // index on a proven array falls through to the dynamic path below.
             if let Ok(idx) = self.lower_index_value(module, index) {
                 let word = emit_marshal::emit_vec_get(module, self.builder, recv_word, idx);
+                // A HOLE slot (deleted / sparse element) reads as `undefined`
+                // ([[Get]]) — pure IR the egraph folds on hole-free flows.
+                let hole = self
+                    .builder
+                    .ins()
+                    .iconst(types::I64, value::PolyValue::hole().raw() as i64);
+                let undef = self
+                    .builder
+                    .ins()
+                    .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
+                let is_hole = self.builder.ins().icmp(
+                    cranelift_codegen::ir::condcodes::IntCC::Equal,
+                    word,
+                    hole,
+                );
+                let word = self.builder.ins().select(is_hole, undef, word);
                 return Ok(Val::new(word, Repr::Tagged));
             }
         }
@@ -936,6 +952,25 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // (`delete arr[1]` — the runtime delete's ARRAY branch writes
                 // the `undefined` hole; `delete o[k]` keys the object).
                 let key = self.index_key_word(module, index)?;
+                (object.as_ref(), obj_word, key)
+            }
+            // OPTIONAL-CHAINED delete `delete o?.a` / `delete a?.[k]` — the
+            // optchain desugar turned the operand into the reserved
+            // `__rts_opt_get`/`__rts_opt_index` read. Route the RECEIVER +
+            // key straight to the runtime delete: `obj_delete` on a nullish
+            // receiver resolves no slot and returns `true` — exactly the JS
+            // short-circuit (`delete nil?.a` → true, nothing evaluated).
+            HirExprKind::MethodCall {
+                object,
+                method,
+                args,
+            } if (method == super::desugar::OPT_GET
+                || method == super::desugar::OPT_INDEX)
+                && args.len() == 1 =>
+            {
+                let obj = self.lower_expr(module, object)?;
+                let obj_word = self.box_value(obj);
+                let key = self.index_key_word(module, &args[0])?;
                 (object.as_ref(), obj_word, key)
             }
             _ => {

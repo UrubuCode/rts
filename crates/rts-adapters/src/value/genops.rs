@@ -102,8 +102,8 @@ fn array_to_string(v: PolyValue) -> String {
         }
         let w = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, i) as u64;
         let ev = PolyValue::from_raw(w);
-        if ev.is_null() || ev.is_undefined() {
-            continue; // JS renders null/undefined elements as empty.
+        if ev.is_null() || ev.is_undefined() || ev.is_hole() {
+            continue; // JS renders null/undefined/hole elements as empty.
         }
         out.push_str(&to_string(ev));
     }

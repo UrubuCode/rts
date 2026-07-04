@@ -514,7 +514,13 @@ pub extern "C" fn __rtsadp_obj_has(obj_word: u64, key_str_handle: u64) -> i64 {
                 }
                 if let Ok(i) = key.parse::<i64>() {
                     let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(h).max(0);
-                    return (i >= 0 && i < len) as i64;
+                    // An in-range index whose slot is the HOLE singleton (a
+                    // `delete arr[i]` / sparse elision) is NOT an own key.
+                    if i < 0 || i >= len {
+                        return 0;
+                    }
+                    let elem = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(h, i) as u64;
+                    return (!PolyValue::from_raw(elem).is_hole()) as i64;
                 }
                 // An Array.prototype METHOD (`"push" in []`) — decided off the
                 // SAME dispatch rows the method dispatch reads (data-driven).
@@ -1045,9 +1051,11 @@ pub extern "C" fn __rtsadp_obj_delete(obj_word: u64, key_str_handle: u64) -> i64
         }
         return __rtsadp_obj_delete(target, key_str_handle);
     }
-    // `delete arr[i]` — an ARRAY receiver with a numeric key: JS leaves a hole
-    // (length unchanged, the slot reads `undefined`); this model writes the
-    // `undefined` word in place. Out-of-range → no-op (still `true`).
+    // `delete arr[i]` — an ARRAY receiver with a numeric key: JS leaves a HOLE
+    // (length unchanged, the slot reads `undefined`, `i in arr` reads `false`);
+    // this model writes the hole singleton in place — reads map it back to
+    // `undefined`, `[[HasProperty]]` sees it as absent. Out-of-range → no-op
+    // (still `true`).
     {
         let obj = PolyValue::from_raw(obj_word);
         if obj.is_object() && !looks_like_object(obj) {
@@ -1062,7 +1070,7 @@ pub extern "C" fn __rtsadp_obj_delete(obj_word: u64, key_str_handle: u64) -> i64
                         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(
                             handle,
                             i,
-                            PolyValue::undefined().raw() as i64,
+                            PolyValue::hole().raw() as i64,
                         );
                     }
                     return 1;

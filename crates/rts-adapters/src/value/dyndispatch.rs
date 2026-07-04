@@ -373,6 +373,10 @@ pub extern "C" fn __rtsadp_idx_get(recv: u64, idx: u64) -> u64 {
             return undef();
         }
         let elem = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(h, i) as u64;
+        // A HOLE slot (deleted / sparse element) reads as `undefined` ([[Get]]).
+        if PolyValue::from_raw(elem).is_hole() {
+            return undef();
+        }
         // A LEGACY raw-handle element (a runtime-built Vec — e.g.
         // `Promise.allSettled`'s result rows are raw `Entry::Map` handles, not
         // words): box it by live entry kind. A boxed word / small number passes
