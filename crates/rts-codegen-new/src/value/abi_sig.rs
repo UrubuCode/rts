@@ -880,6 +880,10 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, U64, U64],
             ret: U64,
         },
+        "__rtsadp_obj_define_properties" => SymSig {
+            params: &[U64, U64],
+            ret: U64,
+        },
         "__rtsadp_obj_get_own_property_descriptor" => SymSig {
             params: &[U64, U64],
             ret: U64,

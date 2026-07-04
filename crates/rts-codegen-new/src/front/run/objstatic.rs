@@ -98,6 +98,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 Ok(Some(Val::new(res, Repr::Bool)))
             }
             "defineProperty" => self.object_define_property(module, args).map(Some),
+            "defineProperties" => self.object_define_properties(module, args).map(Some),
             "getOwnPropertyDescriptor" => {
                 if args.len() != 2 {
                     return unsupported!("Object.getOwnPropertyDescriptor expects 2 args");
@@ -206,7 +207,51 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let word = self
             .call_runtime(module, "__rtsadp_obj_create", &[proto_word])?
             .expect("__rtsadp_obj_create returns an object word");
+        // `Object.create(proto, descriptors)`: apply the property-descriptor bag
+        // through the single defineProperty authority (same as defineProperties).
+        if let Some(props) = args.get(1) {
+            let p = self.lower_expr(module, props)?;
+            let props_word = self.box_value(p);
+            let defined = self
+                .call_runtime(
+                    module,
+                    "__rtsadp_obj_define_properties",
+                    &[word, props_word],
+                )?
+                .expect("__rtsadp_obj_define_properties returns the object word");
+            // Descriptor-bag getters can THROW — route the pending error.
+            self.emit_post_call_error_check(module)?;
+            return Ok(Val::tagged_kind(defined, JsKind::Object));
+        }
         Ok(Val::tagged_kind(word, JsKind::Object))
+    }
+
+    /// `Object.defineProperties(obj, props)` → every own enumerable key of
+    /// `props` defined on `obj` via the runtime authority; evaluates to `obj`.
+    fn object_define_properties(
+        &mut self,
+        module: &mut dyn Module,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        if args.len() != 2 {
+            return unsupported!("Object.defineProperties expects 2 args, got {}", args.len());
+        }
+        // Added keys live in runtime slots the target's compile-time shape does
+        // not know — same demotion `Object.assign`/`defineProperty` apply.
+        if let HirExprKind::Ident(name) = &args[0].kind {
+            self.demote_local_to_dynamic(name);
+        }
+        let o = self.lower_expr(module, &args[0])?;
+        let o_word = self.box_value(o);
+        let p = self.lower_expr(module, &args[1])?;
+        let p_word = self.box_value(p);
+        let res = self
+            .call_runtime(module, "__rtsadp_obj_define_properties", &[o_word, p_word])?
+            .expect("__rtsadp_obj_define_properties returns the object word");
+        // Reading the descriptor bag runs its GETTERS, which can THROW — route
+        // the pending error like any throwing call.
+        self.emit_post_call_error_check(module)?;
+        Ok(Val::tagged_kind(res, JsKind::Object))
     }
 
     /// `Object.setPrototypeOf(obj, proto)` → record `obj`'s prototype (a null/non-

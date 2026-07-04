@@ -342,6 +342,10 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_obj_set", objops::__rtsadp_obj_set as *const u8),
         sym("__rtsadp_obj_assign", objops::__rtsadp_obj_assign as *const u8),
         sym("__rtsadp_obj_define_property", objops::__rtsadp_obj_define_property as *const u8),
+        sym(
+            "__rtsadp_obj_define_properties",
+            objops::__rtsadp_obj_define_properties as *const u8,
+        ),
         sym("__rtsadp_obj_get_own_property_descriptor", objops::__rtsadp_obj_get_own_property_descriptor as *const u8),
         sym("__rtsadp_obj_get_own_property_descriptors", objops::__rtsadp_obj_get_own_property_descriptors as *const u8),
         sym("__rtsadp_obj_has", objops::__rtsadp_obj_has as *const u8),
