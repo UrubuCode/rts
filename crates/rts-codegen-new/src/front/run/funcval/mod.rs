@@ -391,6 +391,7 @@ pub fn extract_arrows(
     ambient_fns: &HashSet<String>,
     class_names: &HashSet<String>,
     module_globals: &HashSet<String>,
+    arrow_ns: &str,
 ) -> ExtractResult {
     let mut top_level: HashSet<String> = funcs.iter().map(|f| f.name.clone()).collect();
     top_level.insert(main.name.clone());
@@ -416,6 +417,7 @@ pub fn extract_arrows(
         current_fn: String::new(),
         current_fn_lets: HashSet::new(),
         counter: 0,
+        arrow_ns: arrow_ns.to_string(),
     };
 
     // Rewrite arrows inside every existing function body and the main body. Each
@@ -580,6 +582,12 @@ struct Ctx {
     current_fn_lets: HashSet<String>,
     /// Fresh-name counter.
     counter: usize,
+    /// Name NAMESPACE for lifted arrows (`__rtsn_arrow_{ns}{counter}`): `"p"` on
+    /// the PRELUDE build, `""` on the user build. The two sides are lowered as
+    /// separate programs (each counter starts at 0) then merged last-wins — a
+    /// shared namespace made a prelude arrow and a user arrow collide on
+    /// `__rtsn_arrow_0` (duplicate define / silent replacement).
+    arrow_ns: String,
 }
 
 impl Ctx {
@@ -874,7 +882,7 @@ impl Ctx {
         // capture list, so reify and thunk agree deterministically.
         captures.sort();
 
-        let name = format!("__rtsn_arrow_{}", self.counter);
+        let name = format!("__rtsn_arrow_{}{}", self.arrow_ns, self.counter);
         self.counter += 1;
         self.top_level.insert(name.clone());
 

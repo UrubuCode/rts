@@ -357,6 +357,9 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
     // Web-platform value classes — pure `.ts` holders; after Object/JSON (their
     // ctors read `Object.keys` + `JSON.parse` from the merged prelude).
     PreludeTs { label: "web-api", source: rts_runtime::stdlib::WEBAPI_TS, why: "Headers/FormData/Blob/File/Request/Response" },
+    // Web event model — after timers (AbortSignal.timeout → setTimeout;
+    // MessagePort → queueMicrotask) and DOMException (abort/timeout reasons).
+    PreludeTs { label: "events", source: rts_runtime::stdlib::EVENTS_TS, why: "Event/EventTarget/AbortSignal/AbortController/MessageChannel" },
     // DOM facade — `Document`/`Element` classes (browser-named API) over the `rts:dom`
     // primitives. AFTER the namespaces register (the `dom.*` it calls must exist).
     PreludeTs { label: "DOM facade", source: ns::dom::DOM_TS, why: "document/Element over rts:dom" },

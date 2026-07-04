@@ -65,3 +65,9 @@ pub const TIMERS_TS: &str = include_str!("timers.ts");
 /// value holders (insertion-ordered parallel arrays; UTF-8 measured/decoded in
 /// TS); ambient classes so `new Headers()` is ordinary user-class construction.
 pub const WEBAPI_TS: &str = include_str!("webapi.ts");
+
+/// Web event-model classes — `Event`/`EventTarget`/`AbortSignal`/
+/// `AbortController`/`MessageChannel`/`MessagePort` — rts-shared backend
+/// utilities (no native syntax). Pure `.ts` state machines; `AbortSignal.timeout`
+/// rides the real setTimeout queue; MessagePort delivers via queueMicrotask.
+pub const EVENTS_TS: &str = include_str!("events.ts");

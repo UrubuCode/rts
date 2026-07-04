@@ -152,7 +152,7 @@ fn build_path(entry: &Path) -> FrontResult<super::LoweredProgram> {
     // bails at lowering (sound). Every other destructuring site recovers from the
     // swc `Stmt` nodes in `program`.
     let entry_src = std::fs::read_to_string(entry).unwrap_or_default();
-    let mut user = build_from_program(program, &entry_src, ambient, &ambient_fns)?;
+    let mut user = build_from_program(program, &entry_src, ambient, &ambient_fns, "")?;
     // Carry the BUILTIN-IMPORT bindings into the lowering so a call to an imported
     // `rts:<ns>` member resolves to its real `__RTS_FN_NS_*` symbol (M1b).
     user.builtins = builtins;
