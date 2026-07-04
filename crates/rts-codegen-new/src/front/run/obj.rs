@@ -244,7 +244,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// a proven string, or a generic Tagged value is materialized to an array via the
     /// same paths for-of uses. Bails on a value that is provably NOT iterable
     /// (number/bool) or a known non-iterable class instance.
-    fn spread_source_array_word(
+    pub(super) fn spread_source_array_word(
         &mut self,
         module: &mut dyn Module,
         inner: &HirExpr,

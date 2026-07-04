@@ -742,6 +742,40 @@ pub extern "C" fn __rtsadp_fn_new(args_vec: u64) -> u64 {
 /// A `has_this_param` callee receives `this_word` in the thunk a0 slot (its
 /// this-first real param); a plain function ignores the receiver (JS: `this`
 /// unused) and gets the args unshifted.
+/// `f(...arr)` — spread-invoke a function VALUE with a runtime ARRAY of args:
+/// unpack `a0..a3`, overflow rides the rest ARRAY (>4) or the argc INT32 word
+/// (≤4), exactly the compile-time call convention. Non-array `arr` → 0 args.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_fn_apply_arr(fn_word: u64, arr_word: u64) -> u64 {
+    use rts_runtime::namespaces::collections::vec as rt_vec;
+    use rts_runtime::namespaces::gc::handles as rt_handles;
+    let undef = PolyValue::undefined().raw();
+    let av = PolyValue::from_raw(arr_word);
+    let (h, len) = if av.is_object() {
+        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(av.as_handle());
+        (h, rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(h).max(0))
+    } else {
+        (0, 0)
+    };
+    let elem = |i: i64| -> u64 {
+        if i < len {
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(h, i) as u64
+        } else {
+            undef
+        }
+    };
+    let rest = if len > 4 {
+        let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+        for i in 4..len {
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, elem(i) as i64);
+        }
+        PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(out)).raw()
+    } else {
+        PolyValue::from_i32(len as i32).raw()
+    };
+    __rtsadp_fn_invoke(fn_word, elem(0), elem(1), elem(2), elem(3), rest)
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_fn_invoke_method(
     fn_word: u64,

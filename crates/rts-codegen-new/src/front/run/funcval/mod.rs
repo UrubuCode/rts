@@ -928,13 +928,27 @@ impl Ctx {
             // TOP-LEVEL `let` of THIS function (so its `let` can allocate the cell and
             // the handle is captured by value). A mutated param / deeper-block local
             // is outside this increment → bail (sound floor, never a stale snapshot).
+            // A capture of a local that is ALREADY a CELL in the enclosing fn
+            // (its env snapshot carries the raw HANDLE, never the value) must
+            // stay a cell in the new closure too — else the closure reads the
+            // handle AS the value (`x === wrap` compared W to the box).
+            let already_cell = self
+                .cells
+                .get(&self.current_fn)
+                .is_some_and(|s| s.contains(id));
             if body_assigns.contains(id)
                 || mutated.contains(id)
+                || already_cell
                 // SELF-REFERENCE (`const f = () => … f() …`): the binding is
                 // written right after the reify, so a by-value snapshot would
                 // capture undefined — a CELL reads the live fn value.
                 || self.self_binding.as_deref() == Some(id.as_str())
             {
+                if already_cell {
+                    cell_caps.push(id.clone());
+                    captures.push(id.clone());
+                    continue;
+                }
                 if self.current_fn_lets.contains(id) {
                     cell_caps.push(id.clone());
                     captures.push(id.clone());

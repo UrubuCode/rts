@@ -1120,6 +1120,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         fn_word: Value,
         args: &[HirExpr],
     ) -> FrontResult<Val> {
+        // `f(...xs)` — a SOLE spread arg: resolve the source to an array word
+        // (array/iterable/string — the same hook array-literal spread uses) and
+        // unpack at RUNTIME via the apply trampoline (arbitrary length).
+        if args.len() == 1 {
+            if let HirExprKind::Spread(inner) = &args[0].kind {
+                let arr_word = self.spread_source_array_word(module, inner)?;
+                let res = self
+                    .call_runtime(module, "__rtsadp_fn_apply_arr", &[fn_word, arr_word])?
+                    .expect("__rtsadp_fn_apply_arr returns a value");
+                self.emit_post_call_error_check(module)?;
+                return Ok(Val::new(res, Repr::Tagged));
+            }
+        }
         // Box the first four positional args; missing slots are `undefined`.
         let undef = || value::PolyValue::undefined().raw() as i64;
         let mut slots: [Value; 4] = [self.builder.ins().iconst(types::I64, undef()); 4];

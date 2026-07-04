@@ -204,6 +204,10 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
         ),
         sym("__rtsadp_fn_new", funcops::__rtsadp_fn_new as *const u8),
         sym("__rtsadp_fn_bind", funcops::__rtsadp_fn_bind as *const u8),
+        sym(
+            "__rtsadp_fn_apply_arr",
+            funcops::__rtsadp_fn_apply_arr as *const u8,
+        ),
         sym("__rtsadp_fn_reify", funcops::__rtsadp_fn_reify as *const u8),
         sym("__rtsadp_fn_reify_this", funcops::__rtsadp_fn_reify_this as *const u8),
         sym("__rtsadp_fn_invoke_method", funcops::__rtsadp_fn_invoke_method as *const u8),
