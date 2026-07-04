@@ -678,5 +678,14 @@ fn generator_symbols() -> Vec<JitSymbol> {
         // `{value, done}` result-Map accessors (new engine builds its own result obj).
         sym("__RTS_FN_NS_GC_ITER_VALUE", rt_gen::__RTS_FN_NS_GC_ITER_VALUE as *const u8),
         sym("__RTS_FN_NS_GC_ITER_DONE", rt_gen::__RTS_FN_NS_GC_ITER_DONE as *const u8),
+        // ASYNC state machine (async fn com loop/try — desugar lazy do parser) +
+        // async generator (#392): ctor/start/suspend/awaited/resolve/next.
+        sym("__RTS_FN_NS_GC_ASYNC_SM_NEW", rt_gen::__RTS_FN_NS_GC_ASYNC_SM_NEW as *const u8),
+        sym("__RTS_FN_NS_GC_AGEN_NEW", rt_gen::__RTS_FN_NS_GC_AGEN_NEW as *const u8),
+        sym("__RTS_FN_NS_GC_ASYNC_SM_START", rt_gen::__RTS_FN_NS_GC_ASYNC_SM_START as *const u8),
+        sym("__RTS_FN_NS_GC_ASYNC_SM_SUSPEND", rt_gen::__RTS_FN_NS_GC_ASYNC_SM_SUSPEND as *const u8),
+        sym("__RTS_FN_NS_GC_ASYNC_SM_AWAITED", rt_gen::__RTS_FN_NS_GC_ASYNC_SM_AWAITED as *const u8),
+        sym("__RTS_FN_NS_GC_ASYNC_SM_RESOLVE", rt_gen::__RTS_FN_NS_GC_ASYNC_SM_RESOLVE as *const u8),
+        sym("__RTS_FN_NS_GC_AGEN_NEXT", rt_gen::__RTS_FN_NS_GC_AGEN_NEXT as *const u8),
     ]
 }

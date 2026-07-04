@@ -655,8 +655,19 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         "__RTS_FN_NS_GC_GEN_SM_NEW"
         | "__RTS_FN_NS_GC_GEN_SM_FGET"
         | "__RTS_FN_NS_GC_GEN_SM_YIELD"
-        | "__RTS_FN_NS_GC_GEN_SM_DONE" => SymSig {
+        | "__RTS_FN_NS_GC_GEN_SM_DONE"
+        // ASYNC state machine + async generator (same (handle, arg) → i64 shape).
+        | "__RTS_FN_NS_GC_ASYNC_SM_NEW"
+        | "__RTS_FN_NS_GC_AGEN_NEW"
+        | "__RTS_FN_NS_GC_ASYNC_SM_SUSPEND"
+        | "__RTS_FN_NS_GC_ASYNC_SM_RESOLVE" => SymSig {
             params: &[U64, U64],
+            ret: U64,
+        },
+        "__RTS_FN_NS_GC_ASYNC_SM_START"
+        | "__RTS_FN_NS_GC_ASYNC_SM_AWAITED"
+        | "__RTS_FN_NS_GC_AGEN_NEXT" => SymSig {
+            params: &[U64],
             ret: U64,
         },
         "__RTS_FN_NS_GC_GEN_SM_FSET" => SymSig {
