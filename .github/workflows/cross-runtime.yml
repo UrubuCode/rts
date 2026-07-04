@@ -28,8 +28,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Rust
-        uses: ./.github/actions/setup-rust
+      # O binário rts chega PRONTO do job `build` — nada compila aqui, então
+      # NENHUM toolchain Rust é instalado (o setup-rust adicionava rustup +
+      # restore de ~650MB de cargo-cache por nada, ~2min/run). Só as libs de
+      # RUNTIME que o binário carrega: libasound2 (cpal/ALSA) + jq do script.
+      - name: Install runtime deps (ALSA + jq)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2t64 jq
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
