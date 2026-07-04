@@ -813,6 +813,28 @@ fn lower_swc_pat_or_expr(pat: &swc::AssignTarget, scope: &Scope) -> HirExpr {
             }
             _ => HirExpr::new(HirExprKind::Raw("assign_target".into()), HirType::Unknown),
         },
+        // DESTRUCTURING assignment target `[a, arr[i], o.k] = rhs` (the swap
+        // pattern): lower to an `Array` of element TARGETS — the engine's
+        // assignment lowering evaluates the RHS once and assigns each element
+        // (Ident/Index/Member) from `tmp[k]`; an elision is a `Hole`.
+        swc::AssignTarget::Pat(swc::AssignTargetPat::Array(arr)) => {
+            let elems: Vec<HirExpr> = arr
+                .elems
+                .iter()
+                .map(|e| match e {
+                    None => HirExpr::new(HirExprKind::Lit(HirLit::Hole), HirType::Any),
+                    Some(swc::Pat::Ident(id)) => HirExpr::new(
+                        HirExprKind::Ident(id.id.sym.to_string()),
+                        HirType::Unknown,
+                    ),
+                    Some(swc::Pat::Expr(ex)) => lower_swc_expr(ex, scope),
+                    Some(_) => {
+                        HirExpr::new(HirExprKind::Raw("assign_target_pat".into()), HirType::Unknown)
+                    }
+                })
+                .collect();
+            HirExpr::new(HirExprKind::Array(elems), HirType::Unknown)
+        }
         _ => HirExpr::new(HirExprKind::Raw("assign_target_pat".into()), HirType::Unknown),
     }
 }

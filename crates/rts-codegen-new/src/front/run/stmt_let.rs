@@ -525,7 +525,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Bind `name` to a fresh `Tagged` local holding `val.v` (used for
     /// object/array literal locals, whose value is a boxed handle word). The
     /// caller records the heap shape separately.
-    fn bind_tagged_local(&mut self, name: &str, val: Val) {
+    pub(super) fn bind_tagged_local(&mut self, name: &str, val: Val) {
         let var = self.builder.declare_var(cl_type(Repr::Tagged));
         self.builder.def_var(var, val.v);
         self.locals.insert(

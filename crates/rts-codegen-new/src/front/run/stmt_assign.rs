@@ -32,6 +32,44 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirExprKind::Index { object, index } => {
                 return self.lower_index_assign(module, object, index, value);
             }
+            // DESTRUCTURING assignment `[x, arr[i], o.k] = rhs` (the swap
+            // pattern `[a[i], a[j]] = [a[j], a[i]]`): evaluate the RHS to a
+            // temp ARRAY word, then assign each target element from `tmp[k]`
+            // recursively (each element may itself be an Ident/Index/Member).
+            // The RHS evaluates FULLY before any write — JS order, which is
+            // what makes the swap correct.
+            HirExprKind::Array(targets) => {
+                let rhs = self.lower_expr(module, value)?;
+                let rhs_word = self.box_value(rhs);
+                for (k, t) in targets.iter().enumerate() {
+                    if matches!(t.kind, HirExprKind::Lit(rts_hir::ir::HirLit::Hole)) {
+                        continue; // elision skips the slot
+                    }
+                    let idx = self
+                        .builder
+                        .ins()
+                        .iconst(cranelift_codegen::ir::types::I64, k as i64);
+                    let elem = crate::value::emit_marshal::emit_vec_get(
+                        module,
+                        self.builder,
+                        rhs_word,
+                        idx,
+                    );
+                    let elem =
+                        crate::value::emit_marshal::emit_hole_to_undef(self.builder, elem);
+                    // Recurse through the normal assignment lowering with a
+                    // synthetic pre-lowered value: bind the word to a fresh
+                    // hidden local and assign `t = <hidden>`.
+                    let tmp_name = format!("__rtsn_destr_tmp_{k}");
+                    self.bind_tagged_local(&tmp_name, Val::new(elem, crate::repr::Repr::Tagged));
+                    let tmp_expr = HirExpr::new(
+                        HirExprKind::Ident(tmp_name),
+                        rts_hir::HirType::Unknown,
+                    );
+                    self.lower_assign(module, t, &tmp_expr)?;
+                }
+                return Ok(Val::new(rhs_word, crate::repr::Repr::Tagged));
+            }
             _ => {}
         }
         let name = ident_target(target)?;

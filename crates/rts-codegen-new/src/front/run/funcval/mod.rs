@@ -865,7 +865,19 @@ impl Ctx {
                 self.rewrite_expr(cond, scope, mutated);
                 self.rewrite_block(body, scope, mutated);
             }
-            HirStmt::Block(b) => self.rewrite_block(b, scope, mutated),
+            HirStmt::Block(b) => {
+                self.rewrite_block(b, scope, mutated);
+                // The engine's local map is FUNCTION-FLAT (a block `let` stays
+                // a live Cranelift local after the block), and the HIR wraps a
+                // MULTI-DECLARATOR `const m = …, n = …` in a synthetic Block —
+                // the declared names must stay in scope for later capture
+                // analysis (`Array.from(…, () => n + 1)` after the decl).
+                for s in b.iter() {
+                    if let HirStmt::Let { name, .. } | HirStmt::Const { name, .. } = s {
+                        scope.insert(name.clone());
+                    }
+                }
+            }
             // try/catch/finally: arrows inside the bodies must lift like anywhere
             // else (`catch { return xs.map(x => x + 1) }`). The catch binding is a
             // block-scoped name.
