@@ -368,6 +368,20 @@ pub extern "C" fn __rtsadp_idx_get(recv: u64, idx: u64) -> u64 {
         }
         let h = arr_handle(recv);
         let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(h).max(0);
+        // A STRING key on an array: a NUMERIC string still indexes (`a["1"]`);
+        // `"length"` reads the length; any other name is an absent property.
+        {
+            let kv = PolyValue::from_raw(idx);
+            if kv.is_string() {
+                let s = abi_adapter::resolve_poly(kv);
+                if s == "length" {
+                    return __rtsadp_dyn_length(recv);
+                }
+                if s.parse::<i64>().is_err() {
+                    return undef();
+                }
+            }
+        }
         let i = genops_to_i64(idx);
         if i < 0 || i >= len {
             return undef();
@@ -565,6 +579,72 @@ pub extern "C" fn __rtsadp_dyn_trim(recv: u64) -> u64 {
     if v.is_string() {
         return box_str(rt_gl_str::__RTS_FN_GL_STRING_TRIM(str_handle(recv)));
     }
+    undef()
+}
+
+/// `recv[key](a0..)` — a CALL whose callee is a COMPUTED index (`arr[k](x)`,
+/// the obfuscator staple `arr["pu"+"sh"](x)`). A NUMERIC key invokes the
+/// element as a function value; a STRING key on an ARRAY dispatches the
+/// primordial Array method by name (the same trampolines the static rows
+/// use); a keyed OBJECT reads the property and invokes it as a method
+/// (`this` = recv). Unknown name/receiver → TypeError (pending error).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_idx_call(recv: u64, key: u64, a0: u64, a1: u64, argc: u64) -> u64 {
+    let kv = PolyValue::from_raw(key);
+    let is_num_key = kv.is_int32() || kv.is_double();
+    if is_num_key {
+        let elem = __rtsadp_idx_get(recv, key);
+        return super::funcops::__rtsadp_fn_invoke(
+            elem,
+            a0,
+            a1,
+            undef(),
+            undef(),
+            PolyValue::from_i32(argc as i32).raw(),
+        );
+    }
+    let name = if kv.is_string() {
+        abi_adapter::resolve_poly(kv)
+    } else {
+        abi_adapter::resolve_poly(PolyValue::from_raw(genops::__rtsadp_to_string(key)))
+    };
+    if is_array_word(recv) {
+        let h = arr_handle(recv);
+        let n = argc as usize;
+        // Primordial Array rows by RUNTIME name — the same impls the static
+        // dispatch resolves; the hot obfuscator set.
+        match (name.as_str(), n) {
+            ("push", 1) => return PolyValue::from_i32(
+                arrayops::__rtsadp_arr_push(h, a0) as i32,
+            )
+            .raw(),
+            ("pop", 0) => return arrayops::__rtsadp_arr_pop(h),
+            ("shift", 0) => return arrayops::__rtsadp_arr_shift(h),
+            ("join", 0) => return box_str(arrayops::__rtsadp_arr_join0(h)),
+            ("join", 1) => {
+                let sep = abi_adapter::real_handle_of(PolyValue::from_raw(
+                    genops::__rtsadp_to_string(a0),
+                ));
+                return box_str(arrayops::__rtsadp_arr_join(h, sep));
+            }
+            ("indexOf", 1) => {
+                return PolyValue::from_i32(arrayops::__rtsadp_arr_index_of(h, a0) as i32).raw();
+            }
+            ("includes", 1) => {
+                return PolyValue::bool(arrayops::__rtsadp_arr_includes(h, a0) != 0).raw();
+            }
+            _ => {}
+        }
+    }
+    // Keyed object (or anything else): property read + method invoke.
+    let m = super::objops::__rtsadp_obj_get(recv, key);
+    if PolyValue::from_raw(m).is_function() {
+        return super::funcops::__rtsadp_fn_invoke_method(m, recv, a0, a1, undef(), 0);
+    }
+    super::errslot::throw_js_error(
+        "TypeError",
+        &format!("{name} is not a function"),
+    );
     undef()
 }
 

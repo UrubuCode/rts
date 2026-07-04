@@ -366,8 +366,37 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
         let name = match &callee.kind {
             HirExprKind::Ident(n) => n.clone(),
+            // A COMPUTED-INDEX callee `recv[k](args)`: numeric `k` invokes the
+            // ELEMENT as a fn value; a STRING `k` dispatches the method by
+            // RUNTIME name (`arr["pu"+"sh"](x)` — the obfuscator staple) via
+            // the polymorphic `__rtsadp_idx_call` (this = recv for objects).
+            HirExprKind::Index { object, index } if args.len() <= 2 => {
+                let recv = self.lower_expr(module, object)?;
+                let recv_word = self.box_value(recv);
+                let idx = self.lower_expr(module, index)?;
+                let idx_word = self.box_value(idx);
+                let undef = self
+                    .builder
+                    .ins()
+                    .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
+                let mut slots = [undef; 2];
+                for (i, a) in args.iter().enumerate() {
+                    let v = self.lower_expr(module, a)?;
+                    slots[i] = self.box_value(v);
+                }
+                let argc = self.builder.ins().iconst(types::I64, args.len() as i64);
+                let res = self
+                    .call_runtime(
+                        module,
+                        "__rtsadp_idx_call",
+                        &[recv_word, idx_word, slots[0], slots[1], argc],
+                    )?
+                    .expect("__rtsadp_idx_call returns a value");
+                self.emit_post_call_error_check(module)?;
+                return Ok(Val::new(res, Repr::Tagged));
+            }
             // A non-ident callee that is an EXPRESSION producing a function VALUE
-            // (`f(x)(y)` curry, `(cond ? f : g)(x)`, `arr[i](x)`): lower it to a value
+            // (`f(x)(y)` curry, `(cond ? f : g)(x)`): lower it to a value
             // and invoke through the uniform-ABI value-call path. A non-function value
             // yields `undefined` at `__rtsadp_fn_invoke` (never a crash). Member callees
             // were already routed above (method dispatch), so they never reach here.
