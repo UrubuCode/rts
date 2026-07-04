@@ -312,27 +312,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok((chars, true));
         }
         // GENERIC fallback for an UNPROVEN source: a `string` PARAM (`for (const ch
-        // of s)`), a nested-array for-of binding (`for (const x of row)`), an `any`,
-        // a call return. Coerce at RUNTIME via `__rtsadp_to_iter_array` (array→self /
-        // string→chars / else→empty). GATED OUT for a known RUNTIME-class instance
-        // (a `new Set()`/`new Map()`/`new Date()` local): those iterate via a
-        // protocol we don't model yet, so they keep bailing HONESTLY rather than
-        // silently iterating nothing.
-        // Only a TAGGED value (a `string`/`any` param, a for-of binding, a call
-        // return — kind genuinely unknown) takes the generic runtime path. A PROVEN
-        // numeric/bool source (`for (const x of 42)`) is NOT iterable → keep bailing
-        // (a JS TypeError; honest, never a silent empty walk). A known runtime-class
-        // instance (Set/Map/Date) also keeps bailing (iteration protocol unmodeled).
-        if matches!(v.repr, Repr::Tagged)
-            && self.static_instance_class(iterable).is_none()
-            && self.global_instance_class(iterable).is_none()
-        {
+        // of s)`), a nested-array for-of binding, an `any`, a call return, and any
+        // OBJECT/CLASS-INSTANCE source. Coerce at RUNTIME via
+        // `__rtsadp_to_iter_array`: array→self / string→chars / Set·Map by shape /
+        // a CUSTOM `[Symbol.iterator]` drives the real protocol / anything else
+        // THROWS TypeError ("not iterable" — JS semantics, the pending-error
+        // unwind below routes it). A PROVEN numeric/bool source keeps the
+        // compile-time bail (better error, provably never iterable).
+        if matches!(v.repr, Repr::Tagged) {
             let word = self.box_value(v);
             let arr = self
                 .call_runtime(module, "__rtsadp_to_iter_array", &[word])?
                 .ok_or_else(|| {
                     crate::front::error::Unsupported::new("__rtsadp_to_iter_array returns a value")
                 })?;
+            // A non-iterable source THREW — route the unwind before walking.
+            self.emit_post_call_error_check(module)?;
             return Ok((arr, false));
         }
         unsupported!(

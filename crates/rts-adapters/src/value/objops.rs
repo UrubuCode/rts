@@ -153,12 +153,27 @@ fn key_text(key_str_handle: u64) -> String {
         let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(k.as_handle());
         rt_handles::with_entry(h, |e| matches!(e, Some(rt_handles::Entry::Symbol { .. })))
     } {
-        // A SYMBOL property key: the canonical storage repr is `@@sym:<handle>`
-        // (#798) — unique per symbol, filtered from string enumeration
+        // A SYMBOL property key: a WELL-KNOWN symbol canonicalizes to `@@<name>`
+        // — the SAME slot the `[Symbol.X](){}` desugar stores the method under,
+        // so `o[Symbol.iterator]` resolves it. A USER symbol keeps the unique
+        // `@@sym:<handle>` repr (#798), filtered from string enumeration
         // (`Object.keys`/for-in/`JSON.stringify` skip it; `getOwnPropertySymbols`
         // decodes it back).
         let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(k.as_handle());
-        format!("@@sym:{h}")
+        use rts_runtime::namespaces::globals::symbol as gl_sym;
+        if h == gl_sym::__RTS_FN_GL_SYMBOL_ITERATOR() {
+            "@@iterator".to_string()
+        } else if h == gl_sym::__RTS_FN_GL_SYMBOL_ASYNC_ITERATOR() {
+            "@@asyncIterator".to_string()
+        } else if h == gl_sym::__RTS_FN_GL_SYMBOL_HAS_INSTANCE() {
+            "@@hasInstance".to_string()
+        } else if h == gl_sym::__RTS_FN_GL_SYMBOL_TO_PRIMITIVE() {
+            "@@toPrimitive".to_string()
+        } else if h == gl_sym::__RTS_FN_GL_SYMBOL_TO_STRING_TAG() {
+            "@@toStringTag".to_string()
+        } else {
+            format!("@@sym:{h}")
+        }
     } else {
         // Reuse the engine ToString (numbers/bools); the result is the JS property
         // key string (`o[0]` keys on "0").

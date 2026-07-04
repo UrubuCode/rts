@@ -277,7 +277,23 @@ impl Recovery<'_> {
                     },
                 })
                 .collect();
-            let (desc, fns) = build_literal_class(&name, &ext_keys, global_shape, &lit_methods);
+            let (desc, mut fns) = build_literal_class(&name, &ext_keys, global_shape, &lit_methods);
+            // RECURSE into each synthesized method body: a lit METHOD may itself
+            // build a literal-with-methods (`[Symbol.iterator]() { return {
+            // next() {…} }; }` — the iterator protocol's canonical shape). The
+            // synth order is 1:1 with `methods`, so pair each fn with its swc
+            // body and run the same recovery over it.
+            for (m, f) in methods.iter().zip(fns.iter_mut()) {
+                let body = match &m.fn_ref {
+                    collect::LitFnRef::Method(func) => func.body.as_ref(),
+                    collect::LitFnRef::Getter(g) => g.body.as_ref(),
+                    collect::LitFnRef::Setter(s) => s.body.as_ref(),
+                };
+                if let Some(b) = body {
+                    let stmts: Vec<&swc_ecma_ast::Stmt> = b.stmts.iter().collect();
+                    self.rewrite_unit(&stmts, &mut f.body);
+                }
+            }
             if !self.classes.contains(&name) {
                 self.classes.insert(desc);
                 self.new_funcs.extend(fns);

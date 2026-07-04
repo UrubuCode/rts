@@ -115,6 +115,56 @@ pub extern "C" fn __rtsadp_to_iter_array(word: u64) -> u64 {
             return box_vec_as_array(out);
         }
     }
+    // CUSTOM `[Symbol.iterator]` (object literal / class instance whose slot —
+    // own or via the prototype chain — holds the method under the canonical
+    // `@@sym:<handle>` key): drive the REAL protocol — invoke the method for
+    // the iterator object, then `next()` until `done`, collecting `value`s.
+    if v.is_object() {
+        // The desugar stores a `[Symbol.iterator]() {}` literal/class method as
+        // the own-prop fn slot `@@iterator` (well-known Symbol members recover
+        // to `@@<name>`); a DYNAMIC `o[Symbol.iterator] = fn` write lands under
+        // the `@@sym:<handle>` canonical key — check both.
+        let key = abi_adapter::intern_poly("@@iterator");
+        let mut m = super::objops::__rtsadp_obj_get(word, key.raw());
+        if !PolyValue::from_raw(m).is_function() {
+            let iter_h = rts_runtime::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_ITERATOR();
+            let skey = abi_adapter::intern_poly(&format!("@@sym:{iter_h}"));
+            m = super::objops::__rtsadp_obj_get(word, skey.raw());
+        }
+        if PolyValue::from_raw(m).is_function() {
+            let undef = PolyValue::undefined().raw();
+            let it = super::funcops::__rtsadp_fn_invoke_method(m, word, undef, undef, undef, 0);
+            if PolyValue::from_raw(it).is_object() {
+                let next_key = abi_adapter::intern_poly("next").raw();
+                let done_key = abi_adapter::intern_poly("done").raw();
+                let value_key = abi_adapter::intern_poly("value").raw();
+                let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+                // Bounded drive (1M) — a runaway iterator can't hang the walk.
+                for _ in 0..1_000_000 {
+                    let nm = super::objops::__rtsadp_obj_get(it, next_key);
+                    if !PolyValue::from_raw(nm).is_function() {
+                        break;
+                    }
+                    let r = super::funcops::__rtsadp_fn_invoke_method(
+                        nm, it, undef, undef, undef, 0,
+                    );
+                    if !PolyValue::from_raw(r).is_object() {
+                        break;
+                    }
+                    let done = super::objops::__rtsadp_obj_get(r, done_key);
+                    if super::genops::__rtsadp_to_boolean(done) != 0 {
+                        break;
+                    }
+                    let val = super::objops::__rtsadp_obj_get(r, value_key);
+                    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, val as i64);
+                }
+                return box_vec_as_array(out);
+            }
+        }
+    }
+    // Not iterable — JS throws (`for (const x of {})` is a TypeError, never a
+    // silent empty walk). The pending-error unwind routes to the caller's catch.
+    super::errslot::throw_js_error("TypeError", "value is not iterable");
     box_vec_as_array(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW())
 }
 
