@@ -54,6 +54,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// when `object` is not the bare `Math`/`Number` global.
     pub(super) fn try_math_number_const(
         &mut self,
+        module: &mut dyn Module,
         object: &HirExpr,
         prop: &str,
     ) -> FrontResult<Option<Val>> {
@@ -73,6 +74,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         match name.as_str() {
             "Math" => match math_const(prop) {
                 Some(c) => Ok(Some(self.f64_const_val(c))),
+                // `Math.max`/`Math.min` read as a FUNCTION VALUE
+                // (`Reflect.apply(Math.max, …)`): a real callable whose env
+                // carries the op — the same reduce the static call uses.
+                None if matches!(prop, "max" | "min") => {
+                    let op = self
+                        .builder
+                        .ins()
+                        .iconst(cranelift_codegen::ir::types::I64, if prop == "max" { 1 } else { 0 });
+                    let w = self
+                        .call_runtime(module, "__rtsadp_math_fn_value", &[op])?
+                        .expect("__rtsadp_math_fn_value returns a fn word");
+                    Ok(Some(Val::tagged_kind(w, JsKind::Function)))
+                }
                 None => unsupported!("Math.{prop} (unknown Math constant)"),
             },
             "Number" => match number_const(prop) {

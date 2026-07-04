@@ -200,6 +200,25 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if method != "call" && method != "apply" && method != "bind" {
             return Ok(None);
         }
+        // PRIMORDIAL `Math.max.apply(null, arr)` / `Math.min.apply(..)`: the
+        // variadic Math reducer over a runtime array — the SAME
+        // `__rtsadp_math_reduce` the spread form uses (op 0=min, 1=max).
+        if method == "apply" && args.len() == 2 {
+            if let HirExprKind::Member { object: mo, prop } = &object.kind {
+                if matches!(&mo.kind, HirExprKind::Ident(n) if n == "Math")
+                    && matches!(prop.as_str(), "max" | "min")
+                {
+                    let op: i64 = if prop == "max" { 1 } else { 0 };
+                    let a = self.lower_expr(module, &args[1])?;
+                    let aw = self.box_value(a);
+                    let opv = self.builder.ins().iconst(types::I64, op);
+                    let f = self
+                        .call_runtime(module, "__rtsadp_math_reduce", &[aw, opv])?
+                        .expect("__rtsadp_math_reduce returns f64");
+                    return Ok(Some(Val::new(f, Repr::Float64)));
+                }
+            }
+        }
         // A CLASS-NAME receiver (`Base.call(this, …)` / `(Base as any).call(…)`):
         // fall through so the class `.call` mixin path (`try_static_method`) runs
         // the constructor body on `thisArg`. Reifying the class as a function value
@@ -291,36 +310,56 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
             return Ok(Some(self.lower_value_call_word(module, fn_word, call_args)?));
         }
+        // `.apply(thisArg, args?)` — thread the RECEIVER through the
+        // method-aware invoke (a this-first callee reads it; a plain fn
+        // ignores it), exactly like `.call`.
+        let this_word = match args.first() {
+            Some(t) => {
+                let tv = self.lower_expr(module, t)?;
+                Some(self.box_value(tv))
+            }
+            None => None,
+        };
         match args.get(1) {
-            None => Ok(Some(self.lower_value_call_word(module, fn_word, &[])?)),
+            None => match this_word {
+                Some(tw) => Ok(Some(
+                    self.lower_value_call_word_with_this(module, fn_word, tw, &[])?,
+                )),
+                None => Ok(Some(self.lower_value_call_word(module, fn_word, &[])?)),
+            },
             // A LITERAL array → lower each element directly (the cheap, exact path).
             Some(a) if matches!(a.kind, HirExprKind::Array(_)) => {
                 let HirExprKind::Array(elems) = &a.kind else { unreachable!() };
-                Ok(Some(self.lower_value_call_word(module, fn_word, elems)?))
+                match this_word {
+                    Some(tw) => Ok(Some(self.lower_value_call_word_with_this(
+                        module, fn_word, tw, elems,
+                    )?)),
+                    None => Ok(Some(self.lower_value_call_word(module, fn_word, elems)?)),
+                }
             }
             // A RUNTIME array value (`Reflect.apply`'s pass-through, a variable):
             // extract `a0..a3` via `VEC_GET` (OOB → `undefined`, the guard keeps a
             // missing arg `undefined` not `0`). Functions of arity ≤4 read only
             // `a0..a3`; a >4-arity apply (rest tail) is a later increment.
             Some(arr_expr) => {
+                // A RUNTIME array value: the FULL runtime apply — a NULLISH
+                // thisArg routes the plain spread-invoke (exact argc for any
+                // length, `Math.max` as a value included); a real receiver
+                // routes the method-aware invoke (a0..a2 + overflow rest).
                 let arr_val = self.lower_expr(module, arr_expr)?;
                 let arr_word = self.box_value(arr_val);
-                let len = emit_marshal::emit_vec_len(module, self.builder, arr_word);
-                let undef = self
-                    .builder
-                    .ins()
-                    .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
-                let mut slots = [undef; 4];
-                for (i, slot) in slots.iter_mut().enumerate() {
-                    let idx = self.builder.ins().iconst(types::I64, i as i64);
-                    let in_range =
-                        self.builder
-                            .ins()
-                            .icmp(IntCC::SignedLessThan, idx, len);
-                    let elem = emit_marshal::emit_vec_get(module, self.builder, arr_word, idx);
-                    *slot = self.builder.ins().select(in_range, elem, undef);
-                }
-                Ok(Some(self.emit_fn_invoke(module, fn_word, slots, undef)?))
+                let tw = match this_word {
+                    Some(tw) => tw,
+                    None => self
+                        .builder
+                        .ins()
+                        .iconst(types::I64, value::PolyValue::undefined().raw() as i64),
+                };
+                let res = self
+                    .call_runtime(module, "__rtsadp_fn_apply_this", &[fn_word, tw, arr_word])?
+                    .expect("__rtsadp_fn_apply_this returns a value");
+                self.emit_post_call_error_check(module)?;
+                Ok(Some(Val::new(res, Repr::Tagged)))
             }
         }
     }

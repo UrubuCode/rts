@@ -135,6 +135,76 @@ extern "C" fn settle_reject_thunk(env: u64, a0: u64, _a1: u64, _a2: u64, _a3: u6
     PolyValue::undefined().raw()
 }
 
+/// Uniform-ABI thunk for a `Math.max`/`Math.min` FUNCTION VALUE (env carries
+/// the op: 1 = max, 0 = min). Reads `a0..a3` up to the argc the `rest` slot
+/// carries (≤4-arg convention) or the overflow array (>4), reducing with the
+/// same NaN-propagating fold the static path uses.
+extern "C" fn math_minmax_thunk(env: u64, a0: u64, a1: u64, a2: u64, a3: u64, rest: u64) -> u64 {
+    let is_max = env == 1;
+    let mut acc = if is_max { f64::NEG_INFINITY } else { f64::INFINITY };
+    let mut nan = false;
+    let mut take = |w: u64| {
+        let n = super::genops::dyn_to_number(w);
+        if n.is_nan() {
+            nan = true;
+        } else if (is_max && n > acc) || (!is_max && n < acc) {
+            acc = n;
+        }
+    };
+    let rv = PolyValue::from_raw(rest);
+    if rv.is_object() {
+        // >4 args: a0..a3 + the overflow array.
+        for w in [a0, a1, a2, a3] {
+            take(w);
+        }
+        let h = rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(rv.as_handle());
+        let len = rts_runtime::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(h)
+            .max(0);
+        for i in 0..len {
+            take(rts_runtime::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(h, i)
+                as u64);
+        }
+    } else {
+        let argc = if rv.is_int32() { rv.as_i32().clamp(0, 4) } else { 4 };
+        for (i, w) in [a0, a1, a2, a3].into_iter().enumerate() {
+            if (i as i32) < argc {
+                take(w);
+            }
+        }
+    }
+    if nan {
+        return PolyValue::from_f64(f64::NAN).raw();
+    }
+    PolyValue::from_f64(acc).raw()
+}
+
+/// `Math.max` / `Math.min` read as a first-class FUNCTION VALUE
+/// (`Reflect.apply(Math.max, null, xs)`, `arr.map(Math.max)` …): a real
+/// callable whose env slot carries the op (1 = max, 0 = min).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_math_fn_value(op: u64) -> u64 {
+    let data = FunctionData {
+        fn_ptr: math_minmax_thunk as usize as u64,
+        arity: 2,
+        name: Box::<str>::from(if op == 1 { "max" } else { "min" }),
+        bound_this: op as i64,
+        has_bound_this: true,
+        bound_args: Vec::new(),
+        is_arrow: false,
+        has_this_param: false,
+        param_kinds: Vec::new(),
+        return_kind: 0,
+        packed_shim: 0,
+        source: None,
+        keep_alive: None,
+        prototype_handle: 0,
+        rest_param_idx: -1,
+        uniform_thunk: true,
+    };
+    let h = alloc_entry(Entry::Function(Box::new(data)));
+    PolyValue::from_function_handle(h & super::PAYLOAD_MASK).raw()
+}
+
 /// Build the `(resolve, reject)` settler FUNCTION-value pair over the promise
 /// `out_handle` (raw) — real callable `TAG_FUNCTION` words whose env carries
 /// the promise handle, exactly what a thenable's `then(res, rej)` expects.
@@ -776,6 +846,45 @@ pub extern "C" fn __rtsadp_fn_apply_arr(fn_word: u64, arr_word: u64) -> u64 {
     __rtsadp_fn_invoke(fn_word, elem(0), elem(1), elem(2), elem(3), rest)
 }
 
+/// `f.apply(thisArg, arr)` — the FULL runtime form: a NULLISH `thisArg` routes
+/// the plain spread-invoke (exact argc/rest for any length — `Math.max` as a
+/// value included); a real receiver routes the METHOD-aware invoke with
+/// `a0..a2` + the overflow/argc rest word.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_fn_apply_this(fn_word: u64, this_word: u64, arr_word: u64) -> u64 {
+    use rts_runtime::namespaces::collections::vec as rt_vec;
+    use rts_runtime::namespaces::gc::handles as rt_handles;
+    let tv = PolyValue::from_raw(this_word);
+    if tv.is_undefined() || tv.is_null() {
+        return __rtsadp_fn_apply_arr(fn_word, arr_word);
+    }
+    let undef = PolyValue::undefined().raw();
+    let av = PolyValue::from_raw(arr_word);
+    let (h, len) = if av.is_object() {
+        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(av.as_handle());
+        (h, rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(h).max(0))
+    } else {
+        (0, 0)
+    };
+    let elem = |i: i64| -> u64 {
+        if i < len {
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(h, i) as u64
+        } else {
+            undef
+        }
+    };
+    let rest = if len > 3 {
+        let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+        for i in 3..len {
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, elem(i) as i64);
+        }
+        PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(out)).raw()
+    } else {
+        PolyValue::from_i32(len as i32).raw()
+    };
+    __rtsadp_fn_invoke_method(fn_word, this_word, elem(0), elem(1), elem(2), rest)
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_fn_invoke_method(
     fn_word: u64,
@@ -787,6 +896,18 @@ pub extern "C" fn __rtsadp_fn_invoke_method(
 ) -> u64 {
     let pv = PolyValue::from_raw(fn_word);
     if !pv.is_function() {
+        // PROXY over a callable (#218): the `apply` trap (or forward to the
+        // target) — mirror of the plain invoker's proxy branch, keeping the
+        // receiver (`f.apply(thisArg, arr)` on a proxied fn).
+        if let Some((target, handler)) = super::objops::proxy_parts(fn_word) {
+            let apply_key = super::abi_adapter::intern_poly("apply").raw();
+            let trap = super::objops::__rtsadp_obj_get(handler, apply_key);
+            if PolyValue::from_raw(trap).is_function() {
+                let undef = PolyValue::undefined().raw();
+                return __rtsadp_fn_invoke(trap, target, this_word, undef, undef, 0);
+            }
+            return __rtsadp_fn_invoke_method(target, this_word, a0, a1, a2, rest);
+        }
         // `recv.m()` where `m` resolved to a NON-function — JS TypeError.
         return throw_not_a_function();
     }

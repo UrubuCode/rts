@@ -387,7 +387,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
         }
         // ---- `Math.CONST` / `Number.CONST` (P5.4): a namespace-constant read ----
-        if let Some(val) = self.try_math_number_const(object, prop)? {
+        if let Some(val) = self.try_math_number_const(module, object, prop)? {
             return Ok(val);
         }
         // ---- Registry-class STATIC CONSTANT read (`Symbol.iterator` — the
