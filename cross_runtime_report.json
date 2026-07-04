@@ -465,10 +465,10 @@
 ,
 {
   "name": "claude-flat-deep-and-infinity",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "[1,2,[3,[4,[5]]]]\n[1,2,3,[4,[5]]]\n[1,2,3,4,5]\n[1,[2,[3,[4,[5]]]]]\n[1,2,3]\n[1,10,2,20,3,30]\n[1,[1],2,[2],3,[3]]",
   "node": "[1,2,[3,[4,[5]]]]\n[1,2,3,[4,[5]]]\n[1,2,3,4,5]\n[1,[2,[3,[4,[5]]]]]\n[1,2,3]\n[1,10,2,20,3,30]\n[1,[1],2,[2],3,[3]]",
-  "rts": "[1,2,[3,[4,[5]]]]\n[1,2,3,[4,[5]]]\n[1,2,3,4,5]\n[1,[2,[3,[4,[5]]]]]\n[1,null,2,null,3]\n[1,10,2,20,3,30]\n[1,[1],2,[2],3,[3]]"
+  "rts": "[1,2,[3,[4,[5]]]]\n[1,2,3,[4,[5]]]\n[1,2,3,4,5]\n[1,[2,[3,[4,[5]]]]]\n[1,2,3]\n[1,10,2,20,3,30]\n[1,[1],2,[2],3,[3]]"
 }
 ,
 {
@@ -865,10 +865,10 @@
 ,
 {
   "name": "372_private_methods",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "3\n1,2,3\n3\n2\n100\n373.15\n212\n273.15\n[INFO] ok\n20",
   "node": "3\n1,2,3\n3\n2\n100\n373.15\n212\n273.15\n[INFO] ok\n20",
-  "rts": "3\n1,2,3\n3\n2\n100\n373.15\n212\n273.15\nundefined\n20"
+  "rts": "3\n1,2,3\n3\n2\n100\n373.15\n212\n273.15\n[INFO] ok\n20"
 }
 ,
 {
@@ -1129,10 +1129,10 @@
 ,
 {
   "name": "codex_weakmap_invalid_keys",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "7:true\nwm:TypeError\nws:TypeError",
   "node": "7:true\nwm:TypeError\nws:TypeError",
-  "rts": "7:true"
+  "rts": "7:true\nwm:TypeError\nws:TypeError"
 }
 ,
 {
@@ -3732,7 +3732,7 @@
   "status": "rts_diverge",
   "bun": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
   "node": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
-  "rts": "h=104\ne=101\no=111\nout=281474976711255\nemoji=128512\nA=65\ncharCode=55357"
+  "rts": "h=104\ne=101\no=111\nout=281474976711267\nemoji=128512\nA=65\ncharCode=55357"
 }
 ,
 {
@@ -4772,7 +4772,7 @@
   "status": "rts_diverge",
   "bun": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4",
   "node": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4",
-  "rts": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=undefined\nquery=1.390671161570104e-309,1.39067116157011e-309,1.390671161570113e-309,1.39067116157012e-309\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4"
+  "rts": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=undefined\nquery=1.390671161570163e-309,1.39067116157017e-309,1.390671161570173e-309,1.39067116157018e-309\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":364,"rts_diverge":92,"bun_node_diverge":17,"errors":136,"rejected":0}}
+],"summary":{"total":609,"pass":367,"rts_diverge":89,"bun_node_diverge":17,"errors":136,"rejected":0}}
