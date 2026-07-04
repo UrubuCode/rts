@@ -268,6 +268,9 @@ fn lower_decl(decl: &swc::Decl, scope: &mut Scope, raw_text: &str) -> HirStmt {
                     params,
                     ret: ret.clone(),
                     body,
+                    // A nested `function s(){ … s() … }` is self-visible by its
+                    // declaration name — same binding rule as a named fn-expr.
+                    self_name: Some(fd.ident.sym.to_string()),
                 },
                 HirType::Function {
                     params: vec![],
@@ -570,7 +573,16 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
                 // A REST param (`(...args) =>`) is variadic — the extraction and
                 // the uniform thunk pack the overflow args into it.
                 let variadic = matches!(p, swc::Pat::Rest(_));
-                HirParam { name, ty, variadic, has_default: false, optional: false, default_expr: None }
+                // A DEFAULTED param (`(n, acc = 1) =>`): keep the lowered default
+                // initializer — the synthesized fn's `fill_default_params`
+                // prologue replaces an `undefined` argument with it (dropping it
+                // here left `acc` as raw `undefined` through the uniform thunk).
+                let default_expr = match p {
+                    swc::Pat::Assign(a) => Some(Box::new(lower_swc_expr(&a.right, scope))),
+                    _ => None,
+                };
+                let has_default = default_expr.is_some();
+                HirParam { name, ty, variadic, has_default, optional: false, default_expr }
             }).collect();
             let ret = HirType::Unknown;
             let body = match &*arrow.body {
@@ -595,7 +607,7 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
                 }
             };
             HirExpr::new(
-                HirExprKind::Arrow { params, ret: ret.clone(), body },
+                HirExprKind::Arrow { params, ret: ret.clone(), body, self_name: None },
                 HirType::Function { params: vec![], ret: Box::new(ret) },
             )
         }
@@ -618,7 +630,17 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
                 let name = extract_swc_pat_name(&p.pat);
                 let annotation = extract_ts_type_annotation(&p.pat);
                 let ty = annotation.as_deref().map(parse_type_annotation).unwrap_or(HirType::Unknown);
-                HirParam { name, ty, variadic: false, has_default: false, optional: false, default_expr: None }
+                // Same param surface as the arrow lowering: a REST param is
+                // variadic; a DEFAULTED param keeps its lowered initializer
+                // (both were silently dropped here — `function (...args)` /
+                // `function (n, acc = 0)` as VALUES mis-bound their params).
+                let variadic = matches!(p.pat, swc::Pat::Rest(_));
+                let default_expr = match &p.pat {
+                    swc::Pat::Assign(a) => Some(Box::new(lower_swc_expr(&a.right, scope))),
+                    _ => None,
+                };
+                let has_default = default_expr.is_some();
+                HirParam { name, ty, variadic, has_default, optional: false, default_expr }
             }).collect();
             let ret = HirType::Unknown;
             let body = match &func.body {
@@ -629,7 +651,12 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
                 None => HirArrowBody::Block(Vec::new()),
             };
             HirExpr::new(
-                HirExprKind::Arrow { params, ret: ret.clone(), body },
+                HirExprKind::Arrow {
+                    params,
+                    ret: ret.clone(),
+                    body,
+                    self_name: fn_expr.ident.as_ref().map(|i| i.sym.to_string()),
+                },
                 HirType::Function { params: vec![], ret: Box::new(ret) },
             )
         }

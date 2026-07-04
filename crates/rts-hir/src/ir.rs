@@ -333,6 +333,11 @@ pub enum HirExprKind {
         params: Vec<HirParam>,
         ret: HirType,
         body: HirArrowBody,
+        /// A NAMED function expression's self-name (`function s(){ … s() … }`)
+        /// — visible only inside the body. The extraction pass renames internal
+        /// references to the synthesized top-level name, making self-recursive
+        /// named fn-exprs liftable. `None` for arrows / anonymous fn-exprs.
+        self_name: Option<String>,
     },
 
     // Pre/post increment/decrement
