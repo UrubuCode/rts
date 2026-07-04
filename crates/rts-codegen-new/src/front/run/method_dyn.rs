@@ -77,6 +77,12 @@ const DYN_METHODS: &[DynMethod] = &[
         ret_kind: JsKind::Str,
     },
     DynMethod {
+        name: "toString",
+        argc: 1,
+        symbol: "__rtsadp_dyn_to_string_radix",
+        ret_kind: JsKind::Str,
+    },
+    DynMethod {
         name: "indexOf",
         argc: 1,
         symbol: "__rtsadp_dyn_index_of",
@@ -265,6 +271,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // the boxed word into the prelude `class Number` method is unambiguous
         // (its `.ts` body ToNumbers the receiver).
         if matches!(method, "toFixed" | "toPrecision" | "toExponential") {
+            if let Some(val) =
+                self.try_primitive_class_method(module, recv, "Number", method, args)?
+            {
+                return Ok(Some(val));
+            }
+        }
+        // `.toString(radix)` — the RADIX form exists only on Number (String/
+        // Array toString take no args): a PROVEN-numeric receiver routes the
+        // prelude Number method (`(h & 0xFF).toString(16)` on an Int32 local).
+        if method == "toString"
+            && args.len() == 1
+            && matches!(
+                recv.repr,
+                crate::repr::Repr::Int32 | crate::repr::Repr::Int64 | crate::repr::Repr::Float64
+            )
+        {
             if let Some(val) =
                 self.try_primitive_class_method(module, recv, "Number", method, args)?
             {

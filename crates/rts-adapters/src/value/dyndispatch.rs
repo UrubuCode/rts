@@ -648,3 +648,32 @@ fn genops_to_i64(word: u64) -> i64 {
 fn genops_to_number(word: u64) -> f64 {
     genops::dyn_to_number(word)
 }
+
+/// `recv.toString(radix)` — tag-dispatched: a NUMBER receiver formats in the
+/// radix (`(255).toString(16)` → "ff"); any other receiver ignores the arg
+/// (JS String/Array/Object toString take none) and falls to the plain
+/// ToString. Radix outside 2..=36 clamps to 10 (never a wrong panic).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_dyn_to_string_radix(recv: u64, radix: u64) -> u64 {
+    let v = PolyValue::from_raw(recv);
+    let is_num = v.is_int32() || v.is_double();
+    if is_num {
+        let r = {
+            let rv = PolyValue::from_raw(radix);
+            if rv.is_int32() {
+                rv.as_i32() as i64
+            } else if rv.is_double() {
+                rv.as_f64() as i64
+            } else {
+                10
+            }
+        };
+        let r = if (2..=36).contains(&r) { r } else { 10 };
+        let h = rts_runtime::namespaces::engine::__RTS_FN_NS_ENGINE_NUM_TO_STRING_RADIX(
+            if v.is_int32() { v.as_i32() as f64 } else { v.as_f64() },
+            r,
+        );
+        return box_str(h);
+    }
+    __rtsadp_dyn_to_string(recv)
+}

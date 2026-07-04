@@ -418,6 +418,10 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             dyndispatch::__rtsadp_dyn_to_string as *const u8,
         ),
         sym(
+            "__rtsadp_dyn_to_string_radix",
+            dyndispatch::__rtsadp_dyn_to_string_radix as *const u8,
+        ),
+        sym(
             "__rtsadp_dyn_length",
             dyndispatch::__rtsadp_dyn_length as *const u8,
         ),
