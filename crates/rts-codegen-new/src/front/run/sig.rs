@@ -226,8 +226,12 @@ impl FnSig {
         let is_eager_generator = body_calls_fn(func, "__RTS_GEN_FINISH");
         // A LAZY generator constructor returns the GenState HANDLE from
         // `__RTS_GEN_SM_NEW` — a raw `i64` (kept `Int64`; it is an opaque handle, not
-        // a PolyValue, and is consumed by `GENERATOR_NEXT`/`GEN_SM_DRAIN`).
-        let is_lazy_gen = body_calls_fn(func, "__RTS_GEN_SM_NEW");
+        // a PolyValue, and is consumed by `GENERATOR_NEXT`/`GEN_SM_DRAIN`). An ASYNC
+        // generator ctor (`__RTS_AGEN_NEW`) returns the SAME GenState-handle shape —
+        // the runtime's NEXT/DRAIN dispatch `is_async_gen` themselves (polymorphic),
+        // so the front treats both as ONE lazy-generator kind.
+        let is_lazy_gen =
+            body_calls_fn(func, "__RTS_GEN_SM_NEW") || body_calls_fn(func, "__RTS_AGEN_NEW");
         if is_eager_generator {
             ret = Repr::Tagged;
         }
