@@ -186,7 +186,9 @@ const STRING_ROWS: &[(&str, usize, MethodSpec)] = &[
     (
         "codePointAt",
         1,
-        sm("__RTS_FN_GL_STRING_CODE_POINT_AT", &[I64], I64),
+        // ret PolyValue = a WORD verbatim (número inline OU `undefined` fora
+        // do range — a I64-número não carregava undefined).
+        sm("__RTS_FN_GL_STRING_CODE_POINT_AT", &[I64], AbiType::PolyValue),
     ),
     // ---- locale compare: one string arg, return number (-1/0/1) ----
     (
