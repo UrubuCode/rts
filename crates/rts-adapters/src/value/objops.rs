@@ -645,7 +645,7 @@ pub(crate) fn prop_enumerable(obj_word: u64, key: &str) -> bool {
 }
 
 /// Whether `obj_word.key` is configurable (bit2; absent ⇒ true).
-fn prop_configurable(obj_word: u64, key: &str) -> bool {
+pub(crate) fn prop_configurable(obj_word: u64, key: &str) -> bool {
     match desc_flags_table().lock() {
         Ok(t) => t
             .get(&(obj_word, key.to_string()))

@@ -49,6 +49,15 @@ pub fn register_promise_class_spec(e: &mut Engine) {
             false,
         ))
         .member(m(
+            "then",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle, AbiType::U64, AbiType::U64], AbiType::Handle),
+            "__RTS_FN_GL_PROMISE_THEN2",
+            "then<T>(onFulfilled: (value: any) => T, onRejected: (reason: any) => any): Promise<T>",
+            "promise.then(onFul, onRej) — forma 2-arg da spec: onRej roda na rejection.",
+            false,
+        ))
+        .member(m(
             "catch",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle, AbiType::U64], AbiType::Handle),

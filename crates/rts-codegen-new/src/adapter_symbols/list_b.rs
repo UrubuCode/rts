@@ -110,6 +110,10 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_GL_PROMISE_THEN as *const u8,
         ),
         sym(
+            "__RTS_FN_GL_PROMISE_THEN2",
+            rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_GL_PROMISE_THEN2 as *const u8,
+        ),
+        sym(
             "__RTS_FN_GL_PROMISE_CATCH",
             rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_GL_PROMISE_CATCH as *const u8,
         ),

@@ -160,7 +160,45 @@ pub extern "C" fn __rtsadp_own_keys_raw(obj_word: u64) -> u64 {
         let trap = super::objops::__rtsadp_obj_get(handler, trap_key);
         if PolyValue::from_raw(trap).is_function() {
             let undef = PolyValue::undefined().raw();
-            return super::funcops::__rtsadp_fn_invoke(trap, target, undef, undef, undef, 0);
+            let res = super::funcops::__rtsadp_fn_invoke(trap, target, undef, undef, undef, 0);
+            // Proxy INVARIANT: the trap result must include every
+            // NON-CONFIGURABLE own key of the target — omitting one is a
+            // TypeError (spec [[OwnPropertyKeys]] validation).
+            let listed: Vec<String> = {
+                let rv = PolyValue::from_raw(res);
+                if rv.is_object() {
+                    let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(rv.as_handle());
+                    let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(h).max(0);
+                    (0..len)
+                        .map(|i| {
+                            abi_adapter::resolve_poly(PolyValue::from_raw(
+                                rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(h, i) as u64,
+                            ))
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            };
+            let tk = __rtsadp_own_keys_raw(target);
+            let th = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(
+                PolyValue::from_raw(tk).as_handle(),
+            );
+            let tlen = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(th).max(0);
+            for i in 0..tlen {
+                let k = abi_adapter::resolve_poly(PolyValue::from_raw(
+                    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(th, i) as u64,
+                ));
+                if !super::objops::prop_configurable(target, &k) && !listed.contains(&k) {
+                    super::errslot::throw_js_error(
+                        "TypeError",
+                        "'ownKeys' on proxy: trap result did not include \
+                         non-configurable property of the proxy target",
+                    );
+                    return res;
+                }
+            }
+            return res;
         }
         return __rtsadp_own_keys_raw(target);
     }
