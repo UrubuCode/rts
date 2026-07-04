@@ -517,6 +517,30 @@ pub extern "C" fn __rtsadp_obj_has(obj_word: u64, key_str_handle: u64) -> i64 {
     if resolve_slot(obj_word, key_str_handle).is_some() {
         return 1;
     }
+    // A STRING WRAPPER box (`new String(s)` — a keyed object whose `__prim` slot
+    // holds a string): its UTF-16 code-unit indices are own properties, so the
+    // for-in [[HasProperty]] re-check accepts the index keys `obj_keys` lists.
+    {
+        let prim_key = abi_adapter::intern_poly("__prim").raw();
+        if let Some((handle, pi)) = resolve_slot(obj_word, prim_key) {
+            let pw = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 1 + pi) as u64;
+            let pv = PolyValue::from_raw(pw);
+            if pv.is_string() {
+                let key = key_text(key_str_handle);
+                if key.bytes().all(|b| b.is_ascii_digit())
+                    && !key.is_empty()
+                    && (key == "0" || !key.starts_with('0'))
+                {
+                    if let Ok(i) = key.parse::<usize>() {
+                        let len = abi_adapter::resolve_poly(pv).encode_utf16().count();
+                        if i < len {
+                            return 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
     // ARRAY receiver: `i in arr` is the INDEX-in-range check (JS: the indices
     // are own keys); `"length" in arr` is the own non-enumerable length.
     {
@@ -1219,7 +1243,8 @@ pub extern "C" fn __rtsadp_obj_values(obj_word: u64) -> u64 {
     // ENUMERATION order (array-index keys ascending first) — read each value BY KEY
     // (`obj_get`), not by storage slot, so the reorder and the value stay aligned.
     for k in super::iterops::reorder_enum_keys(object_keys_vec(obj_word)) {
-        if !prop_enumerable(obj_word, &k) {
+        // The wrapper box's internal primitive slot is not an own property.
+        if k == "__prim" || !prop_enumerable(obj_word, &k) {
             continue;
         }
         let v = __rtsadp_obj_get(obj_word, abi_adapter::intern_poly(&k).raw());
@@ -1234,7 +1259,8 @@ pub extern "C" fn __rtsadp_obj_values(obj_word: u64) -> u64 {
 pub extern "C" fn __rtsadp_obj_entries(obj_word: u64) -> u64 {
     let outer = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     for k in super::iterops::reorder_enum_keys(object_keys_vec(obj_word)) {
-        if !prop_enumerable(obj_word, &k) {
+        // The wrapper box's internal primitive slot is not an own property.
+        if k == "__prim" || !prop_enumerable(obj_word, &k) {
             continue;
         }
         let key_word = abi_adapter::intern_poly(&k).raw();

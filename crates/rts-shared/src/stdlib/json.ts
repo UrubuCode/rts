@@ -80,6 +80,12 @@ function __json_render(v: any, pad: string, depth: number, keyFilter: any, fnRep
   // undefined / function: omitted by JSON (the caller turns this into `null` in an
   // array, or skips the key in an object, or returns undefined at top level).
   if (t === "undefined" || t === "function") return undefined;
+  // A Boolean/Number/String WRAPPER object serializes as its wrapped PRIMITIVE
+  // (SerializeJSONProperty reads [[BooleanData]]/ToNumber/ToString of the box) —
+  // expando properties are ignored. `__prim` is the engine-owned wrapper slot.
+  if (t === "object" && typeof v.__prim !== "undefined") {
+    return __json_render(v.__prim, pad, depth, keyFilter, fnReplacer, seen);
+  }
   // Cycle detection (ECMAScript SerializeJSON*): re-entering a value already on
   // the render stack throws.
   if (seen.indexOf(v) >= 0) {
