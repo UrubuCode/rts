@@ -96,6 +96,24 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.builder.seal_block(update_block);
         self.builder.switch_to_block(update_block);
         self.block_terminated = false;
+        // PER-ITERATION `let` binding (spec CreatePerIterationEnvironment): a
+        // loop-header `let i` that is a CELL local (captured+mutated by a
+        // closure in the body) gets a FRESH cell here — copied from the current
+        // one — so each iteration's closures capture THEIR iteration's binding
+        // (`fns.push(() => i)` reads 0,1,2, not 3,3,3). The update below then
+        // mutates the NEW cell (the next iteration's binding), exactly the
+        // spec's copy-then-update order.
+        if let Some(HirStmt::Let { name, .. }) = init {
+            if self.is_cell_local(name) {
+                if let Some(local) = self.local(name) {
+                    let var = local.var;
+                    let cur_handle = self.builder.use_var(var);
+                    let val = self.emit_cell_get(module, cur_handle);
+                    let fresh = self.emit_cell_alloc(module, val.v);
+                    self.builder.def_var(var, fresh);
+                }
+            }
+        }
         if let Some(u) = update {
             self.lower_expr(module, u)?;
         }

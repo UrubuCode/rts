@@ -544,15 +544,60 @@ fn hoist_captures(funcs: &mut [HirFunc], main: &HirFunc, ctx: &mut Ctx) {
 /// blocks/control flow (a capture across those is not in the accepted subset).
 fn declared_locals(stmts: &[HirStmt]) -> HashSet<String> {
     let mut out = HashSet::new();
+    collect_declared(stmts, &mut out);
+    out
+}
+
+/// Recursively collect every `let`/`const` declared anywhere in the function —
+/// including LOOP HEADERS and nested blocks. A block-scoped `let` a closure
+/// captures+mutates is cellable exactly like a top-level one: its `let` stmt
+/// allocates the cell EACH time it executes, so a per-iteration body `let`
+/// naturally gets a fresh binding per pass (and the for-header `let` gets the
+/// spec's per-iteration copy in the loop lowering).
+fn collect_declared(stmts: &[HirStmt], out: &mut HashSet<String>) {
     for s in stmts {
         match s {
             HirStmt::Let { name, .. } | HirStmt::Const { name, .. } => {
                 out.insert(name.clone());
             }
+            HirStmt::If { then, else_, .. } => {
+                collect_declared(then, out);
+                if let Some(e) = else_ {
+                    collect_declared(e, out);
+                }
+            }
+            HirStmt::Try {
+                body,
+                catch,
+                finally,
+            } => {
+                collect_declared(body, out);
+                if let Some(c) = catch {
+                    collect_declared(&c.body, out);
+                }
+                if let Some(f) = finally {
+                    collect_declared(f, out);
+                }
+            }
+            HirStmt::Labeled { body, .. } => {
+                collect_declared(std::slice::from_ref(body), out);
+            }
+            HirStmt::While { body, .. } | HirStmt::DoWhile { body, .. } => {
+                collect_declared(body, out);
+            }
+            HirStmt::For { init, body, .. } => {
+                if let Some(init) = init {
+                    collect_declared(std::slice::from_ref(init), out);
+                }
+                collect_declared(body, out);
+            }
+            HirStmt::ForOf { body, .. } | HirStmt::ForIn { body, .. } => {
+                collect_declared(body, out);
+            }
+            HirStmt::Block(body) => collect_declared(body, out),
             _ => {}
         }
     }
-    out
 }
 
 struct Ctx {

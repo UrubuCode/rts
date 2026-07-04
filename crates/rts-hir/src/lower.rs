@@ -694,6 +694,18 @@ fn lower_call(call: &swc::CallExpr, scope: &Scope) -> HirExpr {
         swc::Callee::Expr(callee_expr) => {
             match callee_expr.as_ref() {
                 swc::Expr::Member(m) => {
+                    // A COMPUTED callee `arr[i](..)` / `obj[k](..)` is a VALUE
+                    // call of the indexed element (a fn-array slot, a fn-valued
+                    // computed prop) — keep the Index expr as the callee so the
+                    // element resolves at runtime (a `MethodCall` named
+                    // "[computed]" would DROP the index).
+                    if matches!(&m.prop, swc::MemberProp::Computed(_)) {
+                        let callee = Box::new(lower_swc_expr(callee_expr, scope));
+                        return HirExpr::new(
+                            HirExprKind::Call { callee, args },
+                            HirType::Unknown,
+                        );
+                    }
                     let object = Box::new(lower_swc_expr(&m.obj, scope));
                     let method = member_prop_name(&m.prop);
                     HirExpr::new(
