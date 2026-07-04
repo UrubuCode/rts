@@ -236,6 +236,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                         return Ok(Some(val));
                     }
                 }
+                // LAST: DYNAMIC Registry-class instance dispatch — the receiver
+                // may be a Registry instance (a Date/URL/… reached through an
+                // `any` param or a stored slot). Resolved at RUNTIME by each
+                // candidate class's `instanceof_predicate` (data-driven; the
+                // Registry counterpart of the user-class virtual dispatch).
+                if let Some(val) =
+                    self.try_registry_virtual_dynamic(module, recv, method, args)?
+                {
+                    return Ok(Some(val));
+                }
                 return Ok(None);
             }
             return Ok(None);

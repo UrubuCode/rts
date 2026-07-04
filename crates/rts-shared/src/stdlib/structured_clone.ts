@@ -73,11 +73,13 @@ function __structuredCloneInner(__scValue: any, __scSeen: any[], __scClones: any
   }
   // TYPE-PRESERVING Date clone: a fresh instance at the same epoch (the opaque
   // as-is return shared the instance — `copy.setFullYear` mutated the original).
-  // Date stays the AS-IS return below (the backend-opaque path): reading its
-  // epoch needs an instance-method call on an `any` receiver, and the dynamic
-  // Registry-class dispatch is a separate increment — a `getTime()` here was a
-  // runtime TypeError. Data is preserved; only clone-mutation isolation for
-  // Date is deferred (the pre-existing behavior).
+  // TYPE-PRESERVING Date clone: a fresh instance at the same epoch (the opaque
+  // as-is return shared the instance — `copy.setFullYear` mutated the
+  // original). `getTime()` on the `any` receiver rides the dynamic
+  // Registry-class dispatch; `* 1` proves the ctor's number overload.
+  if (__scValue instanceof Date) {
+    return new Date(__scValue.getTime() * 1);
+  }
   const __scKeys = Object.keys(__scValue);
   // A BACKEND-OPAQUE instance (Date/RegExp/URL — a Rust-backed object with NO
   // enumerable own keys): cloning key-by-key would produce an empty `{}` and

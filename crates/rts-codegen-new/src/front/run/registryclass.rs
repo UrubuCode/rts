@@ -352,6 +352,128 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     }
 }
 
+impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
+    /// DYNAMIC Registry-class instance dispatch on a TAGGED receiver of unproven
+    /// class (the Registry counterpart of `try_user_virtual_dynamic`): for every
+    /// Registry class that declares an `instanceof_predicate` AND resolves
+    /// `method` at this argc, emit a runtime arm
+    /// `if is_object(recv) && predicate(handle) { marshal + call }` — fully
+    /// DATA-DRIVEN (iterates the Registry metadata; the front names no class).
+    /// Args lower ONCE before any branch (single-eval; a Spread declines). The
+    /// fall-through (no predicate matched / non-object receiver) yields the
+    /// `undefined` sentinel — a TypeError class in JS, never a wrong value.
+    ///
+    /// `Ok(None)` when NO candidate exists — the caller keeps its later
+    /// fallbacks, so this must be tried LAST in the Tagged dispatch chain.
+    pub(super) fn try_registry_virtual_dynamic(
+        &mut self,
+        module: &mut dyn Module,
+        recv: Val,
+        method: &str,
+        args: &[HirExpr],
+    ) -> FrontResult<Option<Val>> {
+        use super::registry;
+        let cands = registry::dyn_instance_candidates(method, args.len());
+        if cands.is_empty() {
+            return Ok(None);
+        }
+        if args
+            .iter()
+            .any(|a| matches!(a.kind, HirExprKind::Spread(_)))
+        {
+            return Ok(None);
+        }
+        // Single-eval: lower every arg ONCE; the SSA values dominate all arms.
+        let mut argvals: Vec<Val> = Vec::with_capacity(args.len());
+        for a in args {
+            argvals.push(self.lower_expr(module, a)?);
+        }
+        let recv_word = self.box_value(recv);
+        // is_object gate + the real handle (same emission as
+        // `emit_registry_instanceof`; predicates tolerate a bogus handle → 0).
+        let boxed = value::emit_is_boxed(self.builder, recv_word);
+        let shifted = self
+            .builder
+            .ins()
+            .ushr_imm(recv_word, value::TAG_SHIFT as i64);
+        let tag = self.builder.ins().band_imm(shifted, value::TAG_MASK as i64);
+        let want = self
+            .builder
+            .ins()
+            .iconst(types::I64, value::TAG_OBJECT as i64);
+        let is_obj_tag = self.builder.ins().icmp(
+            cranelift_codegen::ir::condcodes::IntCC::Equal,
+            tag,
+            want,
+        );
+        let is_object = self.builder.ins().band(boxed, is_obj_tag);
+        let handle = value::emit_marshal::emit_table_load(module, self.builder, recv_word);
+
+        let merge = self.builder.create_block();
+        self.builder
+            .append_block_param(merge, types::I64);
+        for (class, pred, call) in &cands {
+            let pred_v = value::emit_marshal::emit_call_sig(
+                module,
+                self.builder,
+                pred,
+                &[handle],
+                &[AbiType::Handle],
+                AbiType::Bool,
+            )
+            .expect("instanceof predicate returns a value");
+            // Normalize the predicate's i64 0/1 to the icmp width before the
+            // `band` with `is_object` (mixed-width band is a verifier error).
+            let pred_b = self.builder.ins().icmp_imm(
+                cranelift_codegen::ir::condcodes::IntCC::NotEqual,
+                pred_v,
+                0,
+            );
+            let cond = self.builder.ins().band(is_object, pred_b);
+            let arm_blk = self.builder.create_block();
+            let next_blk = self.builder.create_block();
+            self.builder.ins().brif(cond, arm_blk, &[], next_blk, &[]);
+
+            self.builder.switch_to_block(arm_blk);
+            self.builder.seal_block(arm_blk);
+            // Pad the omitted defaulted tail (same rule as the static instance
+            // path) and classify the Handle return by the spec's flags.
+            let mut vals = argvals.clone();
+            for i in args.len()..call.arg_abis.len() {
+                vals.push(self.default_arg_val(call.default_args.get(i), class, i)?);
+            }
+            let result_kind = match call.ret {
+                AbiType::Handle if call.ret_is_string_handle => JsKind::Str,
+                AbiType::Handle if call.ret_is_array_handle => JsKind::Array,
+                AbiType::Handle => JsKind::Object,
+                AbiType::Bool => JsKind::Bool,
+                _ => JsKind::Number,
+            };
+            let v = self.emit_registry_call(module, call, Some(recv), &vals, result_kind)?;
+            let w = self.box_value(v);
+            self.builder.ins().jump(merge, &[w.into()]);
+
+            self.builder.switch_to_block(next_blk);
+            self.builder.seal_block(next_blk);
+        }
+        // DEFAULT: no predicate matched → the `undefined` sentinel.
+        let undef = self
+            .builder
+            .ins()
+            .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
+        self.builder.ins().jump(merge, &[undef.into()]);
+
+        self.builder.switch_to_block(merge);
+        self.builder.seal_block(merge);
+        let result = self.builder.block_params(merge)[0];
+        Ok(Some(Val::new_with_kind(
+            result,
+            crate::repr::Repr::Tagged,
+            JsKind::Unknown,
+        )))
+    }
+}
+
 /// The minimum explicit arg count a member accepts: the leading run of
 /// `DefaultArg::Required`. An empty `default_args` slice means every declared
 /// param is required (`required == total`). The `[required, total]` window is the

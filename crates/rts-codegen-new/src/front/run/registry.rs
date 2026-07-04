@@ -414,3 +414,39 @@ pub fn instanceof_predicate(class: &str) -> Option<&'static str> {
     let c: &'static rts_engine::Class = registry().class(class)?;
     c.instanceof_predicate.as_deref()
 }
+
+/// The candidate set for the DYNAMIC (runtime-predicate) Registry instance
+/// dispatch: every Registry class that BOTH declares an `instanceof_predicate`
+/// AND resolves instance method `method` for a call with `argc` explicit args
+/// (arity window `[required, total]`, same rule the static instance path uses).
+/// Ordered as registered. Data-driven — the front names no class.
+pub fn dyn_instance_candidates(
+    method: &str,
+    argc: usize,
+) -> Vec<(String, &'static str, ResolvedCall)> {
+    let reg: &'static rts_engine::Registry = registry();
+    reg.classes()
+        .filter_map(|c| {
+            let pred = c.instanceof_predicate.as_deref()?;
+            let m = c.resolve_instance_method(method, argc)?;
+            let call = instance_call(m);
+            // The call must ADMIT argc: within [required, total] of the explicit
+            // params (the emitter pads the omitted defaulted tail). Same rule as
+            // `required_args` in registryclass.rs: an empty `default_args` means
+            // every param is required.
+            let total = call.arg_abis.len();
+            let required = if call.default_args.is_empty() {
+                total
+            } else {
+                call.default_args
+                    .iter()
+                    .take_while(|d| matches!(d, DefaultArg::Required))
+                    .count()
+            };
+            if argc < required || argc > total {
+                return None;
+            }
+            Some((c.name.clone(), pred, call))
+        })
+        .collect()
+}
