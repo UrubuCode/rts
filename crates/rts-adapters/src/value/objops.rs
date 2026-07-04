@@ -679,6 +679,22 @@ fn desc_flags_table() -> &'static Mutex<HashMap<(u64, String), u8>> {
     T.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Store a CLASS METHOD on a prototype object: a plain `obj_set` plus the
+/// non-enumerable descriptor bits (writable + configurable, NOT enumerable) —
+/// class methods are non-enumerable in JS, so `for-in` over an instance (which
+/// walks the proto chain) must skip them, unlike a manual
+/// `C.prototype.m = fn` assignment (enumerable, and it takes the plain
+/// `obj_set` path). Called by the main prologue's method registration.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_proto_set_method(proto_word: u64, key_word: u64, val_word: u64) {
+    __rtsadp_obj_set(proto_word, key_word, val_word);
+    let key = key_text(key_word);
+    desc_flags_table()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert((proto_word, key), 0b101);
+}
+
 /// Object words marked non-extensible (`Object.preventExtensions`/`freeze`/`seal`).
 fn non_extensible_table() -> &'static Mutex<HashSet<u64>> {
     static T: OnceLock<Mutex<HashSet<u64>>> = OnceLock::new();

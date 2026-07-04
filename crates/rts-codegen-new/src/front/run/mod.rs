@@ -45,6 +45,7 @@ mod globalclass;
 mod globals;
 mod loops;
 mod mathobj;
+mod methodtable;
 mod method;
 mod method_array;
 mod method_dyn;

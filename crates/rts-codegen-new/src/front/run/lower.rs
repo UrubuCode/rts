@@ -437,6 +437,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // for plain functions, methods, AND constructors (all reach here).
         ctx.fill_default_params(module, func)?;
 
+        // METHOD-TABLE prologue (main only): register every class method's
+        // (instance shape-id, name) → thunk addr in the runtime table, so the
+        // dynamic property read reifies a class method as a VALUE (obj_get miss
+        // → `__rtsadp_method_table_add` counterpart in rts-adapters).
+        if ctx.is_main {
+            ctx.emit_method_table_registrations(module)?;
+        }
+
         ctx.lower_block(module, &func.body)?;
 
         // Fall-through at the end of the body. JS: a function with no `return`
