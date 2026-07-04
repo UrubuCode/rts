@@ -108,6 +108,65 @@ pub extern "C" fn __rtsadp_instanceof_fn(obj_word: u64, fn_ptr: u64) -> u64 {
     PolyValue::bool(matched).raw()
 }
 
+// ---- thenable-adoption SETTLERS (spec PromiseResolve, used by
+// `__rtsadp_promise_resolve_w`) ----
+
+/// Uniform-ABI thunk: RESOLVE the promise whose raw handle rides `env`
+/// (the settler fn's bound env slot) with `a0`.
+extern "C" fn settle_resolve_thunk(env: u64, a0: u64, _a1: u64, _a2: u64, _a3: u64, _r: u64) -> u64 {
+    use rts_runtime::namespaces::promise_slot;
+    rts_runtime::namespaces::gc::handles::with_entry(env, |e| {
+        if let Some(Entry::PromiseAsync(slot)) = e {
+            promise_slot::resolve(slot, a0 as i64);
+        }
+    });
+    PolyValue::undefined().raw()
+}
+
+/// Uniform-ABI thunk: REJECT the promise whose raw handle rides `env` with `a0`.
+extern "C" fn settle_reject_thunk(env: u64, a0: u64, _a1: u64, _a2: u64, _a3: u64, _r: u64) -> u64 {
+    use rts_runtime::namespaces::promise_slot;
+    rts_runtime::namespaces::gc::handles::with_entry(env, |e| {
+        if let Some(Entry::PromiseAsync(slot)) = e {
+            promise_slot::mark_handled(slot);
+            promise_slot::reject(slot, a0 as i64);
+        }
+    });
+    PolyValue::undefined().raw()
+}
+
+/// Build the `(resolve, reject)` settler FUNCTION-value pair over the promise
+/// `out_handle` (raw) — real callable `TAG_FUNCTION` words whose env carries
+/// the promise handle, exactly what a thenable's `then(res, rej)` expects.
+pub(crate) fn settler_pair(out_handle: u64) -> (u64, u64) {
+    let mk = |addr: u64| -> u64 {
+        let data = FunctionData {
+            fn_ptr: addr,
+            arity: 1,
+            name: Box::<str>::from(""),
+            bound_this: out_handle as i64,
+            has_bound_this: true,
+            bound_args: Vec::new(),
+            is_arrow: false,
+            has_this_param: false,
+            param_kinds: Vec::new(),
+            return_kind: 0,
+            packed_shim: 0,
+            source: None,
+            keep_alive: None,
+            prototype_handle: 0,
+            rest_param_idx: -1,
+            uniform_thunk: true,
+        };
+        let h = alloc_entry(Entry::Function(Box::new(data)));
+        PolyValue::from_function_handle(h & super::PAYLOAD_MASK).raw()
+    };
+    (
+        mk(settle_resolve_thunk as usize as u64),
+        mk(settle_reject_thunk as usize as u64),
+    )
+}
+
 // ---- function-VALUE data properties (`F.foo = v` / `F.foo`) (Phase 4) ----
 
 /// Side-table mapping `(fn identity, property name) → PolyValue word`, recording a

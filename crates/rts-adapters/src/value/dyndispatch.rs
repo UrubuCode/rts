@@ -582,6 +582,52 @@ pub extern "C" fn __rtsadp_dyn_trim(recv: u64) -> u64 {
     undef()
 }
 
+/// `Promise.resolve(x)` with an UNPROVEN `x` — THENABLE-aware (spec
+/// PromiseResolve): a keyed object whose `then` GETTER throws yields a
+/// REJECTED promise carrying the thrown value; a callable `then` is ADOPTED
+/// (invoked with resolve/reject settlers on a fresh pending promise); anything
+/// else settles a fulfilled promise with the value. Returns the real promise
+/// HANDLE (the same convention `__RTS_FN_GL_PROMISE_RESOLVE` returns).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_promise_resolve_w(word: u64) -> u64 {
+    use rts_runtime::namespaces::gc::handles as rt_handles;
+    use rts_runtime::namespaces::promise_slot;
+    let v = PolyValue::from_raw(word);
+    if v.is_object() && super::inspect::looks_like_object(v) {
+        let then = super::objops::__rtsadp_obj_get(
+            word,
+            abi_adapter::intern_poly("then").raw(),
+        );
+        if super::errslot::__rtsadp_err_pending() != 0 {
+            // The `then` GETTER threw — resolve() catches and REJECTS (spec).
+            let e = super::errslot::__rtsadp_err_take();
+            let slot = promise_slot::new_pending();
+            promise_slot::mark_handled(&slot);
+            promise_slot::reject(&slot, e as i64);
+            return rt_handles::alloc_entry(rt_handles::Entry::PromiseAsync(slot));
+        }
+        if PolyValue::from_raw(then).is_function() {
+            // ADOPT: run `then.call(x, res, rej)` with real settler fn values
+            // over a fresh pending promise.
+            let slot = promise_slot::new_pending();
+            let out = rt_handles::alloc_entry(rt_handles::Entry::PromiseAsync(slot));
+            let (res_fn, rej_fn) = super::funcops::settler_pair(out);
+            let undef = PolyValue::undefined().raw();
+            super::funcops::__rtsadp_fn_invoke_method(then, word, res_fn, rej_fn, undef, 0);
+            return out;
+        }
+    }
+    // Plain value / existing promise: the legacy resolve path (word passes as
+    // handle-or-value exactly like the static marshal did).
+    let raw = if v.is_object() || v.is_function() || v.is_string() {
+        rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle())
+    } else {
+        word
+    };
+    let r = rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_GL_PROMISE_RESOLVE(raw);
+    r as u64
+}
+
 /// The `@@<name>` HOOK method of an OBJECT arg (`matcher[Symbol.match]`), or
 /// `None` — string protocol hooks (match/replace/search/split).
 fn wellknown_hook(arg: u64, name: &str) -> Option<u64> {

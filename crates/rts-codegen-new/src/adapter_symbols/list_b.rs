@@ -543,6 +543,10 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             dyndispatch::__rtsadp_str_split_w as *const u8,
         ),
         sym(
+            "__rtsadp_promise_resolve_w",
+            dyndispatch::__rtsadp_promise_resolve_w as *const u8,
+        ),
+        sym(
             "__rtsadp_dyn_trim_start",
             dyndispatch::__rtsadp_dyn_trim_start as *const u8,
         ),

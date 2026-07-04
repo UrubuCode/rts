@@ -74,6 +74,27 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if let Some(val) = self.try_object_static_call(module, object, method, args)? {
             return Ok(val);
         }
+        // PRIMORDIAL `Promise.resolve(x)` — THENABLE-aware (spec PromiseResolve):
+        // a `then` getter that throws rejects; a callable `then` adopts; plain
+        // values keep the legacy fast path inside the trampoline.
+        if let HirExprKind::Ident(cls) = &object.kind {
+            if cls == "Promise"
+                && method == "resolve"
+                && args.len() == 1
+                && self.local(cls).is_none()
+            {
+                let a = self.lower_expr(module, &args[0])?;
+                let aw = self.box_value(a);
+                let h = self
+                    .call_runtime(module, "__rtsadp_promise_resolve_w", &[aw])?
+                    .expect("__rtsadp_promise_resolve_w returns a handle");
+                self.emit_post_call_error_check(module)?;
+                let word = self
+                    .call_runtime(module, "__rtsadp_box_handle_auto", &[h])?
+                    .expect("__rtsadp_box_handle_auto returns a word");
+                return Ok(Val::new(word, Repr::Tagged));
+            }
+        }
         // GLOBAL static of a pure-Registry class (today `Date.now()` /
         // `Date.UTC(..)` / `Date.parse(s)`, P5.16) — data-driven, no class literal.
         if let Some(val) = self.try_registry_static_call(module, object, method, args)? {
@@ -324,6 +345,27 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
             if let Some(val) = self.try_object_static_call(module, object, prop, args)? {
                 return Ok(val);
+            }
+            // PRIMORDIAL `Promise.resolve(x)` — THENABLE-aware (spec
+            // PromiseResolve): a `then` GETTER that throws rejects; a callable
+            // `then` is adopted; plain values keep the legacy fast path inside.
+            if let HirExprKind::Ident(cls) = &object.kind {
+                if cls == "Promise"
+                    && prop == "resolve"
+                    && args.len() == 1
+                    && self.local(cls).is_none()
+                {
+                    let a = self.lower_expr(module, &args[0])?;
+                    let aw = self.box_value(a);
+                    let h = self
+                        .call_runtime(module, "__rtsadp_promise_resolve_w", &[aw])?
+                        .expect("__rtsadp_promise_resolve_w returns a handle");
+                    self.emit_post_call_error_check(module)?;
+                    let word = self
+                        .call_runtime(module, "__rtsadp_box_handle_auto", &[h])?
+                        .expect("__rtsadp_box_handle_auto returns a word");
+                    return Ok(Val::new(word, Repr::Tagged));
+                }
             }
             // GLOBAL static of a pure-Registry class (today `Date.now()` /
             // `Date.UTC(..)` / `Date.parse(s)`, P5.16) — data-driven, no literal.
