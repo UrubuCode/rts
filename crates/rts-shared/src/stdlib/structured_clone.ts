@@ -43,6 +43,41 @@ function __structuredCloneInner(__scValue: any, __scSeen: any[], __scClones: any
     }
     return __scArr;
   }
+  // TYPE-PRESERVING Map/Set clone (the real algorithm): a fresh instance with
+  // each key/value deep-cloned. (Their `#`-private backing became correctly
+  // NON-enumerable, so the old key-walk sees zero keys and would return the
+  // SAME instance — a mutation on the clone then leaked into the original.)
+  if (__scValue instanceof Map) {
+    const __scMap = new Map();
+    __scSeen.push(__scValue);
+    __scClones.push(__scMap);
+    const __scEnt = __scValue.entries();
+    for (let __scI = 0; __scI < __scEnt.length; __scI++) {
+      const __scPair = __scEnt[__scI];
+      __scMap.set(
+        __structuredCloneInner(__scPair[0], __scSeen, __scClones),
+        __structuredCloneInner(__scPair[1], __scSeen, __scClones),
+      );
+    }
+    return __scMap;
+  }
+  if (__scValue instanceof Set) {
+    const __scSet = new Set();
+    __scSeen.push(__scValue);
+    __scClones.push(__scSet);
+    const __scVals = __scValue.values();
+    for (let __scI = 0; __scI < __scVals.length; __scI++) {
+      __scSet.add(__structuredCloneInner(__scVals[__scI], __scSeen, __scClones));
+    }
+    return __scSet;
+  }
+  // TYPE-PRESERVING Date clone: a fresh instance at the same epoch (the opaque
+  // as-is return shared the instance — `copy.setFullYear` mutated the original).
+  // Date stays the AS-IS return below (the backend-opaque path): reading its
+  // epoch needs an instance-method call on an `any` receiver, and the dynamic
+  // Registry-class dispatch is a separate increment — a `getTime()` here was a
+  // runtime TypeError. Data is preserved; only clone-mutation isolation for
+  // Date is deferred (the pre-existing behavior).
   const __scKeys = Object.keys(__scValue);
   // A BACKEND-OPAQUE instance (Date/RegExp/URL — a Rust-backed object with NO
   // enumerable own keys): cloning key-by-key would produce an empty `{}` and
