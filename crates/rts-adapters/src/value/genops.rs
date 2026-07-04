@@ -478,6 +478,18 @@ fn loose_eq(av: PolyValue, bv: PolyValue) -> bool {
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_typeof(a: u64) -> u64 {
     let v = PolyValue::from_raw(a);
+    // A Symbol instance rides as an OBJECT word (no distinct tag yet, #216) —
+    // `typeof` must still read `"symbol"` (`typeof Symbol.iterator`, a
+    // symbol-holding variable the front can't classify statically).
+    if v.is_object() {
+        use rts_runtime::namespaces::gc::handles as rt_handles;
+        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+        let is_sym =
+            rt_handles::with_entry(h, |e| matches!(e, Some(rt_handles::Entry::Symbol { .. })));
+        if is_sym {
+            return abi_adapter::intern_poly("symbol").raw();
+        }
+    }
     abi_adapter::intern_poly(v.typeof_str()).raw()
 }
 
