@@ -545,18 +545,18 @@
 ,
 {
   "name": "codex_array_from_iterator_close_on_throw",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "stop\nnext0,next1,next2,return",
   "node": "stop\nnext0,next1,next2,return",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": ""
 }
 ,
 {
   "name": "codex_array_iterator_reused_result_object",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "0,1,2",
   "node": "0,1,2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": ""
 }
 ,
 {
@@ -1708,7 +1708,7 @@
   "status": "rts_diverge",
   "bun": "{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return",
   "node": "{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return",
-  "rts": "{\"value\":1073741875,\"done\":false}\n{\"value\":{\"message\":\"E\",\"name\":\"Error\",\"stack\":\"\"},\"done\":true}\n{\"value\":\"R\",\"done\":true}"
+  "rts": "{\"value\":1073741874,\"done\":false}\n{\"value\":{\"message\":\"E\",\"name\":\"Error\",\"stack\":\"\"},\"done\":true}\n{\"value\":\"R\",\"done\":true}"
 }
 ,
 {
@@ -1737,10 +1737,10 @@
 ,
 {
   "name": "codex_yield_star_iterator_return_chain",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "{\"value\":0,\"done\":false}\n{\"value\":\"closed\",\"done\":true}\ninner-next0|inner-return:bye",
   "node": "{\"value\":0,\"done\":false}\n{\"value\":\"closed\",\"done\":true}\ninner-next0|inner-return:bye",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "{\"value\":0,\"done\":false}\n{\"value\":\"bye\",\"done\":true}\ninner-next0|inner-next1|inner-next2|inner-next3|outer-after:-1e-323"
 }
 ,
 {
@@ -1793,10 +1793,10 @@
 ,
 {
   "name": "409_for_of_iterator_close",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "3\nnext0,next1,next2,return",
   "node": "3\nnext0,next1,next2,return",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "3\nnext0,next1,next2,next3,next4"
 }
 ,
 {
@@ -2857,10 +2857,10 @@
 ,
 {
   "name": "354_obf_proxy_trap",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "255\ntest\n5\n20\nadd(2,3)|mul(4,5)",
   "node": "255\ntest\n5\n20\nadd(2,3)|mul(4,5)",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "255\ntest\nNaN\nNaN\nadd(undefined)|mul(undefined)"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":436,"rts_diverge":57,"bun_node_diverge":17,"errors":99,"rejected":0}}
+],"summary":{"total":609,"pass":436,"rts_diverge":62,"bun_node_diverge":17,"errors":94,"rejected":0}}
