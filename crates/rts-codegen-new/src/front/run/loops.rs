@@ -134,17 +134,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // walks directly. The engine names ONLY the `Symbol.iterator` protocol key,
         // never the class.
         if let Some(arr_word) = self.try_class_iterator_source_word(module, iterable)? {
-            return self.lower_index_walk(module, binding, arr_word, body);
+            return self.lower_index_walk(module, binding, arr_word, body, None);
         }
         // LAZY generator source (`for (const x of g())` where `g` is a generator
         // with loops/yield*): `g()` returns a GenState handle. DRAIN it to a real
         // array (runs the state machine to completion, collecting yields) and walk
         // that. Detected by the callee's `ret_lazy_gen` flag.
         if let Some(arr_word) = self.try_lazy_gen_source_word(module, iterable)? {
-            return self.lower_index_walk(module, binding, arr_word, body);
+            return self.lower_index_walk(module, binding, arr_word, body, None);
         }
         let arr_word = self.for_of_source_word(module, iterable)?;
-        self.lower_index_walk(module, binding, arr_word, body)
+        self.lower_index_walk(module, binding, arr_word, body, None)
     }
 
     /// If `iterable` is an instance of a class declaring `[Symbol.iterator]()`
@@ -256,9 +256,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let obj = self.lower_expr(module, object)?;
         let obj_word = self.box_value(obj);
         let keys_word = self
-            .call_runtime(module, "__rtsadp_obj_keys", &[obj_word])?
-            .expect("__rtsadp_obj_keys returns a value");
-        self.lower_index_walk(module, binding, keys_word, body)
+            .call_runtime(module, "__rtsadp_for_in_keys", &[obj_word])?
+            .expect("__rtsadp_for_in_keys returns a value");
+        self.lower_index_walk(module, binding, keys_word, body, Some(obj_word))
     }
 
     /// Resolve the for-of `iterable` to an array PolyValue WORD to walk: a proven
@@ -330,6 +330,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         binding: &str,
         arr_word: Value,
         body: &[HirStmt],
+        // for-in: the SOURCE object word — each key is re-checked with
+        // `[[HasProperty]]` before the body runs (a key deleted mid-iteration is
+        // SKIPPED, JS EnumerateObjectProperties). for-of passes `None`.
+        present_guard: Option<Value>,
     ) -> FrontResult<()> {
         // Hold the source array + the live length in fresh Tagged/Int64 locals so
         // they survive across the loop's blocks (SSA φ is the builder's job).
@@ -384,6 +388,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // for-of yields `undefined` for a sparse HOLE ([[Get]] semantics).
         let elem = crate::value::emit_marshal::emit_hole_to_undef(self.builder, elem);
         self.builder.def_var(bind_var, elem);
+        // for-in mid-iteration guard: a key deleted since the snapshot is skipped.
+        if let Some(obj_w) = present_guard {
+            let has = self
+                .call_runtime(module, "__rtsadp_obj_has", &[obj_w, elem])?
+                .expect("__rtsadp_obj_has returns a flag");
+            let run_block = self.builder.create_block();
+            self.builder
+                .ins()
+                .brif(has, run_block, &[], advance_block, &[]);
+            self.builder.switch_to_block(run_block);
+            self.builder.seal_block(run_block);
+            self.block_terminated = false;
+        }
         let label = self.pending_label.take();
         self.loop_stack.push(LoopCtx {
             exit: exit_block,

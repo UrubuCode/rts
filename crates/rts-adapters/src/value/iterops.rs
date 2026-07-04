@@ -282,6 +282,61 @@ fn obj_keys_impl(obj_word: u64, enumerable_only: bool) -> u64 {
     box_vec_as_array(vec)
 }
 
+/// for-in key list (`EnumerateObjectProperties`): the OWN enumerable string
+/// keys PLUS the PROTOTYPE CHAIN's enumerable keys (deduped — an own key
+/// shadows an inherited one). Arrays/strings keep the index behavior of
+/// `obj_keys`; the chain walk only applies to keyed objects.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_for_in_keys(obj_word: u64) -> u64 {
+    let own = __rtsadp_obj_keys(obj_word);
+    let obj = PolyValue::from_raw(obj_word);
+    if !(obj.is_object() && looks_like_object(obj)) {
+        return own;
+    }
+    let out_h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(PolyValue::from_raw(own).as_handle());
+    let mut seen: Vec<String> = {
+        let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(out_h).max(0);
+        (0..len)
+            .map(|i| {
+                abi_adapter::resolve_poly(PolyValue::from_raw(
+                    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(out_h, i) as u64,
+                ))
+            })
+            .collect()
+    };
+    let mut cur = obj_word;
+    let mut depth = 0;
+    while depth < 32 {
+        depth += 1;
+        let proto = match super::protos::proto_of(cur) {
+            Some(0) | None => break,
+            Some(p) => p,
+        };
+        let pv = PolyValue::from_raw(proto);
+        if !(pv.is_object() && looks_like_object(pv)) {
+            break;
+        }
+        let pk = __rtsadp_obj_keys(proto);
+        let pk_h =
+            rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(PolyValue::from_raw(pk).as_handle());
+        let plen = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(pk_h).max(0);
+        for i in 0..plen {
+            let w = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(pk_h, i) as u64;
+            let s = abi_adapter::resolve_poly(PolyValue::from_raw(w));
+            // `constructor` is NON-enumerable on real prototypes — the proto
+            // objects this model builds store it as a plain (enumerable) slot,
+            // so filter it here.
+            if s == "constructor" || seen.contains(&s) {
+                continue;
+            }
+            seen.push(s);
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out_h, w as i64);
+        }
+        cur = proto;
+    }
+    own
+}
+
 /// `Object.getOwnPropertySymbols(o)` — the SYMBOL-keyed own entries, decoded
 /// from their canonical `@@sym:<handle>` storage keys (#798) back to symbol
 /// words, in shape order. Non-keyed receivers → `[]`.
