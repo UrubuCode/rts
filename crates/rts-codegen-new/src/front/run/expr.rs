@@ -313,6 +313,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     return Ok(Val::tagged_kind(v, JsKind::Str));
                 }
             }
+            // `typeof Math.<m>` — fold from the SAME data the Math call path
+            // dispatches on ("number" constant / "function" method /
+            // "undefined"). Math is PRIMORDIAL (the engine may name it); a
+            // local or user class named `Math` shadows and falls through.
+            if let HirExprKind::Member { object, prop } = &operand.kind {
+                if let HirExprKind::Ident(n) = &object.kind {
+                    if n == "Math" && self.local(n).is_none() && self.classes.get(n).is_none() {
+                        let s = super::mathobj::math_member_typeof(prop);
+                        let pv = abi_adapter::intern_poly(s);
+                        let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
+                        return Ok(Val::tagged_kind(v, JsKind::Str));
+                    }
+                }
+            }
             // `typeof <truly-undeclared ident>` is the ONE JS construct that may
             // name an unbound identifier without a ReferenceError — it yields
             // `"undefined"`. A bare ident that resolves to NOTHING (not a local/
