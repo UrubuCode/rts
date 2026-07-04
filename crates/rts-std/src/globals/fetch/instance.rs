@@ -475,7 +475,11 @@ fn make_resolver_fn(promise_h: u64, is_resolve: bool) -> u64 {
     };
     alloc_entry(Entry::Function(Box::new(FunctionData {
         fn_ptr,
-        arity: 1,
+        // Convencao: `arity` e' o TOTAL de params do fn_ptr (bound INCLUSOS) —
+        // `.length` e o invoke leem `arity - bound_args.len()` como a aridade
+        // visivel. O trampolim recebe (promise_h, value) = 2, promise_h bound.
+        // Com 1, `invoke_legacy_fn` fatiava 0 args e o resolve nunca settlava.
+        arity: 2,
         name: (if is_resolve { "resolve" } else { "reject" })
             .to_string()
             .into_boxed_str(),
