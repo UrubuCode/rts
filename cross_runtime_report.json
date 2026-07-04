@@ -545,18 +545,18 @@
 ,
 {
   "name": "codex_array_from_iterator_close_on_throw",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "stop\nnext0,next1,next2,return",
   "node": "stop\nnext0,next1,next2,return",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": ""
 }
 ,
 {
   "name": "codex_array_iterator_reused_result_object",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "0,1,2",
   "node": "0,1,2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": ""
 }
 ,
 {
@@ -681,10 +681,10 @@
 ,
 {
   "name": "codex_primitive_wrappers_truthiness",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "truthy:object:boolean:false\ntruthy:object:number:0\ntruthy:object:string:\nextra:false",
   "node": "truthy:object:boolean:false\ntruthy:object:number:0\ntruthy:object:string:\nextra:false",
-  "rts": "truthy:object:boolean:false\ntruthy:object:number:0\ntruthy:object:string:\n__prim,extra:{\"__prim\":false,\"extra\":3}"
+  "rts": "truthy:object:boolean:false\ntruthy:object:number:0\ntruthy:object:string:\nextra:false"
 }
 ,
 {
@@ -697,10 +697,10 @@
 ,
 {
   "name": "155_object_getprototypeof",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "is_object_proto=true\nis_array_proto=true\nchild_proto=true\nchild_x=10\nnew_proto=true\nhas_b=2",
   "node": "is_object_proto=true\nis_array_proto=true\nchild_proto=true\nchild_x=10\nnew_proto=true\nhas_b=2",
-  "rts": "is_object_proto=false\nis_array_proto=true\nchild_proto=true\nchild_x=10\nnew_proto=true\nhas_b=2"
+  "rts": "is_object_proto=true\nis_array_proto=true\nchild_proto=true\nchild_x=10\nnew_proto=true\nhas_b=2"
 }
 ,
 {
@@ -881,10 +881,10 @@
 ,
 {
   "name": "374_private_static_methods",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown",
   "node": "Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "[object Object]\n[object Object]\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown"
 }
 ,
 {
@@ -1113,10 +1113,10 @@
 ,
 {
   "name": "codex_set_forEach_mutation_order",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1:1:true|3:3:true|4:4:true|5:5:true\n1,3,4,5",
   "node": "1:1:true|3:3:true|4:4:true|5:5:true\n1,3,4,5",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "1:1:true|3:3:true|4:4:true|5:5:true\n1,3,4,5"
 }
 ,
 {
@@ -1225,10 +1225,10 @@
 ,
 {
   "name": "414_date_overflow_utc",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "2021-02-02T02:02:02.000Z\n2021-1-2\nInvalid Date\ntrue",
   "node": "2021-02-02T02:02:02.000Z\n2021-1-2\nInvalid Date\ntrue",
-  "rts": "2021-02-02T02:02:02.000Z\n2021-1-2\n\nfalse"
+  "rts": "2021-02-02T02:02:02.000Z\n2021-1-2\nInvalid Date\ntrue"
 }
 ,
 {
@@ -1241,10 +1241,10 @@
 ,
 {
   "name": "codex_date_invalid_setters_nan",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "true\nfalse\n2020-0-2\ntrue\nInvalid Date",
   "node": "true\nfalse\n2020-0-2\ntrue\nInvalid Date",
-  "rts": "false\nfalse\n2020-0-2\nfalse"
+  "rts": "true\nfalse\n2020-0-2\ntrue\nInvalid Date"
 }
 ,
 {
@@ -1265,10 +1265,10 @@
 ,
 {
   "name": "58_text_encoding",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "len=8\nhex=63,61,66,c3,a9,2d,ce,bb\ntext=café-λ",
   "node": "len=8\nhex=63,61,66,c3,a9,2d,ce,bb\ntext=café-λ",
-  "rts": "len=8\nhex=\ntext=café-λ"
+  "rts": "len=8\nhex=63,61,66,c3,a9,2d,ce,bb\ntext=café-λ"
 }
 ,
 {
@@ -1281,26 +1281,26 @@
 ,
 {
   "name": "codex_textdecoder_fatal_ignorebom",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "A\n65279\nTypeError",
   "node": "A\n65279\nTypeError",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "A\n65279\nTypeError"
 }
 ,
 {
   "name": "codex_textdecoder_streaming_split_utf8",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "0:\n2:🙂\n0:",
   "node": "0:\n2:🙂\n0:",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "0:\n2:🙂\n0:"
 }
 ,
 {
   "name": "codex_textencoder_encodeinto_partial",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "3:5\n65,240,159,153,130\nA🙂",
   "node": "3:5\n65,240,159,153,130\nA🙂",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "3:5\n65,240,159,153,130\nA🙂"
 }
 ,
 {
@@ -1324,7 +1324,7 @@
   "status": "rts_diverge",
   "bun": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
   "node": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
-  "rts": "caught:handled\nundefined\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C"
+  "rts": "caught:handled\nA1,A2,A3,B1,B2,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C"
 }
 ,
 {
@@ -1465,10 +1465,10 @@
 ,
 {
   "name": "claude-closure-capture-let-loop",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "0,1,2\n0,1,2",
   "node": "0,1,2\n0,1,2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "0,1,2\n0,1,2"
 }
 ,
 {
@@ -1505,10 +1505,10 @@
 ,
 {
   "name": "claude-let-vs-var-loop-closures",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "0\n1\n2\n3\n3\n3",
   "node": "0\n1\n2\n3\n3\n3",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "0\n1\n2\n0\n1\n2"
 }
 ,
 {
@@ -1553,18 +1553,18 @@
 ,
 {
   "name": "claude-nested-loop-let-closures",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "0 1 10 11 20 21",
   "node": "0 1 10 11 20 21",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "0 1 10 11 20 21"
 }
 ,
 {
   "name": "claude-per-iter-let-mutable-state",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1\n2\n2\n3\n6",
   "node": "1\n2\n2\n3\n6",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "1\n2\n2\n3\n6"
 }
 ,
 {
@@ -1657,10 +1657,10 @@
 ,
 {
   "name": "109_async_generator",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "async=1,2,3",
   "node": "async=1,2,3",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "async=1,2,3"
 }
 ,
 {
@@ -1697,10 +1697,10 @@
 ,
 {
   "name": "codex_async_generator_yield_await_finally",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "{\"value\":\"a\",\"done\":false}\n{\"value\":\"fin\",\"done\":false}\n{\"value\":\"ret\",\"done\":true}",
   "node": "{\"value\":\"a\",\"done\":false}\n{\"value\":\"fin\",\"done\":false}\n{\"value\":\"ret\",\"done\":true}",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "{\"done\":true}\n{\"value\":\"fin\",\"done\":false}\n{\"done\":true}"
 }
 ,
 {
@@ -1708,7 +1708,7 @@
   "status": "rts_diverge",
   "bun": "{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return",
   "node": "{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return",
-  "rts": "{\"value\":1073741865,\"done\":false}\n{\"value\":{\"message\":\"E\",\"name\":\"Error\",\"stack\":\"\"},\"done\":true}\n{\"value\":\"R\",\"done\":true}"
+  "rts": "{\"value\":1073741874,\"done\":false}\n{\"value\":{\"message\":\"E\",\"name\":\"Error\",\"stack\":\"\"},\"done\":true}\n{\"value\":\"R\",\"done\":true}"
 }
 ,
 {
@@ -1785,10 +1785,10 @@
 ,
 {
   "name": "392_async_iterator_advanced",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
   "node": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "undefined"
 }
 ,
 {
@@ -1860,7 +1860,7 @@
   "status": "rts_diverge",
   "bun": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\"",
   "node": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\"",
-  "rts": "cls={}\ndate={}"
+  "rts": "cls={}\ndate=\"2024-05-10T12:34:56.789Z\""
 }
 ,
 {
@@ -1913,10 +1913,10 @@
 ,
 {
   "name": "codex_json_tojson_replacer_interaction",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number",
   "node": "{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number",
-  "rts": "{\"a\":1,\"child\":{}}\nrep::object|rep:a:number|rep:child:object|rep:toJSON:function"
+  "rts": "{\"a\":1,\"child\":{\"b\":2}}\nrep::object|rep:a:number|toJSON:child|rep:child:child|rep:b:number|rep:c:number"
 }
 ,
 {
@@ -2081,10 +2081,10 @@
 ,
 {
   "name": "316_structuredclone_mixed",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi",
   "node": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi"
 }
 ,
 {
@@ -2156,7 +2156,7 @@
   "status": "rts_diverge",
   "bun": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
   "node": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
-  "rts": "3\n99\nfalse\ntrue\n2099\n2099\ntrue\nhello\ngi\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue\nundefined\n1\ntrue\nfalse"
+  "rts": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse"
 }
 ,
 {
@@ -2193,10 +2193,10 @@
 ,
 {
   "name": "97_structured_clone_edge",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
   "node": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true"
 }
 ,
 {
@@ -2473,10 +2473,10 @@
 ,
 {
   "name": "claude-negative-zero-identity",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "false\ntrue\ntrue\n-Infinity\nInfinity\n-Infinity\n0\n0\n0\ntrue\n0\ntrue",
   "node": "false\ntrue\ntrue\n-Infinity\nInfinity\n-Infinity\n0\n0\n0\ntrue\n0\ntrue",
-  "rts": "false\ntrue\ntrue\n-Infinity\nInfinity\nInfinity\n0\n0\n0\nfalse\n0\ntrue"
+  "rts": "false\ntrue\ntrue\n-Infinity\nInfinity\n-Infinity\n0\n0\n0\ntrue\n0\ntrue"
 }
 ,
 {
@@ -2588,7 +2588,7 @@
   "status": "rts_diverge",
   "bun": "string\ntrue\n0\ntrue",
   "node": "string\ntrue\n0\ntrue",
-  "rts": "string\ntrue\n0\nfalse"
+  "rts": "string\ntrue\nNaN\nfalse"
 }
 ,
 {
@@ -2652,15 +2652,15 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "value=42\nstill=42\nkeys=a\nb=10\ngetter=10",
-  "rts": "value=42\nstill=42\nkeys=a\nb=10\ngetter=5"
+  "rts": "value=42\nstill=42\nkeys=a\nb=10\ngetter=10"
 }
 ,
 {
   "name": "162_object_create_null",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "a=1\nproto=null\ntoString=true\nproto2=true\nchild_x=10\nown=false\nwithProps=1",
   "node": "a=1\nproto=null\ntoString=true\nproto2=true\nchild_x=10\nown=false\nwithProps=1",
-  "rts": "a=1\nproto=null\ntoString=true\nproto2=true\nchild_x=10\nown=false\nwithProps=undefined"
+  "rts": "a=1\nproto=null\ntoString=true\nproto2=true\nchild_x=10\nown=false\nwithProps=1"
 }
 ,
 {
@@ -2737,26 +2737,26 @@
 ,
 {
   "name": "216_object_keys_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "keys=c,a,b\nnumeric=1,2,3\nmixed=1,2,b,a\nwithSym=a,b",
   "node": "keys=c,a,b\nnumeric=1,2,3\nmixed=1,2,b,a\nwithSym=a,b",
-  "rts": "keys=c,a,b\nnumeric=2,1,3\nmixed=b,1,a,2\nwithSym=a,b"
+  "rts": "keys=c,a,b\nnumeric=1,2,3\nmixed=1,2,b,a\nwithSym=a,b"
 }
 ,
 {
   "name": "221_object_constructor",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "empty=true\nwith_obj=1\nfunc=2\nnum=true\nstr=true\nbool=true",
   "node": "empty=true\nwith_obj=1\nfunc=2\nnum=true\nstr=true\nbool=true",
-  "rts": "empty=true\nwith_obj=undefined\nfunc=2\nnum=true\nstr=true\nbool=true"
+  "rts": "empty=true\nwith_obj=1\nfunc=2\nnum=true\nstr=true\nbool=true"
 }
 ,
 {
   "name": "227_object_hasownproperty",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "has_a=true\nhas_c=false\nchild_a=false\nchild_d=true\narr_0=true\narr_5=false\narr_length=true",
   "node": "has_a=true\nhas_c=false\nchild_a=false\nchild_d=true\narr_0=true\narr_5=false\narr_length=true",
-  "rts": "has_a=true\nhas_c=false\nchild_a=false\nchild_d=true\narr_0=false\narr_5=false\narr_length=false"
+  "rts": "has_a=true\nhas_c=false\nchild_a=false\nchild_d=true\narr_0=true\narr_5=false\narr_length=true"
 }
 ,
 {
@@ -2769,10 +2769,10 @@
 ,
 {
   "name": "253_object_keys_empty",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "empty=\narr=0,1,2\nstr=0,1\nnum=",
   "node": "empty=\narr=0,1,2\nstr=0,1\nnum=",
-  "rts": "empty=\narr=0,1,2\nstr=__prim\nnum=__prim"
+  "rts": "empty=\narr=0,1,2\nstr=0,1\nnum="
 }
 ,
 {
@@ -2809,10 +2809,10 @@
 ,
 {
   "name": "335_getter_setter",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "0\n5\n0\n0\n32\n100\n1.0.0\n10",
   "node": "0\n5\n0\n0\n32\n100\n1.0.0\n10",
-  "rts": "0\n5\n0\n0\n32\n100\n1.0.0\n5"
+  "rts": "0\n5\n0\n0\n32\n100\n1.0.0\n10"
 }
 ,
 {
@@ -2932,7 +2932,7 @@
   "status": "rts_diverge",
   "bun": "{\"z\":0,\"a\":3,\"b\":5,\"c\":4}\nz,a,b,c\nget-a",
   "node": "{\"z\":0,\"a\":3,\"b\":5,\"c\":4}\nz,a,b,c\nget-a",
-  "rts": "{\"z\":0,\"b\":5,\"a\":3,\"hidden\":9,\"c\":4}\nz,b,a,hidden,c\nhidden"
+  "rts": "{\"z\":0,\"b\":5,\"a\":3,\"hidden\":9,\"c\":4}\nz,b,a,hidden,c\nget-a,hidden,get-a,hidden"
 }
 ,
 {
@@ -2945,18 +2945,18 @@
 ,
 {
   "name": "416_proxy_receiver_setter_this",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "new:set\nnew:set:get\ntrue",
   "node": "new:set\nnew:set:get\ntrue",
-  "rts": "base\nnew\ntrue"
+  "rts": "new:set\nnew:set:get\ntrue"
 }
 ,
 {
   "name": "419_property_enumeration_mutation",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "a,p1,p2\na,c\ntrue",
   "node": "a,p1,p2\na,c\ntrue",
-  "rts": "a,b\na,c\ntrue"
+  "rts": "a,p1,p2\na,c\ntrue"
 }
 ,
 {
@@ -2993,18 +2993,18 @@
 ,
 {
   "name": "claude-destr-default-side-effect",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "10\n-2\n-3\ny,z\n5 200 300\ny,z,q,r",
   "node": "10\n-2\n-3\ny,z\n5 200 300\ny,z,q,r",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "10\n-2\n-3\ny,z\n5 200 300\ny,z,q,r"
 }
 ,
 {
   "name": "claude-destr-nested-default-order",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1 1 1\nc,e\n5 1\ndefault-n,o",
   "node": "1 1 1\nc,e\n5 1\ndefault-n,o",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "1 1 1\nc,e\n5 1\ndefault-n,o"
 }
 ,
 {
@@ -3044,15 +3044,15 @@
   "status": "rts_diverge",
   "bun": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
   "node": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
-  "rts": "{\"value\":42}\n{\"nested\":{\"value\":42},\"plain\":1}\n[{\"value\":42},{\"value\":42}]\n{\"when\":{}}\n{}\n{\"a\":[1,2,3]}"
+  "rts": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n{}\n7"
 }
 ,
 {
   "name": "claude-keys-numeric-order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "0,1,2,10,b,a,c\n3,5,100,z,y,x\n4,2,6,1,3,5\n1,9,01,-1,1.5",
   "node": "0,1,2,10,b,a,c\n3,5,100,z,y,x\n4,2,6,1,3,5\n1,9,01,-1,1.5",
-  "rts": "0,1,2,10,b,a,c\nz,5,y,3,x,100\n1,2,3,4,5,6\n01,1,-1,1.5,9"
+  "rts": "0,1,2,10,b,a,c\n3,5,100,z,y,x\n4,2,6,1,3,5\n1,9,01,-1,1.5"
 }
 ,
 {
@@ -3060,7 +3060,7 @@
   "status": "rts_diverge",
   "bun": "1\n2\n2\ntrue\n1\ntrue true true",
   "node": "1\n2\n2\ntrue\n1\ntrue true true",
-  "rts": "1\n2\n2\ntrue\nundefined\nundefined undefined undefined"
+  "rts": "1\n2\n4\ntrue\n1\ntrue true true"
 }
 ,
 {
@@ -3068,15 +3068,15 @@
   "status": "rts_diverge",
   "bun": "{\"x\":1,\"y\":3,\"z\":4}\nx,y,z\nfirst,p,q,last\np,q\n{\"a\":1}\n{\"0\":\"a\",\"1\":\"b\"}",
   "node": "{\"x\":1,\"y\":3,\"z\":4}\nx,y,z\nfirst,p,q,last\np,q\n{\"a\":1}\n{\"0\":\"a\",\"1\":\"b\"}",
-  "rts": "{\"x\":1,\"y\":3,\"z\":4}\nx,y,z\nfirst,p,q,last\n\n{\"a\":1}\n{}"
+  "rts": "{\"x\":1,\"y\":3,\"z\":4}\nx,y,z\nfirst,p,q,last\np,q,p,q\n{\"a\":1}\n{}"
 }
 ,
 {
   "name": "claude-typeof-edge-cases",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "object\nundefined\nfunction\nsymbol\nsymbol\nnumber\nstring\nboolean\nobject\nobject\nfunction\nnumber\nfunction\nobject\nstring",
   "node": "object\nundefined\nfunction\nsymbol\nsymbol\nnumber\nstring\nboolean\nobject\nobject\nfunction\nnumber\nfunction\nobject\nstring",
-  "rts": "object\nundefined\nfunction\nsymbol\nobject\nnumber\nstring\nboolean\nobject\nobject\nfunction\nnumber\nfunction\nundefined\nstring"
+  "rts": "object\nundefined\nfunction\nsymbol\nsymbol\nnumber\nstring\nboolean\nobject\nobject\nfunction\nnumber\nfunction\nobject\nstring"
 }
 ,
 {
@@ -3089,10 +3089,10 @@
 ,
 {
   "name": "codex_defineproperties_partial_side_effect",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "get-a\nget-b\nbad",
   "node": "get-a\nget-b\nbad",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "get-a\nget-b\nbad"
 }
 ,
 {
@@ -3113,10 +3113,10 @@
 ,
 {
   "name": "codex_object_assign_setter_order",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "true\n2\nget-a|set-a:1|get-b|set-a:3",
   "node": "true\n2\nget-a|set-a:1|get-b|set-a:3",
-  "rts": "true\n2\nget-b"
+  "rts": "true\n2\nget-a|set-a:1|get-b|set-a:3"
 }
 ,
 {
@@ -3132,7 +3132,7 @@
   "status": "rts_diverge",
   "bun": "10:10:x\ntrue\n9:10:x",
   "node": "10:10:x\ntrue\n9:10:x",
-  "rts": "5:1:x\ntrue\n9:1:x"
+  "rts": "10:10:x\ntrue\n18:18:x"
 }
 ,
 {
@@ -3185,10 +3185,10 @@
 ,
 {
   "name": "codex_proxy_invariant_nonconfigurable",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "TypeError\n1",
   "node": "TypeError\n1",
-  "rts": "1"
+  "rts": "TypeError\n1"
 }
 ,
 {
@@ -3273,10 +3273,10 @@
 ,
 {
   "name": "codex_event_emitter_once_mutation",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "a1,once1,a2,late2",
   "node": "a1,once1,a2,late2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "a1,once1,a2,late2"
 }
 ,
 {
@@ -3289,18 +3289,18 @@
 ,
 {
   "name": "codex_memoized_recursive_closure",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "55\n0,1,2,3,4,5,6,7,8,9,10",
   "node": "55\n0,1,2,3,4,5,6,7,8,9,10",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "55\n0,1,2,3,4,5,6,7,8,9,10"
 }
 ,
 {
   "name": "codex_parser_backtracking_tokens",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "abc@3|ab@5\nab@2|abc@5",
   "node": "abc@3|ab@5\nab@2|abc@5",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "abc@3|ab@5\nab@2|abc@5"
 }
 ,
 {
@@ -3353,10 +3353,10 @@
 ,
 {
   "name": "365_async_patterns",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "6\n60\nfulfilled:ok|rejected:fail|fulfilled:also ok\ncaught:bad input\nsuccess\n3\n1,2,3,4,5\nfast",
   "node": "6\n60\nfulfilled:ok|rejected:fail|fulfilled:also ok\ncaught:bad input\nsuccess\n3\n1,2,3,4,5\nfast",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "6\n60\nundefined:undefined|undefined:undefined|undefined:undefined"
 }
 ,
 {
@@ -3385,10 +3385,10 @@
 ,
 {
   "name": "92_promise_with_resolvers",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "value=ok",
   "node": "value=ok",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "value=ok"
 }
 ,
 {
@@ -3417,10 +3417,10 @@
 ,
 {
   "name": "codex_promise_reentrant_then_order",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "a,b,d,c",
   "node": "a,b,d,c",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "a,b,d,c"
 }
 ,
 {
@@ -3452,7 +3452,7 @@
   "status": "rts_diverge",
   "bun": "lastIndex_init=0\nmatch1=1\nlastIndex1=2\nmatch2=2\nlastIndex2=4\nmatch3=3\nlastIndex3=6\nmatch4=null\nlastIndex4=0",
   "node": "lastIndex_init=0\nmatch1=1\nlastIndex1=2\nmatch2=2\nlastIndex2=4\nmatch3=3\nlastIndex3=6\nmatch4=null\nlastIndex4=0",
-  "rts": "lastIndex_init=0\nmatch1=1\nlastIndex1=0\nmatch2=1\nlastIndex2=0\nmatch3=1\nlastIndex3=0\nmatch4=\nlastIndex4=0"
+  "rts": "lastIndex_init=0\nmatch1=1\nlastIndex1=0\nmatch2=1\nlastIndex2=0\nmatch3=1\nlastIndex3=0\nmatch4=[object Object]\nlastIndex4=0"
 }
 ,
 {
@@ -3473,10 +3473,10 @@
 ,
 {
   "name": "243_string_split_regex",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "digits=a|b|c|\nspaces=hello|world|foo\ndelims=a|b|c|d\nlimit=a|b",
   "node": "digits=a|b|c|\nspaces=hello|world|foo\ndelims=a|b|c|d\nlimit=a|b",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "digits=a|b|c|\nspaces=hello|world|foo\ndelims=a|b|c|d\nlimit=a|b"
 }
 ,
 {
@@ -3497,10 +3497,10 @@
 ,
 {
   "name": "395_regex_d_flag",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
   "node": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "2026-05-22\n6\n3e-323,8e-323\n3e-323,5e-323\n5.4e-323,6.4e-323\n7e-323,8e-323\n3e-323,5e-323\n5.4e-323,6.4e-323\n7e-323,8e-323\n\nfoo@0-1.5e-323|bar@2e-323-3.5e-323|baz@4e-323-5.4e-323\n42\nnull\n0,1e-323\nnull"
 }
 ,
 {
@@ -3537,10 +3537,10 @@
 ,
 {
   "name": "99_regexp_unicode",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "words=café|λ\nchars=A|😀|B\nnamed=λ",
   "node": "words=café|λ\nchars=A|😀|B\nnamed=λ",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "words=café|λ\nchars=A|😀|B\nnamed=λ"
 }
 ,
 {
@@ -3577,26 +3577,26 @@
 ,
 {
   "name": "101_textdecoder_stream",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "out=caf|é",
   "node": "out=caf|é",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "out=caf|é"
 }
 ,
 {
   "name": "64_readable_stream",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "out=a,b",
   "node": "out=a,b",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "out=a,b"
 }
 ,
 {
   "name": "86_blob_stream",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "bytes=97,98",
   "node": "bytes=97,98",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "bytes=97,98"
 }
 ,
 {
@@ -3609,10 +3609,10 @@
 ,
 {
   "name": "96_streams_transform",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "out=AB,CD",
   "node": "out=AB,CD",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "out=AB,CD"
 }
 ,
 {
@@ -3729,10 +3729,10 @@
 ,
 {
   "name": "195_string_codepointat",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
   "node": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357",
-  "rts": "h=104\ne=101\no=111\nout=281474976711267\nemoji=128512\nA=65\ncharCode=55357"
+  "rts": "h=104\ne=101\no=111\nout=undefined\nemoji=128512\nA=65\ncharCode=55357"
 }
 ,
 {
@@ -3769,10 +3769,10 @@
 ,
 {
   "name": "212_string_indexof_empty",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "empty_0=0\nempty_2=2\nempty_10=5\nlastIndexOf_empty=5\nlastIndexOf_empty_2=2\nempty_in_empty=0\nx_in_empty=-1",
   "node": "empty_0=0\nempty_2=2\nempty_10=5\nlastIndexOf_empty=5\nlastIndexOf_empty_2=2\nempty_in_empty=0\nx_in_empty=-1",
-  "rts": "empty_0=0\nempty_2=2\nempty_10=10\nlastIndexOf_empty=5\nlastIndexOf_empty_2=2\nempty_in_empty=0\nx_in_empty=-1"
+  "rts": "empty_0=0\nempty_2=2\nempty_10=5\nlastIndexOf_empty=5\nlastIndexOf_empty_2=2\nempty_in_empty=0\nx_in_empty=-1"
 }
 ,
 {
@@ -3913,10 +3913,10 @@
 ,
 {
   "name": "412_unicode_surrogate_iteration",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "len=4\nchars=A|🙂|B\nunits=65,55357,56898,66\npoints=65,128578,56898,66\nslice=🙂",
   "node": "len=4\nchars=A|🙂|B\nunits=65,55357,56898,66\npoints=65,128578,56898,66\nslice=🙂",
-  "rts": "len=4\nchars=A|🙂|B\nunits=65,55357,56898,66\npoints=65,128578,56898,66\nslice=🙂B"
+  "rts": "len=4\nchars=A|🙂|B\nunits=65,55357,56898,66\npoints=65,128578,56898,66\nslice=🙂"
 }
 ,
 {
@@ -3937,18 +3937,18 @@
 ,
 {
   "name": "claude-codepoint-iteration-emoji",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "4\n3\n[\"a\",\"😀\",\"b\"]\na|😀|b|\n[97,128512,98]\nd83d\nde00\n128512\ntrue\n3\n2",
   "node": "4\n3\n[\"a\",\"😀\",\"b\"]\na|😀|b|\n[97,128512,98]\nd83d\nde00\n128512\ntrue\n3\n2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "4\n3\n[\"a\",\"😀\",\"b\"]\na|😀|b|\n[97,128512,98]\nd83d\nde00\n128512\ntrue\n3\n2"
 }
 ,
 {
   "name": "claude-concat-type-coercion",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "a1true\n3x34\n1,2,3\n[object Object]\n,,1\n1,2,3\nnnulluundefined\nbtruefalse\nInfinity,-Infinity,NaN\nxy1truenull",
   "node": "a1true\n3x34\n1,2,3\n[object Object]\n,,1\n1,2,3\nnnulluundefined\nbtruefalse\nInfinity,-Infinity,NaN\nxy1truenull",
-  "rts": "a1true\n3x34\n1,2,3\n[object Object]\n,,1\n1,2,3\nnnulluundefined\nbtruefalse\nInfinity,-Infinity,NaN\nxyError"
+  "rts": "a1true\n3x34\n1,2,3\n[object Object]\n,,1\n1,2,3\nnnulluundefined\nbtruefalse\nInfinity,-Infinity,NaN\nxy1truenull"
 }
 ,
 {
@@ -3993,10 +3993,10 @@
 ,
 {
   "name": "claude-split-regex-limit",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "[\"a\",\"b\",\"c\"]\n[\"a\",\"b\",\"c\",\"\"]\n[\"a\",\"b\"]\n[\"a\",\"b\"]\n[\"h\",\"e\",\"l\",\"l\",\"o\"]\n[\"\"]\n[\"a\",\"b\",\"c\"]\n[\"a\",\"-\",\"b\",\"-\",\"c\"]\n[\"\",\"2023\",\"-\",\"01\",\"-\",\"02\",\"\"]\n[\"\",\"\"]\n[\"abc\"]",
   "node": "[\"a\",\"b\",\"c\"]\n[\"a\",\"b\",\"c\",\"\"]\n[\"a\",\"b\"]\n[\"a\",\"b\"]\n[\"h\",\"e\",\"l\",\"l\",\"o\"]\n[\"\"]\n[\"a\",\"b\",\"c\"]\n[\"a\",\"-\",\"b\",\"-\",\"c\"]\n[\"\",\"2023\",\"-\",\"01\",\"-\",\"02\",\"\"]\n[\"\",\"\"]\n[\"abc\"]",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "[\"a\",\"b\",\"c\"]\n[\"a\",\"b\",\"c\",\"\"]\n[\"a\",\"b\"]\n[\"a\",\"b\"]\n[\"h\",\"e\",\"l\",\"l\",\"o\"]\n[\"\"]\n[\"a\",\"b\",\"c\"]\n[\"a\",\"-\",\"b\",\"-\",\"c\"]\n[\"\",\"2023\",\"-\",\"01\",\"-\",\"02\",\"\"]\n[\"\",\"\"]\n[\"abc\"]"
 }
 ,
 {
@@ -4049,18 +4049,18 @@
 ,
 {
   "name": "codex_string_split_captures_limits",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "a|1|b|22|c\na|1|b|22\na|b\n🙂|x",
   "node": "a|1|b|22|c\na|1|b|22\na|b\n🙂|x",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "a|1|b|22|c\na|1|b|22\na|b\n🙂|x"
 }
 ,
 {
   "name": "184_symbol_for_keyfor",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "same=true\nkey=test\nkey2=another\nkey_regular=undefined\niterator=symbol\ntoStringTag=symbol",
   "node": "same=true\nkey=test\nkey2=another\nkey_regular=undefined\niterator=symbol\ntoStringTag=symbol",
-  "rts": "same=true\nkey=test\nkey2=another\nkey_regular=undefined\niterator=object\ntoStringTag=object"
+  "rts": "same=true\nkey=test\nkey2=another\nkey_regular=undefined\niterator=symbol\ntoStringTag=symbol"
 }
 ,
 {
@@ -4433,10 +4433,10 @@
 ,
 {
   "name": "377_for_in_detail",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx\n0\na=1,b=2\ntrue\ntrue",
   "node": "own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx\n0\na=1,b=2\ntrue\ntrue",
-  "rts": "own1,own2\nown1,own2\nstring:0,string:1,string:2\nx\n2\na=1,b=2\ntrue\ntrue"
+  "rts": "own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx\n0\na=1,b=2\ntrue\ntrue"
 }
 ,
 {
@@ -4609,10 +4609,10 @@
 ,
 {
   "name": "codex_logical_assignment_getter_once",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "7\nget:0|set:5|get:5|set:7|get:7",
   "node": "7\nget:0|set:5|get:5|set:7|get:7",
-  "rts": "7\nget:0|set:5|get:5|set:7|get:7|set:7"
+  "rts": "7\nget:0|set:5|get:5|set:7|get:7"
 }
 ,
 {
@@ -4753,10 +4753,10 @@
 ,
 {
   "name": "107_url_edge_cases",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "origin=https://example.com:8443\nuser=user:pass\npath=/b/\nquery= \nhref=https://user:pass@example.com:8443/b/?q=%20#frag",
   "node": "origin=https://example.com:8443\nuser=user:pass\npath=/b/\nquery= \nhref=https://user:pass@example.com:8443/b/?q=%20#frag",
-  "rts": "origin=https://example.com:8443\nuser=user:pass\npath=/b/\nquery=undefined\nhref=https://user:pass@example.com:8443/b/?q=%20#frag"
+  "rts": "origin=https://example.com:8443\nuser=user:pass\npath=/b/\nquery= \nhref=https://user:pass@example.com:8443/b/?q=%20#frag"
 }
 ,
 {
@@ -4769,10 +4769,10 @@
 ,
 {
   "name": "55_url_searchparams",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4",
   "node": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4",
-  "rts": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=undefined\nquery=1.390671161570163e-309,1.39067116157017e-309,1.390671161570173e-309,1.39067116157018e-309\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4"
+  "rts": "host=example.com:8080\npath=/p/a/t/h\nhash=#frag\nx=1\nquery=x=1&y=two&z=3\ngeta=1\nalla=1,3\nfinal=a=1&b=2&a=3&c=4"
 }
 ,
 {
@@ -4780,7 +4780,7 @@
   "status": "rts_diverge",
   "bun": "href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/space%20here?q=a%2Bb+c",
   "node": "href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/space%20here?q=a%2Bb+c",
-  "rts": "href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/"
+  "rts": "href=https://example.com/a/b/d/e?x=1%202\npathname=/a/b/d/e\nsearch=?x=1%202\nbuilt=https://example.com/?q=a%2Bb+c"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":381,"rts_diverge":81,"bun_node_diverge":17,"errors":130,"rejected":0}}
+],"summary":{"total":609,"pass":436,"rts_diverge":61,"bun_node_diverge":17,"errors":95,"rejected":0}}
