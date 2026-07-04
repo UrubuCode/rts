@@ -74,6 +74,7 @@ impl<'a, 'b> Lowerer<'a, 'b> {
             HirLit::Str(_) => unsupported!("string literal"),
             HirLit::Null => unsupported!("null literal"),
             HirLit::Undefined => unsupported!("undefined literal"),
+            HirLit::Hole => unsupported!("array-hole literal"),
         }
     }
 

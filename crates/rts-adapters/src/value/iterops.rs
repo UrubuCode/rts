@@ -260,6 +260,11 @@ fn obj_keys_impl(obj_word: u64, enumerable_only: bool) -> u64 {
         let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
         let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(handle).max(0);
         for i in 0..len {
+            // A HOLE index (sparse elision / `delete arr[i]`) is NOT an own key.
+            let elem = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, i) as u64;
+            if PolyValue::from_raw(elem).is_hole() {
+                continue;
+            }
             let word = abi_adapter::intern_poly(&i.to_string()).raw() as i64;
             rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, word);
         }

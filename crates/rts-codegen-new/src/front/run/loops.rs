@@ -381,6 +381,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let arr = self.builder.use_var(arr_var);
         let i = self.builder.use_var(idx_var);
         let elem = crate::value::emit_marshal::emit_vec_get(module, self.builder, arr, i);
+        // for-of yields `undefined` for a sparse HOLE ([[Get]] semantics).
+        let elem = crate::value::emit_marshal::emit_hole_to_undef(self.builder, elem);
         self.builder.def_var(bind_var, elem);
         let label = self.pending_label.take();
         self.loop_stack.push(LoopCtx {

@@ -246,9 +246,9 @@ pub extern "C" fn __rtsadp_arr_is_array(a: u64) -> u64 {
 // `Array.of(...)` / `Array.from(...)` / `new Array(n)` / `Array(n)`.
 // ===========================================================================
 
-/// `Array(n)` / `new Array(n)` — a fresh array of length `n` whose `n` holes read
-/// `undefined` (the engine fills them with the `undefined` PolyValue word, which
-/// is what `arr[i]`/inspect both then see). `n` is a real JS number word; a
+/// `Array(n)` / `new Array(n)` — a fresh SPARSE array of length `n`: the slots
+/// hold the HOLE singleton (reads map to `undefined`; `i in arr` is `false`;
+/// join renders empty — real JS hole semantics). `n` is a real JS number word; a
 /// non-integer / negative / out-of-range `n` yields an empty array (the runtime
 /// would throw a RangeError — a later increment; an empty array is the safe,
 /// never-wrong fallback the lowering only reaches for an integer literal anyway).
@@ -257,9 +257,9 @@ pub extern "C" fn __rtsadp_arr_new_sized(n_word: u64) -> u64 {
     let n = to_number(PolyValue::from_raw(n_word));
     let vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     if n.is_finite() && n.fract() == 0.0 && n >= 0.0 && n <= (1u64 << 31) as f64 {
-        let undef = PolyValue::undefined().raw() as i64;
+        let hole = PolyValue::hole().raw() as i64;
         for _ in 0..(n as i64) {
-            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, undef);
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, hole);
         }
     }
     box_vec_as_array(vec)
@@ -300,7 +300,11 @@ pub extern "C" fn __rtsadp_arr_from(a: u64) -> u64 {
         let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(src).max(0);
         let vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
         for i in 0..len {
-            let w = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(src, i);
+            let mut w = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(src, i);
+            // Array.from DENSIFIES: a sparse HOLE materializes as `undefined`.
+            if PolyValue::from_raw(w as u64).is_hole() {
+                w = PolyValue::undefined().raw() as i64;
+            }
             rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, w);
         }
         return box_vec_as_array(vec);
@@ -522,7 +526,12 @@ pub extern "C" fn __rtsadp_arr_spread_append(dst_word: u64, src_word: u64) {
     let s = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(src.as_handle());
     let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(s).max(0);
     for i in 0..len {
-        let w = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(s, i);
+        let mut w = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(s, i);
+        // Spread iterates ([[Get]] per element) and DENSIFIES: a sparse HOLE
+        // materializes as `undefined`.
+        if PolyValue::from_raw(w as u64).is_hole() {
+            w = PolyValue::undefined().raw() as i64;
+        }
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(dst, w);
     }
 }

@@ -227,6 +227,10 @@ pub enum HirLit {
     Str(String),
     Null,
     Undefined,
+    /// Array-literal elision (`[1, , 3]`) — the sparse HOLE element. Only ever
+    /// produced inside `HirExprKind::Array`; lowers to the PolyValue hole
+    /// singleton so length/`in`/join keep JS sparse semantics.
+    Hole,
 }
 
 /// A single function parameter in HIR.

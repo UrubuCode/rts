@@ -202,6 +202,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
                 Ok(Val::tagged_kind(v, JsKind::Undefined))
             }
+            // Array-literal elision — the sparse HOLE singleton word. Reads map
+            // it back to `undefined`; `in`/join/keys see it as absent.
+            HirLit::Hole => {
+                let v = self
+                    .builder
+                    .ins()
+                    .iconst(types::I64, value::PolyValue::hole().raw() as i64);
+                Ok(Val::tagged_kind(v, JsKind::Undefined))
+            }
         }
     }
 

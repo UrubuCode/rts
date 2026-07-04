@@ -453,14 +453,18 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
 
         swc::Expr::Array(arr) => {
             let elems: Vec<HirExpr> = arr.elems.iter()
-                .filter_map(|e| e.as_ref())
-                .map(|e| {
-                    if e.spread.is_some() {
+                .map(|e| match e.as_ref() {
+                    // Elision `[1, , 3]` — a sparse HOLE element (length counts
+                    // it; reads yield `undefined`; `in`/join see it as absent).
+                    None => HirExpr::new(
+                        HirExprKind::Lit(crate::ir::HirLit::Hole),
+                        HirType::Any,
+                    ),
+                    Some(e) if e.spread.is_some() => {
                         let inner = lower_swc_expr(&e.expr, scope);
                         HirExpr::new(HirExprKind::Spread(Box::new(inner)), HirType::Any)
-                    } else {
-                        lower_swc_expr(&e.expr, scope)
                     }
+                    Some(e) => lower_swc_expr(&e.expr, scope),
                 })
                 .collect();
             let elem_ty = elems.first().map(|e| e.ty.clone()).unwrap_or(HirType::Any);

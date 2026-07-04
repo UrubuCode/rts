@@ -93,6 +93,14 @@ fn truthy(word: u64) -> bool {
     genops::__rtsadp_to_boolean(word) != 0
 }
 
+/// Whether the slot word is the sparse-array HOLE singleton. map/filter/forEach/
+/// some/every/reduce* skip holes (the spec's HasProperty step); find* visit them
+/// as `undefined` (FindViaPredicate has no HasProperty step).
+#[inline]
+fn is_hole(word: u64) -> bool {
+    PolyValue::from_raw(word).is_hole()
+}
+
 /// `arr.map(cb)` — a NEW array of `cb(element, index, array)` for each element,
 /// returned as a `TAG_OBJECT` PolyValue word of the fresh Vec.
 #[unsafe(no_mangle)]
@@ -102,6 +110,11 @@ pub extern "C" fn __rtsadp_arr_map(vec_handle: u64, cb: u64) -> u64 {
     let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     for i in 0..len {
         let element = vec_word(vec_handle, i);
+        // A HOLE maps to a HOLE (cb not invoked) — map keeps sparseness.
+        if is_hole(element) {
+            vec_push(out, element);
+            continue;
+        }
         let mapped = invoke_eia(cb, element, i, arr_word);
         vec_push(out, mapped);
     }
@@ -117,6 +130,9 @@ pub extern "C" fn __rtsadp_arr_filter(vec_handle: u64, cb: u64) -> u64 {
     let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     for i in 0..len {
         let element = vec_word(vec_handle, i);
+        if is_hole(element) {
+            continue; // filter skips holes (cb not invoked).
+        }
         if truthy(invoke_eia(cb, element, i, arr_word)) {
             vec_push(out, element);
         }
@@ -132,6 +148,9 @@ pub extern "C" fn __rtsadp_arr_for_each(vec_handle: u64, cb: u64) -> u64 {
     let arr_word = array_word(vec_handle);
     for i in 0..len {
         let element = vec_word(vec_handle, i);
+        if is_hole(element) {
+            continue; // forEach skips holes (cb not invoked).
+        }
         let _ = invoke_eia(cb, element, i, arr_word);
     }
     undef()
@@ -144,7 +163,10 @@ pub extern "C" fn __rtsadp_arr_find(vec_handle: u64, cb: u64) -> u64 {
     let len = vec_len(vec_handle);
     let arr_word = array_word(vec_handle);
     for i in 0..len {
-        let element = vec_word(vec_handle, i);
+        let mut element = vec_word(vec_handle, i);
+        if is_hole(element) {
+            element = undef(); // find VISITS holes as `undefined`.
+        }
         if truthy(invoke_eia(cb, element, i, arr_word)) {
             return element;
         }
@@ -159,7 +181,10 @@ pub extern "C" fn __rtsadp_arr_find_index(vec_handle: u64, cb: u64) -> i64 {
     let len = vec_len(vec_handle);
     let arr_word = array_word(vec_handle);
     for i in 0..len {
-        let element = vec_word(vec_handle, i);
+        let mut element = vec_word(vec_handle, i);
+        if is_hole(element) {
+            element = undef(); // findIndex VISITS holes as `undefined`.
+        }
         if truthy(invoke_eia(cb, element, i, arr_word)) {
             return i;
         }
@@ -174,6 +199,9 @@ pub extern "C" fn __rtsadp_arr_some(vec_handle: u64, cb: u64) -> i64 {
     let arr_word = array_word(vec_handle);
     for i in 0..len {
         let element = vec_word(vec_handle, i);
+        if is_hole(element) {
+            continue; // some skips holes.
+        }
         if truthy(invoke_eia(cb, element, i, arr_word)) {
             return 1;
         }
@@ -189,6 +217,9 @@ pub extern "C" fn __rtsadp_arr_every(vec_handle: u64, cb: u64) -> i64 {
     let arr_word = array_word(vec_handle);
     for i in 0..len {
         let element = vec_word(vec_handle, i);
+        if is_hole(element) {
+            continue; // every skips holes.
+        }
         if !truthy(invoke_eia(cb, element, i, arr_word)) {
             return 0;
         }
@@ -218,16 +249,24 @@ pub extern "C" fn __rtsadp_arr_reduce(
     let (mut acc, start) = if has_init != 0 {
         (init_word, 0)
     } else {
-        if len == 0 {
+        // The seed is the FIRST NON-HOLE element (reduce skips holes).
+        let mut k = 0;
+        while k < len && is_hole(vec_word(vec_handle, k)) {
+            k += 1;
+        }
+        if k >= len {
             // Reduce of empty array with no initial value → TypeError in JS; we
             // have no throw channel here, so return undefined (documented).
             return undef();
         }
-        (vec_word(vec_handle, 0), 1)
+        (vec_word(vec_handle, k), k + 1)
     };
 
     for i in start..len {
         let element = vec_word(vec_handle, i);
+        if is_hole(element) {
+            continue; // reduce skips holes.
+        }
         acc = funcops::__rtsadp_fn_invoke(cb, acc, element, index_word(i), arr_word, undef());
     }
     acc
@@ -240,7 +279,10 @@ pub extern "C" fn __rtsadp_arr_find_last(vec_handle: u64, cb: u64) -> u64 {
     let len = vec_len(vec_handle);
     let arr_word = array_word(vec_handle);
     for i in (0..len).rev() {
-        let element = vec_word(vec_handle, i);
+        let mut element = vec_word(vec_handle, i);
+        if is_hole(element) {
+            element = undef(); // findLast VISITS holes as `undefined`.
+        }
         if truthy(invoke_eia(cb, element, i, arr_word)) {
             return element;
         }
@@ -255,7 +297,10 @@ pub extern "C" fn __rtsadp_arr_find_last_index(vec_handle: u64, cb: u64) -> i64 
     let len = vec_len(vec_handle);
     let arr_word = array_word(vec_handle);
     for i in (0..len).rev() {
-        let element = vec_word(vec_handle, i);
+        let mut element = vec_word(vec_handle, i);
+        if is_hole(element) {
+            element = undef(); // findLastIndex VISITS holes as `undefined`.
+        }
         if truthy(invoke_eia(cb, element, i, arr_word)) {
             return i;
         }
@@ -278,15 +323,24 @@ pub extern "C" fn __rtsadp_arr_reduce_right(
     let (mut acc, start) = if has_init != 0 {
         (init_word, len - 1)
     } else {
-        if len == 0 {
+        // The seed is the LAST NON-HOLE element (reduceRight skips holes).
+        let mut k = len - 1;
+        while k >= 0 && is_hole(vec_word(vec_handle, k)) {
+            k -= 1;
+        }
+        if k < 0 {
             return undef();
         }
-        (vec_word(vec_handle, len - 1), len - 2)
+        (vec_word(vec_handle, k), k - 1)
     };
 
     let mut i = start;
     while i >= 0 {
         let element = vec_word(vec_handle, i);
+        if is_hole(element) {
+            i -= 1;
+            continue; // reduceRight skips holes.
+        }
         acc = funcops::__rtsadp_fn_invoke(cb, acc, element, index_word(i), arr_word, undef());
         i -= 1;
     }
@@ -303,6 +357,9 @@ pub extern "C" fn __rtsadp_arr_flat_map(vec_handle: u64, cb: u64) -> u64 {
     let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     for i in 0..len {
         let element = vec_word(vec_handle, i);
+        if is_hole(element) {
+            continue; // flatMap skips holes.
+        }
         let r = invoke_eia(cb, element, i, arr_word);
         let rv = PolyValue::from_raw(r);
         if rv.is_object() && !super::inspect::looks_like_object(rv) {

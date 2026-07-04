@@ -693,20 +693,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let word = emit_marshal::emit_vec_get(module, self.builder, recv_word, idx);
                 // A HOLE slot (deleted / sparse element) reads as `undefined`
                 // ([[Get]]) — pure IR the egraph folds on hole-free flows.
-                let hole = self
-                    .builder
-                    .ins()
-                    .iconst(types::I64, value::PolyValue::hole().raw() as i64);
-                let undef = self
-                    .builder
-                    .ins()
-                    .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
-                let is_hole = self.builder.ins().icmp(
-                    cranelift_codegen::ir::condcodes::IntCC::Equal,
-                    word,
-                    hole,
-                );
-                let word = self.builder.ins().select(is_hole, undef, word);
+                let word = emit_marshal::emit_hole_to_undef(self.builder, word);
                 return Ok(Val::new(word, Repr::Tagged));
             }
         }

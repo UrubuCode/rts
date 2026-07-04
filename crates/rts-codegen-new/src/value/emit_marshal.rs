@@ -217,6 +217,23 @@ pub fn emit_vec_get(
     .expect("VEC_GET returns a value")
 }
 
+/// Map the sparse-array HOLE singleton word to `undefined` — pure IR
+/// (`icmp`+`select`) the egraph folds on hole-free flows. Element reads
+/// ([[Get]] of an array slot: `a[i]`, for-of) must never leak the hole word.
+pub fn emit_hole_to_undef(builder: &mut FunctionBuilder, word: Value) -> Value {
+    let hole = builder
+        .ins()
+        .iconst(types::I64, super::PolyValue::hole().raw() as i64);
+    let undef = builder
+        .ins()
+        .iconst(types::I64, super::PolyValue::undefined().raw() as i64);
+    let is_hole =
+        builder
+            .ins()
+            .icmp(cranelift_codegen::ir::condcodes::IntCC::Equal, word, hole);
+    builder.ins().select(is_hole, undef, word)
+}
+
 /// `VEC_SET(realHandleOf(obj_word), index, value_word)` — overwrite one slot.
 pub fn emit_vec_set(
     module: &mut dyn Module,

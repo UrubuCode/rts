@@ -33,7 +33,8 @@ pub(super) fn to_string(v: PolyValue) -> String {
     if v.is_string() {
         return abi_adapter::resolve_poly(v);
     }
-    if v.is_undefined() {
+    if v.is_undefined() || v.is_hole() {
+        // A leaked HOLE word reads as `undefined` everywhere user code can see it.
         return "undefined".to_string();
     }
     if v.is_null() {
