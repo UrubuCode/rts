@@ -162,7 +162,7 @@ pub fn register_class_spec(e: &mut Engine) {
         .member(m(
             "new",
             MemberKind::Constructor,
-            Sig::new(vec![AbiType::I64], AbiType::Handle),
+            Sig::new(vec![AbiType::F64], AbiType::Handle),
             "__RTS_FN_GL_DATE_NEW_FROM_MS",
             "new Date(value: number): Date",
             "Creates a Date from milliseconds since Unix epoch.",
@@ -215,7 +215,7 @@ pub fn register_class_spec(e: &mut Engine) {
         .member(m(
             "getTime",
             MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle], AbiType::I64),
+            Sig::new(vec![AbiType::Handle], AbiType::F64),
             "__RTS_FN_GL_DATE_GET_TIME",
             "getTime(): number",
             "Returns ms since epoch.",
@@ -224,7 +224,7 @@ pub fn register_class_spec(e: &mut Engine) {
         .member(m(
             "valueOf",
             MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle], AbiType::I64),
+            Sig::new(vec![AbiType::Handle], AbiType::F64),
             "__RTS_FN_GL_DATE_VALUE_OF",
             "valueOf(): number",
             "Same as getTime().",
@@ -442,8 +442,8 @@ pub fn register_class_spec(e: &mut Engine) {
             "setFullYear",
             MemberKind::InstanceMethod,
             Sig::with_defaults(
-                vec![AbiType::Handle, AbiType::I64, AbiType::I64, AbiType::I64],
-                AbiType::I64,
+                vec![AbiType::Handle, AbiType::F64, AbiType::F64, AbiType::F64],
+                AbiType::F64,
                 vec![DefaultArg::Required, DefaultArg::Required, DefaultArg::Int(i64::MIN), DefaultArg::Int(i64::MIN)],
             ),
             "__RTS_FN_GL_DATE_SET_FULL_YEAR",
@@ -455,8 +455,8 @@ pub fn register_class_spec(e: &mut Engine) {
             "setMonth",
             MemberKind::InstanceMethod,
             Sig::with_defaults(
-                vec![AbiType::Handle, AbiType::I64, AbiType::I64],
-                AbiType::I64,
+                vec![AbiType::Handle, AbiType::F64, AbiType::F64],
+                AbiType::F64,
                 vec![DefaultArg::Required, DefaultArg::Required, DefaultArg::Int(i64::MIN)],
             ),
             "__RTS_FN_GL_DATE_SET_MONTH",
@@ -467,7 +467,7 @@ pub fn register_class_spec(e: &mut Engine) {
         .member(m(
             "setDate",
             MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64),
+            Sig::new(vec![AbiType::Handle, AbiType::F64], AbiType::F64),
             "__RTS_FN_GL_DATE_SET_DATE",
             "setDate(day: number): number",
             "Substitui o dia do mes (1-31). Retorna ms novos.",
@@ -477,8 +477,8 @@ pub fn register_class_spec(e: &mut Engine) {
             "setHours",
             MemberKind::InstanceMethod,
             Sig::with_defaults(
-                vec![AbiType::Handle, AbiType::I64, AbiType::I64, AbiType::I64, AbiType::I64],
-                AbiType::I64,
+                vec![AbiType::Handle, AbiType::F64, AbiType::F64, AbiType::F64, AbiType::F64],
+                AbiType::F64,
                 vec![DefaultArg::Required, DefaultArg::Required, DefaultArg::Int(i64::MIN), DefaultArg::Int(i64::MIN), DefaultArg::Int(i64::MIN)],
             ),
             "__RTS_FN_GL_DATE_SET_HOURS",
@@ -490,8 +490,8 @@ pub fn register_class_spec(e: &mut Engine) {
             "setMinutes",
             MemberKind::InstanceMethod,
             Sig::with_defaults(
-                vec![AbiType::Handle, AbiType::I64, AbiType::I64, AbiType::I64],
-                AbiType::I64,
+                vec![AbiType::Handle, AbiType::F64, AbiType::F64, AbiType::F64],
+                AbiType::F64,
                 vec![DefaultArg::Required, DefaultArg::Required, DefaultArg::Int(i64::MIN), DefaultArg::Int(i64::MIN)],
             ),
             "__RTS_FN_GL_DATE_SET_MINUTES",
@@ -503,8 +503,8 @@ pub fn register_class_spec(e: &mut Engine) {
             "setSeconds",
             MemberKind::InstanceMethod,
             Sig::with_defaults(
-                vec![AbiType::Handle, AbiType::I64, AbiType::I64],
-                AbiType::I64,
+                vec![AbiType::Handle, AbiType::F64, AbiType::F64],
+                AbiType::F64,
                 vec![DefaultArg::Required, DefaultArg::Required, DefaultArg::Int(i64::MIN)],
             ),
             "__RTS_FN_GL_DATE_SET_SECONDS",
@@ -515,7 +515,7 @@ pub fn register_class_spec(e: &mut Engine) {
         .member(m(
             "setMilliseconds",
             MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64),
+            Sig::new(vec![AbiType::Handle, AbiType::F64], AbiType::F64),
             "__RTS_FN_GL_DATE_SET_MILLISECONDS",
             "setMilliseconds(ms: number): number",
             "Substitui ms (0-999).",
@@ -524,7 +524,7 @@ pub fn register_class_spec(e: &mut Engine) {
         .member(m(
             "setTime",
             MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64),
+            Sig::new(vec![AbiType::Handle, AbiType::F64], AbiType::F64),
             "__RTS_FN_GL_DATE_SET_TIME",
             "setTime(ms: number): number",
             "Substitui timestamp completo (ms desde epoch).",
@@ -534,8 +534,8 @@ pub fn register_class_spec(e: &mut Engine) {
             "setUTCFullYear",
             MemberKind::InstanceMethod,
             Sig::with_defaults(
-                vec![AbiType::Handle, AbiType::I64, AbiType::I64, AbiType::I64],
-                AbiType::I64,
+                vec![AbiType::Handle, AbiType::F64, AbiType::F64, AbiType::F64],
+                AbiType::F64,
                 vec![DefaultArg::Required, DefaultArg::Required, DefaultArg::Int(i64::MIN), DefaultArg::Int(i64::MIN)],
             ),
             "__RTS_FN_GL_DATE_SET_FULL_YEAR",
@@ -547,8 +547,8 @@ pub fn register_class_spec(e: &mut Engine) {
             "setUTCMonth",
             MemberKind::InstanceMethod,
             Sig::with_defaults(
-                vec![AbiType::Handle, AbiType::I64, AbiType::I64],
-                AbiType::I64,
+                vec![AbiType::Handle, AbiType::F64, AbiType::F64],
+                AbiType::F64,
                 vec![DefaultArg::Required, DefaultArg::Required, DefaultArg::Int(i64::MIN)],
             ),
             "__RTS_FN_GL_DATE_SET_MONTH",
@@ -559,7 +559,7 @@ pub fn register_class_spec(e: &mut Engine) {
         .member(m(
             "setUTCDate",
             MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64),
+            Sig::new(vec![AbiType::Handle, AbiType::F64], AbiType::F64),
             "__RTS_FN_GL_DATE_SET_DATE",
             "setUTCDate(day: number): number",
             "Substitui o dia do mes (1-31, UTC).",
@@ -569,8 +569,8 @@ pub fn register_class_spec(e: &mut Engine) {
             "setUTCHours",
             MemberKind::InstanceMethod,
             Sig::with_defaults(
-                vec![AbiType::Handle, AbiType::I64, AbiType::I64, AbiType::I64, AbiType::I64],
-                AbiType::I64,
+                vec![AbiType::Handle, AbiType::F64, AbiType::F64, AbiType::F64, AbiType::F64],
+                AbiType::F64,
                 vec![DefaultArg::Required, DefaultArg::Required, DefaultArg::Int(i64::MIN), DefaultArg::Int(i64::MIN), DefaultArg::Int(i64::MIN)],
             ),
             "__RTS_FN_GL_DATE_SET_HOURS",
@@ -582,8 +582,8 @@ pub fn register_class_spec(e: &mut Engine) {
             "setUTCMinutes",
             MemberKind::InstanceMethod,
             Sig::with_defaults(
-                vec![AbiType::Handle, AbiType::I64, AbiType::I64, AbiType::I64],
-                AbiType::I64,
+                vec![AbiType::Handle, AbiType::F64, AbiType::F64, AbiType::F64],
+                AbiType::F64,
                 vec![DefaultArg::Required, DefaultArg::Required, DefaultArg::Int(i64::MIN), DefaultArg::Int(i64::MIN)],
             ),
             "__RTS_FN_GL_DATE_SET_MINUTES",
@@ -595,8 +595,8 @@ pub fn register_class_spec(e: &mut Engine) {
             "setUTCSeconds",
             MemberKind::InstanceMethod,
             Sig::with_defaults(
-                vec![AbiType::Handle, AbiType::I64, AbiType::I64],
-                AbiType::I64,
+                vec![AbiType::Handle, AbiType::F64, AbiType::F64],
+                AbiType::F64,
                 vec![DefaultArg::Required, DefaultArg::Required, DefaultArg::Int(i64::MIN)],
             ),
             "__RTS_FN_GL_DATE_SET_SECONDS",
@@ -607,7 +607,7 @@ pub fn register_class_spec(e: &mut Engine) {
         .member(m(
             "setUTCMilliseconds",
             MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64),
+            Sig::new(vec![AbiType::Handle, AbiType::F64], AbiType::F64),
             "__RTS_FN_GL_DATE_SET_MILLISECONDS",
             "setUTCMilliseconds(ms: number): number",
             "Substitui ms (0-999, UTC).",

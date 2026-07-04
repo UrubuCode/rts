@@ -14,6 +14,62 @@ fn get_ms(handle: u64) -> i64 {
     })
 }
 
+/// Sentinel do estado INVALID DATE no slot `DateMs` (JS: um time value NaN).
+/// `i64::MIN` nunca é um timestamp válido (o range JS é ±8.64e15 ms) — e é o
+/// mesmo valor que `DATE_FROM_ISO` já devolve num parse falho.
+const INVALID_MS: i64 = i64::MIN;
+
+/// O range de time values válidos da spec (±8.64e15 ms). Fora dele → Invalid.
+fn clamp_time_value(ms: f64) -> i64 {
+    const MAX: f64 = 8.64e15;
+    if ms.is_finite() && ms.abs() <= MAX {
+        ms as i64
+    } else {
+        INVALID_MS
+    }
+}
+
+/// Um componente de setter: o sentinel de OMITIDO (`i64::MIN as f64`, o
+/// `DefaultArg::Int(i64::MIN)` coerced) mantém o campo atual; NaN INVALIDA
+/// (None); um número usa seu truncamento.
+fn keep_f(v: f64, cur: i64) -> Option<i64> {
+    if v == i64::MIN as f64 {
+        Some(cur)
+    } else if v.is_nan() {
+        None
+    } else {
+        Some(v as i64)
+    }
+}
+
+/// Os campos-base de um setter: os do instante atual, ou — num Invalid Date —
+/// os de `t = +0` (spec 21.4.4.*: um setter completo REVIVE a data).
+fn setter_base_parts(handle: u64) -> (i64, i64, i64, i64, i64, i64, i64) {
+    let cur = get_ms(handle);
+    if cur == INVALID_MS {
+        (1970, 0, 1, 0, 0, 0, 0)
+    } else {
+        ms_to_parts(cur)
+    }
+}
+
+/// Fecha um setter: `None` em qualquer componente → estado INVALID + NaN;
+/// senão grava e devolve os ms novos como f64.
+fn finish_setter(handle: u64, parts: Option<(i64, i64, i64, i64, i64, i64, i64)>) -> f64 {
+    use crate::date::__RTS_FN_NS_DATE_FROM_PARTS;
+    match parts {
+        Some((y, mo, d, h, mi, s, ms)) => {
+            let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(y, mo, d, h, mi, s, ms);
+            set_ms(handle, new_ms);
+            new_ms as f64
+        }
+        None => {
+            set_ms(handle, INVALID_MS);
+            f64::NAN
+        }
+    }
+}
+
 // ── Constructors ──────────────────────────────────────────────────────────────
 
 /// `new Date()` — current Unix timestamp in milliseconds.
@@ -25,8 +81,9 @@ pub extern "C" fn __RTS_FN_GL_DATE_NEW_NOW() -> u64 {
 
 /// `new Date(ms)` — from explicit milliseconds since epoch.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_NEW_FROM_MS(ms: i64) -> u64 {
-    alloc_entry(Entry::DateMs(ms))
+pub extern "C" fn __RTS_FN_GL_DATE_NEW_FROM_MS(ms: f64) -> u64 {
+    // NaN / fora do range da spec → INVALID DATE.
+    alloc_entry(Entry::DateMs(clamp_time_value(ms)))
 }
 
 /// `new Date(iso_str)` — from ISO 8601 string (`ptr`/`len` ABI).
@@ -71,13 +128,14 @@ pub extern "C" fn __RTS_FN_GL_DATE_NEW_FROM_FIELDS(
 // ── Instance methods ──────────────────────────────────────────────────────────
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_GET_TIME(handle: u64) -> i64 {
-    get_ms(handle)
+pub extern "C" fn __RTS_FN_GL_DATE_GET_TIME(handle: u64) -> f64 {
+    let ms = get_ms(handle);
+    if ms == INVALID_MS { f64::NAN } else { ms as f64 }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_VALUE_OF(handle: u64) -> i64 {
-    get_ms(handle)
+pub extern "C" fn __RTS_FN_GL_DATE_VALUE_OF(handle: u64) -> f64 {
+    __RTS_FN_GL_DATE_GET_TIME(handle)
 }
 
 #[unsafe(no_mangle)]
@@ -135,6 +193,9 @@ pub extern "C" fn __RTS_FN_GL_DATE_TO_STRING(handle: u64) -> u64 {
         Some(Entry::DateMs(v)) => *v,
         _ => 0,
     });
+    if ms == INVALID_MS {
+        return alloc_entry(Entry::String(b"Invalid Date".to_vec()));
+    }
     let year = __RTS_FN_NS_DATE_YEAR(ms);
     let month = __RTS_FN_NS_DATE_MONTH(ms);
     let day = __RTS_FN_NS_DATE_DAY(ms);
@@ -334,73 +395,61 @@ fn set_ms(handle: u64, new_ms: i64) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_FULL_YEAR(handle: u64, year: i64, month: i64, day: i64) -> i64 {
-    use crate::date::__RTS_FN_NS_DATE_FROM_PARTS;
-    let (_, mo, d, h, mi, s, ms) = ms_to_parts(get_ms(handle));
-    let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(year, keep(month, mo), keep(day, d), h, mi, s, ms);
-    set_ms(handle, new_ms);
-    new_ms
+pub extern "C" fn __RTS_FN_GL_DATE_SET_FULL_YEAR(handle: u64, year: f64, month: f64, day: f64) -> f64 {
+    let (_, mo, d, h, mi, s, ms) = setter_base_parts(handle);
+    let parts = (|| Some((keep_f(year, 0)?, keep_f(month, mo)?, keep_f(day, d)?, h, mi, s, ms)))();
+    finish_setter(handle, parts)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_MONTH(handle: u64, month: i64, day: i64) -> i64 {
-    use crate::date::__RTS_FN_NS_DATE_FROM_PARTS;
-    let (y, _, d, h, mi, s, ms) = ms_to_parts(get_ms(handle));
-    let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(y, month, keep(day, d), h, mi, s, ms);
-    set_ms(handle, new_ms);
-    new_ms
+pub extern "C" fn __RTS_FN_GL_DATE_SET_MONTH(handle: u64, month: f64, day: f64) -> f64 {
+    let (y, _, d, h, mi, s, ms) = setter_base_parts(handle);
+    let parts = (|| Some((y, keep_f(month, 0)?, keep_f(day, d)?, h, mi, s, ms)))();
+    finish_setter(handle, parts)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_DATE(handle: u64, day: i64) -> i64 {
-    use crate::date::__RTS_FN_NS_DATE_FROM_PARTS;
-    let (y, mo, _, h, mi, s, ms) = ms_to_parts(get_ms(handle));
-    let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(y, mo, day, h, mi, s, ms);
-    set_ms(handle, new_ms);
-    new_ms
+pub extern "C" fn __RTS_FN_GL_DATE_SET_DATE(handle: u64, day: f64) -> f64 {
+    let (y, mo, _, h, mi, s, ms) = setter_base_parts(handle);
+    let parts = (|| Some((y, mo, keep_f(day, 0)?, h, mi, s, ms)))();
+    finish_setter(handle, parts)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_HOURS(handle: u64, hour: i64, min: i64, sec: i64, msec: i64) -> i64 {
-    use crate::date::__RTS_FN_NS_DATE_FROM_PARTS;
-    let (y, mo, d, _, mi, s, ms) = ms_to_parts(get_ms(handle));
-    let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(y, mo, d, hour, keep(min, mi), keep(sec, s), keep(msec, ms));
-    set_ms(handle, new_ms);
-    new_ms
+pub extern "C" fn __RTS_FN_GL_DATE_SET_HOURS(handle: u64, hour: f64, min: f64, sec: f64, msec: f64) -> f64 {
+    let (y, mo, d, _, mi, s, ms) = setter_base_parts(handle);
+    let parts =
+        (|| Some((y, mo, d, keep_f(hour, 0)?, keep_f(min, mi)?, keep_f(sec, s)?, keep_f(msec, ms)?)))();
+    finish_setter(handle, parts)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_MINUTES(handle: u64, min: i64, sec: i64, msec: i64) -> i64 {
-    use crate::date::__RTS_FN_NS_DATE_FROM_PARTS;
-    let (y, mo, d, h, _, s, ms) = ms_to_parts(get_ms(handle));
-    let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(y, mo, d, h, min, keep(sec, s), keep(msec, ms));
-    set_ms(handle, new_ms);
-    new_ms
+pub extern "C" fn __RTS_FN_GL_DATE_SET_MINUTES(handle: u64, min: f64, sec: f64, msec: f64) -> f64 {
+    let (y, mo, d, h, _, s, ms) = setter_base_parts(handle);
+    let parts = (|| Some((y, mo, d, h, keep_f(min, 0)?, keep_f(sec, s)?, keep_f(msec, ms)?)))();
+    finish_setter(handle, parts)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_SECONDS(handle: u64, sec: i64, msec: i64) -> i64 {
-    use crate::date::__RTS_FN_NS_DATE_FROM_PARTS;
-    let (y, mo, d, h, mi, _, ms) = ms_to_parts(get_ms(handle));
-    let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(y, mo, d, h, mi, sec, keep(msec, ms));
-    set_ms(handle, new_ms);
-    new_ms
+pub extern "C" fn __RTS_FN_GL_DATE_SET_SECONDS(handle: u64, sec: f64, msec: f64) -> f64 {
+    let (y, mo, d, h, mi, _, ms) = setter_base_parts(handle);
+    let parts = (|| Some((y, mo, d, h, mi, keep_f(sec, 0)?, keep_f(msec, ms)?)))();
+    finish_setter(handle, parts)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_MILLISECONDS(handle: u64, ms_in: i64) -> i64 {
-    use crate::date::__RTS_FN_NS_DATE_FROM_PARTS;
-    let (y, mo, d, h, mi, s, _) = ms_to_parts(get_ms(handle));
-    let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(y, mo, d, h, mi, s, ms_in);
-    set_ms(handle, new_ms);
-    new_ms
+pub extern "C" fn __RTS_FN_GL_DATE_SET_MILLISECONDS(handle: u64, ms_in: f64) -> f64 {
+    let (y, mo, d, h, mi, s, _) = setter_base_parts(handle);
+    let parts = (|| Some((y, mo, d, h, mi, s, keep_f(ms_in, 0)?)))();
+    finish_setter(handle, parts)
 }
 
 /// `setTime(ms)` — substitui timestamp completo. Retorna ms.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_TIME(handle: u64, ms_in: i64) -> i64 {
-    set_ms(handle, ms_in);
-    ms_in
+pub extern "C" fn __RTS_FN_GL_DATE_SET_TIME(handle: u64, ms_in: f64) -> f64 {
+    let v = clamp_time_value(ms_in);
+    set_ms(handle, v);
+    if v == INVALID_MS { f64::NAN } else { v as f64 }
 }
 
 /// `toJSON()` — alias de toISOString (JS spec retorna ISO).
@@ -463,8 +512,31 @@ pub extern "C" fn __RTS_FN_GL_DATE_TO_TIME_STRING(handle: u64) -> u64 {
     }
 }
 
-/// Optional-tail sentinel of the variadic Date setters: the spec injects
-/// `i64::MIN` for an omitted arg — keep the current field then.
-fn keep(v: i64, cur: i64) -> i64 {
-    if v == i64::MIN { cur } else { v }
+/// ToString de um heap-entry OPACO (não-Vec/não-Map) — a autoridade fica NESTA
+/// camada (rts-shared), onde as classes não-primordiais moram: o genérico
+/// `to_string` do motor chama isto para um OBJECT word cujo entry não é um
+/// array/objeto keyed; `0` = "não sei" (o caller usa "[object Object]").
+/// Dispatch por ENTRY KIND — nenhum nome de classe no motor.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_OPAQUE_TO_STRING(handle: u64) -> u64 {
+    let kind = with_entry(handle, |e| match e {
+        Some(Entry::DateMs(_)) => 1u8,
+        Some(Entry::Regex(_)) => 2,
+        _ => 0,
+    });
+    match kind {
+        1 => __RTS_FN_GL_DATE_TO_STRING(handle),
+        2 => {
+            let text = with_entry(handle, |e| match e {
+                Some(Entry::Regex(rx)) => {
+                    let src = rx.engine.source();
+                    let src = if src.is_empty() { "(?:)".to_string() } else { src };
+                    format!("/{}/{}", src, rx.flags)
+                }
+                _ => String::new(),
+            });
+            alloc_entry(Entry::String(text.into_bytes()))
+        }
+        _ => 0,
+    }
 }

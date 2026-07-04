@@ -51,7 +51,22 @@ pub(super) fn to_string(v: PolyValue) -> String {
     // `null`/`undefined` elements rendering as the empty string. A keyed OBJECT
     // stays `[object Object]`.
     if v.is_object() && !crate::value::inspect::looks_like_object(v) {
-        return array_to_string(v);
+        // A REAL array joins its elements; an OPAQUE runtime entry (Date /
+        // RegExp / …) ToStrings through the runtime-layer authority
+        // (`OPAQUE_TO_STRING` — entry-kind dispatch, no class name here);
+        // an unknown opaque entry keeps the object default.
+        use rts_engine::heap::handles::{Entry, with_entry};
+        use rts_runtime::namespaces::gc::handles as rt_handles;
+        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+        let is_vec = with_entry(h, |e| matches!(e, Some(Entry::Vec(_))));
+        if is_vec {
+            return array_to_string(v);
+        }
+        let s = rts_runtime::namespaces::globals::date::instance::__RTS_FN_RT_OPAQUE_TO_STRING(h);
+        if s != 0 {
+            return abi_adapter::real_handle_to_string(s);
+        }
+        return "[object Object]".to_string();
     }
     // A keyed object with a `[Symbol.toPrimitive]` method: ToString runs it with
     // hint "string" and stringifies the primitive result (spec ToPrimitive).
