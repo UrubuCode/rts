@@ -16,16 +16,92 @@ pub extern "C" fn __RTS_FN_GL_TEXTENC_ENCODE(ptr: i64, len: i64) -> u64 {
     alloc_entry(Entry::Buffer(s.as_bytes().to_vec()))
 }
 
+/// One `Entry::Vec` slot → the byte it holds. TypedArray slots are PolyValue
+/// WORDS (`from_f64` for the Vec-backed level A; `INT32` words from indexed
+/// user writes); a legacy collections vec holds RAW small i64s. Decode all
+/// three: boxed INT32 by payload, raw i32-range verbatim, else f64 bits.
+fn slot_byte(x: i64) -> u8 {
+    use rts_engine::heap::poly::{POLY_BOX_BASE, POLY_TAG_MASK, POLY_TAG_SHIFT};
+    let u = x as u64;
+    if (u & POLY_BOX_BASE) == POLY_BOX_BASE {
+        let tag = (u >> POLY_TAG_SHIFT) & POLY_TAG_MASK;
+        // TAG_INT32 = 1 (frozen value-model ABI): the i32 payload's low byte.
+        return if tag == 1 { (u & 0xFF) as u8 } else { 0 };
+    }
+    if let Ok(i) = i32::try_from(x) {
+        return i as u8;
+    }
+    f64::from_bits(u) as u8
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_TEXTENC_DECODE(buf_handle: u64) -> u64 {
     let bytes = with_entry(buf_handle, |entry| match entry {
         Some(Entry::Buffer(v)) | Some(Entry::String(v)) => Some(v.clone()),
+        // A Vec-backed TypedArray (or a `slice` of one): each slot is one byte
+        // value — `new TextDecoder().decode(dest.slice(0, n))`.
+        Some(Entry::Vec(v)) => Some(v.iter().map(|&x| slot_byte(x)).collect()),
         _ => None,
     });
     match bytes {
         Some(b) => alloc_entry(Entry::String(b)),
         None => 0,
     }
+}
+
+/// `encoder.encodeInto(src, dest)` — encode `src` as UTF-8 into `dest` (a
+/// Vec-backed Uint8Array or a raw `Entry::Buffer`), writing only WHOLE code
+/// points that fit (WHATWG spec). Returns `{ read, written }`: `read` counts
+/// UTF-16 code units consumed, `written` the bytes stored.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_TEXTENC_ENCODE_INTO(
+    _self_h: u64,
+    ptr: i64,
+    len: i64,
+    dest_h: u64,
+) -> u64 {
+    use rts_engine::heap::handles::with_entry_mut;
+    let s = str_from_parts(ptr, len);
+    let (read, written) = with_entry_mut(dest_h, |entry| {
+        let mut read = 0i64;
+        let mut w = 0usize;
+        let mut tmp = [0u8; 4];
+        match entry {
+            Some(Entry::Vec(v)) => {
+                let cap = v.len();
+                for ch in s.chars() {
+                    let enc = ch.encode_utf8(&mut tmp).as_bytes();
+                    if w + enc.len() > cap {
+                        break;
+                    }
+                    for &b in enc {
+                        // Slot format matches the TypedArray ctor: an f64 word.
+                        v[w] = (b as f64).to_bits() as i64;
+                        w += 1;
+                    }
+                    read += ch.len_utf16() as i64;
+                }
+            }
+            Some(Entry::Buffer(buf)) => {
+                let cap = buf.len();
+                for ch in s.chars() {
+                    let enc = ch.encode_utf8(&mut tmp).as_bytes();
+                    if w + enc.len() > cap {
+                        break;
+                    }
+                    buf[w..w + enc.len()].copy_from_slice(enc);
+                    w += enc.len();
+                    read += ch.len_utf16() as i64;
+                }
+            }
+            _ => {}
+        }
+        (read, w as i64)
+    });
+    let mut obj: indexmap::IndexMap<String, i64> = indexmap::IndexMap::new();
+    obj.insert("read".to_string(), read);
+    obj.insert("written".to_string(), written);
+    alloc_entry(Entry::Map(Box::new(obj)))
 }
 
 const B64_ALPHA: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
