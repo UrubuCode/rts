@@ -191,12 +191,15 @@ class String {
     return engine.str_pad_end(__str_val(this), targetLen, pad);
   }
   // concat folds up to four trailing args; empty-string defaults make the fold
-  // an identity for the omitted slots (`"a".concat("b")` === "ab").
-  concat(a: string = "", b: string = "", c: string = "", d: string = ""): string {
-    let r = engine.str_concat(__str_val(this), a);
-    r = engine.str_concat(r, b);
-    r = engine.str_concat(r, c);
-    r = engine.str_concat(r, d);
+  // an identity for the omitted slots (`"a".concat("b")` === "ab"). Each arg is
+  // coerced through the generic `+` (JS ToString — `concat(1, true, null)` is
+  // "1truenull"); handing a non-string word straight to the engine bridge
+  // misread a singleton as a heap handle.
+  concat(a: any = "", b: any = "", c: any = "", d: any = ""): string {
+    let r = engine.str_concat(__str_val(this), "" + a);
+    r = engine.str_concat(r, "" + b);
+    r = engine.str_concat(r, "" + c);
+    r = engine.str_concat(r, "" + d);
     return r;
   }
   // replace/replaceAll with a STRING search (a regex first arg is handled by the
