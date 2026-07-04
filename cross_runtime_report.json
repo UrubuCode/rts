@@ -3513,10 +3513,10 @@
 ,
 {
   "name": "404_regexp_replace_named_callback",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "RED@0=11 BLUE@7=21\n[a]ab[a]a",
   "node": "RED@0=11 BLUE@7=21\n[a]ab[a]a",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "undefined@undefined=NaN undefined@undefined=NaN\n[a]ab[a]a"
 }
 ,
 {
@@ -3553,10 +3553,10 @@
 ,
 {
   "name": "codex_regex_replace_zero_length_global",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "|a|b\n0:0,1:0",
   "node": "|a|b\n0:0,1:0",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "|a|b\n0:0,1:0"
 }
 ,
 {
@@ -3857,10 +3857,10 @@
 ,
 {
   "name": "256_string_replace_function",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
   "node": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "replaced=hellO wOrld\ndoubled=a2b4c6\nswapped=Doe John"
 }
 ,
 {
@@ -3873,10 +3873,10 @@
 ,
 {
   "name": "262_replaceall",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "str=a/b/c\nre=x1x2\nfn=a3b6",
   "node": "str=a/b/c\nre=x1x2\nfn=a3b6",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "str=a/b/c\nre=x1x2\nfn=a3b6"
 }
 ,
 {
@@ -3985,10 +3985,10 @@
 ,
 {
   "name": "claude-replace-capture-groups",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "02/01/2023\nSmith John\na[b]c\naBcaBc\nhelolo\nhehelo\nprice: $100\na0a1a2\n1x2y\n[t]est\nnomatch\n-a-b-c-",
   "node": "02/01/2023\nSmith John\na[b]c\naBcaBc\nhelolo\nhehelo\nprice: $100\na0a1a2\n1x2y\n[t]est\nnomatch\n-a-b-c-",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "02/01/2023\nSmith John\na[b]c\naBcaBc\nhelolo\nhehelo\nprice: $100\na0a1a2\n1x2y\n[t]est\nnomatch\n-a-b-c-"
 }
 ,
 {
@@ -4041,10 +4041,10 @@
 ,
 {
   "name": "codex_string_replace_dollar_tokens",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "def-123-abc\nabc[abc][123][def]def\n$-x-$2\na-b",
   "node": "def-123-abc\nabc[abc][123][def]def\n$-x-$2\na-b",
-  "rts": "def-123-abc\nabc[$`][$&][$']def\n$-x-\n$<first>-b"
+  "rts": "def-123-abc\nabc[abc][123][def]def\n$-x-$2\na-b"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":367,"rts_diverge":89,"bun_node_diverge":17,"errors":136,"rejected":0}}
+],"summary":{"total":609,"pass":372,"rts_diverge":89,"bun_node_diverge":17,"errors":131,"rejected":0}}
