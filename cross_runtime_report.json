@@ -3516,7 +3516,7 @@
   "status": "rts_diverge",
   "bun": "RED@0=11 BLUE@7=21\n[a]ab[a]a",
   "node": "RED@0=11 BLUE@7=21\n[a]ab[a]a",
-  "rts": "undefined@undefined=NaN undefined@undefined=NaN\n[a]ab[a]a"
+  "rts": "undefined@red=NaN undefined@blue=NaN\n[a]ab[a]a"
 }
 ,
 {
