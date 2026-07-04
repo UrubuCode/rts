@@ -311,14 +311,28 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             MathOp::Min => self.fold_pairwise(fargs, |b, x, y| b.ins().fmin(x, y)),
             MathOp::Max => self.fold_pairwise(fargs, |b, x, y| b.ins().fmax(x, y)),
             MathOp::Sym(sym, _) => {
-                if *sym == "__RTS_FN_NS_MATH_HYPOT" && fargs.len() > 2 {
-                    // hypot(a,b,c,…) = hypot(hypot(a,b),c)… — fold with the 2-arg sym.
-                    let mut acc = fargs[0];
-                    for &x in &fargs[1..] {
-                        acc = emit_marshal::emit_call(module, self.builder, sym, &[acc, x])
-                            .expect("MATH_HYPOT returns a value");
+                if *sym == "__RTS_FN_NS_MATH_HYPOT" && fargs.len() == 1 {
+                    // hypot(x) = sqrt(x²) = |x| — calling the 2-slot symbol with
+                    // 1 marshaled arg would assert in emit_call.
+                    self.builder.ins().fabs(fargs[0])
+                } else if *sym == "__RTS_FN_NS_MATH_HYPOT" && fargs.len() > 2 {
+                    // hypot(a,b,c,…): pack the args into a fresh vec and run the
+                    // SAME `__rtsadp_math_reduce` the spread form uses (V8-style
+                    // max-scaled compensated sum) — a pairwise 2-arg fold drifted
+                    // 1 ULP from V8/JSC on `Math.hypot(1, 1, 1)`.
+                    let arr = emit_marshal::emit_new_vec_object(module, self.builder);
+                    for &x in fargs {
+                        let word = self.box_value(Val::new(x, Repr::Float64));
+                        emit_marshal::emit_vec_push(module, self.builder, arr, word);
                     }
-                    acc
+                    let op_v = self.builder.ins().iconst(cranelift_codegen::ir::types::I64, 2);
+                    emit_marshal::emit_call(
+                        module,
+                        self.builder,
+                        "__rtsadp_math_reduce",
+                        &[arr, op_v],
+                    )
+                    .expect("__rtsadp_math_reduce returns a value")
                 } else {
                     emit_marshal::emit_call(module, self.builder, sym, fargs)
                         .expect("real math symbol returns a value")
@@ -476,6 +490,24 @@ fn op_arity(op: &MathOp) -> usize {
         MathOp::Sqrt | MathOp::Abs => 1,
         MathOp::Min | MathOp::Max => 2,
         MathOp::Sym(_, n) => *n,
+    }
+}
+
+/// Compile-time `typeof Math.<prop>` — resolved from the SAME data the Math
+/// call path dispatches on: a constant → `"number"`, a method in the f64 table
+/// or the i32-domain `math` Registry namespace → `"function"`, anything else →
+/// `"undefined"`. Lets `typeof Math.f16round === "function"` feature-detection
+/// fold instead of bailing on the member read.
+pub(super) fn math_member_typeof(prop: &str) -> &'static str {
+    if math_const(prop).is_some() {
+        "number"
+    } else if prop == "random"
+        || math_op(prop).is_some()
+        || (0..=4).any(|n| super::registry::namespace_member("math", prop, n).is_some())
+    {
+        "function"
+    } else {
+        "undefined"
     }
 }
 

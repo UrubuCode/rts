@@ -436,25 +436,65 @@ pub extern "C" fn __rtsadp_math_reduce(arr_word: u64, op: i64) -> f64 {
     let v = PolyValue::from_raw(arr_word);
     let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
     let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(handle).max(0);
+    if op == 2 {
+        // hypot needs ALL elements up front (the scale factor is the max
+        // magnitude) — a pairwise `acc.hypot(x)` fold drifted 1 ULP from
+        // V8/JSC on `Math.hypot(1, 1, 1)`.
+        let mut xs = Vec::with_capacity(len as usize);
+        for i in 0..len {
+            let w = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, i) as u64;
+            xs.push(to_number(PolyValue::from_raw(w)));
+        }
+        return hypot_n(&xs);
+    }
     let mut acc = match op {
         0 => f64::INFINITY,
-        1 => f64::NEG_INFINITY,
-        _ => 0.0,
+        _ => f64::NEG_INFINITY,
     };
     for i in 0..len {
         let w = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, i) as u64;
         let x = to_number(PolyValue::from_raw(w));
         acc = match op {
             0 => acc.min(x),
-            1 => acc.max(x),
-            _ => acc.hypot(x),
+            _ => acc.max(x),
         };
         // JS min/max propagate NaN (Rust's f64::min/max do NOT — guard).
-        if x.is_nan() && op != 2 {
+        if x.is_nan() {
             return f64::NAN;
         }
     }
     acc
+}
+
+/// N-ary `Math.hypot` the way V8/JSC compute it: ±Infinity dominates (even over
+/// NaN, JS spec), then NaN; otherwise scale every element by the max magnitude,
+/// Neumaier-sum the squared ratios, and return `sqrt(sum) * max` — exact in the
+/// normal range and immune to overflow/underflow of the naive sum of squares.
+fn hypot_n(xs: &[f64]) -> f64 {
+    if xs.iter().any(|x| x.is_infinite()) {
+        return f64::INFINITY;
+    }
+    if xs.iter().any(|x| x.is_nan()) {
+        return f64::NAN;
+    }
+    let max = xs.iter().fold(0.0f64, |m, x| m.max(x.abs()));
+    if max == 0.0 {
+        return 0.0;
+    }
+    let mut sum = 0.0f64;
+    let mut comp = 0.0f64;
+    for &x in xs {
+        let r = x / max;
+        let sq = r * r;
+        let t = sum + sq;
+        comp += if sum.abs() >= sq.abs() {
+            (sum - t) + sq
+        } else {
+            (sq - t) + sum
+        };
+        sum = t;
+    }
+    (sum + comp).sqrt() * max
 }
 
 /// `__rtsadp_canon_double(word)` — `ToNumber` the PolyValue `word` and return it
