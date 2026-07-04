@@ -16,6 +16,14 @@ permissions:
   issues: write         # cross-runtime: auto-create de issue em divergencia
   pull-requests: write  # cross-runtime: comentar em PR
 
+# Um push novo SUPERSEDE o build anterior do mesmo ref: sem isto, cada commit
+# na main abria um build multi-hora novo e os antigos ficavam "in progress"
+# acumulando até saturar os runners hospedados (a fila inteira travou —
+# 2026-07-04, 17 runs presos). Só o build do commit mais recente importa.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   version:
     runs-on: ubuntu-latest
