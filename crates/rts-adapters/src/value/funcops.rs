@@ -290,31 +290,10 @@ extern "C" fn box_async_result(fn_ptr: u64, raw: i64) -> i64 {
 pub extern "C" fn __rtsadp_invoke_auto_word(callee_word: u64, this_word: u64, args_vec: u64) -> u64 {
     use rts_engine::heap::handles::{alloc_entry, with_entry, Entry as E};
     let h = rts_engine::heap::poly::poly_handle_normalize(callee_word).unwrap_or(callee_word);
-    // A VARIADIC uniform-thunk callee (post-expand: the rest param is ONE array
-    // at `rest_param_idx`): pack the positional tail HERE — INVOKE_AUTO's
-    // uniform-thunk fast path passes the vec slots verbatim (no packing), so a
-    // `(...args)` override would read a bare first arg where its array goes.
-    let (uniform, rest_idx, has_this) = with_entry(h, |e| match e {
-        Some(E::Function(d)) => (d.uniform_thunk, d.rest_param_idx, d.has_this_param),
-        _ => (false, -1, false),
-    });
-    let mut vec_arg = args_vec;
-    if uniform && rest_idx >= 0 && !has_this {
-        let items: Vec<i64> = with_entry(args_vec, |e| match e {
-            Some(E::Vec(v)) => v.as_ref().clone(),
-            _ => Vec::new(),
-        });
-        let ri = (rest_idx as usize).min(items.len());
-        let tail: Vec<i64> = items[ri..].to_vec();
-        let arr_h = alloc_entry(E::Vec(Box::new(tail)));
-        let arr_word = PolyValue::from_object_handle(
-            rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(arr_h),
-        )
-        .raw() as i64;
-        let mut packed: Vec<i64> = items[..ri].to_vec();
-        packed.push(arr_word);
-        vec_arg = alloc_entry(E::Vec(Box::new(packed)));
-    }
+    // A VARIADIC uniform-thunk callee needs NO pre-packing here: the THUNK
+    // packs the positional tail into the rest array itself (`__rtsadp_pack_rest`)
+    // — pre-packing double-wrapped the tail.
+    let vec_arg = args_vec;
     rts_runtime::namespaces::globals::function::ops::__RTS_FN_RT_INVOKE_AUTO(
         h as i64,
         this_word as i64,
@@ -535,47 +514,9 @@ pub extern "C" fn __rtsadp_fn_invoke(
     // whole run (`Program` owns it). Transmuting a code address to its true
     // declared signature is sound.
     let f: UniformFn = unsafe { std::mem::transmute::<u64, UniformFn>(addr) };
-    // A VARIADIC callee (post-expand: the rest param is ONE array at
-    // `rest_idx`): pack the positional tail into a fresh array. The caller's
-    // `rest` slot carries the exact ARG COUNT as an INT32 word for ≤4 args (or
-    // the overflow ARRAY for >4); a legacy `undefined` rest falls back to
-    // counting the trailing non-undefined slots.
-    if rest_idx >= 0 && !has_this {
-        use rts_engine::heap::handles::{alloc_entry, Entry as E};
-        let slots = [a0, a1, a2, a3];
-        let rest_pv = PolyValue::from_raw(rest);
-        let (argc, overflow): (usize, Vec<i64>) = if rest_pv.is_int32() {
-            ((rest_pv.as_i32().max(0) as usize).min(4), Vec::new())
-        } else if let Some(h) = rts_engine::heap::poly::poly_handle_normalize(rest) {
-            let items: Vec<i64> = with_entry(h, |e| match e {
-                Some(E::Vec(v)) => v.as_ref().clone(),
-                _ => Vec::new(),
-            });
-            (4, items)
-        } else {
-            let undef = PolyValue::undefined().raw();
-            let n = slots.iter().rposition(|&w| w != undef).map_or(0, |i| i + 1);
-            (n, Vec::new())
-        };
-        let ri = rest_idx as usize;
-        if ri <= 4 {
-            let mut tail: Vec<i64> = Vec::new();
-            for &w in slots.iter().take(argc).skip(ri) {
-                tail.push(w as i64);
-            }
-            tail.extend(overflow);
-            let arr_h = alloc_entry(E::Vec(Box::new(tail)));
-            let arr_word = PolyValue::from_object_handle(
-                rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(arr_h),
-            )
-            .raw();
-            let undef = PolyValue::undefined().raw();
-            let mut call = [undef; 4];
-            call[..ri].copy_from_slice(&slots[..ri]);
-            call[ri] = arr_word;
-            return f(env_word, call[0], call[1], call[2], call[3], undef);
-        }
-    }
+    // A VARIADIC callee: the THUNK is the single packer (`__rtsadp_pack_rest`
+    // packs the positional tail + overflow at the rest index, capture-aware).
+    // Packing HERE TOO double-wrapped the tail (`(...args)` read `[[2,3]]`).
     if has_this && bound.is_empty() {
         // A this-first function called WITHOUT a receiver (plain `f(x)`): JS
         // binds `this = undefined`; positional args shift past it (a3 drops -
