@@ -166,11 +166,13 @@ function __json_repeat(pad: string, n: number): string {
   return s;
 }
 
-// Double-quote a string with the JSON escape set.
+// Double-quote a string with the JSON escape set. Iterates by CODE POINTS
+// (for-of), never by UTF-16 unit index: `s[i]` on half a surrogate pair reads
+// a LONE surrogate the engine's UTF-8 pool cannot hold (it became U+FFFD —
+// JSON.stringify("😀") printed replacement chars).
 function __json_quote(s: string): string {
   let out = '"';
-  for (let i = 0; i < s.length; i++) {
-    const c = s[i];
+  for (const c of s) {
     if (c === '"') out += '\\"';
     else if (c === "\\") out += "\\\\";
     else if (c === "\n") out += "\\n";
