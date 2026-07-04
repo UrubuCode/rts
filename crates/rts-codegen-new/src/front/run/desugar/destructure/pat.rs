@@ -200,63 +200,72 @@ fn static_key(key: &swc_ecma_ast::PropName) -> Option<String> {
 }
 
 /// Lower a default expression (the RHS of `= default`) to HIR via rts-hir's real
-/// lowering, accepting it ONLY when it is side-effect-free.
+/// lowering, accepting it when it is fully MODELED.
 ///
 /// SOUNDNESS: the desugar applies a default with a ternary
 /// `(access === undefined) ? default : access`, and the engine's ternary lowering
-/// evaluates BOTH arms eagerly (it is a `select`, not a branch). So a default with
-/// an observable SIDE EFFECT (a call, an assignment, `++`) would run even when the
-/// element/property is present — diverging from JS, which evaluates a default ONLY
-/// when the value is missing. We therefore accept only a PURE default (literal /
-/// ident / pure read / pure operator tree); any impure default makes the whole
-/// pattern bail (the original `"_"` binding stays and bails at lowering) — never a
-/// wrong side-effect order. A `Raw` placeholder (template/optional-chain/regex the
-/// desugar would have to recover separately) is likewise rejected.
+/// is a real BRANCH — the untaken arm never runs — so a default with an observable
+/// SIDE EFFECT (a call, an assignment, `++`) runs only when the value is missing,
+/// exactly the spec's evaluate-default-only-when-absent. (The old PURITY gate here
+/// predated the branch lowering, when a `select` evaluated both arms eagerly.)
+/// Rejected — making the whole pattern bail honestly — are only the kinds the
+/// lowering cannot take from THIS position: a `Raw` placeholder
+/// (template/optional-chain the desugar would have to recover separately) and an
+/// `Arrow`/fn-expression (extraction to a top-level fn happens at the statement
+/// level, not on this re-lowered sub-expression), plus `Await`.
 fn rebuild_default(expr: &swc_ecma_ast::Expr) -> Option<rts_hir::HirExpr> {
     let scope = rts_hir::scope::Scope::new();
     let e = rts_hir::lower::lower_swc_expr(expr, &scope);
-    if !is_pure(&e) {
+    if !is_modeled(&e) {
         return None;
     }
     Some(e)
 }
 
-/// Whether an HIR expression is side-effect-free AND fully modeled (no `Raw`): no
-/// call/new/assignment/increment anywhere, and no unmodeled placeholder. Reads
-/// (ident/member/index) and pure operator trees over pure operands are allowed.
-fn is_pure(e: &rts_hir::HirExpr) -> bool {
+/// Whether an HIR expression is fully MODELED for the default-ternary desugar (no
+/// `Raw` placeholder / `Arrow` / `Await` anywhere). Side effects are fine — the
+/// ternary lowers as a branch (see [`rebuild_default`]).
+fn is_modeled(e: &rts_hir::HirExpr) -> bool {
     use rts_hir::ir::HirExprKind;
     match &e.kind {
-        // Observable side effects, or an unmodeled placeholder → not pure.
-        HirExprKind::Raw(_)
-        | HirExprKind::Call { .. }
-        | HirExprKind::MethodCall { .. }
-        | HirExprKind::New { .. }
-        | HirExprKind::Assign { .. }
-        | HirExprKind::AssignOp { .. }
-        | HirExprKind::PreInc(_)
-        | HirExprKind::PreDec(_)
-        | HirExprKind::PostInc(_)
-        | HirExprKind::PostDec(_)
-        | HirExprKind::Await(_)
-        | HirExprKind::Arrow { .. }
-        | HirExprKind::Spread(_) => false,
+        HirExprKind::Raw(_) | HirExprKind::Arrow { .. } | HirExprKind::Await(_) => false,
         HirExprKind::Lit(_) | HirExprKind::Ident(_) => true,
         HirExprKind::Bin { lhs, rhs, .. }
         | HirExprKind::Index {
             object: lhs,
             index: rhs,
-        } => is_pure(lhs) && is_pure(rhs),
+        }
+        | HirExprKind::Assign {
+            target: lhs,
+            value: rhs,
+        }
+        | HirExprKind::AssignOp {
+            target: lhs,
+            value: rhs,
+            ..
+        } => is_modeled(lhs) && is_modeled(rhs),
         HirExprKind::Unary { operand, .. }
         | HirExprKind::Cast { expr: operand, .. }
         | HirExprKind::Member {
             object: operand, ..
-        } => is_pure(operand),
-        HirExprKind::Array(els) => els.iter().all(is_pure),
-        HirExprKind::Object(fields) => fields.iter().all(|(_, v)| is_pure(v)),
-        HirExprKind::Ternary { cond, then, else_ } => {
-            is_pure(cond) && is_pure(then) && is_pure(else_)
         }
-        HirExprKind::Seq(es) => es.iter().all(is_pure),
+        | HirExprKind::Spread(operand)
+        | HirExprKind::PreInc(operand)
+        | HirExprKind::PreDec(operand)
+        | HirExprKind::PostInc(operand)
+        | HirExprKind::PostDec(operand) => is_modeled(operand),
+        HirExprKind::Call { callee, args } => {
+            is_modeled(callee) && args.iter().all(is_modeled)
+        }
+        HirExprKind::MethodCall { object, args, .. } => {
+            is_modeled(object) && args.iter().all(is_modeled)
+        }
+        HirExprKind::New { args, .. } => args.iter().all(is_modeled),
+        HirExprKind::Array(els) => els.iter().all(is_modeled),
+        HirExprKind::Object(fields) => fields.iter().all(|(_, v)| is_modeled(v)),
+        HirExprKind::Ternary { cond, then, else_ } => {
+            is_modeled(cond) && is_modeled(then) && is_modeled(else_)
+        }
+        HirExprKind::Seq(es) => es.iter().all(is_modeled),
     }
 }
