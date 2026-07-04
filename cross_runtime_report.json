@@ -1793,10 +1793,10 @@
 ,
 {
   "name": "409_for_of_iterator_close",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "3\nnext0,next1,next2,return",
   "node": "3\nnext0,next1,next2,return",
-  "rts": "3\nnext0,next1,next2,next3,next4"
+  "rts": "3\nnext0,next1,next2,return"
 }
 ,
 {
@@ -3561,10 +3561,10 @@
 ,
 {
   "name": "codex_regex_sticky_lastindex_unicode",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "true:3\ntrue:5\nfalse:0\nabc:5",
   "node": "true:3\ntrue:5\nfalse:0\nabc:5",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "true:0\ntrue:0\ntrue:0\nabc:0"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":438,"rts_diverge":59,"bun_node_diverge":17,"errors":95,"rejected":0}}
+],"summary":{"total":609,"pass":439,"rts_diverge":59,"bun_node_diverge":17,"errors":94,"rejected":0}}
