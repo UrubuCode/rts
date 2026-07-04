@@ -137,6 +137,13 @@ class String {
   // the tail from `position`, then offset the found index back to absolute (or keep
   // -1). `s.indexOf(x, p)` over the whole string when `p <= 0`.
   indexOf(needle: string, position: number = 0): number {
+    // Empty needle (JS spec): `min(max(position, 0), length)` — composing via
+    // slice returned `position` unclamped (`"hello".indexOf("", 10)` → 10≠5).
+    if (needle === "") {
+      const len = __str_val(this).length;
+      if (position < 0) return 0;
+      return position > len ? len : position;
+    }
     if (position > 0) {
       const found = engine.str_index_of(__str_val(this.slice(position)), needle);
       return found < 0 ? -1 : found + position;
