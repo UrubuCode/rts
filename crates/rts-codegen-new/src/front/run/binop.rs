@@ -453,12 +453,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     fn const_int_value(&self, v: cranelift_codegen::ir::Value) -> Option<i64> {
         use cranelift_codegen::ir::{InstructionData, Opcode, ValueDef};
         if let ValueDef::Result(inst, _) = self.builder.func.dfg.value_def(v) {
-            if let InstructionData::UnaryImm {
-                opcode: Opcode::Iconst,
-                imm,
-            } = self.builder.func.dfg.insts[inst]
-            {
-                return Some(imm.bits());
+            match self.builder.func.dfg.insts[inst] {
+                InstructionData::UnaryImm {
+                    opcode: Opcode::Iconst,
+                    imm,
+                } => return Some(imm.bits()),
+                // A negative literal lowers as `ineg(iconst n)` — see through it
+                // (`0 * -1`'s signed-zero fold needs the `-1`).
+                InstructionData::Unary {
+                    opcode: Opcode::Ineg,
+                    arg,
+                } => return self.const_int_value(arg).map(|n| n.wrapping_neg()),
+                _ => {}
             }
         }
         None
