@@ -1235,6 +1235,39 @@ fn array_word(vec: u64) -> u64 {
 // `Object.keys` (dynamic) reuses the existing `iterops::__rtsadp_obj_keys` (for-in
 // already builds the key array) — not redefined here.
 
+/// `Object.defineProperties(obj, props)` / the descriptors arg of
+/// `Object.create(proto, props)`: define every own enumerable key of `props` on
+/// `obj` through the single `__rtsadp_obj_define_property` authority (canonical
+/// key order). Returns `obj`.
+///
+/// Spec shape (ObjectDefineProperties): ALL descriptors are READ first (their
+/// getters run in key order and may THROW — the pending-error slot is checked
+/// after each read, aborting with NOTHING applied), and only then applied.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_obj_define_properties(obj_word: u64, props_word: u64) -> u64 {
+    // Enumerate through the KEYS authority (`__rtsadp_obj_keys`), which lists an
+    // accessor slot (`__get_<k>`) under its PROPERTY name — reading it below runs
+    // the getter (the storage-key list would read the raw slot and skip it).
+    let keys_word = super::iterops::__rtsadp_obj_keys(props_word);
+    let keys_h =
+        rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(PolyValue::from_raw(keys_word).as_handle());
+    let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(keys_h).max(0);
+    let mut gathered: Vec<(u64, u64)> = Vec::new();
+    for i in 0..len {
+        let key_word = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(keys_h, i) as u64;
+        let desc = __rtsadp_obj_get(props_word, key_word);
+        if super::errslot::__rtsadp_err_pending() != 0 {
+            // A descriptor getter threw: propagate the unwind, applying nothing.
+            return obj_word;
+        }
+        gathered.push((key_word, desc));
+    }
+    for (key_word, desc) in gathered {
+        __rtsadp_obj_define_property(obj_word, key_word, desc);
+    }
+    obj_word
+}
+
 /// `__rtsadp_obj_values(obj_word)` — `Object.values(obj)` at RUNTIME: a fresh array
 /// of the object's slot VALUES (slots `1..`; slot 0 is the shape-id header).
 #[unsafe(no_mangle)]
