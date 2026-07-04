@@ -394,20 +394,81 @@ fn utf8_len(b: u8) -> usize {
     }
 }
 
-/// `s.split(re)` — split the subject on each regex match; an array of boxed string
-/// words (built codegen-side from the REAL `REGEX_SPLIT` Vec-of-string-handles).
+/// `s.split(re, limit?)` — the JS-spec regex split, in full: CAPTURE GROUPS are
+/// spliced into the result (`"abc".split(/(b)/)` → `["a","b","c"]`, an unmatched
+/// group as `undefined`), `limit` is ToUint32 (`undefined` → 2³²−1, `0` → `[]`),
+/// and EMPTY matches split per position without consuming (`"xxx".split(/x*/)`
+/// → `["",""]`; a match at/after the end never splits). Match data is
+/// snapshotted like the replace trampoline. Returns a fresh array word.
 #[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_re_str_split(subj_word: u64, re_word: u64) -> u64 {
+pub extern "C" fn __rtsadp_re_str_split(subj_word: u64, re_word: u64, limit_word: u64) -> u64 {
+    use rts_engine::heap::handles::{Entry, with_entry};
     let s = handle_str(str_handle(subj_word));
-    let raw_vec = rt_re::__RTS_FN_NS_REGEX_SPLIT(unbox_re(re_word), s.as_ptr(), s.len() as i64);
-    if raw_vec == 0 {
-        // Bad handle: JS `split` of a string with no match yields `[s]`. Build it.
-        let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
-        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, subj_word as i64);
-        return PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(out))
-            .raw();
+    let lim: u32 = {
+        let v = PolyValue::from_raw(limit_word);
+        if v.is_undefined() || v.is_hole() {
+            u32::MAX
+        } else {
+            // JS ToUint32 (wraps negatives / truncates).
+            let f = genops::dyn_to_number(limit_word);
+            if f.is_finite() { (f as i64) as u32 } else { 0 }
+        }
+    };
+    let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    let finish =
+        |h: u64| PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h)).raw();
+    if lim == 0 {
+        return finish(out);
     }
-    rebox_string_vec_as_array(raw_vec)
+    let re_h = unbox_re(re_word);
+    let matches: Vec<(usize, usize, Vec<Option<String>>)> = with_entry(re_h, |e| match e {
+        Some(Entry::Regex(rx)) => rx
+            .engine
+            .captures_all(&s)
+            .into_iter()
+            .filter_map(|caps| {
+                let m0 = caps.groups.first().cloned().flatten()?;
+                let texts = caps.groups.iter().map(|g| g.clone().map(|m| m.text)).collect();
+                Some((m0.start, m0.end, texts))
+            })
+            .collect(),
+        _ => Vec::new(),
+    });
+    // Empty subject: a regex that matches the empty string yields `[]`, else `[s]`.
+    if s.is_empty() {
+        if matches.is_empty() {
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, subj_word as i64);
+        }
+        return finish(out);
+    }
+    let undef = PolyValue::undefined().raw() as i64;
+    let mut push = |w: i64| -> bool {
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, w);
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(out) as u64 >= lim as u64
+    };
+    let mut p = 0usize;
+    for (start, end, groups) in matches {
+        // A match at/after the end never splits; an EMPTY match exactly at the
+        // current cursor advances without splitting (spec `e == p`).
+        if start >= s.len() || (start == end && end == p) {
+            continue;
+        }
+        if push(abi_adapter::intern_poly(&s[p..start]).raw() as i64) {
+            return finish(out);
+        }
+        for g in groups.iter().skip(1) {
+            let w = match g {
+                Some(t) => abi_adapter::intern_poly(t).raw() as i64,
+                None => undef,
+            };
+            if push(w) {
+                return finish(out);
+            }
+        }
+        p = end;
+    }
+    push(abi_adapter::intern_poly(&s[p..]).raw() as i64);
+    finish(out)
 }
 
 /// `s.search(re)` — the byte index of the first match, or `-1`. A PolyValue number
