@@ -157,25 +157,47 @@ pub fn register_text_decoder_class_spec(e: &mut Engine) {
         .member(m(
             "new",
             MemberKind::Constructor,
-            // `label` is OPTIONAL (`new TextDecoder()` valid); default it to
-            // `undefined` so the generic ctor resolver admits a 0-arg call. UTF-8
-            // only, label ignored, so the runtime never reads a missing label.
-            Sig::with_defaults(vec![AbiType::StrPtr], AbiType::Handle, vec![DefaultArg::Undefined]),
+            // `label` and the `{fatal, ignoreBOM}` options bag are both OPTIONAL
+            // (`new TextDecoder()` valid); default them to `undefined` so the
+            // generic ctor resolver admits 0/1/2-arg calls. UTF-8 only — the
+            // label is accepted and ignored; the options land in instance state.
+            Sig::with_defaults(
+                vec![AbiType::StrPtr, AbiType::Handle],
+                AbiType::Handle,
+                vec![DefaultArg::Undefined, DefaultArg::Undefined],
+            ),
             "__RTS_FN_GL_TEXTDEC_NEW",
-            "new TextDecoder(label?: string)",
-            "new TextDecoder(label?) — label opcional (so' UTF-8 suportado, label ignorado).",
+            "new TextDecoder(label?: string, options?: TextDecoderOptions)",
+            "new TextDecoder(label?, {fatal?, ignoreBOM?}?) — so' UTF-8; options guardadas na instância.",
             core::ptr::null::<u8>(),
             true,
         ))
-        .member(m(
-            "decode",
-            MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle),
-            "__RTS_FN_GL_TEXTDEC_DECODE_INSTANCE",
-            "decode(buf: Uint8Array): string",
-            "decoder.decode(buf) — Buffer handle para string handle.",
-            core::ptr::null::<u8>(),
-            true,
-        ))
+        .member({
+            let mut mem = m(
+                "decode",
+                MemberKind::InstanceMethod,
+                // `buf` optional (a no-arg call FLUSHES a streaming decoder) and
+                // an optional `{stream}` options bag; defaults cover ALL sig
+                // slots (receiver included — the front drops slot 0).
+                Sig::with_defaults(
+                    vec![AbiType::Handle, AbiType::Handle, AbiType::Handle],
+                    AbiType::Handle,
+                    vec![
+                        DefaultArg::Undefined,
+                        DefaultArg::Undefined,
+                        DefaultArg::Undefined,
+                    ],
+                ),
+                "__RTS_FN_GL_TEXTDEC_DECODE_INSTANCE",
+                "decode(buf?: Uint8Array, options?: TextDecodeOptions): string",
+                "decoder.decode(buf?, {stream?}?) — BOM por stream, carry de UTF-8 dividido, fatal lança TypeError.",
+                core::ptr::null::<u8>(),
+                false,
+            );
+            // `{fatal: true}` rejeita input malformado com TypeError pendente —
+            // o front emite o post-call error check ao ver esta flag.
+            mem.flags = MemberFlags::THROWS;
+            mem
+        })
         .done();
 }

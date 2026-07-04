@@ -297,6 +297,26 @@ pub extern "C" fn __rtsadp_arr_from(a: u64) -> u64 {
     if v.is_object() && !super::inspect::looks_like_object(v) {
         // A real array → shallow copy of its boxed element words.
         let src = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+        // An `Entry::Buffer` source (a `TextEncoder.encode()` result / raw
+        // ArrayBuffer bytes): each byte is one element — `VEC_LEN` on a Buffer
+        // reads 0 and yielded `[]` (58_text_encoding's `hex=` was empty).
+        let buf_bytes: Option<Vec<u8>> = {
+            use rts_engine::heap::handles::{Entry, with_entry};
+            with_entry(src, |e| match e {
+                Some(Entry::Buffer(b)) => Some(b.clone()),
+                _ => None,
+            })
+        };
+        if let Some(b) = buf_bytes {
+            let vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+            for byte in b {
+                rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(
+                    vec,
+                    PolyValue::from_i32(byte as i32).raw() as i64,
+                );
+            }
+            return box_vec_as_array(vec);
+        }
         let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(src).max(0);
         let vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
         for i in 0..len {

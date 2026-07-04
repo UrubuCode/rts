@@ -48,6 +48,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     ) -> FrontResult<()> {
         match ty {
             AbiType::Handle => {
+                // A spec-DEFAULTED omitted Handle arg (DefaultArg::Undefined on a
+                // Handle slot — an optional options-bag like `new TextDecoder(l,
+                // opts?)`): the ABSENT handle `0`, never a table-load of the
+                // `undefined` word (whose payload 0 would read a bogus slot).
+                if matches!(val.kind, JsKind::Undefined) {
+                    out.push(self.builder.ins().iconst(types::I64, 0));
+                    return Ok(());
+                }
                 // Two kinds of value reach a `Handle` param:
                 //  * an OPAQUE RESOURCE handle — a raw `u64` id riding as an INTEGER
                 //    PolyValue (`audio`/`buffer`/`net` results, TS `number`). It is
@@ -349,6 +357,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             &params,
             call.ret,
         );
+        // A THROWS-flagged member may have set the pending-error slot: emit the
+        // same post-call check user calls get, so `try/catch` routes the unwind
+        // (data on the spec — the engine names no class here).
+        if call.flags.contains(rts_engine::MemberFlags::THROWS) {
+            self.emit_post_call_error_check(module)?;
+        }
         // NULLABLE string return (`: string | null`): a `0` handle is ABSENT → rebox
         // as `null`, not the empty string (`URLSearchParams.get(missing)` etc.). An
         // empty `""` interns to a NON-zero handle, so `0` is unambiguously absent.
