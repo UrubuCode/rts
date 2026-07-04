@@ -169,6 +169,12 @@ impl ClassTable {
         self.by_name.get(name)
     }
 
+    /// Every collected class descriptor (the METHOD-TABLE prologue walks all
+    /// classes to register their methods with the runtime).
+    pub fn descs(&self) -> impl Iterator<Item = &ClassDesc> {
+        self.by_name.values()
+    }
+
     /// Whether class `name` is already collected (used by the literal-class
     /// recovery pass to share one descriptor across identical literals).
     pub fn contains(&self, name: &str) -> bool {
