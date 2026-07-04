@@ -169,7 +169,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             let wk: Vec<(String, String)> = desc
                 .methods
                 .iter()
-                .filter(|(n, _)| n.starts_with("@@"))
+                .filter(|(n, f)| {
+                    // A GENERATOR/async `*[Symbol.iterator]` cannot be reified
+                    // as a plain fn VALUE (its call protocol is the lazy state
+                    // machine) — the compile-time class-iterator arm serves it;
+                    // publish only PLAIN @@ methods.
+                    n.starts_with("@@")
+                        && self.sigs.get(f.as_str()).is_some_and(|s| {
+                            !s.is_async && !s.ret_lazy_gen
+                        })
+                })
                 .map(|(n, f)| (n.clone(), f.clone()))
                 .collect();
             for (slot, fn_name) in wk {

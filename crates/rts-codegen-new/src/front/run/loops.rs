@@ -161,8 +161,123 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if let Some(arr_word) = self.try_lazy_gen_source_word(module, iterable)? {
             return self.lower_index_walk(module, binding, arr_word, body, None, false);
         }
-        let (arr_word, elems_are_strings) = self.for_of_source_word(module, iterable)?;
-        self.lower_index_walk(module, binding, arr_word, body, None, elems_are_strings)
+        // PROVEN array: the fast index walk, unchanged.
+        if self.is_array_valued(iterable) {
+            let arr = self.lower_expr(module, iterable)?;
+            let arr_word = self.box_value(arr);
+            return self.lower_index_walk(module, binding, arr_word, body, None, false);
+        }
+        let v = self.lower_expr(module, iterable)?;
+        // PROVEN string: code-point char array (elements proven strings).
+        if matches!(v.kind, JsKind::Str) {
+            let word = self.box_value(v);
+            let chars = self
+                .call_runtime(module, "__rtsadp_str_chars", &[word])?
+                .ok_or_else(|| {
+                    crate::front::error::Unsupported::new("__rtsadp_str_chars returns a value")
+                })?;
+            return self.lower_index_walk(module, binding, chars, body, None, true);
+        }
+        // GENERIC (Tagged) source: the LAZY iterator protocol — `iter_open` picks
+        // an array cursor (array/string/Set/Map by shape) or a LIVE custom
+        // `[Symbol.iterator]` iterator; `break` runs IteratorClose (`return()`);
+        // a non-iterable source THROWS TypeError.
+        if matches!(v.repr, Repr::Tagged) {
+            let word = self.box_value(v);
+            return self.lower_iter_protocol_walk(module, binding, word, body);
+        }
+        unsupported!(
+            "for-of over a non-iterable (a proven number/bool can never be iterable)"
+        )
+    }
+
+    /// The LAZY protocol walk for an unproven for-of source: open a cursor,
+    /// bind `iter_next` results until the EMPTY sentinel, and run
+    /// IteratorClose on `break`.
+    fn lower_iter_protocol_walk(
+        &mut self,
+        module: &mut dyn Module,
+        binding: &str,
+        src_word: Value,
+        body: &[HirStmt],
+    ) -> FrontResult<()> {
+        let cursor = self
+            .call_runtime(module, "__rtsadp_iter_open", &[src_word])?
+            .expect("__rtsadp_iter_open returns a cursor");
+        // A non-iterable source threw — route the unwind before looping.
+        self.emit_post_call_error_check(module)?;
+        let cursor_var = self.builder.declare_var(cl_type(Repr::Tagged));
+        self.builder.def_var(cursor_var, cursor);
+
+        let bind_var = self.builder.declare_var(cl_type(Repr::Tagged));
+        self.locals.insert(
+            binding.to_string(),
+            Local {
+                var: bind_var,
+                repr: Repr::Tagged,
+            },
+        );
+        self.local_shapes.remove(binding);
+        self.local_classes.remove(binding);
+        self.global_instance_classes.remove(binding);
+        self.object_locals.remove(binding);
+
+        let header = self.builder.create_block();
+        let body_block = self.builder.create_block();
+        let break_block = self.builder.create_block();
+        let exit_block = self.builder.create_block();
+
+        self.builder.ins().jump(header, &[]);
+
+        // ---- header: v = iter_next(cursor); EMPTY → exit ----
+        self.builder.switch_to_block(header);
+        self.block_terminated = false;
+        let cur = self.builder.use_var(cursor_var);
+        let v = self
+            .call_runtime(module, "__rtsadp_iter_next", &[cur])?
+            .expect("__rtsadp_iter_next returns a value");
+        // A user `next()` can THROW — route the unwind (no close; spec skips
+        // IteratorClose when next itself throws).
+        self.emit_post_call_error_check(module)?;
+        let empty = self
+            .builder
+            .ins()
+            .iconst(types::I64, crate::value::PolyValue::empty().raw() as i64);
+        let is_done = self.builder.ins().icmp(IntCC::Equal, v, empty);
+        self.builder
+            .ins()
+            .brif(is_done, exit_block, &[], body_block, &[]);
+
+        // ---- body ----
+        self.builder.switch_to_block(body_block);
+        self.builder.seal_block(body_block);
+        self.block_terminated = false;
+        self.builder.def_var(bind_var, v);
+        let label = self.pending_label.take();
+        self.loop_stack.push(LoopCtx {
+            exit: break_block,
+            continue_target: header,
+            label,
+        });
+        self.lower_block(module, body)?;
+        self.loop_stack.pop();
+        if !self.block_terminated {
+            self.builder.ins().jump(header, &[]);
+        }
+        self.builder.seal_block(header);
+
+        // ---- break: IteratorClose (`return()`), then exit ----
+        self.builder.switch_to_block(break_block);
+        self.builder.seal_block(break_block);
+        self.block_terminated = false;
+        let cur = self.builder.use_var(cursor_var);
+        self.call_runtime(module, "__rtsadp_iter_close", &[cur])?;
+        self.builder.ins().jump(exit_block, &[]);
+
+        self.builder.switch_to_block(exit_block);
+        self.builder.seal_block(exit_block);
+        self.block_terminated = false;
+        Ok(())
     }
 
     /// If `iterable` is an instance of a class declaring `[Symbol.iterator]()`
@@ -281,61 +396,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .expect("__rtsadp_for_in_keys returns a value");
         // for-in keys are always PROPERTY-NAME strings → string-kinded binding.
         self.lower_index_walk(module, binding, keys_word, body, Some(obj_word), true)
-    }
-
-    /// Resolve the for-of `iterable` to an array PolyValue WORD to walk (plus
-    /// whether the elements are PROVEN strings — a string source's char array —
-    /// so the caller marks the binding string-kinded): a proven ARRAY feeds its
-    /// own boxed Vec; a proven STRING is materialized to a char array. Anything
-    /// else bails.
-    fn for_of_source_word(
-        &mut self,
-        module: &mut dyn Module,
-        iterable: &HirExpr,
-    ) -> FrontResult<(Value, bool)> {
-        if self.is_array_valued(iterable) {
-            let arr = self.lower_expr(module, iterable)?;
-            return Ok((self.box_value(arr), false));
-        }
-        // A STRING source (a literal, a string-kinded local/expression): iterate
-        // code points. We lower it and require a proven `Str` kind — a Tagged value
-        // of Unknown kind could be a number/object and would silently mis-iterate,
-        // so refuse it.
-        let v = self.lower_expr(module, iterable)?;
-        if matches!(v.kind, JsKind::Str) {
-            let word = self.box_value(v);
-            let chars = self
-                .call_runtime(module, "__rtsadp_str_chars", &[word])?
-                .ok_or_else(|| {
-                    crate::front::error::Unsupported::new("__rtsadp_str_chars returns a value")
-                })?;
-            // Every element of the char array IS a string — the binding can be
-            // marked string-kinded (`ch.codePointAt(0)` then resolves the
-            // String rows instead of dying in the dynamic own-prop miss).
-            return Ok((chars, true));
-        }
-        // GENERIC fallback for an UNPROVEN source: a `string` PARAM (`for (const ch
-        // of s)`), a nested-array for-of binding, an `any`, a call return, and any
-        // OBJECT/CLASS-INSTANCE source. Coerce at RUNTIME via
-        // `__rtsadp_to_iter_array`: array→self / string→chars / Set·Map by shape /
-        // a CUSTOM `[Symbol.iterator]` drives the real protocol / anything else
-        // THROWS TypeError ("not iterable" — JS semantics, the pending-error
-        // unwind below routes it). A PROVEN numeric/bool source keeps the
-        // compile-time bail (better error, provably never iterable).
-        if matches!(v.repr, Repr::Tagged) {
-            let word = self.box_value(v);
-            let arr = self
-                .call_runtime(module, "__rtsadp_to_iter_array", &[word])?
-                .ok_or_else(|| {
-                    crate::front::error::Unsupported::new("__rtsadp_to_iter_array returns a value")
-                })?;
-            // A non-iterable source THREW — route the unwind before walking.
-            self.emit_post_call_error_check(module)?;
-            return Ok((arr, false));
-        }
-        unsupported!(
-            "for-of over a non-iterable (only a proven array or string is supported in this increment)"
-        )
     }
 
     /// The shared index walk both for-of and for-in compile to: iterate

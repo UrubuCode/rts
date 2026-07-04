@@ -36,6 +36,12 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             "__rtsadp_for_in_keys",
             iterops::__rtsadp_for_in_keys as *const u8,
         ),
+        sym("__rtsadp_iter_open", iterops::__rtsadp_iter_open as *const u8),
+        sym("__rtsadp_iter_next", iterops::__rtsadp_iter_next as *const u8),
+        sym(
+            "__rtsadp_iter_close",
+            iterops::__rtsadp_iter_close as *const u8,
+        ),
         sym(
             "__rtsadp_own_keys_raw",
             iterops::__rtsadp_own_keys_raw as *const u8,

@@ -115,7 +115,10 @@ pub extern "C" fn __rtsadp_to_iter_array(word: u64) -> u64 {
             return box_vec_as_array(out);
         }
     }
-    // CUSTOM `[Symbol.iterator]` (object literal / class instance whose slot —
+    // CUSTOM `[Symbol.iterator]` — see also the LAZY protocol trampolines
+    // (`__rtsadp_iter_open/next/close`) the for-of lowering drives directly
+    // (close-on-break). This eager path remains for spread/`Array.from`.
+    // (object literal / class instance whose slot —
     // own or via the prototype chain — holds the method under the canonical
     // `@@sym:<handle>` key): drive the REAL protocol — invoke the method for
     // the iterator object, then `next()` until `done`, collecting `value`s.
@@ -461,6 +464,150 @@ pub extern "C" fn __rtsadp_for_in_keys(obj_word: u64) -> u64 {
         cur = proto;
     }
     own
+}
+
+/// The custom `[Symbol.iterator]` METHOD of `word` (slot `@@iterator` from the
+/// desugar, or a dynamic `@@sym:<h>` write; own or via the prototype chain), or
+/// `None`.
+fn custom_iterator_method(word: u64) -> Option<u64> {
+    let v = PolyValue::from_raw(word);
+    if !v.is_object() {
+        return None;
+    }
+    let key = abi_adapter::intern_poly("@@iterator");
+    let m = super::objops::__rtsadp_obj_get(word, key.raw());
+    if PolyValue::from_raw(m).is_function() {
+        return Some(m);
+    }
+    let iter_h = rts_runtime::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_ITERATOR();
+    let skey = abi_adapter::intern_poly(&format!("@@sym:{iter_h}"));
+    let m = super::objops::__rtsadp_obj_get(word, skey.raw());
+    PolyValue::from_raw(m).is_function().then_some(m)
+}
+
+/// LAZY for-of open — a 3-slot CURSOR descriptor `[kind, payload, idx]`:
+/// - `kind 0` = MATERIALIZED array cursor (payload = element array; `idx`
+///   advances in `iter_next`; close is a no-op);
+/// - `kind 1` = LIVE ITERATOR (payload = the iterator object from the source's
+///   `[Symbol.iterator]()`; `iter_next` drives `next()`, `iter_close` runs
+///   `return()` on early exit — spec IteratorClose).
+/// A non-iterable source THROWS TypeError (pending-error slot).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_iter_open(word: u64) -> u64 {
+    let undef = PolyValue::undefined().raw();
+    let d = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    if let Some(m) = custom_iterator_method(word) {
+        let it = super::funcops::__rtsadp_fn_invoke_method(m, word, undef, undef, undef, 0);
+        let iv = PolyValue::from_raw(it);
+        if iv.is_object() {
+            // A GENERATOR `*[Symbol.iterator]` (the `.ts` stdlib Set/Map) returns
+            // a lazy GenState handle, not a `{next}` object — DRAIN it to an
+            // array cursor (the state machine runs to completion; close is a
+            // no-op like any materialized source).
+            let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(iv.as_handle());
+            let is_gen = rt_handles::with_entry(h, |e| {
+                matches!(e, Some(rt_handles::Entry::GenState(_)))
+            });
+            if is_gen {
+                let arr_h =
+                    rts_runtime::namespaces::collector::generator::__RTS_FN_NS_GC_GEN_SM_DRAIN(h);
+                let arr = box_vec_as_array(arr_h);
+                rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(d, PolyValue::from_i32(0).raw() as i64);
+                rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(d, arr as i64);
+                rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(d, PolyValue::from_i32(0).raw() as i64);
+                return box_vec_as_array(d);
+            }
+            // A LIVE iterator must expose a callable `next` — a mis-reified
+            // generator method (raw state-machine thunk) yields garbage here;
+            // fall to the materialized shape path instead of a silent-empty
+            // walk. Also DISCARD any pending error the probe invoke set.
+            let nm = super::objops::__rtsadp_obj_get(
+                it,
+                abi_adapter::intern_poly("next").raw(),
+            );
+            if PolyValue::from_raw(nm).is_function() {
+                rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(d, PolyValue::from_i32(1).raw() as i64);
+                rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(d, it as i64);
+                rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(d, PolyValue::from_i32(0).raw() as i64);
+                return box_vec_as_array(d);
+            }
+        }
+        if super::errslot::__rtsadp_err_pending() != 0 {
+            let _ = super::errslot::__rtsadp_err_take();
+        }
+    }
+    // Everything else — array/string/Set/Map by shape (or THROW inside).
+    let arr = __rtsadp_to_iter_array(word);
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(d, PolyValue::from_i32(0).raw() as i64);
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(d, arr as i64);
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(d, PolyValue::from_i32(0).raw() as i64);
+    box_vec_as_array(d)
+}
+
+/// LAZY for-of step over an [`__rtsadp_iter_open`] cursor — the next VALUE
+/// word, or the reserved EMPTY singleton when exhausted (a user value can
+/// never be EMPTY, so the loop tests one word). Array cursor: `arr[idx++]`
+/// with the sparse HOLE reading `undefined`. Live iterator: `it.next()`,
+/// `done` truthy → EMPTY; a broken iterator reads as done.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_iter_next(cursor: u64) -> u64 {
+    let undef = PolyValue::undefined().raw();
+    let ch = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(PolyValue::from_raw(cursor).as_handle());
+    let kind = PolyValue::from_raw(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(ch, 0) as u64);
+    let payload = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(ch, 1) as u64;
+    if kind.is_int32() && kind.as_i32() == 0 {
+        let idx = PolyValue::from_raw(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(ch, 2) as u64);
+        let i = if idx.is_int32() { idx.as_i32() as i64 } else { 0 };
+        let ah = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(
+            PolyValue::from_raw(payload).as_handle(),
+        );
+        let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(ah).max(0);
+        if i >= len {
+            return PolyValue::empty().raw();
+        }
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(
+            ch,
+            2,
+            PolyValue::from_i32((i + 1) as i32).raw() as i64,
+        );
+        let w = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(ah, i) as u64;
+        if PolyValue::from_raw(w).is_hole() {
+            return undef;
+        }
+        return w;
+    }
+    let it = payload;
+    let nm = super::objops::__rtsadp_obj_get(it, abi_adapter::intern_poly("next").raw());
+    if !PolyValue::from_raw(nm).is_function() {
+        return PolyValue::empty().raw();
+    }
+    let r = super::funcops::__rtsadp_fn_invoke_method(nm, it, undef, undef, undef, 0);
+    if !PolyValue::from_raw(r).is_object() {
+        return PolyValue::empty().raw();
+    }
+    let done = super::objops::__rtsadp_obj_get(r, abi_adapter::intern_poly("done").raw());
+    if super::genops::__rtsadp_to_boolean(done) != 0 {
+        return PolyValue::empty().raw();
+    }
+    super::objops::__rtsadp_obj_get(r, abi_adapter::intern_poly("value").raw())
+}
+
+/// LAZY for-of early exit (spec IteratorClose on `break`): a LIVE-ITERATOR
+/// cursor runs `it.return()` when defined; an array cursor / missing `return`
+/// is a no-op.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_iter_close(cursor: u64) {
+    let undef = PolyValue::undefined().raw();
+    let ch = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(PolyValue::from_raw(cursor).as_handle());
+    let kind = PolyValue::from_raw(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(ch, 0) as u64);
+    if !(kind.is_int32() && kind.as_i32() == 1) {
+        return;
+    }
+    let it = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(ch, 1) as u64;
+    let rm = super::objops::__rtsadp_obj_get(it, abi_adapter::intern_poly("return").raw());
+    if PolyValue::from_raw(rm).is_function() {
+        let _ = super::funcops::__rtsadp_fn_invoke_method(rm, it, undef, undef, undef, 0);
+    }
 }
 
 /// `Object.getOwnPropertySymbols(o)` — the SYMBOL-keyed own entries, decoded

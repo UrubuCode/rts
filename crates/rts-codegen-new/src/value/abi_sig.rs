@@ -121,6 +121,10 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, U64],
             ret: Void,
         },
+        "__rtsadp_iter_close" => SymSig {
+            params: &[U64],
+            ret: Void,
+        },
         "__RTS_FN_NS_GC_STRING_NEW" | "__RTS_FN_NS_GC_STRING_FROM_STATIC" => SymSig {
             params: &[StrPtr],
             ret: Handle,
@@ -715,6 +719,8 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         "__rtsadp_str_chars"
         | "__rtsadp_obj_keys"
         | "__rtsadp_for_in_keys"
+        | "__rtsadp_iter_open"
+        | "__rtsadp_iter_next"
         | "__rtsadp_own_keys_raw"
         | "__rtsadp_obj_own_names"
         | "__rtsadp_obj_own_symbols"
