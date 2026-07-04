@@ -674,9 +674,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         };
         let mut call_args: Vec<Value> = Vec::with_capacity(args.len());
         for (i, a) in args.iter().enumerate() {
-            // `GEN_SM_NEW(state_fn, nslots)`: arg0 is the state-fn ident → its raw
-            // code address (the C-ABI `fn(u64)->i64` the runtime calls).
-            if symbol == "__RTS_FN_NS_GC_GEN_SM_NEW" && i == 0 {
+            // `GEN_SM_NEW/ASYNC_SM_NEW/AGEN_NEW(state_fn, nslots)`: arg0 is the
+            // state-fn ident → its raw code address (the C-ABI `fn(u64)->i64`
+            // the runtime calls).
+            if matches!(
+                symbol,
+                "__RTS_FN_NS_GC_GEN_SM_NEW"
+                    | "__RTS_FN_NS_GC_ASYNC_SM_NEW"
+                    | "__RTS_FN_NS_GC_AGEN_NEW"
+            ) && i == 0
+            {
                 if let HirExprKind::Ident(fname) = &a.kind {
                     let fid = *self.ids.get(fname).ok_or_else(|| {
                         Unsupported::new(format!("generator state-fn `{fname}` not declared"))
@@ -1490,6 +1497,16 @@ fn gen_sm_sentinel(name: &str, argc: usize) -> Option<(&'static str, GenRet, &'s
         ("__RTS_GEN_DELEGATE_START", 1) => ("__RTS_FN_NS_GC_GEN_DELEGATE_START", Int, &[0]),
         ("__RTS_GEN_DELEGATE_NEXT", 1) => ("__RTS_FN_NS_GC_GEN_DELEGATE_NEXT", Word, &[]),
         ("__RTS_GEN_DELEGATE_DONE", 1) => ("__RTS_FN_NS_GC_GEN_DELEGATE_DONE", Int, &[]),
+        // ASYNC state machine (async fn com loop/try) + async generator (#392):
+        // o parser emite estes sentinels; os externs já existiam no runtime
+        // (collector/generator.rs) — só o mapa faltava ("call to unknown
+        // function `__RTS_AGEN_NEW`").
+        ("__RTS_ASYNC_SM_NEW", 2) => ("__RTS_FN_NS_GC_ASYNC_SM_NEW", Int, &[]),
+        ("__RTS_AGEN_NEW", 2) => ("__RTS_FN_NS_GC_AGEN_NEW", Int, &[]),
+        ("__RTS_ASYNC_SM_START", 1) => ("__RTS_FN_NS_GC_ASYNC_SM_START", Int, &[]),
+        ("__RTS_ASYNC_SM_SUSPEND", 2) => ("__RTS_FN_NS_GC_ASYNC_SM_SUSPEND", Int, &[]),
+        ("__RTS_ASYNC_SM_AWAITED", 1) => ("__RTS_FN_NS_GC_ASYNC_SM_AWAITED", Word, &[]),
+        ("__RTS_ASYNC_SM_RESOLVE", 2) => ("__RTS_FN_NS_GC_ASYNC_SM_RESOLVE", Int, &[1]),
         _ => return None,
     })
 }
