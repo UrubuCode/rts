@@ -416,6 +416,20 @@ pub fn instanceof_predicate(class: &str) -> Option<&'static str> {
 }
 
 /// The candidate set for the DYNAMIC (runtime-predicate) Registry instance
+/// GETTER dispatch: every Registry class that declares an `instanceof_predicate`
+/// AND an instance getter `prop`. Data-driven — the front names no class.
+pub fn dyn_getter_candidates(prop: &str) -> Vec<(String, &'static str, ResolvedCall)> {
+    let reg: &'static rts_engine::Registry = registry();
+    reg.classes()
+        .filter_map(|c| {
+            let pred = c.instanceof_predicate.as_deref()?;
+            let m = c.instance_getter(prop)?;
+            Some((c.name.clone(), pred, instance_call(m)))
+        })
+        .collect()
+}
+
+/// The candidate set for the DYNAMIC (runtime-predicate) Registry instance
 /// dispatch: every Registry class that BOTH declares an `instanceof_predicate`
 /// AND resolves instance method `method` for a call with `argc` explicit args
 /// (arity window `[required, total]`, same rule the static instance path uses).
