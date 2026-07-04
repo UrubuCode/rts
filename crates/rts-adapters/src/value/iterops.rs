@@ -276,12 +276,31 @@ fn obj_keys_impl(obj_word: u64, enumerable_only: bool) -> u64 {
             .then(|| global_shape_keys(slot0.as_i32() as u32))
             .flatten()
         {
+            // A String/Number/Boolean WRAPPER box: its `__prim` slot is INTERNAL
+            // data, never an own property (skipped below). A STRING wrapper's own
+            // enumerable keys are its UTF-16 code-unit indices — emitted first
+            // (they are integer-index keys, ahead of any expando key).
+            if let Some(pi) = keys.iter().position(|k| k == "__prim") {
+                let pw = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 1 + pi as i64) as u64;
+                let pv = PolyValue::from_raw(pw);
+                if pv.is_string() {
+                    let s = abi_adapter::resolve_poly(pv);
+                    for i in 0..s.encode_utf16().count() {
+                        let word = abi_adapter::intern_poly(&i.to_string()).raw() as i64;
+                        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, word);
+                    }
+                }
+            }
             let mut listed: Vec<String> = Vec::new();
             for k in reorder_enum_keys(keys) {
                 // Symbol-keyed entries (`@@sym:<handle>` canonical repr, #798) are
                 // NOT string-enumerable: `Object.keys`/for-in/`JSON.stringify`
                 // all skip them (JS spec). `Reflect.ownKeys` uses the raw path.
                 if k.starts_with("@@sym:") {
+                    continue;
+                }
+                // The wrapper's internal primitive slot (handled above).
+                if k == "__prim" {
                     continue;
                 }
                 // PRIVATE fields (`#x`, possibly mangled `#x@Class`) are not
