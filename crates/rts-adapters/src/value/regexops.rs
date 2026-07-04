@@ -205,37 +205,193 @@ pub extern "C" fn __rtsadp_re_exec(re_word: u64, subj_word: u64) -> u64 {
     PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(first as u64)).raw()
 }
 
-/// `s.replace(re, repl)` — replace the FIRST match (a non-global regex) with the
-/// literal replacement string. Returns a PolyValue string word.
+/// `s.replace(re, repl)` / `s.replaceAll(re, repl)` — the ONE polymorphic
+/// replacement trampoline (replaced the pair of literal-string trampolines that
+/// delegated to the regex crate's own `$`-semantics): the replacement is
+/// tag-dispatched at RUNTIME — a STRING runs the JS `GetSubstitution` token
+/// expansion per match ($$, $&, $`, $', $n, $<name>); a FUNCTION is invoked per
+/// match with `(match, cap1.., offset, string)` and its ToString spliced; any
+/// other value ToStrings once. `all != 0` replaces every match (global regex /
+/// replaceAll); else only the first. Offsets are UTF-16 code-unit indices (JS),
+/// converted from the engine's byte offsets. Match data is SNAPSHOTTED before
+/// any callback runs — no entry lock across invokes.
 #[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_re_str_replace(subj_word: u64, re_word: u64, repl_word: u64) -> u64 {
+pub extern "C" fn __rtsadp_re_str_replace_fn(
+    subj_word: u64,
+    re_word: u64,
+    fn_word: u64,
+    all: i64,
+) -> u64 {
+    use rts_engine::heap::handles::{Entry, with_entry};
     let s = handle_str(str_handle(subj_word));
-    let repl = handle_str(str_handle(repl_word));
-    let h = rt_re::__RTS_FN_NS_REGEX_REPLACE(
-        unbox_re(re_word),
-        s.as_ptr(),
-        s.len() as i64,
-        repl.as_ptr(),
-        repl.len() as i64,
-    );
-    box_str_or_null(h)
+    let re_h = unbox_re(re_word);
+    // Snapshot: byte range of group 0 + every group's text (None = unmatched)
+    // + the declared group NAMES — no entry lock across callback invokes.
+    let (matches, names): (Vec<(usize, usize, Vec<Option<String>>)>, Vec<Option<String>>) =
+        with_entry(re_h, |e| match e {
+            Some(Entry::Regex(rx)) => (
+                rx.engine
+                    .captures_all(&s)
+                    .into_iter()
+                    .filter_map(|caps| {
+                        let m0 = caps.groups.first().cloned().flatten()?;
+                        let texts =
+                            caps.groups.iter().map(|g| g.clone().map(|m| m.text)).collect();
+                        Some((m0.start, m0.end, texts))
+                    })
+                    .collect(),
+                rx.engine.capture_names(),
+            ),
+            _ => (Vec::new(), Vec::new()),
+        });
+    let is_fn = PolyValue::from_raw(fn_word).is_function();
+    // A non-function replacement: ToString once, then the JS `GetSubstitution`
+    // token expansion runs per match ($$, $&, $`, $', $n, $<name>).
+    let plain: Option<String> = if is_fn {
+        None
+    } else {
+        Some(genops::to_string(PolyValue::from_raw(fn_word)))
+    };
+    let mut out = String::new();
+    let mut last = 0usize;
+    for (start, end, groups) in matches {
+        out.push_str(&s[last..start]);
+        if let Some(p) = &plain {
+            out.push_str(&js_substitution(p, &s, start, end, &groups, &names));
+        } else {
+            // JS arg layout: (match, cap1..capN, offset, string) — offset in
+            // UTF-16 units. The uniform invoke carries 4 positional slots; a
+            // callback declaring more params reads `undefined` for the tail.
+            let undef = PolyValue::undefined().raw();
+            let mut words: Vec<u64> = Vec::with_capacity(groups.len() + 2);
+            for g in &groups {
+                words.push(match g {
+                    Some(t) => abi_adapter::intern_poly(t).raw(),
+                    None => undef,
+                });
+            }
+            let off16 = s[..start].encode_utf16().count();
+            words.push(PolyValue::from_i32(off16 as i32).raw());
+            words.push(subj_word);
+            let a = |i: usize| words.get(i).copied().unwrap_or(undef);
+            let r = super::funcops::__rtsadp_fn_invoke(fn_word, a(0), a(1), a(2), a(3), undef);
+            out.push_str(&genops::to_string(PolyValue::from_raw(r)));
+        }
+        last = end;
+        if all == 0 {
+            break;
+        }
+    }
+    out.push_str(&s[last..]);
+    abi_adapter::intern_poly(&out).raw()
 }
 
-/// `s.replace(re/g, repl)` / `s.replaceAll(re, repl)` — replace ALL matches.
-/// JS `s.replace` with a global regex replaces all; the lowering routes a global
-/// regex here. Returns a PolyValue string word.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_re_str_replace_all(subj_word: u64, re_word: u64, repl_word: u64) -> u64 {
-    let s = handle_str(str_handle(subj_word));
-    let repl = handle_str(str_handle(repl_word));
-    let h = rt_re::__RTS_FN_NS_REGEX_REPLACE_ALL(
-        unbox_re(re_word),
-        s.as_ptr(),
-        s.len() as i64,
-        repl.as_ptr(),
-        repl.len() as i64,
-    );
-    box_str_or_null(h)
+/// JS spec `GetSubstitution` — expand the replacement-string tokens for ONE
+/// match: `$$` → `$`; `$&` → the match; `` $` `` → the text BEFORE the match;
+/// `$'` → the text AFTER; `$n`/`$nn` → capture n ("" when unmatched; the
+/// two-digit form only when group nn exists); `$<name>` → the named capture
+/// ("" when the name exists but did not participate; left VERBATIM when the
+/// regex has no such name — JS keeps unrecognized tokens as-is).
+fn js_substitution(
+    repl: &str,
+    s: &str,
+    start: usize,
+    end: usize,
+    groups: &[Option<String>],
+    names: &[Option<String>],
+) -> String {
+    let bytes = repl.as_bytes();
+    let mut out = String::new();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] != b'$' || i + 1 >= bytes.len() {
+            // Copy the full UTF-8 char starting here.
+            let ch_len = utf8_len(bytes[i]);
+            out.push_str(&repl[i..i + ch_len]);
+            i += ch_len;
+            continue;
+        }
+        match bytes[i + 1] {
+            b'$' => {
+                out.push('$');
+                i += 2;
+            }
+            b'&' => {
+                out.push_str(&s[start..end]);
+                i += 2;
+            }
+            b'`' => {
+                out.push_str(&s[..start]);
+                i += 2;
+            }
+            b'\'' => {
+                out.push_str(&s[end..]);
+                i += 2;
+            }
+            b'<' => {
+                // `$<name>` — find the closing `>`; an unterminated/unknown name
+                // stays verbatim.
+                if let Some(close) = repl[i + 2..].find('>') {
+                    let name = &repl[i + 2..i + 2 + close];
+                    if let Some(gi) = names
+                        .iter()
+                        .position(|n| n.as_deref() == Some(name))
+                    {
+                        if let Some(Some(t)) = groups.get(gi) {
+                            out.push_str(t);
+                        }
+                        i += 2 + close + 1;
+                        continue;
+                    }
+                }
+                out.push('$');
+                i += 1;
+            }
+            c @ b'0'..=b'9' => {
+                // Prefer the two-digit group when it EXISTS (spec), else one digit.
+                let d1 = (c - b'0') as usize;
+                let two = if i + 2 < bytes.len() && bytes[i + 2].is_ascii_digit() {
+                    Some(d1 * 10 + (bytes[i + 2] - b'0') as usize)
+                } else {
+                    None
+                };
+                if let Some(nn) = two {
+                    if nn >= 1 && nn < groups.len() {
+                        if let Some(Some(t)) = groups.get(nn) {
+                            out.push_str(t);
+                        }
+                        i += 3;
+                        continue;
+                    }
+                }
+                if d1 >= 1 && d1 < groups.len() {
+                    if let Some(Some(t)) = groups.get(d1) {
+                        out.push_str(t);
+                    }
+                    i += 2;
+                } else {
+                    // No such group: the token stays verbatim (JS).
+                    out.push('$');
+                    i += 1;
+                }
+            }
+            _ => {
+                out.push('$');
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
+/// Byte length of the UTF-8 char whose first byte is `b`.
+fn utf8_len(b: u8) -> usize {
+    match b {
+        0x00..=0x7f => 1,
+        0xc0..=0xdf => 2,
+        0xe0..=0xef => 3,
+        _ => 4,
+    }
 }
 
 /// `s.split(re)` — split the subject on each regex match; an array of boxed string

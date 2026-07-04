@@ -307,12 +307,8 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             regexops::__rtsadp_re_str_match as *const u8,
         ),
         sym(
-            "__rtsadp_re_str_replace",
-            regexops::__rtsadp_re_str_replace as *const u8,
-        ),
-        sym(
-            "__rtsadp_re_str_replace_all",
-            regexops::__rtsadp_re_str_replace_all as *const u8,
+            "__rtsadp_re_str_replace_fn",
+            regexops::__rtsadp_re_str_replace_fn as *const u8,
         ),
         sym(
             "__rtsadp_re_str_split",

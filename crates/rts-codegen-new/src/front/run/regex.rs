@@ -169,28 +169,31 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             ("split", 2) => crate::front::error::unsupported!(
                 "`s.split(re, limit)` with a regex separator + limit is a later increment"
             ),
-            // `s.replace(re, repl)` / `s.replaceAll(re, repl)` → string. A global
-            // regex with `.replace` replaces all (route to the _all trampoline); a
-            // function replacer BAILS (not a string second arg).
+            // `s.replace(re, repl)` / `s.replaceAll(re, repl)` → string, via the
+            // ONE polymorphic trampoline: a STRING replacement runs the JS
+            // `GetSubstitution` token expansion ($$, $&, $`, $', $n, $<name>);
+            // a FUNCTION word is invoked per match (match, caps…, offset,
+            // string); any other value ToStrings — tag-dispatched at runtime,
+            // never a compile-time guess. A global regex with `.replace`
+            // replaces all (JS).
             ("replace" | "replaceAll", 2) => {
-                let repl = self.lower_expr(module, &args[1])?;
-                if !matches!(repl.kind, JsKind::Str) {
-                    return crate::front::error::unsupported!(
-                        "`s.{method}(re, fn)` with a function replacer is a later increment"
-                    );
-                }
                 let global = self.regex_is_global(&args[0]);
-                let symbol = if method == "replaceAll" || global {
-                    "__rtsadp_re_str_replace_all"
-                } else {
-                    "__rtsadp_re_str_replace"
-                };
+                let repl = self.lower_expr(module, &args[1])?;
                 let re = self.lower_regex_value(module, &args[0])?;
                 let re_word = self.box_value(re);
                 let repl_word = self.box_value(repl);
+                let all = i64::from(method == "replaceAll" || global);
+                let all_v = self
+                    .builder
+                    .ins()
+                    .iconst(cranelift_codegen::ir::types::I64, all);
                 let word = self
-                    .call_runtime(module, symbol, &[recv_word, re_word, repl_word])?
-                    .expect("re_str_replace returns a value");
+                    .call_runtime(
+                        module,
+                        "__rtsadp_re_str_replace_fn",
+                        &[recv_word, re_word, repl_word, all_v],
+                    )?
+                    .expect("re_str_replace_fn returns a value");
                 Ok(Some(Val::tagged_kind(word, JsKind::Str)))
             }
             _ => Ok(None),
