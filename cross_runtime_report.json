@@ -4065,10 +4065,10 @@
 ,
 {
   "name": "272_symbol_iterator_custom",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "iter=3,4,5",
   "node": "iter=3,4,5",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "iter=3,4,5"
 }
 ,
 {
@@ -4433,10 +4433,10 @@
 ,
 {
   "name": "377_for_in_detail",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx\n0\na=1,b=2\ntrue\ntrue",
   "node": "own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx\n0\na=1,b=2\ntrue\ntrue",
-  "rts": "own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx\n0\na=1,b=2\ntrue\ntrue"
+  "rts": "own1,own2,inherited\nown1,own2\nstring:0,string:1,string:2\nx\n1\na=1,b=2\ntrue\ntrue"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":436,"rts_diverge":62,"bun_node_diverge":17,"errors":94,"rejected":0}}
+],"summary":{"total":609,"pass":436,"rts_diverge":63,"bun_node_diverge":17,"errors":93,"rejected":0}}
