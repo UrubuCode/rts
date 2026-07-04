@@ -379,7 +379,10 @@ pub extern "C" fn __RTS_FN_GL_STRING_SLICE(recv: u64, start: i64, end: i64) -> u
     let Some(s) = handle_to_str(recv) else {
         return alloc_str("");
     };
-    let count = s.chars().count() as i64;
+    // JS string indices are UTF-16 CODE UNITS (never code points): slicing a
+    // surrogate pair at its middle keeps only the half the range covers.
+    let units: Vec<u16> = s.encode_utf16().collect();
+    let count = units.len() as i64;
     let norm = |i: i64| -> usize {
         let n = if i < 0 { count + i } else { i };
         n.clamp(0, count) as usize
@@ -389,8 +392,7 @@ pub extern "C" fn __RTS_FN_GL_STRING_SLICE(recv: u64, start: i64, end: i64) -> u
     if si >= ei {
         return alloc_str("");
     }
-    let result: String = s.chars().skip(si).take(ei - si).collect();
-    alloc_str(&result)
+    alloc_str(&String::from_utf16_lossy(&units[si..ei]))
 }
 
 /// str.substring(start, end) — like slice but negatives clamp to 0, swaps if start>end.
@@ -399,7 +401,9 @@ pub extern "C" fn __RTS_FN_GL_STRING_SUBSTRING(recv: u64, start: i64, end: i64) 
     let Some(s) = handle_to_str(recv) else {
         return alloc_str("");
     };
-    let count = s.chars().count() as i64;
+    // UTF-16 code-unit indices (JS spec), like `slice`.
+    let units: Vec<u16> = s.encode_utf16().collect();
+    let count = units.len() as i64;
     let clamp = |i: i64| i.clamp(0, count) as usize;
     let (si, ei) = {
         let a = clamp(start);
@@ -413,8 +417,7 @@ pub extern "C" fn __RTS_FN_GL_STRING_SUBSTRING(recv: u64, start: i64, end: i64) 
     if si >= ei {
         return alloc_str("");
     }
-    let result: String = s.chars().skip(si).take(ei - si).collect();
-    alloc_str(&result)
+    alloc_str(&String::from_utf16_lossy(&units[si..ei]))
 }
 
 /// str.substr(start, length) — deprecated start+count form.
@@ -423,11 +426,13 @@ pub extern "C" fn __RTS_FN_GL_STRING_SUBSTR(recv: u64, start: i64, length: i64) 
     let Some(s) = handle_to_str(recv) else {
         return alloc_str("");
     };
-    let count = s.chars().count() as i64;
+    // UTF-16 code-unit indices (JS spec), like `slice`.
+    let units: Vec<u16> = s.encode_utf16().collect();
+    let count = units.len() as i64;
     let si = (if start < 0 { count + start } else { start }).clamp(0, count) as usize;
     let take = if length < 0 { 0 } else { length as usize };
-    let result: String = s.chars().skip(si).take(take).collect();
-    alloc_str(&result)
+    let ei = si.saturating_add(take).min(units.len());
+    alloc_str(&String::from_utf16_lossy(&units[si..ei]))
 }
 
 // ── Transform methods ──────────────────────────────────────────────────────────
