@@ -181,11 +181,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         else {
             return Ok(None);
         };
-        let Some(synth) = self
-            .classes
-            .get(&class)
-            .and_then(|d| d.methods.get("Symbol.iterator").cloned())
-        else {
+        // Both canonical spellings: the PARSER names a `[Symbol.iterator]` class
+        // member `@@iterator` (well-known canonicalization); older snippet-derived
+        // tables carry the textual `Symbol.iterator`.
+        let Some((mname, synth)) = self.classes.get(&class).and_then(|d| {
+            ["Symbol.iterator", "@@iterator"]
+                .iter()
+                .find_map(|k| d.methods.get(*k).map(|f| (k.to_string(), f.clone())))
+        }) else {
             return Ok(None);
         };
         let sig = self.sigs.get(&synth);
@@ -197,7 +200,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let iter_call = HirExpr::new(
             HirExprKind::MethodCall {
                 object: Box::new(iterable.clone()),
-                method: "Symbol.iterator".to_string(),
+                method: mname,
                 args: Vec::new(),
             },
             HirType::Any,

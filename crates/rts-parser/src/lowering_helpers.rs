@@ -197,6 +197,17 @@ fn prop_name_to_string(name: &PropName, cm: &Lrc<SourceMap>) -> String {
             if let Some(s) = computed_to_static_str(computed.expr.as_ref()) {
                 return s;
             }
+            // `[Symbol.X]` (well-known symbol member) → o nome interno `@@X`
+            // — a MESMA canonicalização do desugar de literais, para que
+            // `class C { [Symbol.iterator]() {…} }` sintetize `@@iterator` e o
+            // protocolo de iteração o encontre (Symbol é PRIMORDIAL).
+            if let Expr::Member(m) = computed.expr.as_ref() {
+                if let (Expr::Ident(obj), swc_ecma_ast::MemberProp::Ident(p)) = (m.obj.as_ref(), &m.prop) {
+                    if obj.sym.as_ref() == "Symbol" {
+                        return format!("@@{}", p.sym);
+                    }
+                }
+            }
             // (#271) `[key]` onde `key` eh uma const string literal top-level
             // (`const key = "sum"`). Resolve via tabela de consts coletada no
             // pre-scan — sem isso o metodo virava "key" (snippet) e

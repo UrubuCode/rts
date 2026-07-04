@@ -104,6 +104,32 @@ pub(crate) fn desugar_obj_methods(
         }
     }
 
+    // CLASS method bodies: a literal-with-methods built inside a class method
+    // (`[Symbol.iterator]() { … return { next() {…} }; }`) must recover exactly
+    // like one in a top-level fn — pair each method's swc stmts with its
+    // synthesized `__rtsn_method_<Class>_<name>` HirFunc.
+    for it in &program.items {
+        if let Item::Class(cdecl) = it {
+            for mem in &cdecl.members {
+                let rts_ast::ast::ClassMember::Method(md) = mem else {
+                    continue;
+                };
+                let fname = format!("__rtsn_method_{}_{}", cdecl.name, md.name);
+                let swc_stmts: Vec<&swc_ecma_ast::Stmt> = md
+                    .body
+                    .iter()
+                    .filter_map(|s| match s {
+                        Statement::Raw(raw) => raw.stmt.as_ref(),
+                    })
+                    .collect();
+                if let Some(f) = funcs.iter_mut().find(|f| f.name == fname) {
+                    rec.unit = fname.clone();
+                    rec.rewrite_unit(&swc_stmts, &mut f.body);
+                }
+            }
+        }
+    }
+
     let new = rec.new_funcs;
     funcs.extend(new);
     rec.fn_units

@@ -162,6 +162,25 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .expect("__rtsadp_class_proto_init returns a word");
         self.call_runtime(module, "__rtsadp_obj_set_proto", &[obj_word, proto])?;
 
+        // WELL-KNOWN SYMBOL methods (`[Symbol.iterator]() {}` → `@@iterator`):
+        // publish the reified fn as a PROTO slot so the runtime iteration /
+        // coercion protocols (obj_get chain walk) find it on any instance.
+        {
+            let wk: Vec<(String, String)> = desc
+                .methods
+                .iter()
+                .filter(|(n, _)| n.starts_with("@@"))
+                .map(|(n, f)| (n.clone(), f.clone()))
+                .collect();
+            for (slot, fn_name) in wk {
+                let f = self.reify_method(module, &fn_name)?;
+                let fw = self.box_value(f);
+                let key = crate::value::abi_adapter::intern_poly(&slot);
+                let key_w = self.builder.ins().iconst(types::I64, key.raw() as i64);
+                self.call_runtime(module, "__rtsadp_obj_set", &[proto, key_w, fw])?;
+            }
+        }
+
         // ---- 3. intern this fn's OBJECT shape (key list = the class fields) and
         //         yield the instance word as a TAG_OBJECT PolyValue ----
         let shape_id = self.shapes.intern(&desc.fields);
