@@ -20,7 +20,8 @@ class JSON {
     let fnReplacer: any = null;
     if (Array.isArray(replacer)) keyFilter = replacer;
     else if (typeof replacer === "function") fnReplacer = replacer;
-    let root: any = value;
+    // Spec order per property: toJSON FIRST, then the replacer fn.
+    let root: any = __json_tojson(value, "");
     if (fnReplacer !== null) root = fnReplacer("", root);
     const seen: any[] = [];
     return __json_render(root, pad, 0, keyFilter, fnReplacer, seen);
@@ -71,6 +72,18 @@ function __jsonRevive(value: any, key: string, reviver: any): any {
 
 // ── stringify helpers (plain functions; the engine runs them generically) ──────
 
+// SerializeJSONProperty's toJSON hook: an object value with a callable `toJSON`
+// serializes its RESULT (called with the property key, spec); a Date serializes
+// its ISO string (Date.prototype.toJSON — reached via instanceof because the
+// Registry method is not a readable data slot). Runs BEFORE the replacer fn.
+function __json_tojson(v: any, key: string): any {
+  if (v !== null && typeof v === "object") {
+    if (typeof v.toJSON === "function") return v.toJSON(key);
+    if (v instanceof Date) return v.toISOString();
+  }
+  return v;
+}
+
 function __json_render(v: any, pad: string, depth: number, keyFilter: any, fnReplacer: any, seen: any[]): any {
   if (v === null) return "null";
   const t = typeof v;
@@ -99,7 +112,7 @@ function __json_render(v: any, pad: string, depth: number, keyFilter: any, fnRep
     } else {
       const parts: string[] = [];
       for (let i = 0; i < v.length; i++) {
-        let el: any = v[i];
+        let el: any = __json_tojson(v[i], "" + i);
         if (fnReplacer !== null) el = fnReplacer("" + i, el);
         let s: any = __json_render(el, pad, depth + 1, keyFilter, fnReplacer, seen);
         if (s === undefined) s = "null";
@@ -132,7 +145,7 @@ function __json_render(v: any, pad: string, depth: number, keyFilter: any, fnRep
     const parts: string[] = [];
     const colon = pad.length > 0 ? ": " : ":";
     for (let i = 0; i < keys.length; i++) {
-      let pv: any = v[keys[i]];
+      let pv: any = __json_tojson(v[keys[i]], keys[i]);
       if (fnReplacer !== null) pv = fnReplacer(keys[i], pv);
       const val: any = __json_render(pv, pad, depth + 1, keyFilter, fnReplacer, seen);
       if (val !== undefined) {
