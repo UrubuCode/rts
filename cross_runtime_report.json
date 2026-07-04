@@ -700,7 +700,7 @@
   "status": "rts_diverge",
   "bun": "is_object_proto=true\nis_array_proto=true\nchild_proto=true\nchild_x=10\nnew_proto=true\nhas_b=2",
   "node": "is_object_proto=true\nis_array_proto=true\nchild_proto=true\nchild_x=10\nnew_proto=true\nhas_b=2",
-  "rts": "is_object_proto=false\nis_array_proto=false\nchild_proto=true\nchild_x=10\nnew_proto=true\nhas_b=2"
+  "rts": "is_object_proto=false\nis_array_proto=true\nchild_proto=true\nchild_x=10\nnew_proto=true\nhas_b=2"
 }
 ,
 {
@@ -2673,10 +2673,10 @@
 ,
 {
   "name": "183_object_getownpropertynames",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "names=a,b,hidden\narr=0,1,2,length\nempty=\nstr=0,1,length",
   "node": "names=a,b,hidden\narr=0,1,2,length\nempty=\nstr=0,1,length",
-  "rts": "names=a,b\narr=0,1,2,length\nempty=\nstr=0,1,length"
+  "rts": "names=a,b,hidden\narr=0,1,2,length\nempty=\nstr=0,1,length"
 }
 ,
 {
@@ -2841,10 +2841,10 @@
 ,
 {
   "name": "346_reflect_api",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "true\nfalse\nx,y\n10\n99\nfalse\n7\n1 2\ntrue\n42\ntrue",
   "node": "true\nfalse\nx,y\n10\n99\nfalse\n7\n1 2\ntrue\n42\ntrue",
-  "rts": "true\nfalse\nx,y\n10\n99\nfalse\n7\n1 2\ntrue\n42\nfalse"
+  "rts": "true\nfalse\nx,y\n10\n99\nfalse\n7\n1 2\ntrue\n42\ntrue"
 }
 ,
 {
@@ -3137,10 +3137,10 @@
 ,
 {
   "name": "codex_object_extensibility_assign",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "false\nfalse\nfalse\na",
   "node": "false\nfalse\nfalse\na",
-  "rts": "false\ntrue\nfalse\na"
+  "rts": "false\nfalse\nfalse\na"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":378,"rts_diverge":84,"bun_node_diverge":17,"errors":130,"rejected":0}}
+],"summary":{"total":609,"pass":381,"rts_diverge":81,"bun_node_diverge":17,"errors":130,"rejected":0}}
