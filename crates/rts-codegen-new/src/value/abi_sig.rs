@@ -817,8 +817,11 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, U64],
             ret: U64,
         },
-        "__rtsadp_re_str_replace" | "__rtsadp_re_str_replace_all" => SymSig {
-            params: &[U64, U64, U64],
+        // replace/replaceAll — the ONE polymorphic replacement trampoline
+        // (string → JS GetSubstitution; function → invoked per match; else
+        // ToString): (subj_word, re_word, repl_word, all_flag) -> string word.
+        "__rtsadp_re_str_replace_fn" => SymSig {
+            params: &[U64, U64, U64, U64],
             ret: U64,
         },
 
