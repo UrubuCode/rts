@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -2129,10 +2129,10 @@
 ,
 {
   "name": "355_obf_number_encoding",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "42\n3\n-3\n0\n0 1 2 10\n42\n0\n99\n256\n256\n56\n50\nef\nbe\nad\nde\nde",
   "node": "42\n3\n-3\n0\n0 1 2 10\n42\n0\n99\n256\n256\n56\n50\nef\nbe\nad\nde\nde",
-  "rts": "42\n3\n-3\n0\n0 1 2 10\n42\n0\n99\n256\n256\n56\n50\nundefined\nundefined\nundefined\nundefined\nde"
+  "rts": "42\n3\n-3\n0\n0 1 2 10\n42\n0\n99\n256\n256\n56\n50\nef\nbe\nad\nde\nde"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":337,"rts_diverge":112,"bun_node_diverge":18,"errors":142,"rejected":0}}
+],"summary":{"total":609,"pass":339,"rts_diverge":111,"bun_node_diverge":17,"errors":142,"rejected":0}}
