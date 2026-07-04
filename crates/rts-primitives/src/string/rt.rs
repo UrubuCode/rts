@@ -320,21 +320,22 @@ pub extern "C" fn __RTS_FN_GL_STRING_CHAR_CODE_AT_F64(recv: u64, idx: i64) -> f6
 /// range retorna `undefined` (handle de string \"undefined\" — codegen
 /// marca callsite como ambiguo).
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_STRING_CODE_POINT_AT(recv: u64, idx: i64) -> i64 {
-    let undef = || {
-        crate::gc_surface::__RTS_FN_NS_GC_STRING_NEW(b"undefined".as_ptr(), 9)
-            as i64
-    };
+pub extern "C" fn __RTS_FN_GL_STRING_CODE_POINT_AT(recv: u64, idx: i64) -> u64 {
+    // Retorna uma WORD PolyValue (ret U64 na row): número inline (bits f64)
+    // para um code point, `undefined` fora do range — a antiga ABI I64-número
+    // devolvia o HANDLE da string "undefined" cru (imprimia 2814749767...).
+    use rts_engine::heap::poly::POLY_UNDEFINED;
+    let num = |cp: u32| (cp as f64).to_bits();
     let Some(s) = handle_to_str(recv) else {
-        return undef();
+        return POLY_UNDEFINED;
     };
     if idx < 0 {
-        return undef();
+        return POLY_UNDEFINED;
     }
     let units: Vec<u16> = s.encode_utf16().collect();
     let i = idx as usize;
     let Some(&first) = units.get(i) else {
-        return undef();
+        return POLY_UNDEFINED;
     };
     // High surrogate seguido de low: combina.
     if (0xD800..=0xDBFF).contains(&first) {
@@ -342,11 +343,11 @@ pub extern "C" fn __RTS_FN_GL_STRING_CODE_POINT_AT(recv: u64, idx: i64) -> i64 {
             if (0xDC00..=0xDFFF).contains(&second) {
                 let high = (first as u32 - 0xD800) << 10;
                 let low = second as u32 - 0xDC00;
-                return (high + low + 0x10000) as i64;
+                return num(high + low + 0x10000);
             }
         }
     }
-    first as i64
+    num(first as u32)
 }
 
 /// str.at(idx) — supports negative index (counts from end).
