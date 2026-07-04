@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -3380,7 +3380,7 @@
   "status": "rts_diverge",
   "bun": "settled=fulfilled:1|rejected:x\nany=b",
   "node": "settled=fulfilled:1|rejected:x\nany=b",
-  "rts": "settled=\nany=[object Object]"
+  "rts": "settled=undefined:undefined|undefined:undefined\nany=b"
 }
 ,
 {
@@ -4121,10 +4121,10 @@
 ,
 {
   "name": "54_symbol_registry",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "desc=alpha\nshared=true\nkeyFor=shared-key\nsymbols=2\nvalue=9",
   "node": "desc=alpha\nshared=true\nkeyFor=shared-key\nsymbols=2\nvalue=9",
-  "rts": "desc=alpha\nshared=true\nkeyFor=shared-key\nsymbols=1\nvalue=9"
+  "rts": "desc=alpha\nshared=true\nkeyFor=shared-key\nsymbols=2\nvalue=9"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":354,"rts_diverge":97,"bun_node_diverge":18,"errors":140,"rejected":0}}
+],"summary":{"total":609,"pass":356,"rts_diverge":96,"bun_node_diverge":17,"errors":140,"rejected":0}}
