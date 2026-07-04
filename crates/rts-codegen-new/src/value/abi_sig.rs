@@ -309,8 +309,15 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, U64],
             ret: U64,
         },
-        "__rtsadp_dyn_to_string_radix" => SymSig {
+        "__rtsadp_dyn_to_string_radix"
+        | "__rtsadp_dyn_p_then"
+        | "__rtsadp_dyn_p_catch"
+        | "__rtsadp_dyn_p_finally" => SymSig {
             params: &[U64, U64],
+            ret: U64,
+        },
+        "__rtsadp_dyn_p_then2" => SymSig {
+            params: &[U64, U64, U64],
             ret: U64,
         },
         "__rtsadp_fn_bind" => SymSig {

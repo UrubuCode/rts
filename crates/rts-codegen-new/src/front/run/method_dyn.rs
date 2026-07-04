@@ -191,6 +191,31 @@ const DYN_METHODS: &[DynMethod] = &[
         symbol: "__rtsadp_dyn_trim",
         ret_kind: JsKind::Str,
     },
+    // ---- Promise (primordial) on an unproven receiver ----
+    DynMethod {
+        name: "then",
+        argc: 1,
+        symbol: "__rtsadp_dyn_p_then",
+        ret_kind: JsKind::Unknown,
+    },
+    DynMethod {
+        name: "then",
+        argc: 2,
+        symbol: "__rtsadp_dyn_p_then2",
+        ret_kind: JsKind::Unknown,
+    },
+    DynMethod {
+        name: "catch",
+        argc: 1,
+        symbol: "__rtsadp_dyn_p_catch",
+        ret_kind: JsKind::Unknown,
+    },
+    DynMethod {
+        name: "finally",
+        argc: 1,
+        symbol: "__rtsadp_dyn_p_finally",
+        ret_kind: JsKind::Unknown,
+    },
     DynMethod {
         name: "trimStart",
         argc: 0,

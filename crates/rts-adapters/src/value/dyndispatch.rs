@@ -568,6 +568,83 @@ pub extern "C" fn __rtsadp_dyn_trim(recv: u64) -> u64 {
     undef()
 }
 
+/// The real PROMISE handle behind a Tagged receiver word (`Entry::PromiseAsync`
+/// or the legacy sync `Entry::Promise`) — `None` for any other receiver. Promise
+/// is PRIMORDIAL, so the tag inspection here is doctrine-clean.
+fn promise_handle(recv: u64) -> Option<u64> {
+    use rts_runtime::namespaces::gc::handles as rt_handles;
+    let v = PolyValue::from_raw(recv);
+    // Same dual detection the polymorphic `await` uses: an OBJECT-tagged word
+    // (box_handle_auto) reconstructs the handle from the live slot; a NUMBER
+    // word ≥ 2^48 may carry a RAW handle (a legacy producer / marshal path).
+    let h = if v.is_object() {
+        rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle())
+    } else {
+        let f = if v.is_double() {
+            v.as_f64()
+        } else if v.is_int32() {
+            return None;
+        } else {
+            return None;
+        };
+        const HANDLE_MIN: f64 = 281_474_976_710_656.0; // 2^48
+        if !(f.is_finite() && f >= HANDLE_MIN && f <= u64::MAX as f64 && f.fract() == 0.0) {
+            return None;
+        }
+        f as u64
+    };
+    let is_p = rt_handles::with_entry(h, |e| {
+        matches!(
+            e,
+            Some(rt_handles::Entry::PromiseAsync(_)) | Some(rt_handles::Entry::Promise(_))
+        )
+    });
+    is_p.then_some(h)
+}
+
+/// `p.then(onFul)` on an UNPROVEN receiver — routes the primordial Promise
+/// instance method when the word wraps a live promise; otherwise `undefined`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_dyn_p_then(recv: u64, cb: u64) -> u64 {
+    use rts_runtime::namespaces::globals::fetch::instance as p;
+    match promise_handle(recv) {
+        Some(h) => genops::__rtsadp_box_handle_auto(p::__RTS_FN_GL_PROMISE_THEN2(h, cb, 0)),
+        None => undef(),
+    }
+}
+
+/// `p.then(onFul, onRej)` — the 2-arg spec form.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_dyn_p_then2(recv: u64, on_ful: u64, on_rej: u64) -> u64 {
+    use rts_runtime::namespaces::globals::fetch::instance as p;
+    match promise_handle(recv) {
+        Some(h) => {
+            genops::__rtsadp_box_handle_auto(p::__RTS_FN_GL_PROMISE_THEN2(h, on_ful, on_rej))
+        }
+        None => undef(),
+    }
+}
+
+/// `p.catch(onRej)` on an unproven receiver.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_dyn_p_catch(recv: u64, cb: u64) -> u64 {
+    use rts_runtime::namespaces::globals::fetch::instance as p;
+    match promise_handle(recv) {
+        Some(h) => genops::__rtsadp_box_handle_auto(p::__RTS_FN_GL_PROMISE_CATCH(h, cb)),
+        None => undef(),
+    }
+}
+
+/// `p.finally(onFin)` on an unproven receiver.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_dyn_p_finally(recv: u64, cb: u64) -> u64 {
+    use rts_runtime::namespaces::globals::fetch::instance as p;
+    match promise_handle(recv) {
+        Some(h) => genops::__rtsadp_box_handle_auto(p::__RTS_FN_GL_PROMISE_FINALLY(h, cb)),
+        None => undef(),
+    }
+}
+
 /// `s.trimStart()` — leading-whitespace strip on a dynamic string receiver.
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_dyn_trim_start(recv: u64) -> u64 {

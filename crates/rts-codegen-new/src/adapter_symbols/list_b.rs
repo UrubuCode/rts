@@ -488,6 +488,22 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             dyndispatch::__rtsadp_dyn_trim as *const u8,
         ),
         sym(
+            "__rtsadp_dyn_p_then",
+            dyndispatch::__rtsadp_dyn_p_then as *const u8,
+        ),
+        sym(
+            "__rtsadp_dyn_p_then2",
+            dyndispatch::__rtsadp_dyn_p_then2 as *const u8,
+        ),
+        sym(
+            "__rtsadp_dyn_p_catch",
+            dyndispatch::__rtsadp_dyn_p_catch as *const u8,
+        ),
+        sym(
+            "__rtsadp_dyn_p_finally",
+            dyndispatch::__rtsadp_dyn_p_finally as *const u8,
+        ),
+        sym(
             "__rtsadp_dyn_trim_start",
             dyndispatch::__rtsadp_dyn_trim_start as *const u8,
         ),
