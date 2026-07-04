@@ -457,6 +457,25 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if args.len() != 1 {
             return unsupported!("Object.fromEntries expects 1 arg, got {}", args.len());
         }
+        // A source whose statically-known CLASS defines `entries()` (the ambient
+        // Map / Headers / FormData, or any user class — matched by SHAPE, never a
+        // name): its eager `entries()` array IS the pair source. Lower
+        // `src.entries()` and feed the same runtime builder.
+        if let Some(class) = self.static_instance_class(&args[0]) {
+            if self
+                .classes
+                .get(&class)
+                .and_then(|d| d.method_fn("entries"))
+                .is_some()
+            {
+                let v = self.lower_method_call(module, &args[0], "entries", &[])?;
+                let entries = self.box_value(v);
+                let res = self
+                    .call_runtime(module, "__rtsadp_obj_from_entries", &[entries])?
+                    .expect("__rtsadp_obj_from_entries returns an object word");
+                return Ok(Val::tagged_kind(res, super::lower::JsKind::Object));
+            }
+        }
         // A proven array source: an array-valued expr OR an `Object.entries(...)`
         // call (whose result is always a freshly-built array of pairs — the common
         // round-trip `fromEntries(entries(o))`).
