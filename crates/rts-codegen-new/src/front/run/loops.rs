@@ -152,17 +152,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // walks directly. The engine names ONLY the `Symbol.iterator` protocol key,
         // never the class.
         if let Some(arr_word) = self.try_class_iterator_source_word(module, iterable)? {
-            return self.lower_index_walk(module, binding, arr_word, body, None);
+            return self.lower_index_walk(module, binding, arr_word, body, None, false);
         }
         // LAZY generator source (`for (const x of g())` where `g` is a generator
         // with loops/yield*): `g()` returns a GenState handle. DRAIN it to a real
         // array (runs the state machine to completion, collecting yields) and walk
         // that. Detected by the callee's `ret_lazy_gen` flag.
         if let Some(arr_word) = self.try_lazy_gen_source_word(module, iterable)? {
-            return self.lower_index_walk(module, binding, arr_word, body, None);
+            return self.lower_index_walk(module, binding, arr_word, body, None, false);
         }
-        let arr_word = self.for_of_source_word(module, iterable)?;
-        self.lower_index_walk(module, binding, arr_word, body, None)
+        let (arr_word, elems_are_strings) = self.for_of_source_word(module, iterable)?;
+        self.lower_index_walk(module, binding, arr_word, body, None, elems_are_strings)
     }
 
     /// If `iterable` is an instance of a class declaring `[Symbol.iterator]()`
@@ -276,20 +276,23 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let keys_word = self
             .call_runtime(module, "__rtsadp_for_in_keys", &[obj_word])?
             .expect("__rtsadp_for_in_keys returns a value");
-        self.lower_index_walk(module, binding, keys_word, body, Some(obj_word))
+        // for-in keys are always PROPERTY-NAME strings → string-kinded binding.
+        self.lower_index_walk(module, binding, keys_word, body, Some(obj_word), true)
     }
 
-    /// Resolve the for-of `iterable` to an array PolyValue WORD to walk: a proven
-    /// ARRAY feeds its own boxed Vec; a proven STRING is materialized to a char
-    /// array. Anything else bails.
+    /// Resolve the for-of `iterable` to an array PolyValue WORD to walk (plus
+    /// whether the elements are PROVEN strings — a string source's char array —
+    /// so the caller marks the binding string-kinded): a proven ARRAY feeds its
+    /// own boxed Vec; a proven STRING is materialized to a char array. Anything
+    /// else bails.
     fn for_of_source_word(
         &mut self,
         module: &mut dyn Module,
         iterable: &HirExpr,
-    ) -> FrontResult<Value> {
+    ) -> FrontResult<(Value, bool)> {
         if self.is_array_valued(iterable) {
             let arr = self.lower_expr(module, iterable)?;
-            return Ok(self.box_value(arr));
+            return Ok((self.box_value(arr), false));
         }
         // A STRING source (a literal, a string-kinded local/expression): iterate
         // code points. We lower it and require a proven `Str` kind — a Tagged value
@@ -298,11 +301,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let v = self.lower_expr(module, iterable)?;
         if matches!(v.kind, JsKind::Str) {
             let word = self.box_value(v);
-            return self
+            let chars = self
                 .call_runtime(module, "__rtsadp_str_chars", &[word])?
                 .ok_or_else(|| {
                     crate::front::error::Unsupported::new("__rtsadp_str_chars returns a value")
-                });
+                })?;
+            // Every element of the char array IS a string — the binding can be
+            // marked string-kinded (`ch.codePointAt(0)` then resolves the
+            // String rows instead of dying in the dynamic own-prop miss).
+            return Ok((chars, true));
         }
         // GENERIC fallback for an UNPROVEN source: a `string` PARAM (`for (const ch
         // of s)`), a nested-array for-of binding (`for (const x of row)`), an `any`,
@@ -321,11 +328,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             && self.global_instance_class(iterable).is_none()
         {
             let word = self.box_value(v);
-            return self
+            let arr = self
                 .call_runtime(module, "__rtsadp_to_iter_array", &[word])?
                 .ok_or_else(|| {
                     crate::front::error::Unsupported::new("__rtsadp_to_iter_array returns a value")
-                });
+                })?;
+            return Ok((arr, false));
         }
         unsupported!(
             "for-of over a non-iterable (only a proven array or string is supported in this increment)"
@@ -352,6 +360,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // `[[HasProperty]]` before the body runs (a key deleted mid-iteration is
         // SKIPPED, JS EnumerateObjectProperties). for-of passes `None`.
         present_guard: Option<Value>,
+        // Every element is a PROVEN string (a string source's char array, a
+        // for-in key array) — the binding is marked string-kinded so string
+        // methods on it resolve the String rows.
+        binding_is_string: bool,
     ) -> FrontResult<()> {
         // Hold the source array + the live length in fresh Tagged/Int64 locals so
         // they survive across the loop's blocks (SSA φ is the builder's job).
@@ -378,6 +390,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.local_classes.remove(binding);
         self.global_instance_classes.remove(binding);
         self.object_locals.remove(binding);
+        if binding_is_string {
+            self.string_locals.insert(binding.to_string());
+        } else {
+            self.string_locals.remove(binding);
+        }
 
         let header = self.builder.create_block();
         let body_block = self.builder.create_block();
