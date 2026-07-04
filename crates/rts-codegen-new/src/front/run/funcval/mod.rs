@@ -252,6 +252,28 @@ fn rename_ident_expr(e: &mut HirExpr, from: &str, to: &str) {
             rename_ident_expr(inner, from, to);
         }
         HirExprKind::Seq(items) => items.iter_mut().for_each(|x| rename_ident_expr(x, from, to)),
+        // A NESTED arrow/fn-expression: the renamed name (a named fn-expr's
+        // self-name) is visible inside its body too — descend, unless one of the
+        // inner params SHADOWS it. Without this, `function w(n) { return () =>
+        // w(n-1); }` kept the inner `w` unrenamed → an unknown free ident → the
+        // outer extraction bailed ("expression arrow").
+        HirExprKind::Arrow {
+            params,
+            body,
+            self_name,
+            ..
+        } => {
+            let shadowed = params.iter().any(|p| p.name == from)
+                || self_name.as_deref() == Some(from);
+            if !shadowed {
+                match body {
+                    rts_hir::ir::HirArrowBody::Expr(inner) => rename_ident_expr(inner, from, to),
+                    rts_hir::ir::HirArrowBody::Block(stmts) => {
+                        rename_ident_stmts(stmts, from, to)
+                    }
+                }
+            }
+        }
         _ => {}
     }
 }
