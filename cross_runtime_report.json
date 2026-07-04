@@ -1929,10 +1929,10 @@
 ,
 {
   "name": "137_math_cbrt_hypot",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "cbrt_8=2\ncbrt_27=3\ncbrt_-8=-2\ncbrt_0=0\nhypot_3_4=5\nhypot_5_12=13\nhypot_1_1_1=1.7320508075688772\nhypot_empty=0\nhypot_0=0",
   "node": "cbrt_8=2\ncbrt_27=3\ncbrt_-8=-2\ncbrt_0=0\nhypot_3_4=5\nhypot_5_12=13\nhypot_1_1_1=1.7320508075688772\nhypot_empty=0\nhypot_0=0",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "cbrt_8=2\ncbrt_27=3\ncbrt_-8=-2\ncbrt_0=0\nhypot_3_4=5\nhypot_5_12=13\nhypot_1_1_1=1.7320508075688772\nhypot_empty=0\nhypot_0=0"
 }
 ,
 {
@@ -2033,10 +2033,10 @@
 ,
 {
   "name": "284_math_f16round",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "a=1.3369140625\nb=0.0999755859375\nc=NaN\nd=Infinity",
   "node": "a=1.3369140625\nb=0.0999755859375\nc=NaN\nd=Infinity",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "a=1.3369140625\nb=0.0999755859375\nc=NaN\nd=Infinity"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":339,"rts_diverge":111,"bun_node_diverge":17,"errors":142,"rejected":0}}
+],"summary":{"total":609,"pass":341,"rts_diverge":111,"bun_node_diverge":17,"errors":140,"rejected":0}}
