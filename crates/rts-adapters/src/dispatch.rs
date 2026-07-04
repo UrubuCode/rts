@@ -447,3 +447,10 @@ const fn cm_r(symbol: &'static str, ret: AbiType, cb: CbShape, ret_is_array: boo
         ret_is_array,
     }
 }
+
+/// Whether `method` is an Array.prototype member (any dispatch row) — the
+/// `in` operator's array proto probe (`"push" in []`). Data off the SAME rows
+/// the method dispatch reads.
+pub fn array_has_method(method: &str) -> bool {
+    ARRAY_ROWS.iter().any(|(name, _, _)| *name == method)
+}

@@ -153,6 +153,35 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     let v = self.builder.ins().iconst(types::I64, 0);
                     return Ok(Val::new(v, Repr::Bool));
                 }
+                // `"m" in inst` with a STATICALLY-known class receiver: decide
+                // from the class descriptors (fields + methods + accessors,
+                // walking the extends chain) plus the Object.prototype members
+                // every object inherits. Compile-time constant — the dynamic
+                // shape probe cannot see class METHODS (static dispatch).
+                if let Some(class) = self.static_instance_class(rhs) {
+                    let mut cur = Some(class);
+                    let mut found = false;
+                    while let Some(c) = cur {
+                        let Some(d) = self.classes.get(&c) else { break };
+                        if d.fields.iter().any(|f| f == s)
+                            || d.methods.contains_key(s.as_str())
+                            || d.accessor(s).is_some()
+                        {
+                            found = true;
+                            break;
+                        }
+                        cur = d.parent.clone();
+                    }
+                    let found = found
+                        || matches!(
+                            s.as_str(),
+                            "toString" | "valueOf" | "hasOwnProperty" | "isPrototypeOf"
+                                | "propertyIsEnumerable" | "toLocaleString" | "constructor"
+                        );
+                    self.lower_expr(module, rhs)?; // evaluate for effects
+                    let v = self.builder.ins().iconst(types::I64, i64::from(found));
+                    return Ok(Val::new(v, Repr::Bool));
+                }
             }
             let key = self.lower_expr(module, lhs)?;
             let key_word = self.box_value(key);

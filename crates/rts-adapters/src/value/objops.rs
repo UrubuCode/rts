@@ -499,19 +499,66 @@ pub extern "C" fn __rtsadp_obj_has(obj_word: u64, key_str_handle: u64) -> i64 {
     if resolve_slot(obj_word, key_str_handle).is_some() {
         return 1;
     }
+    // ARRAY receiver: `i in arr` is the INDEX-in-range check (JS: the indices
+    // are own keys); `"length" in arr` is the own non-enumerable length.
+    {
+        let obj = PolyValue::from_raw(obj_word);
+        if obj.is_object() && !looks_like_object(obj) {
+            let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+            let is_vec =
+                rt_handles::with_entry(h, |e| matches!(e, Some(rt_handles::Entry::Vec(_))));
+            if is_vec {
+                let key = key_text(key_str_handle);
+                if key == "length" {
+                    return 1;
+                }
+                if let Ok(i) = key.parse::<i64>() {
+                    let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(h).max(0);
+                    return (i >= 0 && i < len) as i64;
+                }
+                // An Array.prototype METHOD (`"push" in []`) — decided off the
+                // SAME dispatch rows the method dispatch reads (data-driven).
+                return (crate::dispatch::array_has_method(&key)
+                    || OBJECT_PROTO_MEMBERS.contains(&key.as_str()))
+                    as i64;
+            }
+        }
+    }
     // `[[HasProperty]]` walks the PROTOTYPE chain (unlike `hasOwnProperty`):
     // `"m" in child` is true for an inherited `m`. `"__proto__"` reads true for
     // any object whose [[Prototype]] is wired (the Object.prototype accessor in
     // real JS) — an Object.create(null)-style bare object stays false.
     let key = key_text(key_str_handle);
     if key == "__proto__" {
-        return super::protos::proto_of(obj_word).is_some() as i64;
+        return matches!(super::protos::proto_of(obj_word), Some(p) if p != 0) as i64;
     }
     match super::protos::proto_of(obj_word) {
+        // The EXPLICIT null prototype (`Object.create(null)` records 0): the
+        // chain truly ends — not even Object.prototype.
+        Some(0) => 0,
         Some(proto) => __rtsadp_obj_has(proto, key_str_handle),
-        None => 0,
+        // No recorded proto = a plain object's IMPLICIT Object.prototype tail.
+        None => {
+            let is_obj = {
+                let v = PolyValue::from_raw(obj_word);
+                v.is_object()
+            };
+            (is_obj && OBJECT_PROTO_MEMBERS.contains(&key.as_str())) as i64
+        }
     }
 }
+
+/// The members every plain object inherits from Object.prototype (the `in`
+/// operator's implicit chain tail).
+const OBJECT_PROTO_MEMBERS: &[&str] = &[
+    "toString",
+    "toLocaleString",
+    "valueOf",
+    "hasOwnProperty",
+    "isPrototypeOf",
+    "propertyIsEnumerable",
+    "constructor",
+];
 
 /// `obj.hasOwnProperty(key)` → a BOXED bool PolyValue word (`true`/`false`
 /// singleton). OWN-only: `resolve_slot` reads the receiver's own shape and does

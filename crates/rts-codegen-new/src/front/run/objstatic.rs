@@ -473,9 +473,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(Val::tagged_kind(res, super::lower::JsKind::Object))
     }
 
-    /// `Object.hasOwn(obj, key)` — own-property membership (ES2022). Same runtime
-    /// path as the `in` operator / `engine.obj_has`: box obj + key and call
-    /// `__rtsadp_obj_has`, returning a Bool.
+    /// `Object.hasOwn(obj, key)` — OWN-property membership (ES2022): the
+    /// own-only `__rtsadp_has_own` (a bool WORD), NOT the proto-walking
+    /// `obj_has` the `in` operator uses (an inherited key must read false).
     fn object_has_own(&mut self, module: &mut dyn Module, args: &[HirExpr]) -> FrontResult<Val> {
         if args.len() != 2 {
             return unsupported!("Object.hasOwn expects 2 args, got {}", args.len());
@@ -485,9 +485,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let k = self.lower_expr(module, &args[1])?;
         let k_word = self.box_value(k);
         let res = self
-            .call_runtime(module, "__rtsadp_obj_has", &[o_word, k_word])?
-            .expect("__rtsadp_obj_has returns a bool");
-        Ok(Val::new(res, Repr::Bool))
+            .call_runtime(module, "__rtsadp_has_own", &[o_word, k_word])?
+            .expect("__rtsadp_has_own returns a bool word");
+        Ok(Val::new(res, Repr::Tagged))
     }
 
     fn object_is(&mut self, module: &mut dyn Module, args: &[HirExpr]) -> FrontResult<Val> {

@@ -48,6 +48,13 @@ pub extern "C" fn __rtsadp_obj_create(proto_word: u64) -> u64 {
         if let Ok(mut t) = proto_table().lock() {
             t.insert(obj_word, proto_word);
         }
+    } else {
+        // `Object.create(null)` — record the EXPLICIT null prototype (0) so
+        // the `in` walk can tell "no Object.prototype at all" apart from a
+        // plain object's implicit Object.prototype tail.
+        if let Ok(mut t) = proto_table().lock() {
+            t.insert(obj_word, 0);
+        }
     }
     obj_word
 }
