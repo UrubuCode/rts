@@ -626,6 +626,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 if let Some(val) = self.try_user_getter_dynamic(module, object, prop)? {
                     return Ok(val);
                 }
+                // DYNAMIC Registry instance GETTER (`re.source`/`re.flags`
+                // through an `any`): resolved at RUNTIME by each candidate
+                // class's `instanceof_predicate` — the member-read counterpart
+                // of the dynamic Registry method dispatch. The candidate check
+                // comes FIRST (no candidates ⇒ the receiver is lowered exactly
+                // once, inside the plain dynamic read below — no double eval).
+                if !super::registry::dyn_getter_candidates(prop).is_empty() {
+                    let recv = self.lower_expr(module, object)?;
+                    if let Some(val) = self.try_registry_getter_dynamic(module, recv, prop)? {
+                        return Ok(val);
+                    }
+                }
                 self.lower_dynamic_get_expr(module, object, prop)
             }
         }

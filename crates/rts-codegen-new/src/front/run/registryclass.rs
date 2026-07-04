@@ -388,6 +388,48 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         for a in args {
             argvals.push(self.lower_expr(module, a)?);
         }
+        self.emit_registry_dyn_arms(module, recv, &cands, &argvals, args.len(), None)
+            .map(Some)
+    }
+
+    /// DYNAMIC Registry instance GETTER dispatch on a TAGGED receiver — the
+    /// member-READ counterpart of [`Self::try_registry_virtual_dynamic`]
+    /// (`re.source` / `re.flags` / `d.lastIndex` through an `any`): one arm per
+    /// predicate-carrying class declaring the getter. `Ok(None)` when no
+    /// candidate exists (the caller keeps its dynamic data read).
+    pub(super) fn try_registry_getter_dynamic(
+        &mut self,
+        module: &mut dyn Module,
+        recv: Val,
+        prop: &str,
+    ) -> FrontResult<Option<Val>> {
+        use super::registry;
+        let cands = registry::dyn_getter_candidates(prop);
+        if cands.is_empty() {
+            return Ok(None);
+        }
+        // The fall-through reads the DATA SLOT (`__rtsadp_obj_get`) — a plain
+        // object with a real `prop` key (a JSON `flags` field) must not be
+        // stolen by a same-named Registry getter's `undefined` sentinel.
+        self.emit_registry_dyn_arms(module, recv, &cands, &[], 0, Some(prop))
+            .map(Some)
+    }
+
+    /// Shared arm emitter for the two dynamic Registry dispatchers: gate on
+    /// `is_object(recv)`, then one `if predicate(handle) { marshal + call }`
+    /// arm per candidate (defaults padded from the spec), merging every arm's
+    /// boxed result. The fall-through yields the `undefined` sentinel — or,
+    /// when `data_read_key` is set (the GETTER variant), the plain
+    /// `__rtsadp_obj_get` data-slot read (a plain object's real `prop` value).
+    fn emit_registry_dyn_arms(
+        &mut self,
+        module: &mut dyn Module,
+        recv: Val,
+        cands: &[(String, &'static str, super::registry::ResolvedCall)],
+        argvals: &[Val],
+        argc: usize,
+        data_read_key: Option<&str>,
+    ) -> FrontResult<Val> {
         let recv_word = self.box_value(recv);
         // is_object gate + the real handle (same emission as
         // `emit_registry_instanceof`; predicates tolerate a bogus handle → 0).
@@ -412,7 +454,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let merge = self.builder.create_block();
         self.builder
             .append_block_param(merge, types::I64);
-        for (class, pred, call) in &cands {
+        for (class, pred, call) in cands {
             let pred_v = value::emit_marshal::emit_call_sig(
                 module,
                 self.builder,
@@ -438,8 +480,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             self.builder.seal_block(arm_blk);
             // Pad the omitted defaulted tail (same rule as the static instance
             // path) and classify the Handle return by the spec's flags.
-            let mut vals = argvals.clone();
-            for i in args.len()..call.arg_abis.len() {
+            let mut vals = argvals.to_vec();
+            for i in argc..call.arg_abis.len() {
                 vals.push(self.default_arg_val(call.default_args.get(i), class, i)?);
             }
             let result_kind = match call.ret {
@@ -456,21 +498,35 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             self.builder.switch_to_block(next_blk);
             self.builder.seal_block(next_blk);
         }
-        // DEFAULT: no predicate matched → the `undefined` sentinel.
-        let undef = self
-            .builder
-            .ins()
-            .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
-        self.builder.ins().jump(merge, &[undef.into()]);
+        // DEFAULT: no predicate matched. The GETTER variant falls back to the
+        // plain DATA-SLOT read (a same-named real key on a plain object);
+        // the METHOD variant yields the `undefined` sentinel.
+        match data_read_key {
+            Some(prop) => {
+                let key = crate::value::abi_adapter::intern_poly(prop);
+                let key_word = self.builder.ins().iconst(types::I64, key.raw() as i64);
+                let data = self
+                    .call_runtime(module, "__rtsadp_obj_get", &[recv_word, key_word])?
+                    .expect("__rtsadp_obj_get returns a value");
+                self.builder.ins().jump(merge, &[data.into()]);
+            }
+            None => {
+                let undef = self
+                    .builder
+                    .ins()
+                    .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
+                self.builder.ins().jump(merge, &[undef.into()]);
+            }
+        }
 
         self.builder.switch_to_block(merge);
         self.builder.seal_block(merge);
         let result = self.builder.block_params(merge)[0];
-        Ok(Some(Val::new_with_kind(
+        Ok(Val::new_with_kind(
             result,
             crate::repr::Repr::Tagged,
             JsKind::Unknown,
-        )))
+        ))
     }
 }
 
