@@ -290,6 +290,20 @@ pub fn class_member_ret_class(class: &str, method: &str) -> Option<String> {
         .filter(|rc| has_class(rc))
 }
 
+/// The provable RETURN CLASS of instance GETTER `class.prop` — the getter's ts
+/// signature naming a registered class (`readonly searchParams: URLSearchParams`).
+/// Lets a CHAINED getter receiver classify (`url.searchParams.get(..)` without
+/// the intermediate local).
+pub fn class_getter_ret_class(class: &str, prop: &str) -> Option<String> {
+    let c = registry().class(class)?;
+    // A property may be modeled as a real InstanceGetter OR as a recv-only
+    // InstanceMethod read as a member (URL's `searchParams`) — accept both.
+    let m = c
+        .instance_getter(prop)
+        .or_else(|| c.resolve_instance_method(prop, 0))?;
+    ts_return_class(&m.ts_signature).filter(|rc| has_class(rc))
+}
+
 /// Resolve `inst.prop` as an INSTANCE GETTER (a `MemberKind::InstanceGetter`, read
 /// with no `()`) to its [`ResolvedCall`]. `None` when the class has no such getter.
 /// (Distinct from `class_member`, which only matches `InstanceMethod` — some

@@ -359,6 +359,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let recv = self.global_instance_class(inner)?;
                 super::registry::class_member_ret_class(&recv, method)
             }
+            // A CHAINED registry GETTER receiver (`url.searchParams.get(..)`
+            // without the intermediate local): the getter's spec ts-signature
+            // names its class (`readonly searchParams: URLSearchParams`) —
+            // data-driven, recursion covers N-deep chains.
+            HirExprKind::Member { object: inner, prop } => {
+                let recv = self.global_instance_class(inner)?;
+                super::registry::class_getter_ret_class(&recv, prop)
+            }
             _ => None,
         }
     }
