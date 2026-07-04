@@ -303,11 +303,17 @@ pub extern "C" fn __rtsadp_arr_flat(vec_handle: u64) -> u64 {
     for i in 0..len {
         let w = vec_word(vec_handle, i);
         let ev = PolyValue::from_raw(w);
+        if ev.is_hole() {
+            continue; // flat DROPS holes (spec FlattenIntoArray HasProperty step).
+        }
         if ev.is_object() && !super::inspect::looks_like_object(ev) {
             let inner = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(ev.as_handle());
             let ilen = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(inner).max(0);
             for j in 0..ilen {
                 let iw = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(inner, j);
+                if PolyValue::from_raw(iw as u64).is_hole() {
+                    continue;
+                }
                 rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(new_vec, iw);
             }
         } else {
@@ -525,6 +531,9 @@ fn flat_into(vec_handle: u64, depth: i64, out: u64) {
     for i in 0..len {
         let w = vec_word(vec_handle, i);
         let ev = PolyValue::from_raw(w);
+        if ev.is_hole() {
+            continue; // flat DROPS holes (spec FlattenIntoArray HasProperty step).
+        }
         if depth > 0 && ev.is_object() && !super::inspect::looks_like_object(ev) {
             let inner = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(ev.as_handle());
             flat_into(inner, depth - 1, out);

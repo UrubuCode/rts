@@ -568,6 +568,28 @@ pub extern "C" fn __rtsadp_dyn_trim(recv: u64) -> u64 {
     undef()
 }
 
+/// `s.trimStart()` — leading-whitespace strip on a dynamic string receiver.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_dyn_trim_start(recv: u64) -> u64 {
+    let v = PolyValue::from_raw(recv);
+    if v.is_string() {
+        let s = abi_adapter::resolve_poly(v);
+        return abi_adapter::intern_poly(s.trim_start()).raw();
+    }
+    undef()
+}
+
+/// `s.trimEnd()` — trailing-whitespace strip on a dynamic string receiver.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_dyn_trim_end(recv: u64) -> u64 {
+    let v = PolyValue::from_raw(recv);
+    if v.is_string() {
+        let s = abi_adapter::resolve_poly(v);
+        return abi_adapter::intern_poly(s.trim_end()).raw();
+    }
+    undef()
+}
+
 /// `s.split(sep)` — split a string by a (ToString'd) string separator into an
 /// ARRAY of boxed string words. String receiver only; other receivers →
 /// `undefined`. A regex separator is not modeled (the arg is ToString'd, matching

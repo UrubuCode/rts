@@ -192,6 +192,18 @@ const DYN_METHODS: &[DynMethod] = &[
         ret_kind: JsKind::Str,
     },
     DynMethod {
+        name: "trimStart",
+        argc: 0,
+        symbol: "__rtsadp_dyn_trim_start",
+        ret_kind: JsKind::Str,
+    },
+    DynMethod {
+        name: "trimEnd",
+        argc: 0,
+        symbol: "__rtsadp_dyn_trim_end",
+        ret_kind: JsKind::Str,
+    },
+    DynMethod {
         name: "charAt",
         argc: 1,
         symbol: "__rtsadp_dyn_char_at",

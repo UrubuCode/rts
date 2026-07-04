@@ -484,6 +484,14 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             dyndispatch::__rtsadp_dyn_trim as *const u8,
         ),
         sym(
+            "__rtsadp_dyn_trim_start",
+            dyndispatch::__rtsadp_dyn_trim_start as *const u8,
+        ),
+        sym(
+            "__rtsadp_dyn_trim_end",
+            dyndispatch::__rtsadp_dyn_trim_end as *const u8,
+        ),
+        sym(
             "__rtsadp_dyn_split",
             dyndispatch::__rtsadp_dyn_split as *const u8,
         ),

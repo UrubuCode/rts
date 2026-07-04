@@ -760,6 +760,8 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         | "__rtsadp_dyn_sort"
         | "__rtsadp_dyn_to_upper_case"
         | "__rtsadp_dyn_to_lower_case"
+        | "__rtsadp_dyn_trim_start"
+        | "__rtsadp_dyn_trim_end"
         | "__rtsadp_dyn_trim" => SymSig {
             params: &[U64],
             ret: U64,

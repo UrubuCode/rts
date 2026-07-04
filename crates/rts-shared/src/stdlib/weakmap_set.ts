@@ -17,6 +17,12 @@ class WeakMap<K, V> {
     for (const p of init) { this.set(p[0], p[1]); }
   }
   set(k: K, v: V): WeakMap<K, V> {
+    // JS: a WeakMap key must be an object (or a non-registered symbol) — a
+    // primitive key is a TypeError.
+    const t = typeof k;
+    if ((t !== "object" && t !== "function" && t !== "symbol") || k === null) {
+      throw new TypeError("Invalid value used as weak map key");
+    }
     for (let i = 0; i < this.#keys.length; i++) {
       if (this.#keys[i] === k) { this.#vals[i] = v; return this; }
     }
@@ -58,6 +64,11 @@ class WeakSet<T> {
     for (const v of init) { this.add(v); }
   }
   add(v: T): WeakSet<T> {
+    // JS: a WeakSet value must be an object (or a non-registered symbol).
+    const t = typeof v;
+    if ((t !== "object" && t !== "function" && t !== "symbol") || v === null) {
+      throw new TypeError("Invalid value used in weak set");
+    }
     for (let i = 0; i < this.#items.length; i++) {
       if (this.#items[i] === v) { return this; }
     }
