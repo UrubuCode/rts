@@ -874,7 +874,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             || name.starts_with("__rtsn_get_")
             || name.starts_with("__rtsn_set_")
             || name.starts_with("__rtsl_lget_")
-            || name.starts_with("__rtsl_lset_");
+            || name.starts_with("__rtsl_lset_")
+            || name.starts_with("__rtsn_lget_")
+            || name.starts_with("__rtsn_lset_");
         // The captured-var list (if `name` is a closure) — clone to drop the borrow
         // on `self` before lowering the env snapshot.
         let capture_names: Vec<String> = self.captures.get(name).cloned().unwrap_or_default();

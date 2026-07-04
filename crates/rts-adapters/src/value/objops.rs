@@ -1173,7 +1173,16 @@ pub extern "C" fn __rtsadp_obj_delete(obj_word: u64, key_str_handle: u64) -> i64
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_obj_assign(target_word: u64, source_word: u64) -> u64 {
     for k in object_keys_vec(source_word) {
-        let key_word = abi_adapter::intern_poly(&k).raw();
+        // Accessor storage slots (`__get_<k>`/`__set_<k>`): assign enumerates
+        // the PROPERTY, reads through [[Get]] (invoking the getter) and writes
+        // through [[Set]] (invoking a target setter) — it copies VALUES, never
+        // the descriptor slots themselves. A setter-only source prop
+        // contributes nothing (no [[Get]]).
+        if k.starts_with("__set_") {
+            continue;
+        }
+        let prop = k.strip_prefix("__get_").unwrap_or(&k);
+        let key_word = abi_adapter::intern_poly(prop).raw();
         let val = __rtsadp_obj_get(source_word, key_word);
         __rtsadp_obj_set(target_word, key_word, val);
     }

@@ -771,10 +771,13 @@ pub extern "C" fn __rtsadp_fn_invoke_method(
     if addr == 0 {
         return PolyValue::undefined().raw();
     }
-    // LEGACY all-i64 callee (`new Function`): no this slot — same typed-invoke
-    // route the plain invoker uses (the receiver is ignored, JS-consistent for
-    // a function that never reads `this`).
+    // LEGACY all-i64 callee (`new Function` / a raw-ptr synth fn): a THIS-FIRST
+    // callee gets the receiver as its real first param (a literal setter/method
+    // reified without the uniform thunk); a plain one keeps the no-this route.
     if !uniform {
+        if has_this {
+            return invoke_legacy_fn(real, arity, bound.len(), [this_word, a0, a1, a2]);
+        }
         return invoke_legacy_fn(real, arity, bound.len(), [a0, a1, a2, PolyValue::undefined().raw()]);
     }
     let env_word = if env == 0 {

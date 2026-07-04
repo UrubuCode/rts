@@ -88,6 +88,16 @@ pub extern "C" fn __rtsadp_obj_proto_of(obj_word: u64) -> u64 {
                 let undef = PolyValue::undefined().raw();
                 return __rtsadp_class_proto_init(name, undef);
             }
+            // A plain keyed object's implicit prototype is the SAME shared root
+            // `Object.prototype` resolves to — except the ROOT itself, whose
+            // chain ends in `null` (no extra "Object" loop).
+            if v.is_object() && super::inspect::looks_like_object(v) {
+                let root = object_proto_root();
+                if obj_word == root {
+                    return PolyValue::null().raw();
+                }
+                return root;
+            }
             PolyValue::null().raw()
         }
     }
@@ -124,6 +134,11 @@ pub extern "C" fn __rtsadp_obj_set_proto(obj_word: u64, proto_word: u64) -> u64 
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_class_proto(name_str_word: u64) -> u64 {
     let name = super::abi_adapter::resolve_poly(PolyValue::from_raw(name_str_word));
+    // `Object.prototype` IS the shared root object — one identity everywhere
+    // (`Object.getPrototypeOf({}) === Object.prototype` must hold).
+    if name == "Object" {
+        return object_proto_root();
+    }
     let mut t = class_proto_table().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(w) = t.get(&name) {
         return *w;
@@ -203,7 +218,11 @@ pub extern "C" fn __rtsadp_class_proto_init(name_word: u64, parent_name_word: u6
         } else {
             object_proto_root()
         };
-        __rtsadp_obj_set_proto(proto, up);
+        // Never self-link (the "Object" proto IS the root — a cycle would hang
+        // every chain walk).
+        if up != proto {
+            __rtsadp_obj_set_proto(proto, up);
+        }
     }
     proto
 }
@@ -275,7 +294,8 @@ pub extern "C" fn __rtsadp_is_prototype_of(proto_word: u64, obj_word: u64) -> u6
         let v = PolyValue::from_raw(obj_word);
         let is_heap = v.is_object() || v.is_function();
         let is_array = v.is_object() && !super::inspect::looks_like_object(v);
-        if t.get("Object") == Some(&proto_word) && is_heap {
+        if is_heap && (t.get("Object") == Some(&proto_word) || proto_word == object_proto_root())
+        {
             return PolyValue::bool(true).raw();
         }
         if t.get("Array") == Some(&proto_word) && is_array {
