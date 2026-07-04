@@ -2529,10 +2529,10 @@
 ,
 {
   "name": "claude-to-fixed-rounding",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "0.1\n1.00\n2.00\n1\n2\n3\n0.00\n123.46\n-2\n8.57\n1.25\n0.000\n1e+21",
   "node": "0.1\n1.00\n2.00\n1\n2\n3\n0.00\n123.46\n-2\n8.57\n1.25\n0.000\n1e+21",
-  "rts": "0.1\n1.00\n2.00\n1\n2\n3\n0.00\n123.46\n-2\n8.57\n1.25\n0.000\n1000000000000000000000.00"
+  "rts": "0.1\n1.00\n2.00\n1\n2\n3\n0.00\n123.46\n-2\n8.57\n1.25\n0.000\n1e+21"
 }
 ,
 {
@@ -2660,7 +2660,7 @@
   "status": "rts_diverge",
   "bun": "a=1\nproto=null\ntoString=true\nproto2=true\nchild_x=10\nown=false\nwithProps=1",
   "node": "a=1\nproto=null\ntoString=true\nproto2=true\nchild_x=10\nown=false\nwithProps=1",
-  "rts": "a=1\nproto=0\ntoString=true\nproto2=true\nchild_x=10\nown=false\nwithProps=undefined"
+  "rts": "a=1\nproto=null\ntoString=true\nproto2=true\nchild_x=10\nown=false\nwithProps=undefined"
 }
 ,
 {
@@ -2825,10 +2825,10 @@
 ,
 {
   "name": "340_proxy_basics",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1\ntrue\nget:a|set:b=99|has:b|del:b\n5\nmust be positive",
   "node": "1\ntrue\nget:a|set:b=99|has:b|del:b\n5\nmust be positive",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "1\ntrue\nget:a|set:b=99|has:b|del:b\n5\nmust be positive"
 }
 ,
 {
@@ -2849,10 +2849,10 @@
 ,
 {
   "name": "349_object_descriptors",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue",
   "node": "42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue",
-  "rts": "42\n99\n42\nreadonly,normal\n0\nfalse\ntrue\nfalse\n1\ntrue"
+  "rts": "42\n99\n42\nreadonly,normal\ncaught: TypeError\n42\nfalse\ntrue\nfalse\n1\ntrue"
 }
 ,
 {
@@ -3081,10 +3081,10 @@
 ,
 {
   "name": "codex_define_property_defaults",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "1,false,false,false\n\n1\nTypeError",
   "node": "1,false,false,false\n\n1\nTypeError",
-  "rts": "1,false,false,false\n\n1"
+  "rts": "1,false,false,false\n\n1\nTypeError"
 }
 ,
 {
@@ -3121,10 +3121,10 @@
 ,
 {
   "name": "codex_object_create_null_json_keys",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "true\nb,a,toString\n{\"b\":2,\"a\":1,\"toString\":\"own\"}\n[object Object]",
   "node": "true\nb,a,toString\n{\"b\":2,\"a\":1,\"toString\":\"own\"}\n[object Object]",
-  "rts": "false\nb,a,toString\n{\"b\":2,\"a\":1,\"toString\":\"own\"}\n[object Object]"
+  "rts": "true\nb,a,toString\n{\"b\":2,\"a\":1,\"toString\":\"own\"}\n[object Object]"
 }
 ,
 {
@@ -3161,10 +3161,10 @@
 ,
 {
   "name": "codex_proxy_delete_invariant",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "TypeError\n1",
   "node": "TypeError\n1",
-  "rts": "1"
+  "rts": "TypeError\n1"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":372,"rts_diverge":89,"bun_node_diverge":17,"errors":131,"rejected":0}}
+],"summary":{"total":609,"pass":378,"rts_diverge":84,"bun_node_diverge":17,"errors":130,"rejected":0}}
