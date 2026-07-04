@@ -1312,7 +1312,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// An `undefined` PolyValue word coerced to `target` (for an omitted fillable
     /// arg). `target` is `Tagged` for any fillable param (set in [`FnSig::of_func`]),
     /// so the coerce is a no-op; the helper stays general for safety.
-    fn undefined_coerced(&mut self, target: Repr) -> FrontResult<Value> {
+    pub(in crate::front::run) fn undefined_coerced(&mut self, target: Repr) -> FrontResult<Value> {
         let w = self
             .builder
             .ins()

@@ -360,6 +360,9 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
     // Web event model — after timers (AbortSignal.timeout → setTimeout;
     // MessagePort → queueMicrotask) and DOMException (abort/timeout reasons).
     PreludeTs { label: "events", source: rts_runtime::stdlib::EVENTS_TS, why: "Event/EventTarget/AbortSignal/AbortController/MessageChannel" },
+    // Web Streams — after web-api (Blob.stream() builds a ReadableStream; the
+    // UTF-8 helpers live in webapi.ts; the merged prelude is one program).
+    PreludeTs { label: "streams", source: rts_runtime::stdlib::STREAMS_TS, why: "ReadableStream/WritableStream/TransformStream/TextEncoder/DecoderStream" },
     // DOM facade — `Document`/`Element` classes (browser-named API) over the `rts:dom`
     // primitives. AFTER the namespaces register (the `dom.*` it calls must exist).
     PreludeTs { label: "DOM facade", source: ns::dom::DOM_TS, why: "document/Element over rts:dom" },
