@@ -161,10 +161,10 @@
 ,
 {
   "name": "190_array_entries_keys_values",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "entries=0:a,1:b,2:c\nkeys=0,1,2\nvalues=a,b,c\nsparse_keys=0,1,2",
   "node": "entries=0:a,1:b,2:c\nkeys=0,1,2\nvalues=a,b,c\nsparse_keys=0,1,2",
-  "rts": "entries=0:a,1:b,2:c\nkeys=0,1,2\nvalues=a,b,c\nsparse_keys=0,1"
+  "rts": "entries=0:a,1:b,2:c\nkeys=0,1,2\nvalues=a,b,c\nsparse_keys=0,1,2"
 }
 ,
 {
@@ -217,10 +217,10 @@
 ,
 {
   "name": "220_array_map_sparse",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "length=3\n0=2\n1=undefined\n2=6\nfiltered=1,3\ncount=2",
   "node": "length=3\n0=2\n1=undefined\n2=6\nfiltered=1,3\ncount=2",
-  "rts": "length=2\n0=2\n1=6\n2=0\nfiltered=1,3\ncount=2"
+  "rts": "length=3\n0=2\n1=undefined\n2=6\nfiltered=1,3\ncount=2"
 }
 ,
 {
@@ -401,10 +401,10 @@
 ,
 {
   "name": "397_array_holes_mutation",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "seen=0=0,1=11,2=2\nkeys=0,1,2\nmap=0:0|1:11|2:2||\njoin=0-11-2--\nhas1=true,has3=false,has4=false",
   "node": "seen=0=0,1=11,2=2\nkeys=0,1,2\nmap=0:0|1:11|2:2||\njoin=0-11-2--\nhas1=true,has3=false,has4=false",
-  "rts": "seen=0=0,1=11,2=4\nkeys=0,1,2\nmap=0:0|1:11|2:4\njoin=0-11-4\nhas1=true,has3=false,has4=false"
+  "rts": "seen=0=0,1=11,2=2\nkeys=0,1,2\nmap=0:0|1:11|2:2||\njoin=0-11-2--\nhas1=true,has3=false,has4=false"
 }
 ,
 {
@@ -433,18 +433,18 @@
 ,
 {
   "name": "52_sparse_arrays",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "len=5\njoin=1||3||5\nhas1=false\nhas3=false\nkeys=0,2,4\nmap=2,,6,,10\nfilter=1,3,5\nfrom=1,u,3,u,5",
   "node": "len=5\njoin=1||3||5\nhas1=false\nhas3=false\nkeys=0,2,4\nmap=2,,6,,10\nfilter=1,3,5\nfrom=1,u,3,u,5",
-  "rts": "len=3\njoin=1|3|5\nhas1=true\nhas3=false\nkeys=0,1,2\nmap=2,6,10\nfilter=1,3,5\nfrom=1,3,5"
+  "rts": "len=5\njoin=1||3||5\nhas1=false\nhas3=false\nkeys=0,2,4\nmap=2,,6,,10\nfilter=1,3,5\nfrom=1,u,3,u,5"
 }
 ,
 {
   "name": "94_sparse_array_enumeration",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]",
   "node": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]",
-  "rts": "len=4\nkeys=0,1,2,3\nforIn=0:0|1:2|2:undefined|3:4\nforOf=0|2|undefined|4\nentries=0:0|1:2|2:undefined|3:4\njson=[0,2,null,4]"
+  "rts": "len=5\nkeys=0,2,3,4\nforIn=0:0|2:2|3:undefined|4:4\nforOf=0|undefined|2|undefined|4\nentries=0:0|1:undefined|2:2|3:undefined|4:4\njson=[0,null,2,null,4]"
 }
 ,
 {
@@ -465,10 +465,10 @@
 ,
 {
   "name": "claude-flat-deep-and-infinity",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "[1,2,[3,[4,[5]]]]\n[1,2,3,[4,[5]]]\n[1,2,3,4,5]\n[1,[2,[3,[4,[5]]]]]\n[1,2,3]\n[1,10,2,20,3,30]\n[1,[1],2,[2],3,[3]]",
   "node": "[1,2,[3,[4,[5]]]]\n[1,2,3,[4,[5]]]\n[1,2,3,4,5]\n[1,[2,[3,[4,[5]]]]]\n[1,2,3]\n[1,10,2,20,3,30]\n[1,[1],2,[2],3,[3]]",
-  "rts": "[1,2,[3,[4,[5]]]]\n[1,2,3,[4,[5]]]\n[1,2,3,4,5]\n[1,[2,[3,[4,[5]]]]]\n[1,2,3]\n[1,10,2,20,3,30]\n[1,[1],2,[2],3,[3]]"
+  "rts": "[1,2,[3,[4,[5]]]]\n[1,2,3,[4,[5]]]\n[1,2,3,4,5]\n[1,[2,[3,[4,[5]]]]]\n[1,null,2,null,3]\n[1,10,2,20,3,30]\n[1,[1],2,[2],3,[3]]"
 }
 ,
 {
@@ -481,18 +481,18 @@
 ,
 {
   "name": "claude-holes-join-string-indexers",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "1--3\n--2\n1,2,3\n,,\n3\nfalse\n3\n,",
   "node": "1--3\n--2\n1,2,3\n,,\n3\nfalse\n3\n,",
-  "rts": "1-3\n--2\n1,2,3\n,,\n3\ntrue\n0\n,"
+  "rts": "1--3\n--2\n1,2,3\n,,\n3\nfalse\n3\n,"
 }
 ,
 {
   "name": "claude-holes-map-filter-foreach",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "5\n5\nfalse\n2,,6,,10\n2,,6,,10\n3\n3\n1,3,5",
   "node": "5\n5\nfalse\n2,,6,,10\n2,,6,,10\n3\n3\n1,3,5",
-  "rts": "3\n3\ntrue\n2,6,10\n2,6,10\n3\n3\n1,3,5"
+  "rts": "5\n5\nfalse\n2,,6,,10\n2,,6,,10\n3\n3\n1,3,5"
 }
 ,
 {
@@ -577,10 +577,10 @@
 ,
 {
   "name": "codex_array_reduce_mutation_window",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "sum=6\nseen=0:1,1:2,2:3\nkeys=0,1,2",
   "node": "sum=6\nseen=0:1,1:2,2:3\nkeys=0,1,2",
-  "rts": "sum=7\nseen=0:1,1:2,2:4\nkeys=0,1,2"
+  "rts": "sum=6\nseen=0:1,1:2,2:3\nkeys=0,1,2"
 }
 ,
 {
@@ -601,18 +601,18 @@
 ,
 {
   "name": "codex_array_unshift_holes",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "5\na|b|||x\n0,1,4\nfalse false true",
   "node": "5\na|b|||x\n0,1,4\nfalse false true",
-  "rts": "3\na|b|x\n0,1,2\ntrue false false"
+  "rts": "5\na|b|||x\n0,1,4\nfalse false true"
 }
 ,
 {
   "name": "codex_sparse_array_spread_vs_from",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "0:undefined,1:x,2:undefined\n0:undefined,1:x,2:undefined\n0,1,2\n1",
   "node": "0:undefined,1:x,2:undefined\n0:undefined,1:x,2:undefined\n0,1,2\n1",
-  "rts": "0:undefined,1:x,2:undefined\n0:undefined,1:x,2:undefined\n0,1,2\n0,1,2"
+  "rts": "0:undefined,1:x,2:undefined\n0:undefined,1:x,2:undefined\n0,1,2\n1"
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -3009,18 +3009,18 @@
 ,
 {
   "name": "claude-in-array-holes-and-proto",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "true false true\n3\ntrue\ntrue\ntrue\ntrue\ntrue false\ntrue\ntrue\ntrue\ntrue false",
   "node": "true false true\n3\ntrue\ntrue\ntrue\ntrue\ntrue false\ntrue\ntrue\ntrue\ntrue false",
-  "rts": "true true false\n2\ntrue\ntrue\ntrue\ntrue\ntrue false\ntrue\ntrue\ntrue\ntrue false"
+  "rts": "true false true\n3\ntrue\ntrue\ntrue\ntrue\ntrue false\ntrue\ntrue\ntrue\ntrue false"
 }
 ,
 {
   "name": "claude-in-inherited-vs-own",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "true\ntrue\ntrue\nfalse\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue\ntrue\nfalse",
   "node": "true\ntrue\ntrue\nfalse\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue\ntrue\nfalse",
-  "rts": "true\ntrue\ntrue\nfalse\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue\ntrue\ntrue"
+  "rts": "true\ntrue\ntrue\nfalse\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue\ntrue\nfalse"
 }
 ,
 {
@@ -4188,7 +4188,7 @@
   "status": "rts_diverge",
   "bun": "arr=1,20,3,4,5\nobj=1,2,7,8\nrest={\"extra\":9}",
   "node": "arr=1,20,3,4,5\nobj=1,2,7,8\nrest={\"extra\":9}",
-  "rts": "arr=1,3,4,5,,50\nobj=1,2,7,8\nrest={\"extra\":9}"
+  "rts": "arr=1,,3,4,5\nobj=1,2,7,8\nrest={\"extra\":9}"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":344,"rts_diverge":108,"bun_node_diverge":17,"errors":140,"rejected":0}}
+],"summary":{"total":609,"pass":354,"rts_diverge":97,"bun_node_diverge":18,"errors":140,"rejected":0}}
