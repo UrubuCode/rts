@@ -169,10 +169,10 @@
 ,
 {
   "name": "199_array_from_mapfn",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "mapped=2,4,6\nupper=H,E,L,L,O\nrange=0,1,2,3,4\nsquares=0,1,4,9\nset=2,4,6",
   "node": "mapped=2,4,6\nupper=H,E,L,L,O\nrange=0,1,2,3,4\nsquares=0,1,4,9\nset=2,4,6",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "mapped=2,4,6\nupper=H,E,L,L,O\nrange=0,1,2,3,4\nsquares=0,1,4,9\nset=2,4,6"
 }
 ,
 {
@@ -449,10 +449,10 @@
 ,
 {
   "name": "claude-at-fractional-and-negative",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "20\n50\n40\nundefined\nundefined\n10\n10\n30\n20",
   "node": "20\n50\n40\nundefined\nundefined\n10\n10\n30\n20",
-  "rts": "20\n50\n40\nundefined\nundefined\n10\n10\n10\n20"
+  "rts": "20\n50\n40\nundefined\nundefined\n10\n10\n30\n20"
 }
 ,
 {
@@ -473,10 +473,10 @@
 ,
 {
   "name": "claude-from-thisarg-and-mapfn",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "3,6,9\n0,1,4\na-b-c\n4\n5,7,9\n1,2,3",
   "node": "3,6,9\n0,1,4\na-b-c\n4\n5,7,9\n1,2,3",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "3,6,9\n0,1,4\na-b-c\n4\n5,7,9\n1,2,3"
 }
 ,
 {
@@ -513,18 +513,18 @@
 ,
 {
   "name": "claude-reduce-no-init-edges",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "60\n|30|20|10\n42\n4\ntrue\n99",
   "node": "60\n|30|20|10\n42\n4\ntrue\n99",
-  "rts": "60\n|30|20|10\n42\n4\n99"
+  "rts": "60\n|30|20|10\n42\n4\ntrue\n99"
 }
 ,
 {
   "name": "claude-sort-comparator-nan-returns",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "4,2,6,1,3,5\n2,3,4,6,1,5\nb,a,c",
   "node": "4,2,6,1,3,5\n2,3,4,6,1,5\nb,a,c",
-  "rts": "4,2,6,1,3,5\n2,4,6,1,3,5\nb,a,c"
+  "rts": "4,2,6,1,3,5\n2,3,4,6,1,5\nb,a,c"
 }
 ,
 {
@@ -2785,10 +2785,10 @@
 ,
 {
   "name": "265_object_fromentries",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "map={\"a\":1,\"b\":2}\narr={\"a\":1,\"b\":2}\ntuples={\"x\":7,\"y\":8}\nround={\"p\":1,\"q\":2}",
   "node": "map={\"a\":1,\"b\":2}\narr={\"a\":1,\"b\":2}\ntuples={\"x\":7,\"y\":8}\nround={\"p\":1,\"q\":2}",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "map={\"a\":1,\"b\":2}\narr={\"a\":1,\"b\":2}\ntuples={\"x\":7,\"y\":8}\nround={\"p\":1,\"q\":2}"
 }
 ,
 {
@@ -2801,10 +2801,10 @@
 ,
 {
   "name": "323_object_entries_fromEntries",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "a=1,b=2,c=3\n1\n2\n3\n10\n20\n{}",
   "node": "a=1,b=2,c=3\n1\n2\n3\n10\n20\n{}",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "a=1,b=2,c=3\n1\n2\n3\n10\n20\n{}"
 }
 ,
 {
@@ -4185,10 +4185,10 @@
 ,
 {
   "name": "104_destructuring_edge_cases",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "arr=1,20,3,4,5\nobj=1,2,7,8\nrest={\"extra\":9}",
   "node": "arr=1,20,3,4,5\nobj=1,2,7,8\nrest={\"extra\":9}",
-  "rts": "arr=1,,3,4,5\nobj=1,2,7,8\nrest={\"extra\":9}"
+  "rts": "arr=1,20,3,4,5\nobj=1,2,7,8\nrest={\"extra\":9}"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":356,"rts_diverge":96,"bun_node_diverge":17,"errors":140,"rejected":0}}
+],"summary":{"total":609,"pass":364,"rts_diverge":92,"bun_node_diverge":17,"errors":136,"rejected":0}}
