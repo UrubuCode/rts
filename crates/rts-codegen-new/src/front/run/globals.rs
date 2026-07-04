@@ -419,13 +419,29 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // FROM_UNSUPPORTED sentinel runtime-side. Allow array/string/object
                 // sources through; reject only a proven primitive (number/bool) source
                 // up front (it can never be array-like).
-                let is_arr = self.is_array_valued(&args[0]);
                 let v = self.lower_expr(module, &args[0])?;
-                let is_objlike = matches!(v.kind, super::lower::JsKind::Object)
-                    || matches!(&args[0].kind, HirExprKind::Object(_));
-                if !is_arr && !matches!(v.kind, super::lower::JsKind::Str) && !is_objlike {
+                // Reject only a PROVEN primitive source (number/bool/undefined/
+                // null — never array-like). A Tagged/Unknown source (a
+                // `matchAll` result, a call return) goes through: the runtime
+                // `__rtsadp_arr_from` tag-dispatches (array/string/view/
+                // array-like) and yields the honest FROM_UNSUPPORTED sentinel
+                // for anything it cannot build from.
+                let proven_primitive = matches!(
+                    v.kind,
+                    super::lower::JsKind::Number
+                        | super::lower::JsKind::Bool
+                        | super::lower::JsKind::Undefined
+                        | super::lower::JsKind::Null
+                ) || matches!(
+                    v.repr,
+                    crate::repr::Repr::Int32
+                        | crate::repr::Repr::Int64
+                        | crate::repr::Repr::Float64
+                        | crate::repr::Repr::Bool
+                );
+                if proven_primitive {
                     return unsupported!(
-                        "Array.from(source, mapFn) with a non-array/non-string/non-object source \
+                        "Array.from(source, mapFn) with a primitive source \
                          (a primitive source is not array-like)"
                     );
                 }
