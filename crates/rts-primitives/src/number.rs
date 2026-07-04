@@ -134,7 +134,14 @@ pub extern "C" fn __RTS_FN_GL_NUMBER_TO_FIXED(v: F64, digits: I64) -> Handle {
         let out = if neg { format!("-{out}") } else { out };
         return alloc_str(&out);
     }
-    alloc_str(&format!("{v:.prec$}", prec = d))
+    // |v| ≥ 1e21: the spec falls back to plain `ToString(v)` (exponential form
+    // — `(1e21).toFixed(2)` is `"1e+21"`, never a fixed-point expansion).
+    let e = format!("{v:e}");
+    let js = match e.split_once('e') {
+        Some((m, exp)) if !exp.starts_with('-') => format!("{m}e+{exp}"),
+        _ => e,
+    };
+    alloc_str(&js)
 }
 
 /// n.valueOf() — primitive identity ou unbox NumberBox.

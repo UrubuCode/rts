@@ -426,6 +426,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let res = self
             .call_runtime(module, "__rtsadp_obj_define_property", &[o_word, k_word, d_word])?
             .expect("__rtsadp_obj_define_property returns the object word");
+        // Redefining a non-configurable property THROWS (spec) — route the unwind.
+        self.emit_post_call_error_check(module)?;
         Ok(Val::tagged_kind(res, JsKind::Object))
     }
 

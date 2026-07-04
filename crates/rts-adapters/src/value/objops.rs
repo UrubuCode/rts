@@ -840,6 +840,35 @@ pub extern "C" fn __rtsadp_obj_define_property(obj_word: u64, key_word: u64, des
         }
         return obj_word;
     }
+    // REDEFINE of a NON-CONFIGURABLE property: any attempt to change an
+    // attribute (configurable→true, enumerable flip, writable false→true, or a
+    // different value on a non-writable prop) is a TypeError (spec
+    // ValidateAndApplyPropertyDescriptor).
+    if !is_new && !prop_configurable(obj_word, &key_txt) {
+        let has = |k: &str| {
+            let key = abi_adapter::intern_poly(k).raw();
+            __rtsadp_obj_has(desc_word, key) != 0
+        };
+        let asked = |k: &str| {
+            let key = abi_adapter::intern_poly(k).raw();
+            super::genops::to_boolean(PolyValue::from_raw(__rtsadp_obj_get(desc_word, key)))
+        };
+        let bad = (has("configurable") && asked("configurable"))
+            || (has("enumerable") && asked("enumerable") != prop_enumerable(obj_word, &key_txt))
+            || (has("writable") && asked("writable") && !prop_writable(obj_word, &key_txt))
+            || (!prop_writable(obj_word, &key_txt) && has("value") && {
+                let nv = __rtsadp_obj_get(desc_word, abi_adapter::intern_poly("value").raw());
+                let cur = __rtsadp_obj_get(obj_word, key_word);
+                nv != cur
+            });
+        if bad {
+            super::errslot::throw_js_error(
+                "TypeError",
+                &format!("Cannot redefine property: {key_txt}"),
+            );
+            return obj_word;
+        }
+    }
     let val = __rtsadp_obj_get(desc_word, abi_adapter::intern_poly("value").raw());
     let flags = flag("writable", prop_writable(obj_word, &key_txt))
         | (flag("enumerable", prop_enumerable(obj_word, &key_txt)) << 1)
@@ -1047,7 +1076,21 @@ pub extern "C" fn __rtsadp_obj_delete(obj_word: u64, key_str_handle: u64) -> i64
                 undef,
                 0,
             );
-            return PolyValue::from_raw(r).is_truthy() as i64;
+            let ok = PolyValue::from_raw(r).is_truthy();
+            // Proxy INVARIANT: the trap cannot report success for a
+            // NON-CONFIGURABLE own property of the target — TypeError.
+            if ok
+                && resolve_slot(target, key_str_handle).is_some()
+                && !prop_configurable(target, &key_text(key_str_handle))
+            {
+                super::errslot::throw_js_error(
+                    "TypeError",
+                    "'deleteProperty' on proxy: trap returned truish for property which is \
+                     non-configurable in the proxy target",
+                );
+                return 0;
+            }
+            return ok as i64;
         }
         return __rtsadp_obj_delete(target, key_str_handle);
     }

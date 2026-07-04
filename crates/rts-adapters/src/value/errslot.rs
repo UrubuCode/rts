@@ -74,6 +74,17 @@ pub(crate) fn throw_js_error(kind: &str, message: &str) {
             rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(vec),
         )
         .raw();
+        // Wire the class prototype so `e.constructor`/`e.constructor.name`
+        // resolve like a `new TypeError(..)` instance.
+        let name_word = super::abi_adapter::intern_poly(kind).raw();
+        let undef = super::PolyValue::undefined().raw();
+        let parent = if kind == "Error" {
+            undef
+        } else {
+            super::abi_adapter::intern_poly("Error").raw()
+        };
+        let proto = super::protos::__rtsadp_class_proto_init(name_word, parent);
+        super::protos::__rtsadp_obj_set_proto(word, proto);
         __rtsadp_throw_set(word);
         return;
     }

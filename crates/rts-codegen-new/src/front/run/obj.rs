@@ -203,6 +203,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             let v = self.lower_expr(module, value_expr)?;
             let v_word = self.box_value(v);
             self.call_runtime(module, "__rtsadp_obj_set", &[obj_word, k_word, v_word])?;
+            self.emit_post_call_error_check(module)?; // Proxy set trap / setter can THROW
         }
         Ok(Val::tagged_kind(obj_word, JsKind::Unknown))
     }
@@ -902,6 +903,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             let word = self.box_value(v);
             let key_word = self.intern_key_word(prop);
             self.call_runtime(module, "__rtsadp_obj_set", &[recv_word, key_word, word])?;
+            self.emit_post_call_error_check(module)?; // Proxy set trap / setter can THROW
             if let HirExprKind::Ident(name) = &object.kind {
                 self.demote_local_to_dynamic(name);
             }
@@ -977,6 +979,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let res = self
             .call_runtime(module, "__rtsadp_obj_delete", &[obj_word, key])?
             .expect("__rtsadp_obj_delete returns a value");
+        // A Proxy deleteProperty trap can THROW (falsy trap result on delete is a
+        // strict-mode TypeError; a user trap can throw) — route the unwind.
+        self.emit_post_call_error_check(module)?;
         // The delete reshapes the object at RUNTIME, so the local's compile-time
         // shape is no longer authoritative — route future `o.k` / `Object.keys(o)`
         // through the DYNAMIC path (which reads the live slot-0 shape).
@@ -1003,6 +1008,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let word = self.box_value(v);
                 let obj_word = self.load_local_word(&name);
                 self.call_runtime(module, "__rtsadp_obj_set", &[obj_word, key_word, word])?;
+            self.emit_post_call_error_check(module)?; // Proxy set trap / setter can THROW
                 // The runtime set may ADD a key (shape transition), so the local's
                 // compile-time shape is no longer authoritative — route its future
                 // reads through the DYNAMIC path (which reads the live runtime shape).
@@ -1031,6 +1037,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let v = self.lower_expr(module, value)?;
         let word = self.box_value(v);
         self.call_runtime(module, "__rtsadp_obj_set", &[recv_word, key_word, word])?;
+            self.emit_post_call_error_check(module)?; // Proxy set trap / setter can THROW
         Ok(Val::new(word, Repr::Tagged))
     }
 
@@ -1296,6 +1303,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let word = self.box_value(v);
         let obj_word = self.load_local_word(name);
         self.call_runtime(module, "__rtsadp_obj_set", &[obj_word, key_word, word])?;
+            self.emit_post_call_error_check(module)?; // Proxy set trap / setter can THROW
         Ok(Val::new(word, Repr::Tagged))
     }
 
@@ -1357,6 +1365,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let v = self.lower_expr(module, value)?;
         let word = self.box_value(v);
         self.call_runtime(module, "__rtsadp_obj_set", &[recv_word, key_word, word])?;
+            self.emit_post_call_error_check(module)?; // Proxy set trap / setter can THROW
         Ok(Val::new(word, Repr::Tagged))
     }
 

@@ -73,7 +73,12 @@ pub extern "C" fn __rtsadp_obj_proto_of(obj_word: u64) -> u64 {
         }
         return __rtsadp_obj_proto_of(target);
     }
-    proto_of(obj_word).unwrap_or_else(|| PolyValue::null().raw())
+    match proto_of(obj_word) {
+        // The EXPLICIT null prototype (`Object.create(null)` records 0): JS
+        // reads `null`, never the raw 0 word.
+        Some(0) | None => PolyValue::null().raw(),
+        Some(p) => p,
+    }
 }
 
 /// `Object.setPrototypeOf(obj, proto)` / `Reflect.setPrototypeOf` — record (or
