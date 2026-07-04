@@ -416,6 +416,7 @@ pub fn extract_arrows(
         cells: HashMap::new(),
         current_fn: String::new(),
         current_fn_lets: HashSet::new(),
+        self_binding: None,
         counter: 0,
         arrow_ns: arrow_ns.to_string(),
     };
@@ -625,6 +626,11 @@ struct Ctx {
     /// body — the only locals a captured-mutated name may be a cell of this
     /// increment (a deeper-block or param capture bails, kept sound).
     current_fn_lets: HashSet<String>,
+    /// The `let`/`const` NAME whose initializer is being rewritten right now —
+    /// a capture of it inside an arrow is a SELF-REFERENCE (`const f = () =>
+    /// … f() …`) and must be a CELL (live read), never a by-value snapshot of
+    /// the not-yet-assigned binding.
+    self_binding: Option<String>,
     /// Fresh-name counter.
     counter: usize,
     /// Name NAMESPACE for lifted arrows (`__rtsn_arrow_{ns}{counter}`): `"p"` on
@@ -661,14 +667,23 @@ impl Ctx {
             HirStmt::Return(Some(e)) => self.rewrite_expr(e, scope, mutated),
             HirStmt::Return(None) => {}
             HirStmt::Let { name, init, .. } => {
+                // SELF-REFERENCE window: `const f = (..) => … f(..) …` — while
+                // rewriting the initializer, `name` is in scope (JS: the binding
+                // exists, TDZ aside) and a capture of it is routed to a CELL
+                // (the closure must read the LIVE fn value written after reify,
+                // not an undefined snapshot).
+                scope.insert(name.clone());
+                let prev = self.self_binding.replace(name.clone());
                 if let Some(e) = init {
                     self.rewrite_expr(e, scope, mutated);
                 }
-                scope.insert(name.clone());
+                self.self_binding = prev;
             }
             HirStmt::Const { name, init, .. } => {
-                self.rewrite_expr(init, scope, mutated);
                 scope.insert(name.clone());
+                let prev = self.self_binding.replace(name.clone());
+                self.rewrite_expr(init, scope, mutated);
+                self.self_binding = prev;
             }
             HirStmt::If { cond, then, else_ } => {
                 self.rewrite_expr(cond, scope, mutated);
@@ -913,7 +928,13 @@ impl Ctx {
             // TOP-LEVEL `let` of THIS function (so its `let` can allocate the cell and
             // the handle is captured by value). A mutated param / deeper-block local
             // is outside this increment → bail (sound floor, never a stale snapshot).
-            if body_assigns.contains(id) || mutated.contains(id) {
+            if body_assigns.contains(id)
+                || mutated.contains(id)
+                // SELF-REFERENCE (`const f = () => … f() …`): the binding is
+                // written right after the reify, so a by-value snapshot would
+                // capture undefined — a CELL reads the live fn value.
+                || self.self_binding.as_deref() == Some(id.as_str())
+            {
                 if self.current_fn_lets.contains(id) {
                     cell_caps.push(id.clone());
                     captures.push(id.clone());

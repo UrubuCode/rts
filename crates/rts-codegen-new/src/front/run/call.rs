@@ -415,6 +415,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // `rts:test` `describe(name, fn)` param `fn` vs a user `function fn(..)`
         // is the canonical collision.
         if let Some(local) = self.local(&name) {
+            // A CELL local (captured-and-mutated / self-referencing fn binding)
+            // holds the cell HANDLE — the live fn word is in slot 0.
+            if self.is_cell_local(&name) {
+                let handle = self.builder.use_var(local.var);
+                let v = self.emit_cell_get(module, handle);
+                return self.lower_value_call_word(module, v.v, args);
+            }
             return self.lower_value_call(module, local, args);
         }
         // A direct call to a CLOSURE (a hoisted `let g = (x) => x*k`, P5.7): `g`'s
