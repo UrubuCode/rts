@@ -336,6 +336,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     }
                 }
             }
+            // `typeof Math` is `"object"` — the bare PRIMORDIAL namespace object
+            // (the engine may name Math); a local/user class shadows it.
+            if let HirExprKind::Ident(name) = &operand.kind {
+                if name == "Math" && self.local(name).is_none() && self.classes.get(name).is_none()
+                {
+                    let pv = abi_adapter::intern_poly("object");
+                    let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
+                    return Ok(Val::tagged_kind(v, JsKind::Str));
+                }
+            }
             // `typeof <truly-undeclared ident>` is the ONE JS construct that may
             // name an unbound identifier without a ReferenceError — it yields
             // `"undefined"`. A bare ident that resolves to NOTHING (not a local/
