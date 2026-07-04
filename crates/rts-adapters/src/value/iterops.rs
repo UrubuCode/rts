@@ -130,6 +130,20 @@ pub extern "C" fn __rtsadp_to_iter_array(word: u64) -> u64 {
 /// "1": … }` enumerates `1, 3, 10, b`. Used for `Object.keys`/`getOwnPropertyNames`/
 /// `for-in` — NOT for the storage-order `object_keys_vec` (slot manipulation).
 pub(crate) fn reorder_enum_keys(keys: Vec<String>) -> Vec<String> {
+    let order = enum_key_order(&keys);
+    let mut keys: Vec<Option<String>> = keys.into_iter().map(Some).collect();
+    order
+        .into_iter()
+        .map(|i| keys[i].take().expect("permutation visits each index once"))
+        .collect()
+}
+
+/// The PERMUTATION that puts `keys` in the canonical own-property enumeration
+/// order (the rule above), as ORIGINAL indices. This is the form the front's
+/// static `Object.keys/values/entries` emission consumes: a value still lives
+/// at the slot of its original (insertion) index, so the emitter needs the
+/// index mapping, not just the reordered names.
+pub fn enum_key_order(keys: &[String]) -> Vec<usize> {
     let as_index = |s: &str| -> Option<u32> {
         if s == "0" {
             return Some(0);
@@ -139,16 +153,16 @@ pub(crate) fn reorder_enum_keys(keys: Vec<String>) -> Vec<String> {
         }
         s.parse::<u32>().ok().filter(|&n| n != u32::MAX)
     };
-    let mut idx: Vec<(u32, String)> = Vec::new();
-    let mut rest: Vec<String> = Vec::new();
-    for k in keys {
-        match as_index(&k) {
-            Some(n) => idx.push((n, k)),
-            None => rest.push(k),
+    let mut idx: Vec<(u32, usize)> = Vec::new();
+    let mut rest: Vec<usize> = Vec::new();
+    for (i, k) in keys.iter().enumerate() {
+        match as_index(k) {
+            Some(n) => idx.push((n, i)),
+            None => rest.push(i),
         }
     }
     idx.sort_by_key(|(n, _)| *n);
-    idx.into_iter().map(|(_, k)| k).chain(rest).collect()
+    idx.into_iter().map(|(_, i)| i).chain(rest).collect()
 }
 
 /// `Reflect.ownKeys(target)` — the trap's list VERBATIM (the ECMA `ownKeys`
