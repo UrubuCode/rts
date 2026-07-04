@@ -620,11 +620,19 @@ fn box_handle_auto_depth(h: u64, depth: u32) -> u64 {
     let kind = with_entry(h, |e| match e {
         Some(Entry::String(_)) => 1u8,
         Some(Entry::Vec(_)) => 2,
+        // A callable entry boxes as TAG_FUNCTION — an OBJECT-tagged function
+        // word fails every invoke path ("not a function"). Reached by e.g. the
+        // `resolve`/`reject` members of `Promise.withResolvers()`.
+        Some(Entry::Function(_)) => 4,
         Some(_) => 3,
         None => 0,
     });
     match kind {
         1 => abi_adapter::poly_from_real_handle(h).raw(),
+        4 => {
+            let slot = rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h);
+            PolyValue::from_function_handle(slot).raw()
+        }
         2 => {
             // Normalize legacy RAW elements (outside the entry lock — VEC_GET
             // re-locks the shard). A raw handle is NOT a boxed word and NOT a

@@ -183,6 +183,18 @@ fn element_to_handle(w: u64) -> u64 {
     w
 }
 
+/// Um combinator (all/allSettled/race/any) É um handler dos seus inputs — em
+/// JS ele anexa reactions em cada promise passada. Marca cada slot como
+/// handled para o report pós-main não acusar "Unhandled promise rejection"
+/// numa rejection que o combinator consumiu (os fast-paths leem
+/// `current_state`/`current_value` sem passar pelo `wait_blocking`, que era
+/// o único ponto que marcava).
+fn mark_inputs_handled(slots: &[Option<std::sync::Arc<rts_engine::heap::handles::PromiseSlot>>]) {
+    for s in slots.iter().flatten() {
+        promise_slot::mark_handled(s);
+    }
+}
+
 /// Clone os Arc<PromiseSlot> de cada handle. Handle invalido vira None
 /// (filtrado depois).
 fn collect_slots(
@@ -515,6 +527,7 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_TAKE_ERROR() -> I64 {
 pub extern "C" fn __RTS_FN_NS_PROMISE_ALL(promises: U64) -> Handle {
     let handles = collect_promise_handles(promises);
     let slots = collect_slots(&handles);
+    mark_inputs_handled(&slots);
     let result = promise_slot::new_pending();
     let result_handle = alloc_entry(Entry::PromiseAsync(result.clone()));
 
@@ -578,6 +591,7 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_ALL(promises: U64) -> Handle {
 pub extern "C" fn __RTS_FN_NS_PROMISE_RACE(promises: U64) -> Handle {
     let handles = collect_promise_handles(promises);
     let slots = collect_slots(&handles);
+    mark_inputs_handled(&slots);
     let result = promise_slot::new_pending();
     let result_handle = alloc_entry(Entry::PromiseAsync(result.clone()));
 
@@ -628,6 +642,7 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_RACE(promises: U64) -> Handle {
 pub extern "C" fn __RTS_FN_NS_PROMISE_ANY(promises: U64) -> Handle {
     let handles = collect_promise_handles(promises);
     let slots = collect_slots(&handles);
+    mark_inputs_handled(&slots);
     let result = promise_slot::new_pending();
     let result_handle = alloc_entry(Entry::PromiseAsync(result.clone()));
 
@@ -782,6 +797,7 @@ fn create_spawn(
 pub extern "C" fn __RTS_FN_NS_PROMISE_ALL_SETTLED(promises: U64) -> Handle {
     let handles = collect_promise_handles(promises);
     let slots = collect_slots(&handles);
+    mark_inputs_handled(&slots);
     let result = promise_slot::new_pending();
     let result_handle = alloc_entry(Entry::PromiseAsync(result.clone()));
 

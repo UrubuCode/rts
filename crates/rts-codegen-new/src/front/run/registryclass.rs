@@ -335,8 +335,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         for i in argc..total {
             vals.push(self.default_arg_val(call.default_args.get(i), name, i)?);
         }
+        // Same data-driven Handle-return classification as the instance path:
+        // a string only when the ts-signature says so, an array when it
+        // declares `T[]`, otherwise an OBJECT handle (tag-dispatched rebox).
+        // The old blanket "Handle ⇒ Str" made `Promise.withResolvers()` (a
+        // `{promise, resolve, reject}` Map handle) ride as a string.
         let result_kind = match call.ret {
-            AbiType::Handle => JsKind::Str,
+            AbiType::Handle if call.ret_is_string_handle => JsKind::Str,
+            AbiType::Handle if call.ret_is_array_handle => JsKind::Array,
+            AbiType::Handle => JsKind::Object,
             AbiType::Bool => JsKind::Bool,
             _ => JsKind::Number,
         };
