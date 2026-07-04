@@ -297,12 +297,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     }
 
     /// `Object.keys(obj)` / `Object.getOwnPropertyNames(obj)` → a fresh array of
-    /// the object's keys as string PolyValue words (the compile-time shape order).
+    /// the object's keys as string PolyValue words, in the CANONICAL enumeration
+    /// order (integer-index keys ascending first, then insertion order) — the
+    /// same `enum_key_order` authority the runtime `__rtsadp_obj_keys` applies.
     fn object_keys(&mut self, module: &mut dyn Module, args: &[HirExpr]) -> FrontResult<Val> {
         let (_obj, keys) = self.receiver(module, args)?;
         let arr = emit_marshal::emit_new_vec_object(module, self.builder);
-        for k in &keys {
-            let pv = abi_adapter::intern_poly(k);
+        for i in crate::value::iterops::enum_key_order(&keys) {
+            let pv = abi_adapter::intern_poly(&keys[i]);
             let word = self.builder.ins().iconst(types::I64, pv.raw() as i64);
             emit_marshal::emit_vec_push(module, self.builder, arr, word);
         }
@@ -315,8 +317,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     fn object_values(&mut self, module: &mut dyn Module, args: &[HirExpr]) -> FrontResult<Val> {
         let (obj, keys) = self.receiver(module, args)?;
         let arr = emit_marshal::emit_new_vec_object(module, self.builder);
-        for i in 0..keys.len() {
-            // Property values live at slot 1 + slot_index (slot 0 = shape-id).
+        // Canonical enumeration order; a value still lives at the slot of its
+        // ORIGINAL insertion index (slot 0 = shape-id header).
+        for i in crate::value::iterops::enum_key_order(&keys) {
             let idx = self.builder.ins().iconst(types::I64, 1 + i as i64);
             let word = emit_marshal::emit_vec_get(module, self.builder, obj, idx);
             emit_marshal::emit_vec_push(module, self.builder, arr, word);
@@ -330,8 +333,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     fn object_entries(&mut self, module: &mut dyn Module, args: &[HirExpr]) -> FrontResult<Val> {
         let (obj, keys) = self.receiver(module, args)?;
         let outer = emit_marshal::emit_new_vec_object(module, self.builder);
-        for (i, k) in keys.iter().enumerate() {
-            // value at slot 1+i.
+        // Canonical enumeration order (same authority as `object_keys`).
+        for i in crate::value::iterops::enum_key_order(&keys) {
+            let k = &keys[i];
+            // value at slot 1+i (the ORIGINAL insertion index).
             let idx = self.builder.ins().iconst(types::I64, 1 + i as i64);
             let value_word = emit_marshal::emit_vec_get(module, self.builder, obj, idx);
             // key as a string word.
