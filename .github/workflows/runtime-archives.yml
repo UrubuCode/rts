@@ -71,6 +71,7 @@ jobs:
 
     name: ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     continue-on-error: ${{ matrix.continue == true }}
 
     steps:
