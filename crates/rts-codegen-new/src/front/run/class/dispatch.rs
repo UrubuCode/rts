@@ -50,12 +50,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // entry a plain `new C()` local would carry. Recover its class from the
                 // data-driven `gcell_classes` map (`name → C`, built by SHAPE from the
                 // HIR — no hardcoded name) so `x.method(..)` dispatches on `C` in any
-                // scope. Gated on `name` being an actual gcell (a same-named local
-                // shadows it via `local_classes` above, checked first).
+                // scope. Gated on `name` being an actual gcell AND on NO same-named
+                // LOCAL in the current function: a plain `const c = expr` local (whose
+                // class is unknown → absent from `local_classes`) SHADOWS a top-level
+                // `const c = new C()` — without the guard the local mis-dispatched on
+                // the singleton's class.
                 .or_else(|| {
                     self.gcell_classes
                         .get(name)
-                        .filter(|_| self.gcells.contains_key(name))
+                        .filter(|_| self.gcells.contains_key(name) && self.local(name).is_none())
                         .cloned()
                 }),
             // A CALL whose callee is a user function with a provable return class
@@ -291,6 +294,78 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return self.reify_function(module, &fn_name);
         }
         unsupported!("`{class}.{field}` — no such static field on class `{class}`")
+    }
+
+    /// [`Self::call_synth_fn`] over PRE-LOWERED, PRE-BOXED arg WORDS — the
+    /// single-eval virtual-dispatch marshal: each word is a Tagged PolyValue
+    /// coerced to the callee's param repr; an omitted FILLABLE param pads
+    /// `undefined`; extra words are dropped (JS ignores surplus args); a
+    /// trailing REST param packs the surplus words into a fresh array. Lets
+    /// the shape-arm emitters share ONE evaluation of every argument instead
+    /// of re-lowering per arm (which restricted args to side-effect-free).
+    pub(in crate::front::run) fn call_synth_fn_words(
+        &mut self,
+        module: &mut dyn Module,
+        fn_name: &str,
+        this_word: Option<Value>,
+        arg_words: &[Value],
+    ) -> FrontResult<Val> {
+        use crate::repr::Repr;
+        use crate::value::emit_marshal;
+        let sig = self
+            .sigs
+            .get(fn_name)
+            .cloned()
+            .expect("synthesized class fn must be a registered user function");
+        let mut call_args = Vec::with_capacity(sig.params.len());
+        let mut pi = 0usize;
+        if let Some(w) = this_word {
+            call_args.push(self.coerce(Val::tagged_kind(w, JsKind::Object), sig.params[0])?);
+            pi = 1;
+        }
+        let user_params = &sig.params[pi..];
+        let rest_rel = sig.rest_param.map(|r| r.saturating_sub(pi));
+        for (i, &want) in user_params.iter().enumerate() {
+            if rest_rel == Some(i) {
+                // Trailing rest: pack the surplus words into a fresh array.
+                let arr = emit_marshal::emit_new_vec_object(module, self.builder);
+                for &w in arg_words.iter().skip(i) {
+                    emit_marshal::emit_vec_push(module, self.builder, arr, w);
+                }
+                call_args.push(self.coerce(Val::tagged_kind(arr, JsKind::Object), want)?);
+                break;
+            }
+            if i < arg_words.len() {
+                call_args.push(self.coerce(Val::new(arg_words[i], Repr::Tagged), want)?);
+            } else if sig.fillable.get(pi + i).copied().unwrap_or(false) {
+                call_args.push(self.undefined_coerced(want)?);
+            } else {
+                return unsupported!("call to `{fn_name}` missing required arg {i}");
+            }
+        }
+        let cl_sig = sig.to_cranelift(module);
+        let callee = module
+            .declare_function(fn_name, cranelift_module::Linkage::Local, &cl_sig)
+            .map_err(|e| {
+                crate::front::error::Unsupported::new(format!("declare fn `{fn_name}`: {e}"))
+            })?;
+        let func_ref = module.declare_func_in_func(callee, self.builder.func);
+        let call = self.builder.ins().call(func_ref, &call_args);
+        let result = match sig.ret {
+            Some(ret) => {
+                let v = self.builder.inst_results(call)[0];
+                Val::new(v, ret)
+            }
+            None => {
+                let v = self
+                    .builder
+                    .ins()
+                    .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
+                Val::tagged_kind(v, JsKind::Undefined)
+            }
+        };
+        self.emit_post_call_error_check(module)?;
+        Ok(result)
     }
 
     /// Shared emitter for a direct call of a synthesized class fn `fn_name`,

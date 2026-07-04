@@ -23,6 +23,38 @@ function __utf8_len_str(s: string): number {
   return n;
 }
 
+// Encode a JS string into UTF-8 bytes (a plain number[] — the byte-source
+// counterpart of `__utf8_decode`; surrogate pairs → 4 bytes).
+function __utf8_encode(s: string): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < s.length; i++) {
+    let cp = s.charCodeAt(i);
+    if (cp >= 0xd800 && cp < 0xdc00 && i + 1 < s.length) {
+      const lo = s.charCodeAt(i + 1);
+      if (lo >= 0xdc00 && lo < 0xe000) {
+        cp = 0x10000 + ((cp - 0xd800) << 10) + (lo - 0xdc00);
+        i++;
+      }
+    }
+    if (cp < 0x80) {
+      out.push(cp);
+    } else if (cp < 0x800) {
+      out.push(0xc0 | (cp >> 6));
+      out.push(0x80 | (cp & 0x3f));
+    } else if (cp < 0x10000) {
+      out.push(0xe0 | (cp >> 12));
+      out.push(0x80 | ((cp >> 6) & 0x3f));
+      out.push(0x80 | (cp & 0x3f));
+    } else {
+      out.push(0xf0 | (cp >> 18));
+      out.push(0x80 | ((cp >> 12) & 0x3f));
+      out.push(0x80 | ((cp >> 6) & 0x3f));
+      out.push(0x80 | (cp & 0x3f));
+    }
+  }
+  return out;
+}
+
 // Decode a UTF-8 byte source (Uint8Array-like: `.length` + numeric indexing)
 // into a JS string.
 function __utf8_decode(bytes: any): string {
@@ -266,6 +298,16 @@ class Blob {
   get size(): number { return __utf8_len_str(this.#text); }
   get type(): string { return this.#type; }
   text(): string { return this.#text; }
+  // `blob.stream()` — a ReadableStream (streams.ts prelude) queuing ONE chunk
+  // with the blob's UTF-8 bytes, already closed.
+  stream(): any {
+    const rs = new ReadableStream();
+    const ctl = rs.__ctl;
+    ctl.enqueue(__utf8_encode(this.#text));
+    ctl.close();
+    return rs;
+  }
+  arrayBuffer(): any { return __utf8_encode(this.#text); }
   slice(start: number = 0, end: number = -1, contentType: any = undefined): Blob {
     let s = this.#text;
     // Blob.slice indexes BYTES; this interim slices code units of the decoded

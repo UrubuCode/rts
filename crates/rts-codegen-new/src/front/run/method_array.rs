@@ -130,6 +130,30 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
         let argc = args.len();
 
+        // `arr.push(...src)` — a SINGLE spread arg appends every element of `src`
+        // (the array-literal spread trampoline `__rtsadp_arr_spread_append`, which
+        // copies the raw element WORDS shallowly), returning the new length. A
+        // spread mixed with plain args stays a bail (later increment).
+        if method == "push" && argc == 1 {
+            if let HirExprKind::Spread(inner) = &args[0].kind {
+                let arr = self.lower_expr(module, object)?;
+                let arr_word = self.box_value(arr);
+                let src = self.lower_expr(module, inner)?;
+                let src_word = self.box_value(src);
+                self.call_runtime(
+                    module,
+                    "__rtsadp_arr_spread_append",
+                    &[arr_word, src_word],
+                )?;
+                let len = crate::value::emit_marshal::emit_vec_len(
+                    module,
+                    self.builder,
+                    arr_word,
+                );
+                return Ok(Val::new(len, crate::repr::Repr::Int64));
+            }
+        }
+
         // VARIADIC `push`/`unshift` (N args): the runtime trampolines take ONE value;
         // a multi-arg call folds into N single-arg calls in `.ts`-equivalent order.
         // `push(a, b)` appends a then b (left-to-right). `unshift(a, b)` must yield

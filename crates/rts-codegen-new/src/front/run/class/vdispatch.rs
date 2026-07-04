@@ -123,27 +123,47 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         base_fn: &str,
         args: &[HirExpr],
     ) -> FrontResult<Val> {
-        if !args.iter().all(is_side_effect_free_arg) {
-            return unsupported!(
-                "virtual method dispatch with an effectful argument (single-eval \
-                 marshaling is a later increment)"
-            );
-        }
         let recv = self.lower_expr(module, object)?;
         let recv_word = self.box_value(recv);
+        // SINGLE-EVAL marshaling: lower + box every argument ONCE, before any
+        // branching — the SSA values dominate every arm, so an effectful arg
+        // (a call, `new`, an assignment) evaluates exactly once (JS order:
+        // receiver first, then args). A Spread arg is not a plain value and
+        // still bails.
+        let arg_words = self.lower_arg_words(module, args)?;
         let shape_word = self.read_shape_word(module, recv_word);
 
         let merge = self.builder.create_block();
         self.builder.append_block_param(merge, types::I64);
-        self.emit_shape_arms(module, recv_word, shape_word, targets, args, merge)?;
+        self.emit_shape_arms(module, recv_word, shape_word, targets, &arg_words, merge)?;
         // DEFAULT arm: the static class's own method.
-        let v = self.call_synth_fn(module, base_fn, Some(recv_word), args)?;
+        let v = self.call_synth_fn_words(module, base_fn, Some(recv_word), &arg_words)?;
         let w = self.box_value(v);
         self.builder.ins().jump(merge, &[w.into()]);
 
         let result = self.finish_merge(merge);
         let kind = ret_kind(self.sigs.get(base_fn).and_then(|s| s.ret));
         Ok(Val::new_with_kind(result, Repr::Tagged, kind))
+    }
+
+    /// Lower + box each plain argument once (the single-eval prelude of the
+    /// virtual dispatchers). A `Spread` arg has no single-value form → bail.
+    fn lower_arg_words(
+        &mut self,
+        module: &mut dyn Module,
+        args: &[HirExpr],
+    ) -> FrontResult<Vec<Value>> {
+        let mut out = Vec::with_capacity(args.len());
+        for a in args {
+            if matches!(a.kind, HirExprKind::Spread(_)) {
+                return unsupported!(
+                    "virtual method dispatch with a spread argument (later increment)"
+                );
+            }
+            let v = self.lower_expr(module, a)?;
+            out.push(self.box_value(v));
+        }
+        Ok(out)
     }
 
     /// DYNAMIC virtual dispatch on a TAGGED receiver of unproven class: dispatch to
@@ -185,11 +205,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // arg". A skipped candidate's receiver falls to the default arm (own-prop
         // read → `undefined` sentinel) — honest, never a wrong value.
         targets.retain(|(_, f)| self.sig_accepts_argc(f, args.len()));
-        if targets.is_empty() || !args.iter().all(is_side_effect_free_arg) {
+        if targets.is_empty() {
             return Ok(None);
         }
 
         let recv_word = self.box_value(recv);
+        // SINGLE-EVAL marshaling: every argument lowers ONCE here; the words
+        // dominate all arms (effectful args are sound — evaluated exactly once).
+        let arg_words = self.lower_arg_words(module, args)?;
         let is_obj = self.emit_is_object(recv_word);
         let undef = value::PolyValue::undefined().raw() as i64;
 
@@ -210,7 +233,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.builder.switch_to_block(guarded);
         self.builder.seal_block(guarded);
         let shape_word = self.read_shape_word(module, recv_word);
-        self.emit_shape_arms(module, recv_word, shape_word, &targets, args, merge)?;
+        self.emit_shape_arms(module, recv_word, shape_word, &targets, &arg_words, merge)?;
         // DEFAULT arm — no class shape matched: the receiver may still carry
         // `method` as an OWN function-valued property (`{ add: (a, b) => a + b }`
         // — an object literal whose fn-valued member shares a name with some
@@ -221,7 +244,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // an own property beats "no method" (JS). Without this, a class defining
         // `method` ANYWHERE in the program (e.g. the prelude `Set.add`) stole the
         // call from every plain object carrying an own fn of that name.
-        if args.len() <= 3 {
+        if arg_words.len() <= 3 {
             use cranelift_codegen::ir::condcodes::IntCC;
             let key = crate::value::abi_adapter::intern_poly(method);
             let key_word = self.builder.ins().iconst(types::I64, key.raw() as i64);
@@ -243,9 +266,26 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             self.builder.seal_block(b_undef);
 
             self.builder.switch_to_block(b_fn);
-            let v = self.lower_value_call_word_with_this(module, own, recv_word, args)?;
-            let w = self.box_value(v);
-            self.builder.ins().jump(merge, &[w.into()]);
+            // Same emission as `lower_value_call_word_with_this`, over the
+            // PRE-LOWERED words (no re-eval of effectful args).
+            let undef_c = self
+                .builder
+                .ins()
+                .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
+            let mut slots: [Value; 3] = [undef_c; 3];
+            for (i, &w) in arg_words.iter().take(3).enumerate() {
+                slots[i] = w;
+            }
+            let zero = self.builder.ins().iconst(types::I64, 0);
+            let res = self
+                .call_runtime(
+                    module,
+                    "__rtsadp_fn_invoke_method",
+                    &[own, recv_word, slots[0], slots[1], slots[2], zero],
+                )?
+                .expect("__rtsadp_fn_invoke_method returns a value");
+            self.emit_post_call_error_check(module)?;
+            self.builder.ins().jump(merge, &[res.into()]);
 
             self.builder.switch_to_block(b_undef);
             let u = self.builder.ins().iconst(types::I64, undef);
@@ -333,13 +373,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Emit one `if shape == D.global_shape { call D's fn }` arm per target, each
     /// jumping to `merge` with its boxed result word. Leaves the builder on the
     /// fall-through block so the caller emits the DEFAULT arm + jump to `merge`.
+    /// `arg_words` are the PRE-LOWERED, boxed argument words (single-eval — they
+    /// dominate every arm; only the arm the runtime takes uses them).
     fn emit_shape_arms(
         &mut self,
         module: &mut dyn Module,
         recv_word: Value,
         shape_word: Value,
         targets: &[(u32, String)],
-        args: &[HirExpr],
+        arg_words: &[Value],
         merge: cranelift_codegen::ir::Block,
     ) -> FrontResult<()> {
         for (gs, fname) in targets {
@@ -354,7 +396,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
             self.builder.switch_to_block(call_blk);
             self.builder.seal_block(call_blk);
-            let v = self.call_synth_fn(module, fname, Some(recv_word), args)?;
+            let v = self.call_synth_fn_words(module, fname, Some(recv_word), arg_words)?;
             let w = self.box_value(v);
             self.builder.ins().jump(merge, &[w.into()]);
 
@@ -398,32 +440,6 @@ fn ret_kind(ret: Option<Repr>) -> JsKind {
     }
 }
 
-/// Whether `e` re-evaluates with NO observable side effect — a bare identifier or a
-/// literal. A virtual-dispatch arm re-lowers each argument, so only such args are
-/// safe (an effectful arg bails / declines).
-fn is_side_effect_free_arg(e: &HirExpr) -> bool {
-    match &e.kind {
-        HirExprKind::Ident(_) | HirExprKind::Lit(_) => true,
-        // Pure arithmetic/comparison over side-effect-free operands (`cur + 1`
-        // as a call arg): re-evaluating per dispatch arm is harmless. Rejecting
-        // it made the virtual dispatch DECLINE and the caller fall through to a
-        // dynamic own-prop miss — `map.set(k, cur + 1)` silently no-opped.
-        HirExprKind::Bin { lhs, rhs, .. } => {
-            is_side_effect_free_arg(lhs) && is_side_effect_free_arg(rhs)
-        }
-        HirExprKind::Unary { operand, .. } => is_side_effect_free_arg(operand),
-        // A MEMBER READ (`this.x`, `obj.k`) may hit a GETTER with effects in
-        // principle, but the object-position operand is an Ident (no call), so
-        // double-lowering only re-reads — accepted (matches the member reads the
-        // dispatch arms themselves perform).
-        HirExprKind::Member { object, .. } => is_side_effect_free_arg(object),
-        // An INDEX READ (`arr[i]`, `this.#items[i]`) over side-effect-free
-        // operands re-lowers as a plain re-read, same reasoning as Member.
-        // Rejecting it made `other.has(this.#items[i])` (the stdlib Set ops)
-        // decline the virtual dispatch and fall to a dynamic own-prop miss.
-        HirExprKind::Index { object, index } => {
-            is_side_effect_free_arg(object) && is_side_effect_free_arg(index)
-        }
-        _ => false,
-    }
-}
+// (The old `is_side_effect_free_arg` gate is GONE: the dispatchers now lower
+// every argument ONCE before branching — single-eval marshaling — so effectful
+// args are sound. Only a Spread arg still bails, in `lower_arg_words`.)
