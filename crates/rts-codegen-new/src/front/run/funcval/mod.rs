@@ -1007,16 +1007,29 @@ impl Ctx {
         scope: &HashSet<String>,
         mutated: &HashSet<String>,
     ) -> Option<String> {
-        let HirExprKind::Arrow { params, ret, body } = &e.kind else {
+        let HirExprKind::Arrow {
+            params,
+            ret,
+            body,
+            self_name,
+        } = &e.kind
+        else {
             return None;
         };
-        // A DEFAULTED param is out of this increment's arrow subset. A VARIADIC
-        // (`...rest`) param is allowed only in LAST position (JS grammar) — the
-        // synthesized fn keeps the flag, so the sig records `rest_param` and the
-        // uniform thunk packs the overflow into it.
-        if params.iter().any(|p| p.has_default) {
-            return None;
-        }
+        // The synthesized name is minted UP FRONT so a NAMED fn-expression's
+        // self-references can be renamed to it before the free-ident analysis
+        // (the self-name is body-only scope; renamed, it resolves as this very
+        // top-level fn — recursion works). A bailed extraction just skips a
+        // counter number.
+        let name = format!("__rtsn_arrow_{}{}", self.arrow_ns, self.counter);
+        self.counter += 1;
+        let self_name = self_name.clone();
+        // A VARIADIC (`...rest`) param is allowed only in LAST position (JS
+        // grammar) — the synthesized fn keeps the flag, so the sig records
+        // `rest_param` and the uniform thunk packs the overflow into it. A
+        // DEFAULTED param is fine: the synthesized fn keeps `default_expr` and
+        // the callee-side `fill_default_params` prologue (every lowered fn
+        // gets it) replaces an `undefined` argument with the default.
         if params
             .iter()
             .enumerate()
@@ -1041,6 +1054,14 @@ impl Ctx {
         if param_names.contains("this") {
             super::class::rewrite_this_block(&mut body_stmts);
         }
+        // Bind a NAMED fn-expression's self-name: internal references become
+        // references to the synthesized top-level name (registered below), so
+        // they are neither free nor captures.
+        if let Some(sn) = &self_name {
+            if !param_names.contains(sn) {
+                rename_ident_stmts(&mut body_stmts, sn, &name);
+            }
+        }
         let mut free = HashSet::new();
         let mut bound = param_names.clone();
         for s in &body_stmts {
@@ -1057,6 +1078,7 @@ impl Ctx {
         let mut cell_caps: Vec<String> = Vec::new();
         for id in &free {
             if param_names.contains(id)
+                || id == &name
                 || GLOBALS.contains(&id.as_str())
                 || self.top_level.contains(id)
                 || self.module_globals.contains(id)
@@ -1113,8 +1135,6 @@ impl Ctx {
         // capture list, so reify and thunk agree deterministically.
         captures.sort();
 
-        let name = format!("__rtsn_arrow_{}{}", self.arrow_ns, self.counter);
-        self.counter += 1;
         self.top_level.insert(name.clone());
 
         // Record each CELL capture under BOTH the declaring function (its `let`
