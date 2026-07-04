@@ -232,6 +232,11 @@ fn obj_keys_impl(obj_word: u64, enumerable_only: bool) -> u64 {
                 if k.starts_with("@@sym:") {
                     continue;
                 }
+                // PRIVATE fields (`#x`, possibly mangled `#x@Class`) are not
+                // properties at all — never enumerated (JS spec).
+                if k.starts_with('#') {
+                    continue;
+                }
                 // A `defineProperty(.., {enumerable:false})` property is skipped
                 // by Object.keys/values/entries/for-in (JS spec).
                 if enumerable_only && !super::objops::prop_enumerable(obj_word, &k) {
