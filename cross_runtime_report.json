@@ -1321,10 +1321,10 @@
 ,
 {
   "name": "393_promise_microtask",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
   "node": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
-  "rts": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C"
+  "rts": "caught:handled\nA1,A2,A3,B1,B2,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C"
 }
 ,
 {
@@ -1380,7 +1380,7 @@
   "status": "bun_node_diverge",
   "bun": "__RUNTIME_ERROR__",
   "node": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "call=Hello World!\napply=Hi There!\ncall_null=Hey You\nmax=9"
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -2713,10 +2713,10 @@
 ,
 {
   "name": "193_reflect_construct",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "x=10\ny=20\napply=8\nmax=9",
   "node": "x=10\ny=20\napply=8\nmax=9",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "x=10\ny=20\napply=8\nmax=9"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":442,"rts_diverge":61,"bun_node_diverge":18,"errors":88,"rejected":0}}
+],"summary":{"total":609,"pass":443,"rts_diverge":62,"bun_node_diverge":17,"errors":87,"rejected":0}}
