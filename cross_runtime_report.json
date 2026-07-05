@@ -1857,10 +1857,10 @@
 ,
 {
   "name": "292_json_tojson",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\"",
   "node": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\"",
-  "rts": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\""
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -2081,10 +2081,10 @@
 ,
 {
   "name": "316_structuredclone_mixed",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi",
   "node": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi",
-  "rts": "same=true\nmap=a:1\nset=2,3\ndate=2024-05-10T00:00:00.000Z\nre=ab+:gi"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -2153,10 +2153,10 @@
 ,
 {
   "name": "394_structuredclone_complex",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
   "node": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
-  "rts": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -2193,10 +2193,10 @@
 ,
 {
   "name": "97_structured_clone_edge",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
   "node": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true",
-  "rts": "date=2024-05-10T00:00:00.000Z\nregex=ab+:gi\nerror=Error:boom\nself=true"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -3041,10 +3041,10 @@
 ,
 {
   "name": "claude-json-tojson-hook",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
   "node": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
-  "rts": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n{}\n7"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -3497,10 +3497,10 @@
 ,
 {
   "name": "395_regex_d_flag",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
   "node": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
-  "rts": "2026-05-22\n6\n3e-323,8e-323\n3e-323,5e-323\n5.4e-323,6.4e-323\n7e-323,8e-323\n3e-323,5e-323\n5.4e-323,6.4e-323\n7e-323,8e-323\n\nfoo@0-1.5e-323|bar@2e-323-3.5e-323|baz@4e-323-5.4e-323\n42\nnull\n0,1e-323\nnull"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -3545,10 +3545,10 @@
 ,
 {
   "name": "codex_regex_indices_named_groups",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "aaab:2\n[2,6]\n[2,5]\naaa",
   "node": "aaab:2\n[2,6]\n[2,5]\naaa",
-  "rts": "aaab:2\n[1e-323,3e-323]\n[1e-323,2.5e-323]\naaa"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -3561,10 +3561,10 @@
 ,
 {
   "name": "codex_regex_sticky_lastindex_unicode",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "true:3\ntrue:5\nfalse:0\nabc:5",
   "node": "true:3\ntrue:5\nfalse:0\nabc:5",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "true:0\ntrue:0\ntrue:0\nabc:0"
 }
 ,
 {
@@ -3849,10 +3849,10 @@
 ,
 {
   "name": "252_string_match_groups",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "found=true\nvalue=world\nindex=6\ninput=hello world\nnoMatch=null",
   "node": "found=true\nvalue=world\nindex=6\ninput=hello world\nnoMatch=null",
-  "rts": "found=true\nvalue=world\nindex=6\ninput=hello world\nnoMatch=null"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -4545,10 +4545,10 @@
 ,
 {
   "name": "claude-optional-chain-call",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "undefined\nundefined\nget\nundefined\nundefined\nx\nundefined\nundefined",
   "node": "undefined\nundefined\nget\nundefined\nundefined\nx\nundefined\nundefined",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "undefined\nundefined\nget\nundefined\nundefined\nx\nundefined\nundefined"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":450,"rts_diverge":64,"bun_node_diverge":17,"errors":78,"rejected":0}}
+],"summary":{"total":609,"pass":447,"rts_diverge":61,"bun_node_diverge":17,"errors":84,"rejected":0}}
