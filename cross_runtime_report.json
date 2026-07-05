@@ -3329,10 +3329,10 @@
 ,
 {
   "name": "200_promise_allsettled",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "count=3\nstatus0=fulfilled\nvalue0=1\nstatus1=rejected\nreason1=error\nstatus2=fulfilled\nvalue2=3",
   "node": "count=3\nstatus0=fulfilled\nvalue0=1\nstatus1=rejected\nreason1=error\nstatus2=fulfilled\nvalue2=3",
-  "rts": "count=3\nstatus0=fulfilled\nvalue0=null\nstatus1=rejected\nreason1=error\nstatus2=fulfilled\nvalue2=null"
+  "rts": "count=3\nstatus0=fulfilled\nvalue0=1\nstatus1=rejected\nreason1=error\nstatus2=fulfilled\nvalue2=3"
 }
 ,
 {
@@ -3356,7 +3356,7 @@
   "status": "rts_diverge",
   "bun": "6\n60\nfulfilled:ok|rejected:fail|fulfilled:also ok\ncaught:bad input\nsuccess\n3\n1,2,3,4,5\nfast",
   "node": "6\n60\nfulfilled:ok|rejected:fail|fulfilled:also ok\ncaught:bad input\nsuccess\n3\n1,2,3,4,5\nfast",
-  "rts": "6\n60\nundefined:undefined|undefined:undefined|undefined:undefined"
+  "rts": "6\n60\nfulfilled:ok|rejected:fail|fulfilled:also ok"
 }
 ,
 {
@@ -3377,10 +3377,10 @@
 ,
 {
   "name": "83_promise_combinators",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "settled=fulfilled:1|rejected:x\nany=b",
   "node": "settled=fulfilled:1|rejected:x\nany=b",
-  "rts": "settled=undefined:undefined|undefined:undefined\nany=b"
+  "rts": "settled=fulfilled:1|rejected:x\nany=b"
 }
 ,
 {
@@ -3497,10 +3497,10 @@
 ,
 {
   "name": "395_regex_d_flag",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
   "node": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
-  "rts": "2026-05-22\n6\n3e-323,8e-323\n3e-323,5e-323\n5.4e-323,6.4e-323\n7e-323,8e-323\n3e-323,5e-323\n5.4e-323,6.4e-323\n7e-323,8e-323\n\nfoo@0-1.5e-323|bar@2e-323-3.5e-323|baz@4e-323-5.4e-323\n42\nnull\n0,1e-323\nnull"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":448,"rts_diverge":63,"bun_node_diverge":17,"errors":81,"rejected":0}}
+],"summary":{"total":609,"pass":450,"rts_diverge":60,"bun_node_diverge":17,"errors":82,"rejected":0}}
