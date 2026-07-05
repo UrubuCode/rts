@@ -64,7 +64,7 @@ declarados no d.ts): `console`, `JSON`, `JSON5`, `Math`, `Date`, `Promise`,
 | **NOVO** `mmap(path): Uint8Array` | view zero-copy memory-mapped |
 | **NOVO** `lock(path)` / `unlock(path)` | file locks |
 | **COMPTIME** `includeBytes(path): Uint8Array` | embute o arquivo no binário no BUILD (erro de build se ausente) |
-| **COMPTIME** `includeText(path): string` | idem, string |
+| **COMPTIME** `includeString(path): string` | idem, string (nome fechado com o owner) |
 
 Aliases node-style (`readFileSync` etc) saem daqui — compat Node vive só em
 `node:fs` (rts-node).
@@ -111,6 +111,16 @@ Absorve `thread` + `sync` + `atomic` + `parallel` numa superfície coesa:
   SharedArrayBuffer; estes cobrem células avulsas).
 - `parallelMap`, `parallelForEach`, `parallelReduce`, `numThreads` (rayon).
 - **NOVO** `channel<T>(): [Sender, Receiver]` — mpsc.
+- **NOVO** `threadLocal(init: () => T): ThreadLocal<T>` — valor POR-THREAD
+  (cada thread constrói o seu, lazy, via `get()`). No modelo regional é o
+  valor que NUNCA promove (fica na região da thread) — o dual explícito do
+  global compartilhado; formaliza como API opt-in o que o hack GCELLS
+  thread-local faz hoje por acidente.
+  ```ts
+  import { threadLocal } from "rts:thread";
+  const cache = threadLocal(() => new Map<string, number>());
+  cache.get().set("k", 1); // Map da thread corrente
+  ```
 O modelo de execução/regiões: `docs/specs/rts-threading-model.md`.
 
 ### `rts:crypto`
@@ -130,10 +140,16 @@ Absorve `ffi` + `ptr` + `mem` + `alloc` + `hint` (superfície unsafe única):
 - `Ptr`: `readI64/I32/U8/F64`, `write*`, `copy`, `offset`, `null`, `isNull`.
 - `alloc/allocZeroed/realloc/dealloc`, `sizeOf`/`alignOf` consts.
 - hints: `blackBox`, `spinLoop`, `unreachable`, `assertUnchecked`.
-- **NOVO — exports reverse-FFI**:
+- **NOVO — exports reverse-FFI, `native(fn)`** (nome fechado com o owner;
+  decorator em `const` não existe em TS, então a forma é wrapper comptime):
   ```ts
-  import { exportC } from "rts:ffi";
-  export const rtsCall = exportC("rts_call_function",
+  import { native } from "rts:ffi";
+
+  // símbolo C = nome da const ("add") — zero string solta no caso comum
+  export const add = native((a: i32, b: i32): i32 => a + b);
+
+  // override quando o nome C difere
+  export const soma = native("extend_c_example",
     (a: i32, b: f64): i32 => { ... });
   ```
   Marcador COMPTIME (shape-based, como `getPointer`): força ABI
@@ -143,6 +159,9 @@ Absorve `ffi` + `ptr` + `mem` + `alloc` + `hint` (superfície unsafe única):
   nunca unwind cruzando C). Novo alvo `rts compile --lib` → `.dll`/`.so`/
   `.a` + header `.h` gerado das assinaturas. `rts_init()` explícito ou
   init-lazy na primeira chamada.
+- **Aliases de tipo ambient**: `i32`, `i64`, `u64`, `f64`, `f32`, `bool`
+  (subtipos de `number` com significado pro checker do motor) — exigidos
+  nas assinaturas de `native()`, disponíveis globalmente.
 
 ### `rts:runtime`
 `eval`, `evalFile`, `importModule`, `gc.collect`, `gc.liveCount`,
