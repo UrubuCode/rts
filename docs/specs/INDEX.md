@@ -28,6 +28,16 @@ não eram guia para o motor novo.
   para a fase weak + o geracional. Objetivo: melhor GC + melhor API/ABI, zero
   legacy do motor antigo.
 
+- [Superfície padrão rts:* (redesign)](rts-std-surface.md) — **mapa canônico da
+  nova superfície**: globais JS/Web + módulos `rts:<ns>` camelCase (o std do
+  Rust exportado), o que morre/renomeia/move, bytes = TypedArrays, comptime
+  (`includeBytes`/`rts:build`), `exportC` + `rts compile --lib`, realocação de
+  primitivos p/ rts-primitives, fases F0→F8.
+- [Modelo de threading da engine](rts-threading-model.md) — multithread na
+  engine: regiões por thread + heap compartilhado com promoção na publicação;
+  por que o PolyValue (slot-index, shards, word 64-bit) comporta; bloqueadores
+  (gcells thread-local, ICs, string pool) e fases T0→T5.
+
 ## Guias ativos
 
 - [Cross-runtime parity testing](cross-runtime-testing.md) — Sistema que valida
