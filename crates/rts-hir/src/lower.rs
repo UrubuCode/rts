@@ -215,8 +215,8 @@ fn lower_swc_stmt(s: &swc::Stmt, scope: &mut Scope, raw_text: &str) -> HirStmt {
 
         swc::Stmt::Empty(_) => HirStmt::Block(vec![]),
 
-        // Anything we don't recognise falls back to raw text for the legacy
-        // codegen path — no information is lost.
+        // Anything we don't recognise carries its raw text so the engine can
+        // bail on it explicitly — no information is lost.
         _ => HirStmt::Raw(raw_text.to_string()),
     }
 }

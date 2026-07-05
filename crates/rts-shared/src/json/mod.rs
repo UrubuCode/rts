@@ -127,8 +127,7 @@ pub extern "C" fn __RTS_FN_NS_JSON_PARSE5(ptr: u64, len: i64) -> u64 {
 /// - Null -> i64 raw 0
 ///
 /// Acesso JS-style direto (`obj.x`, `arr[0]`) le o slot raw, suficiente
-/// pra `number` e `boolean`. APIs legacy (`json.array_get` etc) sintetizam
-/// um wrapper Entry::Json on-demand para preservar o tipo escalar.
+/// pra `number` e `boolean`.
 fn json_value_to_handle(v: &Value) -> u64 {
     match v {
         // (PR #1206) JS spec: JSON.parse("null") === null. RTS representa
@@ -175,8 +174,8 @@ fn json_value_to_handle(v: &Value) -> u64 {
 /// desconhecido.
 ///
 /// Importante: para Map/Vec apenas reconstroi a *forma* (vazio/nao-vazio)
-/// dentro do lock. APIs estruturais (`array_len`, `array_get`, `object_get`,
-/// `object_has`) NAO devem usar `with_json` — usam `with_entry` direto. Isso
+/// dentro do lock. APIs estruturais (`object_has`) NAO devem usar
+/// `with_json` — usam `with_entry` direto. Isso
 /// evita deadlock por reentrancia: `handle_to_json_value` precisa pegar lock
 /// de shards filhos, e fazer isso enquanto o lock do pai ainda esta segurado
 /// trava se filho e pai estiverem no mesmo shard.
@@ -759,7 +758,8 @@ fn stringify_value_with_keys(v: i64, keys: &[String]) -> String {
 /// estatico do valor para preservar semantica JS (Boolean -> "true"/"false",
 /// Number -> formato JS, String -> handle).
 ///
-/// `kind`: 0=i64/handle (caminho legacy), 1=f64 bits, 2=bool, 3=null/undefined.
+/// `kind`: 0=i64/handle (default quando o codegen nao tipa estaticamente),
+/// 1=f64 bits, 2=bool, 3=null/undefined.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY_TYPED(value: i64, kind: i32) -> u64 {
     // (PR #1206) JS spec: `JSON.stringify(undefined)` retorna `undefined`
@@ -939,27 +939,6 @@ pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY_PRETTY_STR(handle: u64, indent_h: u
     alloc_entry(Entry::String(handle.to_string().into_bytes()))
 }
 
-/// Quando um slot escalar (i64 raw) precisa virar handle JSON dirigivel
-/// pelas APIs `as_i64`/`as_f64`/`type_of`/`as_string`, encapsulamos em
-/// `Entry::Json(Number)`. Slots que ja sao handle de String/Vec/Map/Json
-/// sao devolvidos tais quais.
-fn promote_slot_to_json_handle(slot: u64) -> u64 {
-    let already_handle = with_entry(slot, |e| {
-        matches!(
-            e,
-            Some(Entry::Json(_))
-                | Some(Entry::String(_))
-                | Some(Entry::Vec(_))
-                | Some(Entry::Map(_))
-        )
-    });
-    if already_handle {
-        slot
-    } else {
-        alloc_entry(Entry::Json(Box::new(Value::Number((slot as i64).into()))))
-    }
-}
-
 /// Parses a JSON string into an opaque JSON value handle. Returns 0 on syntax error.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_JSON_PARSE(text_ptr: *const u8, text_len: i64) -> U64 {
@@ -1106,64 +1085,6 @@ pub extern "C" fn __RTS_FN_NS_JSON_AS_STRING(value: U64) -> Handle {
         Value::Null => alloc_entry(Entry::String(b"null".to_vec())),
         _ => 0,
     })
-}
-
-/// Number of elements when value is array; -1 otherwise.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_JSON_ARRAY_LEN(value: U64) -> I64 {
-    with_entry(value, |entry| match entry {
-        Some(Entry::Vec(slots)) => slots.len() as i64,
-        Some(Entry::Json(v)) => match v.as_ref() {
-            Value::Array(a) => a.len() as i64,
-            _ => -1,
-        },
-        _ => -1,
-    })
-}
-
-/// Returns a NEW handle to the element at `index`. 0 if out of range.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_JSON_ARRAY_GET(value: U64, index: I64) -> U64 {
-    if index < 0 {
-        return 0;
-    }
-    let slot = with_entry(value, |entry| match entry {
-        Some(Entry::Vec(slots)) => slots.get(index as usize).copied(),
-        Some(Entry::Json(v)) => match v.as_ref() {
-            Value::Array(a) => a
-                .get(index as usize)
-                .map(|child| alloc_entry(Entry::Json(Box::new(child.clone()))) as i64),
-            _ => None,
-        },
-        _ => None,
-    });
-    match slot {
-        Some(s) => promote_slot_to_json_handle(s as u64),
-        None => 0,
-    }
-}
-
-/// Returns a NEW handle to the property `key`. 0 if missing or non-object.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_JSON_OBJECT_GET(value: U64, key_ptr: *const u8, key_len: i64) -> U64 {
-    let key = match unsafe { rts_engine::abi::str_abi::from_abi(key_ptr, key_len) } {
-        Some(s) => s,
-        None => return 0,
-    };
-    let slot = with_entry(value, |entry| match entry {
-        Some(Entry::Map(map)) => map.get(key).copied(),
-        Some(Entry::Json(v)) => match v.as_ref() {
-            Value::Object(o) => o
-                .get(key)
-                .map(|child| alloc_entry(Entry::Json(Box::new(child.clone()))) as i64),
-            _ => None,
-        },
-        _ => None,
-    });
-    match slot {
-        Some(s) => promote_slot_to_json_handle(s as u64),
-        None => 0,
-    }
 }
 
 /// True when value is an object containing `key`.
@@ -1316,36 +1237,6 @@ pub fn register(e: &mut Engine) {
             MemberFlags::NONE,
         ))
         .member(func(
-            "array_len",
-            "__RTS_FN_NS_JSON_ARRAY_LEN",
-            Sig::new(vec![AbiType::U64], AbiType::I64),
-            "array_len(value: number): number",
-            "Number of elements when value is array; -1 otherwise.",
-            __RTS_FN_NS_JSON_ARRAY_LEN as *const u8,
-            true,
-            MemberFlags::NONE,
-        ))
-        .member(func(
-            "array_get",
-            "__RTS_FN_NS_JSON_ARRAY_GET",
-            Sig::new(vec![AbiType::U64, AbiType::I64], AbiType::U64),
-            "array_get(value: number, index: number): number",
-            "Returns a NEW handle to the element at `index`. 0 if out of range.",
-            __RTS_FN_NS_JSON_ARRAY_GET as *const u8,
-            false,
-            MemberFlags::NONE,
-        ))
-        .member(func(
-            "object_get",
-            "__RTS_FN_NS_JSON_OBJECT_GET",
-            Sig::new(vec![AbiType::U64, AbiType::StrPtr], AbiType::U64),
-            "object_get(value: number, key: string): number",
-            "Returns a NEW handle to the property `key`. 0 if missing or non-object.",
-            __RTS_FN_NS_JSON_OBJECT_GET as *const u8,
-            false,
-            MemberFlags::NONE,
-        ))
-        .member(func(
             "object_has",
             "__RTS_FN_NS_JSON_OBJECT_HAS",
             Sig::new(vec![AbiType::U64, AbiType::StrPtr], AbiType::Bool),
@@ -1385,42 +1276,6 @@ mod tests {
         let bad = "not json";
         let h = __RTS_FN_NS_JSON_PARSE(bad.as_ptr(), bad.len() as i64);
         assert_eq!(h, 0);
-    }
-
-    #[test]
-    fn object_get_extracts_field() {
-        let src = r#"{"name":"alice","age":30}"#;
-        let root = __RTS_FN_NS_JSON_PARSE(src.as_ptr(), src.len() as i64);
-        assert_ne!(root, 0);
-
-        let key = "name";
-        let name_h = __RTS_FN_NS_JSON_OBJECT_GET(root, key.as_ptr(), key.len() as i64);
-        assert_ne!(name_h, 0);
-        assert_eq!(__RTS_FN_NS_JSON_TYPE_OF(name_h), 3); // string
-
-        let key = "age";
-        let age_h = __RTS_FN_NS_JSON_OBJECT_GET(root, key.as_ptr(), key.len() as i64);
-        assert_eq!(__RTS_FN_NS_JSON_AS_I64(age_h), 30);
-
-        __RTS_FN_NS_JSON_FREE(root);
-        __RTS_FN_NS_JSON_FREE(name_h);
-        __RTS_FN_NS_JSON_FREE(age_h);
-    }
-
-    #[test]
-    fn array_iteration() {
-        let src = "[10, 20, 30]";
-        let root = __RTS_FN_NS_JSON_PARSE(src.as_ptr(), src.len() as i64);
-        assert_eq!(__RTS_FN_NS_JSON_ARRAY_LEN(root), 3);
-        assert_eq!(
-            __RTS_FN_NS_JSON_AS_I64(__RTS_FN_NS_JSON_ARRAY_GET(root, 0)),
-            10
-        );
-        assert_eq!(
-            __RTS_FN_NS_JSON_AS_I64(__RTS_FN_NS_JSON_ARRAY_GET(root, 2)),
-            30
-        );
-        __RTS_FN_NS_JSON_FREE(root);
     }
 
     // Suppress unused warning for helper kept for symmetry with other tests.

@@ -134,29 +134,20 @@ pub extern "C" fn __RTS_FN_GL_FETCH(url_ptr: i64, url_len: i64, opts_h: u64) -> 
 
 // ── Promise ──────────────────────────────────────────────────────────────────
 //
-// .then/.catch/.finally agora suportam ambas as variantes:
-// - Entry::PromiseAsync(Arc<PromiseSlot>) — Promise async real (F1+F2)
-// - Entry::Promise(i64) — Promise sync legacy (caminho rapido fetch)
-//
-// Para PromiseAsync: spawna task tokio que aguarda settle + chama
-// callback + resolve nova Promise. Encadeamento real (issue #417 / F6).
-//
-// Para Promise sync legacy: comportamento antigo (chama callback
-// imediato). Mantido para nao quebrar fetch().
+// .then/.catch/.finally operam sobre Entry::PromiseAsync(Arc<PromiseSlot>) —
+// a única representação de Promise (a sync legacy Entry::Promise(i64) foi
+// removida). Encadeamento real via microtask queue (issue #417 / F6).
 
 type CallbackFn = unsafe extern "C" fn(i64) -> i64;
-type CallbackFn0 = unsafe extern "C" fn() -> i64;
 
 enum PromiseKind {
     Async(std::sync::Arc<rts_engine::heap::handles::PromiseSlot>),
-    Sync(i64),
     NotPromise,
 }
 
 fn classify(handle: u64) -> PromiseKind {
     with_entry(handle, |entry| match entry {
         Some(Entry::PromiseAsync(arc)) => PromiseKind::Async(arc.clone()),
-        Some(Entry::Promise(v)) => PromiseKind::Sync(*v),
         _ => PromiseKind::NotPromise,
     })
 }
@@ -222,14 +213,6 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_THEN2(promise_h: u64, on_ful: u64, on_rej:
                 result_clone,
             );
             result_handle
-        }
-        PromiseKind::Sync(value) => {
-            // Path rapido sync — sem rejection no Promise(i64) legacy.
-            if on_ful == 0 {
-                return alloc_entry(Entry::Promise(value));
-            }
-            let r = unsafe { (std::mem::transmute::<u64, CallbackFn>(on_ful))(value) };
-            alloc_entry(Entry::Promise(r))
         }
         PromiseKind::NotPromise => promise_h,
     }
@@ -299,22 +282,12 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_FINALLY(promise_h: u64, fp: u64) -> u64 {
             );
             result_handle
         }
-        PromiseKind::Sync(value) => {
-            if fp != 0 {
-                unsafe { (std::mem::transmute::<u64, CallbackFn0>(fp))() };
-            }
-            alloc_entry(Entry::Promise(value))
-        }
         PromiseKind::NotPromise => promise_h,
     }
 }
 
 /// `Promise.resolve(v)` — JS spec: se `v` ja eh Promise, retorna ela
 /// mesma; caso contrario cria nova `PromiseAsync` ja fulfilled.
-///
-/// Tambem usada pelo lowering legado de `await` em fetch sync —
-/// nesse caso o caller passa um handle `Entry::Promise` (legacy) e
-/// recebe o valor inline.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVE_EMPTY() -> i64 {
     // Promise.resolve() — equivalente a Promise.resolve(undefined).
@@ -323,15 +296,12 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVE_EMPTY() -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVE(value: u64) -> i64 {
-    let kind = with_entry(value, |entry| match entry {
-        Some(Entry::Promise(v)) => Some(*v),
-        Some(Entry::PromiseAsync(_)) => Some(i64::MIN), // sentinela: ja e' Promise
-        _ => None,
+    let already_promise = with_entry(value, |entry| {
+        matches!(entry, Some(Entry::PromiseAsync(_)))
     });
-    match kind {
-        Some(i64::MIN) => value as i64, // PromiseAsync — passthrough do handle
-        Some(v) => v,                   // Entry::Promise legacy — extrai inline
-        None => {
+    match already_promise {
+        true => value as i64, // PromiseAsync — passthrough do handle
+        false => {
             // Promise/A+: um THENABLE e' ADOTADO (`Promise.resolve({then})`
             // segue o estado do thenable); valor plano cria fulfilled direto.
             if crate::promise_slot::thenable_then_of(value as i64) != 0 {
@@ -762,16 +732,9 @@ pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_THEN(h: u64, fp: u64) -> u64 {
     alloc_entry(Entry::PromiseAsync(slot))
 }
 
-/// response.free() — libera Response + Promise handles
+/// response.free() — libera o handle do Response.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_FREE(h: u64) {
-    let inner = with_entry(h, |entry| match entry {
-        Some(Entry::Promise(v)) => Some(*v as u64),
-        _ => None,
-    });
-    if let Some(inner_h) = inner {
-        free_handle(inner_h);
-    }
     free_handle(h);
 }
 

@@ -65,7 +65,7 @@ pub unsafe extern "C" fn napi_is_promise(
     result: *mut bool,
 ) -> napi_status {
     let is = with_entry(handle_from_value(value), |e| {
-        matches!(e, Some(Entry::Promise(_)) | Some(Entry::PromiseAsync(_)))
+        matches!(e, Some(Entry::PromiseAsync(_)))
     });
     unsafe { write_bool(result, is) }
 }

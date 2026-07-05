@@ -205,13 +205,6 @@ pub extern "C" fn __RTS_FN_NS_GC_COLLECT(root: u64) -> i64 {
     collect(&[]) as i64
 }
 
-/// Collects with a Vec of roots (legacy multi-root API — parameters ignored).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GC_COLLECT_VEC(roots_vec: u64) -> i64 {
-    let _ = roots_vec;
-    collect(&[]) as i64
-}
-
 /// Incremental collection step. No-op until incremental pacing is implemented.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_COLLECT_DEBT() {

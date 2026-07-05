@@ -612,7 +612,7 @@ pub extern "C" fn __RTS_FN_RT_TYPEOF_HANDLE(handle: u64) -> u64 {
         Some(Entry::FloatPrim(_)) => "number",
         Some(Entry::Vec(_)) | Some(Entry::Map(_)) | Some(Entry::Buffer(_))
         | Some(Entry::Json(_)) | Some(Entry::DateMs(_))
-        | Some(Entry::PromiseAsync(_)) | Some(Entry::Promise(_)) => "object",
+        | Some(Entry::PromiseAsync(_)) => "object",
         Some(_) => "object",
         None => {
             // (narrow-storage slice 2) Handle inválido = valor numérico raw

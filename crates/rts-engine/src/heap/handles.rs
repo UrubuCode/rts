@@ -449,11 +449,6 @@ pub enum Entry {
     /// listeners por nome de evento como function pointers (i64 raw).
     /// Distinto do `EventEmitter` global acima — coexistem.
     RtsEventsEmitter(Box<RtsEventsEmitter>),
-    /// Promise<T> síncrona — valor já resolvido como i64 (handle ou primitivo).
-    /// `.then(fn)` chama fn(value) imediatamente. `.catch(fn)` é passthrough.
-    /// Caminho rápido para Promises que nasceram resolvidas (ex:
-    /// `Promise.resolve(v)`).
-    Promise(i64),
     /// Promise<T> assíncrona — slot com state pending/fulfilled/rejected
     /// e fila de waiters (oneshot tokio). Issue #412 / epic #411.
     /// Criada por `async function f()` quando o body bloqueia (await, IO,
@@ -1656,7 +1651,6 @@ mod tests {
             alloc_entry(Entry::Map(Box::new(indexmap::IndexMap::new()))),
             alloc_entry(Entry::Env(vec![0i64; 4])),
             alloc_entry(Entry::Json(Box::new(serde_json::Value::Null))),
-            alloc_entry(Entry::Promise(42)),
             alloc_entry(Entry::DateMs(0)),
         ];
         for &h in &handles {

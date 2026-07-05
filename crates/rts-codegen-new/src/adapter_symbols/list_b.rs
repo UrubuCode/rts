@@ -689,7 +689,6 @@ fn gc_internal_symbols() -> Vec<JitSymbol> {
         // collector
         sym("__RTS_FN_NS_GC_COLLECT", rt_gcoll::__RTS_FN_NS_GC_COLLECT as *const u8),
         sym("__RTS_FN_NS_GC_COLLECT_DEBT", rt_gcoll::__RTS_FN_NS_GC_COLLECT_DEBT as *const u8),
-        sym("__RTS_FN_NS_GC_COLLECT_VEC", rt_gcoll::__RTS_FN_NS_GC_COLLECT_VEC as *const u8),
         sym("__RTS_FN_NS_GC_LIVE_COUNT", rt_gcoll::__RTS_FN_NS_GC_LIVE_COUNT as *const u8),
         // heap env-record
         sym("__RTS_FN_NS_GC_ENV_ALLOC", rt_env::__RTS_FN_NS_GC_ENV_ALLOC as *const u8),

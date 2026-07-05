@@ -786,9 +786,9 @@ pub extern "C" fn __rtsadp_idx_call(recv: u64, key: u64, a0: u64, a1: u64, argc:
     undef()
 }
 
-/// The real PROMISE handle behind a Tagged receiver word (`Entry::PromiseAsync`
-/// or the legacy sync `Entry::Promise`) — `None` for any other receiver. Promise
-/// is PRIMORDIAL, so the tag inspection here is doctrine-clean.
+/// The real PROMISE handle behind a Tagged receiver word (`Entry::PromiseAsync`)
+/// — `None` for any other receiver. Promise is PRIMORDIAL, so the tag
+/// inspection here is doctrine-clean.
 fn promise_handle(recv: u64) -> Option<u64> {
     use rts_runtime::namespaces::gc::handles as rt_handles;
     let v = PolyValue::from_raw(recv);
@@ -812,10 +812,7 @@ fn promise_handle(recv: u64) -> Option<u64> {
         f as u64
     };
     let is_p = rt_handles::with_entry(h, |e| {
-        matches!(
-            e,
-            Some(rt_handles::Entry::PromiseAsync(_)) | Some(rt_handles::Entry::Promise(_))
-        )
+        matches!(e, Some(rt_handles::Entry::PromiseAsync(_)))
     });
     is_p.then_some(h)
 }

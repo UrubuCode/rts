@@ -352,8 +352,9 @@ pub enum HirExprKind {
     /// Sequence expression (`a, b, c`) — evaluates left to right, returns last
     Seq(Vec<HirExpr>),
 
-    // Fallback for unrecognised SWC nodes that rts-codegen handles via its
-    // own legacy path. Carries the raw text so the old codegen can fall back.
+    // Structured escape hatch for SWC nodes without a dedicated HIR variant.
+    // Carries a text payload the engine re-interprets (regex literals,
+    // `super`/`this` markers, meta-props, opt-chain) or bails on honestly.
     Raw(String),
 }
 
@@ -432,7 +433,8 @@ pub enum HirStmt {
     Block(Vec<HirStmt>),
     Labeled { label: String, body: Box<HirStmt> },
 
-    /// Fallback — carries raw source text for legacy codegen path.
+    /// Structured escape hatch — carries raw source text; the engine's stmt
+    /// lowering bails on it explicitly (`unsupported!`).
     Raw(String),
 }
 

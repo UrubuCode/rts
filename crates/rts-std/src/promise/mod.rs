@@ -1,9 +1,8 @@
 ﻿//! `promise` namespace — primitivas de Promise<T> async (issue #412).
 //!
-//! Diferente de `Entry::Promise(i64)` (Promise sincrona ja' resolvida —
-//! caminho rapido legado de `globals/fetch`), aqui temos
-//! `Entry::PromiseAsync(Arc<PromiseSlot>)` com state machine completo:
-//! pending/fulfilled/rejected + waiters via tokio oneshot.
+//! Representacao unica: `Entry::PromiseAsync(Arc<PromiseSlot>)` com state
+//! machine completo: pending/fulfilled/rejected + waiters via tokio oneshot.
+//! (A antiga `Entry::Promise(i64)` sync de `globals/fetch` foi removida.)
 //!
 //! Migrado do `#[rts_namespace]` pro modelo builder hand-written do `rts-engine`
 //! (rumo à remoção da `rts-macro`; ver pilotos hint/hash/ptr/mem/runtime).
