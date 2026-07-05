@@ -156,44 +156,58 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_EXEC(handle: Handle, s_ptr: *const u8, s_le
     let Some((groups_vec, named_groups, idx, input, indices)) = result else {
         return 0;
     };
-    let mut map: IndexMap<String, i64> = IndexMap::new();
-    for (i, opt) in groups_vec.iter().enumerate() {
-        let v = match opt {
-            Some(s) => alloc_entry(Entry::String(s.clone().into_bytes())) as i64,
-            None => i64::MIN + 2,
-        };
-        map.insert(i.to_string(), v);
-    }
-    map.insert("length".to_string(), groups_vec.len() as i64);
-    map.insert("index".to_string(), idx as i64);
-    let input_h = alloc_entry(Entry::String(input.into_bytes())) as i64;
-    map.insert("input".to_string(), input_h);
-    let groups_v = if named_groups.is_empty() {
-        i64::MIN + 2
-    } else {
-        let mut gmap: IndexMap<String, i64> = IndexMap::new();
-        for (name, opt) in named_groups {
-            let v = match opt {
-                Some(s) => alloc_entry(Entry::String(s.into_bytes())) as i64,
-                None => i64::MIN + 2,
-            };
-            gmap.insert(name, v);
-        }
-        alloc_entry(Entry::Map(Box::new(gmap))) as i64
+    // Linha SHAPED do motor novo (slots = PolyValue words) — o dicionário
+    // legacy Entry::Map foi removido dos resultados de exec.
+    use rts_engine::heap::poly::POLY_UNDEFINED;
+    use rts_engine::heap::shapes::{
+        alloc_shaped_object_owned, handle_word_auto, legacy_i64_to_word, string_word,
     };
-    map.insert("groups".to_string(), groups_v);
+    let word_pair = |s: usize, e: usize| -> i64 {
+        let pair = alloc_entry(Entry::Vec(Box::new(vec![
+            legacy_i64_to_word(s as i64) as i64,
+            legacy_i64_to_word(e as i64) as i64,
+        ])));
+        handle_word_auto(pair) as i64
+    };
+    let mut keys: Vec<String> = Vec::with_capacity(groups_vec.len() + 5);
+    let mut vals: Vec<i64> = Vec::with_capacity(groups_vec.len() + 5);
+    for (i, opt) in groups_vec.iter().enumerate() {
+        keys.push(i.to_string());
+        vals.push(match opt {
+            Some(s) => string_word(s.as_bytes()) as i64,
+            None => POLY_UNDEFINED as i64,
+        });
+    }
+    keys.push("length".to_string());
+    vals.push(legacy_i64_to_word(groups_vec.len() as i64) as i64);
+    keys.push("index".to_string());
+    vals.push(legacy_i64_to_word(idx as i64) as i64);
+    keys.push("input".to_string());
+    vals.push(string_word(input.as_bytes()) as i64);
+    let groups_v = if named_groups.is_empty() {
+        POLY_UNDEFINED as i64
+    } else {
+        let mut gkeys: Vec<String> = Vec::new();
+        let mut gvals: Vec<i64> = Vec::new();
+        for (name, opt) in named_groups {
+            gkeys.push(name);
+            gvals.push(match opt {
+                Some(s) => string_word(s.as_bytes()) as i64,
+                None => POLY_UNDEFINED as i64,
+            });
+        }
+        handle_word_auto(alloc_shaped_object_owned(gkeys, &gvals)) as i64
+    };
+    keys.push("groups".to_string());
+    vals.push(groups_v);
     let indices_v = match indices.clone() {
         Some(vec) => {
             let mut ivec: Vec<i64> = Vec::with_capacity(vec.len());
             for opt in vec.iter() {
-                let pair_h: i64 = match opt {
-                    Some((s, e)) => {
-                        let pair = vec![*s as i64, *e as i64];
-                        alloc_entry(Entry::Vec(Box::new(pair))) as i64
-                    }
-                    None => i64::MIN + 2,
-                };
-                ivec.push(pair_h);
+                ivec.push(match opt {
+                    Some((s, e)) => word_pair(*s, *e),
+                    None => POLY_UNDEFINED as i64,
+                });
             }
             let vec_h = alloc_entry(Entry::Vec(Box::new(ivec)));
             let g_vec_opt: Option<Vec<(String, Option<(usize, usize)>)>> =
@@ -217,27 +231,26 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_EXEC(handle: Handle, s_ptr: *const u8, s_le
                 });
             if let Some(g_pairs) = g_vec_opt {
                 if !g_pairs.is_empty() {
-                    let mut gmap: IndexMap<String, i64> = IndexMap::new();
+                    let mut gkeys: Vec<String> = Vec::new();
+                    let mut gvals: Vec<i64> = Vec::new();
                     for (name, opt) in g_pairs {
-                        let pair_h: i64 = match opt {
-                            Some((s, e)) => {
-                                let pair = vec![s as i64, e as i64];
-                                alloc_entry(Entry::Vec(Box::new(pair))) as i64
-                            }
-                            None => i64::MIN + 2,
-                        };
-                        gmap.insert(name, pair_h);
+                        gkeys.push(name);
+                        gvals.push(match opt {
+                            Some((s, e)) => word_pair(s, e),
+                            None => POLY_UNDEFINED as i64,
+                        });
                     }
-                    let groups_h = alloc_entry(Entry::Map(Box::new(gmap)));
+                    let groups_h = alloc_shaped_object_owned(gkeys, &gvals);
                     register_indices_groups(vec_h, groups_h);
                 }
             }
-            vec_h as i64
+            handle_word_auto(vec_h) as i64
         }
-        None => i64::MIN + 2,
+        None => POLY_UNDEFINED as i64,
     };
-    map.insert("indices".to_string(), indices_v);
-    alloc_entry(Entry::Map(Box::new(map)))
+    keys.push("indices".to_string());
+    vals.push(indices_v);
+    alloc_shaped_object_owned(keys, &vals)
 }
 
 /// `re.source` — returns pattern string as a handle.

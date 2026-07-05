@@ -211,9 +211,15 @@ pub fn shape_id_word(id: GlobalShapeId) -> u64 {
 /// PolyValue-word slot per key). `values` are PolyValue WORDS (or raw i64s a
 /// consumer normalizes — prefer words). Returns the raw handle.
 pub fn alloc_shaped_object(keys: &[&str], values: &[i64]) -> u64 {
-    debug_assert_eq!(keys.len(), values.len());
     let owned: Vec<String> = keys.iter().map(|k| k.to_string()).collect();
-    let id = intern_global_shape(&owned);
+    alloc_shaped_object_owned(owned, values)
+}
+
+/// [`alloc_shaped_object`] with OWNED keys (runtime-computed key lists — e.g.
+/// the numbered keys of a regex match row).
+pub fn alloc_shaped_object_owned(keys: Vec<String>, values: &[i64]) -> u64 {
+    debug_assert_eq!(keys.len(), values.len());
+    let id = intern_global_shape(&keys);
     let mut slots: Vec<i64> = Vec::with_capacity(values.len() + 1);
     slots.push(shape_id_word(id) as i64);
     slots.extend_from_slice(values);
