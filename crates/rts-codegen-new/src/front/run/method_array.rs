@@ -509,10 +509,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Reify the callback argument `a` of an Array callback method to a
     /// `TAG_FUNCTION` PolyValue word. After the P4.6 arrow-extraction pre-pass a
     /// non-capturing inline arrow is an `Ident` of a synthesized top-level fn, so
-    /// the callback resolves through [`Self::reify_function`]. A capturing arrow
-    /// stayed an `Arrow` node and BAILS here (a closure — a later increment); any
-    /// other expression (a function value held in a Tagged local, etc.) also bails
-    /// this increment, never a guess.
+    /// the callback resolves through [`Self::reify_function`]. A leftover `Arrow`
+    /// node (one the extraction could not soundly lift) BAILS with the specific
+    /// message. ANY OTHER expression — a call result (`coll.reduce(xf(reducer),
+    /// init)`, the transducer pattern), a fn value in a Tagged local, a member
+    /// read — is LOWERED to its runtime word: the callback bridge itself throws
+    /// the JS `TypeError: not a function` for a non-function value, so this is
+    /// never a silent mis-call.
     pub(super) fn reify_callback_arg(
         &mut self,
         module: &mut dyn Module,
@@ -527,9 +530,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirExprKind::Arrow { .. } => Err(crate::front::error::Unsupported::new(format!(
                 "Array.{method}() with a CAPTURING callback (closures are a later increment)"
             ))),
-            _ => Err(crate::front::error::Unsupported::new(format!(
-                "Array.{method}() callback is not a reifiable function value"
-            ))),
+            _ => {
+                let v = self.lower_expr(module, a)?;
+                Ok(self.box_value(v))
+            }
         }
     }
 
