@@ -202,13 +202,10 @@ approach* on an unsound value model, not validation of its design. It is the bar
 the new engine must re-clear, not a number to quote as current.
 
 **The current number (honest, measured).** The new engine's cross-runtime parity
-is **~31.5% (192/609)** as of 2026-06-23 (`cross_runtime_report.json`,
-`status=pass`; the rest: ~341 `rts_error`, ~59 `rts_diverge`, ~17 bun/node
-diverge). The new engine has the sound value model but is still **filling JS/TS
-coverage back in** — the number is below the old engine's peak because the
-fixture set grew to 609 harder cases AND the new engine re-implements semantics
-from scratch. **Do not quote 70.7%, 94.3%, or 100% — those are the old engine.**
-Re-measure with the cross-runtime report; do not cite a remembered figure.
+is **~76.5%** as of 2026-07-05 (auto-updated badge; climbed from 31.5% on
+2026-06-23 while filling JS/TS coverage back in on the sound value model).
+**Do not quote 70.7%, 94.3%, or 100% — those are the old engine.** Always
+re-measure with `cross_runtime_report.json`; do not cite a remembered figure.
 
 **The thesis (unchanged).** *Prove-monomorphic-and-unbox where the type system
 can (keep the winning numeric path); fall to ONE honest in-value tagged
@@ -679,6 +676,8 @@ assumed convention; zero-regression discipline still applies.
 ## Conventions
 
 - Code language: Rust (English identifiers). Communication language: Portuguese.
+  **Documentation language: English** — all docs/specs/README are written and
+  maintained in English (owner decision 2026-07-05).
 - Conventional commits: `feat:`, `fix:`, `perf:`, `refactor:`, `docs:`, `chore:`.
 - New namespace must be registered in `abi::SPECS` (and the generated `rts.d.ts`).
   CI lints the committed `rts.d.ts` against the generator.
@@ -839,5 +838,13 @@ coercion.
 `docs/specs/` holds feature specs, design decisions, technical notes — index at
 `docs/specs/INDEX.md`. **Canonical engine direction:
 `docs/specs/rts-codegen-new-design.md`** (the redesign plan; read before engine
-work). Detailed rules in `.claude/rules/` (00-meta → 05-codegen-notes), each
-binding.
+work). **Canonical std-surface direction: `docs/specs/rts-std-surface.md`** —
+the approved public-surface redesign (JS/Web globals + per-module camelCase
+`rts:<ns>` imports exporting the Rust std; hard cutover; bytes = TypedArrays;
+comptime `includeBytes`/`includeString`; `native()` reverse-FFI +
+`rts compile --lib`; primitive relocation into rts-primitives; phases F0→F8) —
+read it before any change to namespaces/public API. **Engine threading
+direction: `docs/specs/rts-threading-model.md`** (per-thread regions + shared
+heap with promotion on publication; `threadLocal`/`shared`/`channel` surface;
+phases T0→T5). Detailed rules in `.claude/rules/` (00-meta → 05-codegen-notes),
+each binding.

@@ -2,7 +2,8 @@
 
 ## Conventions
 
-- Code language: Rust (English identifiers)
+- Code language: Rust (English identifiers). Documentation language: English
+  (all docs/specs/README — owner decision 2026-07-05)
 - Communication language: Portuguese
 - Commits follow conventional commits: `feat:`, `fix:`, `perf:`, `refactor:`,
   `docs:`, `chore:`
@@ -274,8 +275,8 @@ powershell.exe -ExecutionPolicy Bypass -File bench/benchmark.ps1
 
 The cutover happened: `rts-codegen-new` (value model in `rts-adapters`) is the
 only engine; the old engine + `rts-mir` are deleted. Honest cross-runtime parity
-is **~31.5% (192/609)** as of 2026-06-23 (`cross_runtime_report.json`) — the
-engine has the sound value model and is re-filling coverage. The deleted old
+is **~76.5%** as of 2026-07-05 (auto-updated badge; re-measure before quoting) —
+the engine has the sound value model and is re-filling coverage. The deleted old
 engine's 100% (372/372, tag `v0.0-202606072107`) is the bar to re-clear. Always
 re-measure (`measure_new.sh` / cross-runtime report); never quote a remembered
 number or the old 94.3%/100%/70.7% framings. See `00-meta.md` "HONEST CURRENT

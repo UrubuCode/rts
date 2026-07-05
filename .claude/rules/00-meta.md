@@ -155,11 +155,14 @@ Do not act on stale numbers or a stale architecture. The "94.3%" / "100%" /
   `crates/rts-adapters/`); `rts run`/`compile`/`test`/`eval` run it. AOT works
   (`rts compile` emits `.o` + native link). Canonical architecture:
   `docs/specs/rts-codegen-new-design.md` (path map stale — see the rule above).
-- **Honest parity now: ~31.5% (192/609)** as of 2026-06-23
-  (`cross_runtime_report.json`, `status=pass`; rest ≈ 341 `rts_error`, 59
-  `rts_diverge`, 17 bun/node diverge). The engine has the sound value model and is
-  re-filling JS/TS coverage. **Always re-measure; never quote a remembered
-  number.**
+- **Honest parity now: ~76.5%** as of 2026-07-05 (auto-updated badge; climbed
+  from 31.5% on 2026-06-23). The engine has the sound value model and keeps
+  re-filling JS/TS coverage. **Always re-measure
+  (`cross_runtime_report.json`); never quote a remembered number.**
+- **Surface + threading direction docs** (2026-07-05):
+  `docs/specs/rts-std-surface.md` (public-surface redesign — read before any
+  namespace/public-API change) and `docs/specs/rts-threading-model.md`
+  (engine threading / regional heap).
 - The old engine once hit 100% (372/372, tag `v0.0-202606072107`) on an unsound
   value model — that is the bar to re-clear, not a current figure.
 

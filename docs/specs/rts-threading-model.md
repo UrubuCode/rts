@@ -1,115 +1,130 @@
-# RTS Threading Model — multithread na engine + heap regional (v0, proposta)
+# RTS Threading Model — engine-level multithreading + regional heap (v0, proposal)
 
-> **Status: PROPOSTA** (2026-07-05). Companheiro de
-> `rts-std-surface.md` (§rts:thread) e do design canônico
-> `rts-codegen-new-design.md`. Não existe doc anterior sobre threading de
-> engine — a única documentação era a tabela de mecanismos em
-> `crates/rts-runtime/src/namespaces/thread/abi.rs` (agora superfície
-> `rts:thread`). Este doc registra o modelo-alvo e por que o value model
-> atual o comporta.
+> **Status: PROPOSAL** (2026-07-05). Companion to `rts-std-surface.md`
+> (§rts:thread) and to the canonical engine design
+> `rts-codegen-new-design.md`. No prior engine-threading doc existed — the
+> only documentation was the mechanism table in
+> `crates/rts-runtime/src/namespaces/thread/abi.rs` (now the `rts:thread`
+> surface). This doc records the target model and why the current value
+> model supports it.
 
-## Tese
+## Thesis
 
-O RTS terá multithread NA ENGINE (não só threads de runtime chamando fns
-soltas): objetos JS cruzando threads com segurança, coleta regional sem
-stop-the-world global, e paralelismo em áreas específicas do motor. O
-modelo-alvo é **regiões por thread + heap compartilhado com promoção**
-(meio-termo Java-G1 / Erlang), porque o value model PolyValue foi
-construído com as propriedades que isso exige.
+RTS will have multithreading IN THE ENGINE (not just runtime threads
+calling detached fns): JS objects crossing threads safely, regional
+collection without a global stop-the-world, and parallelism in specific
+engine areas. The target model is **per-thread regions + a shared heap
+with promotion on publication** (a Java-G1 / Erlang middle ground),
+because the PolyValue value model was built with exactly the properties
+this requires.
 
-## Por que o PolyValue comporta isso (as 3 propriedades)
+## Why PolyValue supports it (the 3 properties)
 
-1. **Payload = índice de slot, nunca ponteiro.** O word NaN-box (STR/
-   OBJECT/FUNCTION) carrega um slot da HandleTable (48 bits). Mover o
-   OBJETO entre regiões/heaps não invalida nenhum word vivo — só o slot é
-   atualizado (a indireção que o doc do GC geracional já anotava como
-   "mover ≈ grátis"). TLABs, regiões, compaction e promoção viram updates
-   de slot, sem read barriers no código gerado.
-2. **Shards já são proto-regiões.** A HandleTable tem 32 shards lock-free
-   com afinidade round-robin por thread (`alloc_entry`). Evoluir para
-   "região da thread" = afinidade determinística alloc→shard(s) da thread
-   + coleta local desse shard. `shard_for_handle` já decodifica O(1).
-3. **Word de 64 bits = load/store atômico.** Um PolyValue compartilhado
-   nunca sofre tearing; o tag-check é válido cross-thread.
+1. **Payload = slot index, never a pointer.** The NaN-box word (STR/
+   OBJECT/FUNCTION) carries a HandleTable slot (48 bits). Moving the
+   OBJECT between regions/heaps invalidates no live word — only the slot
+   is updated (the indirection the generational-GC doc already noted as
+   "moving ≈ free"). TLABs, regions, compaction and promotion become slot
+   updates, with no read barriers in generated code.
+2. **Shards are already proto-regions.** The HandleTable has 32 lock-free
+   shards with per-thread round-robin affinity (`alloc_entry`). Evolving
+   to "the thread's region" = deterministic alloc→thread-shard affinity +
+   local collection of that shard. `shard_for_handle` already decodes
+   O(1).
+3. **64-bit word = atomic load/store.** A shared PolyValue never tears;
+   the tag check is valid cross-thread.
 
-## O modelo (alvo)
+## The model (target)
 
 ```
 ┌───────────── Thread A ─────────────┐   ┌───────────── Thread B ────────────┐
-│ região A (shards afinados)         │   │ região B                          │
-│  - alocação bump/slab local        │   │                                   │
-│  - GC LOCAL: só pausa A            │   │                                   │
+│ region A (affine shards)           │   │ region B                          │
+│  - local bump/slab allocation      │   │                                   │
+│  - LOCAL GC: pauses only A         │   │                                   │
 └─────────────┬──────────────────────┘   └───────────────┬───────────────────┘
-              │ publicação (escrita em global/channel/    │
-              │ SharedArrayBuffer/objeto shared)          │
+              │ publication (write to shared global/      │
+              │ channel/SharedArrayBuffer/shared object)  │
               ▼                                           ▼
-        ┌──────────────────── heap COMPARTILHADO ────────────────────┐
-        │ objetos promovidos; coleta global rara (paridade atual)    │
-        └─────────────────────────────────────────────────────────────┘
+        ┌──────────────────── SHARED heap ────────────────────────────┐
+        │ promoted objects; rare global collection (today's parity)   │
+        └──────────────────────────────────────────────────────────────┘
 ```
 
-- **Nascimento local**: todo objeto nasce na região da thread criadora.
-  Coleta local barata (scanner já suspende por-thread via SuspendThread +
-  stack maps; limitar o sweep aos shards da região).
-- **Promoção na publicação**: a PRIMEIRA vez que um valor da região
-  escapa para outra thread (escrita em gcell/global compartilhado, envio
-  por channel, captura por `thread.spawn`, retorno de worker), o subgrafo
-  é PROMOVIDO ao heap compartilhado. Detectável barato: toda escrita já
-  passa pelos caminhos de slot (`obj_set`/`VEC_SET`/gcell) — é um check de
-  "região do destino ≠ região do valor".
-- **Promoção = mover slots** (propriedade 1): re-alojar as entries nos
-  shards compartilhados e atualizar os slots; os words vivos não mudam de
-  significado (o handle é estável se a promoção reusar o mesmo slot-id em
-  shard compartilhado — decisão de encoding: reservar bits de shard OU
-  tabela de forwarding por slot).
+- **Local birth**: every object is born in the creating thread's region.
+  Cheap local collection (the scanner already suspends per-thread via
+  SuspendThread + stack maps; restrict the sweep to the region's shards).
+- **Promotion on publication**: the FIRST time a region value escapes to
+  another thread (write to a shared gcell/global, send over a channel,
+  capture by `thread.spawn`, worker return), the subgraph is PROMOTED to
+  the shared heap. Cheaply detectable: every write already goes through
+  the slot paths (`obj_set`/`VEC_SET`/gcell) — it is a "destination region
+  ≠ value region" check.
+- **Promotion = moving slots** (property 1): re-home the entries into
+  shared shards and update the slots; live words keep their meaning
+  (the handle is stable if promotion reuses the same slot id in a shared
+  shard — encoding decision: reserve shard bits OR a per-slot forwarding
+  table).
 
-## Pré-requisitos (bloqueadores mapeados, cada um vira issue)
+## Prerequisites (mapped blockers; each becomes an issue)
 
-| # | Bloqueador | Estado hoje | Correção |
+| # | Blocker | Today | Fix |
 |---|---|---|---|
-| 1 | **GCELLS thread-local** | globais de módulo são por-thread (hack do setInterval; memória `project_test_100_grind`) | promover gcells a células compartilhadas (heap shared) com escrita sincronizada; é o que torna "escrita em global" um ponto de promoção em vez de um bug |
-| 2 | **Data ICs (`PropIcCell`)** | célula mutável sem atomicidade | estados mono→poly→mega em `AtomicU64` (shape+slot empacotados num word) ou ICs por-thread |
-| 3 | **String pool / interning** | pool global com lock | interning por-região + merge na promoção; strings imutáveis facilitam |
-| 4 | **Shape registry** | `Mutex` global (ok p/ leitura rara) | leitura via `RwLock`/snapshot lock-free; ids são append-only |
-| 5 | **Event loop / microtasks** | fila single-thread (drain no main) | definir: cada thread com região tem SEU microtask queue; timers globais roteiam pra thread dona do callback |
-| 6 | **Codegen/JIT state** | `reset_codegen_state` global, 1 programa por processo | ok para runtime multi-thread; JIT continua single-compile |
-| 7 | **Scanner GC NaN-box** | conservador por thread, já reconhece words (design §5.4) | por-região: marcar só roots da thread + remembered set das referências shared→local (write barrier na promoção evita shared→local: promover fecha o subgrafo) |
+| 1 | **Thread-local GCELLS** | module globals are per-thread (the setInterval hack; memory `project_test_100_grind`) | promote gcells to shared cells with synchronized writes; this is what turns "write to a global" into a promotion point instead of a bug |
+| 2 | **Data ICs (`PropIcCell`)** | mutable cell without atomicity | mono→poly→mega states in an `AtomicU64` (shape+slot packed in one word) or per-thread ICs |
+| 3 | **String pool / interning** | global pool with a lock | per-region interning + merge on promotion; immutable strings make this easy |
+| 4 | **Shape registry** | global `Mutex` (fine for rare reads) | `RwLock`/lock-free snapshot reads; ids are append-only |
+| 5 | **Event loop / microtasks** | single-thread queue (drained on main) | define: each region-owning thread has ITS microtask queue; global timers route to the callback's owner thread |
+| 6 | **Codegen/JIT state** | global `reset_codegen_state`, 1 program per process | fine for multithreaded runtime; JIT stays single-compile |
+| 7 | **NaN-box GC scanner** | conservative per-thread, already recognizes words (design §5.4) | per-region: mark only the thread's roots + a remembered set for shared→local refs (the promotion write barrier prevents shared→local: promoting closes the subgraph) |
 
-Invariante-chave escolhida: **nunca existe referência shared→local**. A
-promoção fecha transitivamente o subgrafo publicado. Elimina remembered
-sets entre regiões; o custo é promoção eager do subgrafo (aceitável: quem
-publica um objeto raramente publica metade dele).
+Chosen key invariant: **a shared→local reference never exists.**
+Promotion transitively closes the published subgraph. This eliminates
+inter-region remembered sets; the cost is eager subgraph promotion
+(acceptable: whoever publishes an object rarely publishes half of it).
 
-## Paralelismo em áreas específicas do motor (independente das regiões)
+## Engine-area parallelism (independent of regions)
 
-Alvos de curto prazo que NÃO dependem do modelo regional:
-- `parallelMap/Reduce` (rayon) — já existe; superfície em `rts:thread`.
-- Parse/HIR de módulos independentes em paralelo no build (compile-time).
-- AOT: emissão de objetos por módulo em paralelo (ObjectModule por
-  módulo já é o desenho do slicing).
-- GC: sweep de shards em paralelo (shards são independentes por design).
+Short-term targets that do NOT depend on the regional model:
+- `parallel(arr).map/reduce` (rayon) — exists; surface in `rts:thread`.
+- Parallel parse/HIR of independent modules at build time.
+- AOT: per-module object emission in parallel (per-module ObjectModule is
+  already the slicing design).
+- GC: parallel shard sweep (shards are independent by design).
 
-## Superfície de usuário (resumo; detalhe em rts-std-surface.md §rts:thread)
+## User surface (summary; detail in rts-std-surface.md §rts:thread)
 
-- `spawn(fn, arg)` — thread real; captura promove o subgrafo capturado.
-- `channel<T>()` — mpsc; `send(v)` promove `v`.
-- `Mutex`/`RwLock`/atomics — células compartilhadas explícitas.
-- `SharedArrayBuffer` + `Atomics` — memória crua compartilhada (já
+- `threadLocal(template)` → `Threaded<T>` — transparent per-thread
+  instance (template + lazy structuredClone per thread; factory overload
+  for non-clonables); the value that NEVER promotes.
+- `shared(value)` → `Shared<T>` — transparent single instance promoted to
+  the shared heap; per-method auto-synchronization + `lock(shared, cb)`
+  for compound transactions.
+- `channel<T>()` — mpsc; `send(v)` promotes `v`.
+- `task(fn): Promise<T>` — pool thread integrated with await.
+- `spawn(fn, arg)` — real thread; captures promote the captured subgraph.
+- `Mutex`/`RwLock`/atomics — explicit low-level shared cells.
+- `SharedArrayBuffer` + `Atomics` — raw shared memory (already
   primordial).
-- Workers estilo web (futuro): thread + região + módulo isolado +
-  postMessage (= channel com structuredClone-ou-promoção).
+- Web-style workers (future): thread + region + isolated module +
+  postMessage (= channel with structuredClone-or-promotion).
 
-## Fases
+`Threaded`/`Shared` engine implementation: a new case on the dispatch
+paths `Proxy` already traverses (`proxy_parts`-like) — obj_get/set/method
+resolve to the per-thread/shared slot before normal dispatch; zero cost on
+the non-exotic path.
 
-- **T0** (agora): doc aprovado; issues dos bloqueadores 1–5.
-- **T1**: gcells compartilhados (#1) — também conserta a classe de bugs
-  do setInterval/thread atual.
-- **T2**: ICs atômicas (#2) + audit de estado global do runtime.
-- **T3**: afinidade thread→shard determinística + sweep paralelo.
-- **T4**: promoção na publicação (write-barrier de região) + GC local.
-- **T5**: workers/channels na superfície.
+## Phases
 
-Dependência cruzada: o GC geracional (nursery copying,
-`gc-generational-design.md`, deferido até ~90% cross-runtime) COMPÕE com
-isto — nursery é o caso "região = thread única". Implementar T4 antes ou
-junto do geracional; nunca dois modelos de movimentação distintos.
+- **T0** (now): doc approved; issues for blockers 1–5.
+- **T1**: shared gcells (#1) — also fixes the current setInterval/thread
+  bug class.
+- **T2**: atomic ICs (#2) + audit of global runtime state.
+- **T3**: deterministic thread→shard affinity + parallel sweep.
+- **T4**: promotion on publication (region write barrier) + local GC.
+- **T5**: workers/channels/threadLocal/shared on the surface.
+
+Cross-dependency: the generational GC (copying nursery,
+`gc-generational-design.md`, deferred until ~90% cross-runtime) COMPOSES
+with this — a nursery is the "single-thread region" special case.
+Implement T4 before or together with generational; never two distinct
+moving models.
