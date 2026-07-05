@@ -38,6 +38,7 @@
 //! `this`/async/generator arrows are likewise left to bail.
 
 mod scan;
+pub(crate) use scan::arrow_decl_names as fn_decl_names;
 
 use std::collections::{HashMap, HashSet};
 
@@ -45,7 +46,8 @@ use rts_hir::ir::{HirArrowBody, HirExprKind};
 use rts_hir::{HirExpr, HirFunc, HirParam, HirStmt, HirType};
 
 use scan::{
-    arrow_assigned_names, arrow_free_idents, collect_free_stmt, declared_names, mutated_names,
+    arrow_assigned_names, arrow_decl_names, arrow_free_idents, collect_free_stmt, declared_names,
+    mutated_names,
 };
 
 /// MODULE-LEVEL MUTABLE GLOBALS (epic #195). Compute the set of top-level `let`
@@ -439,6 +441,7 @@ pub fn extract_arrows(
         cells: HashMap::new(),
         current_fn: String::new(),
         current_fn_lets: HashSet::new(),
+        current_fn_arrow_decls: HashSet::new(),
         self_binding: None,
         counter: 0,
         arrow_ns: arrow_ns.to_string(),
@@ -452,12 +455,14 @@ pub fn extract_arrows(
         let mutated = mutated_names(&f.body);
         ctx.current_fn = f.name.clone();
         ctx.current_fn_lets = declared_locals(&f.body);
+        ctx.current_fn_arrow_decls = arrow_decl_names(&f.body);
         ctx.rewrite_block(&mut f.body, &params, &mutated);
     }
     let main_params: HashSet<String> = main.params.iter().map(|p| p.name.clone()).collect();
     let main_mutated = mutated_names(&main.body);
     ctx.current_fn = main.name.clone();
     ctx.current_fn_lets = declared_locals(&main.body);
+    ctx.current_fn_arrow_decls = arrow_decl_names(&main.body);
     ctx.rewrite_block(&mut main.body, &main_params, &main_mutated);
 
     // The synthesized arrow bodies may THEMSELVES contain arrows; rewrite those
@@ -470,6 +475,7 @@ pub fn extract_arrows(
         let mutated = mutated_names(&f.body);
         ctx.current_fn = f.name.clone();
         ctx.current_fn_lets = declared_locals(&f.body);
+        ctx.current_fn_arrow_decls = arrow_decl_names(&f.body);
         ctx.rewrite_block(&mut f.body, &params, &mutated);
         ctx.synthesized[i] = f;
         i += 1;
@@ -795,6 +801,10 @@ struct Ctx {
     /// body — the only locals a captured-mutated name may be a cell of this
     /// increment (a deeper-block or param capture bails, kept sound).
     current_fn_lets: HashSet<String>,
+    /// Names in the CURRENT function declared with a fn-valued initializer
+    /// (`const factor = (..) => …`) — a capture of one is a CELL (mutual
+    /// forward refs read the live value; see `arrow_decl_names`).
+    current_fn_arrow_decls: HashSet<String>,
     /// The `let`/`const` NAME whose initializer is being rewritten right now —
     /// a capture of it inside an arrow is a SELF-REFERENCE (`const f = () =>
     /// … f() …`) and must be a CELL (live read), never a by-value snapshot of
@@ -1137,8 +1147,11 @@ impl Ctx {
                 continue;
             }
             // A free ident outside those sets is a CAPTURE. It must be a real outer
-            // local in scope (not an unknown name / `this`).
-            if !scope.contains(id) {
+            // local in scope (not an unknown name / `this`) — OR a fn-valued
+            // declaration of the enclosing body not yet reached by the rewrite
+            // walk (a FORWARD reference between nested fns: `a` calls `b`
+            // declared below); those are cell captures, resolved below.
+            if !scope.contains(id) && !self.current_fn_arrow_decls.contains(id.as_str()) {
                 return None; // unknown name / `this` — not a capturable local.
             }
             // A MUTATED capture (assigned by the closure body OR reassigned in the
@@ -1157,6 +1170,10 @@ impl Ctx {
             if body_assigns.contains(id)
                 || mutated.contains(id)
                 || already_cell
+                // A fn-valued declaration of the enclosing body: a FORWARD
+                // mutual reference must read the LIVE value (cell), never a
+                // reify-time snapshot (undefined before its decl runs).
+                || self.current_fn_arrow_decls.contains(id.as_str())
                 // SELF-REFERENCE (`const f = () => … f() …`): the binding is
                 // written right after the reify, so a by-value snapshot would
                 // capture undefined — a CELL reads the live fn value.

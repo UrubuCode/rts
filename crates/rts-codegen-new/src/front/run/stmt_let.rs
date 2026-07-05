@@ -75,16 +75,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // snapshots the HANDLE by value (shared mutable box). Shape tracking is
         // dropped (a captured-mutated var is opaque).
         if self.is_cell_local(name) {
-            // Alloc + bind the cell BEFORE lowering the initializer: a
-            // SELF-REFERENCING closure init (`const f = () => … f() …`)
-            // snapshots the cell HANDLE during its env build, and the
-            // cell-set below writes the live fn value into that same box.
-            let undef = self
-                .builder
-                .ins()
-                .iconst(types::I64, crate::value::PolyValue::undefined().raw() as i64);
-            let handle = self.emit_cell_alloc(module, undef);
-            self.bind_tagged_local(name, Val::new(handle, Repr::Tagged));
+            // A HOISTED cell (a fn-valued decl — mutual forward refs) was
+            // pre-allocated by the prologue: SET into that same box below. Any
+            // other cell-local allocs a FRESH box at each execution of its decl
+            // (a loop-body `let` gets the per-iteration binding).
+            if self.local(name).is_none() || !self.hoisted_cells.contains(name) {
+                let undef = self
+                    .builder
+                    .ins()
+                    .iconst(types::I64, crate::value::PolyValue::undefined().raw() as i64);
+                let handle = self.emit_cell_alloc(module, undef);
+                self.bind_tagged_local(name, Val::new(handle, Repr::Tagged));
+            }
             let val = self.lower_expr(module, init)?;
             let word = self.box_value(val);
             let handle = self

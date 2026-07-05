@@ -36,6 +36,50 @@ pub(super) fn arrow_assigned_names(stmts: &[HirStmt]) -> HashSet<String> {
     mutated_names(stmts)
 }
 
+/// The names declared with a FUNCTION-VALUED initializer (`const f = (..) =>
+/// …` / a nested fn-decl lowered to that shape) anywhere in `stmts`. A capture
+/// of one of these is routed to a CELL: mutually-recursive nested fns
+/// FORWARD-reference each other (`factor` calls `expr` declared later), so a
+/// by-value snapshot at reify time would capture `undefined` — the cell reads
+/// the live fn value at call time.
+pub(crate) fn arrow_decl_names(stmts: &[HirStmt]) -> HashSet<String> {
+    let mut out = HashSet::new();
+    collect_arrow_decls(stmts, &mut out);
+    out
+}
+
+fn collect_arrow_decls(stmts: &[HirStmt], out: &mut HashSet<String>) {
+    for s in stmts {
+        match s {
+            HirStmt::Let {
+                name,
+                init: Some(e),
+                ..
+            }
+            | HirStmt::Const { name, init: e, .. } => {
+                // Pre-rewrite the init is an inline `Arrow`; post-rewrite (the
+                // prologue's cell-hoisting scan runs on the REWRITTEN body) it
+                // is an `Ident` of the synthesized fn — accept both.
+                let is_fn_init = matches!(e.kind, HirExprKind::Arrow { .. })
+                    || matches!(&e.kind, HirExprKind::Ident(n)
+                        if n.starts_with("__rtsn_arrow_") || n.starts_with("__rtsl_"));
+                if is_fn_init {
+                    out.insert(name.clone());
+                }
+            }
+            HirStmt::If { then, else_, .. } => {
+                collect_arrow_decls(then, out);
+                if let Some(e) = else_ {
+                    collect_arrow_decls(e, out);
+                }
+            }
+            HirStmt::While { body, .. } => collect_arrow_decls(body, out),
+            HirStmt::Block(b) => collect_arrow_decls(b, out),
+            _ => {}
+        }
+    }
+}
+
 /// The names DECLARED (`let`/`const`) anywhere in `stmts` (top-level + nested
 /// blocks/if/while). Used to exclude a function's OWN locals when deciding which
 /// names it writes are FREE (module-global) writes (see `module_globals`).
