@@ -802,10 +802,62 @@ pub extern "C" fn __rtsadp_fn_new(args_vec: u64) -> u64 {
     if h == 0 {
         return PolyValue::undefined().raw();
     }
+    // Embrulha o callee all-i64 do dynfn num THUNK UNIFORME na criação: o
+    // valor-função exposto ao motor é sempre convenção uniforme (o unbox
+    // word→i64 + FUNCTION_CALL acontece dentro do bridge, não num dispatch
+    // por flag no invoke). Passo A3 da drenagem da convenção legacy.
+    let wrapped = wrap_raw_callee_uniform(h);
     PolyValue::from_function_handle(
-        rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h),
+        rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(wrapped),
     )
     .raw()
+}
+
+/// Uniform-ABI bridge over a RAW all-i64 `Entry::Function` (a dynfn compile):
+/// `env` carries the INNER function handle; each word arg unboxes to its raw
+/// i64 and routes through `FUNCTION_CALL` (bound args/kinds applied by the
+/// runtime), the i64 result boxes back as the tightest number word.
+extern "C" fn raw_callee_bridge_thunk(
+    env: u64, a0: u64, a1: u64, a2: u64, a3: u64, _rest: u64,
+) -> u64 {
+    let (arity, bound_len) = with_entry(env, |e| match e {
+        Some(Entry::Function(d)) => (d.arity, d.bound_args.len()),
+        _ => (0u8, 0usize),
+    });
+    invoke_legacy_fn(env, arity, bound_len, [a0, a1, a2, a3])
+}
+
+/// Build the uniform wrapper FUNCTION entry over the raw callee `inner`
+/// (name/arity/source copied so `.name`/`.length`/`.toString` read through).
+fn wrap_raw_callee_uniform(inner: u64) -> u64 {
+    let (arity, name, is_arrow, has_this, source) = with_entry(inner, |e| match e {
+        Some(Entry::Function(d)) => (
+            d.arity,
+            d.name.clone(),
+            d.is_arrow,
+            d.has_this_param,
+            d.source.clone(),
+        ),
+        _ => (0u8, Box::<str>::from(""), false, false, None),
+    });
+    alloc_entry(Entry::Function(Box::new(FunctionData {
+        fn_ptr: raw_callee_bridge_thunk as *const () as usize as u64,
+        arity,
+        name,
+        bound_this: inner as i64,
+        has_bound_this: true,
+        bound_args: Vec::new(),
+        is_arrow,
+        has_this_param: has_this,
+        param_kinds: Vec::new(),
+        return_kind: 0,
+        packed_shim: 0,
+        source,
+        keep_alive: None,
+        prototype_handle: 0,
+        rest_param_idx: -1,
+        uniform_thunk: true,
+    })))
 }
 
 /// METHOD-AWARE invoke: `recv.m(args)` where `m` resolved to a FUNCTION word.
