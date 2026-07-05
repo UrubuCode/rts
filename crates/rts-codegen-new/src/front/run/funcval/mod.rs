@@ -1114,7 +1114,11 @@ impl Ctx {
             if param_names.contains(id)
                 || id == &name
                 || GLOBALS.contains(&id.as_str())
-                || self.top_level.contains(id)
+                // A top-level CLOSURE (a synthesized fn WITH captures) is NOT
+                // skippable: its direct name cannot be called from a scope that
+                // lacks its captured locals — fall through to the capture path,
+                // which snapshots its REIFIED fn VALUE (env embedded).
+                || (self.top_level.contains(id) && !self.captures.contains_key(id))
                 || self.module_globals.contains(id)
                 // An in-scope OUTER LOCAL/PARAM SHADOWS a same-named Registry
                 // namespace/class (JS scoping): `parse(input: string)` captures
@@ -1123,6 +1127,13 @@ impl Ctx {
                 || (!scope.contains(id)
                     && (super::registry::has_namespace(id) || super::registry::has_class(id)))
             {
+                continue;
+            }
+            // A top-level closure name: capture its fn VALUE (the enclosing
+            // body reifies it — ITS captures are that body's leading params, so
+            // the env embeds transitively). Never a mutable-capture cell.
+            if self.top_level.contains(id) {
+                captures.push(id.clone());
                 continue;
             }
             // A free ident outside those sets is a CAPTURE. It must be a real outer
