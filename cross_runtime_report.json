@@ -1417,10 +1417,10 @@
 ,
 {
   "name": "348_closure_optimization",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "55\n55\n13\n20\ninitialized\ninitialized\ninitialized\n1\n24\n24\n24",
   "node": "55\n55\n13\n20\ninitialized\ninitialized\ninitialized\n1\n24\n24\n24",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "55\n55\n13\n20\ninitialized\ninitialized\ninitialized\n1\n24\n24\n24"
 }
 ,
 {
@@ -1788,7 +1788,7 @@
   "status": "rts_diverge",
   "bun": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
   "node": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
-  "rts": ""
+  "rts": "undefined"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":447,"rts_diverge":61,"bun_node_diverge":17,"errors":84,"rejected":0}}
+],"summary":{"total":609,"pass":448,"rts_diverge":61,"bun_node_diverge":17,"errors":83,"rejected":0}}
