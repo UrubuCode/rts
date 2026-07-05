@@ -353,6 +353,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 HirExprKind::Ident(f) => self.sigs.get(f).is_some_and(|s| s.ret_lazy_gen),
                 _ => false,
             },
+            // A LAZY generator LOCAL (`const gen = counter(..); for (const v
+            // of gen)`): the local rides a raw Int64 GenState handle — DRAIN
+            // it exactly like a direct-call source.
+            HirExprKind::Ident(n) => self.generator_locals.get(n).copied() == Some(true),
             _ => false,
         };
         if !is_lazy {

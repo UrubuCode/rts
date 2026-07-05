@@ -380,6 +380,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 if let Some(w) = self.try_class_iterator_source_word(module, &args[0])? {
                     return Ok(Val::tagged_kind(w, JsKind::Array));
                 }
+                // A LAZY generator source (`Array.from(fibonacci())` / a gen
+                // local): DRAIN via the same hook for-of uses.
+                if let Some(w) = self.try_lazy_gen_source_word(module, &args[0])? {
+                    return Ok(Val::tagged_kind(w, JsKind::Array));
+                }
                 let v = self.lower_expr(module, &args[0])?;
                 let boxed = self.box_value(v);
                 let res = self
