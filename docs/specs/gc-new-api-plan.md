@@ -154,7 +154,7 @@ prerequisites of a clean moving collector.
   delete only what tested an API removed by design (explicit, justified
   regression).
 - **D3. Re-measure** real correctness (assertion-level, not just run-exit-0 —
-  see [`project_measure_metric`] in memory: `measure_new.sh` counts execution
+  see [`project_measure_metric`] in memory: `scripts/measure_new.sh` counts execution
   coverage, not correctness). Expected: a big CORRECTNESS jump when the ~110
   fixtures stop printing handle numbers.
 

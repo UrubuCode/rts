@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 # Real correctness: run each fixture via run-new, count ✗ failing tests.
 # rts:test writes ✓/✗ to stderr, so capture 2>&1.
 RTS=target/release/rts.exe

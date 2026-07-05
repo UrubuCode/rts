@@ -102,8 +102,8 @@ Before **every** commit touching `crates/rts-codegen-new/`, run the gate at the
 repo root and read its full output:
 
 ```bash
-bash read_before_commit.sh            # full gate (static checks + cargo build)
-bash read_before_commit.sh --no-build # fast static-only pass while iterating
+bash scripts/read_before_commit.sh            # full gate (static checks + cargo build)
+bash scripts/read_before_commit.sh --no-build # fast static-only pass while iterating
 ```
 
 It enforces the binding rules as a commit gate:
@@ -278,7 +278,7 @@ only engine; the old engine + `rts-mir` are deleted. Honest cross-runtime parity
 is **~76.5%** as of 2026-07-05 (auto-updated badge; re-measure before quoting) —
 the engine has the sound value model and is re-filling coverage. The deleted old
 engine's 100% (372/372, tag `v0.0-202606072107`) is the bar to re-clear. Always
-re-measure (`measure_new.sh` / cross-runtime report); never quote a remembered
+re-measure (`scripts/measure_new.sh` / cross-runtime report); never quote a remembered
 number or the old 94.3%/100%/70.7% framings. See `00-meta.md` "HONEST CURRENT
 STATUS".
 

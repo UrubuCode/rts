@@ -52,7 +52,7 @@ WHEN the new engine needs it, as new-engine work — not as a port.
 `docs: auto-update cross-runtime parity badge (…%)` (several) +
 `.github/cross_runtime_history/*.json` + `.github/cross_runtime_report.json` + snapshot 2026-06-15.
 Data/badges measured on the OLD engine (parity ~70.7-71.1%) — irrelevant to the new
-engine (which measures via `measure_new.sh`, baseline 274/630 today). Not brought over.
+engine (which measures via `scripts/measure_new.sh`, baseline 274/630 today). Not brought over.
 
 ## Summary
 - **The important part (N-API): ported and working.**

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 # Run every tests/*.test.ts through the NEW engine (run-new), bucket pass/fail.
 # A file "runs" if exit 0 (compiled + executed without an Unsupported bail).
 RTS=target/release/rts.exe

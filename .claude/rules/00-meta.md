@@ -55,7 +55,7 @@ Read these files in order (path relative to repo root):
   `rts-html-north-star.md` + `arquitetura.md` + `docs/specs/egui-ui-crate-design.md`)
   and follow its phases in order. STRICTLY MANDATORY — no exceptions.
 - **MANDATORY RULE: read_before_commit.sh GATE + FILE LAYOUT** (in `CLAUDE.md`;
-  workflow detail in `04-workflow.md`) — run `bash read_before_commit.sh` before
+  workflow detail in `04-workflow.md`) — run `bash scripts/read_before_commit.sh` before
   every engine commit; no engine source file > 500 lines (split into
   folders/subfolders); engine names ONLY primordials, `rts-shared`/`rts-std` are
   NOT native/primitive
@@ -80,7 +80,7 @@ tree on disk over the doc's paths.
 ### How to apply
 
 1. Work is picked by the loop **measure → attack the biggest failure cluster →
-   re-measure**. Measure with `bash measure_new.sh` (per-file pass/bail histogram)
+   re-measure**. Measure with `bash scripts/measure_new.sh` (per-file pass/bail histogram)
    and the cross-runtime report (`.github/cross_runtime_report.json`). The biggest cluster
    is the biggest lever; resolving it reveals the next.
 2. Run the suite incrementally (not only at the end).

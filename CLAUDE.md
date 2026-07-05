@@ -33,7 +33,7 @@ This is the first and most important rule. It governs all others.
   (P0→P5), not from a fixture-grind roadmap (see "HONEST CURRENT STATUS" below
   and `.claude/rules/00-meta.md`)
 - **MANDATORY RULE: read_before_commit.sh GATE + FILE LAYOUT** — run
-  `bash read_before_commit.sh` and read its whole output before every commit
+  `bash scripts/read_before_commit.sh` and read its whole output before every commit
   touching the engine; no engine source file > 500 lines (split into a
   folder/subfolder); the engine names ONLY primordials —
   `rts-shared`/`rts-std` are **NOT** native/primitive and a direct mention is a
@@ -138,11 +138,11 @@ Before **every** commit that touches `crates/rts-codegen-new/`, run the gate and
 read its full output:
 
 ```bash
-bash read_before_commit.sh            # full gate (includes cargo build)
-bash read_before_commit.sh --no-build # fast static-only pass while iterating
+bash scripts/read_before_commit.sh            # full gate (includes cargo build)
+bash scripts/read_before_commit.sh --no-build # fast static-only pass while iterating
 ```
 
-The gate (at the repo root) encodes the binding rules below so a commit cannot
+The gate (in `scripts/`) encodes the binding rules below so a commit cannot
 silently violate them. It separates **HARD** failures (exit non-zero — never
 commit) from **REVIEW** lists (read every entry; pre-existing debt must shrink,
 never grow).
@@ -191,7 +191,7 @@ strangler-fig migration is over: the new engine is the only engine.**
 no longer exist (not in the workspace, not on disk). `rts run` / `rts compile` /
 `rts test` / `rts eval` all execute through the **new engine**
 (`crates/rts-codegen-new/`, value model in `crates/rts-adapters/`). The
-`run-new` command and `measure_new.sh` still exist as the campaign harness from
+`run-new` command and `scripts/measure_new.sh` still exist as the campaign harness from
 the migration; `run`/`run-new` are now the same engine. The old overloaded-`i64`
 value model, the 4.6k-LOC switchboard, and the 1113 manual `add_fn!` are gone.
 
@@ -217,7 +217,7 @@ in the `rts-adapters` crate, not `rts-codegen-new/src/*.rs`).
 
 ### How work is picked now
 Drive coverage up by attacking the largest failure cluster from the cross-runtime
-/ `measure_new.sh` histogram (measure → attack biggest cluster → re-measure),
+/ `scripts/measure_new.sh` histogram (measure → attack biggest cluster → re-measure),
 highest-leverage first. The deferred epics (#195 mutable closures — partly landed
 via mutable-local-capture, #207 async event loop, #216/#222 Symbol, #218 Proxy —
 get/set/delete traps landed, #219 BigInt, #223 dynamic import) are in scope where
@@ -372,7 +372,7 @@ When you reach for a non-primordial name, STOP and resolve it by **shape/data**:
    add the flag/field there (`flags`/`default_args`/`ts_signature` on the Member),
    then the generic path picks it up. Never patch the front to compensate.
 
-The `read_before_commit.sh` gate flags a non-primordial name in
+The `scripts/read_before_commit.sh` gate flags a non-primordial name in
 `crates/rts-codegen-new/` for review — if it fires on your change, you took the
 hardcode path; go back to the list above.
 

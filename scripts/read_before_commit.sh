@@ -25,7 +25,7 @@
 #         bash read_before_commit.sh --no-build # skip the cargo build step
 set -u
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENGINE="$ROOT/crates/rts-codegen-new"
 SRC="$ENGINE/src"
 CARGO="$ENGINE/Cargo.toml"
