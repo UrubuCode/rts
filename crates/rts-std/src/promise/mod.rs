@@ -816,29 +816,17 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_ALL_SETTLED(promises: U64) -> Handle {
             .unwrap_or(true) // None tambem conta como "settled" (rejected default)
     });
     if all_settled_sync {
-        use indexmap::IndexMap;
-        let mk_str = |s: &[u8]| -> i64 { alloc_entry(Entry::String(s.to_vec())) as i64 };
         let mut result_vec: Vec<i64> = Vec::with_capacity(slots.len());
         for slot in slots.iter() {
-            let mut obj: IndexMap<String, i64> = IndexMap::new();
-            let Some(s) = slot else {
-                obj.insert("status".to_string(), mk_str(b"rejected"));
-                obj.insert("reason".to_string(), 0);
-                let h = alloc_entry(Entry::Map(Box::new(obj)));
-                result_vec.push(h as i64);
-                continue;
+            let row = match slot {
+                None => allsettled_row(promise_slot::STATE_REJECTED, 0),
+                Some(s) => {
+                    let state = promise_slot::current_state(s);
+                    let value = promise_slot::current_value(s);
+                    allsettled_row(state, value)
+                }
             };
-            let state = promise_slot::current_state(s);
-            let value = promise_slot::current_value(s);
-            if state == promise_slot::STATE_FULFILLED {
-                obj.insert("status".to_string(), mk_str(b"fulfilled"));
-                obj.insert("value".to_string(), value);
-            } else {
-                obj.insert("status".to_string(), mk_str(b"rejected"));
-                obj.insert("reason".to_string(), value);
-            }
-            let h = alloc_entry(Entry::Map(Box::new(obj)));
-            result_vec.push(h as i64);
+            result_vec.push(row);
         }
         let result_vec_h = alloc_entry(Entry::Vec(Box::new(result_vec)));
         promise_slot::resolve(&result, result_vec_h as i64);
@@ -851,36 +839,43 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_ALL_SETTLED(promises: U64) -> Handle {
     let rt = crate::runtime::async_rt::handle();
     rt.spawn_blocking(move || {
         // JS spec: array de { status: "fulfilled", value } | { status: "rejected", reason }.
-        // Cada elemento e' um Map (objeto JS) com chaves "status" + "value"/"reason"
-        // armazenando handles de string ("fulfilled"/"rejected") e o valor/reason raw.
-        use indexmap::IndexMap;
-        let mk_str = |s: &[u8]| -> i64 { alloc_entry(Entry::String(s.to_vec())) as i64 };
+        // Cada linha e' um objeto SHAPED do motor novo (slots = PolyValue words).
         let mut result_vec: Vec<i64> = Vec::with_capacity(slots.len());
         for slot in slots.iter() {
-            let mut obj: IndexMap<String, i64> = IndexMap::new();
-            let Some(s) = slot else {
-                obj.insert("status".to_string(), mk_str(b"rejected"));
-                obj.insert("reason".to_string(), 0);
-                let h = alloc_entry(Entry::Map(Box::new(obj)));
-                result_vec.push(h as i64);
-                continue;
+            let row = match slot {
+                None => allsettled_row(promise_slot::STATE_REJECTED, 0),
+                Some(s) => {
+                    let (state, value) = promise_slot::wait_blocking(s);
+                    allsettled_row(state, value)
+                }
             };
-            let (state, value) = promise_slot::wait_blocking(s);
-            if state == promise_slot::STATE_FULFILLED {
-                obj.insert("status".to_string(), mk_str(b"fulfilled"));
-                obj.insert("value".to_string(), value);
-            } else {
-                obj.insert("status".to_string(), mk_str(b"rejected"));
-                obj.insert("reason".to_string(), value);
-            }
-            let h = alloc_entry(Entry::Map(Box::new(obj)));
-            result_vec.push(h as i64);
+            result_vec.push(row);
         }
         let result_vec_h = alloc_entry(Entry::Vec(Box::new(result_vec)));
         promise_slot::resolve(&result_clone, result_vec_h as i64);
     });
 
     result_handle
+}
+
+/// Linha do `Promise.allSettled` como objeto SHAPED (motor novo):
+/// `{ status: "fulfilled", value }` ou `{ status: "rejected", reason }` —
+/// retorna o OBJECT word do row (elemento direto do Vec de resultados).
+fn allsettled_row(state: u8, value: i64) -> i64 {
+    use rts_engine::heap::shapes::{
+        alloc_shaped_object, handle_word_auto, legacy_i64_to_word, string_word,
+    };
+    let fulfilled = state == promise_slot::STATE_FULFILLED;
+    let (status, key) = if fulfilled {
+        (string_word(b"fulfilled"), "value")
+    } else {
+        (string_word(b"rejected"), "reason")
+    };
+    let h = alloc_shaped_object(
+        &["status", key],
+        &[status as i64, legacy_i64_to_word(value) as i64],
+    );
+    handle_word_auto(h) as i64
 }
 
 /// Função `promise.f(args)`.

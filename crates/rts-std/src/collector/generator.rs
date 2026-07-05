@@ -32,20 +32,18 @@ const BOOL_TRUE: i64 = i64::MIN + 1;
 /// que a engine remapeia pro undefined do motor novo).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_ITER_VALUE(result_handle: u64) -> i64 {
-    with_entry(result_handle, |e| match e {
-        Some(Entry::Map(m)) => m.get("value").copied().unwrap_or(UNDEFINED),
-        _ => UNDEFINED,
-    })
+    read_result_parts(result_handle)
+        .map(|(v, _)| v)
+        .unwrap_or(UNDEFINED)
 }
 
 /// (motor NOVO) Lê o campo `done` como flag `1`/`0` (o Map guarda o sentinela
 /// `BOOL_TRUE`/`BOOL_FALSE` era-i64; a engine faz o PolyValue bool do motor novo).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_ITER_DONE(result_handle: u64) -> i64 {
-    with_entry(result_handle, |e| match e {
-        Some(Entry::Map(m)) => i64::from(m.get("done").copied() == Some(BOOL_TRUE)),
-        _ => 1,
-    })
+    read_result_parts(result_handle)
+        .map(|(_, d)| i64::from(d))
+        .unwrap_or(1)
 }
 
 thread_local! {
@@ -555,13 +553,7 @@ pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_DRAIN(h: u64) -> u64 {
             if crate::collector::error::__RTS_FN_RT_ERROR_GET() != 0 {
                 break;
             }
-            let (val, dn) = with_entry(result_map as u64, |e| match e {
-                Some(Entry::Map(m)) => (
-                    m.get("value").copied().unwrap_or(UNDEFINED),
-                    m.get("done").copied() == Some(BOOL_TRUE),
-                ),
-                _ => (UNDEFINED, true),
-            });
+            let (val, dn) = read_result_parts(result_map as u64).unwrap_or((UNDEFINED, true));
             if dn {
                 break;
             }
@@ -912,12 +904,30 @@ pub extern "C" fn __RTS_FN_NS_GC_GEN_SM_IS(h: u64) -> i64 {
     with_entry(h, |e| matches!(e, Some(Entry::GenState(_))) as i64)
 }
 
-/// Aloca o objeto-resultado `{value, done}` como Map.
+/// Aloca o objeto-resultado `{value, done}` como objeto SHAPED do motor novo
+/// (Entry::Vec com shape-id no slot 0) — o modelo de objeto único, sem o
+/// dicionário legacy Entry::Map. Slots guardam PolyValue WORDS.
 fn make_result(value: i64, done: bool) -> u64 {
-    let mut m: IndexMap<String, i64> = IndexMap::new();
-    m.insert("value".to_string(), value);
-    m.insert("done".to_string(), if done { BOOL_TRUE } else { BOOL_FALSE });
-    alloc_entry(Entry::Map(Box::new(m)))
+    use rts_engine::heap::shapes::{alloc_shaped_object, bool_word, legacy_i64_to_word};
+    alloc_shaped_object(
+        &["value", "done"],
+        &[
+            legacy_i64_to_word(value) as i64,
+            bool_word(done) as i64,
+        ],
+    )
+}
+
+/// Lê `(value_word, done)` de um resultado `{value, done}` shaped (o formato
+/// que [`make_result`] produz). `None` quando o handle não é um shaped result.
+fn read_result_parts(h: u64) -> Option<(i64, bool)> {
+    use rts_engine::heap::shapes::bool_word;
+    with_entry(h, |e| match e {
+        Some(Entry::Vec(slots)) if slots.len() == 3 => {
+            Some((slots[1], slots[2] as u64 == bool_word(true)))
+        }
+        _ => None,
+    })
 }
 
 // ── Iterator helpers (#306) ─────────────────────────────────────────────────

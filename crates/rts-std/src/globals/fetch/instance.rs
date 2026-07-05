@@ -420,18 +420,21 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_NEW(executor_h: u64) -> u64 {
 /// sao Function handles que settle a promise quando chamados.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_PROMISE_WITH_RESOLVERS() -> u64 {
-    use indexmap::IndexMap;
+    use rts_engine::heap::shapes::{alloc_shaped_object, handle_word_auto};
     let slot = crate::promise_slot::new_pending();
     let promise_h = alloc_entry(Entry::PromiseAsync(slot.clone()));
-    // Resolve/reject sao Function handles que armazenam `promise_h` em
-    // bound_args[0] — quando invocados, resolvem o slot embutido.
+    // Resolve/reject sao Function handles (thunk uniforme, promise no env).
     let resolve_h = make_resolver_fn(promise_h, true);
     let reject_h = make_resolver_fn(promise_h, false);
-    let mut obj: IndexMap<String, i64> = IndexMap::new();
-    obj.insert("promise".to_string(), promise_h as i64);
-    obj.insert("resolve".to_string(), resolve_h as i64);
-    obj.insert("reject".to_string(), reject_h as i64);
-    alloc_entry(Entry::Map(Box::new(obj)))
+    // Objeto SHAPED do motor novo (slots = words), nao dicionario Entry::Map.
+    alloc_shaped_object(
+        &["promise", "resolve", "reject"],
+        &[
+            handle_word_auto(promise_h) as i64,
+            handle_word_auto(resolve_h) as i64,
+            handle_word_auto(reject_h) as i64,
+        ],
+    )
 }
 
 /// Helper: cria Function handle (thunk uniforme) que ao ser invocado chama

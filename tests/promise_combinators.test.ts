@@ -41,20 +41,18 @@ collections.vec_push(v4, promise.new_resolved(13));
 const r4 = await promise.any(v4);
 print("any=" + r4);  // 42 (primeira fulfilled)
 
-// 5. promise.all_settled — retorna Vec<Map> (objetos JS-spec)
-// com chaves "status" (string handle) + "value" ou "reason".
+// 5. promise.all_settled — retorna array de objetos JS-spec SHAPED
+// ({ status, value } | { status, reason }) — lidos como propriedades JS
+// (o dicionário legacy Entry::Map foi removido; as linhas são objetos reais).
 const v5 = collections.vec_new();
 collections.vec_push(v5, promise.new_resolved(5));
 collections.vec_push(v5, promise.new_rejected(7));
 collections.vec_push(v5, promise.new_resolved(11));
-const r5 = await promise.all_settled(v5);
-print("settled_len=" + collections.vec_len(r5));
-const m0 = collections.vec_get(r5, 0);
-const m1 = collections.vec_get(r5, 1);
-const m2 = collections.vec_get(r5, 2);
-print("settled[0].value=" + collections.map_get(m0, "value"));   // 5
-print("settled[1].reason=" + collections.map_get(m1, "reason")); // 7
-print("settled[2].value=" + collections.map_get(m2, "value"));   // 11
+const r5: any = await promise.all_settled(v5);
+print("settled_len=" + r5.length);
+print("settled[0].value=" + r5[0].value);   // 5
+print("settled[1].reason=" + r5[1].reason); // 7
+print("settled[2].value=" + r5[2].value);   // 11
 
 describe("promise combinators (issue #415, F4)", () => {
   test("matches expected stdout", () => {
