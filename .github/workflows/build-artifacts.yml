@@ -77,6 +77,15 @@ jobs:
         run: target/release/rts run bench/pi_machin.ts
         shell: bash
 
+      # BLOCKING AOT smoke: catches a placeholder runtime archive (staticlib not
+      # built / wrong package) in the release binary itself. The ts-suite job's
+      # AOT smoke is continue-on-error (#1288) and does not gate the release.
+      - name: Smoke test — rts compile (AOT)
+        shell: bash
+        run: |
+          target/release/rts compile bench/pi_machin.ts smoke_aot
+          ./smoke_aot*
+
       - name: Rename artifact (Windows)
         if: runner.os == 'Windows'
         shell: bash

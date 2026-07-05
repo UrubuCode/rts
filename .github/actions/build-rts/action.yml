@@ -1,7 +1,7 @@
 name: Build RTS
 description: >
   Build the `rts` binary. The AOT runtime archive is a two-step build: Cargo only
-  emits rts-runtime's `staticlib` output (which build.rs embeds) when rts-runtime
+  emits rts-adapters' `staticlib` output (which build.rs embeds) when rts-adapters
   is a direct target, so it is built first, then the `rts` bin picks it up.
 
 inputs:
@@ -22,10 +22,10 @@ runs:
       shell: bash
       run: |
         if [ "${{ inputs.profile }}" = "release" ]; then
-          cargo build --release -p rts-runtime
+          cargo build --release -p rts-adapters
           cargo build --release
         else
-          cargo build -p rts-runtime
+          cargo build -p rts-adapters
           cargo build
         fi
 
@@ -34,12 +34,12 @@ runs:
       shell: pwsh
       run: |
         if ('${{ inputs.profile }}' -eq 'release') {
-          cargo build --release -p rts-runtime
+          cargo build --release -p rts-adapters
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo build --release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         } else {
-          cargo build -p rts-runtime
+          cargo build -p rts-adapters
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
