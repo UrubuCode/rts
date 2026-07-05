@@ -1297,10 +1297,10 @@
 ,
 {
   "name": "codex_textencoder_encodeinto_partial",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "3:5\n65,240,159,153,130\nA🙂",
   "node": "3:5\n65,240,159,153,130\nA🙂",
-  "rts": "3:5\n65,240,159,153,130\nA🙂"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -1324,7 +1324,7 @@
   "status": "rts_diverge",
   "bun": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
   "node": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
-  "rts": "caught:handled\nA1,A2,B1,A3,B2,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C"
+  "rts": "caught:handled\nA1,A2,A3,B1,B2,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C"
 }
 ,
 {
@@ -3265,10 +3265,10 @@
 ,
 {
   "name": "420_state_machine_parser",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "14\n15\n28",
   "node": "14\n15\n28",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "14\n15\n28"
 }
 ,
 {
@@ -3497,10 +3497,10 @@
 ,
 {
   "name": "395_regex_d_flag",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
   "node": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "2026-05-22\n6\n3e-323,8e-323\n3e-323,5e-323\n5.4e-323,6.4e-323\n7e-323,8e-323\n3e-323,5e-323\n5.4e-323,6.4e-323\n7e-323,8e-323\n\nfoo@0-1.5e-323|bar@2e-323-3.5e-323|baz@4e-323-5.4e-323\n42\nnull\n0,1e-323\nnull"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":449,"rts_diverge":64,"bun_node_diverge":17,"errors":79,"rejected":0}}
+],"summary":{"total":609,"pass":449,"rts_diverge":65,"bun_node_diverge":17,"errors":78,"rejected":0}}
