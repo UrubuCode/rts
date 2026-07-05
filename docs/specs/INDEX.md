@@ -38,6 +38,11 @@ they were not a guide for the new engine.
   why PolyValue (slot-index, shards, 64-bit word) accommodates it; blockers
   (thread-local gcells, ICs, string pool) and phases T0→T5.
 
+- [Method-dispatch engine (registration half)](rts-engine-dispatch.md) — the
+  `rts-engine` builder/Registry design the live code references (§4/§9.5/§10
+  external modules); the dispatch half was superseded by the codegen design
+  doc §10 (see the status note at the top of the file).
+
 ## Active guides
 
 - [Cross-runtime parity testing](cross-runtime-testing.md) — System that validates

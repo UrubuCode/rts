@@ -1,5 +1,13 @@
 # RTS_ENGINE.md — Method dispatch engine (single resolution + single emission)
 
+> **STATUS NOTE (2026-07-05).** Written for the OLD engine: the `builtins.rs`
+> string-match this doc kills was DELETED with `rts-codegen-old` — the dispatch
+> half is superseded by `rts-codegen-new-design.md` §10 (MethodSpec +
+> `resolve_method`, ABI harvested from SPECS). What survives from here is the
+> REGISTRATION half: the `rts-engine` builder/Registry design (§4, §9.5, §10
+> external modules) that the live code references. Kept for those references
+> and the design rationale; read the codegen design doc first.
+
 > Status: **staged implementation in progress** (foundation started — see §0.1).
 > Canonical document for the *dispatch* half of the engine (how `recv.method(args)`
 > resolves to a native symbol without today's scattered string-match) plus, in §10,

@@ -64,7 +64,7 @@ impl GlobalClassSpec {
     ///
     /// Instance members carry the receiver in `args[0]`, so the explicit param
     /// count is `args.len() - 1`. This replaces the ad-hoc arity `find` that was
-    /// duplicated across the codegen call sites (RTS_ENGINE.md §4.3).
+    /// duplicated across the codegen call sites (docs/specs/rts-engine-dispatch.md §4.3).
     pub fn resolve_instance_method(&self, name: &str, n_args: usize) -> Option<&NamespaceMember> {
         use super::member::MemberKind;
         let named = |m: &&NamespaceMember| {

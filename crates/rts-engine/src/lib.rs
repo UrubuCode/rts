@@ -10,10 +10,10 @@
 //!
 //! O modelo antigo (`rts-macro` + arrays `SPECS`/`GLOBAL_CLASS_SPECS` + a lista
 //! `add_fn!` do JIT) tinha **três fontes de verdade à mão** se desincronizando
-//! (ver `RTS_ENGINE.md` §4). O builder unifica isso: cada item é registrado
+//! (ver `docs/specs/rts-engine-dispatch.md` §4). O builder unifica isso: cada item é registrado
 //! **uma vez**, carregando o **ponteiro de função nativo** (que dobra como
 //! símbolo do JIT) + a assinatura ABI. Builtins e módulos externos (`.dll`/
-//! `.so`, ver `RTS_ENGINE.md` §10) usam o **mesmo** caminho de registro.
+//! `.so`, ver `docs/specs/rts-engine-dispatch.md` §10) usam o **mesmo** caminho de registro.
 //!
 //! Trade honesto: perde-se a auto-derivação da macro (extern + metadata de uma
 //! assinatura); ganha-se um caminho uniforme + a morte dos arrays-à-mão. O
@@ -37,7 +37,7 @@
 //!
 //! Bootstrap: o registry + o builder + a resolução chaveada-por-aridade. A
 //! migração de GC, globals, e das namespaces (`rts-std`) para cima deste núcleo
-//! é o roadmap de `RTS_ENGINE.md` (F3/F4 + a virada de autoria).
+//! é o roadmap de `docs/specs/rts-engine-dispatch.md` (F3/F4 + a virada de autoria).
 
 pub mod abi;
 pub mod collector;

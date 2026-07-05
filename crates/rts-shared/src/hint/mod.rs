@@ -1,7 +1,7 @@
 //! `hint` namespace — performance hints (std::hint).
 //!
 //! **Primeira namespace migrada do `#[rts_namespace]` (macro) para o modelo
-//! builder do `rts-engine`** (Fase 2 de `RTS_ENGINE.md`/`WORKING.md`). Os
+//! builder do `rts-engine`** (Fase 2 de `docs/specs/rts-engine-dispatch.md`/`WORKING.md`). Os
 //! externs são `#[no_mangle]` à mão; a superfície é registrada via
 //! [`register`] no startup (o `register_builtins` do codegen a folda no
 //! registry). Não há mais `#[rts_namespace]`/`SPEC` macro-gerado aqui — é o

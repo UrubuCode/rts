@@ -72,7 +72,7 @@ pub struct NamespaceMember {
     /// rejection on `READONLY` and to pick the atomic-backed getter/setter path
     /// on `MUTABLE`. Visibility (`#private`/protected) is intentionally NOT a
     /// flag here — a builtin member that user TS must not reach is simply not
-    /// declared as a public member (see `RTS_ENGINE.md` §9.5).
+    /// declared as a public member (see `docs/specs/rts-engine-dispatch.md` §9.5).
     pub flags: MemberFlags,
 }
 
