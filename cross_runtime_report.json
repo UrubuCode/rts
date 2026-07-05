@@ -3489,18 +3489,18 @@
 ,
 {
   "name": "366_regex_advanced",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "2026\n05\n22\n22/05/2026\n$10,$20,$40\nfoo,food\ncat=5\ndog=3\nbird=8\n123\n7\nhello ? world\na|1|b|2|c|3|\nHello World Foo",
   "node": "2026\n05\n22\n22/05/2026\n$10,$20,$40\nfoo,food\ncat=5\ndog=3\nbird=8\n123\n7\nhello ? world\na|1|b|2|c|3|\nHello World Foo",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "2026\n05\n22\n22/05/2026\n$10,$20,$40\nfoo,food\ncat=5\ndog=3\nbird=8\n123\n0\nhello ? world\na|1|b|2|c|3|\nHello World Foo"
 }
 ,
 {
   "name": "395_regex_d_flag",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
   "node": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "2026-05-22\n6\n6,16\n6,10\n11,13\n14,16\n6,10\n11,13\n14,16\n2026\nfoo@0-3|bar@4-7|baz@8-11\n42\nundefined\n0,2\nundefined"
 }
 ,
 {
@@ -3524,7 +3524,7 @@
   "status": "rts_diverge",
   "bun": "indices=[[1,4],[2,3],[3,4]]",
   "node": "indices=[[1,4],[2,3],[3,4]]",
-  "rts": "indices={}"
+  "rts": "indices={\"0\":[1,4],\"1\":[2,3],\"2\":[3,4],\"length\":3}"
 }
 ,
 {
@@ -3545,10 +3545,10 @@
 ,
 {
   "name": "codex_regex_indices_named_groups",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "aaab:2\n[2,6]\n[2,5]\naaa",
   "node": "aaab:2\n[2,6]\n[2,5]\naaa",
-  "rts": "aaab:2\n[1e-323,3e-323]\n[1e-323,2.5e-323]\naaa"
+  "rts": "aaab:2\n[2,6]\n[2,5]\naaa"
 }
 ,
 {
@@ -3865,10 +3865,10 @@
 ,
 {
   "name": "261_string_matchall",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "rows=aa-10:aa:10:aa|bb-20:bb:20:bb\nlastIndex=0",
   "node": "rows=aa-10:aa:10:aa|bb-20:bb:20:bb\nlastIndex=0",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "rows=aa-10:aa:10:aa|bb-20:bb:20:bb\nlastIndex=0"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":450,"rts_diverge":60,"bun_node_diverge":17,"errors":82,"rejected":0}}
+],"summary":{"total":609,"pass":453,"rts_diverge":60,"bun_node_diverge":17,"errors":79,"rejected":0}}
