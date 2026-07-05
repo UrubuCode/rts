@@ -1108,6 +1108,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     ) -> FrontResult<cranelift_codegen::ir::Value> {
         let arr = emit_marshal::emit_new_vec_object(module, self.builder);
         for cap in capture_names {
+            // A capture that is a TOP-LEVEL FUNCTION name (a transitive-closure
+            // reference — the inner arrow calls an enclosing synthesized closure):
+            // snapshot its REIFIED fn VALUE. Reifying HERE embeds ITS env from
+            // THIS scope's locals (the enclosing closure's leading capture params),
+            // so the chain nests soundly.
+            if self.local(cap).is_none() && self.sigs.contains_key(cap.as_str()) {
+                let v = self.reify_function(module, cap)?;
+                let word = self.box_value(v);
+                emit_marshal::emit_vec_push(module, self.builder, arr, word);
+                continue;
+            }
             let local = self.local(cap).ok_or_else(|| {
                 Unsupported::new(format!(
                     "closure captures `{cap}` which is not a simple local in scope"
@@ -1230,18 +1241,35 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         fn_word: Value,
         args: &[HirExpr],
     ) -> FrontResult<Val> {
-        // `f(...xs)` — a SOLE spread arg: resolve the source to an array word
-        // (array/iterable/string — the same hook array-literal spread uses) and
-        // unpack at RUNTIME via the apply trampoline (arbitrary length).
-        if args.len() == 1 {
-            if let HirExprKind::Spread(inner) = &args[0].kind {
-                let arr_word = self.spread_source_array_word(module, inner)?;
-                let res = self
-                    .call_runtime(module, "__rtsadp_fn_apply_arr", &[fn_word, arr_word])?
-                    .expect("__rtsadp_fn_apply_arr returns a value");
-                self.emit_post_call_error_check(module)?;
-                return Ok(Val::new(res, Repr::Tagged));
+        // ANY spread arg (`f(...xs)`, `f(a, ...xs)`, `f(...xs, ...ys)` — the
+        // curry pattern): build ONE runtime args array — plain args push their
+        // boxed word, each `...spread` appends its source (array/iterable/
+        // string, the same hook array-literal spread uses) — and unpack via the
+        // apply trampoline (arbitrary length).
+        if args
+            .iter()
+            .any(|a| matches!(a.kind, HirExprKind::Spread(_)))
+        {
+            let arr = emit_marshal::emit_new_vec_object(module, self.builder);
+            for a in args {
+                if let HirExprKind::Spread(inner) = &a.kind {
+                    let src_word = self.spread_source_array_word(module, inner)?;
+                    self.call_runtime(
+                        module,
+                        "__rtsadp_arr_spread_append",
+                        &[arr, src_word],
+                    )?;
+                } else {
+                    let v = self.lower_expr(module, a)?;
+                    let word = self.box_value(v);
+                    emit_marshal::emit_vec_push(module, self.builder, arr, word);
+                }
             }
+            let res = self
+                .call_runtime(module, "__rtsadp_fn_apply_arr", &[fn_word, arr])?
+                .expect("__rtsadp_fn_apply_arr returns a value");
+            self.emit_post_call_error_check(module)?;
+            return Ok(Val::new(res, Repr::Tagged));
         }
         // Box the first four positional args; missing slots are `undefined`.
         let undef = || value::PolyValue::undefined().raw() as i64;
