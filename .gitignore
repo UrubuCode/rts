@@ -65,3 +65,4 @@ examples/music_test.wav
 # build/debug artifacts never tracked
 *.pdb
 /tmp_*/
+/bench-output/

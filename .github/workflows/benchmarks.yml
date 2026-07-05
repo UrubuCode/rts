@@ -17,7 +17,7 @@ on:
         default: "3"
 
 permissions:
-  contents: read
+  contents: write      # auto-update of the README benchmark block
   actions: read
 
 concurrency:
@@ -102,3 +102,76 @@ jobs:
           name: benchmark-results-${{ steps.build.outputs.sha }}
           path: bench-output/results.json
           retention-days: 90
+
+      # Auto-update the README benchmark block (same pattern as the
+      # cross-runtime parity badge): rewrites the section between
+      # <!-- BENCH_STATS_START --> / <!-- BENCH_STATS_END --> and commits.
+      - name: Update README benchmark block
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = 'bench-output/results.json';
+            if (!fs.existsSync(path)) { console.log('no results.json'); return; }
+            const r = JSON.parse(fs.readFileSync(path, 'utf8'));
+
+            const median = (bench, runner) => {
+              const b = r.benches.find(x => x.id === bench);
+              const e = b && b.runs.find(x => x.runner === runner);
+              return e ? e.stats.median_ms : null;
+            };
+            const fmt = (ms) => ms == null ? '—' : (ms >= 1000
+              ? (ms / 1000).toFixed(2) + ' s' : Math.round(ms) + ' ms');
+            const ratio = (base, rts) => (base == null || rts == null || rts === 0)
+              ? '—' : '**' + (base / rts).toFixed(2) + '×**';
+
+            const ROWS = [
+              { id: 'simple',               label: 'Hello/startup' },
+              { id: 'monte_carlo',          label: 'Monte Carlo π 10M (same xorshift algorithm)' },
+              { id: 'monte_carlo_jsrand',   label: 'Monte Carlo π 10M (JS `Math.random`)' },
+              { id: 'pi_bigfloat',          label: 'π decimal ~30 digits (i128 vs BigInt)' },
+              { id: 'monte_carlo_threaded', label: 'Monte Carlo 10M threaded (vs Bun Workers)' },
+              { id: 'pi_machin',            label: 'π Machin f64 (RTS only)' },
+            ];
+            let table =
+              '| Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |\n' +
+              '|---|---|---|---|---|---|---:|---:|\n';
+            for (const row of ROWS) {
+              const bun = median(row.id, 'bun');
+              const node = median(row.id, 'node');
+              const deno = median(row.id, 'deno');
+              const jit = median(row.id, 'rts_jit');
+              const aot = median(row.id, 'rts_aot');
+              if (jit == null && aot == null) continue;
+              table += `| ${row.label} | ${fmt(bun)} | ${fmt(node)} | ${fmt(deno)} ` +
+                `| ${fmt(jit)} | **${fmt(aot)}** | ${ratio(bun, aot)} | ${ratio(node, aot)} |\n`;
+            }
+
+            const today = new Date().toISOString().slice(0, 10);
+            const meta = r.meta || {};
+            const stats = `### 📊 Measured benchmarks (auto-updated by CI)\n\n` +
+              `End-to-end process time (includes startup/JIT compile), median of ` +
+              `${meta.runs || '?'} runs after ${meta.warmup || '?'} warmups, ` +
+              `GitHub Actions \`windows-latest\` — commit \`${meta.short_sha || '?'}\`.\n\n` +
+              table + `\n_Updated: ${today} — run locally with ` +
+              '`powershell -File bench/benchmark.ps1`_\n';
+
+            let readme = fs.readFileSync('README.md', 'utf8');
+            if (!/<!-- BENCH_STATS_START -->/.test(readme)) {
+              console.log('README markers missing; skipping'); return;
+            }
+            readme = readme.replace(
+              /<!-- BENCH_STATS_START -->[\s\S]*?<!-- BENCH_STATS_END -->/,
+              `<!-- BENCH_STATS_START -->\n${stats}\n<!-- BENCH_STATS_END -->`
+            );
+            fs.writeFileSync('README.md', readme);
+
+            const { execSync } = require('child_process');
+            execSync('git config user.name "github-actions[bot]"');
+            execSync('git config user.email "github-actions[bot]@users.noreply.github.com"');
+            execSync('git add README.md');
+            const changed = execSync('git status --porcelain README.md').toString().trim();
+            if (!changed) { console.log('no README change'); return; }
+            execSync('git pull --rebase origin main');
+            execSync('git commit -m "docs: auto-update benchmark table"');
+            execSync('git push origin HEAD:main');

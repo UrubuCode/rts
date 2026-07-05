@@ -67,6 +67,7 @@ function Have-Cmd([string]$Name) {
 $Benches = @(
   @{ id = "simple";               rts = "bench\rts_simple.ts";               js = "bench\bun_simple.ts";                  jsRunners = @("bun","node","deno") }
   @{ id = "monte_carlo";          rts = "bench\monte_carlo_pi.ts";           js = "bench\monte_carlo_pi.js";              jsRunners = @("bun","node","deno") }
+  @{ id = "monte_carlo_jsrand";   rts = "bench\monte_carlo_pi.ts";           js = "bench\monte_carlo_pi_native_rand.js";  jsRunners = @("bun","node","deno") }
   @{ id = "pi_bigfloat";          rts = "bench\pi_bigfloat.ts";              js = "bench\pi_bigfloat.js";                 jsRunners = @("bun","node","deno") }
   @{ id = "monte_carlo_threaded"; rts = "bench\monte_carlo_pi_threaded.ts";  js = "bench\monte_carlo_pi_threaded_bun.ts"; jsRunners = @("bun") }
   @{ id = "pi_machin";            rts = "bench\pi_machin.ts";                js = "";                                     jsRunners = @() }
@@ -77,14 +78,24 @@ $Benches = @(
 # -------------------------------------------------------------------
 $AotBin = @{}
 New-Item -ItemType Directory -Force -Path "target\bench" | Out-Null
+$Skipped = @()
 foreach ($b in $Benches) {
   $key = ($b.rts -replace '[\\/]', '_') -replace '\.ts$', ''
   $out = "target\bench\$key"
   Write-Host "compiling AOT: $($b.rts) -> $out"
   & $RtsExe compile -p $b.rts $out --production | Out-Host
   $exe = "$out.exe"
-  if (-not (Test-Path $exe)) { throw "AOT output missing: $exe" }
+  if (-not (Test-Path $exe)) {
+    # Skip (with a loud warning) instead of aborting the whole suite: a bench
+    # source hitting an engine gap must not hide every other result.
+    Write-Warning "AOT output missing for $($b.rts) - bench '$($b.id)' SKIPPED"
+    $Skipped += $b.id
+    continue
+  }
   $AotBin[$b.rts] = $exe
+}
+if ($Skipped.Count -gt 0) {
+  $Benches = @($Benches | Where-Object { $Skipped -notcontains $_.id })
 }
 
 # -------------------------------------------------------------------
@@ -153,6 +164,7 @@ $report = [PSCustomObject]@{
     rts_version = $rtsVersion
   }
   benches = $benchResults
+  skipped = $Skipped
 }
 
 $json = $report | ConvertTo-Json -Depth 10

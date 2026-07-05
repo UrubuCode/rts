@@ -60,112 +60,62 @@ Two paths, same codegen:
 
 ---
 
-## ⚡ Performance — RTS vs Bun vs Node
+## ⚡ Performance — honest numbers, new engine
 
-Benchmarks run on Windows 11 (100 runs, 5 warmups, median).
+> **Context.** The engine was rewritten from scratch on a sound value model
+> (`PolyValue` NaN-box + shapes + inline caches) and the campaign so far has
+> been **correctness-first** (parity badge above). The deleted old engine's
+> peak (Monte Carlo AOT **16.9 ms**, 5.4× faster than Bun; HTTP 29k req/s)
+> is the documented performance **target to re-clear**, not the current
+> state. Numbers below are **end-to-end process time** (startup included —
+> AOT runtime init is ~70 ms of every figure) measured now on the new engine.
 
-### Monte Carlo π — 10M iterations
+<!-- BENCH_STATS_START -->
 
-<table>
-<tr>
-<td align="center" width="33%">
-<b>Bun</b><br/>
-<code>91.8 ms</code><br/>
-<sub>baseline</sub>
-</td>
-<td align="center" width="33%">
-<b>Node.js</b><br/>
-<code>113.9 ms</code><br/>
-<sub>1.24× slower than Bun</sub>
-</td>
-<td align="center" width="33%">
-<b>RTS AOT</b> 🦅<br/>
-<code>16.9 ms</code><br/>
-<sub><b>5.43× faster than Bun</b><br/><b>6.74× faster than Node</b></sub>
-</td>
-</tr>
-</table>
+### 📊 Measured benchmarks
 
-### Monte Carlo π — 10M iterations (8 workers)
+Median of 10 runs after 2 warmups, Windows 11, local machine, 2026-07-05.
 
-<table>
-<tr>
-<td align="center" width="50%">
-<b>Bun Workers</b><br/>
-<code>147.6 ms</code>
-</td>
-<td align="center" width="50%">
-<b>RTS multi-thread</b> 🦅<br/>
-<code>30.3 ms</code><br/>
-<sub><b>4.87× faster than Bun Workers</b></sub>
-</td>
-</tr>
-</table>
+| Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** |
+|---|---|---|---|---|---|
+| Monte Carlo π 10M (same xorshift algorithm)¹ | 3.47 s | 3.60 s | 2.64 s | 543 ms | **165 ms** |
+| Monte Carlo π 10M (JS `Math.random`)¹ | 89 ms | 189 ms | 204 ms | — | — |
+| π decimal ~30 digits (i128 vs BigInt) | 41 ms | 45 ms | 56 ms | 425 ms | **78 ms** |
+| Monte Carlo 10M threaded (vs Bun Workers) | 92 ms | — | — | 471 ms | **111 ms** |
+| π Machin f64 (RTS only) | — | — | — | 422 ms | **78 ms** |
 
-### HTTP Server — req/s (sustained load)
+¹ The shared-algorithm variant forces the identical xorshift64 sequence in
+both runtimes — JS pays BigInt for 64-bit ops (that's the point: RTS runs
+64-bit integer code natively). The `Math.random` row is the JS-favourable
+comparison of the same workload.
 
-<table>
-<tr>
-<td align="center" width="50%">
-<b>Bun.serve</b><br/>
-<code>~14k req/s</code>
-</td>
-<td align="center" width="50%">
-<b>RTS http_server</b> 🦅<br/>
-<code>29k req/s</code><br/>
-<sub><b>2.07× faster than Bun.serve</b><br/>78% of pure-Rust actix</sub>
-</td>
-</tr>
-</table>
+Honest read: **AOT startup (~70 ms runtime init) currently dominates
+sub-100 ms workloads**, and the new engine has not yet re-tuned the
+monomorphic hot paths the old engine had (16.9 ms MC target). Correctness
+first; the performance re-tuning phase follows the parity campaign.
 
-### Summary
+_Updated: 2026-07-05 — run locally with `powershell -File bench/benchmark.ps1`;
+CI refreshes this block via the Benchmarks workflow._
 
-| Bench                          | Bun       | Node      | **RTS AOT** | RTS vs Bun | RTS vs Node |
-|--------------------------------|-----------|-----------|-------------|-----------:|------------:|
-| Monte Carlo 10M (1 thread)     | 91.8 ms   | 113.9 ms  | **16.9 ms** | **5.43×**  | **6.74×**   |
-| Monte Carlo 10M (8 threads)    | 147.6 ms  | —         | **30.3 ms** | **4.87×**  | —           |
-| HTTP throughput                | ~14k req/s| —         | **29k req/s** | **2.07×** | —           |
+<!-- BENCH_STATS_END -->
 
-**Why faster?** RTS compiles TS to a native binary via Cranelift —
-no JIT warmup, no GC pause, no dynamic dispatch on the hot paths. Common
-loops automatically rewrite to `parallel.*` (rayon) without the user ever
-mentioning threads (silent parallelism). The shard-aware HandleTable (32
-lock-free shards) scales allocation in parallel.
-
----
-
-## 🔮 Silent Parallelism — the user doesn't ask, the compiler delivers
-
-> ⚠️ **Old engine (frozen).** The 3 silent-rewrite passes live in
-> `rts-codegen-old` and are NOT carried into the new engine without re-justification.
-> Described here as historical capability; the new engine prioritizes the soundness
-> floor first.
-
-You write this:
-
-```ts
-const arr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-let sum = 0;
-for (const x of arr) sum = sum + x;
-```
-
-And the codegen recognizes the associative-accumulator pattern and rewrites it, before lowering IR:
-
-```ts
-sum = parallel.reduce(arr, 0, __par_reduce_0);  // rayon, transparent
-```
-
-Covers pure `for...of`, `arr.map/.forEach/.reduce`, and the classic
-`s = s + EXPR` pattern. 96 functions already marked `pure: true` (math, string, num,
-fmt, path, hash, mem) feed the recognition. Details in
-[`docs/specs/silent-parallelism.md`](docs/specs/silent-parallelism.md).
+**Why native wins (and where the work is).** RTS compiles TS to machine
+code via Cranelift — no JIT warmup, no interpreter tier, native 64-bit
+integer arithmetic JS engines can't touch without BigInt. The `PolyValue`
+NaN-box only pays where code is actually polymorphic and the Cranelift
+egraph folds redundant box/unbox away — the design that made the old
+engine 5× faster than Bun is intact; wiring the new engine's hot paths
+back to it (plus cutting the ~70 ms AOT startup) is the tuning phase after
+the parity campaign.
 
 ---
 
 ## 🧰 The runtime stack — the whole `std::*`, in pure Rust
 
-37 namespaces. No dependency on OpenSSL, schannel, libuv, or any
-external runtime.
+40+ namespaces today — being reshaped into per-module `rts:*` imports
+(camelCase, JS globals for everything the language already covers): see
+[`docs/specs/rts-std-surface.md`](docs/specs/rts-std-surface.md). No
+dependency on OpenSSL, schannel, libuv, or any external runtime.
 
 | Family | Namespaces |
 |---|---|
@@ -228,48 +178,63 @@ Full state and technical backlog: [issue #1793](https://github.com/UrubuCode/rts
 
 ## 🎯 What the language understands today
 
-✅ **Control flow** — `if/else`, `while`, `do-while`, `for`, `switch`
-   (native jump table via `br_table` when all cases are integer literals)
+✅ **Control flow** — `if/else`, `while`, `do-while`, `for`, `for-of`/`for-in`
+   (real iterator protocol with `IteratorClose` on break), `switch`
+   (native jump table via `br_table` when all cases are integer literals),
+   labeled break/continue
 
-✅ **Functions** — declaration, expression, arrow, **tail call optimization**
-   (`return f(x)` becomes `return_call`), first-class function pointers
+✅ **Functions** — declaration, expression, arrow, closures with mutable
+   capture (cells), **tail call optimization** (`return f(x)` becomes
+   `return_call`), first-class function pointers, `call/apply/bind/toString`,
+   `new Function` (runtime compile), spread call `f(...args)`
 
 ✅ **Classes** — `constructor`, methods, `this`, `extends`, `super(...)`,
-   `super.method(...)`, static, getters/setters, **real virtual dispatch**,
-   **Rust-style operator overload** (`a + b` becomes `a.add(b)` at compile time)
+   `super.method(...)`, static methods/fields + `static {}`, getters/setters,
+   real `C.prototype` + `constructor.name`, **shape-keyed virtual dispatch**,
+   private fields `#x`, **Rust-style operator overload** (`a + b` becomes
+   `a.add(b)` at compile time)
 
-✅ **async / await** — Promise-centric pipeline with shared tokio.
-   `Promise.create` does `spawn_blocking`, automatic settle via thread-local
-   error slot. Complete Function class (`call/apply/bind/toString/new Function`).
+✅ **Generators & async** — `function*`/`yield`/`yield*` (lazy state
+   machine), async generators + `for await`, `async/await` with a real
+   microtask queue (`.then` chains in spec order), Promise combinators
+   (`all/allSettled/race/any`), thenable adoption, `withResolvers`
 
-✅ **Big decimal** — `bigfloat` in i128 fixed-point, ~30 digits. π via Machin
-   hits 29 correct digits (f64 delivers 16).
+✅ **Objects** — hidden-class shapes + inline caches, getters/setters in
+   literals, computed keys, spread, `Object.*` statics, property descriptors,
+   freeze/seal, prototype chain, `Proxy` (get/set/delete/apply/ownKeys traps)
+   + `Reflect`, `Symbol` (+ well-known, `Symbol.iterator` protocol)
 
-✅ **Containers** — object/array literals via `collections.map_*`/`vec_*`,
-   member access, assignment, free nesting
+✅ **Data** — TypedArrays/`ArrayBuffer`/`DataView`/`SharedArrayBuffer` +
+   `Atomics`, `Map`/`Set`/`WeakMap`/`WeakSet` (TS stdlib), `WeakRef`/
+   `FinalizationRegistry` (strong interim, #217), JSON (+JSON5), `Date`,
+   `RegExp` (exec/matchAll/named groups/`d` flag), big decimal (`bigfloat`,
+   i128 fixed-point ~30 digits), full destructuring (incl. assignment
+   targets), template literals + tagged templates + `String.raw`
 
-✅ **try/catch/finally** (phase 1) — thread-local error slot; real unwind
-   not yet (#128)
+✅ **Errors** — `try/catch/finally`, real `throw`/instanceof over the Error
+   family, error slot + pending-error unwind at call edges
 
-✅ **Others** — `enum`, nested+rename destructuring, spread in literals,
-   regex, default params, exports/imports, JSON, Date, console.*, Map/Set v0,
-   essential Array/String prototypes
+✅ **Web/Node surface** — fetch/Headers/FormData/Blob/streams, URL,
+   TextEncoder/Decoder, timers + microtasks, EventTarget/AbortController,
+   console, `node:fs/os/path/process/crypto/util` shims, N-API addons
+   (`.node`), `import.meta`
 
-❌ **Not supported yet** — generators, decorators, full generics,
-   `satisfies`, call spread `f(...args)`, closures with real mutable capture
-   (#195 in phase 1)
+❌ **Not there yet** — decorators, full generics/type-checker, real weak
+   semantics (#217), `Intl` (partial), full BigInt semantics, real async
+   event loop for every path (#207), `var` hoisting edge cases (#301)
 
 ---
 
 ## 🏗️ Architecture
 
-> **Redesign in progress (strangler-fig).** The codegen engine is being
-> rewritten from scratch behind the old, frozen one. The active **new** engine is
-> `crates/rts-codegen-new/` (single HIR→Cranelift path, no MIR; `PolyValue`
-> NaN-boxed value; shapes + data inline caches; data-driven dispatch). The
-> old `crates/rts-codegen-old/` (dual HIR→MIR / AST, overloaded `i64` value)
-> is **frozen** and goes away at cutover. Canonical plan:
+> **The cutover happened.** The old engine (`rts-codegen-old`) and the MIR
+> tier (`rts-mir`) are **deleted** — `crates/rts-codegen-new/` is the only
+> engine (single HIR→Cranelift path; `PolyValue` NaN-boxed value model in
+> `crates/rts-adapters/`; hidden-class shapes + AOT-safe data inline caches;
+> data-driven dispatch). Canonical design:
 > [`docs/specs/rts-codegen-new-design.md`](docs/specs/rts-codegen-new-design.md).
+> Public-surface direction:
+> [`docs/specs/rts-std-surface.md`](docs/specs/rts-std-surface.md).
 
 Cargo workspace in `crates/`. `src/` is the facade of the `rts` bin (re-exports
 the crates); real paths live under `crates/<crate>/src/`.
@@ -277,21 +242,24 @@ the crates); real paths live under `crates/<crate>/src/`.
 ```
 crates/
 ├─ rts-ast/          internal AST
-├─ rts-parser/       SWC parse → AST
+├─ rts-parser/       SWC parse → AST (+ generator/async state-machine desugar)
 ├─ rts-diagnostics/  structured errors
-├─ rts-engine/       ⚡ heap GC + ABI contract (SPECS, AbiType, Intrinsic, symbols) + Registry
+├─ rts-engine/       ⚡ heap GC + ABI contract (SPECS, AbiType, Intrinsic, symbols)
+│                    + Registry/builder + global shape registry
 ├─ rts-hir/          typed HIR (I8..I128/F32/F64/Bool/Str/Handle/Array/Function/Class/Object/Any)
-├─ rts-mir/          SSA MIR — used ONLY by rts-codegen-old (frozen); goes away at cutover
-├─ rts-codegen-old/  FROZEN engine (dual MIR/AST, switchboard, manual add_fn!)
-├─ rts-codegen-new/  ACTIVE engine — value.rs (PolyValue), repr.rs, shape.rs, ic.rs,
-│                    dispatch.rs (data-driven), abi_gen.rs (ABI generated from SPECS), lower/ (single path)
-├─ rts-primitives/   PRIMORDIAL classes (String/Object/Array/Function/Promise/Boolean/Number/Error)
-├─ rts-shared/       non-primordial universal (math/num/collections(Map/Set)/json/globals + stdlib/*.ts)
-├─ rts-std/          backend (io/net/tokio/console/promise/audio)
+├─ rts-adapters/     value model — PolyValue (64-bit NaN-box), Repr lattice,
+│                    shapes + data ICs, data-driven dispatch, runtime trampolines
+├─ rts-codegen-new/  THE engine — front/run (single HIR→Cranelift lowering),
+│                    module_jit + module_aot, adapter_symbols (JIT table harvested from SPECS)
+├─ rts-primitives/   PRIMORDIAL classes (String/Object/Array/Function/Promise/Boolean/Number/Error…)
+├─ rts-shared/       non-primordial universal (collections/json/globals + stdlib/*.ts preludes)
+├─ rts-std/          backend (io/net/tokio/console/promise/streams/audio)
 ├─ rts-runtime/      thin facade (pub use of the four above) + AOT staticlib
 ├─ rts-node/         node:* shims (fs, os, path, process, crypto, util)
 ├─ rts-napi/         N-API (.node addons) via libloading + HandleTable
-├─ rts-linker/       native link (system linker + object fallback)
+├─ rts-dom/          headless HTML+CSS engine (DOM → cascade → layout → display list)
+├─ rts-egui/         window/paint backend (egui/wgpu) + render/input namespaces
+├─ rts-linker/       native link (system linker + object fallback, per-target archives)
 └─ rts-cli/          run · compile · apis · init · repl · eval · ir
 ```
 

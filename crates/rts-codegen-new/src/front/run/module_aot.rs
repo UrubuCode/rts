@@ -55,6 +55,10 @@ pub(crate) fn compile_program_aot(prog: &super::LoweredProgram) -> FrontResult<V
 fn make_object_module() -> FrontResult<ObjectModule> {
     let mut flags = settings::builder();
     flags.set("opt_level", "speed").unwrap();
+    // Required by `return_call` (TCO) on x86-64 — the JIT sets it too; without
+    // it Cranelift panics ("frame pointers aren't fundamentally required for
+    // tail calls, but the current implementation relies on them").
+    flags.set("preserve_frame_pointers", "true").unwrap();
     let isa = cranelift_native::builder()
         .map_err(|e| Unsupported::new(format!("host isa builder: {e}")))?
         .finish(settings::Flags::new(flags))
