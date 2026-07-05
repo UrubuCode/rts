@@ -199,7 +199,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     && (d.method_fn(&method).is_some() || d.accessor(&method).is_some())
             });
         let called_word = if resolvable {
-            let called = self.lower_method_call(module, object, &method, real_args)?;
+            // Dispatch over a HIDDEN TEMP bound to the ALREADY-EVALUATED
+            // receiver word — the method lowering re-lowers only the Ident
+            // (a pure read), so an IMPURE receiver (`deps.get(k)?.forEach(..)`)
+            // is evaluated exactly once.
+            let tmp = format!("__rtsn_optrecv_{}", self.builder.func.dfg.num_values());
+            self.bind_tagged_local(&tmp, Val::new(recv_word, Repr::Tagged));
+            let tmp_expr = rts_hir::HirExpr::new(
+                rts_hir::ir::HirExprKind::Ident(tmp),
+                rts_hir::HirType::Unknown,
+            );
+            let called = self.lower_method_call(module, &tmp_expr, &method, real_args)?;
             self.box_value(called)
         } else {
             self.builder

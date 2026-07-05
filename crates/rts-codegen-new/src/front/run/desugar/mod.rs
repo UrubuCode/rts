@@ -55,6 +55,7 @@ pub(crate) fn desugar(
     main_body: &mut Vec<HirStmt>,
     funcs: &mut [rts_hir::HirFunc],
     classes: &super::class::ClassTable,
+    lit_fn_bodies: &std::collections::HashMap<String, Vec<swc_ecma_ast::Stmt>>,
 ) {
     // Collect the swc statements that became the main body, in source order.
     let top_stmts: Vec<&swc_ecma_ast::Stmt> = program
@@ -167,6 +168,18 @@ pub(crate) fn desugar(
                 // is unchanged.
                 super::class::rewrite_this_block(&mut f.body);
             }
+        }
+    }
+
+    // LIT-METHOD bodies (synthesized by the object-literal recovery, incl.
+    // nested literals): pair each with the swc body the recovery kept, so a
+    // template / OPTIONAL CHAIN inside a literal method/getter/setter recovers
+    // exactly like one in a free function (`set value(v) { this.deps?.forEach(…) }`).
+    for f in funcs.iter_mut() {
+        if let Some(body) = lit_fn_bodies.get(&f.name) {
+            let refs: Vec<&swc_ecma_ast::Stmt> = body.iter().collect();
+            rewrite_unit(&refs, &mut f.body);
+            super::class::rewrite_this_block(&mut f.body);
         }
     }
 }

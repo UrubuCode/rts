@@ -102,10 +102,11 @@ fn object_rest() {
 }
 
 #[test]
-fn bail_assignment_target() {
-    // Assignment-target destructuring `[a, b] = arr` (no let/const): the HIR is a
-    // bare assignment to a non-ident target, which bails.
-    assert_bails("let a = 0; let b = 0; [a, b] = [1, 2]; console.log(a + b);");
+fn assignment_target_destructuring() {
+    // Assignment-target destructuring `[a, b] = arr` (no let/const) — desugared
+    // to element assignments (was a bail before the destructuring-assignment
+    // increment).
+    assert_stdout("let a = 0; let b = 0; [a, b] = [1, 2]; console.log(a + b);", "3\n");
 }
 
 // ---- nested patterns (temp + recurse) ----

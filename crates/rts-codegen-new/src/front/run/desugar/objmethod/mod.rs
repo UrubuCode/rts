@@ -64,13 +64,14 @@ pub(crate) fn desugar_obj_methods(
     main_body: &mut Vec<HirStmt>,
     funcs: &mut Vec<HirFunc>,
     classes: &mut ClassTable,
-) -> HashMap<String, String> {
+) -> (HashMap<String, String>, HashMap<String, Vec<swc_ecma_ast::Stmt>>) {
     let mut rec = Recovery {
         classes,
         new_funcs: Vec::new(),
         names: HashMap::new(),
         unit: main_name.to_string(),
         fn_units: HashMap::new(),
+        fn_bodies: HashMap::new(),
     };
 
     let top_stmts: Vec<&swc_ecma_ast::Stmt> = program
@@ -132,7 +133,7 @@ pub(crate) fn desugar_obj_methods(
 
     let new = rec.new_funcs;
     funcs.extend(new);
-    rec.fn_units
+    (rec.fn_units, rec.fn_bodies)
 }
 
 /// Per-program recovery state: the class table to register into, the synthesized
@@ -148,6 +149,9 @@ struct Recovery<'a> {
     unit: String,
     /// synthesized lit fn name → constructing unit fn name.
     fn_units: HashMap<String, String>,
+    /// synthesized lit fn name → its swc BODY statements (cloned), so the
+    /// template/optchain RECOVERY pass can pair them like any other fn.
+    fn_bodies: HashMap<String, Vec<swc_ecma_ast::Stmt>>,
 }
 
 impl Recovery<'_> {
@@ -340,6 +344,9 @@ impl Recovery<'_> {
                     let prev = std::mem::replace(&mut self.unit, f.name.clone());
                     self.rewrite_unit(&stmts, &mut f.body);
                     self.unit = prev;
+                    // Keep the swc body so the template/optchain RECOVERY pass
+                    // (which runs later, over the whole program) pairs this fn.
+                    self.fn_bodies.insert(f.name.clone(), b.stmts.clone());
                 }
             }
             if !self.classes.contains(&name) {

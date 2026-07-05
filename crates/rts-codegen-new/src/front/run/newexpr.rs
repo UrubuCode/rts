@@ -162,22 +162,23 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .expect("__rtsadp_class_proto_init returns a word");
         self.call_runtime(module, "__rtsadp_obj_set_proto", &[obj_word, proto])?;
 
-        // WELL-KNOWN SYMBOL methods (`[Symbol.iterator]() {}` → `@@iterator`):
-        // publish the reified fn as a PROTO slot so the runtime iteration /
-        // coercion protocols (obj_get chain walk) find it on any instance.
+        // Publish the class's PLAIN methods as PROTO slots (reified fn words) —
+        // this is what makes DYNAMIC dispatch on a Tagged receiver fully
+        // polymorphic: `x.forEach(cb)` on an `any` holding a `.ts` Set/Map (or
+        // any user class) resolves through the obj_get chain walk + method
+        // invoke, with ZERO engine knowledge of the class's layout or name.
+        // Well-known `@@*` methods ride the same publish (the iteration /
+        // coercion protocols read them). Generators/async are excluded — their
+        // call protocol is the lazy state machine, not a plain fn value; the
+        // compile-time class-iterator arm serves those.
         {
             let wk: Vec<(String, String)> = desc
                 .methods
                 .iter()
-                .filter(|(n, f)| {
-                    // A GENERATOR/async `*[Symbol.iterator]` cannot be reified
-                    // as a plain fn VALUE (its call protocol is the lazy state
-                    // machine) — the compile-time class-iterator arm serves it;
-                    // publish only PLAIN @@ methods.
-                    n.starts_with("@@")
-                        && self.sigs.get(f.as_str()).is_some_and(|s| {
-                            !s.is_async && !s.ret_lazy_gen
-                        })
+                .filter(|(_, f)| {
+                    self.sigs
+                        .get(f.as_str())
+                        .is_some_and(|s| !s.is_async && !s.ret_lazy_gen)
                 })
                 .map(|(n, f)| (n.clone(), f.clone()))
                 .collect();

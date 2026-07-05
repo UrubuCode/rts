@@ -82,62 +82,31 @@ pub extern "C" fn __rtsadp_to_iter_array(word: u64) -> u64 {
         }
         return box_vec_as_array(out);
     }
-    // A `.ts` stdlib SET instance reached dynamically (a nested Set element, a
-    // param): its elements live in the private `#items` array slot. A MAP yields
-    // `[k, v]` pairs from `#keys`/`#vals`. Detected by SHAPE (the engine-owned
-    // private slot names), never by class name.
+    // CUSTOM `[Symbol.iterator]` — the REAL protocol; see also the LAZY
+    // trampolines (`__rtsadp_iter_open/next/close`) the for-of lowering drives
+    // directly (close-on-break). This eager path remains for spread /
+    // `Array.from` / `new Map(iterable)`. This is ALSO how the `.ts` stdlib
+    // Set/Map materialize: their `*[Symbol.iterator]` generators publish on the
+    // class prototype — the engine never reads their private layout. A generator
+    // method returns a lazy GenState handle (drained by the state machine); a
+    // plain iterator object drives `next()` until `done`, collecting `value`s.
     if v.is_object() {
-        let items = super::objops::__rtsadp_obj_get(word, abi_adapter::intern_poly("#items").raw());
-        let iv = PolyValue::from_raw(items);
-        if iv.is_object() && !looks_like_object(iv) {
-            return items;
-        }
-        let ks = super::objops::__rtsadp_obj_get(word, abi_adapter::intern_poly("#keys").raw());
-        let vs = super::objops::__rtsadp_obj_get(word, abi_adapter::intern_poly("#vals").raw());
-        let (kv, vv) = (PolyValue::from_raw(ks), PolyValue::from_raw(vs));
-        if kv.is_object() && !looks_like_object(kv) && vv.is_object() && !looks_like_object(vv) {
-            let kh = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(kv.as_handle());
-            let vh = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(vv.as_handle());
-            let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(kh).max(0);
-            let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
-            for i in 0..len {
-                let pair = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
-                let k = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(kh, i);
-                let vl = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(vh, i);
-                rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(pair, k);
-                rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(pair, vl);
-                let pair_word = PolyValue::from_object_handle(
-                    rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(pair),
-                )
-                .raw() as i64;
-                rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, pair_word);
-            }
-            return box_vec_as_array(out);
-        }
-    }
-    // CUSTOM `[Symbol.iterator]` — see also the LAZY protocol trampolines
-    // (`__rtsadp_iter_open/next/close`) the for-of lowering drives directly
-    // (close-on-break). This eager path remains for spread/`Array.from`.
-    // (object literal / class instance whose slot —
-    // own or via the prototype chain — holds the method under the canonical
-    // `@@sym:<handle>` key): drive the REAL protocol — invoke the method for
-    // the iterator object, then `next()` until `done`, collecting `value`s.
-    if v.is_object() {
-        // The desugar stores a `[Symbol.iterator]() {}` literal/class method as
-        // the own-prop fn slot `@@iterator` (well-known Symbol members recover
-        // to `@@<name>`); a DYNAMIC `o[Symbol.iterator] = fn` write lands under
-        // the `@@sym:<handle>` canonical key — check both.
-        let key = abi_adapter::intern_poly("@@iterator");
-        let mut m = super::objops::__rtsadp_obj_get(word, key.raw());
-        if !PolyValue::from_raw(m).is_function() {
-            let iter_h = rts_runtime::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_ITERATOR();
-            let skey = abi_adapter::intern_poly(&format!("@@sym:{iter_h}"));
-            m = super::objops::__rtsadp_obj_get(word, skey.raw());
-        }
+        let m = custom_iterator_method(word).unwrap_or(PolyValue::undefined().raw());
         if PolyValue::from_raw(m).is_function() {
             let undef = PolyValue::undefined().raw();
             let it = super::funcops::__rtsadp_fn_invoke_method(m, word, undef, undef, undef, 0);
-            if PolyValue::from_raw(it).is_object() {
+            let itv = PolyValue::from_raw(it);
+            if itv.is_object() {
+                // A `*[Symbol.iterator]` GENERATOR returns a lazy GenState
+                // handle, not a `{next}` object — drain it to a real array.
+                let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(itv.as_handle());
+                let is_gen = rt_handles::with_entry(h, |e| {
+                    matches!(e, Some(rt_handles::Entry::GenState(_)))
+                });
+                if is_gen {
+                    let arr_h = rts_runtime::namespaces::collector::generator::__RTS_FN_NS_GC_GEN_SM_DRAIN(h);
+                    return box_vec_as_array(arr_h);
+                }
                 let next_key = abi_adapter::intern_poly("next").raw();
                 let done_key = abi_adapter::intern_poly("done").raw();
                 let value_key = abi_adapter::intern_poly("value").raw();

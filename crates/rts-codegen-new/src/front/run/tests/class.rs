@@ -103,13 +103,15 @@ fn instance_in_loop() {
 // cases now live as positive tests in `class_inherit.rs`.
 
 #[test]
-fn method_on_unknown_class_param_bails() {
-    // `o` is a param of unknown class — a method call on it needs dynamic dispatch
-    // (a later increment). Must bail, not guess a class.
-    assert_bails(
+fn method_on_unknown_class_param_dispatches_dynamically() {
+    // `o` is a param of unknown class — the generic `__rtsadp_dyn_method_call`
+    // reads the method off the receiver (own slot / prototype chain) and
+    // invokes it with `this` = recv, no class guessed.
+    assert_stdout(
         "function f(o: any){ return o.get(); } \
          class C { v: number; constructor(){this.v=3;} get(){return this.v;} } \
          console.log(f(new C()));",
+        "3\n",
     );
 }
 

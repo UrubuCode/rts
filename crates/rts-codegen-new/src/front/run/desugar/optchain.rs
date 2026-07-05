@@ -76,9 +76,9 @@ pub(super) fn build_opt_chain(oc: &swc_ecma_ast::OptChainExpr) -> Option<HirExpr
                 if let (Some(name), Some(Step::Call { args, optional: false })) =
                     (str_lit_key(key), steps.get(i + 1))
                 {
-                    if !is_pure_recv(&cur) {
-                        return None;
-                    }
+                    // An IMPURE receiver is fine: the OPT_METHOD_CALL lowering
+                    // evaluates it ONCE into a hidden temp and dispatches over
+                    // that temp — no re-evaluation, no double effect.
                     cur = opt_method_call(cur, name, args.clone());
                     i += 2;
                     continue;

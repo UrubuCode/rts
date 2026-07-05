@@ -144,9 +144,8 @@ pub(super) fn build_class(
     // --- PRIVATE-field COLLISION renames: a `#x` THIS class declares that an
     // ANCESTOR's flattened field list already contains must be a DISTINCT slot
     // (TS privates are per-declaring-class). Only the COLLIDING names mangle
-    // (`#x@Class`) — an uncontended `#x` keeps its raw name, so the prelude's
-    // shape-detected slots (`#items`/`#keys`/`#vals`) and private METHODS are
-    // untouched.
+    // (`#x@Class`) — an uncontended `#x` keeps its raw name, and private
+    // METHODS are untouched.
     let priv_renames = priv_renames_of(decl, parent);
 
     // --- constructor (forwarding super if the subclass omits one) ---

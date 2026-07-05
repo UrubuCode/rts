@@ -613,7 +613,7 @@ fn build_from_program(
     // object so `lower_object_literal` records the local's class. Run FIRST (before
     // the template/destructure rewrites touch the object's field VALUES, and before
     // arrow extraction) so the swc/HIR positional pairing is on the clean lowering.
-    let lit_fn_units = {
+    let (lit_fn_units, lit_fn_bodies) = {
         let main_name = main.name.clone();
         desugar::desugar_obj_methods(&program, &main_name, &mut main.body, &mut funcs, &mut classes)
     };
@@ -671,7 +671,7 @@ fn build_from_program(
     // rewrites each placeholder into ordinary HIR (a string `+` chain / a guarded
     // ternary). Run BEFORE arrow extraction so a template/chain inside a top-level
     // arrow is rewritten while still in the `main` body it was parsed from.
-    desugar::desugar(&program, &mut main.body, &mut funcs, &classes);
+    desugar::desugar(&program, &mut main.body, &mut funcs, &classes, &lit_fn_bodies);
 
     // P5.11: destructuring — array `[a, b, ...rest]` / object `{x, y: z, w = 5}`
     // patterns in let/const, for-of bindings, and function parameters. rts-hir

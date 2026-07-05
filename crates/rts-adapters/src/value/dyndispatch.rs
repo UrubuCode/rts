@@ -628,6 +628,45 @@ pub extern "C" fn __rtsadp_promise_resolve_w(word: u64) -> u64 {
     r as u64
 }
 
+/// `recv.method(a0..a2)` — GENERIC dynamic method dispatch on a Tagged
+/// receiver whose method the static table doesn't cover: read `method` off the
+/// receiver (own slot or the PROTOTYPE chain — every user/`.ts` class publishes
+/// its methods on the proto), and invoke it as a method (`this` = recv). This
+/// is what makes `x.forEach(cb)` / `x.anyUserMethod(a)` on an `any`-typed local
+/// resolve WITHOUT the engine naming or knowing the class's layout — fully
+/// data-driven (the proto slot IS the class's own method). A primordial ARRAY
+/// receiver routes its Array.prototype method by name (no proto object). A miss
+/// throws TypeError (JS).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_dyn_method_call(
+    recv: u64,
+    key: u64,
+    a0: u64,
+    a1: u64,
+    a2: u64,
+) -> u64 {
+    let undef = PolyValue::undefined().raw();
+    // An ARRAY receiver: dispatch the primordial Array.prototype method by
+    // RUNTIME name (the same table `idx_call` uses).
+    if is_array_word(recv) {
+        // 3 explicit args → argc word; unused slots are `undefined`.
+        let argc = [a0, a1, a2]
+            .iter()
+            .filter(|&&w| w != undef)
+            .count() as u64;
+        return __rtsadp_idx_call(recv, key, a0, a1, argc);
+    }
+    // Read the method off the receiver (own or proto chain). The obj_get chain
+    // walk finds a method published on the class prototype.
+    let m = super::objops::__rtsadp_obj_get(recv, key);
+    if PolyValue::from_raw(m).is_function() {
+        return super::funcops::__rtsadp_fn_invoke_method(m, recv, a0, a1, a2, 0);
+    }
+    let name = abi_adapter::resolve_poly(PolyValue::from_raw(key));
+    super::errslot::throw_js_error("TypeError", &format!("{name} is not a function"));
+    undef
+}
+
 /// The `@@<name>` HOOK method of an OBJECT arg (`matcher[Symbol.match]`), or
 /// `None` — string protocol hooks (match/replace/search/split).
 fn wellknown_hook(arg: u64, name: &str) -> Option<u64> {
