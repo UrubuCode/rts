@@ -1649,10 +1649,10 @@
 ,
 {
   "name": "108_generator_functions",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "next1={\"value\":1,\"done\":false}\nnext2={\"value\":2,\"done\":false}\nnext3={\"value\":3,\"done\":false}\nnext4={\"done\":true}\nforof=a,b\nfib=0,1,1,2,3",
   "node": "next1={\"value\":1,\"done\":false}\nnext2={\"value\":2,\"done\":false}\nnext3={\"value\":3,\"done\":false}\nnext4={\"done\":true}\nforof=a,b\nfib=0,1,1,2,3",
-  "rts": "next1={\"value\":1,\"done\":false}\nnext2={\"value\":2,\"done\":false}\nnext3={\"value\":3,\"done\":false}\nnext4={\"done\":true}\nforof=a,b\nfib="
+  "rts": "next1={\"value\":1,\"done\":false}\nnext2={\"value\":2,\"done\":false}\nnext3={\"value\":3,\"done\":false}\nnext4={\"done\":true}\nforof=a,b\nfib=0,1,1,2,3"
 }
 ,
 {
@@ -1681,10 +1681,10 @@
 ,
 {
   "name": "329_generator_basics",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1\n2\n3\n4\n5\n0,1,1,2,3,5,8,13\n1\n2\n99\ntrue",
   "node": "1\n2\n3\n4\n5\n0,1,1,2,3,5,8,13\n1\n2\n99\ntrue",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "1\n2\n3\n4\n5\n0,1,1,2,3,5,8,13\n1\n2\n99\ntrue"
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":443,"rts_diverge":63,"bun_node_diverge":18,"errors":85,"rejected":0}}
+],"summary":{"total":609,"pass":446,"rts_diverge":62,"bun_node_diverge":17,"errors":84,"rejected":0}}
