@@ -190,6 +190,12 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// [`Self::lower_function`]. The closure thunk receives the same names as its
     /// captured leading PARAMS (already holding the handle), so it shares the set.
     pub cell_locals: std::collections::HashSet<String>,
+    /// Cell-locals HOISTED by the prologue (fn-valued declarations only — the
+    /// mutual-forward-ref set). Their `let`/`const` stmt SETs into the
+    /// pre-allocated box instead of re-allocating; every other cell-local keeps
+    /// the alloc-at-decl behavior (a loop-body `let` needs a FRESH cell per
+    /// pass for the per-iteration capture semantics).
+    pub hoisted_cells: std::collections::HashSet<String>,
     /// Name → the statically-known CLASS of a local/param holding a class instance
     /// (a `new C()` result, a `: C`-annotated param, or `this` inside a method).
     /// Drives static `instance.method(args)` dispatch; absent ⇒ method calls bail.
@@ -346,6 +352,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             object_locals: std::collections::HashSet::new(),
             string_locals: std::collections::HashSet::new(),
             cell_locals,
+            hoisted_cells: std::collections::HashSet::new(),
             local_classes: HashMap::new(),
             local_class_refs: HashMap::new(),
             generator_locals: HashMap::new(),
@@ -436,6 +443,32 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // CALLEE scope (earlier params are already bound — correct JS semantics) and
         // for plain functions, methods, AND constructors (all reach here).
         ctx.fill_default_params(module, func)?;
+
+        // CELL-HOISTING prologue: allocate up front the cell of every
+        // FN-VALUED cell-local of THIS function (bound to `undefined`), so a
+        // closure reified BEFORE the declaring `const` runs (a
+        // mutually-recursive nested fn's FORWARD reference) snapshots a real
+        // cell handle — the decl later SETs the live fn into the same box.
+        // Scoped to fn-valued decls only: a plain loop-body `let` cell keeps
+        // its alloc-at-decl (fresh box per pass, the per-iteration semantics).
+        {
+            let hoist: Vec<String> = super::funcval::fn_decl_names(&func.body)
+                .intersection(&ctx.cell_locals)
+                .cloned()
+                .collect();
+            for name in hoist {
+                if ctx.local(&name).is_some() {
+                    continue; // a param of the same name owns the slot
+                }
+                let undef = ctx.builder.ins().iconst(
+                    types::I64,
+                    value::PolyValue::undefined().raw() as i64,
+                );
+                let handle = ctx.emit_cell_alloc(module, undef);
+                ctx.bind_tagged_local(&name, Val::new(handle, Repr::Tagged));
+                ctx.hoisted_cells.insert(name);
+            }
+        }
 
         // METHOD-TABLE prologue (main only): register every class method's
         // (instance shape-id, name) → thunk addr in the runtime table, so the
