@@ -329,8 +329,8 @@ pub extern "C" fn __RTS_FN_NS_FS_READDIR(path_ptr: *const u8, path_len: i64) -> 
     for entry in iter.flatten() {
         let name = entry.file_name();
         if let Some(s) = name.to_str() {
-            let h = unsafe { __RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64) };
-            entries.push(h as i64);
+            // Elemento como string WORD (motor novo), não handle cru.
+            entries.push(rts_engine::heap::shapes::string_word(s.as_bytes()) as i64);
         }
     }
     alloc_entry(Entry::Vec(Box::new(entries)))

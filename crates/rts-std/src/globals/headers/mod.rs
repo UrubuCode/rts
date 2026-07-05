@@ -155,7 +155,7 @@ pub extern "C" fn __RTS_FN_GL_HEADERS_GET_SET_COOKIE(h: Handle) -> Handle {
     });
     let handles: Vec<i64> = vals
         .into_iter()
-        .map(|v| alloc_entry(Entry::String(v.into_bytes())) as i64)
+        .map(|v| rts_engine::heap::shapes::string_word(v.as_bytes()) as i64)
         .collect();
     alloc_entry(Entry::Vec(Box::new(handles)))
 }
@@ -173,9 +173,10 @@ pub extern "C" fn __RTS_FN_GL_HEADERS_ENTRIES(h: Handle) -> Handle {
     let out: Vec<i64> = pairs
         .into_iter()
         .map(|(k, v)| {
-            let kh = alloc_entry(Entry::String(k.into_bytes())) as i64;
-            let vh = alloc_entry(Entry::String(v.into_bytes())) as i64;
-            alloc_entry(Entry::Vec(Box::new(vec![kh, vh]))) as i64
+            use rts_engine::heap::shapes::{handle_word_auto, string_word};
+            let kw = string_word(k.as_bytes()) as i64;
+            let vw = string_word(v.as_bytes()) as i64;
+            handle_word_auto(alloc_entry(Entry::Vec(Box::new(vec![kw, vw])))) as i64
         })
         .collect();
     alloc_entry(Entry::Vec(Box::new(out)))
@@ -190,7 +191,7 @@ pub extern "C" fn __RTS_FN_GL_HEADERS_KEYS(h: Handle) -> Handle {
     });
     let out: Vec<i64> = keys
         .into_iter()
-        .map(|k| alloc_entry(Entry::String(k.into_bytes())) as i64)
+        .map(|k| rts_engine::heap::shapes::string_word(k.as_bytes()) as i64)
         .collect();
     alloc_entry(Entry::Vec(Box::new(out)))
 }
@@ -204,7 +205,7 @@ pub extern "C" fn __RTS_FN_GL_HEADERS_VALUES(h: Handle) -> Handle {
     });
     let out: Vec<i64> = vals
         .into_iter()
-        .map(|v| alloc_entry(Entry::String(v.into_bytes())) as i64)
+        .map(|v| rts_engine::heap::shapes::string_word(v.as_bytes()) as i64)
         .collect();
     alloc_entry(Entry::Vec(Box::new(out)))
 }

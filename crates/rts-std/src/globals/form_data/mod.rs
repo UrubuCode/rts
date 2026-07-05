@@ -184,7 +184,8 @@ pub extern "C" fn __RTS_FN_GL_FORM_DATA_GET_ALL(
         })
         .unwrap_or_default();
         if key_str == name {
-            out.push(v[i + 1]);
+            // Elemento como WORD (motor novo), não handle cru.
+            out.push(rts_engine::heap::shapes::handle_word_auto(v[i + 1] as u64) as i64);
         }
         i += 2;
     }
@@ -216,8 +217,12 @@ pub extern "C" fn __RTS_FN_GL_FORM_DATA_ENTRIES(h: Handle) -> Handle {
     let mut out: Vec<i64> = Vec::with_capacity(v.len() / 2);
     let mut i = 0;
     while i + 1 < v.len() {
-        let pair = alloc_entry(Entry::Vec(Box::new(vec![v[i], v[i + 1]])));
-        out.push(pair as i64);
+        use rts_engine::heap::shapes::handle_word_auto as w;
+        let pair = alloc_entry(Entry::Vec(Box::new(vec![
+            w(v[i] as u64) as i64,
+            w(v[i + 1] as u64) as i64,
+        ])));
+        out.push(w(pair) as i64);
         i += 2;
     }
     alloc_entry(Entry::Vec(Box::new(out)))
@@ -234,7 +239,7 @@ pub extern "C" fn __RTS_FN_GL_FORM_DATA_KEYS(h: Handle) -> Handle {
     let mut out: Vec<i64> = Vec::with_capacity(v.len() / 2);
     let mut i = 0;
     while i + 1 < v.len() {
-        out.push(v[i]);
+        out.push(rts_engine::heap::shapes::handle_word_auto(v[i] as u64) as i64);
         i += 2;
     }
     alloc_entry(Entry::Vec(Box::new(out)))
@@ -251,7 +256,7 @@ pub extern "C" fn __RTS_FN_GL_FORM_DATA_VALUES(h: Handle) -> Handle {
     let mut out: Vec<i64> = Vec::with_capacity(v.len() / 2);
     let mut i = 0;
     while i + 1 < v.len() {
-        out.push(v[i + 1]);
+        out.push(rts_engine::heap::shapes::handle_word_auto(v[i + 1] as u64) as i64);
         i += 2;
     }
     alloc_entry(Entry::Vec(Box::new(out)))
