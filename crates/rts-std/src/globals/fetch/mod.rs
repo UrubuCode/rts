@@ -14,6 +14,17 @@ pub mod instance;
 
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
+/// Default User-Agent every RTS-originated HTTP request identifies with —
+/// browser-style: `Rts v<version>` on release builds, `Rts development` on
+/// debug builds. Shared by the global `fetch()` and the CLI URL runner.
+pub fn default_user_agent() -> &'static str {
+    if cfg!(debug_assertions) {
+        "Rts development"
+    } else {
+        concat!("Rts v", env!("CARGO_PKG_VERSION"))
+    }
+}
+
 /// Membro hand-written (espelha `leak`/`leak_class` da macro). `fn_ptr` é null
 /// para membros `external` (codegen resolve pelo `symbol`).
 #[allow(clippy::too_many_arguments)]

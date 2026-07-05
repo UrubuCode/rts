@@ -35,6 +35,7 @@ pub mod compile_options;
 pub mod manifest;
 pub mod registers;
 pub mod dotenv;
+pub mod url_entry;
 pub mod cli;
 
 pub use compile_options::{CompilationProfile, CompileOptions, opt_level};

@@ -132,8 +132,12 @@ where
             Ok(())
         }
         other => {
-            // Allow `rts <file.ts>` as shorthand for `rts run`.
-            if other.ends_with(".ts") || other.ends_with(".js") {
+            // Allow `rts <file.ts>` / `rts <https://…/file.ts>` as shorthand
+            // for `rts run`.
+            if other.ends_with(".ts")
+                || other.ends_with(".js")
+                || crate::url_entry::is_url(other)
+            {
                 return run::command(Some(other.to_string()), flags.as_compile_options());
             }
             bail!("unknown command: {other}");

@@ -83,6 +83,10 @@ fn do_fetch(url: &str, opts_h: u64) -> u64 {
 
     let mut req = ureq::request(&method, url);
 
+    // Browser-style default UA (`Rts v<version>` / `Rts development`); an
+    // explicit `headers: { "User-Agent": … }` below overrides it.
+    req = req.set("User-Agent", super::default_user_agent());
+
     // headers from opts.headers map
     if opts_h != 0 {
         for (k, v) in map_get_headers(opts_h) {

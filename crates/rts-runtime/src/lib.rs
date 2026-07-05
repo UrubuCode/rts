@@ -3,6 +3,10 @@ pub mod abi {
 }
 
 pub use rts_std::runtime;
+/// Default HTTP User-Agent (`Rts v<version>` / `Rts development`), re-exported
+/// from `rts-std`'s fetch backend so the CLI URL runner and the global `fetch()`
+/// identify with the SAME agent string.
+pub use rts_std::globals::fetch::default_user_agent as fetch_user_agent;
 /// N-API (`.node` native addons). Re-exports the `rts-napi` crate: the `napi_*`
 /// symbols + the loader `__RTS_FN_NS_NAPI_LOAD_ADDON`. The `require('x.node')`
 /// lowering that calls the loader is the remaining integration on the new engine.

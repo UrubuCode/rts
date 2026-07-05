@@ -9,7 +9,13 @@ use crate::compile_options::CompileOptions;
 
 pub fn command(input: Option<String>, _options: CompileOptions) -> Result<()> {
     let input = input.ok_or_else(|| anyhow!("usage: rts run <input.ts>"))?;
-    let input_path = PathBuf::from(&input);
+    // An http(s) URL entry: mirror it (plus its relative-import graph) into the
+    // system temp dir and run the LOCAL copy through the normal disk pipeline.
+    let input_path = if crate::url_entry::is_url(&input) {
+        crate::url_entry::fetch_program(&input)?
+    } else {
+        PathBuf::from(&input)
+    };
     if !input_path.exists() {
         return Err(anyhow!("input file not found: {}", input_path.display()));
     }

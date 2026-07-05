@@ -3704,6 +3704,7 @@ dependencies = [
  "console 0.15.11",
  "flate2",
  "indicatif",
+ "rts-ast",
  "rts-codegen-new",
  "rts-diagnostics",
  "rts-engine",
