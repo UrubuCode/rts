@@ -1,55 +1,55 @@
-# Estudo: Suporte a `.node` (Node.js native addons) no RTS
+# Study: Support for `.node` (Node.js native addons) in RTS
 
-> **Status:** pesquisa em andamento (iniciada 2026-06-11).
-> **Autor:** investigação técnica assistida (multi-agente + fontes web verificadas).
-> **Objetivo:** entender em profundidade o que é o formato `.node`, como ele
-> funciona no Node.js, e quais divergências fundamentais o RTS enfrenta caso
-> queira dar suporte a carregar/rodar addons nativos `.node` do ecossistema npm.
+> **Status:** research in progress (started 2026-06-11).
+> **Author:** assisted technical investigation (multi-agent + verified web sources).
+> **Goal:** understand in depth what the `.node` format is, how it
+> works in Node.js, and which fundamental divergences RTS faces should it
+> want to support loading/running native `.node` addons from the npm ecosystem.
 
-## Por que este estudo existe
+## Why this study exists
 
-O RTS compila TypeScript para binário nativo com runtime Rust mínimo e ABI de
-"tipos de máquina" (`extern "C"`, sem `JsValue`, sem boxing). Já existe uma
-proposta análoga e **estática** — o [`.rtslib`](../rtslib-external-namespaces.md)
-(objeto `.o` por triple, linkado em compile-time). O `.node` é o **oposto**:
-biblioteca dinâmica carregada em runtime via `dlopen`, acoplada à ABI N-API
-(que assume um host estilo V8). Suportar `.node` significa reconciliar dois
-modelos de execução muito diferentes.
+RTS compiles TypeScript to a native binary with a minimal Rust runtime and a
+"machine types" ABI (`extern "C"`, no `JsValue`, no boxing). There is already an
+analogous and **static** proposal — the [`.rtslib`](../rtslib-external-namespaces.md)
+(one `.o` object per triple, linked at compile time). The `.node` is the **opposite**:
+a dynamic library loaded at runtime via `dlopen`, coupled to the N-API ABI
+(which assumes a V8-style host). Supporting `.node` means reconciling two
+very different execution models.
 
-## Índice dos documentos
+## Document index
 
-| Documento | Conteúdo |
+| Document | Content |
 |---|---|
-| [`01-formato-binario.md`](01-formato-binario.md) | O que é fisicamente um `.node` (PE/ELF/Mach-O), como o Node carrega, símbolo de entrada, struct `node_module`, `NODE_MODULE_VERSION` |
-| [`02-napi-abi.md`](02-napi-abi.md) | A ABI N-API/Node-API: `napi_value`, `napi_env`, handle scopes, ciclo de vida, callbacks, refs/finalizers, o núcleo de funções |
-| [`03-acoplamento-v8-libuv.md`](03-acoplamento-v8-libuv.md) | Quanto um addon depende de V8 vs N-API, libuv/event loop, símbolos que o host deve exportar, delay-load no Windows |
-| [`04-precedente-bun-deno.md`](04-precedente-bun-deno.md) | Como Bun (sobre JSC) e Deno (sobre V8) implementaram N-API; o que funciona/quebra; custo real |
-| [`05-divergencias-rts.md`](05-divergencias-rts.md) | As divergências fundamentais RTS × `.node`: valor, ABI, GC, event loop, JIT/AOT — bloqueador vs engenharia |
-| [`06-estrategia-roadmap.md`](06-estrategia-roadmap.md) | Estratégias de implementação, núcleo 80/20, `NODE_MODULE_VERSION`/prebuilds, recomendação faseada |
-| [`07-conclusao.md`](07-conclusao.md) | Síntese executiva, veredito de viabilidade e próximos passos |
+| [`01-formato-binario.md`](01-formato-binario.md) | What a `.node` physically is (PE/ELF/Mach-O), how Node loads it, entry symbol, `node_module` struct, `NODE_MODULE_VERSION` |
+| [`02-napi-abi.md`](02-napi-abi.md) | The N-API/Node-API ABI: `napi_value`, `napi_env`, handle scopes, lifecycle, callbacks, refs/finalizers, the core function set |
+| [`03-acoplamento-v8-libuv.md`](03-acoplamento-v8-libuv.md) | How much an addon depends on V8 vs N-API, libuv/event loop, symbols the host must export, delay-load on Windows |
+| [`04-precedente-bun-deno.md`](04-precedente-bun-deno.md) | How Bun (on JSC) and Deno (on V8) implemented N-API; what works/breaks; real cost |
+| [`05-divergencias-rts.md`](05-divergencias-rts.md) | The fundamental RTS × `.node` divergences: value, ABI, GC, event loop, JIT/AOT — blocker vs engineering |
+| [`06-estrategia-roadmap.md`](06-estrategia-roadmap.md) | Implementation strategies, 80/20 core, `NODE_MODULE_VERSION`/prebuilds, phased recommendation |
+| [`07-conclusao.md`](07-conclusao.md) | Executive synthesis, viability verdict, and next steps |
 
 ## TL;DR
 
-**Suportar `.node` é viável, mas só pela porta N-API, preferencialmente no modo
-JIT, e nunca para addons V8-diretos/NAN.** Não há bloqueador técnico absoluto
-(o Bun provou que dá para implementar N-API sobre engine não-V8). As barreiras
-reais são: **volume** (~150 funções `napi_*`, faixa ~110-160), a **cauda longa do event loop**
-(libuv vs tokio do RTS), e um **conflito filosófico** entre o `dlopen` dinâmico
-do `.node` e a promessa self-contained do AOT (`.rtslib`).
+**Supporting `.node` is viable, but only through the N-API door, preferably in
+JIT mode, and never for V8-direct/NAN addons.** There is no absolute technical
+blocker (Bun proved N-API can be implemented on top of a non-V8 engine). The
+real barriers are: **volume** (~150 `napi_*` functions, range ~110-160), the **long tail of the event loop**
+(libuv vs RTS's tokio), and a **philosophical conflict** between the dynamic
+`dlopen` of `.node` and the self-contained promise of AOT (`.rtslib`).
 
-**Os 5 fatos que decidem tudo:**
-1. Um `.node` é uma DLL/`.so`/`.dylib` comum; entry point = `napi_register_module_v1`.
-2. `napi_value`/`napi_env` são **opacos** → o RTS pode mapeá-los à sua `HandleTable` sem V8.
-3. N-API é ABI-estável e engine-independente; V8 cru/NAN não → **escopo = N-API puro**.
-4. Addons N-API **pulam** a checagem de `NODE_MODULE_VERSION` no load; prebuilds modernos são por platform+arch.
-5. O host só precisa **exportar `napi_*`** do seu binário + `dlopen` + `dlsym` — não relinka o `.node`.
+**The 5 facts that decide everything:**
+1. A `.node` is an ordinary DLL/`.so`/`.dylib`; entry point = `napi_register_module_v1`.
+2. `napi_value`/`napi_env` are **opaque** → RTS can map them to its `HandleTable` without V8.
+3. N-API is ABI-stable and engine-independent; raw V8/NAN is not → **scope = pure N-API**.
+4. N-API addons **skip** the `NODE_MODULE_VERSION` check at load; modern prebuilds are per platform+arch.
+5. The host only needs to **export `napi_*`** from its binary + `dlopen` + `dlsym` — it does not relink the `.node`.
 
-**Recomendação:** começar por **JIT + núcleo 80/20** (~40 fns síncronas);
-`.rtslib` e `.node` são **complementares** (first-party performante × compat npm).
-Detalhes em [`07-conclusao.md`](07-conclusao.md).
+**Recommendation:** start with **JIT + the 80/20 core** (~40 synchronous fns);
+`.rtslib` and `.node` are **complementary** (performant first-party × npm compat).
+Details in [`07-conclusao.md`](07-conclusao.md).
 
-**Metodologia:** pesquisa multi-agente (6 eixos, busca web) sobre fontes
-primárias (docs + código-fonte do Node, código de Bun/Deno), com **verificação
-adversarial em dois runs independentes completos** (115 afirmações verificadas,
-**0 refutadas**, ~31 nuances corrigidas e incorporadas). Detalhes e tabela de
-veredictos em [`07-conclusao.md`](07-conclusao.md).
+**Methodology:** multi-agent research (6 axes, web search) over primary
+sources (Node docs + source code, Bun/Deno code), with **adversarial
+verification in two complete independent runs** (115 claims verified,
+**0 refuted**, ~31 nuances corrected and incorporated). Details and verdict
+table in [`07-conclusao.md`](07-conclusao.md).

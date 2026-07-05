@@ -1,96 +1,96 @@
-# Especificações e Notas Técnicas
+# Specifications and Technical Notes
 
-Índice de documentos de design, especificações de features e decisões
-arquiteturais.
+Index of design documents, feature specifications, and architectural
+decisions.
 
-**A direção canônica do motor é
-[`rts-codegen-new-design.md`](rts-codegen-new-design.md)** — o redesign
-ground-up (PolyValue NaN-box, Repr lattice, shapes + data ICs, lowering único
-HIR→Cranelift, dispatch data-driven). Leia antes de qualquer trabalho no motor.
-O motor velho (`crates/rts-codegen-old/`) está CONGELADO e é deletado no cutover;
-docs que descreviam a lógica dele (silent parallelism, hot-path pré-ABI, plano de
-paridade 100% no motor velho, core-engine antigo, app-features) foram REMOVIDOS —
-não eram guia para o motor novo.
+**The canonical direction for the engine is
+[`rts-codegen-new-design.md`](rts-codegen-new-design.md)** — the ground-up
+redesign (PolyValue NaN-box, Repr lattice, shapes + data ICs, single
+HIR→Cranelift lowering, data-driven dispatch). Read it before any engine work.
+The old engine (`crates/rts-codegen-old/`) is FROZEN and gets deleted at cutover;
+docs that described its logic (silent parallelism, pre-ABI hot-path, the 100%
+parity plan on the old engine, the old core-engine, app-features) were REMOVED —
+they were not a guide for the new engine.
 
-## Canônico
+## Canonical
 
-- [Redesign do motor (rts-codegen-new)](rts-codegen-new-design.md) — **a
-  direção canônica.** PolyValue, lattice de Repr, shapes + data ICs, lowering
-  único, dispatch data-driven + ABI gerado. Fases de migração P0→P5.
-- [GC do motor novo](gc-generational-design.md) — fase weak (`#217`, bounded, no
-  mark+sweep atual) agora; geracional copying (nursery) como salto de longo prazo
-  deferido até ~90% cross-runtime. A vantagem da handle indirection (mover ≈
-  grátis).
-- [Plano — GC novo + API/ABI gc modernizada](gc-new-api-plan.md) — PLANO DE
-  EXECUÇÃO: remover toda a API gc do motor antigo (pool manual de string
-  `gc.string_*` etc.), migrar as ~110 fixtures legacy para string nativa,
-  auditar/enxugar `Entry`, refazer a ABI gc PolyValue-nativa, e preparar o terreno
-  para a fase weak + o geracional. Objetivo: melhor GC + melhor API/ABI, zero
-  legacy do motor antigo.
+- [Engine redesign (rts-codegen-new)](rts-codegen-new-design.md) — **the
+  canonical direction.** PolyValue, Repr lattice, shapes + data ICs, single
+  lowering, data-driven dispatch + generated ABI. Migration phases P0→P5.
+- [New-engine GC](gc-generational-design.md) — weak phase (`#217`, bounded, on the
+  current mark+sweep) now; generational copying (nursery) as the long-term leap,
+  deferred until ~90% cross-runtime. The advantage of handle indirection (moving ≈
+  free).
+- [Plan — new GC + modernized gc API/ABI](gc-new-api-plan.md) — EXECUTION
+  PLAN: remove the entire old-engine gc API (manual string pool
+  `gc.string_*` etc.), migrate the ~110 legacy fixtures to native strings,
+  audit/trim `Entry`, redo the gc ABI PolyValue-native, and prepare the ground
+  for the weak phase + the generational GC. Goal: better GC + better API/ABI, zero
+  old-engine legacy.
 
-- [Superfície padrão rts:* (redesign)](rts-std-surface.md) — **mapa canônico da
-  nova superfície**: globais JS/Web + módulos `rts:<ns>` camelCase (o std do
-  Rust exportado), o que morre/renomeia/move, bytes = TypedArrays, comptime
-  (`includeBytes`/`rts:build`), `exportC` + `rts compile --lib`, realocação de
-  primitivos p/ rts-primitives, fases F0→F8.
-- [Modelo de threading da engine](rts-threading-model.md) — multithread na
-  engine: regiões por thread + heap compartilhado com promoção na publicação;
-  por que o PolyValue (slot-index, shards, word 64-bit) comporta; bloqueadores
-  (gcells thread-local, ICs, string pool) e fases T0→T5.
+- [Standard rts:* surface (redesign)](rts-std-surface.md) — **canonical map of the
+  new surface**: JS/Web globals + camelCase `rts:<ns>` modules (Rust's std
+  exported), what dies/renames/moves, bytes = TypedArrays, comptime
+  (`includeBytes`/`rts:build`), `exportC` + `rts compile --lib`, relocation of
+  primitives to rts-primitives, phases F0→F8.
+- [Engine threading model](rts-threading-model.md) — multithreading in the
+  engine: per-thread regions + shared heap with promotion on publication;
+  why PolyValue (slot-index, shards, 64-bit word) accommodates it; blockers
+  (thread-local gcells, ICs, string pool) and phases T0→T5.
 
-## Guias ativos
+## Active guides
 
-- [Cross-runtime parity testing](cross-runtime-testing.md) — Sistema que valida
-  RTS vs Bun vs Node em fixtures TS standalone. Diff de stdout linha-a-linha.
-- [Cross-runtime coverage roadmap](cross-runtime-roadmap.md) — Lista viva das
-  fixtures planejadas.
-- [Como criar um namespace](namespace-creation-guide.md) — Processo baseado em
-  `rts-engine::abi` (SPECS centralizado, símbolos `__RTS_FN_NS_*`, `AbiType`).
-- [GUI imediata via egui — crate `rts-egui` + namespace `ui`](egui-ui-crate-design.md)
-  — Design da GUI cross-platform: egui (immediate-mode, sem FLTK) numa crate nova,
-  primitivos no Rust + lib de alto nível em TS, loop dirigido pelo TS, wgpu
-  primário. Fundamento de render visando jogos/browser no futuro.
-- [Motor de render HTML (roadmap operacional + north-star)](html-engine/README.md)
-  — **DECIDIDO (2026-06-23):** evoluir o motor leve de HTML retido já na main
-  (DOM em árvore + alocador de blocos data-driven em TS + mutação por NodeId, na
-  `rts-egui`) IN-PLACE; a crate `rts-html` das 5 árvores NÃO será criada. Plano
-  operacional vivo: [`rts-html-roadmap.md`](html-engine/rts-html-roadmap.md)
-  (estratégia, 10 decisões, 6 invariantes, fases F0-F5 pixel-cedo, kill-gates,
-  primeira fatia ≤1 dia). O antigo plano de 5 árvores (DOM→Style→Layout→Display
-  list→Paint, crate nova, paint absoluto universal) foi rebaixado a north-star
-  congelado: [`rts-html-north-star.md`](html-engine/rts-html-north-star.md).
-  Inclui as 4 análises-base + arquitetura + crítica adversarial.
-- [Epic #226 — paridade JS/TS](js-parity-epic-226.md) — Catálogo das ~60 APIs
-  JS (Array/Object/Math/String/URL/Date/Boolean/parseInt/destructuring). Define
-  as SEMÂNTICAS que o motor novo deve cobrir (a implementação migra para o
-  modelo PolyValue/shapes; não tome a lista de PRs como caminho do motor novo).
-- [Reflect + Proxy](reflect-proxy.md) — Design de referência da API Reflect (13
-  métodos) + Proxy (13 traps) com `Entry::Proxy { target, handler }`. Alvo do
-  `#218` no motor novo via o callback-from-runtime bridge.
-- [async / Promise / Function](async-promise-function.md) — Subsistema async/
-  await + Promise + Function class do motor velho (referência). **O motor novo
-  tem async SÍNCRONO interino** (event loop / suspensão real são redesign limpo,
-  `#207`) — este doc descreve o modelo Promise-centric anterior.
-- [Suporte a `.node` (Node native addons)](node-format/README.md) — Estudo da
-  ABI N-API → `HandleTable` sem V8. Implementado em `crates/rts-napi/`.
-- [N-API then-chained crash study](napi-then-chained-crash-study.md) — Nota
-  técnica de um crash em `.then` encadeado com N-API.
-- [N-API implementation](napi-implementation.md) — Spec da implementação N-API
+- [Cross-runtime parity testing](cross-runtime-testing.md) — System that validates
+  RTS vs Bun vs Node on standalone TS fixtures. Line-by-line stdout diff.
+- [Cross-runtime coverage roadmap](cross-runtime-roadmap.md) — Living list of
+  planned fixtures.
+- [How to create a namespace](namespace-creation-guide.md) — Process based on
+  `rts-engine::abi` (centralized SPECS, `__RTS_FN_NS_*` symbols, `AbiType`).
+- [Immediate-mode GUI via egui — `rts-egui` crate + `ui` namespace](egui-ui-crate-design.md)
+  — Design of the cross-platform GUI: egui (immediate-mode, no FLTK) in a new crate,
+  primitives in Rust + high-level lib in TS, TS-driven loop, wgpu
+  primary. Rendering foundation aiming at games/browser in the future.
+- [HTML render engine (operational roadmap + north-star)](html-engine/README.md)
+  — **DECIDED (2026-06-23):** evolve the light retained HTML engine already on main
+  (tree DOM + data-driven block allocator in TS + mutation by NodeId, in
+  `rts-egui`) IN-PLACE; the 5-tree `rts-html` crate will NOT be created. Living
+  operational plan: [`rts-html-roadmap.md`](html-engine/rts-html-roadmap.md)
+  (strategy, 10 decisions, 6 invariants, pixel-early phases F0-F5, kill-gates,
+  first slice ≤1 day). The old 5-tree plan (DOM→Style→Layout→Display
+  list→Paint, new crate, universal absolute paint) was demoted to a frozen
+  north-star: [`rts-html-north-star.md`](html-engine/rts-html-north-star.md).
+  Includes the 4 base analyses + architecture + adversarial critique.
+- [Epic #226 — JS/TS parity](js-parity-epic-226.md) — Catalog of the ~60 JS
+  APIs (Array/Object/Math/String/URL/Date/Boolean/parseInt/destructuring). Defines
+  the SEMANTICS the new engine must cover (the implementation migrates to the
+  PolyValue/shapes model; do not take the PR list as the new engine's path).
+- [Reflect + Proxy](reflect-proxy.md) — Reference design of the Reflect API (13
+  methods) + Proxy (13 traps) with `Entry::Proxy { target, handler }`. Target of
+  `#218` in the new engine via the callback-from-runtime bridge.
+- [async / Promise / Function](async-promise-function.md) — The old engine's async/
+  await + Promise + Function class subsystem (reference). **The new engine
+  has interim SYNCHRONOUS async** (event loop / real suspension are a clean redesign,
+  `#207`) — this doc describes the previous Promise-centric model.
+- [`.node` support (Node native addons)](node-format/README.md) — Study of the
+  N-API → `HandleTable` ABI without V8. Implemented in `crates/rts-napi/`.
+- [N-API then-chained crash study](napi-then-chained-crash-study.md) — Technical
+  note on a crash in chained `.then` with N-API.
+- [N-API implementation](napi-implementation.md) — Spec of the N-API implementation
   (159 fns, loader, HandleTable bridge).
-- [Cranelift — explicações](cranelift-explications.md) — Notas sobre o backend
-  Cranelift (egraph, stack maps, callconv).
-- [Divergência main ↔ cutover](main-divergence.md) — Nota da divergência no
-  cutover P5 (deleção do motor velho + tier MIR).
+- [Cranelift — explanations](cranelift-explications.md) — Notes on the Cranelift
+  backend (egraph, stack maps, callconv).
+- [main ↔ cutover divergence](main-divergence.md) — Note on the divergence at the
+  P5 cutover (deletion of the old engine + MIR tier).
 
-## Histórico / pendente de reescrita
+## Historical / pending rewrite
 
-Referência histórica; não tome como guia para código novo.
+Historical reference; do not take as a guide for new code.
 
-- [rtslib-external-namespaces.md](rtslib-external-namespaces.md) — Design de
-  pacotes `.rtslib` externos. Depende da ABI estabilizar antes de ser retomado.
+- [rtslib-external-namespaces.md](rtslib-external-namespaces.md) — Design of
+  external `.rtslib` packages. Depends on the ABI stabilizing before being resumed.
 
-## Regras vinculantes
+## Binding rules
 
-As regras de processo ficam em [`.claude/rules/`](../../.claude/rules/)
-(`00-meta` → `05-codegen-notes`), cada uma vinculante. `CLAUDE.md` na raiz é o
-meta-índice.
+Process rules live in [`.claude/rules/`](../../.claude/rules/)
+(`00-meta` → `05-codegen-notes`), each binding. `CLAUDE.md` at the root is the
+meta-index.

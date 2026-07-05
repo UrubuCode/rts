@@ -1,67 +1,72 @@
-# Motor de render HTML+CSS do RTS — estudo e plano
+# RTS HTML+CSS render engine — study and plan
 
-Pasta com **todo o estudo** do motor de render HTML+CSS próprio do RTS, sobre o
-`rts-egui`. Objetivo de longo prazo: o "nosso DOOM" — um motor de render do zero,
-dominando cada camada (rumo a um motor de browser).
+Folder with **the entire study** of RTS's own HTML+CSS render engine, on top of
+`rts-egui`. Long-term goal: our "DOOM" — a render engine from scratch,
+mastering every layer (on the way to a browser engine).
 
-> **Status (2026-06-23):** DECIDIDO. O motor leve de HTML retido já na main
-> (DOM em árvore + alocador de blocos data-driven em TS + mutação por NodeId, na
-> `rts-egui`) é a **direção oficial**, evoluído IN-PLACE por fases. A crate
-> `rts-html` das 5 árvores **não será criada**. O plano operacional vivo é o
-> **[rts-html-roadmap.md](rts-html-roadmap.md)** (F0-F5). O antigo plano de 5
-> árvores foi **rebaixado a north-star congelado** ([rts-html-north-star.md](rts-html-north-star.md)),
-> referência conceitual que não dita fases. Decisão tomada após análise
-> multi-agente (4 abordagens × 3 lentes adversariais + crítica de completude).
+> **Status (2026-06-23):** DECIDED. The lightweight HTML engine already retained
+> on main (retained DOM tree + data-driven block allocator in TS + mutation by
+> NodeId, in `rts-egui`) is the **official direction**, evolved IN-PLACE in
+> phases. The 5-tree `rts-html` crate **will not be created**. The living
+> operational plan is **[rts-html-roadmap.md](rts-html-roadmap.md)** (F0-F5). The
+> old 5-tree plan was **demoted to a frozen north-star** ([rts-html-north-star.md](rts-html-north-star.md)),
+> a conceptual reference that does not dictate phases. Decision made after
+> multi-agent analysis (4 approaches × 3 adversarial lenses + completeness
+> critique).
 
-## Como ler
+## How to read
 
-1. **[rts-html-roadmap.md](rts-html-roadmap.md)** — **o documento operacional
-   vivo. COMECE POR AQUI.** Estratégia, os 10 pontos de decisão resolvidos, os 6
-   invariantes duros, o roadmap F0-F5 (pixel-cedo, kill-gates verificáveis), e a
-   primeira fatia concreta de ≤1 dia.
-2. **[rts-html-north-star.md](rts-html-north-star.md)** — o antigo `PLANO.md` de 5
-   árvores (DOM→Style→Layout→DisplayList→Paint), CONGELADO como teto teórico.
-   Referência conceitual; NÃO dita fases. Só "acorda" se o critério de teto de F4
-   provar que o egui não basta além do parágrafo rico.
-3. **[arquitetura.md](arquitetura.md)** — a síntese arquitetural detalhada do
-   pipeline canônico (fundamento do north-star), com os structs Rust de cada fase.
-4. **[critica-adversarial.md](critica-adversarial.md)** — a revisão cética que
-   cortou o escopo ao realista (flexbox/grid/position/CSS5-moderno fora) e
-   apontou os riscos reais (text layout, hit-testing, "5 árvores sem pixel").
-   Suas correções alimentaram tanto o north-star quanto o roadmap.
-5. **[analises/](analises/)** — as 4 pesquisas-base que sustentam tudo:
-   - `analise-browser-pipeline.md` — como motores reais (Servo/Blink/robinson)
-     estruturam o pipeline; por que DOM é árvore, não lista.
-   - `analise-css-subset.md` — subset pragmático de CSS por prioridade (tabela
-     fase 1/2/3); o que nunca entra.
-   - `analise-egui-as-paint.md` — egui como backend de PAINT absoluto (Painter,
-     galley, medição de texto, ScrollArea), não como layout.
-   - `analise-rts-constraints.md` — encaixe no RTS: doutrina (Rust=infra,
-     TS=alto nível), limites do engine TS, decisão de crate nova `rts-html`.
+1. **[rts-html-roadmap.md](rts-html-roadmap.md)** — **the living operational
+   document. START HERE.** Strategy, the 10 resolved decision points, the 6
+   hard invariants, the F0-F5 roadmap (pixel-early, verifiable kill-gates), and
+   the first concrete slice of ≤1 day.
+2. **[rts-html-north-star.md](rts-html-north-star.md)** — the old 5-tree
+   `PLANO.md` (DOM→Style→Layout→DisplayList→Paint), FROZEN as a theoretical
+   ceiling. Conceptual reference; does NOT dictate phases. It only "wakes up" if
+   the F4 ceiling criterion proves that egui is not enough beyond the rich
+   paragraph.
+3. **[arquitetura.md](arquitetura.md)** — the detailed architectural synthesis of
+   the canonical pipeline (foundation of the north-star), with the Rust structs
+   of each phase.
+4. **[critica-adversarial.md](critica-adversarial.md)** — the skeptical review
+   that cut the scope down to the realistic (flexbox/grid/position/modern-CSS5
+   out) and pointed out the real risks (text layout, hit-testing, "5 trees
+   without a pixel"). Its corrections fed both the north-star and the roadmap.
+5. **[analises/](analises/)** — the 4 base research documents that support
+   everything:
+   - `analise-browser-pipeline.md` — how real engines (Servo/Blink/robinson)
+     structure the pipeline; why the DOM is a tree, not a list.
+   - `analise-css-subset.md` — pragmatic CSS subset by priority (phase 1/2/3
+     table); what never gets in.
+   - `analise-egui-as-paint.md` — egui as an absolute PAINT backend (Painter,
+     galley, text measurement, ScrollArea), not as layout.
+   - `analise-rts-constraints.md` — fit within RTS: doctrine (Rust=infra,
+     TS=high level), TS engine limits, decision on the new `rts-html` crate.
 
-## Decisões-chave (resumo — estratégia DECIDIDA, ver roadmap)
+## Key decisions (summary — strategy DECIDED, see roadmap)
 
-> As decisões abaixo são as VIGENTES (roadmap). As decisões antigas (crate nova
-> `rts-html`, paint absoluto universal) viraram o north-star congelado — o estudo
-> em `analise-*` que as fundamentou continua válido como base conceitual.
+> The decisions below are the CURRENT ones (roadmap). The old decisions (new
+> `rts-html` crate, universal absolute paint) became the frozen north-star — the
+> study in `analise-*` that grounded them remains valid as a conceptual base.
 
-- **Evoluir o motor leve IN-PLACE na `rts-egui`** — não criar `rts-html`. O DOM
-  retido em árvore + atributos + índices O(1) + mutação por NodeId já existem e
-  são reaproveitados; só as funções internas de `frame.rs::render_*` evoluem.
-- **egui é o motor de layout POR PADRÃO** (os 4 displays); paint absoluto
-  (`allocate_painter` + `LayoutJob`/`galley.rows`) entra como exceção cirúrgica
-  num único `render_*` (F4), só onde o egui comprovadamente não compõe
-  (parágrafo inline rico com link). A regra "paint absoluto universal" do
-  north-star foi cortada.
-- **CSS chega cedo via slot numérico opaco** (`defineStyle`/`setStyle`): o Rust
-  nunca dá match em string CSS; o TS mapeia nome→índice. `BlockDef` (display)
-  ganha um `ComputedStyle` por NodeId com cascade em Rust.
-- **Eventos por polling** (`pollEvent(h) → NodeId`), sem listener reativo
-  (bloqueado por #195/captura mutável). A mutação programática de DOM (que o
-  north-star nem previa) permanece.
-- **Escopo honesto:** "rich text + caixas estilizadas + clique" usável em ~6.5-9.5
-  semanas (F0-F3); parágrafo inline rico + links em +2-3 (F4). Flexbox, grid,
-  position absoluta, animations, CSS5 moderno, font-family — **fora** (cortes
-  herdados do north-star).
-- **Pixel na primeira semana (P1):** caminho vertical fino ponta-a-ponta antes
-  de construir as 5 árvores completas.
+- **Evolve the lightweight engine IN-PLACE in `rts-egui`** — do not create
+  `rts-html`. The retained tree DOM + attributes + O(1) indices + mutation by
+  NodeId already exist and are reused; only the internal functions of
+  `frame.rs::render_*` evolve.
+- **egui is the layout engine BY DEFAULT** (the 4 displays); absolute paint
+  (`allocate_painter` + `LayoutJob`/`galley.rows`) enters as a surgical
+  exception in a single `render_*` (F4), only where egui provably does not
+  compose (rich inline paragraph with a link). The north-star's "universal
+  absolute paint" rule was cut.
+- **CSS arrives early via an opaque numeric slot** (`defineStyle`/`setStyle`):
+  Rust never matches on a CSS string; TS maps name→index. `BlockDef` (display)
+  gains a `ComputedStyle` per NodeId with cascade in Rust.
+- **Events via polling** (`pollEvent(h) → NodeId`), no reactive listener
+  (blocked by #195/mutable capture). Programmatic DOM mutation (which the
+  north-star did not even anticipate) remains.
+- **Honest scope:** "rich text + styled boxes + click" usable in ~6.5-9.5
+  weeks (F0-F3); rich inline paragraph + links in +2-3 (F4). Flexbox, grid,
+  absolute positioning, animations, modern CSS5, font-family — **out** (cuts
+  inherited from the north-star).
+- **Pixel in the first week (P1):** thin vertical end-to-end path before
+  building the full 5 trees.

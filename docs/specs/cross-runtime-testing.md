@@ -1,38 +1,38 @@
 # Cross-Runtime Parity Testing
 
-Sistema de testes que valida compatibilidade JS spec do RTS comparando
-outputs contra **Bun** e **Node** em fixtures TypeScript standalone.
+Test system that validates RTS's JS spec compatibility by comparing
+outputs against **Bun** and **Node** on standalone TypeScript fixtures.
 
-## Componentes
+## Components
 
-- **`tests/cross-runtime/*.ts`** — fixtures TS rodáveis em qualquer um dos 3
-  runtimes. Sem `import "rts"`, sem `JSON5`/`Bun`/`Deno`/`process`.
-- **`scripts/cross_runtime_check.sh`** — roda cada fixture nos 3 runtimes
-  (paralelizado via `xargs -P`), compara stdouts, gera JSON.
-- **`.github/workflows/cross-runtime.yml`** — CI que roda em PR + schedule.
-- **`docs/specs/cross-runtime-roadmap.md`** — lista viva de fixtures
-  planejadas (checklist marcavel conforme novos batches sao adicionados).
+- **`tests/cross-runtime/*.ts`** — TS fixtures runnable on any of the 3
+  runtimes. No `import "rts"`, no `JSON5`/`Bun`/`Deno`/`process`.
+- **`scripts/cross_runtime_check.sh`** — runs each fixture on the 3 runtimes
+  (parallelized via `xargs -P`), compares stdouts, generates JSON.
+- **`.github/workflows/cross-runtime.yml`** — CI that runs on PR + schedule.
+- **`docs/specs/cross-runtime-roadmap.md`** — living list of planned
+  fixtures (checklist marked as new batches are added).
 
-## Como rodar localmente
+## How to run locally
 
 ```bash
 cargo build --release
 bash scripts/cross_runtime_check.sh
 ```
 
-Pre-requisitos: `bun` e `node` no PATH.
+Prerequisites: `bun` and `node` on PATH.
 
-## Report JSON consumivel externamente
+## Externally consumable JSON report
 
-O CI commita `cross_runtime_report.json` na raiz do repo a cada atualizacao
-(push para `main` + schedule semanal). Qualquer dashboard externo pode
-consumir via raw URL:
+The CI commits `cross_runtime_report.json` at the repo root on every update
+(push to `main` + weekly schedule). Any external dashboard can
+consume it via raw URL:
 
 ```
 https://raw.githubusercontent.com/UrubuCode/rts/main/cross_runtime_report.json
 ```
 
-Estrutura:
+Structure:
 
 ```json
 {
@@ -48,45 +48,45 @@ Estrutura:
 }
 ```
 
-Sites/dashboards externos podem fetchar o JSON e renderizar grafico de
-progresso da paridade ao longo do tempo (comparar releases diferentes).
+External sites/dashboards can fetch the JSON and render a chart of
+parity progress over time (comparing different releases).
 
-## Categorias de output
+## Output categories
 
-Cada fixture cai em uma de 5 categorias:
+Each fixture falls into one of 5 categories:
 
-| Status | Significado | Ação |
+| Status | Meaning | Action |
 |---|---|---|
-| `pass` | RTS = Bun = Node | ✅ paridade ok |
-| `rts_diverge` | RTS ≠ Bun = Node | ❌ bug RTS — abrir issue |
+| `pass` | RTS = Bun = Node | ✅ parity ok |
+| `rts_diverge` | RTS ≠ Bun = Node | ❌ RTS bug — open an issue |
 | `bun_node_diverge` | Bun ≠ Node | ⚠️ engine difference — skip |
-| `rts_error` | RTS crashou ou panic | ❌ bug RTS |
-| `rejected` | Fixture usa API RTS-only | 🚫 mover para `tests/*.test.ts` |
+| `rts_error` | RTS crashed or panicked | ❌ RTS bug |
+| `rejected` | Fixture uses an RTS-only API | 🚫 move to `tests/*.test.ts` |
 
 ## CI policies
 
-- **Em PR**: roda automaticamente, comenta no PR com tabela de divergências,
-  **não bloqueia** merge (opt-in por enquanto, evolver para required quando
-  tivermos cobertura ampla).
-- **Em schedule semanal** (segunda 6h UTC): se aparecer regressão nova,
-  abre issue automática com label `cross-runtime`.
-- **Em push para `main`**: roda como sanity check (artifact JSON salvo).
+- **On PR**: runs automatically, comments on the PR with a divergence table,
+  **does not block** merge (opt-in for now, to evolve into required once
+  we have broad coverage).
+- **On the weekly schedule** (Monday 6h UTC): if a new regression shows up,
+  automatically opens an issue with the `cross-runtime` label.
+- **On push to `main`**: runs as a sanity check (JSON artifact saved).
 
-## Dedup de issues por hash
+## Issue dedup by hash
 
-O auto-create de issue em schedule usa **dois níveis de hash** para evitar
-duplicatas:
+The scheduled issue auto-create uses **two levels of hashing** to avoid
+duplicates:
 
-1. **Hash por divergência** (`sig`): SHA-1 truncado de
-   `name|status|bun_output|node_output|rts_output`. Mesma assinatura =
-   mesmo bug. Inserido no body como `<!-- cross-runtime-sig: <12 chars> -->`
-   antes do bloco de outputs.
+1. **Per-divergence hash** (`sig`): truncated SHA-1 of
+   `name|status|bun_output|node_output|rts_output`. Same signature =
+   same bug. Inserted in the body as `<!-- cross-runtime-sig: <12 chars> -->`
+   before the outputs block.
 
-2. **Hash agregado** (`aggregateHash`): SHA-1 do conjunto de sigs
-   ordenadas. Conjunto idêntico de divergências = mesmo hash. Inserido
-   no footer do body como `<!-- cross-runtime-hash: <12 chars> -->`.
+2. **Aggregate hash** (`aggregateHash`): SHA-1 of the set of sorted
+   sigs. Identical set of divergences = same hash. Inserted
+   in the body footer as `<!-- cross-runtime-hash: <12 chars> -->`.
 
-### Lógica de decisão a cada schedule run
+### Decision logic on each schedule run
 
 ```
 divergencias_atuais = run | filter(rts_diverge ou rts_error)
@@ -96,58 +96,58 @@ hash_atual = sha1(sort(sigs_atuais).join(","))
 issues_abertas = labels:cross-runtime
 
 if exists(issue with hash_atual no body):
-  # Conjunto idêntico já tem issue — só comenta "ainda presente"
+  # Identical set already has an issue — just comment "still present"
   comment(issue, "🔁 Schedule run YYYY-MM-DD — persistem")
 elif all(sigs_atuais já estão em alguma issue aberta):
-  # Subconjunto já coberto distribuído em várias issues
+  # Subset already covered, spread across multiple issues
   comment(em cada issue afetada)
 else:
-  # Tem sig(s) inéditos — cria issue nova só com os novos
+  # There are brand-new sig(s) — create a new issue with only the new ones
   create_issue(divergencias_novas, hash_atual no footer)
 ```
 
-Isso garante:
-- **Mesmo bug persistente** → não duplica issue, comentário "ainda presente"
-  marca timeline.
-- **Conjunto novo de bugs** → issue nova só com os inéditos.
-- **Bug novo + bugs antigos** → issue nova só com os novos; antigos ganham
-  comentário em suas issues existentes.
+This guarantees:
+- **Same persistent bug** → no duplicate issue, a "still present" comment
+  marks the timeline.
+- **New set of bugs** → new issue with only the brand-new ones.
+- **New bug + old bugs** → new issue with only the new ones; old ones get a
+  comment on their existing issues.
 
-### Por que hash truncado de 12 chars
+### Why a 12-char truncated hash
 
-Suficiente para evitar colisão dado o número de fixtures pequeno (centenas
-no pior cenário). Espaço de 16^12 = 2.8e14, colisão por aniversário em
-~16M divergências distintas — muito além do realista.
+Enough to avoid collision given the small number of fixtures (hundreds
+in the worst case). Space of 16^12 = 2.8e14, birthday collision at
+~16M distinct divergences — far beyond realistic.
 
-## Adicionar fixture nova
+## Adding a new fixture
 
-1. Criar `tests/cross-runtime/NN_<descrição>.ts` com `console.log` cobrindo
-   o comportamento JS que você quer validar.
-2. Validar localmente os 3 runtimes batem. Se RTS divergir, é um bug —
-   abra fix antes de fazer merge.
-3. Commit normal. CI valida no próximo push/PR.
+1. Create `tests/cross-runtime/NN_<description>.ts` with `console.log` covering
+   the JS behavior you want to validate.
+2. Validate locally that the 3 runtimes match. If RTS diverges, that's a bug —
+   open a fix before merging.
+3. Normal commit. CI validates on the next push/PR.
 
-## APIs proibidas em cross-runtime
+## APIs forbidden in cross-runtime
 
-Estas são RTS-only ou runtime-specific. Script rejeita fixtures que as
-usam (regex check pre-execução):
+These are RTS-only or runtime-specific. The script rejects fixtures that
+use them (pre-execution regex check):
 
-- `import { ... } from "rts"` — namespaces RTS nativos
-- `JSON5` — global RTS-only
+- `import { ... } from "rts"` — native RTS namespaces
+- `JSON5` — RTS-only global
 - `Bun` global — runtime-specific
 - `Deno` global — runtime-specific
 - `process` global — Node-specific
 
-Se a fixture precisa de qualquer uma, ela vai em `tests/<nome>.test.ts`
-(suite RTS via `rts:test`) em vez de cross-runtime.
+If a fixture needs any of these, it goes in `tests/<name>.test.ts`
+(RTS suite via `rts:test`) instead of cross-runtime.
 
-## Categorias de issue auto-criada
+## Auto-created issue categories
 
-Em vez de criar uma issue gigante com todas as divergências, o workflow
-agrupa por **categoria temática** (uma issue por área). Mapeamento atual
-em `.github/workflows/cross-runtime.yml` no step "Auto-create issues":
+Instead of creating one giant issue with all divergences, the workflow
+groups by **thematic category** (one issue per area). Current mapping
+in `.github/workflows/cross-runtime.yml` in the "Auto-create issues" step:
 
-| Categoria | Cobre |
+| Category | Covers |
 |---|---|
 | `regex` | regex methods, named groups, indices, unicode |
 | `url` | URL, URLSearchParams |
@@ -162,20 +162,20 @@ em `.github/workflows/cross-runtime.yml` no step "Auto-create issues":
 | `fn-closure-syntax` | closures, function meta, destructuring, templates |
 | `array` | array methods, iter, sparse, groupBy, set ops |
 | `object-meta` | Object methods, Proxy, Reflect, Symbol |
-| `string` | string methods avançados |
+| `string` | advanced string methods |
 | `numeric` | Math, Number format, coercion, bitwise, NaN |
 | `date` | Date methods |
 | `misc-platform` | WeakRef, structuredClone, dynamic import, etc. |
-| `other` | fallback se nome não bate |
+| `other` | fallback if the name doesn't match |
 
-Cada categoria com ≥1 divergência inédita gera/atualiza issue própria
-com labels `cat:<categoria>` + `cross-runtime` + `bug`.
+Each category with ≥1 brand-new divergence creates/updates its own issue
+with labels `cat:<category>` + `cross-runtime` + `bug`.
 
-## Histórico semanal
+## Weekly history
 
-O CI commita um snapshot em `cross_runtime_history/YYYY-MM-DD.json`
-a cada schedule run (1× semana). O arquivo `cross_runtime_history/index.json`
-mantém lista cronológica para dashboards consumirem:
+The CI commits a snapshot to `cross_runtime_history/YYYY-MM-DD.json`
+on each schedule run (1× per week). The `cross_runtime_history/index.json`
+file keeps a chronological list for dashboards to consume:
 
 ```json
 {
@@ -185,31 +185,31 @@ mantém lista cronológica para dashboards consumirem:
 }
 ```
 
-Snapshots detalhados (`YYYY-MM-DD.json`) trazem nomes dos divergentes
-sem outputs completos — economiza espaço a longo prazo.
+Detailed snapshots (`YYYY-MM-DD.json`) carry the names of the divergent
+fixtures without full outputs — saving space long-term.
 
-## Dashboard GitHub Pages
+## GitHub Pages dashboard
 
-Página `parity.html` no GitHub Pages do projeto consome
-`cross_runtime_report.json` + `cross_runtime_history/index.json` e renderiza:
+The `parity.html` page on the project's GitHub Pages consumes
+`cross_runtime_report.json` + `cross_runtime_history/index.json` and renders:
 
-- **% paridade atual** (big number)
+- **Current parity %** (big number)
 - **Stats**: pass / diverge / error / total
-- **Gráfico SVG** de evolução de % ao longo das semanas
-- **Tabela** com fixtures pendentes
+- **SVG chart** of % evolution across weeks
+- **Table** with pending fixtures
 
-URL final: `https://urubucode.github.io/rts/parity.html`
+Final URL: `https://urubucode.github.io/rts/parity.html`
 
-Atualizado automaticamente quando o workflow cross-runtime termina em
-main ou quando `cross_runtime_report.json` muda.
+Updated automatically when the cross-runtime workflow finishes on
+main or when `cross_runtime_report.json` changes.
 
-## Bugs cross-runtime conhecidos (track)
+## Known cross-runtime bugs (track)
 
-Lista vai vivendo aqui conforme aparecem:
+The list keeps living here as they show up:
 
 - `Number(null)` → RTS NaN, JS 0
 - `parseInt("abc")` → RTS i64::MIN, JS NaN
 - `[null,1,null].join("/")` → RTS "0/1/0", JS "/1/"
-- `var: number = 8080` em concat → RTS 8176 (fcvt bug)
+- `var: number = 8080` in concat → RTS 8176 (fcvt bug)
 
-(Esses ainda não viraram fixture porque os fixes são pendentes.)
+(These haven't become fixtures yet because the fixes are pending.)

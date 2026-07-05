@@ -1,105 +1,105 @@
-# Sistema de input — spec do alvo completo
+# Input system — spec of the complete target
 
-> O input atual (`rts:input`) é um polling cru MÍNIMO (provou a arquitetura, mas
-> tem furos grandes pra UI séria/browser). Esta spec desenha o alvo COMPLETO antes
-> de implementar — o que o trait `InputSource` precisa, o que vai em TS, e as
-> fases. Datado 2026-06-25. Complementa `dom-render-input-interfaces.md`.
+> The current input (`rts:input`) is a MINIMAL raw polling (it proved the
+> architecture, but has big holes for serious UI/browser). This spec designs the
+> COMPLETE target before implementing — what the `InputSource` trait needs, what
+> goes in TS, and the phases. Dated 2026-06-25. Complements `dom-render-input-interfaces.md`.
 
-## O que existe HOJE (`InputSource` / `input.*`)
+## What exists TODAY (`InputSource` / `input.*`)
 
-| Fn | Estado |
+| Fn | State |
 |---|---|
-| `mouseX/mouseY` | ✅ posição |
-| `mouseDown(button)` | ✅ segurando (0=esq 1=dir 2=meio) |
-| `mouseClicked(button)` | ✅ clique completo no frame |
-| `wheel` | ✅ scroll vertical |
-| `keyPressed(key)` | ◐ só 8 teclas (Enter/Esc/Space/Backspace/4 setas) |
-| `textInput` | ✅ texto digitado (UTF-8) |
+| `mouseX/mouseY` | ✅ position |
+| `mouseDown(button)` | ✅ holding (0=left 1=right 2=middle) |
+| `mouseClicked(button)` | ✅ full click in the frame |
+| `wheel` | ✅ vertical scroll |
+| `keyPressed(key)` | ◐ only 8 keys (Enter/Esc/Space/Backspace/4 arrows) |
+| `textInput` | ✅ typed text (UTF-8) |
 
-**Furos:** teclado quase vazio; sem modificadores; sem press/release separados; sem
-drag/double-click; sem foco; sem cursor. Polling manual em tudo (sem eventos).
+**Holes:** keyboard almost empty; no modifiers; no separate press/release; no
+drag/double-click; no focus; no cursor. Manual polling everywhere (no events).
 
-## Princípio (mantido)
+## Principle (kept)
 
-O backend CAPTA o cru (tem a janela); o DOM/app INTERPRETA (hit-test + foco +
-eventos). Polling, não callback (limite do motor: closures capturantes quebram).
-Tudo abstrato — o TS fala `input.*`, nunca `egui.*`. O egui mapeia das suas APIs
+The backend CAPTURES the raw (it owns the window); the DOM/app INTERPRETS (hit-test + focus +
+events). Polling, not callback (engine limit: capturing closures break).
+Everything abstract — the TS speaks `input.*`, never `egui.*`. egui maps from its APIs
 (`egui::Key`, `Modifiers`, `PointerState`).
 
-## Camada 1 — INPUT CRU (trait `InputSource` + `input.*`)
+## Layer 1 — RAW INPUT (`InputSource` trait + `input.*`)
 
-### Mouse (completar)
-| Fn nova | Semântica |
+### Mouse (complete it)
+| New fn | Semantics |
 |---|---|
-| `mousePressed(button)` | botão FOI pressionado NESTE frame (transição up→down) |
-| `mouseReleased(button)` | botão FOI solto neste frame (down→up) |
-| `mouseDoubleClicked(button)` | duplo-clique neste frame |
-| `mouseDeltaX/Y` | movimento relativo do cursor no frame (câmera/scrub) |
-| `wheelX` | scroll horizontal (já temos `wheel` = vertical) |
-| `dragging(button)` | `true` enquanto arrasta (pressed + movendo) — conveniência |
+| `mousePressed(button)` | button WAS pressed THIS frame (up→down transition) |
+| `mouseReleased(button)` | button WAS released this frame (down→up) |
+| `mouseDoubleClicked(button)` | double-click this frame |
+| `mouseDeltaX/Y` | relative cursor movement in the frame (camera/scrub) |
+| `wheelX` | horizontal scroll (we already have `wheel` = vertical) |
+| `dragging(button)` | `true` while dragging (pressed + moving) — convenience |
 
-### Teclado (o maior buraco — códigos NEUTROS completos)
-Hoje 8 teclas. Alvo: tabela neutra cobrindo o que o egui expõe. Códigos `KEY_*`:
-- **Edição/navegação:** Enter, Escape, Space, Backspace, Tab, Delete, Insert,
+### Keyboard (the biggest hole — complete NEUTRAL codes)
+Today 8 keys. Target: a neutral table covering what egui exposes. `KEY_*` codes:
+- **Editing/navigation:** Enter, Escape, Space, Backspace, Tab, Delete, Insert,
   Home, End, PageUp, PageDown, ArrowUp/Down/Left/Right.
-- **Letras:** A..Z (códigos 100..125).
-- **Dígitos:** 0..9 (códigos 130..139).
-- **Função:** F1..F12 (códigos 140..151).
-- (Pontuação/símbolos chegam via `textInput`, não como keycode — segue o egui.)
+- **Letters:** A..Z (codes 100..125).
+- **Digits:** 0..9 (codes 130..139).
+- **Function:** F1..F12 (codes 140..151).
+- (Punctuation/symbols arrive via `textInput`, not as a keycode — follows egui.)
 
-| Fn nova/ampliada | Semântica |
+| New/expanded fn | Semantics |
 |---|---|
-| `keyDown(key)` | tecla segurada AGORA (estado contínuo) |
-| `keyPressed(key)` | disparou neste frame (com auto-repeat) |
-| `keyReleased(key)` | solta neste frame |
+| `keyDown(key)` | key held NOW (continuous state) |
+| `keyPressed(key)` | fired this frame (with auto-repeat) |
+| `keyReleased(key)` | released this frame |
 
-### Modificadores (essencial — atalhos, shift+click)
-| Fn | Semântica |
+### Modifiers (essential — shortcuts, shift+click)
+| Fn | Semantics |
 |---|---|
-| `modCtrl()` | Ctrl segurado |
+| `modCtrl()` | Ctrl held |
 | `modShift()` | Shift |
 | `modAlt()` | Alt |
 | `modCmd()` | Cmd/Super (Win/⌘) — egui `command` (cross-platform) |
 
-Com isso o TS faz `if (input.modCtrl() && input.keyPressed(KEY_C))` → copiar.
+With this the TS does `if (input.modCtrl() && input.keyPressed(KEY_C))` → copy.
 
-### Cursor (feedback visual)
-| Fn | Semântica |
+### Cursor (visual feedback)
+| Fn | Semantics |
 |---|---|
-| `setCursor(target, kind)` | muda o cursor: 0=default 1=pointer(mão) 2=text(I) 3=resize... O egui mapeia pra `CursorIcon`. O app chama ao passar sobre link/campo. |
+| `setCursor(target, kind)` | changes the cursor: 0=default 1=pointer(hand) 2=text(I) 3=resize... egui maps to `CursorIcon`. The app calls it when hovering over a link/field. |
 
-## Camada 2 — EVENTOS + FOCO (em TS, sobre o input cru)
+## Layer 2 — EVENTS + FOCUS (in TS, over the raw input)
 
-O polling cru é a base; pra UI grande, uma camada de conveniência em TS (no
-`rts:canvas`/fachada DOM) constrói o que falta — SEM callback (estado em
-variáveis; o app chama por frame):
+Raw polling is the base; for a large UI, a convenience layer in TS (in
+`rts:canvas`/the DOM facade) builds what's missing — WITHOUT callback (state in
+variables; the app calls it per frame):
 
-- **FOCO:** um `focusedId` (qual elemento tem o teclado). `clicked` num campo o
-  foca; Tab move o foco; só o focado lê `textInput`/teclas. Resolve o textInput de
-  verdade (hoje qualquer campo "focado" lê tudo).
-- **Hit-test → eventos por nó:** o DOM/app já faz hit-test; formalizar em
-  helpers: `onClick(rect)`, `onHover(rect)`, `onDrag(rect)` que retornam o estado
-  daquele alvo (lendo o input cru + comparando com o focado/hover anterior).
-- **Drag completo:** começo (pressed sobre o alvo) → durante (delta) → fim
-  (released) — guardado em estado module-level; um helper `beginDrag/dragDelta/
-  endDrag`.
-- **Double-click, repeat de tecla:** já no cru; a camada só expõe ergonômico.
+- **FOCUS:** a `focusedId` (which element has the keyboard). A `clicked` on a field
+  focuses it; Tab moves focus; only the focused one reads `textInput`/keys. Solves
+  textInput for real (today any "focused" field reads everything).
+- **Hit-test → per-node events:** the DOM/app already does hit-testing; formalize it in
+  helpers: `onClick(rect)`, `onHover(rect)`, `onDrag(rect)` that return the state
+  of that target (reading the raw input + comparing with the previous focused/hover).
+- **Complete drag:** start (pressed over the target) → during (delta) → end
+  (released) — kept in module-level state; a `beginDrag/dragDelta/
+  endDrag` helper.
+- **Double-click, key repeat:** already in the raw layer; the layer just exposes it ergonomically.
 
-(Bubbling/propagação de eventos DOM fica pra quando a fachada DOM tiver a árvore
-de listeners — fase posterior; o browser precisa, a UI imediata não.)
+(Bubbling/propagation of DOM events is left for when the DOM facade has the
+listener tree — a later phase; the browser needs it, immediate-mode UI does not.)
 
-## Camada 3 — futuro (não agora)
-Touch/multitouch, gamepad, IME (composição p/ CJK), clipboard real (Copy/Cut/Paste
-do egui já dão eventos), pointer lock.
+## Layer 3 — future (not now)
+Touch/multitouch, gamepad, IME (composition for CJK), real clipboard (egui's
+Copy/Cut/Paste already provide events), pointer lock.
 
-## Fases de implementação
-1. **Teclado completo + modificadores** (cru) — o maior destravamento. trait +
-   egui mapeia `egui::Key`/`Modifiers`. ← começar aqui.
-2. **Mouse rico** (pressed/released/double/delta/drag/wheelX/setCursor) — cru.
-3. **Foco + eventos por nó** (TS) — a camada usável.
-4. **Drag helper + cursor automático** (TS).
+## Implementation phases
+1. **Complete keyboard + modifiers** (raw) — the biggest unlock. trait +
+   egui maps `egui::Key`/`Modifiers`. ← start here.
+2. **Rich mouse** (pressed/released/double/delta/drag/wheelX/setCursor) — raw.
+3. **Focus + per-node events** (TS) — the usable layer.
+4. **Drag helper + automatic cursor** (TS).
 
-## Relação com os limites do motor
-A camada 2 (TS) esbarra nos mesmos limites de `engine-limits-found-building-ui.md`
-(estado em variáveis module-level, sem closures; number em vez de bool de método).
-A spec já assume isso — nada de callback, tudo polling + estado explícito.
+## Relation to the engine limits
+Layer 2 (TS) runs into the same limits as `engine-limits-found-building-ui.md`
+(state in module-level variables, no closures; number instead of a method bool).
+The spec already assumes this — no callbacks, all polling + explicit state.

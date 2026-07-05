@@ -1,12 +1,12 @@
 <div align="center">
 
-<img src=".github/imgs/logo.png" alt="RTS — TypeScript que voa" width="220" />
+<img src=".github/imgs/logo.png" alt="RTS — TypeScript that flies" width="220" />
 
 # `rts_`
 
-### **TypeScript compilado pra binário nativo. Sem runtime. Sem GC pesado. Sem desculpa.**
+### **TypeScript compiled to a native binary. No runtime. No heavy GC. No excuses.**
 
-*Um urubu de óculos escuros não tem pressa — ele já chegou.*
+*A vulture in sunglasses is never in a hurry — it has already arrived.*
 
 [![Cranelift](https://img.shields.io/badge/backend-Cranelift-orange?style=flat-square)](https://cranelift.dev)
 [![Rust](https://img.shields.io/badge/runtime-Rust-black?style=flat-square&logo=rust)](https://www.rust-lang.org)
@@ -21,50 +21,50 @@
 <!-- CROSS_RUNTIME_STATS_START -->
 ## 🌐 Cross-runtime parity
 
-Compatibilidade JS spec validada contra **Bun** e **Node** em 609 fixtures TS standalone.
+JS spec compatibility validated against **Bun** and **Node** on 609 standalone TS fixtures.
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱] 76.5%   453/592 fixtures passam
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱] 76.5%   453/592 fixtures pass
 ```
 
-| Métrica | Valor |
+| Metric | Value |
 |---|---|
-| **Paridade** | **76.5%** (453/592) |
+| **Parity** | **76.5%** (453/592) |
 | ✅ RTS = Bun = Node | 453 |
-| ❌ RTS diverge | 60 |
+| ❌ RTS diverges | 60 |
 | 💥 RTS runtime error | 79 |
-| 🛠️  **Falta corrigir** | **139** |
+| 🛠️  **Left to fix** | **139** |
 | ⚠️ Bun ≠ Node (skip) | 17 |
-| 🚫 Rejeitados (RTS-only) | 0 |
+| 🚫 Rejected (RTS-only) | 0 |
 | 📦 Total fixtures | 609 |
 
-_Atualizado: 2026-07-05 — [como adicionar fixture](docs/specs/cross-runtime-testing.md)_
+_Updated: 2026-07-05 — [how to add a fixture](docs/specs/cross-runtime-testing.md)_
 
 <!-- CROSS_RUNTIME_STATS_END -->
 
 ---
 
-## 🦅 O que é
+## 🦅 What it is
 
-**RTS** é um compilador + runtime que pega seu `.ts` e cospe um `.exe` nativo.
-Não é transpilador, não é bundler, não é wrapper em volta do V8 — é Cranelift
-gerando código de máquina direto a partir do AST do SWC, com um runtime mínimo
-em Rust e ABI tipado sem boxing.
+**RTS** is a compiler + runtime that takes your `.ts` and spits out a native `.exe`.
+It is not a transpiler, not a bundler, not a wrapper around V8 — it is Cranelift
+generating machine code directly from the SWC AST, with a minimal Rust runtime
+and a typed, boxing-free ABI.
 
-Dois caminhos, mesmo codegen:
+Two paths, same codegen:
 
-| Modo | Comando | O que faz |
+| Mode | Command | What it does |
 |------|---------|-----------|
-| 🚀 **JIT** | `rts run app.ts` | Compila pra memória executável e roda. Zero disco. |
-| 📦 **AOT** | `rts compile -p app.ts out` | Object file → linker → binário standalone (~3 KB). |
+| 🚀 **JIT** | `rts run app.ts` | Compiles to executable memory and runs. Zero disk. |
+| 📦 **AOT** | `rts compile -p app.ts out` | Object file → linker → standalone binary (~3 KB). |
 
 ---
 
 ## ⚡ Performance — RTS vs Bun vs Node
 
-Benchmarks executados no Windows 11 (100 runs, 5 warmups, mediana).
+Benchmarks run on Windows 11 (100 runs, 5 warmups, median).
 
-### Monte Carlo π — 10M iterações
+### Monte Carlo π — 10M iterations
 
 <table>
 <tr>
@@ -76,17 +76,17 @@ Benchmarks executados no Windows 11 (100 runs, 5 warmups, mediana).
 <td align="center" width="33%">
 <b>Node.js</b><br/>
 <code>113.9 ms</code><br/>
-<sub>1.24× mais lento que Bun</sub>
+<sub>1.24× slower than Bun</sub>
 </td>
 <td align="center" width="33%">
 <b>RTS AOT</b> 🦅<br/>
 <code>16.9 ms</code><br/>
-<sub><b>5.43× mais rápido que Bun</b><br/><b>6.74× mais rápido que Node</b></sub>
+<sub><b>5.43× faster than Bun</b><br/><b>6.74× faster than Node</b></sub>
 </td>
 </tr>
 </table>
 
-### Monte Carlo π — 10M iterações (8 workers)
+### Monte Carlo π — 10M iterations (8 workers)
 
 <table>
 <tr>
@@ -97,12 +97,12 @@ Benchmarks executados no Windows 11 (100 runs, 5 warmups, mediana).
 <td align="center" width="50%">
 <b>RTS multi-thread</b> 🦅<br/>
 <code>30.3 ms</code><br/>
-<sub><b>4.87× mais rápido que Bun Workers</b></sub>
+<sub><b>4.87× faster than Bun Workers</b></sub>
 </td>
 </tr>
 </table>
 
-### HTTP Server — req/s (carga sustentada)
+### HTTP Server — req/s (sustained load)
 
 <table>
 <tr>
@@ -113,12 +113,12 @@ Benchmarks executados no Windows 11 (100 runs, 5 warmups, mediana).
 <td align="center" width="50%">
 <b>RTS http_server</b> 🦅<br/>
 <code>29k req/s</code><br/>
-<sub><b>2.07× mais rápido que Bun.serve</b><br/>78% do actix puro Rust</sub>
+<sub><b>2.07× faster than Bun.serve</b><br/>78% of pure-Rust actix</sub>
 </td>
 </tr>
 </table>
 
-### Resumo
+### Summary
 
 | Bench                          | Bun       | Node      | **RTS AOT** | RTS vs Bun | RTS vs Node |
 |--------------------------------|-----------|-----------|-------------|-----------:|------------:|
@@ -126,21 +126,22 @@ Benchmarks executados no Windows 11 (100 runs, 5 warmups, mediana).
 | Monte Carlo 10M (8 threads)    | 147.6 ms  | —         | **30.3 ms** | **4.87×**  | —           |
 | HTTP throughput                | ~14k req/s| —         | **29k req/s** | **2.07×** | —           |
 
-**Por que mais rápido?** RTS compila TS para binário nativo via Cranelift —
-sem JIT warmup, sem GC pause, sem dispatch dinâmico nos hot paths. Loops
-comuns reescrevem automaticamente para `parallel.*` (rayon) sem o user
-mencionar threads (silent parallelism). HandleTable shard-aware (32 shards
-lock-free) escala alocação em paralelo.
+**Why faster?** RTS compiles TS to a native binary via Cranelift —
+no JIT warmup, no GC pause, no dynamic dispatch on the hot paths. Common
+loops automatically rewrite to `parallel.*` (rayon) without the user ever
+mentioning threads (silent parallelism). The shard-aware HandleTable (32
+lock-free shards) scales allocation in parallel.
 
 ---
 
-## 🔮 Silent Parallelism — o usuário não pede, o compilador entrega
+## 🔮 Silent Parallelism — the user doesn't ask, the compiler delivers
 
-> ⚠️ **Motor antigo (congelado).** Os 3 passes de reescrita silenciosa vivem no
-> `rts-codegen-old` e NÃO são carregados no motor novo sem rejustificação. Descrito
-> aqui como capacidade histórica; o motor novo prioriza o piso de solidez primeiro.
+> ⚠️ **Old engine (frozen).** The 3 silent-rewrite passes live in
+> `rts-codegen-old` and are NOT carried into the new engine without re-justification.
+> Described here as historical capability; the new engine prioritizes the soundness
+> floor first.
 
-Você escreve isso:
+You write this:
 
 ```ts
 const arr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
@@ -148,192 +149,192 @@ let sum = 0;
 for (const x of arr) sum = sum + x;
 ```
 
-E o codegen vê o padrão de acumulador associativo e reescreve, antes de baixar IR:
+And the codegen recognizes the associative-accumulator pattern and rewrites it, before lowering IR:
 
 ```ts
-sum = parallel.reduce(arr, 0, __par_reduce_0);  // rayon, transparente
+sum = parallel.reduce(arr, 0, __par_reduce_0);  // rayon, transparent
 ```
 
-Cobre `for...of` puro, `arr.map/.forEach/.reduce`, e o padrão clássico
-`s = s + EXPR`. 96 funções já marcadas como `pure: true` (math, string, num,
-fmt, path, hash, mem) alimentam o reconhecimento. Detalhes em
+Covers pure `for...of`, `arr.map/.forEach/.reduce`, and the classic
+`s = s + EXPR` pattern. 96 functions already marked `pure: true` (math, string, num,
+fmt, path, hash, mem) feed the recognition. Details in
 [`docs/specs/silent-parallelism.md`](docs/specs/silent-parallelism.md).
 
 ---
 
-## 🧰 A pilha runtime — `std::*` inteira, em pure Rust
+## 🧰 The runtime stack — the whole `std::*`, in pure Rust
 
-37 namespaces. Sem dependência de OpenSSL, schannel, libuv ou qualquer
-runtime externo.
+37 namespaces. No dependency on OpenSSL, schannel, libuv, or any
+external runtime.
 
-| Família | Namespaces |
+| Family | Namespaces |
 |---|---|
 | **I/O & FS** | `io` `fs` `path` `process` `env` `os` |
 | **Compute** | `math` `num` `bigfloat` `fmt` `hash` `crypto` |
-| **Memória** | `gc` `buffer` `mem` `alloc` `ptr` `ffi` |
-| **Concorrência** | `thread` `atomic` `sync` `parallel` |
-| **Rede** | `net` `tls` `http_server` (actix-web embutido) |
-| **Dados** | `collections` `string` `regex` `json` `date` |
-| **Async** | `events` (EventEmitter), Promise + Function nativos |
+| **Memory** | `gc` `buffer` `mem` `alloc` `ptr` `ffi` |
+| **Concurrency** | `thread` `atomic` `sync` `parallel` |
+| **Network** | `net` `tls` `http_server` (embedded actix-web) |
+| **Data** | `collections` `string` `regex` `json` `date` |
+| **Async** | `events` (EventEmitter), native Promise + Function |
 | **Meta** | `runtime` `test` `trace` `hint` |
 
-🌐 **HTTPS sem dor**: `rustls` + `webpki-roots` (Mozilla CAs embutidos no binário)
-🧵 **Threading**: 4 mecanismos coexistindo — `spawn/join`, `spawn_async`,
-   `spawn_detached` (pool 8 workers, 5M spawn/s), `scope` auto-join
-🔒 **HandleTable shard-aware**: 32 shards lock-free entre si
+🌐 **Painless HTTPS**: `rustls` + `webpki-roots` (Mozilla CAs embedded in the binary)
+🧵 **Threading**: 4 coexisting mechanisms — `spawn/join`, `spawn_async`,
+   `spawn_detached` (8-worker pool, 5M spawn/s), `scope` auto-join
+🔒 **Shard-aware HandleTable**: 32 mutually lock-free shards
 
 ---
 
-## 🕸️ Motor de render HTML/CSS nativo
+## 🕸️ Native HTML/CSS render engine
 
 <div align="center">
-<img src=".github/imgs/urubu-mascote.png" alt="O UrubuCode — o mascote, desenhado só com caixas CSS e animado pelo motor de render do RTS" width="560" />
+<img src=".github/imgs/urubu-mascote.png" alt="The UrubuCode — the mascot, drawn with nothing but CSS boxes and animated by the RTS render engine" width="560" />
 
-*O mascote acima é uma página HTML — nenhuma imagem: só caixas CSS + `@keyframes`, renderizado e animado pelo motor.*
+*The mascot above is an HTML page — no images: just CSS boxes + `@keyframes`, rendered and animated by the engine.*
 </div>
 
-O RTS tem um **motor de render HTML+CSS próprio, em Rust puro** (`crates/rts-dom`),
-seguindo o pipeline canônico de browser: `DOM → cascade CSS → layout (x,y,w,h) →
-display list → paint`. O backend (egui/wgpu) só **pinta** — o DOM é dono de tudo,
-headless e testável sem janela.
+RTS has its **own HTML+CSS render engine, in pure Rust** (`crates/rts-dom`),
+following the canonical browser pipeline: `DOM → CSS cascade → layout (x,y,w,h) →
+display list → paint`. The backend (egui/wgpu) only **paints** — the DOM owns
+everything, headless and testable without a window.
 
-O que já renderiza fiel (validado **número a número contra o Chrome real**,
-`getBoundingClientRect` elemento a elemento — o cover e o grid `.row`/`.col` do
-Bootstrap saem **pixel-perfect**):
+What already renders faithfully (validated **number by number against real Chrome**,
+`getBoundingClientRect` element by element — the Bootstrap cover and the `.row`/`.col`
+grid come out **pixel-perfect**):
 
-- **Cascade completa** (especificidade, `!important`, herança, `@media` por viewport)
-  com **custom properties por elemento** (`var()` com override por componente)
-- **Flexbox**: `grow`/`shrink`/`basis`, `align-self`, `order`, stretch real,
-  column com `margin:auto` absorvendo, gap, wrap
-- **Unidades**: `rem`/`em`/`%`/`vw`/`vh` e **`calc()`** (tipografia fluida),
-  margens negativas, `box-sizing`
-- **Fluxo**: inline rico (links/negrito fluindo no parágrafo), `float`,
-  `position: absolute/fixed` v1, scroll containers com barras próprias
-- **Animações CSS**: `@keyframes` + `transition` com easing completo —
-  cores, tamanhos e margens interpolando (o urubu acima bate asa com isso)
-- **Recursos externos**: `<link rel="stylesheet">` + `@import` locais
+- **Full cascade** (specificity, `!important`, inheritance, `@media` per viewport)
+  with **per-element custom properties** (`var()` with per-component override)
+- **Flexbox**: `grow`/`shrink`/`basis`, `align-self`, `order`, real stretch,
+  column with absorbing `margin:auto`, gap, wrap
+- **Units**: `rem`/`em`/`%`/`vw`/`vh` and **`calc()`** (fluid typography),
+  negative margins, `box-sizing`
+- **Flow**: rich inline (links/bold flowing inside a paragraph), `float`,
+  `position: absolute/fixed` v1, scroll containers with their own scrollbars
+- **CSS animations**: `@keyframes` + `transition` with full easing —
+  colors, sizes, and margins interpolating (the vulture above flaps its wings with this)
+- **External resources**: local `<link rel="stylesheet">` + `@import`
 
-Teste qualquer página local com uma linha:
+Test any local page with one line:
 
 ```bash
-rts run examples/view.ts examples/urubu.html                            # o mascote
-rts run examples/view.ts examples/bootstrap-5.3.8-examples/cover/index.html  # Bootstrap real
-rts run examples/view.ts caminho/para/seu/index.html                    # o seu site
+rts run examples/view.ts examples/urubu.html                            # the mascot
+rts run examples/view.ts examples/bootstrap-5.3.8-examples/cover/index.html  # real Bootstrap
+rts run examples/view.ts path/to/your/index.html                    # your site
 ```
 
-Estado e backlog técnico completo: [issue #1793](https://github.com/UrubuCode/rts/issues/1793).
+Full state and technical backlog: [issue #1793](https://github.com/UrubuCode/rts/issues/1793).
 
 ---
 
-## 🎯 O que a linguagem entende hoje
+## 🎯 What the language understands today
 
-✅ **Controle de fluxo** — `if/else`, `while`, `do-while`, `for`, `switch`
-   (jump table nativa via `br_table` quando todos os cases são literais inteiros)
+✅ **Control flow** — `if/else`, `while`, `do-while`, `for`, `switch`
+   (native jump table via `br_table` when all cases are integer literals)
 
-✅ **Funções** — declaração, expression, arrow, **tail call optimization**
-   (`return f(x)` vira `return_call`), ponteiros de função first-class
+✅ **Functions** — declaration, expression, arrow, **tail call optimization**
+   (`return f(x)` becomes `return_call`), first-class function pointers
 
-✅ **Classes** — `constructor`, métodos, `this`, `extends`, `super(...)`,
-   `super.method(...)`, static, getters/setters, **dispatch virtual real**,
-   **operator overload Rust-style** (`a + b` vira `a.add(b)` em compile-time)
+✅ **Classes** — `constructor`, methods, `this`, `extends`, `super(...)`,
+   `super.method(...)`, static, getters/setters, **real virtual dispatch**,
+   **Rust-style operator overload** (`a + b` becomes `a.add(b)` at compile time)
 
-✅ **async / await** — pipeline Promise-centric com tokio compartilhado.
-   `Promise.create` faz `spawn_blocking`, settle automático via thread-local
-   error slot. Function class completa (`call/apply/bind/toString/new Function`).
+✅ **async / await** — Promise-centric pipeline with shared tokio.
+   `Promise.create` does `spawn_blocking`, automatic settle via thread-local
+   error slot. Complete Function class (`call/apply/bind/toString/new Function`).
 
-✅ **Big decimal** — `bigfloat` em i128 fixed-point, ~30 dígitos. π via Machin
-   bate 29 dígitos corretos (f64 entrega 16).
+✅ **Big decimal** — `bigfloat` in i128 fixed-point, ~30 digits. π via Machin
+   hits 29 correct digits (f64 delivers 16).
 
 ✅ **Containers** — object/array literals via `collections.map_*`/`vec_*`,
-   member access, atribuição, aninhamento livre
+   member access, assignment, free nesting
 
-✅ **try/catch/finally** (fase 1) — slot de erro thread-local; unwind real
-   ainda não (#128)
+✅ **try/catch/finally** (phase 1) — thread-local error slot; real unwind
+   not yet (#128)
 
-✅ **Outros** — `enum`, destructuring nested+rename, spread em literals,
+✅ **Others** — `enum`, nested+rename destructuring, spread in literals,
    regex, default params, exports/imports, JSON, Date, console.*, Map/Set v0,
-   Array/String prototypes essenciais
+   essential Array/String prototypes
 
-❌ **Não suportado ainda** — generators, decorators, generics completos,
-   `satisfies`, call spread `f(...args)`, closures com captura mutável real
-   (#195 em fase 1)
+❌ **Not supported yet** — generators, decorators, full generics,
+   `satisfies`, call spread `f(...args)`, closures with real mutable capture
+   (#195 in phase 1)
 
 ---
 
-## 🏗️ Arquitetura
+## 🏗️ Architecture
 
-> **Redesign em andamento (strangler-fig).** O motor de codegen está sendo
-> reescrito do zero atrás do antigo, congelado. O motor **novo** ativo é
-> `crates/rts-codegen-new/` (caminho único HIR→Cranelift, sem MIR; valor
-> `PolyValue` NaN-boxed; shapes + inline caches de dado; dispatch data-driven). O
-> antigo `crates/rts-codegen-old/` (dual HIR→MIR / AST, valor `i64` sobrecarregado)
-> está **congelado** e some no cutover. Plano canônico:
+> **Redesign in progress (strangler-fig).** The codegen engine is being
+> rewritten from scratch behind the old, frozen one. The active **new** engine is
+> `crates/rts-codegen-new/` (single HIR→Cranelift path, no MIR; `PolyValue`
+> NaN-boxed value; shapes + data inline caches; data-driven dispatch). The
+> old `crates/rts-codegen-old/` (dual HIR→MIR / AST, overloaded `i64` value)
+> is **frozen** and goes away at cutover. Canonical plan:
 > [`docs/specs/rts-codegen-new-design.md`](docs/specs/rts-codegen-new-design.md).
 
-Workspace Cargo em `crates/`. O `src/` é a fachada do bin `rts` (re-exporta os
-crates); paths reais sob `crates/<crate>/src/`.
+Cargo workspace in `crates/`. `src/` is the facade of the `rts` bin (re-exports
+the crates); real paths live under `crates/<crate>/src/`.
 
 ```
 crates/
-├─ rts-ast/          AST interno
+├─ rts-ast/          internal AST
 ├─ rts-parser/       SWC parse → AST
-├─ rts-diagnostics/  erros estruturados
-├─ rts-engine/       ⚡ heap GC + contrato ABI (SPECS, AbiType, Intrinsic, símbolos) + Registry
-├─ rts-hir/          HIR tipado (I8..I128/F32/F64/Bool/Str/Handle/Array/Function/Class/Object/Any)
-├─ rts-mir/          MIR SSA — usado SÓ pelo rts-codegen-old (congelado); some no cutover
-├─ rts-codegen-old/  motor CONGELADO (dual MIR/AST, switchboard, add_fn! manual)
-├─ rts-codegen-new/  motor ATIVO — value.rs (PolyValue), repr.rs, shape.rs, ic.rs,
-│                    dispatch.rs (data-driven), abi_gen.rs (ABI gerada de SPECS), lower/ (single path)
-├─ rts-primitives/   classes PRIMORDIAIS (String/Object/Array/Function/Promise/Boolean/Number/Error)
-├─ rts-shared/       não-primordial universal (math/num/collections(Map/Set)/json/globals + stdlib/*.ts)
+├─ rts-diagnostics/  structured errors
+├─ rts-engine/       ⚡ heap GC + ABI contract (SPECS, AbiType, Intrinsic, symbols) + Registry
+├─ rts-hir/          typed HIR (I8..I128/F32/F64/Bool/Str/Handle/Array/Function/Class/Object/Any)
+├─ rts-mir/          SSA MIR — used ONLY by rts-codegen-old (frozen); goes away at cutover
+├─ rts-codegen-old/  FROZEN engine (dual MIR/AST, switchboard, manual add_fn!)
+├─ rts-codegen-new/  ACTIVE engine — value.rs (PolyValue), repr.rs, shape.rs, ic.rs,
+│                    dispatch.rs (data-driven), abi_gen.rs (ABI generated from SPECS), lower/ (single path)
+├─ rts-primitives/   PRIMORDIAL classes (String/Object/Array/Function/Promise/Boolean/Number/Error)
+├─ rts-shared/       non-primordial universal (math/num/collections(Map/Set)/json/globals + stdlib/*.ts)
 ├─ rts-std/          backend (io/net/tokio/console/promise/audio)
-├─ rts-runtime/      fachada fina (pub use dos quatro acima) + staticlib AOT
-├─ rts-node/         shims node:* (fs, os, path, process, crypto, util)
+├─ rts-runtime/      thin facade (pub use of the four above) + AOT staticlib
+├─ rts-node/         node:* shims (fs, os, path, process, crypto, util)
 ├─ rts-napi/         N-API (.node addons) via libloading + HandleTable
-├─ rts-linker/       link nativo (system linker + fallback object)
+├─ rts-linker/       native link (system linker + object fallback)
 └─ rts-cli/          run · compile · apis · init · repl · eval · ir
 ```
 
-### Pipeline (motor novo — caminho único, sem MIR)
+### Pipeline (new engine — single path, no MIR)
 
 ```
-TS → SWC → AST → HIR (rts-hir) → lower/ (HIR → Cranelift IR, UM caminho) → egraph Cranelift → JIT/AOT
+TS → SWC → AST → HIR (rts-hir) → lower/ (HIR → Cranelift IR, ONE path) → Cranelift egraph → JIT/AOT
 ```
 
-Não há tier MIR nem dual AST/MIR no motor novo. O **egraph do Cranelift**
-(`use_egraphs=true`) é o ÚNICO otimizador (const-fold, CSE, DCE, FMA, strength
-reduction, inline intraprocedural). O front-end só faz o que o Cranelift não pode
-(semântica JS): coerções `ToNumber/ToString/ToBoolean`, o `+` polimórfico,
-inserção de box/unbox (IR pura que o egraph dobra), emissão de sites de shape/IC,
-wrap de int estreito, arestas de exceção. AOT/JIT compartilham `compile_program`
-(`FnCtx.module` é `&mut dyn Module`).
+There is no MIR tier and no dual AST/MIR in the new engine. The **Cranelift egraph**
+(`use_egraphs=true`) is the ONLY optimizer (const-fold, CSE, DCE, FMA, strength
+reduction, intraprocedural inlining). The front-end only does what Cranelift cannot
+(JS semantics): `ToNumber/ToString/ToBoolean` coercions, the polymorphic `+`,
+box/unbox insertion (pure IR the egraph folds), shape/IC site emission,
+narrow-int wrap, exception edges. AOT/JIT share `compile_program`
+(`FnCtx.module` is `&mut dyn Module`).
 
-**Doutrina PRIMORDIAL-vs-Registry (central ao motor novo):** o motor NOMEIA só as
-classes primordiais; todo o resto resolve via Registry data-driven — **nada de
-nome não-primordial hardcoded no front, nem em "allow-list"** (ver
-[`CLAUDE.md`](CLAUDE.md) § anti-hardcode). Os globais não-primordiais (console,
-Map/Set, JSON, Date) vivem como `.ts` de prelude (`rts-shared/stdlib/*.ts`) e
-chamam pontes privadas `engine.*`; o front não os nomeia.
+**PRIMORDIAL-vs-Registry doctrine (central to the new engine):** the engine NAMES only
+the primordial classes; everything else resolves via the data-driven Registry — **no
+non-primordial name hardcoded in the front, not even in an "allow-list"** (see
+[`CLAUDE.md`](CLAUDE.md) § anti-hardcode). The non-primordial globals (console,
+Map/Set, JSON, Date) live as prelude `.ts` (`rts-shared/stdlib/*.ts`) and
+call private `engine.*` bridges; the front does not name them.
 
-**ABI sem boxing**: cada função de namespace é um símbolo
-`#[no_mangle] extern "C" fn __RTS_FN_NS_<NS>_<NAME>(...)`. Nada de `JsValue`,
-nada de dispatcher central. `i64`/`f64` em bits nativos, strings como
-`(ptr, len)` UTF-8, handles `u64` opacos para recursos. No motor novo a tabela de
-símbolos JIT é DERIVADA de `SPECS` (`abi_gen.rs`), não `add_fn!` manual.
+**Boxing-free ABI**: each namespace function is a symbol
+`#[no_mangle] extern "C" fn __RTS_FN_NS_<NS>_<NAME>(...)`. No `JsValue`,
+no central dispatcher. `i64`/`f64` in native bits, strings as UTF-8
+`(ptr, len)`, opaque `u64` handles for resources. In the new engine the JIT symbol
+table is DERIVED from `SPECS` (`abi_gen.rs`), not manual `add_fn!`.
 
 ---
 
-## 🚀 Comece em 30 segundos
+## 🚀 Get started in 30 seconds
 
 ```bash
-# Instalar
+# Install
 git clone https://github.com/UrubuCode/rts && cd rts
 cargo build --release
 
-# Rodar
+# Run
 ./target/release/rts run examples/console.ts
 
-# Compilar pra binário (~3 KB, sem runtime DLL)
+# Compile to a binary (~3 KB, no runtime DLL)
 ./target/release/rts compile -p examples/console.ts hello
 ./hello
 ```
@@ -341,84 +342,84 @@ cargo build --release
 ### CLI
 
 ```bash
-rts run file.ts                  # JIT in-memory
-rts compile -p file.ts out       # AOT com slicing por uso
-rts apis                         # listar APIs registradas em abi::SPECS
-rts ir file.ts                   # dump do IR Cranelift (pra debug de codegen)
-rts init my-app                  # scaffolding de projeto
+rts run file.ts                  # in-memory JIT
+rts compile -p file.ts out       # AOT with use-based slicing
+rts apis                         # list APIs registered in abi::SPECS
+rts ir file.ts                   # dump Cranelift IR (for codegen debugging)
+rts init my-app                  # project scaffolding
 ```
 
 ---
 
-## 🔬 Debug do codegen
+## 🔬 Codegen debugging
 
-Quer ver exatamente o que o Cranelift está gerando?
+Want to see exactly what Cranelift is generating?
 
 ```bash
 rts ir file.ts 2>&1 | head -50
 ```
 
-Imprime o IR de cada user fn + `__RTS_MAIN` sem executar. Bom pra caçar
-loads/stores redundantes em hot loops, calls extern desnecessários, e
-oportunidades de intrinsic. Ver `CLAUDE.md` § Debug do codegen.
+Prints the IR of every user fn + `__RTS_MAIN` without executing. Great for hunting
+redundant loads/stores in hot loops, unnecessary extern calls, and
+intrinsic opportunities. See `CLAUDE.md` § Codegen debugging.
 
 ---
 
-## 🎯 Compatibilidade JS/TS
+## 🎯 JS/TS compatibility
 
-> **Número honesto:** a paridade cross-runtime real do motor **novo** é a do bloco
-> [🌐 Cross-runtime parity](#-cross-runtime-parity) no topo (gerado pelo CI contra
-> Bun+Node). O motor antigo chegou a 100% (372/372) na tag `v0.0-202606072107` — um
-> máximo local de uma abordagem hardcoded sobre um modelo de valor insólido; o
-> redesign existe para furar essa parede, não para repetir o número. NÃO cite
-> "1015/1015"/"100%" como estado atual.
+> **Honest number:** the **new** engine's real cross-runtime parity is the block
+> [🌐 Cross-runtime parity](#-cross-runtime-parity) at the top (generated by CI against
+> Bun+Node). The old engine hit 100% (372/372) at tag `v0.0-202606072107` — a
+> local maximum of a hardcoded approach on an unsound value model; the
+> redesign exists to break through that wall, not to repeat the number. Do NOT quote
+> "1015/1015"/"100%" as current state.
 
-O que o motor **novo** já cobre (em construção, paridade subindo):
+What the **new** engine already covers (under construction, parity climbing):
 
-- **Sintaxe core**: classes (extends/super/static/getters/setters),
-  destructuring, spread em literais, optional chaining, nullish coalescing,
+- **Core syntax**: classes (extends/super/static/getters/setters),
+  destructuring, spread in literals, optional chaining, nullish coalescing,
   arrow/function expressions, template literals
-- **Async**: Promise + async/await (caminho síncrono sem `await`; event loop real
-  ainda aberto, #207)
-- **JS globals como `.ts` de prelude (data-driven)**: Object + statics,
+- **Async**: Promise + async/await (synchronous path without `await`; real event loop
+  still open, #207)
+- **JS globals as prelude `.ts` (data-driven)**: Object + statics,
   Boolean/Number/String prototypes, Error family, console.*, Map/Set, JSON, Date —
-  nenhum nomeado no front
-- **Operadores**: divisão JS spec (`/` SEMPRE f64 — `44100/48000 === 0.91875`,
-  inclusive atribuído a `const`), comparações, ternário, bitwise, shifts
-- **try/catch/finally** fase 1 (slot de erro thread-local; finally roda e
-  re-propaga o erro corretamente)
-- **Diagnóstico**: identificador não-resolvido vira erro de compilação, nunca
-  segfault — e nunca um valor errado (o piso de solidez do redesign)
+  none named in the front
+- **Operators**: JS-spec division (`/` ALWAYS f64 — `44100/48000 === 0.91875`,
+  even when assigned to a `const`), comparisons, ternary, bitwise, shifts
+- **try/catch/finally** phase 1 (thread-local error slot; finally runs and
+  re-propagates the error correctly)
+- **Diagnostics**: an unresolved identifier becomes a compile error, never a
+  segfault — and never a wrong value (the redesign's soundness floor)
 
-Itens pesados ainda abertos (alguns em fase de redesign): event loop async real
-(#207), closures com captura mutável (#195), TCO, Proxy (#218), typed
-arrays/DataView/ArrayBuffer, Symbol/Reflect/BigInt (#216/#219). Tracker mestre de
-paridade JS/TS: [#226](https://github.com/UrubuCode/rts/issues/226).
+Heavy items still open (some in redesign phase): real async event loop
+(#207), closures with mutable capture (#195), TCO, Proxy (#218), typed
+arrays/DataView/ArrayBuffer, Symbol/Reflect/BigInt (#216/#219). Master JS/TS
+parity tracker: [#226](https://github.com/UrubuCode/rts/issues/226).
 
 ---
 
-## 📚 Documentação
+## 📚 Documentation
 
-- 🛠️ [`CLAUDE.md`](CLAUDE.md) — arquitetura interna + regras do codebase (inclui § anti-hardcode)
-- 📖 [`docs/specs/`](docs/specs/) — specs técnicas de features
-- 🗺️ [`docs/specs/rts-codegen-new-design.md`](docs/specs/rts-codegen-new-design.md) — plano canônico do redesign do motor
-- 🐛 Issues: tracker mestre de paridade JS/TS em [#226](https://github.com/UrubuCode/rts/issues/226)
+- 🛠️ [`CLAUDE.md`](CLAUDE.md) — internal architecture + codebase rules (includes § anti-hardcode)
+- 📖 [`docs/specs/`](docs/specs/) — technical feature specs
+- 🗺️ [`docs/specs/rts-codegen-new-design.md`](docs/specs/rts-codegen-new-design.md) — canonical plan of the engine redesign
+- 🐛 Issues: master JS/TS parity tracker at [#226](https://github.com/UrubuCode/rts/issues/226)
 
 ---
 
 ## 🛡️ Guardrails
 
-- ✋ Sem `xtask` — build é `cargo` puro
-- ✋ Sem download de runtime support em build time
-- ✋ Sem dependência de Rust/Cargo no ambiente final do binário AOT
-- ✋ Single binary distribuído, roda em qualquer Windows/Linux/macOS sem instalar nada
+- ✋ No `xtask` — the build is pure `cargo`
+- ✋ No runtime-support download at build time
+- ✋ No Rust/Cargo dependency in the AOT binary's final environment
+- ✋ Single distributed binary, runs on any Windows/Linux/macOS without installing anything
 
 ---
 
 <div align="center">
 
-**Feito com 🦅 por [UrubuCode](https://github.com/UrubuCode)**
+**Made with 🦅 by [UrubuCode](https://github.com/UrubuCode)**
 
-*Se Bun é foguete, RTS é ave de rapina.*
+*If Bun is a rocket, RTS is a bird of prey.*
 
 </div>

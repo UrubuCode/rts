@@ -1,86 +1,86 @@
-# `rts-dom` — DOM retido como crate independente (headless)
+# `rts-dom` — retained DOM as an independent crate (headless)
 
-> Status: **implementado** (2026-06-25). Extraído de `rts-egui`. Permite reuso do
-> DOM no TS sem abrir janela, e mantém o `rts-egui` como mero consumidor da árvore.
+> Status: **implemented** (2026-06-25). Extracted from `rts-egui`. Allows reusing the
+> DOM from TS without opening a window, and keeps `rts-egui` as a mere consumer of the tree.
 
-## Motivação
+## Motivation
 
-O DOM (parser HTML + árvore em arena + `NodeId` versionado + query/mutação) nasceu
-dentro de `rts-egui`, mas **não tem nada de UI** — é manipulação de uma árvore de
-dados. Morando no crate de UI, ele estava preso à janela: o `Dom` vivia no `UiCtx`
-e **toda** a API (`querySelector`/`setText`/…) exigia um handle de janela. Isso
-impedia dois reusos legítimos:
+The DOM (HTML parser + arena tree + versioned `NodeId` + query/mutation) was born
+inside `rts-egui`, but **has nothing UI about it** — it is manipulation of a data
+tree. Living in the UI crate, it was tied to the window: the `Dom` lived in the `UiCtx`
+and the **entire** API (`querySelector`/`setText`/…) required a window handle. This
+prevented two legitimate reuses:
 
-1. **TS headless** — parsear/consultar/mutar HTML em memória sem render.
-2. **Outros backends** — qualquer renderer (não só egui) poder ler a mesma árvore.
+1. **Headless TS** — parse/query/mutate HTML in memory without rendering.
+2. **Other backends** — any renderer (not just egui) being able to read the same tree.
 
-## Decisão
+## Decision
 
-Crate novo **`crates/rts-dom`**, dependendo SÓ de `rts-engine` (como `rts-egui`):
+New crate **`crates/rts-dom`**, depending ONLY on `rts-engine` (like `rts-egui`):
 
-- **`dom.rs`** — `Dom` (arena `Vec<Node>`), `NodeId { gen, idx }` versionado
-  (invariante 2), `NodeIdx` interno, query O(1) por `#id`/`.class` + pré-ordem por
-  tag, mutação (`set_text`/`set_attr`/`create_element`/`append_child`/`remove_node`).
-- **`html.rs`** — tokenizer HTML mínimo + `decode_entities` (nomeadas + numéricas).
-- **`abi.rs`** — namespace `rts:dom` HEADLESS: store `thread_local` de `Dom`
-  avulsos (handle `u64` próprio — o engine NÃO conhece o DOM, doutrina), e os
-  membros `parseHtml`/`createDocument`/`free`/`querySelector`/`setText`/`setAttr`/
+- **`dom.rs`** — `Dom` (arena `Vec<Node>`), versioned `NodeId { gen, idx }`
+  (invariant 2), internal `NodeIdx`, O(1) query by `#id`/`.class` + pre-order by
+  tag, mutation (`set_text`/`set_attr`/`create_element`/`append_child`/`remove_node`).
+- **`html.rs`** — minimal HTML tokenizer + `decode_entities` (named + numeric).
+- **`abi.rs`** — HEADLESS `rts:dom` namespace: `thread_local` store of standalone
+  `Dom`s (its own `u64` handle — the engine does NOT know the DOM, doctrine), and the
+  members `parseHtml`/`createDocument`/`free`/`querySelector`/`setText`/`setAttr`/
   `createElement`/`appendChild`/`removeNode`/`rootId`/`dump`.
 
-### Por que store `thread_local` próprio (e não `Entry` do engine)
+### Why its own `thread_local` store (and not the engine's `Entry`)
 
-O `Entry` do `HandleTable` (rts-engine) é a lista FECHADA de variantes que o engine
-conhece. Adicionar `Entry::Dom` faria o **engine nomear o DOM** — viola a doutrina
-PRIMORDIAL (o DOM é não-primordial; o engine só conhece primitivos). Então o
-`rts-dom` mantém seu próprio `thread_local HashMap<u64, Dom>`, exatamente como o
-`rts-egui` mantém o `UiCtx` num thread_local fora do `Entry`.
+The `HandleTable`'s `Entry` (rts-engine) is the CLOSED list of variants the engine
+knows. Adding `Entry::Dom` would make the **engine name the DOM** — it violates the
+PRIMORDIAL doctrine (the DOM is non-primordial; the engine only knows primitives). So
+`rts-dom` keeps its own `thread_local HashMap<u64, Dom>`, exactly like
+`rts-egui` keeps the `UiCtx` in a thread_local outside the `Entry`.
 
-### Convenções da ABI (todas seguidas)
+### ABI conventions (all followed)
 
-- Símbolos `__RTS_FN_NS_DOM_*` (convenção `__RTS_<KIND>_<SCOPE>_<NS>_<NAME>`).
-- Handle de DOM cruza como `u64`; **`NodeId` cruza VERSIONADO num `i64`**
+- Symbols `__RTS_FN_NS_DOM_*` (convention `__RTS_<KIND>_<SCOPE>_<NS>_<NAME>`).
+- The DOM handle crosses as `u64`; **`NodeId` crosses VERSIONED in an `i64`**
   (`to_abi`/`from_abi`, `(gen<<32)|idx`).
-- Sentinela "nenhum" = **`-1`** (invariante 3 — `u64::MAX` não é exato como
-  `number`). Regra TS: extrair o retorno para const antes de comparar.
-- Nenhum valor polimórfico na borda; strings entram como `StrPtr`.
+- "None" sentinel = **`-1`** (invariant 3 — `u64::MAX` is not exact as a
+  `number`). TS rule: extract the return into a const before comparing.
+- No polymorphic value at the boundary; strings come in as `StrPtr`.
 
-## Registro (data-driven, o engine não nomeia "dom")
+## Registration (data-driven, the engine does not name "dom")
 
-Mesmo padrão do `egui`:
+Same pattern as `egui`:
 
 - `rts-runtime`: dep + `pub use rts_dom as dom;` (`namespaces/mod.rs`).
-- `rts-codegen-new/registry_build.rs`: uma row na tabela `REGISTER`
-  (`Register { label: "dom", run: ns::dom::register, … }`). O front NUNCA escreve
-  `"dom"` em control-flow; é um dado na tabela.
-- Os `fn_ptr` reais nos `Member` são colhidos (harvest) e instalados no JIT pelo
-  `adapter_symbols`, como qualquer namespace.
+- `rts-codegen-new/registry_build.rs`: one row in the `REGISTER` table
+  (`Register { label: "dom", run: ns::dom::register, … }`). The front NEVER writes
+  `"dom"` in control flow; it is data in the table.
+- The real `fn_ptr`s in the `Member`s are harvested and installed in the JIT by
+  `adapter_symbols`, like any namespace.
 
-## Como o `rts-egui` consome
+## How `rts-egui` consumes it
 
-O `rts-egui` depende de `rts-dom` e faz `pub(crate) use rts_dom as dom;` — assim
-`crate::dom::Dom`/`NodeId`/`parse_html_to_dom` seguem resolvendo em `ctx.rs`/
-`frame/render.rs`/`widgets.rs` SEM mudar cada call site. O `UiCtx` guarda um
-`rts_dom::Dom`; o render lê a árvore direto (não pela ABI). As fns `egui.*` de DOM
-(com handle de janela) permanecem como atalho ergonômico que opera sobre o `Dom`
-do `UiCtx` — um caminho paralelo à ABI headless de `rts:dom`.
+`rts-egui` depends on `rts-dom` and does `pub(crate) use rts_dom as dom;` — so
+`crate::dom::Dom`/`NodeId`/`parse_html_to_dom` keep resolving in `ctx.rs`/
+`frame/render.rs`/`widgets.rs` WITHOUT changing each call site. The `UiCtx` holds an
+`rts_dom::Dom`; the render reads the tree directly (not through the ABI). The `egui.*` DOM
+fns (with a window handle) remain as an ergonomic shortcut operating on the `UiCtx`'s
+`Dom` — a path parallel to the headless `rts:dom` ABI.
 
 ```
-crates/rts-dom/        DOM puro + ABI headless rts:dom   ← reuso TS sem janela
-   ↑ (consome o tipo Dom)
-crates/rts-egui/       só o RENDER (frame/render.rs lê rts_dom::Dom)
+crates/rts-dom/        pure DOM + headless rts:dom ABI   ← TS reuse without a window
+   ↑ (consumes the Dom type)
+crates/rts-egui/       only the RENDER (frame/render.rs reads rts_dom::Dom)
 ```
 
-## Validação
+## Validation
 
-- `rts-dom`: 27 testes (árvore/parser/entidades + 3 da ABI headless).
-- `rts-egui`: 12 testes (style/box) — segue renderizando consumindo `rts-dom`.
-- E2E headless: `examples/claude-dom-headless.ts` (parse/query/mutação/create sem
-  janela).
-- E2E render: `examples/claude-egui-box-complexo.ts` (egui desenha a árvore).
+- `rts-dom`: 27 tests (tree/parser/entities + 3 for the headless ABI).
+- `rts-egui`: 12 tests (style/box) — still renders consuming `rts-dom`.
+- Headless E2E: `examples/claude-dom-headless.ts` (parse/query/mutation/create without
+  a window).
+- Render E2E: `examples/claude-egui-box-complexo.ts` (egui draws the tree).
 
-## Futuro (fora deste escopo)
+## Future (out of this scope)
 
-- Fachada ergonômica `Document`/`Element` em TS sobre `rts:dom` (planejada no F3
-  do roadmap do motor web, invariante 5 — lib `.ts` via prelude).
-- `getText(node) → Handle` (leitura de texto) — pré-requisito da fachada.
+- Ergonomic `Document`/`Element` facade in TS over `rts:dom` (planned in F3
+  of the web-engine roadmap, invariant 5 — `.ts` lib via prelude).
+- `getText(node) → Handle` (text read) — prerequisite for the facade.
 ```

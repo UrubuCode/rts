@@ -1,136 +1,136 @@
-# Stack de UI do RTS — ESTADO ATUAL (plano consolidado)
+# RTS UI Stack — CURRENT STATE (consolidated plan)
 
-> Mapa do que existe hoje no experimento da stack de UI, o que falta, e a relação
-> com o roadmap egui (F0-F5). Datado 2026-06-25. Branch:
-> `feat/dom-owns-state-and-facade`. Leia junto com:
-> - `dom-in-ts-architecture.md` (DOM/layout em TS, egui canvas burro)
-> - `dom-render-input-interfaces.md` (interfaces render/input abstratas)
-> - `engine-limits-found-building-ui.md` (limites do motor encontrados na prática)
+> Map of what exists today in the UI stack experiment, what is missing, and the
+> relation to the egui roadmap (F0-F5). Dated 2026-06-25. Branch:
+> `feat/dom-owns-state-and-facade`. Read together with:
+> - `dom-in-ts-architecture.md` (DOM/layout in TS, dumb egui canvas)
+> - `dom-render-input-interfaces.md` (abstract render/input interfaces)
+> - `engine-limits-found-building-ui.md` (engine limits found in practice)
 
-## A arquitetura em uma figura
+## The architecture in one figure
 
 ```
-rts-dom (Rust)        árvore + parser + estado(estilo/layout-intent) + store. ABI de leitura.
-   ↓ (TS lê via ABI)
-fachada DOM (TS)      Document/Element (spec MDN) + LAYOUT em TS (paralelizável)
+rts-dom (Rust)        tree + parser + state(style/layout-intent) + store. Read ABI.
+   ↓ (TS reads via ABI)
+DOM facade (TS)       Document/Element (MDN spec) + LAYOUT in TS (parallelizable)
    ↓
-rts-render (Rust)     interface ABSTRATA render.* / input.* + trait Renderer/InputSource
-   ↓ (backend ativo)
-rts-egui              UM backend que implementa os traits (pinta + capta input). Trocável.
+rts-render (Rust)     ABSTRACT interface render.* / input.* + trait Renderer/InputSource
+   ↓ (active backend)
+rts-egui              ONE backend that implements the traits (paints + captures input). Swappable.
 
-   E, em paralelo ao DOM, sobre a MESMA base:
-rts:canvas (TS)       UI imediata (Canvas/App) + componentes + loop base. SEM DOM.
+   And, in parallel to the DOM, on the SAME base:
+rts:canvas (TS)       immediate-mode UI (Canvas/App) + components + base loop. NO DOM.
 ```
 
-A chave: o TS fala `dom.*` / `render.*` / `input.*` — **nunca `egui.*`** (exceto
-janela/loop). O egui é um backend plugável; trocá-lo não muda nada acima.
+The key: TS speaks `dom.*` / `render.*` / `input.*` — **never `egui.*`** (except
+window/loop). egui is a pluggable backend; swapping it changes nothing above.
 
-## ✅ O que JÁ EXISTE (entregue e validado em tela)
+## ✅ What ALREADY EXISTS (delivered and validated on screen)
 
-### Crates novos
-- **`rts-dom`** — DOM retido headless: parser HTML, árvore em arena, `NodeId`
-  versionado `{gen,idx}`, query (tag/#id/.classe) O(1), mutação, store público
-  (`with_dom`), estado de estilo (`style.rs`) e layout-intent (`block.rs`)
-  migrados pra cá. ABI `rts:dom` (parseHtml/querySelector/setText/getText/
+### New crates
+- **`rts-dom`** — headless retained DOM: HTML parser, arena tree, versioned
+  `NodeId` `{gen,idx}`, query (tag/#id/.class) O(1), mutation, public store
+  (`with_dom`), style state (`style.rs`) and layout-intent (`block.rs`)
+  migrated here. ABI `rts:dom` (parseHtml/querySelector/setText/getText/
   getAttribute/tagName/childCount/childAt/nodeStyleSlot/displayOf/defineStyle/...).
-- **`rts-render`** — interface ABSTRATA: trait `Renderer` (rect/text/line/image/
-  measureText/begin/end) + `InputSource` (mouse/key/text por polling) + registro
-  do backend ativo. Namespaces ABI `render` e `input`. Fachada `.ts` `rts:canvas`
-  (Canvas/App/componentes) como prelude.
+- **`rts-render`** — ABSTRACT interface: trait `Renderer` (rect/text/line/image/
+  measureText/begin/end) + `InputSource` (mouse/key/text via polling) + registry
+  of the active backend. ABI namespaces `render` and `input`. `.ts` facade `rts:canvas`
+  (Canvas/App/components) as a prelude.
 
-### Camada DOM (TS)
-- **Fachada `document`/`Element`** fiel à MDN: querySelector/querySelectorAll/
+### DOM layer (TS)
+- **`document`/`Element` facade** faithful to MDN: querySelector/querySelectorAll/
   getElementById/createElement/documentElement; textContent (get/set), tagName,
   id, className, getAttribute/setAttribute/hasAttribute, children, appendChild,
-  remove. Validado: `document.querySelector(".t").textContent = x` funciona.
-- **Layout engine em TS** (PoC): percorre a árvore via ABI, calcula posições/box
-  model, emite comandos de canvas. É código TS → alvo do paralelizador do RTS.
+  remove. Validated: `document.querySelector(".t").textContent = x` works.
+- **Layout engine in TS** (PoC): walks the tree via ABI, computes positions/box
+  model, emits canvas commands. It is TS code → a target for the RTS parallelizer.
 
-### Camada render/input (abstrata, backend plugável)
-- `render.*`: rect/text/line/**image** (bitmap RGBA → vídeo/imagem/viewport)/
-  measureText/beginFrame/endFrame. egui é o backend (impl do trait).
-- `input.*` — **COMPLETO** (3 fases, ver `input-system-design.md`):
+### render/input layer (abstract, pluggable backend)
+- `render.*`: rect/text/line/**image** (RGBA bitmap → video/image/viewport)/
+  measureText/beginFrame/endFrame. egui is the backend (impl of the trait).
+- `input.*` — **COMPLETE** (3 phases, see `input-system-design.md`):
   - **Mouse:** mouseX/Y, down/clicked/**pressed/released/doubleClicked**,
-    **deltaX/Y**, **dragging** (drag nativo), wheel/**wheelX**, **setCursor**.
-  - **Teclado:** códigos completos (A-Z 100-125, 0-9 130-139, F1-F12 140-151,
-    edição/navegação 1-15) × **keyPressed/keyDown/keyReleased**; **modificadores**
-    modCtrl/Shift/Alt/Cmd (atalhos).
-  - egui capta o cru (winit/SO); `input.*` é a fachada abstrata; trocável por
-    outro backend. **O input NÃO depende de egui** — é um plugin.
-  - **Camada ergonômica (TS, no App):** FOCO real (focusedId/setFocus/isFocused),
-    `clickable(id)` (idle/hover/pressed/clicado, com release-dentro), `textField(id)`
-    (campo com foco exclusivo — só o focado digita). Resolve formulários reais.
+    **deltaX/Y**, **dragging** (native drag), wheel/**wheelX**, **setCursor**.
+  - **Keyboard:** full codes (A-Z 100-125, 0-9 130-139, F1-F12 140-151,
+    editing/navigation 1-15) × **keyPressed/keyDown/keyReleased**; **modifiers**
+    modCtrl/Shift/Alt/Cmd (shortcuts).
+  - egui captures the raw input (winit/OS); `input.*` is the abstract facade; swappable for
+    another backend. **Input does NOT depend on egui** — it is a plugin.
+  - **Ergonomic layer (TS, in App):** real FOCUS (focusedId/setFocus/isFocused),
+    `clickable(id)` (idle/hover/pressed/clicked, with release-inside), `textField(id)`
+    (field with exclusive focus — only the focused one types). Solves real forms.
 
-### Camada canvas (UI imediata, sem DOM)
-- **`Canvas`/`App`** + `createApp`/`createAppAt`: loop base (o dev mantém o while;
-  beginFrame/delta/endFrame tiram o boilerplate), delta time (via `rts:time`),
-  frameCount, **controlador de FPS** (setFps/fps).
-- **Componentes**: label, panel, button, slider, checkbox, progressBar, **tabs**,
-  textInput, **layout automático** (column + auto*). hit-test/hover/clique embutidos.
+### Canvas layer (immediate-mode UI, no DOM)
+- **`Canvas`/`App`** + `createApp`/`createAppAt`: base loop (the dev keeps the while;
+  beginFrame/delta/endFrame remove the boilerplate), delta time (via `rts:time`),
+  frameCount, **FPS controller** (setFps/fps).
+- **Components**: label, panel, button, slider, checkbox, progressBar, **tabs**,
+  textInput, **automatic layout** (column + auto*). Built-in hit-test/hover/click.
 
-### Janelas
-- **multi-window** (N janelas num programa — já suportado, UiCtx por handle).
-- **multi-monitor**: `moveWindow` + `setNextWindowPos`/`createAppAt` (nasce no
-  monitor escolhido — confiável).
+### Windows
+- **multi-window** (N windows in one program — already supported, UiCtx per handle).
+- **multi-monitor**: `moveWindow` + `setNextWindowPos`/`createAppAt` (born on the
+  chosen monitor — reliable).
 
-### Exemplos (todos rodam, validados em tela)
+### Examples (all run, validated on screen)
 claude-dom-headless / dom-facade / dom-interactive / canvas-poc / render-abstract /
 input-abstract / layout-ts / canvas-facade / app-loop / components / tabs /
-multiwindow / image-video / **showcase** (4 abas) / **keyboard** (teclado+mods) /
-**mouse** (drag/double/cursor) / **focus-form** (2 campos com foco real).
+multiwindow / image-video / **showcase** (4 tabs) / **keyboard** (keyboard+mods) /
+**mouse** (drag/double/cursor) / **focus-form** (2 fields with real focus).
 
 ### Docs
-3 specs de arquitetura + o mapa de limites do motor.
+3 architecture specs + the map of engine limits.
 
-## ⬜ O que FALTA (próximos passos, priorizados)
+## ⬜ What is MISSING (next steps, prioritized)
 
-### Curto prazo (refinamento do que existe)
-1. **Medição de texto EXATA** — hoje `measureText` é aproximado (0.52·size·n); a
-   exata via atlas de fontes do egui é um TODO isolado em `canvas.rs`/`measure_text`.
-2. **Backspace/edição de cursor no textField** — append + foco JÁ funcionam;
-   backspace/seleção/cursor-no-meio dependem do limite `.length`/string-ops sobre
-   shape não-provada (ver limites #4).
-3. **Modo vsync-off** (benchmark) — pra medir FPS acima do teto do monitor; hoje o
-   Fifo limita (e tem kill-gate por causa do bug da janela-que-parava).
-4. **2º backend (headless/PPM)** — provar "N renders genéricos" de fato (render.*
-   escrevendo num buffer/PNG, sem janela). É o teste definitivo do isolamento.
-5. **Input fase 4** (opcional) — drag-helper no App + cursor automático (mãozinha
-   sobre clickable). Touch/gamepad/IME = futuro distante.
+### Short term (refinement of what exists)
+1. **EXACT text measurement** — today `measureText` is approximate (0.52·size·n); the
+   exact one via egui's font atlas is an isolated TODO in `canvas.rs`/`measure_text`.
+2. **Backspace/cursor editing in textField** — append + focus ALREADY work;
+   backspace/selection/cursor-in-the-middle depend on the `.length`/string-ops limit over
+   unproven shape (see limits #4).
+3. **Vsync-off mode** (benchmark) — to measure FPS above the monitor's ceiling; today
+   Fifo limits it (and there is a kill-gate because of the window-that-stopped bug).
+4. **2nd backend (headless/PPM)** — actually prove "N generic renders" (render.*
+   writing to a buffer/PNG, no window). It is the definitive test of the isolation.
+5. **Input phase 4** (optional) — drag-helper in App + automatic cursor (hand
+   over clickable). Touch/gamepad/IME = distant future.
 
-> **INPUT está COMPLETO** (fases 1-3: teclado+mods, mouse rico, foco+eventos) —
-> saiu das pendências. Bug "dados de ponteiros" (retorno string com alias U64 em
-> vez de AbiType::Handle literal) corrigido — ver limites #9.
+> **INPUT is COMPLETE** (phases 1-3: keyboard+mods, rich mouse, focus+events) —
+> it left the pending list. "Pointer data" bug (string return with the U64 alias
+> instead of literal AbiType::Handle) fixed — see limits #9.
 
-### Médio prazo (completar camadas)
-5. **Fachada DOM → spec MDN completa** — Node/Text/classList/innerHTML/insertBefore/
-   removeChild (ver `dom-in-ts-architecture.md` tabela).
-6. **Layout engine TS completo** — wrap de texto, width%, display horizontal/grid,
-   margin-collapse; e ligá-lo ao paralelizador.
-7. **Eventos DOM ricos** — addEventListener-like por polling; hover/focus.
-8. **Decoder de imagem (PNG/JPG)** e depois vídeo (codec) — `render.image` já
-   aceita qualquer bitmap RGBA; falta a fonte dos pixels.
+### Medium term (completing layers)
+5. **DOM facade → full MDN spec** — Node/Text/classList/innerHTML/insertBefore/
+   removeChild (see `dom-in-ts-architecture.md` table).
+6. **Complete TS layout engine** — text wrap, width%, horizontal/grid display,
+   margin-collapse; and hooking it up to the parallelizer.
+7. **Rich DOM events** — addEventListener-like via polling; hover/focus.
+8. **Image decoder (PNG/JPG)** and then video (codec) — `render.image` already
+   accepts any RGBA bitmap; the source of the pixels is what's missing.
 
-### Dependências do MOTOR (destravar primeiro — ver limites doc)
-Os limites #1/#2/#4 do `engine-limits-found-building-ui.md` (const-captura-em-fn,
-dispatch-sobre-getter, .length/string-ops sobre shape não-provada) são os que mais
-travam UI rica. Implementá-los no motor simplifica MUITO a fachada e os
-componentes (hoje cheios de workarounds: number-em-vez-de-bool, literais,
-métodos-diretos).
+### ENGINE dependencies (unblock first — see limits doc)
+Limits #1/#2/#4 of `engine-limits-found-building-ui.md` (const-capture-in-fn,
+dispatch-over-getter, .length/string-ops over unproven shape) are the ones that most
+block rich UI. Implementing them in the engine simplifies the facade and the
+components A LOT (today full of workarounds: number-instead-of-bool, literals,
+direct-methods).
 
-## Relação com o roadmap egui F0-F5 (`html-engine/rts-html-roadmap.md`)
+## Relation to the egui roadmap F0-F5 (`html-engine/rts-html-roadmap.md`)
 
-O experimento **divergiu** do F0-F5 a partir do momento em que o layout migrou
-pro TS (motivado pelo paralelismo do RTS — o roadmap assumia egui-layout). O que
-do roadmap permanece: o `rts-dom` (árvore/estado) e a doutrina. O que mudou: quem
-faz o layout (TS, não egui) e a interface abstrata render/input (nova). O roadmap
-F0-F5 descreve o caminho "egui renderiza HTML direto"; este experimento descreve
-"DOM/layout em TS sobre render abstrato". Decidir com o time qual é o oficial —
-ou se coexistem (o roadmap como motor-HTML-puro, este como stack-de-UI-geral).
+The experiment **diverged** from F0-F5 from the moment layout migrated
+to TS (motivated by RTS parallelism — the roadmap assumed egui-layout). What
+remains from the roadmap: `rts-dom` (tree/state) and the doctrine. What changed: who
+does the layout (TS, not egui) and the abstract render/input interface (new). The
+F0-F5 roadmap describes the "egui renders HTML directly" path; this experiment describes
+"DOM/layout in TS over abstract render". Decide with the team which one is official —
+or whether they coexist (the roadmap as pure-HTML-engine, this as general-UI-stack).
 
-## Resumo de uma linha
+## One-line summary
 
-Existe hoje uma fundação de UI completa e funcional sobre o RTS — DOM real,
-layout em TS, render/input abstratos com backend plugável, canvas ergonômico,
-biblioteca de componentes, multi-window/monitor, render.image — tudo validado em
-tela, com um mapa claro dos limites do motor a destravar. Pronta pra consolidar e
-crescer.
+Today there exists a complete and functional UI foundation on top of RTS — real DOM,
+layout in TS, abstract render/input with pluggable backend, ergonomic canvas,
+component library, multi-window/monitor, render.image — all validated on
+screen, with a clear map of the engine limits to unblock. Ready to consolidate and
+grow.

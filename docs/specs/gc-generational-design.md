@@ -1,165 +1,171 @@
-# GC do motor novo — fase weak agora, geracional copying (nursery) depois
+# New-engine GC — weak phase now, generational copying (nursery) later
 
-> **Status:** DESIGN / DECISÃO. A fase weak é o próximo passo bounded; o
-> geracional copying é o salto de longo prazo, projeto dedicado **DEFERIDO até
-> ~90% cross-runtime funcionando** (CLAUDE.md / `rts-codegen-new-design.md` §5.7).
-> Este documento registra a direção decidida e o porquê — o RTS tem uma vantagem
-> arquitetural rara que define o melhor design.
+> **Status:** DESIGN / DECISION. The weak phase is the next bounded step; the
+> generational copying is the long-term leap, a dedicated project **DEFERRED
+> until ~90% cross-runtime working** (CLAUDE.md / `rts-codegen-new-design.md` §5.7).
+> This document records the decided direction and the why — RTS has a rare
+> architectural advantage that defines the best design.
 
-## A vantagem arquitetural do RTS: handle indirection
+## RTS's architectural advantage: handle indirection
 
-`PolyValue` guarda um **índice de slot da `HandleTable`**, não um ponteiro cru
-(design doc §5.4, Pilar 1). O payload de 48 bits de um `TAG_STR`/`OBJECT`/
-`FUNCTION` é `slot+shard`, resolvido para o endereço real pela tabela.
+`PolyValue` stores a **`HandleTable` slot index**, not a raw pointer
+(design doc §5.4, Pilar 1). The 48-bit payload of a `TAG_STR`/`OBJECT`/
+`FUNCTION` is `slot+shard`, resolved to the real address by the table.
 
-Isso muda o cálculo de um GC móvel. Num GC copying/compacting normal o custo
-mortal é **achar e reescrever TODO ponteiro** que aponta para o objeto movido
-(pointer-patching). No RTS o objeto move no backing store e você atualiza **só o
-slot→endereço na tabela** — o índice dentro de cada `PolyValue` não muda. Mover
-objeto fica quase de graça. O calcanhar de Aquiles de todo GC móvel já está
-neutralizado pela indireção que já existe.
+This changes the calculus of a moving GC. In a normal copying/compacting GC the
+deadly cost is **finding and rewriting EVERY pointer** that points to the moved
+object (pointer-patching). In RTS the object moves in the backing store and you
+update **only the slot→address in the table** — the index inside each
+`PolyValue` does not change. Moving an object becomes almost free. The Achilles'
+heel of every moving GC is already neutralized by the indirection that already
+exists.
 
-## Estado atual (mark+sweep preciso)
+## Current state (precise mark+sweep)
 
-`crates/rts-std/src/collector/` (motor novo) / o `collector.rs` documentado em
-`.claude/rules/02-runtime.md`. Mark+sweep com `UserStackMap` do Cranelift +
-scanner conservador (`SuspendThread`+`GetThreadContext`) para threads
-registradas. `GC_TICK_INTERVAL` allocs → `finish_cycle()` = `mark_stack_roots()`
-+ `sweep_all_shards()`. Stack scanner reconhece palavras NaN-boxed `PolyValue`
-(`(w & BOX_BASE)==BOX_BASE` e `tag(w) ∈ {STR,OBJECT,FUNCTION}` → root = slot 48
-bits; int/float/singleton inline NÃO são roots).
+`crates/rts-std/src/collector/` (new engine) / the `collector.rs` documented in
+`.claude/rules/02-runtime.md`. Mark+sweep with Cranelift's `UserStackMap` +
+conservative scanner (`SuspendThread`+`GetThreadContext`) for registered
+threads. `GC_TICK_INTERVAL` allocs → `finish_cycle()` = `mark_stack_roots()`
++ `sweep_all_shards()`. The stack scanner recognizes NaN-boxed `PolyValue` words
+(`(w & BOX_BASE)==BOX_BASE` and `tag(w) ∈ {STR,OBJECT,FUNCTION}` → root = 48-bit
+slot; inline int/float/singleton are NOT roots).
 
-## Passo 1 (próximo, pequeno) — fase weak no mark+sweep atual
+## Step 1 (next, small) — weak phase in the current mark+sweep
 
-`#217` (WeakMap/WeakSet reais + WeakRef + FinalizationRegistry) NÃO precisa
-reescrever a GC. Uma fase nova entre mark e sweep resolve, bounded:
+`#217` (real WeakMap/WeakSet + WeakRef + FinalizationRegistry) does NOT require
+rewriting the GC. A new phase between mark and sweep solves it, bounded:
 
-1. **Mark normal** — mas NÃO marca através das CHAVES de um `WeakMap`/elementos
-   de `WeakSet` (a chave fica "candidata a morrer"); o valor só sobrevive se a
-   chave sobreviver por outra referência forte.
-2. **Fase weak** (pós-mark, pré-sweep): para cada `WeakMap`/`WeakSet`/`WeakRef`,
-   se o target não foi marcado → remove a entrada / `deref`→`undefined`. Para
-   cada `FinalizationRegistry` cujo target morreu → enfileira o callback de
-   finalização (drenado pelo event loop).
-3. **Sweep normal.**
+1. **Normal mark** — but does NOT mark through the KEYS of a `WeakMap`/elements
+   of a `WeakSet` (the key becomes a "candidate to die"); the value only
+   survives if the key survives via another strong reference.
+2. **Weak phase** (post-mark, pre-sweep): for each `WeakMap`/`WeakSet`/`WeakRef`,
+   if the target was not marked → remove the entry / `deref`→`undefined`. For
+   each `FinalizationRegistry` whose target died → enqueue the finalization
+   callback (drained by the event loop).
+3. **Normal sweep.**
 
-A handle indirection ajuda de novo: um `WeakRef` guarda `(slot, generation)`. Se
-o slot foi liberado/reusado (a generation de 16 bits do slab bumpou), `deref`
-retorna `undefined` — detecção **O(1) sem scan**. (A generation não cabe no
-payload de 48 bits do `PolyValue`; só WeakRef/FinalizationRegistry precisam do
-handle completo de 64 bits — design doc §5.5.)
+The handle indirection helps again: a `WeakRef` stores `(slot, generation)`. If
+the slot was freed/reused (the slab's 16-bit generation bumped), `deref`
+returns `undefined` — **O(1) detection with no scan**. (The generation does not
+fit in `PolyValue`'s 48-bit payload; only WeakRef/FinalizationRegistry need the
+full 64-bit handle — design doc §5.5.)
 
-Hoje `WeakMap`/`WeakSet` são `.ts` com semântica STRONG-ref (interino). A fase
-weak os torna REAIS sem trocar a arquitetura.
+Today `WeakMap`/`WeakSet` are `.ts` with STRONG-ref semantics (interim). The
+weak phase makes them REAL without changing the architecture.
 
-## Passo 2 (longo prazo, grande) — geracional copying (nursery)
+## Step 2 (long term, big) — generational copying (nursery)
 
-A hipótese geracional é fortíssima em JS: a esmagadora maioria dos objetos morre
-jovem (temporários de loop, `{}`/`[]` intermediários). O design recomendado:
+The generational hypothesis is very strong in JS: the overwhelming majority of
+objects die young (loop temporaries, intermediate `{}`/`[]`). The recommended
+design:
 
-- **Young gen (nursery):** bump-allocate (alloc = incrementa um ponteiro,
-  rapidíssimo). Cheia → **minor GC**: copia só os sobreviventes para o old gen.
-  Escaneia só o young + o remembered set. A maioria dos temporários morre aqui →
-  nunca promovido → coleta baratíssima.
-- **Old gen:** mark-sweep / mark-compact para os sobreviventes, roda raro
+- **Young gen (nursery):** bump-allocate (alloc = increment a pointer,
+  extremely fast). Full → **minor GC**: copies only the survivors to the old
+  gen. Scans only the young gen + the remembered set. Most temporaries die
+  here → never promoted → dirt-cheap collection.
+- **Old gen:** mark-sweep / mark-compact for the survivors, runs rarely
   (**major GC**).
-- **Mover = trivial** (handle indirection) → sem fragmentação, sem
-  pointer-patching: atualiza só o slot→endereço.
-- **Write barrier:** registra referência old→young (remembered set) para o minor
-  GC não varrer o old gen inteiro. Custo pequeno num property-write de objeto
-  velho.
-- **Multi-thread:** nursery por-thread (TLAB) → alloc lock-free. A `HandleTable`
-  shard-aware já casa com isso.
-- **Roots precisas:** os stack maps do Cranelift já existem.
+- **Moving = trivial** (handle indirection) → no fragmentation, no
+  pointer-patching: updates only the slot→address.
+- **Write barrier:** records old→young references (remembered set) so the minor
+  GC does not sweep the entire old gen. Small cost on a property-write of an old
+  object.
+- **Multi-thread:** per-thread nursery (TLAB) → lock-free alloc. The
+  shard-aware `HandleTable` already fits this.
+- **Precise roots:** the Cranelift stack maps already exist.
 
-Por que é o melhor para o RTS em máquina nativa: alloc rápido (bump), minor GC
-barato (o caso comum), major GC raro, compacta (sem fragmentação), e o custo de
-mover — o problema de todo GC móvel — já sai de graça pela indireção. É o que
-V8/JSC fazem; no RTS a parte cara é grátis.
+Why it is the best for RTS on native machines: fast alloc (bump), cheap minor
+GC (the common case), rare major GC, compacts (no fragmentation), and the cost
+of moving — the problem of every moving GC — already comes for free from the
+indirection. It is what V8/JSC do; in RTS the expensive part is free.
 
-## Caminho prático
+## Practical path
 
-| Passo | Esforço | Ganho |
+| Step | Effort | Gain |
 |-------|---------|-------|
-| Fase weak no mark+sweep atual | pequeno | `#217` real (WeakMap/WeakSet/WeakRef/FinalizationRegistry) sem reescrever a GC |
-| Geracional copying (nursery)  | grande  | throughput + latência (pausas curtas), sem fragmentação — o salto de longo prazo |
+| Weak phase in the current mark+sweep | small | real `#217` (WeakMap/WeakSet/WeakRef/FinalizationRegistry) without rewriting the GC |
+| Generational copying (nursery)  | big  | throughput + latency (short pauses), no fragmentation — the long-term leap |
 
-**Ordem:** fase weak quando `#217` entrar na pauta (fecha o weak honestamente,
-destrava WeakMap/WeakSet reais); o geracional como projeto dedicado **depois de
-~90% cross-runtime** — é o upgrade certo, e o RTS está unicamente posicionado
-para ele.
+**Order:** weak phase when `#217` enters the agenda (closes the weak story
+honestly, unblocks real WeakMap/WeakSet); the generational as a dedicated
+project **after ~90% cross-runtime** — it is the right upgrade, and RTS is
+uniquely positioned for it.
 
-## Por que NÃO antes
+## Why NOT earlier
 
-Trocar a GC enquanto o motor novo ainda preenche semântica de linguagem só
-adiciona uma variável instável no caminho crítico. O mark+sweep atual é correto
-e suficiente até lá; a fase weak é aditiva (não troca a arquitetura). O
-geracional só compensa quando o motor já roda a maioria dos programas reais e o
-gargalo passa a ser throughput/pausa de GC, não cobertura de feature.
+Swapping the GC while the new engine is still filling in language semantics only
+adds an unstable variable on the critical path. The current mark+sweep is
+correct and sufficient until then; the weak phase is additive (does not change
+the architecture). The generational only pays off when the engine already runs
+most real programs and the bottleneck becomes GC throughput/pause, not feature
+coverage.
 
-## Plano executável faseado (A1 → A2)
+## Phased executable plan (A1 → A2)
 
-> Cada passo abaixo é **compila + suíte-verde + reversível** isolado, com a
-> guarda do piso de honestidade (NADA que crashe/trave commitado como "pass";
-> build sempre compila). O collector vivo (`rts-engine/src/collector/collector.rs`
-> mark+sweep + `rts-std/src/collector/`) só é tocado de forma ADITIVA até A2.
-> Estado de partida (2026-06-22): correção ~51% (323/626); legacy gc.* já drenado.
+> Each step below is **compiles + green-suite + reversible** in isolation, with
+> the honesty-floor guard (NOTHING that crashes/hangs committed as "pass";
+> build always compiles). The live collector (`rts-engine/src/collector/collector.rs`
+> mark+sweep + `rts-std/src/collector/`) is only touched ADDITIVELY until A2.
+> Starting state (2026-06-22): correctness ~51% (323/626); legacy gc.* already drained.
 
-### A1 — fase weak (#217), bounded, aditiva
+### A1 — weak phase (#217), bounded, additive
 
-A1 NÃO reescreve a GC: adiciona uma fase entre mark e sweep + move a storage de
-WeakMap/WeakSet do `.ts` strong-ref para a `Entry` nativa que o collector entende.
+A1 does NOT rewrite the GC: it adds a phase between mark and sweep + moves the
+WeakMap/WeakSet storage from the strong-ref `.ts` to the native `Entry` the
+collector understands.
 
-- **A1.0 (infra, verde):** garantir `Entry::WeakMap(HashMap<u64,i64>)` /
+- **A1.0 (infra, green):** ensure `Entry::WeakMap(HashMap<u64,i64>)` /
   `WeakSet(HashSet<u64>)` / `WeakRef(u64 handle 64-bit)` /
-  `FinalizationRegistry{callback,entries}` existem (já existem no enum) e que o
-  scanner do collector NÃO marca através do conteúdo dessas variantes (hoje, se
-  não alocadas como roots, já não marca — confirmar com teste unit do collector).
-- **A1.1 (WeakRef deref O(1), o mais bounded) — FEITO no runtime, BLOQUEADO no
-  TS:** `WeakRef` guarda o handle COMPLETO de 64 bits. `deref()` só devolve o
-  target se `with_entry(target)` ainda for `Some` (gen+slot batem); senão
-  `undefined`. `Entry`'s `Traceable::trace_children` já cai em `_ => {}` para
-  WeakRef — o target NÃO é mantido vivo, então a checagem de staleness é a
-  semântica weak completa (+ corrige use-after-free latente do v0). Implementado
-  em `rts-shared/src/globals/weakref/mod.rs` + unit test.
-  **BLOQUEADOR descoberto:** o motor novo ainda NÃO suporta `new WeakRef(..)`
+  `FinalizationRegistry{callback,entries}` exist (they already exist in the
+  enum) and that the collector's scanner does NOT mark through the contents of
+  those variants (today, if not allocated as roots, it already does not mark —
+  confirm with a collector unit test).
+- **A1.1 (WeakRef deref O(1), the most bounded) — DONE in the runtime, BLOCKED
+  in TS:** `WeakRef` stores the FULL 64-bit handle. `deref()` only returns the
+  target if `with_entry(target)` is still `Some` (gen+slot match); otherwise
+  `undefined`. `Entry`'s `Traceable::trace_children` already falls into `_ => {}`
+  for WeakRef — the target is NOT kept alive, so the staleness check is the
+  complete weak semantics (+ fixes a latent use-after-free from v0). Implemented
+  in `rts-shared/src/globals/weakref/mod.rs` + unit test.
+  **BLOCKER discovered:** the new engine does NOT yet support `new WeakRef(..)`
   ("class WeakRef is not a user class — global/Registry class é incremento
-  posterior"). Logo A1.1 é correto mas NÃO exercitável por TS até o motor
-  instanciar classes global/Registry via `new`. Esse é o pré-requisito real de
-  TODO o A1 (Rule C: resolver o bloqueador primeiro). O unit test não roda
-  standalone (limitação pré-existente: lib-test não linka símbolos do codegen
-  tipo STRING_NEW).
-- **A1.2 (storage nativa de WeakMap/WeakSet):** novos externs ABI
-  `__RTS_FN_NS_GC_WEAKMAP_*`/`WEAKSET_*` (new/set/get/has/delete) sobre
-  `Entry::WeakMap`/`WeakSet`; reescrever `rts-shared/src/stdlib/weakmap_set.ts`
-  para delegar a eles em vez de arrays PolyValue strong-ref. AINDA strong até A1.3
-  (a storage existe, mas o collector ainda não tem a fase weak) — comportamento
-  inalterado, suíte verde.
-- **A1.3 (fase weak no collector):** entre `mark_stack_roots()` e
-  `sweep_all_shards()` em `finish_cycle()`, varrer cada `Entry::WeakMap`/`WeakSet`:
-  remover entradas cujo KEY-handle não foi marcado; cada `FinalizationRegistry`
-  com target morto → enfileira callback no event loop. SÓ aqui o comportamento
-  vira REAL weak. Teste: weakmap perde entrada quando a única ref forte à chave
-  some + collect roda.
-- **A1.4 (FinalizationRegistry drain):** o event loop drena a fila de callbacks
-  enfileirada por A1.3. Teste: callback dispara após coleta.
+  posterior"). So A1.1 is correct but NOT exercisable from TS until the engine
+  instantiates global/Registry classes via `new`. That is the real prerequisite
+  of ALL of A1 (Rule C: resolve the blocker first). The unit test does not run
+  standalone (pre-existing limitation: lib-test does not link codegen symbols
+  like STRING_NEW).
+- **A1.2 (native WeakMap/WeakSet storage):** new ABI externs
+  `__RTS_FN_NS_GC_WEAKMAP_*`/`WEAKSET_*` (new/set/get/has/delete) over
+  `Entry::WeakMap`/`WeakSet`; rewrite `rts-shared/src/stdlib/weakmap_set.ts`
+  to delegate to them instead of strong-ref PolyValue arrays. STILL strong until
+  A1.3 (the storage exists, but the collector still lacks the weak phase) —
+  behavior unchanged, green suite.
+- **A1.3 (weak phase in the collector):** between `mark_stack_roots()` and
+  `sweep_all_shards()` in `finish_cycle()`, sweep each `Entry::WeakMap`/`WeakSet`:
+  remove entries whose KEY-handle was not marked; each `FinalizationRegistry`
+  with a dead target → enqueue callback on the event loop. Only HERE does the
+  behavior become REAL weak. Test: a weakmap loses an entry when the only strong
+  ref to the key goes away + collect runs.
+- **A1.4 (FinalizationRegistry drain):** the event loop drains the callback
+  queue enqueued by A1.3. Test: callback fires after collection.
 
-### A2 — geracional copying (nursery), DEFERIDO até ~90% cross-runtime
+### A2 — generational copying (nursery), DEFERRED until ~90% cross-runtime
 
-> NÃO iniciar antes de ~90% por design (seção "Por que NÃO antes"). Ordem só
-> quando liberado. Cada passo atrás de flag `RTS_GC_GENERATIONAL` (default OFF) —
-> o mark+sweep atual continua sendo o caminho de produção até o flag virar.
+> Do NOT start before ~90% by design (section "Why NOT earlier"). Order only
+> when unblocked. Each step behind the `RTS_GC_GENERATIONAL` flag (default OFF) —
+> the current mark+sweep remains the production path until the flag flips.
 
-- **A2.0:** flag + dual-path no `finish_cycle` (OFF = mark+sweep atual, intacto).
-- **A2.1:** nursery bump-alloc por-thread (TLAB) atrás do flag; alloc novo cai no
-  nursery quando ON.
-- **A2.2:** write barrier em property-write de objeto velho → remembered set.
-- **A2.3:** minor GC = copia sobreviventes do nursery pro old gen, escaneia só
-  nursery + remembered set; mover = atualizar slot→endereço na HandleTable (a
-  indireção torna isso ≈ grátis, sem pointer-patching).
-- **A2.4:** old gen mark-compact (major GC), roda raro.
-- **A2.5:** A/B contra o mark+sweep (correção idêntica) + bench de pausa/throughput
-  antes de flip do default.
+- **A2.0:** flag + dual-path in `finish_cycle` (OFF = current mark+sweep, intact).
+- **A2.1:** per-thread nursery bump-alloc (TLAB) behind the flag; new allocs go
+  to the nursery when ON.
+- **A2.2:** write barrier on property-writes of old objects → remembered set.
+- **A2.3:** minor GC = copy nursery survivors to the old gen, scan only
+  nursery + remembered set; moving = update slot→address in the HandleTable (the
+  indirection makes this ≈ free, no pointer-patching).
+- **A2.4:** old gen mark-compact (major GC), runs rarely.
+- **A2.5:** A/B against the mark+sweep (identical correctness) + pause/throughput
+  bench before flipping the default.
 
-**Recomendação:** executar A1 agora (sancionado, bounded) na ordem A1.1 → A1.4;
-manter A2 atrás do flag e só ligar pós-~90% cross-runtime, com A2.5 como gate.
+**Recommendation:** execute A1 now (sanctioned, bounded) in the order A1.1 → A1.4;
+keep A2 behind the flag and only turn it on post-~90% cross-runtime, with A2.5
+as the gate.

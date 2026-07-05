@@ -1,103 +1,103 @@
-# Design: GUI imediata via egui — crate `rts-egui` + namespace `ui`
+# Design: immediate-mode GUI via egui — crate `rts-egui` + `ui` namespace
 
-> **Status:** spec (pré-implementação). Decisão arquitetural travada com o time;
-> código vem depois desta spec. Branch: `feat/egui-ui-crate`.
+> **Status:** spec (pre-implementation). Architectural decision locked with the team;
+> code comes after this spec. Branch: `feat/egui-ui-crate`.
 >
-> **Esta versão (v2) foi reescrita após pesquisa técnica exaustiva e
-> adversarialmente verificada** das APIs reais do egui/winit/wgpu (junho 2026).
-> Várias afirmações da v1 foram corrigidas — ver §13 (changelog) para o registro
-> honesto do que estava otimista demais.
+> **This version (v2) was rewritten after exhaustive, adversarially verified
+> technical research** into the real egui/winit/wgpu APIs (June 2026).
+> Several v1 claims were corrected — see §13 (changelog) for the honest
+> record of what was overly optimistic.
 
-## 0. Resumo executivo
+## 0. Executive summary
 
-O RTS ganha uma GUI nativa **cross-platform** baseada em **egui** (immediate-mode,
-Rust puro, sem deps C++). O `rts:ui` documentado como "FLTK 1.x" **nunca foi
-implementado** (zero código; só refs preparatórias no linker e uma linha de doc) —
-então isto é *clean slate*, não migração: não há FLTK para remover.
+RTS gains a **cross-platform** native GUI based on **egui** (immediate-mode,
+pure Rust, no C++ deps). The `rts:ui` documented as "FLTK 1.x" **was never
+implemented** (zero code; only preparatory refs in the linker and one doc line) —
+so this is a *clean slate*, not a migration: there is no FLTK to remove.
 
-A doutrina do projeto manda: **o motor/Rust expõe só primitivos; a API de alto
-nível vive em TS.** Esta spec aplica isso à risca:
+The project doctrine mandates: **the engine/Rust exposes only primitives; the
+high-level API lives in TS.** This spec applies that to the letter:
 
-- **Rust (`rts-egui`)** expõe os **primitivos imediatos** do egui via ABI de
-  handles `u64` (`extern "C"`): abrir janela, bombear eventos, começar/terminar
-  frame, emitir um widget e devolver sua resposta (clicado? valor?), apresentar o
-  frame. **O Rust não conhece o conceito "Button" como objeto retido** — ele
-  desenha um botão e devolve "foi clicado".
-- **TS dirige o loop de render** e constrói a biblioteca de alto nível
-  (componentes `Window`, `Button`, layout, estado) por cima desses primitivos.
+- **Rust (`rts-egui`)** exposes egui's **immediate primitives** via a `u64`
+  handle ABI (`extern "C"`): open window, pump events, begin/end
+  frame, emit a widget and return its response (clicked? value?), present the
+  frame. **Rust does not know the concept of a retained "Button" object** — it
+  draws a button and returns "it was clicked".
+- **TS drives the render loop** and builds the high-level library
+  (`Window`, `Button` components, layout, state) on top of those primitives.
 
-### O que a pesquisa confirmou e o que corrigiu (TL;DR)
+### What the research confirmed and what it corrected (TL;DR)
 
-- ✅ **"TS dirige o loop" é VIÁVEL** — winit expõe `pump_app_events` (não-bloqueante,
-  retorna controle ao chamador a cada iteração). É o caso de uso oficial.
-  Confirmado em **Windows/Linux**.
-- ⚠️ **"Loop 100% em TS" estava mal-fundamentado** — não porque o winit não cede
-  controle (cede), mas porque o *corpo* de cada passo é estado Rust não-primitivo
-  que não cruza a ABI. O modelo correto é **"loop dirigido por TS sobre primitivos
-  Rust"** (§1c).
-- ⚠️ **"Um widget = uma chamada FFI" só vale para widgets-folha** — containers de
-  layout (`horizontal`/`Window`/`Grid`/`Panel`) são **closure-only** no core do
-  egui (issue emilk/egui#1004). Exigem uma **pilha de `Ui` gerida no Rust** via
-  `begin_container`/`end_container`. **É o ponto de maior incerteza — exige PoC
-  dedicado** (§2.2, §6).
-- ⚠️ **macOS é um bloqueador SOFT, não fatal** — render fora do loop do winit
-  gera artefatos de resize ("MacOS expects applications to render synchronously
-  during `drawRect`"). Por isso há um **Modelo B (callback)** de fallback (§5).
-- ✅ **GC não é risco para esta feature** — está inativo no motor novo; o outro dev
-  refatora o GC futuramente. O risco prático é **vazamento** de handles por frame,
-  mitigável (§4.3).
-- ✅ **wgpu cena+overlay confirmado** — sustenta a visão jogos/browser (§1b, §8).
+- ✅ **"TS drives the loop" is VIABLE** — winit exposes `pump_app_events` (non-blocking,
+  returns control to the caller on each iteration). It is the official use case.
+  Confirmed on **Windows/Linux**.
+- ⚠️ **"100%-in-TS loop" was poorly grounded** — not because winit doesn't yield
+  control (it does), but because the *body* of each step is non-primitive Rust
+  state that doesn't cross the ABI. The correct model is **"TS-driven loop over
+  Rust primitives"** (§1c).
+- ⚠️ **"One widget = one FFI call" only holds for leaf widgets** — layout
+  containers (`horizontal`/`Window`/`Grid`/`Panel`) are **closure-only** in egui's
+  core (issue emilk/egui#1004). They require a **Rust-managed `Ui` stack** via
+  `begin_container`/`end_container`. **This is the point of greatest uncertainty — it
+  requires a dedicated PoC** (§2.2, §6).
+- ⚠️ **macOS is a SOFT blocker, not fatal** — rendering outside the winit loop
+  produces resize artifacts ("MacOS expects applications to render synchronously
+  during `drawRect`"). That's why there is a **Model B (callback)** fallback (§5).
+- ✅ **GC is not a risk for this feature** — it is inactive in the new engine; the other dev
+  will refactor the GC later. The practical risk is per-frame handle **leakage**,
+  which is mitigable (§4.3).
+- ✅ **wgpu scene+overlay confirmed** — sustains the games/browser vision (§1b, §8).
 
-### Decisões travadas
+### Locked decisions
 
-| Tema | Decisão |
+| Topic | Decision |
 |---|---|
-| Lib de GUI | **egui** (immediate-mode, Rust puro, cross-platform) |
-| FLTK | **Descartado** (nunca existiu; atualizar docs) |
-| Crate | **Nova crate `rts-egui`** (não enfiar no `rts-std`) |
-| Quem dirige o loop | **Modelo A (TS dirige): `while(ui.isOpen()){ pump → beginFrame → widgets → endFrame }`** primário em **Windows/Linux**. **Modelo B (callback): `ui.runApp(cb)`** fallback **macOS/wasm** |
-| Backend de render | **wgpu primário/default** (GPU moderna — jogos/browser); **glow** fallback de compat |
-| Estado da janela (`UiCtx`) | **`thread_local! HashMap<u64, UiCtx>`** na thread do TS — **não** cabe no `Entry` do HandleTable nem no `tokio_ctx` (winit/wgpu são `!Send`) |
-| Profundidade da API | **Ampla** (widgets-folha 1:1 + containers via pilha de `Ui`), construída em TS |
-| Visão de longo prazo | A crate é um **fundamento de render**: habilita **jogos e até um motor de browser** (cena custom wgpu + egui overlay) |
-| Entrega | **Spec completa primeiro** (este doc); P1 é o **gate de risco** antes da API ampla |
+| GUI lib | **egui** (immediate-mode, pure Rust, cross-platform) |
+| FLTK | **Dropped** (never existed; update docs) |
+| Crate | **New crate `rts-egui`** (do not stuff it into `rts-std`) |
+| Who drives the loop | **Model A (TS drives): `while(ui.isOpen()){ pump → beginFrame → widgets → endFrame }`** primary on **Windows/Linux**. **Model B (callback): `ui.runApp(cb)`** fallback for **macOS/wasm** |
+| Render backend | **wgpu primary/default** (modern GPU — games/browser); **glow** compat fallback |
+| Window state (`UiCtx`) | **`thread_local! HashMap<u64, UiCtx>`** on the TS thread — it does **not** fit in the HandleTable `Entry` nor in `tokio_ctx` (winit/wgpu are `!Send`) |
+| API depth | **Broad** (1:1 leaf widgets + containers via `Ui` stack), built in TS |
+| Long-term vision | The crate is a **render foundation**: enables **games and even a browser engine** (custom wgpu scene + egui overlay) |
+| Delivery | **Full spec first** (this doc); P1 is the **risk gate** before the broad API |
 
-## 1. Por que egui e por que crate nova
+## 1. Why egui and why a new crate
 
-- **Cross-platform real:** Windows, macOS, Linux nativos (Web/Wasm exige o Modelo
+- **Real cross-platform:** native Windows, macOS, Linux (Web/Wasm requires Model
   B — §5).
-- **Rust puro:** sem toolchain C++/bindgen como FLTK exigiria; o `runtime_support.a`
-  não precisa embutir objetos C++.
-- **Immediate-mode casa com a doutrina:** o estado de domínio mora no *app* (no
-  nosso caso, no TS), e os widgets são re-emitidos a cada frame. Isso é
-  exatamente "primitivos no Rust, lógica no TS".
-- **Crate isolada (`rts-egui`):** egui+winit+wgpu/glow trazem um grafo de deps
-  pesado (gfx, janela). Isolar numa crate própria:
-  - mantém `rts-std`/`rts-runtime` enxutos para quem não usa GUI;
-  - permite **feature-gate** o backend (wgpu vs glow) sem poluir o resto;
-  - respeita o teto de complexidade por crate.
+- **Pure Rust:** no C++/bindgen toolchain as FLTK would require; `runtime_support.a`
+  doesn't need to embed C++ objects.
+- **Immediate-mode matches the doctrine:** domain state lives in the *app* (in
+  our case, in TS), and widgets are re-emitted each frame. That is
+  exactly "primitives in Rust, logic in TS".
+- **Isolated crate (`rts-egui`):** egui+winit+wgpu/glow bring a heavy dep graph
+  (gfx, windowing). Isolating it in its own crate:
+  - keeps `rts-std`/`rts-runtime` lean for those not using GUI;
+  - allows **feature-gating** the backend (wgpu vs glow) without polluting the rest;
+  - respects the per-crate complexity ceiling.
 
-## 1b. Visão de longo prazo: render foundation (jogos, browser)
+## 1b. Long-term vision: render foundation (games, browser)
 
-Esta crate **não é "só widgets"** — é o **fundamento de render nativo do RTS**. O
-objetivo declarado do time é, no futuro, construir **jogos e até um motor de
-browser** sobre ela. Isso impõe requisitos que vão além de uma toolkit de UI e
-**moldam as escolhas desta spec desde já** (mesmo que a primeira entrega seja só
+This crate is **not "just widgets"** — it is **RTS's native render foundation**. The
+team's stated goal is, in the future, to build **games and even a browser
+engine** on top of it. That imposes requirements beyond a UI toolkit and
+**shapes this spec's choices from the start** (even though the first delivery is only
 GUI):
 
-1. **GPU moderna obrigatória.** Jogos e layout/compositing de um browser precisam
-   de Vulkan/Metal/DX12, shaders próprios, render targets, e desenho fora da UI.
-   Por isso **wgpu é o backend primário** (glow/OpenGL fica como fallback de
-   compatibilidade). egui aqui é **um overlay** desenhado por cima da cena.
+1. **Modern GPU is mandatory.** Games and a browser's layout/compositing need
+   Vulkan/Metal/DX12, custom shaders, render targets, and drawing outside the UI.
+   That's why **wgpu is the primary backend** (glow/OpenGL stays as the
+   compatibility fallback). egui here is **an overlay** drawn on top of the scene.
 
-2. **Acesso à surface/device, não só ao egui.** A pesquisa **confirmou** que isso
-   é sólido: `egui_wgpu::Renderer` foi desenhado para o modelo "você é dono do
-   frame" — `update_buffers`/`update_texture` fora do pass, `render(&mut
-   RenderPass, jobs, screen_desc)` **dentro de um pass que você abre no seu
-   encoder**. Logo dá para: cena custom (`LoadOp::Clear` + draw da geometria) →
-   egui no mesmo encoder (segundo pass `LoadOp::Load`, não apaga a cena) → um
-   único `queue.submit` + `frame.present()`. Exemplo oficial: `custom3d_wgpu.rs`
-   no `egui_demo_app`; `bevy_egui` confirma o padrão em produção.
+2. **Access to the surface/device, not just to egui.** The research **confirmed** this
+   is solid: `egui_wgpu::Renderer` was designed for the "you own the
+   frame" model — `update_buffers`/`update_texture` outside the pass, `render(&mut
+   RenderPass, jobs, screen_desc)` **inside a pass you open on your own
+   encoder**. So you can: custom scene (`LoadOp::Clear` + geometry draw) →
+   egui on the same encoder (second pass `LoadOp::Load`, doesn't erase the scene) → a
+   single `queue.submit` + `frame.present()`. Official example: `custom3d_wgpu.rs`
+   in `egui_demo_app`; `bevy_egui` confirms the pattern in production.
 
    ```
    beginFrame(h)          // pump input + ctx.begin_pass
@@ -106,105 +106,105 @@ GUI):
    endFrame(h)            // end_pass + tessellate + egui render + submit + present
    ```
 
-   **Ressalva honesta (verificada):** a costura de lifetime do wgpu vira checagem
-   de *runtime*: `egui_wgpu::Renderer::render` exige `RenderPass<'static>`, mas
-   `begin_render_pass` devolve `RenderPass<'encoder>`; a ponte é
-   `RenderPass::forget_lifetime()`, que **converte a validação "encoder não tocado
-   durante o pass" de erro de compilação para erro de runtime**. Funciona, mas
-   exige disciplina — uso indevido vira panic em runtime, não erro de build.
+   **Honest caveat (verified):** the wgpu lifetime stitching becomes a *runtime*
+   check: `egui_wgpu::Renderer::render` requires `RenderPass<'static>`, but
+   `begin_render_pass` returns `RenderPass<'encoder>`; the bridge is
+   `RenderPass::forget_lifetime()`, which **converts the "encoder untouched
+   during the pass" validation from a compile error into a runtime error**. It works, but
+   requires discipline — misuse becomes a runtime panic, not a build error.
 
-3. **Controle total do loop é requisito, não preferência.** Um game loop precisa
-   de `input → update → render cena → render UI → present` sob controle do código
-   do usuário. Daí a decisão "TS dirige o loop" não ser só ergonomia: é
-   pré-condição para jogos. eframe (dono do loop) é incompatível com isso — por
-   isso usamos egui + winit + wgpu **sem eframe**.
+3. **Full control of the loop is a requirement, not a preference.** A game loop needs
+   `input → update → render scene → render UI → present` under the control of the user's
+   code. Hence the "TS drives the loop" decision is not just ergonomics: it is a
+   precondition for games. eframe (loop owner) is incompatible with that — which is
+   why we use egui + winit + wgpu **without eframe**.
 
-> **Escopo desta entrega vs. futuro.** A 1ª entrega expõe **GUI imediata** (janela
-> + widgets + loop). O **render customizado de cena** (geometria, shaders,
-> texturas) é fase posterior (P7+), mas a arquitetura aqui é desenhada para **não
-> precisar ser refeita** quando essa fase chegar. A crate pode ser renomeada
-> (`rts-gfx`/`rts-render`) quando o escopo crescer além do egui.
+> **Scope of this delivery vs. the future.** The 1st delivery exposes an **immediate GUI** (window
+> + widgets + loop). **Custom scene rendering** (geometry, shaders,
+> textures) is a later phase (P7+), but the architecture here is designed to **not
+> need to be redone** when that phase arrives. The crate may be renamed
+> (`rts-gfx`/`rts-render`) when the scope grows beyond egui.
 >
-> **Browser via wasm está FORA do Modelo A.** winit `pump_app_events` é
-> incompatível com Web (o browser não cede um loop externo de longa duração;
-> eventos vêm por callback). Se "visão browser" = *rodar no browser via wasm*,
-> exige o Modelo B (§5). Se "visão browser" = *construir um motor de browser
-> nativo com UI estilo browser*, o Modelo A sustenta.
+> **Browser via wasm is OUTSIDE Model A.** winit `pump_app_events` is
+> incompatible with the Web (the browser doesn't yield a long-running external
+> loop; events come via callback). If "browser vision" = *run in the browser via wasm*,
+> it requires Model B (§5). If "browser vision" = *build a native browser
+> engine with browser-style UI*, Model A sustains it.
 
-## 1c. O modelo de loop: o que é TS, o que é Rust (veredito verificado)
+## 1c. The loop model: what is TS, what is Rust (verified verdict)
 
-A pesquisa derrubou a fundamentação ingênua da v1 ("loop 100% em TS é impossível
-porque winit não devolve controle"). **O winit devolve controle** via
-`pump_app_events` (recebe `&mut self`, retorna `PumpStatus` a cada chamada — o
-oposto de `run_app`, que consome o `EventLoop` e nunca retorna). A impossibilidade
-real é outra, e mais simples:
+The research demolished v1's naive grounding ("a 100%-in-TS loop is impossible
+because winit doesn't return control"). **winit does return control** via
+`pump_app_events` (takes `&mut self`, returns a `PumpStatus` on each call — the
+opposite of `run_app`, which consumes the `EventLoop` and never returns). The real
+impossibility is different, and simpler:
 
-**O que PODE ficar em TS:**
-- A estrutura de iteração — o `while`, o teste de saída, a sequência de chamadas.
-  Roda no top-level, na main thread (o JIT chama `__rtsn_main` síncrono direto, sem
+**What CAN stay in TS:**
+- The iteration structure — the `while`, the exit test, the sequence of calls.
+  It runs at top-level, on the main thread (the JIT calls `__rtsn_main` synchronously, directly, without
   spawn — `crates/rts-codegen-new/src/front/run/module_jit.rs`).
-- A condição de parada (um `bool`/`i64` devolvido por um primitivo).
-- A lógica de aplicação sobre os retornos dos widgets (estado do app em variáveis TS).
+- The stop condition (a `bool`/`i64` returned by a primitive).
+- The application logic over the widgets' returns (app state in TS variables).
 
-**O que OBRIGATORIAMENTE fica em Rust:**
-- `EventLoop`, `Window`, `wgpu::Device/Surface/Queue`, `egui::Context`, o `Ui`
-  raiz — tipos Rust ricos, a maioria `!Send`/`!Sync`. **Não cabem no `enum Entry`
-  do HandleTable** (fechado, primordial, em `rts-engine`) **nem no `tokio_ctx`**
-  (exige `Send+Sync`). Logo o `UiCtx` vive num `thread_local! HashMap<u64, UiCtx>`
-  e o TS só segura um **handle opaco u64**.
-- A chamada `pump_app_events(&mut event_loop, timeout, &mut app)` exige
-  referências Rust vivas que o TS não materializa. O TS chama o primitivo
-  `__RTS_FN_NS_UI_PUMP`, que por dentro resolve o handle e faz a chamada.
+**What MUST stay in Rust:**
+- `EventLoop`, `Window`, `wgpu::Device/Surface/Queue`, `egui::Context`, the root `Ui`
+  — rich Rust types, mostly `!Send`/`!Sync`. **They don't fit in the HandleTable's `enum Entry`**
+  (closed, primordial, in `rts-engine`) **nor in `tokio_ctx`**
+  (which requires `Send+Sync`). Hence the `UiCtx` lives in a `thread_local! HashMap<u64, UiCtx>`
+  and TS only holds an **opaque u64 handle**.
+- The `pump_app_events(&mut event_loop, timeout, &mut app)` call requires live
+  Rust references TS can't materialize. TS calls the primitive
+  `__RTS_FN_NS_UI_PUMP`, which internally resolves the handle and makes the call.
 
-**Conclusão:** não existe "loop sem Rust no caminho do frame". Existe **"loop
-dirigido por TS sobre primitivos Rust"** — que é o modelo correto e suficiente.
+**Conclusion:** there is no "loop without Rust in the frame path". There is a **"TS-driven
+loop over Rust primitives"** — which is the correct and sufficient model.
 
-## 2. Os dois pontos duros (e suas soluções)
+## 2. The two hard points (and their solutions)
 
-### 2.1 macOS: bloqueador SOFT, não fatal
+### 2.1 macOS: SOFT blocker, not fatal
 
-Render dirigido por fora do loop do winit (= `present()` por frame chamado pelo
-TS) é **desencorajado pela doc do winit no macOS**, verbatim: *"If you render
+Rendering driven from outside the winit loop (= per-frame `present()` called by
+TS) is **discouraged by the winit doc on macOS**, verbatim: *"If you render
 outside of Winit you are likely to see window resizing artifacts since MacOS
 expects applications to render synchronously during any `drawRect` callback."*
-Além disso, `pump_app_events` **para o `NSApplication` entre frames** (quebra
-`rfd`/file dialogs) e a doc diz *"You almost certainly shouldn't use this API."*
+Additionally, `pump_app_events` **stops the `NSApplication` between frames** (breaks
+`rfd`/file dialogs) and the doc says *"You almost certainly shouldn't use this API."*
 
-- **Não é panic** no caminho feliz (main = thread #0 do processo, sem `block_on`
-  na main). É **degradação visual** (artefatos no resize) — e a severidade para o
-  stack egui+wgpu/Metal **não está quantificada em nenhuma fonte** (lacuna
-  empírica a medir num PoC macOS).
-- **Windows/Linux são first-class** no Modelo A (Windows usa `PeekMessage`,
-  genuinamente não-bloqueante).
-- **Solução:** Modelo B (callback, §5) onde o winit possui o loop e o draw fica
-  dentro do handler — portável no macOS, e o único caminho no wasm.
+- **It is not a panic** on the happy path (main = process thread #0, no `block_on`
+  on main). It is **visual degradation** (resize artifacts) — and the severity for the
+  egui+wgpu/Metal stack **is not quantified in any source** (an empirical
+  gap to measure in a macOS PoC).
+- **Windows/Linux are first-class** in Model A (Windows uses `PeekMessage`,
+  genuinely non-blocking).
+- **Solution:** Model B (callback, §5) where winit owns the loop and the draw sits
+  inside the handler — portable on macOS, and the only path on wasm.
 
-### 2.2 Containers de layout: closure-only no egui (o maior risco)
+### 2.2 Layout containers: closure-only in egui (the biggest risk)
 
-A pesquisa **refutou** o "um widget = uma chamada FFI" no caso geral:
+The research **refuted** "one widget = one FFI call" in the general case:
 
-- ✅ **Widgets-folha** (`button`, `slider`, `label`, `text_edit`) retornam
-  `Response` **owned, sem lifetime** → `ui.button(x).clicked()` produz um `bool`
-  que cruza `extern "C"` direto. Confirmado oficial + por bindings de produção
-  (**Egui.NET** C# ~97% da API uma-chamada-por-método; **pyegui** Python
+- ✅ **Leaf widgets** (`button`, `slider`, `label`, `text_edit`) return an
+  **owned, lifetime-free** `Response` → `ui.button(x).clicked()` produces a `bool`
+  that crosses `extern "C"` directly. Confirmed officially + by production bindings
+  (**Egui.NET** C# ~97% of the API one-call-per-method; **pyegui** Python
   one-widget-per-call).
 - ⚠️ **Containers** (`Ui::horizontal`, `egui::Window`, `CentralPanel`, `Grid`)
-  recebem `FnOnce(&mut Ui)` — **não têm API begin/end no core do egui** (issue
-  emilk/egui#1004, reconhecida sem solução). Um botão dentro de uma `Window` exige
-  um `Ui` filho que nasce dentro do closure do container.
+  take `FnOnce(&mut Ui)` — **there is no begin/end API in egui's core** (issue
+  emilk/egui#1004, acknowledged without a solution). A button inside a `Window` requires
+  a child `Ui` born inside the container's closure.
 
-**Solução (viável, mais trabalhosa, NÃO provada rodando — só inferida das
-assinaturas):** modelar `begin_container`/`end_container` empilhando `Ui`s
-manualmente do lado Rust. O `Ui` raiz é criado via `Ui::new(ctx, id, UiBuilder)`;
-cada container aloca um `Ui` filho (via `UiBuilder`/`allocate_ui*`) e o empurra
-numa **pilha de `Ui` no `thread_local`** indexada pelo handle do frame.
-`begin_container` empurra; os widgets seguintes operam no topo; `end_container`
-desempilha e finaliza — reimplementando o que `.show()` encapsula.
+**Solution (viable, more laborious, NOT proven running — only inferred from the
+signatures):** model `begin_container`/`end_container` by stacking `Ui`s
+manually on the Rust side. The root `Ui` is created via `Ui::new(ctx, id, UiBuilder)`;
+each container allocates a child `Ui` (via `UiBuilder`/`allocate_ui*`) and pushes it
+onto a **`Ui` stack in the `thread_local`** indexed by the frame handle.
+`begin_container` pushes; subsequent widgets operate on the top; `end_container`
+pops and finalizes — reimplementing what `.show()` encapsulates.
 
-> **Este é o ponto que o P1 DEVE provar antes de escrever a API ampla.** Nenhuma
-> fonte mostra essa pilha manual de `Ui` rodando; é a maior incerteza da spec.
+> **This is the point P1 MUST prove before writing the broad API.** No
+> source shows this manual `Ui` stack running; it is the spec's biggest uncertainty.
 
-## 3. Arquitetura de crates
+## 3. Crate architecture
 
 ```
 crates/
@@ -229,100 +229,100 @@ crates/
       handle.rs                  encode/decode handle u64 <-> slot UiCtx
 ```
 
-> Nenhum arquivo acima pode passar de 500 linhas (regra do projeto) — `widgets/`
-> já é uma pasta de submódulos coesos por esse motivo.
+> No file above may exceed 500 lines (project rule) — `widgets/`
+> is already a folder of cohesive submodules for that reason.
 
-- `rts-egui` depende de `rts-engine` (ABI/Engine, registro) — **não** de
-  `rts-codegen-new` (doutrina: engine não nomeia não-primordiais; `ui` resolve via
-  Registry).
-- `rts-runtime` re-exporta `rts-egui` (como já faz com `napi`) atrás de uma
-  feature `ui` (default on no desktop; off no wasm).
-- O linker (`rts-linker`) remove as refs FLTK (libs X11/Pango/etc.) e linka as
-  deps de janela/GPU conforme o backend: **wgpu** → loader Vulkan/Metal/DX12 +
-  janela (xkbcommon, x11/wayland no Linux); **glow** → libGL/EGL. Documentar a
-  matriz por plataforma.
+- `rts-egui` depends on `rts-engine` (ABI/Engine, registration) — **not** on
+  `rts-codegen-new` (doctrine: engine doesn't name non-primordials; `ui` resolves via
+  the Registry).
+- `rts-runtime` re-exports `rts-egui` (as it already does with `napi`) behind a
+  `ui` feature (default on for desktop; off on wasm).
+- The linker (`rts-linker`) removes the FLTK refs (X11/Pango/etc. libs) and links the
+  window/GPU deps per backend: **wgpu** → Vulkan/Metal/DX12 loader +
+  windowing (xkbcommon, x11/wayland on Linux); **glow** → libGL/EGL. Document the
+  per-platform matrix.
 
-## 4. Modelo de loop e threading (detalhado)
+## 4. Loop and threading model (detailed)
 
-### 4.1 Estado por janela
+### 4.1 Per-window state
 
-- **Uma janela = um `UiCtx`** num **`thread_local! HashMap<u64, UiCtx>`** (não no
-  HandleTable — `UiCtx` é `!Send`). Handle `u64` = chave opaca, no estilo dos
-  demais namespaces, mas o storage é local à thread do TS.
-- O `UiCtx` guarda: `EventLoop`, `Window`, `egui::Context` (refcounted, cheap
-  clone), `egui_winit::State`, o renderer (`egui_wgpu::Renderer` ou
-  `egui_glow::Painter`), e a **pilha de `Ui`** do frame corrente.
+- **One window = one `UiCtx`** in a **`thread_local! HashMap<u64, UiCtx>`** (not in
+  the HandleTable — `UiCtx` is `!Send`). Handle `u64` = opaque key, in the style of the
+  other namespaces, but the storage is local to the TS thread.
+- The `UiCtx` holds: `EventLoop`, `Window`, `egui::Context` (refcounted, cheap
+  clone), `egui_winit::State`, the renderer (`egui_wgpu::Renderer` or
+  `egui_glow::Painter`), and the current frame's **`Ui` stack**.
 
-### 4.2 Ciclo (Modelo A — TS dirige)
+### 4.2 Cycle (Model A — TS drives)
 
-- `openWindow(title, w, h, backend)`: cria `EventLoop` (na thread chamadora;
-  **main-thread #0 no macOS**) + `Window`; cria `egui::Context` +
-  `egui_winit::State`; inicializa o renderer (wgpu init é async → resolver com
-  `pollster::block_on` numa chamada síncrona); guarda no `UiCtx`; devolve o handle.
+- `openWindow(title, w, h, backend)`: creates the `EventLoop` (on the calling thread;
+  **main-thread #0 on macOS**) + `Window`; creates `egui::Context` +
+  `egui_winit::State`; initializes the renderer (wgpu init is async → resolved with
+  `pollster::block_on` in a synchronous call); stores it in the `UiCtx`; returns the handle.
 - `pump(h) -> i64`: `event_loop.pump_app_events(Some(Duration::ZERO), &mut app)`;
-  o handler interno acumula `WindowEvent`s via `egui_winit::State::on_window_event`
-  e trata `CloseRequested`. Retorna `0` = continue, `!=0` = sair.
+  the internal handler accumulates `WindowEvent`s via `egui_winit::State::on_window_event`
+  and handles `CloseRequested`. Returns `0` = continue, `!=0` = exit.
 - `beginFrame(h)`: `let input = state.take_egui_input(window); ctx.begin_pass(input);`
-  cria o `Ui` raiz e o empurra na pilha de `Ui` do `UiCtx`.
-- `widget(h, …)`: opera no `Ui` do topo da pilha; devolve a **resposta** primitiva
-  (`clicked: bool`; `f64`; string-handle). **O primitivo é extraído na mesma
-  chamada — a `Response` nunca é retida cruzando a FFI.**
-- `beginContainer/endContainer(h, …)`: empurra/desempilha um `Ui` filho (§2.2).
+  creates the root `Ui` and pushes it onto the `UiCtx`'s `Ui` stack.
+- `widget(h, …)`: operates on the `Ui` at the top of the stack; returns the primitive
+  **response** (`clicked: bool`; `f64`; string-handle). **The primitive is extracted in the same
+  call — the `Response` is never retained across the FFI.**
+- `beginContainer/endContainer(h, …)`: pushes/pops a child `Ui` (§2.2).
 - `endFrame(h)`: `let out = ctx.end_pass();` → `tessellate` →
   `state.handle_platform_output` → `renderer.update_texture/update_buffers` →
-  `surface.get_current_texture` → encoder → [cena custom opcional] → pass egui
+  `surface.get_current_texture` → encoder → [optional custom scene] → egui pass
   (`LoadOp::Load` + `forget_lifetime`) → `queue.submit` → `frame.present()` (vsync)
   → `free_texture`.
-- `isOpen(h)`: false após `CloseRequested`. `close(h)`: dropa o `UiCtx`, libera o slot.
+- `isOpen(h)`: false after `CloseRequested`. `close(h)`: drops the `UiCtx`, frees the slot.
 
-### 4.3 Threading e GC
+### 4.3 Threading and GC
 
-- Loop + widgets rodam **na mesma thread** do programa TS (a main #0). Nenhuma
-  chamada cross-thread de callback no Modelo A — o TS chama Rust, não o inverso.
-- **GC: não é preocupação desta feature.** Verificado no código: o GC está
-  **inativo** no motor novo (`install_gc_hook` nunca é chamado; `is_active()`
-  sempre falso; a main thread não se registra no `thread_registry`, então
-  `SuspendThread` nunca a toca). O outro dev refatora o GC futuramente.
-- **O risco real é vazamento, não deadlock:** sem GC, strings/arrays alocados por
-  frame **vazam** durante a vida do processo. **Mitigação:** os widgets devem
-  aceitar strings via `ptr+len` de **buffer reusado**, não alocar um handle de
-  string novo por label por frame; reusar buffers no app; `string_free`/
-  `RTS_AUTO_FREE_HANDLES=1` para o inevitável. O P1 mede o crescimento de memória
-  sob N mil frames.
+- Loop + widgets run **on the same thread** as the TS program (the main #0). No
+  cross-thread callback calls in Model A — TS calls Rust, not the reverse.
+- **GC: not a concern for this feature.** Verified in code: the GC is
+  **inactive** in the new engine (`install_gc_hook` is never called; `is_active()`
+  always false; the main thread doesn't register in the `thread_registry`, so
+  `SuspendThread` never touches it). The other dev will refactor the GC later.
+- **The real risk is leakage, not deadlock:** without GC, strings/arrays allocated per
+  frame **leak** for the process's lifetime. **Mitigation:** widgets should
+  accept strings via `ptr+len` of a **reused buffer**, not allocate a new
+  string handle per label per frame; reuse buffers in the app; `string_free`/
+  `RTS_AUTO_FREE_HANDLES=1` for the unavoidable. P1 measures memory growth
+  under N thousand frames.
 
-## 5. Modelo B (callback) — fallback macOS/wasm
+## 5. Model B (callback) — macOS/wasm fallback
 
-Onde o Modelo A degrada (macOS: artefatos de resize) ou é impossível (wasm: sem
-loop externo), o controle inverte: **o winit possui o loop** (`run_app`/
-`ApplicationHandler`) e chama o TS de volta por frame.
+Where Model A degrades (macOS: resize artifacts) or is impossible (wasm: no
+external loop), control inverts: **winit owns the loop** (`run_app`/
+`ApplicationHandler`) and calls TS back per frame.
 
 ```ts
-// TS — o loop é do Rust; o frame é um callback TS:
+// TS — the loop belongs to Rust; the frame is a TS callback:
 ui.runApp({ title: "Demo", width: 800, height: 600 }, (app) => {
   ui.label(app, "Olá");
   if (ui.button(app, "Salvar")) salvar();
 });
-// runApp só retorna quando a janela fecha
+// runApp only returns when the window closes
 ```
 
-Por dentro: em `RedrawRequested` o Rust invoca o `fn_ptr` TS via C-ABI **direta,
-na mesma thread, sem spawn e sem `CallConv::Tail`** — o caso mais seguro de
-chamada Rust→TS. As memórias internas de bugs #206 (callconv Tail × extern "C" em
-thread nova) e #1556 (race async paralelo + GC) **não se aplicam**: são do motor
-antigo / do caminho async paralelo, não desta invocação síncrona same-thread. O
-draw acontece dentro do handler → **portável no macOS** (render síncrono no
-`drawRect`), e é o único modelo no wasm.
+Internally: on `RedrawRequested` Rust invokes the TS `fn_ptr` via a **direct** C-ABI call,
+**on the same thread, without spawn and without `CallConv::Tail`** — the safest case of a
+Rust→TS call. The internal memories of bugs #206 (Tail callconv × extern "C" on a
+new thread) and #1556 (parallel async race + GC) **do not apply**: they belong to the old
+engine / the parallel async path, not to this synchronous same-thread
+invocation. The draw happens inside the handler → **portable on macOS** (synchronous render in
+`drawRect`), and it is the only model on wasm.
 
-**A fachada de widgets (`ui.label/button/slider`) é idêntica nos dois modelos** —
-muda só quem dirige o loop. O dev (ou a lib TS) escolhe por plataforma/intenção.
+**The widget facade (`ui.label/button/slider`) is identical in both models** —
+only who drives the loop changes. The dev (or the TS lib) chooses by platform/intent.
 
-## 6. Superfície ABI (primitivos `extern "C"`)
+## 6. ABI surface (`extern "C"` primitives)
 
-Convenção `__RTS_FN_NS_UI_<NAME>`. Strings entram como `StrPtr` (ptr+len);
-**preferir buffer reusado** a string-handle nova por frame (§4.3). Widgets devolvem
-primitivos (bool→i64 0/1, f64, u64). **Nenhum valor polimórfico cruza a borda.**
+Convention `__RTS_FN_NS_UI_<NAME>`. Strings come in as `StrPtr` (ptr+len);
+**prefer a reused buffer** over a new string-handle per frame (§4.3). Widgets return
+primitives (bool→i64 0/1, f64, u64). **No polymorphic value crosses the boundary.**
 
-### 6.1 Ciclo de vida / loop
+### 6.1 Lifecycle / loop
 
 | Símbolo | Assinatura (lógica) | Retorno | Modelo |
 |---|---|---|---|
@@ -337,7 +337,7 @@ primitivos (bool→i64 0/1, f64, u64). **Nenhum valor polimórfico cruza a borda
 
 `backend`: `0 = wgpu` (default), `1 = glow`.
 
-### 6.2 Widgets-folha (sólido — 1:1 via FFI)
+### 6.2 Leaf widgets (solid — 1:1 via FFI)
 
 | Símbolo | Assinatura | Retorno |
 |---|---|---|
@@ -352,9 +352,9 @@ primitivos (bool→i64 0/1, f64, u64). **Nenhum valor polimórfico cruza a borda
 | `ui.textEdit` | `(h, text_handle: u64)` | `u64` (novo string-handle) |
 | `ui.separator` | `(h)` | `void` |
 
-### 6.3 Containers (via pilha de `Ui` no Rust — exige PoC, §2.2)
+### 6.3 Containers (via the `Ui` stack in Rust — requires PoC, §2.2)
 
-Pares begin/end que empurram/desempilham um `Ui` filho na pilha do `UiCtx`:
+Begin/end pairs that push/pop a child `Ui` on the `UiCtx`'s stack:
 
 | Símbolo | Efeito |
 |---|---|
@@ -365,16 +365,16 @@ Pares begin/end que empurram/desempilham um `Ui` filho na pilha do `UiCtx`:
 | `ui.centralPanelBegin` / `ui.centralPanelEnd` | painel central |
 | `ui.sidePanelBegin(side)` / `ui.sidePanelEnd` | painel lateral |
 
-> Os pares begin/end **não existem nativos no egui** (são closure-only); esta
-> camada os sintetiza gerindo a pilha de `Ui` manualmente. É o que a API TS de
-> alto nível esconde: o componente `Window` faz `windowBegin()` no início do
-> escopo e `windowEnd()` no fim.
+> The begin/end pairs **do not exist natively in egui** (they are closure-only); this
+> layer synthesizes them by managing the `Ui` stack manually. That's what the high-level
+> TS API hides: the `Window` component does `windowBegin()` at the start of the
+> scope and `windowEnd()` at the end.
 
-## 7. Camada de alto nível em TS (onde mora a ergonomia)
+## 7. High-level TS layer (where the ergonomics live)
 
-Conforme a doutrina, a biblioteca de componentes **não é Rust** — é TS sobre os
-primitivos. Local: pacote builtin `builtin/ui/` (padrão dos demais builtins:
-`console/`, `globals/`). Esboço de uso final (Modelo A):
+Per the doctrine, the component library **is not Rust** — it is TS over the
+primitives. Location: builtin package `builtin/ui/` (the pattern of the other builtins:
+`console/`, `globals/`). Final-usage sketch (Model A):
 
 ```ts
 import { App, Label, Slider, Button } from "rts:ui";
@@ -389,7 +389,7 @@ app.run(() => {                          // app.run roda o while + pump por baix
 });
 ```
 
-`App.run(frameFn)` em TS é literalmente o loop dirigido por TS:
+`App.run(frameFn)` in TS is literally the TS-driven loop:
 
 ```ts
 run(frameFn) {
@@ -403,31 +403,31 @@ run(frameFn) {
 }
 ```
 
-No macOS/wasm a mesma `App` usa `ui.runApp(cb)` (Modelo B) por baixo — a API
-pública para o dev final é a mesma.
+On macOS/wasm the same `App` uses `ui.runApp(cb)` (Model B) underneath — the
+public API for the end dev is the same.
 
-## 8. Backend escolhível (wgpu primário, glow fallback)
+## 8. Selectable backend (wgpu primary, glow fallback)
 
-- `rts-egui` declara features `wgpu` (**default**) e `glow`, ambas compiláveis
-  juntas; o `backend: i32` de `openWindow` escolhe em runtime quando ambas
-  presentes.
-- **wgpu (primário/default)**: Vulkan/Metal/DX12/GL nativo, WebGPU/WebGL2 no wasm.
-  É o caminho para a visão de longo prazo (§1b): cena custom + egui overlay. Init
-  async (`request_adapter`/`request_device`) resolvido com `pollster::block_on`.
-  Compila mais pesado — custo de GPU moderna.
-- **glow (fallback de compat)**: OpenGL/ES, deps leves, bom em VM/máquina antiga
-  ou onde wgpu não inicializa. Suporta a GUI imediata, **mas não** o render de
-  cena avançado das fases futuras.
-- **Gancho de futuro (P7+):** o `UiCtx` guarda `wgpu::Device`/`Queue`/`Surface` de
-  forma que uma fase posterior exponha `ui.beginScenePass(h)` para render
-  customizado, com o egui composto por cima no `endFrame` (§1b). O `UiCtx` é
-  estruturado para suportá-lo sem refatorar.
+- `rts-egui` declares `wgpu` (**default**) and `glow` features, both compilable
+  together; `openWindow`'s `backend: i32` chooses at runtime when both are
+  present.
+- **wgpu (primary/default)**: native Vulkan/Metal/DX12/GL, WebGPU/WebGL2 on wasm.
+  It is the path for the long-term vision (§1b): custom scene + egui overlay. Async
+  init (`request_adapter`/`request_device`) resolved with `pollster::block_on`.
+  Compiles heavier — the cost of a modern GPU.
+- **glow (compat fallback)**: OpenGL/ES, light deps, good in VMs/old machines
+  or where wgpu doesn't initialize. Supports the immediate GUI, **but not** the
+  advanced scene rendering of the future phases.
+- **Future hook (P7+):** the `UiCtx` holds `wgpu::Device`/`Queue`/`Surface` in a
+  way that a later phase can expose `ui.beginScenePass(h)` for custom
+  rendering, with egui composited on top in `endFrame` (§1b). The `UiCtx` is
+  structured to support it without refactoring.
 
-## 9. Versionamento (conjunto coerente, junho 2026)
+## 9. Versioning (coherent set, June 2026)
 
-egui quebra API entre minors; egui/egui-wgpu/egui-winit devem ficar **em lockstep
-(mesmo número)**, e wgpu/winit são fixados por eles. **Escolher o egui primeiro,
-casar o resto.**
+egui breaks API between minors; egui/egui-wgpu/egui-winit must stay **in lockstep
+(same number)**, and wgpu/winit are pinned by them. **Pick egui first,
+match the rest.**
 
 ```toml
 egui       = "0.34.3"   # escolher primeiro
@@ -439,103 +439,103 @@ egui-glow  = "0.34.3"   # backend fallback
 pollster   = "0.4"      # block_on do init async numa openWindow síncrona
 ```
 
-Notas que entram no `Cargo.toml`/código:
-- **winit 0.30.x:** a feature `pump_events` deve estar habilitada explicitamente;
-  `pump_app_events` é o método (o antigo `pump_events`-closure está deprecado). No
-  modelo `ApplicationHandler` (winit 0.30) o handler interno acumula os eventos.
-- **egui 0.34:** `begin_pass`/`end_pass` permanecem; `Context::run` virou
-  `run_ui`, e hooks `on_begin_pass`/`on_end_pass` viraram trait `Plugin` em 0.33 —
-  irrelevante para o begin/end manual, mas revalidar nomes ao subir versão. (Se
-  preferir a estabilidade do `run` não-deprecado, 0.31.1/0.32.x são opção, com o
-  lockstep wgpu/winit correspondente — checar.)
-- **wgpu 29:** `request_device` devolve `(Device, Queue)` num future;
-  `RenderPassColorAttachment` tem `depth_slice` (wgpu 26+); `render()` exige
+Notes that go into the `Cargo.toml`/code:
+- **winit 0.30.x:** the `pump_events` feature must be enabled explicitly;
+  `pump_app_events` is the method (the old `pump_events` closure is deprecated). In the
+  `ApplicationHandler` model (winit 0.30) the internal handler accumulates the events.
+- **egui 0.34:** `begin_pass`/`end_pass` remain; `Context::run` became
+  `run_ui`, and the `on_begin_pass`/`on_end_pass` hooks became a `Plugin` trait in 0.33 —
+  irrelevant for the manual begin/end, but re-validate names when bumping the version. (If
+  you prefer the stability of the non-deprecated `run`, 0.31.1/0.32.x are an option, with the
+  corresponding wgpu/winit lockstep — check.)
+- **wgpu 29:** `request_device` returns `(Device, Queue)` in a future;
+  `RenderPassColorAttachment` has `depth_slice` (wgpu 26+); `render()` requires
   `RenderPass<'static>` via `forget_lifetime()`.
-- **Sem eframe** (precisamos do controle do loop; eframe seria o dono dele).
+- **No eframe** (we need control of the loop; eframe would own it).
 
-## 10. Fases de implementação
+## 10. Implementation phases
 
-> Cada fase roda a suíte incrementalmente. **P1 é o gate de viabilidade** — não
-> escrever a API ampla antes de P1 passar.
+> Each phase runs the suite incrementally. **P1 is the viability gate** — do not
+> write the broad API before P1 passes.
 
-- **P0 — Esqueleto da crate.** `rts-egui` compila vazia, registrada atrás da
-  feature `ui`; `cargo build` verde; `rts apis` lista o namespace `ui` (sem
-  membros). Linker para de referenciar FLTK.
-- **P1 — PoC do loop + containers (GATE DE RISCO).** Backend **wgpu**, Modelo A,
-  Windows. Provar, nesta ordem:
-  1. `openWindow` na main thread com tokio já inicializado **sem panic**;
-  2. `pump(ZERO)` + `beginFrame`/`endFrame` + `present()` rodando num `while` TS;
-  3. **a pilha de `Ui` manual para containers** (§2.2): abrir uma `Window`/
-     `horizontal`, emitir 3+ widgets aninhados, conferir layout visual correto —
-     **o item mais incerto, sem precedente em fonte**;
-  4. cena custom (`Clear`) + egui overlay (`LoadOp::Load` + `forget_lifetime`) no
-     mesmo encoder, sem erro de runtime;
-  5. N mil frames medindo crescimento de memória (vazamento §4.3).
-  Se (3) falhar, reavaliar a API de containers (ex.: expor só layouts pré-montados).
-  Se o resize no macOS for severo (medir se houver hardware), tornar o Modelo B
-  obrigatório no macOS.
-- **P2 — Widgets-folha.** checkbox, radio, slider, dragValue, textEdit, separator,
-  progressBar, heading (todos 1:1, caminho sólido).
+- **P0 — Crate skeleton.** `rts-egui` compiles empty, registered behind the
+  `ui` feature; `cargo build` green; `rts apis` lists the `ui` namespace (no
+  members). Linker stops referencing FLTK.
+- **P1 — Loop + containers PoC (RISK GATE).** Backend **wgpu**, Model A,
+  Windows. Prove, in this order:
+  1. `openWindow` on the main thread with tokio already initialized **without panic**;
+  2. `pump(ZERO)` + `beginFrame`/`endFrame` + `present()` running in a TS `while`;
+  3. **the manual `Ui` stack for containers** (§2.2): open a `Window`/
+     `horizontal`, emit 3+ nested widgets, verify correct visual layout —
+     **the most uncertain item, with no precedent in any source**;
+  4. custom scene (`Clear`) + egui overlay (`LoadOp::Load` + `forget_lifetime`) on the
+     same encoder, without a runtime error;
+  5. N thousand frames measuring memory growth (leakage §4.3).
+  If (3) fails, re-evaluate the container API (e.g. expose only pre-built layouts).
+  If macOS resize is severe (measure if hardware is available), make Model B
+  mandatory on macOS.
+- **P2 — Leaf widgets.** checkbox, radio, slider, dragValue, textEdit, separator,
+  progressBar, heading (all 1:1, the solid path).
 - **P3 — Containers.** horizontal/vertical/grid + Window/CentralPanel/SidePanel
-  (depende de P1.3 ter validado a pilha de `Ui`).
-- **P4 — Modelo B (callback) + backend glow.** `runApp(cb)` para macOS/wasm;
-  `egui_glow` atrás da feature; matriz de linker por plataforma.
-- **P5 — Camada TS de alto nível** (`builtin/ui/`): `App`, `Window`, `Button`,
-  `Slider`, `Label`, etc., com `.d.ts`. A `App` escolhe Modelo A/B por plataforma.
-  Exemplos + testes.
-- **P6 — Docs.** Atualizar `CLAUDE.md` e `01-architecture.md` (trocar "FLTK 1.x"
-  por "egui"), entrada no `docs/specs/INDEX.md` (já feita), remover refs FLTK do
-  linker.
-- **P7+ (futuro, fora desta entrega) — Render de cena (jogos/browser).** Expor
-  `wgpu::Device`/`Queue`/`Surface` + `beginScenePass`: limpar tela, render pass
-  custom, geometria/shaders/texturas, egui composto por cima (§1b). Possível
-  rename da crate (`rts-gfx`/`rts-render`).
+  (depends on P1.3 having validated the `Ui` stack).
+- **P4 — Model B (callback) + glow backend.** `runApp(cb)` for macOS/wasm;
+  `egui_glow` behind the feature; per-platform linker matrix.
+- **P5 — High-level TS layer** (`builtin/ui/`): `App`, `Window`, `Button`,
+  `Slider`, `Label`, etc., with `.d.ts`. The `App` picks Model A/B per platform.
+  Examples + tests.
+- **P6 — Docs.** Update `CLAUDE.md` and `01-architecture.md` (swap "FLTK 1.x"
+  for "egui"), entry in `docs/specs/INDEX.md` (already done), remove FLTK refs from
+  the linker.
+- **P7+ (future, outside this delivery) — Scene rendering (games/browser).** Expose
+  `wgpu::Device`/`Queue`/`Surface` + `beginScenePass`: clear the screen, custom
+  render pass, geometry/shaders/textures, egui composited on top (§1b). Possible
+  crate rename (`rts-gfx`/`rts-render`).
 
-## 11. Riscos e mitigações (atualizado pelo veredito)
+## 11. Risks and mitigations (updated by the verdict)
 
-| Risco | Severidade | Mitigação |
+| Risk | Severity | Mitigation |
 |---|---|---|
-| **Containers closure-only** (pilha de `Ui` manual, sem precedente em fonte) | **Alta — maior incerteza** | **P1.3 é o gate**; se inviável, expor layouts pré-montados em vez de begin/end arbitrário |
-| **macOS: artefatos de resize** (render fora do `drawRect`) | Média (soft, não fatal) | Modelo B (callback) no macOS; medir severidade real em PoC macOS |
-| **wasm incompatível com Modelo A** | Média | Modelo B é o único caminho no wasm; documentar |
-| **`forget_lifetime` vira erro de runtime** | Média | Disciplina: não tocar o encoder durante o pass; cobrir em teste |
-| **Lockstep de versões egui/wgpu** | Baixa | Versões fixas (§9); CI compila a crate |
-| **Vazamento de handles por frame** (GC inativo) | Média | Buffers reusados (`ptr+len`), não string-handle nova por frame; P1.5 mede |
-| **Peso de compilação (wgpu)** | Baixa | Crate isolada atrás da feature `ui`; não afeta builds sem GUI |
-| **GC futuro reativado + render thread registrada** | Baixa (futuro) | Manter a render thread **fora** do `thread_registry`; safepoints cooperativos — **responsabilidade do refactor de GC do outro dev** |
+| **Closure-only containers** (manual `Ui` stack, no precedent in any source) | **High — biggest uncertainty** | **P1.3 is the gate**; if unviable, expose pre-built layouts instead of arbitrary begin/end |
+| **macOS: resize artifacts** (render outside `drawRect`) | Medium (soft, not fatal) | Model B (callback) on macOS; measure real severity in a macOS PoC |
+| **wasm incompatible with Model A** | Medium | Model B is the only path on wasm; document it |
+| **`forget_lifetime` becomes a runtime error** | Medium | Discipline: don't touch the encoder during the pass; cover in a test |
+| **egui/wgpu version lockstep** | Low | Pinned versions (§9); CI compiles the crate |
+| **Per-frame handle leakage** (GC inactive) | Medium | Reused buffers (`ptr+len`), not a new string-handle per frame; P1.5 measures |
+| **Compile weight (wgpu)** | Low | Isolated crate behind the `ui` feature; doesn't affect non-GUI builds |
+| **Future GC reactivated + render thread registered** | Low (future) | Keep the render thread **out** of the `thread_registry`; cooperative safepoints — **the responsibility of the other dev's GC refactor** |
 
-## 12. Impacto na doutrina (checagem)
+## 12. Doctrine impact (check)
 
-- ✅ Engine não nomeia `ui` (resolve via Registry/`registry_build.rs` — hoje `ui`
-  está na lista "deliberately absent"; sai dela e entra no `REGISTER[]` atrás da
-  feature `ui`).
-- ✅ Rust expõe **só primitivos**; ergonomia em TS (`builtin/ui/`).
-- ✅ Sem builtins de alto nível no motor; sem Symbol; sem hardcode de nome
-  não-primordial no front.
-- ✅ Crate isolada respeita o teto de complexidade e o particionamento de camadas;
-  nenhum arquivo > 500 linhas.
-- ✅ Símbolo JIT derivado de `SPECS` (`abi_gen.rs`), sem `add_fn!` manual.
+- ✅ The engine doesn't name `ui` (resolves via Registry/`registry_build.rs` — today `ui`
+  is on the "deliberately absent" list; it leaves it and enters the `REGISTER[]` behind the
+  `ui` feature).
+- ✅ Rust exposes **only primitives**; ergonomics in TS (`builtin/ui/`).
+- ✅ No high-level builtins in the engine; no Symbol; no hardcoding of a
+  non-primordial name in the front.
+- ✅ Isolated crate respects the complexity ceiling and the layer partitioning;
+  no file > 500 lines.
+- ✅ JIT symbol derived from `SPECS` (`abi_gen.rs`), no manual `add_fn!`.
 
-## 13. Changelog v1 → v2 (correções após pesquisa verificada)
+## 13. Changelog v1 → v2 (corrections after verified research)
 
-Registro honesto do que a v1 afirmava otimista demais (ver veredito adversarial):
+Honest record of what v1 claimed too optimistically (see the adversarial verdict):
 
-1. **"glow default" → "wgpu default".** O ecossistema usa wgpu como render
-   primário; glow é alternativa. (Também: wgpu largou o `0.` e está em 29.0.x, não
+1. **"glow default" → "wgpu default".** The ecosystem uses wgpu as the primary
+   renderer; glow is the alternative. (Also: wgpu dropped the `0.` and is at 29.0.x, not
    "0.20/0.22".)
-2. **"loop 100% em TS é impossível porque winit não cede controle" → corrigido.**
-   winit **cede** controle (`pump_app_events`). A impossibilidade real é o estado
-   Rust não-primitivo que não cruza a ABI. Modelo correto: "loop dirigido por TS
-   sobre primitivos Rust" (§1c).
-3. **"um widget = uma chamada FFI" → só widgets-folha.** Containers são
-   closure-only (egui#1004); exigem pilha de `Ui` manual no Rust (§2.2) — o maior
-   risco, a provar no P1.
-4. **"funciona igual em toda plataforma" → corrigido.** macOS degrada (resize),
-   wasm exige Modelo B. Windows/Linux first-class no Modelo A; Modelo B (callback)
-   adicionado como fallback (§5).
-5. **"GC gerenciado/seguro" → corrigido.** GC está inativo no motor novo; sem
-   deadlock, mas há **vazamento** de handles por frame (§4.3). GC é
-   responsabilidade do refactor futuro do outro dev, não desta feature.
-6. **`UiCtx` no HandleTable → corrigido.** Não cabe no `Entry` (fechado,
-   primordial) nem no `tokio_ctx` (`Send+Sync`; winit/wgpu são `!Send`). Vai num
+2. **"a 100%-in-TS loop is impossible because winit doesn't yield control" → corrected.**
+   winit **does yield** control (`pump_app_events`). The real impossibility is the
+   non-primitive Rust state that doesn't cross the ABI. Correct model: "TS-driven loop
+   over Rust primitives" (§1c).
+3. **"one widget = one FFI call" → only leaf widgets.** Containers are
+   closure-only (egui#1004); they require a manual `Ui` stack in Rust (§2.2) — the biggest
+   risk, to be proven in P1.
+4. **"works the same on every platform" → corrected.** macOS degrades (resize),
+   wasm requires Model B. Windows/Linux first-class in Model A; Model B (callback)
+   added as a fallback (§5).
+5. **"GC managed/safe" → corrected.** The GC is inactive in the new engine; no
+   deadlock, but there is per-frame handle **leakage** (§4.3). GC is the
+   responsibility of the other dev's future refactor, not this feature's.
+6. **`UiCtx` in the HandleTable → corrected.** It doesn't fit in the `Entry` (closed,
+   primordial) nor in `tokio_ctx` (`Send+Sync`; winit/wgpu are `!Send`). It goes in a
    `thread_local! HashMap<u64, UiCtx>` (§4.1).

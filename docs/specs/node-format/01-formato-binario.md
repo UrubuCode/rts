@@ -1,21 +1,21 @@
-# 01 — O que é fisicamente um `.node` e como o Node o carrega
+# 01 — What a `.node` physically is and how Node loads it
 
-> Verificado contra fontes primárias: `nodejs.org/api/addons.html`,
-> `nodejs.org/api/n-api.html`, e o código-fonte do Node
+> Verified against primary sources: `nodejs.org/api/addons.html`,
+> `nodejs.org/api/n-api.html`, and the Node source code
 > (`src/node.h`, `src/node_api.h`, `src/node_version.h`, `src/node_binding.cc`).
 
-## 1.1 Um `.node` é uma biblioteca dinâmica nativa — só a extensão muda
+## 1.1 A `.node` is a native dynamic library — only the extension changes
 
-Não existe formato de container próprio. Um `.node` é literalmente a shared
-library nativa do SO, apenas com a extensão renomeada:
+There is no format container of its own. A `.node` is literally the OS's native
+shared library, just with the extension renamed:
 
-| Plataforma | Formato real | Magic | Observação |
+| Platform | Actual format | Magic | Note |
 |---|---|---|---|
-| Linux | ELF shared object (`.so`) | `0x7F 45 4C 46` (`\x7FELF`) | `readelf -h foo.node` funciona |
-| Windows | PE/COFF DLL | `MZ` (`0x4D5A`) → `PE\0\0` | é literalmente um `.dll` |
-| macOS | Mach-O dylib | `0xFEEDFACF` (64-bit) / `0xCAFEBABE` (fat) | é literalmente um `.dylib` |
+| Linux | ELF shared object (`.so`) | `0x7F 45 4C 46` (`\x7FELF`) | `readelf -h foo.node` works |
+| Windows | PE/COFF DLL | `MZ` (`0x4D5A`) → `PE\0\0` | it is literally a `.dll` |
+| macOS | Mach-O dylib | `0xFEEDFACF` (64-bit) / `0xCAFEBABE` (fat) | it is literally a `.dylib` |
 
-A doc oficial confirma textualmente:
+The official docs confirm verbatim:
 
 > "The filename extension of the compiled addon binary is `.node` (as opposed to
 > `.dll` or `.so`). The `require()` function is written to look for files with
@@ -26,13 +26,13 @@ A doc oficial confirma textualmente:
 > "*Addons* are dynamically-linked shared objects that can be loaded via the
 > `require()` function as ordinary Node.js modules."
 
-**Implicação para o RTS:** para *produzir* um `.node`, o RTS precisa emitir o
-formato nativo do alvo (ELF `.so` / PE DLL / Mach-O dylib) como **shared
-object**, não como executável — reusando o pipeline AOT (`cranelift_object` +
-linker), mas linkando em modo *shared library* com tabela de exportação. Para
-*consumir*, o loader é o do runtime host (o próprio RTS).
+**Implication for RTS:** to *produce* a `.node`, RTS needs to emit the target's
+native format (ELF `.so` / PE DLL / Mach-O dylib) as a **shared
+object**, not as an executable — reusing the AOT pipeline (`cranelift_object` +
+linker), but linking in *shared library* mode with an export table. To
+*consume*, the loader is the host runtime's (RTS itself).
 
-## 1.2 O fluxo de carregamento
+## 1.2 The loading flow
 
 ```
 require('./addon.node')
@@ -40,54 +40,54 @@ require('./addon.node')
   → process.dlopen(module, path.toNamespacedPath(filename))
   → internalBinding (src/node_binding.cc)
   → DLib::Open
-      • POSIX:   dlopen(filename, RTLD_LAZY)        [flags configuráveis via os.constants.dlopen]
+      • POSIX:   dlopen(filename, RTLD_LAZY)        [flags configurable via os.constants.dlopen]
       • Windows: uv_dlopen(filename, &lib)
   → DLib::GetSymbolAddress(name)  → dlsym / uv_dlsym
-  → invoca o símbolo de inicialização
-  → o objeto `exports` populado vira o module.exports retornado ao JS
+  → invokes the initialization symbol
+  → the populated `exports` object becomes the module.exports returned to JS
 ```
 
-`DLib::Close` chama `dlclose`. O addon **não tem `main`**: ele só preenche e
-devolve `exports`.
+`DLib::Close` calls `dlclose`. The addon **has no `main`**: it only fills in and
+returns `exports`.
 
-## 1.3 Os DOIS símbolos de entrada (confirmados no código)
+## 1.3 The TWO entry symbols (confirmed in the code)
 
-`src/node_binding.cc` tem duas funções de descoberta. Verificado literalmente
-contra o fonte:
+`src/node_binding.cc` has two discovery functions. Verified literally
+against the source:
 
-**N-API (alvo do RTS):**
+**N-API (RTS's target):**
 ```c
 inline napi_addon_register_func GetNapiInitializerCallback(DLib* dlib) {
   const char* name =
       STRINGIFY(NAPI_MODULE_INITIALIZER_BASE) STRINGIFY(NAPI_MODULE_VERSION);
   // NAPI_MODULE_INITIALIZER_BASE = "napi_register_module_v", NAPI_MODULE_VERSION = 1
-  // → símbolo exato: napi_register_module_v1
+  // → exact symbol: napi_register_module_v1
 ```
-Assinatura (extern "C", **sem mangling** — qualquer mangling impede o `dlsym`):
-`napi_value napi_register_module_v1(napi_env env, napi_value exports)`. O Node
-resolve via `dlib->GetSymbolAddress(name)` + `reinterpret_cast` e o invoca via
+Signature (extern "C", **no mangling** — any mangling defeats `dlsym`):
+`napi_value napi_register_module_v1(napi_env env, napi_value exports)`. Node
+resolves it via `dlib->GetSymbolAddress(name)` + `reinterpret_cast` and invokes it via
 `napi_module_register_by_symbol(exports, module, context, init, module_api_version)`
-— **cinco argumentos** no Node atual (o `module_api_version` foi adicionado; a
-forma de 4 args vale só em versões antigas).
+— **five arguments** in current Node (the `module_api_version` was added; the
+4-arg form only applies to older versions).
 
-**Legado / raw-V8 (fora do alcance do RTS):**
+**Legacy / raw-V8 (out of RTS's reach):**
 ```c
 inline InitializerCallback GetInitializerCallback(DLib* dlib) {
   const char* name = "node_register_module_v" STRINGIFY(NODE_MODULE_VERSION);
-  // → ex.: node_register_module_v147 (NODE_MODULE_VERSION 147 = ABI do Node 26;
-  //   o branch main está em NODE_MAJOR_VERSION 27 em desenvolvimento)
+  // → e.g.: node_register_module_v147 (NODE_MODULE_VERSION 147 = Node 26 ABI;
+  //   the main branch is at NODE_MAJOR_VERSION 27 in development)
 ```
 
-A prova empírica de que runtimes alternativos procuram **exatamente**
-`napi_register_module_v1` é a mensagem de erro real do Bun (issues
+The empirical proof that alternative runtimes look for **exactly**
+`napi_register_module_v1` is Bun's actual error message (issues
 `oven-sh/bun#5578`, `#23136`, `#21432`):
 
 > `TypeError: symbol napi_register_module_v1 not found in native module. Is this a Node API (napi) module?`
 
-## 1.4 Auto-registro legado por constructor (caminho que o RTS ignora)
+## 1.4 Legacy self-registration via constructor (a path RTS ignores)
 
-Addons legados (`NODE_MODULE`, NAN) se auto-registram via constructor estático
-**antes** de qualquer símbolo ser procurado. `src/node.h`:
+Legacy addons (`NODE_MODULE`, NAN) self-register via a static constructor
+**before** any symbol is looked up. `src/node.h`:
 
 ```c
 #define NODE_MODULE_X(modname, regfunc, priv, flags)                  \
@@ -98,9 +98,9 @@ Addons legados (`NODE_MODULE`, NAN) se auto-registram via constructor estático
   NODE_C_CTOR(_register_##modname) { node_module_register(&_module); }
 ```
 
-`node_module_register` grava o módulo numa thread-local
-(`thread_local node_module* thread_local_modpending;`), que o `DLOpen` lê após
-o `dlopen`:
+`node_module_register` stores the module in a thread-local
+(`thread_local node_module* thread_local_modpending;`), which `DLOpen` reads after
+the `dlopen`:
 
 ```c
 CHECK_NULL(thread_local_modpending);
@@ -109,13 +109,13 @@ node_module* mp = thread_local_modpending;
 thread_local_modpending = nullptr;
 ```
 
-> **Correção verificada (detalhe MSVC):** `NODE_C_CTOR` expande para
-> `__attribute__((constructor))` no GCC/POSIX, mas no MSVC **não** usa a seção
-> `.CRT$XCU` — usa um construtor de struct estática em namespace anônimo
-> (`struct fn##_ { fn##_(){ fn(); }; } fn##_v_;`), inicialização estática C++
-> comum. (Apontado pela verificação adversarial.)
+> **Verified correction (MSVC detail):** `NODE_C_CTOR` expands to
+> `__attribute__((constructor))` on GCC/POSIX, but on MSVC it does **not** use the
+> `.CRT$XCU` section — it uses a static struct constructor in an anonymous namespace
+> (`struct fn##_ { fn##_(){ fn(); }; } fn##_v_;`), ordinary C++ static
+> initialization. (Pointed out by the adversarial verification.)
 
-## 1.5 A struct `node_module` (legado) é acoplada a V8 → inviável no RTS
+## 1.5 The `node_module` struct (legacy) is coupled to V8 → unviable in RTS
 
 `src/node.h`:
 ```c
@@ -131,14 +131,14 @@ struct node_module {
   struct node_module* nm_link;
 };
 typedef void (*addon_register_func)(
-    v8::Local<v8::Object> exports,   // ← tipos V8 no boundary
+    v8::Local<v8::Object> exports,   // ← V8 types at the boundary
     v8::Local<v8::Value> module, void* priv);
 ```
 
-O register legado recebe `v8::Local<v8::Object>` — **acoplamento direto ao V8**.
-O RTS não tem V8, então o caminho legado é inviável de implementar fielmente.
+The legacy register receives `v8::Local<v8::Object>` — **direct coupling to V8**.
+RTS has no V8, so the legacy path is unviable to implement faithfully.
 
-## 1.6 A struct `napi_module` (N-API) é independente de V8 → viável
+## 1.6 The `napi_module` struct (N-API) is V8-independent → viable
 
 `src/node_api.h`:
 ```c
@@ -153,69 +153,69 @@ typedef struct napi_module {
 } napi_module;
 ```
 
-`napi_env` e `napi_value` são **ponteiros opacos** — nenhum tipo V8 no boundary.
-Isto é o que torna o suporte viável sem V8 (ver [`02-napi-abi.md`](02-napi-abi.md)).
+`napi_env` and `napi_value` are **opaque pointers** — no V8 type at the boundary.
+This is what makes support viable without V8 (see [`02-napi-abi.md`](02-napi-abi.md)).
 
-A macro `NAPI_MODULE_INIT()` exporta dois símbolos com visibilidade default
-(`__declspec(dllexport)` no Windows / `visibility("default")` no POSIX):
-- `napi_register_module_v1(napi_env, napi_value) -> napi_value` (obrigatório)
-- `node_api_module_get_api_version_v1(void) -> int32_t` (negociação de versão)
+The `NAPI_MODULE_INIT()` macro exports two symbols with default visibility
+(`__declspec(dllexport)` on Windows / `visibility("default")` on POSIX):
+- `napi_register_module_v1(napi_env, napi_value) -> napi_value` (required)
+- `node_api_module_get_api_version_v1(void) -> int32_t` (version negotiation)
 
-## 1.7 `NODE_MODULE_VERSION` — trava de ABI do caminho **legado** apenas
+## 1.7 `NODE_MODULE_VERSION` — ABI lock of the **legacy** path only
 
-`src/node_version.h`: `#define NODE_MODULE_VERSION 147`. Pelo
-`doc/abi_version_registry.json` oficial, **147 corresponde ao Node 26** (variant
-v8_14.6); o valor aparece no `node_version.h` do branch `main` enquanto
-`NODE_MAJOR_VERSION` está em 27 (desenvolvimento), mas a ABI foi registrada para
-o Node 26. O Node recusa addons legados compilados contra ABI diferente:
+`src/node_version.h`: `#define NODE_MODULE_VERSION 147`. According to the
+official `doc/abi_version_registry.json`, **147 corresponds to Node 26** (variant
+v8_14.6); the value appears in the `main` branch's `node_version.h` while
+`NODE_MAJOR_VERSION` is at 27 (development), but the ABI was registered for
+Node 26. Node refuses legacy addons compiled against a different ABI:
 
 ```
 "The module '%s' was compiled against a different Node.js version using
 NODE_MODULE_VERSION %d. This version of Node.js requires NODE_MODULE_VERSION %d."
 ```
 
-Valores confirmados: Node 16=93, 18=108, 20=115, 21=120, 22=127, 23=131, 24=137,
-**26=147**. Registro canônico: `doc/abi_version_registry.json`. Exposto em JS como
+Confirmed values: Node 16=93, 18=108, 20=115, 21=120, 22=127, 23=131, 24=137,
+**26=147**. Canonical registry: `doc/abi_version_registry.json`. Exposed in JS as
 `process.versions.modules`.
 
-**Ponto decisivo:** addons **N-API pulam essa checagem** (a struct `napi_module`
-carrega o seu próprio `NAPI_MODULE_VERSION` fixo e a verificação é diferente).
-Confirmado empiricamente: o Bun reporta `NODE_MODULE_VERSION 127` e a checagem
-só morde addons **não-N-API** (issue `oven-sh/bun#14105`, módulo `webgl`
-V8-direto rejeitado; addons N-API carregam sem reclamar de versão).
+**Decisive point:** **N-API addons skip this check** (the `napi_module` struct
+carries its own fixed `NAPI_MODULE_VERSION` and the verification is different).
+Confirmed empirically: Bun reports `NODE_MODULE_VERSION 127` and the check
+only bites **non-N-API** addons (issue `oven-sh/bun#14105`, the `webgl` module,
+V8-direct, rejected; N-API addons load without complaining about version).
 
-## 1.8 Três níveis de addon (acoplamento decrescente)
+## 1.8 Three addon levels (decreasing coupling)
 
-A doc oficial lista exatamente 3 opções (`addons.html`, confirmado verbatim):
+The official docs list exactly 3 options (`addons.html`, confirmed verbatim):
 
-1. **Node-API** (recomendado) — interface C opaca, **ABI-estável**
-2. **`nan`** (Native Abstractions for Node.js) — wrapper C++ **sobre o V8 cru**,
-   sem garantia de ABI (recompila a cada major)
-3. **uso direto** de V8/libuv/internals — acoplamento máximo
+1. **Node-API** (recommended) — opaque C interface, **ABI-stable**
+2. **`nan`** (Native Abstractions for Node.js) — C++ wrapper **over raw V8**,
+   no ABI guarantee (recompiles every major)
+3. **direct use** of V8/libuv/internals — maximum coupling
 
-`node-addon-api` (≠ `nan`) é um wrapper C++ header-only **sobre o C N-API** —
-herda a estabilidade ABI. A doc confirma verbatim:
+`node-addon-api` (≠ `nan`) is a header-only C++ wrapper **over the C N-API** —
+it inherits the ABI stability. The docs confirm verbatim:
 
 > "Binaries built with `node-addon-api` will depend on the symbols of the
 > Node-API C-based functions exported by Node.js." … "Even though the addon is
 > written in C++, it still gets the benefits of the ABI stability provided by
 > the C Node-API."
 
-Ex.: `obj["foo"] = String::New(env, "bar")` (node-addon-api) compila para
+E.g.: `obj["foo"] = String::New(env, "bar")` (node-addon-api) compiles to
 `napi_create_string_utf8` + `napi_set_named_property`.
 
-## Conclusão do capítulo
+## Chapter conclusion
 
-- Um `.node` é uma DLL/`.so`/`.dylib` comum; o ponto de entrada é uma **função**
-  (`napi_register_module_v1`), não dados estáticos.
-- Há dois caminhos de registro: **N-API** (símbolo direto, ABI-estável, sem V8) e
-  **legado** (constructor + struct `node_module` acoplada a V8, travado por
+- A `.node` is an ordinary DLL/`.so`/`.dylib`; the entry point is a **function**
+  (`napi_register_module_v1`), not static data.
+- There are two registration paths: **N-API** (direct symbol, ABI-stable, no V8) and
+  **legacy** (constructor + `node_module` struct coupled to V8, locked by
   `NODE_MODULE_VERSION`).
-- **O único alvo viável para o RTS é N-API.** O caminho legado/V8-direto exige
-  reproduzir o ABI binário do V8 — fora de escopo (ver
+- **The only viable target for RTS is N-API.** The legacy/V8-direct path requires
+  reproducing V8's binary ABI — out of scope (see
   [`03-acoplamento-v8-libuv.md`](03-acoplamento-v8-libuv.md)).
 
-## Fontes
+## Sources
 
 - https://nodejs.org/api/addons.html
 - https://nodejs.org/api/n-api.html

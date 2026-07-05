@@ -1,215 +1,220 @@
-# 05 — Divergências fundamentais: RTS × `.node`
+# 05 — Fundamental divergences: RTS × `.node`
 
-> O coração do estudo. Cada divergência classificada como **bloqueador
-> fundamental** ou **trabalho de engenharia**, ancorada na arquitetura real do
-> RTS (Cranelift, ABI `extern "C"` de tipos de máquina, `HandleTable`, GC
-> mark+sweep, tokio).
+> The heart of the study. Each divergence classified as a **fundamental
+> blocker** or **engineering work**, anchored in RTS's real architecture
+> (Cranelift, machine-typed `extern "C"` ABI, `HandleTable`, mark+sweep GC,
+> tokio).
 
-## Resumo executivo das 5 divergências
+## Executive summary of the 5 divergences
 
-| # | Divergência | Natureza | Classificação |
+| # | Divergence | Nature | Classification |
 |---|---|---|---|
-| 1 | Representação de valor (`napi_value` vs bits/handles RTS) | camada de marshalling | 🟡 engenharia média |
-| 2 | ABI/loading (`napi_*` exportado + dlopen vs link estático) | volume + loader | 🟠 engenharia alta (volume) |
-| 3 | GC/finalizers (`napi_ref` V8 vs mark+sweep) | hooks de root/sweep | 🟡 engenharia média |
-| 4 | Event loop (libuv vs tokio) | ponte + shim uv | 🟠 média-alta, cauda longa |
-| 5 | JIT/AOT (dlopen runtime vs binário self-contained) | conflito filosófico | 🔴 bloqueador filosófico no AOT |
-| — | **(extra)** addons V8-diretos/NAN | emular layout V8 | 🔴 quase-bloqueador técnico → **fora de escopo** |
+| 1 | Value representation (`napi_value` vs RTS bits/handles) | marshalling layer | 🟡 medium engineering |
+| 2 | ABI/loading (exported `napi_*` + dlopen vs static link) | volume + loader | 🟠 high engineering (volume) |
+| 3 | GC/finalizers (V8 `napi_ref` vs mark+sweep) | root/sweep hooks | 🟡 medium engineering |
+| 4 | Event loop (libuv vs tokio) | bridge + uv shim | 🟠 medium-high, long tail |
+| 5 | JIT/AOT (runtime dlopen vs self-contained binary) | philosophical conflict | 🔴 philosophical blocker in AOT |
+| — | **(extra)** direct-V8/NAN addons | emulate V8 layout | 🔴 near technical blocker → **out of scope** |
 
-**Veredito:** nenhuma das 5 é bloqueador **absoluto**. A barreira real é
-**volume** + a **cauda longa** de `v8::` cru/`uv_*`, e o **conflito filosófico**
-com o `.rtslib` estático no modo AOT.
-
----
-
-## Divergência 1 — Representação de valor 🟡
-
-**O problema.** Addons N-API operam sobre `napi_value` (handle opaco). O RTS
-representa valores JS como **bits nativos** `i64`/`f64` ou **handles `u64`** numa
-`HandleTable`. Não há "objeto JS no heap" no sentido V8.
-
-**Por que NÃO é bloqueador.** O addon **nunca** dereferencia `napi_value` — só o
-passa de volta às funções `napi_*`. Logo o RTS controla 100% da representação.
-O Bun é a prova de existência (mapeia `napi_value` → `JSC::JSValue` sem V8).
-
-**O que o RTS constrói:** uma camada de marshalling — `napi_value` vira um
-**handle estável** (índice na `HandleTable`/handle scope), nunca um ponteiro cru
-para um `RuntimeValue` (senão o sweep coleta no meio da chamada — bug "handle
-collected before use" já documentado no RTS). Boxing/desboxing:
-- `number` → box `i64`/`f64`;
-- `string` → handle do pool GC (`gc::string_*`);
-- `object`/`array` → handle `collections.map_*`/`vec_*`;
-- ponteiro nativo → `napi_external` (handle `u64`).
-
-**Vantagem do RTS sobre o Bun aqui:** o GC do RTS é **não-móvel** (mark+sweep,
-não copia/realoca). No V8 (GC móvel) o handle scope é obrigatório para o GC
-atualizar ponteiros; no RTS um `napi_value` pode ser um handle estável sem
-realocação — simplifica a semântica.
+**Verdict:** none of the 5 is an **absolute** blocker. The real barrier is
+**volume** + the **long tail** of raw `v8::`/`uv_*`, and the **philosophical
+conflict** with the static `.rtslib` in AOT mode.
 
 ---
 
-## Divergência 2 — ABI e loading 🟠
+## Divergence 1 — Value representation 🟡
 
-Duas partes.
+**The problem.** N-API addons operate on `napi_value` (opaque handle). RTS
+represents JS values as **native bits** `i64`/`f64` or **`u64` handles** in a
+`HandleTable`. There is no "JS object on the heap" in the V8 sense.
 
-**(a) Implementar a superfície N-API.** O RTS teria que exportar **~150
-funções** `napi_*`/`node_api_*` como `extern "C"` reais do runtime (a contagem
-real é **~110-160**: `node-api-headers` v10 ~111, headers do Node ~161, Bun
-"156/156", Deno 163 incl. libuv). É o **maior volume de trabalho puro**, mas:
-- **não há bloqueador conceitual** — cada `napi_*` traduz para primitivas RTS
-  (`gc.*`, `collections.map_*`, `string.*`);
-- o RTS **já** tem o paradigma `extern "C"` tipado (40+ namespaces, símbolos
-  `__RTS_FN_*`), então +~150 símbolos `extern "C"` é **natural ao modelo**;
-- o esforço é **alto mas linear/incremental** (o Bun provou que dá, sem V8).
+**Why it is NOT a blocker.** The addon **never** dereferences `napi_value` — it
+only passes it back to `napi_*` functions. So RTS controls 100% of the
+representation. Bun is the existence proof (maps `napi_value` → `JSC::JSValue`
+without V8).
 
-**(b) Carregar dinamicamente.** O RTS precisa de `libloading` (dlopen/
-LoadLibrary) para abrir o `.node`, resolver `napi_register_module_v1`, e fabricar
-um `napi_env` (ponteiro para uma `RtsNapiEnv`: `HandleTable`, handle-scope stack,
-slot de exceção, ponte tokio). Trabalho direto.
+**What RTS builds:** a marshalling layer — `napi_value` becomes a
+**stable handle** (index into the `HandleTable`/handle scope), never a raw
+pointer to a `RuntimeValue` (otherwise the sweep collects it mid-call — the
+"handle collected before use" bug already documented in RTS). Boxing/unboxing:
+- `number` → `i64`/`f64` box;
+- `string` → GC pool handle (`gc::string_*`);
+- `object`/`array` → `collections.map_*`/`vec_*` handle;
+- native pointer → `napi_external` (`u64` handle).
 
-**Atrito com o modelo do RTS:** o `.rtslib` (proposta existente) é **link
-estático**, tipos de máquina, símbolo direto. O `.node` é **dlopen dinâmico** com
-indirect call. Suportar `.node` é **construir um SEGUNDO loader dinâmico ao lado
-do estático**, não estender o existente. Ver Divergência 5.
+**RTS's advantage over Bun here:** RTS's GC is **non-moving** (mark+sweep, no
+copying/relocation). In V8 (moving GC) the handle scope is mandatory so the GC
+can update pointers; in RTS a `napi_value` can be a stable handle without
+relocation — simplifying the semantics.
 
-**Ponto de integração concreto no código:**
+---
+
+## Divergence 2 — ABI and loading 🟠
+
+Two parts.
+
+**(a) Implementing the N-API surface.** RTS would have to export **~150
+functions** `napi_*`/`node_api_*` as real `extern "C"` from the runtime (the
+real count is **~110-160**: `node-api-headers` v10 ~111, Node headers ~161, Bun
+"156/156", Deno 163 incl. libuv). It is the **largest volume of pure work**, but:
+- **there is no conceptual blocker** — each `napi_*` translates to RTS
+  primitives (`gc.*`, `collections.map_*`, `string.*`);
+- RTS **already** has the typed `extern "C"` paradigm (40+ namespaces,
+  `__RTS_FN_*` symbols), so +~150 `extern "C"` symbols is **natural to the
+  model**;
+- the effort is **high but linear/incremental** (Bun proved it is doable,
+  without V8).
+
+**(b) Loading dynamically.** RTS needs `libloading` (dlopen/
+LoadLibrary) to open the `.node`, resolve `napi_register_module_v1`, and
+fabricate a `napi_env` (pointer to an `RtsNapiEnv`: `HandleTable`, handle-scope
+stack, exception slot, tokio bridge). Straightforward work.
+
+**Friction with the RTS model:** the `.rtslib` (existing proposal) is **static
+link**, machine types, direct symbol. The `.node` is **dynamic dlopen** with an
+indirect call. Supporting `.node` means **building a SECOND dynamic loader
+alongside the static one**, not extending the existing one. See Divergence 5.
+
+**Concrete integration point in the code:**
 `crates/rts-codegen/src/module/import_resolver.rs::resolve_node_modules_import`
-hoje só aceita `.rts/.ts/.js` (a função `resolve_source_candidate` rejeita outras
-extensões). Um `.node` (ou um `package.json` cujo `main` aponta para `.node`)
-seria **interceptado ali** e roteado para o loader N-API em vez do pipeline de
-compilação TS.
+today only accepts `.rts/.ts/.js` (the `resolve_source_candidate` function
+rejects other extensions). A `.node` (or a `package.json` whose `main` points to
+a `.node`) would be **intercepted there** and routed to the N-API loader instead
+of the TS compilation pipeline.
 
 ---
 
-## Divergência 3 — GC e finalizers 🟡
+## Divergence 3 — GC and finalizers 🟡
 
-**O problema.** `napi_ref`/`napi_wrap`/`napi_add_finalizer` atrelam lifetime e
-finalização ao GC do V8. O RTS tem mark+sweep com stack maps Cranelift.
+**The problem.** `napi_ref`/`napi_wrap`/`napi_add_finalizer` tie lifetime and
+finalization to V8's GC. RTS has mark+sweep with Cranelift stack maps.
 
-**Sub-problema crítico — handle scopes invisíveis ao stack map.** Um `napi_value`
-vivo dentro de um addon C **não aparece** no stack map Cranelift (o frame é do
-addon, código nativo opaco ao RTS). Logo `mark_stack_roots()` não o veria e o
-sweep o coletaria no meio da chamada.
+**Critical sub-problem — handle scopes invisible to the stack map.** A live
+`napi_value` inside a C addon **does not appear** in the Cranelift stack map
+(the frame belongs to the addon, native code opaque to RTS). So
+`mark_stack_roots()` would not see it and the sweep would collect it mid-call.
 
-**O que o RTS constrói:**
-1. **Handle scopes como roots extras:** cada handle scope é um vetor de handles
-   registrado como raiz adicional no scanner do GC (igual ao Bun: array de slots
-   escaneável); fechar o scope desregistra.
-2. **`napi_ref` com refcount:** strong (refcount > 0) conta como GC root; weak
-   (0) **não** marca, mas guarda o handle para retornar `null` pós-coleta.
-3. **Finalizers no sweep:** ao liberar um `Entry` com finalizer N-API associado,
-   `sweep_all_shards()` **enfileira** a chamada do `napi_finalize` — executada
-   **fora** da fase de marcação (timing "second-pass": chamar o motor durante o
-   weak callback é inseguro).
+**What RTS builds:**
+1. **Handle scopes as extra roots:** each handle scope is a vector of handles
+   registered as an additional root in the GC scanner (like Bun: a scannable
+   slot array); closing the scope unregisters it.
+2. **`napi_ref` with refcount:** strong (refcount > 0) counts as a GC root;
+   weak (0) does **not** mark, but keeps the handle so it can return `null`
+   post-collection.
+3. **Finalizers in the sweep:** when freeing an `Entry` with an associated
+   N-API finalizer, `sweep_all_shards()` **queues** the `napi_finalize` call —
+   executed **outside** the marking phase ("second-pass" timing: calling into
+   the engine during the weak callback is unsafe).
 
-**Estado do RTS:** já reconhece a dificuldade de weak refs — issue **#217**
-(WeakMap/WeakSet hoje com semântica forte). A integração N-API é a mesma família
-de problema. É engenharia GC real e ordenada, mas **conhecida — não bloqueador**.
+**RTS's state:** it already acknowledges the difficulty of weak refs — issue
+**#217** (WeakMap/WeakSet today with strong semantics). The N-API integration is
+the same family of problem. It is real, orderly GC engineering, but
+**known — not a blocker**.
 
 ---
 
-## Divergência 4 — Event loop / async 🟠
+## Divergence 4 — Event loop / async 🟠
 
-**O problema.** `napi_create_async_work`/`napi_queue_async_work` e threadsafe
-functions assumem o **loop libuv**. `napi_get_uv_event_loop` devolve um
-`uv_loop_t*` cru. O RTS usa **tokio**.
+**The problem.** `napi_create_async_work`/`napi_queue_async_work` and threadsafe
+functions assume the **libuv loop**. `napi_get_uv_event_loop` returns a raw
+`uv_loop_t*`. RTS uses **tokio**.
 
-**O que o RTS constrói:**
+**What RTS builds:**
 - `napi_create_async_work` → `rt().spawn_blocking(execute_cb)`; `complete_cb`
-  postado de volta à thread que executa JS (modelo `promise.create`/#437);
-- threadsafe function → fila MPSC drenada na thread JS;
-- `napi_get_uv_event_loop` → o ponto **mais espinhoso**: addons que linkam libuv
-  direto e usam `uv_async_t` no loop cru exigiriam um **shim `uv_loop_t` mínimo**
-  sobre tokio (o Bun exporta só um subset de `uv_*`).
+  posted back to the thread executing JS (the `promise.create`/#437 model);
+- threadsafe function → MPSC queue drained on the JS thread;
+- `napi_get_uv_event_loop` → the **thorniest** point: addons that link libuv
+  directly and use `uv_async_t` on the raw loop would require a **minimal
+  `uv_loop_t` shim** over tokio (Bun exports only a subset of `uv_*`).
 
-**Por que é a área de maior risco.** É **cauda longa**: o caminho síncrono
-(maioria dos addons utilitários) não toca nisso e funciona sem o loop. Mas o
-shim `uv_loop` cru é onde **o próprio Bun ainda tem gaps**. Liga-se à issue
-**#207** do RTS (real async event loop ainda aberta) — o gargalo.
+**Why it is the highest-risk area.** It is a **long tail**: the synchronous path
+(most utility addons) does not touch this and works without the loop. But the
+raw `uv_loop` shim is where **Bun itself still has gaps**. It ties into RTS
+issue **#207** (real async event loop still open) — the bottleneck.
 
-**Não bloqueador**, mas o item async deve ser **fase tardia** com mensagem de
-erro clara quando um símbolo `uv_*` não suportado for chamado (como o Bun faz).
-
----
-
-## Divergência 5 — JIT vs AOT 🔴 (filosófico)
-
-**O problema.** No modo **AOT** (`rts compile`) o RTS produz um binário nativo
-**self-contained** (a promessa do `.rtslib`: "um binário, zero arquivos, sem
-carregamento dinâmico"). Mas um `.node` de terceiros é uma **shared lib
-relocável** que **não** pode ser linkada estaticamente como um `.o` — ela espera
-resolver `napi_*` do host em runtime via tabela de símbolos dinâmica.
-
-**A única saída (precedente Deno).** `deno compile` historicamente **falhava**
-com addons (`#23266`). A solução (`#28934`, `deno_rt_native_addon_loader`):
-**embutir** o `.node` no binário e, no startup, **extrair para um tempdir +
-dlopen**. Limitações admitidas: não funciona em FS **read-only** nem se a lib
-precisa de outros arquivos reais em disco.
-
-**Por que NÃO existe link estático de `.node`.** O SO precisa de um **arquivo em
-disco** para `mmap`+relocar a shared lib — não há `dlopen` de código que está só
-dentro do binário.
-
-**Conclusão por modo:**
-- **JIT (`rts run`):** já há memória executável e o processo já é dinâmico →
-  `dlopen` é **natural e sem fricção**. ✅
-- **AOT (`rts compile`):** ou **proibir** `.node` (preserva a pureza
-  self-contained), ou adotar o modelo **self-extracting** explícito do Deno
-  (quebra "um binário, zero arquivos"). ⚠️ Tradeoff arquitetural explícito que
-  **contradiz o `.rtslib` estático**.
+**Not a blocker**, but the async item should be a **late phase** with a clear
+error message when an unsupported `uv_*` symbol is called (as Bun does).
 
 ---
 
-## Divergência extra — addons V8-diretos / NAN 🔴 (fora de escopo)
+## Divergence 5 — JIT vs AOT 🔴 (philosophical)
 
-A **única candidata a bloqueador técnico** (parcial). Addons que linkam contra
-`v8::*` (ou usam `nan`/`node-addon-api` que expandem para **inline V8**)
-dependem do **layout binário do V8**: funções inline compiladas dentro do
-`.node` fazem *raw field reads* em offsets fixos (tagged pointers, internal
-fields) que o host **não pode interceptar** (ver
+**The problem.** In **AOT** mode (`rts compile`) RTS produces a
+**self-contained** native binary (the `.rtslib` promise: "one binary, zero
+files, no dynamic loading"). But a third-party `.node` is a **relocatable
+shared lib** that **cannot** be statically linked like an `.o` — it expects to
+resolve `napi_*` from the host at runtime via a dynamic symbol table.
+
+**The only way out (Deno precedent).** `deno compile` historically **failed**
+with addons (`#23266`). The solution (`#28934`, `deno_rt_native_addon_loader`):
+**embed** the `.node` in the binary and, at startup, **extract to a tempdir +
+dlopen**. Admitted limitations: does not work on a **read-only** FS nor if the
+lib needs other real files on disk.
+
+**Why static linking of `.node` does NOT exist.** The OS needs a **file on
+disk** to `mmap`+relocate the shared lib — there is no `dlopen` of code that
+lives only inside the binary.
+
+**Conclusion per mode:**
+- **JIT (`rts run`):** there is already executable memory and the process is
+  already dynamic → `dlopen` is **natural and frictionless**. ✅
+- **AOT (`rts compile`):** either **forbid** `.node` (preserves the
+  self-contained purity), or adopt Deno's explicit **self-extracting** model
+  (breaks "one binary, zero files"). ⚠️ An explicit architectural tradeoff that
+  **contradicts the static `.rtslib`**.
+
+---
+
+## Extra divergence — direct-V8 / NAN addons 🔴 (out of scope)
+
+The **only candidate for a technical blocker** (partial). Addons that link
+against `v8::*` (or use `nan`/`node-addon-api` expanding to **inline V8**)
+depend on **V8's binary layout**: inline functions compiled inside the
+`.node` do *raw field reads* at fixed offsets (tagged pointers, internal
+fields) that the host **cannot intercept** (see
 [`03-acoplamento-v8-libuv.md`](03-acoplamento-v8-libuv.md) §3.3).
 
-Para suportá-los, o RTS teria que **sintetizar um ABI binário V8 fake** —
-esforço imenso e frágil (o Bun documenta como multi-parte e incompleto; o Deno
-nem com V8 real roda `better-sqlite3`).
+To support them, RTS would have to **synthesize a fake V8 binary ABI** —
+an immense and fragile effort (Bun documents it as multi-part and incomplete;
+Deno, even with real V8, does not run `better-sqlite3`).
 
-**Recomendação:** o RTS deve mirar **APENAS** `.node` compilados contra Node-API
-estável (a maioria moderna do npm via `napi-rs`/`node-addon-api` em modo N-API) e
-**declarar addons v8-diretos como não-suportados** — exatamente a postura do Bun
-e do Deno.
+**Recommendation:** RTS should target **ONLY** `.node` compiled against stable
+Node-API (the modern majority of npm via `napi-rs`/`node-addon-api` in N-API
+mode) and **declare direct-v8 addons as unsupported** — exactly the stance of
+Bun and Deno.
 
 ---
 
-## Quadro de pontos de integração com o RTS existente
+## Table of integration points with existing RTS
 
-| Peça N-API | Infra RTS que reaproveita | Issue/spec relacionada |
+| N-API piece | RTS infra it reuses | Related issue/spec |
 |---|---|---|
 | `napi_value` ↔ handle | `HandleTable` (slab, gen+slot, 32 shards) | — |
-| `napi_create_string_utf8` | pool de strings GC (`gc::string_*`) | bug #235 (string com `\0`) |
+| `napi_create_string_utf8` | GC string pool (`gc::string_*`) | bug #235 (string with `\0`) |
 | `napi_create_object`/`set_named_property` | `collections.map_*` / `RuntimeValue::Object` | — |
-| handle scopes como roots | `mark_stack_roots()` / `thread_registry` | — |
-| `napi_ref` weak / finalizers | `sweep_all_shards()` + refcount | #217 (weak WeakMap/Set) |
+| handle scopes as roots | `mark_stack_roots()` / `thread_registry` | — |
+| weak `napi_ref` / finalizers | `sweep_all_shards()` + refcount | #217 (weak WeakMap/Set) |
 | `napi_create_promise` | `promise.create` / `PromiseAsync` | #437 (async/Promise) |
 | async work / TSFN | `async_rt::rt()` / `spawn_blocking` / `tokio_ctx` | #207 (event loop) |
-| `napi_callback` (CDECL) | trampolim de troca de callconv | precedente `invoke_all_i64` |
-| `napi_create_external` / buffers | namespace `buffer` / `Vec<u8>` na HandleTable | — |
-| `napi_define_class` (classe dinâmica em runtime) | classes RTS hoje só em compile-time | ⚠️ ponto que mais aperta |
-| `napi_throw` / exceção pendente | error slot thread-local (try/catch fase 1) | #128 |
+| `napi_callback` (CDECL) | callconv-switching trampoline | `invoke_all_i64` precedent |
+| `napi_create_external` / buffers | `buffer` namespace / `Vec<u8>` in the HandleTable | — |
+| `napi_define_class` (dynamic class at runtime) | RTS classes today only at compile time | ⚠️ the tightest point |
+| `napi_throw` / pending exception | thread-local error slot (try/catch phase 1) | #128 |
 
-## Conclusão do capítulo
+## Chapter conclusion
 
-- **Nenhum bloqueador absoluto.** As barreiras reais são **volume** (Div. 2),
-  **cauda longa async** (Div. 4) e **conflito filosófico AOT** (Div. 5).
-- O **único quase-bloqueador técnico** (V8-direto/NAN) se resolve **restringindo
-  o escopo a N-API puro** — postura validada por Bun e Deno.
-- A maioria das peças tem **infra RTS reaproveitável** (`HandleTable`, GC,
-  promise, tokio). O ponto que mais aperta é `napi_define_class` (classe dinâmica
-  em runtime, que o RTS hoje só faz em compile-time) — evitável na fase 1
-  mirando addons que **só exportam funções**.
+- **No absolute blocker.** The real barriers are **volume** (Div. 2), the
+  **async long tail** (Div. 4) and the **AOT philosophical conflict** (Div. 5).
+- The **only near technical blocker** (direct-V8/NAN) is solved by
+  **restricting the scope to pure N-API** — a stance validated by Bun and Deno.
+- Most pieces have **reusable RTS infra** (`HandleTable`, GC, promise, tokio).
+  The tightest point is `napi_define_class` (dynamic class at runtime, which RTS
+  today only does at compile time) — avoidable in phase 1 by targeting addons
+  that **only export functions**.
 
-→ Estratégia e roadmap em [`06-estrategia-roadmap.md`](06-estrategia-roadmap.md).
+→ Strategy and roadmap in [`06-estrategia-roadmap.md`](06-estrategia-roadmap.md).
 
-## Fontes
+## Sources
 
 - https://nodejs.org/api/n-api.html · https://nodejs.org/en/learn/modules/abi-stability
 - https://bun.com/docs/runtime/node-api · /blog/how-bun-supports-v8-apis-without-using-v8-part-1 · part-2

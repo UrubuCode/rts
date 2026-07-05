@@ -1,159 +1,159 @@
-# Motor de render HTML+CSS do RTS — ARQUITETURA-ALVO (5 árvores; reativado 2026-06-27)
+# RTS HTML+CSS render engine — TARGET ARCHITECTURE (5 trees; reactivated 2026-06-27)
 
-> ## ✅ REATIVADO COMO DIREÇÃO OFICIAL (2026-06-27)
-> Este documento **voltou a ser a arquitetura-alvo** do motor. Em 2026-06-27 o
-> desenvolvedor (Marcos) decidiu *"processar tudo no DOM e o egui só lê e exibe"*,
-> **revertendo a decisão #2 do roadmap** (que punha o layout no egui). As 5
-> árvores aqui descritas (DOM→Style→**Layout**→DisplayList→Paint, com o egui só
-> como backend de paint+medição) são agora o pipeline a construir. Motivo: layout
-> no egui torna **impossível trocar de UI** e deixa o DOM headless sem POSIÇÃO.
-> O trabalho segue as fases P0–P7 abaixo. Ver memória `project_layout_moves_to_dom`
-> e a nota de reversão no topo do `rts-html-roadmap.md`.
+> ## ✅ REACTIVATED AS THE OFFICIAL DIRECTION (2026-06-27)
+> This document **is once again the engine's target architecture**. On 2026-06-27 the
+> developer (Marcos) decided to *"process everything in the DOM and egui only reads and displays"*,
+> **reverting decision #2 of the roadmap** (which put layout in egui). The 5
+> trees described here (DOM→Style→**Layout**→DisplayList→Paint, with egui only
+> as the paint+measurement backend) are now the pipeline to build. Reason: layout
+> in egui makes it **impossible to swap the UI** and leaves the headless DOM without POSITION.
+> Work follows the phases P0–P7 below. See the memory `project_layout_moves_to_dom`
+> and the reversal note at the top of `rts-html-roadmap.md`.
 >
-> 🧭 **PAPEL ORIGINAL (decisão de 2026-06-23, agora SUPERADA):** ~~este é o
-> north-star — referência conceitual congelada, não é plano de execução, ninguém
-> pega trabalho daqui~~. Isso valeu de 2026-06-23 a 2026-06-27, enquanto a
-> estratégia era o motor leve com egui-layout. **Não vale mais** — ver acima.
+> 🧭 **ORIGINAL ROLE (decision of 2026-06-23, now SUPERSEDED):** ~~this is the
+> north-star — a frozen conceptual reference, not an execution plan, nobody
+> picks work from here~~. That held from 2026-06-23 to 2026-06-27, while the
+> strategy was the light engine with egui-layout. **It no longer holds** — see above.
 >
-> **Crate:** o documento foi escrito quando o alvo era uma crate `rts-html` nova.
-> Hoje o DOM/estilo já vivem na crate **`rts-dom`** (extraída do rts-egui) — então
-> as fases Layout/DisplayList são ADITIVAS ao `rts-dom` existente (que já tem
-> DOM+Style+cascade+tag-`<style>`), não uma crate do zero. Trust o `rts-dom` real.
+> **Crate:** the document was written when the target was a new `rts-html` crate.
+> Today the DOM/style already live in the **`rts-dom`** crate (extracted from rts-egui) — so
+> the Layout/DisplayList phases are ADDITIVE to the existing `rts-dom` (which already has
+> DOM+Style+cascade+`<style>` tag), not a crate from scratch. Trust the real `rts-dom`.
 
-> Status histórico (quando era a `PLANO.md`): PROPOSTA acionável (v1).
-> Linguagem de código: Rust (identificadores em inglês). Comunicação: português.
-> Este documento incorpora a arquitetura de 5 árvores E as correções exigidas
-> pela crítica cética. Onde a crítica apontou, o plano regrediu para algo
-> humilde, incremental e honesto — isso é deliberado, não preguiça.
+> Historical status (when it was the `PLANO.md`): actionable PROPOSAL (v1).
+> Code language: Rust (identifiers in English). Communication: Portuguese.
+> This document incorporates the 5-tree architecture AND the corrections demanded
+> by the skeptical critique. Where the critique pointed, the plan regressed to something
+> humble, incremental, and honest — that is deliberate, not laziness.
 
 ---
 
-## ⚠️ STATUS DE IMPLEMENTAÇÃO (2026-06-23) — divergência consciente do plano
+## ⚠️ IMPLEMENTATION STATUS (2026-06-23) — conscious divergence from the plan
 
-> Anotação obrigatória (RULE #0: nunca deixar o spec mentir). Foi implementado na
-> main um motor de render de HTML retido **por um caminho DIFERENTE do descrito
-> abaixo**. Não é "P0..P7 parcialmente feito" — é uma **arquitetura alternativa,
-> mais leve**, que cobre parte dos objetivos do plano e diverge em pontos centrais.
-> Branch de origem: `feat/egui-dom-tree` (merge na main). Crate: `rts-egui` (NÃO
-> a `rts-html` que o plano pedia).
+> Mandatory annotation (RULE #0: never let the spec lie). A retained HTML render
+> engine was implemented on main **through a DIFFERENT path than the one described
+> below**. It is not "P0..P7 partially done" — it is an **alternative, lighter
+> architecture** that covers part of the plan's goals and diverges on central points.
+> Origin branch: `feat/egui-dom-tree` (merged to main). Crate: `rts-egui` (NOT
+> the `rts-html` the plan asked for).
 
-### O que foi feito (na `rts-egui`, não em `rts-html`)
+### What was done (in `rts-egui`, not in `rts-html`)
 
-- **DOM retido em árvore** (`rts-egui/src/dom.rs`): arena `Vec<Node>` + `NodeId`
-  estável, parent/children, **atributos preservados** (`class`/`id`/`href`…),
-  `Dom::dump()` estilo devtools, **índices `id`/`classe` O(1)** para query.
-- **Render percorre a árvore** (`frame.rs::render_dom`).
-- **Alocador dinâmico de blocos** (`block.rs`): mapa `tag → layout` definido em
+- **Retained tree DOM** (`rts-egui/src/dom.rs`): arena `Vec<Node>` + stable
+  `NodeId`, parent/children, **attributes preserved** (`class`/`id`/`href`…),
+  devtools-style `Dom::dump()`, **O(1) `id`/`class` indices** for query.
+- **Render traverses the tree** (`frame.rs::render_dom`).
+- **Dynamic block allocator** (`block.rs`): a `tag → layout` map defined in
   **TS** via `egui.defineBlock`/`defineInline` (display vertical/wrap/horizontal/
-  grid + indent + prefix + flags). O engine não nomeia tag.
-- **Mutação via JS** (`egui.querySelector/setText/setAttr/createElement/
-  appendChild/removeNode`) — base de manipulação de DOM em runtime.
-- **Inspeção do lado TS**: `egui.domDump`.
-- Testes: `cargo test -p rts-egui` (18). Exemplos: `examples/egui_html_basico.ts`,
+  grid + indent + prefix + flags). The engine does not name tags.
+- **Mutation via JS** (`egui.querySelector/setText/setAttr/createElement/
+  appendChild/removeNode`) — foundation for runtime DOM manipulation.
+- **Inspection on the TS side**: `egui.domDump`.
+- Tests: `cargo test -p rts-egui` (18). Examples: `examples/egui_html_basico.ts`,
   `egui_html_tree_complexa.ts`, `egui_dom_mutacao.ts`.
 
-### Onde DIVERGE do plano abaixo (não fizemos igual)
+### Where it DIVERGES from the plan below (we did not do the same)
 
-| Eixo | PLANO.md (abaixo) | Implementado (main) |
+| Axis | PLANO.md (below) | Implemented (main) |
 |---|---|---|
-| **Crate** | crate NOVA `rts-html`, Rust puro, zero dep egui | dentro de `rts-egui` |
-| **Pipeline** | 5 árvores (DOM→Style→Layout→DisplayList→Paint) | 2 estágios (DOM → render direto) |
-| **Paint** | `allocate_painter` + Painter ABSOLUTO + box model próprio | `ui.label`/`horizontal_wrapped`/`Grid` — **egui FAZ o layout** (o plano §3 proíbe isto explicitamente) |
-| **CSS** | cascade real: especificidade + herança + `%`/`em` resolvidos em fases distintas | mapa tag→layout em TS (`defineBlock`); **sem** cascade/herança/box model/`%` |
-| **Eventos** | hit-testing por `node_id`, clique em `<a>`/`<button>` | **não há** clique/hit-testing ainda; há mutação programática via JS |
-| **Texto inline** | `LayoutJob` multi-run medido+quebrado pelo egui (P4, o "coração") | `RichText` por fragmento, egui posiciona |
+| **Crate** | NEW crate `rts-html`, pure Rust, zero egui dep | inside `rts-egui` |
+| **Pipeline** | 5 trees (DOM→Style→Layout→DisplayList→Paint) | 2 stages (DOM → direct render) |
+| **Paint** | `allocate_painter` + ABSOLUTE Painter + own box model | `ui.label`/`horizontal_wrapped`/`Grid` — **egui DOES the layout** (the plan §3 explicitly forbids this) |
+| **CSS** | real cascade: specificity + inheritance + `%`/`em` resolved in distinct phases | tag→layout map in TS (`defineBlock`); **no** cascade/inheritance/box model/`%` |
+| **Events** | hit-testing by `node_id`, click on `<a>`/`<button>` | **there is no** click/hit-testing yet; there is programmatic mutation via JS |
+| **Inline text** | multi-run `LayoutJob` measured+wrapped by egui (P4, the "heart") | `RichText` per fragment, egui positions |
 
-### Avaliação honesta
+### Honest assessment
 
-A implementação atual é um **renderizador retido data-driven LEVE** (a filosofia
-que o usuário pediu: "tudo deriva de inline/block", "blocos definidos em TS",
-"DOM otimizado além dos padrões"). Ela **NÃO** é o motor de browser canônico
-deste plano. Cobre, do plano: a topologia em árvore (P0), atributos (parte de
-P5), e adianta manipulação de DOM (não prevista aqui). **NÃO** cobre: box model,
-cascade CSS, paint absoluto, inline-flow multi-run, scroll, hit-testing/eventos —
-os itens P1(paint absoluto)→P7.
+The current implementation is a **LIGHT data-driven retained renderer** (the
+philosophy the user asked for: "everything derives from inline/block", "blocks
+defined in TS", "DOM optimized beyond the standards"). It is **NOT** the canonical
+browser engine of this plan. From the plan, it covers: the tree topology (P0),
+attributes (part of P5), and brings forward DOM manipulation (not planned here).
+It does **NOT** cover: box model, CSS cascade, absolute paint, multi-run
+inline-flow, scroll, hit-testing/events — items P1(absolute paint)→P7.
 
-**Decisão em aberto para os devs:** ou (a) este caminho leve substitui o plano de
-5 árvores como a direção oficial (e este PLANO.md é reescrito/aposentado), ou
-(b) o plano de 5 árvores segue como alvo de longo prazo e o caminho leve é um
-estágio intermediário/coexistente. Enquanto não decidido, AMBOS os documentos
-valem e esta nota previne que alguém implemente P1..P7 achando que parte do zero.
-
----
+**Open decision for the devs:** either (a) this light path replaces the 5-tree
+plan as the official direction (and this PLANO.md is rewritten/retired), or
+(b) the 5-tree plan remains the long-term target and the light path is an
+intermediate/coexisting stage. Until decided, BOTH documents
+hold and this note prevents someone from implementing P1..P7 thinking they start from scratch.
 
 ---
 
-## 0) Resumo e escopo HONESTO
+---
 
-### 0.1) O que isto É
+## 0) HONEST summary and scope
 
-Um **motor de render próprio** para um subconjunto **estático** de HTML+CSS,
-embutido no `rts-egui`, que reproduz o pipeline canônico de browser (DOM → Style
-→ Layout → Display list → Paint) em Rust puro, usando o egui **apenas como
-backend de paint, medição de texto e scroll** — nunca como motor de layout.
+### 0.1) What this IS
 
-O alvo realista, declarado sem eufemismo:
+An **in-house render engine** for a **static** subset of HTML+CSS,
+embedded in `rts-egui`, that reproduces the canonical browser pipeline (DOM → Style
+→ Layout → Display list → Paint) in pure Rust, using egui **only as
+a paint backend, text measurement, and scroll** — never as a layout engine.
 
-- **HTML**: subconjunto estrutural — tags de bloco e inline aninhadas
+The realistic target, stated without euphemism:
+
+- **HTML**: structural subset — nested block and inline tags
   (`div`, `p`, `h1..h6`, `span`, `b`/`strong`, `i`/`em`, `a`, `ul`/`li`, `br`,
-  `img`), atributos (`id`, `class`, `style`, `href`, `src`), texto com entidades
-  básicas. Tag desconhecida vira `Element` genérico (não é descartada).
-- **CSS**: o subconjunto da pesquisa css-subset Fase 1+2 — seletores
-  simples + descendente, ~12 propriedades de texto/box, cascade real
-  (especificidade + herança + ordem), box model de fluxo normal block+inline.
-- **Layout**: **block + inline em fluxo normal, LTR, fonte única**. Box model
-  completo (content/padding/border/margin). Quebra de linha e shaping de texto
-  **delegados ao egui** (`LayoutJob`/`Galley`).
-- **Paint**: display list plana → `egui::Painter` em coordenadas absolutas,
-  com `ScrollArea::show_viewport` (culling por viewport) e hit-testing próprio
-  para clique em `<a>`/`<button>`.
+  `img`), attributes (`id`, `class`, `style`, `href`, `src`), text with basic
+  entities. Unknown tag becomes a generic `Element` (not discarded).
+- **CSS**: the subset of the css-subset research Phase 1+2 — simple
+  selectors + descendant, ~12 text/box properties, real cascade
+  (specificity + inheritance + order), normal-flow block+inline box model.
+- **Layout**: **block + inline in normal flow, LTR, single font**. Full box
+  model (content/padding/border/margin). Line breaking and text shaping
+  **delegated to egui** (`LayoutJob`/`Galley`).
+- **Paint**: flat display list → `egui::Painter` in absolute coordinates,
+  with `ScrollArea::show_viewport` (viewport culling) and own hit-testing
+  for clicks on `<a>`/`<button>`.
 
-"Avançado" aqui significa, e **só** significa: **cascade CSS real com herança e
-especificidade + box model block/inline correto + scroll + links clicáveis**.
-Isso já é 3–6 meses de trabalho honesto. É um alvo atingível e útil — um
-renderizador de "rich text com caixas", não um browser.
+"Advanced" here means, and **only** means: **real CSS cascade with inheritance and
+specificity + correct block/inline box model + scroll + clickable links**.
+That is already 3–6 months of honest work. It is an attainable and useful target — a
+"rich text with boxes" renderer, not a browser.
 
-### 0.2) O que isto NÃO É — cortes explícitos, sem volta no MVP
+### 0.2) What this is NOT — explicit cuts, no comeback in the MVP
 
-A crítica está certa: "HTML avançado + CSS5" é fantasia. Cortado do início,
-nominalmente, para que ninguém prometa o que não entrega:
+The critique is right: "advanced HTML + CSS5" is fantasy. Cut from the start,
+by name, so nobody promises what they can't deliver:
 
-| Cortado | Por quê (1 linha) |
+| Cut | Why (1 line) |
 |---|---|
-| **Flexbox** | cada formatting context é um mini-projeto; resolução iterativa grow/shrink/basis |
-| **Grid** | resolução de trilhas `fr`/`minmax`/auto-placement é maior que todo o resto do motor |
-| **`position: absolute/fixed/sticky`, `float`** | exigem containing block fora do fluxo + remoção do fluxo normal |
-| **`z-index` real / stacking contexts** | z-order = ordem da display list **só funciona sem `position`/`z-index`** |
-| **Animations / `transition` / `transform` / `filter` / `clip-path`** | exigem loop temporal + invalidação que o pipeline efêmero não suporta |
-| **`:has()`, container queries, `@scope`, `@layer`, nesting** | invalidação cara / dependência circular layout↔estilo |
-| **`var()` / custom properties** | passo extra de resolução em cascade com fallback |
-| **`:hover`/`:focus` reativo** | exige re-layout no mesmo frame; latência de 1 frame pisca (ver §6 risco 4) |
-| **Sibling `+`/`~`, `:nth-child`** | percorrem irmãos; reavaliação na mudança da lista de filhos |
-| **bidi / RTL / árabe / hebraico** | shaping bidirecional; assumimos **LTR latino** explicitamente |
-| **grapheme clusters complexos / combining marks** | delegados ao egui na medida do que o egui já faz; sem tratamento próprio |
-| **`font-family` / fallback / web fonts / síntese de peso arbitrário** | egui resolve **uma** família embarcada; ver §6 risco também |
-| **`box-sizing: border-box`** (no MVP) | default `content-box` apenas; `border-box` entra em fase tardia se sobrar |
+| **Flexbox** | each formatting context is a mini-project; iterative grow/shrink/basis resolution |
+| **Grid** | `fr`/`minmax`/auto-placement track resolution is bigger than the whole rest of the engine |
+| **`position: absolute/fixed/sticky`, `float`** | require a containing block outside the flow + removal from normal flow |
+| **Real `z-index` / stacking contexts** | z-order = display list order **only works without `position`/`z-index`** |
+| **Animations / `transition` / `transform` / `filter` / `clip-path`** | require a temporal loop + invalidation the ephemeral pipeline does not support |
+| **`:has()`, container queries, `@scope`, `@layer`, nesting** | expensive invalidation / circular layout↔style dependency |
+| **`var()` / custom properties** | extra resolution pass in the cascade with fallback |
+| **Reactive `:hover`/`:focus`** | requires re-layout in the same frame; 1-frame latency flickers (see §6 risk 4) |
+| **Sibling `+`/`~`, `:nth-child`** | traverse siblings; re-evaluation on child-list change |
+| **bidi / RTL / Arabic / Hebrew** | bidirectional shaping; we explicitly assume **Latin LTR** |
+| **complex grapheme clusters / combining marks** | delegated to egui to the extent egui already handles them; no in-house treatment |
+| **`font-family` / fallback / web fonts / arbitrary weight synthesis** | egui resolves **one** embedded family; see also §6 risk |
+| **`box-sizing: border-box`** (in the MVP) | default `content-box` only; `border-box` enters a late phase if time remains |
 
-Esses cortes são **permanentes para o MVP** e nunca "prometidos para depois" sem
-re-justificativa. Flex e grid em especial: sejamos honestos que **não temos** —
-é o que as pessoas mais vão querer, e dizer "vem na v2" seria mentira de
-roadmap.
+These cuts are **permanent for the MVP** and never "promised for later" without
+re-justification. Flex and grid especially: let's be honest that we **don't have them** —
+it is what people will want most, and saying "coming in v2" would be a roadmap
+lie.
 
-### 0.3) Doutrina do projeto (PRIMORDIAL-vs-Registry)
+### 0.3) Project doctrine (PRIMORDIAL-vs-Registry)
 
-HTML/CSS **não têm sintaxe nativa** em JS/TS → o `rts-codegen-new` **NUNCA** os
-nomeia. O motor vive em Rust como **primitivo de render** exposto por um
-`NamespaceMember` em `abi::SPECS` (`egui.html`, igual a `io.print`). A lógica de
-alto nível (montar a string, reagir a eventos) é TS. O engine de codegen só
-resolve uma chamada de namespace genérica — mesma fronteira de `io`/`fs`/`ui`.
-Nada disso atravessa o codegen.
+HTML/CSS **have no native syntax** in JS/TS → `rts-codegen-new` **NEVER**
+names them. The engine lives in Rust as a **render primitive** exposed by a
+`NamespaceMember` in `abi::SPECS` (`egui.html`, same as `io.print`). The
+high-level logic (building the string, reacting to events) is TS. The codegen
+engine only resolves a generic namespace call — the same boundary as `io`/`fs`/`ui`.
+None of this crosses the codegen.
 
 ---
 
-## 1) Arquitetura — as fases e os structs Rust principais
+## 1) Architecture — the phases and the main Rust structs
 
-Pipeline canônico (web.dev / Servo / robinson), **cinco árvores encadeadas que
-só achatam no fim**:
+Canonical pipeline (web.dev / Servo / robinson), **five chained trees that
+only flatten at the end**:
 
 ```
 HTML bytes → DOM tree → (+ Stylesheet) → Style tree → Layout tree → Display list → Paint
@@ -161,17 +161,17 @@ HTML bytes → DOM tree → (+ Stylesheet) → Style tree → Layout tree → Di
               de nós       herança         (sem %)         (resolve %)   (absoluto)     + medição
 ```
 
-A árvore persiste da Fase 1 à Fase 4 porque ancestralidade, herança e
-constraint-solving exigem a topologia parental. Só achata na display list,
-**depois** que herança/cascade/constraint já consumiram a topologia.
+The tree persists from Phase 1 to Phase 4 because ancestry, inheritance, and
+constraint-solving require the parental topology. It only flattens into the display list,
+**after** inheritance/cascade/constraint have consumed the topology.
 
-> **Correção da crítica embutida já aqui (risco 5):** `%` e `auto` de
-> width/margin/padding resolvem contra o **containing block na Fase 4**, não
-> contra o computed do pai na Fase 3. `em`/`rem` resolvem cedo (Fase 3, contra o
-> `font-size` do pai); `%`/`auto` resolvem tarde (Fase 4). Os dois momentos de
-> resolução são distintos e o struct reflete isso (ver `Dimension` abaixo).
+> **Correction from the critique embedded right here (risk 5):** `%` and `auto` of
+> width/margin/padding resolve against the **containing block in Phase 4**, not
+> against the parent's computed in Phase 3. `em`/`rem` resolve early (Phase 3, against the
+> parent's `font-size`); `%`/`auto` resolve late (Phase 4). The two resolution
+> moments are distinct and the struct reflects this (see `Dimension` below).
 
-### Fase 1 — HTML → DOM tree (`rts-html/src/dom/`)
+### Phase 1 — HTML → DOM tree (`rts-html/src/dom/`)
 
 ```rust
 // dom/node.rs
@@ -191,12 +191,12 @@ pub struct ElementData {
 pub type NodeId = u32;
 ```
 
-Parser recursivo-descendente sobre o `Parser { pos, input }` char-a-char já
-existente em `html.rs::tokenize`. `<p><b>x</b></p>` produz
-`Element(p) → [Element(b) → [Text("x")]]`. Tag desconhecida → `Element`
-genérico. Entidades decodificadas no nó `Text`.
+Recursive-descent parser over the char-by-char `Parser { pos, input }` already
+existing in `html.rs::tokenize`. `<p><b>x</b></p>` produces
+`Element(p) → [Element(b) → [Text("x")]]`. Unknown tag → generic `Element`.
+Entities decoded in the `Text` node.
 
-### Fase 2 — CSS → Stylesheet (`rts-html/src/css/`)
+### Phase 2 — CSS → Stylesheet (`rts-html/src/css/`)
 
 ```rust
 // css/stylesheet.rs
@@ -224,10 +224,10 @@ pub enum Unit { Px, Em, Rem, Percent } // Percent SOBREVIVE até o layout
 pub struct Color { pub r: u8, pub g: u8, pub b: u8, pub a: u8 }
 ```
 
-`Selector::specificity() -> (u32, u32, u32)` (IDs, classes, tipos), ordenado no
-parse. Robustez CSS: ao achar erro, descarta só a parte irreconhecível e segue.
+`Selector::specificity() -> (u32, u32, u32)` (IDs, classes, types), ordered at
+parse time. CSS robustness: on error, discard only the unrecognizable part and continue.
 
-### Fase 3 — Style tree (cascade + herança, SEM resolver `%`/`auto`)
+### Phase 3 — Style tree (cascade + inheritance, WITHOUT resolving `%`/`auto`)
 
 ```rust
 // style/styled_node.rs
@@ -264,14 +264,15 @@ pub enum Dimension { Auto, Px(f32), Percent(f32) }
 pub struct Edges { pub top: Dimension, pub right: Dimension, pub bottom: Dimension, pub left: Dimension }
 ```
 
-Algoritmo (`style/cascade.rs`): `matching_rules` coleta
-`(specificity, &Declaration)` das regras que casam (AND O(1) de tag/id/classes
-no próprio nó); ordena por especificidade crescente; aplica em ordem (empate →
-ordem-no-código). `resolve_inherited` copia do `parent.computed` as herdadas
-ausentes e resolve `em`/`rem` contra o `font_size_px` do pai. **`%` e `auto`
-NÃO são tocados aqui.** `display:none` marca o nó para exclusão da Fase 4.
+Algorithm (`style/cascade.rs`): `matching_rules` collects
+`(specificity, &Declaration)` from the rules that match (O(1) AND of tag/id/classes
+on the node itself); sorts by ascending specificity; applies in order (tie →
+source order). `resolve_inherited` copies the missing inherited properties from
+`parent.computed` and resolves `em`/`rem` against the parent's `font_size_px`.
+**`%` and `auto` are NOT touched here.** `display:none` marks the node for
+exclusion from Phase 4.
 
-### Fase 4 — Layout tree (box model; resolve `%`/`auto`; mede via egui)
+### Phase 4 — Layout tree (box model; resolves `%`/`auto`; measures via egui)
 
 ```rust
 // layout/box.rs
@@ -296,19 +297,19 @@ pub struct Rect { pub x: f32, pub y: f32, pub width: f32, pub height: f32 }
 pub struct EdgeSizes { pub left: f32, pub right: f32, pub top: f32, pub bottom: f32 }
 ```
 
-Algoritmo block (robinson Parte 6), **um único traversal**:
-1. **Larguras (top-down)**: aqui `%` resolve contra a largura do containing
-   block (= a largura de content do pai). `auto` expande/absorve underflow.
-2. **Posição (x,y)**: caixa abaixo das anteriores no container.
-3. **Alturas (bottom-up)**: altura do pai = soma das alturas dos filhos, salvo
-   `height` explícito.
+Block algorithm (robinson Part 6), **a single traversal**:
+1. **Widths (top-down)**: here `%` resolves against the containing block's
+   width (= the parent's content width). `auto` expands/absorbs underflow.
+2. **Position (x,y)**: box below the previous ones in the container.
+3. **Heights (bottom-up)**: parent height = sum of children's heights, unless
+   `height` is explicit.
 
-**Inline** chama o egui via `TextMeasurer` (§2/§3): monta `LayoutJob` por
-**bloco de contexto inline** (não por run), pede ao egui medir+quebrar com
-`wrap.max_width = largura do content box`, e lê `galley.rows` para posicionar as
-linhas. O `Galley` é guardado para o paint (não re-shapeia).
+**Inline** calls egui via `TextMeasurer` (§2/§3): builds a `LayoutJob` per
+**inline context block** (not per run), asks egui to measure+wrap with
+`wrap.max_width = content box width`, and reads `galley.rows` to position the
+lines. The `Galley` is kept for paint (no re-shaping).
 
-### Fase 5 — Display list (`rts-html/src/paint/display.rs`)
+### Phase 5 — Display list (`rts-html/src/paint/display.rs`)
 
 ```rust
 pub enum DisplayItem {
@@ -325,15 +326,15 @@ pub struct HitRect { pub rect: Rect, pub node_id: NodeId, pub kind: HitKind }
 pub enum HitKind { Link(String), Button(NodeId), None }
 ```
 
-`GalleyHandle` é um índice opaco para um `Arc<Galley>` mantido no lado do
-`rts-egui` (a struct `rts-html` não conhece o tipo egui — ver §2 trait). A
-ordem da `Vec` **é** o z-order (Painter desenha back-to-front; sem `z-index`/
-`position` no MVP isso é suficiente e correto).
+`GalleyHandle` is an opaque index to an `Arc<Galley>` kept on the
+`rts-egui` side (the `rts-html` struct does not know the egui type — see §2 trait). The
+order of the `Vec` **is** the z-order (Painter draws back-to-front; without `z-index`/
+`position` in the MVP this is sufficient and correct).
 
-### Fase 6 — Paint (no `rts-egui`, NÃO em `rts-html`)
+### Phase 6 — Paint (in `rts-egui`, NOT in `rts-html`)
 
-Walker traduz cada `DisplayItem` numa chamada de `egui::Painter`, somando a
-origem (`response.rect.min`) e o offset de scroll:
+A walker translates each `DisplayItem` into an `egui::Painter` call, adding the
+origin (`response.rect.min`) and the scroll offset:
 - `SolidRect` → `painter.rect_filled(rect, CornerRadius::ZERO, color)`
 - `Border` → `painter.rect_stroke(rect, ZERO, stroke, StrokeKind::Inside)`
 - `Text` → `painter.galley(pos, galley, color)`
@@ -342,17 +343,17 @@ origem (`response.rect.min`) e o offset de scroll:
 
 ---
 
-## 2) Onde cada camada vive
+## 2) Where each layer lives
 
-| Camada | Crate | Linguagem | Responsabilidade | Depende de egui? |
+| Layer | Crate | Language | Responsibility | Depends on egui? |
 |---|---|---|---|---|
-| API alto nível `html(str)`, stylesheet, handlers | `rts-shared/src/stdlib/html.ts` | TS | superfície ergonômica sobre `egui.html` | não |
-| **DOM + CSS + Style + Layout + Display list** | **`rts-html` (NOVA)** | Rust puro | Fases 1–5; árvore; constraint solving | **NÃO** (zero dep egui/winit/wgpu) |
-| Backend de janela + paint + medição + scroll + hit-test | `rts-egui` | Rust | Fase 6: walker; impl de `TextMeasurer`; `ScrollArea`; event loop; wgpu | sim |
-| Primitivo ABI `egui.html(ptr,len)` | `rts-egui` extern "C" | Rust | porta de entrada: string → `rts-html` → display list no `UiCtx` | sim |
+| High-level API `html(str)`, stylesheet, handlers | `rts-shared/src/stdlib/html.ts` | TS | ergonomic surface over `egui.html` | no |
+| **DOM + CSS + Style + Layout + Display list** | **`rts-html` (NEW)** | pure Rust | Phases 1–5; tree; constraint solving | **NO** (zero egui/winit/wgpu dep) |
+| Window backend + paint + measurement + scroll + hit-test | `rts-egui` | Rust | Phase 6: walker; `TextMeasurer` impl; `ScrollArea`; event loop; wgpu | yes |
+| ABI primitive `egui.html(ptr,len)` | `rts-egui` extern "C" | Rust | entry point: string → `rts-html` → display list in the `UiCtx` | yes |
 
-**Inversão de dependência** (a Fase 4 precisa medir texto, mas `rts-html` não
-pode depender de egui). O trait vive em `rts-html`, o impl em `rts-egui`:
+**Dependency inversion** (Phase 4 needs to measure text, but `rts-html` cannot
+depend on egui). The trait lives in `rts-html`, the impl in `rts-egui`:
 
 ```rust
 // em rts-html — abstração, sem nada de egui
@@ -372,429 +373,429 @@ pub struct InlineLayout {
 }
 ```
 
-`rts-html` é testável isoladamente com um `TextMeasurer` mock (larguras
-sintéticas) **apenas para teste unitário de geometria de bloco** — nunca como
-proxy de "progresso de feature" (ver §5/§6 risco 2: o pixel real usa o measurer
-real cedo). `rts-egui` implementa `layout_inline` montando um `LayoutJob` com
-uma `LayoutSection`+`TextFormat` por run e chamando `fonts(|f| f.layout_job(job))`.
+`rts-html` is testable in isolation with a mock `TextMeasurer` (synthetic
+widths) **only for unit-testing block geometry** — never as a proxy for
+"feature progress" (see §5/§6 risk 2: the real pixel uses the real measurer
+early). `rts-egui` implements `layout_inline` by building a `LayoutJob` with
+one `LayoutSection`+`TextFormat` per run and calling `fonts(|f| f.layout_job(job))`.
 
-Cada fase é uma pasta (`dom/`, `css/`, `style/`, `layout/`, `paint/`) com
-`mod.rs` + submódulos, respeitando o teto de 500 linhas/arquivo do projeto.
+Each phase is a folder (`dom/`, `css/`, `style/`, `layout/`, `paint/`) with
+`mod.rs` + submodules, respecting the project's 500 lines/file ceiling.
 
 ---
 
-## 3) O ponto de virada do egui — de layout automático para paint absoluto + hit-testing
+## 3) The egui turning point — from automatic layout to absolute paint + hit-testing
 
-Hoje `frame.rs::drenar` faz **egui-como-layout**: `ui.label()`/`ui.button()` +
-`ui.horizontal`/`ui.horizontal_wrapped`, e o egui decide as posições. Isso é
-correto para o **modo simples** e continua intocado.
+Today `frame.rs::drenar` does **egui-as-layout**: `ui.label()`/`ui.button()` +
+`ui.horizontal`/`ui.horizontal_wrapped`, and egui decides the positions. That is
+correct for the **simple mode** and remains untouched.
 
-No **modo HTML**, paramos de empilhar no instante em que existe box model
-próprio: o motor calcula `x,y,w,h` (Fase 4) e o `rts-egui` passa a **pintar em
-coordenadas absolutas**.
+In **HTML mode**, we stop stacking the instant an in-house box model exists:
+the engine computes `x,y,w,h` (Phase 4) and `rts-egui` switches to **painting in
+absolute coordinates**.
 
-A transição concreta:
+The concrete transition:
 
-- **Superfície**: `let (response, painter) = ui.allocate_painter(size, Sense::click())`.
-  `response.rect.min` é a origem `(0,0)` do box model.
-- **NÃO usar** `ui.horizontal/vertical/Grid/Frame`/`RichText` no conteúdo — eles
-  posicionam por nós e brigam com o box model. Só `allocate_painter` + `Painter`
+- **Surface**: `let (response, painter) = ui.allocate_painter(size, Sense::click())`.
+  `response.rect.min` is the `(0,0)` origin of the box model.
+- **DO NOT use** `ui.horizontal/vertical/Grid/Frame`/`RichText` in the content — they
+  position on our behalf and fight the box model. Only `allocate_painter` + `Painter`
   + `ScrollArea::show_viewport`.
-- **egui vira quatro serviços** (os que não queremos reescrever):
-  1. **Medição + line-breaking de texto** via `LayoutJob`/`layout_job` — **o egui
-     quebra a linha** (ver §6 risco 1). Lemos `galley.rows`.
-  2. **Atlas de fonte + rasterização** — gerido por epaint; `Galley` consumido
-     direto em `painter.galley`.
-  3. **Painter absoluto** — `rect_filled`/`rect_stroke`/`galley`/`image` em
-     coordenadas de tela.
-  4. **ScrollArea com viewport virtual** — `show_viewport(ui, |ui, vp: Rect| ...)`
-     dá **culling de graça** (essencial no modo imediato, que re-pinta tudo todo
-     frame). Tradução content→screen: `screen = content + (ui.min_rect().min - vp.min)`.
+- **egui becomes four services** (the ones we don't want to rewrite):
+  1. **Text measurement + line-breaking** via `LayoutJob`/`layout_job` — **egui
+     breaks the line** (see §6 risk 1). We read `galley.rows`.
+  2. **Font atlas + rasterization** — managed by epaint; `Galley` consumed
+     directly in `painter.galley`.
+  3. **Absolute Painter** — `rect_filled`/`rect_stroke`/`galley`/`image` in
+     screen coordinates.
+  4. **ScrollArea with virtual viewport** — `show_viewport(ui, |ui, vp: Rect| ...)`
+     gives **culling for free** (essential in immediate mode, which re-paints everything every
+     frame). content→screen translation: `screen = content + (ui.min_rect().min - vp.min)`.
 
-### HIT-TESTING de clique em link (dimensionado, não "de passagem")
+### Link-click HIT-TESTING (sized, not "in passing")
 
-A crítica está certa: `allocate_painter` dá **um** `Response` para a superfície
-inteira; saber **qual box** foi clicado é trabalho nosso. O protocolo:
+The critique is right: `allocate_painter` gives **one** `Response` for the whole
+surface; knowing **which box** was clicked is our work. The protocol:
 
-1. Durante o walk da display list, todo item clicável (`<a href>`, `<button>`)
-   registra um `HitRect { rect, node_id, kind }` em `DisplayList.hit_rects` (em
-   coordenadas de conteúdo).
-2. No frame, depois de pintar, obtemos a posição do ponteiro relativa ao
-   conteúdo: `pointer_content = response.interact_pointer_pos()? - origin + scroll_off`.
-3. **Hit-testing em ordem reversa da display list** (top-most primeiro, já que
-   z-order = ordem de pintura): o primeiro `HitRect` que contém o ponto é o
-   alvo. Resolve sobreposição corretamente sem `z-index`.
-4. Se `response.clicked()` e há alvo `Link(href)`/`Button(id)`, registramos o
-   evento no `UiCtx` para o TS consultar no próximo frame (mesmo padrão de
-   latência-de-1-frame que `button_results`/`button_cursor` já usam).
-5. **Cursor `pointer`** sobre link: se há alvo `Link` sob o ponteiro,
+1. During the display list walk, every clickable item (`<a href>`, `<button>`)
+   registers a `HitRect { rect, node_id, kind }` in `DisplayList.hit_rects` (in
+   content coordinates).
+2. In the frame, after painting, we get the pointer position relative to the
+   content: `pointer_content = response.interact_pointer_pos()? - origin + scroll_off`.
+3. **Hit-testing in reverse display-list order** (top-most first, since
+   z-order = paint order): the first `HitRect` containing the point is the
+   target. Resolves overlap correctly without `z-index`.
+4. If `response.clicked()` and there is a `Link(href)`/`Button(id)` target, we register the
+   event in the `UiCtx` for TS to query on the next frame (same 1-frame-latency
+   pattern already used by `button_results`/`button_cursor`).
+5. **`pointer` cursor** over a link: if there is a `Link` target under the pointer,
    `ctx.set_cursor_icon(CursorIcon::PointingHand)`.
 
-**Identidade do alvo** (ver §6 risco 4): o casamento é por **`node_id`**, não por
-índice posicional. O `node_id` é estável-por-parse; para estabilidade **entre
-frames** quando a string muda, o HTML pode declarar `key="..."`/`id="..."`
-explícito, e o `UiCtx` mapeia eventos por essa chave. Sem `key`/`id`, o
-casamento vale só dentro do frame (clique→ação no mesmo conteúdo), que é o caso
-comum. Não prometemos reconciliação de DOM diferencial no MVP.
+**Target identity** (see §6 risk 4): matching is by **`node_id`**, not by
+positional index. The `node_id` is stable-per-parse; for stability **across
+frames** when the string changes, the HTML can declare an explicit `key="..."`/`id="..."`,
+and the `UiCtx` maps events by that key. Without `key`/`id`, matching
+holds only within the frame (click→action on the same content), which is the common
+case. We do not promise differential DOM reconciliation in the MVP.
 
-**`:hover` fica fora do MVP** (corte §0.2): hover com latência de 1 frame pisca,
-e re-layout reativo no mesmo frame não é barato no pipeline efêmero. Quando
-entrar, será via re-layout no frame seguinte com o ponteiro conhecido — fase
-tardia, opcional.
+**`:hover` stays out of the MVP** (cut §0.2): hover with 1-frame latency flickers,
+and reactive re-layout in the same frame is not cheap in the ephemeral pipeline. When it
+enters, it will be via re-layout on the next frame with the pointer known — a late
+phase, optional.
 
-Regra de ouro: **o egui nunca vê a árvore.** Ele só recebe `Rect`/`Pos2`/`Galley`
-já calculados e mede texto quando pedido.
+Golden rule: **egui never sees the tree.** It only receives `Rect`/`Pos2`/`Galley`
+already computed and measures text when asked.
 
 ---
 
-## 4) Subset CSS por fase
+## 4) CSS subset per phase
 
-| Área | Fase 1 (texto / paint, match O(1)) | Fase 2 (box model + fluxo normal) | Fase 3 (avançado *atingível*) | NUNCA (MVP) |
+| Area | Phase 1 (text / paint, O(1) match) | Phase 2 (box model + normal flow) | Phase 3 (*attainable* advanced) | NEVER (MVP) |
 |---|---|---|---|---|
-| **Seletores** | tag, class, id, `*`, compound (`div.a#b`), lista `,` | (mesmos) + herança aplicada | **descendente** ` ` (direita→esquerda), `[attr]`/`[attr=val]` | sibling `+`/`~`, `:nth-child`, `:hover`/`:focus`, `:has()` |
-| **Propriedades texto** | `color`, `font-size`, `font-weight`, `font-style`, `text-align`, `line-height`, `visibility` | (herdadas pela cascade) | — | `font-family`/fallback/web fonts, `letter-spacing`, `text-shadow` |
-| **Propriedades box** | — | `display: block/inline/none`, `width`, `height`, `margin`, `padding`, `border`(-width/-style/-color), `background`/`background-color` | `position: relative` (offset simples, sem sair do fluxo), `overflow: hidden/scroll` (clip) | `position: absolute/fixed/sticky`, `float`, `z-index`, `box-sizing: border-box` (talvez tardio) |
-| **Unidades** | `px`, keyword, `#rgb`/`#rrggbb` | `%` (resolve no layout), `em`/`rem` (resolve na style) | `auto` (margin/width) | `vw`/`vh`/`ch`/`vmin`, `calc()`, `var()` |
-| **Layout** | nenhum (só paint de texto) | single-pass fluxo normal block+inline | `position: relative`, clipping | flex, grid, multi-passe, constraint solving 2D |
-| **Cascade** | match O(1), especificidade (ID,CLASS,TYPE), ordenar p/ especificidade→ordem | + herança, valores computados | + `!important`, origens UA/user/author | invalidação reativa, custom props, `@layer`, container queries |
-| **At-rules** | — | `@media`/`@supports` (gate booleano sobre viewport) | — | `@container`, `@scope`, `@font-face`, nesting |
+| **Selectors** | tag, class, id, `*`, compound (`div.a#b`), `,` list | (same) + inheritance applied | **descendant** ` ` (right→left), `[attr]`/`[attr=val]` | sibling `+`/`~`, `:nth-child`, `:hover`/`:focus`, `:has()` |
+| **Text properties** | `color`, `font-size`, `font-weight`, `font-style`, `text-align`, `line-height`, `visibility` | (inherited via the cascade) | — | `font-family`/fallback/web fonts, `letter-spacing`, `text-shadow` |
+| **Box properties** | — | `display: block/inline/none`, `width`, `height`, `margin`, `padding`, `border`(-width/-style/-color), `background`/`background-color` | `position: relative` (simple offset, without leaving the flow), `overflow: hidden/scroll` (clip) | `position: absolute/fixed/sticky`, `float`, `z-index`, `box-sizing: border-box` (maybe late) |
+| **Units** | `px`, keyword, `#rgb`/`#rrggbb` | `%` (resolves at layout), `em`/`rem` (resolves at style) | `auto` (margin/width) | `vw`/`vh`/`ch`/`vmin`, `calc()`, `var()` |
+| **Layout** | none (text paint only) | single-pass normal-flow block+inline | `position: relative`, clipping | flex, grid, multi-pass, 2D constraint solving |
+| **Cascade** | O(1) match, specificity (ID,CLASS,TYPE), sort by specificity→order | + inheritance, computed values | + `!important`, UA/user/author origins | reactive invalidation, custom props, `@layer`, container queries |
+| **At-rules** | — | `@media`/`@supports` (boolean gate over viewport) | — | `@container`, `@scope`, `@font-face`, nesting |
 
-**O que NUNCA entra** (recapitulando §0.2, agora colado à tabela): flex, grid,
-`position: absolute/fixed/sticky`, `float`, `z-index` real, animations/
+**What NEVER enters** (recapping §0.2, now glued to the table): flex, grid,
+`position: absolute/fixed/sticky`, `float`, real `z-index`, animations/
 transition/transform/filter/clip-path, `:has()`, container queries, `@layer`,
-nesting, `var()`, bidi/RTL, web fonts, font fallback, síntese de peso arbitrário.
+nesting, `var()`, bidi/RTL, web fonts, font fallback, arbitrary weight synthesis.
 
 ---
 
-## 5) Fases de implementação P0 → P7
+## 5) Implementation phases P0 → P7
 
-Princípio que governa a ordem, ditado pela crítica (risco 2): **pixel na
-primeira semana**. Não construímos 5 árvores antes de ver a tela. O caminho
-vertical mais fino (parse trivial → layout block mínimo → paint real com galley)
-liga ponta-a-ponta **antes** de engrossar qualquer camada. Cada P entrega algo
-**visível** e coexiste com o modo widget/calculadora atual.
+The principle governing the order, dictated by the critique (risk 2): **pixel in the
+first week**. We do not build 5 trees before seeing the screen. The thinnest
+vertical path (trivial parse → minimal block layout → real paint with galley)
+connects end-to-end **before** thickening any layer. Each P delivers something
+**visible** and coexists with the current widget/calculator mode.
 
-> **Coexistência (todas as fases):** o modo simples (`egui.label/button/slider`,
-> `frame.rs::drenar`, pareamento por índice) NÃO é tocado. A calculadora e os
-> widgets atuais continuam funcionando porque o modo HTML é um caminho
-> **paralelo e novo**: `egui.html` NÃO emite `WidgetCmd`, emite `DisplayList`.
-> O `UiCtx` ganha `FrameContent { Simple(Vec<WidgetCmd>) | Html(DisplayList) }`;
-> `endFrame` escolhe o walker pelo conteúdo presente. (Mistura simples+HTML no
-> mesmo frame: ver §6 risco / §7 — fora do MVP, composição definida depois.)
+> **Coexistence (all phases):** the simple mode (`egui.label/button/slider`,
+> `frame.rs::drenar`, index-based pairing) is NOT touched. The calculator and
+> current widgets keep working because HTML mode is a **parallel and new**
+> path: `egui.html` does NOT emit `WidgetCmd`, it emits `DisplayList`.
+> The `UiCtx` gains `FrameContent { Simple(Vec<WidgetCmd>) | Html(DisplayList) }`;
+> `endFrame` picks the walker by the content present. (Mixing simple+HTML in the
+> same frame: see §6 risk / §7 — out of the MVP, composition defined later.)
 
 ---
 
-### P0 — DOM tree do parser atual, SEM mudar o render
+### P0 — DOM tree from the current parser, WITHOUT changing the render
 
-**Objetivo:** criar a crate `rts-html`, migrar `html.rs::tokenize` para um parser
-recursivo-descendente que produz `DomNode`. O render atual (`Vec<WidgetCmd>`)
-continua exatamente como hoje — `egui.html` ainda usa o caminho velho.
+**Goal:** create the `rts-html` crate, migrate `html.rs::tokenize` to a
+recursive-descent parser producing `DomNode`. The current render (`Vec<WidgetCmd>`)
+stays exactly as today — `egui.html` still uses the old path.
 
-**Visível cedo:** nada na tela muda (de propósito). Mas há um `rts html-dump`
-(ou teste unitário) que imprime a árvore DOM de uma string — primeira evidência
-tangível de que a topologia parental existe.
+**Visible early:** nothing on screen changes (on purpose). But there is an `rts html-dump`
+(or unit test) that prints the DOM tree of a string — the first tangible
+evidence that the parental topology exists.
 
-**Gate de risco:** parser recursivo pode regredir o que `tokenize` já fazia
-(entidades, tag desconhecida). Mitigar: testes de paridade contra o output atual
-de `parse_html_to_cmds` para um corpus de strings reais.
+**Risk gate:** the recursive parser may regress what `tokenize` already did
+(entities, unknown tags). Mitigate: parity tests against the current output of
+`parse_html_to_cmds` for a corpus of real strings.
 
-**Valida:** `cargo test -p rts-html` (DOM isolado, sem egui); o `rts-egui`
-compila e roda igual a antes (zero regressão no modo widget e no `egui.html`
-velho).
+**Validates:** `cargo test -p rts-html` (isolated DOM, no egui); `rts-egui`
+compiles and runs the same as before (zero regression in widget mode and in the old
+`egui.html`).
 
 `[▰▱▱▱▱▱▱▱▱▱] 10%`
 
 ---
 
-### P1 — Caminho vertical FINO: parse trivial + layout block mínimo + PAINT real
+### P1 — THIN vertical path: trivial parse + minimal block layout + real PAINT
 
-**Este é o "pixel na primeira semana".** NÃO é "CSS parser primeiro". É ligar
-ponta-a-ponta o mínimo absoluto que põe um pixel novo na tela pelo motor novo.
+**This is the "pixel in the first week".** It is NOT "CSS parser first". It is wiring
+end-to-end the absolute minimum that puts a new pixel on screen through the new engine.
 
-**Objetivo:** para `<h1>`/`<p>texto</p>` (sem CSS, sem cascade, block-only),
-construir DOM → um `LayoutBox` block trivial (empilha vertical, largura =
-viewport) → `DisplayItem::Text` com **galley REAL medido pelo egui** → pintar
-via `allocate_painter` + `painter.galley`. Defaults hardcoded de fonte/cor.
+**Goal:** for `<h1>`/`<p>texto</p>` (no CSS, no cascade, block-only),
+build DOM → a trivial block `LayoutBox` (stacks vertically, width =
+viewport) → `DisplayItem::Text` with a **REAL galley measured by egui** → paint
+via `allocate_painter` + `painter.galley`. Hardcoded font/color defaults.
 
-**Visível cedo:** o motor novo desenha "Olá" na tela, em coordenada absoluta que
-**nós** calculamos, com texto medido de verdade. Primeiro pixel do motor. Um
-flag (`egui.htmlEngine("v2")` ou string com sentinela) escolhe o caminho novo;
-o velho `egui.html` segue default até o motor novo cobrir o que ele cobria.
+**Visible early:** the new engine draws "Olá" on screen, at an absolute coordinate
+**we** computed, with genuinely measured text. First pixel of the engine. A
+flag (`egui.htmlEngine("v2")` or a sentinel string) picks the new path;
+the old `egui.html` remains the default until the new engine covers what it covered.
 
-**Gate de risco:** erros de coordenada/baseline só aparecem visualmente — é por
-isso que pintamos agora, não no fim. O `TextMeasurer` real entra **já aqui**
-(não mockado), para não validar layout contra larguras falsas.
+**Risk gate:** coordinate/baseline errors only show up visually — that is
+why we paint now, not at the end. The real `TextMeasurer` enters **right here**
+(not mocked), so layout is not validated against fake widths.
 
-**Valida:** comparação visual (screenshot) "Olá" alinhado; `response.rect.min`
-ancorando a origem; um parágrafo de duas linhas quebrando na largura do viewport
+**Validates:** visual comparison (screenshot) of "Olá" aligned; `response.rect.min`
+anchoring the origin; a two-line paragraph wrapping at viewport width
 via `galley.rows`.
 
 `[▰▰▱▱▱▱▱▱▱▱] 20%`
 
 ---
 
-### P2 — CSS parser + Style tree texto-only (color / font), aplicado ao paint
+### P2 — CSS parser + text-only Style tree (color / font), applied to paint
 
-**Objetivo:** parser CSS (subset Fase 1: SimpleSelector + `Declaration` +
-`Value` keyword/length/color) → `Stylesheet`; cascade O(1) + especificidade +
-**herança** de texto → `ComputedStyle` (só campos de texto). O paint de P1 passa
-a ler `color`/`font-size`/`font-weight`/`font-style`/`text-align` do
-`ComputedStyle` em vez de defaults.
+**Goal:** CSS parser (Phase 1 subset: SimpleSelector + `Declaration` +
+`Value` keyword/length/color) → `Stylesheet`; O(1) cascade + specificity +
+text **inheritance** → `ComputedStyle` (text fields only). The P1 paint starts
+reading `color`/`font-size`/`font-weight`/`font-style`/`text-align` from the
+`ComputedStyle` instead of defaults.
 
-**Visível cedo:** `<p style="color:red">` e uma regra `h1 { color: blue }`
-mudam a cor/tamanho na tela. Herança visível: `<div style="color:green"><p>`
-herda verde. Primeira prova de que a **árvore** entrega o que a fila plana não
-entregava (herança).
+**Visible early:** `<p style="color:red">` and a rule `h1 { color: blue }`
+change the color/size on screen. Visible inheritance: `<div style="color:green"><p>`
+inherits green. First proof that the **tree** delivers what the flat queue could not
+(inheritance).
 
-**Gate de risco:** `em`/`rem` resolvidos contra o pai na style tree; **não**
-tocar `%` (ainda não há box model). Cascade de empate por ordem-no-código.
+**Risk gate:** `em`/`rem` resolved against the parent in the style tree; do **not**
+touch `%` (no box model yet). Cascade ties break by source order.
 
-**Valida:** testes de cascade (regra mais específica vence; herança copia do
-pai; `em` resolve contra `font-size` do pai); screenshots de cor/tamanho/peso.
+**Validates:** cascade tests (more-specific rule wins; inheritance copies from the
+parent; `em` resolves against the parent's `font-size`); screenshots of color/size/weight.
 
 `[▰▰▰▱▱▱▱▱▱▱] 35%`
 
 ---
 
-### P3 — Box model block: margin / padding / border / background / width(%)
+### P3 — Block box model: margin / padding / border / background / width(%)
 
-**Objetivo:** Fase 4 block completa. `ComputedStyle` ganha os campos de box;
-`Dimension` carrega `Percent`. Layout resolve larguras top-down (`%` contra
-containing block, `auto` absorve underflow), posições, alturas bottom-up.
-Display list ganha `SolidRect` (background) + `Border`.
+**Goal:** full block Phase 4. `ComputedStyle` gains the box fields;
+`Dimension` carries `Percent`. Layout resolves widths top-down (`%` against
+the containing block, `auto` absorbs underflow), positions, heights bottom-up.
+The display list gains `SolidRect` (background) + `Border`.
 
-**Visível cedo:** caixas com fundo colorido, padding empurrando o texto para
-dentro, margens separando blocos, bordas desenhadas. `width: 50%` ocupa metade.
-A página começa a parecer uma página.
+**Visible early:** boxes with colored backgrounds, padding pushing text
+inward, margins separating blocks, borders drawn. `width: 50%` takes half.
+The page starts looking like a page.
 
-**Gate de risco (risco 5):** `%`/`auto` resolvidos **aqui**, não na cascade.
-Colapso de margem vertical entre blocos é uma fonte de bugs — implementar a
-versão simples (sem colapso) primeiro e marcar colapso como incremento.
+**Risk gate (risk 5):** `%`/`auto` resolved **here**, not in the cascade.
+Vertical margin collapse between blocks is a source of bugs — implement the
+simple version (no collapse) first and flag collapse as an increment.
 
-**Valida:** fixtures de geometria (`tests/` com `TextMeasurer` mock p/ geometria
-determinística) comparando `content.{x,y,width,height}` esperados; screenshots
-de caixas aninhadas com padding/margin/border.
+**Validates:** geometry fixtures (`tests/` with a mock `TextMeasurer` for
+deterministic geometry) comparing expected `content.{x,y,width,height}`; screenshots
+of nested boxes with padding/margin/border.
 
 `[▰▰▰▰▰▱▱▱▱▱] 50%`
 
 ---
 
-### P4 — Inline flow + links + HIT-TESTING (o coração)
+### P4 — Inline flow + links + HIT-TESTING (the heart)
 
-**Este é o coração e o maior risco isolado (risco 1).** Inline/text layout é
-40–60% do esforço real. Aqui o egui faz o trabalho pesado.
+**This is the heart and the single biggest risk (risk 1).** Inline/text layout is
+40–60% of the real effort. Here egui does the heavy lifting.
 
-**Objetivo:** fluxo inline real. Um bloco com filhos inline mistos
-(`texto <b>bold</b> <a>link</a>`) vira **um `LayoutJob` por contexto inline**
-(uma `LayoutSection`+`TextFormat` por run), medido e **quebrado pelo egui**
-(`wrap.max_width = content width`); lemos `galley.rows` para posicionar. Links
-`<a href>` registram `HitRect`; clique resolvido por `node_id` em ordem reversa
-da display list; cursor `pointer` sobre link; evento exposto ao TS.
+**Goal:** real inline flow. A block with mixed inline children
+(`texto <b>bold</b> <a>link</a>`) becomes **one `LayoutJob` per inline context**
+(one `LayoutSection`+`TextFormat` per run), measured and **wrapped by egui**
+(`wrap.max_width = content width`); we read `galley.rows` to position. Links
+`<a href>` register `HitRect`; click resolved by `node_id` in reverse display-list
+order; `pointer` cursor over links; event exposed to TS.
 
-**Visível cedo:** um parágrafo com **negrito** e [link azul] no meio, quebrando
-linha corretamente **através** dos limites de run (não run-a-run). Clicar no
-link dispara um handler TS. Esta é a prova de que a fronteira de medição foi
-desenhada certa (em torno de `LayoutJob`, não de `glyph_width`).
+**Visible early:** a paragraph with **bold** and a [blue link] in the middle, breaking
+lines correctly **across** run boundaries (not run-by-run). Clicking the
+link fires a TS handler. This is the proof that the measurement boundary was
+drawn right (around `LayoutJob`, not `glyph_width`).
 
-**Gate de risco:** a porta "eu quebro a linha com `glyph_width`" está
-**FECHADA** (§6 risco 1) — quebrar run-a-run quebra spans mistos. Delegamos a
-quebra de cada bloco inteiro ao `layout_job`. Whitespace collapsing: versão
-simples (colapsa runs de espaço) primeiro. node-id estável entre frames: via
-`key`/`id` explícito (§3); sem ele, casamento intra-frame.
+**Risk gate:** the door "I break the line with `glyph_width`" is
+**CLOSED** (§6 risk 1) — breaking run-by-run breaks mixed spans. We delegate the
+wrapping of each entire block to `layout_job`. Whitespace collapsing: simple
+version (collapses whitespace runs) first. Stable node-id across frames: via
+explicit `key`/`id` (§3); without it, intra-frame matching.
 
-**Valida:** screenshot de quebra correta de linha multi-run; teste de
-hit-testing (clique dentro/fora do rect do link, sobreposição resolvida por
-ordem reversa); handler TS recebe o `href`.
+**Validates:** screenshot of correct multi-run line breaking; hit-testing test
+(click inside/outside the link rect, overlap resolved by
+reverse order); TS handler receives the `href`.
 
 `[▰▰▰▰▰▰▰▱▱▱] 70%`
 
 ---
 
-### P5 — Mais CSS: seletor descendente, `@media`, scroll, `<ul>/<li>/<img>`
+### P5 — More CSS: descendant selector, `@media`, scroll, `<ul>/<li>/<img>`
 
-**Objetivo:** seletor **descendente** ` ` (casamento direita→esquerda subindo
-ancestrais), `[attr]`/`[attr=val]`, `@media`/`@supports` (gate sobre viewport),
-`!important` + origens. `ScrollArea::show_viewport` para páginas altas (culling
-por viewport). Listas (`<ul>/<li>` com marker) e imagens (`<img>` →
+**Goal:** **descendant** selector ` ` (right→left matching walking up
+ancestors), `[attr]`/`[attr=val]`, `@media`/`@supports` (gate over viewport),
+`!important` + origins. `ScrollArea::show_viewport` for tall pages (viewport
+culling). Lists (`<ul>/<li>` with marker) and images (`<img>` →
 `DisplayItem::Image`).
 
-**Visível cedo:** uma página real rolável, com regra `nav a { color: ... }`
-funcionando (descendente), listas com bullets, uma imagem. Começa a render
-documentos de verdade.
+**Visible early:** a real scrollable page, with a rule `nav a { color: ... }`
+working (descendant), lists with bullets, an image. It starts rendering
+real documents.
 
-**Gate de risco:** seletor descendente sobe ancestrais — O(profundidade), mas
-ainda barato; cadeia longa é o que dói (não implementar combinadores que não
-estão na tabela). Scroll exige alocar `content_size` total p/ a barra dimensionar.
+**Risk gate:** the descendant selector walks up ancestors — O(depth), but
+still cheap; long chains are what hurts (do not implement combinators that are
+not in the table). Scroll requires allocating the total `content_size` so the bar sizes itself.
 
-**Valida:** screenshots de scroll (culling correto: só items no viewport
-pintados), descendente casando/não-casando, `@media` ligando/desligando regras.
+**Validates:** scroll screenshots (correct culling: only items in the viewport
+painted), descendant matching/not-matching, `@media` toggling rules on/off.
 
 `[▰▰▰▰▰▰▰▰▱▱] 80%`
 
 ---
 
-### P6 — Cache de layout entre frames + identidade estável (`key`)
+### P6 — Layout cache across frames + stable identity (`key`)
 
-**Objetivo (risco 3):** o modo imediato re-pinta tudo todo frame; se o TS chama
-`egui.html(string)` todo frame, hoje re-parseamos+re-estilizamos+re-medimos
-tudo. Implementar cache: hash da string HTML+CSS → se inalterado, **reusar a
-display list e os galleys** do frame anterior (re-pintar é barato; re-layout
-não). `key`/`id` explícito dá identidade estável de nó para eventos e para
-invalidação seletiva.
+**Goal (risk 3):** immediate mode re-paints everything every frame; if TS calls
+`egui.html(string)` every frame, today we re-parse+re-style+re-measure
+everything. Implement a cache: hash of the HTML+CSS string → if unchanged, **reuse the
+display list and galleys** from the previous frame (re-painting is cheap; re-layout
+is not). Explicit `key`/`id` gives stable node identity for events and for
+selective invalidation.
 
-**Visível cedo:** sem mudança visual — mudança de **tempo**. Medir frames/s com
-uma página de texto real: antes (reflow por frame) vs depois (cache). O ganho é
-o entregável.
+**Visible early:** no visual change — a change in **time**. Measure frames/s with
+a real text page: before (reflow per frame) vs after (cache). The gain is
+the deliverable.
 
-**Gate de risco:** os lifetimes efêmeros (`StyledNode<'a>` emprestando do DOM)
-**atrapalham** o cache (a crítica apontou). Mitigação: o cache guarda a
-`DisplayList` + galleys (donos, `Arc`), não a árvore emprestada; a árvore é
-reconstruída só quando a string muda. Invalidação por DPI: recriar galleys
-quando `pixels_per_point` muda.
+**Risk gate:** the ephemeral lifetimes (`StyledNode<'a>` borrowing from the DOM)
+**get in the way** of the cache (the critique pointed this out). Mitigation: the cache stores the
+`DisplayList` + galleys (owned, `Arc`), not the borrowed tree; the tree is
+rebuilt only when the string changes. DPI invalidation: recreate galleys
+when `pixels_per_point` changes.
 
-**Valida:** benchmark de FPS com página estática (cache hit ~0 trabalho de
-layout); correção: mudar a string invalida e re-renderiza.
+**Validates:** FPS benchmark with a static page (cache hit ~0 layout
+work); correctness: changing the string invalidates and re-renders.
 
 `[▰▰▰▰▰▰▰▰▰▱] 90%`
 
 ---
 
-### P7 — Polimento do subset: `position: relative`, `overflow` clip, cortes finos
+### P7 — Subset polish: `position: relative`, `overflow` clip, fine cuts
 
-**Objetivo:** os itens "avançados atingíveis" da tabela §4 Fase 3: `position:
-relative` (offset que **não** sai do fluxo), `overflow: hidden/scroll` (clip via
-`with_clip_rect`), e o que sobrar do subset (colapso de margem vertical,
-`box-sizing: border-box` se houver fôlego). Trocar o default de `egui.html`
-para o motor novo quando ele cobrir tudo que o velho cobria, e **deletar** o
-caminho `parse_html_to_cmds` velho (regra "no legacy code").
+**Goal:** the "attainable advanced" items of table §4 Phase 3: `position:
+relative` (offset that does **not** leave the flow), `overflow: hidden/scroll` (clip via
+`with_clip_rect`), and whatever remains of the subset (vertical margin collapse,
+`box-sizing: border-box` if there is breathing room). Switch the `egui.html` default
+to the new engine when it covers everything the old one covered, and **delete** the
+old `parse_html_to_cmds` path ("no legacy code" rule).
 
-**Visível cedo:** `position: relative` desloca uma caixa; `overflow: hidden`
-recorta conteúdo; o motor novo vira o default sem regressão no que o velho fazia.
+**Visible early:** `position: relative` offsets a box; `overflow: hidden`
+clips content; the new engine becomes the default with no regression on what the old one did.
 
-**Gate de risco:** deletar o caminho velho é a regressão controlada — só depois
-de paridade comprovada. Documentar explicitamente a regressão/cutover no PR.
+**Risk gate:** deleting the old path is the controlled regression — only after
+proven parity. Explicitly document the regression/cutover in the PR.
 
-**Valida:** suite de fixtures de paridade (todo HTML que o velho renderizava,
-o novo renderiza igual ou melhor); `cargo test -p rts-html` + `rts.exe test`;
-screenshots de `position: relative`/`overflow`.
+**Validates:** parity fixture suite (every HTML the old one rendered,
+the new one renders equally or better); `cargo test -p rts-html` + `rts.exe test`;
+screenshots of `position: relative`/`overflow`.
 
-`[▰▰▰▰▰▰▰▰▰▰] 100% ✅ — motor novo é default, caminho velho deletado`
-
----
-
-## 6) Os 5 riscos mais sérios e mitigação
-
-### Risco 1 — Text/inline layout é 40–60% do esforço e o `TextMeasurer` ingênuo não compõe
-
-**O perigo:** tratar uma run como atômica/uniforme (`measure(text, size, weight,
-italic) -> (w,h)`) e quebrar a linha **run-a-run**. Texto real numa linha é
-multi-run/multi-fonte/multi-cor (`<b>`, `<span>`, `<a>`), e a quebra acontece
-**através** dos limites de run. Quebrar run-a-run quebra "fica **bold** aqui"
-entre o normal e o bold.
-
-**Mitigação (decisão tomada, porta fechada):** o egui faz o texto. A fronteira
-de medição é `layout_inline(runs, max_width)` → monta **um `LayoutJob` por bloco
-de contexto inline** com uma `LayoutSection`+`TextFormat` por run, deixa
-`wrap.max_width = content width`, e lê `galley.rows` para descobrir onde o egui
-quebrou. Ganhamos shaping, kerning e quebra multi-run **corretos e de graça**.
-A alternativa "eu quebro com `glyph_width`/`row_height`" está **descartada** — é
-uma armadilha de meses que não compõe com spans inline. Perdemos hifenização e
-`text-indent` por linha; aceitável (estão fora do escopo).
-
-### Risco 2 — Zero pixels até o fim ("5 árvores prontas, nada alinha")
-
-**O perigo:** construir DOM→CSS→Style→Layout→Display com measurer mockado antes
-de ver a tela valida geometria contra larguras falsas; erros de baseline/
-coordenada/box model só aparecem visualmente, e só no fim.
-
-**Mitigação:** a ordem das fases (§5) é **pixel-primeiro**. P1 é o caminho
-vertical mais fino (parse trivial → layout block mínimo → paint real com galley
-REAL) ligado ponta-a-ponta. Cada P subsequente (P2 cor, P3 caixa, P4 inline)
-renderiza algo novo e visível. O measurer mock só serve testes de geometria
-determinística (P3), nunca como proxy de progresso.
-
-### Risco 3 — Reflow completo por frame + nenhum cache (texto domina o tempo)
-
-**O perigo:** modo imediato re-pinta tudo; `StyledNode<'a>` efêmero amarrado ao
-frame torna o cache mais difícil; se o TS chama `egui.html` todo frame,
-re-parseamos+re-medimos tudo e a medição de galley domina.
-
-**Mitigação:** P6 dedicado a cache. Hash de HTML+CSS → reusar `DisplayList` +
-galleys (donos via `Arc`) quando a string não muda; reconstruir a árvore só na
-mudança. O cache guarda os **donos**, não a árvore emprestada — os lifetimes
-efêmeros ficam confinados ao passo de construção. Culling por `show_viewport`
-(P5) corta o paint de items fora da tela. DPI muda → recriar galleys.
-
-### Risco 4 — Hit-testing e identidade de evento entre frames
-
-**O perigo:** `allocate_painter` dá um `Response` para a tela inteira; "qual box
-foi clicado" é nosso. node-id gerado por ordem de parse é tão frágil quanto
-índice quando a string muda entre frames. `:hover` com 1 frame de atraso pisca.
-
-**Mitigação:** hit-testing próprio (§3) — `hit_rects` na display list, teste em
-**ordem reversa** (top-most), casamento por `node_id`. Identidade estável entre
-frames via `key`/`id` **explícito** no HTML (sem reconciliação diferencial no
-MVP — não prometemos o que não temos). `:hover` **cortado** do MVP (§0.2);
-quando entrar, é re-layout no frame seguinte com ponteiro conhecido.
-
-### Risco 5 — Resolução de unidades no momento errado (`%` cedo demais)
-
-**O perigo:** `enum Dimension { Auto, Px(f32) }` descarta `%` na cascade, mas
-`%`/`auto` de width/margin/padding resolvem contra o **containing block** no
-layout, não contra o computed do pai.
-
-**Mitigação:** `Dimension { Auto, Px(f32), Percent(f32) }` — `%` e `auto`
-**sobrevivem** até a Fase 4 e resolvem lá. `em`/`rem` resolvem cedo (Fase 3,
-contra `font-size` do pai). Os dois momentos de resolução são distintos por
-design (§1, §3, §5 P2/P3). A spec inteira foi escrita com essa separação.
-
-> **Risco transversal (fontes):** o egui resolve **uma** família embarcada. Não
-> há `font-family`/fallback/web fonts/síntese de peso arbitrário de graça —
-> tudo cortado (§0.2). `font-weight`/`font-style` mapeiam para o que o egui
-> oferece na família única (bold/italic embarcados); pesos arbitrários não são
-> prometidos.
+`[▰▰▰▰▰▰▰▰▰▰] 100% ✅ — new engine is the default, old path deleted`
 
 ---
 
-## 7) O que reusamos vs reescrevemos
+## 6) The 5 most serious risks and mitigation
 
-| Artefato atual | Decisão | Detalhe |
+### Risk 1 — Text/inline layout is 40–60% of the effort and the naive `TextMeasurer` does not compose
+
+**The danger:** treating a run as atomic/uniform (`measure(text, size, weight,
+italic) -> (w,h)`) and breaking the line **run-by-run**. Real text on a line is
+multi-run/multi-font/multi-color (`<b>`, `<span>`, `<a>`), and the break happens
+**across** run boundaries. Breaking run-by-run breaks "stays **bold** here"
+between the normal and the bold.
+
+**Mitigation (decision made, door closed):** egui does the text. The measurement
+boundary is `layout_inline(runs, max_width)` → builds **one `LayoutJob` per
+inline context block** with one `LayoutSection`+`TextFormat` per run, sets
+`wrap.max_width = content width`, and reads `galley.rows` to find out where egui
+broke. We get shaping, kerning, and multi-run wrapping **correct and for free**.
+The alternative "I break with `glyph_width`/`row_height`" is **discarded** — it is
+a months-long trap that does not compose with inline spans. We lose hyphenation and
+per-line `text-indent`; acceptable (they are out of scope).
+
+### Risk 2 — Zero pixels until the end ("5 trees ready, nothing aligns")
+
+**The danger:** building DOM→CSS→Style→Layout→Display with a mocked measurer before
+seeing the screen validates geometry against fake widths; baseline/
+coordinate/box model errors only show up visually, and only at the end.
+
+**Mitigation:** the phase order (§5) is **pixel-first**. P1 is the thinnest
+vertical path (trivial parse → minimal block layout → real paint with a REAL
+galley) wired end-to-end. Each subsequent P (P2 color, P3 box, P4 inline)
+renders something new and visible. The mock measurer only serves deterministic
+geometry tests (P3), never as a progress proxy.
+
+### Risk 3 — Full reflow per frame + no cache (text dominates the time)
+
+**The danger:** immediate mode re-paints everything; the ephemeral `StyledNode<'a>` tied
+to the frame makes caching harder; if TS calls `egui.html` every frame,
+we re-parse+re-measure everything and galley measurement dominates.
+
+**Mitigation:** P6 dedicated to caching. Hash of HTML+CSS → reuse `DisplayList` +
+galleys (owned via `Arc`) when the string does not change; rebuild the tree only on
+change. The cache stores the **owners**, not the borrowed tree — the ephemeral
+lifetimes stay confined to the construction step. Culling via `show_viewport`
+(P5) cuts the paint of off-screen items. DPI changes → recreate galleys.
+
+### Risk 4 — Hit-testing and event identity across frames
+
+**The danger:** `allocate_painter` gives one `Response` for the whole screen; "which box
+was clicked" is on us. A node-id generated by parse order is as fragile as an
+index when the string changes between frames. `:hover` with 1 frame of delay flickers.
+
+**Mitigation:** in-house hit-testing (§3) — `hit_rects` in the display list, tested in
+**reverse order** (top-most), matching by `node_id`. Stable identity across
+frames via **explicit** `key`/`id` in the HTML (no differential reconciliation in the
+MVP — we do not promise what we do not have). `:hover` **cut** from the MVP (§0.2);
+when it enters, it is re-layout on the next frame with the pointer known.
+
+### Risk 5 — Unit resolution at the wrong moment (`%` too early)
+
+**The danger:** `enum Dimension { Auto, Px(f32) }` discards `%` in the cascade, but
+`%`/`auto` of width/margin/padding resolve against the **containing block** at
+layout, not against the parent's computed.
+
+**Mitigation:** `Dimension { Auto, Px(f32), Percent(f32) }` — `%` and `auto`
+**survive** until Phase 4 and resolve there. `em`/`rem` resolve early (Phase 3,
+against the parent's `font-size`). The two resolution moments are distinct by
+design (§1, §3, §5 P2/P3). The whole spec was written with that separation.
+
+> **Cross-cutting risk (fonts):** egui resolves **one** embedded family. There is
+> no `font-family`/fallback/web fonts/arbitrary weight synthesis for free —
+> all cut (§0.2). `font-weight`/`font-style` map to what egui
+> offers in the single family (embedded bold/italic); arbitrary weights are not
+> promised.
+
+---
+
+## 7) What we reuse vs rewrite
+
+| Current artifact | Decision | Detail |
 |---|---|---|
-| **`html.rs::tokenize` / `Parser{pos,input}`** | **REUSA, evolui** | char-a-char + entidades + tolerância a tag desconhecida migram para `rts-html/src/dom/parser.rs`, mas de "stream de tokens descartável" para "recursivo-descendente que reconstrói o aninhamento". Tag desconhecida vira `Element` (não descarte — descartar perde a subárvore). |
-| **`html.rs::parse_html_to_cmds`** | **REESCREVE / deleta no fim** | a lógica de "pilha de 2 flags bold/italic achatada no parse" morre — é exatamente a falha (sem herança/cascade/ancestralidade). Substituída pelo pipeline de 5 árvores. Deletada em P7 após paridade. |
-| **`egui.html(string)` (ABI `__RTS_FN_NS_EGUI_HTML`)** | **REUSA assinatura, troca corpo** | a porta de entrada e a assinatura ABI não mudam. O corpo passa de `→ Vec<WidgetCmd>` para `→ rts_html::render(html, css, &measurer) → DisplayList` guardada no `UiCtx`. **Zero mudança no TS.** |
-| **`WidgetCmd` + `frame.rs::drenar` (modo simples)** | **REUSA intocado** | `egui.label/button/slider`, `horizontalBegin/End`, pareamento por índice, drenagem recursiva — continua o "modo simples". É imediato e o egui faz bem. A calculadora e os widgets atuais NÃO quebram. |
-| **`WidgetCmd` no modo HTML** | **SUBSTITUI por DisplayList (NÃO converte)** | `egui.html` NÃO emite `WidgetCmd`. Converter HTML→`WidgetCmd` seria reintroduzir a fila plana (sem ancestralidade/herança/cascade) sob outro nome — a falha exata que eliminamos. O modo HTML é um caminho **novo e paralelo**: `DisplayList` consumida por um walker de Painter absoluto, não pelo `drenar`. |
-| **`UiCtx`** | **ESTENDE** | ganha `FrameContent { Simple(Vec<WidgetCmd>) | Html(DisplayList) }`; `endFrame` escolhe o walker pelo conteúdo. Eventos de clique HTML casados por `node_id`/`key` (não por índice). |
-| **`ctx.rs` botões por índice (`button_cursor`)** | **REUSA padrão, troca chave** | o padrão de latência-de-1-frame (resultado do frame anterior) é reusado para cliques HTML, mas casado por `node_id`/`key` em vez de índice posicional (mais estável quando a árvore muda). |
-| **Backend de janela (`app.rs`, wgpu, event loop)** | **REUSA intocado** | janela/superfície/loop de input via eframe permanecem. |
+| **`html.rs::tokenize` / `Parser{pos,input}`** | **REUSE, evolve** | char-by-char + entities + unknown-tag tolerance migrate to `rts-html/src/dom/parser.rs`, but from "disposable token stream" to "recursive-descent that rebuilds nesting". Unknown tag becomes `Element` (not discarded — discarding loses the subtree). |
+| **`html.rs::parse_html_to_cmds`** | **REWRITE / delete at the end** | the "2-flag bold/italic stack flattened at parse time" logic dies — it is exactly the failure (no inheritance/cascade/ancestry). Replaced by the 5-tree pipeline. Deleted in P7 after parity. |
+| **`egui.html(string)` (ABI `__RTS_FN_NS_EGUI_HTML`)** | **REUSE signature, swap body** | the entry point and the ABI signature do not change. The body goes from `→ Vec<WidgetCmd>` to `→ rts_html::render(html, css, &measurer) → DisplayList` stored in the `UiCtx`. **Zero TS change.** |
+| **`WidgetCmd` + `frame.rs::drenar` (simple mode)** | **REUSE untouched** | `egui.label/button/slider`, `horizontalBegin/End`, index-based pairing, recursive drain — remains the "simple mode". It is immediate and egui does it well. The calculator and current widgets do NOT break. |
+| **`WidgetCmd` in HTML mode** | **REPLACE with DisplayList (do NOT convert)** | `egui.html` does NOT emit `WidgetCmd`. Converting HTML→`WidgetCmd` would reintroduce the flat queue (no ancestry/inheritance/cascade) under another name — the exact failure we eliminated. HTML mode is a **new and parallel** path: `DisplayList` consumed by an absolute-Painter walker, not by `drenar`. |
+| **`UiCtx`** | **EXTEND** | gains `FrameContent { Simple(Vec<WidgetCmd>) | Html(DisplayList) }`; `endFrame` picks the walker by content. HTML click events matched by `node_id`/`key` (not by index). |
+| **`ctx.rs` index-based buttons (`button_cursor`)** | **REUSE pattern, swap key** | the 1-frame-latency pattern (previous frame's result) is reused for HTML clicks, but matched by `node_id`/`key` instead of positional index (more stable when the tree changes). |
+| **Window backend (`app.rs`, wgpu, event loop)** | **REUSE untouched** | window/surface/input loop via eframe remain. |
 
-**Composição simples+HTML no mesmo frame** (`egui.label()` + `egui.html()`
-juntos): fora do MVP. `endFrame` assume exclusividade por frame. A composição de
-dois walkers na mesma janela com ordem correta é definida em fase posterior, não
-prometida agora.
+**Simple+HTML composition in the same frame** (`egui.label()` + `egui.html()`
+together): out of the MVP. `endFrame` assumes exclusivity per frame. Composing
+two walkers in the same window with correct ordering is defined in a later phase, not
+promised now.
 
 ---
 
-## Apêndice A — Síntese da decisão
+## Appendix A — Synthesis of the decision
 
-| Eixo | Hoje (fila plana) | Alvo (motor em árvore) |
+| Axis | Today (flat queue) | Target (tree engine) |
 |---|---|---|
-| Estrutura | `Vec<WidgetCmd>`, pareamento por índice | 5 árvores: DOM→Style→Layout→DisplayList→Paint |
-| Estilo | `{bold, italic}` achatado no parse | cascade + especificidade + herança (`ComputedStyle`) |
-| Posição | egui empilha (`ui.horizontal`) | box model próprio calcula `x,y,w,h` |
-| Texto | `RichText` (egui posiciona) | `LayoutJob` (egui mede+quebra) + `Painter::galley` (nós posicionamos) |
-| `%`/`auto` | n/a | resolvidos no **layout** (containing block), não na cascade |
-| egui | layout (widgets) | paint absoluto + medição + atlas + scroll + (nós: hit-testing) |
-| Local | `rts-egui` (parser+render juntos) | `rts-html` (árvore, Rust puro) + `rts-egui` (janela+paint) |
-| Primeiro pixel | — | **P1 (semana 1)**, caminho vertical fino, não no fim |
-| `WidgetCmd` | único caminho | sobrevive no modo simples; substituído por DisplayList no modo HTML |
-| `egui.html(str)` | → `Vec<WidgetCmd>` | → `DisplayList` (mesma ABI, corpo trocado) |
-| Escopo | implícito | **block+inline estático, LTR, fonte única** — flex/grid/position-abs/animations CORTADOS |
+| Structure | `Vec<WidgetCmd>`, index-based pairing | 5 trees: DOM→Style→Layout→DisplayList→Paint |
+| Style | `{bold, italic}` flattened at parse | cascade + specificity + inheritance (`ComputedStyle`) |
+| Position | egui stacks (`ui.horizontal`) | own box model computes `x,y,w,h` |
+| Text | `RichText` (egui positions) | `LayoutJob` (egui measures+wraps) + `Painter::galley` (we position) |
+| `%`/`auto` | n/a | resolved at **layout** (containing block), not in the cascade |
+| egui | layout (widgets) | absolute paint + measurement + atlas + scroll + (us: hit-testing) |
+| Location | `rts-egui` (parser+render together) | `rts-html` (tree, pure Rust) + `rts-egui` (window+paint) |
+| First pixel | — | **P1 (week 1)**, thin vertical path, not at the end |
+| `WidgetCmd` | only path | survives in simple mode; replaced by DisplayList in HTML mode |
+| `egui.html(str)` | → `Vec<WidgetCmd>` | → `DisplayList` (same ABI, swapped body) |
+| Scope | implicit | **static block+inline, LTR, single font** — flex/grid/position-abs/animations CUT |
 
-A arquitetura de 5 árvores está certa (é o pipeline canônico). O que a crítica
-corrigiu, e este plano incorpora: o escopo é honesto e cortado, o egui faz o
-texto, `%` resolve no layout, há pixel na primeira semana, e há plano de cache e
-de identidade de nó **antes** de escrever a Fase 4. Ter a tubulação pronta não é
-ter um motor — o trabalho é o conteúdo de cada caixa, e o conteúdo mais caro
-(texto) foi posto no coração (P4), não no fim.
+The 5-tree architecture is right (it is the canonical pipeline). What the critique
+corrected, and this plan incorporates: the scope is honest and cut, egui does the
+text, `%` resolves at layout, there is a pixel in the first week, and there is a cache and
+node-identity plan **before** writing Phase 4. Having the plumbing ready is not
+having an engine — the work is the content of each box, and the most expensive content
+(text) was placed at the heart (P4), not at the end.

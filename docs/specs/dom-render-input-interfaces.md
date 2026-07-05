@@ -1,102 +1,102 @@
-# Interfaces de render e input — DOM isolado, backend plugável
+# Render and input interfaces — isolated DOM, pluggable backend
 
-> Spec das DUAS interfaces que isolam o DOM/layout de QUALQUER backend de janela.
-> O DOM não conhece o egui; o egui é só UM backend que implementa estas
-> interfaces. Decidido com o usuário (2026-06-25). Complementa
-> `docs/specs/dom-in-ts-architecture.md`. Status: **spec** (implementação faseada).
+> Spec of the TWO interfaces that isolate the DOM/layout from ANY window backend.
+> The DOM does not know egui; egui is just ONE backend that implements these
+> interfaces. Decided with the user (2026-06-25). Complements
+> `docs/specs/dom-in-ts-architecture.md`. Status: **spec** (phased implementation).
 
-## O princípio: dois fluxos, ambos abstratos
+## The principle: two flows, both abstract
 
-Uma UI tem saída (pintar) e entrada (mouse/teclado). Os dois cruzam a fronteira
-DOM↔backend, e os dois são abstraídos pela mesma razão: trocar o backend (egui →
-web → headless) não deve tocar o DOM/layout.
+A UI has output (painting) and input (mouse/keyboard). Both cross the
+DOM↔backend boundary, and both are abstracted for the same reason: swapping the backend (egui →
+web → headless) must not touch the DOM/layout.
 
 ```
-DOM/layout (TS)  ──comandos de render──►  backend   [SAÍDA]
-DOM/layout (TS)  ◄──input cru (poll)────   backend   [ENTRADA]
+DOM/layout (TS)  ──render commands──►  backend   [OUTPUT]
+DOM/layout (TS)  ◄──raw input (poll)──  backend   [INPUT]
 ```
 
-O TS NUNCA nomeia `egui`. Ele fala com `render.*` e `input.*` genéricos; o backend
-ativo (hoje egui) implementa esses primitivos. Outro backend é trocar a
-implementação, não o DOM.
+TS NEVER names `egui`. It talks to generic `render.*` and `input.*`; the active
+backend (today egui) implements those primitives. Another backend means swapping the
+implementation, not the DOM.
 
-## Interface 1 — RENDER (saída). O DOM manda, o backend pinta.
+## Interface 1 — RENDER (output). The DOM commands, the backend paints.
 
-O layout-TS calcula posições e emite primitivos ABSOLUTOS. O backend só executa.
-Cores `0xRRGGBBAA` (number); coords/tamanhos em pontos (number).
+The TS-layout computes positions and emits ABSOLUTE primitives. The backend only executes.
+Colors `0xRRGGBBAA` (number); coords/sizes in points (number).
 
-| Primitivo | Assinatura | Semântica |
+| Primitive | Signature | Semantics |
 |---|---|---|
-| `render.beginFrame(target)` | `(target) -> void` | abre um frame de pintura no alvo (janela). |
-| `render.rect` | `(target, x, y, w, h, fill, strokeW, stroke, radius) -> void` | retângulo preenchido + borda + cantos. |
-| `render.text` | `(target, x, y, text, color, size, flags) -> void` | texto em (x,y) topo-esquerda. flags 1=bold 2=italic 4=mono. |
-| `render.line` | `(target, x1, y1, x2, y2, w, color) -> void` | linha. |
-| `render.measureText` | `(target, text, size, bold) -> width` | **largura do texto na fonte real**. A ÚNICA op do render que o layout PRECISA consultar (medir exige a fonte; o TS não tem). Síncrona. |
-| `render.endFrame(target)` | `(target) -> void` | fecha + apresenta o frame. |
+| `render.beginFrame(target)` | `(target) -> void` | opens a paint frame on the target (window). |
+| `render.rect` | `(target, x, y, w, h, fill, strokeW, stroke, radius) -> void` | filled rectangle + border + corners. |
+| `render.text` | `(target, x, y, text, color, size, flags) -> void` | text at (x,y) top-left. flags 1=bold 2=italic 4=mono. |
+| `render.line` | `(target, x1, y1, x2, y2, w, color) -> void` | line. |
+| `render.measureText` | `(target, text, size, bold) -> width` | **text width in the real font**. The ONLY render op the layout NEEDS to consult (measuring requires the font; TS doesn't have it). Synchronous. |
+| `render.endFrame(target)` | `(target) -> void` | closes + presents the frame. |
 
-> Hoje implementado como `egui.drawRect/drawText/drawLine/measureText/beginFrame/
-> endFrame` (PoC F-canvas). O passo de isolamento é renomear/rotear para um
-> namespace `render` genérico que o egui satisfaz — o TS deixa de importar
-> `rts:egui` e passa a falar só `render`.
+> Today implemented as `egui.drawRect/drawText/drawLine/measureText/beginFrame/
+> endFrame` (F-canvas PoC). The isolation step is renaming/routing to a generic
+> `render` namespace that egui satisfies — TS stops importing
+> `rts:egui` and starts talking only `render`.
 
-### Display list (opcional, evolução)
-Em vez de chamar `render.rect(...)` N vezes, o layout pode produzir uma DISPLAY
-LIST (array de comandos) e entregá-la ao backend de uma vez. Vantagem: o backend
-nem precisa ser chamado pelo TS — lê o buffer (permite headless, serializar,
-mandar pela rede, paralelizar a geração). Difere só na entrega; os primitivos são
-os mesmos. Decidir quando virar gargalo.
+### Display list (optional, evolution)
+Instead of calling `render.rect(...)` N times, the layout can produce a DISPLAY
+LIST (array of commands) and hand it to the backend all at once. Advantage: the backend
+doesn't even need to be called by TS — it reads the buffer (enables headless, serializing,
+sending over the network, parallelizing the generation). It differs only in the delivery; the primitives are
+the same. Decide when it becomes a bottleneck.
 
-## Interface 2 — INPUT (entrada). O backend capta cru, o DOM interpreta.
+## Interface 2 — INPUT (input). The backend captures raw, the DOM interprets.
 
-**Quem capta:** o backend (tem a janela; o SO entrega o input a ele). Ele só
-reporta o CRU — posição, clique, tecla — SEM saber de nós DOM.
-**Quem interpreta:** o DOM/layout. Ele fez o hit-test (tem as posições!), então
-ELE sabe qual nó está sob o mouse e dispara os eventos DOM.
+**Who captures:** the backend (it has the window; the OS delivers input to it). It only
+reports the RAW — position, click, key — WITHOUT knowing about DOM nodes.
+**Who interprets:** the DOM/layout. It did the hit-test (it has the positions!), so
+IT knows which node is under the mouse and dispatches the DOM events.
 
-Modelo **POLLING** (não callback reativo — o motor não suporta closures
-capturantes bem; roadmap F3): a cada frame o TS pergunta ao backend o estado do
-input e faz o dispatch.
+**POLLING** model (not reactive callback — the engine does not support capturing
+closures well; roadmap F3): each frame TS asks the backend for the input state
+and does the dispatch.
 
-| Primitivo | Assinatura | Semântica |
+| Primitive | Signature | Semantics |
 |---|---|---|
-| `input.mouseX/mouseY` | `(target) -> number` | posição do cursor (pontos), no espaço de coords do render. |
-| `input.mouseDown` | `(target, button) -> bool` | botão pressionado AGORA (0=esq 1=dir 2=meio). |
-| `input.mouseClicked` | `(target, button) -> bool` | houve um clique completo NESTE frame. |
-| `input.wheel` | `(target) -> number` | delta de scroll do frame. |
-| `input.keyDown` | `(target, keycode) -> bool` | tecla pressionada agora. |
-| `input.keyPressed` | `(target, keycode) -> bool` | tecla disparou neste frame (com repeat). |
-| `input.textInput` | `(target) -> string` | texto digitado neste frame (UTF-8). |
+| `input.mouseX/mouseY` | `(target) -> number` | cursor position (points), in the render coord space. |
+| `input.mouseDown` | `(target, button) -> bool` | button pressed NOW (0=left 1=right 2=middle). |
+| `input.mouseClicked` | `(target, button) -> bool` | a full click happened THIS frame. |
+| `input.wheel` | `(target) -> number` | scroll delta of the frame. |
+| `input.keyDown` | `(target, keycode) -> bool` | key pressed now. |
+| `input.keyPressed` | `(target, keycode) -> bool` | key fired this frame (with repeat). |
+| `input.textInput` | `(target) -> string` | text typed this frame (UTF-8). |
 
-### Hit-test e eventos: responsabilidade do DOM (TS)
-O DOM/layout, a cada frame:
-1. lê `input.mouseX/Y` + `input.mouseClicked`.
-2. **hit-test**: encontra o nó cujo retângulo de layout contém (x,y) — usando as
-   posições que ELE calculou (guardadas no layout pass). O backend não participa.
-3. dispara os eventos DOM do nó: `onclick`, `onmouseover`, `addEventListener`
-   (todos resolvidos em TS por polling; sem armazenar closures capturantes —
-   estado em variáveis module-level, padrão do roadmap F3).
+### Hit-test and events: the DOM's (TS) responsibility
+The DOM/layout, each frame:
+1. reads `input.mouseX/Y` + `input.mouseClicked`.
+2. **hit-test**: finds the node whose layout rectangle contains (x,y) — using the
+   positions IT computed (stored in the layout pass). The backend does not participate.
+3. dispatches the node's DOM events: `onclick`, `onmouseover`, `addEventListener`
+   (all resolved in TS by polling; without storing capturing closures —
+   state in module-level variables, the roadmap F3 pattern).
 
-Assim o backend permanece BURRO (não conhece nós, não faz hit-test) e o DOM é
-dono da semântica de eventos — espelhando o browser (o compositor reporta
-coordenadas; o DOM dispara eventos).
+This way the backend stays DUMB (knows no nodes, does no hit-test) and the DOM
+owns the event semantics — mirroring the browser (the compositor reports
+coordinates; the DOM dispatches events).
 
-## Por que essa divisão (resumo)
+## Why this division (summary)
 
-- **Render:** o backend não decide layout (o TS decide) — só pinta primitivos +
-  mede texto (precisa da fonte). Trocar de backend = reimplementar 6 primitivos.
-- **Input:** o backend não interpreta (o DOM faz hit-test + eventos) — só reporta
-  o cru. Trocar de backend = reimplementar ~7 leituras de estado.
-- **DOM isolado:** fala `render.*`/`input.*`, nunca `egui.*`. É o "sistema isolado
-  que qualquer render sabe renderizar" — e do qual qualquer backend sabe ler input.
+- **Render:** the backend does not decide layout (TS decides) — it only paints primitives +
+  measures text (needs the font). Swapping backends = reimplementing 6 primitives.
+- **Input:** the backend does not interpret (the DOM does hit-test + events) — it only reports
+  the raw. Swapping backends = reimplementing ~7 state reads.
+- **Isolated DOM:** talks `render.*`/`input.*`, never `egui.*`. It's the "isolated system
+  any render knows how to render" — and from which any backend knows how to read input.
 
-## Plano de implementação (fases)
+## Implementation plan (phases)
 
-1. **I0 — namespace `render` genérico:** rotear os `egui.draw*`/`measureText`
-   atuais para um namespace `render` (o egui é o impl). O layout-TS passa a falar
-   `render.*`. (Isolamento da SAÍDA — o PoC já tem os primitivos.)
-2. **I1 — namespace `input`:** egui expõe `input.mouseX/Y/clicked/...` por polling.
-3. **I2 — hit-test no layout-TS:** o layout guarda os retângulos por nó; um
-   `hitTest(x,y)->node` em TS; dispatch de `onclick` por polling.
-4. **I3 — backend headless (prova do isolamento):** um segundo backend que
-   implementa `render.*` escrevendo num PPM (screenshot) — prova que o DOM
-   renderiza sem egui. (Opcional, mas é o teste definitivo do isolamento.)
+1. **I0 — generic `render` namespace:** route the current `egui.draw*`/`measureText`
+   to a `render` namespace (egui is the impl). The TS-layout starts talking
+   `render.*`. (Isolation of the OUTPUT — the PoC already has the primitives.)
+2. **I1 — `input` namespace:** egui exposes `input.mouseX/Y/clicked/...` via polling.
+3. **I2 — hit-test in the TS-layout:** the layout stores the rectangles per node; a
+   `hitTest(x,y)->node` in TS; `onclick` dispatch via polling.
+4. **I3 — headless backend (proof of the isolation):** a second backend that
+   implements `render.*` by writing to a PPM (screenshot) — proves the DOM
+   renders without egui. (Optional, but it is the definitive test of the isolation.)

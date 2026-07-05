@@ -1,139 +1,139 @@
-# Limites do motor novo encontrados construindo a UI (mapa pro futuro)
+# New-engine limits found while building the UI (map for the future)
 
-> Resultado lateral — e valioso — do experimento da stack de UI (DOM + canvas +
-> componentes em TS sobre `rts:render`). Cada limite abaixo foi encontrado NA
-> PRÁTICA ao escrever UI real, com o workaround que usamos e o que o motor
-> precisaria implementar "futuramente". É uma lista priorizada por uso real, não
-> teórica. Datado 2026-06-25, motor `rts-codegen-new`.
+> A side — and valuable — result of the UI stack experiment (DOM + canvas +
+> components in TS over `rts:render`). Each limit below was found IN
+> PRACTICE while writing real UI, with the workaround we used and what the engine
+> would need to implement "in the future". It is a list prioritized by real usage, not
+> theoretical. Dated 2026-06-25, engine `rts-codegen-new`.
 
-## Como ler
+## How to read
 
-Cada item: **o que falha** · **onde bateu** · **workaround atual** · **o que o
-motor precisa**. Ordenado por quanto atrapalha a ergonomia de UI.
+Each item: **what fails** · **where it hit** · **current workaround** · **what the
+engine needs**. Ordered by how much it hurts UI ergonomics.
 
 ---
 
-### 1. `const` top-level não captura dentro de função
-- **Falha:** `const SLOT = 3; function f() { usa SLOT }` → `unbound identifier`.
-- **Onde:** layout-TS (slots de estilo), qualquer constante usada em helper.
-- **Workaround:** literais inline, ou variáveis module-level (`let`), ou reidratar
-  dentro da função.
-- **Motor precisa:** capturar bindings top-level (const/let) no escopo de funções
-  aninhadas. Ver `project_multi_declarator_capture_bug`.
+### 1. Top-level `const` doesn't capture inside a function
+- **Fails:** `const SLOT = 3; function f() { usa SLOT }` → `unbound identifier`.
+- **Where:** layout-TS (style slots), any constant used in a helper.
+- **Workaround:** inline literals, or module-level variables (`let`), or rehydrate
+  inside the function.
+- **Engine needs:** capture top-level bindings (const/let) in the scope of nested
+  functions. See `project_multi_declarator_capture_bug`.
 
-### 2. Método sobre RETORNO de getter/call não despacha
-- **Falha:** `const cv = app.canvas; cv.box(...)` ou `app.canvas.box(...)` →
-  `receiver class not statically dispatchable` / shape não provada.
-- **Onde:** App expondo `canvas` por getter; qualquer fachada que devolve objeto
-  pra encadear.
-- **Workaround:** métodos DIRETOS na instância já provada (`app.box()` em vez de
-  `app.canvas.box()`); a fachada delega internamente.
-- **Motor precisa:** propagar a classe de retorno de getter/método para habilitar
-  dispatch no valor retornado (parte já anda p/ método-de-call via `local_classes`;
-  falta getter e campo). Ver `project_new_engine_dispatch_limits`.
+### 2. Method on the RETURN of a getter/call doesn't dispatch
+- **Fails:** `const cv = app.canvas; cv.box(...)` or `app.canvas.box(...)` →
+  `receiver class not statically dispatchable` / unproven shape.
+- **Where:** App exposing `canvas` via getter; any facade returning an object
+  for chaining.
+- **Workaround:** DIRECT methods on the already-proven instance (`app.box()` instead of
+  `app.canvas.box()`); the facade delegates internally.
+- **Engine needs:** propagate the return class of getters/methods to enable
+  dispatch on the returned value (part of this already progresses for method-of-call via `local_classes`;
+  getter and field are missing). See `project_new_engine_dispatch_limits`.
 
-### 3. `boolean` retornado de método não coage em `?:`/condição
-- **Falha:** `let on = obj.method(); const c = on ? a : b;` →
+### 3. `boolean` returned from a method doesn't coerce in `?:`/condition
+- **Fails:** `let on = obj.method(); const c = on ? a : b;` →
   `cannot coerce Tagged to Bool`.
-- **Onde:** checkbox/toggle retornando `boolean`.
-- **Workaround:** usar `number` (0/1) em vez de `boolean` para estado vindo de
-  método; comparar com `!== 0`.
-- **Motor precisa:** coerção Tagged→Bool no caminho de retorno de método (hoje o
-  bool-de-método chega Tagged e o `?:` não coage).
+- **Where:** checkbox/toggle returning `boolean`.
+- **Workaround:** use `number` (0/1) instead of `boolean` for state coming from a
+  method; compare with `!== 0`.
+- **Engine needs:** Tagged→Bool coercion on the method-return path (today the
+  method bool arrives Tagged and `?:` doesn't coerce).
 
-### 4. `.length` sobre string de método/param/reassigned
-- **Falha:** `function f(s: string) { s.length }` ou `const t = obj.m(); t.length`
+### 4. `.length` on a string from a method/param/reassigned
+- **Fails:** `function f(s: string) { s.length }` or `const t = obj.m(); t.length`
   → `.length on a receiver of unproven shape — dynamic-length is a separate path`.
-- **Onde:** textInput (medir/cortar texto digitado).
-- **Workaround:** evitar `.length` sobre essas strings; só concatenar (`a + b`
-  sempre funciona). Backspace/edição de texto ficam bloqueados sem isto.
-- **Motor precisa:** resolver `.length` (e provavelmente `.substring`/índice) sobre
-  string de shape não-provada — rotear para o caminho dinâmico de string.
+- **Where:** textInput (measuring/trimming typed text).
+- **Workaround:** avoid `.length` on those strings; only concatenate (`a + b`
+  always works). Backspace/text editing stay blocked without this.
+- **Engine needs:** resolve `.length` (and probably `.substring`/indexing) on a
+  string of unproven shape — route to the dynamic string path.
 
-### 5. Array-indexado de string + uso subsequente
-- **Falha:** `const names = ["a","b"]; app.tab(..., names[i], ...)` baila em alguns
-  usos (o elemento string não tem shape provada).
-- **Onde:** lista de nomes de abas/itens.
-- **Workaround:** literais diretos, ou arrays paralelos de primitivos.
-- **Motor precisa:** shape provada para `array[i]` quando o array é de string/obj.
+### 5. Array-indexed string + subsequent use
+- **Fails:** `const names = ["a","b"]; app.tab(..., names[i], ...)` bails in some
+  uses (the string element has no proven shape).
+- **Where:** list of tab/item names.
+- **Workaround:** direct literals, or parallel arrays of primitives.
+- **Engine needs:** proven shape for `array[i]` when the array is of string/obj.
 
-### 6. `performance.now()` retorna 0
-- **Falha:** `performance.now()` sempre devolve `0` (delta time impossível por ele).
-- **Onde:** App loop / animação.
-- **Workaround:** usar `rts:time` (`time.now_ms()`, monotônico) — funciona.
-- **Motor precisa:** ligar `performance.now()` ao clock real (hoje o prelude
-  `performance` não tem o timeOrigin/now efetivo no caminho atual).
+### 6. `performance.now()` returns 0
+- **Fails:** `performance.now()` always returns `0` (delta time impossible through it).
+- **Where:** App loop / animation.
+- **Workaround:** use `rts:time` (`time.now_ms()`, monotonic) — works.
+- **Engine needs:** wire `performance.now()` to the real clock (today the
+  `performance` prelude has no effective timeOrigin/now on the current path).
 
-### 7. Input só legível DENTRO do frame
-- **Não é bug — é regra de uso, documentar:** ler `input.*` ANTES de
-  `beginFrame` devolve estado vazio; o `beginFrame` é que transfere os eventos do
-  SO pro contexto. Ler input sempre após `beginFrame`.
+### 7. Input readable only INSIDE the frame
+- **Not a bug — a usage rule, document it:** reading `input.*` BEFORE
+  `beginFrame` returns empty state; `beginFrame` is what transfers OS events into
+  the context. Always read input after `beginFrame`.
 
 ---
 
-## O que NÃO foi limite (já funciona — bom saber)
+## What was NOT a limit (already works — good to know)
 
-- **Classes com métodos + encadeamento** (`new C().m().m()`): OK.
-- **Getter/setter de propriedade** (`el.textContent = x`): OK (é a base da fachada
-  DOM real).
-- **Objeto global singleton via prelude** (estilo `console`/`document`/`createApp`):
+- **Classes with methods + chaining** (`new C().m().m()`): OK.
+- **Property getter/setter** (`el.textContent = x`): OK (it is the basis of the real
+  DOM facade).
+- **Global singleton object via prelude** (`console`/`document`/`createApp` style):
   OK.
-- **Método retornando `T | null` + `=== null`/`if(x)`**: OK (desde que seja método
-  de classe, não função livre).
-- **Array de instâncias** (length/índice/for-of/push): OK.
-- **String vinda do Rust** (handle GC) usada como string: OK.
-- **Multi-window**: OK (UiCtx por handle; pump global por WindowId).
-- **Recursão profunda + muitas chamadas ABI por frame** (layout): OK.
+- **Method returning `T | null` + `=== null`/`if(x)`**: OK (as long as it is a class
+  method, not a free function).
+- **Array of instances** (length/indexing/for-of/push): OK.
+- **String coming from Rust** (GC handle) used as a string: OK.
+- **Multi-window**: OK (UiCtx per handle; global pump per WindowId).
+- **Deep recursion + many ABI calls per frame** (layout): OK.
 
-## Conclusão
+## Conclusion
 
-Apesar de 6 limites reais, foi possível construir: DOM real (MDN), layout em TS,
-render/input abstratos (backend plugável), canvas ergonômico, App loop com delta
-time, e uma biblioteca de componentes (button/slider/checkbox/progressBar/panel/
-tabs/textInput/layout-automático) + multi-window. A fundação é sólida; os 6 itens
-acima são o roteiro de refinamento do motor para UI rica — implementar futuramente,
-maior-impacto-primeiro (1, 2 e 4 destravam mais).
-
----
-
-### 8. `moveWindow`/`set_outer_position` só aplica DEPOIS do loop começar
-- **Não é bug — é timing do winit:** chamar `app.moveTo(x,y)` ANTES do primeiro
-  `beginFrame`/`pump` não reposiciona a janela (o event loop ainda não rodou).
-- **Workaround:** chamar `moveTo` DENTRO do loop, após alguns frames
-  (`if (frameCount() > 2)`), uma vez.
-- **Motor/backend poderia:** aplicar a posição pendente no primeiro pump, ou expor
-  posição inicial no `openWindow`.
+Despite 6 real limits, it was possible to build: a real DOM (MDN), layout in TS,
+abstract render/input (pluggable backend), an ergonomic canvas, an App loop with delta
+time, and a component library (button/slider/checkbox/progressBar/panel/
+tabs/textInput/automatic-layout) + multi-window. The foundation is solid; the 6 items
+above are the engine's refinement roadmap for rich UI — implement in the future,
+highest-impact-first (1, 2 and 4 unlock the most).
 
 ---
 
-### 9. Retorno de string da ABI: usar `AbiType::Handle` LITERAL, não o alias `U64`
-- **Falha:** uma fn que retorna string (handle GC) declarada com `Sig::new(..,
-  Handle)` onde `Handle` é um alias local `U64 as Handle` → o TS recebe o NÚMERO
-  do handle cru ("dados de ponteiros"), não a string. `typeof` = "number".
-- **Onde:** `input.textInput` (e qualquer getter de string nova num crate que usa
-  o alias `U64 as Handle` pros handles de recurso).
-- **Causa:** o motor só reboxa o retorno como `TAG_STR` quando é `AbiType::Handle`
-  LITERAL **E** o `ts_signature` termina em `: string`. O alias `U64` cai no ramo
-  inteiro-cru.
-- **Workaround/regra:** retornos de STRING usam `AbiType::Handle` explícito (mesmo
-  que os ARGS de handle-de-recurso usem o alias `U64`). Já corrigido em getText/
-  getAttribute/tagName (rts-dom) e textInput (rts-render).
+### 8. `moveWindow`/`set_outer_position` only applies AFTER the loop starts
+- **Not a bug — winit timing:** calling `app.moveTo(x,y)` BEFORE the first
+  `beginFrame`/`pump` doesn't reposition the window (the event loop hasn't run yet).
+- **Workaround:** call `moveTo` INSIDE the loop, after a few frames
+  (`if (frameCount() > 2)`), once.
+- **Engine/backend could:** apply the pending position on the first pump, or expose
+  an initial position in `openWindow`.
 
 ---
 
-### 10. ARMADILHA: membros de namespace são snake_case (NÃO camelCase) — sem normalização
-- **Falha (parecia bug grave):** `import audio from "rts:audio";
-  audio.openOutput(...)` → "no matching namespace function (...)". Idem
-  `audio.default_sample_rate` parecia falhar. Conclusão inicial ERRADA: "audio não
-  está wired no JIT".
-- **Causa REAL:** o membro registrado é `open_output` (snake_case, como no Rust),
-  e o motor **NÃO normaliza camelCase→snake** na resolução de membro de namespace
-  (`registry::namespace_member` compara o nome literal). `audio.open_output(...)`
-  FUNCIONA (testado: bipe 440Hz toca, usuário confirmou).
-- **Regra:** ao importar de `rts:<ns>`, use o nome do membro EXATAMENTE como
-  registrado (snake_case pros namespaces backend: `open_output`,
-  `default_sample_rate`, `write_f32`, etc.). Os preludes ergonômicos (App, console,
-  document) é que expõem camelCase; o namespace cru é snake.
-- **`rts:audio` FUNCIONA** (cpal): open_output/write/close/sample_rate/channels/
-  master_volume/available_frames/queued_frames. Modelo: gerar samples f32 num
-  `rts:buffer` → `audio.write(dev, buf, n)`. Música/efeitos validados no Pong.
+### 9. Returning a string from the ABI: use `AbiType::Handle` LITERALLY, not the `U64` alias
+- **Fails:** a fn returning a string (GC handle) declared with `Sig::new(..,
+  Handle)` where `Handle` is a local alias `U64 as Handle` → TS receives the raw handle
+  NUMBER ("pointer data"), not the string. `typeof` = "number".
+- **Where:** `input.textInput` (and any getter of a new string in a crate using
+  the `U64 as Handle` alias for resource handles).
+- **Cause:** the engine only reboxes the return as `TAG_STR` when it is `AbiType::Handle`
+  LITERALLY **AND** the `ts_signature` ends in `: string`. The `U64` alias falls into the
+  raw-integer branch.
+- **Workaround/rule:** STRING returns use explicit `AbiType::Handle` (even
+  when resource-handle ARGS use the `U64` alias). Already fixed in getText/
+  getAttribute/tagName (rts-dom) and textInput (rts-render).
+
+---
+
+### 10. TRAP: namespace members are snake_case (NOT camelCase) — no normalization
+- **Fails (looked like a serious bug):** `import audio from "rts:audio";
+  audio.openOutput(...)` → "no matching namespace function (...)". Likewise
+  `audio.default_sample_rate` seemed to fail. Initial conclusion WRONG: "audio isn't
+  wired into the JIT".
+- **REAL cause:** the registered member is `open_output` (snake_case, as in Rust),
+  and the engine does **NOT normalize camelCase→snake** when resolving a namespace
+  member (`registry::namespace_member` compares the literal name). `audio.open_output(...)`
+  WORKS (tested: 440Hz beep plays, user confirmed).
+- **Rule:** when importing from `rts:<ns>`, use the member name EXACTLY as
+  registered (snake_case for backend namespaces: `open_output`,
+  `default_sample_rate`, `write_f32`, etc.). The ergonomic preludes (App, console,
+  document) are what expose camelCase; the raw namespace is snake.
+- **`rts:audio` WORKS** (cpal): open_output/write/close/sample_rate/channels/
+  master_volume/available_frames/queued_frames. Model: generate f32 samples in an
+  `rts:buffer` → `audio.write(dev, buf, n)`. Music/effects validated in Pong.

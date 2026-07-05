@@ -1,102 +1,102 @@
-# Critica adversarial do plano
+# Adversarial critique of the plan
 
-Vou ser direto e duro, como pedido. O plano é tecnicamente competente e a pesquisa de base é boa, mas ele comete o pecado clássico de quem nunca enviou um motor de layout: subestima as três coisas que efetivamente consomem o tempo (texto, cascade real, incrementalidade) e empacota um escopo "HTML avançado + CSS5" que é fantasia. Crítica concreta abaixo.
-
----
-
-## 1) ESCOPO — "HTML avançado + CSS5" é fantasia; o subset real está escondido na pesquisa, não no plano
-
-O plano de arquitetura é honesto em alguns pontos (P1 = simple selectors, block-only), mas o *título* da tarefa ("HTML avançado + CSS5") e o corpo não batem. A pesquisa css-subset entrega um subset sóbrio e correto; **o plano de arquitetura não cita esse subset com a mesma franqueza** — ele descreve a tubulação de 5 árvores como se ela já fosse o motor. Tubulação não é o trabalho. O trabalho é o conteúdo de cada caixa.
-
-O que custa 10x mais do que o plano sugere, em ordem de dor:
-
-1. **Inline/text layout (Fase 7, jogada pro fim, 10% do progresso bar)** — isto é 40-60% do esforço real de um motor, e o plano o trata como o último 10%. Line breaking, medição por run, baseline, mistura de fontes inline, whitespace collapsing (o algoritmo de colapso de espaço do CSS é uma fonte infinita de bugs sutis), `white-space`, justificação. Voltarei nisso na seção 2.
-2. **Cascade "correto"** — o plano diz "ordena por especificidade, aplica". Isso é a parte fácil. O difícil é shorthand expansion (`margin: 1px 2px 3px 4px`, `border: 1px solid red`, `font: ...`), `initial`/`inherit`/`unset`, valores percentuais que resolvem em momentos diferentes (`%` de width resolve no layout, não na cascade), e `em`/`rem`/`%`/`auto` com regras de resolução distintas. O plano resolve `Em`/`Percent` "contra o pai" na Fase 3 — **errado para width/height/margin/padding em %**, que dependem do *containing block* (Fase 4), não do computed do pai. Isso é um bug de design já presente no `enum Dimension { Auto, Px(f32) }`: ele descarta `%` cedo demais.
-3. **Fontes** — o plano assume que egui resolve fontes. egui resolve *uma* família embarcada. `font-family`, fallback, font matching, web fonts, bold sintético vs. peso real, itálico sintético — nada disso vem de graça. O plano menciona `weight: u16` e `italic: bool` como se fossem aplicáveis ao galley; egui não tem síntese de peso arbitrário sem você fornecer os arquivos de fonte.
-
-**Veredito:** o subset *atingível* é o da Fase 1/2 da pesquisa css-subset (block + inline básico, ~12 propriedades, simple selectors + descendant). O plano deveria declarar isso no título e abandonar "avançado/CSS5".
+I will be direct and harsh, as requested. The plan is technically competent and the base research is good, but it commits the classic sin of someone who has never shipped a layout engine: it underestimates the three things that actually consume the time (text, real cascade, incrementality) and packages an "advanced HTML + CSS5" scope that is fantasy. Concrete critique below.
 
 ---
 
-## 2) TEXT LAYOUT — o monstro está reconhecido mas terceirizado com otimismo perigoso
+## 1) SCOPE — "advanced HTML + CSS5" is fantasy; the real subset is hidden in the research, not in the plan
 
-O plano sabe que texto é difícil (cria o trait `TextMeasurer`), mas a forma como ele divide trabalho entre "egui mede" e "eu quebro linha" é ingênua em dois pontos concretos:
+The architecture plan is honest at some points (P1 = simple selectors, block-only), but the *title* of the task ("advanced HTML + CSS5") and the body do not match. The css-subset research delivers a sober and correct subset; **the architecture plan does not cite that subset with the same frankness** — it describes the 5-tree plumbing as if it were already the engine. Plumbing is not the work. The work is the content of each box.
 
-- **O trait `TextMeasurer` está mal desenhado.** A assinatura `measure(text, font_size, weight, italic) -> (w,h)` trata uma run como atômica e uniforme. Texto real numa linha é multi-run, multi-fonte, multi-cor (`<b>`, `<span>`, `<a>`), e a quebra de linha tem que acontecer **através** dos limites de run, não run a run. Se você quebra run-a-run, "fica **bold** aqui" quebra errado entre o normal e o bold. A pesquisa egui-as-paint já aponta a saída correta — `LayoutJob` com múltiplas `LayoutSection` — mas aí **quem quebra a linha é o egui (via `wrap.max_width`), não você**. O trait do plano assume o contrário (você quebra, egui mede granular via `glyph_width`). Você não pode ter os dois: ou delega a quebra de uma linha inteira (multi-run) ao `layout_job` do egui, ou reimplementa shaping multi-run você mesmo. O plano fala dos dois caminhos sem escolher, e o caminho "eu quebro com `glyph_width`" **não compõe** com spans inline mistos.
-- **Recomendação dura:** delegue **o máximo possível** ao galley. Construa um `LayoutJob` por *bloco* de contexto inline (não por run), deixe `wrap.max_width` = largura do content box, e leia de volta `galley.rows` para descobrir onde o egui quebrou e posicionar. Você perde controle fino (hifenização, `text-indent` em linhas específicas), mas ganha bidi, kerning, shaping e quebra multi-run **de graça e corretos**. Reimplementar isso em Rust puro é um projeto de meses por si só. O plano mantém a porta aberta para "fazer você mesmo com `glyph_width`/`row_height`" — **feche essa porta**, é uma armadilha de tempo.
-- **O que o plano nem menciona:** bidi (texto RTL/árabe/hebraico), grapheme clusters (emoji, combining marks), whitespace collapsing, `word-break`/`overflow-wrap`. Se a meta é só LTR latino, **diga isso explicitamente** e corte bidi do escopo. Hoje o plano finge que `String` + `glyph_width` cobre texto, e não cobre.
+What costs 10x more than the plan suggests, in order of pain:
 
----
+1. **Inline/text layout (Phase 7, pushed to the end, 10% of the progress bar)** — this is 40-60% of the real effort of an engine, and the plan treats it as the last 10%. Line breaking, per-run measurement, baseline, inline font mixing, whitespace collapsing (CSS's whitespace collapsing algorithm is an infinite source of subtle bugs), `white-space`, justification. I will return to this in section 2.
+2. **"Correct" cascade** — the plan says "sort by specificity, apply". That is the easy part. The hard part is shorthand expansion (`margin: 1px 2px 3px 4px`, `border: 1px solid red`, `font: ...`), `initial`/`inherit`/`unset`, percentage values that resolve at different moments (`%` of width resolves in layout, not in the cascade), and `em`/`rem`/`%`/`auto` with distinct resolution rules. The plan resolves `Em`/`Percent` "against the parent" in Phase 3 — **wrong for width/height/margin/padding in %**, which depend on the *containing block* (Phase 4), not on the parent's computed value. This is a design bug already present in `enum Dimension { Auto, Px(f32) }`: it discards `%` too early.
+3. **Fonts** — the plan assumes egui handles fonts. egui handles *one* embedded family. `font-family`, fallback, font matching, web fonts, synthetic bold vs. real weight, synthetic italic — none of this comes for free. The plan mentions `weight: u16` and `italic: bool` as if they were applicable to the galley; egui has no arbitrary-weight synthesis without you supplying the font files.
 
-## 3) egui-como-paint — hit-testing está SUBdimensionado (é o calcanhar real)
-
-A pesquisa egui-as-paint é excelente e cobre as armadilhas de coordenada/scroll/repaint corretamente (`allocate_painter`, `show_viewport`, tradução content→screen, recriar galley em mudança de DPI). **Mas o plano de arquitetura quase não fala de hit-testing**, e é aí que o modo imediato te morde:
-
-- `allocate_painter(size, Sense::hover())` te dá **um** `Response` para a superfície inteira. Para saber *qual box* foi clicado (link, botão, qual `<a href>`), você precisa fazer hit-testing **você mesmo**: manter uma lista de retângulos clicáveis + node-id, e no frame seguinte testar `response.interact_pointer_pos()` contra eles. O plano menciona isso de passagem ("registra seu Rect... casado por node-id") mas não dimensiona o trabalho: você está reconstruindo o sistema de eventos do DOM (capture/bubble não, mas pelo menos "qual é o alvo do clique", z-order resolvendo sobreposição, hover state para `:hover`, cursor `pointer` sobre links).
-- **Latência de 1 frame** já existe no código atual (`button_results`/`button_cursor`) e o plano herda isso conscientemente. OK para botão. **Não OK para `:hover`** — hover state com 1 frame de atraso pisca. E `:hover` está no escopo "CSS" implícito. Ou você corta `:hover` (recomendado para o MVP) ou aceita que ele exige re-layout reativo no mesmo frame, o que o pipeline de 5 árvores recomputado-do-zero não suporta barato.
-- **Repaint:** modo imediato re-pinta tudo todo frame. O plano cobre culling por viewport (bom), mas **não cobre rebuild da árvore**. Hoje `egui.html(string)` re-parseia? Se sim, você reconstrói DOM→Style→Layout a cada frame que a string muda — e como o RTS é imediato, o TS provavelmente chama `egui.html(...)` todo frame. Isso é um reflow completo por frame. Para uma página estática pequena, tudo bem. Para qualquer coisa com texto real, medir o galley de tudo todo frame vai dominar o tempo. **O plano não tem estratégia de cache de layout entre frames**, e o modelo de árvore efêmera (`StyledNode<'a>` com empréstimos da árvore-pai) torna o cache *mais* difícil, não mais fácil — lifetimes amarrados ao frame.
+**Verdict:** the *achievable* subset is that of Phase 1/2 of the css-subset research (block + basic inline, ~12 properties, simple selectors + descendant). The plan should declare this in the title and abandon "advanced/CSS5".
 
 ---
 
-## 4) INCREMENTALIDADE — "construa 5 camadas antes de ver um pixel" (o defeito mais grave do plano)
+## 2) TEXT LAYOUT — the monster is acknowledged but outsourced with dangerous optimism
 
-Esta é a crítica mais séria. **O primeiro pixel renderizado pelo motor novo só aparece no passo 6 de 7** (90% da barra de progresso). Passos 1-5 (DOM, CSS, Style, Layout, Display list) produzem **structs Rust que ninguém vê**. Você vai escrever ~60% do código contra testes unitários antes de qualquer coisa aparecer na tela. Isso é exatamente o anti-padrão que a própria CLAUDE.md condena ("entrega valor em cada fase").
+The plan knows text is hard (it creates the `TextMeasurer` trait), but the way it splits work between "egui measures" and "I break lines" is naive on two concrete points:
 
-Pior: o passo 4 (layout) **depende** do `TextMeasurer`, que só existe de verdade no passo 6. O plano "resolve" isso com um measurer mockado — ou seja, você valida o layout block contra larguras de texto *falsas*, e quando o measurer real entra, todo o layout inline muda e você re-debuga. O mock te dá uma sensação falsa de progresso.
-
-**Reordene para ver pixel cedo:**
-1. Comece pelo **caminho vertical mais fino possível**: parse trivial (`<p>texto</p>` + `<h1>`), sem CSS, sem cascade, block-only, e **pinte imediatamente** via `Painter` com galley. Isso é DOM mínimo + layout block mínimo + paint, ligados ponta-a-ponta, na primeira semana. Um pixel real na tela.
-2. *Depois* engrosse cada camada (CSS, cascade, inline, scroll). Cada incremento renderiza algo novo e visível.
-
-O risco do plano atual é o clássico "5 árvores prontas, 0 pixels, e quando liga tudo nada alinha". Você não tem feedback visual para pegar os erros de coordenada/baseline/box model até o fim — e esses erros *só* aparecem visualmente.
+- **The `TextMeasurer` trait is badly designed.** The signature `measure(text, font_size, weight, italic) -> (w,h)` treats a run as atomic and uniform. Real text on a line is multi-run, multi-font, multi-color (`<b>`, `<span>`, `<a>`), and line breaking has to happen **across** run boundaries, not run by run. If you break run-by-run, "stays **bold** here" breaks wrongly between the normal and the bold. The egui-as-paint research already points to the correct way out — `LayoutJob` with multiple `LayoutSection` — but then **egui is the one breaking the line (via `wrap.max_width`), not you**. The plan's trait assumes the opposite (you break, egui measures granularly via `glyph_width`). You cannot have both: either you delegate breaking an entire line (multi-run) to egui's `layout_job`, or you reimplement multi-run shaping yourself. The plan talks about both paths without choosing, and the "I break with `glyph_width`" path **does not compose** with mixed inline spans.
+- **Harsh recommendation:** delegate **as much as possible** to the galley. Build one `LayoutJob` per inline-context *block* (not per run), set `wrap.max_width` = content box width, and read back `galley.rows` to discover where egui broke and to position. You lose fine control (hyphenation, `text-indent` on specific lines), but you get bidi, kerning, shaping and multi-run breaking **for free and correct**. Reimplementing that in pure Rust is a months-long project by itself. The plan keeps the door open to "do it yourself with `glyph_width`/`row_height`" — **close that door**, it is a time trap.
+- **What the plan does not even mention:** bidi (RTL/Arabic/Hebrew text), grapheme clusters (emoji, combining marks), whitespace collapsing, `word-break`/`overflow-wrap`. If the goal is only Latin LTR, **say so explicitly** and cut bidi from scope. Today the plan pretends `String` + `glyph_width` covers text, and it does not.
 
 ---
 
-## 5) MIGRAÇÃO — coexistência está OK no papel, mas o ponto de fricção real é o re-parse e o estado de eventos
+## 3) egui-as-paint — hit-testing is UNDERsized (it is the real Achilles' heel)
 
-Esta parte o plano acertou na decisão (fila plana sobrevive como "modo simples", HTML é caminho novo e separado, sem conversão HTML→`WidgetCmd`). A calculadora e os widgets atuais **não quebram** porque o caminho novo é paralelo. Bom.
+The egui-as-paint research is excellent and correctly covers the coordinate/scroll/repaint traps (`allocate_painter`, `show_viewport`, content→screen translation, recreating the galley on DPI change). **But the architecture plan barely talks about hit-testing**, and that is where immediate mode bites you:
 
-Os riscos reais que o plano subdimensiona:
-- **`egui.html(str)` muda o corpo mas o modelo de eventos é incompatível.** Hoje botões casam por **índice posicional** (`button_cursor`). O modo HTML quer casar por **node-id**. Mas o node-id só é estável se o DOM for estável entre frames — e se o TS re-chama `egui.html(stringDiferente)` todo frame, os node-ids dançam. O plano afirma "node-id é mais estável que índice" sem mostrar de onde vem o id: se é gerado por ordem de parse, é **exatamente tão frágil quanto o índice**. Id estável exige `id=`/`key=` explícito no HTML ou um esquema de reconciliação — que o plano não tem.
-- **Dois buffers no `UiCtx` (`FrameContent::Simple | Html`)** — e se o usuário misturar `egui.label()` com `egui.html()` no mesmo frame? O plano assume exclusividade ("`endFrame` escolhe o walker pelo conteúdo presente"). Misturar é um caso real (HTML + um slider nativo embaixo) e o plano não diz como compor os dois walkers na mesma janela com ordem correta.
-
----
-
-## 6) CSS5/moderno — corte explícito (a pesquisa já lista, o plano não assume)
-
-O plano de arquitetura **não declara o que está fora**. A pesquisa css-subset declara, e bem. Esta lista tem que estar no plano, não enterrada na pesquisa. **Corte explicitamente e sem volta para o MVP:**
-
-- **Flexbox** — cada formatting context é "um mini-projeto" (a própria pesquisa diz). Flex é resolução iterativa de `grow/shrink/basis`. Fora do MVP. (E é o que as pessoas mais vão querer — seja honesto que não tem.)
-- **Grid** — fantasia completa para este escopo. Resolução de trilhas `fr`/`minmax`/auto-placement é um subsistema maior que todo o resto do motor. Cortar e nunca prometer.
-- **`position: absolute/fixed/sticky`, `float`, `z-index` real (stacking contexts)** — fora. O plano fala de "z-order = ordem da display list", o que é verdade *até* você ter `z-index`/`position`, aí quebra.
-- **Container queries, `:has()`, `@scope`, cascade layers `@layer`, nesting** — fantasia. A pesquisa já marca `:has()` e container queries como genuinamente caros (invalidação / dependência circular layout↔estilo). Nunca prometer.
-- **`transform`/`transition`/`animation`/`filter`/`clip-path`** — fora. Animação exige um loop temporal + invalidação que o pipeline efêmero não suporta.
-- **`var()`/custom properties** — fora do MVP (passo de resolução em cascade com fallback).
-
-Manter só: block + inline normal flow, `display: block|inline|none`, box model, ~12 propriedades de paint/box, simple + descendant selectors, especificidade + herança. **Isto já é 3-6 meses de trabalho honesto.** "CSS5" some.
+- `allocate_painter(size, Sense::hover())` gives you **one** `Response` for the entire surface. To know *which box* was clicked (link, button, which `<a href>`), you have to do hit-testing **yourself**: keep a list of clickable rectangles + node-id, and on the next frame test `response.interact_pointer_pos()` against them. The plan mentions this in passing ("registers its Rect... matched by node-id") but does not size the work: you are rebuilding the DOM's event system (not capture/bubble, but at least "what is the click target", z-order resolving overlap, hover state for `:hover`, `pointer` cursor over links).
+- **1-frame latency** already exists in the current code (`button_results`/`button_cursor`) and the plan consciously inherits it. OK for a button. **Not OK for `:hover`** — hover state delayed by 1 frame flickers. And `:hover` is in the implicit "CSS" scope. Either you cut `:hover` (recommended for the MVP) or accept that it requires reactive re-layout in the same frame, which the recomputed-from-scratch 5-tree pipeline does not support cheaply.
+- **Repaint:** immediate mode repaints everything every frame. The plan covers viewport culling (good), but **does not cover tree rebuild**. Does `egui.html(string)` re-parse today? If so, you rebuild DOM→Style→Layout every frame the string changes — and since RTS is immediate-mode, TS probably calls `egui.html(...)` every frame. That is a full reflow per frame. For a small static page, fine. For anything with real text, measuring the galley of everything every frame will dominate the time. **The plan has no layout-cache-between-frames strategy**, and the ephemeral tree model (`StyledNode<'a>` with borrows from the parent tree) makes caching *harder*, not easier — lifetimes tied to the frame.
 
 ---
 
-## OS 5 RISCOS REAIS MAIS SÉRIOS
+## 4) INCREMENTALITY — "build 5 layers before seeing a pixel" (the plan's gravest defect)
 
-1. **Text/inline layout subdimensionado e mal arquitetado.** É 40-60% do esforço, está como "último 10%", e o trait `TextMeasurer` não compõe com spans inline mistos. Sem reescrever a fronteira de medição em torno do `LayoutJob`/`galley.rows` do egui, isto trava o projeto. **Maior risco isolado.**
+This is the most serious critique. **The first pixel rendered by the new engine only appears at step 6 of 7** (90% of the progress bar). Steps 1-5 (DOM, CSS, Style, Layout, Display list) produce **Rust structs nobody sees**. You will write ~60% of the code against unit tests before anything appears on screen. This is exactly the anti-pattern CLAUDE.md itself condemns ("deliver value in every phase").
 
-2. **Zero pixels até 90% do plano.** Construir 5 camadas com measurer mockado antes de ver a tela é receita para "tudo pronto, nada alinha". O feedback visual que pega erros de baseline/coordenada/box model só chega no fim.
+Worse: step 4 (layout) **depends** on the `TextMeasurer`, which only truly exists at step 6. The plan "solves" this with a mocked measurer — meaning you validate block layout against *fake* text widths, and when the real measurer comes in, all the inline layout changes and you re-debug. The mock gives you a false sense of progress.
 
-3. **Reflow completo por frame + nenhum cache de layout.** Modo imediato + `StyledNode<'a>` efêmero amarrado ao frame = re-parse + re-style + re-measure de tudo todo frame. Texto real domina o tempo. Não há plano de cache, e os lifetimes escolhidos *atrapalham* o cache.
+**Reorder to see a pixel early:**
+1. Start with the **thinnest possible vertical path**: trivial parse (`<p>texto</p>` + `<h1>`), no CSS, no cascade, block-only, and **paint immediately** via `Painter` with galley. That is minimal DOM + minimal block layout + paint, wired end-to-end, in the first week. A real pixel on screen.
+2. *Then* thicken each layer (CSS, cascade, inline, scroll). Each increment renders something new and visible.
 
-4. **Hit-testing e identidade de evento.** "Qual box foi clicado" e node-id estável entre frames não estão resolvidos. Node-id gerado por ordem de parse é tão frágil quanto índice. `:hover` com latência de 1 frame pisca. Você está reconstruindo metade do sistema de eventos do DOM sem dizer.
+The current plan's risk is the classic "5 trees ready, 0 pixels, and when everything is wired nothing aligns". You have no visual feedback to catch coordinate/baseline/box-model errors until the end — and those errors *only* show up visually.
 
-5. **Resolução de unidades no momento errado.** `enum Dimension { Auto, Px(f32) }` descarta `%` na Fase 3, mas `%` de width/margin resolve contra o *containing block* na Fase 4. Bug de design já no struct. Computed values têm momentos de resolução distintos (`em` cedo, `%` tarde) — o plano colapsa os dois.
+---
 
-## O QUE CORTAR (sem dó)
-Flex, grid, position/float/z-index, container queries, `:has()`, `@layer`, nesting, var(), transform/transition/animation, bidi/RTL, web fonts, font fallback. Tudo "CSS5". Reduzir seletores a simple+descendant e propriedades a ~12.
+## 5) MIGRATION — coexistence is OK on paper, but the real friction point is re-parsing and event state
 
-## ONDE O PLANO PRECISA SER MAIS HUMILDE
-- Trocar o título "HTML avançado + CSS5" por "subset block+inline de HTML/CSS estático, LTR, fonte única".
-- Admitir que **o egui faz o texto** (via `LayoutJob`/`galley`), não que você faz com `glyph_width`. Fechar a porta do "faço eu mesmo".
-- Inverter a ordem: **pixel na primeira semana** (caminho vertical fino), camadas engrossadas depois — não 5 árvores antes do primeiro pixel.
-- Resolver `%` no layout, não na cascade. Corrigir `Dimension` para carregar `Percent`.
-- Ter uma resposta para **re-parse/cache entre frames** e para **identidade estável de nó** (id/key explícito), antes de escrever a Fase 4.
+This part the plan got right in its decision (the flat queue survives as "simple mode", HTML is a new and separate path, no HTML→`WidgetCmd` conversion). The calculator and the current widgets **do not break** because the new path is parallel. Good.
 
-O esqueleto de 5 árvores está certo (é o pipeline canônico). O erro do plano não é a arquitetura — é confundir ter a tubulação pronta com ter um motor, subestimar texto, e não entregar pixel até o fim.
+The real risks the plan undersizes:
+- **`egui.html(str)` changes the body but the event model is incompatible.** Today buttons match by **positional index** (`button_cursor`). HTML mode wants to match by **node-id**. But the node-id is only stable if the DOM is stable between frames — and if TS re-calls `egui.html(stringDiferente)` every frame, the node-ids dance. The plan asserts "node-id is more stable than index" without showing where the id comes from: if it is generated by parse order, it is **exactly as fragile as the index**. A stable id requires explicit `id=`/`key=` in the HTML or a reconciliation scheme — which the plan does not have.
+- **Two buffers in `UiCtx` (`FrameContent::Simple | Html`)** — and if the user mixes `egui.label()` with `egui.html()` in the same frame? The plan assumes exclusivity ("`endFrame` picks the walker by the content present"). Mixing is a real case (HTML + a native slider below) and the plan does not say how to compose the two walkers in the same window in the correct order.
+
+---
+
+## 6) CSS5/modern — explicit cut (the research already lists it, the plan does not own it)
+
+The architecture plan **does not declare what is out**. The css-subset research declares it, and well. This list has to be in the plan, not buried in the research. **Cut explicitly and irrevocably for the MVP:**
+
+- **Flexbox** — each formatting context is "a mini-project" (the research itself says so). Flex is iterative resolution of `grow/shrink/basis`. Out of the MVP. (And it is what people will want most — be honest that it is not there.)
+- **Grid** — complete fantasy for this scope. Resolving `fr`/`minmax`/auto-placement tracks is a subsystem bigger than the entire rest of the engine. Cut and never promise.
+- **`position: absolute/fixed/sticky`, `float`, real `z-index` (stacking contexts)** — out. The plan says "z-order = display list order", which is true *until* you have `z-index`/`position`, then it breaks.
+- **Container queries, `:has()`, `@scope`, cascade layers `@layer`, nesting** — fantasy. The research already flags `:has()` and container queries as genuinely expensive (invalidation / circular layout↔style dependency). Never promise.
+- **`transform`/`transition`/`animation`/`filter`/`clip-path`** — out. Animation requires a temporal loop + invalidation that the ephemeral pipeline does not support.
+- **`var()`/custom properties** — out of the MVP (resolution step in the cascade with fallback).
+
+Keep only: block + inline normal flow, `display: block|inline|none`, box model, ~12 paint/box properties, simple + descendant selectors, specificity + inheritance. **That is already 3-6 months of honest work.** "CSS5" disappears.
+
+---
+
+## THE 5 MOST SERIOUS REAL RISKS
+
+1. **Text/inline layout undersized and badly architected.** It is 40-60% of the effort, sits as "the last 10%", and the `TextMeasurer` trait does not compose with mixed inline spans. Without rewriting the measurement boundary around egui's `LayoutJob`/`galley.rows`, this stalls the project. **Biggest single risk.**
+
+2. **Zero pixels until 90% of the plan.** Building 5 layers with a mocked measurer before seeing the screen is a recipe for "everything ready, nothing aligns". The visual feedback that catches baseline/coordinate/box-model errors only arrives at the end.
+
+3. **Full reflow per frame + no layout cache.** Immediate mode + ephemeral `StyledNode<'a>` tied to the frame = re-parse + re-style + re-measure of everything every frame. Real text dominates the time. There is no cache plan, and the chosen lifetimes *hinder* caching.
+
+4. **Hit-testing and event identity.** "Which box was clicked" and node-id stable between frames are not resolved. A node-id generated by parse order is as fragile as the index. `:hover` with 1-frame latency flickers. You are rebuilding half of the DOM's event system without saying so.
+
+5. **Unit resolution at the wrong moment.** `enum Dimension { Auto, Px(f32) }` discards `%` in Phase 3, but width/margin `%` resolves against the *containing block* in Phase 4. Design bug already in the struct. Computed values have distinct resolution moments (`em` early, `%` late) — the plan collapses the two.
+
+## WHAT TO CUT (mercilessly)
+Flex, grid, position/float/z-index, container queries, `:has()`, `@layer`, nesting, var(), transform/transition/animation, bidi/RTL, web fonts, font fallback. Everything "CSS5". Reduce selectors to simple+descendant and properties to ~12.
+
+## WHERE THE PLAN NEEDS TO BE MORE HUMBLE
+- Replace the "advanced HTML + CSS5" title with "static block+inline HTML/CSS subset, LTR, single font".
+- Admit that **egui does the text** (via `LayoutJob`/`galley`), not that you do it with `glyph_width`. Close the "I'll do it myself" door.
+- Invert the order: **pixel in the first week** (thin vertical path), layers thickened afterwards — not 5 trees before the first pixel.
+- Resolve `%` in layout, not in the cascade. Fix `Dimension` to carry `Percent`.
+- Have an answer for **re-parse/cache between frames** and for **stable node identity** (explicit id/key), before writing Phase 4.
+
+The 5-tree skeleton is right (it is the canonical pipeline). The plan's error is not the architecture — it is confusing having the plumbing ready with having an engine, underestimating text, and not delivering a pixel until the end.
