@@ -1180,36 +1180,53 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_ASYNC(iterable: u64, mapper_handle: u64
 // slot's first-wins `settle` covers the single-resolution rule).
 // ===========================================================================
 
-/// The settle bridge the thenable's `then` invokes: a LEGACY all-i64 callable
-/// (`FunctionData{uniform_thunk:false}` with `bound_args = [promise_handle,
-/// is_reject]`) — the user's `resolve(v)` call lands here as `(h, flag, v)`.
-extern "C" fn __rts_thenable_settle(promise_h: i64, is_reject: i64, value: i64) -> i64 {
-    let arc = with_entry(promise_h as u64, |e| match e {
+/// Uniform-ABI settle thunk (RESOLVE) the thenable's `then` invokes: the
+/// promise handle rides `env` (bound_this); `a0` is the settle value
+/// (PolyValue word ou i64 raw — normalizado downstream por rebox_settled).
+extern "C" fn thenable_resolve_thunk(
+    env: u64, a0: u64, _a1: u64, _a2: u64, _a3: u64, _rest: u64,
+) -> u64 {
+    let arc = with_entry(env, |e| match e {
         Some(Entry::PromiseAsync(a)) => Some(a.clone()),
         _ => None,
     });
     if let Some(arc) = arc {
-        if is_reject != 0 {
-            promise_slot::reject(&arc, value);
-        } else {
-            // Recursive adoption: the resolution value may itself be a thenable.
-            resolve_assimilating(&arc, promise_h as u64, value);
-        }
+        // Recursive adoption: the resolution value may itself be a thenable.
+        resolve_assimilating(&arc, env, a0 as i64);
     }
-    0
+    rts_engine::heap::poly::POLY_UNDEFINED
 }
 
-/// Build the legacy settle callable (`bound = [promise_h, is_reject]`) as a
+/// Uniform-ABI settle thunk (REJECT) — espelho do resolve.
+extern "C" fn thenable_reject_thunk(
+    env: u64, a0: u64, _a1: u64, _a2: u64, _a3: u64, _rest: u64,
+) -> u64 {
+    let arc = with_entry(env, |e| match e {
+        Some(Entry::PromiseAsync(a)) => Some(a.clone()),
+        _ => None,
+    });
+    if let Some(arc) = arc {
+        promise_slot::reject(&arc, a0 as i64);
+    }
+    rts_engine::heap::poly::POLY_UNDEFINED
+}
+
+/// Build the settle callable (uniform thunk, promise handle no env) as a
 /// function WORD the user's `then` body can invoke.
 fn settle_callable_word(promise_h: u64, is_reject: i64) -> i64 {
     use rts_engine::heap::handles::FunctionData;
+    let fn_ptr = if is_reject != 0 {
+        thenable_reject_thunk as *const () as usize as u64
+    } else {
+        thenable_resolve_thunk as *const () as usize as u64
+    };
     let h = alloc_entry(Entry::Function(Box::new(FunctionData {
-        fn_ptr: __rts_thenable_settle as usize as u64,
-        arity: 3,
+        fn_ptr,
+        arity: 1,
         name: Box::from(""),
-        bound_this: 0,
-        has_bound_this: false,
-        bound_args: vec![promise_h as i64, is_reject],
+        bound_this: promise_h as i64,
+        has_bound_this: true,
+        bound_args: Vec::new(),
         is_arrow: false,
         has_this_param: false,
         param_kinds: Vec::new(),
@@ -1219,7 +1236,7 @@ fn settle_callable_word(promise_h: u64, is_reject: i64) -> i64 {
         keep_alive: None,
         prototype_handle: 0,
         rest_param_idx: -1,
-        uniform_thunk: false,
+        uniform_thunk: true,
     })));
     // TAG_FUNCTION word over the bare slot (the invoke bridges normalize).
     const BOX_BASE: u64 = 0xFFF8_0000_0000_0000;

@@ -434,66 +434,65 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_WITH_RESOLVERS() -> u64 {
     alloc_entry(Entry::Map(Box::new(obj)))
 }
 
-/// Helper: cria Function handle que ao ser invocado chama resolve/reject
-/// no slot armazenado em bound_args[0].
+/// Helper: cria Function handle (thunk uniforme) que ao ser invocado chama
+/// resolve/reject no slot cujo handle vive no env (bound_this).
 fn make_resolver_fn(promise_h: u64, is_resolve: bool) -> u64 {
     use rts_engine::heap::handles::{alloc_entry, Entry, FunctionData};
     let fn_ptr = if is_resolve {
-        __RTS_FN_GL_PROMISE_RESOLVER_TRAMP_RESOLVE as *const () as usize as u64
+        resolver_resolve_thunk as *const () as usize as u64
     } else {
-        __RTS_FN_GL_PROMISE_RESOLVER_TRAMP_REJECT as *const () as usize as u64
+        resolver_reject_thunk as *const () as usize as u64
     };
     alloc_entry(Entry::Function(Box::new(FunctionData {
         fn_ptr,
-        // Convencao: `arity` e' o TOTAL de params do fn_ptr (bound INCLUSOS) —
-        // `.length` e o invoke leem `arity - bound_args.len()` como a aridade
-        // visivel. O trampolim recebe (promise_h, value) = 2, promise_h bound.
-        // Com 1, `invoke_legacy_fn` fatiava 0 args e o resolve nunca settlava.
-        arity: 2,
+        arity: 1,
         name: (if is_resolve { "resolve" } else { "reject" })
             .to_string()
             .into_boxed_str(),
-        bound_this: 0,
-        has_bound_this: false,
-        bound_args: vec![promise_h as i64],
+        bound_this: promise_h as i64,
+        has_bound_this: true,
+        bound_args: Vec::new(),
         is_arrow: false,
         has_this_param: false,
-        param_kinds: vec![0u8, 0u8], // promise_h, value (ambos i64)
+        param_kinds: Vec::new(),
         return_kind: 0,
         packed_shim: 0,
         source: None,
         keep_alive: None,
         prototype_handle: 0,
         rest_param_idx: -1,
-        uniform_thunk: false,
+        uniform_thunk: true,
     })))
 }
 
-/// Trampolim resolve — invocado via FUNCTION_CALL com [promise_h, value].
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVER_TRAMP_RESOLVE(promise_h: i64, value: i64) -> i64 {
+/// Thunk uniforme resolve — env = promise handle, a0 = valor (word ou i64 raw,
+/// normalizado downstream por rebox_settled).
+extern "C" fn resolver_resolve_thunk(
+    env: u64, a0: u64, _a1: u64, _a2: u64, _a3: u64, _rest: u64,
+) -> u64 {
     use crate::promise_slot; use rts_engine::heap::handles::{with_entry, Entry};
-    let slot = with_entry(promise_h as u64, |e| match e {
+    let slot = with_entry(env, |e| match e {
         Some(Entry::PromiseAsync(s)) => Some(s.clone()),
         _ => None,
     });
     if let Some(s) = slot {
-        promise_slot::resolve(&s, value);
+        promise_slot::resolve(&s, a0 as i64);
     }
-    0
+    rts_engine::heap::poly::POLY_UNDEFINED
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVER_TRAMP_REJECT(promise_h: i64, value: i64) -> i64 {
+extern "C" fn resolver_reject_thunk(
+    env: u64, a0: u64, _a1: u64, _a2: u64, _a3: u64, _rest: u64,
+) -> u64 {
     use crate::promise_slot; use rts_engine::heap::handles::{with_entry, Entry};
-    let slot = with_entry(promise_h as u64, |e| match e {
+    let slot = with_entry(env, |e| match e {
         Some(Entry::PromiseAsync(s)) => Some(s.clone()),
         _ => None,
     });
     if let Some(s) = slot {
-        promise_slot::reject(&s, value);
+        promise_slot::reject(&s, a0 as i64);
     }
-    0
+    rts_engine::heap::poly::POLY_UNDEFINED
 }
 
 // ── Response instance methods ─────────────────────────────────────────────────

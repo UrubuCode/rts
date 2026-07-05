@@ -64,32 +64,6 @@ pub(crate) fn cache_destination_for_tool(
     Ok(dir.join(binary_file))
 }
 
-pub(crate) fn mirror_to_legacy_layout(
-    legacy_bin_dir: &Path,
-    binary_file: &str,
-    source: &Path,
-) -> Result<()> {
-    if !source.is_file() {
-        return Ok(());
-    }
-
-    std::fs::create_dir_all(legacy_bin_dir)
-        .with_context(|| format!("failed to create {}", legacy_bin_dir.display()))?;
-    let destination = legacy_bin_dir.join(binary_file);
-    if destination == source {
-        return Ok(());
-    }
-    std::fs::copy(source, &destination).with_context(|| {
-        format!(
-            "failed to mirror tool '{}' to legacy layout at {}",
-            source.display(),
-            destination.display()
-        )
-    })?;
-    set_executable_if_supported(&destination)?;
-    Ok(())
-}
-
 pub(crate) fn set_executable_if_supported(_path: &Path) -> Result<()> {
     #[cfg(unix)]
     {

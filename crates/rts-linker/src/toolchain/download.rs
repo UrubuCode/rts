@@ -8,8 +8,8 @@ use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 
 use super::paths::{
-    cache_destination_for_tool, expected_binary_name, mirror_to_legacy_layout,
-    sanitize_tool_dir_name, set_executable_if_supported,
+    cache_destination_for_tool, expected_binary_name, sanitize_tool_dir_name,
+    set_executable_if_supported,
 };
 use super::target::ToolchainLayout;
 
@@ -42,7 +42,6 @@ pub(crate) fn maybe_download_linker(
         &layout.target.triple,
         &binary_file,
     )?;
-    mirror_to_legacy_layout(&layout.bin_dir, &binary_file, &destination)?;
     if destination.is_file() {
         eprintln!(
             "RTS toolchain: using cached target '{}' from {}",
@@ -72,7 +71,6 @@ pub(crate) fn maybe_download_linker(
             destination.display()
         )
     })?;
-    mirror_to_legacy_layout(&layout.bin_dir, &binary_file, &destination)?;
     set_executable_if_supported(&destination)?;
 
     eprintln!(
@@ -94,7 +92,6 @@ pub(crate) fn maybe_download_rust_dist_linker(
         &layout.target.triple,
         &binary_name,
     )?;
-    mirror_to_legacy_layout(&layout.bin_dir, &binary_name, &destination)?;
     if destination.is_file() {
         eprintln!(
             "RTS toolchain: using cached target '{}' from {}",
@@ -122,7 +119,6 @@ pub(crate) fn maybe_download_rust_dist_linker(
             artifact.url
         );
     }
-    mirror_to_legacy_layout(&layout.bin_dir, &binary_name, &destination)?;
 
     eprintln!(
         "RTS toolchain: target '{}' downloaded and cached.",
