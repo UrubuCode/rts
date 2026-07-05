@@ -19,6 +19,10 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             globalops::__rtsadp_math_reduce as *const u8,
         ),
         sym(
+            "__rtsadp_import_meta",
+            globalops::__rtsadp_import_meta as *const u8,
+        ),
+        sym(
             "__rtsadp_canon_double",
             globalops::__rtsadp_canon_double as *const u8,
         ),

@@ -246,6 +246,41 @@ pub extern "C" fn __rtsadp_arr_is_array(a: u64) -> u64 {
 // `Array.of(...)` / `Array.from(...)` / `new Array(n)` / `Array(n)`.
 // ===========================================================================
 
+/// `import.meta` — a fresh `{ url }` object whose `url` is the entry module's
+/// `file:` URL, resolved from the PROCESS invocation (`rts run <file>` /
+/// `run-new` / an AOT binary's argv[0]). One canonical object shape; the
+/// value is real (the absolutized entry path), never a mock.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_import_meta() -> u64 {
+    let args: Vec<String> = std::env::args().collect();
+    // `rts run <file>` / `rts run-new <file>` → the file arg; an AOT binary →
+    // its own argv[0].
+    let entry = args
+        .iter()
+        .position(|a| a == "run" || a == "run-new" || a == "test" || a == "compile")
+        .and_then(|i| args.get(i + 1))
+        .or_else(|| args.first())
+        .cloned()
+        .unwrap_or_default();
+    let abs = std::fs::canonicalize(&entry)
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|_| entry.replace('\\', "/"));
+    let abs = abs.trim_start_matches("//?/").to_string();
+    let url = if abs.starts_with('/') {
+        format!("file://{abs}")
+    } else {
+        format!("file:///{abs}")
+    };
+    let obj = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    let shape = crate::shape::intern_global_shape(&["url".to_string()]);
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(obj, PolyValue::from_i32(shape as i32).raw() as i64);
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(
+        obj,
+        super::abi_adapter::intern_poly(&url).raw() as i64,
+    );
+    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(obj)).raw()
+}
+
 /// `Array(n)` / `new Array(n)` — a fresh SPARSE array of length `n`: the slots
 /// hold the HOLE singleton (reads map to `undefined`; `i in arr` is `false`;
 /// join renders empty — real JS hole semantics). `n` is a real JS number word; a

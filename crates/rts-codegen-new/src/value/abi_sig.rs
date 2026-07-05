@@ -348,6 +348,10 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, U64, U64],
             ret: U64,
         },
+        "__rtsadp_import_meta" => SymSig {
+            params: &[],
+            ret: U64,
+        },
         "__rtsadp_str_replace_w" | "__rtsadp_str_split_w" => SymSig {
             params: &[U64, U64, U64],
             ret: U64,

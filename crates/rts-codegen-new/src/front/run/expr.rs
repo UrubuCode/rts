@@ -140,6 +140,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     super::regex::regex_literal_parts(e).expect("is_regex_literal proved parts");
                 self.lower_regex_literal(module, &pattern, &flags)
             }
+            // `import.meta` — an OBJECT with the entry module's `file:` URL
+            // (resolved at RUNTIME from the process invocation, so JIT and AOT
+            // agree without a compile-time path plumb).
+            HirExprKind::Raw(text) if text.starts_with("MetaProp") => {
+                let word = self
+                    .call_runtime(module, "__rtsadp_import_meta", &[])?
+                    .expect("__rtsadp_import_meta returns an object word");
+                Ok(Val::tagged_kind(word, JsKind::Object))
+            }
             // Surface the captured SWC text of an unmodeled expression (truncated) so
             // a fixture's bail names the actual construct, not a generic placeholder.
             HirExprKind::Raw(text) => {
