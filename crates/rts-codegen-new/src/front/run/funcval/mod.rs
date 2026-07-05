@@ -1108,6 +1108,13 @@ impl Ctx {
         }
         let mut free = HashSet::new();
         let mut bound = param_names.clone();
+        // Seed with the body's OWN declarations (lexical hoisting): a nested
+        // `const step = (..) => … step(..) …` self-references FORWARD of the
+        // walk's insertion point — without the seed, `step` surfaced as a free
+        // ident outside the enclosing scope and the whole outer arrow bailed
+        // (the __awaiter executor pattern). TDZ reads aside, a body-declared
+        // name is never a capture of the OUTER scope.
+        bound.extend(declared_locals(&body_stmts));
         for s in &body_stmts {
             collect_free_stmt(s, &mut bound, &mut free);
         }
