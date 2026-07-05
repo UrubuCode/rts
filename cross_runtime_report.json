@@ -1297,10 +1297,10 @@
 ,
 {
   "name": "codex_textencoder_encodeinto_partial",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "3:5\n65,240,159,153,130\nA🙂",
   "node": "3:5\n65,240,159,153,130\nA🙂",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "3:5\n65,240,159,153,130\nA🙂"
 }
 ,
 {
@@ -3561,10 +3561,10 @@
 ,
 {
   "name": "codex_regex_sticky_lastindex_unicode",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "true:3\ntrue:5\nfalse:0\nabc:5",
   "node": "true:3\ntrue:5\nfalse:0\nabc:5",
-  "rts": "true:0\ntrue:0\ntrue:0\nabc:0"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -4871,4 +4871,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":609,"pass":449,"rts_diverge":65,"bun_node_diverge":17,"errors":78,"rejected":0}}
+],"summary":{"total":609,"pass":450,"rts_diverge":64,"bun_node_diverge":17,"errors":78,"rejected":0}}
