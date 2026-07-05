@@ -333,10 +333,12 @@ fn build_linker_args(
                 }
                 args.push("-F/System/Library/Frameworks".to_string());
             }
-            // runtime_support.a usa o backend de audio (cpal -> coreaudio) que
-            // referencia estes frameworks macOS. Raw linkers e compiler drivers
-            // precisam deles explicitos.
-            for framework in macos_audio_frameworks() {
+            // runtime_support.a references these macOS frameworks (cpal ->
+            // coreaudio for audio; winit/wgpu/egui for windowing + Metal). Raw
+            // linkers and compiler drivers both need them explicit, plus libobjc
+            // for the objc2 runtime calls winit makes.
+            args.push("-lobjc".to_string());
+            for framework in macos_frameworks() {
                 args.push("-framework".to_string());
                 args.push((*framework).to_string());
             }
@@ -437,13 +439,26 @@ fn macos_sdk_frameworks_path() -> Option<PathBuf> {
     fw.is_dir().then_some(fw)
 }
 
-fn macos_audio_frameworks() -> &'static [&'static str] {
+fn macos_frameworks() -> &'static [&'static str] {
     &[
-        // cpal -> coreaudio-rs liga estes frameworks no backend de audio macOS.
+        // cpal -> coreaudio-rs (audio backend).
         "CoreFoundation",
         "CoreAudio",
         "AudioUnit",
         "AudioToolbox",
+        // winit (windowing): AppKit windows/events, CoreGraphics display APIs
+        // (CGMainDisplayID/CGDisplayBounds/…), Carbon TIS keyboard-layout calls,
+        // CoreVideo CVDisplayLink.
+        "AppKit",
+        "Foundation",
+        "CoreGraphics",
+        "Carbon",
+        "CoreVideo",
+        // wgpu (render backend): Metal + CAMetalLayer (QuartzCore) + IOSurface.
+        "Metal",
+        "QuartzCore",
+        "IOSurface",
+        "IOKit",
     ]
 }
 
