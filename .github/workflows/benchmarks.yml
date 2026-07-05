@@ -8,11 +8,11 @@ on:
   workflow_dispatch:
     inputs:
       runs:
-        description: "Numero de execucoes por benchmark"
+        description: "Number of runs per benchmark"
         required: false
         default: "20"
       warmup:
-        description: "Numero de warmup runs"
+        description: "Number of warmup runs"
         required: false
         default: "3"
 
@@ -65,7 +65,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path target/release | Out-Null
           $exe = Get-ChildItem rts-bin -Recurse -Filter rts.exe | Select-Object -First 1
-          if (-not $exe) { throw "rts.exe nao encontrado em rts-bin/" }
+          if (-not $exe) { throw "rts.exe not found in rts-bin/" }
           Copy-Item $exe.FullName target/release/rts.exe
           Write-Host "staged $($exe.FullName) -> target/release/rts.exe"
 

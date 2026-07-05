@@ -7,7 +7,7 @@ number in `tests/cross-runtime/`.
 
 > Current coverage status: see
 > [README](../../README.md) (auto-updated badge) or
-> `cross_runtime_history/index.json` for the trend.
+> `.github/cross_runtime_history/index.json` for the trend.
 
 ## How to use this document
 

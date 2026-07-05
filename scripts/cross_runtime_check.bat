@@ -5,7 +5,7 @@ REM compara stdouts. Retorna 0 se todos batem; 1 se houve divergencia.
 setlocal enabledelayedexpansion
 
 set FIXTURES_DIR=tests\cross-runtime
-set REPORT_FILE=cross_runtime_report.json
+set REPORT_FILE=.githuboss_runtime_report.json
 
 REM Auto-detect RTS bin
 if "%RTS_BIN%"=="" (

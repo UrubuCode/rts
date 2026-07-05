@@ -6,20 +6,20 @@ on:
     tags: ["v*"]
   pull_request:
   schedule:
-    # Segunda 03:00 UTC — roda o build + cross-runtime semanalmente para pegar
-    # regressoes em deps (Bun/Node) sem depender de um push.
+    # Monday 03:00 UTC — runs the build + cross-runtime weekly to catch dep
+    # regressions (Bun/Node) without depending on a push.
     - cron: "0 3 * * 1"
   workflow_dispatch:
 
 permissions:
-  contents: write       # criar release em push para main + badge cross-runtime
-  issues: write         # cross-runtime: auto-create de issue em divergencia
-  pull-requests: write  # cross-runtime: comentar em PR
+  contents: write       # create release on push to main + cross-runtime badge
+  issues: write         # cross-runtime: auto-create issues on divergence
+  pull-requests: write  # cross-runtime: PR comments
 
-# Um push novo SUPERSEDE o build anterior do mesmo ref: sem isto, cada commit
-# na main abria um build multi-hora novo e os antigos ficavam "in progress"
-# acumulando até saturar os runners hospedados (a fila inteira travou —
-# 2026-07-04, 17 runs presos). Só o build do commit mais recente importa.
+# A new push SUPERSEDES the previous build of the same ref: without this, every
+# commit to main opened a new multi-hour build while the old ones stayed "in
+# progress", piling up until the hosted runners saturated (the whole queue
+# stalled — 2026-07-04, 17 stuck runs). Only the latest commit's build matters.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -34,8 +34,8 @@ jobs:
       - name: Compute version
         id: compute
         run: |
-          # v0.0-<UTC timestamp YYYYMMDDHHMM>. Compartilhado entre os 3 jobs
-          # de build para que os artifacts saiam com o mesmo nome de versao.
+          # v0.0-<UTC timestamp YYYYMMDDHHMM>. Shared across the 3 build jobs
+          # so the artifacts come out with the same version name.
           VERSION="v0.0-$(date -u +%Y%m%d%H%M)"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Computed VERSION=$VERSION"
@@ -163,7 +163,7 @@ jobs:
       pull-requests: write
 
   release:
-    # So' cria release em push para main (nao em PRs nem dispatch).
+    # Only create a release on push to main (not on PRs or dispatch).
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [version, build]
     runs-on: ubuntu-latest
@@ -186,11 +186,11 @@ jobs:
           tag_name: ${{ needs.version.outputs.version }}
           name: ${{ needs.version.outputs.version }}
           body: |
-            Build automatico de `main` em ${{ needs.version.outputs.version }}.
+            Automated build of `main` at ${{ needs.version.outputs.version }}.
 
             Commit: ${{ github.sha }}
 
-            Binarios:
+            Binaries:
             - Linux x64
             - Windows x64
             - macOS ARM64

@@ -24,12 +24,12 @@ Prerequisites: `bun` and `node` on PATH.
 
 ## Externally consumable JSON report
 
-The CI commits `cross_runtime_report.json` at the repo root on every update
+The CI commits `.github/cross_runtime_report.json` on every update
 (push to `main` + weekly schedule). Any external dashboard can
 consume it via raw URL:
 
 ```
-https://raw.githubusercontent.com/UrubuCode/rts/main/cross_runtime_report.json
+https://raw.githubusercontent.com/UrubuCode/rts/main/.github/cross_runtime_report.json
 ```
 
 Structure:
@@ -173,8 +173,8 @@ with labels `cat:<category>` + `cross-runtime` + `bug`.
 
 ## Weekly history
 
-The CI commits a snapshot to `cross_runtime_history/YYYY-MM-DD.json`
-on each schedule run (1× per week). The `cross_runtime_history/index.json`
+The CI commits a snapshot to `.github/cross_runtime_history/YYYY-MM-DD.json`
+on each schedule run (1× per week). The `.github/cross_runtime_history/index.json`
 file keeps a chronological list for dashboards to consume:
 
 ```json
@@ -191,7 +191,7 @@ fixtures without full outputs — saving space long-term.
 ## GitHub Pages dashboard
 
 The `parity.html` page on the project's GitHub Pages consumes
-`cross_runtime_report.json` + `cross_runtime_history/index.json` and renders:
+`.github/cross_runtime_report.json` + `.github/cross_runtime_history/index.json` and renders:
 
 - **Current parity %** (big number)
 - **Stats**: pass / diverge / error / total
@@ -201,7 +201,7 @@ The `parity.html` page on the project's GitHub Pages consumes
 Final URL: `https://urubucode.github.io/rts/parity.html`
 
 Updated automatically when the cross-runtime workflow finishes on
-main or when `cross_runtime_report.json` changes.
+main or when `.github/cross_runtime_report.json` changes.
 
 ## Known cross-runtime bugs (track)
 

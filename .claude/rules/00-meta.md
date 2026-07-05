@@ -81,7 +81,7 @@ tree on disk over the doc's paths.
 
 1. Work is picked by the loop **measure → attack the biggest failure cluster →
    re-measure**. Measure with `bash measure_new.sh` (per-file pass/bail histogram)
-   and the cross-runtime report (`cross_runtime_report.json`). The biggest cluster
+   and the cross-runtime report (`.github/cross_runtime_report.json`). The biggest cluster
    is the biggest lever; resolving it reveals the next.
 2. Run the suite incrementally (not only at the end).
 3. The honesty + build floor never lifts: no fixture deleted/disabled/hardcoded to
@@ -158,7 +158,7 @@ Do not act on stale numbers or a stale architecture. The "94.3%" / "100%" /
 - **Honest parity now: ~76.5%** as of 2026-07-05 (auto-updated badge; climbed
   from 31.5% on 2026-06-23). The engine has the sound value model and keeps
   re-filling JS/TS coverage. **Always re-measure
-  (`cross_runtime_report.json`); never quote a remembered number.**
+  (`.github/cross_runtime_report.json`); never quote a remembered number.**
 - **Surface + threading direction docs** (2026-07-05):
   `docs/specs/rts-std-surface.md` (public-surface redesign — read before any
   namespace/public-API change) and `docs/specs/rts-threading-model.md`
