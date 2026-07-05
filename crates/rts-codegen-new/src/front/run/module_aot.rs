@@ -48,13 +48,19 @@ pub(crate) fn compile_program_aot(prog: &super::LoweredProgram) -> FrontResult<V
 
 /// Host-target `ObjectModule` with the EXACT same flags as the JIT
 /// ([`super::module_jit`]): `opt_level=speed`, nothing else. We deliberately do
-/// NOT set `is_pic` — on Windows/COFF it changes addressing/relocation in a way
-/// that produced a startup stack overflow (emitted code called through bad
-/// relocations). The final binary is statically linked, so non-PIC is correct on
-/// every host; matching the JIT flags keeps AOT codegen == JIT codegen.
+/// NOT set `is_pic` on Windows/COFF or Linux/ELF — on COFF it changes
+/// addressing/relocation in a way that produced a startup stack overflow
+/// (emitted code called through bad relocations), and the final binary is
+/// statically linked so non-PIC is correct there. macOS is the EXCEPTION:
+/// arm64 Mach-O executables are PIE (ASLR mandatory), and non-PIC absolute
+/// relocations in text crash at startup (Bus error: 10 on the CI AOT smoke) —
+/// so `is_pic` is set on macOS only.
 fn make_object_module() -> FrontResult<ObjectModule> {
     let mut flags = settings::builder();
     flags.set("opt_level", "speed").unwrap();
+    if cfg!(target_os = "macos") {
+        flags.set("is_pic", "true").unwrap();
+    }
     // Required by `return_call` (TCO) on x86-64 — the JIT sets it too; without
     // it Cranelift panics ("frame pointers aren't fundamentally required for
     // tail calls, but the current implementation relies on them").
