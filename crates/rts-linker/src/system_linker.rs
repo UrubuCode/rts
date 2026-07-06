@@ -500,6 +500,9 @@ fn macos_frameworks() -> &'static [&'static str] {
         "QuartzCore",
         "IOSurface",
         "IOKit",
+        // glutin/glow GL fallback (egui glow backend): CGL context creation
+        // (_CGLErrorString/_CGLSetParameter/_CGLChoosePixelFormat/…).
+        "OpenGL",
     ]
 }
 
