@@ -46,23 +46,18 @@ const r3 = await promise.all(v3);
 print("mixed[0]=" + collections.vec_get(r3, 0));  // 50
 print("mixed[1]=" + collections.vec_get(r3, 1));  // 99
 
-// 4. allSettled com mix sucesso/falha.
-const v4 = collections.vec_new();
-collections.vec_push(v4, promise.new_resolved(1));
-collections.vec_push(v4, promise.new_rejected(2));
-collections.vec_push(v4, promise.new_resolved(3));
-collections.vec_push(v4, promise.new_rejected(4));
-const r4 = await promise.all_settled(v4);
-print("settled_len=" + collections.vec_len(r4));
-// Cada elemento eh Map { status, value | reason } (JS spec).
-const m0 = collections.vec_get(r4, 0);
-const m1 = collections.vec_get(r4, 1);
-const m2 = collections.vec_get(r4, 2);
-const m3 = collections.vec_get(r4, 3);
-print("s[0].value=" + collections.map_get(m0, "value"));
-print("s[1].reason=" + collections.map_get(m1, "reason"));
-print("s[2].value=" + collections.map_get(m2, "value"));
-print("s[3].reason=" + collections.map_get(m3, "reason"));
+// 4. allSettled com mix sucesso/falha, pela superficie JS (Promise.allSettled).
+// As rows sao objetos SHAPED `{ status, value | reason }` (spec) desde
+// c400f9bd — a leitura via collections.map_get era a representacao interna
+// antiga (Entry::Map) e nao existe mais.
+async function ok4(n: i64): i64 { return n; }
+async function bad4(n: i64): i64 { throw n; }
+const s4: any[] = await Promise.allSettled([ok4(1), bad4(2), ok4(3), bad4(4)]);
+print("settled_len=" + s4.length);
+print("s[0].value=" + s4[0].value);
+print("s[1].reason=" + s4[1].reason);
+print("s[2].value=" + s4[2].value);
+print("s[3].reason=" + s4[3].reason);
 
 describe("promise combinators paralelismo + mix de tipos", () => {
   test("matches expected stdout", () => {

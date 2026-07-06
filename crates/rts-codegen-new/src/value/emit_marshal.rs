@@ -159,6 +159,19 @@ pub fn emit_new_vec_object(module: &mut dyn Module, builder: &mut FunctionBuilde
     box_handle_as(module, builder, handle, super::TAG_OBJECT)
 }
 
+/// Box a real runtime HANDLE as a `TAG_OBJECT` PolyValue word. Used by the
+/// uniform thunk for a lazy-generator return: the outer fn hands back a raw
+/// GenState handle (`Int64`), but a DYNAMIC consumer (spread / for-of / `new
+/// Map(iterable)` over a Tagged receiver) needs an object word it can
+/// `POLY_TO_HANDLE` back to the `Entry::GenState`.
+pub fn emit_box_object_handle(
+    module: &mut dyn Module,
+    builder: &mut FunctionBuilder,
+    real_handle: Value,
+) -> Value {
+    box_handle_as(module, builder, real_handle, super::TAG_OBJECT)
+}
+
 /// Box a real runtime handle as a PolyValue of `tag` (`TAG_OBJECT`/`TAG_STR`/…):
 /// `POLY_FROM_HANDLE` drops the generation to the bare 48-bit slot+shard, then
 /// `BOX_BASE | (tag<<48) | (payload & PAYLOAD_MASK)` assembles the word.

@@ -107,6 +107,13 @@ pub extern "C" fn __rtsadp_to_iter_array(word: u64) -> u64 {
                     let arr_h = rts_runtime::namespaces::collector::generator::__RTS_FN_NS_GC_GEN_SM_DRAIN(h);
                     return box_vec_as_array(arr_h);
                 }
+                // An EAGER generator method (`*[Symbol.iterator]` desugared to a
+                // `__gen_buf` buffer — the `.ts` stdlib Set/Map shape) returned
+                // the materialized element ARRAY itself: walk it directly. The
+                // `{next}` drive below would silently read an empty walk off it.
+                if !looks_like_object(itv) {
+                    return it;
+                }
                 let next_key = abi_adapter::intern_poly("next").raw();
                 let done_key = abi_adapter::intern_poly("done").raw();
                 let value_key = abi_adapter::intern_poly("value").raw();
@@ -483,6 +490,15 @@ pub extern "C" fn __rtsadp_iter_open(word: u64) -> u64 {
                 let arr = box_vec_as_array(arr_h);
                 rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(d, PolyValue::from_i32(0).raw() as i64);
                 rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(d, arr as i64);
+                rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(d, PolyValue::from_i32(0).raw() as i64);
+                return box_vec_as_array(d);
+            }
+            // An EAGER generator method returned the materialized element ARRAY
+            // itself (the `.ts` stdlib Set/Map `*[Symbol.iterator]` shape):
+            // walk it as a kind-0 array cursor.
+            if !looks_like_object(iv) {
+                rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(d, PolyValue::from_i32(0).raw() as i64);
+                rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(d, it as i64);
                 rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(d, PolyValue::from_i32(0).raw() as i64);
                 return box_vec_as_array(d);
             }

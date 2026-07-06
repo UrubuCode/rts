@@ -246,6 +246,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 {
                     return Ok(Some(val));
                 }
+                // ABSOLUTE LAST: generic proto-chain dispatch (`x.m(a)` reads
+                // `m` off the receiver/proto and invokes it; runtime TypeError
+                // on a miss). After every specific path so it can't shadow the
+                // Registry/user-class virtual dispatch.
+                if let Some(val) =
+                    self.try_generic_dyn_method_call(module, recv, method, args)?
+                {
+                    return Ok(Some(val));
+                }
                 return Ok(None);
             }
             return Ok(None);

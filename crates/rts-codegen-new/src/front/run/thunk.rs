@@ -187,8 +187,17 @@ fn build_thunk_body(
     let real_ref = module.declare_func_in_func(real_id, fb.func);
     let call = fb.ins().call(real_ref, &call_args);
 
-    // Box the result back to a PolyValue word per the real return repr.
+    // Box the result back to a PolyValue word per the real return repr. A LAZY
+    // GENERATOR outer returns a raw GenState HANDLE (`Int64`) — boxing it as a
+    // double corrupts it for every dynamic consumer (a Tagged spread / for-of /
+    // `next()` saw a number and threw "not iterable"); box it as an OBJECT word
+    // instead, the same shape `__rtsadp_to_iter_array`/`iter_open` detect via
+    // `Entry::GenState`.
     let ret_word = match sig.ret {
+        Some(_) if sig.ret_lazy_gen => {
+            let v = fb.inst_results(call)[0];
+            emit_marshal::emit_box_object_handle(module, fb, v)
+        }
         Some(ret) => {
             let v = fb.inst_results(call)[0];
             box_repr_to_word(fb, v, ret)

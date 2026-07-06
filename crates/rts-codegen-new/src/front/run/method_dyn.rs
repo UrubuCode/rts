@@ -335,37 +335,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .iter()
             .find(|m| m.name == method && m.argc == args.len())
         else {
-            // GENERIC method dispatch on a Tagged receiver: read `method` off
-            // the receiver (own slot or the PROTOTYPE chain — every class
-            // publishes its methods on the proto) and invoke it as a method
-            // (`this` = recv). This is what makes `x.forEach(cb)` /
-            // `x.anyUserMethod(a)` on an `any`-typed local resolve WITHOUT the
-            // engine knowing the class's layout or name (fully data-driven).
-            // A miss (no such method) → the runtime returns `undefined` after a
-            // TypeError sentinel, so bail here only when we can't box args.
-            if args.len() <= 3 {
-                let recv_word = self.box_value(recv);
-                let key = crate::value::abi_adapter::intern_poly(method);
-                let key_w = self
-                    .builder
-                    .ins()
-                    .iconst(types::I64, key.raw() as i64);
-                let undef = || crate::value::PolyValue::undefined().raw() as i64;
-                let mut slots = [self.builder.ins().iconst(types::I64, undef()); 3];
-                for (i, a) in args.iter().enumerate() {
-                    let v = self.lower_expr(module, a)?;
-                    slots[i] = self.box_value(v);
-                }
-                let word = self
-                    .call_runtime(
-                        module,
-                        "__rtsadp_dyn_method_call",
-                        &[recv_word, key_w, slots[0], slots[1], slots[2]],
-                    )?
-                    .expect("__rtsadp_dyn_method_call returns a value");
-                self.emit_post_call_error_check(module)?;
-                return Ok(Some(Val::new(word, crate::repr::Repr::Tagged)));
-            }
+            // Not in the table: `Ok(None)` — the caller keeps trying the MORE
+            // SPECIFIC dynamic paths (user-class virtual, String prelude,
+            // Registry-class virtual) and only THEN falls to the generic
+            // proto-chain dispatch ([`Self::try_generic_dyn_method_call`]).
+            // Emitting the generic call HERE swallowed those paths (a Tagged
+            // `Date` receiver's `.getTime()` threw TypeError instead of
+            // resolving through the Registry — the structuredClone regression).
             return Ok(None);
         };
 
@@ -382,6 +358,45 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .call_runtime(module, m.symbol, &call_args)?
             .expect("a dynamic-dispatch trampoline returns a value");
         Ok(Some(self.tag_dyn_result(word, m.ret_kind)))
+    }
+
+    /// GENERIC method dispatch on a Tagged receiver — the LAST dynamic resort,
+    /// tried only after every specific path (dyn table, user-class virtual,
+    /// String prelude, Registry-class virtual) declined: read `method` off the
+    /// receiver (own slot or the PROTOTYPE chain — every user/`.ts` class
+    /// publishes its methods on the proto) and invoke it as a method (`this` =
+    /// recv). This is what makes `x.anyUserMethod(a)` on an `any`-typed local
+    /// resolve WITHOUT the engine knowing the class's layout or name (fully
+    /// data-driven). A runtime miss throws TypeError (JS). `Ok(None)` only when
+    /// the args don't fit the 3-slot trampoline (the caller bails).
+    pub(super) fn try_generic_dyn_method_call(
+        &mut self,
+        module: &mut dyn Module,
+        recv: Val,
+        method: &str,
+        args: &[HirExpr],
+    ) -> FrontResult<Option<Val>> {
+        if args.len() > 3 || args.iter().any(is_callback_arg) {
+            return Ok(None);
+        }
+        let recv_word = self.box_value(recv);
+        let key = crate::value::abi_adapter::intern_poly(method);
+        let key_w = self.builder.ins().iconst(types::I64, key.raw() as i64);
+        let undef = || crate::value::PolyValue::undefined().raw() as i64;
+        let mut slots = [self.builder.ins().iconst(types::I64, undef()); 3];
+        for (i, a) in args.iter().enumerate() {
+            let v = self.lower_expr(module, a)?;
+            slots[i] = self.box_value(v);
+        }
+        let word = self
+            .call_runtime(
+                module,
+                "__rtsadp_dyn_method_call",
+                &[recv_word, key_w, slots[0], slots[1], slots[2]],
+            )?
+            .expect("__rtsadp_dyn_method_call returns a value");
+        self.emit_post_call_error_check(module)?;
+        Ok(Some(Val::new(word, crate::repr::Repr::Tagged)))
     }
 
     /// Lower the dynamic `.slice(start[, end])`: box the receiver + start, supply
