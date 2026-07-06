@@ -1,0 +1,558 @@
+{
+  "date": "2026-07-06",
+  "summary": {
+    "total": 609,
+    "pass": 456,
+    "rts_diverge": 62,
+    "bun_node_diverge": 17,
+    "errors": 74,
+    "rejected": 0
+  },
+  "pct": 77,
+  "divergent": [
+    {
+      "name": "303_array_fromasync",
+      "status": "rts_error"
+    },
+    {
+      "name": "418_array_species_subclass",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_array_concat_spreadable_edges",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_array_from_iterator_close_on_throw",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_array_iterator_reused_result_object",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_array_length_define_traps",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_array_methods_thisarg_mutation",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_array_species_constructor_poison",
+      "status": "rts_error"
+    },
+    {
+      "name": "102_bigint_ops",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "291_json_bigint",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "317_bigint_literals",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "65_bigint_typed_arrays",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_bigint_asuintn_edges",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_bigint_typedarray_clamp_wrap",
+      "status": "rts_error"
+    },
+    {
+      "name": "106_error_stack_presence",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "267_private_fields",
+      "status": "rts_error"
+    },
+    {
+      "name": "268_private_methods",
+      "status": "rts_error"
+    },
+    {
+      "name": "270_new_target",
+      "status": "rts_error"
+    },
+    {
+      "name": "271_computed_class_members",
+      "status": "rts_error"
+    },
+    {
+      "name": "374_private_static_methods",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "376_private_pattern_advanced",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_class_computed_private_static_order",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_class_static_block_throw_order",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_class_super_field_order",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_instanceof_custom_hasinstance",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_reflect_construct_newtarget_subclass",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_map_forEach_clear_readd",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_map_iteration_mutation",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_set_iteration_mutation",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "79_subtle_digest",
+      "status": "rts_error"
+    },
+    {
+      "name": "393_promise_microtask",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-compose-reassigned-binding",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-let-vs-var-loop-closures",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-var-and-fn-hoisting",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_arguments_callee_shape",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_bound_constructor_new_target",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_closure_eval_mutates_outer",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_function_constructor_scope",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_function_name_inferred_destructure",
+      "status": "rts_error"
+    },
+    {
+      "name": "308_finalization_registry_shape",
+      "status": "rts_error"
+    },
+    {
+      "name": "379_yield_star",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_async_generator_yield_await_finally",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_generator_delegation_exception_path",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_yield_star_iterator_return_chain",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "59_intl_basics",
+      "status": "rts_error"
+    },
+    {
+      "name": "71_intl_segmenter",
+      "status": "rts_error"
+    },
+    {
+      "name": "78_intl_more",
+      "status": "rts_error"
+    },
+    {
+      "name": "305_iterator_helpers",
+      "status": "rts_error"
+    },
+    {
+      "name": "392_async_iterator_advanced",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_async_iterator_break_close",
+      "status": "rts_error"
+    },
+    {
+      "name": "293_json_reviver_this",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_json_bigint_tojson_monkeypatch",
+      "status": "rts_error"
+    },
+    {
+      "name": "100_dynamic_import",
+      "status": "rts_error"
+    },
+    {
+      "name": "344_bundler_helpers",
+      "status": "rts_error"
+    },
+    {
+      "name": "356_obf_dispatcher",
+      "status": "rts_error"
+    },
+    {
+      "name": "394_structuredclone_complex",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_structuredclone_transfer_detach",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "198_number_parseint_parsefloat",
+      "status": "rts_error"
+    },
+    {
+      "name": "367_coercion_traps",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-toprimitive-valueof-vs-tostring",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_date_toprimitive_addition",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_numeric_relational_coercion",
+      "status": "rts_error"
+    },
+    {
+      "name": "210_object_tostring",
+      "status": "rts_error"
+    },
+    {
+      "name": "336_prototype_chain",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "354_obf_proxy_trap",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "359_obf_getter_smuggle",
+      "status": "rts_error"
+    },
+    {
+      "name": "368_iterator_protocol",
+      "status": "rts_error"
+    },
+    {
+      "name": "382_field_init_order",
+      "status": "rts_error"
+    },
+    {
+      "name": "387_object_create_descriptors",
+      "status": "rts_error"
+    },
+    {
+      "name": "388_globalThis",
+      "status": "rts_error"
+    },
+    {
+      "name": "389_proto_accessor",
+      "status": "rts_error"
+    },
+    {
+      "name": "396_property_key_coercion",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "408_object_spread_getter_order",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "98_proxy_invariants",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-json-tojson-hook",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-spread-getter-to-data",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-spread-override-order",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_freeze_typedarray_error",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_getownpropertydescriptor_array_length",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_object_define_accessor_delete",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_ownkeys_order_symbols",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_proxy_construct_apply_newtarget",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_proxy_getprototypeof_invariant",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_proxy_revocable_edges",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_reflect_set_prototype_cycle",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_lru_cache_map_order",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_reactive_dependency_tracker",
+      "status": "rts_error"
+    },
+    {
+      "name": "116_promise_finally",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "167_promise_race_any",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "304_promise_try",
+      "status": "rts_error"
+    },
+    {
+      "name": "365_async_patterns",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "42_promise_deep",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_promise_all_order_thenables",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_promise_any_rejection_order",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_promise_finally_thenable",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "171_regexp_lastindex",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "366_regex_advanced",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "39_regex_deep",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "404_regexp_replace_named_callback",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "70_regex_indices",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_regex_sticky_lastindex_unicode",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "88_compression_stream",
+      "status": "rts_error"
+    },
+    {
+      "name": "203_string_localecompare_numeric",
+      "status": "rts_error"
+    },
+    {
+      "name": "91_string_wellformed",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-at-negative-index",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-lone-surrogate-iteration",
+      "status": "rts_error"
+    },
+    {
+      "name": "claude-padstart-unicode",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "claude-tostring-vs-valueof-hint",
+      "status": "rts_error"
+    },
+    {
+      "name": "273_symbol_asynciterator",
+      "status": "rts_error"
+    },
+    {
+      "name": "378_symbol_species_hasinstance",
+      "status": "rts_error"
+    },
+    {
+      "name": "402_template_toPrimitive_order",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_symbol_toStringTag_custom",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_symbol_unscopables_with",
+      "status": "rts_error"
+    },
+    {
+      "name": "251_array_constructor_spread",
+      "status": "rts_error"
+    },
+    {
+      "name": "300_this_strict_top_level",
+      "status": "rts_error"
+    },
+    {
+      "name": "331_labeled_statements",
+      "status": "rts_error"
+    },
+    {
+      "name": "343_optional_chaining",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "352_obf_control_flow_flat",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "360_obf_iife_scope",
+      "status": "rts_error"
+    },
+    {
+      "name": "398_destructure_rest_computed_keys",
+      "status": "rts_error"
+    },
+    {
+      "name": "399_default_param_temporal_order",
+      "status": "rts_error"
+    },
+    {
+      "name": "400_eval_scope_edges",
+      "status": "rts_error"
+    },
+    {
+      "name": "417_nested_optional_call_this_binding",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_destructuring_iterator_close_on_default_throw",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_for_in_shadowed_var_closure",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_tdz_typeof_let",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_try_finally_control_flow",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_dataview_offsets_endian_mix",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_typedarray_set_overlap",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_typedarray_species_slice",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_typedarray_subarray_shared_sort",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_typedarray_toStringTag",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "67_url_patternish",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_url_relative_resolution",
+      "status": "rts_error"
+    },
+    {
+      "name": "codex_url_username_password_encoding",
+      "status": "rts_diverge"
+    },
+    {
+      "name": "codex_urlsearchparams_live_sort",
+      "status": "rts_diverge"
+    }
+  ]
+}
