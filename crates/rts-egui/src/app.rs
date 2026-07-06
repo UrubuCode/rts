@@ -118,16 +118,7 @@ fn build(
     // janela winit já criada com outra config), então é um ramo próprio.
     #[cfg(feature = "glow-backend")]
     if cfg.use_glow {
-        let (window, glow_state) =
-            crate::glbackend::GlowState::build(event_loop, title, width, height, chrome)?;
-        let (egui_ctx, egui_state) = make_egui(&window);
-        return Ok(BuiltWindow {
-            window,
-            egui_ctx,
-            egui_state,
-            backend: Backend::Glow(glow_state),
-            transparent: chrome.transparent,
-        });
+        return build_glow(event_loop, title, width, height, chrome);
     }
 
     // Caminho wgpu (default).
@@ -147,7 +138,22 @@ fn build(
         .map_err(|e| format!("create_window: {e}"))?;
     let window = Arc::new(window);
 
-    let render = RenderState::new(window.clone(), cfg, chrome.transparent)?;
+    let render = match RenderState::new(window.clone(), cfg, chrome.transparent) {
+        Ok(r) => r,
+        // wgpu falhou (ex.: driver Vulkan incompleto — Ivy Bridge/Mesa em Linux):
+        // cai pro backend glow/GL quando compilado (design §8: "glow: onde o wgpu
+        // não inicializa"). A janela wgpu é dropada; o glutin cria a sua própria.
+        #[cfg(feature = "glow-backend")]
+        Err(e) => {
+            eprintln!(
+                "rts-egui: wgpu backend failed ({e}); falling back to OpenGL (glow)"
+            );
+            drop(window);
+            return build_glow(event_loop, title, width, height, chrome);
+        }
+        #[cfg(not(feature = "glow-backend"))]
+        Err(e) => return Err(e),
+    };
     let (egui_ctx, egui_state) = make_egui(&window);
 
     Ok(BuiltWindow {
@@ -155,6 +161,30 @@ fn build(
         egui_ctx,
         egui_state,
         backend: Backend::Wgpu(render),
+        transparent: chrome.transparent,
+    })
+}
+
+/// Cria janela + contexto GL via glutin e monta o backend glow. Ramo próprio
+/// porque o glutin cria a janela JUNTO da GlConfig (não reusa uma janela winit
+/// já criada). Usado pelo `use_glow` explícito E pelo fallback automático
+/// quando o wgpu não inicializa.
+#[cfg(feature = "glow-backend")]
+fn build_glow(
+    event_loop: &ActiveEventLoop,
+    title: &str,
+    width: u32,
+    height: u32,
+    chrome: crate::frame::WindowChrome,
+) -> Result<BuiltWindow, String> {
+    let (window, glow_state) =
+        crate::glbackend::GlowState::build(event_loop, title, width, height, chrome)?;
+    let (egui_ctx, egui_state) = make_egui(&window);
+    Ok(BuiltWindow {
+        window,
+        egui_ctx,
+        egui_state,
+        backend: Backend::Glow(glow_state),
         transparent: chrome.transparent,
     })
 }
@@ -263,7 +293,20 @@ pub extern "C" fn __RTS_FN_NS_EGUI_OPEN_WINDOW(
         }
         match builder.out.take() {
             Some(Ok(b)) => Some(b),
-            _ => None,
+            // A falha era SILENCIOSA (retornava handle 0 e o app saía sem
+            // explicação — ex.: driver Vulkan incompleto). Sempre reporta o
+            // motivo no stderr antes de devolver 0.
+            Some(Err(e)) => {
+                eprintln!("rts-egui: openWindow failed: {e}");
+                None
+            }
+            None => {
+                eprintln!(
+                    "rts-egui: openWindow failed: event loop never delivered the \
+                     window-creation callback"
+                );
+                None
+            }
         }
     });
 
