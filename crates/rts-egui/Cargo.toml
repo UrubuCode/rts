@@ -68,12 +68,18 @@ glutin = { version = "0.32", optional = true, default-features = false, features
     "wgl",
     "glx",
     "x11",
+    # Sem `wayland`, uma sessão Wayland (handle de janela Wayland do winit, que
+    # COMPILA x11+wayland) morre em create_window_surface com "provided native
+    # window is not supported" — o mesmo sintoma do EGL quebrado, mas por
+    # feature faltante.
+    "wayland",
 ] }
 glutin-winit = { version = "0.5", optional = true, default-features = false, features = [
     "egl",
     "wgl",
     "glx",
     "x11",
+    "wayland",
 ] }
 raw-window-handle = { version = "0.6", optional = true }
 
