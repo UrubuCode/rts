@@ -17,12 +17,18 @@ clearTimeout(h2);
 time.sleep_ms(50);
 const fired2_end = fired2;
 
-// 3. setInterval dispara periodicamente. Janela LARGA (100ms / 15ms ~ 6
-// fires esperados) com bounds folgados nos DOIS lados: um runner de CI
-// lento (macos) pausa a VM e derruba a contagem — `> 2` em 70ms flakava.
+// 3. setInterval dispara periodicamente. NAO usa janela fixa: um runner de
+// CI lento (macos) pausa a VM e o pump colapsa os ticks perdidos em 1 (o
+// re-enqueue e `agora+periodo`, sem backlog — correto), entao QUALQUER
+// janela fixa flaka (ja alargaram 70ms→100ms e continuou). Espera ATE a
+// condicao (>= 3 ticks) com teto generoso de 2s so' pra nao pendurar; no
+// caminho feliz sai em ~45ms.
 let count3 = 0;
 const h3 = setInterval(() => { count3 = count3 + 1; }, 15);
-time.sleep_ms(100);
+const t3 = time.now_ms();
+while (count3 < 3 && time.now_ms() - t3 < 2000) {
+  time.sleep_ms(15);
+}
 clearInterval(h3);
 time.sleep_ms(30);
 const count3_end = count3;
