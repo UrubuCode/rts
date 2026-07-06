@@ -256,12 +256,20 @@ fn build_linker_args(
             args.push("-ldl".to_string());
             if !syslib_paths.is_empty() {
                 args.push("-lc".to_string());
-                // libgcc_s provides stack unwinding; only link if present on this system.
-                if syslib_paths
-                    .iter()
-                    .any(|p| p.join("libgcc_s.so.1").is_file() || p.join("libgcc_s.so").is_file())
-                {
+                // libgcc_s provides stack unwinding; only link if present on this
+                // system. `-lgcc_s` only resolves `libgcc_s.so`/`.a` — the bare
+                // runtime `libgcc_s.so.1` (present WITHOUT the gcc dev package,
+                // which owns the `.so` symlink) does NOT satisfy it and ld.lld
+                // errors "unable to find library -lgcc_s". Pass the versioned
+                // file by full path in that case.
+                if syslib_paths.iter().any(|p| p.join("libgcc_s.so").is_file()) {
                     args.push("-lgcc_s".to_string());
+                } else if let Some(so1) = syslib_paths
+                    .iter()
+                    .map(|p| p.join("libgcc_s.so.1"))
+                    .find(|p| p.is_file())
+                {
+                    args.push(so1.display().to_string());
                 }
             }
             // Fecha --start-group apos todas as libs.
