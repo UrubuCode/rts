@@ -210,6 +210,16 @@ fn build_linker_args(
             } else {
                 Vec::new()
             };
+            // Raw linkers also do NOT set a default PT_INTERP (GNU ld does; lld
+            // does not): a dynamically-linked exe without it never runs the
+            // dynamic loader — libc symbols stay unrelocated and the binary
+            // segfaults on the first call. Probe the platform loader path.
+            if linker.is_raw_linker() {
+                if let Some(interp) = elf_dynamic_linker(&target.triple) {
+                    args.push("-dynamic-linker".to_string());
+                    args.push(interp.display().to_string());
+                }
+            }
             for crt in ["crt1.o", "crti.o"] {
                 if let Some(p) = find_crt_object(&syslib_paths, crt) {
                     args.push(p.display().to_string());
@@ -353,6 +363,29 @@ fn build_linker_args(
             Ok(args)
         }
     }
+}
+
+/// The platform's dynamic-loader path (`PT_INTERP`) for a raw ELF link, probed
+/// on disk: glibc first (the overwhelmingly common case), then musl. `None`
+/// (no loader found) leaves the args unchanged — a fully-static system would
+/// not have one, and adding a bogus path is worse than the linker's default.
+fn elf_dynamic_linker(triple: &str) -> Option<PathBuf> {
+    let lower = triple.to_ascii_lowercase();
+    let candidates: &[&str] = if lower.starts_with("x86_64-") {
+        &[
+            "/lib64/ld-linux-x86-64.so.2",
+            "/lib/ld-linux-x86-64.so.2",
+            "/lib/ld-musl-x86_64.so.1",
+        ]
+    } else if lower.starts_with("aarch64-") {
+        &["/lib/ld-linux-aarch64.so.1", "/lib/ld-musl-aarch64.so.1"]
+    } else {
+        &[]
+    };
+    candidates
+        .iter()
+        .map(PathBuf::from)
+        .find(|p| p.is_file())
 }
 
 /// Probe standard library search paths on the current Linux system.
