@@ -58,15 +58,22 @@ egui_glow = { version = "0.34.3", optional = true, default-features = false }
 glow = { version = "0.16", optional = true }
 # glutin cria o CONTEXTO GL (egui_glow só pinta sobre um contexto já corrente).
 # glutin 0.32 + glutin-winit 0.5 casam com winit 0.30 (raw-window-handle 0.6).
-# `wgl` = Windows, `egl` = ANGLE/Linux/Wayland. Gated por `glow-backend` — não
-# entram no build wgpu default.
+# `wgl` = Windows, `egl` = ANGLE/Linux/Wayland, `glx` = X11 clássico. O glx é
+# ESSENCIAL no fallback glow em GPU antiga (Ivy Bridge): Mesa velho sem EGL
+# device / sem Vulkan (ZINK) falha o caminho EGL inteiro, mas GLX via X11
+# funciona — o glutin-winit escolhe a API disponível. Gated por `glow-backend`
+# — não entram no build wgpu default.
 glutin = { version = "0.32", optional = true, default-features = false, features = [
     "egl",
     "wgl",
+    "glx",
+    "x11",
 ] }
 glutin-winit = { version = "0.5", optional = true, default-features = false, features = [
     "egl",
     "wgl",
+    "glx",
+    "x11",
 ] }
 raw-window-handle = { version = "0.6", optional = true }
 
