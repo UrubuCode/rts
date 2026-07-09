@@ -636,7 +636,7 @@
   "status": "rts_diverge",
   "bun": "vals=10,255\neq=true\nseq=false",
   "node": "vals=10,255\neq=true\nseq=false",
-  "rts": "vals=[object Object],[object Object]\neq=true\nseq=true"
+  "rts": "vals=10,255\neq=true\nseq=true"
 }
 ,
 {
@@ -881,10 +881,10 @@
 ,
 {
   "name": "374_private_static_methods",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown",
   "node": "Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown",
-  "rts": "[object Object]\n[object Object]\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown"
+  "rts": "Registry(alpha#1)\nRegistry(beta#2)\ntrue\n2\ninvalid name\nfalse\n2.0.0\n0\n100\nthree\n5\nunknown"
 }
 ,
 {
@@ -2329,10 +2329,10 @@
 ,
 {
   "name": "367_coercion_traps",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "12\n2\n12\n3\n2\n1\nfalse\n\n[object Object]\n[object Object]\ntrue\ntrue\ntrue\nfalse\nfalse\nfalse\n0\n6\n0\n0\n42\n16\n1\n0\n0\nNaN\n0\n1\nNaN\nnull\nundefined\ntrue\n\n1,2,3\nfalse\nfalse\ntrue\ntrue\ntrue",
   "node": "12\n2\n12\n3\n2\n1\nfalse\n\n[object Object]\n[object Object]\ntrue\ntrue\ntrue\nfalse\nfalse\nfalse\n0\n6\n0\n0\n42\n16\n1\n0\n0\nNaN\n0\n1\nNaN\nnull\nundefined\ntrue\n\n1,2,3\nfalse\nfalse\ntrue\ntrue\ntrue",
-  "rts": "12\n2\n12\n3\n2\n1\nfalse\n\n[object Object]\n[object Object]\ntrue\ntrue\ntrue\nfalse\nfalse\nfalse\n6\n6\n0\n0\n42\n16\n1\n0\n0\nNaN\n0\n1\nNaN\nnull\nundefined\ntrue\n\n1,2,3\nfalse\nfalse\ntrue\ntrue\ntrue"
+  "rts": "12\n2\n12\n3\n2\n1\nfalse\n\n[object Object]\n[object Object]\ntrue\ntrue\ntrue\nfalse\nfalse\nfalse\n0\n6\n0\n0\n42\n16\n1\n0\n0\nNaN\n0\n1\nNaN\nnull\nundefined\ntrue\n\n1,2,3\nfalse\nfalse\ntrue\ntrue\ntrue"
 }
 ,
 {
@@ -2504,6 +2504,14 @@
 }
 ,
 {
+  "name": "claude-object-toprimitive-chain",
+  "status": "pass",
+  "bun": "true\n2\n6\nfound\n0\ntrue\n6\n0,1,5\n2",
+  "node": "true\n2\n6\nfound\n0\ntrue\n6\n0,1,5\n2",
+  "rts": "true\n2\n6\nfound\n0\ntrue\n6\n0,1,5\n2"
+}
+,
+{
   "name": "claude-parse-float-edge",
   "status": "pass",
   "bun": "3.14\n0.5\n1000\n0.0012\nInfinity\n-Infinity\n0\nNaN\n5\n3.14\n1\n12\n7.5",
@@ -2593,10 +2601,10 @@
 ,
 {
   "name": "codex_date_toprimitive_addition",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "string\ntrue\n0\ntrue",
   "node": "string\ntrue\n0\ntrue",
-  "rts": "string\ntrue\nNaN\nfalse"
+  "rts": "string\ntrue\n0\ntrue"
 }
 ,
 {
@@ -2929,10 +2937,10 @@
 ,
 {
   "name": "396_property_key_coercion",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "seven\ntoString\nbool\nplain\n8:seven-index:0|1|2|7",
   "node": "seven\ntoString\nbool\nplain\n8:seven-index:0|1|2|7",
-  "rts": "plain\n\nbool\nplain\n3:0:0|1|2"
+  "rts": "seven\ntoString\nbool\nplain\n8:seven-index:0|1|2|7"
 }
 ,
 {
@@ -3153,10 +3161,10 @@
 ,
 {
   "name": "codex_ownkeys_order_symbols",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "1,2,b,a,c,Symbol(s1),Symbol(s2)\n1,2,b,a,c\nSymbol(s1),Symbol(s2)",
   "node": "1,2,b,a,c,Symbol(s1),Symbol(s2)\n1,2,b,a,c\nSymbol(s1),Symbol(s2)",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "1,2,b,a,c\n1,2,b,a,c\n[object Object],[object Object]"
 }
 ,
 {
@@ -4025,10 +4033,10 @@
 ,
 {
   "name": "claude-tostring-vs-valueof-hint",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "7\nSTR\nSTR\n7\n8\nSTR\nSTR,STR\n99\n[object Object]\n[object Object]\n[object Object]",
   "node": "7\nSTR\nSTR\n7\n8\nSTR\nSTR,STR\n99\n[object Object]\n[object Object]\n[object Object]",
-  "rts": "7\nSTR\nSTR\n7\n8\nSTR\nSTR,STR\n99\n[object Object]\n[object Object]\n[object Object]"
+  "rts": "7\nSTR\nSTR\n7\n8\nSTR\nSTR,STR\n99\n99\n99\n[object Object]"
 }
 ,
 {
@@ -4108,7 +4116,7 @@
   "status": "bun_node_diverge",
   "bun": "9.99\n9.99 USD\n10\n1\n2\ncount:3\n5\n(3,4)\ntrue",
   "node": "__RUNTIME_ERROR__",
-  "rts": "9.99\n9.99 USD\n10\n1\n2\ncount:3\nNaN\n(3,4)\ntrue"
+  "rts": "9.99\n9.99 USD\n10\n1\n2\ncount:3\n5\n(3,4)\ntrue"
 }
 ,
 {
@@ -4425,10 +4433,10 @@
 ,
 {
   "name": "352_obf_control_flow_flat",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "29\n19\n39\npos+pos\npos+non-pos\nnon-pos+non-pos\nnon-pos",
   "node": "29\n19\n39\npos+pos\npos+non-pos\nnon-pos+non-pos\nnon-pos",
-  "rts": "0\n0\n0\npos+pos\npos+non-pos\nnon-pos+non-pos\nnon-pos"
+  "rts": "29\n19\n39\npos+pos\npos+non-pos\nnon-pos+non-pos\nnon-pos"
 }
 ,
 {
@@ -4879,4 +4887,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":610,"pass":466,"rts_diverge":62,"bun_node_diverge":17,"errors":65,"rejected":0}}
+],"summary":{"total":611,"pass":471,"rts_diverge":59,"bun_node_diverge":17,"errors":64,"rejected":0}}
