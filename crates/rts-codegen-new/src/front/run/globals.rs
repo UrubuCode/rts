@@ -298,20 +298,35 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// single-numeric-arg form is supported; `Array(a, b, …)` (an element list) is
     /// `Array.of`-shaped and BAILS here (a later increment). Result kind Array.
     fn array_ctor_call(&mut self, module: &mut dyn Module, args: &[HirExpr]) -> FrontResult<Val> {
-        // `Array(a, b, …)` / `Array()` — the element-list form (JS: 0 or 2+ args
-        // never mean a size): lower exactly like the array literal `[a, b, …]`.
-        if args.len() != 1 {
-            let arr_expr = HirExpr::new(
-                HirExprKind::Array(args.to_vec()),
-                rts_hir::HirType::Unknown,
-            );
-            return self.lower_expr(module, &arr_expr);
+        // A single SPREAD of a LITERAL array (`new Array(...[1,2,3])`) is
+        // statically the argument list `[1,2,3]` — re-dispatch on those real args
+        // so JS's own arity rule applies: `Array(...[10])` becomes `Array(10)` (a
+        // SIZED array of 10 holes, NOT `[10]`), `Array(...[1,2,3])` an element
+        // list, `Array(...[])` empty. Only a literal source can be expanded at
+        // lowering time; a runtime spread (`Array(...someVar)`) stays a bail.
+        if args.len() == 1 {
+            if let HirExprKind::Spread(inner) = &args[0].kind {
+                if let HirExprKind::Array(elems) = &inner.kind {
+                    // A hole inside the literal (`[, 1]`) would change the argument
+                    // count in a way the flat element-list re-dispatch cannot model
+                    // (`Array(undefined, 1)`); only expand a hole-free literal.
+                    if elems.iter().all(|e| !matches!(e.kind, HirExprKind::Spread(_))) {
+                        let expanded = elems.clone();
+                        return self.array_ctor_call(module, &expanded);
+                    }
+                }
+            }
         }
-        // `Array(...arr)` (spread, flattened to a single array arg by the HIR) is
-        // NOT the sized form — bail rather than treat the array's `length` coercion
-        // as `n`.
-        if self.is_array_valued(&args[0]) {
-            return unsupported!("Array(...spread) — a spread argument is a later increment");
+        // The ELEMENT-LIST form (lower exactly like the array literal `[a, b, …]`):
+        // 0 or 2+ args (JS: never a size); any remaining non-literal SPREAD; or a
+        // single bare array value `Array(arr)` (the JS single-element form `[arr]`,
+        // NOT a size). Only a single NON-array, NON-spread scalar falls through to
+        // the sized `Array(n)` path below.
+        let has_spread = args.iter().any(|a| matches!(a.kind, HirExprKind::Spread(_)));
+        if has_spread || args.len() != 1 || self.is_array_valued(&args[0]) {
+            let arr_expr =
+                HirExpr::new(HirExprKind::Array(args.to_vec()), rts_hir::HirType::Unknown);
+            return self.lower_expr(module, &arr_expr);
         }
         let n = self.lower_expr(module, &args[0])?;
         let n_word = self.box_value(n);

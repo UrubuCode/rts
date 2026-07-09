@@ -55,6 +55,43 @@ pub(super) fn prop_get(obj: HirExpr, prop: &str) -> HirExpr {
     )
 }
 
+/// `obj[keyExpr]` — a COMPUTED property read for a destructuring computed key
+/// (`{ [k]: v } = src` → `const v = src[k]`). The key expression is lowered once by
+/// the caller (rts-hir) and passed in; the generic `Index` node routes to
+/// `__rtsadp_idx_get` at runtime (object key / array element), yielding `undefined`
+/// for a missing key — exactly the JS computed-property-read semantics.
+pub(super) fn index_get(obj: HirExpr, key: HirExpr) -> HirExpr {
+    HirExpr::new(
+        HirExprKind::Index {
+            object: Box::new(obj),
+            index: Box::new(key),
+        },
+        HirType::Any,
+    )
+}
+
+/// `delete obj[keyExpr];` — remove one own property named by a COMPUTED key (used
+/// to subtract a computed-key destructure target from an object-rest copy). Lowers
+/// to `__rtsadp_obj_delete` after ToString'ing the key (the engine's `lower_delete`
+/// handles the `Index` operand form).
+pub(super) fn delete_index_stmt(obj: &str, key: HirExpr) -> HirStmt {
+    let index = HirExpr::new(
+        HirExprKind::Index {
+            object: Box::new(ident(obj)),
+            index: Box::new(key),
+        },
+        HirType::Any,
+    );
+    let del = HirExpr::new(
+        HirExprKind::Unary {
+            op: HirUnOp::Delete,
+            operand: Box::new(index),
+        },
+        HirType::Any,
+    );
+    HirStmt::Expr(del)
+}
+
 /// `recv.slice(from, BIG)` — the real array slice (a fresh array) used for a rest
 /// element `...rest`. The explicit large end bound (`i32::MAX`, clamped to length by
 /// both the static `__rtsadp_arr_slice` and the dynamic `__rtsadp_dyn_slice`) lets

@@ -246,6 +246,44 @@ fn stmt_has_nullish_return(stmt: &HirStmt) -> bool {
     }
 }
 
+/// Merge two `return`-statement types for return-type inference. Two NUMERIC
+/// types promote through [`numeric_promotion`] (the winning unboxed numeric
+/// path). The surgical fix over calling `numeric_promotion` DIRECTLY: two EQUAL
+/// non-numeric types (`Str + Str`, `Bool + Bool`) keep that type, and a non-numeric
+/// MISMATCH (`Str` vs `Bool`, `Str` vs `I64`) is `Any` (genuinely polymorphic).
+/// Without this, `numeric_promotion` collapsed `Str + Str` to `Number` (its
+/// `_ => Number` default), turning a string-returning
+/// `try { return "a" } finally { return "b" }` into an f64 fn that coerced the
+/// strings to `NaN`.
+///
+/// A side involving `Unknown`/`Any` keeps the ORIGINAL `numeric_promotion`
+/// behaviour (deliberately — `refine_func_ret` treats a resulting `Number` no
+/// differently from a resulting `Any`/`Unknown` when the OTHER returns are
+/// un-inferable, so preserving it avoids perturbing any established numeric path).
+fn merge_return_types(a: HirType, b: HirType) -> HirType {
+    use HirType::*;
+    let is_numeric = |t: &HirType| {
+        matches!(
+            t,
+            I8 | I16 | I32 | I64 | I128 | U8 | U16 | U32 | U64 | U128 | F32 | F64 | Number
+        )
+    };
+    // Both sides a CONCRETE (non-Unknown/Any) type: apply the corrected merge.
+    if !matches!(a, Unknown | Any) && !matches!(b, Unknown | Any) {
+        if a == b {
+            return a;
+        }
+        if is_numeric(&a) && is_numeric(&b) {
+            return numeric_promotion(a, b);
+        }
+        // A non-numeric mismatch is genuinely polymorphic — stay Tagged, never a
+        // bogus numeric collapse.
+        return Any;
+    }
+    // An un-inferable side: unchanged from the historical behaviour.
+    numeric_promotion(a, b)
+}
+
 /// Walk a stmt block and merge the type of every `return` expression found.
 fn collect_return_types(stmts: &[HirStmt], scope: &Scope, acc: &mut Option<HirType>) {
     for stmt in stmts {
@@ -258,7 +296,7 @@ fn collect_return_types_in_stmt(stmt: &HirStmt, scope: &Scope, acc: &mut Option<
         HirStmt::Return(Some(expr)) => {
             let ty = refine_type_from_init(expr, scope);
             *acc = Some(match acc.take() {
-                Some(prev) => numeric_promotion(prev, ty),
+                Some(prev) => merge_return_types(prev, ty),
                 None => ty,
             });
         }

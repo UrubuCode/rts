@@ -83,6 +83,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             exit: exit_block,
             continue_target,
             label,
+            finally_depth: self.finally_stack.len(),
         });
         for (i, case) in cases.iter().enumerate() {
             self.builder.seal_block(body_blocks[i]);

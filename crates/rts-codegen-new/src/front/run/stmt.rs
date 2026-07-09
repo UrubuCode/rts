@@ -57,13 +57,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 object,
                 body,
             } => self.lower_for_in(module, binding, object, body),
-            HirStmt::Break(label) => self.lower_break(label.as_deref()),
-            HirStmt::Continue(label) => self.lower_continue(label.as_deref()),
-            // `outer: <loop>` — record the label so the immediately-following loop
-            // (or switch) `take`s it into its `LoopCtx`, making `break outer` /
-            // `continue outer` target it. A labeled NON-loop statement leaves the
-            // pending label unconsumed; clear it after so it never leaks to a later
-            // loop (a `break label` into a plain block is then a clean bail).
+            HirStmt::Break(label) => self.lower_break(module, label.as_deref()),
+            HirStmt::Continue(label) => self.lower_continue(module, label.as_deref()),
+            // A labeled NON-loop statement (`block1: { … break block1; … }`) is a
+            // valid JS `break`-only target — lowered with its own break-target
+            // `LoopCtx` (see `lower_labeled_block`).
+            HirStmt::Labeled { label, body } if !super::breakcont::stmt_consumes_label(body) => {
+                self.lower_labeled_block(module, label, body)
+            }
+            // A labeled LOOP/SWITCH: the construct itself `take`s the pending label
+            // into its own `LoopCtx`. Clear it after so it never leaks to a later
+            // loop.
             HirStmt::Labeled { label, body } => {
                 self.pending_label = Some(label.clone());
                 self.lower_stmt(module, body)?;
@@ -329,6 +333,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             exit: exit_block,
             continue_target: header,
             label,
+            finally_depth: self.finally_stack.len(),
         });
         self.lower_block(module, body)?;
         self.loop_stack.pop();
@@ -367,6 +372,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             exit: exit_block,
             continue_target: cond_block,
             label,
+            finally_depth: self.finally_stack.len(),
         });
         self.lower_block(module, body)?;
         self.loop_stack.pop();
