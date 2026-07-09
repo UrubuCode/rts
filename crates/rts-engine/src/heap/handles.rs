@@ -361,6 +361,23 @@ pub struct RtsRegex {
     pub last_index: usize,
 }
 
+/// (node-impl / Fase 2) Payload backend opaco atrás de um handle. Deixa crates
+/// acima do motor (`rts-node`, `rts-std`) registrarem seus próprios tipos opacos
+/// — `fs.Stats`, `net.Server`, `net.Socket`, `Cipher`, `Worker`, `FileHandle`… —
+/// SEM adicionar uma variant concreta ao `Entry` por tipo. O motor nunca conhece
+/// o tipo real; delega `trace_children`/`finalize` ao `GcPayload` embutido. É o
+/// ponto de extensão que a "Fase 2" antecipava (ver TODO no topo do arquivo).
+///
+/// Newtype porque `Box<dyn GcPayload>` não deriva `Debug` — a impl manual abaixo
+/// mantém o `#[derive(Debug)]` do `Entry`.
+pub struct BackendPayload(pub Box<dyn crate::GcPayload>);
+
+impl std::fmt::Debug for BackendPayload {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Backend(<opaque>)")
+    }
+}
+
 /// Value kinds stored behind a handle. Extensible as namespaces grow.
 #[derive(Debug)]
 pub enum Entry {
@@ -531,6 +548,10 @@ pub enum Entry {
     /// the addon takes `data: *mut u8` via `arraybuffer_ptr` and writes directly.
     /// Backing is `Box<[u8]>` (owned, never reallocates) or a borrowed external ptr.
     ArrayBuffer(Box<ArrayBufferData>),
+    /// (node-impl / Fase 2) Payload backend opaco genérico — ver `BackendPayload`.
+    /// O motor delega trace/finalize sem conhecer o tipo concreto; é como
+    /// `rts-node` expõe `fs.Stats`/`net.Server`/`Cipher`/`Worker`/… como handles.
+    Backend(BackendPayload),
     /// Tombstone left by `free`. Reused on next `alloc` with a bumped
     /// generation so dangling handles fail validation.
     Free,
@@ -737,6 +758,10 @@ fn cleanup_entry(entry: &mut Entry) {
         Entry::TlsClient(tls) => {
             let _ = tls.tcp.shutdown(std::net::Shutdown::Both);
         }
+        // (node-impl) Payload backend: finalização determinística no free/sweep,
+        // delegada ao próprio tipo (fecha socket/fd/handle do SO que ele detenha).
+        // Roda sob o shard lock, então o tipo NÃO pode realocar handles aqui.
+        Entry::Backend(p) => p.0.finalize(),
         // Nota (#264): Entry::Function.prototype_handle nao precisa de
         // cleanup explicito aqui — o GC scanner via mark_handle propaga
         // marca transitiva, entao o Map prototype eh coletado no proximo
@@ -805,6 +830,10 @@ impl crate::Traceable for Entry {
                     visit(g.ret as u64);
                 }
             }
+            // (node-impl) Payload backend delega o trace ao próprio tipo, que
+            // enumera quaisquer handles-filho que segure (ex.: um Worker com
+            // referências vivas). O motor não precisa conhecer o layout.
+            Entry::Backend(p) => p.0.trace_children(visit),
             _ => {}
         }
     }
