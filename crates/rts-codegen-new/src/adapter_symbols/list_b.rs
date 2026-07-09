@@ -228,6 +228,10 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             funcops::__rtsadp_math_fn_value as *const u8,
         ),
         sym(
+            "__rtsadp_coerce_fn_value",
+            funcops::__rtsadp_coerce_fn_value as *const u8,
+        ),
+        sym(
             "__rtsadp_fn_apply_this",
             funcops::__rtsadp_fn_apply_this as *const u8,
         ),

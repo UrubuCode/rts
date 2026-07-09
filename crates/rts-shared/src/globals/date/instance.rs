@@ -540,3 +540,33 @@ pub extern "C" fn __RTS_FN_RT_OPAQUE_TO_STRING(handle: u64) -> u64 {
         _ => 0,
     }
 }
+
+/// Does this OPAQUE heap-entry expose a NUMERIC ToPrimitive value (a `valueOf` that
+/// returns a number)? `1` = yes (a `Date` — its `valueOf` is the time value), `0` =
+/// no (a `RegExp` / anything else coerces to a number only through its string). The
+/// engine's generic `ToNumber` probes this BEFORE the string-based fallback so
+/// `+date` / `date < date` use the timestamp, while `+/re/` still goes via the
+/// string (→ `NaN`). Dispatch by ENTRY KIND — no class name in the engine.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_OPAQUE_HAS_NUMBER(handle: u64) -> i64 {
+    with_entry(handle, |e| match e {
+        Some(Entry::DateMs(_)) => 1i64,
+        _ => 0,
+    })
+}
+
+/// The NUMERIC ToPrimitive value of an OPAQUE heap-entry that has one (see
+/// `__RTS_FN_RT_OPAQUE_HAS_NUMBER`). For a `Date` it is the time value in ms (`NaN`
+/// for an Invalid Date, matching `+new Date(NaN)`). Only meaningful when the probe
+/// returned `1`; other kinds return `NaN`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_RT_OPAQUE_TO_NUMBER(handle: u64) -> f64 {
+    let kind = with_entry(handle, |e| match e {
+        Some(Entry::DateMs(_)) => 1u8,
+        _ => 0,
+    });
+    match kind {
+        1 => __RTS_FN_GL_DATE_VALUE_OF(handle),
+        _ => f64::NAN,
+    }
+}

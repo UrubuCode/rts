@@ -205,6 +205,53 @@ pub extern "C" fn __rtsadp_math_fn_value(op: u64) -> u64 {
     PolyValue::from_function_handle(h & super::PAYLOAD_MASK).raw()
 }
 
+/// Uniform-ABI thunk for a PRIMORDIAL coercion FUNCTION VALUE (`Boolean`/`Number`/
+/// `String` used as a callback — `arr.filter(Boolean)`, `arr.map(String)`). `env`
+/// carries the op (0 = `Boolean`, 1 = `Number`, 2 = `String`); it coerces the sole
+/// argument `a0` per that op — the SAME ToBoolean/ToNumber/ToString the direct
+/// `Boolean(x)`/`Number(x)`/`String(x)` call uses (no divergence).
+extern "C" fn coerce_thunk(env: u64, a0: u64, _a1: u64, _a2: u64, _a3: u64, _rest: u64) -> u64 {
+    match env {
+        1 => super::globalops::__rtsadp_g_number(a0),
+        2 => super::globalops::__rtsadp_g_string(a0),
+        _ => super::globalops::__rtsadp_g_boolean(a0),
+    }
+}
+
+/// `Boolean` / `Number` / `String` read as a first-class FUNCTION VALUE (the common
+/// `arr.filter(Boolean)` / `arr.map(String)` idiom): a real callable whose env slot
+/// carries the op (0 = `Boolean`, 1 = `Number`, 2 = `String`). These are PRIMORDIAL
+/// (the engine MAY name them); the thunk applies the exact same coercion the call
+/// form does.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_coerce_fn_value(op: u64) -> u64 {
+    let name = match op {
+        1 => "Number",
+        2 => "String",
+        _ => "Boolean",
+    };
+    let data = FunctionData {
+        fn_ptr: coerce_thunk as usize as u64,
+        arity: 1,
+        name: Box::<str>::from(name),
+        bound_this: op as i64,
+        has_bound_this: true,
+        bound_args: Vec::new(),
+        is_arrow: false,
+        has_this_param: false,
+        param_kinds: Vec::new(),
+        return_kind: 0,
+        packed_shim: 0,
+        source: None,
+        keep_alive: None,
+        prototype_handle: 0,
+        rest_param_idx: -1,
+        uniform_thunk: true,
+    };
+    let h = alloc_entry(Entry::Function(Box::new(data)));
+    PolyValue::from_function_handle(h & super::PAYLOAD_MASK).raw()
+}
+
 /// Build the `(resolve, reject)` settler FUNCTION-value pair over the promise
 /// `out_handle` (raw) — real callable `TAG_FUNCTION` words whose env carries
 /// the promise handle, exactly what a thenable's `then(res, rej)` expects.

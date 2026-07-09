@@ -50,6 +50,7 @@ mod mathobj;
 mod methodtable;
 mod method;
 mod method_array;
+mod method_array_coerce;
 mod method_dyn;
 mod module_aot;
 mod module_entry;

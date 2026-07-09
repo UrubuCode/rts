@@ -344,6 +344,10 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64],
             ret: U64,
         },
+        "__rtsadp_coerce_fn_value" => SymSig {
+            params: &[U64],
+            ret: U64,
+        },
         "__rtsadp_fn_apply_this" => SymSig {
             params: &[U64, U64, U64],
             ret: U64,
