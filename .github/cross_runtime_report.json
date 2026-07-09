@@ -1577,10 +1577,10 @@
 ,
 {
   "name": "claude-var-and-fn-hoisting",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "undefined\n5\nfunction\n42\n42",
   "node": "undefined\n5\nfunction\n42\n42",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "undefined\n5\nfunction\n42\n42"
 }
 ,
 {
@@ -1788,7 +1788,7 @@
   "status": "rts_diverge",
   "bun": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
   "node": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
-  "rts": ""
+  "rts": "undefined"
 }
 ,
 {
@@ -2073,9 +2073,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -4265,10 +4265,10 @@
 ,
 {
   "name": "251_array_constructor_spread",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "spread=1,2,3\nfunc=4,5\nsingle=,,,,,,,,,\nlength=10\nempty=0",
   "node": "spread=1,2,3\nfunc=4,5\nsingle=,,,,,,,,,\nlength=10\nempty=0",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "spread=1,2,3\nfunc=4,5\nsingle=,,,,,,,,,\nlength=10\nempty=0"
 }
 ,
 {
@@ -4369,10 +4369,10 @@
 ,
 {
   "name": "331_labeled_statements",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "0,0\n1,0\n2,0\nfound at 2,4\nbefore break\nafter block",
   "node": "0,0\n1,0\n2,0\nfound at 2,4\nbefore break\nafter block",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "0,0\n1,0\n2,0\nfound at 2,4\nbefore break\nafter block"
 }
 ,
 {
@@ -4409,10 +4409,10 @@
 ,
 {
   "name": "343_optional_chaining",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "NYC\nundefined\nundefined\nundefined\n1,2,3\nundefined\n1\nundefined\nunknown\nNYC\n10\nundefined",
   "node": "NYC\nundefined\nundefined\nundefined\n1,2,3\nundefined\n1\nundefined\nunknown\nNYC\n10\nundefined",
-  "rts": "NYC\nundefined\nundefined\nundefined\nundefined\nundefined\n1\nundefined\nunknown\nNYC\n10\nundefined"
+  "rts": "NYC\nundefined\nundefined\nundefined\n1,2,3\nundefined\n1\nundefined\nunknown\nNYC\n10\nundefined"
 }
 ,
 {
@@ -4457,10 +4457,10 @@
 ,
 {
   "name": "398_destructure_rest_computed_keys",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "l=3\nright=12\nv=5\nrest=extra:{\"extra\":9}\narray=1,11,3|4,len=2",
   "node": "l=3\nright=12\nv=5\nrest=extra:{\"extra\":9}\narray=1,11,3|4,len=2",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "l=3\nright=12\nv=5\nrest=extra:{\"extra\":9}\narray=1,11,3|4,len=2"
 }
 ,
 {
@@ -4641,10 +4641,10 @@
 ,
 {
   "name": "codex_try_finally_control_flow",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "finally\ntry:catch\nfin0\nfin1\ndone",
   "node": "finally\ntry:catch\nfin0\nfin1\ndone",
-  "rts": "NaN\ntry:catch\nfin0\ndone"
+  "rts": "finally\ntry:catch\nfin0\nfin1\ndone"
 }
 ,
 {
@@ -4879,4 +4879,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":610,"pass":457,"rts_diverge":62,"bun_node_diverge":17,"errors":74,"rejected":0}}
+],"summary":{"total":610,"pass":462,"rts_diverge":60,"bun_node_diverge":18,"errors":70,"rejected":0}}
