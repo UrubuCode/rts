@@ -511,6 +511,14 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             dyndispatch::__rtsadp_dyn_char_code_at as *const u8,
         ),
         sym(
+            "__rtsadp_dyn_code_point_at",
+            dyndispatch::__rtsadp_dyn_code_point_at as *const u8,
+        ),
+        sym(
+            "__rtsadp_dyn_locale_compare",
+            dyndispatch::__rtsadp_dyn_locale_compare as *const u8,
+        ),
+        sym(
             "__rtsadp_dyn_to_upper_case",
             dyndispatch::__rtsadp_dyn_to_upper_case as *const u8,
         ),

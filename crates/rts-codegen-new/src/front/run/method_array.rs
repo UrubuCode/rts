@@ -116,11 +116,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // `[obj].join(..)` ToStrings each element in the runtime trampoline, which
         // renders a method-bearing OBJECT element as the default `[object Object]`
         // (it cannot call the JIT'd `toString`) — a wrong value vs bun's element
-        // ToPrimitive. Bail rather than diverge (array-of-object ToPrimitive is a
-        // later increment). Only the array-LITERAL-with-object case is statically
-        // detectable here; an opaque array's elements can only become objects via
-        // paths that already bail.
+        // ToPrimitive. When the receiver is an array LITERAL whose object elements
+        // are ALL statically-known-class objects with a usable `toString`/`valueOf`
+        // (issue #1499), rewrite each such element to a lowering-time
+        // `ToString(ToPrimitive(el, string))` HIR (`join` calls `String(element)`),
+        // then dispatch join over the resulting string-element array — exactly
+        // Bun/Node. If ANY object element lacks a usable primitive method, bail
+        // (the runtime trampoline's `[object Object]` would diverge).
         if method == "join" && self.array_arg_has_object_element(object) {
+            if let Some(rewritten) = self.array_literal_with_object_elems_to_primitives(object) {
+                return self.try_array_dispatch(module, &rewritten, method, args);
+            }
             return Err(crate::front::error::Unsupported::new(
                 "Array.join on an array containing an object element \
                  (element ToPrimitive is a later increment)"

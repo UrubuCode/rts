@@ -582,6 +582,34 @@ pub extern "C" fn __rtsadp_dyn_trim(recv: u64) -> u64 {
     undef()
 }
 
+/// `s.localeCompare(other)` — `-1`/`0`/`1` (locale order). String receiver only;
+/// other receivers → `undefined`. The `other` arg is ToString'd (JS coerces it),
+/// so `"a".localeCompare(1)` compares against `"1"`. Reuses the SAME
+/// `__RTS_FN_GL_STRING_LOCALE_COMPARE` impl the proven-string typed row calls.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_dyn_locale_compare(recv: u64, other: u64) -> u64 {
+    let v = PolyValue::from_raw(recv);
+    if v.is_string() {
+        let r = rt_gl_str::__RTS_FN_GL_STRING_LOCALE_COMPARE(str_handle(recv), str_arg_handle(other));
+        return PolyValue::from_i32(r as i32).raw();
+    }
+    undef()
+}
+
+/// `s.codePointAt(i)` — the Unicode CODE POINT starting at UTF-16 index `i`
+/// (composing a surrogate pair), or `undefined` out of range. String receiver
+/// only; other receivers → `undefined`. Returns the raw PolyValue word verbatim
+/// from `__RTS_FN_GL_STRING_CODE_POINT_AT` (a number word OR `undefined`), the
+/// SAME impl the proven-string typed row calls.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_dyn_code_point_at(recv: u64, idx: u64) -> u64 {
+    let v = PolyValue::from_raw(recv);
+    if v.is_string() {
+        return rt_gl_str::__RTS_FN_GL_STRING_CODE_POINT_AT(str_handle(recv), genops_to_i64(idx));
+    }
+    undef()
+}
+
 /// `Promise.resolve(x)` with an UNPROVEN `x` — THENABLE-aware (spec
 /// PromiseResolve): a keyed object whose `then` GETTER throws yields a
 /// REJECTED promise carrying the thrown value; a callable `then` is ADOPTED
