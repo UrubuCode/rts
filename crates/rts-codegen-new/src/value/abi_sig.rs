@@ -834,6 +834,8 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         | "__rtsadp_dyn_push"
         | "__rtsadp_dyn_char_at"
         | "__rtsadp_dyn_char_code_at"
+        | "__rtsadp_dyn_code_point_at"
+        | "__rtsadp_dyn_locale_compare"
         | "__rtsadp_dyn_split"
         | "__rtsadp_dyn_starts_with"
         | "__rtsadp_dyn_ends_with"

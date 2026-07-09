@@ -269,6 +269,40 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
         }
 
+        // ToPrimitive (issue #1447): a NON-`+` coercing op (`- * / % ** < <= > >=
+        // == !=`) where an operand is a STATICALLY-KNOWN-CLASS object that defines
+        // `toString`/`valueOf` (and did NOT opt into the operator overload above)
+        // coerces that object via its method AT LOWERING TIME, then applies the op
+        // on the resulting primitives through the generic `__rtsadp_*` path — never
+        // the whole-object bail. `obj * 2` / `obj == 3` / `obj - 5` now match
+        // Bun/Node. Plain objects, arrays, and dynamic-class objects keep the gate
+        // below (their JIT'd method — if any — is unreachable from the trampoline).
+        if Self::op_needs_object_toprimitive(op)
+            && (self.has_object_toprimitive(lhs) || self.has_object_toprimitive(rhs))
+        {
+            return self.lower_binop_object_toprimitive(module, op, lhs, rhs);
+        }
+
+        // String-concat `+` with an ARRAY-LITERAL-with-object-elements operand
+        // (issue #1499 — `"" + [both, both]`, the desugared `${[both, both]}`): the
+        // array's `String()` join renders each element via `String(element)`, so
+        // rewrite the array literal's object elements to their `toString()` /
+        // `[object Object]` HIR (the SAME rewrite `Array.join` uses) and re-lower.
+        // Only when the OTHER operand is a proven string (a real string-concat) and
+        // every object element is statically resolvable (else `None` → keep bail).
+        if matches!(op, HirBinOp::Add) {
+            if is_proven_string_expr(lhs) && self.array_arg_has_object_element(rhs) {
+                if let Some(r2) = self.array_literal_with_object_elems_to_primitives(rhs) {
+                    return self.lower_bin(module, op, lhs, &r2);
+                }
+            }
+            if is_proven_string_expr(rhs) && self.array_arg_has_object_element(lhs) {
+                if let Some(l2) = self.array_literal_with_object_elems_to_primitives(lhs) {
+                    return self.lower_bin(module, op, &l2, rhs);
+                }
+            }
+        }
+
         // STRICT equality `===`/`!==` on a whole object/array operand is pure
         // IDENTITY (reference equality) — NO ToPrimitive, so it is always sound and
         // skips the bail below (which guards the coercing ops). The operands fall

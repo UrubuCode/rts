@@ -164,6 +164,54 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         false
     }
 
+    /// Rewrite an ARRAY LITERAL whose object elements are all STATICALLY-KNOWN-CLASS
+    /// objects into a new array literal where each object element is replaced by its
+    /// JS `String(element)` HIR (issue #1499): a `toString`-bearing object → a
+    /// `element.toString()` method call; a `toString`-free object → the string
+    /// literal `"[object Object]"` (the inherited `Object.prototype.toString`).
+    /// Non-object elements are kept verbatim. Returns `None` when `object` is not an
+    /// array literal, or when an object element's class is NOT statically resolvable
+    /// (its `String()` can't be run at lowering time → the caller keeps its bail).
+    /// Used by `Array.join` (which calls `String(element)` on each element).
+    pub(super) fn array_literal_with_object_elems_to_primitives(
+        &self,
+        object: &HirExpr,
+    ) -> Option<HirExpr> {
+        use rts_hir::ir::{HirExprKind, HirLit};
+        let HirExprKind::Array(elems) = &object.kind else {
+            return None;
+        };
+        let mut out = Vec::with_capacity(elems.len());
+        for el in elems {
+            if self.is_whole_object_value(el) {
+                // The element must be a statically-known class to run its `String()`
+                // here; otherwise decline (keep the bail — never a wrong value).
+                let class = self.static_instance_class(el)?;
+                if self.primitive_method_of(&class, Hint::String).is_some() {
+                    // Has (own) `toString`: `String(el)` == `el.toString()`.
+                    out.push(HirExpr::new(
+                        HirExprKind::MethodCall {
+                            object: Box::new(el.clone()),
+                            method: "toString".to_string(),
+                            args: Vec::new(),
+                        },
+                        rts_hir::HirType::Str,
+                    ));
+                } else {
+                    // No own `toString` (only `valueOf`, or method-free): the
+                    // inherited `Object.prototype.toString` → "[object Object]".
+                    out.push(HirExpr::new(
+                        HirExprKind::Lit(HirLit::Str("[object Object]".to_string())),
+                        rts_hir::HirType::Str,
+                    ));
+                }
+            } else {
+                out.push(el.clone());
+            }
+        }
+        Some(HirExpr::new(HirExprKind::Array(out), object.ty.clone()))
+    }
+
     /// Lower a `+` where at least one operand is a known-class object with a usable
     /// `ToPrimitive` (issue #304). Each operand is reduced to a PolyValue word: an
     /// object-with-primitive operand via its `valueOf`/`toString` (JS `+` uses the
@@ -188,10 +236,104 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Reduce one `+` operand to a PolyValue word, applying `ToPrimitive` (default
     /// hint) when the operand is a known-class object; otherwise ordinary lower+box.
     fn add_operand_word(&mut self, module: &mut dyn Module, expr: &HirExpr) -> FrontResult<Value> {
-        if let Some(word) = self.coerce_object_to_primitive_word(module, expr, Hint::Default)? {
+        self.operand_word_with_toprimitive(module, expr, Hint::Default)
+    }
+
+    /// Reduce one operand to a PolyValue word, applying `ToPrimitive(hint)` when it
+    /// is a known-class object with a usable `valueOf`/`toString`; otherwise
+    /// ordinary lower + box. Shared by `+` ([`Self::add_operand_word`]) and the
+    /// other coercing operators ([`Self::lower_binop_object_toprimitive`]).
+    pub(super) fn operand_word_with_toprimitive(
+        &mut self,
+        module: &mut dyn Module,
+        expr: &HirExpr,
+        hint: Hint,
+    ) -> FrontResult<Value> {
+        if let Some(word) = self.coerce_object_to_primitive_word(module, expr, hint)? {
             return Ok(word);
         }
         let v = self.lower_expr(module, expr)?;
         Ok(self.box_value(v))
+    }
+
+    /// Whether `<op>` is a NON-`+` coercing binary op whose object operands need JS
+    /// `ToPrimitive` (issue #304 / #1447): the arithmetic ops `- * / % **`, the
+    /// relational ops `< <= > >=`, and loose `== !=`. `+` has its own dedicated
+    /// path ([`Self::lower_add_with_toprimitive`], string-concat aware); strict
+    /// `=== !==` is reference identity (NO ToPrimitive); bitwise/`in`/`instanceof`
+    /// are not routed here.
+    pub(super) fn op_needs_object_toprimitive(op: rts_hir::HirBinOp) -> bool {
+        use rts_hir::HirBinOp::*;
+        matches!(
+            op,
+            Sub | Mul | Div | Rem | Exp | Lt | Le | Gt | Ge | Eq | Ne
+        )
+    }
+
+    /// Lower a NON-`+` coercing binary op (`- * / % ** < <= > >= == !=`) where at
+    /// least one operand is a STATICALLY-KNOWN-CLASS object with a usable
+    /// `valueOf`/`toString` (issue #1447). Each object operand is reduced to its
+    /// primitive PolyValue word via `ToPrimitive` (JS uses the "number"/"default"
+    /// hint here — `valueOf` first); every other operand is ordinary lower + box.
+    /// The two primitive words then go through the SAME generic `__rtsadp_*`
+    /// trampoline the Tagged path uses (which re-dispatches on the resulting
+    /// primitive tags — exactly JS after `ToPrimitive`). Returns the op's result.
+    pub(super) fn lower_binop_object_toprimitive(
+        &mut self,
+        module: &mut dyn Module,
+        op: rts_hir::HirBinOp,
+        lhs: &HirExpr,
+        rhs: &HirExpr,
+    ) -> FrontResult<super::lower::Val> {
+        use rts_hir::HirBinOp::*;
+        // Both operands → primitive words (object operands via valueOf/toString).
+        let a = self.operand_word_with_toprimitive(module, lhs, Hint::Default)?;
+        let b = self.operand_word_with_toprimitive(module, rhs, Hint::Default)?;
+        // Arithmetic → the matching `__rtsadp_*` (a JS number, except `%`/`**`).
+        let arith_sym = match op {
+            Sub => Some("__rtsadp_sub"),
+            Mul => Some("__rtsadp_mul"),
+            Div => Some("__rtsadp_div"),
+            Rem => Some("__rtsadp_mod"),
+            Exp => Some("__rtsadp_pow"),
+            _ => None,
+        };
+        if let Some(sym) = arith_sym {
+            let res = self
+                .call_runtime(module, sym, &[a, b])?
+                .expect("generic arithmetic returns a value");
+            return Ok(super::lower::Val {
+                v: res,
+                repr: crate::repr::Repr::Tagged,
+                kind: super::lower::JsKind::Number,
+            });
+        }
+        // Relational → `__rtsadp_{lt,le,gt,ge}` (a bool word → i64 0/1).
+        let rel_sym = match op {
+            Lt => Some("__rtsadp_lt"),
+            Le => Some("__rtsadp_le"),
+            Gt => Some("__rtsadp_gt"),
+            Ge => Some("__rtsadp_ge"),
+            _ => None,
+        };
+        if let Some(sym) = rel_sym {
+            let res = self
+                .call_runtime(module, sym, &[a, b])?
+                .expect("relational returns a value");
+            return Ok(self.poly_bool_to_bool(res));
+        }
+        // Loose equality `==`/`!=` → the JS Abstract Equality trampoline. It runs
+        // ToPrimitive on an object side itself, but here the object was already
+        // reduced to its primitive word (its JIT'd method is unreachable from the
+        // trampoline), so it compares the primitives — exactly `obj == 3`.
+        let sym = if matches!(op, Ne) {
+            "__rtsadp_loose_neq"
+        } else {
+            "__rtsadp_loose_eq"
+        };
+        let res = self
+            .call_runtime(module, sym, &[a, b])?
+            .expect("loose eq returns a value");
+        Ok(self.poly_bool_to_bool(res))
     }
 }

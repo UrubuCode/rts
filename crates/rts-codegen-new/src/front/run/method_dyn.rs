@@ -241,6 +241,20 @@ const DYN_METHODS: &[DynMethod] = &[
         ret_kind: JsKind::Number,
     },
     DynMethod {
+        // `codePointAt` returns a number OR `undefined` (out of range); the word
+        // is opaque here (the trampoline returns the raw PolyValue), so `Unknown`.
+        name: "codePointAt",
+        argc: 1,
+        symbol: "__rtsadp_dyn_code_point_at",
+        ret_kind: JsKind::Unknown,
+    },
+    DynMethod {
+        name: "localeCompare",
+        argc: 1,
+        symbol: "__rtsadp_dyn_locale_compare",
+        ret_kind: JsKind::Number,
+    },
+    DynMethod {
         name: "split",
         argc: 1,
         symbol: "__rtsadp_dyn_split",
