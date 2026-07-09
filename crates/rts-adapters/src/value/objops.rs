@@ -141,6 +141,33 @@ fn resolve_slot(obj_word: u64, key_str_handle: u64) -> Option<(u64, i64)> {
     Some((handle, idx))
 }
 
+/// JS ToPropertyKey normalization for a key that may be an OBJECT with a
+/// side-effecting `toString`/`valueOf`: coerce it to a STRING word ONCE and return
+/// that interned string word (so the internal `key_text` probes never re-fire the
+/// method). A string / symbol / number / bool / undefined / null key is already
+/// side-effect-free and returns unchanged. A SYMBOL key stays a symbol word (it is
+/// a valid non-string property key, handled by `key_text`'s symbol arm).
+fn canonical_property_key(key_word: u64) -> u64 {
+    let k = PolyValue::from_raw(key_word);
+    // Only a genuine keyed/opaque OBJECT can carry a coercing method. Everything
+    // else (string/int/double/bool/undefined/null/function) — and a SYMBOL, which
+    // is its own key — is returned as-is.
+    if !k.is_object() {
+        return key_word;
+    }
+    {
+        // A SYMBOL primitive is a valid property key on its own; do NOT stringify it.
+        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(k.as_handle());
+        if rt_handles::with_entry(h, |e| matches!(e, Some(rt_handles::Entry::Symbol { .. }))) {
+            return key_word;
+        }
+    }
+    // Run ToString (the toString/valueOf ToPrimitive chain, hint "string") once via
+    // the engine's generic stringify, which returns a STRING PolyValue word already
+    // interned in the real pool. That word is a stable, side-effect-free key.
+    super::genops::__rtsadp_to_string(key_word)
+}
+
 /// The UTF-8 text of a key PolyValue. A string PolyValue is read from the real
 /// pool; a non-string (a defensively-passed number/bool) is rendered through the
 /// engine's own ToString so a numeric computed key (`o["0"]` vs `o[0]`) coerces
@@ -188,6 +215,12 @@ fn key_text(key_str_handle: u64) -> String {
 /// array / primitive). The lowering routes here only proven-object receivers.
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
+    // ToPropertyKey must run the key's coercion EXACTLY ONCE (JS 13.3.12): a key
+    // OBJECT with a side-effecting `toString`/`valueOf` (`obj[keyObj]`) would
+    // otherwise fire its method per internal `key_text` probe below. Canonicalize an
+    // OBJECT key to an interned STRING word up front; strings/symbols/numbers are
+    // already side-effect-free and pass through unchanged.
+    let key_str_handle = canonical_property_key(key_str_handle);
     // PROXY (#218): a proxy receiver routes through its `get` trap. Checked first —
     // a proxy is not a keyed Vec object, so `resolve_slot` would read `undefined`.
     if let Some((target, handler)) = proxy_parts(obj_word) {
@@ -395,8 +428,12 @@ pub extern "C" fn __rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word:
     }
     // An ARRAY receiver + NUMERIC key (`v[i] = x` through the dynamic path —
     // the receiver was an `any` param/local): element write. `i == len`
-    // appends; `i > len` fills the gap with `undefined` (no holes in the
-    // model) then appends — JS growth semantics.
+    // appends; `i > len` grows the array, filling the skipped slots with the
+    // HOLE singleton (a SPARSE array — JS creates holes at the gap, NOT
+    // `undefined` values). Holes read back as `undefined` but are skipped by
+    // `Object.keys` / `hasOwnProperty` / enumeration (see the hole guards in
+    // `__rtsadp_obj_has` / `__rtsadp_has_own`), matching JS `arr[7] = x` on a
+    // length-3 array (`Object.keys` → `0,1,2,7`, not `0..7`).
     {
         let obj = PolyValue::from_raw(obj_word);
         if obj.is_object() && !looks_like_object(obj) {
@@ -410,9 +447,9 @@ pub extern "C" fn __rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word:
                     if i < len {
                         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(handle, i, val_word as i64);
                     } else {
-                        let undef = PolyValue::undefined().raw() as i64;
+                        let hole = PolyValue::hole().raw() as i64;
                         for _ in len..i {
-                            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle, undef);
+                            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle, hole);
                         }
                         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle, val_word as i64);
                     }

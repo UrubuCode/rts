@@ -37,34 +37,29 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.sigs.get(&fn_name)?.ret_class.clone()
     }
 
-    /// Whether `e`, as a `+` operand, is EXACT through the runtime generic `+`'s
-    /// ToPrimitive: a non-object operand always is; an OBJECT operand is when
-    /// its statically-known class defines no custom `toString`/`valueOf` (those
-    /// are unreachable from the trampoline → wrong value, keep the bail). A
-    /// `[Symbol.toPrimitive]` method (`@@toPrimitive` slot) is fine — the
-    /// generic path consults it; a method-free object renders the spec
-    /// `[object Object]`.
+    /// Whether `e`, as a coercing-op operand, is EXACT through the runtime generic
+    /// path's ToPrimitive. Safe when: it is not an object; the object has no custom
+    /// `toString`/`valueOf` (renders the spec `[object Object]`); it carries a
+    /// `[Symbol.toPrimitive]`; or it is an OBJECT-LITERAL instance (inline or a var of
+    /// a `__rtsl_lit_*` class) — those materialize methods as OWN slots the runtime
+    /// `to_primitive_via_method` reaches via `__rtsadp_obj_get` (the real
+    /// OrdinaryToPrimitive chain). A general class instance with a custom
+    /// `toString`/`valueOf` stays a conservative bail.
     fn add_operand_to_primitive_safe(&self, e: &HirExpr) -> bool {
         if !self.is_whole_object_value(e) {
             return true;
         }
-        // An INLINE literal carries its recovered class in the marker field.
-        let class = match &e.kind {
-            rts_hir::ir::HirExprKind::Object(fields) => fields
-                .iter()
-                .find(|(k, _)| k == crate::front::run::desugar::LIT_CLASS_MARKER)
-                .and_then(|(_, v)| match &v.kind {
-                    rts_hir::ir::HirExprKind::Lit(rts_hir::ir::HirLit::Str(s)) => Some(s.clone()),
-                    _ => None,
-                }),
-            _ => self.static_instance_class(e),
-        };
-        match class {
+        // Any INLINE literal reaching here is safe (an unsupported-member literal bails
+        // earlier in `lower_object_literal`; a recovered/plain one has own-slot methods).
+        if matches!(&e.kind, rts_hir::ir::HirExprKind::Object(_)) {
+            return true;
+        }
+        match self.static_instance_class(e) {
+            // A LITERAL class instance (`const o = { valueOf(){…} }`) — own-slot methods.
+            Some(class) if class.starts_with("__rtsl_lit_") => true,
             Some(class) => self.classes.get(&class).is_none_or(|d| {
                 !d.methods.contains_key("toString") && !d.methods.contains_key("valueOf")
             }),
-            // An anonymous plain shape (no class ⇒ no methods) renders the spec
-            // `[object Object]` — exact.
             None => true,
         }
     }

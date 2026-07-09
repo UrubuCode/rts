@@ -430,13 +430,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // `__rtsadp_dyn_*` path, not here.
             return Ok(None);
         };
-        // The callback must be a reifiable function value (a synthesized non-
-        // capturing arrow ident, or a function ident). A capturing arrow stays an
-        // `Arrow` node — decline so the caller bails with the closure message
-        // (#195), never a wrong value.
-        if !matches!(&args[0].kind,
-            HirExprKind::Ident(name) if self.sigs.contains_key(name))
-        {
+        // The callback must be a reifiable function value: a function ident, OR a
+        // PRIMORDIAL coercion global (`Boolean`/`Number`/`String`, not shadowed). A
+        // capturing arrow stays an `Arrow` node — decline so the caller bails with the
+        // closure message (#195), never a wrong value.
+        let is_reifiable = matches!(&args[0].kind,
+            HirExprKind::Ident(name)
+                if self.sigs.contains_key(name) || self.coerce_fn_op_for(name).is_some());
+        if !is_reifiable {
             return Ok(None);
         }
         let arr_word = self.box_value(recv);
@@ -526,6 +527,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirExprKind::Ident(name) if self.sigs.contains_key(name) => {
                 let f = self.reify_function(module, name)?;
                 Ok(f.v)
+            }
+            // A PRIMORDIAL coercion global as a callback (`filter(Boolean)`,
+            // `map(String)`, `map(Number)`) — reify it to a real coercion FUNCTION
+            // VALUE (Boolean/Number/String are PRIMORDIAL; the engine may name them).
+            HirExprKind::Ident(name) if self.coerce_fn_op_for(name).is_some() => {
+                let op = self.coerce_fn_op_for(name).expect("guarded");
+                self.emit_coerce_fn_value(module, op)
             }
             HirExprKind::Arrow { .. } => Err(crate::front::error::Unsupported::new(format!(
                 "Array.{method}() with a CAPTURING callback (closures are a later increment)"

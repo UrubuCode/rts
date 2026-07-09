@@ -77,24 +77,61 @@ pub(super) fn to_string(v: PolyValue) -> String {
     "[object Object]".to_string()
 }
 
-/// JS `ToPrimitive(v, hint)` OBJECT step: when `v` is a keyed object carrying an
-/// own `[Symbol.toPrimitive](hint)` method (the object-literal desugar recovers
-/// it as the `@@toPrimitive` own-prop fn slot — see `desugar::objmethod`),
-/// invoke it with the hint string and return the PRIMITIVE result. `None` = no
-/// such method, or the method returned a non-primitive (spec: TypeError; here
-/// the caller keeps its default coercion — never a wrong recursion).
+/// JS `ToPrimitive(v, hint)` OBJECT step: when `v` is a keyed object, run the spec
+/// ToPrimitive algorithm.
+///
+/// 1. An own `[Symbol.toPrimitive](hint)` method (the object-literal desugar
+///    recovers it as the `@@toPrimitive` own-prop fn slot — see `desugar::objmethod`)
+///    takes precedence: invoke it with the hint string and return the PRIMITIVE
+///    result.
+/// 2. Otherwise OrdinaryToPrimitive: with hint `"string"` try `toString` then
+///    `valueOf`; with hint `"number"`/`"default"` try `valueOf` then `toString`.
+///    Each own method that IS a function is called with no args; the first one to
+///    return a primitive wins.
+///
+/// `None` = not a keyed object, no usable method found, or every method returned a
+/// non-primitive (spec: TypeError; here the caller keeps its default coercion —
+/// never a wrong recursion).
 pub(super) fn to_primitive_via_method(v: PolyValue, hint: &str) -> Option<PolyValue> {
     if !v.is_object() || !crate::value::inspect::looks_like_object(v) {
         return None;
     }
-    let key = abi_adapter::intern_poly("@@toPrimitive").raw();
+    // 1. `[Symbol.toPrimitive]` (canonicalized to the `@@toPrimitive` own slot).
+    if let Some(p) = invoke_prim_method(v, "@@toPrimitive", Some(hint)) {
+        return Some(p);
+    }
+    // 2. OrdinaryToPrimitive: the method order depends on the hint. `"string"`
+    //    tries `toString` first; every other hint (`"number"`/`"default"`) tries
+    //    `valueOf` first.
+    let order: [&str; 2] = if hint == "string" {
+        ["toString", "valueOf"]
+    } else {
+        ["valueOf", "toString"]
+    };
+    for name in order {
+        if let Some(p) = invoke_prim_method(v, name, None) {
+            return Some(p);
+        }
+    }
+    None
+}
+
+/// Fetch the own method `name` on keyed object `v`; if it is a function, invoke it
+/// (with `hint` as the sole argument when `Some`, else no args) and return the
+/// result IFF it is a primitive. `None` when the slot is absent / not a function /
+/// the call produced a non-primitive.
+fn invoke_prim_method(v: PolyValue, name: &str, hint: Option<&str>) -> Option<PolyValue> {
+    let key = abi_adapter::intern_poly(name).raw();
     let f = super::objops::__rtsadp_obj_get(v.raw(), key);
     if !PolyValue::from_raw(f).is_function() {
         return None;
     }
-    let hint_w = abi_adapter::intern_poly(hint).raw();
     let undef = PolyValue::undefined().raw();
-    let r = super::funcops::__rtsadp_fn_invoke_method(f, v.raw(), hint_w, undef, undef, undef);
+    let a0 = match hint {
+        Some(h) => abi_adapter::intern_poly(h).raw(),
+        None => undef,
+    };
+    let r = super::funcops::__rtsadp_fn_invoke_method(f, v.raw(), a0, undef, undef, undef);
     let p = PolyValue::from_raw(r);
     if p.is_object() || p.is_function() {
         return None;
@@ -176,9 +213,19 @@ pub(super) fn to_number(v: PolyValue) -> f64 {
     if let Some(p) = to_primitive_via_method(v, "number") {
         return to_number(p);
     }
-    // An ARRAY (no toPrimitive method): ToPrimitive falls to its ToString (the
-    // element join) and re-parses — `-[]` → -0, `+[5]` → 5, `+[1,2]` → NaN.
+    // An opaque runtime entry (Date / RegExp / array / …): ToPrimitive with hint
+    // "number" runs `valueOf` FIRST. A `Date` exposes a NUMERIC `valueOf` (its time
+    // value), so `+date` / `date < date` use the timestamp — dispatched by ENTRY
+    // KIND in the runtime layer (`OPAQUE_HAS_NUMBER`/`OPAQUE_TO_NUMBER`), no class
+    // name here. Everything else (arrays, RegExp) has no numeric `valueOf` and
+    // falls to ToString then re-parse — `-[]` → -0, `+[5]` → 5, `+[1,2]` → NaN,
+    // `+/re/` → NaN.
     if v.is_object() && !super::inspect::looks_like_object(v) {
+        use rts_runtime::namespaces::globals::date::instance as rt_date;
+        let h = abi_adapter::real_handle_of(v);
+        if rt_date::__RTS_FN_RT_OPAQUE_HAS_NUMBER(h) != 0 {
+            return rt_date::__RTS_FN_RT_OPAQUE_TO_NUMBER(h);
+        }
         return string_to_number(&to_string(v));
     }
     // undefined, object, function, hole, empty → NaN.
