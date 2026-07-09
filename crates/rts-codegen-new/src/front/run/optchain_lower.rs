@@ -193,7 +193,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // sentinel). Emit `undefined` instead of bailing the whole program.
         self.builder.switch_to_block(else_blk);
         self.builder.seal_block(else_blk);
-        let resolvable = self.static_instance_class(object).is_some()
+        // A method is resolvable in the present branch when its dispatch reaches a
+        // real body: a statically-known class instance, some user/ambient class
+        // declaring it, OR a PRIMITIVE receiver whose builtin methods the engine
+        // owns — a proven ARRAY (`arr?.join(",")`) or a proven STRING
+        // (`s?.toUpperCase()`). Without these the guarded call would fall to
+        // `undefined` even for a present receiver, dropping a legitimate result.
+        let primitive_receiver =
+            self.is_array_valued(object) || matches!(object.ty, rts_hir::HirType::Str);
+        let resolvable = primitive_receiver
+            || self.static_instance_class(object).is_some()
             || self.classes.iter().any(|d| {
                 !d.name.starts_with("__rtsl_")
                     && (d.method_fn(&method).is_some() || d.accessor(&method).is_some())

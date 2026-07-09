@@ -126,6 +126,11 @@ pub(crate) struct LoopCtx {
     /// The source LABEL of this loop (`outer: for …`), if any — the target of a
     /// `break label` / `continue label`. `None` for an unlabeled loop/switch.
     pub label: Option<String>,
+    /// The `finally_stack` depth at the point this loop's body starts. A `break`/
+    /// `continue` targeting this loop must run every `finally` pushed AFTER this
+    /// depth (the finalizers of `try/finally` blocks the jump escapes), innermost
+    /// first, before jumping — JS runs `finally` on an abrupt loop exit too.
+    pub finally_depth: usize,
 }
 
 /// One active enclosing `try` (P5.13): the block a pending error routes to. For a

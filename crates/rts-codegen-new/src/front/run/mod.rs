@@ -26,7 +26,9 @@ mod argsobj;
 mod assign;
 mod asyncspawn;
 mod binop;
+mod breakcont;
 mod dynfn;
+mod fnhoist;
 mod floatscan;
 mod binop_eq;
 mod ctorfn;
@@ -499,6 +501,11 @@ fn build_from_program(
                 varhoist::rewrite_var_decls_to_assigns(&mut f.body, &names);
                 f.body.splice(0..0, hoists);
             }
+            // Function-DECLARATION hoisting: a `function inner(){…}` declared in
+            // the body is visible (name + value) from the top, so a call textually
+            // before it resolves. Runs AFTER the var-hoist splice so the fn decls
+            // lead the whole body. See `fnhoist`.
+            fnhoist::hoist_fn_decls(&mut f.body);
             funcs.push(f);
         }
     }
@@ -528,6 +535,9 @@ fn build_from_program(
         varhoist::rewrite_var_decls_to_assigns(&mut body, &names);
         body.splice(0..0, top_var_hoists);
     }
+    // Function-DECLARATION hoisting at MODULE scope: a top-level `function f(){…}`
+    // used before its line resolves (name + value hoisted to the head of main).
+    fnhoist::hoist_fn_decls(&mut body);
 
     // STATIC fields + `static {}` init blocks: every static FIELD of a user class
     // lives in a WRITABLE module-global cell named by the synth convention

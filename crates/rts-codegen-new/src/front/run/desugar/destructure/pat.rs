@@ -5,23 +5,25 @@
 //! accesses against), and produces one `const` binding per leaf identifier reading
 //! the corresponding element (array) / property (object) off the source.
 //!
+//! A NESTED pattern element/property (`[[a], b]`, `{a: {b}}`) binds the
+//! intermediate read to a fresh temp and re-expands off it (element/property reads
+//! do not need a statically-proven shape). An OBJECT rest `{a, ...rest}` copies the
+//! source (`Object.assign({}, src)`) and `delete`s each named key. A COMPUTED
+//! object key `{[k]: v}` reads `src[k]` (and subtracts `delete rest[k]` from a
+//! rest) when `k` is a MODELED expression.
+//!
 //! Returns `None` (a total bail — the caller keeps the original statement, which
-//! itself bails at lowering) for any form outside the modeled subset:
-//! - a NESTED pattern element/property (`[[a], b]`, `{a: {b}}`): the intermediate
-//!   element read yields a shapeless `Tagged` value, so a further destructure off it
-//!   cannot resolve a static shape — bailing is sound (never a wrong value);
-//! - an OBJECT rest `{a, ...rest}` (needs a new object of the remaining keys — the
-//!   shape-minus-a transition is a later increment);
-//! - a COMPUTED object key `{[k]: v}` (the runtime-key read path is a later
-//!   increment);
+//! itself bails at lowering) only for a form still outside the modeled subset:
+//! - a non-identifier object-rest target (`{...{}}` — JS forbids it anyway);
+//! - a computed key whose expression is not fully modeled (a `Raw`/`Arrow`/`Await`);
 //! - an array rest that is not the LAST element (JS forbids it anyway).
 
 use rts_hir::HirStmt;
 
 use super::Gen;
 use super::builders::{
-    const_bind, default_ternary, delete_member_stmt, elem_at, ident, obj_assign_copy, prop_get,
-    slice_from,
+    const_bind, default_ternary, delete_index_stmt, delete_member_stmt, elem_at, ident, index_get,
+    obj_assign_copy, prop_get, slice_from,
 };
 
 /// Expand a binding `Pat` reading off source local `src`. The single recursion
@@ -114,49 +116,85 @@ pub(super) fn expand_array(
     Some(out)
 }
 
-/// Expand an OBJECT pattern `{a, b: c, d = 5}` reading off source local `src`.
-/// Returns `None` for a rest property or a computed key; a nested value pattern is
-/// bound to a temp and recursed.
+/// A property key the pattern pulled out — subtracted from a trailing `...rest`
+/// shallow copy. A STATIC key deletes by name (`delete rest.k`); a COMPUTED key
+/// `{ [expr]: v }` deletes by the SAME re-lowered key expression (`delete
+/// rest[expr]`). (A computed key expr is proven side-effect-free by
+/// `rebuild_default`'s modeled gate below, so re-evaluating it in the delete is
+/// observationally identical to the single JS evaluation.)
+enum RemovedKey {
+    Static(String),
+    Computed(rts_hir::HirExpr),
+}
+
+/// Expand an OBJECT pattern `{a, b: c, d = 5, [k]: v, ...rest}` reading off source
+/// local `src`. Returns `None` only for a non-ident rest target or an unmodeled
+/// computed-key expression; a nested value pattern is bound to a temp and recursed.
 pub(super) fn expand_object(
     src: &str,
     pat: &swc_ecma_ast::ObjectPat,
     g: &mut Gen,
 ) -> Option<Vec<HirStmt>> {
     let mut out = Vec::new();
-    // Static keys named explicitly — subtracted from a trailing `...rest` copy.
-    let mut named_keys: Vec<String> = Vec::new();
+    // Keys named explicitly — subtracted from a trailing `...rest` copy.
+    let mut named_keys: Vec<RemovedKey> = Vec::new();
     for prop in &pat.props {
         match prop {
             // `{ a, b, ...rest }` — JS-guaranteed LAST. Bind `rest` to a shallow copy
             // of the source (`Object.assign({}, src)`) minus every explicitly-named
-            // key (`delete rest.<key>` each). A non-ident rest target bails (JS forbids
-            // it anyway). A computed/nested key earlier would have bailed at its own
-            // arm (so `named_keys` covers every property already pulled out).
+            // key (`delete rest.<key>` / `delete rest[expr]` each). A non-ident rest
+            // target bails (JS forbids it anyway).
             swc_ecma_ast::ObjectPatProp::Rest(rest) => {
                 let name = leaf_name(&rest.arg)?;
                 out.push(const_bind(&name, obj_assign_copy(src)));
                 for key in &named_keys {
-                    out.push(delete_member_stmt(&name, key));
+                    match key {
+                        RemovedKey::Static(k) => out.push(delete_member_stmt(&name, k)),
+                        RemovedKey::Computed(e) => {
+                            out.push(delete_index_stmt(&name, e.clone()))
+                        }
+                    }
                 }
             }
-            // `{ key: value_pat }` — including `{ a: b }` rename. The VALUE pat may be
-            // a plain ident, `ident = default`, or a nested pattern (temp + recurse).
+            // `{ key: value_pat }` — including `{ a: b }` rename and `{ [k]: v }`
+            // computed key. The VALUE pat may be a plain ident, `ident = default`, or
+            // a nested pattern (temp + recurse).
             swc_ecma_ast::ObjectPatProp::KeyValue(kv) => {
-                let key = static_key(&kv.key)?;
-                named_keys.push(key.clone());
+                // A COMPUTED key `[expr]` reads `src[expr]`; a static key reads
+                // `src.k`. Track the removed key in the right form for `...rest`.
+                let (access_of, removed): (Box<dyn Fn() -> rts_hir::HirExpr>, RemovedKey) =
+                    match computed_key(&kv.key) {
+                        Some(key_expr) => {
+                            let ke = key_expr.clone();
+                            let s = src.to_string();
+                            (
+                                Box::new(move || index_get(ident(&s), ke.clone())),
+                                RemovedKey::Computed(key_expr),
+                            )
+                        }
+                        None => {
+                            let key = static_key(&kv.key)?;
+                            let s = src.to_string();
+                            let k = key.clone();
+                            (
+                                Box::new(move || prop_get(ident(&s), &k)),
+                                RemovedKey::Static(key),
+                            )
+                        }
+                    };
+                named_keys.push(removed);
                 match kv.value.as_ref() {
                     swc_ecma_ast::Pat::Ident(id) => {
                         let name = id.id.sym.to_string();
-                        out.push(const_bind(&name, prop_get(ident(src), &key)));
+                        out.push(const_bind(&name, access_of()));
                     }
                     swc_ecma_ast::Pat::Assign(assign) => {
                         let default = rebuild_default(&assign.right)?;
-                        let access = prop_get(ident(src), &key);
-                        let value = default_ternary(access, default);
+                        let value = default_ternary(access_of(), default);
                         expand_assign_target(&assign.left, value, g, &mut out)?;
                     }
                     nested @ (swc_ecma_ast::Pat::Array(_) | swc_ecma_ast::Pat::Object(_)) => {
-                        expand_nested(prop_get(ident(src), &key), nested, g, &mut out)?;
+                        expand_nested(access_of(), nested, g, &mut out)?;
                     }
                     _ => return None,
                 }
@@ -164,7 +202,7 @@ pub(super) fn expand_object(
             // `{ a }` shorthand, or `{ a = 5 }` shorthand-with-default.
             swc_ecma_ast::ObjectPatProp::Assign(a) => {
                 let name = a.key.sym.to_string();
-                named_keys.push(name.clone());
+                named_keys.push(RemovedKey::Static(name.clone()));
                 let access = prop_get(ident(src), &name);
                 match &a.value {
                     Some(default_expr) => {
@@ -188,15 +226,28 @@ fn leaf_name(pat: &swc_ecma_ast::Pat) -> Option<String> {
     }
 }
 
-/// A STATIC object-pattern key (`a`, `"a"`, `0`). A computed key `[k]` bails.
+/// A STATIC object-pattern key (`a`, `"a"`, `0`). A computed key `[k]` yields
+/// `None` here (handled by [`computed_key`]).
 fn static_key(key: &swc_ecma_ast::PropName) -> Option<String> {
     match key {
         swc_ecma_ast::PropName::Ident(id) => Some(id.sym.to_string()),
         swc_ecma_ast::PropName::Str(s) => Some(s.value.to_string_lossy().into_owned()),
         swc_ecma_ast::PropName::Num(n) => Some(format!("{}", n.value)),
-        // Computed / BigInt keys need the runtime-key path → bail.
+        // Computed / BigInt keys are not static names.
         _ => None,
     }
+}
+
+/// A COMPUTED object-pattern key `{ [expr]: v }` → the re-lowered HIR of `expr`,
+/// used for BOTH the property read (`src[expr]`) and the `...rest` subtraction
+/// (`delete rest[expr]`). Accepts only a fully MODELED key expression (same gate as
+/// a default RHS — no `Raw`/`Arrow`/`Await`), so an unmodeled key bails the whole
+/// pattern (never a silently wrong binding). `None` for a non-computed key.
+fn computed_key(key: &swc_ecma_ast::PropName) -> Option<rts_hir::HirExpr> {
+    let swc_ecma_ast::PropName::Computed(c) = key else {
+        return None;
+    };
+    rebuild_default(&c.expr)
 }
 
 /// Lower a default expression (the RHS of `= default`) to HIR via rts-hir's real

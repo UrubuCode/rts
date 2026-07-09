@@ -85,6 +85,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             exit: exit_block,
             continue_target: update_block,
             label,
+            finally_depth: self.finally_stack.len(),
         });
         self.lower_block(module, body)?;
         self.loop_stack.pop();
@@ -258,6 +259,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             exit: break_block,
             continue_target: header,
             label,
+            finally_depth: self.finally_stack.len(),
         });
         self.lower_block(module, body)?;
         self.loop_stack.pop();
@@ -503,6 +505,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             exit: exit_block,
             continue_target: advance_block,
             label,
+            finally_depth: self.finally_stack.len(),
         });
         self.lower_block(module, body)?;
         self.loop_stack.pop();
@@ -527,55 +530,4 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(())
     }
 
-    /// `break` — jump to a loop's exit. Unlabeled → the innermost loop/switch; a
-    /// `break label` → the enclosing loop carrying that label (searched outward).
-    /// A `break` outside any loop, or an unknown label, BAILS.
-    pub(super) fn lower_break(&mut self, label: Option<&str>) -> FrontResult<()> {
-        let exit = match label {
-            Some(l) => self
-                .loop_stack
-                .iter()
-                .rev()
-                .find(|c| c.label.as_deref() == Some(l))
-                .map(|c| c.exit)
-                .ok_or_else(|| {
-                    crate::front::error::Unsupported::new(format!(
-                        "`break {l}`: no enclosing loop labeled `{l}`"
-                    ))
-                })?,
-            None => self
-                .loop_stack
-                .last()
-                .map(|c| c.exit)
-                .ok_or_else(|| crate::front::error::Unsupported::new("`break` outside a loop"))?,
-        };
-        self.builder.ins().jump(exit, &[]);
-        self.block_terminated = true;
-        Ok(())
-    }
-
-    /// `continue` — jump to a loop's continue target (header / update / advance).
-    /// Unlabeled → the innermost loop; a `continue label` → the enclosing loop with
-    /// that label. A `continue` outside any loop, or an unknown label, BAILS.
-    pub(super) fn lower_continue(&mut self, label: Option<&str>) -> FrontResult<()> {
-        let target = match label {
-            Some(l) => self
-                .loop_stack
-                .iter()
-                .rev()
-                .find(|c| c.label.as_deref() == Some(l))
-                .map(|c| c.continue_target)
-                .ok_or_else(|| {
-                    crate::front::error::Unsupported::new(format!(
-                        "`continue {l}`: no enclosing loop labeled `{l}`"
-                    ))
-                })?,
-            None => self.loop_stack.last().map(|c| c.continue_target).ok_or_else(|| {
-                crate::front::error::Unsupported::new("`continue` outside a loop")
-            })?,
-        };
-        self.builder.ins().jump(target, &[]);
-        self.block_terminated = true;
-        Ok(())
-    }
 }
