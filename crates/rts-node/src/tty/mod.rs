@@ -60,7 +60,7 @@ fn pure_func(
 
 /// Registers the `node:tty` surface into the engine Registry.
 pub fn register(e: &mut Engine) {
-    e.module("node", "tty")
+    e.ns("node:tty")
         .alias("tty")
         .doc("TTY detection (node:tty).")
         .member(pure_func(

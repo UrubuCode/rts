@@ -60,7 +60,10 @@ pub use rts_std::net;
 pub use rts_shared::num;
 /// `node:*` — native rts-node modules (independent crate). Re-exported so
 /// `registry_build.rs` can register them via `ns::<mod>::register`.
-pub use rts_node::module as node_module;
+pub use rts_node::fs as node_fs;
+pub use rts_node::os as node_os;
+pub use rts_node::path as node_path;
+pub use rts_node::process as node_process;
 pub use rts_node::punycode;
 pub use rts_node::querystring;
 pub use rts_node::tty as node_tty;

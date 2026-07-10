@@ -233,31 +233,12 @@ pub fn has_class(class: &str) -> bool {
 /// link-OK/runtime-SIGILL (the honesty floor's "nothing that crashes as pass").
 /// Null pointers (alias/external members) are skipped — same null-skip invariant
 /// as the engine's own `jit_symbols`.
-/// The Registry MODULE key for a builtin namespace `ns` (as produced by
-/// `flatten::builtin_ns`). A `node:X` ns resolves by its DECLARED key `node:X`
-/// (registered via `e.module("node","X")` — data-driven, the module names
-/// itself); if rts-node has not natively provided it, it transparently falls
-/// back to the shared `rts:X` (so an unmigrated `node:X` keeps working). `rts:`
-/// and bare-ambient namespaces map straight to `rts:{ns}`. This is generic
-/// SCHEME resolution — no per-module name is ever hardcoded here.
-fn ns_key(ns: &str) -> Option<String> {
-    let r = registry();
-    if let Some(rest) = ns.strip_prefix("node:") {
-        if r.module(ns).is_some() {
-            return Some(ns.to_string());
-        }
-        let fallback = format!("rts:{rest}");
-        return r.module(&fallback).is_some().then_some(fallback);
-    }
-    let key = format!("rts:{ns}");
-    r.module(&key).is_some().then_some(key)
-}
-
 pub fn namespace_jit_symbols(ns: &str) -> Vec<(&'static str, *const u8)> {
-    let Some(key) = ns_key(ns) else {
-        return Vec::new();
-    };
-    let Some(m) = registry().module(&key) else {
+    // `ns` is the key from `flatten::builtin_ns`: a scheme'd `node:X`/`rts:X`
+    // (exact match) or a bare ambient ident (`registry().module` maps it to
+    // `rts:{ns}`). NO cross-scheme fallback — a `node:X` resolves ONLY if a
+    // module declared itself as `node:X` (`e.ns("node:X")`).
+    let Some(m) = registry().module(ns) else {
         return Vec::new();
     };
     m.members
@@ -287,7 +268,7 @@ pub fn all_jit_symbols() -> Vec<(&'static str, *const u8)> {
 /// the embedded prelude and route it through [`namespace_member`]. Empty `ns`
 /// (bare `"rts"`) is not a namespace.
 pub fn has_namespace(ns: &str) -> bool {
-    !ns.is_empty() && ns_key(ns).is_some()
+    !ns.is_empty() && registry().module(ns).is_some()
 }
 
 /// Resolve `class.method(argc)` as an INSTANCE method to its [`ResolvedCall`].
@@ -410,7 +391,7 @@ pub fn namespace_member(ns: &str, member: &str, argc: usize) -> Option<ResolvedC
     if ns.is_empty() {
         return None;
     }
-    let m = registry().module(&ns_key(ns)?)?;
+    let m = registry().module(ns)?;
     let is_callable = |m: &&Member| {
         matches!(m.kind, MemberKind::Function | MemberKind::StaticMethod) && m.matches_name(member)
     };
@@ -433,7 +414,7 @@ pub fn namespace_const(ns: &str, name: &str) -> Option<ResolvedCall> {
     if ns.is_empty() {
         return None;
     }
-    let m = registry().module(&ns_key(ns)?)?;
+    let m = registry().module(ns)?;
     let found = m
         .members
         .iter()

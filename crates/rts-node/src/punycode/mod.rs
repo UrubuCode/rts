@@ -272,8 +272,7 @@ fn pure_func(
 
 /// Registers the `node:punycode` surface into the engine Registry.
 pub fn register(e: &mut Engine) {
-    e.module("node", "punycode")
-        .alias("punycode")
+    e.ns("node:punycode")
         .doc("Punycode (RFC 3492) + IDNA ToASCII/ToUnicode (node:punycode).")
         .member(pure_func(
             "encode",

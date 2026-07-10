@@ -23,146 +23,135 @@
 use rts_engine::Engine;
 use rts_runtime::namespaces as ns;
 
-/// One register row: a short label (for greppability / docs) + the `fn(&mut Engine)`
-/// that pushes its metadata into the Registry.
-///
-/// `label`/`why` are INTENTIONAL in-table documentation (the one-line replacement
-/// for the old inline comments) — read by humans + grep, not by code; hence the
-/// allow. Keeping them as data (not comments) means a row is self-describing.
-#[allow(dead_code)]
-pub(super) struct Register {
-    /// Short identity (the namespace / class name) — documentation + grep anchor.
-    pub label: &'static str,
-    /// The register fn (a namespace `register` or a class-spec `register_*`).
-    pub run: fn(&mut Engine),
-    /// One line: WHAT this registers and WHY (was the inline comment).
-    pub why: &'static str,
-}
-
 /// Every `fn(&mut Engine)` register, in any order (each just pushes metadata).
-/// ADD A NAMESPACE/CLASS HERE — one row, append-friendly. Heavier/feature-gated
-/// namespaces (http_server/tls/runtime) are deliberately absent until a test
-/// needs them (`ui` is now registered — egui GUI, crate `rts-egui`). `console`
-/// is NOT here — it is a `.ts` prelude (see [`PRELUDE_TS`]).
-pub(super) static REGISTER: &[Register] = &[
+/// ADD A NAMESPACE/CLASS HERE — one row (the bare register fn). Each fn NAMES
+/// its own module/class inside (`e.ns("bigfloat")`, `e.ns("node:fs")`,
+/// `e.class("Date")`), so this table carries NO label/why strings — the identity
+/// lives in the data (the register fn), never duplicated here. Heavier/feature-
+/// gated namespaces (http_server/runtime) are deliberately absent until a test
+/// needs them. `console` is NOT here — it is a `.ts` prelude (see [`PRELUDE_TS`]).
+pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     // Namespaces backing class statics/ctors (Date.now/UTC/parse → `date`; Map/Set
     // → `collections`).
-    Register { label: "date", run: ns::date::register, why: "backs Date statics/ctors" },
-    Register { label: "collections", run: ns::collections::register, why: "backs Map/Set" },
-    Register { label: "regex", run: ns::regex::register, why: "backs RegExp" },
+    ns::date::register,
+    ns::collections::register,
+    ns::regex::register,
     // BUILTIN-IMPORT namespaces (`import { print } from "rts:io"`) — the public std
     // surface resolved via `namespace_member`; their `__RTS_FN_NS_*` real fn_ptrs are
     // harvested + JIT-installed by `all_jit_symbols`/`runtime_link`.
-    Register { label: "io", run: ns::io::register, why: "rts:io print/eprint/stdio" },
-    Register { label: "math", run: ns::math::register, why: "rts:math + Math statics" },
-    Register { label: "gc", run: ns::gc::register, why: "string pool / handle surface" },
+    ns::io::register,
+    ns::math::register,
+    ns::gc::register,
     // `rts:test` framework backing namespaces, used ambiently by the embedded bundle
     // (prelude-gated in `method::try_method_dispatch`).
-    Register { label: "test", run: ns::test::register, why: "test_core.* runner primitives" },
-    Register { label: "globals::string", run: ns::globals::string::register, why: "string.* matchers" },
-    Register { label: "fmt", run: ns::fmt::register, why: "fmt.parse_f64 numeric matchers" },
-    Register { label: "util", run: ns::fmt::register_node_util, why: "node:util compat (alias de fmt)" },
+    ns::test::register,
+    ns::globals::string::register,
+    ns::fmt::register,
+    ns::fmt::register_node_util,
     // node:* modules — native rts-node crate (independent). `node:X` resolves here
     // via the same builtin-namespace path as `rts:X` (see docs/node-implementation/).
-    Register { label: "querystring", run: ns::querystring::register, why: "node:querystring escape/unescape" },
-    Register { label: "punycode", run: ns::punycode::register, why: "node:punycode encode/decode/toASCII/toUnicode" },
-    Register { label: "node:module", run: ns::node_module::register, why: "node:module isBuiltin (real core-module check)" },
-    Register { label: "node:tty", run: ns::node_tty::register, why: "node:tty isatty (real IsTerminal)" },
+    ns::querystring::register,
+    ns::punycode::register,
+    ns::node_tty::register,
+    ns::node_os::register,
+    ns::node_path::register,
+    ns::node_process::register,
+    ns::node_fs::register,
     // The broad std surface `tests/*.test.ts` import via `rts:<ns>`.
-    Register { label: "fs", run: ns::fs::register, why: "rts:fs" },
-    Register { label: "time", run: ns::time::register, why: "rts:time" },
-    Register { label: "env", run: ns::env::register, why: "rts:env" },
-    Register { label: "path", run: ns::path::register, why: "rts:path" },
-    Register { label: "num", run: ns::num::register, why: "rts:num" },
-    Register { label: "mem", run: ns::mem::register, why: "rts:mem" },
-    Register { label: "hash", run: ns::hash::register, why: "rts:hash" },
-    Register { label: "hint", run: ns::hint::register, why: "rts:hint" },
-    Register { label: "ptr", run: ns::ptr::register, why: "rts:ptr" },
-    Register { label: "buffer", run: ns::buffer::register, why: "rts:buffer" },
-    Register { label: "alloc", run: ns::alloc::register, why: "rts:alloc" },
-    Register { label: "bigfloat", run: ns::bigfloat::register, why: "rts:bigfloat" },
-    Register { label: "atomic", run: ns::atomic::register, why: "rts:atomic" },
-    Register { label: "sync", run: ns::sync::register, why: "rts:sync" },
-    Register { label: "trace", run: ns::trace::register, why: "rts:trace" },
-    Register { label: "process", run: ns::process::register, why: "rts:process" },
-    Register { label: "os", run: ns::os::register, why: "rts:os" },
-    Register { label: "crypto", run: ns::crypto::register, why: "rts:crypto" },
-    Register { label: "net", run: ns::net::register, why: "rts:net" },
-    Register { label: "tls", run: ns::tls::register, why: "rts:tls client/send/recv (HTTPS via rustls)" },
-    Register { label: "json", run: ns::json::register, why: "rts:json namespace" },
-    Register { label: "promise", run: ns::promise::register, why: "rts:promise" },
-    Register { label: "thread", run: ns::thread::register, why: "rts:thread" },
-    Register { label: "ffi", run: ns::ffi::register, why: "rts:ffi" },
-    Register { label: "events", run: ns::events::register, why: "rts:events EventEmitter" },
+    ns::fs::register,
+    ns::time::register,
+    ns::env::register,
+    ns::path::register,
+    ns::num::register,
+    ns::mem::register,
+    ns::hash::register,
+    ns::hint::register,
+    ns::ptr::register,
+    ns::buffer::register,
+    ns::alloc::register,
+    ns::bigfloat::register,
+    ns::atomic::register,
+    ns::sync::register,
+    ns::trace::register,
+    ns::process::register,
+    ns::os::register,
+    ns::crypto::register,
+    ns::net::register,
+    ns::tls::register,
+    ns::json::register,
+    ns::promise::register,
+    ns::thread::register,
+    ns::ffi::register,
+    ns::events::register,
     // `audio` — cross-platform audio backend; metadata-only wiring, engine never
     // NAMES the surface (resolves via Registry). `asio_audio` stays feature-gated.
-    Register { label: "audio", run: ns::audio::register, why: "rts:audio device I/O" },
+    ns::audio::register,
     // `dom` — DOM retido HEADLESS na crate `rts-dom`. Engine NUNCA nomeia `dom`;
     // resolve via Registry. parseHtml/querySelector/setText sem janela.
-    Register { label: "dom", run: ns::dom::register, why: "rts:dom headless DOM primitives" },
+    ns::dom::register,
     // `render` — interface de render ABSTRATA na crate `rts-render`. rect/text/
     // measureText despacham p/ o backend ativo (egui). O DOM/layout fala render.*.
-    Register { label: "render", run: ns::render::register, why: "rts:render abstract backend" },
+    ns::render::register,
     // `input` — entrada ABSTRATA na crate IRMÃ `rts-input` (futuro: gamepad/touch).
     // O backend reporta o cru (polling); o DOM/layout faz hit-test + eventos. O TS
     // fala input.*, nunca egui.
-    Register { label: "input", run: ns::input::register_input, why: "rts:input abstract polling" },
+    ns::input::register_input,
     // `egui` — GUI imediata na crate `rts-egui`. Engine NUNCA nomeia `egui`;
     // resolve via Registry. Loop dirigido pelo TS. Ver egui-ui-crate-design.md.
-    Register { label: "egui", run: ns::egui::register, why: "rts:egui GUI primitives" },
+    ns::egui::register,
     // PRIVATE `engine` namespace (arch/time/trace + the str_*/num_*/display/print_line
     // bridges) — prelude-only via the `engineobj` privacy gate.
-    Register { label: "engine", run: ns::engine::register, why: "private prelude bridges" },
+    ns::engine::register,
     // RUNTIME/Registry global CLASS specs (ctor/methods/instanceof as metadata).
-    Register { label: "Date class", run: ns::globals::date::register_class_spec, why: "Date class spec" },
+    ns::globals::date::register_class_spec,
     // Promise is PRIMORDIAL; its class spec carries the static surface
     // (`resolve`/`reject`/`all`/…) + then/catch/finally as registry metadata so the
     // static-call path can resolve `Promise.resolve()` generically.
-    Register { label: "Promise class", run: ns::globals::promise::register_promise_class_spec, why: "Promise statics + then/catch" },
-    Register { label: "RegExp class", run: ns::globals::regexp::register_regexp_class_spec, why: "RegExp class spec" },
+    ns::globals::promise::register_promise_class_spec,
+    ns::globals::regexp::register_regexp_class_spec,
     // Error is NOT here — it is a `.ts` prelude (ERROR_TS). Boolean/Number/String
     // class specs let the `new X(..)` WRAPPER ctor resolve through the Registry.
-    Register { label: "Boolean class", run: ns::globals::boolean::register_boolean_class_spec, why: "Boolean wrapper ctor" },
-    Register { label: "Number class", run: ns::globals::number::register_number_class_spec, why: "Number wrapper ctor" },
-    Register { label: "String class", run: ns::globals::string::register_string_class_spec, why: "String wrapper ctor" },
+    ns::globals::boolean::register_boolean_class_spec,
+    ns::globals::number::register_number_class_spec,
+    ns::globals::string::register_string_class_spec,
     // `URL` — backend/Registry class (WHATWG parser, no native syntax): `new URL(s)`
     // + getters (href/hostname/pathname/…) resolve generically via registryclass.
-    Register { label: "URL class", run: ns::globals::url::register_url_class_spec, why: "URL ctor + getters" },
+    ns::globals::url::register_url_class_spec,
     // `URLSearchParams` — Registry class: `new URLSearchParams("a=1&b=2")` + get/has/
     // set/delete/toString. Os símbolos `__RTS_FN_GL_USP_*` já carregam fn_ptr real
     // (url::fp_for). `url.searchParams` retorna uma instância URLSearchParams →
     // resolvido pelo return-class tracking (ret_class "URLSearchParams").
-    Register { label: "URLSearchParams class", run: ns::globals::url::register_urlsp_class_spec, why: "URLSearchParams ctor + get/has/set/delete" },
+    ns::globals::url::register_urlsp_class_spec,
     // `TextEncoder`/`TextDecoder` — backend/Registry classes (UTF-8, no native
     // syntax): `new TextEncoder().encode(s)` → Uint8Array handle, `decode(h)` → str.
-    Register { label: "TextEncoder class", run: ns::globals::text_encoding::register_text_encoder_class_spec, why: "TextEncoder ctor + encode" },
-    Register { label: "TextDecoder class", run: ns::globals::text_encoding::register_text_decoder_class_spec, why: "TextDecoder ctor + decode" },
+    ns::globals::text_encoding::register_text_encoder_class_spec,
+    ns::globals::text_encoding::register_text_decoder_class_spec,
     // `EventEmitter` — backend/Registry class: `new EventEmitter([async])` + on/once/
     // off/emit. The listener arg is a function-VALUE the backend invokes via the
     // codegen `__rtsadp_fn_invoke` callback bridge (JIT-installed).
-    Register { label: "EventEmitter class", run: ns::globals::events::register_class_spec, why: "EventEmitter ctor + on/emit" },
+    ns::globals::events::register_class_spec,
     // `Symbol` — NON-primordial Registry class (#216): `Symbol.for/keyFor` statics +
     // `Symbol.iterator`/… well-knowns + `description` getter resolve data-driven via
     // is_pure_registry_class (the engine NEVER names "Symbol" in control flow).
-    Register { label: "Symbol class", run: ns::globals::symbol::register_symbol_class_spec, why: "Symbol.for/keyFor + well-knowns + description" },
+    ns::globals::symbol::register_symbol_class_spec,
     // `Proxy` — backend/Registry class (#218): `new Proxy(target, handler)` →
     // `__RTS_FN_GL_PROXY_NEW` (Entry::Proxy). The get/set TRAPS are resolved at
     // runtime in the dynamic property trampolines (`__rtsadp_obj_get`/`_set` detect
     // a Proxy receiver via `resolve_proxy` and invoke `handler.get`/`.set` through
     // the `__rtsadp_fn_invoke` callback bridge), not by a codegen arm.
-    Register { label: "Proxy class", run: ns::globals::proxy::register_proxy_class_spec, why: "Proxy ctor → PROXY_NEW; traps in obj_get/set" },
+    ns::globals::proxy::register_proxy_class_spec,
     // `WeakRef` — Registry class (#217 A1.1): `new WeakRef(target)` → WEAKREF_NEW
     // (Entry::WeakRef, não traçado pelo coletor), `deref()` → WEAKREF_DEREF (weak
     // real: undefined após coleta). A ctor recebe o objeto-target (Handle) e o
     // deref RETORNA um objeto (Handle não-string → JsKind::Object via ret_is_string_handle).
-    Register { label: "WeakRef class", run: ns::globals::weakref::register_weakref_class_spec, why: "WeakRef ctor + deref (weak)" },
+    ns::globals::weakref::register_weakref_class_spec,
     // `ArrayBuffer` + `DataView` — backend/Registry classes (raw bytes, no native
     // syntax): `new ArrayBuffer(n)` + `new DataView(buf)` + get/set<T>(offset[,v]).
     // Os membros do spec agora carregam fn_ptr real (dataview::fp_for) → o harvest
     // do Registry instala os símbolos no JIT (sem isso = "can't resolve symbol").
-    Register { label: "ArrayBuffer class", run: ns::globals::dataview::register_array_buffer_class_spec, why: "ArrayBuffer ctor + byteLength/slice" },
-    Register { label: "DataView class", run: ns::globals::dataview::register_data_view_class_spec, why: "DataView ctor + get/set accessors" },
-    Register { label: "TypedArray classes", run: register_typed_array_class_specs, why: "Uint8Array/Int8Array/… ctors (Vec-backed level A, ret number[] — rides the array surface)" },
+    ns::globals::dataview::register_array_buffer_class_spec,
+    ns::globals::dataview::register_data_view_class_spec,
+    register_typed_array_class_specs,
 ];
 
 /// Register the 8 TypedArray classes (Vec-backed level A — see
@@ -382,8 +371,8 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
 /// Run every register then include every prelude, in table order. The whole
 /// content of the former `build_registry` body — now data-driven.
 pub(super) fn populate(e: &mut Engine) {
-    for r in REGISTER {
-        (r.run)(e);
+    for run in REGISTER {
+        run(e);
     }
     for p in PRELUDE_TS {
         e.include(p.source);

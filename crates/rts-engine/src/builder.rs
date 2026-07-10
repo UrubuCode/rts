@@ -37,9 +37,23 @@ impl Engine {
         }
     }
 
-    /// Atalho: módulo no esquema `rts` (`import { x } from "rts:<name>"`).
-    pub fn ns<'e>(&'e mut self, name: &str) -> ModuleBuilder<'e> {
-        self.module("rts", name)
+    /// Começa a registrar um módulo importável a partir de UM spec-string:
+    ///  - `"bigfloat"`            → esquema `rts` (`rts:bigfloat`);
+    ///  - `"node:fs"`             → esquema explícito (`node:fs`);
+    ///  - `"node:fs, fs"`         → canônico + ALIAS(es) bare (vírgula-separados),
+    ///                              cada alias resolvível como `rts:<alias>`.
+    /// O primeiro token (`scheme:name` ou bare `name`) é o canônico; os demais
+    /// são aliases. Assim o register fn nomeia o módulo inteiramente como DADO,
+    /// sem string de identidade duplicada na tabela de registro.
+    pub fn ns<'e>(&'e mut self, spec: &str) -> ModuleBuilder<'e> {
+        let mut parts = spec.split(',').map(str::trim);
+        let primary = parts.next().unwrap_or("");
+        let (scheme, name) = primary.split_once(':').unwrap_or(("rts", primary));
+        let mut b = self.module(scheme, name);
+        for alias in parts.filter(|a| !a.is_empty()) {
+            b = b.alias(alias);
+        }
+        b
     }
 
     /// Começa a registrar uma classe global (`new <Name>()`).
