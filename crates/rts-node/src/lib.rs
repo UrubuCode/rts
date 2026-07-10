@@ -14,4 +14,5 @@
 //! rts-std symbols is deleted). Modules land here incrementally, mature-pure
 //! first (`docs/node-implementation/implementation-plan.md`).
 
+pub mod punycode;
 pub mod querystring;
