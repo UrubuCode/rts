@@ -112,7 +112,8 @@ fn pure_func(
 
 /// Registers the `node:querystring` surface into the engine Registry.
 pub fn register(e: &mut Engine) {
-    e.ns("querystring")
+    e.module("node", "querystring")
+        .alias("querystring")
         .doc("Legacy query-string utilities (node:querystring).")
         .member(pure_func(
             "escape",

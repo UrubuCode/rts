@@ -33,6 +33,7 @@ impl Engine {
             members: Vec::new(),
             private: false,
             load_order: 0,
+            aliases: Vec::new(),
         }
     }
 
@@ -116,6 +117,11 @@ pub struct ModuleBuilder<'e> {
     members: Vec<Member>,
     private: bool,
     load_order: i32,
+    /// Alternate bare names the module ALSO resolves under (registered in the
+    /// `rts:` keyspace the import resolver strips to). Lets a scheme'd module
+    /// (`e.module("node", "querystring")`) declare its back-compat / bare alias
+    /// as DATA, so the codegen never hardcodes a `node`→`rts` mapping.
+    aliases: Vec<String>,
 }
 
 impl ModuleBuilder<'_> {
@@ -138,6 +144,16 @@ impl ModuleBuilder<'_> {
     /// embedded stdlib that depends on another namespace order its load. Default 0.
     pub fn order(mut self, n: i32) -> Self {
         self.load_order = n;
+        self
+    }
+
+    /// Declare an alternate bare name the module ALSO resolves under. Use it so a
+    /// scheme'd module names itself by its real specifier while still resolving
+    /// through the import path — e.g. `e.module("node", "querystring")
+    /// .alias("querystring")` gives canonical key `node:querystring` PLUS a
+    /// resolvable `rts:querystring`, with no `node`→`rts` special-case in codegen.
+    pub fn alias(mut self, name: &str) -> Self {
+        self.aliases.push(name.to_string());
         self
     }
 
@@ -221,16 +237,23 @@ impl ModuleBuilder<'_> {
         self
     }
 
-    /// Finaliza: insere o módulo (e os seus símbolos) no registry.
+    /// Finaliza: insere o módulo (e os seus símbolos) no registry, mais uma
+    /// entrada por alias na keyspace `rts:` que o resolver de import consulta.
     pub fn done(self) {
-        self.engine.registry.insert_module(Module {
+        let module = Module {
             scheme: self.scheme,
             name: self.name,
             doc: self.doc,
             members: self.members,
             private: self.private,
             load_order: self.load_order,
-        });
+        };
+        for alias in &self.aliases {
+            self.engine
+                .registry
+                .insert_module_at(format!("rts:{alias}"), module.clone());
+        }
+        self.engine.registry.insert_module(module);
     }
 }
 
