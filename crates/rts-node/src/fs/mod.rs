@@ -21,15 +21,28 @@
 //! - `copyFileSync(src, dest): void`
 //! - `readdirSync(path): string[]` — entry names only (no `withFileTypes`).
 //! - `realpathSync(path): string` — `std::fs::canonicalize`.
+//! - `accessSync(path): void` — real `std::fs::metadata` existence/permission
+//!   probe; the `void` ABI has no error channel, so unlike Node it cannot
+//!   `throw` on failure (see the doc-comment on the symbol for the caveat).
+//! - `truncateSync(path, len): void` — `File::set_len` (real `ftruncate`
+//!   semantics).
+//! - `readlinkSync(path): string` — `std::fs::read_link`. 0 on error.
+//! - `rmSync(path): void` — removes a file OR an empty directory
+//!   (`remove_file`, falling back to `remove_dir`); **non-recursive** — the
+//!   `{ recursive: true, force: true }` options form is deferred (options
+//!   object).
+//! - `mkdtempSync(prefix): string` — `prefix` + 6 OS-entropy-backed
+//!   lowercase-alphanumeric chars, via `std::fs::create_dir`. 0 on error.
 //!
 //! **Deferred** (need machinery this pure string/bool/array slice doesn't
 //! have): `statSync`/`lstatSync` (return a `Stats` object — needs the object
-//! value model); `rmSync` with an `{recursive,force}` options object;
-//! `existsSync`'s cousins that take options; every callback-based async
-//! variant (`fs.readFile(path, cb)`, …) and the `fs/promises` module (need the
-//! async/callback + Promise bridge at the `node:fs` surface, not just the sync
-//! primitives); `watch`/`watchFile` (needs an event-driven FS watcher);
-//! streams (`createReadStream`/`createWriteStream`); `Dirent` objects for
+//! value model); `rmSync`/`rmdirSync` with a real `{recursive: true}` (deep
+//! removal) options object; `existsSync`'s cousins that take options; every
+//! callback-based async variant (`fs.readFile(path, cb)`, …) and the
+//! `fs/promises` module (need the async/callback + Promise bridge at the
+//! `node:fs` surface, not just the sync primitives); `watch`/`watchFile`
+//! (needs an event-driven FS watcher); streams (`createReadStream`/
+//! `createWriteStream`); `Dirent` objects for
 //! `readdirSync({ withFileTypes: true })`; any `encoding`/options object
 //! parameter (all calls here use UTF-8 as the sole encoding — matching
 //! Node's default of no explicit encoding for buffers, and the only encoding
@@ -175,6 +188,50 @@ pub fn register(e: &mut Engine) {
             "realpathSync(path: string): string",
             "Resolves `path` to its canonical absolute form. 0 on error.",
             symbols::__RTS_FN_NODE_FS_REALPATH_SYNC as *const u8,
+        ))
+        .member(func(
+            "accessSync",
+            "__RTS_FN_NODE_FS_ACCESS_SYNC",
+            sig!(StrPtr => Void),
+            "accessSync(path: string): void",
+            "Real existence/permission probe (std::fs::metadata). Unlike Node, \
+             the void ABI has no error channel, so this cannot throw on failure.",
+            symbols::__RTS_FN_NODE_FS_ACCESS_SYNC as *const u8,
+        ))
+        .member(func(
+            "truncateSync",
+            "__RTS_FN_NODE_FS_TRUNCATE_SYNC",
+            sig!(StrPtr, F64 => Void),
+            "truncateSync(path: string, len: number): void",
+            "Sets the file at `path` to exactly `len` bytes (real `ftruncate` \
+             semantics via `File::set_len`).",
+            symbols::__RTS_FN_NODE_FS_TRUNCATE_SYNC as *const u8,
+        ))
+        .member(func(
+            "readlinkSync",
+            "__RTS_FN_NODE_FS_READLINK_SYNC",
+            sig!(StrPtr => Handle),
+            "readlinkSync(path: string): string",
+            "Resolves the target of the symlink at `path`. 0 on error.",
+            symbols::__RTS_FN_NODE_FS_READLINK_SYNC as *const u8,
+        ))
+        .member(func(
+            "rmSync",
+            "__RTS_FN_NODE_FS_RM_SYNC",
+            sig!(StrPtr => Void),
+            "rmSync(path: string): void",
+            "Removes a file OR an empty directory at `path`. Non-recursive — \
+             { recursive: true, force: true } is deferred.",
+            symbols::__RTS_FN_NODE_FS_RM_SYNC as *const u8,
+        ))
+        .member(func(
+            "mkdtempSync",
+            "__RTS_FN_NODE_FS_MKDTEMP_SYNC",
+            sig!(StrPtr => Handle),
+            "mkdtempSync(prefix: string): string",
+            "Creates a unique temp directory named `prefix` + 6 OS-entropy \
+             lowercase-alphanumeric chars. Returns the created path, 0 on error.",
+            symbols::__RTS_FN_NODE_FS_MKDTEMP_SYNC as *const u8,
         ))
         .done();
 }

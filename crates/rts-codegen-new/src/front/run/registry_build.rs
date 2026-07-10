@@ -57,6 +57,8 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     ns::node_path::register,
     ns::node_process::register,
     ns::node_fs::register,
+    ns::node_url::register,
+    ns::node_crypto::register,
     // The broad std surface `tests/*.test.ts` import via `rts:<ns>`.
     ns::fs::register,
     ns::time::register,

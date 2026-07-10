@@ -173,3 +173,103 @@ pub extern "C" fn __RTS_FN_NODE_FS_REALPATH_SYNC(path_ptr: *const u8, path_len: 
         Err(_) => 0,
     }
 }
+
+/// `fs.accessSync(path)` — performs the real existence check
+/// (`std::fs::metadata`) Node's `accessSync` is built on. **Caveat:** Node
+/// throws on failure (missing path / permission denied) so callers can
+/// `try/catch`; the `void` ABI here has no error channel to report that
+/// through, so this always returns without signaling success/failure — it
+/// still does the genuine syscall (no faked pass), the result is just not
+/// observable from this call alone (pair with `existsSync` to check first).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_ACCESS_SYNC(path_ptr: *const u8, path_len: i64) {
+    let Some(path) = (unsafe { from_abi(path_ptr, path_len) }) else {
+        return;
+    };
+    let _ = std::fs::metadata(path);
+}
+
+/// `fs.truncateSync(path, len)` — opens `path` for writing and sets its size
+/// to `len` bytes (`File::set_len`), matching `ftruncate` semantics: shorter
+/// truncates, longer zero-extends. `len` is clamped to `>= 0` (a negative or
+/// NaN `len` has no valid byte-length meaning; treated as `0`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_TRUNCATE_SYNC(path_ptr: *const u8, path_len: i64, len: f64) {
+    let Some(path) = (unsafe { from_abi(path_ptr, path_len) }) else {
+        return;
+    };
+    let new_len = if len.is_finite() && len > 0.0 { len as u64 } else { 0 };
+    if let Ok(file) = OpenOptions::new().write(true).open(path) {
+        let _ = file.set_len(new_len);
+    }
+}
+
+/// `fs.readlinkSync(path)` — resolves the target of the symlink at `path`
+/// (`std::fs::read_link`), returned as-is (not further canonicalized, matching
+/// Node). 0 on error (not a symlink, missing, or a target not valid UTF-8).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_READLINK_SYNC(path_ptr: *const u8, path_len: i64) -> u64 {
+    let Some(path) = (unsafe { from_abi(path_ptr, path_len) }) else {
+        return 0;
+    };
+    match std::fs::read_link(path) {
+        Ok(target) => target.to_str().map(intern).unwrap_or(0),
+        Err(_) => 0,
+    }
+}
+
+/// `fs.rmSync(path)` — removes a file OR an empty directory. Tries
+/// `std::fs::remove_file` first; if that fails (e.g. `path` is a directory,
+/// or a permissions error that a directory-removal might still clear), falls
+/// back to `std::fs::remove_dir` (**non-recursive** — Node's
+/// `{ recursive: true }` option, which would also remove non-empty
+/// directories, is deferred: needs an options object).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_RM_SYNC(path_ptr: *const u8, path_len: i64) {
+    let Some(path) = (unsafe { from_abi(path_ptr, path_len) }) else {
+        return;
+    };
+    if std::fs::remove_file(path).is_err() {
+        let _ = std::fs::remove_dir(path);
+    }
+}
+
+/// Fills `out` with `out.len()` random lowercase-alphanumeric ASCII chars
+/// (`[a-z0-9]`, 36 symbols) sourced from OS entropy (`getrandom`). Used by
+/// `mkdtempSync` to build the unique suffix Node appends to the prefix.
+/// Returns `false` if the OS entropy call itself failed.
+fn random_lowercase_alnum(out: &mut [u8]) -> bool {
+    const ALPHABET: &[u8; 36] = b"abcdefghijklmnopqrstuvwxyz0123456789";
+    if getrandom::getrandom(out).is_err() {
+        return false;
+    }
+    for b in out.iter_mut() {
+        *b = ALPHABET[(*b as usize) % ALPHABET.len()];
+    }
+    true
+}
+
+/// `fs.mkdtempSync(prefix)` — creates a new unique temp directory named
+/// `prefix` + 6 random lowercase-alphanumeric chars (Node appends 6 random
+/// characters to the given prefix; the OS-entropy-backed selection here plays
+/// the role of Node's own random suffix generator), via
+/// `std::fs::create_dir`. Returns the full created path, or 0 on error
+/// (entropy failure, or `create_dir` failure — e.g. parent directory of
+/// `prefix` missing, or the astronomically unlikely name collision).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_MKDTEMP_SYNC(prefix_ptr: *const u8, prefix_len: i64) -> u64 {
+    let Some(prefix) = (unsafe { from_abi(prefix_ptr, prefix_len) }) else {
+        return 0;
+    };
+    let mut suffix = [0u8; 6];
+    if !random_lowercase_alnum(&mut suffix) {
+        return 0;
+    }
+    // ALPHABET is pure ASCII, so this is always valid UTF-8.
+    let suffix = std::str::from_utf8(&suffix).unwrap();
+    let full_path = format!("{prefix}{suffix}");
+    match std::fs::create_dir(&full_path) {
+        Ok(()) => intern(&full_path),
+        Err(_) => 0,
+    }
+}

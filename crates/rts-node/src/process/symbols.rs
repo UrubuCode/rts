@@ -15,6 +15,12 @@
 //! - `cwd(): string` — `std::env::current_dir()`.
 //! - `chdir(dir: string): void` — `std::env::set_current_dir()`.
 //! - `exit(code: number): void` — `std::process::exit()`.
+//! - `uptime(): number` — fractional seconds of real monotonic time since this
+//!   module's uptime origin, lazily established on first read (see
+//!   [`ORIGIN`]; this module has no earlier process-start hook to
+//!   anchor to, so "process start" here means "first `uptime()`/origin read",
+//!   not the OS process creation time — documented approximation, not a fake
+//!   value).
 //!
 //! **Deferred** (need object/array/stream/event machinery this flat-function
 //! slice doesn't have — NOT stubbed with fake values):
@@ -44,10 +50,22 @@
 //! the rts-node convention `__RTS_FN_NODE_PROCESS_*`.
 
 use rts_engine::abi::str_abi::from_abi;
+use std::sync::OnceLock;
+use std::time::Instant;
 
 unsafe extern "C" {
     fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
 }
+
+/// Origin instant for `process.uptime()`. Node measures uptime from the
+/// process's actual start (before any JS runs); RTS has no earlier process
+/// hook exposed to this module, so the origin is lazily set on the **first**
+/// call to `uptime()` (or any other reader of `ORIGIN`) via
+/// `get_or_init` — the first read of process uptime in a given run is `~0`,
+/// and every subsequent read reports real elapsed time since that first read.
+/// This is a documented approximation, not a fake/fixed value: the underlying
+/// clock (`std::time::Instant`) is genuine monotonic time.
+static ORIGIN: OnceLock<Instant> = OnceLock::new();
 
 /// Interns a Rust string as a GC string handle (the ABI `Handle` return).
 fn intern(s: &str) -> u64 {
@@ -137,4 +155,12 @@ pub extern "C" fn __RTS_FN_NODE_PROCESS_CHDIR(dir_ptr: *const u8, dir_len: i64) 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_PROCESS_EXIT(code: i64) {
     std::process::exit(code as i32)
+}
+
+/// `process.uptime()` — seconds elapsed (real monotonic time, fractional)
+/// since this module's uptime origin was first established (see [`ORIGIN`]).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_PROCESS_UPTIME() -> f64 {
+    let origin = ORIGIN.get_or_init(Instant::now);
+    origin.elapsed().as_secs_f64()
 }

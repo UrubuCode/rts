@@ -89,5 +89,15 @@ pub fn register(e: &mut Engine) {
             "Terminates the process immediately with the given exit code.",
             symbols::__RTS_FN_NODE_PROCESS_EXIT as *const u8,
         ))
+        .member(func(
+            "uptime",
+            "__RTS_FN_NODE_PROCESS_UPTIME",
+            sig!(=> F64),
+            "uptime(): number",
+            "Fractional seconds of real monotonic time since this module's uptime \
+             origin, established on the first read (no earlier process-start hook \
+             is available here — a documented approximation, not a fake value).",
+            symbols::__RTS_FN_NODE_PROCESS_UPTIME as *const u8,
+        ))
         .done();
 }
