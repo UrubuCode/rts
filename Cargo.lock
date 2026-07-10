@@ -3892,6 +3892,7 @@ dependencies = [
  "rts-engine",
  "rts-input",
  "rts-napi",
+ "rts-node",
  "rts-primitives",
  "rts-render",
  "rts-shared",

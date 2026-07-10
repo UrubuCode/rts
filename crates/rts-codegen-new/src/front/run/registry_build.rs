@@ -66,6 +66,8 @@ pub(super) static REGISTER: &[Register] = &[
     // via the same builtin-namespace path as `rts:X` (see docs/node-implementation/).
     Register { label: "querystring", run: ns::querystring::register, why: "node:querystring escape/unescape" },
     Register { label: "punycode", run: ns::punycode::register, why: "node:punycode encode/decode/toASCII/toUnicode" },
+    Register { label: "node:module", run: ns::node_module::register, why: "node:module isBuiltin (real core-module check)" },
+    Register { label: "node:tty", run: ns::node_tty::register, why: "node:tty isatty (real IsTerminal)" },
     // The broad std surface `tests/*.test.ts` import via `rts:<ns>`.
     Register { label: "fs", run: ns::fs::register, why: "rts:fs" },
     Register { label: "time", run: ns::time::register, why: "rts:time" },

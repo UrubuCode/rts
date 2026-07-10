@@ -6,13 +6,18 @@
 //!
 //! Each module exposes a `register(&mut rts_engine::Engine)` that publishes its
 //! surface into the codegen Registry (reached through the `rts-runtime` facade,
-//! wired in `registry_build.rs`). A `node:<mod>` import resolves to it exactly
-//! like the `rts:<mod>` namespaces — the engine names no module, resolution is
-//! data-driven. See `docs/node-implementation/` for the full plan.
+//! wired in `registry_build.rs`). Modules name themselves as DATA via
+//! `e.module("node", "<mod>").alias("<mod>")`, so a `node:<mod>` import resolves
+//! with no `node`→`rts` special-case in codegen. See `docs/node-implementation/`.
 //!
-//! This is the rebuilt crate (the previous name→symbol scaffold that borrowed
-//! rts-std symbols is deleted). Modules land here incrementally, mature-pure
-//! first (`docs/node-implementation/implementation-plan.md`).
+//! HONESTY FLOOR: only REAL implementations land here — no stubs, no mock/fixed
+//! placeholder values. A member exists only when it computes the genuine answer
+//! (a real syscall, algorithm, clock, or a real constant value). Modules that
+//! would need a runtime that does not exist yet (worker_threads, cluster,
+//! async_hooks, inspector, diagnostics_channel, v8 heap stats) are NOT added
+//! until they can be backed for real.
 
+pub mod module;
 pub mod punycode;
 pub mod querystring;
+pub mod tty;
