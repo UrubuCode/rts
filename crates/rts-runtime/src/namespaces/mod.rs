@@ -58,6 +58,9 @@ pub use rts_shared::math;
 pub use rts_shared::mem;
 pub use rts_std::net;
 pub use rts_shared::num;
+/// `node:querystring` — native rts-node module (independent crate). Re-exported
+/// so `registry_build.rs` can register it via `ns::querystring::register`.
+pub use rts_node::querystring;
 pub use rts_std::os;
 pub use rts_shared::path;
 pub use rts_std::process;

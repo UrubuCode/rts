@@ -1,52 +1,17 @@
-use rts_engine::abi::AbiType;
+//! `rts-node` — the native Node.js API surface for RTS.
+//!
+//! Independent crate: it owns its OWN native Rust implementations and **never
+//! mirrors `rts-std` externs**. Symbols use the `__RTS_FN_NODE_<MOD>_<NAME>`
+//! convention (its own symbol space, distinct from rts-std's `__RTS_FN_NS_*`).
+//!
+//! Each module exposes a `register(&mut rts_engine::Engine)` that publishes its
+//! surface into the codegen Registry (reached through the `rts-runtime` facade,
+//! wired in `registry_build.rs`). A `node:<mod>` import resolves to it exactly
+//! like the `rts:<mod>` namespaces — the engine names no module, resolution is
+//! data-driven. See `docs/node-implementation/` for the full plan.
+//!
+//! This is the rebuilt crate (the previous name→symbol scaffold that borrowed
+//! rts-std symbols is deleted). Modules land here incrementally, mature-pure
+//! first (`docs/node-implementation/implementation-plan.md`).
 
-pub mod crypto;
-pub mod fs;
-pub mod os;
-pub mod path;
-pub mod process;
-pub mod util;
-
-pub struct NodespaceSpec {
-    pub node_module: &'static str,
-    pub ns_prefix: &'static str,
-    pub members: &'static [NodespaceMember],
-}
-
-pub struct NodespaceMember {
-    pub name: &'static str,
-    pub symbol: &'static str,
-    pub args: &'static [AbiType],
-    pub returns: AbiType,
-}
-
-pub const NODE_SPECS: &[&NodespaceSpec] = &[
-    &fs::SPEC,
-    &path::SPEC,
-    &os::SPEC,
-    &process::SPEC,
-    &util::SPEC,
-    &crypto::SPEC,
-];
-
-/// Resolves a codegen-qualified name like `"node_fs.readFileSync"` to its member.
-pub fn node_lookup(qualified: &str) -> Option<&'static NodespaceMember> {
-    let (ns_prefix, fn_name) = qualified.split_once('.')?;
-    let module_name = ns_prefix.strip_prefix("node_")?;
-    let spec = NODE_SPECS
-        .iter()
-        .copied()
-        .find(|s| s.node_module == module_name)?;
-    spec.members.iter().find(|m| m.name == fn_name)
-}
-
-/// Maps a `node:` import specifier to its codegen ns_prefix.
-/// e.g. `"node:fs"` → `"node_fs"`
-pub fn ns_prefix_for(specifier: &str) -> Option<&'static str> {
-    let module_name = specifier.strip_prefix("node:")?;
-    NODE_SPECS
-        .iter()
-        .copied()
-        .find(|s| s.node_module == module_name)
-        .map(|s| s.ns_prefix)
-}
+pub mod querystring;

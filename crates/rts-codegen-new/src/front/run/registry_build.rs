@@ -62,6 +62,9 @@ pub(super) static REGISTER: &[Register] = &[
     Register { label: "globals::string", run: ns::globals::string::register, why: "string.* matchers" },
     Register { label: "fmt", run: ns::fmt::register, why: "fmt.parse_f64 numeric matchers" },
     Register { label: "util", run: ns::fmt::register_node_util, why: "node:util compat (alias de fmt)" },
+    // node:* modules — native rts-node crate (independent). `node:X` resolves here
+    // via the same builtin-namespace path as `rts:X` (see docs/node-implementation/).
+    Register { label: "querystring", run: ns::querystring::register, why: "node:querystring escape/unescape" },
     // The broad std surface `tests/*.test.ts` import via `rts:<ns>`.
     Register { label: "fs", run: ns::fs::register, why: "rts:fs" },
     Register { label: "time", run: ns::time::register, why: "rts:time" },
