@@ -70,6 +70,11 @@ pub struct ResolvedCall {
     /// string-handle elements to words. Data-driven: any member declaring a `[]`
     /// return gets the array rebox — no per-member codegen path.
     pub ret_is_array_handle: bool,
+    /// For a `ret == Handle` whose ts_signature is a plain OBJECT (`): object` or
+    /// `): { ... }`): a shaped JS object (`alloc_shaped_object`) that must rebox as
+    /// an OBJECT PolyValue (property access), not a raw resource `number`. Excludes
+    /// arrays (`[]`) and named classes (those take the array / ret_class paths).
+    pub ret_is_object_handle: bool,
     /// For a `ret == Handle` string return whose ts_signature is a NULLABLE union
     /// (`: string | null` / `: string | undefined`): a `0` handle means the value is
     /// ABSENT and must rebox as `null` (JS `URLSearchParams.get(missing)` etc.), NOT
@@ -121,6 +126,19 @@ fn ts_returns_string(ts: &str) -> bool {
 /// `): number[]`). Routes the Handle rebox through `__rtsadp_box_handle_auto`.
 fn ts_returns_array(ts: &str) -> bool {
     ts_ret_text(ts).is_some_and(|ret| ret.ends_with("[]"))
+}
+
+/// Whether a member's `ts_signature` declares a plain OBJECT return (`): object`
+/// or an object-literal `): { ... }`). Such a `Handle` is a shaped JS object
+/// (built via `alloc_shaped_object`, REUSING the engine's object representation)
+/// and must rebox as an OBJECT PolyValue so property access works — NOT as a raw
+/// resource `number` (the default for opaque `Handle` ids). Excludes `[]`
+/// (arrays) and named classes (those take the array / ret_class paths).
+fn ts_returns_object(ts: &str) -> bool {
+    ts_ret_text(ts).is_some_and(|ret| {
+        let r = ret.trim();
+        !r.ends_with("[]") && (r == "object" || r.starts_with('{'))
+    })
 }
 
 fn ts_returns_nullable_string(ts: &str) -> bool {
@@ -196,6 +214,7 @@ fn instance_call(m: &'static Member) -> ResolvedCall {
         default_args,
         ret_is_string_handle: ts_returns_string(&m.ts_signature),
         ret_is_array_handle: ts_returns_array(&m.ts_signature),
+        ret_is_object_handle: ts_returns_object(&m.ts_signature),
         ret_is_nullable_string: ts_returns_nullable_string(&m.ts_signature),
         ret_class: ts_return_class(&m.ts_signature),
     }
@@ -213,6 +232,7 @@ fn flat_call(m: &'static Member) -> ResolvedCall {
         default_args: m.sig.default_args.clone(),
         ret_is_string_handle: ts_returns_string(&m.ts_signature),
         ret_is_array_handle: ts_returns_array(&m.ts_signature),
+        ret_is_object_handle: ts_returns_object(&m.ts_signature),
         ret_is_nullable_string: ts_returns_nullable_string(&m.ts_signature),
         ret_class: ts_return_class(&m.ts_signature),
     }

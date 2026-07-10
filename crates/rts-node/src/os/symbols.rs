@@ -44,6 +44,8 @@
 //! return a GC string handle (`intern`) or a native number; symbols follow the
 //! rts-node convention `__RTS_FN_NODE_OS_*`.
 
+use rts_engine::heap::shapes::{alloc_shaped_object, null_word, string_word};
+
 unsafe extern "C" {
     fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
 }
@@ -158,4 +160,39 @@ pub extern "C" fn __RTS_FN_NODE_OS_AVAILABLE_PARALLELISM() -> f64 {
     std::thread::available_parallelism()
         .map(|n| n.get() as f64)
         .unwrap_or(1.0)
+}
+
+/// `os.userInfo()` — an object `{ uid, gid, username, homedir, shell }`.
+/// Built by REUSING the engine object primitive `alloc_shaped_object` (no
+/// duplicated object machinery). On Windows `uid`/`gid` are `-1` and `shell`
+/// is `null` (matching Node); on Unix `shell` is `$SHELL` and `uid`/`gid` are
+/// `-1` for now (real `getuid`/`getgid` needs a syscall crate — deferred, not
+/// faked to a wrong value). `username`/`homedir` are the real env values.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_OS_USER_INFO() -> u64 {
+    let username = if cfg!(windows) {
+        env_or_empty("USERNAME")
+    } else {
+        env_or_empty("USER")
+    };
+    let homedir = if cfg!(windows) {
+        env_or_empty("USERPROFILE")
+    } else {
+        env_or_empty("HOME")
+    };
+    let neg_one = (-1.0f64).to_bits();
+    let shell_word = if cfg!(windows) {
+        null_word()
+    } else {
+        string_word(env_or_empty("SHELL").as_bytes())
+    };
+    let keys: &[&str] = &["uid", "gid", "username", "homedir", "shell"];
+    let values: [i64; 5] = [
+        neg_one as i64,
+        neg_one as i64,
+        string_word(username.as_bytes()) as i64,
+        string_word(homedir.as_bytes()) as i64,
+        shell_word as i64,
+    ];
+    alloc_shaped_object(keys, &values)
 }

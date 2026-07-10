@@ -97,5 +97,13 @@ pub fn register(e: &mut Engine) {
             "Logical CPUs available to this process (fallback 1 on query error).",
             symbols::__RTS_FN_NODE_OS_AVAILABLE_PARALLELISM as *const u8,
         ))
+        .member(pure_func(
+            "userInfo",
+            "__RTS_FN_NODE_OS_USER_INFO",
+            sig!(=> Handle),
+            "userInfo(): object",
+            "User account info { uid, gid, username, homedir, shell } (uid/gid -1 on Windows).",
+            symbols::__RTS_FN_NODE_OS_USER_INFO as *const u8,
+        ))
         .done();
 }

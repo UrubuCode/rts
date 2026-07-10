@@ -921,6 +921,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // A FRESH JS array (`fs.readdir(): string[]`) — reboxes through
             // `__rtsadp_box_handle_auto` (normalizes raw string-handle elements).
             JsKind::Array
+        } else if resolved.ret_is_object_handle {
+            // A shaped JS object (`os.userInfo(): object`, built via
+            // `alloc_shaped_object`) — reboxes as an OBJECT PolyValue so property
+            // access works, NOT as a raw resource number.
+            JsKind::Object
         } else if resolved.ret_is_string_handle {
             JsKind::Str
         } else {
