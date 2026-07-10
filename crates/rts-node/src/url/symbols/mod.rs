@@ -13,21 +13,22 @@
 //! here rather than reused from `node:punycode` — no cross-module
 //! dependency, per the module's isolation convention.
 //!
+//! The legacy `url.parse(urlString)` object-returning function lives in the
+//! sibling `legacy_parse` submodule (kept separate for the 500-line-per-file
+//! layout rule) and is re-exported below.
+//!
 //! **Deferred** (need object/class machinery this flat-function slice
-//! doesn't have):
-//! - The `URL` and `URLSearchParams` classes (property-bag objects with
-//!   getters/setters) — already covered as *global* classes elsewhere
-//!   (`rts-shared` `globals/url`), not duplicated here.
-//! - Legacy `url.parse(urlString)` / `url.format(urlObject)` /
-//!   `url.resolve(from, to)` — `parse` returns a Url object, `format` takes
-//!   one; no object marshalling in this slice.
-//! - Full IDNA (UTS #46) processing — Nameprep/case-folding/mixed-script
-//!   validation of non-ASCII labels is out of scope; `domainToASCII`/
-//!   `domainToUnicode` here do real per-label Bootstring conversion (the
-//!   part that actually changes the wire bytes) plus ASCII lowercasing, not
-//!   the full Unicode normalization table.
+//! doesn't have): the `URL`/`URLSearchParams` classes (covered as *global*
+//! classes elsewhere, `rts-shared` `globals/url`, not duplicated here);
+//! `url.format(urlObject)` (reads an object handle) / `url.resolve(from,
+//! to)`; full IDNA (UTS #46) — `domainToASCII`/`domainToUnicode` here do
+//! real per-label Bootstring conversion (the part that changes the wire
+//! bytes) plus ASCII lowercasing, not the full Unicode normalization table.
 
 use rts_engine::abi::str_abi::from_abi;
+
+mod legacy_parse;
+pub use legacy_parse::__RTS_FN_NODE_URL_PARSE;
 
 unsafe extern "C" {
     fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;

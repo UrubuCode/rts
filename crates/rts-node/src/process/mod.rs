@@ -20,7 +20,8 @@ fn func(name: &str, symbol: &str, sig: rts_engine::Sig, ts: &str, doc: &str, fp:
         doc: doc.to_string(),
         // None of these are pure: platform/arch/pid read process/OS state,
         // cwd/chdir touch process-global cwd, exit is a side-effecting
-        // terminator. Mirrors the `os`/`env` namespace convention.
+        // terminator, env()/argv() snapshot mutable process/OS state. Mirrors
+        // the `os`/`env` namespace convention.
         pure: false,
         intrinsic: None,
     }
@@ -35,10 +36,11 @@ pub fn register(e: &mut Engine) {
     e.ns("node:process")
         .doc(
             "Node process module surface (node:process): platform, arch, pid, \
-             cwd, chdir, exit. argv/execArgv/env/versions/version/title/argv0 \
-             (arrays/objects/properties), nextTick/hrtime (async/bigint), \
-             stdout/stderr/stdin (streams), on(signal) (events) are deferred — \
-             see the module doc comment for why.",
+             cwd, chdir, exit, uptime, env, argv. execArgv/versions/version/ \
+             title/argv0 (properties), ppid (no portable std API), \
+             nextTick/hrtime (async/bigint), stdout/stderr/stdin (streams), \
+             on(signal) (events), memoryUsage/cpuUsage/resourceUsage (need a \
+             syscall/crate) are deferred — see the module doc comment for why.",
         )
         .member(func(
             "platform",
@@ -98,6 +100,30 @@ pub fn register(e: &mut Engine) {
              origin, established on the first read (no earlier process-start hook \
              is available here — a documented approximation, not a fake value).",
             symbols::__RTS_FN_NODE_PROCESS_UPTIME as *const u8,
+        ))
+        .member(func(
+            "env",
+            "__RTS_FN_NODE_PROCESS_ENV",
+            sig!(=> Handle),
+            "env(): object",
+            "Snapshot object of every environment variable visible to this \
+             process. Node exposes process.env as a live property; here it is \
+             a function returning a point-in-time snapshot (documented shape \
+             difference) — mutating the returned object does not write back \
+             to the real environment.",
+            symbols::__RTS_FN_NODE_PROCESS_ENV as *const u8,
+        ))
+        .member(func(
+            "argv",
+            "__RTS_FN_NODE_PROCESS_ARGV",
+            sig!(=> Handle),
+            "argv(): string[]",
+            "Snapshot array of this process's real arguments. Node exposes \
+             process.argv as an array property shaped [execPath, scriptPath, \
+             ...userArgs]; here it is a function returning the raw argument \
+             list as-is, with no such convention imposed (documented shape \
+             difference).",
+            symbols::__RTS_FN_NODE_PROCESS_ARGV as *const u8,
         ))
         .done();
 }

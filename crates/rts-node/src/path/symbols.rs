@@ -6,14 +6,17 @@
 //! string results are interned to GC string handles. Symbols follow the
 //! rts-node convention `__RTS_FN_NODE_PATH_*`.
 //!
-//! `join`/`normalize`/`dirname`/`basename`/`extname`/`isAbsolute` are pure
-//! string manipulation (no `fs` access, matching Node); `resolve`/`relative`
-//! additionally read `process.cwd()` (via `std::env::current_dir`), exactly
-//! like Node's own implementation does.
+//! `join`/`normalize`/`dirname`/`basename`/`extname`/`isAbsolute`/`parse` are
+//! pure string manipulation (no `fs` access, matching Node); `resolve`/
+//! `relative`/`toNamespacedPath` additionally read `process.cwd()` (via
+//! `std::env::current_dir`), exactly like Node's own implementation does.
+//! `parse` returns a real shaped object via `alloc_shaped_object` (not a
+//! string/bool/void scalar like the rest of this file).
 
 use std::path::{Component, Path, PathBuf};
 
 use rts_engine::abi::str_abi::from_abi;
+use rts_engine::heap::shapes::{alloc_shaped_object, string_word};
 
 unsafe extern "C" {
     fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
@@ -230,6 +233,90 @@ fn relative(from: &str, to: &str) -> String {
     parts.join(&SEP.to_string())
 }
 
+/// Root portion of `path` (the leading drive/UNC prefix + root separator, or
+/// the bare root separator on POSIX): `""` for a relative path, `"/"` for a
+/// POSIX-absolute path, `"C:\\"` / `"\\\\server\\share\\"` for a Windows
+/// drive/UNC root. Walks `Path::components()` and stops at the first
+/// `Normal` component — exactly the leading `Prefix`/`RootDir` run Node's own
+/// `path.parse(...).root` captures.
+fn root_of(path: &str) -> String {
+    let mut root = String::new();
+    for comp in Path::new(path).components() {
+        match comp {
+            Component::Prefix(prefix) => root.push_str(&prefix.as_os_str().to_string_lossy()),
+            Component::RootDir => root.push(SEP),
+            _ => break,
+        }
+    }
+    root
+}
+
+/// `path.parse(path)` — splits `path` into `{ root, dir, base, ext, name }`,
+/// Node-style. `""` maps to all-empty fields (Node: `path.parse('')` is `{
+/// root: '', dir: '', base: '', ext: '', name: '' }` — unlike bare
+/// `dirname('')`, which is `"."`, so this does NOT delegate to `dirname` for
+/// the empty case). `ext`/`base`/`name` reuse the same `extname`/`basename`
+/// helpers backing the standalone `path.extname`/`path.basename` members, so
+/// the two surfaces never disagree on a given input.
+fn parse_path(path: &str) -> (String, String, String, String, String) {
+    if path.is_empty() {
+        return (String::new(), String::new(), String::new(), String::new(), String::new());
+    }
+    let root = root_of(path);
+    let dir = dirname(path);
+    let base = basename(path);
+    let ext = extname(path);
+    let name = if ext.is_empty() {
+        base.clone()
+    } else {
+        base[..base.len() - ext.len()].to_string()
+    };
+    (root, dir, base, ext, name)
+}
+
+/// `true` iff `c` is an ASCII letter — Node's `isWindowsDeviceRoot` (a
+/// drive-letter check for `toNamespacedPath`).
+#[cfg(target_os = "windows")]
+fn is_windows_device_root(c: u8) -> bool {
+    c.is_ascii_alphabetic()
+}
+
+/// `path.toNamespacedPath(path)` on Windows: resolves `path` to an absolute
+/// form, then prefixes a UNC root (`\\server\share\...`) with `\\?\UNC\` or a
+/// drive root (`C:\...`) with `\\?\`, producing the long-path-escaped form
+/// Windows Win32 file APIs accept unmodified. Mirrors Node's
+/// `path.win32.toNamespacedPath`. Non-qualifying/too-short results (already a
+/// `\\?\...` or `\\.\...` device path, or a resolved path of length <= 2) are
+/// returned unchanged, same as Node.
+#[cfg(target_os = "windows")]
+fn to_namespaced_path(path: &str) -> String {
+    if path.is_empty() {
+        return String::new();
+    }
+    let resolved = resolve2(path, "");
+    if resolved.len() <= 2 {
+        return path.to_string();
+    }
+    let bytes = resolved.as_bytes();
+    if bytes[0] == b'\\' && bytes[1] == b'\\' {
+        let third = bytes[2];
+        if third != b'?' && third != b'.' {
+            return format!("\\\\?\\UNC\\{}", &resolved[2..]);
+        }
+    } else if is_windows_device_root(bytes[0]) && bytes[1] == b':' && bytes[2] == b'\\' {
+        return format!("\\\\?\\{resolved}");
+    }
+    path.to_string()
+}
+
+/// `path.toNamespacedPath(path)` on non-Windows targets: a documented no-op
+/// (Node: "this method is meaningful only on Windows systems... on POSIX
+/// systems the method is non-operational").
+#[cfg(not(target_os = "windows"))]
+fn to_namespaced_path(path: &str) -> String {
+    path.to_string()
+}
+
 /// `path.join(a, b)`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_PATH_JOIN(
@@ -347,4 +434,35 @@ pub extern "C" fn __RTS_FN_NODE_PATH_RELATIVE(
         return 0;
     };
     intern(&relative(from, to))
+}
+
+/// `path.parse(path)` — returns `{ root, dir, base, ext, name }` as a real
+/// shaped object (`alloc_shaped_object`), each field a string PolyValue word.
+/// `0` (the same null-handle sentinel every other `Handle`-returning member in
+/// this file uses) on invalid input (null pointer / non-UTF-8 bytes).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_PATH_PARSE(ptr: *const u8, len: i64) -> u64 {
+    let Some(path) = (unsafe { from_abi(ptr, len) }) else {
+        return 0;
+    };
+    let (root, dir, base, ext, name) = parse_path(path);
+    alloc_shaped_object(
+        &["root", "dir", "base", "ext", "name"],
+        &[
+            string_word(root.as_bytes()) as i64,
+            string_word(dir.as_bytes()) as i64,
+            string_word(base.as_bytes()) as i64,
+            string_word(ext.as_bytes()) as i64,
+            string_word(name.as_bytes()) as i64,
+        ],
+    )
+}
+
+/// `path.toNamespacedPath(path)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_PATH_TO_NAMESPACED_PATH(ptr: *const u8, len: i64) -> u64 {
+    let Some(path) = (unsafe { from_abi(ptr, len) }) else {
+        return 0;
+    };
+    intern(&to_namespaced_path(path))
 }

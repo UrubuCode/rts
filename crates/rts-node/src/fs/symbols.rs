@@ -1,10 +1,12 @@
 //! node:fs — base extern "C" symbol implementations (the sync surface).
 
-use std::fs::OpenOptions;
+use std::fs::{Metadata, OpenOptions};
 use std::io::Write;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use rts_engine::abi::str_abi::from_abi;
 use rts_engine::heap::handles::{alloc_entry, Entry};
+use rts_engine::heap::shapes::{alloc_shaped_object, bool_word};
 
 unsafe extern "C" {
     fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
@@ -270,6 +272,150 @@ pub extern "C" fn __RTS_FN_NODE_FS_MKDTEMP_SYNC(prefix_ptr: *const u8, prefix_le
     let full_path = format!("{prefix}{suffix}");
     match std::fs::create_dir(&full_path) {
         Ok(()) => intern(&full_path),
+        Err(_) => 0,
+    }
+}
+
+/// `fs.mkdirpSync(path)` — creates `path` AND every missing parent directory
+/// (`std::fs::create_dir_all`), mirroring Node's
+/// `mkdirSync(path, { recursive: true })`. No-op (success) if `path` already
+/// exists as a directory.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_MKDIRP_SYNC(path_ptr: *const u8, path_len: i64) {
+    let Some(path) = (unsafe { from_abi(path_ptr, path_len) }) else {
+        return;
+    };
+    let _ = std::fs::create_dir_all(path);
+}
+
+/// A `SystemTime` field from `Metadata` (`modified`/`accessed`/`created`,
+/// each `io::Result<SystemTime>` — not every platform/filesystem reports
+/// every one) as Node's `*Ms` millisecond-since-epoch number. `0` when the
+/// platform doesn't report the field (matches the `statSync`/`lstatSync`
+/// doc contract — never a faked non-zero value).
+fn systemtime_to_ms(t: std::io::Result<SystemTime>) -> f64 {
+    t.ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_secs_f64() * 1000.0)
+        .unwrap_or(0.0)
+}
+
+/// `ctimeMs` (inode/metadata change time). Unix has a genuine, distinct
+/// `st_ctime` (`MetadataExt::ctime`/`ctime_nsec`, real nanosecond precision);
+/// non-Unix platforms (Windows/NTFS) have no such concept, so — matching
+/// Node's OWN libuv shim, which sets `ctim = mtim` when the platform has no
+/// change-time field — this falls back to `mtime`.
+#[cfg(unix)]
+fn ctime_ms(meta: &Metadata) -> f64 {
+    use std::os::unix::fs::MetadataExt;
+    meta.ctime() as f64 * 1000.0 + meta.ctime_nsec() as f64 / 1_000_000.0
+}
+#[cfg(not(unix))]
+fn ctime_ms(meta: &Metadata) -> f64 {
+    systemtime_to_ms(meta.modified())
+}
+
+/// POSIX-style `mode` bits. Unix: the REAL `st_mode` from the syscall
+/// (`MetadataExt::mode`, type bits + permission bits already combined).
+/// Windows has no POSIX mode bits at the syscall level, so this mirrors
+/// Node's OWN translation (libuv `fs__file_info_to_stat`): file-type bits
+/// (`S_IFLNK`/`S_IFDIR`/`S_IFREG`) OR'd with `0o444` (read-only attribute
+/// set) or `0o666` (writable) — real, derived from the actual
+/// `FILE_ATTRIBUTE_READONLY` bit, not a hardcoded constant; Windows has no
+/// execute-bit concept, matching Node's own output here.
+#[cfg(unix)]
+fn stat_mode(meta: &Metadata) -> f64 {
+    use std::os::unix::fs::MetadataExt;
+    meta.mode() as f64
+}
+#[cfg(windows)]
+fn stat_mode(meta: &Metadata) -> f64 {
+    let readonly = meta.permissions().readonly();
+    let type_bits: u32 = if meta.file_type().is_symlink() {
+        0o120_000
+    } else if meta.is_dir() {
+        0o040_000
+    } else {
+        0o100_000
+    };
+    let perm_bits: u32 = if readonly { 0o444 } else { 0o666 };
+    (type_bits | perm_bits) as f64
+}
+#[cfg(not(any(unix, windows)))]
+fn stat_mode(_meta: &Metadata) -> f64 {
+    0.0
+}
+
+/// Builds the `Stats`-shaped DATA object `statSync`/`lstatSync` (and
+/// `fs/promises.stat`, which reuses this) return, from a real
+/// `std::fs::Metadata`. **Node exposes `isFile()`/`isDirectory()`/
+/// `isSymbolicLink()` as METHODS** (fn-valued properties) — this slice has
+/// no fn-in-object-literal machinery, so the boolean is exposed as plain
+/// DATA under the `*Value` suffix (`isFileValue` etc.) instead; a caller
+/// wanting the exact Node API shape needs a thin `.ts` wrapper
+/// (`isFile() { return this.isFileValue }`) layered over this, out of scope
+/// for this native slice.
+pub(crate) fn build_stats_object(meta: &Metadata) -> u64 {
+    let size = meta.len() as f64;
+    let mtime_ms = systemtime_to_ms(meta.modified());
+    let atime_ms = systemtime_to_ms(meta.accessed());
+    let birthtime_ms = systemtime_to_ms(meta.created());
+    let ctime_ms_v = ctime_ms(meta);
+    let mode = stat_mode(meta);
+    let is_file = meta.is_file();
+    let is_dir = meta.is_dir();
+    let is_symlink = meta.file_type().is_symlink();
+
+    let keys: &[&str] = &[
+        "size",
+        "mtimeMs",
+        "atimeMs",
+        "ctimeMs",
+        "birthtimeMs",
+        "mode",
+        "isFileValue",
+        "isDirectoryValue",
+        "isSymbolicLinkValue",
+    ];
+    let values: [i64; 9] = [
+        size.to_bits() as i64,
+        mtime_ms.to_bits() as i64,
+        atime_ms.to_bits() as i64,
+        ctime_ms_v.to_bits() as i64,
+        birthtime_ms.to_bits() as i64,
+        mode.to_bits() as i64,
+        bool_word(is_file) as i64,
+        bool_word(is_dir) as i64,
+        bool_word(is_symlink) as i64,
+    ];
+    alloc_shaped_object(keys, &values)
+}
+
+/// `fs.statSync(path)` — follows symlinks (`std::fs::metadata`), matching
+/// Node's `statSync`. Returns a `Stats`-shaped object (see
+/// [`build_stats_object`]); `0` on error (missing path, permission denied).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_STAT_SYNC(path_ptr: *const u8, path_len: i64) -> u64 {
+    let Some(path) = (unsafe { from_abi(path_ptr, path_len) }) else {
+        return 0;
+    };
+    match std::fs::metadata(path) {
+        Ok(meta) => build_stats_object(&meta),
+        Err(_) => 0,
+    }
+}
+
+/// `fs.lstatSync(path)` — does NOT follow symlinks
+/// (`std::fs::symlink_metadata`), matching Node's `lstatSync`: for a
+/// symlink, `isSymbolicLinkValue` is true and the other fields describe the
+/// LINK itself, not its target. `0` on error.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_LSTAT_SYNC(path_ptr: *const u8, path_len: i64) -> u64 {
+    let Some(path) = (unsafe { from_abi(path_ptr, path_len) }) else {
+        return 0;
+    };
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) => build_stats_object(&meta),
         Err(_) => 0,
     }
 }

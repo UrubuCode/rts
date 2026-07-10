@@ -1,19 +1,20 @@
 //! `node:url` — real file-URL <-> path conversion + per-label domain
-//! ASCII/Unicode (IDNA Bootstring) conversion, Node-accurate. Registration
-//! only; the extern "C" implementations live in `symbols.rs` (`promises.rs`
-//! is doc-only — this namespace has no promise sub-API).
+//! ASCII/Unicode (IDNA Bootstring) conversion + the legacy `url.parse`
+//! object surface, Node-accurate. Registration only; the extern "C"
+//! implementations live in `symbols/` (`promises.rs` is doc-only — this
+//! namespace has no promise sub-API).
 //!
 //! Native rts-node implementation (no rts-std mirror; self-contained, does
 //! not depend on `node:punycode` or any other rts-node module — see the
-//! doc comment on `symbols.rs`).
+//! doc comment on `symbols/mod.rs`).
 //!
 //! **Deferred** (need object/class machinery this flat-function slice
 //! doesn't have):
 //! - The `URL` and `URLSearchParams` classes — already covered as *global*
 //!   classes elsewhere (`rts-shared` `globals/url`), not duplicated here.
-//! - Legacy `url.parse(urlString)` / `url.format(urlObject)` /
-//!   `url.resolve(from, to)` — `parse` returns a Url object, `format` takes
-//!   one; no object marshalling in this slice.
+//! - `url.format(urlObject)` (reads an object handle) / `url.resolve(from,
+//!   to)` — no object marshalling in this slice for `format`'s input side
+//!   (`url.parse`, the object-*returning* direction, is implemented below).
 
 mod promises;
 mod symbols;
@@ -52,9 +53,9 @@ pub fn register(e: &mut Engine) {
     e.ns("node:url")
         .doc(
             "Real file-URL <-> path conversion + per-label domain ASCII/Unicode \
-             (IDNA Bootstring) conversion (node:url). The URL/URLSearchParams \
-             classes (objects) and legacy parse/format/resolve (return objects) \
-             are deferred — see the module doc comment.",
+             (IDNA Bootstring) conversion + legacy url.parse (node:url). The \
+             URL/URLSearchParams classes and url.format/url.resolve (need an \
+             input object handle) are deferred — see the module doc comment.",
         )
         .member(pure_func(
             "fileURLToPath",
@@ -87,6 +88,14 @@ pub fn register(e: &mut Engine) {
             "domainToUnicode(domain: string): string",
             "Per-label Unicode serialization of a Punycode (xn--) domain; \"\" if invalid.",
             symbols::__RTS_FN_NODE_URL_DOMAIN_TO_UNICODE as *const u8,
+        ))
+        .member(pure_func(
+            "parse",
+            "__RTS_FN_NODE_URL_PARSE",
+            sig!(StrPtr => Handle),
+            "parse(urlString: string): object",
+            "Legacy url.parse result: { href, protocol, host, hostname, port, pathname, search, hash, query } (string fields; null when absent).",
+            symbols::__RTS_FN_NODE_URL_PARSE as *const u8,
         ))
         .done();
 }

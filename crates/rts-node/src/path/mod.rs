@@ -11,14 +11,23 @@
 //! programs see exactly what Node shows (e.g. `extname` INCLUDES the leading
 //! dot, unlike `rts:path.ext`).
 //!
-//! **Deferred** (need property/object/variadic machinery this flat
+//! Also covers the two remaining Node members real without extra machinery:
+//! - `parse(path): object` — `{ root, dir, base, ext, name }`, via
+//!   `alloc_shaped_object` (real object return, not faked).
+//! - `toNamespacedPath(path): string` — on Windows, resolves `path` and
+//!   prefixes a UNC/drive root with `\\?\` (long-path escaping), matching
+//!   `path.win32.toNamespacedPath`; on every other target this is a
+//!   documented no-op that returns `path` unchanged, matching Node's own
+//!   "meaningful only on Windows" behavior.
+//!
+//! **Deferred** (need property/object-argument machinery this flat
 //! string/bool function slice doesn't have):
 //! - `path.sep` / `path.delimiter` — properties, not functions.
-//! - `path.parse(path)` / `path.format(pathObject)` — `parse` returns an
-//!   object `{root, dir, base, ext, name}`; `format` takes one. No object
-//!   marshalling in this slice.
-//! - `path.toNamespacedPath(path)` — Windows-only UNC/long-path escaping,
-//!   no POSIX equivalent; low value until UNC paths are exercised.
+//! - `path.format(pathObject)` — takes an arbitrary object handle
+//!   (`{root, dir, base, ext, name}` with any subset filled in) as INPUT;
+//!   reading fields back off a caller-supplied native object handle needs
+//!   more than this slice's fixed-arity string-in/string-out shape gives
+//!   safely — deferred, not faked.
 //! - `path.posix` / `path.win32` — explicit-platform sub-namespaces, each
 //!   duplicating the whole surface under a fixed separator.
 //! - True variadic `join(...paths)` / `resolve(...paths)` — the engine's
@@ -66,9 +75,9 @@ pub fn register(e: &mut Engine) {
     e.ns("node:path")
         .doc(
             "Node-accurate path manipulation (node:path), platform separator. \
-             sep/delimiter (properties), parse/format (objects), \
-             toNamespacedPath, posix/win32 sub-namespaces, and true variadic \
-             join/resolve are deferred — see the module doc comment.",
+             sep/delimiter (properties), format(pathObject), posix/win32 \
+             sub-namespaces, and true variadic join/resolve are deferred — \
+             see the module doc comment.",
         )
         .member(pure_func(
             "join",
@@ -141,6 +150,23 @@ pub fn register(e: &mut Engine) {
             "relative(from: string, to: string): string",
             "Relative path from `from` to `to`, resolved against process.cwd() like Node.",
             symbols::__RTS_FN_NODE_PATH_RELATIVE as *const u8,
+        ))
+        .member(pure_func(
+            "parse",
+            "__RTS_FN_NODE_PATH_PARSE",
+            sig!(StrPtr => Handle),
+            "parse(path: string): object",
+            "Splits `path` into { root, dir, base, ext, name }, Node-style.",
+            symbols::__RTS_FN_NODE_PATH_PARSE as *const u8,
+        ))
+        .member(pure_func(
+            "toNamespacedPath",
+            "__RTS_FN_NODE_PATH_TO_NAMESPACED_PATH",
+            sig!(StrPtr => Handle),
+            "toNamespacedPath(path: string): string",
+            "On Windows, the \\\\?\\-escaped long-path form of the resolved `path`; \
+             a no-op returning `path` unchanged on every other target.",
+            symbols::__RTS_FN_NODE_PATH_TO_NAMESPACED_PATH as *const u8,
         ))
         .done();
 }
