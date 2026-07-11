@@ -19,4 +19,5 @@
 
 pub mod os;
 pub mod path;
+pub mod punycode;
 pub mod querystring;

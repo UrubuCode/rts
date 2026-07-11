@@ -81,9 +81,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // through the Registry — the SAME path a direct `rts:<ns>` member-import call
         // uses. An unknown member / unregistered namespace bails honestly.
         if let HirExprKind::Ident(obj) = &object.kind {
-            if let Some((ns, member)) = self.builtins.get(obj).cloned() {
+            if let Some((_ns, member)) = self.builtins.get(obj).cloned() {
                 if member.is_empty() {
-                    return self.lower_builtin_call(module, &ns, method, args).map(Some);
+                    return self.lower_builtin_call(module, &_ns, method, args).map(Some);
+                }
+                // A builtin CONSTANT bound as a VALUE (e.g. `punycode.ucs2`, an
+                // object whose own properties are function values): lower it to its
+                // value and dispatch `method` dynamically over the function-valued
+                // own property, the same runtime path a plain object local uses.
+                let recv = self.lower_expr(module, object)?;
+                if let Some(val) = self.try_generic_dyn_method_call(module, recv, method, args)? {
+                    return Ok(Some(val));
                 }
             }
             // AMBIENT prelude namespace (`test_core.*`/`string.*`/`fmt.*`): a bare
