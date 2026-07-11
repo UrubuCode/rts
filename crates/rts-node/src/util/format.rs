@@ -1,10 +1,17 @@
 //! node:util — `format`/`formatWithOptions`: the printf-style formatter. Handles
 //! `%s`/`%d`/`%i`/`%f`/`%j`/`%o`/`%O`/`%c`/`%%`; args beyond the consumed
-//! specifiers are space-appended. Object stringification (`%o`/`%O`, and `%s`
-//! of a non-primitive) uses `String(value)` — the full `util.inspect` renderer
-//! is deferred.
+//! specifiers are space-appended. `%o`/`%O` render through the real
+//! `util.inspect`; a space-appended non-string extra arg does too (matching
+//! Node, which inspects trailing objects).
 
+use super::inspect::inspect;
 use super::words::{word_to_number, word_to_string};
+
+/// Whether a word is a heap object/array (renders via `inspect` when trailing).
+fn is_object(w: u64) -> bool {
+    use rts_engine::heap::poly::{POLY_BOX_BASE, POLY_TAG_MASK, POLY_TAG_SHIFT};
+    (w & POLY_BOX_BASE) == POLY_BOX_BASE && ((w >> POLY_TAG_SHIFT) & POLY_TAG_MASK) == 4
+}
 
 /// `util.format(format, ...args)`.
 pub fn format(fmt: &str, args: &[u64]) -> String {
@@ -35,7 +42,8 @@ pub fn format(fmt: &str, args: &[u64]) -> String {
                     'd' => out.push_str(&fmt_d(word_to_number(a))),
                     'i' => out.push_str(&fmt_i(word_to_number(a))),
                     'f' => out.push_str(&fmt_f(word_to_number(a))),
-                    'j' | 'o' | 'O' => out.push_str(&word_to_string(a)),
+                    'o' | 'O' => out.push_str(&inspect(a)),
+                    'j' => out.push_str(&word_to_string(a)),
                     'c' => {} // CSS directive: consumes the arg, emits nothing.
                     _ => {}
                 }
@@ -50,10 +58,15 @@ pub fn format(fmt: &str, args: &[u64]) -> String {
         out.push(chars[i]);
         i += 1;
     }
-    // Remaining args are space-appended.
+    // Remaining args are space-appended (objects inspected, like Node).
     while ai < args.len() {
         out.push(' ');
-        out.push_str(&word_to_string(args[ai]));
+        let a = args[ai];
+        if is_object(a) {
+            out.push_str(&inspect(a));
+        } else {
+            out.push_str(&word_to_string(a));
+        }
         ai += 1;
     }
     out

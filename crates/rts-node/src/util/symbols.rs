@@ -3,6 +3,7 @@
 //! string utilities are pure.
 
 use super::format::format;
+use super::inspect::inspect;
 use super::words::{error_name, intern, strip_vt, style_text, to_usv_string};
 
 fn read(ptr: *const u8, len: i64) -> String {
@@ -35,6 +36,12 @@ pub extern "C" fn __RTS_FN_NODE_UTIL_FORMAT3(fp: *const u8, fl: i64, a0: u64, a1
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_UTIL_FORMAT4(fp: *const u8, fl: i64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     intern(&format(&read(fp, fl), &[a0, a1, a2, a3]))
+}
+
+/// `util.inspect(value)` → its textual representation.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_UTIL_INSPECT(value: u64) -> u64 {
+    intern(&inspect(value))
 }
 
 /// `util.isDeepStrictEqual(a, b)`.
