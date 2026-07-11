@@ -22,3 +22,4 @@ pub mod path;
 pub mod punycode;
 pub mod querystring;
 pub mod string_decoder;
+pub mod url;

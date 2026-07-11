@@ -128,6 +128,23 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
         }
 
+        // `const u = pathToFileURL(p)`: a BUILTIN-IMPORT namespace FUNCTION whose
+        // spec return is a NAMED registered class (`): URL`) — record the result's
+        // CLASS so `u.href` dispatches (the namespace-call analogue of the class-
+        // static arm above; without it the URL handle reboxed as an opaque number).
+        if let HirExprKind::Call { callee, args } = &init.kind {
+            if let HirExprKind::Ident(fname) = &callee.kind {
+                if let Some((ns, member)) = self.builtins.get(fname).cloned() {
+                    if let Some(cls) = super::registry::namespace_member(&ns, &member, args.len())
+                        .and_then(|c| c.ret_class)
+                        .filter(|c| super::registry::has_class(c))
+                    {
+                        self.global_instance_classes.insert(name.to_string(), cls);
+                    }
+                }
+            }
+        }
+
         // GENERATOR-valued init: `const it = g()` where `g` is a generator. Mark
         // `it` so `it.next()`/`.return()`/`.throw()` route to `GENERATOR_*`. LAZY →
         // bind the raw `Int64` GenState handle; EAGER → bind the `__gen_buf` ARRAY
