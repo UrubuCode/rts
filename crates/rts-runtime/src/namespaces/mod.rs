@@ -67,6 +67,7 @@ pub use rts_node::diagnostics_channel as node_diagnostics_channel;
 pub use rts_node::dns as node_dns;
 pub use rts_node::events as node_events;
 pub use rts_node::fs as node_fs;
+pub use rts_node::http as node_http;
 pub use rts_node::module as node_module;
 pub use rts_node::os as node_os;
 pub use rts_node::path as node_path;
