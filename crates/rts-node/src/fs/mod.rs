@@ -29,6 +29,7 @@
 //! Layout: `words` (helpers), `stats` (Stats object), `symbols` (extern points),
 //! `mod` (registration).
 
+mod codec;
 mod fd;
 mod statfs;
 mod stats;
