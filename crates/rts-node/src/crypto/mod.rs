@@ -64,6 +64,7 @@ pub fn register(e: &mut Engine) {
         .doc("Hash/Hmac — incremental digest object (node:crypto).")
         .member(m("update", InstanceMethod, vec![Handle, Handle], Handle, "__RTS_FN_NODE_CRYPTO_UPDATE", "update(data: object): Hash", s::__RTS_FN_NODE_CRYPTO_UPDATE as *const u8))
         .member(m("update", InstanceMethod, vec![Handle, StrPtr, StrPtr], Handle, "__RTS_FN_NODE_CRYPTO_UPDATE_ENC", "update(data: string, inputEncoding: string): Hash", s::__RTS_FN_NODE_CRYPTO_UPDATE_ENC as *const u8))
+        .member(m("copy", InstanceMethod, vec![Handle], Handle, "__RTS_FN_NODE_CRYPTO_COPY", "copy(): Hash", s::__RTS_FN_NODE_CRYPTO_COPY as *const u8))
         .member(m("digest", InstanceMethod, vec![Handle], Handle, "__RTS_FN_NODE_CRYPTO_DIGEST", "digest(): number[]", s::__RTS_FN_NODE_CRYPTO_DIGEST as *const u8))
         .member(m("digest", InstanceMethod, vec![Handle, StrPtr], Handle, "__RTS_FN_NODE_CRYPTO_DIGEST_ENC", "digest(encoding: string): string", s::__RTS_FN_NODE_CRYPTO_DIGEST_ENC as *const u8))
         .done();

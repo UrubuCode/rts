@@ -251,6 +251,20 @@ pub extern "C" fn __RTS_FN_NODE_CRYPTO_UPDATE_ENC(this: u64, dp: *const u8, dl: 
     this
 }
 
+/// `hash.copy()` — a new Hash with the same algorithm and accumulated state, so
+/// it can be digested independently (Node's Hash.copy()).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_CRYPTO_COPY(this: u64) -> u64 {
+    match finalize_state(this) {
+        Some((a, is_hmac, input, key)) => {
+            let clone = build_instance(a, if is_hmac { Some(&key) } else { None });
+            append(clone, &input);
+            clone
+        }
+        None => this,
+    }
+}
+
 /// `hash.digest()` → Buffer (Uint8Array-shaped) of the raw digest bytes.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_CRYPTO_DIGEST(this: u64) -> u64 {
