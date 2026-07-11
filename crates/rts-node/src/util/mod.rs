@@ -14,6 +14,7 @@
 
 mod format;
 mod inspect;
+mod parseargs;
 mod symbols;
 mod words;
 
@@ -69,6 +70,15 @@ pub fn register(e: &mut Engine) {
         args.extend(std::iter::repeat_n(PolyValue, n));
         ns = ns.member(f("format", symbol, args, Handle, "format(fmt: string, ...args: object[]): string", *fp));
     }
+
+    ns = ns.member(f(
+        "parseArgs",
+        "__RTS_FN_NODE_UTIL_PARSE_ARGS",
+        vec![PolyValue],
+        Handle,
+        "parseArgs(config: object): object",
+        parseargs::__RTS_FN_NODE_UTIL_PARSE_ARGS as *const u8,
+    ));
 
     ns = ns.member(f(
         "inspect",
