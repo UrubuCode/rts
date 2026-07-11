@@ -51,6 +51,7 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     // node:* modules — native rts-node crate (independent). `node:X` resolves here
     // via the same builtin-namespace path as `rts:X` (see docs/node-implementation/).
     ns::node_os::register,
+    ns::node_querystring::register,
     // The broad std surface `tests/*.test.ts` import via `rts:<ns>`.
     ns::fs::register,
     ns::time::register,
