@@ -4,8 +4,9 @@
 //! `getActiveResourcesInfo`, and an `env` snapshot. Every value is read live
 //! from the OS (`std::env`/`std::process`/`std::time`) — no hardcoded data.
 //!
-//! Deferred (need subsystems RTS does not expose here yet): `nextTick` (the
-//! microtask queue), `stdout`/`stderr`/`stdin` (the stream layer), `on`/`emit`
+//! `nextTick` maps onto the engine microtask queue (drained at program end;
+//! forwarded `...args` deferred). Deferred (need subsystems RTS does not expose
+//! here yet): `stdout`/`stderr`/`stdin` (the stream layer), `on`/`emit`
 //! + signal handling (process is an EventEmitter singleton, not a `new`-able
 //! class), `env` write-through (`process.env.X = v` → `setenv`, needs an object
 //! write-proxy), `hrtime.bigint` (BigInt return), `resourceUsage` (the full
@@ -18,8 +19,15 @@ mod metrics;
 mod symbols;
 mod words;
 
-use rts_engine::AbiType::{self, F64, Handle, I64, StrPtr, Void};
+use rts_engine::AbiType::{self, F64, Handle, I64, StrPtr, U64, Void};
 use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+
+// The engine's microtask-queue enqueue (drained at end of the program) — backs
+// `process.nextTick`. Declared here so its real address becomes the member's
+// fn_ptr (JIT-harvested), the same reuse pattern node:timers uses.
+unsafe extern "C" {
+    fn __RTS_FN_GL_TEXTENC_QUEUE_MICROTASK(fp: u64);
+}
 
 fn f(name: &str, symbol: &str, args: Vec<AbiType>, ret: AbiType, ts: &str, fp: *const u8) -> Member {
     Member {
@@ -63,5 +71,9 @@ pub fn register(e: &mut Engine) {
         .member(f("env", "__RTS_FN_NODE_PROC_ENV", vec![], Handle, "env(): object", s::__RTS_FN_NODE_PROC_ENV as *const u8))
         .member(f("memoryUsage", "__RTS_FN_NODE_PROC_MEMORY_USAGE", vec![], Handle, "memoryUsage(): object", metrics::__RTS_FN_NODE_PROC_MEMORY_USAGE as *const u8))
         .member(f("cpuUsage", "__RTS_FN_NODE_PROC_CPU_USAGE", vec![], Handle, "cpuUsage(): object", metrics::__RTS_FN_NODE_PROC_CPU_USAGE as *const u8))
+        // nextTick maps onto the engine's microtask queue (drained at program
+        // end). The forwarded `...args` are deferred (the queue invokes the
+        // callback with no arguments).
+        .member(f("nextTick", "__RTS_FN_GL_TEXTENC_QUEUE_MICROTASK", vec![U64], Void, "nextTick(callback: () => void): void", __RTS_FN_GL_TEXTENC_QUEUE_MICROTASK as *const u8))
         .done();
 }
