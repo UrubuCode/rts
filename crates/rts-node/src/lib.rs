@@ -18,4 +18,5 @@
 //! (documented per module), never faked.
 
 pub mod os;
+pub mod path;
 pub mod querystring;
