@@ -91,12 +91,23 @@ pub extern "C" fn __RTS_FN_NODE_CRYPTO_RANDOM_UUID() -> u64 {
 /// `crypto.randomInt(max)`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_CRYPTO_RANDOM_INT_MAX(max: i64) -> i64 {
-    random::random_int(0, max)
+    random_int_checked(0, max)
 }
 
 /// `crypto.randomInt(min, max)`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_CRYPTO_RANDOM_INT(min: i64, max: i64) -> i64 {
+    random_int_checked(min, max)
+}
+
+/// A random int in `[min, max)`, throwing RangeError when `max <= min` (Node's
+/// "The value of max is out of range" contract).
+fn random_int_checked(min: i64, max: i64) -> i64 {
+    if max <= min {
+        let msg = "The value of \"max\" is out of range. It must be greater than the value of \"min\"";
+        unsafe { __rtsadp_throw_js_error(b"RangeError".as_ptr(), 10, msg.as_ptr(), msg.len() as i64) };
+        return min;
+    }
     random::random_int(min, max)
 }
 
