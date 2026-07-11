@@ -17,9 +17,11 @@
 //! StringDecoder/Hash model); statSync/lstatSync build it and its ts return type
 //! drives getter/method dispatch.
 //!
-//! Deferred (need fd/handle tables, an options-object reader, streams, or the
-//! async event loop): the fd-based family (openSync/readSync/writeSync/closeSync/
-//! fstatSync/…), the callback + `fs/promises` variants, FileHandle, Dir/Dirent +
+//! The fd family (openSync/readSync/writeSync/closeSync/fstatSync/ftruncateSync/
+//! fsyncSync) is backed by a side File table in `fd.rs`.
+//!
+//! Deferred (need the async event loop / stream / promise subsystems): the
+//! callback + `fs/promises` variants, FileHandle, Dir/Dirent +
 //! opendirSync, ReadStream/WriteStream, watch/watchFile, cpSync, the full
 //! options objects (mode/encoding-object/withFileTypes), chmod/chown/symlink/
 //! utimes, statfs.
@@ -27,6 +29,7 @@
 //! Layout: `words` (helpers), `stats` (Stats object), `symbols` (extern points),
 //! `mod` (registration).
 
+mod fd;
 mod stats;
 mod symbols;
 mod words;
@@ -103,5 +106,13 @@ pub fn register(e: &mut Engine) {
         .member(func("readlinkSync", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_READLINK", "readlinkSync(path: string): string", s::__RTS_FN_NODE_FS_READLINK as *const u8))
         .member(func("statSync", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_STAT", "statSync(path: string): Stats", s::__RTS_FN_NODE_FS_STAT as *const u8))
         .member(func("lstatSync", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_LSTAT", "lstatSync(path: string): Stats", s::__RTS_FN_NODE_FS_LSTAT as *const u8))
+        // The file-descriptor family (open File table in fd.rs).
+        .member(func("openSync", vec![StrPtr, StrPtr], I64, "__RTS_FN_NODE_FS_OPEN", "openSync(path: string, flags: string): number", fd::__RTS_FN_NODE_FS_OPEN as *const u8))
+        .member(func("closeSync", vec![I64], Void, "__RTS_FN_NODE_FS_CLOSE", "closeSync(fd: number): void", fd::__RTS_FN_NODE_FS_CLOSE as *const u8))
+        .member(func("readSync", vec![I64, Handle, I64, I64, I64], I64, "__RTS_FN_NODE_FS_READ", "readSync(fd: number, buffer: number[], offset: number, length: number, position: number): number", fd::__RTS_FN_NODE_FS_READ as *const u8))
+        .member(func("writeSync", vec![I64, Handle, I64, I64, I64], I64, "__RTS_FN_NODE_FS_WRITE", "writeSync(fd: number, buffer: number[], offset: number, length: number, position: number): number", fd::__RTS_FN_NODE_FS_WRITE as *const u8))
+        .member(func("fstatSync", vec![I64], Handle, "__RTS_FN_NODE_FS_FSTAT", "fstatSync(fd: number): Stats", fd::__RTS_FN_NODE_FS_FSTAT as *const u8))
+        .member(func("ftruncateSync", vec![I64, I64], Void, "__RTS_FN_NODE_FS_FTRUNCATE", "ftruncateSync(fd: number, len: number): void", fd::__RTS_FN_NODE_FS_FTRUNCATE as *const u8))
+        .member(func("fsyncSync", vec![I64], Void, "__RTS_FN_NODE_FS_FSYNC", "fsyncSync(fd: number): void", fd::__RTS_FN_NODE_FS_FSYNC as *const u8))
         .done();
 }
