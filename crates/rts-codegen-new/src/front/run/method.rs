@@ -182,10 +182,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 if let Some(val) = self.try_user_virtual_dynamic(module, recv, method, args)? {
                     return Ok(Some(val));
                 }
+                // A native object-backed Registry instance (`Hash`/`Stats`/
+                // `StringDecoder` read from an array element / a param whose object
+                // shape was inferred): its methods are native fns, not proto slots,
+                // so dispatch at RUNTIME by the receiver's own `__rts_class` tag
+                // (`__rtsadp_dyn_method_call` → the harvested runtime-CI table). A
+                // genuine function-valued property is still found by the same
+                // trampoline's proto read; a real miss throws the JS TypeError.
+                if let Some(val) = self.try_generic_dyn_method_call(module, recv, method, args)? {
+                    return Ok(Some(val));
+                }
             }
             return Ok(None);
         }
         let recv = self.lower_expr(module, object)?;
+        if method == "update" {
+        }
         let Some(class) = recv_class_of(recv) else {
             // PRIMITIVE BOOL receiver (`true.toString()` / `flag.valueOf()`): route
             // to the ambient prelude `class Boolean` (the `.ts` primitive-method
@@ -213,11 +225,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // HandleTable lookup and see length 0 for a non-Vec entry). Tried
                 // BEFORE the non-callback dyn path. `Ok(None)` ⇒ not an array
                 // callback method / a capturing callback — falls through.
-                if let Some(val) = self.try_array_callback_dynamic(module, recv, method, args)? {
-                    return Ok(Some(val));
+                if let Some(val) = self.try_array_callback_dynamic(module, recv, method, args)? {                    return Ok(Some(val));
                 }
-                if let Some(val) = self.try_method_dispatch_dynamic(module, recv, method, args)? {
-                    return Ok(Some(val));
+                if let Some(val) = self.try_method_dispatch_dynamic(module, recv, method, args)? {                    return Ok(Some(val));
                 }
                 // USER-CLASS virtual dispatch on a Tagged receiver of unproven class
                 // (a for-of binding, a cast, a reassigned local, a function return):
@@ -225,10 +235,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // defines `method` (object-guarded, `undefined` for a non-match — a
                 // TypeError-class sentinel, never a wrong value). `Ok(None)` ⇒ no user
                 // class defines `method` / an effectful arg — falls through.
-                if let Some(val) = self.try_user_virtual_dynamic(module, recv, method, args)? {
-                    return Ok(Some(val));
-                }
-                // FALLBACK: the dynamic table (`DYN_METHODS`) only covers the
+                if let Some(val) = self.try_user_virtual_dynamic(module, recv, method, args)? {                    return Ok(Some(val));
+                }                // FALLBACK: the dynamic table (`DYN_METHODS`) only covers the
                 // high-frequency string/array methods at fixed arity. For a method
                 // it lacks (`padStart`/`concat`/`includes` with a position arg/…) on
                 // a Tagged receiver that is a STRING, route to the ambient prelude
@@ -251,10 +259,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // Registry counterpart of the user-class virtual dispatch).
                 if let Some(val) =
                     self.try_registry_virtual_dynamic(module, recv, method, args)?
-                {
-                    return Ok(Some(val));
-                }
-                // ABSOLUTE LAST: generic proto-chain dispatch (`x.m(a)` reads
+                {                    return Ok(Some(val));
+                }                // ABSOLUTE LAST: generic proto-chain dispatch (`x.m(a)` reads
                 // `m` off the receiver/proto and invokes it; runtime TypeError
                 // on a miss). After every specific path so it can't shadow the
                 // Registry/user-class virtual dispatch.

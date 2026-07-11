@@ -396,4 +396,28 @@ pub(super) fn populate(e: &mut Engine) {
     for p in PRELUDE_TS {
         e.include(p.source);
     }
+    populate_runtime_ci(e);
+}
+
+/// Harvest every class `InstanceMethod` into the runtime `(class, method, arity)`
+/// table so an UNTRACKED receiver (array element, param, any-typed local) can
+/// dispatch object-backed Registry methods at runtime via its own `__rts_class`
+/// tag — the same `fn_ptr` the proven compile-time path resolves. Pure data, no
+/// class named in the engine (the key is harvested from each `class.name`).
+fn populate_runtime_ci(e: &Engine) {
+    use rts_engine::MemberKind;
+    for class in e.registry().classes() {
+        for m in &class.members {
+            if matches!(m.kind, MemberKind::InstanceMethod) && !m.fn_ptr.0.is_null() {
+                rts_engine::runtime_ci::register_ci(
+                    &class.name,
+                    &m.name,
+                    m.sig.args.len(),
+                    m.fn_ptr.0,
+                    m.sig.args.clone(),
+                    m.sig.returns,
+                );
+            }
+        }
+    }
 }

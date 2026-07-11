@@ -43,6 +43,7 @@ pub mod abi;
 pub mod collector;
 pub mod heap;
 pub mod numfmt;
+pub mod runtime_ci;
 
 mod builder;
 mod member;

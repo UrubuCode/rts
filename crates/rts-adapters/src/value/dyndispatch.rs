@@ -674,6 +674,16 @@ pub extern "C" fn __rtsadp_dyn_method_call(
     a2: u64,
 ) -> u64 {
     let undef = PolyValue::undefined().raw();
+    // A native object-backed Registry instance (`Hash`/`Stats`/`StringDecoder` —
+    // an `Entry::Map` tagged `__rts_class`) whose methods are native fns: resolve
+    // via the receiver's own class tag + the harvested runtime-CI table. Tried
+    // FIRST because such an instance is not a plain-object shape and would
+    // otherwise be misrouted by the `is_array_word` gate below. Returns `None`
+    // (falls through) for any receiver without a matching `(class, method)`.
+    let js_argc = [a0, a1, a2].iter().filter(|&&w| w != undef).count();
+    if let Some(out) = super::dynci::try_runtime_ci(recv, key, a0, a1, a2, js_argc) {
+        return out;
+    }
     // An ARRAY receiver: dispatch the primordial Array.prototype method by
     // RUNTIME name (the same table `idx_call` uses).
     if is_array_word(recv) {

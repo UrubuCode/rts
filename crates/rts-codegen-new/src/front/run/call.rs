@@ -926,6 +926,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // `alloc_shaped_object`) — reboxes as an OBJECT PolyValue so property
             // access works, NOT as a raw resource number.
             JsKind::Object
+        } else if resolved.ret_class.is_some() {
+            // A named-class instance return (`createHash(): Hash`) — an object-
+            // backed Registry class. Box as an OBJECT PolyValue (not a raw resource
+            // number) so the instance survives escaping into a Tagged context (an
+            // array element, an untracked local, `typeof`) carrying its `__rts_class`
+            // tag — which is what enables runtime instance-method dispatch on an
+            // untracked receiver. The proven static path still unboxes it at the
+            // `Handle` boundary (`marshal_reg_arg` → `emit_table_load`).
+            JsKind::Object
         } else if resolved.ret_is_string_handle {
             JsKind::Str
         } else {

@@ -145,6 +145,9 @@ pub mod errslot;
 // runtime and delegate to the per-class op — for `recv.method(args)` whose
 // receiver class is NOT statically proven (a Tagged param/return/local).
 pub mod dyndispatch;
+// Runtime dispatch of object-backed Registry class methods (Hash/Stats/...) on
+// an UNTRACKED receiver — reads `__rts_class` + the harvested runtime-CI table.
+pub mod dynci;
 // console.log PRETTY-PRINT of whole ARRAYS (Bun/Node util.inspect format, P3.5):
 // `__rtsadp_inspect(value_word, top_level)` → a string PolyValue word.
 pub mod inspect;
