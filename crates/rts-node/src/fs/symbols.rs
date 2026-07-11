@@ -179,6 +179,45 @@ pub extern "C" fn __RTS_FN_NODE_FS_READDIR(p: *const u8, l: i64) -> u64 {
     }
 }
 
+/// `fs.mkdtempSync(prefix)` → the created unique temp directory path. Node
+/// appends 6 random `[A-Za-z0-9]` characters to `prefix`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_MKDTEMP(p: *const u8, l: i64) -> u64 {
+    const ALPHABET: &[u8; 62] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    let prefix = read(p, l);
+    // Retry on the astronomically-unlikely collision; surface any other error.
+    for _ in 0..64 {
+        let mut rand = [0u8; 6];
+        if getrandom::getrandom(&mut rand).is_err() {
+            break;
+        }
+        let suffix: String = rand.iter().map(|&b| ALPHABET[(b % 62) as usize] as char).collect();
+        let path = format!("{prefix}{suffix}");
+        match std::fs::create_dir(&path) {
+            Ok(()) => return intern(&path),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => {
+                throw_io(&e, "mkdtemp", &path);
+                return intern("");
+            }
+        }
+    }
+    intern("")
+}
+
+/// `fs.readlinkSync(path)` → the symlink's target path.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_READLINK(p: *const u8, l: i64) -> u64 {
+    let path = read(p, l);
+    match std::fs::read_link(&path) {
+        Ok(target) => intern(&target.to_string_lossy()),
+        Err(e) => {
+            throw_io(&e, "readlink", &path);
+            intern("")
+        }
+    }
+}
+
 /// `fs.realpathSync(path)` → string.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_FS_REALPATH(p: *const u8, l: i64) -> u64 {

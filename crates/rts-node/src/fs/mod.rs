@@ -99,6 +99,8 @@ pub fn register(e: &mut Engine) {
         .member(func("truncateSync", vec![StrPtr, I64], Void, "__RTS_FN_NODE_FS_TRUNCATE", "truncateSync(path: string, len: number): void", s::__RTS_FN_NODE_FS_TRUNCATE as *const u8))
         .member(func("readdirSync", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_READDIR", "readdirSync(path: string): string[]", s::__RTS_FN_NODE_FS_READDIR as *const u8))
         .member(func("realpathSync", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_REALPATH", "realpathSync(path: string): string", s::__RTS_FN_NODE_FS_REALPATH as *const u8))
+        .member(func("mkdtempSync", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_MKDTEMP", "mkdtempSync(prefix: string): string", s::__RTS_FN_NODE_FS_MKDTEMP as *const u8))
+        .member(func("readlinkSync", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_READLINK", "readlinkSync(path: string): string", s::__RTS_FN_NODE_FS_READLINK as *const u8))
         .member(func("statSync", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_STAT", "statSync(path: string): Stats", s::__RTS_FN_NODE_FS_STAT as *const u8))
         .member(func("lstatSync", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_LSTAT", "lstatSync(path: string): Stats", s::__RTS_FN_NODE_FS_LSTAT as *const u8))
         .done();
