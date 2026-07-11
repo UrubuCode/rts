@@ -84,5 +84,6 @@ pub fn register(e: &mut Engine) {
         .member(func("scryptSync", vec![Handle, Handle, I64, I64, I64, I64], Handle, "__RTS_FN_NODE_CRYPTO_SCRYPT_PARAMS", "scryptSync(password: object, salt: object, keylen: number, N: number, r: number, p: number): number[]", s::__RTS_FN_NODE_CRYPTO_SCRYPT_PARAMS as *const u8))
         .member(func("hkdfSync", vec![StrPtr, Handle, Handle, Handle, I64], Handle, "__RTS_FN_NODE_CRYPTO_HKDF", "hkdfSync(digest: string, ikm: object, salt: object, info: object, keylen: number): number[]", s::__RTS_FN_NODE_CRYPTO_HKDF as *const u8))
         .member(func("getHashes", vec![], Handle, "__RTS_FN_NODE_CRYPTO_GET_HASHES", "getHashes(): string[]", s::__RTS_FN_NODE_CRYPTO_GET_HASHES as *const u8))
+        .member(m("constants", MemberKind::Constant, vec![], Handle, "__RTS_FN_NODE_CRYPTO_CONSTANTS", "constants: object", s::__RTS_FN_NODE_CRYPTO_CONSTANTS as *const u8))
         .done();
 }

@@ -176,6 +176,29 @@ pub extern "C" fn __RTS_FN_NODE_CRYPTO_HKDF(dp: *const u8, dl: i64, ikm: u64, sa
     }
 }
 
+/// `crypto.constants` — the RSA-padding and point-conversion constants (the
+/// OpenSSL values, field-accessible via `crypto.constants.RSA_PKCS1_OAEP_PADDING`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_CRYPTO_CONSTANTS() -> u64 {
+    let num = |v: f64| v.to_bits() as i64;
+    rts_engine::heap::shapes::alloc_shaped_object(
+        &[
+            "RSA_PKCS1_PADDING",
+            "RSA_NO_PADDING",
+            "RSA_PKCS1_OAEP_PADDING",
+            "RSA_X931_PADDING",
+            "RSA_PKCS1_PSS_PADDING",
+            "RSA_PSS_SALTLEN_DIGEST",
+            "RSA_PSS_SALTLEN_MAX_SIGN",
+            "RSA_PSS_SALTLEN_AUTO",
+            "POINT_CONVERSION_COMPRESSED",
+            "POINT_CONVERSION_UNCOMPRESSED",
+            "POINT_CONVERSION_HYBRID",
+        ],
+        &[num(1.0), num(3.0), num(4.0), num(5.0), num(6.0), num(-1.0), num(-2.0), num(-2.0), num(2.0), num(4.0), num(6.0)],
+    )
+}
+
 /// `crypto.getHashes()`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_CRYPTO_GET_HASHES() -> u64 {
