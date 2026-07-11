@@ -18,6 +18,14 @@ idna = "1"
 # pure Rust). Permissive (MIT/Apache-2.0). See docs/node-implementation/crates.md.
 flate2 = "1"
 brotli = "8"
+# node:crypto — pure-Rust hashing (RustCrypto: md-5/sha1/sha2 + the DynDigest
+# trait for runtime-selected algorithms). MIT/Apache-2.0, no C. HMAC is built
+# manually over DynDigest (ipad/opad), so no generic hmac crate is needed. See
+# docs/node-implementation/crates.md.
+digest = "0.10"
+md-5 = "0.10"
+sha1 = "0.10"
+sha2 = "0.10"
 
 # node:os — POSIX syscall surface (uname/gethostname/sysinfo/getloadavg/
 # getpriority/getpwuid_r/getifaddrs). libc is FFI-only, no C compile — permissive

@@ -18,6 +18,7 @@
 //! (documented per module), never faked.
 
 pub mod assert;
+pub mod crypto;
 pub mod events;
 pub mod module;
 pub mod os;
