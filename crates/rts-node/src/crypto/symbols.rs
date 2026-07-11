@@ -100,6 +100,12 @@ pub extern "C" fn __RTS_FN_NODE_CRYPTO_RANDOM_INT(min: i64, max: i64) -> i64 {
     random::random_int(min, max)
 }
 
+/// `crypto.randomFillSync(buffer)` → the same buffer, bytes overwritten.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_CRYPTO_RANDOM_FILL_SYNC(buffer: u64) -> u64 {
+    random::random_fill(buffer)
+}
+
 /// `crypto.timingSafeEqual(a, b)`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_CRYPTO_TIMING_SAFE_EQUAL(a: u64, b: u64) -> i64 {

@@ -77,6 +77,7 @@ pub fn register(e: &mut Engine) {
         .member(func("randomUUID", vec![], Handle, "__RTS_FN_NODE_CRYPTO_RANDOM_UUID", "randomUUID(): string", s::__RTS_FN_NODE_CRYPTO_RANDOM_UUID as *const u8))
         .member(func("randomInt", vec![I64], I64, "__RTS_FN_NODE_CRYPTO_RANDOM_INT_MAX", "randomInt(max: number): number", s::__RTS_FN_NODE_CRYPTO_RANDOM_INT_MAX as *const u8))
         .member(func("randomInt", vec![I64, I64], I64, "__RTS_FN_NODE_CRYPTO_RANDOM_INT", "randomInt(min: number, max: number): number", s::__RTS_FN_NODE_CRYPTO_RANDOM_INT as *const u8))
+        .member(func("randomFillSync", vec![Handle], Handle, "__RTS_FN_NODE_CRYPTO_RANDOM_FILL_SYNC", "randomFillSync(buffer: number[]): number[]", s::__RTS_FN_NODE_CRYPTO_RANDOM_FILL_SYNC as *const u8))
         .member(func("timingSafeEqual", vec![Handle, Handle], Bool, "__RTS_FN_NODE_CRYPTO_TIMING_SAFE_EQUAL", "timingSafeEqual(a: object, b: object): boolean", s::__RTS_FN_NODE_CRYPTO_TIMING_SAFE_EQUAL as *const u8))
         .member(func("pbkdf2Sync", vec![Handle, Handle, I64, I64, StrPtr], Handle, "__RTS_FN_NODE_CRYPTO_PBKDF2", "pbkdf2Sync(password: object, salt: object, iterations: number, keylen: number, digest: string): number[]", s::__RTS_FN_NODE_CRYPTO_PBKDF2 as *const u8))
         .member(func("scryptSync", vec![Handle, Handle, I64], Handle, "__RTS_FN_NODE_CRYPTO_SCRYPT", "scryptSync(password: object, salt: object, keylen: number): number[]", s::__RTS_FN_NODE_CRYPTO_SCRYPT as *const u8))

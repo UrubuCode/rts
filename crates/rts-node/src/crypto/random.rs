@@ -2,7 +2,24 @@
 //! `randomInt`, and the constant-time `timingSafeEqual`. Entropy from the OS via
 //! `getrandom` (BCryptGenRandom / getrandom syscall) — real randomness.
 
+use rts_engine::heap::handles::{with_entry_mut, Entry};
+
 use super::state::{byte_array, read_bytes};
+
+/// `crypto.randomFillSync(buffer)` — overwrite every byte of a Uint8Array-shaped
+/// buffer with fresh CSPRNG bytes, in place; returns the buffer handle.
+pub fn random_fill(buf_handle: u64) -> u64 {
+    with_entry_mut(buf_handle, |e| {
+        if let Some(Entry::Vec(v)) = e {
+            let mut bytes = vec![0u8; v.len()];
+            fill(&mut bytes);
+            for (slot, b) in v.iter_mut().zip(bytes) {
+                *slot = f64::from(b).to_bits() as i64;
+            }
+        }
+    });
+    buf_handle
+}
 
 fn fill(buf: &mut [u8]) {
     // getrandom draws from the OS CSPRNG; a failure here is catastrophic, so we
