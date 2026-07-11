@@ -14,6 +14,9 @@ pub enum Algo {
     Sha256,
     Sha384,
     Sha512,
+    Sha3_256,
+    Sha3_384,
+    Sha3_512,
 }
 
 impl Algo {
@@ -26,6 +29,9 @@ impl Algo {
             "sha256" => Some(Algo::Sha256),
             "sha384" => Some(Algo::Sha384),
             "sha512" => Some(Algo::Sha512),
+            "sha3-256" => Some(Algo::Sha3_256),
+            "sha3-384" => Some(Algo::Sha3_384),
+            "sha3-512" => Some(Algo::Sha3_512),
             _ => None,
         }
     }
@@ -38,6 +44,9 @@ impl Algo {
             Algo::Sha256 => 3,
             Algo::Sha384 => 4,
             Algo::Sha512 => 5,
+            Algo::Sha3_256 => 6,
+            Algo::Sha3_384 => 7,
+            Algo::Sha3_512 => 8,
         }
     }
 
@@ -48,6 +57,9 @@ impl Algo {
             2 => Algo::Sha224,
             4 => Algo::Sha384,
             5 => Algo::Sha512,
+            6 => Algo::Sha3_256,
+            7 => Algo::Sha3_384,
+            8 => Algo::Sha3_512,
             _ => Algo::Sha256,
         }
     }
@@ -61,6 +73,9 @@ impl Algo {
             Algo::Sha256 => Box::new(sha2::Sha256::default()),
             Algo::Sha384 => Box::new(sha2::Sha384::default()),
             Algo::Sha512 => Box::new(sha2::Sha512::default()),
+            Algo::Sha3_256 => Box::new(sha3::Sha3_256::default()),
+            Algo::Sha3_384 => Box::new(sha3::Sha3_384::default()),
+            Algo::Sha3_512 => Box::new(sha3::Sha3_512::default()),
         }
     }
 
@@ -69,6 +84,10 @@ impl Algo {
     fn block_size(self) -> usize {
         match self {
             Algo::Sha384 | Algo::Sha512 => 128,
+            // SHA-3 HMAC uses the sponge rate as the block size.
+            Algo::Sha3_256 => 136,
+            Algo::Sha3_384 => 104,
+            Algo::Sha3_512 => 72,
             _ => 64,
         }
     }
@@ -166,7 +185,7 @@ pub fn hkdf(algo: Algo, ikm: &[u8], salt: &[u8], info: &[u8], keylen: usize) -> 
 
 /// `crypto.getHashes()` entries.
 pub fn hashes() -> &'static [&'static str] {
-    &["md5", "sha1", "sha224", "sha256", "sha384", "sha512"]
+    &["md5", "sha1", "sha224", "sha256", "sha384", "sha512", "sha3-256", "sha3-384", "sha3-512"]
 }
 
 /// Encode digest bytes per a Node encoding name (`hex`/`base64`/`base64url`/

@@ -26,6 +26,7 @@ digest = "0.10"
 md-5 = "0.10"
 sha1 = "0.10"
 sha2 = "0.10"
+sha3 = "0.10"
 # node:crypto.scryptSync — RFC 7914 scrypt KDF (RustCrypto, pure Rust, no C).
 scrypt = { version = "0.11", default-features = false }
 

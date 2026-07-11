@@ -97,7 +97,7 @@ pub extern "C" fn __RTS_FN_NODE_UTIL_PARSE_ARGS(config: u64) -> u64 {
     // Accumulate values (name → one or many words) and positionals.
     let mut values: Vec<(String, Vec<i64>)> = Vec::new();
     let mut positionals: Vec<i64> = Vec::new();
-    let mut set = |values: &mut Vec<(String, Vec<i64>)>, name: &str, word: i64, multiple: bool| {
+    let set = |values: &mut Vec<(String, Vec<i64>)>, name: &str, word: i64, multiple: bool| {
         if let Some((_, ws)) = values.iter_mut().find(|(n, _)| n == name) {
             if multiple {
                 ws.push(word);
