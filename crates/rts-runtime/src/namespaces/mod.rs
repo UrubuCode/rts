@@ -64,6 +64,7 @@ pub use rts_node::assert as node_assert;
 pub use rts_node::events as node_events;
 pub use rts_node::os as node_os;
 pub use rts_node::path as node_path;
+pub use rts_node::process as node_process;
 pub use rts_node::punycode as node_punycode;
 pub use rts_node::querystring as node_querystring;
 pub use rts_node::string_decoder as node_string_decoder;

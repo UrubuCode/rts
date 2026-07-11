@@ -21,6 +21,7 @@ pub mod assert;
 pub mod events;
 pub mod os;
 pub mod path;
+pub mod process;
 pub mod punycode;
 pub mod querystring;
 pub mod string_decoder;
