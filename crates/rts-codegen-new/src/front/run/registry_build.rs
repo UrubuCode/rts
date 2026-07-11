@@ -50,6 +50,7 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     ns::fmt::register_node_util,
     // node:* modules — native rts-node crate (independent). `node:X` resolves here
     // via the same builtin-namespace path as `rts:X` (see docs/node-implementation/).
+    ns::node_assert::register,
     ns::node_events::register,
     ns::node_os::register,
     ns::node_path::register,

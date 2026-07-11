@@ -17,6 +17,7 @@
 //! objects/arrays/streams/async/a runtime that does not exist yet are deferred
 //! (documented per module), never faked.
 
+pub mod assert;
 pub mod events;
 pub mod os;
 pub mod path;
