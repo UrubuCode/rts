@@ -52,8 +52,14 @@ fn m(name: &str, kind: MemberKind, args: Vec<AbiType>, ret: AbiType, symbol: &st
     }
 }
 
+/// A module function that can throw a Node-style fs error → flagged
+/// `MemberFlags::THROWS` so the engine routes the post-call pending-error slot to
+/// an enclosing `try/catch` (registry_call.rs). Without the flag a builtin's
+/// throw propagates uncaught.
 fn func(name: &str, args: Vec<AbiType>, ret: AbiType, symbol: &str, ts: &str, fp: *const u8) -> Member {
-    m(name, MemberKind::Function, args, ret, symbol, ts, fp)
+    let mut member = m(name, MemberKind::Function, args, ret, symbol, ts, fp);
+    member.flags = MemberFlags::THROWS;
+    member
 }
 
 /// Registers the `Stats` class + the `node:fs` module.

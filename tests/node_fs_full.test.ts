@@ -66,9 +66,15 @@ const readdirOk = listed.length === 1 && listed[0] === "inner.txt";
 mkdirSync(NEST, { recursive: true });
 const nestOk = existsSync(NEST);
 
-// --- access (existing file → no throw) --------------------------------------
+// --- access: no throw for existing, throws (catchable) for missing ----------
 accessSync(F);
-const accessOk = true; // reached here → accessSync did not throw for an existing file
+const accessOk = true; // reached → accessSync did not throw for an existing file
+let accessThrew = false;
+try {
+    accessSync("__does_not_exist__.txt");
+} catch (e) {
+    accessThrew = true;
+}
 
 // --- cleanup ----------------------------------------------------------------
 unlinkSync(F);
@@ -92,5 +98,6 @@ describe("node:fs", () => {
     test("readdirSync", () => expect(readdirOk).toBe(true));
     test("mkdirSync recursive", () => expect(nestOk).toBe(true));
     test("accessSync on existing file", () => expect(accessOk).toBe(true));
+    test("accessSync throws (catchable) on missing", () => expect(accessThrew).toBe(true));
     test("cleanup", () => expect(cleanedUp).toBe(true));
 });
