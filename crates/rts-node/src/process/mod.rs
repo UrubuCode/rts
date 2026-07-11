@@ -9,8 +9,8 @@
 //! here yet): `stdout`/`stderr`/`stdin` (the stream layer), `on`/`emit`
 //! + signal handling (process is an EventEmitter singleton, not a `new`-able
 //! class), `env` write-through (`process.env.X = v` → `setenv`, needs an object
-//! write-proxy), `hrtime.bigint` (BigInt return), 
-//! rusage struct), `kill`.
+//! write-proxy), `hrtime.bigint` (BigInt return), `resourceUsage` (the full
+//! rusage struct).
 //!
 //! Layout: `words` (value helpers + platform/arch map + clock base), `symbols`
 //! (extern points), `mod` (registration).
