@@ -69,6 +69,7 @@ pub use rts_node::events as node_events;
 pub use rts_node::fs as node_fs;
 pub use rts_node::http as node_http;
 pub use rts_node::module as node_module;
+pub use rts_node::net as node_net;
 pub use rts_node::os as node_os;
 pub use rts_node::path as node_path;
 pub use rts_node::perf_hooks as node_perf_hooks;

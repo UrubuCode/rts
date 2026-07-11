@@ -26,6 +26,7 @@ pub mod events;
 pub mod fs;
 pub mod http;
 pub mod module;
+pub mod net;
 pub mod os;
 pub mod path;
 pub mod perf_hooks;
