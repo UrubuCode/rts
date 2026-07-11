@@ -82,3 +82,16 @@ pub fn brotli_decompress(data: &[u8]) -> Result<Vec<u8>, String> {
 fn err(e: std::io::Error) -> String {
     e.to_string()
 }
+
+/// `zlib.crc32(data[, value])` — the standard reflected CRC-32 (IEEE 802.3,
+/// polynomial 0xEDB88320), continuing from `prev` (0 for a fresh checksum).
+pub fn crc32(data: &[u8], prev: u32) -> u32 {
+    let mut crc = !prev;
+    for &b in data {
+        crc ^= b as u32;
+        for _ in 0..8 {
+            crc = if crc & 1 != 0 { (crc >> 1) ^ 0xEDB8_8320 } else { crc >> 1 };
+        }
+    }
+    !crc
+}

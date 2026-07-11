@@ -53,3 +53,15 @@ pub extern "C" fn __RTS_FN_NODE_ZLIB_BROTLI_COMPRESS_SYNC(h: u64) -> u64 {
 pub extern "C" fn __RTS_FN_NODE_ZLIB_BROTLI_DECOMPRESS_SYNC(h: u64) -> u64 {
     run(h, codec::brotli_decompress)
 }
+
+/// `zlib.crc32(data)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_ZLIB_CRC32(h: u64) -> i64 {
+    codec::crc32(&read_bytes(h), 0) as i64
+}
+
+/// `zlib.crc32(data, value)` — continue from a previous checksum.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_ZLIB_CRC32_PREV(h: u64, prev: i64) -> i64 {
+    codec::crc32(&read_bytes(h), prev as u32) as i64
+}
