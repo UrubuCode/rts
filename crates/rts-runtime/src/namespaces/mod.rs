@@ -68,6 +68,7 @@ pub use rts_node::punycode as node_punycode;
 pub use rts_node::querystring as node_querystring;
 pub use rts_node::string_decoder as node_string_decoder;
 pub use rts_node::url as node_url;
+pub use rts_node::zlib as node_zlib;
 pub use rts_std::os;
 pub use rts_shared::path;
 pub use rts_std::process;

@@ -14,6 +14,10 @@ indexmap = "2"
 # node:url — real UTS-46 IDNA for domainToASCII/domainToUnicode (pure Rust,
 # permissive, already a workspace dep via the WHATWG URL impl).
 idna = "1"
+# node:zlib — pure-Rust compression (flate2/miniz_oxide backend = no C; brotli is
+# pure Rust). Permissive (MIT/Apache-2.0). See docs/node-implementation/crates.md.
+flate2 = "1"
+brotli = "8"
 
 # node:os — POSIX syscall surface (uname/gethostname/sysinfo/getloadavg/
 # getpriority/getpwuid_r/getifaddrs). libc is FFI-only, no C compile — permissive
