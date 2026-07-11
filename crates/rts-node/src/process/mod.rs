@@ -9,17 +9,18 @@
 //! here yet): `stdout`/`stderr`/`stdin` (the stream layer), `on`/`emit`
 //! + signal handling (process is an EventEmitter singleton, not a `new`-able
 //! class), `env` write-through (`process.env.X = v` → `setenv`, needs an object
-//! write-proxy), `hrtime.bigint` (BigInt return), `resourceUsage` (the full
+//! write-proxy), `hrtime.bigint` (BigInt return), 
 //! rusage struct), `kill`.
 //!
 //! Layout: `words` (value helpers + platform/arch map + clock base), `symbols`
 //! (extern points), `mod` (registration).
 
 mod metrics;
+mod signal;
 mod symbols;
 mod words;
 
-use rts_engine::AbiType::{self, F64, Handle, I64, StrPtr, U64, Void};
+use rts_engine::AbiType::{self, Bool, F64, Handle, I64, StrPtr, U64, Void};
 use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 // The engine's microtask-queue enqueue (drained at end of the program) — backs
@@ -77,5 +78,6 @@ pub fn register(e: &mut Engine) {
         // end). The forwarded `...args` are deferred (the queue invokes the
         // callback with no arguments).
         .member(f("nextTick", "__RTS_FN_GL_TEXTENC_QUEUE_MICROTASK", vec![U64], Void, "nextTick(callback: () => void): void", __RTS_FN_GL_TEXTENC_QUEUE_MICROTASK as *const u8))
+        .member(f("kill", "__RTS_FN_NODE_PROC_KILL", vec![I64, I64], Bool, "kill(pid: number, signal: number): boolean", signal::__RTS_FN_NODE_PROC_KILL as *const u8))
         .done();
 }
