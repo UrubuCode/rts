@@ -58,6 +58,10 @@ pub fn register(e: &mut Engine) {
         .member(f("throws", "__RTS_FN_NODE_ASSERT_THROWS", vec![PolyValue], "throws(fn: object): void", s::__RTS_FN_NODE_ASSERT_THROWS as *const u8))
         .member(f("doesNotThrow", "__RTS_FN_NODE_ASSERT_DOES_NOT_THROW", vec![PolyValue], "doesNotThrow(fn: object): void", s::__RTS_FN_NODE_ASSERT_DOES_NOT_THROW as *const u8))
         .member(f("ifError", "__RTS_FN_NODE_ASSERT_IF_ERROR", vec![PolyValue], "ifError(value: object): void", s::__RTS_FN_NODE_ASSERT_IF_ERROR as *const u8))
+        .member(f("match", "__RTS_FN_NODE_ASSERT_MATCH", two(), "match(string: object, regexp: object): void", s::__RTS_FN_NODE_ASSERT_MATCH as *const u8))
+        .member(f("match", "__RTS_FN_NODE_ASSERT_MATCH_MSG", vec![PolyValue, PolyValue, StrPtr], "match(string: object, regexp: object, message: string): void", s::__RTS_FN_NODE_ASSERT_MATCH_MSG as *const u8))
+        .member(f("doesNotMatch", "__RTS_FN_NODE_ASSERT_DOES_NOT_MATCH", two(), "doesNotMatch(string: object, regexp: object): void", s::__RTS_FN_NODE_ASSERT_DOES_NOT_MATCH as *const u8))
+        .member(f("doesNotMatch", "__RTS_FN_NODE_ASSERT_DOES_NOT_MATCH_MSG", vec![PolyValue, PolyValue, StrPtr], "doesNotMatch(string: object, regexp: object, message: string): void", s::__RTS_FN_NODE_ASSERT_DOES_NOT_MATCH_MSG as *const u8))
         .member(f("fail", "__RTS_FN_NODE_ASSERT_FAIL", Vec::new(), "fail(): void", s::__RTS_FN_NODE_ASSERT_FAIL as *const u8))
         .member(f("fail", "__RTS_FN_NODE_ASSERT_FAIL_MSG", vec![StrPtr], "fail(message: string): void", s::__RTS_FN_NODE_ASSERT_FAIL_MSG as *const u8))
         .done();

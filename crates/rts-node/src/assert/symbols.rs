@@ -7,6 +7,15 @@ use super::words::{
     deep_equal, invoke_and_caught, is_nullish, loose_eq, strict_eq, throw_assertion, truthy,
 };
 
+unsafe extern "C" {
+    fn __rtsadp_re_test(re_word: u64, subj_word: u64) -> u64;
+}
+
+/// Whether `subject` matches the `RegExp` value `re` (via the engine regex test).
+fn re_matches(re: u64, subject: u64) -> bool {
+    truthy(unsafe { __rtsadp_re_test(re, subject) })
+}
+
 fn read(ptr: *const u8, len: i64) -> String {
     unsafe { rts_engine::abi::str_abi::from_abi(ptr, len) }
         .unwrap_or("")
@@ -34,6 +43,38 @@ pub extern "C" fn __RTS_FN_NODE_ASSERT_OK(value: u64) {
 pub extern "C" fn __RTS_FN_NODE_ASSERT_OK_MSG(value: u64, mp: *const u8, ml: i64) {
     if !truthy(value) {
         throw_assertion(&fail_msg("The expression evaluated to a falsy value", &read(mp, ml)));
+    }
+}
+
+/// `assert.match(string, regexp)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_ASSERT_MATCH(string: u64, regexp: u64) {
+    if !re_matches(regexp, string) {
+        throw_assertion("The input did not match the regular expression");
+    }
+}
+
+/// `assert.match(string, regexp, message)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_ASSERT_MATCH_MSG(string: u64, regexp: u64, mp: *const u8, ml: i64) {
+    if !re_matches(regexp, string) {
+        throw_assertion(&fail_msg("The input did not match the regular expression", &read(mp, ml)));
+    }
+}
+
+/// `assert.doesNotMatch(string, regexp)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_ASSERT_DOES_NOT_MATCH(string: u64, regexp: u64) {
+    if re_matches(regexp, string) {
+        throw_assertion("The input was expected to not match the regular expression");
+    }
+}
+
+/// `assert.doesNotMatch(string, regexp, message)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_ASSERT_DOES_NOT_MATCH_MSG(string: u64, regexp: u64, mp: *const u8, ml: i64) {
+    if re_matches(regexp, string) {
+        throw_assertion(&fail_msg("The input was expected to not match the regular expression", &read(mp, ml)));
     }
 }
 
