@@ -71,6 +71,18 @@ pub fn register(e: &mut Engine) {
         ns = ns.member(f("format", symbol, args, Handle, "format(fmt: string, ...args: object[]): string", *fp));
     }
 
+    // formatWithOptions(inspectOptions, fmt, ...args) — opts + 0..2 args.
+    let fwo_syms: [(&str, *const u8); 3] = [
+        ("__RTS_FN_NODE_UTIL_FORMAT_OPTS0", s::__RTS_FN_NODE_UTIL_FORMAT_OPTS0 as *const u8),
+        ("__RTS_FN_NODE_UTIL_FORMAT_OPTS1", s::__RTS_FN_NODE_UTIL_FORMAT_OPTS1 as *const u8),
+        ("__RTS_FN_NODE_UTIL_FORMAT_OPTS2", s::__RTS_FN_NODE_UTIL_FORMAT_OPTS2 as *const u8),
+    ];
+    for (n, (symbol, fp)) in fwo_syms.iter().enumerate() {
+        let mut args = vec![PolyValue, StrPtr];
+        args.extend(std::iter::repeat_n(PolyValue, n));
+        ns = ns.member(f("formatWithOptions", symbol, args, Handle, "formatWithOptions(inspectOptions: object, fmt: string, ...args: object[]): string", *fp));
+    }
+
     ns = ns.member(f(
         "parseArgs",
         "__RTS_FN_NODE_UTIL_PARSE_ARGS",

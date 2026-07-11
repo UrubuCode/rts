@@ -2,7 +2,7 @@
 //! overloads (0..4); `isDeepStrictEqual` reuses the `assert` deep-equal; the
 //! string utilities are pure.
 
-use super::format::format;
+use super::format::{format, format_opts};
 use super::inspect::{inspect, inspect_with_options};
 use super::words::{error_name, intern, strip_vt, style_text, to_usv_string};
 
@@ -48,6 +48,22 @@ pub extern "C" fn __RTS_FN_NODE_UTIL_INSPECT(value: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_UTIL_INSPECT_OPTS(value: u64, options: u64) -> u64 {
     intern(&inspect_with_options(value, options))
+}
+
+/// `util.formatWithOptions(inspectOptions, fmt)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_UTIL_FORMAT_OPTS0(opts: u64, fp: *const u8, fl: i64) -> u64 {
+    intern(&format_opts(&read(fp, fl), &[], opts))
+}
+/// `util.formatWithOptions(inspectOptions, fmt, a0)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_UTIL_FORMAT_OPTS1(opts: u64, fp: *const u8, fl: i64, a0: u64) -> u64 {
+    intern(&format_opts(&read(fp, fl), &[a0], opts))
+}
+/// `util.formatWithOptions(inspectOptions, fmt, a0, a1)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_UTIL_FORMAT_OPTS2(opts: u64, fp: *const u8, fl: i64, a0: u64, a1: u64) -> u64 {
+    intern(&format_opts(&read(fp, fl), &[a0, a1], opts))
 }
 
 /// `util.isDeepStrictEqual(a, b)`.

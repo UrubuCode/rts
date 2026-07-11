@@ -4,8 +4,13 @@
 //! `util.inspect`; a space-appended non-string extra arg does too (matching
 //! Node, which inspects trailing objects).
 
-use super::inspect::inspect;
+use super::inspect::{inspect, inspect_with_options};
 use super::words::{word_to_number, word_to_string};
+
+/// Inspect `w`, honoring `opts` (an options object word, or 0 for the default).
+fn inspect_opts(w: u64, opts: u64) -> String {
+    if opts == 0 { inspect(w) } else { inspect_with_options(w, opts) }
+}
 
 /// Whether a word is a heap object/array (renders via `inspect` when trailing).
 fn is_object(w: u64) -> bool {
@@ -15,6 +20,12 @@ fn is_object(w: u64) -> bool {
 
 /// `util.format(format, ...args)`.
 pub fn format(fmt: &str, args: &[u64]) -> String {
+    format_opts(fmt, args, 0)
+}
+
+/// `util.formatWithOptions(inspectOptions, format, ...args)` — as `format`, but
+/// `%o`/`%O` and trailing objects render with `opts` (an options object word).
+pub fn format_opts(fmt: &str, args: &[u64], opts: u64) -> String {
     let chars: Vec<char> = fmt.chars().collect();
     let mut out = String::new();
     let mut ai = 0usize;
@@ -42,7 +53,7 @@ pub fn format(fmt: &str, args: &[u64]) -> String {
                     'd' => out.push_str(&fmt_d(word_to_number(a))),
                     'i' => out.push_str(&fmt_i(word_to_number(a))),
                     'f' => out.push_str(&fmt_f(word_to_number(a))),
-                    'o' | 'O' => out.push_str(&inspect(a)),
+                    'o' | 'O' => out.push_str(&inspect_opts(a, opts)),
                     'j' => out.push_str(&word_to_string(a)),
                     'c' => {} // CSS directive: consumes the arg, emits nothing.
                     _ => {}
@@ -63,7 +74,7 @@ pub fn format(fmt: &str, args: &[u64]) -> String {
         out.push(' ');
         let a = args[ai];
         if is_object(a) {
-            out.push_str(&inspect(a));
+            out.push_str(&inspect_opts(a, opts));
         } else {
             out.push_str(&word_to_string(a));
         }
