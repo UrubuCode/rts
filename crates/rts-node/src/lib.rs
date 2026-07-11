@@ -20,6 +20,7 @@
 pub mod assert;
 pub mod crypto;
 pub mod diagnostics_channel;
+pub mod dns;
 pub mod events;
 pub mod fs;
 pub mod module;

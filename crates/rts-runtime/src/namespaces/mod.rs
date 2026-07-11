@@ -63,6 +63,7 @@ pub use rts_shared::num;
 pub use rts_node::assert as node_assert;
 pub use rts_node::crypto as node_crypto;
 pub use rts_node::diagnostics_channel as node_diagnostics_channel;
+pub use rts_node::dns as node_dns;
 pub use rts_node::events as node_events;
 pub use rts_node::fs as node_fs;
 pub use rts_node::module as node_module;
