@@ -50,6 +50,7 @@ pub fn register(e: &mut Engine) {
         .member(member("byteLength", StaticMethod, vec![StrPtr, StrPtr], I64, "__RTS_FN_NODE_BUFFER_BYTE_LENGTH_ENC", "byteLength(string: string, encoding: string): number", s::__RTS_FN_NODE_BUFFER_BYTE_LENGTH_ENC as *const u8))
         .member(member("compare", StaticMethod, vec![Handle, Handle], I64, "__RTS_FN_NODE_BUFFER_COMPARE", "compare(a: object, b: object): number", s::__RTS_FN_NODE_BUFFER_COMPARE as *const u8))
         .member(member("concat", StaticMethod, vec![Handle], Handle, "__RTS_FN_NODE_BUFFER_CONCAT", "concat(list: object): number[]", s::__RTS_FN_NODE_BUFFER_CONCAT as *const u8))
+        .member(member("concat", StaticMethod, vec![Handle, I64], Handle, "__RTS_FN_NODE_BUFFER_CONCAT_LEN", "concat(list: object, totalLength: number): number[]", s::__RTS_FN_NODE_BUFFER_CONCAT_LEN as *const u8))
         .done();
 
     e.ns("node:buffer")

@@ -192,9 +192,8 @@ pub extern "C" fn __RTS_FN_NODE_BUFFER_COMPARE(a: u64, b: u64) -> i64 {
     }
 }
 
-/// `Buffer.concat(list)` — concatenate an array of buffers.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_BUFFER_CONCAT(list: u64) -> u64 {
+/// The concatenated bytes of an array-of-buffers word.
+fn concat_bytes(list: u64) -> Vec<u8> {
     let mut out = Vec::new();
     let h = poly_handle_normalize(list).unwrap_or(list);
     with_entry(h, |e| {
@@ -204,5 +203,19 @@ pub extern "C" fn __RTS_FN_NODE_BUFFER_CONCAT(list: u64) -> u64 {
             }
         }
     });
+    out
+}
+
+/// `Buffer.concat(list)` — concatenate an array of buffers.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_BUFFER_CONCAT(list: u64) -> u64 {
+    byte_array(&concat_bytes(list))
+}
+
+/// `Buffer.concat(list, totalLength)` — truncated or zero-padded to totalLength.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_BUFFER_CONCAT_LEN(list: u64, total: i64) -> u64 {
+    let mut out = concat_bytes(list);
+    out.resize(total.max(0) as usize, 0);
     byte_array(&out)
 }
