@@ -79,6 +79,58 @@ pub extern "C" fn __RTS_FN_NODE_FS_WRITE_FILE(p: *const u8, l: i64, data: u64) {
     }
 }
 
+/// `fs.writeFileSync(path, data, encoding)` — the string data is decoded per the
+/// encoding (utf8/hex/base64/latin1) before writing.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_WRITE_FILE_ENC(p: *const u8, l: i64, dp: *const u8, dl: i64, ep: *const u8, el: i64) {
+    let path = read(p, l);
+    let bytes = decode_bytes(&read(dp, dl), &read(ep, el));
+    if let Err(e) = std::fs::write(&path, bytes) {
+        throw_io(&e, "open", &path);
+    }
+}
+
+/// Decode a string to bytes per a Node encoding name (default utf8).
+fn decode_bytes(s: &str, enc: &str) -> Vec<u8> {
+    match enc.to_lowercase().as_str() {
+        "hex" => (0..s.len() / 2)
+            .filter_map(|i| u8::from_str_radix(s.get(i * 2..i * 2 + 2)?, 16).ok())
+            .collect(),
+        "base64" | "base64url" => b64_decode(s),
+        "latin1" | "binary" | "ascii" => s.chars().map(|c| c as u8).collect(),
+        _ => s.as_bytes().to_vec(),
+    }
+}
+
+fn b64_decode(s: &str) -> Vec<u8> {
+    let val = |c: u8| -> Option<u32> {
+        match c {
+            b'A'..=b'Z' => Some((c - b'A') as u32),
+            b'a'..=b'z' => Some((c - b'a' + 26) as u32),
+            b'0'..=b'9' => Some((c - b'0' + 52) as u32),
+            b'+' | b'-' => Some(62),
+            b'/' | b'_' => Some(63),
+            _ => None,
+        }
+    };
+    let clean: Vec<u8> = s.bytes().filter(|&c| val(c).is_some()).collect();
+    let mut out = Vec::new();
+    for chunk in clean.chunks(4) {
+        let mut n = 0u32;
+        for (i, &c) in chunk.iter().enumerate() {
+            n |= val(c).unwrap_or(0) << (18 - 6 * i);
+        }
+        out.push((n >> 16 & 0xff) as u8);
+        if chunk.len() > 2 {
+            out.push((n >> 8 & 0xff) as u8);
+        }
+        if chunk.len() > 3 {
+            out.push((n & 0xff) as u8);
+        }
+    }
+    out
+}
+
 /// `fs.appendFileSync(path, data)`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_FS_APPEND_FILE(p: *const u8, l: i64, data: u64) {
