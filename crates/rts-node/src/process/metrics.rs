@@ -115,6 +115,58 @@ pub extern "C" fn __RTS_FN_NODE_PROC_MEMORY_USAGE() -> u64 {
     )
 }
 
+/// Free physical memory in bytes (0 if the query fails).
+fn available_bytes() -> u64 {
+    #[cfg(windows)]
+    {
+        #[repr(C)]
+        struct MemoryStatusEx {
+            length: u32,
+            memory_load: u32,
+            total_phys: u64,
+            avail_phys: u64,
+            total_page_file: u64,
+            avail_page_file: u64,
+            total_virtual: u64,
+            avail_virtual: u64,
+            avail_extended_virtual: u64,
+        }
+        unsafe extern "system" {
+            fn GlobalMemoryStatusEx(buffer: *mut MemoryStatusEx) -> i32;
+        }
+        let mut m: MemoryStatusEx = unsafe { core::mem::zeroed() };
+        m.length = core::mem::size_of::<MemoryStatusEx>() as u32;
+        if unsafe { GlobalMemoryStatusEx(&mut m) } != 0 { m.avail_phys } else { 0 }
+    }
+    #[cfg(unix)]
+    {
+        let mut info: libc::sysinfo = unsafe { core::mem::zeroed() };
+        if unsafe { libc::sysinfo(&mut info) } == 0 {
+            info.freeram as u64 * info.mem_unit.max(1) as u64
+        } else {
+            0
+        }
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        0
+    }
+}
+
+/// `process.availableMemory()` — free system memory in bytes.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_PROC_AVAILABLE_MEMORY() -> f64 {
+    available_bytes() as f64
+}
+
+/// `process.constrainedMemory()` — the cgroup/job memory limit, or 0 when the
+/// process is not memory-constrained (RTS reports the honest "unconstrained" 0
+/// rather than probing cgroup v1/v2 files).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_PROC_CONSTRAINED_MEMORY() -> f64 {
+    0.0
+}
+
 /// `process.cpuUsage()` — `{ user, system }` in microseconds since start.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_PROC_CPU_USAGE() -> u64 {
