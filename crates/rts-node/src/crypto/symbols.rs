@@ -106,10 +106,18 @@ pub extern "C" fn __RTS_FN_NODE_CRYPTO_RANDOM_FILL_SYNC(buffer: u64) -> u64 {
     random::random_fill(buffer)
 }
 
-/// `crypto.timingSafeEqual(a, b)`.
+/// `crypto.timingSafeEqual(a, b)` — throws RangeError on a length mismatch
+/// (matching Node), else returns whether the inputs are byte-equal.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_CRYPTO_TIMING_SAFE_EQUAL(a: u64, b: u64) -> i64 {
-    random::timing_safe_equal(a, b) as i64
+    match random::timing_safe_equal(a, b) {
+        Some(eq) => eq as i64,
+        None => {
+            let msg = "Input buffers must have the same byte length";
+            unsafe { __rtsadp_throw_js_error(b"RangeError".as_ptr(), 10, msg.as_ptr(), msg.len() as i64) };
+            0
+        }
+    }
 }
 
 /// `crypto.pbkdf2Sync(password, salt, iterations, keylen, digest)` → Buffer.

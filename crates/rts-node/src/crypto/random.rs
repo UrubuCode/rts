@@ -61,18 +61,18 @@ pub fn random_int(min: i64, max: i64) -> i64 {
     }
 }
 
-/// `crypto.timingSafeEqual(a, b)` — constant-time byte comparison. Returns
-/// `false` for length mismatch (Node throws; RTS reports unequal without leaking
-/// via an exception here).
-pub fn timing_safe_equal(a: u64, b: u64) -> bool {
+/// `crypto.timingSafeEqual(a, b)` — constant-time byte comparison. `None` signals
+/// a length mismatch (Node throws a RangeError — the caller does so); otherwise
+/// `Some(equal)`.
+pub fn timing_safe_equal(a: u64, b: u64) -> Option<bool> {
     let ba = read_bytes(a);
     let bb = read_bytes(b);
     if ba.len() != bb.len() {
-        return false;
+        return None;
     }
     let mut diff = 0u8;
     for (x, y) in ba.iter().zip(bb.iter()) {
         diff |= x ^ y;
     }
-    diff == 0
+    Some(diff == 0)
 }
