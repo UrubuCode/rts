@@ -18,6 +18,7 @@
 //! (documented per module), never faked.
 
 pub mod assert;
+pub mod child_process;
 pub mod crypto;
 pub mod diagnostics_channel;
 pub mod dns;

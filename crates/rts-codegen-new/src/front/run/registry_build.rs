@@ -51,6 +51,7 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     // node:* modules — native rts-node crate (independent). `node:X` resolves here
     // via the same builtin-namespace path as `rts:X` (see docs/node-implementation/).
     ns::node_assert::register,
+    ns::node_child_process::register,
     ns::node_crypto::register,
     ns::node_diagnostics_channel::register,
     ns::node_dns::register,
