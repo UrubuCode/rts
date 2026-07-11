@@ -15,7 +15,15 @@ import {
     title,
     getActiveResourcesInfo,
     env,
+    memoryUsage,
+    cpuUsage,
 } from "node:process";
+
+const mu = memoryUsage();
+const muOk = mu.rss > 0 && typeof mu.heapTotal === "number" && typeof mu.external === "number";
+
+const cu = cpuUsage();
+const cuOk = cu.user >= 0 && cu.system >= 0;
 
 const theCwd = cwd();
 const theCwdOk = theCwd.length > 0;
@@ -78,4 +86,6 @@ describe("node:process", () => {
     test("title", () => expect(tOk).toBe(true));
     test("getActiveResourcesInfo empty", () => expect(resOk).toBe(true));
     test("env object", () => expect(eOk).toBe(true));
+    test("memoryUsage rss", () => expect(muOk).toBe(true));
+    test("cpuUsage", () => expect(cuOk).toBe(true));
 });

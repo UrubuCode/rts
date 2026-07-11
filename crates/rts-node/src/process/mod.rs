@@ -8,12 +8,13 @@
 //! microtask queue), `stdout`/`stderr`/`stdin` (the stream layer), `on`/`emit`
 //! + signal handling (process is an EventEmitter singleton, not a `new`-able
 //! class), `env` write-through (`process.env.X = v` → `setenv`, needs an object
-//! write-proxy), `hrtime.bigint` (BigInt return), `memoryUsage`/`cpuUsage`/
-//! `resourceUsage` (per-platform process-memory syscalls), `kill`.
+//! write-proxy), `hrtime.bigint` (BigInt return), `resourceUsage` (the full
+//! rusage struct), `kill`.
 //!
 //! Layout: `words` (value helpers + platform/arch map + clock base), `symbols`
 //! (extern points), `mod` (registration).
 
+mod metrics;
 mod symbols;
 mod words;
 
@@ -60,5 +61,7 @@ pub fn register(e: &mut Engine) {
         .member(f("title", "__RTS_FN_NODE_PROC_TITLE", vec![], Handle, "title(): string", s::__RTS_FN_NODE_PROC_TITLE as *const u8))
         .member(f("getActiveResourcesInfo", "__RTS_FN_NODE_PROC_ACTIVE_RESOURCES", vec![], Handle, "getActiveResourcesInfo(): string[]", s::__RTS_FN_NODE_PROC_ACTIVE_RESOURCES as *const u8))
         .member(f("env", "__RTS_FN_NODE_PROC_ENV", vec![], Handle, "env(): object", s::__RTS_FN_NODE_PROC_ENV as *const u8))
+        .member(f("memoryUsage", "__RTS_FN_NODE_PROC_MEMORY_USAGE", vec![], Handle, "memoryUsage(): object", metrics::__RTS_FN_NODE_PROC_MEMORY_USAGE as *const u8))
+        .member(f("cpuUsage", "__RTS_FN_NODE_PROC_CPU_USAGE", vec![], Handle, "cpuUsage(): object", metrics::__RTS_FN_NODE_PROC_CPU_USAGE as *const u8))
         .done();
 }
