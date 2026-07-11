@@ -47,6 +47,7 @@ pub fn register(e: &mut Engine) {
         .member(member("isBuffer", StaticMethod, vec![Handle], Bool, "__RTS_FN_NODE_BUFFER_IS_BUFFER", "isBuffer(obj: object): boolean", s::__RTS_FN_NODE_BUFFER_IS_BUFFER as *const u8))
         .member(member("isEncoding", StaticMethod, vec![StrPtr], Bool, "__RTS_FN_NODE_BUFFER_IS_ENCODING", "isEncoding(encoding: string): boolean", s::__RTS_FN_NODE_BUFFER_IS_ENCODING as *const u8))
         .member(member("byteLength", StaticMethod, vec![StrPtr], I64, "__RTS_FN_NODE_BUFFER_BYTE_LENGTH", "byteLength(string: string): number", s::__RTS_FN_NODE_BUFFER_BYTE_LENGTH as *const u8))
+        .member(member("byteLength", StaticMethod, vec![StrPtr, StrPtr], I64, "__RTS_FN_NODE_BUFFER_BYTE_LENGTH_ENC", "byteLength(string: string, encoding: string): number", s::__RTS_FN_NODE_BUFFER_BYTE_LENGTH_ENC as *const u8))
         .member(member("compare", StaticMethod, vec![Handle, Handle], I64, "__RTS_FN_NODE_BUFFER_COMPARE", "compare(a: object, b: object): number", s::__RTS_FN_NODE_BUFFER_COMPARE as *const u8))
         .member(member("concat", StaticMethod, vec![Handle], Handle, "__RTS_FN_NODE_BUFFER_CONCAT", "concat(list: object): number[]", s::__RTS_FN_NODE_BUFFER_CONCAT as *const u8))
         .done();

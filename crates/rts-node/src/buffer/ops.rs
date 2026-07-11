@@ -167,6 +167,20 @@ pub extern "C" fn __RTS_FN_NODE_BUFFER_BYTE_LENGTH(p: *const u8, l: i64) -> i64 
     read(p, l).len() as i64
 }
 
+/// `Buffer.byteLength(string, encoding)` — the decoded byte length for the
+/// encoding (hex → len/2, base64 → decoded length, latin1/ascii → char count).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_BUFFER_BYTE_LENGTH_ENC(p: *const u8, l: i64, ep: *const u8, el: i64) -> i64 {
+    let s = read(p, l);
+    let n = match read(ep, el).to_lowercase().as_str() {
+        "hex" => s.len() / 2,
+        "base64" | "base64url" => base64_decode(&s).len(),
+        "latin1" | "binary" | "ascii" => s.chars().count(),
+        _ => s.len(),
+    };
+    n as i64
+}
+
 /// `Buffer.compare(a, b)` — lexicographic (-1 / 0 / 1).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_BUFFER_COMPARE(a: u64, b: u64) -> i64 {
