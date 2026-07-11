@@ -129,6 +129,28 @@ pub extern "C" fn __RTS_FN_NODE_CRYPTO_PBKDF2(
     }
 }
 
+/// `crypto.scryptSync(password, salt, keylen)` — default N=16384, r=8, p=1.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_CRYPTO_SCRYPT(password: u64, salt: u64, keylen: i64) -> u64 {
+    scrypt_impl(password, salt, keylen, 16384, 8, 1)
+}
+
+/// `crypto.scryptSync(password, salt, keylen, N, r, p)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_CRYPTO_SCRYPT_PARAMS(password: u64, salt: u64, keylen: i64, n: i64, r: i64, p: i64) -> u64 {
+    scrypt_impl(password, salt, keylen, n.max(1) as u32, r.max(1) as u32, p.max(1) as u32)
+}
+
+fn scrypt_impl(password: u64, salt: u64, keylen: i64, n: u32, r: u32, p: u32) -> u64 {
+    match algo::scrypt(&read_bytes(password), &read_bytes(salt), n, r, p, keylen.max(0) as usize) {
+        Ok(dk) => byte_array(&dk),
+        Err(e) => {
+            unsafe { __rtsadp_throw_js_error(b"Error".as_ptr(), 5, e.as_ptr(), e.len() as i64) };
+            byte_array(&[])
+        }
+    }
+}
+
 /// `crypto.getHashes()`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_CRYPTO_GET_HASHES() -> u64 {

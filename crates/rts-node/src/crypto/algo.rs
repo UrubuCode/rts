@@ -126,6 +126,17 @@ pub fn pbkdf2(algo: Algo, password: &[u8], salt: &[u8], iterations: u32, keylen:
     dk
 }
 
+/// scrypt (RFC 7914) key derivation. `n` is the CPU/memory cost (a power of two,
+/// as Node's `N`), `r` the block size, `p` the parallelization. Returns
+/// `Err` if the parameters are invalid.
+pub fn scrypt(password: &[u8], salt: &[u8], n: u32, r: u32, p: u32, keylen: usize) -> Result<Vec<u8>, String> {
+    let log_n = if n.is_power_of_two() { n.trailing_zeros() as u8 } else { return Err("N must be a power of 2".into()) };
+    let params = scrypt::Params::new(log_n, r, p, keylen).map_err(|e| e.to_string())?;
+    let mut out = vec![0u8; keylen];
+    scrypt::scrypt(password, salt, &params, &mut out).map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
 /// `crypto.getHashes()` entries.
 pub fn hashes() -> &'static [&'static str] {
     &["md5", "sha1", "sha224", "sha256", "sha384", "sha512"]

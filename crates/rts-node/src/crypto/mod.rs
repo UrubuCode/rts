@@ -79,6 +79,8 @@ pub fn register(e: &mut Engine) {
         .member(func("randomInt", vec![I64, I64], I64, "__RTS_FN_NODE_CRYPTO_RANDOM_INT", "randomInt(min: number, max: number): number", s::__RTS_FN_NODE_CRYPTO_RANDOM_INT as *const u8))
         .member(func("timingSafeEqual", vec![Handle, Handle], Bool, "__RTS_FN_NODE_CRYPTO_TIMING_SAFE_EQUAL", "timingSafeEqual(a: object, b: object): boolean", s::__RTS_FN_NODE_CRYPTO_TIMING_SAFE_EQUAL as *const u8))
         .member(func("pbkdf2Sync", vec![Handle, Handle, I64, I64, StrPtr], Handle, "__RTS_FN_NODE_CRYPTO_PBKDF2", "pbkdf2Sync(password: object, salt: object, iterations: number, keylen: number, digest: string): number[]", s::__RTS_FN_NODE_CRYPTO_PBKDF2 as *const u8))
+        .member(func("scryptSync", vec![Handle, Handle, I64], Handle, "__RTS_FN_NODE_CRYPTO_SCRYPT", "scryptSync(password: object, salt: object, keylen: number): number[]", s::__RTS_FN_NODE_CRYPTO_SCRYPT as *const u8))
+        .member(func("scryptSync", vec![Handle, Handle, I64, I64, I64, I64], Handle, "__RTS_FN_NODE_CRYPTO_SCRYPT_PARAMS", "scryptSync(password: object, salt: object, keylen: number, N: number, r: number, p: number): number[]", s::__RTS_FN_NODE_CRYPTO_SCRYPT_PARAMS as *const u8))
         .member(func("getHashes", vec![], Handle, "__RTS_FN_NODE_CRYPTO_GET_HASHES", "getHashes(): string[]", s::__RTS_FN_NODE_CRYPTO_GET_HASHES as *const u8))
         .done();
 }
