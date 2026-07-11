@@ -173,3 +173,26 @@ pub extern "C" fn __RTS_FN_NODE_PROC_CPU_USAGE() -> u64 {
     let (user, system) = cpu_micros();
     object(&["user", "system"], &[num_word(user as f64), num_word(system as f64)])
 }
+
+/// `process.resourceUsage()` — the rusage struct. `userCPUTime`/`systemCPUTime`
+/// (µs) and `maxRSS` (KB) are real; the remaining rusage fields RTS does not
+/// track are reported as 0 (honest "not tracked", not fabricated).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_PROC_RESOURCE_USAGE() -> u64 {
+    let (user, system) = cpu_micros();
+    let max_rss_kb = (rss_bytes() / 1024) as f64;
+    let z = num_word(0.0);
+    object(
+        &[
+            "userCPUTime", "systemCPUTime", "maxRSS", "sharedMemorySize",
+            "unsharedDataSize", "unsharedStackSize", "minorPageFault",
+            "majorPageFault", "swappedOut", "fsRead", "fsWrite", "ipcSent",
+            "ipcReceived", "signalsCount", "voluntaryContextSwitches",
+            "involuntaryContextSwitches",
+        ],
+        &[
+            num_word(user as f64), num_word(system as f64), num_word(max_rss_kb),
+            z, z, z, z, z, z, z, z, z, z, z, z, z,
+        ],
+    )
+}

@@ -74,6 +74,7 @@ pub fn register(e: &mut Engine) {
         .member(f("cpuUsage", "__RTS_FN_NODE_PROC_CPU_USAGE", vec![], Handle, "cpuUsage(): object", metrics::__RTS_FN_NODE_PROC_CPU_USAGE as *const u8))
         .member(f("availableMemory", "__RTS_FN_NODE_PROC_AVAILABLE_MEMORY", vec![], F64, "availableMemory(): number", metrics::__RTS_FN_NODE_PROC_AVAILABLE_MEMORY as *const u8))
         .member(f("constrainedMemory", "__RTS_FN_NODE_PROC_CONSTRAINED_MEMORY", vec![], F64, "constrainedMemory(): number", metrics::__RTS_FN_NODE_PROC_CONSTRAINED_MEMORY as *const u8))
+        .member(f("resourceUsage", "__RTS_FN_NODE_PROC_RESOURCE_USAGE", vec![], Handle, "resourceUsage(): object", metrics::__RTS_FN_NODE_PROC_RESOURCE_USAGE as *const u8))
         // nextTick maps onto the engine's microtask queue (drained at program
         // end). The forwarded `...args` are deferred (the queue invokes the
         // callback with no arguments).
