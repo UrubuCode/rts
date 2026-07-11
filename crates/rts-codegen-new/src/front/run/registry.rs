@@ -442,6 +442,23 @@ pub fn namespace_const(ns: &str, name: &str) -> Option<ResolvedCall> {
     Some(flat_call(found))
 }
 
+/// The [`JsKind`] a CONSTANT getter's `Handle` return reboxes as, derived from
+/// its `ts_signature` classification — so a constant read (`os.EOL: string`,
+/// `os.constants: object`, a `T[]` array constant) reboxes correctly instead of
+/// always as a raw resource `number`. Mirrors the CALL path's `result_kind`.
+pub(super) fn const_result_kind(call: &ResolvedCall) -> super::lower::JsKind {
+    use super::lower::JsKind;
+    if call.ret_is_array_handle {
+        JsKind::Array
+    } else if call.ret_is_object_handle {
+        JsKind::Object
+    } else if call.ret_is_string_handle {
+        JsKind::Str
+    } else {
+        JsKind::Number
+    }
+}
+
 /// The real `instanceof` predicate symbol (`fn(handle)->i64`) the Registry
 /// declares for `class`, or `None` (then the engine has no Registry-driven
 /// instanceof for it and falls back to its tag check / bail).

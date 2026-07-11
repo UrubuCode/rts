@@ -8,3 +8,10 @@ rts-engine = { path = "../rts-engine" }
 # CSPRNG for node:crypto.randomUUID / randomFillSync — pure-Rust OS entropy
 # (BCryptGenRandom / getrandom syscall), no C. See docs/node-implementation/crates.md.
 getrandom = "0.2"
+
+# node:os — POSIX syscall surface (uname/gethostname/sysinfo/getloadavg/
+# getpriority/getpwuid_r/getifaddrs). libc is FFI-only, no C compile — permissive
+# (MIT/Apache-2.0). Windows uses hand-declared `extern "system"` (kernel32/ntdll,
+# repo idiom, no windows-sys dep). See docs/node-implementation/crates.md.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

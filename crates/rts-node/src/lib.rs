@@ -17,12 +17,4 @@
 //! objects/arrays/streams/async/a runtime that does not exist yet are deferred
 //! (documented per module), never faked.
 
-pub mod crypto;
-pub mod fs;
 pub mod os;
-pub mod path;
-pub mod process;
-pub mod punycode;
-pub mod querystring;
-pub mod tty;
-pub mod url;

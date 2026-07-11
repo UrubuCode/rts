@@ -309,8 +309,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let Some(call) = super::registry::namespace_const(ns, name) else {
             return Ok(None);
         };
-        self.emit_registry_call(module, &call, None, &[], JsKind::Number)
-            .map(Some)
+        let kind = super::registry::const_result_kind(&call);
+        self.emit_registry_call(module, &call, None, &[], kind).map(Some)
     }
 
     pub(super) fn lower_member(
