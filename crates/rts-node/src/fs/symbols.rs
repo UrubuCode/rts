@@ -190,6 +190,38 @@ pub extern "C" fn __RTS_FN_NODE_FS_COPY_FILE(sp: *const u8, sl: i64, dp: *const 
     }
 }
 
+/// `fs.chmodSync(path, mode)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_CHMOD(p: *const u8, l: i64, mode: i64) {
+    let path = read(p, l);
+    let r = (|| -> std::io::Result<()> {
+        let mut perms = std::fs::metadata(&path)?.permissions();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            perms.set_mode(mode as u32);
+        }
+        #[cfg(not(unix))]
+        {
+            // Windows has no POSIX mode: map the owner-write bit to read-only.
+            perms.set_readonly(mode & 0o200 == 0);
+        }
+        std::fs::set_permissions(&path, perms)
+    })();
+    if let Err(e) = r {
+        throw_io(&e, "chmod", &path);
+    }
+}
+
+/// `fs.linkSync(existingPath, newPath)` — create a hard link.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_LINK(ep: *const u8, el: i64, np: *const u8, nl: i64) {
+    let (existing, new) = (read(ep, el), read(np, nl));
+    if let Err(e) = std::fs::hard_link(&existing, &new) {
+        throw_io(&e, "link", &existing);
+    }
+}
+
 /// `fs.truncateSync(path, len)`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_FS_TRUNCATE(p: *const u8, l: i64, len: i64) {
