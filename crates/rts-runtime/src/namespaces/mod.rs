@@ -58,6 +58,26 @@ pub use rts_shared::math;
 pub use rts_shared::mem;
 pub use rts_std::net;
 pub use rts_shared::num;
+/// `node:*` — native rts-node modules (independent crate). Re-exported so
+/// `registry_build.rs` can register them via `ns::<mod>::register`.
+pub use rts_node::assert as node_assert;
+pub use rts_node::crypto as node_crypto;
+pub use rts_node::diagnostics_channel as node_diagnostics_channel;
+pub use rts_node::events as node_events;
+pub use rts_node::fs as node_fs;
+pub use rts_node::module as node_module;
+pub use rts_node::os as node_os;
+pub use rts_node::path as node_path;
+pub use rts_node::perf_hooks as node_perf_hooks;
+pub use rts_node::process as node_process;
+pub use rts_node::punycode as node_punycode;
+pub use rts_node::querystring as node_querystring;
+pub use rts_node::string_decoder as node_string_decoder;
+pub use rts_node::timers as node_timers;
+pub use rts_node::tty as node_tty;
+pub use rts_node::url as node_url;
+pub use rts_node::util as node_util;
+pub use rts_node::zlib as node_zlib;
 pub use rts_std::os;
 pub use rts_shared::path;
 pub use rts_std::process;

@@ -44,6 +44,7 @@ mod expr;
 mod funcval;
 mod gcell;
 mod globalclass;
+mod globalclass_receiver;
 mod globals;
 mod loops;
 mod mathobj;

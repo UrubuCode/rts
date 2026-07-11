@@ -281,6 +281,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if self.classes.get(name).is_some() {
             return self.reify_class(module, name);
         }
+        // A bare name imported from a scheme module (`import { EOL } from "node:os"`)
+        // in VALUE position that names a `MemberKind::Constant` getter: resolve it
+        // through the same generic marshal a `ns.CONST` member read uses (a
+        // function binding is handled at the call site; this only fires for a
+        // constant used as a value, else falls through to the honest bail).
+        if let Some((ns, member)) = self.builtins.get(name).cloned() {
+            if let Some(call) = super::registry::namespace_const(&ns, &member) {
+                let kind = super::registry::const_result_kind(&call);
+                return self.emit_registry_call(module, &call, None, &[], kind);
+            }
+        }
         unsupported!("unbound identifier `{name}`")
     }
 

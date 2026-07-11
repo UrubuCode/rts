@@ -114,6 +114,25 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
                         }
                         continue;
                     }
+                    // Some `node:` modules RE-EXPORT an engine GLOBAL class/value of
+                    // the same name (`import { URL } from "node:url"` → the ambient
+                    // `URL` class) — REUSE, never a duplicated impl. Such a name binds
+                    // like the bare global (`Binding::Local`, a no-op rename that
+                    // resolves to the ambient class). Any OTHER imported name from the
+                    // same module is a native namespace member (`url.fileURLToPath`),
+                    // resolved through the Registry below.
+                    if let Some(globals) = node_reexported_globals(specifier) {
+                        let ns = builtin_ns(specifier);
+                        for (orig, local) in &edge.names {
+                            let binding = if globals.contains(&orig.as_str()) {
+                                Binding::Local { name: orig.clone() }
+                            } else {
+                                Binding::Builtin { ns: ns.clone(), member: orig.clone() }
+                            };
+                            bindings.insert(local.clone(), binding);
+                        }
+                        continue;
+                    }
                     let ns = builtin_ns(specifier);
                     // BARE `"rts"` (`ns == ""`): each imported name is a NAMESPACE
                     // OBJECT (`import { io, gc } from "rts"` → `io`/`gc`), so bind it
@@ -198,11 +217,27 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
 
 /// The namespace key for a builtin specifier: `rts:io` → `io`, `node:fs` → `fs`,
 /// bare `rts` → `""` (the member alone identifies it).
+/// The engine GLOBAL classes/values a `node:` module RE-EXPORTS (reused, never
+/// re-implemented): `import { URL } from "node:url"` binds to the ambient `URL`
+/// class. Data-driven; only names that are real registered engine globals belong
+/// here. A name NOT listed is treated as a native namespace member.
+fn node_reexported_globals(specifier: &str) -> Option<&'static [&'static str]> {
+    match specifier {
+        "node:url" => Some(&["URL", "URLSearchParams"]),
+        _ => None,
+    }
+}
+
 fn builtin_ns(specifier: &str) -> String {
     if let Some(ns) = specifier.strip_prefix("rts:") {
         ns.to_string()
-    } else if let Some(ns) = specifier.strip_prefix("node:") {
-        ns.to_string()
+    } else if specifier.starts_with("node:") {
+        // KEEP the scheme for `node:` — the module resolves by its DECLARED key
+        // (`e.module("node","X")` → registry key `node:X`), so rts-node can OWN a
+        // module distinct from the shared `rts:X`. `resolve.rs`/`registry.rs`
+        // apply a transparent `node:X` → `rts:X` fallback for modules rts-node has
+        // not natively provided yet (data-driven; no per-module special-case).
+        specifier.to_string()
     } else {
         // bare "rts"
         String::new()

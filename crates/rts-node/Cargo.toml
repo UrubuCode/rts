@@ -5,3 +5,31 @@ edition = "2024"
 
 [dependencies]
 rts-engine = { path = "../rts-engine" }
+# CSPRNG for node:crypto.randomUUID / randomFillSync — pure-Rust OS entropy
+# (BCryptGenRandom / getrandom syscall), no C. See docs/node-implementation/crates.md.
+getrandom = "0.2"
+# node:string_decoder — Entry::Map instance storage (IndexMap<String,i64>), the
+# same object-backed class model DOMException uses. Already a workspace dep.
+indexmap = "2"
+# node:url — real UTS-46 IDNA for domainToASCII/domainToUnicode (pure Rust,
+# permissive, already a workspace dep via the WHATWG URL impl).
+idna = "1"
+# node:zlib — pure-Rust compression (flate2/miniz_oxide backend = no C; brotli is
+# pure Rust). Permissive (MIT/Apache-2.0). See docs/node-implementation/crates.md.
+flate2 = "1"
+brotli = "8"
+# node:crypto — pure-Rust hashing (RustCrypto: md-5/sha1/sha2 + the DynDigest
+# trait for runtime-selected algorithms). MIT/Apache-2.0, no C. HMAC is built
+# manually over DynDigest (ipad/opad), so no generic hmac crate is needed. See
+# docs/node-implementation/crates.md.
+digest = "0.10"
+md-5 = "0.10"
+sha1 = "0.10"
+sha2 = "0.10"
+
+# node:os — POSIX syscall surface (uname/gethostname/sysinfo/getloadavg/
+# getpriority/getpwuid_r/getifaddrs). libc is FFI-only, no C compile — permissive
+# (MIT/Apache-2.0). Windows uses hand-declared `extern "system"` (kernel32/ntdll,
+# repo idiom, no windows-sys dep). See docs/node-implementation/crates.md.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

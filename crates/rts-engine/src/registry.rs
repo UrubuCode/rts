@@ -185,6 +185,19 @@ impl Registry {
         }
     }
 
+    /// Insere o módulo sob uma CHAVE explícita (entrada de ALIAS). Resolve como
+    /// o canônico e harvesta os mesmos símbolos JIT, mas NÃO entra em
+    /// `module_order` — assim `modules()` (usado por `rts.d.ts`/`apis`) não
+    /// duplica o módulo. Ver `ModuleBuilder::alias`.
+    pub(crate) fn insert_module_at(&mut self, key: String, module: Module) {
+        for m in &module.members {
+            if !m.fn_ptr.0.is_null() {
+                self.jit_symbols.insert(m.symbol.clone(), m.fn_ptr);
+            }
+        }
+        self.modules.insert(key, module);
+    }
+
     pub(crate) fn insert_class(&mut self, class: Class) {
         for m in &class.members {
             if !m.fn_ptr.0.is_null() {

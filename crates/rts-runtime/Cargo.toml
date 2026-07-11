@@ -29,6 +29,10 @@ rts-engine = { path = "../rts-engine" }
 rts-primitives = { path = "../rts-primitives" }
 rts-shared = { path = "../rts-shared" }
 rts-std = { path = "../rts-std" }
+# rts-node: native Node.js API surface (node:* modules). Independent crate —
+# owns its own impls, never mirrors rts-std. Re-exported as `namespaces::<mod>`;
+# resolved via the Registry (see docs/node-implementation/).
+rts-node = { path = "../rts-node" }
 rts-napi = { path = "../rts-napi" }
 # rts-dom: DOM retido headless (parser HTML + árvore + query/mutação), sem UI.
 # Reexportado como `namespaces::dom`; o `rts-egui` consome o tipo `Dom` direto.
