@@ -65,6 +65,7 @@ pub use rts_node::events as node_events;
 pub use rts_node::module as node_module;
 pub use rts_node::os as node_os;
 pub use rts_node::path as node_path;
+pub use rts_node::perf_hooks as node_perf_hooks;
 pub use rts_node::process as node_process;
 pub use rts_node::punycode as node_punycode;
 pub use rts_node::querystring as node_querystring;

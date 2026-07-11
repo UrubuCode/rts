@@ -55,6 +55,7 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     ns::node_module::register,
     ns::node_os::register,
     ns::node_path::register,
+    ns::node_perf_hooks::register,
     ns::node_process::register,
     ns::node_punycode::register,
     ns::node_querystring::register,

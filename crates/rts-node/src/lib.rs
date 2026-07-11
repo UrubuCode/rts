@@ -22,6 +22,7 @@ pub mod events;
 pub mod module;
 pub mod os;
 pub mod path;
+pub mod perf_hooks;
 pub mod process;
 pub mod punycode;
 pub mod querystring;
