@@ -44,6 +44,20 @@ pub fn gzip(data: &[u8]) -> Result<Vec<u8>, String> {
     e.finish().map_err(err)
 }
 
+/// `gzipSync(buf, { level })` — 0 (store) … 9 (max). Levels outside 0..=9 clamp.
+pub fn gzip_level(data: &[u8], level: u32) -> Result<Vec<u8>, String> {
+    let mut e = GzEncoder::new(Vec::new(), Compression::new(level.min(9)));
+    e.write_all(data).map_err(err)?;
+    e.finish().map_err(err)
+}
+
+/// `deflateSync(buf, { level })`.
+pub fn deflate_level(data: &[u8], level: u32) -> Result<Vec<u8>, String> {
+    let mut e = ZlibEncoder::new(Vec::new(), Compression::new(level.min(9)));
+    e.write_all(data).map_err(err)?;
+    e.finish().map_err(err)
+}
+
 /// `gunzipSync`.
 pub fn gunzip(data: &[u8]) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();

@@ -3,7 +3,31 @@
 //! on a decode failure, `THROWS`-flagged).
 
 use super::codec;
-use super::words::{buffer, read_bytes, throw};
+use super::words::{buffer, opt_level, read_bytes, throw};
+
+/// Run a level-parameterized codec over the arg's bytes → `Buffer`.
+fn run_level(handle: u64, options: u64, f: impl Fn(&[u8], u32) -> Result<Vec<u8>, String>) -> u64 {
+    let bytes = read_bytes(handle);
+    match f(&bytes, opt_level(options)) {
+        Ok(out) => buffer(out),
+        Err(e) => {
+            throw(&e);
+            buffer(Vec::new())
+        }
+    }
+}
+
+/// `zlib.gzipSync(buffer, options)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_ZLIB_GZIP_LEVEL(h: u64, options: u64) -> u64 {
+    run_level(h, options, codec::gzip_level)
+}
+
+/// `zlib.deflateSync(buffer, options)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_ZLIB_DEFLATE_LEVEL(h: u64, options: u64) -> u64 {
+    run_level(h, options, codec::deflate_level)
+}
 
 /// Run `f` over the arg's bytes → `Buffer`; throw on `Err`.
 fn run(handle: u64, f: impl Fn(&[u8]) -> Result<Vec<u8>, String>) -> u64 {

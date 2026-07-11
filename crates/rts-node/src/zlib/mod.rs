@@ -57,6 +57,8 @@ pub fn register(e: &mut Engine) {
         .member(func("unzipSync", "__RTS_FN_NODE_ZLIB_UNZIP_SYNC", "unzipSync(buffer: object): object", s::__RTS_FN_NODE_ZLIB_UNZIP_SYNC as *const u8))
         .member(func("brotliCompressSync", "__RTS_FN_NODE_ZLIB_BROTLI_COMPRESS_SYNC", "brotliCompressSync(buffer: object): object", s::__RTS_FN_NODE_ZLIB_BROTLI_COMPRESS_SYNC as *const u8))
         .member(func("brotliDecompressSync", "__RTS_FN_NODE_ZLIB_BROTLI_DECOMPRESS_SYNC", "brotliDecompressSync(buffer: object): object", s::__RTS_FN_NODE_ZLIB_BROTLI_DECOMPRESS_SYNC as *const u8))
+        .member(make("gzipSync", "__RTS_FN_NODE_ZLIB_GZIP_LEVEL", sig!(Handle, Handle => Handle), "gzipSync(buffer: object, options: object): object", s::__RTS_FN_NODE_ZLIB_GZIP_LEVEL as *const u8, MemberKind::Function, MemberFlags::THROWS))
+        .member(make("deflateSync", "__RTS_FN_NODE_ZLIB_DEFLATE_LEVEL", sig!(Handle, Handle => Handle), "deflateSync(buffer: object, options: object): object", s::__RTS_FN_NODE_ZLIB_DEFLATE_LEVEL as *const u8, MemberKind::Function, MemberFlags::THROWS))
         .member(make("crc32", "__RTS_FN_NODE_ZLIB_CRC32", sig!(Handle => I64), "crc32(data: object): number", s::__RTS_FN_NODE_ZLIB_CRC32 as *const u8, MemberKind::Function, MemberFlags::NONE))
         .member(make("crc32", "__RTS_FN_NODE_ZLIB_CRC32_PREV", sig!(Handle, I64 => I64), "crc32(data: object, value: number): number", s::__RTS_FN_NODE_ZLIB_CRC32_PREV as *const u8, MemberKind::Function, MemberFlags::NONE))
         .member(make("constants", "__RTS_FN_NODE_ZLIB_CONSTANTS", sig!(=> Handle), "constants: object", constants::__RTS_FN_NODE_ZLIB_CONSTANTS as *const u8, MemberKind::Constant, MemberFlags::NONE))
