@@ -106,6 +106,29 @@ pub extern "C" fn __RTS_FN_NODE_CRYPTO_TIMING_SAFE_EQUAL(a: u64, b: u64) -> i64 
     random::timing_safe_equal(a, b) as i64
 }
 
+/// `crypto.pbkdf2Sync(password, salt, iterations, keylen, digest)` → Buffer.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_CRYPTO_PBKDF2(
+    password: u64,
+    salt: u64,
+    iterations: i64,
+    keylen: i64,
+    dp: *const u8,
+    dl: i64,
+) -> u64 {
+    let name = read(dp, dl);
+    match Algo::parse(&name) {
+        Some(a) => {
+            let dk = algo::pbkdf2(a, &read_bytes(password), &read_bytes(salt), iterations.max(0) as u32, keylen.max(0) as usize);
+            byte_array(&dk)
+        }
+        None => {
+            throw_unknown_algo(&name);
+            byte_array(&[])
+        }
+    }
+}
+
 /// `crypto.getHashes()`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_CRYPTO_GET_HASHES() -> u64 {

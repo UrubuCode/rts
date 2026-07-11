@@ -101,6 +101,31 @@ pub fn hmac_bytes(algo: Algo, key: &[u8], data: &[u8]) -> Vec<u8> {
     outer.finalize().to_vec()
 }
 
+/// PBKDF2 (RFC 2898) with `HMAC-<algo>` as the PRF: derive a `keylen`-byte key
+/// from `password`/`salt` over `iterations` rounds. Real, standard construction
+/// built on `hmac_bytes`.
+pub fn pbkdf2(algo: Algo, password: &[u8], salt: &[u8], iterations: u32, keylen: usize) -> Vec<u8> {
+    let h_len = hash_bytes(algo, &[]).len();
+    let blocks = keylen.div_ceil(h_len.max(1));
+    let mut dk = Vec::with_capacity(blocks * h_len);
+    for i in 1..=blocks as u32 {
+        // U1 = PRF(password, salt || INT32BE(i)).
+        let mut salt_i = salt.to_vec();
+        salt_i.extend_from_slice(&i.to_be_bytes());
+        let mut u = hmac_bytes(algo, password, &salt_i);
+        let mut t = u.clone();
+        for _ in 1..iterations {
+            u = hmac_bytes(algo, password, &u);
+            for (a, b) in t.iter_mut().zip(u.iter()) {
+                *a ^= b;
+            }
+        }
+        dk.extend_from_slice(&t);
+    }
+    dk.truncate(keylen);
+    dk
+}
+
 /// `crypto.getHashes()` entries.
 pub fn hashes() -> &'static [&'static str] {
     &["md5", "sha1", "sha224", "sha256", "sha384", "sha512"]
