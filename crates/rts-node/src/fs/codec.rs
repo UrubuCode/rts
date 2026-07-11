@@ -9,6 +9,10 @@ pub fn encode_bytes(bytes: &[u8], enc: &str) -> String {
         "base64" => b64_encode(bytes, false),
         "base64url" => b64_encode(bytes, true),
         "latin1" | "binary" | "ascii" => bytes.iter().map(|&b| b as char).collect(),
+        "utf16le" | "utf-16le" | "ucs2" | "ucs-2" => {
+            let units: Vec<u16> = bytes.chunks(2).map(|c| u16::from_le_bytes([c[0], *c.get(1).unwrap_or(&0)])).collect();
+            String::from_utf16_lossy(&units)
+        }
         _ => String::from_utf8_lossy(bytes).into_owned(),
     }
 }
@@ -21,6 +25,7 @@ pub fn decode_bytes(s: &str, enc: &str) -> Vec<u8> {
             .collect(),
         "base64" | "base64url" => b64_decode(s),
         "latin1" | "binary" | "ascii" => s.chars().map(|c| c as u8).collect(),
+        "utf16le" | "utf-16le" | "ucs2" | "ucs-2" => s.encode_utf16().flat_map(|u| u.to_le_bytes()).collect(),
         _ => s.as_bytes().to_vec(),
     }
 }
