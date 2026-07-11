@@ -28,17 +28,46 @@ pub extern "C" fn __RTS_FN_NODE_FS_READ_FILE(p: *const u8, l: i64) -> u64 {
     }
 }
 
-/// `fs.readFileSync(path, encoding)` → string.
+/// `fs.readFileSync(path, encoding)` → string in the requested encoding
+/// (utf8/hex/base64/base64url/latin1/ascii).
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_READ_FILE_ENC(p: *const u8, l: i64, _ep: *const u8, _el: i64) -> u64 {
+pub extern "C" fn __RTS_FN_NODE_FS_READ_FILE_ENC(p: *const u8, l: i64, ep: *const u8, el: i64) -> u64 {
     let path = read(p, l);
+    let enc = read(ep, el);
     match std::fs::read(&path) {
-        Ok(bytes) => intern(&String::from_utf8_lossy(&bytes)),
+        Ok(bytes) => intern(&encode_bytes(&bytes, &enc)),
         Err(e) => {
             throw_io(&e, "open", &path);
             intern("")
         }
     }
+}
+
+/// Encode file bytes per a Node encoding name (default utf8).
+fn encode_bytes(bytes: &[u8], enc: &str) -> String {
+    match enc.to_lowercase().as_str() {
+        "hex" => bytes.iter().map(|b| format!("{b:02x}")).collect(),
+        "base64" => b64_encode(bytes, false),
+        "base64url" => b64_encode(bytes, true),
+        "latin1" | "binary" | "ascii" => bytes.iter().map(|&b| b as char).collect(),
+        _ => String::from_utf8_lossy(bytes).into_owned(),
+    }
+}
+
+fn b64_encode(data: &[u8], url: bool) -> String {
+    const STD: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const URL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let tbl = if url { URL } else { STD };
+    let mut out = String::new();
+    for chunk in data.chunks(3) {
+        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let n = (b[0] as u32) << 16 | (b[1] as u32) << 8 | b[2] as u32;
+        out.push(tbl[(n >> 18 & 63) as usize] as char);
+        out.push(tbl[(n >> 12 & 63) as usize] as char);
+        out.push(if chunk.len() > 1 { tbl[(n >> 6 & 63) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 2 { tbl[(n & 63) as usize] as char } else { '=' });
+    }
+    if url { out.trim_end_matches('=').to_string() } else { out }
 }
 
 /// `fs.writeFileSync(path, data)`.
