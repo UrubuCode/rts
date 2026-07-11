@@ -21,6 +21,7 @@ pub mod assert;
 pub mod crypto;
 pub mod diagnostics_channel;
 pub mod events;
+pub mod fs;
 pub mod module;
 pub mod os;
 pub mod path;
