@@ -89,6 +89,15 @@ pub fn register(e: &mut Engine) {
         s::__RTS_FN_NODE_UTIL_INSPECT as *const u8,
     ));
 
+    ns = ns.member(f(
+        "inspect",
+        "__RTS_FN_NODE_UTIL_INSPECT_OPTS",
+        vec![PolyValue, PolyValue],
+        Handle,
+        "inspect(value: object, options: object): string",
+        s::__RTS_FN_NODE_UTIL_INSPECT_OPTS as *const u8,
+    ));
+
     ns.member(f(
         "isDeepStrictEqual",
         "__RTS_FN_NODE_UTIL_IS_DEEP_STRICT_EQUAL",

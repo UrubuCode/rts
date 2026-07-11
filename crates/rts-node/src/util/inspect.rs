@@ -19,6 +19,42 @@ pub fn inspect(word: u64) -> String {
     render(word, DEFAULT_DEPTH, true)
 }
 
+/// `util.inspect(value, options)` — honors `options.depth` (a number, or `null`
+/// for effectively unlimited); other options are not yet applied.
+pub fn inspect_with_options(word: u64, options: u64) -> String {
+    render(word, option_depth(options).unwrap_or(DEFAULT_DEPTH), true)
+}
+
+/// Read `options.depth`: a number → that depth; `null` → a large depth; absent →
+/// `None` (caller uses the default).
+fn option_depth(options: u64) -> Option<i32> {
+    let handle = poly_handle_normalize(options)?;
+    let depth_word = with_entry(handle, |e| match e {
+        Some(Entry::Vec(slots)) if !slots.is_empty() => {
+            let w0 = slots[0] as u64;
+            if (w0 & POLY_BOX_BASE) != POLY_BOX_BASE {
+                return None;
+            }
+            let keys = global_shape_keys((w0 & POLY_PAYLOAD_MASK) as u32)?;
+            if keys.len() + 1 != slots.len() {
+                return None;
+            }
+            keys.iter().position(|k| k == "depth").map(|i| slots[i + 1])
+        }
+        Some(Entry::Map(m)) => m.get("depth").copied(),
+        _ => None,
+    })?;
+    let w = depth_word as u64;
+    // A genuine inline double → that depth; the `null` singleton → large.
+    if (w & POLY_BOX_BASE) != POLY_BOX_BASE {
+        Some(f64::from_bits(w) as i32)
+    } else if (w >> POLY_TAG_SHIFT) & POLY_TAG_MASK == 1 {
+        Some((w & POLY_PAYLOAD_MASK) as u32 as i32) // boxed int32
+    } else {
+        Some(1_000_000) // null / anything else → effectively unlimited
+    }
+}
+
 fn render(word: u64, depth: i32, top: bool) -> String {
     // Inline double.
     if (word & POLY_BOX_BASE) != POLY_BOX_BASE {
