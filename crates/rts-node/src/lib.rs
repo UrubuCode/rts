@@ -19,6 +19,7 @@
 
 pub mod assert;
 pub mod crypto;
+pub mod diagnostics_channel;
 pub mod events;
 pub mod module;
 pub mod os;
