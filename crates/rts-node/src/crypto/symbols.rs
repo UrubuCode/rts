@@ -234,6 +234,23 @@ pub extern "C" fn __RTS_FN_NODE_CRYPTO_UPDATE(this: u64, data: u64) -> u64 {
     this
 }
 
+/// `hash.update(data, inputEncoding)` — the string data is decoded per the
+/// encoding (hex/base64/latin1, default utf8) before hashing.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_CRYPTO_UPDATE_ENC(this: u64, dp: *const u8, dl: i64, ep: *const u8, el: i64) -> u64 {
+    let s = read(dp, dl);
+    let bytes: Vec<u8> = match read(ep, el).to_lowercase().as_str() {
+        "hex" => (0..s.len() / 2)
+            .filter_map(|i| u8::from_str_radix(s.get(i * 2..i * 2 + 2)?, 16).ok())
+            .collect(),
+        "base64" | "base64url" => algo::base64_decode(&s),
+        "latin1" | "binary" | "ascii" => s.chars().map(|c| c as u8).collect(),
+        _ => s.into_bytes(),
+    };
+    append(this, &bytes);
+    this
+}
+
 /// `hash.digest()` → Buffer (Uint8Array-shaped) of the raw digest bytes.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_CRYPTO_DIGEST(this: u64) -> u64 {

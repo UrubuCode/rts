@@ -243,3 +243,33 @@ fn base64(data: &[u8], url: bool) -> String {
     // base64url omits padding.
     if url { out.trim_end_matches('=').to_string() } else { out }
 }
+
+/// Decode a base64 (standard or url) string to bytes.
+pub fn base64_decode(s: &str) -> Vec<u8> {
+    let val = |c: u8| -> Option<u32> {
+        match c {
+            b'A'..=b'Z' => Some((c - b'A') as u32),
+            b'a'..=b'z' => Some((c - b'a' + 26) as u32),
+            b'0'..=b'9' => Some((c - b'0' + 52) as u32),
+            b'+' | b'-' => Some(62),
+            b'/' | b'_' => Some(63),
+            _ => None,
+        }
+    };
+    let clean: Vec<u8> = s.bytes().filter(|&c| val(c).is_some()).collect();
+    let mut out = Vec::new();
+    for chunk in clean.chunks(4) {
+        let mut n = 0u32;
+        for (i, &c) in chunk.iter().enumerate() {
+            n |= val(c).unwrap_or(0) << (18 - 6 * i);
+        }
+        out.push((n >> 16 & 0xff) as u8);
+        if chunk.len() > 2 {
+            out.push((n >> 8 & 0xff) as u8);
+        }
+        if chunk.len() > 3 {
+            out.push((n & 0xff) as u8);
+        }
+    }
+    out
+}
