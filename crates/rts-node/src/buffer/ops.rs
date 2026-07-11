@@ -115,6 +115,12 @@ pub extern "C" fn __RTS_FN_NODE_BUFFER_ALLOC(size: i64) -> u64 {
     byte_array(&vec![0u8; size.max(0) as usize])
 }
 
+/// `Buffer.alloc(size, fill)` — `size` bytes all set to `fill` (a byte 0..255).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_BUFFER_ALLOC_FILL(size: i64, fill: i64) -> u64 {
+    byte_array(&vec![fill as u8; size.max(0) as usize])
+}
+
 /// `Buffer.from(string)` — UTF-8 bytes.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_BUFFER_FROM(p: *const u8, l: i64) -> u64 {
