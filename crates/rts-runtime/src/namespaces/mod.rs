@@ -61,6 +61,7 @@ pub use rts_shared::num;
 /// `node:*` — native rts-node modules (independent crate). Re-exported so
 /// `registry_build.rs` can register them via `ns::<mod>::register`.
 pub use rts_node::assert as node_assert;
+pub use rts_node::buffer as node_buffer;
 pub use rts_node::child_process as node_child_process;
 pub use rts_node::crypto as node_crypto;
 pub use rts_node::diagnostics_channel as node_diagnostics_channel;
