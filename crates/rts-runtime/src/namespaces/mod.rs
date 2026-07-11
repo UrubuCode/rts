@@ -73,6 +73,7 @@ pub use rts_node::process as node_process;
 pub use rts_node::punycode as node_punycode;
 pub use rts_node::querystring as node_querystring;
 pub use rts_node::string_decoder as node_string_decoder;
+pub use rts_node::timers as node_timers;
 pub use rts_node::tty as node_tty;
 pub use rts_node::url as node_url;
 pub use rts_node::util as node_util;

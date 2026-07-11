@@ -63,6 +63,7 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     ns::node_punycode::register,
     ns::node_querystring::register,
     ns::node_string_decoder::register,
+    ns::node_timers::register,
     ns::node_tty::register,
     ns::node_url::register,
     ns::node_util::register,
