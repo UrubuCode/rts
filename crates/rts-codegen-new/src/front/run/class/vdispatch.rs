@@ -287,9 +287,29 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             self.emit_post_call_error_check(module)?;
             self.builder.ins().jump(merge, &[res.into()]);
 
+            // No matching user shape AND no own function-valued property: the
+            // receiver may still be a native object-backed Registry instance
+            // (`Hash`/`StringDecoder`/…) whose method NAME collides with some user
+            // class's method (which is why this virtual path was entered at all).
+            // Resolve it via the runtime-CI table by the receiver's `__rts_class`
+            // tag; a true miss keeps the `undefined` sentinel (this trampoline
+            // returns `undefined` rather than throwing).
             self.builder.switch_to_block(b_undef);
-            let u = self.builder.ins().iconst(types::I64, undef);
-            self.builder.ins().jump(merge, &[u.into()]);
+            // Fresh arg slots dominating THIS block (the `b_fn` ones do not).
+            let u_undef = self.builder.ins().iconst(types::I64, undef);
+            let mut ci_slots: [Value; 3] = [u_undef; 3];
+            for (i, &w) in arg_words.iter().take(3).enumerate() {
+                ci_slots[i] = w;
+            }
+            let ci = self
+                .call_runtime(
+                    module,
+                    "__rtsadp_dyn_ci_or_undef",
+                    &[recv_word, key_word, ci_slots[0], ci_slots[1], ci_slots[2]],
+                )?
+                .expect("__rtsadp_dyn_ci_or_undef returns a value");
+            self.emit_post_call_error_check(module)?;
+            self.builder.ins().jump(merge, &[ci.into()]);
         } else {
             let u = self.builder.ins().iconst(types::I64, undef);
             self.builder.ins().jump(merge, &[u.into()]);

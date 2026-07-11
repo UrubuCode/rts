@@ -328,7 +328,7 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, U64],
             ret: U64,
         },
-        "__rtsadp_idx_call" | "__rtsadp_dyn_method_call" => SymSig {
+        "__rtsadp_idx_call" | "__rtsadp_dyn_method_call" | "__rtsadp_dyn_ci_or_undef" => SymSig {
             params: &[U64, U64, U64, U64, U64],
             ret: U64,
         },

@@ -705,6 +705,21 @@ pub extern "C" fn __rtsadp_dyn_method_call(
     undef
 }
 
+/// `recv.method(a0..a2)` resolved ONLY via the object-backed runtime-CI table
+/// (the receiver's `__rts_class` tag), returning `undefined` on a miss instead of
+/// throwing. This is the SENTINEL-preserving variant used as the default arm of
+/// the user-class virtual dispatch: when no user shape and no own function-valued
+/// property matched `method`, the receiver may still be a native object-backed
+/// instance (`Hash`/`StringDecoder`/…) whose method name collides with some user
+/// class's method — dispatch it natively, else keep the `undefined` sentinel (a
+/// TypeError-class marker, never a wrong value) the virtual path already used.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_dyn_ci_or_undef(recv: u64, key: u64, a0: u64, a1: u64, a2: u64) -> u64 {
+    let undef = PolyValue::undefined().raw();
+    let js_argc = [a0, a1, a2].iter().filter(|&&w| w != undef).count();
+    super::dynci::try_runtime_ci(recv, key, a0, a1, a2, js_argc).unwrap_or(undef)
+}
+
 /// The `@@<name>` HOOK method of an OBJECT arg (`matcher[Symbol.match]`), or
 /// `None` — string protocol hooks (match/replace/search/split).
 fn wellknown_hook(arg: u64, name: &str) -> Option<u64> {

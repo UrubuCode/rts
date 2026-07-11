@@ -196,8 +196,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(None);
         }
         let recv = self.lower_expr(module, object)?;
-        if method == "update" {
-        }
         let Some(class) = recv_class_of(recv) else {
             // PRIMITIVE BOOL receiver (`true.toString()` / `flag.valueOf()`): route
             // to the ambient prelude `class Boolean` (the `.ts` primitive-method

@@ -51,6 +51,14 @@ try {
     threw = true;
 }
 
+// --- UNTRACKED receiver (array element): the object-backed-class runtime
+// dispatch path (write/end resolved via the value's __rts_class tag, not a
+// statically-proven class). Split multibyte proves the instance state persists.
+const arr = [new StringDecoder("utf8")];
+const dArr = arr[0];
+const sArrA = dArr.write(new Uint8Array([0xe2, 0x82])); // incomplete → ""
+const sArrB = dArr.end(new Uint8Array([0xac])); // completes then flushes → "€"
+
 describe("node:string_decoder full surface", () => {
     test("utf8 split part1 empty", () => expect(s1a).toBe(""));
     test("utf8 split completes", () => expect(s1b).toBe("€"));
@@ -67,4 +75,6 @@ describe("node:string_decoder full surface", () => {
     test("hex", () => expect(s7).toBe("abcd"));
     test("latin1", () => expect(s8).toBe("é"));
     test("unknown encoding throws", () => expect(threw).toBe(true));
+    test("untracked receiver write holds partial", () => expect(sArrA).toBe(""));
+    test("untracked receiver end completes multibyte", () => expect(sArrB).toBe("€"));
 });
