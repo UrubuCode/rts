@@ -13,16 +13,16 @@ pub extern "C" fn __RTS_FN_NODE_PROC_KILL(pid: i64, signal: i64) -> i64 {
     #[cfg(windows)]
     {
         unsafe extern "system" {
-            fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut core::ffi::c_void;
-            fn TerminateProcess(handle: *mut core::ffi::c_void, exit_code: u32) -> i32;
-            fn CloseHandle(handle: *mut core::ffi::c_void) -> i32;
+            fn OpenProcess(access: u32, inherit: i32, pid: u32) -> isize;
+            fn TerminateProcess(handle: isize, exit_code: u32) -> i32;
+            fn CloseHandle(handle: isize) -> i32;
         }
         const PROCESS_TERMINATE: u32 = 0x0001;
         const PROCESS_QUERY_INFORMATION: u32 = 0x0400;
         let access = if signal == 0 { PROCESS_QUERY_INFORMATION } else { PROCESS_TERMINATE };
         unsafe {
             let h = OpenProcess(access, 0, pid as u32);
-            if h.is_null() {
+            if h == 0 {
                 return 0;
             }
             let ok = if signal == 0 { 1 } else { TerminateProcess(h, 1) };

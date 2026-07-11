@@ -28,9 +28,9 @@ fn rss_bytes() -> u64 {
             peak_pagefile_usage: usize,
         }
         unsafe extern "system" {
-            fn GetCurrentProcess() -> *mut core::ffi::c_void;
+            fn GetCurrentProcess() -> isize;
             fn K32GetProcessMemoryInfo(
-                process: *mut core::ffi::c_void,
+                process: isize,
                 counters: *mut ProcessMemoryCounters,
                 cb: u32,
             ) -> i32;
@@ -68,9 +68,9 @@ fn cpu_micros() -> (u64, u64) {
             high: u32,
         }
         unsafe extern "system" {
-            fn GetCurrentProcess() -> *mut core::ffi::c_void;
+            fn GetCurrentProcess() -> isize;
             fn GetProcessTimes(
-                process: *mut core::ffi::c_void,
+                process: isize,
                 creation: *mut FileTime,
                 exit: *mut FileTime,
                 kernel: *mut FileTime,
