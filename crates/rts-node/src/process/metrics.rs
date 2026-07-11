@@ -138,18 +138,12 @@ fn available_bytes() -> u64 {
         m.length = core::mem::size_of::<MemoryStatusEx>() as u32;
         if unsafe { GlobalMemoryStatusEx(&mut m) } != 0 { m.avail_phys } else { 0 }
     }
-    #[cfg(unix)]
+    // Non-Windows: reuse `node:os`'s cross-platform free-memory probe
+    // (Linux `sysinfo`, macOS mach `host_statistics64`, else 0) — `libc::sysinfo`
+    // is Linux/Android-only and does not exist on macOS/BSD.
+    #[cfg(not(windows))]
     {
-        let mut info: libc::sysinfo = unsafe { core::mem::zeroed() };
-        if unsafe { libc::sysinfo(&mut info) } == 0 {
-            info.freeram as u64 * info.mem_unit.max(1) as u64
-        } else {
-            0
-        }
-    }
-    #[cfg(not(any(windows, unix)))]
-    {
-        0
+        crate::os::meminfo::free_memory_bytes()
     }
 }
 

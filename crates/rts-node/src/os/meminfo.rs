@@ -62,7 +62,7 @@ fn total_memory_bytes() -> u64 {
     }
 }
 
-fn free_memory_bytes() -> u64 {
+pub(crate) fn free_memory_bytes() -> u64 {
     #[cfg(target_os = "linux")]
     {
         linux_sysinfo().map(|si| si.freeram as u64 * si.mem_unit.max(1) as u64).unwrap_or(0)

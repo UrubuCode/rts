@@ -19,7 +19,7 @@
 mod constants;
 mod cpus;
 mod identity;
-mod meminfo;
+pub(crate) mod meminfo;
 mod netif;
 mod priority;
 mod sys;
