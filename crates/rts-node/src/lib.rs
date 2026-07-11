@@ -19,6 +19,7 @@
 
 pub mod assert;
 pub mod events;
+pub mod module;
 pub mod os;
 pub mod path;
 pub mod process;
