@@ -21,6 +21,7 @@ pub enum Algo {
     Blake2s256,
     Sha512_256,
     Sha512_224,
+    Ripemd160,
 }
 
 impl Algo {
@@ -40,6 +41,7 @@ impl Algo {
             "blake2s256" => Some(Algo::Blake2s256),
             "sha512-256" => Some(Algo::Sha512_256),
             "sha512-224" => Some(Algo::Sha512_224),
+            "ripemd160" | "rmd160" => Some(Algo::Ripemd160),
             _ => None,
         }
     }
@@ -59,6 +61,7 @@ impl Algo {
             Algo::Blake2s256 => 10,
             Algo::Sha512_256 => 11,
             Algo::Sha512_224 => 12,
+            Algo::Ripemd160 => 13,
         }
     }
 
@@ -76,6 +79,7 @@ impl Algo {
             10 => Algo::Blake2s256,
             11 => Algo::Sha512_256,
             12 => Algo::Sha512_224,
+            13 => Algo::Ripemd160,
             _ => Algo::Sha256,
         }
     }
@@ -96,6 +100,7 @@ impl Algo {
             Algo::Blake2s256 => Box::new(blake2::Blake2s256::default()),
             Algo::Sha512_256 => Box::new(sha2::Sha512_256::default()),
             Algo::Sha512_224 => Box::new(sha2::Sha512_224::default()),
+            Algo::Ripemd160 => Box::new(ripemd::Ripemd160::default()),
         }
     }
 
@@ -208,7 +213,7 @@ pub fn hkdf(algo: Algo, ikm: &[u8], salt: &[u8], info: &[u8], keylen: usize) -> 
 
 /// `crypto.getHashes()` entries.
 pub fn hashes() -> &'static [&'static str] {
-    &["md5", "sha1", "sha224", "sha256", "sha384", "sha512", "sha3-256", "sha3-384", "sha3-512", "blake2b512", "blake2s256", "sha512-256", "sha512-224"]
+    &["md5", "sha1", "sha224", "sha256", "sha384", "sha512", "sha3-256", "sha3-384", "sha3-512", "blake2b512", "blake2s256", "sha512-256", "sha512-224", "ripemd160"]
 }
 
 /// Encode digest bytes per a Node encoding name (`hex`/`base64`/`base64url`/
