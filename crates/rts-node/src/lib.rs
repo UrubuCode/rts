@@ -34,4 +34,5 @@ pub mod timers;
 pub mod tty;
 pub mod url;
 pub mod util;
+pub mod v8;
 pub mod zlib;

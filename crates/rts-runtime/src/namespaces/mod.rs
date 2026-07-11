@@ -77,6 +77,7 @@ pub use rts_node::timers as node_timers;
 pub use rts_node::tty as node_tty;
 pub use rts_node::url as node_url;
 pub use rts_node::util as node_util;
+pub use rts_node::v8 as node_v8;
 pub use rts_node::zlib as node_zlib;
 pub use rts_std::os;
 pub use rts_shared::path;
