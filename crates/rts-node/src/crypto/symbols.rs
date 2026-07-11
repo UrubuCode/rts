@@ -79,7 +79,12 @@ fn hash_oneshot(name: &str, data: u64, enc: &str) -> u64 {
 /// `crypto.randomBytes(size)`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_CRYPTO_RANDOM_BYTES(size: i64) -> u64 {
-    random::random_bytes(size.max(0) as usize)
+    if size < 0 {
+        let msg = "The value of \"size\" is out of range. It must be >= 0";
+        unsafe { __rtsadp_throw_js_error(b"RangeError".as_ptr(), 10, msg.as_ptr(), msg.len() as i64) };
+        return random::random_bytes(0);
+    }
+    random::random_bytes(size as usize)
 }
 
 /// `crypto.randomUUID()`.
