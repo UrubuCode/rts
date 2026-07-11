@@ -51,9 +51,20 @@ fn f(name: &str, symbol: &str, args: Vec<AbiType>, ret: AbiType, ts: &str, fp: *
 
 /// Registers the `node:util` surface.
 pub fn register(e: &mut Engine) {
+    register_named(e, "node:util");
+}
+
+/// Registers `node:sys` — the deprecated exact alias of `node:util` (Node's
+/// `sys` module is literally `module.exports = require('util')`), so it gets the
+/// identical member set.
+pub fn register_sys(e: &mut Engine) {
+    register_named(e, "node:sys");
+}
+
+fn register_named(e: &mut Engine, ns_name: &str) {
     use symbols as s;
-    let mut ns = e.ns("node:util").doc(
-        "Utilities (node:util): format/formatWithOptions, isDeepStrictEqual, \
+    let mut ns = e.ns(ns_name).doc(
+        "Utilities: format/formatWithOptions, isDeepStrictEqual, \
          stripVTControlCharacters, toUSVString, getSystemErrorName, styleText.",
     );
 
