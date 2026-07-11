@@ -142,6 +142,18 @@ pub extern "C" fn __RTS_FN_NODE_FS_APPEND_FILE(p: *const u8, l: i64, data: u64) 
     }
 }
 
+/// `fs.appendFileSync(path, data, encoding)` — decode then append.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_APPEND_FILE_ENC(p: *const u8, l: i64, dp: *const u8, dl: i64, ep: *const u8, el: i64) {
+    use std::io::Write;
+    let path = read(p, l);
+    let bytes = decode_bytes(&read(dp, dl), &read(ep, el));
+    let r = std::fs::OpenOptions::new().create(true).append(true).open(&path).and_then(|mut f| f.write_all(&bytes));
+    if let Err(e) = r {
+        throw_io(&e, "open", &path);
+    }
+}
+
 /// `fs.existsSync(path)`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_FS_EXISTS(p: *const u8, l: i64) -> i64 {

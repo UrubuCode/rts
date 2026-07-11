@@ -91,6 +91,7 @@ pub fn register(e: &mut Engine) {
         .member(func("writeFileSync", vec![StrPtr, Handle], Void, "__RTS_FN_NODE_FS_WRITE_FILE", "writeFileSync(path: string, data: object): void", s::__RTS_FN_NODE_FS_WRITE_FILE as *const u8))
         .member(func("writeFileSync", vec![StrPtr, StrPtr, StrPtr], Void, "__RTS_FN_NODE_FS_WRITE_FILE_ENC", "writeFileSync(path: string, data: string, encoding: string): void", s::__RTS_FN_NODE_FS_WRITE_FILE_ENC as *const u8))
         .member(func("appendFileSync", vec![StrPtr, Handle], Void, "__RTS_FN_NODE_FS_APPEND_FILE", "appendFileSync(path: string, data: object): void", s::__RTS_FN_NODE_FS_APPEND_FILE as *const u8))
+        .member(func("appendFileSync", vec![StrPtr, StrPtr, StrPtr], Void, "__RTS_FN_NODE_FS_APPEND_FILE_ENC", "appendFileSync(path: string, data: string, encoding: string): void", s::__RTS_FN_NODE_FS_APPEND_FILE_ENC as *const u8))
         .member(func("existsSync", vec![StrPtr], Bool, "__RTS_FN_NODE_FS_EXISTS", "existsSync(path: string): boolean", s::__RTS_FN_NODE_FS_EXISTS as *const u8))
         .member(func("accessSync", vec![StrPtr], Void, "__RTS_FN_NODE_FS_ACCESS", "accessSync(path: string): void", s::__RTS_FN_NODE_FS_ACCESS as *const u8))
         .member(func("mkdirSync", vec![StrPtr], Void, "__RTS_FN_NODE_FS_MKDIR", "mkdirSync(path: string): void", s::__RTS_FN_NODE_FS_MKDIR as *const u8))
