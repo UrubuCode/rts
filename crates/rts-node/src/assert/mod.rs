@@ -14,7 +14,7 @@
 //! `symbols` (extern entry points), `mod` (registration).
 
 mod symbols;
-mod words;
+pub(crate) mod words;
 
 use rts_engine::AbiType::{PolyValue, StrPtr, Void};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
