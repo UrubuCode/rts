@@ -104,6 +104,7 @@ pub fn register(e: &mut Engine) {
         .member(func("truncateSync", vec![StrPtr, I64], Void, "__RTS_FN_NODE_FS_TRUNCATE", "truncateSync(path: string, len: number): void", s::__RTS_FN_NODE_FS_TRUNCATE as *const u8))
         .member(func("chmodSync", vec![StrPtr, I64], Void, "__RTS_FN_NODE_FS_CHMOD", "chmodSync(path: string, mode: number): void", s::__RTS_FN_NODE_FS_CHMOD as *const u8))
         .member(func("linkSync", vec![StrPtr, StrPtr], Void, "__RTS_FN_NODE_FS_LINK", "linkSync(existingPath: string, newPath: string): void", s::__RTS_FN_NODE_FS_LINK as *const u8))
+        .member(func("utimesSync", vec![StrPtr, F64, F64], Void, "__RTS_FN_NODE_FS_UTIMES", "utimesSync(path: string, atime: number, mtime: number): void", s::__RTS_FN_NODE_FS_UTIMES as *const u8))
         .member(func("readdirSync", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_READDIR", "readdirSync(path: string): string[]", s::__RTS_FN_NODE_FS_READDIR as *const u8))
         .member(func("realpathSync", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_REALPATH", "realpathSync(path: string): string", s::__RTS_FN_NODE_FS_REALPATH as *const u8))
         .member(func("mkdtempSync", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_MKDTEMP", "mkdtempSync(prefix: string): string", s::__RTS_FN_NODE_FS_MKDTEMP as *const u8))

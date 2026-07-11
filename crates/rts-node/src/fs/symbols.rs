@@ -190,6 +190,27 @@ pub extern "C" fn __RTS_FN_NODE_FS_COPY_FILE(sp: *const u8, sl: i64, dp: *const 
     }
 }
 
+/// `fs.utimesSync(path, atime, mtime)` — set the access/modify times (seconds
+/// since the Unix epoch; fractional allowed).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_UTIMES(p: *const u8, l: i64, atime: f64, mtime: f64) {
+    let path = read(p, l);
+    let to_time = |secs: f64| -> std::time::SystemTime {
+        if secs >= 0.0 {
+            std::time::UNIX_EPOCH + std::time::Duration::from_secs_f64(secs)
+        } else {
+            std::time::UNIX_EPOCH - std::time::Duration::from_secs_f64(-secs)
+        }
+    };
+    let r = (|| -> std::io::Result<()> {
+        let times = std::fs::FileTimes::new().set_accessed(to_time(atime)).set_modified(to_time(mtime));
+        std::fs::OpenOptions::new().write(true).open(&path)?.set_times(times)
+    })();
+    if let Err(e) = r {
+        throw_io(&e, "utime", &path);
+    }
+}
+
 /// `fs.chmodSync(path, mode)`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_FS_CHMOD(p: *const u8, l: i64, mode: i64) {
