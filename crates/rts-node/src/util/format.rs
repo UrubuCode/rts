@@ -54,7 +54,7 @@ pub fn format_opts(fmt: &str, args: &[u64], opts: u64) -> String {
                     'i' => out.push_str(&fmt_i(word_to_number(a))),
                     'f' => out.push_str(&fmt_f(word_to_number(a))),
                     'o' | 'O' => out.push_str(&inspect_opts(a, opts)),
-                    'j' => out.push_str(&word_to_string(a)),
+                    'j' => out.push_str(&crate::util::json::stringify(a)),
                     'c' => {} // CSS directive: consumes the arg, emits nothing.
                     _ => {}
                 }

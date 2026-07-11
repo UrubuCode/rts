@@ -14,6 +14,7 @@
 
 mod format;
 mod inspect;
+mod json;
 mod parseargs;
 mod symbols;
 mod words;
