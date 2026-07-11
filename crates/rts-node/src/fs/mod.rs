@@ -113,6 +113,7 @@ pub fn register(e: &mut Engine) {
         .member(func("statSync", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_STAT", "statSync(path: string): Stats", s::__RTS_FN_NODE_FS_STAT as *const u8))
         .member(func("lstatSync", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_LSTAT", "lstatSync(path: string): Stats", s::__RTS_FN_NODE_FS_LSTAT as *const u8))
         .member(func("statfsSync", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_STATFS", "statfsSync(path: string): object", statfs::__RTS_FN_NODE_FS_STATFS as *const u8))
+        .member(m("constants", MemberKind::Constant, vec![], Handle, "__RTS_FN_NODE_FS_CONSTANTS", "constants: object", s::__RTS_FN_NODE_FS_CONSTANTS as *const u8))
         // The file-descriptor family (open File table in fd.rs).
         .member(func("openSync", vec![StrPtr, StrPtr], I64, "__RTS_FN_NODE_FS_OPEN", "openSync(path: string, flags: string): number", fd::__RTS_FN_NODE_FS_OPEN as *const u8))
         .member(func("closeSync", vec![I64], Void, "__RTS_FN_NODE_FS_CLOSE", "closeSync(fd: number): void", fd::__RTS_FN_NODE_FS_CLOSE as *const u8))

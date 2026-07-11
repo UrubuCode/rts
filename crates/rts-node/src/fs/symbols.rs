@@ -4,6 +4,17 @@
 use super::stats;
 use super::words::{byte_array, intern, opt_bool, read, read_bytes, string_array, throw_io};
 
+/// `fs.constants` — the libuv access-mode + copyfile flags. Field-accessible
+/// object (`fs.constants.F_OK`), real values (identical across platforms).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_CONSTANTS() -> u64 {
+    let num = |v: f64| v.to_bits() as i64;
+    rts_engine::heap::shapes::alloc_shaped_object(
+        &["F_OK", "R_OK", "W_OK", "X_OK", "COPYFILE_EXCL", "COPYFILE_FICLONE", "COPYFILE_FICLONE_FORCE"],
+        &[num(0.0), num(4.0), num(2.0), num(1.0), num(1.0), num(2.0), num(4.0)],
+    )
+}
+
 /// `fs.readFileSync(path)` → Buffer (Uint8Array-shaped).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_FS_READ_FILE(p: *const u8, l: i64) -> u64 {
