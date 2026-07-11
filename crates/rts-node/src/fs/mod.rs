@@ -99,6 +99,8 @@ pub fn register(e: &mut Engine) {
         .member(func("unlinkSync", vec![StrPtr], Void, "__RTS_FN_NODE_FS_UNLINK", "unlinkSync(path: string): void", s::__RTS_FN_NODE_FS_UNLINK as *const u8))
         .member(func("renameSync", vec![StrPtr, StrPtr], Void, "__RTS_FN_NODE_FS_RENAME", "renameSync(oldPath: string, newPath: string): void", s::__RTS_FN_NODE_FS_RENAME as *const u8))
         .member(func("copyFileSync", vec![StrPtr, StrPtr], Void, "__RTS_FN_NODE_FS_COPY_FILE", "copyFileSync(src: string, dest: string): void", s::__RTS_FN_NODE_FS_COPY_FILE as *const u8))
+        .member(func("cpSync", vec![StrPtr, StrPtr], Void, "__RTS_FN_NODE_FS_CP", "cpSync(src: string, dest: string): void", s::__RTS_FN_NODE_FS_CP as *const u8))
+        .member(func("cpSync", vec![StrPtr, StrPtr, Handle], Void, "__RTS_FN_NODE_FS_CP_OPTS", "cpSync(src: string, dest: string, options: object): void", s::__RTS_FN_NODE_FS_CP_OPTS as *const u8))
         .member(func("truncateSync", vec![StrPtr, I64], Void, "__RTS_FN_NODE_FS_TRUNCATE", "truncateSync(path: string, len: number): void", s::__RTS_FN_NODE_FS_TRUNCATE as *const u8))
         .member(func("readdirSync", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_READDIR", "readdirSync(path: string): string[]", s::__RTS_FN_NODE_FS_READDIR as *const u8))
         .member(func("realpathSync", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_REALPATH", "realpathSync(path: string): string", s::__RTS_FN_NODE_FS_REALPATH as *const u8))

@@ -141,6 +141,46 @@ pub extern "C" fn __RTS_FN_NODE_FS_RENAME(op: *const u8, ol: i64, np: *const u8,
     }
 }
 
+/// `fs.cpSync(src, dest)` — copy a single file (a directory needs the recursive
+/// options form).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_CP(sp: *const u8, sl: i64, dp: *const u8, dl: i64) {
+    let (src, dest) = (read(sp, sl), read(dp, dl));
+    if let Err(e) = cp_impl(std::path::Path::new(&src), std::path::Path::new(&dest), false) {
+        throw_io(&e, "cp", &src);
+    }
+}
+
+/// `fs.cpSync(src, dest, options)` — recursive tree copy when `options.recursive`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_CP_OPTS(sp: *const u8, sl: i64, dp: *const u8, dl: i64, options: u64) {
+    let (src, dest) = (read(sp, sl), read(dp, dl));
+    let recursive = opt_bool(options, "recursive");
+    if let Err(e) = cp_impl(std::path::Path::new(&src), std::path::Path::new(&dest), recursive) {
+        throw_io(&e, "cp", &src);
+    }
+}
+
+fn cp_impl(src: &std::path::Path, dest: &std::path::Path, recursive: bool) -> std::io::Result<()> {
+    let meta = std::fs::symlink_metadata(src)?;
+    if meta.is_dir() {
+        if !recursive {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "cannot copy a directory without recursive:true"));
+        }
+        std::fs::create_dir_all(dest)?;
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            cp_impl(&entry.path(), &dest.join(entry.file_name()), true)?;
+        }
+        Ok(())
+    } else {
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::copy(src, dest).map(|_| ())
+    }
+}
+
 /// `fs.copyFileSync(src, dest)`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_FS_COPY_FILE(sp: *const u8, sl: i64, dp: *const u8, dl: i64) {
