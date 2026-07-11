@@ -17,6 +17,8 @@ pub enum Algo {
     Sha3_256,
     Sha3_384,
     Sha3_512,
+    Blake2b512,
+    Blake2s256,
 }
 
 impl Algo {
@@ -32,6 +34,8 @@ impl Algo {
             "sha3-256" => Some(Algo::Sha3_256),
             "sha3-384" => Some(Algo::Sha3_384),
             "sha3-512" => Some(Algo::Sha3_512),
+            "blake2b512" => Some(Algo::Blake2b512),
+            "blake2s256" => Some(Algo::Blake2s256),
             _ => None,
         }
     }
@@ -47,6 +51,8 @@ impl Algo {
             Algo::Sha3_256 => 6,
             Algo::Sha3_384 => 7,
             Algo::Sha3_512 => 8,
+            Algo::Blake2b512 => 9,
+            Algo::Blake2s256 => 10,
         }
     }
 
@@ -60,6 +66,8 @@ impl Algo {
             6 => Algo::Sha3_256,
             7 => Algo::Sha3_384,
             8 => Algo::Sha3_512,
+            9 => Algo::Blake2b512,
+            10 => Algo::Blake2s256,
             _ => Algo::Sha256,
         }
     }
@@ -76,6 +84,8 @@ impl Algo {
             Algo::Sha3_256 => Box::new(sha3::Sha3_256::default()),
             Algo::Sha3_384 => Box::new(sha3::Sha3_384::default()),
             Algo::Sha3_512 => Box::new(sha3::Sha3_512::default()),
+            Algo::Blake2b512 => Box::new(blake2::Blake2b512::default()),
+            Algo::Blake2s256 => Box::new(blake2::Blake2s256::default()),
         }
     }
 
@@ -88,6 +98,8 @@ impl Algo {
             Algo::Sha3_256 => 136,
             Algo::Sha3_384 => 104,
             Algo::Sha3_512 => 72,
+            Algo::Blake2b512 => 128,
+            Algo::Blake2s256 => 64,
             _ => 64,
         }
     }
@@ -185,7 +197,7 @@ pub fn hkdf(algo: Algo, ikm: &[u8], salt: &[u8], info: &[u8], keylen: usize) -> 
 
 /// `crypto.getHashes()` entries.
 pub fn hashes() -> &'static [&'static str] {
-    &["md5", "sha1", "sha224", "sha256", "sha384", "sha512", "sha3-256", "sha3-384", "sha3-512"]
+    &["md5", "sha1", "sha224", "sha256", "sha384", "sha512", "sha3-256", "sha3-384", "sha3-512", "blake2b512", "blake2s256"]
 }
 
 /// Encode digest bytes per a Node encoding name (`hex`/`base64`/`base64url`/
