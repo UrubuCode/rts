@@ -137,6 +137,33 @@ pub fn scrypt(password: &[u8], salt: &[u8], n: u32, r: u32, p: u32, keylen: usiz
     Ok(out)
 }
 
+/// HKDF (RFC 5869) with `HMAC-<algo>`: extract a pseudorandom key from `ikm`/
+/// `salt`, then expand to `keylen` bytes with `info`. Built on `hmac_bytes`.
+/// `Err` if `keylen` exceeds `255 * hashlen`.
+pub fn hkdf(algo: Algo, ikm: &[u8], salt: &[u8], info: &[u8], keylen: usize) -> Result<Vec<u8>, String> {
+    let hlen = hash_bytes(algo, &[]).len();
+    if keylen > 255 * hlen {
+        return Err("Invalid key length".into());
+    }
+    // Extract: PRK = HMAC(salt, IKM). An empty salt is a string of HashLen zeros.
+    let salt = if salt.is_empty() { vec![0u8; hlen] } else { salt.to_vec() };
+    let prk = hmac_bytes(algo, &salt, ikm);
+    // Expand.
+    let mut okm = Vec::with_capacity(keylen);
+    let mut t: Vec<u8> = Vec::new();
+    let mut counter = 1u8;
+    while okm.len() < keylen {
+        let mut input = t.clone();
+        input.extend_from_slice(info);
+        input.push(counter);
+        t = hmac_bytes(algo, &prk, &input);
+        okm.extend_from_slice(&t);
+        counter = counter.wrapping_add(1);
+    }
+    okm.truncate(keylen);
+    Ok(okm)
+}
+
 /// `crypto.getHashes()` entries.
 pub fn hashes() -> &'static [&'static str] {
     &["md5", "sha1", "sha224", "sha256", "sha384", "sha512"]

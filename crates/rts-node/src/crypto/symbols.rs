@@ -157,6 +157,25 @@ fn scrypt_impl(password: u64, salt: u64, keylen: i64, n: u32, r: u32, p: u32) ->
     }
 }
 
+/// `crypto.hkdfSync(digest, ikm, salt, info, keylen)` → derived-key bytes.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_CRYPTO_HKDF(dp: *const u8, dl: i64, ikm: u64, salt: u64, info: u64, keylen: i64) -> u64 {
+    let name = read(dp, dl);
+    match Algo::parse(&name) {
+        Some(a) => match algo::hkdf(a, &read_bytes(ikm), &read_bytes(salt), &read_bytes(info), keylen.max(0) as usize) {
+            Ok(dk) => byte_array(&dk),
+            Err(e) => {
+                unsafe { __rtsadp_throw_js_error(b"Error".as_ptr(), 5, e.as_ptr(), e.len() as i64) };
+                byte_array(&[])
+            }
+        },
+        None => {
+            throw_unknown_algo(&name);
+            byte_array(&[])
+        }
+    }
+}
+
 /// `crypto.getHashes()`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_CRYPTO_GET_HASHES() -> u64 {
