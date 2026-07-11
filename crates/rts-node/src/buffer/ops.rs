@@ -143,6 +143,18 @@ pub extern "C" fn __RTS_FN_NODE_BUFFER_IS_BUFFER(word: u64) -> i64 {
     with_entry(h, |e| matches!(e, Some(Entry::Buffer(_)) | Some(Entry::Vec(_)))) as i64
 }
 
+/// `Buffer.isEncoding(encoding)` — whether `encoding` names a Buffer encoding.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_BUFFER_IS_ENCODING(p: *const u8, l: i64) -> i64 {
+    let enc = read(p, l).to_lowercase();
+    let ok = matches!(
+        enc.as_str(),
+        "utf8" | "utf-8" | "hex" | "base64" | "base64url" | "latin1" | "binary"
+            | "ascii" | "ucs2" | "ucs-2" | "utf16le" | "utf-16le"
+    );
+    ok as i64
+}
+
 /// `Buffer.byteLength(string)` — UTF-8 byte count.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_BUFFER_BYTE_LENGTH(p: *const u8, l: i64) -> i64 {
