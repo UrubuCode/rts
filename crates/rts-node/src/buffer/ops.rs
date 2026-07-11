@@ -137,6 +137,7 @@ pub extern "C" fn __RTS_FN_NODE_BUFFER_FROM_ENC(p: *const u8, l: i64, ep: *const
             .collect(),
         "base64" | "base64url" => base64_decode(&s),
         "latin1" | "binary" => s.chars().map(|c| c as u8).collect(),
+        "utf16le" | "utf-16le" | "ucs2" | "ucs-2" => s.encode_utf16().flat_map(|u| u.to_le_bytes()).collect(),
         _ => s.into_bytes(),
     };
     byte_array(&bytes)
