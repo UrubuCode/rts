@@ -32,6 +32,12 @@ fn member(name: &str, kind: MemberKind, args: Vec<AbiType>, ret: AbiType, symbol
     }
 }
 
+/// Flag a member `THROWS` so its RangeError routes to an enclosing try/catch.
+fn throwing(mut m: Member) -> Member {
+    m.flags = MemberFlags::THROWS;
+    m
+}
+
 /// Registers the `Buffer` class (statics) + the `node:buffer` module.
 pub fn register(e: &mut Engine) {
     use ops as s;
@@ -39,9 +45,9 @@ pub fn register(e: &mut Engine) {
 
     e.class("Buffer")
         .doc("Buffer — byte container (node:buffer). Static constructors + helpers.")
-        .member(member("alloc", StaticMethod, vec![I64], Handle, "__RTS_FN_NODE_BUFFER_ALLOC", "alloc(size: number): number[]", s::__RTS_FN_NODE_BUFFER_ALLOC as *const u8))
-        .member(member("alloc", StaticMethod, vec![I64, I64], Handle, "__RTS_FN_NODE_BUFFER_ALLOC_FILL", "alloc(size: number, fill: number): number[]", s::__RTS_FN_NODE_BUFFER_ALLOC_FILL as *const u8))
-        .member(member("allocUnsafe", StaticMethod, vec![I64], Handle, "__RTS_FN_NODE_BUFFER_ALLOC", "allocUnsafe(size: number): number[]", s::__RTS_FN_NODE_BUFFER_ALLOC as *const u8))
+        .member(throwing(member("alloc", StaticMethod, vec![I64], Handle, "__RTS_FN_NODE_BUFFER_ALLOC", "alloc(size: number): number[]", s::__RTS_FN_NODE_BUFFER_ALLOC as *const u8)))
+        .member(throwing(member("alloc", StaticMethod, vec![I64, I64], Handle, "__RTS_FN_NODE_BUFFER_ALLOC_FILL", "alloc(size: number, fill: number): number[]", s::__RTS_FN_NODE_BUFFER_ALLOC_FILL as *const u8)))
+        .member(throwing(member("allocUnsafe", StaticMethod, vec![I64], Handle, "__RTS_FN_NODE_BUFFER_ALLOC", "allocUnsafe(size: number): number[]", s::__RTS_FN_NODE_BUFFER_ALLOC as *const u8)))
         .member(member("from", StaticMethod, vec![StrPtr], Handle, "__RTS_FN_NODE_BUFFER_FROM", "from(string: string): number[]", s::__RTS_FN_NODE_BUFFER_FROM as *const u8))
         .member(member("from", StaticMethod, vec![StrPtr, StrPtr], Handle, "__RTS_FN_NODE_BUFFER_FROM_ENC", "from(string: string, encoding: string): number[]", s::__RTS_FN_NODE_BUFFER_FROM_ENC as *const u8))
         .member(member("isBuffer", StaticMethod, vec![Handle], Bool, "__RTS_FN_NODE_BUFFER_IS_BUFFER", "isBuffer(obj: object): boolean", s::__RTS_FN_NODE_BUFFER_IS_BUFFER as *const u8))

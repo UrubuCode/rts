@@ -9,6 +9,17 @@ use rts_engine::heap::poly::{poly_handle_normalize, POLY_BOX_BASE, POLY_PAYLOAD_
 
 unsafe extern "C" {
     fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
+    fn __rtsadp_throw_js_error(kp: *const u8, kl: i64, mp: *const u8, ml: i64);
+}
+
+/// Throw a RangeError for an invalid Buffer size; returns the clamped usize.
+fn checked_size(size: i64) -> usize {
+    if size < 0 {
+        let msg = "The value of \"size\" is out of range. It must be >= 0";
+        unsafe { __rtsadp_throw_js_error(b"RangeError".as_ptr(), 10, msg.as_ptr(), msg.len() as i64) };
+        return 0;
+    }
+    size as usize
 }
 
 fn read(ptr: *const u8, len: i64) -> String {
@@ -112,13 +123,13 @@ pub extern "C" fn __RTS_FN_NODE_BUFFER_ATOB(p: *const u8, l: i64) -> u64 {
 /// `Buffer.alloc(size)` / `Buffer.allocUnsafe(size)` — a zeroed byte array.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_BUFFER_ALLOC(size: i64) -> u64 {
-    byte_array(&vec![0u8; size.max(0) as usize])
+    byte_array(&vec![0u8; checked_size(size)])
 }
 
 /// `Buffer.alloc(size, fill)` — `size` bytes all set to `fill` (a byte 0..255).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_BUFFER_ALLOC_FILL(size: i64, fill: i64) -> u64 {
-    byte_array(&vec![fill as u8; size.max(0) as usize])
+    byte_array(&vec![fill as u8; checked_size(size)])
 }
 
 /// `Buffer.from(string)` — UTF-8 bytes.
