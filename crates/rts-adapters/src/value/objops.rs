@@ -258,7 +258,18 @@ pub extern "C" fn __rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
                         if let Ok(i) = i32::try_from(x) {
                             PolyValue::from_i32(i).raw()
                         } else if w >= (1u64 << 48) {
-                            super::genops::__rtsadp_box_handle_auto(w)
+                            // Ambiguous: a real heap handle OR the raw bits of a
+                            // stored f64 (object-backed numeric fields — Stats.size,
+                            // mtimeMs — store `f64::to_bits`, which is `>= 1<<48`).
+                            // Disambiguate by LIVENESS: a genuine handle decodes to a
+                            // live table entry; an f64-bits word does not — so box the
+                            // handle only when it is live, else read it as the double.
+                            let live = rt_handles::with_entry(w, |e| e.is_some());
+                            if live {
+                                super::genops::__rtsadp_box_handle_auto(w)
+                            } else {
+                                PolyValue::from_f64(f64::from_bits(w)).raw()
+                            }
                         } else {
                             PolyValue::from_f64(x as f64).raw()
                         }

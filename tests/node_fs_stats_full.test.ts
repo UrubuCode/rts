@@ -44,6 +44,7 @@ const uid = fst.uid;
 const arr = [statSync(file)];
 const us = arr[0];
 const uIsFile = us.isFile();
+const uSize = us.size;
 
 rmSync(dir, { recursive: true, force: true });
 
@@ -68,4 +69,5 @@ describe("node:fs Stats full surface", () => {
   test("blksize is a non-negative number", () => { expect(blksize >= 0).toBe(true); });
   test("uid is a number", () => { expect(typeof uid).toBe("number"); });
   test("untracked receiver isFile dispatches", () => { expect(uIsFile).toBe(true); });
+  test("untracked receiver numeric getter (size) reads", () => { expect(uSize).toBe(6); });
 });

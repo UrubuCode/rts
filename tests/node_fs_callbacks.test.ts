@@ -26,12 +26,10 @@ let writeOk = false;
 writeFile(file2, "written!", (err) => { writeOk = err === null; });
 const wroteText = existsSync(file2) ? "exists" : "missing";
 
-// stat(path, callback) → callback(err, Stats). (Reading a NUMERIC property off an
-// untracked Stats — st.size — hits a separate getter-dispatch gap, tracked apart;
-// the type predicates dispatch fine, proving the Stats was delivered.)
+// stat(path, callback) → callback(err, Stats)
 let statIsFile = false;
-let statIsDir = false;
-stat(file2, (err, st) => { statIsFile = st.isFile(); statIsDir = st.isDirectory(); });
+let statSize = -1;
+stat(file2, (err, st) => { statIsFile = st.isFile(); statSize = st.size; });
 
 // exists(path, callback) → callback(boolean)  [no err arg]
 let existsRes = false;
@@ -65,7 +63,7 @@ describe("node:fs callback forms", () => {
   });
   test("stat delivers a working Stats object", () => {
     expect(statIsFile).toBe(true);
-    expect(statIsDir).toBe(false);
+    expect(statSize).toBe(8); // "written!" = 8 bytes; numeric getter on untracked Stats
   });
   test("exists callback receives a boolean", () => {
     expect(existsRes).toBe(true);
