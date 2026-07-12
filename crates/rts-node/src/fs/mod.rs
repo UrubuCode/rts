@@ -36,6 +36,7 @@ mod dirent;
 mod fd;
 mod glob;
 mod meta;
+mod promises;
 mod statfs;
 mod stats;
 mod symbols;
@@ -197,5 +198,29 @@ pub fn register(e: &mut Engine) {
         .member(func("readdir", vec![StrPtr, PolyValue], Void, "__RTS_FN_NODE_FS_CB_READDIR", "readdir(path: string, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_READDIR as *const u8))
         .member(func("realpath", vec![StrPtr, PolyValue], Void, "__RTS_FN_NODE_FS_CB_REALPATH", "realpath(path: string, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_REALPATH as *const u8))
         .member(func("exists", vec![StrPtr, PolyValue], Void, "__RTS_FN_NODE_FS_CB_EXISTS", "exists(path: string, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_EXISTS as *const u8))
+        .done();
+
+    // node:fs/promises — the Promise-returning surface. Each returns an already-
+    // settled Promise (the work is synchronous, #207); `await` resolves at once.
+    use promises as pr;
+    e.ns("node:fs/promises")
+        .doc("Filesystem promises (node:fs/promises): readFile/writeFile/appendFile, mkdir/rmdir/rm/unlink, rename/copyFile/truncate/access, stat/lstat/readdir/realpath/readlink.")
+        .member(func("readFile", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_P_READ_FILE", "readFile(path: string): object", pr::__RTS_FN_NODE_FS_P_READ_FILE as *const u8))
+        .member(func("readFile", vec![StrPtr, StrPtr], Handle, "__RTS_FN_NODE_FS_P_READ_FILE_ENC", "readFile(path: string, encoding: string): object", pr::__RTS_FN_NODE_FS_P_READ_FILE_ENC as *const u8))
+        .member(func("writeFile", vec![StrPtr, Handle], Handle, "__RTS_FN_NODE_FS_P_WRITE_FILE", "writeFile(path: string, data: object): object", pr::__RTS_FN_NODE_FS_P_WRITE_FILE as *const u8))
+        .member(func("appendFile", vec![StrPtr, Handle], Handle, "__RTS_FN_NODE_FS_P_APPEND_FILE", "appendFile(path: string, data: object): object", pr::__RTS_FN_NODE_FS_P_APPEND_FILE as *const u8))
+        .member(func("mkdir", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_P_MKDIR", "mkdir(path: string): object", pr::__RTS_FN_NODE_FS_P_MKDIR as *const u8))
+        .member(func("unlink", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_P_UNLINK", "unlink(path: string): object", pr::__RTS_FN_NODE_FS_P_UNLINK as *const u8))
+        .member(func("rmdir", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_P_RMDIR", "rmdir(path: string): object", pr::__RTS_FN_NODE_FS_P_RMDIR as *const u8))
+        .member(func("rm", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_P_RM", "rm(path: string): object", pr::__RTS_FN_NODE_FS_P_RM as *const u8))
+        .member(func("rename", vec![StrPtr, StrPtr], Handle, "__RTS_FN_NODE_FS_P_RENAME", "rename(oldPath: string, newPath: string): object", pr::__RTS_FN_NODE_FS_P_RENAME as *const u8))
+        .member(func("copyFile", vec![StrPtr, StrPtr], Handle, "__RTS_FN_NODE_FS_P_COPY_FILE", "copyFile(src: string, dest: string): object", pr::__RTS_FN_NODE_FS_P_COPY_FILE as *const u8))
+        .member(func("access", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_P_ACCESS", "access(path: string): object", pr::__RTS_FN_NODE_FS_P_ACCESS as *const u8))
+        .member(func("truncate", vec![StrPtr, I64], Handle, "__RTS_FN_NODE_FS_P_TRUNCATE", "truncate(path: string, len: number): object", pr::__RTS_FN_NODE_FS_P_TRUNCATE as *const u8))
+        .member(func("stat", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_P_STAT", "stat(path: string): object", pr::__RTS_FN_NODE_FS_P_STAT as *const u8))
+        .member(func("lstat", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_P_LSTAT", "lstat(path: string): object", pr::__RTS_FN_NODE_FS_P_LSTAT as *const u8))
+        .member(func("readdir", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_P_READDIR", "readdir(path: string): object", pr::__RTS_FN_NODE_FS_P_READDIR as *const u8))
+        .member(func("realpath", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_P_REALPATH", "realpath(path: string): object", pr::__RTS_FN_NODE_FS_P_REALPATH as *const u8))
+        .member(func("readlink", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_P_READLINK", "readlink(path: string): object", pr::__RTS_FN_NODE_FS_P_READLINK as *const u8))
         .done();
 }

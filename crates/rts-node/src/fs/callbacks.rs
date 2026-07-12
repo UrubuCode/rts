@@ -19,12 +19,12 @@ unsafe extern "C" {
 }
 
 /// A boxed string PolyValue word for `s`.
-fn str_word(s: &str) -> u64 {
+pub(super) fn str_word(s: &str) -> u64 {
     string_word(s.as_bytes())
 }
 
 /// A Node-style error object `{ message, code }` (truthy → the `if (err)` path).
-fn err_object(e: &std::io::Error, op: &str, path: &str) -> u64 {
+pub(super) fn err_object(e: &std::io::Error, op: &str, path: &str) -> u64 {
     let code = err_code(e);
     let msg = format!("{code}: {e}, {op} '{path}'");
     let h = alloc_shaped_object(
