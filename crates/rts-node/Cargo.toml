@@ -31,6 +31,9 @@ blake2 = "0.10"
 ripemd = "0.1"
 # node:crypto.scryptSync — RFC 7914 scrypt KDF (RustCrypto, pure Rust, no C).
 scrypt = { version = "0.11", default-features = false }
+# node:fs.globSync — filesystem glob pattern matching (pure Rust, MIT/Apache-2.0,
+# no C). See docs/node-implementation/crates.md.
+glob = "0.3"
 
 # node:os — POSIX syscall surface (uname/gethostname/sysinfo/getloadavg/
 # getpriority/getpwuid_r/getifaddrs). libc is FFI-only, no C compile — permissive

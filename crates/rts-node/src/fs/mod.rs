@@ -33,6 +33,7 @@ mod codec;
 mod dir;
 mod dirent;
 mod fd;
+mod glob;
 mod meta;
 mod statfs;
 mod stats;
@@ -171,6 +172,7 @@ pub fn register(e: &mut Engine) {
         .member(func("lchownSync", vec![StrPtr, I64, I64], Void, "__RTS_FN_NODE_FS_LCHOWN", "lchownSync(path: string, uid: number, gid: number): void", meta::__RTS_FN_NODE_FS_LCHOWN as *const u8))
         .member(func("lchmodSync", vec![StrPtr, I64], Void, "__RTS_FN_NODE_FS_LCHMOD", "lchmodSync(path: string, mode: number): void", meta::__RTS_FN_NODE_FS_LCHMOD as *const u8))
         .member(func("opendirSync", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_OPENDIR", "opendirSync(path: string): Dir", dir::__RTS_FN_NODE_FS_OPENDIR as *const u8))
+        .member(func("globSync", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_GLOB", "globSync(pattern: string): string[]", glob::__RTS_FN_NODE_FS_GLOB as *const u8))
         .member(func("writevSync", vec![I64, Handle], I64, "__RTS_FN_NODE_FS_WRITEV2", "writevSync(fd: number, buffers: object[]): number", fd::__RTS_FN_NODE_FS_WRITEV2 as *const u8))
         .member(func("writevSync", vec![I64, Handle, I64], I64, "__RTS_FN_NODE_FS_WRITEV", "writevSync(fd: number, buffers: object[], position: number): number", fd::__RTS_FN_NODE_FS_WRITEV as *const u8))
         .member(func("readvSync", vec![I64, Handle], I64, "__RTS_FN_NODE_FS_READV2", "readvSync(fd: number, buffers: object[]): number", fd::__RTS_FN_NODE_FS_READV2 as *const u8))
