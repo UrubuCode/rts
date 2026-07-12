@@ -264,7 +264,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .iconst(types::I64, value::PAYLOAD_MASK as i64);
         let payload = self.builder.ins().band(payload48, mask);
         let header_v = self.builder.ins().iconst(types::I64, header);
-        self.builder.ins().bor(payload, header_v)
+        let obj = self.builder.ins().bor(payload, header_v);
+        // A `0` real handle is ABSENT → `null` (a nullable `): object` return such
+        // as `Dir.readSync()` at end-of-directory), never a bogus payload-0 object.
+        let is_absent = self.builder.ins().icmp_imm(
+            cranelift_codegen::ir::condcodes::IntCC::Equal,
+            real_handle,
+            0,
+        );
+        let null_w = self
+            .builder
+            .ins()
+            .iconst(types::I64, value::PolyValue::null().raw() as i64);
+        self.builder.ins().select(is_absent, null_w, obj)
     }
 
     /// Emit `lhs instanceof <class>` via the Registry's real `instanceof_predicate`
