@@ -32,6 +32,7 @@
 mod codec;
 mod dirent;
 mod fd;
+mod meta;
 mod statfs;
 mod stats;
 mod symbols;
@@ -153,5 +154,13 @@ pub fn register(e: &mut Engine) {
         .member(func("fstatSync", vec![I64], Handle, "__RTS_FN_NODE_FS_FSTAT", "fstatSync(fd: number): Stats", fd::__RTS_FN_NODE_FS_FSTAT as *const u8))
         .member(func("ftruncateSync", vec![I64, I64], Void, "__RTS_FN_NODE_FS_FTRUNCATE", "ftruncateSync(fd: number, len: number): void", fd::__RTS_FN_NODE_FS_FTRUNCATE as *const u8))
         .member(func("fsyncSync", vec![I64], Void, "__RTS_FN_NODE_FS_FSYNC", "fsyncSync(fd: number): void", fd::__RTS_FN_NODE_FS_FSYNC as *const u8))
+        .member(func("fdatasyncSync", vec![I64], Void, "__RTS_FN_NODE_FS_FDATASYNC", "fdatasyncSync(fd: number): void", fd::__RTS_FN_NODE_FS_FDATASYNC as *const u8))
+        .member(func("fchmodSync", vec![I64, I64], Void, "__RTS_FN_NODE_FS_FCHMOD", "fchmodSync(fd: number, mode: number): void", fd::__RTS_FN_NODE_FS_FCHMOD as *const u8))
+        .member(func("futimesSync", vec![I64, F64, F64], Void, "__RTS_FN_NODE_FS_FUTIMES", "futimesSync(fd: number, atime: number, mtime: number): void", fd::__RTS_FN_NODE_FS_FUTIMES as *const u8))
+        .member(func("fchownSync", vec![I64, I64, I64], Void, "__RTS_FN_NODE_FS_FCHOWN", "fchownSync(fd: number, uid: number, gid: number): void", fd::__RTS_FN_NODE_FS_FCHOWN as *const u8))
+        .member(func("symlinkSync", vec![StrPtr, StrPtr], Void, "__RTS_FN_NODE_FS_SYMLINK", "symlinkSync(target: string, path: string): void", meta::__RTS_FN_NODE_FS_SYMLINK as *const u8))
+        .member(func("chownSync", vec![StrPtr, I64, I64], Void, "__RTS_FN_NODE_FS_CHOWN", "chownSync(path: string, uid: number, gid: number): void", meta::__RTS_FN_NODE_FS_CHOWN as *const u8))
+        .member(func("lchownSync", vec![StrPtr, I64, I64], Void, "__RTS_FN_NODE_FS_LCHOWN", "lchownSync(path: string, uid: number, gid: number): void", meta::__RTS_FN_NODE_FS_LCHOWN as *const u8))
+        .member(func("lchmodSync", vec![StrPtr, I64], Void, "__RTS_FN_NODE_FS_LCHMOD", "lchmodSync(path: string, mode: number): void", meta::__RTS_FN_NODE_FS_LCHMOD as *const u8))
         .done();
 }

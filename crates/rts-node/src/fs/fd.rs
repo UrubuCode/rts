@@ -130,3 +130,60 @@ pub extern "C" fn __RTS_FN_NODE_FS_FTRUNCATE(fd: i64, len: i64) {
 pub extern "C" fn __RTS_FN_NODE_FS_FSYNC(fd: i64) {
     with_fd(fd as u64, |f| f.sync_all().ok());
 }
+
+/// `fs.fdatasyncSync(fd)` — flush file DATA (not necessarily metadata).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_FDATASYNC(fd: i64) {
+    with_fd(fd as u64, |f| f.sync_data().ok());
+}
+
+/// `fs.fchmodSync(fd, mode)` — set the open file's permission bits.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_FCHMOD(fd: i64, mode: i64) {
+    with_fd(fd as u64, |f| {
+        let Ok(md) = f.metadata() else { return };
+        let mut perms = md.permissions();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            perms.set_mode(mode as u32);
+        }
+        #[cfg(not(unix))]
+        {
+            perms.set_readonly(mode & 0o200 == 0);
+        }
+        f.set_permissions(perms).ok();
+    });
+}
+
+/// `fs.futimesSync(fd, atime, mtime)` — set the open file's access/modify times
+/// (seconds since the epoch).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_FUTIMES(fd: i64, atime: f64, mtime: f64) {
+    let to_time = |secs: f64| -> std::time::SystemTime {
+        if secs >= 0.0 {
+            std::time::UNIX_EPOCH + std::time::Duration::from_secs_f64(secs)
+        } else {
+            std::time::UNIX_EPOCH - std::time::Duration::from_secs_f64(-secs)
+        }
+    };
+    let times = std::fs::FileTimes::new().set_accessed(to_time(atime)).set_modified(to_time(mtime));
+    with_fd(fd as u64, |f| f.set_times(times).ok());
+}
+
+/// `fs.fchownSync(fd, uid, gid)` — change the open file's ownership. Unix-only
+/// effect (via `libc::fchown` on the real OS fd); a no-op on Windows, matching
+/// Node's own platform behavior.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_FCHOWN(fd: i64, uid: i64, gid: i64) {
+    #[cfg(unix)]
+    with_fd(fd as u64, |f| {
+        use std::os::unix::io::AsRawFd;
+        let r = unsafe { libc::fchown(f.as_raw_fd(), uid as libc::uid_t, gid as libc::gid_t) };
+        if r != 0 {
+            throw_io(&std::io::Error::last_os_error(), "fchown", "");
+        }
+    });
+    #[cfg(not(unix))]
+    let _ = (fd, uid, gid);
+}
