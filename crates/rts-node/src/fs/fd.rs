@@ -11,7 +11,8 @@ use std::sync::{Mutex, OnceLock};
 
 use super::stats;
 use super::words::{read, read_bytes, throw_io};
-use rts_engine::heap::handles::{with_entry_mut, Entry};
+use rts_engine::heap::handles::{with_entry, with_entry_mut, Entry};
+use rts_engine::heap::poly::poly_handle_normalize;
 
 fn table() -> &'static Mutex<HashMap<u64, File>> {
     static T: OnceLock<Mutex<HashMap<u64, File>>> = OnceLock::new();
@@ -108,6 +109,100 @@ pub extern "C" fn __RTS_FN_NODE_FS_WRITE(fd: i64, buffer: u64, offset: i64, leng
         f.write(slice).unwrap_or(0)
     })
     .unwrap_or(0) as i64
+}
+
+/// The inner buffer handles of an array-of-buffers argument (each element word
+/// normalized to a raw handle).
+fn buffer_handles(buffers: u64) -> Vec<u64> {
+    with_entry(buffers, |e| match e {
+        Some(Entry::Vec(v)) => v.iter().map(|&w| poly_handle_normalize(w as u64).unwrap_or(w as u64)).collect(),
+        _ => Vec::new(),
+    })
+}
+
+/// The element count of a `Uint8Array`-shaped `Entry::Vec`.
+fn vec_len(handle: u64) -> usize {
+    with_entry(handle, |e| match e {
+        Some(Entry::Vec(v)) => v.len(),
+        _ => 0,
+    })
+}
+
+/// Copy `bytes` into the `Uint8Array`-shaped `Entry::Vec` at `handle` from index 0.
+fn fill_vec(handle: u64, bytes: &[u8]) {
+    with_entry_mut(handle, |e| {
+        if let Some(Entry::Vec(v)) = e {
+            for (i, &b) in bytes.iter().enumerate() {
+                if i < v.len() {
+                    v[i] = f64::from(b).to_bits() as i64;
+                }
+            }
+        }
+    });
+}
+
+/// `fs.writevSync(fd, buffers, position)` → total bytes written. Writes each
+/// buffer in order (equivalent to a single concatenated write for a regular
+/// file). `position < 0` writes at the current position.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_WRITEV(fd: i64, buffers: u64, position: i64) -> i64 {
+    let mut all = Vec::new();
+    for h in buffer_handles(buffers) {
+        all.extend(read_bytes(h));
+    }
+    with_fd(fd as u64, |f| {
+        if position >= 0 {
+            let _ = f.seek(SeekFrom::Start(position as u64));
+        }
+        f.write(&all).unwrap_or(0)
+    })
+    .unwrap_or(0) as i64
+}
+
+/// `fs.writevSync(fd, buffers)` — the position-less overload (write at the
+/// current file position).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_WRITEV2(fd: i64, buffers: u64) -> i64 {
+    __RTS_FN_NODE_FS_WRITEV(fd, buffers, -1)
+}
+
+/// `fs.readvSync(fd, buffers, position)` → total bytes read, filling each buffer
+/// in order until one is short (EOF). Capacities are read before the fd lock and
+/// the buffers filled after it, so the fd and heap locks never nest.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_READV(fd: i64, buffers: u64, position: i64) -> i64 {
+    let handles = buffer_handles(buffers);
+    let caps: Vec<usize> = handles.iter().map(|&h| vec_len(h)).collect();
+    let chunks: Vec<Vec<u8>> = with_fd(fd as u64, |f| {
+        if position >= 0 {
+            let _ = f.seek(SeekFrom::Start(position as u64));
+        }
+        let mut out = Vec::new();
+        for &cap in &caps {
+            let mut tmp = vec![0u8; cap];
+            let n = f.read(&mut tmp).unwrap_or(0);
+            let eof = n < cap;
+            tmp.truncate(n);
+            out.push(tmp);
+            if eof {
+                break;
+            }
+        }
+        out
+    })
+    .unwrap_or_default();
+    let mut total = 0usize;
+    for (h, chunk) in handles.iter().zip(&chunks) {
+        fill_vec(*h, chunk);
+        total += chunk.len();
+    }
+    total as i64
+}
+
+/// `fs.readvSync(fd, buffers)` — the position-less overload.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_READV2(fd: i64, buffers: u64) -> i64 {
+    __RTS_FN_NODE_FS_READV(fd, buffers, -1)
 }
 
 /// `fs.fstatSync(fd)` → Stats.

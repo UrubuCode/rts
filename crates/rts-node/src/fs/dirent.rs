@@ -72,27 +72,31 @@ fn field(handle: u64, key: &str) -> u64 {
     })
 }
 
+/// Build the `Dirent` handle words for every entry of `path` (shared by
+/// `readdirSync(withFileTypes)` and `opendirSync`). Raises the IO error and
+/// returns an empty list on failure.
+pub(super) fn entries_of(path: &str) -> Vec<i64> {
+    match std::fs::read_dir(path) {
+        Ok(rd) => rd
+            .filter_map(|e| e.ok())
+            .map(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                let ft = e.file_type().map(ftype_of).unwrap_or(0);
+                build(&name, path, ft) as i64
+            })
+            .collect(),
+        Err(e) => {
+            throw_io(&e, "scandir", path);
+            Vec::new()
+        }
+    }
+}
+
 /// `fs.readdirSync(path, { withFileTypes: true })` → `Dirent[]`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_FS_READDIR_TYPES(p: *const u8, l: i64) -> u64 {
     let path = read(p, l);
-    match std::fs::read_dir(&path) {
-        Ok(rd) => {
-            let words: Vec<i64> = rd
-                .filter_map(|e| e.ok())
-                .map(|e| {
-                    let name = e.file_name().to_string_lossy().into_owned();
-                    let ft = e.file_type().map(ftype_of).unwrap_or(0);
-                    build(&name, &path, ft) as i64
-                })
-                .collect();
-            alloc_entry(Entry::Vec(Box::new(words)))
-        }
-        Err(e) => {
-            throw_io(&e, "scandir", &path);
-            alloc_entry(Entry::Vec(Box::new(Vec::new())))
-        }
-    }
+    alloc_entry(Entry::Vec(Box::new(entries_of(&path))))
 }
 
 /// `fs.readdirSync(path, options)` — `Dirent[]` when `options.withFileTypes` is
