@@ -407,6 +407,30 @@ pub extern "C" fn __RTS_FN_NODE_FS_STATS_IS_SYMLINK(this: u64) -> i64 {
     stats::is_symbolic_link(this) as i64
 }
 
+/// `stats.isBlockDevice()`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_STATS_IS_BLOCK(this: u64) -> i64 {
+    stats::is_block_device(this) as i64
+}
+
+/// `stats.isCharacterDevice()`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_STATS_IS_CHAR(this: u64) -> i64 {
+    stats::is_character_device(this) as i64
+}
+
+/// `stats.isFIFO()`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_STATS_IS_FIFO(this: u64) -> i64 {
+    stats::is_fifo(this) as i64
+}
+
+/// `stats.isSocket()`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_STATS_IS_SOCKET(this: u64) -> i64 {
+    stats::is_socket(this) as i64
+}
+
 /// `stats.size` / `.mode` / `.mtimeMs` / `.atimeMs` / `.ctimeMs` / `.birthtimeMs`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_FS_STATS_SIZE(this: u64) -> f64 {
@@ -431,4 +455,36 @@ pub extern "C" fn __RTS_FN_NODE_FS_STATS_CTIME_MS(this: u64) -> f64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_FS_STATS_BIRTHTIME_MS(this: u64) -> f64 {
     stats::num_field(this, "birthtimeMs")
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_STATS_DEV(this: u64) -> f64 {
+    stats::num_field(this, "dev")
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_STATS_INO(this: u64) -> f64 {
+    stats::num_field(this, "ino")
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_STATS_NLINK(this: u64) -> f64 {
+    stats::num_field(this, "nlink")
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_STATS_UID(this: u64) -> f64 {
+    stats::num_field(this, "uid")
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_STATS_GID(this: u64) -> f64 {
+    stats::num_field(this, "gid")
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_STATS_RDEV(this: u64) -> f64 {
+    stats::num_field(this, "rdev")
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_STATS_BLKSIZE(this: u64) -> f64 {
+    stats::num_field(this, "blksize")
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_FS_STATS_BLOCKS(this: u64) -> f64 {
+    stats::num_field(this, "blocks")
 }
