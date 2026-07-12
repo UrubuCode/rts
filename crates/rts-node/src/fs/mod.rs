@@ -30,6 +30,7 @@
 //! `mod` (registration).
 
 mod codec;
+mod dirent;
 mod fd;
 mod statfs;
 mod stats;
@@ -97,6 +98,20 @@ pub fn register(e: &mut Engine) {
         .member(m("blocks", InstanceGetter, vec![Handle], F64, "__RTS_FN_NODE_FS_STATS_BLOCKS", "blocks: number", s::__RTS_FN_NODE_FS_STATS_BLOCKS as *const u8))
         .done();
 
+    e.class("Dirent")
+        .doc("Dirent — a directory entry from readdirSync(path, { withFileTypes: true }).")
+        .member(m("isFile", InstanceMethod, vec![Handle], Bool, "__RTS_FN_NODE_FS_DIRENT_IS_FILE", "isFile(): boolean", dirent::__RTS_FN_NODE_FS_DIRENT_IS_FILE as *const u8))
+        .member(m("isDirectory", InstanceMethod, vec![Handle], Bool, "__RTS_FN_NODE_FS_DIRENT_IS_DIRECTORY", "isDirectory(): boolean", dirent::__RTS_FN_NODE_FS_DIRENT_IS_DIRECTORY as *const u8))
+        .member(m("isSymbolicLink", InstanceMethod, vec![Handle], Bool, "__RTS_FN_NODE_FS_DIRENT_IS_SYMLINK", "isSymbolicLink(): boolean", dirent::__RTS_FN_NODE_FS_DIRENT_IS_SYMLINK as *const u8))
+        .member(m("isBlockDevice", InstanceMethod, vec![Handle], Bool, "__RTS_FN_NODE_FS_DIRENT_IS_BLOCK", "isBlockDevice(): boolean", dirent::__RTS_FN_NODE_FS_DIRENT_IS_BLOCK as *const u8))
+        .member(m("isCharacterDevice", InstanceMethod, vec![Handle], Bool, "__RTS_FN_NODE_FS_DIRENT_IS_CHAR", "isCharacterDevice(): boolean", dirent::__RTS_FN_NODE_FS_DIRENT_IS_CHAR as *const u8))
+        .member(m("isFIFO", InstanceMethod, vec![Handle], Bool, "__RTS_FN_NODE_FS_DIRENT_IS_FIFO", "isFIFO(): boolean", dirent::__RTS_FN_NODE_FS_DIRENT_IS_FIFO as *const u8))
+        .member(m("isSocket", InstanceMethod, vec![Handle], Bool, "__RTS_FN_NODE_FS_DIRENT_IS_SOCKET", "isSocket(): boolean", dirent::__RTS_FN_NODE_FS_DIRENT_IS_SOCKET as *const u8))
+        .member(m("name", InstanceGetter, vec![Handle], Handle, "__RTS_FN_NODE_FS_DIRENT_NAME", "name: string", dirent::__RTS_FN_NODE_FS_DIRENT_NAME as *const u8))
+        .member(m("parentPath", InstanceGetter, vec![Handle], Handle, "__RTS_FN_NODE_FS_DIRENT_PARENT_PATH", "parentPath: string", dirent::__RTS_FN_NODE_FS_DIRENT_PARENT_PATH as *const u8))
+        .member(m("path", InstanceGetter, vec![Handle], Handle, "__RTS_FN_NODE_FS_DIRENT_PARENT_PATH", "path: string", dirent::__RTS_FN_NODE_FS_DIRENT_PARENT_PATH as *const u8))
+        .done();
+
     e.ns("node:fs")
         .doc("Filesystem (node:fs): readFileSync/writeFileSync/appendFileSync, existsSync/accessSync, mkdirSync/rmdirSync/rmSync/unlinkSync, renameSync/copyFileSync/truncateSync, readdirSync/realpathSync, statSync/lstatSync.")
         .member(func("readFileSync", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_READ_FILE", "readFileSync(path: string): number[]", s::__RTS_FN_NODE_FS_READ_FILE as *const u8))
@@ -122,6 +137,7 @@ pub fn register(e: &mut Engine) {
         .member(func("linkSync", vec![StrPtr, StrPtr], Void, "__RTS_FN_NODE_FS_LINK", "linkSync(existingPath: string, newPath: string): void", s::__RTS_FN_NODE_FS_LINK as *const u8))
         .member(func("utimesSync", vec![StrPtr, F64, F64], Void, "__RTS_FN_NODE_FS_UTIMES", "utimesSync(path: string, atime: number, mtime: number): void", s::__RTS_FN_NODE_FS_UTIMES as *const u8))
         .member(func("readdirSync", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_READDIR", "readdirSync(path: string): string[]", s::__RTS_FN_NODE_FS_READDIR as *const u8))
+        .member(func("readdirSync", vec![StrPtr, Handle], Handle, "__RTS_FN_NODE_FS_READDIR_OPTS", "readdirSync(path: string, options: object): object[]", dirent::__RTS_FN_NODE_FS_READDIR_OPTS as *const u8))
         .member(func("realpathSync", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_REALPATH", "realpathSync(path: string): string", s::__RTS_FN_NODE_FS_REALPATH as *const u8))
         .member(func("mkdtempSync", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_MKDTEMP", "mkdtempSync(prefix: string): string", s::__RTS_FN_NODE_FS_MKDTEMP as *const u8))
         .member(func("readlinkSync", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_READLINK", "readlinkSync(path: string): string", s::__RTS_FN_NODE_FS_READLINK as *const u8))
