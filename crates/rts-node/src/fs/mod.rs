@@ -29,6 +29,7 @@
 //! Layout: `words` (helpers), `stats` (Stats object), `symbols` (extern points),
 //! `mod` (registration).
 
+mod callbacks;
 mod codec;
 mod dir;
 mod dirent;
@@ -40,7 +41,7 @@ mod stats;
 mod symbols;
 mod words;
 
-use rts_engine::AbiType::{self, Bool, F64, Handle, I64, StrPtr, Void};
+use rts_engine::AbiType::{self, Bool, F64, Handle, I64, PolyValue, StrPtr, Void};
 use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 #[allow(clippy::too_many_arguments)]
@@ -177,5 +178,24 @@ pub fn register(e: &mut Engine) {
         .member(func("writevSync", vec![I64, Handle, I64], I64, "__RTS_FN_NODE_FS_WRITEV", "writevSync(fd: number, buffers: object[], position: number): number", fd::__RTS_FN_NODE_FS_WRITEV as *const u8))
         .member(func("readvSync", vec![I64, Handle], I64, "__RTS_FN_NODE_FS_READV2", "readvSync(fd: number, buffers: object[]): number", fd::__RTS_FN_NODE_FS_READV2 as *const u8))
         .member(func("readvSync", vec![I64, Handle, I64], I64, "__RTS_FN_NODE_FS_READV", "readvSync(fd: number, buffers: object[], position: number): number", fd::__RTS_FN_NODE_FS_READV as *const u8))
+        // Callback (err-first) forms — the work is synchronous (#207), the callback
+        // is invoked once via the codegen bridge.
+        .member(func("readFile", vec![StrPtr, PolyValue], Void, "__RTS_FN_NODE_FS_CB_READ_FILE", "readFile(path: string, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_READ_FILE as *const u8))
+        .member(func("readFile", vec![StrPtr, StrPtr, PolyValue], Void, "__RTS_FN_NODE_FS_CB_READ_FILE_ENC", "readFile(path: string, encoding: string, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_READ_FILE_ENC as *const u8))
+        .member(func("writeFile", vec![StrPtr, Handle, PolyValue], Void, "__RTS_FN_NODE_FS_CB_WRITE_FILE", "writeFile(path: string, data: object, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_WRITE_FILE as *const u8))
+        .member(func("appendFile", vec![StrPtr, Handle, PolyValue], Void, "__RTS_FN_NODE_FS_CB_APPEND_FILE", "appendFile(path: string, data: object, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_APPEND_FILE as *const u8))
+        .member(func("mkdir", vec![StrPtr, PolyValue], Void, "__RTS_FN_NODE_FS_CB_MKDIR", "mkdir(path: string, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_MKDIR as *const u8))
+        .member(func("unlink", vec![StrPtr, PolyValue], Void, "__RTS_FN_NODE_FS_CB_UNLINK", "unlink(path: string, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_UNLINK as *const u8))
+        .member(func("rmdir", vec![StrPtr, PolyValue], Void, "__RTS_FN_NODE_FS_CB_RMDIR", "rmdir(path: string, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_RMDIR as *const u8))
+        .member(func("rm", vec![StrPtr, PolyValue], Void, "__RTS_FN_NODE_FS_CB_RM", "rm(path: string, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_RM as *const u8))
+        .member(func("rename", vec![StrPtr, StrPtr, PolyValue], Void, "__RTS_FN_NODE_FS_CB_RENAME", "rename(oldPath: string, newPath: string, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_RENAME as *const u8))
+        .member(func("copyFile", vec![StrPtr, StrPtr, PolyValue], Void, "__RTS_FN_NODE_FS_CB_COPY_FILE", "copyFile(src: string, dest: string, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_COPY_FILE as *const u8))
+        .member(func("access", vec![StrPtr, PolyValue], Void, "__RTS_FN_NODE_FS_CB_ACCESS", "access(path: string, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_ACCESS as *const u8))
+        .member(func("chmod", vec![StrPtr, I64, PolyValue], Void, "__RTS_FN_NODE_FS_CB_CHMOD", "chmod(path: string, mode: number, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_CHMOD as *const u8))
+        .member(func("stat", vec![StrPtr, PolyValue], Void, "__RTS_FN_NODE_FS_CB_STAT", "stat(path: string, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_STAT as *const u8))
+        .member(func("lstat", vec![StrPtr, PolyValue], Void, "__RTS_FN_NODE_FS_CB_LSTAT", "lstat(path: string, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_LSTAT as *const u8))
+        .member(func("readdir", vec![StrPtr, PolyValue], Void, "__RTS_FN_NODE_FS_CB_READDIR", "readdir(path: string, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_READDIR as *const u8))
+        .member(func("realpath", vec![StrPtr, PolyValue], Void, "__RTS_FN_NODE_FS_CB_REALPATH", "realpath(path: string, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_REALPATH as *const u8))
+        .member(func("exists", vec![StrPtr, PolyValue], Void, "__RTS_FN_NODE_FS_CB_EXISTS", "exists(path: string, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_EXISTS as *const u8))
         .done();
 }

@@ -85,7 +85,7 @@ pub fn read_bytes(handle: u64) -> Vec<u8> {
 }
 
 /// The Node error code for an `io::Error`.
-fn err_code(e: &std::io::Error) -> &'static str {
+pub(super) fn err_code(e: &std::io::Error) -> &'static str {
     use std::io::ErrorKind::*;
     match e.kind() {
         NotFound => "ENOENT",
