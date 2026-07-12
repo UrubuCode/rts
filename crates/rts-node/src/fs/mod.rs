@@ -34,6 +34,7 @@ mod codec;
 mod dir;
 mod dirent;
 mod fd;
+mod filehandle;
 mod glob;
 mod meta;
 mod promises;
@@ -101,6 +102,19 @@ pub fn register(e: &mut Engine) {
         .member(m("rdev", InstanceGetter, vec![Handle], F64, "__RTS_FN_NODE_FS_STATS_RDEV", "rdev: number", s::__RTS_FN_NODE_FS_STATS_RDEV as *const u8))
         .member(m("blksize", InstanceGetter, vec![Handle], F64, "__RTS_FN_NODE_FS_STATS_BLKSIZE", "blksize: number", s::__RTS_FN_NODE_FS_STATS_BLKSIZE as *const u8))
         .member(m("blocks", InstanceGetter, vec![Handle], F64, "__RTS_FN_NODE_FS_STATS_BLOCKS", "blocks: number", s::__RTS_FN_NODE_FS_STATS_BLOCKS as *const u8))
+        .done();
+
+    e.class("FileHandle")
+        .doc("FileHandle — an open file handle from fs.promises.open(path, flags).")
+        .member(m("close", InstanceMethod, vec![Handle], Handle, "__RTS_FN_NODE_FS_FH_CLOSE", "close(): object", filehandle::__RTS_FN_NODE_FS_FH_CLOSE as *const u8))
+        .member(m("readFile", InstanceMethod, vec![Handle], Handle, "__RTS_FN_NODE_FS_FH_READ_FILE", "readFile(): object", filehandle::__RTS_FN_NODE_FS_FH_READ_FILE as *const u8))
+        .member(m("readFile", InstanceMethod, vec![Handle, StrPtr], Handle, "__RTS_FN_NODE_FS_FH_READ_FILE_ENC", "readFile(encoding: string): object", filehandle::__RTS_FN_NODE_FS_FH_READ_FILE_ENC as *const u8))
+        .member(m("writeFile", InstanceMethod, vec![Handle, Handle], Handle, "__RTS_FN_NODE_FS_FH_WRITE_FILE", "writeFile(data: object): object", filehandle::__RTS_FN_NODE_FS_FH_WRITE_FILE as *const u8))
+        .member(m("stat", InstanceMethod, vec![Handle], Handle, "__RTS_FN_NODE_FS_FH_STAT", "stat(): object", filehandle::__RTS_FN_NODE_FS_FH_STAT as *const u8))
+        .member(m("truncate", InstanceMethod, vec![Handle, I64], Handle, "__RTS_FN_NODE_FS_FH_TRUNCATE", "truncate(len: number): object", filehandle::__RTS_FN_NODE_FS_FH_TRUNCATE as *const u8))
+        .member(m("sync", InstanceMethod, vec![Handle], Handle, "__RTS_FN_NODE_FS_FH_SYNC", "sync(): object", filehandle::__RTS_FN_NODE_FS_FH_SYNC as *const u8))
+        .member(m("datasync", InstanceMethod, vec![Handle], Handle, "__RTS_FN_NODE_FS_FH_DATASYNC", "datasync(): object", filehandle::__RTS_FN_NODE_FS_FH_DATASYNC as *const u8))
+        .member(m("chmod", InstanceMethod, vec![Handle, I64], Handle, "__RTS_FN_NODE_FS_FH_CHMOD", "chmod(mode: number): object", filehandle::__RTS_FN_NODE_FS_FH_CHMOD as *const u8))
         .done();
 
     e.class("Dir")
@@ -222,5 +236,6 @@ pub fn register(e: &mut Engine) {
         .member(func("readdir", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_P_READDIR", "readdir(path: string): object", pr::__RTS_FN_NODE_FS_P_READDIR as *const u8))
         .member(func("realpath", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_P_REALPATH", "realpath(path: string): object", pr::__RTS_FN_NODE_FS_P_REALPATH as *const u8))
         .member(func("readlink", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_P_READLINK", "readlink(path: string): object", pr::__RTS_FN_NODE_FS_P_READLINK as *const u8))
+        .member(func("open", vec![StrPtr, StrPtr], Handle, "__RTS_FN_NODE_FS_P_OPEN", "open(path: string, flags: string): FileHandle", filehandle::__RTS_FN_NODE_FS_P_OPEN as *const u8))
         .done();
 }

@@ -43,6 +43,25 @@ fn with_fd<R>(fd: u64, f: impl FnOnce(&mut File) -> R) -> Option<R> {
     table().lock().unwrap().get_mut(&fd).map(f)
 }
 
+/// Open `path` with Node `flags`, returning a fresh fd (shared with `FileHandle`).
+pub(super) fn open_path(path: &str, flags: &str) -> std::io::Result<u64> {
+    let flags = if flags.is_empty() { "r" } else { flags };
+    let file = options(flags).open(path)?;
+    let fd = NEXT_FD.fetch_add(1, Ordering::Relaxed);
+    table().lock().unwrap().insert(fd, file);
+    Ok(fd)
+}
+
+/// Close the fd (drops the `File`).
+pub(super) fn close_fd(fd: u64) {
+    table().lock().unwrap().remove(&fd);
+}
+
+/// Run `f` over the open `File` for `fd` (for `FileHandle` methods).
+pub(super) fn with_file<R>(fd: u64, f: impl FnOnce(&mut File) -> R) -> Option<R> {
+    with_fd(fd, f)
+}
+
 /// `fs.openSync(path, flags)` → fd.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_FS_OPEN(p: *const u8, l: i64, fp: *const u8, fl: i64) -> i64 {
