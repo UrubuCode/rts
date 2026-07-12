@@ -540,12 +540,14 @@ fn macos_platform_versions(triple: &str) -> (String, String) {
 fn windows_runtime_default_libs() -> &'static [&'static str] {
     &[
         // Import libs exigidas pelo Rust std + runtime (net=ws2_32,
-        // crypto/getrandom=bcrypt, dirs=shell32/ole32).
+        // crypto/getrandom=bcrypt, dirs=shell32/ole32,
+        // node:os networkInterfaces=iphlpapi/GetAdaptersAddresses).
         "kernel32.lib",
         "userenv.lib",
         "advapi32.lib",
         "bcrypt.lib",
         "ws2_32.lib",
+        "iphlpapi.lib",
         "ntdll.lib",
         "shell32.lib",
         "ole32.lib",
