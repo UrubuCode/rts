@@ -10,13 +10,14 @@ let __out: string[] = [];
 function print(s: string) { __out.push(s); }
 
 import { describe, test, expect } from "rts:test";
-import { watch, mkdirSync, existsSync, rmSync } from "node:fs";
+import { watch, watchFile, unwatchFile, writeFileSync, mkdirSync, existsSync, rmSync } from "node:fs";
 
 const dir = "/tmp/rts_watch_api";
 if (existsSync(dir)) { rmSync(dir, { recursive: true, force: true }); }
 mkdirSync(dir);
 
 function onEvent(_eventType: string, _filename: string) {}
+function onChange(_curr: any, _prev: any) {}
 
 const w = watch(dir, onEvent);
 const watcherType = typeof w;
@@ -26,6 +27,15 @@ w.close();
 w.close();
 let closedCleanly = true;
 
+// watchFile / unwatchFile — register a poll watcher then release it, so no
+// watcher stays active (the process can exit). Actual change delivery is
+// `rts run`-verified: watchFile fires onChange(curr, prev) with real Stats.
+const wf = dir + "/polled.txt";
+writeFileSync(wf, "x");
+watchFile(wf, onChange);
+unwatchFile(wf);
+let watchFileClean = true;
+
 rmSync(dir, { recursive: true, force: true });
 
 describe("node:fs watch (synchronous surface)", () => {
@@ -34,5 +44,8 @@ describe("node:fs watch (synchronous surface)", () => {
   });
   test("close is idempotent and does not throw", () => {
     expect(closedCleanly).toBe(true);
+  });
+  test("watchFile + unwatchFile register and release cleanly", () => {
+    expect(watchFileClean).toBe(true);
   });
 });

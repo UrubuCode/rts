@@ -42,6 +42,9 @@ fn drain_watch_events() {
 
     unsafe extern "C" {
         fn __RTS_FN_RT_INVOKE_AUTO(callee: i64, this_arg: i64, args_handle: u64) -> i64;
+        // watchFile change → node-side fire (builds the curr/prev Stats args the
+        // listener expects; rts-std cannot build a Stats — that lives in rts-node).
+        fn __RTS_FN_NODE_FS_WATCHFILE_FIRE(listener: u64, path_ptr: *const u8, path_len: i64);
     }
 
     const IDLE: Duration = Duration::from_millis(1500);
@@ -58,7 +61,14 @@ fn drain_watch_events() {
             break;
         }
         for ev in events {
-            // kind 0 = rename, 1 = change (fs.watch), 2 = watchFile change.
+            if ev.kind == 2 {
+                // watchFile change → node builds the (curr, prev) Stats + invokes.
+                unsafe {
+                    __RTS_FN_NODE_FS_WATCHFILE_FIRE(ev.listener, ev.path.as_ptr(), ev.path.len() as i64);
+                }
+                continue;
+            }
+            // fs.watch: kind 0 = rename, 1 = change → listener(eventType, filename).
             let etype = if ev.kind == 0 { "rename" } else { "change" };
             let args = alloc_entry(Entry::Vec(Box::new(vec![
                 string_word(etype.as_bytes()) as i64,

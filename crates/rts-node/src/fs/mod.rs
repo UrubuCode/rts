@@ -42,6 +42,7 @@ mod statfs;
 mod stats;
 mod symbols;
 mod watch;
+mod watchfile;
 mod words;
 
 use rts_engine::AbiType::{self, Bool, F64, Handle, I64, PolyValue, StrPtr, Void};
@@ -219,6 +220,9 @@ pub fn register(e: &mut Engine) {
         .member(func("realpath", vec![StrPtr, PolyValue], Void, "__RTS_FN_NODE_FS_CB_REALPATH", "realpath(path: string, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_REALPATH as *const u8))
         .member(func("exists", vec![StrPtr, PolyValue], Void, "__RTS_FN_NODE_FS_CB_EXISTS", "exists(path: string, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_EXISTS as *const u8))
         .member(func("watch", vec![StrPtr, PolyValue], Handle, "__RTS_FN_NODE_FS_WATCH", "watch(path: string, listener: object): FSWatcher", watch::__RTS_FN_NODE_FS_WATCH as *const u8))
+        .member(func("watchFile", vec![StrPtr, PolyValue], Void, "__RTS_FN_NODE_FS_WATCHFILE0", "watchFile(path: string, listener: object): void", watchfile::__RTS_FN_NODE_FS_WATCHFILE0 as *const u8))
+        .member(func("watchFile", vec![StrPtr, I64, PolyValue], Void, "__RTS_FN_NODE_FS_WATCHFILE_OPTS", "watchFile(path: string, intervalMs: number, listener: object): void", watchfile::__RTS_FN_NODE_FS_WATCHFILE_OPTS as *const u8))
+        .member(func("unwatchFile", vec![StrPtr], Void, "__RTS_FN_NODE_FS_UNWATCHFILE", "unwatchFile(path: string): void", watchfile::__RTS_FN_NODE_FS_UNWATCHFILE as *const u8))
         .done();
 
     // node:fs/promises — the Promise-returning surface. Each returns an already-
