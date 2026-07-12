@@ -44,6 +44,7 @@ pub mod collector;
 pub mod heap;
 pub mod numfmt;
 pub mod runtime_ci;
+pub mod watch_queue;
 
 mod builder;
 mod member;

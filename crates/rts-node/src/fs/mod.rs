@@ -41,6 +41,7 @@ mod promises;
 mod statfs;
 mod stats;
 mod symbols;
+mod watch;
 mod words;
 
 use rts_engine::AbiType::{self, Bool, F64, Handle, I64, PolyValue, StrPtr, Void};
@@ -102,6 +103,11 @@ pub fn register(e: &mut Engine) {
         .member(m("rdev", InstanceGetter, vec![Handle], F64, "__RTS_FN_NODE_FS_STATS_RDEV", "rdev: number", s::__RTS_FN_NODE_FS_STATS_RDEV as *const u8))
         .member(m("blksize", InstanceGetter, vec![Handle], F64, "__RTS_FN_NODE_FS_STATS_BLKSIZE", "blksize: number", s::__RTS_FN_NODE_FS_STATS_BLKSIZE as *const u8))
         .member(m("blocks", InstanceGetter, vec![Handle], F64, "__RTS_FN_NODE_FS_STATS_BLOCKS", "blocks: number", s::__RTS_FN_NODE_FS_STATS_BLOCKS as *const u8))
+        .done();
+
+    e.class("FSWatcher")
+        .doc("FSWatcher — a filesystem watcher from fs.watch(path, listener).")
+        .member(m("close", InstanceMethod, vec![Handle], Void, "__RTS_FN_NODE_FS_WATCHER_CLOSE", "close(): void", watch::__RTS_FN_NODE_FS_WATCHER_CLOSE as *const u8))
         .done();
 
     e.class("FileHandle")
@@ -212,6 +218,7 @@ pub fn register(e: &mut Engine) {
         .member(func("readdir", vec![StrPtr, PolyValue], Void, "__RTS_FN_NODE_FS_CB_READDIR", "readdir(path: string, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_READDIR as *const u8))
         .member(func("realpath", vec![StrPtr, PolyValue], Void, "__RTS_FN_NODE_FS_CB_REALPATH", "realpath(path: string, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_REALPATH as *const u8))
         .member(func("exists", vec![StrPtr, PolyValue], Void, "__RTS_FN_NODE_FS_CB_EXISTS", "exists(path: string, callback: object): void", callbacks::__RTS_FN_NODE_FS_CB_EXISTS as *const u8))
+        .member(func("watch", vec![StrPtr, PolyValue], Handle, "__RTS_FN_NODE_FS_WATCH", "watch(path: string, listener: object): FSWatcher", watch::__RTS_FN_NODE_FS_WATCH as *const u8))
         .done();
 
     // node:fs/promises — the Promise-returning surface. Each returns an already-

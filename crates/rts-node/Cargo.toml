@@ -34,6 +34,9 @@ scrypt = { version = "0.11", default-features = false }
 # node:fs.globSync — filesystem glob pattern matching (pure Rust, MIT/Apache-2.0,
 # no C). See docs/node-implementation/crates.md.
 glob = "0.3"
+# node:fs.watch — OS filesystem notifications (inotify/kqueue/ReadDirectoryChangesW
+# via pure-Rust bindings, no C compile). Permissive (CC0-1.0 / Artistic-2.0).
+notify = "6"
 
 # node:os — POSIX syscall surface (uname/gethostname/sysinfo/getloadavg/
 # getpriority/getpwuid_r/getifaddrs). libc is FFI-only, no C compile — permissive

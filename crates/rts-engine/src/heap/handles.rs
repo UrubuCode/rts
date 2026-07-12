@@ -1415,6 +1415,25 @@ pub fn pin_handle(handle: u64) {
     }
 }
 
+/// Release a pin taken by [`pin_handle`] (e.g. an `fs.watch` listener when its
+/// watcher is closed), so the handle can be collected again. A no-op if it was
+/// not pinned.
+pub fn unpin_handle(handle: u64) {
+    if handle == 0 {
+        return;
+    }
+    let mut g = pinned_roots().lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(i) = g.iter().position(|&h| h == handle) {
+        g.swap_remove(i);
+    }
+}
+
+/// `extern "C"` counterpart of [`__RTS_FN_NS_GC_PIN_HANDLE`].
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GC_UNPIN_HANDLE(handle: u64) {
+    unpin_handle(handle);
+}
+
 /// Mark every pinned root (compile-time string constants) reachable for this GC
 /// cycle. Called from `finish_cycle` alongside the stack/global/gcell roots.
 pub fn mark_pinned_roots() {
