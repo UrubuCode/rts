@@ -13,6 +13,48 @@ fn parses_typography() {
 }
 
 #[test]
+fn parses_aspect_ratio() {
+    assert_eq!(parse_inline("aspect-ratio: 16 / 9").aspect_ratio, Some(16.0 / 9.0));
+    assert_eq!(parse_inline("aspect-ratio: 1 / 1").aspect_ratio, Some(1.0));
+    assert_eq!(parse_inline("aspect-ratio: 1.5").aspect_ratio, Some(1.5));
+    assert_eq!(parse_inline("aspect-ratio: auto").aspect_ratio, None);
+}
+
+#[test]
+fn parses_transform() {
+    let t = parse_inline("transform: translate(10px, -20px) scale(1.5) rotate(45deg)").transform.unwrap();
+    assert_eq!((t.tx, t.ty), (10.0, -20.0));
+    assert_eq!((t.sx, t.sy), (1.5, 1.5));
+    assert_eq!(t.rot_deg, 45.0);
+    // translate(-50%, -50%) → frações.
+    let c = parse_inline("transform: translate(-50%, -50%)").transform.unwrap();
+    assert_eq!((c.tx_pct, c.ty_pct), (-0.5, -0.5));
+    // translateX/Y e scaleX/Y isolados.
+    let x = parse_inline("transform: translateX(8px)").transform.unwrap();
+    assert_eq!(x.tx, 8.0);
+    assert_eq!(x.ty, 0.0);
+    let s = parse_inline("transform: scaleY(2)").transform.unwrap();
+    assert_eq!((s.sx, s.sy), (1.0, 2.0));
+    // none / desconhecido.
+    assert!(parse_inline("transform: none").transform.is_none());
+}
+
+#[test]
+fn parses_text_effects() {
+    use crate::style::values::TextDecoration;
+    let a = parse_inline("letter-spacing: 2px; text-decoration: underline");
+    assert_eq!(a.letter_spacing, Some(2.0));
+    assert_eq!(a.text_decoration, Some(TextDecoration::Underline));
+    // `normal` = 0; shorthand com cor/estilo → pega a keyword de linha.
+    assert_eq!(parse_inline("letter-spacing: normal").letter_spacing, Some(0.0));
+    assert_eq!(
+        parse_inline("text-decoration: line-through dotted red").text_decoration,
+        Some(TextDecoration::LineThrough)
+    );
+    assert_eq!(parse_inline("text-decoration-line: overline").text_decoration, Some(TextDecoration::Overline));
+}
+
+#[test]
 fn parses_grid() {
     use crate::style::DisplayKind;
     // display:grid + grid-template-columns via repeat() e via lista de trilhas.

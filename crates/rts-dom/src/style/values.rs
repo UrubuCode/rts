@@ -146,6 +146,37 @@ impl TextTransform {
     }
 }
 
+/// `text-decoration[-line]` — a linha decorativa do texto. `None` = sem linha.
+/// Modela só a presença da linha (a cor herda do texto; estilo/espessura fixos v1).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TextDecoration {
+    /// `none` — sem decoração.
+    None,
+    /// `underline` — linha sob o texto.
+    Underline,
+    /// `line-through` — linha cortando o texto.
+    LineThrough,
+    /// `overline` — linha sobre o texto.
+    Overline,
+}
+
+impl TextDecoration {
+    /// Parseia `text-decoration`/`text-decoration-line`: pega a 1ª keyword de LINHA
+    /// (o shorthand pode ter cor/estilo junto — `underline dotted red` → Underline).
+    pub fn parse(v: &str) -> Option<TextDecoration> {
+        for tok in v.split_whitespace() {
+            match tok.to_ascii_lowercase().as_str() {
+                "none" => return Some(TextDecoration::None),
+                "underline" => return Some(TextDecoration::Underline),
+                "line-through" => return Some(TextDecoration::LineThrough),
+                "overline" => return Some(TextDecoration::Overline),
+                _ => {}
+            }
+        }
+        None
+    }
+}
+
 /// Valor de UM lado de margin/padding: um COMPRIMENTO (px/%/em/rem/vw/vh — a
 /// unidade relativa sobrevive até o layout, como em `width`), `auto` (só faz
 /// sentido em margin — centralização/flex), ou não-especificado. Egui-free.

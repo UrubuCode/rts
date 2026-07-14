@@ -334,7 +334,7 @@ fn paint_list(ui: &mut egui::Ui, list: &DisplayList, offset_y: f32) {
                     egui::StrokeKind::Inside,
                 );
             }
-            DisplayItem::Text { x, y, text, color, size, mono, bold } => {
+            DisplayItem::Text { x, y, text, color, size, mono, bold, letter_spacing, decoration } => {
                 // bold vence (família "bold"); senão mono → Monospace; senão Proportional.
                 let family = if *bold {
                     egui::FontFamily::Name("bold".into())
@@ -343,13 +343,46 @@ fn paint_list(ui: &mut egui::Ui, list: &DisplayList, offset_y: f32) {
                 } else {
                     egui::FontFamily::Proportional
                 };
-                painter.text(
-                    origin + egui::vec2(*x, *y),
-                    egui::Align2::LEFT_TOP,
-                    text,
-                    egui::FontId::new(*size, family),
-                    rgba_to_color32(*color),
-                );
+                let font = egui::FontId::new(*size, family);
+                let col = rgba_to_color32(*color);
+                let base = origin + egui::vec2(*x, *y);
+                let total_w = if *letter_spacing != 0.0 {
+                    // letter-spacing: pinta char a char, avançando pela largura do glifo
+                    // + o espaçamento. Devolve a largura total (p/ a linha de decoração).
+                    let mut cx = base.x;
+                    for ch in text.chars() {
+                        let s = ch.to_string();
+                        let gw = painter
+                            .ctx()
+                            .fonts_mut(|f| f.glyph_width(&font, ch))
+                            .max(0.0);
+                        painter.text(
+                            egui::pos2(cx, base.y),
+                            egui::Align2::LEFT_TOP,
+                            &s,
+                            font.clone(),
+                            col,
+                        );
+                        cx += gw + *letter_spacing;
+                    }
+                    cx - base.x
+                } else {
+                    let g = painter.text(base, egui::Align2::LEFT_TOP, text, font.clone(), col);
+                    g.width()
+                };
+                // decoração: linha sob/sobre/cortando o texto (1=under, 2=through, 3=over).
+                if *decoration != 0 {
+                    let ly = match decoration {
+                        2 => base.y + *size * 0.5,  // line-through (meio)
+                        3 => base.y + *size * 0.05, // overline (topo)
+                        _ => base.y + *size * 0.92, // underline (base)
+                    };
+                    let thick = (*size * 0.06).max(1.0);
+                    painter.line_segment(
+                        [egui::pos2(base.x, ly), egui::pos2(base.x + total_w, ly)],
+                        egui::Stroke::new(thick, col),
+                    );
+                }
             }
             DisplayItem::Shadow { rect, dx, dy, blur, spread, color, radius } => {
                 // box-shadow: um retângulo deslocado (dx,dy), crescido pelo spread, com

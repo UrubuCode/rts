@@ -61,6 +61,8 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             }
             "box-shadow" => css.box_shadow = crate::style::effects::BoxShadow::parse(val),
             "grid-template-columns" => css.grid_columns = parse_grid_columns(val),
+            "transform" => css.transform = crate::style::effects::Transform::parse(val),
+            "aspect-ratio" => css.aspect_ratio = parse_aspect_ratio(val),
             "opacity" => {
                 // `opacity: <0..1>` (clampa fora do intervalo, como o browser).
                 css.opacity = val.trim().parse::<f32>().ok().map(|v| v.clamp(0.0, 1.0))
@@ -76,6 +78,19 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             "line-height" => css.line_height = LineHeight::parse(val),
             "white-space" => css.white_space = WhiteSpace::parse(val),
             "text-transform" => css.text_transform = TextTransform::parse(val),
+            "letter-spacing" => {
+                // `normal` = 0; senão um comprimento (px/em/rem — resolve p/ px cedo
+                // seria ideal, mas letter-spacing quase sempre vem em px/em pequenos;
+                // usa parse_len que cobre px). `normal`/inválido → None.
+                css.letter_spacing = if val.trim().eq_ignore_ascii_case("normal") {
+                    Some(0.0)
+                } else {
+                    parse_len(val)
+                };
+            }
+            "text-decoration" | "text-decoration-line" => {
+                css.text_decoration = crate::style::values::TextDecoration::parse(val);
+            }
             "font-family" => css.font_family = parse_font_family(val),
             "font" => apply_font_shorthand(css, val),
             // ── overflow (#1744): scroll container interno. `overflow` define os dois
@@ -269,6 +284,18 @@ fn parse_grid_columns(v: &str) -> Option<i32> {
     // lista de trilhas separadas por espaço de TOPO (respeita parênteses de minmax()).
     let n = split_top_ws(v).len() as i32;
     (n >= 1).then_some(n)
+}
+
+/// Parseia `aspect-ratio`: `<w> / <h>` (ex. `16 / 9`) ou um número único (`1.5`).
+/// `auto`/inválido → `None`. Devolve a razão largura/altura.
+fn parse_aspect_ratio(v: &str) -> Option<f32> {
+    let v = v.trim();
+    if let Some((w, h)) = v.split_once('/') {
+        let w = w.trim().parse::<f32>().ok()?;
+        let h = h.trim().parse::<f32>().ok()?;
+        return (h != 0.0 && w > 0.0).then_some(w / h);
+    }
+    v.parse::<f32>().ok().filter(|r| *r > 0.0)
 }
 
 /// Valores não suportados (table, …) → `None` (cai no default da tag).

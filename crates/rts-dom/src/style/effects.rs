@@ -118,6 +118,133 @@ impl LinearGradient {
     }
 }
 
+/// Uma `transform` CSS reduzida a translação + escala + rotação (a composição comum
+/// `translate() scale() rotate()`). `tx`/`ty` em px (%, resolvido tarde contra o
+/// tamanho do elemento, fica como fração em `tx_pct`/`ty_pct`). Aplicada no paint em
+/// torno do CENTRO do elemento (origin default `50% 50%`). Egui-free.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Transform {
+    /// translação absoluta em px.
+    pub tx: f32,
+    pub ty: f32,
+    /// translação em FRAÇÃO do tamanho do elemento (de `translate(-50%, -50%)`),
+    /// resolvida no layout (× largura/altura). Somada a tx/ty.
+    pub tx_pct: f32,
+    pub ty_pct: f32,
+    /// escala (1 = sem escala).
+    pub sx: f32,
+    pub sy: f32,
+    /// rotação em graus (horário, como o CSS).
+    pub rot_deg: f32,
+}
+
+impl Transform {
+    /// `true` se é a identidade (nenhum efeito) — o layout pode pular a aplicação.
+    pub fn is_identity(&self) -> bool {
+        self.tx == 0.0
+            && self.ty == 0.0
+            && self.tx_pct == 0.0
+            && self.ty_pct == 0.0
+            && self.sx == 1.0
+            && self.sy == 1.0
+            && self.rot_deg == 0.0
+    }
+
+    /// Parseia `transform: translate(...) scale(...) rotate(...) translateX/Y(...)
+    /// scaleX/Y(...)` — compõe as funções conhecidas. `none`/vazio → `None`.
+    /// Funções desconhecidas (skew/matrix/perspective/translate3d) são IGNORADAS
+    /// (corte documentado; cobre o uso dominante).
+    pub fn parse(v: &str) -> Option<Transform> {
+        let v = v.trim();
+        if v.is_empty() || v.eq_ignore_ascii_case("none") {
+            return None;
+        }
+        let mut t = Transform {
+            tx: 0.0, ty: 0.0, tx_pct: 0.0, ty_pct: 0.0, sx: 1.0, sy: 1.0, rot_deg: 0.0,
+        };
+        let mut saw = false;
+        // percorre cada `func(args)`.
+        let mut rest = v;
+        while let Some(open) = rest.find('(') {
+            let name = rest[..open].trim().rsplit(|c: char| c.is_whitespace() || c == ')').next().unwrap_or("").to_ascii_lowercase();
+            let after = &rest[open + 1..];
+            let Some(close) = after.find(')') else { break };
+            let args = &after[..close];
+            let parts: Vec<&str> = args.split(',').map(str::trim).collect();
+            match name.as_str() {
+                "translate" | "translatex" | "translatey" => {
+                    let (a, b) = length_pair(&parts);
+                    if name == "translatey" {
+                        add_translate(&mut t, (0.0, 0.0), a);
+                    } else {
+                        add_translate(&mut t, a, b);
+                    }
+                    saw = true;
+                }
+                "scale" | "scalex" | "scaley" => {
+                    let s0 = parts.first().and_then(|s| s.parse::<f32>().ok()).unwrap_or(1.0);
+                    let s1 = parts.get(1).and_then(|s| s.parse::<f32>().ok()).unwrap_or(s0);
+                    match name.as_str() {
+                        "scalex" => t.sx *= s0,
+                        "scaley" => t.sy *= s0,
+                        _ => { t.sx *= s0; t.sy *= s1; }
+                    }
+                    saw = true;
+                }
+                "rotate" | "rotatez" => {
+                    if let Some(deg) = parts.first().and_then(parse_angle_deg) {
+                        t.rot_deg += deg;
+                        saw = true;
+                    }
+                }
+                _ => {} // skew/matrix/… ignorados
+            }
+            rest = &after[close + 1..];
+        }
+        saw.then_some(t)
+    }
+}
+
+/// Um valor (px ou %) de translate: `(px, pct)`. `%` vira fração no 2º campo.
+fn length_val(s: &str) -> (f32, f32) {
+    let s = s.trim();
+    if let Some(p) = s.strip_suffix('%') {
+        return (0.0, p.trim().parse::<f32>().ok().unwrap_or(0.0) / 100.0);
+    }
+    let n = s.strip_suffix("px").unwrap_or(s).trim();
+    (n.parse::<f32>().ok().unwrap_or(0.0), 0.0)
+}
+
+/// Par de translate: 1º e 2º arg (o 2º default 0). Cada um vira (px, pct).
+fn length_pair(parts: &[&str]) -> ((f32, f32), (f32, f32)) {
+    let a = parts.first().map(|s| length_val(s)).unwrap_or((0.0, 0.0));
+    let b = parts.get(1).map(|s| length_val(s)).unwrap_or((0.0, 0.0));
+    (a, b)
+}
+
+/// Soma um par translate (x=(px,pct), y=(px,pct)) ao transform.
+fn add_translate(t: &mut Transform, x: (f32, f32), y: (f32, f32)) {
+    t.tx += x.0;
+    t.tx_pct += x.1;
+    t.ty += y.0;
+    t.ty_pct += y.1;
+}
+
+/// Ângulo em graus de `<n>deg`/`<n>rad`/`<n>turn` (para rotate).
+fn parse_angle_deg(s: &&str) -> Option<f32> {
+    let s = s.trim();
+    if let Some(n) = s.strip_suffix("deg") {
+        return n.trim().parse::<f32>().ok();
+    }
+    if let Some(n) = s.strip_suffix("rad") {
+        return n.trim().parse::<f32>().ok().map(|r| r.to_degrees());
+    }
+    if let Some(n) = s.strip_suffix("turn") {
+        return n.trim().parse::<f32>().ok().map(|tn| tn * 360.0);
+    }
+    None
+}
+
 /// A cor de uma parada de gradiente (`#fff` ou `#fff 20%` → só o 1º token de cor).
 fn color_of_stop(stop: &str) -> Option<Rgba> {
     for tok in split_top_ws(stop) {
