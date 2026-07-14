@@ -114,9 +114,35 @@ impl ComputedStyle {
             "align-items" => self.align_items.map(fmt_align).unwrap_or_default(),
             "align-self" => self.align_self.map(fmt_align).unwrap_or_default(),
             "opacity" => self.opacity.map(|v| format!("{v}")).unwrap_or_default(),
+            "aspect-ratio" => self.aspect_ratio.map(|r| format!("{r}")).unwrap_or_default(),
+            "letter-spacing" => self
+                .letter_spacing
+                .map(|v| if v == 0.0 { "normal".to_string() } else { format!("{v}px") })
+                .unwrap_or_default(),
+            "text-decoration" | "text-decoration-line" => self
+                .text_decoration
+                .map(|d| {
+                    match d {
+                        crate::style::values::TextDecoration::None => "none",
+                        crate::style::values::TextDecoration::Underline => "underline",
+                        crate::style::values::TextDecoration::LineThrough => "line-through",
+                        crate::style::values::TextDecoration::Overline => "overline",
+                    }
+                    .to_string()
+                })
+                .unwrap_or_default(),
             "box-shadow" => self
                 .box_shadow
                 .map(|s| format!("{}px {}px {}px {}px", s.dx, s.dy, s.blur, s.spread))
+                .unwrap_or_default(),
+            "transform" => self
+                .transform
+                .map(|t| {
+                    format!(
+                        "translate({}px + {}%, {}px + {}%) scale({}, {}) rotate({}deg)",
+                        t.tx, t.tx_pct * 100.0, t.ty, t.ty_pct * 100.0, t.sx, t.sy, t.rot_deg
+                    )
+                })
                 .unwrap_or_default(),
             "flex-grow" => self.flex_grow.map(|v| format!("{v}")).unwrap_or_default(),
             "flex-shrink" => self.flex_shrink.map(|v| format!("{v}")).unwrap_or_default(),

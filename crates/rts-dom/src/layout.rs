@@ -78,8 +78,20 @@ pub enum DisplayItem {
     /// Borda (contorno) de uma caixa, espessura `width`, na cor dada.
     Border { rect: Rect, width: f32, color: u32, radius: f32 },
     /// Texto numa posição (canto superior-esquerdo). `mono` escolhe a família
-    /// monoespaçada. O backend resolve a fonte/atlas; aqui só o necessário.
-    Text { x: f32, y: f32, text: String, color: u32, size: f32, mono: bool, bold: bool },
+    /// monoespaçada. `letter_spacing` = espaço extra entre glifos (px). `decoration`
+    /// = linha decorativa (0=nenhuma, 1=underline, 2=line-through, 3=overline). O
+    /// backend resolve a fonte/atlas; aqui só o necessário.
+    Text {
+        x: f32,
+        y: f32,
+        text: String,
+        color: u32,
+        size: f32,
+        mono: bool,
+        bold: bool,
+        letter_spacing: f32,
+        decoration: u8,
+    },
     /// Começa a RECORTAR a um retângulo (scroll container interno): os itens
     /// seguintes, até o `EndClip`, só pintam DENTRO deste rect E são transladados por
     /// `(offset_x, offset_y)` (o quanto a região rolou). O backend aplica o clip
@@ -506,6 +518,8 @@ fn layout_block(
                 size,
                 mono: false,
                 bold: false,
+                letter_spacing: 0.0,
+                decoration: 0,
             });
             return (tw, lh);
         }
@@ -638,9 +652,15 @@ fn layout_block(
     // recebem como containing-block height (base do `height:%` deles), e o flex
     // COLUMN o usa como referência do eixo principal (justify/margin-auto).
     let frame_v = pad_top + pad_bottom + 2.0 * border;
-    let explicit_content_h = resolve_height(css.height, avail_h, &resolve).map(|h| {
-        if border_box { (h - frame_v).max(0.0) } else { h }
-    });
+    let explicit_content_h = resolve_height(css.height, avail_h, &resolve)
+        .map(|h| if border_box { (h - frame_v).max(0.0) } else { h })
+        // `aspect-ratio`: sem height explícito, a altura vem da largura / razão. Só
+        // quando há largura resolvida (content_w) e uma razão > 0.
+        .or_else(|| {
+            css.aspect_ratio
+                .filter(|r| *r > 0.0)
+                .map(|r| (content_w / r).max(0.0))
+        });
 
     // `flex-direction: column` — o eixo PRINCIPAL do flex vira o vertical: os itens
     // empilham (sem margin-collapse, que flex não tem), gap/justify/margin-auto
@@ -794,12 +814,82 @@ fn layout_block(
         }
     }
 
+    // ── TRANSFORM (translate/scale/rotate): pós-processa os itens DESTE elemento e
+    // seus descendentes (o range `[box_index..]`), em torno do CENTRO do border-box.
+    // Aplicado por último (não afeta o fluxo/tamanho — como no CSS, transform é visual).
+    if let Some(tf) = css.transform {
+        if !tf.is_identity() {
+            let cx = box_rect.x + box_rect.w / 2.0;
+            let cy = box_rect.y + box_rect.h / 2.0;
+            // translate em px + fração do tamanho do elemento (translate(-50%,-50%)).
+            let tx = tf.tx + tf.tx_pct * box_rect.w;
+            let ty = tf.ty + tf.ty_pct * box_rect.h;
+            let (sin, cos) = tf.rot_deg.to_radians().sin_cos();
+            for it in list.items[box_index..].iter_mut() {
+                apply_transform_to_item(it, cx, cy, tx, ty, tf.sx, tf.sy, sin, cos);
+            }
+        }
+    }
+
     // Tamanho EXTERNO da caixa (outer = content + padding + border + margin) — cada
     // componente já é a SOMA do seu eixo (padding_h = left+right; margin_h idem;
     // border conta 2× pelos dois lados). Não multiplicar margin/padding por 2.
     let outer_w = content_w + padding_h + 2.0 * border + margin_h;
     let outer_h = content_h + pad_top + pad_bottom + 2.0 * border + margin_top + margin_bottom;
     (outer_w, outer_h)
+}
+
+/// Aplica um transform (translate `tx,ty` + escala `sx,sy` + rotação `sin,cos`) em
+/// torno do centro `(cx,cy)` a um DisplayItem, mutando suas coords. Rects escalam de
+/// tamanho; a rotação move o canto (aproximação: rotaciona a posição, não o próprio
+/// rect — cobre o uso comum sem mesh rotacionado). Texto/pos: rotaciona+escala o ponto.
+#[allow(clippy::too_many_arguments)]
+fn apply_transform_to_item(
+    it: &mut DisplayItem,
+    cx: f32,
+    cy: f32,
+    tx: f32,
+    ty: f32,
+    sx: f32,
+    sy: f32,
+    sin: f32,
+    cos: f32,
+) {
+    // transforma UM ponto: escala em torno do centro, rotaciona, translada.
+    let xf = |px: f32, py: f32| -> (f32, f32) {
+        let (mut dx, mut dy) = (px - cx, py - cy);
+        dx *= sx;
+        dy *= sy;
+        let rx = dx * cos - dy * sin;
+        let ry = dx * sin + dy * cos;
+        (cx + rx + tx, cy + ry + ty)
+    };
+    match it {
+        DisplayItem::SolidRect { rect, .. }
+        | DisplayItem::Border { rect, .. }
+        | DisplayItem::GradientRect { rect, .. }
+        | DisplayItem::Shadow { rect, .. } => {
+            let (nx, ny) = xf(rect.x, rect.y);
+            rect.x = nx;
+            rect.y = ny;
+            rect.w *= sx;
+            rect.h *= sy;
+        }
+        DisplayItem::Text { x, y, size, .. } => {
+            let (nx, ny) = xf(*x, *y);
+            *x = nx;
+            *y = ny;
+            *size *= sy; // escala o texto na vertical (aproxima).
+        }
+        DisplayItem::BeginClip { rect, .. } => {
+            let (nx, ny) = xf(rect.x, rect.y);
+            rect.x = nx;
+            rect.y = ny;
+            rect.w *= sx;
+            rect.h *= sy;
+        }
+        DisplayItem::EndClip => {}
+    }
 }
 
 /// Largura NATURAL do conteúdo de um nó (sem `width` explícito): a maior largura
@@ -965,6 +1055,17 @@ fn is_inline_block(dom: &Dom, id: NodeIdx) -> bool {
     }
 }
 
+/// Código de decoração de texto p/ o `DisplayItem::Text` a partir do estilo:
+/// 0=nenhuma, 1=underline, 2=line-through, 3=overline.
+fn decoration_code(css: &ComputedStyle) -> u8 {
+    match css.text_decoration {
+        Some(crate::style::values::TextDecoration::Underline) => 1,
+        Some(crate::style::values::TextDecoration::LineThrough) => 2,
+        Some(crate::style::values::TextDecoration::Overline) => 3,
+        _ => 0,
+    }
+}
+
 /// Multiplica o ALPHA de uma cor `0xRRGGBBAA` por `opacity` ∈ [0,1] (o RGB fica
 /// intacto; só o canal alpha escala). `opacity >= 1` devolve a cor inalterada.
 fn apply_opacity(color: u32, opacity: f32) -> u32 {
@@ -1084,6 +1185,8 @@ fn layout_input(
             size: font,
             mono: false,
             bold: false,
+            letter_spacing: 0.0,
+            decoration: 0,
         });
     }
     // Cursor: barrinha vertical após o texto do VALOR (não do placeholder), só com foco.
@@ -1579,6 +1682,8 @@ fn layout_children_horizontal(
                     size: font_size,
                     mono: false,
                     bold: css.bold.unwrap_or(false),
+                    letter_spacing: css.letter_spacing.unwrap_or(0.0),
+                    decoration: decoration_code(css),
                 });
             } else {
                 // o main resolvido é IMPOSTO ao item (grow/shrink venceram o
@@ -1722,6 +1827,8 @@ fn layout_children_column(
                 size: font_size,
                 mono: false,
                 bold: css.bold.unwrap_or(false),
+                letter_spacing: css.letter_spacing.unwrap_or(0.0),
+                decoration: decoration_code(css),
             });
         } else {
             // CROSS (X): stretch (default) → o item ocupa a largura do container
@@ -1930,7 +2037,9 @@ fn layout_inline_flow(
         };
         // pinta cada pedaço NA SUA COR e PESO, avançando o x.
         for seg in line {
-            let w = ctx.measurer.text_width(&seg.text, font_size, mono, seg.bold);
+            let ls = parent_css.letter_spacing.unwrap_or(0.0);
+            let w = ctx.measurer.text_width(&seg.text, font_size, mono, seg.bold)
+                + ls * seg.text.chars().count() as f32;
             list.items.push(DisplayItem::Text {
                 x: seg_x,
                 y: cy,
@@ -1939,6 +2048,8 @@ fn layout_inline_flow(
                 size: font_size,
                 mono,
                 bold: seg.bold,
+                letter_spacing: ls,
+                decoration: decoration_code(parent_css),
             });
             seg_x += w;
         }

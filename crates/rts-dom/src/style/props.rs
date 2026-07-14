@@ -21,11 +21,12 @@
 //! matches explícitos em `parse.rs`/`fmt.rs` porque shorthands (`margin`,
 //! `border`, `font`) expandem para vários campos — não são 1-nome-1-campo.
 
-use super::effects::{BoxShadow, LinearGradient};
+use super::effects::{BoxShadow, LinearGradient, Transform};
 use super::lerp::AnimValue;
 use super::values::{
     AlignItems, BorderStyle, Dimension, DisplayKind, Edges, FlexDirection, FloatSide,
-    JustifyContent, LineHeight, Position, Rgba, Side, TextAlign, TextTransform, WhiteSpace,
+    JustifyContent, LineHeight, Position, Rgba, Side, TextAlign, TextDecoration, TextTransform,
+    WhiteSpace,
 };
 
 /// Declara a tabela de propriedades e gera a struct + os 4 mecanismos da cascade.
@@ -160,6 +161,13 @@ css_props! {
         /// `box-shadow` (a 1ª sombra da lista) — pintada atrás da caixa como um
         /// `DisplayItem::Shadow` (blur real no backend). `None` = sem sombra.
         [] box_shadow: BoxShadow;
+        /// `transform` (translate/scale/rotate compostos). Aplicado no paint aos itens
+        /// do elemento (e descendentes), em torno do centro. `None` = sem transform.
+        [] transform: Transform;
+        /// `aspect-ratio` — razão largura/altura (`16/9` → 1.777…). Quando o elemento
+        /// tem largura mas NÃO altura explícita, a altura = largura / ratio. `None` =
+        /// sem razão fixa. Usado por imagens/vídeos/cards proporcionais.
+        [] aspect_ratio: f32;
         /// `background: linear-gradient(...)` — quando o fundo é um gradiente linear
         /// (não uma cor sólida). Pintado como `DisplayItem::GradientRect`. `None` = o
         /// fundo é `bg` (cor sólida) ou nada.
@@ -185,6 +193,12 @@ css_props! {
         /// `text-transform` — caixa do texto (`uppercase`/`lowercase`/`capitalize`).
         /// `None` = `none` (texto como está).
         [inh] text_transform: TextTransform;
+        /// `letter-spacing` — espaço EXTRA entre caracteres (px), somado à largura de
+        /// cada glifo. Herdável. `None`/0 = normal. Afeta medição E pintura.
+        [inh] letter_spacing: f32;
+        /// `text-decoration[-line]` — sublinhado/tachado/sobrelinha. Herdável (a linha
+        /// desce até o texto filho). `None` = sem decoração.
+        [inh] text_decoration: TextDecoration;
         /// `font-family` — a 1ª família da lista (só guardamos o nome; o backend
         /// escolhe a fonte real). `None` = default. `mono` derivado se a família é
         /// monoespaçada.
