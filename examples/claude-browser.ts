@@ -105,21 +105,8 @@ function extractSite(rawHtml: string, pageUrl: string): string {
   return styles + inner;
 }
 
-// fetch.fetchText. Senão trata como página local site/<name>.html.
+// Página LOCAL (home/site/<name>.html). URLs remotas vão pelo caminho assíncrono.
 function load(name: string): string {
-  // URL remota? (contém '.') → download real.
-  if (name.indexOf(".") >= 0) {
-    const url = normalize(name);
-    io.print("GET " + url);
-    const raw = fetchNs.fetchText(url);
-    if (raw.length === 0) {
-      return page(name,
-        "<h1 style='color:#f97316'>Falhou</h1>"
-        + "<p style='color:#a4afc4'>Nao consegui baixar <b>" + url + "</b>.</p>");
-    }
-    return page(name, extractSite(raw, url));
-  }
-  // Página local.
   const path = "site/" + name + ".html";
   if (fs.exists(path)) return page(name, fs.read_text(path));
   if (fs.exists("dist/" + path)) return page(name, fs.read_text("dist/" + path));
@@ -169,95 +156,94 @@ function overGo(doc: number, vw: number, mx: number, my: number): boolean {
 
 const win = egui.openWindow("RTS Browser", VW, 720, 0);
 
-// NAVEGA: mostra "carregando", pinta 1 frame, baixa, troca a página. Retorna o
-// novo handle do DOM. `w` (a janela) vem por parâmetro (o engine não captura
-// const module-level dentro de função).
-function navigate(w: number, cur: number, val: string): number {
-  io.print("[nav] indo para: " + val);
-  // 1) tela de "carregando" — pinta ANTES do fetch (que BLOQUEIA a UI ~1-2s no
-  // download). O egui só mostra o 1º paint após ALGUNS frames — por isso pintamos
-  // um punhado de frames aqui, senão a janela fica BRANCA durante o fetch.
-  const loading = page(val,
-    "<h1 style='color:#22d3ee'>Carregando...</h1>"
-    + "<p style='color:#a4afc4'>Baixando <b>" + val + "</b></p>");
+// Estado de DOWNLOAD ASSÍNCRONO (o fetch roda numa thread, a UI NÃO congela).
+// `pendingTicket` = 0 quando não há download; senão o ticket do fetchTextAsync.
+let pendingTicket = 0;
+let pendingUrl = "";
+
+// Troca o DOM `cur` por uma página LOCAL/instantânea (home/site local). Retorna o
+// novo handle. Para URL remota, use `startNav` (assíncrono).
+function localPage(cur: number, val: string): number {
   dom.free(cur);
-  let doc = dom.parseHtml(loading);
-  let warm = 0;
-  while (warm < 5) {
-    if (egui.pump(w) !== 0) break;
-    egui.beginFrame(w);
-    egui.render(w, doc);
-    egui.endFrame(w);
-    warm = warm + 1;
-  }
-  // 2) baixa e troca (o fetch bloqueia aqui, mas a tela já mostra "Carregando").
-  const next = val === "home" ? page("home", HOME) : load(val);
-  dom.free(doc);
-  doc = dom.parseHtml(next);
+  const html = val === "home" ? page("home", HOME) : load(val);
+  const doc = dom.parseHtml(html);
   dom.focusInput(doc, urlInput(doc));
-  io.print("[nav] pronto: " + val);
   return doc;
 }
 
-// Abre na HOME (instantânea, sem fetch bloqueante). O usuário digita a URL e
-// navega — aí sim o fetch roda, com a tela "Carregando" já pintada.
+// Mostra "Carregando" e retorna o DOM dela (o loop pollа o download).
+function loadingPage(cur: number, val: string): number {
+  dom.free(cur);
+  const doc = dom.parseHtml(page(val,
+    "<h1 style='color:#22d3ee'>Carregando...</h1>"
+    + "<p style='color:#a4afc4'>Baixando <b>" + val + "</b> (sem travar a janela)</p>"));
+  return doc;
+}
+
+// Abre na HOME (instantânea).
 io.print("[boot] home instantânea (digite uma URL e Enter)");
-d = navigate(win, d, "home");
+d = localPage(d, "home");
 
 let frame = 0;
 while (egui.isOpen(win) !== 0) {
   if (egui.pump(win) !== 0) break;
   frame = frame + 1;
 
+  // ── POLL do download assíncrono (não bloqueia): quando pronto, monta a página ──
+  if (pendingTicket !== 0) {
+    const st = fetchNs.fetchPoll(pendingTicket);
+    if (st === 1) {
+      const raw = fetchNs.fetchTake(pendingTicket);
+      pendingTicket = 0;
+      io.print("[nav] baixou " + raw.length + "B de " + pendingUrl);
+      const html = raw.length === 0
+        ? page(pendingUrl, "<h1 style='color:#f97316'>Falhou</h1><p style='color:#a4afc4'>Nao consegui baixar.</p>")
+        : page(pendingUrl, extractSite(raw, normalize(pendingUrl)));
+      dom.free(d);
+      d = dom.parseHtml(html);
+      dom.focusInput(d, urlInput(d));
+    } else if (st < 0) {
+      pendingTicket = 0; // ticket inválido: aborta
+    }
+  }
+
   const mx = input.mouseX(win);
   const my = input.mouseY(win);
   const clicked = input.mouseClicked(win, 0);
-
   let doNav = false;
 
   // Clique: no botão "Ir" → navega; senão foca/desfoca o input sob o cursor.
   if (clicked !== 0) {
-    const inp = urlInput(d);
-    const irx = rectComp(d, inp, VW, 0);
-    const iry = rectComp(d, inp, VW, 1);
-    const irw = rectComp(d, inp, VW, 2);
-    const irh = rectComp(d, inp, VW, 3);
-    io.print("[click] mouse=(" + mx + "," + my + ")  input_rect=(" + irx + "," + iry + " " + irw + "x" + irh + ")");
     if (overGo(d, VW, mx, my)) {
-      io.print("[click] botao IR");
       doNav = true;
     } else {
       const hit = dom.inputAt(d, VW, mx, my);
-      io.print("[click] inputAt=" + hit);
       dom.focusInput(d, hit);
     }
   }
 
   // Digitação no input focado.
   const typed = input.textInput(win);
-  if (typed.length > 0) {
-    const changed = dom.inputFeedText(d, typed);
-    io.print("[type] '" + typed + "' changed=" + changed
-      + " focused=" + dom.focusedInput(d)
-      + " val='" + dom.inputValue(d, urlInput(d)) + "'");
-  }
-  if (input.key(win, KEY_BACKSPACE, PHASE_PRESSED) !== 0) {
-    io.print("[key] backspace");
-    dom.inputBackspace(d);
-  }
-  if (input.key(win, KEY_ENTER, PHASE_PRESSED) !== 0) {
-    io.print("[key] ENTER");
-    doNav = true;
-  }
+  if (typed.length > 0) dom.inputFeedText(d, typed);
+  if (input.key(win, KEY_BACKSPACE, PHASE_PRESSED) !== 0) dom.inputBackspace(d);
+  if (input.key(win, KEY_ENTER, PHASE_PRESSED) !== 0) doNav = true;
 
-  // Navega (Enter ou botão Ir).
-  if (doNav) {
+  // Navega (Enter ou botão Ir) — só se não há download em andamento.
+  if (doNav && pendingTicket === 0) {
     const val = dom.inputValue(d, urlInput(d));
-    io.print("[nav] valor da barra = '" + val + "'");
+    io.print("[nav] '" + val + "'");
     if (val.length > 0) {
-      d = navigate(win, d, val);
-    } else {
-      io.print("[nav] barra vazia, ignorado");
+      if (val.indexOf(".") >= 0) {
+        // URL remota → dispara download ASSÍNCRONO (a UI segue fluida com "Carregando").
+        pendingUrl = val;
+        const url = normalize(val);
+        io.print("GET (async) " + url);
+        pendingTicket = fetchNs.fetchTextAsync(url);
+        d = loadingPage(d, val);
+      } else {
+        // página local (instantânea).
+        d = localPage(d, val);
+      }
     }
   }
 
