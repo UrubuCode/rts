@@ -175,6 +175,12 @@ pub struct Stylesheet {
     /// Os `@keyframes nome {...}` da página (#1776), por nome. Consultados pelo
     /// `advance` quando um nó tem `animation: nome ...`.
     pub keyframes: std::collections::HashMap<String, crate::anim::Keyframes>,
+    /// Índice de regras por chave-alvo (id/classe/tag) — reduz a cascade de "testar
+    /// TODAS as regras por nó" para "testar só as candidatas". Construído lazy sob
+    /// `&self` (por isso `RefCell`); reconstruído quando `rules` muda (o `covered`
+    /// do índice detecta). Estado DERIVADO — fora do `PartialEq` (que compara só
+    /// `rules`).
+    index: std::cell::RefCell<super::ruleindex::RuleIndex>,
 }
 
 // PartialEq manual (Keyframes tem f32, não derivamos Eq; o diff de árvore só compara
@@ -188,7 +194,25 @@ impl PartialEq for Stylesheet {
 impl Stylesheet {
     /// Stylesheet vazio (nenhuma regra).
     pub fn new() -> Stylesheet {
-        Stylesheet { rules: Vec::new(), keyframes: std::collections::HashMap::new() }
+        Stylesheet {
+            rules: Vec::new(),
+            keyframes: std::collections::HashMap::new(),
+            index: std::cell::RefCell::new(super::ruleindex::RuleIndex::default()),
+        }
+    }
+
+    /// Garante o índice de regras sincronizado com `self.rules` e devolve os índices
+    /// das regras CANDIDATAS a casar um nó `(tag, id, classes)` — a base do fast-path
+    /// da cascade. Constrói/reconstrói o índice sob demanda (lazy) se estiver stale.
+    fn candidate_indices(&self, tag: &str, id: Option<&str>, classes: &[&str]) -> Vec<usize> {
+        {
+            let idx = self.index.borrow();
+            if !idx.is_current(self.rules.len()) {
+                drop(idx);
+                *self.index.borrow_mut() = super::ruleindex::RuleIndex::build(&self.rules);
+            }
+        }
+        self.index.borrow().candidates(tag, id, classes)
     }
 
     /// `true` se não há nenhuma regra (atalho para o `computed_style` pular a
@@ -248,12 +272,18 @@ impl Stylesheet {
     pub fn computed_for_node(
         &self,
         viewport_w: f32,
+        node_tag: &str,
+        node_id: Option<&str>,
+        node_classes: &[&str],
         vars: Option<&std::collections::HashMap<String, String>>,
         matches: impl Fn(&ComplexSelector) -> bool,
     ) -> DeclBlock {
-        let mut matched: Vec<&Rule> = self
-            .rules
+        // FAST PATH: só as regras cuja chave-alvo o nó pode satisfazer (índice), em
+        // vez de TODAS as regras. O `matches` completo (navega a árvore) ainda decide.
+        let cand = self.candidate_indices(node_tag, node_id, node_classes);
+        let mut matched: Vec<&Rule> = cand
             .iter()
+            .map(|&i| &self.rules[i])
             .filter(|r| r.media.map(|m| m.matches(viewport_w)).unwrap_or(true))
             .filter(|r| matches(&r.selector))
             .collect();
@@ -290,11 +320,15 @@ impl Stylesheet {
     pub fn custom_for_node(
         &self,
         viewport_w: f32,
+        node_tag: &str,
+        node_id: Option<&str>,
+        node_classes: &[&str],
         matches: impl Fn(&ComplexSelector) -> bool,
     ) -> Vec<(String, String)> {
-        let mut matched: Vec<&Rule> = self
-            .rules
+        let cand = self.candidate_indices(node_tag, node_id, node_classes);
+        let mut matched: Vec<&Rule> = cand
             .iter()
+            .map(|&i| &self.rules[i])
             .filter(|r| !r.decls.custom.is_empty())
             .filter(|r| r.media.map(|m| m.matches(viewport_w)).unwrap_or(true))
             .filter(|r| matches(&r.selector))
@@ -312,7 +346,7 @@ impl Stylesheet {
         let no_pseudo = |_: &PseudoClass| false;
         // viewport de referência 1280 (helper sem árvore/viewport — testes);
         // sem vars (pendentes com var() não resolvem aqui).
-        self.computed_for_node(1280.0, None, |sel| {
+        self.computed_for_node(1280.0, tag, id, classes, None, |sel| {
             // só seletores de 1 compound casam sem a árvore.
             sel.compounds.len() == 1
                 && compound_matches(&sel.compounds[0], tag, id, classes, &no_attr, &no_pseudo)
@@ -352,14 +386,29 @@ pub fn parse_rules(css: &str) -> Vec<Rule> {
                     match find_matching_brace(&css[body_start..]) {
                         Some(end) => {
                             let header = &css[ws..ws + b];
+                            let inner_css = &css[body_start..body_start + end];
                             if let Some(cond) = header.strip_prefix("@media") {
                                 let outer = MediaQuery::parse(cond.trim());
-                                for mut rule in parse_rules(&css[body_start..body_start + end]) {
+                                for mut rule in parse_rules(inner_css) {
                                     // aninhamento @media-em-@media: AND das queries.
                                     rule.media = Some(match rule.media {
                                         Some(inner) => inner.and(outer),
                                         None => outer,
                                     });
+                                    rules.push(rule);
+                                }
+                            } else if header.trim_start().starts_with("@layer")
+                                || header.trim_start().starts_with("@supports")
+                            {
+                                // `@layer <nome> { ... }` / `@layer { ... }` (anônimo) e
+                                // `@supports (...) { ... }`: TRANSPARENTES para o matching.
+                                // As regras internas entram no nível atual (a precedência
+                                // fina entre camadas / a avaliação real do @supports são
+                                // refinamento posterior — o essencial é APLICAR as regras,
+                                // senão o Tailwind v4, que embrulha TUDO em @layer, some).
+                                // As camadas do Tailwind vêm em ordem correta no arquivo, e
+                                // o `order` da cascade (posição) já as desempata bem.
+                                for rule in parse_rules(inner_css) {
                                     rules.push(rule);
                                 }
                             }

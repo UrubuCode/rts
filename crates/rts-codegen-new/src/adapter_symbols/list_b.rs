@@ -161,6 +161,23 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_GL_PROMISE_WITH_RESOLVERS
                 as *const u8,
         ),
+        // Fetch API: `fetch()` + Response.text() + the mini-browser's `fetchText()`
+        // (sync GET → body string). Specs carry null fn_ptr (external) → JIT-registered
+        // here so `import fetchNs from "rts:fetch"` resolves.
+        sym(
+            "__RTS_FN_GL_FETCH",
+            rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_GL_FETCH as *const u8,
+        ),
+        sym(
+            "__RTS_FN_GL_FETCH_RESPONSE_TEXT",
+            rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_GL_FETCH_RESPONSE_TEXT
+                as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_FETCH_FETCH_TEXT",
+            rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_NS_FETCH_FETCH_TEXT
+                as *const u8,
+        ),
         // Symbol NON-primordial Registry class (#216): ctor + for/keyFor statics +
         // description getter + well-known accessors. Impls in rts-shared
         // (globals/symbol); spec carries null fn_ptr (external) → registered here.

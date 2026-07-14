@@ -272,6 +272,14 @@ pub extern "C" fn __RTS_FN_NS_DOM_DUMP_LAYOUT(h: u64, viewport_w: i64) {
                     "    {{\"kind\":\"beginClip\",\"x\":{:.1},\"y\":{:.1},\"w\":{:.1},\"h\":{:.1}}}",
                     rect.x, rect.y, rect.w, rect.h
                 ),
+                DisplayItem::Shadow { rect, blur, color, .. } => format!(
+                    "    {{\"kind\":\"shadow\",\"x\":{:.1},\"y\":{:.1},\"w\":{:.1},\"h\":{:.1},\"blur\":{:.1},\"color\":\"{}\"}}",
+                    rect.x, rect.y, rect.w, rect.h, blur, hx(*color)
+                ),
+                DisplayItem::GradientRect { rect, c0, c1, .. } => format!(
+                    "    {{\"kind\":\"gradient\",\"x\":{:.1},\"y\":{:.1},\"w\":{:.1},\"h\":{:.1},\"c0\":\"{}\",\"c1\":\"{}\"}}",
+                    rect.x, rect.y, rect.w, rect.h, hx(*c0), hx(*c1)
+                ),
                 DisplayItem::EndClip => "    {\"kind\":\"endClip\"}".to_string(),
             };
             s.push_str(&line);
@@ -354,6 +362,103 @@ pub extern "C" fn __RTS_FN_NS_DOM_BOUNDING_COMPONENT(h: u64, id: i64, viewport_w
             None => -1,
         }
     })
+}
+
+// ── Formulário: input editável (mini-browser) ───────────────────────────────────
+// O egui continua BURRO: ele já entrega ao TS a posição do clique e os caracteres
+// digitados no frame (via os primitivos de input). Estes ABIs deixam o TS: (1)
+// descobrir QUAL input está sob o cursor (hit-test no layout), (2) dar/tirar o FOCO,
+// (3) alimentar texto/backspace no input focado. Toda a lógica de edição vive no
+// rts-dom; o layout emite o texto+cursor na DisplayList que o egui pinta.
+
+/// `inputAt(dom, viewportW, x, y)` → o `NodeId` do `<input>`/`<textarea>` cujo
+/// border-box contém a coord `(x, y)` (coords de conteúdo da página, × 1). `-1` se
+/// nenhum. Usa o layout cacheado (mesmo GEOM_CACHE do getBoundingClientRect).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_INPUT_AT(h: u64, viewport_w: i64, x: i64, y: i64) -> i64 {
+    use crate::layout::{ApproxMeasurer, LayoutCtx};
+    let vw = viewport_w.max(1);
+    let (px, py) = (x as f32, y as f32);
+    let rev = match with(h, |dom| dom.render_revision()) {
+        Some(r) => r,
+        None => return NODE_NONE,
+    };
+    GEOM_CACHE.with(|cache| {
+        let mut c = cache.borrow_mut();
+        let need = !matches!(&*c, Some((ch, cv, cr, _)) if *ch == h && *cv == vw && *cr == rev);
+        if need {
+            let list = with(h, |dom| {
+                let ctx = LayoutCtx { viewport_w: vw as f32, viewport_h: 800.0, measurer: &ApproxMeasurer };
+                crate::layout::layout_document(dom, &ctx)
+            });
+            match list {
+                Some(l) => *c = Some((h, vw, rev, l)),
+                None => return NODE_NONE,
+            }
+        }
+        // Percorre os rects; devolve o input que contém o ponto (o último no z-order
+        // vence se sobrepostos — inputs raramente se sobrepõem).
+        let hit = match &*c {
+            Some((_, _, _, l)) => {
+                let mut found = NODE_NONE;
+                for (idx, r) in &l.node_rects {
+                    if px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h {
+                        let is_input = with(h, |dom| dom.is_text_input_idx(*idx)).unwrap_or(false);
+                        if is_input {
+                            found = with(h, |dom| dom.id_of_idx(*idx).to_abi()).unwrap_or(NODE_NONE);
+                        }
+                    }
+                }
+                found
+            }
+            None => NODE_NONE,
+        };
+        hit
+    })
+}
+
+/// `focusInput(dom, node)` → dá o foco a `node` (recebe teclas); `node == -1` tira
+/// o foco de todos. O caller (loop TS) chama após um clique (via `inputAt`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_FOCUS_INPUT(h: u64, id: i64) {
+    let node = NodeId::from_abi(id);
+    with_mut(h, |dom| {
+        let idx = node.and_then(|n| dom.resolve(n));
+        dom.focus_input(idx);
+    });
+}
+
+/// `focusedInput(dom)` → o `NodeId` do input focado (-1 se nenhum).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_FOCUSED_INPUT(h: u64) -> i64 {
+    with(h, |dom| dom.focused_input().map(|i| dom.id_of_idx(i).to_abi()).unwrap_or(NODE_NONE))
+        .unwrap_or(NODE_NONE)
+}
+
+/// `inputFeedText(dom, text)` → anexa `text` ao input focado (os caracteres do
+/// frame). `1` se algo mudou (pede repaint), `0` senão.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_INPUT_FEED_TEXT(h: u64, t_ptr: *const u8, t_len: i64) -> i64 {
+    let t = unsafe { str_abi::from_abi(t_ptr, t_len) }.unwrap_or("").to_string();
+    with_mut(h, |dom| dom.input_feed_text(&t) as i64).unwrap_or(0)
+}
+
+/// `inputBackspace(dom)` → apaga o último char do input focado. `1` se mudou.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_INPUT_BACKSPACE(h: u64) -> i64 {
+    with_mut(h, |dom| dom.input_backspace() as i64).unwrap_or(0)
+}
+
+/// `inputValue(dom, node)` → o texto corrente do input (value digitado ou atributo)
+/// como STRING (handle do pool GC). `""` se não for input.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_INPUT_VALUE(h: u64, id: i64) -> u64 {
+    let Some(node) = NodeId::from_abi(id) else { return intern("") };
+    let v = with(h, |dom| {
+        dom.resolve(node).map(|idx| dom.input_value(idx)).unwrap_or_default()
+    })
+    .unwrap_or_default();
+    intern(&v)
 }
 
 // ── Leitura de conteúdo: STRING de volta pro TS (handle do pool GC) ──────────────
@@ -1613,6 +1718,49 @@ pub fn register(e: &mut Engine) {
             "advance(dom: number, nowMs: number): number",
             "advance animations to nowMs (DOM-internal loop, #1776); 1 if active (repaint), 0 if static.",
             __RTS_FN_NS_DOM_ADVANCE as *const u8,
+        ))
+        // ── Formulário: input editável (mini-browser) ───────────────────────────
+        .member(func(
+            "inputAt", "__RTS_FN_NS_DOM_INPUT_AT",
+            Sig::new(vec![Handle, I64, I64, I64], I64),
+            "inputAt(dom: number, viewportW: number, x: number, y: number): number",
+            "NodeId of the <input>/<textarea> whose box contains (x,y); -1 if none.",
+            __RTS_FN_NS_DOM_INPUT_AT as *const u8,
+        ))
+        .member(func(
+            "focusInput", "__RTS_FN_NS_DOM_FOCUS_INPUT",
+            Sig::new(vec![Handle, I64], AbiType::Void),
+            "focusInput(dom: number, node: number): void",
+            "give keyboard focus to node (receives typed text); node=-1 clears focus.",
+            __RTS_FN_NS_DOM_FOCUS_INPUT as *const u8,
+        ))
+        .member(func(
+            "focusedInput", "__RTS_FN_NS_DOM_FOCUSED_INPUT",
+            Sig::new(vec![Handle], I64),
+            "focusedInput(dom: number): number",
+            "NodeId of the currently focused input (-1 if none).",
+            __RTS_FN_NS_DOM_FOCUSED_INPUT as *const u8,
+        ))
+        .member(func(
+            "inputFeedText", "__RTS_FN_NS_DOM_INPUT_FEED_TEXT",
+            Sig::new(vec![Handle, StrPtr], I64),
+            "inputFeedText(dom: number, text: string): number",
+            "append text to the focused input; 1 if changed (repaint), 0 otherwise.",
+            __RTS_FN_NS_DOM_INPUT_FEED_TEXT as *const u8,
+        ))
+        .member(func(
+            "inputBackspace", "__RTS_FN_NS_DOM_INPUT_BACKSPACE",
+            Sig::new(vec![Handle], I64),
+            "inputBackspace(dom: number): number",
+            "delete the last char of the focused input; 1 if changed, 0 otherwise.",
+            __RTS_FN_NS_DOM_INPUT_BACKSPACE as *const u8,
+        ))
+        .member(func(
+            "inputValue", "__RTS_FN_NS_DOM_INPUT_VALUE",
+            Sig::new(vec![Handle, I64], AbiType::Handle),
+            "inputValue(dom: number, node: number): string",
+            "current text of the input (typed value or value= attribute); '' if not an input.",
+            __RTS_FN_NS_DOM_INPUT_VALUE as *const u8,
         ))
         .member(func(
             "getAttribute",

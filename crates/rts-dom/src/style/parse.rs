@@ -50,7 +50,21 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
         let css = if important { &mut block.important } else { &mut block.normal };
         match prop.as_str() {
             "color" => css.color = parse_color(val),
-            "background-color" | "background" => css.bg = parse_color(val),
+            "background-color" => css.bg = parse_color(val),
+            "background" | "background-image" => {
+                // pode ser um GRADIENTE ou uma cor sólida (ou url, ignorada).
+                if let Some(g) = crate::style::effects::LinearGradient::parse(val) {
+                    css.gradient = Some(g);
+                } else if let Some(c) = parse_color(val) {
+                    css.bg = Some(c);
+                }
+            }
+            "box-shadow" => css.box_shadow = crate::style::effects::BoxShadow::parse(val),
+            "grid-template-columns" => css.grid_columns = parse_grid_columns(val),
+            "opacity" => {
+                // `opacity: <0..1>` (clampa fora do intervalo, como o browser).
+                css.opacity = val.trim().parse::<f32>().ok().map(|v| v.clamp(0.0, 1.0))
+            }
             "font-size" => css.font_size = parse_dimension(val),
             "font-weight" => css.bold = Some(is_bold(val)),
             "font-style" => {
@@ -79,12 +93,39 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             "padding-right" => css.padding.right = parse_side(val, false),
             "padding-bottom" => css.padding.bottom = parse_side(val, false),
             "padding-left" => css.padding.left = parse_side(val, false),
+            // Props LÓGICAS (Tailwind v4 usa `px-N`→padding-inline, `py-N`→padding-block
+            // em TUDO): inline = left+right, block = top+bottom (modo horizontal LTR).
+            "padding-inline" => {
+                let s = parse_side(val, false);
+                css.padding.left = s;
+                css.padding.right = s;
+            }
+            "padding-block" => {
+                let s = parse_side(val, false);
+                css.padding.top = s;
+                css.padding.bottom = s;
+            }
+            "padding-inline-start" | "padding-inline-end" => {
+                // LTR: start=left, end=right. Sem distinguir aqui, aplica no lado certo.
+                let s = parse_side(val, false);
+                if prop.as_str() == "padding-inline-start" { css.padding.left = s; } else { css.padding.right = s; }
+            }
             // margin aceita `auto` (centralização); padding não.
             "margin" => css.margin = parse_edges(val, true),
             "margin-top" => css.margin.top = parse_side(val, true),
             "margin-right" => css.margin.right = parse_side(val, true),
             "margin-bottom" => css.margin.bottom = parse_side(val, true),
             "margin-left" => css.margin.left = parse_side(val, true),
+            "margin-inline" => {
+                let s = parse_side(val, true);
+                css.margin.left = s;
+                css.margin.right = s;
+            }
+            "margin-block" => {
+                let s = parse_side(val, true);
+                css.margin.top = s;
+                css.margin.bottom = s;
+            }
             // shorthand `border: <width> <style> <color>` (qualquer ordem, qualquer
             // omitível). Setar os 3 de uma vez. (Por-lado fica para fase 2.)
             "border" => apply_border_shorthand(css, val),
@@ -212,14 +253,33 @@ fn parse_dimension(v: &str) -> Option<Dimension> {
 }
 
 /// Parseia `display: block|flex|inline|inline-block|none` para [`DisplayKind`].
-/// Valores não suportados (grid, table, …) → `None` (cai no default da tag).
+/// Extrai o Nº DE COLUNAS de `grid-template-columns`: de `repeat(N, ...)` pega N; de
+/// uma lista de trilhas (`1fr 1fr 1fr`, `200px 200px`) conta os itens de topo. `None`
+/// para valores que não dão um número (auto/subgrid/…). Cobre o padrão Tailwind
+/// `grid-cols-N` (= `repeat(N, minmax(0,1fr))`).
+fn parse_grid_columns(v: &str) -> Option<i32> {
+    let v = v.trim();
+    let low = v.to_ascii_lowercase();
+    if let Some(i) = low.find("repeat(") {
+        let inner = &v[i + "repeat(".len()..];
+        // o 1º argumento (antes da 1ª vírgula de topo) é a contagem.
+        let count = inner.split(',').next()?.trim();
+        return count.parse::<i32>().ok().filter(|n| *n >= 1);
+    }
+    // lista de trilhas separadas por espaço de TOPO (respeita parênteses de minmax()).
+    let n = split_top_ws(v).len() as i32;
+    (n >= 1).then_some(n)
+}
+
+/// Valores não suportados (table, …) → `None` (cai no default da tag).
 fn parse_display(v: &str) -> Option<DisplayKind> {
     match v.trim().to_ascii_lowercase().as_str() {
         "block" | "flow-root" => Some(DisplayKind::Block),
         "flex" | "inline-flex" => Some(DisplayKind::Flex),
         "inline" | "inline-block" => Some(DisplayKind::Inline),
+        "grid" | "inline-grid" => Some(DisplayKind::Grid),
         "none" => Some(DisplayKind::None),
-        _ => None, // grid/table/etc — não suportado nesta fase.
+        _ => None, // table/etc — não suportado nesta fase.
     }
 }
 
@@ -339,8 +399,11 @@ fn parse_gap_pair(val: &str) -> (Option<Dimension>, Option<Dimension>) {
 /// - 4: `top` | `right` | `bottom` | `left` (horário)
 /// `allow_auto` habilita o keyword `auto` (margin). Tokens inválidos → Unset.
 fn parse_edges(val: &str, allow_auto: bool) -> Edges {
-    let toks: Vec<Side> = val
-        .split_whitespace()
+    // Separa os lados respeitando PARÊNTESES — um `calc(0.25rem * 4)` (todo o
+    // espaçamento do Tailwind v4) tem espaços INTERNOS que o `split_whitespace` cru
+    // quebraria em 3 tokens inválidos, zerando o padding/margin da página inteira.
+    let toks: Vec<Side> = split_top_ws(val)
+        .iter()
         .map(|t| parse_side(t, allow_auto))
         .collect();
     match toks.as_slice() {
@@ -350,6 +413,36 @@ fn parse_edges(val: &str, allow_auto: bool) -> Edges {
         [t, r, b, l] => Edges { top: *t, right: *r, bottom: *b, left: *l },
         _ => Edges::default(), // 0 ou >4: ignora (robustez).
     }
+}
+
+/// Separa uma lista de valores por ESPAÇO de TOPO (fora de parênteses), para o
+/// shorthand de edges não quebrar `calc(a * b)` (espaços internos). Vazio → [].
+fn split_top_ws(v: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut depth = 0i32;
+    let mut cur = String::new();
+    for c in v.chars() {
+        match c {
+            '(' => {
+                depth += 1;
+                cur.push(c);
+            }
+            ')' => {
+                depth -= 1;
+                cur.push(c);
+            }
+            c if c.is_whitespace() && depth == 0 => {
+                if !cur.is_empty() {
+                    out.push(std::mem::take(&mut cur));
+                }
+            }
+            _ => cur.push(c),
+        }
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
 }
 
 /// Parseia UM lado de margin/padding: um COMPRIMENTO em qualquer unidade

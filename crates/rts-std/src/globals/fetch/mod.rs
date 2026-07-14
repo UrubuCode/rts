@@ -66,6 +66,15 @@ pub fn register(e: &mut Engine) {
             "fetch(url, init?) — HTTP request síncrono. Retorna Promise<Response>.",
             false,
         ))
+        .member(m(
+            "fetchText",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
+            "__RTS_FN_NS_FETCH_FETCH_TEXT",
+            "fetchText(url: string): string",
+            "fetchText(url) — GET the URL and return the body as a string (sync). '' on network error.",
+            false,
+        ))
         .done();
 }
 
