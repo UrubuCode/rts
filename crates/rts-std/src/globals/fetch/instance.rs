@@ -148,6 +148,64 @@ pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_TEXT(url_ptr: i64, url_len: i64) -> u6
     alloc_entry(Entry::String(body))
 }
 
+// ── fetch ASSÍNCRONO (não bloqueia a UI) ─────────────────────────────────────
+// O `fetchText` síncrono trava a thread de UI ~1-2s durante o download (TLS +
+// bytes). Esta variante dispara o GET numa thread separada e devolve um TICKET
+// (u64) na hora; o loop de UI continua pintando e faz POLL a cada frame. Quando
+// pronto, `fetchTake` entrega o corpo. Estado num mapa global thread-safe.
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+
+/// `ticket → Some(corpo)` quando pronto; `None` enquanto baixa. Removido no take.
+fn async_fetches() -> &'static Mutex<HashMap<u64, Option<String>>> {
+    static F: OnceLock<Mutex<HashMap<u64, Option<String>>>> = OnceLock::new();
+    F.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Contador de tickets (id monotônico). Simples e suficiente (1 fetch por vez no
+/// browser; nunca reusa id vivo).
+fn next_ticket() -> u64 {
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// `fetchTextAsync(url)` → dispara o GET numa thread e devolve um TICKET (u64)
+/// imediatamente (NÃO bloqueia). O corpo fica disponível via `fetchPoll`/`fetchTake`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_TEXT_ASYNC(url_ptr: i64, url_len: i64) -> u64 {
+    let url = str_from_parts(url_ptr, url_len).to_string();
+    let ticket = next_ticket();
+    async_fetches().lock().unwrap().insert(ticket, None); // pendente
+    std::thread::spawn(move || {
+        // download síncrono NA THREAD (a UI segue livre).
+        let resp_h = do_fetch(&url, 0);
+        let body = with_response(resp_h, |r| r.body.clone()).unwrap_or_default();
+        free_handle(resp_h); // a Response já foi consumida.
+        let s = String::from_utf8_lossy(&body).into_owned();
+        async_fetches().lock().unwrap().insert(ticket, Some(s));
+    });
+    ticket
+}
+
+/// `fetchPoll(ticket)` → `1` se o download terminou (corpo pronto p/ `fetchTake`),
+/// `0` se ainda baixando, `-1` se o ticket é inválido. Não bloqueia.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_POLL(ticket: u64) -> i64 {
+    match async_fetches().lock().unwrap().get(&ticket) {
+        Some(Some(_)) => 1,
+        Some(None) => 0,
+        None => -1,
+    }
+}
+
+/// `fetchTake(ticket)` → o corpo baixado como STRING (handle do pool GC) e REMOVE o
+/// ticket. `""` se não está pronto / inválido. Chamar após `fetchPoll` == 1.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_TAKE(ticket: u64) -> u64 {
+    let taken = async_fetches().lock().unwrap().remove(&ticket).flatten();
+    alloc_entry(Entry::String(taken.unwrap_or_default().into_bytes()))
+}
+
 // ── Promise ──────────────────────────────────────────────────────────────────
 //
 // .then/.catch/.finally operam sobre Entry::PromiseAsync(Arc<PromiseSlot>) —

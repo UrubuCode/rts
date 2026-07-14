@@ -178,6 +178,21 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_NS_FETCH_FETCH_TEXT
                 as *const u8,
         ),
+        sym(
+            "__RTS_FN_NS_FETCH_FETCH_TEXT_ASYNC",
+            rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_NS_FETCH_FETCH_TEXT_ASYNC
+                as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_FETCH_FETCH_POLL",
+            rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_NS_FETCH_FETCH_POLL
+                as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_FETCH_FETCH_TAKE",
+            rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_NS_FETCH_FETCH_TAKE
+                as *const u8,
+        ),
         // Symbol NON-primordial Registry class (#216): ctor + for/keyFor statics +
         // description getter + well-known accessors. Impls in rts-shared
         // (globals/symbol); spec carries null fn_ptr (external) → registered here.

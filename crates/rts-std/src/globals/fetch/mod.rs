@@ -75,6 +75,33 @@ pub fn register(e: &mut Engine) {
             "fetchText(url) — GET the URL and return the body as a string (sync). '' on network error.",
             false,
         ))
+        .member(m(
+            "fetchTextAsync",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::StrPtr], AbiType::U64),
+            "__RTS_FN_NS_FETCH_FETCH_TEXT_ASYNC",
+            "fetchTextAsync(url: string): number",
+            "fetchTextAsync(url) — start a GET on a background thread; returns a ticket immediately (no UI block).",
+            false,
+        ))
+        .member(m(
+            "fetchPoll",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::U64], AbiType::I64),
+            "__RTS_FN_NS_FETCH_FETCH_POLL",
+            "fetchPoll(ticket: number): number",
+            "fetchPoll(ticket) — 1 if done, 0 if downloading, -1 if invalid.",
+            false,
+        ))
+        .member(m(
+            "fetchTake",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::U64], AbiType::Handle),
+            "__RTS_FN_NS_FETCH_FETCH_TAKE",
+            "fetchTake(ticket: number): string",
+            "fetchTake(ticket) — the downloaded body as a string, and removes the ticket. '' if not ready.",
+            false,
+        ))
         .done();
 }
 
