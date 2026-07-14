@@ -287,6 +287,10 @@ css_props! {
         /// FLUXO (não ocupam espaço) e pintam contra o viewport com os offsets
         /// abaixo (v1 — ver [`Position`]). `None` = `static`.
         [] position: Position;
+        /// `z-index` — ordem de empilhamento dos elementos POSICIONADOS. Maior pinta
+        /// por cima. `None` = auto (ordem do documento). V1: ordena os out-of-flow
+        /// (absolute/fixed) por z-index; stacking contexts aninhados são a v2.
+        [] z_index: i32;
         /// `top` — offset do posicionamento (só atua com position abs/fixed na v1).
         [] inset_top: Dimension;
         /// `right` — offset do posicionamento.

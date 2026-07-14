@@ -195,6 +195,7 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
             // px negativo entra por parse direto.
             "float" => css.float_side = FloatSide::parse(val),
             "position" => css.position = Position::parse(val),
+            "z-index" => css.z_index = val.trim().parse::<i32>().ok(),
             "top" => css.inset_top = parse_inset(val),
             "right" => css.inset_right = parse_inset(val),
             "bottom" => css.inset_bottom = parse_inset(val),

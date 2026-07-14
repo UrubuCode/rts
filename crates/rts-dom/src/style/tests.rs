@@ -13,6 +13,13 @@ fn parses_typography() {
 }
 
 #[test]
+fn parses_z_index() {
+    assert_eq!(parse_inline("z-index: 10").z_index, Some(10));
+    assert_eq!(parse_inline("z-index: -1").z_index, Some(-1));
+    assert_eq!(parse_inline("z-index: auto").z_index, None);
+}
+
+#[test]
 fn parses_aspect_ratio() {
     assert_eq!(parse_inline("aspect-ratio: 16 / 9").aspect_ratio, Some(16.0 / 9.0));
     assert_eq!(parse_inline("aspect-ratio: 1 / 1").aspect_ratio, Some(1.0));
