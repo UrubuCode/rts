@@ -129,12 +129,17 @@ function load(name: string): string {
     + "Tente <b>home</b>, <b>sobre</b>, ou uma URL como <b>example.com</b>.</p>");
 }
 
-// Página inicial embutida (não depende de arquivo).
+// Página inicial embutida (não depende de arquivo — abre instantânea).
 const HOME =
-  "<h1 style='color:#22d3ee;font-size:40px'>Mini-browser RTS</h1>"
-  + "<p style='color:#a4afc4;font-size:18px'>A barra de cima e um &lt;input&gt; DE VERDADE, "
-  + "renderizado e editado pelo motor do RTS. Clique nela, digite e aperte Enter.</p>"
-  + "<p style='color:#8592a8'>Paginas locais: escreva <b>home</b> ou <b>sobre</b>.</p>";
+  "<div style='padding:40px 0'>"
+  + "<h1 style='color:#22d3ee;font-size:44px'>Mini-browser RTS</h1>"
+  + "<p style='color:#a4afc4;font-size:19px'>A barra de cima e um &lt;input&gt; DE VERDADE, "
+  + "renderizado e editado pelo motor do RTS. Clique nela, digite uma URL e aperte Enter.</p>"
+  + "<p style='color:#8592a8;font-size:16px'>Ex.: <b>example.com</b>, <b>wikipedia.org</b>. "
+  + "Ao navegar, aparece 'Carregando...' enquanto baixa (o download bloqueia ~1-2s — normal).</p>"
+  + "<p style='color:#64748b;font-size:14px'>Sites que montam o tema por JavaScript "
+  + "(DaisyUI/React) vem sem cor — o RTS ainda nao executa JS da pagina.</p>"
+  + "</div>";
 
 let d = dom.parseHtml(page("home", HOME));
 
@@ -169,17 +174,23 @@ const win = egui.openWindow("RTS Browser", VW, 720, 0);
 // const module-level dentro de função).
 function navigate(w: number, cur: number, val: string): number {
   io.print("[nav] indo para: " + val);
-  // 1) tela de "carregando" — pinta ANTES do fetch (que bloqueia).
+  // 1) tela de "carregando" — pinta ANTES do fetch (que BLOQUEIA a UI ~1-2s no
+  // download). O egui só mostra o 1º paint após ALGUNS frames — por isso pintamos
+  // um punhado de frames aqui, senão a janela fica BRANCA durante o fetch.
   const loading = page(val,
     "<h1 style='color:#22d3ee'>Carregando...</h1>"
     + "<p style='color:#a4afc4'>Baixando <b>" + val + "</b></p>");
   dom.free(cur);
   let doc = dom.parseHtml(loading);
-  egui.beginFrame(w);
-  egui.render(w, doc);
-  egui.endFrame(w);
-  egui.pump(w); // empurra o frame de loading pra tela
-  // 2) baixa e troca.
+  let warm = 0;
+  while (warm < 5) {
+    if (egui.pump(w) !== 0) break;
+    egui.beginFrame(w);
+    egui.render(w, doc);
+    egui.endFrame(w);
+    warm = warm + 1;
+  }
+  // 2) baixa e troca (o fetch bloqueia aqui, mas a tela já mostra "Carregando").
   const next = val === "home" ? page("home", HOME) : load(val);
   dom.free(doc);
   doc = dom.parseHtml(next);
@@ -188,9 +199,10 @@ function navigate(w: number, cur: number, val: string): number {
   return doc;
 }
 
-// Abre já no site pedido.
-io.print("[boot] abrindo akyronhost.com...");
-d = navigate(win, d, "akyronhost.com");
+// Abre na HOME (instantânea, sem fetch bloqueante). O usuário digita a URL e
+// navega — aí sim o fetch roda, com a tela "Carregando" já pintada.
+io.print("[boot] home instantânea (digite uma URL e Enter)");
+d = navigate(win, d, "home");
 
 let frame = 0;
 while (egui.isOpen(win) !== 0) {
