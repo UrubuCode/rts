@@ -46,6 +46,9 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     // (prelude-gated in `method::try_method_dispatch`).
     ns::test::register,
     ns::globals::string::register,
+    // Web Fetch API namespace — `fetch()` + `fetchText(url)` (sync HTTP GET via
+    // ureq+TLS). Backs the mini-browser's real page download.
+    ns::globals::fetch::register,
     ns::fmt::register,
     ns::fmt::register_node_util,
     // node:* modules — native rts-node crate (independent). `node:X` resolves here

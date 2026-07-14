@@ -136,6 +136,18 @@ pub extern "C" fn __RTS_FN_GL_FETCH(url_ptr: i64, url_len: i64, opts_h: u64) -> 
     do_fetch(url, opts_h)
 }
 
+/// `fetchText(url)` → baixa a URL (GET) e devolve o CORPO como STRING (handle do
+/// pool GC), numa só chamada síncrona. Conveniência para o mini-browser: junta o
+/// `fetch(url)` + `.text()` sem exigir o `fetch()` global no front do engine nem a
+/// máquina de Promise. Erro de rede → string vazia (o browser mostra "falhou").
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_TEXT(url_ptr: i64, url_len: i64) -> u64 {
+    let url = str_from_parts(url_ptr, url_len);
+    let resp_h = do_fetch(url, 0);
+    let body = with_response(resp_h, |r| r.body.clone()).unwrap_or_default();
+    alloc_entry(Entry::String(body))
+}
+
 // ── Promise ──────────────────────────────────────────────────────────────────
 //
 // .then/.catch/.finally operam sobre Entry::PromiseAsync(Arc<PromiseSlot>) —
