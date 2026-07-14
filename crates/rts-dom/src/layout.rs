@@ -225,6 +225,12 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // — e o "fica fixo ao rolar" do `fixed` são a v2).
     let mut out_of_flow = Vec::new();
     collect_out_of_flow(dom, dom.root, &mut out_of_flow);
+    // Z-INDEX: ordena por z-index (menor pinta primeiro = fica atrás). Sort ESTÁVEL:
+    // z-index igual (ou ambos auto=0) preserva a ordem do documento. Cobre o caso
+    // comum (modais/dropdowns/overlays posicionados que se sobrepõem).
+    out_of_flow.sort_by_key(|&id| {
+        dom.computed_style_idx(id).and_then(|c| c.z_index).unwrap_or(0)
+    });
     for id in out_of_flow {
         layout_out_of_flow(dom, id, ctx, &mut list);
     }

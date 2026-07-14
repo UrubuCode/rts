@@ -115,6 +115,7 @@ impl ComputedStyle {
             "align-self" => self.align_self.map(fmt_align).unwrap_or_default(),
             "opacity" => self.opacity.map(|v| format!("{v}")).unwrap_or_default(),
             "aspect-ratio" => self.aspect_ratio.map(|r| format!("{r}")).unwrap_or_default(),
+            "z-index" => self.z_index.map(|z| format!("{z}")).unwrap_or_default(),
             "letter-spacing" => self
                 .letter_spacing
                 .map(|v| if v == 0.0 { "normal".to_string() } else { format!("{v}px") })
