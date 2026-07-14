@@ -277,6 +277,10 @@ pub enum DisplayKind {
     /// `display:inline`/`inline-block` — flui inline (no nível de bloco, trata como
     /// wrap: itens lado a lado que quebram). É o default de tags custom no browser.
     Inline,
+    /// `display:grid` — grade de N colunas (N vem de `grid_columns`, de
+    /// `grid-template-columns`). Tratado como WRAP com largura de item = 1/N do
+    /// container (grid 2-D real fica p/ depois; cobre os cards/planos em grade).
+    Grid,
     /// `display:none` — não renderiza (nem ocupa espaço).
     None,
 }
@@ -287,7 +291,7 @@ impl DisplayKind {
     pub fn to_display_code(self) -> i64 {
         match self {
             DisplayKind::Block => 0,
-            DisplayKind::FlexWrap | DisplayKind::Inline => 1, // wrap (flui+quebra)
+            DisplayKind::FlexWrap | DisplayKind::Inline | DisplayKind::Grid => 1, // wrap
             DisplayKind::Flex => 2,                            // horizontal (lado a lado)
             DisplayKind::None => -1,
         }

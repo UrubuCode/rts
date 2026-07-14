@@ -23,6 +23,13 @@ pub fn parse_color(v: &str) -> Option<Rgba> {
     if let Some(inner) = func_args(v, "hsl").or_else(|| func_args(v, "hsla")) {
         return parse_hsl_fn(inner);
     }
+    // oklch()/oklab() — a paleta do Tailwind v4 é TODA em oklch. Converte para sRGB.
+    if let Some(inner) = func_args(v, "oklch") {
+        return parse_oklch_fn(inner);
+    }
+    if let Some(inner) = func_args(v, "oklab") {
+        return parse_oklab_fn(inner);
+    }
     named_color(v)
 }
 
@@ -113,6 +120,76 @@ fn parse_hsl_fn(inner: &str) -> Option<Rgba> {
         slash_alpha.and_then(parse_alpha).unwrap_or(0xFF)
     };
     Some(rgba_a(r, g, b, a))
+}
+
+/// Parseia `oklch(L C h [/ a])` para sRGB. `L` em [0,1] ou `%`; `C` ≥ 0; `h` em graus.
+/// A paleta inteira do Tailwind v4 é oklch — sem isto, as cores de fundo/texto ficam
+/// inválidas (transparentes).
+fn parse_oklch_fn(inner: &str) -> Option<Rgba> {
+    let (main_part, slash_alpha) = split_alpha(inner);
+    let comps: Vec<&str> = split_components(main_part);
+    if comps.len() < 3 {
+        return None;
+    }
+    let l = parse_ok_l(comps[0])?;
+    let c = comps[1].trim().parse::<f32>().ok()?.max(0.0);
+    let h = comps[2].trim().trim_end_matches("deg").trim().parse::<f32>().ok()?;
+    let (a, b) = (c * h.to_radians().cos(), c * h.to_radians().sin());
+    let alpha = comps.get(3).and_then(|s| parse_alpha(s))
+        .or_else(|| slash_alpha.and_then(parse_alpha))
+        .unwrap_or(0xFF);
+    let (r, g, bl) = oklab_to_srgb(l, a, b);
+    Some(rgba_a(r, g, bl, alpha))
+}
+
+/// Parseia `oklab(L a b [/ alpha])` para sRGB.
+fn parse_oklab_fn(inner: &str) -> Option<Rgba> {
+    let (main_part, slash_alpha) = split_alpha(inner);
+    let comps: Vec<&str> = split_components(main_part);
+    if comps.len() < 3 {
+        return None;
+    }
+    let l = parse_ok_l(comps[0])?;
+    let a = comps[1].trim().parse::<f32>().ok()?;
+    let b = comps[2].trim().parse::<f32>().ok()?;
+    let alpha = comps.get(3).and_then(|s| parse_alpha(s))
+        .or_else(|| slash_alpha.and_then(parse_alpha))
+        .unwrap_or(0xFF);
+    let (r, g, bl) = oklab_to_srgb(l, a, b);
+    Some(rgba_a(r, g, bl, alpha))
+}
+
+/// Lightness do OKLab: número em [0,1] ou percentagem.
+fn parse_ok_l(s: &str) -> Option<f32> {
+    let s = s.trim();
+    if let Some(p) = s.strip_suffix('%') {
+        return p.trim().parse::<f32>().ok().map(|v| (v / 100.0).clamp(0.0, 1.0));
+    }
+    s.parse::<f32>().ok().map(|v| v.clamp(0.0, 1.0))
+}
+
+/// Converte OKLab (L,a,b) para sRGB 8-bit (com gamma). Fórmula de referência de
+/// Björn Ottosson: OKLab → LMS (cúbica inversa) → linear sRGB (matriz) → gamma.
+fn oklab_to_srgb(l: f32, a: f32, b: f32) -> (u8, u8, u8) {
+    let l_ = l + 0.3963377774 * a + 0.2158037573 * b;
+    let m_ = l - 0.1055613458 * a - 0.0638541728 * b;
+    let s_ = l - 0.0894841775 * a - 1.2914855480 * b;
+    let (lc, mc, sc) = (l_ * l_ * l_, m_ * m_ * m_, s_ * s_ * s_);
+    let lr = 4.0767416621 * lc - 3.3077115913 * mc + 0.2309699292 * sc;
+    let lg = -1.2684380046 * lc + 2.6097574011 * mc - 0.3413193965 * sc;
+    let lb = -0.0041960863 * lc - 0.7034186147 * mc + 1.7076147010 * sc;
+    (gamma_srgb(lr), gamma_srgb(lg), gamma_srgb(lb))
+}
+
+/// Aplica a curva de gamma sRGB a um canal linear [0,1] e quantiza para 8-bit.
+fn gamma_srgb(c: f32) -> u8 {
+    let c = c.clamp(0.0, 1.0);
+    let v = if c <= 0.0031308 {
+        12.92 * c
+    } else {
+        1.055 * c.powf(1.0 / 2.4) - 0.055
+    };
+    (v.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
 /// Separa um valor de função no `/` (alpha moderno): `(antes, depois?)`.

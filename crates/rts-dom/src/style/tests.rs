@@ -13,12 +13,72 @@ fn parses_typography() {
 }
 
 #[test]
+fn parses_grid() {
+    use crate::style::DisplayKind;
+    // display:grid + grid-template-columns via repeat() e via lista de trilhas.
+    let a = parse_inline("display:grid; grid-template-columns: repeat(3, minmax(0, 1fr))");
+    assert_eq!(a.display, Some(DisplayKind::Grid));
+    assert_eq!(a.grid_columns, Some(3));
+    let b = parse_inline("grid-template-columns: 1fr 1fr 1fr 1fr");
+    assert_eq!(b.grid_columns, Some(4));
+    let c = parse_inline("grid-template-columns: 200px 200px");
+    assert_eq!(c.grid_columns, Some(2));
+}
+
+#[test]
+fn parses_calc_in_edges() {
+    use crate::style::{CalcLen, Dimension, Side};
+    // `padding: calc(0.25rem * 4)` — o espaço interno NÃO pode quebrar o shorthand.
+    let c = parse_inline("padding: calc(0.25rem * 4)");
+    match c.padding.top {
+        Side::Len(Dimension::Calc(CalcLen { rem, .. })) => assert_eq!(rem, 1.0),
+        other => panic!("esperava calc 1rem, veio {other:?}"),
+    }
+    // props lógicas do Tailwind: padding-inline (left+right) e padding-block (top+bottom).
+    let pi = parse_inline("padding-inline: 12px");
+    assert_eq!(pi.padding.left, Side::Len(Dimension::Px(12.0)));
+    assert_eq!(pi.padding.right, Side::Len(Dimension::Px(12.0)));
+    assert_eq!(pi.padding.top, Side::Unset);
+    let pb = parse_inline("padding-block: 8px");
+    assert_eq!(pb.padding.top, Side::Len(Dimension::Px(8.0)));
+    assert_eq!(pb.padding.bottom, Side::Len(Dimension::Px(8.0)));
+}
+
+#[test]
+fn parses_opacity() {
+    assert_eq!(parse_inline("opacity:0.5").opacity, Some(0.5));
+    assert_eq!(parse_inline("opacity:1").opacity, Some(1.0));
+    assert_eq!(parse_inline("opacity:0").opacity, Some(0.0));
+    // clampa fora do intervalo [0,1], como o browser.
+    assert_eq!(parse_inline("opacity:1.5").opacity, Some(1.0));
+    assert_eq!(parse_inline("opacity:-0.2").opacity, Some(0.0));
+    // valor inválido → None (default = opaco).
+    assert_eq!(parse_inline("opacity:nope").opacity, None);
+    // via cascade de autor.
+    let mut sheet = Stylesheet::new();
+    sheet.append_css(".fade{opacity:0.3}");
+    assert_eq!(sheet.computed_for("div", None, &["fade"]).normal.opacity, Some(0.3));
+}
+
+#[test]
 fn color_forms() {
     assert_eq!(parse_color("#f00"), Some(0xFF0000FF));
     assert_eq!(parse_color("#00ff00"), Some(0x00FF00FF));
     assert_eq!(parse_color("rgb(10, 20, 30)"), Some(0x0A141EFF));
     assert_eq!(parse_color("blue"), Some(0x0000FFFF));
     assert_eq!(parse_color("nope"), None);
+    // oklch (paleta do Tailwind v4): branco e preto puros são exatos; uma cor
+    // qualquer só precisa cair perto do sRGB esperado (a conversão é aproximada).
+    assert_eq!(parse_color("oklch(1 0 0)"), Some(0xFFFFFFFF)); // branco
+    assert_eq!(parse_color("oklch(0 0 0)"), Some(0x000000FF)); // preto
+    // oklch(0.628 0.2577 29.23) ≈ vermelho sRGB puro. Checa que R domina.
+    let red = parse_color("oklch(0.628 0.2577 29.23)").unwrap();
+    let r = (red >> 24) & 0xFF;
+    let g = (red >> 16) & 0xFF;
+    assert!(r > 200 && g < 80, "oklch vermelho deu {red:#010x}");
+    // com alpha via `/`.
+    let a = parse_color("oklch(1 0 0 / 0.5)").unwrap();
+    assert_eq!(a & 0xFF, 0x80);
 }
 
 #[test]
@@ -429,7 +489,7 @@ fn at_rules_nao_corrompem_o_parse() {
         Some(Dimension::Px(40.0))
     );
     // …e NÃO aplicam quando não casa (viewport 800 < 1200).
-    let no_match = sheet.computed_for_node(800.0, None, |sel| {
+    let no_match = sheet.computed_for_node(800.0, "h1", None, &[], None, |sel| {
         sel.compounds.len() == 1
             && compound_matches(&sel.compounds[0], "h1", None, &[], &|_| None, &|_| false)
     });

@@ -351,6 +351,32 @@ fn paint_list(ui: &mut egui::Ui, list: &DisplayList, offset_y: f32) {
                     rgba_to_color32(*color),
                 );
             }
+            DisplayItem::Shadow { rect, dx, dy, blur, spread, color, radius } => {
+                // box-shadow: um retângulo deslocado (dx,dy), crescido pelo spread, com
+                // borda amaciada pelo blur (feathering do egui). Pintado ANTES da caixa.
+                let r = egui::Rect::from_min_size(
+                    origin + egui::vec2(rect.x + *dx - *spread, rect.y + *dy - *spread),
+                    egui::vec2(rect.w + 2.0 * *spread, rect.h + 2.0 * *spread),
+                );
+                let shadow = egui::epaint::Shadow {
+                    offset: [0, 0],
+                    blur: blur.max(0.0) as u8,
+                    spread: 0,
+                    color: rgba_to_color32(*color),
+                };
+                let shape = shadow.as_shape(r, egui::CornerRadius::same(*radius as u8));
+                painter.add(shape);
+            }
+            DisplayItem::GradientRect { rect, c0, c1, angle_deg, .. } => {
+                // gradiente linear: mesh de 4 vértices, cada canto com a cor interpolada
+                // conforme sua projeção no eixo do ângulo (convenção CSS: 0=cima,
+                // 90=direita). Aproxima o linear-gradient de 2 cores.
+                let r = egui::Rect::from_min_size(
+                    origin + egui::vec2(rect.x, rect.y),
+                    egui::vec2(rect.w, rect.h),
+                );
+                paint_linear_gradient(&painter, r, *c0, *c1, *angle_deg);
+            }
             DisplayItem::BeginClip { rect, offset_x, offset_y, .. } => {
                 // o RECT do container é FIXO (não rola) — posiciona com `origin` (que
                 // já inclui o extra do pai, mas não o desta região). Os FILHOS dentro
@@ -368,4 +394,54 @@ fn paint_list(ui: &mut egui::Ui, list: &DisplayList, offset_y: f32) {
             }
         }
     }
+}
+
+/// Pinta um GRADIENTE LINEAR de 2 cores num retângulo, como mesh de 4 vértices. A cor
+/// de cada canto é a interpolação `c0`→`c1` conforme a projeção do canto no EIXO do
+/// gradiente (definido por `angle_deg`, convenção CSS: 0°=de baixo p/ cima, 90°=p/ a
+/// direita). Aproxima o `linear-gradient` de 2 pontos (paradas intermediárias já
+/// foram descartadas no parse).
+fn paint_linear_gradient(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    c0: u32,
+    c1: u32,
+    angle_deg: f32,
+) {
+    // Vetor de direção do gradiente. CSS: 0°=para cima (0,-1); cresce no sentido
+    // horário → 90°=(1,0), 180°=(0,1). rad = angle; dir = (sin, -cos).
+    let rad = angle_deg.to_radians();
+    let (dx, dy) = (rad.sin(), -rad.cos());
+    let corners = [rect.left_top(), rect.right_top(), rect.right_bottom(), rect.left_bottom()];
+    // projeção de cada canto no eixo; normaliza para [0,1] entre min e max.
+    let proj: Vec<f32> = corners.iter().map(|p| p.x * dx + p.y * dy).collect();
+    let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
+    for &p in &proj {
+        lo = lo.min(p);
+        hi = hi.max(p);
+    }
+    let span = (hi - lo).max(1e-3);
+    let ca = rgba_to_color32(c0);
+    let cb = rgba_to_color32(c1);
+    let mut mesh = egui::epaint::Mesh::default();
+    for (i, corner) in corners.iter().enumerate() {
+        let t = ((proj[i] - lo) / span).clamp(0.0, 1.0);
+        let color = lerp_color32(ca, cb, t);
+        mesh.colored_vertex(*corner, color);
+    }
+    // dois triângulos (0,1,2) e (0,2,3).
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    painter.add(egui::Shape::mesh(mesh));
+}
+
+/// Interpola dois `Color32` no parâmetro `t` ∈ [0,1] (por canal, sem premultiply).
+fn lerp_color32(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
+    let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round().clamp(0.0, 255.0) as u8;
+    egui::Color32::from_rgba_unmultiplied(
+        l(a.r(), b.r()),
+        l(a.g(), b.g()),
+        l(a.b(), b.b()),
+        l(a.a(), b.a()),
+    )
 }

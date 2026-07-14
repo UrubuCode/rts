@@ -193,6 +193,12 @@ pub struct Dom {
     /// de ~2700 regras a CADA frame/clique). DERIVADO, fora do `PartialEq`.
     /// ⚠️ Método mutador novo que afete o render DEVE chamar `self.touch()`.
     revision: u64,
+    /// EPOCH de animação — bumpado a CADA frame de `advance` que interpola (o único
+    /// `touch` por-frame). Entra no `render_revision` (o layout re-pinta a
+    /// interpolação) mas NÃO na `revision` estrutural — assim o `base_memo` (alvo-base
+    /// da cascade, que não depende da camada de animação) sobrevive entre frames de
+    /// animação, e o `advance` deixa de re-rodar a cascade de todos os nós por frame.
+    anim_epoch: u64,
     /// Memo do estilo COMPUTADO por nó DENTRO de uma revisão: a cascade completa
     /// (todas as regras × seletores) rodava várias vezes POR NÓ num único layout
     /// (pré-pass de medição + pintura + intrínsecas). Invalidado quando a revisão
@@ -200,6 +206,14 @@ pub struct Dom {
     computed_memo: std::cell::RefCell<HashMap<NodeIdx, crate::style::ComputedStyle>>,
     /// A revisão de render em que o `computed_memo` foi preenchido.
     memo_revision: std::cell::Cell<u64>,
+    /// Memo do ALVO-BASE (cascade SEM a camada de animação, `with_anim=false`) que o
+    /// `advance` consulta por nó a cada frame. Invalida só pela revisão ESTRUTURAL
+    /// (`revision`+viewport+style_epoch, SEM o `anim_epoch`) — então frames de
+    /// animação (que só bumpam `anim_epoch`) o REUSAM, tornando o `advance` barato.
+    base_memo: std::cell::RefCell<HashMap<NodeIdx, crate::style::ComputedStyle>>,
+    /// A revisão estrutural em que o `base_memo` foi preenchido.
+    base_memo_revision: std::cell::Cell<u64>,
+    base_memo_viewport: std::cell::Cell<(u32, u32)>,
     /// O VIEWPORT corrente (w, h) — setado pelo layout no início da passada
     /// ([`set_viewport`](Dom::set_viewport)); a base de `vw`/`vh` na cascade
     /// (font-size fluido) e do `@media` futuro. Default 1280×800 (headless).
@@ -207,6 +221,16 @@ pub struct Dom {
     /// O viewport com que o `computed_memo` foi preenchido (o computed depende
     /// dele via vw/vh) — muda → memo invalida.
     memo_viewport: std::cell::Cell<(u32, u32)>,
+    // ── Campos de FORMULÁRIO (input editável) — F: mini-browser ───────────────────
+    /// Texto CORRENTE de cada `<input>`/`<textarea>` editável. O valor INICIAL vem do
+    /// atributo `value=`; toda digitação (append/backspace via `input_feed_*`) grava
+    /// AQUI, não no atributo. O layout lê daqui (fallback: atributo `value`, senão o
+    /// `placeholder`). DERIVADO — fora do `PartialEq`.
+    input_values: HashMap<NodeIdx, String>,
+    /// Qual `<input>` tem o FOCO (recebe as teclas). `None` = nenhum. Setado por
+    /// `focus_input` (o loop TS chama após um clique dentro da caixa de um input).
+    /// DERIVADO, fora do `PartialEq`.
+    focused_input: Option<NodeIdx>,
 }
 
 // Igualdade estrutural: compara só a árvore (nodes+root). Os índices e a `generation`
@@ -242,11 +266,90 @@ impl Dom {
             anim_override: HashMap::new(),
             anim_start: HashMap::new(),
             revision: 0,
+            anim_epoch: 0,
             computed_memo: std::cell::RefCell::new(HashMap::new()),
             memo_revision: std::cell::Cell::new(0),
+            base_memo: std::cell::RefCell::new(HashMap::new()),
+            base_memo_revision: std::cell::Cell::new(u64::MAX),
+            base_memo_viewport: std::cell::Cell::new((0, 0)),
             viewport: std::cell::Cell::new((1280.0, 800.0)),
             memo_viewport: std::cell::Cell::new((1280.0f32.to_bits(), 800.0f32.to_bits())),
+            input_values: HashMap::new(),
+            focused_input: None,
         }
+    }
+
+    // ── FORMULÁRIO: input editável (mini-browser) ────────────────────────────────
+
+    /// O texto a EXIBIR num `<input>`: o valor editado (`input_values`), senão o
+    /// atributo `value=`, senão `""`. É o que o layout pinta dentro da caixa.
+    pub fn input_value(&self, id: NodeIdx) -> String {
+        if let Some(v) = self.input_values.get(&id) {
+            return v.clone();
+        }
+        self.node(id).attr("value").unwrap_or("").to_string()
+    }
+
+    /// `true` se o input está vazio (nada digitado e sem `value=`) — o layout então
+    /// mostra o `placeholder` em cor apagada, como o browser.
+    pub fn input_is_empty(&self, id: NodeIdx) -> bool {
+        self.input_value(id).is_empty()
+    }
+
+    /// Qual input tem o foco agora (recebe teclas).
+    pub fn focused_input(&self) -> Option<NodeIdx> {
+        self.focused_input
+    }
+
+    /// Dá o foco a `id` (ou tira o foco, com `None`). O caller (loop TS) passa o
+    /// input sob o cursor após um clique. Bumpa a revisão (o cursor a pintar muda).
+    pub fn focus_input(&mut self, id: Option<NodeIdx>) {
+        if self.focused_input != id {
+            self.focused_input = id;
+            self.touch();
+        }
+    }
+
+    /// Anexa `text` (os caracteres digitados no frame) ao input FOCADO. Ignora se
+    /// não há foco. Retorna `true` se algo mudou.
+    pub fn input_feed_text(&mut self, text: &str) -> bool {
+        let Some(id) = self.focused_input else { return false };
+        if text.is_empty() {
+            return false;
+        }
+        // filtra controles (o backend já separa Enter/Backspace; aqui só texto real).
+        let clean: String = text.chars().filter(|c| !c.is_control()).collect();
+        if clean.is_empty() {
+            return false;
+        }
+        let cur = self.input_value(id);
+        self.input_values.insert(id, cur + &clean);
+        self.touch();
+        true
+    }
+
+    /// `true` se o `NodeIdx` cru é um `<input>`/`<textarea>` (para o hit-test de foco).
+    pub fn is_text_input_idx(&self, idx: NodeIdx) -> bool {
+        matches!(&self.nodes.get(idx).map(|n| &n.kind),
+            Some(NodeKind::Element { tag }) if matches!(tag.as_str(), "input" | "textarea"))
+    }
+
+    /// O `NodeId` público (com generation) de um `NodeIdx` cru — para o hit-test
+    /// devolver ao TS um id estável.
+    pub fn id_of_idx(&self, idx: NodeIdx) -> NodeId {
+        self.make_id(idx)
+    }
+
+    /// Apaga o último caractere do input focado (Backspace). Retorna `true` se mudou.
+    pub fn input_backspace(&mut self) -> bool {
+        let Some(id) = self.focused_input else { return false };
+        let mut cur = self.input_value(id);
+        if cur.pop().is_none() {
+            return false;
+        }
+        self.input_values.insert(id, cur);
+        self.touch();
+        true
     }
 
     /// Informa o VIEWPORT da passada de layout (base de `vw`/`vh` no computed).
@@ -268,7 +371,44 @@ impl Dom {
     /// que vivem fora do `Dom`). É a chave de cache de layout do backend e da ABI:
     /// mesma revisão + mesmo viewport ⇒ a DisplayList anterior ainda vale.
     pub fn render_revision(&self) -> u64 {
+        self.revision
+            .wrapping_add(self.anim_epoch)
+            .wrapping_add(crate::style::props::style_epoch())
+    }
+
+    /// A revisão ESTRUTURAL: muda com árvore/atributo/estilo/viewport (o que altera o
+    /// ALVO-BASE da cascade), mas NÃO com a interpolação de animação (`anim_epoch`).
+    /// É a chave do `base_memo` — o que o `advance` reusa entre frames de animação.
+    fn struct_revision(&self) -> u64 {
         self.revision.wrapping_add(crate::style::props::style_epoch())
+    }
+
+    /// Bumpa SÓ o epoch de animação (invalida o layout p/ re-pintar a interpolação),
+    /// sem tocar a revisão estrutural — o `advance` chama isto por frame no lugar de
+    /// `touch()`, para o `base_memo` sobreviver ao frame.
+    fn touch_anim(&mut self) {
+        self.anim_epoch = self.anim_epoch.wrapping_add(1);
+    }
+
+    /// O ALVO-BASE (cascade sem animação) de um nó, MEMOIZADO por revisão estrutural.
+    /// O `advance` consulta isto a cada frame; entre frames de animação (revisão
+    /// estrutural estável) é um hit de cache — a cascade não re-roda. `None` p/
+    /// não-elemento.
+    fn base_style_idx(&self, idx: NodeIdx) -> Option<crate::style::ComputedStyle> {
+        let rev = self.struct_revision();
+        let (vw, vh) = self.viewport.get();
+        let vp_key = (vw.to_bits(), vh.to_bits());
+        if self.base_memo_revision.get() != rev || self.base_memo_viewport.get() != vp_key {
+            self.base_memo.borrow_mut().clear();
+            self.base_memo_revision.set(rev);
+            self.base_memo_viewport.set(vp_key);
+        }
+        if let Some(hit) = self.base_memo.borrow().get(&idx) {
+            return Some(hit.clone());
+        }
+        let computed = self.computed_style_idx_inner(idx)?;
+        self.base_memo.borrow_mut().insert(idx, computed.clone());
+        Some(computed)
     }
 
     /// Acrescenta o conteúdo de um `<style>` ao stylesheet de autor da página
@@ -500,20 +640,37 @@ impl Dom {
         if let Some(hit) = self.computed_memo.borrow().get(&idx) {
             return Some(hit.clone());
         }
-        let computed = self.computed_style_idx_inner(idx, true)?;
+        // O estilo COM animação = a BASE (cascade sem anim, memoizada por revisão
+        // estrutural via `base_style_idx`) + a camada de `anim_override` por cima. Não
+        // re-roda a cascade a cada frame de animação: só clona a base cacheada e
+        // sobrepõe o override interpolado — o que torna o RELAYOUT durante animação
+        // barato (era o gargalo restante depois de acelerar o `advance`).
+        let mut computed = self.base_style_idx(idx)?;
+        if let Some(anim) = self.anim_override.get(&idx) {
+            computed.merge_over(anim);
+        }
         self.computed_memo.borrow_mut().insert(idx, computed.clone());
         Some(computed)
     }
 
-    /// Núcleo da cascade. `with_anim` controla se a camada de ANIMAÇÃO (o estilo
-    /// interpolado do frame) é aplicada por cima: `true` para o que o layout/render
-    /// vê (animado); `false` para o ALVO base que o `advance` compara entre frames.
-    fn computed_style_idx_inner(&self, idx: NodeIdx, with_anim: bool) -> Option<crate::style::ComputedStyle> {
+    /// Núcleo da cascade — computa o ALVO-BASE de um nó (SEM a camada de animação; o
+    /// override interpolado é sobreposto por quem consome, em `computed_style_idx`).
+    /// Chamado via `base_style_idx` (memoizado por revisão estrutural).
+    fn computed_style_idx_inner(&self, idx: NodeIdx) -> Option<crate::style::ComputedStyle> {
         use crate::style;
         let tag = match &self.nodes[idx].kind {
             NodeKind::Element { tag } => tag.clone(),
             _ => return None,
         };
+        // id/classes do nó — a CHAVE do índice de regras da cascade (só as regras
+        // cujo alvo o nó pode satisfazer são testadas, não todas). Materializados em
+        // String/Vec para não conflitar com o borrow de `self` nos closures abaixo.
+        let node_id: Option<String> = self.nodes[idx].attr("id").map(str::to_string);
+        let node_classes: Vec<String> = self.nodes[idx]
+            .attr("class")
+            .map(|c| c.split_whitespace().map(str::to_string).collect())
+            .unwrap_or_default();
+        let class_refs: Vec<&str> = node_classes.iter().map(String::as_str).collect();
         // `style=""` inline (normal + important + customs/pendentes).
         let inline = self.nodes[idx]
             .attr("style")
@@ -526,13 +683,17 @@ impl Dom {
         // Arc). Precisam vir ANTES porque os valores com var() dependem delas.
         let parent_css_for_vars = self
             .element_parent_idx(idx)
-            .and_then(|p| self.computed_style_idx_inner(p, with_anim));
+            .and_then(|p| self.base_style_idx(p));
         let own_customs: Vec<(String, String)> = if self.stylesheet.is_empty() {
             inline.custom.clone()
         } else {
-            let mut v = self
-                .stylesheet
-                .custom_for_node(self.viewport.get().0, |sel| self.matches_complex(idx, sel));
+            let mut v = self.stylesheet.custom_for_node(
+                self.viewport.get().0,
+                &tag,
+                node_id.as_deref(),
+                &class_refs,
+                |sel| self.matches_complex(idx, sel),
+            );
             v.extend(inline.custom.iter().cloned());
             v
         };
@@ -545,6 +706,14 @@ impl Dom {
                     // o valor de uma custom pode conter var() de OUTRA — a
                     // substituição recursiva do consumidor resolve; guarda cru.
                     for (k, v) in own_customs {
+                        // AUTO-REFERÊNCIA DIRETA (`--c: ...var(--c)...`): a declaração é
+                        // guaranteed-invalid (spec) — o Chrome a DESCARTA e mantém a
+                        // anterior válida. Se já há um valor para `k` (ex. o oklch real do
+                        // bloco de tema) e a nova declaração se auto-referencia, ignora a
+                        // nova. Sem valor anterior, insere (o consumidor corta o ciclo).
+                        if references_self(&k, &v) && m.contains_key(&k) {
+                            continue;
+                        }
                         m.insert(k, v);
                     }
                     Some(std::sync::Arc::new(m))
@@ -560,9 +729,14 @@ impl Dom {
         let author = if self.stylesheet.is_empty() {
             style::DeclBlock::default()
         } else {
-            self.stylesheet.computed_for_node(self.viewport.get().0, Some(vars_ref), |sel| {
-                self.matches_complex(idx, sel)
-            })
+            self.stylesheet.computed_for_node(
+                self.viewport.get().0,
+                &tag,
+                node_id.as_deref(),
+                &class_refs,
+                Some(vars_ref),
+                |sel| self.matches_complex(idx, sel),
+            )
         };
         let override_node = self.style_overrides.get(&idx);
 
@@ -622,14 +796,9 @@ impl Dom {
             css.inherit_from(parent_css);
         }
 
-        // ── Camada de ANIMAÇÃO (#1776): o estilo interpolado do frame atual vence
-        // tudo (é o que o usuário VÊ animando). Só quando `with_anim` (o que o render
-        // vê); o `advance` pede `with_anim=false` p/ obter o ALVO base.
-        if with_anim {
-            if let Some(anim) = self.anim_override.get(&idx) {
-                css.merge_over(anim);
-            }
-        }
+        // A camada de ANIMAÇÃO (o `anim_override` interpolado) NÃO entra aqui: este é
+        // o ALVO-BASE. `computed_style_idx` a sobrepõe sobre a base memoizada — assim a
+        // cascade (cara) roda só quando a ESTRUTURA muda, não a cada frame de animação.
         Some(css)
     }
 
@@ -778,8 +947,9 @@ impl Dom {
         // `any_active` sozinho não cobre o frame em que a animação TERMINA.
         let mut changed = false;
         for idx in elements {
-            // o ALVO base deste frame (cascade sem a camada de animação).
-            let Some(target) = self.computed_style_idx_inner(idx, false) else { continue };
+            // o ALVO base deste frame (cascade sem a camada de animação) — MEMOIZADO
+            // por revisão estrutural, então entre frames de animação é hit de cache.
+            let Some(target) = self.base_style_idx(idx) else { continue };
 
             // ── @keyframes ANIMATION (#1776 fase 2): roda sozinha no tempo ──────────
             if let Some(anim) = &target.animation {
@@ -844,10 +1014,11 @@ impl Dom {
             }
         }
         if changed {
-            // o estilo visível mudou neste tick → invalida os caches de layout
-            // (revision). Sem mudança, o advance é um no-op de render e o frame
-            // reusa a DisplayList cacheada.
-            self.touch();
+            // o estilo visível mudou neste tick → invalida os caches de LAYOUT (o
+            // layout re-pinta a interpolação). Usa `touch_anim` (só `anim_epoch`), NÃO
+            // `touch()`: a ESTRUTURA/cascade-base não mudou, então o `base_memo`
+            // sobrevive e o próximo `advance` não re-roda a cascade de todos os nós.
+            self.touch_anim();
         }
         any_active
     }
@@ -1958,6 +2129,26 @@ fn implicitly_closes(new_tag: &str, open_tag: &str) -> bool {
 
 /// `true` se `s` é um identificador CSS PURO (letra/dígito/`-`/`_`), sem
 /// combinadores/compostos/atributo/pseudo — habilita o atalho por índice no query.
+/// `true` se o valor de uma custom property `name` referencia a SI MESMA via
+/// `var(--name...)` (auto-referência direta) — a declaração é guaranteed-invalid na
+/// spec (o Chrome a descarta). Ex.: `--color-base: hsl(var(--color-base))`.
+fn references_self(name: &str, value: &str) -> bool {
+    // procura `var(` seguido (após espaços) do próprio nome.
+    let mut rest = value;
+    while let Some(at) = rest.find("var(") {
+        let after = rest[at + 4..].trim_start();
+        if after.starts_with(name) {
+            // confirma que é o nome COMPLETO (próximo char é ',', ')' ou espaço).
+            let tail = &after[name.len()..];
+            if tail.is_empty() || tail.starts_with([',', ')', ' ']) {
+                return true;
+            }
+        }
+        rest = &rest[at + 4..];
+    }
+    false
+}
+
 fn is_plain_ident(s: &str) -> bool {
     !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
