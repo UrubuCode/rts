@@ -5,6 +5,7 @@
 pub use rts_std::globals::abort;
 pub use rts_shared::globals::bigint;
 pub use rts_std::globals::blob;
+pub use rts_std::globals::imgdec;
 pub mod dataview;
 pub use rts_shared::globals::dom_exception;
 pub use rts_std::globals::event_target;
