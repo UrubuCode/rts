@@ -227,6 +227,10 @@ pub struct Dom {
     /// AQUI, não no atributo. O layout lê daqui (fallback: atributo `value`, senão o
     /// `placeholder`). DERIVADO — fora do `PartialEq`.
     input_values: HashMap<NodeIdx, String>,
+    /// Imagem decodificada de cada `<img>` (pixels RGBA já prontos): `(handle do
+    /// Buffer, offset dos pixels, w, h)`. Setado pelo browser via `setImage` depois
+    /// de baixar+decodificar; o layout emite `DisplayItem::Image`. DERIVADO, fora do Eq.
+    image_pixels: HashMap<NodeIdx, (u64, u32, u32, u32)>,
     /// Qual `<input>` tem o FOCO (recebe as teclas). `None` = nenhum. Setado por
     /// `focus_input` (o loop TS chama após um clique dentro da caixa de um input).
     /// DERIVADO, fora do `PartialEq`.
@@ -275,6 +279,7 @@ impl Dom {
             viewport: std::cell::Cell::new((1280.0, 800.0)),
             memo_viewport: std::cell::Cell::new((1280.0f32.to_bits(), 800.0f32.to_bits())),
             input_values: HashMap::new(),
+            image_pixels: HashMap::new(),
             focused_input: None,
         }
     }
@@ -326,6 +331,20 @@ impl Dom {
         self.input_values.insert(id, cur + &clean);
         self.touch();
         true
+    }
+
+    /// Associa a um `<img>` os pixels RGBA já decodificados (handle do Buffer +
+    /// offset + w + h). O browser chama após baixar+decodificar. Bumpa a revisão.
+    pub fn set_image(&mut self, id: NodeId, handle: u64, off: u32, w: u32, h: u32) {
+        if let Some(idx) = self.resolve(id) {
+            self.image_pixels.insert(idx, (handle, off, w, h));
+            self.touch();
+        }
+    }
+
+    /// Os pixels da imagem de um nó (handle, offset, w, h), se já setados.
+    pub fn image_of(&self, idx: NodeIdx) -> Option<(u64, u32, u32, u32)> {
+        self.image_pixels.get(&idx).copied()
     }
 
     /// `true` se o `NodeIdx` cru é um `<input>`/`<textarea>` (para o hit-test de foco).

@@ -280,6 +280,10 @@ pub extern "C" fn __RTS_FN_NS_DOM_DUMP_LAYOUT(h: u64, viewport_w: i64) {
                     "    {{\"kind\":\"gradient\",\"x\":{:.1},\"y\":{:.1},\"w\":{:.1},\"h\":{:.1},\"c0\":\"{}\",\"c1\":\"{}\"}}",
                     rect.x, rect.y, rect.w, rect.h, hx(*c0), hx(*c1)
                 ),
+                DisplayItem::Image { rect, img_w, img_h, .. } => format!(
+                    "    {{\"kind\":\"image\",\"x\":{:.1},\"y\":{:.1},\"w\":{:.1},\"h\":{:.1},\"imgW\":{},\"imgH\":{}}}",
+                    rect.x, rect.y, rect.w, rect.h, img_w, img_h
+                ),
                 DisplayItem::EndClip => "    {\"kind\":\"endClip\"}".to_string(),
             };
             s.push_str(&line);
@@ -426,6 +430,31 @@ pub extern "C" fn __RTS_FN_NS_DOM_FOCUS_INPUT(h: u64, id: i64) {
         let idx = node.and_then(|n| dom.resolve(n));
         dom.focus_input(idx);
     });
+}
+
+/// `setImage(dom, node, bufferHandle, off, w, h)` → associa a um `<img>` os pixels
+/// RGBA já decodificados (o browser baixa via fetchBytes + decodifica via imgdec e
+/// chama isto). O layout então emite a imagem. `off` = offset dos pixels no buffer.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_SET_IMAGE(
+    h: u64, id: i64, buffer_handle: u64, off: i64, w: i64, hgt: i64,
+) {
+    let Some(node) = NodeId::from_abi(id) else {
+        return;
+    };
+    with_mut(h, |dom| {
+        dom.set_image(node, buffer_handle, off.max(0) as u32, w.max(0) as u32, hgt.max(0) as u32);
+    });
+}
+
+/// `hasImage(dom, node)` → 1 se o nó tem imagem setada (diagnóstico), 0 senão.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_HAS_IMAGE(h: u64, id: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return 0 };
+    with(h, |dom| {
+        dom.resolve(node).and_then(|idx| dom.image_of(idx)).is_some() as i64
+    })
+    .unwrap_or(0)
 }
 
 /// `focusedInput(dom)` → o `NodeId` do input focado (-1 se nenhum).
@@ -1733,6 +1762,20 @@ pub fn register(e: &mut Engine) {
             "focusInput(dom: number, node: number): void",
             "give keyboard focus to node (receives typed text); node=-1 clears focus.",
             __RTS_FN_NS_DOM_FOCUS_INPUT as *const u8,
+        ))
+        .member(func(
+            "setImage", "__RTS_FN_NS_DOM_SET_IMAGE",
+            Sig::new(vec![Handle, I64, AbiType::U64, I64, I64, I64], AbiType::Void),
+            "setImage(dom: number, node: number, bufferHandle: number, off: number, w: number, h: number): void",
+            "attach decoded RGBA pixels to an <img> node so the layout paints it.",
+            __RTS_FN_NS_DOM_SET_IMAGE as *const u8,
+        ))
+        .member(func(
+            "hasImage", "__RTS_FN_NS_DOM_HAS_IMAGE",
+            Sig::new(vec![Handle, I64], I64),
+            "hasImage(dom: number, node: number): number",
+            "1 if the node has an image set (diagnostic), 0 otherwise.",
+            __RTS_FN_NS_DOM_HAS_IMAGE as *const u8,
         ))
         .member(func(
             "focusedInput", "__RTS_FN_NS_DOM_FOCUSED_INPUT",
