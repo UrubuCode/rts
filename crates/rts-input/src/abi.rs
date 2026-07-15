@@ -5,7 +5,7 @@
 
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use AbiType::{F64, I64, U64 as Handle};
+use AbiType::{F64, I64, StrPtr, U64 as Handle};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_INPUT_MOUSE_X(target: u64) -> f64 {
@@ -106,6 +106,18 @@ pub extern "C" fn __RTS_FN_NS_INPUT_MOD_CMD(target: u64) -> i64 {
 pub extern "C" fn __RTS_FN_NS_INPUT_TEXT(target: u64) -> u64 {
     let s = crate::with_input(|i| i.text_input(target)).unwrap_or_default();
     unsafe { __RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64) }
+}
+
+/// `input.copyText(target, text)` — coloca `text` no clipboard do SO (Ctrl+C).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_INPUT_COPY_TEXT(target: u64, ptr: *const u8, len: i64) {
+    if ptr.is_null() || len <= 0 {
+        return;
+    }
+    let text = unsafe {
+        std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, len as usize))
+    };
+    crate::with_input(|i| i.copy_text(target, text));
 }
 
 unsafe extern "C" {
@@ -287,8 +299,16 @@ pub fn register_input(e: &mut Engine) {
             // era o bug "dados de ponteiros no campo de texto".
             Sig::new(vec![Handle], AbiType::Handle),
             "textInput(target: number): string",
-            "Text typed this frame (UTF-8), empty if none.",
+            "Text typed this frame (UTF-8), empty if none. Includes pasted text (Ctrl+V).",
             __RTS_FN_NS_INPUT_TEXT as *const u8,
+        ))
+        .member(func(
+            "copyText",
+            "__RTS_FN_NS_INPUT_COPY_TEXT",
+            Sig::new(vec![Handle, StrPtr], AbiType::Void),
+            "copyText(target: number, text: string): void",
+            "Put text on the OS clipboard (Ctrl+C).",
+            __RTS_FN_NS_INPUT_COPY_TEXT as *const u8,
         ))
         .done();
 }
