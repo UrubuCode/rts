@@ -194,6 +194,21 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
                 as *const u8,
         ),
         sym(
+            "__RTS_FN_NS_FETCH_FETCH_BYTES_ASYNC",
+            rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_NS_FETCH_FETCH_BYTES_ASYNC
+                as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_FETCH_FETCH_BYTES_POLL",
+            rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_NS_FETCH_FETCH_BYTES_POLL
+                as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_FETCH_FETCH_BYTES_TAKE",
+            rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_NS_FETCH_FETCH_BYTES_TAKE
+                as *const u8,
+        ),
+        sym(
             "__RTS_FN_NS_IMGDEC_DECODE",
             rts_runtime::namespaces::globals::imgdec::__RTS_FN_NS_IMGDEC_DECODE as *const u8,
         ),

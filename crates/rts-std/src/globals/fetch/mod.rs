@@ -102,6 +102,33 @@ pub fn register(e: &mut Engine) {
             "fetchTake(ticket) — the downloaded body as a string, and removes the ticket. '' if not ready.",
             false,
         ))
+        .member(m(
+            "fetchBytesAsync",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::StrPtr], AbiType::U64),
+            "__RTS_FN_NS_FETCH_FETCH_BYTES_ASYNC",
+            "fetchBytesAsync(url: string): number",
+            "fetchBytesAsync(url) — start a BINARY GET on a thread (raw bytes, for images); ticket immediately.",
+            false,
+        ))
+        .member(m(
+            "fetchBytesPoll",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::U64], AbiType::I64),
+            "__RTS_FN_NS_FETCH_FETCH_BYTES_POLL",
+            "fetchBytesPoll(ticket: number): number",
+            "fetchBytesPoll(ticket) — 1 done, 0 downloading, -1 invalid.",
+            false,
+        ))
+        .member(m(
+            "fetchBytesTake",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::U64], AbiType::Handle),
+            "__RTS_FN_NS_FETCH_FETCH_BYTES_TAKE",
+            "fetchBytesTake(ticket: number): number",
+            "fetchBytesTake(ticket) — the raw bytes as a Buffer handle; pass buffer.ptr/len to imgdec.",
+            false,
+        ))
         .done();
 }
 

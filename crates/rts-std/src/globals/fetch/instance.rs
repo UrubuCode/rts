@@ -206,6 +206,60 @@ pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_TAKE(ticket: u64) -> u64 {
     alloc_entry(Entry::String(taken.unwrap_or_default().into_bytes()))
 }
 
+// ── fetch BINÁRIO (bytes crus, para imagens) ─────────────────────────────────
+// O fetch de texto decodifica como UTF-8 (into_string), o que CORROMPE bytes de
+// imagem. Este baixa os bytes CRUS num Buffer, para o decoder de imagem consumir.
+
+/// GET binário síncrono → Vec<u8> cru (preserva os bytes, sem UTF-8).
+fn do_fetch_bytes(url: &str) -> Vec<u8> {
+    let req = ureq::request("GET", url).set("User-Agent", super::default_user_agent());
+    match req.call() {
+        Ok(resp) | Err(ureq::Error::Status(_, resp)) => {
+            let mut buf = Vec::new();
+            let _ = std::io::Read::read_to_end(&mut resp.into_reader(), &mut buf);
+            buf
+        }
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Mapa dos fetches binários pendentes (Buffer bytes quando pronto).
+fn async_byte_fetches() -> &'static Mutex<HashMap<u64, Option<Vec<u8>>>> {
+    static F: OnceLock<Mutex<HashMap<u64, Option<Vec<u8>>>>> = OnceLock::new();
+    F.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// `fetchBytesAsync(url)` → dispara um GET BINÁRIO numa thread; ticket na hora.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_BYTES_ASYNC(url_ptr: i64, url_len: i64) -> u64 {
+    let url = str_from_parts(url_ptr, url_len).to_string();
+    let ticket = next_ticket();
+    async_byte_fetches().lock().unwrap().insert(ticket, None);
+    std::thread::spawn(move || {
+        let bytes = do_fetch_bytes(&url);
+        async_byte_fetches().lock().unwrap().insert(ticket, Some(bytes));
+    });
+    ticket
+}
+
+/// `fetchBytesPoll(ticket)` → 1 pronto / 0 baixando / -1 inválido.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_BYTES_POLL(ticket: u64) -> i64 {
+    match async_byte_fetches().lock().unwrap().get(&ticket) {
+        Some(Some(_)) => 1,
+        Some(None) => 0,
+        None => -1,
+    }
+}
+
+/// `fetchBytesTake(ticket)` → os bytes crus como Buffer (handle) e remove o ticket.
+/// Buffer vazio se não pronto/inválido. Passe `buffer.ptr`/`buffer.len` ao imgdec.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_BYTES_TAKE(ticket: u64) -> u64 {
+    let taken = async_byte_fetches().lock().unwrap().remove(&ticket).flatten();
+    alloc_entry(Entry::Buffer(taken.unwrap_or_default()))
+}
+
 // ── Promise ──────────────────────────────────────────────────────────────────
 //
 // .then/.catch/.finally operam sobre Entry::PromiseAsync(Arc<PromiseSlot>) —
