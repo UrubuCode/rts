@@ -49,6 +49,8 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     // Web Fetch API namespace — `fetch()` + `fetchText(url)` (sync HTTP GET via
     // ureq+TLS). Backs the mini-browser's real page download.
     ns::globals::fetch::register,
+    // Image decode (PNG/JPEG/GIF/WebP) → RGBA8, for <img>/background-image.
+    ns::globals::imgdec::register,
     ns::fmt::register,
     ns::fmt::register_node_util,
     // node:* modules — native rts-node crate (independent). `node:X` resolves here

@@ -21,6 +21,9 @@ rayon = "1.10"
 sha2 = "0.10"
 flate2 = "1.1"
 ureq = { version = "2.12", default-features = true }
+# Decoder de imagem (PNG/JPEG/GIF/WebP) para o motor de HTML renderizar <img> e
+# background-image. Só os formatos raster comuns (sem os exóticos) p/ não inflar.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 actix-web = { version = "4", default-features = false, features = ["macros"] }

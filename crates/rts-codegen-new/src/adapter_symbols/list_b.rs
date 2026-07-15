@@ -193,6 +193,46 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_NS_FETCH_FETCH_TAKE
                 as *const u8,
         ),
+        sym(
+            "__RTS_FN_NS_IMGDEC_DECODE",
+            rts_runtime::namespaces::globals::imgdec::__RTS_FN_NS_IMGDEC_DECODE as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_IMGDEC_WIDTH",
+            rts_runtime::namespaces::globals::imgdec::__RTS_FN_NS_IMGDEC_WIDTH as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_IMGDEC_HEIGHT",
+            rts_runtime::namespaces::globals::imgdec::__RTS_FN_NS_IMGDEC_HEIGHT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_IMGDEC_PIXELS_PTR",
+            rts_runtime::namespaces::globals::imgdec::__RTS_FN_NS_IMGDEC_PIXELS_PTR as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_IMGDEC_DECODE_GIF",
+            rts_runtime::namespaces::globals::imgdec::__RTS_FN_NS_IMGDEC_DECODE_GIF as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_IMGDEC_GIF_COUNT",
+            rts_runtime::namespaces::globals::imgdec::__RTS_FN_NS_IMGDEC_GIF_COUNT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_IMGDEC_GIF_WIDTH",
+            rts_runtime::namespaces::globals::imgdec::__RTS_FN_NS_IMGDEC_GIF_WIDTH as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_IMGDEC_GIF_HEIGHT",
+            rts_runtime::namespaces::globals::imgdec::__RTS_FN_NS_IMGDEC_GIF_HEIGHT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_IMGDEC_GIF_DELAY",
+            rts_runtime::namespaces::globals::imgdec::__RTS_FN_NS_IMGDEC_GIF_DELAY as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_IMGDEC_GIF_PIXELS_PTR",
+            rts_runtime::namespaces::globals::imgdec::__RTS_FN_NS_IMGDEC_GIF_PIXELS_PTR as *const u8,
+        ),
         // Symbol NON-primordial Registry class (#216): ctor + for/keyFor statics +
         // description getter + well-known accessors. Impls in rts-shared
         // (globals/symbol); spec carries null fn_ptr (external) → registered here.
