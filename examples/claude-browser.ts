@@ -10,7 +10,8 @@ import egui from "rts:egui";
 import dom from "rts:dom";
 import input from "rts:input";
 import fetchNs from "rts:fetch";
-import { fs, io } from "rts";
+import imgdec from "rts:imgdec";
+import { fs, io, buffer } from "rts";
 
 const KEY_ENTER = 1;
 const KEY_BACKSPACE = 4;
@@ -105,6 +106,36 @@ function extractSite(rawHtml: string, pageUrl: string): string {
   io.print("[site] styles_inline=" + sc + " css_baixados=" + cssCount + " body=" + inner.length + "B");
   dom.free(site);
   return styles + inner;
+}
+
+// Percorre os <img> do doc já montado, baixa cada src (binário) + decodifica +
+// setImage — as imagens aparecem no render. Síncrono com poll (imagens de UI são
+// pequenas); limita a 12 imagens p/ não demorar. `doc`/handles como i64 (bug do
+// handle-via-param-number). `pageUrl` resolve src relativos.
+function loadImages(doc: i64, pageUrl: string): void {
+  const count = dom.querySelectorAllCount(doc, "img");
+  const max = count < 12 ? count : 12;
+  let i = 0;
+  while (i < max) {
+    const node = dom.querySelectorAllAt(doc, "img", i);
+    const src = dom.getAttribute(doc, node, "src");
+    if (src.length > 0 && src.indexOf("data:") !== 0) {
+      const url = resolveUrl(pageUrl, src);
+      const t = fetchNs.fetchBytesAsync(url);
+      let st = fetchNs.fetchBytesPoll(t);
+      let guard = 0;
+      while (st === 0 && guard < 30000000) { st = fetchNs.fetchBytesPoll(t); guard = guard + 1; }
+      if (st === 1) {
+        const buf = fetchNs.fetchBytesTake(t);
+        const img = imgdec.decode(buffer.ptr(buf), buffer.len(buf));
+        if (img !== 0) {
+          dom.setImage(doc, node, img, 8, imgdec.width(img), imgdec.height(img));
+        }
+      }
+    }
+    i = i + 1;
+  }
+  io.print("[img] " + max + "/" + count + " imagens processadas");
 }
 
 // Página LOCAL (home/site/<name>.html). URLs remotas vão pelo caminho assíncrono.
@@ -230,6 +261,8 @@ while (egui.isOpen(win) !== 0) {
       dom.free(d);
       d = dom.parseHtml(html);
       dom.focusInput(d, urlInput(d));
+      // baixa + decodifica as imagens do site (aparecem no render).
+      if (raw.length > 0) loadImages(d, normalize(pendingUrl));
     } else if (st < 0) {
       pendingTicket = 0; // ticket inválido: aborta
     }
