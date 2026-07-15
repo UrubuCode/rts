@@ -77,6 +77,12 @@ pub enum DisplayItem {
     GradientRect { rect: Rect, c0: u32, c1: u32, angle_deg: f32, radius: f32 },
     /// Borda (contorno) de uma caixa, espessura `width`, na cor dada.
     Border { rect: Rect, width: f32, color: u32, radius: f32 },
+    /// IMAGEM (`<img>` / background-image) — um bitmap RGBA8 já decodificado. O
+    /// `pixels_handle` é um Buffer no HandleTable com `img_w*img_h*4` bytes RGBA
+    /// (a partir do offset `pixels_off`); o backend sobe como textura e pinta no
+    /// `rect` (escalando). Decodificação/download acontecem ANTES (no browser .ts,
+    /// via fetchBytes+imgdec); o rts-dom só carrega o handle+dims — segue wasm-safe.
+    Image { rect: Rect, pixels_handle: u64, pixels_off: u32, img_w: u32, img_h: u32 },
     /// Texto numa posição (canto superior-esquerdo). `mono` escolhe a família
     /// monoespaçada. `letter_spacing` = espaço extra entre glifos (px). `decoration`
     /// = linha decorativa (0=nenhuma, 1=underline, 2=line-through, 3=overline). O
@@ -510,6 +516,14 @@ fn layout_block(
             if is_text_input_tag(tag) {
                 return layout_input(dom, id, &css, x, y, avail_w, forced_outer_w, ctx, list);
             }
+            // `<img>` com pixels decodificados: emite a imagem no rect (tamanho do CSS
+            // width/height, senão o natural da imagem). Void — sem filhos.
+            if tag == "img" {
+                if let Some(img) = layout_image(dom, id, &css, x, y, avail_w, ctx, list) {
+                    return img;
+                }
+                // sem pixels ainda (não baixou/decodificou): ocupa 0 (não pinta nada).
+            }
             css
         }
         NodeKind::Text(t) => {
@@ -874,7 +888,8 @@ fn apply_transform_to_item(
         DisplayItem::SolidRect { rect, .. }
         | DisplayItem::Border { rect, .. }
         | DisplayItem::GradientRect { rect, .. }
-        | DisplayItem::Shadow { rect, .. } => {
+        | DisplayItem::Shadow { rect, .. }
+        | DisplayItem::Image { rect, .. } => {
             let (nx, ny) = xf(rect.x, rect.y);
             rect.x = nx;
             rect.y = ny;
@@ -1023,6 +1038,12 @@ fn intrinsic_outer_width(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &LayoutC
 fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
     match &dom.node(id).kind {
         NodeKind::Element { tag } => {
+            // `<img>` com imagem decodificada é um elemento REPLACED (conteúdo visual
+            // intrínseco) → precisa de layout_block p/ emitir o DisplayItem::Image,
+            // mesmo sem CSS de caixa.
+            if tag == "img" && dom.image_of(id).is_some() {
+                return true;
+            }
             let css = dom.computed_style_idx(id);
             css.as_ref().and_then(|c| c.effective_display()).is_some()
                 || crate::block::lookup(tag).is_some()
@@ -1096,6 +1117,74 @@ fn is_text_input_tag(tag: &str) -> bool {
 /// o FOCO, um CURSOR (barrinha) após o texto. Void (sem filhos) — o egui só recebe
 /// SolidRect+Text+SolidRect e pinta burramente. Retorna `(outer_w, outer_h)`.
 #[allow(clippy::too_many_arguments)]
+/// Layout de um `<img>` com pixels já decodificados: emite `DisplayItem::Image` no
+/// rect. Tamanho: `width`/`height` do CSS se houver; senão o natural da imagem (mas
+/// limitado à largura disponível, preservando a proporção). `None` se o `<img>` ainda
+/// não tem imagem setada (nada a pintar). Retorna `(outer_w, outer_h)`.
+#[allow(clippy::too_many_arguments)]
+fn layout_image(
+    dom: &Dom,
+    id: NodeIdx,
+    css: &ComputedStyle,
+    x: f32,
+    y: f32,
+    avail_w: f32,
+    ctx: &LayoutCtx,
+    list: &mut DisplayList,
+) -> Option<(f32, f32)> {
+    let (handle, off, iw, ih) = dom.image_of(id)?;
+    if handle == 0 || iw == 0 || ih == 0 {
+        return None;
+    }
+    let font = font_px(css, DEFAULT_FONT_SIZE);
+    let resolve = ResolveCtx {
+        parent_content_w: avail_w,
+        node_font_size: font,
+        root_font_size: DEFAULT_FONT_SIZE,
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+    // margens (respeita o CSS); a imagem em si é o content (sem padding/borda v1).
+    let m = &css.margin;
+    let margin_left = m.left.resolve(&resolve).unwrap_or(0.0);
+    let margin_right = m.right.resolve(&resolve).unwrap_or(0.0);
+    let margin_top = m.top.resolve(&resolve).unwrap_or(0.0);
+    let margin_bottom = m.bottom.resolve(&resolve).unwrap_or(0.0);
+    // largura/altura: CSS explícito, senão o atributo HTML `width`/`height` (comum em
+    // `<img width=100 height=100>`), senão o natural. Se só um é dado, mantém a razão.
+    let attr_px = |name: &str| -> Option<f32> {
+        dom.node(id)
+            .attr(name)
+            .and_then(|v| v.trim().trim_end_matches("px").trim().parse::<f32>().ok())
+            .filter(|v| *v >= 0.0)
+    };
+    let css_w = css.width.and_then(|d| d.resolve(&resolve)).or_else(|| attr_px("width"));
+    let css_h = css.height.and_then(|d| d.resolve(&resolve)).or_else(|| attr_px("height"));
+    let (nat_w, nat_h) = (iw as f32, ih as f32);
+    let (mut w, mut h) = match (css_w, css_h) {
+        (Some(cw), Some(ch)) => (cw, ch),
+        (Some(cw), None) => (cw, cw * nat_h / nat_w),
+        (None, Some(ch)) => (ch * nat_w / nat_h, ch),
+        (None, None) => (nat_w, nat_h),
+    };
+    // não estoura a largura disponível (encolhe mantendo a razão).
+    let max_w = (avail_w - margin_left - margin_right).max(0.0);
+    if w > max_w && w > 0.0 {
+        h = h * max_w / w;
+        w = max_w;
+    }
+    let rect = Rect::new(x + margin_left, y + margin_top, w, h);
+    list.node_rects.insert(id, rect);
+    list.items.push(DisplayItem::Image {
+        rect,
+        pixels_handle: handle,
+        pixels_off: off,
+        img_w: iw,
+        img_h: ih,
+    });
+    Some((w + margin_left + margin_right, h + margin_top + margin_bottom))
+}
+
 fn layout_input(
     dom: &Dom,
     id: NodeIdx,

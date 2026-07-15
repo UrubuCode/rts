@@ -308,7 +308,7 @@ fn paint_list(ui: &mut egui::Ui, list: &DisplayList, offset_y: f32) {
     // painter do topo e a SOMA dos offsets extra (a região rolada). Base = ui.
     let base = ui.painter().clone();
     let mut stack: Vec<(egui::Painter, egui::Vec2)> = Vec::new();
-    for item in &list.items {
+    for (idx, item) in list.items.iter().enumerate() {
         let (painter, extra) = stack
             .last()
             .map(|(p, o)| (p.clone(), *o))
@@ -409,6 +409,40 @@ fn paint_list(ui: &mut egui::Ui, list: &DisplayList, offset_y: f32) {
                     egui::vec2(rect.w, rect.h),
                 );
                 paint_linear_gradient(&painter, r, *c0, *c1, *angle_deg);
+            }
+            DisplayItem::Image { rect, pixels_handle, pixels_off, img_w, img_h } => {
+                // lê os RGBA8 do Buffer no HandleTable, sobe como textura efêmera e
+                // pinta no rect (escalando). O decode/download já aconteceram no .ts.
+                let need = (*img_w as usize) * (*img_h as usize) * 4;
+                let rgba: Option<Vec<u8>> =
+                    rts_engine::heap::handles::with_entry(*pixels_handle, |e| match e {
+                        Some(rts_engine::heap::handles::Entry::Buffer(b)) => {
+                            let start = *pixels_off as usize;
+                            (b.len() >= start + need).then(|| b[start..start + need].to_vec())
+                        }
+                        _ => None,
+                    });
+                if let Some(bytes) = rgba {
+                    let ci = egui::ColorImage::from_rgba_unmultiplied(
+                        [*img_w as usize, *img_h as usize],
+                        &bytes,
+                    );
+                    let tex = painter.ctx().load_texture(
+                        format!("__rts_domimg_{}_{}", pixels_handle, idx),
+                        ci,
+                        egui::TextureOptions::LINEAR,
+                    );
+                    let r = egui::Rect::from_min_size(
+                        origin + egui::vec2(rect.x, rect.y),
+                        egui::vec2(rect.w, rect.h),
+                    );
+                    painter.image(
+                        tex.id(),
+                        r,
+                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                        egui::Color32::WHITE,
+                    );
+                }
             }
             DisplayItem::BeginClip { rect, offset_x, offset_y, .. } => {
                 // o RECT do container é FIXO (não rola) — posiciona com `origin` (que
