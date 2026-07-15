@@ -14,6 +14,8 @@ import { fs, io } from "rts";
 
 const KEY_ENTER = 1;
 const KEY_BACKSPACE = 4;
+const KEY_A = 100; // KEY_A..Z = 100..125
+const KEY_C = 102;
 const PHASE_PRESSED = 1;
 const VW = 1000;
 
@@ -116,34 +118,58 @@ function load(name: string): string {
     + "Tente <b>home</b>, <b>sobre</b>, ou uma URL como <b>example.com</b>.</p>");
 }
 
-// Página inicial embutida (não depende de arquivo — abre instantânea).
+// Página inicial embutida (não depende de arquivo — abre instantânea). É uma
+// APRESENTAÇÃO do RTS que exercita o próprio motor: gradiente, grid, box-shadow,
+// oklch, border-radius, transform — o motor se prova a si mesmo.
 const HOME =
-  "<div style='padding:40px 0'>"
-  + "<h1 style='color:#22d3ee;font-size:44px'>Mini-browser RTS</h1>"
-  + "<p style='color:#a4afc4;font-size:19px'>A barra de cima e um &lt;input&gt; DE VERDADE, "
-  + "renderizado e editado pelo motor do RTS. Clique nela, digite uma URL e aperte Enter.</p>"
-  + "<p style='color:#8592a8;font-size:16px'>Ex.: <b>example.com</b>, <b>wikipedia.org</b>. "
-  + "Ao navegar, aparece 'Carregando...' enquanto baixa (o download bloqueia ~1-2s — normal).</p>"
-  + "<p style='color:#64748b;font-size:14px'>Sites que montam o tema por JavaScript "
-  + "(DaisyUI/React) vem sem cor — o RTS ainda nao executa JS da pagina.</p>"
+  "<style>"
+  + ".hero{background:linear-gradient(120deg,#f97316,#d946ef);border-radius:20px;padding:44px 40px;margin:28px 0}"
+  + ".hero h1{color:#ffffff;font-size:46px;margin:0 0 10px 0}"
+  + ".hero p{color:#ffffff;font-size:19px;margin:0}"
+  + ".pill{display:inline-block;background:oklch(0.28 0.03 260);color:#7dd3fc;font-size:13px;letter-spacing:2px;text-transform:uppercase;padding:7px 16px;border-radius:999px;margin-bottom:22px}"
+  + ".stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin:8px 0 32px 0}"
+  + ".stat{background:#10141c;border-radius:16px;padding:22px 18px;box-shadow:0 8px 20px rgba(0,0,0,0.4)}"
+  + ".stat .n{font-size:30px;font-weight:bold;color:#f97316}"
+  + ".stat .l{font-size:12px;color:#8592a8;text-transform:uppercase;letter-spacing:1px}"
+  + ".cards{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}"
+  + ".card{background:#0c1220;border-radius:16px;padding:24px 22px;box-shadow:0 6px 16px rgba(0,0,0,0.35)}"
+  + ".card h3{color:#ffffff;font-size:19px;margin:0 0 8px 0}"
+  + ".card p{color:#93a0b6;font-size:14px;margin:0}"
+  + ".dot{width:38px;height:38px;border-radius:11px;margin-bottom:16px;background:oklch(0.7 0.19 40)}"
+  + ".card:nth-child(2) .dot{background:oklch(0.72 0.15 200)}"
+  + ".card:nth-child(3) .dot{background:oklch(0.65 0.2 300)}"
+  + "</style>"
+  + "<span class='pill'>TypeScript compilado para nativo</span>"
+  + "<div class='hero'><h1>Mini-browser feito no RTS</h1>"
+  + "<p>Esta pagina foi renderizada pelo motor CSS nativo do RTS. A barra de cima e um &lt;input&gt; de verdade. Digite uma URL e aperte Enter.</p></div>"
+  + "<div class='stats'>"
+  + "<div class='stat'><div class='n'>16.9ms</div><div class='l'>Monte Carlo AOT</div></div>"
+  + "<div class='stat'><div class='n'>5.14x</div><div class='l'>Mais rapido que Bun</div></div>"
+  + "<div class='stat'><div class='n'>10MB</div><div class='l'>.exe standalone</div></div>"
+  + "<div class='stat'><div class='n'>0</div><div class='l'>Dependencias JS</div></div>"
+  + "</div>"
+  + "<div class='cards'>"
+  + "<div class='card'><div class='dot'></div><h3>Motor CSS proprio</h3><p>Grid, flexbox, gradiente, box-shadow, oklch, transform, calc() e cascade @layer — tudo em Rust, sem navegador.</p></div>"
+  + "<div class='card'><div class='dot'></div><h3>Download real</h3><p>fetch assincrono (HTTPS+TLS) numa thread: baixa a pagina sem congelar a janela.</p></div>"
+  + "<div class='card'><div class='dot'></div><h3>Roda sozinho</h3><p>Compila para um .exe nativo de ~10MB. Sem Node, sem Bun, sem runtime empacotado.</p></div>"
   + "</div>";
 
 let d = dom.parseHtml(page("home", HOME));
 
 // Descobre o NodeId do <input> da barra (o primeiro input do doc).
-function urlInput(doc: number): number {
+function urlInput(doc: i64): number {
   return dom.querySelector(doc, "#urlbar"); // id dedicado: nunca confunde com <input> do site baixado
 }
 
 // Retângulo (x,y,w,h) de um nó, em pontos (via getBoundingClientRect do motor).
 // which: 0=x 1=y 2=w 3=h. -1 se o nó não tem rect. `vw` inline (o engine não
 // captura const module-level dentro de função).
-function rectComp(doc: number, node: number, vw: number, which: number): number {
+function rectComp(doc: i64, node: i64, vw: number, which: number): number {
   return dom.boundingComponent(doc, node, vw, which) / 1000;
 }
 
 // O mouse está sobre o botão "Ir" (id=go)?
-function overGo(doc: number, vw: number, mx: number, my: number): boolean {
+function overGo(doc: i64, vw: number, mx: number, my: number): boolean {
   const go = dom.querySelector(doc, "#go");
   if (go < 0) return false;
   const x = rectComp(doc, go, vw, 0);
@@ -163,7 +189,7 @@ let pendingUrl = "";
 
 // Troca o DOM `cur` por uma página LOCAL/instantânea (home/site local). Retorna o
 // novo handle. Para URL remota, use `startNav` (assíncrono).
-function localPage(cur: number, val: string): number {
+function localPage(cur: i64, val: string): number {
   dom.free(cur);
   const html = val === "home" ? page("home", HOME) : load(val);
   const doc = dom.parseHtml(html);
@@ -172,7 +198,7 @@ function localPage(cur: number, val: string): number {
 }
 
 // Mostra "Carregando" e retorna o DOM dela (o loop pollа o download).
-function loadingPage(cur: number, val: string): number {
+function loadingPage(cur: i64, val: string): number {
   dom.free(cur);
   const doc = dom.parseHtml(page(val,
     "<h1 style='color:#22d3ee'>Carregando...</h1>"
@@ -183,6 +209,7 @@ function loadingPage(cur: number, val: string): number {
 // Abre na HOME (instantânea).
 io.print("[boot] home instantânea (digite uma URL e Enter)");
 d = localPage(d, "home");
+io.print("[boot] urlbar node=" + urlInput(d) + " inputs=" + dom.querySelectorAllCount(d, "input") + " val='" + dom.inputValue(d, urlInput(d)) + "'");
 
 let frame = 0;
 while (egui.isOpen(win) !== 0) {
@@ -192,6 +219,7 @@ while (egui.isOpen(win) !== 0) {
   // ── POLL do download assíncrono (não bloqueia): quando pronto, monta a página ──
   if (pendingTicket !== 0) {
     const st = fetchNs.fetchPoll(pendingTicket);
+    if (frame % 30 === 0) io.print("[poll] ticket=" + pendingTicket + " st=" + st);
     if (st === 1) {
       const raw = fetchNs.fetchTake(pendingTicket);
       pendingTicket = 0;
@@ -215,18 +243,37 @@ while (egui.isOpen(win) !== 0) {
   // Clique: no botão "Ir" → navega; senão foca/desfoca o input sob o cursor.
   if (clicked !== 0) {
     if (overGo(d, VW, mx, my)) {
+      io.print("[click] IR (mouse " + mx + "," + my + ")");
       doNav = true;
     } else {
       const hit = dom.inputAt(d, VW, mx, my);
+      io.print("[click] mouse=(" + mx + "," + my + ") inputAt=" + hit);
       dom.focusInput(d, hit);
     }
   }
 
-  // Digitação no input focado.
+  // Digitação no input focado (o textInput JÁ inclui o texto colado com Ctrl+V).
   const typed = input.textInput(win);
   if (typed.length > 0) dom.inputFeedText(d, typed);
   if (input.key(win, KEY_BACKSPACE, PHASE_PRESSED) !== 0) dom.inputBackspace(d);
   if (input.key(win, KEY_ENTER, PHASE_PRESSED) !== 0) doNav = true;
+
+  // ── Atalhos com Ctrl (copiar / apagar tudo) ──────────────────────────────────
+  const ctrl = input.modCtrl(win) !== 0;
+  if (ctrl && input.key(win, KEY_C, PHASE_PRESSED) !== 0) {
+    // Ctrl+C: copia o valor do input focado para o clipboard do SO.
+    input.copyText(win, dom.inputValue(d, urlInput(d)));
+    io.print("[copy] '" + dom.inputValue(d, urlInput(d)) + "'");
+  }
+  if (ctrl && input.key(win, KEY_A, PHASE_PRESSED) !== 0) {
+    // Ctrl+A: "seleciona tudo" → como não há seleção visual, apaga a barra (limpa p/
+    // digitar/colar uma URL nova de uma vez).
+    let n = 0;
+    while (dom.inputValue(d, urlInput(d)).length > 0 && n < 300) {
+      dom.inputBackspace(d);
+      n = n + 1;
+    }
+  }
 
   // Navega (Enter ou botão Ir) — só se não há download em andamento.
   if (doNav && pendingTicket === 0) {

@@ -70,6 +70,9 @@ pub trait InputSource {
     fn modifiers(&self, target: u64) -> Modifiers;
     /// Texto digitado neste frame (UTF-8 concatenado).
     fn text_input(&self, target: u64) -> String;
+    /// Coloca `text` no clipboard do SO (Ctrl+C). Default no-op p/ backends sem
+    /// clipboard (headless/testes).
+    fn copy_text(&self, _target: u64, _text: &str) {}
 }
 
 /// Estado dos modificadores num frame (neutro). `cmd` = Super/⌘/Win (o egui
