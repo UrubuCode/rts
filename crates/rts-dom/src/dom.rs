@@ -618,8 +618,12 @@ impl Dom {
             return;
         }
         // Descarta os filhos atuais (arena não compacta; vira lixo inacessível —
-        // ok para o uso atual, a árvore é reconstruída a cada `html()`).
-        self.nodes[idx].children.clear();
+        // ok para o uso atual, a árvore é reconstruída a cada `html()`). Zera o
+        // `parent` de cada um para `is_attached`/query não os acharem.
+        let old_children = std::mem::take(&mut self.nodes[idx].children);
+        for c in old_children {
+            self.nodes[c].parent = None;
+        }
         let child = self.push_detached(NodeKind::Text(text.to_string()));
         self.nodes[child].parent = Some(idx);
         self.nodes[idx].children.push(child);
@@ -2006,8 +2010,13 @@ impl Dom {
         if !matches!(self.nodes[idx].kind, NodeKind::Element { .. }) {
             return;
         }
-        // Descarta os filhos atuais (arena não compacta; viram lixo).
-        self.nodes[idx].children.clear();
+        // Descarta os filhos atuais (arena não compacta; viram lixo). Zera o
+        // `parent` de cada um — sem isso `is_attached` ainda os vê ligados à raiz
+        // e `querySelector` acha nó destacado.
+        let old_children = std::mem::take(&mut self.nodes[idx].children);
+        for c in old_children {
+            self.nodes[c].parent = None;
+        }
         // Parseia a nova subárvore numa árvore temporária e copia os filhos do
         // #document dela para baixo de `idx`.
         let sub = parse_html_to_dom(html);
@@ -2573,6 +2582,23 @@ mod tests {
         let p = dom.query("p").unwrap();
         assert_eq!(dom.text_content(p).unwrap(), "novo");
         assert!(dom.query("span").is_none()); // o velho foi descartado
+    }
+
+    #[test]
+    fn inner_html_set_desanexa_dos_indices() {
+        // Regressão: o atalho O(1) por índice (`.classe`/`#id`) não pode achar nó
+        // descartado pelo set_inner_html/set_text (o `parent` dos filhos velhos é
+        // zerado para o `is_attached` do índice falhar).
+        let mut dom = parse_html_to_dom("<div id=a><span class=x id=velho>old</span></div>");
+        let div = dom.query("#a").unwrap();
+        dom.set_inner_html(div, "<b>new</b>");
+        assert!(dom.query(".x").is_none());
+        assert!(dom.query("#velho").is_none());
+        // set_text idem.
+        let mut d2 = parse_html_to_dom("<div id=a><span class=x>old</span></div>");
+        let div2 = d2.query("#a").unwrap();
+        d2.set_text(div2, "txt");
+        assert!(d2.query(".x").is_none());
     }
 
     #[test]
