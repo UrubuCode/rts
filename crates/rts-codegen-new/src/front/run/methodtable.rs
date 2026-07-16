@@ -44,6 +44,29 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 }
                 methods.push((mname.clone(), fname.clone(), sig.params.len() as i64));
             }
+            // ACCESSORS on the proto too, under the `__get_<key>`/`__set_<key>`
+            // convention the dynamic paths already dispatch (`__rtsadp_obj_get`
+            // invokes a chain `__get_x` on own-slot miss; `__rtsadp_obj_set`
+            // mirrors with `__set_x`) — so a TAGGED receiver (an `any` local, a
+            // `new Function` body, a union-typed return) reaches class getters/
+            // setters exactly like literal/defineProperty accessors. The STATIC
+            // known-class dispatch is untouched (it resolves at compile time and
+            // never consults the proto).
+            for (aname, acc) in &desc.accessors {
+                for (fname, key) in [
+                    (acc.getter.as_ref(), format!("__get_{aname}")),
+                    (acc.setter.as_ref(), format!("__set_{aname}")),
+                ] {
+                    let Some(fname) = fname else { continue };
+                    let Some(sig) = self.sigs.get(fname.as_str()) else {
+                        continue;
+                    };
+                    if sig.is_async || !self.thunks.contains_key(fname) {
+                        continue;
+                    }
+                    methods.push((key, fname.clone(), sig.params.len() as i64));
+                }
+            }
             if !methods.is_empty() {
                 rows.push((desc.name.clone(), desc.parent.clone(), methods));
             }

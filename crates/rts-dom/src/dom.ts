@@ -915,13 +915,8 @@ function __loadLinkAt(h: number, i: number, baseUrl: string): number {
 
 // Carrega o fonte do j-ésimo `<script src>` e o injeta no DOM como texto do nó
 // `<script>` (fica acessível via `el.textContent`), via `dom.runScript`. Devolve 1/0.
-//
-// ⚠️ NÃO há EXECUÇÃO de script no motor novo ainda: o namespace `runtime` (eval) não
-// está registrado no codegen novo, e o único eval disponível (`__RTS_FN_NS_RUNTIME_EVAL`)
-// roda num SUBPROCESSO isolado que não enxerga este DOM — inútil para `<script>`.
-// Então `dom.runScript` apenas materializa o fonte no nó (carregar ≠ executar). A
-// execução real entra quando o motor expuser um eval in-process com acesso ao DOM.
-// Regressão explícita do escopo "executar via eval", justificada pelo bloqueador.
+// Carregar ≠ executar: a execução é a fase seguinte, `runScripts(doc)` (abaixo),
+// que compila cada `<script>` in-process via `new Function` (o eval do motor novo).
 function __loadScriptAt(h: number, j: number, baseUrl: string): number {
   const node = dom.getByTagAt(h, "script", j);
   if (node === __DOM_NONE) return 0;
@@ -932,4 +927,60 @@ function __loadScriptAt(h: number, j: number, baseUrl: string): number {
   if (code.length === 0) return 0;
   dom.runScript(h, node, code);
   return 1;
+}
+
+// ── Execução de <script> — o "bloco JS" da página ──────────────────────────────
+//
+// `runScripts(doc)` compila e roda cada `<script>` do documento, em ordem de
+// documento, IN-PROCESS: o corpo vai pelo `new Function` (pipeline swc→HIR→JIT do
+// motor, hook COMPILE_FN_HOOK/dynfn.rs) e roda na MESMA thread — o store de DOMs é
+// thread_local no Rust, então o script enxerga o MESMO documento. A ponte é 100%
+// dados: prefixamos `const document = new Document(__h)` no corpo e passamos o
+// handle como argumento. O programa aninhado inclui os mesmos preludes, então as
+// classes Document/Element existem lá com a mesma API.
+//
+// Limites HONESTOS do subset dinâmico (documentados, não silenciosos):
+//   • GETTER/SETTER de classe despacham também no caminho dinâmico (o prólogo do
+//     motor registra `__get_/__set_<prop>` no proto — `el.textContent = x` chama o
+//     setter REAL, como no browser).
+//   • O retorno do dynfn é i64 — devolver string do script não sobrevive à borda.
+//     Efeitos no DOM (o caso real de <script>) funcionam; "return de valor" não é
+//     o contrato de um bloco de página mesmo.
+//   • Sem `async`/`await` no corpo (limite do new Function herdado do motor).
+// Erro de compilação/execução de um script NÃO derruba os demais (isolamento por
+// try/catch, como no browser). Devolve quantos scripts rodaram com sucesso.
+function runScripts(doc: Document): number {
+  // `: i64` no handle e no param da helper: handle via param `number` corrompe
+  // (fcvt vs bitcast — issue #1870 do motor).
+  const h: i64 = doc._dom;
+  let ran = 0;
+  const scriptCount = dom.getByTagCount(h, "script");
+  let j = 0;
+  while (j < scriptCount) {
+    ran = ran + __runScriptAt(h, j);
+    j = j + 1;
+  }
+  return ran;
+}
+
+// Roda o j-ésimo `<script>`: inline usa o texto do nó; externo usa o fonte que o
+// `loadResources` materializou no nó (mesmo caminho). Devolve 1 (rodou) ou 0.
+function __runScriptAt(h: i64, j: number): number {
+  const node = dom.getByTagAt(h, "script", j);
+  if (node === __DOM_NONE) return 0;
+  const code = dom.getText(h, node);
+  if (code.length === 0) return 0;
+  // `return 0` final: o dynfn é tipado i64 e o corpo de um <script> normalmente
+  // não tem return — garantimos um. (Um return do próprio script vence, este vira
+  // código morto.)
+  const body = "const document = new Document(__h);\n" + code + "\nreturn 0;";
+  let ok = 1;
+  try {
+    const f = new Function("__h", body);
+    f(h);
+  } catch (e) {
+    // Script quebrado não derruba a página (comportamento do browser).
+    ok = 0;
+  }
+  return ok;
 }
