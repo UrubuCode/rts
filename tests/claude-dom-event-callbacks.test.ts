@@ -1,4 +1,5 @@
 import { describe, test, expect } from "rts:test";
+import dom from "rts:dom";
 
 // Eventos com CALLBACK real (modelo do browser): addEventListener(type, fn) +
 // dispatchEvent invocando fn({type, target, currentTarget}) com bubbling.
@@ -49,6 +50,24 @@ if (b2 !== null) { b2.dispatchEvent("click"); }
 const st = doc2.getElementById("st");
 const stDepois = st === null ? "" : st.textContent;
 
+// ciclo do BACKEND (hit-test simulado): pushRawEvent → pumpEventCallbacks →
+// callback do script roda (o mesmo caminho que o clique real do mouse percorre).
+const doc3 = parseDocument(
+  "<button id='x'>x</button>" +
+  "<script>" +
+  "const b = document.getElementById('x');" +
+  "if (b !== null) { b.addEventListener('click', function(ev) { b.setAttribute('data-ok', '1'); }); }" +
+  "</script>");
+runScripts(doc3);
+const bx = doc3.getElementById("x");
+let pumped = 0;
+if (bx !== null) {
+  dom.pushRawEvent(doc3._dom, bx.nodeId, "click");
+  pumped = pumpEventCallbacks(doc3);
+}
+const bx2 = doc3.getElementById("x");
+const okAttr = bx2 === null ? "" : bx2.getAttribute("data-ok");
+
 describe("eventos com callback (modelo do browser)", () => {
   test("callback dispara com objeto de evento", () => {
     expect(cliques).toBe(2);
@@ -61,5 +80,9 @@ describe("eventos com callback (modelo do browser)", () => {
   });
   test("listener registrado por <script> de página dispara", () => {
     expect(stDepois).toBe("salvo:click");
+  });
+  test("evento do backend (hit-test) chega no callback via pump", () => {
+    expect(pumped).toBe(1);
+    expect(okAttr).toBe("1");
   });
 });

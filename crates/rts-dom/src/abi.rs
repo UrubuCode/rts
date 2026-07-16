@@ -858,6 +858,7 @@ pub extern "C" fn __RTS_FN_NS_DOM_REMOVE_STYLE_PROPERTY(h: u64, id: i64, n_ptr: 
 // esse tipo logo após. O loop TS: `n = pollEvent(); if (n>=0) { t = pollEventType(); ... }`.
 thread_local! {
     static LAST_EVENT_TYPE: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+    static LAST_RAW_EVENT_TYPE: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
 }
 
 /// `addListener(domHandle, node, type)` → registra que o nó escuta o tipo.
@@ -968,6 +969,45 @@ pub extern "C" fn __RTS_FN_NS_DOM_POLL_EVENT(h: u64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_DOM_POLL_EVENT_TYPE(_h: u64) -> u64 {
     let t = LAST_EVENT_TYPE.with(|c| c.borrow().clone());
+    intern(&t)
+}
+
+/// `pushRawEvent(domHandle, node, type)` → empurra um evento CRU na fila do
+/// backend (o mesmo caminho do hit-test do mouse) — para eventos sintéticos e
+/// testes headless do ciclo completo.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_PUSH_RAW_EVENT(h: u64, id: i64, t_ptr: *const u8, t_len: i64) {
+    let Some(node) = NodeId::from_abi(id) else { return };
+    let t = unsafe { str_abi::from_abi(t_ptr, t_len) }.unwrap_or("").to_string();
+    with_mut(h, |dom| {
+        if let Some(idx) = dom.resolve(node) {
+            dom.push_raw_event(idx, &t);
+        }
+    });
+}
+
+/// `pollRawEvent(domHandle)` → NodeId do próximo evento CRU do backend (hit-test do
+/// mouse), ou -1. GUARDA o tipo p/ `pollRawEventType` ler em seguida. A fachada TS
+/// (`pumpEventCallbacks`) drena e faz o dispatch completo (bubbling + callbacks).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_POLL_RAW_EVENT(h: u64) -> i64 {
+    match with_mut(h, |dom| dom.poll_raw_event()) {
+        Some(Some((node, t))) => {
+            LAST_RAW_EVENT_TYPE.with(|c| *c.borrow_mut() = t);
+            node.to_abi()
+        }
+        _ => {
+            LAST_RAW_EVENT_TYPE.with(|c| c.borrow_mut().clear());
+            NODE_NONE
+        }
+    }
+}
+
+/// `pollRawEventType(domHandle)` → o tipo do evento entregue no último
+/// `pollRawEvent` ("" se nenhum). Ler imediatamente após.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_POLL_RAW_EVENT_TYPE(_h: u64) -> u64 {
+    let t = LAST_RAW_EVENT_TYPE.with(|c| c.borrow().clone());
     intern(&t)
 }
 
@@ -1819,6 +1859,29 @@ pub fn register(e: &mut Engine) {
             "pollEvent(dom: number): number",
             "next pending event's NodeId (-1 if none); stores type for pollEventType.",
             __RTS_FN_NS_DOM_POLL_EVENT as *const u8,
+        ))
+        .member(func(
+            "pushRawEvent", "__RTS_FN_NS_DOM_PUSH_RAW_EVENT",
+            Sig::new(vec![Handle, I64, StrPtr], AbiType::Void),
+            "pushRawEvent(dom: number, node: number, type: string): void",
+            "push a raw backend-style event (same path as the mouse hit-test) — \
+             synthetic events / headless tests of the full cycle.",
+            __RTS_FN_NS_DOM_PUSH_RAW_EVENT as *const u8,
+        ))
+        .member(func(
+            "pollRawEvent", "__RTS_FN_NS_DOM_POLL_RAW_EVENT",
+            Sig::new(vec![Handle], I64),
+            "pollRawEvent(dom: number): number",
+            "next backend-origin raw event's NodeId (mouse hit-test; -1 if none); \
+             stores type for pollRawEventType. pumpEventCallbacks drains this.",
+            __RTS_FN_NS_DOM_POLL_RAW_EVENT as *const u8,
+        ))
+        .member(func(
+            "pollRawEventType", "__RTS_FN_NS_DOM_POLL_RAW_EVENT_TYPE",
+            Sig::new(vec![Handle], AbiType::Handle),
+            "pollRawEventType(dom: number): string",
+            "type of the raw event delivered by the last pollRawEvent ('' if none).",
+            __RTS_FN_NS_DOM_POLL_RAW_EVENT_TYPE as *const u8,
         ))
         .member(func(
             "pollEventType", "__RTS_FN_NS_DOM_POLL_EVENT_TYPE",
