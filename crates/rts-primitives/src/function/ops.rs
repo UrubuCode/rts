@@ -44,6 +44,11 @@ fn proxy_resolve(handle: u64) -> Option<(u64, u64)> {
 pub struct CompiledFn {
     pub fn_ptr: u64,
     pub arity: u8,
+    /// `true` quando `fn_ptr` é o THUNK de ABI uniforme do motor novo
+    /// (`(env, a0..a3, rest) -> word`, PolyValue nos dois sentidos) — o
+    /// invoke roteia como qualquer fn-value do motor. `false` = fn_ptr cru
+    /// legado all-i64.
+    pub uniform: bool,
     pub keep_alive: Arc<Mutex<dyn std::any::Any + Send>>,
 }
 
@@ -807,7 +812,7 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_NEW(params_handle: u64, body_handle: u64)
         keep_alive: Some(compiled.keep_alive),
         prototype_handle: 0,
         rest_param_idx: -1,
-        uniform_thunk: false,
+        uniform_thunk: compiled.uniform,
     })))
 }
 
@@ -817,6 +822,19 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_han
     // (#218 phase2) Proxy callable: redireciona pra trap apply ou forward.
     if let Some((target, handler)) = proxy_resolve(handle) {
         return unsafe { __RTS_FN_RT_PROXY_DISPATCH_APPLY(target, handler, this_arg, args_handle) };
+    }
+    // dynfn v2: um `new Function` UNIFORME (fn_ptr = thunk de words) chamado pela
+    // superfície CRUA — boxa cada arg i64 (raw_to_word), invoca pelo caminho
+    // uniforme e decodifica o retorno (word_to_raw) pro slot i64. Sem a ponte,
+    // o thunk recebia crus como words e devolvia word cru ao caller.
+    if read_uniform_thunk(handle) {
+        let raw = read_args_vec(args_handle);
+        let words: Vec<i64> = raw.iter().map(|&a| raw_to_word(a)).collect();
+        let wh = rts_engine::heap::handles::alloc_entry(
+            rts_engine::heap::handles::Entry::Vec(Box::new(words)),
+        );
+        let r = __RTS_FN_RT_INVOKE_AUTO(handle as i64, this_arg, wh) as u64;
+        return word_to_raw(r);
     }
     // (cross-runtime #218/#354) `handle` pode ser um func_addr CRU (arrow/fn
     // passada como VALOR a um param any/function e invocada via .apply/.call —

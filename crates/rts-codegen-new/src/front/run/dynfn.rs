@@ -15,12 +15,15 @@
 //! API precisely so `new Function`/eval can compile while the outer program is
 //! live).
 //!
-//! Invoke contract: the produced `fn_ptr` is called through the LEGACY
-//! `invoke_typed` path (all-i64 `extern "C"`), so every param and the return are
-//! annotated `i64` in the synthesized source. A dynamic function is therefore
-//! integer-typed — the `new Function` subset the old engine shipped. It is NOT
-//! in the program's tail set (no `CallConv::Tail`), so the raw pointer is
-//! extern-callable.
+//! Invoke contract: the produced `fn_ptr` is the function's UNIFORM-ABI THUNK
+//! (`(env, a0..a3, rest) -> word`, PolyValue words both ways — the same shape
+//! every engine fn-value uses), flagged `uniform: true` so the Function invoke
+//! paths route it like any first-class fn. Params are synthesized UNTYPED
+//! (Tagged/`any` — real JS semantics: method calls/getters/setters on a param
+//! dispatch dynamically via the proto tables), and the return is a word (a
+//! string return survives the boundary). Fallback: if the thunk was not
+//! definable for this body, the raw pointer ships with `uniform: false`
+//! (legacy all-i64 — the pre-P5 contract).
 
 use std::sync::{Arc, Mutex};
 
@@ -45,12 +48,11 @@ pub(super) fn register_hook() {
 /// `JITModule`, and hand back the finalized code pointer + the module as the
 /// keep-alive anchor.
 fn compile_dynamic_fn(params: &[&str], body: &str) -> anyhow::Result<CompiledFn> {
-    let plist = params
-        .iter()
-        .map(|p| format!("{p}: i64"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let src = format!("function {DYN_FN_NAME}({plist}): i64 {{\n{body}\n}}\n");
+    // Params UNTYPED (Tagged/`any`): real-JS semantics — a page script's
+    // `function f(el) { el.textContent = x }` dispatches dynamically. A caller
+    // MAY still pass an explicit annotation in the param string ("h: i64").
+    let plist = params.to_vec().join(", ");
+    let src = format!("function {DYN_FN_NAME}({plist}) {{\n{body}\n}}\n");
     let prog = super::build_with_includes(&src)
         .map_err(|e| anyhow::anyhow!("new Function body: {e}"))?;
     let mut module = super::module_jit::make_module();
@@ -59,6 +61,18 @@ fn compile_dynamic_fn(params: &[&str], body: &str) -> anyhow::Result<CompiledFn>
     module
         .finalize_definitions()
         .map_err(|e| anyhow::anyhow!("new Function finalize: {e}"))?;
+    // Prefer the fn's UNIFORM THUNK (words in/out — see the module doc): the
+    // invoke paths then treat it like any engine fn-value. The raw body pointer
+    // is the legacy fallback when the thunk wasn't definable for this body.
+    if let Some(FuncOrDataId::Func(tid)) = module.get_name(&super::thunk::thunk_name(DYN_FN_NAME)) {
+        let fn_ptr = module.get_finalized_function(tid) as u64;
+        return Ok(CompiledFn {
+            fn_ptr,
+            arity: params.len() as u8,
+            uniform: true,
+            keep_alive: Arc::new(Mutex::new(module)),
+        });
+    }
     let Some(FuncOrDataId::Func(id)) = module.get_name(DYN_FN_NAME) else {
         anyhow::bail!("new Function: compiled module lost `{DYN_FN_NAME}`");
     };
@@ -66,6 +80,7 @@ fn compile_dynamic_fn(params: &[&str], body: &str) -> anyhow::Result<CompiledFn>
     Ok(CompiledFn {
         fn_ptr,
         arity: params.len() as u8,
+        uniform: false,
         keep_alive: Arc::new(Mutex::new(module)),
     })
 }
