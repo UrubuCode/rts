@@ -15,6 +15,35 @@
 
 const __DOM_NONE = -1;
 
+// Despacho de evento com CALLBACKS: coleta os pares (nó, fn-word) do Rust
+// (`dispatchCollect` — alvo primeiro, depois bubbling), COPIA tudo para arrays
+// locais (um callback pode re-despachar e sobrescrever o scratch do Dom) e invoca
+// cada fn com um objeto de evento `{type, target, currentTarget}` (subset do Event
+// do browser). Devolve o total notificado (callbacks coletados; a fila de polling
+// legada também é alimentada pelo mesmo dispatchCollect).
+function __dispatchWithCallbacks(h: i64, node: number, type: string, bubbles: number): number {
+  const n = dom.dispatchCollect(h, node, type, bubbles);
+  if (n === 0) return 0;
+  const cbs: number[] = [];
+  const nodes: number[] = [];
+  let i = 0;
+  while (i < n) {
+    cbs.push(dom.dispatchCbAt(h, i));
+    nodes.push(dom.dispatchCbNode(h, i));
+    i = i + 1;
+  }
+  const target = new Element(h, node);
+  let j = 0;
+  while (j < n) {
+    const cur = new Element(h, nodes[j]);
+    // engine.invoke_cb: o cb atravessou a borda I64 da ABI (vira número); a
+    // bridge re-taggeia para função e invoca com 1 argumento (o objeto Event).
+    engine.invoke_cb(cbs[j], { type: type, target: target, currentTarget: cur });
+    j = j + 1;
+  }
+  return n;
+}
+
 // camelCase → kebab-case para o açúcar de `dataset` (`userId` → `user-id`).
 function __camelToKebab(s: string): string {
   let out = "";
@@ -305,29 +334,32 @@ class Element {
     return dom.computedProperty(this._dom, this._node, __camelToKebab(name));
   }
 
-  // ── Eventos (#1760) — modelo de POLLING (limite do motor: callbacks vivem no TS) ─
-  // `el.addEventListener(type)` — registra que o nó escuta o tipo. ⚠️ O motor não
-  // guarda fn-handles de forma confiável (#195), então NÃO recebe o callback aqui;
-  // o loop chama `pumpEvents()` por frame e despacha via getEventTargetId()/Type().
-  // O padrão de uso:
-  //   el.addEventListener("click");
-  //   ... // num laço por frame:
-  //   while (pumpEvents(d) !== -1) { if (getEventTargetId() === el.nodeId) { ... } }
-  addEventListener(type: string): void {
-    dom.addListener(this._dom, this._node, type);
+  // ── Eventos — callbacks REAIS + polling legado (#1760) ───────────────────────
+  // `el.addEventListener(type, fn)` — como no browser: registra o callback; um
+  // `dispatchEvent` invoca fn({type, target, currentTarget}) na ordem DOM (alvo →
+  // bubbling). O Dom guarda o fn-word opaco (o antigo limite #195 caiu — Function
+  // values são estáveis). A forma de 1 argumento continua valendo para o modelo de
+  // POLLING legado (pumpEvents/getEventTargetId por frame).
+  addEventListener(type: string, cb?: any): void {
+    if (cb === undefined) {
+      dom.addListener(this._dom, this._node, type);
+      return;
+    }
+    dom.addListenerCb(this._dom, this._node, type, cb);
   }
   removeEventListener(type: string): void {
     dom.removeListener(this._dom, this._node, type);
   }
   // `el.dispatchEvent(type)` — dispara COM BUBBLING (como `new Event(t, {bubbles:
-  // true})`). Devolve quantos listeners foram enfileirados.
+  // true})`): invoca os callbacks registrados (alvo → ancestrais) e alimenta a fila
+  // de polling legada. Devolve quantos listeners (callbacks + polling) notificou.
   dispatchEvent(type: string): number {
-    return dom.dispatchEvent(this._dom, this._node, type, 1);
+    return __dispatchWithCallbacks(this._dom, this._node, type, 1);
   }
   // `el.dispatchEventNoBubble(type)` — dispara SÓ no alvo (como `new Event(t)`, que
   // é bubbles:false por padrão; focus/blur/mouseenter não borbulham).
   dispatchEventNoBubble(type: string): number {
-    return dom.dispatchEvent(this._dom, this._node, type, 0);
+    return __dispatchWithCallbacks(this._dom, this._node, type, 0);
   }
   // `el.nodeId` — o NodeId cru deste elemento (p/ comparar no switch do polling).
   get nodeId(): number {

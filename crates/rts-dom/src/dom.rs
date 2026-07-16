@@ -163,13 +163,22 @@ pub struct Dom {
     /// DERIVADO do HTML, fora do `PartialEq`.
     raw_css: String,
     /// Eventos (#1760, modelo de POLLING — F3): que TIPOS cada nó escuta
-    /// (`addEventListener`). Os callbacks vivem no TS (o motor não guarda fn-handles
-    /// de forma confiável — limite #195); aqui só registramos o tipo p/ saber se um
+    /// (`addEventListener`). Aqui só registramos o tipo p/ saber se um
     /// `dispatchEvent` deve notificar o nó. `NodeIdx → tipos`. DERIVADO, fora do Eq.
     listeners: HashMap<NodeIdx, Vec<String>>,
+    /// CALLBACKS por (nó, tipo) — `el.addEventListener('click', fn)` com fn de
+    /// verdade. O Dom guarda o WORD/handle i64 da Function OPACO (nunca o invoca —
+    /// o rts-dom é headless e livre de runtime; quem invoca é a camada TS via
+    /// `dispatch_event_collect`). Guardar fn-handles ficou confiável com o motor
+    /// novo (Entry::Function com keep_alive; o antigo limite #195 caiu).
+    listener_cbs: HashMap<(NodeIdx, String), Vec<i64>>,
     /// Fila de eventos PENDENTES a entregar ao loop TS via `pollEvent`. Cada entrada
     /// é `(nó-alvo a notificar, tipo)` — já expandida pelo bubbling no `dispatch`.
     event_queue: std::collections::VecDeque<(NodeIdx, String)>,
+    /// Scratch da ÚLTIMA coleta de `dispatch_event_collect`: pares (nó-alvo,
+    /// callback-word) na ordem de invocação. A camada TS copia TUDO para um array
+    /// local ANTES de invocar (um callback pode re-despachar e sobrescrever isto).
+    last_dispatch: Vec<(NodeIdx, i64)>,
     // ── Animação (#1776) — LOOP INTERNO ao DOM; o egui só passa o tempo ───────────
     /// As transições EM CURSO, por nó. O `Dom` é dono do loop: `advance(now_ms)`
     /// detecta mudanças de estilo, inicia/atualiza transições e grava o estilo
@@ -264,6 +273,8 @@ impl Dom {
             stylesheet: crate::style::Stylesheet::new(),
             raw_css: String::new(),
             listeners: HashMap::new(),
+            listener_cbs: HashMap::new(),
+            last_dispatch: Vec::new(),
             event_queue: std::collections::VecDeque::new(),
             active_transitions: HashMap::new(),
             prev_computed: HashMap::new(),
@@ -900,12 +911,29 @@ impl Dom {
         }
     }
 
+    /// `element.addEventListener(type, fn)` com CALLBACK: registra o tipo (como
+    /// acima) e guarda o word/handle i64 da Function, opaco. Duplicatas do MESMO
+    /// callback são ignoradas (spec DOM: registrar o mesmo par duas vezes é no-op).
+    pub fn add_event_listener_cb(&mut self, id: NodeId, event_type: &str, cb: i64) {
+        let Some(idx) = self.resolve(id) else { return };
+        self.add_event_listener(id, event_type);
+        let cbs = self
+            .listener_cbs
+            .entry((idx, event_type.to_string()))
+            .or_default();
+        if !cbs.contains(&cb) {
+            cbs.push(cb);
+        }
+    }
+
     /// `element.removeEventListener(type)`: para de escutar `type` neste nó.
+    /// (Remove também os callbacks registrados do tipo.)
     pub fn remove_event_listener(&mut self, id: NodeId, event_type: &str) {
         let Some(idx) = self.resolve(id) else { return };
         if let Some(types) = self.listeners.get_mut(&idx) {
             types.retain(|x| x != event_type);
         }
+        self.listener_cbs.remove(&(idx, event_type.to_string()));
     }
 
     /// `true` se o nó escuta o tipo de evento dado (case-sensitive).
@@ -944,6 +972,54 @@ impl Dom {
     /// callback certo (que vive no TS, indexado por nó+tipo). O NodeId é versionado.
     pub fn poll_event(&mut self) -> Option<(NodeId, String)> {
         self.event_queue.pop_front().map(|(idx, t)| (self.make_id(idx), t))
+    }
+
+    /// `dispatchEvent` com COLETA de callbacks: mesmo caminhamento (alvo → bubbling
+    /// pelos ancestrais), mas além de enfileirar no polling, coleta em
+    /// `last_dispatch` os pares (nó-que-escuta, callback-word) na ordem de invocação
+    /// DOM (alvo primeiro, depois os ancestrais). O rts-dom NUNCA invoca — a camada
+    /// TS lê via [`Dom::last_dispatch_len`]/[`Dom::last_dispatch_at`], COPIA tudo e
+    /// só então invoca (um callback pode re-despachar e sobrescrever o scratch).
+    /// Devolve quantos callbacks foram coletados.
+    pub fn dispatch_event_collect(
+        &mut self,
+        target: NodeId,
+        event_type: &str,
+        bubbles: bool,
+    ) -> i64 {
+        self.last_dispatch.clear();
+        let mut cur = Some(target);
+        let mut first = true;
+        while let Some(node) = cur {
+            let Some(idx) = self.resolve(node) else { break };
+            if let Some(cbs) = self.listener_cbs.get(&(idx, event_type.to_string())) {
+                for &cb in cbs {
+                    self.last_dispatch.push((idx, cb));
+                }
+            }
+            if !bubbles && first {
+                break;
+            }
+            first = false;
+            cur = self.parent_of(node);
+        }
+        // Mantém o contrato do polling também (contadores/fila do modelo #1760):
+        // um app antigo que só usa pumpEvents continua vendo o evento.
+        self.dispatch_event(target, event_type, bubbles);
+        self.last_dispatch.len() as i64
+    }
+
+    /// Nº de callbacks coletados pelo último [`Dom::dispatch_event_collect`].
+    pub fn last_dispatch_len(&self) -> i64 {
+        self.last_dispatch.len() as i64
+    }
+
+    /// O i-ésimo par coletado: `(NodeId versionado do nó que escuta, callback-word)`.
+    /// `None` se fora do range.
+    pub fn last_dispatch_at(&self, i: usize) -> Option<(NodeId, i64)> {
+        self.last_dispatch
+            .get(i)
+            .map(|&(idx, cb)| (self.make_id(idx), cb))
     }
 
     // ── Animação (#1776) — o LOOP INTERNO ao DOM ─────────────────────────────────
@@ -2582,6 +2658,27 @@ mod tests {
         let p = dom.query("p").unwrap();
         assert_eq!(dom.text_content(p).unwrap(), "novo");
         assert!(dom.query("span").is_none()); // o velho foi descartado
+    }
+
+    #[test]
+    fn listener_cb_registra_e_coleta_com_bubbling() {
+        // addEventListener(type, fn): o Dom guarda o word opaco; dispatch_event_collect
+        // devolve os pares (nó, cb) na ordem DOM (alvo → ancestrais).
+        let mut dom = parse_html_to_dom("<div id=pai><button id=b>x</button></div>");
+        let pai = dom.query("#pai").unwrap();
+        let b = dom.query("#b").unwrap();
+        dom.add_event_listener_cb(b, "click", 111);
+        dom.add_event_listener_cb(pai, "click", 222);
+        // duplicata do MESMO cb é no-op (spec DOM).
+        dom.add_event_listener_cb(b, "click", 111);
+        assert_eq!(dom.dispatch_event_collect(b, "click", true), 2);
+        assert_eq!(dom.last_dispatch_at(0).unwrap().1, 111); // alvo primeiro
+        assert_eq!(dom.last_dispatch_at(1).unwrap().1, 222); // depois o pai
+        // sem bubbling: só o alvo.
+        assert_eq!(dom.dispatch_event_collect(b, "click", false), 1);
+        // removeEventListener limpa os callbacks do tipo.
+        dom.remove_event_listener(b, "click");
+        assert_eq!(dom.dispatch_event_collect(b, "click", false), 0);
     }
 
     #[test]

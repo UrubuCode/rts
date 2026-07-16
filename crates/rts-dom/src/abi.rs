@@ -868,6 +868,60 @@ pub extern "C" fn __RTS_FN_NS_DOM_ADD_LISTENER(h: u64, id: i64, t_ptr: *const u8
     with_mut(h, |dom| dom.add_event_listener(node, &t));
 }
 
+/// `addListenerCb(domHandle, node, type, cb)` → registra o tipo E o callback
+/// (word/handle i64 da Function, guardado OPACO — quem invoca é a fachada TS).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_ADD_LISTENER_CB(
+    h: u64,
+    id: i64,
+    t_ptr: *const u8,
+    t_len: i64,
+    cb: i64,
+) {
+    let Some(node) = NodeId::from_abi(id) else { return };
+    let t = unsafe { str_abi::from_abi(t_ptr, t_len) }.unwrap_or("").to_string();
+    with_mut(h, |dom| dom.add_event_listener_cb(node, &t, cb));
+}
+
+/// `dispatchCollect(domHandle, target, type, bubbles)` → dispara COLETANDO os
+/// callbacks (alvo → bubbling) no scratch do Dom; devolve quantos coletou. A
+/// fachada TS lê com `dispatchCbAt`/`dispatchCbNode` e COPIA antes de invocar.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_DISPATCH_COLLECT(
+    h: u64,
+    id: i64,
+    t_ptr: *const u8,
+    t_len: i64,
+    bubbles: i64,
+) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return 0 };
+    let t = unsafe { str_abi::from_abi(t_ptr, t_len) }.unwrap_or("").to_string();
+    with_mut(h, |dom| dom.dispatch_event_collect(node, &t, bubbles != 0)).unwrap_or(0)
+}
+
+/// `dispatchCbAt(domHandle, i)` → o i-ésimo callback-word coletado (0 fora do range).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_DISPATCH_CB_AT(h: u64, i: i64) -> i64 {
+    with(h, |dom| {
+        dom.last_dispatch_at(i.max(0) as usize)
+            .map(|(_, cb)| cb)
+            .unwrap_or(0)
+    })
+    .unwrap_or(0)
+}
+
+/// `dispatchCbNode(domHandle, i)` → o NodeId do nó que escuta no i-ésimo par
+/// coletado (-1 fora do range) — vira o `currentTarget` do handler na fachada.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_DISPATCH_CB_NODE(h: u64, i: i64) -> i64 {
+    with(h, |dom| {
+        dom.last_dispatch_at(i.max(0) as usize)
+            .map(|(n, _)| n.to_abi())
+            .unwrap_or(NODE_NONE)
+    })
+    .unwrap_or(NODE_NONE)
+}
+
 /// `removeListener(domHandle, node, type)` → para de escutar o tipo.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_DOM_REMOVE_LISTENER(h: u64, id: i64, t_ptr: *const u8, t_len: i64) {
@@ -1705,6 +1759,38 @@ pub fn register(e: &mut Engine) {
             "addListener(dom: number, node: number, type: string): void",
             "element.addEventListener(type): register the node as listening for type.",
             __RTS_FN_NS_DOM_ADD_LISTENER as *const u8,
+        ))
+        .member(func(
+            "addListenerCb", "__RTS_FN_NS_DOM_ADD_LISTENER_CB",
+            Sig::new(vec![Handle, I64, StrPtr, I64], AbiType::Void),
+            "addListenerCb(dom: number, node: number, type: string, cb: number): void",
+            "element.addEventListener(type, fn): register type AND the callback \
+             (Function word/handle, stored opaque — the TS facade invokes it).",
+            __RTS_FN_NS_DOM_ADD_LISTENER_CB as *const u8,
+        ))
+        .member(func(
+            "dispatchCollect", "__RTS_FN_NS_DOM_DISPATCH_COLLECT",
+            Sig::new(vec![Handle, I64, StrPtr, I64], I64),
+            "dispatchCollect(dom: number, target: number, type: string, bubbles: number): number",
+            "dispatch collecting callbacks (target then bubbling) into the Dom \
+             scratch; returns how many. Read with dispatchCbAt/dispatchCbNode and \
+             COPY before invoking (a callback may re-dispatch).",
+            __RTS_FN_NS_DOM_DISPATCH_COLLECT as *const u8,
+        ))
+        .member(func(
+            "dispatchCbAt", "__RTS_FN_NS_DOM_DISPATCH_CB_AT",
+            Sig::new(vec![Handle, I64], I64),
+            "dispatchCbAt(dom: number, i: number): number",
+            "i-th collected callback word (0 if out of range).",
+            __RTS_FN_NS_DOM_DISPATCH_CB_AT as *const u8,
+        ))
+        .member(func(
+            "dispatchCbNode", "__RTS_FN_NS_DOM_DISPATCH_CB_NODE",
+            Sig::new(vec![Handle, I64], I64),
+            "dispatchCbNode(dom: number, i: number): number",
+            "NodeId of the listening node in the i-th collected pair (-1 if out of \
+             range) — the handler's currentTarget.",
+            __RTS_FN_NS_DOM_DISPATCH_CB_NODE as *const u8,
         ))
         .member(func(
             "removeListener", "__RTS_FN_NS_DOM_REMOVE_LISTENER",

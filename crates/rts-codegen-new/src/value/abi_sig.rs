@@ -970,7 +970,7 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             ret: I64,
         },
         "__rtsadp_construct" | "__rtsadp_class_proto_init" | "__rtsadp_class_proto_set"
-        | "__rtsadp_set_timeout" | "__rtsadp_set_interval" => SymSig {
+        | "__rtsadp_set_timeout" | "__rtsadp_set_interval" | "__rtsadp_invoke_cb" => SymSig {
             params: &[U64, U64],
             ret: U64,
         },
