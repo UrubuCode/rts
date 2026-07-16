@@ -187,6 +187,44 @@ pub(crate) fn render_dom_scrolled(
     ui.set_clip_rect(clip);
     paint_list(ui, &list, -offset);
     ui.set_clip_rect(old_clip);
+
+    // HIT-TEST de CLIQUE (north-star §3 + handoff #1793 item 6): o egui é só o
+    // INPUT — converte tela→conteúdo (origem + offset de scroll) e pergunta ao
+    // MOTOR (`DisplayList::hit_test`, menor-área = nó mais profundo) qual nó foi
+    // clicado; o resultado vira um evento CRU na fila do Dom, que a fachada TS
+    // drena por frame (`pumpEventCallbacks` → bubbling + callbacks). O egui nunca
+    // decide semântica de evento nem invoca handler (padrão 1-frame-latency).
+    // Input CRU (não `ui.interact` — criaria um widget por cima e roubaria o drag
+    // da scrollbar registrada acima). A faixa da barra é excluída do hit-test.
+    {
+        let origin = ui.max_rect().min;
+        let clicked = ui.input(|i| i.pointer.primary_clicked());
+        let pos = ui.input(|i| i.pointer.interact_pos());
+        if clicked {
+            if let Some(pos) = pos {
+                if ui.max_rect().contains(pos) {
+                    let bar_w = if scroll_y && (max_off > 0.0 || force) {
+                        match sb.width {
+                            Some(rts_dom::scrollbar::BarWidth::Thin) => 8.0,
+                            Some(rts_dom::scrollbar::BarWidth::Px(px)) => px,
+                            _ => 12.0,
+                        }
+                    } else {
+                        0.0
+                    };
+                    let cx = pos.x - origin.x;
+                    let cy = pos.y - origin.y + offset; // tela → coords de conteúdo
+                    if cx < viewport_w - bar_w {
+                        if let Some(idx) = list.hit_test(cx, cy) {
+                            let _ = rts_dom::store::with_dom_mut(h, |d| {
+                                d.push_raw_event(idx, "click");
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
     // reserva a área visível (não a altura total — o scroll é nosso, não do egui).
     ui.allocate_space(egui::vec2(viewport_w, viewport_h));
 }

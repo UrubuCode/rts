@@ -146,6 +146,29 @@ pub struct DisplayList {
     pub scroll_regions: Vec<ScrollRegion>,
 }
 
+impl DisplayList {
+    /// HIT-TEST: o nó sob o ponto `(x, y)` em COORDENADAS DE CONTEÚDO (o backend
+    /// converte tela→conteúdo somando o offset de scroll antes de chamar). Entre
+    /// todos os `node_rects` que contêm o ponto, vence o de MENOR ÁREA — numa
+    /// árvore DOM os rects dos descendentes estão contidos nos dos ancestrais,
+    /// então menor área = nó mais profundo = top-most (o critério do north-star
+    /// §3, "ordem reversa da display list", sem depender de ordem num HashMap).
+    /// Limite documentado: irmãos sobrepostos por position/z-index podem resolver
+    /// pro rect menor em vez do maior z — aceito na v1 (raro em fluxo normal).
+    pub fn hit_test(&self, x: f32, y: f32) -> Option<NodeIdx> {
+        let mut best: Option<(NodeIdx, f32)> = None;
+        for (&idx, r) in &self.node_rects {
+            if x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h {
+                let area = r.w * r.h;
+                if best.map(|(_, a)| area < a).unwrap_or(true) {
+                    best = Some((idx, area));
+                }
+            }
+        }
+        best.map(|(idx, _)| idx)
+    }
+}
+
 /// Abstração de MEDIÇÃO de texto (largura/altura de uma string num tamanho/peso).
 /// Vive aqui (no `rts-dom`) e é IMPLEMENTADA pelo backend (o egui mede via galley);
 /// reimplementar largura de glifo no `rts-dom` é a armadilha que o roadmap alertou.
@@ -2357,6 +2380,32 @@ mod tests {
         let dom = parse_html_to_dom(html);
         let ctx = LayoutCtx { viewport_w: vw, viewport_h: 600.0, measurer: &ApproxMeasurer };
         layout_document(&dom, &ctx)
+    }
+
+    #[test]
+    fn hit_test_escolhe_o_no_mais_profundo() {
+        // Filho dentro do pai: clicar dentro do filho devolve o FILHO (menor
+        // área = mais profundo); clicar no pai fora do filho devolve o pai;
+        // fora de tudo devolve None.
+        def_div();
+        let dom = parse_html_to_dom(
+            "<div id=pai style='padding:50px'><div id=filho style='height:20px'>x</div></div>",
+        );
+        let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let pai = dom.query("#pai").unwrap();
+        let filho = dom.query("#filho").unwrap();
+        let pai_idx = dom.resolve(pai).unwrap();
+        let filho_idx = dom.resolve(filho).unwrap();
+        let fr = list.node_rects[&filho_idx];
+        let hit = list.hit_test(fr.x + fr.w / 2.0, fr.y + fr.h / 2.0);
+        assert_eq!(hit, Some(filho_idx));
+        // canto do pai (dentro do padding, fora do filho).
+        let pr = list.node_rects[&pai_idx];
+        let hit2 = list.hit_test(pr.x + 5.0, pr.y + 5.0);
+        assert_eq!(hit2, Some(pai_idx));
+        // fora de tudo.
+        assert_eq!(list.hit_test(-10.0, -10.0), None);
     }
 
     /// Primeiro `SolidRect` da lista (o fundo da 1ª caixa) — atalho de assert.

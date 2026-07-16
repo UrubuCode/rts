@@ -179,6 +179,12 @@ pub struct Dom {
     /// callback-word) na ordem de invocação. A camada TS copia TUDO para um array
     /// local ANTES de invocar (um callback pode re-despachar e sobrescrever isto).
     last_dispatch: Vec<(NodeIdx, i64)>,
+    /// Eventos CRUS vindos do BACKEND (hit-test do mouse): `(nó-alvo, tipo)` SEM
+    /// expansão de bubbling/listeners — o backend só empurra "clicou no nó X"; a
+    /// fachada TS drena via `pumpEventCallbacks` e faz o dispatch completo
+    /// (bubbling + callbacks + fila de polling). Padrão 1-frame-latency do
+    /// north-star §3.
+    raw_event_queue: std::collections::VecDeque<(NodeIdx, String)>,
     // ── Animação (#1776) — LOOP INTERNO ao DOM; o egui só passa o tempo ───────────
     /// As transições EM CURSO, por nó. O `Dom` é dono do loop: `advance(now_ms)`
     /// detecta mudanças de estilo, inicia/atualiza transições e grava o estilo
@@ -275,6 +281,7 @@ impl Dom {
             listeners: HashMap::new(),
             listener_cbs: HashMap::new(),
             last_dispatch: Vec::new(),
+            raw_event_queue: std::collections::VecDeque::new(),
             event_queue: std::collections::VecDeque::new(),
             active_transitions: HashMap::new(),
             prev_computed: HashMap::new(),
@@ -1007,6 +1014,21 @@ impl Dom {
         // um app antigo que só usa pumpEvents continua vendo o evento.
         self.dispatch_event(target, event_type, bubbles);
         self.last_dispatch.len() as i64
+    }
+
+    /// BACKEND → DOM: empurra um evento CRU (`(nó, tipo)`) vindo do hit-test do
+    /// mouse. Nenhuma expansão aqui — a fachada TS drena com [`Dom::poll_raw_event`]
+    /// e faz o dispatch completo (bubbling + callbacks). `idx` é o `NodeIdx` cru
+    /// que o backend tem em mãos (chave de `node_rects`).
+    pub fn push_raw_event(&mut self, idx: NodeIdx, event_type: &str) {
+        self.raw_event_queue.push_back((idx, event_type.to_string()));
+    }
+
+    /// Próximo evento CRU do backend `(NodeId versionado, tipo)`, ou `None`.
+    pub fn poll_raw_event(&mut self) -> Option<(NodeId, String)> {
+        self.raw_event_queue
+            .pop_front()
+            .map(|(idx, t)| (self.make_id(idx), t))
     }
 
     /// Nº de callbacks coletados pelo último [`Dom::dispatch_event_collect`].

@@ -961,6 +961,28 @@ function __loadScriptAt(h: number, j: number, baseUrl: string): number {
   return 1;
 }
 
+// Bomba de eventos do BACKEND (hit-test do mouse no egui): drena a fila de
+// eventos CRUS (`pollRawEvent` — o backend só empurra "clicou no nó X") e faz o
+// dispatch COMPLETO de cada um (bubbling + callbacks registrados + fila de
+// polling legada). Chamar UMA vez por frame no loop do app:
+//   while (win.isOpen()) { ... egui.render(...); pumpEventCallbacks(doc); }
+// Devolve quantos eventos foram despachados no frame.
+function pumpEventCallbacks(doc: Document): number {
+  const h: i64 = doc._dom;
+  let despachados = 0;
+  let guard = 0;
+  // guard: um callback pode re-despachar; 256 eventos/frame é teto sano.
+  while (guard < 256) {
+    const node = dom.pollRawEvent(h);
+    if (node === __DOM_NONE) return despachados;
+    const t = dom.pollRawEventType(h);
+    __dispatchWithCallbacks(h, node, t, 1);
+    despachados = despachados + 1;
+    guard = guard + 1;
+  }
+  return despachados;
+}
+
 // ── Execução de <script> — o "bloco JS" da página ──────────────────────────────
 //
 // `runScripts(doc)` compila e roda cada `<script>` do documento, em ordem de
