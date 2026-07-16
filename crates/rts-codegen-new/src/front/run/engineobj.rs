@@ -182,6 +182,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if method == "queue_microtask" {
             return self.lower_engine_descriptor(module, args, "__rtsadp_queue_microtask", 1, Repr::Tagged);
         }
+        // `invoke_cb(cb, a0)` — invoca um callback guardado OPACO (word de fn,
+        // handle cru ou double do handle — os listeners do DOM): a fachada
+        // dispatchEvent do prelude usa para chamar os handlers registrados.
+        if method == "invoke_cb" {
+            return self.lower_engine_descriptor(module, args, "__rtsadp_invoke_cb", 2, Repr::Tagged);
+        }
         if method == "set_immediate" {
             return self.lower_engine_descriptor(module, args, "__rtsadp_set_immediate", 1, Repr::Tagged);
         }

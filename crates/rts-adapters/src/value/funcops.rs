@@ -984,6 +984,41 @@ pub extern "C" fn __rtsadp_fn_apply_this(fn_word: u64, this_word: u64, arr_word:
     __rtsadp_fn_invoke_method(fn_word, this_word, elem(0), elem(1), elem(2), rest)
 }
 
+/// `engine.invoke_cb(cb, a0)` — invoca um CALLBACK guardado opaco fora do mundo
+/// de words (os listeners do DOM guardam o fn pela borda I64 da ABI de
+/// namespace, então ele pode chegar aqui como word de função, como HANDLE cru
+/// ou como um double-word do valor do handle). Normaliza para word de função e
+/// invoca com `this = undefined`, um argumento. Não-função ⇒ `undefined`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_invoke_cb(cb: u64, a0: u64) -> u64 {
+    use rts_engine::heap::poly as p;
+    let undef = PolyValue::undefined().raw();
+    let v = PolyValue::from_raw(cb);
+    let fn_word = if v.is_function() {
+        cb
+    } else {
+        // Decodifica o valor numérico (double inline ou i64 cru) de volta ao
+        // handle e re-taggeia. Exato até 2^53 — a mesma janela da ponte
+        // raw_to_word (gen do handle ≤ 32).
+        let raw = if (cb & p::POLY_BOX_BASE) == p::POLY_BOX_BASE {
+            match PolyValue::from_raw(cb) {
+                w if w.is_int32() => w.as_i32() as i64 as u64,
+                _ => return undef,
+            }
+        } else {
+            f64::from_bits(cb) as u64
+        };
+        let is_fn = with_entry(raw, |e| matches!(e, Some(Entry::Function(_))));
+        if !is_fn {
+            return undef;
+        }
+        let slot =
+            rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(raw);
+        PolyValue::from_function_handle(slot).raw()
+    };
+    __rtsadp_fn_invoke_method(fn_word, undef, a0, undef, undef, 0)
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_fn_invoke_method(
     fn_word: u64,
