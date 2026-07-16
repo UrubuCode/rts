@@ -21,10 +21,12 @@
 //! matches explícitos em `parse.rs`/`fmt.rs` porque shorthands (`margin`,
 //! `border`, `font`) expandem para vários campos — não são 1-nome-1-campo.
 
+use super::effects::{BoxShadow, LinearGradient, Transform};
 use super::lerp::AnimValue;
 use super::values::{
     AlignItems, BorderStyle, Dimension, DisplayKind, Edges, FlexDirection, FloatSide,
-    JustifyContent, LineHeight, Position, Rgba, Side, TextAlign, TextTransform, WhiteSpace,
+    JustifyContent, LineHeight, Position, Rgba, Side, TextAlign, TextDecoration, TextTransform,
+    WhiteSpace,
 };
 
 /// Declara a tabela de propriedades e gera a struct + os 4 mecanismos da cascade.
@@ -151,6 +153,25 @@ css_props! {
         [inh anim] color: Rgba;
         /// Cor de fundo, `0xRRGGBBAA`.
         [anim] bg: Rgba;
+        /// `opacity` — opacidade do elemento em [0,1]. `None` = 1 (opaco). NÃO é
+        /// herdada como valor (cada elemento tem a sua), mas no render multiplica o
+        /// ALPHA das cores próprias do elemento (bg/borda/texto) — cobre o caso comum
+        /// (fade de card/botão/overlay) sem grupos de compositing. Animável (fades).
+        [anim] opacity: f32;
+        /// `box-shadow` (a 1ª sombra da lista) — pintada atrás da caixa como um
+        /// `DisplayItem::Shadow` (blur real no backend). `None` = sem sombra.
+        [] box_shadow: BoxShadow;
+        /// `transform` (translate/scale/rotate compostos). Aplicado no paint aos itens
+        /// do elemento (e descendentes), em torno do centro. `None` = sem transform.
+        [] transform: Transform;
+        /// `aspect-ratio` — razão largura/altura (`16/9` → 1.777…). Quando o elemento
+        /// tem largura mas NÃO altura explícita, a altura = largura / ratio. `None` =
+        /// sem razão fixa. Usado por imagens/vídeos/cards proporcionais.
+        [] aspect_ratio: f32;
+        /// `background: linear-gradient(...)` — quando o fundo é um gradiente linear
+        /// (não uma cor sólida). Pintado como `DisplayItem::GradientRect`. `None` = o
+        /// fundo é `bg` (cor sólida) ou nada.
+        [] gradient: LinearGradient;
         /// Tamanho da fonte. Declarado em QUALQUER unidade (px/em/%/rem/vw/vh/
         /// calc — a tipografia fluida `calc(1.375rem + 1.5vw)` do Bootstrap), mas
         /// a CASCADE resolve para `Px` cedo (base de em/% = font do pai; ver
@@ -172,6 +193,12 @@ css_props! {
         /// `text-transform` — caixa do texto (`uppercase`/`lowercase`/`capitalize`).
         /// `None` = `none` (texto como está).
         [inh] text_transform: TextTransform;
+        /// `letter-spacing` — espaço EXTRA entre caracteres (px), somado à largura de
+        /// cada glifo. Herdável. `None`/0 = normal. Afeta medição E pintura.
+        [inh] letter_spacing: f32;
+        /// `text-decoration[-line]` — sublinhado/tachado/sobrelinha. Herdável (a linha
+        /// desce até o texto filho). `None` = sem decoração.
+        [inh] text_decoration: TextDecoration;
         /// `font-family` — a 1ª família da lista (só guardamos o nome; o backend
         /// escolhe a fonte real). `None` = default. `mono` derivado se a família é
         /// monoespaçada.
@@ -221,6 +248,10 @@ css_props! {
         [] row_gap: Dimension;
         /// `flex-direction` — eixo principal (row/column). `None` = Row.
         [] flex_direction: FlexDirection;
+        /// Nº de COLUNAS do grid (`grid-template-columns`), quando `display:grid`. O
+        /// layout dá a cada filho largura = (container - gaps) / N. `None`/1 = coluna
+        /// única. Extraído de `repeat(N, ...)` ou da contagem de trilhas explícitas.
+        [] grid_columns: i32;
         /// `flex-grow` — fração do espaço LIVRE do container que este item
         /// recebe (o `.col` do Bootstrap é `flex: 1 0 0%`). `None` = 0.
         [] flex_grow: f32;
@@ -256,6 +287,10 @@ css_props! {
         /// FLUXO (não ocupam espaço) e pintam contra o viewport com os offsets
         /// abaixo (v1 — ver [`Position`]). `None` = `static`.
         [] position: Position;
+        /// `z-index` — ordem de empilhamento dos elementos POSICIONADOS. Maior pinta
+        /// por cima. `None` = auto (ordem do documento). V1: ordena os out-of-flow
+        /// (absolute/fixed) por z-index; stacking contexts aninhados são a v2.
+        [] z_index: i32;
         /// `top` — offset do posicionamento (só atua com position abs/fixed na v1).
         [] inset_top: Dimension;
         /// `right` — offset do posicionamento.
@@ -295,6 +330,8 @@ impl ComputedStyle {
     /// nenhum, o render desenha direto (sem o overhead do Frame).
     pub fn has_box(&self) -> bool {
         self.bg.is_some()
+            || self.gradient.is_some()
+            || self.box_shadow.is_some()
             || self.padding.any_set()
             || self.margin.any_set()
             || self.border_width.is_some()

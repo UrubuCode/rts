@@ -254,14 +254,24 @@ impl InputSource for EguiRenderer {
             c.egui_ctx.input(|i| {
                 let mut s = String::new();
                 for ev in &i.events {
-                    if let egui::Event::Text(t) = ev {
-                        s.push_str(t);
+                    match ev {
+                        // digitação normal.
+                        egui::Event::Text(t) => s.push_str(t),
+                        // Ctrl+V: o texto colado do clipboard chega como Paste. Entra
+                        // no input pelo mesmo caminho da digitação (o TS o insere).
+                        egui::Event::Paste(t) => s.push_str(t),
+                        _ => {}
                     }
                 }
                 s
             })
         })
         .unwrap_or_default()
+    }
+
+    fn copy_text(&self, target: u64, text: &str) {
+        // Ctrl+C: coloca `text` no clipboard do SO (egui gerencia via arboard).
+        ctx::with_ctx(target, |c| c.egui_ctx.copy_text(text.to_string()));
     }
 }
 

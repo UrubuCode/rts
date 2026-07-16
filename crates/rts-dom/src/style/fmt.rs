@@ -26,6 +26,12 @@ impl ComputedStyle {
         let n = name.trim().to_ascii_lowercase();
         match n.as_str() {
             "color" => self.color.map(fmt_color).unwrap_or_default(),
+            // `background`/`background-image` com gradiente reportam o gradiente; senão
+            // a cor sólida. (Este braço precede o de cor sólida abaixo p/ vencer.)
+            "background" | "background-image" if self.gradient.is_some() => {
+                let g = self.gradient.unwrap();
+                format!("linear-gradient({}deg, {}, {})", g.angle_deg, fmt_color(g.c0), fmt_color(g.c1))
+            }
             "background-color" | "background" => self.bg.map(fmt_color).unwrap_or_default(),
             "font-size" => self.font_size.map(fmt_dim).unwrap_or_default(),
             "font-weight" => match self.bold {
@@ -107,6 +113,42 @@ impl ComputedStyle {
             "justify-content" => self.justify.map(fmt_justify).unwrap_or_default(),
             "align-items" => self.align_items.map(fmt_align).unwrap_or_default(),
             "align-self" => self.align_self.map(fmt_align).unwrap_or_default(),
+            "opacity" => self.opacity.map(|v| format!("{v}")).unwrap_or_default(),
+            "aspect-ratio" => self.aspect_ratio.map(|r| format!("{r}")).unwrap_or_default(),
+            "z-index" => self.z_index.map(|z| format!("{z}")).unwrap_or_default(),
+            "transition" | "transition-duration" => self
+                .transition
+                .map(|t| format!("all {}s {}s", t.duration_ms / 1000.0, t.delay_ms / 1000.0))
+                .unwrap_or_default(),
+            "letter-spacing" => self
+                .letter_spacing
+                .map(|v| if v == 0.0 { "normal".to_string() } else { format!("{v}px") })
+                .unwrap_or_default(),
+            "text-decoration" | "text-decoration-line" => self
+                .text_decoration
+                .map(|d| {
+                    match d {
+                        crate::style::values::TextDecoration::None => "none",
+                        crate::style::values::TextDecoration::Underline => "underline",
+                        crate::style::values::TextDecoration::LineThrough => "line-through",
+                        crate::style::values::TextDecoration::Overline => "overline",
+                    }
+                    .to_string()
+                })
+                .unwrap_or_default(),
+            "box-shadow" => self
+                .box_shadow
+                .map(|s| format!("{}px {}px {}px {}px", s.dx, s.dy, s.blur, s.spread))
+                .unwrap_or_default(),
+            "transform" => self
+                .transform
+                .map(|t| {
+                    format!(
+                        "translate({}px + {}%, {}px + {}%) scale({}, {}) rotate({}deg)",
+                        t.tx, t.tx_pct * 100.0, t.ty, t.ty_pct * 100.0, t.sx, t.sy, t.rot_deg
+                    )
+                })
+                .unwrap_or_default(),
             "flex-grow" => self.flex_grow.map(|v| format!("{v}")).unwrap_or_default(),
             "flex-shrink" => self.flex_shrink.map(|v| format!("{v}")).unwrap_or_default(),
             "flex-basis" => self.flex_basis.map(fmt_dim).unwrap_or_default(),
@@ -226,6 +268,7 @@ fn fmt_display(d: DisplayKind) -> String {
         DisplayKind::Block => "block",
         DisplayKind::Flex | DisplayKind::FlexWrap => "flex",
         DisplayKind::Inline => "inline",
+        DisplayKind::Grid => "grid",
         DisplayKind::None => "none",
     }
     .into()

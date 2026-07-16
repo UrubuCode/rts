@@ -30,10 +30,12 @@
 //!   `defineStyle` (F1).
 
 pub mod color;
+pub mod effects;
 pub mod fmt;
 pub mod lerp;
 pub mod parse;
 pub mod props;
+pub mod ruleindex;
 pub mod selector;
 pub mod stylesheet;
 pub mod values;

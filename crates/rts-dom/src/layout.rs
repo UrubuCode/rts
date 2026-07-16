@@ -66,11 +66,38 @@ impl Rect {
 pub enum DisplayItem {
     /// Retângulo preenchido (fundo de uma caixa). `radius` arredonda os cantos.
     SolidRect { rect: Rect, color: u32, radius: f32 },
+    /// SOMBRA de caixa (`box-shadow`): pintada ATRÁS da caixa. `dx`/`dy` deslocam,
+    /// `blur` amacia a borda, `spread` cresce/encolhe o rect, `color` é a cor (com
+    /// alpha). O backend usa o blur real do egui (`epaint::Shadow`).
+    Shadow { rect: Rect, dx: f32, dy: f32, blur: f32, spread: f32, color: u32, radius: f32 },
+    /// Retângulo com GRADIENTE LINEAR (`background: linear-gradient(...)`). Interpola
+    /// `c0`→`c1` ao longo do ângulo `angle_deg` (0=para cima, 90=para a direita, como
+    /// o CSS). O backend pinta como mesh de 4 vértices coloridos. `radius` arredonda
+    /// (aproximado — o mesh não recorta os cantos; suficiente p/ heros/botões).
+    GradientRect { rect: Rect, c0: u32, c1: u32, angle_deg: f32, radius: f32 },
     /// Borda (contorno) de uma caixa, espessura `width`, na cor dada.
     Border { rect: Rect, width: f32, color: u32, radius: f32 },
+    /// IMAGEM (`<img>` / background-image) — um bitmap RGBA8 já decodificado. O
+    /// `pixels_handle` é um Buffer no HandleTable com `img_w*img_h*4` bytes RGBA
+    /// (a partir do offset `pixels_off`); o backend sobe como textura e pinta no
+    /// `rect` (escalando). Decodificação/download acontecem ANTES (no browser .ts,
+    /// via fetchBytes+imgdec); o rts-dom só carrega o handle+dims — segue wasm-safe.
+    Image { rect: Rect, pixels_handle: u64, pixels_off: u32, img_w: u32, img_h: u32 },
     /// Texto numa posição (canto superior-esquerdo). `mono` escolhe a família
-    /// monoespaçada. O backend resolve a fonte/atlas; aqui só o necessário.
-    Text { x: f32, y: f32, text: String, color: u32, size: f32, mono: bool, bold: bool },
+    /// monoespaçada. `letter_spacing` = espaço extra entre glifos (px). `decoration`
+    /// = linha decorativa (0=nenhuma, 1=underline, 2=line-through, 3=overline). O
+    /// backend resolve a fonte/atlas; aqui só o necessário.
+    Text {
+        x: f32,
+        y: f32,
+        text: String,
+        color: u32,
+        size: f32,
+        mono: bool,
+        bold: bool,
+        letter_spacing: f32,
+        decoration: u8,
+    },
     /// Começa a RECORTAR a um retângulo (scroll container interno): os itens
     /// seguintes, até o `EndClip`, só pintam DENTRO deste rect E são transladados por
     /// `(offset_x, offset_y)` (o quanto a região rolou). O backend aplica o clip
@@ -204,6 +231,12 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // — e o "fica fixo ao rolar" do `fixed` são a v2).
     let mut out_of_flow = Vec::new();
     collect_out_of_flow(dom, dom.root, &mut out_of_flow);
+    // Z-INDEX: ordena por z-index (menor pinta primeiro = fica atrás). Sort ESTÁVEL:
+    // z-index igual (ou ambos auto=0) preserva a ordem do documento. Cobre o caso
+    // comum (modais/dropdowns/overlays posicionados que se sobrepõem).
+    out_of_flow.sort_by_key(|&id| {
+        dom.computed_style_idx(id).and_then(|c| c.z_index).unwrap_or(0)
+    });
     for id in out_of_flow {
         layout_out_of_flow(dom, id, ctx, &mut list);
     }
@@ -477,6 +510,20 @@ fn layout_block(
             if css.effective_display() == Some(crate::style::DisplayKind::None) {
                 return (0.0, 0.0);
             }
+            // `<input>`/`<textarea>` editável (mini-browser): void, sem filhos — o
+            // "conteúdo" é o texto do value/placeholder + cursor. Caminho próprio,
+            // fora do fluxo de bloco genérico (que desceria em filhos inexistentes).
+            if is_text_input_tag(tag) {
+                return layout_input(dom, id, &css, x, y, avail_w, forced_outer_w, ctx, list);
+            }
+            // `<img>` com pixels decodificados: emite a imagem no rect (tamanho do CSS
+            // width/height, senão o natural da imagem). Void — sem filhos.
+            if tag == "img" {
+                if let Some(img) = layout_image(dom, id, &css, x, y, avail_w, ctx, list) {
+                    return img;
+                }
+                // sem pixels ainda (não baixou/decodificou): ocupa 0 (não pinta nada).
+            }
             css
         }
         NodeKind::Text(t) => {
@@ -491,6 +538,8 @@ fn layout_block(
                 size,
                 mono: false,
                 bold: false,
+                letter_spacing: 0.0,
+                decoration: 0,
             });
             return (tw, lh);
         }
@@ -623,9 +672,15 @@ fn layout_block(
     // recebem como containing-block height (base do `height:%` deles), e o flex
     // COLUMN o usa como referência do eixo principal (justify/margin-auto).
     let frame_v = pad_top + pad_bottom + 2.0 * border;
-    let explicit_content_h = resolve_height(css.height, avail_h, &resolve).map(|h| {
-        if border_box { (h - frame_v).max(0.0) } else { h }
-    });
+    let explicit_content_h = resolve_height(css.height, avail_h, &resolve)
+        .map(|h| if border_box { (h - frame_v).max(0.0) } else { h })
+        // `aspect-ratio`: sem height explícito, a altura vem da largura / razão. Só
+        // quando há largura resolvida (content_w) e uma razão > 0.
+        .or_else(|| {
+            css.aspect_ratio
+                .filter(|r| *r > 0.0)
+                .map(|r| (content_w / r).max(0.0))
+        });
 
     // `flex-direction: column` — o eixo PRINCIPAL do flex vira o vertical: os itens
     // empilham (sem margin-collapse, que flex não tem), gap/justify/margin-auto
@@ -639,11 +694,18 @@ fn layout_block(
         }
         // horizontal (flex-row sem wrap): lado a lado, encolhe pra caber, não quebra.
         d if d == crate::block::DISPLAY_HORIZONTAL => {
-            layout_children_horizontal(dom, id, content_x, content_y, children_w, explicit_content_h, &css, font_size, false, ctx, list)
+            layout_children_horizontal(dom, id, content_x, content_y, children_w, explicit_content_h, &css, font_size, false, None, ctx, list)
         }
-        // wrap (inline-block flow): lado a lado E QUEBRA linha quando enche.
+        // wrap (inline-block flow): lado a lado E QUEBRA linha quando enche. GRID
+        // (`display:grid`) também vem aqui, com o Nº de colunas → cada item ganha
+        // largura fixa de coluna e quebra a cada N.
         d if d == crate::block::DISPLAY_WRAP => {
-            layout_children_horizontal(dom, id, content_x, content_y, children_w, explicit_content_h, &css, font_size, true, ctx, list)
+            let grid_cols = if css.effective_display() == Some(crate::style::DisplayKind::Grid) {
+                Some(css.grid_columns.unwrap_or(1).max(1))
+            } else {
+                None
+            };
+            layout_children_horizontal(dom, id, content_x, content_y, children_w, explicit_content_h, &css, font_size, true, grid_cols, ctx, list)
         }
         // vertical (block): empilha.
         _ => layout_children_vertical(dom, id, content_x, content_y, children_w, explicit_content_h, &css, font_size, ctx, list),
@@ -687,10 +749,37 @@ fn layout_block(
     // fundo antes dos itens dos filhos (z-order).
     if css.has_box() {
         let radius = css.corner_radius.unwrap_or(0.0);
+        // `opacity` do elemento: multiplica o ALPHA das cores próprias (fundo/borda).
+        // Cobre o caso comum (card/botão/overlay com fade) sem grupo de compositing.
+        let op = css.opacity.unwrap_or(1.0);
         // Insere na ordem: primeiro o fundo, depois a borda por cima dele (ambos
         // atrás dos filhos). `insert` desloca os filhos para a frente.
         let mut at = box_index;
-        if let Some(color) = css.bg {
+        // SOMBRA primeiro (atrás de tudo): box-shadow.
+        if let Some(sh) = css.box_shadow {
+            list.items.insert(at, DisplayItem::Shadow {
+                rect: box_rect,
+                dx: sh.dx,
+                dy: sh.dy,
+                blur: sh.blur,
+                spread: sh.spread,
+                color: apply_opacity(sh.color, op),
+                radius,
+            });
+            at += 1;
+        }
+        // FUNDO: gradiente (se houver) OU cor sólida.
+        if let Some(g) = css.gradient {
+            list.items.insert(at, DisplayItem::GradientRect {
+                rect: box_rect,
+                c0: apply_opacity(g.c0, op),
+                c1: apply_opacity(g.c1, op),
+                angle_deg: g.angle_deg,
+                radius,
+            });
+            at += 1;
+        } else if let Some(color) = css.bg {
+            let color = apply_opacity(color, op);
             list.items.insert(at, DisplayItem::SolidRect { rect: box_rect, color, radius });
             at += 1;
         }
@@ -699,7 +788,7 @@ fn layout_block(
         // (fiel ao Chrome: `border-width:2px` sozinho dá borda invisível).
         let style_visible = css.border_style.map(|s| s.is_visible()).unwrap_or(false);
         if border > 0.0 && style_visible {
-            let color = css.border_color.unwrap_or(0x808080FF);
+            let color = apply_opacity(css.border_color.unwrap_or(0x808080FF), op);
             list.items.insert(at, DisplayItem::Border { rect: box_rect, width: border, color, radius });
         }
     }
@@ -718,7 +807,10 @@ fn layout_block(
         // fundo (se bg) + borda (se visível).
         let style_visible = css.border_style.map(|s| s.is_visible()).unwrap_or(false);
         let box_items = if css.has_box() {
-            css.bg.is_some() as usize + (border > 0.0 && style_visible) as usize
+            // MESMA contagem da emissão acima: sombra + (gradiente OU bg) + borda.
+            css.box_shadow.is_some() as usize
+                + (css.gradient.is_some() || css.bg.is_some()) as usize
+                + (border > 0.0 && style_visible) as usize
         } else {
             0
         };
@@ -742,12 +834,83 @@ fn layout_block(
         }
     }
 
+    // ── TRANSFORM (translate/scale/rotate): pós-processa os itens DESTE elemento e
+    // seus descendentes (o range `[box_index..]`), em torno do CENTRO do border-box.
+    // Aplicado por último (não afeta o fluxo/tamanho — como no CSS, transform é visual).
+    if let Some(tf) = css.transform {
+        if !tf.is_identity() {
+            let cx = box_rect.x + box_rect.w / 2.0;
+            let cy = box_rect.y + box_rect.h / 2.0;
+            // translate em px + fração do tamanho do elemento (translate(-50%,-50%)).
+            let tx = tf.tx + tf.tx_pct * box_rect.w;
+            let ty = tf.ty + tf.ty_pct * box_rect.h;
+            let (sin, cos) = tf.rot_deg.to_radians().sin_cos();
+            for it in list.items[box_index..].iter_mut() {
+                apply_transform_to_item(it, cx, cy, tx, ty, tf.sx, tf.sy, sin, cos);
+            }
+        }
+    }
+
     // Tamanho EXTERNO da caixa (outer = content + padding + border + margin) — cada
     // componente já é a SOMA do seu eixo (padding_h = left+right; margin_h idem;
     // border conta 2× pelos dois lados). Não multiplicar margin/padding por 2.
     let outer_w = content_w + padding_h + 2.0 * border + margin_h;
     let outer_h = content_h + pad_top + pad_bottom + 2.0 * border + margin_top + margin_bottom;
     (outer_w, outer_h)
+}
+
+/// Aplica um transform (translate `tx,ty` + escala `sx,sy` + rotação `sin,cos`) em
+/// torno do centro `(cx,cy)` a um DisplayItem, mutando suas coords. Rects escalam de
+/// tamanho; a rotação move o canto (aproximação: rotaciona a posição, não o próprio
+/// rect — cobre o uso comum sem mesh rotacionado). Texto/pos: rotaciona+escala o ponto.
+#[allow(clippy::too_many_arguments)]
+fn apply_transform_to_item(
+    it: &mut DisplayItem,
+    cx: f32,
+    cy: f32,
+    tx: f32,
+    ty: f32,
+    sx: f32,
+    sy: f32,
+    sin: f32,
+    cos: f32,
+) {
+    // transforma UM ponto: escala em torno do centro, rotaciona, translada.
+    let xf = |px: f32, py: f32| -> (f32, f32) {
+        let (mut dx, mut dy) = (px - cx, py - cy);
+        dx *= sx;
+        dy *= sy;
+        let rx = dx * cos - dy * sin;
+        let ry = dx * sin + dy * cos;
+        (cx + rx + tx, cy + ry + ty)
+    };
+    match it {
+        DisplayItem::SolidRect { rect, .. }
+        | DisplayItem::Border { rect, .. }
+        | DisplayItem::GradientRect { rect, .. }
+        | DisplayItem::Shadow { rect, .. }
+        | DisplayItem::Image { rect, .. } => {
+            let (nx, ny) = xf(rect.x, rect.y);
+            rect.x = nx;
+            rect.y = ny;
+            rect.w *= sx;
+            rect.h *= sy;
+        }
+        DisplayItem::Text { x, y, size, .. } => {
+            let (nx, ny) = xf(*x, *y);
+            *x = nx;
+            *y = ny;
+            *size *= sy; // escala o texto na vertical (aproxima).
+        }
+        DisplayItem::BeginClip { rect, .. } => {
+            let (nx, ny) = xf(rect.x, rect.y);
+            rect.x = nx;
+            rect.y = ny;
+            rect.w *= sx;
+            rect.h *= sy;
+        }
+        DisplayItem::EndClip => {}
+    }
 }
 
 /// Largura NATURAL do conteúdo de um nó (sem `width` explícito): a maior largura
@@ -875,6 +1038,12 @@ fn intrinsic_outer_width(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &LayoutC
 fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
     match &dom.node(id).kind {
         NodeKind::Element { tag } => {
+            // `<img>` com imagem decodificada é um elemento REPLACED (conteúdo visual
+            // intrínseco) → precisa de layout_block p/ emitir o DisplayItem::Image,
+            // mesmo sem CSS de caixa.
+            if tag == "img" && dom.image_of(id).is_some() {
+                return true;
+            }
             let css = dom.computed_style_idx(id);
             css.as_ref().and_then(|c| c.effective_display()).is_some()
                 || crate::block::lookup(tag).is_some()
@@ -911,6 +1080,222 @@ fn is_inline_block(dom: &Dom, id: NodeIdx) -> bool {
         }
         _ => false,
     }
+}
+
+/// Código de decoração de texto p/ o `DisplayItem::Text` a partir do estilo:
+/// 0=nenhuma, 1=underline, 2=line-through, 3=overline.
+fn decoration_code(css: &ComputedStyle) -> u8 {
+    match css.text_decoration {
+        Some(crate::style::values::TextDecoration::Underline) => 1,
+        Some(crate::style::values::TextDecoration::LineThrough) => 2,
+        Some(crate::style::values::TextDecoration::Overline) => 3,
+        _ => 0,
+    }
+}
+
+/// Multiplica o ALPHA de uma cor `0xRRGGBBAA` por `opacity` ∈ [0,1] (o RGB fica
+/// intacto; só o canal alpha escala). `opacity >= 1` devolve a cor inalterada.
+fn apply_opacity(color: u32, opacity: f32) -> u32 {
+    if opacity >= 1.0 {
+        return color;
+    }
+    let op = opacity.clamp(0.0, 1.0);
+    let a = (color & 0xFF) as f32;
+    let new_a = (a * op).round().clamp(0.0, 255.0) as u32;
+    (color & 0xFFFF_FF00) | new_a
+}
+
+/// `true` se a tag é um campo de TEXTO editável (mini-browser): `<input>` (tipos
+/// textuais) ou `<textarea>`. Um `<input type=checkbox/radio/...>` não conta (v1
+/// só faz texto). Sem `type` → texto (o default do HTML).
+fn is_text_input_tag(tag: &str) -> bool {
+    matches!(tag, "input" | "textarea")
+}
+
+/// Layout de um `<input>`/`<textarea>` editável: emite a CAIXA (fundo+borda), o
+/// TEXTO (o valor digitado, ou o `placeholder` apagado se vazio) e, se o campo tem
+/// o FOCO, um CURSOR (barrinha) após o texto. Void (sem filhos) — o egui só recebe
+/// SolidRect+Text+SolidRect e pinta burramente. Retorna `(outer_w, outer_h)`.
+#[allow(clippy::too_many_arguments)]
+/// Layout de um `<img>` com pixels já decodificados: emite `DisplayItem::Image` no
+/// rect. Tamanho: `width`/`height` do CSS se houver; senão o natural da imagem (mas
+/// limitado à largura disponível, preservando a proporção). `None` se o `<img>` ainda
+/// não tem imagem setada (nada a pintar). Retorna `(outer_w, outer_h)`.
+#[allow(clippy::too_many_arguments)]
+fn layout_image(
+    dom: &Dom,
+    id: NodeIdx,
+    css: &ComputedStyle,
+    x: f32,
+    y: f32,
+    avail_w: f32,
+    ctx: &LayoutCtx,
+    list: &mut DisplayList,
+) -> Option<(f32, f32)> {
+    let (handle, off, iw, ih) = dom.image_of(id)?;
+    if handle == 0 || iw == 0 || ih == 0 {
+        return None;
+    }
+    let font = font_px(css, DEFAULT_FONT_SIZE);
+    let resolve = ResolveCtx {
+        parent_content_w: avail_w,
+        node_font_size: font,
+        root_font_size: DEFAULT_FONT_SIZE,
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+    // margens (respeita o CSS); a imagem em si é o content (sem padding/borda v1).
+    let m = &css.margin;
+    let margin_left = m.left.resolve(&resolve).unwrap_or(0.0);
+    let margin_right = m.right.resolve(&resolve).unwrap_or(0.0);
+    let margin_top = m.top.resolve(&resolve).unwrap_or(0.0);
+    let margin_bottom = m.bottom.resolve(&resolve).unwrap_or(0.0);
+    // largura/altura: CSS explícito, senão o atributo HTML `width`/`height` (comum em
+    // `<img width=100 height=100>`), senão o natural. Se só um é dado, mantém a razão.
+    let attr_px = |name: &str| -> Option<f32> {
+        dom.node(id)
+            .attr(name)
+            .and_then(|v| v.trim().trim_end_matches("px").trim().parse::<f32>().ok())
+            .filter(|v| *v >= 0.0)
+    };
+    let css_w = css.width.and_then(|d| d.resolve(&resolve)).or_else(|| attr_px("width"));
+    let css_h = css.height.and_then(|d| d.resolve(&resolve)).or_else(|| attr_px("height"));
+    let (nat_w, nat_h) = (iw as f32, ih as f32);
+    let (mut w, mut h) = match (css_w, css_h) {
+        (Some(cw), Some(ch)) => (cw, ch),
+        (Some(cw), None) => (cw, cw * nat_h / nat_w),
+        (None, Some(ch)) => (ch * nat_w / nat_h, ch),
+        (None, None) => (nat_w, nat_h),
+    };
+    // não estoura a largura disponível (encolhe mantendo a razão).
+    let max_w = (avail_w - margin_left - margin_right).max(0.0);
+    if w > max_w && w > 0.0 {
+        h = h * max_w / w;
+        w = max_w;
+    }
+    let rect = Rect::new(x + margin_left, y + margin_top, w, h);
+    list.node_rects.insert(id, rect);
+    list.items.push(DisplayItem::Image {
+        rect,
+        pixels_handle: handle,
+        pixels_off: off,
+        img_w: iw,
+        img_h: ih,
+    });
+    Some((w + margin_left + margin_right, h + margin_top + margin_bottom))
+}
+
+fn layout_input(
+    dom: &Dom,
+    id: NodeIdx,
+    css: &ComputedStyle,
+    x: f32,
+    y: f32,
+    avail_w: f32,
+    forced_outer_w: Option<f32>,
+    ctx: &LayoutCtx,
+    list: &mut DisplayList,
+) -> (f32, f32) {
+    let font = font_px(css, DEFAULT_FONT_SIZE);
+    let resolve = ResolveCtx {
+        parent_content_w: avail_w,
+        node_font_size: font,
+        root_font_size: DEFAULT_FONT_SIZE,
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+    // Box model do input. Padding default do browser (~2px 4px) quando o autor não
+    // declara; borda 1px cinza default. margem respeita o CSS.
+    let m = &css.margin;
+    let p = &css.padding;
+    let margin_left = m.left.resolve(&resolve).unwrap_or(0.0);
+    let margin_right = m.right.resolve(&resolve).unwrap_or(0.0);
+    let margin_top = m.top.resolve(&resolve).unwrap_or(0.0);
+    let margin_bottom = m.bottom.resolve(&resolve).unwrap_or(0.0);
+    let pad_left = p.left.resolve(&resolve).unwrap_or(4.0).max(0.0);
+    let pad_right = p.right.resolve(&resolve).unwrap_or(4.0).max(0.0);
+    let pad_top = p.top.resolve(&resolve).unwrap_or(3.0).max(0.0);
+    let pad_bottom = p.bottom.resolve(&resolve).unwrap_or(3.0).max(0.0);
+    let border = css.border_width.unwrap_or(1.0).max(0.0);
+    let padding_h = pad_left + pad_right;
+    let frame = margin_left + margin_right + 2.0 * border + padding_h;
+
+    // Largura do CONTENT: `width` do CSS; senão o main-size imposto pelo flex; senão
+    // um default de campo (~180px de content). Nunca excede o disponível.
+    let border_box = css.border_box.unwrap_or(false);
+    let content_w = if let Some(fw) = forced_outer_w {
+        (fw - frame).max(0.0)
+    } else if let Some(w) = css.width.and_then(|d| d.resolve(&resolve)) {
+        if border_box { (w - (padding_h + 2.0 * border)).max(0.0) } else { w }
+    } else {
+        180.0_f32.min((avail_w - frame).max(0.0))
+    };
+
+    // Altura do CONTENT: `height` do CSS; senão uma linha de texto (line-height).
+    let line_h = ctx.measurer.line_height(font);
+    let content_h = css
+        .height
+        .and_then(|d| d.resolve(&resolve))
+        .map(|h| if border_box { (h - (pad_top + pad_bottom + 2.0 * border)).max(0.0) } else { h })
+        .unwrap_or(line_h);
+
+    let box_rect = Rect::new(
+        x + margin_left,
+        y + margin_top,
+        content_w + padding_h + 2.0 * border,
+        content_h + pad_top + pad_bottom + 2.0 * border,
+    );
+    list.node_rects.insert(id, box_rect);
+
+    // Fundo: o `background` do CSS, senão branco (campo de texto clássico).
+    let radius = css.corner_radius.unwrap_or(0.0);
+    let bg = css.bg.unwrap_or(0xFFFFFFFF);
+    list.items.push(DisplayItem::SolidRect { rect: box_rect, color: bg, radius });
+    // Borda: sempre desenha (o input tem contorno por padrão). Cor do CSS ou cinza.
+    // Se o campo tem foco, realça a borda (azul), como o browser.
+    let focused = dom.focused_input() == Some(id);
+    let border_color = if focused {
+        0x3B82F6FF // azul de foco
+    } else {
+        css.border_color.unwrap_or(0x9AA0A6FF)
+    };
+    let bw = if border > 0.0 { border } else { 1.0 };
+    list.items.push(DisplayItem::Border { rect: box_rect, width: bw, color: border_color, radius });
+
+    // Texto: o valor digitado, ou o placeholder apagado. Posicionado no content-box.
+    let text_x = x + margin_left + bw + pad_left;
+    let text_y = y + margin_top + bw + pad_top;
+    let (shown, tcolor) = if dom.input_is_empty(id) {
+        let ph = dom.node(id).attr("placeholder").unwrap_or("").to_string();
+        (ph, 0x9AA0A6FF) // cinza apagado
+    } else {
+        (dom.input_value(id), css.color.unwrap_or(0x111111FF))
+    };
+    if !shown.is_empty() {
+        list.items.push(DisplayItem::Text {
+            x: text_x,
+            y: text_y,
+            text: shown.clone(),
+            color: tcolor,
+            size: font,
+            mono: false,
+            bold: false,
+            letter_spacing: 0.0,
+            decoration: 0,
+        });
+    }
+    // Cursor: barrinha vertical após o texto do VALOR (não do placeholder), só com foco.
+    if focused {
+        let val = dom.input_value(id);
+        let caret_x = text_x + ctx.measurer.text_width(&val, font, false, false) + 1.0;
+        let caret = Rect::new(caret_x, text_y, 1.5, line_h.min(content_h.max(line_h)));
+        list.items.push(DisplayItem::SolidRect { rect: caret, color: 0x111111FF, radius: 0.0 });
+    }
+
+    (
+        box_rect.w + margin_left + margin_right,
+        box_rect.h + margin_top + margin_bottom,
+    )
 }
 
 /// `true` se a tag NÃO é renderável — metadata do documento (`<head>` e o que vive
@@ -1204,6 +1589,9 @@ fn layout_children_horizontal(
     css: &ComputedStyle,
     font_size: f32,
     wrap: bool,
+    // `Some(N)` quando `display:grid`: cada item vira uma coluna de largura fixa
+    // `(content_w - (N-1)*gap)/N` e a linha quebra a cada N. `None` = flex/wrap normal.
+    grid_cols: Option<i32>,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
@@ -1274,6 +1662,22 @@ fn layout_children_horizontal(
     }
     // `order` reordena ANTES do wrap (sort estável: empate = ordem do documento).
     items.sort_by_key(|it| it.order);
+
+    // GRID: cada item (não-texto) vira uma coluna de largura fixa. Fixa base=main=col_w
+    // e zera grow/shrink (a coluna não flui) → o wrap abaixo quebra a cada N colunas.
+    if let Some(n) = grid_cols {
+        let n = n.max(1) as f32;
+        let col_w = ((content_w - (n - 1.0) * gap) / n).max(0.0);
+        for it in items.iter_mut() {
+            if it.is_text {
+                continue;
+            }
+            it.base = col_w;
+            it.main = col_w;
+            it.grow = 0.0;
+            it.shrink = 0.0;
+        }
+    }
 
     // agrupa em LINHAS pela BASE (o wrap decide pelas bases; grow/shrink POR linha).
     let mut lines: Vec<Vec<FlexItem>> = vec![Vec::new()];
@@ -1373,6 +1777,8 @@ fn layout_children_horizontal(
                     size: font_size,
                     mono: false,
                     bold: css.bold.unwrap_or(false),
+                    letter_spacing: css.letter_spacing.unwrap_or(0.0),
+                    decoration: decoration_code(css),
                 });
             } else {
                 // o main resolvido é IMPOSTO ao item (grow/shrink venceram o
@@ -1516,6 +1922,8 @@ fn layout_children_column(
                 size: font_size,
                 mono: false,
                 bold: css.bold.unwrap_or(false),
+                letter_spacing: css.letter_spacing.unwrap_or(0.0),
+                decoration: decoration_code(css),
             });
         } else {
             // CROSS (X): stretch (default) → o item ocupa a largura do container
@@ -1724,7 +2132,9 @@ fn layout_inline_flow(
         };
         // pinta cada pedaço NA SUA COR e PESO, avançando o x.
         for seg in line {
-            let w = ctx.measurer.text_width(&seg.text, font_size, mono, seg.bold);
+            let ls = parent_css.letter_spacing.unwrap_or(0.0);
+            let w = ctx.measurer.text_width(&seg.text, font_size, mono, seg.bold)
+                + ls * seg.text.chars().count() as f32;
             list.items.push(DisplayItem::Text {
                 x: seg_x,
                 y: cy,
@@ -1733,6 +2143,8 @@ fn layout_inline_flow(
                 size: font_size,
                 mono,
                 bold: seg.bold,
+                letter_spacing: ls,
+                decoration: decoration_code(parent_css),
             });
             seg_x += w;
         }

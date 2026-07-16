@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>Synapse — IA que pensa junto com você</title>
+  <style>
+    /* ════════════════════════════════════════════════════════════════════════
+       Synapse — landing de um produto de IA, renderizada pelo motor CSS nativo
+       do RTS (sem browser, sem deps). Exercita: cascade + especificidade,
+       flexbox (justify/align/gap/wrap), grid via flex, nth-child, texto
+       (align/transform/line-height), max-width fluido, border-radius,
+       @keyframes + animation, gradientes por camadas de cor sólida.
+       Paleta: ciano/azul-elétrico sobre quase-preto, acento magenta.
+       ════════════════════════════════════════════════════════════════════════ */
+    body {
+      background: #060810;
+      color: #e8edf7;
+      font-family: sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+      margin: 0;
+      padding: 0;
+    }
+    .shell {
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 0 28px;
+    }
+
+    @keyframes pulse {
+      0%   { background: #22d3ee }
+      50%  { background: #38bdf8 }
+      100% { background: #22d3ee }
+    }
+    @keyframes glow {
+      from { background: #d946ef }
+      to   { background: #f472b6 }
+    }
+
+    /* ── Navbar ─────────────────────────────────────────────────────────────── */
+    .nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 24px 0;
+    }
+    .nav .logo { display: flex; align-items: center; gap: 12px }
+    .nav .mark {
+      width: 32px; height: 32px;
+      background: #22d3ee;
+      border-radius: 10px;
+      animation: pulse 2.6s ease-in-out infinite;
+    }
+    .nav .brand {
+      font-size: 20px;
+      font-weight: bold;
+      color: #ffffff;
+    }
+    .nav .links { display: flex; align-items: center; gap: 28px }
+    .nav .links a { color: #9aa8c2; text-transform: none }
+    .nav .cta {
+      background: #22d3ee;
+      color: #05121a;
+      font-weight: bold;
+      padding: 10px 20px;
+      border-radius: 999px;
+    }
+
+    /* ── Hero ───────────────────────────────────────────────────────────────── */
+    .hero {
+      text-align: center;
+      padding: 70px 0 56px 0;
+    }
+    .hero .pill {
+      display: inline-block;
+      background: #12203a;
+      color: #7dd3fc;
+      font-size: 13px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      padding: 7px 16px;
+      border-radius: 999px;
+      margin-bottom: 26px;
+    }
+    .hero h1 {
+      font-size: 52px;
+      line-height: 1.1;
+      color: #ffffff;
+      margin: 0 0 20px 0;
+    }
+    .hero h1 .accent { color: #22d3ee }
+    .hero p {
+      font-size: 19px;
+      color: #a7b4cc;
+      max-width: 620px;
+      margin: 0 auto 34px auto;
+    }
+    .hero .actions { display: flex; justify-content: center; gap: 16px }
+    .hero .primary {
+      background: #22d3ee;
+      color: #05121a;
+      font-weight: bold;
+      padding: 14px 30px;
+      border-radius: 12px;
+    }
+    .hero .ghost {
+      background: #141b2c;
+      color: #e8edf7;
+      padding: 14px 30px;
+      border-radius: 12px;
+    }
+
+    /* ── Métricas ───────────────────────────────────────────────────────────── */
+    .stats {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 8px 0 60px 0;
+    }
+    .stat {
+      background: #0c1220;
+      border-radius: 16px;
+      padding: 26px 28px;
+      text-align: center;
+    }
+    .stat .num { font-size: 34px; font-weight: bold; color: #22d3ee }
+    .stat .lbl { font-size: 14px; color: #8a99b5; text-transform: uppercase; letter-spacing: 1px }
+
+    /* ── Seção de recursos ──────────────────────────────────────────────────── */
+    .section-head { text-align: center; margin-bottom: 44px }
+    .section-head h2 { font-size: 34px; color: #ffffff; margin: 0 0 12px 0 }
+    .section-head p { color: #9aa8c2; font-size: 17px; margin: 0 }
+
+    .cards {
+      display: flex;
+      justify-content: space-between;
+      gap: 22px;
+    }
+    .card {
+      background: #0c1220;
+      border-radius: 18px;
+      padding: 30px 28px;
+    }
+    .card .icon {
+      width: 46px; height: 46px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      background: #22d3ee;
+    }
+    .card:nth-child(2) .icon { background: #d946ef; animation: glow 2s ease-in-out infinite alternate }
+    .card:nth-child(3) .icon { background: #a78bfa }
+    .card h3 { font-size: 20px; color: #ffffff; margin: 0 0 10px 0 }
+    .card p { color: #94a3bd; font-size: 15px; margin: 0 }
+
+    /* ── Faixa CTA ──────────────────────────────────────────────────────────── */
+    .band {
+      background: #0e1a30;
+      border-radius: 22px;
+      padding: 52px 40px;
+      text-align: center;
+      margin: 72px 0;
+    }
+    .band h2 { font-size: 32px; color: #ffffff; margin: 0 0 14px 0 }
+    .band p { color: #a7b4cc; max-width: 520px; margin: 0 auto 28px auto }
+    .band .big {
+      display: inline-block;
+      background: #22d3ee;
+      color: #05121a;
+      font-weight: bold;
+      font-size: 17px;
+      padding: 16px 40px;
+      border-radius: 14px;
+    }
+
+    /* ── Rodapé ─────────────────────────────────────────────────────────────── */
+    .foot {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 30px 0 50px 0;
+      color: #64748b;
+      font-size: 14px;
+    }
+    .foot .fbrand { color: #cbd5e1; font-weight: bold }
+  </style>
+</head>
+<body>
+  <div class="shell">
+
+    <nav class="nav">
+      <div class="logo">
+        <div class="mark"></div>
+        <span class="brand">Synapse</span>
+      </div>
+      <div class="links">
+        <a>Produto</a>
+        <a>Modelos</a>
+        <a>Preços</a>
+        <span class="cta">Começar</span>
+      </div>
+    </nav>
+
+    <section class="hero">
+      <span class="pill">Inteligência Artificial</span>
+      <h1>A IA que pensa <span class="accent">junto</span> com você</h1>
+      <p>Synapse conecta seus dados, seu contexto e os melhores modelos num só lugar. Pergunte em linguagem natural e receba respostas com raciocínio, fontes e ações.</p>
+      <div class="actions">
+        <span class="primary">Experimentar grátis</span>
+        <span class="ghost">Ver demonstração</span>
+      </div>
+    </section>
+
+    <section class="stats">
+      <div class="stat">
+        <div class="num">98%</div>
+        <div class="lbl">Precisão</div>
+      </div>
+      <div class="stat">
+        <div class="num">40ms</div>
+        <div class="lbl">Latência</div>
+      </div>
+      <div class="stat">
+        <div class="num">120+</div>
+        <div class="lbl">Integrações</div>
+      </div>
+      <div class="stat">
+        <div class="num">24/7</div>
+        <div class="lbl">Disponível</div>
+      </div>
+    </section>
+
+    <div class="section-head">
+      <h2>Feito para raciocinar, não só responder</h2>
+      <p>Três pilares que separam o Synapse de um chatbot comum.</p>
+    </div>
+
+    <section class="cards">
+      <div class="card">
+        <div class="icon"></div>
+        <h3>Raciocínio multi-etapa</h3>
+        <p>Decompõe problemas complexos, planeja e verifica cada passo antes de responder — não chuta.</p>
+      </div>
+      <div class="card">
+        <div class="icon"></div>
+        <h3>Memória de contexto</h3>
+        <p>Lembra do seu projeto entre sessões. O contexto acumula em vez de reiniciar do zero toda vez.</p>
+      </div>
+      <div class="card">
+        <div class="icon"></div>
+        <h3>Ações no mundo real</h3>
+        <p>Conecta ferramentas e executa: consulta bancos, chama APIs e devolve o resultado, não só o texto.</p>
+      </div>
+    </section>
+
+    <section class="band">
+      <h2>Pronto para pensar em outra velocidade?</h2>
+      <p>Comece grátis hoje. Sem cartão, sem fricção — só você e uma IA que acompanha o seu ritmo.</p>
+      <span class="big">Criar minha conta</span>
+    </section>
+
+    <footer class="foot">
+      <span class="fbrand">Synapse</span>
+      <span>© 2026 · Renderizado pelo motor CSS nativo do RTS</span>
+    </footer>
+
+  </div>
+</body>
+</html>

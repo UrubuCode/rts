@@ -136,6 +136,130 @@ pub extern "C" fn __RTS_FN_GL_FETCH(url_ptr: i64, url_len: i64, opts_h: u64) -> 
     do_fetch(url, opts_h)
 }
 
+/// `fetchText(url)` → baixa a URL (GET) e devolve o CORPO como STRING (handle do
+/// pool GC), numa só chamada síncrona. Conveniência para o mini-browser: junta o
+/// `fetch(url)` + `.text()` sem exigir o `fetch()` global no front do engine nem a
+/// máquina de Promise. Erro de rede → string vazia (o browser mostra "falhou").
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_TEXT(url_ptr: i64, url_len: i64) -> u64 {
+    let url = str_from_parts(url_ptr, url_len);
+    let resp_h = do_fetch(url, 0);
+    let body = with_response(resp_h, |r| r.body.clone()).unwrap_or_default();
+    alloc_entry(Entry::String(body))
+}
+
+// ── fetch ASSÍNCRONO (não bloqueia a UI) ─────────────────────────────────────
+// O `fetchText` síncrono trava a thread de UI ~1-2s durante o download (TLS +
+// bytes). Esta variante dispara o GET numa thread separada e devolve um TICKET
+// (u64) na hora; o loop de UI continua pintando e faz POLL a cada frame. Quando
+// pronto, `fetchTake` entrega o corpo. Estado num mapa global thread-safe.
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+
+/// `ticket → Some(corpo)` quando pronto; `None` enquanto baixa. Removido no take.
+fn async_fetches() -> &'static Mutex<HashMap<u64, Option<String>>> {
+    static F: OnceLock<Mutex<HashMap<u64, Option<String>>>> = OnceLock::new();
+    F.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Contador de tickets (id monotônico). Simples e suficiente (1 fetch por vez no
+/// browser; nunca reusa id vivo).
+fn next_ticket() -> u64 {
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// `fetchTextAsync(url)` → dispara o GET numa thread e devolve um TICKET (u64)
+/// imediatamente (NÃO bloqueia). O corpo fica disponível via `fetchPoll`/`fetchTake`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_TEXT_ASYNC(url_ptr: i64, url_len: i64) -> u64 {
+    let url = str_from_parts(url_ptr, url_len).to_string();
+    let ticket = next_ticket();
+    async_fetches().lock().unwrap().insert(ticket, None); // pendente
+    std::thread::spawn(move || {
+        // download síncrono NA THREAD (a UI segue livre).
+        let resp_h = do_fetch(&url, 0);
+        let body = with_response(resp_h, |r| r.body.clone()).unwrap_or_default();
+        free_handle(resp_h); // a Response já foi consumida.
+        let s = String::from_utf8_lossy(&body).into_owned();
+        async_fetches().lock().unwrap().insert(ticket, Some(s));
+    });
+    ticket
+}
+
+/// `fetchPoll(ticket)` → `1` se o download terminou (corpo pronto p/ `fetchTake`),
+/// `0` se ainda baixando, `-1` se o ticket é inválido. Não bloqueia.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_POLL(ticket: u64) -> i64 {
+    match async_fetches().lock().unwrap().get(&ticket) {
+        Some(Some(_)) => 1,
+        Some(None) => 0,
+        None => -1,
+    }
+}
+
+/// `fetchTake(ticket)` → o corpo baixado como STRING (handle do pool GC) e REMOVE o
+/// ticket. `""` se não está pronto / inválido. Chamar após `fetchPoll` == 1.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_TAKE(ticket: u64) -> u64 {
+    let taken = async_fetches().lock().unwrap().remove(&ticket).flatten();
+    alloc_entry(Entry::String(taken.unwrap_or_default().into_bytes()))
+}
+
+// ── fetch BINÁRIO (bytes crus, para imagens) ─────────────────────────────────
+// O fetch de texto decodifica como UTF-8 (into_string), o que CORROMPE bytes de
+// imagem. Este baixa os bytes CRUS num Buffer, para o decoder de imagem consumir.
+
+/// GET binário síncrono → Vec<u8> cru (preserva os bytes, sem UTF-8).
+fn do_fetch_bytes(url: &str) -> Vec<u8> {
+    let req = ureq::request("GET", url).set("User-Agent", super::default_user_agent());
+    match req.call() {
+        Ok(resp) | Err(ureq::Error::Status(_, resp)) => {
+            let mut buf = Vec::new();
+            let _ = std::io::Read::read_to_end(&mut resp.into_reader(), &mut buf);
+            buf
+        }
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Mapa dos fetches binários pendentes (Buffer bytes quando pronto).
+fn async_byte_fetches() -> &'static Mutex<HashMap<u64, Option<Vec<u8>>>> {
+    static F: OnceLock<Mutex<HashMap<u64, Option<Vec<u8>>>>> = OnceLock::new();
+    F.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// `fetchBytesAsync(url)` → dispara um GET BINÁRIO numa thread; ticket na hora.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_BYTES_ASYNC(url_ptr: i64, url_len: i64) -> u64 {
+    let url = str_from_parts(url_ptr, url_len).to_string();
+    let ticket = next_ticket();
+    async_byte_fetches().lock().unwrap().insert(ticket, None);
+    std::thread::spawn(move || {
+        let bytes = do_fetch_bytes(&url);
+        async_byte_fetches().lock().unwrap().insert(ticket, Some(bytes));
+    });
+    ticket
+}
+
+/// `fetchBytesPoll(ticket)` → 1 pronto / 0 baixando / -1 inválido.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_BYTES_POLL(ticket: u64) -> i64 {
+    match async_byte_fetches().lock().unwrap().get(&ticket) {
+        Some(Some(_)) => 1,
+        Some(None) => 0,
+        None => -1,
+    }
+}
+
+/// `fetchBytesTake(ticket)` → os bytes crus como Buffer (handle) e remove o ticket.
+/// Buffer vazio se não pronto/inválido. Passe `buffer.ptr`/`buffer.len` ao imgdec.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_BYTES_TAKE(ticket: u64) -> u64 {
+    let taken = async_byte_fetches().lock().unwrap().remove(&ticket).flatten();
+    alloc_entry(Entry::Buffer(taken.unwrap_or_default()))
+}
+
 // ── Promise ──────────────────────────────────────────────────────────────────
 //
 // .then/.catch/.finally operam sobre Entry::PromiseAsync(Arc<PromiseSlot>) —

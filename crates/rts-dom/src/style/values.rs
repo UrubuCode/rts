@@ -146,6 +146,37 @@ impl TextTransform {
     }
 }
 
+/// `text-decoration[-line]` — a linha decorativa do texto. `None` = sem linha.
+/// Modela só a presença da linha (a cor herda do texto; estilo/espessura fixos v1).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TextDecoration {
+    /// `none` — sem decoração.
+    None,
+    /// `underline` — linha sob o texto.
+    Underline,
+    /// `line-through` — linha cortando o texto.
+    LineThrough,
+    /// `overline` — linha sobre o texto.
+    Overline,
+}
+
+impl TextDecoration {
+    /// Parseia `text-decoration`/`text-decoration-line`: pega a 1ª keyword de LINHA
+    /// (o shorthand pode ter cor/estilo junto — `underline dotted red` → Underline).
+    pub fn parse(v: &str) -> Option<TextDecoration> {
+        for tok in v.split_whitespace() {
+            match tok.to_ascii_lowercase().as_str() {
+                "none" => return Some(TextDecoration::None),
+                "underline" => return Some(TextDecoration::Underline),
+                "line-through" => return Some(TextDecoration::LineThrough),
+                "overline" => return Some(TextDecoration::Overline),
+                _ => {}
+            }
+        }
+        None
+    }
+}
+
 /// Valor de UM lado de margin/padding: um COMPRIMENTO (px/%/em/rem/vw/vh — a
 /// unidade relativa sobrevive até o layout, como em `width`), `auto` (só faz
 /// sentido em margin — centralização/flex), ou não-especificado. Egui-free.
@@ -277,6 +308,10 @@ pub enum DisplayKind {
     /// `display:inline`/`inline-block` — flui inline (no nível de bloco, trata como
     /// wrap: itens lado a lado que quebram). É o default de tags custom no browser.
     Inline,
+    /// `display:grid` — grade de N colunas (N vem de `grid_columns`, de
+    /// `grid-template-columns`). Tratado como WRAP com largura de item = 1/N do
+    /// container (grid 2-D real fica p/ depois; cobre os cards/planos em grade).
+    Grid,
     /// `display:none` — não renderiza (nem ocupa espaço).
     None,
 }
@@ -287,7 +322,7 @@ impl DisplayKind {
     pub fn to_display_code(self) -> i64 {
         match self {
             DisplayKind::Block => 0,
-            DisplayKind::FlexWrap | DisplayKind::Inline => 1, // wrap (flui+quebra)
+            DisplayKind::FlexWrap | DisplayKind::Inline | DisplayKind::Grid => 1, // wrap
             DisplayKind::Flex => 2,                            // horizontal (lado a lado)
             DisplayKind::None => -1,
         }
