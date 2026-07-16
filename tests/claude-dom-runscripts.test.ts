@@ -22,6 +22,10 @@ const html = "<div id='app'><h1 id='t'>antes</h1><ul id='list'></ul></div>" +
   "<script>" +
   "const t2 = document.getElementById('t');" +
   "if (t2 !== null) { t2.setAttribute('data-seq', 'terceiro'); }" +
+  "</script>" +
+  "<script>" +
+  "const t3 = document.getElementById('t');" +
+  "if (t3 !== null) { t3.textContent = 'via setter'; }" +
   "</script>";
 
 const doc = parseDocument(html);
@@ -36,10 +40,10 @@ const ultimo = nLis === 3 ? lis[2].textContent : "";
 
 describe("runScripts — bloco <script> da página", () => {
   test("scripts válidos rodam; o quebrado é isolado", () => {
-    expect(ran).toBe(2);
+    expect(ran).toBe(3);
   });
-  test("script muta o DOM via método", () => {
-    expect(textoDepois).toBe("mudado");
+  test("script muta o DOM via SETTER de propriedade (como no browser)", () => {
+    expect(textoDepois).toBe("via setter");
   });
   test("script cria elementos dinamicamente", () => {
     expect(nLis).toBe(3);

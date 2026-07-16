@@ -940,9 +940,9 @@ function __loadScriptAt(h: number, j: number, baseUrl: string): number {
 // classes Document/Element existem lá com a mesma API.
 //
 // Limites HONESTOS do subset dinâmico (documentados, não silenciosos):
-//   • SETTER de propriedade não despacha no dynfn (`el.textContent = x` cria campo
-//     morto). O script deve usar MÉTODOS: `setInnerHTML`, `setAttribute`,
-//     `classListAdd`... (mesma restrição já anotada no `set innerHTML` acima).
+//   • GETTER/SETTER de classe despacham também no caminho dinâmico (o prólogo do
+//     motor registra `__get_/__set_<prop>` no proto — `el.textContent = x` chama o
+//     setter REAL, como no browser).
 //   • O retorno do dynfn é i64 — devolver string do script não sobrevive à borda.
 //     Efeitos no DOM (o caso real de <script>) funcionam; "return de valor" não é
 //     o contrato de um bloco de página mesmo.
