@@ -82,9 +82,56 @@ pub const POLY_TAG_OBJECT: u64 = 4;
 pub const POLY_TAG_FUNCTION: u64 = 5;
 /// Singleton tag (undefined/null/bool/hole/empty select via payload).
 pub const POLY_TAG_SINGLETON: u64 = 2;
+
+/// Tag for an inline 32-bit integer (payload = the `i32` bits, zero-extended).
+/// `typeof` ⇒ `"number"`, like an inline `f64`.
+///
+/// Frozen NaN-box value-model ABI, mirrors
+/// `crates/rts-adapters/src/value/layout.rs`; do not change without changing both.
+pub const POLY_TAG_INT32: u64 = 1;
+
 /// The `undefined` singleton word (`TAG_SINGLETON`, payload 0) — used to pad
 /// unread callback-arg slots in the `__rtsadp_fn_invoke` bridge.
 pub const POLY_UNDEFINED: u64 = POLY_BOX_BASE | (POLY_TAG_SINGLETON << POLY_TAG_SHIFT);
+
+/// Payloads that select which singleton a `TAG_SINGLETON` word is.
+///
+/// Frozen NaN-box value-model ABI, mirrors
+/// `crates/rts-adapters/src/value/layout.rs`; do not change without changing both.
+pub const POLY_SING_UNDEFINED: u64 = 0;
+pub const POLY_SING_NULL: u64 = 1;
+pub const POLY_SING_FALSE: u64 = 2;
+pub const POLY_SING_TRUE: u64 = 3;
+pub const POLY_SING_HOLE: u64 = 4;
+pub const POLY_SING_EMPTY: u64 = 5;
+
+/// The `null` singleton word.
+pub const POLY_NULL: u64 = POLY_BOX_BASE | (POLY_TAG_SINGLETON << POLY_TAG_SHIFT) | POLY_SING_NULL;
+/// The `false` singleton word.
+pub const POLY_FALSE: u64 = POLY_BOX_BASE | (POLY_TAG_SINGLETON << POLY_TAG_SHIFT) | POLY_SING_FALSE;
+/// The `true` singleton word.
+pub const POLY_TRUE: u64 = POLY_BOX_BASE | (POLY_TAG_SINGLETON << POLY_TAG_SHIFT) | POLY_SING_TRUE;
+
+/// The boxed-word tag of `w`, or `None` if `w` is a genuine inline `f64`.
+#[inline]
+pub fn poly_tag(w: u64) -> Option<u64> {
+    if (w & POLY_BOX_BASE) == POLY_BOX_BASE {
+        Some((w >> POLY_TAG_SHIFT) & POLY_TAG_MASK)
+    } else {
+        None
+    }
+}
+
+/// The `f64` value of a number word — an inline double or a boxed `INT32` —
+/// or `None` if `w` is not a number.
+#[inline]
+pub fn poly_number(w: u64) -> Option<f64> {
+    match poly_tag(w) {
+        None => Some(f64::from_bits(w)),
+        Some(POLY_TAG_INT32) => Some(((w & POLY_PAYLOAD_MASK) as u32) as i32 as f64),
+        _ => None,
+    }
+}
 
 /// If `c` is a NaN-boxed heap-handle word (boxed discriminator set AND tag ∈
 /// {STR, OBJECT, FUNCTION}), reconstruct the full real runtime handle for its

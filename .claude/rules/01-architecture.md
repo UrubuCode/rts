@@ -131,7 +131,7 @@ boundary. Each namespace function is a typed `extern "C"` symbol.
 | TS type  | `AbiType`    | Cranelift repr                  | Note                                            |
 |----------|--------------|---------------------------------|-------------------------------------------------|
 | `number` | `I64` / `F64`| `i64` / `f64`                   | native bits, no boxing                          |
-| `bool`   | `Bool`       | `i8` (0/1)                      | 0 = false, 1 = true                             |
+| `bool`   | `Bool`       | `i64` (0/1)                     | codegen lowers `Bool` to Cranelift I64 for params AND returns (`abi::ty::Bool = i64`) — never `i8` |
 | `string` | `StrPtr`     | 2 slots: `(i64 ptr, i64 len)`   | UTF-8; static codegen ptr, or GC-handle buffer  |
 | handle   | `Handle`     | `u64`                           | `HandleTable` (gen:16 + slot:48)                |
 | void     | `Void`       | —                               | no return                                       |

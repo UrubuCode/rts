@@ -64,6 +64,7 @@ pub use rts_node::assert as node_assert;
 pub use rts_node::buffer as node_buffer;
 pub use rts_node::child_process as node_child_process;
 pub use rts_node::crypto as node_crypto;
+pub use rts_node::dgram as node_dgram;
 pub use rts_node::diagnostics_channel as node_diagnostics_channel;
 pub use rts_node::dns as node_dns;
 pub use rts_node::events as node_events;

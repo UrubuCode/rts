@@ -280,11 +280,17 @@ fn rename_ident_expr(e: &mut HirExpr, from: &str, to: &str) {
     }
 }
 
-/// Top-level singleton-instance globals — every `const X = new Y()` at the top
-/// level — mapped to their class `Y`. DATA-DRIVEN: the engine NAMES nothing (no
-/// `"console"` allow-list); it matches the SHAPE `const = new`, so any prelude OR
-/// user singleton (`const console = new Console()`, `const app = new App()`) is
-/// covered uniformly.
+/// Top-level singleton-instance globals — every top-level `const X = …` whose
+/// value has a STATICALLY KNOWN class — mapped to that class. DATA-DRIVEN: the
+/// engine NAMES nothing (no `"console"` allow-list); it matches SHAPES, so any
+/// prelude OR user singleton is covered uniformly. Two shapes qualify:
+///
+///  - `const X = new Y()` — the class is the ctor (`const console = new Console()`,
+///    `const app = new App()`);
+///  - `const X = f(…)` where `f` is a BUILTIN IMPORT whose spec ts-signature names
+///    a registered class as its return (`const s = createSocket('udp4')` →
+///    `createSocket(type: object): Socket`). The class comes from the Registry's
+///    own data — the same resolution `global_instance_class` does for a receiver.
 ///
 /// Why this exists: such a `const` resolved as a plain top-level local is INVISIBLE
 /// inside a user `function f() { console.log(..) }` (a function reads only
@@ -303,14 +309,26 @@ fn rename_ident_expr(e: &mut HirExpr, from: &str, to: &str) {
 pub fn singleton_instance_globals(
     funcs: &[HirFunc],
     main: &HirFunc,
+    builtins: &std::collections::HashMap<String, (String, String)>,
 ) -> std::collections::HashMap<String, String> {
-    // Candidate singletons: top-level `const x = new C()`.
     let mut candidates: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for s in &main.body {
-        if let HirStmt::Const { name, init, .. } = s {
-            if let rts_hir::ir::HirExprKind::New { class, .. } = &init.kind {
+        let HirStmt::Const { name, init, .. } = s else { continue };
+        match &init.kind {
+            rts_hir::ir::HirExprKind::New { class, .. } => {
                 candidates.insert(name.clone(), class.clone());
             }
+            rts_hir::ir::HirExprKind::Call { callee, args } => {
+                if let rts_hir::ir::HirExprKind::Ident(fname) = &callee.kind
+                    && let Some((ns, member)) = builtins.get(fname)
+                    && let Some(class) = super::registry::namespace_member(ns, member, args.len())
+                        .and_then(|c| c.ret_class)
+                        .filter(|c| super::registry::has_class(c))
+                {
+                    candidates.insert(name.clone(), class);
+                }
+            }
+            _ => {}
         }
     }
     if candidates.is_empty() {

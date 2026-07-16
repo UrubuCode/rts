@@ -21,23 +21,38 @@ pub fn run_event_loop() {
     // (unhandled rejection) Após TODOS os drains — todo handler que ia anexar já
     // anexou — reporta as Promises rejeitadas que nunca tiveram handler.
     crate::promise::report_unhandled_rejections();
-    // Filesystem watchers (node:fs watch/watchFile) keep the loop alive while any
-    // watcher is open (Node semantics); each OS notification invokes the listener.
-    drain_watch_events();
+    // Native event sources keep the loop alive while any of their resources is
+    // open (Node semantics): filesystem watchers (node:fs watch/watchFile) and
+    // every source that registered a pump (node:dgram's UDP reader, …).
+    drain_native_events();
 }
 
-/// Drain `node:fs` watch events while any watcher is open, invoking each
-/// listener `(eventType, filename)` on the JS thread. Two exits: `active_count`
-/// reaching zero (a `watcher.close()`), or an IDLE window with no events — RTS
-/// has no persistent loop and, given #195 (a listener can't capture its watcher
-/// to close it), an idle watcher would otherwise pin the process forever. So the
-/// loop delivers REAL FS events but returns once the watcher goes quiet for
-/// `IDLE`; a watcher receiving a steady stream of changes stays alive (each event
-/// resets the window). A 60 s absolute cap is a final safety net.
-fn drain_watch_events() {
+/// Drain the native event sources while any of their resources is open,
+/// delivering each event on the JS thread. Two families feed this:
+///
+///  - [`rts_engine::watch_queue`] — the fs-watch queue, whose plain-data events
+///    this function turns into a `listener(eventType, filename)` invocation;
+///  - [`rts_engine::loop_sources`] — the generic pump registry: each producer
+///    drains its OWN typed queue when called here (node:dgram's `'message'`/
+///    `'listening'`/… delivery), so this loop never names a module.
+///
+/// Two exits: the combined active count reaching zero (every watcher closed /
+/// every socket closed or `unref`ed) AND the last pass having delivered nothing,
+/// or an IDLE window with no events — RTS has no persistent loop and, given #195
+/// (a listener can't capture its watcher to close it), an idle handle would
+/// otherwise pin the process forever. So the loop delivers REAL events but
+/// returns once every source goes quiet for `IDLE`; a steady stream keeps it
+/// alive (each event resets the window). A 60 s absolute cap is a final safety
+/// net.
+///
+/// The "delivered nothing" half of the first exit matters: closing the last
+/// handle drops the active count to zero while its `'close'` event is still
+/// queued, so the loop always makes one more pass and only leaves once a pass
+/// comes back empty.
+fn drain_native_events() {
     use rts_engine::heap::handles::{alloc_entry, Entry};
     use rts_engine::heap::shapes::string_word;
-    use rts_engine::watch_queue;
+    use rts_engine::{loop_sources, watch_queue};
     use std::time::{Duration, Instant};
 
     unsafe extern "C" {
@@ -48,17 +63,20 @@ fn drain_watch_events() {
     }
 
     const IDLE: Duration = Duration::from_millis(1500);
-    if watch_queue::active_count() == 0 {
-        return;
-    }
+    let active = || watch_queue::active_count() + loop_sources::active_count();
+    // No early return on a zero active count: a source can hold a QUEUED event
+    // while holding no keep-alive (a socket whose bind failed queues its 'error'
+    // and never becomes active). One pass always runs, and the exit condition
+    // below leaves immediately when that pass comes back empty.
     let deadline = Instant::now() + Duration::from_secs(60);
     let mut last_activity = Instant::now();
-    while watch_queue::active_count() > 0 && Instant::now() < deadline {
+    loop {
         let events = watch_queue::drain();
-        if !events.is_empty() {
+        // Each source drains its own queue on this (the JS) thread.
+        let delivered = loop_sources::pump_all();
+        let busy = !events.is_empty() || delivered > 0;
+        if busy {
             last_activity = Instant::now();
-        } else if Instant::now() - last_activity > IDLE {
-            break;
         }
         for ev in events {
             if ev.kind == 2 {
@@ -78,9 +96,16 @@ fn drain_watch_events() {
                 __RTS_FN_RT_INVOKE_AUTO(ev.listener as i64, 0, args);
             }
         }
-        // A listener may have scheduled microtasks/timers (or closed its watcher).
+        // A listener may have scheduled microtasks (or closed its handle).
         crate::globals::text_encoding::instance::drain_microtasks();
-        std::thread::sleep(Duration::from_millis(15));
+        // Nothing left to keep the loop alive, and this pass was empty.
+        if !busy && active() == 0 {
+            break;
+        }
+        if Instant::now() >= deadline || (!busy && Instant::now() - last_activity > IDLE) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
     }
 }
 

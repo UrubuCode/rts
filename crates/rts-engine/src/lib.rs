@@ -42,6 +42,7 @@
 pub mod abi;
 pub mod collector;
 pub mod heap;
+pub mod loop_sources;
 pub mod numfmt;
 pub mod runtime_ci;
 pub mod watch_queue;

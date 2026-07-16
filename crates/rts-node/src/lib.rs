@@ -21,6 +21,7 @@ pub mod assert;
 pub mod buffer;
 pub mod child_process;
 pub mod crypto;
+pub mod dgram;
 pub mod diagnostics_channel;
 pub mod dns;
 pub mod events;
@@ -42,3 +43,5 @@ pub mod url;
 pub mod util;
 pub mod v8;
 pub mod zlib;
+
+mod values;

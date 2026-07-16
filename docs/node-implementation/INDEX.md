@@ -4,9 +4,11 @@ Specs for implementing the **complete Node.js 25 API** natively in the RTS
 `rts-node` crate. Every stable core module, the documented deprecated ones, and
 the experimental ones are specced here. Parity target: Node.js **25.x**.
 
-> **Status: spec phase.** No implementation code has landed. Each `<module>.md`
-> is an implementation blueprint (full API surface + types + RTS impl plan), not
-> a status report of working code.
+> **Status: implementation under way.** Each `<module>.md` is an implementation
+> blueprint (full API surface + types + RTS impl plan) and carries its OWN
+> `Status` row — that row, not this index, is the truth for a given module. Where
+> a module has landed, a "what actually landed" section records the divergences
+> from its plan. Live code is in `crates/rts-node/src/`.
 
 ## Read first
 
@@ -90,7 +92,7 @@ Node 25. All specs written ✅.
 | child_process | `node:child_process` | Stable | `spawn`/`exec`/`execFile`/`fork` (+Sync), `ChildProcess` | [child_process.md](./child_process.md) |
 | cluster | `node:cluster` | Stable | `fork`, `Worker`, scheduling, IPC | [cluster.md](./cluster.md) |
 | crypto | `node:crypto` (+webcrypto) | Stable | `Hash`/`Hmac`/`Cipheriv`/`Sign`, `randomBytes`, `subtle` | [crypto.md](./crypto.md) |
-| dgram | `node:dgram` | Stable | `Socket` (UDP), `createSocket` | [dgram.md](./dgram.md) |
+| dgram ✅ | `node:dgram` | Stable | `Socket` (UDP), `createSocket` | [dgram.md](./dgram.md) |
 | dns | `node:dns` (+`/promises`) | Stable | `lookup`/`resolve*`, `Resolver` | [dns.md](./dns.md) |
 | https | `node:https` | Stable | `Server`/`request`/`get`/`Agent` over TLS | [https.md](./https.md) |
 | module | `node:module` | Stable | `createRequire`, loader hooks, `SourceMap`, `builtinModules` | [module.md](./module.md) |

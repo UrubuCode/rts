@@ -53,6 +53,18 @@ pub extern "C" fn __rtsadp_throw_set(word: u64) {
 /// plain `"<kind>: <message>"` STRING word when the class shape is not
 /// registered in this process (an AOT binary).
 pub(crate) fn throw_js_error(kind: &str, message: &str) {
+    __rtsadp_throw_set(make_js_error(kind, message));
+}
+
+/// The VALUE half of [`throw_js_error`]: a real `kind` Error instance as a
+/// PolyValue word (or, when the class shape is not registered in this process,
+/// the `"<kind>: <message>"` STRING word the throw path falls back to).
+///
+/// Exists because an error is not always thrown: a backend that delivers an
+/// error to a Node-style callback or an `'error'` listener needs the same value
+/// to PASS (`node:dgram`'s socket errors), and rebuilding it by hand would drift
+/// from the shape/prototype wiring below.
+pub(crate) fn make_js_error(kind: &str, message: &str) -> u64 {
     use rts_runtime::namespaces::collections::vec as rt_vec;
     use rts_runtime::namespaces::gc::handles as rt_handles;
     if let Some((shape, fields)) = crate::shape::error_class_info(kind) {
@@ -85,11 +97,30 @@ pub(crate) fn throw_js_error(kind: &str, message: &str) {
         };
         let proto = super::protos::__rtsadp_class_proto_init(name_word, parent);
         super::protos::__rtsadp_obj_set_proto(word, proto);
-        __rtsadp_throw_set(word);
-        return;
+        return word;
     }
-    let msg = super::abi_adapter::intern_poly(&format!("{kind}: {message}"));
-    __rtsadp_throw_set(msg.raw());
+    super::abi_adapter::intern_poly(&format!("{kind}: {message}")).raw()
+}
+
+/// Link-reachable form of [`make_js_error`] for the runtime layer (the same
+/// reason [`__rtsadp_throw_js_error`] exists): build a real `kind` Error
+/// instance with `message` and RETURN its PolyValue word instead of throwing it.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_make_js_error(
+    kind_ptr: *const u8,
+    kind_len: i64,
+    msg_ptr: *const u8,
+    msg_len: i64,
+) -> u64 {
+    make_js_error(read_abi(kind_ptr, kind_len), read_abi(msg_ptr, msg_len))
+}
+
+/// Read an ABI `(ptr, len)` string pair; empty for a null/empty one.
+fn read_abi<'a>(p: *const u8, n: i64) -> &'a str {
+    if p.is_null() || n <= 0 {
+        return "";
+    }
+    unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(p, n as usize)) }
 }
 
 /// Link-reachable form of [`throw_js_error`] for the runtime layer: an
@@ -104,13 +135,7 @@ pub extern "C" fn __rtsadp_throw_js_error(
     msg_ptr: *const u8,
     msg_len: i64,
 ) {
-    let read = |p: *const u8, n: i64| -> &str {
-        if p.is_null() || n <= 0 {
-            return "";
-        }
-        unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(p, n as usize)) }
-    };
-    throw_js_error(read(kind_ptr, kind_len), read(msg_ptr, msg_len));
+    throw_js_error(read_abi(kind_ptr, kind_len), read_abi(msg_ptr, msg_len));
 }
 
 /// `1` iff a thrown value is pending (an unwind is in progress), else `0`. Emitted

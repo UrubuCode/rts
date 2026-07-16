@@ -200,6 +200,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if method != "call" && method != "apply" && method != "bind" {
             return Ok(None);
         }
+        // `call`/`apply`/`bind` are FUNCTION methods — a non-function object does
+        // not have them at all in JS. So when the receiver's statically-known
+        // class declares its OWN method of that name at this arity, that method
+        // wins and this path must not hijack it (`dgram.Socket.bind(port)` is a
+        // socket bind, not a partial application). Resolved from the Registry as
+        // DATA — no class is named here.
+        if let Some(class) = self.global_instance_class(object)
+            && super::registry::class_member(&class, method, args.len()).is_some()
+        {
+            return Ok(None);
+        }
         // PRIMORDIAL `Math.max.apply(null, arr)` / `Math.min.apply(..)`: the
         // variadic Math reducer over a runtime array — the SAME
         // `__rtsadp_math_reduce` the spread form uses (op 0=min, 1=max).

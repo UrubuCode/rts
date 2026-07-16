@@ -37,6 +37,13 @@ glob = "0.3"
 # node:fs.watch — OS filesystem notifications (inotify/kqueue/ReadDirectoryChangesW
 # via pure-Rust bindings, no C compile). Permissive (CC0-1.0 / Artistic-2.0).
 notify = "6"
+# node:dgram — the UDP socket surface. `socket2` is a strict superset of
+# std::net::UdpSocket: it exposes the socket options Node's dgram needs (buffer
+# sizes, multicast join/leave incl. IPv4 source-specific, TTL/hops, loopback,
+# interface selection, SO_REUSEADDR/SO_REUSEPORT, IPV6_V6ONLY) over ONE type.
+# MIT/Apache-2.0, pure Rust over libc/windows-sys FFI declarations — no C
+# compile. See docs/node-implementation/{crates.md §2, dgram.md §5.1}.
+socket2 = { version = "0.6", features = ["all"] }
 
 # node:os — POSIX syscall surface (uname/gethostname/sysinfo/getloadavg/
 # getpriority/getpwuid_r/getifaddrs). libc is FFI-only, no C compile — permissive

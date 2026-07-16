@@ -13,7 +13,9 @@ use super::lower::Lowerer;
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// The recorded runtime/Registry class of a receiver, if statically known:
     /// - `new C(args)` directly (e.g. a chained `new RegExp(..).test(..)`);
-    /// - a bare identifier recorded in `global_instance_classes`;
+    /// - a bare identifier recorded in `global_instance_classes`, or one whose
+    ///   top-level `const` was force-promoted to a GCELL (which erases the
+    ///   `global_instance_classes` entry) and carries its class in `gcell_classes`;
     /// - a chained method-call / getter / builtin-import-call receiver, resolved
     ///   data-driven by the specs' ts return classes (recursion covers N-deep).
     pub(super) fn global_instance_class(&self, object: &HirExpr) -> Option<String> {
@@ -25,7 +27,26 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirExprKind::New { class, .. } if self.is_global_class_ctor(class) => {
                 Some(class.clone())
             }
-            HirExprKind::Ident(name) => self.global_instance_classes.get(name).cloned(),
+            HirExprKind::Ident(name) => self
+                .global_instance_classes
+                .get(name)
+                .cloned()
+                // A top-level `const s = createSocket('udp4')` that a FUNCTION
+                // captures is force-promoted to a gcell (so every scope reads the one
+                // instance), which drops the `global_instance_classes` entry the plain
+                // local would carry. `gcell_classes` kept `name → class` from the same
+                // spec data — recover it here so `s.on(..)` still dispatches on the
+                // Registry class in any scope. Same guards as the user-class path: the
+                // name must actually BE a gcell, no same-named local may shadow it,
+                // and the class must be a REGISTERED one (a user class recorded there
+                // belongs to `static_instance_class`, not this path).
+                .or_else(|| {
+                    self.gcell_classes
+                        .get(name)
+                        .filter(|_| self.gcells.contains_key(name) && self.local(name).is_none())
+                        .filter(|c| super::registry::has_class(c))
+                        .cloned()
+                }),
             // A CHAINED registry call receiver, resolved by the specs' ts return
             // classes (data-driven, no class named here):
             // - a STATIC (`Promise.resolve(4)` → its spec ret class);

@@ -317,11 +317,13 @@ fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<
     // resolving to the cell rather than an unbound ident.
     let mut forced_globals = prelude.forced_globals;
     forced_globals.extend(user.forced_globals);
-    // Top-level singleton-instance globals (`const X = new Y()`) over the COMBINED
-    // main — data-driven, no name allow-list. Force-promote each to a cell (so it
-    // reaches inside functions) and carry `name → class` so `static_instance_class`
-    // recovers the receiver class the gcell erases.
-    let gcell_classes = funcval::singleton_instance_globals(&funcs, &main);
+    // Top-level singleton-instance globals (`const X = new Y()`, and a `const X =
+    // <builtin import>(…)` whose spec ret names a registered class) over the
+    // COMBINED main — data-driven, no name allow-list. Force-promote each to a cell
+    // (so it reaches inside functions) and carry `name → class` so the receiver-class
+    // lookups recover what the gcell erases. This is the site that sees the merged
+    // `builtins` map, so it is where an imported-ctor singleton is classified.
+    let gcell_classes = funcval::singleton_instance_globals(&funcs, &main, &builtins);
     forced_globals.extend(gcell_classes.keys().cloned());
     let gcells = funcval::module_globals(&funcs, &main, &forced_globals);
 
@@ -725,7 +727,11 @@ fn build_from_program(
     // Top-level singleton-instance globals (`const X = new Y()`) — data-driven,
     // force-promoted to cells so they reach inside user functions (a plain
     // top-level `const` does not); `name → class` carried for `static_instance_class`.
-    let gcell_classes = funcval::singleton_instance_globals(&funcs, &main);
+    // No `builtins` here: this path has no import bindings (see the struct below), so
+    // only the `new` shape can be classified — `merge_programs` recomputes this over
+    // the merged main with the real map.
+    let gcell_classes =
+        funcval::singleton_instance_globals(&funcs, &main, &std::collections::HashMap::new());
     forced_globals.extend(gcell_classes.keys().cloned());
     // Static-field cells (`__rtsn_sfield_C_f` lets prepended to main): ALWAYS
     // promoted — static methods read/write them from inside functions.

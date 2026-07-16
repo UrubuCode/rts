@@ -54,6 +54,7 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     ns::node_buffer::register,
     ns::node_child_process::register,
     ns::node_crypto::register,
+    ns::node_dgram::register,
     ns::node_diagnostics_channel::register,
     ns::node_dns::register,
     ns::node_events::register,

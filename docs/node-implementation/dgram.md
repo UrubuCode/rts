@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 2 - Stable (long-standing core API since Node 0.1.x; the current doc page prints no explicit stability box — verify wording against the live doc, but treat as Stable) |
 | Tier | P1 |
-| Status | [ ] Not implemented — spec only |
+| Status | [x] **Implemented** — `crates/rts-node/src/dgram/`. Full `Socket` surface + `createSocket`, real sockets/multicast/SSM. Deferred (refused, never faked): the `lookup`/`signal`/`receiveBlockList`/`sendBlockList` options, `bind`'s `fd`, `[Symbol.asyncDispose]`. See §8. |
 | Import forms | `import dgram from "node:dgram"`; `import { createSocket, Socket } from "node:dgram"`; CJS `require("node:dgram")` / legacy bare `require("dgram")` |
 | Globals exposed | None — `node:dgram` does not add anything to `globalThis` |
 
@@ -782,3 +782,61 @@ j. **Block lists** — `receiveBlockList`/`sendBlockList`, once `net.BlockList`
   `node:cluster` (multi-process fork model), out of scope here; this spec
   plumbs the OS-level `SO_REUSEPORT`/`SO_REUSEADDR` flags but defers the
   multi-process orchestration itself to a future `node:cluster` spec.
+
+## 8. What actually landed (2026-07-16)
+
+Implemented in `crates/rts-node/src/dgram/` (`state`/`create`/`lifecycle`/`send`/
+`mcast`/`tuning`/`emitter`/`reader`/`pump`/`errors` + `mod`). Where the
+implementation chose differently from §5, this section — not §5 — is the truth.
+
+### Divergences from the plan, and why
+
+- **No `.ts` shim.** §5.2/§5.6 assumed the `Socket` class, overload
+  disambiguation and event wiring would live in a `.ts` shim over raw externs.
+  `rts-node` ships no `.ts`; its classes are object-backed Registry classes
+  (the `Stats`/`FileHandle` model). `Socket` is therefore an `Entry::Map` tagged
+  `__rts_class = "Socket"`, its methods are `InstanceMethod` members, and the
+  argument normalization Node does in JS is done natively.
+- **Overloads resolve by ARITY, not by type** (`Class::resolve_instance_method`).
+  Node overloads by type at one arity (`createSocket('udp4')` vs
+  `createSocket({type})`; `bind(port)` vs `bind(options)` vs `bind(callback)`),
+  so each arity is ONE member taking `AbiType::PolyValue` words and the impl
+  branches on the value's tag (`crate::values::Val`) — polymorphic on the value,
+  never guessed from a call shape.
+- **`socket2` covers more than §5.1 expected**: `join_ssm_v4`/`leave_ssm_v4`
+  (IPv4 SSM) and `set_multicast_hops_v6` exist, so only **IPv6 SSM** needed the
+  raw `setsockopt(MCAST_{JOIN,LEAVE}_SOURCE_GROUP)` with a hand-built
+  `group_source_req` (`mcast.rs::ssm6`; the option numbers differ per platform
+  family, and an unknown platform reports a real `ENOTSUP`).
+- **The event-loop gap (§5.7 #1) was closed generically, not for dgram.**
+  `rts_engine::loop_sources` is a data table of `extern "C" fn() -> usize` PUMPS
+  plus a keep-alive counter; `rts-std`'s event loop drains whatever registered
+  itself, naming no module. dgram registers its pump lazily (on the first
+  bind/send) so the JIT and an AOT binary behave alike. A bound, ref'd socket
+  keeps the loop alive; the loop's idle-window cap still applies (the same
+  documented deviation `fs.watch` carries — with zero traffic it returns instead
+  of blocking forever).
+- **No tokio.** DNS resolution uses `std::net::ToSocketAddrs` (the system
+  resolver — what the default `dns.lookup` is) on a dedicated thread, so the JS
+  thread never blocks. §5.3's `spawn_blocking` would have required `rts-std`.
+- **`bind`/`connect` are synchronous at the syscall level**, per §5.2 — only the
+  events/callbacks are deferred. Consequence: `bind(0); address()` works here,
+  where Node throws `EBADF` until `'listening'`. Code that honours Node's
+  contract behaves identically; RTS is merely more permissive, and this is what
+  makes the surface testable from the synchronous `rts:test` harness.
+- **`getSendQueueSize`/`Count` are real counters**, not the §5.1 approximation
+  of an always-0 read: an inline `sendto` is never queued, and a
+  hostname-addressed send IS counted while its resolution is in flight.
+- **`exclusive` is not deferred**: it selects whether cluster workers share the
+  handle, and a single-process runtime never shares one — both values already
+  behave exactly as Node does outside a cluster.
+
+### Verified
+
+`tests/node_dgram_socket.test.ts` + `tests/node_dgram_options.test.ts` cover the
+synchronous surface (bind/address/tuning/buffer sizes/connect/remoteAddress/
+disconnect/multicast/udp6/the documented throws/the emitter). Async delivery
+(`'listening'` → `'message'` with the right bytes + `rinfo` → the send callback →
+`'close'`) fires in the post-main loop, which the synchronous harness cannot
+observe, so it is `rts run`-verified as a loopback round trip — the same split
+`node:fs`'s watch family uses.
