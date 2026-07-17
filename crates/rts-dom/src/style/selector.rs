@@ -62,6 +62,11 @@ pub enum PseudoClass {
     Enabled,
     /// `:required` — `required` presente.
     Required,
+    /// `:hover` — ESTADO VIVO: casa se o elemento é o nó sob o cursor OU um
+    /// ancestral dele (spec: hover propaga pelos ancestrais). O nó hovered vem
+    /// do backend (hit-test do mouse) via `Dom::set_hovered`; headless casa
+    /// nunca (hovered = nenhum). Especificidade 10 (classe), como no browser.
+    Hover,
 }
 
 /// O combinador ENTRE dois compounds numa cadeia (`A > B`): a relação de B com A.
@@ -341,7 +346,8 @@ fn parse_pseudo_selector(s: &str) -> Option<(SimpleSelector, &str)> {
         "disabled" => PseudoClass::Disabled,
         "enabled" => PseudoClass::Enabled,
         "required" => PseudoClass::Required,
-        _ => return None, // :hover/:focus/:not()/etc não suportados
+        "hover" => PseudoClass::Hover,
+        _ => return None, // :focus/:not()/etc não suportados
     };
     Some((SimpleSelector::Pseudo(pc), rest))
 }

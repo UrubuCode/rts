@@ -972,6 +972,17 @@ pub extern "C" fn __RTS_FN_NS_DOM_POLL_EVENT_TYPE(_h: u64) -> u64 {
     intern(&t)
 }
 
+/// `setHovered(domHandle, node)` → informa o nó sob o cursor (`-1` = nenhum) — o
+/// estado do `:hover` vivo. O backend real chama por frame via hit-test; este
+/// membro cobre testes headless e backends alternativos.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_SET_HOVERED(h: u64, id: i64) {
+    with_mut(h, |dom| {
+        let idx = NodeId::from_abi(id).and_then(|n| dom.resolve(n));
+        dom.set_hovered(idx);
+    });
+}
+
 /// `pushRawEvent(domHandle, node, type)` → empurra um evento CRU na fila do
 /// backend (o mesmo caminho do hit-test do mouse) — para eventos sintéticos e
 /// testes headless do ciclo completo.
@@ -1859,6 +1870,14 @@ pub fn register(e: &mut Engine) {
             "pollEvent(dom: number): number",
             "next pending event's NodeId (-1 if none); stores type for pollEventType.",
             __RTS_FN_NS_DOM_POLL_EVENT as *const u8,
+        ))
+        .member(func(
+            "setHovered", "__RTS_FN_NS_DOM_SET_HOVERED",
+            Sig::new(vec![Handle, I64], AbiType::Void),
+            "setHovered(dom: number, node: number): void",
+            "set the node under the cursor (-1 = none) — live :hover state; the \
+             real backend feeds this per frame via hit-test.",
+            __RTS_FN_NS_DOM_SET_HOVERED as *const u8,
         ))
         .member(func(
             "pushRawEvent", "__RTS_FN_NS_DOM_PUSH_RAW_EVENT",

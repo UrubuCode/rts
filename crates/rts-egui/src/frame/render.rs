@@ -200,6 +200,16 @@ pub(crate) fn render_dom_scrolled(
         let origin = ui.max_rect().min;
         let clicked = ui.input(|i| i.pointer.primary_clicked());
         let pos = ui.input(|i| i.pointer.interact_pos());
+        // `:hover` VIVO: informa por frame o nó sob o cursor (hit-test do motor).
+        // O `set_hovered` só invalida caches quando MUDA e há regra :hover — mover
+        // o mouse numa página sem :hover custa zero re-layout.
+        {
+            let hover_pos = ui.input(|i| i.pointer.hover_pos());
+            let hovered_idx = hover_pos
+                .filter(|p| ui.max_rect().contains(*p))
+                .and_then(|p| list.hit_test(p.x - origin.x, p.y - origin.y + offset));
+            let _ = rts_dom::store::with_dom_mut(h, |d| d.set_hovered(hovered_idx));
+        }
         if clicked {
             if let Some(pos) = pos {
                 if ui.max_rect().contains(pos) {

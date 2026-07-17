@@ -179,6 +179,11 @@ pub struct Dom {
     /// callback-word) na ordem de invocação. A camada TS copia TUDO para um array
     /// local ANTES de invocar (um callback pode re-despachar e sobrescrever isto).
     last_dispatch: Vec<(NodeIdx, i64)>,
+    /// O nó SOB O CURSOR (hit-test do backend, por frame) — o estado do `:hover`
+    /// vivo. `None` = ponteiro fora do conteúdo. Cell: mutável sem `&mut` (o
+    /// matcher lê durante a cascade). Setar via [`Dom::set_hovered`] (que só
+    /// invalida caches quando MUDA e quando o stylesheet tem regra `:hover`).
+    hovered: std::cell::Cell<Option<NodeIdx>>,
     /// Eventos CRUS vindos do BACKEND (hit-test do mouse): `(nó-alvo, tipo)` SEM
     /// expansão de bubbling/listeners — o backend só empurra "clicou no nó X"; a
     /// fachada TS drena via `pumpEventCallbacks` e faz o dispatch completo
@@ -282,6 +287,7 @@ impl Dom {
             listener_cbs: HashMap::new(),
             last_dispatch: Vec::new(),
             raw_event_queue: std::collections::VecDeque::new(),
+            hovered: std::cell::Cell::new(None),
             event_queue: std::collections::VecDeque::new(),
             active_transitions: HashMap::new(),
             prev_computed: HashMap::new(),
@@ -1014,6 +1020,28 @@ impl Dom {
         // um app antigo que só usa pumpEvents continua vendo o evento.
         self.dispatch_event(target, event_type, bubbles);
         self.last_dispatch.len() as i64
+    }
+
+    /// BACKEND → DOM: informa o nó SOB O CURSOR neste frame (`None` = ponteiro
+    /// fora do conteúdo). O estado alimenta o `:hover` vivo da cascade. GUARDA DE
+    /// PERF (handoff #1793): só invalida os caches (touch → re-cascade/re-layout)
+    /// quando o hovered realmente MUDA **e** o stylesheet tem alguma regra
+    /// `:hover` — mover o mouse numa página sem :hover custa zero.
+    pub fn set_hovered(&mut self, idx: Option<NodeIdx>) {
+        if self.hovered.get() == idx {
+            return;
+        }
+        self.hovered.set(idx);
+        let has_hover_rule = self.stylesheet.rules.iter().any(|r| {
+            r.selector.compounds.iter().any(|c| {
+                c.parts
+                    .iter()
+                    .any(|p| matches!(p, crate::style::SimpleSelector::Pseudo(crate::style::PseudoClass::Hover)))
+            })
+        });
+        if has_hover_rule {
+            self.touch();
+        }
     }
 
     /// BACKEND → DOM: empurra um evento CRU (`(nó, tipo)`) vindo do hit-test do
@@ -1847,6 +1875,13 @@ impl Dom {
                         "input" | "button" | "select" | "textarea" | "option" | "fieldset"));
                 is_form && self.nodes[idx].attr("disabled").is_none()
             }
+            // `:hover` VIVO: casa se o nó É o hovered ou um ANCESTRAL dele (o hover
+            // propaga — passar o mouse no <a> deixa o <li> pai também :hover, como
+            // no browser). `hovered` vem do backend (hit-test); headless = nunca.
+            P::Hover => match self.hovered.get() {
+                Some(hovered) => self.is_ancestor(idx, hovered),
+                None => false,
+            },
         }
     }
 
@@ -2680,6 +2715,49 @@ mod tests {
         let p = dom.query("p").unwrap();
         assert_eq!(dom.text_content(p).unwrap(), "novo");
         assert!(dom.query("span").is_none()); // o velho foi descartado
+    }
+
+    #[test]
+    fn hover_vivo_na_cascade() {
+        // `:hover` casa o nó sob o cursor E seus ancestrais; set_hovered só bumpa
+        // a revisão quando muda e quando há regra :hover.
+        let mut dom = parse_html_to_dom(
+            "<style>a:hover { color: #ff0000 } li:hover { color: #00ff00 }</style>\
+             <ul><li id=item><a id=link href=x>l</a></li></ul>",
+        );
+        let link = dom.query("#link").unwrap();
+        let item = dom.query("#item").unwrap();
+        let link_idx = dom.resolve(link).unwrap();
+        // sem hover: nenhum casa.
+        let c0 = dom.computed_style(link).unwrap();
+        assert_ne!(c0.color, Some(0xFF0000FF));
+        let rev0 = dom.render_revision();
+        // hovered no <a>: a regra a:hover casa o link; li:hover casa o PAI (propaga).
+        dom.set_hovered(Some(link_idx));
+        assert!(dom.render_revision() != rev0, "hover com regra :hover deve invalidar");
+        let c1 = dom.computed_style(link).unwrap();
+        assert_eq!(c1.color, Some(0xFF0000FF));
+        let c2 = dom.computed_style(item).unwrap();
+        assert_eq!(c2.color, Some(0x00FF00FF));
+        // repetir o MESMO hovered não bumpa (guarda de perf).
+        let rev1 = dom.render_revision();
+        dom.set_hovered(Some(link_idx));
+        assert_eq!(dom.render_revision(), rev1);
+        // sair: volta ao normal.
+        dom.set_hovered(None);
+        let c3 = dom.computed_style(link).unwrap();
+        assert_ne!(c3.color, Some(0xFF0000FF));
+    }
+
+    #[test]
+    fn hover_sem_regra_nao_invalida() {
+        // página SEM :hover: mover o mouse não pode custar re-layout.
+        let mut dom = parse_html_to_dom("<div id=a>x</div>");
+        let a = dom.query("#a").unwrap();
+        let idx = dom.resolve(a).unwrap();
+        let rev0 = dom.render_revision();
+        dom.set_hovered(Some(idx));
+        assert_eq!(dom.render_revision(), rev0);
     }
 
     #[test]
