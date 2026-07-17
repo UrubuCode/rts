@@ -145,6 +145,10 @@ struct WsConn {
     /// Fragmentos de uma mensagem TEXT em andamento (opcode 0x1 sem FIN).
     frag: Vec<u8>,
     closed: bool,
+    /// `true` para uma conexão do lado SERVIDOR (aceita via `ws.accept`). O RFC
+    /// 6455 exige que o CLIENTE mascare os frames e o SERVIDOR NÃO — este flag
+    /// escolhe `build_frame` (mascarado) vs `build_frame_server` (sem máscara).
+    is_server: bool,
 }
 
 fn registry() -> &'static Mutex<std::collections::HashMap<u64, WsConn>> {
@@ -386,6 +390,7 @@ pub extern "C" fn __RTS_FN_NS_WS_CONNECT(url_ptr: *const u8, url_len: i64) -> Ha
             ready: VecDeque::new(),
             frag: Vec::new(),
             closed: false,
+            is_server: false,
         },
     );
     h as Handle
@@ -423,7 +428,12 @@ pub extern "C" fn __RTS_FN_NS_WS_SEND(handle: U64, text_ptr: *const u8, text_len
     if c.closed {
         return 0;
     }
-    let frame = build_frame(0x1, text.as_bytes());
+    // Cliente mascara; servidor não (RFC 6455).
+    let frame = if c.is_server {
+        build_frame_server(0x1, text.as_bytes())
+    } else {
+        build_frame(0x1, text.as_bytes())
+    };
     match c.transport.write_all(&frame) {
         Ok(()) => 1,
         Err(_) => {
@@ -433,26 +443,39 @@ pub extern "C" fn __RTS_FN_NS_WS_SEND(handle: U64, text_ptr: *const u8, text_len
     }
 }
 
-/// Monta um frame do cliente: FIN=1, opcode, MASK=1 + payload mascarado.
-fn build_frame(opcode: u8, payload: &[u8]) -> Vec<u8> {
-    let mut f = Vec::with_capacity(payload.len() + 14);
+/// Cabeçalho comum de um frame (FIN + opcode + o byte de tamanho, sem o bit
+/// MASK). `mask_bit` é `0x80` (cliente) ou `0` (servidor).
+fn frame_header(f: &mut Vec<u8>, opcode: u8, len: usize, mask_bit: u8) {
     f.push(0x80 | (opcode & 0x0F)); // FIN + opcode
-    let len = payload.len();
     if len < 126 {
-        f.push(0x80 | (len as u8)); // MASK + len
+        f.push(mask_bit | (len as u8));
     } else if len < 65536 {
-        f.push(0x80 | 126);
+        f.push(mask_bit | 126);
         f.extend_from_slice(&(len as u16).to_be_bytes());
     } else {
-        f.push(0x80 | 127);
+        f.push(mask_bit | 127);
         f.extend_from_slice(&(len as u64).to_be_bytes());
     }
+}
+
+/// Frame do CLIENTE: FIN=1, opcode, MASK=1 + payload mascarado.
+fn build_frame(opcode: u8, payload: &[u8]) -> Vec<u8> {
+    let mut f = Vec::with_capacity(payload.len() + 14);
+    frame_header(&mut f, opcode, payload.len(), 0x80);
     let mut mask = [0u8; 4];
     fill_random(&mut mask);
     f.extend_from_slice(&mask);
     for (i, b) in payload.iter().enumerate() {
         f.push(b ^ mask[i & 3]);
     }
+    f
+}
+
+/// Frame do SERVIDOR: FIN=1, opcode, MASK=0 + payload cru (sem máscara).
+fn build_frame_server(opcode: u8, payload: &[u8]) -> Vec<u8> {
+    let mut f = Vec::with_capacity(payload.len() + 10);
+    frame_header(&mut f, opcode, payload.len(), 0);
+    f.extend_from_slice(payload);
     f
 }
 
@@ -502,14 +525,14 @@ fn pump(c: &mut WsConn) {
                     }
                     0x8 => {
                         // CLOSE: responde close e marca fechado.
-                        let reply = build_frame(0x8, &[]);
+                        let reply = if c.is_server { build_frame_server(0x8, &[]) } else { build_frame(0x8, &[]) };
                         let _ = c.transport.write_all(&reply);
                         c.closed = true;
                         return;
                     }
                     0x9 => {
                         // PING → PONG com o mesmo payload.
-                        let pong = build_frame(0xA, &payload);
+                        let pong = if c.is_server { build_frame_server(0xA, &payload) } else { build_frame(0xA, &payload) };
                         let _ = c.transport.write_all(&pong);
                     }
                     0xA => { /* PONG: ignora */ }
@@ -607,11 +630,185 @@ pub extern "C" fn __RTS_FN_NS_WS_RECV_READY(handle: U64) -> I64 {
 pub extern "C" fn __RTS_FN_NS_WS_CLOSE(handle: U64) {
     if let Some(mut c) = registry().lock().unwrap().remove(&handle) {
         if !c.closed {
-            let frame = build_frame(0x8, &[]);
+            let frame = if c.is_server { build_frame_server(0x8, &[]) } else { build_frame(0x8, &[]) };
             let _ = c.transport.write_all(&frame);
         }
         c.transport.shutdown();
     }
+}
+
+// ── SERVIDOR WebSocket (o outro lado — pro multiplayer local) ────────────────
+//
+// `ws.serve(port)` abre um TcpListener não-bloqueante. `ws.accept(server)` aceita
+// UMA conexão pendente (faz o handshake do lado servidor — responde 101 com o
+// Sec-WebSocket-Accept = base64(SHA-1(key + GUID))) e devolve um handle de
+// CLIENTE aceito (o mesmo WsConn — send/recv/close funcionam nele). Sem accept
+// pendente devolve 0. Assim um programa RTS é servidor E cliente: dois clientes
+// conectados ao mesmo servidor local trocam mensagens (broadcast feito no TS).
+
+use std::net::TcpListener;
+
+fn ws_servers() -> &'static Mutex<std::collections::HashMap<u64, TcpListener>> {
+    static S: OnceLock<Mutex<std::collections::HashMap<u64, TcpListener>>> = OnceLock::new();
+    S.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+/// SHA-1 inline (FIPS 180-1) — só para o Sec-WebSocket-Accept do handshake
+/// servidor. 20 bytes. (Evita puxar a crate `sha1` só por isto.)
+fn sha1(data: &[u8]) -> [u8; 20] {
+    let mut h: [u32; 5] = [0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0];
+    let ml = (data.len() as u64) * 8;
+    let mut msg = data.to_vec();
+    msg.push(0x80);
+    while msg.len() % 64 != 56 {
+        msg.push(0);
+    }
+    msg.extend_from_slice(&ml.to_be_bytes());
+    for chunk in msg.chunks(64) {
+        let mut w = [0u32; 80];
+        for i in 0..16 {
+            w[i] = u32::from_be_bytes([
+                chunk[i * 4],
+                chunk[i * 4 + 1],
+                chunk[i * 4 + 2],
+                chunk[i * 4 + 3],
+            ]);
+        }
+        for i in 16..80 {
+            w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]).rotate_left(1);
+        }
+        let (mut a, mut b, mut c, mut d, mut e) = (h[0], h[1], h[2], h[3], h[4]);
+        for (i, &wi) in w.iter().enumerate() {
+            let (f, k) = match i {
+                0..=19 => ((b & c) | ((!b) & d), 0x5A827999u32),
+                20..=39 => (b ^ c ^ d, 0x6ED9EBA1),
+                40..=59 => ((b & c) | (b & d) | (c & d), 0x8F1BBCDC),
+                _ => (b ^ c ^ d, 0xCA62C1D6),
+            };
+            let tmp = a
+                .rotate_left(5)
+                .wrapping_add(f)
+                .wrapping_add(e)
+                .wrapping_add(k)
+                .wrapping_add(wi);
+            e = d;
+            d = c;
+            c = b.rotate_left(30);
+            b = a;
+            a = tmp;
+        }
+        h[0] = h[0].wrapping_add(a);
+        h[1] = h[1].wrapping_add(b);
+        h[2] = h[2].wrapping_add(c);
+        h[3] = h[3].wrapping_add(d);
+        h[4] = h[4].wrapping_add(e);
+    }
+    let mut out = [0u8; 20];
+    for i in 0..5 {
+        out[i * 4..i * 4 + 4].copy_from_slice(&h[i].to_be_bytes());
+    }
+    out
+}
+
+/// `ws.serve(port)` → handle do servidor (0 em falha). TcpListener não-bloqueante
+/// em `0.0.0.0:port`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_WS_SERVE(port: i64) -> Handle {
+    let addr = format!("0.0.0.0:{port}");
+    let listener = match TcpListener::bind(&addr) {
+        Ok(l) => l,
+        Err(_) => return 0,
+    };
+    if listener.set_nonblocking(true).is_err() {
+        return 0;
+    }
+    let h = next_handle();
+    ws_servers().lock().unwrap().insert(h, listener);
+    h as Handle
+}
+
+/// `ws.accept(server)` → handle de um CLIENTE aceito (0 se não há conexão
+/// pendente agora). Faz o handshake do lado servidor.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_WS_ACCEPT(server: U64) -> Handle {
+    let tcp = {
+        let servers = ws_servers().lock().unwrap();
+        let Some(listener) = servers.get(&server) else {
+            return 0;
+        };
+        match listener.accept() {
+            Ok((s, _)) => s,
+            Err(_) => return 0, // WouldBlock: sem conexão pendente
+        }
+    };
+    // Lê o request de handshake do cliente (headers até \r\n\r\n).
+    let _ = tcp.set_read_timeout(Some(Duration::from_secs(5)));
+    let mut tcp = tcp;
+    let mut req: Vec<u8> = Vec::new();
+    let mut buf = [0u8; 1024];
+    loop {
+        match tcp.read(&mut buf) {
+            Ok(0) => return 0,
+            Ok(n) => {
+                req.extend_from_slice(&buf[..n]);
+                if find_header_end(&req).is_some() {
+                    break;
+                }
+                if req.len() > 32 * 1024 {
+                    return 0;
+                }
+            }
+            Err(_) => return 0,
+        }
+    }
+    // Extrai a Sec-WebSocket-Key.
+    let head = String::from_utf8_lossy(&req);
+    let mut key = String::new();
+    for line in head.lines() {
+        let low = line.to_ascii_lowercase();
+        if let Some(rest) = low.strip_prefix("sec-websocket-key:") {
+            // pega o valor com o case original (a key é base64, case-sensitive).
+            let orig = &line[line.len() - rest.trim().len()..];
+            key = orig.trim().to_string();
+        }
+    }
+    if key.is_empty() {
+        return 0;
+    }
+    // Accept = base64(SHA-1(key + GUID mágico do RFC 6455)).
+    let magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+    let accept = base64_encode(&sha1(format!("{key}{magic}").as_bytes()));
+    let resp = format!(
+        "HTTP/1.1 101 Switching Protocols\r\n\
+         Upgrade: websocket\r\n\
+         Connection: Upgrade\r\n\
+         Sec-WebSocket-Accept: {accept}\r\n\
+         \r\n"
+    );
+    if tcp.write_all(resp.as_bytes()).is_err() {
+        return 0;
+    }
+    // Socket em modo poll (20ms) e registra como um WsConn cliente-aceito.
+    let _ = tcp.set_read_timeout(Some(Duration::from_millis(20)));
+    let h = next_handle();
+    registry().lock().unwrap().insert(
+        h,
+        WsConn {
+            transport: Transport::Plain(tcp),
+            rx: Vec::new(),
+            ready: VecDeque::new(),
+            frag: Vec::new(),
+            closed: false,
+            is_server: true,
+        },
+    );
+    h as Handle
+}
+
+/// `ws.closeServer(server)` — para de aceitar e libera o listener.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_WS_CLOSE_SERVER(server: U64) {
+    ws_servers().lock().unwrap().remove(&server);
 }
 
 // ── registro ─────────────────────────────────────────────────────────────────
@@ -675,6 +872,31 @@ pub fn register(e: &mut Engine) {
             "close(handle: number): void",
             "Send a CLOSE frame and free the connection.",
             __RTS_FN_NS_WS_CLOSE as *const u8,
+        ))
+        // ── lado SERVIDOR (multiplayer local) ──
+        .member(func(
+            "serve",
+            "__RTS_FN_NS_WS_SERVE",
+            Sig::new(vec![AbiType::I64], AbiType::Handle),
+            "serve(port: number): number",
+            "Open a WebSocket server on 0.0.0.0:port (non-blocking). Server handle, 0 on error.",
+            __RTS_FN_NS_WS_SERVE as *const u8,
+        ))
+        .member(func(
+            "accept",
+            "__RTS_FN_NS_WS_ACCEPT",
+            Sig::new(vec![AbiType::U64], AbiType::Handle),
+            "accept(server: number): number",
+            "Accept one pending connection (server-side handshake). Client handle, 0 if none pending.",
+            __RTS_FN_NS_WS_ACCEPT as *const u8,
+        ))
+        .member(func(
+            "closeServer",
+            "__RTS_FN_NS_WS_CLOSE_SERVER",
+            Sig::new(vec![AbiType::U64], AbiType::Void),
+            "closeServer(server: number): void",
+            "Stop accepting and free the listener.",
+            __RTS_FN_NS_WS_CLOSE_SERVER as *const u8,
         ))
         .done(); // COMMIT o módulo no Engine (sem isto o builder é descartado).
 }
