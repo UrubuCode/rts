@@ -1103,13 +1103,20 @@ fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
 fn is_inline_block(dom: &Dom, id: NodeIdx) -> bool {
     match &dom.node(id).kind {
         NodeKind::Element { tag } => {
-            // tag block conhecida OU display de bloco explícito → NÃO é inline-block.
             let css = dom.computed_style_idx(id);
             let explicit_block = css
                 .as_ref()
                 .and_then(|c| c.effective_display())
                 .map(|d| d != crate::style::DisplayKind::Inline)
                 .unwrap_or(false);
+            // `<input>`/`<button>`/`<select>`/`<textarea>` são inline-block por
+            // DEFAULT do browser (fluem lado a lado — os botões do google), a não
+            // ser que o CSS do autor force um display de bloco. É o que faz os 2
+            // `<input type=submit>` irmãos ficarem na MESMA linha.
+            if matches!(tag.as_str(), "input" | "button" | "select" | "textarea") {
+                return !explicit_block;
+            }
+            // tag block conhecida OU display de bloco explícito → NÃO é inline-block.
             if crate::block::lookup(tag).is_some() || explicit_block {
                 return false;
             }
@@ -1490,8 +1497,26 @@ fn layout_children_vertical(
     // fluem JUNTOS numa sequência de linhas — acumulados aqui e descarregados por
     // `flush_inline!` quando um bloco/float/fim interrompe o fluxo.
     let mut inline_group: Vec<NodeIdx> = Vec::new();
+    // Corrida de INLINE-BLOCKS consecutivos (botões/pills lado a lado). Pintada
+    // por `flush_ib` — mede cada um (shrink), põe lado a lado quebrando linha ao
+    // encher, e alinha a linha pelo text-align do pai (center do google).
+    let mut ib_run: Vec<NodeIdx> = Vec::new();
+    macro_rules! flush_ib {
+        ($y:expr) => {
+            if !ib_run.is_empty() {
+                $y = layout_inline_block_line(
+                    dom, &ib_run, content_x, $y, content_w, avail_h, css, ctx, list,
+                );
+                ib_run.clear();
+                prev_margin = 0.0;
+            }
+        };
+    }
     macro_rules! flush_inline {
         ($y:expr) => {
+            if !ib_run.is_empty() {
+                flush_ib!($y);
+            }
             if !inline_group.is_empty() {
                 close_floats!($y);
                 $y = layout_inline_flow(
@@ -1530,7 +1555,7 @@ fn layout_children_vertical(
                 float_h = float_h.max(h);
                 prev_margin = 0.0; // float quebra a sequência de collapse
             }
-            NodeKind::Element { .. } if is_block_level(dom, child) => {
+            NodeKind::Element { .. } if is_block_level(dom, child) && !is_inline_block(dom, child) => {
                 flush_inline!(child_y);
                 close_floats!(child_y);
                 // margin VERTICAL TOP do filho (para o collapse com o anterior):
@@ -1556,30 +1581,34 @@ fn layout_children_vertical(
                     .unwrap_or(0.0);
                 // Colapsa com o bloco anterior: recua o overlap antes de posicionar.
                 child_y -= prev_margin.min(m);
-                // INLINE-BLOCK (pill/botão solto): dimensiona pelo conteúdo (shrink) e
-                // posiciona conforme o text-align do PAI (center/right desloca o x).
-                let inline_block = is_inline_block(dom, child);
-                let child_x = if inline_block {
-                    // mede a largura desejada (shrink) numa lista descartável p/ achar
-                    // o offset do text-align ANTES de pintar de verdade.
-                    let mut scratch = DisplayList::default();
-                    let (w, _) = layout_block(dom, child, content_x, child_y, content_w, avail_h, None, None, true, ctx, &mut scratch);
-                    let free = (content_w - w).max(0.0);
-                    match css.text_align {
-                        Some(crate::style::TextAlign::Center) => content_x + free / 2.0,
-                        Some(crate::style::TextAlign::Right) => content_x + free,
-                        _ => content_x,
-                    }
-                } else {
-                    content_x
-                };
-                let (_, h) = layout_block(dom, child, child_x, child_y, content_w, avail_h, None, None, inline_block, ctx, list);
+                let (_, h) = layout_block(dom, child, content_x, child_y, content_w, avail_h, None, None, false, ctx, list);
                 child_y += h;
                 prev_margin = m;
             }
+            // INLINE-BLOCK (pill/botão solto): NÃO pinta agora — acumula na
+            // "linha de inline-blocks" corrente (irmãos consecutivos fluem LADO A
+            // LADO, quebrando quando enche). Os botões 'Pesquisa Google'/'Estou
+            // com sorte' do google são 2 inline-block irmãos que compartilham a
+            // linha. Um texto/inline entre eles fecha a corrida (flush_inline).
+            NodeKind::Element { .. } if is_inline_block(dom, child) => {
+                // descarrega só o TEXTO inline pendente (não o ib_run — este b
+                // continua a acumular os inline-blocks IRMÃOS na mesma corrida).
+                if !inline_group.is_empty() {
+                    close_floats!(child_y);
+                    child_y = layout_inline_flow(
+                        dom, &inline_group, content_x, child_y, content_w, css, font_size, ctx, list,
+                    );
+                    inline_group.clear();
+                }
+                ib_run.push(child);
+                prev_margin = 0.0;
+            }
             // Texto / elemento inline: entra no CONTEXTO INLINE corrente — flui
             // com os irmãos inline adjacentes (o flush pinta o grupo inteiro).
-            _ => inline_group.push(child),
+            _ => {
+                flush_ib!(child_y); // fecha a corrida de inline-blocks
+                inline_group.push(child);
+            }
         }
     }
     // descarrega o fluxo inline pendente e fecha a float line: os floats
@@ -1588,6 +1617,69 @@ fn layout_children_vertical(
     flush_inline!(child_y);
     close_floats!(child_y);
     (child_y - content_y).max(0.0)
+}
+
+/// Pinta uma CORRIDA de inline-blocks consecutivos (botões/pills irmãos) numa
+/// sequência de linhas horizontais: mede cada um (shrink, numa lista descartável),
+/// põe lado a lado enquanto cabe na `content_w`, quebra linha quando enche, e
+/// alinha CADA linha pelo `text-align` do pai (center do google centra os botões).
+/// Devolve o novo `y` (abaixo da última linha). Vazio → devolve `y`.
+#[allow(clippy::too_many_arguments)]
+fn layout_inline_block_line(
+    dom: &Dom,
+    run: &[NodeIdx],
+    content_x: f32,
+    y: f32,
+    content_w: f32,
+    avail_h: Option<f32>,
+    parent_css: &ComputedStyle,
+    ctx: &LayoutCtx,
+    list: &mut DisplayList,
+) -> f32 {
+    // 1) mede a largura+altura desejada (shrink) de cada item numa lista descartável.
+    let mut sizes: Vec<(NodeIdx, f32, f32)> = Vec::with_capacity(run.len());
+    for &child in run {
+        let mut scratch = DisplayList::default();
+        let (w, h) = layout_block(
+            dom, child, content_x, y, content_w, avail_h, None, None, true, ctx, &mut scratch,
+        );
+        sizes.push((child, w, h));
+    }
+    // 2) agrupa em LINHAS (soma das larguras ≤ content_w). Cada linha guarda os
+    //    itens + a largura total (p/ o alinhamento).
+    let mut lines: Vec<(Vec<(NodeIdx, f32, f32)>, f32)> = Vec::new();
+    let mut cur: Vec<(NodeIdx, f32, f32)> = Vec::new();
+    let mut cur_w = 0.0f32;
+    for (child, w, h) in sizes {
+        if !cur.is_empty() && cur_w + w > content_w {
+            lines.push((std::mem::take(&mut cur), cur_w));
+            cur_w = 0.0;
+        }
+        cur_w += w;
+        cur.push((child, w, h));
+    }
+    if !cur.is_empty() {
+        lines.push((cur, cur_w));
+    }
+    // 3) pinta cada linha: x inicial pelo text-align do pai, itens lado a lado;
+    //    y avança pela ALTURA da linha (o item mais alto).
+    let mut cy = y;
+    for (items, line_w) in &lines {
+        let free = (content_w - line_w).max(0.0);
+        let mut x = match parent_css.text_align {
+            Some(crate::style::TextAlign::Center) => content_x + free / 2.0,
+            Some(crate::style::TextAlign::Right) => content_x + free,
+            _ => content_x,
+        };
+        let mut line_h = 0.0f32;
+        for &(child, w, h) in items {
+            layout_block(dom, child, x, cy, content_w, avail_h, None, None, true, ctx, list);
+            x += w;
+            line_h = line_h.max(h);
+        }
+        cy += line_h;
+    }
+    cy
 }
 
 /// O `float` computado de um nó-elemento (None p/ não-elemento/sem estilo).
