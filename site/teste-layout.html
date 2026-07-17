@@ -1,0 +1,60 @@
+<style>
+  body { margin: 0; font-family: Arial; }
+  .caso { border: 2px solid #333; margin: 12px; padding: 8px; }
+  .titulo { background: #333; color: #fff; padding: 6px 10px; font-weight: bold; font-size: 14px; margin: -8px -8px 8px -8px; }
+  .box { background: #4a90d9; color: #fff; padding: 8px; text-align: center; }
+
+  /* 1. GRID 3 colunas fr */
+  .g1 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+
+  /* 2. GRID misto px + fr */
+  .g2 { display: grid; grid-template-columns: 120px 1fr 2fr; gap: 10px; }
+
+  /* 3. GRID com align-items:center (altura fixa) */
+  .g3 { display: grid; grid-template-columns: 1fr 1fr; align-items: center; height: 100px; background: #eee; }
+  .g3 .box { height: auto; }
+  .g3 .alto { height: 70px; }
+
+  /* 4. FLEX row com justify-content */
+  .f1 { display: flex; justify-content: space-between; gap: 8px; }
+  .f1 .box { flex: 0 0 auto; }
+
+  /* 5. FLEX column com flex-grow */
+  .f2 { display: flex; flex-direction: column; height: 150px; background: #eee; }
+  .f2 .cresce { flex-grow: 1; background: #6a4; }
+
+  /* 6. position absolute dentro de relative */
+  .rel { position: relative; height: 80px; background: #fde; }
+  .abs { position: absolute; top: 10px; right: 10px; background: #d46; color: #fff; padding: 6px; }
+
+  /* 7. inline-block lado a lado */
+  .ib span { display: inline-block; background: #4a4; color: #fff; padding: 6px 12px; margin: 2px; }
+</style>
+
+<div class="caso"><div class="titulo">1. Grid 3 colunas (1fr 1fr 1fr)</div>
+  <div class="g1"><div class="box">A</div><div class="box">B</div><div class="box">C</div></div>
+</div>
+
+<div class="caso"><div class="titulo">2. Grid misto (120px 1fr 2fr)</div>
+  <div class="g2"><div class="box">120px</div><div class="box">1fr</div><div class="box">2fr</div></div>
+</div>
+
+<div class="caso"><div class="titulo">3. Grid align-items:center (altura 100px)</div>
+  <div class="g3"><div class="box alto">alto 70px</div><div class="box">baixo</div></div>
+</div>
+
+<div class="caso"><div class="titulo">4. Flex justify-content:space-between</div>
+  <div class="f1"><div class="box">esq</div><div class="box">meio</div><div class="box">dir</div></div>
+</div>
+
+<div class="caso"><div class="titulo">5. Flex column + flex-grow (altura 150px)</div>
+  <div class="f2"><div class="box">topo fixo</div><div class="cresce box">cresce pro resto</div></div>
+</div>
+
+<div class="caso"><div class="titulo">6. position:absolute (top/right no relative)</div>
+  <div class="rel"><span>caixa relative</span><div class="abs">abs canto</div></div>
+</div>
+
+<div class="caso"><div class="titulo">7. inline-block lado a lado</div>
+  <div class="ib"><span>um</span><span>dois</span><span>tres</span><span>quatro</span></div>
+</div>
