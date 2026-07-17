@@ -66,3 +66,7 @@ examples/music_test.wav
 *.pdb
 /tmp_*/
 /bench-output/
+
+# AOT compile artifacts
+*.obj
+*.m
