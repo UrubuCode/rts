@@ -103,12 +103,12 @@ fn do_fetch(url: &str, opts_h: u64) -> u64 {
         Ok(resp) => {
             let status = resp.status();
             let url = resp.get_url().to_owned();
-            let body = resp.into_string().unwrap_or_default().into_bytes();
+            let body = read_text_body(resp);
             (status, url, body)
         }
         Err(ureq::Error::Status(status, resp)) => {
             let url = resp.get_url().to_owned();
-            let body = resp.into_string().unwrap_or_default().into_bytes();
+            let body = read_text_body(resp);
             (status, url, body)
         }
         Err(e) => {
@@ -124,6 +124,46 @@ fn do_fetch(url: &str, opts_h: u64) -> u64 {
         url: final_url,
         body,
     })))
+}
+
+/// Lê o corpo TEXTUAL honrando o charset do `Content-Type`. `into_string()`
+/// assumia UTF-8 sempre — o google (e muitos sites legados) servem
+/// `charset=ISO-8859-1`/`windows-1252` para agentes não-browser, e os bytes
+/// Latin-1 viravam U+FFFD ("avan�ada"). Latin-1 → UTF-8 é byte→char direto;
+/// charset desconhecido cai no UTF-8 tolerante (lossy).
+fn read_text_body(resp: ureq::Response) -> Vec<u8> {
+    let latin1 = resp
+        .header("Content-Type")
+        .map(|ct| {
+            let low = ct.to_ascii_lowercase();
+            low.contains("iso-8859-1") || low.contains("windows-1252") || low.contains("latin-1")
+        })
+        .unwrap_or(false);
+    let mut raw = Vec::new();
+    let _ = std::io::Read::read_to_end(&mut resp.into_reader(), &mut raw);
+    if latin1 {
+        // windows-1252 difere do latin1 só no range 0x80..0x9F (pontuação
+        // tipográfica); mapeia esses e o resto byte→char.
+        return raw.iter().map(|&b| cp1252_char(b)).collect::<String>().into_bytes();
+    }
+    match String::from_utf8(raw) {
+        Ok(s) => s.into_bytes(),
+        Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned().into_bytes(),
+    }
+}
+
+/// byte windows-1252 → char Unicode (o superset de fato do ISO-8859-1 na web).
+fn cp1252_char(b: u8) -> char {
+    match b {
+        0x80 => '\u{20AC}', 0x82 => '\u{201A}', 0x83 => '\u{0192}', 0x84 => '\u{201E}',
+        0x85 => '\u{2026}', 0x86 => '\u{2020}', 0x87 => '\u{2021}', 0x88 => '\u{02C6}',
+        0x89 => '\u{2030}', 0x8A => '\u{0160}', 0x8B => '\u{2039}', 0x8C => '\u{0152}',
+        0x8E => '\u{017D}', 0x91 => '\u{2018}', 0x92 => '\u{2019}', 0x93 => '\u{201C}',
+        0x94 => '\u{201D}', 0x95 => '\u{2022}', 0x96 => '\u{2013}', 0x97 => '\u{2014}',
+        0x98 => '\u{02DC}', 0x99 => '\u{2122}', 0x9A => '\u{0161}', 0x9B => '\u{203A}',
+        0x9C => '\u{0153}', 0x9E => '\u{017E}', 0x9F => '\u{0178}',
+        other => other as char,
+    }
 }
 
 // ── fetch() ──────────────────────────────────────────────────────────────────
