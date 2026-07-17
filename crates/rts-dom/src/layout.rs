@@ -778,6 +778,18 @@ fn layout_block(
             })
         });
 
+    // Altura que serve de CONTAINING BLOCK aos filhos (`height:%`): o height
+    // explícito, senão um `max-height` conhecido (o Google dá ao container do
+    // logo `height:calc(100% - 560px); max-height:290px` — o max é a altura
+    // efetiva; sem isso o filho `height:100%` resolvia contra o conteúdo e
+    // inflava). Calculado ANTES de layoutar os filhos (a resolução do `%` do
+    // filho é top-down; a spec exige o CB conhecido).
+    let mnh_pre = resolve_height(css.min_height, avail_h, &resolve)
+        .map(|v| if border_box { (v - frame_v).max(0.0) } else { v });
+    let mxh_pre = resolve_height(css.max_height, avail_h, &resolve)
+        .map(|v| if border_box { (v - frame_v).max(0.0) } else { v });
+    let avail_children = explicit_content_h.or(mxh_pre);
+
     // `flex-direction: column` — o eixo PRINCIPAL do flex vira o vertical: os itens
     // empilham (sem margin-collapse, que flex não tem), gap/justify/margin-auto
     // atuam no Y e align-items no X (stretch = ocupar a largura, o default).
@@ -786,11 +798,11 @@ fn layout_block(
     let content_h = match display {
         // flex column (com ou sem wrap — multi-coluna do wrap é corte documentado).
         _ if is_flex && is_column => {
-            layout_children_column(dom, id, content_x, content_y, children_w, explicit_content_h, &css, font_size, ctx, list)
+            layout_children_column(dom, id, content_x, content_y, children_w, avail_children, &css, font_size, ctx, list)
         }
         // horizontal (flex-row sem wrap): lado a lado, encolhe pra caber, não quebra.
         d if d == crate::block::DISPLAY_HORIZONTAL => {
-            layout_children_horizontal(dom, id, content_x, content_y, children_w, explicit_content_h, &css, font_size, false, None, ctx, list)
+            layout_children_horizontal(dom, id, content_x, content_y, children_w, avail_children, &css, font_size, false, None, ctx, list)
         }
         // wrap (inline-block flow): lado a lado E QUEBRA linha quando enche. GRID
         // (`display:grid`) também vem aqui, com o Nº de colunas → cada item ganha
@@ -801,10 +813,10 @@ fn layout_block(
             } else {
                 None
             };
-            layout_children_horizontal(dom, id, content_x, content_y, children_w, explicit_content_h, &css, font_size, true, grid_cols, ctx, list)
+            layout_children_horizontal(dom, id, content_x, content_y, children_w, avail_children, &css, font_size, true, grid_cols, ctx, list)
         }
         // vertical (block): empilha.
-        _ => layout_children_vertical(dom, id, content_x, content_y, children_w, explicit_content_h, &css, font_size, ctx, list),
+        _ => layout_children_vertical(dom, id, content_x, content_y, children_w, avail_children, &css, font_size, ctx, list),
     };
     // a altura REAL do conteúdo (antes de `height` explícito a cortar) — p/ o scroll-Y.
     let content_h_natural = content_h;
@@ -814,13 +826,7 @@ fn layout_block(
     let content_h = explicit_content_h.unwrap_or(content_h);
     // CLAMP min/max-height (#1751): used = clamp(min, height, max) — eixo vertical
     // (`%` contra a ALTURA do containing block, como o height).
-    let mnh = resolve_height(css.min_height, avail_h, &resolve).map(|v| {
-        if border_box { (v - frame_v).max(0.0) } else { v }
-    });
-    let mxh = resolve_height(css.max_height, avail_h, &resolve).map(|v| {
-        if border_box { (v - frame_v).max(0.0) } else { v }
-    });
-    let content_h = crate::style::clamp_size(content_h, mnh, mxh);
+    let content_h = crate::style::clamp_size(content_h, mnh_pre, mxh_pre);
     // STRETCH do flex: altura OUTER imposta pelo container (align-items/self:
     // stretch) → content = outer - margens - frame_v; nunca ENCOLHE o conteúdo
     // (max com o natural — um item mais alto que a linha não é cortado).
@@ -1501,6 +1507,19 @@ fn resolve_height(
 ) -> Option<f32> {
     match d? {
         crate::style::Dimension::Percent(p) => avail_h.map(|h| (h * p / 100.0).max(0.0)),
+        // `calc(...)` num contexto de ALTURA: o componente `%` resolve contra a
+        // ALTURA do containing block (avail_h), NÃO a largura — o `resolve`
+        // genérico usa parent_content_w e daria `calc(100% - 560px)` = 1000-560
+        // (largura) em vez de 800-560 (altura). Reconstrói a soma no eixo certo.
+        crate::style::Dimension::Calc(c) => {
+            let h = avail_h?;
+            let v = c.px + h * c.pct / 100.0
+                + ctx.node_font_size * c.em
+                + ctx.root_font_size * c.rem
+                + ctx.viewport_w * c.vw / 100.0
+                + ctx.viewport_h * c.vh / 100.0;
+            Some(v.max(0.0))
+        }
         other => other.resolve(ctx),
     }
 }
@@ -3070,6 +3089,23 @@ mod tests {
         // "y" à direita → x ≈ 400-8 = 392.
         let rx = texts.iter().find(|(t, _)| t == "y").unwrap().1;
         assert!((rx - 392.0).abs() < 2.0, "right: {rx}");
+    }
+
+    #[test]
+    fn calc_de_altura_resolve_contra_a_altura() {
+        // `calc(100% - 560px)` num `height` resolve o `%` contra a ALTURA do
+        // containing block (800), não a largura (1000): 800-560=240, não 440.
+        let dom = parse_html_to_dom(
+            "<div style='height:800px'>\
+             <div id=c style='height:calc(100% - 560px);background:#eee'>x</div>\
+             </div>",
+        );
+        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let c = dom.query("#c").unwrap();
+        let idx = dom.resolve(c).unwrap();
+        assert!((list.node_rects[&idx].h - 240.0).abs() < 2.0,
+            "calc height: {} (esperado 240 = 800-560)", list.node_rects[&idx].h);
     }
 
     #[test]
