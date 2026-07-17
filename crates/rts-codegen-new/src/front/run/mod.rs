@@ -215,6 +215,9 @@ fn build_program_with_ambient(
     ambient: &class::ClassTable,
     ambient_fns: &std::collections::HashSet<String>,
 ) -> FrontResult<LoweredProgram> {
+    // The USER build always uses the un-prefixed `__fnprop_N` namespace (empty),
+    // distinct from the prelude's — clear any prefix a prior prelude parse set.
+    rts_parser::set_fnprop_ns("");
     let program =
         rts_parser::parse_source(src).map_err(|e| Unsupported::new(format!("parse error: {e}")))?;
     build_from_program(program, src, ambient, ambient_fns, "")
@@ -408,8 +411,13 @@ pub(crate) struct LoweredProgram {
 /// statements are lowered against that same scope and wrapped as the body of a
 /// synthetic void function named `__rtsn_main`.
 fn build_program(src: &str, arrow_ns: &str) -> FrontResult<LoweredProgram> {
+    // Namespace hoisted `__fnprop_N` names by the same key as extracted arrows, so
+    // the SEPARATELY-parsed prelude and user builds never collide on `__fnprop_0`
+    // (see `set_fnprop_ns` / `PRELUDE_ARROW_NS`). Cleared right after the parse.
+    rts_parser::set_fnprop_ns(arrow_ns);
     let program =
         rts_parser::parse_source(src).map_err(|e| Unsupported::new(format!("parse error: {e}")))?;
+    rts_parser::set_fnprop_ns("");
     build_from_program(
         program,
         src,

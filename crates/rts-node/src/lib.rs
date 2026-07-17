@@ -35,6 +35,7 @@ pub mod perf_hooks;
 pub mod process;
 pub mod punycode;
 pub mod querystring;
+pub mod stream;
 pub mod string_decoder;
 pub mod timers;
 pub mod tls;

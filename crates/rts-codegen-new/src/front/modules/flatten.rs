@@ -121,15 +121,43 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
                     // resolves to the ambient class). Any OTHER imported name from the
                     // same module is a native namespace member (`url.fileURLToPath`),
                     // resolved through the Registry below.
-                    if let Some(globals) = node_reexported_globals(specifier) {
+                    if let Some(reexports) = node_reexported_globals(specifier) {
                         let ns = builtin_ns(specifier);
                         for (orig, local) in &edge.names {
-                            let binding = if globals.contains(&orig.as_str()) {
-                                Binding::Local { name: orig.clone() }
-                            } else {
-                                Binding::Builtin { ns: ns.clone(), member: orig.clone() }
+                            // A re-exported name binds to its AMBIENT prelude
+                            // declaration (possibly renamed — a submodule's
+                            // `pipeline` maps to a distinct decl than the base
+                            // module's). Any name NOT re-exported is a native
+                            // namespace member resolved via the Registry.
+                            let binding = match reexports
+                                .iter()
+                                .find(|(o, _)| *o == orig.as_str())
+                            {
+                                Some((_, decl)) => Binding::Local { name: decl.to_string() },
+                                None => Binding::Builtin { ns: ns.clone(), member: orig.clone() },
                             };
                             bindings.insert(local.clone(), binding);
+                        }
+                        // `import stream from "node:stream"` — the default export
+                        // is the module namespace object; synthesize it as an
+                        // object of the ambient re-exported decls so `stream.X`
+                        // resolves. Only for modules whose whole surface is
+                        // re-exported (every entry is a prelude decl).
+                        if let Some(default_local) = &edge.default_name {
+                            let fields: Vec<String> = reexports
+                                .iter()
+                                .map(|(o, decl)| format!("{o}: {decl}"))
+                                .collect();
+                            let synth = format!(
+                                "const {default_local} = {{ {} }};",
+                                fields.join(", ")
+                            );
+                            let parsed = rts_parser::parse_source(&synth).map_err(|e| {
+                                ModuleError::Parse(format!(
+                                    "node default re-export `{default_local}` synth: {e}"
+                                ))
+                            })?;
+                            program.items.extend(parsed.items);
                         }
                         continue;
                     }
@@ -221,9 +249,52 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
 /// re-implemented): `import { URL } from "node:url"` binds to the ambient `URL`
 /// class. Data-driven; only names that are real registered engine globals belong
 /// here. A name NOT listed is treated as a native namespace member.
-fn node_reexported_globals(specifier: &str) -> Option<&'static [&'static str]> {
+fn node_reexported_globals(specifier: &str) -> Option<&'static [(&'static str, &'static str)]> {
     match specifier {
-        "node:url" => Some(&["URL", "URLSearchParams"]),
+        "node:url" => Some(&[("URL", "URL"), ("URLSearchParams", "URLSearchParams")]),
+        // `node:stream` — every class/fn is an ambient `.ts` prelude decl of the
+        // SAME name (see rts-node `stream.ts`/…). Data-driven: (import, decl).
+        "node:stream" => Some(&[
+            ("Stream", "Stream"),
+            ("Readable", "Readable"),
+            ("Writable", "Writable"),
+            ("Duplex", "Duplex"),
+            ("Transform", "Transform"),
+            ("PassThrough", "PassThrough"),
+            ("pipeline", "pipeline"),
+            ("finished", "finished"),
+            ("compose", "compose"),
+            ("duplexPair", "duplexPair"),
+            ("isErrored", "isErrored"),
+            ("isReadable", "isReadable"),
+            ("isWritable", "isWritable"),
+            ("addAbortSignal", "addAbortSignal"),
+            ("getDefaultHighWaterMark", "getDefaultHighWaterMark"),
+            ("setDefaultHighWaterMark", "setDefaultHighWaterMark"),
+        ]),
+        // Submodule decls are prefixed to avoid clashing with the base module's
+        // `pipeline`/`finished` (callback vs promise form).
+        "node:stream/promises" => Some(&[
+            ("pipeline", "__streamPromisesPipeline"),
+            ("finished", "__streamPromisesFinished"),
+        ]),
+        "node:stream/consumers" => Some(&[
+            ("text", "__streamConsumersText"),
+            ("json", "__streamConsumersJson"),
+            ("buffer", "__streamConsumersBuffer"),
+            ("arrayBuffer", "__streamConsumersArrayBuffer"),
+            ("bytes", "__streamConsumersBytes"),
+            ("blob", "__streamConsumersBlob"),
+        ]),
+        // WHATWG streams: re-export the ambient web-stream globals (rts-shared
+        // `streams.ts`). Only the classes that ambient prelude actually provides.
+        "node:stream/web" => Some(&[
+            ("ReadableStream", "ReadableStream"),
+            ("WritableStream", "WritableStream"),
+            ("TransformStream", "TransformStream"),
+            ("TextEncoderStream", "TextEncoderStream"),
+            ("TextDecoderStream", "TextDecoderStream"),
+        ]),
         _ => None,
     }
 }

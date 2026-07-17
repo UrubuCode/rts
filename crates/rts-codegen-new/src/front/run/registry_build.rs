@@ -73,6 +73,7 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     ns::node_process::register,
     ns::node_punycode::register,
     ns::node_querystring::register,
+    ns::node_stream::register,
     ns::node_string_decoder::register,
     ns::node_timers::register,
     ns::node_tls::register,
@@ -384,6 +385,15 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
     // Web Streams — after web-api (Blob.stream() builds a ReadableStream; the
     // UTF-8 helpers live in webapi.ts; the merged prelude is one program).
     PreludeTs { label: "streams", source: rts_runtime::stdlib::STREAMS_TS, why: "ReadableStream/WritableStream/TransformStream/TextEncoder/DecoderStream" },
+    // node:stream — Node's Readable/Writable/Duplex/Transform/PassThrough + the
+    // orchestration fns + consumers + promises. Ambient `.ts` (like Map/Set); split
+    // into cohesive files included IN ORDER (base classes before dependents). After
+    // web `streams`/`events` (uses queueMicrotask/Buffer/__utf8_decode from earlier).
+    PreludeTs { label: "node:stream base", source: ns::node_stream::STREAM_TS, why: "NodeEmitter/Stream + hwm/err helpers" },
+    PreludeTs { label: "node:stream read", source: ns::node_stream::STREAM_READABLE_TS, why: "Readable + shared read code + Readable.from" },
+    PreludeTs { label: "node:stream write", source: ns::node_stream::STREAM_WRITABLE_TS, why: "Writable + shared write code" },
+    PreludeTs { label: "node:stream duplex", source: ns::node_stream::STREAM_DUPLEX_TS, why: "Duplex/Transform/PassThrough" },
+    PreludeTs { label: "node:stream ops", source: ns::node_stream::STREAM_OPS_TS, why: "pipeline/finished/compose/… + consumers + promises" },
     // DOM facade — `Document`/`Element` classes (browser-named API) over the `rts:dom`
     // primitives. AFTER the namespaces register (the `dom.*` it calls must exist).
     PreludeTs { label: "DOM facade", source: ns::dom::DOM_TS, why: "document/Element over rts:dom" },

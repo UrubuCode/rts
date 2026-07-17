@@ -315,19 +315,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             );
         };
         let total = call.arg_abis.len();
-        // Lower the provided args. A `StrPtr` param fed a non-proven-string BAILS
-        // (the generic marshal would ToString-coerce instead — a behavior change
-        // we refuse; preserves the old `Date.parse(non-string)` bail).
+        // Lower the provided args. A `StrPtr` param fed a non-proven-string is
+        // ToString-coerced by the generic marshal (`marshal_reg_arg`'s StrPtr arm
+        // routes the value word through `__rtsadp_to_string` — the ONE coercion
+        // authority, Pilar 3), exactly like the instance-method path already does.
+        // This is JS-correct: `Date.parse(123)` ≡ `Date.parse("123")` (→ NaN),
+        // `Buffer.from(x)` ToStrings a non-string `x`. (Was previously a bail.)
         let mut vals: Vec<Val> = Vec::with_capacity(total);
-        for (i, a) in args.iter().enumerate() {
-            let v = self.lower_expr(module, a)?;
-            if matches!(call.arg_abis[i], AbiType::StrPtr) && !matches!(v.kind, JsKind::Str) {
-                return unsupported!(
-                    "`{name}.{method}(..)` — argument {i} is not a proven string \
-                     (ToString coercion is a later increment)"
-                );
-            }
-            vals.push(v);
+        for a in args.iter() {
+            vals.push(self.lower_expr(module, a)?);
         }
         // Pad the omitted trailing args with the spec-declared defaults. A tail
         // slot is always a default here (argc ≥ required), so a `Required` /

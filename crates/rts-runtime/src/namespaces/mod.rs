@@ -78,6 +78,7 @@ pub use rts_node::perf_hooks as node_perf_hooks;
 pub use rts_node::process as node_process;
 pub use rts_node::punycode as node_punycode;
 pub use rts_node::querystring as node_querystring;
+pub use rts_node::stream as node_stream;
 pub use rts_node::string_decoder as node_string_decoder;
 pub use rts_node::timers as node_timers;
 pub use rts_node::tls as node_tls;

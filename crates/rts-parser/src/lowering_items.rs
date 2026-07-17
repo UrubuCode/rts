@@ -60,11 +60,27 @@ struct MemberAssignFnHoister {
     counter: usize,
 }
 
+thread_local! {
+    /// Namespace prefix for hoisted `__fnprop_N` names, so a PRELUDE build and a
+    /// USER build (parsed SEPARATELY, each counter starting at 0) do not collide
+    /// on `__fnprop_0` when merged — the exact problem `PRELUDE_ARROW_NS` already
+    /// solves for extracted arrows. Empty for the normal (user) parse; the codegen
+    /// sets it around the prelude parse via [`set_fnprop_ns`].
+    static FNPROP_NS: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+}
+
+/// Set the `__fnprop_N` namespace prefix for subsequent parses on this thread
+/// (see [`FNPROP_NS`]). Pass `""` to clear it. The codegen wraps the prelude
+/// parse: `set_fnprop_ns("p")` … parse … `set_fnprop_ns("")`.
+pub fn set_fnprop_ns(ns: &str) {
+    FNPROP_NS.with(|n| *n.borrow_mut() = ns.to_string());
+}
+
 impl MemberAssignFnHoister {
-    /// Build a fresh `__fnprop_N` ident and hoist `function`/`is_generator=false`
+    /// Build a fresh `__fnprop_<ns>N` ident and hoist `function`/`is_generator=false`
     /// expr into a named top-level decl; returns the ident to replace the site.
     fn hoist(&mut self, function: SwcFunction) -> swc_ecma_ast::Ident {
-        let name = format!("__fnprop_{}", self.counter);
+        let name = FNPROP_NS.with(|n| format!("__fnprop_{}{}", n.borrow(), self.counter));
         self.counter += 1;
         let ident = swc_ecma_ast::Ident {
             span: Default::default(),
