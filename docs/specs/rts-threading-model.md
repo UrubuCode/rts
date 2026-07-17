@@ -1,6 +1,7 @@
 # RTS Threading Model — engine-level multithreading + regional heap (v0, proposal)
 
-> **Status: PROPOSAL** (2026-07-05). Companion to `rts-std-surface.md`
+> **Status: PROPOSAL** (2026-07-05), **T0+T1 LANDED** (2026-07-16 — see Phases).
+> Companion to `rts-std-surface.md`
 > (§rts:thread) and to the canonical engine design
 > `rts-codegen-new-design.md`. No prior engine-threading doc existed — the
 > only documentation was the mechanism table in
@@ -69,7 +70,7 @@ this requires.
 
 | # | Blocker | Today | Fix |
 |---|---|---|---|
-| 1 | **Thread-local GCELLS** | module globals are per-thread (the setInterval hack; memory `project_test_100_grind`) | promote gcells to shared cells with synchronized writes; this is what turns "write to a global" into a promotion point instead of a bug |
+| 1 | ~~**Thread-local GCELLS**~~ **DONE (T1, 2026-07-16)** | ~~module globals are per-thread~~ → module globals are now ONE shared store per program (`rts-std/src/collector/gcells.rs`); a worker's write to a module global is visible to every thread | done: `share()`/`attach()` replaced the value snapshot; lock-free chunked `AtomicU64` store (reads are cheaper than the thread_local it replaced). Program isolation kept: the store is per-program, not process-global |
 | 2 | **Data ICs (`PropIcCell`)** | mutable cell without atomicity | mono→poly→mega states in an `AtomicU64` (shape+slot packed in one word) or per-thread ICs |
 | 3 | **String pool / interning** | global pool with a lock | per-region interning + merge on promotion; immutable strings make this easy |
 | 4 | **Shape registry** | global `Mutex` (fine for rare reads) | `RwLock`/lock-free snapshot reads; ids are append-only |
@@ -115,9 +116,22 @@ the non-exotic path.
 
 ## Phases
 
-- **T0** (now): doc approved; issues for blockers 1–5.
+- **T0**: doc approved; issues for blockers 1–5. **DONE.**
 - **T1**: shared gcells (#1) — also fixes the current setInterval/thread
-  bug class.
+  bug class. **DONE (2026-07-16)** — `rts-std/src/collector/gcells.rs`. A
+  module-level binding is now ONE binding across a program's threads:
+  `let n = 0` + `thread.spawn(() => n++)` accumulates (measured: two workers
+  ×2 increments → `4`; before T1 it read `0`, each worker mutating a private
+  copy). What it does NOT yet make sound is invoking a JS listener from a
+  non-JS thread — the pending-error slot is still thread-local
+  (`rts-adapters/src/value/errslot.rs`) and blocker #5 (per-region microtask
+  queues) is open, so event DISPATCH stays on the JS thread (see
+  `rts-node`'s `emitter`/`loop_sources` pumps). T1 is the first of those
+  blockers, not the whole of multithreaded dispatch.
+  Exposed (pre-existing, unrelated): `thread.spawn(fn, arg)` passes its arg
+  through a raw-i64 bridge, so a `number` param reads the raw bits as an f64
+  (#206/#242). T1 made the wrong value VISIBLE where it used to be silently
+  discarded along with the write.
 - **T2**: atomic ICs (#2) + audit of global runtime state.
 - **T3**: deterministic thread→shard affinity + parallel sweep.
 - **T4**: promotion on publication (region write barrier) + local GC.

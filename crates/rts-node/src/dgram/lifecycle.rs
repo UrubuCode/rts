@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use socket2::SockAddr;
 
-use super::emitter;
+use crate::emitter;
 use super::errors;
 use super::pump;
 use super::reader;
@@ -257,7 +257,7 @@ pub extern "C" fn __RTS_FN_NODE_DGRAM_CLOSE1(this: u64, cb: u64) {
 /// it. Called by the pump after `'close'` has been delivered.
 pub fn finalize(this: u64) {
     if let Some(st) = state::remove(this) {
-        emitter::release_all(&st);
+        emitter::release_all(this);
         unsafe { __RTS_FN_NS_GC_UNPIN_HANDLE(this) };
     }
 }

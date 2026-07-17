@@ -758,10 +758,10 @@ fn create_spawn(
     // roda numa thread tokio e, sem o snapshot/restore (o mesmo que
     // `thread.spawn` faz), lia TODO módulo-global/singleton como 0/undefined
     // (`const b = new Box(); async fn { b.v }` → undefined).
-    let gcells = crate::collector::collector::gcell_snapshot();
+    let gcells = crate::collector::collector::gcell_share();
     let rt = crate::runtime::async_rt::handle();
     rt.spawn_blocking(move || {
-        crate::collector::collector::gcell_restore(gcells);
+        crate::collector::collector::gcell_attach(gcells);
         // (cross-runtime #365) marca thread como async-worker: parallel.map
         // dentro do corpo roda sequencial (rayon-em-spawn_blocking crasha).
         let _aw = crate::runtime::async_rt::AsyncWorkerGuard::enter();

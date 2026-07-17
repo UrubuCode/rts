@@ -13,7 +13,7 @@ use socket2::{Domain, Protocol, Socket, Type};
 
 use rts_engine::heap::handles::{alloc_entry, Entry};
 
-use super::emitter;
+use crate::emitter;
 use super::errors;
 use super::state::{self, SocketState};
 use crate::net::blocklist::rules::Rule;

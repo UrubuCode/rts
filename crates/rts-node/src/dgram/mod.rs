@@ -111,8 +111,10 @@ pub fn register(e: &mut Engine) {
     use send as sd;
     use tuning as tn;
 
-    e.class("Socket")
-        .doc("dgram.Socket — a UDP socket from dgram.createSocket(). An EventEmitter: 'message', 'listening', 'connect', 'close', 'error'.")
+    let socket = e
+        .class("Socket")
+        .doc("dgram.Socket — a UDP socket from dgram.createSocket(). An EventEmitter: 'message', 'listening', 'connect', 'close', 'error'.");
+    crate::emitter::install(socket, "Socket")
         // ── Lifecycle ──────────────────────────────────────────────────────
         .member(method("bind", vec![], Void, "__RTS_FN_NODE_DGRAM_BIND0", "bind(): void", lc::__RTS_FN_NODE_DGRAM_BIND0 as *const u8))
         .member(method("bind", vec![PolyValue], Void, "__RTS_FN_NODE_DGRAM_BIND1", "bind(port: object): void", lc::__RTS_FN_NODE_DGRAM_BIND1 as *const u8))
@@ -159,21 +161,9 @@ pub fn register(e: &mut Engine) {
         .member(method("ref", vec![], Handle, "__RTS_FN_NODE_DGRAM_REF", "ref(): Socket", lc::__RTS_FN_NODE_DGRAM_REF as *const u8))
         .member(method("unref", vec![], Handle, "__RTS_FN_NODE_DGRAM_UNREF", "unref(): Socket", lc::__RTS_FN_NODE_DGRAM_UNREF as *const u8))
         // ── EventEmitter surface (dgram.Socket extends EventEmitter) ───────
-        .member(method("on", vec![StrPtr, PolyValue], Handle, "__RTS_FN_NODE_DGRAM_ON", "on(event: string, listener: object): Socket", em::__RTS_FN_NODE_DGRAM_ON as *const u8))
-        .member(method("addListener", vec![StrPtr, PolyValue], Handle, "__RTS_FN_NODE_DGRAM_ON", "addListener(event: string, listener: object): Socket", em::__RTS_FN_NODE_DGRAM_ON as *const u8))
-        .member(method("once", vec![StrPtr, PolyValue], Handle, "__RTS_FN_NODE_DGRAM_ONCE", "once(event: string, listener: object): Socket", em::__RTS_FN_NODE_DGRAM_ONCE as *const u8))
-        .member(method("off", vec![StrPtr, PolyValue], Handle, "__RTS_FN_NODE_DGRAM_OFF", "off(event: string, listener: object): Socket", em::__RTS_FN_NODE_DGRAM_OFF as *const u8))
-        .member(method("removeListener", vec![StrPtr, PolyValue], Handle, "__RTS_FN_NODE_DGRAM_OFF", "removeListener(event: string, listener: object): Socket", em::__RTS_FN_NODE_DGRAM_OFF as *const u8))
-        .member(method("prependListener", vec![StrPtr, PolyValue], Handle, "__RTS_FN_NODE_DGRAM_PREPEND", "prependListener(event: string, listener: object): Socket", em::__RTS_FN_NODE_DGRAM_PREPEND as *const u8))
-        .member(method("prependOnceListener", vec![StrPtr, PolyValue], Handle, "__RTS_FN_NODE_DGRAM_PREPEND_ONCE", "prependOnceListener(event: string, listener: object): Socket", em::__RTS_FN_NODE_DGRAM_PREPEND_ONCE as *const u8))
-        .member(method("removeAllListeners", vec![], Handle, "__RTS_FN_NODE_DGRAM_REMOVE_ALL0", "removeAllListeners(): Socket", em::__RTS_FN_NODE_DGRAM_REMOVE_ALL0 as *const u8))
-        .member(method("removeAllListeners", vec![StrPtr], Handle, "__RTS_FN_NODE_DGRAM_REMOVE_ALL", "removeAllListeners(event: string): Socket", em::__RTS_FN_NODE_DGRAM_REMOVE_ALL as *const u8))
-        .member(method("listenerCount", vec![StrPtr], I64, "__RTS_FN_NODE_DGRAM_LISTENER_COUNT", "listenerCount(event: string): number", em::__RTS_FN_NODE_DGRAM_LISTENER_COUNT as *const u8))
-        .member(method("listeners", vec![StrPtr], Handle, "__RTS_FN_NODE_DGRAM_LISTENERS", "listeners(event: string): object[]", em::__RTS_FN_NODE_DGRAM_LISTENERS as *const u8))
-        .member(method("rawListeners", vec![StrPtr], Handle, "__RTS_FN_NODE_DGRAM_LISTENERS", "rawListeners(event: string): object[]", em::__RTS_FN_NODE_DGRAM_LISTENERS as *const u8))
-        .member(method("eventNames", vec![], Handle, "__RTS_FN_NODE_DGRAM_EVENT_NAMES", "eventNames(): string[]", em::__RTS_FN_NODE_DGRAM_EVENT_NAMES as *const u8))
-        .member(method("getMaxListeners", vec![], I64, "__RTS_FN_NODE_DGRAM_GET_MAX", "getMaxListeners(): number", em::__RTS_FN_NODE_DGRAM_GET_MAX as *const u8))
-        .member(method("setMaxListeners", vec![I64], Handle, "__RTS_FN_NODE_DGRAM_SET_MAX", "setMaxListeners(n: number): Socket", em::__RTS_FN_NODE_DGRAM_SET_MAX as *const u8))
+        // on/once/off/prepend*/removeAllListeners/listeners/eventNames/max — the
+        // crate-shared emitter installs them (its externs take the receiver, so
+        // one implementation serves every node class that is an emitter).
         .member(method("emit", vec![StrPtr], Bool, "__RTS_FN_NODE_DGRAM_EMIT0", "emit(event: string): boolean", em::__RTS_FN_NODE_DGRAM_EMIT0 as *const u8))
         .member(method("emit", vec![StrPtr, PolyValue], Bool, "__RTS_FN_NODE_DGRAM_EMIT1", "emit(event: string, a0: object): boolean", em::__RTS_FN_NODE_DGRAM_EMIT1 as *const u8))
         .member(method("emit", vec![StrPtr, PolyValue, PolyValue], Bool, "__RTS_FN_NODE_DGRAM_EMIT2", "emit(event: string, a0: object, a1: object): boolean", em::__RTS_FN_NODE_DGRAM_EMIT2 as *const u8))

@@ -15,9 +15,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use rts_engine::heap::handles::{alloc_entry, Entry};
 use rts_engine::heap::shapes::{alloc_shaped_object, handle_word_auto, string_word};
 
-use super::emitter;
+use crate::emitter;
 use super::lifecycle;
-use super::state::{self, Datagram, Listener, SockEvent, SocketState};
+use super::state::{self, Datagram, SockEvent, SocketState};
+use crate::emitter::Listener;
 use crate::values::byte_array;
 
 unsafe extern "C" {
@@ -68,7 +69,7 @@ fn deliver(this: u64, st: &SocketState, ev: SockEvent) {
             }
         }
         SockEvent::Error(code, message) => {
-            if st.listeners.lock().unwrap().get("error").is_empty() {
+            if !emitter::has(this, "error") {
                 // Node: an 'error' with no listener is fatal — an EventEmitter has
                 // no default handler. Surface it as a real thrown error rather
                 // than swallowing it.
@@ -151,7 +152,7 @@ fn throw(code: &str, message: &str) {
 
 /// Run every listener of `event` with `args`, in registration order.
 fn emit(this: u64, st: &SocketState, event: &str, args: Vec<u64>) {
-    let listeners: Vec<Listener> = emitter::take_for(st, event);
+    let listeners: Vec<Listener> = emitter::take_for(this, event);
     for l in listeners {
         invoke(l.cb, this, args.clone());
     }

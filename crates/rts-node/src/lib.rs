@@ -44,4 +44,5 @@ pub mod util;
 pub mod v8;
 pub mod zlib;
 
+pub mod emitter;
 mod values;

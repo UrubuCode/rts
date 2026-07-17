@@ -34,63 +34,51 @@ use super::handles::{live_handle_count, mark_handle, sweep_all_shards};
 // (returns 0) never happens for a well-formed program. `mark_gcell_roots` keeps a
 // boxed-handle slot's HandleTable entry alive across a GC cycle.
 
-// THREAD-LOCAL (like the microtask queue): each program runs on its own thread,
-// and the cell ids restart at 0 per compiled program — a process-global store
-// would let concurrent in-process programs (the parallel unit tests) clobber each
-// other's ids. The GC `finish_cycle` runs on the allocating (program) thread, so
-// `mark_gcell_roots` sees the right thread's cells.
-thread_local! {
-    static GCELLS: std::cell::RefCell<Vec<u64>> = const { std::cell::RefCell::new(Vec::new()) };
-}
+// SHARED across the program's threads (threading-model T1): a module-level
+// binding is ONE binding in JS, so a worker's write must be visible everywhere.
+// The store lives in `super::gcells` — per PROGRAM (ids restart at 0 and several
+// programs can run concurrently in one process), lock-free on read.
 
-/// Store `word` (a PolyValue) into global cell `id`, growing the store as needed.
+/// Store `word` (a PolyValue) into global cell `id`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_GCELL_SET(id: u64, word: u64) {
     if std::env::var("RTS_DEBUG_GCELL").is_ok() {
         eprintln!("[gcell] SET {id} = {word:#x}");
     }
-    GCELLS.with(|c| {
-        let mut v = c.borrow_mut();
-        let i = id as usize;
-        if i >= v.len() {
-            v.resize(i + 1, 0);
-        }
-        v[i] = word;
-    });
+    super::gcells::set(id, word);
 }
 
 /// Load global cell `id` (0 if never set — the front-end SETs before GET).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_GCELL_GET(id: u64) -> u64 {
-    GCELLS.with(|c| c.borrow().get(id as usize).copied().unwrap_or(0))
+    super::gcells::get(id)
 }
 
-/// Snapshot the CURRENT thread's cells (the spawning thread's module-globals) so a
-/// spawned worker can inherit them — `GCELLS` is thread_local (program isolation),
-/// so a worker thread otherwise sees an EMPTY store and reads every module-global
-/// as `0`. A module-level `let`/`const` is SHARED across a program's threads in JS,
-/// so `thread.spawn`/`parallel` snapshot here and [`gcell_restore`] in the worker.
-/// The values are PolyValue words; a boxed handle stays valid cross-thread (the
-/// HandleTable is process-global). Worker WRITES do not propagate back (workers
-/// share via atomics/handles, not gcell writes — the read-only-shared case).
-pub fn gcell_snapshot() -> Vec<u64> {
-    GCELLS.with(|c| c.borrow().clone())
+/// The current program's cell store, to hand to a thread being spawned so it
+/// SHARES the cells (`thread.spawn`/`parallel`/the async spawn call this, then
+/// [`gcell_attach`] on the worker).
+///
+/// This replaced a value SNAPSHOT (threading-model T1): a copy made the worker's
+/// write to a module global silently local, which is not what a module-level
+/// binding means in JS. Sharing the store makes the write visible to every
+/// thread of the program — and a boxed handle in a cell was always valid
+/// cross-thread anyway, since the HandleTable is process-global.
+pub fn gcell_share() -> super::gcells::GcellRef {
+    super::gcells::share()
 }
 
-/// Install `snap` as the current (worker) thread's cells — see [`gcell_snapshot`].
-pub fn gcell_restore(snap: Vec<u64>) {
-    GCELLS.with(|c| *c.borrow_mut() = snap);
+/// Join the spawning thread's program — see [`gcell_share`].
+pub fn gcell_attach(store: super::gcells::GcellRef) {
+    super::gcells::attach(store);
 }
 
 /// Mark every cell's PolyValue word as a GC root. A boxed STR/OBJECT/FUNCTION word
 /// keeps its slot alive; an inline int/float/singleton word is a no-op inside
 /// `mark_handle`. Called from `finish_cycle` alongside the microtask roots.
 pub fn mark_gcell_roots() {
-    GCELLS.with(|c| {
-        for &w in c.borrow().iter() {
-            mark_handle(w);
-        }
-    });
+    for w in super::gcells::root_words() {
+        mark_handle(w);
+    }
 }
 
 // ─── Core collector ──────────────────────────────────────────────────────────

@@ -85,8 +85,6 @@ pub struct SocketState {
     pub counted: AtomicBool,
     /// Pending events for the JS thread.
     pub events: Mutex<VecDeque<SockEvent>>,
-    /// `event → listeners`, in insertion order.
-    pub listeners: Mutex<Listeners>,
     /// Bytes queued in sends this process has dispatched but not yet completed
     /// (`getSendQueueSize`) and how many such sends (`getSendQueueCount`). Real
     /// counters over the sends that are genuinely still in flight — RTS resolves
@@ -124,7 +122,6 @@ impl SocketState {
             refd: AtomicBool::new(true),
             counted: AtomicBool::new(false),
             events: Mutex::new(VecDeque::new()),
-            listeners: Mutex::new(Listeners::default()),
             queue_bytes: AtomicI64::new(0),
             queue_count: AtomicI64::new(0),
             reader: Mutex::new(None),
@@ -166,55 +163,10 @@ impl SocketState {
     }
 }
 
-/// A registered listener: the Function HANDLE (normalized off the PolyValue word
-/// and GC-pinned for as long as it is registered) plus `once` semantics.
-#[derive(Clone, Copy)]
-pub struct Listener {
-    pub cb: u64,
-    pub once: bool,
-}
-
-/// The `Socket`'s own EventEmitter state.
-///
-/// `rts-node` is independent of `rts-std` (where the canonical `EventEmitter`
-/// class lives), so a node class that IS an emitter carries its own table — as
-/// dgram.md §5.6 prescribes. It is the same model (ordered per-event listener
-/// list + `once` + a max-listeners setting), owned here.
-#[derive(Default)]
-pub struct Listeners {
-    pub map: Vec<(String, Vec<Listener>)>,
-    pub max: i64,
-}
-
-impl Listeners {
-    pub fn slot(&mut self, event: &str) -> &mut Vec<Listener> {
-        if let Some(i) = self.map.iter().position(|(k, _)| k == event) {
-            return &mut self.map[i].1;
-        }
-        self.map.push((event.to_string(), Vec::new()));
-        let last = self.map.len() - 1;
-        &mut self.map[last].1
-    }
-
-    pub fn get(&self, event: &str) -> &[Listener] {
-        self.map
-            .iter()
-            .find(|(k, _)| k == event)
-            .map(|(_, v)| v.as_slice())
-            .unwrap_or(&[])
-    }
-
-    pub fn max_listeners(&self) -> i64 {
-        if self.max == 0 {
-            DEFAULT_MAX_LISTENERS
-        } else {
-            self.max
-        }
-    }
-}
-
-/// Node's `EventEmitter.defaultMaxListeners`.
-pub const DEFAULT_MAX_LISTENERS: i64 = 10;
+// The listener table lives in the crate-shared `crate::emitter`, keyed by the
+// instance handle — one implementation for every `rts-node` class that is an
+// EventEmitter (dgram.md §7 asked for exactly this once a second consumer
+// appeared). `Socket` opts in as data: `mod.rs` installs the surface.
 
 /// Sockets keyed by their JS object handle, in CREATION order — an `IndexMap`,
 /// not a `HashMap`, so the pump delivers across sockets in a deterministic order

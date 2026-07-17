@@ -14,6 +14,7 @@
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 pub mod collector;
+pub mod gcells;
 pub mod error;
 pub mod generator;
 // `global_roots`, `stack_map_registry`, `thread_registry`, `debug` e o `scan`
