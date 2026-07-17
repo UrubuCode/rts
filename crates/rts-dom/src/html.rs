@@ -250,6 +250,33 @@ fn decode_one_entity(body: &str) -> Option<char> {
         "quot" => '"',
         "apos" => '\'',
         "nbsp" => '\u{00A0}',
+        // As nomeadas mais comuns em páginas reais (o rodapé do google usa
+        // `&copy;`; conteúdo editorial usa travessões/aspas tipográficas).
+        "copy" => '\u{00A9}',
+        "reg" => '\u{00AE}',
+        "trade" => '\u{2122}',
+        "hellip" => '\u{2026}',
+        "mdash" => '\u{2014}',
+        "ndash" => '\u{2013}',
+        "middot" => '\u{00B7}',
+        "bull" => '\u{2022}',
+        "laquo" => '\u{00AB}',
+        "raquo" => '\u{00BB}',
+        "lsquo" => '\u{2018}',
+        "rsquo" => '\u{2019}',
+        "ldquo" => '\u{201C}',
+        "rdquo" => '\u{201D}',
+        "deg" => '\u{00B0}',
+        "times" => '\u{00D7}',
+        "divide" => '\u{00F7}',
+        "plusmn" => '\u{00B1}',
+        "sect" => '\u{00A7}',
+        "para" => '\u{00B6}',
+        "euro" => '\u{20AC}',
+        "pound" => '\u{00A3}',
+        "yen" => '\u{00A5}',
+        "cent" => '\u{00A2}',
+        "shy" => '\u{00AD}',
         _ => return None,
     })
 }
@@ -263,6 +290,7 @@ mod tests {
         assert_eq!(decode_entities("a &lt; b &gt; c &amp; d"), "a < b > c & d");
         assert_eq!(decode_entities("&quot;aspas&quot; &apos;simples&apos;"), "\"aspas\" 'simples'");
         assert_eq!(decode_entities("x&nbsp;y"), "x\u{00A0}y");
+        assert_eq!(decode_entities("&copy; 2026 &mdash; ok&hellip;"), "\u{00A9} 2026 \u{2014} ok\u{2026}");
     }
 
     #[test]
