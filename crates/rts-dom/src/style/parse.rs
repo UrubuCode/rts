@@ -60,7 +60,32 @@ pub fn parse_inline_block(style: &str) -> DeclBlock {
                 }
             }
             "box-shadow" => css.box_shadow = crate::style::effects::BoxShadow::parse(val),
-            "grid-template-columns" => css.grid_columns = parse_grid_columns(val),
+            "grid-template-columns" => {
+                css.grid_columns = parse_grid_columns(val);
+                css.grid_template_columns =
+                    crate::style::GridTrack::parse_list(val).map(std::sync::Arc::new);
+            }
+            "grid-template-rows" => {
+                css.grid_template_rows =
+                    crate::style::GridTrack::parse_list(val).map(std::sync::Arc::new);
+            }
+            "grid-auto-rows" => {
+                css.grid_auto_rows = crate::style::GridTrack::parse_one(val);
+            }
+            "justify-items" => {
+                css.grid_justify_items = crate::style::AlignItems::parse(val);
+            }
+            "grid" | "grid-template" => {
+                // shorthand `grid-template: rows / columns` (forma comum
+                // `"areas" rows / cols` não modelada — v1 pega rows/cols).
+                if let Some((rows, cols)) = val.split_once('/') {
+                    css.grid_template_rows =
+                        crate::style::GridTrack::parse_list(rows).map(std::sync::Arc::new);
+                    css.grid_template_columns =
+                        crate::style::GridTrack::parse_list(cols).map(std::sync::Arc::new);
+                    css.grid_columns = parse_grid_columns(cols);
+                }
+            }
             "transform" => css.transform = crate::style::effects::Transform::parse(val),
             "aspect-ratio" => css.aspect_ratio = parse_aspect_ratio(val),
             "opacity" => {
@@ -235,6 +260,11 @@ fn parse_px(v: &str) -> Option<f32> {
 /// `280`/`280px` → Px. Unidades relativas resolvem TARDE no render (risco 5).
 /// Número inválido / unidade desconhecida → `None`. Ordem do match importa: testa
 /// sufixos de 3/2 letras (`rem`) ANTES dos de 1 (`%`) e do px implícito.
+/// Público p/ o parse de trilhas de grid (`GridTrack::parse_one`).
+pub(crate) fn parse_dimension_pub(v: &str) -> Option<Dimension> {
+    parse_dimension(v)
+}
+
 fn parse_dimension(v: &str) -> Option<Dimension> {
     let v = v.trim();
     if v.eq_ignore_ascii_case("auto") {

@@ -60,6 +60,24 @@ macro_rules! css_props {
             /// BUILT-IN da macro (herança/merge próprios; não anima).
             pub custom_props:
                 Option<std::sync::Arc<std::collections::HashMap<String, String>>>,
+            /// GRID: as trilhas de COLUNA (`grid-template-columns`) parseadas —
+            /// px/fr/auto/%. `None` = não é grid explícito. Campo built-in (Vec não
+            /// cabe na macro simples); herança N/A (grid não herda). O layout roda
+            /// o track-sizing sobre isto.
+            pub grid_template_columns:
+                Option<std::sync::Arc<Vec<crate::style::GridTrack>>>,
+            /// GRID: trilhas de LINHA (`grid-template-rows`). `None` = linhas
+            /// implícitas (via `grid_auto_rows`).
+            pub grid_template_rows:
+                Option<std::sync::Arc<Vec<crate::style::GridTrack>>>,
+            /// GRID: tamanho das linhas IMPLÍCITAS (`grid-auto-rows`) — uma trilha
+            /// aplicada a toda linha não coberta por `grid-template-rows`. `None` =
+            /// auto (altura do conteúdo).
+            pub grid_auto_rows: Option<crate::style::GridTrack>,
+            /// GRID: `justify-items` — alinhamento HORIZONTAL do item na célula
+            /// (start/center/end/stretch). `None` = stretch. Reusa AlignItems como
+            /// vocabulário (start=FlexStart etc.).
+            pub grid_justify_items: Option<crate::style::AlignItems>,
         }
 
         impl ComputedStyle {
@@ -69,6 +87,20 @@ macro_rules! css_props {
             pub fn merge_over(&mut self, other: &ComputedStyle) {
                 $( if other.$ofield.is_some() { self.$ofield = other.$ofield.clone(); } )*
                 $( self.$efield.merge_over(&other.$efield); )*
+                // GRID: os campos built-in (Vec/track) — `other` vence quando setado
+                // (mesma precedência dos campos da macro; grid não herda).
+                if other.grid_template_columns.is_some() {
+                    self.grid_template_columns = other.grid_template_columns.clone();
+                }
+                if other.grid_template_rows.is_some() {
+                    self.grid_template_rows = other.grid_template_rows.clone();
+                }
+                if other.grid_auto_rows.is_some() {
+                    self.grid_auto_rows = other.grid_auto_rows;
+                }
+                if other.grid_justify_items.is_some() {
+                    self.grid_justify_items = other.grid_justify_items;
+                }
                 // custom props: as de `other` vencem POR NOME (união CoW).
                 if let Some(theirs) = &other.custom_props {
                     self.custom_props = Some(match self.custom_props.take() {

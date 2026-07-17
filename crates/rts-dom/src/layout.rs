@@ -804,16 +804,15 @@ fn layout_block(
         d if d == crate::block::DISPLAY_HORIZONTAL => {
             layout_children_horizontal(dom, id, content_x, content_y, children_w, avail_children, &css, font_size, false, None, ctx, list)
         }
-        // wrap (inline-block flow): lado a lado E QUEBRA linha quando enche. GRID
-        // (`display:grid`) também vem aqui, com o Nº de colunas → cada item ganha
-        // largura fixa de coluna e quebra a cada N.
+        // GRID REAL: track-sizing (px/fr/auto/%) + auto-placement row-by-row +
+        // alinhamento de célula (align-items/justify-items). Só quando é
+        // `display:grid` de fato; senão o wrap horizontal (inline-block flow).
+        _ if css.effective_display() == Some(crate::style::DisplayKind::Grid) => {
+            layout_children_grid(dom, id, content_x, content_y, children_w, avail_children, &css, font_size, ctx, list)
+        }
+        // wrap (inline-block flow): lado a lado E QUEBRA linha quando enche.
         d if d == crate::block::DISPLAY_WRAP => {
-            let grid_cols = if css.effective_display() == Some(crate::style::DisplayKind::Grid) {
-                Some(css.grid_columns.unwrap_or(1).max(1))
-            } else {
-                None
-            };
-            layout_children_horizontal(dom, id, content_x, content_y, children_w, avail_children, &css, font_size, true, grid_cols, ctx, list)
+            layout_children_horizontal(dom, id, content_x, content_y, children_w, avail_children, &css, font_size, true, None, ctx, list)
         }
         // vertical (block): empilha.
         _ => layout_children_vertical(dom, id, content_x, content_y, children_w, avail_children, &css, font_size, ctx, list),
@@ -2064,6 +2063,220 @@ fn layout_children_horizontal(
 /// ⚠️ Cortes: `column-reverse` dispõe como `column` (sem inverter); `flex-wrap` em
 /// column (multi-coluna) trata como coluna única; `flex-grow/shrink/basis` ainda
 /// fora (fatia própria).
+/// GRID real (css-grid track-sizing simplificado): resolve as trilhas de coluna
+/// (px/%/fr/auto) e de linha, faz auto-placement dos itens célula-a-célula
+/// (row-by-row), e posiciona cada item na sua célula com `justify-items`
+/// (horizontal) / `align-items` (vertical). Suporta o subset do MDN:
+/// grid-template-columns/rows, grid-auto-rows, gap, repeat(N,...), minmax(→max),
+/// fr. NÃO suporta: grid-column/row-span explícito, areas, auto-fill/fit reais,
+/// dense. Um item sem placement explícito preenche a próxima célula livre.
+#[allow(clippy::too_many_arguments)]
+fn layout_children_grid(
+    dom: &Dom,
+    id: NodeIdx,
+    content_x: f32,
+    content_y: f32,
+    content_w: f32,
+    container_content_h: Option<f32>,
+    css: &ComputedStyle,
+    font_size: f32,
+    ctx: &LayoutCtx,
+    list: &mut DisplayList,
+) -> f32 {
+    let resolve = ResolveCtx {
+        parent_content_w: content_w,
+        node_font_size: font_size,
+        root_font_size: DEFAULT_FONT_SIZE,
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+    let col_gap = css.gap.or(css.row_gap).and_then(|d| d.resolve(&resolve)).unwrap_or(0.0).max(0.0);
+    let row_gap = css.row_gap.or(css.gap).and_then(|d| d.resolve(&resolve)).unwrap_or(0.0).max(0.0);
+
+    // ── COLUNAS: resolve as trilhas ──────────────────────────────────────────────
+    // Sem grid-template-columns explícito → 1 coluna 1fr (o container-do-logo do
+    // google: single-column grid). Com N colunas do grid_columns legado (repeat) →
+    // N trilhas 1fr.
+    let col_tracks: Vec<crate::style::GridTrack> = match &css.grid_template_columns {
+        Some(t) => (**t).clone(),
+        None => {
+            let n = css.grid_columns.unwrap_or(1).max(1) as usize;
+            vec![crate::style::GridTrack::Fr(1.0); n]
+        }
+    };
+    let col_sizes = resolve_tracks(&col_tracks, content_w, col_gap, &resolve);
+    let ncols = col_sizes.len().max(1);
+
+    // ── ITENS: os filhos renderizáveis (auto-placement row-by-row) ───────────────
+    let mut children: Vec<NodeIdx> = Vec::new();
+    for &child in &dom.node(id).children {
+        if let NodeKind::Element { tag } = &dom.node(child).kind {
+            if is_non_rendered_tag(tag) {
+                continue;
+            }
+        }
+        if is_out_of_flow(dom, child) {
+            continue;
+        }
+        if !is_block_level(dom, child) && collect_text(dom, child).trim().is_empty() {
+            continue;
+        }
+        children.push(child);
+    }
+    if children.is_empty() {
+        return 0.0;
+    }
+    let nrows = children.len().div_ceil(ncols);
+
+    // ── LINHAS: altura de cada linha ─────────────────────────────────────────────
+    // grid-template-rows explícito (px/%/fr/auto), senão grid-auto-rows, senão a
+    // altura do conteúdo mais alto da linha. `fr`/`%` de linha precisam da altura
+    // do container (container_content_h).
+    let explicit_rows: Vec<crate::style::GridTrack> = css
+        .grid_template_rows
+        .as_ref()
+        .map(|t| (**t).clone())
+        .unwrap_or_default();
+    // mede a altura de conteúdo de cada linha (o item mais alto medido em shrink).
+    let mut content_row_h = vec![0.0f32; nrows];
+    for (i, &child) in children.iter().enumerate() {
+        let r = i / ncols;
+        let ci = i % ncols;
+        let cw = col_sizes[ci.min(col_sizes.len() - 1)];
+        let mut scratch = DisplayList::default();
+        let (_, h) = layout_block(dom, child, 0.0, 0.0, cw, container_content_h, None, None, true, ctx, &mut scratch);
+        content_row_h[r] = content_row_h[r].max(h);
+    }
+    let auto_row = css.grid_auto_rows;
+    let has_explicit_row_track = |r: usize| {
+        explicit_rows.get(r).is_some() || auto_row.is_some()
+    };
+    let mut row_sizes: Vec<f32> = (0..nrows)
+        .map(|r| {
+            let track = explicit_rows.get(r).copied().or(auto_row);
+            match track {
+                Some(crate::style::GridTrack::Fixed(d)) => resolve_height(Some(d), container_content_h, &resolve).unwrap_or(content_row_h[r]),
+                _ => content_row_h[r], // Auto/None/Fr → conteúdo por ora (ajuste abaixo)
+            }
+        })
+        .collect();
+    // Se o container tem ALTURA definida e as linhas NÃO têm track explícita (auto),
+    // as linhas DIVIDEM a altura do container (uma row auto num grid de altura fixa
+    // preenche o espaço — é o que dá a track de 240 pro logo centrar). Distribui o
+    // espaço livre igualmente entre as linhas auto (aproximação; fr real seria por
+    // peso — mas grid sem template-rows usa 1fr implícito quando há altura).
+    if let Some(ch) = container_content_h {
+        let auto_rows: Vec<usize> = (0..nrows).filter(|&r| !has_explicit_row_track(r)).collect();
+        if !auto_rows.is_empty() {
+            let fixed: f32 = (0..nrows).filter(|r| has_explicit_row_track(*r)).map(|r| row_sizes[r]).sum();
+            let total_gap = (nrows.saturating_sub(1)) as f32 * row_gap;
+            let free = (ch - fixed - total_gap).max(0.0);
+            let each = free / auto_rows.len() as f32;
+            for r in auto_rows {
+                row_sizes[r] = row_sizes[r].max(each);
+            }
+        }
+    }
+
+    // ── POSICIONA cada item na sua célula ────────────────────────────────────────
+    let justify = css.grid_justify_items.unwrap_or(crate::style::AlignItems::Stretch);
+    let align = css.align_items.unwrap_or(crate::style::AlignItems::Stretch);
+    // x acumulado de cada coluna, y de cada linha.
+    let mut col_x = vec![content_x; ncols + 1];
+    for c in 0..ncols {
+        col_x[c + 1] = col_x[c] + col_sizes[c.min(col_sizes.len() - 1)] + col_gap;
+    }
+    let mut row_y = vec![content_y; nrows + 1];
+    for r in 0..nrows {
+        row_y[r + 1] = row_y[r] + row_sizes[r] + row_gap;
+    }
+    for (i, &child) in children.iter().enumerate() {
+        let r = i / ncols;
+        let c = i % ncols;
+        let cell_x = col_x[c];
+        let cell_y = row_y[r];
+        let cell_w = col_sizes[c.min(col_sizes.len() - 1)];
+        let cell_h = row_sizes[r];
+        // mede o tamanho natural do item (shrink) p/ o alinhamento não-stretch.
+        let stretch_x = justify == crate::style::AlignItems::Stretch;
+        let stretch_y = align == crate::style::AlignItems::Stretch;
+        let mut scratch = DisplayList::default();
+        let (nat_w, nat_h) = layout_block(dom, child, 0.0, 0.0, cell_w, Some(cell_h), None, None, true, ctx, &mut scratch);
+        let iw = if stretch_x { cell_w } else { nat_w.min(cell_w) };
+        let ih = if stretch_y { cell_h } else { nat_h.min(cell_h) };
+        let x = cell_x + cell_align_offset(justify, cell_w, iw);
+        let y = cell_y + cell_align_offset(align, cell_h, ih);
+        // pinta o item: stretch no eixo → forced size; senão shrink-to-fit.
+        let forced_w = if stretch_x { None } else { Some(iw) };
+        let forced_h = if stretch_y { Some(cell_h) } else { None };
+        layout_block(dom, child, x, y, cell_w, Some(cell_h), forced_w, forced_h, !stretch_x, ctx, list);
+    }
+    // altura total = soma das linhas + gaps.
+    let total_h: f32 = row_sizes.iter().sum::<f32>() + (nrows.saturating_sub(1)) as f32 * row_gap;
+    total_h.max(0.0)
+}
+
+/// Resolve os tamanhos px de uma lista de trilhas dado o tamanho do container no
+/// eixo e o gap: px/%/auto resolvem direto; o espaço livre restante é dividido
+/// pelas trilhas `fr` na proporção dos pesos (css-grid track sizing simplificado).
+fn resolve_tracks(
+    tracks: &[crate::style::GridTrack],
+    container: f32,
+    gap: f32,
+    ctx: &ResolveCtx,
+) -> Vec<f32> {
+    let n = tracks.len().max(1);
+    let total_gap = (n.saturating_sub(1)) as f32 * gap;
+    // 1ª passada: resolve px/%/auto; soma o consumido e os pesos fr.
+    let mut sizes = vec![0.0f32; tracks.len()];
+    let mut used = 0.0f32;
+    let mut sum_fr = 0.0f32;
+    for (i, t) in tracks.iter().enumerate() {
+        match t {
+            crate::style::GridTrack::Fixed(d) => {
+                // % de trilha resolve contra o container (largura p/ colunas).
+                let v = match d {
+                    crate::style::Dimension::Percent(p) => container * p / 100.0,
+                    other => other.resolve(ctx).unwrap_or(0.0),
+                };
+                sizes[i] = v.max(0.0);
+                used += sizes[i];
+            }
+            crate::style::GridTrack::Fr(f) => sum_fr += f.max(0.0),
+            crate::style::GridTrack::Auto => {} // auto: 0 na v1 (conteúdo dita a linha, não a coluna)
+        }
+    }
+    // 2ª passada: distribui o espaço livre pelas trilhas fr.
+    let free = (container - used - total_gap).max(0.0);
+    if sum_fr > 0.0 {
+        for (i, t) in tracks.iter().enumerate() {
+            if let crate::style::GridTrack::Fr(f) = t {
+                sizes[i] = free * f.max(0.0) / sum_fr;
+            }
+        }
+    } else {
+        // sem fr: uma trilha `auto` sozinha ocupa o espaço livre (single-column).
+        let autos: Vec<usize> = tracks.iter().enumerate()
+            .filter(|(_, t)| matches!(t, crate::style::GridTrack::Auto))
+            .map(|(i, _)| i).collect();
+        if !autos.is_empty() {
+            let each = free / autos.len() as f32;
+            for i in autos { sizes[i] = each; }
+        }
+    }
+    sizes
+}
+
+/// Offset de alinhamento de um item de tamanho `item` dentro de uma célula de
+/// tamanho `cell` (start=0, center=(cell-item)/2, end=cell-item; stretch=0).
+fn cell_align_offset(a: crate::style::AlignItems, cell: f32, item: f32) -> f32 {
+    match a {
+        crate::style::AlignItems::Center => ((cell - item) / 2.0).max(0.0),
+        crate::style::AlignItems::FlexEnd => (cell - item).max(0.0),
+        _ => 0.0, // FlexStart / Stretch
+    }
+}
+
 fn layout_children_column(
     dom: &Dom,
     id: NodeIdx,
@@ -3089,6 +3302,42 @@ mod tests {
         // "y" à direita → x ≈ 400-8 = 392.
         let rx = texts.iter().find(|(t, _)| t == "y").unwrap().1;
         assert!((rx - 392.0).abs() < 2.0, "right: {rx}");
+    }
+
+    #[test]
+    fn grid_fr_track_sizing() {
+        // grid-template-columns: 200px 1fr 2fr num container 620 → 200/140/280.
+        let dom = parse_html_to_dom(
+            "<div style='display:grid;grid-template-columns:200px 1fr 2fr;width:620px'>\
+             <div id=a>A</div><div id=b>B</div><div id=c>C</div></div>",
+        );
+        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let rect = |sel: &str| {
+            let idx = dom.resolve(dom.query(sel).unwrap()).unwrap();
+            list.node_rects[&idx]
+        };
+        let a = rect("#a"); let b = rect("#b"); let c = rect("#c");
+        assert!((a.w - 200.0).abs() < 1.0, "col px: {}", a.w);
+        assert!((b.w - 140.0).abs() < 1.0, "col 1fr: {}", b.w); // (620-200)/3
+        assert!((c.w - 280.0).abs() < 1.0, "col 2fr: {}", c.w); // 2×140
+        assert!((b.x - 200.0).abs() < 1.0 && (c.x - 340.0).abs() < 1.0, "posições");
+    }
+
+    #[test]
+    fn grid_align_items_center_centraliza_na_celula() {
+        // single-column grid de altura fixa + align-items:center → o item de
+        // altura menor centraliza verticalmente na track (o logo do google).
+        let dom = parse_html_to_dom(
+            "<div style='display:grid;align-items:center;height:240px'>\
+             <div id=logo style='height:92px'>x</div></div>",
+        );
+        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let idx = dom.resolve(dom.query("#logo").unwrap()).unwrap();
+        let r = list.node_rects[&idx];
+        assert!((r.y - 74.0).abs() < 2.0, "y centralizado: {} (esperado 74=(240-92)/2)", r.y);
+        assert!((r.h - 92.0).abs() < 2.0, "altura preservada: {}", r.h);
     }
 
     #[test]
