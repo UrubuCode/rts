@@ -49,6 +49,16 @@ pub fn browser_headers() -> &'static [(&'static str, &'static str)] {
              image/webp,image/apng,*/*;q=0.8",
         ),
         ("Accept-Language", "pt-BR,pt;q=0.9,en;q=0.8"),
+        // Fetch Metadata (`Sec-Fetch-*`): TODO browser moderno os manda numa
+        // navegação de topo. Sites com anti-bot (WhatsApp Web, Meta, …) RECUSAM
+        // (HTTP 400 / página de erro) a requisição sem eles — é o que separava
+        // o app real da página "Browser not supported". Valores de uma
+        // navegação de documento de topo iniciada pelo usuário.
+        ("Sec-Fetch-Dest", "document"),
+        ("Sec-Fetch-Mode", "navigate"),
+        ("Sec-Fetch-Site", "none"),
+        ("Sec-Fetch-User", "?1"),
+        ("Upgrade-Insecure-Requests", "1"),
     ]
 }
 
@@ -109,6 +119,34 @@ pub fn register(e: &mut Engine) {
             "__RTS_FN_NS_FETCH_FETCH_TEXT_ASYNC",
             "fetchTextAsync(url: string): number",
             "fetchTextAsync(url) — start a GET on a background thread; returns a ticket immediately (no UI block).",
+            false,
+        ))
+        // ── Overrides de request (o app se apresenta na rede como quiser) ──────
+        .member(m(
+            "setUserAgent",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::StrPtr], AbiType::Void),
+            "__RTS_FN_NS_FETCH_SET_USER_AGENT",
+            "setUserAgent(ua: string): void",
+            "setUserAgent(ua) — override the browser-path User-Agent for all subsequent fetches ('' = default).",
+            false,
+        ))
+        .member(m(
+            "setHeader",
+            MemberKind::Function,
+            Sig::new(vec![AbiType::StrPtr, AbiType::StrPtr], AbiType::Void),
+            "__RTS_FN_NS_FETCH_SET_HEADER",
+            "setHeader(name: string, value: string): void",
+            "setHeader(name, value) — inject/override a request header (Cookie/Referer/Sec-Fetch-*/…); '' value removes it.",
+            false,
+        ))
+        .member(m(
+            "clearOverrides",
+            MemberKind::Function,
+            Sig::new(vec![], AbiType::Void),
+            "__RTS_FN_NS_FETCH_CLEAR_OVERRIDES",
+            "clearOverrides(): void",
+            "clearOverrides() — drop all setUserAgent/setHeader overrides (back to browser defaults).",
             false,
         ))
         .member(m(

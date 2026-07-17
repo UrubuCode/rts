@@ -184,6 +184,21 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
                 as *const u8,
         ),
         sym(
+            "__RTS_FN_NS_FETCH_SET_USER_AGENT",
+            rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_NS_FETCH_SET_USER_AGENT
+                as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_FETCH_SET_HEADER",
+            rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_NS_FETCH_SET_HEADER
+                as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_FETCH_CLEAR_OVERRIDES",
+            rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_NS_FETCH_CLEAR_OVERRIDES
+                as *const u8,
+        ),
+        sym(
             "__RTS_FN_NS_FETCH_FETCH_POLL",
             rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_NS_FETCH_FETCH_POLL
                 as *const u8,

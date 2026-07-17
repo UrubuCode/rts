@@ -2,6 +2,81 @@ use rts_engine::heap::handles::{
     alloc_entry, free_handle, with_entry, Entry, HttpResponseData,
 };
 
+// ── OVERRIDES de request configuráveis pelo TS ───────────────────────────────
+// O mini-browser (e qualquer app) pode ajustar como o RTS se apresenta na rede:
+// trocar o User-Agent, injetar headers (Cookie/Referer/Sec-Fetch-*), sem tocar o
+// Rust. `fetch.setUserAgent(ua)` e `fetch.setHeader(nome, valor)` gravam aqui;
+// TODO caminho do browser (`do_fetch_ua` browser_mode) aplica: primeiro os
+// defaults de navegador, depois estes overrides POR CIMA (o custom vence). Um
+// valor vazio em setHeader REMOVE o override daquele header.
+use std::sync::RwLock;
+
+struct RequestOverrides {
+    user_agent: Option<String>,
+    headers: Vec<(String, String)>,
+}
+
+fn request_overrides() -> &'static RwLock<RequestOverrides> {
+    static O: OnceLock<RwLock<RequestOverrides>> = OnceLock::new();
+    O.get_or_init(|| {
+        RwLock::new(RequestOverrides {
+            user_agent: None,
+            headers: Vec::new(),
+        })
+    })
+}
+
+/// `fetch.setUserAgent(ua)` — sobrescreve o User-Agent do caminho do browser.
+/// String vazia volta ao default de navegador.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_FETCH_SET_USER_AGENT(ua_ptr: i64, ua_len: i64) {
+    let ua = str_from_parts(ua_ptr, ua_len);
+    let mut o = request_overrides().write().unwrap_or_else(|e| e.into_inner());
+    o.user_agent = if ua.is_empty() { None } else { Some(ua.to_string()) };
+}
+
+/// `fetch.setHeader(name, value)` — injeta/sobrescreve um header do caminho do
+/// browser (Cookie, Referer, X-*, o que for). Valor vazio REMOVE o override.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_FETCH_SET_HEADER(
+    name_ptr: i64,
+    name_len: i64,
+    val_ptr: i64,
+    val_len: i64,
+) {
+    let name = str_from_parts(name_ptr, name_len).to_string();
+    let val = str_from_parts(val_ptr, val_len);
+    if name.is_empty() {
+        return;
+    }
+    let mut o = request_overrides().write().unwrap_or_else(|e| e.into_inner());
+    o.headers.retain(|(k, _)| !k.eq_ignore_ascii_case(&name));
+    if !val.is_empty() {
+        o.headers.push((name, val.to_string()));
+    }
+}
+
+/// `fetch.clearOverrides()` — descarta todos os overrides (volta ao default).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_FETCH_CLEAR_OVERRIDES() {
+    let mut o = request_overrides().write().unwrap_or_else(|e| e.into_inner());
+    o.user_agent = None;
+    o.headers.clear();
+}
+
+/// Aplica os overrides do TS a uma request `ureq` (User-Agent + headers custom).
+/// Chamado APÓS os defaults de browser, então o que o TS setou VENCE.
+fn apply_overrides(mut req: ureq::Request) -> ureq::Request {
+    let o = request_overrides().read().unwrap_or_else(|e| e.into_inner());
+    if let Some(ua) = &o.user_agent {
+        req = req.set("User-Agent", ua);
+    }
+    for (k, v) in &o.headers {
+        req = req.set(k, v);
+    }
+    req
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 fn str_from_parts<'a>(ptr: i64, len: i64) -> &'a str {
@@ -98,6 +173,8 @@ fn do_fetch_ua(url: &str, opts_h: u64, browser_mode: bool) -> u64 {
         for (k, v) in super::browser_headers() {
             req = req.set(k, v);
         }
+        // Overrides do TS (setUserAgent/setHeader) VENCEM os defaults de browser.
+        req = apply_overrides(req);
     } else {
         req = req.set("User-Agent", super::default_user_agent());
     }
@@ -271,6 +348,7 @@ fn do_fetch_bytes(url: &str) -> Vec<u8> {
     for (k, v) in super::browser_headers() {
         req = req.set(k, v);
     }
+    req = apply_overrides(req);
     match req.call() {
         Ok(resp) | Err(ureq::Error::Status(_, resp)) => {
             let mut buf = Vec::new();
