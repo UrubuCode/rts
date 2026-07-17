@@ -260,10 +260,40 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     out_of_flow.sort_by_key(|&id| {
         dom.computed_style_idx(id).and_then(|c| c.z_index).unwrap_or(0)
     });
+    // O rect do containing block de cada abs é lido do `node_rects` JÁ preenchido
+    // pelo fluxo normal (o ancestral positioned já foi pintado). Clona antes do
+    // empréstimo mutável de `list`.
+    let flow_rects = list.node_rects.clone();
     for id in out_of_flow {
-        layout_out_of_flow(dom, id, ctx, &mut list);
+        layout_out_of_flow(dom, id, ctx, &flow_rects, &mut list);
     }
     list
+}
+
+/// O rect do CONTAINING BLOCK de um `position:absolute` = o ancestral mais próximo
+/// com `position != static` (relative/absolute/fixed), lido do `node_rects` do
+/// fluxo. `None` = nenhum ancestral positioned → o containing block é a viewport
+/// (a raiz inicial). Um `fixed` sempre usa a viewport (tratado no caller).
+fn containing_block_rect(
+    dom: &Dom,
+    id: NodeIdx,
+    flow_rects: &std::collections::HashMap<NodeIdx, Rect>,
+) -> Option<Rect> {
+    let mut cur = dom.node(id).parent;
+    while let Some(p) = cur {
+        let positioned = dom
+            .computed_style_idx(p)
+            .and_then(|c| c.position)
+            .map(|pos| pos != crate::style::Position::Static)
+            .unwrap_or(false);
+        if positioned {
+            if let Some(r) = flow_rects.get(&p) {
+                return Some(*r);
+            }
+        }
+        cur = dom.node(p).parent;
+    }
+    None
 }
 
 /// DFS que coleta os nós `position:absolute/fixed`. Não desce DENTRO de um
@@ -281,10 +311,27 @@ fn collect_out_of_flow(dom: &Dom, id: NodeIdx, out: &mut Vec<NodeIdx>) {
 /// Layouta UM nó fora do fluxo contra o viewport: mede shrink-to-fit e posiciona
 /// pelos offsets (`left` OU `right`−largura; `top` OU `bottom`−altura; sem nenhum
 /// dos dois no eixo → 0).
-fn layout_out_of_flow(dom: &Dom, id: NodeIdx, ctx: &LayoutCtx, list: &mut DisplayList) {
+fn layout_out_of_flow(
+    dom: &Dom,
+    id: NodeIdx,
+    ctx: &LayoutCtx,
+    flow_rects: &std::collections::HashMap<NodeIdx, Rect>,
+    list: &mut DisplayList,
+) {
     let css = dom.computed_style_idx(id).unwrap_or_default();
+    // CONTAINING BLOCK: `absolute` posiciona contra o ancestral positioned mais
+    // próximo (o Google ancora os ícones no canto direito da CAIXA DE BUSCA, não
+    // da tela); `fixed` sempre contra a viewport. Sem ancestral positioned →
+    // viewport. `cb` = (origem_x, origem_y, largura, altura) do container.
+    let is_fixed = matches!(css.position, Some(crate::style::Position::Fixed));
+    let cb = if is_fixed {
+        Rect::new(0.0, 0.0, ctx.viewport_w, ctx.viewport_h)
+    } else {
+        containing_block_rect(dom, id, flow_rects)
+            .unwrap_or_else(|| Rect::new(0.0, 0.0, ctx.viewport_w, ctx.viewport_h))
+    };
     let resolve = ResolveCtx {
-        parent_content_w: ctx.viewport_w,
+        parent_content_w: cb.w,
         node_font_size: font_px(&css, DEFAULT_FONT_SIZE),
         root_font_size: DEFAULT_FONT_SIZE,
         viewport_w: ctx.viewport_w,
@@ -292,22 +339,23 @@ fn layout_out_of_flow(dom: &Dom, id: NodeIdx, ctx: &LayoutCtx, list: &mut Displa
     };
     // mede (w, h) numa lista descartável para resolver right/bottom.
     let mut scratch = DisplayList::default();
-    let (w, h) = layout_block(dom, id, 0.0, 0.0, ctx.viewport_w, Some(ctx.viewport_h), None, None, true, ctx, &mut scratch);
-    let left = resolve_inset(css.inset_left, ctx.viewport_w, &resolve);
-    let right = resolve_inset(css.inset_right, ctx.viewport_w, &resolve);
-    let top = resolve_inset(css.inset_top, ctx.viewport_h, &resolve);
-    let bottom = resolve_inset(css.inset_bottom, ctx.viewport_h, &resolve);
+    let (w, h) = layout_block(dom, id, 0.0, 0.0, cb.w, Some(cb.h), None, None, true, ctx, &mut scratch);
+    let left = resolve_inset(css.inset_left, cb.w, &resolve);
+    let right = resolve_inset(css.inset_right, cb.w, &resolve);
+    let top = resolve_inset(css.inset_top, cb.h, &resolve);
+    let bottom = resolve_inset(css.inset_bottom, cb.h, &resolve);
+    // Os offsets são RELATIVOS ao container: soma a origem do containing block.
     let x = match (left, right) {
-        (Some(l), _) => l,
-        (None, Some(r)) => ctx.viewport_w - w - r,
-        (None, None) => 0.0,
+        (Some(l), _) => cb.x + l,
+        (None, Some(r)) => cb.x + cb.w - w - r,
+        (None, None) => cb.x,
     };
     let y = match (top, bottom) {
-        (Some(t), _) => t,
-        (None, Some(b)) => ctx.viewport_h - h - b,
-        (None, None) => 0.0,
+        (Some(t), _) => cb.y + t,
+        (None, Some(b)) => cb.y + cb.h - h - b,
+        (None, None) => cb.y,
     };
-    layout_block(dom, id, x, y, ctx.viewport_w, Some(ctx.viewport_h), None, None, true, ctx, list);
+    layout_block(dom, id, x, y, cb.w, Some(cb.h), None, None, true, ctx, list);
 }
 
 /// Resolve um offset de posicionamento (`top`/`left`/…): px SEM clamp (negativo
@@ -2986,6 +3034,27 @@ mod tests {
         // "y" à direita → x ≈ 400-8 = 392.
         let rx = texts.iter().find(|(t, _)| t == "y").unwrap().1;
         assert!((rx - 392.0).abs() < 2.0, "right: {rx}");
+    }
+
+    #[test]
+    fn absolute_ancora_no_containing_block() {
+        // `position:absolute` com right:0/top:0 ancora no canto do ANCESTRAL
+        // positioned (relative), não do viewport (o padrão do google: ícone no
+        // canto da caixa de busca).
+        let dom = parse_html_to_dom(
+            "<div style='position:relative;width:400px;height:50px;margin-left:100px'>\
+             <span style='position:absolute;top:0px;right:0px;width:30px;height:30px;background:#00f'>i</span>\
+             </div>",
+        );
+        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        // o span azul: canto direito da caixa (x=100, w=400 → 500) menos a largura.
+        let sp = list.items.iter().find_map(|it| match it {
+            DisplayItem::SolidRect { rect, color, .. } if *color == 0x0000FFFF => Some(*rect),
+            _ => None,
+        }).expect("span absolute");
+        assert!((sp.x - 470.0).abs() < 2.0, "x do abs: {} (esperado ~470 = 100+400-30)", sp.x);
+        assert!(sp.y.abs() < 2.0 || (sp.y - 0.0).abs() < 2.0, "y do abs: {}", sp.y);
     }
 
     #[test]
