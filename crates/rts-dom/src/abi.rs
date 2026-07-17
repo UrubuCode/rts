@@ -300,6 +300,52 @@ pub extern "C" fn __RTS_FN_NS_DOM_DUMP_LAYOUT(h: u64, viewport_w: i64) {
     }
 }
 
+/// `dumpTree(domHandle, viewportW)` — imprime a ÁRVORE de elementos com o rect de
+/// CADA nó (`node_rects`) + tag/id/class, indentada, para COMPARAR a geometria
+/// nó-a-nó com o `getBoundingClientRect` do Chrome (a ferramenta de diagnóstico da
+/// paridade de layout). Só elementos com rect (os que o layout posicionou).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_DUMP_TREE(h: u64, viewport_w: i64) {
+    use crate::layout::{layout_document, ApproxMeasurer, LayoutCtx};
+    let vw = viewport_w.max(1) as f32;
+    let out = with(h, |dom| {
+        let ctx = LayoutCtx { viewport_w: vw, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        let list = layout_document(dom, &ctx);
+        let mut s = String::new();
+        fn walk(dom: &crate::Dom, idx: usize, depth: usize, rects: &std::collections::HashMap<usize, crate::layout::Rect>, s: &mut String) {
+            let node = dom.node(idx);
+            if let crate::dom::NodeKind::Element { tag } = &node.kind {
+                let id = node.attr("id").unwrap_or("");
+                let cls = node.attr("class").unwrap_or("");
+                let r = rects.get(&idx);
+                let ind = "  ".repeat(depth);
+                match r {
+                    Some(r) => s.push_str(&format!(
+                        "{ind}<{tag}{}{}> x={:.0} y={:.0} w={:.0} h={:.0}\n",
+                        if id.is_empty() { String::new() } else { format!(" #{id}") },
+                        if cls.is_empty() { String::new() } else { format!(" .{}", cls.split_whitespace().next().unwrap_or("")) },
+                        r.x, r.y, r.w, r.h,
+                    )),
+                    None => s.push_str(&format!(
+                        "{ind}<{tag}{}{}> (sem rect)\n",
+                        if id.is_empty() { String::new() } else { format!(" #{id}") },
+                        if cls.is_empty() { String::new() } else { format!(" .{}", cls.split_whitespace().next().unwrap_or("")) },
+                    )),
+                }
+            }
+            for &c in &dom.node(idx).children {
+                let is_el = matches!(dom.node(c).kind, crate::dom::NodeKind::Element { .. });
+                walk(dom, c, if is_el { depth + 1 } else { depth }, rects, s);
+            }
+        }
+        walk(dom, dom.root, 0, &list.node_rects, &mut s);
+        s
+    });
+    if let Some(o) = out {
+        println!("{o}");
+    }
+}
+
 // ── Geometria: getBoundingClientRect (x/y/w/h por nó) ───────────────────────────
 // O `element.getBoundingClientRect()` lê o LAYOUT que o motor já calcula (o
 // `node_rects` da DisplayList). A ABI dá 1 i64 por chamada; cada componente vem
@@ -1454,6 +1500,14 @@ pub fn register(e: &mut Engine) {
             "dumpLayout(dom: number, viewportW: number): void",
             "Computes the layout DisplayList at the given viewport width and prints it as JSON (x/y/w/h + colors), to compare with the browser render.",
             __RTS_FN_NS_DOM_DUMP_LAYOUT as *const u8,
+        ))
+        .member(func(
+            "dumpTree",
+            "__RTS_FN_NS_DOM_DUMP_TREE",
+            Sig::new(vec![Handle, I64], AbiType::Void),
+            "dumpTree(dom: number, viewportW: number): void",
+            "Prints the element tree with each node's rect (tag/id/class + x/y/w/h), indented, to compare geometry node-by-node with the browser's getBoundingClientRect.",
+            __RTS_FN_NS_DOM_DUMP_TREE as *const u8,
         ))
         .member(func(
             "boundingComponent",
