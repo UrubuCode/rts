@@ -2180,9 +2180,9 @@ fn layout_inline_flow(
     // o contém) de TODOS os nós do grupo, em ordem de documento.
     let mut runs = Vec::new();
     for &id in group {
-        runs.extend(collect_runs(dom, id, parent_css));
+        runs.extend(collect_runs(dom, id, parent_css, ctx));
     }
-    if runs.iter().all(|r| r.text.trim().is_empty()) {
+    if runs.iter().all(|r| r.text.trim().is_empty() && r.widget.is_none()) {
         return y;
     }
     let mono = parent_css
@@ -2204,11 +2204,20 @@ fn layout_inline_flow(
     let lines = wrap_runs(&runs, wrap_w, font_size, mono, ctx.measurer);
     let mut cy = y;
     for line in &lines {
-        // largura total da linha (soma dos pedaços, cada um no SEU peso) p/ text-align.
+        // largura total da linha (texto no SEU peso + widgets) p/ text-align.
         let line_w: f32 = line
             .iter()
-            .map(|seg| ctx.measurer.text_width(&seg.text, font_size, mono, seg.bold))
+            .map(|seg| match seg.widget {
+                Some(_) => seg.ww,
+                None => ctx.measurer.text_width(&seg.text, font_size, mono, seg.bold),
+            })
             .sum();
+        // altura da linha: o texto (lh) ou o widget mais alto nela.
+        let line_h = line
+            .iter()
+            .filter(|s| s.widget.is_some())
+            .map(|s| s.wh)
+            .fold(lh, f32::max);
         let free = (content_w - line_w).max(0.0);
         let mut seg_x = match parent_css.text_align {
             Some(crate::style::TextAlign::Right) => x + free,
@@ -2217,6 +2226,23 @@ fn layout_inline_flow(
         };
         // pinta cada pedaço NA SUA COR e PESO, avançando o x.
         for seg in line {
+            if let Some(w_idx) = seg.widget {
+                // WIDGET inline: pinta a caixa no lugar (botão via layout_button;
+                // campo de texto via layout_input com o avail da linha).
+                let wcss = dom.computed_style_idx(w_idx).unwrap_or_default();
+                let itype = dom
+                    .node(w_idx)
+                    .attr("type")
+                    .map(|t| t.to_ascii_lowercase())
+                    .unwrap_or_default();
+                if matches!(itype.as_str(), "submit" | "button" | "reset") {
+                    layout_button(dom, w_idx, &wcss, seg_x, cy, ctx, list);
+                } else {
+                    layout_input(dom, w_idx, &wcss, seg_x, cy, seg.ww, None, ctx, list);
+                }
+                seg_x += seg.ww;
+                continue;
+            }
             let ls = parent_css.letter_spacing.unwrap_or(0.0);
             let w = ctx.measurer.text_width(&seg.text, font_size, mono, seg.bold)
                 + ls * seg.text.chars().count() as f32;
@@ -2233,16 +2259,22 @@ fn layout_inline_flow(
             });
             seg_x += w;
         }
-        cy += lh;
+        cy += line_h;
     }
     cy
 }
 
 /// Um pedaço de texto inline com seu estilo resolvido (cor/peso herdados do span pai).
+/// `widget: Some(idx)` = um WIDGET inline (input botão/texto) em vez de texto — flui
+/// como uma "palavra" inquebrável de `ww × wh` pontos (item 8 do handoff #1793;
+/// os botões 'Pesquisa Google' do google legado vivem em span>span>input).
 struct InlineRun {
     text: String,
     color: u32,
     bold: bool,
+    widget: Option<NodeIdx>,
+    ww: f32,
+    wh: f32,
 }
 
 /// Coleta os RUNS de texto de `id` em ordem de documento, cada um com a COR efetiva
@@ -2250,10 +2282,16 @@ struct InlineRun {
 /// texto). Aplica text-transform por run. A cor vem do `computed_style_idx` do nó
 /// inline (que já herda do pai via a cascade) — é por isso que o style do span passa
 /// a valer no texto.
-fn collect_runs(dom: &Dom, id: NodeIdx, parent_css: &ComputedStyle) -> Vec<InlineRun> {
+fn collect_runs(
+    dom: &Dom,
+    id: NodeIdx,
+    parent_css: &ComputedStyle,
+    ctx: &LayoutCtx,
+) -> Vec<InlineRun> {
     let mut runs = Vec::new();
     walk(
         dom,
+        ctx,
         id,
         parent_css.color.unwrap_or(0x000000FF),
         parent_css.text_transform,
@@ -2264,6 +2302,7 @@ fn collect_runs(dom: &Dom, id: NodeIdx, parent_css: &ComputedStyle) -> Vec<Inlin
 
     fn walk(
         dom: &Dom,
+        ctx: &LayoutCtx,
         id: NodeIdx,
         inherited_color: u32,
         inherited_tt: Option<crate::style::TextTransform>,
@@ -2276,7 +2315,14 @@ fn collect_runs(dom: &Dom, id: NodeIdx, parent_css: &ComputedStyle) -> Vec<Inlin
                     Some(tt) => tt.apply(t),
                     None => t.clone(),
                 };
-                out.push(InlineRun { text, color: inherited_color, bold: inherited_bold });
+                out.push(InlineRun {
+                    text,
+                    color: inherited_color,
+                    bold: inherited_bold,
+                    widget: None,
+                    ww: 0.0,
+                    wh: 0.0,
+                });
             }
             NodeKind::Element { tag } => {
                 // `<script>`/`<style>`/head-etc DENTRO de um contexto inline (um
@@ -2286,13 +2332,36 @@ fn collect_runs(dom: &Dom, id: NodeIdx, parent_css: &ComputedStyle) -> Vec<Inlin
                 if is_non_rendered_tag(tag) {
                     return;
                 }
+                // WIDGET inline: um `<input>` no meio do fluxo (botão/campo) vira
+                // um run-widget com o tamanho pré-medido — o wrap o trata como
+                // palavra inquebrável e a emissão pinta a caixa no lugar.
+                if is_text_input_tag(tag) {
+                    let itype = dom
+                        .node(id)
+                        .attr("type")
+                        .map(|t| t.to_ascii_lowercase())
+                        .unwrap_or_default();
+                    if itype == "hidden" {
+                        return;
+                    }
+                    let (ww, wh) = inline_widget_size(dom, id, &itype, ctx);
+                    out.push(InlineRun {
+                        text: String::new(),
+                        color: inherited_color,
+                        bold: false,
+                        widget: Some(id),
+                        ww,
+                        wh,
+                    });
+                    return;
+                }
                 // a cor/text-transform/peso DESTE inline (se declarar) vence p/ os filhos.
                 let css = dom.computed_style_idx(id);
                 let color = css.as_ref().and_then(|c| c.color).unwrap_or(inherited_color);
                 let tt = css.as_ref().and_then(|c| c.text_transform).or(inherited_tt);
                 let bold = css.as_ref().and_then(|c| c.bold).unwrap_or(inherited_bold);
                 for &c in &dom.node(id).children {
-                    walk(dom, c, color, tt, bold, out);
+                    walk(dom, ctx, c, color, tt, bold, out);
                 }
             }
             _ => {}
@@ -2300,11 +2369,32 @@ fn collect_runs(dom: &Dom, id: NodeIdx, parent_css: &ComputedStyle) -> Vec<Inlin
     }
 }
 
+/// Tamanho OUTER de um widget inline (`<input>`): o MESMO cálculo que a emissão
+/// usa (layout_button / layout_input), para o wrap reservar a largura exata.
+fn inline_widget_size(dom: &Dom, id: NodeIdx, itype: &str, ctx: &LayoutCtx) -> (f32, f32) {
+    let css = dom.computed_style_idx(id).unwrap_or_default();
+    if matches!(itype, "submit" | "button" | "reset") {
+        let font = font_px(&css, DEFAULT_FONT_SIZE - 3.0);
+        let label = dom.node(id).attr("value").unwrap_or("").to_string();
+        let tw = ctx.measurer.text_width(&label, font, false, false);
+        let lh = ctx.measurer.line_height(font);
+        return (tw + 24.0 + 6.0, lh + 10.0 + 4.0); // espelha layout_button
+    }
+    // campo de texto: content default 180 + frame aproximado (padding 4+4, borda 1+1).
+    let font = font_px(&css, DEFAULT_FONT_SIZE);
+    let lh = ctx.measurer.line_height(font);
+    (190.0, lh + 8.0)
+}
+
 /// Um segmento de texto colorido/pesado posicionado numa linha (após o wrap).
+/// `widget: Some(idx)` = um widget inline de `ww × wh` (pintado pela emissão).
 struct Segment {
     text: String,
     color: u32,
     bold: bool,
+    widget: Option<NodeIdx>,
+    ww: f32,
+    wh: f32,
 }
 
 /// Quebra uma sequência de RUNS coloridos em LINHAS por palavra (word-wrap), juntando
@@ -2330,6 +2420,28 @@ fn wrap_runs(
     let mut pending_space = false;
 
     for run in runs {
+        // WIDGET: uma "palavra" inquebrável de run.ww pontos, segmento próprio.
+        if let Some(w_idx) = run.widget {
+            let with_space = pending_space && !at_line_start;
+            let need = if with_space { space_w + run.ww } else { run.ww };
+            if !at_line_start && cur_w + need > max_w {
+                lines.push(std::mem::take(&mut cur));
+                cur_w = 0.0;
+                at_line_start = true;
+            }
+            cur.push(Segment {
+                text: String::new(),
+                color: run.color,
+                bold: false,
+                widget: Some(w_idx),
+                ww: run.ww,
+                wh: run.wh,
+            });
+            cur_w += if pending_space && !at_line_start { space_w + run.ww } else { run.ww };
+            at_line_start = false;
+            pending_space = false;
+            continue;
+        }
         // scanner ws/palavra preservando a fronteira original.
         let mut rest = run.text.as_str();
         while !rest.is_empty() {
@@ -2353,15 +2465,29 @@ fn wrap_runs(
             }
             let sep = pending_space && !at_line_start;
             let piece = if sep { format!(" {word}") } else { word.to_string() };
-            // junta no último segmento se mesma cor E peso, senão novo segmento.
+            // junta no último segmento se mesma cor E peso (e não-widget), senão novo.
             if let Some(last) = cur.last_mut() {
-                if last.color == run.color && last.bold == run.bold {
+                if last.widget.is_none() && last.color == run.color && last.bold == run.bold {
                     last.text.push_str(&piece);
                 } else {
-                    cur.push(Segment { text: piece, color: run.color, bold: run.bold });
+                    cur.push(Segment {
+                        text: piece,
+                        color: run.color,
+                        bold: run.bold,
+                        widget: None,
+                        ww: 0.0,
+                        wh: 0.0,
+                    });
                 }
             } else {
-                cur.push(Segment { text: piece, color: run.color, bold: run.bold });
+                cur.push(Segment {
+                    text: piece,
+                    color: run.color,
+                    bold: run.bold,
+                    widget: None,
+                    ww: 0.0,
+                    wh: 0.0,
+                });
             }
             cur_w += if sep { space_w + ww } else { ww };
             at_line_start = false;
@@ -2372,7 +2498,14 @@ fn wrap_runs(
         lines.push(cur);
     }
     if lines.is_empty() {
-        lines.push(vec![Segment { text: String::new(), color: 0, bold: false }]);
+        lines.push(vec![Segment {
+            text: String::new(),
+            color: 0,
+            bold: false,
+            widget: None,
+            ww: 0.0,
+            wh: 0.0,
+        }]);
     }
     lines
 }
