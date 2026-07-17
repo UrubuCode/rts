@@ -610,6 +610,16 @@ fn layout_block(
                 }
                 // sem pixels ainda (não baixou/decodificou): ocupa 0 (não pinta nada).
             }
+            // `<svg>` é um REPLACED element: não desenhamos o vetor, mas RESERVAMOS
+            // a caixa (dimensões do CSS width/height, dos atributos, ou da razão do
+            // `viewBox`) e pintamos um placeholder cinza — assim a estrutura da
+            // página fica correta mesmo sem o SVG (logo/ícones do google ocupam o
+            // espaço certo em vez de colapsar pra 0×0).
+            if tag == "svg" {
+                if let Some(r) = layout_svg_placeholder(dom, id, &css, x, y, avail_w, ctx, list) {
+                    return r;
+                }
+            }
             css
         }
         NodeKind::Text(t) => {
@@ -1145,6 +1155,11 @@ fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
             if tag == "img" && dom.image_of(id).is_some() {
                 return true;
             }
+            // `<svg>` é replaced: layout_svg_placeholder reserva a caixa (logo/
+            // ícones do google ocupam o espaço certo em vez de colapsar).
+            if tag == "svg" {
+                return true;
+            }
             let css = dom.computed_style_idx(id);
             css.as_ref().and_then(|c| c.effective_display()).is_some()
                 || crate::block::lookup(tag).is_some()
@@ -1230,6 +1245,70 @@ fn is_text_input_tag(tag: &str) -> bool {
 /// limitado à largura disponível, preservando a proporção). `None` se o `<img>` ainda
 /// não tem imagem setada (nada a pintar). Retorna `(outer_w, outer_h)`.
 #[allow(clippy::too_many_arguments)]
+/// Reserva a CAIXA de um `<svg>` (replaced element) sem desenhar o vetor: usa
+/// `width`/`height` do CSS ou dos atributos; se só um lado é dado e há `viewBox`,
+/// deriva o outro pela razão de aspecto; se nada, cai numa proporção do viewBox
+/// ou num tamanho default. Pinta um placeholder cinza-claro (a "caixa" do ícone/
+/// logo) no rect. `None` se não dá pra dimensionar (colapsa como antes).
+fn layout_svg_placeholder(
+    dom: &Dom,
+    id: NodeIdx,
+    css: &ComputedStyle,
+    x: f32,
+    y: f32,
+    avail_w: f32,
+    ctx: &LayoutCtx,
+    list: &mut DisplayList,
+) -> Option<(f32, f32)> {
+    let font = font_px(css, DEFAULT_FONT_SIZE);
+    let resolve = ResolveCtx {
+        parent_content_w: avail_w,
+        node_font_size: font,
+        root_font_size: DEFAULT_FONT_SIZE,
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+    let node = dom.node(id);
+    let attr_px = |name: &str| -> Option<f32> {
+        node.attr(name).and_then(|v| {
+            let v = v.trim().trim_end_matches("px");
+            v.parse::<f32>().ok().filter(|n| *n > 0.0)
+        })
+    };
+    // razão de aspecto do viewBox ("0 0 W H" → W/H).
+    let vb_ratio = node.attr("viewBox").and_then(|vb| {
+        let n: Vec<f32> = vb.split_whitespace().filter_map(|s| s.parse().ok()).collect();
+        if n.len() == 4 && n[3] > 0.0 { Some(n[2] / n[3]) } else { None }
+    });
+    let css_w = css.width.and_then(|d| d.resolve(&resolve)).filter(|w| *w > 0.0);
+    let css_h = css.height.and_then(|d| resolve_height(Some(d), None, &resolve)).filter(|h| *h > 0.0);
+    let w0 = css_w.or_else(|| attr_px("width"));
+    let h0 = css_h.or_else(|| attr_px("height"));
+    // resolve (w, h): ambos dados usa-os; só um + viewBox deriva o outro; nada →
+    // um ícone default (24×24) ou o viewBox escalado a 24 de altura.
+    let (w, h) = match (w0, h0) {
+        (Some(w), Some(h)) => (w, h),
+        (Some(w), None) => (w, vb_ratio.map(|r| w / r).unwrap_or(w)),
+        (None, Some(h)) => (vb_ratio.map(|r| h * r).unwrap_or(h), h),
+        (None, None) => {
+            let h = 24.0;
+            (vb_ratio.map(|r| h * r).unwrap_or(h), h)
+        }
+    };
+    let w = w.min(avail_w.max(1.0));
+    if w <= 0.0 || h <= 0.0 {
+        return None;
+    }
+    // placeholder cinza-claro (a caixa do ícone) — só quando não é minúsculo demais.
+    list.items.push(DisplayItem::SolidRect {
+        rect: Rect::new(x, y, w, h),
+        color: 0xE8EAEDFF,
+        radius: 2.0,
+    });
+    list.node_rects.insert(id, Rect::new(x, y, w, h));
+    Some((w, h))
+}
+
 fn layout_image(
     dom: &Dom,
     id: NodeIdx,
@@ -3302,6 +3381,23 @@ mod tests {
         // "y" à direita → x ≈ 400-8 = 392.
         let rx = texts.iter().find(|(t, _)| t == "y").unwrap().1;
         assert!((rx - 392.0).abs() < 2.0, "right: {rx}");
+    }
+
+    #[test]
+    fn svg_reserva_a_caixa() {
+        // um `<svg>` reserva a caixa (width/height do atributo, ou razão do
+        // viewBox) mesmo sem desenhar o vetor — o logo/ícones ocupam o espaço.
+        let dom = parse_html_to_dom(
+            "<div><svg id=logo width=272 height=92 viewBox='0 0 272 92'></svg></div>\
+             <svg id=ico width=24 height=24></svg>",
+        );
+        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let r = |sel: &str| list.node_rects[&dom.resolve(dom.query(sel).unwrap()).unwrap()];
+        let logo = r("#logo");
+        assert!((logo.w - 272.0).abs() < 1.0 && (logo.h - 92.0).abs() < 1.0, "logo: {}x{}", logo.w, logo.h);
+        let ico = r("#ico");
+        assert!((ico.w - 24.0).abs() < 1.0 && (ico.h - 24.0).abs() < 1.0, "ico: {}x{}", ico.w, ico.h);
     }
 
     #[test]
