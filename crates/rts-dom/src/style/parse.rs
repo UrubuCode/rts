@@ -264,6 +264,14 @@ fn parse_dimension(v: &str) -> Option<Dimension> {
     if let Some(n) = low.strip_suffix('%').and_then(num) {
         return Some(Dimension::Percent(n.clamp(0.0, 100.0)));
     }
+    // `pt` (pontos de impressão) e `pc` (paica) — absolutos, comuns em páginas
+    // legadas (o rodapé do google usa `font-size:10pt`). 1pt = 4/3 px; 1pc = 16px.
+    if let Some(n) = low.strip_suffix("pt").and_then(num) {
+        return Some(Dimension::Px(n * 4.0 / 3.0));
+    }
+    if let Some(n) = low.strip_suffix("pc").and_then(num) {
+        return Some(Dimension::Px(n * 16.0));
+    }
     // px explícito ou número puro.
     num(low.strip_suffix("px").unwrap_or(&low)).map(Dimension::Px)
 }
