@@ -1,0 +1,44 @@
+<style>
+  .stage {
+    width: 640px; height: 480px; position: relative;
+    background: linear-gradient(160deg, #0b1020, #131a30);
+    border-radius: 14px; box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+    margin: 20px auto;
+  }
+  .hud {
+    width: 640px; margin: 0 auto; color: #cdd6f4;
+    font-size: 18px;
+  }
+  .hud .score { color: #f9e2af; font-weight: bold; }
+  .hud .lives { color: #f38ba8; font-weight: bold; }
+  .paddle {
+    position: absolute; height: 16px; border-radius: 8px;
+    background: linear-gradient(90deg, #89b4fa, #b4befe);
+    box-shadow: 0 3px 10px rgba(137,180,250,0.5);
+  }
+  .ball {
+    position: absolute; width: 16px; height: 16px; border-radius: 50%;
+    background: #f9e2af; box-shadow: 0 0 12px #f9e2af;
+  }
+  .brick {
+    position: absolute; height: 22px; border-radius: 5px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+  }
+  .msg {
+    position: absolute; width: 640px; text-align: center; top: 200px;
+    color: #ffffff; font-size: 34px; font-weight: bold;
+  }
+  .msg .sub { font-size: 16px; color: #a6adc8; }
+</style>
+<div class="hud">
+  <span>Pontos: <span class="score" id="score">0</span></span>
+  &nbsp;&nbsp;&nbsp;
+  <span>Vidas: <span class="lives" id="lives">3</span></span>
+  &nbsp;&nbsp;&nbsp;
+  <span id="status">← → move a raquete · ESPAÇO lança</span>
+</div>
+<div class="stage" id="stage">
+  <div class="paddle" id="paddle"></div>
+  <div class="ball" id="ball"></div>
+  <div class="msg" id="msg"></div>
+</div>
