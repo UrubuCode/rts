@@ -439,6 +439,7 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_THEN(p_handle: U64, fp: U64) -> Handle {
             bound,
             value,
             fulfilled,
+            promise_slot::value_is_word(&arc),
             result_clone,
         );
         return result_handle;
@@ -785,12 +786,15 @@ fn create_spawn(
         } else if let Some(word) = take_engine_pending_error() {
             promise_slot::reject(&result_clone, word as i64);
         } else {
+            let boxed = boxer.is_some();
             let r = match boxer {
                 Some(b) => b(fn_ptr, r),
                 None => r,
             };
             // Promise/A+: an async body returning a thenable/promise ADOPTS it.
-            resolve_assimilating(&result_clone, handle, r);
+            // Com boxer, `r` já é WORD (box_async_result) — o slot registra a
+            // proveniência p/ a entrega ao then não re-adivinhar o tipo.
+            resolve_assimilating_word(&result_clone, handle, r, boxed);
         }
         PENDING_PROMISE_TASKS.fetch_sub(1, Ordering::AcqRel);
     });
@@ -1248,6 +1252,19 @@ pub(crate) fn resolve_assimilating(
     promise_h: u64,
     value: i64,
 ) {
+    resolve_assimilating_word(arc, promise_h, value, false)
+}
+
+/// Variante com a PROVENIÊNCIA do valor: `value_is_word = true` quando `value`
+/// já é WORD PolyValue (o settle do async-spawn boxa via `box_async_result`) —
+/// o slot marca isso e a entrega ao callback de then/catch/finally NÃO
+/// re-adivinha o tipo pela ponte raw (que corrompia words de double inline).
+pub(crate) fn resolve_assimilating_word(
+    arc: &std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
+    promise_h: u64,
+    value: i64,
+    value_is_word: bool,
+) {
     // A PROMISE value (an async callback returning `Promise.resolve(x)` /
     // another chain): ADOPT its state directly — fulfil/reject through, or
     // chain a pending source via the microtask queue (fn_ptr 0 = pass-through).
@@ -1260,7 +1277,7 @@ pub(crate) fn resolve_assimilating(
         match promise_slot::current_state(&src) {
             promise_slot::STATE_FULFILLED => {
                 let inner = promise_slot::current_value(&src);
-                resolve_assimilating(arc, promise_h, inner);
+                resolve_assimilating_word(arc, promise_h, inner, promise_slot::value_is_word(&src));
             }
             promise_slot::STATE_REJECTED => {
                 promise_slot::reject(arc, promise_slot::current_value(&src));
@@ -1279,7 +1296,11 @@ pub(crate) fn resolve_assimilating(
     }
     let then_w = promise_slot::thenable_then_of(value);
     if then_w == 0 {
-        promise_slot::resolve(arc, value);
+        if value_is_word {
+            promise_slot::resolve_word(arc, value);
+        } else {
+            promise_slot::resolve(arc, value);
+        }
         return;
     }
     let res_w = settle_callable_word(promise_h, 0);

@@ -881,6 +881,13 @@ pub struct PromiseSlot {
     /// .finally/await/combinador) foi anexado a esta promise. Uma rejection com
     /// `handled == false` no fim do event loop é reportada como unhandled.
     pub handled: std::sync::atomic::AtomicBool,
+    /// `true` quando `value` é uma WORD PolyValue (o settle do async-spawn do
+    /// motor novo boxa via `box_async_result` — o valor é word SEMPRE). A
+    /// entrega ao callback de then/catch/finally usa isto para NÃO re-adivinhar
+    /// o tipo (`raw_to_word` corrompia uma word de double inline — os bits ≥2^48
+    /// viravam `f64::to_bits(bits as f64)`). `false` = valor CRU da superfície
+    /// i64 legada (a ponte decodifica como antes).
+    pub value_is_word: std::sync::atomic::AtomicBool,
 }
 
 impl std::fmt::Debug for PromiseSlot {

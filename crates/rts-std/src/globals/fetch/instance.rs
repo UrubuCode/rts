@@ -318,7 +318,8 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_THEN2(promise_h: u64, on_ful: u64, on_rej:
                         fp,
                         Vec::new(),
                         value,
-                        true, // sempre invoca callback como "resolved" para
+                        true,
+                        crate::promise_slot::value_is_word(&arc), // sempre invoca callback como "resolved" para
                         // que o retorno vire resolve(result). Reject
                         // path do on_rej tambem segue spec: callback
                         // de catch recupera, resultado eh resolved.

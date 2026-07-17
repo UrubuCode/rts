@@ -997,9 +997,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .get(name)
             .ok_or_else(|| Unsupported::new(format!("reify of unknown function `{name}`")))?;
         if sig.is_async {
-            return unsupported!(
-                "async/generator function `{name}` as a VALUE (it returns a Promise / suspends — a later increment)"
-            );
+            // Um async fn com shape suportado REIFICA: seu thunk uniforme faz o
+            // spawn no invoke (thunk.rs — replica o call-site spawn) e devolve a
+            // Promise pendente boxada, o contrato JS de chamar um async fn.
+            // Shapes fora do contrato do spawn (this/rest/>8 params) continuam
+            // recusando (o thunk deles ainda é o inline legado).
+            let spawn_ok =
+                !sig.has_this && sig.rest_param.is_none() && sig.params.len() <= 8;
+            if !spawn_ok {
+                return unsupported!(
+                    "async/generator function `{name}` as a VALUE (it returns a Promise / suspends — a later increment)"
+                );
+            }
         }
         // A this-first function IS reifiable now: it reifies through
         // `__rtsadp_fn_reify_this` (FunctionData.has_this_param), the METHOD-aware

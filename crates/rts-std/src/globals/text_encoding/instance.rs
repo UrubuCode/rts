@@ -319,6 +319,9 @@ pub(crate) enum Microtask {
         bound: Vec<i64>,
         value: i64,
         fulfilled: bool,
+        /// `true` quando `value` e WORD PolyValue (settle do async-spawn) - a
+        /// entrega NAO re-adivinha o tipo pela ponte raw.
+        value_is_word: bool,
         result_slot: std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
     },
     /// promise.finally(fp) fast-path: invoca fp() sem args, preserva state/value
@@ -399,6 +402,7 @@ pub fn enqueue_microtask_settled(
     bound: Vec<i64>,
     value: i64,
     fulfilled: bool,
+    value_is_word: bool,
     result_slot: std::sync::Arc<rts_engine::heap::handles::PromiseSlot>,
 ) {
     MICROTASK_QUEUE.with(|q| {
@@ -407,6 +411,7 @@ pub fn enqueue_microtask_settled(
             bound,
             value,
             fulfilled,
+            value_is_word,
             result_slot,
         })
     });
@@ -634,8 +639,9 @@ pub fn drain_microtasks() {
                             let fulfilled = st == promise_slot::STATE_FULFILLED;
                             let runs = if is_catch { !fulfilled } else { fulfilled };
                             if runs && fn_ptr != 0 {
+                                let w = promise_slot::value_is_word(&source);
                                 let r = unsafe {
-                                    invoke_microtask_callback(fn_ptr, &bound, Some(value))
+                                    invoke_microtask_callback_w(fn_ptr, &bound, Some(value), w)
                                 };
                                 crate::promise::resolve_adopting(&result_slot, r);
                             } else if fulfilled {
@@ -675,7 +681,10 @@ pub fn drain_microtasks() {
                             let fulfilled = st == promise_slot::STATE_FULFILLED;
                             let cb = if fulfilled { on_ful } else { on_rej };
                             if cb != 0 {
-                                let r = unsafe { invoke_microtask_callback(cb, &[], Some(value)) };
+                                let w = promise_slot::value_is_word(&source);
+                                let r = unsafe {
+                                    invoke_microtask_callback_w(cb, &[], Some(value), w)
+                                };
                                 crate::promise::resolve_adopting(&result_slot, r);
                             } else if fulfilled {
                                 promise_slot::resolve(&result_slot, value);
@@ -752,14 +761,16 @@ pub fn drain_microtasks() {
                     bound,
                     value,
                     fulfilled,
+                    value_is_word,
                     result_slot,
                 } => {
                     if fulfilled {
                         if fn_ptr == 0 {
                             promise_slot::resolve(&result_slot, value);
                         } else {
-                            let r =
-                                unsafe { invoke_microtask_callback(fn_ptr, &bound, Some(value)) };
+                            let r = unsafe {
+                                invoke_microtask_callback_w(fn_ptr, &bound, Some(value), value_is_word)
+                            };
                             crate::promise::resolve_adopting(&result_slot, r);
                         }
                     } else {
@@ -810,8 +821,10 @@ pub fn drain_microtasks() {
                         // .then: roda no fulfilled; .catch: roda no rejected.
                         let runs = if is_catch { !fulfilled } else { fulfilled };
                         if runs && fn_ptr != 0 {
-                            let r =
-                                unsafe { invoke_microtask_callback(fn_ptr, &bound, Some(value)) };
+                            let w = promise_slot::value_is_word(&source);
+                            let r = unsafe {
+                                invoke_microtask_callback_w(fn_ptr, &bound, Some(value), w)
+                            };
                             crate::promise::resolve_adopting(&result_slot, r);
                         } else if fulfilled {
                             promise_slot::resolve(&result_slot, value);
@@ -871,7 +884,10 @@ pub fn drain_microtasks() {
                         if cb != 0 {
                             // .then(f) sucesso e .catch(g)/onRej recuperam:
                             // result resolved com o retorno do callback.
-                            let r = unsafe { invoke_microtask_callback(cb, &[], Some(value)) };
+                            let w = promise_slot::value_is_word(&source);
+                            let r = unsafe {
+                                invoke_microtask_callback_w(cb, &[], Some(value), w)
+                            };
                             crate::promise::resolve_adopting(&result_slot, r);
                         } else if fulfilled {
                             promise_slot::resolve(&result_slot, value);
@@ -924,6 +940,25 @@ pub fn drain_microtasks() {
 /// invoke_typed com os param_kinds reais (e normaliza args number-cru), ou
 /// invoke_n quando a fn é toda-i64 (idêntico ao transmute de antes).
 unsafe fn invoke_microtask_callback(fn_ptr: u64, bound: &[i64], extra: Option<i64>) -> i64 {
+    unsafe { invoke_microtask_callback_w(fn_ptr, bound, extra, false) }
+}
+
+/// Variante com a PROVENIENCIA do settled: `extra_is_word = true` quando o
+/// valor settled JA e WORD PolyValue (async-spawn) - invoca pela ponte com
+/// `args_are_words=true` (sem re-adivinhar o tipo; `raw_to_word` corrompia
+/// words de double inline). So quando `bound` e vazio (as pontes convertem
+/// TODOS os args por um flag so); com bound presente, mantem o caminho raw.
+unsafe fn invoke_microtask_callback_w(
+    fn_ptr: u64,
+    bound: &[i64],
+    extra: Option<i64>,
+    extra_is_word: bool,
+) -> i64 {
+    if extra_is_word && bound.is_empty() {
+        if let Some(v) = extra {
+            return rts_primitives::function::ops::invoke_callable_bridged(fn_ptr, &[v], true);
+        }
+    }
     let mut args: Vec<i64> = bound.to_vec();
     if let Some(v) = extra {
         args.push(v);
