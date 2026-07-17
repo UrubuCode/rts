@@ -66,6 +66,14 @@ fn map_get_headers(map_h: u64) -> Vec<(String, String)> {
 }
 
 fn do_fetch(url: &str, opts_h: u64) -> u64 {
+    do_fetch_ua(url, opts_h, false)
+}
+
+/// `browser_mode = true`: identifica-se como Chrome (UA + Accept/Accept-Language)
+/// para o servidor entregar a página humana completa (o caminho do mini-browser
+/// `fetchText`/`fetchTextAsync`). `false`: identidade RTS honesta (o `fetch()`
+/// de API). Headers explícitos em `opts.headers` vencem em ambos.
+fn do_fetch_ua(url: &str, opts_h: u64, browser_mode: bool) -> u64 {
     // Read options from Map handle (opts_h == 0 means no options → GET)
     let method = if opts_h != 0 {
         map_get_str(opts_h, "method")
@@ -83,9 +91,16 @@ fn do_fetch(url: &str, opts_h: u64) -> u64 {
 
     let mut req = ureq::request(&method, url);
 
-    // Browser-style default UA (`Rts v<version>` / `Rts development`); an
-    // explicit `headers: { "User-Agent": … }` below overrides it.
-    req = req.set("User-Agent", super::default_user_agent());
+    // UA: navegador (mini-browser) ou identidade RTS (fetch de API). Um
+    // `headers: { "User-Agent": … }` explícito nas opts vence (setado abaixo).
+    if browser_mode {
+        req = req.set("User-Agent", super::browser_user_agent());
+        for (k, v) in super::browser_headers() {
+            req = req.set(k, v);
+        }
+    } else {
+        req = req.set("User-Agent", super::default_user_agent());
+    }
 
     // headers from opts.headers map
     if opts_h != 0 {
@@ -183,7 +198,7 @@ pub extern "C" fn __RTS_FN_GL_FETCH(url_ptr: i64, url_len: i64, opts_h: u64) -> 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_TEXT(url_ptr: i64, url_len: i64) -> u64 {
     let url = str_from_parts(url_ptr, url_len);
-    let resp_h = do_fetch(url, 0);
+    let resp_h = do_fetch_ua(url, 0, true);
     let body = with_response(resp_h, |r| r.body.clone()).unwrap_or_default();
     alloc_entry(Entry::String(body))
 }
@@ -218,7 +233,7 @@ pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_TEXT_ASYNC(url_ptr: i64, url_len: i64)
     async_fetches().lock().unwrap().insert(ticket, None); // pendente
     std::thread::spawn(move || {
         // download síncrono NA THREAD (a UI segue livre).
-        let resp_h = do_fetch(&url, 0);
+        let resp_h = do_fetch_ua(&url, 0, true);
         let body = with_response(resp_h, |r| r.body.clone()).unwrap_or_default();
         free_handle(resp_h); // a Response já foi consumida.
         let s = String::from_utf8_lossy(&body).into_owned();
@@ -252,7 +267,10 @@ pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_TAKE(ticket: u64) -> u64 {
 
 /// GET binário síncrono → Vec<u8> cru (preserva os bytes, sem UTF-8).
 fn do_fetch_bytes(url: &str) -> Vec<u8> {
-    let req = ureq::request("GET", url).set("User-Agent", super::default_user_agent());
+    let mut req = ureq::request("GET", url).set("User-Agent", super::browser_user_agent());
+    for (k, v) in super::browser_headers() {
+        req = req.set(k, v);
+    }
     match req.call() {
         Ok(resp) | Err(ureq::Error::Status(_, resp)) => {
             let mut buf = Vec::new();
