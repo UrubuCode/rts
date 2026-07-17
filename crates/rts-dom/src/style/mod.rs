@@ -53,7 +53,7 @@ pub use parse::{is_mono_family, parse_inline, parse_inline_block};
 pub use props::{
     define_style, lookup_style, ComputedStyle, SLOT_BG, SLOT_BORDER_COLOR, SLOT_BORDER_WIDTH,
     SLOT_COLOR, SLOT_CORNER_RADIUS, SLOT_FONT_SIZE, SLOT_MARGIN, SLOT_MARGIN_V, SLOT_PADDING,
-    SLOT_WIDTH,
+    SLOT_TEXT_ALIGN, SLOT_WIDTH,
 };
 pub use selector::{
     compound_matches, parse_selector, parse_selector_list, AttrOp, Combinator, ComplexSelector,

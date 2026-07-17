@@ -537,6 +537,21 @@ fn layout_block(
             // "conteúdo" é o texto do value/placeholder + cursor. Caminho próprio,
             // fora do fluxo de bloco genérico (que desceria em filhos inexistentes).
             if is_text_input_tag(tag) {
+                let itype = dom
+                    .node(id)
+                    .attr("type")
+                    .map(|t| t.to_ascii_lowercase())
+                    .unwrap_or_default();
+                // `type=hidden`: invisível e sem espaço (o form legado do google
+                // tem 5 — viravam caixas de texto fantasmas).
+                if itype == "hidden" {
+                    return (0.0, 0.0);
+                }
+                // `type=submit/button/reset`: BOTÃO — caixa cinza UA com o value
+                // como rótulo (não editável). O suficiente p/ o "Pesquisa Google".
+                if matches!(itype.as_str(), "submit" | "button" | "reset") {
+                    return layout_button(dom, id, &css, x, y, ctx, list);
+                }
                 return layout_input(dom, id, &css, x, y, avail_w, forced_outer_w, ctx, list);
             }
             // `<img>` com pixels decodificados: emite a imagem no rect (tamanho do CSS
@@ -1206,6 +1221,53 @@ fn layout_image(
         img_h: ih,
     });
     Some((w + margin_left + margin_right, h + margin_top + margin_bottom))
+}
+
+/// Layout de um `<input type=submit/button/reset>`: BOTÃO estilo UA — caixa
+/// cinza-clara com borda e o `value` como rótulo (shrink-to-fit no texto). O CSS
+/// do autor (bg/cor/padding) vence os defaults. Não editável, não focável (v1).
+fn layout_button(
+    dom: &Dom,
+    id: NodeIdx,
+    css: &ComputedStyle,
+    x: f32,
+    y: f32,
+    ctx: &LayoutCtx,
+    list: &mut DisplayList,
+) -> (f32, f32) {
+    let font = font_px(css, DEFAULT_FONT_SIZE - 3.0);
+    let label = dom.node(id).attr("value").unwrap_or("").to_string();
+    let tw = ctx.measurer.text_width(&label, font, false, false);
+    let lh = ctx.measurer.line_height(font);
+    let (pad_h, pad_v) = (12.0, 5.0);
+    let w = tw + 2.0 * pad_h;
+    let h = lh + 2.0 * pad_v;
+    let bg = css.bg.unwrap_or(0xF8F9FAFF); // cinza-claro UA (o do botão do google)
+    let fg = css.color.unwrap_or(0x3C4043FF);
+    list.items.push(DisplayItem::SolidRect {
+        rect: Rect::new(x, y, w, h),
+        color: bg,
+        radius: css.corner_radius.unwrap_or(4.0),
+    });
+    list.items.push(DisplayItem::Border {
+        rect: Rect::new(x, y, w, h),
+        width: css.border_width.unwrap_or(1.0),
+        color: css.border_color.unwrap_or(0xDADCE0FF),
+        radius: css.corner_radius.unwrap_or(4.0),
+    });
+    list.items.push(DisplayItem::Text {
+        x: x + pad_h,
+        y: y + pad_v,
+        text: label,
+        color: fg,
+        size: font,
+        mono: false,
+        bold: false,
+        letter_spacing: 0.0,
+        decoration: 0,
+    });
+    list.node_rects.insert(id, Rect::new(x, y, w, h));
+    (w + 6.0, h + 4.0) // margenzinha UA entre botões
 }
 
 fn layout_input(
