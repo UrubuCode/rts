@@ -25,6 +25,33 @@ pub fn default_user_agent() -> &'static str {
     }
 }
 
+/// User-Agent de NAVEGADOR — usado pelo caminho do mini-browser (`fetchText`/
+/// `fetchTextAsync`/`fetchBytes`), NÃO pelo `fetch()` genérico de API. Muitos
+/// sites (google, cloudflare, etc.) servem HTML DIFERENTE por User-Agent: com
+/// um UA de bot vem uma página legada/degradada; com UA de Chrome vem a página
+/// moderna com todo o CSS inline. Como o RTS-browser É um browser, ele se
+/// identifica como um. Emparelhado com `browser_headers` (Accept/Accept-Language)
+/// que alguns servidores também exigem para servir o conteúdo completo.
+pub fn browser_user_agent() -> &'static str {
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
+     (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+}
+
+/// Os cabeçalhos que um navegador manda além do User-Agent — `Accept`
+/// (prioriza HTML), `Accept-Language`. Aplicados no caminho do browser para o
+/// servidor entregar a página humana completa. (`Accept-Encoding` fica de fora:
+/// o ureq não descomprime brotli e pediríamos algo que não sabemos ler.)
+pub fn browser_headers() -> &'static [(&'static str, &'static str)] {
+    &[
+        (
+            "Accept",
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,\
+             image/webp,image/apng,*/*;q=0.8",
+        ),
+        ("Accept-Language", "pt-BR,pt;q=0.9,en;q=0.8"),
+    ]
+}
+
 /// Membro hand-written (espelha `leak`/`leak_class` da macro). `fn_ptr` é null
 /// para membros `external` (codegen resolve pelo `symbol`).
 #[allow(clippy::too_many_arguments)]
