@@ -100,12 +100,36 @@ function extractSite(rawHtml: string, pageUrl: string): string {
     }
     j = j + 1;
   }
-  // 3) innerHTML do body.
+  // 3) <script> INLINE (head+body): preserva o fonte para o runScripts executar
+  //    depois do parse da página montada. <script src> é logado mas não baixado
+  //    (o JS externo de sites grandes é minificado além do subset — baixar
+  //    megabytes que vão bailar não vale o tempo de load; o inline roda).
+  let scripts = "";
+  const scc = dom.querySelectorAllCount(site, "script");
+  let k = 0;
+  let inlineCount = 0;
+  while (k < scc) {
+    const s = dom.querySelectorAllAt(site, "script", k);
+    const src = dom.getAttribute(site, s, "src");
+    const stype = dom.getAttribute(site, s, "type");
+    const isJs = stype.length === 0 || stype === "text/javascript" || stype === "module";
+    if (src.length > 0) {
+      io.print("[js] externo (nao baixado): " + src);
+    } else if (isJs) {
+      const code = dom.getText(site, s);
+      if (code.length > 0) {
+        scripts = scripts + "<script>" + code + "</script>";
+        inlineCount = inlineCount + 1;
+      }
+    }
+    k = k + 1;
+  }
+  // 4) innerHTML do body.
   const body = dom.querySelector(site, "body");
   const inner = body >= 0 ? dom.innerHtml(site, body) : rawHtml;
-  io.print("[site] styles_inline=" + sc + " css_baixados=" + cssCount + " body=" + inner.length + "B");
+  io.print("[site] styles_inline=" + sc + " css_baixados=" + cssCount + " scripts_inline=" + inlineCount + " body=" + inner.length + "B");
   dom.free(site);
-  return styles + inner;
+  return styles + inner + scripts;
 }
 
 // Percorre os <img> do doc já montado, baixa cada src (binário) + decodifica +
@@ -240,6 +264,9 @@ function loadingPage(cur: i64, val: string): number {
 // Abre na HOME (instantânea).
 io.print("[boot] home instantânea (digite uma URL e Enter)");
 d = localPage(d, "home");
+// Fachada Document sobre o handle corrente — o runScripts/pumpEventCallbacks
+// do prelude falam a fachada. Recriada a cada navegação (d muda).
+let docF = new Document(d);
 io.print("[boot] urlbar node=" + urlInput(d) + " inputs=" + dom.querySelectorAllCount(d, "input") + " val='" + dom.inputValue(d, urlInput(d)) + "'");
 
 let frame = 0;
@@ -263,6 +290,12 @@ while (egui.isOpen(win) !== 0) {
       dom.focusInput(d, urlInput(d));
       // baixa + decodifica as imagens do site (aparecem no render).
       if (raw.length > 0) loadImages(d, normalize(pendingUrl));
+      // EXECUTA os <script> inline da página (in-process, com `document`
+      // apontando pra este DOM). Script que não compila no subset é isolado
+      // (loga o erro e segue — como o console do browser).
+      docF = new Document(d);
+      const njs = runScripts(docF);
+      io.print("[js] scripts executados: " + njs);
     } else if (st < 0) {
       pendingTicket = 0; // ticket inválido: aborta
     }
@@ -320,9 +353,12 @@ while (egui.isOpen(win) !== 0) {
         io.print("GET (async) " + url);
         pendingTicket = fetchNs.fetchTextAsync(url);
         d = loadingPage(d, val);
+        docF = new Document(d);
       } else {
-        // página local (instantânea).
+        // página local (instantânea) — roda os <script> dela também.
         d = localPage(d, val);
+        docF = new Document(d);
+        runScripts(docF);
       }
     }
   }
@@ -330,6 +366,9 @@ while (egui.isOpen(win) !== 0) {
   egui.beginFrame(win);
   egui.render(win, d);
   egui.endFrame(win);
+  // Entrega os cliques do frame aos addEventListener registrados pelos <script>
+  // da página (hit-test do render → fila crua → callbacks, PRs #1884/#1885).
+  pumpEventCallbacks(docF);
 }
 
 dom.free(d);

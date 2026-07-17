@@ -2216,7 +2216,14 @@ fn collect_runs(dom: &Dom, id: NodeIdx, parent_css: &ComputedStyle) -> Vec<Inlin
                 };
                 out.push(InlineRun { text, color: inherited_color, bold: inherited_bold });
             }
-            NodeKind::Element { .. } => {
+            NodeKind::Element { tag } => {
+                // `<script>`/`<style>`/head-etc DENTRO de um contexto inline (um
+                // script dentro de <td>/<center> — google.com faz isso): o texto
+                // cru NÃO é conteúdo renderável — sem este skip, o código JS era
+                // PINTADO na página.
+                if is_non_rendered_tag(tag) {
+                    return;
+                }
                 // a cor/text-transform/peso DESTE inline (se declarar) vence p/ os filhos.
                 let css = dom.computed_style_idx(id);
                 let color = css.as_ref().and_then(|c| c.color).unwrap_or(inherited_color);
@@ -2351,6 +2358,9 @@ fn collect_text(dom: &Dom, id: NodeIdx) -> String {
     fn collect_into(dom: &Dom, id: NodeIdx, out: &mut String) {
         match &dom.node(id).kind {
             NodeKind::Text(t) => out.push_str(t),
+            // `<script>`/`<style>` não são conteúdo renderável — o texto cru
+            // deles não entra no texto pintado (mesmo skip do collect_runs).
+            NodeKind::Element { tag } if is_non_rendered_tag(tag) => {}
             _ => {
                 for &c in &dom.node(id).children {
                     collect_into(dom, c, out);
