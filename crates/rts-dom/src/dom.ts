@@ -780,10 +780,10 @@ function __readResource(url: string): string {
   return fs.read_text(path);
 }
 
-// fetch síncrono de texto (o caminho sync do runtime; sem await).
+// fetch síncrono de texto (`rts:fetch`.fetchText — HTTP GET via ureq+TLS, o mesmo
+// caminho do mini-browser). "" em erro (a convenção tolerante do __readResource).
 function __fetchText(url: string): string {
-  // TEMP: fetch global ainda não resolvido no motor novo — stub.
-  return "";
+  return fetch.fetchText(url);
 }
 
 // Expande os `@import url(...)` / `@import "..."` de um CSS, INLINE e recursivamente.
@@ -897,15 +897,16 @@ function __includes(arr: string[], v: string): boolean {
 // `baseUrl` é o diretório/URL do documento, para resolver href/src relativos ("" se
 // não tiver — aí só absolutos carregam). Devolve quantos recursos foram carregados.
 //
-// ORIGEM hoje: arquivo LOCAL (`fs.read_text`) funciona. `http(s)://` está pronto no
-// código mas inerte: o `fetch` global ainda não resolve no motor novo (__fetchText
-// devolve "" até lá). Ambos os bloqueios (fetch global, eval in-process) são de
-// motor, não desta camada — quando ligarem, só __fetchText/__loadScriptAt mudam.
+// ORIGEM: arquivo LOCAL (`fs.read_text`) e `http(s)://` REAL (`fetch.fetchText`,
+// namespace rts:fetch — HTTP GET síncrono via ureq+TLS, o mesmo do mini-browser).
+// Um <link> pra CDN baixa o CSS de verdade. A execução dos <script> é a fase
+// seguinte, `runScripts(doc)`.
 // NOTA (motor): sem `continue` (ver `__trimEnd`); o corpo de cada item é uma função
 // auxiliar (`__loadLinkAt`/`__loadScriptAt`) que devolve 1 (carregou) ou 0, e o laço
 // só soma — assim a guarda-cláusula vira `return 0` na helper, não `continue`.
 function loadResources(doc: Document, baseUrl: string): number {
-  const h = doc._dom;
+  // `: i64` — handle via param `number` corrompe (fcvt vs bitcast, #1870).
+  const h: i64 = doc._dom;
   let loaded = 0;
 
   // 1) <link rel="stylesheet" href> — usa getByTag (independe do parser de seletor).
@@ -929,7 +930,7 @@ function loadResources(doc: Document, baseUrl: string): number {
 }
 
 // Carrega o i-ésimo `<link>` se for uma folha de estilo com `href`. Devolve 1/0.
-function __loadLinkAt(h: number, i: number, baseUrl: string): number {
+function __loadLinkAt(h: i64, i: number, baseUrl: string): number {
   const node = dom.getByTagAt(h, "link", i);
   if (node === __DOM_NONE) return 0;
   const rel = dom.getAttribute(h, node, "rel").toLowerCase();
@@ -949,7 +950,7 @@ function __loadLinkAt(h: number, i: number, baseUrl: string): number {
 // `<script>` (fica acessível via `el.textContent`), via `dom.runScript`. Devolve 1/0.
 // Carregar ≠ executar: a execução é a fase seguinte, `runScripts(doc)` (abaixo),
 // que compila cada `<script>` in-process via `new Function` (o eval do motor novo).
-function __loadScriptAt(h: number, j: number, baseUrl: string): number {
+function __loadScriptAt(h: i64, j: number, baseUrl: string): number {
   const node = dom.getByTagAt(h, "script", j);
   if (node === __DOM_NONE) return 0;
   const src = dom.getAttribute(h, node, "src");
