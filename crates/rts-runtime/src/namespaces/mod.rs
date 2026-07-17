@@ -99,4 +99,5 @@ pub use rts_std::sync;
 pub use rts_std::test;
 pub use rts_std::thread;
 pub use rts_std::tls;
+pub use rts_std::ws;
 pub use rts_std::time;

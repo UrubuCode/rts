@@ -18,6 +18,7 @@ pub mod atomic;
 pub mod ffi;
 pub mod fs;
 pub mod tls;
+pub mod ws;
 pub mod thread;
 pub mod http_server;
 pub mod events;
