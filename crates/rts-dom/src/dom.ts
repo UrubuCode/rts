@@ -1023,6 +1023,14 @@ function runScripts(doc: Document): number {
 function __runScriptAt(h: i64, j: number): number {
   const node = dom.getByTagAt(h, "script", j);
   if (node === __DOM_NONE) return 0;
+  // Só executa JAVASCRIPT: `type` vazio/`text|application/javascript`/`module`.
+  // `type="application/json"` (dados de config — o WhatsApp/Meta usa MUITO) e
+  // outros tipos NÃO são código; executá-los gerava `syntax error` em massa.
+  const st = dom.getAttribute(h, node, "type").toLowerCase();
+  const isJs = st.length === 0 || st === "text/javascript"
+    || st === "application/javascript" || st === "module"
+    || st === "application/x-javascript" || st === "text/ecmascript";
+  if (!isJs) return 0;
   const code = dom.getText(h, node);
   if (code.length === 0) return 0;
   // `return 0` final: o dynfn é tipado i64 e o corpo de um <script> normalmente
