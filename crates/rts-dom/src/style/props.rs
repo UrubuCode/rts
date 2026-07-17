@@ -418,6 +418,16 @@ impl ComputedStyle {
                     v => Dimension::from_abi(v),
                 }
             }
+            // `text-align`: 0=left 1=center 2=right (a UA usa p/ <center>; o TS
+            // pode mapear o vocabulário CSS pro mesmo slot).
+            SLOT_TEXT_ALIGN => {
+                self.text_align = match val {
+                    1 => Some(crate::style::TextAlign::Center),
+                    2 => Some(crate::style::TextAlign::Right),
+                    0 => Some(crate::style::TextAlign::Left),
+                    _ => None,
+                }
+            }
             _ => {} // slot desconhecido: ignora (o TS mapeia o vocabulário CSS).
         }
     }
@@ -443,6 +453,10 @@ pub const SLOT_WIDTH: i64 = 8;
 /// `margin_v`: margem VERTICAL apenas (top/bottom), em pontos. A UA-stylesheet usa
 /// para separar blocos sem deslocar no eixo horizontal.
 pub const SLOT_MARGIN_V: i64 = 9;
+/// `text-align`: 0=left 1=center 2=right. A UA-stylesheet usa p/ `<center>`
+/// (a tag legada = text-align:center herdável, o suficiente p/ páginas
+/// anos-2000 como a home legada do google).
+pub const SLOT_TEXT_ALIGN: i64 = 10;
 
 use std::cell::RefCell;
 use std::collections::HashMap;

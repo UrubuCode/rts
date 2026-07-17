@@ -190,4 +190,9 @@ pub fn install_ua_defaults() {
             crate::style::define_style(e.tag, crate::style::SLOT_MARGIN_V, e.margin_v as i64);
         }
     }
+    // `<center>` (tag legada, viva em páginas anos-2000 — a home legada do
+    // google): bloco com text-align:center HERDÁVEL. Centralização de blocos
+    // filhos é um refino futuro; o inline-flow centrado já resolve o visual.
+    define("center", BlockDef { display: 0, indent: 0.0, prefix: PREFIX_NONE, flags: 0 });
+    crate::style::define_style("center", crate::style::SLOT_TEXT_ALIGN, 1);
 }
