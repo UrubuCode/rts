@@ -1,0 +1,61 @@
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; background: #f4f6f9; color: #1a2332; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 24px; }
+
+  /* hero */
+  .hero { background: linear-gradient(120deg, #4a90d9, #7b5cd6); color: #fff; border-radius: 16px; padding: 40px; margin-bottom: 24px; }
+  .hero h1 { font-size: 36px; margin-bottom: 10px; }
+  .hero p { font-size: 17px; opacity: 0.9; }
+  .hero .btns { margin-top: 20px; }
+  .hero .btn { display: inline-block; background: #fff; color: #4a90d9; padding: 12px 24px; border-radius: 8px; font-weight: bold; margin-right: 10px; }
+  .hero .btn.ghost { background: transparent; color: #fff; border: 2px solid #fff; }
+
+  /* stats grid */
+  .stats { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+  .stat { background: #fff; border-radius: 12px; padding: 20px; text-align: center; }
+  .stat .num { font-size: 28px; font-weight: bold; color: #4a90d9; }
+  .stat .lbl { font-size: 13px; color: #667; margin-top: 4px; }
+
+  /* feature cards */
+  .cards { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; }
+  .card { background: #fff; border-radius: 12px; padding: 24px; }
+  .card .dot { width: 44px; height: 44px; border-radius: 12px; background: #4a90d9; margin-bottom: 16px; }
+  .card:nth-child(2) .dot { background: #7b5cd6; }
+  .card:nth-child(3) .dot { background: #d65c8a; }
+  .card h3 { font-size: 18px; margin-bottom: 8px; }
+  .card p { font-size: 14px; color: #556; line-height: 1.5; }
+
+  /* footer bar */
+  .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 24px; padding: 20px; background: #1a2332; color: #fff; border-radius: 12px; }
+  .foot a { color: #9cc4f0; text-decoration: none; margin-left: 16px; }
+</style>
+
+<div class="wrap">
+  <div class="hero">
+    <h1>Renderizado pelo motor RTS</h1>
+    <p>Grid, flexbox, gradiente, border-radius, cascade — tudo em Rust nativo, sem navegador.</p>
+    <div class="btns">
+      <span class="btn">Comecar</span>
+      <span class="btn ghost">Saiba mais</span>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="num">16.9ms</div><div class="lbl">Monte Carlo</div></div>
+    <div class="stat"><div class="num">5.1x</div><div class="lbl">vs Bun</div></div>
+    <div class="stat"><div class="num">10MB</div><div class="lbl">Binario</div></div>
+    <div class="stat"><div class="num">0</div><div class="lbl">Deps JS</div></div>
+  </div>
+
+  <div class="cards">
+    <div class="card"><div class="dot"></div><h3>Grid real</h3><p>Track sizing com fr, auto-placement e alinhamento de celula, fiel a spec.</p></div>
+    <div class="card"><div class="dot"></div><h3>Flexbox</h3><p>Row e column, grow/shrink, justify e align, gap — o modelo completo.</p></div>
+    <div class="card"><div class="dot"></div><h3>Compila nativo</h3><p>TypeScript vira um .exe de 10MB. Sem Node, sem runtime empacotado.</p></div>
+  </div>
+
+  <div class="foot">
+    <span>RTS Engine 2026</span>
+    <span><a>Docs</a><a>GitHub</a><a>Blog</a></span>
+  </div>
+</div>
