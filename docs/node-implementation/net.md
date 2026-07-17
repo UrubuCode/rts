@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 2 - Stable |
 | Tier | P1 |
-| Status | **Partial** — `crates/rts-node/src/net/`. DONE (real, complete): `isIP`/`isIPv4`/`isIPv6`, **`BlockList`** (every member, Node's cross-family matching), **`SocketAddress`** (every member). NOT STARTED: `Server`/`Socket` + `createServer`/`connect`/`createConnection` + the `autoSelectFamily` config pair — `net.Socket` is a `stream.Duplex` and `node:stream` does not exist yet. See §8. |
+| Status | [x] **Implemented** — `crates/rts-node/src/net/`. `isIP`/`isIPv4`/`isIPv6`, **`BlockList`**, **`SocketAddress`**, **`Server`** and **`Socket`** over real TCP (+ `createServer`/`connect`/`createConnection`, the Happy-Eyeballs racer and its config pair). NOT here: the `stream.Duplex` surface `Socket` inherits in Node (`pipe`/`read`/…) — `node:stream` does not exist yet; IPC (Unix sockets / named pipes) and `fd`/`onread`/`signal`/`lookup`, all REFUSED rather than faked. See §8. |
 | Import forms | `import net from 'node:net'`; `import { Server, Socket, BlockList, SocketAddress, connect, createConnection, createServer, isIP, isIPv4, isIPv6 } from 'node:net'`; `const net = require('node:net')` |
 | Globals exposed | none (all access is via the `node:net` module import; no ambient globals) |
 
@@ -777,13 +777,75 @@ is the truth.
   instance handle, and `SocketAddress` needs no table at all (its four fields
   ride the instance).
 
-### Not started (and why)
+### `Server` + `Socket` — DONE (TCP), same day
 
-`Server`/`Socket`/`createServer`/`connect`/`createConnection` and the
-`autoSelectFamily` config pair. `net.Socket` is a `stream.Duplex` in Node, and
-`node:stream` does not exist yet; implementing the class without its stream base
-would ship a `Socket` missing `pipe`/`read`/`highWaterMark`/`writableLength` —
-a partial class wearing a complete name. The socket machinery it needs
-(background reader threads → the engine's `loop_sources` pump → JS-thread event
-delivery) already exists and is proven by `node:dgram`, so this is a scoping
-decision, not a blocked one.
+`crates/rts-node/src/net/tcp/` (`state`/`opts`/`server`/`socket`/`props`/`pump`).
+Real TCP: `listen` binds through `socket2` (SO_REUSEADDR like Node/libuv, an
+explicit `listen(backlog)` — default **511**, not 512 — `IPV6_V6ONLY`,
+`SO_REUSEPORT`), an ACCEPT THREAD queues each connection, a READ THREAD per
+connection queues bytes, and `pump.rs` builds the JS values on the JS thread.
+Verified end to end via `rts run`: listen → `'connection'` (with a real
+`remoteAddress`) → `'connect'`/`readyState` → data both ways → `bytesRead`/
+`bytesWritten` → `'close'` with `hadError=false` → server `'close'`.
+
+Implemented: `createServer`/`connect`/`createConnection` (every overload,
+resolved BY VALUE), `Server` (`listen` ×4 overloads, `close`, `address`,
+`getConnections`, `ref`/`unref`, `listening`, `'connection'`/`'listening'`/
+`'close'`/`'error'`/`'drop'`), `Socket` (`new Socket(options)`, `connect` ×3,
+`write` ×3, `end` ×4, `destroy`/`destroySoon`/`resetAndDestroy`, `pause`/
+`resume`, `setEncoding`, `setNoDelay`/`setKeepAlive`/`setTimeout`,
+`getTypeOfService`/`setTypeOfService`, `address`, and every property:
+`remoteAddress`/`remoteFamily`/`remotePort`/`localAddress`/`localFamily`/
+`localPort`/`bytesRead`/`bytesWritten`/`bufferSize`/`connecting`/`pending`/
+`destroyed`/`readyState`/`timeout`/`autoSelectFamilyAttemptedAddresses`), the
+`autoSelectFamily` **Happy-Eyeballs racer** (AAAA-first-then-A, per-attempt
+timeout, `'connectionAttempt'`/`'connectionAttemptFailed'`) and its process-wide
+config pair. Node's asymmetry is preserved: a `Server`'s `'error'` does NOT
+auto-close it; a `Socket`'s `'error'` is always followed by `'close'`.
+
+Refused, not ignored (`ERR_INVALID_ARG_VALUE`): `path` (IPC — Unix-domain
+sockets / Windows named pipes), `fd`, `onread`, `signal`, `lookup`,
+`readableAll`/`writableAll`.
+
+The stream-inherited surface (`pipe`/`read`/`highWaterMark`/`writableLength`,
+async iteration) is NOT here — `net.Socket` is a `stream.Duplex` in Node and
+`node:stream` does not exist yet. Everything §2 documents as `Socket`'s OWN
+surface is implemented; the Duplex inheritance is what waits on `node:stream`.
+
+### Engine gaps this work found (generic, fixed or recorded)
+
+Three were FIXED generically (they benefit every object-backed Registry class,
+not just net):
+
+1. **Untracked-receiver method shapes.** `try_runtime_ci` (the marshaller behind
+   `server.on('connection', s => s.on('data', …))`, where `s` is a param with no
+   static class) enumerated a fixed set of ABI shapes and silently missed
+   `(this, StrPtr, PolyValue)` — the whole EventEmitter surface. Added that and
+   the other shapes the backend classes use. An F64 **argument** is still absent
+   on purpose: on Win64 a double rides an XMM register, so an all-integer
+   transmute would hand the callee garbage — unsupported beats silently wrong.
+2. **Getters were never harvested** into the runtime CI table (methods only), so
+   a COMPUTED property on a callback's receiver (`socket.remoteAddress`, which
+   reads the OS) always read `undefined` — `Stats` had hidden this by STORING
+   its fields in the instance map. Getters are harvested now and `obj_get`
+   consults the table when a map has no stored field by that name.
+3. **`dgram.Socket` vs `net.Socket` collided.** The Registry is keyed by class
+   name globally and `insert_class` REPLACES, so registering `net`'s `Socket`
+   silently wiped `dgram`'s. Node genuinely has two `Socket` classes; since
+   `dgram.Socket` is not constructible (only `createSocket()` yields one), its
+   registry key does not have to match a user-written `new X()` — it is now
+   `DgramSocket`. (A dotted `dgram.Socket` does NOT work: the ts-signature's
+   return-class parser reads the dot as a type boundary.) Cosmetic divergence:
+   `constructor.name` on a dgram socket.
+
+One is RECORDED, not worked around:
+
+4. **A property WRITE on an object-backed class instance does not land**
+   (`server.maxConnections = 1` leaves the property `undefined`; `obj_set` does
+   not write the instance map, and `MemberKind::InstanceSetter` is dead metadata
+   — codegen never calls `Class::instance_setter`). So `maxConnections`/
+   `dropMaxConnection` — plain properties in Node, which the accept thread reads
+   off the object — cannot be set yet, which means the `maxConnections` limit and
+   its `'drop'` event are NOT reachable from JS today. The accept-thread side is
+   implemented and correct; it starts working the moment the engine writes the
+   field. Not asserted as working in any test.

@@ -197,7 +197,7 @@ fn alloc_object() -> u64 {
     let mut m: indexmap::IndexMap<String, i64> = indexmap::IndexMap::new();
     m.insert(
         "__rts_class".to_string(),
-        alloc_entry(Entry::String(b"Socket".to_vec())) as i64,
+        alloc_entry(Entry::String(super::CLASS.as_bytes().to_vec())) as i64,
     );
     alloc_entry(Entry::Map(Box::new(m)))
 }

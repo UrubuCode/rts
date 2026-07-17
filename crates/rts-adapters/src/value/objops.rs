@@ -274,7 +274,18 @@ pub extern "C" fn __rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
                             PolyValue::from_f64(x as f64).raw()
                         }
                     }
-                    None => PolyValue::undefined().raw(),
+                    // No stored field by that name. An object-backed Registry
+                    // class may still expose it as a COMPUTED getter (a
+                    // `net.Socket`'s `remoteAddress` reads the OS; `Stats`'s
+                    // fields, by contrast, sit in the map) — resolve it from the
+                    // same runtime CI table the method path uses, keyed by the
+                    // receiver's own `__rts_class`. Pure data: no class named
+                    // here. A miss stays `undefined`.
+                    None => {
+                        let undef = PolyValue::undefined().raw();
+                        super::dynci::try_runtime_ci(obj_word, key_str_handle, undef, undef, undef, 0)
+                            .unwrap_or(undef)
+                    }
                 };
             }
         }

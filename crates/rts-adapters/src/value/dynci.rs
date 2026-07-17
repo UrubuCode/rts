@@ -83,7 +83,7 @@ pub fn try_runtime_ci(recv: u64, key: u64, a0: u64, a1: u64, a2: u64, js_argc: u
     let m: CiMethod = lookup_ci(&class, &method, js_argc + 1)?;
     let recv_h = any_handle(recv);
 
-    use AbiType::{Bool, Handle, PolyValue as APoly, StrPtr, Void};
+    use AbiType::{Bool, Handle, I64, PolyValue as APoly, StrPtr, Void};
     // SAFETY: `m.fn_ptr` is the exact native `extern "C"` fn the Registry
     // harvested for this (class, method, arity); the transmute target matches
     // `m.args`/`m.ret`, which we branch on. Any shape not enumerated returns
@@ -132,9 +132,85 @@ pub fn try_runtime_ci(recv: u64, key: u64, a0: u64, a1: u64, a2: u64, js_argc: u
                 let f: extern "C" fn(u64, *const u8, i64, *const u8, i64) -> u64 = std::mem::transmute(m.fn_ptr);
                 rebox(Handle, f(recv_h, s0.as_ptr(), s0.len() as i64, s1.as_ptr(), s1.len() as i64))
             }
+            // `(event, listener)` — the EventEmitter surface every backend class
+            // inherits (`on`/`once`/`off`/`prependListener`/…), which a listener
+            // registered on an UNTRACKED receiver needs (`server.on('connection',
+            // s => s.on('data', …))` — `s` is a param, so it has no static class).
+            ([Handle, StrPtr, APoly], Handle) => {
+                let s = owned_str(a0);
+                let f: extern "C" fn(u64, *const u8, i64, u64) -> u64 = std::mem::transmute(m.fn_ptr);
+                rebox(Handle, f(recv_h, s.as_ptr(), s.len() as i64, a1))
+            }
+            ([Handle, StrPtr, APoly], Bool) => {
+                let s = owned_str(a0);
+                let f: extern "C" fn(u64, *const u8, i64, u64) -> i64 = std::mem::transmute(m.fn_ptr);
+                rebox(Bool, f(recv_h, s.as_ptr(), s.len() as i64, a1) as u64)
+            }
+            ([Handle, StrPtr, APoly, APoly], Bool) => {
+                let s = owned_str(a0);
+                let f: extern "C" fn(u64, *const u8, i64, u64, u64) -> i64 = std::mem::transmute(m.fn_ptr);
+                rebox(Bool, f(recv_h, s.as_ptr(), s.len() as i64, a1, a2) as u64)
+            }
+            ([Handle, StrPtr], Bool) => {
+                let s = owned_str(a0);
+                let f: extern "C" fn(u64, *const u8, i64) -> i64 = std::mem::transmute(m.fn_ptr);
+                rebox(Bool, f(recv_h, s.as_ptr(), s.len() as i64) as u64)
+            }
+            ([Handle, StrPtr], Void) => {
+                let s = owned_str(a0);
+                let f: extern "C" fn(u64, *const u8, i64) = std::mem::transmute(m.fn_ptr);
+                f(recv_h, s.as_ptr(), s.len() as i64);
+                rebox(Void, 0)
+            }
+            ([Handle, StrPtr], I64) => {
+                let s = owned_str(a0);
+                let f: extern "C" fn(u64, *const u8, i64) -> i64 = std::mem::transmute(m.fn_ptr);
+                rebox(I64, f(recv_h, s.as_ptr(), s.len() as i64) as u64)
+            }
+            // `write(chunk)` / `emit`-shaped returns.
+            ([Handle, APoly], Bool) => {
+                let f: extern "C" fn(u64, u64) -> i64 = std::mem::transmute(m.fn_ptr);
+                rebox(Bool, f(recv_h, a0) as u64)
+            }
+            ([Handle, APoly, APoly], Handle) => {
+                let f: extern "C" fn(u64, u64, u64) -> u64 = std::mem::transmute(m.fn_ptr);
+                rebox(Handle, f(recv_h, a0, a1))
+            }
+            ([Handle, APoly, APoly], Bool) => {
+                let f: extern "C" fn(u64, u64, u64) -> i64 = std::mem::transmute(m.fn_ptr);
+                rebox(Bool, f(recv_h, a0, a1) as u64)
+            }
+            ([Handle, APoly, APoly], Void) => {
+                let f: extern "C" fn(u64, u64, u64) = std::mem::transmute(m.fn_ptr);
+                f(recv_h, a0, a1);
+                rebox(Void, 0)
+            }
+            ([Handle, APoly, APoly, APoly], Handle) => {
+                let f: extern "C" fn(u64, u64, u64, u64) -> u64 = std::mem::transmute(m.fn_ptr);
+                rebox(Handle, f(recv_h, a0, a1, a2))
+            }
+            ([Handle, APoly, APoly, APoly], Void) => {
+                let f: extern "C" fn(u64, u64, u64, u64) = std::mem::transmute(m.fn_ptr);
+                f(recv_h, a0, a1, a2);
+                rebox(Void, 0)
+            }
+            ([Handle], I64) => {
+                let f: extern "C" fn(u64) -> i64 = std::mem::transmute(m.fn_ptr);
+                rebox(I64, f(recv_h) as u64)
+            }
+            // An F64 RETURN is fine — transmuting to a correctly-typed
+            // `-> f64` reads XMM0, which is where the callee put it (the
+            // numeric getters: `bytesRead`, `remotePort`, `bufferSize`, …).
+            ([Handle], AbiType::F64) => {
+                let f: extern "C" fn(u64) -> f64 = std::mem::transmute(m.fn_ptr);
+                rebox(AbiType::F64, f(recv_h).to_bits())
+            }
+            // An F64 ARGUMENT is deliberately absent: on Win64 a double rides an
+            // XMM register, so passing it through an all-integer transmute would
+            // hand the callee garbage. Such a method falls back (None) —
+            // unsupported beats silently wrong.
             _ => return None,
         }
     };
-    let _ = a2;
     Some(out)
 }

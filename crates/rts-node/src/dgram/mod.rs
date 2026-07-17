@@ -18,11 +18,11 @@
 //!
 //! `dgram` is non-primordial — no native literal syntax, reached only through a
 //! function call — so it is DATA in the Registry: `e.ns("node:dgram")` +
-//! `e.class("Socket")`, resolved by the same generic path `node:fs` uses. The
+//! `e.class(CLASS)`, resolved by the same generic path `node:fs` uses. The
 //! engine never names it.
 //!
 //! `Socket` is an object-backed Registry class (an `Entry::Map` tagged
-//! `__rts_class = "Socket"`), and that handle keys the side table in
+//! `__rts_class = CLASS`), and that handle keys the side table in
 //! [`state`] where the OS socket, listeners and pending events live.
 //!
 //! Node overloads by ARGUMENT TYPE at one arity (`createSocket('udp4')` vs
@@ -60,6 +60,13 @@
 //! (bind/close/connect/address/ref), `send`, `mcast` (membership + SSM),
 //! `tuning` (TTL/buffers), `emitter` (the EventEmitter surface), `reader` (the
 //! recv thread), `pump` (JS-thread delivery), `errors`, `mod` (registration).
+
+/// The Registry class name. `dgram.Socket` is NOT constructible in Node (only
+/// `createSocket()` yields one), so its registry key never has to match a
+/// user-written `new X()` — which lets it stay distinct from `net.Socket`, a
+/// class that IS constructible. The Registry is keyed by class name globally,
+/// and Node genuinely has two different `Socket` classes.
+pub const CLASS: &str = "DgramSocket";
 
 mod create;
 mod emitter;
@@ -112,9 +119,9 @@ pub fn register(e: &mut Engine) {
     use tuning as tn;
 
     let socket = e
-        .class("Socket")
+        .class(CLASS)
         .doc("dgram.Socket — a UDP socket from dgram.createSocket(). An EventEmitter: 'message', 'listening', 'connect', 'close', 'error'.");
-    crate::emitter::install(socket, "Socket")
+    crate::emitter::install(socket, CLASS)
         // ── Lifecycle ──────────────────────────────────────────────────────
         .member(method("bind", vec![], Void, "__RTS_FN_NODE_DGRAM_BIND0", "bind(): void", lc::__RTS_FN_NODE_DGRAM_BIND0 as *const u8))
         .member(method("bind", vec![PolyValue], Void, "__RTS_FN_NODE_DGRAM_BIND1", "bind(port: object): void", lc::__RTS_FN_NODE_DGRAM_BIND1 as *const u8))
@@ -158,8 +165,8 @@ pub fn register(e: &mut Engine) {
         .member(method("getSendQueueSize", vec![], I64, "__RTS_FN_NODE_DGRAM_GET_SEND_QUEUE_SIZE", "getSendQueueSize(): number", tn::__RTS_FN_NODE_DGRAM_GET_SEND_QUEUE_SIZE as *const u8))
         .member(method("getSendQueueCount", vec![], I64, "__RTS_FN_NODE_DGRAM_GET_SEND_QUEUE_COUNT", "getSendQueueCount(): number", tn::__RTS_FN_NODE_DGRAM_GET_SEND_QUEUE_COUNT as *const u8))
         // ── Reference counting (chainable) ─────────────────────────────────
-        .member(method("ref", vec![], Handle, "__RTS_FN_NODE_DGRAM_REF", "ref(): Socket", lc::__RTS_FN_NODE_DGRAM_REF as *const u8))
-        .member(method("unref", vec![], Handle, "__RTS_FN_NODE_DGRAM_UNREF", "unref(): Socket", lc::__RTS_FN_NODE_DGRAM_UNREF as *const u8))
+        .member(method("ref", vec![], Handle, "__RTS_FN_NODE_DGRAM_REF", "ref(): DgramSocket", lc::__RTS_FN_NODE_DGRAM_REF as *const u8))
+        .member(method("unref", vec![], Handle, "__RTS_FN_NODE_DGRAM_UNREF", "unref(): DgramSocket", lc::__RTS_FN_NODE_DGRAM_UNREF as *const u8))
         // ── EventEmitter surface (dgram.Socket extends EventEmitter) ───────
         // on/once/off/prepend*/removeAllListeners/listeners/eventNames/max — the
         // crate-shared emitter installs them (its externs take the receiver, so
@@ -175,7 +182,7 @@ pub fn register(e: &mut Engine) {
              Socket with bind/send/connect/close, multicast membership, TTL/broadcast/buffer \
              tuning and the 'message'/'listening'/'connect'/'close'/'error' events.",
         )
-        .member(m("createSocket", MemberKind::Function, vec![PolyValue], Handle, "__RTS_FN_NODE_DGRAM_CREATE_SOCKET", "createSocket(type: object): Socket", c::__RTS_FN_NODE_DGRAM_CREATE_SOCKET as *const u8))
-        .member(m("createSocket", MemberKind::Function, vec![PolyValue, PolyValue], Handle, "__RTS_FN_NODE_DGRAM_CREATE_SOCKET_CB", "createSocket(type: object, listener: object): Socket", c::__RTS_FN_NODE_DGRAM_CREATE_SOCKET_CB as *const u8))
+        .member(m("createSocket", MemberKind::Function, vec![PolyValue], Handle, "__RTS_FN_NODE_DGRAM_CREATE_SOCKET", "createSocket(type: object): DgramSocket", c::__RTS_FN_NODE_DGRAM_CREATE_SOCKET as *const u8))
+        .member(m("createSocket", MemberKind::Function, vec![PolyValue, PolyValue], Handle, "__RTS_FN_NODE_DGRAM_CREATE_SOCKET_CB", "createSocket(type: object, listener: object): DgramSocket", c::__RTS_FN_NODE_DGRAM_CREATE_SOCKET_CB as *const u8))
         .done();
 }

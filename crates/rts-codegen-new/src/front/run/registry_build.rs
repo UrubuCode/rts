@@ -406,16 +406,24 @@ pub(super) fn populate(e: &mut Engine) {
     populate_runtime_ci(e);
 }
 
-/// Harvest every class `InstanceMethod` into the runtime `(class, method, arity)`
+/// Harvest every class `InstanceMethod` — and every `InstanceGetter`, which is
+/// just a zero-arg method at the ABI — into the runtime `(class, member, arity)`
 /// table so an UNTRACKED receiver (array element, param, any-typed local) can
-/// dispatch object-backed Registry methods at runtime via its own `__rts_class`
+/// dispatch object-backed Registry members at runtime via its own `__rts_class`
 /// tag — the same `fn_ptr` the proven compile-time path resolves. Pure data, no
 /// class named in the engine (the key is harvested from each `class.name`).
+///
+/// Getters matter because a COMPUTED property (`socket.remoteAddress`, which
+/// reads the OS) has no stored field for the property path to find — unlike
+/// `Stats`, whose values sit in the instance map. Without this, every computed
+/// property on a callback's receiver read `undefined`.
 fn populate_runtime_ci(e: &Engine) {
     use rts_engine::MemberKind;
     for class in e.registry().classes() {
         for m in &class.members {
-            if matches!(m.kind, MemberKind::InstanceMethod) && !m.fn_ptr.0.is_null() {
+            if matches!(m.kind, MemberKind::InstanceMethod | MemberKind::InstanceGetter)
+                && !m.fn_ptr.0.is_null()
+            {
                 rts_engine::runtime_ci::register_ci(
                     &class.name,
                     &m.name,
