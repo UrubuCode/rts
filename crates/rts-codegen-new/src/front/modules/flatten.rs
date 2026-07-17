@@ -252,6 +252,9 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
 fn node_reexported_globals(specifier: &str) -> Option<&'static [(&'static str, &'static str)]> {
     match specifier {
         "node:url" => Some(&[("URL", "URL"), ("URLSearchParams", "URLSearchParams")]),
+        // `StringDecoder` is a registered global (Registry) class — bind the
+        // import to the ambient class, like `URL` (reuse, never re-implement).
+        "node:string_decoder" => Some(&[("StringDecoder", "StringDecoder")]),
         // `node:stream` — every class/fn is an ambient `.ts` prelude decl of the
         // SAME name (see rts-node `stream.ts`/…). Data-driven: (import, decl).
         "node:stream" => Some(&[

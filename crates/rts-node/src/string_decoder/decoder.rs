@@ -150,8 +150,9 @@ impl Decoder {
     }
 
     /// `this.text(buf, i)` — decode the completable prefix, saving any trailing
-    /// incomplete bytes into `last_char`.
-    fn text(&mut self, buf: &[u8], i: usize) -> String {
+    /// incomplete bytes into `last_char`. Also the legacy public
+    /// `decoder.text(buffer, offset)` method (present on Node's prototype).
+    pub fn text(&mut self, buf: &[u8], i: usize) -> String {
         match self.enc {
             Enc::Utf8 => self.utf8_text(buf, i),
             Enc::Utf16le => self.utf16_text(buf, i),

@@ -88,6 +88,22 @@ pub extern "C" fn __RTS_FN_NODE_STRING_DECODER_END_BUF(this: u64, input: u64) ->
     intern(&out)
 }
 
+/// `decoder.text(buffer, offset)` — legacy/undocumented prototype method:
+/// decode the completable prefix of `buffer` starting at `offset`, holding back
+/// any trailing incomplete multi-byte/-unit character in the pending state.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_STRING_DECODER_TEXT(this: u64, input: u64, offset: i64) -> u64 {
+    let mut d = match load(this) {
+        Some(d) => d,
+        None => return intern(""),
+    };
+    let bytes = read_bytes(input);
+    let i = offset.max(0) as usize;
+    let out = if i <= bytes.len() { d.text(&bytes, i) } else { String::new() };
+    store(this, &d);
+    intern(&out)
+}
+
 /// `decoder.encoding` (getter) — the stored canonical encoding-name handle.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_STRING_DECODER_ENCODING(this: u64) -> u64 {

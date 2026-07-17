@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 2 - Stable |
 | Tier | P1 |
-| Status | [ ] Not implemented — spec only |
+| Status | [x] Implemented — `StringDecoder` (constructor default/encoding + `ERR_UNKNOWN_ENCODING`, `write`, `end`+buffer, `text(buffer, offset)` legacy, `encoding` getter) for utf8/utf16le/base64/base64url/latin1/ascii/hex with full multi-byte/-unit boundary handling + U+FFFD flush + reuse-after-end; accepts string / Uint8Array / Buffer input. Object-backed Registry class. Tests: tests/node_string_decoder.test.ts 11/11. 
 | Import forms | `import { StringDecoder } from "node:string_decoder"`; CJS `require("node:string_decoder")` / legacy bare `require("string_decoder")` |
 | Globals exposed | None — `node:string_decoder` does not add anything to `globalThis` |
 

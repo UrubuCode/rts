@@ -102,6 +102,16 @@ pub fn register(e: &mut Engine) {
             false,
         ))
         .member(member(
+            "text",
+            InstanceMethod,
+            vec![Handle, Handle, AbiType::I64],
+            Handle,
+            "__RTS_FN_NODE_STRING_DECODER_TEXT",
+            "text(buffer: object, offset: number): string",
+            symbols::__RTS_FN_NODE_STRING_DECODER_TEXT as *const u8,
+            false,
+        ))
+        .member(member(
             "encoding",
             InstanceGetter,
             vec![Handle],
