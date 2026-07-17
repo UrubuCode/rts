@@ -766,6 +766,16 @@ fn layout_block(
             css.aspect_ratio
                 .filter(|r| *r > 0.0)
                 .map(|r| (content_w / r).max(0.0))
+        })
+        // ALTURA IMPOSTA pelo flex (grow/stretch): o `forced_outer_h` é a altura
+        // OUTER do item — o content-box é ela menos margem-v/frame. Vira o
+        // containing block dos filhos (um filho `height:100%` resolve contra ela),
+        // resolvendo o logo/caixa do google que crescem via flex-grow vertical.
+        .or_else(|| {
+            forced_outer_h.map(|oh| {
+                let mv = margin_top + margin_bottom;
+                (oh - mv - frame_v).max(0.0)
+            })
         });
 
     // `flex-direction: column` — o eixo PRINCIPAL do flex vira o vertical: os itens
@@ -2076,6 +2086,7 @@ fn layout_children_column(
         is_text: bool,
         mt_auto: bool,
         mb_auto: bool,
+        grow: f32,
     }
     let mut items: Vec<ColItem> = Vec::new();
     for &child in &dom.node(id).children {
@@ -2099,15 +2110,16 @@ fn layout_children_column(
                 is_text: true,
                 mt_auto: false,
                 mb_auto: false,
+                grow: 0.0,
             });
             continue;
         }
         let h = child_outer_height(dom, child, content_w, container_content_h, font_size, ctx);
-        let (mt_auto, mb_auto) = dom
+        let (mt_auto, mb_auto, grow) = dom
             .computed_style_idx(child)
-            .map(|c| (c.margin.top.is_auto(), c.margin.bottom.is_auto()))
-            .unwrap_or((false, false));
-        items.push(ColItem { node: child, h, is_text: false, mt_auto, mb_auto });
+            .map(|c| (c.margin.top.is_auto(), c.margin.bottom.is_auto(), c.flex_grow.unwrap_or(0.0)))
+            .unwrap_or((false, false, 0.0));
+        items.push(ColItem { node: child, h, is_text: false, mt_auto, mb_auto, grow });
     }
     if items.is_empty() {
         return 0.0;
@@ -2117,6 +2129,22 @@ fn layout_children_column(
     let n = items.len();
     let sum_h: f32 = items.iter().map(|it| it.h).sum();
     let total_gap = (n.saturating_sub(1)) as f32 * main_gap;
+    let free = container_content_h.map(|ch| ch - sum_h - total_gap).unwrap_or(0.0);
+    // FLEX-GROW no eixo principal (css-flexbox §9.7): quando há espaço livre
+    // positivo e algum item tem flex-grow, cada um cresce em proporção
+    // `grow / soma_dos_grows * free` — dando ALTURA aos containers que os filhos
+    // com `height:100%` resolvem (o logo/caixa do google centram assim). Consome
+    // o `free` (o justify/margin-auto abaixo vê 0). margin:auto tem prioridade.
+    let sum_grow: f32 = items.iter().map(|it| it.grow).sum();
+    let any_auto = items.iter().any(|it| it.mt_auto || it.mb_auto);
+    if free > 0.0 && sum_grow > 0.0 && !any_auto {
+        for it in &mut items {
+            if it.grow > 0.0 {
+                it.h += it.grow / sum_grow * free;
+            }
+        }
+    }
+    let sum_h: f32 = items.iter().map(|it| it.h).sum();
     let free = container_content_h.map(|ch| ch - sum_h - total_gap).unwrap_or(0.0);
     let auto_count: usize = items.iter().map(|it| it.mt_auto as usize + it.mb_auto as usize).sum();
     // margin:auto no eixo main absorve TODO o espaço livre (o justify vira no-op) —
@@ -2163,7 +2191,15 @@ fn layout_children_column(
                 let free_x = (content_w - w).max(0.0);
                 content_x + align_offset(align, content_w, content_w - free_x)
             };
-            layout_block(dom, it.node, child_x, y, content_w, container_content_h, None, None, !stretch, ctx, list);
+            // Um item que CRESCEU por flex-grow tem altura MAIOR que o conteúdo —
+            // passa essa altura como containing block (avail_h) E como outer forçada
+            // (forced_outer_h) para os filhos com `height:100%` resolverem contra ela.
+            let (avail, forced_h) = if it.grow > 0.0 {
+                (Some(it.h), Some(it.h))
+            } else {
+                (container_content_h, None)
+            };
+            layout_block(dom, it.node, child_x, y, content_w, avail, None, forced_h, !stretch, ctx, list);
         }
         y += it.h;
         if it.mb_auto {
@@ -3034,6 +3070,25 @@ mod tests {
         // "y" à direita → x ≈ 400-8 = 392.
         let rx = texts.iter().find(|(t, _)| t == "y").unwrap().1;
         assert!((rx - 392.0).abs() < 2.0, "right: {rx}");
+    }
+
+    #[test]
+    fn flex_grow_vertical_da_altura_a_filho_100pct() {
+        // flex column 800px: navbar 60 + item flex-grow:1 (cresce p/ 740) e o
+        // filho height:100% do item resolve contra os 740 (não a altura própria).
+        let dom = parse_html_to_dom(
+            "<div style='display:flex;flex-direction:column;height:800px'>\
+             <div style='height:60px'>nav</div>\
+             <div style='flex-grow:1'><div id=alvo style='height:100%;background:#00f'>x</div></div>\
+             </div>",
+        );
+        let ctx = LayoutCtx { viewport_w: 1000.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let alvo = dom.query("#alvo").unwrap();
+        let idx = dom.resolve(alvo).unwrap();
+        let r = list.node_rects[&idx];
+        assert!((r.h - 740.0).abs() < 2.0, "altura do filho 100%: {} (esperado 740)", r.h);
+        assert!((r.y - 60.0).abs() < 2.0, "y do filho: {}", r.y);
     }
 
     #[test]
