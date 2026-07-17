@@ -294,7 +294,7 @@ while (egui.isOpen(win) !== 0) {
       // apontando pra este DOM). Script que não compila no subset é isolado
       // (loga o erro e segue — como o console do browser).
       docF = new Document(d);
-      const njs = runScripts(docF);
+      const njs = runScriptsAt(docF, normalize(pendingUrl));
       io.print("[js] scripts executados: " + njs);
     } else if (st < 0) {
       pendingTicket = 0; // ticket inválido: aborta
@@ -358,7 +358,7 @@ while (egui.isOpen(win) !== 0) {
         // página local (instantânea) — roda os <script> dela também.
         d = localPage(d, val);
         docF = new Document(d);
-        runScripts(docF);
+        runScriptsAt(docF, "https://localhost/" + val);
       }
     }
   }

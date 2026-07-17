@@ -58,4 +58,7 @@ pub use abi::register;
 /// Prelude `.ts` da FACHADA DOM ergonômica (`document` global + `Element`, com a
 /// API/nomes do browser) sobre os primitivos do namespace `rts:dom`. Incluído via
 /// `Engine::include` na tabela `PRELUDE_TS` — DEPOIS do registro do ns `dom`.
-pub const DOM_TS: &str = include_str!("dom.ts");
+/// O `window.ts` é CONCATENADO na mesma unidade (usa `Document`/`Element` do
+/// `dom.ts` em escopo): o objeto `window` de browser (location/navigator/
+/// history/storage/timers) que o `runScripts` injeta em cada `<script>`.
+pub const DOM_TS: &str = concat!(include_str!("dom.ts"), "\n", include_str!("window.ts"));

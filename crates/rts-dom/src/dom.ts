@@ -1005,6 +1005,12 @@ function pumpEventCallbacks(doc: Document): number {
 // Erro de compilação/execução de um script NÃO derruba os demais (isolamento por
 // try/catch, como no browser). Devolve quantos scripts rodaram com sucesso.
 function runScripts(doc: Document): number {
+  return runScriptsAt(doc, "https://localhost/");
+}
+
+// Como `runScripts`, mas com a URL da página (vira `window.location`). Use quando
+// o browser sabe a URL de origem (o `window.location.href`/`origin` dos scripts).
+function runScriptsAt(doc: Document, url: string): number {
   // `: i64` no handle e no param da helper: handle via param `number` corrompe
   // (fcvt vs bitcast — issue #1870 do motor).
   const h: i64 = doc._dom;
@@ -1012,7 +1018,7 @@ function runScripts(doc: Document): number {
   const scriptCount = dom.getByTagCount(h, "script");
   let j = 0;
   while (j < scriptCount) {
-    ran = ran + __runScriptAt(h, j);
+    ran = ran + __runScriptAt(h, j, url);
     j = j + 1;
   }
   return ran;
@@ -1020,7 +1026,7 @@ function runScripts(doc: Document): number {
 
 // Roda o j-ésimo `<script>`: inline usa o texto do nó; externo usa o fonte que o
 // `loadResources` materializou no nó (mesmo caminho). Devolve 1 (rodou) ou 0.
-function __runScriptAt(h: i64, j: number): number {
+function __runScriptAt(h: i64, j: number, url: string): number {
   const node = dom.getByTagAt(h, "script", j);
   if (node === __DOM_NONE) return 0;
   // Só executa JAVASCRIPT: `type` vazio/`text|application/javascript`/`module`.
@@ -1045,14 +1051,20 @@ function __runScriptAt(h: i64, j: number): number {
     code = meta.indexOf("base64") >= 0 ? atob(payload) : decodeURIComponent(payload);
   }
   if (code.length === 0) return 0;
-  // `return 0` final: o dynfn é tipado i64 e o corpo de um <script> normalmente
-  // não tem return — garantimos um. (Um return do próprio script vence, este vira
-  // código morto.)
-  const body = "const document = new Document(__h);\n" + code + "\nreturn 0;";
+  // Injeta o AMBIENTE de browser no corpo: `window` (location/navigator/history/
+  // storage/timers) + `document` (do window) + os aliases globais que os scripts
+  // esperam (self/globalThis/top/parent === window). `return 0` final garante o
+  // dynfn tipado i64 (o corpo de um <script> normalmente não tem return).
+  const prologue = "const window = __makeWindow(__h, __url, 1000, 800);\n"
+    + "const document = window.document;\n"
+    + "const self = window; const globalThis = window; const top = window; const parent = window;\n"
+    + "const location = window.location; const navigator = window.navigator;\n"
+    + "const history = window.history; const localStorage = window.localStorage;\n";
+  const body = prologue + code + "\nreturn 0;";
   let ok = 1;
   try {
-    const f = new Function("__h", body);
-    f(h);
+    const f = new Function("__h", "__url", body);
+    f(h, url);
   } catch (e) {
     // Script quebrado não derruba a página (comportamento do browser).
     ok = 0;
