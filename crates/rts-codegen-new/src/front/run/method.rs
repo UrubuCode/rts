@@ -392,6 +392,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
         let argc = args.len();
         let Some(spec) = resolve_method(class, method, argc) else {
+            // PROMISE surface on a NUMBER-typed receiver: um handle de Promise
+            // pendente viaja pela superfície NUMBER (`lower_async_spawn` — o
+            // contrato do await/promise.wait). `p.then(cb)` nesse valor caía
+            // aqui como `Number.then` e bailava; JS NUNCA tem `.then/.catch/
+            // .finally` num number genuíno, então rotear pro dispatch DINÂMICO
+            // de Promise é sound (o trampolim `promise_handle(recv)` valida o
+            // handle; um number genuíno vira `undefined`, nunca valor errado).
+            if matches!(class, RecvClass::Number)
+                && matches!(method, "then" | "catch" | "finally")
+            {
+                if let Some(val) =
+                    self.try_method_dispatch_dynamic(module, recv, method, args)?
+                {
+                    return Ok(Some(val));
+                }
+            }
             return Err(crate::front::error::Unsupported::new(format!(
                 "no Registry entry for `{class:?}.{method}({argc} args)`"
             )));
