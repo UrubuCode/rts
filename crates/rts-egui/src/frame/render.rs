@@ -180,6 +180,26 @@ pub(crate) fn render_dom_scrolled(
     // o egui gerencia seu offset (input), injeta no BeginClip e emite as barras dela.
     // O `base_origin` desloca o page-scroll p/ casar com o paint (que usa -offset).
     process_scroll_regions(ui, h, &mut list, sb, -offset);
+    // CANVAS da página: o browser propaga o background do <body>/<html> para a
+    // viewport INTEIRA (não só até content_height) — sem isto, a área além do
+    // conteúdo aparecia no cinza-escuro padrão do egui (o "caixotão preto" do
+    // google sem CSS). Default: BRANCO (o canvas do browser).
+    {
+        let canvas = rts_dom::store::with_dom(h, |d| {
+            d.query("body")
+                .or_else(|| d.query("html"))
+                .and_then(|b| d.computed_style(b))
+                .and_then(|c| c.bg)
+                .unwrap_or(0xFFFFFFFF)
+        })
+        .unwrap_or(0xFFFFFFFF);
+        let [r, g, bl, a] = canvas.to_be_bytes();
+        ui.painter().rect_filled(
+            ui.max_rect(),
+            0.0,
+            egui::Color32::from_rgba_unmultiplied(r, g, bl, a),
+        );
+    }
     // pinta tudo transladado por -offset (o conteúdo sobe; a barra, somando offset na
     // emissão, fica parada na tela). Recorta na área visível.
     let clip = ui.max_rect();
