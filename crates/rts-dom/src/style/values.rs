@@ -380,6 +380,101 @@ impl AlignItems {
     }
 }
 
+/// Uma TRILHA de grid (`grid-template-columns`/`-rows`, `grid-auto-rows`): o
+/// tamanho de uma coluna/linha. `Px` fixo, `Fr` fração do espaço livre, `Auto`
+/// dimensiona pelo conteúdo, `Percent` do container. A resolução (px → fr → auto)
+/// vive no layout (algoritmo de track sizing). Egui-free.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum GridTrack {
+    /// `100px`, `2rem`… — tamanho absoluto (já resolvido a px no parse quando
+    /// possível; `em`/`rem`/`vw` resolvem no layout via a Dimension).
+    Fixed(Dimension),
+    /// `1fr`, `2fr` — fração do espaço livre (após px/auto). O nº é o peso.
+    Fr(f32),
+    /// `auto`/`min-content`/`max-content` — dimensiona pelo conteúdo (v1: trata
+    /// como o maior conteúdo dos itens da trilha; sem distinção min/max).
+    Auto,
+}
+
+impl GridTrack {
+    /// Parseia UMA trilha: `100px`/`50%`/`1fr`/`auto`/`minmax(a,b)` (minmax → o
+    /// MÁXIMO, aproximação v1). `None` se não reconhece.
+    pub fn parse_one(v: &str) -> Option<GridTrack> {
+        let v = v.trim();
+        let low = v.to_ascii_lowercase();
+        if low == "auto" || low == "min-content" || low == "max-content" {
+            return Some(GridTrack::Auto);
+        }
+        if let Some(n) = low.strip_suffix("fr") {
+            return n.trim().parse::<f32>().ok().map(GridTrack::Fr);
+        }
+        // minmax(min, max) → usa o max (a trilha cresce até ele).
+        if let Some(inner) = low.strip_prefix("minmax(").and_then(|s| s.strip_suffix(')')) {
+            let parts: Vec<&str> = inner.splitn(2, ',').collect();
+            if parts.len() == 2 {
+                return GridTrack::parse_one(parts[1]);
+            }
+        }
+        // fit-content(x) → x fixo (aproximação).
+        if let Some(inner) = low.strip_prefix("fit-content(").and_then(|s| s.strip_suffix(')')) {
+            return GridTrack::parse_one(inner);
+        }
+        super::parse::parse_dimension_pub(v).map(GridTrack::Fixed)
+    }
+
+    /// Parseia uma LISTA de trilhas (`grid-template-columns`), expandindo
+    /// `repeat(N, tracks…)`. Devolve o Vec de trilhas na ordem. Vazio → None.
+    pub fn parse_list(v: &str) -> Option<Vec<GridTrack>> {
+        let v = v.trim();
+        if v.is_empty() || v.eq_ignore_ascii_case("none") {
+            return None;
+        }
+        let mut out = Vec::new();
+        // tokeniza respeitando parênteses (repeat/minmax têm vírgulas internas).
+        for tok in split_top_level(v) {
+            let t = tok.trim();
+            let low = t.to_ascii_lowercase();
+            if let Some(inner) = low.strip_prefix("repeat(").and_then(|s| s.strip_suffix(')')) {
+                // repeat(N, tracks) — N vezes as trilhas internas.
+                let mut parts = inner.splitn(2, ',');
+                let count = parts.next().unwrap_or("").trim();
+                let tracks = parts.next().unwrap_or("").trim();
+                // `auto-fill`/`auto-fit`: v1 usa 1 repetição (sem cálculo de quantas
+                // cabem — aproximação; a maioria das páginas usa repeat(N,...) fixo).
+                let n: usize = count.parse().unwrap_or(1);
+                if let Some(inner_tracks) = GridTrack::parse_list(tracks) {
+                    for _ in 0..n.max(1) {
+                        out.extend(inner_tracks.iter().copied());
+                    }
+                }
+            } else if let Some(track) = GridTrack::parse_one(t) {
+                out.push(track);
+            }
+        }
+        (!out.is_empty()).then_some(out)
+    }
+}
+
+/// Tokeniza uma lista separada por espaços RESPEITANDO parênteses (para não
+/// quebrar `repeat(3, 1fr)` / `minmax(0, 1fr)` na vírgula/espaço internos).
+fn split_top_level(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut depth = 0i32;
+    let mut cur = String::new();
+    for ch in s.chars() {
+        match ch {
+            '(' => { depth += 1; cur.push(ch); }
+            ')' => { depth -= 1; cur.push(ch); }
+            c if c.is_whitespace() && depth == 0 => {
+                if !cur.is_empty() { out.push(std::mem::take(&mut cur)); }
+            }
+            c => cur.push(c),
+        }
+    }
+    if !cur.is_empty() { out.push(cur); }
+    out
+}
+
 /// `flex-direction` — qual eixo é o principal. Default `Row`. Egui-free.
 /// ⚠️ CORTE: o layout hoje SÓ honra `Row`. `Column`/`RowReverse`/`ColumnReverse`
 /// são parseados e mesclados (cascade pronta) mas o `layout_block` dispõe sempre em
