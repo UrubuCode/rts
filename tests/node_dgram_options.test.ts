@@ -66,6 +66,9 @@ try {
   createSocket({ type: "udp4", lookup: (_h: any, _o: any, _cb: any) => {} });
 } catch (e: any) { lookupErr = e.message; }
 
+// receiveBlockList/sendBlockList ARE implemented (they take a real
+// net.BlockList — see tests/node_dgram_blocklist.test.ts); what is refused is a
+// value that is not one.
 let blockListErr = "";
 try {
   createSocket({ type: "udp4", receiveBlockList: {} });
@@ -109,7 +112,8 @@ describe("node:dgram createSocket options / udp6 / multicast", () => {
     expect(lookupErr.indexOf("ERR_INVALID_ARG_VALUE") >= 0).toBe(true);
     expect(lookupErr.indexOf("lookup") >= 0).toBe(true);
   });
-  test("the unimplemented receiveBlockList option is refused, not ignored", () => {
-    expect(blockListErr.indexOf("ERR_INVALID_ARG_VALUE") >= 0).toBe(true);
+  test("a receiveBlockList that is not a net.BlockList is refused", () => {
+    expect(blockListErr.indexOf("ERR_INVALID_ARG_TYPE") >= 0).toBe(true);
+    expect(blockListErr.indexOf("net.BlockList") >= 0).toBe(true);
   });
 });

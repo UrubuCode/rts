@@ -16,7 +16,8 @@ use rts_engine::heap::handles::{alloc_entry, Entry};
 use super::emitter;
 use super::errors;
 use super::state::{self, SocketState};
-use crate::values::{opt_bool, opt_has, opt_num, opt_str, val, Val};
+use crate::net::blocklist::rules::Rule;
+use crate::values::{opt_bool, opt_has, opt_num, opt_str, opt_word, val, Val};
 
 unsafe extern "C" {
     fn __RTS_FN_NS_GC_PIN_HANDLE(handle: u64);
@@ -30,6 +31,10 @@ struct Options {
     ipv6_only: bool,
     recv_buffer_size: Option<usize>,
     send_buffer_size: Option<usize>,
+    /// `receiveBlockList` — inbound datagrams from a matching sender are dropped.
+    receive_block_list: Option<Vec<Rule>>,
+    /// `sendBlockList` — outbound datagrams to a matching destination are refused.
+    send_block_list: Option<Vec<Rule>>,
 }
 
 impl Options {
@@ -46,6 +51,8 @@ impl Options {
             ipv6_only: false,
             recv_buffer_size: None,
             send_buffer_size: None,
+            receive_block_list: None,
+            send_block_list: None,
         })
     }
 
@@ -59,7 +66,11 @@ impl Options {
         o.ipv6_only = opt_bool(obj, "ipv6Only");
         o.recv_buffer_size = opt_num(obj, "recvBufferSize").map(|n| n.max(0.0) as usize);
         o.send_buffer_size = opt_num(obj, "sendBufferSize").map(|n| n.max(0.0) as usize);
-        for unsupported in ["lookup", "signal", "receiveBlockList", "sendBlockList"] {
+        // The block lists are `net.BlockList` instances: take a SNAPSHOT of their
+        // rules, matching Node — the option is read once, at socket creation.
+        o.receive_block_list = block_list_arg(obj, "receiveBlockList")?;
+        o.send_block_list = block_list_arg(obj, "sendBlockList")?;
+        for unsupported in ["lookup", "signal"] {
             if opt_has(obj, unsupported) {
                 // An honest refusal beats silently ignoring an option the caller
                 // set: these are DEFERRED, see the module doc in `mod.rs`.
@@ -70,10 +81,30 @@ impl Options {
     }
 }
 
+/// Read a `receiveBlockList`/`sendBlockList` option: absent → `None`; a real
+/// `net.BlockList` → its rules; anything else → Node's arg-type error.
+fn block_list_arg(obj: u64, key: &'static str) -> Result<Option<Vec<Rule>>, Bad> {
+    let Some(word) = opt_word(obj, key) else {
+        return Ok(None);
+    };
+    if val(word).is_nullish() {
+        return Ok(None);
+    }
+    match val(word) {
+        Val::Obj(h) => match crate::net::blocklist::rules_of(h) {
+            Some(rules) => Ok(Some(rules)),
+            None => Err(Bad::NotABlockList(key)),
+        },
+        _ => Err(Bad::NotABlockList(key)),
+    }
+}
+
 /// Why a `createSocket` argument was rejected.
 enum Bad {
     /// Not `'udp4'`/`'udp6'` (or no `type` at all).
     Type,
+    /// A block-list option that is not a `net.BlockList`.
+    NotABlockList(&'static str),
     /// A real Node option RTS has not implemented yet.
     Unsupported(&'static str),
 }
@@ -84,6 +115,10 @@ impl Bad {
             Bad::Type => errors::throw(
                 "ERR_SOCKET_BAD_TYPE",
                 "Bad socket type specified. Valid types are: udp4, udp6",
+            ),
+            Bad::NotABlockList(name) => errors::throw(
+                "ERR_INVALID_ARG_TYPE",
+                &format!("The \"options.{name}\" property must be an instance of net.BlockList"),
             ),
             Bad::Unsupported(name) => errors::throw(
                 "ERR_INVALID_ARG_VALUE",
@@ -131,8 +166,10 @@ fn build(opts: Options) -> u64 {
     }
 
     let handle = alloc_object();
-    let st = Arc::new(SocketState::new(sock, opts.v6));
-    state::insert(handle, st);
+    let mut st = SocketState::new(sock, opts.v6);
+    st.receive_block_list = opts.receive_block_list;
+    st.send_block_list = opts.send_block_list;
+    state::insert(handle, Arc::new(st));
     // An open socket (and therefore its object) stays alive until close().
     unsafe { __RTS_FN_NS_GC_PIN_HANDLE(handle) };
     handle

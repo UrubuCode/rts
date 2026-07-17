@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 2 - Stable |
 | Tier | P1 |
-| Status | [ ] Not implemented — spec only |
+| Status | **Partial** — `crates/rts-node/src/net/`. DONE (real, complete): `isIP`/`isIPv4`/`isIPv6`, **`BlockList`** (every member, Node's cross-family matching), **`SocketAddress`** (every member). NOT STARTED: `Server`/`Socket` + `createServer`/`connect`/`createConnection` + the `autoSelectFamily` config pair — `net.Socket` is a `stream.Duplex` and `node:stream` does not exist yet. See §8. |
 | Import forms | `import net from 'node:net'`; `import { Server, Socket, BlockList, SocketAddress, connect, createConnection, createServer, isIP, isIPv4, isIPv6 } from 'node:net'`; `const net = require('node:net')` |
 | Globals exposed | none (all access is via the `node:net` module import; no ambient globals) |
 
@@ -53,7 +53,15 @@ class BlockList {
 | `blockList.toJSON()` | — | — | `string[]` | none |
 | `BlockList.isBlockList(value)` (static) | `value: unknown` | required | `boolean` | none |
 
-Variant for every member: sync. Property `blockList.rules: string[]` — the accumulated list of human-readable rule strings (e.g. `"IPv4 range 1.2.3.0-1.2.3.255"`), in insertion order.
+Variant for every member: sync. Property `blockList.rules: string[]` — the accumulated list of rule strings, in insertion order. The format is **API**, not decoration (`toJSON()` emits it and `fromJSON()` parses it back), and it is exactly what Node's `Rule::ToString()` builds (`src/node_sockaddr.cc`, verified against the source):
+
+| Rule | String |
+|---|---|
+| `addAddress('1.2.3.4')` | `"Address: IPv4 1.2.3.4"` |
+| `addRange('1.2.3.0','1.2.3.255')` | `"Range: IPv4 1.2.3.0-1.2.3.255"` |
+| `addSubnet('10.0.0.0', 8)` | `"Subnet: IPv4 10.0.0.0/8"` |
+
+(An earlier draft of this spec guessed `"IPv4 range 1.2.3.0-1.2.3.255"` — wrong; corrected against Node's source when the class was implemented.)
 
 #### `net.SocketAddress`
 
@@ -725,3 +733,57 @@ tests/node/net/net_worker_threads.test.ts (multithread)
 - **Windows named-pipe backlog/queue-depth semantics** vs POSIX `backlog`/`somaxconn` are not directly analogous; exact RTS behavior for the `backlog` option when routed through the named-pipe backend is deferred to implementation-time experimentation (phase i), not specified precisely here.
 - **`BlockList`/`SocketAddress` crossing worker channels** (structured-clone semantics) — Node does not define a native transferability story for these either (they're plain-ish objects); RTS's choice to "serialize rules/fields and reconstruct" (5.4) is an implementation choice, not a strict Node-parity requirement, and open to revision.
 - **Exact Happy-Eyeballs concurrency model.** This spec assumes Node's real implementation is sequential-with-per-attempt-timeout (matching the "each connection attempt... is given the amount of time... before timing out and trying the next address" wording) rather than a fully concurrent fan-out; if empirical testing against real Node reveals a subtler concurrent/staggered-start behavior, phase (f) should be revisited to match it exactly rather than the simplified sequential racer described in 5.1.
+
+## 8. What actually landed (2026-07-16)
+
+Phases (a) and (b) of §5.8, complete: `crates/rts-node/src/net/` — `ip.rs`
+(classifiers), `blocklist/{mod,rules}.rs`, `socket_address.rs`, `mod.rs`
+(registration). Where the implementation chose differently from §5, this section
+is the truth.
+
+### Done, and real
+
+- **`BlockList`** — every member (`addAddress`/`addRange`/`addSubnet`/`check`/
+  `toJSON`/`fromJSON`/`rules`/`isBlockList`), with Node's ACTUAL matching
+  semantics read off `src/node_sockaddr.cc` rather than guessed:
+  rules match **across families** (an IPv4 rule covers the IPv4-mapped IPv6 form
+  `::ffff:1.2.3.4`, and vice versa; a non-mapped IPv6 never matches an IPv4
+  rule), a range's cross-family compare is *unordered* (so neither `>=` nor `<=`
+  holds → no match), and the CIDR masks follow Node's own `in_network_*`
+  bit math including the non-byte-aligned IPv6 prefix case. The rule strings are
+  Node's (see §2) — `toJSON()`/`fromJSON()` round-trip through them.
+- **`SocketAddress`** — constructor (+ the family-dependent address default),
+  `parse()` (returns nothing for garbage, never throws), and the four read-only
+  properties. Immutable by construction: the instance carries its fields and the
+  class registers getters and no setters.
+- **Wired into `node:dgram`**: `createSocket({ receiveBlockList, sendBlockList })`
+  now takes a real `BlockList` (a snapshot of its rules, read once at creation,
+  as Node does). A blocked SENDER's datagram is dropped in the reader thread
+  before any `'message'` listener sees it; a blocked DESTINATION is refused with
+  an `ERR_IP_BLOCKED` error delivered to the send callback / `'error'` listener
+  instead of being dialed. Verified end-to-end via `rts run` (a blocked receiver
+  gets nothing while a control receiver with an empty list gets its datagram).
+
+### Divergences from the plan
+
+- **No `.ts` shim** (§5.2/§5.6 assumed one): `rts-node` ships no `.ts`. Both
+  classes are object-backed Registry classes, the model `node:fs`'s `Stats` and
+  `node:dgram`'s `Socket` use.
+- **No JSON at the ABI** (§5.2 proposed `StrPtr` JSON for options/addresses):
+  members take `AbiType::PolyValue` and branch on the value's tag, so a
+  `SocketAddress` passed where Node accepts `string | SocketAddress` is read
+  through its own class data with no string round trip.
+- **`BlockList` needs no `_FREE`**: its rules live in a side table keyed by the
+  instance handle, and `SocketAddress` needs no table at all (its four fields
+  ride the instance).
+
+### Not started (and why)
+
+`Server`/`Socket`/`createServer`/`connect`/`createConnection` and the
+`autoSelectFamily` config pair. `net.Socket` is a `stream.Duplex` in Node, and
+`node:stream` does not exist yet; implementing the class without its stream base
+would ship a `Socket` missing `pipe`/`read`/`highWaterMark`/`writableLength` —
+a partial class wearing a complete name. The socket machinery it needs
+(background reader threads → the engine's `loop_sources` pump → JS-thread event
+delivery) already exists and is proven by `node:dgram`, so this is a scoping
+decision, not a blocked one.

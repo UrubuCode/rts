@@ -306,6 +306,18 @@ fn connect_impl(this: u64, words: &[u64]) {
             return;
         }
     };
+    // `sendBlockList` covers the connected peer too: everything a connected
+    // socket sends goes there, so a blocked peer is refused at connect time
+    // (which is also where Node can still report it).
+    if state::blocked(&st.send_block_list, target.ip()) {
+        st.push_err(
+            cb,
+            true,
+            "ERR_IP_BLOCKED",
+            &format!("IP {} is blocked by net.BlockList", target.ip()),
+        );
+        return;
+    }
     if let Err(e) = st.sock.connect(&SockAddr::from(target)) {
         let (code, msg) = errors::message_for(&e, "connect");
         st.push_err(cb, true, &code, &msg);

@@ -6,6 +6,7 @@
 //! `Socket` class — `bind`/`close`/`connect`/`disconnect`, `address`/
 //! `remoteAddress`, `send` (every overload: `Buffer`/`TypedArray`/`DataView`/
 //! `string`/array, with or without `offset`/`length`, connected or addressed),
+//! the `receiveBlockList`/`sendBlockList` filters (real `net.BlockList` rules),
 //! multicast `add`/`dropMembership` + `add`/`dropSourceSpecificMembership`,
 //! `setTTL`/`setMulticastTTL`/`setMulticastLoopback`/`setBroadcast`/
 //! `setMulticastInterface`, the buffer-size family, `getSendQueueSize`/`Count`,
@@ -48,8 +49,6 @@
 //!   passing one throws `ERR_INVALID_ARG_VALUE` rather than being ignored.
 //!   Hostname resolution itself works — it uses the system resolver (what the
 //!   default `dns.lookup` is).
-//! - `receiveBlockList`/`sendBlockList`: need `net.BlockList`, which does not
-//!   exist yet (dgram.md §5.7). Also rejected rather than ignored.
 //! `bind`'s `exclusive` is NOT in that list: it selects whether `node:cluster`
 //! workers share the underlying handle, and a single-process runtime never
 //! shares one — both values already behave here exactly as they do in Node

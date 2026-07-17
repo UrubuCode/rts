@@ -21,6 +21,8 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use socket2::Socket;
 
+use crate::net::blocklist::rules::Rule;
+
 /// One received datagram: the payload bytes and the sender's address.
 pub struct Datagram {
     pub bytes: Vec<u8>,
@@ -94,6 +96,21 @@ pub struct SocketState {
     pub queue_count: AtomicI64,
     /// The reader thread, joined by `close()`.
     pub reader: Mutex<Option<std::thread::JoinHandle<()>>>,
+    /// `createSocket({ receiveBlockList })` — a snapshot of the list's rules at
+    /// creation. An inbound datagram whose SENDER matches is dropped before it
+    /// ever reaches a `'message'` listener.
+    pub receive_block_list: Option<Vec<Rule>>,
+    /// `createSocket({ sendBlockList })` — an outbound datagram whose
+    /// DESTINATION matches is refused instead of sent.
+    pub send_block_list: Option<Vec<Rule>>,
+}
+
+/// Whether `addr` is covered by an optional block list (absent list = allow).
+pub fn blocked(list: &Option<Vec<Rule>>, addr: std::net::IpAddr) -> bool {
+    match list {
+        Some(rules) => rules.iter().any(|r| r.matches(addr)),
+        None => false,
+    }
 }
 
 impl SocketState {
@@ -111,6 +128,8 @@ impl SocketState {
             queue_bytes: AtomicI64::new(0),
             queue_count: AtomicI64::new(0),
             reader: Mutex::new(None),
+            receive_block_list: None,
+            send_block_list: None,
         }
     }
 

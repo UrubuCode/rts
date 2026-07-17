@@ -96,7 +96,7 @@ Node 25. All specs written ✅.
 | dns | `node:dns` (+`/promises`) | Stable | `lookup`/`resolve*`, `Resolver` | [dns.md](./dns.md) |
 | https | `node:https` | Stable | `Server`/`request`/`get`/`Agent` over TLS | [https.md](./https.md) |
 | module | `node:module` | Stable | `createRequire`, loader hooks, `SourceMap`, `builtinModules` | [module.md](./module.md) |
-| net | `node:net` | Stable | `Server`, `Socket`, `BlockList`, `connect` | [net.md](./net.md) |
+| net ◐ | `node:net` | Stable | `Server`, `Socket`, `BlockList` ✅, `SocketAddress` ✅, `connect` | [net.md](./net.md) |
 | perf_hooks | `node:perf_hooks` | Stable | `performance`, `PerformanceObserver`, histograms | [perf_hooks.md](./perf_hooks.md) |
 | readline | `node:readline` (+`/promises`) | Stable | `Interface`, `createInterface`, keypress | [readline.md](./readline.md) |
 | test | `node:test` | Stable | `test`/`describe`/`it`, hooks, `mock`, reporters | [test.md](./test.md) |

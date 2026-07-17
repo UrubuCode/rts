@@ -59,6 +59,13 @@ fn run(st: Arc<SocketState>) {
         match st.sock.recv_from(&mut buf) {
             Ok((n, from)) => {
                 let Some(from) = from.as_socket() else { continue };
+                // `receiveBlockList`: a datagram from a blocked sender is dropped
+                // here — it never reaches a 'message' listener. (Node's own doc:
+                // this is not a security boundary behind a proxy/NAT, since the
+                // address checked is the immediate sender's.)
+                if super::state::blocked(&st.receive_block_list, from.ip()) {
+                    continue;
+                }
                 // Copy out only what actually arrived, so `msg.length ===
                 // rinfo.size` holds structurally.
                 let bytes = unsafe { slice_assume_init(&buf[..n]) }.to_vec();

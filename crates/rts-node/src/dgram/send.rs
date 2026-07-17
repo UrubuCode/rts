@@ -224,6 +224,13 @@ fn send_impl(this: u64, words: &[u64]) {
 
 /// `sendto` on the calling thread + the callback queued for a later turn.
 fn dispatch(st: &Arc<SocketState>, payload: Vec<u8>, to: Option<SocketAddr>, cb: u64) {
+    if let Some(addr) = to
+        && super::state::blocked(&st.send_block_list, addr.ip())
+    {
+        // `sendBlockList`: a blocked destination is refused rather than dialed.
+        st.push_err(cb, true, "ERR_IP_BLOCKED", &format!("IP {} is blocked by net.BlockList", addr.ip()));
+        return;
+    }
     let result = match to {
         Some(addr) => st.sock.send_to(&payload, &SockAddr::from(addr)),
         None => st.sock.send(&payload),

@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 2 - Stable (long-standing core API since Node 0.1.x; the current doc page prints no explicit stability box — verify wording against the live doc, but treat as Stable) |
 | Tier | P1 |
-| Status | [x] **Implemented** — `crates/rts-node/src/dgram/`. Full `Socket` surface + `createSocket`, real sockets/multicast/SSM. Deferred (refused, never faked): the `lookup`/`signal`/`receiveBlockList`/`sendBlockList` options, `bind`'s `fd`, `[Symbol.asyncDispose]`. See §8. |
+| Status | [x] **Implemented** — `crates/rts-node/src/dgram/`. Full `Socket` surface + `createSocket`, real sockets/multicast/SSM, and the `receiveBlockList`/`sendBlockList` filters (over the real `net.BlockList`). Deferred (refused, never faked): the `lookup`/`signal` options, `bind`'s `fd`, `[Symbol.asyncDispose]`. See §8. |
 | Import forms | `import dgram from "node:dgram"`; `import { createSocket, Socket } from "node:dgram"`; CJS `require("node:dgram")` / legacy bare `require("dgram")` |
 | Globals exposed | None — `node:dgram` does not add anything to `globalThis` |
 
@@ -756,9 +756,13 @@ j. **Block lists** — `receiveBlockList`/`sendBlockList`, once `net.BlockList`
   setting have no coverage in `std` or `socket2`; raw `setsockopt` via
   `libc`/`windows-sys` is proposed but unverified end-to-end on every
   target platform (Windows SSM constants especially) — `(verify)`.
-- **`net.BlockList`** does not exist anywhere in the codebase.
+- ~~**`net.BlockList`** does not exist anywhere in the codebase.
   `receiveBlockList`/`sendBlockList` are deferred until it (or an
-  `rts-node`-local equivalent) is built.
+  `rts-node`-local equivalent) is built.~~ **RESOLVED (2026-07-16)**:
+  `net.BlockList` landed (see net.md §8) and both options are implemented — the
+  rules are snapshotted at `createSocket` time, a blocked sender's datagram is
+  dropped in the reader thread, and a blocked destination is refused with
+  `ERR_IP_BLOCKED`.
 - **`AbortController`/`AbortSignal`** currently lives only in `rts-std`
   (`globals/abort`) as a web global. Whether it gets hoisted to a shared
   low crate, reimplemented independently inside `rts-node`, or `dgram`
