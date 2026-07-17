@@ -1,13 +1,26 @@
 <style>
+  body {
+    background: linear-gradient(150deg, #1a1035, #2b1055 40%, #10233f);
+    margin: 0; padding: 0;
+  }
+  .wrap { padding: 22px 0 30px 0; }
+  .title {
+    width: 640px; margin: 0 auto 4px auto; text-align: center;
+    color: #cba6f7; font-size: 30px; font-weight: bold;
+    letter-spacing: 3px; text-transform: uppercase;
+  }
   .stage {
     width: 640px; height: 480px; position: relative;
-    background: linear-gradient(160deg, #0b1020, #131a30);
-    border-radius: 14px; box-shadow: 0 10px 40px rgba(0,0,0,0.6);
-    margin: 20px auto;
+    background: radial-gradient(circle at 50% 30%, #1c2748, #0a0e1c);
+    border-radius: 16px; border-width: 2px; border-color: #45406b;
+    box-shadow: 0 16px 50px rgba(0,0,0,0.7);
+    margin: 12px auto;
   }
   .hud {
     width: 640px; margin: 0 auto; color: #cdd6f4;
     font-size: 18px;
+    background: rgba(255,255,255,0.06); border-radius: 10px;
+    padding: 10px 16px;
   }
   .hud .score { color: #f9e2af; font-weight: bold; }
   .hud .lives { color: #f38ba8; font-weight: bold; }
@@ -30,15 +43,18 @@
   }
   .msg .sub { font-size: 16px; color: #a6adc8; }
 </style>
-<div class="hud">
-  <span>Pontos: <span class="score" id="score">0</span></span>
-  &nbsp;&nbsp;&nbsp;
-  <span>Vidas: <span class="lives" id="lives">3</span></span>
-  &nbsp;&nbsp;&nbsp;
-  <span id="status">← → move a raquete · ESPAÇO lança</span>
-</div>
-<div class="stage" id="stage">
-  <div class="paddle" id="paddle"></div>
-  <div class="ball" id="ball"></div>
-  <div class="msg" id="msg"></div>
+<div class="wrap">
+  <div class="title">RTS Breakout</div>
+  <div class="hud">
+    <span>Pontos: <span class="score" id="score">0</span></span>
+    &nbsp;&nbsp;&nbsp;
+    <span>Vidas: <span class="lives" id="lives">3</span></span>
+    &nbsp;&nbsp;&nbsp;
+    <span id="status">← → move a raquete · ESPAÇO lança</span>
+  </div>
+  <div class="stage" id="stage">
+    <div class="paddle" id="paddle"></div>
+    <div class="ball" id="ball"></div>
+    <div class="msg" id="msg"></div>
+  </div>
 </div>
