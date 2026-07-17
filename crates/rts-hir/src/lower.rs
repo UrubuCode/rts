@@ -231,9 +231,11 @@ fn lower_decl(decl: &swc::Decl, scope: &mut Scope, raw_text: &str) -> HirStmt {
         // A NESTED `function f(){…}` declaration (inside another fn's body):
         // lower as `const f = <arrow>` — the same shape the fn-expression takes,
         // so the arrow-extraction pass lifts it (captures included) like any
-        // local closure. (Full var-style hoisting across the block is a later
-        // increment; the declaration-before-use corpus is covered.)
-        swc::Decl::Fn(fd) if !fd.function.is_async && !fd.function.is_generator => {
+        // local closure. An ASYNC nested decl rides the same path with the
+        // `is_async` flag — the lifted top-level fn keeps async semantics
+        // (call-site spawn). (Full var-style hoisting across the block is a
+        // later increment; the declaration-before-use corpus is covered.)
+        swc::Decl::Fn(fd) if !fd.function.is_generator => {
             let func = &fd.function;
             let params: Vec<HirParam> = func
                 .params
@@ -271,6 +273,7 @@ fn lower_decl(decl: &swc::Decl, scope: &mut Scope, raw_text: &str) -> HirStmt {
                     // A nested `function s(){ … s() … }` is self-visible by its
                     // declaration name — same binding rule as a named fn-expr.
                     self_name: Some(fd.ident.sym.to_string()),
+                    is_async: fd.function.is_async,
                 },
                 HirType::Function {
                     params: vec![],
@@ -607,7 +610,13 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
                 }
             };
             HirExpr::new(
-                HirExprKind::Arrow { params, ret: ret.clone(), body, self_name: None },
+                HirExprKind::Arrow {
+                    params,
+                    ret: ret.clone(),
+                    body,
+                    self_name: None,
+                    is_async: arrow.is_async,
+                },
                 HirType::Function { params: vec![], ret: Box::new(ret) },
             )
         }
@@ -623,7 +632,7 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
         // (sound) — a later increment can bind the self-name.
         swc::Expr::Fn(fn_expr) => {
             let func = &fn_expr.function;
-            if func.is_async || func.is_generator {
+            if func.is_generator {
                 return HirExpr::new(HirExprKind::Raw(format!("{:?}", e)), HirType::Unknown);
             }
             let params: Vec<HirParam> = func.params.iter().map(|p| {
@@ -656,6 +665,7 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
                     ret: ret.clone(),
                     body,
                     self_name: fn_expr.ident.as_ref().map(|i| i.sym.to_string()),
+                    is_async: func.is_async,
                 },
                 HirType::Function { params: vec![], ret: Box::new(ret) },
             )

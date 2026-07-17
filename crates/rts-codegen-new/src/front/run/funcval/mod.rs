@@ -1074,10 +1074,12 @@ impl Ctx {
             ret,
             body,
             self_name,
+            is_async,
         } = &e.kind
         else {
             return None;
         };
+        let is_async = *is_async;
         // The synthesized name is minted UP FRONT so a NAMED fn-expression's
         // self-references can be renamed to it before the free-ident analysis
         // (the self-name is body-only scope; renamed, it resolves as this very
@@ -1273,12 +1275,17 @@ impl Ctx {
         if !captures.is_empty() {
             self.captures.insert(name.clone(), captures);
         }
+        // Um `async () =>` / `async function` aninhada lifta com `is_async` — o
+        // CALL-SITE spawn (`lower_async_spawn`) faz a chamada devolver a Promise
+        // pendente, o mesmo modelo da declaração top-level. Capturas mudam a
+        // aridade real (params prepostos) — o spawn empacota args crus, então
+        // capturas por valor viajam como qualquer arg.
         self.synthesized.push(HirFunc {
             name: name.clone(),
             params: all_params,
             ret: ret.clone(),
             body: body_stmts,
-            is_async: false,
+            is_async,
             is_arrow: true,
         });
         Some(name)

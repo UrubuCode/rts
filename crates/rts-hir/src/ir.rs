@@ -338,6 +338,12 @@ pub enum HirExprKind {
         /// references to the synthesized top-level name, making self-recursive
         /// named fn-exprs liftable. `None` for arrows / anonymous fn-exprs.
         self_name: Option<String>,
+        /// `async () => …` / `async function … {}` (expression or nested decl):
+        /// the extraction pass lifts it to a top-level `HirFunc` with
+        /// `is_async = true`, and the CALL-SITE spawn (`lower_async_spawn`)
+        /// makes calls return a pending Promise — same model as a top-level
+        /// `async function` declaration.
+        is_async: bool,
     },
 
     // Pre/post increment/decrement
