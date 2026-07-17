@@ -85,6 +85,7 @@ pub fn new_pending() -> Arc<PromiseSlot> {
         value: std::sync::Mutex::new(0),
         waiters: std::sync::Mutex::new(Box::new(waiters)),
         handled: AtomicBool::new(false),
+        value_is_word: AtomicBool::new(false),
     })
 }
 
@@ -96,6 +97,7 @@ pub fn new_fulfilled(value: i64) -> Arc<PromiseSlot> {
         value: std::sync::Mutex::new(value),
         waiters: std::sync::Mutex::new(Box::new(waiters)),
         handled: AtomicBool::new(false),
+        value_is_word: AtomicBool::new(false),
     })
 }
 
@@ -107,6 +109,7 @@ pub fn new_rejected(error: i64) -> Arc<PromiseSlot> {
         value: std::sync::Mutex::new(error),
         waiters: std::sync::Mutex::new(Box::new(waiters)),
         handled: AtomicBool::new(false),
+        value_is_word: AtomicBool::new(false),
     });
     register_unhandled(&slot, error);
     slot
@@ -141,6 +144,20 @@ fn settle(slot: &PromiseSlot, new_state: u8, value: i64) -> bool {
 
 pub fn resolve(slot: &PromiseSlot, value: i64) -> bool {
     settle(slot, STATE_FULFILLED, value)
+}
+
+/// Resolve com um valor que JÁ é WORD PolyValue (o settle do async-spawn do
+/// motor novo): marca `value_is_word` para a entrega ao callback de then/
+/// catch/finally NÃO re-adivinhar o tipo pela ponte raw (que corrompia uma
+/// word de double inline).
+pub fn resolve_word(slot: &PromiseSlot, value: i64) -> bool {
+    slot.value_is_word.store(true, Ordering::Release);
+    settle(slot, STATE_FULFILLED, value)
+}
+
+/// `true` se o valor settled é uma WORD PolyValue (ver [`resolve_word`]).
+pub fn value_is_word(slot: &PromiseSlot) -> bool {
+    slot.value_is_word.load(Ordering::Acquire)
 }
 
 pub fn reject(slot: &PromiseSlot, error: i64) -> bool {

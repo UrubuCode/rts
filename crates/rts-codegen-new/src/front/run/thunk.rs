@@ -182,6 +182,73 @@ fn build_thunk_body(
         call_args.push(arg);
     }
 
+    // ASYNC fn-VALUE: o thunk NÃO roda o corpo inline (bloquearia o caller e
+    // devolveria o valor cru em vez da Promise). Replica o CALL-SITE spawn
+    // (`asyncspawn.rs`): empacota os args crus num Vec + kinds/meta e chama
+    // `__rtsadp_promise_spawn`, devolvendo o handle da Promise PENDENTE boxado
+    // como OBJECT word — o `.then` dinâmico e o `await` normalizam esse shape.
+    // Capturas de closure já vieram prepostas em `call_args` (viajam como args
+    // crus, captura-por-valor). Shapes fora do contrato do spawn (this/rest/>8
+    // params) mantêm o thunk inline legado — o reify continua recusando esses.
+    if sig.is_async && !sig.has_this && sig.rest_param.is_none() && sig.params.len() <= 8 {
+        let vec_h = emit_marshal::emit_call(module, fb, "__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[])
+            .expect("VEC_NEW returns a handle");
+        for (v, &repr) in call_args.iter().zip(&sig.params) {
+            let slot = match repr {
+                Repr::Int32 => fb.ins().sextend(types::I64, *v),
+                Repr::Float64 => fb.ins().bitcast(
+                    types::I64,
+                    cranelift_codegen::ir::MemFlags::new(),
+                    *v,
+                ),
+                _ => *v,
+            };
+            emit_marshal::emit_call(
+                module,
+                fb,
+                "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
+                &[vec_h, slot],
+            );
+        }
+        // kinds/meta: o MESMO empacotamento do asyncspawn (0=i64, 1=f64-bits,
+        // 2=bool; meta = box_kind<<16 | nparams<<8 | ret_kind).
+        let mut kinds_packed: u64 = 0;
+        for (i, &repr) in sig.params.iter().enumerate() {
+            let k: u64 = match repr {
+                Repr::Float64 => 1,
+                Repr::Bool => 2,
+                _ => 0,
+            };
+            kinds_packed |= k << (8 * i);
+        }
+        let ret_kind: u64 = match sig.ret {
+            Some(Repr::Float64) => 1,
+            Some(Repr::Bool) => 2,
+            _ => 0,
+        };
+        let box_kind: u64 = match sig.ret {
+            Some(Repr::Float64) => 1,
+            Some(Repr::Bool) => 2,
+            Some(Repr::Int32) | Some(Repr::Int64) => 0,
+            _ => 3,
+        };
+        let meta = (box_kind << 16) | ((sig.params.len() as u64) << 8) | ret_kind;
+        let kinds_word = fb.ins().iconst(types::I64, kinds_packed as i64);
+        let meta_word = fb.ins().iconst(types::I64, meta as i64);
+        let real_ref = module.declare_func_in_func(real_id, fb.func);
+        let fn_addr = fb.ins().func_addr(types::I64, real_ref);
+        let handle = emit_marshal::emit_call(
+            module,
+            fb,
+            "__rtsadp_promise_spawn",
+            &[fn_addr, vec_h, kinds_word, meta_word],
+        )
+        .expect("__rtsadp_promise_spawn returns a handle");
+        let word = emit_marshal::emit_box_object_handle(module, fb, handle);
+        fb.ins().return_(&[word]);
+        return Ok(());
+    }
+
     // Call the real body (its signature was attached at declaration time; the
     // FuncId carries it, so no re-derivation is needed here).
     let real_ref = module.declare_func_in_func(real_id, fb.func);
