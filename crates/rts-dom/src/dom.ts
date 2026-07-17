@@ -1031,7 +1031,19 @@ function __runScriptAt(h: i64, j: number): number {
     || st === "application/javascript" || st === "module"
     || st === "application/x-javascript" || st === "text/ecmascript";
   if (!isJs) return 0;
-  const code = dom.getText(h, node);
+  // O CÓDIGO vem do texto inline OU de um `src=data:...;base64,<b64>` (o
+  // WhatsApp/Meta embutem quase todo o JS assim). data-URI base64 é decodificado
+  // via `atob`; data-URI de texto puro (`data:...,<code>`) usa o payload direto.
+  // `src=http(s)` externo NÃO é baixado aqui (o extractSite do browser decide).
+  let code = dom.getText(h, node);
+  const src = dom.getAttribute(h, node, "src");
+  if (src.length > 5 && src.substring(0, 5) === "data:") {
+    const comma = src.indexOf(",");
+    if (comma < 0) return 0;
+    const meta = src.substring(0, comma);
+    const payload = src.substring(comma + 1);
+    code = meta.indexOf("base64") >= 0 ? atob(payload) : decodeURIComponent(payload);
+  }
   if (code.length === 0) return 0;
   // `return 0` final: o dynfn é tipado i64 e o corpo de um <script> normalmente
   // não tem return — garantimos um. (Um return do próprio script vence, este vira
