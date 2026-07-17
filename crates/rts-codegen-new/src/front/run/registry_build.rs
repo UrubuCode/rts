@@ -394,6 +394,9 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
     PreludeTs { label: "node:stream write", source: ns::node_stream::STREAM_WRITABLE_TS, why: "Writable + shared write code" },
     PreludeTs { label: "node:stream duplex", source: ns::node_stream::STREAM_DUPLEX_TS, why: "Duplex/Transform/PassThrough" },
     PreludeTs { label: "node:stream ops", source: ns::node_stream::STREAM_OPS_TS, why: "pipeline/finished/compose/… + consumers + promises" },
+    // node:diagnostics_channel — in-process pub/sub bus (Channel/TracingChannel +
+    // module fns). Ambient `.ts` (like node:stream); pure over Map/Array/Function.
+    PreludeTs { label: "node:diagnostics_channel", source: ns::node_diagnostics_channel::DIAGNOSTICS_CHANNEL_TS, why: "Channel/TracingChannel + channel/subscribe/… pub-sub" },
     // DOM facade — `Document`/`Element` classes (browser-named API) over the `rts:dom`
     // primitives. AFTER the namespaces register (the `dom.*` it calls must exist).
     PreludeTs { label: "DOM facade", source: ns::dom::DOM_TS, why: "document/Element over rts:dom" },

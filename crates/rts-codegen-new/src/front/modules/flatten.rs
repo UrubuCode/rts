@@ -255,6 +255,18 @@ fn node_reexported_globals(specifier: &str) -> Option<&'static [(&'static str, &
         // `StringDecoder` is a registered global (Registry) class — bind the
         // import to the ambient class, like `URL` (reuse, never re-implement).
         "node:string_decoder" => Some(&[("StringDecoder", "StringDecoder")]),
+        // node:diagnostics_channel — ambient `.ts` prelude. Classes keep their
+        // names; the module fns are renamed `__dc*` (generic names like `channel`/
+        // `subscribe` would otherwise be ambient globals colliding with user code).
+        "node:diagnostics_channel" => Some(&[
+            ("channel", "__dcChannel"),
+            ("hasSubscribers", "__dcHasSubscribers"),
+            ("subscribe", "__dcSubscribe"),
+            ("unsubscribe", "__dcUnsubscribe"),
+            ("tracingChannel", "__dcTracingChannel"),
+            ("Channel", "Channel"),
+            ("TracingChannel", "TracingChannel"),
+        ]),
         // `node:stream` — every class/fn is an ambient `.ts` prelude decl of the
         // SAME name (see rts-node `stream.ts`/…). Data-driven: (import, decl).
         "node:stream" => Some(&[

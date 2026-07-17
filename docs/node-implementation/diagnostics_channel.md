@@ -8,7 +8,7 @@
 | Node.js version | 25.x (introduced v15.1.0 / v14.17.0; current API stabilized through v25.9.0) |
 | Stability | 2 - Stable (declared stable since v19.2.0 / v18.13.0) |
 | Tier | P2 |
-| Status | [ ] Not implemented — spec only |
+| Status | [x] Implemented — Channel (publish/subscribe/unsubscribe/bindStore/unbindStore/runStores + hasSubscribers/name), module fns (channel/hasSubscribers/subscribe/unsubscribe/tracingChannel), TracingChannel (start/end/asyncStart/asyncEnd/error sub-channels + subscribe/unsubscribe/hasSubscribers + traceSync/tracePromise/traceCallback) — ambient .ts prelude. Deviations: strong-ref registry (Node WeakRef); unsubscribe/unbindStore removal-by-ref is a no-op (engine re-reifies fn values → no stable identity, `f===f` false — engine-wide gap); bindStore/runStores enter store context only if store has `.run` (AsyncLocalStorage not impl). Tests 7/7. 
 | Import forms | `import * as diagnostics_channel from "node:diagnostics_channel"`; named `import { channel, hasSubscribers, subscribe, unsubscribe, tracingChannel, Channel, TracingChannel } from "node:diagnostics_channel"`. Bare specifier `"diagnostics_channel"` (no `node:` prefix) is legal in real Node but is **not** resolved by RTS's current `ns_prefix_for` (it only strips a literal `"node:"` prefix) — out of scope for this spec, tracked at the resolver level, not per-module. |
 | Globals exposed | None. This module adds nothing to `globalThis`; it is reached only via explicit import. |
 
