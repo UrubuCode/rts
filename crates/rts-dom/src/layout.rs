@@ -2255,7 +2255,7 @@ fn layout_inline_flow(
                 mono,
                 bold: seg.bold,
                 letter_spacing: ls,
-                decoration: decoration_code(parent_css),
+                decoration: seg.deco,
             });
             seg_x += w;
         }
@@ -2272,6 +2272,9 @@ struct InlineRun {
     text: String,
     color: u32,
     bold: bool,
+    /// decoração do RUN (0=none 1=underline 2=line-through) — vem do <a>/<span>
+    /// que contém o texto, não do bloco pai (um <a> sublinha só o seu texto).
+    deco: u8,
     widget: Option<NodeIdx>,
     ww: f32,
     wh: f32,
@@ -2294,6 +2297,7 @@ fn collect_runs(
         ctx,
         id,
         parent_css.color.unwrap_or(0x000000FF),
+        decoration_code(parent_css),
         parent_css.text_transform,
         parent_css.bold.unwrap_or(false),
         &mut runs,
@@ -2305,6 +2309,7 @@ fn collect_runs(
         ctx: &LayoutCtx,
         id: NodeIdx,
         inherited_color: u32,
+        inherited_deco: u8,
         inherited_tt: Option<crate::style::TextTransform>,
         inherited_bold: bool,
         out: &mut Vec<InlineRun>,
@@ -2319,6 +2324,7 @@ fn collect_runs(
                     text,
                     color: inherited_color,
                     bold: inherited_bold,
+                    deco: inherited_deco,
                     widget: None,
                     ww: 0.0,
                     wh: 0.0,
@@ -2349,19 +2355,25 @@ fn collect_runs(
                         text: String::new(),
                         color: inherited_color,
                         bold: false,
+                        deco: 0,
                         widget: Some(id),
                         ww,
                         wh,
                     });
                     return;
                 }
-                // a cor/text-transform/peso DESTE inline (se declarar) vence p/ os filhos.
+                // a cor/text-transform/peso/decoração DESTE inline (se declarar)
+                // vence p/ os filhos (o <a> sublinha só o próprio texto).
                 let css = dom.computed_style_idx(id);
                 let color = css.as_ref().and_then(|c| c.color).unwrap_or(inherited_color);
                 let tt = css.as_ref().and_then(|c| c.text_transform).or(inherited_tt);
                 let bold = css.as_ref().and_then(|c| c.bold).unwrap_or(inherited_bold);
+                let deco = match css.as_ref().map(decoration_code) {
+                    Some(d) if d != 0 => d,
+                    _ => inherited_deco,
+                };
                 for &c in &dom.node(id).children {
-                    walk(dom, ctx, c, color, tt, bold, out);
+                    walk(dom, ctx, c, color, deco, tt, bold, out);
                 }
             }
             _ => {}
@@ -2392,6 +2404,7 @@ struct Segment {
     text: String,
     color: u32,
     bold: bool,
+    deco: u8,
     widget: Option<NodeIdx>,
     ww: f32,
     wh: f32,
@@ -2433,6 +2446,7 @@ fn wrap_runs(
                 text: String::new(),
                 color: run.color,
                 bold: false,
+                deco: 0,
                 widget: Some(w_idx),
                 ww: run.ww,
                 wh: run.wh,
@@ -2467,13 +2481,18 @@ fn wrap_runs(
             let piece = if sep { format!(" {word}") } else { word.to_string() };
             // junta no último segmento se mesma cor E peso (e não-widget), senão novo.
             if let Some(last) = cur.last_mut() {
-                if last.widget.is_none() && last.color == run.color && last.bold == run.bold {
+                if last.widget.is_none()
+                    && last.color == run.color
+                    && last.bold == run.bold
+                    && last.deco == run.deco
+                {
                     last.text.push_str(&piece);
                 } else {
                     cur.push(Segment {
                         text: piece,
                         color: run.color,
                         bold: run.bold,
+                        deco: run.deco,
                         widget: None,
                         ww: 0.0,
                         wh: 0.0,
@@ -2484,6 +2503,7 @@ fn wrap_runs(
                     text: piece,
                     color: run.color,
                     bold: run.bold,
+                    deco: run.deco,
                     widget: None,
                     ww: 0.0,
                     wh: 0.0,
@@ -2502,6 +2522,7 @@ fn wrap_runs(
             text: String::new(),
             color: 0,
             bold: false,
+            deco: 0,
             widget: None,
             ww: 0.0,
             wh: 0.0,
@@ -2873,6 +2894,25 @@ mod tests {
         // "y" à direita → x ≈ 400-8 = 392.
         let rx = texts.iter().find(|(t, _)| t == "y").unwrap().1;
         assert!((rx - 392.0).abs() < 2.0, "right: {rx}");
+    }
+
+    #[test]
+    fn link_ua_azul_sublinhado_por_run() {
+        // `<a>` sem CSS de autor: cor azul default + underline (deco=1) SÓ no seu
+        // texto — o texto adjacente do parágrafo fica preto e sem decoração.
+        crate::block::define("p", crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 });
+        let dom = parse_html_to_dom("<p>antes <a href=x>link</a> depois</p>");
+        let ctx = LayoutCtx { viewport_w: 600.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+        let list = layout_document(&dom, &ctx);
+        let segs: Vec<(String, u32, u8)> = list.items.iter().filter_map(|it| match it {
+            DisplayItem::Text { text, color, decoration, .. } => Some((text.clone(), *color, *decoration)),
+            _ => None,
+        }).collect();
+        let link = segs.iter().find(|(t, ..)| t.contains("link")).expect("run do link");
+        assert_eq!(link.1, 0x0000EEFF, "link azul");
+        assert_eq!(link.2, 1, "link sublinhado");
+        // o texto ao redor (preto, sem deco) é um segmento SEPARADO.
+        assert!(segs.iter().any(|(t, c, d)| t.contains("antes") && *c == 0x000000FF && *d == 0));
     }
 
     #[test]

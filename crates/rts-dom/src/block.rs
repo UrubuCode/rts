@@ -195,4 +195,9 @@ pub fn install_ua_defaults() {
     // filhos é um refino futuro; o inline-flow centrado já resolve o visual.
     define("center", BlockDef { display: 0, indent: 0.0, prefix: PREFIX_NONE, flags: 0 });
     crate::style::define_style("center", crate::style::SLOT_TEXT_ALIGN, 1);
+    // `<a>` — o link default do browser: azul (#0000EE) + sublinhado. Uma regra
+    // de AUTOR (`a{color:...}`/`text-decoration:none`) vence (especificidade da
+    // tag < classe/id do autor; a UA é a camada mais fraca da cascade).
+    crate::style::define_style("a", crate::style::SLOT_COLOR, 0x0000EEFF);
+    crate::style::define_style("a", crate::style::SLOT_TEXT_DECORATION, 1);
 }

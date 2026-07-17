@@ -428,6 +428,16 @@ impl ComputedStyle {
                     _ => None,
                 }
             }
+            // `text-decoration`: 0=none 1=underline 2=line-through. A UA usa p/ o
+            // `<a>` (sublinhado default do browser).
+            SLOT_TEXT_DECORATION => {
+                self.text_decoration = match val {
+                    1 => Some(crate::style::values::TextDecoration::Underline),
+                    2 => Some(crate::style::values::TextDecoration::LineThrough),
+                    0 => Some(crate::style::values::TextDecoration::None),
+                    _ => None,
+                }
+            }
             _ => {} // slot desconhecido: ignora (o TS mapeia o vocabulário CSS).
         }
     }
@@ -457,6 +467,8 @@ pub const SLOT_MARGIN_V: i64 = 9;
 /// (a tag legada = text-align:center herdável, o suficiente p/ páginas
 /// anos-2000 como a home legada do google).
 pub const SLOT_TEXT_ALIGN: i64 = 10;
+/// `text-decoration`: 0=none 1=underline 2=line-through. UA usa p/ `<a>`.
+pub const SLOT_TEXT_DECORATION: i64 = 11;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
