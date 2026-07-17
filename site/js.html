@@ -1,0 +1,45 @@
+<style>
+  .demo{background:#0c1220;border-radius:16px;padding:28px;margin:24px 0;box-shadow:0 6px 16px rgba(0,0,0,0.35)}
+  .demo h2{color:#ffffff;margin:0 0 6px 0}
+  .demo p{color:#93a0b6;margin:0 0 18px 0}
+  .btn{display:inline-block;background:#f97316;color:#1a0e03;font-weight:bold;padding:14px 28px;border-radius:10px;font-size:17px}
+  .btn:hover{background:#fdba74}
+  #contador{color:#7dd3fc;font-size:34px;font-weight:bold;margin:16px 0}
+  #status{color:#a4afc4;font-size:15px}
+  .lista{margin-top:14px}
+  .lista div{background:#10141c;color:#e6e9ef;border-radius:8px;padding:10px 14px;margin:6px 0}
+</style>
+<div class="demo">
+  <h2>JavaScript rodando no motor RTS</h2>
+  <p>Esta pagina tem um &lt;script&gt; de verdade: addEventListener, setTimeout, async function, createElement.</p>
+  <span class="btn" id="soma">Clique: +1</span>
+  <div id="contador">0</div>
+  <div id="status">aguardando o script...</div>
+  <div class="lista" id="lista"></div>
+</div>
+<script>
+let n = 0;
+const btn = document.getElementById('soma');
+if (btn !== null) {
+  btn.addEventListener('click', function(ev) {
+    n = n + 1;
+    const c = document.getElementById('contador');
+    if (c !== null) { c.textContent = '' + n; }
+    const li = document.createElement('div');
+    li.textContent = 'clique #' + n + ' em ' + ev.target.tagName;
+    const lista = document.getElementById('lista');
+    if (lista !== null) { lista.appendChild(li); }
+  });
+}
+const st = document.getElementById('status');
+if (st !== null) { st.textContent = 'script rodou! listener registrado. setTimeout em 1s...'; }
+setTimeout(function() {
+  const s2 = document.getElementById('status');
+  if (s2 !== null) { s2.textContent = 'setTimeout disparou! async agora...'; }
+}, 1000);
+async function demoAsync() { return 42; }
+demoAsync().then(function(v) {
+  const s3 = document.getElementById('status');
+  if (s3 !== null) { s3.textContent = 'tudo funcionou: listener + setTimeout + async/.then (v=' + v + ')'; }
+});
+</script>

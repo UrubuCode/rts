@@ -2123,6 +2123,20 @@ impl Dom {
                 if is_void(tag) {
                     return; // void: sem filhos, sem fechamento.
                 }
+                // RAW-TEXT elements (`<script>`/`<style>`): o conteúdo é CRU —
+                // re-encodar entidades corrompia o código (`&&` → `&amp;&amp;`,
+                // que o reparse raw NÃO decodifica → syntax error no JS).
+                if self.is_raw_text_element(idx) {
+                    for &c in &self.nodes[idx].children {
+                        if let NodeKind::Text(t) = &self.nodes[c].kind {
+                            out.push_str(t);
+                        }
+                    }
+                    out.push_str("</");
+                    out.push_str(tag);
+                    out.push('>');
+                    return;
+                }
                 for &c in &self.nodes[idx].children {
                     self.serialize_node(c, out);
                 }
