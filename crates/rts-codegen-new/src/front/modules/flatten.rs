@@ -319,6 +319,7 @@ fn node_reexported_globals(specifier: &str) -> Option<&'static [(&'static str, &
             ("createWriteStream", "createWriteStream"),
             ("ReadStream", "ReadStream"),
             ("WriteStream", "WriteStream"),
+            ("Utf8Stream", "Utf8Stream"),
         ]),
         "node:url" => Some(&[("URL", "URL"), ("URLSearchParams", "URLSearchParams")]),
         // `StringDecoder` is a registered global (Registry) class — bind the

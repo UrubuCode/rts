@@ -56,6 +56,11 @@ use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 /// (`node_reexported_globals`).
 pub const FS_STREAM_TS: &str = include_str!("stream.ts");
 
+/// The ambient `.ts` prelude implementing `fs.Utf8Stream` (the append-only
+/// fixed-encoding logger sink) over the `engine.fs_*` bridges. Included AFTER
+/// `FS_STREAM_TS` (shares the stream `Stream` base); bound to `node:fs`.
+pub const FS_UTF8STREAM_TS: &str = include_str!("utf8stream.ts");
+
 #[allow(clippy::too_many_arguments)]
 fn m(name: &str, kind: MemberKind, args: Vec<AbiType>, ret: AbiType, symbol: &str, ts: &str, fp: *const u8) -> Member {
     Member {
