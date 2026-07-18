@@ -84,7 +84,7 @@ comm -23 before.txt after.txt   # failures the change FIXED
 
 ## 3. Items
 
-### Item 1 — Prelude reachability pruning ✅ implemented, validation pending
+### Item 1 — Prelude reachability pruning ✅ done
 
 **What.** `crates/rts-codegen-new/src/front/run/prune.rs`: drop the prelude
 functions the program cannot reach, before Cranelift sees them.
@@ -106,12 +106,26 @@ The statement and expression walkers are written out variant by variant with **n
 being called, so a new HIR node must break the build rather than silently produce
 a broken program.
 
-**Known limitation (real, not theoretical).** The premise "a dynamic lookup can
-only reach a member the program spells out" breaks for a name ASSEMBLED at
-runtime — `obj["to" + "String"]()` spells neither `toString` nor anything
-matching it, so that method can be pruned while still reachable. Narrow (literal
-names, templates and any spelled-out string are covered) and unhit by the suite,
-but documented in `prune.rs` rather than left as a surprise.
+**The computed-member-name question, resolved by testing rather than assumed.**
+The premise "a dynamic lookup can only reach a member the program spells out"
+would break for a name ASSEMBLED at runtime (`obj["to" + "String"]()`). Measured
+outcome:
+
+- **Object receivers are already safe.** An instance can only exist if some kept
+  body named its class, and naming a class keeps its ENTIRE member surface.
+  Verified: `(o as any)["gre"+"et"]()` on an object literal and
+  `(c as any)["hel"+"lo"]()` on a user class both work with the pass on.
+- **The residual case is a PRIMITIVE receiver**, and it does not work in the
+  engine at all today — `(s as any)["to"+"UpperCase"]()` fails *identically* with
+  `RTS_NO_PRUNE=1`. So the pass is not what breaks it. (An agent task is open on
+  the underlying engine limitation; if it lands, this pass must be revisited in
+  the same change.)
+- **A widening was implemented, measured, and REJECTED.** Keeping the full
+  surface of every class touched by a computed access re-expanded the kept set
+  from **280 → 673** functions, because ordinary numeric `arr[i]` indexing trips
+  the same flag and the prelude is full of it. Paying most of the win to close a
+  hole nothing can currently reach is a bad trade; the reasoning is recorded in
+  `prune.rs` so it is not rediscovered and re-adopted.
 
 **Escape hatch.** `RTS_NO_PRUNE=1` disables the pass — this also lets one binary
 produce both sides of an A/B comparison, and confirms or clears this pass as the
@@ -361,6 +375,38 @@ thing that matters. Behind a flag, never as the default for `rts run`.
 
 ---
 
+### Item 10 — Cranelift settings RTS never set ✅ partly done
+
+**What was found.** RTS sets only `opt_level=speed`, `preserve_frame_pointers`
+and (AOT) `is_pic`. Everything else runs on Cranelift's defaults — and one of
+those defaults is expensive:
+
+- **`enable_verifier` defaults to TRUE.** Its own doc: *"makes compilation slower
+  but catches many bugs. The verifier is always enabled by default, which is
+  useful during development."* It ran at several points per function on every
+  release compile. **Done:** kept in debug builds (where a malformed lowering
+  must be caught loudly, and where `cargo run -- run` iteration lives), dropped
+  in release. Measured: Cranelift phase 221 → 171 ms, startup 390 → **346 ms**,
+  suite failing-file list unchanged.
+
+**Still unexamined, worth measuring:**
+
+- **`regalloc_algorithm`** — `backtracking` (default, better code) vs
+  `single_pass` ("quick compilation but results in code with more register
+  spills and moves"). A direct compile-time/run-time dial. Same tiering argument
+  as Item 8: attractive for the prelude and for `rts test`, wrong as a blanket
+  default for `rts run`.
+- **`enable_alias_analysis`** (default true) — redundant-load removal. Costs
+  compile time, buys run time. Measure before touching.
+- **`enable_heap_access_spectre_mitigation`** / `enable_table_access_spectre_mitigation`
+  (default true) — these guard Cranelift *heaps* and *tables*. RTS uses neither
+  (it addresses through HandleTable slots and raw pointers), so they are likely
+  inert here; confirm before assuming a win.
+- **`machine_code_cfg_info`**, `enable_probestack`, `enable_nan_canonicalization`
+  — check whether any default costs us something we do not use.
+
+---
+
 ### Item 9 — Lazy compilation (stub-on-first-call)
 
 **What.** Compile a function on its first call rather than up front. Structurally
@@ -407,6 +453,7 @@ unchanged either way.
 | 7 | node_modules reactivation | — | — | not started |
 | 8 | Asymmetric `opt_level` | 196 → <100 ms | — | recorded, not recommended |
 | 9 | Lazy compilation | — | — | deferred |
+| 10 | Cranelift settings (verifier off) | — | **390 → 346 ms** | ✅ verifier done; regalloc/alias unexamined |
 
-**Combined so far:** empty-program startup **890 → 390 ms**; full suite
+**Combined so far:** empty-program startup **890 → 346 ms (2.6×)**; full suite
 **~10 min → 50 s** (~12×); 8 previously-failing files fixed; no regression.
