@@ -38,6 +38,9 @@ fn fp_for(symbol: &str) -> *const u8 {
         "__RTS_FN_GL_URL_USERNAME" => instance::__RTS_FN_GL_URL_USERNAME as *const u8,
         "__RTS_FN_GL_USP_APPEND" => instance::__RTS_FN_GL_USP_APPEND as *const u8,
         "__RTS_FN_GL_USP_DELETE" => instance::__RTS_FN_GL_USP_DELETE as *const u8,
+        "__RTS_FN_GL_USP_ENTRIES" => instance::__RTS_FN_GL_USP_ENTRIES as *const u8,
+        "__RTS_FN_GL_USP_FOR_EACH" => instance::__RTS_FN_GL_USP_FOR_EACH as *const u8,
+        "__RTS_FN_GL_USP_SIZE" => instance::__RTS_FN_GL_USP_SIZE as *const u8,
         "__RTS_FN_GL_USP_GET" => instance::__RTS_FN_GL_USP_GET as *const u8,
         "__RTS_FN_GL_USP_GET_ALL" => instance::__RTS_FN_GL_USP_GET_ALL as *const u8,
         "__RTS_FN_GL_USP_HAS" => instance::__RTS_FN_GL_USP_HAS as *const u8,
@@ -334,6 +337,15 @@ pub fn register_url_class_spec(e: &mut Engine) {
             false,
         ))
         .member(m(
+            "toJSON",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_URL_TO_STRING",
+            "toJSON(): string",
+            "url.toJSON() — o href serializado (JSON.stringify(url) usa isto). Igual a toString().",
+            false,
+        ))
+        .member(m(
             "searchParams",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle], AbiType::Handle),
@@ -474,6 +486,33 @@ pub fn register_urlsp_class_spec(e: &mut Engine) {
             "__RTS_FN_GL_USP_SORT",
             "sort(): void",
             "Sort entries by key name (estavel, JS spec).",
+            false,
+        ))
+        .member(m(
+            "entries",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            "__RTS_FN_GL_USP_ENTRIES",
+            "entries(): [string, string][]",
+            "Array de pares [key, value] em ordem (com duplicatas).",
+            true,
+        ))
+        .member(m(
+            "forEach",
+            MemberKind::InstanceMethod,
+            Sig::new(vec![AbiType::Handle, AbiType::PolyValue], AbiType::Handle),
+            "__RTS_FN_GL_USP_FOR_EACH",
+            "forEach(callback: (value: string, key: string, searchParams: URLSearchParams) => void): void",
+            "Invoca callback(value, key, self) por par (snapshot).",
+            false,
+        ))
+        .member(m(
+            "size",
+            MemberKind::InstanceGetter,
+            Sig::new(vec![AbiType::Handle], AbiType::I64),
+            "__RTS_FN_GL_USP_SIZE",
+            "size: number",
+            "Numero de pares (getter, WHATWG v19+).",
             false,
         ))
         .done();

@@ -4,6 +4,21 @@
 use super::words::{buffer, intern, object_entries, word_scalar};
 use super::{fileurl, legacy, whatwg};
 
+use rts_engine::heap::handles::{with_entry, Entry};
+
+unsafe extern "C" {
+    // The shared WHATWG `URL` serializer (globals/url) — recomposes the current
+    // href (reflecting setters + searchParams mutations). Returns a string handle.
+    fn __RTS_FN_GL_URL_TO_STRING(handle: u64) -> u64;
+}
+
+/// A WHATWG `URL` instance is stored as an `Entry::Env` (the [href, protocol, …]
+/// slot vector). Legacy urlObjects are shaped `Entry::Vec` plain objects. Used
+/// so `url.format` accepts BOTH forms (Node overloads it).
+fn is_whatwg_url(handle: u64) -> bool {
+    with_entry(handle, |e| matches!(e, Some(Entry::Env(_))))
+}
+
 fn read(ptr: *const u8, len: i64) -> String {
     unsafe { rts_engine::abi::str_abi::from_abi(ptr, len) }
         .unwrap_or("")
@@ -78,6 +93,11 @@ pub extern "C" fn __RTS_FN_NODE_URL_PARSE_OPTS(
 /// `url.format(urlObject)` — recompose from a legacy urlObject's fields.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_URL_FORMAT(obj: u64) -> u64 {
+    // `url.format(URL)` (WHATWG instance) → the serialized href. `url.format(
+    // urlObject)` (legacy plain object) → recompose from its fields (below).
+    if is_whatwg_url(obj) {
+        return unsafe { __RTS_FN_GL_URL_TO_STRING(obj) };
+    }
     let mut fields: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let mut slashes = false;
     for (key, word) in object_entries(obj) {

@@ -336,9 +336,71 @@ fn url_field(handle: u64, idx: usize) -> u64 {
     })
 }
 
+/// The CURRENT `search` string (`"?a=1&b=2"` or `""`) of a URL, reconstructed
+/// from the cached `URLSearchParams` when it has been mutated (`url.searchParams.
+/// append/set/...`), else the parsed `search` slot. Shared by `url.search` and
+/// `url.href`/`toString` so all three reflect searchParams mutations.
+fn current_search(handle: u64) -> String {
+    let cached_sp = url_sp_cache().lock().ok().and_then(|c| c.get(&handle).copied());
+    if let Some(sp) = cached_sp {
+        let pairs: Vec<(String, String)> = with_usp_pairs(sp, Vec::new(), |slots| {
+            let mut out = Vec::with_capacity(slots.len() / 2);
+            for chunk in slots.chunks(2) {
+                if chunk.len() == 2 {
+                    let k = key_str_of_handle(chunk[0]).unwrap_or_default();
+                    let v = key_str_of_handle(chunk[1]).unwrap_or_default();
+                    out.push((k, v));
+                }
+            }
+            out
+        });
+        if pairs.is_empty() {
+            return String::new();
+        }
+        let mut s = String::from("?");
+        for (i, (k, v)) in pairs.iter().enumerate() {
+            if i > 0 {
+                s.push('&');
+            }
+            s.push_str(&percent_encode_form(k));
+            s.push('=');
+            s.push_str(&percent_encode_form(v));
+        }
+        return s;
+    }
+    url_field_str(handle, 6)
+}
+
+/// The CURRENT full href, reconstructed from the component slots + the live
+/// searchParams (mirrors `toString`). Shared by `url.href` and `toString`.
+fn current_href(handle: u64) -> String {
+    let protocol = url_field_str(handle, 1);
+    let hostname = url_field_str(handle, 3);
+    let port = url_field_str(handle, 4);
+    let pathname = url_field_str(handle, 5);
+    let username = url_field_str(handle, 9);
+    let password = url_field_str(handle, 10);
+    let search = current_search(handle);
+    let hash = url_field_str(handle, 7);
+    let host = if port.is_empty() {
+        hostname
+    } else {
+        format!("{hostname}:{port}")
+    };
+    let userinfo_str = if username.is_empty() && password.is_empty() {
+        String::new()
+    } else if password.is_empty() {
+        format!("{username}@")
+    } else {
+        format!("{username}:{password}@")
+    };
+    format!("{protocol}//{userinfo_str}{host}{pathname}{search}{hash}")
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_URL_HREF(h: u64) -> u64 {
-    url_field(h, 0)
+    // Reconstruct so a searchParams/setter mutation is reflected (Node semantics).
+    intern_str(&current_href(h))
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_URL_PROTOCOL(h: u64) -> u64 {
@@ -362,7 +424,8 @@ pub extern "C" fn __RTS_FN_GL_URL_PATHNAME(h: u64) -> u64 {
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_URL_SEARCH(h: u64) -> u64 {
-    url_field(h, 6)
+    // Reflect searchParams mutations (Node semantics), not just the parsed slot.
+    intern_str(&current_search(h))
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_URL_HASH(h: u64) -> u64 {
@@ -481,69 +544,8 @@ pub extern "C" fn __RTS_FN_GL_URL_SET_PATHNAME(handle: u64, ptr: i64, len: i64) 
 /// searchParams cacheado (cujo conteudo pode ter mudado via .set/.append).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_URL_TO_STRING(handle: u64) -> u64 {
-    let protocol = url_field_str(handle, 1);
-    let hostname = url_field_str(handle, 3);
-    let port = url_field_str(handle, 4);
-    let pathname = url_field_str(handle, 5);
-    let username = url_field_str(handle, 9);
-    let password = url_field_str(handle, 10);
-    // Se searchParams foi mutado (cache existe), reconstroi search dele.
-    // Caso contrario, usa o slot search atual.
-    let search = {
-        let cached_sp = if let Ok(cache) = url_sp_cache().lock() {
-            cache.get(&handle).copied()
-        } else {
-            None
-        };
-        match cached_sp {
-            Some(sp) => {
-                // Itera pares e reconstroi `?k=v&k2=v2` com encoding USP
-                // (espaco -> '+').
-                let pairs: Vec<(String, String)> = with_usp_pairs(sp, Vec::new(), |slots| {
-                    let mut out = Vec::with_capacity(slots.len() / 2);
-                    for chunk in slots.chunks(2) {
-                        if chunk.len() == 2 {
-                            let k = key_str_of_handle(chunk[0]).unwrap_or_default();
-                            let v = key_str_of_handle(chunk[1]).unwrap_or_default();
-                            out.push((k, v));
-                        }
-                    }
-                    out
-                });
-                if pairs.is_empty() {
-                    String::new()
-                } else {
-                    let mut s = String::from("?");
-                    for (i, (k, v)) in pairs.iter().enumerate() {
-                        if i > 0 {
-                            s.push('&');
-                        }
-                        s.push_str(&percent_encode_form(k));
-                        s.push('=');
-                        s.push_str(&percent_encode_form(v));
-                    }
-                    s
-                }
-            }
-            None => url_field_str(handle, 6),
-        }
-    };
-    let hash = url_field_str(handle, 7);
-    let host = if port.is_empty() {
-        hostname
-    } else {
-        format!("{hostname}:{port}")
-    };
-    let userinfo_str = if username.is_empty() && password.is_empty() {
-        String::new()
-    } else if password.is_empty() {
-        format!("{username}@")
-    } else {
-        format!("{username}:{password}@")
-    };
-    let href = format!("{protocol}//{userinfo_str}{host}{pathname}{search}{hash}");
-    // Atualiza o slot href cacheado tambem (para subsequentes leituras
-    // de url.href baterem com toString).
+    let href = current_href(handle);
+    // Keep the cached href slot in sync (subsequent reads match toString).
     url_set_field(handle, 0, &href);
     intern_str(&href)
 }
@@ -955,6 +957,70 @@ pub extern "C" fn __RTS_FN_GL_USP_SORT(self_h: u64) -> u64 {
         *slots = new_slots;
     });
     self_h
+}
+
+unsafe extern "C" {
+    fn __rtsadp_fn_invoke(f: u64, a0: u64, a1: u64, a2: u64, a3: u64, rest: u64) -> u64;
+}
+
+/// Snapshot the (key, value) string pairs of a URLSearchParams handle — taken
+/// up front so `forEach`'s callback (which may mutate the params) iterates the
+/// list as it was at call time (WHATWG snapshot semantics).
+fn usp_pairs_snapshot(self_h: u64) -> Vec<(String, String)> {
+    with_usp_pairs(self_h, Vec::new(), |slots| {
+        let mut out: Vec<(String, String)> = Vec::with_capacity(slots.len() / 2);
+        let mut i = 0;
+        while i + 1 < slots.len() {
+            let k = key_str_of_handle(slots[i]).unwrap_or_default();
+            let v = with_entry(slots[i + 1] as u64, |e| match e {
+                Some(Entry::String(b)) => String::from_utf8_lossy(b).into_owned(),
+                _ => String::new(),
+            });
+            out.push((k, v));
+            i += 2;
+        }
+        out
+    })
+}
+
+/// `usp.size` — the number of (key, value) pairs (WHATWG getter, v19+).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_USP_SIZE(self_h: u64) -> i64 {
+    with_usp_pairs(self_h, 0i64, |slots| (slots.len() / 2) as i64)
+}
+
+/// `usp.entries()` — an array of `[key, value]` string pairs (in insertion
+/// order, with duplicates). Each pair is a boxed 2-element array word so
+/// `for (const [k, v] of usp.entries())` / `usp.entries()[i][0]` read strings.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_USP_ENTRIES(self_h: u64) -> u64 {
+    use rts_engine::heap::shapes::{handle_word_auto, string_word};
+    let mut outer: Vec<i64> = Vec::new();
+    for (k, v) in usp_pairs_snapshot(self_h) {
+        let inner = alloc_entry(Entry::Vec(Box::new(vec![
+            string_word(k.as_bytes()) as i64,
+            string_word(v.as_bytes()) as i64,
+        ])));
+        outer.push(handle_word_auto(inner) as i64);
+    }
+    alloc_entry(Entry::Vec(Box::new(outer)))
+}
+
+/// `usp.forEach(callback[, thisArg])` — invoke `callback(value, key, usp)` for
+/// each pair, in insertion order (over a snapshot). Returns `undefined`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_USP_FOR_EACH(self_h: u64, cb: u64) -> u64 {
+    use rts_engine::heap::poly::POLY_UNDEFINED;
+    use rts_engine::heap::shapes::{handle_word_auto, string_word};
+    let self_word = handle_word_auto(self_h);
+    for (k, v) in usp_pairs_snapshot(self_h) {
+        let vw = string_word(v.as_bytes());
+        let kw = string_word(k.as_bytes());
+        unsafe {
+            __rtsadp_fn_invoke(cb, vw, kw, self_word, POLY_UNDEFINED, POLY_UNDEFINED);
+        }
+    }
+    POLY_UNDEFINED
 }
 
 #[unsafe(no_mangle)]
