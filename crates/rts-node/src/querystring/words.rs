@@ -17,6 +17,33 @@ use rts_engine::heap::shapes::{
 
 unsafe extern "C" {
     fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
+    fn __rtsadp_fn_invoke(f: u64, a0: u64, a1: u64, a2: u64, a3: u64, rest: u64) -> u64;
+}
+
+/// The POLYVALUE FUNCTION tag (a boxed word whose tag is FUNCTION).
+const POLY_TAG_FUNCTION: u64 = 5;
+
+/// `true` if `w` is a boxed FUNCTION word (a callable value), i.e. usable as the
+/// custom `decodeURIComponent`/`encodeURIComponent` hook.
+pub fn is_function_word(w: u64) -> bool {
+    (w & POLY_BOX_BASE) == POLY_BOX_BASE
+        && ((w >> POLY_TAG_SHIFT) & POLY_TAG_MASK) == POLY_TAG_FUNCTION
+}
+
+/// The value word of an object field by NAME (shape order), or `None`.
+pub fn opt_field(options: u64, name: &str) -> Option<i64> {
+    object_entries(options).and_then(|es| {
+        es.into_iter().find(|(k, _)| k == name).map(|(_, w)| w)
+    })
+}
+
+/// Invoke a user function VALUE `f` with one string arg, returning its result
+/// coerced to a Rust string — the custom decode/encode URI-component hook.
+pub fn invoke_string_fn(f: u64, s: &str) -> String {
+    let arg = string_word(s.as_bytes());
+    let u = rts_engine::heap::poly::POLY_UNDEFINED;
+    let r = unsafe { __rtsadp_fn_invoke(f as u64, arg, u, u, u, u) };
+    scalar_string(r as u64)
 }
 
 /// Intern a Rust string as a GC string handle (the ABI `Handle` return).

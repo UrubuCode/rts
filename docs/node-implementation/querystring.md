@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 2 - Stable |
 | Tier | P1 |
-| Status | [ ] Not implemented — spec only |
+| Status | [x] Implemented — parse/stringify (+ decode/encode aliases) + escape/unescape; full overloads: default, explicit sep/eq, AND the `options` param (maxKeys incl 0=unlimited, custom decodeURIComponent/encodeURIComponent invoked as real function values from Rust). parse → real object (repeated keys → arrays); stringify reads a real object (array → repeated pairs, number/bool coercion). Tests 6/6. 
 | Import forms | `import querystring from 'node:querystring'`; `import { parse, stringify, escape, unescape, decode, encode } from 'node:querystring'`; `const querystring = require('node:querystring')` |
 | Globals exposed | none (all access is via the `node:querystring` module import; no ambient globals) |
 

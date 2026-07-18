@@ -73,6 +73,13 @@ pub fn register(e: &mut Engine) {
                 sig!(StrPtr, StrPtr, StrPtr => Handle),
                 "parse(str: string, sep: string, eq: string): object",
                 parse::__RTS_FN_NODE_QUERYSTRING_PARSE_SEP as *const u8,
+            ))
+            .member(func(
+                name,
+                "__RTS_FN_NODE_QUERYSTRING_PARSE_OPTS",
+                sig!(StrPtr, StrPtr, StrPtr, Handle => Handle),
+                "parse(str: string, sep: string, eq: string, options: object): object",
+                parse::__RTS_FN_NODE_QUERYSTRING_PARSE_OPTS as *const u8,
             ));
     }
 
@@ -92,6 +99,13 @@ pub fn register(e: &mut Engine) {
                 sig!(Handle, StrPtr, StrPtr => Handle),
                 "stringify(obj: object, sep: string, eq: string): string",
                 stringify::__RTS_FN_NODE_QUERYSTRING_STRINGIFY_SEP as *const u8,
+            ))
+            .member(func(
+                name,
+                "__RTS_FN_NODE_QUERYSTRING_STRINGIFY_OPTS",
+                sig!(Handle, StrPtr, StrPtr, Handle => Handle),
+                "stringify(obj: object, sep: string, eq: string, options: object): string",
+                stringify::__RTS_FN_NODE_QUERYSTRING_STRINGIFY_OPTS as *const u8,
             ));
     }
 
