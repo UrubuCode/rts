@@ -60,6 +60,7 @@ mod newexpr;
 mod obj;
 mod objstatic;
 mod optchain_lower;
+mod prune;
 mod regex;
 pub(crate) mod registry;
 mod registry_build;
@@ -330,7 +331,7 @@ fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<
     forced_globals.extend(gcell_classes.keys().cloned());
     let gcells = funcval::module_globals(&funcs, &main, &forced_globals);
 
-    Ok(LoweredProgram {
+    let mut merged = LoweredProgram {
         funcs,
         main,
         classes,
@@ -343,7 +344,12 @@ fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<
         prelude_fns,
         builtins,
         param_classes,
-    })
+    };
+    // Drop the embedded-prelude functions this program cannot reach BEFORE the
+    // Cranelift phase — the ~830 stdlib fns were the dominant FIXED startup cost
+    // (see [`prune`]). Never touches user functions or `main`.
+    crate::timing::phase("prune prelude", || prune::prune_prelude(&mut merged));
+    Ok(merged)
 }
 
 /// A lowered program ready to JIT: the user functions (incl. synthesized class
