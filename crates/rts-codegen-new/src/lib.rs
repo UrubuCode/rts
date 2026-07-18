@@ -94,6 +94,7 @@
 
 pub mod front;
 pub mod adapter_symbols;
+pub mod timing;
 // The runtime-side value model (the NaN-box `PolyValue`, hidden-class `shape`s,
 // `ic` cells, data `dispatch`, the `repr` lattice, compile-time `state`) now
 // lives in the Cranelift-free `rts-adapters` crate so it links into AOT binaries
