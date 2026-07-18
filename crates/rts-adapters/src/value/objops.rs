@@ -237,43 +237,25 @@ pub extern "C" fn __rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
             return abi_adapter::poly_from_real_handle(name_h).raw();
         }
     }
-    // A legacy DICTIONARY object (`Entry::Map` — e.g. `Promise.allSettled`'s
-    // `{status, value}` result rows built runtime-side): read the key straight
-    // from the IndexMap, boxing the raw i64 value by its live kind (int word,
-    // heap handle → STR/OBJECT word, f64 bits).
+    // A DICTIONARY object (`Entry::Map`): an object-backed Registry class instance
+    // (tagged `__rts_class` — a `Stats`, a `Hash`, a `net.Server`) or a row built
+    // runtime-side (`Promise.allSettled`'s `{status, value}`). Read the key
+    // straight from the IndexMap and decode the slot ([`super::mapslot`]).
     {
         let obj = PolyValue::from_raw(obj_word);
         if obj.is_object() {
             let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+            // Resolve the key BEFORE taking the shard lock — see the matching
+            // note in `__rtsadp_obj_set`: `key_text` reads the key's own handle,
+            // so a key sharing the receiver's shard would re-lock and deadlock.
+            let key = key_text(key_str_handle);
             let hit = rt_handles::with_entry(h, |e| match e {
-                Some(rt_handles::Entry::Map(m)) => {
-                    Some(m.get(&key_text(key_str_handle)).copied())
-                }
+                Some(rt_handles::Entry::Map(m)) => Some(m.get(&key).copied()),
                 _ => None,
             });
             if let Some(v) = hit {
                 return match v {
-                    Some(x) => {
-                        let w = x as u64;
-                        if let Ok(i) = i32::try_from(x) {
-                            PolyValue::from_i32(i).raw()
-                        } else if w >= (1u64 << 48) {
-                            // Ambiguous: a real heap handle OR the raw bits of a
-                            // stored f64 (object-backed numeric fields — Stats.size,
-                            // mtimeMs — store `f64::to_bits`, which is `>= 1<<48`).
-                            // Disambiguate by LIVENESS: a genuine handle decodes to a
-                            // live table entry; an f64-bits word does not — so box the
-                            // handle only when it is live, else read it as the double.
-                            let live = rt_handles::with_entry(w, |e| e.is_some());
-                            if live {
-                                super::genops::__rtsadp_box_handle_auto(w)
-                            } else {
-                                PolyValue::from_f64(f64::from_bits(w)).raw()
-                            }
-                        } else {
-                            PolyValue::from_f64(x as f64).raw()
-                        }
-                    }
+                    Some(x) => super::mapslot::to_poly(x),
                     // No stored field by that name. An object-backed Registry
                     // class may still expose it as a COMPUTED getter (a
                     // `net.Socket`'s `remoteAddress` reads the OS; `Stats`'s
@@ -506,6 +488,37 @@ pub extern "C" fn __rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word:
         }
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(handle, 1 + idx, val_word as i64);
         return val_word;
+    }
+    // A DICTIONARY receiver (`Entry::Map`) — an object-backed Registry class
+    // instance (`net.Server`, `Stats`, `Hash`) or a runtime-built row. It has no
+    // shape header, so none of the slot paths above match it and the write would
+    // silently vanish. Store the property in the instance's own IndexMap, as the
+    // PolyValue word `obj_get`'s Map arm reads back ([`super::mapslot`]).
+    //
+    // This is what makes a PLAIN property Node defines on such a class settable
+    // from JS (`server.maxConnections = 1`, which the accept thread then reads
+    // off the object). Generic and data-driven: the receiver is discriminated by
+    // its live Entry KIND, never by a class name.
+    {
+        let obj = PolyValue::from_raw(obj_word);
+        if obj.is_object() {
+            let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+            // Resolve the key BEFORE taking the shard lock: `key_text` reads the
+            // key's own handle, and a key that hashes to the receiver's shard
+            // would re-lock the mutex we are already holding — a deadlock that
+            // fires only on the 1-in-32 shard collision.
+            let key = key_text(key_str_handle);
+            let stored = rt_handles::with_entry_mut(h, |e| match e {
+                Some(rt_handles::Entry::Map(m)) => {
+                    m.insert(key, super::mapslot::of_poly(val_word));
+                    true
+                }
+                _ => false,
+            });
+            if stored {
+                return val_word;
+            }
+        }
     }
     // Absent key on a keyed object → shape transition (append the key + value).
     // A non-extensible object (Object.preventExtensions/freeze) rejects new keys.

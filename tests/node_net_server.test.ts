@@ -39,10 +39,21 @@ const listeningAfter = server.listening;
 let doubleListenErr = "";
 try { server.listen(0); } catch (e: any) { doubleListenErr = e.message; }
 
-// NOT asserted: `server.maxConnections = n`. It is a plain property in Node and
-// the accept thread reads it off the object — but the engine does not yet write
-// a property onto an object-backed class instance, so the assignment does not
-// land. Recorded as a known gap in net.md §8 rather than asserted as working.
+// `maxConnections`/`dropMaxConnection` are PLAIN properties in Node (not
+// accessors) — the accept thread reads them back off the JS object. The limit
+// itself is enforced asynchronously (see the `'drop'` note at the top), so what
+// is asserted here is that the write lands and round-trips by value.
+server.maxConnections = 2;
+const maxConnRead = server.maxConnections;
+const maxConnType = typeof server.maxConnections;
+server.maxConnections = 1;
+const maxConnRewritten = server.maxConnections;
+server.dropMaxConnection = true;
+const dropMaxRead = server.dropMaxConnection;
+const dropMaxType = typeof server.dropMaxConnection;
+// An unset property is still undefined — a write is not a shape transition that
+// invents keys.
+const unsetProp = (server as any).__nothing_wrote_this;
 
 // ref/unref are chainable.
 const serverRefIsSelf = server.ref() === server;
@@ -146,6 +157,14 @@ describe("node:net Server", () => {
   test("ref()/unref() return the server", () => {
     expect(serverRefIsSelf).toBe(true);
     expect(serverUnrefIsSelf).toBe(true);
+  });
+  test("maxConnections/dropMaxConnection are writable plain properties", () => {
+    expect(maxConnRead).toBe(2);
+    expect(maxConnType).toBe("number");
+    expect(maxConnRewritten).toBe(1);
+    expect(dropMaxRead).toBe(true);
+    expect(dropMaxType).toBe("boolean");
+    expect(unsetProp).toBe(undefined);
   });
   test("a port clash reports asynchronously, it does not throw", () => {
     expect(clashDidNotThrow).toBe(true);

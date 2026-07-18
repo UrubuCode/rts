@@ -125,6 +125,11 @@ pub mod regexops;
 // `_set`/`_has` for `obj.key`/`obj[k]` whose shape is known only at RUNTIME,
 // reading the slot-0 global shape-id + the global shape registry.
 pub mod objops;
+// The `Entry::Map` FIELD-SLOT encoding shared by `objops`'s dictionary read and
+// write arms: a JS-written field is the PolyValue word verbatim (lossless for
+// every value kind), a natively-written one is a raw handle/int/f64-bits, and
+// the two are told apart by the value model's own NaN-box discriminator.
+mod mapslot;
 // Object PROTOTYPE chain (`Object.create` + proto-walk property lookup):
 // `__rtsadp_obj_create`/`_proto_of`/`is_prototype_of` over a side-table keyed by
 // object word. The `objops` property read walks it on an own-slot miss.

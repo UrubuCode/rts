@@ -29,7 +29,7 @@ mod tcp;
 
 use std::net::SocketAddr;
 
-use rts_engine::AbiType::{self, Bool, F64, Handle, I32, PolyValue, StrPtr, Void};
+use rts_engine::AbiType::{self, Bool, F64, Handle, I32, I64, PolyValue, StrPtr, Void};
 use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 /// `"IPv4"`/`"IPv6"` — how Node renders a family in an `AddressInfo`.
@@ -83,12 +83,6 @@ fn method(name: &str, args: Vec<AbiType>, ret: AbiType, symbol: &str, ts: &str, 
 /// A read-only property.
 fn getter(name: &str, ret: AbiType, symbol: &str, ts: &str, fp: *const u8) -> Member {
     m(name, MemberKind::InstanceGetter, vec![Handle], ret, symbol, ts, fp)
-}
-
-/// A writable property (`server.maxConnections = 1`). A getter with no setter is
-/// read-only, which is what every other property here wants.
-fn setter(name: &str, arg: AbiType, symbol: &str, ts: &str, fp: *const u8) -> Member {
-    m(name, MemberKind::InstanceSetter, vec![Handle, arg], Void, symbol, ts, fp)
 }
 
 /// A pure classifier (no throw, no side effect).
@@ -164,6 +158,7 @@ pub fn register(e: &mut Engine) {
         .member(m("setDefaultAutoSelectFamily", MemberKind::Function, vec![Bool], Void, "__RTS_FN_NODE_NET_SET_ASF", "setDefaultAutoSelectFamily(value: boolean): void", __RTS_FN_NODE_NET_SET_ASF as *const u8))
         .member(pure_fn("getDefaultAutoSelectFamilyAttemptTimeout", vec![], F64, "__RTS_FN_NODE_NET_GET_ASF_TIMEOUT", "getDefaultAutoSelectFamilyAttemptTimeout(): number", __RTS_FN_NODE_NET_GET_ASF_TIMEOUT as *const u8))
         .member(m("setDefaultAutoSelectFamilyAttemptTimeout", MemberKind::Function, vec![F64], Void, "__RTS_FN_NODE_NET_SET_ASF_TIMEOUT", "setDefaultAutoSelectFamilyAttemptTimeout(value: number): void", __RTS_FN_NODE_NET_SET_ASF_TIMEOUT as *const u8))
+        .member(m("SOMAXCONN", MemberKind::Constant, vec![], I64, "__RTS_FN_NODE_NET_SOMAXCONN", "SOMAXCONN: number", __RTS_FN_NODE_NET_SOMAXCONN as *const u8))
         .done();
     let _ = (cfg::auto_select_family, sk::__RTS_FN_NODE_NET_SOCKET_NEW);
 }
@@ -189,6 +184,16 @@ pub extern "C" fn __RTS_FN_NODE_NET_CONNECT3(a0: u64, a1: u64, a2: u64) -> u64 {
     let s = tcp::socket::__RTS_FN_NODE_NET_SOCKET_NEW();
     tcp::socket::__RTS_FN_NODE_NET_SOCKET_CONNECT3(s, a0, a1, a2);
     s
+}
+
+/// `net.SOMAXCONN` — the platform listen-backlog maximum (libuv reports the
+/// system `SOMAXCONN`: `0x7fffffff` on Windows, `128` on typical Unix).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_NET_SOMAXCONN() -> i64 {
+    #[cfg(windows)]
+    { 0x7fff_ffff }
+    #[cfg(not(windows))]
+    { 128 }
 }
 
 /// `net.getDefaultAutoSelectFamily()`.

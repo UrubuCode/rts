@@ -1,7 +1,8 @@
 // node:net — IP address validators.
 import { describe, test, expect } from "rts:test";
-import { isIP, isIPv4, isIPv6 } from "node:net";
+import { isIP, isIPv4, isIPv6, SOMAXCONN } from "node:net";
 
+const somaxconnOk = SOMAXCONN >= 128;
 const ip4 = isIP("127.0.0.1");
 const ip6 = isIP("::1");
 const ipBad = isIP("not-an-ip");
@@ -18,4 +19,5 @@ describe("node:net", () => {
     test("isIPv4 false for v6", () => expect(v4f).toBe(false));
     test("isIPv6 true", () => expect(v6t).toBe(true));
     test("isIPv6 false for v4", () => expect(v6f).toBe(false));
+    test("SOMAXCONN is a positive backlog max", () => expect(somaxconnOk).toBe(true));
 });

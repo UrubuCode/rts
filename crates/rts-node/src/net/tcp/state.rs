@@ -87,6 +87,13 @@ pub struct ServerState {
     /// PLAIN PROPERTIES in Node (`server.maxConnections = 1`), not accessors — so
     /// they live on the object itself and the accept thread reads them from
     /// there, which is both simpler and what Node actually exposes.
+    ///
+    /// Only `maxConnections` is read back natively: `dropMaxConnection` decides,
+    /// in Node, whether a connection over the limit is closed outright or handed
+    /// to another CLUSTER worker. A single-process runtime has no worker to hand
+    /// it to, so it always closes — reading the flag could not change the
+    /// outcome. It stays a plain readable/writable property, which is exactly
+    /// its Node shape.
     pub handle: u64,
     /// `new Server({ blockList })` — an inbound peer that matches is refused
     /// before `'connection'` fires.
@@ -120,12 +127,6 @@ impl ServerState {
         }
     }
 
-    /// `server.dropMaxConnection` — cluster-only in Node (force close instead of
-    /// routing to another worker). A single-process runtime never routes, so it
-    /// already behaves as documented either way; it is read for completeness.
-    pub fn drop_max_connection(&self) -> bool {
-        crate::values::opt_bool(self.handle, "dropMaxConnection")
-    }
 
     pub fn new(opts: SocketOpts) -> Self {
         Self {

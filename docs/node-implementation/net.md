@@ -790,8 +790,9 @@ Verified end to end via `rts run`: listen → `'connection'` (with a real
 
 Implemented: `createServer`/`connect`/`createConnection` (every overload,
 resolved BY VALUE), `Server` (`listen` ×4 overloads, `close`, `address`,
-`getConnections`, `ref`/`unref`, `listening`, `'connection'`/`'listening'`/
-`'close'`/`'error'`/`'drop'`), `Socket` (`new Socket(options)`, `connect` ×3,
+`getConnections`, `ref`/`unref`, `listening`, `maxConnections` (incl. the v21+
+`0`-drops-everything rule) and `dropMaxConnection`, `'connection'`/
+`'listening'`/`'close'`/`'error'`/`'drop'`), `Socket` (`new Socket(options)`, `connect` ×3,
 `write` ×3, `end` ×4, `destroy`/`destroySoon`/`resetAndDestroy`, `pause`/
 `resume`, `setEncoding`, `setNoDelay`/`setKeepAlive`/`setTimeout`,
 `getTypeOfService`/`setTypeOfService`, `address`, and every property:
@@ -814,7 +815,7 @@ surface is implemented; the Duplex inheritance is what waits on `node:stream`.
 
 ### Engine gaps this work found (generic, fixed or recorded)
 
-Three were FIXED generically (they benefit every object-backed Registry class,
+Four were FIXED generically (they benefit every object-backed Registry class,
 not just net):
 
 1. **Untracked-receiver method shapes.** `try_runtime_ci` (the marshaller behind
@@ -838,14 +839,41 @@ not just net):
    return-class parser reads the dot as a type boundary.) Cosmetic divergence:
    `constructor.name` on a dgram socket.
 
-One is RECORDED, not worked around:
+A fourth was fixed the same way, which is what completed `maxConnections`:
 
-4. **A property WRITE on an object-backed class instance does not land**
-   (`server.maxConnections = 1` leaves the property `undefined`; `obj_set` does
-   not write the instance map, and `MemberKind::InstanceSetter` is dead metadata
-   — codegen never calls `Class::instance_setter`). So `maxConnections`/
-   `dropMaxConnection` — plain properties in Node, which the accept thread reads
-   off the object — cannot be set yet, which means the `maxConnections` limit and
-   its `'drop'` event are NOT reachable from JS today. The accept-thread side is
-   implemented and correct; it starts working the moment the engine writes the
-   field. Not asserted as working in any test.
+4. **A property WRITE on an object-backed class instance did not land.**
+   `server.maxConnections = 1` left the property `undefined`: such an instance is
+   an `Entry::Map`, not a shape-vec, so none of `obj_set`'s slot paths matched it
+   and the write silently vanished. `obj_set` now stores the property in the
+   instance's own map, and it stores the **PolyValue word verbatim** — which is
+   what makes the write lossless for every value kind rather than only the
+   numbers a raw-i64 slot can hold (`true` stays a boolean; `null` and
+   `undefined` stay distinguishable). The read side tells the two encodings apart
+   with the value model's own NaN-box discriminator, so the natively-stored raw
+   fields (`__rts_class`'s handle, a `Stats` field's `f64::to_bits`) keep
+   decoding exactly as before. Generic — the receiver is discriminated by its
+   live Entry KIND, never a class name.
+
+   Fixing it surfaced a latent **shard re-lock deadlock** in the same arms:
+   `key_text` reads the key's own handle, and it was being called while the
+   receiver's shard mutex was held, so a key hashing to the receiver's shard
+   deadlocked — a 1-in-32 coin flip on every dictionary property access, read
+   included. The key is now resolved before the lock is taken.
+
+   With the write landing, the `maxConnections` limit and its `'drop'` event are
+   reachable and verified end to end via `rts run`: `maxConnections = 1` → the
+   first connection accepted → the second dropped, `'drop'` carrying the real
+   peer, and the dropped client seeing `connect`/`end`/`close`.
+
+   Still unused engine-wide (recorded, NOT fixed — no class declares one, so
+   building the plumbing would be speculative): `MemberKind::InstanceSetter` +
+   `Class::instance_setter`. It was not needed here — `maxConnections` and
+   `dropMaxConnection` are PLAIN properties in Node, not accessors, so the plain
+   property store is the faithful model, not a workaround for the missing setter
+   path.
+
+   `dropMaxConnection` is readable/writable (its Node shape) but is not read
+   natively: in Node it decides whether an over-limit connection is closed
+   outright or handed to another CLUSTER worker. A single-process runtime has no
+   worker to hand it to and always closes, so reading the flag could not change
+   the outcome.
