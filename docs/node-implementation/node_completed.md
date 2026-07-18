@@ -29,8 +29,9 @@ fact complete.
 | **node:os** | verified (all fns + EOL/devNull/constants + userInfo, default + named import) | platform/arch/cpus/totalmem/freemem/loadavg/uptime/tmpdir/homedir/endianness/EOL/devNull/constants/machine/version/release/type/availableParallelism/networkInterfaces/userInfo/hostname/getPriority/setPriority. (`userInfo({encoding:'buffer'})` buffer-variant is the only edge deferred — default string form real.) |
 | **node:path** | verified (all fns + top-level sep/delimiter + posix/win32, default + named import) | join/resolve/normalize/relative/dirname/basename/extname/parse/format/isAbsolute/toNamespacedPath + `sep`/`delimiter` + `path.posix.*`/`path.win32.*`. |
 | **node:url** | `tests/node_url.test.ts` 6/6 + `tests/node_url_full.test.ts` 23/23 | `URL` (ctor + base, ALL getters, ALL SETTERS incl `href` re-parse, `searchParams` with mutation→search/href sync, `toString`/`toJSON`, static `canParse`); `URLSearchParams` full multimap (get/getAll/has/set/delete/append/keys/values/**entries**/**forEach**/sort/**size**/toString); node fns `fileURLToPath`/`fileURLToPathBuffer`/`pathToFileURL`/`domainToASCII`/`domainToUnicode`/`urlToHttpOptions`/`format`(URL+legacy)/legacy `parse`/`resolve`. (Only `JSON.stringify(url)` not calling `toJSON` remains — a systemic engine JSON gap, not url-specific.) |
+| **node:net** | `node_net_full` 8/8 + `node_net_blocklist` 21/21 + `node_net_server` 19/19 (real TCP echo) | `isIP`/`isIPv4`/`isIPv6`; `BlockList` (add/check/rules) + `SocketAddress`; `Server` (createServer/listen/close/address/getConnections/ref/unref/listening/**maxConnections**+`'drop'`) over real TCP; `Socket` (connect/write/end/destroy/pause/resume/setEncoding/setKeepAlive/setNoDelay/setTimeout/set·getTypeOfService/ref/unref + all address/state getters); process-wide autoSelectFamily config; `net.SOMAXCONN`. (`dropMaxConnection` is a plain cluster-only data prop — no-op in single-process, per its Node shape.) |
 
-> Six modules now pass the strict bar. `dgram`, `net`, `fs` are CLOSE (below).
+> Seven modules now pass the strict bar. `dgram`, `fs` are CLOSE (below).
 
 ---
 
@@ -39,7 +40,6 @@ fact complete.
 | Module | Works | Exact remaining gap |
 |---|---|---|
 | **node:dgram** | full `Socket` UDP round-trip + `createSocket` (memory: complete) | `createSocket`'s `lookup`/`signal` options and `bind`'s `fd` option THROW instead of being honored (documented, not faked). |
-| **node:net** | `isIP`/`isIPv4`/`isIPv6`, `BlockList`, `SocketAddress`, `Server`, `Socket` | audit `createServer`/`connect` (typeof-undefined may be the artifact — verify by CALL) + full `Socket`/`Server` event + method surface. |
 | **node:fs** | huge sync + (per memory) callbacks/promises/FileHandle/watch/Dir/Stats/glob | `import { promises } from "node:fs"` binds **undefined** (the `fs.promises` sub-object export); confirm `node:fs/promises` specifier + `ReadStream`/`WriteStream`. |
 
 ---
@@ -119,9 +119,10 @@ land the cross-cutting engine fixes that unblock the heavy tier.
    systemic engine gaps, not url.
 4. **node:dgram** — honor `lookup`/`signal`/`fd` options (or the minimal real
    subset) to remove the throw.
-5. **node:net** — verify/export `createServer`/`connect` (check by CALL, not
-   typeof); audit `Socket`/`Server`.
-6. **node:fs** — wire `import { promises }` / `node:fs/promises`.
+5. ~~**node:net**~~ — DONE (Server/Socket over real TCP verified by CALL,
+   `net.SOMAXCONN` added, lossless object-backed field writes back
+   `server.maxConnections`; commit b4414692). Full surface + 48 tests green.
+6. **node:fs** — wire `import { promises }` / `node:fs/promises`. ← NEXT.
 
 **Phase B — engine unblock #1 (import binding), then the global-exporters:**
 6. Fix the named-import binding for global/`rts:`-key modules (engine/flatten).
