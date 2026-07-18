@@ -523,12 +523,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // A BUILTIN-IMPORT name (`import { print } from "rts:io"`): resolve the real
         // `__RTS_FN_NS_*` symbol + ABI signature through the Registry and marshal the
         // call via the SAME generic path as a class method (recv = None — a namespace
-        // function has no `this`). Checked FIRST: an imported builtin name is the
-        // authoritative binding for that local (the module resolver guarantees it is
-        // not also a user declaration). Bare `"rts"` (ns == "") imports a namespace
+        // function has no `this`). Bare `"rts"` (ns == "") imports a namespace
         // OBJECT, not a member — `namespace_member` returns None and we bail honestly.
-        if let Some((ns, member)) = self.builtins.get(&name).cloned() {
-            return self.lower_builtin_call(module, &ns, &member, args);
+        //
+        // GATED on the name NOT being a LOCAL/PARAM or a CAPTURE of the current
+        // function: a param/let of the same name SHADOWS the imported binding (JS
+        // lexical scope). Without this, an `import { resolve } from "node:url"` at
+        // program scope leaked into a `new Promise((resolve, reject) => …)` — the
+        // arrow's `resolve` PARAM resolved to `node:url.resolve` and bailed. (The
+        // import binding is program-wide in the flat program; the shadowing check is
+        // per-function, so it must precede the builtin lookup.)
+        if self.local(&name).is_none() && !self.captures.contains_key(&name) {
+            if let Some((ns, member)) = self.builtins.get(&name).cloned() {
+                return self.lower_builtin_call(module, &ns, &member, args);
+            }
         }
         // A LOCAL holding a function VALUE (a Tagged param/let) → the indirect
         // uniform-ABI invoke path (P4.6). Checked BEFORE the user-fn table: a
