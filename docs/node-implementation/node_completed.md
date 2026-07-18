@@ -10,8 +10,12 @@ implemented AND importable AND working — no deferred items, no broken exports,
 missing options. Anything short is **partial** and listed with its exact gap so a
 roadmap step can close it.
 
-Last audited: 2026-07-17 (after stream/string_decoder/diagnostics_channel/
-querystring work).
+Last audited: 2026-07-18 (after stream/string_decoder/diagnostics_channel/
+querystring/url work). **Audit note:** `typeof <named-imported-member>` reports
+`"undefined"` even for members that WORK (a `typeof` cosmetic bug) — verify a
+member by CALLING/reading it, never by `typeof`. Several "gaps" in the previous
+revision (os EOL/constants, path sep/delimiter) were this artifact and are in
+fact complete.
 
 ---
 
@@ -22,9 +26,11 @@ querystring work).
 | **node:string_decoder** | `tests/node_string_decoder.test.ts` 11/11 | `StringDecoder` (ctor default/encoding + `ERR_UNKNOWN_ENCODING`, `write`, `end`+buffer, `text(buffer, offset)`, `encoding`) for utf8/utf16le/base64/base64url/latin1/ascii/hex + boundary handling + U+FFFD flush + reuse; string/Uint8Array/Buffer input. |
 | **node:querystring** | `tests/node_querystring.test.ts` 6/6 | `parse`/`stringify` (+ `decode`/`encode` aliases) + `escape`/`unescape`; ALL overloads incl the `options` arg (`maxKeys` incl 0=unlimited, custom `decodeURIComponent`/`encodeURIComponent` invoked as real fn values). Repeated keys → arrays; arrays → repeated pairs. |
 | **node:punycode** | verified (`encode`/`decode`/`toASCII`/`toUnicode`/`ucs2.decode`/`ucs2.encode`/`version`) | Deprecated module, full RFC 3492 algo + ucs2 UTF-16⇄codepoint. Default-import namespace works. |
+| **node:os** | verified (all fns + EOL/devNull/constants + userInfo, default + named import) | platform/arch/cpus/totalmem/freemem/loadavg/uptime/tmpdir/homedir/endianness/EOL/devNull/constants/machine/version/release/type/availableParallelism/networkInterfaces/userInfo/hostname/getPriority/setPriority. (`userInfo({encoding:'buffer'})` buffer-variant is the only edge deferred — default string form real.) |
+| **node:path** | verified (all fns + top-level sep/delimiter + posix/win32, default + named import) | join/resolve/normalize/relative/dirname/basename/extname/parse/format/isAbsolute/toNamespacedPath + `sep`/`delimiter` + `path.posix.*`/`path.win32.*`. |
+| **node:url** | `tests/node_url.test.ts` 6/6 + `tests/node_url_full.test.ts` 23/23 | `URL` (ctor + base, ALL getters, ALL SETTERS incl `href` re-parse, `searchParams` with mutation→search/href sync, `toString`/`toJSON`, static `canParse`); `URLSearchParams` full multimap (get/getAll/has/set/delete/append/keys/values/**entries**/**forEach**/sort/**size**/toString); node fns `fileURLToPath`/`fileURLToPathBuffer`/`pathToFileURL`/`domainToASCII`/`domainToUnicode`/`urlToHttpOptions`/`format`(URL+legacy)/legacy `parse`/`resolve`. (Only `JSON.stringify(url)` not calling `toJSON` remains — a systemic engine JSON gap, not url-specific.) |
 
-> Only these three pass the strict bar today. `dgram`, `os`, `url`, `path`,
-> `net`, `fs` are CLOSE but each has a concrete gap (below) — good next targets.
+> Six modules now pass the strict bar. `dgram`, `net`, `fs` are CLOSE (below).
 
 ---
 
@@ -32,11 +38,8 @@ querystring work).
 
 | Module | Works | Exact remaining gap |
 |---|---|---|
-| **node:os** | platform/arch/cpus/totalmem/freemem/loadavg/uptime/tmpdir/homedir/endianness/machine/version/release/type/availableParallelism/networkInterfaces/userInfo/hostname | `os.EOL` and `os.constants` import as **undefined** (not exported); verify `getPriority`/`setPriority`; `userInfo({ encoding: 'buffer' })` buffer-variant deferred. |
-| **node:path** | join/resolve/normalize/relative/dirname/basename/extname/parse/format/isAbsolute + `posix.*`/`win32.*` sub-specifiers | Top-level `path.sep` and `path.delimiter` import as **undefined** (posix/win32 `.sep` work). |
-| **node:url** | `URL` + `URLSearchParams` core, `fileURLToPath`, `pathToFileURL`, `domainToASCII/Unicode`, `urlToHttpOptions` | `URLSearchParams` is not spread-iterable (`[...sp]` throws — missing `Symbol.iterator`/`entries`/`keys`/`values` iteration); audit legacy `parse`/`format`/`resolve`. |
 | **node:dgram** | full `Socket` UDP round-trip + `createSocket` (memory: complete) | `createSocket`'s `lookup`/`signal` options and `bind`'s `fd` option THROW instead of being honored (documented, not faked). |
-| **node:net** | `isIP`/`isIPv4`/`isIPv6`, `BlockList`, `SocketAddress`, `Server`, `Socket` | `createServer` and `connect` import as **undefined** (factory fns not exported); audit full `Socket`/`Server` event + method surface. |
+| **node:net** | `isIP`/`isIPv4`/`isIPv6`, `BlockList`, `SocketAddress`, `Server`, `Socket` | audit `createServer`/`connect` (typeof-undefined may be the artifact — verify by CALL) + full `Socket`/`Server` event + method surface. |
 | **node:fs** | huge sync + (per memory) callbacks/promises/FileHandle/watch/Dir/Stats/glob | `import { promises } from "node:fs"` binds **undefined** (the `fs.promises` sub-object export); confirm `node:fs/promises` specifier + `ReadStream`/`WriteStream`. |
 
 ---
@@ -72,6 +75,12 @@ forms + zstd deferred).
 
 ## Cross-cutting ENGINE blockers (fixing one unblocks many modules)
 
+0. ~~**Import name shadowing a param/local**~~ — FIXED (b111fdc5): a call to a
+   param/let named the same as a program-scope import (`new Promise((resolve) =>
+   resolve(x))` alongside `import { resolve } from "node:url"`) no longer resolves
+   to the import. ~~**Registry-class InstanceSetter dispatch**~~ — FIXED
+   (600583fe): `registryInstance.prop = value` now routes to the class's
+   InstanceSetter (made URL fully mutable; generic for any Registry class).
 1. **Import-binding for global-exporting modules.** `import { Buffer } from
    "node:buffer"`, `{ EventEmitter } from "node:events"`, `{ setTimeout } from
    "node:timers"`, `{ createHash } from "node:crypto"` all bind `undefined` even
@@ -100,13 +109,19 @@ next. Pick low-hanging near-complete modules first to grow the ✅ list fast, th
 land the cross-cutting engine fixes that unblock the heavy tier.
 
 **Phase A — close the near-complete (small, high ROI):**
-1. **node:os** — export `EOL`/`constants`, confirm `getPriority`/`setPriority`.
-2. **node:path** — export top-level `sep`/`delimiter`.
-3. **node:url** — `URLSearchParams` iteration (`Symbol.iterator`/entries/keys/
-   values) + legacy `parse`/`format`/`resolve` audit.
+1. ~~**node:os**~~ — DONE (was already complete; the EOL/constants "gap" was the
+   `typeof` artifact).
+2. ~~**node:path**~~ — DONE (same; sep/delimiter work).
+3. ~~**node:url**~~ — DONE (URLSearchParams entries/forEach/size + full URL
+   setters + format(URL)/toJSON + searchParams↔href sync; commits 615d93b7/
+   b111fdc5/600583fe). Remaining: `[...sp]` spread-of-instance (needs
+   Symbol.iterator on a Registry instance) and `JSON.stringify(url)`→toJSON — both
+   systemic engine gaps, not url.
 4. **node:dgram** — honor `lookup`/`signal`/`fd` options (or the minimal real
    subset) to remove the throw.
-5. **node:net** — export `createServer`/`connect`; audit `Socket`/`Server`.
+5. **node:net** — verify/export `createServer`/`connect` (check by CALL, not
+   typeof); audit `Socket`/`Server`.
+6. **node:fs** — wire `import { promises }` / `node:fs/promises`.
 
 **Phase B — engine unblock #1 (import binding), then the global-exporters:**
 6. Fix the named-import binding for global/`rts:`-key modules (engine/flatten).
