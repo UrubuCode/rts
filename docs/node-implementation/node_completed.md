@@ -30,8 +30,9 @@ fact complete.
 | **node:path** | verified (all fns + top-level sep/delimiter + posix/win32, default + named import) | join/resolve/normalize/relative/dirname/basename/extname/parse/format/isAbsolute/toNamespacedPath + `sep`/`delimiter` + `path.posix.*`/`path.win32.*`. |
 | **node:url** | `tests/node_url.test.ts` 6/6 + `tests/node_url_full.test.ts` 23/23 | `URL` (ctor + base, ALL getters, ALL SETTERS incl `href` re-parse, `searchParams` with mutation→search/href sync, `toString`/`toJSON`, static `canParse`); `URLSearchParams` full multimap (get/getAll/has/set/delete/append/keys/values/**entries**/**forEach**/sort/**size**/toString); node fns `fileURLToPath`/`fileURLToPathBuffer`/`pathToFileURL`/`domainToASCII`/`domainToUnicode`/`urlToHttpOptions`/`format`(URL+legacy)/legacy `parse`/`resolve`. (Only `JSON.stringify(url)` not calling `toJSON` remains — a systemic engine JSON gap, not url-specific.) |
 | **node:net** | `node_net_full` 8/8 + `node_net_blocklist` 21/21 + `node_net_server` 19/19 (real TCP echo) | `isIP`/`isIPv4`/`isIPv6`; `BlockList` (add/check/rules) + `SocketAddress`; `Server` (createServer/listen/close/address/getConnections/ref/unref/listening/**maxConnections**+`'drop'`) over real TCP; `Socket` (connect/write/end/destroy/pause/resume/setEncoding/setKeepAlive/setNoDelay/setTimeout/set·getTypeOfService/ref/unref + all address/state getters); process-wide autoSelectFamily config; `net.SOMAXCONN`. (`dropMaxConnection` is a plain cluster-only data prop — no-op in single-process, per its Node shape.) |
+| **node:fs** | `node_fs_full` 15 + `node_fs_streams` 15 + `node_fs_utf8stream` 9 + `node_fs_filehandle_streams` 9 + `node_fs_promises`(+`_import`) 5+5 + callbacks/watch/glob/stats/dirent/statfs/… suites | Full sync + callback + promises API (`import { promises }` + `node:fs/promises`); `FileHandle` (read/write/close/stat/truncate/sync/chmod + **createReadStream/createWriteStream/readableWebStream/readLines**); `ReadStream`/`WriteStream` + `createReadStream`/`createWriteStream` (flowing + `.pipe` real copy + setEncoding); `Utf8Stream`; `watch`/`watchFile`/`unwatchFile` (real notify-crate watcher); `Dir`/`Dirent`/`Stats`/`StatFs`; `glob`; `cp`/`opendir`/`mkdtemp`/link/utimes. Unblocked by the `.push`-on-`any` engine fix + `engine.fs_*` bridges. (`instanceof` on an fh-RETURNED stream is `false` — a class-identity-through-return quirk; the stream is fully functional.) |
 
-> Seven modules now pass the strict bar. `dgram`, `fs` are CLOSE (below).
+> Eight modules now pass the strict bar. `dgram` is CLOSE (below).
 
 ---
 
@@ -40,7 +41,6 @@ fact complete.
 | Module | Works | Exact remaining gap |
 |---|---|---|
 | **node:dgram** | full `Socket` UDP round-trip + `createSocket` (memory: complete) | `createSocket`'s `lookup`/`signal` options and `bind`'s `fd` option THROW instead of being honored (documented, not faked). |
-| **node:fs** | huge sync + callbacks/promises/FileHandle/watch/Dir/Stats/glob; `import { promises }` + `node:fs/promises` **DONE**; `WriteStream`/`createWriteStream` **DONE** end-to-end; `ReadStream`/`createReadStream` **DONE** — flowing `on('data')`, `.pipe(dest)` real copy, `setEncoding`, props/instanceof all work (unblocked by the `.push`-on-`any` engine fix) | `Utf8Stream`; `FileHandle.createReadStream/createWriteStream/readableWebStream/readLines`; a manual `on('end')` attached AFTER `on('data')` may miss `'end'` (synchronous-resume timing shared by every stream; `.pipe` unaffected). |
 
 ---
 
@@ -130,7 +130,9 @@ land the cross-cutting engine fixes that unblock the heavy tier.
 5. ~~**node:net**~~ — DONE (Server/Socket over real TCP verified by CALL,
    `net.SOMAXCONN` added, lossless object-backed field writes back
    `server.maxConnections`; commit b4414692). Full surface + 48 tests green.
-6. **node:fs** — wire `import { promises }` / `node:fs/promises`. ← NEXT.
+6. ~~**node:fs**~~ — DONE (promises import + node:fs/promises + full FileHandle
+   incl. stream methods + ReadStream/WriteStream/Utf8Stream; commits ccbc6b9b→
+   625512fe). Drove the general `.push`-on-`any` engine fix (f6183b87).
 
 **Phase B — engine unblock #1 (import binding), then the global-exporters:**
 6. Fix the named-import binding for global/`rts:`-key modules (engine/flatten).
