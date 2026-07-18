@@ -168,8 +168,20 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
                     // resolves through `namespace_member`. A `rts:<ns>` import instead
                     // names a MEMBER of that one namespace.
                     let bare = ns.is_empty();
+                    let subns = node_subnamespace_reexports(specifier);
                     for (orig, local) in &edge.names {
-                        let binding = if bare {
+                        let binding = if let Some((_, sub)) = subns
+                            .and_then(|t| t.iter().find(|(o, _)| *o == orig.as_str()))
+                        {
+                            // A sub-namespace object (`fs.promises`) — bind to the
+                            // whole namespace, member empty, like a bare-`rts`
+                            // namespace import; `promises.readFile()` then resolves
+                            // through the Registry on that sub-namespace.
+                            Binding::Builtin {
+                                ns: (*sub).to_string(),
+                                member: String::new(),
+                            }
+                        } else if bare {
                             Binding::Builtin {
                                 ns: orig.clone(),
                                 member: String::new(),
@@ -249,6 +261,23 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
 /// re-implemented): `import { URL } from "node:url"` binds to the ambient `URL`
 /// class. Data-driven; only names that are real registered engine globals belong
 /// here. A name NOT listed is treated as a native namespace member.
+/// Node modules that expose a SUB-NAMESPACE OBJECT under a member name — e.g.
+/// `fs.promises` is the entire `node:fs/promises` API, reachable both as
+/// `import { promises } from "node:fs"` and `fsDefault.promises`. Data-driven
+/// (import-name → sub-namespace specifier): the name binds to that namespace as
+/// an OBJECT (`Binding::Builtin` with an empty member), so `promises.readFile(p)`
+/// resolves through the Registry exactly like a bare-`rts` namespace import. This
+/// generalizes to any module with a promise/sub-API object (`dns.promises`,
+/// `timers.promises`) by adding a row — no per-name control-flow special-case.
+fn node_subnamespace_reexports(
+    specifier: &str,
+) -> Option<&'static [(&'static str, &'static str)]> {
+    match specifier {
+        "node:fs" => Some(&[("promises", "node:fs/promises")]),
+        _ => None,
+    }
+}
+
 fn node_reexported_globals(specifier: &str) -> Option<&'static [(&'static str, &'static str)]> {
     match specifier {
         "node:url" => Some(&[("URL", "URL"), ("URLSearchParams", "URLSearchParams")]),
