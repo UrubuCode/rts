@@ -123,11 +123,14 @@ fn build_path(entry: &Path) -> FrontResult<super::LoweredProgram> {
 
     // Build the engine prelude FIRST (if any) so its classes are AMBIENT for the
     // user program's `extends` resolution (`class X extends Error`/`Map`).
-    let inc = registry::includes_prelude();
+    let inc = crate::timing::phase("registry+prelude-text", registry::includes_prelude);
+    crate::timing::note("prelude bytes", inc.len());
     let prelude = if inc.is_empty() {
         None
     } else {
-        Some(super::build_program_for_prelude(&inc)?)
+        Some(crate::timing::phase("prelude parse+lower", || {
+            super::build_program_for_prelude(&inc)
+        })?)
     };
     let ambient = prelude
         .as_ref()
@@ -152,14 +155,16 @@ fn build_path(entry: &Path) -> FrontResult<super::LoweredProgram> {
     // bails at lowering (sound). Every other destructuring site recovers from the
     // swc `Stmt` nodes in `program`.
     let entry_src = std::fs::read_to_string(entry).unwrap_or_default();
-    let mut user = build_from_program(program, &entry_src, ambient, &ambient_fns, "")?;
+    let mut user = crate::timing::phase("user lower", || {
+        build_from_program(program, &entry_src, ambient, &ambient_fns, "")
+    })?;
     // Carry the BUILTIN-IMPORT bindings into the lowering so a call to an imported
     // `rts:<ns>` member resolves to its real `__RTS_FN_NS_*` symbol (M1b).
     user.builtins = builtins;
 
     match prelude {
         None => Ok(user),
-        Some(prelude) => merge_programs(prelude, user),
+        Some(prelude) => crate::timing::phase("merge programs", || merge_programs(prelude, user)),
     }
 }
 

@@ -77,9 +77,13 @@ pub(super) fn make_module() -> JITModule {
         .finish(settings::Flags::new(flags))
         .expect("finish host isa");
     let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
-    for sym in crate::adapter_symbols::jit_symbols() {
-        builder.symbol(sym.name, sym.ptr);
-    }
+    let syms = crate::timing::phase("jit symbol harvest", crate::adapter_symbols::jit_symbols);
+    crate::timing::note("jit symbols", syms.len());
+    crate::timing::phase("jit symbol install", || {
+        for sym in syms {
+            builder.symbol(sym.name, sym.ptr);
+        }
+    });
     JITModule::new(builder)
 }
 
@@ -103,10 +107,12 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
     // pipeline (rts-primitives' COMPILE_FN_HOOK — never registered means the
     // ctor returns handle 0 with an eprintln). Idempotent.
     super::dynfn::register_hook();
-    let mut module = make_module();
-    let main_id = populate_module(&mut module, prog)?;
-    module
-        .finalize_definitions()
+    let mut module = crate::timing::phase("make_module", make_module);
+    crate::timing::note("funcs to compile", prog.funcs.len());
+    let main_id = crate::timing::phase("populate_module (clif)", || {
+        populate_module(&mut module, prog)
+    })?;
+    crate::timing::phase("finalize_definitions", || module.finalize_definitions())
         .map_err(|e| Unsupported::new(format!("finalize module: {e}")))?;
     let main = module.get_finalized_function(main_id);
     Ok(Program {
@@ -139,6 +145,7 @@ pub(crate) fn populate_module(
     let builtins = &prog.builtins;
     let param_classes = &prog.param_classes;
 
+    let _t_phase = std::time::Instant::now();
     // 1. Freeze every signature (user funcs by their HIR types; main is void).
     let mut sigs: HashMap<String, FnSig> = HashMap::new();
     for f in funcs {
@@ -245,6 +252,8 @@ pub(crate) fn populate_module(
         }
     }
 
+    crate::timing::report("  sigs+declares", _t_phase);
+    let _t_phase = std::time::Instant::now();
     // 3. Define each user function body.
     for f in funcs {
         let sig = sigs[&f.name].clone();
@@ -294,6 +303,8 @@ pub(crate) fn populate_module(
         param_classes,
     )?;
 
+    crate::timing::report("  fn bodies + main", _t_phase);
+    let _t_phase = std::time::Instant::now();
     // 4b. Define every thunk body (bridges the uniform ABI to the real signature).
     //     A CLOSURE thunk reads its leading `capture_count` real params from the
     //     env array; a non-capturing thunk has `capture_count = 0`.
@@ -323,6 +334,7 @@ pub(crate) fn populate_module(
         }
     }
 
+    crate::timing::report("  thunks", _t_phase);
     Ok(main_id)
 }
 
