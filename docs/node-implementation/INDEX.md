@@ -6,14 +6,22 @@ the experimental ones are specced here. Parity target: Node.js **25.x**.
 
 > **Status: implementation under way.** Each `<module>.md` is an implementation
 > blueprint (full API surface + types + RTS impl plan) and carries its OWN
-> `Status` row — that row, not this index, is the truth for a given module. Where
-> a module has landed, a "what actually landed" section records the divergences
-> from its plan. Live code is in `crates/rts-node/src/`.
+> `Status` row. **⚠️ The per-module `Status` rows are STALE for many modules** —
+> the verified source of truth for what is genuinely done, and the completion
+> roadmap, is **[`node_completed.md`](./node_completed.md)**. Live code is in
+> `crates/rts-node/src/`.
+>
+> **100% complete today (verified):** `node:string_decoder`, `node:querystring`,
+> `node:punycode`. Near-complete (one bounded gap each): `os`, `path`, `url`,
+> `dgram`, `net`, `fs`. See [`node_completed.md`](./node_completed.md) for the
+> full 100%-vs-partial breakdown, the cross-cutting engine blockers, and the
+> Phase A→E roadmap (finish one module to 100% before the next).
 
 ## Read first
 
 | Doc | What |
 |---|---|
+| [`node_completed.md`](./node_completed.md) | **Completion tracker + roadmap** (VERIFIED, overrides stale per-module `Status` rows): the 100%-complete list, near-complete modules with their exact remaining gap, partial/not-started buckets, the cross-cutting engine blockers, and the Phase A→E order to finish node. **Read this before picking a module.** |
 | [`architecture.md`](./architecture.md) | The design: `rts-node` independence, crate layout + the 2 foundation hoists, ABI, opaque handles, async model, threading, buffer interop, `.ts`-shim split, the **no-V8 rule**, globals=engine, tiers, open decisions. |
 | [`layering.md`](./layering.md) | **Layer placement doctrine**: globals belong to the engine; `rts-primitives` = cross-context (browser+backend) logic; engine gaps fillable polymorphism-correct; the placement decision tree + a per-module matrix (which layer owns each concern). |
 | [`implementation-plan.md`](./implementation-plan.md) | **Master plan**: current state (verified), duplicated-resource remove/relocate table, the P-1 foundation phases (Entry::Backend, async→engine + carve-outs, primitives promotions, codegen `node:` routing), P0→P2 module→crate→layer map, prioritization (mature-pure first), per-PR verification, risks. |
