@@ -48,24 +48,30 @@ pub fn command(path: Option<String>) -> Result<()> {
     let exe = std::env::current_exe()
         .map_err(|e| anyhow::anyhow!("failed to locate rts executable: {e}"))?;
 
-    for file in &files {
+    // Run the per-file children CONCURRENTLY. They are already isolated
+    // processes (#314 — a segfaulting fixture must not abort the suite), so
+    // running several at once changes no semantics; it only stops leaving every
+    // core but one idle. Output is buffered per file and emitted below in the
+    // ORIGINAL file order, so the report is identical to the serial one.
+    //
+    // `RTS_TEST_JOBS` overrides the worker count (`1` = the old serial
+    // behavior, for a fixture whose timing goes flaky under load).
+    let jobs = test_jobs(files.len());
+    let mut outputs = run_children_parallel(&files, &exe, jobs);
+    // SERIAL RETRY. A fixture that is timing-sensitive (timers, async settle
+    // ordering) can fail purely because N children were competing for the CPU —
+    // `promise_rejection_basic` did exactly that. Re-run every failing file
+    // ALONE and keep the retry's result. A genuinely broken test fails both
+    // times, so this removes load-induced noise WITHOUT hiding a real failure;
+    // the files that needed a retry are named in the summary so the flakiness
+    // stays visible instead of being silently laundered.
+    let flaky = retry_failures_serially(&files, &exe, &mut outputs);
+
+    for (file, output) in files.iter().zip(outputs) {
         total_files += 1;
         let label = relative_label(file, &root);
         eprintln!("\n{}", dim(&label));
 
-        let output = std::process::Command::new(&exe)
-            .arg("test")
-            .arg(file)
-            // RUST_BACKTRACE=1 garante backtrace nativa em crashes do
-            // codegen/runtime — printada pra stderr pelo runtime do Rust
-            // antes do processo morrer. Sem isso, segfaults so' viram
-            // exit code sem contexto. Nao sobrescreve var ja' setada
-            // pelo user.
-            .env("RUST_BACKTRACE", std::env::var("RUST_BACKTRACE").unwrap_or_else(|_| "1".to_string()))
-            // Liga trace de etapas no child — `[trace] invoking __RTS_MAIN`
-            // antes de um segfault aponta exatamente onde morreu (#314).
-            .env("RTS_TEST_TRACE_STAGES", "1")
-            .output();
         let output = match output {
             Ok(o) => o,
             Err(e) => {
@@ -132,6 +138,20 @@ pub fn command(path: Option<String>) -> Result<()> {
             failed_label(grand_failed),
             total_tests,
         );
+        // Name the files that only passed once re-run alone: they are counted as
+        // passing (they do pass), but their result depended on machine load, and
+        // that is a fact about the suite worth seeing rather than swallowing.
+        if !flaky.is_empty() {
+            eprintln!(
+                " Flaky  {} passed only on serial retry: {}",
+                flaky.len(),
+                flaky
+                    .iter()
+                    .map(|f| relative_label(f, &root))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
+        }
         eprintln!();
     }
 
@@ -139,6 +159,127 @@ pub fn command(path: Option<String>) -> Result<()> {
         std::process::exit(1);
     }
     Ok(())
+}
+
+/// Worker count for the per-file child processes. `RTS_TEST_JOBS` wins when set
+/// (`1` restores the fully serial behavior); otherwise one per available core,
+/// never more than the number of files.
+fn test_jobs(file_count: usize) -> usize {
+    let requested = std::env::var("RTS_TEST_JOBS")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(1)
+        });
+    requested.max(1).min(file_count.max(1))
+}
+
+/// Spawn `rts test <file>` for every file across `jobs` workers, returning each
+/// child's captured output INDEXED BY THE INPUT ORDER (slot `i` belongs to
+/// `files[i]` no matter which worker ran it, so the caller's report order does
+/// not depend on scheduling).
+fn run_children_parallel(
+    files: &[PathBuf],
+    exe: &Path,
+    jobs: usize,
+) -> Vec<std::io::Result<std::process::Output>> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
+
+    // One slot per file. `Mutex<Vec<Option<_>>>` rather than channels so a
+    // worker writes straight into its file's slot — no reordering step.
+    let slots: Mutex<Vec<Option<std::io::Result<std::process::Output>>>> =
+        Mutex::new((0..files.len()).map(|_| None).collect());
+    let next = AtomicUsize::new(0);
+    // Inherited by every child: `RUST_BACKTRACE` gives a native backtrace on a
+    // codegen/runtime crash (without it a segfault is a bare exit code), and
+    // `RTS_TEST_TRACE_STAGES` prints `[trace] invoking __RTS_MAIN` so a crash
+    // says exactly where it died (#314). A user-set RUST_BACKTRACE is kept.
+    let backtrace = std::env::var("RUST_BACKTRACE").unwrap_or_else(|_| "1".to_string());
+
+    std::thread::scope(|scope| {
+        for _ in 0..jobs {
+            scope.spawn(|| loop {
+                let i = next.fetch_add(1, Ordering::Relaxed);
+                let Some(file) = files.get(i) else {
+                    break;
+                };
+                let out = std::process::Command::new(exe)
+                    .arg("test")
+                    .arg(file)
+                    .env("RUST_BACKTRACE", &backtrace)
+                    .env("RTS_TEST_TRACE_STAGES", "1")
+                    .output();
+                slots.lock().expect("test slots mutex").ordered_put(i, out);
+            });
+        }
+    });
+
+    slots
+        .into_inner()
+        .expect("test slots mutex")
+        .into_iter()
+        .map(|slot| slot.expect("every slot filled: one worker per index"))
+        .collect()
+}
+
+/// Re-run every file whose parallel result reported a failure or a crash, ALONE
+/// and serially, replacing its output with the retry's. Returns the labels of
+/// the files that FAILED in parallel but PASSED alone — i.e. the ones whose
+/// result depended on machine load, which the summary names so the flakiness is
+/// reported rather than hidden.
+fn retry_failures_serially(
+    files: &[PathBuf],
+    exe: &Path,
+    outputs: &mut [std::io::Result<std::process::Output>],
+) -> Vec<PathBuf> {
+    let mut flaky = Vec::new();
+    for (i, file) in files.iter().enumerate() {
+        if !output_failed(&outputs[i]) {
+            continue;
+        }
+        let retry = std::process::Command::new(exe)
+            .arg("test")
+            .arg(file)
+            .env(
+                "RUST_BACKTRACE",
+                std::env::var("RUST_BACKTRACE").unwrap_or_else(|_| "1".to_string()),
+            )
+            .env("RTS_TEST_TRACE_STAGES", "1")
+            .output();
+        if !output_failed(&retry) {
+            flaky.push(file.clone());
+        }
+        outputs[i] = retry;
+    }
+    flaky
+}
+
+/// Did this child report a failing test, or die without reporting anything?
+fn output_failed(out: &std::io::Result<std::process::Output>) -> bool {
+    match out {
+        Err(_) => true,
+        Ok(o) => {
+            let stderr = String::from_utf8_lossy(&o.stderr);
+            let (passed, failed) = parse_summary_counts(&stderr);
+            failed > 0 || (!o.status.success() && passed == 0)
+        }
+    }
+}
+
+/// Tiny helper so the worker body stays one line (and the lock is dropped
+/// immediately after the write rather than held across the next spawn).
+trait OrderedPut<T> {
+    fn ordered_put(&mut self, index: usize, value: T);
+}
+
+impl<T> OrderedPut<T> for Vec<Option<T>> {
+    fn ordered_put(&mut self, index: usize, value: T) {
+        self[index] = Some(value);
+    }
 }
 
 fn run_single_in_process(file: &Path, root: &Path) -> Result<()> {
