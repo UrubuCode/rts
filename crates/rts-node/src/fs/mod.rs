@@ -61,6 +61,11 @@ pub const FS_STREAM_TS: &str = include_str!("stream.ts");
 /// `FS_STREAM_TS` (shares the stream `Stream` base); bound to `node:fs`.
 pub const FS_UTF8STREAM_TS: &str = include_str!("utf8stream.ts");
 
+/// The ambient `.ts` `promises.open` wrapper — augments the native FileHandle
+/// with its stream methods (createReadStream/createWriteStream/readableWebStream).
+/// Bound to `node:fs/promises`'s `open`. Included AFTER the fs streams.
+pub const FS_FHSTREAM_TS: &str = include_str!("fhstream.ts");
+
 #[allow(clippy::too_many_arguments)]
 fn m(name: &str, kind: MemberKind, args: Vec<AbiType>, ret: AbiType, symbol: &str, ts: &str, fp: *const u8) -> Member {
     Member {
@@ -275,5 +280,6 @@ pub fn register(e: &mut Engine) {
         .member(m("readBytes", MemberKind::Function, vec![PolyValue], PolyValue, "__RTS_FN_NS_ENGINE_FS_READ_BYTES", "readBytes(path: object): object", streambridge::__RTS_FN_NS_ENGINE_FS_READ_BYTES as *const u8))
         .member(m("writeBytes", MemberKind::Function, vec![PolyValue, PolyValue], PolyValue, "__RTS_FN_NS_ENGINE_FS_WRITE_BYTES", "writeBytes(path: object, data: object): object", streambridge::__RTS_FN_NS_ENGINE_FS_WRITE_BYTES as *const u8))
         .member(m("appendBytes", MemberKind::Function, vec![PolyValue, PolyValue], PolyValue, "__RTS_FN_NS_ENGINE_FS_APPEND_BYTES", "appendBytes(path: object, data: object): object", streambridge::__RTS_FN_NS_ENGINE_FS_APPEND_BYTES as *const u8))
+        .member(m("openHandle", MemberKind::Function, vec![PolyValue, PolyValue], PolyValue, "__RTS_FN_NS_ENGINE_FS_OPEN_HANDLE", "openHandle(path: object, flags: object): object", filehandle::__RTS_FN_NS_ENGINE_FS_OPEN_HANDLE as *const u8))
         .done();
 }

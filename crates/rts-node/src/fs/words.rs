@@ -6,6 +6,14 @@
 
 pub use crate::values::{byte_array, intern, opt_bool, read, read_bytes, string_array};
 
+/// Decode a boxed-string PolyValue WORD to its UTF-8 text (empty for non-strings).
+pub fn word_string(word: u64) -> String {
+    match crate::values::val(word) {
+        crate::values::Val::Str(s) => s,
+        _ => String::new(),
+    }
+}
+
 unsafe extern "C" {
     fn __rtsadp_throw_js_error(kp: *const u8, kl: i64, mp: *const u8, ml: i64);
 }

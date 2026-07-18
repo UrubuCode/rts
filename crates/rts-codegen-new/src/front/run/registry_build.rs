@@ -398,6 +398,7 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
     // come AFTER them) with real file IO via the private engine.fs_* bridge.
     PreludeTs { label: "node:fs streams", source: ns::node_fs::FS_STREAM_TS, why: "fs.ReadStream/WriteStream + createReadStream/createWriteStream" },
     PreludeTs { label: "node:fs Utf8Stream", source: ns::node_fs::FS_UTF8STREAM_TS, why: "fs.Utf8Stream append-only writer" },
+    PreludeTs { label: "node:fs/promises open", source: ns::node_fs::FS_FHSTREAM_TS, why: "FileHandle.createReadStream/createWriteStream/readableWebStream" },
     // node:diagnostics_channel — in-process pub/sub bus (Channel/TracingChannel +
     // module fns). Ambient `.ts` (like node:stream); pure over Map/Array/Function.
     PreludeTs { label: "node:diagnostics_channel", source: ns::node_diagnostics_channel::DIAGNOSTICS_CHANNEL_TS, why: "Channel/TracingChannel + channel/subscribe/… pub-sub" },

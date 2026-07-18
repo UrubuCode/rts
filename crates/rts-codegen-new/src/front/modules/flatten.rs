@@ -304,7 +304,7 @@ fn node_subnamespace_reexports(
 /// which mixes native members with a few ambient stream classes) → the default
 /// import binds the native namespace instead.
 fn node_reexport_whole_surface(specifier: &str) -> bool {
-    !matches!(specifier, "node:fs")
+    !matches!(specifier, "node:fs" | "node:fs/promises")
 }
 
 fn node_reexported_globals(specifier: &str) -> Option<&'static [(&'static str, &'static str)]> {
@@ -321,6 +321,9 @@ fn node_reexported_globals(specifier: &str) -> Option<&'static [(&'static str, &
             ("WriteStream", "WriteStream"),
             ("Utf8Stream", "Utf8Stream"),
         ]),
+        // node:fs/promises — mostly native, but `open` is a `.ts` wrapper that
+        // augments the native FileHandle with its stream methods (fhstream.ts).
+        "node:fs/promises" => Some(&[("open", "__fsPromisesOpen")]),
         "node:url" => Some(&[("URL", "URL"), ("URLSearchParams", "URLSearchParams")]),
         // `StringDecoder` is a registered global (Registry) class — bind the
         // import to the ambient class, like `URL` (reuse, never re-implement).

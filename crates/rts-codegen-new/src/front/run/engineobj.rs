@@ -134,6 +134,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 Repr::Tagged,
             );
         }
+        if method == "fs_open_handle" {
+            return self.lower_engine_descriptor(
+                module,
+                args,
+                "__RTS_FN_NS_ENGINE_FS_OPEN_HANDLE",
+                2,
+                Repr::Tagged,
+            );
+        }
         // `str_from_any(x)` — the JS ToString bridge (1 any arg → string word),
         // used by the `.ts` `StringFactory` + `class String` ctor. It exposes the
         // engine's OWN ToString trampoline (`__rtsadp_to_string`, codegen-side,

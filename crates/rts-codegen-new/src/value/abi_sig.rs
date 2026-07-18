@@ -215,7 +215,9 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64],
             ret: U64,
         },
-        "__RTS_FN_NS_ENGINE_FS_WRITE_BYTES" | "__RTS_FN_NS_ENGINE_FS_APPEND_BYTES" => SymSig {
+        "__RTS_FN_NS_ENGINE_FS_WRITE_BYTES"
+        | "__RTS_FN_NS_ENGINE_FS_APPEND_BYTES"
+        | "__RTS_FN_NS_ENGINE_FS_OPEN_HANDLE" => SymSig {
             params: &[U64, U64],
             ret: U64,
         },

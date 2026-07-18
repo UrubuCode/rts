@@ -53,13 +53,36 @@ pub extern "C" fn __RTS_FN_NODE_FS_P_OPEN(p: *const u8, l: i64, fp: *const u8, f
     let path = read(p, l);
     let flags = read(fp, fl);
     match super::fd::open_path(&path, &flags) {
-        Ok(fd) => {
-            let mut m: indexmap::IndexMap<String, i64> = indexmap::IndexMap::new();
-            m.insert("__rts_class".to_string(), alloc_entry(Entry::String(b"FileHandle".to_vec())) as i64);
-            m.insert("fd".to_string(), fd as i64);
-            resolve(handle_word_auto(alloc_entry(Entry::Map(Box::new(m)))))
-        }
+        Ok(fd) => resolve(build_filehandle(fd)),
         Err(e) => reject(&e, "open", &path),
+    }
+}
+
+/// Build the object-backed `FileHandle` word for an open `fd`.
+pub(super) fn build_filehandle(fd: u64) -> u64 {
+    let mut m: indexmap::IndexMap<String, i64> = indexmap::IndexMap::new();
+    m.insert(
+        "__rts_class".to_string(),
+        alloc_entry(Entry::String(b"FileHandle".to_vec())) as i64,
+    );
+    m.insert("fd".to_string(), fd as i64);
+    handle_word_auto(alloc_entry(Entry::Map(Box::new(m))))
+}
+
+/// `engine.fs_open_handle(path, flags)` — the SYNC FileHandle opener for the `.ts`
+/// `promises.open` wrapper (which then attaches the stream-method closures). All
+/// words in/out: returns the object-backed `FileHandle` word, or throws a
+/// Node-style error on failure (the wrapper does not catch — `open` rejects).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_ENGINE_FS_OPEN_HANDLE(path_word: u64, flags_word: u64) -> u64 {
+    let path = super::words::word_string(path_word);
+    let flags = super::words::word_string(flags_word);
+    match super::fd::open_path(&path, &flags) {
+        Ok(fd) => build_filehandle(fd),
+        Err(e) => {
+            super::words::throw_io(&e, "open", &path);
+            POLY_UNDEFINED
+        }
     }
 }
 
