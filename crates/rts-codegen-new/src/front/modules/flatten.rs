@@ -123,27 +123,38 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
                     // resolved through the Registry below.
                     if let Some(reexports) = node_reexported_globals(specifier) {
                         let ns = builtin_ns(specifier);
+                        let subns = node_subnamespace_reexports(specifier);
                         for (orig, local) in &edge.names {
-                            // A re-exported name binds to its AMBIENT prelude
-                            // declaration (possibly renamed — a submodule's
-                            // `pipeline` maps to a distinct decl than the base
-                            // module's). Any name NOT re-exported is a native
-                            // namespace member resolved via the Registry.
-                            let binding = match reexports
-                                .iter()
-                                .find(|(o, _)| *o == orig.as_str())
+                            // Priority: a SUB-NAMESPACE object (`fs.promises`) →
+                            // bind to that whole namespace; else a re-exported name
+                            // → its AMBIENT prelude declaration (possibly renamed);
+                            // else a native namespace member via the Registry.
+                            let binding = if let Some((_, sub)) = subns
+                                .and_then(|t| t.iter().find(|(o, _)| *o == orig.as_str()))
                             {
-                                Some((_, decl)) => Binding::Local { name: decl.to_string() },
-                                None => Binding::Builtin { ns: ns.clone(), member: orig.clone() },
+                                Binding::Builtin {
+                                    ns: (*sub).to_string(),
+                                    member: String::new(),
+                                }
+                            } else if let Some((_, decl)) =
+                                reexports.iter().find(|(o, _)| *o == orig.as_str())
+                            {
+                                Binding::Local { name: decl.to_string() }
+                            } else {
+                                Binding::Builtin { ns: ns.clone(), member: orig.clone() }
                             };
                             bindings.insert(local.clone(), binding);
                         }
                         // `import stream from "node:stream"` — the default export
                         // is the module namespace object; synthesize it as an
                         // object of the ambient re-exported decls so `stream.X`
-                        // resolves. Only for modules whose whole surface is
-                        // re-exported (every entry is a prelude decl).
-                        if let Some(default_local) = &edge.default_name {
+                        // resolves. ONLY for modules whose WHOLE surface is
+                        // re-exported (a partial one like node:fs must instead bind
+                        // its default to the native namespace, below, so
+                        // `fs.readFileSync` still resolves).
+                        if let (Some(default_local), true) =
+                            (&edge.default_name, node_reexport_whole_surface(specifier))
+                        {
                             let fields: Vec<String> = reexports
                                 .iter()
                                 .map(|(o, decl)| format!("{o}: {decl}"))
@@ -158,6 +169,15 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
                                 ))
                             })?;
                             program.items.extend(parsed.items);
+                        } else if let Some(default_local) = &edge.default_name {
+                            // Partial re-export (node:fs): the default export is the
+                            // native namespace object — `fs.readFileSync` resolves
+                            // through the Registry (the ambient stream classes are
+                            // reached via the NAMED import, not `fs.createReadStream`).
+                            bindings.insert(
+                                default_local.clone(),
+                                Binding::Builtin { ns: ns.clone(), member: String::new() },
+                            );
                         }
                         continue;
                     }
@@ -278,8 +298,28 @@ fn node_subnamespace_reexports(
     }
 }
 
+/// Whether a `node:` module's `node_reexported_globals` covers its WHOLE surface
+/// (every export is an ambient prelude decl). True → a default import synthesizes
+/// a namespace object of those decls; false (a PARTIAL re-export like `node:fs`,
+/// which mixes native members with a few ambient stream classes) → the default
+/// import binds the native namespace instead.
+fn node_reexport_whole_surface(specifier: &str) -> bool {
+    !matches!(specifier, "node:fs")
+}
+
 fn node_reexported_globals(specifier: &str) -> Option<&'static [(&'static str, &'static str)]> {
     match specifier {
+        // node:fs — MOSTLY native members (readFileSync/…), but the stream classes
+        // + their factories are ambient `.ts` prelude decls (fs/stream.ts). Only
+        // these four re-export; every other name stays a native Registry member.
+        // NOT a whole-surface re-export (see `node_reexport_whole_surface`), so a
+        // default `import fs from "node:fs"` still binds the native namespace.
+        "node:fs" => Some(&[
+            ("createReadStream", "createReadStream"),
+            ("createWriteStream", "createWriteStream"),
+            ("ReadStream", "ReadStream"),
+            ("WriteStream", "WriteStream"),
+        ]),
         "node:url" => Some(&[("URL", "URL"), ("URLSearchParams", "URLSearchParams")]),
         // `StringDecoder` is a registered global (Registry) class — bind the
         // import to the ambient class, like `URL` (reuse, never re-implement).

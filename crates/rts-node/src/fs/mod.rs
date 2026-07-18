@@ -40,6 +40,7 @@ mod meta;
 mod promises;
 mod statfs;
 mod stats;
+mod streambridge;
 mod symbols;
 mod watch;
 mod watchfile;
@@ -47,6 +48,13 @@ mod words;
 
 use rts_engine::AbiType::{self, Bool, F64, Handle, I64, PolyValue, StrPtr, Void};
 use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+
+/// The ambient `.ts` prelude implementing `fs.ReadStream`/`fs.WriteStream` (and
+/// the `createReadStream`/`createWriteStream` factories) over the ambient stream
+/// `Readable`/`Writable` + the private `engine.fs_*` file-IO bridge. Included
+/// AFTER `node:stream` in `PRELUDE_TS`; bound to `node:fs` by the module loader
+/// (`node_reexported_globals`).
+pub const FS_STREAM_TS: &str = include_str!("stream.ts");
 
 #[allow(clippy::too_many_arguments)]
 fn m(name: &str, kind: MemberKind, args: Vec<AbiType>, ret: AbiType, symbol: &str, ts: &str, fp: *const u8) -> Member {
@@ -248,5 +256,19 @@ pub fn register(e: &mut Engine) {
         .member(func("realpath", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_P_REALPATH", "realpath(path: string): object", pr::__RTS_FN_NODE_FS_P_REALPATH as *const u8))
         .member(func("readlink", vec![StrPtr], Handle, "__RTS_FN_NODE_FS_P_READLINK", "readlink(path: string): object", pr::__RTS_FN_NODE_FS_P_READLINK as *const u8))
         .member(func("open", vec![StrPtr, StrPtr], Handle, "__RTS_FN_NODE_FS_P_OPEN", "open(path: string, flags: string): FileHandle", filehandle::__RTS_FN_NODE_FS_P_OPEN as *const u8))
+        .done();
+
+    // PRIVATE file-IO bridge for the `.ts` ReadStream/WriteStream prelude. Not
+    // user-importable (`.private()`); the `engine.*` privacy gate further limits
+    // callers to prelude-origin code. Each takes/returns raw PolyValue words (see
+    // `streambridge.rs`); the symbols carry the `__RTS_FN_NS_ENGINE_FS_*` names the
+    // engine's `engineobj` lowering + `abi_sig` reference, and harvest into the JIT
+    // table like any registered member.
+    e.ns("node:fs/__streambridge")
+        .private()
+        .doc("PRIVATE fs file-IO bridge for the ReadStream/WriteStream prelude.")
+        .member(m("readBytes", MemberKind::Function, vec![PolyValue], PolyValue, "__RTS_FN_NS_ENGINE_FS_READ_BYTES", "readBytes(path: object): object", streambridge::__RTS_FN_NS_ENGINE_FS_READ_BYTES as *const u8))
+        .member(m("writeBytes", MemberKind::Function, vec![PolyValue, PolyValue], PolyValue, "__RTS_FN_NS_ENGINE_FS_WRITE_BYTES", "writeBytes(path: object, data: object): object", streambridge::__RTS_FN_NS_ENGINE_FS_WRITE_BYTES as *const u8))
+        .member(m("appendBytes", MemberKind::Function, vec![PolyValue, PolyValue], PolyValue, "__RTS_FN_NS_ENGINE_FS_APPEND_BYTES", "appendBytes(path: object, data: object): object", streambridge::__RTS_FN_NS_ENGINE_FS_APPEND_BYTES as *const u8))
         .done();
 }

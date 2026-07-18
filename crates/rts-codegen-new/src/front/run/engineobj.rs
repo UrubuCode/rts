@@ -102,6 +102,38 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if method == "num_from_str" {
             return self.lower_engine_num_from_str(module, args);
         }
+        // `fs_read_bytes(path)` / `fs_write_bytes(path, data)` / `fs_append_bytes(
+        // path, data)` — the PRIVATE file-IO bridge for the `.ts` ReadStream/
+        // WriteStream prelude. All-words in, a word out (a `Uint8Array` for read, a
+        // byte-count number for write/append); the real `std::fs` lives in rts-node
+        // `fs/streambridge.rs`. Tagged result — the `.ts` uses it as a value.
+        if method == "fs_read_bytes" {
+            return self.lower_engine_descriptor(
+                module,
+                args,
+                "__RTS_FN_NS_ENGINE_FS_READ_BYTES",
+                1,
+                Repr::Tagged,
+            );
+        }
+        if method == "fs_write_bytes" {
+            return self.lower_engine_descriptor(
+                module,
+                args,
+                "__RTS_FN_NS_ENGINE_FS_WRITE_BYTES",
+                2,
+                Repr::Tagged,
+            );
+        }
+        if method == "fs_append_bytes" {
+            return self.lower_engine_descriptor(
+                module,
+                args,
+                "__RTS_FN_NS_ENGINE_FS_APPEND_BYTES",
+                2,
+                Repr::Tagged,
+            );
+        }
         // `str_from_any(x)` — the JS ToString bridge (1 any arg → string word),
         // used by the `.ts` `StringFactory` + `class String` ctor. It exposes the
         // engine's OWN ToString trampoline (`__rtsadp_to_string`, codegen-side,

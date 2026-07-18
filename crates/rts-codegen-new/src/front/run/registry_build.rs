@@ -394,6 +394,9 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
     PreludeTs { label: "node:stream write", source: ns::node_stream::STREAM_WRITABLE_TS, why: "Writable + shared write code" },
     PreludeTs { label: "node:stream duplex", source: ns::node_stream::STREAM_DUPLEX_TS, why: "Duplex/Transform/PassThrough" },
     PreludeTs { label: "node:stream ops", source: ns::node_stream::STREAM_OPS_TS, why: "pipeline/finished/compose/… + consumers + promises" },
+    // node:fs ReadStream/WriteStream — extend the ambient Readable/Writable (must
+    // come AFTER them) with real file IO via the private engine.fs_* bridge.
+    PreludeTs { label: "node:fs streams", source: ns::node_fs::FS_STREAM_TS, why: "fs.ReadStream/WriteStream + createReadStream/createWriteStream" },
     // node:diagnostics_channel — in-process pub/sub bus (Channel/TracingChannel +
     // module fns). Ambient `.ts` (like node:stream); pure over Map/Array/Function.
     PreludeTs { label: "node:diagnostics_channel", source: ns::node_diagnostics_channel::DIAGNOSTICS_CHANNEL_TS, why: "Channel/TracingChannel + channel/subscribe/… pub-sub" },

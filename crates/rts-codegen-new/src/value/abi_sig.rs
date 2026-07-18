@@ -207,6 +207,18 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[Handle],
             ret: F64,
         },
+        // engine.fs_read_bytes / fs_write_bytes / fs_append_bytes — the PRIVATE
+        // file-IO bridge for the `.ts` ReadStream/WriteStream prelude. All-words in
+        // (path word, data word), a word out (Uint8Array for read, byte-count
+        // number for write/append). Impl in rts-node `fs/streambridge.rs`.
+        "__RTS_FN_NS_ENGINE_FS_READ_BYTES" => SymSig {
+            params: &[U64],
+            ret: U64,
+        },
+        "__RTS_FN_NS_ENGINE_FS_WRITE_BYTES" | "__RTS_FN_NS_ENGINE_FS_APPEND_BYTES" => SymSig {
+            params: &[U64, U64],
+            ret: U64,
+        },
         // engine.str_* — the irreducible Unicode string-logic bridge: the receiver
         // `s` + string args are GC string `Handle`s, indices/counts are `I64`. Each
         // wraps a `__RTS_FN_GL_STRING_*` impl; the `.ts` `class String` methods call
