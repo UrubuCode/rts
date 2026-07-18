@@ -72,6 +72,16 @@ pub(super) fn make_module() -> JITModule {
     // TCO (`return_call` between `CallConv::Tail` fns) requires frame pointers
     // preserved on x86-64 — the documented requirement the old engine also set.
     flags.set("preserve_frame_pointers", "true").unwrap();
+    // Cranelift's IR VERIFIER defaults to ON — "makes compilation slower but
+    // catches many bugs. The verifier is always enabled by default, which is
+    // useful during development" (its own setting doc) — and runs at several
+    // points per function, so it taxes every startup. Keep it in DEBUG builds,
+    // where a malformed lowering must be caught loudly and where the documented
+    // fast-iteration path (`cargo run -- run`) lives; drop it in RELEASE. Same
+    // split wasmtime uses. Measured: Cranelift phase 221 -> 171 ms, whole
+    // startup 390 -> 346 ms, suite failing-file list unchanged.
+    #[cfg(not(debug_assertions))]
+    flags.set("enable_verifier", "false").unwrap();
     let isa = cranelift_native::builder()
         .expect("host isa builder")
         .finish(settings::Flags::new(flags))
