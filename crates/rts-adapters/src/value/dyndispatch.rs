@@ -464,13 +464,26 @@ pub extern "C" fn __rtsadp_dyn_join(recv: u64, sep: u64) -> u64 {
     undef()
 }
 
-/// `arr.push(x)` — append; returns the new length (a number word). Array receiver
-/// only; other receivers → `undefined`.
+/// `arr.push(x)` — append; returns the new length (a number word). On a NON-array
+/// receiver that is an object with its OWN `push` method (a `stream.Readable`
+/// subclass, any user class named-method `push`), route to that instance method
+/// instead of no-op'ing: an `any`-typed receiver (`self.push(x)` inside a method,
+/// where the compiler could not prove the class) must still reach the real method,
+/// not the Array fast-path. Only when neither an array nor a `push`-bearing object
+/// → `undefined` (unchanged).
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_dyn_push(recv: u64, val: u64) -> u64 {
     if is_array_word(recv) {
         let len = arrayops::__rtsadp_arr_push(arr_handle(recv), val);
         return PolyValue::from_i32(len as i32).raw();
+    }
+    if PolyValue::from_raw(recv).is_object() {
+        let key = abi_adapter::intern_poly("push").raw();
+        let m = super::objops::__rtsadp_obj_get(recv, key);
+        if PolyValue::from_raw(m).is_function() {
+            let undef = undef();
+            return super::funcops::__rtsadp_fn_invoke_method(m, recv, val, undef, undef, 0);
+        }
     }
     undef()
 }

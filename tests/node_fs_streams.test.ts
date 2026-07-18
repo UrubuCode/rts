@@ -51,7 +51,26 @@ const rsPathProp = rs.path;
 const rsPending = rs.pending;
 const hasPipe = typeof rs.pipe === "function";
 const hasOn = typeof rs.on === "function";
-rs.destroy();
+
+// ---- ReadStream flowing on('data') delivers the file bytes -----------------
+const rsFlow: any = createReadStream(rsPath);
+let flowLen = 0;
+rsFlow.on("data", (c: any) => { flowLen += c.length; });
+
+// ---- ReadStream.pipe(WriteStream) — real end-to-end copy -------------------
+const copySrc = dir + "/copy_src.txt";
+const copyDst = dir + "/copy_dst.txt";
+writeFileSync(copySrc, "copied-through-a-pipe");
+const rsCopy: any = createReadStream(copySrc);
+const wsCopy: any = createWriteStream(copyDst);
+rsCopy.pipe(wsCopy);
+const copied = readFileSync(copyDst, "utf8");
+
+// ---- ReadStream setEncoding delivers a decoded string ----------------------
+const rsEnc: any = createReadStream(rsPath);
+rsEnc.setEncoding("utf8");
+let encText = "";
+rsEnc.on("data", (c: any) => { encText += c; });
 
 rmSync(dir, { recursive: true, force: true });
 
@@ -68,4 +87,7 @@ describe("node:fs streams", () => {
   test("ReadStream carries its path", () => expect(rsPathProp).toBe(rsPath));
   test("ReadStream starts pending", () => expect(rsPending).toBe(true));
   test("ReadStream inherits pipe/on", () => expect(hasPipe && hasOn).toBe(true));
+  test("ReadStream flowing delivers all bytes", () => expect(flowLen).toBe(13));
+  test("ReadStream.pipe(WriteStream) copies end-to-end", () => expect(copied).toBe("copied-through-a-pipe"));
+  test("ReadStream setEncoding delivers decoded text", () => expect(encText).toBe("content-bytes"));
 });

@@ -33,11 +33,10 @@ class ReadStream extends Readable {
     });
   }
   // The Readable machinery calls this when it wants data (once flowing / on
-  // `.read()`). Read the whole file once, push it as one chunk, then EOF. The
-  // read + `bytesRead` are real; whether the buffered chunk reaches a flowing
-  // consumer depends on the interim event loop's stream delivery (#207) — the
-  // same limitation the whole `node:stream` module has (it delivers reliably
-  // only for a synchronous push after the listener is attached).
+  // `.read()` / `.pipe`). Read the whole file once, push it as one chunk, then
+  // EOF. Flowing `on('data')`, `.pipe(dest)`, and `setEncoding` all deliver.
+  // (A manual `on('end')` attached AFTER `on('data')` may miss `'end'` — the
+  // synchronous-resume timing every stream shares; `.pipe` is unaffected.)
   _read(size: any): void {
     const self: any = this;
     if (self.__fsRead) { return; }
