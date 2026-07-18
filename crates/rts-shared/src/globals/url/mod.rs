@@ -34,6 +34,15 @@ fn fp_for(symbol: &str) -> *const u8 {
         "__RTS_FN_GL_URL_SEARCH" => instance::__RTS_FN_GL_URL_SEARCH as *const u8,
         "__RTS_FN_GL_URL_SEARCH_PARAMS" => instance::__RTS_FN_GL_URL_SEARCH_PARAMS as *const u8,
         "__RTS_FN_GL_URL_SET_PATHNAME" => instance::__RTS_FN_GL_URL_SET_PATHNAME as *const u8,
+        "__RTS_FN_GL_URL_SET_PROTOCOL" => instance::__RTS_FN_GL_URL_SET_PROTOCOL as *const u8,
+        "__RTS_FN_GL_URL_SET_HOSTNAME" => instance::__RTS_FN_GL_URL_SET_HOSTNAME as *const u8,
+        "__RTS_FN_GL_URL_SET_PORT" => instance::__RTS_FN_GL_URL_SET_PORT as *const u8,
+        "__RTS_FN_GL_URL_SET_HASH" => instance::__RTS_FN_GL_URL_SET_HASH as *const u8,
+        "__RTS_FN_GL_URL_SET_SEARCH" => instance::__RTS_FN_GL_URL_SET_SEARCH as *const u8,
+        "__RTS_FN_GL_URL_SET_USERNAME" => instance::__RTS_FN_GL_URL_SET_USERNAME as *const u8,
+        "__RTS_FN_GL_URL_SET_PASSWORD" => instance::__RTS_FN_GL_URL_SET_PASSWORD as *const u8,
+        "__RTS_FN_GL_URL_SET_HOST" => instance::__RTS_FN_GL_URL_SET_HOST as *const u8,
+        "__RTS_FN_GL_URL_SET_HREF" => instance::__RTS_FN_GL_URL_SET_HREF as *const u8,
         "__RTS_FN_GL_URL_TO_STRING" => instance::__RTS_FN_GL_URL_TO_STRING as *const u8,
         "__RTS_FN_GL_URL_USERNAME" => instance::__RTS_FN_GL_URL_USERNAME as *const u8,
         "__RTS_FN_GL_USP_APPEND" => instance::__RTS_FN_GL_USP_APPEND as *const u8,
@@ -343,6 +352,97 @@ pub fn register_url_class_spec(e: &mut Engine) {
             "__RTS_FN_GL_URL_TO_STRING",
             "toJSON(): string",
             "url.toJSON() — o href serializado (JSON.stringify(url) usa isto). Igual a toString().",
+            false,
+        ))
+        // ---- property SETTERS (WHATWG URL is fully mutable) ----------------
+        .member(m(
+            "pathname",
+            MemberKind::InstanceSetter,
+            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Void),
+            "__RTS_FN_GL_URL_SET_PATHNAME",
+            "set pathname(value: string)",
+            "url.pathname = value — percent-encode + normaliza leading /.",
+            false,
+        ))
+        .member(m(
+            "protocol",
+            MemberKind::InstanceSetter,
+            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Void),
+            "__RTS_FN_GL_URL_SET_PROTOCOL",
+            "set protocol(value: string)",
+            "url.protocol = value.",
+            false,
+        ))
+        .member(m(
+            "hostname",
+            MemberKind::InstanceSetter,
+            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Void),
+            "__RTS_FN_GL_URL_SET_HOSTNAME",
+            "set hostname(value: string)",
+            "url.hostname = value.",
+            false,
+        ))
+        .member(m(
+            "port",
+            MemberKind::InstanceSetter,
+            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Void),
+            "__RTS_FN_GL_URL_SET_PORT",
+            "set port(value: string)",
+            "url.port = value.",
+            false,
+        ))
+        .member(m(
+            "hash",
+            MemberKind::InstanceSetter,
+            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Void),
+            "__RTS_FN_GL_URL_SET_HASH",
+            "set hash(value: string)",
+            "url.hash = value — normaliza leading #.",
+            false,
+        ))
+        .member(m(
+            "search",
+            MemberKind::InstanceSetter,
+            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Void),
+            "__RTS_FN_GL_URL_SET_SEARCH",
+            "set search(value: string)",
+            "url.search = value — normaliza leading ? + invalida cache de searchParams.",
+            false,
+        ))
+        .member(m(
+            "username",
+            MemberKind::InstanceSetter,
+            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Void),
+            "__RTS_FN_GL_URL_SET_USERNAME",
+            "set username(value: string)",
+            "url.username = value.",
+            false,
+        ))
+        .member(m(
+            "password",
+            MemberKind::InstanceSetter,
+            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Void),
+            "__RTS_FN_GL_URL_SET_PASSWORD",
+            "set password(value: string)",
+            "url.password = value.",
+            false,
+        ))
+        .member(m(
+            "host",
+            MemberKind::InstanceSetter,
+            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Void),
+            "__RTS_FN_GL_URL_SET_HOST",
+            "set host(value: string)",
+            "url.host = value — split hostname:port.",
+            false,
+        ))
+        .member(m(
+            "href",
+            MemberKind::InstanceSetter,
+            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Void),
+            "__RTS_FN_GL_URL_SET_HREF",
+            "set href(value: string)",
+            "url.href = value — re-parseia a URL inteira.",
             false,
         ))
         .member(m(

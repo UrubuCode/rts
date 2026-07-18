@@ -37,6 +37,22 @@ const sp2: any = new URLSearchParams("c=3&a=1&b=2");
 sp2.sort();
 const spSorted = sp2.toString();
 
+// ---- URL setters (fully mutable, WHATWG) ----------------------------------
+const us: any = new URL("http://h.com/p");
+us.pathname = "/new";
+us.hash = "#frag";
+us.search = "?a=1";
+us.protocol = "https:";
+us.hostname = "other.com";
+us.port = "99";
+us.username = "u";
+us.password = "pw";
+const settersHref = us.href;
+const uHref: any = new URL("http://a.com/x");
+uHref.href = "https://b.com:8443/y?q=2#z";
+const hrefSetHost = uHref.host;
+const hrefSetPath = uHref.pathname;
+
 // ---- node:url functions ----------------------------------------------------
 const fPath = fileURLToPath("file:///C:/a/b");
 const pURL = pathToFileURL("/a/b").href;
@@ -72,6 +88,11 @@ describe("node:url", () => {
     expect(spSetToString).toBe("a=X&b=2&c=9");
     expect(spAfterDelete).toBe("a=X&c=9");
     expect(spSorted).toBe("a=1&b=2&c=3");
+  });
+  test("URL setters", () => {
+    expect(settersHref).toBe("https://u:pw@other.com:99/new?a=1#frag");
+    expect(hrefSetHost).toBe("b.com:8443");
+    expect(hrefSetPath).toBe("/y");
   });
   test("node:url functions", () => {
     expect(fPath).toBe("C:\\a\\b");

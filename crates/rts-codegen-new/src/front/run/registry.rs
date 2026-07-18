@@ -337,6 +337,20 @@ pub fn class_instance_getter(class: &str, prop: &str) -> Option<ResolvedCall> {
     Some(instance_call(m))
 }
 
+/// Resolve `inst.prop = value` as an INSTANCE SETTER (`MemberKind::InstanceSetter`)
+/// to its [`ResolvedCall`] — args `[receiver, value]`. `None` when the class has
+/// no such setter (the caller falls through to its plain member-write / bail).
+/// Lets a mutable Registry class (`url.pathname = "/x"`, `url.href = "..."`) route
+/// a member assignment to the backend setter instead of a no-op slot write.
+pub fn class_instance_setter(class: &str, prop: &str) -> Option<ResolvedCall> {
+    let c = registry().class(class)?;
+    let m = c
+        .members
+        .iter()
+        .find(|m| matches!(m.kind, MemberKind::InstanceSetter) && m.matches_name(prop))?;
+    Some(instance_call(m))
+}
+
 /// Resolve a STATIC method `Class.method` by NAME ALONE — ANY arity — to its
 /// [`ResolvedCall`]. The generic static emitter then validates the caller's argc
 /// against the member's `[required, total]` window (derived from `default_args`)

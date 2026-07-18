@@ -540,6 +540,129 @@ pub extern "C" fn __RTS_FN_GL_URL_SET_PATHNAME(handle: u64, ptr: i64, len: i64) 
     url_set_field(handle, 5, &encoded);
 }
 
+/// `url.protocol = value` — normaliza para terminar em ':' (WHATWG). Ignora
+/// se vazio.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_URL_SET_PROTOCOL(handle: u64, ptr: i64, len: i64) {
+    let raw = str_from_parts(ptr, len).trim_end_matches(':');
+    if raw.is_empty() {
+        return;
+    }
+    url_set_field(handle, 1, &format!("{raw}:"));
+}
+
+/// `url.hostname = value`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_URL_SET_HOSTNAME(handle: u64, ptr: i64, len: i64) {
+    let raw = str_from_parts(ptr, len);
+    url_set_field(handle, 3, raw);
+    // slot 2 (host) = hostname[:port]
+    let port = url_field_str(handle, 4);
+    let host = if port.is_empty() {
+        raw.to_string()
+    } else {
+        format!("{raw}:{port}")
+    };
+    url_set_field(handle, 2, &host);
+}
+
+/// `url.port = value` — apenas dígitos; string vazia limpa a porta.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_URL_SET_PORT(handle: u64, ptr: i64, len: i64) {
+    let raw = str_from_parts(ptr, len);
+    if !raw.is_empty() && !raw.chars().all(|c| c.is_ascii_digit()) {
+        return; // porta inválida → ignora (WHATWG)
+    }
+    url_set_field(handle, 4, raw);
+    let hostname = url_field_str(handle, 3);
+    let host = if raw.is_empty() {
+        hostname
+    } else {
+        format!("{hostname}:{raw}")
+    };
+    url_set_field(handle, 2, &host);
+}
+
+/// `url.hash = value` — normaliza leading '#'. String vazia limpa o hash.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_URL_SET_HASH(handle: u64, ptr: i64, len: i64) {
+    let raw = str_from_parts(ptr, len);
+    let normalized = if raw.is_empty() {
+        String::new()
+    } else if raw.starts_with('#') {
+        percent_encode_search(raw)
+    } else {
+        percent_encode_search(&format!("#{raw}"))
+    };
+    url_set_field(handle, 7, &normalized);
+}
+
+/// `url.search = value` — normaliza leading '?' + invalida o cache de
+/// searchParams (a próxima leitura de `url.searchParams` re-parseia).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_URL_SET_SEARCH(handle: u64, ptr: i64, len: i64) {
+    let raw = str_from_parts(ptr, len);
+    let normalized = if raw.is_empty() {
+        String::new()
+    } else if raw.starts_with('?') {
+        percent_encode_search(raw)
+    } else {
+        percent_encode_search(&format!("?{raw}"))
+    };
+    url_set_field(handle, 6, &normalized);
+    if let Ok(mut cache) = url_sp_cache().lock() {
+        cache.remove(&handle);
+    }
+}
+
+/// `url.username = value`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_URL_SET_USERNAME(handle: u64, ptr: i64, len: i64) {
+    url_set_field(handle, 9, str_from_parts(ptr, len));
+}
+
+/// `url.password = value`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_URL_SET_PASSWORD(handle: u64, ptr: i64, len: i64) {
+    url_set_field(handle, 10, str_from_parts(ptr, len));
+}
+
+/// `url.host = value` — split em `hostname[:port]`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_URL_SET_HOST(handle: u64, ptr: i64, len: i64) {
+    let raw = str_from_parts(ptr, len);
+    let (hostname, port) = match raw.rsplit_once(':') {
+        Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) => (h, p),
+        _ => (raw, ""),
+    };
+    url_set_field(handle, 3, hostname);
+    url_set_field(handle, 4, port);
+    url_set_field(handle, 2, raw);
+}
+
+/// `url.href = value` — re-parseia a URL inteira, reescrevendo todos os slots.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_URL_SET_HREF(handle: u64, ptr: i64, len: i64) {
+    let raw = str_from_parts(ptr, len);
+    let Some(u) = ParsedUrl::parse(raw) else {
+        return; // href inválido → ignora (Node lança TypeError; aqui no-op honesto)
+    };
+    url_set_field(handle, 0, &u.href);
+    url_set_field(handle, 1, &u.protocol);
+    url_set_field(handle, 2, &u.host());
+    url_set_field(handle, 3, &u.hostname);
+    url_set_field(handle, 4, &u.port);
+    url_set_field(handle, 5, &u.pathname);
+    url_set_field(handle, 6, &u.search);
+    url_set_field(handle, 7, &u.hash);
+    url_set_field(handle, 8, &u.origin());
+    url_set_field(handle, 9, &u.username);
+    url_set_field(handle, 10, &u.password);
+    if let Ok(mut cache) = url_sp_cache().lock() {
+        cache.remove(&handle);
+    }
+}
+
 /// (#67) Reconstroi `url.href` atualizado, considerando setters E
 /// searchParams cacheado (cujo conteudo pode ter mudado via .set/.append).
 #[unsafe(no_mangle)]

@@ -784,6 +784,35 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 }
             }
         }
+        // ---- REGISTRY-CLASS INSTANCE SETTER (`url.pathname = "/x"`, `url.href =
+        // "..."`): a mutable Registry-class instance whose class declares a
+        // `MemberKind::InstanceSetter` for `prop`. Route the assignment to the
+        // backend setter (`__RTS_FN_GL_URL_SET_*`) instead of a no-op slot write.
+        // The receiver's class comes from the same tracking the getter read uses
+        // (`new URL()` / a `: URL` param recorded in `global_instance_classes`). ----
+        if let HirExprKind::Ident(n) = &object.kind {
+            let class_opt = self
+                .global_instance_classes
+                .get(n)
+                .or_else(|| self.local_classes.get(n))
+                .cloned();
+            if let Some(class) = class_opt {
+                if let Some(call) = super::registry::class_instance_setter(&class, prop) {
+                    let recv = self.lower_expr(module, object)?;
+                    let val = self.lower_expr(module, value)?;
+                    // Setter returns void; the ASSIGNMENT expression evaluates to
+                    // the RHS (JS `x.p = v` yields `v`).
+                    self.emit_registry_call(
+                        module,
+                        &call,
+                        Some(recv),
+                        std::slice::from_ref(&val),
+                        JsKind::Number,
+                    )?;
+                    return Ok(val);
+                }
+            }
+        }
         // ---- `arr.length = n` on a PROVEN array: the JS length SETTER (resize) —
         // `n < len` truncates, `n > len` extends with `undefined`. Routed before the
         // shape paths since `.length` is not a real slot. ----
