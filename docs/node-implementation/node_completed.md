@@ -40,7 +40,7 @@ fact complete.
 | Module | Works | Exact remaining gap |
 |---|---|---|
 | **node:dgram** | full `Socket` UDP round-trip + `createSocket` (memory: complete) | `createSocket`'s `lookup`/`signal` options and `bind`'s `fd` option THROW instead of being honored (documented, not faked). |
-| **node:fs** | huge sync + callbacks/promises/FileHandle/watch/Dir/Stats/glob; `import { promises }` + `node:fs/promises` **DONE**; `WriteStream`/`createWriteStream` **DONE** (end-to-end); `ReadStream`/`createReadStream` construct + props + instanceof + pipe-wiring | ReadStream FLOWING data delivery blocked by the interim event loop's stream limitation (**#207** — `push→__rFlow` does not emit while inside the `on('data')`→resume chain; node:stream itself only delivers on synchronous push-after-listen). Also `Utf8Stream`, `FileHandle.createReadStream/readableWebStream/readLines`. |
+| **node:fs** | huge sync + callbacks/promises/FileHandle/watch/Dir/Stats/glob; `import { promises }` + `node:fs/promises` **DONE**; `WriteStream`/`createWriteStream` **DONE** end-to-end; `ReadStream`/`createReadStream` **DONE** — flowing `on('data')`, `.pipe(dest)` real copy, `setEncoding`, props/instanceof all work (unblocked by the `.push`-on-`any` engine fix) | `Utf8Stream`; `FileHandle.createReadStream/createWriteStream/readableWebStream/readLines`; a manual `on('end')` attached AFTER `on('data')` may miss `'end'` (synchronous-resume timing shared by every stream; `.pipe` unaffected). |
 
 ---
 
@@ -96,14 +96,14 @@ forms + zstd deferred).
 3. **Real async event loop (#207).** Deferred emission / microtask draining
    between top-level setup and assertions. Blocks correct timing for
    promises/callbacks in stream, timers/promises, fs callbacks, http, dns.
-   **Narrow, well-characterized sub-bug (2026-07):** a stream's buffered
-   delivery (`Readable.push` → `__rFlow` → `emit('data')`) does NOT reach a
-   listener while still inside the `on('data')`→`__rResume`→`_read` call chain,
-   even though (a) a *direct* `emit` from within `_read` DOES reach it, and (b)
-   the same `push`/`__rFlow` DOES deliver from top-level code after `on()`
-   returns. So `_read`-driven ReadStreams (fs.ReadStream, and any lazy Readable)
-   cannot feed a flowing consumer; only synchronous push-after-listen works.
-   Fixing this unblocks fs.ReadStream data delivery + every lazy Readable.
+   Residual `on('end')`-after-`on('data')` sync-resume timing (a manual
+   end-listener attached after data may miss `'end'`; `.pipe` unaffected).
+   **RESOLVED (2026-07, commit f6183b87):** the earlier "`_read`-driven
+   ReadStreams don't deliver" sub-bug was NOT an event-loop issue — it was
+   `.push` on an `any`-typed receiver (`self.push(x)` inside a method) silently
+   dispatching to the Array fast-path (`__rtsadp_dyn_push` → `undefined`
+   no-op) instead of the instance `push` method. Fixed generally; fs.ReadStream
+   + every lazy `_read`-driven Readable now feed flowing/pipe consumers.
 4. **Extending a `.ts`/native stream class from a native module.** tty/http/https/
    tls ReadStream/WriteStream/Socket subclasses can't yet extend the ambient
    `.ts` stream classes. Needed for the whole networking/IO-stream tier.
