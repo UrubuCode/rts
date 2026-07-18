@@ -44,6 +44,19 @@ const chunk: any = await reader.read();
 const webLen = chunk.done ? 0 : chunk.value.length;
 await wfh.close();
 
+// ---- FileHandle.readLines (readline.Interface) ----------------------------
+const linesPath = dir + "/lines.txt";
+writeFileSync(linesPath, "alpha\r\nbeta\ngamma\n");
+const lfh: any = await open(linesPath, "r");
+const rl: any = lfh.readLines();
+const lineEvents: any[] = [];
+rl.on("line", (l: any) => { lineEvents.push(l); });
+const lineIter: any[] = [];
+for await (const line of rl) { lineIter.push(line); }
+await lfh.close();
+const iterJoined = lineIter.join("|");
+const eventJoined = lineEvents.join("|");
+
 rmSync(dir, { recursive: true, force: true });
 
 describe("node:fs FileHandle streams", () => {
@@ -54,4 +67,6 @@ describe("node:fs FileHandle streams", () => {
   test("createWriteStream writes end-to-end", () => expect(dstContent).toBe("written-through-filehandle"));
   test("readableWebStream exposes getReader", () => expect(hasGetReader).toBe(true));
   test("readableWebStream delivers the file bytes", () => expect(webLen).toBe(11));
+  test("readLines iterates lines (CRLF + trailing-newline handled)", () => expect(iterJoined).toBe("alpha|beta|gamma"));
+  test("readLines emits 'line' events", () => expect(eventJoined).toBe("alpha|beta|gamma"));
 });
