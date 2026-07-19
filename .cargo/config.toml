@@ -12,3 +12,36 @@
 # Real usage is unaffected — `rts run` lowers on the main thread — so this raises
 # the TEST threads to a comparable budget rather than papering over a defect.
 RUST_MIN_STACK = "16777216"
+
+# `opengl32.dll` is the single most expensive thing this binary does before
+# `main` — Windows loads every statically imported DLL at process start, and
+# opengl32 drags in the GPU driver stack. MEASURED, by delay-loading exactly one
+# DLL at a time and timing `rts --version` (which compiles nothing):
+#
+#   nothing delayed .................. 78 ms
+#   only mmdevapi.dll (audio) ........ 78 ms   <- audio costs ~0
+#   only opengl32.dll ................ 14 ms   <- this one is ~64 ms of it
+#
+# It is imported because `rts-runtime` enables rts-egui's `glow-backend`
+# alongside `wgpu-backend`: glow is the GL COMPATIBILITY FALLBACK for old GPUs
+# (see rts-egui/Cargo.toml), so every `rts run` and `rts compile` paid 64 ms for
+# a path almost nothing takes. DELAYLOAD defers it to the first actual GL call,
+# which is exactly when the glow fallback engages.
+#
+# SCOPE IS ONE DLL, DELIBERATELY. A wider list (mmdevapi/dwmapi/uxtheme/imm32,
+# and worse with crypt32/shell32/iphlpapi) destabilized the process: the
+# unit-test binary crashed with STATUS_STACK_OVERFLOW and then
+# STATUS_ILLEGAL_INSTRUCTION on the wide list, and on the narrow list stopped
+# being reproducible (824/5 then 823/6, a different extra failure each run).
+# opengl32 alone reproduces the baseline 825/4 across runs, holds the TS suite's
+# failing-file list byte-identical, and carries ~64 of the ~65 ms — so the rest
+# of the list is all risk and no reward.
+#
+# NOT VERIFIABLE HERE: the glow fallback itself needs an old GPU to engage, so
+# only the wgpu/dx12 path was exercised (two window examples opened and ran).
+# The delay-load stub covers direct imports, which is how glutin calls in.
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+    "-C", "link-arg=/DELAYLOAD:opengl32.dll",
+    "-C", "link-arg=delayimp.lib",
+]
