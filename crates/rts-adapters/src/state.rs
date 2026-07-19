@@ -45,6 +45,7 @@ pub fn reset_codegen_state() {
     crate::value::ctorval::reset_state();
     crate::value::errslot::reset_state();
     crate::shape::reset_global_shapes();
+    crate::value::globalthis::reset();
     reset_program_pins();
 }
 
