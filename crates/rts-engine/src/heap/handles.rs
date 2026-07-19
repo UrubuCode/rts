@@ -13,6 +13,7 @@
 //! correctly: shard N only ever emits handles whose low bits equal N.
 
 use std::cell::Cell;
+use std::collections::HashSet;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1401,25 +1402,55 @@ pub fn handle_is_marked(handle: u64) -> Option<bool> {
 // Pinning records the handle's SLOT identity once; `mark_pinned_roots` re-marks
 // them every cycle so the sweep keeps them. A string constant interned at
 // compile time is never freed for the life of the program — exactly the right
-// lifetime. The set is tiny (one entry per distinct literal) and append-only.
-static PINNED_ROOTS: OnceLock<Mutex<Vec<u64>>> = OnceLock::new();
+// lifetime. The set is one entry per distinct literal and append-only.
+//
+// It is a `HashSet`, NOT a `Vec`: pinning is a SET-membership operation (a pin is
+// identity, not a refcount), and the previous `Vec` + linear `contains()` de-dup
+// made every pin O(n) in the number of already-pinned handles. That turned pinning
+// quadratic and burned a full core once the set grew large — one of the two faces
+// of the unit-test hang (see `pinned_root_count`).
+static PINNED_ROOTS: OnceLock<Mutex<HashSet<u64>>> = OnceLock::new();
 
-fn pinned_roots() -> &'static Mutex<Vec<u64>> {
-    PINNED_ROOTS.get_or_init(|| Mutex::new(Vec::new()))
+fn pinned_roots() -> &'static Mutex<HashSet<u64>> {
+    PINNED_ROOTS.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
 /// Pin `handle` as a permanent GC root (a compile-time string constant). Marked
-/// on every cycle so the sweep never frees it. Idempotent-ish: duplicates are
-/// harmless (re-marking the same slot is a no-op) but we de-dup to keep the set
-/// small. A zero/invalid handle is ignored.
+/// on every cycle so the sweep never frees it. Idempotent: pinning is set
+/// membership, so a repeat pin is a no-op. A zero/invalid handle is ignored.
 pub fn pin_handle(handle: u64) {
     if handle == 0 {
         return;
     }
     let mut g = pinned_roots().lock().unwrap_or_else(|e| e.into_inner());
-    if !g.contains(&handle) {
-        g.push(handle);
-    }
+    g.insert(handle);
+}
+
+/// Release EVERY pin. A pin's correct lifetime is ONE compiled program (it keeps
+/// that program's string constants — handles spliced into its code as immediates —
+/// alive for as long as the code can run). Nothing released them before, so each
+/// compile in a long-lived process (`eval`, hot-reload, the test binary, the CLI
+/// running many test files) permanently added its constants to the root set: the
+/// live handle count could only rise, and once it passed `GC_LIVE_FLOOR` the
+/// periodic collector ran every `GC_TICK_INTERVAL` allocations forever.
+///
+/// Called from `reset_codegen_state`, alongside the global shape registry, whose
+/// lifetime is identical. Same precondition as that function: a QUIESCENT
+/// top-level boundary only — no live program, no compile in flight. Unpinning
+/// while the owning program can still run lets the sweep free a constant its code
+/// still references as an immediate.
+pub fn reset_pinned_roots() {
+    let mut g = pinned_roots().lock().unwrap_or_else(|e| e.into_inner());
+    g.clear();
+    g.shrink_to_fit();
+}
+
+/// The number of PINNED GC roots (leak probe, mirroring `shapes::global_shape_count`).
+/// The pinned set holds COMPILE-TIME string constants, so it is bounded by the
+/// program's distinct literals; a count that grows with RUNTIME string traffic
+/// means transient strings are being pinned — an unbounded permanent-root leak.
+pub fn pinned_root_count() -> usize {
+    pinned_roots().lock().map(|g| g.len()).unwrap_or(0)
 }
 
 /// Release a pin taken by [`pin_handle`] (e.g. an `fs.watch` listener when its
@@ -1430,9 +1461,7 @@ pub fn unpin_handle(handle: u64) {
         return;
     }
     let mut g = pinned_roots().lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(i) = g.iter().position(|&h| h == handle) {
-        g.swap_remove(i);
-    }
+    g.remove(&handle);
 }
 
 /// `extern "C"` counterpart of [`__RTS_FN_NS_GC_PIN_HANDLE`].

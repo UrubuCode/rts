@@ -51,18 +51,41 @@ use super::PolyValue;
 /// Intern `s` in the REAL runtime string pool and box the result as a string
 /// `PolyValue` whose payload is the real handle's 48-bit slot+shard (the
 /// generation is reconstructed on demand by `POLY_TO_HANDLE`).
+///
+/// This is the RUNTIME entry point (the `__rtsadp_*` trampolines: `to_string`,
+/// `typeof`, concat, `join`, computed property keys, …). The result is RETURNED
+/// to the JIT'd program, i.e. it lands in a register / on a scanned stack frame,
+/// so the conservative scanner sees it. It is therefore NOT pinned.
+///
+/// Use [`intern_poly_const`] instead whenever the handle is stored somewhere the
+/// scanner CANNOT see — a code immediate, or a side table / thread-local slot.
 pub fn intern_poly(s: &str) -> PolyValue {
     // STRING_NEW reads `len` bytes from `ptr` internally; the extern is a safe
     // `extern "C" fn`, and we pass a live &str's ptr+len.
     let handle = rt_str::__RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64);
-    // PIN as a permanent GC root: the JIT splices this handle in as a code
-    // `iconst` immediate (string literals are interned ONCE at lowering time),
-    // so it never appears on a scanned stack/cell/global. Without pinning the
-    // GC sweeps these live constants and the immediate later reads a recycled
-    // slot → corrupted string. The constant lives for the whole program, which
-    // is exactly a pinned root's lifetime.
-    rt_handles::__RTS_FN_NS_GC_PIN_HANDLE(handle);
     poly_from_real_handle(handle)
+}
+
+/// [`intern_poly`] + PIN the handle as a permanent GC root. For strings the
+/// conservative scanner can never see:
+///
+/// - **Compile-time literals** (the whole `rts-codegen-new` lowering): the JIT
+///   splices the handle in as an `iconst` immediate, and an immediate is not on
+///   any stack / cell / global. Without pinning the GC sweeps the constant and
+///   the immediate later reads a recycled slot → corrupted string.
+/// - **Invisible slots**: words parked in a side table or a thread-local (e.g.
+///   the pending-throw slot), which `finish_cycle` does not mark.
+///
+/// A pin is PERMANENT, so this must NEVER be used for ordinary runtime string
+/// traffic. It previously was — `intern_poly` itself pinned, and ~146 runtime
+/// trampolines went through it — which made every transient string a permanent
+/// root: the handle table could never shrink, so it grew monotonically past
+/// `GC_LIVE_FLOOR`, at which point the periodic collector ran every 256
+/// allocations forever. That was the root cause of the unit-test binary's hang.
+pub fn intern_poly_const(s: &str) -> PolyValue {
+    let pv = intern_poly(s);
+    rt_handles::__RTS_FN_NS_GC_PIN_HANDLE(real_handle_of(pv));
+    pv
 }
 
 /// Box an already-allocated real string handle as a string `PolyValue`, storing

@@ -196,7 +196,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let k = self.lower_expr(module, key_expr)?;
                 (self.box_value(k), value_expr)
             } else {
-                let k = abi_adapter::intern_poly(key);
+                let k = abi_adapter::intern_poly_const(key);
                 let k_word = self.builder.ins().iconst(types::I64, k.raw() as i64);
                 (k_word, expr)
             };
@@ -350,7 +350,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 if self.local(fname).is_none() {
                     if let Some(sig) = self.sigs.get(fname.as_str()) {
                         if prop == "name" {
-                            let pv = crate::value::abi_adapter::intern_poly(fname);
+                            let pv = crate::value::abi_adapter::intern_poly_const(fname);
                             let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
                             return Ok(Val::tagged_kind(v, JsKind::Str));
                         }
@@ -410,7 +410,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if prop == "prototype" {
             if let HirExprKind::Ident(g) = &object.kind {
                 if matches!(g.as_str(), "Array" | "Object") && self.local(g).is_none() {
-                    let k = crate::value::abi_adapter::intern_poly(g);
+                    let k = crate::value::abi_adapter::intern_poly_const(g);
                     let k_word = self.builder.ins().iconst(types::I64, k.raw() as i64);
                     let w = self
                         .call_runtime(module, "__rtsadp_class_proto", &[k_word])?
@@ -467,7 +467,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // elevation / `new F()` observe one object.
             if prop == "prototype" {
                 if let HirExprKind::Ident(name) = &object.kind {
-                    let k = abi_adapter::intern_poly(name);
+                    let k = abi_adapter::intern_poly_const(name);
                     let k_word = self.builder.ins().iconst(types::I64, k.raw() as i64);
                     let w = self
                         .call_runtime(module, "__rtsadp_class_proto", &[k_word])?
@@ -835,7 +835,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if let Some(class) = self.class_name_receiver(object) {
             // `C.prototype = obj` — replace the class's shared prototype object.
             if prop == "prototype" {
-                let k = abi_adapter::intern_poly(&class);
+                let k = abi_adapter::intern_poly_const(&class);
                 let k_word = self.builder.ins().iconst(types::I64, k.raw() as i64);
                 let v = self.lower_expr(module, value)?;
                 let word = self.box_value(v);
@@ -896,7 +896,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // same `class_proto(name)`).
             if prop == "prototype" {
                 if let HirExprKind::Ident(name) = &object.kind {
-                    let k = abi_adapter::intern_poly(name);
+                    let k = abi_adapter::intern_poly_const(name);
                     let k_word = self.builder.ins().iconst(types::I64, k.raw() as i64);
                     let v = self.lower_expr(module, value)?;
                     let word = self.box_value(v);
@@ -1424,7 +1424,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// constant — the literal is interned in the real pool at lowering time, like
     /// every string literal).
     pub(super) fn intern_key_word(&mut self, prop: &str) -> Value {
-        let pv = abi_adapter::intern_poly(prop);
+        let pv = abi_adapter::intern_poly_const(prop);
         self.builder.ins().iconst(types::I64, pv.raw() as i64)
     }
 

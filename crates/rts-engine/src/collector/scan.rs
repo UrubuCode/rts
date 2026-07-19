@@ -149,6 +149,27 @@ unsafe fn scan_range(visit: &mut dyn FnMut(u64), low: usize, high: usize) {
     }
 }
 
+/// Read every plausible handle word in `[low, high)` into `out`. A PURE memory
+/// read — it takes NO lock and calls NO visitor, which is what makes it safe to
+/// run while another thread is SUSPENDED (see [`mark_other_threads_windows`]).
+#[cfg(all(target_arch = "x86_64", target_os = "windows"))]
+unsafe fn collect_range(out: &mut Vec<u64>, low: usize, high: usize) {
+    if high <= low {
+        return;
+    }
+    let mut addr = low;
+    while addr + 8 <= high {
+        let candidate = unsafe { *(addr as *const u64) };
+        if candidate != 0 {
+            let generation = (candidate >> HANDLE_GEN_SHIFT) & 0xFFFF;
+            if generation != 0 {
+                out.push(candidate);
+            }
+        }
+        addr += 8;
+    }
+}
+
 #[cfg(all(target_arch = "x86_64", target_os = "windows"))]
 unsafe fn mark_other_threads_windows(visit: &mut dyn FnMut(u64)) {
     use thread_registry::{with_other_threads, ThreadInfo};
@@ -159,10 +180,26 @@ unsafe fn mark_other_threads_windows(visit: &mut dyn FnMut(u64)) {
     let mut others: Vec<ThreadInfo> = Vec::new();
     with_other_threads(|t| others.push(*t));
 
+    // DEADLOCK RULE: while a thread is SUSPENDED we may only do lock-free work.
+    // `visit` is the collector's `mark_handle`, which takes a HandleTable SHARD
+    // LOCK. Suspending a thread that happens to be inside `alloc_entry`/`with_entry`
+    // (holding that very shard's mutex) and then marking from this thread blocks
+    // forever on a lock whose owner can never run — an unrecoverable deadlock with
+    // every thread alive and CPU at zero. It was observed wedging the unit-test
+    // binary. So: while suspended we only COLLECT candidate words (pure memory
+    // reads, no locks); we RESUME first, and only then hand them to `visit`.
+    //
+    // Marking after the resume is sound because the scanner is CONSERVATIVE: a
+    // word read from the frozen stack stays a valid mark candidate afterwards
+    // (marking an already-dead candidate is filtered by generation+slot, and a
+    // handle the thread drops after resuming is merely retained one extra cycle —
+    // conservative, never a premature free).
+    let mut candidates: Vec<u64> = Vec::new();
     for t in others {
         if t.handle == 0 {
             continue;
         }
+        candidates.clear();
         unsafe {
             // SuspendThread retorna previous suspend count, -1 em erro.
             let prev = SuspendThread(t.handle);
@@ -181,8 +218,8 @@ unsafe fn mark_other_threads_windows(visit: &mut dyn FnMut(u64)) {
                         t.thread_id, t.stack_high
                     );
                 }
-                scan_range(&mut *visit, rsp, t.stack_high);
-                // Também marca handles em registers callee-saved (RBX, RBP, RDI,
+                collect_range(&mut candidates, rsp, t.stack_high);
+                // Também coleta handles em registers callee-saved (RBX, RBP, RDI,
                 // RSI, R12-R15) que podem segurar values vivos.
                 for reg in [
                     ctx.Rbx, ctx.Rbp, ctx.Rdi, ctx.Rsi, ctx.R12, ctx.R13, ctx.R14, ctx.R15,
@@ -191,12 +228,16 @@ unsafe fn mark_other_threads_windows(visit: &mut dyn FnMut(u64)) {
                     if candidate != 0 {
                         let generation = (candidate >> HANDLE_GEN_SHIFT) & 0xFFFF;
                         if generation != 0 {
-                            visit(candidate);
+                            candidates.push(candidate);
                         }
                     }
                 }
             }
+            // RESUME BEFORE MARKING — `visit` takes shard locks (see above).
             ResumeThread(t.handle);
+        }
+        for &c in &candidates {
+            visit(c);
         }
     }
 }

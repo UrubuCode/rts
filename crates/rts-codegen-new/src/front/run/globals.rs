@@ -555,7 +555,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         };
         if args.is_empty() {
             // `String.fromCharCode()` → "" (the empty string).
-            let pv = crate::value::abi_adapter::intern_poly("");
+            let pv = crate::value::abi_adapter::intern_poly_const("");
             let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
             return Ok(Val::tagged_kind(v, JsKind::Str));
         }

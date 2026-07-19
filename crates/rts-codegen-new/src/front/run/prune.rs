@@ -81,6 +81,31 @@ use rts_hir::ir::{HirArrowBody, HirExpr, HirExprKind, HirFunc, HirLit, HirStmt};
 use super::class::ClassTable;
 use super::LoweredProgram;
 
+/// Prelude functions the LOWERING calls by a name the user source never
+/// contains, so no mention edge can reach them. They are all members of the
+/// PRIMORDIAL Object/String/Number/Boolean surface, which the engine may name.
+///
+/// This list must equal the set of prelude names spelled in the engine. Re-derive
+/// it with:
+///
+/// ```text
+/// grep -rhoE 'call_synth_fn\(module, "[A-Za-z_0-9]+"' crates/rts-codegen-new/src/
+/// grep -rhoE 'sigs\.contains_key\("[A-Za-z_0-9]+"\)'   crates/rts-codegen-new/src/
+/// ```
+///
+/// `prelude_synth_fns_exist` below fails if one of these disappears from the
+/// prelude (a rename), which is the drift this list is exposed to.
+const ENGINE_CALLED_PRELUDE_FNS: &[&str] = &[
+    // `Object(x)` / `new Object(x)` → `ObjectFactory(x)` (globals.rs, newexpr.rs)
+    "ObjectFactory",
+    // `String(x)` / `Number(x)` / `Boolean(x)` called as conversions
+    "StringFactory",
+    "NumberFactory",
+    "BooleanFactory",
+    // `Object.groupBy(..)` → `__object_group_by(..)` (objstatic.rs)
+    "__object_group_by",
+];
+
 /// Drop every prelude function unreachable from `main` + the user functions.
 /// A no-op when there is no prelude, or when `RTS_NO_PRUNE` is set.
 pub(super) fn prune_prelude(prog: &mut LoweredProgram) {
@@ -136,6 +161,20 @@ pub(super) fn prune_prelude(prog: &mut LoweredProgram) {
     // is a miscompile. The cost here is bounded and measured — three classes.
     for wrapper in ["String", "Number", "Boolean"] {
         mentions.insert(wrapper.to_string());
+    }
+    // …and so are the prelude helpers the ENGINE ITSELF calls by name. The
+    // lowering rewrites certain syntax to a prelude function the source never
+    // spells — `Object(x)` / `new Object(x)` become `ObjectFactory(x)`
+    // (`globals.rs`, `newexpr.rs`), `Object.groupBy` becomes
+    // `__object_group_by` (`objstatic.rs`). A name-reachability pass cannot see
+    // a rewrite that happens AFTER it, so these must be seeded.
+    //
+    // Missing this was a real regression: `console.log(typeof Object(null))`
+    // failed with "call to unknown function `Object`" once the factory was
+    // pruned. It went unnoticed because the crate's unit tests could not run to
+    // completion at the time — see `ENGINE_CALLED_PRELUDE_FNS`.
+    for name in ENGINE_CALLED_PRELUDE_FNS {
+        mentions.insert((*name).to_string());
     }
 
     // FIXPOINT. Alternate the two edge kinds until neither adds anything: harvest
@@ -504,5 +543,27 @@ fn harvest_expr(e: &HirExpr, out: &mut HashSet<String>) {
 fn harvest_all(es: &[HirExpr], out: &mut HashSet<String>) {
     for e in es {
         harvest_expr(e, out);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ENGINE_CALLED_PRELUDE_FNS;
+
+    /// Every name in [`ENGINE_CALLED_PRELUDE_FNS`] must still be DEFINED by the
+    /// embedded prelude. The list exists because the lowering calls these by a
+    /// name no user source spells, so nothing else would keep them alive — and a
+    /// rename in the `.ts` would otherwise silently turn the seed into a no-op
+    /// and re-introduce "call to unknown function `Object`".
+    #[test]
+    fn prelude_synth_fns_exist() {
+        let prelude = crate::front::run::registry::includes_prelude();
+        for name in ENGINE_CALLED_PRELUDE_FNS {
+            assert!(
+                prelude.contains(&format!("function {name}(")),
+                "`{name}` is seeded as a prune root but the prelude no longer \
+                 defines it — re-derive the list (see its doc comment)"
+            );
+        }
     }
 }

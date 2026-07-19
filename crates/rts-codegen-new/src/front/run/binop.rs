@@ -134,7 +134,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     if let Some(class) = self.enclosing_class() {
                         return self.user_instanceof(module, rhs, &class);
                     }
-                    let k = crate::value::abi_adapter::intern_poly(real);
+                    let k = crate::value::abi_adapter::intern_poly_const(real);
                     let key_word = self.builder.ins().iconst(types::I64, k.raw() as i64);
                     let obj = self.lower_expr(module, rhs)?;
                     let obj_word = self.box_value(obj);

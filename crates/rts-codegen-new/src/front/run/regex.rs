@@ -71,8 +71,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         pattern: &str,
         flags: &str,
     ) -> FrontResult<Val> {
-        let pat_pv = abi_adapter::intern_poly(pattern);
-        let flags_pv = abi_adapter::intern_poly(flags);
+        let pat_pv = abi_adapter::intern_poly_const(pattern);
+        let flags_pv = abi_adapter::intern_poly_const(flags);
         let pat_w = self.builder.ins().iconst(types::I64, pat_pv.raw() as i64);
         let flags_w = self.builder.ins().iconst(types::I64, flags_pv.raw() as i64);
         let word = self

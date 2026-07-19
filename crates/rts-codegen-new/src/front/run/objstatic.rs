@@ -349,7 +349,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let (_obj, keys) = self.receiver(module, args)?;
         let arr = emit_marshal::emit_new_vec_object(module, self.builder);
         for i in crate::value::iterops::enum_key_order(&keys) {
-            let pv = abi_adapter::intern_poly(&keys[i]);
+            let pv = abi_adapter::intern_poly_const(&keys[i]);
             let word = self.builder.ins().iconst(types::I64, pv.raw() as i64);
             emit_marshal::emit_vec_push(module, self.builder, arr, word);
         }
@@ -385,7 +385,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             let idx = self.builder.ins().iconst(types::I64, 1 + i as i64);
             let value_word = emit_marshal::emit_vec_get(module, self.builder, obj, idx);
             // key as a string word.
-            let pv = abi_adapter::intern_poly(k);
+            let pv = abi_adapter::intern_poly_const(k);
             let key_word = self.builder.ins().iconst(types::I64, pv.raw() as i64);
             // inner = [key, value].
             let inner = emit_marshal::emit_new_vec_object(module, self.builder);

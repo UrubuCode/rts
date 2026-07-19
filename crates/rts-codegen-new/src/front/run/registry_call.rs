@@ -80,7 +80,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // StrPtr slot - `new URLSearchParams()`): the EMPTY string, not
                 // the "undefined" text ToString would render.
                 if matches!(val.kind, JsKind::Undefined) {
-                    let pv = crate::value::abi_adapter::intern_poly("");
+                    let pv = crate::value::abi_adapter::intern_poly_const("");
                     let w = self.builder.ins().iconst(types::I64, pv.raw() as i64);
                     let handle = value::emit_marshal::emit_table_load(module, self.builder, w);
                     let (ptr, len) =
