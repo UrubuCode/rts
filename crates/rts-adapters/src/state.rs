@@ -45,6 +45,23 @@ pub fn reset_codegen_state() {
     crate::value::ctorval::reset_state();
     crate::value::errslot::reset_state();
     crate::shape::reset_global_shapes();
+    crate::value::globalthis::reset();
+    // Every remaining process-global table keyed by / holding a HandleTable word
+    // from the current program's pool — the reset drains that pool, so a stale
+    // entry read by the next program points a recycled slot at the wrong value.
+    // The module doc says this fn "drains them all"; these were the ones it did
+    // not, which the sound (post-pin-leak) GC turned from latent into observable.
+    crate::value::protos::reset_state();
+    crate::value::objops::reset_state();
+    crate::value::iterops::reset_state();
+    // Module-level mutable globals (#195): this thread's gcell store holds the
+    // finished program's PolyValue words and is scanned as a GC ROOT
+    // (`mark_gcell_roots`). Its `high` watermark is monotonic and was never
+    // cleared, so the next program's collection scanned stale handle words from
+    // the previous one — a recycled slot the sound GC could follow into a corrupt
+    // entry (the residual STACK_OVERFLOW/ILLEGAL_INSTRUCTION crash, distinct from
+    // the globalThis root above). Zeroing it here is the fix.
+    rts_runtime::namespaces::gc::gcells::reset();
     reset_program_pins();
 }
 

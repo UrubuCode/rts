@@ -91,6 +91,22 @@ impl GcellStore {
         self.high.fetch_max(id as usize + 1, Ordering::AcqRel);
     }
 
+    /// Zero every touched cell and reset the `high` watermark. Called at a
+    /// program boundary: the cells hold the finished program's PolyValue words,
+    /// which wrap HandleTable slots the reset drains — leaving them for the next
+    /// program means `mark_gcell_roots` scans STALE handle words (a recycled
+    /// slot), which the sound GC can follow into corrupt entries. The store is
+    /// reused (not dropped) so any spawned worker's `Arc` clone stays valid.
+    pub fn reset(&self) {
+        let high = self.high.load(Ordering::Acquire);
+        for id in 0..high {
+            if let Some(c) = self.cell(id) {
+                c.store(0, Ordering::Release);
+            }
+        }
+        self.high.store(0, Ordering::Release);
+    }
+
     /// Every live cell word, for the GC root scan.
     pub fn words(&self) -> Vec<u64> {
         let high = self.high.load(Ordering::Acquire);
@@ -141,4 +157,9 @@ pub fn set(id: u64, word: u64) {
 /// Every cell word of this thread's program — the GC root scan reads it.
 pub fn root_words() -> Vec<u64> {
     current().words()
+}
+
+/// Zero this thread's gcell store at a program boundary (see [`GcellStore::reset`]).
+pub fn reset() {
+    current().reset();
 }
