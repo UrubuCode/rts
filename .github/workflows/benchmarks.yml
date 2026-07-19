@@ -64,8 +64,12 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path target/release | Out-Null
-          $exe = Get-ChildItem rts-bin -Recurse -Filter rts.exe | Select-Object -First 1
-          if (-not $exe) { throw "rts.exe not found in rts-bin/" }
+          # The Build Artifacts upload renames the binary to
+          # `rts-<version>-Windows-X64.exe`, NOT `rts.exe`, so match ANY .exe in
+          # the downloaded artifact (there is exactly one) rather than the literal
+          # name — the old `-Filter rts.exe` never matched and failed the job.
+          $exe = Get-ChildItem rts-bin -Recurse -Filter *.exe | Select-Object -First 1
+          if (-not $exe) { throw "no .exe found in rts-bin/ (contents: $((Get-ChildItem rts-bin -Recurse | ForEach-Object FullName) -join ', '))" }
           Copy-Item $exe.FullName target/release/rts.exe
           Write-Host "staged $($exe.FullName) -> target/release/rts.exe"
 
