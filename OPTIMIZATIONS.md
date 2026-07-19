@@ -535,42 +535,47 @@ unchanged either way.
 
 ---
 
-## 4a. ⚠️ THE UNIT-TEST BINARY IS NOT STABLE — read before judging any item
+## 4a. The unit-test binary was unstable — FOUND and FIXED
 
-`cargo test -p rts-codegen-new --lib` **crashes intermittently**, with
-`STATUS_STACK_OVERFLOW` or `STATUS_ILLEGAL_INSTRUCTION`, and when it does
-complete its failure count varies (825/4 most runs, 824/5 sometimes). Runs that
-report an extra failure name a *different* test each time, and every one of them
-passes in isolation.
+For most of this campaign `cargo test -p rts-codegen-new --lib` **crashed
+intermittently** (`STATUS_STACK_OVERFLOW` / `STATUS_ILLEGAL_INSTRUCTION`) and
+varied its failure count when it did finish. It is now **stable: 8 consecutive
+full runs all 825/4**, zero crashes.
 
-**This is NOT caused by any item in this document.** Bisected: the same
-intermittent crash reproduces at commit `2749ccdb` — the GC-pin-leak fix —
-*before* parallel Cranelift, before the `opt-level` change, before the delay-load.
-Raising `RUST_MIN_STACK` to 64 MiB does not fix it (the failure just changes to
-ILLEGAL_INSTRUCTION), so it is not a stack-size problem.
+### Root cause — three stale-state bugs the sound GC exposed
 
-The likely origin is the GC fix itself, and the reason is structural: before it
-the tests **never finished at all**, so this crate has never had a stable
-baseline to compare against. It went from "always hangs" to "usually completes,
-sometimes crashes" — a real improvement, but not a clean signal.
+The campaign's own GC-pin-leak fix made the collector sound for the first time.
+That turned three latent bugs from invisible into observable — this crate had
+**never had a stable baseline** (before the pin-leak fix the tests just hung, so
+they never ran to completion to expose anything). All three are process-global
+state keyed by / holding a HandleTable word, left over from a finished program
+whose string pool `reset_codegen_state` drained:
 
-### What this invalidates
+1. **globalThis** — cached in a `OnceLock` and registered as a GC ROOT, it kept
+   the *first* program's object word forever; later collections marked a recycled
+   slot. (`AtomicU64` + cleared per program.)
+2. **The handle-keyed value tables** — proto / class_proto / desc_flags /
+   non_extensible / async_box / tsa_raw were never drained, despite the reset's
+   own doc claiming it "drains them all". (Count variation.)
+3. **The gcell store** (module-level mutable globals) — a GC ROOT with a
+   monotonic, never-cleared `high` watermark, so a later program's scan read the
+   earlier program's stale words. (The residual crash: a cyclic child chain in a
+   corrupt entry overflows the mark recursion.)
 
-Two changes in this campaign were REJECTED on evidence that this instability
-explains just as well:
+Diagnosis was empirical, not guessed: `RTS_GC_DISABLE=1` removed *every* crash,
+which pinned it on the collector reading stale roots; each root was then found
+and cleared at the quiescent program boundary.
 
-- **The narrow delay-load list** (Item 12) — rejected for "824/5 then 823/6".
-- **The parallel prelude parse** (Item 4) — rejected for one anomalous run in
-  three, then a stack overflow. The overflow reproduced *after the revert*, on a
-  clean tree.
+### What it un-blocks
 
-Both may be fine. Neither should be re-adopted until the instability is
-understood — a green run proves nothing while the binary crashes at random, in
-either direction. **Finding this must come before any further item**: it is
-currently impossible to validate engine work at the unit-test level.
+Two items were rejected earlier on evidence this instability explains — the
+**narrow delay-load list** (Item 12) and the **parallel prelude parse** (Item 4).
+Both can now be re-evaluated against a stable baseline. (Item 4 also had a
+genuine correctness concern — spans from independently-parsed sources indexing a
+concatenated text — that must be resolved regardless.)
 
-The TS suite (`rts test`) has stayed reproducible throughout — failing-file lists
-byte-identical across every item — so it remains the trustworthy gate for now.
+The TS suite (`rts test`) stayed reproducible throughout and remains the primary
+gate; the unit binary is now a trustworthy second one.
 
 ---
 
