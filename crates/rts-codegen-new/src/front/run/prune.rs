@@ -55,18 +55,21 @@
 //! members. Verified: `(o as any)["gre"+"et"]()` on an object literal and
 //! `(c as any)["hel"+"lo"]()` on a user class both work with this pass enabled.
 //!
-//! **The residual gap is a PRIMITIVE receiver** — `(s as any)["to"+"UpperCase"]()`
-//! — whose method libs are reached by member name without their class ever being
-//! named. That case does not work in the engine AT ALL today: it fails
-//! identically with `RTS_NO_PRUNE=1`, so this pass is not what breaks it.
+//! **A PRIMITIVE receiver is covered by always keeping the intrinsic wrappers.**
+//! A primitive has no recorded `[[Prototype]]`, so a property access on one
+//! autoboxes: the value model maps the value's TAG to `String`/`Number`/
+//! `Boolean`.prototype and walks that chain. Nothing in the program has to spell
+//! the wrapper's name for that to happen, and a runtime-built member name spells
+//! no member either — so neither edge kind can keep those classes. They are
+//! therefore seeded as roots UNCONDITIONALLY (see `prune_prelude`). Measured
+//! cost: 280 -> 293 kept functions.
 //!
-//! A widening was tried and REJECTED on measurement: keeping the full surface of
-//! every class touched by a computed access re-expanded the kept set from 280 to
-//! 673 functions (ordinary numeric `arr[i]` indexing trips the same flag, and the
-//! prelude is full of it), i.e. it cost most of the win to close a hole nothing
-//! can currently reach. If primitive computed access is ever implemented, this
-//! pass must be revisited at the same time — a targeted widening limited to the
-//! primitive method libs would be the cheap version.
+//! A general widening was tried and REJECTED on measurement: keeping the full
+//! surface of every class touched by a computed access re-expanded the kept set
+//! from 280 to 673 functions, because ordinary numeric `arr[i]` indexing trips
+//! the same flag and the prelude is full of it. The unconditional three-wrapper
+//! seed costs 13 functions and needs no flag — and a flag that is wrong in the
+//! other direction is a miscompile, not a slowdown.
 //!
 //! `RTS_NO_PRUNE=1` disables the whole pass, confirming or clearing it as the
 //! suspect for a misbehaving program in one run.
