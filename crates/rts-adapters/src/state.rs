@@ -54,6 +54,14 @@ pub fn reset_codegen_state() {
     crate::value::protos::reset_state();
     crate::value::objops::reset_state();
     crate::value::iterops::reset_state();
+    // Module-level mutable globals (#195): this thread's gcell store holds the
+    // finished program's PolyValue words and is scanned as a GC ROOT
+    // (`mark_gcell_roots`). Its `high` watermark is monotonic and was never
+    // cleared, so the next program's collection scanned stale handle words from
+    // the previous one — a recycled slot the sound GC could follow into a corrupt
+    // entry (the residual STACK_OVERFLOW/ILLEGAL_INSTRUCTION crash, distinct from
+    // the globalThis root above). Zeroing it here is the fix.
+    rts_runtime::namespaces::gc::gcells::reset();
     reset_program_pins();
 }
 
