@@ -697,6 +697,15 @@ fn tsa_raw_table() -> &'static std::sync::Mutex<std::collections::HashMap<u64, u
     T.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
+/// Drop the tagged-template `.raw` map at a program boundary: keyed by a heap
+/// word the reset drains, so a stale cooked-array slot would resolve a prior
+/// program's `.raw` in the next.
+pub fn reset_state() {
+    if let Ok(mut t) = tsa_raw_table().lock() {
+        t.clear();
+    }
+}
+
 /// `engine.tsa_raw(cooked, raw)` — record `cooked.raw = raw` and return the
 /// cooked array word (the tag call's first arg).
 #[unsafe(no_mangle)]

@@ -46,6 +46,14 @@ pub fn reset_codegen_state() {
     crate::value::errslot::reset_state();
     crate::shape::reset_global_shapes();
     crate::value::globalthis::reset();
+    // Every remaining process-global table keyed by / holding a HandleTable word
+    // from the current program's pool — the reset drains that pool, so a stale
+    // entry read by the next program points a recycled slot at the wrong value.
+    // The module doc says this fn "drains them all"; these were the ones it did
+    // not, which the sound (post-pin-leak) GC turned from latent into observable.
+    crate::value::protos::reset_state();
+    crate::value::objops::reset_state();
+    crate::value::iterops::reset_state();
     reset_program_pins();
 }
 

@@ -387,6 +387,10 @@ pub fn reset_state() {
         t.clear();
         t.shrink_to_fit();
     }
+    if let Ok(mut t) = async_box_kinds().lock() {
+        t.clear();
+        t.shrink_to_fit();
+    }
 }
 
 /// `(ctor_table.len(), fn_prop_table.len())` — the live entry counts of the two

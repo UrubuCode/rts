@@ -196,6 +196,21 @@ fn class_proto_table() -> &'static Mutex<HashMap<String, u64>> {
     T.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Drop the per-program prototype state at a program boundary
+/// ([`crate::state::reset_codegen_state`]). Both tables are keyed by / hold
+/// HandleTable words from the current program's pool, which the reset drains —
+/// a stale entry read by the next program points a recycled slot at the wrong
+/// value. `class_proto_table` is keyed by class NAME but its VALUES are handles,
+/// so it is drained too (the next program's methodtable prologue rebuilds it).
+pub fn reset_state() {
+    if let Ok(mut t) = proto_table().lock() {
+        t.clear();
+    }
+    if let Ok(mut t) = class_proto_table().lock() {
+        t.clear();
+    }
+}
+
 /// `C.prototype = obj` / `F.prototype = obj` — REPLACE the shared prototype.
 /// Instances created BEFORE keep the old proto (matching JS); instances created
 /// after link to `obj`. A non-object clears to the lazy default.

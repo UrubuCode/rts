@@ -767,6 +767,19 @@ fn desc_flags_table() -> &'static Mutex<HashMap<(u64, String), u8>> {
     T.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Drop the per-program object descriptor / extensibility state at a program
+/// boundary. Both tables key on HandleTable words the reset drains, so a stale
+/// entry would apply a prior program's `freeze`/`non-enumerable` bits to a
+/// recycled slot in the next.
+pub fn reset_state() {
+    if let Ok(mut t) = desc_flags_table().lock() {
+        t.clear();
+    }
+    if let Ok(mut t) = non_extensible_table().lock() {
+        t.clear();
+    }
+}
+
 /// Store a CLASS METHOD on a prototype object: a plain `obj_set` plus the
 /// non-enumerable descriptor bits (writable + configurable, NOT enumerable) —
 /// class methods are non-enumerable in JS, so `for-in` over an instance (which
