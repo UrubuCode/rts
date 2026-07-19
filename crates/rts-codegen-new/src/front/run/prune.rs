@@ -109,7 +109,10 @@ const ENGINE_CALLED_PRELUDE_FNS: &[&str] = &[
 /// Drop every prelude function unreachable from `main` + the user functions.
 /// A no-op when there is no prelude, or when `RTS_NO_PRUNE` is set.
 pub(super) fn prune_prelude(prog: &mut LoweredProgram) {
-    if prog.prelude_fns.is_empty() || disabled() {
+    // Skip for AOT: the prune only cuts JIT startup, buys a one-shot AOT compile
+    // nothing, and 8× a pre-existing AOT startup crash (see
+    // `module_entry::compile_path_to_object`).
+    if prog.prelude_fns.is_empty() || disabled() || super::aot_str::aot_mode() {
         return;
     }
     let before = prog.funcs.len();

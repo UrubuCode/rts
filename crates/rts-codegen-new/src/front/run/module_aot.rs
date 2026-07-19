@@ -93,6 +93,19 @@ fn emit_main_entry(
         .declare_function("__RTS_FN_RT_INIT", Linkage::Import, &rtinit_sig)
         .map_err(|e| Unsupported::new(format!("declare runtime init: {e}")))?;
 
+    // The engine's ADAPTER-side bootstrap: installs the shaped-object hook, the
+    // thenable probe, and the async-error hook. The JIT path runs the equivalent
+    // host-side in `module_jit::compile_program` (`install_async_error_hook` +
+    // friends); the AOT binary is a separate process, so its `main` must install
+    // them too. Missing, the shaped-object get/set went through an UNINSTALLED
+    // (zero) function pointer — a non-deterministic startup crash the moment a
+    // program touched a shaped object (e.g. a template literal's number→string),
+    // which is exactly the flaky AOT smoke-test segfault.
+    let boot_sig = module.make_signature(); // () -> ()
+    let boot_id = module
+        .declare_function("__rtsadp_engine_bootstrap", Linkage::Import, &boot_sig)
+        .map_err(|e| Unsupported::new(format!("declare engine bootstrap: {e}")))?;
+
     // The runtime's event-loop drain, resolved at link time.
     let evloop_sig = module.make_signature(); // () -> ()
     let evloop_id = module
@@ -119,6 +132,10 @@ fn emit_main_entry(
         // behind the one generic `__RTS_FN_RT_INIT`).
         let rtinit_ref = module.declare_func_in_func(rtinit_id, fb.func);
         fb.ins().call(rtinit_ref, &[]);
+        // …then the adapter-side hooks (shaped-object / thenable / async-error).
+        // Both must run before the program touches any shaped object.
+        let boot_ref = module.declare_func_in_func(boot_id, fb.func);
+        fb.ins().call(boot_ref, &[]);
 
         let rtsn_main_ref = module.declare_func_in_func(rtsn_main_id, fb.func);
         fb.ins().call(rtsn_main_ref, &[]);

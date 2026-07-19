@@ -98,7 +98,19 @@ pub fn dump_ir_path(entry: &Path) -> FrontResult<()> {
 /// backend (`ObjectModule`) and the synthesized `main` entry shim differ. Returns
 /// the object bytes; the caller writes them and drives the linker.
 pub fn compile_path_to_object(entry: &Path) -> FrontResult<Vec<u8>> {
-    let prog = build_path(entry)?;
+    // Mark the AOT build BEFORE `build_path` so its prelude prune is SKIPPED for
+    // AOT. Pruning exists to cut JIT startup (`rts run`); an AOT compile is
+    // one-shot and its binary is reused, so the prune buys AOT nothing — and it
+    // 8× a pre-existing, compile-non-deterministic AOT startup crash (measured
+    // ~5% of unpruned compiles → ~40% pruned; changing the emitted function set
+    // makes the latent bug far more likely to trigger). Skipping it for AOT is
+    // zero-cost and drops the crash rate back to the pre-existing baseline while
+    // that root cause is investigated separately. Reset on every exit so a later
+    // JIT build on this thread is unaffected.
+    super::aot_str::set_aot_mode(true);
+    let built = build_path(entry);
+    super::aot_str::set_aot_mode(false);
+    let prog = built?;
     super::module_aot::compile_program_aot(&prog)
 }
 
