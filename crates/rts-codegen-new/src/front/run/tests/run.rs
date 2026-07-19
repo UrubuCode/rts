@@ -2,7 +2,7 @@
 //! cross-function calls, control flow, equality — plus the negative HIR-ambiguity
 //! bails the engine REFUSES rather than guess.
 
-use super::{assert_stdout, run_source};
+use super::{assert_stdout, run_source_guarded};
 
 // ===========================================================================
 // Numeric + string `+` through the generic path.
@@ -158,7 +158,7 @@ fn negative_number_formatting() {
 /// test's stdout; this asserts only that the real IO_PRINT branch executes).
 #[test]
 fn run_source_real_stdout_smoke() {
-    let res = run_source(r#"console.log("real-stdout-path", 1 + 2);"#);
+    let res = run_source_guarded(r#"console.log("real-stdout-path", 1 + 2);"#);
     assert!(
         res.is_ok(),
         "run_source (real IO_PRINT path) failed: {res:?}"

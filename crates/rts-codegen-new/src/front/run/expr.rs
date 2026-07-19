@@ -193,7 +193,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // real handle's slot+shard) in as a constant (Tagged, kind Str). At
                 // run time `__RTS_FN_NS_GC_POLY_TO_HANDLE(payload)` reconstructs the
                 // full handle; the slot is a normal GC reference, no side table.
-                let pv = abi_adapter::intern_poly(s);
+                let pv = abi_adapter::intern_poly_const(s);
                 let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
                 Ok(Val::tagged_kind(v, JsKind::Str))
             }
@@ -305,7 +305,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // constant string; else box + `__rtsadp_typeof`. The result is a string.
         if matches!(op, HirUnOp::TypeOf) {
             if let Some(s) = static_typeof(operand) {
-                let pv = abi_adapter::intern_poly(s);
+                let pv = abi_adapter::intern_poly_const(s);
                 let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
                 return Ok(Val::tagged_kind(v, JsKind::Str));
             }
@@ -326,7 +326,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 _ => false,
             };
             if is_symbol {
-                let pv = abi_adapter::intern_poly("symbol");
+                let pv = abi_adapter::intern_poly_const("symbol");
                 let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
                 return Ok(Val::tagged_kind(v, JsKind::Str));
             }
@@ -337,7 +337,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // DATA-DRIVEN registry predicate (no class-name literal).
             if let HirExprKind::Ident(name) = &operand.kind {
                 if self.local(name).is_none() && self.is_global_class_ctor(name) {
-                    let pv = abi_adapter::intern_poly("function");
+                    let pv = abi_adapter::intern_poly_const("function");
                     let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
                     return Ok(Val::tagged_kind(v, JsKind::Str));
                 }
@@ -350,7 +350,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 if let HirExprKind::Ident(n) = &object.kind {
                     if n == "Math" && self.local(n).is_none() && self.classes.get(n).is_none() {
                         let s = super::mathobj::math_member_typeof(prop);
-                        let pv = abi_adapter::intern_poly(s);
+                        let pv = abi_adapter::intern_poly_const(s);
                         let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
                         return Ok(Val::tagged_kind(v, JsKind::Str));
                     }
@@ -361,7 +361,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             if let HirExprKind::Ident(name) = &operand.kind {
                 if name == "Math" && self.local(name).is_none() && self.classes.get(name).is_none()
                 {
-                    let pv = abi_adapter::intern_poly("object");
+                    let pv = abi_adapter::intern_poly_const("object");
                     let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
                     return Ok(Val::tagged_kind(v, JsKind::Str));
                 }
@@ -379,7 +379,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     || self.classes.get(name).is_some()
                     || name == "globalThis";
                 if !bound {
-                    let pv = abi_adapter::intern_poly("undefined");
+                    let pv = abi_adapter::intern_poly_const("undefined");
                     let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
                     return Ok(Val::tagged_kind(v, JsKind::Str));
                 }

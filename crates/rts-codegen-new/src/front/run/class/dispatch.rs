@@ -262,7 +262,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // side-table). `C.prototype.m = v` then writes it dynamically, and every
         // instance reaches it through the dynamic-get prototype walk.
         if field == "prototype" {
-            let k = crate::value::abi_adapter::intern_poly(class);
+            let k = crate::value::abi_adapter::intern_poly_const(class);
             let k_word = self
                 .builder
                 .ins()
@@ -428,7 +428,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         use cranelift_codegen::ir::condcodes::IntCC;
         let recv = self.lower_expr(module, object)?;
         let recv_word = self.box_value(recv);
-        let key = crate::value::abi_adapter::intern_poly(method);
+        let key = crate::value::abi_adapter::intern_poly_const(method);
         let key_word = self.builder.ins().iconst(types::I64, key.raw() as i64);
         let own = self
             .call_runtime(module, "__rtsadp_obj_get", &[recv_word, key_word])?

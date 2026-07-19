@@ -499,7 +499,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // the METHOD variant yields the `undefined` sentinel.
         match data_read_key {
             Some(prop) => {
-                let key = crate::value::abi_adapter::intern_poly(prop);
+                let key = crate::value::abi_adapter::intern_poly_const(prop);
                 let key_word = self.builder.ins().iconst(types::I64, key.raw() as i64);
                 let data = self
                     .call_runtime(module, "__rtsadp_obj_get", &[recv_word, key_word])?

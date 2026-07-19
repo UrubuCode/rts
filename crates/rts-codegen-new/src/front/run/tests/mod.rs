@@ -17,10 +17,57 @@
 
 use super::{render_source, render_source_with_prelude, run_source};
 
+/// Serializes every compile+run in this binary and releases the previous
+/// program's pinned GC roots before each one. EVERY test here must go through it.
+///
+/// ## Why this is needed
+///
+/// These tests each compile and run a whole TS program in ONE process. Each
+/// compile PINS its string constants as permanent GC roots (they live only as
+/// `iconst` immediates, which the conservative scanner cannot see), and nothing
+/// released them when the program finished. So the root set grew monotonically
+/// across the suite and the live handle count could only rise. Once it passed
+/// `GC_LIVE_FLOOR` (500k — a few dozen tests in) the periodic collector began
+/// running on every 256th allocation for the rest of the process, and the binary
+/// either crawled or wedged outright. The hang point moved between runs because it
+/// depends on exactly when that threshold is crossed.
+///
+/// ## Why this drain, and not the full `reset_codegen_state`
+///
+/// Deliberately the NARROW [`crate::state::reset_program_pins`]. The full reset
+/// also drains the global shape registry and the `funcops` tables, and those are
+/// shared by design with state that outlives one compile: `globalThis` properties
+/// and module singletons are reached through shape ids minted by an EARLIER
+/// compile. Draining shapes per test orphans them — measured, `globalThis.x = 42`
+/// followed by a read printed `undefined`, and three tests in the `globals` /
+/// `class_as_value` / `modules_e2e` families failed. Only the pins have a strictly
+/// one-program lifetime, and only the pins drive the growth above.
+///
+/// ## Why draining HERE is safe
+///
+/// Unpinning is sound once the owning program has finished — its code never runs
+/// again, so nothing can dereference the stale immediate — but only if no OTHER
+/// program is still live. `cargo test` runs these in parallel, so the lock is what
+/// supplies that: held across the whole compile+run, it guarantees that at the
+/// moment we drain, this thread owns the engine and no other test's program is
+/// live or compiling. Serializing costs wall-clock, which is the correct trade for
+/// a drain that would otherwise be unsound.
+fn with_engine<R>(f: impl FnOnce() -> R) -> R {
+    use std::sync::{Mutex, OnceLock};
+    static ENGINE: OnceLock<Mutex<()>> = OnceLock::new();
+    let lock = ENGINE.get_or_init(|| Mutex::new(()));
+    // A panicking test (an assert failure) poisons the mutex; the engine state is
+    // still drained at the top of the next acquisition, so recover and continue
+    // rather than cascading one real failure into every later test.
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    crate::state::reset_program_pins();
+    f()
+}
+
 /// Run `src` (console.log captured via the real-pool-backed sink) and assert its
 /// rendered stdout equals `expected`.
 pub(crate) fn assert_stdout(src: &str, expected: &str) {
-    match render_source(src) {
+    match with_engine(|| render_source(src)) {
         Ok(out) => assert_eq!(out, expected, "stdout mismatch for source:\n{src}"),
         Err(e) => panic!("render_source failed for:\n{src}\n  -> {e}"),
     }
@@ -30,16 +77,22 @@ pub(crate) fn assert_stdout(src: &str, expected: &str) {
 /// ahead of `src`, merged into one module, so the prelude's classes/functions are
 /// ambient in `src` (a prelude `class Map` shadows the native Map).
 pub(super) fn assert_stdout_with_prelude(prelude: &str, src: &str, expected: &str) {
-    match render_source_with_prelude(prelude, src) {
+    match with_engine(|| render_source_with_prelude(prelude, src)) {
         Ok(out) => assert_eq!(out, expected, "stdout mismatch for source:\n{src}"),
         Err(e) => panic!("render_source_with_prelude failed for:\n{src}\n  -> {e}"),
     }
 }
 
+/// [`run_source`] under the shared engine guard — the REAL-stdout path (no
+/// capture). Same reset+serialize contract as [`assert_stdout`].
+pub(super) fn run_source_guarded(src: &str) -> super::FrontResult<()> {
+    with_engine(|| run_source(src))
+}
+
 /// Assert that running `src` BAILS (an explicit `Unsupported`, never a wrong
 /// value). Used by every negative test.
 pub(crate) fn assert_bails(src: &str) {
-    let res = run_source(src);
+    let res = with_engine(|| run_source(src));
     assert!(
         res.is_err(),
         "expected an Unsupported bail, got {res:?} for:\n{src}"

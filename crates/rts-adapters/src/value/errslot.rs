@@ -75,9 +75,9 @@ pub(crate) fn make_js_error(kind: &str, message: &str) -> u64 {
         );
         for f in &fields {
             let w = match f.as_str() {
-                "message" => super::abi_adapter::intern_poly(message).raw(),
-                "name" => super::abi_adapter::intern_poly(kind).raw(),
-                "stack" => super::abi_adapter::intern_poly("").raw(),
+                "message" => super::abi_adapter::intern_poly_const(message).raw(),
+                "name" => super::abi_adapter::intern_poly_const(kind).raw(),
+                "stack" => super::abi_adapter::intern_poly_const("").raw(),
                 _ => super::PolyValue::undefined().raw(),
             };
             rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, w as i64);
@@ -88,18 +88,18 @@ pub(crate) fn make_js_error(kind: &str, message: &str) -> u64 {
         .raw();
         // Wire the class prototype so `e.constructor`/`e.constructor.name`
         // resolve like a `new TypeError(..)` instance.
-        let name_word = super::abi_adapter::intern_poly(kind).raw();
+        let name_word = super::abi_adapter::intern_poly_const(kind).raw();
         let undef = super::PolyValue::undefined().raw();
         let parent = if kind == "Error" {
             undef
         } else {
-            super::abi_adapter::intern_poly("Error").raw()
+            super::abi_adapter::intern_poly_const("Error").raw()
         };
         let proto = super::protos::__rtsadp_class_proto_init(name_word, parent);
         super::protos::__rtsadp_obj_set_proto(word, proto);
         return word;
     }
-    super::abi_adapter::intern_poly(&format!("{kind}: {message}")).raw()
+    super::abi_adapter::intern_poly_const(&format!("{kind}: {message}")).raw()
 }
 
 /// Link-reachable form of [`make_js_error`] for the runtime layer (the same
@@ -234,7 +234,7 @@ pub extern "C" fn __rtsadp_thenable_then(value: i64) -> u64 {
             return 0;
         }
     };
-    let key = crate::value::abi_adapter::intern_poly("then").raw();
+    let key = crate::value::abi_adapter::intern_poly_const("then").raw();
     let then_w = super::objops::__rtsadp_obj_get(obj_word, key);
     if crate::value::PolyValue::from_raw(then_w).is_function() {
         then_w

@@ -246,7 +246,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // call from every plain object carrying an own fn of that name.
         if arg_words.len() <= 3 {
             use cranelift_codegen::ir::condcodes::IntCC;
-            let key = crate::value::abi_adapter::intern_poly(method);
+            let key = crate::value::abi_adapter::intern_poly_const(method);
             let key_word = self.builder.ins().iconst(types::I64, key.raw() as i64);
             let own = self
                 .call_runtime(module, "__rtsadp_obj_get", &[recv_word, key_word])?

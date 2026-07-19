@@ -45,4 +45,31 @@ pub fn reset_codegen_state() {
     crate::value::ctorval::reset_state();
     crate::value::errslot::reset_state();
     crate::shape::reset_global_shapes();
+    reset_program_pins();
+}
+
+/// Release the pinned GC roots of programs that have finished — the NARROW drain.
+///
+/// A pin keeps one compiled program's string constants (handles the JIT spliced
+/// into its code as `iconst` immediates, invisible to the conservative scanner)
+/// alive for as long as that code can run. Nothing ever released them, so every
+/// compile in a long-lived process permanently enlarged the root set: the live
+/// handle count could only rise, and once it passed `GC_LIVE_FLOOR` the periodic
+/// collector ran on every 256th allocation for the rest of the process — the
+/// engine-level cause of the unit-test binary's hang.
+///
+/// Split out from [`reset_codegen_state`] because it is far NARROWER, and callers
+/// that need to bound growth usually must NOT take the rest. The full reset also
+/// drains the global shape registry and the `funcops` tables, and those are shared
+/// by design with state that outlives a single compile — `globalThis` properties
+/// and module singletons are reached through shape ids minted by an EARLIER
+/// compile, so draining shapes orphans them and they read back `undefined`
+/// (observed: `globalThis.x = 42` then reading it printed `undefined`).
+///
+/// Unpinning is safe once the owning program has finished: its code will never run
+/// again, so nothing can dereference the stale immediate. Same precondition as
+/// [`reset_codegen_state`] — call it only at a quiescent boundary, never while the
+/// program that took the pins can still execute.
+pub fn reset_program_pins() {
+    rts_runtime::namespaces::gc::handles::reset_pinned_roots();
 }

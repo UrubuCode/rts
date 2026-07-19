@@ -72,11 +72,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
         }
         for (class, parent, methods) in rows {
-            let k = abi_adapter::intern_poly(&class);
+            let k = abi_adapter::intern_poly_const(&class);
             let k_word = self.builder.ins().iconst(types::I64, k.raw() as i64);
             let parent_word = match &parent {
                 Some(p) => {
-                    let pk = abi_adapter::intern_poly(p);
+                    let pk = abi_adapter::intern_poly_const(p);
                     self.builder.ins().iconst(types::I64, pk.raw() as i64)
                 }
                 None => self
@@ -111,7 +111,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let word = self.builder.ins().bor(masked, header_v);
                 let name_w = self.builder.ins().iconst(
                     types::I64,
-                    abi_adapter::intern_poly(&mname).raw() as i64,
+                    abi_adapter::intern_poly_const(&mname).raw() as i64,
                 );
                 self.call_runtime(module, "__rtsadp_proto_set_method", &[proto, name_w, word])?;
             }

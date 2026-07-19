@@ -174,7 +174,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
             self.box_value(f)
         } else {
-            let pv = value::abi_adapter::intern_poly("");
+            let pv = value::abi_adapter::intern_poly_const("");
             self.builder.ins().iconst(types::I64, pv.raw() as i64)
         };
         Ok(self
