@@ -31,7 +31,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// When set, [`define_one`] prints each successfully-lowered function's Cranelift
 /// IR to stderr (the `rts ir` command). Process-wide, off by default; the CLI
 /// enables it for a compile-only pass and never runs the program.
-static DUMP_IR: AtomicBool = AtomicBool::new(false);
+pub(super) static DUMP_IR: AtomicBool = AtomicBool::new(false);
 
 /// Enable/disable the per-function Cranelift IR dump (`rts ir`).
 pub fn set_dump_ir(on: bool) {
@@ -264,14 +264,17 @@ pub(crate) fn populate_module(
 
     crate::timing::report("  sigs+declares", _t_phase);
     let _t_phase = std::time::Instant::now();
-    // 3. Define each user function body.
+    // 3. Build the IR of each user function body. Lowering needs `&mut Module`,
+    //    so it stays serial; the machine-compile of everything collected here
+    //    runs across cores in step 5 (see `parcompile`).
+    let mut pending: Vec<super::parcompile::Pending> = Vec::with_capacity(funcs.len() + 1);
     for f in funcs {
         let sig = sigs[&f.name].clone();
         let this_class = fn_this_class.get(&f.name).map(String::as_str);
         // PRIVACY GATE: a prelude-origin function may name the PRIVATE `engine.*`
         // global; a user function may not.
         let is_prelude = prelude_fns.contains(&f.name);
-        define_one(
+        pending.push(super::parcompile::build_one(
             &mut *module,
             ids[&f.name],
             f,
@@ -289,11 +292,11 @@ pub(crate) fn populate_module(
             is_prelude,
             builtins,
             param_classes,
-        )?;
+        )?);
     }
-    // 4. Define main (the top-level body). `__rtsn_main` is USER code — never
+    // 4. Build main (the top-level body). `__rtsn_main` is USER code — never
     //    prelude — so it cannot name the PRIVATE `engine.*` global.
-    define_one(
+    pending.push(super::parcompile::build_one(
         &mut *module,
         main_id,
         main,
@@ -311,102 +314,47 @@ pub(crate) fn populate_module(
         false,
         builtins,
         param_classes,
-    )?;
+    )?);
 
-    crate::timing::report("  fn bodies + main", _t_phase);
+    crate::timing::report("  build fn IR + main", _t_phase);
     let _t_phase = std::time::Instant::now();
     // 4b. Define every thunk body (bridges the uniform ABI to the real signature).
     //     A CLOSURE thunk reads its leading `capture_count` real params from the
     //     env array; a non-capturing thunk has `capture_count = 0`.
     for f in funcs {
         let capture_count = captures.get(&f.name).map(Vec::len).unwrap_or(0);
-        thunk::define_thunk(
+        pending.push(thunk::build_thunk(
             &mut *module,
             thunks[&f.name],
             ids[&f.name],
             &sigs[&f.name],
             capture_count,
-        )?;
+        )?);
     }
     // 4c. Define every class NEW-THUNK: allocate the instance + run the ctor +
     //     return the instance word (the constructor's `this` is synthesized in the
     //     allocation, sidestepping the `reify_function` `has_this` bail).
     for desc in classes.iter() {
         if let Some(&ctor_id) = ids.get(&desc.ctor) {
-            thunk::define_new_thunk(
+            pending.push(thunk::build_new_thunk(
                 &mut *module,
                 thunks[&thunk::new_thunk_name(&desc.name)],
                 ctor_id,
                 &sigs[&desc.ctor],
                 desc.global_shape,
                 desc.fields.len(),
-            )?;
+            )?);
         }
     }
+    crate::timing::report("  build thunk IR", _t_phase);
 
-    crate::timing::report("  thunks", _t_phase);
+    // 5. MACHINE-COMPILE everything built above (in parallel) and define it into
+    //    the module in this order. See `parcompile` for why that is behaviour-
+    //    preserving.
+    super::parcompile::compile_and_define(module, pending)?;
     Ok(main_id)
 }
 
-/// Lower + define one function into the module. On an `Unsupported` bail the
-/// half-built `ctx` is discarded WITHOUT finalizing (an incomplete Cranelift
-/// function must never be defined), and the error propagates.
-#[allow(clippy::too_many_arguments)]
-fn define_one(
-    module: &mut dyn Module,
-    id: cranelift_module::FuncId,
-    func: &HirFunc,
-    sig: &FnSig,
-    sigs: &HashMap<String, FnSig>,
-    thunks: &HashMap<String, FuncId>,
-    ids: &HashMap<String, FuncId>,
-    classes: &super::class::ClassTable,
-    captures: &HashMap<String, Vec<String>>,
-    cells: &HashMap<String, std::collections::HashSet<String>>,
-    gcells: &HashMap<String, u32>,
-    gcell_classes: &HashMap<String, String>,
-    globalthis_class_refs: &HashMap<String, String>,
-    this_class: Option<&str>,
-    is_prelude: bool,
-    builtins: &HashMap<String, (String, String)>,
-    param_classes: &HashMap<String, HashMap<String, String>>,
-) -> FrontResult<()> {
-    let mut ctx = module.make_context();
-    ctx.func.signature = sig.to_cranelift(module);
-
-    {
-        let mut fb_ctx = FunctionBuilderContext::new();
-        let mut fb = FunctionBuilder::new(&mut ctx.func, &mut fb_ctx);
-        let cell_locals = cells.get(&func.name).cloned().unwrap_or_default();
-        let param_cls = param_classes.get(&func.name).cloned().unwrap_or_default();
-        let res = Lowerer::lower_function(
-            module, &mut fb, func, sig, sigs, thunks, ids, classes, captures, gcells, gcell_classes,
-            globalthis_class_refs, this_class, is_prelude, builtins, cell_locals, param_cls,
-        );
-        match res {
-            Ok(()) => fb.finalize(),
-            Err(e) => {
-                // drop the builder/ctx without defining; clear and bail — naming
-                // WHICH function failed (a prelude bail is otherwise untraceable).
-                module.clear_context(&mut ctx);
-                return Err(Unsupported::new(format!("in fn `{}`: {e}", func.name)));
-            }
-        }
-    }
-
-    // `rts ir`: print USER functions only — the embedded stdlib prelude would bury
-    // the program under hundreds of identical bundle fns.
-    if !is_prelude && DUMP_IR.load(Ordering::Relaxed) {
-        eprintln!("--- fn {} ---", func.name);
-        eprintln!("{}", ctx.func.display());
-    }
-
-    module
-        .define_function(id, &mut ctx)
-        .map_err(|e| Unsupported::new(format!("define `{}`: {e}", func.name)))?;
-    module.clear_context(&mut ctx);
-    Ok(())
-}
 
 /// Program-wide `globalThis.<key>` → user class, by the ALL-AGREE rule: a key maps
 /// to class `C` iff EVERY assignment `globalThis.key = <Class>` across the whole

@@ -60,6 +60,9 @@ rts-engine = { path = "../rts-engine" }
 # out into its own Cranelift-free crate so it links into AOT binaries as a
 # staticlib. This crate keeps only the Cranelift *emit* side (value::emit/…).
 rts-adapters = { path = "../rts-adapters" }
+# Per-function Cranelift compilation is independent work; `parcompile` runs it
+# across cores between the (serial) IR build and the (serial) module define.
+rayon = "1.10"
 
 [dev-dependencies]
 target-lexicon = "0.13"
