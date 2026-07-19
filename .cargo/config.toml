@@ -1,0 +1,14 @@
+# Cargo configuration for this workspace.
+
+[env]
+# The Rust TEST HARNESS runs each test on a spawned thread, whose default stack
+# is 2 MiB — far smaller than the 8 MiB the process main thread gets. The
+# engine's lowering and Cranelift's compile both recurse over their input, and
+# building the compile path at `opt-level = 3` (see the per-package profiles in
+# Cargo.toml) inlines more and so uses deeper frames. That combination overflowed
+# a harness thread on a full `cargo test -p rts-codegen-new --lib` run, on tests
+# that pass individually and via the CLI.
+#
+# Real usage is unaffected — `rts run` lowers on the main thread — so this raises
+# the TEST threads to a comparable budget rather than papering over a defect.
+RUST_MIN_STACK = "16777216"

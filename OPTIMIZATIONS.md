@@ -412,6 +412,40 @@ those defaults is expensive:
 
 ---
 
+### Item 11 — `opt-level` on the compile path and the runtime ✅ done
+
+**What.** The release profile built EVERYTHING at `opt-level = "z"` (optimize for
+size). Two per-package overrides to `3`, for two different reasons:
+
+- **Compile path** (`rts-codegen-new`, `rts-adapters`, `rts-parser`, `rts-hir`,
+  `rts-engine`, `cranelift-*`, `regalloc2`, `swc_*`) — runs on every `rts run` /
+  `rts compile`, so size-optimizing it taxes every invocation.
+- **Runtime** (`rts-primitives`, `rts-shared`, `rts-std`, `rts-runtime`) — this is
+  what the COMPILED PROGRAM calls, so size-optimizing it taxes the user's
+  program, which is where the project's speed claim is actually measured.
+
+`z` stays the default for everything else: wgpu/naga/egui/actix are the bulk of
+the binary and none of them runs during a compile.
+
+**Result (measured).** Startup 244 → **188 ms**; parse+lower 65 → 54 ms;
+machine-compile 32 → 20 ms; string-heavy workload **1.08 s → 0.32 s**; Monte
+Carlo 10M JIT 298 → 266 ms. Binary 63 → **65.6 MB**.
+
+**Why scoped rather than global.** A blanket `opt-level = 3` reached the same
+startup (190 ms) for **+6 MB**; the scoped version costs **+2.6 MB**. Bare
+process startup (`rts --version`) is ~78 ms either way, so no load time is being
+traded for run time.
+
+**Two consequences, handled.** opt-3 inlines more and so uses deeper frames: a
+full unit-test run overflowed the Rust harness's 2 MiB per-test thread stack (the
+main thread gets 8 MiB, so real usage is unaffected) — fixed by
+`.cargo/config.toml` raising `RUST_MIN_STACK` for test threads. And the per-child
+test timeout dropped 120 s → 30 s, because `node_child_process_full` hangs under
+parallel load often enough that the old budget cost the suite ~90 s whenever it
+tripped.
+
+---
+
 ### Item 9 — Lazy compilation (stub-on-first-call)
 
 **What.** Compile a function on its first call rather than up front. Structurally
@@ -502,6 +536,8 @@ of `3` — a wrong value, not an error.
 | 8 | Asymmetric `opt_level` | 196 → <100 ms | — | recorded, not recommended |
 | 9 | Lazy compilation | — | — | deferred |
 | 10 | Cranelift settings (verifier off) | — | **390 → 346 ms** | ✅ verifier done; regalloc/alias unexamined |
+| 11 | opt-level 3 on compile path + runtime | — | **244 → 188 ms**; string workload **1.08 s → 0.32 s** | ✅ done |
 
-**Combined so far:** empty-program startup **890 → 244 ms (3.6×)**; full suite
-**~10 min → 50 s** (~12×); 8 previously-failing files fixed; no regression.
+**Combined so far:** empty-program startup **890 → 188 ms (4.7×)**; full suite
+**~10 min → 37 s** (~16×); unit tests from never-finishing to 87 s; 8
+previously-failing files fixed; no regression.
