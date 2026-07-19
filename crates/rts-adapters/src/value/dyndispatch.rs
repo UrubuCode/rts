@@ -301,12 +301,19 @@ pub extern "C" fn __rtsadp_idx_get(recv: u64, idx: u64) -> u64 {
     }
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
-        let units = utf16_units(recv);
-        let i = genops_to_i64(idx);
-        if i < 0 || i >= units.len() as i64 {
-            return undef();
+        // Only a genuine ARRAY-INDEX key reads a code unit. A NAMED key
+        // (`s["length"]`, `s["toUpperCase"]`) is a property of the autoboxed
+        // String — route it through `obj_get`, which resolves `length` and walks
+        // the intrinsic `String.prototype`. Coercing every key with ToNumber
+        // here was wrong: `"length"` → NaN → 0 read the FIRST CHARACTER.
+        if let Some(i) = array_index_key(idx) {
+            let units = utf16_units(recv);
+            if i >= units.len() as i64 {
+                return undef();
+            }
+            return box_str(intern_utf16_unit(units[i as usize]));
         }
-        return box_str(intern_utf16_unit(units[i as usize]));
+        return super::objops::__rtsadp_obj_get(recv, idx);
     }
     // A BUFFER (`Entry::Buffer` — TextEncoder.encode bytes): numeric index reads
     // the byte (Uint8Array surface); OOB → undefined. Before the array arm — a
@@ -1018,6 +1025,32 @@ pub extern "C" fn __rtsadp_dyn_repeat(recv: u64, n: u64) -> u64 {
 fn str_arg_handle(word: u64) -> u64 {
     let s_word = genops::__rtsadp_to_string(word);
     abi_adapter::real_handle_of(PolyValue::from_raw(s_word))
+}
+
+/// The NON-NEGATIVE array-index a key word denotes, or `None` when the key is a
+/// NAME (a property, not an index). A numeric key must be a non-negative integer
+/// (`s[1.5]` / `s[-1]` are names in JS, hence absent properties); a STRING key
+/// counts only when it is the canonical decimal form of one (`s["1"]` indexes,
+/// `s["01"]`/`s["length"]` do not). Used to keep the code-unit read of a string
+/// receiver from swallowing named members via ToNumber coercion.
+fn array_index_key(word: u64) -> Option<i64> {
+    let k = PolyValue::from_raw(word);
+    if k.is_int32() {
+        let i = k.as_i32() as i64;
+        return (i >= 0).then_some(i);
+    }
+    if k.is_double() {
+        let d = k.as_f64();
+        let i = d as i64;
+        return (d >= 0.0 && d.is_finite() && i as f64 == d).then_some(i);
+    }
+    if k.is_string() {
+        let s = abi_adapter::resolve_poly(k);
+        let i = s.parse::<i64>().ok()?;
+        // Canonical form only: "01"/"+1"/" 1" are names, not indices.
+        return (i >= 0 && i.to_string() == s).then_some(i);
+    }
+    None
 }
 
 /// ToNumber a PolyValue-word argument to an i64 index (truncating toward zero),

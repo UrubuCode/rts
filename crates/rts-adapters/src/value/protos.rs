@@ -31,6 +31,40 @@ pub(crate) fn proto_of(obj_word: u64) -> Option<u64> {
     proto_table().lock().ok()?.get(&obj_word).copied()
 }
 
+/// The INTRINSIC prototype of a PRIMITIVE receiver — the one JS reaches by
+/// AUTOBOXING on property access (`"abc".toUpperCase`, `(255).toString`,
+/// `true.toString`). A primitive is not a heap object, so it carries no
+/// `[[Prototype]]` entry in [`proto_table`] and the chain walk in
+/// [`super::objops::__rtsadp_obj_get`] would terminate at its own-slot miss —
+/// which is why a RUNTIME-named member (`s[k]`, `s[k]()`) could not reach the
+/// primitive method surface even though a statically-named one could.
+///
+/// The mapping is by TAG (never by a name match on the key), onto the PRIMORDIAL
+/// wrapper classes `String`/`Number`/`Boolean` — whose prototypes are exactly
+/// where the prelude `.ts` primitive-method libraries publish their methods
+/// (`rts-codegen-new`'s `methodtable.rs` reifies every class method onto
+/// `__rtsadp_class_proto(<class>)`). So ANY method those `.ts` classes define is
+/// reachable by runtime name through the SAME chain walk an object uses — no
+/// per-method table, no name special-casing.
+///
+/// `None` for a heap value (object/function — it has its own recorded link or an
+/// implicit one) and for `undefined`/`null` (no wrapper: JS throws on property
+/// access, which the `undefined` result already models here).
+pub(crate) fn intrinsic_proto(word: u64) -> Option<u64> {
+    let v = PolyValue::from_raw(word);
+    let class = if v.is_string() {
+        "String"
+    } else if v.is_int32() || v.is_double() {
+        "Number"
+    } else if v.is_bool() {
+        "Boolean"
+    } else {
+        return None;
+    };
+    let name = super::abi_adapter::intern_poly(class).raw();
+    Some(__rtsadp_class_proto(name))
+}
+
 /// Allocate a fresh BARE keyed object (the `{}` shape) and record `proto_word` as
 /// its prototype when `proto_word` is an object (a null/number/other proto — JS
 /// `Object.create(null)` / a non-object arg — records nothing → a null prototype).
