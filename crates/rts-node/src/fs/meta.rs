@@ -80,8 +80,15 @@ pub extern "C" fn __RTS_FN_NODE_FS_LCHMOD(p: *const u8, l: i64, mode: i64) {
     {
         use std::ffi::CString;
         use std::os::unix::ffi::OsStrExt;
+        // The `libc` crate does not expose `lchmod` on these targets (it broke the
+        // macOS release build with E0425), so declare the extern directly — it is
+        // a standard BSD/macOS libc symbol the linker resolves against the C
+        // runtime. Signature per `man 2 lchmod`.
+        unsafe extern "C" {
+            fn lchmod(path: *const libc::c_char, mode: libc::mode_t) -> libc::c_int;
+        }
         if let Ok(c) = CString::new(std::ffi::OsStr::new(&path).as_bytes()) {
-            let r = unsafe { libc::lchmod(c.as_ptr(), mode as libc::mode_t) };
+            let r = unsafe { lchmod(c.as_ptr(), mode as libc::mode_t) };
             if r != 0 {
                 throw_io(&std::io::Error::last_os_error(), "lchmod", &path);
             }
