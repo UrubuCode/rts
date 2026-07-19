@@ -446,6 +446,60 @@ tripped.
 
 ---
 
+### Item 12 — The GUI/audio DLL load ❌ delay-load rejected; plugin split is the fix
+
+**The finding.** Bare process startup (`rts --version`, no compilation at all) was
+**78 ms**. For comparison, on the same machine:
+
+| | startup | binary |
+|---|---:|---:|
+| Bun | 14 ms | 94 MB |
+| Deno | 15 ms | 122 MB |
+| Node | 21 ms | 91 MB |
+| **RTS** | **78 ms** | 65 MB |
+
+Bun is *larger* and starts 5.5× faster, so binary size was never the cause. The
+import table was: the binary links wgpu/egui, so it statically imports
+`opengl32.dll` (GPU driver stack), `mmdevapi.dll` (audio devices), `dwmapi`,
+`uxtheme`, `imm32`, `setupapi` — and **Windows loads every statically imported
+DLL before `main` runs**. A compile-only run paid for the whole graphics and
+audio stack.
+
+**What was tried: `/DELAYLOAD`.** It works, and the win is large — bare startup
+78 → **11 ms**, empty program 188 → **131 ms**. GUI and audio still functioned
+(verified: a window example ran, the audio example played).
+
+**Why it was REJECTED anyway.** It destabilizes the process:
+
+- Wide list (incl. `crypt32`, `shell32`, `iphlpapi`): the unit-test binary died
+  with `STATUS_STACK_OVERFLOW` on one run and `STATUS_ILLEGAL_INSTRUCTION` on the
+  next. Two different hard crashes from one change is corruption, not tuning.
+- Narrow list (GUI/audio only): no crashes, but results stopped being
+  reproducible — **824/5 then 823/6, with a different extra failure each time**,
+  each of which passes in isolation. The same tree without delay-load gives
+  **825/4 three runs running**.
+
+33-57 ms is not worth a compiler whose results vary between runs. Reverted.
+
+**The actual fix — and it is architectural.** The engine already knows at compile
+time whether a program touches GUI/audio (module graph + builtin bindings), but
+that knowledge arrives *after* the OS has loaded the imports, so it cannot help.
+The load has to stop being static:
+
+`rts-render` and `rts-input` already define backend **traits** that `rts-egui`
+implements and installs — the seam exists. Build `rts-egui` as a `cdylib` and
+load it with `libloading` (the pattern `rts-napi` already uses for `.node`
+addons) on the first call that needs a backend (`openWindow`, `rts:canvas`,
+`rts:dom`). Then a compile-only run has no GPU/audio import at all, a graphical
+program loads it exactly when it opens a window, and the CLI binary sheds most of
+its 65 MB (wgpu/naga/egui are the bulk).
+
+Cost to weigh: distribution becomes two artifacts, AOT must decide whether to
+embed or reference the plugin, and a "plugin missing" error class appears that
+cannot exist today.
+
+---
+
 ### Item 9 — Lazy compilation (stub-on-first-call)
 
 **What.** Compile a function on its first call rather than up front. Structurally
@@ -537,6 +591,7 @@ of `3` — a wrong value, not an error.
 | 9 | Lazy compilation | — | — | deferred |
 | 10 | Cranelift settings (verifier off) | — | **390 → 346 ms** | ✅ verifier done; regalloc/alias unexamined |
 | 11 | opt-level 3 on compile path + runtime | — | **244 → 188 ms**; string workload **1.08 s → 0.32 s** | ✅ done |
+| 12 | GUI/audio DLL load (78 ms of bare startup) | 78 → 11 ms | delay-load works but destabilizes the process | ❌ rejected; plugin split is the fix |
 
 **Combined so far:** empty-program startup **890 → 188 ms (4.7×)**; full suite
 **~10 min → 37 s** (~16×); unit tests from never-finishing to 87 s; 8
