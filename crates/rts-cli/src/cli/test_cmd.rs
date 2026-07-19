@@ -67,12 +67,15 @@ pub fn command(path: Option<String>) -> Result<()> {
     // stays visible instead of being silently laundered.
     let flaky = retry_failures_serially(&files, &exe, &mut outputs);
 
-    for (file, output) in files.iter().zip(outputs) {
+    let mut timed_out_files: Vec<PathBuf> = Vec::new();
+
+    for (file, run) in files.iter().zip(outputs) {
         total_files += 1;
         let label = relative_label(file, &root);
         eprintln!("\n{}", dim(&label));
 
-        let output = match output {
+        let timed_out = run.timed_out;
+        let output = match run.output {
             Ok(o) => o,
             Err(e) => {
                 eprintln!("  failed to spawn child: {e}");
@@ -81,6 +84,9 @@ pub fn command(path: Option<String>) -> Result<()> {
                 continue;
             }
         };
+        if timed_out {
+            timed_out_files.push(file.clone());
+        }
 
         // Re-emit child stderr (onde vai o output do rts test e' panics
         // do Rust). Sem o header de arquivo — ja' imprimimos acima.
@@ -91,6 +97,15 @@ pub fn command(path: Option<String>) -> Result<()> {
         let (file_passed, file_failed) = parse_summary_counts(&stderr);
         grand_passed += file_passed;
         grand_failed += file_failed;
+
+        // A HUNG file counts as failed regardless of what it managed to print
+        // before the kill — a test that never finishes has not passed.
+        if timed_out {
+            grand_failed += 1;
+            failed_files += 1;
+            eprintln!("  {} {}", red("✗"), red("timed out — killed"));
+            continue;
+        }
 
         let crashed = !output.status.success() && file_failed == 0 && file_passed == 0;
         if crashed {
@@ -141,6 +156,19 @@ pub fn command(path: Option<String>) -> Result<()> {
         // Name the files that only passed once re-run alone: they are counted as
         // passing (they do pass), but their result depended on machine load, and
         // that is a fact about the suite worth seeing rather than swallowing.
+        // A hang is the failure mode most worth naming: it is invisible in a
+        // pass/fail count and it used to stall the entire run.
+        if !timed_out_files.is_empty() {
+            eprintln!(
+                " Hung   {} killed on timeout: {}",
+                timed_out_files.len(),
+                timed_out_files
+                    .iter()
+                    .map(|f| relative_label(f, &root))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
+        }
         if !flaky.is_empty() {
             eprintln!(
                 " Flaky  {} passed only on serial retry: {}",
@@ -185,13 +213,13 @@ fn run_children_parallel(
     files: &[PathBuf],
     exe: &Path,
     jobs: usize,
-) -> Vec<std::io::Result<std::process::Output>> {
+) -> Vec<ChildRun> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
     // One slot per file. `Mutex<Vec<Option<_>>>` rather than channels so a
     // worker writes straight into its file's slot — no reordering step.
-    let slots: Mutex<Vec<Option<std::io::Result<std::process::Output>>>> =
+    let slots: Mutex<Vec<Option<ChildRun>>> =
         Mutex::new((0..files.len()).map(|_| None).collect());
     let next = AtomicUsize::new(0);
     // Inherited by every child: `RUST_BACKTRACE` gives a native backtrace on a
@@ -199,6 +227,7 @@ fn run_children_parallel(
     // `RTS_TEST_TRACE_STAGES` prints `[trace] invoking __RTS_MAIN` so a crash
     // says exactly where it died (#314). A user-set RUST_BACKTRACE is kept.
     let backtrace = std::env::var("RUST_BACKTRACE").unwrap_or_else(|_| "1".to_string());
+    let timeout = child_timeout();
 
     std::thread::scope(|scope| {
         for _ in 0..jobs {
@@ -207,13 +236,8 @@ fn run_children_parallel(
                 let Some(file) = files.get(i) else {
                     break;
                 };
-                let out = std::process::Command::new(exe)
-                    .arg("test")
-                    .arg(file)
-                    .env("RUST_BACKTRACE", &backtrace)
-                    .env("RTS_TEST_TRACE_STAGES", "1")
-                    .output();
-                slots.lock().expect("test slots mutex").ordered_put(i, out);
+                let run = run_child(exe, file, &backtrace, timeout);
+                slots.lock().expect("test slots mutex").ordered_put(i, run);
             });
         }
     });
@@ -226,31 +250,143 @@ fn run_children_parallel(
         .collect()
 }
 
+/// One child run: its captured output, plus whether we had to KILL it for
+/// exceeding the deadline. The flag is carried separately because a hung child
+/// may already have printed passing tests before wedging — judging it by its
+/// output alone would count a hang as a pass.
+struct ChildRun {
+    output: std::io::Result<std::process::Output>,
+    timed_out: bool,
+}
+
+/// Per-file wall-clock budget for a child. `RTS_TEST_TIMEOUT` (seconds)
+/// overrides; `0` disables the deadline entirely.
+///
+/// A hung child used to stall the WHOLE suite forever: the runner blocked in
+/// `.output()`, which waits for EOF on the child's pipes, and a wedged child
+/// never closes them. That is not hypothetical — it stalled a full-suite run on
+/// `node_child_process_full` and another on `node_util_parseargs`. A test that
+/// hangs is a FAILING test, and the suite must say so and move on.
+fn child_timeout() -> Option<std::time::Duration> {
+    let secs = std::env::var("RTS_TEST_TIMEOUT")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(120);
+    (secs > 0).then(|| std::time::Duration::from_secs(secs))
+}
+
+/// Run `rts test <file>` as a child, killing it if it outruns `timeout`.
+///
+/// The pipes are drained by their own threads so a child that fills a pipe
+/// buffer cannot deadlock against us while we poll for exit (the classic
+/// `wait()`-before-draining hang), and so we still recover whatever it printed
+/// before being killed.
+fn run_child(
+    exe: &Path,
+    file: &Path,
+    backtrace: &str,
+    timeout: Option<std::time::Duration>,
+) -> ChildRun {
+    use std::io::Read;
+    use std::process::Stdio;
+
+    let spawned = std::process::Command::new(exe)
+        .arg("test")
+        .arg(file)
+        .env("RUST_BACKTRACE", backtrace)
+        .env("RTS_TEST_TRACE_STAGES", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+    let mut child = match spawned {
+        Ok(c) => c,
+        Err(e) => {
+            return ChildRun {
+                output: Err(e),
+                timed_out: false,
+            }
+        }
+    };
+
+    let mut out_pipe = child.stdout.take().expect("stdout piped");
+    let mut err_pipe = child.stderr.take().expect("stderr piped");
+    let out_reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = out_pipe.read_to_end(&mut buf);
+        buf
+    });
+    let err_reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = err_pipe.read_to_end(&mut buf);
+        buf
+    });
+
+    let deadline = timeout.map(|t| std::time::Instant::now() + t);
+    let mut timed_out = false;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Err(e) => {
+                return ChildRun {
+                    output: Err(e),
+                    timed_out: false,
+                }
+            }
+            Ok(None) => {}
+        }
+        if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
+            let _ = child.kill();
+            timed_out = true;
+            // The kill closes the pipes, so the readers finish and `wait`
+            // reaps immediately.
+            match child.wait() {
+                Ok(status) => break status,
+                Err(e) => {
+                    return ChildRun {
+                        output: Err(e),
+                        timed_out: true,
+                    }
+                }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+
+    let stdout = out_reader.join().unwrap_or_default();
+    let mut stderr = err_reader.join().unwrap_or_default();
+    if timed_out {
+        let secs = timeout.map(|t| t.as_secs()).unwrap_or(0);
+        stderr.extend_from_slice(
+            format!("\n  timed out after {secs}s — killed (RTS_TEST_TIMEOUT to change)\n")
+                .as_bytes(),
+        );
+    }
+
+    ChildRun {
+        output: Ok(std::process::Output {
+            status,
+            stdout,
+            stderr,
+        }),
+        timed_out,
+    }
+}
+
 /// Re-run every file whose parallel result reported a failure or a crash, ALONE
 /// and serially, replacing its output with the retry's. Returns the labels of
 /// the files that FAILED in parallel but PASSED alone — i.e. the ones whose
 /// result depended on machine load, which the summary names so the flakiness is
 /// reported rather than hidden.
-fn retry_failures_serially(
-    files: &[PathBuf],
-    exe: &Path,
-    outputs: &mut [std::io::Result<std::process::Output>],
-) -> Vec<PathBuf> {
+fn retry_failures_serially(files: &[PathBuf], exe: &Path, outputs: &mut [ChildRun]) -> Vec<PathBuf> {
+    let backtrace = std::env::var("RUST_BACKTRACE").unwrap_or_else(|_| "1".to_string());
+    let timeout = child_timeout();
     let mut flaky = Vec::new();
     for (i, file) in files.iter().enumerate() {
-        if !output_failed(&outputs[i]) {
+        if !outputs[i].failed() {
             continue;
         }
-        let retry = std::process::Command::new(exe)
-            .arg("test")
-            .arg(file)
-            .env(
-                "RUST_BACKTRACE",
-                std::env::var("RUST_BACKTRACE").unwrap_or_else(|_| "1".to_string()),
-            )
-            .env("RTS_TEST_TRACE_STAGES", "1")
-            .output();
-        if !output_failed(&retry) {
+        let retry = run_child(exe, file, &backtrace, timeout);
+        if !retry.failed() {
             flaky.push(file.clone());
         }
         outputs[i] = retry;
@@ -258,14 +394,25 @@ fn retry_failures_serially(
     flaky
 }
 
-/// Did this child report a failing test, or die without reporting anything?
-fn output_failed(out: &std::io::Result<std::process::Output>) -> bool {
-    match out {
-        Err(_) => true,
-        Ok(o) => {
-            let stderr = String::from_utf8_lossy(&o.stderr);
-            let (passed, failed) = parse_summary_counts(&stderr);
-            failed > 0 || (!o.status.success() && passed == 0)
+impl ChildRun {
+    /// Did this child report a failing test, get killed for hanging, or die
+    /// without reporting anything?
+    ///
+    /// The `timed_out` check comes FIRST and is independent of the output: a
+    /// child killed mid-run may already have printed `N tests passed` for the
+    /// cases it got through, and judging by the summary alone would score a
+    /// hang as a pass.
+    fn failed(&self) -> bool {
+        if self.timed_out {
+            return true;
+        }
+        match &self.output {
+            Err(_) => true,
+            Ok(o) => {
+                let stderr = String::from_utf8_lossy(&o.stderr);
+                let (passed, failed) = parse_summary_counts(&stderr);
+                failed > 0 || (!o.status.success() && passed == 0)
+            }
         }
     }
 }
