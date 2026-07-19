@@ -55,18 +55,21 @@
 //! members. Verified: `(o as any)["gre"+"et"]()` on an object literal and
 //! `(c as any)["hel"+"lo"]()` on a user class both work with this pass enabled.
 //!
-//! **The residual gap is a PRIMITIVE receiver** — `(s as any)["to"+"UpperCase"]()`
-//! — whose method libs are reached by member name without their class ever being
-//! named. That case does not work in the engine AT ALL today: it fails
-//! identically with `RTS_NO_PRUNE=1`, so this pass is not what breaks it.
+//! **A PRIMITIVE receiver is covered by always keeping the intrinsic wrappers.**
+//! A primitive has no recorded `[[Prototype]]`, so a property access on one
+//! autoboxes: the value model maps the value's TAG to `String`/`Number`/
+//! `Boolean`.prototype and walks that chain. Nothing in the program has to spell
+//! the wrapper's name for that to happen, and a runtime-built member name spells
+//! no member either — so neither edge kind can keep those classes. They are
+//! therefore seeded as roots UNCONDITIONALLY (see `prune_prelude`). Measured
+//! cost: 280 -> 293 kept functions.
 //!
-//! A widening was tried and REJECTED on measurement: keeping the full surface of
-//! every class touched by a computed access re-expanded the kept set from 280 to
-//! 673 functions (ordinary numeric `arr[i]` indexing trips the same flag, and the
-//! prelude is full of it), i.e. it cost most of the win to close a hole nothing
-//! can currently reach. If primitive computed access is ever implemented, this
-//! pass must be revisited at the same time — a targeted widening limited to the
-//! primitive method libs would be the cheap version.
+//! A general widening was tried and REJECTED on measurement: keeping the full
+//! surface of every class touched by a computed access re-expanded the kept set
+//! from 280 to 673 functions, because ordinary numeric `arr[i]` indexing trips
+//! the same flag and the prelude is full of it. The unconditional three-wrapper
+//! seed costs 13 functions and needs no flag — and a flag that is wrong in the
+//! other direction is a miscompile, not a slowdown.
 //!
 //! `RTS_NO_PRUNE=1` disables the whole pass, confirming or clearing it as the
 //! suspect for a misbehaving program in one run.
@@ -112,6 +115,27 @@ pub(super) fn prune_prelude(prog: &mut LoweredProgram) {
     // code; the capture lists spell the names out.
     for names in prog.captures.values() {
         mentions.extend(names.iter().cloned());
+    }
+    // The INTRINSIC WRAPPERS are always kept WHOLE. A primitive receiver has no
+    // recorded `[[Prototype]]`, so a property access on one autoboxes: the value
+    // model maps the VALUE'S TAG to `String`/`Number`/`Boolean`.prototype
+    // (`rts-adapters` `protos::intrinsic_proto`) and walks that. Nothing in the
+    // program has to spell the wrapper's name for that path to be taken, and a
+    // RUNTIME-built member name (`n["to" + "String"]()`) spells no member either
+    // — so member-name edges cannot keep these, and pruning them breaks a call
+    // that genuinely resolves. Measured: without this, the agent-authored
+    // `computed_member_primitive` fixture fails with `toString is not a
+    // function`.
+    //
+    // These three are PRIMORDIAL, so the engine may name them (see the
+    // PRIMORDIAL-vs-Registry doctrine in `CLAUDE.md`). Keeping them
+    // UNCONDITIONALLY rather than behind a "does this program do a computed
+    // access?" flag is deliberate: the flag is trippable by ordinary numeric
+    // `arr[i]` indexing, which made an earlier attempt re-expand the kept set
+    // from 280 to 673 functions, and a flag that is wrong in the OTHER direction
+    // is a miscompile. The cost here is bounded and measured — three classes.
+    for wrapper in ["String", "Number", "Boolean"] {
+        mentions.insert(wrapper.to_string());
     }
 
     // FIXPOINT. Alternate the two edge kinds until neither adds anything: harvest

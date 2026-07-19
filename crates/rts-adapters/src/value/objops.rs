@@ -354,8 +354,24 @@ pub extern "C" fn __rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
                 }
             }
             match super::protos::proto_of(obj_word) {
+                // The EXPLICIT null prototype (`Object.create(null)` records the
+                // `0` sentinel): the chain ENDS here — the property is absent and
+                // NO intrinsic fallback applies. Matched before the walk because
+                // `0` is not a PolyValue word (as a raw bit pattern it reads as
+                // the double `0.0`, which would otherwise resolve an intrinsic
+                // prototype and resurrect `Object.create(null).toString`).
+                Some(0) => PolyValue::undefined().raw(),
                 Some(proto) => __rtsadp_obj_get(proto, key_str_handle),
-                None => PolyValue::undefined().raw(),
+                // No recorded link. A PRIMITIVE receiver still has an INTRINSIC
+                // prototype in JS (autoboxing): continue the SAME walk on
+                // `String`/`Number`/`Boolean`.prototype, where the prelude `.ts`
+                // primitive-method libraries publish their methods. This is what
+                // lets a RUNTIME-named member reach a primitive
+                // (`s["to"+"UpperCase"]`), exactly as a static one does.
+                None => match super::protos::intrinsic_proto(obj_word) {
+                    Some(proto) => __rtsadp_obj_get(proto, key_str_handle),
+                    None => PolyValue::undefined().raw(),
+                },
             }
         }
     }

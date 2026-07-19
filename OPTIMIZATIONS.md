@@ -115,11 +115,16 @@ outcome:
   body named its class, and naming a class keeps its ENTIRE member surface.
   Verified: `(o as any)["gre"+"et"]()` on an object literal and
   `(c as any)["hel"+"lo"]()` on a user class both work with the pass on.
-- **The residual case is a PRIMITIVE receiver**, and it does not work in the
-  engine at all today — `(s as any)["to"+"UpperCase"]()` fails *identically* with
-  `RTS_NO_PRUNE=1`. So the pass is not what breaks it. (An agent task is open on
-  the underlying engine limitation; if it lands, this pass must be revisited in
-  the same change.)
+- **A PRIMITIVE receiver is covered by seeding the intrinsic wrappers.** When
+  this pass landed, `(s as any)["to"+"UpperCase"]()` did not work in the engine
+  at all — it failed identically with `RTS_NO_PRUNE=1`, so the pass was not what
+  broke it. That engine limitation has since been FIXED (autoboxing onto the
+  primordial wrapper prototypes, `crates/rts-adapters/src/value/protos.rs`),
+  which made the gap live: a primitive autoboxes by TAG, so nothing spells
+  `String`/`Number`/`Boolean` and neither edge kind keeps them. They are now
+  seeded as roots unconditionally — measured cost **280 → 293** kept functions,
+  Cranelift phase unchanged. Verified: without the seed, the
+  `computed_member_primitive` fixture fails with `toString is not a function`.
 - **A widening was implemented, measured, and REJECTED.** Keeping the full
   surface of every class touched by a computed access re-expanded the kept set
   from **280 → 673** functions, because ordinary numeric `arr[i]` indexing trips
