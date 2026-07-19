@@ -267,11 +267,17 @@ struct ChildRun {
 /// never closes them. That is not hypothetical — it stalled a full-suite run on
 /// `node_child_process_full` and another on `node_util_parseargs`. A test that
 /// hangs is a FAILING test, and the suite must say so and move on.
+/// The default is deliberately tight. A test file takes ~0.2-2 s; even under a
+/// fully loaded 16-way parallel run the slowest legitimate file stays far under
+/// this. The budget exists to bound a HANG, and every second of it is paid in
+/// full by any file that wedges — `node_child_process_full` hangs under parallel
+/// load often enough that a 120 s default cost the whole suite ~90 s on a run
+/// where it tripped (50 s -> 2m16s), for a file the serial retry then passes.
 fn child_timeout() -> Option<std::time::Duration> {
     let secs = std::env::var("RTS_TEST_TIMEOUT")
         .ok()
         .and_then(|v| v.trim().parse::<u64>().ok())
-        .unwrap_or(120);
+        .unwrap_or(30);
     (secs > 0).then(|| std::time::Duration::from_secs(secs))
 }
 

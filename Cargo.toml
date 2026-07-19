@@ -98,11 +98,64 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 zstd = "0.13.3"
 
 [profile.release]
+# `z` (optimize for SIZE) stays the DEFAULT: the bulk of the binary is wgpu /
+# naga / egui / actix, none of which runs during a compile, and their size is
+# what a standalone toolchain ships.
 opt-level = "z"
 lto = "thin"
 codegen-units = 1
 panic = "abort"
 strip = "symbols"
+
+# …but the COMPILE PATH is optimized for SPEED. These crates run on every single
+# `rts run` / `rts compile` — the SWC parse, the HIR lowering, the engine's own
+# lowering, and Cranelift itself — so building them for size taxes every
+# invocation. Measured on an empty program (which still compiles the reachable
+# prelude): parse+lower 65 -> 54 ms, machine-compile 32 -> 20 ms, whole startup
+# 244 -> 190 ms (-22%), for +6 MB of binary when applied globally; scoping it to
+# these packages keeps most of the win at a fraction of the size cost.
+#
+# Bare process startup (`rts --version`) is unchanged at ~78 ms either way, so
+# this is not trading load time for run time — it is pure compile-path speed.
+[profile.release.package.rts-codegen-new]
+opt-level = 3
+[profile.release.package.rts-adapters]
+opt-level = 3
+[profile.release.package.rts-parser]
+opt-level = 3
+[profile.release.package.rts-hir]
+opt-level = 3
+[profile.release.package.rts-engine]
+opt-level = 3
+[profile.release.package.cranelift-codegen]
+opt-level = 3
+[profile.release.package.cranelift-frontend]
+opt-level = 3
+[profile.release.package.cranelift-jit]
+opt-level = 3
+[profile.release.package.cranelift-module]
+opt-level = 3
+[profile.release.package.regalloc2]
+opt-level = 3
+[profile.release.package.swc_ecma_parser]
+opt-level = 3
+[profile.release.package.swc_common]
+opt-level = 3
+[profile.release.package.swc_ecma_ast]
+opt-level = 3
+
+# The RUNTIME layer is opt-3 for a different reason: this is the code the
+# COMPILED PROGRAM calls at run time (string ops, collections, math, the value
+# model's trampolines). Building it for size taxes the user's program, not the
+# compiler — and "faster than Bun by default" is measured on exactly that path.
+[profile.release.package.rts-primitives]
+opt-level = 3
+[profile.release.package.rts-shared]
+opt-level = 3
+[profile.release.package.rts-std]
+opt-level = 3
+[profile.release.package.rts-runtime]
+opt-level = 3
 
 # Em DEBUG, não gerar debug symbols das DEPENDÊNCIAS (só do nosso código).
 # Symbols de wgpu/naga/egui sozinhos incham a staticlib AOT de ~163MB para

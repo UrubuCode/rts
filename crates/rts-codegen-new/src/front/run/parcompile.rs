@@ -137,8 +137,7 @@ pub(super) fn compile_and_define(
 
 /// A DEDICATED rayon pool whose workers get a big stack.
 ///
-/// `Context::compile` recurses over the function's IR and is stack-hungry — the
-/// engine already links `stacker` for the same reason on the lowering side. A
+/// `Context::compile` recurses over the function's IR and is stack-hungry. A
 /// default rayon worker starts with a far smaller stack than the process main
 /// thread, and running the compile on one overflowed it: the unit-test binary
 /// died with STATUS_STACK_OVERFLOW (0xc00000fd) on the first parallel run, on
