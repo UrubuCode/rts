@@ -494,7 +494,7 @@ of `3` — a wrong value, not an error.
 |---|---|---|---|---|
 | 1 | Prelude reachability pruning | — | **890 → 390 ms**, +8 files fixed, 0 regressions | ✅ done |
 | 2 | Parallel test runner | ~6-8× suite | **10 min → 1m41s**, same failing list | ✅ done |
-| 3 | Parallel Cranelift | 220 → ~40 ms | — | not started |
+| 3 | Parallel Cranelift | 220 → ~40 ms | **142.9 → 34.5 ms (4.1×)**; startup 356 → 244 ms | ✅ done |
 | 4 | Parallel parsing | 69 → ~15 ms | — | not started |
 | 5 | Precompiled embedded prelude | → process floor | — | not started (4 blockers documented) |
 | 6 | Compilation cache (`.o` + sidecar) | — | — | not started |
@@ -503,5 +503,5 @@ of `3` — a wrong value, not an error.
 | 9 | Lazy compilation | — | — | deferred |
 | 10 | Cranelift settings (verifier off) | — | **390 → 346 ms** | ✅ verifier done; regalloc/alias unexamined |
 
-**Combined so far:** empty-program startup **890 → 346 ms (2.6×)**; full suite
+**Combined so far:** empty-program startup **890 → 244 ms (3.6×)**; full suite
 **~10 min → 50 s** (~12×); 8 previously-failing files fixed; no regression.
