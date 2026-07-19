@@ -445,6 +445,49 @@ unchanged either way.
 
 ---
 
+## 4b. Adjacent fixes this campaign uncovered
+
+Not startup items, but found by this work and worth recording — two of them
+change the performance picture more than some items on the list.
+
+### The GC pin leak (fixed)
+
+`abi_adapter::intern_poly` pinned every string it interned as a permanent GC
+root. Correct for a compile-time literal (the JIT splices the handle as an
+`iconst` immediate the scanner cannot see), wrong for the ~146 runtime
+trampolines that shared the helper — every transient string became a permanent
+root, ~9.3k per program, monotonic.
+
+Two failure modes fell out: a quadratic `Vec::contains` in `pin_handle` (spin),
+and — once the live count crossed `GC_LIVE_FLOOR` — a collector running every
+256 allocations that marked (taking shard locks) *while a thread was suspended*
+(deadlock). That is why `cargo test -p rts-codegen-new --lib` never finished.
+
+- Unit tests: never completed → **825 passed / 4 failed, 219 s**
+- String-heavy workload: **4.09 s → 1.08 s (3.8×)** — this was taxing every
+  program, not just tests
+
+### The hang was hiding a regression of mine
+
+With the unit tests running again, two failures surfaced that the TS suite never
+caught: `typeof Object(null)` → *"call to unknown function `Object`"*. The
+lowering rewrites `Object(x)` to the prelude's `ObjectFactory(x)`, a name no user
+source spells, so no mention edge kept it and **Item 1 pruned it**.
+
+Fixed by seeding `ENGINE_CALLED_PRELUDE_FNS`, with a test that fails if the
+prelude renames one. The lesson is worth more than the fix: a dark test layer let
+a real regression through a full green suite. Restoring that layer is part of why
+this campaign is worth its cost.
+
+### Computed member access on primitives (fixed)
+
+`(s as any)["to"+"UpperCase"]()` threw. Fixed by autoboxing onto the primordial
+wrapper prototypes in the value model. Found on the way: every key on a string
+receiver was `ToNumber`-coerced, so `s["length"]` silently returned `"a"` instead
+of `3` — a wrong value, not an error.
+
+---
+
 ## 5. Status board
 
 | # | Item | Expected | Measured | State |
