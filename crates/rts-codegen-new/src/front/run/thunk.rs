@@ -78,13 +78,13 @@ pub fn thunk_name(base: &str) -> String {
 /// LEADING real params filled from the closure `env` (`0` for a non-capturing
 /// function). Bails explicitly for the cases outside this increment (a `...rest`
 /// param, a non-coercible param repr).
-pub fn define_thunk(
+pub fn build_thunk(
     module: &mut dyn Module,
     thunk_id: FuncId,
     real_id: FuncId,
     sig: &FnSig,
     capture_count: usize,
-) -> FrontResult<()> {
+) -> FrontResult<super::parcompile::Pending> {
     // A function with up to 4 declared params reads them from a0..a3; a function
     // with >4 params reads positional args 5.. from the `rest` ARRAY (see
     // `build_thunk_body`). A `...rest` (variadic) callee is NOT in this increment:
@@ -108,11 +108,11 @@ pub fn define_thunk(
         }
     }
 
-    module
-        .define_function(thunk_id, &mut ctx)
-        .map_err(|e| Unsupported::new(format!("define thunk: {e}")))?;
-    module.clear_context(&mut ctx);
-    Ok(())
+    Ok(super::parcompile::Pending {
+        id: thunk_id,
+        ctx,
+        name: "thunk".to_string(),
+    })
 }
 
 /// Emit the thunk body: read the `capture_count` leading real params from the
@@ -303,14 +303,14 @@ pub fn new_thunk_name(class: &str) -> String {
 /// NOT the ctor's own return. `ctor_sig.params[0]` is the `this` receiver; the
 /// remaining params are the declared ctor args. A `...rest`/non-coercible param is
 /// rejected the same way [`build_thunk_body`] does.
-pub fn define_new_thunk(
+pub fn build_new_thunk(
     module: &mut dyn Module,
     new_thunk_id: FuncId,
     ctor_id: FuncId,
     ctor_sig: &FnSig,
     global_shape: u32,
     n_fields: usize,
-) -> FrontResult<()> {
+) -> FrontResult<super::parcompile::Pending> {
     let mut ctx = module.make_context();
     ctx.func.signature = uniform_signature(module);
     {
@@ -326,11 +326,11 @@ pub fn define_new_thunk(
             }
         }
     }
-    module
-        .define_function(new_thunk_id, &mut ctx)
-        .map_err(|e| Unsupported::new(format!("define new-thunk: {e}")))?;
-    module.clear_context(&mut ctx);
-    Ok(())
+    Ok(super::parcompile::Pending {
+        id: new_thunk_id,
+        ctx,
+        name: "new-thunk".to_string(),
+    })
 }
 
 /// Emit the new-thunk body: allocate the instance, fill `this` + ctor args, call

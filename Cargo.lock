@@ -3949,6 +3949,7 @@ dependencies = [
  "cranelift-module",
  "cranelift-native",
  "cranelift-object",
+ "rayon",
  "rts-adapters",
  "rts-ast",
  "rts-engine",
