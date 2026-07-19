@@ -535,6 +535,45 @@ unchanged either way.
 
 ---
 
+## 4a. ⚠️ THE UNIT-TEST BINARY IS NOT STABLE — read before judging any item
+
+`cargo test -p rts-codegen-new --lib` **crashes intermittently**, with
+`STATUS_STACK_OVERFLOW` or `STATUS_ILLEGAL_INSTRUCTION`, and when it does
+complete its failure count varies (825/4 most runs, 824/5 sometimes). Runs that
+report an extra failure name a *different* test each time, and every one of them
+passes in isolation.
+
+**This is NOT caused by any item in this document.** Bisected: the same
+intermittent crash reproduces at commit `2749ccdb` — the GC-pin-leak fix —
+*before* parallel Cranelift, before the `opt-level` change, before the delay-load.
+Raising `RUST_MIN_STACK` to 64 MiB does not fix it (the failure just changes to
+ILLEGAL_INSTRUCTION), so it is not a stack-size problem.
+
+The likely origin is the GC fix itself, and the reason is structural: before it
+the tests **never finished at all**, so this crate has never had a stable
+baseline to compare against. It went from "always hangs" to "usually completes,
+sometimes crashes" — a real improvement, but not a clean signal.
+
+### What this invalidates
+
+Two changes in this campaign were REJECTED on evidence that this instability
+explains just as well:
+
+- **The narrow delay-load list** (Item 12) — rejected for "824/5 then 823/6".
+- **The parallel prelude parse** (Item 4) — rejected for one anomalous run in
+  three, then a stack overflow. The overflow reproduced *after the revert*, on a
+  clean tree.
+
+Both may be fine. Neither should be re-adopted until the instability is
+understood — a green run proves nothing while the binary crashes at random, in
+either direction. **Finding this must come before any further item**: it is
+currently impossible to validate engine work at the unit-test level.
+
+The TS suite (`rts test`) has stayed reproducible throughout — failing-file lists
+byte-identical across every item — so it remains the trustworthy gate for now.
+
+---
+
 ## 4b. Adjacent fixes this campaign uncovered
 
 Not startup items, but found by this work and worth recording — two of them
@@ -585,7 +624,7 @@ of `3` — a wrong value, not an error.
 | 1 | Prelude reachability pruning | — | **890 → 390 ms**, +8 files fixed, 0 regressions | ✅ done |
 | 2 | Parallel test runner | ~6-8× suite | **10 min → 1m41s**, same failing list | ✅ done |
 | 3 | Parallel Cranelift | 220 → ~40 ms | **142.9 → 34.5 ms (4.1×)**; startup 356 → 244 ms | ✅ done |
-| 4 | Parallel parsing | 69 → ~15 ms | — | not started |
+| 4 | Parallel parsing | 69 → ~15 ms | parse 26 → 11 ms, but reverted — see §4a | ⏸ blocked on test instability |
 | 5 | Precompiled embedded prelude | → process floor | — | not started (4 blockers documented) |
 | 6 | Compilation cache (`.o` + sidecar) | — | — | not started |
 | 7 | node_modules reactivation | — | — | not started |
