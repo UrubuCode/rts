@@ -446,7 +446,7 @@ tripped.
 
 ---
 
-### Item 12 — The GUI/audio DLL load ❌ delay-load rejected; plugin split is the fix
+### Item 12 — The GUI DLL load ✅ done (opengl32 only)
 
 **The finding.** Bare process startup (`rts --version`, no compilation at all) was
 **78 ms**. For comparison, on the same machine:
@@ -465,11 +465,12 @@ import table was: the binary links wgpu/egui, so it statically imports
 DLL before `main` runs**. A compile-only run paid for the whole graphics and
 audio stack.
 
-**What was tried: `/DELAYLOAD`.** It works, and the win is large — bare startup
-78 → **11 ms**, empty program 188 → **131 ms**. GUI and audio still functioned
-(verified: a window example ran, the audio example played).
+**Which DLL, isolated by measurement.** Delay-loading exactly one at a time and timing `rts --version`: nothing delayed 78 ms; only `mmdevapi` (audio) 78 ms — audio costs ~0; only `opengl32` **14 ms**. So ~64 of the ~65 ms is `opengl32` alone. It is imported because `rts-runtime` enables rts-egui's `glow-backend` beside `wgpu-backend` — glow is the GL COMPATIBILITY FALLBACK for old GPUs, so every invocation paid 64 ms for a path almost nothing takes.
 
-**Why it was REJECTED anyway.** It destabilizes the process:
+**Shipped: delay-load that ONE DLL.** `rts --version` 78 -> **12 ms**, empty program 188 -> **128 ms**, Monte Carlo 266 -> **202 ms**. Stable: baseline 825/4 across two full unit runs, TS failing-file list byte-identical, both window examples and the audio example verified.
+
+**The wider list stays rejected.** Delaying more DLLs buys almost nothing on top
+(78 → 11 ms instead of 12 ms) and destabilizes the process:
 
 - Wide list (incl. `crypt32`, `shell32`, `iphlpapi`): the unit-test binary died
   with `STATUS_STACK_OVERFLOW` on one run and `STATUS_ILLEGAL_INSTRUCTION` on the
@@ -479,12 +480,13 @@ audio stack.
   each of which passes in isolation. The same tree without delay-load gives
   **825/4 three runs running**.
 
-33-57 ms is not worth a compiler whose results vary between runs. Reverted.
+One extra millisecond is not worth a compiler whose results vary between runs.
 
-**The actual fix — and it is architectural.** The engine already knows at compile
-time whether a program touches GUI/audio (module graph + builtin bindings), but
-that knowledge arrives *after* the OS has loaded the imports, so it cannot help.
-The load has to stop being static:
+**What is still on the table — the plugin split.** Delay-load defers the load;
+it does not remove the dependency, and the CLI still ships wgpu/naga/egui (the
+bulk of its 65 MB). The engine knows at compile time whether a program touches
+GUI, but that knowledge arrives *after* the OS has loaded the imports, so acting
+on it means the load must stop being static:
 
 `rts-render` and `rts-input` already define backend **traits** that `rts-egui`
 implements and installs — the seam exists. Build `rts-egui` as a `cdylib` and
@@ -591,8 +593,9 @@ of `3` — a wrong value, not an error.
 | 9 | Lazy compilation | — | — | deferred |
 | 10 | Cranelift settings (verifier off) | — | **390 → 346 ms** | ✅ verifier done; regalloc/alias unexamined |
 | 11 | opt-level 3 on compile path + runtime | — | **244 → 188 ms**; string workload **1.08 s → 0.32 s** | ✅ done |
-| 12 | GUI/audio DLL load (78 ms of bare startup) | 78 → 11 ms | delay-load works but destabilizes the process | ❌ rejected; plugin split is the fix |
+| 12 | GUI DLL load (78 ms of bare startup) | 78 → 11 ms | **`rts --version` 78 → 12 ms**; empty 188 → 128 ms; Monte Carlo 266 → 202 ms | ✅ done (opengl32 only; wider list rejected as unstable) |
 
-**Combined so far:** empty-program startup **890 → 188 ms (4.7×)**; full suite
+**Combined so far:** empty-program startup **890 → 128 ms (7.0×)**; bare
+`rts --version` **78 → 12 ms**; Monte Carlo 10M JIT **960 → 202 ms**; full suite
 **~10 min → 37 s** (~16×); unit tests from never-finishing to 87 s; 8
 previously-failing files fixed; no regression.
