@@ -60,6 +60,7 @@ mod newexpr;
 mod obj;
 mod objstatic;
 mod optchain_lower;
+mod intrinsic;
 mod parcompile;
 mod prune;
 mod regex;

@@ -930,6 +930,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
             argvals.push(self.lower_expr(module, a)?);
         }
+        // INTRINSIC fast path: a member registered with `Some(Intrinsic::…)` whose
+        // operands are already the proven scalar repr is emitted as IR — `sqrt` is
+        // one machine instruction, and wrapping it in a call is pure overhead plus
+        // a barrier the e-graph cannot see through. `emit_intrinsic` returns `None`
+        // for any site it cannot handle, which falls through to the ordinary call
+        // below, so this can only make a call cheaper, never break one.
+        if let Some(intr) = resolved.intrinsic {
+            if let Some(v) = self.emit_intrinsic(intr, &argvals) {
+                return Ok(v);
+            }
+        }
         // The rebox kind only matters for a `Handle` return: a HEAP STRING handle
         // (`gc.string_*`, `string.*`) reboxes as `TAG_STR`; an OPAQUE RESOURCE
         // handle (`audio.*`, `buffer.alloc`, `net.*` — a raw `u64` id, TS type

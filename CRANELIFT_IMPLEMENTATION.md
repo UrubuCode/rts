@@ -13,24 +13,58 @@ Reference for what Cranelift 0.131 offers:
 
 ---
 
-## The mechanism that already exists
+## Step 0 — build the intrinsic path (DONE)
 
-The engine has an intrinsic path: a `Member` registered with
-`Some(Intrinsic::…)` is emitted as IR instead of `call <symbol>`.
+**Status:** ✅ done · **Effort:** medium · **Risk:** low · **Unblocks 1–4**
 
-```rust
-// rts-shared/src/math/mod.rs — sqrt IS an intrinsic:
-func("sqrt", "__RTS_FN_NS_MATH_SQRT", …, Some(Intrinsic::Sqrt))
+`rts-engine::abi` defines an `Intrinsic` enum (`Sqrt`, `AbsF64`, `MinF64`,
+`MaxF64`, `AbsI64`, `MinI64`, `MaxI64`, `ReceiverIdentity`) and `math/mod.rs`
+registers `sqrt` with `Some(Intrinsic::Sqrt)` — but **`rts-codegen-new` never
+reads it**. `grep -rn "Intrinsic" crates/rts-codegen-new/src/` returns nothing,
+and the IR confirms it:
 
-// …random_f64 is NOT (despite CLAUDE.md listing it as one):
-func("random_f64", "__RTS_FN_NS_MATH_RANDOM_F64", …, None)
+```
+# rts ir over `math.sqrt(x)` — no `sqrt` instruction, only:
+v2 = call fn0(v0, v1)
 ```
 
-So each step below is: add an `Intrinsic` variant, emit the IR, flip the
-registration. The pattern is proven by `sqrt`.
+So *every* math call is an extern call today, `sqrt` included. Both `CLAUDE.md`
+("Intrinsics inline … sqrt, abs_f64, …, random_f64 → direct Cranelift IR") and
+`.claude/rules/05-codegen-notes.md` describe a mechanism the current engine does
+not have — they describe the DELETED old engine. Fix those docs with this step.
 
-**Note:** `CLAUDE.md` claims `random_f64` is an intrinsic. It is not — the doc is
-stale on that line and should be corrected when Step 3 lands.
+The work: in the generic Registry call path (`registry_call.rs` /
+`registry.rs::resolve`), check the resolved member's `intrinsic` field and, when
+`Some`, emit IR instead of the call. That is one dispatch point; every step below
+then becomes "add an enum variant + an emission arm + flip the registration".
+
+`ReceiverIdentity` already has a separate emission path documented on the enum —
+check whether it is honoured before assuming nothing works.
+
+### What shipped
+
+`front/run/intrinsic.rs` — `Lowerer::emit_intrinsic`, called from
+`lower_builtin_call` once the args are lowered, reading the new
+`ResolvedCall.intrinsic` field. Covers `Sqrt`, `AbsF64`, `MinF64`, `MaxF64`,
+`AbsI64`, `MinI64`, `MaxI64`.
+
+It **falls back, never fails**: an operand whose `Repr` is not a proven scalar
+(`Tagged`, a string, …) or a wrong arg count returns `None` and the caller emits
+the ordinary extern call. So the coercion authority stays in one place — the
+intrinsic path only takes sites it can prove.
+
+Verified in the IR: `math.sqrt(x)` was `v2 = call fn0(v0, v1)` and is now
+`v5881 = sqrt v5879`.
+
+**Measured** (AOT, `Measure-Command`, median of 5): `pi_machin` 16 → **13 ms
+(-19%)**; `monte_carlo_pi` 83 → **81 ms** — its hot loop is PRNG-bound, not
+sqrt-bound, so Step 3 is what moves that one. TS suite 717 passed / 8 failed
+(recorded baseline 709/15); engine unit tests 825/4 = documented baseline.
+
+`CLAUDE.md` and `.claude/rules/05-codegen-notes.md` claimed this mechanism
+existed while it did not. It exists now — with the caveat that `random_f64` is
+still a call (it needs the TLS state of Step 3), so that entry in the docs stays
+aspirational until then.
 
 ---
 
@@ -186,14 +220,15 @@ The blocker is analysis, not emission: **Cranelift does not do escape analysis**
 
 ## Ordering
 
-1 → 2 (both mechanical, validate the path) → 3 (TLS unlocks math as primitives)
+0 (build the intrinsic path) → 1 → 2 (both mechanical, validate it) → 3 (TLS unlocks math as primitives)
 → 4 → 5 (biggest single win) → 6 → 7.
 
 ## Status board
 
 | # | Step | Effort | Measured | State |
 |---|---|---|---|---|
-| 1 | `num` bit ops → instructions | low | — | not started |
+| 0 | intrinsic path (engine had none) | medium | `pi_machin` 16 → 13 ms | ✅ done |
+| 1 | `num` bit ops → instructions | low | — | unblocked, next |
 | 2 | `switch` → jump table | low | — | not started |
 | 3 | TLS + inline `random_f64` | medium | — | not started |
 | 4 | atomics → atomic IR | medium | — | not started |

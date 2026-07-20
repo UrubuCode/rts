@@ -88,6 +88,12 @@ pub struct ResolvedCall {
     /// dispatches. `None` for primitives / generic `object` / unions. The caller
     /// still checks it against the registered classes (never invents one).
     pub ret_class: Option<String>,
+    /// When `Some`, this member is emitted as INLINE Cranelift IR instead of a
+    /// `call <symbol>` — see `CRANELIFT_IMPLEMENTATION.md`. The `symbol` stays
+    /// populated: a site the inline emitter cannot handle (an arg repr it does
+    /// not accept) falls back to the ordinary call, so an intrinsic is a
+    /// fast-path, never a new failure mode.
+    pub intrinsic: Option<rts_engine::abi::Intrinsic>,
 }
 
 /// Whether a member's `ts_signature` declares a `string` RETURN — used to tell a
@@ -217,6 +223,7 @@ fn instance_call(m: &'static Member) -> ResolvedCall {
         ret_is_object_handle: ts_returns_object(&m.ts_signature),
         ret_is_nullable_string: ts_returns_nullable_string(&m.ts_signature),
         ret_class: ts_return_class(&m.ts_signature),
+        intrinsic: m.intrinsic,
     }
 }
 
@@ -235,6 +242,7 @@ fn flat_call(m: &'static Member) -> ResolvedCall {
         ret_is_object_handle: ts_returns_object(&m.ts_signature),
         ret_is_nullable_string: ts_returns_nullable_string(&m.ts_signature),
         ret_class: ts_return_class(&m.ts_signature),
+        intrinsic: m.intrinsic,
     }
 }
 
