@@ -23,6 +23,7 @@ fn m(name: &str, kind: MemberKind, sig: Sig, symbol: &str, ts: &str, doc: &str, 
         doc: doc.to_string(),
         pure,
         intrinsic: None,
+        emit: None,
     }
 }
 

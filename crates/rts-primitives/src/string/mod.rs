@@ -78,6 +78,7 @@ fn m(
         doc: doc.to_string(),
         pure,
         intrinsic: None,
+        emit: None,
     }
 }
 
@@ -407,6 +408,7 @@ pub fn register_string_class_spec(e: &mut Engine) {
             doc: "str.codePointAt(idx) — full Unicode code point at index.".to_string(),
             pure: true,
             intrinsic: None,
+            emit: None,
         })
         .member(m(
             "at",
@@ -589,6 +591,7 @@ pub fn register_string_class_spec(e: &mut Engine) {
             doc: "str.concat(...args) — concatena (fold no runtime).".to_string(),
             pure: true,
             intrinsic: None,
+            emit: None,
         })
         .member(m(
             "padStart",
@@ -699,6 +702,7 @@ pub fn register_string_class_spec(e: &mut Engine) {
                 .to_string(),
             pure: true,
             intrinsic: Some(Intrinsic::ReceiverIdentity),
+            emit: None,
         })
         .member(m(
             "isWellFormed",

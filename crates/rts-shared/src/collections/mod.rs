@@ -54,6 +54,7 @@ pub fn register_mapset_class_spec(e: &mut rts_engine::Engine) {
             doc: String::new(),
             pure: false,
             intrinsic: None,
+            emit: None,
         }
     }
     // Membros LIMPOS (sem chave) compartilhados por Map E Set — o receiver é o

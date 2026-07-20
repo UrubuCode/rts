@@ -81,6 +81,7 @@ fn m(name: &str, kind: MemberKind, args: Vec<AbiType>, ret: AbiType, symbol: &st
         doc: String::new(),
         pure: false,
         intrinsic: None,
+        emit: None,
     }
 }
 

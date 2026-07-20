@@ -54,6 +54,7 @@ fn ext(name: &str, sig: Sig, symbol: &str, ts: &str, pure: bool) -> Member {
         doc: String::new(),
         pure,
         intrinsic: None,
+        emit: None,
     }
 }
 

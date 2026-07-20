@@ -166,6 +166,7 @@ fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) 
         doc: doc.to_string(),
         pure: true,
         intrinsic: None,
+        emit: None,
     }
 }
 

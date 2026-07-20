@@ -27,6 +27,7 @@ pub fn register_object_class_spec(e: &mut rts_engine::Engine) {
             doc: String::new(),
             pure: false,
             intrinsic: None,
+            emit: None,
         }
     }
     e.class("Object")

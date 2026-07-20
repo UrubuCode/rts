@@ -27,6 +27,7 @@ fn m(name: &str, kind: MemberKind, sig: Sig, symbol: &str, ts: &str) -> Member {
         doc: String::new(),
         pure: false,
         intrinsic: None,
+        emit: None,
     }
 }
 

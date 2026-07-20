@@ -25,6 +25,7 @@ fn m(name: &str, kind: MemberKind, sig: Sig, symbol: &str, ts: &str, pure: bool)
         doc: String::new(),
         pure,
         intrinsic: None,
+        emit: None,
     }
 }
 

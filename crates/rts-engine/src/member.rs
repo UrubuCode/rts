@@ -26,6 +26,41 @@ impl FnPtr {
     }
 }
 
+/// EMITTER NATIVO de um membro: emite IR Cranelift no ponto da chamada em vez de
+/// `call <symbol>`.
+///
+/// Recebe o `FunctionBuilder` da função que está sendo gerada e os argumentos já
+/// baixados (escalares, na representação que o membro declara). Devolve o valor
+/// resultante, ou `None` quando o emitter não consegue atender AQUELE site — o
+/// motor então emite a chamada normal. Por isso um emitter só pode deixar um
+/// site mais rápido, nunca quebrá-lo.
+///
+/// ## Por que é `fn` e não `Box<dyn Fn>`
+///
+/// Um ponteiro de função mantém o [`Member`] `Clone` + `Send`/`Sync` sem
+/// alocação, e closures SEM CAPTURA (`|b, args| { … }`) coagem para `fn`
+/// automaticamente — que é exatamente a forma de autoria pretendida. Um emitter
+/// que precisasse capturar estado seria, por definição, dependente do programa,
+/// e isso não pertence a um spec de membro.
+///
+/// ## Fronteira honesta do que dá para emitir
+///
+/// Computação sobre ESCALARES (aritmética, bits, comparação, conversão) vira IR.
+/// Qualquer coisa que toque o heap — string, objeto, `Vec`, alocação — precisa da
+/// HandleTable e do alocador, que não existem em IR; para essas, o emitter deve
+/// devolver `None` (ou emitir ele mesmo a chamada). "Tudo em Cranelift" tem esse
+/// teto, e ele é do modelo de memória, não do Cranelift.
+///
+/// ## Restrição de segurança (decisão do owner)
+///
+/// O emitter é superfície de SPEC/motor. Ele nunca é exposto ao userland: não
+/// entra em `rts.d.ts`, não vira namespace chamável de TS. Código de usuário só
+/// alcança o membro pelo nome JS normal.
+pub type NativeEmit = fn(
+    &mut cranelift_frontend::FunctionBuilder,
+    &[cranelift_codegen::ir::Value],
+) -> Option<cranelift_codegen::ir::Value>;
+
 /// Binding de uma variável de módulo/global declarada via o builder.
 /// `Const` = só leitura (READONLY); `Mutable` = `let`/`var` (read + write).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,7 +103,22 @@ pub struct Member {
     pub pure: bool,
     /// Quando `Some`, o codegen emite IR Cranelift inline em vez de `call
     /// <symbol>` (sqrt, abs, min/max, …). Espelha `NamespaceMember.intrinsic`.
+    ///
+    /// LEGADO EM DRENAGEM: um enum FECHADO obriga o motor a carregar uma
+    /// variante + um braço de `match` por operação — ou seja, conhecimento de
+    /// não-primordial DENTRO do motor, que é o que a doutrina proíbe. Prefira
+    /// [`Member::emit`], que põe a emissão junto do spec.
     pub intrinsic: Option<Intrinsic>,
+
+    /// EMITTER NATIVO (ver [`NativeEmit`]): quando `Some`, o motor chama isto
+    /// para emitir o corpo do membro como IR no ponto da chamada, em vez de
+    /// `call <symbol>`.
+    ///
+    /// O `symbol`/`fn_ptr` continua registrado — quem não resolve o membro
+    /// estaticamente (reflexão, FFI, um receiver não provado) ainda chama a
+    /// implementação nativa. O emitter é um caminho rápido opcional, não a única
+    /// definição do membro.
+    pub emit: Option<NativeEmit>,
 }
 
 impl Member {

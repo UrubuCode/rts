@@ -222,6 +222,7 @@ pub fn register(e: &mut Engine) {
             doc: doc.to_string(),
             pure: false,
             intrinsic: None,
+            emit: None,
         }
     }
     e.ns("imgdec")

@@ -148,6 +148,7 @@ fn func(
         doc: doc.to_string(),
         pure: false,
         intrinsic: None,
+        emit: None,
     }
 }
 

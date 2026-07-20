@@ -27,6 +27,7 @@ pub fn register_array_class_spec(e: &mut rts_engine::Engine) {
             doc: String::new(),
             pure: false,
             intrinsic: None,
+            emit: None,
         }
     }
     let h = || Sig::new(vec![AbiType::Handle], AbiType::Handle);

@@ -35,6 +35,7 @@ fn func(name: &str, args: Vec<AbiType>, ret: AbiType, symbol: &str, ts: &str, fp
         doc: String::new(),
         pure: false,
         intrinsic: None,
+        emit: None,
     }
 }
 

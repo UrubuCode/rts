@@ -33,6 +33,7 @@ fn f(name: &str, symbol: &str, args: Vec<AbiType>, ts: &str, fp: *const u8) -> M
         doc: String::new(),
         pure: false,
         intrinsic: None,
+        emit: None,
     }
 }
 

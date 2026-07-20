@@ -321,6 +321,48 @@ syntactic form?**
   engine": a primitive's *implementation* still lives in `rts-primitives`; the
   engine just has a more-direct lowering for its native syntax.
 
+### NATIVE EMITTERS — a member may carry its own Cranelift emission
+
+**Owner decision (2026-07-20).** A Registry member may declare a `NativeEmit`
+(`rts_engine::member`): a non-capturing closure that emits Cranelift IR at the
+call site instead of `call <symbol>`.
+
+```rust
+// in rts-shared / rts-primitives, next to the spec that owns the operation
+.member(native(
+    func("sqrt", "__RTS_FN_NS_MATH_SQRT", Sig::new(vec![F64], F64), …),
+    |b, args| { let [x] = args else { return None }; Some(b.ins().sqrt(*x)) },
+))
+```
+
+Why this supersedes the `Intrinsic` enum: a closed enum forces the ENGINE to
+carry a variant plus a `match` arm per operation — engine-side knowledge of a
+non-primordial, which is exactly what the doctrine forbids. With `NativeEmit` the
+emission lives WITH THE SPEC and the engine has one generic call site.
+`Intrinsic` is legacy in drainage; do not add variants to it.
+
+Binding rules:
+
+- **Cranelift is allowed below the engine.** `rts-engine`/`rts-shared`/
+  `rts-primitives` may depend on `cranelift-codegen`/`cranelift-frontend`.
+  Cranelift is pure Rust with no C dependencies, so the universal layer still
+  builds for every target including wasm/browser. The older "no compiler
+  backend below the engine" reading of the layering does **not** apply to
+  Cranelift.
+- **Never reachable from userland (security).** An emitter is spec/engine
+  surface only: it must not appear in `rts.d.ts` and must not become a callable
+  TS namespace. User code reaches the member by its ordinary JS name.
+- **Fallback, never failure.** Returning `None` from an emitter makes the engine
+  emit the ordinary call, so `symbol`/`fn_ptr` stay registered and reflection /
+  FFI / unproven receivers keep working. An emitter can only make a site faster.
+- **Operands arrive coerced to the member's declared `Sig`**, through the same
+  `coerce` the call path uses — an emitter must not re-implement coercion.
+- **The heap is out of scope.** Scalar computation (arithmetic, bits, compare,
+  convert) becomes IR. Anything touching strings/objects/`Vec`/allocation needs
+  the HandleTable and the allocator, which do not exist in IR; those members keep
+  their call. "Everything in Cranelift" has that ceiling, and it comes from the
+  memory model, not from Cranelift.
+
 ### How the engine enforces this
 The doctrine is the default in the engine: every non-primordial method is a
 `MethodSpec` metadata entry resolved through ONE generic path

@@ -313,6 +313,7 @@ fn member(name: &str, args: Vec<AbiType>, ret: AbiType, symbol: &str, ts: &str, 
         doc: String::new(),
         pure: false,
         intrinsic: None,
+        emit: None,
     }
 }
 

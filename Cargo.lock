@@ -4129,6 +4129,8 @@ dependencies = [
 name = "rts-engine"
 version = "0.1.0"
 dependencies = [
+ "cranelift-codegen",
+ "cranelift-frontend",
  "fancy-regex",
  "indexmap",
  "regex",
@@ -4259,6 +4261,8 @@ name = "rts-shared"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cranelift-codegen",
+ "cranelift-frontend",
  "fancy-regex",
  "indexmap",
  "json5",

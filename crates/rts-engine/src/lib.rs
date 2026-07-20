@@ -54,7 +54,7 @@ mod sig;
 
 pub use builder::{ClassBuilder, Engine, GlobalBuilder, ModuleBuilder};
 pub use collector::{GcPayload, Traceable};
-pub use member::{FnPtr, Member, VarKind};
+pub use member::{FnPtr, Member, VarKind, NativeEmit};
 pub use registry::{Class, Module, Registry};
 pub use sig::Sig;
 

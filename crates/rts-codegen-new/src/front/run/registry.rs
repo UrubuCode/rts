@@ -94,6 +94,12 @@ pub struct ResolvedCall {
     /// not accept) falls back to the ordinary call, so an intrinsic is a
     /// fast-path, never a new failure mode.
     pub intrinsic: Option<rts_engine::abi::Intrinsic>,
+    /// The member's own NATIVE EMITTER, when it declares one. Same fast-path
+    /// contract as `intrinsic` above, but the emission lives WITH THE SPEC
+    /// instead of inside the engine — so adding a natively-emitted operation
+    /// does not add an arm to any `match` here. This is what `intrinsic` is
+    /// being drained into.
+    pub emit: Option<rts_engine::NativeEmit>,
 }
 
 /// Whether a member's `ts_signature` declares a `string` RETURN — used to tell a
@@ -229,6 +235,7 @@ fn instance_call(m: &'static Member) -> ResolvedCall {
         ret_is_nullable_string: ts_returns_nullable_string(&m.ts_signature),
         ret_class: ts_return_class(&m.ts_signature),
         intrinsic: m.intrinsic,
+        emit: m.emit,
     }
 }
 
@@ -248,6 +255,7 @@ fn flat_call(m: &'static Member) -> ResolvedCall {
         ret_is_nullable_string: ts_returns_nullable_string(&m.ts_signature),
         ret_class: ts_return_class(&m.ts_signature),
         intrinsic: m.intrinsic,
+        emit: m.emit,
     }
 }
 

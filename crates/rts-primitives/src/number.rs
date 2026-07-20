@@ -234,6 +234,7 @@ fn m(
         doc: doc.to_string(),
         pure,
         intrinsic: None,
+        emit: None,
     }
 }
 
@@ -464,6 +465,7 @@ pub fn register_number_class_spec(e: &mut Engine) {
             doc: "n.valueOf() — primitive identity ou unbox NumberBox.".to_string(),
             pure: true,
             intrinsic: Some(Intrinsic::ReceiverIdentity),
+            emit: None,
         })
         .member(m(
             "toPrecision",

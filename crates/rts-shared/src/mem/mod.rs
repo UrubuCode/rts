@@ -84,6 +84,7 @@ fn cst(name: &str, symbol: &str, ts: &str, doc: &str, fp: *const u8) -> Member {
         doc: doc.to_string(),
         pure: true,
         intrinsic: None,
+        emit: None,
     }
 }
 
@@ -110,6 +111,7 @@ fn func(
         doc: doc.to_string(),
         pure,
         intrinsic: None,
+        emit: None,
     }
 }
 

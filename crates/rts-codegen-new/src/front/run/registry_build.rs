@@ -250,6 +250,7 @@ fn register_typed_array_class_specs(e: &mut Engine) {
             doc: "TypedArray instance surface (works on both the Vec-backed and the buffer-VIEW representations).".to_string(),
             pure: false,
             intrinsic: None,
+            emit: None,
         }
         };
         e.class(class)
@@ -267,6 +268,7 @@ fn register_typed_array_class_specs(e: &mut Engine) {
                 doc: "Typed-array constructor (length → zeros; array → wrapped copy; ArrayBuffer → live view).".to_string(),
                 pure: false,
                 intrinsic: None,
+                emit: None,
             })
             .member(m(
                 "set",
@@ -309,6 +311,7 @@ fn register_typed_array_class_specs(e: &mut Engine) {
                 doc: "Element count (tag-dispatched: Vec length or buffer bytes / elem width).".to_string(),
                 pure: true,
                 intrinsic: None,
+                emit: None,
             })
             .done();
     }
@@ -340,6 +343,7 @@ fn register_typed_array_class_specs(e: &mut Engine) {
             doc: "N-bit wrap (i64 interim BigInt model, #219).".to_string(),
             pure: true,
             intrinsic: None,
+            emit: None,
         });
     }
     bi.done();
@@ -376,6 +380,7 @@ fn register_typed_array_class_specs(e: &mut Engine) {
             doc: "Atomics level A (single-threaded RMW).".to_string(),
             pure: false,
             intrinsic: None,
+            emit: None,
         });
     }
     cls.done();

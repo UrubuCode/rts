@@ -193,6 +193,7 @@ pub fn register_symbol_class_spec(e: &mut Engine) {
             doc: "Creates a new unique Symbol with optional description string.".to_string(),
             pure: false,
             intrinsic: None,
+            emit: None,
         })
         .member(Member {
             name: "for".to_string(),
@@ -208,6 +209,7 @@ pub fn register_symbol_class_spec(e: &mut Engine) {
                 .to_string(),
             pure: false,
             intrinsic: None,
+            emit: None,
         })
         .member(Member {
             name: "keyFor".to_string(),
@@ -223,6 +225,7 @@ pub fn register_symbol_class_spec(e: &mut Engine) {
                 .to_string(),
             pure: true,
             intrinsic: None,
+            emit: None,
         })
         .member(Member {
             name: "description".to_string(),
@@ -237,6 +240,7 @@ pub fn register_symbol_class_spec(e: &mut Engine) {
             doc: "Returns the symbol's description string, or 0 if none.".to_string(),
             pure: true,
             intrinsic: None,
+            emit: None,
         })
         .member(Member {
             name: "toString".to_string(),
@@ -251,6 +255,7 @@ pub fn register_symbol_class_spec(e: &mut Engine) {
             doc: "Returns 'Symbol(description)' string.".to_string(),
             pure: true,
             intrinsic: None,
+            emit: None,
         })
         .member(Member {
             name: "iterator".to_string(),
@@ -265,6 +270,7 @@ pub fn register_symbol_class_spec(e: &mut Engine) {
             doc: "Symbol.iterator — well-known symbol pra iteration protocol.".to_string(),
             pure: true,
             intrinsic: None,
+            emit: None,
         })
         .member(Member {
             name: "asyncIterator".to_string(),
@@ -279,6 +285,7 @@ pub fn register_symbol_class_spec(e: &mut Engine) {
             doc: "Symbol.asyncIterator — async iteration protocol.".to_string(),
             pure: true,
             intrinsic: None,
+            emit: None,
         })
         .member(Member {
             name: "hasInstance".to_string(),
@@ -293,6 +300,7 @@ pub fn register_symbol_class_spec(e: &mut Engine) {
             doc: "Symbol.hasInstance — controla instanceof.".to_string(),
             pure: true,
             intrinsic: None,
+            emit: None,
         })
         .member(Member {
             name: "toPrimitive".to_string(),
@@ -307,6 +315,7 @@ pub fn register_symbol_class_spec(e: &mut Engine) {
             doc: "Symbol.toPrimitive — controla coercao.".to_string(),
             pure: true,
             intrinsic: None,
+            emit: None,
         })
         .member(Member {
             name: "toStringTag".to_string(),
@@ -321,6 +330,7 @@ pub fn register_symbol_class_spec(e: &mut Engine) {
             doc: "Symbol.toStringTag — customiza Object.prototype.toString.".to_string(),
             pure: true,
             intrinsic: None,
+            emit: None,
         })
         .done();
 }

@@ -25,6 +25,7 @@ pub fn register(e: &mut Engine) {
             doc: "Parses a JSON5 string (comments, trailing commas, unquoted keys, etc.). Returns opaque handle; 0 on error.".to_string(),
             pure: false,
             intrinsic: None,
+            emit: None,
         })
         .member(Member {
             name: "stringify".to_string(),
@@ -39,6 +40,7 @@ pub fn register(e: &mut Engine) {
             doc: "Serializes a JSON5 handle to compact JSON form (subset compativel).".to_string(),
             pure: false,
             intrinsic: None,
+            emit: None,
         })
         .done();
 }

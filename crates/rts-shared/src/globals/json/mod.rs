@@ -24,6 +24,7 @@ pub fn register(e: &mut Engine) {
             doc: "Parses a JSON string. Returns opaque handle; 0 on error.".to_string(),
             pure: false,
             intrinsic: None,
+            emit: None,
         })
         .member(Member {
             name: "stringify".to_string(),
@@ -38,6 +39,7 @@ pub fn register(e: &mut Engine) {
             doc: "Serializes a JSON handle to its compact string form.".to_string(),
             pure: false,
             intrinsic: None,
+            emit: None,
         })
         .member(Member {
             name: "stringify_pretty".to_string(),
@@ -53,6 +55,7 @@ pub fn register(e: &mut Engine) {
             doc: "Pretty-printed serialization with `indent` spaces.".to_string(),
             pure: false,
             intrinsic: None,
+            emit: None,
         })
         .done();
 }

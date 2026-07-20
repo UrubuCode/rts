@@ -45,6 +45,7 @@ fn make(
         doc: String::new(),
         pure,
         intrinsic: None,
+        emit: None,
     }
 }
 

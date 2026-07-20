@@ -10,6 +10,7 @@
 
 use std::cell::Cell;
 
+use cranelift_codegen::ir::InstBuilder;
 use rts_engine::abi::ty::{F64, I64, U64};
 use rts_engine::{AbiType, Engine, FnPtr, Intrinsic, Member, MemberFlags, MemberKind, Sig};
 
@@ -491,6 +492,7 @@ fn func(
         doc: doc.to_string(),
         pure,
         intrinsic,
+        emit: None,
     }
 }
 
@@ -509,7 +511,22 @@ fn cst(name: &str, symbol: &str, ts: &str, doc: &str, fp: *const u8) -> Member {
         doc: doc.to_string(),
         pure: true,
         intrinsic: None,
+        emit: None,
     }
+}
+
+/// Attach a NATIVE EMITTER to a member: the engine emits `e` as Cranelift IR at
+/// the call site instead of `call <symbol>`.
+///
+/// This is the successor to the closed `Intrinsic` enum. The emission lives HERE,
+/// next to the spec that owns the operation, so adding one never touches the
+/// engine. `e` is a non-capturing closure (it coerces to a fn pointer), and it
+/// receives operands already coerced to the member`s declared `Sig` types.
+///
+/// Returning `None` from `e` is always safe: the engine falls back to the call.
+fn native(mut m: Member, e: rts_engine::NativeEmit) -> Member {
+    m.emit = Some(e);
+    m
 }
 
 /// Alias JS-style — sem extern próprio: aponta `symbol` ao alvo canônico e usa
@@ -535,6 +552,7 @@ fn alias(
         doc: doc.to_string(),
         pure: false,
         intrinsic,
+        emit: None,
     }
 }
 
@@ -582,15 +600,25 @@ pub fn register(e: &mut Engine) {
             true,
             None,
         ))
-        .member(func(
-            "sqrt",
-            "__RTS_FN_NS_MATH_SQRT",
-            Sig::new(vec![AbiType::F64], AbiType::F64),
-            "sqrt(x: number): number",
-            "Square root.",
-            __RTS_FN_NS_MATH_SQRT as *const u8,
-            true,
-            Some(Intrinsic::Sqrt),
+        // `sqrt` is the reference for the NATIVE EMITTER surface: the member
+        // carries its own Cranelift emission, so the engine needs no arm for it.
+        // The extern above stays registered — a site the emitter declines (an
+        // unproven operand, reflection, FFI) still calls it.
+        .member(native(
+            func(
+                "sqrt",
+                "__RTS_FN_NS_MATH_SQRT",
+                Sig::new(vec![AbiType::F64], AbiType::F64),
+                "sqrt(x: number): number",
+                "Square root.",
+                __RTS_FN_NS_MATH_SQRT as *const u8,
+                true,
+                None,
+            ),
+            |b, args| {
+                let [x] = args else { return None };
+                Some(b.ins().sqrt(*x))
+            },
         ))
         .member(func(
             "cbrt",

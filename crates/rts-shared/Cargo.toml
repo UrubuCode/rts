@@ -10,6 +10,9 @@ edition = "2024"
 # Ver .claude/plans/partitioned-meandering-milner.md.
 
 [dependencies]
+# Um membro pode declarar um EMITTER Cranelift nativo (ver `rts_engine::NativeEmit`).
+cranelift-codegen = "0.131"
+cranelift-frontend = "0.131"
 rts-engine = { path = "../rts-engine" }
 # Primordiais movidos p/ rts-primitives (Fase 2): collections/vec.rs chama
 # rts_primitives::string::rt::* por símbolo. Aresta acíclica shared → primitives.

@@ -39,6 +39,7 @@ fn m(name: &str, symbol: &str, sig: Sig, ts: &str, fp: *const u8) -> Member {
         doc: String::new(),
         pure: false,
         intrinsic: None,
+        emit: None,
     }
 }
 

@@ -169,6 +169,7 @@ mod tests {
             doc: "",
             ts_signature: "",
             intrinsic: None,
+            emit: None,
             pure: false,
             aliases,
             variadic,

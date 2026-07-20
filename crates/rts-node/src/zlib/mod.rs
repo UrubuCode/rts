@@ -36,6 +36,7 @@ fn make(name: &str, symbol: &str, sig: rts_engine::Sig, ts: &str, fp: *const u8,
         doc: String::new(),
         pure: false,
         intrinsic: None,
+        emit: None,
     }
 }
 

@@ -153,6 +153,7 @@ fn func(name: &str, symbol: &str, ts: &str, doc: &str, fp: *const u8) -> Member 
         doc: doc.to_string(),
         pure: false,
         intrinsic: None,
+        emit: None,
     }
 }
 

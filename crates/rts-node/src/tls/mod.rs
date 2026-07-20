@@ -63,6 +63,7 @@ fn func(name: &str, ret: AbiType, symbol: &str, ts: &str, fp: *const u8) -> Memb
         doc: String::new(),
         pure: true,
         intrinsic: None,
+        emit: None,
     }
 }
 

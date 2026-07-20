@@ -226,6 +226,7 @@ fn pure_func(
         doc: doc.to_string(),
         pure: true,
         intrinsic: None,
+        emit: None,
     }
 }
 

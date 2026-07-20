@@ -40,6 +40,7 @@ fn member(name: &str, kind: MemberKind, args: Vec<AbiType>, ret: AbiType, symbol
         doc: String::new(),
         pure: false,
         intrinsic: None,
+        emit: None,
     }
 }
 

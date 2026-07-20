@@ -53,6 +53,7 @@ pub fn register(e: &mut Engine) {
                 .to_string(),
             pure: false,
             intrinsic: None,
+            emit: None,
         })
         .member(Member {
             name: "timeOrigin".to_string(),
@@ -68,6 +69,7 @@ pub fn register(e: &mut Engine) {
                 .to_string(),
             pure: true,
             intrinsic: None,
+            emit: None,
         })
         .done();
 }

@@ -11,6 +11,13 @@ edition = "2024"
 # O heap GC tipado (Entry/HandleTable) migrou pro motor (Fase 1a da partição).
 # Os payloads do Entry puxam estas libs — TEMP até a Fase 2 (Entry::Backend(dyn
 # Traceable) devolve os payloads backend pro rts-std e limpa rustls daqui).
+# Cranelift — um membro do Registry pode declarar um EMITTER nativo (ver
+# `member::NativeEmit`) que emite IR direto em vez de `call <symbol>`. Isso põe a
+# emissão junto do spec, não dentro do motor, e é o que permite tratar as ops
+# escalares como primitivas de verdade. Cranelift é Rust puro (sem deps C), logo
+# não quebra alvo nenhum — a camada universal continua compilando para wasm.
+cranelift-codegen = "0.131"
+cranelift-frontend = "0.131"
 indexmap = "2.14.0"
 regex = "1"
 fancy-regex = "0.13"

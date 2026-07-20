@@ -50,6 +50,7 @@ fn m(
         doc: doc.to_string(),
         pure,
         intrinsic: None,
+        emit: None,
     }
 }
 
