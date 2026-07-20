@@ -10,7 +10,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use rts_engine::{sig, Engine, FnPtr, Member, MemberFlags, MemberKind};
+use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, sig};
 
 fn hash_slice(bytes: &[u8]) -> i64 {
     let mut hasher = DefaultHasher::new();

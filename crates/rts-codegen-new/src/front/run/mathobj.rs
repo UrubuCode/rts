@@ -78,10 +78,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // (`Reflect.apply(Math.max, …)`): a real callable whose env
                 // carries the op — the same reduce the static call uses.
                 None if matches!(prop, "max" | "min") => {
-                    let op = self
-                        .builder
-                        .ins()
-                        .iconst(cranelift_codegen::ir::types::I64, if prop == "max" { 1 } else { 0 });
+                    let op = self.builder.ins().iconst(
+                        cranelift_codegen::ir::types::I64,
+                        if prop == "max" { 1 } else { 0 },
+                    );
                     let w = self
                         .call_runtime(module, "__rtsadp_math_fn_value", &[op])?
                         .expect("__rtsadp_math_fn_value returns a fn word");
@@ -339,7 +339,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                         let word = self.box_value(Val::new(x, Repr::Float64));
                         emit_marshal::emit_vec_push(module, self.builder, arr, word);
                     }
-                    let op_v = self.builder.ins().iconst(cranelift_codegen::ir::types::I64, 2);
+                    let op_v = self
+                        .builder
+                        .ins()
+                        .iconst(cranelift_codegen::ir::types::I64, 2);
                     emit_marshal::emit_call(
                         module,
                         self.builder,
@@ -396,10 +399,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let v = self.lower_expr(module, &args[0])?;
         if !matches!(v.repr, Repr::Int32 | Repr::Int64 | Repr::Float64) {
             let Some(dyn_sym) = number_predicate_dynamic(method) else {
-                return unsupported!(
-                    "Number.{method} on a non-proven-number arg ({:?})",
-                    v.repr
-                );
+                return unsupported!("Number.{method} on a non-proven-number arg ({:?})", v.repr);
             };
             let word = self.box_value(v);
             let res = self

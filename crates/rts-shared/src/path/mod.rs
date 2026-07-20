@@ -7,7 +7,7 @@
 
 use std::path::{Component, Path, PathBuf};
 
-use rts_engine::{sig, Engine, FnPtr, Member, MemberFlags, MemberKind};
+use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, sig};
 
 use rts_engine::abi::str_abi::from_abi;
 
@@ -27,9 +27,9 @@ pub extern "C" fn __RTS_FN_NS_PATH_JOIN(
     part_ptr: *const u8,
     part_len: i64,
 ) -> u64 {
-    let (Some(base), Some(part)) =
-        (unsafe { from_abi(base_ptr, base_len) }, unsafe { from_abi(part_ptr, part_len) })
-    else {
+    let (Some(base), Some(part)) = (unsafe { from_abi(base_ptr, base_len) }, unsafe {
+        from_abi(part_ptr, part_len)
+    }) else {
         return 0;
     };
     let joined = PathBuf::from(base).join(part);
@@ -134,16 +134,23 @@ pub extern "C" fn __RTS_FN_NS_PATH_WITH_EXT(
     ext_ptr: *const u8,
     ext_len: i64,
 ) -> u64 {
-    let (Some(path), Some(ext)) =
-        (unsafe { from_abi(path_ptr, path_len) }, unsafe { from_abi(ext_ptr, ext_len) })
-    else {
+    let (Some(path), Some(ext)) = (unsafe { from_abi(path_ptr, path_len) }, unsafe {
+        from_abi(ext_ptr, ext_len)
+    }) else {
         return 0;
     };
     let result = Path::new(path).with_extension(ext);
     result.to_str().map(intern).unwrap_or(0)
 }
 
-fn pure_func(name: &str, symbol: &str, sig: rts_engine::Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
+fn pure_func(
+    name: &str,
+    symbol: &str,
+    sig: rts_engine::Sig,
+    ts: &str,
+    doc: &str,
+    fp: *const u8,
+) -> Member {
     Member {
         name: name.to_string(),
         kind: MemberKind::Function,

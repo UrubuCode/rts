@@ -14,8 +14,8 @@
 //! Thread-safety: registry é populado uma vez no startup, depois só leitura.
 //! `RwLock` cobre a fase de bootstrap; reads no GC são paralelas.
 
-use std::sync::RwLock;
 use std::sync::OnceLock;
+use std::sync::RwLock;
 
 fn registry() -> &'static RwLock<Vec<usize>> {
     static R: OnceLock<RwLock<Vec<usize>>> = OnceLock::new();
@@ -80,7 +80,10 @@ fn pending() -> &'static Mutex<Vec<u32>> {
 /// tipo Handle declarada. Argumento e' o `DataId.as_u32()` —
 /// resolveremos pra endereco apos finalize_definitions.
 pub fn push_pending_data_id(data_id_raw: u32) {
-    pending().lock().unwrap_or_else(|e| e.into_inner()).push(data_id_raw);
+    pending()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push(data_id_raw);
 }
 
 /// JIT chama isto apos `finalize_definitions`. Devolve a lista

@@ -7,6 +7,7 @@
 //! Migrado do `#[rts_namespace]` pro modelo builder hand-written do `rts-engine`
 //! (rumo à remoção da `rts-macro`; ver pilotos hint/hash/ptr/mem/runtime).
 
+use rts_engine::abi::Intrinsic;
 use rts_engine::abi::ty::{F64, I64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
@@ -168,6 +169,19 @@ fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) 
     }
 }
 
+/// Marca um membro como INTRINSIC: o codegen emite a instrução Cranelift
+/// equivalente em vez do `call <symbol>`.
+///
+/// O símbolo continua existindo e registrado — a emissão inline é uma otimização
+/// que o motor aplica só quando PROVA o `Repr` dos operandos; qualquer outro caso
+/// cai no `call` normal. Ver `rts_engine::abi::Intrinsic`, onde cada variante
+/// documenta por que a instrução tem semântica IDÊNTICA ao corpo Rust que
+/// substitui (as regras de masking de shift/rotate em especial).
+fn intr(mut m: Member, i: Intrinsic) -> Member {
+    m.intrinsic = Some(i);
+    m
+}
+
 /// Registra a namespace `num` no motor (Fase 2 — hand-written, sem macro).
 pub fn register(e: &mut Engine) {
     e.ns("num")
@@ -228,102 +242,102 @@ pub fn register(e: &mut Engine) {
             "a * b com saturation em i64::MIN/MAX.",
             __RTS_FN_NS_NUM_SATURATING_MUL as *const u8,
         ))
-        .member(func(
+        .member(intr(func(
             "wrapping_add",
             "__RTS_FN_NS_NUM_WRAPPING_ADD",
             Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::I64),
             "wrapping_add(a: number, b: number): number",
             "a + b modulo 2^64.",
             __RTS_FN_NS_NUM_WRAPPING_ADD as *const u8,
-        ))
-        .member(func(
+        ), Intrinsic::WrappingAdd))
+        .member(intr(func(
             "wrapping_sub",
             "__RTS_FN_NS_NUM_WRAPPING_SUB",
             Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::I64),
             "wrapping_sub(a: number, b: number): number",
             "a - b modulo 2^64.",
             __RTS_FN_NS_NUM_WRAPPING_SUB as *const u8,
-        ))
-        .member(func(
+        ), Intrinsic::WrappingSub))
+        .member(intr(func(
             "wrapping_mul",
             "__RTS_FN_NS_NUM_WRAPPING_MUL",
             Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::I64),
             "wrapping_mul(a: number, b: number): number",
             "a * b modulo 2^64.",
             __RTS_FN_NS_NUM_WRAPPING_MUL as *const u8,
-        ))
-        .member(func(
+        ), Intrinsic::WrappingMul))
+        .member(intr(func(
             "wrapping_neg",
             "__RTS_FN_NS_NUM_WRAPPING_NEG",
             Sig::new(vec![AbiType::I64], AbiType::I64),
             "wrapping_neg(a: number): number",
             "-a modulo 2^64 (i64::MIN.wrapping_neg() == i64::MIN).",
             __RTS_FN_NS_NUM_WRAPPING_NEG as *const u8,
-        ))
-        .member(func(
+        ), Intrinsic::WrappingNeg))
+        .member(intr(func(
             "wrapping_shl",
             "__RTS_FN_NS_NUM_WRAPPING_SHL",
             Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::I64),
             "wrapping_shl(a: number, n: number): number",
             "a << (n & 63) — shift count masked.",
             __RTS_FN_NS_NUM_WRAPPING_SHL as *const u8,
-        ))
-        .member(func(
+        ), Intrinsic::WrappingShl))
+        .member(intr(func(
             "wrapping_shr",
             "__RTS_FN_NS_NUM_WRAPPING_SHR",
             Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::I64),
             "wrapping_shr(a: number, n: number): number",
             "a >> (n & 63) (arithmetic shift).",
             __RTS_FN_NS_NUM_WRAPPING_SHR as *const u8,
-        ))
-        .member(func(
+        ), Intrinsic::WrappingShr))
+        .member(intr(func(
             "count_ones",
             "__RTS_FN_NS_NUM_COUNT_ONES",
             Sig::new(vec![AbiType::I64], AbiType::I64),
             "count_ones(a: number): number",
             "Numero de bits 1 em a.",
             __RTS_FN_NS_NUM_COUNT_ONES as *const u8,
-        ))
-        .member(func(
+        ), Intrinsic::CountOnes))
+        .member(intr(func(
             "count_zeros",
             "__RTS_FN_NS_NUM_COUNT_ZEROS",
             Sig::new(vec![AbiType::I64], AbiType::I64),
             "count_zeros(a: number): number",
             "Numero de bits 0 em a.",
             __RTS_FN_NS_NUM_COUNT_ZEROS as *const u8,
-        ))
-        .member(func(
+        ), Intrinsic::CountZeros))
+        .member(intr(func(
             "leading_zeros",
             "__RTS_FN_NS_NUM_LEADING_ZEROS",
             Sig::new(vec![AbiType::I64], AbiType::I64),
             "leading_zeros(a: number): number",
             "Numero de zeros leading em a.",
             __RTS_FN_NS_NUM_LEADING_ZEROS as *const u8,
-        ))
-        .member(func(
+        ), Intrinsic::LeadingZeros))
+        .member(intr(func(
             "trailing_zeros",
             "__RTS_FN_NS_NUM_TRAILING_ZEROS",
             Sig::new(vec![AbiType::I64], AbiType::I64),
             "trailing_zeros(a: number): number",
             "Numero de zeros trailing em a.",
             __RTS_FN_NS_NUM_TRAILING_ZEROS as *const u8,
-        ))
-        .member(func(
+        ), Intrinsic::TrailingZeros))
+        .member(intr(func(
             "rotate_left",
             "__RTS_FN_NS_NUM_ROTATE_LEFT",
             Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::I64),
             "rotate_left(a: number, n: number): number",
             "a rotacionado n bits para a esquerda.",
             __RTS_FN_NS_NUM_ROTATE_LEFT as *const u8,
-        ))
-        .member(func(
+        ), Intrinsic::RotateLeft))
+        .member(intr(func(
             "rotate_right",
             "__RTS_FN_NS_NUM_ROTATE_RIGHT",
             Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::I64),
             "rotate_right(a: number, n: number): number",
             "a rotacionado n bits para a direita.",
             __RTS_FN_NS_NUM_ROTATE_RIGHT as *const u8,
-        ))
+        ), Intrinsic::RotateRight))
         .member(func(
             "reverse_bits",
             "__RTS_FN_NS_NUM_REVERSE_BITS",
@@ -332,14 +346,14 @@ pub fn register(e: &mut Engine) {
             "Bits invertidos (LSB->MSB).",
             __RTS_FN_NS_NUM_REVERSE_BITS as *const u8,
         ))
-        .member(func(
+        .member(intr(func(
             "swap_bytes",
             "__RTS_FN_NS_NUM_SWAP_BYTES",
             Sig::new(vec![AbiType::I64], AbiType::I64),
             "swap_bytes(a: number): number",
             "Bytes invertidos (endianness flip).",
             __RTS_FN_NS_NUM_SWAP_BYTES as *const u8,
-        ))
+        ), Intrinsic::SwapBytes))
         .member(func(
             "f64_from_bits",
             "__RTS_FN_NS_NUM_F64_FROM_BITS",

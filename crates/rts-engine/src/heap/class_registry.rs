@@ -18,7 +18,14 @@ fn registry() -> &'static Mutex<HashMap<String, String>> {
         let mut m = HashMap::new();
         // Builtins: TypeError/RangeError/SyntaxError/ReferenceError
         // extends Error.
-        for child in ["TypeError", "RangeError", "SyntaxError", "ReferenceError", "EvalError", "URIError"] {
+        for child in [
+            "TypeError",
+            "RangeError",
+            "SyntaxError",
+            "ReferenceError",
+            "EvalError",
+            "URIError",
+        ] {
             m.insert(child.to_string(), "Error".to_string());
         }
         Mutex::new(m)
@@ -43,14 +50,17 @@ pub extern "C" fn __RTS_FN_NS_GC_CLASS_REGISTER_PARENT(
         return;
     }
     ensure_init();
-    let child = unsafe {
-        std::slice::from_raw_parts(child_ptr as *const u8, child_len as usize)
+    let child = unsafe { std::slice::from_raw_parts(child_ptr as *const u8, child_len as usize) };
+    let parent =
+        unsafe { std::slice::from_raw_parts(parent_ptr as *const u8, parent_len as usize) };
+    let child_s = match std::str::from_utf8(child) {
+        Ok(s) => s,
+        Err(_) => return,
     };
-    let parent = unsafe {
-        std::slice::from_raw_parts(parent_ptr as *const u8, parent_len as usize)
+    let parent_s = match std::str::from_utf8(parent) {
+        Ok(s) => s,
+        Err(_) => return,
     };
-    let child_s = match std::str::from_utf8(child) { Ok(s) => s, Err(_) => return };
-    let parent_s = match std::str::from_utf8(parent) { Ok(s) => s, Err(_) => return };
     if let Ok(mut m) = registry().lock() {
         m.insert(child_s.to_string(), parent_s.to_string());
     }
@@ -59,15 +69,22 @@ pub extern "C" fn __RTS_FN_NS_GC_CLASS_REGISTER_PARENT(
 /// Retorna true se `name` eh `ancestor` ou tem `ancestor` na cadeia
 /// `extends` (transitivamente).
 pub fn is_descendant_of(name: &str, ancestor: &str) -> bool {
-    if name == ancestor { return true; }
+    if name == ancestor {
+        return true;
+    }
     ensure_init();
-    let map = match registry().lock() { Ok(m) => m, Err(_) => return false };
+    let map = match registry().lock() {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
     let mut cur = name.to_string();
     // Limite contra ciclos pathologicos.
     for _ in 0..64 {
         match map.get(&cur) {
             Some(parent) => {
-                if parent == ancestor { return true; }
+                if parent == ancestor {
+                    return true;
+                }
                 cur = parent.clone();
             }
             None => return false,

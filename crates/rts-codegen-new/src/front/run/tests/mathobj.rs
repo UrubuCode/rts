@@ -169,5 +169,8 @@ fn math_as_bare_value_bails() {
 fn number_predicate_on_string_is_false() {
     // `Number.isInteger` does NOT coerce — a string arg is `false` (bun: false),
     // decided on the runtime tag, never a wrong `true`.
-    super::assert_stdout(r#"let s = "5"; console.log(Number.isInteger(s));"#, "false\n");
+    super::assert_stdout(
+        r#"let s = "5"; console.log(Number.isInteger(s));"#,
+        "false\n",
+    );
 }

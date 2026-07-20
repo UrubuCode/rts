@@ -86,9 +86,7 @@ pub(super) fn lift_constructor_functions(mut program: Program) -> Program {
     let mut this_readers: HashSet<String> = HashSet::new();
     for item in &program.items {
         if let Item::Function(f) = item {
-            if !f.is_async
-                && !own_fields.contains_key(&f.name)
-                && body_has_this_instanceof(&f.body)
+            if !f.is_async && !own_fields.contains_key(&f.name) && body_has_this_instanceof(&f.body)
             {
                 this_readers.insert(f.name.clone());
             }
@@ -118,7 +116,9 @@ pub(super) fn lift_constructor_functions(mut program: Program) -> Program {
         .items
         .iter()
         .filter_map(|it| match it {
-            Item::Function(f) if consumed_fns.contains(&f.name) => Some((f.name.clone(), f.clone())),
+            Item::Function(f) if consumed_fns.contains(&f.name) => {
+                Some((f.name.clone(), f.clone()))
+            }
             _ => None,
         })
         .collect();
@@ -497,7 +497,9 @@ fn function_to_class(
 /// (the callee unwrapped through `(…)` / `… as T` casts). Walks every top-level
 /// statement and function/class-method body.
 fn collect_new_targets(program: &Program) -> HashSet<String> {
-    let mut c = NewTargetCollector { out: HashSet::new() };
+    let mut c = NewTargetCollector {
+        out: HashSet::new(),
+    };
     for item in &program.items {
         match item {
             Item::Statement(Statement::Raw(raw)) => {

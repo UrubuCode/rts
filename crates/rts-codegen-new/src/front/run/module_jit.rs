@@ -195,8 +195,10 @@ pub(crate) fn populate_module(
     // statically — the static class of a value survives a call/method result, not
     // just a `new C()` or a `let`-bound local.
     loop {
-        let snapshot: HashMap<String, Option<String>> =
-            sigs.iter().map(|(k, v)| (k.clone(), v.ret_class.clone())).collect();
+        let snapshot: HashMap<String, Option<String>> = sigs
+            .iter()
+            .map(|(k, v)| (k.clone(), v.ret_class.clone()))
+            .collect();
         let ret_of = |name: &str| snapshot.get(name).and_then(|o| o.clone());
         let mut changed = false;
         for f in funcs {
@@ -204,7 +206,9 @@ pub(crate) fn populate_module(
                 continue;
             }
             if let Some(class) = infer_ret_class(f, classes, &ret_of) {
-                sigs.get_mut(&f.name).expect("sig built in pass 1").ret_class = Some(class);
+                sigs.get_mut(&f.name)
+                    .expect("sig built in pass 1")
+                    .ret_class = Some(class);
                 changed = true;
             }
         }
@@ -360,7 +364,6 @@ pub(crate) fn populate_module(
     Ok(main_id)
 }
 
-
 /// Program-wide `globalThis.<key>` → user class, by the ALL-AGREE rule: a key maps
 /// to class `C` iff EVERY assignment `globalThis.key = <Class>` across the whole
 /// program (every function body + `main`, every nested expression) names the SAME
@@ -430,8 +433,7 @@ fn infer_globalthis_classes(
             | HirExprKind::PostInc(operand)
             | HirExprKind::PostDec(operand)
             | HirExprKind::Cast { expr: operand, .. } => scan_expr(operand, classes, acc),
-            HirExprKind::Assign { target, value }
-            | HirExprKind::AssignOp { target, value, .. } => {
+            HirExprKind::Assign { target, value } | HirExprKind::AssignOp { target, value, .. } => {
                 scan_expr(target, classes, acc);
                 scan_expr(value, classes, acc);
             }
@@ -503,7 +505,12 @@ fn infer_globalthis_classes(
                     scan_expr(cond, classes, acc);
                     walk(body, classes, acc);
                 }
-                HirStmt::For { init, cond, update, body } => {
+                HirStmt::For {
+                    init,
+                    cond,
+                    update,
+                    body,
+                } => {
                     if let Some(i) = init {
                         walk(std::slice::from_ref(i), classes, acc);
                     }
@@ -515,12 +522,21 @@ fn infer_globalthis_classes(
                     }
                     walk(body, classes, acc);
                 }
-                HirStmt::ForOf { iterable: e, body, .. } | HirStmt::ForIn { object: e, body, .. } => {
+                HirStmt::ForOf {
+                    iterable: e, body, ..
+                }
+                | HirStmt::ForIn {
+                    object: e, body, ..
+                } => {
                     scan_expr(e, classes, acc);
                     walk(body, classes, acc);
                 }
                 HirStmt::Block(body) => walk(body, classes, acc),
-                HirStmt::Try { body, catch, finally } => {
+                HirStmt::Try {
+                    body,
+                    catch,
+                    finally,
+                } => {
                     walk(body, classes, acc);
                     if let Some(c) = catch {
                         walk(&c.body, classes, acc);
@@ -529,7 +545,10 @@ fn infer_globalthis_classes(
                         walk(f, classes, acc);
                     }
                 }
-                HirStmt::Switch { discriminant, cases } => {
+                HirStmt::Switch {
+                    discriminant,
+                    cases,
+                } => {
                     scan_expr(discriminant, classes, acc);
                     for c in cases {
                         walk(&c.body, classes, acc);
@@ -545,7 +564,9 @@ fn infer_globalthis_classes(
         walk(&f.body, classes, &mut acc);
     }
     walk(&main.body, classes, &mut acc);
-    acc.into_iter().filter_map(|(k, v)| v.map(|c| (k, c))).collect()
+    acc.into_iter()
+        .filter_map(|(k, v)| v.map(|c| (k, c)))
+        .collect()
 }
 
 /// Infer the user-CLASS a function provably RETURNS: `Some(C)` iff EVERY value
@@ -559,8 +580,8 @@ fn infer_globalthis_classes(
 /// i.e. the OWNING class (the fluent-builder `return this`). A body with a value
 /// return that is NOT `this` → `false` (we never guess).
 fn method_returns_this(func: &HirFunc) -> bool {
-    use rts_hir::ir::HirExprKind;
     use rts_hir::HirStmt;
+    use rts_hir::ir::HirExprKind;
 
     fn walk(stmts: &[HirStmt], any: &mut bool, all_this: &mut bool) {
         for s in stmts {
@@ -583,7 +604,11 @@ fn method_returns_this(func: &HirFunc) -> bool {
                 | HirStmt::ForOf { body, .. }
                 | HirStmt::ForIn { body, .. }
                 | HirStmt::Block(body) => walk(body, any, all_this),
-                HirStmt::Try { body, catch, finally } => {
+                HirStmt::Try {
+                    body,
+                    catch,
+                    finally,
+                } => {
                     walk(body, any, all_this);
                     if let Some(c) = catch {
                         walk(&c.body, any, all_this);
@@ -694,7 +719,10 @@ fn infer_ret_class(
                     let saved = locals.clone();
                     let a = walk(then, classes, ret_of, locals, found);
                     *locals = saved.clone();
-                    let b = else_.as_deref().map(|e| walk(e, classes, ret_of, locals, found)).unwrap_or(true);
+                    let b = else_
+                        .as_deref()
+                        .map(|e| walk(e, classes, ret_of, locals, found))
+                        .unwrap_or(true);
                     *locals = saved;
                     a && b
                 }
@@ -709,7 +737,11 @@ fn infer_ret_class(
                     *locals = saved;
                     r
                 }
-                HirStmt::Try { body, catch, finally } => {
+                HirStmt::Try {
+                    body,
+                    catch,
+                    finally,
+                } => {
                     let saved = locals.clone();
                     let mut r = walk(body, classes, ret_of, locals, found);
                     *locals = saved.clone();

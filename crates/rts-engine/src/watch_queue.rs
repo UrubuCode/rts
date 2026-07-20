@@ -34,7 +34,11 @@ static ACTIVE: AtomicUsize = AtomicUsize::new(0);
 /// Push a watch event (called from a watcher's OS-notification thread — plain
 /// data only, never a GC handle).
 pub fn push(listener: u64, kind: u8, path: String) {
-    queue().lock().unwrap().push(WatchEvent { listener, kind, path });
+    queue().lock().unwrap().push(WatchEvent {
+        listener,
+        kind,
+        path,
+    });
 }
 
 /// Take all pending events (called by the event loop on the JS thread).

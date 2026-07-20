@@ -26,15 +26,26 @@ use rts_codegen_new::value::funcops::table_lens;
 fn global_state_accumulates_then_drains() {
     // Quiescent start: drain so the counts below are measured from empty.
     reset_codegen_state();
-    assert_eq!(global_shape_count(), 0, "reset should leave the shape registry empty");
-    assert_eq!(table_lens(), (0, 0), "reset should leave the funcops tables empty");
+    assert_eq!(
+        global_shape_count(),
+        0,
+        "reset should leave the shape registry empty"
+    );
+    assert_eq!(
+        table_lens(),
+        (0, 0),
+        "reset should leave the funcops tables empty"
+    );
 
     // Run a program that interns an object shape `{a}`.
     let out = render_source("const o = { a: 1 }; console.log(o.a);")
         .expect("object-literal program A should run");
     assert_eq!(out, "1\n");
     let after_a = global_shape_count();
-    assert!(after_a > 0, "program A should have interned at least one global shape");
+    assert!(
+        after_a > 0,
+        "program A should have interned at least one global shape"
+    );
 
     // Run a SECOND program with a DISTINCT shape `{x,y}` and NO reset between.
     // Because nothing drains between runs, the registry now holds BOTH shapes —

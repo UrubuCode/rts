@@ -52,7 +52,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // - a STATIC (`Promise.resolve(4)` → its spec ret class);
             // - an INSTANCE method on a receiver whose class this same fn
             //   resolves (`p.then(a).then(b)` — recursion covers N-deep chains).
-            HirExprKind::MethodCall { object: inner, method, .. } => {
+            HirExprKind::MethodCall {
+                object: inner,
+                method,
+                ..
+            } => {
                 if let HirExprKind::Ident(cn) = &inner.kind {
                     if self.local(cn).is_none() {
                         if let Some(c) = super::registry::class_statics(cn, method)
@@ -71,7 +75,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // without the intermediate local): the getter's spec ts-signature
             // names its class (`readonly searchParams: URLSearchParams`) —
             // data-driven, recursion covers N-deep chains.
-            HirExprKind::Member { object: inner, prop } => {
+            HirExprKind::Member {
+                object: inner,
+                prop,
+            } => {
                 let recv = self.global_instance_class(inner)?;
                 super::registry::class_getter_ret_class(&recv, prop)
             }

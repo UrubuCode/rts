@@ -60,30 +60,98 @@ pub fn register_mapset_class_spec(e: &mut rts_engine::Engine) {
     // mesmo handle e os símbolos __RTS_FN_NS_COLLECTIONS_* tratam ambos.
     let members = || -> Vec<Member> {
         vec![
-            m("clear", Sig::new(vec![AbiType::Handle], AbiType::Void), "__RTS_FN_NS_COLLECTIONS_MAP_CLEAR"),
-            m("size", Sig::new(vec![AbiType::Handle], AbiType::I64), "__RTS_FN_NS_COLLECTIONS_MAP_LEN"),
-            m("keys", Sig::new(vec![AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_MAP_KEYS"),
-            m("values", Sig::new(vec![AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_MAP_VALUES"),
-            m("entries", Sig::new(vec![AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION"),
-            m("union", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_SET_UNION"),
-            m("intersection", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_SET_INTERSECTION"),
-            m("difference", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_SET_DIFFERENCE"),
-            m("symmetricDifference", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_SET_SYMMETRIC_DIFFERENCE"),
-            m("isSubsetOf", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool), "__RTS_FN_NS_COLLECTIONS_SET_IS_SUBSET"),
-            m("isSupersetOf", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool), "__RTS_FN_NS_COLLECTIONS_SET_IS_SUPERSET"),
-            m("isDisjointFrom", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool), "__RTS_FN_NS_COLLECTIONS_SET_IS_DISJOINT"),
+            m(
+                "clear",
+                Sig::new(vec![AbiType::Handle], AbiType::Void),
+                "__RTS_FN_NS_COLLECTIONS_MAP_CLEAR",
+            ),
+            m(
+                "size",
+                Sig::new(vec![AbiType::Handle], AbiType::I64),
+                "__RTS_FN_NS_COLLECTIONS_MAP_LEN",
+            ),
+            m(
+                "keys",
+                Sig::new(vec![AbiType::Handle], AbiType::Handle),
+                "__RTS_FN_NS_COLLECTIONS_MAP_KEYS",
+            ),
+            m(
+                "values",
+                Sig::new(vec![AbiType::Handle], AbiType::Handle),
+                "__RTS_FN_NS_COLLECTIONS_MAP_VALUES",
+            ),
+            m(
+                "entries",
+                Sig::new(vec![AbiType::Handle], AbiType::Handle),
+                "__RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION",
+            ),
+            m(
+                "union",
+                Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle),
+                "__RTS_FN_NS_COLLECTIONS_SET_UNION",
+            ),
+            m(
+                "intersection",
+                Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle),
+                "__RTS_FN_NS_COLLECTIONS_SET_INTERSECTION",
+            ),
+            m(
+                "difference",
+                Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle),
+                "__RTS_FN_NS_COLLECTIONS_SET_DIFFERENCE",
+            ),
+            m(
+                "symmetricDifference",
+                Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle),
+                "__RTS_FN_NS_COLLECTIONS_SET_SYMMETRIC_DIFFERENCE",
+            ),
+            m(
+                "isSubsetOf",
+                Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool),
+                "__RTS_FN_NS_COLLECTIONS_SET_IS_SUBSET",
+            ),
+            m(
+                "isSupersetOf",
+                Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool),
+                "__RTS_FN_NS_COLLECTIONS_SET_IS_SUPERSET",
+            ),
+            m(
+                "isDisjointFrom",
+                Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool),
+                "__RTS_FN_NS_COLLECTIONS_SET_IS_DISJOINT",
+            ),
             // Métodos com CHAVE drenados (Grupo B-núcleo): key como handle único,
             // runtime AUTO deriva a key (set_stable_key/string content). set
             // (value frac-float bitcast) e forEach (callback) seguem no builtin.
-            m("add", Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_SET_ADD"),
-            m("has", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool), "__RTS_FN_NS_COLLECTIONS_HAS_AUTO"),
-            m("delete", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool), "__RTS_FN_NS_COLLECTIONS_DELETE_AUTO"),
+            m(
+                "add",
+                Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::Handle),
+                "__RTS_FN_NS_COLLECTIONS_SET_ADD",
+            ),
+            m(
+                "has",
+                Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool),
+                "__RTS_FN_NS_COLLECTIONS_HAS_AUTO",
+            ),
+            m(
+                "delete",
+                Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Bool),
+                "__RTS_FN_NS_COLLECTIONS_DELETE_AUTO",
+            ),
             // forEach(cb): callback como I64 (fn-ptr/handle). A reificação COM
             // captura (lifted arrow) é feita pelo emissor genérico (ns_call.rs).
-            m("forEach", Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::Void), "__RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH"),
+            m(
+                "forEach",
+                Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::Void),
+                "__RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH",
+            ),
             {
                 // get: retorno ambíguo (valor ou undefined-sentinel) → AMBIGUOUS_RET.
-                let mut g = m("get", Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::I64), "__RTS_FN_NS_COLLECTIONS_MAP_GET_AUTO_H");
+                let mut g = m(
+                    "get",
+                    Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::I64),
+                    "__RTS_FN_NS_COLLECTIONS_MAP_GET_AUTO_H",
+                );
                 g.flags = MemberFlags::AMBIGUOUS_RET;
                 g
             },

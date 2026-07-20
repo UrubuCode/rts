@@ -11,8 +11,8 @@
 //!   Ignora `writable`/`enumerable`/`configurable` (sempre true) e
 //!   accessor descriptors (`get`/`set`). Retorna 1.
 
-use rts_engine::heap::handles::{Entry, alloc_entry, with_entry};
 use indexmap::IndexMap;
+use rts_engine::heap::handles::{Entry, alloc_entry, with_entry};
 
 /// Helper: extrai o conteudo string de um handle (para usar como key
 /// em map_*). Retorna None se o handle nao eh string.

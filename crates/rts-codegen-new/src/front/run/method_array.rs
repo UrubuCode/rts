@@ -146,16 +146,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let arr_word = self.box_value(arr);
                 let src = self.lower_expr(module, inner)?;
                 let src_word = self.box_value(src);
-                self.call_runtime(
-                    module,
-                    "__rtsadp_arr_spread_append",
-                    &[arr_word, src_word],
-                )?;
-                let len = crate::value::emit_marshal::emit_vec_len(
-                    module,
-                    self.builder,
-                    arr_word,
-                );
+                self.call_runtime(module, "__rtsadp_arr_spread_append", &[arr_word, src_word])?;
+                let len = crate::value::emit_marshal::emit_vec_len(module, self.builder, arr_word);
                 return Ok(Val::new(len, crate::repr::Repr::Int64));
             }
         }

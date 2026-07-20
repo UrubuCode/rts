@@ -28,25 +28,25 @@
 //! e `trace` só é usado pelo coletor de ciclos — **sem mudança no codegen**,
 //! porque os símbolos e a forma das ops não mudam.
 
-/// Registry de stack maps do JIT (PCs de safepoint → SP-offsets) — escrito pelo
-/// codegen após `finalize_definitions`, lido pelo scanner do collector. Std puro.
-pub mod stack_map_registry;
-/// Registry de globals top-level com handles (data symbols) que o GC marca como
-/// roots — escrito pelo codegen, lido pelo scanner. Std puro. (#407)
-pub mod global_roots;
-/// Registry de threads do RTS (worker tokio + main) p/ o scanner do GC suspender
-/// + varrer a stack/registradores de cada uma. Std + FFI `extern "system"`
-/// (SuspendThread/GetThreadContext, cfg Windows) — sem dep de crate.
-pub mod thread_registry;
 /// Flag de debug do GC (`RTS_GC_DEBUG`). Std puro.
 pub mod debug;
 /// Mapa thread-local `handle -> stack_text` p/ `Error.prototype.stack` (#745).
 /// Puro (sem GC); o slot de erro pendente fica no runtime. Std puro.
 pub mod err_stack;
+/// Registry de globals top-level com handles (data symbols) que o GC marca como
+/// roots — escrito pelo codegen, lido pelo scanner. Std puro. (#407)
+pub mod global_roots;
 /// Scanner conservativo de roots (asm RSP, ranges, suspensão de threads) — o
 /// mecanismo de root-finding, parametrizado por um `visit` callback. O runtime
 /// passa `mark_handle`. Ver [`scan::scan_all_roots`].
 pub mod scan;
+/// Registry de stack maps do JIT (PCs de safepoint → SP-offsets) — escrito pelo
+/// codegen após `finalize_definitions`, lido pelo scanner do collector. Std puro.
+pub mod stack_map_registry;
+/// Registry de threads do RTS (worker tokio + main) p/ o scanner do GC suspender
+/// + varrer a stack/registradores de cada uma. Std + FFI `extern "system"`
+/// (SuspendThread/GetThreadContext, cfg Windows) — sem dep de crate.
+pub mod thread_registry;
 
 pub use crate::abi::handles::{
     HANDLE_GEN_SHIFT, HANDLE_N_SHARDS, HANDLE_SHARD_BITS, HANDLE_SHARD_MASK, HANDLE_SLOT_MASK,

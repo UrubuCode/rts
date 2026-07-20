@@ -94,9 +94,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // names; an invalid out-of-scope read is tsc's to reject).
             HirStmt::Block(stmts)
                 if !stmts.is_empty()
-                    && stmts.iter().all(|s| {
-                        matches!(s, HirStmt::Let { .. } | HirStmt::Const { .. })
-                    }) =>
+                    && stmts
+                        .iter()
+                        .all(|s| matches!(s, HirStmt::Let { .. } | HirStmt::Const { .. })) =>
             {
                 self.lower_block(module, stmts)
             }
@@ -227,7 +227,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.block_terminated = true;
         Ok(())
     }
-
 
     /// `obj.prop++` / `arr[i]--` (side-effect-free object, already checked): read the
     /// OLD value, store `target = target ± 1` via a synthesized member/index `=`

@@ -310,7 +310,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(None);
         };
         let kind = super::registry::const_result_kind(&call);
-        self.emit_registry_call(module, &call, None, &[], kind).map(Some)
+        self.emit_registry_call(module, &call, None, &[], kind)
+            .map(Some)
     }
 
     pub(super) fn lower_member(
@@ -330,7 +331,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // value needs reifying. A receiver whose class is NOT statically known (a
         // `getPrototypeOf(...)` result, a param) falls through. ----
         if prop == "name" {
-            if let HirExprKind::Member { object: inner, prop: cprop } = &object.kind {
+            if let HirExprKind::Member {
+                object: inner,
+                prop: cprop,
+            } = &object.kind
+            {
                 if cprop == "constructor" {
                     if let Some(class) = self.static_instance_class(inner) {
                         let lit = HirExpr::new(
@@ -357,10 +362,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                         let n = sig.params.len() as i64
                             - i64::from(sig.rest_param.is_some())
                             - i64::from(sig.has_this);
-                        let v = self
-                            .builder
-                            .ins()
-                            .iconst(types::I64, value::PolyValue::from_i32(n.max(0) as i32).raw() as i64);
+                        let v = self.builder.ins().iconst(
+                            types::I64,
+                            value::PolyValue::from_i32(n.max(0) as i32).raw() as i64,
+                        );
                         return Ok(Val::new(v, Repr::Tagged));
                     }
                 }
@@ -572,9 +577,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     None => {
                         if let Some(fn_name) = self
                             .instance_class_of(object)
-                            .and_then(|c| {
-                                self.classes.get(&c).and_then(|d| d.method_fn(prop))
-                            })
+                            .and_then(|c| self.classes.get(&c).and_then(|d| d.method_fn(prop)))
                             .map(str::to_string)
                         {
                             return self.reify_function(module, &fn_name);
@@ -994,8 +997,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 object,
                 method,
                 args,
-            } if (method == super::desugar::OPT_GET
-                || method == super::desugar::OPT_INDEX)
+            } if (method == super::desugar::OPT_GET || method == super::desugar::OPT_INDEX)
                 && args.len() == 1 =>
             {
                 let obj = self.lower_expr(module, object)?;
@@ -1049,7 +1051,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let word = self.box_value(v);
                 let obj_word = self.load_local_word(&name);
                 self.call_runtime(module, "__rtsadp_obj_set", &[obj_word, key_word, word])?;
-            self.emit_post_call_error_check(module)?; // Proxy set trap / setter can THROW
+                self.emit_post_call_error_check(module)?; // Proxy set trap / setter can THROW
                 // The runtime set may ADD a key (shape transition), so the local's
                 // compile-time shape is no longer authoritative — route its future
                 // reads through the DYNAMIC path (which reads the live runtime shape).
@@ -1078,7 +1080,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let v = self.lower_expr(module, value)?;
         let word = self.box_value(v);
         self.call_runtime(module, "__rtsadp_obj_set", &[recv_word, key_word, word])?;
-            self.emit_post_call_error_check(module)?; // Proxy set trap / setter can THROW
+        self.emit_post_call_error_check(module)?; // Proxy set trap / setter can THROW
         Ok(Val::new(word, Repr::Tagged))
     }
 
@@ -1344,7 +1346,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let word = self.box_value(v);
         let obj_word = self.load_local_word(name);
         self.call_runtime(module, "__rtsadp_obj_set", &[obj_word, key_word, word])?;
-            self.emit_post_call_error_check(module)?; // Proxy set trap / setter can THROW
+        self.emit_post_call_error_check(module)?; // Proxy set trap / setter can THROW
         Ok(Val::new(word, Repr::Tagged))
     }
 
@@ -1406,7 +1408,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let v = self.lower_expr(module, value)?;
         let word = self.box_value(v);
         self.call_runtime(module, "__rtsadp_obj_set", &[recv_word, key_word, word])?;
-            self.emit_post_call_error_check(module)?; // Proxy set trap / setter can THROW
+        self.emit_post_call_error_check(module)?; // Proxy set trap / setter can THROW
         Ok(Val::new(word, Repr::Tagged))
     }
 

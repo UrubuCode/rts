@@ -4,8 +4,8 @@
 
 use std::collections::HashMap;
 
-use crate::{FnPtr, Member};
 use crate::abi::MemberKind;
+use crate::{FnPtr, Member};
 
 /// Um módulo importável (`import { x } from "<scheme>:<name>"`).
 #[derive(Debug, Clone)]
@@ -51,17 +51,14 @@ impl Class {
     /// `GlobalClassSpec::resolve_instance_method` (docs/specs/rts-engine-dispatch.md §4.3): aridade
     /// exata → aceita-via-variádico → first-by-name.
     pub fn resolve_instance_method(&self, name: &str, n_args: usize) -> Option<&Member> {
-        let named = |m: &&Member| {
-            matches!(m.kind, MemberKind::InstanceMethod) && m.matches_name(name)
-        };
+        let named =
+            |m: &&Member| matches!(m.kind, MemberKind::InstanceMethod) && m.matches_name(name);
         self.members
             .iter()
             .find(|m| named(m) && m.sig.explicit_arity() == n_args)
             .or_else(|| {
                 self.members.iter().find(|m| {
-                    named(m)
-                        && m.variadic
-                        && n_args >= m.sig.explicit_arity().saturating_sub(1)
+                    named(m) && m.variadic && n_args >= m.sig.explicit_arity().saturating_sub(1)
                 })
             })
             .or_else(|| self.members.iter().find(named))
@@ -211,7 +208,8 @@ impl Registry {
     }
 
     pub(crate) fn insert_global(&mut self, member: Member) {
-        self.jit_symbols.insert(member.symbol.clone(), member.fn_ptr);
+        self.jit_symbols
+            .insert(member.symbol.clone(), member.fn_ptr);
         self.globals.insert(member.name.clone(), member);
     }
 }

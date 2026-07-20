@@ -73,8 +73,13 @@ pub(super) fn build_opt_chain(oc: &swc_ecma_ast::OptChainExpr) -> Option<HirExpr
                 // The receiver `cur` is re-evaluated in the present branch, so it must
                 // be side-effect-free (an ident / member / opt_get chain); an impure
                 // receiver bails the whole chain (a clean `Raw`, never a double effect).
-                if let (Some(name), Some(Step::Call { args, optional: false })) =
-                    (str_lit_key(key), steps.get(i + 1))
+                if let (
+                    Some(name),
+                    Some(Step::Call {
+                        args,
+                        optional: false,
+                    }),
+                ) = (str_lit_key(key), steps.get(i + 1))
                 {
                     // An IMPURE receiver is fine: the OPT_METHOD_CALL lowering
                     // evaluates it ONCE into a hidden temp and dispatches over
@@ -111,9 +116,7 @@ fn is_pure_recv(e: &HirExpr) -> bool {
     match &e.kind {
         HirExprKind::Ident(_) | HirExprKind::Lit(_) => true,
         HirExprKind::Member { object, .. } => is_pure_recv(object),
-        HirExprKind::MethodCall { method, object, .. } if method == OPT_GET => {
-            is_pure_recv(object)
-        }
+        HirExprKind::MethodCall { method, object, .. } if method == OPT_GET => is_pure_recv(object),
         _ => false,
     }
 }

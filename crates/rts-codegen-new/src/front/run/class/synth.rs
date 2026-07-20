@@ -67,7 +67,10 @@ pub(crate) fn static_field_getter_name(class: &str, field: &str) -> String {
 /// per-class form (`#x@Class` — see [`mangle_private_name`]); a public field
 /// keeps its name.
 fn field_slot_name(name: &str, renames: &std::collections::HashMap<String, String>) -> String {
-    renames.get(name).cloned().unwrap_or_else(|| name.to_string())
+    renames
+        .get(name)
+        .cloned()
+        .unwrap_or_else(|| name.to_string())
 }
 
 /// The private-field COLLISION renames of `decl` vs its ancestor chain (see
@@ -292,16 +295,18 @@ pub(super) fn build_class(
     // the declaring class body, the same access rule.
     let mut member_access: HashMap<String, (rts_ast::ast::Visibility, String)> =
         parent.map(|p| p.member_access.clone()).unwrap_or_default();
-    let mut readonly_fields: std::collections::HashSet<String> =
-        parent.map(|p| p.readonly_fields.clone()).unwrap_or_default();
+    let mut readonly_fields: std::collections::HashSet<String> = parent
+        .map(|p| p.readonly_fields.clone())
+        .unwrap_or_default();
     for pd in &m.props {
         let slot = field_slot_name(&pd.name, &priv_renames);
         let vis = if pd.name.starts_with('#') {
             Some(rts_ast::ast::Visibility::Private)
         } else {
             match pd.modifiers.visibility {
-                Some(v @ (rts_ast::ast::Visibility::Private
-                | rts_ast::ast::Visibility::Protected)) => Some(v),
+                Some(
+                    v @ (rts_ast::ast::Visibility::Private | rts_ast::ast::Visibility::Protected),
+                ) => Some(v),
                 _ => None,
             }
         };
@@ -317,8 +322,9 @@ pub(super) fn build_class(
             Some(rts_ast::ast::Visibility::Private)
         } else {
             match md.modifiers.visibility {
-                Some(v @ (rts_ast::ast::Visibility::Private
-                | rts_ast::ast::Visibility::Protected)) => Some(v),
+                Some(
+                    v @ (rts_ast::ast::Visibility::Private | rts_ast::ast::Visibility::Protected),
+                ) => Some(v),
                 _ => None,
             }
         };
@@ -526,7 +532,10 @@ fn build_ctor(
     for pd in &m.props {
         if let Some(init_expr) = &pd.initializer {
             let value = rts_hir::lower::lower_swc_expr(init_expr, &scope);
-            prologue.push(this_field_assign(&field_slot_name(&pd.name, &priv_renames), value));
+            prologue.push(this_field_assign(
+                &field_slot_name(&pd.name, &priv_renames),
+                value,
+            ));
         }
     }
 

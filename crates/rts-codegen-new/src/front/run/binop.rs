@@ -170,8 +170,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     let found = found
                         || matches!(
                             s.as_str(),
-                            "toString" | "valueOf" | "hasOwnProperty" | "isPrototypeOf"
-                                | "propertyIsEnumerable" | "toLocaleString" | "constructor"
+                            "toString"
+                                | "valueOf"
+                                | "hasOwnProperty"
+                                | "isPrototypeOf"
+                                | "propertyIsEnumerable"
+                                | "toLocaleString"
+                                | "constructor"
                         );
                     self.lower_expr(module, rhs)?; // evaluate for effects
                     let v = self.builder.ins().iconst(types::I64, i64::from(found));

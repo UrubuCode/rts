@@ -13,27 +13,10 @@ use rts_engine::heap::handles::{Entry, alloc_entry, with_entry};
 
 unsafe extern "C" {
     fn __RTS_FN_RT_INVOKE_AUTO(callee: i64, this_arg: i64, args_handle: u64) -> i64;
-    fn __RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN(
-        handle: u64,
-        key_ptr: *const u8,
-        key_len: i64,
-    ) -> i64;
-    fn __RTS_FN_NS_COLLECTIONS_MAP_SET(
-        handle: u64,
-        key_ptr: *const u8,
-        key_len: i64,
-        value: i64,
-    );
-    fn __RTS_FN_NS_COLLECTIONS_MAP_HAS(
-        handle: u64,
-        key_ptr: *const u8,
-        key_len: i64,
-    ) -> i64;
-    fn __RTS_FN_NS_COLLECTIONS_MAP_DELETE(
-        handle: u64,
-        key_ptr: *const u8,
-        key_len: i64,
-    ) -> i64;
+    fn __RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN(handle: u64, key_ptr: *const u8, key_len: i64) -> i64;
+    fn __RTS_FN_NS_COLLECTIONS_MAP_SET(handle: u64, key_ptr: *const u8, key_len: i64, value: i64);
+    fn __RTS_FN_NS_COLLECTIONS_MAP_HAS(handle: u64, key_ptr: *const u8, key_len: i64) -> i64;
+    fn __RTS_FN_NS_COLLECTIONS_MAP_DELETE(handle: u64, key_ptr: *const u8, key_len: i64) -> i64;
     fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(handle: u64) -> u64;
     fn __RTS_FN_NS_COLLECTIONS_MAP_GET_PROTO(handle: u64) -> u64;
     fn __RTS_FN_GL_FUNCTION_APPLY(fn_h: u64, this_arg: i64, args_handle: u64) -> i64;
@@ -192,7 +175,11 @@ pub fn dispatch_own_keys(target: u64, handler: u64) -> u64 {
     // Trap deve retornar um Vec handle. Se nao for, devolve Vec vazio.
     let h = r as u64;
     let is_vec = with_entry(h, |e| matches!(e, Some(Entry::Vec(_))));
-    if is_vec { h } else { alloc_entry(Entry::Vec(Box::new(Vec::new()))) }
+    if is_vec {
+        h
+    } else {
+        alloc_entry(Entry::Vec(Box::new(Vec::new())))
+    }
 }
 
 /// (#98) `Object.keys(proxy)` — ECMA-262 OrdinaryOwnPropertyKeys filtra
@@ -218,9 +205,10 @@ pub fn dispatch_own_keys_enumerable(target: u64, handler: u64) -> u64 {
             continue;
         }
         // undefined => prop ausente, pula.
-        let is_undef = with_entry(desc, |e| {
-            matches!(e, Some(Entry::String(b)) if b.as_slice() == b"undefined")
-        });
+        let is_undef = with_entry(
+            desc,
+            |e| matches!(e, Some(Entry::String(b)) if b.as_slice() == b"undefined"),
+        );
         if is_undef {
             continue;
         }
@@ -297,7 +285,9 @@ pub extern "C" fn __RTS_FN_GL_REFLECT_CONSTRUCT(target: u64, args_handle: u64) -
     // Forward default: aloca instancia + apply.
     let inst = alloc_entry(Entry::Map(Box::new(indexmap::IndexMap::new())));
     let _ = rts_primitives::function::ops::__RTS_FN_GL_FUNCTION_APPLY_TYPED(
-        target, inst as i64, args_handle,
+        target,
+        inst as i64,
+        args_handle,
     );
     inst
 }
@@ -311,12 +301,7 @@ pub fn dispatch_set_proto(target: u64, handler: u64, proto: u64) -> i64 {
         // Forward: escreve __proto__ direto no target Map.
         let key = "__proto__";
         unsafe {
-            __RTS_FN_NS_COLLECTIONS_MAP_SET(
-                target,
-                key.as_ptr(),
-                key.len() as i64,
-                proto as i64,
-            );
+            __RTS_FN_NS_COLLECTIONS_MAP_SET(target, key.as_ptr(), key.len() as i64, proto as i64);
         }
         return 1;
     }
@@ -334,12 +319,7 @@ pub extern "C" fn __RTS_FN_GL_REFLECT_SET_PROTOTYPE_OF(target: u64, proto: u64) 
     }
     let key = "__proto__";
     unsafe {
-        __RTS_FN_NS_COLLECTIONS_MAP_SET(
-            target,
-            key.as_ptr(),
-            key.len() as i64,
-            proto as i64,
-        );
+        __RTS_FN_NS_COLLECTIONS_MAP_SET(target, key.as_ptr(), key.len() as i64, proto as i64);
     }
     1
 }
@@ -390,11 +370,7 @@ fn forward_define_property(target: u64, key_handle: u64, descriptor: u64) -> i64
 /// descriptor sintetizado, ou 0 quando ausente. Sem trap, monta o
 /// descriptor v0 (writable/enumerable/configurable=true) a partir do
 /// slot do target Map.
-pub fn dispatch_get_own_property_descriptor(
-    target: u64,
-    handler: u64,
-    key_handle: u64,
-) -> u64 {
+pub fn dispatch_get_own_property_descriptor(target: u64, handler: u64, key_handle: u64) -> u64 {
     let trap = lookup_trap(handler, "getOwnPropertyDescriptor");
     if trap == 0 {
         return forward_get_own_property_descriptor(target, key_handle);
@@ -418,7 +394,9 @@ fn forward_get_own_property_descriptor(target: u64, key_handle: u64) -> u64 {
     });
     // (#795) JS spec: undefined quando prop nao existe. Handle string
     // "undefined" — TPL_COERCE_AUTO renderiza como "undefined".
-    let Some(v) = value else { return alloc_entry(Entry::String(b"undefined".to_vec())) };
+    let Some(v) = value else {
+        return alloc_entry(Entry::String(b"undefined".to_vec()));
+    };
     // (cross-runtime #795) consulta flag tracking pra preservar
     // writable/enumerable definidos via defineProperty.
     let writable_bool = !crate::collections::map::is_non_writable(target, &key_str);
@@ -427,15 +405,35 @@ fn forward_get_own_property_descriptor(target: u64, key_handle: u64) -> u64 {
     // (is_non_configurable). Antes hardcodava true aqui, regredindo
     // 349_object_descriptors quando getOwnPropertyDescriptor passou a
     // rotear pela versao _PROXY.
-    let configurable_bool =
-        !crate::collections::map::is_non_configurable(target, &key_str);
+    let configurable_bool = !crate::collections::map::is_non_configurable(target, &key_str);
     let mut desc: indexmap::IndexMap<String, i64> = indexmap::IndexMap::new();
     desc.insert("value".to_string(), v);
     // Bool sentinels (i64::MIN+1 = true, i64::MIN = false) pra TPL_COERCE_AUTO
     // formatar como "true"/"false" em vez de inteiros raw.
-    desc.insert("writable".to_string(), if writable_bool { i64::MIN + 1 } else { i64::MIN });
-    desc.insert("enumerable".to_string(), if enumerable_bool { i64::MIN + 1 } else { i64::MIN });
-    desc.insert("configurable".to_string(), if configurable_bool { i64::MIN + 1 } else { i64::MIN });
+    desc.insert(
+        "writable".to_string(),
+        if writable_bool {
+            i64::MIN + 1
+        } else {
+            i64::MIN
+        },
+    );
+    desc.insert(
+        "enumerable".to_string(),
+        if enumerable_bool {
+            i64::MIN + 1
+        } else {
+            i64::MIN
+        },
+    );
+    desc.insert(
+        "configurable".to_string(),
+        if configurable_bool {
+            i64::MIN + 1
+        } else {
+            i64::MIN
+        },
+    );
     alloc_entry(Entry::Map(Box::new(desc)))
 }
 
@@ -467,8 +465,8 @@ pub extern "C" fn __RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_PROXY(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rts_engine::heap::handles::{Entry, alloc_entry};
     use indexmap::IndexMap;
+    use rts_engine::heap::handles::{Entry, alloc_entry};
 
     #[test]
     fn proxy_new_with_invalid_handler_returns_zero() {

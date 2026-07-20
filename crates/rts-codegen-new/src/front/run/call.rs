@@ -54,7 +54,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // front names no non-primordial; here it names nothing at all, just the
         // `prototype` key). The receiver `recv` (first arg) becomes the method's `this`.
         if method == "call" && !args.is_empty() {
-            if let HirExprKind::Member { object: inner, prop: m } = &object.kind {
+            if let HirExprKind::Member {
+                object: inner,
+                prop: m,
+            } = &object.kind
+            {
                 if let HirExprKind::Member { prop: proto, .. } = &inner.kind {
                     if proto == "prototype" {
                         return self.lower_method_call(module, &args[0], m, &args[1..]);
@@ -155,9 +159,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 if args.len() <= 3 {
                     let recv = self.lower_expr(module, object)?;
                     let recv_word = self.box_value(recv);
-                    return self.lower_value_call_word_with_this(
-                        module, prop_word, recv_word, args,
-                    );
+                    return self
+                        .lower_value_call_word_with_this(module, prop_word, recv_word, args);
                 }
                 return self.lower_value_call_word(module, prop_word, args);
             }
@@ -319,7 +322,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     module, fn_word, this_word, call_args,
                 )?));
             }
-            return Ok(Some(self.lower_value_call_word(module, fn_word, call_args)?));
+            return Ok(Some(
+                self.lower_value_call_word(module, fn_word, call_args)?,
+            ));
         }
         // `.apply(thisArg, args?)` — thread the RECEIVER through the
         // method-aware invoke (a this-first callee reads it; a plain fn
@@ -333,18 +338,23 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         };
         match args.get(1) {
             None => match this_word {
-                Some(tw) => Ok(Some(
-                    self.lower_value_call_word_with_this(module, fn_word, tw, &[])?,
-                )),
+                Some(tw) => Ok(Some(self.lower_value_call_word_with_this(
+                    module,
+                    fn_word,
+                    tw,
+                    &[],
+                )?)),
                 None => Ok(Some(self.lower_value_call_word(module, fn_word, &[])?)),
             },
             // A LITERAL array → lower each element directly (the cheap, exact path).
             Some(a) if matches!(a.kind, HirExprKind::Array(_)) => {
-                let HirExprKind::Array(elems) = &a.kind else { unreachable!() };
+                let HirExprKind::Array(elems) = &a.kind else {
+                    unreachable!()
+                };
                 match this_word {
-                    Some(tw) => Ok(Some(self.lower_value_call_word_with_this(
-                        module, fn_word, tw, elems,
-                    )?)),
+                    Some(tw) => Ok(Some(
+                        self.lower_value_call_word_with_this(module, fn_word, tw, elems)?,
+                    )),
                     None => Ok(Some(self.lower_value_call_word(module, fn_word, elems)?)),
                 }
             }
@@ -609,7 +619,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let handle = emit_marshal::emit_table_load(module, self.builder, buf_word);
         let ret_val = self.lower_expr(module, ret)?;
         let ret_word = self.box_value(ret_val);
-        self.call_runtime(module, "__RTS_FN_NS_GC_GENERATOR_SET_RET", &[handle, ret_word])?;
+        self.call_runtime(
+            module,
+            "__RTS_FN_NS_GC_GENERATOR_SET_RET",
+            &[handle, ret_word],
+        )?;
         Ok(Val::tagged_kind(buf_word, JsKind::Array))
     }
 
@@ -636,7 +650,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let w = self.box_value(v);
                 self.call_runtime(module, "__RTS_FN_NS_GC_GENERATOR_NEXT_SENT", &[handle, w])?
             }
-            ("next", None) => self.call_runtime(module, "__RTS_FN_NS_GC_GENERATOR_NEXT", &[handle])?,
+            ("next", None) => {
+                self.call_runtime(module, "__RTS_FN_NS_GC_GENERATOR_NEXT", &[handle])?
+            }
             (m, arg) => {
                 // `.return(v)` / `.throw(e)` — pass the (optional) arg word.
                 let w = match arg {
@@ -677,7 +693,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .ins()
             .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
         let is_old_undef = self.builder.ins().icmp(IntCC::Equal, value_raw, old_undef);
-        let value_word = self.builder.ins().select(is_old_undef, new_undef, value_raw);
+        let value_word = self
+            .builder
+            .ins()
+            .select(is_old_undef, new_undef, value_raw);
         // done flag → PolyValue bool.
         let done_flag = self
             .call_runtime(module, "__RTS_FN_NS_GC_ITER_DONE", &[result_map])
@@ -913,7 +932,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 if let HirExprKind::Ident(fname) = &a.kind {
                     if self.local(fname).is_none()
                         && !self.captures.contains_key(fname)
-                        && self.sigs.get(fname).is_some_and(|s| !s.has_this && !s.is_async)
+                        && self
+                            .sigs
+                            .get(fname)
+                            .is_some_and(|s| !s.has_this && !s.is_async)
                     {
                         if let Some(&fid) = self.ids.get(fname) {
                             let fref = module.declare_func_in_func(fid, self.builder.func);
@@ -997,11 +1019,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// RECEIVER as `a0` (the accessor/`__get_` dispatch, `fn.call(this, …)`)
     /// binds `this` correctly. Used to MATERIALIZE object-literal methods /
     /// accessors as own fn-word slots.
-    pub(super) fn reify_method(
-        &mut self,
-        module: &mut dyn Module,
-        name: &str,
-    ) -> FrontResult<Val> {
+    pub(super) fn reify_method(&mut self, module: &mut dyn Module, name: &str) -> FrontResult<Val> {
         self.reify_function_inner(module, name, true)
     }
 
@@ -1021,8 +1039,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // Promise pendente boxada, o contrato JS de chamar um async fn.
             // Shapes fora do contrato do spawn (this/rest/>8 params) continuam
             // recusando (o thunk deles ainda é o inline legado).
-            let spawn_ok =
-                !sig.has_this && sig.rest_param.is_none() && sig.params.len() <= 8;
+            let spawn_ok = !sig.has_this && sig.rest_param.is_none() && sig.params.len() <= 8;
             if !spawn_ok {
                 return unsupported!(
                     "async/generator function `{name}` as a VALUE (it returns a Promise / suspends — a later increment)"
@@ -1134,7 +1151,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let has_rest_v = self.builder.ins().iconst(types::I64, 0);
         let env_word = self.builder.ins().iconst(types::I64, 0);
         let payload = self
-            .call_runtime(module, "__rtsadp_fn_reify", &[addr, nparams_v, has_rest_v, env_word])?
+            .call_runtime(
+                module,
+                "__rtsadp_fn_reify",
+                &[addr, nparams_v, has_rest_v, env_word],
+            )?
             .expect("__rtsadp_fn_reify returns a value");
         let header = value::encode(value::TAG_FUNCTION, 0) as i64;
         let mask = self
@@ -1307,11 +1328,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             for a in args {
                 if let HirExprKind::Spread(inner) = &a.kind {
                     let src_word = self.spread_source_array_word(module, inner)?;
-                    self.call_runtime(
-                        module,
-                        "__rtsadp_arr_spread_append",
-                        &[arr, src_word],
-                    )?;
+                    self.call_runtime(module, "__rtsadp_arr_spread_append", &[arr, src_word])?;
                 } else {
                     let v = self.lower_expr(module, a)?;
                     let word = self.box_value(v);
@@ -1420,10 +1437,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     let arr = self.lower_expr(module, inner)?;
                     let arr_word = self.box_value(arr);
                     for (i, &want) in user_params.iter().enumerate() {
-                        let idx = self
-                            .builder
-                            .ins()
-                            .iconst(types::I64, value::PolyValue::from_i32(i as i32).raw() as i64);
+                        let idx = self.builder.ins().iconst(
+                            types::I64,
+                            value::PolyValue::from_i32(i as i32).raw() as i64,
+                        );
                         let w = self
                             .call_runtime(module, "__rtsadp_idx_get", &[arr_word, idx])?
                             .expect("__rtsadp_idx_get returns a value");

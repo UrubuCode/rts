@@ -88,7 +88,15 @@ fn cst(name: &str, symbol: &str, ts: &str, doc: &str, fp: *const u8) -> Member {
 }
 
 /// Função `mem.f(args)`.
-fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8, pure: bool) -> Member {
+fn func(
+    name: &str,
+    symbol: &str,
+    sig: Sig,
+    ts: &str,
+    doc: &str,
+    fp: *const u8,
+    pure: bool,
+) -> Member {
     Member {
         name: name.to_string(),
         kind: MemberKind::Function,
@@ -109,15 +117,83 @@ fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8, 
 pub fn register(e: &mut Engine) {
     e.ns("mem")
         .doc("std::mem: layout (size_of/align_of), swap, drop, forget.")
-        .member(cst("size_of_i64", "__RTS_FN_NS_MEM_SIZE_OF_I64", "size_of_i64: number", "Tamanho em bytes de um i64 (= 8).", __RTS_FN_NS_MEM_SIZE_OF_I64 as *const u8))
-        .member(cst("size_of_f64", "__RTS_FN_NS_MEM_SIZE_OF_F64", "size_of_f64: number", "Tamanho em bytes de um f64 (= 8).", __RTS_FN_NS_MEM_SIZE_OF_F64 as *const u8))
-        .member(cst("size_of_i32", "__RTS_FN_NS_MEM_SIZE_OF_I32", "size_of_i32: number", "Tamanho em bytes de um i32 (= 4).", __RTS_FN_NS_MEM_SIZE_OF_I32 as *const u8))
-        .member(cst("size_of_bool", "__RTS_FN_NS_MEM_SIZE_OF_BOOL", "size_of_bool: number", "Tamanho em bytes de um bool (= 1).", __RTS_FN_NS_MEM_SIZE_OF_BOOL as *const u8))
-        .member(cst("align_of_i64", "__RTS_FN_NS_MEM_ALIGN_OF_I64", "align_of_i64: number", "Alinhamento de i64 (= 8).", __RTS_FN_NS_MEM_ALIGN_OF_I64 as *const u8))
-        .member(cst("align_of_f64", "__RTS_FN_NS_MEM_ALIGN_OF_F64", "align_of_f64: number", "Alinhamento de f64 (= 8).", __RTS_FN_NS_MEM_ALIGN_OF_F64 as *const u8))
-        .member(func("swap_i64", "__RTS_FN_NS_MEM_SWAP_I64", Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::I64), "swap_i64(a: number, b: number): number", "Retorna `b` (use idiom: `let old = mem.swap_i64(a, b)`).", __RTS_FN_NS_MEM_SWAP_I64 as *const u8, true))
-        .member(func("drop_handle", "__RTS_FN_NS_MEM_DROP_HANDLE", Sig::new(vec![AbiType::Handle], AbiType::Void), "drop_handle(h: number): void", "Forca free de um handle GC. Equivalente a gc.string_free / etc.", __RTS_FN_NS_MEM_DROP_HANDLE as *const u8, false))
-        .member(func("forget_handle", "__RTS_FN_NS_MEM_FORGET_HANDLE", Sig::new(vec![AbiType::Handle], AbiType::Void), "forget_handle(h: number): void", "Esquece handle sem rodar drop — vaza memoria intencionalmente.", __RTS_FN_NS_MEM_FORGET_HANDLE as *const u8, false))
-        .member(func("replace_i64", "__RTS_FN_NS_MEM_REPLACE_I64", Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::I64), "replace_i64(slot: number, new_val: number): number", "Idiom: `mem.replace_i64(slot, new)` — retorna slot e usa caller pra escrever.", __RTS_FN_NS_MEM_REPLACE_I64 as *const u8, false))
+        .member(cst(
+            "size_of_i64",
+            "__RTS_FN_NS_MEM_SIZE_OF_I64",
+            "size_of_i64: number",
+            "Tamanho em bytes de um i64 (= 8).",
+            __RTS_FN_NS_MEM_SIZE_OF_I64 as *const u8,
+        ))
+        .member(cst(
+            "size_of_f64",
+            "__RTS_FN_NS_MEM_SIZE_OF_F64",
+            "size_of_f64: number",
+            "Tamanho em bytes de um f64 (= 8).",
+            __RTS_FN_NS_MEM_SIZE_OF_F64 as *const u8,
+        ))
+        .member(cst(
+            "size_of_i32",
+            "__RTS_FN_NS_MEM_SIZE_OF_I32",
+            "size_of_i32: number",
+            "Tamanho em bytes de um i32 (= 4).",
+            __RTS_FN_NS_MEM_SIZE_OF_I32 as *const u8,
+        ))
+        .member(cst(
+            "size_of_bool",
+            "__RTS_FN_NS_MEM_SIZE_OF_BOOL",
+            "size_of_bool: number",
+            "Tamanho em bytes de um bool (= 1).",
+            __RTS_FN_NS_MEM_SIZE_OF_BOOL as *const u8,
+        ))
+        .member(cst(
+            "align_of_i64",
+            "__RTS_FN_NS_MEM_ALIGN_OF_I64",
+            "align_of_i64: number",
+            "Alinhamento de i64 (= 8).",
+            __RTS_FN_NS_MEM_ALIGN_OF_I64 as *const u8,
+        ))
+        .member(cst(
+            "align_of_f64",
+            "__RTS_FN_NS_MEM_ALIGN_OF_F64",
+            "align_of_f64: number",
+            "Alinhamento de f64 (= 8).",
+            __RTS_FN_NS_MEM_ALIGN_OF_F64 as *const u8,
+        ))
+        .member(func(
+            "swap_i64",
+            "__RTS_FN_NS_MEM_SWAP_I64",
+            Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::I64),
+            "swap_i64(a: number, b: number): number",
+            "Retorna `b` (use idiom: `let old = mem.swap_i64(a, b)`).",
+            __RTS_FN_NS_MEM_SWAP_I64 as *const u8,
+            true,
+        ))
+        .member(func(
+            "drop_handle",
+            "__RTS_FN_NS_MEM_DROP_HANDLE",
+            Sig::new(vec![AbiType::Handle], AbiType::Void),
+            "drop_handle(h: number): void",
+            "Forca free de um handle GC. Equivalente a gc.string_free / etc.",
+            __RTS_FN_NS_MEM_DROP_HANDLE as *const u8,
+            false,
+        ))
+        .member(func(
+            "forget_handle",
+            "__RTS_FN_NS_MEM_FORGET_HANDLE",
+            Sig::new(vec![AbiType::Handle], AbiType::Void),
+            "forget_handle(h: number): void",
+            "Esquece handle sem rodar drop — vaza memoria intencionalmente.",
+            __RTS_FN_NS_MEM_FORGET_HANDLE as *const u8,
+            false,
+        ))
+        .member(func(
+            "replace_i64",
+            "__RTS_FN_NS_MEM_REPLACE_I64",
+            Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::I64),
+            "replace_i64(slot: number, new_val: number): number",
+            "Idiom: `mem.replace_i64(slot, new)` — retorna slot e usa caller pra escrever.",
+            __RTS_FN_NS_MEM_REPLACE_I64 as *const u8,
+            false,
+        ))
         .done();
 }

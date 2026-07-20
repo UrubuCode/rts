@@ -9,11 +9,11 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-use rts_engine::abi::ty::Handle;
 use rts_engine::abi::member::DefaultArg;
+use rts_engine::abi::ty::Handle;
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
+use rts_engine::heap::handles::{Entry, alloc_entry, with_entry};
 
 // `string_pool` (gc-surface) fica no `rts-runtime` collector; o símbolo
 // `#[no_mangle]` resolve em link-time (JIT registra; AOT pelo staticlib).
@@ -64,8 +64,12 @@ fn well_known_handle(name: &str) -> u64 {
 
 /// Creates a new unique Symbol with optional description string.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_SYMBOL_NEW(description_ptr: *const u8, description_len: i64) -> Handle {
-    let description = unsafe { rts_engine::abi::str_abi::from_abi(description_ptr, description_len) };
+pub extern "C" fn __RTS_FN_GL_SYMBOL_NEW(
+    description_ptr: *const u8,
+    description_len: i64,
+) -> Handle {
+    let description =
+        unsafe { rts_engine::abi::str_abi::from_abi(description_ptr, description_len) };
     let description = description.map(|s| s.to_string());
     alloc_entry(Entry::Symbol { description })
 }

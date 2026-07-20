@@ -78,7 +78,10 @@ fn non_optional_after_optional_short_circuits() {
         r#"let o = {a: {b: 1}}; console.log(o?.a.b.c);"#,
         "undefined\n",
     );
-    assert_stdout(r#"let o: any = null; console.log(o?.a.b.c);"#, "undefined\n");
+    assert_stdout(
+        r#"let o: any = null; console.log(o?.a.b.c);"#,
+        "undefined\n",
+    );
 }
 
 #[test]

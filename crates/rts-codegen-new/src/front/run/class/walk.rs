@@ -359,7 +359,10 @@ fn rewrite_this_expr(e: &mut HirExpr) {
 /// DISTINCT slots (the flattened field list would otherwise collide by name).
 /// Covers Member/Index reads+writes through the same expr walk shape as the
 /// `this` rewrite.
-pub(crate) fn mangle_private_block(stmts: &mut [HirStmt], renames: &std::collections::HashMap<String, String>) {
+pub(crate) fn mangle_private_block(
+    stmts: &mut [HirStmt],
+    renames: &std::collections::HashMap<String, String>,
+) {
     if renames.is_empty() {
         return;
     }
@@ -453,11 +456,13 @@ fn mangle_private_expr(e: &mut HirExpr, renames: &std::collections::HashMap<Stri
         }
         HirExprKind::Call { callee, args } => {
             mangle_private_expr(callee, renames);
-            args.iter_mut().for_each(|a| mangle_private_expr(a, renames));
+            args.iter_mut()
+                .for_each(|a| mangle_private_expr(a, renames));
         }
         HirExprKind::MethodCall { object, args, .. } => {
             mangle_private_expr(object, renames);
-            args.iter_mut().for_each(|a| mangle_private_expr(a, renames));
+            args.iter_mut()
+                .for_each(|a| mangle_private_expr(a, renames));
         }
         HirExprKind::Index { object, index } => {
             mangle_private_expr(object, renames);
@@ -468,17 +473,22 @@ fn mangle_private_expr(e: &mut HirExpr, renames: &std::collections::HashMap<Stri
             mangle_private_expr(then, renames);
             mangle_private_expr(else_, renames);
         }
-        HirExprKind::Array(elems) => elems.iter_mut().for_each(|x| mangle_private_expr(x, renames)),
+        HirExprKind::Array(elems) => elems
+            .iter_mut()
+            .for_each(|x| mangle_private_expr(x, renames)),
         HirExprKind::Object(fields) => fields
             .iter_mut()
             .for_each(|(_, v)| mangle_private_expr(v, renames)),
         HirExprKind::New { args, .. } => {
-            args.iter_mut().for_each(|a| mangle_private_expr(a, renames));
+            args.iter_mut()
+                .for_each(|a| mangle_private_expr(a, renames));
         }
         HirExprKind::Await(inner) | HirExprKind::Spread(inner) => {
             mangle_private_expr(inner, renames);
         }
-        HirExprKind::Seq(items) => items.iter_mut().for_each(|x| mangle_private_expr(x, renames)),
+        HirExprKind::Seq(items) => items
+            .iter_mut()
+            .for_each(|x| mangle_private_expr(x, renames)),
         HirExprKind::PreInc(t)
         | HirExprKind::PreDec(t)
         | HirExprKind::PostInc(t)

@@ -83,7 +83,20 @@ aspirational until then.
 
 ## Step 1 — `num` bit operations → single instructions
 
-**Status:** not started · **Effort:** low · **Risk:** low
+**Status:** ✅ done · **Effort:** low · **Risk:** low
+
+**Result: the call died, the conversions did not.** All 13 mapped members emit
+their instruction (`rts ir` over a bit-op loop: 0 calls to `__RTS_FN_NS_NUM_*`),
+but the loop only went **142 → 139 ms (2%)**. The same IR still carries 16
+`fcvt` instructions: TS `number` is an f64, so every operand round-trips
+f64→i64→f64 around the now-inline op. **That conversion, not the call, is what
+dominates.** The lever for this class of code is a typed/unboxed integer local
+(Repr work), not more intrinsics — worth knowing before investing in steps 3–4
+expecting a large number.
+
+`checked_*` and `saturating_*` deliberately keep their calls: sentinel and
+saturation semantics with no 1:1 instruction, where guessing trades correctness
+for speed. `reverse_bits` likewise stays a call.
 
 These are `extern "C"` calls today and each maps to exactly one Cranelift
 instruction (§7, §18 of the reference):
@@ -228,8 +241,8 @@ The blocker is analysis, not emission: **Cranelift does not do escape analysis**
 | # | Step | Effort | Measured | State |
 |---|---|---|---|---|
 | 0 | intrinsic path (engine had none) | medium | `pi_machin` 16 → 13 ms | ✅ done |
-| 1 | `num` bit ops → instructions | low | — | unblocked, next |
-| 2 | `switch` → jump table | low | — | not started |
+| 1 | `num` bit ops → instructions | low | call gone; 142 → 139 ms (2%) | ✅ done |
+| 2 | `switch` → jump table | low | — | next |
 | 3 | TLS + inline `random_f64` | medium | — | not started |
 | 4 | atomics → atomic IR | medium | — | not started |
 | 5 | TypedArrays on a real buffer | high | — | not started |

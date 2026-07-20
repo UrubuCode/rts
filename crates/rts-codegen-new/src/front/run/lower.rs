@@ -492,9 +492,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // iteration order (that non-determinism produced broken AOT objects).
             let mut preload: Vec<(String, u32)> = gcells
                 .iter()
-                .filter(|(name, id)| {
-                    ctx.immutable_gcells.contains(*id) && reads.contains(*name)
-                })
+                .filter(|(name, id)| ctx.immutable_gcells.contains(*id) && reads.contains(*name))
                 .map(|(n, i)| (n.clone(), *i))
                 .collect();
             preload.sort();
@@ -519,10 +517,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 if ctx.local(&name).is_some() {
                     continue; // a param of the same name owns the slot
                 }
-                let undef = ctx.builder.ins().iconst(
-                    types::I64,
-                    value::PolyValue::undefined().raw() as i64,
-                );
+                let undef = ctx
+                    .builder
+                    .ins()
+                    .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
                 let handle = ctx.emit_cell_alloc(module, undef);
                 ctx.bind_tagged_local(&name, Val::new(handle, Repr::Tagged));
                 ctx.hoisted_cells.insert(name);
@@ -550,10 +548,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     ctx.builder.ins().return_(&[]);
                 }
                 Some(Repr::Tagged) => {
-                    let undef = ctx.builder.ins().iconst(
-                        types::I64,
-                        value::PolyValue::undefined().raw() as i64,
-                    );
+                    let undef = ctx
+                        .builder
+                        .ins()
+                        .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
                     ctx.builder.ins().return_(&[undef]);
                 }
                 Some(repr) => {
@@ -692,9 +690,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // (same register) and → Float64 is a signed-int convert. (`true + 1`,
             // `-true`, `~true`, `true * 2.0`.)
             (Repr::Bool, Repr::Int32) | (Repr::Bool, Repr::Int64) => Ok(val.v),
-            (Repr::Bool, Repr::Float64) => {
-                Ok(self.builder.ins().fcvt_from_sint(types::F64, val.v))
-            }
+            (Repr::Bool, Repr::Float64) => Ok(self.builder.ins().fcvt_from_sint(types::F64, val.v)),
             // native double → native int: truncate toward zero (JS `ToInteger` /
             // array-index / `i64`-typed binding from a `number` expression). Uses the
             // saturating conversion so an out-of-range / NaN double yields a defined

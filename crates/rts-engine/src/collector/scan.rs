@@ -172,7 +172,7 @@ unsafe fn collect_range(out: &mut Vec<u64>, low: usize, high: usize) {
 
 #[cfg(all(target_arch = "x86_64", target_os = "windows"))]
 unsafe fn mark_other_threads_windows(visit: &mut dyn FnMut(u64)) {
-    use thread_registry::{with_other_threads, ThreadInfo};
+    use thread_registry::{ThreadInfo, with_other_threads};
 
     // Coletamos primeiro pra liberar o lock do registry antes de suspender
     // threads (suspender com lock segurado = deadlock se o GC dispara dentro de

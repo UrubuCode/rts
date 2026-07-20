@@ -254,10 +254,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             let boxed = value::emit_is_boxed(self.builder, own);
             let shifted = self.builder.ins().ushr_imm(own, value::TAG_SHIFT as i64);
             let tag = self.builder.ins().band_imm(shifted, value::TAG_MASK as i64);
-            let is_fn_tag = self
-                .builder
-                .ins()
-                .icmp_imm(IntCC::Equal, tag, value::TAG_FUNCTION as i64);
+            let is_fn_tag =
+                self.builder
+                    .ins()
+                    .icmp_imm(IntCC::Equal, tag, value::TAG_FUNCTION as i64);
             let is_fn = self.builder.ins().band(boxed, is_fn_tag);
             let b_fn = self.builder.create_block();
             let b_undef = self.builder.create_block();
@@ -316,7 +316,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
 
         let result = self.finish_merge(merge);
-        Ok(Some(Val::new_with_kind(result, Repr::Tagged, JsKind::Unknown)))
+        Ok(Some(Val::new_with_kind(
+            result,
+            Repr::Tagged,
+            JsKind::Unknown,
+        )))
     }
 
     /// DYNAMIC GETTER dispatch on a TAGGED receiver of unproven class: an accessor
@@ -380,7 +384,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.builder.ins().jump(merge, &[data.into()]);
 
         let result = self.finish_merge(merge);
-        Ok(Some(Val::new_with_kind(result, Repr::Tagged, JsKind::Unknown)))
+        Ok(Some(Val::new_with_kind(
+            result,
+            Repr::Tagged,
+            JsKind::Unknown,
+        )))
     }
 
     /// Read the instance's slot 0 (its class `global_shape`, a `from_i32` tagged-int

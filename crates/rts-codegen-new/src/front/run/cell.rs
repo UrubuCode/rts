@@ -54,7 +54,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Store `word` (an already-boxed PolyValue) into the cell behind `handle_word`
     /// (slot 0). The cell was allocated with one slot at declaration, so index 0
     /// always exists.
-    pub(super) fn emit_cell_set(&mut self, module: &mut dyn Module, handle_word: Value, word: Value) {
+    pub(super) fn emit_cell_set(
+        &mut self,
+        module: &mut dyn Module,
+        handle_word: Value,
+        word: Value,
+    ) {
         let idx = self.builder.ins().iconst(types::I64, 0);
         emit_marshal::emit_vec_set(module, self.builder, handle_word, idx, word);
     }

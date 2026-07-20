@@ -245,14 +245,26 @@ fn collect_arrow_frees_expr(e: &HirExpr, out: &mut HashSet<String>) {
     }
     match &e.kind {
         HirExprKind::Bin { lhs, rhs, .. }
-        | HirExprKind::Assign { target: lhs, value: rhs }
-        | HirExprKind::AssignOp { target: lhs, value: rhs, .. }
-        | HirExprKind::Index { object: lhs, index: rhs } => {
+        | HirExprKind::Assign {
+            target: lhs,
+            value: rhs,
+        }
+        | HirExprKind::AssignOp {
+            target: lhs,
+            value: rhs,
+            ..
+        }
+        | HirExprKind::Index {
+            object: lhs,
+            index: rhs,
+        } => {
             collect_arrow_frees_expr(lhs, out);
             collect_arrow_frees_expr(rhs, out);
         }
         HirExprKind::Unary { operand, .. }
-        | HirExprKind::Member { object: operand, .. }
+        | HirExprKind::Member {
+            object: operand, ..
+        }
         | HirExprKind::Cast { expr: operand, .. }
         | HirExprKind::Await(operand)
         | HirExprKind::Spread(operand)
@@ -274,11 +286,15 @@ fn collect_arrow_frees_expr(e: &HirExpr, out: &mut HashSet<String>) {
             collect_arrow_frees_expr(then, out);
             collect_arrow_frees_expr(else_, out);
         }
-        HirExprKind::Array(elems) => elems.iter().for_each(|el| collect_arrow_frees_expr(el, out)),
-        HirExprKind::Object(fields) => {
-            fields.iter().for_each(|(_, v)| collect_arrow_frees_expr(v, out))
-        }
-        HirExprKind::Seq(items) => items.iter().for_each(|it| collect_arrow_frees_expr(it, out)),
+        HirExprKind::Array(elems) => elems
+            .iter()
+            .for_each(|el| collect_arrow_frees_expr(el, out)),
+        HirExprKind::Object(fields) => fields
+            .iter()
+            .for_each(|(_, v)| collect_arrow_frees_expr(v, out)),
+        HirExprKind::Seq(items) => items
+            .iter()
+            .for_each(|it| collect_arrow_frees_expr(it, out)),
         _ => {}
     }
 }
@@ -287,11 +303,7 @@ fn collect_arrow_frees_expr(e: &HirExpr, out: &mut HashSet<String>) {
 // Free-variable collection over the lowering subset.
 // ---------------------------------------------------------------------------
 
-pub fn collect_free_stmt(
-    s: &HirStmt,
-    bound: &mut HashSet<String>,
-    free: &mut HashSet<String>,
-) {
+pub fn collect_free_stmt(s: &HirStmt, bound: &mut HashSet<String>, free: &mut HashSet<String>) {
     match s {
         HirStmt::Expr(e) => collect_free_expr(e, bound, free),
         HirStmt::Return(Some(e)) => collect_free_expr(e, bound, free),

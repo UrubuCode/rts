@@ -89,7 +89,10 @@ pub fn register_collator_class_spec(e: &mut Engine) {
         .member(m(
             "compare",
             MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle, AbiType::StrPtr, AbiType::StrPtr], AbiType::I64),
+            Sig::new(
+                vec![AbiType::Handle, AbiType::StrPtr, AbiType::StrPtr],
+                AbiType::I64,
+            ),
             "__RTS_FN_GL_INTL_COLLATOR_COMPARE",
             "compare(a: string, b: string): number",
             true,

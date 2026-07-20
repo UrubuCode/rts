@@ -27,7 +27,11 @@ impl Sig {
     /// Constrói uma assinatura sem defaults (todos os args requeridos / o pad
     /// genérico usa zero-do-tipo = `undefined`). Prefira o macro [`sig!`].
     pub fn new(args: Vec<AbiType>, returns: AbiType) -> Self {
-        Self { args, returns, default_args: Vec::new() }
+        Self {
+            args,
+            returns,
+            default_args: Vec::new(),
+        }
     }
 
     /// Constrói uma assinatura com política de default por argumento (paralela a
@@ -37,7 +41,11 @@ impl Sig {
         returns: AbiType,
         default_args: Vec<DefaultArg>,
     ) -> Self {
-        Self { args, returns, default_args }
+        Self {
+            args,
+            returns,
+            default_args,
+        }
     }
 
     /// Número de parâmetros explícitos (TS-visíveis) de um método de instância:

@@ -190,13 +190,31 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return self.lower_engine_define_prop(module, args);
         }
         if method == "prop_flags" {
-            return self.lower_engine_descriptor(module, args, "__rtsadp_prop_flags", 2, Repr::Int64);
+            return self.lower_engine_descriptor(
+                module,
+                args,
+                "__rtsadp_prop_flags",
+                2,
+                Repr::Int64,
+            );
         }
         if method == "prevent_ext" {
-            return self.lower_engine_descriptor(module, args, "__rtsadp_prevent_ext", 1, Repr::Bool);
+            return self.lower_engine_descriptor(
+                module,
+                args,
+                "__rtsadp_prevent_ext",
+                1,
+                Repr::Bool,
+            );
         }
         if method == "is_extensible" {
-            return self.lower_engine_descriptor(module, args, "__rtsadp_is_extensible", 1, Repr::Bool);
+            return self.lower_engine_descriptor(
+                module,
+                args,
+                "__rtsadp_is_extensible",
+                1,
+                Repr::Bool,
+            );
         }
         // `set_proto_check(obj, proto)` — Reflect.setPrototypeOf: success bool +
         // Proxy `setPrototypeOf` trap routing (#218 phase 3).
@@ -212,30 +230,72 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // Timer bridges (the `.ts` global setTimeout/… wrappers): all-words in,
         // a word out — the adapters wrapper decodes ms / converts the fn word.
         if method == "set_timeout" {
-            return self.lower_engine_descriptor(module, args, "__rtsadp_set_timeout", 2, Repr::Tagged);
+            return self.lower_engine_descriptor(
+                module,
+                args,
+                "__rtsadp_set_timeout",
+                2,
+                Repr::Tagged,
+            );
         }
         if method == "set_interval" {
-            return self.lower_engine_descriptor(module, args, "__rtsadp_set_interval", 2, Repr::Tagged);
+            return self.lower_engine_descriptor(
+                module,
+                args,
+                "__rtsadp_set_interval",
+                2,
+                Repr::Tagged,
+            );
         }
         if method == "clear_timer" {
-            return self.lower_engine_descriptor(module, args, "__rtsadp_clear_timer", 1, Repr::Tagged);
+            return self.lower_engine_descriptor(
+                module,
+                args,
+                "__rtsadp_clear_timer",
+                1,
+                Repr::Tagged,
+            );
         }
         if method == "queue_microtask" {
-            return self.lower_engine_descriptor(module, args, "__rtsadp_queue_microtask", 1, Repr::Tagged);
+            return self.lower_engine_descriptor(
+                module,
+                args,
+                "__rtsadp_queue_microtask",
+                1,
+                Repr::Tagged,
+            );
         }
         // `invoke_cb(cb, a0)` — invoca um callback guardado OPACO (word de fn,
         // handle cru ou double do handle — os listeners do DOM): a fachada
         // dispatchEvent do prelude usa para chamar os handlers registrados.
         if method == "invoke_cb" {
-            return self.lower_engine_descriptor(module, args, "__rtsadp_invoke_cb", 2, Repr::Tagged);
+            return self.lower_engine_descriptor(
+                module,
+                args,
+                "__rtsadp_invoke_cb",
+                2,
+                Repr::Tagged,
+            );
         }
         if method == "set_immediate" {
-            return self.lower_engine_descriptor(module, args, "__rtsadp_set_immediate", 1, Repr::Tagged);
+            return self.lower_engine_descriptor(
+                module,
+                args,
+                "__rtsadp_set_immediate",
+                1,
+                Repr::Tagged,
+            );
         }
         // `own_keys_raw(obj)` — Reflect.ownKeys: a Proxy ownKeys trap VERBATIM
         // (no enumerability filter — that is Object.keys' job).
         if method == "own_keys_raw" {
-            return self.lower_engine_descriptor(module, args, "__rtsadp_own_keys_raw", 1, Repr::Tagged);
+            return self.lower_engine_descriptor(
+                module,
+                args,
+                "__rtsadp_own_keys_raw",
+                1,
+                Repr::Tagged,
+            );
         }
         // `construct(target, argsArray)` — Reflect.construct: new-thunk invoke
         // with args read from the array; Proxy `construct` trap-aware.
@@ -345,10 +405,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             slots.push(self.coerce(v, Repr::Int64)?);
         }
         self.call_runtime(module, "__RTS_FN_NS_ENGINE_TRACE_PUSH", &slots)?;
-        let undef = self
-            .builder
-            .ins()
-            .iconst(types::I64, crate::value::PolyValue::undefined().raw() as i64);
+        let undef = self.builder.ins().iconst(
+            types::I64,
+            crate::value::PolyValue::undefined().raw() as i64,
+        );
         Ok(Val::tagged_kind(undef, JsKind::Undefined))
     }
 
@@ -449,7 +509,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // (not `numeric_to_i64`, which bails on Tagged) decodes it to a raw i64.
         let f_int = self.coerce(f, Repr::Int64)?;
         let res = self
-            .call_runtime(module, "__rtsadp_define_prop", &[o_word, k_word, v_word, f_int])?
+            .call_runtime(
+                module,
+                "__rtsadp_define_prop",
+                &[o_word, k_word, v_word, f_int],
+            )?
             .expect("engine.define_prop returns a bool");
         Ok(Val::new(res, Repr::Bool))
     }
@@ -460,7 +524,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         args: &[HirExpr],
     ) -> FrontResult<Val> {
         if args.len() != 2 {
-            return unsupported!("engine.obj_has expects 2 args (self, key), got {}", args.len());
+            return unsupported!(
+                "engine.obj_has expects 2 args (self, key), got {}",
+                args.len()
+            );
         }
         let o = self.lower_expr(module, &args[0])?;
         let o_word = self.box_value(o);
@@ -528,10 +595,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let v = self.lower_expr(module, &args[0])?;
         let line = self.box_value(v);
         emit_marshal::emit_print_string_poly(module, self.builder, line, to_stderr);
-        let undef = self
-            .builder
-            .ins()
-            .iconst(types::I64, crate::value::PolyValue::undefined().raw() as i64);
+        let undef = self.builder.ins().iconst(
+            types::I64,
+            crate::value::PolyValue::undefined().raw() as i64,
+        );
         Ok(Val::tagged_kind(undef, JsKind::Undefined))
     }
 
@@ -592,12 +659,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let w = emit_marshal::emit_box_real_string(module, self.builder, h);
                 Val::tagged_kind(w, JsKind::Str)
             }
-            StrRet::Num => {
-                Val::new(res.expect("engine.str_* number member returns a value"), Repr::Int64)
-            }
-            StrRet::Bool => {
-                Val::new(res.expect("engine.str_* bool member returns a value"), Repr::Bool)
-            }
+            StrRet::Num => Val::new(
+                res.expect("engine.str_* number member returns a value"),
+                Repr::Int64,
+            ),
+            StrRet::Bool => Val::new(
+                res.expect("engine.str_* bool member returns a value"),
+                Repr::Bool,
+            ),
         })
     }
 
@@ -616,10 +685,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
             EngRet::I64 => Val::new(res.expect("engine i64 member returns a value"), Repr::Int64),
             EngRet::Void => {
-                let undef = self
-                    .builder
-                    .ins()
-                    .iconst(types::I64, crate::value::PolyValue::undefined().raw() as i64);
+                let undef = self.builder.ins().iconst(
+                    types::I64,
+                    crate::value::PolyValue::undefined().raw() as i64,
+                );
                 Val::tagged_kind(undef, JsKind::Undefined)
             }
         }
@@ -722,7 +791,11 @@ fn engine_str_member(method: &str) -> Option<EngineStr> {
         "str_pad_end" => row("__RTS_FN_NS_ENGINE_STR_PAD_END", &[Num, Str], StrRet::Str),
         "str_concat" => row("__RTS_FN_NS_ENGINE_STR_CONCAT", &[Str], StrRet::Str),
         "str_replace" => row("__RTS_FN_NS_ENGINE_STR_REPLACE", &[Str, Str], StrRet::Str),
-        "str_replace_all" => row("__RTS_FN_NS_ENGINE_STR_REPLACE_ALL", &[Str, Str], StrRet::Str),
+        "str_replace_all" => row(
+            "__RTS_FN_NS_ENGINE_STR_REPLACE_ALL",
+            &[Str, Str],
+            StrRet::Str,
+        ),
         "str_normalize" => row("__RTS_FN_NS_ENGINE_STR_NORMALIZE", &[Str], StrRet::Str),
         "str_is_well_formed" => row("__RTS_FN_NS_ENGINE_STR_IS_WELL_FORMED", &[], StrRet::Bool),
         "str_to_well_formed" => row("__RTS_FN_NS_ENGINE_STR_TO_WELL_FORMED", &[], StrRet::Str),

@@ -40,9 +40,7 @@ const INDEX_FILES: [&str; 3] = ["index.ts", "index.rts", "index.js"];
 /// `true` if `specifier` names a builtin module reachable WITHOUT disk access:
 /// `rts`, any `rts:<ns>`, or any `node:<ns>`.
 pub fn is_builtin(specifier: &str) -> bool {
-    specifier == "rts"
-        || specifier.starts_with("rts:")
-        || specifier.starts_with("node:")
+    specifier == "rts" || specifier.starts_with("rts:") || specifier.starts_with("node:")
 }
 
 /// `true` if `specifier` is a filesystem-relative import (`./` or `../`).
@@ -131,7 +129,6 @@ fn resolve_relative(base_dir: &Path, specifier: &str) -> ModuleResult<PathBuf> {
 /// Canonicalize a path (resolving `.`/`..`/symlinks) so two specifiers naming
 /// the same file dedup to ONE key. Wraps the IO error as a `ModuleError`.
 pub fn canonicalize(path: &Path) -> ModuleResult<PathBuf> {
-    path.canonicalize().map_err(|e| {
-        ModuleError::Io(format!("failed to canonicalize {}: {e}", path.display()))
-    })
+    path.canonicalize()
+        .map_err(|e| ModuleError::Io(format!("failed to canonicalize {}: {e}", path.display())))
 }

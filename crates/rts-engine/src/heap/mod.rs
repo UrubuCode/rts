@@ -3,11 +3,11 @@
 //! puros (value-types) do `Entry` vivem aqui; o `Entry`/`HandleTable` + a
 //! orquestração migram em fatias gateadas (ver `.claude/plans/`).
 
+pub mod class_registry;
+pub mod env;
 pub mod fixed;
 pub mod handles;
 pub mod poly;
 pub mod shapes;
-pub mod env;
-pub mod this_slot;
 pub mod tagged_raw;
-pub mod class_registry;
+pub mod this_slot;

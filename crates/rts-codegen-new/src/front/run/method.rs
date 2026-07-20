@@ -83,7 +83,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if let HirExprKind::Ident(obj) = &object.kind {
             if let Some((_ns, member)) = self.builtins.get(obj).cloned() {
                 if member.is_empty() {
-                    return self.lower_builtin_call(module, &_ns, method, args).map(Some);
+                    return self
+                        .lower_builtin_call(module, &_ns, method, args)
+                        .map(Some);
                 }
                 // A builtin CONSTANT bound as a VALUE (e.g. `punycode.ucs2`, an
                 // object whose own properties are function values): lower it to its
@@ -223,9 +225,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // HandleTable lookup and see length 0 for a non-Vec entry). Tried
                 // BEFORE the non-callback dyn path. `Ok(None)` ⇒ not an array
                 // callback method / a capturing callback — falls through.
-                if let Some(val) = self.try_array_callback_dynamic(module, recv, method, args)? {                    return Ok(Some(val));
+                if let Some(val) = self.try_array_callback_dynamic(module, recv, method, args)? {
+                    return Ok(Some(val));
                 }
-                if let Some(val) = self.try_method_dispatch_dynamic(module, recv, method, args)? {                    return Ok(Some(val));
+                if let Some(val) = self.try_method_dispatch_dynamic(module, recv, method, args)? {
+                    return Ok(Some(val));
                 }
                 // USER-CLASS virtual dispatch on a Tagged receiver of unproven class
                 // (a for-of binding, a cast, a reassigned local, a function return):
@@ -233,8 +237,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // defines `method` (object-guarded, `undefined` for a non-match — a
                 // TypeError-class sentinel, never a wrong value). `Ok(None)` ⇒ no user
                 // class defines `method` / an effectful arg — falls through.
-                if let Some(val) = self.try_user_virtual_dynamic(module, recv, method, args)? {                    return Ok(Some(val));
-                }                // FALLBACK: the dynamic table (`DYN_METHODS`) only covers the
+                if let Some(val) = self.try_user_virtual_dynamic(module, recv, method, args)? {
+                    return Ok(Some(val));
+                } // FALLBACK: the dynamic table (`DYN_METHODS`) only covers the
                 // high-frequency string/array methods at fixed arity. For a method
                 // it lacks (`padStart`/`concat`/`includes` with a position arg/…) on
                 // a Tagged receiver that is a STRING, route to the ambient prelude
@@ -255,16 +260,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // `any` param or a stored slot). Resolved at RUNTIME by each
                 // candidate class's `instanceof_predicate` (data-driven; the
                 // Registry counterpart of the user-class virtual dispatch).
-                if let Some(val) =
-                    self.try_registry_virtual_dynamic(module, recv, method, args)?
-                {                    return Ok(Some(val));
-                }                // ABSOLUTE LAST: generic proto-chain dispatch (`x.m(a)` reads
+                if let Some(val) = self.try_registry_virtual_dynamic(module, recv, method, args)? {
+                    return Ok(Some(val));
+                } // ABSOLUTE LAST: generic proto-chain dispatch (`x.m(a)` reads
                 // `m` off the receiver/proto and invokes it; runtime TypeError
                 // on a miss). After every specific path so it can't shadow the
                 // Registry/user-class virtual dispatch.
-                if let Some(val) =
-                    self.try_generic_dyn_method_call(module, recv, method, args)?
-                {
+                if let Some(val) = self.try_generic_dyn_method_call(module, recv, method, args)? {
                     return Ok(Some(val));
                 }
                 return Ok(None);
@@ -300,10 +302,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     }
                     match &a.kind {
                         HirExprKind::Object(_) => true,
-                        HirExprKind::Ident(n) => me
-                            .local(n)
-                            .is_some_and(|l| matches!(l.repr, crate::repr::Repr::Tagged))
-                            && !me.string_locals.contains(n),
+                        HirExprKind::Ident(n) => {
+                            me.local(n)
+                                .is_some_and(|l| matches!(l.repr, crate::repr::Repr::Tagged))
+                                && !me.string_locals.contains(n)
+                        }
                         _ => false,
                     }
                 };
@@ -317,7 +320,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     self.emit_post_call_error_check(module)?;
                     return Ok(Some(Val::new(word, crate::repr::Repr::Tagged)));
                 }
-                if method == "split" && (args.len() == 1 || args.len() == 2)
+                if method == "split"
+                    && (args.len() == 1 || args.len() == 2)
                     && arg_objectish(&args[0], self)
                 {
                     let recv_word = self.box_value(recv);
@@ -399,12 +403,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // .finally` num number genuíno, então rotear pro dispatch DINÂMICO
             // de Promise é sound (o trampolim `promise_handle(recv)` valida o
             // handle; um number genuíno vira `undefined`, nunca valor errado).
-            if matches!(class, RecvClass::Number)
-                && matches!(method, "then" | "catch" | "finally")
+            if matches!(class, RecvClass::Number) && matches!(method, "then" | "catch" | "finally")
             {
-                if let Some(val) =
-                    self.try_method_dispatch_dynamic(module, recv, method, args)?
-                {
+                if let Some(val) = self.try_method_dispatch_dynamic(module, recv, method, args)? {
                     return Ok(Some(val));
                 }
             }
@@ -483,17 +484,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let sep = self.lower_expr(module, &args[0])?;
                 // `split(undefined)` — JS: the whole string as the ONE element.
                 if matches!(sep.kind, JsKind::Undefined) {
-                    let arr = crate::value::emit_marshal::emit_new_vec_object(
-                        module,
-                        self.builder,
-                    );
+                    let arr = crate::value::emit_marshal::emit_new_vec_object(module, self.builder);
                     let recv_word = self.box_value(recv);
-                    crate::value::emit_marshal::emit_vec_push(
-                        module,
-                        self.builder,
-                        arr,
-                        recv_word,
-                    );
+                    crate::value::emit_marshal::emit_vec_push(module, self.builder, arr, recv_word);
                     return Ok(Some(Val::tagged_kind(arr, JsKind::Array)));
                 }
                 if !matches!(sep.kind, JsKind::Str) {
@@ -714,9 +707,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 Ok(Val::new(v, Repr::Bool))
             }
             // A raw PolyValue word returned verbatim → keep it Tagged.
-            AbiType::PolyValue => {
-                Ok(Val::new(value.expect("PolyValue-returning symbol yields a value"), Repr::Tagged))
-            }
+            AbiType::PolyValue => Ok(Val::new(
+                value.expect("PolyValue-returning symbol yields a value"),
+                Repr::Tagged,
+            )),
             AbiType::Void => {
                 let v = self
                     .builder

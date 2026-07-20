@@ -52,7 +52,10 @@ pub fn push_pending(func_id_raw: u32, maps: Vec<(u32, Vec<u32>)>) {
     if maps.is_empty() {
         return;
     }
-    pending().lock().unwrap().push(PendingEntry { func_id_raw, maps });
+    pending()
+        .lock()
+        .unwrap()
+        .push(PendingEntry { func_id_raw, maps });
 }
 
 /// Drain all pending entries. Called by `jit.rs` after `finalize_definitions()`
@@ -80,8 +83,5 @@ pub fn lookup(return_pc: usize) -> Option<Vec<u32>> {
 
 /// True if the registry has at least one safepoint registered.
 pub fn is_active() -> bool {
-    registry()
-        .lock()
-        .unwrap()
-        .len() > 0
+    registry().lock().unwrap().len() > 0
 }

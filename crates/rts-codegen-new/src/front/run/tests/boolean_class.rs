@@ -72,7 +72,10 @@ fn value_of_in_condition() {
 
 #[test]
 fn string_of_bool() {
-    assert_stdout(r#"console.log(String(true), String(false));"#, "true false\n");
+    assert_stdout(
+        r#"console.log(String(true), String(false));"#,
+        "true false\n",
+    );
 }
 
 #[test]

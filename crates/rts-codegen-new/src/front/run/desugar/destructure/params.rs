@@ -24,7 +24,10 @@ use super::{Gen, expand_pat};
 pub(super) fn rewrite_params(src: &str, funcs: &mut Vec<HirFunc>, g: &mut Gen) {
     let Some(params_by_fn) = parse_param_patterns(src) else {
         if std::env::var("RTS_DEBUG_DESTRUCTURE").is_ok() {
-            eprintln!("[destructure] param re-parse FAILED (src head: {:?})", &src[..src.len().min(80)]);
+            eprintln!(
+                "[destructure] param re-parse FAILED (src head: {:?})",
+                &src[..src.len().min(80)]
+            );
         }
         return;
     };
@@ -133,9 +136,9 @@ fn parse_param_patterns(src: &str) -> Option<HashMap<String, Vec<swc_ecma_ast::P
     // destructured method/ctor param pairs the same way a top-level fn does.
     for item in &module.body {
         let cdecl = match item {
-            swc_ecma_ast::ModuleItem::Stmt(swc_ecma_ast::Stmt::Decl(swc_ecma_ast::Decl::Class(
-                c,
-            ))) => c,
+            swc_ecma_ast::ModuleItem::Stmt(swc_ecma_ast::Stmt::Decl(
+                swc_ecma_ast::Decl::Class(c),
+            )) => c,
             swc_ecma_ast::ModuleItem::ModuleDecl(swc_ecma_ast::ModuleDecl::ExportDecl(e)) => {
                 match &e.decl {
                     swc_ecma_ast::Decl::Class(c) => c,

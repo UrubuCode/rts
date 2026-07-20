@@ -1,4 +1,4 @@
-use rts_engine::heap::handles::{alloc_entry, free_handle, with_entry, Entry};
+use rts_engine::heap::handles::{Entry, alloc_entry, free_handle, with_entry};
 
 struct ParsedUrl {
     href: String,
@@ -341,7 +341,10 @@ fn url_field(handle: u64, idx: usize) -> u64 {
 /// append/set/...`), else the parsed `search` slot. Shared by `url.search` and
 /// `url.href`/`toString` so all three reflect searchParams mutations.
 fn current_search(handle: u64) -> String {
-    let cached_sp = url_sp_cache().lock().ok().and_then(|c| c.get(&handle).copied());
+    let cached_sp = url_sp_cache()
+        .lock()
+        .ok()
+        .and_then(|c| c.get(&handle).copied());
     if let Some(sp) = cached_sp {
         let pairs: Vec<(String, String)> = with_usp_pairs(sp, Vec::new(), |slots| {
             let mut out = Vec::with_capacity(slots.len() / 2);

@@ -92,7 +92,12 @@ pub(super) fn build_tagged_template(tt: &swc_ecma_ast::TaggedTpl) -> HirExpr {
         }
     }
     let tag = rts_hir::lower::lower_swc_expr(&tt.tag, &scope);
-    let strings: Vec<HirExpr> = tt.tpl.quasis.iter().map(|q| str_lit(cooked_quasi(q))).collect();
+    let strings: Vec<HirExpr> = tt
+        .tpl
+        .quasis
+        .iter()
+        .map(|q| str_lit(cooked_quasi(q)))
+        .collect();
     let strings_arr = HirExpr::new(HirExprKind::Array(strings), HirType::Unknown);
     // Pair the cooked array with the RAW quasis (`strings.raw` in the tag body)
     // through the private `engine.tsa_raw` bridge — it registers the pair and

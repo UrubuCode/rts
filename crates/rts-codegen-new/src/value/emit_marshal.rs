@@ -240,10 +240,9 @@ pub fn emit_hole_to_undef(builder: &mut FunctionBuilder, word: Value) -> Value {
     let undef = builder
         .ins()
         .iconst(types::I64, super::PolyValue::undefined().raw() as i64);
-    let is_hole =
-        builder
-            .ins()
-            .icmp(cranelift_codegen::ir::condcodes::IntCC::Equal, word, hole);
+    let is_hole = builder
+        .ins()
+        .icmp(cranelift_codegen::ir::condcodes::IntCC::Equal, word, hole);
     builder.ins().select(is_hole, undef, word)
 }
 
@@ -298,5 +297,10 @@ pub fn emit_print_string_poly(
     let (ptr, len) = emit_string_ptr_len(module, builder, handle);
     let stderr_flag = builder.ins().iconst(types::I64, to_stderr as i64);
     // StrPtr = two slots; pass (ptr, len, to_stderr) in order.
-    emit_call(module, builder, "__rtsadp_print_line", &[ptr, len, stderr_flag]);
+    emit_call(
+        module,
+        builder,
+        "__rtsadp_print_line",
+        &[ptr, len, stderr_flag],
+    );
 }

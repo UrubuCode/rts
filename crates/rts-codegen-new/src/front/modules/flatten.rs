@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use rts_ast::ast::{Item, Program};
 
 use super::error::{ModuleError, ModuleResult};
-use super::graph::{post_order, ModuleGraph};
+use super::graph::{ModuleGraph, post_order};
 use super::resolve::Target;
 
 /// What an imported local name binds to in the flattened program.
@@ -84,12 +84,13 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
                 .map(|n| format!("{n}: {n}"))
                 .collect();
             let synth = format!("const {local} = {{ {} }};", fields.join(", "));
-            let parsed = rts_parser::parse_source(&synth).map_err(|e| {
-                ModuleError::Parse(format!("ns re-export `{local}` synth: {e}"))
-            })?;
+            let parsed = rts_parser::parse_source(&synth)
+                .map_err(|e| ModuleError::Parse(format!("ns re-export `{local}` synth: {e}")))?;
             if let Some(prev) = defined.get(local) {
                 if prev != key {
-                    return Err(ModuleError::NameCollision { name: local.clone() });
+                    return Err(ModuleError::NameCollision {
+                        name: local.clone(),
+                    });
                 }
             }
             defined.insert(local.clone(), key.clone());
@@ -129,8 +130,8 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
                             // bind to that whole namespace; else a re-exported name
                             // → its AMBIENT prelude declaration (possibly renamed);
                             // else a native namespace member via the Registry.
-                            let binding = if let Some((_, sub)) = subns
-                                .and_then(|t| t.iter().find(|(o, _)| *o == orig.as_str()))
+                            let binding = if let Some((_, sub)) =
+                                subns.and_then(|t| t.iter().find(|(o, _)| *o == orig.as_str()))
                             {
                                 Binding::Builtin {
                                     ns: (*sub).to_string(),
@@ -139,9 +140,14 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
                             } else if let Some((_, decl)) =
                                 reexports.iter().find(|(o, _)| *o == orig.as_str())
                             {
-                                Binding::Local { name: decl.to_string() }
+                                Binding::Local {
+                                    name: decl.to_string(),
+                                }
                             } else {
-                                Binding::Builtin { ns: ns.clone(), member: orig.clone() }
+                                Binding::Builtin {
+                                    ns: ns.clone(),
+                                    member: orig.clone(),
+                                }
                             };
                             bindings.insert(local.clone(), binding);
                         }
@@ -159,10 +165,8 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
                                 .iter()
                                 .map(|(o, decl)| format!("{o}: {decl}"))
                                 .collect();
-                            let synth = format!(
-                                "const {default_local} = {{ {} }};",
-                                fields.join(", ")
-                            );
+                            let synth =
+                                format!("const {default_local} = {{ {} }};", fields.join(", "));
                             let parsed = rts_parser::parse_source(&synth).map_err(|e| {
                                 ModuleError::Parse(format!(
                                     "node default re-export `{default_local}` synth: {e}"
@@ -176,7 +180,10 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
                             // reached via the NAMED import, not `fs.createReadStream`).
                             bindings.insert(
                                 default_local.clone(),
-                                Binding::Builtin { ns: ns.clone(), member: String::new() },
+                                Binding::Builtin {
+                                    ns: ns.clone(),
+                                    member: String::new(),
+                                },
                             );
                         }
                         continue;
@@ -190,8 +197,8 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
                     let bare = ns.is_empty();
                     let subns = node_subnamespace_reexports(specifier);
                     for (orig, local) in &edge.names {
-                        let binding = if let Some((_, sub)) = subns
-                            .and_then(|t| t.iter().find(|(o, _)| *o == orig.as_str()))
+                        let binding = if let Some((_, sub)) =
+                            subns.and_then(|t| t.iter().find(|(o, _)| *o == orig.as_str()))
                         {
                             // A sub-namespace object (`fs.promises`) — bind to the
                             // whole namespace, member empty, like a bare-`rts`
@@ -257,10 +264,8 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
                                 edge.specifier
                             )));
                         };
-                        bindings.insert(
-                            default_local.clone(),
-                            Binding::Local { name: def.clone() },
-                        );
+                        bindings
+                            .insert(default_local.clone(), Binding::Local { name: def.clone() });
                     }
                 }
                 Target::Unsupported { specifier } => {
@@ -289,9 +294,7 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
 /// resolves through the Registry exactly like a bare-`rts` namespace import. This
 /// generalizes to any module with a promise/sub-API object (`dns.promises`,
 /// `timers.promises`) by adding a row — no per-name control-flow special-case.
-fn node_subnamespace_reexports(
-    specifier: &str,
-) -> Option<&'static [(&'static str, &'static str)]> {
+fn node_subnamespace_reexports(specifier: &str) -> Option<&'static [(&'static str, &'static str)]> {
     match specifier {
         "node:fs" => Some(&[("promises", "node:fs/promises")]),
         _ => None,

@@ -11,7 +11,7 @@ use indexmap::IndexMap;
 use rts_engine::abi::ty::{Bool, Handle, I64, U64};
 use rts_engine::{AbiType, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use rts_engine::heap::handles::{alloc_entry, free_handle, with_entry, with_entry_mut, Entry};
+use rts_engine::heap::handles::{Entry, alloc_entry, free_handle, with_entry, with_entry_mut};
 
 /// Reconhece "array index" no sentido do ECMA-262: string que representa
 /// um u32 canônico (sem leading zeros exceto "0"; máximo 2^32 - 2).
@@ -109,13 +109,42 @@ fn is_object_proto_member(key: &str) -> bool {
 fn is_array_proto_member(key: &str) -> bool {
     matches!(
         key,
-        "push" | "pop" | "shift" | "unshift" | "slice" | "splice" | "concat"
-            | "join" | "reverse" | "sort" | "indexOf" | "lastIndexOf"
-            | "includes" | "find" | "findIndex" | "findLast" | "findLastIndex"
-            | "map" | "filter" | "forEach" | "reduce" | "reduceRight"
-            | "every" | "some" | "flat" | "flatMap" | "fill" | "copyWithin"
-            | "keys" | "values" | "entries" | "at" | "with"
-            | "toSorted" | "toReversed" | "toSpliced"
+        "push"
+            | "pop"
+            | "shift"
+            | "unshift"
+            | "slice"
+            | "splice"
+            | "concat"
+            | "join"
+            | "reverse"
+            | "sort"
+            | "indexOf"
+            | "lastIndexOf"
+            | "includes"
+            | "find"
+            | "findIndex"
+            | "findLast"
+            | "findLastIndex"
+            | "map"
+            | "filter"
+            | "forEach"
+            | "reduce"
+            | "reduceRight"
+            | "every"
+            | "some"
+            | "flat"
+            | "flatMap"
+            | "fill"
+            | "copyWithin"
+            | "keys"
+            | "values"
+            | "entries"
+            | "at"
+            | "with"
+            | "toSorted"
+            | "toReversed"
+            | "toSpliced"
     )
 }
 
@@ -142,7 +171,9 @@ pub fn set_shaped_object_hook(
 
 /// Se `h` é um OBJETO shape-vec (Entry::Vec, não Map) e o hook está instalado,
 /// devolve a ponte; senão `None` (o caminho Map normal segue).
-fn shaped_object_route(h: u64) -> Option<(
+fn shaped_object_route(
+    h: u64,
+) -> Option<(
     extern "C" fn(u64, *const u8, i64) -> i64,
     extern "C" fn(u64, *const u8, i64, i64),
 )> {
@@ -171,7 +202,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_LEN(h: U64) -> I64 {
 
 /// True when the map contains `key`.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_HAS(h: U64, key_ptr: *const u8, key_len: i64) -> Bool {
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_HAS(
+    h: U64,
+    key_ptr: *const u8,
+    key_len: i64,
+) -> Bool {
     let key = match unsafe { rts_engine::abi::str_abi::from_abi(key_ptr, key_len) } {
         Some(s) => s,
         None => return 0,
@@ -205,7 +240,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET(h: U64, key_ptr: *const u8, ke
 /// (i64::MIN+2) p/ chave ausente, em vez do raw 0 (que o codegen convertia).
 /// Permite drenar `get` pro Registry (key StrPtr, retorno AMBIGUOUS_RET).
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_AUTO(h: U64, key_ptr: *const u8, key_len: i64) -> I64 {
+pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_AUTO(
+    h: U64,
+    key_ptr: *const u8,
+    key_len: i64,
+) -> I64 {
     let v = __RTS_FN_NS_COLLECTIONS_MAP_GET(h, key_ptr, key_len);
     if v == 0 { i64::MIN + 2 } else { v }
 }
@@ -282,88 +321,86 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_CLEAR(h: U64) {
 /// True when `key_h` is an own property of `obj_h` (Vec or Map). Accepts Symbol keys.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJ_HAS(obj_h: U64, key_h: U64) -> Bool {
-        let key = match key_handle_to_string(key_h) {
-            Some(s) => s,
-            None => return 0,
-        };
-        // (cross-runtime #340) Proxy: dispatch `has` trap quando obj_h eh Proxy.
-        if let Some((target, handler)) =
-            crate::globals::proxy::ops::resolve_proxy(obj_h)
-        {
-            return crate::globals::proxy::ops::dispatch_has(target, handler, &key);
-        }
-        // Vec: index `i` esta "in" array se 0 <= i < length E slot != hole.
-        let vec_result: Option<i64> = with_entry(obj_h, |e| match e {
-            Some(Entry::Vec(v)) => {
-                if let Some(n) = parse_array_index(&key) {
-                    let slot = v.get(n as usize).copied();
-                    Some(match slot {
-                        Some(s) if s != i64::MIN + 4 => 1,
-                        _ => 0,
-                    })
-                } else if key == "length" {
-                    Some(1)
-                } else if is_array_proto_member(&key) || is_object_proto_member(&key) {
-                    // (cross-runtime #1533) `"push" in []` / `"toString" in []`
-                    // — membros herdados de Array.prototype/Object.prototype.
-                    Some(1)
-                } else {
-                    Some(0)
-                }
-            }
-            _ => None,
-        });
-        if let Some(r) = vec_result {
-            return r;
-        }
-        // (#1091) `in` walking prototype chain + class methods.
-        if with_map(obj_h, 0, |m| if m.contains_key(&key) { 1 } else { 0 }) == 1 {
-            return 1;
-        }
-        // Walk __proto__ chain.
-        let mut visited: HashSet<u64> = HashSet::new();
-        let mut cur = with_map(obj_h, 0i64, |m| m.get("__proto__").copied().unwrap_or(0)) as u64;
-        let mut steps = 0u32;
-        while cur != 0 && steps < 64 {
-            steps += 1;
-            if !visited.insert(cur) {
-                break;
-            }
-            let found = with_map(cur, 0, |m| if m.contains_key(&key) { 1 } else { 0 });
-            if found == 1 {
-                return 1;
-            }
-            cur = with_map(cur, 0i64, |m| m.get("__proto__").copied().unwrap_or(0)) as u64;
-        }
-        // Class method: consulta global class registry pelo __rts_class.
-        let class_name: Option<String> = with_entry(obj_h, |e| match e {
-            Some(Entry::Map(m)) => m.get("__rts_class").and_then(|v| {
-                with_entry(*v as u64, |ce| match ce {
-                    Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
-                    _ => None,
+    let key = match key_handle_to_string(key_h) {
+        Some(s) => s,
+        None => return 0,
+    };
+    // (cross-runtime #340) Proxy: dispatch `has` trap quando obj_h eh Proxy.
+    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(obj_h) {
+        return crate::globals::proxy::ops::dispatch_has(target, handler, &key);
+    }
+    // Vec: index `i` esta "in" array se 0 <= i < length E slot != hole.
+    let vec_result: Option<i64> = with_entry(obj_h, |e| match e {
+        Some(Entry::Vec(v)) => {
+            if let Some(n) = parse_array_index(&key) {
+                let slot = v.get(n as usize).copied();
+                Some(match slot {
+                    Some(s) if s != i64::MIN + 4 => 1,
+                    _ => 0,
                 })
-            }),
-            _ => None,
-        });
-        if let Some(cls) = class_name.as_ref() {
-            if class_method_registry()
-                .lock()
-                .unwrap()
-                .get(cls)
-                .map(|set| set.contains(&key))
-                .unwrap_or(false)
-            {
-                return 1;
+            } else if key == "length" {
+                Some(1)
+            } else if is_array_proto_member(&key) || is_object_proto_member(&key) {
+                // (cross-runtime #1533) `"push" in []` / `"toString" in []`
+                // — membros herdados de Array.prototype/Object.prototype.
+                Some(1)
+            } else {
+                Some(0)
             }
         }
-        // (cross-runtime #1533) Membros universais de Object.prototype: todo
-        // objeto (Map), com ou sem __rts_class, herda toString/valueOf/etc —
-        // `"toString" in obj` eh true mesmo para `Object.create({...})`.
-        let is_map = with_entry(obj_h, |e| matches!(e, Some(Entry::Map(_))));
-        if is_map && is_object_proto_member(&key) {
+        _ => None,
+    });
+    if let Some(r) = vec_result {
+        return r;
+    }
+    // (#1091) `in` walking prototype chain + class methods.
+    if with_map(obj_h, 0, |m| if m.contains_key(&key) { 1 } else { 0 }) == 1 {
+        return 1;
+    }
+    // Walk __proto__ chain.
+    let mut visited: HashSet<u64> = HashSet::new();
+    let mut cur = with_map(obj_h, 0i64, |m| m.get("__proto__").copied().unwrap_or(0)) as u64;
+    let mut steps = 0u32;
+    while cur != 0 && steps < 64 {
+        steps += 1;
+        if !visited.insert(cur) {
+            break;
+        }
+        let found = with_map(cur, 0, |m| if m.contains_key(&key) { 1 } else { 0 });
+        if found == 1 {
             return 1;
         }
-        0
+        cur = with_map(cur, 0i64, |m| m.get("__proto__").copied().unwrap_or(0)) as u64;
+    }
+    // Class method: consulta global class registry pelo __rts_class.
+    let class_name: Option<String> = with_entry(obj_h, |e| match e {
+        Some(Entry::Map(m)) => m.get("__rts_class").and_then(|v| {
+            with_entry(*v as u64, |ce| match ce {
+                Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
+                _ => None,
+            })
+        }),
+        _ => None,
+    });
+    if let Some(cls) = class_name.as_ref() {
+        if class_method_registry()
+            .lock()
+            .unwrap()
+            .get(cls)
+            .map(|set| set.contains(&key))
+            .unwrap_or(false)
+        {
+            return 1;
+        }
+    }
+    // (cross-runtime #1533) Membros universais de Object.prototype: todo
+    // objeto (Map), com ou sem __rts_class, herda toString/valueOf/etc —
+    // `"toString" in obj` eh true mesmo para `Object.create({...})`.
+    let is_map = with_entry(obj_h, |e| matches!(e, Some(Entry::Map(_))));
+    if is_map && is_object_proto_member(&key) {
+        return 1;
+    }
+    0
 }
 
 /// Inserts/overwrites value for key handle (String or Symbol).
@@ -380,220 +417,208 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SET_KH(obj_h: U64, key_h: U64, val
 /// Sets obj[key]=value, dispatching on Vec vs Map. Accepts Symbol keys.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJ_SET(obj_h: U64, key_h: U64, value: I64) {
-        // Vec path: tenta parse de array index a partir da key.
-        let is_vec = with_entry(obj_h, |e| matches!(e, Some(Entry::Vec(_))));
-        if is_vec {
-            if let Some(key) = key_handle_to_string(key_h) {
-                if let Some(n) = parse_array_index(&key) {
-                    with_entry_mut(obj_h, |e| {
-                        if let Some(Entry::Vec(v)) = e {
-                            let idx = n as usize;
-                            if idx >= v.len() {
-                                v.resize(idx + 1, i64::MIN + 4);
-                            }
-                            v[idx] = value;
-                        }
-                    });
-                }
-            }
-            return;
-        }
-        // Map path (ou other -> noop).
+    // Vec path: tenta parse de array index a partir da key.
+    let is_vec = with_entry(obj_h, |e| matches!(e, Some(Entry::Vec(_))));
+    if is_vec {
         if let Some(key) = key_handle_to_string(key_h) {
-            with_map_mut(obj_h, (), |m| {
-                m.insert(key, value);
-            });
+            if let Some(n) = parse_array_index(&key) {
+                with_entry_mut(obj_h, |e| {
+                    if let Some(Entry::Vec(v)) = e {
+                        let idx = n as usize;
+                        if idx >= v.len() {
+                            v.resize(idx + 1, i64::MIN + 4);
+                        }
+                        v[idx] = value;
+                    }
+                });
+            }
         }
+        return;
+    }
+    // Map path (ou other -> noop).
+    if let Some(key) = key_handle_to_string(key_h) {
+        with_map_mut(obj_h, (), |m| {
+            m.insert(key, value);
+        });
+    }
 }
 
 /// Reads obj[key], dispatching on Vec vs Map. Accepts Symbol keys.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJ_GET(obj_h: U64, key_h: U64) -> I64 {
-        let Some(key) = key_handle_to_string(key_h) else {
-            return 0;
-        };
-        let vec_result: Option<i64> = with_entry(obj_h, |e| match e {
-            Some(Entry::Vec(v)) => {
-                if key == "length" {
-                    Some(v.len() as i64)
-                } else if let Some(n) = parse_array_index(&key) {
-                    Some(v.get(n as usize).copied().unwrap_or(i64::MIN + 2))
-                } else {
-                    Some(0)
-                }
+    let Some(key) = key_handle_to_string(key_h) else {
+        return 0;
+    };
+    let vec_result: Option<i64> = with_entry(obj_h, |e| match e {
+        Some(Entry::Vec(v)) => {
+            if key == "length" {
+                Some(v.len() as i64)
+            } else if let Some(n) = parse_array_index(&key) {
+                Some(v.get(n as usize).copied().unwrap_or(i64::MIN + 2))
+            } else {
+                Some(0)
             }
-            _ => None,
-        });
-        if let Some(r) = vec_result {
-            return r;
         }
-        with_map(obj_h, 0, |m| m.get(&key).copied().unwrap_or(0))
+        _ => None,
+    });
+    if let Some(r) = vec_result {
+        return r;
+    }
+    with_map(obj_h, 0, |m| m.get(&key).copied().unwrap_or(0))
 }
 
 /// Returns value for key handle, or 0 if absent.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_KH(obj_h: U64, key_h: U64) -> I64 {
-        let Some(key) = key_handle_to_string(key_h) else {
-            return 0;
-        };
-        // (cross-runtime #340/#53) Proxy: dispatch `get` trap antes do path raw.
-        if let Some((target, handler)) =
-            crate::globals::proxy::ops::resolve_proxy(obj_h)
-        {
-            return crate::globals::proxy::ops::dispatch_get(target, handler, &key);
+    let Some(key) = key_handle_to_string(key_h) else {
+        return 0;
+    };
+    // (cross-runtime #340/#53) Proxy: dispatch `get` trap antes do path raw.
+    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(obj_h) {
+        return crate::globals::proxy::ops::dispatch_get(target, handler, &key);
+    }
+    // Vec path: parse key como array index.
+    let is_vec = with_entry(obj_h, |e| matches!(e, Some(Entry::Vec(_))));
+    if is_vec {
+        if let Some(n) = parse_array_index(&key) {
+            return super::vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(obj_h, n as i64);
         }
-        // Vec path: parse key como array index.
-        let is_vec = with_entry(obj_h, |e| matches!(e, Some(Entry::Vec(_))));
-        if is_vec {
-            if let Some(n) = parse_array_index(&key) {
-                return super::vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(obj_h, n as i64);
-            }
-            // (#216/299) `arr[Symbol.iterator]` -> handle Function nativo.
-            if key_is_well_known_iterator(&key) {
-                return crate::gc_surface::__RTS_FN_GL_ARRAY_ITERATOR_FN() as i64;
-            }
-            return 0;
-        }
-        // Map: valor armazenado vence; fallback iterator nativo.
-        let stored = with_map(obj_h, 0, |m| m.get(&key).copied().unwrap_or(0));
-        if stored == 0 && key_is_well_known_iterator(&key) {
+        // (#216/299) `arr[Symbol.iterator]` -> handle Function nativo.
+        if key_is_well_known_iterator(&key) {
             return crate::gc_surface::__RTS_FN_GL_ARRAY_ITERATOR_FN() as i64;
         }
-        stored
+        return 0;
+    }
+    // Map: valor armazenado vence; fallback iterator nativo.
+    let stored = with_map(obj_h, 0, |m| m.get(&key).copied().unwrap_or(0));
+    if stored == 0 && key_is_well_known_iterator(&key) {
+        return crate::gc_surface::__RTS_FN_GL_ARRAY_ITERATOR_FN() as i64;
+    }
+    stored
 }
 
 /// Returns a shallow copy of the map (new handle).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_CLONE(h: U64) -> Handle {
-        let cloned: Option<IndexMap<String, i64>> = with_map(h, None, |m| Some(m.clone()));
-        match cloned {
-            Some(m) => alloc_entry(Entry::Map(Box::new(m))),
-            None => 0,
-        }
+    let cloned: Option<IndexMap<String, i64>> = with_map(h, None, |m| Some(m.clone()));
+    match cloned {
+        Some(m) => alloc_entry(Entry::Map(Box::new(m))),
+        None => 0,
+    }
 }
 
 /// Returns the key at index in deterministic order (sorted). 0 if out of range.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEY_AT(h: U64, idx: I64) -> Handle {
-        if idx < 0 {
-            return 0;
-        }
-        let key_opt: Option<String> = with_map(h, None, |m| {
-            let mut int_keys: Vec<(u32, &String)> = Vec::new();
-            let mut str_keys: Vec<&String> = Vec::new();
-            for k in m.keys() {
-                match parse_array_index(k) {
-                    Some(n) => int_keys.push((n, k)),
-                    None => str_keys.push(k),
-                }
+    if idx < 0 {
+        return 0;
+    }
+    let key_opt: Option<String> = with_map(h, None, |m| {
+        let mut int_keys: Vec<(u32, &String)> = Vec::new();
+        let mut str_keys: Vec<&String> = Vec::new();
+        for k in m.keys() {
+            match parse_array_index(k) {
+                Some(n) => int_keys.push((n, k)),
+                None => str_keys.push(k),
             }
-            int_keys.sort_by_key(|(n, _)| *n);
-            let i = idx as usize;
-            if i < int_keys.len() {
-                Some(int_keys[i].1.clone())
-            } else {
-                str_keys.get(i - int_keys.len()).map(|s| (*s).clone())
-            }
-        });
-        match key_opt {
-            Some(s) => crate::gc_surface::__RTS_FN_NS_GC_STRING_NEW(
-                s.as_ptr(),
-                s.len() as i64,
-            ),
-            None => 0,
         }
+        int_keys.sort_by_key(|(n, _)| *n);
+        let i = idx as usize;
+        if i < int_keys.len() {
+            Some(int_keys[i].1.clone())
+        } else {
+            str_keys.get(i - int_keys.len()).map(|s| (*s).clone())
+        }
+    });
+    match key_opt {
+        Some(s) => crate::gc_surface::__RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64),
+        None => 0,
+    }
 }
 
 /// Returns Vec<i64> with key handles (sorted asc). Used by Object.keys.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(h: U64) -> Handle {
-        // (#218 phase2) Proxy: trap `ownKeys(target)` ou forward.
-        if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(h) {
-            return crate::globals::proxy::ops::dispatch_own_keys(target, handler);
-        }
-        // (#394) Set.keys() eh alias de Set.values() em JS.
-        if handle_is_set_kind(h) {
-            return __RTS_FN_NS_COLLECTIONS_MAP_VALUES(h);
-        }
-        let keys: Vec<String> = with_map(h, Vec::new(), |m| {
-            let mut int_keys: Vec<(u32, String)> = Vec::new();
-            let mut str_keys: Vec<String> = Vec::new();
-            for k in m.keys() {
-                if k.as_str() == "__proto__" {
-                    continue;
-                }
-                if k.starts_with("__get_") || k.starts_with("__set_") {
-                    continue;
-                }
-                if is_symbol_key(k.as_str()) {
-                    continue;
-                }
-                if is_non_enumerable(h, k.as_str()) {
-                    continue;
-                }
-                match parse_array_index(k) {
-                    Some(n) => int_keys.push((n, k.clone())),
-                    None => str_keys.push(k.clone()),
-                }
+    // (#218 phase2) Proxy: trap `ownKeys(target)` ou forward.
+    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(h) {
+        return crate::globals::proxy::ops::dispatch_own_keys(target, handler);
+    }
+    // (#394) Set.keys() eh alias de Set.values() em JS.
+    if handle_is_set_kind(h) {
+        return __RTS_FN_NS_COLLECTIONS_MAP_VALUES(h);
+    }
+    let keys: Vec<String> = with_map(h, Vec::new(), |m| {
+        let mut int_keys: Vec<(u32, String)> = Vec::new();
+        let mut str_keys: Vec<String> = Vec::new();
+        for k in m.keys() {
+            if k.as_str() == "__proto__" {
+                continue;
             }
-            int_keys.sort_by_key(|(n, _)| *n);
-            let mut out: Vec<String> = int_keys.into_iter().map(|(_, k)| k).collect();
-            out.extend(str_keys);
-            out
-        });
-        let mut vec: Vec<i64> = Vec::with_capacity(keys.len());
-        for k in keys {
-            let h2 = crate::gc_surface::__RTS_FN_NS_GC_STRING_NEW(
-                k.as_ptr(),
-                k.len() as i64,
-            );
-            vec.push(h2 as i64);
+            if k.starts_with("__get_") || k.starts_with("__set_") {
+                continue;
+            }
+            if is_symbol_key(k.as_str()) {
+                continue;
+            }
+            if is_non_enumerable(h, k.as_str()) {
+                continue;
+            }
+            match parse_array_index(k) {
+                Some(n) => int_keys.push((n, k.clone())),
+                None => str_keys.push(k.clone()),
+            }
         }
-        rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::Vec(
-            Box::new(vec),
-        ))
+        int_keys.sort_by_key(|(n, _)| *n);
+        let mut out: Vec<String> = int_keys.into_iter().map(|(_, k)| k).collect();
+        out.extend(str_keys);
+        out
+    });
+    let mut vec: Vec<i64> = Vec::with_capacity(keys.len());
+    for k in keys {
+        let h2 = crate::gc_surface::__RTS_FN_NS_GC_STRING_NEW(k.as_ptr(), k.len() as i64);
+        vec.push(h2 as i64);
+    }
+    rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::Vec(Box::new(vec)))
 }
 
 /// Returns Vec<i64> with values (in key-sorted order). Used by Object.values.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_VALUES(h: U64) -> Handle {
-        if handle_is_set_kind(h) {
-            let elems: Vec<i64> = with_map(h, Vec::new(), |m| {
-                m.iter()
-                    .filter(|(k, _)| k.as_str() != "__proto__")
-                    .map(|(k, &v)| set_element_from_pair(k, v))
-                    .collect()
-            });
-            return rts_engine::heap::handles::alloc_entry(
-                rts_engine::heap::handles::Entry::Vec(Box::new(elems)),
-            );
-        }
-        let vals: Vec<i64> = with_map(h, Vec::new(), |m| {
-            let mut int_entries: Vec<(u32, i64)> = Vec::new();
-            let mut str_entries: Vec<i64> = Vec::new();
-            for (k, v) in m.iter() {
-                if k.as_str() == "__proto__" {
-                    continue;
-                }
-                if is_symbol_key(k.as_str()) {
-                    continue;
-                }
-                if is_non_enumerable(h, k.as_str()) {
-                    continue;
-                }
-                match parse_array_index(k) {
-                    Some(n) => int_entries.push((n, *v)),
-                    None => str_entries.push(*v),
-                }
-            }
-            int_entries.sort_by_key(|(n, _)| *n);
-            let mut out: Vec<i64> = int_entries.into_iter().map(|(_, v)| v).collect();
-            out.extend(str_entries);
-            out
+    if handle_is_set_kind(h) {
+        let elems: Vec<i64> = with_map(h, Vec::new(), |m| {
+            m.iter()
+                .filter(|(k, _)| k.as_str() != "__proto__")
+                .map(|(k, &v)| set_element_from_pair(k, v))
+                .collect()
         });
-        rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::Vec(
-            Box::new(vals),
-        ))
+        return rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::Vec(
+            Box::new(elems),
+        ));
+    }
+    let vals: Vec<i64> = with_map(h, Vec::new(), |m| {
+        let mut int_entries: Vec<(u32, i64)> = Vec::new();
+        let mut str_entries: Vec<i64> = Vec::new();
+        for (k, v) in m.iter() {
+            if k.as_str() == "__proto__" {
+                continue;
+            }
+            if is_symbol_key(k.as_str()) {
+                continue;
+            }
+            if is_non_enumerable(h, k.as_str()) {
+                continue;
+            }
+            match parse_array_index(k) {
+                Some(n) => int_entries.push((n, *v)),
+                None => str_entries.push(*v),
+            }
+        }
+        int_entries.sort_by_key(|(n, _)| *n);
+        let mut out: Vec<i64> = int_entries.into_iter().map(|(_, v)| v).collect();
+        out.extend(str_entries);
+        out
+    });
+    rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::Vec(Box::new(vals)))
 }
 
 /// Constrói um `Member` (formato builder do `rts-engine`) para uma função do
@@ -664,7 +689,10 @@ pub fn append_engine_members(v: &mut Vec<Member>) {
     v.push(func(
         "map_set",
         "__RTS_FN_NS_COLLECTIONS_MAP_SET",
-        Sig::new(vec![AbiType::U64, AbiType::StrPtr, AbiType::I64], AbiType::Void),
+        Sig::new(
+            vec![AbiType::U64, AbiType::StrPtr, AbiType::I64],
+            AbiType::Void,
+        ),
         "map_set(h: number, key: string, value: number): void",
         "Inserts/overwrites `key` with `value`.",
         __RTS_FN_NS_COLLECTIONS_MAP_SET as *const u8,
@@ -696,7 +724,10 @@ pub fn append_engine_members(v: &mut Vec<Member>) {
     v.push(func(
         "map_set_kh",
         "__RTS_FN_NS_COLLECTIONS_MAP_SET_KH",
-        Sig::new(vec![AbiType::U64, AbiType::U64, AbiType::I64], AbiType::Void),
+        Sig::new(
+            vec![AbiType::U64, AbiType::U64, AbiType::I64],
+            AbiType::Void,
+        ),
         "map_set_kh(obj_h: number, key_h: number, value: number): void",
         "Inserts/overwrites value for key handle (String or Symbol).",
         __RTS_FN_NS_COLLECTIONS_MAP_SET_KH as *const u8,
@@ -704,7 +735,10 @@ pub fn append_engine_members(v: &mut Vec<Member>) {
     v.push(func(
         "obj_set",
         "__RTS_FN_NS_COLLECTIONS_OBJ_SET",
-        Sig::new(vec![AbiType::U64, AbiType::U64, AbiType::I64], AbiType::Void),
+        Sig::new(
+            vec![AbiType::U64, AbiType::U64, AbiType::I64],
+            AbiType::Void,
+        ),
         "obj_set(obj_h: number, key_h: number, value: number): void",
         "Sets obj[key]=value, dispatching on Vec vs Map. Accepts Symbol keys.",
         __RTS_FN_NS_COLLECTIONS_OBJ_SET as *const u8,
@@ -937,9 +971,8 @@ fn key_handle_to_string(key_h: u64) -> Option<String> {
 /// (#1114) Registry de methods declarados por classe. Populado pelo
 /// codegen via __RTS_FN_NS_COLLECTIONS_REGISTER_CLASS_METHOD no inicio
 /// de __RTS_MAIN; consultado pelo `in` operator (OBJ_HAS).
-fn class_method_registry(
-) -> &'static std::sync::Mutex<std::collections::HashMap<String, std::collections::HashSet<String>>>
-{
+fn class_method_registry()
+-> &'static std::sync::Mutex<std::collections::HashMap<String, std::collections::HashSet<String>>> {
     static R: std::sync::OnceLock<
         std::sync::Mutex<std::collections::HashMap<String, std::collections::HashSet<String>>>,
     > = std::sync::OnceLock::new();
@@ -998,11 +1031,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH(handle: u64, fn_ptr: u64)
                 key_for_set,
                 handle as i64,
             ])));
-            rts_primitives::function::ops::__RTS_FN_RT_INVOKE_AUTO(
-                fn_ptr as i64,
-                0,
-                args_vec,
-            );
+            rts_primitives::function::ops::__RTS_FN_RT_INVOKE_AUTO(fn_ptr as i64, 0, args_vec);
         }
         return;
     }
@@ -1239,7 +1268,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN(
 /// `delete obj.prop` — recebe key como handle de string.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DELETE_AUTO(handle: u64, key_handle: u64) -> i64 {
-    use rts_engine::heap::handles::{with_entry, Entry};
+    use rts_engine::heap::handles::{Entry, with_entry};
     let key_owned: Option<String> = with_entry(key_handle, |e| match e {
         Some(Entry::String(b)) => std::str::from_utf8(b).ok().map(|s| s.to_string()),
         _ => None,
@@ -1295,18 +1324,13 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES(handle: u64) -> u64 {
     });
     let mut outer: Vec<i64> = Vec::with_capacity(pairs.len());
     for (k, v) in pairs {
-        let key_h = crate::gc_surface::__RTS_FN_NS_GC_STRING_NEW(
-            k.as_ptr(),
-            k.len() as i64,
-        );
-        let inner = rts_engine::heap::handles::alloc_entry(
-            rts_engine::heap::handles::Entry::Vec(Box::new(vec![key_h as i64, v])),
-        );
+        let key_h = crate::gc_surface::__RTS_FN_NS_GC_STRING_NEW(k.as_ptr(), k.len() as i64);
+        let inner = rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::Vec(
+            Box::new(vec![key_h as i64, v]),
+        ));
         outer.push(inner as i64);
     }
-    rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::Vec(
-        Box::new(outer),
-    ))
+    rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::Vec(Box::new(outer)))
 }
 
 /// `Map.prototype.entries()` / iterador de Map JS — preserva ordem de
@@ -1333,9 +1357,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION(handle: u64) -> 
             );
             outer.push(inner as i64);
         }
-        return rts_engine::heap::handles::alloc_entry(
-            rts_engine::heap::handles::Entry::Vec(Box::new(outer)),
-        );
+        return rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::Vec(
+            Box::new(outer),
+        ));
     }
     let pairs: Vec<(String, i64)> = with_map(handle, Vec::new(), |m| {
         m.iter()
@@ -1345,18 +1369,13 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION(handle: u64) -> 
     });
     let mut outer: Vec<i64> = Vec::with_capacity(pairs.len());
     for (k, v) in pairs {
-        let key_h = crate::gc_surface::__RTS_FN_NS_GC_STRING_NEW(
-            k.as_ptr(),
-            k.len() as i64,
-        );
-        let inner = rts_engine::heap::handles::alloc_entry(
-            rts_engine::heap::handles::Entry::Vec(Box::new(vec![key_h as i64, v])),
-        );
+        let key_h = crate::gc_surface::__RTS_FN_NS_GC_STRING_NEW(k.as_ptr(), k.len() as i64);
+        let inner = rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::Vec(
+            Box::new(vec![key_h as i64, v]),
+        ));
         outer.push(inner as i64);
     }
-    rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::Vec(
-        Box::new(outer),
-    ))
+    rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::Vec(Box::new(outer)))
 }
 
 /// (#771) Set thread-safe de handles marcados como non-extensible via
@@ -1484,9 +1503,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
     // via trap `getOwnPropertyDescriptor` por chave (ECMA-262
     // OrdinaryOwnPropertyKeys). Reflect.ownKeys usa dispatch_own_keys cru.
     if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(handle) {
-        return crate::globals::proxy::ops::dispatch_own_keys_enumerable(
-            target, handler,
-        );
+        return crate::globals::proxy::ops::dispatch_own_keys_enumerable(target, handler);
     }
     // (#253) StringBox unwrap antes do dispatch.
     let unwrap: Option<u64> = with_entry(handle, |e| match e {
@@ -1739,20 +1756,12 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SEAL(handle: u64) -> u64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_IS_FROZEN(handle: u64) -> i64 {
-    if is_map_frozen(handle) {
-        1
-    } else {
-        0
-    }
+    if is_map_frozen(handle) { 1 } else { 0 }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_IS_SEALED(handle: u64) -> i64 {
-    if is_map_sealed(handle) {
-        1
-    } else {
-        0
-    }
+    if is_map_sealed(handle) { 1 } else { 0 }
 }
 
 /// (#208) `Object.getPrototypeOf(obj)` — retorna handle de `__proto__` se setado
@@ -2185,11 +2194,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_IS_SUBSET(self_h: u64, other_h: u6
             .all(|k| other_keys.contains(k.as_str())),
         _ => true,
     });
-    if all_in {
-        1
-    } else {
-        0
-    }
+    if all_in { 1 } else { 0 }
 }
 
 /// (#678/302) Set.isSupersetOf(other) — todos elementos de other estao em self.
@@ -2216,11 +2221,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_IS_DISJOINT(self_h: u64, other_h: 
             .any(|k| other_keys.contains(k.as_str())),
         _ => false,
     });
-    if any_in {
-        0
-    } else {
-        1
-    }
+    if any_in { 0 } else { 1 }
 }
 
 /// (#678/89) Object.groupBy(arr, fn) — ES2024. Itera arr, chama fn(elem, idx)
@@ -2287,7 +2288,7 @@ fn group_by_impl(arr: u64, fn_ptr: u64, mark_as_map: bool) -> u64 {
 /// (#666/265) Map suporte adicionado para `Object.fromEntries(new Map(...))`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FROM_ENTRIES(arr: u64) -> u64 {
-    use rts_engine::heap::handles::{with_entry, Entry};
+    use rts_engine::heap::handles::{Entry, with_entry};
     // (#666/265) Map -> Map roundtrip: copia todos os pares (k, v) direto.
     let map_pairs: Option<Vec<(String, i64)>> = with_entry(arr, |entry| match entry {
         Some(Entry::Map(m)) => Some(m.iter().map(|(k, v)| (k.clone(), *v)).collect()),
@@ -2348,7 +2349,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FROM_ENTRIES(arr: u64) -> u64 {
 ///   nao-string = ptr nulo) e colidiam todos numa unica entrada.
 /// - sem Entry valido (numero/bool/sentinel) -> representacao decimal.
 pub(crate) fn set_stable_key(elem_raw: i64) -> String {
-    use rts_engine::heap::handles::{with_entry, Entry};
+    use rts_engine::heap::handles::{Entry, with_entry};
     with_entry(elem_raw as u64, |e| match e {
         Some(Entry::String(b)) => String::from_utf8_lossy(b).into_owned(),
         Some(_) => format!("\0obj#{elem_raw}"),
@@ -2488,7 +2489,7 @@ pub extern "C" fn __RTS_FN_RT_FOR_OF_NORMALIZE(handle: u64) -> u64 {
     // iterador. Drena ate `done` num Vec (finito). Para generator infinito num
     // for-of sem break o loop nunca termina — igual a JS.
     {
-        use rts_engine::heap::handles::{with_entry, Entry};
+        use rts_engine::heap::handles::{Entry, with_entry};
         let is_sm = with_entry(handle, |e| matches!(e, Some(Entry::GenState(_))));
         if is_sm {
             return crate::gc_surface::__RTS_FN_NS_GC_GEN_SM_DRAIN(handle);
@@ -2499,7 +2500,7 @@ pub extern "C" fn __RTS_FN_RT_FOR_OF_NORMALIZE(handle: u64) -> u64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_FROM_VEC(src: u64) -> u64 {
-    use rts_engine::heap::handles::{with_entry, Entry};
+    use rts_engine::heap::handles::{Entry, with_entry};
     let elems: Vec<i64> = with_entry(src, |entry| match entry {
         Some(Entry::Vec(v)) => v.as_ref().clone(),
         _ => Vec::new(),
@@ -2523,7 +2524,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_FROM_VEC(src: u64) -> u64 {
 #[cfg(test)]
 mod object_tests {
     use super::*;
-    use rts_engine::heap::handles::{with_entry, Entry};
+    use rts_engine::heap::handles::{Entry, with_entry};
 
     fn read_str(h: u64) -> Option<String> {
         with_entry(h, |e| match e {

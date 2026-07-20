@@ -11,7 +11,7 @@
 use rts_engine::abi::ty::{Bool, Handle, I64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use rts_engine::heap::handles::{alloc_entry, with_entry, with_entry_mut, Entry};
+use rts_engine::heap::handles::{Entry, alloc_entry, with_entry, with_entry_mut};
 
 // ── Helpers (side-table indices_vec_handle -> groups_map_handle) ───────────────
 
@@ -38,12 +38,7 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_NEW(pattern_ptr: *const u8, pattern_len: i6
         Some(s) => s,
         None => return 0,
     };
-    crate::regex::__RTS_FN_NS_REGEX_COMPILE(
-        pattern.as_ptr(),
-        pattern.len() as i64,
-        "".as_ptr(),
-        0,
-    )
+    crate::regex::__RTS_FN_NS_REGEX_COMPILE(pattern.as_ptr(), pattern.len() as i64, "".as_ptr(), 0)
 }
 
 /// `new RegExp(pattern, flags)` — with flags like "gi", "im", "s".

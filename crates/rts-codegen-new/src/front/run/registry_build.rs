@@ -193,17 +193,50 @@ fn register_typed_array_class_specs(e: &mut Engine) {
     use rts_adapters::value::taops as ta;
     use rts_engine::{AbiType, FnPtr, Member, MemberFlags, MemberKind, Sig};
     let ctors: &[(&str, &str, *const u8)] = &[
-        ("Uint8Array", "__RTS_FN_GL_TA_NEW_U8", ta::__RTS_FN_GL_TA_NEW_U8 as *const u8),
-        ("Int8Array", "__RTS_FN_GL_TA_NEW_I8", ta::__RTS_FN_GL_TA_NEW_I8 as *const u8),
-        ("Uint16Array", "__RTS_FN_GL_TA_NEW_U16", ta::__RTS_FN_GL_TA_NEW_U16 as *const u8),
-        ("Int16Array", "__RTS_FN_GL_TA_NEW_I16", ta::__RTS_FN_GL_TA_NEW_I16 as *const u8),
-        ("Uint32Array", "__RTS_FN_GL_TA_NEW_U32", ta::__RTS_FN_GL_TA_NEW_U32 as *const u8),
-        ("Int32Array", "__RTS_FN_GL_TA_NEW_I32", ta::__RTS_FN_GL_TA_NEW_I32 as *const u8),
-        ("Float32Array", "__RTS_FN_GL_TA_NEW_F32", ta::__RTS_FN_GL_TA_NEW_F32 as *const u8),
-        ("Float64Array", "__RTS_FN_GL_TA_NEW_F64", ta::__RTS_FN_GL_TA_NEW_F64 as *const u8),
+        (
+            "Uint8Array",
+            "__RTS_FN_GL_TA_NEW_U8",
+            ta::__RTS_FN_GL_TA_NEW_U8 as *const u8,
+        ),
+        (
+            "Int8Array",
+            "__RTS_FN_GL_TA_NEW_I8",
+            ta::__RTS_FN_GL_TA_NEW_I8 as *const u8,
+        ),
+        (
+            "Uint16Array",
+            "__RTS_FN_GL_TA_NEW_U16",
+            ta::__RTS_FN_GL_TA_NEW_U16 as *const u8,
+        ),
+        (
+            "Int16Array",
+            "__RTS_FN_GL_TA_NEW_I16",
+            ta::__RTS_FN_GL_TA_NEW_I16 as *const u8,
+        ),
+        (
+            "Uint32Array",
+            "__RTS_FN_GL_TA_NEW_U32",
+            ta::__RTS_FN_GL_TA_NEW_U32 as *const u8,
+        ),
+        (
+            "Int32Array",
+            "__RTS_FN_GL_TA_NEW_I32",
+            ta::__RTS_FN_GL_TA_NEW_I32 as *const u8,
+        ),
+        (
+            "Float32Array",
+            "__RTS_FN_GL_TA_NEW_F32",
+            ta::__RTS_FN_GL_TA_NEW_F32 as *const u8,
+        ),
+        (
+            "Float64Array",
+            "__RTS_FN_GL_TA_NEW_F64",
+            ta::__RTS_FN_GL_TA_NEW_F64 as *const u8,
+        ),
     ];
     for (class, symbol, ptr) in ctors {
-        let m = |name: &str, argc: usize, sym: &str, fp: *const u8, ts: &str| Member {
+        let m = |name: &str, argc: usize, sym: &str, fp: *const u8, ts: &str| {
+            Member {
             name: name.to_string(),
             kind: MemberKind::InstanceMethod,
             sig: Sig::new(vec![AbiType::PolyValue; argc + 1], AbiType::PolyValue),
@@ -216,6 +249,7 @@ fn register_typed_array_class_specs(e: &mut Engine) {
             doc: "TypedArray instance surface (works on both the Vec-backed and the buffer-VIEW representations).".to_string(),
             pure: false,
             intrinsic: None,
+        }
         };
         e.class(class)
             .doc("TypedArray — Vec-backed for length/array ctors, a live buffer VIEW for an ArrayBuffer ctor.")
@@ -281,8 +315,16 @@ fn register_typed_array_class_specs(e: &mut Engine) {
     // model (#219; literals already lower as fits-i64 Ints).
     let mut bi = e.class("BigInt");
     for (name, sym, fp) in [
-        ("asIntN", "__RTS_FN_GL_BIGINT_AS_INTN", ta::__rtsadp_bigint_as_intn as *const u8),
-        ("asUintN", "__RTS_FN_GL_BIGINT_AS_UINTN", ta::__rtsadp_bigint_as_uintn as *const u8),
+        (
+            "asIntN",
+            "__RTS_FN_GL_BIGINT_AS_INTN",
+            ta::__rtsadp_bigint_as_intn as *const u8,
+        ),
+        (
+            "asUintN",
+            "__RTS_FN_GL_BIGINT_AS_UINTN",
+            ta::__rtsadp_bigint_as_uintn as *const u8,
+        ),
     ] {
         bi = bi.member(Member {
             name: name.to_string(),
@@ -312,7 +354,11 @@ fn register_typed_array_class_specs(e: &mut Engine) {
         ("or", 3, ta::__rtsadp_atomics_or as *const u8),
         ("xor", 3, ta::__rtsadp_atomics_xor as *const u8),
         ("exchange", 3, ta::__rtsadp_atomics_exchange as *const u8),
-        ("compareExchange", 4, ta::__rtsadp_atomics_cmpxchg as *const u8),
+        (
+            "compareExchange",
+            4,
+            ta::__rtsadp_atomics_cmpxchg as *const u8,
+        ),
     ];
     let mut cls = e.class("Atomics");
     for (name, argc, ptr) in statics {
@@ -348,68 +394,192 @@ pub(super) struct PreludeTs {
 /// the order: primordials first, framework (`rts:test`) last.
 pub(super) static PRELUDE_TS: &[PreludeTs] = &[
     // PRIMORDIAL Error family — BEFORE anything that `extends Error`.
-    PreludeTs { label: "Error", source: rts_runtime::ERROR_TS, why: "Error + subclasses (shape-based)" },
+    PreludeTs {
+        label: "Error",
+        source: rts_runtime::ERROR_TS,
+        why: "Error + subclasses (shape-based)",
+    },
     // PRIMORDIAL Object instance methods + factory.
-    PreludeTs { label: "Object", source: rts_runtime::OBJECT_TS, why: "hasOwnProperty/toString/valueOf" },
+    PreludeTs {
+        label: "Object",
+        source: rts_runtime::OBJECT_TS,
+        why: "hasOwnProperty/toString/valueOf",
+    },
     // PRIMITIVE method libs (receiver boxed as `this`).
-    PreludeTs { label: "Boolean", source: rts_runtime::BOOLEAN_TS, why: "bool.toString/valueOf" },
-    PreludeTs { label: "Number", source: rts_runtime::NUMBER_TS, why: "num.toFixed/toString(radix)/…" },
-    PreludeTs { label: "String", source: rts_runtime::STRING_TS, why: "str.toUpperCase/slice/indexOf/…" },
+    PreludeTs {
+        label: "Boolean",
+        source: rts_runtime::BOOLEAN_TS,
+        why: "bool.toString/valueOf",
+    },
+    PreludeTs {
+        label: "Number",
+        source: rts_runtime::NUMBER_TS,
+        why: "num.toFixed/toString(radix)/…",
+    },
+    PreludeTs {
+        label: "String",
+        source: rts_runtime::STRING_TS,
+        why: "str.toUpperCase/slice/indexOf/…",
+    },
     // Global console object (front names nothing; bridges via engine.*).
-    PreludeTs { label: "console", source: rts_runtime::CONSOLE_TS, why: "console.log/warn/… → engine bridges" },
+    PreludeTs {
+        label: "console",
+        source: rts_runtime::CONSOLE_TS,
+        why: "console.log/warn/… → engine bridges",
+    },
     // Stdlib classes.
-    PreludeTs { label: "Map/Set", source: rts_runtime::stdlib::MAP_SET_TS, why: "class Map/Set shadow native" },
-    PreludeTs { label: "WeakMap/WeakSet", source: rts_runtime::stdlib::WEAKMAP_SET_TS, why: "class WeakMap/WeakSet (strong-ref, #217)" },
-    PreludeTs { label: "JSON", source: rts_runtime::stdlib::JSON_TS, why: "JSON.stringify/parse" },
-    PreludeTs { label: "JSON5", source: rts_runtime::stdlib::JSON5_TS, why: "JSON5.parse (sanitizer → JSON.parse) + stringify" },
-    PreludeTs { label: "Iterator", source: rts_runtime::stdlib::ITERATOR_TS, why: "Iterator.from + toArray cursor (#306 nível A)" },
+    PreludeTs {
+        label: "Map/Set",
+        source: rts_runtime::stdlib::MAP_SET_TS,
+        why: "class Map/Set shadow native",
+    },
+    PreludeTs {
+        label: "WeakMap/WeakSet",
+        source: rts_runtime::stdlib::WEAKMAP_SET_TS,
+        why: "class WeakMap/WeakSet (strong-ref, #217)",
+    },
+    PreludeTs {
+        label: "JSON",
+        source: rts_runtime::stdlib::JSON_TS,
+        why: "JSON.stringify/parse",
+    },
+    PreludeTs {
+        label: "JSON5",
+        source: rts_runtime::stdlib::JSON5_TS,
+        why: "JSON5.parse (sanitizer → JSON.parse) + stringify",
+    },
+    PreludeTs {
+        label: "Iterator",
+        source: rts_runtime::stdlib::ITERATOR_TS,
+        why: "Iterator.from + toArray cursor (#306 nível A)",
+    },
     // Reflect (get/set/has) — pure TS over dynamic property access + Object.keys
     // (#218). `Reflect.get`/`set` on a Proxy fire its traps via the dynamic
     // trampolines; after Object/JSON so its `Object.keys` resolves.
-    PreludeTs { label: "Reflect", source: rts_runtime::stdlib::REFLECT_TS, why: "Reflect.get/set/has" },
+    PreludeTs {
+        label: "Reflect",
+        source: rts_runtime::stdlib::REFLECT_TS,
+        why: "Reflect.get/set/has",
+    },
     // structuredClone — global fn; after Map/Set/WeakMap/JSON so its instanceof +
     // Object.keys + Map/Set/Date clone resolve against the already-included classes.
-    PreludeTs { label: "structuredClone", source: rts_runtime::stdlib::STRUCTURED_CLONE_TS, why: "deep clone w/ cycle detection" },
-    PreludeTs { label: "DOMException", source: rts_runtime::stdlib::DOMEXCEPTION_TS, why: "web exception class (name/message/legacy code)" },
+    PreludeTs {
+        label: "structuredClone",
+        source: rts_runtime::stdlib::STRUCTURED_CLONE_TS,
+        why: "deep clone w/ cycle detection",
+    },
+    PreludeTs {
+        label: "DOMException",
+        source: rts_runtime::stdlib::DOMEXCEPTION_TS,
+        why: "web exception class (name/message/legacy code)",
+    },
     // performance singleton — `.ts` over the private engine clock bridges (like console).
-    PreludeTs { label: "performance", source: rts_runtime::stdlib::PERFORMANCE_TS, why: "performance.now()/timeOrigin" },
+    PreludeTs {
+        label: "performance",
+        source: rts_runtime::stdlib::PERFORMANCE_TS,
+        why: "performance.now()/timeOrigin",
+    },
     // Global timers — setTimeout/clearTimeout/setInterval/clearInterval/
     // queueMicrotask over the private engine timer bridges (ordered queues).
-    PreludeTs { label: "timers", source: rts_runtime::stdlib::TIMERS_TS, why: "setTimeout/queueMicrotask globals" },
+    PreludeTs {
+        label: "timers",
+        source: rts_runtime::stdlib::TIMERS_TS,
+        why: "setTimeout/queueMicrotask globals",
+    },
     // Web-platform value classes — pure `.ts` holders; after Object/JSON (their
     // ctors read `Object.keys` + `JSON.parse` from the merged prelude).
-    PreludeTs { label: "web-api", source: rts_runtime::stdlib::WEBAPI_TS, why: "Headers/FormData/Blob/File/Request/Response" },
+    PreludeTs {
+        label: "web-api",
+        source: rts_runtime::stdlib::WEBAPI_TS,
+        why: "Headers/FormData/Blob/File/Request/Response",
+    },
     // Web event model — after timers (AbortSignal.timeout → setTimeout;
     // MessagePort → queueMicrotask) and DOMException (abort/timeout reasons).
-    PreludeTs { label: "events", source: rts_runtime::stdlib::EVENTS_TS, why: "Event/EventTarget/AbortSignal/AbortController/MessageChannel" },
+    PreludeTs {
+        label: "events",
+        source: rts_runtime::stdlib::EVENTS_TS,
+        why: "Event/EventTarget/AbortSignal/AbortController/MessageChannel",
+    },
     // Web Streams — after web-api (Blob.stream() builds a ReadableStream; the
     // UTF-8 helpers live in webapi.ts; the merged prelude is one program).
-    PreludeTs { label: "streams", source: rts_runtime::stdlib::STREAMS_TS, why: "ReadableStream/WritableStream/TransformStream/TextEncoder/DecoderStream" },
+    PreludeTs {
+        label: "streams",
+        source: rts_runtime::stdlib::STREAMS_TS,
+        why: "ReadableStream/WritableStream/TransformStream/TextEncoder/DecoderStream",
+    },
     // node:stream — Node's Readable/Writable/Duplex/Transform/PassThrough + the
     // orchestration fns + consumers + promises. Ambient `.ts` (like Map/Set); split
     // into cohesive files included IN ORDER (base classes before dependents). After
     // web `streams`/`events` (uses queueMicrotask/Buffer/__utf8_decode from earlier).
-    PreludeTs { label: "node:stream base", source: ns::node_stream::STREAM_TS, why: "NodeEmitter/Stream + hwm/err helpers" },
-    PreludeTs { label: "node:stream read", source: ns::node_stream::STREAM_READABLE_TS, why: "Readable + shared read code + Readable.from" },
-    PreludeTs { label: "node:stream write", source: ns::node_stream::STREAM_WRITABLE_TS, why: "Writable + shared write code" },
-    PreludeTs { label: "node:stream duplex", source: ns::node_stream::STREAM_DUPLEX_TS, why: "Duplex/Transform/PassThrough" },
-    PreludeTs { label: "node:stream ops", source: ns::node_stream::STREAM_OPS_TS, why: "pipeline/finished/compose/… + consumers + promises" },
+    PreludeTs {
+        label: "node:stream base",
+        source: ns::node_stream::STREAM_TS,
+        why: "NodeEmitter/Stream + hwm/err helpers",
+    },
+    PreludeTs {
+        label: "node:stream read",
+        source: ns::node_stream::STREAM_READABLE_TS,
+        why: "Readable + shared read code + Readable.from",
+    },
+    PreludeTs {
+        label: "node:stream write",
+        source: ns::node_stream::STREAM_WRITABLE_TS,
+        why: "Writable + shared write code",
+    },
+    PreludeTs {
+        label: "node:stream duplex",
+        source: ns::node_stream::STREAM_DUPLEX_TS,
+        why: "Duplex/Transform/PassThrough",
+    },
+    PreludeTs {
+        label: "node:stream ops",
+        source: ns::node_stream::STREAM_OPS_TS,
+        why: "pipeline/finished/compose/… + consumers + promises",
+    },
     // node:fs ReadStream/WriteStream — extend the ambient Readable/Writable (must
     // come AFTER them) with real file IO via the private engine.fs_* bridge.
-    PreludeTs { label: "node:fs streams", source: ns::node_fs::FS_STREAM_TS, why: "fs.ReadStream/WriteStream + createReadStream/createWriteStream" },
-    PreludeTs { label: "node:fs Utf8Stream", source: ns::node_fs::FS_UTF8STREAM_TS, why: "fs.Utf8Stream append-only writer" },
-    PreludeTs { label: "node:fs/promises open", source: ns::node_fs::FS_FHSTREAM_TS, why: "FileHandle.createReadStream/createWriteStream/readableWebStream" },
+    PreludeTs {
+        label: "node:fs streams",
+        source: ns::node_fs::FS_STREAM_TS,
+        why: "fs.ReadStream/WriteStream + createReadStream/createWriteStream",
+    },
+    PreludeTs {
+        label: "node:fs Utf8Stream",
+        source: ns::node_fs::FS_UTF8STREAM_TS,
+        why: "fs.Utf8Stream append-only writer",
+    },
+    PreludeTs {
+        label: "node:fs/promises open",
+        source: ns::node_fs::FS_FHSTREAM_TS,
+        why: "FileHandle.createReadStream/createWriteStream/readableWebStream",
+    },
     // node:diagnostics_channel — in-process pub/sub bus (Channel/TracingChannel +
     // module fns). Ambient `.ts` (like node:stream); pure over Map/Array/Function.
-    PreludeTs { label: "node:diagnostics_channel", source: ns::node_diagnostics_channel::DIAGNOSTICS_CHANNEL_TS, why: "Channel/TracingChannel + channel/subscribe/… pub-sub" },
+    PreludeTs {
+        label: "node:diagnostics_channel",
+        source: ns::node_diagnostics_channel::DIAGNOSTICS_CHANNEL_TS,
+        why: "Channel/TracingChannel + channel/subscribe/… pub-sub",
+    },
     // DOM facade — `Document`/`Element` classes (browser-named API) over the `rts:dom`
     // primitives. AFTER the namespaces register (the `dom.*` it calls must exist).
-    PreludeTs { label: "DOM facade", source: ns::dom::DOM_TS, why: "document/Element over rts:dom" },
+    PreludeTs {
+        label: "DOM facade",
+        source: ns::dom::DOM_TS,
+        why: "document/Element over rts:dom",
+    },
     // Canvas facade — ergonomic immediate-mode UI (Canvas: rect/text/button) over
     // the abstract render.*/input.* (NO DOM). AFTER render/input register.
-    PreludeTs { label: "Canvas facade", source: ns::render::CANVAS_TS, why: "rts:canvas immediate UI over render.*" },
+    PreludeTs {
+        label: "Canvas facade",
+        source: ns::render::CANVAS_TS,
+        why: "rts:canvas immediate UI over render.*",
+    },
     // The rts:test FRAMEWORK — LAST, so its Matcher/describe/test see every primordial.
-    PreludeTs { label: "rts:test", source: rts_runtime::namespaces::test::BUNDLE_TS, why: "describe/test/expect/Matcher" },
+    PreludeTs {
+        label: "rts:test",
+        source: rts_runtime::namespaces::test::BUNDLE_TS,
+        why: "describe/test/expect/Matcher",
+    },
 ];
 
 /// Run every register then include every prelude, in table order. The whole
@@ -439,8 +609,10 @@ fn populate_runtime_ci(e: &Engine) {
     use rts_engine::MemberKind;
     for class in e.registry().classes() {
         for m in &class.members {
-            if matches!(m.kind, MemberKind::InstanceMethod | MemberKind::InstanceGetter)
-                && !m.fn_ptr.0.is_null()
+            if matches!(
+                m.kind,
+                MemberKind::InstanceMethod | MemberKind::InstanceGetter
+            ) && !m.fn_ptr.0.is_null()
             {
                 rts_engine::runtime_ci::register_ci(
                     &class.name,

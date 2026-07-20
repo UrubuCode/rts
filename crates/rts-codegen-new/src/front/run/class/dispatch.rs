@@ -66,9 +66,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // the result (`expect(x).toBe(y)`). Only a bare-ident callee is resolved
             // (a method/computed callee's return class is a later increment).
             HirExprKind::Call { callee, .. } => match &callee.kind {
-                HirExprKind::Ident(fname) => {
-                    self.sigs.get(fname).and_then(|s| s.ret_class.clone())
-                }
+                HirExprKind::Ident(fname) => self.sigs.get(fname).and_then(|s| s.ret_class.clone()),
                 _ => None,
             },
             // A METHOD CALL whose receiver's class is known and whose method has a
@@ -111,10 +109,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// even one of unknown class. (An inheritance-collision-mangled own access
     /// arrives here already rewritten to `#p@Class`, whose declarer IS the
     /// enclosing class — still exact.)
-    pub(in crate::front::run) fn check_private_name_lexical(
-        &self,
-        prop: &str,
-    ) -> FrontResult<()> {
+    pub(in crate::front::run) fn check_private_name_lexical(&self, prop: &str) -> FrontResult<()> {
         if !prop.starts_with('#') {
             return Ok(());
         }
@@ -436,10 +431,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let boxed = value::emit_is_boxed(self.builder, own);
         let shifted = self.builder.ins().ushr_imm(own, value::TAG_SHIFT as i64);
         let tag = self.builder.ins().band_imm(shifted, value::TAG_MASK as i64);
-        let is_fn_tag =
-            self.builder
-                .ins()
-                .icmp_imm(IntCC::Equal, tag, value::TAG_FUNCTION as i64);
+        let is_fn_tag = self
+            .builder
+            .ins()
+            .icmp_imm(IntCC::Equal, tag, value::TAG_FUNCTION as i64);
         let is_fn = self.builder.ins().band(boxed, is_fn_tag);
 
         let b_fn = self.builder.create_block();

@@ -22,37 +22,38 @@
 //! (driver + locals + coercions), [`expr`] (expressions, incl. the Tagged path),
 //! [`stmt`] (statements + control flow), [`module_jit`] (N-function JIT).
 
+mod aot_str;
 mod argsobj;
 mod assign;
 mod asyncspawn;
 mod binop;
-mod breakcont;
-mod dynfn;
-mod fnhoist;
-mod floatscan;
 mod binop_eq;
-mod ctorfn;
+mod breakcont;
 mod call;
 mod call_shape;
 mod call_spread;
-mod aot_str;
 mod cell;
 mod class;
+mod ctorfn;
 mod desugar;
+mod dynfn;
 mod engineobj;
 mod expr;
+mod floatscan;
+mod fnhoist;
 mod funcval;
 mod gcell;
 mod globalclass;
 mod globalclass_receiver;
 mod globals;
+mod intrinsic;
 mod loops;
 mod mathobj;
-mod methodtable;
 mod method;
 mod method_array;
 mod method_array_coerce;
 mod method_dyn;
+mod methodtable;
 mod module_aot;
 mod module_entry;
 pub mod module_jit;
@@ -60,7 +61,6 @@ mod newexpr;
 mod obj;
 mod objstatic;
 mod optchain_lower;
-mod intrinsic;
 mod parcompile;
 mod prune;
 mod regex;
@@ -75,9 +75,9 @@ mod stmt_let;
 mod switch;
 mod tco;
 mod thunk;
-mod varhoist;
 mod toprimitive;
 mod trycatch;
+mod varhoist;
 
 pub mod lower;
 
@@ -487,11 +487,14 @@ fn build_from_program(
     // is a method-dispatch receiver (see [`Lowerer::lower_function`]).
     let class_name_set: std::collections::HashSet<&str> =
         class_decls.iter().map(|c| c.name.as_str()).collect();
-    let mut param_classes: std::collections::HashMap<String, std::collections::HashMap<String, String>> =
-        std::collections::HashMap::new();
+    let mut param_classes: std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, String>,
+    > = std::collections::HashMap::new();
     for item in &program.items {
         if let rts_ast::ast::Item::Function(fdecl) = item {
-            let mut pm: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+            let mut pm: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
             for p in &fdecl.parameters {
                 if let Some(ann) = &p.type_annotation {
                     if class_name_set.contains(ann.as_str()) {
@@ -645,7 +648,13 @@ fn build_from_program(
     // arrow extraction) so the swc/HIR positional pairing is on the clean lowering.
     let (lit_fn_units, lit_fn_bodies) = {
         let main_name = main.name.clone();
-        desugar::desugar_obj_methods(&program, &main_name, &mut main.body, &mut funcs, &mut classes)
+        desugar::desugar_obj_methods(
+            &program,
+            &main_name,
+            &mut main.body,
+            &mut funcs,
+            &mut classes,
+        )
     };
 
     // Map each synthesized constructor/method fn name → its class (for `this`). Built
@@ -675,7 +684,10 @@ fn build_from_program(
             }
         }
         for (key, acc) in desc.accessors.iter() {
-            for fn_name in [acc.getter.as_ref(), acc.setter.as_ref()].into_iter().flatten() {
+            for fn_name in [acc.getter.as_ref(), acc.setter.as_ref()]
+                .into_iter()
+                .flatten()
+            {
                 if *fn_name == class::synth::getter_name(&desc.name, key)
                     || *fn_name == class::synth::setter_name(&desc.name, key)
                 {
@@ -686,11 +698,18 @@ fn build_from_program(
     }
     for desc in classes.iter() {
         for fn_name in desc.methods.values() {
-            fn_this_class.entry(fn_name.clone()).or_insert(desc.name.clone());
+            fn_this_class
+                .entry(fn_name.clone())
+                .or_insert(desc.name.clone());
         }
         for acc in desc.accessors.values() {
-            for fn_name in [acc.getter.as_ref(), acc.setter.as_ref()].into_iter().flatten() {
-                fn_this_class.entry(fn_name.clone()).or_insert(desc.name.clone());
+            for fn_name in [acc.getter.as_ref(), acc.setter.as_ref()]
+                .into_iter()
+                .flatten()
+            {
+                fn_this_class
+                    .entry(fn_name.clone())
+                    .or_insert(desc.name.clone());
             }
         }
     }
@@ -701,7 +720,13 @@ fn build_from_program(
     // rewrites each placeholder into ordinary HIR (a string `+` chain / a guarded
     // ternary). Run BEFORE arrow extraction so a template/chain inside a top-level
     // arrow is rewritten while still in the `main` body it was parsed from.
-    desugar::desugar(&program, &mut main.body, &mut funcs, &classes, &lit_fn_bodies);
+    desugar::desugar(
+        &program,
+        &mut main.body,
+        &mut funcs,
+        &classes,
+        &lit_fn_bodies,
+    );
 
     // P5.11: destructuring — array `[a, b, ...rest]` / object `{x, y: z, w = 5}`
     // patterns in let/const, for-of bindings, and function parameters. rts-hir

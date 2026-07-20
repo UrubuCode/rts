@@ -70,10 +70,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // An i32 register widens to the i64 slot.
                 Repr::Int32 => self.builder.ins().sextend(types::I64, *v),
                 // An f64 register rides as its BITS (pure bitcast).
-                Repr::Float64 => self
-                    .builder
-                    .ins()
-                    .bitcast(types::I64, cranelift_codegen::ir::MemFlags::new(), *v),
+                Repr::Float64 => self.builder.ins().bitcast(
+                    types::I64,
+                    cranelift_codegen::ir::MemFlags::new(),
+                    *v,
+                ),
                 _ => *v,
             };
             self.call_runtime(module, "__RTS_FN_NS_COLLECTIONS_VEC_PUSH", &[vec_h, slot])?;
@@ -109,14 +110,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let meta_word = self.builder.ins().iconst(types::I64, meta as i64);
         // The REAL code address of the async body (default callconv — excluded
         // from the TCO tail set by `sig.is_async`).
-        let fid = self
-            .ids
-            .get(&sig.name)
-            .copied()
-            .ok_or_else(|| crate::front::error::Unsupported::new(format!(
+        let fid = self.ids.get(&sig.name).copied().ok_or_else(|| {
+            crate::front::error::Unsupported::new(format!(
                 "async fn `{}` has no declared FuncId",
                 sig.name
-            )))?;
+            ))
+        })?;
         let fref = module.declare_func_in_func(fid, self.builder.func);
         let fn_addr = self.builder.ins().func_addr(types::I64, fref);
         let handle = self

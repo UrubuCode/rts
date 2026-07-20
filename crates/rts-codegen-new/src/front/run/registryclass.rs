@@ -116,9 +116,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // ToString-coerce — a behavior change we refuse; same rule as the statics).
         for (i, v) in vals.iter().enumerate() {
             if matches!(call.arg_abis[i], AbiType::StrPtr) && !matches!(v.kind, JsKind::Str) {
-                return unsupported!(
-                    "`new {class}(..)` — argument {i} is not a proven string"
-                );
+                return unsupported!("`new {class}(..)` — argument {i} is not a proven string");
             }
         }
         // Pad the omitted tail with the chosen ctor's spec defaults.
@@ -439,17 +437,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .builder
             .ins()
             .iconst(types::I64, value::TAG_OBJECT as i64);
-        let is_obj_tag = self.builder.ins().icmp(
-            cranelift_codegen::ir::condcodes::IntCC::Equal,
-            tag,
-            want,
-        );
+        let is_obj_tag =
+            self.builder
+                .ins()
+                .icmp(cranelift_codegen::ir::condcodes::IntCC::Equal, tag, want);
         let is_object = self.builder.ins().band(boxed, is_obj_tag);
         let handle = value::emit_marshal::emit_table_load(module, self.builder, recv_word);
 
         let merge = self.builder.create_block();
-        self.builder
-            .append_block_param(merge, types::I64);
+        self.builder.append_block_param(merge, types::I64);
         for (class, pred, call) in cands {
             let pred_v = value::emit_marshal::emit_call_sig(
                 module,

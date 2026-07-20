@@ -10,8 +10,8 @@
 pub use rts_adapters::value::*;
 
 // Cranelift emit side — stays in the codegen crate (pulls cranelift_frontend).
-mod emit;
 pub mod abi_sig;
+mod emit;
 pub mod emit_marshal;
 #[cfg(test)]
 mod tests;

@@ -28,7 +28,10 @@ pub fn phase<T>(label: &str, f: impl FnOnce() -> T) -> T {
     }
     let t0 = Instant::now();
     let out = f();
-    eprintln!("[rts-timing] {label:<28} {:>8.2} ms", t0.elapsed().as_secs_f64() * 1e3);
+    eprintln!(
+        "[rts-timing] {label:<28} {:>8.2} ms",
+        t0.elapsed().as_secs_f64() * 1e3
+    );
     out
 }
 
@@ -36,7 +39,10 @@ pub fn phase<T>(label: &str, f: impl FnOnce() -> T) -> T {
 /// closure because of borrow flow).
 pub fn report(label: &str, t0: Instant) {
     if enabled() {
-        eprintln!("[rts-timing] {label:<28} {:>8.2} ms", t0.elapsed().as_secs_f64() * 1e3);
+        eprintln!(
+            "[rts-timing] {label:<28} {:>8.2} ms",
+            t0.elapsed().as_secs_f64() * 1e3
+        );
     }
 }
 

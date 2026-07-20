@@ -7,7 +7,7 @@
 
 use std::alloc::{Layout, alloc, alloc_zeroed, dealloc, realloc};
 
-use rts_engine::{sig, Engine, FnPtr, Member, MemberFlags, MemberKind};
+use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, sig};
 
 fn make_layout(size: i64, align: i64) -> Option<Layout> {
     if size < 0 || align <= 0 {
@@ -72,7 +72,14 @@ pub extern "C" fn __RTS_FN_NS_ALLOC_REALLOC(
     unsafe { realloc(ptr as *mut u8, layout, new_size as usize) as i64 }
 }
 
-fn func(name: &str, symbol: &str, sig: rts_engine::Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
+fn func(
+    name: &str,
+    symbol: &str,
+    sig: rts_engine::Sig,
+    ts: &str,
+    doc: &str,
+    fp: *const u8,
+) -> Member {
     Member {
         name: name.to_string(),
         kind: MemberKind::Function,

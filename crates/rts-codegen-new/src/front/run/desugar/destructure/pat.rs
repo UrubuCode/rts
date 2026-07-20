@@ -150,9 +150,7 @@ pub(super) fn expand_object(
                 for key in &named_keys {
                     match key {
                         RemovedKey::Static(k) => out.push(delete_member_stmt(&name, k)),
-                        RemovedKey::Computed(e) => {
-                            out.push(delete_index_stmt(&name, e.clone()))
-                        }
+                        RemovedKey::Computed(e) => out.push(delete_index_stmt(&name, e.clone())),
                     }
                 }
             }
@@ -305,9 +303,7 @@ fn is_modeled(e: &rts_hir::HirExpr) -> bool {
         | HirExprKind::PreDec(operand)
         | HirExprKind::PostInc(operand)
         | HirExprKind::PostDec(operand) => is_modeled(operand),
-        HirExprKind::Call { callee, args } => {
-            is_modeled(callee) && args.iter().all(is_modeled)
-        }
+        HirExprKind::Call { callee, args } => is_modeled(callee) && args.iter().all(is_modeled),
         HirExprKind::MethodCall { object, args, .. } => {
             is_modeled(object) && args.iter().all(is_modeled)
         }

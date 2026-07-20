@@ -187,9 +187,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             let word = self.box_value(v);
             return self.lower_iter_protocol_walk(module, binding, word, body);
         }
-        unsupported!(
-            "for-of over a non-iterable (a proven number/bool can never be iterable)"
-        )
+        unsupported!("for-of over a non-iterable (a proven number/bool can never be iterable)")
     }
 
     /// The LAZY protocol walk for an unproven for-of source: open a cursor,
@@ -529,5 +527,4 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.block_terminated = false;
         Ok(())
     }
-
 }

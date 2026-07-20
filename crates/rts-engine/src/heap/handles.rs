@@ -21,9 +21,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 // Layout do handle (gen/slot/shard) e' compartilhado com `ui::store` via
 // `crate::abi::handles` (#283). Mudancas aqui invalidam handles existentes.
 use crate::abi::handles::{
-    HANDLE_GEN_SHIFT as GEN_SHIFT, HANDLE_N_SHARDS as N_SHARDS,
-    HANDLE_SHARD_BITS as SHARD_BITS, HANDLE_SHARD_MASK as SHARD_MASK,
-    HANDLE_SLOT_MASK as SLOT_MASK,
+    HANDLE_GEN_SHIFT as GEN_SHIFT, HANDLE_N_SHARDS as N_SHARDS, HANDLE_SHARD_BITS as SHARD_BITS,
+    HANDLE_SHARD_MASK as SHARD_MASK, HANDLE_SLOT_MASK as SLOT_MASK,
 };
 
 /// Re-export the 48-bit slot+shard mask under the `handles` path so the PolyValue
@@ -137,20 +136,24 @@ impl RegexEngine {
         match self {
             RegexEngine::Fast(r) => r.captures(s).map(|caps| EngineCaptures {
                 groups: (0..caps.len())
-                    .map(|i| caps.get(i).map(|m| EngineMatch {
-                        start: m.start(),
-                        end: m.end(),
-                        text: m.as_str().to_string(),
-                    }))
+                    .map(|i| {
+                        caps.get(i).map(|m| EngineMatch {
+                            start: m.start(),
+                            end: m.end(),
+                            text: m.as_str().to_string(),
+                        })
+                    })
                     .collect(),
             }),
             RegexEngine::Fancy(r) => r.captures(s).ok().flatten().map(|caps| EngineCaptures {
                 groups: (0..caps.len())
-                    .map(|i| caps.get(i).map(|m| EngineMatch {
-                        start: m.start(),
-                        end: m.end(),
-                        text: m.as_str().to_string(),
-                    }))
+                    .map(|i| {
+                        caps.get(i).map(|m| EngineMatch {
+                            start: m.start(),
+                            end: m.end(),
+                            text: m.as_str().to_string(),
+                        })
+                    })
                     .collect(),
             }),
         }
@@ -162,11 +165,13 @@ impl RegexEngine {
                 .captures_iter(s)
                 .map(|caps| EngineCaptures {
                     groups: (0..caps.len())
-                        .map(|i| caps.get(i).map(|m| EngineMatch {
-                            start: m.start(),
-                            end: m.end(),
-                            text: m.as_str().to_string(),
-                        }))
+                        .map(|i| {
+                            caps.get(i).map(|m| EngineMatch {
+                                start: m.start(),
+                                end: m.end(),
+                                text: m.as_str().to_string(),
+                            })
+                        })
                         .collect(),
                 })
                 .collect(),
@@ -175,11 +180,13 @@ impl RegexEngine {
                 .filter_map(|res| res.ok())
                 .map(|caps| EngineCaptures {
                     groups: (0..caps.len())
-                        .map(|i| caps.get(i).map(|m| EngineMatch {
-                            start: m.start(),
-                            end: m.end(),
-                            text: m.as_str().to_string(),
-                        }))
+                        .map(|i| {
+                            caps.get(i).map(|m| EngineMatch {
+                                start: m.start(),
+                                end: m.end(),
+                                text: m.as_str().to_string(),
+                            })
+                        })
                         .collect(),
                 })
                 .collect(),
@@ -260,7 +267,9 @@ impl RegexEngine {
         let mut last_end = 0usize;
         let mut count = 0usize;
         for caps in self.captures_all(s) {
-            if count >= limit { break; }
+            if count >= limit {
+                break;
+            }
             let m0 = match caps.groups.first().and_then(|o| o.clone()) {
                 Some(m) => m,
                 None => continue,
@@ -458,7 +467,11 @@ pub enum Entry {
     /// `Error` instance — message string + name tag + optional cause.
     /// Created by `new Error(msg)` / `new TypeError(msg, { cause })` etc.
     /// `cause` armazena handle do valor passado em options.cause, 0 = sem cause.
-    ErrorObj { message: String, name: String, cause: u64 },
+    ErrorObj {
+        message: String,
+        name: String,
+        cause: u64,
+    },
     /// `EventEmitter` instance — Arc<Mutex<dyn Any+Send>> so the inner lock
     /// can be held independently of the shard lock. The concrete type is
     /// `globals::events::instance::EmitterData`; downcast at access sites.
@@ -493,7 +506,10 @@ pub enum Entry {
     WeakRef(u64),
     /// FinalizationRegistry (#685 v0). Stub — armazena callback handle e lista
     /// (target, heldValue) sem nunca disparar callback (sem GC weak real).
-    FinalizationRegistry { callback: u64, entries: Vec<(u64, i64)> },
+    FinalizationRegistry {
+        callback: u64,
+        entries: Vec<(u64, i64)>,
+    },
     /// Proxy (#218). `target` e' o objeto subjacente, `handler` e' um Map
     /// com traps `get`, `set`, `has`, `deleteProperty` (handles de Function
     /// reificadas). Quando ausente, MAP_GET_CHAIN/MAP_SET/etc fazem fallback
@@ -1093,7 +1109,10 @@ impl HandleTable {
 
     /// Conta handles vivos (nao-Free) neste shard.
     pub fn live_handle_count(&self) -> usize {
-        self.slots.iter().filter(|s| !matches!(s.entry, Entry::Free)).count()
+        self.slots
+            .iter()
+            .filter(|s| !matches!(s.entry, Entry::Free))
+            .count()
     }
 
     /// Mark a handle as reachable (GC root). No-op for invalid/freed handles.
@@ -1107,8 +1126,12 @@ impl HandleTable {
     /// global filtra os que decodificam pra slot valido (handles reais).
     pub fn mark(&mut self, handle: u64) -> Vec<u64> {
         let mut children: Vec<u64> = Vec::new();
-        let Some((expected_gen, _, table_slot)) = decode(handle) else { return children };
-        let Some(slot) = self.slots.get_mut(table_slot as usize) else { return children };
+        let Some((expected_gen, _, table_slot)) = decode(handle) else {
+            return children;
+        };
+        let Some(slot) = self.slots.get_mut(table_slot as usize) else {
+            return children;
+        };
         if slot.generation == expected_gen && !matches!(slot.entry, Entry::Free) {
             if crate::collector::debug::is_enabled()
                 && matches!(slot.entry, Entry::TcpListener(_) | Entry::TcpStream(_))
@@ -1254,10 +1277,7 @@ pub fn alloc_entry(entry: Entry) -> u64 {
         t.set(v);
         v
     });
-    if tick % GC_TICK_INTERVAL == 0
-        && !gc_disabled()
-        && live_handle_count() >= GC_LIVE_FLOOR
-    {
+    if tick % GC_TICK_INTERVAL == 0 && !gc_disabled() && live_handle_count() >= GC_LIVE_FLOOR {
         if let Some(f) = GC_COLLECT_HOOK.get() {
             f();
         }
@@ -1564,35 +1584,19 @@ pub fn with_two_entries<R>(
         let ga = if ha == 0 {
             None
         } else {
-            Some(
-                shards()[sa]
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner()),
-            )
+            Some(shards()[sa].lock().unwrap_or_else(|e| e.into_inner()))
         };
         let gb = if hb == 0 {
             None
         } else {
-            Some(
-                shards()[sb]
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner()),
-            )
+            Some(shards()[sb].lock().unwrap_or_else(|e| e.into_inner()))
         };
         let ea = ga.as_ref().and_then(|g| g.get(ha));
         let eb = gb.as_ref().and_then(|g| g.get(hb));
         f(ea, eb)
     } else {
-        let gb = Some(
-            shards()[sb]
-                .lock()
-                .unwrap_or_else(|e| e.into_inner()),
-        );
-        let ga = Some(
-            shards()[sa]
-                .lock()
-                .unwrap_or_else(|e| e.into_inner()),
-        );
+        let gb = Some(shards()[sb].lock().unwrap_or_else(|e| e.into_inner()));
+        let ga = Some(shards()[sa].lock().unwrap_or_else(|e| e.into_inner()));
         let ea = ga.as_ref().and_then(|g| g.get(ha));
         let eb = gb.as_ref().and_then(|g| g.get(hb));
         f(ea, eb)
@@ -1707,7 +1711,9 @@ mod tests {
         let h = alloc_entry(Entry::String(b"leak?".to_vec()));
         with_entry(h, |e| assert!(e.is_some(), "handle nao vivo apos alloc"));
         free_handle(h);
-        with_entry(h, |e| assert!(e.is_none(), "handle ainda vivo apos free — leak!"));
+        with_entry(h, |e| {
+            assert!(e.is_none(), "handle ainda vivo apos free — leak!")
+        });
     }
 
     #[test]
@@ -1716,7 +1722,9 @@ mod tests {
             .map(|i| alloc_entry(Entry::String(format!("s{i}").into_bytes())))
             .collect();
         for &h in &handles {
-            with_entry(h, |e| assert!(e.is_some(), "handle {h} nao vivo antes do free"));
+            with_entry(h, |e| {
+                assert!(e.is_some(), "handle {h} nao vivo antes do free")
+            });
         }
         for h in &handles {
             free_handle(*h);
@@ -1786,7 +1794,9 @@ mod tests {
             let h = alloc_entry(Entry::Buffer(vec![0u8; 64]));
             with_entry(h, |e| assert!(e.is_some()));
             free_handle(h);
-            with_entry(h, |e| assert!(e.is_none(), "cycle leak: handle {h} ainda vivo"));
+            with_entry(h, |e| {
+                assert!(e.is_none(), "cycle leak: handle {h} ainda vivo")
+            });
         }
     }
 
@@ -1849,7 +1859,11 @@ mod tests {
         assert_eq!(next_generation(1), 2);
         assert_eq!(next_generation(0x1234), 0x1235);
         // The last usable generation wraps straight to 1, never entering 0xFFF8.
-        assert_eq!(next_generation(0xFFF7), 1, "0xFFF7 must wrap to 1, not 0xFFF8");
+        assert_eq!(
+            next_generation(0xFFF7),
+            1,
+            "0xFFF7 must wrap to 1, not 0xFFF8"
+        );
         // Every value in the reserved band (defensive: should not occur on a live
         // slot, but the helper must still escape it) and u16::MAX wrap to 1.
         for g in 0xFFF8u16..=0xFFFF {
@@ -1860,7 +1874,10 @@ mod tests {
         // No reachable generation lands in the reserved band.
         for g in 0u16..=0xFFFF {
             let n = next_generation(g);
-            assert!(n != 0 && n < GEN_RESERVED_LO, "next_generation({g:#x})={n:#x} is invalid");
+            assert!(
+                n != 0 && n < GEN_RESERVED_LO,
+                "next_generation({g:#x})={n:#x} is invalid"
+            );
         }
     }
 
@@ -1897,7 +1914,11 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner())
             .alloc_in_shard(Entry::String(b"reused".to_vec()), shard_idx);
         let (gen_reused, sh, ts) = decode(h_reused).expect("reused decodes");
-        assert_eq!((sh, ts), (shard_idx, table_slot), "must reuse the same slot");
+        assert_eq!(
+            (sh, ts),
+            (shard_idx, table_slot),
+            "must reuse the same slot"
+        );
         assert_eq!(gen_reused, 1, "bump past 0xFFF7 must wrap to 1");
         assert!(
             gen_reused != 0 && gen_reused < GEN_RESERVED_LO,
@@ -2070,7 +2091,6 @@ impl std::fmt::Debug for NapiExternalData {
 // que cruzam threads carregando recursos não-Send-por-tipo.
 unsafe impl Send for NapiExternalData {}
 
-
 // ── ArrayBuffer (N-API, #1548) ───────────────────────────────────────────────
 
 /// Aloca um `Entry::ArrayBuffer` owned de `len` bytes (zerados) e devolve o
@@ -2222,4 +2242,3 @@ pub fn drain_pending_napi_finalizers() -> Vec<PendingNapiFinalizer> {
         Err(poisoned) => std::mem::take(&mut *poisoned.into_inner()),
     }
 }
-

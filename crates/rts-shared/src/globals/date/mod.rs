@@ -21,28 +21,44 @@ fn fp_for(symbol: &str) -> *const u8 {
         "__RTS_FN_GL_DATE_GET_DAY" => instance::__RTS_FN_GL_DATE_GET_DAY as *const u8,
         "__RTS_FN_GL_DATE_GET_FULL_YEAR" => instance::__RTS_FN_GL_DATE_GET_FULL_YEAR as *const u8,
         "__RTS_FN_GL_DATE_GET_HOURS" => instance::__RTS_FN_GL_DATE_GET_HOURS as *const u8,
-        "__RTS_FN_GL_DATE_GET_MILLISECONDS" => instance::__RTS_FN_GL_DATE_GET_MILLISECONDS as *const u8,
+        "__RTS_FN_GL_DATE_GET_MILLISECONDS" => {
+            instance::__RTS_FN_GL_DATE_GET_MILLISECONDS as *const u8
+        }
         "__RTS_FN_GL_DATE_GET_MINUTES" => instance::__RTS_FN_GL_DATE_GET_MINUTES as *const u8,
         "__RTS_FN_GL_DATE_GET_MONTH" => instance::__RTS_FN_GL_DATE_GET_MONTH as *const u8,
         "__RTS_FN_GL_DATE_GET_SECONDS" => instance::__RTS_FN_GL_DATE_GET_SECONDS as *const u8,
         "__RTS_FN_GL_DATE_GET_TIME" => instance::__RTS_FN_GL_DATE_GET_TIME as *const u8,
-        "__RTS_FN_GL_DATE_GET_TIMEZONE_OFFSET" => instance::__RTS_FN_GL_DATE_GET_TIMEZONE_OFFSET as *const u8,
+        "__RTS_FN_GL_DATE_GET_TIMEZONE_OFFSET" => {
+            instance::__RTS_FN_GL_DATE_GET_TIMEZONE_OFFSET as *const u8
+        }
         "__RTS_FN_GL_DATE_GET_UTC_DATE" => instance::__RTS_FN_GL_DATE_GET_UTC_DATE as *const u8,
         "__RTS_FN_GL_DATE_GET_UTC_DAY" => instance::__RTS_FN_GL_DATE_GET_UTC_DAY as *const u8,
-        "__RTS_FN_GL_DATE_GET_UTC_FULL_YEAR" => instance::__RTS_FN_GL_DATE_GET_UTC_FULL_YEAR as *const u8,
+        "__RTS_FN_GL_DATE_GET_UTC_FULL_YEAR" => {
+            instance::__RTS_FN_GL_DATE_GET_UTC_FULL_YEAR as *const u8
+        }
         "__RTS_FN_GL_DATE_GET_UTC_HOURS" => instance::__RTS_FN_GL_DATE_GET_UTC_HOURS as *const u8,
-        "__RTS_FN_GL_DATE_GET_UTC_MILLISECONDS" => instance::__RTS_FN_GL_DATE_GET_UTC_MILLISECONDS as *const u8,
-        "__RTS_FN_GL_DATE_GET_UTC_MINUTES" => instance::__RTS_FN_GL_DATE_GET_UTC_MINUTES as *const u8,
+        "__RTS_FN_GL_DATE_GET_UTC_MILLISECONDS" => {
+            instance::__RTS_FN_GL_DATE_GET_UTC_MILLISECONDS as *const u8
+        }
+        "__RTS_FN_GL_DATE_GET_UTC_MINUTES" => {
+            instance::__RTS_FN_GL_DATE_GET_UTC_MINUTES as *const u8
+        }
         "__RTS_FN_GL_DATE_GET_UTC_MONTH" => instance::__RTS_FN_GL_DATE_GET_UTC_MONTH as *const u8,
-        "__RTS_FN_GL_DATE_GET_UTC_SECONDS" => instance::__RTS_FN_GL_DATE_GET_UTC_SECONDS as *const u8,
-        "__RTS_FN_GL_DATE_NEW_FROM_FIELDS" => instance::__RTS_FN_GL_DATE_NEW_FROM_FIELDS as *const u8,
+        "__RTS_FN_GL_DATE_GET_UTC_SECONDS" => {
+            instance::__RTS_FN_GL_DATE_GET_UTC_SECONDS as *const u8
+        }
+        "__RTS_FN_GL_DATE_NEW_FROM_FIELDS" => {
+            instance::__RTS_FN_GL_DATE_NEW_FROM_FIELDS as *const u8
+        }
         "__RTS_FN_GL_DATE_NEW_FROM_ISO" => instance::__RTS_FN_GL_DATE_NEW_FROM_ISO as *const u8,
         "__RTS_FN_GL_DATE_NEW_FROM_MS" => instance::__RTS_FN_GL_DATE_NEW_FROM_MS as *const u8,
         "__RTS_FN_GL_DATE_NEW_NOW" => instance::__RTS_FN_GL_DATE_NEW_NOW as *const u8,
         "__RTS_FN_GL_DATE_SET_DATE" => instance::__RTS_FN_GL_DATE_SET_DATE as *const u8,
         "__RTS_FN_GL_DATE_SET_FULL_YEAR" => instance::__RTS_FN_GL_DATE_SET_FULL_YEAR as *const u8,
         "__RTS_FN_GL_DATE_SET_HOURS" => instance::__RTS_FN_GL_DATE_SET_HOURS as *const u8,
-        "__RTS_FN_GL_DATE_SET_MILLISECONDS" => instance::__RTS_FN_GL_DATE_SET_MILLISECONDS as *const u8,
+        "__RTS_FN_GL_DATE_SET_MILLISECONDS" => {
+            instance::__RTS_FN_GL_DATE_SET_MILLISECONDS as *const u8
+        }
         "__RTS_FN_GL_DATE_SET_MINUTES" => instance::__RTS_FN_GL_DATE_SET_MINUTES as *const u8,
         "__RTS_FN_GL_DATE_SET_MONTH" => instance::__RTS_FN_GL_DATE_SET_MONTH as *const u8,
         "__RTS_FN_GL_DATE_SET_SECONDS" => instance::__RTS_FN_GL_DATE_SET_SECONDS as *const u8,
@@ -50,9 +66,15 @@ fn fp_for(symbol: &str) -> *const u8 {
         "__RTS_FN_GL_DATE_TO_DATE_STRING" => instance::__RTS_FN_GL_DATE_TO_DATE_STRING as *const u8,
         "__RTS_FN_GL_DATE_TO_ISO_STRING" => instance::__RTS_FN_GL_DATE_TO_ISO_STRING as *const u8,
         "__RTS_FN_GL_DATE_TO_JSON" => instance::__RTS_FN_GL_DATE_TO_JSON as *const u8,
-        "__RTS_FN_GL_DATE_TO_LOCALE_DATE_STRING" => instance::__RTS_FN_GL_DATE_TO_LOCALE_DATE_STRING as *const u8,
-        "__RTS_FN_GL_DATE_TO_LOCALE_STRING" => instance::__RTS_FN_GL_DATE_TO_LOCALE_STRING as *const u8,
-        "__RTS_FN_GL_DATE_TO_LOCALE_TIME_STRING" => instance::__RTS_FN_GL_DATE_TO_LOCALE_TIME_STRING as *const u8,
+        "__RTS_FN_GL_DATE_TO_LOCALE_DATE_STRING" => {
+            instance::__RTS_FN_GL_DATE_TO_LOCALE_DATE_STRING as *const u8
+        }
+        "__RTS_FN_GL_DATE_TO_LOCALE_STRING" => {
+            instance::__RTS_FN_GL_DATE_TO_LOCALE_STRING as *const u8
+        }
+        "__RTS_FN_GL_DATE_TO_LOCALE_TIME_STRING" => {
+            instance::__RTS_FN_GL_DATE_TO_LOCALE_TIME_STRING as *const u8
+        }
         "__RTS_FN_GL_DATE_TO_STRING" => instance::__RTS_FN_GL_DATE_TO_STRING as *const u8,
         "__RTS_FN_GL_DATE_TO_TIME_STRING" => instance::__RTS_FN_GL_DATE_TO_TIME_STRING as *const u8,
         "__RTS_FN_GL_DATE_TO_UTC_STRING" => instance::__RTS_FN_GL_DATE_TO_UTC_STRING as *const u8,

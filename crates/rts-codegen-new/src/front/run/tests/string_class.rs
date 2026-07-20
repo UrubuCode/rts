@@ -204,7 +204,10 @@ fn method_chaining() {
 
 #[test]
 fn method_on_string_variable() {
-    assert_stdout(r#"let s = "hello"; console.log(s.toUpperCase());"#, "HELLO\n");
+    assert_stdout(
+        r#"let s = "hello"; console.log(s.toUpperCase());"#,
+        "HELLO\n",
+    );
 }
 
 #[test]
@@ -274,7 +277,10 @@ fn new_string_is_object() {
 
 #[test]
 fn new_string_instanceof() {
-    assert_stdout(r#"console.log(new String("x") instanceof String);"#, "true\n");
+    assert_stdout(
+        r#"console.log(new String("x") instanceof String);"#,
+        "true\n",
+    );
 }
 
 #[test]
@@ -284,7 +290,10 @@ fn wrapper_to_string() {
 
 #[test]
 fn wrapper_to_upper() {
-    assert_stdout(r#"console.log(new String("Hello").toUpperCase());"#, "HELLO\n");
+    assert_stdout(
+        r#"console.log(new String("Hello").toUpperCase());"#,
+        "HELLO\n",
+    );
 }
 
 #[test]

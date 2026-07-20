@@ -7,7 +7,7 @@
 //! Instance methods read those back and format with fixed English rules,
 //! sufficient to be byte-identical to Node for the supported test cases.
 
-use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
+use rts_engine::heap::handles::{Entry, alloc_entry, with_entry};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

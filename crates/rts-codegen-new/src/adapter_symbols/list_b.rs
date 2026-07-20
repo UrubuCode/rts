@@ -2,8 +2,8 @@
 //! helper sub-lists and the Registry harvest (split for the <500-line rule).
 
 use rts_engine::heap::env as rt_env;
-use rts_runtime::namespaces::globals::string::rt as rt_gl_str;
 use rts_runtime::namespaces::globals::proxy::ops as rt_proxy;
+use rts_runtime::namespaces::globals::string::rt as rt_gl_str;
 
 use crate::value::{
     arraycb, ctorval, dyndispatch, errslot, funcops, globalops, globalthis, iterops, objops,
@@ -806,21 +806,60 @@ fn gc_internal_symbols() -> Vec<JitSymbol> {
     use rts_runtime::namespaces::gc::string_pool as rt_pool;
     vec![
         // collector
-        sym("__RTS_FN_NS_GC_COLLECT", rt_gcoll::__RTS_FN_NS_GC_COLLECT as *const u8),
-        sym("__RTS_FN_NS_GC_COLLECT_DEBT", rt_gcoll::__RTS_FN_NS_GC_COLLECT_DEBT as *const u8),
-        sym("__RTS_FN_NS_GC_LIVE_COUNT", rt_gcoll::__RTS_FN_NS_GC_LIVE_COUNT as *const u8),
+        sym(
+            "__RTS_FN_NS_GC_COLLECT",
+            rt_gcoll::__RTS_FN_NS_GC_COLLECT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_COLLECT_DEBT",
+            rt_gcoll::__RTS_FN_NS_GC_COLLECT_DEBT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_LIVE_COUNT",
+            rt_gcoll::__RTS_FN_NS_GC_LIVE_COUNT as *const u8,
+        ),
         // heap env-record
-        sym("__RTS_FN_NS_GC_ENV_ALLOC", rt_env::__RTS_FN_NS_GC_ENV_ALLOC as *const u8),
-        sym("__RTS_FN_NS_GC_ENV_FREE", rt_env::__RTS_FN_NS_GC_ENV_FREE as *const u8),
-        sym("__RTS_FN_NS_GC_ENV_GET", rt_env::__RTS_FN_NS_GC_ENV_GET as *const u8),
-        sym("__RTS_FN_NS_GC_ENV_SET", rt_env::__RTS_FN_NS_GC_ENV_SET as *const u8),
+        sym(
+            "__RTS_FN_NS_GC_ENV_ALLOC",
+            rt_env::__RTS_FN_NS_GC_ENV_ALLOC as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_ENV_FREE",
+            rt_env::__RTS_FN_NS_GC_ENV_FREE as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_ENV_GET",
+            rt_env::__RTS_FN_NS_GC_ENV_GET as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_ENV_SET",
+            rt_env::__RTS_FN_NS_GC_ENV_SET as *const u8,
+        ),
         // string-pool inspection
-        sym("__RTS_FN_NS_GC_HANDLE_LEN", rt_pool::__RTS_FN_NS_GC_HANDLE_LEN as *const u8),
-        sym("__RTS_FN_NS_GC_IS_VEC", rt_pool::__RTS_FN_NS_GC_IS_VEC as *const u8),
-        sym("__RTS_FN_NS_GC_IS_MAP_LIKE", rt_pool::__RTS_FN_NS_GC_IS_MAP_LIKE as *const u8),
-        sym("__RTS_FN_NS_GC_IS_DATE", rt_pool::__RTS_FN_NS_GC_IS_DATE as *const u8),
-        sym("__RTS_FN_NS_GC_IS_PROMISE", rt_pool::__RTS_FN_NS_GC_IS_PROMISE as *const u8),
-        sym("__RTS_FN_NS_GC_IS_REGEX", rt_pool::__RTS_FN_NS_GC_IS_REGEX as *const u8),
+        sym(
+            "__RTS_FN_NS_GC_HANDLE_LEN",
+            rt_pool::__RTS_FN_NS_GC_HANDLE_LEN as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_IS_VEC",
+            rt_pool::__RTS_FN_NS_GC_IS_VEC as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_IS_MAP_LIKE",
+            rt_pool::__RTS_FN_NS_GC_IS_MAP_LIKE as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_IS_DATE",
+            rt_pool::__RTS_FN_NS_GC_IS_DATE as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_IS_PROMISE",
+            rt_pool::__RTS_FN_NS_GC_IS_PROMISE as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_IS_REGEX",
+            rt_pool::__RTS_FN_NS_GC_IS_REGEX as *const u8,
+        ),
     ]
 }
 
@@ -858,35 +897,116 @@ fn generator_symbols() -> Vec<JitSymbol> {
             rt_gen::__RTS_FN_NS_GC_GENERATOR_THROW as *const u8,
         ),
         // LAZY state-machine primitives (generators with loops / yield*).
-        sym("__RTS_FN_NS_GC_GEN_SM_NEW", rt_gen::__RTS_FN_NS_GC_GEN_SM_NEW as *const u8),
-        sym("__RTS_FN_NS_GC_GEN_SM_STATE", rt_gen::__RTS_FN_NS_GC_GEN_SM_STATE as *const u8),
-        sym("__RTS_FN_NS_GC_GEN_SM_SETSTATE", rt_gen::__RTS_FN_NS_GC_GEN_SM_SETSTATE as *const u8),
-        sym("__RTS_FN_NS_GC_GEN_SM_FGET", rt_gen::__RTS_FN_NS_GC_GEN_SM_FGET as *const u8),
-        sym("__RTS_FN_NS_GC_GEN_SM_FSET", rt_gen::__RTS_FN_NS_GC_GEN_SM_FSET as *const u8),
-        sym("__RTS_FN_NS_GC_GEN_SM_YIELD", rt_gen::__RTS_FN_NS_GC_GEN_SM_YIELD as *const u8),
-        sym("__RTS_FN_NS_GC_GEN_SM_DONE", rt_gen::__RTS_FN_NS_GC_GEN_SM_DONE as *const u8),
-        sym("__RTS_FN_NS_GC_GEN_SM_SENT", rt_gen::__RTS_FN_NS_GC_GEN_SM_SENT as *const u8),
-        sym("__RTS_FN_NS_GC_GEN_SM_NEXT", rt_gen::__RTS_FN_NS_GC_GEN_SM_NEXT as *const u8),
-        sym("__RTS_FN_NS_GC_GEN_SM_DRAIN", rt_gen::__RTS_FN_NS_GC_GEN_SM_DRAIN as *const u8),
-        sym("__RTS_FN_NS_GC_GEN_SM_ENTER_TRY", rt_gen::__RTS_FN_NS_GC_GEN_SM_ENTER_TRY as *const u8),
-        sym("__RTS_FN_NS_GC_GEN_SM_ENTER_TRY_CATCH", rt_gen::__RTS_FN_NS_GC_GEN_SM_ENTER_TRY_CATCH as *const u8),
-        sym("__RTS_FN_NS_GC_GEN_SM_EXIT_TRY_CATCH", rt_gen::__RTS_FN_NS_GC_GEN_SM_EXIT_TRY_CATCH as *const u8),
-        sym("__RTS_FN_NS_GC_GEN_SM_CAUGHT", rt_gen::__RTS_FN_NS_GC_GEN_SM_CAUGHT as *const u8),
-        sym("__RTS_FN_NS_GC_GEN_SM_END_FINALLY", rt_gen::__RTS_FN_NS_GC_GEN_SM_END_FINALLY as *const u8),
-        sym("__RTS_FN_NS_GC_GEN_DELEGATE_START", rt_gen::__RTS_FN_NS_GC_GEN_DELEGATE_START as *const u8),
-        sym("__RTS_FN_NS_GC_GEN_DELEGATE_NEXT", rt_gen::__RTS_FN_NS_GC_GEN_DELEGATE_NEXT as *const u8),
-        sym("__RTS_FN_NS_GC_GEN_DELEGATE_DONE", rt_gen::__RTS_FN_NS_GC_GEN_DELEGATE_DONE as *const u8),
+        sym(
+            "__RTS_FN_NS_GC_GEN_SM_NEW",
+            rt_gen::__RTS_FN_NS_GC_GEN_SM_NEW as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_GEN_SM_STATE",
+            rt_gen::__RTS_FN_NS_GC_GEN_SM_STATE as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_GEN_SM_SETSTATE",
+            rt_gen::__RTS_FN_NS_GC_GEN_SM_SETSTATE as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_GEN_SM_FGET",
+            rt_gen::__RTS_FN_NS_GC_GEN_SM_FGET as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_GEN_SM_FSET",
+            rt_gen::__RTS_FN_NS_GC_GEN_SM_FSET as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_GEN_SM_YIELD",
+            rt_gen::__RTS_FN_NS_GC_GEN_SM_YIELD as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_GEN_SM_DONE",
+            rt_gen::__RTS_FN_NS_GC_GEN_SM_DONE as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_GEN_SM_SENT",
+            rt_gen::__RTS_FN_NS_GC_GEN_SM_SENT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_GEN_SM_NEXT",
+            rt_gen::__RTS_FN_NS_GC_GEN_SM_NEXT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_GEN_SM_DRAIN",
+            rt_gen::__RTS_FN_NS_GC_GEN_SM_DRAIN as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_GEN_SM_ENTER_TRY",
+            rt_gen::__RTS_FN_NS_GC_GEN_SM_ENTER_TRY as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_GEN_SM_ENTER_TRY_CATCH",
+            rt_gen::__RTS_FN_NS_GC_GEN_SM_ENTER_TRY_CATCH as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_GEN_SM_EXIT_TRY_CATCH",
+            rt_gen::__RTS_FN_NS_GC_GEN_SM_EXIT_TRY_CATCH as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_GEN_SM_CAUGHT",
+            rt_gen::__RTS_FN_NS_GC_GEN_SM_CAUGHT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_GEN_SM_END_FINALLY",
+            rt_gen::__RTS_FN_NS_GC_GEN_SM_END_FINALLY as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_GEN_DELEGATE_START",
+            rt_gen::__RTS_FN_NS_GC_GEN_DELEGATE_START as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_GEN_DELEGATE_NEXT",
+            rt_gen::__RTS_FN_NS_GC_GEN_DELEGATE_NEXT as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_GEN_DELEGATE_DONE",
+            rt_gen::__RTS_FN_NS_GC_GEN_DELEGATE_DONE as *const u8,
+        ),
         // `{value, done}` result-Map accessors (new engine builds its own result obj).
-        sym("__RTS_FN_NS_GC_ITER_VALUE", rt_gen::__RTS_FN_NS_GC_ITER_VALUE as *const u8),
-        sym("__RTS_FN_NS_GC_ITER_DONE", rt_gen::__RTS_FN_NS_GC_ITER_DONE as *const u8),
+        sym(
+            "__RTS_FN_NS_GC_ITER_VALUE",
+            rt_gen::__RTS_FN_NS_GC_ITER_VALUE as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_ITER_DONE",
+            rt_gen::__RTS_FN_NS_GC_ITER_DONE as *const u8,
+        ),
         // ASYNC state machine (async fn com loop/try — desugar lazy do parser) +
         // async generator (#392): ctor/start/suspend/awaited/resolve/next.
-        sym("__RTS_FN_NS_GC_ASYNC_SM_NEW", rt_gen::__RTS_FN_NS_GC_ASYNC_SM_NEW as *const u8),
-        sym("__RTS_FN_NS_GC_AGEN_NEW", rt_gen::__RTS_FN_NS_GC_AGEN_NEW as *const u8),
-        sym("__RTS_FN_NS_GC_ASYNC_SM_START", rt_gen::__RTS_FN_NS_GC_ASYNC_SM_START as *const u8),
-        sym("__RTS_FN_NS_GC_ASYNC_SM_SUSPEND", rt_gen::__RTS_FN_NS_GC_ASYNC_SM_SUSPEND as *const u8),
-        sym("__RTS_FN_NS_GC_ASYNC_SM_AWAITED", rt_gen::__RTS_FN_NS_GC_ASYNC_SM_AWAITED as *const u8),
-        sym("__RTS_FN_NS_GC_ASYNC_SM_RESOLVE", rt_gen::__RTS_FN_NS_GC_ASYNC_SM_RESOLVE as *const u8),
-        sym("__RTS_FN_NS_GC_AGEN_NEXT", rt_gen::__RTS_FN_NS_GC_AGEN_NEXT as *const u8),
+        sym(
+            "__RTS_FN_NS_GC_ASYNC_SM_NEW",
+            rt_gen::__RTS_FN_NS_GC_ASYNC_SM_NEW as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_AGEN_NEW",
+            rt_gen::__RTS_FN_NS_GC_AGEN_NEW as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_ASYNC_SM_START",
+            rt_gen::__RTS_FN_NS_GC_ASYNC_SM_START as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_ASYNC_SM_SUSPEND",
+            rt_gen::__RTS_FN_NS_GC_ASYNC_SM_SUSPEND as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_ASYNC_SM_AWAITED",
+            rt_gen::__RTS_FN_NS_GC_ASYNC_SM_AWAITED as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_ASYNC_SM_RESOLVE",
+            rt_gen::__RTS_FN_NS_GC_ASYNC_SM_RESOLVE as *const u8,
+        ),
+        sym(
+            "__RTS_FN_NS_GC_AGEN_NEXT",
+            rt_gen::__RTS_FN_NS_GC_AGEN_NEXT as *const u8,
+        ),
     ]
 }

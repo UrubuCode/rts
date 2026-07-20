@@ -1,6 +1,6 @@
 //! Environment records para closures — fase 1 da #195.
 
-use super::handles::{alloc_entry, free_handle, with_entry, with_entry_mut, Entry};
+use super::handles::{Entry, alloc_entry, free_handle, with_entry, with_entry_mut};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_ENV_ALLOC(slot_count: i32) -> u64 {
@@ -28,7 +28,10 @@ pub extern "C" fn __RTS_FN_NS_GC_ENV_SET(env: u64, slot: i32, value: i64) -> i64
     }
     with_entry_mut(env, |entry| match entry {
         Some(Entry::Env(slots)) => match slots.get_mut(slot as usize) {
-            Some(cell) => { *cell = value; 1 }
+            Some(cell) => {
+                *cell = value;
+                1
+            }
             None => 0,
         },
         _ => 0,

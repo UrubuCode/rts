@@ -150,7 +150,12 @@ fn ts_returns_object(ts: &str) -> bool {
 fn ts_returns_nullable_string(ts: &str) -> bool {
     ts.rsplit_once("):")
         .map(|(_, ret)| {
-            let parts: Vec<&str> = ret.trim().trim_end_matches(';').split('|').map(str::trim).collect();
+            let parts: Vec<&str> = ret
+                .trim()
+                .trim_end_matches(';')
+                .split('|')
+                .map(str::trim)
+                .collect();
             parts.iter().any(|t| *t == "string")
                 && parts.iter().any(|t| *t == "null" || *t == "undefined")
         })
@@ -442,9 +447,9 @@ pub fn namespace_member(ns: &str, member: &str, argc: usize) -> Option<ResolvedC
         .iter()
         .find(|m| is_callable(m) && m.sig.args.len() == argc)
         .or_else(|| {
-            m.members
-                .iter()
-                .find(|m| is_callable(m) && m.variadic && argc >= m.sig.args.len().saturating_sub(1))
+            m.members.iter().find(|m| {
+                is_callable(m) && m.variadic && argc >= m.sig.args.len().saturating_sub(1)
+            })
         })?;
     Some(flat_call(found))
 }

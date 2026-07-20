@@ -73,7 +73,11 @@ impl GlobalClassSpec {
         self.members
             .iter()
             .find(|m| named(m) && explicit_arity(m) == n_args)
-            .or_else(|| self.members.iter().find(|m| named(m) && accepts_arity(m, n_args)))
+            .or_else(|| {
+                self.members
+                    .iter()
+                    .find(|m| named(m) && accepts_arity(m, n_args))
+            })
             .or_else(|| self.members.iter().find(named))
     }
 
@@ -177,10 +181,20 @@ mod tests {
     // the Handle receiver at slot 0.
     const RECV: AbiType = AbiType::Handle;
     const IDX1: NamespaceMember = im("indexOf", &[RECV, AbiType::I64], &[], false, &[]);
-    const IDX2: NamespaceMember =
-        im("indexOf", &[RECV, AbiType::I64, AbiType::I64], &[], false, &[]);
-    const TRIM: NamespaceMember =
-        im("trimStart", &[RECV], &["trimLeft", "trim_start"], false, &[]);
+    const IDX2: NamespaceMember = im(
+        "indexOf",
+        &[RECV, AbiType::I64, AbiType::I64],
+        &[],
+        false,
+        &[],
+    );
+    const TRIM: NamespaceMember = im(
+        "trimStart",
+        &[RECV],
+        &["trimLeft", "trim_start"],
+        false,
+        &[],
+    );
     const PUSH: NamespaceMember = im("push", &[RECV, AbiType::I64], &[], true, &[]);
     // slice(start, end?) — end optional via default_args parallel to args.
     const SLICE: NamespaceMember = im(
@@ -188,7 +202,11 @@ mod tests {
         &[RECV, AbiType::I64, AbiType::I64],
         &[],
         false,
-        &[DefaultArg::Required, DefaultArg::Required, DefaultArg::Int(i64::MIN)],
+        &[
+            DefaultArg::Required,
+            DefaultArg::Required,
+            DefaultArg::Int(i64::MIN),
+        ],
     );
 
     fn spec(members: &'static [NamespaceMember]) -> GlobalClassSpec {
@@ -205,8 +223,14 @@ mod tests {
         static MS: &[NamespaceMember] = &[IDX1, IDX2];
         let s = spec(MS);
         // 1 arg -> indexOf(x); 2 args -> indexOf(x, from)
-        assert_eq!(s.resolve_instance_method("indexOf", 1).unwrap().args.len(), 2);
-        assert_eq!(s.resolve_instance_method("indexOf", 2).unwrap().args.len(), 3);
+        assert_eq!(
+            s.resolve_instance_method("indexOf", 1).unwrap().args.len(),
+            2
+        );
+        assert_eq!(
+            s.resolve_instance_method("indexOf", 2).unwrap().args.len(),
+            3
+        );
     }
 
     #[test]
@@ -214,7 +238,10 @@ mod tests {
         static MS: &[NamespaceMember] = &[IDX1, IDX2];
         let s = spec(MS);
         // 5 args matches no arity -> first-by-name (IDX1)
-        assert_eq!(s.resolve_instance_method("indexOf", 5).unwrap().args.len(), 2);
+        assert_eq!(
+            s.resolve_instance_method("indexOf", 5).unwrap().args.len(),
+            2
+        );
     }
 
     #[test]

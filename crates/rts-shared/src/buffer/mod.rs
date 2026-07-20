@@ -11,10 +11,10 @@
 //! metodos de classes globais, nao membros do namespace — ficam como free fns
 //! abaixo, chamadas direto pelo codegen por simbolo.
 
-use rts_engine::abi::ty::{Bool, Handle, F64, I32, I64, U64};
+use rts_engine::abi::ty::{Bool, F64, Handle, I32, I64, U64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use rts_engine::heap::handles::{alloc_entry, free_handle, with_entry, with_entry_mut, Entry};
+use rts_engine::heap::handles::{Entry, alloc_entry, free_handle, with_entry, with_entry_mut};
 
 unsafe extern "C" {
     fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
@@ -234,7 +234,13 @@ pub extern "C" fn __RTS_FN_NS_BUFFER_WRITE_F32(handle: U64, offset: I64, val: F6
 
 /// Copies `len` bytes from src+srcOff to dst+dstOff. Safe with overlapping src/dst.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BUFFER_COPY(dst: U64, dst_off: I64, src: U64, src_off: I64, len: I64) {
+pub extern "C" fn __RTS_FN_NS_BUFFER_COPY(
+    dst: U64,
+    dst_off: I64,
+    src: U64,
+    src_off: I64,
+    len: I64,
+) {
     if len <= 0 || dst_off < 0 || src_off < 0 {
         return;
     }
@@ -297,11 +303,7 @@ pub extern "C" fn __RTS_FN_NS_BUFFER_EQUALS(a: U64, b: U64) -> Bool {
     // deadlock com shards distintos).
     let bytes_a = with_buffer(a, Vec::new(), |buf| buf.clone());
     let bytes_b = with_buffer(b, Vec::new(), |buf| buf.clone());
-    if bytes_a == bytes_b {
-        1
-    } else {
-        0
-    }
+    if bytes_a == bytes_b { 1 } else { 0 }
 }
 
 /// Index of first occurrence of byte starting at `from`. Returns -1 if not found.
@@ -322,7 +324,15 @@ pub extern "C" fn __RTS_FN_NS_BUFFER_INDEX_OF(handle: U64, byte: I32, from: I64)
 }
 
 /// Função `buffer.f(args)`.
-fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8, pure: bool) -> Member {
+fn func(
+    name: &str,
+    symbol: &str,
+    sig: Sig,
+    ts: &str,
+    doc: &str,
+    fp: *const u8,
+    pure: bool,
+) -> Member {
     Member {
         name: name.to_string(),
         kind: MemberKind::Function,

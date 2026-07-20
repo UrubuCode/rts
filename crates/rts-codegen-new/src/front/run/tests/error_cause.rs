@@ -13,5 +13,8 @@ fn error_with_cause_option() {
 
 #[test]
 fn error_one_arg_leaves_cause_undefined() {
-    assert_stdout("const e=new Error(\"x\"); console.log(e.cause===undefined);", "true\n");
+    assert_stdout(
+        "const e=new Error(\"x\"); console.log(e.cause===undefined);",
+        "true\n",
+    );
 }

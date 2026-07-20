@@ -116,5 +116,8 @@ fn bail_async_method() {
 fn literal_getter_reads() {
     // A literal `get x()` is recovered as a literal-class accessor — the
     // property READ runs the getter (bun: 1).
-    assert_stdout("let o = { get x() { return 1; } }; console.log(o.x);", "1\n");
+    assert_stdout(
+        "let o = { get x() { return 1; } }; console.log(o.x);",
+        "1\n",
+    );
 }

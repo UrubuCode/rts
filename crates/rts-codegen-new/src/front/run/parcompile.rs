@@ -33,8 +33,8 @@
 //! `RTS_CODEGEN_JOBS=1` forces the serial path (a bisect escape hatch, and the
 //! way to A/B this phase with one binary).
 
-use cranelift_codegen::control::ControlPlane;
 use cranelift_codegen::Context;
+use cranelift_codegen::control::ControlPlane;
 use cranelift_module::{FuncId, Module, ModuleReloc};
 use rayon::prelude::*;
 
@@ -109,7 +109,10 @@ pub(super) fn compile_and_define(
         };
         if jobs() == 1 {
             crate::timing::phase("  machine-compile (serial)", || {
-                pending.into_iter().map(compile_one).collect::<FrontResult<_>>()
+                pending
+                    .into_iter()
+                    .map(compile_one)
+                    .collect::<FrontResult<_>>()
             })?
         } else {
             crate::timing::phase("  machine-compile (parallel)", || {
@@ -212,8 +215,24 @@ pub(super) fn build_one(
         let cell_locals = cells.get(&func.name).cloned().unwrap_or_default();
         let param_cls = param_classes.get(&func.name).cloned().unwrap_or_default();
         let res = Lowerer::lower_function(
-            module, &mut fb, func, sig, sigs, thunks, ids, classes, captures, gcells, immutable_gcells, gcell_classes,
-            globalthis_class_refs, this_class, is_prelude, builtins, cell_locals, param_cls,
+            module,
+            &mut fb,
+            func,
+            sig,
+            sigs,
+            thunks,
+            ids,
+            classes,
+            captures,
+            gcells,
+            immutable_gcells,
+            gcell_classes,
+            globalthis_class_refs,
+            this_class,
+            is_prelude,
+            builtins,
+            cell_locals,
+            param_cls,
         );
         match res {
             Ok(()) => fb.finalize(),

@@ -214,7 +214,9 @@ fn expr_references(e: &HirExpr, name: &str) -> bool {
         } => expr_references(lhs, name) || expr_references(rhs, name),
         Unary { operand, .. }
         | Cast { expr: operand, .. }
-        | Member { object: operand, .. }
+        | Member {
+            object: operand, ..
+        }
         | Spread(operand)
         | PreInc(operand)
         | PreDec(operand)

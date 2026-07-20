@@ -16,10 +16,7 @@ use super::assert_stdout;
 
 #[test]
 fn new_error_message() {
-    assert_stdout(
-        r#"console.log(new Error("boom").message);"#,
-        "boom\n",
-    );
+    assert_stdout(r#"console.log(new Error("boom").message);"#, "boom\n");
 }
 
 #[test]
@@ -30,7 +27,10 @@ fn new_error_default_name() {
 #[test]
 fn error_no_message_is_empty() {
     // `new Error()` (no arg) → `this.message = message ?? ""` → "".
-    assert_stdout(r#"let e = new Error(); console.log(e.message === "");"#, "true\n");
+    assert_stdout(
+        r#"let e = new Error(); console.log(e.message === "");"#,
+        "true\n",
+    );
 }
 
 #[test]
@@ -89,10 +89,7 @@ fn error_string_coercion() {
 
 #[test]
 fn error_instanceof_error() {
-    assert_stdout(
-        r#"console.log(new Error("x") instanceof Error);"#,
-        "true\n",
-    );
+    assert_stdout(r#"console.log(new Error("x") instanceof Error);"#, "true\n");
 }
 
 #[test]

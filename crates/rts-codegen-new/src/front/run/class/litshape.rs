@@ -75,10 +75,13 @@ pub(crate) fn build_literal_class(
             LitFnRef::Getter(g) => {
                 let fn_name = format!("__rtsn_lget_{class_name}_{}", m.name);
                 out.push(synth_lit_method(&fn_name, &[], g.body.as_ref()));
-                accessors.entry(m.name.clone()).or_insert(super::Accessor {
-                    getter: None,
-                    setter: None,
-                }).getter = Some(fn_name);
+                accessors
+                    .entry(m.name.clone())
+                    .or_insert(super::Accessor {
+                        getter: None,
+                        setter: None,
+                    })
+                    .getter = Some(fn_name);
             }
             LitFnRef::Setter(s) => {
                 let fn_name = format!("__rtsn_lset_{class_name}_{}", m.name);
@@ -87,11 +90,18 @@ pub(crate) fn build_literal_class(
                     decorators: Vec::new(),
                     pat: (*s.param).clone(),
                 };
-                out.push(synth_lit_method(&fn_name, std::slice::from_ref(&param), s.body.as_ref()));
-                accessors.entry(m.name.clone()).or_insert(super::Accessor {
-                    getter: None,
-                    setter: None,
-                }).setter = Some(fn_name);
+                out.push(synth_lit_method(
+                    &fn_name,
+                    std::slice::from_ref(&param),
+                    s.body.as_ref(),
+                ));
+                accessors
+                    .entry(m.name.clone())
+                    .or_insert(super::Accessor {
+                        getter: None,
+                        setter: None,
+                    })
+                    .setter = Some(fn_name);
             }
         }
     }

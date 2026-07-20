@@ -89,7 +89,11 @@ mod tests {
         assert!(!syms.is_empty(), "the JIT symbol table is empty");
         let mut seen: HashMap<&str, *const u8> = HashMap::new();
         for s in &syms {
-            assert!(!s.ptr.is_null(), "JIT symbol `{}` has a NULL fn_ptr", s.name);
+            assert!(
+                !s.ptr.is_null(),
+                "JIT symbol `{}` has a NULL fn_ptr",
+                s.name
+            );
             match seen.get(s.name) {
                 Some(&prev) => assert_eq!(
                     prev, s.ptr,

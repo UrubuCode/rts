@@ -7,7 +7,7 @@
 //! registry). Não há mais `#[rts_namespace]`/`SPEC` macro-gerado aqui — é o
 //! template para migrar as demais namespaces e, no fim, deletar `rts-macro`.
 
-use rts_engine::{sig, Engine, FnPtr, Member, MemberFlags, MemberKind};
+use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, sig};
 
 /// Hint para spin-wait loop (PAUSE em x86, YIELD em ARM).
 #[unsafe(no_mangle)]

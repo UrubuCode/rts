@@ -69,8 +69,12 @@ fn make_object_module() -> FrontResult<ObjectModule> {
         .map_err(|e| Unsupported::new(format!("host isa builder: {e}")))?
         .finish(settings::Flags::new(flags))
         .map_err(|e| Unsupported::new(format!("finish host isa: {e}")))?;
-    let builder = ObjectBuilder::new(isa, "rts_program", cranelift_module::default_libcall_names())
-        .map_err(|e| Unsupported::new(format!("object builder: {e}")))?;
+    let builder = ObjectBuilder::new(
+        isa,
+        "rts_program",
+        cranelift_module::default_libcall_names(),
+    )
+    .map_err(|e| Unsupported::new(format!("object builder: {e}")))?;
     Ok(ObjectModule::new(builder))
 }
 

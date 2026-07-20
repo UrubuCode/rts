@@ -10,7 +10,7 @@
 use rts_engine::abi::ty::{Handle, I64, U64};
 use rts_engine::{AbiType, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use rts_engine::heap::handles::{alloc_entry, free_handle, with_entry, with_entry_mut, Entry};
+use rts_engine::heap::handles::{Entry, alloc_entry, free_handle, with_entry, with_entry_mut};
 
 fn with_vec<F, R>(handle: u64, default: R, f: F) -> R
 where
@@ -228,7 +228,10 @@ pub fn append_engine_members(v: &mut Vec<Member>) {
     v.push(func(
         "vec_set",
         "__RTS_FN_NS_COLLECTIONS_VEC_SET",
-        Sig::new(vec![AbiType::U64, AbiType::I64, AbiType::I64], AbiType::Void),
+        Sig::new(
+            vec![AbiType::U64, AbiType::I64, AbiType::I64],
+            AbiType::Void,
+        ),
         "vec_set(h: number, index: number, value: number): void",
         "Writes `value` at `index`. No-op out of range.",
         __RTS_FN_NS_COLLECTIONS_VEC_SET as *const u8,
@@ -529,8 +532,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INCLUDES_AUTO(recv: u64, needle: i64) 
     if is_vec {
         __RTS_FN_NS_COLLECTIONS_VEC_INCLUDES(recv, needle)
     } else {
-        rts_primitives::string::rt::__RTS_FN_GL_STRING_INCLUDES(recv, needle as u64)
-            as i64
+        rts_primitives::string::rt::__RTS_FN_GL_STRING_INCLUDES(recv, needle as u64) as i64
     }
 }
 
@@ -554,10 +556,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_LAST_INDEX_OF_AUTO(recv: u64, needle: 
     if is_vec {
         __RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF(recv, needle)
     } else {
-        rts_primitives::string::rt::__RTS_FN_GL_STRING_LAST_INDEX_OF(
-            recv,
-            needle as u64,
-        )
+        rts_primitives::string::rt::__RTS_FN_GL_STRING_LAST_INDEX_OF(recv, needle as u64)
     }
 }
 
@@ -642,9 +641,7 @@ fn join_into(out: &mut Vec<u8>, elems: &[i64], sep_bytes: &[u8], depth: u32) {
         if *e > MAX_SAFE || *e < -MAX_SAFE {
             let f = f64::from_bits(*e as u64);
             if f.is_finite() && !f.is_nan() {
-                out.extend_from_slice(
-                    rts_engine::numfmt::format_js_number(f).as_bytes(),
-                );
+                out.extend_from_slice(rts_engine::numfmt::format_js_number(f).as_bytes());
                 continue;
             }
         }
@@ -1118,10 +1115,18 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_AUTO(recv: u64, args_vec: u
     let args: Vec<i64> = with_vec(args_vec, Vec::new(), |v| v.clone());
     let start = args.first().copied().unwrap_or(0);
     let delete_count = if args.len() >= 2 { args[1] } else { i64::MAX };
-    let items: Vec<i64> = if args.len() > 2 { args[2..].to_vec() } else { Vec::new() };
+    let items: Vec<i64> = if args.len() > 2 {
+        args[2..].to_vec()
+    } else {
+        Vec::new()
+    };
     let removed: Vec<i64> = with_vec_mut(recv, Vec::new(), |v| {
         let len = v.len() as i64;
-        let s = if start < 0 { (len + start).max(0) } else { start.min(len) } as usize;
+        let s = if start < 0 {
+            (len + start).max(0)
+        } else {
+            start.min(len)
+        } as usize;
         let count = delete_count.max(0).min(len - s as i64) as usize;
         let drained: Vec<i64> = v.drain(s..s + count).collect();
         for (i, item) in items.into_iter().enumerate() {
@@ -1140,10 +1145,18 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED_AUTO(recv: u64, args_ve
     let args: Vec<i64> = with_vec(args_vec, Vec::new(), |v| v.clone());
     let start = args.first().copied().unwrap_or(0);
     let delete_count = if args.len() >= 2 { args[1] } else { i64::MAX };
-    let items: Vec<i64> = if args.len() > 2 { args[2..].to_vec() } else { Vec::new() };
+    let items: Vec<i64> = if args.len() > 2 {
+        args[2..].to_vec()
+    } else {
+        Vec::new()
+    };
     let mut out: Vec<i64> = with_vec(recv, Vec::new(), |v| v.clone());
     let len = out.len() as i64;
-    let s = if start < 0 { (len + start).max(0) } else { start.min(len) } as usize;
+    let s = if start < 0 {
+        (len + start).max(0)
+    } else {
+        start.min(len)
+    } as usize;
     let count = delete_count.max(0).min(len - s as i64) as usize;
     out.splice(s..s + count, items);
     alloc_entry(Entry::Vec(Box::new(out)))
@@ -1198,7 +1211,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_VEC(src: u64, fn_ptr: u64) -> u64 {
     // no 108_generator_functions). Generator finito -> Vec; infinito travaria
     // igual a JS.
     let src = {
-        use rts_engine::heap::handles::{with_entry, Entry};
+        use rts_engine::heap::handles::{Entry, with_entry};
         let is_sm = with_entry(src, |e| matches!(e, Some(Entry::GenState(_))));
         if is_sm {
             crate::gc_surface::__RTS_FN_NS_GC_GEN_SM_DRAIN(src)
@@ -1841,11 +1854,7 @@ mod tests {
     }
 
     extern "C" fn gt_two(x: i64) -> i64 {
-        if x > 2 {
-            1
-        } else {
-            0
-        }
+        if x > 2 { 1 } else { 0 }
     }
 
     #[test]

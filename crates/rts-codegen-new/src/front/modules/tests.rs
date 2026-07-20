@@ -70,7 +70,10 @@ fn no_imports(program: &rts_ast::ast::Program) -> bool {
 #[test]
 fn a_two_user_files_import_function() {
     let t = TempDir::new();
-    t.write("lib.ts", "export function add(a: number, b: number): number { return a + b; }\n");
+    t.write(
+        "lib.ts",
+        "export function add(a: number, b: number): number { return a + b; }\n",
+    );
     t.write(
         "main.ts",
         "import { add } from \"./lib\";\nconst x = add(1, 2);\n",
@@ -97,10 +100,7 @@ fn b_relative_index_resolution() {
         "util/index.ts",
         "export function helper(): number { return 7; }\n",
     );
-    t.write(
-        "main.ts",
-        "import { helper } from \"./util\";\nhelper();\n",
-    );
+    t.write("main.ts", "import { helper } from \"./util\";\nhelper();\n");
 
     let resolved = load_program(&t.path("main.ts")).expect("load ok");
     assert!(fn_names(&resolved.program).contains(&"helper".to_string()));
@@ -162,24 +162,15 @@ fn e_import_non_exported_name_errors() {
     let err = load_program(&t.path("main.ts")).expect_err("missing export must error");
     let msg = err.reason();
     assert!(msg.contains("secret"), "unexpected message: {msg}");
-    assert!(
-        msg.contains("not exported"),
-        "unexpected message: {msg}"
-    );
+    assert!(msg.contains("not exported"), "unexpected message: {msg}");
 }
 
 #[test]
 fn f_top_level_name_collision_errors() {
     let t = TempDir::new();
     // Both modules define a top-level `dup`; flattening them clashes.
-    t.write(
-        "x.ts",
-        "export function dup(): number { return 1; }\n",
-    );
-    t.write(
-        "y.ts",
-        "export function dup(): number { return 2; }\n",
-    );
+    t.write("x.ts", "export function dup(): number { return 1; }\n");
+    t.write("y.ts", "export function dup(): number { return 2; }\n");
     t.write(
         "main.ts",
         "import { dup } from \"./x\";\nimport { dup as dup2 } from \"./y\";\n",
@@ -188,10 +179,7 @@ fn f_top_level_name_collision_errors() {
     let err = load_program(&t.path("main.ts")).expect_err("collision must error");
     let msg = err.reason();
     assert!(msg.contains("dup"), "unexpected message: {msg}");
-    assert!(
-        msg.contains("collision"),
-        "unexpected message: {msg}"
-    );
+    assert!(msg.contains("collision"), "unexpected message: {msg}");
 }
 
 #[test]

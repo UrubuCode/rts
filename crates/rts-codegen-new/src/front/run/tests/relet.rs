@@ -20,7 +20,10 @@ fn relet_string_to_object_uses_object_path() {
 fn relet_object_to_string_uses_string_path() {
     // `o` is first an object (proven shape), then re-bound to a string. `o.length`
     // must read the STRING length (2), not the stale object shape.
-    assert_stdout("let o = { n: 5 }; let o = \"hi\"; console.log(o.length);", "2\n");
+    assert_stdout(
+        "let o = { n: 5 }; let o = \"hi\"; console.log(o.length);",
+        "2\n",
+    );
 }
 
 #[test]

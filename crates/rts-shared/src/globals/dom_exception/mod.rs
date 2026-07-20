@@ -12,7 +12,7 @@ use indexmap::IndexMap;
 use rts_engine::abi::ty::{Handle, I64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
+use rts_engine::heap::handles::{Entry, alloc_entry, with_entry};
 
 /// Legacy numeric code para nomes padrao do WebIDL.
 fn code_for_name(name: &str) -> i64 {
@@ -66,7 +66,10 @@ pub extern "C" fn __RTS_FN_GL_DOM_EXCEPTION_NEW_EMPTY() -> Handle {
 
 /// new DOMException(message)
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DOM_EXCEPTION_NEW_MSG(message_ptr: *const u8, message_len: i64) -> Handle {
+pub extern "C" fn __RTS_FN_GL_DOM_EXCEPTION_NEW_MSG(
+    message_ptr: *const u8,
+    message_len: i64,
+) -> Handle {
     let message = unsafe { rts_engine::abi::str_abi::from_abi(message_ptr, message_len) };
     build(message.unwrap_or(""), "")
 }

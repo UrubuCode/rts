@@ -64,7 +64,10 @@ pub(crate) fn desugar_obj_methods(
     main_body: &mut Vec<HirStmt>,
     funcs: &mut Vec<HirFunc>,
     classes: &mut ClassTable,
-) -> (HashMap<String, String>, HashMap<String, Vec<swc_ecma_ast::Stmt>>) {
+) -> (
+    HashMap<String, String>,
+    HashMap<String, Vec<swc_ecma_ast::Stmt>>,
+) {
     let mut rec = Recovery {
         classes,
         new_funcs: Vec::new(),

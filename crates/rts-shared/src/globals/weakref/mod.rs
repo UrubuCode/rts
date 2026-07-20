@@ -13,7 +13,7 @@
 use rts_engine::abi::ty::Handle;
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
+use rts_engine::heap::handles::{Entry, alloc_entry, with_entry};
 
 /// Creates a new WeakRef wrapping target.
 #[unsafe(no_mangle)]
@@ -38,11 +38,7 @@ pub extern "C" fn __RTS_FN_GL_WEAKREF_DEREF(wr: Handle) -> Handle {
     }
     // Target vivo? `with_entry` valida gen+slot; None => coletado/reusado => undefined.
     let alive = with_entry(target, |e| e.is_some());
-    if alive {
-        target
-    } else {
-        0
-    }
+    if alive { target } else { 0 }
 }
 
 /// Registra a classe global `WeakRef` no motor (hand-written, sem macro).

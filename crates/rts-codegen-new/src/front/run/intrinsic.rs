@@ -19,7 +19,7 @@
 //! then emits the ordinary call. So adding an intrinsic can make a site faster,
 //! never broken.
 
-use cranelift_codegen::ir::{InstBuilder, types};
+use cranelift_codegen::ir::InstBuilder;
 
 use rts_engine::abi::Intrinsic;
 
@@ -60,6 +60,23 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 );
                 b.ins().select(gt, x, y)
             }),
+            // ── `num` bit ops ────────────────────────────────────────────────
+            Intrinsic::CountOnes => self.i64_unary(args, |b, x| b.ins().popcnt(x)),
+            Intrinsic::CountZeros => self.i64_unary(args, |b, x| {
+                let inv = b.ins().bnot(x);
+                b.ins().popcnt(inv)
+            }),
+            Intrinsic::LeadingZeros => self.i64_unary(args, |b, x| b.ins().clz(x)),
+            Intrinsic::TrailingZeros => self.i64_unary(args, |b, x| b.ins().ctz(x)),
+            Intrinsic::SwapBytes => self.i64_unary(args, |b, x| b.ins().bswap(x)),
+            Intrinsic::WrappingNeg => self.i64_unary(args, |b, x| b.ins().ineg(x)),
+            Intrinsic::RotateLeft => self.i64_binary(args, |b, x, n| b.ins().rotl(x, n)),
+            Intrinsic::RotateRight => self.i64_binary(args, |b, x, n| b.ins().rotr(x, n)),
+            Intrinsic::WrappingAdd => self.i64_binary(args, |b, x, y| b.ins().iadd(x, y)),
+            Intrinsic::WrappingSub => self.i64_binary(args, |b, x, y| b.ins().isub(x, y)),
+            Intrinsic::WrappingMul => self.i64_binary(args, |b, x, y| b.ins().imul(x, y)),
+            Intrinsic::WrappingShl => self.i64_binary(args, |b, x, n| b.ins().ishl(x, n)),
+            Intrinsic::WrappingShr => self.i64_binary(args, |b, x, n| b.ins().sshr(x, n)),
             // `ReceiverIdentity` is a METHOD-dispatch tag (return the receiver
             // unchanged); it is not a namespace-call intrinsic and is handled by
             // the class-method emitter, not here.
@@ -71,8 +88,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     fn f64_unary(
         &mut self,
         args: &[Val],
-        f: impl FnOnce(&mut cranelift_frontend::FunctionBuilder, cranelift_codegen::ir::Value)
-            -> cranelift_codegen::ir::Value,
+        f: impl FnOnce(
+            &mut cranelift_frontend::FunctionBuilder,
+            cranelift_codegen::ir::Value,
+        ) -> cranelift_codegen::ir::Value,
     ) -> Option<Val> {
         let [a] = args else { return None };
         let x = self.as_f64(*a)?;
@@ -97,8 +116,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     fn i64_unary(
         &mut self,
         args: &[Val],
-        f: impl FnOnce(&mut cranelift_frontend::FunctionBuilder, cranelift_codegen::ir::Value)
-            -> cranelift_codegen::ir::Value,
+        f: impl FnOnce(
+            &mut cranelift_frontend::FunctionBuilder,
+            cranelift_codegen::ir::Value,
+        ) -> cranelift_codegen::ir::Value,
     ) -> Option<Val> {
         let [a] = args else { return None };
         let x = self.as_i64(*a)?;
@@ -120,22 +141,30 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Some(Val::new(f(self.builder, x, y), Repr::Int64))
     }
 
-    /// A PROVEN `f64` operand, or `None`. Only `Float64` and `Int32`/`Int64`
-    /// (widened) qualify: a `Tagged` value could be any JS type, and unboxing it
-    /// here would duplicate the coercion authority the call path already owns.
+    /// A PROVEN-number operand as `f64`, or `None`.
+    ///
+    /// Only `Float64` / `Int32` / `Int64` qualify. A `Tagged` value could be any
+    /// JS type and its marshalling dispatches on the RUNTIME tag
+    /// (`__rtsadp_word_to_abi_i64`) — reproducing that here would fork the
+    /// coercion authority (Pilar 3), so those sites fall back to the call. The
+    /// conversion itself is [`Lowerer::coerce`] — the SAME function
+    /// `marshal_reg_arg` uses for an `AbiType::F64` slot, so an intrinsic site
+    /// and a call site coerce identically.
     fn as_f64(&mut self, v: Val) -> Option<cranelift_codegen::ir::Value> {
         match v.repr {
-            Repr::Float64 => Some(v.v),
-            Repr::Int32 | Repr::Int64 => Some(self.builder.ins().fcvt_from_sint(types::F64, v.v)),
+            Repr::Float64 | Repr::Int32 | Repr::Int64 => self.coerce(v, Repr::Float64).ok(),
             _ => None,
         }
     }
 
-    /// A PROVEN `i64` operand, or `None` (same reasoning as [`Self::as_f64`]).
+    /// A PROVEN-number operand as `i64` (same reasoning as [`Self::as_f64`]).
+    ///
+    /// `Float64` is accepted and TRUNCATED, matching `marshal_reg_arg`'s
+    /// `AbiType::I64` path exactly — TS `number` is an f64, so rejecting it would
+    /// leave every `num.*` call site on the slow path for no soundness gain.
     fn as_i64(&mut self, v: Val) -> Option<cranelift_codegen::ir::Value> {
         match v.repr {
-            Repr::Int64 => Some(v.v),
-            Repr::Int32 => Some(self.builder.ins().sextend(types::I64, v.v)),
+            Repr::Float64 | Repr::Int32 | Repr::Int64 => self.coerce(v, Repr::Int64).ok(),
             _ => None,
         }
     }

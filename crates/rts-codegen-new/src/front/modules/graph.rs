@@ -159,8 +159,7 @@ impl ModuleGraph {
                             }
                         }
                         GRAY => {
-                            let start =
-                                stack.iter().position(|k| *k == dep_ref).unwrap_or(0);
+                            let start = stack.iter().position(|k| *k == dep_ref).unwrap_or(0);
                             let mut cycle: Vec<PathBuf> =
                                 stack[start..].iter().map(|p| p.to_path_buf()).collect();
                             cycle.push(dep_ref.to_path_buf());

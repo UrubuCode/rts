@@ -196,11 +196,10 @@ fn build_thunk_body(
         for (v, &repr) in call_args.iter().zip(&sig.params) {
             let slot = match repr {
                 Repr::Int32 => fb.ins().sextend(types::I64, *v),
-                Repr::Float64 => fb.ins().bitcast(
-                    types::I64,
-                    cranelift_codegen::ir::MemFlags::new(),
-                    *v,
-                ),
+                Repr::Float64 => {
+                    fb.ins()
+                        .bitcast(types::I64, cranelift_codegen::ir::MemFlags::new(), *v)
+                }
                 _ => *v,
             };
             emit_marshal::emit_call(
@@ -316,8 +315,7 @@ pub fn build_new_thunk(
     {
         let mut fb_ctx = FunctionBuilderContext::new();
         let mut fb = FunctionBuilder::new(&mut ctx.func, &mut fb_ctx);
-        let res =
-            build_new_thunk_body(module, &mut fb, ctor_id, ctor_sig, global_shape, n_fields);
+        let res = build_new_thunk_body(module, &mut fb, ctor_id, ctor_sig, global_shape, n_fields);
         match res {
             Ok(()) => fb.finalize(),
             Err(e) => {

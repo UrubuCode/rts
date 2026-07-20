@@ -29,9 +29,7 @@ use std::sync::{Arc, Mutex};
 
 use cranelift_module::{FuncOrDataId, Module};
 
-use rts_runtime::namespaces::globals::function::ops::{
-    CompiledFn, register_compile_fn,
-};
+use rts_runtime::namespaces::globals::function::ops::{CompiledFn, register_compile_fn};
 
 /// The synthesized name of every dynamic function inside its own module. Never
 /// collides with user code: each snippet compiles into a FRESH `JITModule`.
@@ -53,8 +51,8 @@ fn compile_dynamic_fn(params: &[&str], body: &str) -> anyhow::Result<CompiledFn>
     // MAY still pass an explicit annotation in the param string ("h: i64").
     let plist = params.to_vec().join(", ");
     let src = format!("function {DYN_FN_NAME}({plist}) {{\n{body}\n}}\n");
-    let prog = super::build_with_includes(&src)
-        .map_err(|e| anyhow::anyhow!("new Function body: {e}"))?;
+    let prog =
+        super::build_with_includes(&src).map_err(|e| anyhow::anyhow!("new Function body: {e}"))?;
     let mut module = super::module_jit::make_module();
     super::module_jit::populate_module(&mut module, &prog)
         .map_err(|e| anyhow::anyhow!("new Function body: {e}"))?;

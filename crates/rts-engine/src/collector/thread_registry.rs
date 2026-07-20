@@ -60,7 +60,9 @@ pub fn unregister_current() {
         {
             let h = guard[pos].handle;
             if h != 0 {
-                unsafe { CloseHandle(h); }
+                unsafe {
+                    CloseHandle(h);
+                }
             }
         }
         guard.remove(pos);
@@ -102,7 +104,9 @@ const DUPLICATE_SAME_ACCESS: u32 = 0x2;
 
 fn current_thread_id() -> u64 {
     #[cfg(target_os = "windows")]
-    unsafe { GetCurrentThreadId() as u64 }
+    unsafe {
+        GetCurrentThreadId() as u64
+    }
     #[cfg(not(target_os = "windows"))]
     {
         // Fallback: usa endereco da thread-local var como ID estavel.
@@ -116,7 +120,9 @@ fn current_thread_info() -> ThreadInfo {
     {
         let mut low: usize = 0;
         let mut high: usize = 0;
-        unsafe { GetCurrentThreadStackLimits(&mut low, &mut high); }
+        unsafe {
+            GetCurrentThreadStackLimits(&mut low, &mut high);
+        }
         // Pseudo-handle GetCurrentThread() so' funciona na thread dona.
         // Pra usar de outra thread precisamos duplicar para um real.
         let mut real_handle: usize = 0;

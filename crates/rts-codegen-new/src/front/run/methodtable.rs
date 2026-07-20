@@ -94,11 +94,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let np_v = self.builder.ins().iconst(types::I64, nparams);
                 let zero = self.builder.ins().iconst(types::I64, 0);
                 let payload = self
-                    .call_runtime(
-                        module,
-                        "__rtsadp_fn_reify_this",
-                        &[addr, np_v, zero, zero],
-                    )?
+                    .call_runtime(module, "__rtsadp_fn_reify_this", &[addr, np_v, zero, zero])?
                     .expect("__rtsadp_fn_reify_this returns a payload");
                 // Box the bare 48-bit payload as a TAG_FUNCTION PolyValue word.
                 let header = value::encode(value::TAG_FUNCTION, 0) as i64;

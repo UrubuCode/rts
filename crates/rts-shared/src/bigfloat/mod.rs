@@ -52,7 +52,11 @@ pub extern "C" fn __RTS_FN_NS_BIGFLOAT_FROM_F64(x: F64, precision: I64) -> U64 {
 
 /// Parse a decimal string with `precision` digits. Handle, 0 on error.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BIGFLOAT_FROM_STR(s_ptr: *const u8, s_len: i64, precision: I64) -> U64 {
+pub extern "C" fn __RTS_FN_NS_BIGFLOAT_FROM_STR(
+    s_ptr: *const u8,
+    s_len: i64,
+    precision: I64,
+) -> U64 {
     let s = match unsafe { rts_engine::abi::str_abi::from_abi(s_ptr, s_len) } {
         Some(s) => s,
         None => return 0,

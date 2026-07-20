@@ -7,7 +7,7 @@
 
 pub mod frame_stack;
 
-use rts_engine::{sig, Engine, FnPtr, Member, MemberFlags, MemberKind};
+use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, sig};
 
 use rts_engine::heap::handles::{Entry, alloc_entry, free_handle};
 
@@ -29,7 +29,12 @@ pub extern "C" fn __RTS_FN_NS_TRACE_PUSH_FRAME(
         Some(s) => s,
         None => return,
     };
-    frame_stack::push(file.to_string(), fn_name.to_string(), line as u32, col as u32);
+    frame_stack::push(
+        file.to_string(),
+        fn_name.to_string(),
+        line as u32,
+        col as u32,
+    );
 }
 
 /// Pop the top TS call frame from the trace stack.
@@ -71,7 +76,14 @@ pub extern "C" fn __RTS_FN_NS_TRACE_FREE(handle: u64) {
     let _ = free_handle(handle);
 }
 
-fn func(name: &str, symbol: &str, sig: rts_engine::Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
+fn func(
+    name: &str,
+    symbol: &str,
+    sig: rts_engine::Sig,
+    ts: &str,
+    doc: &str,
+    fp: *const u8,
+) -> Member {
     Member {
         name: name.to_string(),
         kind: MemberKind::Function,

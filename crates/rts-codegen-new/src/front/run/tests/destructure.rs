@@ -106,7 +106,10 @@ fn assignment_target_destructuring() {
     // Assignment-target destructuring `[a, b] = arr` (no let/const) — desugared
     // to element assignments (was a bail before the destructuring-assignment
     // increment).
-    assert_stdout("let a = 0; let b = 0; [a, b] = [1, 2]; console.log(a + b);", "3\n");
+    assert_stdout(
+        "let a = 0; let b = 0; [a, b] = [1, 2]; console.log(a + b);",
+        "3\n",
+    );
 }
 
 // ---- nested patterns (temp + recurse) ----

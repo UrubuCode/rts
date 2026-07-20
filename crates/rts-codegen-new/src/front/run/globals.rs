@@ -310,7 +310,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     // A hole inside the literal (`[, 1]`) would change the argument
                     // count in a way the flat element-list re-dispatch cannot model
                     // (`Array(undefined, 1)`); only expand a hole-free literal.
-                    if elems.iter().all(|e| !matches!(e.kind, HirExprKind::Spread(_))) {
+                    if elems
+                        .iter()
+                        .all(|e| !matches!(e.kind, HirExprKind::Spread(_)))
+                    {
                         let expanded = elems.clone();
                         return self.array_ctor_call(module, &expanded);
                     }
@@ -322,7 +325,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // single bare array value `Array(arr)` (the JS single-element form `[arr]`,
         // NOT a size). Only a single NON-array, NON-spread scalar falls through to
         // the sized `Array(n)` path below.
-        let has_spread = args.iter().any(|a| matches!(a.kind, HirExprKind::Spread(_)));
+        let has_spread = args
+            .iter()
+            .any(|a| matches!(a.kind, HirExprKind::Spread(_)));
         if has_spread || args.len() != 1 || self.is_array_valued(&args[0]) {
             let arr_expr =
                 HirExpr::new(HirExprKind::Array(args.to_vec()), rts_hir::HirType::Unknown);
@@ -499,8 +504,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let this_v = self.lower_expr(module, &args[2])?;
                 let this_word = self.box_value(this_v);
                 let empty_args = emit_marshal::emit_new_vec_object(module, self.builder);
-                let empty_handle =
-                    emit_marshal::emit_table_load(module, self.builder, empty_args);
+                let empty_handle = emit_marshal::emit_table_load(module, self.builder, empty_args);
                 let bound = self
                     .call_runtime(
                         module,

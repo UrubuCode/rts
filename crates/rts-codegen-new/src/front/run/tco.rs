@@ -200,7 +200,9 @@ fn walk_stmt_exprs(s: &HirStmt, f: &mut impl FnMut(&HirExpr)) {
         HirStmt::Const { init, .. } => walk_expr(init, f),
         HirStmt::If { cond, .. } => walk_expr(cond, f),
         HirStmt::While { cond, .. } | HirStmt::DoWhile { cond, .. } => walk_expr(cond, f),
-        HirStmt::For { init, cond, update, .. } => {
+        HirStmt::For {
+            init, cond, update, ..
+        } => {
             if let Some(i) = init {
                 walk_stmt_exprs(i, f);
             }
@@ -213,7 +215,10 @@ fn walk_stmt_exprs(s: &HirStmt, f: &mut impl FnMut(&HirExpr)) {
         }
         HirStmt::ForOf { iterable, .. } => walk_expr(iterable, f),
         HirStmt::ForIn { object, .. } => walk_expr(object, f),
-        HirStmt::Switch { discriminant, cases } => {
+        HirStmt::Switch {
+            discriminant,
+            cases,
+        } => {
             walk_expr(discriminant, f);
             for c in cases {
                 if let Some(t) = &c.test {

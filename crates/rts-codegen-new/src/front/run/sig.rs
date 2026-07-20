@@ -266,8 +266,8 @@ impl FnSig {
             has_this: false,
             ret_class: None,
             ret_array: false,
-                ret_lazy_gen: false,
-                ret_eager_gen: false,
+            ret_lazy_gen: false,
+            ret_eager_gen: false,
             tail: false,
         }
     }
@@ -423,10 +423,15 @@ fn body_calls_fn(func: &HirFunc, target: &str) -> bool {
                     || args.iter().any(|a| expr_calls(a, target))
             }
             HirExprKind::Bin { lhs, rhs, .. }
-            | HirExprKind::Assign { target: lhs, value: rhs }
-            | HirExprKind::AssignOp { target: lhs, value: rhs, .. } => {
-                expr_calls(lhs, target) || expr_calls(rhs, target)
+            | HirExprKind::Assign {
+                target: lhs,
+                value: rhs,
             }
+            | HirExprKind::AssignOp {
+                target: lhs,
+                value: rhs,
+                ..
+            } => expr_calls(lhs, target) || expr_calls(rhs, target),
             HirExprKind::MethodCall { object, args, .. } => {
                 expr_calls(object, target) || args.iter().any(|a| expr_calls(a, target))
             }
@@ -438,13 +443,17 @@ fn body_calls_fn(func: &HirFunc, target: &str) -> bool {
     }
     fn stmt_has(s: &HirStmt, target: &str) -> bool {
         match s {
-            HirStmt::Return(Some(e)) | HirStmt::Expr(e) | HirStmt::Throw(e) => expr_calls(e, target),
+            HirStmt::Return(Some(e)) | HirStmt::Expr(e) | HirStmt::Throw(e) => {
+                expr_calls(e, target)
+            }
             HirStmt::Let { init: Some(e), .. } | HirStmt::Const { init: e, .. } => {
                 expr_calls(e, target)
             }
             HirStmt::If { then, else_, .. } => {
                 then.iter().any(|s| stmt_has(s, target))
-                    || else_.as_ref().is_some_and(|e| e.iter().any(|s| stmt_has(s, target)))
+                    || else_
+                        .as_ref()
+                        .is_some_and(|e| e.iter().any(|s| stmt_has(s, target)))
             }
             HirStmt::While { body, .. }
             | HirStmt::DoWhile { body, .. }
@@ -483,7 +492,16 @@ fn params_called_as_fn(func: &HirFunc) -> std::collections::HashSet<String> {
         }
         // Recurse into every child expression of the other forms.
         match &e.kind {
-            K::Bin { lhs, rhs, .. } | K::AssignOp { target: lhs, value: rhs, .. } | K::Assign { target: lhs, value: rhs } => {
+            K::Bin { lhs, rhs, .. }
+            | K::AssignOp {
+                target: lhs,
+                value: rhs,
+                ..
+            }
+            | K::Assign {
+                target: lhs,
+                value: rhs,
+            } => {
                 walk_expr(lhs, params, out);
                 walk_expr(rhs, params, out);
             }
@@ -559,7 +577,12 @@ fn params_called_as_fn(func: &HirFunc) -> std::collections::HashSet<String> {
                     walk_expr(cond, params, out);
                     walk_stmts(body, params, out);
                 }
-                HirStmt::For { init, cond, update, body } => {
+                HirStmt::For {
+                    init,
+                    cond,
+                    update,
+                    body,
+                } => {
                     if let Some(i) = init {
                         walk_stmts(std::slice::from_ref(i), params, out);
                     }
@@ -580,7 +603,11 @@ fn params_called_as_fn(func: &HirFunc) -> std::collections::HashSet<String> {
                     walk_stmts(body, params, out);
                 }
                 HirStmt::Block(body) => walk_stmts(body, params, out),
-                HirStmt::Try { body, catch, finally } => {
+                HirStmt::Try {
+                    body,
+                    catch,
+                    finally,
+                } => {
                     walk_stmts(body, params, out);
                     if let Some(c) = catch {
                         walk_stmts(&c.body, params, out);
@@ -589,7 +616,10 @@ fn params_called_as_fn(func: &HirFunc) -> std::collections::HashSet<String> {
                         walk_stmts(f, params, out);
                     }
                 }
-                HirStmt::Switch { discriminant, cases } => {
+                HirStmt::Switch {
+                    discriminant,
+                    cases,
+                } => {
                     walk_expr(discriminant, params, out);
                     for c in cases {
                         if let Some(t) = &c.test {

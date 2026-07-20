@@ -29,10 +29,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // bindings) holding the undefined word; a later assignment re-routes
         // through the normal Tagged assign.
         let Some(init) = init else {
-            let undef = self
-                .builder
-                .ins()
-                .iconst(types::I64, crate::value::PolyValue::undefined().raw() as i64);
+            let undef = self.builder.ins().iconst(
+                types::I64,
+                crate::value::PolyValue::undefined().raw() as i64,
+            );
             if self.is_main {
                 if let Some(id) = self.gcells.get(name).copied() {
                     self.emit_gcell_set(module, id, undef)?;
@@ -80,10 +80,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // other cell-local allocs a FRESH box at each execution of its decl
             // (a loop-body `let` gets the per-iteration binding).
             if self.local(name).is_none() || !self.hoisted_cells.contains(name) {
-                let undef = self
-                    .builder
-                    .ins()
-                    .iconst(types::I64, crate::value::PolyValue::undefined().raw() as i64);
+                let undef = self.builder.ins().iconst(
+                    types::I64,
+                    crate::value::PolyValue::undefined().raw() as i64,
+                );
                 let handle = self.emit_cell_alloc(module, undef);
                 self.bind_tagged_local(name, Val::new(handle, Repr::Tagged));
             }
@@ -155,8 +155,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let h = self.coerce(val, Repr::Int64)?;
                 let var = self.builder.declare_var(cl_type(Repr::Int64));
                 self.builder.def_var(var, h);
-                self.locals
-                    .insert(name.to_string(), Local { var, repr: Repr::Int64 });
+                self.locals.insert(
+                    name.to_string(),
+                    Local {
+                        var,
+                        repr: Repr::Int64,
+                    },
+                );
             } else {
                 self.bind_tagged_local(name, val);
                 self.local_shapes.insert(name.to_string(), HeapShape::Array);
@@ -508,13 +513,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // with a heap-read number (`s = s + p.age`) binds `Float64` — an `Int*`
         // binding would truncate every fractional carry at the assign's coerce.
         // JS numbers are f64, so widening an int init is always sound.
-        let repr = if matches!(repr, Repr::Int32 | Repr::Int64)
-            && self.float_promoted.contains(name)
-        {
-            Repr::Float64
-        } else {
-            repr
-        };
+        let repr =
+            if matches!(repr, Repr::Int32 | Repr::Int64) && self.float_promoted.contains(name) {
+                Repr::Float64
+            } else {
+                repr
+            };
 
         let coerced = self.coerce(val, repr)?;
         let var = self.builder.declare_var(cl_type(repr));

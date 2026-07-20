@@ -9,18 +9,18 @@ pub mod symbol;
 // fachada `rts-runtime::namespaces::globals::boolean`.
 pub mod bigint;
 // number → PRIMORDIAL: movido p/ `rts-primitives` (Fase 2).
-pub mod url;
-pub mod weakmap;
-pub mod weakset;
-pub mod weakref;
+pub mod date;
+pub mod dom_exception;
 pub mod finalization_registry;
-pub mod regexp;
+pub mod global_this;
+pub mod intl;
 pub mod json;
 pub mod json5;
-pub mod intl;
-pub mod dom_exception;
-pub mod global_this;
-pub mod date;
+pub mod regexp;
+pub mod url;
+pub mod weakmap;
+pub mod weakref;
+pub mod weakset;
 // error → PRIMORDIAL: movido p/ `rts-primitives` (Fase 2).
 // function → PRIMORDIAL: movido p/ `rts-primitives` (Fase 2.3). Desacoplado de
 // collections/proxy via shims extern-C; chama-os por símbolo (link-time).

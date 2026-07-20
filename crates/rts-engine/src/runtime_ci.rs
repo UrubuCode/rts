@@ -52,11 +52,18 @@ fn table() -> &'static RwLock<HashMap<Key, CiMethod>> {
 /// Register one class instance-method. `arity` is the FULL sig arity (receiver
 /// included), matching `sig.args.len()`. Idempotent — re-registering the same
 /// key (a rebuilt engine between runs) just overwrites with the same data.
-pub fn register_ci(class: &str, method: &str, arity: usize, fn_ptr: *const u8, args: Vec<AbiType>, ret: AbiType) {
-    table()
-        .write()
-        .unwrap()
-        .insert((class.to_string(), method.to_string(), arity), CiMethod { fn_ptr, args, ret });
+pub fn register_ci(
+    class: &str,
+    method: &str,
+    arity: usize,
+    fn_ptr: *const u8,
+    args: Vec<AbiType>,
+    ret: AbiType,
+) {
+    table().write().unwrap().insert(
+        (class.to_string(), method.to_string(), arity),
+        CiMethod { fn_ptr, args, ret },
+    );
 }
 
 /// Look up a native instance method by the runtime class tag, method name, and
@@ -64,5 +71,9 @@ pub fn register_ci(class: &str, method: &str, arity: usize, fn_ptr: *const u8, a
 /// that method at that arity — the caller then falls back to its normal miss
 /// behavior (a `TypeError`).
 pub fn lookup_ci(class: &str, method: &str, arity: usize) -> Option<CiMethod> {
-    table().read().unwrap().get(&(class.to_string(), method.to_string(), arity)).cloned()
+    table()
+        .read()
+        .unwrap()
+        .get(&(class.to_string(), method.to_string(), arity))
+        .cloned()
 }

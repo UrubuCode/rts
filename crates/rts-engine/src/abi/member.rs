@@ -175,6 +175,44 @@ pub enum Intrinsic {
     /// string `"valueOf"`); o caminho de receiver-Handle (objeto boxed) ignora o
     /// tag e chama o `symbol` real (unbox).
     ReceiverIdentity,
+
+    // ── `num` bit operations (CRANELIFT_IMPLEMENTATION.md step 1) ────────────
+    //
+    // Each maps 1:1 onto a Cranelift instruction with IDENTICAL semantics to the
+    // Rust `extern "C"` body it replaces — verified below, since a mismatch here
+    // would be a silently wrong answer, not a crash.
+    /// `i64::count_ones` → `popcnt`. Both yield 0..=64.
+    CountOnes,
+    /// `i64::count_zeros` → `popcnt(bnot x)`.
+    CountZeros,
+    /// `i64::leading_zeros` → `clz` (both give 64 for `0`).
+    LeadingZeros,
+    /// `i64::trailing_zeros` → `ctz` (both give 64 for `0`).
+    TrailingZeros,
+    /// `i64::rotate_left(n as u32)` → `rotl`.
+    ///
+    /// Rust rotates by `(n as u32) % 64`, Cranelift masks the count by the type
+    /// width (`n & 63`). These agree for EVERY `i64` n: `64` divides `2^32`, so
+    /// `(n mod 2^32) mod 64 == n mod 64`.
+    RotateLeft,
+    /// `i64::rotate_right(n as u32)` → `rotr` (same count-masking argument).
+    RotateRight,
+    /// `i64::swap_bytes` → `bswap`.
+    SwapBytes,
+    /// `i64::wrapping_add` → `iadd` (Cranelift integer arithmetic wraps).
+    WrappingAdd,
+    /// `i64::wrapping_sub` → `isub`.
+    WrappingSub,
+    /// `i64::wrapping_mul` → `imul`.
+    WrappingMul,
+    /// `i64::wrapping_neg` → `ineg` (both leave `i64::MIN` unchanged).
+    WrappingNeg,
+    /// `i64::wrapping_shl(n as u32)` → `ishl` (same count-masking argument as
+    /// [`Self::RotateLeft`]).
+    WrappingShl,
+    /// `i64::wrapping_shr(n as u32)` → `sshr` (ARITHMETIC shift — Rust's
+    /// `i64::wrapping_shr` is sign-propagating, so `ushr` would be wrong).
+    WrappingShr,
 }
 
 /// Whether a member is a function, constant, constructor, or instance method.

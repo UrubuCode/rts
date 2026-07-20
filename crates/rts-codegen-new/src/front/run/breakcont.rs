@@ -74,24 +74,23 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         module: &mut dyn Module,
         label: Option<&str>,
     ) -> FrontResult<()> {
-        let ctx = match label {
-            Some(l) => self
-                .loop_stack
-                .iter()
-                .rev()
-                .find(|c| c.label.as_deref() == Some(l))
-                .cloned()
-                .ok_or_else(|| {
-                    crate::front::error::Unsupported::new(format!(
-                        "`break {l}`: no enclosing loop labeled `{l}`"
-                    ))
+        let ctx =
+            match label {
+                Some(l) => self
+                    .loop_stack
+                    .iter()
+                    .rev()
+                    .find(|c| c.label.as_deref() == Some(l))
+                    .cloned()
+                    .ok_or_else(|| {
+                        crate::front::error::Unsupported::new(format!(
+                            "`break {l}`: no enclosing loop labeled `{l}`"
+                        ))
+                    })?,
+                None => self.loop_stack.last().cloned().ok_or_else(|| {
+                    crate::front::error::Unsupported::new("`break` outside a loop")
                 })?,
-            None => self
-                .loop_stack
-                .last()
-                .cloned()
-                .ok_or_else(|| crate::front::error::Unsupported::new("`break` outside a loop"))?,
-        };
+            };
         self.run_escaping_finalizers(module, ctx.finally_depth)?;
         if self.block_terminated {
             // A finalizer's own `return`/`throw` overrode the break — done.

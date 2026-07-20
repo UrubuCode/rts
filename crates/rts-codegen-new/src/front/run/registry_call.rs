@@ -135,9 +135,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                         cranelift_codegen::ir::MemFlags::new(),
                         val.v,
                     )
-                } else if matches!(val.repr, Repr::Tagged)
-                    && !matches!(val.kind, JsKind::Number)
-                {
+                } else if matches!(val.repr, Repr::Tagged) && !matches!(val.kind, JsKind::Number) {
                     let w = self.box_value(val);
                     self.call_runtime(module, "__rtsadp_word_to_abi_i64", &[w])?
                         .expect("__rtsadp_word_to_abi_i64 returns a value")
@@ -189,8 +187,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     // A HEAP STRING handle (`gc.string_*`, `string.*`): intern as
                     // a `TAG_STR` PolyValue.
                     JsKind::Str => {
-                        let w =
-                            value::emit_marshal::emit_box_real_string(module, self.builder, h);
+                        let w = value::emit_marshal::emit_box_real_string(module, self.builder, h);
                         Val::tagged_kind(w, JsKind::Str)
                     }
                     // An OPAQUE RESOURCE handle (`audio.*`, `buffer.alloc`,
@@ -383,11 +380,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             && call.ret_is_nullable_string
         {
             let h = res.expect("Handle return has a value");
-            let is_absent = self.builder.ins().icmp_imm(
-                cranelift_codegen::ir::condcodes::IntCC::Equal,
-                h,
-                0,
-            );
+            let is_absent =
+                self.builder
+                    .ins()
+                    .icmp_imm(cranelift_codegen::ir::condcodes::IntCC::Equal, h, 0);
             let null_w = self
                 .builder
                 .ins()

@@ -12,10 +12,10 @@
 
 use serde_json::Value;
 
-use rts_engine::abi::ty::{Bool, Handle, F64, I64, U64};
+use rts_engine::abi::ty::{Bool, F64, Handle, I64, U64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use rts_engine::heap::handles::{alloc_entry, free_handle, with_entry, Entry};
+use rts_engine::heap::handles::{Entry, alloc_entry, free_handle, with_entry};
 
 fn slice_from(ptr: u64, len: i64) -> Option<&'static [u8]> {
     if ptr == 0 || len < 0 {
@@ -312,8 +312,7 @@ fn stringify_with_visited(
             *circular = true;
             return None;
         }
-        let keys_vec =
-            crate::globals::proxy::ops::dispatch_own_keys_enumerable(target, handler);
+        let keys_vec = crate::globals::proxy::ops::dispatch_own_keys_enumerable(target, handler);
         let key_strs: Vec<String> = with_entry(keys_vec, |e| match e {
             Some(Entry::Vec(v)) => v
                 .iter()
@@ -919,8 +918,7 @@ fn stringify_pretty_value_i64_str(v: i64, indent: &str, depth: usize) -> String 
 /// 10 chars conforme JS spec). String vazia desativa pretty.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY_PRETTY_STR(handle: u64, indent_h: u64) -> u64 {
-    let indent_str: String = match rts_engine::heap::handles::read_string_handle(indent_h)
-    {
+    let indent_str: String = match rts_engine::heap::handles::read_string_handle(indent_h) {
         Some(s) => {
             // JS spec: trunca em 10 caracteres.
             s.chars().take(10).collect()
@@ -1089,7 +1087,11 @@ pub extern "C" fn __RTS_FN_NS_JSON_AS_STRING(value: U64) -> Handle {
 
 /// True when value is an object containing `key`.
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_JSON_OBJECT_HAS(value: U64, key_ptr: *const u8, key_len: i64) -> Bool {
+pub extern "C" fn __RTS_FN_NS_JSON_OBJECT_HAS(
+    value: U64,
+    key_ptr: *const u8,
+    key_len: i64,
+) -> Bool {
     let key = match unsafe { rts_engine::abi::str_abi::from_abi(key_ptr, key_len) } {
         Some(s) => s,
         None => return 0,

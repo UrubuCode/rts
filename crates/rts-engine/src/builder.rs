@@ -1,10 +1,10 @@
 //! O builder: a API fluente que as camadas (`rts-std`, `rts-node`, `rts-browser`,
 //! módulos externos) usam para registrar a sua superfície no [`Registry`].
 
-use crate::member::{FnPtr, Member, VarKind};
-use crate::registry::{Class, Module, Registry};
 use crate::Sig;
 use crate::abi::{AbiType, MemberFlags, MemberKind};
+use crate::member::{FnPtr, Member, VarKind};
+use crate::registry::{Class, Module, Registry};
 
 /// O motor: dono do [`Registry`] em construção. Uma camada recebe `&mut Engine`
 /// e registra os seus módulos/classes/globais; o codegen consome
@@ -297,40 +297,65 @@ impl ClassBuilder<'_> {
     /// Construtor: `new Class(args)`. `ptr` = `fn(args) -> Handle`.
     pub fn constructor(mut self, ptr: *const u8, sig: Sig) -> Self {
         let stem = class_stem(&self.name);
-        self.members
-            .push(simple_member(&stem, "new", MemberKind::Constructor, sig, ptr));
+        self.members.push(simple_member(
+            &stem,
+            "new",
+            MemberKind::Constructor,
+            sig,
+            ptr,
+        ));
         self
     }
 
     /// Método de instância. `sig` inclui o `Handle` do receiver no slot 0.
     pub fn method(mut self, name: &str, ptr: *const u8, sig: Sig) -> Self {
         let stem = class_stem(&self.name);
-        self.members
-            .push(simple_member(&stem, name, MemberKind::InstanceMethod, sig, ptr));
+        self.members.push(simple_member(
+            &stem,
+            name,
+            MemberKind::InstanceMethod,
+            sig,
+            ptr,
+        ));
         self
     }
 
     /// Método estático: `Class.fn(args)`.
     pub fn static_method(mut self, name: &str, ptr: *const u8, sig: Sig) -> Self {
         let stem = class_stem(&self.name);
-        self.members
-            .push(simple_member(&stem, name, MemberKind::StaticMethod, sig, ptr));
+        self.members.push(simple_member(
+            &stem,
+            name,
+            MemberKind::StaticMethod,
+            sig,
+            ptr,
+        ));
         self
     }
 
     /// Getter de instância (`inst.prop`, sem parênteses). `sig` = `(Handle) -> ty`.
     pub fn getter(mut self, name: &str, ptr: *const u8, sig: Sig) -> Self {
         let stem = class_stem(&self.name);
-        self.members
-            .push(simple_member(&stem, name, MemberKind::InstanceGetter, sig, ptr));
+        self.members.push(simple_member(
+            &stem,
+            name,
+            MemberKind::InstanceGetter,
+            sig,
+            ptr,
+        ));
         self
     }
 
     /// Setter de instância (`inst.prop = v`). `sig` = `(Handle, ty) -> Void`.
     pub fn setter(mut self, name: &str, ptr: *const u8, sig: Sig) -> Self {
         let stem = class_stem(&self.name);
-        self.members
-            .push(simple_member(&stem, name, MemberKind::InstanceSetter, sig, ptr));
+        self.members.push(simple_member(
+            &stem,
+            name,
+            MemberKind::InstanceSetter,
+            sig,
+            ptr,
+        ));
         self
     }
 
@@ -365,7 +390,13 @@ impl GlobalBuilder<'_> {
 
     /// Constante global: `NaN`, `Infinity`. `ptr` = getter `fn() -> ty`.
     pub fn constant(self, name: &str, ptr: *const u8, ty: AbiType) -> Self {
-        let m = simple_member("GLOBAL", name, MemberKind::Constant, Sig::new(Vec::new(), ty), ptr);
+        let m = simple_member(
+            "GLOBAL",
+            name,
+            MemberKind::Constant,
+            Sig::new(Vec::new(), ty),
+            ptr,
+        );
         self.engine.registry.insert_global(m);
         self
     }

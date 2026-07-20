@@ -299,7 +299,9 @@ fn rename_ident_expr(e: &mut HirExpr, from: &str, to: &str) {
             rename_ident_expr(then, from, to);
             rename_ident_expr(else_, from, to);
         }
-        HirExprKind::Array(elems) => elems.iter_mut().for_each(|x| rename_ident_expr(x, from, to)),
+        HirExprKind::Array(elems) => elems
+            .iter_mut()
+            .for_each(|x| rename_ident_expr(x, from, to)),
         HirExprKind::Object(fields) => fields
             .iter_mut()
             .for_each(|(_, v)| rename_ident_expr(v, from, to)),
@@ -309,7 +311,9 @@ fn rename_ident_expr(e: &mut HirExpr, from: &str, to: &str) {
         HirExprKind::Await(inner) | HirExprKind::Spread(inner) => {
             rename_ident_expr(inner, from, to);
         }
-        HirExprKind::Seq(items) => items.iter_mut().for_each(|x| rename_ident_expr(x, from, to)),
+        HirExprKind::Seq(items) => items
+            .iter_mut()
+            .for_each(|x| rename_ident_expr(x, from, to)),
         // A NESTED arrow/fn-expression: the renamed name (a named fn-expr's
         // self-name) is visible inside its body too — descend, unless one of the
         // inner params SHADOWS it. Without this, `function w(n) { return () =>
@@ -321,14 +325,12 @@ fn rename_ident_expr(e: &mut HirExpr, from: &str, to: &str) {
             self_name,
             ..
         } => {
-            let shadowed = params.iter().any(|p| p.name == from)
-                || self_name.as_deref() == Some(from);
+            let shadowed =
+                params.iter().any(|p| p.name == from) || self_name.as_deref() == Some(from);
             if !shadowed {
                 match body {
                     rts_hir::ir::HirArrowBody::Expr(inner) => rename_ident_expr(inner, from, to),
-                    rts_hir::ir::HirArrowBody::Block(stmts) => {
-                        rename_ident_stmts(stmts, from, to)
-                    }
+                    rts_hir::ir::HirArrowBody::Block(stmts) => rename_ident_stmts(stmts, from, to),
                 }
             }
         }
@@ -367,9 +369,12 @@ pub fn singleton_instance_globals(
     main: &HirFunc,
     builtins: &std::collections::HashMap<String, (String, String)>,
 ) -> std::collections::HashMap<String, String> {
-    let mut candidates: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut candidates: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
     for s in &main.body {
-        let HirStmt::Const { name, init, .. } = s else { continue };
+        let HirStmt::Const { name, init, .. } = s else {
+            continue;
+        };
         match &init.kind {
             rts_hir::ir::HirExprKind::New { class, .. } => {
                 candidates.insert(name.clone(), class.clone());
@@ -448,14 +453,29 @@ pub fn captured_mutated_top_lets(funcs: &[HirFunc], main: &HirFunc) -> HashSet<S
 /// (`expression arrow`). (A non-primordial like `console` is a gcell singleton,
 /// already non-capture via `ctx.module_globals`.)
 const GLOBALS: &[&str] = &[
-    "undefined", "Infinity", "NaN", "globalThis",
+    "undefined",
+    "Infinity",
+    "NaN",
+    "globalThis",
     // PRIMORDIAL wrapper/constructor + spec global functions callable from an
     // arrow. Non-primordial globals (Date/JSON/URL/…) are NOT listed — both
     // call sites also consult `registry::has_class`/`has_namespace`, which
     // covers every registered class data-driven.
-    "String", "Number", "Boolean", "Object", "Array", "Function", "Symbol",
-    "Math", "RegExp", "Promise", "Error",
-    "parseInt", "parseFloat", "isNaN", "isFinite",
+    "String",
+    "Number",
+    "Boolean",
+    "Object",
+    "Array",
+    "Function",
+    "Symbol",
+    "Math",
+    "RegExp",
+    "Promise",
+    "Error",
+    "parseInt",
+    "parseFloat",
+    "isNaN",
+    "isFinite",
     // `getPointer(fn)` — an ENGINE intrinsic (the C-ABI code address of a top-level
     // fn, for `thread.spawn`/callbacks). Globally accessible, never captured, so an
     // arrow/hoisted fn that calls it (`test(() => thread.spawn(getPointer(w), n))`)
@@ -649,7 +669,10 @@ fn lit_method_captures(
                         .filter(|f| f.name.contains("lit_0"))
                         .map(|f| f.name.as_str())
                         .collect();
-                    eprintln!("[litcap] NO unit_info for {unit}; lit funcs={names:?}; keys={:?}", lit_fn_units);
+                    eprintln!(
+                        "[litcap] NO unit_info for {unit}; lit funcs={names:?}; keys={:?}",
+                        lit_fn_units
+                    );
                 }
                 continue;
             };
@@ -1004,13 +1027,22 @@ impl Ctx {
                 }
                 self.rewrite_block(body, &inner, mutated);
             }
-            HirStmt::ForOf { binding, iterable, body, .. } => {
+            HirStmt::ForOf {
+                binding,
+                iterable,
+                body,
+                ..
+            } => {
                 self.rewrite_expr(iterable, scope, mutated);
                 let mut inner = scope.clone();
                 inner.insert(binding.clone());
                 self.rewrite_block(body, &inner, mutated);
             }
-            HirStmt::ForIn { binding, object, body } => {
+            HirStmt::ForIn {
+                binding,
+                object,
+                body,
+            } => {
                 self.rewrite_expr(object, scope, mutated);
                 let mut inner = scope.clone();
                 inner.insert(binding.clone());

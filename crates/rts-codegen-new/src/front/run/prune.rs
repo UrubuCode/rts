@@ -78,8 +78,8 @@ use std::collections::{HashMap, HashSet};
 
 use rts_hir::ir::{HirArrowBody, HirExpr, HirExprKind, HirFunc, HirLit, HirStmt};
 
-use super::class::ClassTable;
 use super::LoweredProgram;
+use super::class::ClassTable;
 
 /// Prelude functions the LOWERING calls by a name the user source never
 /// contains, so no mention edge can reach them. They are all members of the
@@ -257,11 +257,13 @@ impl<'a> Index<'a> {
         classes: &ClassTable,
         fn_this_class: &HashMap<String, String>,
     ) -> Self {
-        let by_name: HashMap<&str, &HirFunc> =
-            funcs.iter().map(|f| (f.name.as_str(), f)).collect();
+        let by_name: HashMap<&str, &HirFunc> = funcs.iter().map(|f| (f.name.as_str(), f)).collect();
         let mut edges: HashMap<String, Vec<String>> = HashMap::new();
         let mut add = |key: &str, val: &str| {
-            edges.entry(key.to_string()).or_default().push(val.to_string());
+            edges
+                .entry(key.to_string())
+                .or_default()
+                .push(val.to_string());
         };
 
         // A function name reaches itself.
@@ -402,7 +404,12 @@ fn harvest_stmt(s: &HirStmt, out: &mut HashSet<String>) {
             harvest_expr(cond, out);
             harvest_block(body, out);
         }
-        HirStmt::For { init, cond, update, body } => {
+        HirStmt::For {
+            init,
+            cond,
+            update,
+            body,
+        } => {
             if let Some(i) = init {
                 harvest_stmt(i, out);
             }
@@ -414,12 +421,22 @@ fn harvest_stmt(s: &HirStmt, out: &mut HashSet<String>) {
             }
             harvest_block(body, out);
         }
-        HirStmt::ForOf { binding, iterable, body, .. } => {
+        HirStmt::ForOf {
+            binding,
+            iterable,
+            body,
+            ..
+        } => {
             out.insert(binding.clone());
             harvest_expr(iterable, out);
             harvest_block(body, out);
         }
-        HirStmt::ForIn { binding, object, body, .. } => {
+        HirStmt::ForIn {
+            binding,
+            object,
+            body,
+            ..
+        } => {
             out.insert(binding.clone());
             harvest_expr(object, out);
             harvest_block(body, out);
@@ -428,7 +445,11 @@ fn harvest_stmt(s: &HirStmt, out: &mut HashSet<String>) {
         HirStmt::Raw(n) => {
             out.insert(n.clone());
         }
-        HirStmt::Try { body, catch, finally } => {
+        HirStmt::Try {
+            body,
+            catch,
+            finally,
+        } => {
             harvest_block(body, out);
             if let Some(c) = catch {
                 if let Some(b) = &c.binding {
@@ -440,7 +461,10 @@ fn harvest_stmt(s: &HirStmt, out: &mut HashSet<String>) {
                 harvest_block(f, out);
             }
         }
-        HirStmt::Switch { discriminant, cases } => {
+        HirStmt::Switch {
+            discriminant,
+            cases,
+        } => {
             harvest_expr(discriminant, out);
             for c in cases {
                 if let Some(t) = &c.test {
@@ -490,7 +514,11 @@ fn harvest_expr(e: &HirExpr, out: &mut HashSet<String>) {
             harvest_expr(callee, out);
             harvest_all(args, out);
         }
-        HirExprKind::MethodCall { object, method, args } => {
+        HirExprKind::MethodCall {
+            object,
+            method,
+            args,
+        } => {
             out.insert(method.clone());
             harvest_expr(object, out);
             harvest_all(args, out);
@@ -528,7 +556,12 @@ fn harvest_expr(e: &HirExpr, out: &mut HashSet<String>) {
         | HirExprKind::Cast { expr: inner, .. } => harvest_expr(inner, out),
         HirExprKind::Seq(exprs) => harvest_all(exprs, out),
         // An arrow surviving into a body (not lifted) still names things.
-        HirExprKind::Arrow { params, body, self_name, .. } => {
+        HirExprKind::Arrow {
+            params,
+            body,
+            self_name,
+            ..
+        } => {
             if let Some(n) = self_name {
                 out.insert(n.clone());
             }

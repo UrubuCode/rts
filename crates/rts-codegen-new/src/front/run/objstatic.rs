@@ -53,8 +53,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // shape is not statically proven): route keys/values/entries through the
         // RUNTIME trampolines (read slot-0 shape-id at run time). `Object` is a
         // PRIMORDIAL, so this generic enumeration is engine-direct.
-        if matches!(method, "keys" | "getOwnPropertyNames" | "values" | "entries")
-            && !self.is_static_object_arg(args)
+        if matches!(
+            method,
+            "keys" | "getOwnPropertyNames" | "values" | "entries"
+        ) && !self.is_static_object_arg(args)
         {
             let sym = match method {
                 "values" => "__rtsadp_obj_values",
@@ -120,7 +122,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let o = self.lower_expr(module, &args[0])?;
                 let o_word = self.box_value(o);
                 let res = self
-                    .call_runtime(module, "__rtsadp_obj_get_own_property_descriptors", &[o_word])?
+                    .call_runtime(
+                        module,
+                        "__rtsadp_obj_get_own_property_descriptors",
+                        &[o_word],
+                    )?
                     .expect("descriptors returns a word");
                 Ok(Some(Val::tagged_kind(res, JsKind::Object)))
             }
@@ -153,8 +159,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // `__prim` (a String/Number wrapper box — its own names are the code-unit
         // indices + `length`, not the slot) and `@@sym:*` (a Symbol-keyed entry —
         // filtered from string enumeration). The static path would leak them.
-        let needs_runtime =
-            |keys: &[String]| keys.iter().any(|k| k == "__prim" || k.starts_with("@@sym:"));
+        let needs_runtime = |keys: &[String]| {
+            keys.iter()
+                .any(|k| k == "__prim" || k.starts_with("@@sym:"))
+        };
         match args.first().map(|a| &a.kind) {
             Some(HirExprKind::Object(fields)) => {
                 !needs_runtime(&fields.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>())
@@ -199,10 +207,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let v = self.lower_expr(module, a)?;
                 self.box_value(v)
             }
-            None => self
-                .builder
-                .ins()
-                .iconst(types::I64, crate::value::PolyValue::undefined().raw() as i64),
+            None => self.builder.ins().iconst(
+                types::I64,
+                crate::value::PolyValue::undefined().raw() as i64,
+            ),
         };
         let word = self
             .call_runtime(module, "__rtsadp_obj_create", &[proto_word])?
@@ -474,7 +482,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let d = self.lower_expr(module, &args[2])?;
         let d_word = self.box_value(d);
         let res = self
-            .call_runtime(module, "__rtsadp_obj_define_property", &[o_word, k_word, d_word])?
+            .call_runtime(
+                module,
+                "__rtsadp_obj_define_property",
+                &[o_word, k_word, d_word],
+            )?
             .expect("__rtsadp_obj_define_property returns the object word");
         // Redefining a non-configurable property THROWS (spec) — route the unwind.
         self.emit_post_call_error_check(module)?;
@@ -600,5 +612,4 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             None => false,
         }
     }
-
 }

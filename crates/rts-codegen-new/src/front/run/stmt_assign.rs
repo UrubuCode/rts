@@ -5,8 +5,8 @@
 use cranelift_codegen::ir::{InstBuilder, types};
 use cranelift_module::Module;
 
-use rts_hir::ir::HirExprKind;
 use rts_hir::HirExpr;
+use rts_hir::ir::HirExprKind;
 
 use crate::repr::Repr;
 
@@ -55,17 +55,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                         rhs_word,
                         idx,
                     );
-                    let elem =
-                        crate::value::emit_marshal::emit_hole_to_undef(self.builder, elem);
+                    let elem = crate::value::emit_marshal::emit_hole_to_undef(self.builder, elem);
                     // Recurse through the normal assignment lowering with a
                     // synthetic pre-lowered value: bind the word to a fresh
                     // hidden local and assign `t = <hidden>`.
                     let tmp_name = format!("__rtsn_destr_tmp_{k}");
                     self.bind_tagged_local(&tmp_name, Val::new(elem, crate::repr::Repr::Tagged));
-                    let tmp_expr = HirExpr::new(
-                        HirExprKind::Ident(tmp_name),
-                        rts_hir::HirType::Unknown,
-                    );
+                    let tmp_expr =
+                        HirExpr::new(HirExprKind::Ident(tmp_name), rts_hir::HirType::Unknown);
                     self.lower_assign(module, t, &tmp_expr)?;
                 }
                 return Ok(Val::new(rhs_word, crate::repr::Repr::Tagged));

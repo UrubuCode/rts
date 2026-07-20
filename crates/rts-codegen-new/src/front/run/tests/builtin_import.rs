@@ -165,10 +165,7 @@ fn bare_rts_namespace_object_constant() {
 #[test]
 fn bare_rts_object_import_bails() {
     let t = TempDir::new();
-    t.write(
-        "main.ts",
-        "import { io } from \"rts\";\nio(\"x\");\n",
-    );
+    t.write("main.ts", "import { io } from \"rts\";\nio(\"x\");\n");
     let err = render_path(&t.path("main.ts")).expect_err("bare rts object import must bail");
     let msg = err.to_string();
     assert!(

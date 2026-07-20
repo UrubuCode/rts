@@ -7,7 +7,7 @@
 //! `__RTS_FN_NS_FMT_PARSE_INT_RADIX` NÃO é membro — backa o `parseInt(s, radix)`
 //! do codegen — então fica como extern simples.
 
-use rts_engine::{sig, Engine, FnPtr, Member, MemberFlags, MemberKind};
+use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, sig};
 
 use rts_engine::abi::str_abi::from_abi;
 
@@ -47,7 +47,11 @@ pub extern "C" fn __RTS_FN_NS_FMT_PARSE_F64(ptr: *const u8, len: i64) -> f64 {
     let rest = &trimmed[i..];
     if rest.starts_with("Infinity") {
         let v = f64::INFINITY;
-        return if trimmed.as_bytes().first() == Some(&b'-') { -v } else { v };
+        return if trimmed.as_bytes().first() == Some(&b'-') {
+            -v
+        } else {
+            v
+        };
     }
     let mut seen_digit = false;
     while i < bytes.len() && bytes[i].is_ascii_digit() {
@@ -201,7 +205,14 @@ pub extern "C" fn __RTS_FN_NS_FMT_PARSE_INT_RADIX(ptr: *const u8, len: i64, radi
     if negative { -acc } else { acc }
 }
 
-fn pure_func(name: &str, symbol: &str, sig: rts_engine::Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
+fn pure_func(
+    name: &str,
+    symbol: &str,
+    sig: rts_engine::Sig,
+    ts: &str,
+    doc: &str,
+    fp: *const u8,
+) -> Member {
     Member {
         name: name.to_string(),
         kind: MemberKind::Function,
@@ -222,16 +233,86 @@ fn pure_func(name: &str, symbol: &str, sig: rts_engine::Sig, ts: &str, doc: &str
 pub fn register(e: &mut Engine) {
     e.ns("fmt")
         .doc("Parse and format primitives (string <-> number).")
-        .member(pure_func("parse_i64", "__RTS_FN_NS_FMT_PARSE_I64", sig!(StrPtr => I64), "parse_i64(s: string): number", "Parses an integer. Returns i64::MIN on error.", __RTS_FN_NS_FMT_PARSE_I64 as *const u8))
-        .member(pure_func("parse_f64", "__RTS_FN_NS_FMT_PARSE_F64", sig!(StrPtr => F64), "parse_f64(s: string): number", "Parses a float. Returns NaN on error.", __RTS_FN_NS_FMT_PARSE_F64 as *const u8))
-        .member(pure_func("parse_bool", "__RTS_FN_NS_FMT_PARSE_BOOL", sig!(StrPtr => I64), "parse_bool(s: string): number", "Parses 'true'/'false'/'1'/'0' (case-insensitive). Returns -1 on error.", __RTS_FN_NS_FMT_PARSE_BOOL as *const u8))
-        .member(pure_func("fmt_i64", "__RTS_FN_NS_FMT_FMT_I64", sig!(I64 => Handle), "fmt_i64(value: number): string", "Decimal string of an integer.", __RTS_FN_NS_FMT_FMT_I64 as *const u8))
-        .member(pure_func("fmt_f64", "__RTS_FN_NS_FMT_FMT_F64", sig!(F64 => Handle), "fmt_f64(value: number): string", "Shortest round-trippable decimal of a float.", __RTS_FN_NS_FMT_FMT_F64 as *const u8))
-        .member(pure_func("fmt_bool", "__RTS_FN_NS_FMT_FMT_BOOL", sig!(I64 => Handle), "fmt_bool(value: number): string", "'true' when value is non-zero, 'false' otherwise.", __RTS_FN_NS_FMT_FMT_BOOL as *const u8))
-        .member(pure_func("fmt_hex", "__RTS_FN_NS_FMT_FMT_HEX", sig!(I64 => Handle), "fmt_hex(value: number): string", "Lowercase hex with `0x` prefix (bits as u64).", __RTS_FN_NS_FMT_FMT_HEX as *const u8))
-        .member(pure_func("fmt_bin", "__RTS_FN_NS_FMT_FMT_BIN", sig!(I64 => Handle), "fmt_bin(value: number): string", "Binary with `0b` prefix.", __RTS_FN_NS_FMT_FMT_BIN as *const u8))
-        .member(pure_func("fmt_oct", "__RTS_FN_NS_FMT_FMT_OCT", sig!(I64 => Handle), "fmt_oct(value: number): string", "Octal with `0o` prefix.", __RTS_FN_NS_FMT_FMT_OCT as *const u8))
-        .member(pure_func("fmt_f64_prec", "__RTS_FN_NS_FMT_FMT_F64_PREC", sig!(F64, I32 => Handle), "fmt_f64_prec(value: number, precision: number): string", "Float formatted with a fixed number of decimal places.", __RTS_FN_NS_FMT_FMT_F64_PREC as *const u8))
+        .member(pure_func(
+            "parse_i64",
+            "__RTS_FN_NS_FMT_PARSE_I64",
+            sig!(StrPtr => I64),
+            "parse_i64(s: string): number",
+            "Parses an integer. Returns i64::MIN on error.",
+            __RTS_FN_NS_FMT_PARSE_I64 as *const u8,
+        ))
+        .member(pure_func(
+            "parse_f64",
+            "__RTS_FN_NS_FMT_PARSE_F64",
+            sig!(StrPtr => F64),
+            "parse_f64(s: string): number",
+            "Parses a float. Returns NaN on error.",
+            __RTS_FN_NS_FMT_PARSE_F64 as *const u8,
+        ))
+        .member(pure_func(
+            "parse_bool",
+            "__RTS_FN_NS_FMT_PARSE_BOOL",
+            sig!(StrPtr => I64),
+            "parse_bool(s: string): number",
+            "Parses 'true'/'false'/'1'/'0' (case-insensitive). Returns -1 on error.",
+            __RTS_FN_NS_FMT_PARSE_BOOL as *const u8,
+        ))
+        .member(pure_func(
+            "fmt_i64",
+            "__RTS_FN_NS_FMT_FMT_I64",
+            sig!(I64 => Handle),
+            "fmt_i64(value: number): string",
+            "Decimal string of an integer.",
+            __RTS_FN_NS_FMT_FMT_I64 as *const u8,
+        ))
+        .member(pure_func(
+            "fmt_f64",
+            "__RTS_FN_NS_FMT_FMT_F64",
+            sig!(F64 => Handle),
+            "fmt_f64(value: number): string",
+            "Shortest round-trippable decimal of a float.",
+            __RTS_FN_NS_FMT_FMT_F64 as *const u8,
+        ))
+        .member(pure_func(
+            "fmt_bool",
+            "__RTS_FN_NS_FMT_FMT_BOOL",
+            sig!(I64 => Handle),
+            "fmt_bool(value: number): string",
+            "'true' when value is non-zero, 'false' otherwise.",
+            __RTS_FN_NS_FMT_FMT_BOOL as *const u8,
+        ))
+        .member(pure_func(
+            "fmt_hex",
+            "__RTS_FN_NS_FMT_FMT_HEX",
+            sig!(I64 => Handle),
+            "fmt_hex(value: number): string",
+            "Lowercase hex with `0x` prefix (bits as u64).",
+            __RTS_FN_NS_FMT_FMT_HEX as *const u8,
+        ))
+        .member(pure_func(
+            "fmt_bin",
+            "__RTS_FN_NS_FMT_FMT_BIN",
+            sig!(I64 => Handle),
+            "fmt_bin(value: number): string",
+            "Binary with `0b` prefix.",
+            __RTS_FN_NS_FMT_FMT_BIN as *const u8,
+        ))
+        .member(pure_func(
+            "fmt_oct",
+            "__RTS_FN_NS_FMT_FMT_OCT",
+            sig!(I64 => Handle),
+            "fmt_oct(value: number): string",
+            "Octal with `0o` prefix.",
+            __RTS_FN_NS_FMT_FMT_OCT as *const u8,
+        ))
+        .member(pure_func(
+            "fmt_f64_prec",
+            "__RTS_FN_NS_FMT_FMT_F64_PREC",
+            sig!(F64, I32 => Handle),
+            "fmt_f64_prec(value: number, precision: number): string",
+            "Float formatted with a fixed number of decimal places.",
+            __RTS_FN_NS_FMT_FMT_F64_PREC as *const u8,
+        ))
         .done();
 }
 
@@ -243,10 +324,38 @@ pub fn register(e: &mut Engine) {
 pub fn register_node_util(e: &mut Engine) {
     e.ns("util")
         .doc("node:util compat — formatHex/Bin/Oct + parseInt (alias de rts:fmt).")
-        .member(pure_func("formatHex", "__RTS_FN_NS_FMT_FMT_HEX", sig!(I64 => Handle), "formatHex(value: number): string", "Lowercase hex with `0x` prefix.", __RTS_FN_NS_FMT_FMT_HEX as *const u8))
-        .member(pure_func("formatBin", "__RTS_FN_NS_FMT_FMT_BIN", sig!(I64 => Handle), "formatBin(value: number): string", "Binary with `0b` prefix.", __RTS_FN_NS_FMT_FMT_BIN as *const u8))
-        .member(pure_func("formatOct", "__RTS_FN_NS_FMT_FMT_OCT", sig!(I64 => Handle), "formatOct(value: number): string", "Octal with `0o` prefix.", __RTS_FN_NS_FMT_FMT_OCT as *const u8))
-        .member(pure_func("parseInt", "__RTS_FN_NS_FMT_PARSE_I64", sig!(StrPtr => I64), "parseInt(s: string): number", "Parses an integer. Returns i64::MIN on error.", __RTS_FN_NS_FMT_PARSE_I64 as *const u8))
+        .member(pure_func(
+            "formatHex",
+            "__RTS_FN_NS_FMT_FMT_HEX",
+            sig!(I64 => Handle),
+            "formatHex(value: number): string",
+            "Lowercase hex with `0x` prefix.",
+            __RTS_FN_NS_FMT_FMT_HEX as *const u8,
+        ))
+        .member(pure_func(
+            "formatBin",
+            "__RTS_FN_NS_FMT_FMT_BIN",
+            sig!(I64 => Handle),
+            "formatBin(value: number): string",
+            "Binary with `0b` prefix.",
+            __RTS_FN_NS_FMT_FMT_BIN as *const u8,
+        ))
+        .member(pure_func(
+            "formatOct",
+            "__RTS_FN_NS_FMT_FMT_OCT",
+            sig!(I64 => Handle),
+            "formatOct(value: number): string",
+            "Octal with `0o` prefix.",
+            __RTS_FN_NS_FMT_FMT_OCT as *const u8,
+        ))
+        .member(pure_func(
+            "parseInt",
+            "__RTS_FN_NS_FMT_PARSE_I64",
+            sig!(StrPtr => I64),
+            "parseInt(s: string): number",
+            "Parses an integer. Returns i64::MIN on error.",
+            __RTS_FN_NS_FMT_PARSE_I64 as *const u8,
+        ))
         .done();
 }
 

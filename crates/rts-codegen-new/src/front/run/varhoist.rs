@@ -167,25 +167,23 @@ fn collect_stmt(
     seen: &mut std::collections::HashSet<String>,
 ) {
     use swc_ecma_ast::{Decl, ForHead, Stmt, VarDeclKind, VarDeclOrExpr};
-    let mut add_var_decl = |vd: &swc_ecma_ast::VarDecl,
-                            out: &mut Vec<(String, Option<String>)>,
-                            seen: &mut std::collections::HashSet<String>| {
-        if vd.kind != VarDeclKind::Var {
-            return;
-        }
-        for d in &vd.decls {
-            if let swc_ecma_ast::Pat::Ident(bi) = &d.name {
-                let name = bi.id.sym.to_string();
-                if seen.insert(name.clone()) {
-                    let ann = bi
-                        .type_ann
-                        .as_deref()
-                        .map(|t| type_ann_text(&t.type_ann));
-                    out.push((name, ann.flatten()));
+    let mut add_var_decl =
+        |vd: &swc_ecma_ast::VarDecl,
+         out: &mut Vec<(String, Option<String>)>,
+         seen: &mut std::collections::HashSet<String>| {
+            if vd.kind != VarDeclKind::Var {
+                return;
+            }
+            for d in &vd.decls {
+                if let swc_ecma_ast::Pat::Ident(bi) = &d.name {
+                    let name = bi.id.sym.to_string();
+                    if seen.insert(name.clone()) {
+                        let ann = bi.type_ann.as_deref().map(|t| type_ann_text(&t.type_ann));
+                        out.push((name, ann.flatten()));
+                    }
                 }
             }
-        }
-    };
+        };
     match stmt {
         Stmt::Decl(Decl::Var(vd)) => add_var_decl(vd, out, seen),
         Stmt::Block(b) => {

@@ -1,6 +1,6 @@
 //! Runtime impls de funcoes globais nao-classe (#208).
 
-use rts_engine::heap::handles::{alloc_entry, Entry};
+use rts_engine::heap::handles::{Entry, alloc_entry};
 
 fn str_from_parts(ptr: i64, len: i64) -> &'static str {
     if ptr == 0 || len <= 0 {
@@ -122,7 +122,7 @@ pub extern "C" fn __RTS_FN_GL_DECODE_URI_COMPONENT(ptr: i64, len: i64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rts_engine::heap::handles::{with_entry, Entry};
+    use rts_engine::heap::handles::{Entry, with_entry};
 
     fn read_str(h: u64) -> String {
         with_entry(h, |e| match e {

@@ -17,6 +17,6 @@ pub mod types;
 pub use global_class::GlobalClassSpec;
 pub use js_error::JsErrorKind;
 pub use member::{
-    concat_members, DefaultArg, Intrinsic, MemberFlags, MemberKind, NamespaceMember, NamespaceSpec,
+    DefaultArg, Intrinsic, MemberFlags, MemberKind, NamespaceMember, NamespaceSpec, concat_members,
 };
 pub use types::AbiType;

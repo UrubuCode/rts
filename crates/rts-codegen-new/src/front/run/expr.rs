@@ -587,7 +587,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.builder.switch_to_block(join_blk);
         self.builder.seal_block(join_blk);
         let out = self.builder.block_params(join_blk)[0];
-        let kind = if t_kind == e_kind { t_kind } else { JsKind::Unknown };
+        let kind = if t_kind == e_kind {
+            t_kind
+        } else {
+            JsKind::Unknown
+        };
         Ok(Val::new_with_kind(out, Repr::Tagged, kind))
     }
 }

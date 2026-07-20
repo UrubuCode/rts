@@ -3,7 +3,7 @@
 //! Each `Date` instance is stored as `Entry::DateMs(i64)` in the HandleTable,
 //! where the i64 is milliseconds since Unix epoch (UTC).
 
-use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
+use rts_engine::heap::handles::{Entry, alloc_entry, with_entry};
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
@@ -130,7 +130,11 @@ pub extern "C" fn __RTS_FN_GL_DATE_NEW_FROM_FIELDS(
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_DATE_GET_TIME(handle: u64) -> f64 {
     let ms = get_ms(handle);
-    if ms == INVALID_MS { f64::NAN } else { ms as f64 }
+    if ms == INVALID_MS {
+        f64::NAN
+    } else {
+        ms as f64
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -395,9 +399,24 @@ fn set_ms(handle: u64, new_ms: i64) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_FULL_YEAR(handle: u64, year: f64, month: f64, day: f64) -> f64 {
+pub extern "C" fn __RTS_FN_GL_DATE_SET_FULL_YEAR(
+    handle: u64,
+    year: f64,
+    month: f64,
+    day: f64,
+) -> f64 {
     let (_, mo, d, h, mi, s, ms) = setter_base_parts(handle);
-    let parts = (|| Some((keep_f(year, 0)?, keep_f(month, mo)?, keep_f(day, d)?, h, mi, s, ms)))();
+    let parts = (|| {
+        Some((
+            keep_f(year, 0)?,
+            keep_f(month, mo)?,
+            keep_f(day, d)?,
+            h,
+            mi,
+            s,
+            ms,
+        ))
+    })();
     finish_setter(handle, parts)
 }
 
@@ -416,17 +435,42 @@ pub extern "C" fn __RTS_FN_GL_DATE_SET_DATE(handle: u64, day: f64) -> f64 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_HOURS(handle: u64, hour: f64, min: f64, sec: f64, msec: f64) -> f64 {
+pub extern "C" fn __RTS_FN_GL_DATE_SET_HOURS(
+    handle: u64,
+    hour: f64,
+    min: f64,
+    sec: f64,
+    msec: f64,
+) -> f64 {
     let (y, mo, d, _, mi, s, ms) = setter_base_parts(handle);
-    let parts =
-        (|| Some((y, mo, d, keep_f(hour, 0)?, keep_f(min, mi)?, keep_f(sec, s)?, keep_f(msec, ms)?)))();
+    let parts = (|| {
+        Some((
+            y,
+            mo,
+            d,
+            keep_f(hour, 0)?,
+            keep_f(min, mi)?,
+            keep_f(sec, s)?,
+            keep_f(msec, ms)?,
+        ))
+    })();
     finish_setter(handle, parts)
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_DATE_SET_MINUTES(handle: u64, min: f64, sec: f64, msec: f64) -> f64 {
     let (y, mo, d, h, _, s, ms) = setter_base_parts(handle);
-    let parts = (|| Some((y, mo, d, h, keep_f(min, 0)?, keep_f(sec, s)?, keep_f(msec, ms)?)))();
+    let parts = (|| {
+        Some((
+            y,
+            mo,
+            d,
+            h,
+            keep_f(min, 0)?,
+            keep_f(sec, s)?,
+            keep_f(msec, ms)?,
+        ))
+    })();
     finish_setter(handle, parts)
 }
 
@@ -530,7 +574,11 @@ pub extern "C" fn __RTS_FN_RT_OPAQUE_TO_STRING(handle: u64) -> u64 {
             let text = with_entry(handle, |e| match e {
                 Some(Entry::Regex(rx)) => {
                     let src = rx.engine.source();
-                    let src = if src.is_empty() { "(?:)".to_string() } else { src };
+                    let src = if src.is_empty() {
+                        "(?:)".to_string()
+                    } else {
+                        src
+                    };
                     format!("/{}/{}", src, rx.flags)
                 }
                 _ => String::new(),

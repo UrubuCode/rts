@@ -69,7 +69,8 @@ pub fn run_path(entry: &Path) -> FrontResult<()> {
     if crate::value::errslot::__rtsadp_err_pending() != 0 {
         let word = crate::value::errslot::__rtsadp_err_take();
         let s_word = crate::value::genops::__rtsadp_to_string(word);
-        let text = crate::value::abi_adapter::resolve_poly(crate::value::PolyValue::from_raw(s_word));
+        let text =
+            crate::value::abi_adapter::resolve_poly(crate::value::PolyValue::from_raw(s_word));
         eprintln!("Uncaught {text}");
         return Err(crate::front::error::Unsupported::new(format!(
             "uncaught exception: {text}"

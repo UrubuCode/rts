@@ -108,7 +108,8 @@ pub const POLY_SING_EMPTY: u64 = 5;
 /// The `null` singleton word.
 pub const POLY_NULL: u64 = POLY_BOX_BASE | (POLY_TAG_SINGLETON << POLY_TAG_SHIFT) | POLY_SING_NULL;
 /// The `false` singleton word.
-pub const POLY_FALSE: u64 = POLY_BOX_BASE | (POLY_TAG_SINGLETON << POLY_TAG_SHIFT) | POLY_SING_FALSE;
+pub const POLY_FALSE: u64 =
+    POLY_BOX_BASE | (POLY_TAG_SINGLETON << POLY_TAG_SHIFT) | POLY_SING_FALSE;
 /// The `true` singleton word.
 pub const POLY_TRUE: u64 = POLY_BOX_BASE | (POLY_TAG_SINGLETON << POLY_TAG_SHIFT) | POLY_SING_TRUE;
 
@@ -161,7 +162,7 @@ pub fn poly_handle_normalize(c: u64) -> Option<u64> {
 mod tests {
     use super::*;
     use crate::heap::handles::{
-        Entry, HANDLE_SLOT_MASK, __RTS_FN_NS_GC_POLY_FROM_HANDLE, alloc_entry, free_handle,
+        __RTS_FN_NS_GC_POLY_FROM_HANDLE, Entry, HANDLE_SLOT_MASK, alloc_entry, free_handle,
     };
 
     const GEN_SHIFT: u64 = crate::abi::handles::HANDLE_GEN_SHIFT as u64;
@@ -172,7 +173,11 @@ mod tests {
     fn from_then_to_handle_roundtrips_live_slot() {
         let h = alloc_entry(Entry::String(b"poly-roundtrip".to_vec()));
         let poly48 = __RTS_FN_NS_GC_POLY_FROM_HANDLE(h);
-        assert_eq!(poly48, h & HANDLE_SLOT_MASK, "FROM_HANDLE must drop the gen");
+        assert_eq!(
+            poly48,
+            h & HANDLE_SLOT_MASK,
+            "FROM_HANDLE must drop the gen"
+        );
         let reconstructed = __RTS_FN_NS_GC_POLY_TO_HANDLE(poly48);
         assert_eq!(reconstructed, h, "TO_HANDLE(FROM_HANDLE(h)) must equal h");
         free_handle(h);
@@ -186,7 +191,10 @@ mod tests {
         // A freshly-allocated slot has a small generation (1, or a small bump on
         // reuse) — far below 0xFFF8, so its top 13 bits are NOT all ones.
         let slot_gen = (h >> GEN_SHIFT) & 0xFFFF;
-        assert!(slot_gen < 0xFFF8, "fresh handle gen {slot_gen:#x} unexpectedly high");
+        assert!(
+            slot_gen < 0xFFF8,
+            "fresh handle gen {slot_gen:#x} unexpectedly high"
+        );
         assert!(
             poly_handle_normalize(h).is_none(),
             "a low-generation real handle must not look NaN-boxed"

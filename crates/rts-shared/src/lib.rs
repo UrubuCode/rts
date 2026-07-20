@@ -3,22 +3,22 @@
 //! Depende só do motor (`rts-engine`) + libs puras. Fase 1b da partição —
 //! primeira fatia: pure-compute batch. Ver
 //! `.claude/plans/partitioned-meandering-milner.md`.
-pub mod math;
-pub mod num;
-pub mod fmt;
-pub mod hash;
-pub mod mem;
-pub mod ptr;
-pub mod hint;
 pub mod alloc;
-pub mod path;
 pub mod bigfloat;
 pub mod buffer;
-pub mod regex;
-pub mod date;
 pub mod collections;
-pub mod json;
-pub mod trace;
-pub mod globals;
+pub mod date;
+pub mod fmt;
 pub mod gc_surface;
+pub mod globals;
+pub mod hash;
+pub mod hint;
+pub mod json;
+pub mod math;
+pub mod mem;
+pub mod num;
+pub mod path;
+pub mod ptr;
+pub mod regex;
 pub mod stdlib;
+pub mod trace;

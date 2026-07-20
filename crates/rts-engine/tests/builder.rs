@@ -1,7 +1,7 @@
 //! End-to-end do builder: registra uma superfície e checa a resolução que o
 //! codegen faria.
 
-use rts_engine::{sig, AbiType, Engine, MemberFlags, MemberKind, VarKind};
+use rts_engine::{AbiType, Engine, MemberFlags, MemberKind, VarKind, sig};
 
 // Implementações nativas de brinquedo (o que `rts-std` escreveria).
 extern "C" fn toy_print(_ptr: *const u8, _len: i64) {}
@@ -74,7 +74,10 @@ fn module_resolves_and_carries_fn_ptr() {
     assert_eq!(print.fn_ptr.addr(), toy_print as *const u8 as usize);
 
     // o símbolo está no jit_symbols (substitui o add_fn!)
-    assert_eq!(r.jit_symbol("__RTS_FN_NS_TOY_PRINT").unwrap().addr(), toy_print as *const u8 as usize);
+    assert_eq!(
+        r.jit_symbol("__RTS_FN_NS_TOY_PRINT").unwrap().addr(),
+        toy_print as *const u8 as usize
+    );
 }
 
 #[test]

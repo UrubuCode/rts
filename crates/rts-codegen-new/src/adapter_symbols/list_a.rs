@@ -168,7 +168,10 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             arrayops::__rtsadp_arr_includes as *const u8,
         ),
         sym("__rtsadp_arr_at", arrayops::__rtsadp_arr_at as *const u8),
-        sym("__rtsadp_arr_at_w", arrayops::__rtsadp_arr_at_w as *const u8),
+        sym(
+            "__rtsadp_arr_at_w",
+            arrayops::__rtsadp_arr_at_w as *const u8,
+        ),
         sym(
             "__rtsadp_arr_join",
             arrayops::__rtsadp_arr_join as *const u8,
@@ -235,7 +238,10 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             arrayops::__rtsadp_arr_unshift as *const u8,
         ),
         // ES2023 / arity-variant Array trampolines
-        sym("__rtsadp_arr_slice1", arrayops::__rtsadp_arr_slice1 as *const u8),
+        sym(
+            "__rtsadp_arr_slice1",
+            arrayops::__rtsadp_arr_slice1 as *const u8,
+        ),
         sym(
             "__rtsadp_arr_index_of_from",
             arrayops::__rtsadp_arr_index_of_from as *const u8,
@@ -256,17 +262,26 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             "__rtsadp_arr_entries",
             arrayops::__rtsadp_arr_entries as *const u8,
         ),
-        sym("__rtsadp_arr_keys", arrayops::__rtsadp_arr_keys as *const u8),
+        sym(
+            "__rtsadp_arr_keys",
+            arrayops::__rtsadp_arr_keys as *const u8,
+        ),
         sym(
             "__rtsadp_arr_values",
             arrayops::__rtsadp_arr_values as *const u8,
         ),
-        sym("__rtsadp_arr_with", arrayops::__rtsadp_arr_with as *const u8),
+        sym(
+            "__rtsadp_arr_with",
+            arrayops::__rtsadp_arr_with as *const u8,
+        ),
         sym(
             "__rtsadp_arr_flat_depth",
             arrayops::__rtsadp_arr_flat_depth as *const u8,
         ),
-        sym("__rtsadp_arr_sort", arrayops::__rtsadp_arr_sort as *const u8),
+        sym(
+            "__rtsadp_arr_sort",
+            arrayops::__rtsadp_arr_sort as *const u8,
+        ),
         sym(
             "__rtsadp_arr_sort_cmp",
             arrayops::__rtsadp_arr_sort_cmp as *const u8,

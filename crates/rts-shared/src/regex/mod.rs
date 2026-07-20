@@ -331,8 +331,9 @@ pub extern "C" fn __RTS_FN_NS_REGEX_MATCH_ALL(
         Some(s) => s,
         None => return 0,
     };
-    let texts: Vec<String> =
-        with_engine(handle, Vec::new(), |eng| eng.find_all(s).into_iter().map(|m| m.text).collect());
+    let texts: Vec<String> = with_engine(handle, Vec::new(), |eng| {
+        eng.find_all(s).into_iter().map(|m| m.text).collect()
+    });
     if texts.is_empty() {
         return 0;
     }
