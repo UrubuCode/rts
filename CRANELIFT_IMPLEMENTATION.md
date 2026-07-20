@@ -120,11 +120,12 @@ Start here: mechanical, isolated, and it validates the path for the rest.
 
 ## Step 2 — `switch` → jump table
 
-**Status:** not started · **Effort:** low · **Risk:** low
+**Status:** ✅ done · **Effort:** low · **Risk:** low · **Measured 1.93×**
 
-`front/run/switch.rs:65` emits a **chain of `brif`** — one compare per case, so a
-20-case `switch` costs up to 20 sequential compares. Cranelift's `Switch` builder
-(§11) picks `br_table` or a binary search itself:
+The plan below understated the problem: `front/run/switch.rs` was not a chain of
+`brif`, it was a chain of **extern CALLS** — one `__rtsadp_strict_eq` per case,
+in source order. A 20-case `switch` paid up to 20 calls to reach the last one.
+Cranelift's `Switch` builder (§11) picks `br_table` or a binary search itself:
 
 ```rust
 let mut sw = Switch::new();
@@ -134,6 +135,31 @@ sw.emit(&mut builder, discriminant, default_block);
 
 Only applies when every case test is an integer constant; keep the existing
 chain as the fallback for the general (expression-test) case.
+
+### The exactness guard (the whole risk of this step)
+
+TS `number` is an f64, so the discriminant arrives as `Float64` and must be
+narrowed to an integer key — and **truncating alone is wrong**: `switch (1.5)`
+would enter `case 1:`. The emitted code converts to i64, converts BACK to f64,
+and enters the table only when the round-trip is bit-exact. That single `fcmp`
+also settles every awkward value correctly:
+
+| discriminant | result | why |
+|---|---|---|
+| `1.5` | default | round-trip differs |
+| `NaN` | default | compares false everywhere — and `NaN === NaN` is false in JS too |
+| `±Infinity`, `1e300` | default | saturating convert clamps, round-trip differs |
+| `-0` | `case 0` | round-trips to `0.0`, and `-0 === 0` in JS |
+
+Duplicate case keys keep the FIRST body (JS first-match dispatch).
+
+**Measured: 351 → 182 ms (1.93×)** on a 20-case switch over 5M iterations. IR
+confirms 0 remaining `strict_eq` calls and one `br_table`. Every edge above was
+cross-checked against Node (byte-identical) and pinned in
+`tests/switch_int_table_edges.test.ts`.
+
+Unlike step 1, this one is a real win: the cost removed was a CALL per case, not
+a conversion around an already-cheap op.
 
 ---
 
