@@ -176,6 +176,12 @@ jobs:
             execSync('git add README.md');
             const changed = execSync('git status --porcelain README.md').toString().trim();
             if (!changed) { console.log('no README change'); return; }
-            execSync('git pull --rebase origin main');
+            // COMMIT before pull --rebase: a staged/dirty index makes
+            // `git pull --rebase` abort ("index contains uncommitted changes"),
+            // which was failing this step the moment the benchmark first ran to
+            // completion. Committing first leaves a clean tree, and the rebase
+            // replays this commit on top of origin/main (the BENCH_STATS region
+            // does not overlap the cross-runtime badge region, so no conflict).
             execSync('git commit -m "docs: auto-update benchmark table"');
+            execSync('git pull --rebase origin main');
             execSync('git push origin HEAD:main');
