@@ -268,8 +268,8 @@ The blocker is analysis, not emission: **Cranelift does not do escape analysis**
 |---|---|---|---|---|
 | 0 | intrinsic path (engine had none) | medium | `pi_machin` 16 → 13 ms | ✅ done |
 | 1 | `num` bit ops → instructions | low | call gone; 142 → 139 ms (2%) | ✅ done |
-| 2 | `switch` → jump table | low | — | next |
-| 3 | TLS + inline `random_f64` | medium | — | not started |
+| 2 | `switch` → jump table | low | **351 → 182 ms (1.93×)** | ✅ done |
+| 3 | TLS + inline `random_f64` | medium | — | next |
 | 4 | atomics → atomic IR | medium | — | not started |
 | 5 | TypedArrays on a real buffer | high | — | not started |
 | 6 | SIMD bulk ops | high | — | not started |
