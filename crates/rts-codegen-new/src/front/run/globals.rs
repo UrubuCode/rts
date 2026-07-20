@@ -633,7 +633,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             },
             // A METHOD CALL whose receiver class is known and whose method's declared
             // return type is an array (`m.values()`/`o.keys()`/`o.entries()`).
-            HirExprKind::MethodCall { object, method, .. } => {
+            HirExprKind::MethodCall { object, method, args } => {
                 self.static_instance_class(object)
                     .and_then(|c| {
                         self.classes
@@ -642,6 +642,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     })
                     .and_then(|fname| self.sigs.get(&fname))
                     .is_some_and(|s| s.ret_array)
+                    // A REGISTRY-class instance (`createCipheriv(...)`'s `Cipher`,
+                    // `newWriter()`'s `ProtoWriter`, …) whose method's `ts_signature`
+                    // declares an array return (`final(): number[]`) — the same
+                    // `ret_is_array_handle` flag `try_registry_instance_method` reads.
+                    || self
+                        .global_instance_class(object)
+                        .and_then(|c| super::registry::class_member(&c, method, args.len()))
+                        .is_some_and(|r| r.ret_is_array_handle)
                     || self.is_array_receiver(e)
             }
             _ => self.is_array_receiver(e),

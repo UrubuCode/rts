@@ -303,26 +303,78 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if overloads.is_empty() {
             return unsupported!("`{name}.{method}()` — no such static on `{name}`");
         }
-        let Some(call) = overloads.into_iter().find(|c| {
-            let total = c.arg_abis.len();
-            let required = required_args(&c.default_args, total);
-            argc >= required && argc <= total
-        }) else {
+        let candidates: Vec<_> = overloads
+            .into_iter()
+            .filter(|c| {
+                let total = c.arg_abis.len();
+                let required = required_args(&c.default_args, total);
+                argc >= required && argc <= total
+            })
+            .collect();
+        if candidates.is_empty() {
             return unsupported!(
                 "`{name}.{method}({argc} args)` — no overload accepts {argc} arg(s)"
             );
+        }
+        // Lower the provided args ONCE (needed to disambiguate same-arity
+        // overloads by proven kind, same pattern `emit_registry_ctor` uses).
+        // `lower_expr` never sets `JsKind::Array` on a literal/array-typed local
+        // (that provenness lives separately in `local_shapes`/`is_array_valued`
+        // — the two systems aren't unified). Promote it here so the tie-break
+        // below can actually distinguish `Buffer.from(arr)` from
+        // `Buffer.from(string)` instead of bailing on every array argument.
+        let mut vals: Vec<Val> = Vec::with_capacity(argc);
+        for a in args.iter() {
+            let mut v = self.lower_expr(module, a)?;
+            if matches!(v.kind, JsKind::Unknown) && self.is_array_valued(a) {
+                v.kind = JsKind::Array;
+            }
+            vals.push(v);
+        }
+        // Pick the overload: a single candidate wins outright (its `StrPtr`
+        // params, if any, ToString-coerce a non-proven-string arg via the
+        // generic marshal — JS-correct: `Date.parse(123)` ≡ `Date.parse("123")`).
+        // A same-arity tie (e.g. `Buffer.from(string)` vs `Buffer.from(handle)`)
+        // is broken by every provided arg's proven `JsKind` matching its param
+        // `AbiType` — never silently picking the first-registered overload.
+        let call = if candidates.len() == 1 {
+            candidates.into_iter().next().expect("len==1")
+        } else {
+            let call = candidates.iter().find(|c| {
+                vals.iter()
+                    .enumerate()
+                    .all(|(i, v)| abi_accepts_kind(c.arg_abis[i], v.kind))
+            }).cloned();
+            let call = call.or_else(|| {
+                // No candidate's ABI matched every arg's PROVEN kind — every
+                // remaining arg is `JsKind::Unknown` (a genuinely untyped `any`,
+                // e.g. a param typed `any` in the RTS prelude itself: `function
+                // f(c: any) { Buffer.from(c) }`). Guessing would resurrect the
+                // ToString-coercion bug this tie-break exists to prevent — but
+                // bailing here would also regress prelude code that worked before
+                // this tie-break existed. Middle ground: if exactly ONE candidate
+                // has no `StrPtr` param (so it can't silently mis-stringify),
+                // prefer it — never a `StrPtr` candidate for an unproven arg.
+                let non_string: Vec<_> = candidates
+                    .iter()
+                    .filter(|c| !c.arg_abis.iter().any(|&a| a == AbiType::StrPtr))
+                    .collect();
+                if non_string.len() == 1 {
+                    Some((*non_string[0]).clone())
+                } else {
+                    None
+                }
+            });
+            let Some(call) = call else {
+                return unsupported!(
+                    "`{name}.{method}(x)` with a non-number / non-string argument \
+                     (the overload dispatch depends on the runtime type — a later \
+                     increment)"
+                );
+            };
+            call
         };
         let total = call.arg_abis.len();
-        // Lower the provided args. A `StrPtr` param fed a non-proven-string is
-        // ToString-coerced by the generic marshal (`marshal_reg_arg`'s StrPtr arm
-        // routes the value word through `__rtsadp_to_string` — the ONE coercion
-        // authority, Pilar 3), exactly like the instance-method path already does.
-        // This is JS-correct: `Date.parse(123)` ≡ `Date.parse("123")` (→ NaN),
-        // `Buffer.from(x)` ToStrings a non-string `x`. (Was previously a bail.)
-        let mut vals: Vec<Val> = Vec::with_capacity(total);
-        for a in args.iter() {
-            vals.push(self.lower_expr(module, a)?);
-        }
         // Pad the omitted trailing args with the spec-declared defaults. A tail
         // slot is always a default here (argc ≥ required), so a `Required` /
         // missing entry would be a spec bug — BAIL rather than mis-marshal.
@@ -545,7 +597,7 @@ fn required_args(default_args: &[DefaultArg], total: usize) -> usize {
 fn abi_accepts_kind(abi: AbiType, kind: JsKind) -> bool {
     match abi {
         AbiType::StrPtr => matches!(kind, JsKind::Str),
-        AbiType::Handle => matches!(kind, JsKind::Str | JsKind::Object),
+        AbiType::Handle => matches!(kind, JsKind::Str | JsKind::Object | JsKind::Array),
         AbiType::F64 | AbiType::I64 | AbiType::U64 | AbiType::I32 => matches!(kind, JsKind::Number),
         AbiType::Bool => matches!(kind, JsKind::Bool),
         // A raw PolyValue param carries any value verbatim — accepts any kind.

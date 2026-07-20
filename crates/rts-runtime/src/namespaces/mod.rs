@@ -89,6 +89,7 @@ pub use rts_node::v8 as node_v8;
 pub use rts_node::zlib as node_zlib;
 pub use rts_std::os;
 pub use rts_shared::path;
+pub use rts_shared::protobuf;
 pub use rts_std::process;
 pub use rts_std::promise;
 pub use rts_std::promise_slot;

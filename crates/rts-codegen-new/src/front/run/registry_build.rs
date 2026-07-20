@@ -106,6 +106,7 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     ns::tls::register,
     ns::ws::register,
     ns::json::register,
+    ns::protobuf::register,
     ns::promise::register,
     ns::thread::register,
     ns::ffi::register,

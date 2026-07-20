@@ -79,3 +79,44 @@ pub fn finalize_state(handle: u64) -> Option<(Algo, bool, Vec<u8>, Vec<u8>)> {
     let key = field(handle, "__key").map(|h| read_bytes(h as u64)).unwrap_or_default();
     Some((algo, is_hmac, input, key))
 }
+
+/// Build a `Cipher` (Cipheriv/Decipheriv) instance object: algorithm index,
+/// key/iv bytes, an `is_decrypt` flag, the accumulated input, and (GCM only)
+/// an AAD buffer + auth tag buffer set via `setAAD`/`setAuthTag`.
+pub fn build_cipher_instance(algo_index: i64, key: &[u8], iv: &[u8], is_decrypt: bool) -> u64 {
+    let mut m: indexmap::IndexMap<String, i64> = indexmap::IndexMap::new();
+    m.insert("__rts_class".to_string(), alloc_entry(Entry::String(b"Cipher".to_vec())) as i64);
+    m.insert("__algo".to_string(), algo_index);
+    m.insert("__key".to_string(), alloc_entry(Entry::Buffer(key.to_vec())) as i64);
+    m.insert("__iv".to_string(), alloc_entry(Entry::Buffer(iv.to_vec())) as i64);
+    m.insert("__decrypt".to_string(), is_decrypt as i64);
+    m.insert("__buf".to_string(), alloc_entry(Entry::Buffer(Vec::new())) as i64);
+    m.insert("__aad".to_string(), alloc_entry(Entry::Buffer(Vec::new())) as i64);
+    m.insert("__tag".to_string(), alloc_entry(Entry::Buffer(Vec::new())) as i64);
+    alloc_entry(Entry::Map(Box::new(m)))
+}
+
+/// Overwrite a cipher instance's `__buf`-style field with fresh bytes
+/// (`setAAD`/`setAuthTag` replace rather than accumulate).
+pub fn set_field_bytes(handle: u64, key: &str, data: &[u8]) {
+    if let Some(h) = field(handle, key) {
+        with_entry_mut(h as u64, |e| {
+            if let Some(Entry::Buffer(b)) = e {
+                *b = data.to_vec();
+            }
+        });
+    }
+}
+
+/// The full cipher state needed to finalize: `(algo_index, key, iv, is_decrypt,
+/// input, aad, tag)`.
+pub fn cipher_state(handle: u64) -> Option<(i64, Vec<u8>, Vec<u8>, bool, Vec<u8>, Vec<u8>, Vec<u8>)> {
+    let algo_index = field(handle, "__algo")?;
+    let key = field(handle, "__key").map(|h| read_bytes(h as u64)).unwrap_or_default();
+    let iv = field(handle, "__iv").map(|h| read_bytes(h as u64)).unwrap_or_default();
+    let is_decrypt = field(handle, "__decrypt").unwrap_or(0) != 0;
+    let input = field(handle, "__buf").map(|h| read_bytes(h as u64)).unwrap_or_default();
+    let aad = field(handle, "__aad").map(|h| read_bytes(h as u64)).unwrap_or_default();
+    let tag = field(handle, "__tag").map(|h| read_bytes(h as u64)).unwrap_or_default();
+    Some((algo_index, key, iv, is_decrypt, input, aad, tag))
+}
