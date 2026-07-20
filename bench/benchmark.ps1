@@ -83,12 +83,27 @@ foreach ($b in $Benches) {
   $key = ($b.rts -replace '[\\/]', '_') -replace '\.ts$', ''
   $out = "target\bench\$key"
   Write-Host "compiling AOT: $($b.rts) -> $out"
-  & $RtsExe compile -p $b.rts $out --production | Out-Host
+  # A bench source hitting an engine gap (e.g. 'simple' reads a module-global
+  # inside a function, #195) makes `rts compile` exit non-zero. Under pwsh 7.4+
+  # with the runner's `$ErrorActionPreference = 'Stop'`, a native non-zero exit
+  # is a TERMINATING error that aborts the whole benchmark job BEFORE the
+  # Test-Path skip below could handle it. Disable that native-error escalation
+  # around the compile so a failed bench is warned-and-skipped, not fatal.
+  $prevNative = $null
+  try { $prevNative = $PSNativeCommandUseErrorActionPreference; $PSNativeCommandUseErrorActionPreference = $false } catch {}
+  # Redirect ALL streams to a log (no `| Out-Host` pipe): under PowerShell a
+  # native command's stderr through a pipe is wrapped as a terminating
+  # NativeCommandError, which would abort the job regardless of the exit-code
+  # preference above. Writing to a file sidesteps that; the log is echoed only
+  # if the compile failed, so a bad bench is diagnosable without being fatal.
+  & $RtsExe compile -p $b.rts $out --production *> "$out.compile.log"
+  try { if ($null -ne $prevNative) { $PSNativeCommandUseErrorActionPreference = $prevNative } } catch {}
   $exe = "$out.exe"
   if (-not (Test-Path $exe)) {
     # Skip (with a loud warning) instead of aborting the whole suite: a bench
     # source hitting an engine gap must not hide every other result.
     Write-Warning "AOT output missing for $($b.rts) - bench '$($b.id)' SKIPPED"
+    if (Test-Path "$out.compile.log") { Get-Content "$out.compile.log" | Select-Object -First 3 | ForEach-Object { Write-Host "  | $_" } }
     $Skipped += $b.id
     continue
   }
