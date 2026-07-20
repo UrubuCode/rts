@@ -7,8 +7,10 @@ use rts_engine::heap::handles::{alloc_entry, Entry};
 use rts_engine::heap::shapes::string_word;
 
 use super::algo::{self, Algo};
+use super::cipher::{self, CipherAlgo};
+use super::dh;
 use super::random;
-use super::state::{append, build_instance, byte_array, finalize_state, read_bytes};
+use super::state::{append, build_cipher_instance, build_instance, byte_array, cipher_state, finalize_state, read_bytes, set_field_bytes};
 
 unsafe extern "C" {
     fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
@@ -292,5 +294,181 @@ fn digest_bytes(this: u64) -> Vec<u8> {
             }
         }
         None => Vec::new(),
+    }
+}
+
+// ---- Cipheriv / Decipheriv (AES-GCM / AES-CBC) ----
+
+fn cipher_algo_index(a: CipherAlgo) -> i64 {
+    match a {
+        CipherAlgo::Aes256Gcm => 0,
+        CipherAlgo::Aes128Gcm => 1,
+        CipherAlgo::Aes256Cbc => 2,
+        CipherAlgo::Aes128Cbc => 3,
+    }
+}
+
+fn cipher_algo_from_index(i: i64) -> Option<CipherAlgo> {
+    match i {
+        0 => Some(CipherAlgo::Aes256Gcm),
+        1 => Some(CipherAlgo::Aes128Gcm),
+        2 => Some(CipherAlgo::Aes256Cbc),
+        3 => Some(CipherAlgo::Aes128Cbc),
+        _ => None,
+    }
+}
+
+fn throw_error(kind: &str, msg: &str) {
+    unsafe { __rtsadp_throw_js_error(kind.as_ptr(), kind.len() as i64, msg.as_ptr(), msg.len() as i64) };
+}
+
+/// `crypto.createCipheriv(algorithm, key, iv)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_CRYPTO_CREATE_CIPHERIV(p: *const u8, l: i64, key: u64, iv: u64) -> u64 {
+    let name = read(p, l);
+    match CipherAlgo::parse(&name) {
+        Some(a) => build_cipher_instance(cipher_algo_index(a), &read_bytes(key), &read_bytes(iv), false),
+        None => {
+            throw_error("Error", &format!("Unknown cipher: {name}"));
+            0
+        }
+    }
+}
+
+/// `crypto.createDecipheriv(algorithm, key, iv)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_CRYPTO_CREATE_DECIPHERIV(p: *const u8, l: i64, key: u64, iv: u64) -> u64 {
+    let name = read(p, l);
+    match CipherAlgo::parse(&name) {
+        Some(a) => build_cipher_instance(cipher_algo_index(a), &read_bytes(key), &read_bytes(iv), true),
+        None => {
+            throw_error("Error", &format!("Unknown cipher: {name}"));
+            0
+        }
+    }
+}
+
+/// `cipher.update(data)` — accumulates the input (same accumulate-then-
+/// finalize model `Hash` uses: GCM needs the whole message before it can
+/// authenticate, so there is no correct per-call partial output). Returns an
+/// empty Buffer, unlike Node's real streaming `update()` — callers must read
+/// the full ciphertext/plaintext from `final()` alone, not by concatenating
+/// `update()` outputs.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_CRYPTO_CIPHER_UPDATE(this: u64, data: u64) -> u64 {
+    append(this, &read_bytes(data));
+    byte_array(&[])
+}
+
+/// `cipher.setAAD(buffer)` (GCM only) — returns `this` (chainable).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_CRYPTO_CIPHER_SET_AAD(this: u64, data: u64) -> u64 {
+    set_field_bytes(this, "__aad", &read_bytes(data));
+    this
+}
+
+/// `decipher.setAuthTag(buffer)` (GCM only) — returns `this` (chainable).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_CRYPTO_CIPHER_SET_AUTH_TAG(this: u64, data: u64) -> u64 {
+    set_field_bytes(this, "__tag", &read_bytes(data));
+    this
+}
+
+/// `cipher.getAuthTag()` (GCM encrypt only) — the 16-byte tag computed by the
+/// last `final()`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_CRYPTO_CIPHER_GET_AUTH_TAG(this: u64) -> u64 {
+    byte_array(&cipher_state(this).map(|s| s.6).unwrap_or_default())
+}
+
+/// `cipher.final()` — runs the accumulated input through encrypt/decrypt and
+/// returns the output Buffer. For GCM encrypt, also stores the computed auth
+/// tag in `__tag` so a subsequent `getAuthTag()` reads it. For GCM decrypt,
+/// verifies `__tag` and throws on authentication failure (Node's contract).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_CRYPTO_CIPHER_FINAL(this: u64) -> u64 {
+    let Some((algo_i, key, iv, is_decrypt, input, aad, tag)) = cipher_state(this) else {
+        return byte_array(&[]);
+    };
+    let Some(algo) = cipher_algo_from_index(algo_i) else {
+        return byte_array(&[]);
+    };
+    if algo.is_gcm() {
+        if is_decrypt {
+            match cipher::gcm_decrypt(algo, &key, &iv, &aad, &input, &tag) {
+                Ok(pt) => byte_array(&pt),
+                Err(e) => {
+                    throw_error("Error", &e);
+                    byte_array(&[])
+                }
+            }
+        } else {
+            match cipher::gcm_encrypt(algo, &key, &iv, &aad, &input) {
+                Ok((ct, computed_tag)) => {
+                    set_field_bytes(this, "__tag", &computed_tag);
+                    byte_array(&ct)
+                }
+                Err(e) => {
+                    throw_error("Error", &e);
+                    byte_array(&[])
+                }
+            }
+        }
+    } else if is_decrypt {
+        match cipher::cbc_decrypt(algo, &key, &iv, &input) {
+            Ok(pt) => byte_array(&pt),
+            Err(e) => {
+                throw_error("Error", &e);
+                byte_array(&[])
+            }
+        }
+    } else {
+        match cipher::cbc_encrypt(algo, &key, &iv, &input) {
+            Ok(ct) => byte_array(&ct),
+            Err(e) => {
+                throw_error("Error", &e);
+                byte_array(&[])
+            }
+        }
+    }
+}
+
+// ---- X25519 Diffie-Hellman ----
+
+/// `crypto.generateX25519KeyPair()` → `{ privateKey, publicKey }` (both
+/// 32-byte Buffers). Non-standard-named helper (Node's real
+/// `generateKeyPairSync("x25519", ...)` returns KeyObjects RTS doesn't model);
+/// exposed directly since Signal-protocol code only needs the raw bytes.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_CRYPTO_X25519_GENERATE_KEYPAIR() -> u64 {
+    let (private, public) = dh::generate_keypair();
+    let pk = rts_engine::heap::shapes::handle_word_auto(byte_array(&private)) as i64;
+    let pub_k = rts_engine::heap::shapes::handle_word_auto(byte_array(&public)) as i64;
+    rts_engine::heap::shapes::alloc_shaped_object(&["privateKey", "publicKey"], &[pk, pub_k])
+}
+
+/// `crypto.x25519PublicKey(privateKey)` → 32-byte Buffer.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_CRYPTO_X25519_PUBLIC_KEY(private: u64) -> u64 {
+    match dh::public_from_private(&read_bytes(private)) {
+        Ok(pk) => byte_array(&pk),
+        Err(e) => {
+            throw_error("Error", &e);
+            byte_array(&[])
+        }
+    }
+}
+
+/// `crypto.diffieHellman({ privateKey, publicKey })` — X25519 shared secret,
+/// mirrors Node's two-KeyObject form but takes raw-byte Buffers/handles
+/// directly since RTS has no asymmetric KeyObject type.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_CRYPTO_X25519_DIFFIE_HELLMAN(private: u64, public: u64) -> u64 {
+    match dh::diffie_hellman(&read_bytes(private), &read_bytes(public)) {
+        Ok(secret) => byte_array(&secret),
+        Err(e) => {
+            throw_error("Error", &e);
+            byte_array(&[])
+        }
     }
 }
