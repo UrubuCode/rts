@@ -71,31 +71,19 @@ Two paths, same codegen:
 > AOT runtime init is ~70 ms of every figure) measured now on the new engine.
 
 <!-- BENCH_STATS_START -->
+### 📊 Measured benchmarks (auto-updated by CI)
 
-### 📊 Measured benchmarks
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `4d70ff9`.
 
-Median of 10 runs after 2 warmups, Windows 11, local machine, 2026-07-05.
+| Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
+|---|---|---|---|---|---|---:|---:|
+| Monte Carlo π 10M (same xorshift algorithm) | 4.84 s | 7.42 s | 3.78 s | 296 ms | **164 ms** | **29.58×** | **45.40×** |
+| Monte Carlo π 10M (JS `Math.random`) | 138 ms | 268 ms | 242 ms | 329 ms | **168 ms** | **0.82×** | **1.59×** |
+| π decimal ~30 digits (i128 vs BigInt) | 53 ms | 58 ms | 43 ms | 200 ms | **71 ms** | **0.75×** | **0.82×** |
+| Monte Carlo 10M threaded (vs Bun Workers) | 168 ms | — | — | 566 ms | **419 ms** | **0.40×** | — |
+| π Machin f64 (RTS only) | — | — | — | 198 ms | **71 ms** | — | — |
 
-| Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** |
-|---|---|---|---|---|---|
-| Monte Carlo π 10M (same xorshift algorithm)¹ | 3.47 s | 3.60 s | 2.64 s | 543 ms | **165 ms** |
-| Monte Carlo π 10M (JS `Math.random`)¹ | 89 ms | 189 ms | 204 ms | — | — |
-| π decimal ~30 digits (i128 vs BigInt) | 41 ms | 45 ms | 56 ms | 425 ms | **78 ms** |
-| Monte Carlo 10M threaded (vs Bun Workers) | 92 ms | — | — | 471 ms | **111 ms** |
-| π Machin f64 (RTS only) | — | — | — | 422 ms | **78 ms** |
-
-¹ The shared-algorithm variant forces the identical xorshift64 sequence in
-both runtimes — JS pays BigInt for 64-bit ops (that's the point: RTS runs
-64-bit integer code natively). The `Math.random` row is the JS-favourable
-comparison of the same workload.
-
-Honest read: **AOT startup (~70 ms runtime init) currently dominates
-sub-100 ms workloads**, and the new engine has not yet re-tuned the
-monomorphic hot paths the old engine had (16.9 ms MC target). Correctness
-first; the performance re-tuning phase follows the parity campaign.
-
-_Updated: 2026-07-05 — run locally with `powershell -File bench/benchmark.ps1`;
-CI refreshes this block via the Benchmarks workflow._
+_Updated: 2026-07-20 — run locally with `powershell -File bench/benchmark.ps1`_
 
 <!-- BENCH_STATS_END -->
 
