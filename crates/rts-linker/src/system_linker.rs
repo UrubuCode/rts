@@ -159,6 +159,19 @@ fn build_linker_args(
                 WindowsSubsystem::Console => args.push("/subsystem:console".to_string()),
                 WindowsSubsystem::Windows => args.push("/subsystem:windows".to_string()),
             }
+            // DELAY-LOAD the GPU stack. The runtime links egui/wgpu, so every
+            // AOT binary statically imports opengl32.dll — and Windows loads
+            // every static import BEFORE `main`. opengl32 alone is ~64 ms of
+            // process startup (measured), paid by a compiled program that never
+            // opens a window (math/CLI), which is most of them. Delay-loading
+            // defers it to the first real GL call — exactly when a GUI program
+            // engages the glow fallback — so a non-GUI binary never pays it.
+            // Scoped to opengl32 only: a wider list destabilized a binary in
+            // earlier testing, and opengl32 carries essentially all of the cost.
+            // `delayimp.lib` (the delay-load thunk helper) resolves via the MSVC
+            // lib paths added below.
+            args.push("/DELAYLOAD:opengl32.dll".to_string());
+            args.push("delayimp.lib".to_string());
             if !keep_all_runtime_symbols {
                 // Dead code / COMDAT elimination — strips unused namespace functions.
                 args.push("/OPT:REF".to_string());
