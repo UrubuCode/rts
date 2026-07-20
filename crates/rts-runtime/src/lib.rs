@@ -68,8 +68,20 @@ pub mod namespaces;
 /// Idempotent: the GC hook is a `OnceLock::set`, `register_current` de-dups by
 /// thread id, and `register_backend` just overwrites the backend box.
 pub fn runtime_init() {
+    // Opt-in AOT startup profiling: `RTS_AOT_TIMING=1` prints the wall time of
+    // each init phase to stderr. A no-op AOT binary's floor is dominated by
+    // whatever runs here plus process/DLL load; this attributes it.
+    let timing = std::env::var("RTS_AOT_TIMING").map(|v| v == "1").unwrap_or(false);
+    let t0 = std::time::Instant::now();
     rts_std::collector::collector::runtime_init();
+    if timing {
+        eprintln!("[aot-init] gc+thread   {:.2} ms", t0.elapsed().as_secs_f64() * 1e3);
+    }
+    let t1 = std::time::Instant::now();
     rts_egui::render_backend::register_backend();
+    if timing {
+        eprintln!("[aot-init] egui backend {:.2} ms", t1.elapsed().as_secs_f64() * 1e3);
+    }
 }
 
 /// `extern "C"` entry the AOT `main` shim calls before `__rtsn_main`.

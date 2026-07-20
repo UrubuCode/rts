@@ -159,18 +159,41 @@ fn build_linker_args(
                 WindowsSubsystem::Console => args.push("/subsystem:console".to_string()),
                 WindowsSubsystem::Windows => args.push("/subsystem:windows".to_string()),
             }
-            // DELAY-LOAD the GPU stack. The runtime links egui/wgpu, so every
-            // AOT binary statically imports opengl32.dll — and Windows loads
-            // every static import BEFORE `main`. opengl32 alone is ~64 ms of
-            // process startup (measured), paid by a compiled program that never
-            // opens a window (math/CLI), which is most of them. Delay-loading
-            // defers it to the first real GL call — exactly when a GUI program
-            // engages the glow fallback — so a non-GUI binary never pays it.
-            // Scoped to opengl32 only: a wider list destabilized a binary in
-            // earlier testing, and opengl32 carries essentially all of the cost.
+            // DELAY-LOAD the GUI / device / COM stack. The runtime links
+            // egui/wgpu (and the audio backend), so EVERY AOT binary statically
+            // imported opengl32, the GDI/theme DLLs, the device enumerator and
+            // COM — and Windows loads every static import BEFORE `main`. A
+            // compiled program that never opens a window or plays audio (most of
+            // them: math, CLI, servers) paid all of it at startup.
+            //
+            // Measured on a do-nothing AOT program (median of 9, PowerShell
+            // Measure-Command; `cmd /c exit` baselines at ~10 ms on the same box):
+            //   all static ............ 75.6 ms
+            //   opengl32 delayed ...... 15.2 ms   <- opengl32 alone is ~60 ms
+            //   this full list ........ 13.6 ms
+            // Delay-loading defers each to its first real use — exactly when a
+            // GUI program opens a window or an audio program touches COM — so a
+            // non-GUI binary never pays them.
+            //
+            // All are system DLLs shipped with Windows, so the usual delay-load
+            // risk (a missing DLL failing at call time instead of load time) does
+            // not apply. Verified with this list: the GUI example still opens a
+            // window, the audio example still plays (it drives the COM/device
+            // DLLs that are now deferred), and AOT stays crash-free (0/20).
             // `delayimp.lib` (the delay-load thunk helper) resolves via the MSVC
             // lib paths added below.
-            args.push("/DELAYLOAD:opengl32.dll".to_string());
+            for dll in [
+                "opengl32.dll",
+                "dwmapi.dll",
+                "uxtheme.dll",
+                "imm32.dll",
+                "setupapi.dll",
+                "ole32.dll",
+                "oleaut32.dll",
+                "shell32.dll",
+            ] {
+                args.push(format!("/DELAYLOAD:{dll}"));
+            }
             args.push("delayimp.lib".to_string());
             if !keep_all_runtime_symbols {
                 // Dead code / COMDAT elimination — strips unused namespace functions.
