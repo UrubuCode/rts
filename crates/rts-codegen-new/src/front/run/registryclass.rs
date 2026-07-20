@@ -340,11 +340,32 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let call = if candidates.len() == 1 {
             candidates.into_iter().next().expect("len==1")
         } else {
-            let Some(call) = candidates.into_iter().find(|c| {
+            let call = candidates.iter().find(|c| {
                 vals.iter()
                     .enumerate()
                     .all(|(i, v)| abi_accepts_kind(c.arg_abis[i], v.kind))
-            }) else {
+            }).cloned();
+            let call = call.or_else(|| {
+                // No candidate's ABI matched every arg's PROVEN kind — every
+                // remaining arg is `JsKind::Unknown` (a genuinely untyped `any`,
+                // e.g. a param typed `any` in the RTS prelude itself: `function
+                // f(c: any) { Buffer.from(c) }`). Guessing would resurrect the
+                // ToString-coercion bug this tie-break exists to prevent — but
+                // bailing here would also regress prelude code that worked before
+                // this tie-break existed. Middle ground: if exactly ONE candidate
+                // has no `StrPtr` param (so it can't silently mis-stringify),
+                // prefer it — never a `StrPtr` candidate for an unproven arg.
+                let non_string: Vec<_> = candidates
+                    .iter()
+                    .filter(|c| !c.arg_abis.iter().any(|&a| a == AbiType::StrPtr))
+                    .collect();
+                if non_string.len() == 1 {
+                    Some((*non_string[0]).clone())
+                } else {
+                    None
+                }
+            });
+            let Some(call) = call else {
                 return unsupported!(
                     "`{name}.{method}(x)` with a non-number / non-string argument \
                      (the overload dispatch depends on the runtime type — a later \
