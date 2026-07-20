@@ -57,14 +57,15 @@ Verified in the IR: `math.sqrt(x)` was `v2 = call fn0(v0, v1)` and is now
 `v5881 = sqrt v5879`.
 
 **Measured** (AOT, `Measure-Command`, median of 5): `pi_machin` 16 → **13 ms
-(-19%)**; `monte_carlo_pi` 83 → **81 ms** — its hot loop is PRNG-bound, not
-sqrt-bound, so Step 3 is what moves that one. TS suite 717 passed / 8 failed
+(-19%)**; `monte_carlo_pi` 83 → **81 ms** — barely moved. Step 3 later measured
+WHY: its `math.random` calls cost only ~1 ns each, so there was never much there
+to recover. TS suite 717 passed / 8 failed
 (recorded baseline 709/15); engine unit tests 825/4 = documented baseline.
 
 `CLAUDE.md` and `.claude/rules/05-codegen-notes.md` claimed this mechanism
 existed while it did not. It exists now — with the caveat that `random_f64` is
-still a call (it needs the TLS state of Step 3), so that entry in the docs stays
-aspirational until then.
+still a call — Step 3 found that cranelift-jit cannot declare TLS data at all, so
+that entry in the docs stays aspirational indefinitely.
 
 ---
 
@@ -165,7 +166,50 @@ a conversion around an already-cheap op.
 
 ## Step 3 — thread-local data + inline `random_f64`
 
-**Status:** not started · **Effort:** medium · **Risk:** medium
+**Status:** ⛔ BLOCKED — do not attempt as written · **Effort:** medium · **Risk:** medium
+
+Two findings, both measured/verified, kill this step in its planned form.
+
+**1. cranelift-jit cannot do TLS at all.** `cranelift-jit-0.131.0/src/backend.rs`
+asserts on the path this step depends on:
+
+```rust
+assert!(!tls, "JIT doesn't yet support TLS");   // declare_data, declare_anonymous_data, define_data
+```
+
+`cranelift-object` supports it, so an AOT-only implementation would compile —
+but `rts run` is the primary path, and it would PANIC. Divergent JIT/AOT codegen
+is not an acceptable price for this.
+
+**2. The call was never the cost.** Measured (AOT, `Measure-Command`, median of
+7, 10M iterations):
+
+| program | time |
+|---|---|
+| empty loop | 22 ms |
+| loop + `math.random()` | 32 ms |
+
+So **10M extern calls cost 10 ms — about 1 ns each.** An inline xorshift is
+itself ~8 instructions, so the ceiling for this whole step is roughly 5–7 ms per
+10M randoms. The premise in the original plan ("the blocker for inlining the
+PRNG is its state") had the priority backwards: the state is the hard part and
+the reward is small.
+
+For calibration, a userland xorshift written in TS takes **194 ms** for the same
+10M — 6× SLOWER than calling into the runtime. The extern call is not the
+problem in this workload; f64 arithmetic in the interpreterless-but-boxed
+userland path is.
+
+### If it is ever revisited
+
+The only JIT-viable shape is an extern that returns the ADDRESS of the
+thread-local state, hoisted per function, with the xorshift inlined against that
+pointer. That keeps ONE state shared with `math.seed` (a separate codegen-owned
+state would silently break seeding). But a hoisted pointer is unsound across an
+`await`: the function can resume on a different tokio worker and would then
+write another thread's state — a data race, for ≤7 ms per 10M calls. It would
+need to be restricted to functions with no suspension point, and it is not worth
+that complexity today.
 
 The blocker for inlining the PRNG is its **state**: it lives in a Rust
 `thread_local!`. Cranelift can declare thread-local data directly (§14):
@@ -259,8 +303,30 @@ The blocker is analysis, not emission: **Cranelift does not do escape analysis**
 
 ## Ordering
 
-0 (build the intrinsic path) → 1 → 2 (both mechanical, validate it) → 3 (TLS unlocks math as primitives)
-→ 4 → 5 (biggest single win) → 6 → 7.
+Original: 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7.
+Revised after measuring 0–3: **0 → 1 → 2 → 5 → 6**, with 3 blocked and 4
+deprioritised.
+
+### What the first four steps actually taught
+
+The plan's premise — "a call is the dominant cost" — held for exactly one of
+them. Measured cost of the thing removed:
+
+| step | what was removed | result |
+|---|---|---|
+| 2 | one extern CALL per switch case | **1.93×** |
+| 0 | a call around a single machine instruction (`sqrt`) | 19% on a sqrt-heavy bench |
+| 1 | a call around a cheap bit op, but the f64↔i64 conversions stayed | 2% |
+| 3 | (a ~1 ns call) | not worth doing, and JIT-blocked anyway |
+
+The pattern: **removing a call pays when the call was doing dispatch or was
+wrapped around real work — not when it wrapped one cheap instruction whose
+operands still need converting.** For arithmetic-heavy TS the remaining cost is
+representational (every `number` is an f64 that round-trips through i64), which
+is Repr/typed-locals work, not intrinsic work.
+
+That is why 5 (TypedArrays: a function call *per element access*, plus box/unbox)
+is now the next target rather than 4.
 
 ## Status board
 
@@ -269,8 +335,8 @@ The blocker is analysis, not emission: **Cranelift does not do escape analysis**
 | 0 | intrinsic path (engine had none) | medium | `pi_machin` 16 → 13 ms | ✅ done |
 | 1 | `num` bit ops → instructions | low | call gone; 142 → 139 ms (2%) | ✅ done |
 | 2 | `switch` → jump table | low | **351 → 182 ms (1.93×)** | ✅ done |
-| 3 | TLS + inline `random_f64` | medium | — | next |
-| 4 | atomics → atomic IR | medium | — | not started |
-| 5 | TypedArrays on a real buffer | high | — | not started |
+| 3 | TLS + inline `random_f64` | medium | call is only ~1 ns; ceiling ~7 ms/10M | ⛔ blocked (JIT has no TLS) |
+| 4 | atomics → atomic IR | medium | — | deprioritised (see step 3 lesson) |
+| 5 | TypedArrays on a real buffer | high | — | next — biggest win |
 | 6 | SIMD bulk ops | high | — | not started |
 | 7 | stack slots (escape analysis) | very high | — | not started |
