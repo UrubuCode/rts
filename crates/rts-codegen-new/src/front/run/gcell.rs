@@ -29,15 +29,37 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     }
 
     /// Load cell `id` → a `Tagged` PolyValue word (the stored value, kind unknown).
+    ///
+    /// An IMMUTABLE cell (never written after its top-level initializer — see
+    /// [`super::funcval::immutable_gcells`]) is loaded ONCE per function and
+    /// memoized: its value cannot change while this body runs, so re-reading it
+    /// only burns an extern call. That is the difference between a call per LOOP
+    /// ITERATION and a call per function — measured 2.2x on a loop whose bound
+    /// was a module `const`, and the reason several threads reading one shared
+    /// cell scaled NEGATIVELY (they all hammered the same cache line).
+    ///
+    /// A MUTABLE cell is never memoized: another function, a callee, or another
+    /// thread may store to it between reads, so every access must reload.
     pub(super) fn emit_gcell_get(
         &mut self,
         module: &mut dyn Module,
         id: u32,
     ) -> crate::front::error::FrontResult<Val> {
+        if let Some(&var) = self.gcell_cache.get(&id) {
+            return Ok(Val::new(self.builder.use_var(var), Repr::Tagged));
+        }
         let id_v = self.builder.ins().iconst(types::I64, id as i64);
         let w = self
             .call_runtime(module, "__RTS_FN_NS_GC_GCELL_GET", &[id_v])?
             .expect("GCELL_GET returns a word");
+        if self.immutable_gcells.contains(&id) {
+            // Park the loaded word in a Variable so later blocks read it through
+            // the builder's SSA construction rather than reusing the effectful
+            // call's result directly (see `Lowerer::gcell_cache`).
+            let var = self.builder.declare_var(types::I64);
+            self.builder.def_var(var, w);
+            self.gcell_cache.insert(id, var);
+        }
         Ok(Val::new(w, Repr::Tagged))
     }
 

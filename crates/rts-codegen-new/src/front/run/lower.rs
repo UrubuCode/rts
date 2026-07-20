@@ -274,6 +274,23 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// by its id, NOT a Cranelift Variable — checked AFTER `self.local` so a
     /// same-named param/local in the current function still shadows it.
     pub gcells: &'c HashMap<String, u32>,
+    /// The gcell ids that are NEVER written after their top-level initializer
+    /// (`funcval::immutable_gcells`) — a module `const` promoted to a cell only
+    /// because some function READS it. Their value is fixed once `__rtsn_main`
+    /// has run, so this function may load each ONCE and reuse it
+    /// ([`Self::gcell_cache`]) instead of an extern `GCELL_GET` per access.
+    pub immutable_gcells: &'c std::collections::HashSet<u32>,
+    /// Per-function memo of already-loaded IMMUTABLE gcells: id → a Cranelift
+    /// VARIABLE holding the loaded word, defined in the entry block.
+    ///
+    /// A `Variable` (not the raw call `Value`): the load is an effectful `call`,
+    /// which lives in the egraph's skeleton, and reusing its result directly
+    /// across blocks made Cranelift panic — "something has gone very wrong if we
+    /// are elaborating effectful instructions". Going through the builder's SSA
+    /// construction (`def_var` once at entry, `use_var` at each read) is the
+    /// supported way to make a value live across blocks; the builder inserts
+    /// whatever block params it needs.
+    pub gcell_cache: HashMap<u32, cranelift_frontend::Variable>,
     /// Top-level SINGLETON-INSTANCE globals (`const X = new Y()`) → class `Y`. Lets
     /// `static_instance_class` recover the receiver class of a gcell-promoted
     /// singleton in any scope (the gcell erases the `local_classes` entry).
@@ -337,6 +354,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         classes: &'c super::class::ClassTable,
         captures: &'c HashMap<String, Vec<String>>,
         gcells: &'c HashMap<String, u32>,
+        immutable_gcells: &'c std::collections::HashSet<u32>,
         gcell_classes: &'c HashMap<String, String>,
         globalthis_class_refs: &'c HashMap<String, String>,
         this_class: Option<&str>,
@@ -374,6 +392,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             ids,
             captures,
             gcells,
+            immutable_gcells,
+            gcell_cache: HashMap::new(),
             gcell_classes,
             globalthis_class_refs,
             classes,
@@ -448,6 +468,40 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // CALLEE scope (earlier params are already bound — correct JS semantics) and
         // for plain functions, methods, AND constructors (all reach here).
         ctx.fill_default_params(module, func)?;
+
+        // IMMUTABLE-GCELL PROLOGUE: load, ONCE and here in the entry block, every
+        // never-written module global this body reads. Emitting them here (rather
+        // than memoizing at first use) is what makes the memo dominance-safe — a
+        // value defined inside a loop could not be reused after it.
+        //
+        // Without this, a module `const` read in a hot loop cost an extern
+        // `GCELL_GET` per ITERATION, and every thread hammered the one shared cell:
+        // measured 2.2x slower than the identical loop over a local, and parallel
+        // scaling went NEGATIVE (8 workers slower than 1). See
+        // `funcval::immutable_gcells`.
+        if !ctx.immutable_gcells.is_empty() {
+            let mut bound: std::collections::HashSet<String> =
+                func.params.iter().map(|p| p.name.clone()).collect();
+            bound.extend(super::funcval::scan::declared_names(&func.body));
+            let mut reads: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut scope = bound;
+            for s in &func.body {
+                super::funcval::scan::collect_free_stmt(s, &mut scope, &mut reads);
+            }
+            // Deterministic order: the emitted IR must not depend on HashSet
+            // iteration order (that non-determinism produced broken AOT objects).
+            let mut preload: Vec<(String, u32)> = gcells
+                .iter()
+                .filter(|(name, id)| {
+                    ctx.immutable_gcells.contains(*id) && reads.contains(*name)
+                })
+                .map(|(n, i)| (n.clone(), *i))
+                .collect();
+            preload.sort();
+            for (_, id) in preload {
+                let _ = ctx.emit_gcell_get(module, id)?;
+            }
+        }
 
         // CELL-HOISTING prologue: allocate up front the cell of every
         // FN-VALUED cell-local of THIS function (bound to `undefined`), so a

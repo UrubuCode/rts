@@ -195,6 +195,7 @@ pub(super) fn build_one(
     captures: &HashMap<String, Vec<String>>,
     cells: &HashMap<String, std::collections::HashSet<String>>,
     gcells: &HashMap<String, u32>,
+    immutable_gcells: &std::collections::HashSet<u32>,
     gcell_classes: &HashMap<String, String>,
     globalthis_class_refs: &HashMap<String, String>,
     this_class: Option<&str>,
@@ -211,7 +212,7 @@ pub(super) fn build_one(
         let cell_locals = cells.get(&func.name).cloned().unwrap_or_default();
         let param_cls = param_classes.get(&func.name).cloned().unwrap_or_default();
         let res = Lowerer::lower_function(
-            module, &mut fb, func, sig, sigs, thunks, ids, classes, captures, gcells, gcell_classes,
+            module, &mut fb, func, sig, sigs, thunks, ids, classes, captures, gcells, immutable_gcells, gcell_classes,
             globalthis_class_refs, this_class, is_prelude, builtins, cell_locals, param_cls,
         );
         match res {

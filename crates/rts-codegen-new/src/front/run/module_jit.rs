@@ -150,6 +150,9 @@ pub(crate) fn populate_module(
     let captures = &prog.captures;
     let cells = &prog.cells;
     let gcells = &prog.gcells;
+    // Never-written module globals: their reads hoist to each function's entry
+    // instead of an extern GCELL_GET per access (see `funcval::immutable_gcells`).
+    let immutable_gcells = super::funcval::immutable_gcells(funcs, main, gcells);
     let gcell_classes = &prog.gcell_classes;
     let prelude_fns = &prog.prelude_fns;
     let builtins = &prog.builtins;
@@ -286,6 +289,7 @@ pub(crate) fn populate_module(
             captures,
             cells,
             gcells,
+            &immutable_gcells,
             gcell_classes,
             &globalthis_class_refs,
             this_class,
@@ -308,6 +312,7 @@ pub(crate) fn populate_module(
         captures,
         cells,
         gcells,
+        &immutable_gcells,
         gcell_classes,
         &globalthis_class_refs,
         None,

@@ -83,7 +83,7 @@ fn collect_arrow_decls(stmts: &[HirStmt], out: &mut HashSet<String>) {
 /// The names DECLARED (`let`/`const`) anywhere in `stmts` (top-level + nested
 /// blocks/if/while). Used to exclude a function's OWN locals when deciding which
 /// names it writes are FREE (module-global) writes (see `module_globals`).
-pub(super) fn declared_names(stmts: &[HirStmt]) -> HashSet<String> {
+pub fn declared_names(stmts: &[HirStmt]) -> HashSet<String> {
     let mut out = HashSet::new();
     for s in stmts {
         collect_declared_stmt(s, &mut out);
@@ -287,7 +287,7 @@ fn collect_arrow_frees_expr(e: &HirExpr, out: &mut HashSet<String>) {
 // Free-variable collection over the lowering subset.
 // ---------------------------------------------------------------------------
 
-pub(super) fn collect_free_stmt(
+pub fn collect_free_stmt(
     s: &HirStmt,
     bound: &mut HashSet<String>,
     free: &mut HashSet<String>,

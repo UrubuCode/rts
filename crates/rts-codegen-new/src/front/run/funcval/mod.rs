@@ -37,7 +37,7 @@
 //!
 //! `this`/async/generator arrows are likewise left to bail.
 
-mod scan;
+pub mod scan;
 pub(crate) use scan::arrow_decl_names as fn_decl_names;
 
 use std::collections::{HashMap, HashSet};
@@ -136,6 +136,62 @@ pub fn module_globals(
         }
     }
     map
+}
+
+/// The gcell ids that are NEVER WRITTEN after their top-level initializer — i.e.
+/// module globals promoted to a cell only because a function READS them
+/// (`const PER_WORKER = N / W` used inside a worker fn), not because anything
+/// mutates them.
+///
+/// Their value is fixed once `__rtsn_main`'s initializer has run, so a function
+/// may read the cell ONCE at entry and reuse the value for every later read in
+/// that body — instead of a `GCELL_GET` extern call per access. That matters
+/// enormously in a hot loop: a loop bound read from a module const was costing a
+/// call **per iteration** (plus a boxed generic compare, since the cell yields
+/// `Tagged`), which measured 2.2x slower than the same loop over a local and, with
+/// several threads all hammering the one shared cell, turned parallel speedup
+/// NEGATIVE.
+///
+/// A cell is considered mutable — and so excluded — when any function assigns it
+/// free, or when `main` assigns it anywhere after the declaration. Both are
+/// conservative: an unrecognised write shape keeps the cell out of this set and
+/// therefore on the always-reload path.
+pub fn immutable_gcells(
+    funcs: &[HirFunc],
+    main: &HirFunc,
+    gcells: &HashMap<String, u32>,
+) -> std::collections::HashSet<u32> {
+    let mut written: HashSet<String> = HashSet::new();
+    // Written free from any function (the same test `module_globals` promotes on).
+    for f in funcs {
+        let mut bound: HashSet<String> = f.params.iter().map(|p| p.name.clone()).collect();
+        bound.extend(declared_names(&f.body));
+        for n in mutated_names(&f.body) {
+            if !bound.contains(&n) {
+                written.insert(n);
+            }
+        }
+    }
+    // Assigned in `main` too: the DECLARATION itself is not a write (that is the
+    // initializer), but a later `x = …` is.
+    let declared_in_main: HashSet<String> = main
+        .body
+        .iter()
+        .filter_map(|s| match s {
+            HirStmt::Let { name, .. } | HirStmt::Const { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    for n in mutated_names(&main.body) {
+        if declared_in_main.contains(&n) {
+            written.insert(n);
+        }
+    }
+    gcells
+        .iter()
+        .filter(|(name, _)| !written.contains(*name))
+        .map(|(_, id)| *id)
+        .collect()
 }
 
 /// Rename every `Ident(from)` to `to` across `stmts` (a synthesized closure body
