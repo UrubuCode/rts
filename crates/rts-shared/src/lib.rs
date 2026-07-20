@@ -18,6 +18,7 @@ pub mod math;
 pub mod mem;
 pub mod num;
 pub mod path;
+pub mod protobuf;
 pub mod ptr;
 pub mod regex;
 pub mod stdlib;
