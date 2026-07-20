@@ -341,11 +341,131 @@ The blocker is analysis, not emission: **Cranelift does not do escape analysis**
 
 ---
 
+---
+
+## Step 8 — the API changed: `Intrinsic` enum → per-member `NativeEmit` (DONE, drain pending)
+
+**Status:** ✅ mechanism shipped · **Effort:** medium · **Risk:** low · **Owner decision**
+
+Steps 0–1 were built on `abi::Intrinsic`, a CLOSED enum. That was wrong in the
+same way the doctrine says hardcoding is wrong: every new operation needed a
+variant in `rts-engine` **plus a `match` arm inside `rts-codegen-new`** — engine-
+side knowledge of a non-primordial. It also capped what an operation could be:
+whatever the enum could name.
+
+A member now carries its own emission instead:
+
+```rust
+// in rts-shared / rts-primitives, NEXT TO the spec that owns the operation
+.member(native(
+    func("sqrt", "__RTS_FN_NS_MATH_SQRT", Sig::new(vec![F64], F64), …),
+    |b, args| { let [x] = args else { return None }; Some(b.ins().sqrt(*x)) },
+))
+```
+
+The engine has ONE generic call site (`Lowerer::emit_native`). Adding a natively
+emitted operation is now a change to a spec, never to the engine.
+
+### Contract
+
+- `NativeEmit` is a **fn pointer**, not a boxed closure: `Member` stays
+  `Clone`/`Send`/`Sync` with no allocation, and non-capturing closures coerce
+  automatically. An emitter that needed captured state would be program-dependent
+  and does not belong on a member spec.
+- **Operands arrive already coerced to the member's declared `Sig`**, through the
+  same `Lowerer::coerce` the call path uses. Without this an `Int32` operand
+  would reach an f64 instruction and produce invalid IR — and every emitter would
+  end up re-implementing coercion, forking the Pilar-3 authority.
+- **`None` falls back to the ordinary call.** `symbol`/`fn_ptr` stay registered,
+  so reflection / FFI / an unproven receiver keep working. An emitter can only
+  make a site faster, never break one.
+- A `Tagged` operand is not provably numeric and takes the call.
+- **Never reachable from userland (security, owner decision):** an emitter is
+  spec/engine surface — not in `rts.d.ts`, not a callable TS namespace.
+
+**Cranelift is allowed below the engine** (owner decision, 2026-07-20).
+`rts-engine`/`rts-shared`/`rts-primitives` may depend on `cranelift-codegen`/
+`cranelift-frontend`. Cranelift is pure Rust with no C dependencies, so the
+universal layer still builds for every target including wasm/browser; the older
+"no compiler backend below the engine" reading does not apply to it.
+
+### Remaining work on this step
+
+`math.sqrt` is migrated as the reference. Still to drain: the other 6 `math`
+intrinsics and the 13 `num` bit ops from step 1, after which
+`abi::Intrinsic` and `emit_intrinsic` are deleted. Do not add enum variants.
+
+---
+
+## Step 9 — userland arithmetic through emitters (the xorshift row)
+
+**Status:** not started · **Effort:** medium · **Risk:** medium · **Highest-value next**
+
+Measured: a xorshift64 written in **TS userland** takes **194 ms** for 10M
+iterations, while calling `math.random` into Rust takes **31 ms**. Userland
+arithmetic is 6× SLOWER than an extern call — so the cost is in how the engine
+lowers `+ - * / %` and shifts on `number`, not in call overhead.
+
+Two known contributors, both now addressable with step 8's mechanism:
+
+1. **`%` on f64** goes out to `fmod` instead of being emitted.
+2. **Int-shaped work round-trips**: step 1 measured 16 `fcvt` instructions
+   surviving in a bit-op loop, because TS `number` is an f64 and every integer
+   operation converts f64→i64→f64 around the op.
+
+Keeping values in **f64 as the canonical base** (which is what `PolyValue`
+already is — a NaN-box over f64) and emitting f64 operations natively avoids that
+detour. This is the row of the README benchmark table that the current numbers
+misrepresent (see the caveat below), and the one where RTS should genuinely win.
+
+---
+
+## Step 10 — the JIT's fixed ~185 ms (NOT a codegen problem)
+
+**Status:** not started · **Effort:** medium · **Risk:** low · **Biggest end-user gap**
+
+From the README's own table, the JIT − AOT delta per benchmark:
+
+| bench | JIT | AOT | delta |
+|---|---|---|---|
+| MC π 10M (xorshift) | 316 ms | 120 ms | 196 ms |
+| MC π 10M (`Math.random`) | 305 ms | 120 ms | 185 ms |
+| π decimal ~30 digits | 201 ms | 15 ms | 186 ms |
+| MC 10M threaded | 266 ms | 81 ms | 185 ms |
+| π Machin f64 | 197 ms | 14 ms | 183 ms |
+
+**Constant ~185 ms across workloads of completely different size and shape.** A
+cost that does not scale with work is not generated-code quality — JIT and AOT
+share the same lowering and the same `opt_level`. It is fixed startup.
+
+That matters for prioritisation: **every other step in this file is steady-state
+work and cannot close this gap.** On the rows where RTS loses to Bun/Deno, the
+delta IS the entire loss — the steady-state number already wins.
+
+Two candidate causes, neither confirmed:
+
+- **Compile time** (registry build + prelude lowering per run). The `.o`/`.ometa`
+  cache and a precompiled prelude are the direct attack.
+- **DLL loading** (owner's hypothesis — the same class of problem that the AOT
+  `/DELAYLOAD` work fixed). Weak counter-evidence: `rts --version` measured 12 ms
+  after delay-load, and that path already pays process + DLL startup. But
+  `--version` does not build the registry or touch the JIT, so it does not settle
+  it.
+
+**Measure the phase breakdown (`RTS_TIMING=1`) before choosing.** Three
+hypotheses in this campaign were implemented before being measured and all three
+were wrong; do not add a fourth.
+
+---
+
 ## Ordering
 
 Original: 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7.
-Revised after measuring 0–3: **0 → 1 → 2 → 5 → 6**, with 3 blocked and 4
-deprioritised.
+Revised after measuring 0–4 and shipping 8: **8 (drain) → 9 → 10 → 5 → 6**, with
+3 blocked and 4 done by another route.
+
+If the goal is "RTS JIT should beat Bun/Node/Deno", **10 comes first** — it is the
+only step that touches the number the user actually sees.
 
 ### What the first four steps actually taught
 
@@ -369,6 +489,14 @@ is Repr/typed-locals work, not intrinsic work.
 That is why 5 (TypedArrays: a function call *per element access*, plus box/unbox)
 is now the next target rather than 4.
 
+### A caveat about the README benchmark table
+
+The row "Monte Carlo π 10M (same xorshift algorithm)" is **not** a like-for-like
+comparison: it pits an RTS builtin implemented in Rust against a userland BigInt
+loop in the other runtimes. Measured RTS userland against Bun userland, they tie
+(4747 vs 4820 ms). The 43× in that row is not a language-speed result and should
+not be used to prioritise work.
+
 ## Status board
 
 | # | Step | Effort | Measured | State |
@@ -378,6 +506,39 @@ is now the next target rather than 4.
 | 2 | `switch` → jump table | low | **351 → 182 ms (1.93×)** | ✅ done |
 | 3 | TLS + inline `random_f64` | medium | call is only ~1 ns; ceiling ~7 ms/10M | ⛔ blocked (JIT has no TLS) |
 | 4 | atomics: mutex off the fast path | medium | **4 threads 1034 → 227 ms (4.6x)** | ✅ done (not via IR) |
-| 5 | TypedArrays on a real buffer | high | — | next — biggest win |
+| 5 | TypedArrays on a real buffer | high | level-B view is ~3.7 µs/element | ⚠️ see note |
 | 6 | SIMD bulk ops | high | — | not started |
 | 7 | stack slots (escape analysis) | very high | — | not started |
+| 8 | `Intrinsic` enum → per-member `NativeEmit` | medium | same codegen, no engine arm | ✅ mechanism done, drain pending |
+| 9 | userland arithmetic via emitters (`%`, int round-trips) | medium | userland xorshift 194 ms vs 31 ms call | next |
+| 10 | the JIT's fixed ~185 ms | medium | constant across all 5 benches | **first, if the goal is the JIT gap** |
+
+### Note on step 5 (partial, unlanded)
+
+Level-B typed arrays (`new Uint8Array(new ArrayBuffer(n))` — the standard idiom)
+cost **~3.7 µs per element access**: 7.5 s JIT / 99 s AOT on a 20.5M-access loop
+where Node takes 84 ms. Root cause located by instrumentation, not by guessing:
+`view_parts` runs about twice per access and asked for its four `__ta_*` fields
+BY NAME, and every `obj_get` resolves its key through `key_text`, which allocates
+an owned Rust `String` from a GC handle under the shard mutex.
+
+A positional fix (read the fixed slots, validate the shape id — the hidden-class
+contract) measured **2654 → 157 ns at the runtime entry point**, but end-to-end
+barely moved, and the unit suite showed a possible regression. **It is NOT
+landed** (kept in `git stash`, `step5-wip`).
+
+Two things learned there worth keeping:
+
+- **AOT measurements need `cargo build -p rts-runtime` first.** AOT links the
+  prebuilt runtime archive; three "no movement" measurements in this campaign
+  were invalid because of a stale archive.
+- **JIT and AOT diverge 13× on this workload** (7.5 s vs 99 s) for the same
+  program. That is a separate bug, not an optimisation.
+
+The real fix is the native design: a view becomes `(base, len, kind)` with
+`kind` a compile-time constant, and `a[i]` lowers to a bounds check plus
+`uload8`/`istore8` — the `__ta_*` keyed object stops existing. `ArrayBuffer`
+already exposes a stable `data_ptr()`, and a copying nursery would NOT invalidate
+it (the payload is a separate `Box<[u8]>`/`Vec<u8>` allocation; moving the entry
+does not move the bytes). The real guards are `detached` and resizable buffers,
+not the GC.
