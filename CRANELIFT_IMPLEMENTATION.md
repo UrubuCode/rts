@@ -231,7 +231,47 @@ This step is the enabler for treating the rest of `math` as primitives.
 
 ## Step 4 — `atomic` namespace → atomic IR
 
-**Status:** not started · **Effort:** medium · **Risk:** medium
+**Status:** ✅ done, but **not as planned** · **Effort:** medium · **Risk:** medium
+
+**The premise was wrong, and measuring first is what caught it.** The atomic
+value lives behind a HandleTable handle, and `with_entry` LOCKED the shard mutex
+on every operation just to find its address. A namespace whose entire purpose is
+lock-free concurrency serialized every op through a mutex.
+
+Cost breakdown (AOT, `Measure-Command`, median of 7, 10M iterations):
+
+| program | time | per op |
+|---|---|---|
+| empty loop | 22 ms | — |
+| `+ atomic.i64_load` | 58 ms | 3.6 ns (lookup + a plain `mov`) |
+| `+ atomic.i64_fetch_add` | 68 ms | 4.6 ns (lookup + `lock xadd`) |
+
+The atomic instruction is ~1 ns of that. **Emitting it as Cranelift IR was never
+the lever** — and it could not be emitted anyway, since the engine holds a
+handle, not an address, and resolving the address is exactly the expensive part.
+
+Contention is where it actually hurt: 4 threads × 2M `fetch_add` took **1034 ms**
+against ~37 ms for the same 8M ops on one thread — NEGATIVE scaling, a lock
+convoy rather than atomic contention.
+
+**Shipped instead:** each accessor memoizes the last `handle → address` it
+resolved, per thread, so repeated ops on one counter never touch the shard. The
+safety argument (heap-stable `Box`, the lookup/use window already existed, no
+`free` in the namespace, full-handle key defeats slot recycling, one memo per
+type defeats reinterpretation) is written at the definition in
+`rts-std/src/atomic/mod.rs`.
+
+**Measured: 4 threads × 2M 1034 → 227 ms (4.6×).** Single-thread 10M is 68 → 69
+ms — **unchanged**: an uncontended mutex was already cheap, so the residual
+~3.3 ns/op is call and marshalling. This buys scalability, not single-thread
+speed. `tests/atomic_ptr_memo.test.ts` pins what a naive memo corrupts silently.
+
+### The `Atomics` primordial is a different job
+
+`CLAUDE.md` lists `Atomics` (over SharedArrayBuffer) as primordial. THAT one is
+genuinely inlinable with `atomic_rmw`/`atomic_cas`, because a typed-array element
+has a base address and an index — no per-op handle lookup. It is blocked on step
+5, not on this step.
 
 `rts-std/src/atomic/mod.rs` implements the namespace in Rust. Cranelift has the
 whole surface natively (§19): `atomic_load` / `atomic_store`, `atomic_rmw`
@@ -318,6 +358,7 @@ them. Measured cost of the thing removed:
 | 0 | a call around a single machine instruction (`sqrt`) | 19% on a sqrt-heavy bench |
 | 1 | a call around a cheap bit op, but the f64↔i64 conversions stayed | 2% |
 | 3 | (a ~1 ns call) | not worth doing, and JIT-blocked anyway |
+| 4 | a MUTEX per op (not the atomic instruction) | **4.6× under 4 threads** |
 
 The pattern: **removing a call pays when the call was doing dispatch or was
 wrapped around real work — not when it wrapped one cheap instruction whose
@@ -336,7 +377,7 @@ is now the next target rather than 4.
 | 1 | `num` bit ops → instructions | low | call gone; 142 → 139 ms (2%) | ✅ done |
 | 2 | `switch` → jump table | low | **351 → 182 ms (1.93×)** | ✅ done |
 | 3 | TLS + inline `random_f64` | medium | call is only ~1 ns; ceiling ~7 ms/10M | ⛔ blocked (JIT has no TLS) |
-| 4 | atomics → atomic IR | medium | — | deprioritised (see step 3 lesson) |
+| 4 | atomics: mutex off the fast path | medium | **4 threads 1034 → 227 ms (4.6x)** | ✅ done (not via IR) |
 | 5 | TypedArrays on a real buffer | high | — | next — biggest win |
 | 6 | SIMD bulk ops | high | — | not started |
 | 7 | stack slots (escape analysis) | very high | — | not started |

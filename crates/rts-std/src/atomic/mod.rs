@@ -15,41 +15,69 @@ use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use rts_engine::heap::handles::{Entry, alloc_entry, with_entry};
 
-fn with_atomic_i64<R>(handle: u64, default: R, f: impl FnOnce(&AtomicI64) -> R) -> R {
-    let ptr: *const AtomicI64 = with_entry(handle, |entry| match entry {
-        Some(Entry::AtomicI64(a)) => a.as_ref() as *const _,
-        _ => std::ptr::null(),
-    });
-    if ptr.is_null() {
-        return default;
-    }
-    // SAFETY: Box<AtomicI64> is heap-stable; lock released — op runs lock-free.
-    f(unsafe { &*ptr })
+// ── pointer memo: keep the shard MUTEX off the atomic fast path ──────────────
+//
+// Resolving `handle -> &Atomic*` used to lock the shard on EVERY operation. So a
+// namespace whose entire purpose is lock-free concurrency serialized every op
+// through a mutex: 4 threads doing 8M `fetch_add` took ~1.0 s, while the same 8M
+// operations on ONE thread cost ~37 ms — scaling was NEGATIVE, the signature of a
+// lock convoy, not of atomic contention.
+//
+// The fix is not a different atomic instruction (the `lock xadd` itself measured
+// ~1 ns of the 4.6 ns per op); it is not taking a lock to find the address. Each
+// helper memoizes the LAST handle it resolved, per thread. The hot pattern — many
+// operations on one counter — then hits the memo and never touches the shard.
+//
+// SAFETY, and why this is not a new class of hazard:
+//  * `Box<Atomic*>` is heap-stable, so a resolved address stays valid for the
+//    entry's lifetime.
+//  * The pre-existing code ALREADY released the shard lock before dereferencing
+//    the pointer (that was the point of the original design). Caching the address
+//    does not introduce the "entry dies between lookup and use" window — it was
+//    already there.
+//  * The `atomic` namespace exposes NO free/close: an entry is reclaimed only by
+//    the GC, and only once it is UNREACHABLE. If TS code can still name the handle
+//    to perform an operation, the entry is reachable and therefore not collected.
+//  * The memo is keyed by the FULL handle (16-bit generation + slot), so a recycled
+//    slot yields a different handle value and cannot hit a stale entry.
+//  * One memo PER TYPE, never a shared one keyed by handle alone — that would let
+//    `bool_load(h)` reinterpret an `AtomicI64` address as `AtomicBool`.
+macro_rules! atomic_accessor {
+    ($name:ident, $memo:ident, $ty:ty, $variant:ident) => {
+        thread_local! {
+            static $memo: std::cell::Cell<(u64, *const $ty)> =
+                const { std::cell::Cell::new((0, std::ptr::null())) };
+        }
+
+        fn $name<R>(handle: u64, default: R, f: impl FnOnce(&$ty) -> R) -> R {
+            if handle == 0 {
+                return default;
+            }
+            let (memo_handle, memo_ptr) = $memo.with(|c| c.get());
+            let ptr = if memo_handle == handle {
+                memo_ptr
+            } else {
+                let p: *const $ty = with_entry(handle, |entry| match entry {
+                    Some(Entry::$variant(a)) => a.as_ref() as *const _,
+                    _ => std::ptr::null(),
+                });
+                if !p.is_null() {
+                    $memo.with(|c| c.set((handle, p)));
+                }
+                p
+            };
+            if ptr.is_null() {
+                return default;
+            }
+            // SAFETY: see the argument above this macro.
+            f(unsafe { &*ptr })
+        }
+    };
 }
 
-fn with_atomic_bool<R>(handle: u64, default: R, f: impl FnOnce(&AtomicBool) -> R) -> R {
-    let ptr: *const AtomicBool = with_entry(handle, |entry| match entry {
-        Some(Entry::AtomicBool(a)) => a.as_ref() as *const _,
-        _ => std::ptr::null(),
-    });
-    if ptr.is_null() {
-        return default;
-    }
-    // SAFETY: see `with_atomic_i64`.
-    f(unsafe { &*ptr })
-}
-
-fn with_atomic_f64<R>(handle: u64, default: R, f: impl FnOnce(&AtomicU64) -> R) -> R {
-    let ptr: *const AtomicU64 = with_entry(handle, |entry| match entry {
-        Some(Entry::AtomicF64(a)) => a.as_ref() as *const _,
-        _ => std::ptr::null(),
-    });
-    if ptr.is_null() {
-        return default;
-    }
-    // SAFETY: see `with_atomic_i64`.
-    f(unsafe { &*ptr })
-}
+atomic_accessor!(with_atomic_i64, I64_PTR_MEMO, AtomicI64, AtomicI64);
+atomic_accessor!(with_atomic_bool, BOOL_PTR_MEMO, AtomicBool, AtomicBool);
+atomic_accessor!(with_atomic_f64, F64_PTR_MEMO, AtomicU64, AtomicF64);
 
 /// Aloca um AtomicI64 inicializado com `value` e retorna o handle.
 #[unsafe(no_mangle)]
