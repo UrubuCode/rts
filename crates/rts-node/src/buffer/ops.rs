@@ -138,6 +138,38 @@ pub extern "C" fn __RTS_FN_NODE_BUFFER_FROM(p: *const u8, l: i64) -> u64 {
     byte_array(read(p, l).as_bytes())
 }
 
+/// `Buffer.from(arrayOrBuffer)` — a Uint8Array/number[]/existing Buffer,
+/// copied byte-for-byte (Node's array/TypedArray/Buffer overload).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_BUFFER_FROM_ARRAY(word: u64) -> u64 {
+    byte_array(&word_bytes(word))
+}
+
+/// `Buffer.toString(buf)` — UTF-8 decode (Node's default `buf.toString()`
+/// encoding). A STATIC method, not an instance call (`buf.toString()`) — the
+/// engine has no proven class tag for a Buffer's `Entry::Vec` receiver to
+/// dispatch an instance method on (see the module doc comment); this is the
+/// same "static methods only" pattern `isBuffer`/`byteLength`/`compare` use.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_BUFFER_TO_STRING(word: u64) -> u64 {
+    let bytes = word_bytes(word);
+    intern(&String::from_utf8_lossy(&bytes))
+}
+
+/// `Buffer.toString(buf, encoding)` — utf8 / hex / base64 / base64url / latin1.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NODE_BUFFER_TO_STRING_ENC(word: u64, ep: *const u8, el: i64) -> u64 {
+    let bytes = word_bytes(word);
+    let s = match read(ep, el).to_lowercase().as_str() {
+        "hex" => bytes.iter().map(|b| format!("{b:02x}")).collect(),
+        "base64" => base64_encode(&bytes),
+        "base64url" => base64_encode(&bytes).replace('+', "-").replace('/', "_").trim_end_matches('=').to_string(),
+        "latin1" | "binary" | "ascii" => bytes.iter().map(|&b| b as char).collect(),
+        _ => String::from_utf8_lossy(&bytes).to_string(),
+    };
+    intern(&s)
+}
+
 /// `Buffer.from(string, encoding)` — utf8 / hex / base64 / latin1.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_BUFFER_FROM_ENC(p: *const u8, l: i64, ep: *const u8, el: i64) -> u64 {

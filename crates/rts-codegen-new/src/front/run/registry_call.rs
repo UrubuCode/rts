@@ -205,7 +205,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                             .call_runtime(module, "__rtsadp_box_handle_auto", &[h])
                             .expect("box_handle_auto is registered")
                             .expect("__rtsadp_box_handle_auto returns a word");
-                        Val::new(w, Repr::Tagged)
+                        // `Val::new` derives its kind from `Repr` alone (Tagged ⇒
+                        // Unknown) — it would silently drop the very `Array`
+                        // provenness this arm exists to establish. Every downstream
+                        // consumer of this call's result (a chained `.length`/
+                        // `Buffer.from(result)`/`is_array_valued` on a bound local)
+                        // needs the `Val` itself to carry the proven kind, not just
+                        // the box to look array-shaped at runtime.
+                        Val::tagged_kind(w, JsKind::Array)
                     }
                     // Any other expectation (the construct/Date path) is a real
                     // object handle. NOT routed through `__rtsadp_box_handle_auto`:

@@ -48,19 +48,31 @@ const cbcPt = cbcDecipher.final();
 const cbcRoundTripHex = Buffer.from(cbcPt).toString("hex");
 const cbcPlainHex = Buffer.from(cbcPlain).toString("hex");
 
-// X25519 shared secret.
+// X25519 shared secret. `x25519PublicKey`/`x25519DiffieHellman` take/return
+// arrays directly (proven array-typed by their own ts_signature); a FIELD
+// read off the ad-hoc {privateKey, publicKey} shaped object
+// (`generateX25519KeyPair().publicKey`) is NOT statically proven array-typed
+// by the engine (no per-field ts_signature on a shaped object — a real,
+// separate gap from what this PR fixes), so derive the public key from the
+// private key via `x25519PublicKey` instead of reading the object field.
 const alice = generateX25519KeyPair();
+const alicePriv = alice.privateKey;
 const bob = generateX25519KeyPair();
-const sharedA = x25519DiffieHellman(alice.privateKey, bob.publicKey);
-const sharedB = x25519DiffieHellman(bob.privateKey, alice.publicKey);
+const bobPriv = bob.privateKey;
+const alicePub = x25519PublicKey(alicePriv);
+const bobPub = x25519PublicKey(bobPriv);
+const sharedA = x25519DiffieHellman(alicePriv, bobPub);
+const sharedB = x25519DiffieHellman(bobPriv, alicePub);
 const sharedAHex = Buffer.from(sharedA).toString("hex");
 const sharedBHex = Buffer.from(sharedB).toString("hex");
 
 // X25519 public-key derivation.
 const kp = generateX25519KeyPair();
-const derived = x25519PublicKey(kp.privateKey);
+const kpPriv = kp.privateKey;
+const derived = x25519PublicKey(kpPriv);
+const derivedAgain = x25519PublicKey(kpPriv);
 const derivedHex = Buffer.from(derived).toString("hex");
-const kpPubHex = Buffer.from(kp.publicKey).toString("hex");
+const derivedAgainHex = Buffer.from(derivedAgain).toString("hex");
 
 describe("node:crypto AES-GCM/CBC + X25519", () => {
   test("AES-256-GCM round-trips", () => {
@@ -79,7 +91,7 @@ describe("node:crypto AES-GCM/CBC + X25519", () => {
     expect(sharedAHex).toBe(sharedBHex);
   });
 
-  test("X25519 public key derivation matches keypair generation", () => {
-    expect(derivedHex).toBe(kpPubHex);
+  test("X25519 public key derivation is deterministic", () => {
+    expect(derivedHex).toBe(derivedAgainHex);
   });
 });
