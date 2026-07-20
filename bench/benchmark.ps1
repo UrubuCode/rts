@@ -193,3 +193,10 @@ if ($JsonOut) {
   $json | Out-File -FilePath $JsonOut -Encoding utf8
   Write-Host "wrote $JsonOut"
 }
+
+# Reaching here means the run completed and the JSON was written — that is
+# success. Exit 0 explicitly so a leftover `$LASTEXITCODE` from the last native
+# command (e.g. a bench deliberately SKIPPED for an engine gap, whose failed
+# `rts compile` set it to 1) does not fail the whole job. A real measurement
+# failure would have surfaced as a terminating error before this point.
+exit 0
