@@ -170,9 +170,20 @@ impl ClassTable {
     }
 
     /// Every collected class descriptor (the METHOD-TABLE prologue walks all
-    /// classes to register their methods with the runtime).
+    /// classes to register their methods with the runtime), in DETERMINISTIC
+    /// name order — a `HashMap::values()` iteration order is randomized per
+    /// process, and here it feeds code emission (new-thunk definition order,
+    /// method-table registration order), so leaving it random makes the emitted
+    /// object non-deterministic across compiles of the same source.
     pub fn descs(&self) -> impl Iterator<Item = &ClassDesc> {
-        self.by_name.values()
+        self.sorted()
+    }
+
+    /// The descriptors in stable name order (the deterministic-emission basis).
+    fn sorted(&self) -> impl Iterator<Item = &ClassDesc> {
+        let mut v: Vec<&ClassDesc> = self.by_name.values().collect();
+        v.sort_by(|a, b| a.name.cmp(&b.name));
+        v.into_iter()
     }
 
     /// Whether class `name` is already collected (used by the literal-class
@@ -188,9 +199,10 @@ impl ClassTable {
     }
 
     /// Every collected class descriptor (user-declared AND synthesized virtual
-    /// builtin parents). Used to bind `this` for every synthesized ctor/method.
+    /// builtin parents). Used to bind `this` for every synthesized ctor/method,
+    /// AND to emit new-thunks — so it must be DETERMINISTIC (see [`Self::descs`]).
     pub fn iter(&self) -> impl Iterator<Item = &ClassDesc> {
-        self.by_name.values()
+        self.sorted()
     }
 }
 
