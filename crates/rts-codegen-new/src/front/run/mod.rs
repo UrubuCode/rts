@@ -65,6 +65,7 @@ mod objstatic;
 mod optchain_lower;
 mod parcompile;
 mod prelude_cache;
+mod progcache;
 mod prune;
 pub mod resident;
 mod regex;
@@ -106,8 +107,13 @@ use super::error::{FrontResult, Unsupported};
 /// - a parse error (returned as an `Unsupported` wrapping the message), or
 /// - any construct outside the implemented subset (an explicit `Unsupported`).
 pub fn run_source(src: &str) -> FrontResult<()> {
-    let prog = build_with_includes(src)?;
-    let program = module_jit::compile_program(&prog)?;
+    // Whole-program JIT cache (opt-in `RTS_JIT_CACHE=1`): replay the cached machine
+    // code on a hit, else build+compile normally. No-op when disabled.
+    let program = progcache::compile_cached(
+        src,
+        || build_with_includes(src),
+        |p| module_jit::compile_program(p),
+    )?;
     program.run_main();
     // An UNCAUGHT top-level throw (e.g. a runtime `TypeError: not a function`)
     // left the pending-error slot set — surface it as an error, exactly like
@@ -295,8 +301,13 @@ pub(super) fn prelude_fn_names(prelude: &LoweredProgram) -> std::collections::Ha
 /// final write target differs. Used by the in-process unit tests; for true
 /// end-to-end stdout use [`run_source`] + the bun fixture harness.
 pub fn render_source(src: &str) -> FrontResult<String> {
-    let prog = build_with_includes(src)?;
-    render_source_core(&prog)
+    let program = progcache::compile_cached(
+        src,
+        || build_with_includes(src),
+        |p| module_jit::compile_program(p),
+    )?;
+    let ((), out) = crate::value::abi_adapter::with_capture(|| program.run_main());
+    Ok(out)
 }
 
 /// Compile an already-built [`LoweredProgram`] and run it with `console.log`

@@ -58,8 +58,17 @@ use super::{build_from_program, merge_programs, module_jit, registry, render_sou
 /// namespace object, unknown member, builtin used as a value) — all explicit
 /// `Unsupported`.
 pub fn run_path(entry: &Path) -> FrontResult<()> {
-    let prog = build_path(entry)?;
-    let program = module_jit::compile_program(&prog)?;
+    // Whole-program JIT cache (opt-in `RTS_JIT_CACHE=1`): key on the ENTRY file text
+    // (single-file `rts run file.ts` is the common case; a multi-file program that
+    // changes only an IMPORT is not yet invalidated — a documented v1 limit). A hit
+    // replays the cached machine code; a miss builds + bakes + stores. No-op when
+    // the cache is disabled.
+    let cache_src = std::fs::read_to_string(entry).unwrap_or_default();
+    let program = super::progcache::compile_cached(
+        &cache_src,
+        || build_path(entry),
+        |p| module_jit::compile_program(p),
+    )?;
     program.run_main();
     // An uncaught top-level `throw` records the thrown value in the codegen
     // pending-error slot and unwinds via a sentinel `return` out of `main`, but

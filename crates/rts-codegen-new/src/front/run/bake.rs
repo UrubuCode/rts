@@ -374,4 +374,29 @@ mod tests {
 
         assert_eq!(out, expected, "whole-program replay output must equal a normal run");
     }
+
+    /// DISK CACHE end-to-end: with `RTS_JIT_CACHE=1`, render a program TWICE — the
+    /// first run is a MISS (compiles + stores), the second is a HIT (replays from
+    /// disk). Both must equal a normal (uncached) render.
+    #[test]
+    #[ignore = "drains process-global engine state + sets RTS_JIT_CACHE + touches temp; run serially"]
+    fn jit_cache_miss_then_hit() {
+        // Unique source so the temp-cache key is fresh (no cross-run pollution).
+        let src = "console.log(\"cache \" + (7*6));\nconsole.log([9,2,5].sort().join(\"|\"));\n\
+                   // marker jit_cache_miss_then_hit v1\n";
+
+        rts_adapters::state::reset_codegen_state();
+        let expected = super::super::render_source(src).expect("baseline");
+
+        // SAFETY: single-threaded ignored test; restored below.
+        unsafe { std::env::set_var("RTS_JIT_CACHE", "1") };
+        rts_adapters::state::reset_codegen_state();
+        let miss = super::super::render_source(src).expect("miss render");
+        rts_adapters::state::reset_codegen_state();
+        let hit = super::super::render_source(src).expect("hit render");
+        unsafe { std::env::remove_var("RTS_JIT_CACHE") };
+
+        assert_eq!(miss, expected, "cache MISS output must equal a normal run");
+        assert_eq!(hit, expected, "cache HIT (replayed) output must equal a normal run");
+    }
 }
