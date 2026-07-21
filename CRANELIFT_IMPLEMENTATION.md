@@ -487,10 +487,69 @@ prelude-specific work (parse+lower + its share of populate/machine-compile) is
 what a cache removes; `user lower` + the user program's own compile is the
 irreducible remainder (a few ms for a small program).
 
-**Open design decision before implementing (the user's call):** what to cache —
-serialized Cranelift IR (re-run only machine-compile), or serialized machine code
-+ relocations (skip Cranelift entirely, the bigger win but needs a relocatable
-image + symbol re-binding per run). And where/how to invalidate (prelude hash).
+**Decision (owner, 2026-07-21):** go for the resident-precompiled-prelude
+(machine code + metadata), targeting ~23 ms. Binary size is a non-concern (up to
+~100 MB), so pruning is dropped and the WHOLE prelude is precompiled. Do it in
+slices, Slice 1 first, each measured behind a behaviour-neutral fallback.
+
+### The plan (agent-designed, key facts verified)
+
+Verified before starting: the prelude→user dependency is all PLAIN DATA (Class
+table, gcell/global ids, interned shape id→keys, ambient fn names) — no Cranelift
+handles or pointers, so it is serializable. And the id assignment is
+DETERMINISTIC: `class_decls` come from `program.items.iter()` (source-ordered
+AST, `mod.rs:470`), `topo_order` uses its HashMaps for lookup only (output driven
+by the source-ordered loop, `class/inherit.rs:45`), so shape ids intern in a
+stable order across runs — confirmed empirically (prune 534/297 identical over 3
+runs). This determinism is the make-or-break for caching baked ids; it holds.
+
+Phase fate (measured now → projected), resident-code design:
+
+| phase | now | after |
+|---|---|---|
+| process/runtime floor | 14 | 14 (hard wall) |
+| prelude parse+lower | 47 | ~0 (deserialize metadata, 2–4) |
+| prune prelude | 7 | 0 (dropped) |
+| merge programs | 9 | 1–2 |
+| build fn IR + main | 13 | ~0.3 (user only) |
+| machine-compile | 21 | 1–3 (user only) |
+| **total** | **~123** | **~23 (band 23–26)** |
+
+Honest floor: after the prelude compile is gone the **14 ms process floor**
+dominates; sub-20 ms would need separately shrinking runtime/tokio/GC init, out of
+scope here.
+
+### Slices (each measured, each behind a fallback)
+
+- **Slice 1 — cache the lowered prelude METADATA + HIR, still machine-compile it.**
+  serde-derive `ClassDesc`/`ClassTable` and the HIR; serialize the prelude's
+  lowered program + the shape-registry snapshot; on `rts run`, deserialize instead
+  of `build_program(prelude)` and REPLAY the shape registry by exact id. Kills the
+  47 ms parse+lower. **123 → ~78 ms.** Bounded risk, no new link step.
+- **Slice 2 — resident prelude machine code.** A `rts-prelude-baker` workspace bin
+  compiles the prelude alone to `prelude.o` (ObjectModule, `aot_str` ON,
+  `Linkage::Export`), linked into `rts.exe`; its fns register in
+  `adapter_symbols::jit_symbols` and user code declares them `Import`. Partition
+  ids (seed shapes by id, offset user gcells by G). Kills machine-compile +
+  build-IR + prune. **~78 → ~23 ms.** The big, hard slice.
+- **Slice 3/4** — drop pruning + trim merge from the run path once the prelude is
+  fully resident.
+
+### Fallback (behaviour-neutral, permanent)
+
+If the embedded artifact is absent, its hash key mismatches the current prelude
+text, or a prelude symbol fails to install, `build_with_includes` takes today's
+path (`build_program(prelude)` + `merge_programs`). Same behaviour as now; also
+what `rts compile` (AOT) keeps using. The honesty floor is guarded by a CI diff of
+stdout under baked-vs-fallback across a fixture set.
+
+### Highest-severity risk
+
+Baked shape ids (immediates in prelude code) and gcell ids must be seeded at run
+time in the EXACT order the baker interned them — seed by explicit id, never
+re-intern, and assert `global_shape_count() == expected` after seeding. A mismatch
+is a silent miscompile / SIGILL (the class of bug `rts-adapters/src/state.rs`
+documents from mis-timed resets).
 
 ---
 
