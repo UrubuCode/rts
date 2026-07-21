@@ -683,6 +683,20 @@ scope here.
 
     **SLICE 2 COMPLETE** — the resident prelude works and is on by default for baked
     builds, validated across the whole suite.
+
+    **EXTENSION — whole-program JIT cache (`RTS_JIT_CACHE=1`).** The same
+    `define_function_bytes` replay generalizes from the prelude to ANY program: a
+    compiled program is baked to a manifest (`bake::bake_program`, whole program incl
+    `__rtsn_main`, aot_str strings) and re-run PURELY by replaying its machine code
+    (`module_jit::compile_replay` — declare + define_function_bytes + finalize, no
+    parse/lower/compile). `progcache` is a per-file disk cache keyed by the program
+    source + prelude text + version: a HIT replays; a MISS builds + bakes + stores.
+    Wired into `run_source`/`render_source` + `run_path` (`rts run file.ts`, keyed on
+    the entry file). Opt-in; disabled = today's path (no-op). Validated in-process:
+    `whole_program_cache_roundtrip` (bake+replay == normal) and `jit_cache_miss_then_hit`
+    (miss→hit == normal). This is "compile once, replay on repeat runs". v1 limits:
+    keyed on the entry-file text (a changed IMPORT is not yet invalidated); a miss
+    compiles the aot_str path.
 - **Slice 3/4** — drop pruning + trim merge from the run path once the prelude is
   fully resident.
 
