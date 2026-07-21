@@ -26,6 +26,45 @@ use crate::repr::Repr;
 use crate::value::{self, PolyValue};
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
+    /// Emit the `(base, count)` resolution ONCE for a proven view local `name`
+    /// and cache it in two `Variable`s. Called at the ctor site (step 5b
+    /// hoisting), which dominates every access, so the later `use_var` reads are
+    /// SSA-sound. A no-op if `name` is already cached.
+    pub(super) fn cache_ta_view_base_len(
+        &mut self,
+        module: &mut dyn cranelift_module::Module,
+        name: &str,
+        view_word: Value,
+    ) -> FrontResult<()> {
+        // Always OVERWRITE: a re-declaration (`const a` in a sibling scope, or a
+        // fresh view bound to a reused name) must not serve a stale prior base.
+        let (base, count) = self.ta_base_len(module, view_word)?;
+        let base_var = self.builder.declare_var(types::I64);
+        let count_var = self.builder.declare_var(types::I64);
+        self.builder.def_var(base_var, base);
+        self.builder.def_var(count_var, count);
+        self.ta_view_base_len
+            .insert(name.to_string(), (base_var, count_var));
+        Ok(())
+    }
+
+    /// The cached `(base, count)` for a proven view local, or freshly resolved
+    /// (uncached) for an anonymous view expression. When `local` is `Some` and
+    /// cached, this is a pair of `use_var`s — no runtime call.
+    fn ta_view_base_count(
+        &mut self,
+        module: &mut dyn cranelift_module::Module,
+        local: Option<&str>,
+        view_word: Value,
+    ) -> FrontResult<(Value, Value)> {
+        if let Some(name) = local {
+            if let Some(&(base_var, count_var)) = self.ta_view_base_len.get(name) {
+                return Ok((self.builder.use_var(base_var), self.builder.use_var(count_var)));
+            }
+        }
+        self.ta_base_len(module, view_word)
+    }
+
     /// Resolve a view word to `(base_ptr, elem_count)` via the runtime helper,
     /// through two stack slots the emitted code owns. Both are i64 IR values.
     fn ta_base_len(
@@ -78,13 +117,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     pub(super) fn emit_ta_view_get(
         &mut self,
         module: &mut dyn cranelift_module::Module,
+        local: Option<&str>,
         view_word: Value,
         idx: Value,
         elem_log2: u8,
         signed: bool,
         float: bool,
     ) -> FrontResult<Val> {
-        let (base, count) = self.ta_base_len(module, view_word)?;
+        let (base, count) = self.ta_view_base_count(module, local, view_word)?;
         // Unsigned compare: a negative idx becomes a huge unsigned and fails,
         // which is the JS `a[-1] === undefined` behaviour.
         let in_bounds = self.builder.ins().icmp(IntCC::UnsignedLessThan, idx, count);
@@ -149,6 +189,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     pub(super) fn emit_ta_view_set(
         &mut self,
         module: &mut dyn cranelift_module::Module,
+        local: Option<&str>,
         view_word: Value,
         idx: Value,
         value: Val,
@@ -158,7 +199,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // ToNumber the value ONCE, before the store (matches `view_set`).
         let d = self.coerce(value, Repr::Float64)?;
 
-        let (base, count) = self.ta_base_len(module, view_word)?;
+        let (base, count) = self.ta_view_base_count(module, local, view_word)?;
         let in_bounds = self.builder.ins().icmp(IntCC::UnsignedLessThan, idx, count);
 
         let store_blk = self.builder.create_block();

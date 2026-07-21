@@ -319,6 +319,15 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// supported way to make a value live across blocks; the builder inserts
     /// whatever block params it needs.
     pub gcell_cache: HashMap<u32, cranelift_frontend::Variable>,
+    /// A proven typed-array VIEW local (`const a = new Uint8Array(ab)`) → the
+    /// `(base_ptr, elem_count)` Variables computed ONCE at its declaration (step
+    /// 5b, hoisting). Each `a[i]` reads them with `use_var` instead of calling
+    /// `__rtsadp_ta_view_base_len` (which locks the buffer shard) per access. The
+    /// computation sits at the ctor site, which dominates every access, so SSA
+    /// construction is sound. Sound to cache because the view's buffer is never
+    /// resized (no resizable ArrayBuffer) and a reassignment of the local drops
+    /// its `TypedArrayView` shape (accesses then go dynamic, bypassing this).
+    pub ta_view_base_len: HashMap<String, (cranelift_frontend::Variable, cranelift_frontend::Variable)>,
     /// Top-level SINGLETON-INSTANCE globals (`const X = new Y()`) → class `Y`. Lets
     /// `static_instance_class` recover the receiver class of a gcell-promoted
     /// singleton in any scope (the gcell erases the `local_classes` entry).
@@ -422,6 +431,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             gcells,
             immutable_gcells,
             gcell_cache: HashMap::new(),
+            ta_view_base_len: HashMap::new(),
             gcell_classes,
             globalthis_class_refs,
             classes,

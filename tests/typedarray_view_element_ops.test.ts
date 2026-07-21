@@ -48,6 +48,18 @@ let s = 0;
 for (let i = 0; i < 16; i = i + 1) loop[i] = i * 3;
 for (let i = 0; i < 16; i = i + 1) s = s + loop[i];
 
+// Two views over DIFFERENT buffers, interleaved in one loop. The step-5b
+// hoisting caches (base, count) per view LOCAL; a per-name cache must never
+// serve view `mixA`'s base for `mixB`. Different element widths too (u8 vs u16).
+const mixA = new Uint8Array(new ArrayBuffer(4));
+const mixB = new Uint16Array(new ArrayBuffer(8));
+mixA[0] = 10;
+mixA[1] = 20;
+mixB[0] = 1000;
+mixB[1] = 2000;
+let mixSum = 0;
+for (let i = 0; i < 2; i = i + 1) mixSum = mixSum + mixA[i] + mixB[i];
+
 describe("level-B typed array element ops", () => {
   test("two views over one buffer share bytes", () => {
     expect(sharedI8).toBe(-56);
@@ -73,5 +85,10 @@ describe("level-B typed array element ops", () => {
   test("loop write then read sums correctly", () => {
     // sum of 0,3,6,...,45 = 3 * (0+1+...+15) = 3 * 120 = 360
     expect(s).toBe(360);
+  });
+
+  test("two interleaved views keep independent hoisted bases", () => {
+    // 10 + 20 + 1000 + 2000
+    expect(mixSum).toBe(3030);
   });
 });

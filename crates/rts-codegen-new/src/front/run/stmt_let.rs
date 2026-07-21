@@ -261,6 +261,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                                 float,
                             },
                         );
+                        // Compute (base_ptr, elem_count) ONCE here at the ctor site
+                        // and cache them (step 5b hoisting). This point dominates
+                        // every `a[i]`, so the access emitters read the cached
+                        // Variables with `use_var` instead of a locked runtime call
+                        // per element.
+                        let view_word = self.load_local_word(name);
+                        self.cache_ta_view_base_len(module, name, view_word)?;
                     }
                     self.global_instance_classes
                         .insert(name.to_string(), class_name);

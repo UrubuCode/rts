@@ -717,8 +717,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             self.resolve_heap_receiver(module, object)
         {
             if let Ok(idx) = self.lower_index_value(module, index) {
+                // A bare-ident view local carries a hoisted (base, count) cache;
+                // pass the name so the emitter reads it with `use_var`.
+                let local = match &object.kind {
+                    HirExprKind::Ident(n) => Some(n.as_str()),
+                    _ => None,
+                };
                 return self
-                    .emit_ta_view_get(module, recv_word, idx, elem_log2, signed, float);
+                    .emit_ta_view_get(module, local, recv_word, idx, elem_log2, signed, float);
             }
         }
         if let Ok((recv_word, HeapShape::Array)) = self.resolve_heap_receiver(module, object) {
@@ -1087,7 +1093,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         {
             if let Ok(idx) = self.lower_index_value(module, index) {
                 let v = self.lower_expr(module, value)?;
-                self.emit_ta_view_set(module, recv_word, idx, v, elem_log2, float)?;
+                let local = match &object.kind {
+                    HirExprKind::Ident(n) => Some(n.as_str()),
+                    _ => None,
+                };
+                self.emit_ta_view_set(module, local, recv_word, idx, v, elem_log2, float)?;
                 let word = self.box_value(v);
                 return Ok(Val::new(word, Repr::Tagged));
             }
@@ -1296,7 +1306,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
     }
 
-    fn load_local_word(&mut self, name: &str) -> Value {
+    pub(super) fn load_local_word(&mut self, name: &str) -> Value {
         let local = self.local(name).expect("shaped local must exist");
         self.builder.use_var(local.var)
     }
