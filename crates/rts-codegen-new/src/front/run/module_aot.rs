@@ -55,7 +55,7 @@ pub(crate) fn compile_program_aot(prog: &super::LoweredProgram) -> FrontResult<V
 /// arm64 Mach-O executables are PIE (ASLR mandatory), and non-PIC absolute
 /// relocations in text crash at startup (Bus error: 10 on the CI AOT smoke) —
 /// so `is_pic` is set on macOS only.
-fn make_object_module() -> FrontResult<ObjectModule> {
+pub(crate) fn make_object_module() -> FrontResult<ObjectModule> {
     let mut flags = settings::builder();
     flags.set("opt_level", "speed").unwrap();
     if cfg!(target_os = "macos") {

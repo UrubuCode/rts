@@ -31,7 +31,7 @@
 
 use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature, Value, types};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
-use cranelift_module::{FuncId, Linkage, Module};
+use cranelift_module::{FuncId, Module};
 
 use crate::repr::Repr;
 use crate::value::{self, emit_marshal};
@@ -64,7 +64,7 @@ pub fn declare_thunk(module: &mut dyn Module, base_name: &str) -> FrontResult<Fu
     let sig = uniform_signature(module);
     let name = thunk_name(base_name);
     module
-        .declare_function(&name, Linkage::Local, &sig)
+        .declare_function(&name, super::bake::user_linkage(), &sig)
         .map_err(|e| Unsupported::new(format!("declare thunk `{name}`: {e}")))
 }
 
@@ -286,7 +286,7 @@ pub fn declare_new_thunk(module: &mut dyn Module, class_name: &str) -> FrontResu
     let sig = uniform_signature(module);
     let name = new_thunk_name(class_name);
     module
-        .declare_function(&name, Linkage::Local, &sig)
+        .declare_function(&name, super::bake::user_linkage(), &sig)
         .map_err(|e| Unsupported::new(format!("declare new-thunk `{name}`: {e}")))
 }
 

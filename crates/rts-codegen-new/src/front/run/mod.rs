@@ -24,6 +24,7 @@
 
 mod aot_str;
 mod argsobj;
+pub mod bake;
 mod assign;
 mod asyncspawn;
 mod binop;

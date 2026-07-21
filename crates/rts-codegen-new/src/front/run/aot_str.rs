@@ -45,6 +45,16 @@ pub(crate) fn aot_mode() -> bool {
     AOT_MODE.with(|c| c.get())
 }
 
+/// Run `f` with AOT string mode ON, restoring the previous value after
+/// (nesting-safe). Used by the prelude baker, which needs data-section strings
+/// exactly like an AOT build.
+pub(crate) fn with_aot_mode<T>(f: impl FnOnce() -> T) -> T {
+    let prev = AOT_MODE.with(|c| c.replace(true));
+    let out = f();
+    AOT_MODE.with(|c| c.set(prev));
+    out
+}
+
 /// Emit a read-only data object holding `s`'s UTF-8 bytes and return its
 /// `(ptr, len)` as Cranelift `Value`s (`I64` each). The pointer is a relocatable
 /// reference to the data symbol — resolved by the linker at AOT link time.

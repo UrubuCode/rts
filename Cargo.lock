@@ -4233,6 +4233,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rts-prelude-baker"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rts-codegen-new",
+ "rts-runtime",
+]
+
+[[package]]
 name = "rts-primitives"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,18 @@
+[package]
+name = "rts-prelude-baker"
+version = "0.1.0"
+edition = "2024"
+
+# Slice 2 (step 10): compiles the embedded stdlib prelude ONCE, ahead of time,
+# into a resident object (`prelude.o`) + a metadata manifest that `rts run` reuses
+# instead of re-lowering + re-compiling the prelude on every invocation.
+[[bin]]
+name = "rts-prelude-baker"
+path = "src/main.rs"
+
+[dependencies]
+rts-codegen-new = { path = "../rts-codegen-new" }
+# The bake path lowers the prelude and machine-compiles it; the codegen crate
+# reaches the runtime through the `rts-runtime` facade, so the baker must link it.
+rts-runtime = { path = "../rts-runtime" }
+anyhow = "1.0"

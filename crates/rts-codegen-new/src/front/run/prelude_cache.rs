@@ -61,7 +61,9 @@ fn enabled() -> bool {
 }
 
 /// Content hash of the prelude text + cache version → the cache file stem.
-fn key(prelude_src: &str) -> u64 {
+/// `pub(super)` so the slice-2 baker keys its artifact by the same hash (the
+/// run-path fallback triggers when a baked manifest's key ≠ the current prelude).
+pub(super) fn key(prelude_src: &str) -> u64 {
     let mut h = DefaultHasher::new();
     CACHE_VERSION.hash(&mut h);
     prelude_src.hash(&mut h);

@@ -19,6 +19,7 @@ members = [
     "crates/rts-egui",
     "crates/rts-adapters",
     "crates/rts-codegen-new",
+    "crates/rts-prelude-baker",
     "crates/rts-cli",
 ]
 resolver = "2"
@@ -118,6 +119,10 @@ strip = "symbols"
 # Bare process startup (`rts --version`) is unchanged at ~78 ms either way, so
 # this is not trading load time for run time — it is pure compile-path speed.
 [profile.release.package.rts-codegen-new]
+opt-level = 3
+# The prelude baker runs the full compile path (SWC + lowering + Cranelift) once
+# at build time — speed matters, like every other compile-path package.
+[profile.release.package.rts-prelude-baker]
 opt-level = 3
 [profile.release.package.rts-adapters]
 opt-level = 3

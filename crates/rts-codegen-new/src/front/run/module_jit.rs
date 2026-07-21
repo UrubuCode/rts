@@ -233,18 +233,29 @@ pub(crate) fn populate_module(
     let main_sig = FnSig::main_sig();
 
     // 2. Declare every function up front so cross-calls resolve to a FuncId.
+    //    Linkage is `Local` for the ordinary JIT/AOT build; when BAKING the
+    //    resident prelude (slice 2), every prelude fn is `Export`ed so a
+    //    separately-linked user module can `Import` it (`bake::user_linkage`).
+    let user_linkage = super::bake::user_linkage();
     let mut ids = HashMap::new();
     for f in funcs {
         let sig = &sigs[&f.name];
         let cl_sig = sig.to_cranelift(&*module);
         let id = module
-            .declare_function(&f.name, Linkage::Local, &cl_sig)
+            .declare_function(&f.name, user_linkage, &cl_sig)
             .map_err(|e| Unsupported::new(format!("declare `{}`: {e}", f.name)))?;
         ids.insert(f.name.clone(), id);
     }
     let main_cl_sig = main_sig.to_cranelift(&*module);
+    // The baked prelude's top-level init is exported under a DISTINCT name so it
+    // never collides with the USER program's own `__rtsn_main` at final link.
+    let main_symbol = if super::bake::is_baking() {
+        super::bake::PRELUDE_MAIN_SYMBOL
+    } else {
+        main_sig.name.as_str()
+    };
     let main_id = module
-        .declare_function(&main_sig.name, Linkage::Local, &main_cl_sig)
+        .declare_function(main_symbol, user_linkage, &main_cl_sig)
         .map_err(|e| Unsupported::new(format!("declare main: {e}")))?;
 
     // 2b. Declare a uniform-ABI THUNK for every user function (P4.6). A function
