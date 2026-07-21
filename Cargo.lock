@@ -1133,6 +1133,8 @@ version = "0.131.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6559d4fbc253d1396e1f6beeae57fa88a244f02aaf0cde2a735afd3492d9b2e"
 dependencies = [
+ "serde",
+ "serde_derive",
  "wasmtime-internal-core",
 ]
 
@@ -1158,6 +1160,7 @@ dependencies = [
  "regalloc2",
  "rustc-hash 2.1.2",
  "serde",
+ "serde_derive",
  "smallvec",
  "target-lexicon",
  "wasmtime-internal-core",
@@ -1197,6 +1200,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2acba797f6a46042ce82aaf7680d0c3567fe2001e238db9df649fd104a2727f"
 dependencies = [
  "cranelift-bitset",
+ "serde",
+ "serde_derive",
  "wasmtime-internal-core",
 ]
 
@@ -3908,6 +3913,7 @@ dependencies = [
  "hashbrown 0.17.0",
  "log",
  "rustc-hash 2.1.2",
+ "serde",
  "smallvec",
 ]
 
@@ -4745,6 +4751,9 @@ name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "smartstring"

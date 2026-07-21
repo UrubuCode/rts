@@ -60,12 +60,42 @@ pub(super) struct Pending {
 
 /// The machine code of one compiled function, owned so no borrow of its
 /// `Context` outlives the parallel region.
-struct Emitted {
-    id: FuncId,
-    name: String,
-    alignment: u64,
-    bytes: Vec<u8>,
-    relocs: Vec<ModuleReloc>,
+pub(super) struct Emitted {
+    pub id: FuncId,
+    pub name: String,
+    pub alignment: u64,
+    pub bytes: Vec<u8>,
+    pub relocs: Vec<ModuleReloc>,
+}
+
+thread_local! {
+    /// When `Some`, [`compile_and_define`] stashes a clone of every [`Emitted`]
+    /// here — the machine bytes + relocs the PRELUDE BAKER captures to replay via
+    /// `define_function_bytes` into each run's JIT arena (step 10 slice 2). Off for
+    /// every ordinary compile.
+    static CAPTURE: std::cell::RefCell<Option<Vec<Emitted>>> = const { std::cell::RefCell::new(None) };
+}
+
+impl Clone for Emitted {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id,
+            name: self.name.clone(),
+            alignment: self.alignment,
+            bytes: self.bytes.clone(),
+            relocs: self.relocs.clone(),
+        }
+    }
+}
+
+/// Begin capturing emitted machine code (the baker). Cleared by [`take_capture`].
+pub(super) fn begin_capture() {
+    CAPTURE.with(|c| *c.borrow_mut() = Some(Vec::new()));
+}
+
+/// Take the captured emitted functions, ending capture.
+pub(super) fn take_capture() -> Option<Vec<Emitted>> {
+    CAPTURE.with(|c| c.borrow_mut().take())
 }
 
 /// Compile every pending function (in parallel when enabled) and define them
@@ -125,6 +155,15 @@ pub(super) fn compile_and_define(
             })?
         }
     };
+
+    // BAKER capture (slice 2): stash a clone of every emitted fn's bytes + relocs
+    // so the prelude baker can replay them via `define_function_bytes`. No-op
+    // (single `with`) on every ordinary compile.
+    CAPTURE.with(|c| {
+        if let Some(buf) = c.borrow_mut().as_mut() {
+            buf.extend(emitted.iter().cloned());
+        }
+    });
 
     // SERIAL PHASE. Definition order is the input order, so the module layout
     // does not depend on which worker finished first.

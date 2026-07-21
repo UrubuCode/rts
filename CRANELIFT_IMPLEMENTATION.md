@@ -641,12 +641,35 @@ scope here.
     - Still to validate after: GC stack-map coverage for the byte-defined frames,
       reified prelude fn values, and the **~79 → ~23 ms**.
 
-    **Current state:** the consumer that ENGAGES (634→8 fns) is implemented and
-    gated on `RTS_RESIDENT=1` (proven to import, blocked only by the wrong far-call
-    delivery); a resident-linked binary defaults to the WORKING fallback. The next
-    commit rips out the linker delivery and replaces it with the
-    `define_function_bytes` replay above. Fully gated; the default build is
-    unaffected throughout.
+    **WORKING (validated end-to-end).** The `define_function_bytes` replay is
+    implemented and the linker delivery is removed. Measured on the real binary
+    (`RTS_PRELUDE_DIR` build + `RTS_RESIDENT=1` run) over a prelude-heavy smoke
+    (console / array map+filter+sort / `class E extends Error` + throw/catch / Map /
+    Object.keys / JSON.stringify): **831 prelude fns defined-from-bytes, machine-
+    compile 634 → 8 fns**, output byte-identical to the fallback. An in-process
+    roundtrip test (`bake::tests::resident_replay_roundtrip`) asserts resident
+    output == fallback output over the same program; a determinism test guards the
+    baked manifest. How it works now:
+    - *Bake* (`front::run::bake`) — lowers the whole prelude, compiles it into a
+      throwaway JIT module with the `parcompile`/`aot_str` capture hooks on, and
+      records each fn's `{name, alignment, bytes, [symbolic relocs]}` + the string
+      DATA blobs. Relocs are symbolized by callee/data NAME (via the module's
+      declarations), so they survive the bake→run FuncId remap. No `prelude.o`, no
+      generated symbol table, no `build.rs` link, no `windows-sys`.
+    - *Manifest* — the baked fns/data + shape/error/gcell/hash metadata, embedded
+      via `include_bytes!` (empty in the default build); `main` installs it.
+    - *Consumer* (`mark_resident_imports` + `resident::replay`) — on a hash/gcell
+      match it RESTORES the whole (unpruned) prelude the merge pruned, marks every
+      prelude fn resident (IR build skipped), and `replay` `define_data`s the blobs
+      + `define_function_bytes` every prelude fn/thunk with relocs remapped
+      name→run-FuncId (prelude fns via the declared ids; runtime externs declared
+      Import, resolved by the JIT symbol table; data via the run DataIds). The
+      prelude lands in the run's OWN arena → every call is near.
+    - Still open before making it default: broad validation under the full TS suite,
+      GC stack-map coverage for the byte-defined frames (currently covered by the
+      conservative scan), and the release-build ms (the 634→8 fn cut is the source
+      of the projected ~79 → ~23 ms). Gated on `RTS_RESIDENT=1` until the
+      full-suite pass; the default build (empty manifest) is unaffected.
 - **Slice 3/4** — drop pruning + trim merge from the run path once the prelude is
   fully resident.
 

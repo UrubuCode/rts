@@ -1,27 +1,24 @@
-//! Step 10, slice 2 — BAKE the whole prelude to a RESIDENT object (`prelude.o`)
-//! + a metadata manifest.
+//! Step 10, slice 2 — BAKE the whole prelude to REPLAYABLE machine code.
 //!
 //! Slice 1 caches the LOWERED prelude (skips ~47 ms parse+lower) but still
-//! machine-compiles it every run. Slice 2 goes the rest of the way: compile the
-//! WHOLE prelude ONCE, ahead of time, into a relocatable object whose functions
-//! are `Linkage::Export`, link it into `rts.exe`, and at run time DECLARE those
-//! functions `Import` in the user module + register their resident addresses on
-//! the `JITBuilder` — so a `rts run` never re-compiles the prelude at all.
+//! machine-compiles it every run. Slice 2 captures the prelude's COMPILED machine
+//! code once, ahead of time, and REPLAYS it into each run's JIT module via
+//! `Module::define_function_bytes` — so the prelude lands in the run's OWN JIT
+//! arena, right next to the user code, and the ~60 ms prelude machine-compile is
+//! skipped.
 //!
-//! This module owns the AHEAD-OF-TIME half: [`bake_prelude`] lowers the prelude
-//! (unpruned — the whole thing is resident, so per-run pruning is dropped) and
-//! emits the object bytes + a [`PreludeManifest`]. The `rts-prelude-baker`
-//! workspace bin drives it at build time; the run-path consumer is wired in a
-//! later commit (behind the behaviour-neutral fallback in `build_with_includes`).
-//!
-//! The verdict from the feasibility spike (`CRANELIFT_IMPLEMENTATION.md`) is path
-//! B — real-linker name resolution, NOT a byte cache — because FuncId reloc
-//! indices are not deterministic across programs. So the baked artifact is a
-//! plain object linked normally; nothing here replays raw relocations.
+//! The correct-mechanism note (`CRANELIFT_IMPLEMENTATION.md` slice 2): this puts
+//! the prelude in the SAME arena as the user code, so every call is NEAR — the
+//! earlier "link `prelude.o` into `rts.exe`" delivery was wrong (it made the call
+//! far, overflowing cranelift-jit's ±2 GB `X86CallPCRel4`). The capture reuses the
+//! exact `{bytes, alignment, relocs}` triple `parcompile::compile_and_define`
+//! already produces; relocs are stored SYMBOLICALLY (callee/data by name) so the
+//! replay remaps them to each run's FuncIds. Baking the WHOLE prelude unpruned
+//! keeps the fn set fixed, which is what makes the symbolic replay deterministic.
 
-use std::cell::Cell;
-
-use cranelift_module::{Linkage, Module};
+use cranelift_codegen::binemit::Reloc;
+use cranelift_codegen::ir::{KnownSymbol, LibCall};
+use cranelift_module::{DataId, FuncId, Module, ModuleDeclarations, ModuleReloc, ModuleRelocTarget};
 
 use rts_engine::heap::shapes;
 
@@ -29,155 +26,111 @@ use crate::front::error::{FrontResult, Unsupported};
 
 use super::LoweredProgram;
 
-thread_local! {
-    /// While set, every USER function / thunk / new-thunk / `main` declared by
-    /// [`super::module_jit::populate_module`] is `Linkage::Export` instead of the
-    /// default `Local` — so a separately-linked user module can `Import` them.
-    /// Off for the ordinary JIT (`Local`) and AOT (`Local`, self-contained) paths.
-    static BAKE_EXPORT: Cell<bool> = const { Cell::new(false) };
+/// A relocation target, symbolized to a NAME (a run-specific FuncId/DataId is
+/// meaningless across the bake→run boundary; the name is stable).
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) enum SymTarget {
+    /// A call/reference to another function, by its linkage name.
+    Func(String),
+    /// A reference to a data object (a baked string blob), by name.
+    Data(String),
+    /// A cranelift libcall (resolved by cranelift-jit itself at finalize).
+    LibCall(LibCall),
+    /// A linker-known symbol.
+    Known(KnownSymbol),
+    /// An offset within a named function (intra-function relocation).
+    FuncOffset(String, u32),
 }
 
-/// The exported symbol name of the baked prelude's top-level init (`__rtsn_main`
-/// renamed so it never collides with the USER program's own `__rtsn_main`). The
-/// run path calls this first to run the prelude's module-level initializers
-/// (`const console = new Console()`, `rts:test` hook globals).
-pub const PRELUDE_MAIN_SYMBOL: &str = "__rtsn_prelude_main";
-
-/// The linkage a user function / thunk / `main` gets at declare time: `Export`
-/// while baking (the prelude object publishes them), `Local` otherwise.
-///
-/// LOAD-BEARING cranelift assumption: several body-building sites re-declare an
-/// already-declared prelude function as `Linkage::Local` (call/dispatch/ctor/TCO
-/// emit), and cranelift-module's `Linkage::merge(Export, Local) == Export` keeps
-/// the export. A cranelift bump that changed that merge rule would silently
-/// downgrade prelude exports to Local (the resident symbols would vanish); the
-/// determinism test checks the manifest, not the object symbol table, so it would
-/// not catch it. Pin this if bumping cranelift.
-pub(super) fn user_linkage() -> Linkage {
-    if BAKE_EXPORT.with(Cell::get) {
-        Linkage::Export
-    } else {
-        Linkage::Local
-    }
+/// One relocation of a baked function, with its target symbolized.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct SymReloc {
+    pub offset: u32,
+    pub kind: Reloc,
+    pub addend: i64,
+    pub target: SymTarget,
 }
 
-/// True while [`bake_prelude`] is compiling the resident prelude object.
-pub(super) fn is_baking() -> bool {
-    BAKE_EXPORT.with(Cell::get)
+/// One baked (pre-compiled) prelude function: its machine bytes + symbolic relocs,
+/// ready to `define_function_bytes` into a run's JIT module.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct BakedFn {
+    pub name: String,
+    pub alignment: u64,
+    pub bytes: Vec<u8>,
+    pub relocs: Vec<SymReloc>,
 }
 
-/// The everything-serializable half of a baked prelude: the metadata a user
-/// build needs (the whole lowered prelude, so its classes/functions are ambient
-/// and the shape/error ids resolve) plus the resident partition (exported symbol
-/// names, gcell count) and the key that ties it to the exact prelude text.
+/// One baked string-data object (from AOT string mode), replayed via `define_data`.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct BakedData {
+    pub name: String,
+    pub bytes: Vec<u8>,
+}
+
+/// The everything-serializable baked prelude: the metadata a user build needs (the
+/// whole lowered prelude, so its classes/functions are ambient and the shape/error
+/// ids resolve) + the replayable machine code (`funcs`/`data`) + the key that ties
+/// it to the exact prelude text.
 ///
 /// Crate-private: its `program` field is a `pub(crate)` [`LoweredProgram`], so the
-/// type is not part of the crate's public surface. The baker consumes it only as
-/// opaque serialized bytes + the summary counters exposed on [`BakedPrelude`].
+/// type is not part of the crate's public surface.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub(crate) struct PreludeManifest {
     /// `prelude_cache::key(prelude_src)` — a hit requires this to match the
     /// current embedded prelude text (the fallback trigger when it does not).
     pub prelude_hash: u64,
-    /// The WHOLE lowered prelude (unpruned). Carries the ambient class table,
-    /// function metadata, gcell ids, captures, etc. the user build reads — the
-    /// same payload `prelude_cache` serializes, minus the per-run prune.
+    /// The WHOLE lowered prelude (unpruned) — ambient class table, function
+    /// metadata, gcell ids, etc. the user build reads.
     pub program: LoweredProgram,
     /// The interned global-shape snapshot (`export_global_shapes`) — reseeded at
-    /// run time so the ids baked as immediates in the prelude object resolve.
+    /// run time so the ids baked into the prelude machine code resolve.
     pub shapes: Vec<Vec<String>>,
     /// The Error-class registry snapshot (`export_error_classes`).
     pub error_classes: Vec<(String, u32, Vec<String>)>,
-    /// Every symbol the prelude object EXPORTS (user fns + their thunks + class
-    /// new-thunks + `PRELUDE_MAIN_SYMBOL`). The run path declares each `Import`
-    /// and registers its resident address on the `JITBuilder`.
-    pub export_symbols: Vec<String>,
-    /// The number of prelude gcells (`0..gcell_count`). User gcells must be
-    /// offset by this base so a baked prelude gcell id never collides with a
-    /// freshly-numbered user one.
+    /// The number of prelude gcells (`0..gcell_count`).
     pub gcell_count: u32,
+    /// The pre-compiled prelude functions (machine bytes + symbolic relocs).
+    pub funcs: Vec<BakedFn>,
+    /// The baked string-data objects the prelude machine code references.
+    pub data: Vec<BakedData>,
 }
 
-/// The output of an ahead-of-time prelude bake: the relocatable object bytes
-/// (COFF/ELF/Mach-O per host) + the manifest. The manifest stays crate-private
-/// (it embeds the crate-internal [`LoweredProgram`]); external drivers (the
-/// `rts-prelude-baker` bin) reach it through the public accessors below.
+/// The output of an ahead-of-time prelude bake. The manifest stays crate-private
+/// (it embeds the crate-internal [`LoweredProgram`]); external drivers reach it
+/// through the public accessors below.
 pub struct BakedPrelude {
-    object: Vec<u8>,
     manifest: PreludeManifest,
 }
 
 impl BakedPrelude {
-    /// The relocatable prelude object bytes (write to `prelude.o`).
-    pub fn object_bytes(&self) -> &[u8] {
-        &self.object
-    }
-
-    /// The manifest, bincode-serialized (write to `prelude_manifest.bin`). Errors
-    /// only on an encoding failure (never expected for this fixed shape).
+    /// The manifest, bincode-serialized (write to `prelude_manifest.bin`).
     pub fn manifest_bytes(&self) -> Result<Vec<u8>, String> {
         bincode::serialize(&self.manifest).map_err(|e| format!("serialize manifest: {e}"))
     }
 
-    /// The manifest — crate-internal read access (tests, run-path consumer).
+    /// The manifest — crate-internal read access (tests).
     pub(crate) fn manifest(&self) -> &PreludeManifest {
         &self.manifest
     }
 
     /// Summary counters for the baker's log line — no internal type leaks.
-    pub fn summary(&self) -> (usize, usize, u32) {
+    /// `(baked fns, data blobs, shapes, gcells)`.
+    pub fn summary(&self) -> (usize, usize, usize, u32) {
         (
-            self.manifest.export_symbols.len(),
+            self.manifest.funcs.len(),
+            self.manifest.data.len(),
             self.manifest.shapes.len(),
             self.manifest.gcell_count,
         )
     }
-
-    /// A `@generated` Rust source that, when COMPILED INTO `rts.exe` alongside the
-    /// linked-in `prelude.o`, exposes every resident prelude symbol's ADDRESS via a
-    /// `prelude_symbols() -> Vec<(&'static str, *const u8)>` fn. The run path feeds
-    /// that table to `JITBuilder::symbol` so user code's `Import` declaration of a
-    /// prelude fn resolves to the resident code. A fn (not a `static`) because a raw
-    /// pointer is not `Sync`.
-    ///
-    /// Each symbol is imported through a `#[link_name = "…"]` alias (`__psym_N`) so
-    /// an arbitrary symbol name (any bytes the linker accepts) stays a valid Rust
-    /// identifier in the generated `extern` block.
-    pub fn generated_symbol_table_rs(&self) -> String {
-        let syms = &self.manifest.export_symbols;
-        let mut s = String::with_capacity(syms.len() * 96);
-        s.push_str("// @generated by rts-prelude-baker — do not edit.\n");
-        s.push_str("// Address table for the resident (linked-in) prelude object.\n");
-        s.push_str("unsafe extern \"C\" {\n");
-        for (i, name) in syms.iter().enumerate() {
-            // The symbol name is emitted as a Rust string literal in the attribute,
-            // so escape `"`/`\` defensively (synth names never contain them today).
-            let esc = name.replace('\\', "\\\\").replace('"', "\\\"");
-            s.push_str(&format!("    #[link_name = \"{esc}\"]\n    fn __psym_{i}();\n"));
-        }
-        s.push_str("}\n\n");
-        s.push_str("/// (symbol name, resident address) for every baked prelude fn.\n");
-        s.push_str("pub fn prelude_symbols() -> Vec<(&'static str, *const u8)> {\n");
-        s.push_str("    vec![\n");
-        for (i, name) in syms.iter().enumerate() {
-            let esc = name.replace('\\', "\\\\").replace('"', "\\\"");
-            s.push_str(&format!("        (\"{esc}\", __psym_{i} as *const u8),\n"));
-        }
-        s.push_str("    ]\n}\n");
-        s
-    }
 }
 
-/// Lower the embedded stdlib prelude and machine-compile it to a resident object
-/// with every prelude function `Export`ed, returning the object bytes + manifest.
-///
-/// MUST run on a QUIESCENT process (empty shape registry) — it seeds nothing, it
-/// PRODUCES the snapshot other runs seed. Mirrors [`super::module_aot`] (same ISA
-/// flags, `aot_str` ON so no process-local string handle is baked) but declares
-/// the prelude functions `Export` and emits NO CRT `main` entry.
+/// Lower the embedded stdlib prelude, machine-compile it, and capture the compiled
+/// bytes + symbolic relocs of every function (plus its string-data objects) for
+/// replay. MUST run on a QUIESCENT process (empty shape registry) — it PRODUCES the
+/// snapshot other runs seed.
 pub fn bake_prelude() -> FrontResult<BakedPrelude> {
-    // A fresh, empty codegen state: the shape ids we snapshot must start at the
-    // base, exactly as a top-level run interns them.
     rts_adapters::state::reset_codegen_state();
     assert_eq!(
         shapes::global_shape_count(),
@@ -191,19 +144,11 @@ pub fn bake_prelude() -> FrontResult<BakedPrelude> {
     }
     let prelude_hash = super::prelude_cache::key(&prelude_src);
 
-    // Lower the WHOLE prelude (no user side, no merge, no prune — it is all
-    // resident). Same arrow namespace the real prelude build uses so the baked
-    // arrow symbol names match what the user build expects to import.
     let mut program = super::build_program(&prelude_src, super::PRELUDE_ARROW_NS)?;
-    // The WHOLE program IS the prelude, so EVERY function is prelude-origin and may
-    // use the PRIVATE `engine.*` API (`engine.trace_capture()` in `Error`'s ctor).
-    // `build_program` leaves `prelude_fns` empty (its safe user-only default);
-    // `merge_programs` sets it to the prelude's own fn names in the normal flow —
-    // do the same here so the privacy gate admits the prelude's own functions.
+    // Whole program IS the prelude → every fn is prelude-origin (privacy gate for
+    // `engine.*`), matching what `merge_programs` sets in the normal flow.
     program.prelude_fns = program.funcs.iter().map(|f| f.name.clone()).collect();
 
-    // The resident partition: gcell ids are exactly what this prelude-only build
-    // numbered (dense from 0), so their count is the user offset base.
     let gcell_count = program
         .gcells
         .values()
@@ -212,169 +157,165 @@ pub fn bake_prelude() -> FrontResult<BakedPrelude> {
         .map(|m| m + 1)
         .unwrap_or(0);
 
-    // Every symbol the object will EXPORT — reconstructed from the program the
-    // same way `populate_module` declares them (fns, one thunk each, a new-thunk
-    // per class with a real ctor, plus the renamed prelude main).
-    let export_symbols = collect_export_symbols(&program);
-
-    // Emit the object with Export linkage + AOT string mode.
-    let object = super::aot_str::with_aot_mode(|| {
-        with_bake_export(|| emit_prelude_object(&program))
-    })?;
+    // Compile the prelude into a THROWAWAY JIT module, capturing every function's
+    // machine bytes + relocs and every string blob. AOT string mode ON so string
+    // literals become replayable DATA objects (a JIT-baked handle would be invalid
+    // in the run process).
+    let (funcs, data) = super::aot_str::with_aot_mode(|| capture_prelude(&program))?;
 
     let manifest = PreludeManifest {
         prelude_hash,
         program,
         shapes: shapes::export_global_shapes(),
         error_classes: shapes::export_error_classes(),
-        export_symbols,
         gcell_count,
+        funcs,
+        data,
     };
-    Ok(BakedPrelude { object, manifest })
+    Ok(BakedPrelude { manifest })
 }
 
-/// The full set of symbols [`emit_prelude_object`] publishes, derived from the
-/// same rules `populate_module` uses to declare them.
-fn collect_export_symbols(prog: &LoweredProgram) -> Vec<String> {
-    let mut syms: Vec<String> = Vec::new();
-    for f in &prog.funcs {
-        syms.push(f.name.clone());
-        syms.push(super::thunk::thunk_name(&f.name));
-    }
-    for desc in prog.classes.iter() {
-        // A real synthesized ctor (not a `__rtsl_noctor_*` literal placeholder)
-        // gets a new-thunk — the same gate `populate_module` applies.
-        if prog.funcs.iter().any(|f| f.name == desc.ctor) {
-            syms.push(super::thunk::new_thunk_name(&desc.name));
+/// Compile `prog` into a scratch JIT module with capture on, returning the baked
+/// functions (relocs symbolized) + the string blobs.
+fn capture_prelude(prog: &LoweredProgram) -> FrontResult<(Vec<BakedFn>, Vec<BakedData>)> {
+    let mut module = super::module_jit::make_module();
+    super::parcompile::begin_capture();
+    super::aot_str::begin_data_capture();
+    // Populate declares every fn/data + compiles + defines into the scratch module;
+    // the capture hooks stash the bytes/relocs/blobs as a side effect.
+    let populate = super::module_jit::populate_module(&mut module, prog);
+    let emitted = super::parcompile::take_capture().unwrap_or_default();
+    let blobs = super::aot_str::take_data_capture().unwrap_or_default();
+    populate?;
+
+    let decls = module.declarations();
+    let mut funcs = Vec::with_capacity(emitted.len());
+    for e in &emitted {
+        // Use the DECLARATION name of the FuncId — `Emitted.name` carries the base
+        // fn name even for a THUNK (whose real symbol is `<base>__rtsn_thunk`), and
+        // the replay keys baked fns by their true symbol name.
+        let name = decls.get_function_decl(e.id).linkage_name(e.id).into_owned();
+        // The prelude's own top-level init (`__rtsn_main`) is NOT replayed — the
+        // user build compiles the merged main (with the prelude init prepended).
+        if name == "__rtsn_main" {
+            continue;
         }
-    }
-    syms.push(PRELUDE_MAIN_SYMBOL.to_string());
-    syms.sort();
-    syms.dedup();
-    syms
-}
-
-/// Lower `prog` into a fresh `ObjectModule` with Export linkage (via the
-/// [`BAKE_EXPORT`] flag `populate_module` consults) and return the object bytes.
-/// No CRT `main` entry — the prelude is a library of resident functions.
-fn emit_prelude_object(prog: &LoweredProgram) -> FrontResult<Vec<u8>> {
-    let mut module = super::module_aot::make_object_module()?;
-    super::module_jit::populate_module(&mut module, prog)?;
-    let product = module.finish();
-    product
-        .emit()
-        .map_err(|e| Unsupported::new(format!("emit prelude object: {e}")).into())
-}
-
-/// Run `f` with the bake-export linkage flag set, restoring it after — via a
-/// `Drop` guard so a PANIC in `f` still restores it. Without the guard a panic
-/// mid-bake would leave `BAKE_EXPORT=true`, silently turning every later ordinary
-/// JIT compile in the SAME process into an export-everything build (the run-path
-/// consumer calls `bake_prelude` in the `rts` process, so this matters).
-fn with_bake_export<T>(f: impl FnOnce() -> T) -> T {
-    struct Restore(bool);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            BAKE_EXPORT.with(|c| c.set(self.0));
+        let mut relocs = Vec::with_capacity(e.relocs.len());
+        for r in &e.relocs {
+            relocs.push(symbolize(r, decls)?);
         }
+        funcs.push(BakedFn {
+            name,
+            alignment: e.alignment,
+            bytes: e.bytes.clone(),
+            relocs,
+        });
     }
-    let _g = Restore(BAKE_EXPORT.with(|c| c.replace(true)));
-    f()
+    let data = blobs
+        .into_iter()
+        .map(|(name, bytes)| BakedData { name, bytes })
+        .collect();
+    Ok((funcs, data))
+}
+
+/// Convert a run-specific [`ModuleReloc`] into a name-symbolic [`SymReloc`] using
+/// the scratch module's declarations (FuncId/DataId → linkage name).
+fn symbolize(r: &ModuleReloc, decls: &ModuleDeclarations) -> FrontResult<SymReloc> {
+    let target = match &r.name {
+        ModuleRelocTarget::User {
+            namespace: 0,
+            index,
+        } => {
+            let id = FuncId::from_u32(*index);
+            SymTarget::Func(decls.get_function_decl(id).linkage_name(id).into_owned())
+        }
+        ModuleRelocTarget::User {
+            namespace: 1,
+            index,
+        } => {
+            let id = DataId::from_u32(*index);
+            SymTarget::Data(decls.get_data_decl(id).linkage_name(id).into_owned())
+        }
+        ModuleRelocTarget::User { namespace, index } => {
+            return Err(Unsupported::new(format!(
+                "unexpected reloc namespace {namespace} (index {index})"
+            ))
+            .into());
+        }
+        ModuleRelocTarget::LibCall(lc) => SymTarget::LibCall(*lc),
+        ModuleRelocTarget::KnownSymbol(ks) => SymTarget::Known(*ks),
+        ModuleRelocTarget::FunctionOffset(fid, off) => {
+            SymTarget::FuncOffset(decls.get_function_decl(*fid).linkage_name(*fid).into_owned(), *off)
+        }
+    };
+    Ok(SymReloc {
+        offset: r.offset,
+        kind: r.kind,
+        addend: r.addend,
+        target,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The IDS baked as immediates in the prelude object (shape ids, gcell ids)
-    /// MUST be identical across bakes of the same prelude text — otherwise a
-    /// resident prelude compiled by one bake and seeded from another's manifest
-    /// would read shape/gcell ids that no longer line up (a silent miscompile /
-    /// SIGILL, the highest-severity risk in the slice plan). The on-disk manifest
-    /// bytes may differ (HashMap serialization order), but the id-bearing data —
-    /// the ordered shape snapshot, the gcell name→id map, the export symbol set,
-    /// the gcell count, the prelude hash — must match exactly.
-    ///
-    /// `#[ignore]` because [`bake_prelude`] does a FULL `reset_codegen_state`
-    /// (drains the process-global shape registry) — hostile to the parallel lib
-    /// suite, whose `with_engine` guard deliberately keeps shapes across tests.
-    /// Run explicitly: `cargo test -p rts-codegen-new --lib bake_ -- --ignored`.
+    /// The baked machine code + symbolic relocs must be produced deterministically
+    /// (same fn count, same symbolic reloc targets) across bakes of the same
+    /// prelude text — the run seeds shape/gcell ids by position and replays these
+    /// bytes, so any drift is a silent miscompile.
     #[test]
     #[ignore = "drains process-global engine state; run serially/explicitly"]
-    fn bake_is_deterministic_on_ids() {
+    fn bake_is_deterministic() {
         let a = bake_prelude().expect("first bake");
         let b = bake_prelude().expect("second bake");
         let (ma, mb) = (a.manifest(), b.manifest());
         assert_eq!(ma.prelude_hash, mb.prelude_hash, "prelude hash");
-        assert_eq!(ma.shapes, mb.shapes, "ordered shape snapshot (shape ids)");
-        assert_eq!(ma.gcell_count, mb.gcell_count, "gcell count (user offset base)");
-        assert_eq!(
-            ma.program.gcells, mb.program.gcells,
-            "gcell name→id map (baked immediates)"
-        );
-        assert_eq!(ma.export_symbols, mb.export_symbols, "exported symbol set");
-        // `error_classes` is exported from a HashMap, so its Vec ORDER is not stable
-        // across bakes (the id-bearing content is). Compare as sorted sets — what
-        // the seed path (`seed_error_classes`, keyed by name) actually relies on.
-        let mut ea = ma.error_classes.clone();
-        let mut eb = mb.error_classes.clone();
-        ea.sort();
-        eb.sort();
-        assert_eq!(ea, eb, "error-class snapshot (order-independent)");
-    }
-
-    /// The resident-consumer gate `mark_resident_imports` requires every PRELUDE
-    /// gcell to land on the SAME id in the MERGED (prelude+user) build as in the
-    /// prelude-only bake — else it falls back. Prove they match: prelude top-level
-    /// consts are prepended verbatim in the merge and numbered first, so the ids
-    /// should be identical. If this fails, the consumer needs a gcell remap.
-    #[test]
-    #[ignore = "drains process-global engine state; run serially/explicitly"]
-    fn resident_gcell_ids_match_merged() {
-        let baked = bake_prelude().expect("bake");
-        let prelude_gcells = baked.manifest().program.gcells.clone();
-
-        // Fresh state, then build a small user program the ordinary way (fallback).
-        rts_adapters::state::reset_codegen_state();
-        let merged = super::super::build_with_includes("console.log(1); const x = [1].map(a => a);")
-            .expect("merged build");
-
-        for (name, id) in &prelude_gcells {
-            assert_eq!(
-                merged.gcells.get(name),
-                Some(id),
-                "prelude gcell `{name}` id differs (bake {id:?} vs merged {:?})",
-                merged.gcells.get(name)
-            );
+        assert_eq!(ma.shapes, mb.shapes, "shape snapshot");
+        assert_eq!(ma.gcell_count, mb.gcell_count, "gcell count");
+        assert_eq!(ma.funcs.len(), mb.funcs.len(), "baked fn count");
+        assert_eq!(ma.data.len(), mb.data.len(), "baked data count");
+        // The per-fn symbolic reloc TARGETS must match (bytes may vary if the
+        // baker's data-symbol counter shifts, but the symbolic structure is stable).
+        for (fa, fb) in ma.funcs.iter().zip(&mb.funcs) {
+            assert_eq!(fa.name, fb.name, "baked fn order/name");
+            assert_eq!(fa.relocs.len(), fb.relocs.len(), "reloc count for {}", fa.name);
         }
     }
 
-    /// End-to-end GATE test: with a manifest installed (real bytes, dummy symbol
-    /// addresses — the gate never dereferences them), `mark_resident_imports` must
-    /// ENGAGE (non-empty import set) for an ordinary user program. Isolates the gate
-    /// logic (is_installed / manifest-decode / hash / gcell) from the binary wiring,
-    /// so a failure here is a gate bug, and a pass means a resident-binary bail is a
-    /// wiring issue (install not called / embedded manifest mismatch).
+    /// END-TO-END: bake the prelude, install the manifest, enable the resident
+    /// path, and RENDER a prelude-heavy program — the output must match a normal
+    /// (fallback) render. This exercises the whole `define_function_bytes` replay
+    /// in-process (no binary build): if the baked prelude machine code replays and
+    /// runs correctly, the resident path is sound.
     #[test]
-    #[ignore = "drains process-global engine state + sets RTS_RESIDENT; run serially/explicitly"]
-    fn resident_gate_engages_in_process() {
-        let baked = bake_prelude().expect("bake");
-        let manifest_bytes = baked.manifest_bytes().expect("manifest bytes");
-        super::super::resident::install(Vec::new(), manifest_bytes);
+    #[ignore = "drains process-global engine state + sets RTS_RESIDENT; run serially"]
+    fn resident_replay_roundtrip() {
+        const SRC: &str = "console.log(\"hi \" + (2+3));\n\
+             const a = [1,2,3,4].map(x => x*2).filter(x => x>4);\n\
+             console.log(a.join(\",\"));\n\
+             console.log(\"upper \" + \"abc\".toUpperCase());\n\
+             class E extends Error { constructor(m){ super(m); this.name=\"E\"; } }\n\
+             try { throw new E(\"boom\"); } catch(e){ console.log(e.name + \":\" + e.message); }\n\
+             const m = new Map(); m.set(\"k\", 42); console.log(\"map \" + m.get(\"k\"));\n\
+             const o = { x: 1, y: 2 }; console.log(\"keys \" + Object.keys(o).join(\",\"));\n\
+             console.log([3,1,2].sort().join(\"-\"));\n\
+             console.log(JSON.stringify({a:1,b:[2,3]}));";
 
-        // The consumer is gated on `RTS_RESIDENT` (execution is blocked on a
-        // cranelift-jit far-call limitation, so engagement is opt-in). Enable it for
-        // the duration of this gate test.
+        // Baseline (fallback) render.
+        rts_adapters::state::reset_codegen_state();
+        let expected = super::super::render_source(SRC).expect("baseline render");
+
+        // Bake + install, enable resident, render again.
+        let baked = bake_prelude().expect("bake");
+        super::super::resident::install(baked.manifest_bytes().expect("manifest bytes"));
         // SAFETY: single-threaded ignored test; restored below.
         unsafe { std::env::set_var("RTS_RESIDENT", "1") };
         rts_adapters::state::reset_codegen_state();
-        let merged =
-            super::super::build_with_includes("console.log(1);").expect("merged build");
+        let got = super::super::render_source(SRC);
         unsafe { std::env::remove_var("RTS_RESIDENT") };
-        assert!(
-            !merged.resident_import_names.is_empty(),
-            "resident gate did not engage: {} prelude fns imported",
-            merged.resident_import_names.len()
-        );
+        let got = got.expect("resident render");
+
+        assert_eq!(got, expected, "resident replay output must equal fallback");
     }
 }

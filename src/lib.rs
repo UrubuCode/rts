@@ -9,18 +9,15 @@ pub mod registers {
 pub mod crash;
 pub(crate) mod runtime_objects;
 
-/// Step 10, slice 2 — the baked resident prelude compiled into this binary.
+/// Step 10, slice 2 — the baked resident-prelude MANIFEST embedded in this binary.
 ///
-/// `build.rs` writes both files into `OUT_DIR`: either the real generated table +
-/// manifest (when `RTS_PRELUDE_DIR` points at a baker output and `prelude.o` is
-/// linked in) or an inert stub (`prelude_symbols()` → empty, empty manifest). The
-/// `include!`d `prelude_symbols()` takes the address of every resident prelude
-/// symbol, so the linker keeps them; `main` installs the table + manifest into the
-/// engine. With the stub, `prelude_symbols()` is empty and nothing is installed.
+/// `build.rs` writes `OUT_DIR/prelude_manifest.bin`: either the real baked manifest
+/// (when `RTS_PRELUDE_DIR` points at a baker output) or empty (the default). `main`
+/// installs it into the engine, which replays the prelude machine code via
+/// `define_function_bytes`. Empty → nothing installed → the run path uses the
+/// fallback.
 pub mod prelude_baked {
-    include!(concat!(env!("OUT_DIR"), "/prelude_symbols.rs"));
-
-    /// The bincode-serialized `PreludeManifest` (empty in the stub build).
+    /// The bincode-serialized `PreludeManifest` (empty in the default build).
     pub const MANIFEST: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/prelude_manifest.bin"));
 }
 

@@ -93,12 +93,6 @@ pub(super) fn make_module() -> JITModule {
         for sym in syms {
             builder.symbol(sym.name, sym.ptr);
         }
-        // RESIDENT prelude (slice 2): register every linked-in baked prelude symbol
-        // so a user module's `Import` of a prelude fn/thunk resolves to the resident
-        // address. Empty (no-op) unless a baked prelude was installed at startup.
-        for (name, ptr) in super::resident::symbols() {
-            builder.symbol(name, ptr);
-        }
     });
     JITModule::new(builder)
 }
@@ -168,14 +162,10 @@ pub(crate) fn populate_module(
     // `funcs` so their signature is computed by the SAME pipeline the bake used
     // (exact ABI/callconv match); only the body/thunk emission is skipped. Empty on
     // every non-resident build (`Linkage::Local` for everything, exactly as before).
+    // RESIDENT prelude (slice 2): the prelude fns are DEFINED from baked machine
+    // code (`define_function_bytes` in step 6), so — like every user fn — they are
+    // `Local`. Their IR build is skipped; only the definition source differs.
     let resident_imports = &prog.resident_import_names;
-    let linkage_of = |name: &str| -> Linkage {
-        if resident_imports.contains(name) {
-            Linkage::Import
-        } else {
-            super::bake::user_linkage()
-        }
-    };
 
     let _t_phase = std::time::Instant::now();
     // 1. Freeze every signature (user funcs by their HIR types; main is void).
@@ -251,30 +241,22 @@ pub(crate) fn populate_module(
     }
     let main_sig = FnSig::main_sig();
 
-    // 2. Declare every function up front so cross-calls resolve to a FuncId.
-    //    Linkage is `Local` for the ordinary JIT/AOT build; `Export` when BAKING the
-    //    resident prelude (slice 2, `bake::user_linkage`); `Import` for a RESIDENT
-    //    prelude fn whose body is the linked-in baked object (`linkage_of`).
+    // 2. Declare every function up front so cross-calls resolve to a FuncId. All
+    //    `Local` — user fns and resident prelude fns alike (resident bodies come
+    //    from `define_function_bytes` in step 6, not compiled IR).
     let mut ids = HashMap::new();
     for f in funcs {
         let sig = &sigs[&f.name];
         let cl_sig = sig.to_cranelift(&*module);
         let id = module
-            .declare_function(&f.name, linkage_of(&f.name), &cl_sig)
+            .declare_function(&f.name, Linkage::Local, &cl_sig)
             .map_err(|e| Unsupported::new(format!("declare `{}`: {e}", f.name)))?;
         ids.insert(f.name.clone(), id);
     }
     let main_cl_sig = main_sig.to_cranelift(&*module);
-    // The baked prelude's top-level init is exported under a DISTINCT name so it
-    // never collides with the USER program's own `__rtsn_main` at final link.
-    let main_symbol = if super::bake::is_baking() {
-        super::bake::PRELUDE_MAIN_SYMBOL
-    } else {
-        main_sig.name.as_str()
-    };
-    // `main` is USER code (never a resident import), so it keeps `user_linkage`.
+    // `main` is USER code (never a resident import) — always `Local`.
     let main_id = module
-        .declare_function(main_symbol, super::bake::user_linkage(), &main_cl_sig)
+        .declare_function(&main_sig.name, Linkage::Local, &main_cl_sig)
         .map_err(|e| Unsupported::new(format!("declare main: {e}")))?;
 
     // 2b. Declare a uniform-ABI THUNK for every user function (P4.6). A function
@@ -284,7 +266,7 @@ pub(crate) fn populate_module(
     //     RESIDENT prelude fn's thunk is the linked-in baked code → declared Import.
     let mut thunks: HashMap<String, FuncId> = HashMap::new();
     for f in funcs {
-        let id = thunk::declare_thunk_linkage(&mut *module, &f.name, linkage_of(&f.name))?;
+        let id = thunk::declare_thunk_linkage(&mut *module, &f.name, Linkage::Local)?;
         thunks.insert(f.name.clone(), id);
     }
     // 2c. Declare a per-class NEW-THUNK (`<class>__rtsn_newthunk`) for every user
@@ -295,9 +277,7 @@ pub(crate) fn populate_module(
     //     Keyed in the same `thunks` map under the distinct `__rtsn_newthunk` name.
     for desc in classes.iter() {
         if ids.contains_key(&desc.ctor) {
-            // A RESIDENT prelude class's new-thunk is the linked-in baked code.
-            let lk = linkage_of(&desc.ctor);
-            let id = thunk::declare_new_thunk_linkage(&mut *module, &desc.name, lk)?;
+            let id = thunk::declare_new_thunk_linkage(&mut *module, &desc.name, Linkage::Local)?;
             thunks.insert(thunk::new_thunk_name(&desc.name), id);
         }
     }
@@ -406,6 +386,43 @@ pub(crate) fn populate_module(
     //    the module in this order. See `parcompile` for why that is behaviour-
     //    preserving.
     super::parcompile::compile_and_define(module, pending)?;
+
+    // 6. RESIDENT prelude (slice 2): the prelude fns/thunks were DECLARED (Local)
+    //    but their IR was skipped — define them from the baked machine code via
+    //    `define_function_bytes`, so they land in this run's JIT arena (near the
+    //    user code) instead of being re-compiled. `declared` maps every prelude
+    //    fn+thunk name to its FuncId (for reloc remapping); `to_define` is the
+    //    subset whose bytes we replay here.
+    if !resident_imports.is_empty() {
+        // `declared`: every prelude symbol NAME → FuncId (for reloc remapping and
+        // the define lookup). The `thunks` map is keyed by BASE fn name for regular
+        // thunks (symbol `<base>__rtsn_thunk`) and by the new-thunk name for class
+        // new-thunks — normalize both to their true symbol names here.
+        let mut declared: HashMap<String, FuncId> = ids.clone();
+        let mut to_define: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for f in funcs {
+            if let Some(&tid) = thunks.get(&f.name) {
+                declared.insert(thunk::thunk_name(&f.name), tid);
+            }
+            if resident_imports.contains(&f.name) {
+                to_define.insert(f.name.clone());
+                if thunks.contains_key(&f.name) {
+                    to_define.insert(thunk::thunk_name(&f.name));
+                }
+            }
+        }
+        for desc in classes.iter() {
+            let nt = thunk::new_thunk_name(&desc.name);
+            if let Some(&id) = thunks.get(&nt) {
+                declared.insert(nt.clone(), id);
+                if resident_imports.contains(&desc.ctor) {
+                    to_define.insert(nt);
+                }
+            }
+        }
+        super::resident::replay(module, &declared, &to_define)
+            .map_err(|e| Unsupported::new(format!("resident replay: {e}")))?;
+    }
     Ok(main_id)
 }
 

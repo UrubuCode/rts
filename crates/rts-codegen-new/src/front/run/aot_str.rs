@@ -25,6 +25,21 @@ use crate::front::error::{FrontResult, Unsupported};
 thread_local! {
     /// True while an AOT object is being built (set by `compile_program_aot`).
     static AOT_MODE: Cell<bool> = const { Cell::new(false) };
+    /// When `Some`, the prelude baker (slice 2) records every emitted string DATA
+    /// object `(name, bytes)` here so it can be replayed via `define_data` into the
+    /// run's JIT module (the prelude machine code relocs reference these by name).
+    static CAPTURE_DATA: std::cell::RefCell<Option<Vec<(String, Vec<u8>)>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Begin capturing string-data objects (the baker). Paired with [`take_data_capture`].
+pub(crate) fn begin_data_capture() {
+    CAPTURE_DATA.with(|c| *c.borrow_mut() = Some(Vec::new()));
+}
+
+/// Take the captured string-data objects, ending capture.
+pub(crate) fn take_data_capture() -> Option<Vec<(String, Vec<u8>)>> {
+    CAPTURE_DATA.with(|c| c.borrow_mut().take())
 }
 
 /// Monotonic counter for unique data-symbol names. Process-wide (not reset): a
@@ -80,6 +95,13 @@ pub(crate) fn emit_str_data(
     module
         .define_data(data_id, &desc)
         .map_err(|e| Unsupported::new(format!("define str data `{name}`: {e}")))?;
+    // BAKER capture (slice 2): record this string blob so the resident replay can
+    // `define_data` it under the same name the prelude relocs reference.
+    CAPTURE_DATA.with(|c| {
+        if let Some(buf) = c.borrow_mut().as_mut() {
+            buf.push((name.clone(), s.as_bytes().to_vec()));
+        }
+    });
     let gv = module.declare_data_in_func(data_id, builder.func);
     let ptr = builder.ins().global_value(types::I64, gv);
     let len = builder.ins().iconst(types::I64, s.len() as i64);

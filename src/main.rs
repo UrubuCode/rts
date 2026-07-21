@@ -6,12 +6,10 @@ fn main() {
     // on-demand materialization live in this bin crate, which the CLI can't reach).
     rts::cli::set_runtime_archive_resolver(rts::rt_artifacts);
 
-    // Step 10, slice 2: install the baked resident prelude (if this binary was
-    // linked with one). The stub build returns an empty table → install nothing →
-    // the run path keeps the fallback (lower + compile the prelude every run).
-    let resident = rts::prelude_baked::prelude_symbols();
-    if !resident.is_empty() {
-        rts::cli::install_resident_prelude(resident, rts::prelude_baked::MANIFEST.to_vec());
+    // Step 10, slice 2: install the baked resident-prelude manifest (if this binary
+    // was built with one). Empty → install nothing → the run path uses the fallback.
+    if !rts::prelude_baked::MANIFEST.is_empty() {
+        rts::cli::install_resident_prelude(rts::prelude_baked::MANIFEST.to_vec());
     }
 
     std::process::exit(match rts::cli::dispatch(std::env::args()) {

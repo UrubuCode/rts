@@ -175,15 +175,11 @@ fn build_with_includes(src: &str) -> FrontResult<LoweredProgram> {
 /// prelude shape ids equal the baked immediates. This only additionally guards the
 /// gcell numbering, which `merge_programs` recomputes.
 pub(super) fn mark_resident_imports(merged: &mut LoweredProgram, prelude_src: &str) {
-    // EXPERIMENTAL opt-in. The consumer is proven to ENGAGE (declares the prelude
-    // Import, dropping the prelude machine-compile 634→8 fns) but resident EXECUTION
-    // is blocked on a cranelift-jit far-call limitation: a JIT-compiled user fn
-    // reaches the linked-in baked prelude in rts.exe's image via `X86CallPCRel4`
-    // (±2 GB), which overflows on Windows x64, and cranelift-jit 0.131 rejects
-    // `is_pic` (the GOT route) and exposes no near-memory allocator. So even a
-    // resident-LINKED binary defaults to the working fallback unless `RTS_RESIDENT=1`
-    // is set (development, while the far-call fix — near-memory JIT allocation or a
-    // trampoline layer — is built). See CRANELIFT_IMPLEMENTATION.md slice 2.
+    // The prelude fns marked here are DEFINED from the baked machine code
+    // (`define_function_bytes` into this run's JIT arena — near calls, no linking),
+    // skipping their re-compile. Gated on `RTS_RESIDENT=1` during bring-up so a
+    // resident-installed binary defaults to the fallback until the replay is
+    // validated end-to-end. See CRANELIFT_IMPLEMENTATION.md slice 2.
     if std::env::var_os("RTS_RESIDENT").is_none() {
         return;
     }
@@ -208,15 +204,38 @@ pub(super) fn mark_resident_imports(merged: &mut LoweredProgram, prelude_src: &s
             return;
         }
     }
-    // The prelude-origin functions STILL PRESENT after prune (the ones the user
-    // actually reaches) — declare exactly these `Import`.
-    let names: std::collections::HashSet<String> = merged
-        .funcs
-        .iter()
-        .map(|f| f.name.clone())
-        .filter(|n| merged.prelude_fns.contains(n))
-        .collect();
-    crate::timing::note("resident: prelude fns imported", names.len());
+    // RESTORE the WHOLE prelude that `merge_programs` PRUNED. A reachable prelude
+    // fn's baked machine code may CALL a fn the prune removed, so every baked
+    // callee must be declared (and defined from bytes). The manifest carries the
+    // full unpruned prelude + its metadata maps (which prune also trimmed); add
+    // back exactly what is missing, then mark EVERY prelude fn resident.
+    let have: std::collections::HashSet<String> =
+        merged.funcs.iter().map(|f| f.name.clone()).collect();
+    for f in &manifest.program.funcs {
+        if !have.contains(&f.name) {
+            merged.funcs.push(f.clone());
+        }
+    }
+    // Restore the metadata prune trimmed (idempotent for surviving keys).
+    for (k, v) in &manifest.program.fn_this_class {
+        merged.fn_this_class.entry(k.clone()).or_insert_with(|| v.clone());
+    }
+    for (k, v) in &manifest.program.captures {
+        merged.captures.entry(k.clone()).or_insert_with(|| v.clone());
+    }
+    for (k, v) in &manifest.program.cells {
+        merged.cells.entry(k.clone()).or_insert_with(|| v.clone());
+    }
+    for (k, v) in &manifest.program.param_classes {
+        merged.param_classes.entry(k.clone()).or_insert_with(|| v.clone());
+    }
+    for n in &manifest.program.prelude_fns {
+        merged.prelude_fns.insert(n.clone());
+    }
+    // Mark EVERY prelude fn resident (defined from bytes, IR build skipped).
+    let names: std::collections::HashSet<String> =
+        manifest.program.funcs.iter().map(|f| f.name.clone()).collect();
+    crate::timing::note("resident: prelude fns defined-from-bytes", names.len());
     merged.resident_import_names = names;
 }
 
