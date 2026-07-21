@@ -75,7 +75,7 @@ pub(crate) struct BakedData {
 ///
 /// Crate-private: its `program` field is a `pub(crate)` [`LoweredProgram`], so the
 /// type is not part of the crate's public surface.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct PreludeManifest {
     /// `prelude_cache::key(prelude_src)` — a hit requires this to match the
     /// current embedded prelude text (the fallback trigger when it does not).
@@ -160,8 +160,9 @@ pub fn bake_prelude() -> FrontResult<BakedPrelude> {
     // Compile the prelude into a THROWAWAY JIT module, capturing every function's
     // machine bytes + relocs and every string blob. AOT string mode ON so string
     // literals become replayable DATA objects (a JIT-baked handle would be invalid
-    // in the run process).
-    let (funcs, data) = super::aot_str::with_aot_mode(|| capture_prelude(&program))?;
+    // in the run process). Skip `__rtsn_main` — the user build compiles the merged
+    // main (prelude init prepended).
+    let (funcs, data) = super::aot_str::with_aot_mode(|| capture_compiled(&program, true))?;
 
     let manifest = PreludeManifest {
         prelude_hash,
@@ -176,8 +177,13 @@ pub fn bake_prelude() -> FrontResult<BakedPrelude> {
 }
 
 /// Compile `prog` into a scratch JIT module with capture on, returning the baked
-/// functions (relocs symbolized) + the string blobs.
-fn capture_prelude(prog: &LoweredProgram) -> FrontResult<(Vec<BakedFn>, Vec<BakedData>)> {
+/// functions (relocs symbolized) + the string blobs. `skip_main` drops
+/// `__rtsn_main` (the prelude bake — the user build compiles the merged main); the
+/// whole-program cache keeps it as the entry.
+fn capture_compiled(
+    prog: &LoweredProgram,
+    skip_main: bool,
+) -> FrontResult<(Vec<BakedFn>, Vec<BakedData>)> {
     let mut module = super::module_jit::make_module();
     super::parcompile::begin_capture();
     super::aot_str::begin_data_capture();
@@ -195,9 +201,7 @@ fn capture_prelude(prog: &LoweredProgram) -> FrontResult<(Vec<BakedFn>, Vec<Bake
         // fn name even for a THUNK (whose real symbol is `<base>__rtsn_thunk`), and
         // the replay keys baked fns by their true symbol name.
         let name = decls.get_function_decl(e.id).linkage_name(e.id).into_owned();
-        // The prelude's own top-level init (`__rtsn_main`) is NOT replayed — the
-        // user build compiles the merged main (with the prelude init prepended).
-        if name == "__rtsn_main" {
+        if skip_main && name == "__rtsn_main" {
             continue;
         }
         let mut relocs = Vec::with_capacity(e.relocs.len());
@@ -216,6 +220,26 @@ fn capture_prelude(prog: &LoweredProgram) -> FrontResult<(Vec<BakedFn>, Vec<Bake
         .map(|(name, bytes)| BakedData { name, bytes })
         .collect();
     Ok((funcs, data))
+}
+
+/// Bake a WHOLE already-lowered program (prelude + user, INCLUDING `__rtsn_main`)
+/// to a replayable manifest — the whole-program JIT code cache. `prelude_hash`
+/// carries the CACHE KEY (the program's own text/version hash), computed by the
+/// caller. MUST run on a quiescent shape registry state matching the program's
+/// (the caller resets + builds `prog`, leaving its shapes interned).
+pub(crate) fn bake_program(prog: &LoweredProgram, cache_key: u64) -> FrontResult<PreludeManifest> {
+    let gcell_count = prog.gcells.values().copied().max().map(|m| m + 1).unwrap_or(0);
+    // Keep `__rtsn_main` — it is the entry the cache replays and runs.
+    let (funcs, data) = super::aot_str::with_aot_mode(|| capture_compiled(prog, false))?;
+    Ok(PreludeManifest {
+        prelude_hash: cache_key,
+        program: prog.clone(),
+        shapes: shapes::export_global_shapes(),
+        error_classes: shapes::export_error_classes(),
+        gcell_count,
+        funcs,
+        data,
+    })
 }
 
 /// Convert a run-specific [`ModuleReloc`] into a name-symbolic [`SymReloc`] using
@@ -314,5 +338,40 @@ mod tests {
         let got = super::super::render_source(SRC).expect("resident render");
 
         assert_eq!(got, expected, "resident replay output must equal fallback");
+    }
+
+    /// WHOLE-PROGRAM CACHE proof: bake an ENTIRE program (prelude + user + main) to
+    /// a manifest, then run it purely by replaying the baked machine code
+    /// (`compile_replay`) — no parse/lower/compile — and assert the output matches a
+    /// normal render. Validates that a compiled program can be cached and replayed.
+    #[test]
+    #[ignore = "drains process-global engine state; run serially"]
+    fn whole_program_cache_roundtrip() {
+        const SRC: &str = "function fib(n){ return n<2 ? n : fib(n-1)+fib(n-2); }\n\
+             console.log(\"fib \" + fib(10));\n\
+             const a = [5,3,8,1].sort((x,y)=>x-y);\n\
+             console.log(a.join(\",\"));\n\
+             class P { constructor(x){ this.x=x; } dbl(){ return this.x*2; } }\n\
+             console.log(\"p \" + new P(21).dbl());\n\
+             console.log(JSON.stringify({k:[1,2,3]}));";
+
+        // Baseline render (compiles + runs).
+        rts_adapters::state::reset_codegen_state();
+        let expected = super::super::render_source(SRC).expect("baseline render");
+
+        // Bake the WHOLE compiled program (no resident prelude installed here, so the
+        // merged program compiles every fn — prelude + user — into the manifest).
+        rts_adapters::state::reset_codegen_state();
+        let prog = super::super::build_with_includes(SRC).expect("build");
+        let manifest = bake_program(&prog, 0xC0FFEE).expect("bake program");
+
+        // Replay: run PURELY from the baked bytes (no lower, no compile).
+        rts_adapters::state::reset_codegen_state();
+        let program =
+            super::super::module_jit::compile_replay(&manifest).expect("compile_replay");
+        let ((), out) =
+            crate::value::abi_adapter::with_capture(|| program.run_main());
+
+        assert_eq!(out, expected, "whole-program replay output must equal a normal run");
     }
 }

@@ -97,6 +97,24 @@ pub(super) fn make_module() -> JITModule {
     JITModule::new(builder)
 }
 
+/// WHOLE-PROGRAM CACHE (extends slice 2): compile a program ENTIRELY from a baked
+/// manifest — declare every fn from the manifest's `program`, define ALL of them
+/// (incl `__rtsn_main`) from the baked machine bytes, and finalize. Skips
+/// parse+lower (the manifest carries the lowered program) AND machine-compile (the
+/// bytes are replayed), leaving only declare + define_function_bytes + finalize.
+///
+/// Seeds the manifest's shape/error snapshot first so the baked shape-id immediates
+/// resolve. MUST run at a quiescent top-level boundary (fresh shape registry).
+pub(crate) fn compile_replay(m: &super::bake::PreludeManifest) -> FrontResult<Program> {
+    rts_engine::heap::shapes::reset_global_shapes();
+    rts_engine::heap::shapes::seed_global_shapes(m.shapes.clone());
+    rts_engine::heap::shapes::seed_error_classes(m.error_classes.clone());
+    let mut prog = m.program.clone();
+    prog.resident_import_names = prog.funcs.iter().map(|f| f.name.clone()).collect();
+    prog.resident_main = true;
+    super::resident::with_replay_manifest(m.clone(), || compile_program(&prog))
+}
+
 /// Compile a whole program: the user functions `funcs` plus a `main` HirFunc
 /// (synthesized from the top-level statements). Returns the live module + the
 /// `__rtsn_main` entry pointer.
@@ -320,7 +338,9 @@ pub(crate) fn populate_module(
         )?);
     }
     // 4. Build main (the top-level body). `__rtsn_main` is USER code — never
-    //    prelude — so it cannot name the PRIVATE `engine.*` global.
+    //    prelude — so it cannot name the PRIVATE `engine.*` global. SKIPPED for the
+    //    whole-program cache (`resident_main`): main is defined from baked bytes too.
+    if !prog.resident_main {
     pending.push(super::parcompile::build_one(
         &mut *module,
         main_id,
@@ -341,6 +361,7 @@ pub(crate) fn populate_module(
         builtins,
         param_classes,
     )?);
+    }
 
     crate::timing::report("  build fn IR + main", _t_phase);
     let _t_phase = std::time::Instant::now();
@@ -393,7 +414,7 @@ pub(crate) fn populate_module(
     //    user code) instead of being re-compiled. `declared` maps every prelude
     //    fn+thunk name to its FuncId (for reloc remapping); `to_define` is the
     //    subset whose bytes we replay here.
-    if !resident_imports.is_empty() {
+    if !resident_imports.is_empty() || prog.resident_main {
         // `declared`: every prelude symbol NAME → FuncId (for reloc remapping and
         // the define lookup). The `thunks` map is keyed by BASE fn name for regular
         // thunks (symbol `<base>__rtsn_thunk`) and by the new-thunk name for class
@@ -419,6 +440,11 @@ pub(crate) fn populate_module(
                     to_define.insert(nt);
                 }
             }
+        }
+        // WHOLE-PROGRAM CACHE: `__rtsn_main` is also replayed from bytes.
+        if prog.resident_main {
+            declared.insert(main_sig.name.clone(), main_id);
+            to_define.insert(main_sig.name.clone());
         }
         super::resident::replay(module, &declared, &to_define)
             .map_err(|e| Unsupported::new(format!("resident replay: {e}")))?;

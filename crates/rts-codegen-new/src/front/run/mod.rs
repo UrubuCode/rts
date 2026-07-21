@@ -492,6 +492,7 @@ fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<
         builtins,
         param_classes,
         resident_import_names: std::collections::HashSet::new(),
+        resident_main: false,
     };
     // Drop the embedded-prelude functions this program cannot reach BEFORE the
     // Cranelift phase — the ~830 stdlib fns were the dominant FIXED startup cost
@@ -503,7 +504,7 @@ fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<
 /// A lowered program ready to JIT: the user functions (incl. synthesized class
 /// constructors/methods + extracted arrows), the synthesized `__rtsn_main`, the
 /// class table, and the synthesized-fn → owning-class map (for binding `this`).
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct LoweredProgram {
     pub funcs: Vec<HirFunc>,
     pub main: HirFunc,
@@ -567,6 +568,11 @@ pub(crate) struct LoweredProgram {
     /// serialized.
     #[serde(skip)]
     pub resident_import_names: std::collections::HashSet<String>,
+    /// WHOLE-PROGRAM CACHE (extends slice 2): when true, `__rtsn_main` is ALSO
+    /// defined from the baked machine code (not compiled from IR) — the cache
+    /// replays the entire program including its entry. Transient.
+    #[serde(skip)]
+    pub resident_main: bool,
 }
 
 /// Parse `src` and lower it to (user functions, synthesized `__rtsn_main`).
@@ -1002,6 +1008,7 @@ fn build_from_program(
         builtins: std::collections::HashMap::new(),
         param_classes,
         resident_import_names: std::collections::HashSet::new(),
+        resident_main: false,
     })
 }
 
