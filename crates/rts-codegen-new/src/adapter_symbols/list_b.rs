@@ -481,6 +481,7 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_has_own", objops::__rtsadp_has_own as *const u8),
         sym("__rtsadp_prop_is_enumerable", objops::__rtsadp_prop_is_enumerable as *const u8),
         sym("__rtsadp_obj_own_symbols", iterops::__rtsadp_obj_own_symbols as *const u8),
+        sym("__rtsadp_ta_view_base_len", taops::__rtsadp_ta_view_base_len as *const u8),
         sym("__rtsadp_arr_ta_set", taops::__rtsadp_arr_ta_set as *const u8),
         sym("__rtsadp_arr_ta_set1", taops::__rtsadp_arr_ta_set1 as *const u8),
         sym("__rtsadp_arr_subarray", taops::__rtsadp_arr_subarray as *const u8),

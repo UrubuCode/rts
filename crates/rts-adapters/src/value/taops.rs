@@ -151,6 +151,40 @@ pub(crate) fn view_parts(word: u64) -> Option<(u64, i64, i64, i64)> {
     Some((bh, bytes, num(slots[3]), num(slots[4])))
 }
 
+/// Resolve a level-B view to its buffer's RAW BASE POINTER and ELEMENT COUNT,
+/// for the native inline element path (`CRANELIFT_IMPLEMENTATION.md` step 5b).
+///
+/// Writes `(base_ptr, elem_count)` through the out-params and returns nothing.
+/// On any failure (not a view, buffer gone) it writes `(0, 0)`, so the caller's
+/// bounds check (`idx < count`, unsigned) rejects every access and no load ever
+/// dereferences the null base.
+///
+/// ## Why a raw pointer is sound here
+///
+/// `new ArrayBuffer(n)` allocates ONE `Entry::Buffer(Vec<u8>)` that is never
+/// resized (no resizable ArrayBuffer; `slice`/`DataView` build FRESH buffers) and
+/// never moved (the GC is non-moving mark+sweep). So the data pointer is stable
+/// for the buffer's lifetime. The pointer is a DERIVED interior pointer the
+/// conservative scanner does not trace — but the VIEW WORD (a `TAG_OBJECT`
+/// PolyValue) stays live on the caller's stack across the access, which keeps the
+/// buffer reachable; the emitter must not drop the view word once only the base
+/// is used.
+///
+/// The caller passes the ALREADY-DECODED `(buffer_handle, elem_bytes)` from
+/// `view_parts`, so this takes one lock (the buffer) and does no re-decode.
+pub(crate) fn view_base_len(bh: u64, elem_bytes: i64) -> (i64, i64) {
+    if elem_bytes <= 0 {
+        return (0, 0);
+    }
+    rts_engine::heap::handles::with_entry_mut(bh, |e| match e {
+        Some(rts_engine::heap::handles::Entry::Buffer(b)) => {
+            let count = (b.len() as i64) / elem_bytes;
+            (b.as_mut_ptr() as i64, count)
+        }
+        _ => (0, 0),
+    })
+}
+
 /// The element COUNT of a level-B view (`buffer byteLength / elem_bytes`).
 pub(crate) fn view_len(bh: u64, bytes: i64) -> i64 {
     let blen = rts_engine::heap::handles::with_entry(bh, |e| match e {
@@ -263,6 +297,41 @@ ta_ctor!(__RTS_FN_GL_TA_NEW_F32, 4, false, true);
 ta_ctor!(__RTS_FN_GL_TA_NEW_F64, 8, false, true);
 
 /// `ta.set(src, offset?)` — copy `src`'s elements into the array starting at
+/// NATIVE element-path entry point (`CRANELIFT_IMPLEMENTATION.md` step 5b):
+/// resolve a level-B view WORD to its buffer base pointer + element count.
+///
+/// Writes `*out_base` and `*out_count`, and RETURNS the element byte-width (1/2/
+/// 4/8) OR `0` when `view_word` is not a level-B view. The lowering hoists this
+/// ONE call out of an element loop, then emits inline `base + (i << log2)` loads.
+/// On a non-view / dead buffer it writes `(0, 0)` and returns `0`, so the caller
+/// takes its fallback path and never dereferences the null base.
+///
+/// SAFETY of the raw base pointer: see [`view_base_len`]. The `out_*` pointers
+/// are stack slots the emitted code owns.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_ta_view_base_len(
+    view_word: u64,
+    out_base: *mut i64,
+    out_count: *mut i64,
+) -> i64 {
+    let (bh, bytes, _signed, _float) = match view_parts(view_word) {
+        Some(p) => p,
+        None => {
+            unsafe {
+                *out_base = 0;
+                *out_count = 0;
+            }
+            return 0;
+        }
+    };
+    let (base, count) = view_base_len(bh, bytes);
+    unsafe {
+        *out_base = base;
+        *out_count = count;
+    }
+    if base == 0 { 0 } else { bytes }
+}
+
 /// `offset` (default 0). Word-level copy (the level-A Vec backing does not
 /// re-wrap; the tests write in-range values). Returns `undefined`.
 #[unsafe(no_mangle)]
