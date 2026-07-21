@@ -460,6 +460,38 @@ Two candidate causes, neither confirmed:
 hypotheses in this campaign were implemented before being measured and all three
 were wrong; do not add a fourth.
 
+### MEASURED (2026-07-21) — it is prelude compilation, NOT DLL loading
+
+`RTS_TIMING=1 rts run` on a trivial `console.log("hi")` (median of 2):
+
+| phase | ms |
+|---|---|
+| prelude parse+lower | **50.4** |
+| populate_module (clif) | **38.9** |
+| machine-compile (parallel) | 20.8 |
+| build fn IR + main | 13.4 |
+| merge programs | 11.1 |
+| prune prelude | 8.9 |
+| user lower | 0.2 |
+| (jit symbol harvest/install, make_module, finalize) | < 2 total |
+
+The whole ~140 ms is spent COMPILING THE 251 KB PRELUDE — parsed, lowered,
+pruned, and machine-compiled on EVERY run, for a program that does one
+`console.log`. `user lower` is 0.2 ms. **The owner's DLL hypothesis is ruled
+out**: DLL/process startup is already paid and does not appear here; the cost is
+recompiling a FIXED input every run.
+
+So the fix is the `.o`/`.ometa`-style prelude cache (the very first request of
+this campaign): compile the prelude ONCE and reuse it. The ~90 ms of
+prelude-specific work (parse+lower + its share of populate/machine-compile) is
+what a cache removes; `user lower` + the user program's own compile is the
+irreducible remainder (a few ms for a small program).
+
+**Open design decision before implementing (the user's call):** what to cache —
+serialized Cranelift IR (re-run only machine-compile), or serialized machine code
++ relocations (skip Cranelift entirely, the bigger win but needs a relocatable
+image + symbol re-binding per run). And where/how to invalidate (prelude hash).
+
 ---
 
 ## Ordering
