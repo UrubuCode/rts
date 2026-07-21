@@ -552,6 +552,49 @@ scope here.
   handles). Unproven, to validate in commit-1: cross-process baked prelude end to
   end, GC stack-map coverage for resident frames, the exact ms saved, reified
   prelude fn values + shape seeding with resident code.
+
+  **PROGRESS (in flight).** The ahead-of-time + build-link foundation is DONE and
+  validated; the run-path CONSUMER remains.
+  - *Commit 1 (`cdd5fbbe`) + hardening (`45e94b32`)* — `rts-prelude-baker`
+    workspace bin + `front::run::bake::bake_prelude()`: lowers the WHOLE prelude
+    (unpruned), emits `prelude.o` with `Linkage::Export` (a `BAKE_EXPORT`
+    thread-local `populate_module`/`thunk` consult) + a `PreludeManifest` (whole
+    lowered prelude, shape snapshot, error-class snapshot, exported-symbol set,
+    gcell count, prelude-text hash). Prelude `__rtsn_main` → `__rtsn_prelude_main`
+    (no collision with the user main). A `#[ignore]` determinism test proves the
+    id-bearing data (shapes, gcell ids, symbols) is byte-identical across bakes.
+    Bakes **1735 fns / 82 shapes / 8 gcells** → ~1.4 MB object. Adversarially
+    reviewed (export set exact, main rename safe, privacy gate matches
+    `merge_programs`, `Linkage::merge(Export,Local)=Export` relied on + pinned in a
+    comment); thread-locals Drop-guarded so a mid-bake panic can't leak the flag.
+  - *Commit 2a (`bf2afd37`)* — the baker also emits `prelude_symbols.rs`, a
+    `@generated` `prelude_symbols() -> Vec<(&str,*const u8)>` (via `#[link_name]`
+    aliases so any symbol name stays a valid ident), the resident address table
+    compiled into `rts.exe`.
+  - *Commit 2b (`dfacb573`)* — OPT-IN build wiring, guarded so the DEFAULT build is
+    unchanged. `RTS_PRELUDE_DIR` → `build.rs` links `prelude.o` into `rts.exe`
+    (`cargo:rustc-link-arg`; its undefined `__RTS_*`/`__rtsadp_*` resolve against
+    rts-runtime in the SAME link — ONE runtime instance, the coherence a prelude
+    DLL could NOT give: a DLL bundles its own runtime copy → two heaps/handle
+    tables → incoherent) and `include!`s the table + manifest; `main` installs both
+    via `rts_cli::install_resident_prelude` → `resident::install`. Unset/absent →
+    inert stub (`prelude_symbols()` empty) → the run path keeps the fallback.
+    **Validated:** default `cargo build` green + `rts run` unchanged; a resident
+    build LINKS (all 1735 symbols resolve, rts.exe +1.95 MB) and RUNS correctly
+    (resident symbols linked-but-unused — the consumer is not wired yet).
+  - *Commit 3 (REMAINING — the hard part)* — the run-path CONSUMER. When
+    `resident::is_installed()` AND `manifest.prelude_hash == key(includes_prelude())`
+    AND top-level (`global_shape_count()==0`): seed shapes + error classes from the
+    manifest, register `resident::symbols()` on the `JITBuilder`, build ONLY the
+    user program with the prelude's ambient class/fn metadata, but declare every
+    referenced prelude fn `Linkage::Import` (resolving to the resident address)
+    using the manifest's prelude `FnSig`s — NOT compiling any prelude body/thunk —
+    offset user gcells by `manifest.gcell_count`, and call resident
+    `__rtsn_prelude_main` before the user main. Every path falls back on hash
+    mismatch / missing sig / nested compile. Still to validate: GC stack-map
+    coverage for the resident frames, reified prelude fn values against resident
+    code, and the actual **~79 → ~23 ms**. This is the big, SIGILL-sensitive slice;
+    it is fully gated (the default stub build is untouched regardless).
 - **Slice 3/4** — drop pruning + trim merge from the run path once the prelude is
   fully resident.
 
