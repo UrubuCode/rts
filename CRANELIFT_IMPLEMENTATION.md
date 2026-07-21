@@ -511,7 +511,7 @@ not be used to prioritise work.
 | 3 | TLS + inline `random_f64` | medium | call is only ~1 ns; ceiling ~7 ms/10M | ⛔ blocked (JIT has no TLS) |
 | 4 | atomics: mutex off the fast path | medium | **4 threads 1034 → 227 ms (4.6x)** | ✅ done (not via IR) |
 | 5a | level-B allocation storm (view_parts + write index) | medium | **write 9.4×, bench 6× (7.5→1.26 s)** | ✅ done |
-| 5b | native `uload8`/`istore8` against buffer base | high | still ~10× off Node (generic dispatch) | next |
+| 5b | native `uload8`/`istore8` + hoisted base | high | **bench 1.26 s → 319 ms; 7.5 s → 319 ms overall (~23×), ~2.5× off Node** | ✅ done |
 | 6 | SIMD bulk ops | high | — | not started |
 | 7 | stack slots (escape analysis) | very high | — | not started |
 | 8 | `Intrinsic` enum → per-member `NativeEmit` | medium | enum DELETED, all 20 ops on specs | ✅ done |
@@ -552,17 +552,29 @@ Two methodology notes from this step, worth keeping:
   move end-to-end" was itself a stale-archive artifact: on JIT the same fix moves
   end-to-end 6×.
 
-### Step 5b — native element load/store (NOT started)
+### Step 5b — native element load/store (DONE: 491ab47e / 36993e7f / bc9ac26f)
 
-Still ~10× off Node: each access goes through the generic `obj_get`/`obj_set`
-dispatch with its shard locks. The native design: a view is `(base, len, kind)`
-with `kind` a compile-time constant, and `a[i]` lowers via a member `NativeEmit`
-(step 8) to a bounds check plus `uload8`/`istore8` against the buffer base — the
-`__ta_*` keyed object stops existing. `ArrayBufferData::data_ptr()` is a stable
-base, and a copying nursery would NOT invalidate it (the bytes are a separate
-`Box<[u8]>` allocation; moving the entry does not move them). The real guards are
-`detached`, resizable buffers, and f64→index coercion + element wrap — the agent
-report enumerates them against the real field names.
+Landed in slices, each measured. The mechanism is NOT `NativeEmit` (that is for
+member calls; `a[i]` is index lowering) — it is a dedicated fast-path arm in
+`lower_index`/`lower_index_assign` next to the `HeapShape::Array` arm.
 
-Separate open bug found here: the `.buffer` accessor on a level-B view does not
-return the shared ArrayBuffer handle. Confirmed pre-existing on HEAD.
+- **Slice 1** — `__rtsadp_ta_view_base_len(view) -> (base_ptr, count)`, the raw
+  resolver, with the pointer-soundness argument (buffer never resized/moved).
+- **Slices 2–3** — a new `HeapShape::TypedArrayView { elem_log2, signed, float }`
+  proven at the ctor site (where `is_buffer_view` was already detected), and
+  `front/run/ta_native.rs` emitting a bounds check + `base + (i << log2)` +
+  width/kind load/store for all 8 kinds. **bench 1.26 s → 881 ms.**
+- **Slice 5 (hoist)** — base+count resolved ONCE at the ctor site into two
+  Cranelift Variables, read per access with `use_var`. Removed the residual
+  per-access lock; the big win: **bench 881 → 319 ms.**
+
+**Overall step-5b: 7.5 s → 319 ms (~23×), from ~58× off Node down to ~2.5×** on
+wall clock (most of the residual is process startup, not the loop). Correctness
+byte-identical to Node across `tests/typedarray_view_element_ops.test.ts`
+(cross-view sharing, wrap, widths, OOB, interleaved-views cache).
+
+Deferred: views received as a param / call return / after reassignment stay on
+the dynamic path (never proven a `TypedArrayView`). Separate pre-existing bug
+(confirmed on HEAD): the `.buffer` accessor on a level-B view returns the wrong
+handle.
+
