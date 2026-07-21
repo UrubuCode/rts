@@ -522,10 +522,15 @@ scope here.
 ### Slices (each measured, each behind a fallback)
 
 - **Slice 1 — cache the lowered prelude METADATA + HIR, still machine-compile it.**
-  serde-derive `ClassDesc`/`ClassTable` and the HIR; serialize the prelude's
-  lowered program + the shape-registry snapshot; on `rts run`, deserialize instead
-  of `build_program(prelude)` and REPLAY the shape registry by exact id. Kills the
-  47 ms parse+lower. **123 → ~78 ms.** Bounded risk, no new link step.
+  ✅ DONE + ON by default (`73623f0f`). serde on the HIR / `ClassTable` /
+  `LoweredProgram`; a shape-registry snapshot/seed API (`d48318e3`); a disk cache
+  in `prelude_cache.rs` keyed by prelude-text hash, hooked in
+  `build_program_for_prelude`. Kills the 47 ms parse+lower (→ ~4 ms deserialize).
+  **Measured 123 → 79 ms (1.56×).** One correctness bug found + fixed: the cache
+  seeds the shape registry, which is illegal for a NESTED compile
+  (`new Function`/eval) that runs while the outer program's shapes are live — so
+  the cache is gated to the TOP-LEVEL compile (`global_shape_count()==0`) and a
+  nested compile re-lowers as before. Full suite 723/8 = baseline under the cache.
 - **Slice 2 — resident prelude machine code.** A `rts-prelude-baker` workspace bin
   compiles the prelude alone to `prelude.o` (ObjectModule, `aot_str` ON,
   `Linkage::Export`), linked into `rts.exe`; its fns register in
