@@ -506,39 +506,59 @@ not be used to prioritise work.
 | 2 | `switch` → jump table | low | **351 → 182 ms (1.93×)** | ✅ done |
 | 3 | TLS + inline `random_f64` | medium | call is only ~1 ns; ceiling ~7 ms/10M | ⛔ blocked (JIT has no TLS) |
 | 4 | atomics: mutex off the fast path | medium | **4 threads 1034 → 227 ms (4.6x)** | ✅ done (not via IR) |
-| 5 | TypedArrays on a real buffer | high | level-B view is ~3.7 µs/element | ⚠️ see note |
+| 5a | level-B allocation storm (view_parts + write index) | medium | **write 9.4×, bench 6× (7.5→1.26 s)** | ✅ done |
+| 5b | native `uload8`/`istore8` against buffer base | high | still ~10× off Node (generic dispatch) | next |
 | 6 | SIMD bulk ops | high | — | not started |
 | 7 | stack slots (escape analysis) | very high | — | not started |
 | 8 | `Intrinsic` enum → per-member `NativeEmit` | medium | same codegen, no engine arm | ✅ mechanism done, drain pending |
 | 9 | userland arithmetic via emitters (`%`, int round-trips) | medium | userland xorshift 194 ms vs 31 ms call | next |
 | 10 | the JIT's fixed ~185 ms | medium | constant across all 5 benches | **first, if the goal is the JIT gap** |
 
-### Note on step 5 (partial, unlanded)
+### Step 5a — the allocation storm (DONE, commit 4da2ae6d)
 
-Level-B typed arrays (`new Uint8Array(new ArrayBuffer(n))` — the standard idiom)
-cost **~3.7 µs per element access**: 7.5 s JIT / 99 s AOT on a 20.5M-access loop
-where Node takes 84 ms. Root cause located by instrumentation, not by guessing:
-`view_parts` runs about twice per access and asked for its four `__ta_*` fields
-BY NAME, and every `obj_get` resolves its key through `key_text`, which allocates
-an owned Rust `String` from a GC handle under the shard mutex.
+Level-B typed arrays (`new Uint8Array(new ArrayBuffer(n))`, the standard idiom)
+cost **~3.7 µs per element access**. An agent investigation located the cause by
+IR + code reading + a GC-disable probe:
 
-A positional fix (read the fixed slots, validate the shape id — the hidden-class
-contract) measured **2654 → 157 ns at the runtime entry point**, but end-to-end
-barely moved, and the unit suite showed a possible regression. **It is NOT
-landed** (kept in `git stash`, `step5-wip`).
+- `view_parts` ran on every `view[i]` and asked for its four `__ta_*` fields BY
+  NAME through full `__rtsadp_obj_get`. Each name went through `intern_poly` →
+  `STRING_NEW`, a NON-deduped heap allocation — four fresh string handles per
+  access — and each `obj_get` relocked the shard and re-cloned the shape's key
+  vector. ~50 mutex locks + ~12 allocations to read four integers that sit in
+  fixed slots. The string flood pushed the handle table past its GC floor, so
+  mark+sweep then ran every 256 allocations — paid twice. **A read-only loop with
+  GC disabled aborted at 5,000,000 live handles.**
+- The WRITE path also did `key_text(key).parse::<i64>()` — stringify a numeric
+  index and reparse it, per write.
 
-Two things learned there worth keeping:
+Fixed both allocation-free: `view_parts` reads the five fixed slots under one
+`with_entry` and validates slot 0 against the interned view shape (the
+hidden-class contract); the write arm takes the index off the key PolyValue via
+the shared `dyndispatch::array_index_key`. Measured (JIT): writes 6.09 → 0.65 s
+(9.4×), the 20.5M bench 7.5 → 1.26 s (6×), and the GC-disabled loop now runs
+billions of accesses without growing the table.
+
+Two methodology notes from this step, worth keeping:
 
 - **AOT measurements need `cargo build -p rts-runtime` first.** AOT links the
-  prebuilt runtime archive; three "no movement" measurements in this campaign
-  were invalid because of a stale archive.
-- **JIT and AOT diverge 13× on this workload** (7.5 s vs 99 s) for the same
-  program. That is a separate bug, not an optimisation.
+  prebuilt runtime archive; several "no movement" measurements earlier in this
+  campaign were invalid because of a stale archive. Measure on JIT (live code)
+  unless you have just rebuilt the archive.
+- The earlier claim that the positional fix "measured 2654→157 ns but did not
+  move end-to-end" was itself a stale-archive artifact: on JIT the same fix moves
+  end-to-end 6×.
 
-The real fix is the native design: a view becomes `(base, len, kind)` with
-`kind` a compile-time constant, and `a[i]` lowers to a bounds check plus
-`uload8`/`istore8` — the `__ta_*` keyed object stops existing. `ArrayBuffer`
-already exposes a stable `data_ptr()`, and a copying nursery would NOT invalidate
-it (the payload is a separate `Box<[u8]>`/`Vec<u8>` allocation; moving the entry
-does not move the bytes). The real guards are `detached` and resizable buffers,
-not the GC.
+### Step 5b — native element load/store (NOT started)
+
+Still ~10× off Node: each access goes through the generic `obj_get`/`obj_set`
+dispatch with its shard locks. The native design: a view is `(base, len, kind)`
+with `kind` a compile-time constant, and `a[i]` lowers via a member `NativeEmit`
+(step 8) to a bounds check plus `uload8`/`istore8` against the buffer base — the
+`__ta_*` keyed object stops existing. `ArrayBufferData::data_ptr()` is a stable
+base, and a copying nursery would NOT invalidate it (the bytes are a separate
+`Box<[u8]>` allocation; moving the entry does not move them). The real guards are
+`detached`, resizable buffers, and f64→index coercion + element wrap — the agent
+report enumerates them against the real field names.
+
+Separate open bug found here: the `.buffer` accessor on a level-B view does not
+return the shared ArrayBuffer handle. Confirmed pre-existing on HEAD.
