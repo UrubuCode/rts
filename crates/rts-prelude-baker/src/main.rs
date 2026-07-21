@@ -38,6 +38,13 @@ fn main() -> Result<()> {
     std::fs::write(&manifest_path, &manifest_bytes)
         .with_context(|| format!("write {}", manifest_path.display()))?;
 
+    // The `@generated` address table compiled into `rts.exe` next to the linked-in
+    // object, so the run path can register every resident prelude symbol on the JIT.
+    let symbols_rs = baked.generated_symbol_table_rs();
+    let symbols_path = out_dir.join("prelude_symbols.rs");
+    std::fs::write(&symbols_path, symbols_rs.as_bytes())
+        .with_context(|| format!("write {}", symbols_path.display()))?;
+
     let (fns, shapes, gcells) = baked.summary();
     eprintln!(
         "baked prelude: {fns} fns exported, {shapes} shapes, {gcells} gcells → {} ({} bytes obj, {} bytes manifest)",
