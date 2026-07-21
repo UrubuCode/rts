@@ -130,11 +130,18 @@ pub fn seed_global_shapes(snapshot: Vec<Vec<String>>) {
         "seed_global_shapes on a non-empty registry ({} shapes) — reset first",
         reg.keys.len()
     );
-    reg.by_keys = snapshot
-        .iter()
-        .enumerate()
-        .map(|(i, k)| (k.clone(), GLOBAL_SHAPE_BASE + i as GlobalShapeId))
-        .collect();
+    // FIRST-wins dedup, matching `intern_class_shape`'s `by_keys.entry().or_insert`
+    // and `intern_global_shape`'s "return existing" — two class shapes can share a
+    // key sequence (non-deduped ids), and a later `intern_global_shape` of that key
+    // must resolve to the SAME (first) id a fresh build would. A last-wins rebuild
+    // would return a different id → silent divergence from the uncached path.
+    let mut by_keys = HashMap::with_capacity(snapshot.len());
+    for (i, k) in snapshot.iter().enumerate() {
+        by_keys
+            .entry(k.clone())
+            .or_insert(GLOBAL_SHAPE_BASE + i as GlobalShapeId);
+    }
+    reg.by_keys = by_keys;
     reg.keys = snapshot;
 }
 

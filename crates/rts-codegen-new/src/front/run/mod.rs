@@ -63,6 +63,7 @@ mod obj;
 mod objstatic;
 mod optchain_lower;
 mod parcompile;
+mod prelude_cache;
 mod prune;
 mod regex;
 pub(crate) mod registry;
@@ -146,7 +147,9 @@ fn build_with_includes(src: &str) -> FrontResult<LoweredProgram> {
     if inc.is_empty() {
         build_program(src, "")
     } else {
-        let prelude = build_program(&inc, PRELUDE_ARROW_NS)?;
+        // The prelude cache lives in `build_program_for_prelude`, so both the disk
+        // and string paths share it.
+        let prelude = build_program_for_prelude(&inc)?;
         let ambient_fns = prelude_fn_names(&prelude);
         let user = build_program_with_ambient(src, &prelude.classes, &ambient_fns)?;
         merge_programs(prelude, user)
@@ -208,7 +211,18 @@ fn render_source_core(prog: &LoweredProgram) -> FrontResult<String> {
 /// embedded stdlib includes ahead of a multi-file user program. A thin alias so
 /// the private `build_program` stays the single post-parse entry.
 fn build_program_for_prelude(src: &str) -> FrontResult<LoweredProgram> {
-    build_program(src, PRELUDE_ARROW_NS)
+    // Step 10 slice 1: reuse the LOWERED prelude from the disk cache when the
+    // prelude text is unchanged, skipping ~47 ms of parse+lower. Both the disk
+    // path (`module_entry::build_path`) and the string path go through here.
+    // A hit re-seeds the shape registry (inside `prelude_cache::load`) so the
+    // cached class shape ids resolve; a miss lowers normally and writes the cache.
+    // Behaviour-neutral: the cached program equals a fresh lower.
+    if let Some(p) = prelude_cache::load(src) {
+        return Ok(p);
+    }
+    let p = build_program(src, PRELUDE_ARROW_NS)?;
+    prelude_cache::store(src, &p);
+    Ok(p)
 }
 
 /// [`build_program`] with AMBIENT (prelude) classes available for `extends`
