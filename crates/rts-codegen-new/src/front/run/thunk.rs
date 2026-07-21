@@ -61,10 +61,20 @@ pub fn uniform_signature(module: &dyn Module) -> Signature {
 /// its [`FuncId`]. The thunk name is `<base>__rtsn_thunk`. Declared `Local` so it
 /// lives in the same module and `func_addr` can take its relocatable address.
 pub fn declare_thunk(module: &mut dyn Module, base_name: &str) -> FrontResult<FuncId> {
+    declare_thunk_linkage(module, base_name, super::bake::user_linkage())
+}
+
+/// [`declare_thunk`] with an explicit linkage — `Import` for a RESIDENT prelude
+/// fn whose thunk is the linked-in baked code (slice 2), `Local`/`Export` otherwise.
+pub fn declare_thunk_linkage(
+    module: &mut dyn Module,
+    base_name: &str,
+    linkage: cranelift_module::Linkage,
+) -> FrontResult<FuncId> {
     let sig = uniform_signature(module);
     let name = thunk_name(base_name);
     module
-        .declare_function(&name, super::bake::user_linkage(), &sig)
+        .declare_function(&name, linkage, &sig)
         .map_err(|e| Unsupported::new(format!("declare thunk `{name}`: {e}")))
 }
 
@@ -283,10 +293,20 @@ fn build_thunk_body(
 /// `reify_function` `has_this` bail: the ctor's `this` is synthesized HERE (the
 /// allocation), never filled from a positional arg.
 pub fn declare_new_thunk(module: &mut dyn Module, class_name: &str) -> FrontResult<FuncId> {
+    declare_new_thunk_linkage(module, class_name, super::bake::user_linkage())
+}
+
+/// [`declare_new_thunk`] with an explicit linkage — `Import` for a RESIDENT prelude
+/// class whose new-thunk is the linked-in baked code (slice 2).
+pub fn declare_new_thunk_linkage(
+    module: &mut dyn Module,
+    class_name: &str,
+    linkage: cranelift_module::Linkage,
+) -> FrontResult<FuncId> {
     let sig = uniform_signature(module);
     let name = new_thunk_name(class_name);
     module
-        .declare_function(&name, super::bake::user_linkage(), &sig)
+        .declare_function(&name, linkage, &sig)
         .map_err(|e| Unsupported::new(format!("declare new-thunk `{name}`: {e}")))
 }
 

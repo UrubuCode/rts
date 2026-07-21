@@ -93,6 +93,12 @@ pub(super) fn make_module() -> JITModule {
         for sym in syms {
             builder.symbol(sym.name, sym.ptr);
         }
+        // RESIDENT prelude (slice 2): register every linked-in baked prelude symbol
+        // so a user module's `Import` of a prelude fn/thunk resolves to the resident
+        // address. Empty (no-op) unless a baked prelude was installed at startup.
+        for (name, ptr) in super::resident::symbols() {
+            builder.symbol(name, ptr);
+        }
     });
     JITModule::new(builder)
 }
@@ -157,6 +163,19 @@ pub(crate) fn populate_module(
     let prelude_fns = &prog.prelude_fns;
     let builtins = &prog.builtins;
     let param_classes = &prog.param_classes;
+    // RESIDENT prelude (slice 2): names whose BODY is the linked-in baked object —
+    // declared `Import`, no machine code emitted here (the ~60 ms win). They stay in
+    // `funcs` so their signature is computed by the SAME pipeline the bake used
+    // (exact ABI/callconv match); only the body/thunk emission is skipped. Empty on
+    // every non-resident build (`Linkage::Local` for everything, exactly as before).
+    let resident_imports = &prog.resident_import_names;
+    let linkage_of = |name: &str| -> Linkage {
+        if resident_imports.contains(name) {
+            Linkage::Import
+        } else {
+            super::bake::user_linkage()
+        }
+    };
 
     let _t_phase = std::time::Instant::now();
     // 1. Freeze every signature (user funcs by their HIR types; main is void).
@@ -233,16 +252,15 @@ pub(crate) fn populate_module(
     let main_sig = FnSig::main_sig();
 
     // 2. Declare every function up front so cross-calls resolve to a FuncId.
-    //    Linkage is `Local` for the ordinary JIT/AOT build; when BAKING the
-    //    resident prelude (slice 2), every prelude fn is `Export`ed so a
-    //    separately-linked user module can `Import` it (`bake::user_linkage`).
-    let user_linkage = super::bake::user_linkage();
+    //    Linkage is `Local` for the ordinary JIT/AOT build; `Export` when BAKING the
+    //    resident prelude (slice 2, `bake::user_linkage`); `Import` for a RESIDENT
+    //    prelude fn whose body is the linked-in baked object (`linkage_of`).
     let mut ids = HashMap::new();
     for f in funcs {
         let sig = &sigs[&f.name];
         let cl_sig = sig.to_cranelift(&*module);
         let id = module
-            .declare_function(&f.name, user_linkage, &cl_sig)
+            .declare_function(&f.name, linkage_of(&f.name), &cl_sig)
             .map_err(|e| Unsupported::new(format!("declare `{}`: {e}", f.name)))?;
         ids.insert(f.name.clone(), id);
     }
@@ -254,17 +272,19 @@ pub(crate) fn populate_module(
     } else {
         main_sig.name.as_str()
     };
+    // `main` is USER code (never a resident import), so it keeps `user_linkage`.
     let main_id = module
-        .declare_function(main_symbol, user_linkage, &main_cl_sig)
+        .declare_function(main_symbol, super::bake::user_linkage(), &main_cl_sig)
         .map_err(|e| Unsupported::new(format!("declare main: {e}")))?;
 
     // 2b. Declare a uniform-ABI THUNK for every user function (P4.6). A function
     //     referenced as a VALUE reifies via `func_addr` of its thunk; declaring
     //     one per function keeps reify a pure address lookup (no second pass to
-    //     decide which are values). `main` is never a value, so it gets none.
+    //     decide which are values). `main` is never a value, so it gets none. A
+    //     RESIDENT prelude fn's thunk is the linked-in baked code → declared Import.
     let mut thunks: HashMap<String, FuncId> = HashMap::new();
     for f in funcs {
-        let id = thunk::declare_thunk(&mut *module, &f.name)?;
+        let id = thunk::declare_thunk_linkage(&mut *module, &f.name, linkage_of(&f.name))?;
         thunks.insert(f.name.clone(), id);
     }
     // 2c. Declare a per-class NEW-THUNK (`<class>__rtsn_newthunk`) for every user
@@ -275,7 +295,9 @@ pub(crate) fn populate_module(
     //     Keyed in the same `thunks` map under the distinct `__rtsn_newthunk` name.
     for desc in classes.iter() {
         if ids.contains_key(&desc.ctor) {
-            let id = thunk::declare_new_thunk(&mut *module, &desc.name)?;
+            // A RESIDENT prelude class's new-thunk is the linked-in baked code.
+            let lk = linkage_of(&desc.ctor);
+            let id = thunk::declare_new_thunk_linkage(&mut *module, &desc.name, lk)?;
             thunks.insert(thunk::new_thunk_name(&desc.name), id);
         }
     }
@@ -284,9 +306,13 @@ pub(crate) fn populate_module(
     let _t_phase = std::time::Instant::now();
     // 3. Build the IR of each user function body. Lowering needs `&mut Module`,
     //    so it stays serial; the machine-compile of everything collected here
-    //    runs across cores in step 5 (see `parcompile`).
+    //    runs across cores in step 5 (see `parcompile`). A RESIDENT prelude fn
+    //    (`resident_imports`) is SKIPPED — its body is the linked-in baked object.
     let mut pending: Vec<super::parcompile::Pending> = Vec::with_capacity(funcs.len() + 1);
     for f in funcs {
+        if resident_imports.contains(&f.name) {
+            continue;
+        }
         let sig = sigs[&f.name].clone();
         let this_class = fn_this_class.get(&f.name).map(String::as_str);
         // PRIVACY GATE: a prelude-origin function may name the PRIVATE `engine.*`
@@ -340,8 +366,12 @@ pub(crate) fn populate_module(
     let _t_phase = std::time::Instant::now();
     // 4b. Define every thunk body (bridges the uniform ABI to the real signature).
     //     A CLOSURE thunk reads its leading `capture_count` real params from the
-    //     env array; a non-capturing thunk has `capture_count = 0`.
+    //     env array; a non-capturing thunk has `capture_count = 0`. A RESIDENT
+    //     prelude fn's thunk body is the linked-in baked object — skip it.
     for f in funcs {
+        if resident_imports.contains(&f.name) {
+            continue;
+        }
         let capture_count = captures.get(&f.name).map(Vec::len).unwrap_or(0);
         pending.push(thunk::build_thunk(
             &mut *module,
@@ -355,6 +385,10 @@ pub(crate) fn populate_module(
     //     return the instance word (the constructor's `this` is synthesized in the
     //     allocation, sidestepping the `reify_function` `has_this` bail).
     for desc in classes.iter() {
+        // A RESIDENT prelude class's new-thunk body is the linked-in baked object.
+        if resident_imports.contains(&desc.ctor) {
+            continue;
+        }
         if let Some(&ctor_id) = ids.get(&desc.ctor) {
             pending.push(thunk::build_new_thunk(
                 &mut *module,

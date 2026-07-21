@@ -582,19 +582,71 @@ scope here.
     **Validated:** default `cargo build` green + `rts run` unchanged; a resident
     build LINKS (all 1735 symbols resolve, rts.exe +1.95 MB) and RUNS correctly
     (resident symbols linked-but-unused — the consumer is not wired yet).
-  - *Commit 3 (REMAINING — the hard part)* — the run-path CONSUMER. When
-    `resident::is_installed()` AND `manifest.prelude_hash == key(includes_prelude())`
-    AND top-level (`global_shape_count()==0`): seed shapes + error classes from the
-    manifest, register `resident::symbols()` on the `JITBuilder`, build ONLY the
-    user program with the prelude's ambient class/fn metadata, but declare every
-    referenced prelude fn `Linkage::Import` (resolving to the resident address)
-    using the manifest's prelude `FnSig`s — NOT compiling any prelude body/thunk —
-    offset user gcells by `manifest.gcell_count`, and call resident
-    `__rtsn_prelude_main` before the user main. Every path falls back on hash
-    mismatch / missing sig / nested compile. Still to validate: GC stack-map
-    coverage for the resident frames, reified prelude fn values against resident
-    code, and the actual **~79 → ~23 ms**. This is the big, SIGILL-sensitive slice;
-    it is fully gated (the default stub build is untouched regardless).
+  - *Commit 3 (CONSUMER — engagement PROVEN, execution BLOCKED on cranelift-jit)* —
+    the run-path consumer `mark_resident_imports` (hooked into BOTH the string
+    path `build_with_includes` and the disk path `module_entry::build_path`). When
+    a baked prelude is installed, its `prelude_hash` matches the current prelude,
+    and every prelude gcell id equals the baked immediate, it declares the
+    prelude-origin functions `Linkage::Import` (`linkage_of` in `populate_module`;
+    `declare_thunk_linkage`/`declare_new_thunk_linkage` for their thunks) and SKIPS
+    building their bodies — the prelude fns stay in `funcs` so their signatures are
+    computed by the IDENTICAL pipeline the bake used (exact ABI/callconv match, no
+    re-derivation). Shape ids already line up via the slice-1 cache; gcell ids are
+    ASSERTED equal (fall back on mismatch — proven equal in-process by
+    `resident_gcell_ids_match_merged`). The prelude's few init statements still
+    compile into the user `__rtsn_main` (so no `__rtsn_prelude_main` call and no
+    gcell offset are needed — the merge numbers prelude gcells first).
+
+    **MEASURED to ENGAGE:** on a real `rts run` of a prelude-heavy smoke (console /
+    array map+filter / `class E extends Error` / Map / string / Object.keys),
+    `resident: prelude fns imported 303`, and machine-compile dropped from **634 →
+    8 functions** (only user code + thunks compile). The gate logic is verified
+    in-process (`resident_gate_engages_in_process`).
+
+    **The LINKER delivery (2a/2b) was the WRONG mechanism — superseded.** Linking
+    `prelude.o` into `rts.exe` and calling it from JIT code makes the call FAR (the
+    resident image is >2 GB from the freshly-mmap'd JIT arena on Windows x64), which
+    overflows cranelift-jit's `X86CallPCRel4` (±2 GB) — DETERMINISTIC panic. And
+    cranelift-jit 0.131 offers no escape: it rejects `is_pic` (the GOT route), and
+    its `JITMemoryProvider` can't be implemented externally (`JITMemoryKind` is
+    unexported), so no near-±2 GB allocator can be supplied. Fighting the far call
+    is the wrong path.
+
+    **CORRECT mechanism (owner-directed 2026-07-21): `define_function_bytes` into
+    the JIT arena.** Don't link the prelude into `rts.exe` at all — load its baked
+    machine code into the JIT's OWN arena, right next to the user code, so every
+    call is NEAR (prelude→prelude and user→prelude in the same arena; prelude→
+    runtime `__RTS_FN_*` is the exact same situation as today's working user→runtime
+    call). The capture already EXISTS: `parcompile::compile_and_define` compiles
+    each fn to `{id, name, alignment, bytes, relocs: Vec<ModuleReloc>}` and calls
+    `Module::define_function_bytes` — that is precisely the replay primitive. This is
+    "path A", but the spike rejected it for the WRONG reason: it feared non-
+    deterministic FuncIds from `prune`, which only applies to caching the USER
+    program. The PRELUDE is a FIXED input — bake it WHOLE (unpruned) and its fn set +
+    inter-fn relocs are stable; capture each reloc by SYMBOLIC NAME
+    (`ModuleRelocTarget::User{index}` → the callee's linkage name via the module's
+    declarations; `LibCall`/data by name) and replay deterministically.
+    Implementation:
+    - *Bake* — lower the whole prelude, compile each fn (+ its string DATA objects),
+      capture `{name, alignment, bytes, [symbolic relocs]}` + the data blobs. NO
+      `prelude.o`, NO generated symbol table, NO `build.rs` link, NO `windows-sys`
+      (delete 2a/2b machinery).
+    - *Manifest* — carries the baked fns/data + the existing shape/error/gcell/hash
+      metadata; embedded (`include_bytes!`) or cached, no linking.
+    - *Consumer* — declare the prelude fns Local (fixed order), declare their
+      referenced runtime externs Import (already in `jit_symbols`), `define_data`
+      the string blobs, then `define_function_bytes` each prelude fn with relocs
+      remapped name→run-FuncId. User fns compile fresh as today. Result: prelude
+      machine-compile skipped (the ~60 ms win) with NO far call.
+    - Still to validate after: GC stack-map coverage for the byte-defined frames,
+      reified prelude fn values, and the **~79 → ~23 ms**.
+
+    **Current state:** the consumer that ENGAGES (634→8 fns) is implemented and
+    gated on `RTS_RESIDENT=1` (proven to import, blocked only by the wrong far-call
+    delivery); a resident-linked binary defaults to the WORKING fallback. The next
+    commit rips out the linker delivery and replaces it with the
+    `define_function_bytes` replay above. Fully gated; the default build is
+    unaffected throughout.
 - **Slice 3/4** — drop pruning + trim merge from the run path once the prelude is
   fully resident.
 

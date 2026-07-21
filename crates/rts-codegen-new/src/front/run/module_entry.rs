@@ -177,7 +177,16 @@ fn build_path(entry: &Path) -> FrontResult<super::LoweredProgram> {
 
     match prelude {
         None => Ok(user),
-        Some(prelude) => crate::timing::phase("merge programs", || merge_programs(prelude, user)),
+        Some(prelude) => {
+            let mut merged =
+                crate::timing::phase("merge programs", || merge_programs(prelude, user))?;
+            // RESIDENT prelude (slice 2): declare the prelude fns `Import` (resolving
+            // to the linked-in baked object) when a consistent baked prelude is
+            // installed — the disk path's twin of the string path's hook in
+            // `build_with_includes`. No-op (fallback) on any non-resident build.
+            super::mark_resident_imports(&mut merged, &inc);
+            Ok(merged)
+        }
     }
 }
 

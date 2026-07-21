@@ -313,6 +313,68 @@ mod tests {
             "gcell name→id map (baked immediates)"
         );
         assert_eq!(ma.export_symbols, mb.export_symbols, "exported symbol set");
-        assert_eq!(ma.error_classes, mb.error_classes, "error-class snapshot");
+        // `error_classes` is exported from a HashMap, so its Vec ORDER is not stable
+        // across bakes (the id-bearing content is). Compare as sorted sets — what
+        // the seed path (`seed_error_classes`, keyed by name) actually relies on.
+        let mut ea = ma.error_classes.clone();
+        let mut eb = mb.error_classes.clone();
+        ea.sort();
+        eb.sort();
+        assert_eq!(ea, eb, "error-class snapshot (order-independent)");
+    }
+
+    /// The resident-consumer gate `mark_resident_imports` requires every PRELUDE
+    /// gcell to land on the SAME id in the MERGED (prelude+user) build as in the
+    /// prelude-only bake — else it falls back. Prove they match: prelude top-level
+    /// consts are prepended verbatim in the merge and numbered first, so the ids
+    /// should be identical. If this fails, the consumer needs a gcell remap.
+    #[test]
+    #[ignore = "drains process-global engine state; run serially/explicitly"]
+    fn resident_gcell_ids_match_merged() {
+        let baked = bake_prelude().expect("bake");
+        let prelude_gcells = baked.manifest().program.gcells.clone();
+
+        // Fresh state, then build a small user program the ordinary way (fallback).
+        rts_adapters::state::reset_codegen_state();
+        let merged = super::super::build_with_includes("console.log(1); const x = [1].map(a => a);")
+            .expect("merged build");
+
+        for (name, id) in &prelude_gcells {
+            assert_eq!(
+                merged.gcells.get(name),
+                Some(id),
+                "prelude gcell `{name}` id differs (bake {id:?} vs merged {:?})",
+                merged.gcells.get(name)
+            );
+        }
+    }
+
+    /// End-to-end GATE test: with a manifest installed (real bytes, dummy symbol
+    /// addresses — the gate never dereferences them), `mark_resident_imports` must
+    /// ENGAGE (non-empty import set) for an ordinary user program. Isolates the gate
+    /// logic (is_installed / manifest-decode / hash / gcell) from the binary wiring,
+    /// so a failure here is a gate bug, and a pass means a resident-binary bail is a
+    /// wiring issue (install not called / embedded manifest mismatch).
+    #[test]
+    #[ignore = "drains process-global engine state + sets RTS_RESIDENT; run serially/explicitly"]
+    fn resident_gate_engages_in_process() {
+        let baked = bake_prelude().expect("bake");
+        let manifest_bytes = baked.manifest_bytes().expect("manifest bytes");
+        super::super::resident::install(Vec::new(), manifest_bytes);
+
+        // The consumer is gated on `RTS_RESIDENT` (execution is blocked on a
+        // cranelift-jit far-call limitation, so engagement is opt-in). Enable it for
+        // the duration of this gate test.
+        // SAFETY: single-threaded ignored test; restored below.
+        unsafe { std::env::set_var("RTS_RESIDENT", "1") };
+        rts_adapters::state::reset_codegen_state();
+        let merged =
+            super::super::build_with_includes("console.log(1);").expect("merged build");
+        unsafe { std::env::remove_var("RTS_RESIDENT") };
+        assert!(
+            !merged.resident_import_names.is_empty(),
+            "resident gate did not engage: {} prelude fns imported",
+            merged.resident_import_names.len()
+        );
     }
 }

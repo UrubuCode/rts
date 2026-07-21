@@ -84,3 +84,11 @@ pub(crate) fn manifest_bytes() -> Option<Vec<u8>> {
         .ok()
         .and_then(|g| g.as_ref().map(|r| r.manifest_bytes.clone()))
 }
+
+/// Deserialize the installed manifest, or `None` when none is installed / it fails
+/// to decode (a corrupt artifact falls back to the non-resident path).
+#[allow(dead_code)]
+pub(crate) fn manifest() -> Option<super::bake::PreludeManifest> {
+    let bytes = manifest_bytes()?;
+    bincode::deserialize(&bytes).ok()
+}

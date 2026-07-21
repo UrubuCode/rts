@@ -154,8 +154,70 @@ fn build_with_includes(src: &str) -> FrontResult<LoweredProgram> {
         let prelude = build_program_for_prelude(&inc)?;
         let ambient_fns = prelude_fn_names(&prelude);
         let user = build_program_with_ambient(src, &prelude.classes, &ambient_fns)?;
-        merge_programs(prelude, user)
+        let mut merged = merge_programs(prelude, user)?;
+        // RESIDENT prelude (slice 2): when a baked prelude is linked into this
+        // binary and consistent with the merged program, declare its functions
+        // `Import` instead of machine-compiling them.
+        mark_resident_imports(&mut merged, &inc);
+        Ok(merged)
     }
+}
+
+/// Mark the prelude-origin functions of `merged` as RESIDENT imports (declared
+/// `Linkage::Import`, resolving to the linked-in baked object) when — and ONLY
+/// when — a baked prelude is installed, its text hash matches the current prelude,
+/// and every prelude gcell id in the merged program equals the baked immediate.
+/// Any inconsistency leaves `resident_import_names` empty, so `populate_module`
+/// compiles the prelude exactly as the fallback does (behaviour-neutral).
+///
+/// The prelude's shape ids already line up: `build_program_for_prelude` seeds them
+/// from the SAME prelude text (via the slice-1 cache), so the merged program's
+/// prelude shape ids equal the baked immediates. This only additionally guards the
+/// gcell numbering, which `merge_programs` recomputes.
+pub(super) fn mark_resident_imports(merged: &mut LoweredProgram, prelude_src: &str) {
+    // EXPERIMENTAL opt-in. The consumer is proven to ENGAGE (declares the prelude
+    // Import, dropping the prelude machine-compile 634→8 fns) but resident EXECUTION
+    // is blocked on a cranelift-jit far-call limitation: a JIT-compiled user fn
+    // reaches the linked-in baked prelude in rts.exe's image via `X86CallPCRel4`
+    // (±2 GB), which overflows on Windows x64, and cranelift-jit 0.131 rejects
+    // `is_pic` (the GOT route) and exposes no near-memory allocator. So even a
+    // resident-LINKED binary defaults to the working fallback unless `RTS_RESIDENT=1`
+    // is set (development, while the far-call fix — near-memory JIT allocation or a
+    // trampoline layer — is built). See CRANELIFT_IMPLEMENTATION.md slice 2.
+    if std::env::var_os("RTS_RESIDENT").is_none() {
+        return;
+    }
+    if !resident::is_installed() {
+        crate::timing::note("resident: installed(0)", 0);
+        return;
+    }
+    let Some(manifest) = resident::manifest() else {
+        crate::timing::note("resident: manifest-decode-fail", 0);
+        return;
+    };
+    if manifest.prelude_hash != prelude_cache::key(prelude_src) {
+        crate::timing::note("resident: hash-mismatch", 0);
+        return;
+    }
+    // Every prelude gcell must land on the SAME id the baked code has as an
+    // immediate — otherwise resident prelude code and freshly-compiled user code
+    // would read/write different cells. A single mismatch → fall back.
+    for (name, baked_id) in &manifest.program.gcells {
+        if merged.gcells.get(name) != Some(baked_id) {
+            crate::timing::note("resident: gcell-mismatch", *baked_id as usize);
+            return;
+        }
+    }
+    // The prelude-origin functions STILL PRESENT after prune (the ones the user
+    // actually reaches) — declare exactly these `Import`.
+    let names: std::collections::HashSet<String> = merged
+        .funcs
+        .iter()
+        .map(|f| f.name.clone())
+        .filter(|n| merged.prelude_fns.contains(n))
+        .collect();
+    crate::timing::note("resident: prelude fns imported", names.len());
+    merged.resident_import_names = names;
 }
 
 /// Arrow-name namespace for the PRELUDE build (`__rtsn_arrow_p{N}`). The prelude
@@ -376,6 +438,7 @@ fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<
         prelude_fns,
         builtins,
         param_classes,
+        resident_import_names: std::collections::HashSet::new(),
     };
     // Drop the embedded-prelude functions this program cannot reach BEFORE the
     // Cranelift phase — the ~830 stdlib fns were the dominant FIXED startup cost
@@ -440,6 +503,17 @@ pub(crate) struct LoweredProgram {
     /// when monomorphic, or VIRTUALLY (by the instance's runtime shape) when the
     /// method is overridden in `C`'s subtree. Keyed by fn name; unioned on merge.
     pub param_classes: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
+    /// RESIDENT prelude (step 10 slice 2): the set of (prelude-origin) function
+    /// names to declare `Linkage::Import` — resolving to the linked-in baked code —
+    /// instead of building a body. `populate_module` still computes their signature
+    /// (they stay in `funcs`, so the sig pipeline is IDENTICAL to the bake's, which
+    /// is what keeps the imported ABI/callconv exact) and registers their FuncId +
+    /// thunk as Import, but emits no machine code for them — the ~60 ms
+    /// machine-compile of the prelude is the win. Empty on every non-resident
+    /// build. Transient (rebuilt per compile from the installed manifest), not
+    /// serialized.
+    #[serde(skip)]
+    pub resident_import_names: std::collections::HashSet<String>,
 }
 
 /// Parse `src` and lower it to (user functions, synthesized `__rtsn_main`).
@@ -874,6 +948,7 @@ fn build_from_program(
         // multi-file path ([`module_entry`]) fills this from the binding map.
         builtins: std::collections::HashMap::new(),
         param_classes,
+        resident_import_names: std::collections::HashSet::new(),
     })
 }
 
