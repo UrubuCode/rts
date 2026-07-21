@@ -103,9 +103,75 @@ fn main() {
         }
     }
 
+    wire_resident_prelude(&out);
+
     println!("cargo:rerun-if-changed=crates/rts-runtime/src/");
     println!("cargo:rerun-if-changed=crates/rts-adapters/src/");
     println!("cargo:rerun-if-changed=build.rs");
+}
+
+/// Step 10, slice 2: OPT-IN linking of a baked resident prelude.
+///
+/// The `rts-prelude-baker` bin (run as a prior build step, like the rts-adapters
+/// staticlib) writes `prelude.o` + `prelude_symbols.rs` + `prelude_manifest.bin`
+/// into a directory named by `RTS_PRELUDE_DIR`. When that env var points at a dir
+/// holding all three, we LINK the object into `rts.exe` and expose the generated
+/// address table + manifest to the bin (`src/prelude_baked.rs` `include!`s them).
+///
+/// When the var is unset or the artifacts are missing (the DEFAULT — every
+/// ordinary `cargo build`), we emit an INERT stub (`prelude_symbols()` → empty,
+/// empty manifest) and link nothing. The run path then keeps today's fallback
+/// (lower + merge + compile the prelude), so the default build is unchanged.
+fn wire_resident_prelude(out: &Path) {
+    let syms_out = out.join("prelude_symbols.rs");
+    let manifest_out = out.join("prelude_manifest.bin");
+
+    let dir = std::env::var_os("RTS_PRELUDE_DIR").map(PathBuf::from);
+    println!("cargo:rerun-if-env-changed=RTS_PRELUDE_DIR");
+
+    if let Some(dir) = dir {
+        let obj = dir.join("prelude.o");
+        let syms = dir.join("prelude_symbols.rs");
+        let manifest = dir.join("prelude_manifest.bin");
+        if obj.is_file() && syms.is_file() && manifest.is_file() {
+            std::fs::copy(&syms, &syms_out)
+                .unwrap_or_else(|e| panic!("copy {}: {e}", syms.display()));
+            std::fs::copy(&manifest, &manifest_out)
+                .unwrap_or_else(|e| panic!("copy {}: {e}", manifest.display()));
+            // Link the resident object into the `rts` binary. The system linker
+            // accepts a `.o`/`.obj` as a positional input; its undefined runtime
+            // symbols (`__RTS_FN_*` / `__rtsadp_*`) resolve against rts-runtime in
+            // the SAME final link (one runtime instance — the coherence the DLL
+            // approach could not give).
+            println!("cargo:rustc-link-arg={}", obj.display());
+            println!("cargo:rerun-if-changed={}", obj.display());
+            println!("cargo:rerun-if-changed={}", syms.display());
+            println!("cargo:rerun-if-changed={}", manifest.display());
+            println!(
+                "cargo:warning=rts: linking resident baked prelude from {}",
+                dir.display()
+            );
+            return;
+        }
+        println!(
+            "cargo:warning=RTS_PRELUDE_DIR={} set but prelude.o/prelude_symbols.rs/\
+             prelude_manifest.bin missing — building WITHOUT a resident prelude \
+             (run `cargo run -p rts-prelude-baker -- {}` first).",
+            dir.display(),
+            dir.display()
+        );
+    }
+
+    // Inert stub: no baked prelude linked. `prelude_symbols()` returns empty, so
+    // the bin installs nothing and the run path uses the fallback.
+    std::fs::write(
+        &syms_out,
+        "// @generated stub — no resident prelude linked.\n\
+         pub fn prelude_symbols() -> Vec<(&'static str, *const u8)> { Vec::new() }\n",
+    )
+    .unwrap_or_else(|e| panic!("write stub {}: {e}", syms_out.display()));
+    std::fs::write(&manifest_out, b"")
+        .unwrap_or_else(|e| panic!("write empty manifest {}: {e}", manifest_out.display()));
 }
 
 /// `OUT_DIR` is `target/<profile>/build/<pkg>-<hash>/out`; the profile dir

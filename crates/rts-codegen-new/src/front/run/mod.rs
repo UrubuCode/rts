@@ -66,6 +66,7 @@ mod optchain_lower;
 mod parcompile;
 mod prelude_cache;
 mod prune;
+pub mod resident;
 mod regex;
 pub(crate) mod registry;
 mod registry_build;
