@@ -358,6 +358,7 @@ fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<
 /// A lowered program ready to JIT: the user functions (incl. synthesized class
 /// constructors/methods + extracted arrows), the synthesized `__rtsn_main`, the
 /// class table, and the synthesized-fn → owning-class map (for binding `this`).
+#[derive(serde::Serialize, serde::Deserialize)]
 pub(crate) struct LoweredProgram {
     pub funcs: Vec<HirFunc>,
     pub main: HirFunc,

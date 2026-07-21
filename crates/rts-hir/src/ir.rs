@@ -4,11 +4,11 @@
 /// Cranelift instructions without inspecting type annotations again.
 
 /// Opaque identifier for a user-defined class resolved in the HIR scope.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ClassId(pub u32);
 
 /// Kind of runtime handle stored in the HandleTable.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum HandleKind {
     String,
     Buffer,
@@ -32,7 +32,7 @@ pub enum HandleKind {
 ///
 /// The codegen converts this into Cranelift `ir::Type` via `CraneliftTypeHint`.
 /// The `Unknown` variant must not reach codegen — it triggers a diagnostic.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum HirType {
     // JS/TS native
     Number,                             // f64 — JS number semantics
@@ -120,7 +120,7 @@ impl HirType {
 }
 
 /// SIMD lane configuration for `HirType::V128`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum VecKind {
     I8x16,
     I16x8,
@@ -146,7 +146,7 @@ impl VecKind {
 }
 
 /// Binary operators in HIR.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum HirBinOp {
     Add, Sub, Mul, Div, Rem, Exp,
     BitAnd, BitOr, BitXor,
@@ -200,7 +200,7 @@ impl HirBinOp {
 }
 
 /// Unary operators in HIR.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum HirUnOp {
     /// Unary `-`.
     Neg,
@@ -218,7 +218,7 @@ pub enum HirUnOp {
 }
 
 /// Literal value in HIR.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum HirLit {
     Int(i64),
     Float(f64),
@@ -234,7 +234,7 @@ pub enum HirLit {
 }
 
 /// A single function parameter in HIR.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct HirParam {
     pub name: String,
     pub ty: HirType,
@@ -249,7 +249,7 @@ pub struct HirParam {
 }
 
 /// HIR expression — every variant carries its resolved `HirType`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct HirExpr {
     pub kind: HirExprKind,
     pub ty: HirType,
@@ -261,7 +261,7 @@ impl HirExpr {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum HirExprKind {
     Lit(HirLit),
     Ident(String),
@@ -364,14 +364,14 @@ pub enum HirExprKind {
     Raw(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum HirArrowBody {
     Expr(Box<HirExpr>),
     Block(Vec<HirStmt>),
 }
 
 /// HIR statement.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum HirStmt {
     Expr(HirExpr),
     Return(Option<HirExpr>),
@@ -444,13 +444,13 @@ pub enum HirStmt {
     Raw(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct HirCatch {
     pub binding: Option<String>,
     pub body: Vec<HirStmt>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct HirSwitchCase {
     /// None = default
     pub test: Option<HirExpr>,
@@ -458,7 +458,7 @@ pub struct HirSwitchCase {
 }
 
 /// A fully lowered function in HIR.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct HirFunc {
     pub name: String,
     pub params: Vec<HirParam>,

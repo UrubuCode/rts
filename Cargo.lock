@@ -4083,6 +4083,7 @@ dependencies = [
  "rts-hir",
  "rts-parser",
  "rts-runtime",
+ "serde",
  "swc_ecma_ast",
  "swc_ecma_visit",
  "target-lexicon",
@@ -4144,6 +4145,7 @@ name = "rts-hir"
 version = "0.1.0"
 dependencies = [
  "rts-ast",
+ "serde",
  "swc_ecma_ast",
 ]
 

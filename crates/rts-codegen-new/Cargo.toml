@@ -11,6 +11,7 @@ edition = "2024"
 # PRIMORDIAL classes are named; everything else resolves via the Registry.
 
 [dependencies]
+serde = { version = "1.0", features = ["derive"] }
 cranelift-codegen = "0.131"
 cranelift-frontend = "0.131"
 cranelift-module = "0.131"
@@ -22,7 +23,7 @@ anyhow = "1.0"
 # read-only — the new engine never reaches into the old codegen.
 rts-parser = { path = "../rts-parser" }
 rts-hir = { path = "../rts-hir" }
-rts-ast = { path = "../rts-ast" }
+rts-ast = { path = "../rts-ast", features = ["serde"] }
 # Template literals + optional chaining (P5.8): rts-hir lowers swc `Tpl` and
 # `OptChainExpr` to a structureless `HirExprKind::Raw` (it cannot model them yet
 # and we must not modify that crate). The P5.8 desugar pass re-walks the REAL swc

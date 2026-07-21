@@ -62,7 +62,7 @@ pub(crate) use walk::{body_uses_raw_this, rewrite_this_block};
 pub(crate) const THIS: &str = "this";
 
 /// One getter/setter pair on a class (either side may be absent).
-#[derive(Clone, Default)]
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Accessor {
     /// The synthesized zero-arg getter fn (`__rtsn_get_C_x`), if a `get x()` exists.
     pub getter: Option<String>,
@@ -71,7 +71,7 @@ pub(crate) struct Accessor {
 }
 
 /// The compile-time descriptor of one user class.
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ClassDesc {
     /// The class name (`C` in `class C { … }`).
     pub name: String,
@@ -158,7 +158,7 @@ impl ClassDesc {
 }
 
 /// name → descriptor for every supported class in the program.
-#[derive(Default, Clone)]
+#[derive(Default, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ClassTable {
     by_name: HashMap<String, ClassDesc>,
 }
