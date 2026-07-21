@@ -536,7 +536,22 @@ scope here.
   `Linkage::Export`), linked into `rts.exe`; its fns register in
   `adapter_symbols::jit_symbols` and user code declares them `Import`. Partition
   ids (seed shapes by id, offset user gcells by G). Kills machine-compile +
-  build-IR + prune. **~78 → ~23 ms.** The big, hard slice.
+  build-IR + prune. **~79 → ~23 ms.** The big, hard slice.
+
+  **Feasibility spike DONE — verdict GO, on path B (baker), not path A (byte cache).**
+  Proven by experiment: `define_function_bytes` with captured `bytes+relocs`
+  replays correctly into a fresh `JITModule` same-process (a `caller→callee`
+  round-trip returned the right value). BUT FuncIds are NOT deterministic across
+  programs (measured: max `User` reloc index shifted 723→726 between two user
+  programs) — because `prune_prelude` keeps a DIFFERENT reachable prelude subset
+  per user program, so cached `User{index}` relocs (100% of relocs are
+  `User{FuncId}`) are program-specific. Path A would need a per-run mini-linker
+  remapping 8000+ relocs by name; **path B gets name resolution for free from the
+  real linker + `JITBuilder::symbol`**, so the FuncId fragility vanishes. `aot_str`
+  MUST be ON for the baked prelude (JIT currently bakes process-local string
+  handles). Unproven, to validate in commit-1: cross-process baked prelude end to
+  end, GC stack-map coverage for resident frames, the exact ms saved, reified
+  prelude fn values + shape seeding with resident code.
 - **Slice 3/4** — drop pruning + trim merge from the run path once the prelude is
   fully resident.
 
