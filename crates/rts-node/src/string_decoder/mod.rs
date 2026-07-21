@@ -41,7 +41,6 @@ fn member(
         ts_signature: ts.to_string(),
         doc: String::new(),
         pure: false,
-        intrinsic: None,
         emit: None,
     }
 }

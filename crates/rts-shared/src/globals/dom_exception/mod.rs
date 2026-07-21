@@ -138,7 +138,6 @@ fn m(
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
         pure,
-        intrinsic: None,
         emit: None,
     }
 }

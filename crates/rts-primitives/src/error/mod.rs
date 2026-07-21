@@ -28,7 +28,6 @@ fn m(name: &str, kind: MemberKind, sig: Sig, symbol: &str, ts: &str) -> Member {
         ts_signature: ts.to_string(),
         doc: String::new(),
         pure: false,
-        intrinsic: None,
         emit: None,
     }
 }

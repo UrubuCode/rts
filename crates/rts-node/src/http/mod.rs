@@ -77,7 +77,6 @@ fn func(name: &str, args: Vec<AbiType>, ret: AbiType, symbol: &str, ts: &str, fp
         ts_signature: ts.to_string(),
         doc: String::new(),
         pure: false,
-        intrinsic: None,
         emit: None,
     }
 }

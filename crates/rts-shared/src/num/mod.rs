@@ -7,7 +7,6 @@
 //! Migrado do `#[rts_namespace]` pro modelo builder hand-written do `rts-engine`
 //! (rumo à remoção da `rts-macro`; ver pilotos hint/hash/ptr/mem/runtime).
 
-use rts_engine::abi::Intrinsic;
 use rts_engine::abi::ty::{F64, I64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
@@ -165,22 +164,82 @@ fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) 
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
         pure: true,
-        intrinsic: None,
         emit: None,
     }
 }
 
-/// Marca um membro como INTRINSIC: o codegen emite a instrução Cranelift
-/// equivalente em vez do `call <symbol>`.
+/// Anexa um EMITTER NATIVO ao membro: o codegen emite `e` como IR Cranelift no
+/// ponto da chamada, em vez de `call <symbol>`.
 ///
-/// O símbolo continua existindo e registrado — a emissão inline é uma otimização
-/// que o motor aplica só quando PROVA o `Repr` dos operandos; qualquer outro caso
-/// cai no `call` normal. Ver `rts_engine::abi::Intrinsic`, onde cada variante
-/// documenta por que a instrução tem semântica IDÊNTICA ao corpo Rust que
-/// substitui (as regras de masking de shift/rotate em especial).
-fn intr(mut m: Member, i: Intrinsic) -> Member {
-    m.intrinsic = Some(i);
+/// Sucessor do enum fechado `Intrinsic`. A emissão mora AQUI, junto do spec dono
+/// da operação. O símbolo/`fn_ptr` continua registrado — um site que o emitter
+/// recuse (operando não provado, aridade errada) cai no call normal. Cada emitter
+/// abaixo documenta por que a instrução Cranelift tem semântica IDÊNTICA ao corpo
+/// Rust que substitui (as regras de masking de shift/rotate em especial).
+fn native(mut m: Member, e: rts_engine::NativeEmit) -> Member {
+    m.emit = Some(e);
     m
+}
+
+use cranelift_codegen::ir::{InstBuilder, Value};
+use cranelift_frontend::FunctionBuilder;
+
+// Operandos chegam já coeridos ao `Sig` do membro (i64 aqui), então os corpos
+// assumem essa largura. Rust mascara shift/rotate por `(n as u32) % 64`, Cranelift
+// mascara pela largura do tipo (`n & 63`) — coincidem para todo i64 porque 64
+// divide 2^32. `wrapping_shr` é ARITMÉTICO (`sshr`), não lógico.
+fn emit_wrapping_add(b: &mut FunctionBuilder, a: &[Value]) -> Option<Value> {
+    let [x, y] = a else { return None };
+    Some(b.ins().iadd(*x, *y))
+}
+fn emit_wrapping_sub(b: &mut FunctionBuilder, a: &[Value]) -> Option<Value> {
+    let [x, y] = a else { return None };
+    Some(b.ins().isub(*x, *y))
+}
+fn emit_wrapping_mul(b: &mut FunctionBuilder, a: &[Value]) -> Option<Value> {
+    let [x, y] = a else { return None };
+    Some(b.ins().imul(*x, *y))
+}
+fn emit_wrapping_neg(b: &mut FunctionBuilder, a: &[Value]) -> Option<Value> {
+    let [x] = a else { return None };
+    Some(b.ins().ineg(*x))
+}
+fn emit_wrapping_shl(b: &mut FunctionBuilder, a: &[Value]) -> Option<Value> {
+    let [x, n] = a else { return None };
+    Some(b.ins().ishl(*x, *n))
+}
+fn emit_wrapping_shr(b: &mut FunctionBuilder, a: &[Value]) -> Option<Value> {
+    let [x, n] = a else { return None };
+    Some(b.ins().sshr(*x, *n))
+}
+fn emit_count_ones(b: &mut FunctionBuilder, a: &[Value]) -> Option<Value> {
+    let [x] = a else { return None };
+    Some(b.ins().popcnt(*x))
+}
+fn emit_count_zeros(b: &mut FunctionBuilder, a: &[Value]) -> Option<Value> {
+    let [x] = a else { return None };
+    let inv = b.ins().bnot(*x);
+    Some(b.ins().popcnt(inv))
+}
+fn emit_leading_zeros(b: &mut FunctionBuilder, a: &[Value]) -> Option<Value> {
+    let [x] = a else { return None };
+    Some(b.ins().clz(*x))
+}
+fn emit_trailing_zeros(b: &mut FunctionBuilder, a: &[Value]) -> Option<Value> {
+    let [x] = a else { return None };
+    Some(b.ins().ctz(*x))
+}
+fn emit_rotate_left(b: &mut FunctionBuilder, a: &[Value]) -> Option<Value> {
+    let [x, n] = a else { return None };
+    Some(b.ins().rotl(*x, *n))
+}
+fn emit_rotate_right(b: &mut FunctionBuilder, a: &[Value]) -> Option<Value> {
+    let [x, n] = a else { return None };
+    Some(b.ins().rotr(*x, *n))
+}
+fn emit_swap_bytes(b: &mut FunctionBuilder, a: &[Value]) -> Option<Value> {
+    let [x] = a else { return None };
+    Some(b.ins().bswap(*x))
 }
 
 /// Registra a namespace `num` no motor (Fase 2 — hand-written, sem macro).
@@ -243,102 +302,102 @@ pub fn register(e: &mut Engine) {
             "a * b com saturation em i64::MIN/MAX.",
             __RTS_FN_NS_NUM_SATURATING_MUL as *const u8,
         ))
-        .member(intr(func(
+        .member(native(func(
             "wrapping_add",
             "__RTS_FN_NS_NUM_WRAPPING_ADD",
             Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::I64),
             "wrapping_add(a: number, b: number): number",
             "a + b modulo 2^64.",
             __RTS_FN_NS_NUM_WRAPPING_ADD as *const u8,
-        ), Intrinsic::WrappingAdd))
-        .member(intr(func(
+        ), emit_wrapping_add))
+        .member(native(func(
             "wrapping_sub",
             "__RTS_FN_NS_NUM_WRAPPING_SUB",
             Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::I64),
             "wrapping_sub(a: number, b: number): number",
             "a - b modulo 2^64.",
             __RTS_FN_NS_NUM_WRAPPING_SUB as *const u8,
-        ), Intrinsic::WrappingSub))
-        .member(intr(func(
+        ), emit_wrapping_sub))
+        .member(native(func(
             "wrapping_mul",
             "__RTS_FN_NS_NUM_WRAPPING_MUL",
             Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::I64),
             "wrapping_mul(a: number, b: number): number",
             "a * b modulo 2^64.",
             __RTS_FN_NS_NUM_WRAPPING_MUL as *const u8,
-        ), Intrinsic::WrappingMul))
-        .member(intr(func(
+        ), emit_wrapping_mul))
+        .member(native(func(
             "wrapping_neg",
             "__RTS_FN_NS_NUM_WRAPPING_NEG",
             Sig::new(vec![AbiType::I64], AbiType::I64),
             "wrapping_neg(a: number): number",
             "-a modulo 2^64 (i64::MIN.wrapping_neg() == i64::MIN).",
             __RTS_FN_NS_NUM_WRAPPING_NEG as *const u8,
-        ), Intrinsic::WrappingNeg))
-        .member(intr(func(
+        ), emit_wrapping_neg))
+        .member(native(func(
             "wrapping_shl",
             "__RTS_FN_NS_NUM_WRAPPING_SHL",
             Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::I64),
             "wrapping_shl(a: number, n: number): number",
             "a << (n & 63) — shift count masked.",
             __RTS_FN_NS_NUM_WRAPPING_SHL as *const u8,
-        ), Intrinsic::WrappingShl))
-        .member(intr(func(
+        ), emit_wrapping_shl))
+        .member(native(func(
             "wrapping_shr",
             "__RTS_FN_NS_NUM_WRAPPING_SHR",
             Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::I64),
             "wrapping_shr(a: number, n: number): number",
             "a >> (n & 63) (arithmetic shift).",
             __RTS_FN_NS_NUM_WRAPPING_SHR as *const u8,
-        ), Intrinsic::WrappingShr))
-        .member(intr(func(
+        ), emit_wrapping_shr))
+        .member(native(func(
             "count_ones",
             "__RTS_FN_NS_NUM_COUNT_ONES",
             Sig::new(vec![AbiType::I64], AbiType::I64),
             "count_ones(a: number): number",
             "Numero de bits 1 em a.",
             __RTS_FN_NS_NUM_COUNT_ONES as *const u8,
-        ), Intrinsic::CountOnes))
-        .member(intr(func(
+        ), emit_count_ones))
+        .member(native(func(
             "count_zeros",
             "__RTS_FN_NS_NUM_COUNT_ZEROS",
             Sig::new(vec![AbiType::I64], AbiType::I64),
             "count_zeros(a: number): number",
             "Numero de bits 0 em a.",
             __RTS_FN_NS_NUM_COUNT_ZEROS as *const u8,
-        ), Intrinsic::CountZeros))
-        .member(intr(func(
+        ), emit_count_zeros))
+        .member(native(func(
             "leading_zeros",
             "__RTS_FN_NS_NUM_LEADING_ZEROS",
             Sig::new(vec![AbiType::I64], AbiType::I64),
             "leading_zeros(a: number): number",
             "Numero de zeros leading em a.",
             __RTS_FN_NS_NUM_LEADING_ZEROS as *const u8,
-        ), Intrinsic::LeadingZeros))
-        .member(intr(func(
+        ), emit_leading_zeros))
+        .member(native(func(
             "trailing_zeros",
             "__RTS_FN_NS_NUM_TRAILING_ZEROS",
             Sig::new(vec![AbiType::I64], AbiType::I64),
             "trailing_zeros(a: number): number",
             "Numero de zeros trailing em a.",
             __RTS_FN_NS_NUM_TRAILING_ZEROS as *const u8,
-        ), Intrinsic::TrailingZeros))
-        .member(intr(func(
+        ), emit_trailing_zeros))
+        .member(native(func(
             "rotate_left",
             "__RTS_FN_NS_NUM_ROTATE_LEFT",
             Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::I64),
             "rotate_left(a: number, n: number): number",
             "a rotacionado n bits para a esquerda.",
             __RTS_FN_NS_NUM_ROTATE_LEFT as *const u8,
-        ), Intrinsic::RotateLeft))
-        .member(intr(func(
+        ), emit_rotate_left))
+        .member(native(func(
             "rotate_right",
             "__RTS_FN_NS_NUM_ROTATE_RIGHT",
             Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::I64),
             "rotate_right(a: number, n: number): number",
             "a rotacionado n bits para a direita.",
             __RTS_FN_NS_NUM_ROTATE_RIGHT as *const u8,
-        ), Intrinsic::RotateRight))
+        ), emit_rotate_right))
         .member(func(
             "reverse_bits",
             "__RTS_FN_NS_NUM_REVERSE_BITS",
@@ -347,14 +406,14 @@ pub fn register(e: &mut Engine) {
             "Bits invertidos (LSB->MSB).",
             __RTS_FN_NS_NUM_REVERSE_BITS as *const u8,
         ))
-        .member(intr(func(
+        .member(native(func(
             "swap_bytes",
             "__RTS_FN_NS_NUM_SWAP_BYTES",
             Sig::new(vec![AbiType::I64], AbiType::I64),
             "swap_bytes(a: number): number",
             "Bytes invertidos (endianness flip).",
             __RTS_FN_NS_NUM_SWAP_BYTES as *const u8,
-        ), Intrinsic::SwapBytes))
+        ), emit_swap_bytes))
         .member(func(
             "f64_from_bits",
             "__RTS_FN_NS_NUM_F64_FROM_BITS",

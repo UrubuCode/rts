@@ -83,7 +83,6 @@ fn cst(name: &str, symbol: &str, ts: &str, doc: &str, fp: *const u8) -> Member {
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
         pure: true,
-        intrinsic: None,
         emit: None,
     }
 }
@@ -110,7 +109,6 @@ fn func(
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
         pure,
-        intrinsic: None,
         emit: None,
     }
 }

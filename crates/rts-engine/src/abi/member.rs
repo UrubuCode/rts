@@ -35,12 +35,6 @@ pub struct NamespaceMember {
     /// TypeScript signature text, e.g. `"print(msg: string): void"`.
     pub ts_signature: &'static str,
 
-    /// When present, codegen emits this operation inline at the call site
-    /// instead of a call to `symbol`. Reserved for trivial hot-path members
-    /// (single native Cranelift op, or a short inline sequence). The `symbol`
-    /// is still exported so callers that do not know the member statically
-    /// (e.g. reflection, FFI) keep working.
-    pub intrinsic: Option<Intrinsic>,
 
     /// True if this member is pure: no I/O, no shared mutable state, no
     /// non-determinism. Pure members are eligible for automatic parallelisation
@@ -145,74 +139,6 @@ pub enum DefaultArg {
     /// component as day=1/rest=0. Lets a spec express "pad the tail with
     /// `undefined`" as DATA instead of a hardcoded codegen padding.
     Undefined,
-}
-
-/// Inlinable operations recognised by codegen.
-///
-/// Keep this list small: every variant forces codegen to carry hand-written
-/// Cranelift IR that mirrors the extern implementation. Add a new variant
-/// only when there's a measurable win in a real benchmark.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Intrinsic {
-    /// `f64::sqrt` → Cranelift `sqrt`.
-    Sqrt,
-    /// `f64::abs` → Cranelift `fabs`.
-    AbsF64,
-    /// `f64::min` → Cranelift `fmin`.
-    MinF64,
-    /// `f64::max` → Cranelift `fmax`.
-    MaxF64,
-    /// `i64::wrapping_abs` → sign-based abs using `iconst`, `ineg`, `select`.
-    AbsI64,
-    /// `i64::min` → signed integer min.
-    MinI64,
-    /// `i64::max` → signed integer max.
-    MaxI64,
-    /// Método de instância que devolve o próprio receiver primitivo, sem call
-    /// (ex.: `(42).valueOf()`/`"x".valueOf()` num primitive). O emissor genérico
-    /// de método de classe global retorna o receiver tal-e-qual em vez de
-    /// invocar o `symbol`. Mantém o codegen genérico (casa neste tag, não na
-    /// string `"valueOf"`); o caminho de receiver-Handle (objeto boxed) ignora o
-    /// tag e chama o `symbol` real (unbox).
-    ReceiverIdentity,
-
-    // ── `num` bit operations (CRANELIFT_IMPLEMENTATION.md step 1) ────────────
-    //
-    // Each maps 1:1 onto a Cranelift instruction with IDENTICAL semantics to the
-    // Rust `extern "C"` body it replaces — verified below, since a mismatch here
-    // would be a silently wrong answer, not a crash.
-    /// `i64::count_ones` → `popcnt`. Both yield 0..=64.
-    CountOnes,
-    /// `i64::count_zeros` → `popcnt(bnot x)`.
-    CountZeros,
-    /// `i64::leading_zeros` → `clz` (both give 64 for `0`).
-    LeadingZeros,
-    /// `i64::trailing_zeros` → `ctz` (both give 64 for `0`).
-    TrailingZeros,
-    /// `i64::rotate_left(n as u32)` → `rotl`.
-    ///
-    /// Rust rotates by `(n as u32) % 64`, Cranelift masks the count by the type
-    /// width (`n & 63`). These agree for EVERY `i64` n: `64` divides `2^32`, so
-    /// `(n mod 2^32) mod 64 == n mod 64`.
-    RotateLeft,
-    /// `i64::rotate_right(n as u32)` → `rotr` (same count-masking argument).
-    RotateRight,
-    /// `i64::swap_bytes` → `bswap`.
-    SwapBytes,
-    /// `i64::wrapping_add` → `iadd` (Cranelift integer arithmetic wraps).
-    WrappingAdd,
-    /// `i64::wrapping_sub` → `isub`.
-    WrappingSub,
-    /// `i64::wrapping_mul` → `imul`.
-    WrappingMul,
-    /// `i64::wrapping_neg` → `ineg` (both leave `i64::MIN` unchanged).
-    WrappingNeg,
-    /// `i64::wrapping_shl(n as u32)` → `ishl` (same count-masking argument as
-    /// [`Self::RotateLeft`]).
-    WrappingShl,
-    /// `i64::wrapping_shr(n as u32)` → `sshr` (ARITHMETIC shift — Rust's
-    /// `i64::wrapping_shr` is sign-propagating, so `ushr` would be wrong).
-    WrappingShr,
 }
 
 /// Whether a member is a function, constant, constructor, or instance method.

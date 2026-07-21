@@ -52,7 +52,6 @@ pub fn register(e: &mut Engine) {
             doc: "performance.now() — tempo monotônico em milissegundos (precisão sub-ms)."
                 .to_string(),
             pure: false,
-            intrinsic: None,
             emit: None,
         })
         .member(Member {
@@ -68,7 +67,6 @@ pub fn register(e: &mut Engine) {
             doc: "performance.timeOrigin — Unix timestamp em ms do início do processo."
                 .to_string(),
             pure: true,
-            intrinsic: None,
             emit: None,
         })
         .done();

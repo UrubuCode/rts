@@ -169,7 +169,6 @@ fn str_func(name: &str, symbol: &str, ts: &str, doc: &str, fp: *const u8) -> Mem
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
         pure: false,
-        intrinsic: None,
         emit: None,
     }
 }
@@ -195,7 +194,6 @@ pub(super) fn func(
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
         pure: false,
-        intrinsic: None,
         emit: None,
     }
 }

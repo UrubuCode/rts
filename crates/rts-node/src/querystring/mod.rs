@@ -44,7 +44,6 @@ fn make(
         ts_signature: ts.to_string(),
         doc: String::new(),
         pure,
-        intrinsic: None,
         emit: None,
     }
 }

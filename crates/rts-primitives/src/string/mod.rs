@@ -17,7 +17,7 @@ pub mod split;
 pub mod transform;
 
 use rts_engine::abi::member::DefaultArg;
-use rts_engine::{AbiType, Engine, FnPtr, Intrinsic, Member, MemberFlags, MemberKind, Sig};
+use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 /// Endereço real do extern `__RTS_FN_NS_STRING_*` (namespace `string`). Esses
 /// membros eram "external" (fn_ptr null), supridos à mão pelo `runtime_link` do
@@ -77,7 +77,6 @@ fn m(
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
         pure,
-        intrinsic: None,
         emit: None,
     }
 }
@@ -407,7 +406,6 @@ pub fn register_string_class_spec(e: &mut Engine) {
             ts_signature: "codePointAt(idx?: number): number".to_string(),
             doc: "str.codePointAt(idx) — full Unicode code point at index.".to_string(),
             pure: true,
-            intrinsic: None,
             emit: None,
         })
         .member(m(
@@ -590,7 +588,6 @@ pub fn register_string_class_spec(e: &mut Engine) {
             ts_signature: "concat(...args: string[]): string".to_string(),
             doc: "str.concat(...args) — concatena (fold no runtime).".to_string(),
             pure: true,
-            intrinsic: None,
             emit: None,
         })
         .member(m(
@@ -701,7 +698,6 @@ pub fn register_string_class_spec(e: &mut Engine) {
             doc: "str.valueOf() — identity (primitive) / unwrap (StringBox)."
                 .to_string(),
             pure: true,
-            intrinsic: Some(Intrinsic::ReceiverIdentity),
             emit: None,
         })
         .member(m(

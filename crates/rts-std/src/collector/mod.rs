@@ -53,7 +53,6 @@ fn ext(name: &str, sig: Sig, symbol: &str, ts: &str, pure: bool) -> Member {
         ts_signature: ts.to_string(),
         doc: String::new(),
         pure,
-        intrinsic: None,
         emit: None,
     }
 }

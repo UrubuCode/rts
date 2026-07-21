@@ -57,7 +57,6 @@ fn member(name: &str, symbol: &str, sig: Sig, ts: &str, fp: *const u8, kind: Mem
         doc: String::new(),
         // resolve reads the CWD; nothing is foldable/cacheable → never pure.
         pure: false,
-        intrinsic: None,
         emit: None,
     }
 }

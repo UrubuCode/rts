@@ -80,7 +80,6 @@ fn m(name: &str, kind: MemberKind, args: Vec<AbiType>, ret: AbiType, symbol: &st
         ts_signature: ts.to_string(),
         doc: String::new(),
         pure: false,
-        intrinsic: None,
         emit: None,
     }
 }

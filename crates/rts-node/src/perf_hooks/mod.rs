@@ -36,7 +36,6 @@ fn f(name: &str, symbol: &str, args: Vec<AbiType>, ret: AbiType, ts: &str, fp: *
         ts_signature: ts.to_string(),
         doc: String::new(),
         pure: false,
-        intrinsic: None,
         emit: None,
     }
 }

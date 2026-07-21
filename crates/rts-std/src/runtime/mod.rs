@@ -107,7 +107,6 @@ fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) 
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
         pure: false,
-        intrinsic: None,
         emit: None,
     }
 }

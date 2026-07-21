@@ -168,7 +168,6 @@ mod tests {
             returns: AbiType::I64,
             doc: "",
             ts_signature: "",
-            intrinsic: None,
             emit: None,
             pure: false,
             aliases,

@@ -10,7 +10,7 @@
 
 use rts_engine::abi::member::DefaultArg;
 use rts_engine::abi::ty::{Bool, Handle, F64, I64};
-use rts_engine::{AbiType, Engine, FnPtr, Intrinsic, Member, MemberFlags, MemberKind, Sig};
+use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 unsafe extern "C" {
     fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
@@ -233,7 +233,6 @@ fn m(
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
         pure,
-        intrinsic: None,
         emit: None,
     }
 }
@@ -453,8 +452,8 @@ pub fn register_number_class_spec(e: &mut Engine) {
             name: "valueOf".to_string(),
             kind: MemberKind::InstanceMethod,
             // receiver-Handle (NumberBox) → chama o symbol (unbox); receiver
-            // primitivo (F64) → o tag ReceiverIdentity devolve o próprio número
-            // sem call. Genérico nos dois casos (sem braço hardcoded "valueOf").
+            // primitivo (F64) → roteado pelo prelude `.ts class Number` (ver
+            // method.rs::try_primitive_class_method), que devolve o próprio número.
             sig: Sig::new(vec![AbiType::Handle], AbiType::F64),
             symbol: "__RTS_FN_GL_NUMBER_VALUE_OF".to_string(),
             fn_ptr: FnPtr(__RTS_FN_GL_NUMBER_VALUE_OF as *const u8),
@@ -464,7 +463,6 @@ pub fn register_number_class_spec(e: &mut Engine) {
             ts_signature: "valueOf(): number".to_string(),
             doc: "n.valueOf() — primitive identity ou unbox NumberBox.".to_string(),
             pure: true,
-            intrinsic: Some(Intrinsic::ReceiverIdentity),
             emit: None,
         })
         .member(m(

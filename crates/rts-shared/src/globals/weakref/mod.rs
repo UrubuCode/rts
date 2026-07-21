@@ -57,7 +57,6 @@ pub fn register_weakref_class_spec(e: &mut Engine) {
             ts_signature: "new WeakRef(target: object): WeakRef".to_string(),
             doc: "Creates a new WeakRef wrapping target.".to_string(),
             pure: false,
-            intrinsic: None,
             emit: None,
         })
         .member(Member {
@@ -72,7 +71,6 @@ pub fn register_weakref_class_spec(e: &mut Engine) {
             ts_signature: "deref(): object | undefined".to_string(),
             doc: "Returns the target object, or undefined if it was collected/reused.".to_string(),
             pure: true,
-            intrinsic: None,
             emit: None,
         })
         .done();

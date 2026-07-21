@@ -3,7 +3,7 @@
 //!
 //! Migrado do `#[rts_namespace]` pro modelo builder hand-written do `rts-engine`
 //! (rumo à remoção da `rts-macro`; ver pilotos hint/hash/ptr/mem/runtime).
-//! Exercita três features: `intrinsic` tags (sqrt/abs/min/max inline no codegen),
+//! Exercita: emitters nativos (sqrt/abs/min/max inline via NativeEmit),
 //! aliases JS-style (`log`→`ln`, `abs`→`abs_f64`, `min`/`max`/`random`) que
 //! reusam o símbolo canônico com `fn_ptr` nulo, e constantes
 //! (`MemberKind::Constant`, PI/E/… como getters zero-arg).
@@ -12,7 +12,7 @@ use std::cell::Cell;
 
 use cranelift_codegen::ir::InstBuilder;
 use rts_engine::abi::ty::{F64, I64, U64};
-use rts_engine::{AbiType, Engine, FnPtr, Intrinsic, Member, MemberFlags, MemberKind, Sig};
+use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 // ── PRNG state (thread-local xorshift64) ──────────────────────────────────────
 thread_local! {
@@ -467,7 +467,7 @@ pub extern "C" fn __RTS_FN_NS_MATH_LOG10E() -> F64 {
 
 // ── member helpers ────────────────────────────────────────────────────────────
 
-/// Função `math.f(args)` — com `pure` e `intrinsic` opcionais.
+/// Função `math.f(args)` — com `pure`.
 #[allow(clippy::too_many_arguments)]
 fn func(
     name: &str,
@@ -477,7 +477,6 @@ fn func(
     doc: &str,
     fp: *const u8,
     pure: bool,
-    intrinsic: Option<Intrinsic>,
 ) -> Member {
     Member {
         name: name.to_string(),
@@ -491,7 +490,6 @@ fn func(
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
         pure,
-        intrinsic,
         emit: None,
     }
 }
@@ -510,7 +508,6 @@ fn cst(name: &str, symbol: &str, ts: &str, doc: &str, fp: *const u8) -> Member {
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
         pure: true,
-        intrinsic: None,
         emit: None,
     }
 }
@@ -529,6 +526,58 @@ fn native(mut m: Member, e: rts_engine::NativeEmit) -> Member {
     m
 }
 
+// ── native emitters for the scalar math ops (drained from the `Intrinsic` enum) ──
+//
+// Each is a non-capturing `fn`, so it coerces to `NativeEmit`. Operands arrive
+// already coerced to the member's declared `Sig` (f64 slots for the `_f64` ops,
+// i64 slots for the `_i64` ops), so these bodies assume that width and nothing
+// else. The engine falls back to the extern call for any site an emitter can't
+// take (a Tagged operand, a wrong arg count) — `None` is always safe.
+
+use cranelift_codegen::ir::Value;
+use cranelift_frontend::FunctionBuilder;
+
+fn emit_abs_f64(b: &mut FunctionBuilder, args: &[Value]) -> Option<Value> {
+    let [x] = args else { return None };
+    Some(b.ins().fabs(*x))
+}
+
+/// No `iabs` in Cranelift: branchless |x| = (x ^ (x>>63)) - (x>>63). Matches
+/// `i64::wrapping_abs` (i64::MIN maps to itself), which is the extern's contract.
+fn emit_abs_i64(b: &mut FunctionBuilder, args: &[Value]) -> Option<Value> {
+    let [x] = args else { return None };
+    let x = *x;
+    let sign = b.ins().sshr_imm(x, 63);
+    let flipped = b.ins().bxor(x, sign);
+    Some(b.ins().isub(flipped, sign))
+}
+
+fn emit_min_f64(b: &mut FunctionBuilder, args: &[Value]) -> Option<Value> {
+    let [x, y] = args else { return None };
+    Some(b.ins().fmin(*x, *y))
+}
+
+fn emit_max_f64(b: &mut FunctionBuilder, args: &[Value]) -> Option<Value> {
+    let [x, y] = args else { return None };
+    Some(b.ins().fmax(*x, *y))
+}
+
+fn emit_min_i64(b: &mut FunctionBuilder, args: &[Value]) -> Option<Value> {
+    use cranelift_codegen::ir::condcodes::IntCC;
+    let [x, y] = args else { return None };
+    let (x, y) = (*x, *y);
+    let lt = b.ins().icmp(IntCC::SignedLessThan, x, y);
+    Some(b.ins().select(lt, x, y))
+}
+
+fn emit_max_i64(b: &mut FunctionBuilder, args: &[Value]) -> Option<Value> {
+    use cranelift_codegen::ir::condcodes::IntCC;
+    let [x, y] = args else { return None };
+    let (x, y) = (*x, *y);
+    let gt = b.ins().icmp(IntCC::SignedGreaterThan, x, y);
+    Some(b.ins().select(gt, x, y))
+}
+
 /// Alias JS-style — sem extern próprio: aponta `symbol` ao alvo canônico e usa
 /// `fn_ptr` nulo. `pure: false` (os aliases não carregam `pure`).
 fn alias(
@@ -537,7 +586,6 @@ fn alias(
     sig: Sig,
     ts: &str,
     doc: &str,
-    intrinsic: Option<Intrinsic>,
 ) -> Member {
     Member {
         name: name.to_string(),
@@ -551,7 +599,6 @@ fn alias(
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
         pure: false,
-        intrinsic,
         emit: None,
     }
 }
@@ -568,7 +615,6 @@ pub fn register(e: &mut Engine) {
             "Largest integer <= x.",
             __RTS_FN_NS_MATH_FLOOR as *const u8,
             true,
-            None,
         ))
         .member(func(
             "ceil",
@@ -578,7 +624,6 @@ pub fn register(e: &mut Engine) {
             "Smallest integer >= x.",
             __RTS_FN_NS_MATH_CEIL as *const u8,
             true,
-            None,
         ))
         .member(func(
             "round",
@@ -588,7 +633,6 @@ pub fn register(e: &mut Engine) {
             "Rounds to nearest; ties go to +Infinity to match JS semantics.",
             __RTS_FN_NS_MATH_ROUND as *const u8,
             true,
-            None,
         ))
         .member(func(
             "trunc",
@@ -598,7 +642,6 @@ pub fn register(e: &mut Engine) {
             "Truncates fractional part (rounds toward zero).",
             __RTS_FN_NS_MATH_TRUNC as *const u8,
             true,
-            None,
         ))
         // `sqrt` is the reference for the NATIVE EMITTER surface: the member
         // carries its own Cranelift emission, so the engine needs no arm for it.
@@ -613,7 +656,6 @@ pub fn register(e: &mut Engine) {
                 "Square root.",
                 __RTS_FN_NS_MATH_SQRT as *const u8,
                 true,
-                None,
             ),
             |b, args| {
                 let [x] = args else { return None };
@@ -628,7 +670,6 @@ pub fn register(e: &mut Engine) {
             "Cube root.",
             __RTS_FN_NS_MATH_CBRT as *const u8,
             true,
-            None,
         ))
         .member(func(
             "pow",
@@ -638,7 +679,6 @@ pub fn register(e: &mut Engine) {
             "base raised to exp.",
             __RTS_FN_NS_MATH_POW as *const u8,
             true,
-            None,
         ))
         .member(func(
             "exp",
@@ -648,7 +688,6 @@ pub fn register(e: &mut Engine) {
             "e^x.",
             __RTS_FN_NS_MATH_EXP as *const u8,
             true,
-            None,
         ))
         .member(func(
             "ln",
@@ -658,15 +697,13 @@ pub fn register(e: &mut Engine) {
             "Natural logarithm (base e).",
             __RTS_FN_NS_MATH_LN as *const u8,
             true,
-            None,
         ))
         .member(alias(
             "log",
             "__RTS_FN_NS_MATH_LN",
             Sig::new(vec![AbiType::F64], AbiType::F64),
             "log(x: number): number",
-            "Math.log(x) — natural log (alias de ln).",
-            None,
+            "Math.log(x) — natural log (alias de ln)",
         ))
         .member(func(
             "log2",
@@ -676,7 +713,6 @@ pub fn register(e: &mut Engine) {
             "Base-2 logarithm.",
             __RTS_FN_NS_MATH_LOG2 as *const u8,
             true,
-            None,
         ))
         .member(func(
             "log10",
@@ -686,7 +722,6 @@ pub fn register(e: &mut Engine) {
             "Base-10 logarithm.",
             __RTS_FN_NS_MATH_LOG10 as *const u8,
             true,
-            None,
         ))
         .member(func(
             "sign",
@@ -696,7 +731,6 @@ pub fn register(e: &mut Engine) {
             "Sign of x: -1, 0, or 1; NaN for NaN.",
             __RTS_FN_NS_MATH_SIGN as *const u8,
             true,
-            None,
         ))
         .member(func(
             "hypot",
@@ -706,7 +740,6 @@ pub fn register(e: &mut Engine) {
             "sqrt(a² + b²) sem overflow intermediario. 2-arg em v0.",
             __RTS_FN_NS_MATH_HYPOT as *const u8,
             true,
-            None,
         ))
         .member(func(
             "expm1",
@@ -716,7 +749,6 @@ pub fn register(e: &mut Engine) {
             "exp(x) - 1, preciso para x perto de 0.",
             __RTS_FN_NS_MATH_EXPM1 as *const u8,
             true,
-            None,
         ))
         .member(func(
             "log1p",
@@ -726,7 +758,6 @@ pub fn register(e: &mut Engine) {
             "ln(1 + x), preciso para x perto de 0.",
             __RTS_FN_NS_MATH_LOG1P as *const u8,
             true,
-            None,
         ))
         .member(func(
             "fround",
@@ -736,7 +767,6 @@ pub fn register(e: &mut Engine) {
             "Arredonda para o f32 mais proximo (volta para f64).",
             __RTS_FN_NS_MATH_FROUND as *const u8,
             true,
-            None,
         ))
         .member(func(
             "f16round",
@@ -746,7 +776,6 @@ pub fn register(e: &mut Engine) {
             "Arredonda para IEEE 754 binary16 (half) e volta para f64.",
             __RTS_FN_NS_MATH_F16ROUND as *const u8,
             true,
-            None,
         ))
         .member(func(
             "sinh",
@@ -756,7 +785,6 @@ pub fn register(e: &mut Engine) {
             "Seno hiperbolico.",
             __RTS_FN_NS_MATH_SINH as *const u8,
             true,
-            None,
         ))
         .member(func(
             "cosh",
@@ -766,7 +794,6 @@ pub fn register(e: &mut Engine) {
             "Cosseno hiperbolico.",
             __RTS_FN_NS_MATH_COSH as *const u8,
             true,
-            None,
         ))
         .member(func(
             "tanh",
@@ -776,7 +803,6 @@ pub fn register(e: &mut Engine) {
             "Tangente hiperbolica.",
             __RTS_FN_NS_MATH_TANH as *const u8,
             true,
-            None,
         ))
         .member(func(
             "asinh",
@@ -786,7 +812,6 @@ pub fn register(e: &mut Engine) {
             "Arc seno hiperbolico.",
             __RTS_FN_NS_MATH_ASINH as *const u8,
             true,
-            None,
         ))
         .member(func(
             "acosh",
@@ -796,7 +821,6 @@ pub fn register(e: &mut Engine) {
             "Arc cosseno hiperbolico.",
             __RTS_FN_NS_MATH_ACOSH as *const u8,
             true,
-            None,
         ))
         .member(func(
             "atanh",
@@ -806,7 +830,6 @@ pub fn register(e: &mut Engine) {
             "Arc tangente hiperbolica.",
             __RTS_FN_NS_MATH_ATANH as *const u8,
             true,
-            None,
         ))
         .member(func(
             "imul",
@@ -816,7 +839,6 @@ pub fn register(e: &mut Engine) {
             "C-style 32-bit signed multiplication (wrapping).",
             __RTS_FN_NS_MATH_IMUL as *const u8,
             true,
-            None,
         ))
         .member(func(
             "clz32",
@@ -826,35 +848,40 @@ pub fn register(e: &mut Engine) {
             "Count leading zeros em uint32.",
             __RTS_FN_NS_MATH_CLZ32 as *const u8,
             true,
-            None,
         ))
-        .member(func(
-            "abs_f64",
-            "__RTS_FN_NS_MATH_ABS_F64",
-            Sig::new(vec![AbiType::F64], AbiType::F64),
-            "abs_f64(x: number): number",
-            "Absolute value (f64).",
-            __RTS_FN_NS_MATH_ABS_F64 as *const u8,
-            true,
-            Some(Intrinsic::AbsF64),
+        .member(native(
+            func(
+                "abs_f64",
+                "__RTS_FN_NS_MATH_ABS_F64",
+                Sig::new(vec![AbiType::F64], AbiType::F64),
+                "abs_f64(x: number): number",
+                "Absolute value (f64).",
+                __RTS_FN_NS_MATH_ABS_F64 as *const u8,
+                true,
+            ),
+            emit_abs_f64,
         ))
-        .member(func(
-            "abs_i64",
-            "__RTS_FN_NS_MATH_ABS_I64",
-            Sig::new(vec![AbiType::I64], AbiType::I64),
-            "abs_i64(x: number): number",
-            "Absolute value (i64); i64::MIN maps to itself (wrapping).",
-            __RTS_FN_NS_MATH_ABS_I64 as *const u8,
-            true,
-            Some(Intrinsic::AbsI64),
+        .member(native(
+            func(
+                "abs_i64",
+                "__RTS_FN_NS_MATH_ABS_I64",
+                Sig::new(vec![AbiType::I64], AbiType::I64),
+                "abs_i64(x: number): number",
+                "Absolute value (i64); i64::MIN maps to itself (wrapping).",
+                __RTS_FN_NS_MATH_ABS_I64 as *const u8,
+                true,
+            ),
+            emit_abs_i64,
         ))
-        .member(alias(
-            "abs",
-            "__RTS_FN_NS_MATH_ABS_F64",
-            Sig::new(vec![AbiType::F64], AbiType::F64),
-            "abs(x: number): number",
-            "Math.abs(x) — alias de abs_f64.",
-            Some(Intrinsic::AbsF64),
+        .member(native(
+            alias(
+                "abs",
+                "__RTS_FN_NS_MATH_ABS_F64",
+                Sig::new(vec![AbiType::F64], AbiType::F64),
+                "abs(x: number): number",
+                "Math.abs(x) — alias de abs_f64",
+            ),
+            emit_abs_f64,
         ))
         .member(func(
             "sin",
@@ -864,7 +891,6 @@ pub fn register(e: &mut Engine) {
             "Sine (radians).",
             __RTS_FN_NS_MATH_SIN as *const u8,
             true,
-            None,
         ))
         .member(func(
             "cos",
@@ -874,7 +900,6 @@ pub fn register(e: &mut Engine) {
             "Cosine (radians).",
             __RTS_FN_NS_MATH_COS as *const u8,
             true,
-            None,
         ))
         .member(func(
             "tan",
@@ -884,7 +909,6 @@ pub fn register(e: &mut Engine) {
             "Tangent (radians).",
             __RTS_FN_NS_MATH_TAN as *const u8,
             true,
-            None,
         ))
         .member(func(
             "asin",
@@ -894,7 +918,6 @@ pub fn register(e: &mut Engine) {
             "Arc sine (returns radians).",
             __RTS_FN_NS_MATH_ASIN as *const u8,
             true,
-            None,
         ))
         .member(func(
             "acos",
@@ -904,7 +927,6 @@ pub fn register(e: &mut Engine) {
             "Arc cosine (returns radians).",
             __RTS_FN_NS_MATH_ACOS as *const u8,
             true,
-            None,
         ))
         .member(func(
             "atan",
@@ -914,7 +936,6 @@ pub fn register(e: &mut Engine) {
             "Arc tangent (returns radians).",
             __RTS_FN_NS_MATH_ATAN as *const u8,
             true,
-            None,
         ))
         .member(func(
             "atan2",
@@ -924,63 +945,74 @@ pub fn register(e: &mut Engine) {
             "atan2(y, x) — angle (radians) of the 2D vector (x, y).",
             __RTS_FN_NS_MATH_ATAN2 as *const u8,
             true,
-            None,
         ))
-        .member(func(
-            "min_f64",
-            "__RTS_FN_NS_MATH_MIN_F64",
-            Sig::new(vec![AbiType::F64, AbiType::F64], AbiType::F64),
-            "min_f64(a: number, b: number): number",
-            "Minimum of two f64 values (NaN-aware).",
-            __RTS_FN_NS_MATH_MIN_F64 as *const u8,
-            true,
-            Some(Intrinsic::MinF64),
+        .member(native(
+            func(
+                "min_f64",
+                "__RTS_FN_NS_MATH_MIN_F64",
+                Sig::new(vec![AbiType::F64, AbiType::F64], AbiType::F64),
+                "min_f64(a: number, b: number): number",
+                "Minimum of two f64 values (NaN-aware).",
+                __RTS_FN_NS_MATH_MIN_F64 as *const u8,
+                true,
+            ),
+            emit_min_f64,
         ))
-        .member(func(
-            "max_f64",
-            "__RTS_FN_NS_MATH_MAX_F64",
-            Sig::new(vec![AbiType::F64, AbiType::F64], AbiType::F64),
-            "max_f64(a: number, b: number): number",
-            "Maximum of two f64 values (NaN-aware).",
-            __RTS_FN_NS_MATH_MAX_F64 as *const u8,
-            true,
-            Some(Intrinsic::MaxF64),
+        .member(native(
+            func(
+                "max_f64",
+                "__RTS_FN_NS_MATH_MAX_F64",
+                Sig::new(vec![AbiType::F64, AbiType::F64], AbiType::F64),
+                "max_f64(a: number, b: number): number",
+                "Maximum of two f64 values (NaN-aware).",
+                __RTS_FN_NS_MATH_MAX_F64 as *const u8,
+                true,
+            ),
+            emit_max_f64,
         ))
-        .member(func(
-            "min_i64",
-            "__RTS_FN_NS_MATH_MIN_I64",
-            Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::I64),
-            "min_i64(a: number, b: number): number",
-            "Minimum of two i64 values.",
-            __RTS_FN_NS_MATH_MIN_I64 as *const u8,
-            true,
-            Some(Intrinsic::MinI64),
+        .member(native(
+            func(
+                "min_i64",
+                "__RTS_FN_NS_MATH_MIN_I64",
+                Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::I64),
+                "min_i64(a: number, b: number): number",
+                "Minimum of two i64 values.",
+                __RTS_FN_NS_MATH_MIN_I64 as *const u8,
+                true,
+            ),
+            emit_min_i64,
         ))
-        .member(alias(
-            "min",
-            "__RTS_FN_NS_MATH_MIN_F64",
-            Sig::new(vec![AbiType::F64, AbiType::F64], AbiType::F64),
-            "min(a: number, b: number): number",
-            "Math.min(a, b) — alias de min_f64.",
-            Some(Intrinsic::MinF64),
+        .member(native(
+            alias(
+                "min",
+                "__RTS_FN_NS_MATH_MIN_F64",
+                Sig::new(vec![AbiType::F64, AbiType::F64], AbiType::F64),
+                "min(a: number, b: number): number",
+                "Math.min(a, b) — alias de min_f64",
+            ),
+            emit_min_f64,
         ))
-        .member(alias(
-            "max",
-            "__RTS_FN_NS_MATH_MAX_F64",
-            Sig::new(vec![AbiType::F64, AbiType::F64], AbiType::F64),
-            "max(a: number, b: number): number",
-            "Math.max(a, b) — alias de max_f64.",
-            Some(Intrinsic::MaxF64),
+        .member(native(
+            alias(
+                "max",
+                "__RTS_FN_NS_MATH_MAX_F64",
+                Sig::new(vec![AbiType::F64, AbiType::F64], AbiType::F64),
+                "max(a: number, b: number): number",
+                "Math.max(a, b) — alias de max_f64",
+            ),
+            emit_max_f64,
         ))
-        .member(func(
-            "max_i64",
-            "__RTS_FN_NS_MATH_MAX_I64",
-            Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::I64),
-            "max_i64(a: number, b: number): number",
-            "Maximum of two i64 values.",
-            __RTS_FN_NS_MATH_MAX_I64 as *const u8,
-            true,
-            Some(Intrinsic::MaxI64),
+        .member(native(
+            func(
+                "max_i64",
+                "__RTS_FN_NS_MATH_MAX_I64",
+                Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::I64),
+                "max_i64(a: number, b: number): number",
+                "Maximum of two i64 values.",
+                __RTS_FN_NS_MATH_MAX_I64 as *const u8,
+                true,
+            ),
+            emit_max_i64,
         ))
         .member(func(
             "clamp_f64",
@@ -990,7 +1022,6 @@ pub fn register(e: &mut Engine) {
             "Clamps x into [lo, hi]. NaN propagates.",
             __RTS_FN_NS_MATH_CLAMP_F64 as *const u8,
             true,
-            None,
         ))
         .member(func(
             "clamp_i64",
@@ -1000,7 +1031,6 @@ pub fn register(e: &mut Engine) {
             "Clamps x into [lo, hi].",
             __RTS_FN_NS_MATH_CLAMP_I64 as *const u8,
             true,
-            None,
         ))
         .member(func(
             "random_f64",
@@ -1010,15 +1040,13 @@ pub fn register(e: &mut Engine) {
             "Uniform f64 in [0, 1) from a thread-local xorshift64 PRNG.",
             __RTS_FN_NS_MATH_RANDOM_F64 as *const u8,
             false,
-            None,
         ))
         .member(alias(
             "random",
             "__RTS_FN_NS_MATH_RANDOM_F64",
             Sig::new(Vec::new(), AbiType::F64),
             "random(): number",
-            "Math.random() — alias de random_f64. Uniform [0, 1).",
-            None,
+            "Math.random() — alias de random_f64. Uniform [0, 1)",
         ))
         .member(func(
             "random_i64_range",
@@ -1028,7 +1056,6 @@ pub fn register(e: &mut Engine) {
             "Uniform i64 in [lo, hi). Returns lo when lo >= hi.",
             __RTS_FN_NS_MATH_RANDOM_I64_RANGE as *const u8,
             false,
-            None,
         ))
         .member(func(
             "seed",
@@ -1038,7 +1065,6 @@ pub fn register(e: &mut Engine) {
             "Seeds the PRNG. Zero is replaced by the default seed.",
             __RTS_FN_NS_MATH_SEED as *const u8,
             false,
-            None,
         ))
         .member(cst(
             "PI",

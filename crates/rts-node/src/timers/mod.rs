@@ -38,7 +38,6 @@ fn m(name: &str, symbol: &str, sig: Sig, ts: &str, fp: *const u8) -> Member {
         ts_signature: ts.to_string(),
         doc: String::new(),
         pure: false,
-        intrinsic: None,
         emit: None,
     }
 }

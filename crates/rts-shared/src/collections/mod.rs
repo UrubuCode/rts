@@ -53,7 +53,6 @@ pub fn register_mapset_class_spec(e: &mut rts_engine::Engine) {
             ts_signature: String::new(),
             doc: String::new(),
             pure: false,
-            intrinsic: None,
             emit: None,
         }
     }

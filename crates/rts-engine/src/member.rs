@@ -2,7 +2,7 @@
 //! var) — o que o builder insere no [`Registry`](crate::Registry).
 
 use crate::Sig;
-use crate::abi::{Intrinsic, MemberFlags, MemberKind};
+use crate::abi::{MemberFlags, MemberKind};
 
 /// Ponteiro para a implementação nativa de um membro. É o código `extern "C"`
 /// real; dobra como **símbolo do JIT** (o loader injeta `(symbol, fn_ptr)` em
@@ -101,14 +101,6 @@ pub struct Member {
     /// paralelização automática (silent-parallelism). Conservador: false é
     /// sempre seguro. Espelha `NamespaceMember.pure`.
     pub pure: bool,
-    /// Quando `Some`, o codegen emite IR Cranelift inline em vez de `call
-    /// <symbol>` (sqrt, abs, min/max, …). Espelha `NamespaceMember.intrinsic`.
-    ///
-    /// LEGADO EM DRENAGEM: um enum FECHADO obriga o motor a carregar uma
-    /// variante + um braço de `match` por operação — ou seja, conhecimento de
-    /// não-primordial DENTRO do motor, que é o que a doutrina proíbe. Prefira
-    /// [`Member::emit`], que põe a emissão junto do spec.
-    pub intrinsic: Option<Intrinsic>,
 
     /// EMITTER NATIVO (ver [`NativeEmit`]): quando `Some`, o motor chama isto
     /// para emitir o corpo do membro como IR no ponto da chamada, em vez de

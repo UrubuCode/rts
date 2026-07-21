@@ -163,7 +163,6 @@ fn pure_func(
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
         pure: true,
-        intrinsic: None,
         emit: None,
     }
 }

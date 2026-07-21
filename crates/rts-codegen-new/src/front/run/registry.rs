@@ -88,17 +88,12 @@ pub struct ResolvedCall {
     /// dispatches. `None` for primitives / generic `object` / unions. The caller
     /// still checks it against the registered classes (never invents one).
     pub ret_class: Option<String>,
-    /// When `Some`, this member is emitted as INLINE Cranelift IR instead of a
-    /// `call <symbol>` — see `CRANELIFT_IMPLEMENTATION.md`. The `symbol` stays
-    /// populated: a site the inline emitter cannot handle (an arg repr it does
-    /// not accept) falls back to the ordinary call, so an intrinsic is a
-    /// fast-path, never a new failure mode.
-    pub intrinsic: Option<rts_engine::abi::Intrinsic>,
-    /// The member's own NATIVE EMITTER, when it declares one. Same fast-path
-    /// contract as `intrinsic` above, but the emission lives WITH THE SPEC
-    /// instead of inside the engine — so adding a natively-emitted operation
-    /// does not add an arm to any `match` here. This is what `intrinsic` is
-    /// being drained into.
+    /// The member's own NATIVE EMITTER, when it declares one: emitted as inline
+    /// Cranelift IR at the call site instead of `call <symbol>`. The `symbol`
+    /// stays populated, so a site the emitter declines (an unproven operand,
+    /// reflection, FFI) falls back to the call — a fast path, never a new failure
+    /// mode. The emission lives WITH THE SPEC (`rts-shared`/`rts-primitives`), so
+    /// the engine has no per-operation arm.
     pub emit: Option<rts_engine::NativeEmit>,
 }
 
@@ -234,7 +229,6 @@ fn instance_call(m: &'static Member) -> ResolvedCall {
         ret_is_object_handle: ts_returns_object(&m.ts_signature),
         ret_is_nullable_string: ts_returns_nullable_string(&m.ts_signature),
         ret_class: ts_return_class(&m.ts_signature),
-        intrinsic: m.intrinsic,
         emit: m.emit,
     }
 }
@@ -254,7 +248,6 @@ fn flat_call(m: &'static Member) -> ResolvedCall {
         ret_is_object_handle: ts_returns_object(&m.ts_signature),
         ret_is_nullable_string: ts_returns_nullable_string(&m.ts_signature),
         ret_class: ts_return_class(&m.ts_signature),
-        intrinsic: m.intrinsic,
         emit: m.emit,
     }
 }

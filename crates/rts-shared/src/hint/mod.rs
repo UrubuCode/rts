@@ -72,7 +72,6 @@ fn func(
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
         pure: false,
-        intrinsic: None,
         emit: None,
     }
 }

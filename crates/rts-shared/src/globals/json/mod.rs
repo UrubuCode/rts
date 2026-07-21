@@ -23,7 +23,6 @@ pub fn register(e: &mut Engine) {
             ts_signature: "parse(text: string): unknown".to_string(),
             doc: "Parses a JSON string. Returns opaque handle; 0 on error.".to_string(),
             pure: false,
-            intrinsic: None,
             emit: None,
         })
         .member(Member {
@@ -38,7 +37,6 @@ pub fn register(e: &mut Engine) {
             ts_signature: "stringify(value: unknown): string".to_string(),
             doc: "Serializes a JSON handle to its compact string form.".to_string(),
             pure: false,
-            intrinsic: None,
             emit: None,
         })
         .member(Member {
@@ -54,7 +52,6 @@ pub fn register(e: &mut Engine) {
                 .to_string(),
             doc: "Pretty-printed serialization with `indent` spaces.".to_string(),
             pure: false,
-            intrinsic: None,
             emit: None,
         })
         .done();

@@ -24,7 +24,6 @@ fn m(name: &str, kind: MemberKind, sig: Sig, symbol: &str, ts: &str, pure: bool)
         ts_signature: ts.to_string(),
         doc: String::new(),
         pure,
-        intrinsic: None,
         emit: None,
     }
 }

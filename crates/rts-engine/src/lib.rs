@@ -61,6 +61,6 @@ pub use sig::Sig;
 // Vocabulário ABI estável (antes o crate `rts-abi`, agora dobrado em `abi`).
 // Re-exportado na raiz para os crates de camada e o codegen.
 pub use abi::{
-    AbiType, DefaultArg, GlobalClassSpec, Intrinsic, JsErrorKind, MemberFlags, MemberKind,
+    AbiType, DefaultArg, GlobalClassSpec, JsErrorKind, MemberFlags, MemberKind,
     NamespaceMember, NamespaceSpec, concat_members,
 };
