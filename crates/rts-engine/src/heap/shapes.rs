@@ -105,6 +105,62 @@ pub fn global_shape_count() -> usize {
     registry().lock().map(|r| r.keys.len()).unwrap_or(0)
 }
 
+/// Snapshot the ordered key-lists of every interned global shape, for the
+/// precompiled-prelude cache (step 10). The VEC INDEX is the shape id minus
+/// [`GLOBAL_SHAPE_BASE`], so re-seeding this exact vector reproduces every id
+/// exactly — which is mandatory, because prelude machine code bakes shape ids as
+/// immediates.
+pub fn export_global_shapes() -> Vec<Vec<String>> {
+    registry()
+        .lock()
+        .map(|r| r.keys.clone())
+        .unwrap_or_default()
+}
+
+/// Re-seed the global shape registry from a [`export_global_shapes`] snapshot,
+/// reproducing every id by position. MUST run on an EMPTY registry (call
+/// [`reset_global_shapes`] first) so the seeded ids line up with the baked
+/// immediates; panics via the assert otherwise. Rebuilds the `by_keys` dedup map
+/// so later `intern_global_shape` of a prelude key returns its ORIGINAL id and a
+/// new user key mints ABOVE the seeded range.
+pub fn seed_global_shapes(snapshot: Vec<Vec<String>>) {
+    let mut reg = registry().lock().expect("global shape registry poisoned");
+    assert!(
+        reg.keys.is_empty(),
+        "seed_global_shapes on a non-empty registry ({} shapes) — reset first",
+        reg.keys.len()
+    );
+    reg.by_keys = snapshot
+        .iter()
+        .enumerate()
+        .map(|(i, k)| (k.clone(), GLOBAL_SHAPE_BASE + i as GlobalShapeId))
+        .collect();
+    reg.keys = snapshot;
+}
+
+/// Snapshot the Error-class registry (`name → (shape id, field layout)`) for the
+/// prelude cache. Paired with [`seed_error_classes`].
+pub fn export_error_classes() -> Vec<(String, GlobalShapeId, Vec<String>)> {
+    error_classes()
+        .lock()
+        .map(|t| {
+            t.iter()
+                .map(|(n, (id, f))| (n.clone(), *id, f.clone()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Re-seed the Error-class registry from an [`export_error_classes`] snapshot.
+pub fn seed_error_classes(snapshot: Vec<(String, GlobalShapeId, Vec<String>)>) {
+    if let Ok(mut t) = error_classes().lock() {
+        t.clear();
+        for (name, id, fields) in snapshot {
+            t.insert(name, (id, fields));
+        }
+    }
+}
+
 /// The ordered keys of a [`GlobalShapeId`], or `None` if the id was never
 /// interned.
 pub fn global_shape_keys(id: GlobalShapeId) -> Option<Vec<String>> {
@@ -224,4 +280,34 @@ pub fn alloc_shaped_object_owned(keys: Vec<String>, values: &[i64]) -> u64 {
     slots.push(shape_id_word(id) as i64);
     slots.extend_from_slice(values);
     alloc_entry(Entry::Vec(Box::new(slots)))
+}
+
+#[cfg(test)]
+mod snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn shape_snapshot_round_trips_ids() {
+        // Intern a few shapes, snapshot, reset, re-seed → the SAME keys must map
+        // to the SAME ids (the invariant the baked-immediate prelude relies on).
+        reset_global_shapes();
+        let a = intern_global_shape(&["x".into(), "y".into()]);
+        let b = intern_global_shape(&["z".into()]);
+        let snap = export_global_shapes();
+        assert_eq!(global_shape_count(), 2);
+
+        reset_global_shapes();
+        assert_eq!(global_shape_count(), 0);
+        seed_global_shapes(snap);
+
+        // Same key sequences resolve to the ORIGINAL ids (dedup map rebuilt).
+        assert_eq!(intern_global_shape(&["x".into(), "y".into()]), a);
+        assert_eq!(intern_global_shape(&["z".into()]), b);
+        // A NEW key mints ABOVE the seeded range.
+        let c = intern_global_shape(&["w".into()]);
+        assert_eq!(c, GLOBAL_SHAPE_BASE + 2);
+        assert_eq!(global_shape_keys(a), Some(vec!["x".into(), "y".into()]));
+
+        reset_global_shapes();
+    }
 }
