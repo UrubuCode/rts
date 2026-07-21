@@ -665,11 +665,24 @@ scope here.
       name→run-FuncId (prelude fns via the declared ids; runtime externs declared
       Import, resolved by the JIT symbol table; data via the run DataIds). The
       prelude lands in the run's OWN arena → every call is near.
-    - Still open before making it default: broad validation under the full TS suite,
-      GC stack-map coverage for the byte-defined frames (currently covered by the
-      conservative scan), and the release-build ms (the 634→8 fn cut is the source
-      of the projected ~79 → ~23 ms). Gated on `RTS_RESIDENT=1` until the
-      full-suite pass; the default build (empty manifest) is unaffected.
+    - *Correctness gates* — engages only at the TOP-LEVEL compile (`global_shape_count()
+      == 0` at entry; a nested `eval`/`new Function` falls back), on a prelude-hash
+      match, and on a prelude-gcell-id match. At top level it SEEDS the manifest's
+      full shape/error snapshot and returns the manifest's prelude directly (no
+      re-lower), so the baked shape-id immediates are RESERVED and user shapes intern
+      above them.
+    - **ON by default** whenever a baked manifest is installed; `RTS_NO_RESIDENT=1`
+      disables it (mirrors `RTS_NO_PRELUDE_CACHE`). Validated: **731/731 TS-suite
+      files produce byte-identical results with resident on vs off**, on the real
+      binary. The default build (empty manifest → nothing installed) is untouched;
+      `rts compile` (AOT) compiles the prelude normally (JIT-only feature).
+    - Follow-up (not correctness gates): precise GC stack maps for the byte-defined
+      frames (currently the conservative `SuspendThread` scan covers them — the
+      allocating suite passes), and the release-build ms (the 634→8 fn cut is the
+      mechanism; Slices 3/4 drop pruning/merge for the rest of the ~79 → ~23 ms).
+
+    **SLICE 2 COMPLETE** — the resident prelude works and is on by default for baked
+    builds, validated across the whole suite.
 - **Slice 3/4** — drop pruning + trim merge from the run path once the prelude is
   fully resident.
 

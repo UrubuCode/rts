@@ -306,15 +306,12 @@ mod tests {
         rts_adapters::state::reset_codegen_state();
         let expected = super::super::render_source(SRC).expect("baseline render");
 
-        // Bake + install, enable resident, render again.
+        // Bake + install → the resident path engages on `is_installed` (no env
+        // flag; `RTS_NO_RESIDENT` would DISABLE it). Render again.
         let baked = bake_prelude().expect("bake");
         super::super::resident::install(baked.manifest_bytes().expect("manifest bytes"));
-        // SAFETY: single-threaded ignored test; restored below.
-        unsafe { std::env::set_var("RTS_RESIDENT", "1") };
         rts_adapters::state::reset_codegen_state();
-        let got = super::super::render_source(SRC);
-        unsafe { std::env::remove_var("RTS_RESIDENT") };
-        let got = got.expect("resident render");
+        let got = super::super::render_source(SRC).expect("resident render");
 
         assert_eq!(got, expected, "resident replay output must equal fallback");
     }

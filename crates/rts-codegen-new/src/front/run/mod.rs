@@ -149,16 +149,19 @@ fn build_with_includes(src: &str) -> FrontResult<LoweredProgram> {
     if inc.is_empty() {
         build_program(src, "")
     } else {
+        // TOP-LEVEL iff the shape registry is empty BEFORE any lowering (a nested
+        // `eval`/`new Function` compile runs with the outer program's shapes live).
+        let top_level = rts_engine::heap::shapes::global_shape_count() == 0;
         // The prelude cache lives in `build_program_for_prelude`, so both the disk
         // and string paths share it.
         let prelude = build_program_for_prelude(&inc)?;
         let ambient_fns = prelude_fn_names(&prelude);
         let user = build_program_with_ambient(src, &prelude.classes, &ambient_fns)?;
         let mut merged = merge_programs(prelude, user)?;
-        // RESIDENT prelude (slice 2): when a baked prelude is linked into this
-        // binary and consistent with the merged program, declare its functions
-        // `Import` instead of machine-compiling them.
-        mark_resident_imports(&mut merged, &inc);
+        // RESIDENT prelude (slice 2): define the prelude fns from the baked machine
+        // code instead of re-compiling them, when a consistent baked prelude is
+        // installed.
+        mark_resident_imports(&mut merged, &inc, top_level);
         Ok(merged)
     }
 }
@@ -174,13 +177,18 @@ fn build_with_includes(src: &str) -> FrontResult<LoweredProgram> {
 /// from the SAME prelude text (via the slice-1 cache), so the merged program's
 /// prelude shape ids equal the baked immediates. This only additionally guards the
 /// gcell numbering, which `merge_programs` recomputes.
-pub(super) fn mark_resident_imports(merged: &mut LoweredProgram, prelude_src: &str) {
+pub(super) fn mark_resident_imports(
+    merged: &mut LoweredProgram,
+    prelude_src: &str,
+    top_level: bool,
+) {
     // The prelude fns marked here are DEFINED from the baked machine code
     // (`define_function_bytes` into this run's JIT arena — near calls, no linking),
-    // skipping their re-compile. Gated on `RTS_RESIDENT=1` during bring-up so a
-    // resident-installed binary defaults to the fallback until the replay is
-    // validated end-to-end. See CRANELIFT_IMPLEMENTATION.md slice 2.
-    if std::env::var_os("RTS_RESIDENT").is_none() {
+    // skipping their re-compile. ON by default whenever a baked manifest is
+    // installed (validated resident==fallback across the whole TS suite);
+    // `RTS_NO_RESIDENT=1` is the escape hatch (mirrors `RTS_NO_PRELUDE_CACHE`).
+    // See CRANELIFT_IMPLEMENTATION.md slice 2.
+    if std::env::var_os("RTS_NO_RESIDENT").is_some() {
         return;
     }
     if !resident::is_installed() {
@@ -193,6 +201,16 @@ pub(super) fn mark_resident_imports(merged: &mut LoweredProgram, prelude_src: &s
     };
     if manifest.prelude_hash != prelude_cache::key(prelude_src) {
         crate::timing::note("resident: hash-mismatch", 0);
+        return;
+    }
+    // TOP-LEVEL ONLY. The baked machine code has the prelude's shape ids as
+    // immediates assigned from the BASE (0), which holds only for the top-level
+    // compile (the same condition the slice-1 cache gates on). A NESTED compile
+    // (`eval`/`new Function`) re-lowers the prelude ABOVE the outer program's live
+    // shapes, so the baked immediates would point at the wrong shapes — fall back
+    // there (re-lower + compile, exactly as nested does for the cache).
+    if !top_level {
+        crate::timing::note("resident: not-top-level", 0);
         return;
     }
     // Every prelude gcell must land on the SAME id the baked code has as an
@@ -311,6 +329,22 @@ fn build_program_for_prelude(src: &str) -> FrontResult<LoweredProgram> {
     // program. `reset_codegen_state` only runs at the quiescent top-level boundary,
     // so `global_shape_count() == 0` iff this is the top-level compile.
     if rts_engine::heap::shapes::global_shape_count() == 0 {
+        // RESIDENT prelude (slice 2): if a matching baked prelude is installed, seed
+        // its FULL shape/error snapshot and return its prelude program directly — no
+        // re-lower. The snapshot includes the shapes the bake interned during the
+        // prelude's COMPILE (not just its lowering), so the baked machine code's
+        // shape-id immediates are RESERVED and the user program's shapes intern
+        // ABOVE them. (The slice-1 cache would seed only the lowering shapes, which
+        // is fine when the prelude is re-compiled but not when its bytes are replayed.)
+        if std::env::var_os("RTS_NO_RESIDENT").is_none() && resident::is_installed() {
+            if let Some(m) = resident::manifest() {
+                if m.prelude_hash == prelude_cache::key(src) {
+                    rts_engine::heap::shapes::seed_global_shapes(m.shapes.clone());
+                    rts_engine::heap::shapes::seed_error_classes(m.error_classes.clone());
+                    return Ok(m.program);
+                }
+            }
+        }
         if let Some(p) = prelude_cache::load(src) {
             return Ok(p);
         }

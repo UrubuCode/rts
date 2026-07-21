@@ -134,6 +134,10 @@ fn build_path(entry: &Path) -> FrontResult<super::LoweredProgram> {
 
     let builtins = apply_bindings(&mut program, &bindings)?;
 
+    // TOP-LEVEL iff no shapes are interned yet (a nested compile has the outer
+    // program's shapes live) — gates the resident prelude engagement.
+    let top_level = rts_engine::heap::shapes::global_shape_count() == 0;
+
     // Build the engine prelude FIRST (if any) so its classes are AMBIENT for the
     // user program's `extends` resolution (`class X extends Error`/`Map`).
     let inc = crate::timing::phase("registry+prelude-text", registry::includes_prelude);
@@ -180,11 +184,11 @@ fn build_path(entry: &Path) -> FrontResult<super::LoweredProgram> {
         Some(prelude) => {
             let mut merged =
                 crate::timing::phase("merge programs", || merge_programs(prelude, user))?;
-            // RESIDENT prelude (slice 2): declare the prelude fns `Import` (resolving
-            // to the linked-in baked object) when a consistent baked prelude is
-            // installed — the disk path's twin of the string path's hook in
-            // `build_with_includes`. No-op (fallback) on any non-resident build.
-            super::mark_resident_imports(&mut merged, &inc);
+            // RESIDENT prelude (slice 2): define the prelude fns from the baked
+            // machine code instead of re-compiling — the disk path's twin of the
+            // string path's hook in `build_with_includes`. No-op on a non-resident
+            // build (or a nested compile).
+            super::mark_resident_imports(&mut merged, &inc, top_level);
             Ok(merged)
         }
     }
