@@ -217,12 +217,25 @@ fn build_program_for_prelude(src: &str) -> FrontResult<LoweredProgram> {
     // A hit re-seeds the shape registry (inside `prelude_cache::load`) so the
     // cached class shape ids resolve; a miss lowers normally and writes the cache.
     // Behaviour-neutral: the cached program equals a fresh lower.
-    if let Some(p) = prelude_cache::load(src) {
+    //
+    // GATE on an EMPTY shape registry — i.e. only the TOP-LEVEL compile. A NESTED
+    // compile (`eval`/`new Function`/dynamic import → `dynfn` → `build_with_includes`)
+    // runs while the OUTER program's shapes are still live in the process-global
+    // registry; seeding onto them is illegal (`seed_global_shapes` asserts empty)
+    // and would also clobber the Error-class registry. For a nested compile,
+    // re-lower the prelude, exactly as the cache-off path does — `intern_*` is
+    // idempotent/append-only, so the nested prelude coexists with the live outer
+    // program. `reset_codegen_state` only runs at the quiescent top-level boundary,
+    // so `global_shape_count() == 0` iff this is the top-level compile.
+    if rts_engine::heap::shapes::global_shape_count() == 0 {
+        if let Some(p) = prelude_cache::load(src) {
+            return Ok(p);
+        }
+        let p = build_program(src, PRELUDE_ARROW_NS)?;
+        prelude_cache::store(src, &p);
         return Ok(p);
     }
-    let p = build_program(src, PRELUDE_ARROW_NS)?;
-    prelude_cache::store(src, &p);
-    Ok(p)
+    build_program(src, PRELUDE_ARROW_NS)
 }
 
 /// [`build_program`] with AMBIENT (prelude) classes available for `extends`

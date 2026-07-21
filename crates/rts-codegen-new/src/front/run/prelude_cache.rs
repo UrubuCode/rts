@@ -46,15 +46,18 @@ struct CachedRef<'a> {
     error_classes: Vec<(String, u32, Vec<String>)>,
 }
 
-/// The cache is OPT-IN (`RTS_PRELUDE_CACHE=1`) while a serialization-correctness
-/// bug is open: with the cache ON, a handful of function-reification-heavy
-/// programs HEAP_CORRUPT in the full suite (baseline 723/8 → 718/13), so the
-/// deserialized prelude is NOT yet byte-equivalent to a fresh lower for every
-/// program. Default OFF keeps behaviour exactly at baseline; opting in gives the
-/// measured ~33 % startup win (123 → 82 ms) for the programs it is correct on.
-/// Do not flip the default until the suite is clean under the cache.
+/// The cache is ON by default; `RTS_NO_PRELUDE_CACHE=1` disables it (an escape
+/// hatch for debugging / a corrupt cache dir).
+///
+/// It was briefly opt-in while a heap-corruption bug was open — the load path
+/// seeded the shape registry unconditionally, which is illegal for a NESTED
+/// compile (`new Function`/eval) that runs while the outer program's shapes are
+/// live. That is fixed at the call site (`build_program_for_prelude` only uses
+/// the cache when the shape registry is empty, i.e. the top-level compile), and
+/// the full suite is now 723/8 = baseline under the cache — so it is safe on by
+/// default.
 fn enabled() -> bool {
-    std::env::var_os("RTS_PRELUDE_CACHE").is_some()
+    std::env::var_os("RTS_NO_PRELUDE_CACHE").is_none()
 }
 
 /// Content hash of the prelude text + cache version → the cache file stem.
