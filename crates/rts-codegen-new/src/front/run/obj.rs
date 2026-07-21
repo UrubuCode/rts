@@ -597,6 +597,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     self.lower_dynamic_get_expr(module, object, prop)
                 }
             }
+            // A typed-array VIEW's `.member` (`.length`, `.set`, `.buffer`, …) is
+            // NOT the inline element path — that is only `view[i]`. Route every
+            // member read through the dynamic path, which resolves the view's
+            // class methods/getters. The `TypedArrayView` shape exists solely to
+            // fast-path indexed access (below in `lower_index`).
+            Ok((_recv_word, HeapShape::TypedArrayView { .. })) => {
+                self.lower_dynamic_get_expr(module, object, prop)
+            }
             // ---- DYNAMIC FALLBACK: the receiver's shape is NOT statically proven (a
             // param, a call return, a reassigned local, a non-identifier object). Read
             // the property by key AT RUNTIME via `__rtsadp_obj_get`, which returns the
@@ -701,6 +709,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 .call_runtime(module, "__rtsadp_idx_get", &[recv_word, idx_word])?
                 .expect("__rtsadp_idx_get returns a value");
             return Ok(Val::new(word, Repr::Tagged));
+        }
+        // A PROVEN typed-array VIEW with a numeric index → inline native load
+        // (step 5b): `base + (i << log2)` + `uload8`/… , no runtime call. A
+        // non-numeric index falls through to the dynamic path.
+        if let Ok((recv_word, HeapShape::TypedArrayView { elem_log2, signed, float })) =
+            self.resolve_heap_receiver(module, object)
+        {
+            if let Ok(idx) = self.lower_index_value(module, index) {
+                return self
+                    .emit_ta_view_get(module, recv_word, idx, elem_log2, signed, float);
+            }
         }
         if let Ok((recv_word, HeapShape::Array)) = self.resolve_heap_receiver(module, object) {
             // A PROVEN array with a numeric index → fast-path `VEC_GET`. A non-numeric
@@ -1056,6 +1075,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // compile-time shape is no longer authoritative — route its future
                 // reads through the DYNAMIC path (which reads the live runtime shape).
                 self.demote_local_to_dynamic(&name);
+                return Ok(Val::new(word, Repr::Tagged));
+            }
+        }
+        // A PROVEN typed-array VIEW with a numeric index → inline native store
+        // (step 5b): bounds-checked `store` at `base + (i << log2)`, no runtime
+        // call. Returns the WRITTEN value (JS assignment expression value); OOB is
+        // a silent no-op inside the emitter.
+        if let Ok((recv_word, HeapShape::TypedArrayView { elem_log2, float, .. })) =
+            self.resolve_heap_receiver(module, object)
+        {
+            if let Ok(idx) = self.lower_index_value(module, index) {
+                let v = self.lower_expr(module, value)?;
+                self.emit_ta_view_set(module, recv_word, idx, v, elem_log2, float)?;
+                let word = self.box_value(v);
                 return Ok(Val::new(word, Repr::Tagged));
             }
         }

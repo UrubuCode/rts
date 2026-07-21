@@ -522,6 +522,13 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, U64, U64],
             ret: U64,
         },
+        // step 5b: (view_word, *out_base, *out_count) -> elem_bytes. The two
+        // pointers are stack-slot addresses (I64); the return is the byte-width
+        // (0 = not a view).
+        "__rtsadp_ta_view_base_len" => SymSig {
+            params: &[U64, I64, I64],
+            ret: I64,
+        },
 
         // ---- codegen-owned Array trampolines (__rtsadp_arr_*, P4.5) ----
         // All slots are u64/i64 (no StrPtr): slot 0 is the array's REAL Vec handle

@@ -157,12 +157,40 @@ pub(crate) struct Local {
 /// literal — what makes `obj.key` / `arr[i]` / `arr.length` lowerable to a
 /// constant-slot `VEC_GET`/`VEC_SET`. A local without an entry here holds an
 /// opaque value (param, call return, reassigned); an access on it BAILS.
+/// The element kind `(elem_log2, signed, float)` of a typed-array CLASS, or
+/// `None` for a class that is not one of the 8 numeric typed arrays. Mirrors the
+/// per-class `ta_ctor!` registrations in `rts-adapters::value::taops` — the ONE
+/// place both the runtime and the native lowering agree on the layout.
+pub(crate) fn typed_array_kind(class: &str) -> Option<(u8, bool, bool)> {
+    Some(match class {
+        "Uint8Array" => (0, false, false),
+        "Int8Array" => (0, true, false),
+        "Uint16Array" => (1, false, false),
+        "Int16Array" => (1, true, false),
+        "Uint32Array" => (2, false, false),
+        "Int32Array" => (2, true, false),
+        "Float32Array" => (2, false, true),
+        "Float64Array" => (3, false, true),
+        _ => return None,
+    })
+}
+
 #[derive(Clone, Copy)]
 pub(crate) enum HeapShape {
     /// An object literal with a known compile-time [`ShapeId`] (key→slot map).
     Object(ShapeId),
     /// An array literal: indices are dense `0..len`; `.length` is `VEC_LEN`.
     Array,
+    /// A level-B typed-array VIEW over an `ArrayBuffer`, proven at the ctor site
+    /// (`new Uint8Array(ab)`). Carries the element kind as compile constants so
+    /// `a[i]` lowers to an inline `base + (i << elem_log2)` load/store instead of
+    /// a locked runtime call (step 5b). `elem_log2 ∈ {0,1,2,3}` for byte widths
+    /// 1/2/4/8; `signed`/`float` select the load/store instruction.
+    TypedArrayView {
+        elem_log2: u8,
+        signed: bool,
+        float: bool,
+    },
 }
 
 /// The per-function lowering context.

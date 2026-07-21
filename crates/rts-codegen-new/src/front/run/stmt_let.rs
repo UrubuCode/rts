@@ -246,6 +246,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                         )
                     });
                 if is_buffer_view {
+                    // A level-B view: record the CLASS (its spec carries
+                    // set/subarray/length dispatch) AND, when the element kind is
+                    // known, a `TypedArrayView` shape so `a[i]` lowers to an inline
+                    // native load/store (step 5b) instead of the dynamic path.
+                    if let Some((elem_log2, signed, float)) =
+                        super::lower::typed_array_kind(&class_name)
+                    {
+                        self.local_shapes.insert(
+                            name.to_string(),
+                            HeapShape::TypedArrayView {
+                                elem_log2,
+                                signed,
+                                float,
+                            },
+                        );
+                    }
                     self.global_instance_classes
                         .insert(name.to_string(), class_name);
                 } else if is_array_instance {

@@ -47,6 +47,7 @@ mod globalclass;
 mod globalclass_receiver;
 mod globals;
 mod intrinsic;
+mod ta_native;
 mod loops;
 mod mathobj;
 mod method;

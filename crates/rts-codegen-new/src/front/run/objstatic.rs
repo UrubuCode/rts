@@ -333,6 +333,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 Some(HeapShape::Array) => unsupported!(
                     "Object static on an ARRAY receiver (array key/value enumeration is a later increment)"
                 ),
+                Some(HeapShape::TypedArrayView { .. }) => unsupported!(
+                    "Object static on a typed-array VIEW receiver (keyed enumeration is a later increment)"
+                ),
                 None => unsupported!(
                     "Object static on `{name}` whose shape is not statically proven (param/return/reassigned)"
                 ),
