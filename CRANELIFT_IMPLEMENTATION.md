@@ -389,11 +389,15 @@ emitted operation is now a change to a spec, never to the engine.
 universal layer still builds for every target including wasm/browser; the older
 "no compiler backend below the engine" reading does not apply to it.
 
-### Remaining work on this step
+### Done (commit 9eeb192b)
 
-`math.sqrt` is migrated as the reference. Still to drain: the other 6 `math`
-intrinsics and the 13 `num` bit ops from step 1, after which
-`abi::Intrinsic` and `emit_intrinsic` are deleted. Do not add enum variants.
+All 20 operations migrated to per-member emitters (6 math + 13 num + sqrt), then
+`abi::Intrinsic`, `Member.intrinsic`, `NamespaceMember.intrinsic`,
+`Lowerer::emit_intrinsic` and its six helpers, and `ResolvedCall.intrinsic` were
+all DELETED. The engine now has exactly one inline-emission entry point,
+`emit_native`. `ReceiverIdentity` (the one non-arithmetic variant) was verified
+dead — `.valueOf()` routes through the ambient prelude `.ts` class, not the tag —
+so it went with the enum.
 
 ---
 
@@ -510,7 +514,7 @@ not be used to prioritise work.
 | 5b | native `uload8`/`istore8` against buffer base | high | still ~10× off Node (generic dispatch) | next |
 | 6 | SIMD bulk ops | high | — | not started |
 | 7 | stack slots (escape analysis) | very high | — | not started |
-| 8 | `Intrinsic` enum → per-member `NativeEmit` | medium | same codegen, no engine arm | ✅ mechanism done, drain pending |
+| 8 | `Intrinsic` enum → per-member `NativeEmit` | medium | enum DELETED, all 20 ops on specs | ✅ done |
 | 9 | userland arithmetic via emitters (`%`, int round-trips) | medium | userland xorshift 194 ms vs 31 ms call | next |
 | 10 | the JIT's fixed ~185 ms | medium | constant across all 5 benches | **first, if the goal is the JIT gap** |
 
