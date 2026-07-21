@@ -49,10 +49,17 @@ pub(crate) fn aot_mode() -> bool {
 /// (nesting-safe). Used by the prelude baker, which needs data-section strings
 /// exactly like an AOT build.
 pub(crate) fn with_aot_mode<T>(f: impl FnOnce() -> T) -> T {
-    let prev = AOT_MODE.with(|c| c.replace(true));
-    let out = f();
-    AOT_MODE.with(|c| c.set(prev));
-    out
+    // `Drop` guard so a PANIC in `f` still restores the flag — a leaked
+    // `AOT_MODE=true` would make every later JIT string literal in this process
+    // lower as a data object (broken bake handle) instead of the fast handle.
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            AOT_MODE.with(|c| c.set(self.0));
+        }
+    }
+    let _g = Restore(AOT_MODE.with(|c| c.replace(true)));
+    f()
 }
 
 /// Emit a read-only data object holding `s`'s UTF-8 bytes and return its

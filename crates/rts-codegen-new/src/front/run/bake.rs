@@ -45,6 +45,14 @@ pub const PRELUDE_MAIN_SYMBOL: &str = "__rtsn_prelude_main";
 
 /// The linkage a user function / thunk / `main` gets at declare time: `Export`
 /// while baking (the prelude object publishes them), `Local` otherwise.
+///
+/// LOAD-BEARING cranelift assumption: several body-building sites re-declare an
+/// already-declared prelude function as `Linkage::Local` (call/dispatch/ctor/TCO
+/// emit), and cranelift-module's `Linkage::merge(Export, Local) == Export` keeps
+/// the export. A cranelift bump that changed that merge rule would silently
+/// downgrade prelude exports to Local (the resident symbols would vanish); the
+/// determinism test checks the manifest, not the object symbol table, so it would
+/// not catch it. Pin this if bumping cranelift.
 pub(super) fn user_linkage() -> Linkage {
     if BAKE_EXPORT.with(Cell::get) {
         Linkage::Export
@@ -224,12 +232,20 @@ fn emit_prelude_object(prog: &LoweredProgram) -> FrontResult<Vec<u8>> {
         .map_err(|e| Unsupported::new(format!("emit prelude object: {e}")).into())
 }
 
-/// Run `f` with the bake-export linkage flag set, restoring it after (nesting-safe).
+/// Run `f` with the bake-export linkage flag set, restoring it after — via a
+/// `Drop` guard so a PANIC in `f` still restores it. Without the guard a panic
+/// mid-bake would leave `BAKE_EXPORT=true`, silently turning every later ordinary
+/// JIT compile in the SAME process into an export-everything build (the run-path
+/// consumer calls `bake_prelude` in the `rts` process, so this matters).
 fn with_bake_export<T>(f: impl FnOnce() -> T) -> T {
-    let prev = BAKE_EXPORT.with(|c| c.replace(true));
-    let out = f();
-    BAKE_EXPORT.with(|c| c.set(prev));
-    out
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            BAKE_EXPORT.with(|c| c.set(self.0));
+        }
+    }
+    let _g = Restore(BAKE_EXPORT.with(|c| c.replace(true)));
+    f()
 }
 
 #[cfg(test)]
