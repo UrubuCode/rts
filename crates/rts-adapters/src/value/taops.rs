@@ -76,30 +76,79 @@ fn ta_view_new(buf_word: u64, k: Kind) -> u64 {
     h
 }
 
+/// The interned shape id of a level-B view, computed once.
+///
+/// `intern_global_shape` is idempotent for an identical key sequence, so this is
+/// a memoized constant, not a snapshot that can go stale.
+fn view_shape_id() -> u32 {
+    static ID: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *ID.get_or_init(|| {
+        crate::shape::intern_global_shape(&[
+            "__ta_buf".to_string(),
+            "__ta_bytes".to_string(),
+            "__ta_signed".to_string(),
+            "__ta_float".to_string(),
+        ])
+    })
+}
+
 /// Decompose a level-B VIEW word: `(buffer_handle, elem_bytes, signed, float)`.
 /// `None` for anything that is not a `__ta_buf`-shaped keyed object.
+///
+/// ## Reads SLOTS, not properties — the reason this function existed to be fixed
+///
+/// [`ta_view_new`] lays a view out positionally: `[shape_id, buf, elem_bytes,
+/// signed, float]`. The parts sit at fixed indices, identified by the shape id in
+/// slot 0. That is the hidden-class contract the whole engine is built on —
+/// compare the shape id, then load a fixed offset.
+///
+/// The previous implementation asked for the four `__ta_*` fields BY NAME through
+/// full `__rtsadp_obj_get`. Since `view_parts` runs on EVERY `view[i]` read and
+/// write, that meant, per element access: four `intern_poly` calls (each a
+/// NON-deduped `STRING_NEW` heap allocation — abi_adapter.rs / string_pool.rs),
+/// and four `obj_get` walks that each relocked the shard and re-cloned the
+/// shape's key vector. Roughly fifty shard-mutex locks and a dozen string/Vec
+/// allocations to answer a question whose answer is four integers already sitting
+/// in fixed slots. Worse, the string flood pushed the handle table past its GC
+/// floor, so the collector then ran every 256 allocations — the cost was paid
+/// twice. A read-only loop could allocate its way to millions of live handles.
+///
+/// This reads the five slots under ONE `with_entry`, validates slot 0 against the
+/// interned view shape, and allocates nothing.
 pub(crate) fn view_parts(word: u64) -> Option<(u64, i64, i64, i64)> {
+    use rts_engine::heap::handles::{Entry, with_entry};
+
     let v = PolyValue::from_raw(word);
     if !v.is_object() {
         return None;
     }
-    let buf = super::objops::__rtsadp_obj_get(word, super::abi_adapter::intern_poly("__ta_buf").raw());
-    let bv = PolyValue::from_raw(buf);
+    let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+    let slots: Option<[u64; 5]> = with_entry(h, |e| match e {
+        Some(Entry::Vec(vec)) if vec.len() >= 5 => {
+            Some([vec[0] as u64, vec[1] as u64, vec[2] as u64, vec[3] as u64, vec[4] as u64])
+        }
+        _ => None,
+    });
+    let slots = slots?;
+
+    // Slot 0 must be THIS shape — any other keyed object (or an array whose first
+    // element happens to be an int) is not a view.
+    let shape = PolyValue::from_raw(slots[0]);
+    if !shape.is_int32() || shape.as_i32() as u32 != view_shape_id() {
+        return None;
+    }
+
+    let bv = PolyValue::from_raw(slots[1]);
     if !bv.is_object() {
         return None;
     }
-    let field = |k: &str| -> i64 {
-        super::genops::to_number(PolyValue::from_raw(super::objops::__rtsadp_obj_get(
-            word,
-            super::abi_adapter::intern_poly(k).raw(),
-        ))) as i64
-    };
-    let bytes = field("__ta_bytes");
+    let num = |w: u64| super::genops::to_number(PolyValue::from_raw(w)) as i64;
+    let bytes = num(slots[2]);
     if bytes <= 0 {
         return None;
     }
     let bh = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(bv.as_handle());
-    Some((bh, bytes, field("__ta_signed"), field("__ta_float")))
+    Some((bh, bytes, num(slots[3]), num(slots[4])))
 }
 
 /// The element COUNT of a level-B view (`buffer byteLength / elem_bytes`).

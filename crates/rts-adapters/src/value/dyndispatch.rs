@@ -1033,7 +1033,15 @@ fn str_arg_handle(word: u64) -> u64 {
 /// counts only when it is the canonical decimal form of one (`s["1"]` indexes,
 /// `s["01"]`/`s["length"]` do not). Used to keep the code-unit read of a string
 /// receiver from swallowing named members via ToNumber coercion.
-fn array_index_key(word: u64) -> Option<i64> {
+/// A NON-NEGATIVE integer index straight off a key PolyValue, allocation-free.
+///
+/// An `int32` or an integral finite non-negative `double` yields its value; a
+/// STRING key is decoded only in its canonical integer form (`"5"`, not `"05"`/
+/// `" 5"`/`"+5"`, which are property NAMES per JS ToPropertyKey). Anything else
+/// is `None`, so the caller falls back to the general keyed path. Shared with the
+/// typed-array element paths in [`super::objops`], which must never stringify a
+/// numeric key.
+pub(crate) fn array_index_key(word: u64) -> Option<i64> {
     let k = PolyValue::from_raw(word);
     if k.is_int32() {
         let i = k.as_i32() as i64;

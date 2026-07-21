@@ -440,8 +440,14 @@ pub extern "C" fn __rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word:
     }
     // Level-B typed-array VIEW + NUMERIC key: element write through the SHARED
     // buffer (a shape transition would orphan the write).
+    //
+    // The index is read straight off the key PolyValue via `view_index_key`. The
+    // old path did `key_text(key).parse::<i64>()`, which STRINGIFIES a numeric
+    // key (`__rtsadp_to_string(i)` allocates a heap string like "5") and then
+    // reparses it — on EVERY write. That stringify/reparse was the write path's
+    // dominant cost once `view_parts` stopped allocating.
     if let Some((bh, bytes, _s, float)) = super::taops::view_parts(obj_word) {
-        if let Ok(i) = key_text(key_str_handle).parse::<i64>() {
+        if let Some(i) = super::dyndispatch::array_index_key(key_str_handle) {
             super::taops::view_set(bh, bytes, float, i, val_word);
             return val_word;
         }
