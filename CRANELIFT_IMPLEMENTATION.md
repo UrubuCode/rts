@@ -465,8 +465,8 @@ were wrong; do not add a fourth.
 ## Ordering
 
 Original: 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7.
-Revised after measuring 0–4 and shipping 8: **8 (drain) → 9 → 10 → 5 → 6**, with
-3 blocked and 4 done by another route.
+Done so far: 0, 1, 2, 4, 5a, 5b, 8 (3 blocked; 4 done by another route).
+Remaining: **10 → 9 → 6 → 7**.
 
 If the goal is "RTS JIT should beat Bun/Node/Deno", **10 comes first** — it is the
 only step that touches the number the user actually sees.
@@ -515,8 +515,8 @@ not be used to prioritise work.
 | 6 | SIMD bulk ops | high | — | not started |
 | 7 | stack slots (escape analysis) | very high | — | not started |
 | 8 | `Intrinsic` enum → per-member `NativeEmit` | medium | enum DELETED, all 20 ops on specs | ✅ done |
-| 9 | userland arithmetic via emitters (`%`, int round-trips) | medium | userland xorshift 194 ms vs 31 ms call | next |
-| 10 | the JIT's fixed ~185 ms | medium | constant across all 5 benches | **first, if the goal is the JIT gap** |
+| 9 | userland arithmetic via emitters (`%`, int round-trips) | medium | userland xorshift 194 ms vs 31 ms call | after 10 |
+| 10 | the JIT's fixed ~185 ms | medium | constant across all 5 benches | **NEXT — measure phases first** |
 
 ### Step 5a — the allocation storm (DONE, commit 4da2ae6d)
 
