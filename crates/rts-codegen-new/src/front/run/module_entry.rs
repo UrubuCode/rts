@@ -203,13 +203,13 @@ fn build_path(entry: &Path) -> FrontResult<super::LoweredProgram> {
     match prelude {
         None => Ok(user),
         Some(prelude) => {
-            let mut merged =
-                crate::timing::phase("merge programs", || merge_programs(prelude, user))?;
-            // RESIDENT prelude (slice 2): define the prelude fns from the baked
-            // machine code instead of re-compiling — the disk path's twin of the
-            // string path's hook in `build_with_includes`. No-op on a non-resident
-            // build (or a nested compile).
-            super::mark_resident_imports(&mut merged, &inc, top_level);
+            // `merge_programs` decides resident (slice 2) internally and skips the
+            // prune when it engages (slice 3) — the disk path's twin of the string
+            // path's hook in `build_with_includes`. No-op on a non-resident build
+            // (or a nested compile): the prune runs as before.
+            let merged = crate::timing::phase("merge programs", || {
+                merge_programs(prelude, user, &inc, top_level)
+            })?;
             Ok(merged)
         }
     }

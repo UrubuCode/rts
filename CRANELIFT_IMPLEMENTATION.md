@@ -697,8 +697,56 @@ scope here.
     (miss→hit == normal). This is "compile once, replay on repeat runs". v1 limits:
     keyed on the entry-file text (a changed IMPORT is not yet invalidated); a miss
     compiles the aot_str path.
-- **Slice 3/4** — drop pruning + trim merge from the run path once the prelude is
-  fully resident.
+- **Slice 3 — skip the prune when resident engages.** ✅ DONE. The decision
+  (`mark_resident_imports`) moved INTO `merge_programs`, right after the gcells are
+  computed (the gate reads them) but BEFORE the prune; it now returns `bool`, and
+  the prune is skipped when it returns `true`. Rationale: with resident on, the old
+  order ran `prune_prelude` (removing ~528 unreachable prelude fns) and THEN
+  `mark_resident_imports` RESTORED every one of them from the manifest — pure
+  prune-then-restore churn. Skipping is byte-identical: gcell ids are fixed before
+  the prune (immune), shape ids are seeded from the manifest, replay relocs resolve
+  by NAME (immune to func order), and the final `LoweredProgram` is the same set the
+  old restore produced. **Measured (`RTS_TIMING=1`, baked build, prelude-heavy
+  smoke): `prune prelude 9.43 ms` → GONE** (the phase disappears; `resident: prelude
+  fns defined-from-bytes 831`, machine-compile only 8 user fns). AOT and the
+  non-resident fallback are untouched (the prune runs there exactly as before — the
+  gate returns `false`). **Validated behaviour-neutral by the decisive test:** the
+  ORIGINAL (pre-Slice-3) baked binary and the Slice-3 baked binary produce a
+  BYTE-IDENTICAL suite result AND a byte-identical failing-file list under resident
+  ON (both `707/24`, same 24 files) — my change is a pure `LoweredProgram`-preserving
+  optimisation. Default (non-baked) build stays at baseline `723/8`.
+
+  > **⚠ DISCOVERY while validating Slice 3 — the resident path is NOT
+  > "731/731 byte-identical" as slice 2 above claims.** Measured on the real baked
+  > binary (`RTS_PRELUDE_DIR` build, resident ON by default): the TS suite is a
+  > STABLE `707/24` (3 identical runs — not flaky), versus `723/8` for the SAME
+  > binary with `RTS_NO_RESIDENT=1` and for the default build. So the resident
+  > prelude deterministically breaks **16 more files** than the fallback. This is
+  > PRE-EXISTING (the unchanged original code reproduces the exact same `707/24`
+  > with the identical 24-file set — it is a slice-2 property, NOT slice 3). The 24
+  > failing files cluster broadly — `reflect_*` (4), `proxy_phase3*` (2),
+  > `boolean_class`, `new_number_no_panic`, `number_valueof_receiver`,
+  > `edge_error_extends`, `function_global`, `arraybuffer_transfer_clone`, plus the
+  > crypto / `node_fs_*` / `node_stream` / `node_string_decoder` I/O family (~12).
+  > The breadth (primordials + reflect + proxy, not only allocation-heavy I/O)
+  > suggests it is MORE than the "conservative GC scan on byte-defined frames"
+  > follow-up the slice-2 notes hand-wave — it looks like a real correctness gap in
+  > the resident replay (metadata computed over prelude-ALONE in the baker vs
+  > prelude+user MERGED at run time is a prime suspect: `param_classes` /
+  > `fn_this_class` / `gcell_classes` reconciliation). **This is the true blocker to
+  > shipping baked builds and should be the next Step-10 investigation — it is
+  > higher-value than the remaining ms.** The slice-2 "731/731" line is stale; trust
+  > this measurement.
+- **Slice 4 — trim merge: NOT done, deliberately deferred (design verdict).** The
+  merge's real cost is `funcval::module_globals` scanning all ~1735 funcs to compute
+  `written_free`/`read_free` — and that is exactly what CANNOT be skipped: it drives
+  gcell numbering, and the baker computes gcells over prelude-ALONE while the run
+  computes them over prelude+user MERGED (the gcell-match gate exists precisely to
+  catch a divergence). Skipping it to trust the manifest's gcells would defeat that
+  guard — the SIGILL/miscompile class `rts-adapters/src/state.rs` documents. The
+  only safely-skippable merge work is the cheap metadata `extend`s, which are not
+  the bottleneck. Ganho projetado ~9→1-2 ms, risk = worst class. Not worth coupling
+  to Slice 3; revisit only with a dedicated design that preserves `module_globals`.
 
 ### Fallback (behaviour-neutral, permanent)
 
@@ -721,11 +769,16 @@ documents from mis-timed resets).
 ## Ordering
 
 Original: 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7.
-Done so far: 0, 1, 2, 4, 5a, 5b, 8 (3 blocked; 4 done by another route).
-Remaining: **10 → 9 → 6 → 7**.
+Done so far: 0, 1, 2, 4, 5a, 5b, 8, 10-slice1, 10-slice2, **10-slice3** (3 blocked;
+4 done by another route).
+Remaining: **10-resident-correctness → 10-slice4 → 9 → 6 → 7**.
 
 If the goal is "RTS JIT should beat Bun/Node/Deno", **10 comes first** — it is the
-only step that touches the number the user actually sees.
+only step that touches the number the user actually sees. But its remaining work
+reordered: the **resident-path 24-failure correctness gap** (found validating
+slice 3, see the ⚠ box under slice 3/4) now OUTRANKS both slice 4 and the ms — a
+baked build cannot ship while it breaks 16 more files than the fallback, so the
+startup win slices 2/3 buy is unusable until that is fixed.
 
 ### What the first four steps actually taught
 
@@ -772,7 +825,8 @@ not be used to prioritise work.
 | 7 | stack slots (escape analysis) | very high | — | not started |
 | 8 | `Intrinsic` enum → per-member `NativeEmit` | medium | enum DELETED, all 20 ops on specs | ✅ done |
 | 9 | userland arithmetic via emitters (`%`, int round-trips) | medium | userland xorshift 194 ms vs 31 ms call | after 10 |
-| 10 | the JIT's fixed ~185 ms | medium | constant across all 5 benches | **NEXT — measure phases first** |
+| 10 | the JIT's fixed ~185 ms — prelude cache/resident | medium | slice1 123→79 ms; slice2 →23 ms band; slice3 prune 9.4→0 ms | 🟡 slices 1/2/3 done; **resident 24-fail correctness gap is the blocker** |
+| 10-s3 | skip prune when resident engages | low | `prune prelude 9.43 ms` → gone; suite byte-identical to original resident | ✅ done |
 
 ### Step 5a — the allocation storm (DONE, commit 4da2ae6d)
 
