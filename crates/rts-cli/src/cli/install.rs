@@ -10,12 +10,14 @@ use crate::registers::install::{InstallRequest, install_packages};
 use crate::registers::lock::LockFile;
 
 pub fn command(extra_pkgs: Vec<String>) -> Result<()> {
+    let started = std::time::Instant::now();
     let root = find_project_root()?;
 
+    // Header, Bun-style: bold command + DIM version.
     println!(
         "{} {}",
         "rts install".bold(),
-        root.display()
+        format!("v{}", env!("CARGO_PKG_VERSION")).dimmed(),
     );
 
     let mut lock = LockFile::load(&root)?;
@@ -27,31 +29,38 @@ pub fn command(extra_pkgs: Vec<String>) -> Result<()> {
     };
 
     if requests.is_empty() {
-        println!("No packages to install (empty dependencies in package.json).");
+        println!("{}", "No packages to install.".dimmed());
         return Ok(());
     }
 
-    println!("  {} packages to install", requests.len());
+    println!("{}", "Resolving dependencies".dimmed());
 
     let installed = install_packages(&root, &requests, &mut lock)
         .context("install packages")?;
 
     lock.save(&root)?;
+    println!("{}", "Saved lockfile".dimmed());
 
+    // Added packages, Bun-style: green "+" · bold name · DIM "@version".
+    println!();
     for pkg in &installed {
         println!(
-            "  {} {}@{}",
+            "{} {}{}",
             "+".green(),
             pkg.name.bold(),
-            pkg.version
+            format!("@{}", pkg.version).dimmed(),
         );
     }
 
+    // Summary, Bun-style: GREEN count · "packages installed" · DIM "[" · BOLD time · DIM "]".
+    let ms = started.elapsed().as_millis();
     println!(
-        "\n{} {} package{} installed. Lock saved to rts.lock",
-        "✓".green().bold(),
-        installed.len(),
-        if installed.len() == 1 { "" } else { "s" }
+        "\n{} package{} installed {}{}{}",
+        installed.len().to_string().green(),
+        if installed.len() == 1 { "" } else { "s" },
+        "[".dimmed(),
+        format!("{ms}ms").bold(),
+        "]".dimmed(),
     );
 
     Ok(())
