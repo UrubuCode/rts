@@ -52,7 +52,7 @@ fn cache_path(key: u64) -> PathBuf {
 
 /// Load a cached program manifest for `key`, or `None` on any miss (absent /
 /// unreadable / decode error — the caller then compiles normally).
-fn load(key: u64) -> Option<PreludeManifest> {
+pub(super) fn load(key: u64) -> Option<PreludeManifest> {
     let bytes = std::fs::read(cache_path(key)).ok()?;
     bincode::deserialize(&bytes).ok()
 }

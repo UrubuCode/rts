@@ -399,4 +399,29 @@ mod tests {
         assert_eq!(miss, expected, "cache MISS output must equal a normal run");
         assert_eq!(hit, expected, "cache HIT (replayed) output must equal a normal run");
     }
+
+    /// AOT-from-manifest: bake a program, then emit an AOT object by REPLAYING the
+    /// baked machine code into an `ObjectModule` (no per-fn compile). Asserts the
+    /// object emits successfully and is substantial (a real `.o`, not a stub) — the
+    /// full proof (link + run) is a binary-level test.
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    #[ignore = "drains process-global engine state; run serially"]
+    fn aot_replay_emits_object() {
+        const SRC: &str = "console.log(\"aot \" + (6*7));\n\
+             function sq(n){ return n*n; }\n\
+             console.log(sq(9));";
+        rts_adapters::state::reset_codegen_state();
+        let prog = super::super::build_with_includes(SRC).expect("build");
+        let manifest = bake_program(&prog, 0xA07).expect("bake program");
+
+        rts_adapters::state::reset_codegen_state();
+        let obj = super::super::module_aot::compile_replay_aot(&manifest)
+            .expect("compile_replay_aot");
+        assert!(
+            obj.len() > 1024,
+            "AOT replay object suspiciously small ({} bytes)",
+            obj.len()
+        );
+    }
 }

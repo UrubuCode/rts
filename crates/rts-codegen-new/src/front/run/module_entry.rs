@@ -108,6 +108,18 @@ pub fn dump_ir_path(entry: &Path) -> FrontResult<()> {
 /// backend (`ObjectModule`) and the synthesized `main` entry shim differ. Returns
 /// the object bytes; the caller writes them and drives the linker.
 pub fn compile_path_to_object(entry: &Path) -> FrontResult<Vec<u8>> {
+    // AOT can REUSE the whole-program JIT cache manifest (opt-in `RTS_JIT_CACHE=1`):
+    // replay the baked machine code into the object, skipping the per-fn compile.
+    // Not on macOS (its AOT `is_pic` codegen differs from the non-pic JIT bytes).
+    #[cfg(not(target_os = "macos"))]
+    if super::progcache::enabled() {
+        let cache_src = std::fs::read_to_string(entry).unwrap_or_default();
+        if let Some(m) = super::progcache::load(super::progcache::key(&cache_src)) {
+            crate::timing::note("aot: jit-cache hit (replay into object)", 1);
+            return super::module_aot::compile_replay_aot(&m);
+        }
+    }
+
     // Mark the AOT build BEFORE `build_path` so its prelude prune is SKIPPED for
     // AOT. Pruning exists to cut JIT startup (`rts run`); an AOT compile is
     // one-shot and its binary is reused, so the prune buys AOT nothing — and it

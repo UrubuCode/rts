@@ -46,6 +46,41 @@ pub(crate) fn compile_program_aot(prog: &super::LoweredProgram) -> FrontResult<V
         .map_err(|e| Unsupported::new(format!("emit object: {e}")))
 }
 
+/// WHOLE-PROGRAM CACHE for AOT: emit the `.o` by REPLAYING a baked manifest's
+/// machine code into the `ObjectModule` (`define_function_bytes`) instead of
+/// re-compiling every function. Skips the per-fn `ctx.compile` (the expensive AOT
+/// phase) — the `.o` is still produced + linked, but from the cached bytes.
+///
+/// Sound on hosts where the JIT-captured bytes match AOT codegen (same host ISA,
+/// `opt_level=speed`, no `is_pic`): Windows + Linux. macOS AOT uses `is_pic`, so
+/// its codegen differs from the non-pic JIT bytes — the caller must NOT use this on
+/// macOS (fall back to `compile_program_aot`).
+pub(crate) fn compile_replay_aot(m: &super::bake::PreludeManifest) -> FrontResult<Vec<u8>> {
+    rts_engine::heap::shapes::reset_global_shapes();
+    rts_engine::heap::shapes::seed_global_shapes(m.shapes.clone());
+    rts_engine::heap::shapes::seed_error_classes(m.error_classes.clone());
+    let mut prog = m.program.clone();
+    prog.resident_import_names = prog.funcs.iter().map(|f| f.name.clone()).collect();
+    prog.resident_main = true;
+
+    let mut module = make_object_module()?;
+    let result: FrontResult<()> = super::resident::with_replay_manifest(m.clone(), || {
+        // populate replays EVERY fn (incl `__rtsn_main`) from the baked bytes into
+        // the ObjectModule; its Import externs + data + relocs are written to the
+        // object for the LINKER to resolve (the ±2 GB JIT far-call limit does not
+        // apply — the linker + final layout handle reach).
+        let main_id = super::module_jit::populate_module(&mut module, &prog)?;
+        emit_main_entry(&mut module, main_id)?;
+        Ok(())
+    });
+    result?;
+
+    let product = module.finish();
+    product
+        .emit()
+        .map_err(|e| Unsupported::new(format!("emit object (replay): {e}")).into())
+}
+
 /// Host-target `ObjectModule` with the EXACT same flags as the JIT
 /// ([`super::module_jit`]): `opt_level=speed`, nothing else. We deliberately do
 /// NOT set `is_pic` on Windows/COFF or Linux/ELF — on COFF it changes
