@@ -266,12 +266,24 @@ ms — **unchanged**: an uncontended mutex was already cheap, so the residual
 ~3.3 ns/op is call and marshalling. This buys scalability, not single-thread
 speed. `tests/atomic_ptr_memo.test.ts` pins what a naive memo corrupts silently.
 
-### The `Atomics` primordial is a different job
+### The `Atomics` primordial is a different job — DEFERRED (unblocked, niche, small payoff)
 
 `CLAUDE.md` lists `Atomics` (over SharedArrayBuffer) as primordial. THAT one is
 genuinely inlinable with `atomic_rmw`/`atomic_cas`, because a typed-array element
-has a base address and an index — no per-op handle lookup. It is blocked on step
-5, not on this step.
+has a base address and an index — no per-op handle lookup. It WAS blocked on step
+5, which is now DONE, so the base+index resolver (`ta_native.rs`'s TypedArrayView)
+exists to build on.
+
+**Verdict (2026-07-22) — DEFERRED, not a numbered step, small real-world payoff.**
+It is not one of the campaign's 0–10 steps; it is a side-opportunity. Today `Atomics.*`
+works through the Registry (`registry_build.rs`) and `tests/atomics_shared_buffer.test.ts`
+passes. Inlining would remove the per-op Registry CALL, but by this campaign's own
+measured lesson (Step 4) the atomic INSTRUCTION is ~1 ns and `Atomics` is a
+coordination primitive, rarely in a hot per-element loop — so the call-removal win is
+modest and niche. Well-scoped (mirror `ta_native.rs`'s proven-view base+index arm with
+`atomic_rmw`/`atomic_cas` for `add/sub/and/or/xor/exchange/compareExchange/load/store`),
+but not worth a build cycle ahead of higher-leverage work. Revisit if a real workload
+shows `Atomics` hot. **No action now.**
 
 `rts-std/src/atomic/mod.rs` implements the namespace in Rust. Cranelift has the
 whole surface natively (§19): `atomic_load` / `atomic_store`, `atomic_rmw`
@@ -392,7 +404,7 @@ design. **No action now.**
 
 ---
 
-## Step 8 — the API changed: `Intrinsic` enum → per-member `NativeEmit` (DONE, drain pending)
+## Step 8 — the API changed: `Intrinsic` enum → per-member `NativeEmit` (DONE)
 
 **Status:** ✅ mechanism shipped · **Effort:** medium · **Risk:** low · **Owner decision**
 
@@ -687,8 +699,12 @@ scope here.
       the string blobs, then `define_function_bytes` each prelude fn with relocs
       remapped name→run-FuncId. User fns compile fresh as today. Result: prelude
       machine-compile skipped (the ~60 ms win) with NO far call.
-    - Still to validate after: GC stack-map coverage for the byte-defined frames,
-      reified prelude fn values, and the **~79 → ~23 ms**.
+    - Validated after: GC coverage for the byte-defined frames is a NON-issue — the
+      AOT-L3 investigation (2026-07-22) confirmed the engine has NO precise stack
+      maps at all (`stack_map_registry` is dead); JIT and AOT share ONE conservative
+      scanner that covers byte-defined and freshly-compiled frames identically, and
+      the allocating suite passes. Reified prelude fn values + the ms remain a
+      Slice-3/4 concern, not a correctness gate.
 
     **WORKING (validated end-to-end).** The `define_function_bytes` replay is
     implemented and the linker delivery is removed. Measured on the real binary
@@ -806,7 +822,7 @@ their slots still held the right text at run). Only a real baked binary
 (build-time baker, fresh run process) exposes it. Any honest regression test for
 resident MUST use a real baked binary, not the in-process roundtrip.
 
-### The fix (commit pending)
+### The fix (shipped, PR #1972)
 
 A single AOT-safe helper `Lowerer::emit_str_const_word(module, s) -> Value`
 (`obj.rs`) mirrors `HirLit::Str`: in `aot_mode()` (baker + `rts compile`) it emits
