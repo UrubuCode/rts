@@ -792,6 +792,75 @@ let results = builder.inst_results(inst);
 let ret = results[0];
 ```
 
+### Import deduplication — `declare_func_in_func` / `import_signature` do NOT dedup
+
+`Module::declare_func_in_func` imports a **fresh** `SigRef` **and** `FuncRef` on
+every call, even for a `FuncId` already imported in the same function. Its body is
+literally `func.import_signature(decl.signature.clone())` + `import_function(...)`,
+and `import_signature` just **pushes** onto `func.dfg.signatures` (no equality
+check). So N call sites of the same callee emit N redundant `sigK =`/`fnK =`
+preamble entries.
+
+The duplicates are DCE'd from the final machine code, but they bloat the printed
+IR and cost e-graph/verifier time at compile. A one-line `console.log` lowering
+~600 runtime calls into one function produced **1947 decls for 229 distinct
+callees / 9 distinct signatures** — collapsed to `229`/`9` by deduping. A
+`FuncRef` is reusable across every `call` in the same function, so cache it.
+
+**Dedup a FuncRef by FuncId (cheapest — a per-function cache):**
+
+```rust
+// Reset per function (a FuncRef is only valid inside the ir::Function it was
+// imported into). Key by FuncId; the cached FuncRef reuses its SigRef too.
+fn func_ref(cache: &mut HashMap<FuncId, FuncRef>,
+            module: &mut dyn Module, builder: &mut FunctionBuilder,
+            fid: FuncId) -> FuncRef {
+    *cache.entry(fid).or_insert_with(|| declare_func_dedup(module, builder.func, fid))
+}
+```
+
+**No per-function cache handy? Scan the already-imported `ext_funcs`** (scoped to
+the builder, so it can never return a FuncRef from another function):
+
+```rust
+fn import_func(module: &mut dyn Module, builder: &mut FunctionBuilder,
+               callee: FuncId) -> FuncRef {
+    let want = callee.as_u32();
+    for (fref, data) in builder.func.dfg.ext_funcs.iter() {
+        if let ExternalName::User(nr) = data.name {
+            let un = &builder.func.params.user_named_funcs()[nr];
+            if un.namespace == 0 && un.index == want { return fref; }  // reuse
+        }
+    }
+    declare_func_dedup(module, builder.func, callee)
+}
+```
+
+**Also dedup the SigRef by content** (mirror `declare_func_in_func`, but reuse an
+equal `Signature` — `ir::Signature` is `PartialEq`/`Eq`):
+
+```rust
+fn declare_func_dedup(module: &mut dyn Module, func: &mut ir::Function,
+                      callee: FuncId) -> FuncRef {
+    let decl = module.declarations().get_function_decl(callee);
+    let want_sig  = decl.signature.clone();
+    let colocated = decl.linkage.is_final();
+    let sigref = func.dfg.signatures.iter()
+        .find(|(_, s)| **s == want_sig).map(|(r, _)| r)
+        .unwrap_or_else(|| func.import_signature(want_sig));
+    let name_ref = func.declare_imported_user_function(
+        UserExternalName::new(0, callee.as_u32()));
+    func.import_function(ir::ExtFuncData {
+        name: ExternalName::user(name_ref), signature: sigref,
+        colocated, patchable: false,
+    })
+}
+```
+
+> RTS uses both paths: `Lowerer.func_ref` (HashMap by FuncId) for user-fn/thunk
+> sites, `emit_marshal::import_func` (ext_funcs scan) at the runtime-call boundary,
+> both landing in `declare_func_dedup`. See commit `f956f7af`.
+
 ### Indirect call (function pointer)
 
 ```rust
@@ -1343,6 +1412,13 @@ identities (e.g., `x + 0 → x`, `x * 1 → x`, `x & 0 → 0`).
 `types::I128` is supported for basic arithmetic and loads/stores, but some
 backends decompose it into two 64-bit operations. Avoid I128 in hot paths;
 use `smulhi`/`umulhi` + `imul` instead for 128-bit products.
+
+### Function/signature imports are not deduplicated
+`declare_func_in_func` and `import_signature` push a new `FuncRef`/`SigRef` every
+call — importing the same callee from 100 sites yields 100 near-identical preamble
+decls. Cache a `FuncRef` per `FuncId` for the current function (and reuse an equal
+`Signature`) to keep the preamble to one entry per distinct callee/shape. See
+§16 "Import deduplication" for the pattern.
 
 ---
 
