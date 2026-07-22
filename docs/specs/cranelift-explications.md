@@ -36,6 +36,9 @@ project — general Cranelift usage.
 22. [Optimization Settings](#22-optimization-settings)
 23. [Common Patterns](#23-common-patterns)
 24. [Pitfalls and Rules](#24-pitfalls-and-rules)
+25. [Exception Handling — `try_call`](#25-exception-handling--try_call-and-exception-tables)
+26. [Libcalls](#26-libcalls--runtime-routines-the-backend-may-emit)
+27. [Cold Blocks and Layout Hints](#27-cold-blocks-and-layout-hints)
 
 ---
 
@@ -592,6 +595,26 @@ let flags = MemFlags::new().with_notrap().with_aligned().with_readonly();
 
 Use `trusted()` for stack slots and known globals. Use `notrap()` only when
 you've validated the pointer in the language runtime.
+
+### Alias regions — disambiguate memory for the optimizer
+
+A `MemFlags` can be tagged with an **alias region** so the e-graph's alias
+analysis knows two accesses can't overlap and may reorder/eliminate them. Regions
+are mutually disjoint by assumption: a `Heap` load never aliases a `Table` or
+`Vmctx` store.
+
+```rust
+use cranelift_codegen::ir::AliasRegion;
+
+let heap  = MemFlags::new().with_alias_region(Some(AliasRegion::Heap));   // GC heap / linear memory
+let table = MemFlags::new().with_alias_region(Some(AliasRegion::Table));  // handle/function tables
+let vmctx = MemFlags::trusted().with_alias_region(Some(AliasRegion::Vmctx)); // runtime context struct
+```
+
+Only ONE region per flag set (setting a second is an error). Tag a load/store with
+a region only when the memory genuinely cannot alias the others — a wrong tag lets
+the optimizer drop a real dependency and miscompile. Untagged accesses (`None`,
+the default) conservatively alias everything.
 
 ### Full-width load / store
 
@@ -1419,6 +1442,86 @@ call — importing the same callee from 100 sites yields 100 near-identical prea
 decls. Cache a `FuncRef` per `FuncId` for the current function (and reuse an equal
 `Signature`) to keep the preamble to one entry per distinct callee/shape. See
 §16 "Import deduplication" for the pattern.
+
+### `fcvt_to_sint` TRAPS on NaN / out-of-range — JS needs the `_sat` form
+The trapping `fcvt_to_sint` / `fcvt_to_uint` raise a `BadConversionToInteger`
+(NaN) or `IntegerOverflow` trap for any float outside the integer's range — on
+x86-64 a raw `cvttsd2si` of an out-of-range double, which at runtime surfaces as a
+**SIGILL / illegal-instruction** through Cranelift's trap handler, not a clean
+error. JS `ToInt32`/`ToUint32` never trap (NaN/±∞ → 0, otherwise truncate-then-
+wrap). When lowering a JS number → int coercion always use the **saturating**
+`fcvt_to_sint_sat` / `fcvt_to_uint_sat` (clamp, no trap), then apply the JS wrap
+separately if `ToInt32` semantics are required. RTS shipped exactly this bug: a
+`coerce(Tagged→Int)` used the trapping form and crashed ~19 fixtures with SIGILL
+until switched to `_sat`.
+
+---
+
+## 25. Exception Handling — `try_call` and exception tables
+
+Cranelift 0.131 has a native exception mechanism (distinct from Rust panics /
+`std::arch` unwinding): `try_call` / `try_call_indirect` call a function while
+routing an unwound exception to a handler block via an **exception table**.
+
+- `ir::ExceptionTable` (entity `"extable"`) + `ExceptionTableData::new(sig,
+  normal_return: BlockCall, matches)` — `matches` is a set of
+  `ExceptionTableItem::{Tag(ExceptionTag, BlockCall), Default(BlockCall),
+  Context(..)}`; `normal_return` is the no-exception successor.
+- The exceptional edge receives payload values through the special block args
+  `BlockArg::TryCallRet(i)` (a normal return value on the fallthrough edge) and
+  `BlockArg::TryCallExn(i)` (an exception payload on a catch edge) — you don't
+  pass these as ordinary `Value`s; they are generated "on the edge" out of the
+  `try_call`.
+- `try_call` must be a **block terminator** (like `brif`), because it has
+  successor edges (normal + handler).
+
+This is the substrate for *real* zero-cost unwinding. A runtime that instead uses
+a thread-local error slot + explicit post-call checks (RTS's current model, #128
+phase 1) does NOT need exception tables; migrating to `try_call` is what a "real
+unwind" phase would build on. Documented here as the available primitive — verify
+the exact generated `InstBuilder::try_call` argument order against your Cranelift
+version before wiring it, since the opcode is meta-generated.
+
+---
+
+## 26. Libcalls — runtime routines the backend may emit
+
+Some IR lowers to a call into a small fixed set of runtime routines rather than
+inline instructions. The `ir::LibCall` enum enumerates them; the JIT/AOT must
+provide their symbols (the default `cranelift_module::default_libcall_names` maps
+them to the usual C names).
+
+- Float rounding/FMA when no native instruction: `CeilF32/64`, `FloorF32/64`,
+  `TruncF32/64`, `NearestF32/64`, `FmaF32/64`.
+- Bulk memory: `Memcpy`, `Memset`, `Memmove`, `Memcmp` (large `stack_load`/
+  aggregate copies may lower to these).
+- Stack-overflow probing: `Probestack` (emitted when `enable_probestack` is on).
+- TLS access: `ElfTlsGetAddr`, `ElfTlsGetOffset`.
+- Fallback SIMD: `X86Pshufb` (shuffle when SSSE3 is absent).
+
+For a **JIT**, register these with `JITBuilder::symbol`/`symbols` (or rely on the
+default libcall names resolving through the process). For **AOT**, they become
+relocations resolved by the system linker against libc. A missing libcall symbol
+is a link-time error, not a codegen error.
+
+---
+
+## 27. Cold Blocks and Layout Hints
+
+Mark rarely-taken blocks (error paths, slow-path IC misses, deopt stubs) as COLD
+so the register allocator and block layout push them out of the hot path (out of
+line, spills preferred there over the fast path):
+
+```rust
+// After creating the block, before/while filling it:
+builder.func.layout.set_cold(slow_block);
+let is_cold = builder.func.layout.is_cold(slow_block);
+```
+
+Cold blocks are placed after the function body, keep the hot path's I-cache
+dense, and bias spill/reload decisions away from the common case. Pair with a
+`brif` whose likely edge is the hot block. This is a hint, not a guarantee — the
+backend is free to ignore it, and correctness never depends on it.
 
 ---
 
