@@ -128,7 +128,14 @@ fn finish_frame(c: &mut crate::ctx::UiCtx, cmds: Vec<WidgetCmd>) {
         // o DOM não controla o layout (a "borda à esquerda" que aparecia era a
         // `inner_margin` padrão do tema). O DOM/CSS é o dono do espaçamento.
         // Transparente → sem fundo (Frame::NONE); opaco → fundo do tema mas margem 0.
-        let panel = if c.transparent {
+        // Cena 3D ativa (gpu3d.draw neste frame) → também SEM fundo: o painel
+        // opaco taparia o scene pass que o present grava por baixo do egui.
+        let scene_active = match &c.backend {
+            Backend::Wgpu(r) => r.scene.as_ref().is_some_and(|s| !s.draws.is_empty()),
+            #[cfg(feature = "glow-backend")]
+            Backend::Glow(_) => false,
+        };
+        let panel = if c.transparent || scene_active {
             egui::CentralPanel::default().frame(egui::Frame::NONE)
         } else {
             let bg = c.egui_ctx.style().visuals.panel_fill;
