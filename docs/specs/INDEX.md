@@ -55,6 +55,10 @@ they were not a guide for the new engine.
   — Design of the cross-platform GUI: egui (immediate-mode, no FLTK) in a new crate,
   primitives in Rust + high-level lib in TS, TS-driven loop, wgpu
   primary. Rendering foundation aiming at games/browser in the future.
+- [gpu3d — 3D scene pass under the egui overlay](gpu3d-scene-pass.md) — Real 3D
+  polygon pipeline (WGSL, depth buffer, perspective camera) rendered before the
+  egui pass in the same encoder; egui/DOM composite on top. First slice of the
+  P7+ "scene rendering" phase of the egui design doc. Namespace `gpu3d`.
 - [HTML render engine (operational roadmap + north-star)](html-engine/README.md)
   — **DECIDED (2026-06-23):** evolve the light retained HTML engine already on main
   (tree DOM + data-driven block allocator in TS + mutation by NodeId, in

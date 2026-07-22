@@ -22,6 +22,7 @@ mod ctx;
 mod app;
 mod canvas;
 mod frame;
+mod scene3d;
 #[cfg(feature = "glow-backend")]
 mod glbackend;
 // `pub` para a facade `rts-runtime` chamar `register_backend()` no bootstrap
@@ -249,4 +250,7 @@ pub fn register(e: &mut Engine) {
             canvas::__RTS_FN_NS_EGUI_MEASURE_TEXT as *const u8,
         ))
         .done();
+    // Namespace irmão `gpu3d`: scene pass 3D sob o overlay do egui (fase P7+ do
+    // design doc; spec docs/specs/gpu3d-scene-pass.md). Mesma doutrina Registry.
+    scene3d::register(e);
 }
