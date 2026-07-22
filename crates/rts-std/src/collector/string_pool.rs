@@ -849,9 +849,16 @@ fn element_to_string(raw: i64) -> String {
 pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_STATIC(ptr: *const u8, len: i64) -> u64 {
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
-    static CACHE: OnceLock<Mutex<HashMap<usize, u64>>> = OnceLock::new();
+    static CACHE: OnceLock<Mutex<HashMap<(usize, i64), u64>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let key = ptr as usize;
+    // Key on (ptr, len), NOT ptr alone: an EMPTY string literal (`""`) emits a
+    // ZERO-LENGTH `.rodata` data object, and a zero-length symbol is placed at the
+    // SAME address as the NEXT data symbol by the linker. Keying on `ptr` alone then
+    // cache-HITS the empty handle for the next distinct literal → it is silently
+    // corrupted to `""` (AOT-only: the JIT bakes distinct immediate handles, no ptr).
+    // (ptr, len) makes `""` = (P, 0) and the colliding literal = (P, len>0) distinct;
+    // reading `len` bytes at P still yields the next object's real content.
+    let key = (ptr as usize, len);
     let mut g = cache.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(&h) = g.get(&key) {
         return h;

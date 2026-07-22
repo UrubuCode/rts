@@ -144,6 +144,10 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
         sym("__rtsadp_div", genops_arith::__rtsadp_div as *const u8),
         sym("__rtsadp_mod", genops_arith::__rtsadp_mod as *const u8),
         sym("__rtsadp_pow", genops_arith::__rtsadp_pow as *const u8),
+        sym(
+            "__rtsadp_fmod_f64",
+            genops_arith::__rtsadp_fmod_f64 as *const u8,
+        ),
         sym("__rtsadp_lt", genops_arith::__rtsadp_lt as *const u8),
         sym("__rtsadp_le", genops_arith::__rtsadp_le as *const u8),
         sym("__rtsadp_gt", genops_arith::__rtsadp_gt as *const u8),
