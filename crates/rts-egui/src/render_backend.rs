@@ -190,6 +190,12 @@ impl InputSource for EguiRenderer {
 
     fn mouse_delta(&self, target: u64) -> (f32, f32) {
         ctx::with_ctx(target, |c| {
+            // POINTER-LOCK: com o mouse travado o delta vem CRU do device
+            // (snapshot do beginFrame) — o delta do egui deriva da POSIÇÃO do
+            // cursor, que confinado para de andar na borda (olhar "engasga").
+            if c.mouse_locked {
+                return (c.frame_dx as f32, c.frame_dy as f32);
+            }
             c.egui_ctx.input(|i| {
                 let d = i.pointer.delta();
                 (d.x, d.y)

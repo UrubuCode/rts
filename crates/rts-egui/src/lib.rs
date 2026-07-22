@@ -110,6 +110,14 @@ pub fn register(e: &mut Engine) {
             app::__RTS_FN_NS_EGUI_MOVE_WINDOW as *const u8,
         ))
         .member(func(
+            "mouseLock",
+            "__RTS_FN_NS_EGUI_MOUSE_LOCK",
+            Sig::new(vec![U64, I64], AbiType::Void),
+            "mouseLock(h: number, on: number): void",
+            "FPS pointer-lock: on!=0 confines+hides the cursor and switches input.mouseDeltaX/Y to RAW device deltas (edge-immune); on==0 releases. Windows uses Confined+raw (winit has no Locked there).",
+            app::__RTS_FN_NS_EGUI_MOUSE_LOCK as *const u8,
+        ))
+        .member(func(
             "setNextWindowPos",
             "__RTS_FN_NS_EGUI_SET_NEXT_POS",
             Sig::new(vec![I64, I64], AbiType::Void),
