@@ -490,6 +490,9 @@ Notes that go into the `Cargo.toml`/code:
   `wgpu::Device`/`Queue`/`Surface` + `beginScenePass`: clear the screen, custom
   render pass, geometry/shaders/textures, egui composited on top (§1b). Possible
   crate rename (`rts-gfx`/`rts-render`).
+  **First slice LANDED (2026-07-21):** namespace `gpu3d` — mesh/camera/draw with a
+  scene render pass before the egui pass in the same encoder (no PaintCallback;
+  egui is the overlay). Spec: `docs/specs/gpu3d-scene-pass.md`.
 
 ## 11. Risks and mitigations (updated by the verdict)
 

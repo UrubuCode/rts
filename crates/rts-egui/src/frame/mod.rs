@@ -46,6 +46,14 @@ pub extern "C" fn __RTS_FN_NS_EGUI_BEGIN_FRAME(h: u64) {
         // size_in_pixels / ppp == screen_rect lógico em qualquer DPI.
         let raw_input = c.egui_state.take_egui_input(&c.window);
 
+        // POINTER-LOCK: snapshot dos raw deltas acumulados desde o último frame
+        // (o que `input.mouseDeltaX/Y` devolve com o mouse travado) e zera o
+        // acumulador pro próximo intervalo de pump.
+        c.frame_dx = c.raw_dx;
+        c.frame_dy = c.raw_dy;
+        c.raw_dx = 0.0;
+        c.raw_dy = 0.0;
+
         c.egui_ctx.begin_pass(raw_input);
         c.frame_active = true;
         c.cmds.clear();
@@ -128,7 +136,14 @@ fn finish_frame(c: &mut crate::ctx::UiCtx, cmds: Vec<WidgetCmd>) {
         // o DOM não controla o layout (a "borda à esquerda" que aparecia era a
         // `inner_margin` padrão do tema). O DOM/CSS é o dono do espaçamento.
         // Transparente → sem fundo (Frame::NONE); opaco → fundo do tema mas margem 0.
-        let panel = if c.transparent {
+        // Cena 3D ativa (gpu3d.draw neste frame) → também SEM fundo: o painel
+        // opaco taparia o scene pass que o present grava por baixo do egui.
+        let scene_active = match &c.backend {
+            Backend::Wgpu(r) => r.scene.as_ref().is_some_and(|s| !s.draws.is_empty()),
+            #[cfg(feature = "glow-backend")]
+            Backend::Glow(_) => false,
+        };
+        let panel = if c.transparent || scene_active {
             egui::CentralPanel::default().frame(egui::Frame::NONE)
         } else {
             let bg = c.egui_ctx.style().visuals.panel_fill;
@@ -194,6 +209,34 @@ pub extern "C" fn __RTS_FN_NS_EGUI_SNAPSHOT(h: u64, path_ptr: *const u8, path_le
         #[cfg(feature = "glow-backend")]
         Backend::Glow(g) => g.request_snapshot(path),
         _ => eprintln!("rts-egui snapshot: suportado só no backend glow (render: \"glow\")"),
+    });
+}
+
+/// VSYNC por janela em runtime: `on!=0` volta ao Fifo (default OBRIGATÓRIO —
+/// ver `UI_PRESENT_MODE` e o kill-gate); `on==0` é o OPT-OUT explícito do
+/// jogo/benchmark: `AutoNoVsync` (Immediate→Mailbox→Fifo, fallback automático
+/// do wgpu por capacidade da surface). Sem vsync o loop TS roda destravado —
+/// quem desliga assume o throttle (ou o burn de CPU/GPU); o default do motor
+/// segue Fifo e o kill-gate segue protegendo o default. Reconfigura a surface
+/// na hora; o resize preserva (muta `config.present_mode`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_SET_VSYNC(h: u64, on: i64) {
+    ctx::with_ctx(h, |c| {
+        if let Backend::Wgpu(r) = &mut c.backend {
+            let mode = if on != 0 {
+                wgpu::PresentMode::Fifo
+            } else {
+                wgpu::PresentMode::AutoNoVsync
+            };
+            if r.config.present_mode != mode {
+                r.config.present_mode = mode;
+                r.surface.configure(&r.device, &r.config);
+            }
+        }
+        #[cfg(feature = "glow-backend")]
+        if let Backend::Glow(_) = &c.backend {
+            eprintln!("rts-egui setVsync: suportado só no backend wgpu");
+        }
     });
 }
 

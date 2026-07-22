@@ -8,13 +8,15 @@ use std::sync::Arc;
 
 use winit::window::Window;
 
-/// Present mode da surface de TODA janela. **Fifo (vsync)** é OBRIGATÓRIO, não
-/// uma preferência: o loop de render é dirigido pelo TS sem throttle próprio, e
-/// sem vsync ele gira a milhares de fps — queima CPU e, sob essa cadência, o
-/// swapchain entra em estado ruim (a janela parava de avançar após alguns
-/// milhares de frames — bug real corrigido). Fifo é garantido em todo backend e
-/// limita à taxa do monitor. NÃO troque para `Immediate`/`Mailbox` sem reintroduzir
-/// um throttle no loop; o teste `vsync_kill_gate` falha o build se isto mudar.
+/// Present mode DEFAULT da surface de toda janela. **Fifo (vsync)** é o default
+/// OBRIGATÓRIO, não uma preferência: o loop de render é dirigido pelo TS sem
+/// throttle próprio, e sem vsync ele gira a milhares de fps — queima CPU e, sob
+/// essa cadência, o swapchain entra em estado ruim (a janela parava de avançar
+/// após alguns milhares de frames — bug real corrigido). Fifo é garantido em
+/// todo backend e limita à taxa do monitor. NÃO troque este DEFAULT; o teste
+/// `vsync_kill_gate` falha o build se mudar. O OPT-OUT consciente por janela é
+/// `egui.setVsync(h, 0)` (jogos/benchmark, `frame/mod.rs`) — quem desliga
+/// assume o throttle; o default de quem não pediu nada segue protegido.
 const UI_PRESENT_MODE: wgpu::PresentMode = wgpu::PresentMode::Fifo;
 
 /// GPU compartilhada do processo (thread do TS): Instance + Adapter + Device +
@@ -191,6 +193,10 @@ pub struct RenderState {
     /// Janela transparente → clear com alpha 0 (o painel egui também fica
     /// transparente em `end_frame`), pra o SO compor o fundo.
     pub transparent: bool,
+    /// Estado do scene pass 3D (`gpu3d`) desta janela — `None` até o 1º
+    /// `gpu3d.mesh`. Quando há draws no frame, a cena é gravada ANTES do pass
+    /// do egui (que então carrega em vez de limpar). Ver `crate::scene3d`.
+    pub scene: Option<crate::scene3d::SceneState>,
 }
 
 impl RenderState {
@@ -256,6 +262,7 @@ impl RenderState {
             config,
             renderer,
             transparent,
+            scene: None,
         })
     }
 
@@ -347,6 +354,21 @@ pub(crate) fn present_wgpu(
     r.renderer
         .update_buffers(&r.device, &r.queue, &mut encoder, &paint_jobs, &screen_descriptor);
 
+    // ── Scene pass 3D (gpu3d) — ANTES do pass do egui, no MESMO encoder ─────
+    // Quando o TS enfileirou `gpu3d.draw` neste frame, a cena limpa cor+depth e
+    // desenha as malhas; o pass do egui abaixo então CARREGA (LoadOp::Load) em
+    // vez de limpar, compondo a UI por cima. Sem draws: comportamento idêntico
+    // ao anterior (egui limpa). Ver docs/specs/gpu3d-scene-pass.md.
+    let scene_drawn = crate::scene3d::record_if_active(
+        &mut r.scene,
+        &r.device,
+        &r.queue,
+        &mut encoder,
+        &view,
+        r.config.width,
+        r.config.height,
+    );
+
     {
         let pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("rts-egui pass"),
@@ -355,13 +377,16 @@ pub(crate) fn present_wgpu(
                 resolve_target: None,
                 depth_slice: None,
                 ops: wgpu::Operations {
-                    // Transparente: clear totalmente transparente (alpha 0) p/ o SO
-                    // compor o fundo. Opaco: fundo escuro padrão.
-                    load: wgpu::LoadOp::Clear(if r.transparent {
-                        wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 }
+                    // Cena 3D desenhada → carrega (a UI compõe por cima).
+                    // Transparente: clear com alpha 0 p/ o SO compor o fundo.
+                    // Opaco: fundo escuro padrão.
+                    load: if scene_drawn {
+                        wgpu::LoadOp::Load
+                    } else if r.transparent {
+                        wgpu::LoadOp::Clear(wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 })
                     } else {
-                        wgpu::Color { r: 0.02, g: 0.02, b: 0.03, a: 1.0 }
-                    }),
+                        wgpu::LoadOp::Clear(wgpu::Color { r: 0.02, g: 0.02, b: 0.03, a: 1.0 })
+                    },
                     store: wgpu::StoreOp::Store,
                 },
             })],

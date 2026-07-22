@@ -22,6 +22,7 @@ mod ctx;
 mod app;
 mod canvas;
 mod frame;
+mod scene3d;
 #[cfg(feature = "glow-backend")]
 mod glbackend;
 // `pub` para a facade `rts-runtime` chamar `register_backend()` no bootstrap
@@ -107,6 +108,22 @@ pub fn register(e: &mut Engine) {
             "moveWindow(h: number, x: number, y: number): void",
             "Moves the window to absolute desktop position (x,y) in physical pixels — pick a monitor (e.g. x >= primary width = secondary screen).",
             app::__RTS_FN_NS_EGUI_MOVE_WINDOW as *const u8,
+        ))
+        .member(func(
+            "setVsync",
+            "__RTS_FN_NS_EGUI_SET_VSYNC",
+            Sig::new(vec![U64, I64], AbiType::Void),
+            "setVsync(h: number, on: number): void",
+            "Runtime per-window vsync toggle. on!=0 = Fifo (the mandatory default); on==0 = explicit opt-out via AutoNoVsync (uncapped fps — the caller owns throttling/CPU burn). wgpu backend only.",
+            frame::__RTS_FN_NS_EGUI_SET_VSYNC as *const u8,
+        ))
+        .member(func(
+            "mouseLock",
+            "__RTS_FN_NS_EGUI_MOUSE_LOCK",
+            Sig::new(vec![U64, I64], AbiType::Void),
+            "mouseLock(h: number, on: number): void",
+            "FPS pointer-lock: on!=0 confines+hides the cursor and switches input.mouseDeltaX/Y to RAW device deltas (edge-immune); on==0 releases. Windows uses Confined+raw (winit has no Locked there).",
+            app::__RTS_FN_NS_EGUI_MOUSE_LOCK as *const u8,
         ))
         .member(func(
             "setNextWindowPos",
@@ -249,4 +266,7 @@ pub fn register(e: &mut Engine) {
             canvas::__RTS_FN_NS_EGUI_MEASURE_TEXT as *const u8,
         ))
         .done();
+    // Namespace irmão `gpu3d`: scene pass 3D sob o overlay do egui (fase P7+ do
+    // design doc; spec docs/specs/gpu3d-scene-pass.md). Mesma doutrina Registry.
+    scene3d::register(e);
 }

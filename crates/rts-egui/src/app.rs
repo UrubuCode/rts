@@ -332,8 +332,41 @@ pub extern "C" fn __RTS_FN_NS_EGUI_OPEN_WINDOW(
         slider_results: Vec::new(),
         button_cursor: 0,
         slider_cursor: 0,
+        mouse_locked: false,
+        raw_dx: 0.0,
+        raw_dy: 0.0,
+        frame_dx: 0.0,
+        frame_dy: 0.0,
     };
     ctx::insert(uictx)
+}
+
+/// POINTER-LOCK FPS: `on!=0` confina o cursor à janela, esconde-o e liga o
+/// olhar por delta CRU (`DeviceEvent::MouseMotion` → `input.mouseDeltaX/Y`);
+/// `on==0` solta e mostra o cursor. Windows não implementa
+/// `CursorGrabMode::Locked` (winit) — `Confined` + raw deltas é o padrão de
+/// jogos; tenta `Locked` primeiro para os SOs que suportam.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_MOUSE_LOCK(h: u64, on: i64) {
+    use winit::window::CursorGrabMode;
+    ctx::with_ctx(h, |c| {
+        if on != 0 {
+            let locked = c.window.set_cursor_grab(CursorGrabMode::Locked);
+            if locked.is_err() {
+                let _ = c.window.set_cursor_grab(CursorGrabMode::Confined);
+            }
+            c.window.set_cursor_visible(false);
+            c.mouse_locked = true;
+            c.raw_dx = 0.0;
+            c.raw_dy = 0.0;
+            c.frame_dx = 0.0;
+            c.frame_dy = 0.0;
+        } else {
+            let _ = c.window.set_cursor_grab(CursorGrabMode::None);
+            c.window.set_cursor_visible(true);
+            c.mouse_locked = false;
+        }
+    });
 }
 
 /// Handler de runtime do pump: roteia cada evento de janela para o `UiCtx`
@@ -377,6 +410,23 @@ impl ApplicationHandler for Pumper {
                 _ => {}
             }
         });
+    }
+
+    /// Delta CRU do mouse (independente do cursor/bordas) — a fonte do olhar
+    /// FPS sob pointer-lock. Eventos de device não têm WindowId; roteia pra
+    /// janela com `mouse_locked` (a "dona" do mouse enquanto travado).
+    fn device_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        _device_id: winit::event::DeviceId,
+        event: winit::event::DeviceEvent,
+    ) {
+        if let winit::event::DeviceEvent::MouseMotion { delta } = event {
+            ctx::with_locked_ctx(|c| {
+                c.raw_dx += delta.0;
+                c.raw_dy += delta.1;
+            });
+        }
     }
 }
 
