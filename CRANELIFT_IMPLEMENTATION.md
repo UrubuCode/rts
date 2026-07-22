@@ -806,15 +806,23 @@ byte-identical to JIT (`Number.valueOf: 42`, `catch: E boom`, `Reflect.definePro
 99`). JIT suite stays `723/8` (the change only adds AOT-path emission + unused-by-JIT
 functions). Also wired into `compile_replay_aot` (the `RTS_JIT_CACHE` AOT path).
 
-**AOT — LAYER 3 (still open, pre-existing, NOT this): a GC bug in loops.** With
-dynamic dispatch fixed, a deeper AOT bug is now visible: a string accumulated in a
-loop (`let a=""; for(..) a=a+"x"`) comes out EMPTY, and a `console.log` string arg
-can vanish — the conservative GC stack scan does not find loop-live string handles
-(kept in registers in the optimised AOT binary) as roots, so a GC tick (every 256
-allocs) collects them. JIT is unaffected (same conservative scan, but the run-process
-stack layout happens to keep them). This is orthogonal to shapes/strings-immediates
-and is the NEXT AOT correctness target — likely needs precise stack maps (or pinning)
-for the AOT binary. `rts run` (the shipped default) is unaffected throughout.
+**AOT — LAYER 3 (empty-string data object aliasing): FIXED.** With dynamic dispatch
+fixed, a symptom surfaced — a string accumulated in a loop (`let a=""; for(..)
+a=a+"x"`) came out EMPTY, and `let z=""; console.log("KEEP")` printed nothing. The
+first hypothesis was GC (loop-live roots collected), but that was WRONG and disproven:
+`RTS_GC_DISABLE=1` changes nothing, the `GC_LIVE_FLOOR = 500_000` blocks any cycle in
+a small program, and the `stack_map_registry` is dead (JIT and AOT use the SAME
+conservative scanner — the CLAUDE.md "precise JIT stack maps" note is stale). The real
+cause is tiny and pointer-shaped: an EMPTY string literal `""` emits a **zero-length**
+`.rodata` DATA object (`aot_str::emit_str_data`), and the linker places a zero-length
+symbol at the SAME address as the NEXT data symbol. `__RTS_FN_NS_GC_STRING_FROM_STATIC`
+cached interned handles keyed on **`ptr` alone** (`string_pool.rs`), so `""` populated
+`cache[P] = empty_handle` and the next distinct literal sharing address `P` cache-HIT
+the empty handle → silently corrupted to `""`. JIT is immune (it bakes distinct
+immediate handles, no data object, no ptr). Fix: key the cache on **`(ptr, len)`** —
+`""` is `(P, 0)`, the colliding literal is `(P, len>0)`, distinct; reading `len` bytes
+at `P` still yields the next object's real content. One-line change; the GC framing is
+abandoned. `rts run` (default) was never affected.
 - **Slice 4 — trim merge: NOT done, deliberately deferred (design verdict).** The
   merge's real cost is `funcval::module_globals` scanning all ~1735 funcs to compute
   `written_free`/`read_free` — and that is exactly what CANNOT be skipped: it drives
