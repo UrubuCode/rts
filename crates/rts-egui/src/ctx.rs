@@ -174,6 +174,18 @@ pub struct UiCtx {
     pub button_cursor: usize,
     /// Contador de `slider` já emitidos NESTE frame (casa com `slider_results`).
     pub slider_cursor: usize,
+    /// POINTER-LOCK (FPS): cursor confinado+invisível; o olhar passa a vir do
+    /// delta CRU do mouse (`DeviceEvent::MouseMotion`), imune à borda da tela.
+    /// Windows não suporta `CursorGrabMode::Locked` — usamos `Confined` + raw
+    /// deltas, o padrão dos jogos winit. Ligado por `egui.mouseLock(h, 1)`.
+    pub mouse_locked: bool,
+    /// Acumulador de delta cru entre frames (somado no `device_event` do pump).
+    pub raw_dx: f64,
+    pub raw_dy: f64,
+    /// Snapshot do acumulador feito no `beginFrame` (o que `input.mouseDeltaX/Y`
+    /// devolve neste frame quando travado; o acumulador zera no snapshot).
+    pub frame_dx: f64,
+    pub frame_dy: f64,
 }
 
 /// Aloca um novo handle e insere o `UiCtx`. Retorna o handle.
@@ -205,6 +217,16 @@ pub fn with_ctx_by_window<R>(
         m.values_mut()
             .find(|c| c.window.id() == window_id)
             .map(f)
+    })
+}
+
+/// Roda `f` no `UiCtx` com o mouse TRAVADO (se houver um). Roteia os raw
+/// deltas do `device_event` — eventos de device não têm WindowId; com lock
+/// ativo há uma janela "dona" do mouse por definição.
+pub fn with_locked_ctx<R>(f: impl FnOnce(&mut UiCtx) -> R) -> Option<R> {
+    CTXS.with(|m| {
+        let mut m = m.borrow_mut();
+        m.values_mut().find(|c| c.mouse_locked).map(f)
     })
 }
 
