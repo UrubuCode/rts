@@ -285,7 +285,7 @@ lists, and it composes with the threading work.
 
 ## Step 5 — TypedArrays on a real buffer
 
-**Status:** not started · **Effort:** high · **Risk:** medium · **Biggest win**
+**Status:** ✅ DONE (slices 5a + 5b — see the dedicated sections below) · **Effort:** high · **Risk:** medium · **Biggest win**
 
 Today they are **"Vec-backed level A"** (`registry_build.rs:184`): a
 `Uint8Array` is a `HandleTable` `Entry::Vec` of **PolyValue words**. So `a[i]`
@@ -452,7 +452,7 @@ so it went with the enum.
 
 ## Step 9 — userland arithmetic through emitters (the xorshift row)
 
-**Status:** not started · **Effort:** medium · **Risk:** medium · **Highest-value next**
+**Status:** ✅ DONE — inline bitwise + direct `%`/`**` (xorshift 3.8×, bitwise 8.5×; byte-identical to Node). · **Effort:** medium · **Risk:** medium
 
 Measured: a xorshift64 written in **TS userland** takes **194 ms** for 10M
 iterations, while calling `math.random` into Rust takes **31 ms**. Userland
@@ -475,7 +475,7 @@ misrepresent (see the caveat below), and the one where RTS should genuinely win.
 
 ## Step 10 — the JIT's fixed ~185 ms (NOT a codegen problem)
 
-**Status:** not started · **Effort:** medium · **Risk:** low · **Biggest end-user gap**
+**Status:** ✅ DONE (slices 1/2/3 + resident correctness; AOT L2/L3 fixed along the way) · slice 4 deferred · **Effort:** medium · **Risk:** low · **Biggest end-user gap**
 
 From the README's own table, the JIT − AOT delta per benchmark:
 
@@ -972,8 +972,8 @@ not be used to prioritise work.
 | 4 | atomics: mutex off the fast path | medium | **4 threads 1034 → 227 ms (4.6x)** | ✅ done (not via IR) |
 | 5a | level-B allocation storm (view_parts + write index) | medium | **write 9.4×, bench 6× (7.5→1.26 s)** | ✅ done |
 | 5b | native `uload8`/`istore8` + hoisted base | high | **bench 1.26 s → 319 ms; 7.5 s → 319 ms overall (~23×), ~2.5× off Node** | ✅ done |
-| 6 | SIMD bulk ops | high | — | not started |
-| 7 | stack slots (escape analysis) | very high | — | not started |
+| 6 | SIMD bulk ops | high | bulk ops already delegate to SIMD memset/memcpy/memchr/from_utf8; Array-of-PolyValue unvectorizable | ❌ discarded (justified) |
+| 7 | stack slots (escape analysis) | very high | no minimal slice; new HIR pass + 2nd obj repr + GC awareness; small payoff | ⏸️ deferred (justified) |
 | 8 | `Intrinsic` enum → per-member `NativeEmit` | medium | enum DELETED, all 20 ops on specs | ✅ done |
 | 9 | userland arithmetic: inline bitwise + direct `%`/`**` | medium | **xorshift 1099→288 ms (3.8×), bitwise 1016→119 ms (8.5×), mod 2.2×, pow 1.9×** | ✅ done |
 | 10 | the JIT's fixed ~185 ms — prelude cache/resident | medium | slice1 123→79 ms; slice2 →23 ms band; slice3 prune 9.4→0 ms | ✅ slices 1/2/3 + resident correctness done; slice 4 deferred |
@@ -981,8 +981,6 @@ not be used to prioritise work.
 | 10-rc | resident correctness: string-pool handle immediates → AOT-safe emitter | medium | baked **707/24 → 723/8** (matches fallback); 33 sites/14 files | ✅ done |
 | aot-L2 | seed shape registry at AOT startup (dynamic dispatch was undefined) | medium | AOT byte-identical to JIT for `Number.valueOf`/`Reflect`/`catch` | ✅ done |
 | aot-L3 | AOT empty-string data-object aliasing (`(ptr,len)` cache key) | low | "string in a loop → empty" fixed; broad AOT == JIT | ✅ done |
-| 6 | SIMD bulk ops | high | bulk ops already delegate to SIMD memset/memcpy/memchr/from_utf8; Array-of-PolyValue unvectorizable | ❌ discarded (justified) |
-| 7 | stack slots (escape analysis) | very high | no minimal slice; new HIR pass + 2nd obj repr + GC awareness; small payoff | ⏸️ deferred (justified) |
 
 ### Step 5a — the allocation storm (DONE, commit 4da2ae6d)
 
