@@ -416,17 +416,32 @@ fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<
         classes.insert(desc.clone());
     }
 
+    // funcs: prelude first, then user — but the user SHADOWS the prelude by name.
+    // A user `class Transform` synthesizes `__rtsn_ctor_Transform` etc.; the prelude
+    // (node:stream) already defines a `Transform extends Duplex` under the SAME
+    // symbol. A blind append left BOTH ctors compiled: prune kept the prelude's
+    // (its name matched the user's referenced class) but dropped its now-unused
+    // `Duplex` super — so the prelude ctor compiled a call to a pruned function
+    // (`unknown function __rtsn_ctor_Duplex`). Dropping every prelude func the user
+    // redefines makes the user's definition win cleanly and lets prune reach the
+    // real dependency set. This is why user class/fn names no longer collide with
+    // embedded shims (Transform/Duplex/Readable/…).
+    let user_fn_names: std::collections::HashSet<String> =
+        user.funcs.iter().map(|f| f.name.clone()).collect();
+    let mut funcs: Vec<HirFunc> = prelude
+        .funcs
+        .into_iter()
+        .filter(|f| !user_fn_names.contains(&f.name))
+        .collect();
+
     // PRIVACY GATE: record which function names came from the PRELUDE (the engine's
     // embedded includes). The PRIVATE `engine` global is resolvable ONLY from these
     // functions; a user function naming `engine.*` bails explicitly (see
-    // `engineobj`). The prelude's own classes/methods/arrows are all in
-    // `prelude.funcs`, so their names are exactly this set (the user's `__rtsn_main`
-    // and user functions are NOT included — `merge_programs` keeps `user.main`).
+    // `engineobj`). Computed over the SURVIVING prelude funcs (those the user did not
+    // shadow), so a user-redefined name is NOT granted prelude privacy.
     let prelude_fns: std::collections::HashSet<String> =
-        prelude.funcs.iter().map(|f| f.name.clone()).collect();
+        funcs.iter().map(|f| f.name.clone()).collect();
 
-    // funcs: prelude first, then user (user appended; last-wins on name collision).
-    let mut funcs = prelude.funcs;
     funcs.extend(user.funcs);
 
     // fn_this_class + captures: prelude then user.
