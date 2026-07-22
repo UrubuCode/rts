@@ -23,13 +23,12 @@
 //! Bails (the honesty floor): a function replacer; capture-group `.exec`
 //! extraction; a dynamic (non-literal, non-recorded) regex receiver.
 
-use cranelift_codegen::ir::{InstBuilder, types};
+use cranelift_codegen::ir::InstBuilder;
 use cranelift_module::Module;
 
 use rts_hir::HirExpr;
 use rts_hir::ir::HirExprKind;
 
-use crate::value::abi_adapter;
 
 use crate::front::error::FrontResult;
 
@@ -71,10 +70,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         pattern: &str,
         flags: &str,
     ) -> FrontResult<Val> {
-        let pat_pv = abi_adapter::intern_poly_const(pattern);
-        let flags_pv = abi_adapter::intern_poly_const(flags);
-        let pat_w = self.builder.ins().iconst(types::I64, pat_pv.raw() as i64);
-        let flags_w = self.builder.ins().iconst(types::I64, flags_pv.raw() as i64);
+        let pat_w = self.emit_str_const_word(module, pattern)?;
+        let flags_w = self.emit_str_const_word(module, flags)?;
         let word = self
             .call_runtime(module, "__rtsadp_re_compile", &[pat_w, flags_w])?
             .expect("regex compile returns a value");

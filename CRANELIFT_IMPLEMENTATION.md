@@ -716,27 +716,86 @@ scope here.
   ON (both `707/24`, same 24 files) — my change is a pure `LoweredProgram`-preserving
   optimisation. Default (non-baked) build stays at baseline `723/8`.
 
-  > **⚠ DISCOVERY while validating Slice 3 — the resident path is NOT
-  > "731/731 byte-identical" as slice 2 above claims.** Measured on the real baked
-  > binary (`RTS_PRELUDE_DIR` build, resident ON by default): the TS suite is a
-  > STABLE `707/24` (3 identical runs — not flaky), versus `723/8` for the SAME
-  > binary with `RTS_NO_RESIDENT=1` and for the default build. So the resident
-  > prelude deterministically breaks **16 more files** than the fallback. This is
-  > PRE-EXISTING (the unchanged original code reproduces the exact same `707/24`
-  > with the identical 24-file set — it is a slice-2 property, NOT slice 3). The 24
-  > failing files cluster broadly — `reflect_*` (4), `proxy_phase3*` (2),
-  > `boolean_class`, `new_number_no_panic`, `number_valueof_receiver`,
-  > `edge_error_extends`, `function_global`, `arraybuffer_transfer_clone`, plus the
-  > crypto / `node_fs_*` / `node_stream` / `node_string_decoder` I/O family (~12).
-  > The breadth (primordials + reflect + proxy, not only allocation-heavy I/O)
-  > suggests it is MORE than the "conservative GC scan on byte-defined frames"
-  > follow-up the slice-2 notes hand-wave — it looks like a real correctness gap in
-  > the resident replay (metadata computed over prelude-ALONE in the baker vs
-  > prelude+user MERGED at run time is a prime suspect: `param_classes` /
-  > `fn_this_class` / `gcell_classes` reconciliation). **This is the true blocker to
-  > shipping baked builds and should be the next Step-10 investigation — it is
-  > higher-value than the remaining ms.** The slice-2 "731/731" line is stale; trust
-  > this measurement.
+## Step 10 — resident CORRECTNESS: the string-pool-handle-immediate bug (FIXED)
+
+**Status:** ✅ FIXED · **Effort:** medium · **Risk:** low (default JIT path byte-identical) · **The real blocker, now cleared**
+
+Validating Slice 3 exposed that the slice-2 "731/731 byte-identical resident on
+vs off" claim was STALE: the real baked binary ran a STABLE `707/24` (3 identical
+runs — not flaky) versus `723/8` for the SAME binary with `RTS_NO_RESIDENT=1` and
+for the default build. The resident prelude deterministically broke **16 more
+files** — `reflect_*` (4), `proxy_phase3*` (2), `boolean_class`,
+`new_number_no_panic`, `number_valueof_receiver`, `edge_error_extends`,
+`function_global`, `arraybuffer_transfer_clone`, plus the crypto/`node_fs_*`/
+`node_stream`/`node_string_decoder` I/O family. Symptoms were WRONG OUTPUT, not
+crashes: `new Number(42).valueOf()` → `undefined`, `new Boolean(true).valueOf()` →
+`[object Object]`, `Reflect.defineProperty`/Proxy `defineProperty` written value →
+`undefined`, `Buffer` roundtrip → the byte list `104,101,108,…` instead of the
+decoded string.
+
+### Root cause
+
+The front-end embeds **compiler-process string-pool handles as raw `iconst`
+immediates** for property keys, class/method/function names, and `typeof` result
+strings — and that path did NOT honour `aot_str::aot_mode()`. Only `HirLit::Str`
+had the guard. A `intern_poly_const(s)` handle is a SLOT INDEX into THIS process's
+string pool (`STRING_NEW` is non-deduped, slot depends on allocation order). In a
+DIFFERENT process — the resident REPLAY run (bake in one process, run in another),
+or an AOT binary — that slot holds a different string. Since slot/method resolution
+matches by key **TEXT** (`objops::resolve_slot`, `class_proto_init`/
+`proto_set_method`), the wrong text made every lookup miss → the property read /
+method dispatch silently returned `undefined` or fell to the default (Object's
+`valueOf`, array's `toString`). The 707 that passed used keys (`message`, `name`,
+`length`, …) that the run's own allocation refilled into the same slots by
+coincidence; the 24 that failed used keys UNIQUE to prelude subsystems (`__prim`,
+Reflect/Proxy descriptor flags, Buffer decode, node-fs internals) the run never
+allocated there. Deterministic because allocation order is fixed.
+
+The slice-2 in-process `resident_replay_roundtrip` test MASKED this: baker + run in
+ONE process share the pool (the keys were `intern_poly_const`-PINned during bake, so
+their slots still held the right text at run). Only a real baked binary
+(build-time baker, fresh run process) exposes it. Any honest regression test for
+resident MUST use a real baked binary, not the in-process roundtrip.
+
+### The fix (commit pending)
+
+A single AOT-safe helper `Lowerer::emit_str_const_word(module, s) -> Value`
+(`obj.rs`) mirrors `HirLit::Str`: in `aot_mode()` (baker + `rts compile`) it emits
+the bytes as a DATA object + `__RTS_FN_NS_GC_STRING_FROM_STATIC(ptr,len)` (interned
+in the RUNNING binary's OWN pool, correct text, captured/replayed by name); in JIT
+mode (default `rts run`, and user code) it is the IDENTICAL `iconst` fast path as
+before. All **33 `intern_poly_const → iconst` sites across 14 files** were routed
+through it (`HirLit::Str` too, deleting its inline duplicate); the resulting STR
+word is interchangeable with the old handle word in every consumer because they all
+read TEXT. A STR word is boxed with `JsKind::Str`.
+
+**Measured:** the baked binary went from `707/24` → **`723/8`, MATCHING the
+fallback** (`722/9` under `RTS_NO_RESIDENT=1` on the same binary — the 8 common
+files are the SAME pre-existing flaky crypto/node-fs/node-stream/GC crashes present
+in the default build; the ±1 is one flaky async file). The 16 resident-specific
+failures are GONE. The individual fixed cases verified: `number_valueof_receiver`
+5/5, `boolean_class` 2/2, `reflect_api` 15/15, `proxy_phase3` 20/20. The baked
+manifest grew from 728 → 4596 data blobs (the keys now travel as DATA, as intended).
+
+**Default-JIT safety:** with `aot_mode()` off, `emit_str_const_word` returns the
+exact `iconst(intern_poly_const(s).raw())` as before, so the common `rts run` path
+is byte-identical — confirmed by the committed-code suite (`723/8` = baseline) and
+the `RTS_NO_RESIDENT=1` suite on the baked binary (`722/9`, ±1 flaky).
+
+**AOT (`rts compile`) — a SEPARATE, deeper, PRE-EXISTING bug, NOT fixed here and
+NOT regressed here.** `rts compile` sets `aot_mode()`, so it now also emits keys via
+`string_from_static`. Measured on the same prelude-heavy program (`new Number(42)`,
+`new Boolean`, `Reflect.defineProperty`, `Object.keys`, `class extends Error`):
+`rts run` (JIT) is fully correct; the AOT binary is WRONG both before and after this
+change. This change *improves* AOT (`Object.keys` went from `,` (empty) → `a,b`
+correct) but Number/Boolean `.valueOf()` and the `catch` binding stay wrong
+(`function`/`undefined`). So AOT has a second-layer correctness bug beyond the
+key-text one — the prelude's proto-method registration (`emit_method_table_registrations`
+in the `__rtsn_main` prologue) and/or the DATA-object emission order behaves
+differently under `ObjectModule` than under JIT. It is out of scope for the resident
+fix (which targets `rts run`) and is the natural NEXT correctness target for AOT.
+The honesty floor holds: this change is neutral-to-positive on AOT, and the shipped
+default (`rts run`) is byte-identical to baseline.
 - **Slice 4 — trim merge: NOT done, deliberately deferred (design verdict).** The
   merge's real cost is `funcval::module_globals` scanning all ~1735 funcs to compute
   `written_free`/`read_free` — and that is exactly what CANNOT be skipped: it drives
@@ -769,16 +828,17 @@ documents from mis-timed resets).
 ## Ordering
 
 Original: 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7.
-Done so far: 0, 1, 2, 4, 5a, 5b, 8, 10-slice1, 10-slice2, **10-slice3** (3 blocked;
-4 done by another route).
-Remaining: **10-resident-correctness → 10-slice4 → 9 → 6 → 7**.
+Done so far: 0, 1, 2, 4, 5a, 5b, 8, 10-slice1, 10-slice2, **10-slice3**,
+**10-resident-correctness** (3 blocked; 4 done by another route).
+Remaining: **10-slice4 (deferred) → 9 → 6 → 7**.
 
 If the goal is "RTS JIT should beat Bun/Node/Deno", **10 comes first** — it is the
-only step that touches the number the user actually sees. But its remaining work
-reordered: the **resident-path 24-failure correctness gap** (found validating
-slice 3, see the ⚠ box under slice 3/4) now OUTRANKS both slice 4 and the ms — a
-baked build cannot ship while it breaks 16 more files than the fallback, so the
-startup win slices 2/3 buy is unusable until that is fixed.
+only step that touches the number the user actually sees. The resident-path
+24-failure correctness gap (found validating slice 3) is now FIXED (the
+string-pool-handle-immediate bug), so a baked build is finally shippable: it matches
+the fallback suite (`723/8`) with the ~100 ms startup win of slices 2/3. Slice 4 is
+deferred (small ms, worst-class risk — see its note). Next real lever: step 9
+(userland arithmetic) or step 6/7.
 
 ### What the first four steps actually taught
 
@@ -827,6 +887,7 @@ not be used to prioritise work.
 | 9 | userland arithmetic via emitters (`%`, int round-trips) | medium | userland xorshift 194 ms vs 31 ms call | after 10 |
 | 10 | the JIT's fixed ~185 ms — prelude cache/resident | medium | slice1 123→79 ms; slice2 →23 ms band; slice3 prune 9.4→0 ms | 🟡 slices 1/2/3 done; **resident 24-fail correctness gap is the blocker** |
 | 10-s3 | skip prune when resident engages | low | `prune prelude 9.43 ms` → gone; suite byte-identical to original resident | ✅ done |
+| 10-rc | resident correctness: string-pool handle immediates → AOT-safe emitter | medium | baked **707/24 → 723/8** (matches fallback); 33 sites/14 files | ✅ done |
 
 ### Step 5a — the allocation storm (DONE, commit 4da2ae6d)
 
