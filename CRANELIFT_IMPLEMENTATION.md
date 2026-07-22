@@ -782,20 +782,39 @@ exact `iconst(intern_poly_const(s).raw())` as before, so the common `rts run` pa
 is byte-identical — confirmed by the committed-code suite (`723/8` = baseline) and
 the `RTS_NO_RESIDENT=1` suite on the baked binary (`722/9`, ±1 flaky).
 
-**AOT (`rts compile`) — a SEPARATE, deeper, PRE-EXISTING bug, NOT fixed here and
-NOT regressed here.** `rts compile` sets `aot_mode()`, so it now also emits keys via
-`string_from_static`. Measured on the same prelude-heavy program (`new Number(42)`,
-`new Boolean`, `Reflect.defineProperty`, `Object.keys`, `class extends Error`):
-`rts run` (JIT) is fully correct; the AOT binary is WRONG both before and after this
-change. This change *improves* AOT (`Object.keys` went from `,` (empty) → `a,b`
-correct) but Number/Boolean `.valueOf()` and the `catch` binding stay wrong
-(`function`/`undefined`). So AOT has a second-layer correctness bug beyond the
-key-text one — the prelude's proto-method registration (`emit_method_table_registrations`
-in the `__rtsn_main` prologue) and/or the DATA-object emission order behaves
-differently under `ObjectModule` than under JIT. It is out of scope for the resident
-fix (which targets `rts run`) and is the natural NEXT correctness target for AOT.
-The honesty floor holds: this change is neutral-to-positive on AOT, and the shipped
-default (`rts run`) is byte-identical to baseline.
+**AOT (`rts compile`) — the SAME class of bug, LAYER 2 (shape-id seeding), NOW
+FIXED.** After the key-text fix, `rts compile` STILL produced wrong output for
+DYNAMIC dispatch (`new Number(42).valueOf()` → `undefined`, `catch(e){e.name}` →
+`undefined`) while STATIC access worked. Root cause (agent-diagnosed, empirically
+proven): the **global shape registry** (`rts_engine::heap::shapes`) is populated at
+COMPILE time in the compiler process, and shape ids are baked as IMMEDIATES into the
+emitted code (slot 0 of every object, the compare arms of dynamic dispatch). JIT
+shares that registry with the run (same process) so `global_shape_keys(baked_id)`
+resolves; an AOT binary is a SEPARATE process whose registry starts EMPTY, so every
+dynamic shape read (`obj_get` on a Tagged/`any`/catch-bound receiver, `console.log(obj)`,
+dynamic `Object.keys`) missed and returned `undefined`. Exactly the key-text bug's
+sibling: a compile-time value baked into code that is meaningless in the AOT process.
+
+Fix (same transfer pattern): `shapes::export_seed_blob()` serializes the id→keys +
+error-class registries after `populate_module`; `compile_program_aot` embeds it as a
+`__RTS_AOT_SHAPE_SEED` DATA object and the `main` shim calls a new
+`__RTS_FN_RT_SEED_SHAPES(ptr,len)` (rts-runtime → `shapes::seed_from_blob`) FIRST,
+before any code runs. `seed_global_shapes` reproduces `id = BASE + index` by
+construction, so every baked immediate lines up; a runtime shape transition still
+`intern`s ABOVE the seeded range. **Measured:** the prelude-heavy program is now
+byte-identical to JIT (`Number.valueOf: 42`, `catch: E boom`, `Reflect.defineProperty:
+99`). JIT suite stays `723/8` (the change only adds AOT-path emission + unused-by-JIT
+functions). Also wired into `compile_replay_aot` (the `RTS_JIT_CACHE` AOT path).
+
+**AOT — LAYER 3 (still open, pre-existing, NOT this): a GC bug in loops.** With
+dynamic dispatch fixed, a deeper AOT bug is now visible: a string accumulated in a
+loop (`let a=""; for(..) a=a+"x"`) comes out EMPTY, and a `console.log` string arg
+can vanish — the conservative GC stack scan does not find loop-live string handles
+(kept in registers in the optimised AOT binary) as roots, so a GC tick (every 256
+allocs) collects them. JIT is unaffected (same conservative scan, but the run-process
+stack layout happens to keep them). This is orthogonal to shapes/strings-immediates
+and is the NEXT AOT correctness target — likely needs precise stack maps (or pinning)
+for the AOT binary. `rts run` (the shipped default) is unaffected throughout.
 - **Slice 4 — trim merge: NOT done, deliberately deferred (design verdict).** The
   merge's real cost is `funcval::module_globals` scanning all ~1735 funcs to compute
   `written_free`/`read_free` — and that is exactly what CANNOT be skipped: it drives

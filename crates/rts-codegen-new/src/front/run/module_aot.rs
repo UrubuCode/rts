@@ -14,7 +14,7 @@
 use cranelift_codegen::ir::{AbiParam, InstBuilder, types};
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
-use cranelift_module::{Linkage, Module};
+use cranelift_module::{DataDescription, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 
 use crate::front::error::{FrontResult, Unsupported};
@@ -33,8 +33,14 @@ pub(crate) fn compile_program_aot(prog: &super::LoweredProgram) -> FrontResult<V
         // Declare + define every user fn + __rtsn_main + thunks (the SAME path the
         // JIT uses). `__rtsn_main` is Local; the `main` shim below calls it in-object.
         let main_id = super::module_jit::populate_module(&mut module, prog)?;
-        // The CRT entry `int main(void)`: run the program, drain the event loop, exit 0.
-        emit_main_entry(&mut module, main_id)?;
+        // SHAPE SEED (AOT-only): `populate_module` interned every shape id this
+        // program bakes as an immediate; export the id→keys registry into a data
+        // object the `main` shim seeds at startup, so dynamic shape reads resolve in
+        // the separate AOT process (see `shapes::export_seed_blob`).
+        let seed = emit_shape_seed_data(&mut module)?;
+        // The CRT entry `int main(void)`: seed shapes, run the program, drain the
+        // event loop, exit 0.
+        emit_main_entry(&mut module, main_id, seed)?;
         Ok(())
     })();
     super::aot_str::set_aot_mode(false);
@@ -70,7 +76,10 @@ pub(crate) fn compile_replay_aot(m: &super::bake::PreludeManifest) -> FrontResul
         // object for the LINKER to resolve (the ±2 GB JIT far-call limit does not
         // apply — the linker + final layout handle reach).
         let main_id = super::module_jit::populate_module(&mut module, &prog)?;
-        emit_main_entry(&mut module, main_id)?;
+        // Same shape seed as the non-replay path — the produced binary is a separate
+        // process whose registry needs the (manifest-seeded) shapes at startup.
+        let seed = emit_shape_seed_data(&mut module)?;
+        emit_main_entry(&mut module, main_id, seed)?;
         Ok(())
     });
     result?;
@@ -113,11 +122,38 @@ pub(crate) fn make_object_module() -> FrontResult<ObjectModule> {
     Ok(ObjectModule::new(builder))
 }
 
-/// Emit `extern "C" int main(void)` that calls the lowered top-level
-/// (`__rtsn_main`, `rtsn_main_id`), then `__RTS_FN_RT_RUN_EVENT_LOOP`, returning 0.
+/// A codegen-emitted shape-seed data object: its id + byte length, so the `main`
+/// shim can pass `(ptr, len)` to `__RTS_FN_RT_SEED_SHAPES`.
+struct ShapeSeed {
+    data: cranelift_module::DataId,
+    len: usize,
+}
+
+/// Serialize the compile-time global-shape + error-class registries (populated by
+/// the just-completed `populate_module`) into a `Local` data object. Empty blob
+/// (no shapes) still emits a valid 4-byte header, so the seed call is unconditional
+/// and harmless.
+fn emit_shape_seed_data(module: &mut ObjectModule) -> FrontResult<ShapeSeed> {
+    let blob = rts_engine::heap::shapes::export_seed_blob();
+    let len = blob.len();
+    let data = module
+        .declare_data("__RTS_AOT_SHAPE_SEED", Linkage::Local, false, false)
+        .map_err(|e| Unsupported::new(format!("declare shape-seed data: {e}")))?;
+    let mut desc = DataDescription::new();
+    desc.define(blob.into_boxed_slice());
+    module
+        .define_data(data, &desc)
+        .map_err(|e| Unsupported::new(format!("define shape-seed data: {e}")))?;
+    Ok(ShapeSeed { data, len })
+}
+
+/// Emit `extern "C" int main(void)` that SEEDS the shape registry, calls the
+/// lowered top-level (`__rtsn_main`, `rtsn_main_id`), then
+/// `__RTS_FN_RT_RUN_EVENT_LOOP`, returning 0.
 fn emit_main_entry(
     module: &mut ObjectModule,
     rtsn_main_id: cranelift_module::FuncId,
+    seed: ShapeSeed,
 ) -> FrontResult<()> {
     // Runtime bootstrap, resolved at link time (ONE generic `RT`-scope symbol, no
     // non-primordial name in the engine). It wires the GC tick hook + main-thread
@@ -151,6 +187,16 @@ fn emit_main_entry(
         .declare_function("__RTS_FN_RT_RUN_EVENT_LOOP", Linkage::Import, &evloop_sig)
         .map_err(|e| Unsupported::new(format!("declare event-loop drain: {e}")))?;
 
+    // The shape-registry seeder: `(ptr, len) -> ()`. Resolved at link time against
+    // rts-runtime. Called FIRST in main so the baked shape ids resolve before any
+    // program (or bootstrap) code performs a dynamic shape read.
+    let mut seed_sig = module.make_signature();
+    seed_sig.params.push(AbiParam::new(types::I64)); // ptr
+    seed_sig.params.push(AbiParam::new(types::I64)); // len
+    let seed_id = module
+        .declare_function("__RTS_FN_RT_SEED_SHAPES", Linkage::Import, &seed_sig)
+        .map_err(|e| Unsupported::new(format!("declare shape seed: {e}")))?;
+
     let mut main_sig = module.make_signature();
     main_sig.returns.push(AbiParam::new(types::I32));
     let main_id = module
@@ -166,6 +212,15 @@ fn emit_main_entry(
         fb.append_block_params_for_function_params(blk);
         fb.switch_to_block(blk);
         fb.seal_block(blk);
+
+        // SEED the shape registry FIRST — before any code (bootstrap or program)
+        // can perform a dynamic shape read on a baked id. `(ptr, len)` of the
+        // embedded seed blob.
+        let seed_gv = module.declare_data_in_func(seed.data, fb.func);
+        let seed_ptr = fb.ins().global_value(types::I64, seed_gv);
+        let seed_len = fb.ins().iconst(types::I64, seed.len as i64);
+        let seed_ref = module.declare_func_in_func(seed_id, fb.func);
+        fb.ins().call(seed_ref, &[seed_ptr, seed_len]);
 
         // Bootstrap BEFORE the program (GC hook + main thread + UI backend, all
         // behind the one generic `__RTS_FN_RT_INIT`).
