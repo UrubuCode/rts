@@ -212,6 +212,34 @@ pub extern "C" fn __RTS_FN_NS_EGUI_SNAPSHOT(h: u64, path_ptr: *const u8, path_le
     });
 }
 
+/// VSYNC por janela em runtime: `on!=0` volta ao Fifo (default OBRIGATÓRIO —
+/// ver `UI_PRESENT_MODE` e o kill-gate); `on==0` é o OPT-OUT explícito do
+/// jogo/benchmark: `AutoNoVsync` (Immediate→Mailbox→Fifo, fallback automático
+/// do wgpu por capacidade da surface). Sem vsync o loop TS roda destravado —
+/// quem desliga assume o throttle (ou o burn de CPU/GPU); o default do motor
+/// segue Fifo e o kill-gate segue protegendo o default. Reconfigura a surface
+/// na hora; o resize preserva (muta `config.present_mode`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_SET_VSYNC(h: u64, on: i64) {
+    ctx::with_ctx(h, |c| {
+        if let Backend::Wgpu(r) = &mut c.backend {
+            let mode = if on != 0 {
+                wgpu::PresentMode::Fifo
+            } else {
+                wgpu::PresentMode::AutoNoVsync
+            };
+            if r.config.present_mode != mode {
+                r.config.present_mode = mode;
+                r.surface.configure(&r.device, &r.config);
+            }
+        }
+        #[cfg(feature = "glow-backend")]
+        if let Backend::Glow(_) = &c.backend {
+            eprintln!("rts-egui setVsync: suportado só no backend wgpu");
+        }
+    });
+}
+
 /// Drena a fila de comandos `cmds` a partir de `*idx`, emitindo cada widget no
 /// `ui` ATUAL. É RECURSIVA para tratar os escopos horizontais sem precisar
 /// guardar um `egui::Ui` entre chamadas FFI (o `ui.horizontal(...)` exige um

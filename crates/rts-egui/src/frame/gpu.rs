@@ -8,13 +8,15 @@ use std::sync::Arc;
 
 use winit::window::Window;
 
-/// Present mode da surface de TODA janela. **Fifo (vsync)** é OBRIGATÓRIO, não
-/// uma preferência: o loop de render é dirigido pelo TS sem throttle próprio, e
-/// sem vsync ele gira a milhares de fps — queima CPU e, sob essa cadência, o
-/// swapchain entra em estado ruim (a janela parava de avançar após alguns
-/// milhares de frames — bug real corrigido). Fifo é garantido em todo backend e
-/// limita à taxa do monitor. NÃO troque para `Immediate`/`Mailbox` sem reintroduzir
-/// um throttle no loop; o teste `vsync_kill_gate` falha o build se isto mudar.
+/// Present mode DEFAULT da surface de toda janela. **Fifo (vsync)** é o default
+/// OBRIGATÓRIO, não uma preferência: o loop de render é dirigido pelo TS sem
+/// throttle próprio, e sem vsync ele gira a milhares de fps — queima CPU e, sob
+/// essa cadência, o swapchain entra em estado ruim (a janela parava de avançar
+/// após alguns milhares de frames — bug real corrigido). Fifo é garantido em
+/// todo backend e limita à taxa do monitor. NÃO troque este DEFAULT; o teste
+/// `vsync_kill_gate` falha o build se mudar. O OPT-OUT consciente por janela é
+/// `egui.setVsync(h, 0)` (jogos/benchmark, `frame/mod.rs`) — quem desliga
+/// assume o throttle; o default de quem não pediu nada segue protegido.
 const UI_PRESENT_MODE: wgpu::PresentMode = wgpu::PresentMode::Fifo;
 
 /// GPU compartilhada do processo (thread do TS): Instance + Adapter + Device +

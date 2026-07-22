@@ -110,6 +110,14 @@ pub fn register(e: &mut Engine) {
             app::__RTS_FN_NS_EGUI_MOVE_WINDOW as *const u8,
         ))
         .member(func(
+            "setVsync",
+            "__RTS_FN_NS_EGUI_SET_VSYNC",
+            Sig::new(vec![U64, I64], AbiType::Void),
+            "setVsync(h: number, on: number): void",
+            "Runtime per-window vsync toggle. on!=0 = Fifo (the mandatory default); on==0 = explicit opt-out via AutoNoVsync (uncapped fps — the caller owns throttling/CPU burn). wgpu backend only.",
+            frame::__RTS_FN_NS_EGUI_SET_VSYNC as *const u8,
+        ))
+        .member(func(
             "mouseLock",
             "__RTS_FN_NS_EGUI_MOUSE_LOCK",
             Sig::new(vec![U64, I64], AbiType::Void),
