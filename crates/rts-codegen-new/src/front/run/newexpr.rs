@@ -134,7 +134,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .map_err(|e| {
                 crate::front::error::Unsupported::new(format!("declare ctor `{}`: {e}", sig.name))
             })?;
-        let func_ref = module.declare_func_in_func(callee, self.builder.func);
+        let func_ref = self.func_ref(module, callee);
         self.builder.ins().call(func_ref, &call_args);
         // P5.13: a `throw` inside the constructor must propagate (the ctor's sentinel
         // return left the pending-error slot set) — route the unwind here.
@@ -226,7 +226,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let thunk_id = *self.thunks.get(name).ok_or_else(|| {
             crate::front::error::Unsupported::new(format!("no thunk for `{name}`"))
         })?;
-        let func_ref = module.declare_func_in_func(thunk_id, self.builder.func);
+        let func_ref = self.func_ref(module, thunk_id);
         Ok(self.builder.ins().func_addr(types::I64, func_ref))
     }
 
@@ -266,7 +266,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let thunk_id = *self.thunks.get(name).ok_or_else(|| {
             crate::front::error::Unsupported::new(format!("no thunk for `{name}`"))
         })?;
-        let func_ref = module.declare_func_in_func(thunk_id, self.builder.func);
+        let func_ref = self.func_ref(module, thunk_id);
         let fn_ptr = self.builder.ins().func_addr(types::I64, func_ref);
         self.call_runtime(module, "__rtsadp_ctor_mark", &[obj_word, fn_ptr])?;
 

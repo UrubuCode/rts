@@ -344,7 +344,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .map_err(|e| {
                 crate::front::error::Unsupported::new(format!("declare fn `{fn_name}`: {e}"))
             })?;
-        let func_ref = module.declare_func_in_func(callee, self.builder.func);
+        let func_ref = self.func_ref(module, callee);
         let call = self.builder.ins().call(func_ref, &call_args);
         let result = match sig.ret {
             Some(ret) => {
@@ -386,7 +386,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .map_err(|e| {
                 crate::front::error::Unsupported::new(format!("declare fn `{fn_name}`: {e}"))
             })?;
-        let func_ref = module.declare_func_in_func(callee, self.builder.func);
+        let func_ref = self.func_ref(module, callee);
         let call = self.builder.ins().call(func_ref, &call_args);
 
         let result = match sig.ret {

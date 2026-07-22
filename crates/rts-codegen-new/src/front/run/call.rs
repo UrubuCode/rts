@@ -760,7 +760,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                  value / closure has no single C-ABI entry)"
             );
         };
-        let fref = module.declare_func_in_func(fid, self.builder.func);
+        let fref = self.func_ref(module, fid);
         let addr = self.builder.ins().func_addr(types::I64, fref);
         self.emit_register_fn_abi_if_f64(module, fname, addr)?;
         Ok(Some(Val::new(addr, Repr::Int64)))
@@ -843,7 +843,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     let fid = *self.ids.get(fname).ok_or_else(|| {
                         Unsupported::new(format!("generator state-fn `{fname}` not declared"))
                     })?;
-                    let fref = module.declare_func_in_func(fid, self.builder.func);
+                    let fref = self.func_ref(module, fid);
                     call_args.push(self.builder.ins().func_addr(types::I64, fref));
                     continue;
                 }
@@ -938,7 +938,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                             .is_some_and(|s| !s.has_this && !s.is_async)
                     {
                         if let Some(&fid) = self.ids.get(fname) {
-                            let fref = module.declare_func_in_func(fid, self.builder.func);
+                            let fref = self.func_ref(module, fid);
                             let addr = self.builder.ins().func_addr(types::I64, fref);
                             // An f64 anywhere in the callback's signature needs
                             // its FN_KINDS registered — the runtime invokes this
@@ -1083,7 +1083,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
         // Relocatable address of the THUNK (available at JIT time). `func_addr`
         // points at the thunk so every indirect call uses the fixed uniform ABI.
-        let func_ref = module.declare_func_in_func(thunk_id, self.builder.func);
+        let func_ref = self.func_ref(module, thunk_id);
         let addr = self.builder.ins().func_addr(types::I64, func_ref);
 
         let nparams_v = self.builder.ins().iconst(types::I64, nparams);
@@ -1140,7 +1140,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                  / `extends`-only class as a value is a later increment)"
             );
         };
-        let func_ref = module.declare_func_in_func(thunk_id, self.builder.func);
+        let func_ref = self.func_ref(module, thunk_id);
         let addr = self.builder.ins().func_addr(types::I64, func_ref);
         // Register this class NEW-THUNK address as a valid `new <value>()` target,
         // so a later dynamic `new` through this class-value constructs (and a

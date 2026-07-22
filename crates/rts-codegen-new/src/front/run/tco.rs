@@ -353,7 +353,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let callee_id = module
             .declare_function(&callee_name, cranelift_module::Linkage::Local, &cl_sig)
             .map_err(|e| Unsupported::new(format!("declare tail callee `{callee_name}`: {e}")))?;
-        let func_ref = module.declare_func_in_func(callee_id, self.builder.func);
+        let func_ref = self.func_ref(module, callee_id);
         self.builder.ins().return_call(func_ref, &lowered);
         self.block_terminated = true;
         Ok(true)
