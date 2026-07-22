@@ -14,7 +14,6 @@ use rts_hir::{HirExpr, HirLit, HirUnOp};
 
 use crate::repr::Repr;
 use crate::value;
-use crate::value::abi_adapter;
 
 use crate::front::error::{FrontResult, unsupported};
 
@@ -174,27 +173,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 Ok(Val::new(v, Repr::Bool))
             }
             HirLit::Str(s) => {
-                // AOT: the compile-time-interned handle is invalid in the produced
-                // binary (a different process with an empty pool — it reads back as
-                // `null`). Emit the bytes as a DATA object and intern at the
-                // binary's OWN runtime via `string_from_static(ptr,len)`, boxing the
-                // returned handle into a `TAG_STR` PolyValue word.
-                if super::aot_str::aot_mode() {
-                    let (ptr, len) = super::aot_str::emit_str_data(module, self.builder, s)?;
-                    let handle = self
-                        .call_runtime(module, "__RTS_FN_NS_GC_STRING_FROM_STATIC", &[ptr, len])?
-                        .expect("string_from_static returns a handle");
-                    let word =
-                        value::emit_marshal::emit_box_real_string(module, self.builder, handle);
-                    return Ok(Val::tagged_kind(word, JsKind::Str));
-                }
-                // JIT: intern the literal in the REAL string pool at lowering time
-                // and splice the boxed string PolyValue word (48-bit payload = the
-                // real handle's slot+shard) in as a constant (Tagged, kind Str). At
-                // run time `__RTS_FN_NS_GC_POLY_TO_HANDLE(payload)` reconstructs the
-                // full handle; the slot is a normal GC reference, no side table.
-                let pv = abi_adapter::intern_poly_const(s);
-                let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
+                // A string literal is a boxed STR PolyValue word. `emit_str_const_word`
+                // is the single AOT-safe emitter (JIT: intern now + iconst the boxed
+                // word; AOT/baker: DATA object + `string_from_static` so the string is
+                // interned in the RUNNING binary's own pool). See its doc-comment.
+                let v = self.emit_str_const_word(module, s)?;
                 Ok(Val::tagged_kind(v, JsKind::Str))
             }
             HirLit::Null => {
@@ -305,8 +288,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // constant string; else box + `__rtsadp_typeof`. The result is a string.
         if matches!(op, HirUnOp::TypeOf) {
             if let Some(s) = static_typeof(operand) {
-                let pv = abi_adapter::intern_poly_const(s);
-                let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
+                let v = self.emit_str_const_word(module, s)?;
                 return Ok(Val::tagged_kind(v, JsKind::Str));
             }
             // `typeof <symbol>` is `"symbol"`. A symbol instance is carried as a
@@ -326,8 +308,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 _ => false,
             };
             if is_symbol {
-                let pv = abi_adapter::intern_poly_const("symbol");
-                let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
+                let v = self.emit_str_const_word(module, "symbol")?;
                 return Ok(Val::tagged_kind(v, JsKind::Str));
             }
             // `typeof <GlobalClass>` is `"function"`. A bare ident naming a
@@ -337,8 +318,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // DATA-DRIVEN registry predicate (no class-name literal).
             if let HirExprKind::Ident(name) = &operand.kind {
                 if self.local(name).is_none() && self.is_global_class_ctor(name) {
-                    let pv = abi_adapter::intern_poly_const("function");
-                    let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
+                    let v = self.emit_str_const_word(module, "function")?;
                     return Ok(Val::tagged_kind(v, JsKind::Str));
                 }
             }
@@ -350,8 +330,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 if let HirExprKind::Ident(n) = &object.kind {
                     if n == "Math" && self.local(n).is_none() && self.classes.get(n).is_none() {
                         let s = super::mathobj::math_member_typeof(prop);
-                        let pv = abi_adapter::intern_poly_const(s);
-                        let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
+                        let v = self.emit_str_const_word(module, s)?;
                         return Ok(Val::tagged_kind(v, JsKind::Str));
                     }
                 }
@@ -361,8 +340,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             if let HirExprKind::Ident(name) = &operand.kind {
                 if name == "Math" && self.local(name).is_none() && self.classes.get(name).is_none()
                 {
-                    let pv = abi_adapter::intern_poly_const("object");
-                    let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
+                    let v = self.emit_str_const_word(module, "object")?;
                     return Ok(Val::tagged_kind(v, JsKind::Str));
                 }
             }
@@ -379,8 +357,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     || self.classes.get(name).is_some()
                     || name == "globalThis";
                 if !bound {
-                    let pv = abi_adapter::intern_poly_const("undefined");
-                    let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
+                    let v = self.emit_str_const_word(module, "undefined")?;
                     return Ok(Val::tagged_kind(v, JsKind::Str));
                 }
             }
