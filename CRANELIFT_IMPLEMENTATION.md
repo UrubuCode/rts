@@ -315,7 +315,7 @@ is where the engine stops paying a function call per byte.
 
 ## Step 6 — SIMD for bulk operations
 
-**Status:** not started · **Effort:** high · **Risk:** medium
+**Status:** DISCARDED (premise does not hold in this runtime) · **Effort:** high · **Risk:** medium
 
 Cranelift **does not autovectorize** (§22) — vector types must be emitted
 explicitly (§20): `splat`, `shuffle`, `swizzle`, `vany_true` / `vall_true`,
@@ -324,13 +324,38 @@ explicitly (§20): `splat`, `shuffle`, `swizzle`, `vany_true` / `vall_true`,
 Natural targets, all currently byte-at-a-time: `indexOf` / `includes` over an
 array, substring search, `fill` / `copyWithin`, UTF-8 encode/decode.
 
-Do this only after Step 5 — it needs the contiguous buffer to be worth anything.
+**Verdict (static audit 2026-07-22) — DISCARDED, no high-value slice.** The premise
+"emitting SIMD IR in the engine gives a win" is FALSE here, by a clean dichotomy:
+
+1. **Every bulk op over REAL contiguous memory already runs in an already-SIMD
+   Rust/libc routine.** `Buffer.fill` → `memset` (LLVM autovectorizes the byte-store
+   loop, `buffer/mod.rs:271`), `Buffer.copy` → `copy_from_slice`/`memcpy`
+   (`:237`), `TextEncoder.encode` → `to_vec`/memcpy (`text_encoding/instance.rs:14`),
+   `TextDecoder.decode` → `str::from_utf8` (vectorized ASCII fast path, `:1105`),
+   substring `indexOf`/`includes`/`find` → `str::find`/`contains` (Two-Way + core
+   `memchr`, SIMD since ~1.52, `string/search.rs:24-64`). Emitting explicit SIMD in
+   the engine for these is **redundant (gain ≈ 0)** — it would only reimplement,
+   worse, what LLVM/std already do, and would violate the "no builtins in the engine"
+   doctrine.
+2. **The ops that are NOT memset/memcpy** (`fill`/`indexOf`/`copyWithin` over a JS
+   `Array` / level-A TypedArray, `arrayops.rs:239,50,693`) operate over **tagged
+   PolyValue words in the HandleTable with JS semantics** (`===`, NaN, holes) and
+   per-element indirection. These are **unvectorizable by design** — no contiguous
+   homogeneous-byte layout, and the compare is semantic, not bitwise. SIMD does not
+   apply even in theory.
+
+There is **zero** SIMD in the engine today (no `I8X16`/`splat`/`vconst` anywhere),
+so any slice is new infrastructure; and there is no slice where "emit SIMD in the
+engine" is the right answer — the best path for every bulk op here is already "call
+the already-vectorized Rust routine", which the code does. Honest micro-hygiene (NOT
+this step): `Buffer.fill` (`buffer/mod.rs:277`) could be `b[..end].fill(byte)` instead
+of a manual loop — still `memset`, measurable gain ~0, intent-only. **No action.**
 
 ---
 
 ## Step 7 — stack slots for non-escaping objects
 
-**Status:** not started · **Effort:** very high · **Risk:** high
+**Status:** DEFERRED (confirmed a project, no viable minimal slice) · **Effort:** very high · **Risk:** high
 
 Every object lands in the `HandleTable` today. An object proven not to escape
 could live in a `stack_addr` slot (§13): no allocation, no GC pressure, and the
@@ -338,6 +363,30 @@ register allocator may remove it entirely.
 
 The blocker is analysis, not emission: **Cranelift does not do escape analysis**
 (§22), so the HIR layer has to prove non-escape. Treat as a project, not a step.
+
+**Verdict (static audit 2026-07-22) — DEFERRED, no viable minimal slice.** Object
+literals lower to a HandleTable `Entry::Vec` via one extern
+`__RTS_FN_NS_COLLECTIONS_VEC_NEW` call + one `__RTS_FN_NS_COLLECTIONS_VEC_PUSH` per
+field (`obj.rs:104-116`, `emit_marshal.rs:220,264`); property access itself is
+already an extern `VEC_GET(handle, slot)` (`obj.rs:563`). There is **zero
+escape/lifetime analysis** anywhere in `rts-codegen-new` or `rts-hir` (grep for
+escape/non-escape/liveness returns only string-escape / escape-hatch false
+positives); `object_locals` tracks static-vs-dynamic dispatch, not lifetime.
+Proving non-escape in JS/TS is a new HIR data-flow pass (not-returned,
+not-passed-to-any-fn, not-stored, not-captured, not-across-await, not-thrown) PLUS
+a second, non-handle object representation (`stack_addr` + offset access) PLUS
+GC/marshalling awareness that the value is off-table — three subsystems, one
+nonexistent. The payoff is small: the GC is already cheap (mark+sweep every 256
+allocs, 500k live floor — short-lived objects in small programs never trigger a
+cycle), most real-world objects genuinely escape (returned, passed to
+`console.log`/JSON/callbacks, stored in collections), and the saved cost is a
+once-per-construction alloc, not the per-element/per-iteration extern that made
+Steps 2/4/5b large wins (see "what the first four steps taught"). There is **no
+minimal high-value slice**: even a purely-local literal already passes its handle
+to an extern on every access, so any slice that helps must also rewrite the access
+path to direct stack offsets — i.e. the whole project in miniature without the
+scale payoff. Revisit only after Steps 9/6 and only with a dedicated escape-analysis
+design. **No action now.**
 
 ---
 
@@ -855,17 +904,32 @@ documents from mis-timed resets).
 ## Ordering
 
 Original: 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7.
-Done so far: 0, 1, 2, 4, 5a, 5b, 8, 10-slice1, 10-slice2, **10-slice3**,
-**10-resident-correctness** (3 blocked; 4 done by another route).
-Remaining: **10-slice4 (deferred) → 9 → 6 → 7**.
 
-If the goal is "RTS JIT should beat Bun/Node/Deno", **10 comes first** — it is the
-only step that touches the number the user actually sees. The resident-path
-24-failure correctness gap (found validating slice 3) is now FIXED (the
-string-pool-handle-immediate bug), so a baked build is finally shippable: it matches
-the fallback suite (`723/8`) with the ~100 ms startup win of slices 2/3. Slice 4 is
-deferred (small ms, worst-class risk — see its note). Next real lever: step 9
-(userland arithmetic) or step 6/7.
+**EVERY step is now resolved — this campaign is complete.**
+- **Done:** 0, 1, 2, 4, 5a, 5b, 8, **9**, 10 (slices 1/2/3 + resident-correctness),
+  and the two AOT correctness layers found along the way (AOT-L2 shape-registry
+  seed, AOT-L3 empty-string data-object aliasing). AOT now runs dynamic dispatch +
+  loop string-building byte-identically to JIT.
+- **Blocked (cannot do):** 3 — cranelift-jit has no TLS; documented, aspirational.
+- **Deferred (justified, no viable slice now):** 7 (escape analysis — a project:
+  new HIR data-flow pass + a second non-handle object representation + GC awareness;
+  small once-per-construction payoff), 10-slice4 (trim merge — `module_globals`
+  can't be skipped without defeating the gcell-match guard; ~9→1-2 ms for
+  worst-class risk).
+- **Discarded (justified, premise does not hold):** 6 (SIMD — bulk ops already
+  delegate to already-SIMD memset/memcpy/memchr/from_utf8; Array-of-PolyValue ops
+  are unvectorizable by design; emitting SIMD in the engine is redundant where
+  possible and impossible where it would be needed).
+
+This session's arc: the resident-path 24-failure correctness gap (found validating
+slice 3) traced to compile-time-baked, process-specific values invalid in a separate
+process — a class with THREE layers, all fixed (string-pool handles #1972, shape ids
+#1973, empty-string data objects #1974). Step 9's inline bitwise/`%`/`**` landed the
+xorshift row (3.8×) and bitwise (8.5×). A baked build is shippable (matches the
+fallback suite `723/8`) with the ~100 ms startup win; `rts compile` (AOT) now produces
+correct output for dynamic dispatch and loop string-building. The remaining unresolved
+items (3/6/7/slice4) are each blocked, discarded, or deferred with a written
+justification above — there is no actionable work left in this document.
 
 ### What the first four steps actually taught
 
@@ -911,10 +975,14 @@ not be used to prioritise work.
 | 6 | SIMD bulk ops | high | — | not started |
 | 7 | stack slots (escape analysis) | very high | — | not started |
 | 8 | `Intrinsic` enum → per-member `NativeEmit` | medium | enum DELETED, all 20 ops on specs | ✅ done |
-| 9 | userland arithmetic via emitters (`%`, int round-trips) | medium | userland xorshift 194 ms vs 31 ms call | after 10 |
-| 10 | the JIT's fixed ~185 ms — prelude cache/resident | medium | slice1 123→79 ms; slice2 →23 ms band; slice3 prune 9.4→0 ms | 🟡 slices 1/2/3 done; **resident 24-fail correctness gap is the blocker** |
+| 9 | userland arithmetic: inline bitwise + direct `%`/`**` | medium | **xorshift 1099→288 ms (3.8×), bitwise 1016→119 ms (8.5×), mod 2.2×, pow 1.9×** | ✅ done |
+| 10 | the JIT's fixed ~185 ms — prelude cache/resident | medium | slice1 123→79 ms; slice2 →23 ms band; slice3 prune 9.4→0 ms | ✅ slices 1/2/3 + resident correctness done; slice 4 deferred |
 | 10-s3 | skip prune when resident engages | low | `prune prelude 9.43 ms` → gone; suite byte-identical to original resident | ✅ done |
 | 10-rc | resident correctness: string-pool handle immediates → AOT-safe emitter | medium | baked **707/24 → 723/8** (matches fallback); 33 sites/14 files | ✅ done |
+| aot-L2 | seed shape registry at AOT startup (dynamic dispatch was undefined) | medium | AOT byte-identical to JIT for `Number.valueOf`/`Reflect`/`catch` | ✅ done |
+| aot-L3 | AOT empty-string data-object aliasing (`(ptr,len)` cache key) | low | "string in a loop → empty" fixed; broad AOT == JIT | ✅ done |
+| 6 | SIMD bulk ops | high | bulk ops already delegate to SIMD memset/memcpy/memchr/from_utf8; Array-of-PolyValue unvectorizable | ❌ discarded (justified) |
+| 7 | stack slots (escape analysis) | very high | no minimal slice; new HIR pass + 2nd obj repr + GC awareness; small payoff | ⏸️ deferred (justified) |
 
 ### Step 5a — the allocation storm (DONE, commit 4da2ae6d)
 
