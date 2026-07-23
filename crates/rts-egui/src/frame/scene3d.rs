@@ -35,8 +35,44 @@ fn init_buffer(device: &wgpu::Device, label: &str, data: &[u8], usage: wgpu::Buf
 /// WGSL: vertex = pos+normal (slot 0) × instância model(4×vec4)+color (slot 1).
 /// Uniform (group 0): viewProj + luz (xyz=dir, w=ambiente). Shading difuso.
 const SHADER: &str = r#"
-struct Cam { view_proj: mat4x4<f32>, light: vec4<f32>, cam_pos: vec4<f32> };
+struct Cam {
+  view_proj: mat4x4<f32>,
+  light: vec4<f32>,
+  cam_pos: vec4<f32>,
+  cam_right: vec4<f32>,  // xyz = right,   w = tanH
+  cam_up: vec4<f32>,     // xyz = up,      w = tanV
+  cam_fwd: vec4<f32>,    // xyz = forward
+};
 @group(0) @binding(0) var<uniform> cam: Cam;
+
+// ── SKYBOX: triângulo fullscreen; gradiente + estrelas por DIREÇÃO de mundo
+//    (giram junto com a câmera). Depth write off (fica no fundo). ──────────────
+struct SkyOut { @builtin(position) clip: vec4<f32>, @location(0) ndc: vec2<f32> };
+@vertex
+fn sky_vs(@builtin(vertex_index) vi: u32) -> SkyOut {
+  var p = array<vec2<f32>, 3>(vec2<f32>(-1.0, -1.0), vec2<f32>(3.0, -1.0), vec2<f32>(-1.0, 3.0));
+  var o: SkyOut;
+  o.clip = vec4<f32>(p[vi], 1.0, 1.0);
+  o.ndc = p[vi];
+  return o;
+}
+fn hash13(p3: vec3<f32>) -> f32 {
+  var q = fract(p3 * 0.1031);
+  q = q + dot(q, q.yzx + 33.33);
+  return fract((q.x + q.y) * q.z);
+}
+@fragment
+fn sky_fs(i: SkyOut) -> @location(0) vec4<f32> {
+  let ray = normalize(cam.cam_fwd.xyz
+    + cam.cam_right.xyz * (i.ndc.x * cam.cam_right.w)
+    + cam.cam_up.xyz * (i.ndc.y * cam.cam_up.w));
+  let t = clamp(ray.y * 0.5 + 0.5, 0.0, 1.0);
+  var col = mix(vec3<f32>(0.02, 0.02, 0.035), vec3<f32>(0.01, 0.015, 0.05), t);
+  // estrelas: hash da direção quantizada (esparsas e brilhantes)
+  let h = hash13(floor(ray * 260.0));
+  if (h > 0.9915) { let s = (h - 0.9915) * 110.0; col = col + vec3<f32>(s, s, s); }
+  return vec4<f32>(col, 1.0);
+}
 
 struct VOut {
   @builtin(position) clip: vec4<f32>,
@@ -90,6 +126,7 @@ struct GpuMesh {
 
 pub struct Scene3D {
     pipeline: wgpu::RenderPipeline,
+    sky_pipeline: wgpu::RenderPipeline,
     cam_buf: wgpu::Buffer,
     cam_bg: wgpu::BindGroup,
     depth_view: wgpu::TextureView,
@@ -101,6 +138,11 @@ pub struct Scene3D {
     view_proj: [f32; 16],
     light: [f32; 4],
     cam_pos: [f32; 3],
+    cright: [f32; 3],
+    cup: [f32; 3],
+    cfwd: [f32; 3],
+    tan_h: f32,
+    tan_v: f32,
     draws: Vec<(u64, [f32; 16], [f32; 4])>,
     inst_buf: wgpu::Buffer,
     inst_cap: u64,
@@ -116,7 +158,7 @@ impl Scene3D {
         // uniform: 16 (view_proj) + 4 (light) = 20 f32 = 80 bytes
         let cam_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("scene3d cam"),
-            size: 96,
+            size: 144,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -206,6 +248,42 @@ impl Scene3D {
             cache: None,
         });
 
+        // pipeline da SKYBOX: triângulo fullscreen, sem depth write (fica no fundo).
+        let sky_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("scene3d sky pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("sky_vs"),
+                buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("sky_fs"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: color_format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Always),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multiview_mask: None,
+            multisample: wgpu::MultisampleState::default(),
+            cache: None,
+        });
+
         let (depth_view, _t) = make_depth(device, 1, 1);
         let inst_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("scene3d inst"),
@@ -216,6 +294,7 @@ impl Scene3D {
 
         Scene3D {
             pipeline,
+            sky_pipeline,
             cam_buf,
             cam_bg,
             depth_view,
@@ -226,6 +305,11 @@ impl Scene3D {
             view_proj: identity(),
             light: [0.4, 0.8, 0.4, 0.25],
             cam_pos: [0.0, 0.0, 0.0],
+            cright: [1.0, 0.0, 0.0],
+            cup: [0.0, 1.0, 0.0],
+            cfwd: [0.0, 0.0, 1.0],
+            tan_h: 1.0,
+            tan_v: 1.0,
             draws: Vec::new(),
             inst_buf,
             inst_cap: 64,
@@ -245,9 +329,14 @@ impl Scene3D {
         self.meshes.remove(&id);
     }
 
-    pub fn set_camera(&mut self, vp: [f32; 16], cam_pos: [f32; 3]) {
-        self.view_proj = vp;
-        self.cam_pos = cam_pos;
+    pub fn set_camera(&mut self, cd: Cam3D) {
+        self.view_proj = cd.view_proj;
+        self.cam_pos = cd.cam_pos;
+        self.cright = cd.right;
+        self.cup = cd.up;
+        self.cfwd = cd.fwd;
+        self.tan_h = cd.tan_h;
+        self.tan_v = cd.tan_v;
     }
     pub fn set_light(&mut self, d: [f32; 3], ambient: f32) {
         let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt().max(1e-6);
@@ -280,10 +369,15 @@ impl Scene3D {
         self.ensure_depth(device, w, h);
 
         // uniform: view_proj (16) + light (4)
-        let mut cam = [0f32; 24];
+        let mut cam = [0f32; 36];
         cam[..16].copy_from_slice(&self.view_proj);
         cam[16..20].copy_from_slice(&self.light);
         cam[20..23].copy_from_slice(&self.cam_pos);
+        cam[24..27].copy_from_slice(&self.cright);
+        cam[27] = self.tan_h;
+        cam[28..31].copy_from_slice(&self.cup);
+        cam[31] = self.tan_v;
+        cam[32..35].copy_from_slice(&self.cfwd);
         queue.write_buffer(&self.cam_buf, 0, f32_bytes(&cam));
 
         // instâncias
@@ -331,6 +425,11 @@ impl Scene3D {
             multiview_mask: None,
         });
 
+        // 1. SKYBOX (fullscreen, sem depth write) — fica no fundo
+        pass.set_pipeline(&self.sky_pipeline);
+        pass.set_bind_group(0, &self.cam_bg, &[]);
+        pass.draw(0..3, 0..1);
+        // 2. meshes (depth test/write)
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.cam_bg, &[]);
         for (i, (mesh_id, _model, _color)) in self.draws.iter().enumerate() {
@@ -371,19 +470,29 @@ fn identity() -> [f32; 16] {
 /// view·proj (column-major) a partir de câmera fly (yaw/pitch) — MESMA convenção
 /// do rasterizador software: right=(cyw,0,-syw), up=(-syw*spt,cpt,-cyw*spt),
 /// forward=(syw*cpt,spt,cyw*cpt); proj perspectiva left-handed (z forward, depth 0..1).
+/// Dados de câmera pro uniform 3D: viewProj + posição + base (right/up/fwd) +
+/// tangentes do FOV (pro raio da skybox).
+pub struct Cam3D {
+    pub view_proj: [f32; 16],
+    pub cam_pos: [f32; 3],
+    pub right: [f32; 3],
+    pub up: [f32; 3],
+    pub fwd: [f32; 3],
+    pub tan_h: f32,
+    pub tan_v: f32,
+}
+
 pub fn view_proj(
     camx: f32, camy: f32, camz: f32, yaw: f32, pitch: f32, fov_y: f32, aspect: f32,
-) -> [f32; 16] {
+) -> Cam3D {
     let (cyw, syw) = (yaw.cos(), yaw.sin());
     let (cpt, spt) = (pitch.cos(), pitch.sin());
     let right = [cyw, 0.0, -syw];
     let up = [-syw * spt, cpt, -cyw * spt];
     let fwd = [syw * cpt, spt, cyw * cpt];
-    // view = R · translate(-cam): linhas = right/up/fwd, translação = -R·cam
     let tx = -(right[0] * camx + right[1] * camy + right[2] * camz);
     let ty = -(up[0] * camx + up[1] * camy + up[2] * camz);
     let tz = -(fwd[0] * camx + fwd[1] * camy + fwd[2] * camz);
-    // view em column-major (coluna c: [right[c],up[c],fwd[c],0], última col = t)
     let v = [
         right[0], up[0], fwd[0], 0.0,
         right[1], up[1], fwd[1], 0.0,
@@ -392,15 +501,23 @@ pub fn view_proj(
     ];
     let near = 0.1f32;
     let far = 500.0f32;
-    let f = 1.0 / (fov_y * 0.5).tan();
-    // proj perspectiva (column-major), w = z_view (forward), depth 0..1
+    let tan_v = (fov_y * 0.5).tan();
+    let f = 1.0 / tan_v;
     let p = [
         f / aspect, 0.0, 0.0, 0.0,
         0.0, f, 0.0, 0.0,
         0.0, 0.0, far / (far - near), 1.0,
         0.0, 0.0, -(far * near) / (far - near), 0.0,
     ];
-    mul(&p, &v)
+    Cam3D {
+        view_proj: mul(&p, &v),
+        cam_pos: [camx, camy, camz],
+        right,
+        up,
+        fwd,
+        tan_h: tan_v * aspect,
+        tan_v,
+    }
 }
 
 /// model = T · Ry · Rx · S (column-major) — casa com a rotação Y-depois-X do soft.
