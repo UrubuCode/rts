@@ -341,7 +341,9 @@ impl Scene3D {
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: Some(wgpu::Face::Back),
+                // sem backface culling: lajes finas / beiral de telhado / escala
+                // não-uniforme não "vazam" ao serem vistos por trás (editor).
+                cull_mode: None,
                 ..Default::default()
             },
             depth_stencil: Some(wgpu::DepthStencilState {
