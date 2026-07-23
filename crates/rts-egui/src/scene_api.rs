@@ -79,6 +79,28 @@ pub extern "C" fn __RTS_FN_NS_EGUI_SET_LIGHT(win: u64, dx: f64, dy: f64, dz: f64
     );
 }
 
+/// Largura LÓGICA (points) atual da janela — segue o resize. 0 se não existe.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_WIN_WIDTH(win: u64) -> f64 {
+    crate::ctx::with_ctx(win, |c| {
+        let s = c.window.inner_size();
+        let sf = c.window.scale_factor();
+        ((s.width as f64) / sf).round()
+    })
+    .unwrap_or(0.0)
+}
+
+/// Altura LÓGICA (points) atual da janela — segue o resize. 0 se não existe.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_WIN_HEIGHT(win: u64) -> f64 {
+    crate::ctx::with_ctx(win, |c| {
+        let s = c.window.inner_size();
+        let sf = c.window.scale_factor();
+        ((s.height as f64) / sf).round()
+    })
+    .unwrap_or(0.0)
+}
+
 /// Configura o shadow map: direção da luz (dx,dy,dz = para onde a luz viaja) +
 /// centro (cx,cy,cz) e raio da caixa que a sombra cobre. radius<=0 desliga.
 #[unsafe(no_mangle)]

@@ -283,6 +283,22 @@ pub fn register(e: &mut Engine) {
             scene_api::__RTS_FN_NS_EGUI_SET_LIGHT as *const u8,
         ))
         .member(func(
+            "winWidth",
+            "__RTS_FN_NS_EGUI_WIN_WIDTH",
+            Sig::new(vec![U64], F64),
+            "winWidth(h: number): number",
+            "Current LOGICAL width (points) of the window — follows resize.",
+            scene_api::__RTS_FN_NS_EGUI_WIN_WIDTH as *const u8,
+        ))
+        .member(func(
+            "winHeight",
+            "__RTS_FN_NS_EGUI_WIN_HEIGHT",
+            Sig::new(vec![U64], F64),
+            "winHeight(h: number): number",
+            "Current LOGICAL height (points) of the window — follows resize.",
+            scene_api::__RTS_FN_NS_EGUI_WIN_HEIGHT as *const u8,
+        ))
+        .member(func(
             "setShadow",
             "__RTS_FN_NS_EGUI_SET_SHADOW",
             Sig::new(vec![U64, F64, F64, F64, F64, F64, F64, F64], AbiType::Void),
