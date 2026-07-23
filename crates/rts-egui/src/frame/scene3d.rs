@@ -42,8 +42,43 @@ struct Cam {
   cam_right: vec4<f32>,  // xyz = right,   w = tanH
   cam_up: vec4<f32>,     // xyz = up,      w = tanV
   cam_fwd: vec4<f32>,    // xyz = forward
+  light_vp: mat4x4<f32>, // view·proj da LUZ (shadow map)
 };
 @group(0) @binding(0) var<uniform> cam: Cam;
+// shadow map (group 1): depth da cena vista da luz + comparison sampler
+@group(1) @binding(0) var shadow_tex: texture_depth_2d;
+@group(1) @binding(1) var shadow_samp: sampler_comparison;
+
+// vertex do SHADOW PASS: projeta pela luz (só posição).
+@vertex
+fn shadow_vs(
+  @location(0) position: vec3<f32>,
+  @location(2) m0: vec4<f32>,
+  @location(3) m1: vec4<f32>,
+  @location(4) m2: vec4<f32>,
+  @location(5) m3: vec4<f32>,
+) -> @builtin(position) vec4<f32> {
+  let model = mat4x4<f32>(m0, m1, m2, m3);
+  return cam.light_vp * (model * vec4<f32>(position, 1.0));
+}
+
+// fator de sombra (1 = iluminado, 0 = na sombra) via PCF 3×3.
+fn shadow_factor(world: vec3<f32>) -> f32 {
+  let lc = cam.light_vp * vec4<f32>(world, 1.0);
+  let proj = lc.xyz / lc.w;
+  let uv = proj.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5, 0.5);
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || proj.z > 1.0) { return 1.0; }
+  let d = proj.z - 0.0015;   // bias contra acne
+  let texel = 1.0 / 2048.0;
+  var sum = 0.0;
+  for (var oy = -1; oy <= 1; oy = oy + 1) {
+    for (var ox = -1; ox <= 1; ox = ox + 1) {
+      let o = vec2<f32>(f32(ox), f32(oy)) * texel;
+      sum = sum + textureSampleCompare(shadow_tex, shadow_samp, uv + o, d);
+    }
+  }
+  return sum / 9.0;
+}
 
 // ── SKYBOX: triângulo fullscreen; gradiente + estrelas por DIREÇÃO de mundo
 //    (giram junto com a câmera). Depth write off (fica no fundo). ──────────────
@@ -80,6 +115,7 @@ struct VOut {
   @location(1) color: vec4<f32>,
   @location(2) world: vec3<f32>,
   @location(3) emissive: f32,
+  @location(4) tex: f32,
 };
 
 @vertex
@@ -101,25 +137,37 @@ fn vs(
   o.color = color;
   o.world = world.xyz;
   o.emissive = iparams.x;
+  o.tex = iparams.y;
   return o;
 }
 
 @fragment
 fn fs(i: VOut) -> @location(0) vec4<f32> {
+  var albedo = i.color.rgb;
+  // TEXTURA procedural: xadrez em espaço de mundo (iparams.y = i.tex)
+  if (i.tex > 0.5) {
+    let s = 1.0;
+    let c = floor(i.world.x * s) + floor(i.world.z * s) + floor(i.world.y * s);
+    let chk = fract(c * 0.5) * 2.0;        // 0 ou 1
+    albedo = albedo * mix(0.5, 1.0, chk);
+  }
   // emissivo (ex.: o Sol) — cor cheia, sem sombreamento
-  if (i.emissive > 0.5) { return vec4<f32>(i.color.rgb, i.color.a); }
+  if (i.emissive > 0.5) { return vec4<f32>(albedo, i.color.a); }
   let n = normalize(i.normal);
   // LUZ PONTUAL: cam.light.xyz = POSICAO da luz (ex.: o Sol)
   let l = normalize(cam.light.xyz - i.world);
   let nd = max(dot(n, l), 0.0);
-  let lit = cam.light.w + (1.0 - cam.light.w) * nd;
+  let sh = shadow_factor(i.world);          // 1 = iluminado, 0 = na sombra
+  let lit = cam.light.w + (1.0 - cam.light.w) * nd * sh;
   let vdir = normalize(cam.cam_pos.xyz - i.world);
   let h = normalize(l + vdir);
-  let spec = pow(max(dot(n, h), 0.0), 32.0) * 0.3;
-  let rgb = i.color.rgb * lit + vec3<f32>(spec, spec, spec);
+  let spec = pow(max(dot(n, h), 0.0), 32.0) * 0.3 * sh;
+  let rgb = albedo * lit + vec3<f32>(spec, spec, spec);
   return vec4<f32>(rgb, i.color.a);
 }
 "#;
+
+const SHADOW_SIZE: u32 = 2048;
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
@@ -132,8 +180,11 @@ struct GpuMesh {
 pub struct Scene3D {
     pipeline: wgpu::RenderPipeline,
     sky_pipeline: wgpu::RenderPipeline,
+    shadow_pipeline: wgpu::RenderPipeline,
     cam_buf: wgpu::Buffer,
     cam_bg: wgpu::BindGroup,
+    shadow_view: wgpu::TextureView,
+    shadow_bg: wgpu::BindGroup,
     depth_view: wgpu::TextureView,
     depth_w: u32,
     depth_h: u32,
@@ -142,13 +193,14 @@ pub struct Scene3D {
     // estado por-frame
     view_proj: [f32; 16],
     light: [f32; 4],
+    light_vp: [f32; 16],   // view·proj da luz (shadow map); identidade = sem sombra
     cam_pos: [f32; 3],
     cright: [f32; 3],
     cup: [f32; 3],
     cfwd: [f32; 3],
     tan_h: f32,
     tan_v: f32,
-    draws: Vec<(u64, [f32; 16], [f32; 4], f32)>,
+    draws: Vec<(u64, [f32; 16], [f32; 4], f32, f32)>,
     inst_buf: wgpu::Buffer,
     inst_cap: u64,
 }
@@ -160,10 +212,11 @@ impl Scene3D {
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
         });
 
-        // uniform: 16 (view_proj) + 4 (light) = 20 f32 = 80 bytes
+        // uniform: view_proj(16) + light(4) + cam_pos(4) + right(4) + up(4) + fwd(4)
+        //          + light_vp(16) = 52 f32 = 208 bytes
         let cam_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("scene3d cam"),
-            size: 144,
+            size: 208,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -189,8 +242,57 @@ impl Scene3D {
             }],
         });
 
+        // shadow map: textura depth 2048² (render target + amostrada) + comparison sampler
+        let (shadow_view, _st) = make_shadow(device, SHADOW_SIZE);
+        let shadow_samp = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("scene3d shadow samp"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            ..Default::default()
+        });
+        let shadow_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("scene3d shadow bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
+                    count: None,
+                },
+            ],
+        });
+        let shadow_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("scene3d shadow bg"),
+            layout: &shadow_bgl,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&shadow_view) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&shadow_samp) },
+            ],
+        });
+
+        // layout do pass principal + sky: group 0 (câmera) + group 1 (shadow map)
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("scene3d layout"),
+            bind_group_layouts: &[Some(&cam_bgl), Some(&shadow_bgl)],
+            immediate_size: 0,
+        });
+        // layout do shadow pass: só group 0 (light_vp vem do uniform da câmera)
+        let cam_only_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("scene3d shadow layout"),
             bind_group_layouts: &[Some(&cam_bgl)],
             immediate_size: 0,
         });
@@ -224,7 +326,7 @@ impl Scene3D {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs"),
-                buffers: &[vbl, ibl],
+                buffers: &[vbl.clone(), ibl.clone()],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -290,6 +392,33 @@ impl Scene3D {
             cache: None,
         });
 
+        // SHADOW PIPELINE: depth-only, projeta pela luz (só group 0). Bias contra acne.
+        let shadow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("scene3d shadow pipeline"),
+            layout: Some(&cam_only_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("shadow_vs"),
+                buffers: &[vbl, ibl],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: None,
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState { constant: 2, slope_scale: 2.0, clamp: 0.0 },
+            }),
+            multiview_mask: None,
+            multisample: wgpu::MultisampleState::default(),
+            cache: None,
+        });
+
         let (depth_view, _t) = make_depth(device, 1, 1);
         let inst_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("scene3d inst"),
@@ -301,8 +430,11 @@ impl Scene3D {
         Scene3D {
             pipeline,
             sky_pipeline,
+            shadow_pipeline,
             cam_buf,
             cam_bg,
+            shadow_view,
+            shadow_bg,
             depth_view,
             depth_w: 1,
             depth_h: 1,
@@ -310,6 +442,7 @@ impl Scene3D {
             next_mesh: 1,
             view_proj: identity(),
             light: [0.4, 0.8, 0.4, 0.25],
+            light_vp: identity(),
             cam_pos: [0.0, 0.0, 0.0],
             cright: [1.0, 0.0, 0.0],
             cup: [0.0, 1.0, 0.0],
@@ -348,8 +481,17 @@ impl Scene3D {
         // ponto de luz: guarda a POSICAO (nao normaliza)
         self.light = [d[0], d[1], d[2], ambient];
     }
-    pub fn queue_draw(&mut self, mesh: u64, model: [f32; 16], color: [f32; 4], emissive: f32) {
-        self.draws.push((mesh, model, color, emissive));
+    /// Configura o shadow map: direção da luz (para onde a luz VIAJA) + centro/raio
+    /// da caixa ortográfica que o shadow map cobre. radius<=0 desliga a sombra.
+    pub fn set_shadow(&mut self, dir: [f32; 3], center: [f32; 3], radius: f32) {
+        if radius <= 0.0 {
+            self.light_vp = identity();
+        } else {
+            self.light_vp = light_view_proj(dir, center, radius);
+        }
+    }
+    pub fn queue_draw(&mut self, mesh: u64, model: [f32; 16], color: [f32; 4], emissive: f32, tex: f32) {
+        self.draws.push((mesh, model, color, emissive, tex));
     }
 
     fn ensure_depth(&mut self, device: &wgpu::Device, w: u32, h: u32) {
@@ -374,8 +516,9 @@ impl Scene3D {
     ) -> bool {
         self.ensure_depth(device, w, h);
 
-        // uniform: view_proj (16) + light (4)
-        let mut cam = [0f32; 36];
+        // uniform: view_proj(16) + light(4) + cam_pos(4) + right(4) + up(4) + fwd(4)
+        //          + light_vp(16) = 52 f32
+        let mut cam = [0f32; 52];
         cam[..16].copy_from_slice(&self.view_proj);
         cam[16..20].copy_from_slice(&self.light);
         cam[20..23].copy_from_slice(&self.cam_pos);
@@ -384,6 +527,7 @@ impl Scene3D {
         cam[28..31].copy_from_slice(&self.cup);
         cam[31] = self.tan_v;
         cam[32..35].copy_from_slice(&self.cfwd);
+        cam[36..52].copy_from_slice(&self.light_vp);
         queue.write_buffer(&self.cam_buf, 0, f32_bytes(&cam));
 
         // instâncias
@@ -399,16 +543,47 @@ impl Scene3D {
             self.inst_cap = cap;
         }
         let mut inst: Vec<f32> = Vec::with_capacity(self.draws.len() * 24);
-        for (_m, model, color, emissive) in &self.draws {
+        for (_m, model, color, emissive, tex) in &self.draws {
             inst.extend_from_slice(model);
             inst.extend_from_slice(color);
             inst.push(*emissive);
-            inst.push(0.0);
+            inst.push(*tex);
             inst.push(0.0);
             inst.push(0.0);
         }
         if !inst.is_empty() {
             queue.write_buffer(&self.inst_buf, 0, f32_bytes(&inst));
+        }
+
+        // ── SHADOW PASS: depth da cena vista da luz (só quando há sombra ativa) ──
+        let has_shadow = self.light_vp != identity();
+        if has_shadow && !self.draws.is_empty() {
+            let mut sp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("scene3d shadow pass"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.shadow_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            sp.set_pipeline(&self.shadow_pipeline);
+            sp.set_bind_group(0, &self.cam_bg, &[]);
+            for (i, (mesh_id, _model, _color, _emiss, _tex)) in self.draws.iter().enumerate() {
+                if let Some(m) = self.meshes.get(mesh_id) {
+                    let off = (i as u64) * 96;
+                    sp.set_vertex_buffer(0, m.vbuf.slice(..));
+                    sp.set_vertex_buffer(1, self.inst_buf.slice(off..off + 96));
+                    sp.set_index_buffer(m.ibuf.slice(..), wgpu::IndexFormat::Uint32);
+                    sp.draw_indexed(0..m.icount, 0, 0..1);
+                }
+            }
         }
 
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -435,14 +610,14 @@ impl Scene3D {
             multiview_mask: None,
         });
 
+        pass.set_bind_group(0, &self.cam_bg, &[]);
+        pass.set_bind_group(1, &self.shadow_bg, &[]);
         // 1. SKYBOX (fullscreen, sem depth write) — fica no fundo
         pass.set_pipeline(&self.sky_pipeline);
-        pass.set_bind_group(0, &self.cam_bg, &[]);
         pass.draw(0..3, 0..1);
         // 2. meshes (depth test/write)
         pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &self.cam_bg, &[]);
-        for (i, (mesh_id, _model, _color, _emiss)) in self.draws.iter().enumerate() {
+        for (i, (mesh_id, _model, _color, _emiss, _tex)) in self.draws.iter().enumerate() {
             if let Some(m) = self.meshes.get(mesh_id) {
                 let off = (i as u64) * 96;
                 pass.set_vertex_buffer(0, m.vbuf.slice(..));
@@ -473,8 +648,64 @@ fn make_depth(device: &wgpu::Device, w: u32, h: u32) -> (wgpu::TextureView, wgpu
     (view, tex)
 }
 
+fn make_shadow(device: &wgpu::Device, size: u32) -> (wgpu::TextureView, wgpu::Texture) {
+    let tex = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("scene3d shadow map"),
+        size: wgpu::Extent3d { width: size, height: size, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: DEPTH_FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+    (view, tex)
+}
+
 fn identity() -> [f32; 16] {
     [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+}
+
+/// view·proj ORTOGRÁFICA da luz direcional (shadow map). `dir` = direção que a luz
+/// viaja; a câmera-luz é posta em `center - dir*2r` olhando na direção `dir`; ortho
+/// meio-extent = radius, depth 0..1 (convenção wgpu). Column-major.
+fn light_view_proj(dir: [f32; 3], center: [f32; 3], radius: f32) -> [f32; 16] {
+    let mut f = dir;
+    let fl = (f[0] * f[0] + f[1] * f[1] + f[2] * f[2]).sqrt().max(1e-6);
+    f = [f[0] / fl, f[1] / fl, f[2] / fl];
+    // up de referência; se quase paralelo a f, troca por (1,0,0)
+    let up0 = if f[1].abs() > 0.99 { [1.0f32, 0.0, 0.0] } else { [0.0f32, 1.0, 0.0] };
+    // right = normalize(up0 × f); up = f × right
+    let mut r = cross(up0, f);
+    let rl = (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt().max(1e-6);
+    r = [r[0] / rl, r[1] / rl, r[2] / rl];
+    let u = cross(f, r);
+    let eye = [center[0] - f[0] * 2.0 * radius, center[1] - f[1] * 2.0 * radius, center[2] - f[2] * 2.0 * radius];
+    let tx = -(r[0] * eye[0] + r[1] * eye[1] + r[2] * eye[2]);
+    let ty = -(u[0] * eye[0] + u[1] * eye[1] + u[2] * eye[2]);
+    let tz = -(f[0] * eye[0] + f[1] * eye[1] + f[2] * eye[2]);
+    let v = [
+        r[0], u[0], f[0], 0.0,
+        r[1], u[1], f[1], 0.0,
+        r[2], u[2], f[2], 0.0,
+        tx, ty, tz, 1.0,
+    ];
+    let near = 0.05f32;
+    let far = 4.0 * radius;
+    let inv = 1.0 / radius;
+    let dz = 1.0 / (far - near);
+    let p = [
+        inv, 0.0, 0.0, 0.0,
+        0.0, inv, 0.0, 0.0,
+        0.0, 0.0, dz, 0.0,
+        0.0, 0.0, -near * dz, 1.0,
+    ];
+    mul(&p, &v)
+}
+
+fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
 }
 
 /// view·proj (column-major) a partir de câmera fly (yaw/pitch) — MESMA convenção

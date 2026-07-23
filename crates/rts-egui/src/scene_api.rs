@@ -79,8 +79,29 @@ pub extern "C" fn __RTS_FN_NS_EGUI_SET_LIGHT(win: u64, dx: f64, dy: f64, dz: f64
     );
 }
 
+/// Configura o shadow map: direção da luz (dx,dy,dz = para onde a luz viaja) +
+/// centro (cx,cy,cz) e raio da caixa que a sombra cobre. radius<=0 desliga.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_SET_SHADOW(
+    win: u64,
+    dx: f64,
+    dy: f64,
+    dz: f64,
+    cx: f64,
+    cy: f64,
+    cz: f64,
+    radius: f64,
+) {
+    with_scene(
+        win,
+        |s, _d| s.set_shadow([dx as f32, dy as f32, dz as f32], [cx as f32, cy as f32, cz as f32], radius as f32),
+        (),
+    );
+}
+
 /// Enfileira 1 draw da mesh `mesh` com transform (pos/rot/escala) + cor
-/// (0xAARRGGBB). O draw acontece no scene pass, no `endFrame`.
+/// (0xAARRGGBB) + emissivo (0/1) + textura procedural (0=nenhuma, 1=xadrez).
+/// O draw acontece no scene pass, no `endFrame`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_EGUI_DRAW_MESH(
     win: u64,
@@ -95,6 +116,7 @@ pub extern "C" fn __RTS_FN_NS_EGUI_DRAW_MESH(
     sz: f64,
     color: i64,
     emissive: i64,
+    tex: i64,
 ) {
     let m = model_matrix(
         px as f32, py as f32, pz as f32, rx as f32, ry as f32, sx as f32, sy as f32, sz as f32,
@@ -108,5 +130,6 @@ pub extern "C" fn __RTS_FN_NS_EGUI_DRAW_MESH(
         if a == 0 { 1.0 } else { a as f32 / 255.0 }, // sem byte de alpha = opaco
     ];
     let em = if emissive != 0 { 1.0 } else { 0.0 };
-    with_scene(win, |s, _d| s.queue_draw(mesh, m, col, em), ());
+    let tx = if tex != 0 { 1.0 } else { 0.0 };
+    with_scene(win, |s, _d| s.queue_draw(mesh, m, col, em, tx), ());
 }

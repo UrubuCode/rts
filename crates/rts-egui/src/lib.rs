@@ -283,11 +283,19 @@ pub fn register(e: &mut Engine) {
             scene_api::__RTS_FN_NS_EGUI_SET_LIGHT as *const u8,
         ))
         .member(func(
+            "setShadow",
+            "__RTS_FN_NS_EGUI_SET_SHADOW",
+            Sig::new(vec![U64, F64, F64, F64, F64, F64, F64, F64], AbiType::Void),
+            "setShadow(h: number, dirX: number, dirY: number, dirZ: number, cX: number, cY: number, cZ: number, radius: number): void",
+            "Configures the directional shadow map: light travel direction (dirX/Y/Z), the center and radius of the orthographic box the shadows cover. radius<=0 disables shadows.",
+            scene_api::__RTS_FN_NS_EGUI_SET_SHADOW as *const u8,
+        ))
+        .member(func(
             "drawMesh",
             "__RTS_FN_NS_EGUI_DRAW_MESH",
-            Sig::new(vec![U64, U64, F64, F64, F64, F64, F64, F64, F64, F64, I64, I64], AbiType::Void),
-            "drawMesh(h: number, meshId: number, px: number, py: number, pz: number, rx: number, ry: number, sx: number, sy: number, sz: number, color: number, emissive: number): void",
-            "Queues a 3D draw of meshId with a transform (pos/rot euler/scale), color 0xAARRGGBB, and emissive flag (0/1 — 1 = full-bright, unlit, e.g. a sun). Rendered in the scene pass at endFrame. Light is a POINT light at setLight's position.",
+            Sig::new(vec![U64, U64, F64, F64, F64, F64, F64, F64, F64, F64, I64, I64, I64], AbiType::Void),
+            "drawMesh(h: number, meshId: number, px: number, py: number, pz: number, rx: number, ry: number, sx: number, sy: number, sz: number, color: number, emissive: number, tex: number): void",
+            "Queues a 3D draw of meshId with a transform (pos/rot euler/scale), color 0xAARRGGBB, emissive flag (0/1), and procedural texture (0=none, 1=world-space checker). Rendered in the scene pass at endFrame. Light is a POINT light at setLight's position; shadows via setShadow.",
             scene_api::__RTS_FN_NS_EGUI_DRAW_MESH as *const u8,
         ))
         .done();
