@@ -79,13 +79,8 @@ pub(crate) fn proto_of_value(word: u64) -> u64 {
     if let Some(p) = intrinsic_proto(word) {
         return p;
     }
-    // A function is a heap value whose chain reaches Object.prototype (its true
-    // [[Prototype]] is Function.prototype — not yet a distinct object here, so we
-    // route to the shared Object.prototype root, matching the prior is-heap rule).
-    if PolyValue::from_raw(word).is_function() {
-        return object_proto_root();
-    }
-    // Objects (incl. arrays): recorded / implicit link, proxy traps, null tail.
+    // Objects (incl. arrays) AND functions: `getPrototypeOf` is the single source
+    // (a function resolves to the shared `Function.prototype` there).
     __rtsadp_obj_proto_of(word)
 }
 
@@ -178,6 +173,12 @@ pub extern "C" fn __rtsadp_obj_proto_of(obj_word: u64) -> u64 {
                     return PolyValue::null().raw();
                 }
                 return root;
+            }
+            // A function's [[Prototype]] is the shared `Function.prototype` (whose
+            // own [[Prototype]] is `Object.prototype`), so `getPrototypeOf(fn)` is
+            // an object and a function's chain reaches Object and terminates.
+            if v.is_function() {
+                return function_proto_root();
             }
             PolyValue::null().raw()
         }
@@ -336,6 +337,19 @@ fn object_proto_root() -> u64 {
         super::objops::__rtsadp_obj_set(ctor, name_key, obj_name);
         let ctor_key = super::abi_adapter::intern_poly("constructor").raw();
         super::objops::__rtsadp_obj_set(root, ctor_key, ctor);
+        root
+    })
+}
+
+/// The shared `Function.prototype` root: every function's `[[Prototype]]`. Its own
+/// `[[Prototype]]` is `Object.prototype`, so a function's chain reaches Object and
+/// terminates in `null`. Created lazily, PINned for the whole program.
+fn function_proto_root() -> u64 {
+    use std::sync::OnceLock;
+    static ROOT: OnceLock<u64> = OnceLock::new();
+    *ROOT.get_or_init(|| {
+        let root = empty_proto_object();
+        __rtsadp_obj_set_proto(root, object_proto_root());
         root
     })
 }
