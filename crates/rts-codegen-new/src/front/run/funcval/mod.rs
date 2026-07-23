@@ -38,6 +38,7 @@
 //! `this`/async/generator arrows are likewise left to bail.
 
 pub mod scan;
+mod scan_free;
 pub(crate) use scan::arrow_decl_names as fn_decl_names;
 
 use std::collections::{HashMap, HashSet};
