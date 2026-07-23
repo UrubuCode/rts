@@ -7,7 +7,7 @@
 //! do rasterizador software. Só o braço `Backend::Wgpu` age; no glow é no-op.
 
 use crate::ctx::with_ctx;
-use crate::frame::scene3d::{model_matrix, view_proj, Scene3D};
+use crate::frame::scene3d::{model_matrix, view_proj, view_proj_lookat, Scene3D};
 use crate::frame::Backend;
 
 /// Garante o pipeline 3D criado na 1ª chamada e roda `f(scene, device)`.
@@ -67,6 +67,47 @@ pub extern "C" fn __RTS_FN_NS_EGUI_SET_CAMERA(
         camx as f32, camy as f32, camz as f32, yaw as f32, pitch as f32, fov_y as f32, aspect as f32,
     );
     with_scene(win, |s, _d| s.set_camera(cd), ());
+}
+
+/// Câmera LOOK-AT (olho→alvo) com `near`/`far` explícitos — NaN-safe (não trava
+/// no gimbal ao olhar reto pra cima/baixo). Mais conveniente que yaw/pitch pro
+/// "frame selected" do editor. Enxertado do gpu3d (origin/main), adaptado à base LH.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_SET_CAMERA_LOOKAT(
+    win: u64,
+    ex: f64,
+    ey: f64,
+    ez: f64,
+    tx: f64,
+    ty: f64,
+    tz: f64,
+    fov_y: f64,
+    aspect: f64,
+    near: f64,
+    far: f64,
+) {
+    let cd = view_proj_lookat(
+        [ex as f32, ey as f32, ez as f32],
+        [tx as f32, ty as f32, tz as f32],
+        fov_y as f32,
+        aspect as f32,
+        near as f32,
+        far as f32,
+    );
+    with_scene(win, |s, _d| s.set_camera(cd), ());
+}
+
+/// Fundo CHAPADO do scene pass (r,g,b em 0..1) — desliga o skybox procedural.
+/// Ideal pro viewport do editor, que quer um fundo neutro em vez do starfield.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_SET_CLEAR_COLOR(win: u64, r: f64, g: f64, b: f64) {
+    with_scene(win, |s, _d| s.set_clear_color([r as f32, g as f32, b as f32, 1.0]), ());
+}
+
+/// Religa o skybox procedural (`on!=0`) desfazendo um `setClearColor`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_SET_SKYBOX(win: u64, on: i64) {
+    with_scene(win, |s, _d| s.set_skybox(on != 0), ());
 }
 
 /// Define a luz direcional (dir + ambiente).

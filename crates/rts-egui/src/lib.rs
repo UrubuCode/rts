@@ -22,7 +22,6 @@ mod ctx;
 mod app;
 mod canvas;
 mod frame;
-mod scene3d;
 #[cfg(feature = "glow-backend")]
 mod glbackend;
 // `pub` para a facade `rts-runtime` chamar `register_backend()` no bootstrap
@@ -292,6 +291,30 @@ pub fn register(e: &mut Engine) {
             scene_api::__RTS_FN_NS_EGUI_SET_CAMERA as *const u8,
         ))
         .member(func(
+            "setCameraLookAt",
+            "__RTS_FN_NS_EGUI_SET_CAMERA_LOOKAT",
+            Sig::new(vec![U64, F64, F64, F64, F64, F64, F64, F64, F64, F64, F64], AbiType::Void),
+            "setCameraLookAt(h: number, eyeX: number, eyeY: number, eyeZ: number, targetX: number, targetY: number, targetZ: number, fovY: number, aspect: number, near: number, far: number): void",
+            "Sets the 3D camera as a NaN-safe look-at (eye position looking at a target, up = +Y) with explicit near/far. More convenient than yaw/pitch for framing an object; degrades gracefully when looking straight up/down instead of gimbal-locking.",
+            scene_api::__RTS_FN_NS_EGUI_SET_CAMERA_LOOKAT as *const u8,
+        ))
+        .member(func(
+            "setClearColor",
+            "__RTS_FN_NS_EGUI_SET_CLEAR_COLOR",
+            Sig::new(vec![U64, F64, F64, F64], AbiType::Void),
+            "setClearColor(h: number, r: number, g: number, b: number): void",
+            "Sets a FLAT background color (r,g,b in 0..1) for the 3D scene pass, disabling the procedural skybox. Ideal for an editor viewport that wants a neutral background instead of the starfield.",
+            scene_api::__RTS_FN_NS_EGUI_SET_CLEAR_COLOR as *const u8,
+        ))
+        .member(func(
+            "setSkybox",
+            "__RTS_FN_NS_EGUI_SET_SKYBOX",
+            Sig::new(vec![U64, I64], AbiType::Void),
+            "setSkybox(h: number, on: number): void",
+            "Re-enables the procedural skybox (on!=0), undoing a previous setClearColor.",
+            scene_api::__RTS_FN_NS_EGUI_SET_SKYBOX as *const u8,
+        ))
+        .member(func(
             "setLight",
             "__RTS_FN_NS_EGUI_SET_LIGHT",
             Sig::new(vec![U64, F64, F64, F64, F64], AbiType::Void),
@@ -332,7 +355,4 @@ pub fn register(e: &mut Engine) {
             scene_api::__RTS_FN_NS_EGUI_DRAW_MESH as *const u8,
         ))
         .done();
-    // Namespace irmão `gpu3d`: scene pass 3D sob o overlay do egui (fase P7+ do
-    // design doc; spec docs/specs/gpu3d-scene-pass.md). Mesma doutrina Registry.
-    scene3d::register(e);
 }

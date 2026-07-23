@@ -203,6 +203,9 @@ pub struct Scene3D {
     draws: Vec<(u64, [f32; 16], [f32; 4], f32, f32)>,
     inst_buf: wgpu::Buffer,
     inst_cap: u64,
+    /// Fundo do scene pass: `None` = skybox procedural (default); `Some(rgba)` =
+    /// cor CHAPADA (o viewport do editor quer um fundo neutro, não o starfield).
+    bg: Option<[f32; 4]>,
 }
 
 impl Scene3D {
@@ -454,6 +457,7 @@ impl Scene3D {
             draws: Vec::new(),
             inst_buf,
             inst_cap: 64,
+            bg: None,
         }
     }
 
@@ -494,6 +498,17 @@ impl Scene3D {
     }
     pub fn queue_draw(&mut self, mesh: u64, model: [f32; 16], color: [f32; 4], emissive: f32, tex: f32) {
         self.draws.push((mesh, model, color, emissive, tex));
+    }
+    /// Fundo CHAPADO (desliga o skybox): o pass limpa o color pra `rgba` e não
+    /// desenha o starfield. Ideal pro viewport do editor.
+    pub fn set_clear_color(&mut self, rgba: [f32; 4]) {
+        self.bg = Some(rgba);
+    }
+    /// Religa (on) ou mantém desligado o skybox procedural. `on` volta a `bg=None`.
+    pub fn set_skybox(&mut self, on: bool) {
+        if on {
+            self.bg = None;
+        }
     }
 
     fn ensure_depth(&mut self, device: &wgpu::Device, w: u32, h: u32) {
@@ -588,6 +603,11 @@ impl Scene3D {
             }
         }
 
+        // Cor de clear: fundo chapado (`bg`) OU o escuro padrão sob o skybox.
+        let clear = match self.bg {
+            Some(c) => wgpu::Color { r: c[0] as f64, g: c[1] as f64, b: c[2] as f64, a: c[3] as f64 },
+            None => wgpu::Color { r: 0.02, g: 0.02, b: 0.03, a: 1.0 },
+        };
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("scene3d pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -595,7 +615,7 @@ impl Scene3D {
                 resolve_target: None,
                 depth_slice: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.02, g: 0.02, b: 0.03, a: 1.0 }),
+                    load: wgpu::LoadOp::Clear(clear),
                     store: wgpu::StoreOp::Store,
                 },
             })],
@@ -614,9 +634,12 @@ impl Scene3D {
 
         pass.set_bind_group(0, &self.cam_bg, &[]);
         pass.set_bind_group(1, &self.shadow_bg, &[]);
-        // 1. SKYBOX (fullscreen, sem depth write) — fica no fundo
-        pass.set_pipeline(&self.sky_pipeline);
-        pass.draw(0..3, 0..1);
+        // 1. SKYBOX (fullscreen, sem depth write) — fica no fundo. Pulado quando há
+        // fundo chapado (`bg`), que o clear acima já pintou.
+        if self.bg.is_none() {
+            pass.set_pipeline(&self.sky_pipeline);
+            pass.draw(0..3, 0..1);
+        }
         // 2. meshes (depth test/write)
         pass.set_pipeline(&self.pipeline);
         for (i, (mesh_id, _model, _color, _emiss, _tex)) in self.draws.iter().enumerate() {
@@ -742,16 +765,7 @@ pub fn view_proj(
         right[2], up[2], fwd[2], 0.0,
         tx, ty, tz, 1.0,
     ];
-    let near = 0.1f32;
-    let far = 500.0f32;
-    let tan_v = (fov_y * 0.5).tan();
-    let f = 1.0 / tan_v;
-    let p = [
-        f / aspect, 0.0, 0.0, 0.0,
-        0.0, f, 0.0, 0.0,
-        0.0, 0.0, far / (far - near), 1.0,
-        0.0, 0.0, -(far * near) / (far - near), 0.0,
-    ];
+    let (p, tan_v) = perspective_lh(fov_y, aspect, 0.1, 500.0);
     Cam3D {
         view_proj: mul(&p, &v),
         cam_pos: [camx, camy, camz],
@@ -761,6 +775,79 @@ pub fn view_proj(
         tan_h: tan_v * aspect,
         tan_v,
     }
+}
+
+/// Projeção perspectiva left-handed (z forward, depth 0..1 — convenção wgpu/DX),
+/// column-major. `fov_y` em radianos, `aspect` = largura/altura. Compartilhada
+/// entre a câmera fly (`view_proj`) e a look-at.
+fn perspective_lh(fov_y: f32, aspect: f32, near: f32, far: f32) -> ([f32; 16], f32) {
+    let tan_v = (fov_y * 0.5).tan();
+    let f = 1.0 / tan_v;
+    let p = [
+        f / aspect, 0.0, 0.0, 0.0,
+        0.0, f, 0.0, 0.0,
+        0.0, 0.0, far / (far - near), 1.0,
+        0.0, 0.0, -(far * near) / (far - near), 0.0,
+    ];
+    (p, tan_v)
+}
+
+/// Câmera LOOK-AT NaN-safe (`eye` olhando pra `target`, up de referência +Y) com
+/// `near`/`far` explícitos — mais robusta que yaw/pitch pro "frame selected" do
+/// editor: quando a direção fica ~paralela ao up (olhar reto pra cima/baixo) usa
+/// um up alternativo (+Z) em vez de gerar NaN por gimbal. Mesma base LH de
+/// `view_proj` (right/up/fwd ortonormais), então skybox/shading seguem casando.
+pub fn view_proj_lookat(
+    eye: [f32; 3], target: [f32; 3], fov_y: f32, aspect: f32, near: f32, far: f32,
+) -> Cam3D {
+    let mut fwd = v_norm(v_sub(target, eye));
+    if fwd == [0.0, 0.0, 0.0] {
+        fwd = [0.0, 0.0, 1.0]; // eye≈target: direção default em vez de zero/NaN
+    }
+    // right = worldUp × fwd; se degenerado (fwd ~paralelo a +Y), usa +Z como up alt.
+    let mut right = v_cross([0.0, 1.0, 0.0], fwd);
+    if v_len(right) < 1e-4 {
+        right = v_cross([0.0, 0.0, 1.0], fwd);
+    }
+    let right = v_norm(right);
+    let up = v_cross(fwd, right); // já ortonormal (fwd,right unitários e ⟂)
+    let tx = -(right[0] * eye[0] + right[1] * eye[1] + right[2] * eye[2]);
+    let ty = -(up[0] * eye[0] + up[1] * eye[1] + up[2] * eye[2]);
+    let tz = -(fwd[0] * eye[0] + fwd[1] * eye[1] + fwd[2] * eye[2]);
+    let v = [
+        right[0], up[0], fwd[0], 0.0,
+        right[1], up[1], fwd[1], 0.0,
+        right[2], up[2], fwd[2], 0.0,
+        tx, ty, tz, 1.0,
+    ];
+    let (p, tan_v) = perspective_lh(fov_y, aspect, near, far);
+    Cam3D {
+        view_proj: mul(&p, &v),
+        cam_pos: eye,
+        right,
+        up,
+        fwd,
+        tan_h: tan_v * aspect,
+        tan_v,
+    }
+}
+
+#[inline]
+fn v_sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+#[inline]
+fn v_cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+}
+#[inline]
+fn v_len(a: [f32; 3]) -> f32 {
+    (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt()
+}
+#[inline]
+fn v_norm(a: [f32; 3]) -> [f32; 3] {
+    let l = v_len(a);
+    if l < 1e-9 { [0.0, 0.0, 0.0] } else { [a[0] / l, a[1] / l, a[2] / l] }
 }
 
 /// model = T · Ry · Rx · S (column-major) — casa com a rotação Y-depois-X do soft.
@@ -801,4 +888,61 @@ fn mul(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
         }
     }
     o
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Aplica a matriz column-major `m` (4×4) ao ponto homogêneo `(p,1)`.
+    fn apply(m: &[f32; 16], p: [f32; 3]) -> [f32; 4] {
+        let mut o = [0f32; 4];
+        for r in 0..4 {
+            o[r] = m[r] * p[0] + m[4 + r] * p[1] + m[8 + r] * p[2] + m[12 + r];
+        }
+        o
+    }
+
+    /// Um ponto à FRENTE da câmera projeta dentro do clip volume: w>0 e z∈[0,w]
+    /// (convenção wgpu, depth 0..1 após a divisão por w). Pega erro de sinal/
+    /// transposição na projeção LH.
+    #[test]
+    fn point_in_front_projects_inside_clip() {
+        let cam = view_proj_lookat([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 1.5, 0.1, 100.0);
+        let clip = apply(&cam.view_proj, [0.0, 0.0, 5.0]); // 5 à frente (+z)
+        assert!(clip[3] > 0.0, "w deve ser >0 à frente, veio {}", clip[3]);
+        let ndc_z = clip[2] / clip[3];
+        assert!((0.0..=1.0).contains(&ndc_z), "z ndc fora de [0,1]: {ndc_z}");
+    }
+
+    /// A base look-at é ortonormal (right/up/fwd unitários e mutuamente ⟂).
+    #[test]
+    fn lookat_basis_orthonormal() {
+        let cam = view_proj_lookat([3.0, 2.0, -4.0], [0.0, 0.0, 0.0], 1.0, 1.0, 0.1, 100.0);
+        for b in [cam.right, cam.up, cam.fwd] {
+            assert!((v_len(b) - 1.0).abs() < 1e-4, "base não unitária: {}", v_len(b));
+        }
+        let dot = |a: [f32; 3], b: [f32; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        assert!(dot(cam.right, cam.up).abs() < 1e-4);
+        assert!(dot(cam.right, cam.fwd).abs() < 1e-4);
+        assert!(dot(cam.up, cam.fwd).abs() < 1e-4);
+    }
+
+    /// Olhar reto pra baixo (fwd ∥ up de referência) NÃO gera NaN — usa o up alt.
+    #[test]
+    fn lookat_straight_down_no_nan() {
+        let cam = view_proj_lookat([0.0, 10.0, 0.0], [0.0, 0.0, 0.0], 1.0, 1.0, 0.1, 100.0);
+        for c in cam.view_proj {
+            assert!(c.is_finite(), "view_proj tem NaN/inf olhando reto pra baixo");
+        }
+        assert!((v_len(cam.right) - 1.0).abs() < 1e-4);
+    }
+
+    /// `model_matrix` sem rotação/escala 1 é translação pura.
+    #[test]
+    fn model_translation_only() {
+        let m = model_matrix(2.0, -3.0, 4.0, 0.0, 0.0, 1.0, 1.0, 1.0);
+        let p = apply(&m, [1.0, 1.0, 1.0]);
+        assert_eq!([p[0], p[1], p[2]], [3.0, -2.0, 5.0]);
+    }
 }
