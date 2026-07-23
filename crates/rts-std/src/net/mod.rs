@@ -58,7 +58,8 @@ pub extern "C" fn __RTS_FN_NS_NET_TCP_LISTEN(addr_ptr: *const u8, addr_len: i64)
     }
 }
 
-/// Accept a connection on `listener`. Stream handle, 0 on error.
+/// Accept a connection on `listener`. Stream handle, 0 on error/would-block.
+/// Com set_nonblocking(true), 0 significa "nenhum cliente ainda" (faça poll).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_NET_TCP_ACCEPT(listener: U64) -> Handle {
     let Some(l) = clone_listener(listener) else {
@@ -67,6 +68,23 @@ pub extern "C" fn __RTS_FN_NS_NET_TCP_ACCEPT(listener: U64) -> Handle {
     match l.accept() {
         Ok((stream, _peer)) => alloc_entry(Entry::TcpStream(Box::new(stream))),
         Err(_) => 0,
+    }
+}
+
+/// Marca um listener/stream como não-bloqueante (on!=0) ou bloqueante (0). Com
+/// non-blocking, `tcp_accept` devolve 0 quando não há cliente e `tcp_recv`
+/// devolve -2 (WouldBlock) — o loop pode renderizar sem travar no recv. 0 = ok, -1 = erro.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_NET_TCP_SET_NONBLOCKING(handle: U64, on: I64) -> I64 {
+    let nb = on != 0;
+    let r = with_entry(handle, |entry| match entry {
+        Some(Entry::TcpListener(l)) => Some(l.set_nonblocking(nb).is_ok()),
+        Some(Entry::TcpStream(s)) => Some(s.set_nonblocking(nb).is_ok()),
+        _ => None,
+    });
+    match r {
+        Some(true) => 0,
+        _ => -1,
     }
 }
 
@@ -112,6 +130,8 @@ pub extern "C" fn __RTS_FN_NS_NET_TCP_RECV(stream: U64, buf_ptr: U64, len: I64) 
     let dst = unsafe { std::slice::from_raw_parts_mut(buf_ptr as *mut u8, len as usize) };
     match s.read(dst) {
         Ok(n) => n as i64,
+        // non-blocking sem dados prontos: -2 (distinto de 0=fechado e -1=erro)
+        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => -2,
         Err(_) => -1,
     }
 }
@@ -293,6 +313,14 @@ pub fn register(e: &mut Engine) {
             "tcp_accept(listener: number): number",
             "Accept a connection on `listener`. Stream handle, 0 on error.",
             __RTS_FN_NS_NET_TCP_ACCEPT as *const u8,
+        ))
+        .member(func(
+            "tcp_set_nonblocking",
+            "__RTS_FN_NS_NET_TCP_SET_NONBLOCKING",
+            Sig::new(vec![AbiType::U64, AbiType::I64], AbiType::I64),
+            "tcp_set_nonblocking(handle: number, on: number): number",
+            "Marks a listener/stream non-blocking (on!=0). Then tcp_accept returns 0 when no client is pending and tcp_recv returns -2 (WouldBlock) instead of blocking. Returns 0 ok, -1 error.",
+            __RTS_FN_NS_NET_TCP_SET_NONBLOCKING as *const u8,
         ))
         .member(func(
             "tcp_connect",
