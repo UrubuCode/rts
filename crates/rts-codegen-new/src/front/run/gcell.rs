@@ -70,6 +70,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         id: u32,
         word: Value,
     ) -> crate::front::error::FrontResult<()> {
+        // Defensive: if this cell was memoized as immutable but is now being
+        // written, drop the cached Variable so later reads reload the fresh value
+        // instead of the stale entry-block load. Belt-and-suspenders with the
+        // complete mutation scan (#1978) — a mis-classification degrades to a
+        // reload, never a wrong value.
+        self.gcell_cache.remove(&id);
         let id_v = self.builder.ins().iconst(types::I64, id as i64);
         self.call_runtime(module, "__RTS_FN_NS_GC_GCELL_SET", &[id_v, word])?;
         Ok(())

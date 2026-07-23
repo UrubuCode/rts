@@ -70,3 +70,9 @@ examples/music_test.wav
 # AOT compile artifacts
 *.obj
 *.m
+
+# Personal working analysis doc (perf + state-management, not versioned)
+RTS_PERF_AND_STATELESS.md
+RTS_ENGINE_ABI_CODEGEN.md
+RTS_PROTOTYPE_UNIFIED.md
+RTS_UNIFIED_FOUNDATION.md
