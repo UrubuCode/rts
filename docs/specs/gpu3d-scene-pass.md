@@ -1,5 +1,17 @@
 # gpu3d — 3D scene pass under the egui overlay
 
+> **SUPERSEDED (2026-07-23).** The `gpu3d` namespace this doc describes was a
+> parallel MVP of the 3D scene pass. It was reconciled with the richer scene pass
+> developed on the `feat/rts-egui-3d-scene-editor` branch (shadow map/PCF, point
+> light, specular, skybox, procedural texture, emissive, instancing), which won
+> as the base. The good parts of `gpu3d` were **grafted into that surface** — the
+> live API is the **`egui.*`** namespace (`egui.meshUpload/drawMesh/setCamera/
+> setCameraLookAt/setLight/setShadow/setClearColor/setSkybox`), not a separate
+> `gpu3d` namespace. The concepts below (scene pass before the egui pass, shared
+> encoder, depth buffer, look-at camera, flat clear color) remain accurate; only
+> the namespace name and the per-vertex-color MVP limitation are stale. Impl lives
+> in `crates/rts-egui/src/frame/scene3d.rs` + `scene_api.rs`.
+
 **Status:** first slice (MVP) — colored-triangle meshes, depth-tested, camera,
 per-draw transform. **Owner decision 2026-07-21.**
 
