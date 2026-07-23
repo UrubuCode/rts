@@ -65,6 +65,53 @@ pub(crate) fn intrinsic_proto(word: u64) -> Option<u64> {
     Some(__rtsadp_class_proto(name))
 }
 
+/// The next `[[Prototype]]` of ANY value — the ONE proto-step the unified chain
+/// walk uses. Matches `Object.getPrototypeOf` (proxy traps, Array/Object implicit
+/// roots, explicit null) and AUTOBOXES a primitive to its wrapper prototype (for
+/// property-lookup consumers). Returns `null` at the end of a chain.
+///
+/// NOTE `instanceof` / `isPrototypeOf` must NOT autobox their START value (a
+/// non-object `V` is `false` by spec); those callers guard the receiver kind
+/// before walking, so the autobox branch only fires on a genuine primitive
+/// receiver in a property-lookup walk.
+pub(crate) fn proto_of_value(word: u64) -> u64 {
+    // string / number / boolean → intrinsic wrapper prototype.
+    if let Some(p) = intrinsic_proto(word) {
+        return p;
+    }
+    // A function is a heap value whose chain reaches Object.prototype (its true
+    // [[Prototype]] is Function.prototype — not yet a distinct object here, so we
+    // route to the shared Object.prototype root, matching the prior is-heap rule).
+    if PolyValue::from_raw(word).is_function() {
+        return object_proto_root();
+    }
+    // Objects (incl. arrays): recorded / implicit link, proxy traps, null tail.
+    __rtsadp_obj_proto_of(word)
+}
+
+/// Walk the prototype chain of `word` via [`proto_of_value`], calling `f` on each
+/// prototype until it returns `true` (found) or the chain ends at `null`/`undefined`.
+/// Bounded (a cycle stops at the visited cap). Returns whether `f` matched. This is
+/// the ONE chain walk the proto-dependent operators (`isPrototypeOf`, and — as they
+/// migrate — `instanceof` / `in` / property lookup) share.
+pub(crate) fn walk_proto_chain(word: u64, mut f: impl FnMut(u64) -> bool) -> bool {
+    let null = PolyValue::null().raw();
+    let undef = PolyValue::undefined().raw();
+    let mut cur = proto_of_value(word);
+    let mut guard = 0;
+    while cur != null && cur != undef && cur != 0 {
+        if f(cur) {
+            return true;
+        }
+        guard += 1;
+        if guard > 10_000 {
+            break;
+        }
+        cur = proto_of_value(cur);
+    }
+    false
+}
+
 /// Allocate a fresh BARE keyed object (the `{}` shape) and record `proto_word` as
 /// its prototype when `proto_word` is an object (a null/number/other proto — JS
 /// `Object.create(null)` / a non-object arg — records nothing → a null prototype).
@@ -334,34 +381,14 @@ pub extern "C" fn __rtsadp_set_proto_check(obj_word: u64, proto_word: u64) -> i6
 /// stops at the visited cap) returns `false`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_is_prototype_of(proto_word: u64, obj_word: u64) -> u64 {
-    // PRIMORDIAL prototypes by TAG: every array IS-A `Array.prototype` child and
-    // every heap value (object/array/function) an `Object.prototype` child, even
-    // with no per-instance proto entry linked. Compared against the lazily
-    // created shared proto words (Array/Object are primordial — doctrine-legal).
-    {
-        let t = class_proto_table().lock().unwrap_or_else(|e| e.into_inner());
-        let v = PolyValue::from_raw(obj_word);
-        let is_heap = v.is_object() || v.is_function();
-        let is_array = v.is_object() && !super::inspect::looks_like_object(v);
-        if is_heap && (t.get("Object") == Some(&proto_word) || proto_word == object_proto_root())
-        {
-            return PolyValue::bool(true).raw();
-        }
-        if t.get("Array") == Some(&proto_word) && is_array {
-            return PolyValue::bool(true).raw();
-        }
+    // Spec: a non-object `V` is never a prototype child (and must NOT autobox).
+    let v = PolyValue::from_raw(obj_word);
+    if !(v.is_object() || v.is_function()) {
+        return PolyValue::bool(false).raw();
     }
-    let mut cur = proto_of(obj_word);
-    let mut guard = 0;
-    while let Some(p) = cur {
-        if p == proto_word {
-            return PolyValue::bool(true).raw();
-        }
-        guard += 1;
-        if guard > 10_000 {
-            break;
-        }
-        cur = proto_of(p);
-    }
-    PolyValue::bool(false).raw()
+    // ONE unified chain walk — no per-class (`Object`/`Array`) hardcode. The walk's
+    // `proto_of_value` already yields the primordial `Array.prototype` /
+    // `Object.prototype` roots and routes a function to `Object.prototype`.
+    let found = walk_proto_chain(obj_word, |p| p == proto_word);
+    PolyValue::bool(found).raw()
 }
