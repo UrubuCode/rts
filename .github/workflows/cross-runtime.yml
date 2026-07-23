@@ -34,8 +34,13 @@ jobs:
       # RUNTIME libs the binary loads: libasound2 (cpal/ALSA) + jq for the script.
       - name: Install runtime deps (ALSA + jq)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libasound2t64 jq
+          set -e
+          # Retry: um hiccup de mirror do apt aqui deixava o binário sem
+          # libasound.so.2 (linkado por cpal) → o rts NÃO carrega → 100% dos
+          # fixtures viram __RUNTIME_ERROR__ → badge 0% falso (não era regressão
+          # de código, era a lib faltando). Falhar aqui é melhor que 0% silencioso.
+          for i in 1 2 3; do sudo apt-get update && break || sleep 5; done
+          for i in 1 2 3; do sudo apt-get install -y libasound2t64 jq && break || sleep 5; done
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -59,18 +64,18 @@ jobs:
           cp "$f" target/release/rts
           chmod +x target/release/rts
 
-      # TEMP DIAGNOSTIC (remover depois): captura por que o binário Linux erra
-      # 100% dos fixtures no runner (passa em ubuntu:24.04 limpo). Mostra stderr
-      # real, exit code, libs e flags de CPU.
-      - name: DEBUG rts startup
+      # Guarda: o binário TEM de carregar+rodar antes de medir paridade. Se uma
+      # lib de runtime faltar (ex.: libasound.so.2), aborta o job aqui — assim NÃO
+      # se publica um badge 0% falso; o badge bom anterior fica de pé.
+      - name: Verify rts starts (guard vs false 0%)
         run: |
-          echo "== uname =="; uname -a
-          echo "== ldd =="; ldd target/release/rts 2>&1 | grep -i "not found" || echo "todas libs ok"
-          echo "== cpu flags =="; grep -m1 flags /proc/cpuinfo | tr ' ' '\n' | grep -iE 'avx|sse4|fma|bmi' | tr '\n' ' '; echo
-          echo "console.log(1+2)" > /tmp/smoke.ts
-          echo "== run (stderr visível) =="
-          target/release/rts run-new /tmp/smoke.ts; echo "EXIT=$?"
-        continue-on-error: true
+          set -e
+          miss=$(ldd target/release/rts 2>&1 | grep -i "not found" || true)
+          if [ -n "$miss" ]; then echo "::error::rts Linux com libs faltando:"; echo "$miss"; exit 1; fi
+          echo 'console.log(1+2)' > /tmp/smoke.ts
+          out=$(target/release/rts run-new /tmp/smoke.ts)
+          [ "$out" = "3" ] || { echo "::error::rts nao inicia corretamente (out='$out')"; exit 1; }
+          echo "rts ok: $out"
 
       - name: Run cross-runtime check
         id: cross
