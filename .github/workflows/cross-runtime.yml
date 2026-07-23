@@ -59,6 +59,19 @@ jobs:
           cp "$f" target/release/rts
           chmod +x target/release/rts
 
+      # TEMP DIAGNOSTIC (remover depois): captura por que o binário Linux erra
+      # 100% dos fixtures no runner (passa em ubuntu:24.04 limpo). Mostra stderr
+      # real, exit code, libs e flags de CPU.
+      - name: DEBUG rts startup
+        run: |
+          echo "== uname =="; uname -a
+          echo "== ldd =="; ldd target/release/rts 2>&1 | grep -i "not found" || echo "todas libs ok"
+          echo "== cpu flags =="; grep -m1 flags /proc/cpuinfo | tr ' ' '\n' | grep -iE 'avx|sse4|fma|bmi' | tr '\n' ' '; echo
+          echo "console.log(1+2)" > /tmp/smoke.ts
+          echo "== run (stderr visível) =="
+          target/release/rts run-new /tmp/smoke.ts; echo "EXIT=$?"
+        continue-on-error: true
+
       - name: Run cross-runtime check
         id: cross
         run: |
