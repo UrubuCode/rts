@@ -66,7 +66,7 @@ pub extern "C" fn __RTS_FN_NS_EGUI_SET_CAMERA(
     let vp = view_proj(
         camx as f32, camy as f32, camz as f32, yaw as f32, pitch as f32, fov_y as f32, aspect as f32,
     );
-    with_scene(win, |s, _d| s.set_camera(vp), ());
+    with_scene(win, |s, _d| s.set_camera(vp, [camx as f32, camy as f32, camz as f32]), ());
 }
 
 /// Define a luz direcional (dir + ambiente).

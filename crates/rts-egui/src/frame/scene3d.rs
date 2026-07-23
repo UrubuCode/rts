@@ -35,13 +35,14 @@ fn init_buffer(device: &wgpu::Device, label: &str, data: &[u8], usage: wgpu::Buf
 /// WGSL: vertex = pos+normal (slot 0) × instância model(4×vec4)+color (slot 1).
 /// Uniform (group 0): viewProj + luz (xyz=dir, w=ambiente). Shading difuso.
 const SHADER: &str = r#"
-struct Cam { view_proj: mat4x4<f32>, light: vec4<f32> };
+struct Cam { view_proj: mat4x4<f32>, light: vec4<f32>, cam_pos: vec4<f32> };
 @group(0) @binding(0) var<uniform> cam: Cam;
 
 struct VOut {
   @builtin(position) clip: vec4<f32>,
   @location(0) normal: vec3<f32>,
   @location(1) color: vec4<f32>,
+  @location(2) world: vec3<f32>,
 };
 
 @vertex
@@ -60,15 +61,22 @@ fn vs(
   o.clip = cam.view_proj * world;
   o.normal = normalize((model * vec4<f32>(normal, 0.0)).xyz);
   o.color = color;
+  o.world = world.xyz;
   return o;
 }
 
 @fragment
 fn fs(i: VOut) -> @location(0) vec4<f32> {
+  let n = normalize(i.normal);
   let l = normalize(cam.light.xyz);
-  let nd = max(dot(normalize(i.normal), l), 0.0);
+  let nd = max(dot(n, l), 0.0);
   let lit = cam.light.w + (1.0 - cam.light.w) * nd;
-  return vec4<f32>(i.color.rgb * lit, i.color.a);
+  // specular Blinn-Phong (brilho)
+  let vdir = normalize(cam.cam_pos.xyz - i.world);
+  let h = normalize(l + vdir);
+  let spec = pow(max(dot(n, h), 0.0), 32.0) * 0.35;
+  let rgb = i.color.rgb * lit + vec3<f32>(spec, spec, spec);
+  return vec4<f32>(rgb, i.color.a);
 }
 "#;
 
@@ -92,6 +100,7 @@ pub struct Scene3D {
     // estado por-frame
     view_proj: [f32; 16],
     light: [f32; 4],
+    cam_pos: [f32; 3],
     draws: Vec<(u64, [f32; 16], [f32; 4])>,
     inst_buf: wgpu::Buffer,
     inst_cap: u64,
@@ -107,7 +116,7 @@ impl Scene3D {
         // uniform: 16 (view_proj) + 4 (light) = 20 f32 = 80 bytes
         let cam_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("scene3d cam"),
-            size: 80,
+            size: 96,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -216,6 +225,7 @@ impl Scene3D {
             next_mesh: 1,
             view_proj: identity(),
             light: [0.4, 0.8, 0.4, 0.25],
+            cam_pos: [0.0, 0.0, 0.0],
             draws: Vec::new(),
             inst_buf,
             inst_cap: 64,
@@ -235,8 +245,9 @@ impl Scene3D {
         self.meshes.remove(&id);
     }
 
-    pub fn set_camera(&mut self, vp: [f32; 16]) {
+    pub fn set_camera(&mut self, vp: [f32; 16], cam_pos: [f32; 3]) {
         self.view_proj = vp;
+        self.cam_pos = cam_pos;
     }
     pub fn set_light(&mut self, d: [f32; 3], ambient: f32) {
         let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt().max(1e-6);
@@ -269,9 +280,10 @@ impl Scene3D {
         self.ensure_depth(device, w, h);
 
         // uniform: view_proj (16) + light (4)
-        let mut cam = [0f32; 20];
+        let mut cam = [0f32; 24];
         cam[..16].copy_from_slice(&self.view_proj);
-        cam[16..].copy_from_slice(&self.light);
+        cam[16..20].copy_from_slice(&self.light);
+        cam[20..23].copy_from_slice(&self.cam_pos);
         queue.write_buffer(&self.cam_buf, 0, f32_bytes(&cam));
 
         // instâncias
