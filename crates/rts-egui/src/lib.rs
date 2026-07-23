@@ -28,6 +28,7 @@ mod glbackend;
 // (`runtime_init`), instalando o backend no thread_local da main thread no AOT.
 pub mod render_backend;
 mod widgets;
+mod scene_api;
 
 // O DOM (árvore + parser + NodeId) E o ESTADO de estilo vivem no crate `rts-dom`;
 // o egui só os CONSOME (lê e pinta). Aliases para reuso interno: `crate::dom::*`
@@ -247,6 +248,47 @@ pub fn register(e: &mut Engine) {
             "measureText(h: number, text: string, size: number, bold: number): number",
             "Width (points) of a text in the real font — the ONLY layout-aware op left in egui (TS can't measure text without the font). Synchronous.",
             canvas::__RTS_FN_NS_EGUI_MEASURE_TEXT as *const u8,
+        ))
+        // ── Pipeline 3D wgpu (scene pass) — só-wgpu; glow no-op ─────────────────
+        .member(func(
+            "meshUpload",
+            "__RTS_FN_NS_EGUI_MESH_UPLOAD",
+            Sig::new(vec![U64, U64, I64, U64, I64], U64),
+            "meshUpload(h: number, vertsPtr: number, vertexCount: number, indicesPtr: number, indexCount: number): number",
+            "Uploads a mesh to GPU (verts = interleaved pos+normal, 6 floats/vertex at vertsPtr; indices = u32 at indicesPtr). Returns a mesh id. GPU 3D scene pass, drawn before the egui UI.",
+            scene_api::__RTS_FN_NS_EGUI_MESH_UPLOAD as *const u8,
+        ))
+        .member(func(
+            "meshFree",
+            "__RTS_FN_NS_EGUI_MESH_FREE",
+            Sig::new(vec![U64, U64], AbiType::Void),
+            "meshFree(h: number, meshId: number): void",
+            "Frees a mesh uploaded with meshUpload.",
+            scene_api::__RTS_FN_NS_EGUI_MESH_FREE as *const u8,
+        ))
+        .member(func(
+            "setCamera",
+            "__RTS_FN_NS_EGUI_SET_CAMERA",
+            Sig::new(vec![U64, F64, F64, F64, F64, F64, F64, F64], AbiType::Void),
+            "setCamera(h: number, camX: number, camY: number, camZ: number, yaw: number, pitch: number, fovY: number, aspect: number): void",
+            "Sets the 3D camera for this frame (fly cam: position + yaw/pitch + vertical FOV + aspect). Builds the view-projection.",
+            scene_api::__RTS_FN_NS_EGUI_SET_CAMERA as *const u8,
+        ))
+        .member(func(
+            "setLight",
+            "__RTS_FN_NS_EGUI_SET_LIGHT",
+            Sig::new(vec![U64, F64, F64, F64, F64], AbiType::Void),
+            "setLight(h: number, dirX: number, dirY: number, dirZ: number, ambient: number): void",
+            "Sets the directional light (direction + ambient 0..1) for the 3D scene pass.",
+            scene_api::__RTS_FN_NS_EGUI_SET_LIGHT as *const u8,
+        ))
+        .member(func(
+            "drawMesh",
+            "__RTS_FN_NS_EGUI_DRAW_MESH",
+            Sig::new(vec![U64, U64, F64, F64, F64, F64, F64, F64, F64, F64, I64], AbiType::Void),
+            "drawMesh(h: number, meshId: number, px: number, py: number, pz: number, rx: number, ry: number, sx: number, sy: number, sz: number, color: number): void",
+            "Queues a 3D draw of meshId with a transform (pos/rot euler/scale) and color 0xAARRGGBB. Rendered in the scene pass at endFrame.",
+            scene_api::__RTS_FN_NS_EGUI_DRAW_MESH as *const u8,
         ))
         .done();
 }

@@ -191,6 +191,9 @@ pub struct RenderState {
     /// Janela transparente → clear com alpha 0 (o painel egui também fica
     /// transparente em `end_frame`), pra o SO compor o fundo.
     pub transparent: bool,
+    /// Pipeline 3D wgpu (scene pass) — `None` até o TS usar `egui.mesh*`/`drawMesh`.
+    /// Quando presente, roda ANTES do egui (limpa color+depth); o egui usa `Load`.
+    pub scene: Option<super::scene3d::Scene3D>,
 }
 
 impl RenderState {
@@ -256,6 +259,7 @@ impl RenderState {
             config,
             renderer,
             transparent,
+            scene: None,
         })
     }
 
@@ -347,7 +351,26 @@ pub(crate) fn present_wgpu(
     r.renderer
         .update_buffers(&r.device, &r.queue, &mut encoder, &paint_jobs, &screen_descriptor);
 
+    // ── SCENE PASS 3D (antes do egui, mesmo encoder) ─────────────────────────
+    // Se há um pipeline 3D ativo, ele limpa color+depth e desenha as meshes; o
+    // egui então compõe por cima com LoadOp::Load. Sem cena, o egui limpa (Clear),
+    // preservando o comportamento antigo das janelas puramente de UI.
+    let scene_cleared = if let Some(scene) = &mut r.scene {
+        scene.render(&r.device, &r.queue, &mut encoder, &view, r.config.width, r.config.height)
+    } else {
+        false
+    };
+
     {
+        let egui_load = if scene_cleared {
+            wgpu::LoadOp::Load
+        } else {
+            wgpu::LoadOp::Clear(if r.transparent {
+                wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 }
+            } else {
+                wgpu::Color { r: 0.02, g: 0.02, b: 0.03, a: 1.0 }
+            })
+        };
         let pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("rts-egui pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -355,13 +378,7 @@ pub(crate) fn present_wgpu(
                 resolve_target: None,
                 depth_slice: None,
                 ops: wgpu::Operations {
-                    // Transparente: clear totalmente transparente (alpha 0) p/ o SO
-                    // compor o fundo. Opaco: fundo escuro padrão.
-                    load: wgpu::LoadOp::Clear(if r.transparent {
-                        wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 }
-                    } else {
-                        wgpu::Color { r: 0.02, g: 0.02, b: 0.03, a: 1.0 }
-                    }),
+                    load: egui_load,
                     store: wgpu::StoreOp::Store,
                 },
             })],
